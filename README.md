@@ -64,6 +64,29 @@ Aufräumen:
 docker compose down
 ```
 
+## Raspberry Deployment Update
+
+Im geklonten Repo auf dem Pi:
+```bash
+cd /opt/papermind
+chmod +x scripts/deploy_pi.sh
+```
+
+Nur Code-Update (fast-forward pull auf `main`):
+```bash
+./scripts/deploy_pi.sh
+```
+
+Mit Container-Update:
+```bash
+./scripts/deploy_pi.sh --compose --build
+```
+
+Mit Worker-Profil:
+```bash
+./scripts/deploy_pi.sh --compose --build --worker
+```
+
 ## Worker-Profil (OCR)
 
 - Worker läuft im Compose-Profil `worker`.
