@@ -1,0 +1,558 @@
+import { defineStore } from 'pinia';
+import {
+  ANSWER_PROMPT_TEMPLATE_DEFAULT,
+  NUMERIC_PROMPT_TEMPLATE_DEFAULT,
+  SUMMARY_PROMPT_TEMPLATE_DEFAULT,
+  SYSTEM_PROMPT_DEFAULT
+} from '../constants/promptDefaults';
+
+const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
+const SORT_ORDER_VALUES = new Set(['newest', 'oldest', 'name_asc', 'name_desc', 'last_opened']);
+const OCR_ENGINE_VALUES = new Set(['tesseract', 'paddleocr', 'easyocr', 'abbyy']);
+const EMBEDDING_MODEL_FALLBACK = 'hash-384-v1';
+const DRAWER_EXPANDED_STORAGE_KEY = 'pm.drawerExpanded';
+
+function toInt(value, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.round(parsed);
+}
+
+function toNumber(value, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function clamp(value, min, max, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < min || parsed > max) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function clampInt(value, min, max, fallback) {
+  const parsed = toInt(value, Number.NaN);
+  if (!Number.isFinite(parsed) || parsed < min || parsed > max) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function normalizePrompt(rawValue, fallback, minLength = 50) {
+  const normalized = String(rawValue ?? '')
+    .replace(/\r\n/g, '\n')
+    .trim();
+  if (normalized.length < minLength) {
+    return fallback;
+  }
+  return normalized;
+}
+
+function normalizeString(rawValue, fallback, minLength = 1) {
+  const normalized = String(rawValue ?? '').trim();
+  if (normalized.length < minLength) {
+    return fallback;
+  }
+  return normalized;
+}
+
+function createDefaultSettings() {
+  return {
+    ui: {
+      theme_mode: 'system',
+      showFilenameSuffix: true,
+      drawerRememberState: true,
+      drawerAlwaysExpanded: false
+    },
+    documents: {
+      auto_ocr: true,
+      auto_tagging: false,
+      sort_order: 'newest',
+      recent_import_window_hours: 24
+    },
+    llm: {
+      system_prompt: SYSTEM_PROMPT_DEFAULT,
+      answer_prompt_template: ANSWER_PROMPT_TEMPLATE_DEFAULT,
+      summary_prompt_template: SUMMARY_PROMPT_TEMPLATE_DEFAULT,
+      numeric_prompt_template: NUMERIC_PROMPT_TEMPLATE_DEFAULT,
+      temperature: 0.15,
+      top_p: 0.9,
+      max_output_tokens: 1200,
+      embedding_model_name: EMBEDDING_MODEL_FALLBACK
+    },
+    rag: {
+      top_k: 8,
+      min_score: 0.0,
+      max_context_chars: 12000,
+      chunk_chars: 4500,
+      chunk_overlap_chars: 600,
+      rerank_enabled: false,
+      rerank_top_k: 20,
+      rerank_final_k: 8
+    },
+    ocr: {
+      engine: 'tesseract',
+      language: 'deu',
+      enable_layout: true,
+      enable_table_detection: true,
+      deskew: true,
+      denoise: true,
+      dpi_target: 300,
+      postprocess_hyphenation: true,
+      remove_headers_footers: true
+    },
+    quality: {
+      enable_answer_checks: true,
+      enable_self_critique: false
+    },
+    meta: {
+      version: 1,
+      updated_at: null
+    }
+  };
+}
+
+function cloneSettings(settingsValue) {
+  return {
+    ui: { ...settingsValue.ui },
+    documents: { ...settingsValue.documents },
+    llm: { ...settingsValue.llm },
+    rag: { ...settingsValue.rag },
+    ocr: { ...settingsValue.ocr },
+    quality: { ...settingsValue.quality },
+    meta: { ...settingsValue.meta }
+  };
+}
+
+function assignSettings(target, source) {
+  Object.assign(target.ui, source.ui);
+  Object.assign(target.documents, source.documents);
+  Object.assign(target.llm, source.llm);
+  Object.assign(target.rag, source.rag);
+  Object.assign(target.ocr, source.ocr);
+  Object.assign(target.quality, source.quality);
+  Object.assign(target.meta, source.meta);
+}
+
+function readStoredDrawerExpanded() {
+  try {
+    const raw = window.localStorage.getItem(DRAWER_EXPANDED_STORAGE_KEY);
+    if (raw === '1') {
+      return true;
+    }
+    if (raw === '0') {
+      return false;
+    }
+  } catch {
+    // ignore storage access errors
+  }
+  return false;
+}
+
+export const useSettingsStore = defineStore('settings', {
+  state: () => {
+    const defaults = createDefaultSettings();
+    return {
+      settings: cloneSettings(defaults),
+      settingsDraft: cloneSettings(defaults),
+      isSettingsLoading: false,
+      isSettingSaving: {
+        theme_mode: false,
+        auto_ocr: false,
+        auto_tagging: false,
+        sort_order: false,
+        recent_import_window_hours: false,
+        show_filename_suffix: false,
+        drawer_remember_state: false,
+        drawer_always_expanded: false,
+        prompts: false,
+        reset_prompts: false
+      },
+      drawerExpanded: false,
+      drawerLastRemembered: readStoredDrawerExpanded(),
+      hasLoadedSettings: false
+    };
+  },
+  actions: {
+    setDraftPatch(patch) {
+      if (patch?.ui && typeof patch.ui === 'object') {
+        Object.assign(this.settingsDraft.ui, patch.ui);
+      }
+      if (patch?.documents && typeof patch.documents === 'object') {
+        Object.assign(this.settingsDraft.documents, patch.documents);
+      }
+      if (patch?.llm && typeof patch.llm === 'object') {
+        Object.assign(this.settingsDraft.llm, patch.llm);
+      }
+      if (patch?.rag && typeof patch.rag === 'object') {
+        Object.assign(this.settingsDraft.rag, patch.rag);
+      }
+      if (patch?.ocr && typeof patch.ocr === 'object') {
+        Object.assign(this.settingsDraft.ocr, patch.ocr);
+      }
+      if (patch?.quality && typeof patch.quality === 'object') {
+        Object.assign(this.settingsDraft.quality, patch.quality);
+      }
+      if (patch?.meta && typeof patch.meta === 'object') {
+        Object.assign(this.settingsDraft.meta, patch.meta);
+      }
+    },
+
+    normalizeSettingsPayload(payload) {
+      const defaults = createDefaultSettings();
+      const rawThemeMode = String(payload?.ui?.theme_mode || '').toLowerCase();
+      const rawSortOrder = String(payload?.documents?.sort_order || '').toLowerCase();
+      const rawRecentImportWindow = Number(payload?.documents?.recent_import_window_hours);
+      const rawOcrEngine = String(payload?.ocr?.engine || '').toLowerCase();
+
+      const chunkChars = clampInt(payload?.rag?.chunk_chars, 600, 20000, defaults.rag.chunk_chars);
+      const overlapRaw = clampInt(
+        payload?.rag?.chunk_overlap_chars,
+        0,
+        Math.max(0, chunkChars - 1),
+        defaults.rag.chunk_overlap_chars
+      );
+      const chunkOverlapChars = overlapRaw >= chunkChars ? Math.max(0, chunkChars - 1) : overlapRaw;
+      const rerankTopK = clampInt(payload?.rag?.rerank_top_k, 8, 100, defaults.rag.rerank_top_k);
+      const rerankFinalK = clampInt(
+        payload?.rag?.rerank_final_k,
+        1,
+        rerankTopK,
+        Math.min(defaults.rag.rerank_final_k, rerankTopK)
+      );
+
+      return {
+        ui: {
+          theme_mode: THEME_MODE_VALUES.has(rawThemeMode) ? rawThemeMode : defaults.ui.theme_mode,
+          showFilenameSuffix:
+            typeof payload?.ui?.showFilenameSuffix === 'boolean'
+              ? payload.ui.showFilenameSuffix
+              : defaults.ui.showFilenameSuffix,
+          drawerRememberState:
+            typeof payload?.ui?.drawerRememberState === 'boolean'
+              ? payload.ui.drawerRememberState
+              : defaults.ui.drawerRememberState,
+          drawerAlwaysExpanded:
+            typeof payload?.ui?.drawerAlwaysExpanded === 'boolean'
+              ? payload.ui.drawerAlwaysExpanded
+              : defaults.ui.drawerAlwaysExpanded
+        },
+        documents: {
+          auto_ocr:
+            typeof payload?.documents?.auto_ocr === 'boolean'
+              ? payload.documents.auto_ocr
+              : defaults.documents.auto_ocr,
+          auto_tagging:
+            typeof payload?.documents?.auto_tagging === 'boolean'
+              ? payload.documents.auto_tagging
+              : defaults.documents.auto_tagging,
+          sort_order: SORT_ORDER_VALUES.has(rawSortOrder) ? rawSortOrder : defaults.documents.sort_order,
+          recent_import_window_hours:
+            Number.isInteger(rawRecentImportWindow) && rawRecentImportWindow > 0
+              ? rawRecentImportWindow
+              : defaults.documents.recent_import_window_hours
+        },
+        llm: {
+          system_prompt: normalizePrompt(payload?.llm?.system_prompt, defaults.llm.system_prompt),
+          answer_prompt_template: normalizePrompt(
+            payload?.llm?.answer_prompt_template,
+            defaults.llm.answer_prompt_template
+          ),
+          summary_prompt_template: normalizePrompt(
+            payload?.llm?.summary_prompt_template,
+            defaults.llm.summary_prompt_template
+          ),
+          numeric_prompt_template: normalizePrompt(
+            payload?.llm?.numeric_prompt_template,
+            defaults.llm.numeric_prompt_template
+          ),
+          temperature: clamp(payload?.llm?.temperature, 0, 1, defaults.llm.temperature),
+          top_p: clamp(payload?.llm?.top_p, 0, 1, defaults.llm.top_p),
+          max_output_tokens: clampInt(
+            payload?.llm?.max_output_tokens,
+            256,
+            4096,
+            defaults.llm.max_output_tokens
+          ),
+          embedding_model_name: normalizeString(
+            payload?.llm?.embedding_model_name,
+            defaults.llm.embedding_model_name,
+            3
+          )
+        },
+        rag: {
+          top_k: clampInt(payload?.rag?.top_k, 1, 50, defaults.rag.top_k),
+          min_score: clamp(payload?.rag?.min_score, 0, 1, defaults.rag.min_score),
+          max_context_chars: clampInt(
+            payload?.rag?.max_context_chars,
+            4000,
+            40000,
+            defaults.rag.max_context_chars
+          ),
+          chunk_chars: chunkChars,
+          chunk_overlap_chars: chunkOverlapChars,
+          rerank_enabled:
+            typeof payload?.rag?.rerank_enabled === 'boolean'
+              ? payload.rag.rerank_enabled
+              : defaults.rag.rerank_enabled,
+          rerank_top_k: rerankTopK,
+          rerank_final_k: rerankFinalK
+        },
+        ocr: {
+          engine: OCR_ENGINE_VALUES.has(rawOcrEngine) ? rawOcrEngine : defaults.ocr.engine,
+          language: normalizeString(payload?.ocr?.language, defaults.ocr.language, 2).toLowerCase(),
+          enable_layout:
+            typeof payload?.ocr?.enable_layout === 'boolean'
+              ? payload.ocr.enable_layout
+              : defaults.ocr.enable_layout,
+          enable_table_detection:
+            typeof payload?.ocr?.enable_table_detection === 'boolean'
+              ? payload.ocr.enable_table_detection
+              : defaults.ocr.enable_table_detection,
+          deskew: typeof payload?.ocr?.deskew === 'boolean' ? payload.ocr.deskew : defaults.ocr.deskew,
+          denoise: typeof payload?.ocr?.denoise === 'boolean' ? payload.ocr.denoise : defaults.ocr.denoise,
+          dpi_target: clampInt(payload?.ocr?.dpi_target, 150, 600, defaults.ocr.dpi_target),
+          postprocess_hyphenation:
+            typeof payload?.ocr?.postprocess_hyphenation === 'boolean'
+              ? payload.ocr.postprocess_hyphenation
+              : defaults.ocr.postprocess_hyphenation,
+          remove_headers_footers:
+            typeof payload?.ocr?.remove_headers_footers === 'boolean'
+              ? payload.ocr.remove_headers_footers
+              : defaults.ocr.remove_headers_footers
+        },
+        quality: {
+          enable_answer_checks:
+            typeof payload?.quality?.enable_answer_checks === 'boolean'
+              ? payload.quality.enable_answer_checks
+              : defaults.quality.enable_answer_checks,
+          enable_self_critique:
+            typeof payload?.quality?.enable_self_critique === 'boolean'
+              ? payload.quality.enable_self_critique
+              : defaults.quality.enable_self_critique
+        },
+        meta: {
+          version: Math.max(1, toInt(payload?.meta?.version, defaults.meta.version)),
+          updated_at:
+            typeof payload?.meta?.updated_at === 'string' && payload.meta.updated_at.trim()
+              ? payload.meta.updated_at.trim()
+              : null
+        }
+      };
+    },
+
+    persistDrawerExpanded(value) {
+      const normalized = Boolean(value);
+      this.drawerLastRemembered = normalized;
+      try {
+        window.localStorage.setItem(DRAWER_EXPANDED_STORAGE_KEY, normalized ? '1' : '0');
+      } catch {
+        // ignore storage access errors
+      }
+    },
+
+    clearPersistedDrawerExpanded() {
+      try {
+        window.localStorage.removeItem(DRAWER_EXPANDED_STORAGE_KEY);
+      } catch {
+        // ignore storage access errors
+      }
+    },
+
+    setDrawerExpanded(value, options = {}) {
+      const force = options.force === true;
+      if (this.settings.ui.drawerAlwaysExpanded && !force) {
+        this.drawerExpanded = true;
+        return;
+      }
+
+      const normalized = Boolean(value);
+      this.drawerExpanded = normalized;
+
+      if (options.persist === false) {
+        return;
+      }
+      if (this.settings.ui.drawerRememberState) {
+        this.persistDrawerExpanded(normalized);
+      }
+    },
+
+    toggleDrawerExpanded() {
+      if (this.settings.ui.drawerAlwaysExpanded) {
+        this.drawerExpanded = true;
+        return;
+      }
+      this.setDrawerExpanded(!this.drawerExpanded);
+    },
+
+    initializeDrawerExpandedState() {
+      if (this.settings.ui.drawerAlwaysExpanded) {
+        this.drawerExpanded = true;
+        return;
+      }
+      if (this.settings.ui.drawerRememberState) {
+        this.drawerExpanded = this.drawerLastRemembered;
+        return;
+      }
+      this.drawerExpanded = false;
+    },
+
+    applySettingsFromBackend(payload, options = {}) {
+      const previous = cloneSettings(this.settings);
+      const normalized = this.normalizeSettingsPayload(payload);
+      const hadLoadedSettings = this.hasLoadedSettings;
+
+      assignSettings(this.settings, normalized);
+      if (options.syncDraft !== false) {
+        assignSettings(this.settingsDraft, normalized);
+      }
+      this.hasLoadedSettings = true;
+
+      if (!hadLoadedSettings) {
+        this.initializeDrawerExpandedState();
+        return normalized;
+      }
+
+      const wasAlwaysExpanded = Boolean(previous?.ui?.drawerAlwaysExpanded);
+      const isAlwaysExpanded = Boolean(normalized.ui.drawerAlwaysExpanded);
+      const wasRememberState = Boolean(previous?.ui?.drawerRememberState);
+      const isRememberState = Boolean(normalized.ui.drawerRememberState);
+
+      if (wasRememberState && !isRememberState) {
+        this.clearPersistedDrawerExpanded();
+      } else if (!wasRememberState && isRememberState && !isAlwaysExpanded) {
+        this.persistDrawerExpanded(this.drawerExpanded);
+      }
+
+      if (isAlwaysExpanded) {
+        this.setDrawerExpanded(true, { persist: false, force: true });
+        return normalized;
+      }
+
+      if (wasAlwaysExpanded && !isAlwaysExpanded) {
+        if (isRememberState) {
+          this.setDrawerExpanded(this.drawerLastRemembered, { persist: false, force: true });
+        } else {
+          this.setDrawerExpanded(false, { persist: false, force: true });
+        }
+        return normalized;
+      }
+
+      return normalized;
+    },
+
+    async fetchSettings(apiBaseUrl, options = {}) {
+      const silent = options.silent === true;
+      if (!silent) {
+        this.isSettingsLoading = true;
+      }
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/settings`);
+        if (!response.ok) {
+          throw new Error(await this.parseResponseError(response));
+        }
+        const payload = await response.json();
+        this.applySettingsFromBackend(payload, { syncDraft: options.syncDraft !== false });
+        return this.settings;
+      } finally {
+        if (!silent) {
+          this.isSettingsLoading = false;
+        }
+      }
+    },
+
+    async putSettings(apiBaseUrl, payload) {
+      const response = await fetch(`${apiBaseUrl}/api/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {})
+      });
+      if (!response.ok) {
+        throw new Error(await this.parseResponseError(response));
+      }
+      const nextPayload = await response.json();
+      this.applySettingsFromBackend(nextPayload);
+      return this.settings;
+    },
+
+    async patchSettings(apiBaseUrl, patch) {
+      const response = await fetch(`${apiBaseUrl}/api/settings`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch)
+      });
+      if (!response.ok) {
+        throw new Error(await this.parseResponseError(response));
+      }
+      const payload = await response.json();
+      this.applySettingsFromBackend(payload);
+      return this.settings;
+    },
+
+    async savePromptSettings(apiBaseUrl, patch) {
+      if (this.isSettingSaving.prompts) {
+        return false;
+      }
+      this.isSettingSaving.prompts = true;
+      try {
+        await this.patchSettings(apiBaseUrl, patch);
+        return true;
+      } finally {
+        this.isSettingSaving.prompts = false;
+      }
+    },
+
+    async resetPrompts(apiBaseUrl) {
+      if (this.isSettingSaving.reset_prompts) {
+        return false;
+      }
+      this.isSettingSaving.reset_prompts = true;
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/settings/reset-prompts`, {
+          method: 'POST'
+        });
+        if (!response.ok) {
+          throw new Error(await this.parseResponseError(response));
+        }
+        const payload = await response.json();
+        this.applySettingsFromBackend(payload);
+        return true;
+      } finally {
+        this.isSettingSaving.reset_prompts = false;
+      }
+    },
+
+    async saveSettingPatch(apiBaseUrl, { patch, controlKey }) {
+      if (!Object.prototype.hasOwnProperty.call(this.isSettingSaving, controlKey)) {
+        // Allow newly introduced controls even if an older in-memory store shape is active.
+        this.isSettingSaving[controlKey] = false;
+      }
+      if (this.isSettingSaving[controlKey]) {
+        return false;
+      }
+
+      this.isSettingSaving[controlKey] = true;
+      try {
+        await this.patchSettings(apiBaseUrl, patch);
+        return true;
+      } finally {
+        this.isSettingSaving[controlKey] = false;
+      }
+    },
+
+    async parseResponseError(response) {
+      try {
+        const payload = await response.json();
+        return payload?.error?.message || `Request failed (${response.status})`;
+      } catch {
+        return `Request failed (${response.status})`;
+      }
+    }
+  }
+});

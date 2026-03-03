@@ -1,0 +1,158 @@
+name: papermind
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    command: sh -c "npm ci --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port ${FRONTEND_PORT}"
+    environment:
+      FRONTEND_PORT: ${FRONTEND_PORT}
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+      VITE_HMR_HOST: ${VITE_HMR_HOST}
+      VITE_HMR_PORT: ${VITE_HMR_PORT}
+      VITE_HMR_PROTOCOL: ${VITE_HMR_PROTOCOL}
+    ports:
+      - "${FRONTEND_PORT}:${FRONTEND_PORT}"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - papermind_net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT} --reload --reload-dir /app/app"
+    environment:
+      BACKEND_PORT: ${BACKEND_PORT}
+      DATABASE_URL: ${DATABASE_URL}
+      AI_BASE_URL: ${AI_BASE_URL}
+      STORAGE_PATH: ${STORAGE_PATH}
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS}
+      AUTO_OCR_ON_UPLOAD: ${AUTO_OCR_ON_UPLOAD}
+      MIN_TEXT_CHARS: ${MIN_TEXT_CHARS}
+      TEXT_CHECK_PAGES: ${TEXT_CHECK_PAGES}
+      SEARCH_QUERY_MAX_LENGTH: ${SEARCH_QUERY_MAX_LENGTH}
+      FTS_LANGUAGE: ${FTS_LANGUAGE}
+      INDEX_AUTO_ON_READY: ${INDEX_AUTO_ON_READY}
+      EMBED_MODEL: ${EMBED_MODEL}
+      EMBED_DIM: ${EMBED_DIM}
+      EMBED_BATCH_SIZE: ${EMBED_BATCH_SIZE}
+      CHUNK_SIZE_CHARS: ${CHUNK_SIZE_CHARS}
+      CHUNK_OVERLAP_CHARS: ${CHUNK_OVERLAP_CHARS}
+      AI_EMBED_TIMEOUT_SECONDS: ${AI_EMBED_TIMEOUT_SECONDS}
+      RETRIEVAL_MAX_TOP_K: ${RETRIEVAL_MAX_TOP_K}
+    ports:
+      - "${BACKEND_PORT}:${BACKEND_PORT}"
+    volumes:
+      - ./backend:/app
+      - pdf_storage:${STORAGE_PATH}
+    depends_on:
+      db:
+        condition: service_healthy
+      ai:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import os,urllib.request;urllib.request.urlopen(f"http://127.0.0.1:{os.environ['BACKEND_PORT']}/health",timeout=2)
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - papermind_net
+
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${DB_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - papermind_net
+
+  ai:
+    build:
+      context: ./ai
+      dockerfile: Dockerfile
+    command: uvicorn app.main:app --host 0.0.0.0 --port ${AI_PORT} --reload --reload-dir /app/app
+    environment:
+      AI_PORT: ${AI_PORT}
+      EMBED_MODEL: ${EMBED_MODEL}
+      EMBED_DIM: ${EMBED_DIM}
+      EMBED_MAX_TEXTS: ${EMBED_MAX_TEXTS}
+      EMBED_MAX_CHARS: ${EMBED_MAX_CHARS}
+    ports:
+      - "${AI_PORT}:${AI_PORT}"
+    volumes:
+      - ./ai:/app
+      - ai_models:/models
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import os,urllib.request;urllib.request.urlopen(f"http://127.0.0.1:{os.environ['AI_PORT']}/health",timeout=2)
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - papermind_net
+
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    command: python -m app.worker.main
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      STORAGE_PATH: ${STORAGE_PATH}
+      WORKER_POLL_INTERVAL_SECONDS: ${WORKER_POLL_INTERVAL_SECONDS}
+      WORKER_OCR_TIMEOUT_SECONDS: ${WORKER_OCR_TIMEOUT_SECONDS}
+      AI_BASE_URL: ${AI_BASE_URL}
+      INDEX_AUTO_ON_READY: ${INDEX_AUTO_ON_READY}
+      EMBED_MODEL: ${EMBED_MODEL}
+      EMBED_DIM: ${EMBED_DIM}
+      EMBED_BATCH_SIZE: ${EMBED_BATCH_SIZE}
+      CHUNK_SIZE_CHARS: ${CHUNK_SIZE_CHARS}
+      CHUNK_OVERLAP_CHARS: ${CHUNK_OVERLAP_CHARS}
+      AI_EMBED_TIMEOUT_SECONDS: ${AI_EMBED_TIMEOUT_SECONDS}
+    volumes:
+      - ./backend/app:/app/app
+      - pdf_storage:${STORAGE_PATH}
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles: ["worker"]
+    networks:
+      - papermind_net
+
+volumes:
+  postgres_data:
+  pdf_storage:
+  ai_models:
+  frontend_node_modules:
+
+networks:
+  papermind_net:
+    driver: bridge

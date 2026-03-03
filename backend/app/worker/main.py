@@ -1,0 +1,729 @@
+import logging
+import re
+import subprocess
+import time
+import uuid
+from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
+
+import httpx
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import selectinload
+
+from app.core.config import get_settings
+from app.core.text import sanitize_text_for_db
+from app.db.session import SessionLocal
+from app.models.document import Document
+from app.models.document_chunk import DocumentChunk
+from app.models.document_file import DocumentFile
+from app.models.job import Job
+from app.models.tag import Tag
+from app.services.deduplication import DocumentDeduplicationService
+from app.services.document_dates import apply_ocr_document_date_result, extract_document_date_candidates
+from app.services.embeddings import EmbeddingService
+from app.services.ocr_pipeline import run_ocr_pipeline
+from app.services.settings import SettingsService
+
+settings = get_settings()
+
+logger = logging.getLogger("papermind.worker")
+logging.basicConfig(level=logging.INFO)
+
+AUTO_TAG_MAX_TAGS = 5
+AUTO_TAG_MAX_TEXT_CHARS = 6000
+AUTO_TAG_STOPWORDS = {
+    "aber",
+    "alle",
+    "alles",
+    "als",
+    "also",
+    "am",
+    "an",
+    "auch",
+    "auf",
+    "aus",
+    "bei",
+    "bin",
+    "bis",
+    "das",
+    "dass",
+    "dein",
+    "dem",
+    "den",
+    "der",
+    "des",
+    "die",
+    "dies",
+    "diese",
+    "dieser",
+    "doch",
+    "dort",
+    "ein",
+    "eine",
+    "einem",
+    "einer",
+    "eines",
+    "er",
+    "es",
+    "etwas",
+    "für",
+    "hat",
+    "haben",
+    "hier",
+    "ich",
+    "ihm",
+    "im",
+    "in",
+    "ist",
+    "jede",
+    "jeder",
+    "kann",
+    "kein",
+    "keine",
+    "mit",
+    "nach",
+    "nicht",
+    "noch",
+    "nur",
+    "oder",
+    "sein",
+    "seine",
+    "sich",
+    "sie",
+    "sind",
+    "so",
+    "und",
+    "uns",
+    "vom",
+    "von",
+    "vor",
+    "war",
+    "was",
+    "weil",
+    "wenn",
+    "wer",
+    "wie",
+    "wir",
+    "wird",
+    "zu",
+    "zum",
+    "zur",
+}
+AUTO_TAG_BLOCKED_CANDIDATE_KEYS = {
+    "keine information",
+    "keine information gefunden",
+    "keine informationen",
+    "keine informationen gefunden",
+    "keine infos",
+    "keine infos gefunden",
+    "keine tags",
+    "keine tags gefunden",
+    "keine schlagworte",
+    "keine schlagwoerter",
+    "keine schlagworte gefunden",
+    "keine schlagwoerter gefunden",
+    "keine relevanten informationen",
+    "keine relevanten infos",
+    "kein tag",
+    "kein tag gefunden",
+    "kein schlagwort",
+    "kein schlagwort gefunden",
+    "kein ergebnis",
+    "nicht gefunden",
+    "n a",
+    "na",
+    "none",
+    "null",
+    "unknown",
+    "unbekannt",
+}
+AUTO_TAG_BLOCKED_CANDIDATE_PREFIXES = (
+    "dazu finde ich keine information",
+    "dazu finde ich keine infos",
+    "ich finde keine information",
+    "ich finde keine infos",
+    "keine information",
+    "keine infos",
+    "keine tags",
+    "keine schlagworte",
+    "keine schlagwoerter",
+    "keine schlagwörter",
+    "kein tag",
+    "kein schlagwort",
+    "kein ergebnis",
+)
+AUTO_TAG_BLOCKED_CANDIDATE_CONTAINS = (
+    "keine information",
+    "keine infos",
+    "keine relevanten information",
+    "nicht gefunden",
+    "finde ich keine",
+    "finde keine",
+)
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _storage_root() -> Path:
+    return Path(settings.storage_path).resolve()
+
+
+def _resolve_storage_path(file_key: str) -> Path:
+    root = _storage_root()
+    target = (root / file_key).resolve()
+    if root != target and root not in target.parents:
+        raise ValueError("Invalid storage key")
+    return target
+
+
+def _truncate_error(message: str, max_length: int = 3500) -> str:
+    if len(message) <= max_length:
+        return message
+    return f"{message[:max_length]}..."
+
+
+def _find_document_file(document: Document, role: str) -> DocumentFile | None:
+    for file_record in document.files:
+        if file_record.role == role:
+            return file_record
+    return None
+
+
+def _load_runtime_settings(db) -> dict:
+    settings_payload = SettingsService(db).get_settings().model_dump(mode="json")
+    return settings_payload
+
+
+def _has_active_job(db, document_id: uuid.UUID, job_type: str) -> bool:
+    active_job = db.execute(
+        select(Job.id).where(
+            Job.document_id == document_id,
+            Job.type == job_type,
+            Job.status.in_(("queued", "running")),
+        )
+    ).scalar_one_or_none()
+    return active_job is not None
+
+
+def _queue_index_job(db, document: Document, *, reason: str) -> bool:
+    if _has_active_job(db, document.id, "INDEX"):
+        return False
+    db.add(Job(document_id=document.id, type="INDEX", status="queued", progress=0))
+    document.embedding_status = "queued"
+    logger.info("index job queued document_id=%s reason=%s", document.id, reason)
+    return True
+
+
+def _queue_tag_job(db, document: Document, *, reason: str) -> bool:
+    if _has_active_job(db, document.id, "TAG"):
+        return False
+    db.add(Job(document_id=document.id, type="TAG", status="queued", progress=0))
+    logger.info("tag job queued document_id=%s reason=%s", document.id, reason)
+    return True
+
+
+def _normalize_tag_name(raw_value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-zÄÖÜäöüß0-9\-/ ]+", " ", str(raw_value or ""))
+    normalized = " ".join(cleaned.split()).strip()
+    if not normalized:
+        return ""
+    if len(normalized) > 48:
+        normalized = normalized[:48].rstrip()
+    return normalized
+
+
+def _normalize_tag_key(raw_value: str) -> str:
+    normalized = _normalize_tag_name(raw_value).lower()
+    return re.sub(r"[^a-z0-9äöüß]+", " ", normalized).strip()
+
+
+def _is_blocked_tag_candidate(candidate: str) -> bool:
+    candidate_key = _normalize_tag_key(candidate)
+    if not candidate_key:
+        return True
+    if candidate_key in AUTO_TAG_BLOCKED_CANDIDATE_KEYS:
+        return True
+    if any(candidate_key.startswith(prefix) for prefix in AUTO_TAG_BLOCKED_CANDIDATE_PREFIXES):
+        return True
+    return any(fragment in candidate_key for fragment in AUTO_TAG_BLOCKED_CANDIDATE_CONTAINS)
+
+
+def _fallback_tag_candidates(text_value: str, max_tags: int = AUTO_TAG_MAX_TAGS) -> list[str]:
+    tokens = re.findall(r"[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß\-]{2,}", text_value.lower())
+    if not tokens:
+        return []
+    counts = Counter(
+        token for token in tokens if token not in AUTO_TAG_STOPWORDS and not token.isnumeric() and len(token) >= 3
+    )
+    tags: list[str] = []
+    for token, _ in counts.most_common(max_tags * 3):
+        candidate = _normalize_tag_name(token)
+        if not candidate:
+            continue
+        if _is_blocked_tag_candidate(candidate):
+            continue
+        label = candidate[0].upper() + candidate[1:]
+        if label.lower() in {existing.lower() for existing in tags}:
+            continue
+        tags.append(label)
+        if len(tags) >= max_tags:
+            break
+    return tags
+
+
+def _suggest_tags_with_ai(text_value: str, max_tags: int = AUTO_TAG_MAX_TAGS) -> list[str]:
+    normalized_text = " ".join(str(text_value or "").split()).strip()
+    if not normalized_text:
+        return []
+
+    payload = {
+        "model": "default",
+        "system_prompt": (
+            "Du extrahierst kurze deutsche Schlagwörter für Dokumente. "
+            "Antworte nur mit einem JSON-Array von 1 bis 5 Strings ohne weitere Erklärungen."
+        ),
+        "max_sentences": 1,
+        "max_tokens": 120,
+        "temperature": 0.1,
+        "question": "Extrahiere bis zu 5 prägnante Tags.",
+        "user_prompt": (
+            "Gib nur ein JSON-Array zurück, z.B. [\"Rechnung\", \"KFZ\", \"Versicherung\"].\n\n"
+            f"TEXT:\n{normalized_text[:AUTO_TAG_MAX_TEXT_CHARS]}"
+        ),
+        "contexts": [],
+    }
+
+    try:
+        response = httpx.post(
+            f"{settings.ai_base_url.rstrip('/')}/chat",
+            json=payload,
+            timeout=settings.ai_chat_timeout_seconds,
+        )
+        response.raise_for_status()
+        raw_answer = str(response.json().get("answer") or "").strip()
+    except Exception as exc:  # pragma: no cover - network runtime path
+        logger.warning("auto tagging ai call failed: %s", exc)
+        return _fallback_tag_candidates(normalized_text, max_tags=max_tags)
+
+    candidates: list[str] = []
+    if raw_answer:
+        array_match = re.search(r"\[[\s\S]*\]", raw_answer)
+        candidate_text = array_match.group(0) if array_match else raw_answer
+        try:
+            import json
+
+            parsed = json.loads(candidate_text)
+            if isinstance(parsed, list):
+                candidates = [str(item) for item in parsed]
+        except Exception:
+            split_candidates = re.split(r"[,;\n]", raw_answer)
+            candidates = [part.strip(" -\t\r\n\"'") for part in split_candidates if part.strip()]
+
+    has_ai_candidates = len(candidates) > 0
+    normalized_candidates: list[str] = []
+    seen = set()
+    for candidate in candidates:
+        normalized = _normalize_tag_name(candidate)
+        if not normalized:
+            continue
+        if _is_blocked_tag_candidate(normalized):
+            continue
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized_candidates.append(normalized)
+        if len(normalized_candidates) >= max_tags:
+            break
+
+    if normalized_candidates:
+        return normalized_candidates
+    if has_ai_candidates:
+        return []
+    return _fallback_tag_candidates(normalized_text, max_tags=max_tags)
+
+
+def _get_or_create_tag(db, tag_name: str) -> Tag | None:
+    normalized_name = _normalize_tag_name(tag_name)
+    if not normalized_name:
+        return None
+    if _is_blocked_tag_candidate(normalized_name):
+        return None
+
+    existing = db.execute(select(Tag).where(func.lower(Tag.name) == normalized_name.lower())).scalar_one_or_none()
+    if existing is not None:
+        return existing
+
+    try:
+        with db.begin_nested():
+            db.add(Tag(name=normalized_name))
+            db.flush()
+    except IntegrityError:
+        pass
+
+    return db.execute(select(Tag).where(func.lower(Tag.name) == normalized_name.lower())).scalar_one_or_none()
+
+
+def _apply_tags_to_document(db, document: Document, tag_names: list[str]) -> tuple[int, list[str]]:
+    if not tag_names:
+        return 0, []
+
+    existing_tag_ids = {tag.id for tag in document.tags}
+    added = 0
+    applied: list[str] = []
+    for tag_name in tag_names:
+        tag = _get_or_create_tag(db, tag_name)
+        if tag is None:
+            continue
+        if tag.id in existing_tag_ids:
+            applied.append(tag.name)
+            continue
+        document.tags.append(tag)
+        existing_tag_ids.add(tag.id)
+        added += 1
+        applied.append(tag.name)
+    return added, applied
+
+
+def _mark_job_failed(job_id: uuid.UUID, reason: str) -> None:
+    with SessionLocal() as db:
+        job = db.get(Job, job_id)
+        if job is None:
+            return
+
+        document = db.get(Document, job.document_id)
+        job.status = "failed"
+        job.error_message = _truncate_error(reason)
+        job.finished_at = _now_utc()
+        if job.progress is None:
+            job.progress = 0
+
+        if document is not None and job.type == "OCR":
+            document.status = "failed"
+            document.ocr_status = "failed"
+        if document is not None and job.type == "INDEX":
+            document.embedding_status = "failed"
+            document.embedding_error = _truncate_error(reason)
+            document.embedding_updated_at = _now_utc()
+
+        db.commit()
+        logger.error(
+            "job failed job_id=%s document_id=%s type=%s error=%s",
+            job_id,
+            job.document_id,
+            job.type,
+            _truncate_error(reason, 500),
+        )
+
+
+def _claim_next_job() -> tuple[uuid.UUID, str] | None:
+    with SessionLocal() as db:
+        stmt = (
+            select(Job)
+            .where(Job.type.in_(("OCR", "INDEX", "TAG")), Job.status == "queued")
+            .order_by(Job.created_at.asc())
+            .with_for_update(skip_locked=True)
+            .limit(1)
+        )
+        job = db.execute(stmt).scalars().first()
+        if job is None:
+            return None
+
+        document = db.get(Document, job.document_id)
+        if document is None:
+            job.status = "failed"
+            job.error_message = "Document not found"
+            job.finished_at = _now_utc()
+            db.commit()
+            return None
+
+        job.status = "running"
+        job.progress = 10 if job.type == "OCR" else 5
+        job.started_at = _now_utc()
+        job.error_message = None
+        if job.type == "OCR":
+            document.status = "processing"
+            document.ocr_status = "running"
+        if job.type == "INDEX":
+            document.embedding_status = "running"
+            document.embedding_error = None
+
+        db.commit()
+        logger.info("job claimed job_id=%s document_id=%s type=%s", job.id, job.document_id, job.type)
+        return job.id, job.type
+
+
+def _process_ocr_job(job_id: uuid.UUID) -> None:
+    try:
+        with SessionLocal() as db:
+            job = db.execute(
+                select(Job)
+                .where(Job.id == job_id)
+                .options(selectinload(Job.document))
+            ).scalar_one_or_none()
+            if job is None:
+                return
+
+            document = db.execute(
+                select(Document)
+                .where(Document.id == job.document_id)
+                .options(selectinload(Document.files))
+            ).scalar_one()
+
+            original_file = _find_document_file(document, "original")
+            if original_file is None and document.storage_key:
+                original_file = DocumentFile(
+                    document_id=document.id,
+                    role="original",
+                    file_key=document.storage_key,
+                    filename="original.pdf",
+                    mime_type="application/pdf",
+                )
+            if original_file is None:
+                raise RuntimeError("Original PDF file record is missing")
+
+            original_path = _resolve_storage_path(original_file.file_key)
+            if not original_path.exists() or not original_path.is_file():
+                raise RuntimeError("Original PDF file is missing in storage")
+
+            ocr_key = f"{document.id}/ocr.pdf"
+            ocr_path = _resolve_storage_path(ocr_key)
+            runtime_settings = _load_runtime_settings(db)
+            auto_tagging_enabled = bool(runtime_settings.get("documents", {}).get("auto_tagging", False))
+
+            job.progress = 40
+            db.commit()
+
+            ocr_result = run_ocr_pipeline(
+                original_path,
+                ocr_path,
+                runtime_settings,
+                timeout_seconds=settings.worker_ocr_timeout_seconds,
+            )
+
+            job.progress = 70
+            db.commit()
+
+            extracted_text = str(ocr_result.get("text") or "")
+            pages_payload = list(ocr_result.get("pages") or [])
+            page_texts = [
+                (int(item.get("page") or idx + 1), str(item.get("text") or "").strip())
+                for idx, item in enumerate(pages_payload)
+                if str(item.get("text") or "").strip()
+            ]
+            ocr_size = ocr_path.stat().st_size
+            dedupe_service = DocumentDeduplicationService(db)
+            logger.info(
+                "ocr completion settings document_id=%s auto_ocr=%s auto_tagging=%s",
+                document.id,
+                bool(runtime_settings.get("documents", {}).get("auto_ocr", True)),
+                auto_tagging_enabled,
+            )
+
+            ocr_file = _find_document_file(document, "ocr")
+            if ocr_file is None:
+                db.add(
+                    DocumentFile(
+                        document_id=document.id,
+                        role="ocr",
+                        file_key=ocr_key,
+                        filename="ocr.pdf",
+                        mime_type="application/pdf",
+                        bytes=ocr_size,
+                    )
+                )
+            else:
+                ocr_file.file_key = ocr_key
+                ocr_file.filename = "ocr.pdf"
+                ocr_file.mime_type = "application/pdf"
+                ocr_file.bytes = ocr_size
+
+            job.progress = 90
+            document.text_content = sanitize_text_for_db(extracted_text) or None
+            document.text_source = "ocr"
+            existing_flags = dict(document.flags or {})
+            existing_flags["ocr"] = {
+                "engine_requested": ocr_result.get("engine_requested"),
+                "engine_used": ocr_result.get("engine_used"),
+                "quality": ocr_result.get("quality") or {},
+                "page_metrics": [
+                    {
+                        "page": item.get("page"),
+                        "confidence": item.get("confidence"),
+                    }
+                    for item in pages_payload
+                ],
+            }
+            document.flags = existing_flags
+            extraction_result = extract_document_date_candidates(page_texts)
+            date_applied = apply_ocr_document_date_result(document, extraction_result, overwrite_manual=False)
+            logger.info(
+                "document date extraction document_id=%s applied=%s best=%s confidence=%s candidates=%s",
+                document.id,
+                date_applied,
+                extraction_result.best_date.isoformat() if extraction_result.best_date else None,
+                extraction_result.best_confidence,
+                len(extraction_result.candidates),
+            )
+            try:
+                dedupe_service.evaluate_document_text_duplicate(document, extracted_text)
+            except Exception as exc:  # pragma: no cover - best effort dedupe
+                logger.warning("duplicate_text_check_failed document_id=%s error=%s", document.id, exc)
+            document.status = "ready"
+            document.ocr_status = "done"
+            if settings.index_auto_on_ready:
+                _queue_index_job(db, document, reason="ocr_done")
+            elif auto_tagging_enabled and (document.text_content or "").strip():
+                _queue_tag_job(db, document, reason="ocr_done_no_index")
+            job.status = "done"
+            job.progress = 100
+            job.error_message = None
+            job.finished_at = _now_utc()
+
+            db.commit()
+            logger.info(
+                "ocr job completed job_id=%s document_id=%s text_bytes=%s engine=%s quality=%s",
+                job.id,
+                document.id,
+                len(extracted_text or ""),
+                ocr_result.get("engine_used"),
+                ocr_result.get("quality"),
+            )
+    except subprocess.TimeoutExpired:
+        _mark_job_failed(job_id, f"OCR timed out after {settings.worker_ocr_timeout_seconds}s")
+    except Exception as exc:  # pragma: no cover - infrastructure/runtime path
+        _mark_job_failed(job_id, str(exc))
+
+
+def _process_index_job(job_id: uuid.UUID) -> None:
+    try:
+        with SessionLocal() as db:
+            job = db.get(Job, job_id)
+            if job is None:
+                return
+
+            document = db.get(Document, job.document_id)
+            if document is None:
+                raise RuntimeError("Document not found")
+
+            service = EmbeddingService(db)
+            stats = service.index_document(document.id)
+
+            refreshed_job = db.get(Job, job_id)
+            if refreshed_job is None:
+                return
+
+            refreshed_job.status = "done"
+            refreshed_job.progress = 100
+            refreshed_job.error_message = None
+            refreshed_job.finished_at = _now_utc()
+            runtime_settings = _load_runtime_settings(db)
+            auto_tagging_enabled = bool(runtime_settings.get("documents", {}).get("auto_tagging", False))
+            logger.info(
+                "index completion settings document_id=%s auto_tagging=%s",
+                document.id,
+                auto_tagging_enabled,
+            )
+            if auto_tagging_enabled and (document.text_content or "").strip():
+                _queue_tag_job(db, document, reason="index_done")
+            db.commit()
+
+            chunk_count = db.scalar(
+                select(func.count()).select_from(DocumentChunk).where(DocumentChunk.doc_id == document.id)
+            ) or 0
+            logger.info(
+                "index job completed job_id=%s document_id=%s chunk_count=%s skipped=%s",
+                job_id,
+                document.id,
+                int(chunk_count),
+                bool(stats.get("skipped")),
+            )
+    except Exception as exc:  # pragma: no cover - infrastructure/runtime path
+        _mark_job_failed(job_id, str(exc))
+
+
+def _process_tag_job(job_id: uuid.UUID) -> None:
+    try:
+        with SessionLocal() as db:
+            job = db.get(Job, job_id)
+            if job is None:
+                return
+
+            document = db.execute(
+                select(Document)
+                .where(Document.id == job.document_id)
+                .options(selectinload(Document.tags))
+            ).scalar_one_or_none()
+            if document is None:
+                raise RuntimeError("Document not found")
+
+            runtime_settings = _load_runtime_settings(db)
+            auto_tagging_enabled = bool(runtime_settings.get("documents", {}).get("auto_tagging", False))
+            logger.info(
+                "tag job started job_id=%s document_id=%s auto_tagging=%s",
+                job_id,
+                document.id,
+                auto_tagging_enabled,
+            )
+
+            if not auto_tagging_enabled:
+                job.status = "done"
+                job.progress = 100
+                job.error_message = None
+                job.finished_at = _now_utc()
+                db.commit()
+                return
+
+            text_value = " ".join(str(document.text_content or "").split()).strip()
+            if not text_value:
+                job.status = "done"
+                job.progress = 100
+                job.error_message = None
+                job.finished_at = _now_utc()
+                db.commit()
+                logger.info("tag job skipped document_id=%s reason=no_text", document.id)
+                return
+
+            candidates = _suggest_tags_with_ai(text_value, max_tags=AUTO_TAG_MAX_TAGS)
+            added_count, applied_names = _apply_tags_to_document(db, document, candidates)
+            job.status = "done"
+            job.progress = 100
+            job.error_message = None
+            job.finished_at = _now_utc()
+            db.commit()
+            logger.info(
+                "tag job completed job_id=%s document_id=%s suggested=%s applied=%s added=%s",
+                job_id,
+                document.id,
+                candidates,
+                applied_names,
+                added_count,
+            )
+    except Exception as exc:  # pragma: no cover - infrastructure/runtime path
+        _mark_job_failed(job_id, str(exc))
+
+
+def run() -> None:
+    logger.info("worker started poll_interval=%ss storage=%s", settings.worker_poll_interval_seconds, settings.storage_path)
+    while True:
+        claimed = _claim_next_job()
+        if claimed is None:
+            time.sleep(settings.worker_poll_interval_seconds)
+            continue
+        job_id, job_type = claimed
+        if job_type == "OCR":
+            _process_ocr_job(job_id)
+        elif job_type == "INDEX":
+            _process_index_job(job_id)
+        elif job_type == "TAG":
+            _process_tag_job(job_id)
+        else:
+            _mark_job_failed(job_id, f"Unsupported job type {job_type}")
+
+
+if __name__ == "__main__":
+    run()
