@@ -11,8 +11,8 @@
         ref="fileInputRef"
         class="mobile-upload__input"
         type="file"
-        accept="application/pdf,image/*"
-        capture="environment"
+        :accept="fileAccept"
+        :capture="fileCapture"
         multiple
         @change="onFileInputChange"
       />
@@ -25,9 +25,11 @@
       >
         {{ ctaLabel }}
       </button>
-      <p v-if="isIOS" class="mobile-upload__ios-hint">PDF auswählen oder scannen</p>
+      <p v-if="isIOS" class="mobile-upload__ios-hint">
+        Tipp: In Dateien -> ⋯ -> Dokumente scannen. Danach die PDF hier hochladen.
+      </p>
       <p class="mobile-upload__picker-hint">
-        Je nach Gerät erscheinen „Dokument scannen“, „Foto aufnehmen“ oder „Datei auswählen“.
+        {{ pickerHint }}
       </p>
 
       <div class="mobile-upload__meta">
@@ -47,6 +49,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 
 import { getMobileUploadStatus, uploadMobileFiles } from '../../api/mobileUpload';
+import { isIOS as detectIOS } from '../../utils/platform';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -69,18 +72,20 @@ let countdownTimer = null;
 const token = ref('');
 const isExpired = computed(() => sessionStatus.value === 'expired');
 const isClosed = computed(() => sessionStatus.value === 'closed');
-const isIOS = computed(() => {
-  if (typeof navigator === 'undefined') {
-    return false;
-  }
-  const ua = String(navigator.userAgent || navigator.vendor || '');
-  return /iPad|iPhone|iPod/i.test(ua);
-});
+const isIOS = computed(() => detectIOS());
+const fileAccept = computed(() => (isIOS.value ? 'application/pdf' : 'application/pdf,image/*'));
+const fileCapture = computed(() => (isIOS.value ? undefined : 'environment'));
 const ctaLabel = computed(() => {
   if (isIOS.value) {
-    return 'Hinzufügen… (PDF/Scan)';
+    return 'Hinzufügen… (PDF)';
   }
   return uploadedTotal.value > 0 ? 'Noch ein Dokument scannen' : 'Dokument scannen';
+});
+const pickerHint = computed(() => {
+  if (isIOS.value) {
+    return 'Es werden nur PDFs akzeptiert.';
+  }
+  return 'Je nach Gerät erscheinen „Dokument scannen“, „Foto aufnehmen“ oder „Datei auswählen“.';
 });
 
 function resolveApiBaseUrl() {
@@ -174,7 +179,9 @@ function classifyUploadError(message) {
     return 'Session abgelaufen. Bitte am Mac erneut QR-Code erzeugen.';
   }
   if (normalized.includes('unsupported') || normalized.includes('format')) {
-    return 'Ungültiges Format. Bitte nur PDF oder Bilder hochladen.';
+    return isIOS.value
+      ? 'Ungültiges Format. Bitte nur PDFs hochladen.'
+      : 'Ungültiges Format. Bitte nur PDF oder Bilder hochladen.';
   }
   if (normalized.includes('token')) {
     return 'Upload-Link ist ungültig.';

@@ -147,11 +147,11 @@ def get_mobile_upload_fallback_page(
   <main class="card">
     <h1>PaperMind Scan Upload</h1>
     <p>Scanne Dokumente und lade sie an deinen Mac hoch.</p>
-    <input id="fileInput" type="file" accept="application/pdf,image/*" capture="environment" multiple />
+    <input id="fileInput" type="file" accept="application/pdf" multiple />
     <button id="scanBtn" class="btn" type="button">Hinzufügen…</button>
-    <p id="iosHint" style="margin:0;color:rgba(15,23,42,.62);font-size:.88rem;display:none;">PDF auswählen oder scannen</p>
-    <p style="margin:0;color:rgba(15,23,42,.56);font-size:.82rem;line-height:1.35;">
-      Je nach Gerät erscheinen „Dokument scannen“, „Foto aufnehmen“ oder „Datei auswählen“.
+    <p id="iosHint" style="margin:0;color:rgba(15,23,42,.62);font-size:.88rem;display:none;">Tipp: In Dateien -> ⋯ -> Dokumente scannen. Danach die PDF hier hochladen.</p>
+    <p id="pickerHint" style="margin:0;color:rgba(15,23,42,.56);font-size:.82rem;line-height:1.35;">
+      Es werden nur PDFs akzeptiert.
     </p>
     <div id="status" class="status"></div>
   </main>
@@ -163,10 +163,18 @@ def get_mobile_upload_fallback_page(
     const fileInput = document.getElementById('fileInput');
     const statusEl = document.getElementById('status');
     const iosHint = document.getElementById('iosHint');
-    const isiOS = /iPad|iPhone|iPod/i.test(navigator.userAgent || '');
+    const pickerHint = document.getElementById('pickerHint');
+    const ua = String(navigator.userAgent || '');
+    const isiOS = /iPad|iPhone|iPod/i.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document);
     if (isiOS && iosHint) {{
       iosHint.style.display = 'block';
-      scanBtn.textContent = 'Hinzufügen… (PDF/Scan)';
+      scanBtn.textContent = 'Hinzufügen… (PDF)';
+    }} else {{
+      fileInput.setAttribute('accept', 'application/pdf,image/*');
+      fileInput.setAttribute('capture', 'environment');
+      if (pickerHint) {{
+        pickerHint.textContent = 'Je nach Gerät erscheinen „Dokument scannen“, „Foto aufnehmen“ oder „Datei auswählen“.';
+      }}
     }}
 
     function setStatus(text, isError = false) {{
