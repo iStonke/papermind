@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     mobile_upload_session_ttl_minutes: int = Field(default=15, ge=1, le=240)
     mobile_upload_default_max_files: int = Field(default=20, ge=1, le=200)
     mobile_upload_max_files_limit: int = Field(default=50, ge=1, le=400)
+    phone_scan_worker_mode: Literal["auto", "inline", "external"] = Field(default="auto")
+    phone_scan_worker_heartbeat_ttl_seconds: int = Field(default=20, ge=5, le=300)
     cors_allow_origins: str = Field(default="*")
     auto_ocr_on_upload: bool = Field(default=True)
     min_text_chars: int = Field(default=300, ge=1)

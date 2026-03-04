@@ -68,8 +68,9 @@ let countdownTimer = null;
 const isExpired = computed(() => sessionStatus.value === 'expired');
 const isClosed = computed(() => sessionStatus.value === 'closed');
 const hasToken = computed(() => Boolean(String(token.value || '').trim()));
+const hasSecureContext = computed(() => (typeof window === 'undefined' ? true : window.isSecureContext === true));
 const scanButtonDisabled = computed(
-  () => isUploading.value || isExpired.value || isClosed.value || !hasToken.value
+  () => isUploading.value || isExpired.value || isClosed.value || !hasToken.value || !hasSecureContext.value
 );
 const scanButtonLabel = computed(() => {
   if (isUploading.value) {
@@ -231,6 +232,10 @@ onMounted(async () => {
 
   if (!hasToken.value) {
     setStatus('Upload-Link ist unvollständig (Token fehlt).', 'error');
+    return;
+  }
+  if (!hasSecureContext.value) {
+    setStatus('Kamera benötigt HTTPS (oder localhost). Öffne den QR-Link über eine sichere URL.', 'error');
     return;
   }
   if (isExpired.value) {

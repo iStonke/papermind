@@ -113,7 +113,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import QRCode from 'qrcode';
 
 import BaseDialog from '../BaseDialog.vue';
-import { createMobileUploadSession, getMobileUploadStatus } from '../../api/mobileUpload';
+import { createPhoneScanSession, getPhoneScanStatus } from '../../api/phoneScan';
 import { mapApiError, useNotifications } from '../../stores/notifications';
 
 const props = defineProps({
@@ -264,10 +264,11 @@ async function renderQrCode(url) {
 }
 
 function classifyStatusTone(status) {
-  if (status === 'expired') {
+  const normalized = String(status || '').trim().toLowerCase();
+  if (normalized === 'error' || normalized === 'expired') {
     return 'error';
   }
-  if (status === 'closed') {
+  if (normalized === 'ready' || normalized === 'closed') {
     return 'success';
   }
   return 'waiting';
@@ -295,11 +296,11 @@ function extractNewSources(statusPayload) {
 }
 
 async function pollStatus() {
-  if (!session.value?.sessionId) {
+  if (!session.value?.token) {
     return;
   }
   try {
-    const payload = await getMobileUploadStatus(props.apiBaseUrl, session.value.sessionId);
+    const payload = await getPhoneScanStatus(props.apiBaseUrl, session.value.token);
     session.value = {
       ...session.value,
       expiresAt: payload?.expiresAt || session.value.expiresAt
@@ -314,16 +315,34 @@ async function pollStatus() {
         targetStageId: resolvedTargetStageId.value,
         sessionId: String(session.value?.sessionId || '').trim()
       });
-      statusTone.value = 'waiting';
-      statusMessage.value = 'Empfange Upload…';
-    } else if (payload?.status === 'expired') {
+    }
+
+    const currentState = String(payload?.state || '').trim().toLowerCase();
+    if (currentState === 'expired') {
       statusTone.value = 'error';
       statusMessage.value = 'Session ist abgelaufen. Bitte neu erstellen.';
       stopTimers();
-    } else {
-      statusTone.value = classifyStatusTone(payload?.status);
-      statusMessage.value = payload?.filesCount > 0 ? 'Upload läuft…' : 'Warte auf Upload…';
+      return;
     }
+
+    statusTone.value = classifyStatusTone(currentState);
+    if (currentState === 'receiving') {
+      statusMessage.value = 'Upload empfangen…';
+      return;
+    }
+    if (currentState === 'processing') {
+      statusMessage.value = String(payload?.step || '').trim() || 'Optimierung läuft…';
+      return;
+    }
+    if (currentState === 'ready' || currentState === 'closed') {
+      statusMessage.value = 'PDF bereit.';
+      return;
+    }
+    if (currentState === 'error') {
+      statusMessage.value = String(payload?.errorMessage || '').trim() || 'Verarbeitung fehlgeschlagen.';
+      return;
+    }
+    statusMessage.value = 'Warte auf Upload…';
   } catch (error) {
     statusTone.value = 'error';
     statusMessage.value = mapApiError(error, 'Status konnte nicht aktualisiert werden.');
@@ -342,9 +361,9 @@ async function createSession() {
   qrDataUrl.value = '';
 
   try {
-    const payload = await createMobileUploadSession(props.apiBaseUrl, {
+    const payload = await createPhoneScanSession(props.apiBaseUrl, {
       maxFiles: 20,
-      targetStageId: resolvedTargetStageId.value
+      stageId: resolvedTargetStageId.value
     });
     session.value = payload;
     await renderQrCode(payload.uploadUrl);

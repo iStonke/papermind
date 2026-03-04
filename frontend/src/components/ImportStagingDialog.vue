@@ -1188,6 +1188,25 @@ function openPhoneScanQrModal(stageId = null) {
   openMobileScanDialog(stageId);
 }
 
+async function openForPhoneScan(stageId = null) {
+  let targetStageId = String(stageId || '').trim();
+  if (!targetStageId) {
+    const created = stagingStore.addEmptyDocument(null, 'Dokument scannen');
+    targetStageId = String(created?.id || '').trim();
+    if (targetStageId) {
+      const createdDoc = getDocumentById(targetStageId);
+      const createdMeta = ensureScanMeta(createdDoc);
+      if (createdMeta) {
+        createdMeta.isScanSession = true;
+      }
+    }
+  }
+
+  isOpen.value = true;
+  await nextTick();
+  openPhoneScanQrModal(targetStageId || null);
+}
+
 function resolveIcon(name) {
   if (!name) {
     return null;
@@ -3156,8 +3175,6 @@ async function commitImport() {
 }
 
 async function openWithFiles(files) {
-  isOpen.value = true;
-  await nextTick();
   const candidates = Array.from(files || []).map((file) => ({ file, relativePath: '' }));
   if (candidates.length <= 0) {
     return;
@@ -3165,6 +3182,7 @@ async function openWithFiles(files) {
 
   try {
     await addFilesToStaging(candidates);
+    isOpen.value = true;
   } catch (error) {
     notify({ type: 'error', message: mapApiError(error, 'Import-Quellen konnten nicht hochgeladen werden.') });
   }
@@ -3176,7 +3194,8 @@ function openDialog() {
 
 defineExpose({
   openDialog,
-  openWithFiles
+  openWithFiles,
+  openForPhoneScan
 });
 
 onBeforeUnmount(() => {

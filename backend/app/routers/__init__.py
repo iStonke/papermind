@@ -4,6 +4,7 @@ from app.routers.health import router as health_router
 from app.routers.imports import router as import_router
 from app.routers.jobs import router as jobs_router
 from app.routers.mobile_upload import router as mobile_upload_router
+from app.routers.phone_scan import router as phone_scan_router
 from app.routers.retrieval import router as retrieval_router
 from app.routers.saved_searches import router as saved_searches_router
 from app.routers.settings import router as settings_router
@@ -18,6 +19,7 @@ __all__ = [
     "tags_router",
     "jobs_router",
     "mobile_upload_router",
+    "phone_scan_router",
     "retrieval_router",
     "saved_searches_router",
     "smart_folders_router",

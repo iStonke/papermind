@@ -9,10 +9,26 @@
 
       <template #append>
         <div class="appbar-actions">
-          <v-btn class="topbar-btn topbar-btn--import" variant="text" @click="openUploadDialog">
-            <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
-            Importieren
-          </v-btn>
+          <v-menu location="bottom end" offset="8">
+            <template #activator="{ props: importMenuProps }">
+              <v-btn class="topbar-btn topbar-btn--import" variant="text" v-bind="importMenuProps">
+                <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
+                Importieren
+              </v-btn>
+            </template>
+            <v-list density="compact" min-width="240">
+              <v-list-item
+                prepend-icon="mdi-file-upload-outline"
+                title="PDF hochladen..."
+                @click="openImportPdfPicker"
+              />
+              <v-list-item
+                prepend-icon="mdi-cellphone"
+                title="Dokument scannen..."
+                @click="openImportPhoneScan"
+              />
+            </v-list>
+          </v-menu>
 
           <v-btn
             class="topbar-btn topbar-btn--import"
@@ -286,6 +302,14 @@
         :auto-index="true"
         :auto-embed="true"
         @committed="onImportCommitted"
+      />
+      <input
+        ref="importPdfInputRef"
+        class="d-none"
+        type="file"
+        accept="application/pdf"
+        multiple
+        @change="onImportPdfInputChange"
       />
 
       <BaseDialog
@@ -1455,6 +1479,7 @@ const isAiAsking = ref(false);
 const aiChatScrollRef = ref(null);
 
 const importStagingDialogRef = ref(null);
+const importPdfInputRef = ref(null);
 const isSettingsDialogOpen = ref(false);
 const isUploadDialogOpen = ref(false);
 const isListDragOver = ref(false);
@@ -4516,19 +4541,45 @@ async function onListDrop(event) {
     return;
   }
 
-  isUploadDialogOpen.value = true;
-  await nextTick();
   const dialogRef = importStagingDialogRef.value;
   if (dialogRef && typeof dialogRef.openWithFiles === 'function') {
     await dialogRef.openWithFiles(selection.files);
   }
 }
 
-function openUploadDialog() {
-  isUploadDialogOpen.value = true;
+function openImportPdfPicker() {
+  importPdfInputRef.value?.click?.();
+}
+
+async function onImportPdfInputChange(event) {
+  const selection = selectPdfFiles(event.target?.files || [], 'file');
+  event.target.value = '';
+
+  const rejectedCount = selection.skippedNonPdf + selection.skippedDuplicates;
+  if (rejectedCount > 0) {
+    notify({
+      type: 'warning',
+      message:
+        rejectedCount === 1
+          ? 'Nur PDFs werden importiert. 1 Datei wurde ignoriert.'
+          : `Nur PDFs werden importiert. ${rejectedCount} Dateien wurden ignoriert.`
+    });
+  }
+
+  if (selection.files.length === 0) {
+    return;
+  }
+
   const dialogRef = importStagingDialogRef.value;
-  if (dialogRef && typeof dialogRef.openDialog === 'function') {
-    dialogRef.openDialog();
+  if (dialogRef && typeof dialogRef.openWithFiles === 'function') {
+    await dialogRef.openWithFiles(selection.files);
+  }
+}
+
+async function openImportPhoneScan() {
+  const dialogRef = importStagingDialogRef.value;
+  if (dialogRef && typeof dialogRef.openForPhoneScan === 'function') {
+    await dialogRef.openForPhoneScan();
   }
 }
 

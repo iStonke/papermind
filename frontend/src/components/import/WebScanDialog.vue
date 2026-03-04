@@ -303,10 +303,14 @@ const dialogSubtitle = computed(() => {
 });
 
 const cameraFallbackHint = computed(() => {
+  const insecureContext = typeof window !== 'undefined' && window.isSecureContext === false;
   if (cameraState.value === 'denied') {
     return 'Kamera-Zugriff wurde blockiert. Erlaube Zugriff oder wähle eine Datei.';
   }
   if (cameraState.value === 'unsupported') {
+    if (insecureContext) {
+      return 'Kamera benötigt HTTPS (oder localhost). Öffne die Seite über eine sichere URL.';
+    }
     return 'Browser unterstützt keine Kamera-API für diese Seite.';
   }
   if (cameraState.value === 'loading') {
