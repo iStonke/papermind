@@ -11,7 +11,7 @@
         ref="fileInputRef"
         class="mobile-upload__input"
         type="file"
-        accept="image/*,.pdf"
+        accept="application/pdf,image/*"
         capture="environment"
         multiple
         @change="onFileInputChange"
@@ -25,6 +25,10 @@
       >
         {{ ctaLabel }}
       </button>
+      <p v-if="isIOS" class="mobile-upload__ios-hint">PDF auswählen oder scannen</p>
+      <p class="mobile-upload__picker-hint">
+        Je nach Gerät erscheinen „Dokument scannen“, „Foto aufnehmen“ oder „Datei auswählen“.
+      </p>
 
       <div class="mobile-upload__meta">
         <p class="mobile-upload__session">Session {{ sessionId }}</p>
@@ -65,7 +69,19 @@ let countdownTimer = null;
 const token = ref('');
 const isExpired = computed(() => sessionStatus.value === 'expired');
 const isClosed = computed(() => sessionStatus.value === 'closed');
-const ctaLabel = computed(() => (uploadedTotal.value > 0 ? 'Noch ein Dokument scannen' : 'Dokument scannen'));
+const isIOS = computed(() => {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+  const ua = String(navigator.userAgent || navigator.vendor || '');
+  return /iPad|iPhone|iPod/i.test(ua);
+});
+const ctaLabel = computed(() => {
+  if (isIOS.value) {
+    return 'Hinzufügen… (PDF/Scan)';
+  }
+  return uploadedTotal.value > 0 ? 'Noch ein Dokument scannen' : 'Dokument scannen';
+});
 
 function resolveApiBaseUrl() {
   const fromProps = String(props.apiBaseUrl || '').trim();
@@ -300,6 +316,19 @@ onBeforeUnmount(() => {
 .mobile-upload__meta {
   display: grid;
   gap: 2px;
+}
+
+.mobile-upload__ios-hint {
+  margin: -4px 0 0;
+  font-size: 0.82rem;
+  color: rgba(15, 23, 42, 0.62);
+}
+
+.mobile-upload__picker-hint {
+  margin: -4px 0 0;
+  font-size: 0.8rem;
+  color: rgba(15, 23, 42, 0.56);
+  line-height: 1.35;
 }
 
 .mobile-upload__session {
