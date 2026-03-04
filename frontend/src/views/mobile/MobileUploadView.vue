@@ -3,33 +3,21 @@
     <section class="mobile-upload__card">
       <header class="mobile-upload__header">
         <p class="mobile-upload__eyebrow">PaperMind</p>
-        <h1>Scan Upload</h1>
-        <p>Scanne Dokumente und lade sie direkt an deinen Mac hoch.</p>
+        <h1>Live Scan Upload</h1>
+        <p>Scanne Dokumente direkt im Browser und sende sie an den wartenden Host.</p>
       </header>
-
-      <input
-        ref="fileInputRef"
-        class="mobile-upload__input"
-        type="file"
-        :accept="fileAccept"
-        :capture="fileCapture"
-        multiple
-        @change="onFileInputChange"
-      />
 
       <button
         type="button"
         class="mobile-upload__action"
-        :disabled="isUploading || isExpired || isClosed"
-        @click="openPicker"
+        :disabled="scanButtonDisabled"
+        @click="openScanner"
       >
-        {{ ctaLabel }}
+        {{ scanButtonLabel }}
       </button>
-      <p v-if="isIOS" class="mobile-upload__ios-hint">
-        Tipp: In Dateien -> ⋯ -> Dokumente scannen. Danach die PDF hier hochladen.
-      </p>
+
       <p class="mobile-upload__picker-hint">
-        {{ pickerHint }}
+        Öffnet den Live-Dokumenten-Scanner (Kamera, Crop, Filter, Mehrseiten).
       </p>
 
       <div class="mobile-upload__meta">
@@ -42,14 +30,21 @@
         Bereits empfangen: {{ uploadedTotal }} Datei{{ uploadedTotal === 1 ? '' : 'en' }}.
       </p>
     </section>
+
+    <WebScanDialog
+      v-model="isScannerOpen"
+      output-mode="files"
+      @files-ready="onScannerFilesReady"
+      @pdf-ready="onScannerPdfReady"
+    />
   </main>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 
+import WebScanDialog from '../../components/import/WebScanDialog.vue';
 import { getMobileUploadStatus, uploadMobileFiles } from '../../api/mobileUpload';
-import { isIOS as detectIOS } from '../../utils/platform';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -57,35 +52,30 @@ const props = defineProps({
   apiBaseUrl: { type: String, default: '' }
 });
 
-const fileInputRef = ref(null);
 const isUploading = ref(false);
-const statusMessage = ref('Bereit zum Scannen.');
+const isScannerOpen = ref(false);
+const statusMessage = ref('Scanner wird vorbereitet...');
 const statusTone = ref('neutral');
 const uploadedTotal = ref(0);
 const sessionStatus = ref('open');
 const expiresAt = ref('');
 const expiresLabel = ref('');
+const token = ref('');
 
 let statusPollTimer = null;
 let countdownTimer = null;
 
-const token = ref('');
 const isExpired = computed(() => sessionStatus.value === 'expired');
 const isClosed = computed(() => sessionStatus.value === 'closed');
-const isIOS = computed(() => detectIOS());
-const fileAccept = computed(() => (isIOS.value ? 'application/pdf' : 'application/pdf,image/*'));
-const fileCapture = computed(() => (isIOS.value ? undefined : 'environment'));
-const ctaLabel = computed(() => {
-  if (isIOS.value) {
-    return 'Hinzufügen… (PDF)';
+const hasToken = computed(() => Boolean(String(token.value || '').trim()));
+const scanButtonDisabled = computed(
+  () => isUploading.value || isExpired.value || isClosed.value || !hasToken.value
+);
+const scanButtonLabel = computed(() => {
+  if (isUploading.value) {
+    return 'Upload läuft...';
   }
-  return uploadedTotal.value > 0 ? 'Noch ein Dokument scannen' : 'Dokument scannen';
-});
-const pickerHint = computed(() => {
-  if (isIOS.value) {
-    return 'Es werden nur PDFs akzeptiert.';
-  }
-  return 'Je nach Gerät erscheinen „Dokument scannen“, „Foto aufnehmen“ oder „Datei auswählen“.';
+  return uploadedTotal.value > 0 ? 'Weitere Seiten scannen' : 'Dokument scannen';
 });
 
 function resolveApiBaseUrl() {
@@ -111,8 +101,7 @@ function parseToken() {
   if (typeof window === 'undefined') {
     return '';
   }
-  const fromQuery = new URLSearchParams(window.location.search).get('t');
-  return String(fromQuery || '').trim();
+  return String(new URLSearchParams(window.location.search).get('t') || '').trim();
 }
 
 function formatRemaining(expiresAtIso) {
@@ -142,28 +131,42 @@ function setStatus(message, tone = 'neutral') {
   statusTone.value = tone;
 }
 
-function openPicker() {
-  fileInputRef.value?.click?.();
+function classifyUploadError(message) {
+  const normalized = String(message || '').toLowerCase();
+  if (normalized.includes('expired') || normalized.includes('abgelaufen')) {
+    return 'Session abgelaufen. Bitte am Host einen neuen QR-Code erzeugen.';
+  }
+  if (normalized.includes('token')) {
+    return 'Upload-Link ist ungültig.';
+  }
+  if (normalized.includes('failed to fetch') || normalized.includes('network')) {
+    return 'Keine Verbindung zum Server.';
+  }
+  return String(message || 'Upload fehlgeschlagen.');
 }
 
 async function refreshStatus({ silent = false } = {}) {
   try {
-    const payload = await getMobileUploadStatus(resolveApiBaseUrl(), props.sessionId, { token: token.value || undefined });
+    const payload = await getMobileUploadStatus(resolveApiBaseUrl(), props.sessionId, {
+      token: token.value || undefined
+    });
     sessionStatus.value = String(payload?.status || 'open');
     uploadedTotal.value = Number(payload?.filesCount || 0);
     expiresAt.value = String(payload?.expiresAt || '');
     refreshCountdownLabel();
 
-    if (sessionStatus.value === 'expired') {
-      setStatus('Session abgelaufen. Bitte am Mac einen neuen QR-Code erzeugen.', 'error');
+    if (isExpired.value) {
+      isScannerOpen.value = false;
+      setStatus('Session abgelaufen. Bitte am Host einen neuen QR-Code erzeugen.', 'error');
       return;
     }
-    if (sessionStatus.value === 'closed') {
-      setStatus('Maximale Dateianzahl erreicht. Bitte am Mac neue Session starten.', 'warning');
+    if (isClosed.value) {
+      isScannerOpen.value = false;
+      setStatus('Session geschlossen. Bitte am Host eine neue Session starten.', 'warning');
       return;
     }
-    if (!silent && uploadedTotal.value > 0 && !isUploading.value) {
-      setStatus('Upload empfangen. Du kannst weitere Dokumente scannen.', 'success');
+    if (!silent) {
+      setStatus('Scanner bereit.', 'neutral');
     }
   } catch (error) {
     if (!silent) {
@@ -173,42 +176,24 @@ async function refreshStatus({ silent = false } = {}) {
   }
 }
 
-function classifyUploadError(message) {
-  const normalized = String(message || '').toLowerCase();
-  if (normalized.includes('expired') || normalized.includes('abgelaufen')) {
-    return 'Session abgelaufen. Bitte am Mac erneut QR-Code erzeugen.';
-  }
-  if (normalized.includes('unsupported') || normalized.includes('format')) {
-    return isIOS.value
-      ? 'Ungültiges Format. Bitte nur PDFs hochladen.'
-      : 'Ungültiges Format. Bitte nur PDF oder Bilder hochladen.';
-  }
-  if (normalized.includes('token')) {
-    return 'Upload-Link ist ungültig.';
-  }
-  if (normalized.includes('failed to fetch') || normalized.includes('network')) {
-    return 'Keine Verbindung zum Server.';
-  }
-  return message || 'Upload fehlgeschlagen.';
-}
-
-async function onFileInputChange(event) {
-  const files = Array.from(event.target?.files || []);
-  event.target.value = '';
-  if (files.length === 0) {
+async function uploadScannedFiles(files) {
+  const normalizedFiles = Array.from(files || []).filter((entry) => entry instanceof File && entry.size > 0);
+  if (normalizedFiles.length <= 0) {
     return;
   }
-  if (!token.value) {
-    setStatus('Ungültiger Upload-Link (Token fehlt).', 'error');
+  if (!hasToken.value) {
+    setStatus('Upload-Link ist unvollständig (Token fehlt).', 'error');
     return;
   }
 
   isUploading.value = true;
-  setStatus(`Upload läuft (${files.length} Datei${files.length === 1 ? '' : 'en'})...`, 'neutral');
+  setStatus(`Upload läuft (${normalizedFiles.length} Datei${normalizedFiles.length === 1 ? '' : 'en'})...`, 'neutral');
   try {
-    const result = await uploadMobileFiles(resolveApiBaseUrl(), props.sessionId, files, { token: token.value });
-    const uploaded = Number(result?.uploaded || 0);
-    setStatus(`Fertig. ${uploaded} Datei${uploaded === 1 ? '' : 'en'} hochgeladen.`, 'success');
+    const result = await uploadMobileFiles(resolveApiBaseUrl(), props.sessionId, normalizedFiles, {
+      token: token.value
+    });
+    const uploaded = Number(result?.uploaded || normalizedFiles.length);
+    setStatus(`Upload erfolgreich (${uploaded} Datei${uploaded === 1 ? '' : 'en'}).`, 'success');
     await refreshStatus({ silent: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Upload fehlgeschlagen.';
@@ -219,23 +204,50 @@ async function onFileInputChange(event) {
   }
 }
 
+async function onScannerFilesReady(payload = {}) {
+  const files = Array.isArray(payload?.files) ? payload.files : [];
+  await uploadScannedFiles(files);
+}
+
+async function onScannerPdfReady(payload = {}) {
+  const file = payload?.file;
+  if (!(file instanceof File)) {
+    return;
+  }
+  await uploadScannedFiles([file]);
+}
+
+function openScanner() {
+  if (scanButtonDisabled.value) {
+    return;
+  }
+  isScannerOpen.value = true;
+}
+
 onMounted(async () => {
   token.value = parseToken();
   refreshCountdownLabel();
   await refreshStatus({ silent: true });
-  if (!token.value) {
+
+  if (!hasToken.value) {
     setStatus('Upload-Link ist unvollständig (Token fehlt).', 'error');
-  } else if (isExpired.value) {
-    setStatus('Session abgelaufen. Bitte am Mac einen neuen QR-Code erzeugen.', 'error');
-  } else if (isClosed.value) {
-    setStatus('Maximale Dateianzahl erreicht. Bitte am Mac neue Session starten.', 'warning');
-  } else {
-    setStatus('Bereit zum Scannen.', 'neutral');
+    return;
   }
+  if (isExpired.value) {
+    setStatus('Session abgelaufen. Bitte am Host einen neuen QR-Code erzeugen.', 'error');
+    return;
+  }
+  if (isClosed.value) {
+    setStatus('Session geschlossen. Bitte am Host neue Session starten.', 'warning');
+    return;
+  }
+
+  setStatus('Scanner bereit.', 'neutral');
+  isScannerOpen.value = true;
 
   statusPollTimer = window.setInterval(() => {
     void refreshStatus({ silent: true });
-  }, 6000);
+  }, 2500);
   countdownTimer = window.setInterval(() => {
     refreshCountdownLabel();
   }, 1000);
@@ -301,10 +313,6 @@ onBeforeUnmount(() => {
   color: rgba(15, 23, 42, 0.52);
 }
 
-.mobile-upload__input {
-  display: none;
-}
-
 .mobile-upload__action {
   border: none;
   border-radius: 14px;
@@ -323,12 +331,6 @@ onBeforeUnmount(() => {
 .mobile-upload__meta {
   display: grid;
   gap: 2px;
-}
-
-.mobile-upload__ios-hint {
-  margin: -4px 0 0;
-  font-size: 0.82rem;
-  color: rgba(15, 23, 42, 0.62);
 }
 
 .mobile-upload__picker-hint {

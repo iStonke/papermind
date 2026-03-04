@@ -69,23 +69,32 @@
           <v-icon class="import-staging-dropzone__icon" size="56">mdi-file-upload-outline</v-icon>
           <div class="import-staging-dropzone__headline">{{ dropzoneHeadline }}</div>
           <div class="import-staging-dropzone__actions">
-            <v-btn
-              variant="flat"
-              size="large"
-              :ripple="false"
-              class="import-staging-dropzone__cta"
-              :aria-label="dropzonePrimaryLabel"
-              @click.stop="openFilePicker"
-            >
-              Hinzufügen...
-            </v-btn>
-            <button
-              type="button"
-              class="import-staging-dropzone__scan-link"
-              @click.stop="openMobileScanDialog()"
-            >
-              Mit iPhone scannen...
-            </button>
+            <div class="pm-split" role="group" aria-label="Hinzufügen oder scannen" @click.stop>
+              <v-btn
+                variant="flat"
+                size="large"
+                :ripple="false"
+                class="import-staging-dropzone__cta pm-split__main"
+                :aria-label="dropzonePrimaryLabel"
+                @click="openFilePicker"
+              >
+                Hinzufügen...
+              </v-btn>
+
+              <div class="pm-split__divider" aria-hidden="true" />
+
+              <v-btn
+                variant="flat"
+                size="large"
+                :ripple="false"
+                class="import-staging-dropzone__cta pm-split__side"
+                aria-label="Dokument mit iPhone scannen"
+                title="Mit iPhone scannen"
+                @click.stop.prevent="openPhoneScanQrModal()"
+              >
+                <v-icon size="22">{{ resolveIcon('mdi-cellphone') }}</v-icon>
+              </v-btn>
+            </div>
           </div>
           <p v-if="isIOSDevice" class="import-staging-dropzone__ios-hint">
             Tipp: In Dateien -> ⋯ -> Dokumente scannen. Danach die PDF hier hochladen.
@@ -281,7 +290,7 @@
                             </template>
                             <v-list density="compact" min-width="220">
                               <v-list-item :prepend-icon="resolveIcon('mdi-file-document-outline')" title="PDFs hinzufügen..." @click="openCardFilePicker(document.id)" />
-                              <v-list-item prepend-icon="mdi-cellphone" title="Dokument scannen..." @click="openMobileScanDialog(document.id)" />
+                              <v-list-item prepend-icon="mdi-cellphone" title="Dokument scannen..." @click="openPhoneScanQrModal(document.id)" />
                               <v-divider class="my-1" />
                               <v-list-item
                                 class="import-staging-doc__menu-delete"
@@ -1173,6 +1182,10 @@ function openMobileScanDialog(stageId = null) {
     mobileScanStageBySession.clear();
   }
   isMobileScanDialogOpen.value = true;
+}
+
+function openPhoneScanQrModal(stageId = null) {
+  openMobileScanDialog(stageId);
 }
 
 function resolveIcon(name) {
@@ -3417,36 +3430,111 @@ onBeforeUnmount(() => {
 
 .import-staging-dropzone__actions {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  max-width: 320px;
+  max-width: 520px;
 }
 
 .import-staging-dropzone__cta {
   text-transform: none;
   letter-spacing: 0;
   min-height: 48px;
-  padding-inline: 24px;
-  min-width: 196px;
+  padding-inline: 20px;
 }
 
-.import-staging-dropzone__scan-link {
-  border: none;
-  background: transparent;
-  color: rgb(var(--v-theme-primary));
-  font-size: 0.92rem;
-  line-height: 1.3;
-  font-weight: 550;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: pointer;
+.pm-split {
+  display: inline-flex;
+  align-items: stretch;
+  height: 48px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--pmSplitBg);
+  box-shadow: var(--pmSplitShadow);
 }
 
-.import-staging-dropzone__scan-link:hover {
-  color: rgba(var(--v-theme-primary), 0.84);
+.pm-split__main,
+.pm-split__side {
+  height: 100% !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  color: rgb(var(--v-theme-primary)) !important;
+  transition: background-color 150ms ease, transform 120ms ease, color 150ms ease;
+}
+
+.pm-split__main {
+  min-width: 180px;
+  padding: 0 18px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-weight: 600;
+  border-top-left-radius: 16px !important;
+  border-bottom-left-radius: 16px !important;
+}
+
+.pm-split__side {
+  width: 56px;
+  min-width: 56px !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  opacity: 0.95;
+  border-top-right-radius: 16px !important;
+  border-bottom-right-radius: 16px !important;
+}
+
+.pm-split__divider {
+  width: 1px;
+  height: 100%;
+  flex: 0 0 auto;
+  background: var(--pmSplitDivider);
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+.pm-split__side :deep(.v-icon) {
+  transform: translateY(1px);
+  opacity: 0.95;
+}
+
+.pm-split__side:hover :deep(.v-icon) {
+  opacity: 1;
+}
+
+.pm-split:hover {
+  background: var(--pmSplitBgHover);
+}
+
+.pm-split__main:hover,
+.pm-split__side:hover {
+  background: var(--pmSplitSegHover) !important;
+  transform: translateY(-1px);
+}
+
+.pm-split__main:active,
+.pm-split__side:active {
+  background: var(--pmSplitSegActive) !important;
+  transform: translateY(0);
+}
+
+.pm-split :deep(.v-btn__overlay),
+.pm-split :deep(.v-btn__underlay) {
+  display: none !important;
+}
+
+.pm-split :deep(.v-btn__content) {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pm-split :deep(.v-btn:focus-visible) {
+  outline: none;
 }
 
 .import-staging-dropzone__ios-hint {

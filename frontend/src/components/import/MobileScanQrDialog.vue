@@ -41,7 +41,6 @@
         <div class="mobile-scan-qr__step">
           <p class="mobile-scan-qr__step-title">2. Link kopieren</p>
           <p class="mobile-scan-qr__step-text">Link kopieren, falls QR-Code nicht geht.</p>
-          <p class="mobile-scan-qr__step-hint">Tipp: In Dateien -> ⋯ -> Dokumente scannen. Danach die PDF hier hochladen.</p>
           <div class="mobile-scan-qr__actions-row">
             <v-btn
               v-if="session?.uploadUrl"
@@ -532,13 +531,6 @@ onBeforeUnmount(() => {
   font-size: 0.85rem;
   line-height: 1.35;
   color: var(--msq-text-muted);
-}
-
-.mobile-scan-qr__step-hint {
-  margin: 0;
-  font-size: 0.77rem;
-  line-height: 1.35;
-  color: var(--msq-text-soft);
 }
 
 .mobile-scan-qr__actions-row {
