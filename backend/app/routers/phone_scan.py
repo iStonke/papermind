@@ -1,9 +1,14 @@
+import asyncio
+import json
+
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.schemas.common import ErrorResponse
 from app.schemas.phone_scan import (
+    PhoneScanJobStatusResponse,
     PhoneScanSessionCreateRequest,
     PhoneScanSessionCreateResponse,
     PhoneScanStatusResponse,
@@ -64,3 +69,50 @@ def get_phone_scan_status(
 ) -> PhoneScanStatusResponse:
     service = PhoneScanService(db)
     return service.get_status(token=token)
+
+
+@router.get(
+    "/api/phone-scan/status/{job_id}",
+    response_model=PhoneScanJobStatusResponse,
+    summary="Read phone scan processing job status",
+    responses={404: {"model": ErrorResponse}},
+)
+def get_phone_scan_job_status(
+    job_id: str,
+    db: Session = Depends(get_db),
+) -> PhoneScanJobStatusResponse:
+    service = PhoneScanService(db)
+    return service.get_job_status(job_id=job_id)
+
+
+@router.get(
+    "/api/phone-scan/events/{job_id}",
+    summary="Stream phone scan job status updates via SSE",
+)
+async def phone_scan_job_events(
+    job_id: str,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    service = PhoneScanService(db)
+    initial = service.get_job_status(job_id=job_id)
+
+    async def event_stream():
+        last_updated = ""
+        yield f"data: {json.dumps(initial.model_dump(mode='json'))}\n\n"
+        last_updated = initial.updatedAt.isoformat()
+        while True:
+            payload = service.get_job_status(job_id=job_id)
+            marker = payload.updatedAt.isoformat()
+            if marker != last_updated:
+                yield f"data: {json.dumps(payload.model_dump(mode='json'))}\n\n"
+                last_updated = marker
+            if payload.state in {"ready", "error"}:
+                break
+            await asyncio.sleep(0.25)
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers=headers)

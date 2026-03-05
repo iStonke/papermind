@@ -8,7 +8,7 @@
     :header-subtitle="dialogSubtitle"
     :show-secondary="false"
     description=""
-    @close="stopTimers"
+    @close="onDialogClose"
   >
     <div class="mobile-scan-qr">
       <div class="mobile-scan-qr__qr-card">
@@ -66,6 +66,14 @@
             <span v-if="remainingLabel" class="mobile-scan-qr__status-dot">•</span>
             <span v-if="remainingLabel" class="mobile-scan-qr__status-expiry">{{ remainingLabel }}</span>
           </div>
+          <div v-if="pagesProgressLabel" class="mobile-scan-qr__status-pages">{{ pagesProgressLabel }}</div>
+          <v-progress-linear
+            class="mobile-scan-qr__status-progress"
+            :model-value="statusProgressPercent"
+            color="primary"
+            height="6"
+            rounded
+          />
         </div>
 
         <div class="mobile-scan-qr__recent-zone">
@@ -113,7 +121,12 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import QRCode from 'qrcode';
 
 import BaseDialog from '../BaseDialog.vue';
-import { createPhoneScanSession, getPhoneScanStatus } from '../../api/phoneScan';
+import {
+  createPhoneScanSession,
+  getPhoneScanJobStatus,
+  getPhoneScanStatus,
+  subscribePhoneScanJobEvents
+} from '../../api/phoneScan';
 import { mapApiError, useNotifications } from '../../stores/notifications';
 
 const props = defineProps({
@@ -135,11 +148,16 @@ const qrState = ref('loading');
 const remainingLabel = ref('');
 const statusMessage = ref('Warte auf Upload...');
 const statusTone = ref('waiting');
+const sessionProgress = ref(0);
+const activeJobId = ref('');
+const jobStatus = ref(null);
 const recentUploads = ref([]);
 const uploadedTotalCount = ref(0);
 
 let pollTimer = null;
 let countdownTimer = null;
+let jobEventSource = null;
+let jobPollTimer = null;
 const seenSourceIds = new Set();
 
 const isOpen = computed({
@@ -150,6 +168,22 @@ const isOpen = computed({
 const resolvedTargetStageId = computed(() => String(props.targetStageId || '').trim() || null);
 const receivedCount = computed(() => recentUploads.value.length);
 const hasUploadStarted = computed(() => receivedCount.value > 0);
+const statusProgressPercent = computed(() => {
+  const jobProgress = Number(jobStatus.value?.progress);
+  if (Number.isFinite(jobProgress)) {
+    return Math.max(0, Math.min(100, Math.round(jobProgress * 100)));
+  }
+  const fallback = Number(sessionProgress.value || 0);
+  return Math.max(0, Math.min(100, Math.round(fallback)));
+});
+const pagesProgressLabel = computed(() => {
+  const total = Number(jobStatus.value?.pagesTotal || 0);
+  const done = Number(jobStatus.value?.pagesDone || 0);
+  if (total <= 0) {
+    return '';
+  }
+  return `${Math.min(done, total)}/${total}`;
+});
 const resolvedMode = computed(() => {
   const normalized = String(props.mode || '').trim().toLowerCase();
   if (normalized === 'stage' || normalized === 'global') {
@@ -184,6 +218,22 @@ function stopTimers() {
     window.clearInterval(countdownTimer);
     countdownTimer = null;
   }
+}
+
+function stopJobTracking() {
+  if (jobEventSource) {
+    jobEventSource.close();
+    jobEventSource = null;
+  }
+  if (jobPollTimer) {
+    window.clearInterval(jobPollTimer);
+    jobPollTimer = null;
+  }
+}
+
+function onDialogClose() {
+  stopTimers();
+  stopJobTracking();
 }
 
 function normalizeUploadFilename(rawValue) {
@@ -227,6 +277,25 @@ function registerRecentUploads(sourceItems = []) {
   if (recentUploads.value.length > 3) {
     recentUploads.value.splice(3);
   }
+}
+
+function syncRecentUploadsFromNames(names = []) {
+  const normalizedNames = Array.isArray(names)
+    ? names
+        .map((entry) => normalizeUploadFilename(entry))
+        .filter((entry) => Boolean(entry))
+        .slice(0, 3)
+    : [];
+  if (normalizedNames.length <= 0) {
+    return;
+  }
+  const scopedJobId = String(activeJobId.value || 'pending');
+  recentUploads.value = normalizedNames.map((filename, index) => ({
+    id: `${scopedJobId}:${index}:${filename}`,
+    filename,
+    receivedAt: Date.now() - index
+  }));
+  uploadedTotalCount.value = Math.max(uploadedTotalCount.value, normalizedNames.length);
 }
 
 function formatRemaining(expiresAtIso) {
@@ -274,6 +343,105 @@ function classifyStatusTone(status) {
   return 'waiting';
 }
 
+function stepToLabel(step, state, pagesDone = 0, pagesTotal = 0) {
+  const normalizedStep = String(step || '').trim().toLowerCase();
+  const normalizedState = String(state || '').trim().toLowerCase();
+  if (normalizedState === 'ready') {
+    return 'Fertig';
+  }
+  if (normalizedState === 'error') {
+    return 'Fehler';
+  }
+  if (normalizedStep === 'pdf') {
+    return 'PDF erzeugen…';
+  }
+  if (normalizedStep === 'detect' || normalizedStep === 'warp' || normalizedStep === 'clean') {
+    const total = Number(pagesTotal || 0);
+    const done = Number(pagesDone || 0);
+    if (total > 0) {
+      return `Optimieren (${Math.min(done, total)}/${total})`;
+    }
+    return 'Optimieren…';
+  }
+  return 'Empfangen…';
+}
+
+function applyJobStatus(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return;
+  }
+  jobStatus.value = payload;
+  if (Array.isArray(payload.recentFiles)) {
+    syncRecentUploadsFromNames(payload.recentFiles);
+  }
+  statusTone.value = classifyStatusTone(payload.state);
+  if (String(payload.state || '').trim().toLowerCase() === 'error') {
+    statusMessage.value = String(payload.error || '').trim() || 'Verarbeitung fehlgeschlagen.';
+    return;
+  }
+  statusMessage.value = stepToLabel(payload.step, payload.state, payload.pagesDone, payload.pagesTotal);
+}
+
+async function pollJobStatusOnce() {
+  const jobId = String(activeJobId.value || '').trim();
+  if (!jobId) {
+    return;
+  }
+  try {
+    const payload = await getPhoneScanJobStatus(props.apiBaseUrl, jobId);
+    applyJobStatus(payload);
+    const state = String(payload?.state || '').trim().toLowerCase();
+    if (state === 'ready' || state === 'error') {
+      stopJobTracking();
+    }
+  } catch (error) {
+    statusTone.value = 'error';
+    statusMessage.value = mapApiError(error, 'Job-Status konnte nicht aktualisiert werden.');
+  }
+}
+
+function startJobPollingFallback() {
+  stopJobTracking();
+  void pollJobStatusOnce();
+  jobPollTimer = window.setInterval(() => {
+    void pollJobStatusOnce();
+  }, 500);
+}
+
+function startJobTracking(jobId) {
+  const normalized = String(jobId || '').trim();
+  if (!normalized) {
+    return;
+  }
+  if (activeJobId.value === normalized && (jobEventSource || jobPollTimer)) {
+    return;
+  }
+  stopJobTracking();
+  activeJobId.value = normalized;
+  try {
+    jobEventSource = subscribePhoneScanJobEvents(props.apiBaseUrl, normalized, {
+      onStatus: (payload) => {
+        applyJobStatus(payload);
+        const state = String(payload?.state || '').trim().toLowerCase();
+        if (state === 'ready' || state === 'error') {
+          stopJobTracking();
+        }
+      },
+      onError: () => {
+        const currentState = String(jobStatus.value?.state || '').trim().toLowerCase();
+        if (currentState === 'ready' || currentState === 'error') {
+          return;
+        }
+        startJobPollingFallback();
+      }
+    });
+  } catch {
+    startJobPollingFallback();
+    return;
+  }
+  void pollJobStatusOnce();
+}
+
 function extractNewSources(statusPayload) {
   const files = Array.isArray(statusPayload?.files) ? statusPayload.files : [];
   const fresh = [];
@@ -305,16 +473,23 @@ async function pollStatus() {
       ...session.value,
       expiresAt: payload?.expiresAt || session.value.expiresAt
     };
+    sessionProgress.value = Number(payload?.progress || 0);
     refreshRemainingLabel();
 
     const freshSources = extractNewSources(payload);
     if (freshSources.length > 0) {
-      registerRecentUploads(freshSources);
+      if (recentUploads.value.length === 0) {
+        registerRecentUploads(freshSources);
+      }
       emit('sources-received', {
         sources: freshSources,
         targetStageId: resolvedTargetStageId.value,
         sessionId: String(session.value?.sessionId || '').trim()
       });
+    }
+    const latestJobId = String(payload?.latestJobId || '').trim();
+    if (latestJobId) {
+      startJobTracking(latestJobId);
     }
 
     const currentState = String(payload?.state || '').trim().toLowerCase();
@@ -326,16 +501,19 @@ async function pollStatus() {
     }
 
     statusTone.value = classifyStatusTone(currentState);
+    if (jobStatus.value && String(jobStatus.value?.state || '').trim().toLowerCase() === 'processing') {
+      return;
+    }
     if (currentState === 'receiving') {
       statusMessage.value = 'Upload empfangen…';
       return;
     }
     if (currentState === 'processing') {
-      statusMessage.value = String(payload?.step || '').trim() || 'Optimierung läuft…';
+      statusMessage.value = stepToLabel(payload?.step, currentState);
       return;
     }
     if (currentState === 'ready' || currentState === 'closed') {
-      statusMessage.value = 'PDF bereit.';
+      statusMessage.value = 'Fertig';
       return;
     }
     if (currentState === 'error') {
@@ -351,7 +529,11 @@ async function pollStatus() {
 
 async function createSession() {
   stopTimers();
+  stopJobTracking();
   seenSourceIds.clear();
+  activeJobId.value = '';
+  jobStatus.value = null;
+  sessionProgress.value = 0;
   recentUploads.value = [];
   uploadedTotalCount.value = 0;
   isInitializing.value = true;
@@ -410,11 +592,13 @@ watch(
       return;
     }
     stopTimers();
+    stopJobTracking();
   }
 );
 
 onBeforeUnmount(() => {
   stopTimers();
+  stopJobTracking();
 });
 </script>
 
@@ -584,6 +768,17 @@ onBeforeUnmount(() => {
   line-height: 1.35;
   color: var(--msq-text-soft);
   margin-bottom: 12px;
+}
+
+.mobile-scan-qr__status-pages {
+  margin: -6px 0 6px;
+  font-size: 0.76rem;
+  line-height: 1.25;
+  color: var(--msq-text-soft);
+}
+
+.mobile-scan-qr__status-progress {
+  margin-top: 0;
 }
 
 .mobile-scan-qr__status-row.is-waiting {

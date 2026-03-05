@@ -30,7 +30,8 @@ class PhoneScanFileRead(BaseModel):
 
 
 class PhoneScanUploadResponse(BaseModel):
-    received: int = Field(ge=0)
+    received: bool = True
+    receivedCount: int = Field(ge=0)
     jobId: str
 
 
@@ -45,4 +46,17 @@ class PhoneScanStatusResponse(BaseModel):
     maxFiles: int = Field(ge=1)
     stageId: str | None = None
     resultDocId: str | None = None
+    latestJobId: str | None = None
     errorMessage: str | None = None
+
+
+class PhoneScanJobStatusResponse(BaseModel):
+    jobId: str
+    state: Literal["receiving", "processing", "ready", "error"]
+    step: Literal["convert", "detect", "warp", "clean", "pdf"]
+    progress: float = Field(ge=0, le=1)
+    pagesTotal: int = Field(ge=0)
+    pagesDone: int = Field(ge=0)
+    recentFiles: list[str] = Field(default_factory=list)
+    error: str | None = None
+    updatedAt: datetime

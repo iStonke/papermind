@@ -287,15 +287,15 @@ def _process_phone_scan_manifest(manifest_path: Path) -> None:
         if parsed:
             existing_files.append(parsed)
 
-    def report(step: str, progress: int) -> None:
+    def report(state: str, step: str, progress: float, pages_done: int, pages_total: int) -> None:
         _write_external_status(
             job.session_id,
             _build_external_status_payload(
                 session_id=job.session_id,
                 token=job.token,
-                state="processing",
+                state=state if state in {"receiving", "processing", "ready", "error"} else "processing",
                 step=step,
-                progress=progress,
+                progress=max(0, min(100, int(round(float(progress) * 100)))),
                 error_message=None,
                 files=existing_files,
                 latest_job_id=job.job_id,
@@ -311,7 +311,7 @@ def _process_phone_scan_manifest(manifest_path: Path) -> None:
             session_id=job.session_id,
             token=job.token,
             state="ready",
-            step="PDF bereit",
+            step="pdf",
             progress=100,
             error_message=None,
             files=existing_files,
@@ -877,7 +877,7 @@ def run() -> None:
                                     session_id=session_id,
                                     token=token,
                                     state="error",
-                                    step="Verarbeitung fehlgeschlagen",
+                                    step="clean",
                                     progress=0,
                                     error_message=str(exc),
                                     files=existing_files,

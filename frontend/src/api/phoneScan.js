@@ -9,6 +9,18 @@ function normalizeApiBaseUrl(apiBaseUrl = '') {
   return '';
 }
 
+/**
+ * @typedef {Object} ScanStatus
+ * @property {string} jobId
+ * @property {'receiving'|'processing'|'ready'|'error'} state
+ * @property {'convert'|'detect'|'warp'|'clean'|'pdf'} step
+ * @property {number} progress
+ * @property {number} pagesTotal
+ * @property {number} pagesDone
+ * @property {string[]} recentFiles
+ * @property {string|null} error
+ */
+
 async function parseApiError(response) {
   try {
     const payload = await response.json();
@@ -70,4 +82,38 @@ export async function uploadPhoneScanFiles(apiBaseUrl, token, files, meta = null
     throw new Error(await parseApiError(response));
   }
   return response.json();
+}
+
+export async function getPhoneScanJobStatus(apiBaseUrl, jobId) {
+  const baseUrl = normalizeApiBaseUrl(apiBaseUrl);
+  const normalizedJobId = String(jobId || '').trim();
+  if (!normalizedJobId) {
+    throw new Error('Job-ID fehlt.');
+  }
+  const response = await fetch(`${baseUrl}/api/phone-scan/status/${encodeURIComponent(normalizedJobId)}`);
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+  return response.json();
+}
+
+export function subscribePhoneScanJobEvents(apiBaseUrl, jobId, { onStatus, onError } = {}) {
+  const baseUrl = normalizeApiBaseUrl(apiBaseUrl);
+  const normalizedJobId = String(jobId || '').trim();
+  if (!normalizedJobId) {
+    throw new Error('Job-ID fehlt.');
+  }
+  const source = new EventSource(`${baseUrl}/api/phone-scan/events/${encodeURIComponent(normalizedJobId)}`);
+  source.onmessage = (event) => {
+    try {
+      const payload = JSON.parse(String(event?.data || '{}'));
+      onStatus?.(payload);
+    } catch (error) {
+      onError?.(error);
+    }
+  };
+  source.onerror = (error) => {
+    onError?.(error);
+  };
+  return source;
 }

@@ -150,6 +150,7 @@ function setStatus(message, tone = 'neutral') {
 
 function applyStateToStatus(payload) {
   const state = String(payload?.state || '').trim().toLowerCase();
+  const step = String(payload?.step || '').trim().toLowerCase();
   sessionState.value = state || 'waiting';
 
   if (state === 'expired') {
@@ -162,8 +163,15 @@ function applyStateToStatus(payload) {
     return;
   }
   if (state === 'processing') {
-    const step = String(payload?.step || '').trim();
-    setStatus(step || 'Optimierung läuft…', 'neutral');
+    if (step === 'pdf') {
+      setStatus('PDF wird erzeugt…', 'neutral');
+      return;
+    }
+    if (step === 'detect' || step === 'warp' || step === 'clean') {
+      setStatus('Optimierung läuft…', 'neutral');
+      return;
+    }
+    setStatus('Optimierung läuft…', 'neutral');
     return;
   }
   if (state === 'ready' || state === 'closed') {
@@ -251,7 +259,7 @@ async function onFileInputChange(event) {
       }))
     };
     const result = await uploadPhoneScanFiles(resolveApiBaseUrl(), token.value, files, uploadMeta);
-    const received = Number(result?.received || files.length);
+    const received = Number(result?.receivedCount || files.length);
     setStatus(`${received} Foto${received === 1 ? '' : 's'} empfangen. Optimierung läuft…`, 'neutral');
     await refreshStatus();
   } catch (error) {

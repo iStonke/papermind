@@ -23,11 +23,14 @@ from app.core.errors import BadRequestError, NotFoundError, PayloadTooLargeError
 from app.db.session import SessionLocal
 from app.schemas.phone_scan import (
     PhoneScanFileRead,
+    PhoneScanJobStatusResponse,
     PhoneScanSessionCreateResponse,
     PhoneScanStatusResponse,
     PhoneScanUploadResponse,
 )
+from app.services.docscan_opencv import run_document_scan_pipeline
 from app.services.import_staging import ImportStagingService
+from app.services.scan_jobs import add_recent_file, ensure_job, fail_job, get_job, upsert_job
 
 logger = logging.getLogger("papermind.phone_scan")
 settings = get_settings()
@@ -884,13 +887,14 @@ def _queue_external_job(job: PhoneScanJob) -> Path:
 def process_phone_scan_job(
     job: PhoneScanJob,
     *,
-    progress_callback: Callable[[str, int], None] | None = None,
+    progress_callback: Callable[[str, str, float, int, int], None] | None = None,
 ) -> tuple[PhoneScanUploadedFileEntry, bool]:
-    def report(step: str, progress: int) -> None:
+    def report(state: str, step: str, progress: float, pages_done: int, pages_total: int) -> None:
         if progress_callback:
-            progress_callback(step, progress)
+            progress_callback(state, step, progress, pages_done, pages_total)
 
-    report("1/5: Konvertiere", 20)
+    pages_total = max(0, len(job.raw_paths))
+    report("receiving", "convert", 0.1, 0, pages_total)
     processed_pages: list[Image.Image] = []
     used_fallback_any = False
     proc_dir = _scan_proc_dir(job.session_id)
@@ -898,21 +902,42 @@ def process_phone_scan_job(
     debug_enabled = _is_scan_debug_enabled()
 
     for index, raw_path in enumerate(job.raw_paths, start=1):
+        pages_done_before = max(0, index - 1)
+        report(
+            "processing",
+            "detect",
+            max(0.1, 0.1 + 0.7 * (pages_done_before / max(1, pages_total))),
+            pages_done_before,
+            pages_total,
+        )
         image = _load_image(raw_path)
-        report(f"2/5: Erkenne Dokument ({index}/{len(job.raw_paths)})", 35)
-        optimized, used_fallback, debug_overlay = _optimize_page(image, filter_mode=job.filter_mode)
+        report(
+            "processing",
+            "warp",
+            max(0.12, 0.1 + 0.7 * (pages_done_before / max(1, pages_total))),
+            pages_done_before,
+            pages_total,
+        )
+        scan_result = run_document_scan_pipeline(image)
+        optimized = scan_result.image
+        used_fallback = not scan_result.used_warp
         used_fallback_any = used_fallback_any or used_fallback
-        report(f"3/5: Begradige ({index}/{len(job.raw_paths)})", 55)
-        report(f"4/5: Optimiere ({index}/{len(job.raw_paths)})", 75)
+        report(
+            "processing",
+            "clean",
+            max(0.14, 0.1 + 0.7 * (index / max(1, pages_total))),
+            index,
+            pages_total,
+        )
         processed_pages.append(optimized)
-        if debug_enabled and debug_overlay is not None:
+        if debug_enabled:
             debug_path = proc_dir / f"{index:03d}_debug_quad_overlay.jpg"
-            debug_overlay.save(debug_path, format="JPEG", quality=82, optimize=True)
+            optimized.save(debug_path, format="JPEG", quality=82, optimize=True)
         out_name = f"{index:03d}.jpg"
         out_path = proc_dir / out_name
         optimized.save(out_path, format="JPEG", quality=84, optimize=True)
 
-    report("5/5: Erzeuge PDF", 90)
+    report("processing", "pdf", 0.9, pages_total, pages_total)
     pdf_bytes = _build_pdf_bytes(processed_pages)
     pdf_dir = _scan_pdf_dir(job.session_id)
     pdf_dir.mkdir(parents=True, exist_ok=True)
@@ -1025,8 +1050,8 @@ class _InMemoryPhoneScanStore:
                 )
             session.state = "receiving"
             session.error_message = None
-            session.step = "Empfange Fotos"
-            session.progress = 5
+            session.step = "convert"
+            session.progress = 0
             return copy.deepcopy(session)
 
     def mark_job_queued(self, token: str, *, job_id: str, filenames: list[str], client_info: dict[str, str]) -> None:
@@ -1035,8 +1060,8 @@ class _InMemoryPhoneScanStore:
             session.latest_job_id = job_id
             session.pending_jobs += 1
             session.state = "receiving"
-            session.step = "Upload empfangen"
-            session.progress = 12
+            session.step = "convert"
+            session.progress = 10
             if client_info:
                 session.client_info.update({k: v for k, v in client_info.items() if v})
             if filenames:
@@ -1056,7 +1081,7 @@ class _InMemoryPhoneScanStore:
             session.files.append(uploaded_entry)
             session.latest_result_source_file_id = uploaded_entry.source_file_id
             session.state = "ready"
-            session.step = "PDF bereit"
+            session.step = "pdf"
             session.progress = 100
             session.error_message = None
             if len(session.files) >= session.max_files:
@@ -1067,7 +1092,7 @@ class _InMemoryPhoneScanStore:
             session = self._get_by_token_locked(token)
             session.pending_jobs = max(0, session.pending_jobs - 1)
             session.state = "error"
-            session.step = "Verarbeitung fehlgeschlagen"
+            session.step = "clean"
             session.progress = 0
             session.error_message = str(message)[:500]
 
@@ -1079,6 +1104,7 @@ class _InMemoryPhoneScanStore:
             external_state = str(payload.get("state") or "").strip().lower()
             external_step = str(payload.get("step") or "").strip()
             external_error = str(payload.get("errorMessage") or "").strip()
+            external_latest_job_id = str(payload.get("latestJobId") or payload.get("latest_job_id") or "").strip()
             try:
                 external_progress = int(payload.get("progress") or session.progress)
             except Exception:
@@ -1090,6 +1116,8 @@ class _InMemoryPhoneScanStore:
                     session.pending_jobs = 0
             if external_step:
                 session.step = external_step
+            if external_latest_job_id:
+                session.latest_job_id = external_latest_job_id
             session.progress = max(0, min(100, external_progress))
             session.error_message = external_error or None
 
@@ -1140,6 +1168,7 @@ class _PhoneScanJobRunner:
             except Exception as exc:  # pragma: no cover - defensive
                 logger.exception("phone scan job failed session=%s job=%s err=%s", job.session_id, job.job_id, exc)
                 _STORE.mark_error(job.token, message=str(exc))
+                fail_job(job.job_id, str(exc))
                 try:
                     snapshot = _STORE.get_by_token(job.token)
                     _write_external_status(
@@ -1148,7 +1177,7 @@ class _PhoneScanJobRunner:
                             session_id=job.session_id,
                             token=job.token,
                             state=snapshot.state,
-                            step=snapshot.step or "Verarbeitung fehlgeschlagen",
+                            step=snapshot.step or "clean",
                             progress=snapshot.progress,
                             error_message=snapshot.error_message or str(exc),
                             files=snapshot.files,
@@ -1162,11 +1191,32 @@ class _PhoneScanJobRunner:
                 self._queue.task_done()
 
     def _process_job(self, job: PhoneScanJob) -> None:
+        def on_progress(state: str, step: str, progress: float, pages_done: int, pages_total: int) -> None:
+            _STORE.update_processing(job.token, step=step, progress=int(max(0.0, min(1.0, progress)) * 100))
+            upsert_job(
+                job.job_id,
+                state="processing" if state == "processing" else "receiving",
+                step=step,
+                progress=progress,
+                pages_total=pages_total,
+                pages_done=pages_done,
+                error=None,
+            )
+
         uploaded_entry, used_fallback_any = process_phone_scan_job(
             job,
-            progress_callback=lambda step, progress: _STORE.update_processing(job.token, step=step, progress=progress),
+            progress_callback=on_progress,
         )
         _STORE.mark_ready(job.token, uploaded_entry=uploaded_entry)
+        upsert_job(
+            job.job_id,
+            state="ready",
+            step="pdf",
+            progress=1.0,
+            pages_total=max(1, len(job.raw_paths)),
+            pages_done=max(1, len(job.raw_paths)),
+            error=None,
+        )
         try:
             snapshot = _STORE.get_by_token(job.token)
             _write_external_status(
@@ -1175,7 +1225,7 @@ class _PhoneScanJobRunner:
                     session_id=job.session_id,
                     token=job.token,
                     state=snapshot.state,
-                    step=snapshot.step or "PDF bereit",
+                    step=snapshot.step or "pdf",
                     progress=snapshot.progress,
                     error_message=snapshot.error_message,
                     files=snapshot.files,
@@ -1222,7 +1272,7 @@ class PhoneScanService:
                     session_id=session.id,
                     token=session.token,
                     state="waiting",
-                    step="Warte auf Upload…",
+                    step="convert",
                     progress=0,
                     files=session.files,
                     latest_job_id=None,
@@ -1263,6 +1313,7 @@ class PhoneScanService:
             maxFiles=session.max_files,
             stageId=session.target_stage_id,
             resultDocId=session.latest_result_source_file_id,
+            latestJobId=session.latest_job_id,
             errorMessage=session.error_message,
         )
 
@@ -1312,6 +1363,20 @@ class PhoneScanService:
             client_timestamps.append(item_meta.client_timestamp)
 
         job_id = str(uuid.uuid4())
+        ensure_job(job_id, pages_total=len(raw_paths), session_id=session_id, token=normalized_token)
+        upsert_job(
+            job_id,
+            session_id=session_id,
+            token=normalized_token,
+            state="receiving",
+            step="convert",
+            progress=0.0,
+            pages_total=len(raw_paths),
+            pages_done=0,
+            error=None,
+        )
+        for original_name in original_names:
+            add_recent_file(job_id, original_name)
         _STORE.mark_job_queued(
             normalized_token,
             job_id=job_id,
@@ -1343,7 +1408,7 @@ class PhoneScanService:
                     session_id=session_id,
                     token=normalized_token,
                     state=snapshot.state,
-                    step=snapshot.step or "Upload empfangen",
+                    step=snapshot.step or "convert",
                     progress=snapshot.progress,
                     error_message=snapshot.error_message,
                     files=snapshot.files,
@@ -1364,4 +1429,66 @@ class PhoneScanService:
 
         if not external_enqueued:
             _RUNNER.enqueue(job)
-        return PhoneScanUploadResponse(received=len(raw_paths), jobId=job_id)
+        return PhoneScanUploadResponse(received=True, receivedCount=len(raw_paths), jobId=job_id)
+
+    def get_job_status(self, *, job_id: str) -> PhoneScanJobStatusResponse:
+        normalized_job_id = str(job_id or "").strip()
+        if not normalized_job_id:
+            raise BadRequestError("jobId is required")
+        job = get_job(normalized_job_id)
+        if not job:
+            raise NotFoundError("Phone scan job not found")
+        if job.session_id and job.token:
+            external_status = _read_external_status(job.session_id)
+            if external_status and str(external_status.get("token") or "").strip() == job.token:
+                ext_job_id = str(external_status.get("latestJobId") or "").strip()
+                if ext_job_id == normalized_job_id:
+                    state = str(external_status.get("state") or "").strip().lower()
+                    step = str(external_status.get("step") or "").strip().lower()
+                    try:
+                        progress = float(external_status.get("progress") or 0) / 100.0
+                    except Exception:
+                        progress = float(job.progress)
+                    if state in {"receiving", "processing", "ready", "error"}:
+                        mapped_state = state
+                    else:
+                        mapped_state = job.state
+                    if step in {"convert", "detect", "warp", "clean", "pdf"}:
+                        mapped_step = step
+                    elif mapped_state in {"receiving"}:
+                        mapped_step = "convert"
+                    elif mapped_state in {"ready"}:
+                        mapped_step = "pdf"
+                    else:
+                        mapped_step = job.step
+                    pages_total = max(0, int(job.pages_total))
+                    pages_done = int(job.pages_done)
+                    if pages_total > 0:
+                        if mapped_step in {"detect", "warp", "clean"}:
+                            normalized = max(0.0, min(1.0, (progress - 0.1) / 0.7))
+                            pages_done = max(0, min(pages_total, int(round(normalized * pages_total))))
+                        elif mapped_step == "pdf" or mapped_state == "ready":
+                            pages_done = pages_total
+                        elif mapped_step == "convert":
+                            pages_done = 0
+                    upsert_job(
+                        normalized_job_id,
+                        state=mapped_state,
+                        step=mapped_step,
+                        progress=max(0.0, min(1.0, progress)),
+                        pages_total=pages_total,
+                        pages_done=pages_done,
+                        error=str(external_status.get("errorMessage") or "").strip() or None,
+                    )
+                    job = get_job(normalized_job_id) or job
+        return PhoneScanJobStatusResponse(
+            jobId=job.job_id,
+            state=job.state,
+            step=job.step,
+            progress=max(0.0, min(1.0, float(job.progress))),
+            pagesTotal=max(0, int(job.pages_total)),
+            pagesDone=max(0, int(job.pages_done)),
+            recentFiles=list(job.recent_files[:3]),
+            error=job.error,
+            updatedAt=job.updated_at,
+        )
