@@ -392,39 +392,38 @@ def _downscale_for_analysis(image: Image.Image, long_edge: int = 1200) -> tuple[
     return image.resize((width, height), resample=Image.Resampling.LANCZOS), scale
 
 
-def _detect_document_bbox_fallback(image: Image.Image) -> tuple[int, int, int, int] | None:
-    analysis, scale = _downscale_for_analysis(image, long_edge=1200)
-    gray = ImageOps.grayscale(analysis)
-    gray = ImageOps.autocontrast(gray, cutoff=1)
-    edges = gray.filter(ImageFilter.FIND_EDGES)
-    mask = edges.point(lambda value: 255 if value > 36 else 0)
-    mask = mask.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.MedianFilter(3))
-    bbox = mask.getbbox()
-    if not bbox:
-        return None
+def _clamp_float(value: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, float(value)))
 
-    left, top, right, bottom = bbox
-    width = max(1, right - left)
-    height = max(1, bottom - top)
-    area_ratio = (width * height) / float(max(1, analysis.width * analysis.height))
-    if area_ratio < 0.2:
-        return None
 
-    # Expand slightly to avoid clipping document edges.
-    pad_x = int(round(width * 0.03))
-    pad_y = int(round(height * 0.03))
-    left = max(0, left - pad_x)
-    top = max(0, top - pad_y)
-    right = min(analysis.width, right + pad_x)
-    bottom = min(analysis.height, bottom + pad_y)
+def _center_crop_bbox(width: int, height: int, ratio: float = 0.85) -> tuple[int, int, int, int]:
+    crop_ratio = _clamp_float(ratio, 0.6, 0.95)
+    target_w = max(40, int(round(width * crop_ratio)))
+    target_h = max(40, int(round(height * crop_ratio)))
+    left = max(0, (width - target_w) // 2)
+    top = max(0, (height - target_h) // 2)
+    right = min(width, left + target_w)
+    bottom = min(height, top + target_h)
+    return left, top, right, bottom
 
-    inv_scale = 1.0 / max(scale, 1e-9)
-    return (
-        int(round(left * inv_scale)),
-        int(round(top * inv_scale)),
-        int(round(right * inv_scale)),
-        int(round(bottom * inv_scale)),
+
+def _bbox_to_quad(left: int, top: int, right: int, bottom: int) -> "np.ndarray":
+    return np.array(
+        [
+            [float(left), float(top)],
+            [float(right - 1), float(top)],
+            [float(right - 1), float(bottom - 1)],
+            [float(left), float(bottom - 1)],
+        ],
+        dtype=np.float32,
     )
+
+
+def _adaptive_canny(gray: "np.ndarray") -> "np.ndarray":
+    median = float(np.median(gray))
+    lower = int(_clamp_float(0.66 * median, 20, 220))
+    upper = int(_clamp_float(1.33 * median, lower + 20, 255))
+    return cv2.Canny(gray, lower, upper)
 
 
 def _order_points(points: "np.ndarray") -> "np.ndarray":
@@ -437,77 +436,219 @@ def _order_points(points: "np.ndarray") -> "np.ndarray":
     return np.array([tl, tr, br, bl], dtype=np.float32)
 
 
-def _try_warp_with_opencv(image: Image.Image) -> tuple[Image.Image, bool]:
-    if not OPENCV_AVAILABLE:
-        return image, False
+def _quad_angles_score(quad: "np.ndarray") -> float:
+    def angle(a: "np.ndarray", b: "np.ndarray", c: "np.ndarray") -> float:
+        ba = a - b
+        bc = c - b
+        denom = float(np.linalg.norm(ba) * np.linalg.norm(bc))
+        if denom <= 1e-6:
+            return 0.0
+        cosine = _clamp_float(float(np.dot(ba, bc)) / denom, -1.0, 1.0)
+        return float(np.degrees(np.arccos(cosine)))
 
-    rgb = image.convert("RGB")
-    arr = np.array(rgb)  # type: ignore[arg-type]
-    bgr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
-    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-    blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    edges = cv2.Canny(blur, 75, 200)
-    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    frame_area = arr.shape[0] * arr.shape[1]
+    tl, tr, br, bl = quad
+    angles = [
+        angle(bl, tl, tr),
+        angle(tl, tr, br),
+        angle(tr, br, bl),
+        angle(br, bl, tl),
+    ]
+    mean_deviation = float(np.mean([abs(item - 90.0) for item in angles]))
+    return _clamp_float(1.0 - (mean_deviation / 25.0), 0.0, 1.0)
 
-    best_quad = None
-    best_area = 0.0
-    for contour in contours:
+
+def _quad_aspect_ratio(quad: "np.ndarray") -> float:
+    tl, tr, br, bl = quad
+    width = (float(np.linalg.norm(tr - tl)) + float(np.linalg.norm(br - bl))) / 2.0
+    height = (float(np.linalg.norm(bl - tl)) + float(np.linalg.norm(br - tr))) / 2.0
+    if height <= 1e-6:
+        return 0.0
+    return width / height
+
+
+def _select_quad_candidate(contours: list["np.ndarray"], image_area: float) -> tuple["np.ndarray | None", bool]:
+    best_score = -1.0
+    best_quad: "np.ndarray" | None = None
+    largest_contour: "np.ndarray" | None = None
+    largest_area = 0.0
+    sorted_contours = sorted(contours, key=lambda item: abs(float(cv2.contourArea(item))), reverse=True)[:20]
+
+    for contour in sorted_contours:
         area = abs(float(cv2.contourArea(contour)))
-        if area < frame_area * 0.2 or area <= best_area:
+        if area > largest_area:
+            largest_area = area
+            largest_contour = contour
+        if area <= 0:
+            continue
+
+        perimeter = cv2.arcLength(contour, True)
+        if perimeter <= 1e-6:
             continue
         perimeter = cv2.arcLength(contour, True)
         approx = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
-        if len(approx) != 4:
+        if len(approx) != 4 or not cv2.isContourConvex(approx):
             continue
-        points = approx.reshape(4, 2).astype(np.float32)
-        ordered = _order_points(points)
-        best_quad = ordered
-        best_area = area
 
-    if best_quad is None:
-        return image, False
+        quad = _order_points(approx.reshape(4, 2).astype(np.float32))
+        x, y, width, height = cv2.boundingRect(approx)
+        bounding_area = float(max(1, width * height))
+        rectangularity = area / bounding_area
+        area_ratio = area / float(max(1.0, image_area))
+        aspect_ratio = _quad_aspect_ratio(quad)
+        angle_score = _quad_angles_score(quad)
 
-    tl, tr, br, bl = best_quad
-    width_a = np.linalg.norm(br - bl)
-    width_b = np.linalg.norm(tr - tl)
-    height_a = np.linalg.norm(tr - br)
-    height_b = np.linalg.norm(tl - bl)
-    max_width = int(max(width_a, width_b))
-    max_height = int(max(height_a, height_b))
-    if max_width < 20 or max_height < 20:
-        return image, False
+        if area_ratio < 0.2 or area_ratio > 0.98:
+            continue
+        if rectangularity < 0.7:
+            continue
+        if aspect_ratio < 0.6 or aspect_ratio > 1.7:
+            continue
+
+        area_score = _clamp_float((area_ratio - 0.2) / 0.55, 0.0, 1.0)
+        rect_score = _clamp_float((rectangularity - 0.7) / 0.25, 0.0, 1.0)
+        aspect_center = 1.0
+        aspect_score = _clamp_float(1.0 - abs(aspect_ratio - aspect_center) / 0.7, 0.0, 1.0)
+        score = 0.4 * area_score + 0.25 * rect_score + 0.25 * angle_score + 0.1 * aspect_score
+        if score > best_score:
+            best_score = score
+            best_quad = quad
+
+    if best_quad is not None:
+        return best_quad, False
+
+    if largest_contour is not None and largest_area / float(max(1.0, image_area)) >= 0.08:
+        rect = cv2.minAreaRect(largest_contour)
+        box = cv2.boxPoints(rect)
+        box_area = abs(float(cv2.contourArea(box.astype(np.float32))))
+        box_ratio = box_area / float(max(1.0, image_area))
+        if 0.1 <= box_ratio <= 0.98:
+            return _order_points(box.astype(np.float32)), True
+
+    return None, True
+
+
+def _draw_debug_quad(image_rgb: "np.ndarray", quad: "np.ndarray") -> Image.Image:
+    debug = image_rgb.copy()
+    pts = quad.astype(np.int32).reshape((-1, 1, 2))
+    cv2.polylines(debug, [pts], True, (50, 230, 90), 4)
+    for point in quad.astype(np.int32):
+        cv2.circle(debug, (int(point[0]), int(point[1])), 7, (255, 80, 80), -1)
+    return Image.fromarray(debug, mode="RGB")
+
+
+def _try_warp_with_opencv(image: Image.Image) -> tuple[Image.Image, bool, Image.Image | None]:
+    if not OPENCV_AVAILABLE:
+        left, top, right, bottom = _center_crop_bbox(image.width, image.height, ratio=0.85)
+        cropped = image.crop((left, top, right, bottom))
+        return cropped, True, None
+
+    original_rgb = np.array(image.convert("RGB"))  # type: ignore[arg-type]
+    analysis_img, scale = _downscale_for_analysis(image, long_edge=1200)
+    analysis_rgb = np.array(analysis_img.convert("RGB"))  # type: ignore[arg-type]
+    gray = cv2.cvtColor(analysis_rgb, cv2.COLOR_RGB2GRAY)
+    denoised = cv2.bilateralFilter(gray, 9, 55, 55)
+    edges = _adaptive_canny(denoised)
+    close_kernel = np.ones((5, 5), dtype=np.uint8)
+    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, close_kernel, iterations=2)
+    thresh = cv2.adaptiveThreshold(
+        denoised,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        31,
+        8,
+    )
+    thresh = cv2.bitwise_not(thresh)
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, close_kernel, iterations=1)
+    combined = cv2.bitwise_or(edges, thresh)
+    contours, _ = cv2.findContours(combined, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    image_area = float(max(1, analysis_rgb.shape[0] * analysis_rgb.shape[1]))
+    quad_analysis, used_fallback = _select_quad_candidate(contours, image_area)
+
+    if quad_analysis is None:
+        left, top, right, bottom = _center_crop_bbox(analysis_rgb.shape[1], analysis_rgb.shape[0], ratio=0.85)
+        quad_analysis = _bbox_to_quad(left, top, right, bottom)
+        used_fallback = True
+
+    inv_scale = 1.0 / max(scale, 1e-9)
+    quad_original = quad_analysis * inv_scale
+    quad_original[:, 0] = np.clip(quad_original[:, 0], 0, original_rgb.shape[1] - 1)
+    quad_original[:, 1] = np.clip(quad_original[:, 1], 0, original_rgb.shape[0] - 1)
+    quad_original = _order_points(quad_original.astype(np.float32))
+    quad_area = abs(float(cv2.contourArea(quad_original)))
+    frame_area = float(max(1, original_rgb.shape[0] * original_rgb.shape[1]))
+    if quad_area / frame_area > 0.985:
+        left, top, right, bottom = _center_crop_bbox(original_rgb.shape[1], original_rgb.shape[0], ratio=0.85)
+        quad_original = _bbox_to_quad(left, top, right, bottom)
+        used_fallback = True
+
+    tl, tr, br, bl = quad_original
+    width_a = float(np.linalg.norm(br - bl))
+    width_b = float(np.linalg.norm(tr - tl))
+    height_a = float(np.linalg.norm(tr - br))
+    height_b = float(np.linalg.norm(tl - bl))
+    max_width = max(32, int(round(max(width_a, width_b))))
+    max_height = max(32, int(round(max(height_a, height_b))))
 
     destination = np.array(
         [[0, 0], [max_width - 1, 0], [max_width - 1, max_height - 1], [0, max_height - 1]],
         dtype=np.float32,
     )
-    matrix = cv2.getPerspectiveTransform(best_quad, destination)
-    warped = cv2.warpPerspective(arr, matrix, (max_width, max_height))
-    return Image.fromarray(warped, mode="RGB"), True
+    matrix = cv2.getPerspectiveTransform(quad_original, destination)
+    warped = cv2.warpPerspective(original_rgb, matrix, (max_width, max_height))
+    debug_overlay = _draw_debug_quad(original_rgb, quad_original)
+    return Image.fromarray(warped, mode="RGB"), used_fallback, debug_overlay
 
 
 def _crop_border_cleanup(image: Image.Image) -> Image.Image:
+    if OPENCV_AVAILABLE:
+        rgb = np.array(image.convert("RGB"))  # type: ignore[arg-type]
+        gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+        blur = cv2.GaussianBlur(gray, (5, 5), 0)
+        threshold_floor = int(_clamp_float(np.percentile(blur, 55), 80, 220))
+        bright_mask = cv2.inRange(blur, threshold_floor, 255)
+        kernel = np.ones((7, 7), dtype=np.uint8)
+        bright_mask = cv2.morphologyEx(bright_mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+        contours, _ = cv2.findContours(bright_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        total_area = float(max(1, rgb.shape[0] * rgb.shape[1]))
+
+        best_bbox: tuple[int, int, int, int] | None = None
+        best_area = 0.0
+        for contour in contours:
+            area = abs(float(cv2.contourArea(contour)))
+            if area <= best_area:
+                continue
+            x, y, width, height = cv2.boundingRect(contour)
+            if width < 24 or height < 24:
+                continue
+            area_ratio = area / total_area
+            if area_ratio < 0.35:
+                continue
+            best_area = area
+            best_bbox = (x, y, x + width, y + height)
+
+        if best_bbox:
+            left, top, right, bottom = best_bbox
+            inset = max(2, min(20, int(round(min(right - left, bottom - top) * 0.01))))
+            left = min(max(0, left + inset), image.width - 1)
+            top = min(max(0, top + inset), image.height - 1)
+            right = max(left + 1, min(image.width, right - inset))
+            bottom = max(top + 1, min(image.height, bottom - inset))
+            return image.crop((left, top, right, bottom))
+
     gray = ImageOps.grayscale(image)
-    contrast = ImageOps.autocontrast(gray, cutoff=1)
-    inverted = ImageOps.invert(contrast)
-    mask = inverted.point(lambda value: 255 if value > 12 else 0)
+    gray = ImageOps.autocontrast(gray, cutoff=1)
+    mask = gray.point(lambda value: 255 if value > 32 else 0)
     bbox = mask.getbbox()
     if not bbox:
-        return image
-
+        left, top, right, bottom = _center_crop_bbox(image.width, image.height, ratio=0.92)
+        return image.crop((left, top, right, bottom))
     left, top, right, bottom = bbox
-    width = max(1, right - left)
-    height = max(1, bottom - top)
-    area_ratio = (width * height) / float(max(1, image.width * image.height))
-    if area_ratio < 0.3:
-        return image
-
-    margin = max(2, int(round(min(width, height) * 0.01)))
-    left = max(0, left - margin)
-    top = max(0, top - margin)
-    right = min(image.width, right + margin)
-    bottom = min(image.height, bottom + margin)
+    inset = max(2, min(20, int(round(min(right - left, bottom - top) * 0.01))))
+    left = min(max(0, left + inset), image.width - 1)
+    top = min(max(0, top + inset), image.height - 1)
+    right = max(left + 1, min(image.width, right - inset))
+    bottom = max(top + 1, min(image.height, bottom - inset))
     return image.crop((left, top, right, bottom))
 
 
@@ -516,17 +657,24 @@ def _apply_clean_scan_filter(image: Image.Image) -> Image.Image:
         rgb = np.array(image.convert("RGB"))  # type: ignore[arg-type]
         lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)
         l_channel, a_channel, b_channel = cv2.split(lab)
-        clahe = cv2.createCLAHE(clipLimit=2.2, tileGridSize=(8, 8))
+        clahe = cv2.createCLAHE(clipLimit=2.8, tileGridSize=(8, 8))
         l_channel = clahe.apply(l_channel)
-        merged = cv2.merge((l_channel, a_channel, b_channel))
-        rgb_balanced = cv2.cvtColor(merged, cv2.COLOR_LAB2RGB)
+        p5 = float(np.percentile(l_channel, 5))
+        p98 = float(np.percentile(l_channel, 98))
+        if p98 - p5 < 20:
+            p98 = p5 + 20
+        l_stretch = np.clip((l_channel.astype(np.float32) - p5) * (255.0 / (p98 - p5)), 0, 255).astype(np.uint8)
 
-        blurred = cv2.GaussianBlur(rgb_balanced, (0, 0), 1.0)
-        sharpened = cv2.addWeighted(rgb_balanced, 1.2, blurred, -0.2, 0)
-        gray = cv2.cvtColor(sharpened, cv2.COLOR_RGB2GRAY)
-        boosted = np.clip(gray.astype(np.float32) * 1.06, 0, 255).astype(np.uint8)
-        boosted[boosted > 245] = 255
-        return Image.fromarray(cv2.cvtColor(boosted, cv2.COLOR_GRAY2RGB), mode="RGB")
+        background = cv2.GaussianBlur(l_stretch, (0, 0), 25)
+        bg_mean = float(np.mean(background))
+        shadow_lift = np.clip(l_stretch.astype(np.float32) + (bg_mean - background.astype(np.float32)) * 0.65, 0, 255).astype(np.uint8)
+        shadow_lift[shadow_lift > 245] = 255
+
+        merged = cv2.merge((shadow_lift, a_channel, b_channel))
+        rgb_balanced = cv2.cvtColor(merged, cv2.COLOR_LAB2RGB)
+        sharp = cv2.GaussianBlur(rgb_balanced, (0, 0), 1.1)
+        out = cv2.addWeighted(rgb_balanced, 1.22, sharp, -0.22, 0)
+        return Image.fromarray(out, mode="RGB")
 
     gray = ImageOps.grayscale(image)
     gray = ImageOps.autocontrast(gray, cutoff=1)
@@ -571,30 +719,24 @@ def _resize_for_pdf(image: Image.Image, long_edge: int = 2200) -> Image.Image:
     return image.resize((width, height), resample=Image.Resampling.LANCZOS)
 
 
-def _optimize_page(image: Image.Image, *, filter_mode: Literal["clean", "bw"] = "clean") -> tuple[Image.Image, bool]:
-    used_fallback = False
+def _is_scan_debug_enabled() -> bool:
+    raw = str(os.getenv("VITE_WEBSCAN_DEBUG") or os.getenv("PHONE_SCAN_DEBUG") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
 
-    warped, warped_ok = _try_warp_with_opencv(image)
-    if not warped_ok:
-        bbox = _detect_document_bbox_fallback(image)
-        if bbox:
-            left, top, right, bottom = bbox
-            if right - left > 20 and bottom - top > 20:
-                warped = image.crop((left, top, right, bottom))
-            else:
-                warped = image
-                used_fallback = True
-        else:
-            warped = image
-            used_fallback = True
 
+def _optimize_page(
+    image: Image.Image,
+    *,
+    filter_mode: Literal["clean", "bw"] = "clean",
+) -> tuple[Image.Image, bool, Image.Image | None]:
+    warped, used_fallback, debug_overlay = _try_warp_with_opencv(image)
     cleaned = _crop_border_cleanup(warped)
     if filter_mode == "bw":
         filtered = _apply_bw_scan_filter(cleaned)
     else:
         filtered = _apply_clean_scan_filter(cleaned)
     final_page = _resize_for_pdf(filtered, long_edge=2200)
-    return final_page, used_fallback
+    return final_page, used_fallback, debug_overlay
 
 
 def _build_pdf_bytes(images: list[Image.Image]) -> bytes:
@@ -753,15 +895,19 @@ def process_phone_scan_job(
     used_fallback_any = False
     proc_dir = _scan_proc_dir(job.session_id)
     proc_dir.mkdir(parents=True, exist_ok=True)
+    debug_enabled = _is_scan_debug_enabled()
 
     for index, raw_path in enumerate(job.raw_paths, start=1):
         image = _load_image(raw_path)
         report(f"2/5: Erkenne Dokument ({index}/{len(job.raw_paths)})", 35)
-        optimized, used_fallback = _optimize_page(image, filter_mode=job.filter_mode)
+        optimized, used_fallback, debug_overlay = _optimize_page(image, filter_mode=job.filter_mode)
         used_fallback_any = used_fallback_any or used_fallback
         report(f"3/5: Begradige ({index}/{len(job.raw_paths)})", 55)
         report(f"4/5: Optimiere ({index}/{len(job.raw_paths)})", 75)
         processed_pages.append(optimized)
+        if debug_enabled and debug_overlay is not None:
+            debug_path = proc_dir / f"{index:03d}_debug_quad_overlay.jpg"
+            debug_overlay.save(debug_path, format="JPEG", quality=82, optimize=True)
         out_name = f"{index:03d}.jpg"
         out_path = proc_dir / out_name
         optimized.save(out_path, format="JPEG", quality=84, optimize=True)
