@@ -8,9 +8,15 @@
       <div class="pdf-preview__state-subtitle">{{ errorMessage }}</div>
     </div>
 
-    <!-- Erstes Laden -->
+    <!-- Erstes Laden: Fortschrittsbalken -->
     <div v-else-if="isLoading" class="pdf-preview__state pdf-preview__state--loading">
-      <v-progress-circular size="18" width="2" indeterminate />
+      <div class="pdf-preview__progress-wrap" role="progressbar" :aria-valuenow="loadIndeterminate ? undefined : loadProgress" aria-valuemin="0" aria-valuemax="100">
+        <div
+          class="pdf-preview__progress-bar"
+          :class="{ 'pdf-preview__progress-bar--indeterminate': loadIndeterminate }"
+          :style="loadIndeterminate ? {} : { width: `${loadProgress}%` }"
+        />
+      </div>
       <span>Vorschau wird geladen…</span>
     </div>
 
@@ -69,8 +75,10 @@ GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 // ─── Props & Emits ────────────────────────────────────────────────────────────
 
 const props = defineProps({
-  src: { type: String, default: '' },
-  targetPage: { type: Number, default: null }
+  src:           { type: String, default: '' },
+  targetPage:    { type: Number, default: null },
+  /** Text der im TextLayer hervorgehoben werden soll (z.B. citation.snippet) */
+  highlightText: { type: String, default: '' },
 });
 const emit = defineEmits(['loaded', 'failed']);
 
@@ -84,27 +92,27 @@ const currentZoom = computed(() => ZOOM_STEPS[zoomIndex.value]);
 const zoomPercent = computed(() => Math.round(currentZoom.value * 100));
 
 function zoomIn() {
-  if (zoomIndex.value < ZOOM_STEPS.length - 1) {
-    zoomIndex.value++;
-  }
+  if (zoomIndex.value < ZOOM_STEPS.length - 1) zoomIndex.value++;
 }
 function zoomOut() {
-  if (zoomIndex.value > 0) {
-    zoomIndex.value--;
-  }
+  if (zoomIndex.value > 0) zoomIndex.value--;
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
-const rootEl = ref(null);
-const pagesEl = ref(null);
-const isLoading = ref(false);
+const rootEl     = ref(null);
+const pagesEl    = ref(null);
+const isLoading  = ref(false);
 const errorMessage = ref('');
+
+/** Ladefortschritt (0-100); -1 = unbekannte Größe */
+const loadProgress    = ref(0);
+const loadIndeterminate = ref(false);
 
 /** Dimensionen aller Seiten – ohne Rendering befüllt */
 const pageInfos = ref([]); // [{ page, width, height }]
 
-/** Bereits gerenderte Seiten (plain Set – kein reactive nötig, DOM wird imperativ verwaltet) */
+/** Bereits gerenderte Seiten (plain Set – DOM wird imperativ verwaltet) */
 const renderedPages = new Set();
 
 /** Aktuell sichtbare Seite (für Seitenanzeige) */
@@ -112,20 +120,20 @@ const currentPage = ref(1);
 
 // ─── Interne Handles ──────────────────────────────────────────────────────────
 
-let loadEpoch = 0;
-let pdfDoc = null;
+let loadEpoch      = 0;
+let pdfDoc         = null;
 let activeLoadTask = null;
 let renderObserver = null;
 let resizeObserver = null;
-let scrollRafId = null;
-const renderQueue = new Set();
+let scrollRafId    = null;
+const renderQueue  = new Set();
 
 /** Imperative Refs: pageNum → inneres HTMLElement */
 const pageInnerRefs = new Map();
 
 function setInnerRef(el, pageNum) {
   if (el) pageInnerRefs.set(pageNum, el);
-  else pageInnerRefs.delete(pageNum);
+  else    pageInnerRefs.delete(pageNum);
 }
 
 // ─── Hilfsfunktionen ─────────────────────────────────────────────────────────
@@ -140,13 +148,60 @@ function computeScale(info) {
   return Math.max(0.2, base * currentZoom.value);
 }
 
-/** Inline-Style für jedes Seiten-article (bestimmt Scrollhöhe vor dem Rendern) */
 function pageStyle(info) {
   const scale = computeScale(info);
-  const w = Math.floor(info.width * scale);
-  const h = Math.floor(info.height * scale);
-  return { width: `${w}px`, height: `${h}px` };
+  return {
+    width:  `${Math.floor(info.width  * scale)}px`,
+    height: `${Math.floor(info.height * scale)}px`,
+  };
 }
+
+// ─── Highlighting ─────────────────────────────────────────────────────────────
+
+/**
+ * Extrahiert Suchbegriffe aus dem highlightText-Prop:
+ * Split nach Whitespace, entfernt Sonderzeichen, filtert kurze Wörter.
+ */
+function extractTerms() {
+  if (!props.highlightText) return [];
+  return props.highlightText
+    .split(/\s+/)
+    .map(w => w.replace(/[^\wäöüÄÖÜß]/gi, ''))
+    .filter(w => w.length >= 3);
+}
+
+/**
+ * Markiert passende Spans im TextLayer mit der Klasse `pm-highlight`.
+ * Wird nach jedem TextLayer-Rendering aufgerufen.
+ */
+function applyHighlights(textLayerDiv) {
+  const terms = extractTerms();
+  if (!terms.length) return;
+
+  const spans = textLayerDiv.querySelectorAll('span');
+  for (const span of spans) {
+    const text = span.textContent || '';
+    if (terms.some(term => text.toLowerCase().includes(term.toLowerCase()))) {
+      span.classList.add('pm-highlight');
+    }
+  }
+}
+
+/**
+ * Wird aufgerufen wenn sich highlightText ändert ohne neues PDF-Loading.
+ * Entfernt alte Markierungen und setzt neue auf bereits gerenderten Seiten.
+ */
+watch(() => props.highlightText, () => {
+  for (const [pageNum, el] of pageInnerRefs.entries()) {
+    // Alte Markierungen entfernen
+    el.querySelectorAll('.pm-highlight').forEach(s => s.classList.remove('pm-highlight'));
+    // Neue setzen wenn Seite bereits gerendert
+    if (renderedPages.has(pageNum)) {
+      const tl = el.querySelector('.textLayer');
+      if (tl) applyHighlights(tl);
+    }
+  }
+});
 
 // ─── Rendering ───────────────────────────────────────────────────────────────
 
@@ -168,15 +223,15 @@ async function renderPage(pageNum) {
     const innerEl = pageInnerRefs.get(pageNum);
     if (!innerEl) return;
 
-    const scale = computeScale(info);
+    const scale    = computeScale(info);
     const viewport = page.getViewport({ scale });
 
     // Canvas erstellen und rendern
     const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d', { alpha: false });
+    const ctx    = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
 
-    canvas.width = Math.floor(viewport.width);
+    canvas.width  = Math.floor(viewport.width);
     canvas.height = Math.floor(viewport.height);
 
     await page.render({ canvasContext: ctx, viewport, background: 'rgb(255,255,255)' }).promise;
@@ -194,6 +249,9 @@ async function renderPage(pageNum) {
     await textLayer.render();
     if (epoch !== loadEpoch) return;
 
+    // Highlights anwenden
+    applyHighlights(textLayerDiv);
+
     // LRU-Eviction: älteste Seite entfernen wenn Cache voll
     if (renderedPages.size >= MAX_CACHED_PAGES) {
       const oldest = renderedPages.values().next().value;
@@ -202,7 +260,7 @@ async function renderPage(pageNum) {
       if (oldEl) oldEl.innerHTML = '';
     }
 
-    // --total-scale-factor für TextLayer-Positionierung setzen
+    // --total-scale-factor für TextLayer-Positionierung
     innerEl.style.setProperty('--total-scale-factor', String(scale));
 
     // Canvas + TextLayer in DOM einhängen
@@ -221,31 +279,22 @@ async function renderPage(pageNum) {
 
 // ─── Observer Setup ──────────────────────────────────────────────────────────
 
-/** Welche Seite ist aktuell am nächsten zur Mitte des Containers? */
 function recalcCurrentPage() {
   const container = pagesEl.value;
   if (!container) return;
   const mid = container.scrollTop + container.clientHeight * 0.5;
   const articles = container.querySelectorAll('.pdf-preview__page');
-  let best = 1;
-  let bestDist = Infinity;
+  let best = 1, bestDist = Infinity;
   for (const el of articles) {
-    const elMid = el.offsetTop + el.offsetHeight * 0.5;
-    const dist = Math.abs(elMid - mid);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = Number(el.dataset.page);
-    }
+    const dist = Math.abs(el.offsetTop + el.offsetHeight * 0.5 - mid);
+    if (dist < bestDist) { bestDist = dist; best = Number(el.dataset.page); }
   }
   currentPage.value = best;
 }
 
 function onScroll() {
   if (scrollRafId) return;
-  scrollRafId = requestAnimationFrame(() => {
-    scrollRafId = null;
-    recalcCurrentPage();
-  });
+  scrollRafId = requestAnimationFrame(() => { scrollRafId = null; recalcCurrentPage(); });
 }
 
 function teardownObservers() {
@@ -261,22 +310,16 @@ async function setupObservers() {
   const container = pagesEl.value;
   if (!container) return;
 
-  // Render-Observer: Seiten 600 px vor Eintritt in den Viewport rendern
   renderObserver = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
-        if (entry.isIntersecting) {
-          renderPage(Number(entry.target.dataset.page));
-        }
+        if (entry.isIntersecting) renderPage(Number(entry.target.dataset.page));
       }
     },
     { root: container, rootMargin: '600px 0px', threshold: 0 }
   );
 
-  const articles = container.querySelectorAll('.pdf-preview__page');
-  articles.forEach((el) => renderObserver.observe(el));
-
-  // Scroll-Listener für stabile Seitenanzeige
+  container.querySelectorAll('.pdf-preview__page').forEach(el => renderObserver.observe(el));
   container.addEventListener('scroll', onScroll, { passive: true });
   recalcCurrentPage();
 }
@@ -285,13 +328,9 @@ async function setupObservers() {
 
 watch(currentZoom, async () => {
   if (!pdfDoc) return;
-  // Alle gecachten Seiten verwerfen (falscher Maßstab) und neu rendern
   renderedPages.clear();
   renderQueue.clear();
-  // Inner-Divs leeren (Shimmer wieder anzeigen)
-  for (const el of pageInnerRefs.values()) {
-    el.innerHTML = '';
-  }
+  for (const el of pageInnerRefs.values()) el.innerHTML = '';
   await setupObservers();
 });
 
@@ -300,23 +339,18 @@ watch(currentZoom, async () => {
 async function loadPdf(src) {
   const epoch = ++loadEpoch;
 
-  // Aufräumen
   teardownObservers();
   renderedPages.clear();
   renderQueue.clear();
   pageInnerRefs.clear();
-  pageInfos.value = [];
+  pageInfos.value  = [];
   currentPage.value = 1;
   errorMessage.value = '';
+  loadProgress.value = 0;
+  loadIndeterminate.value = false;
 
-  if (activeLoadTask) {
-    try { activeLoadTask.destroy(); } catch (_) {}
-    activeLoadTask = null;
-  }
-  if (pdfDoc) {
-    try { pdfDoc.destroy(); } catch (_) {}
-    pdfDoc = null;
-  }
+  if (activeLoadTask) { try { activeLoadTask.destroy(); } catch (_) {} activeLoadTask = null; }
+  if (pdfDoc)         { try { pdfDoc.destroy(); }         catch (_) {} pdfDoc = null; }
 
   if (!src) return;
 
@@ -324,21 +358,32 @@ async function loadPdf(src) {
 
   try {
     activeLoadTask = getDocument({ url: src, withCredentials: false });
-    const doc = await activeLoadTask.promise;
 
+    // Ladefortschritt
+    activeLoadTask.onProgress = ({ loaded, total }) => {
+      if (epoch !== loadEpoch) return;
+      if (total > 0) {
+        loadIndeterminate.value = false;
+        loadProgress.value = Math.round((loaded / total) * 100);
+      } else {
+        loadIndeterminate.value = true;
+      }
+    };
+
+    const doc = await activeLoadTask.promise;
     if (epoch !== loadEpoch) return;
 
     pdfDoc = doc;
+    loadProgress.value = 100;
 
-    // Dimensionen aller Seiten vorab lesen (kein Rendering, sehr schnell)
+    // Dimensionen aller Seiten vorab lesen
     const infos = [];
     for (let i = 1; i <= doc.numPages; i++) {
       const page = await doc.getPage(i);
-      const vp = page.getViewport({ scale: 1 });
+      const vp   = page.getViewport({ scale: 1 });
       infos.push({ page: i, width: vp.width, height: vp.height });
       page.cleanup();
     }
-
     if (epoch !== loadEpoch) return;
 
     pageInfos.value = infos;
@@ -347,7 +392,6 @@ async function loadPdf(src) {
     await setupObservers();
     emit('loaded');
 
-    // Zur Zielseite springen (nach nächstem Tick damit DOM steht)
     await nextTick();
     scrollToPage(props.targetPage);
 
@@ -370,21 +414,16 @@ function scrollToPage(pageNum) {
 
 // ─── Watchers ────────────────────────────────────────────────────────────────
 
-watch(() => props.src, (src) => loadPdf(src), { immediate: true });
+watch(() => props.src,        (src)  => loadPdf(src), { immediate: true });
+watch(() => props.targetPage, (page) => nextTick(() => scrollToPage(page)));
 
-watch(() => props.targetPage, (page) => {
-  nextTick(() => scrollToPage(page));
-});
-
-// ─── Resize: bei Größenänderung Seiten neu rendern ───────────────────────────
+// ─── Resize ──────────────────────────────────────────────────────────────────
 
 function onResize() {
   if (!pdfDoc) return;
   renderedPages.clear();
   renderQueue.clear();
-  for (const el of pageInnerRefs.values()) {
-    el.innerHTML = '';
-  }
+  for (const el of pageInnerRefs.values()) el.innerHTML = '';
   setupObservers();
 }
 
@@ -401,9 +440,9 @@ onBeforeUnmount(() => {
   loadEpoch++;
   teardownObservers();
   resizeObserver?.disconnect();
-  if (scrollRafId) cancelAnimationFrame(scrollRafId);
+  if (scrollRafId)    cancelAnimationFrame(scrollRafId);
   if (activeLoadTask) try { activeLoadTask.destroy(); } catch (_) {}
-  if (pdfDoc) try { pdfDoc.destroy(); } catch (_) {}
+  if (pdfDoc)         try { pdfDoc.destroy(); }         catch (_) {}
 });
 </script>
 
@@ -494,16 +533,14 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   overflow: hidden;
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.14);
-  /* Dimension wird per :style gesetzt */
 }
 
-/* Innerer Container: Canvas + TextLayer liegen hier übereinander */
 .pdf-preview__page-inner {
   position: absolute;
   inset: 0;
 }
 
-/* Shimmer solange Seite noch nicht gerendert ist */
+/* Shimmer solange noch nicht gerendert */
 .pdf-preview__page-inner:empty {
   background: rgb(var(--v-theme-on-surface) / 0.05);
   animation: pdf-shimmer 1.4s ease-in-out infinite;
@@ -514,21 +551,18 @@ onBeforeUnmount(() => {
   50%       { opacity: 0.6; }
 }
 
-/* Canvas füllt den inneren Container */
 .pdf-preview__page-inner :deep(canvas) {
   width: 100%;
   height: 100%;
   display: block;
 }
 
-/* TextLayer: Positionierung über pdfjs-dist/web/pdf_viewer.css,
-   hier nur Feintuning für Dark-Mode-Kompatibilität */
+/* TextLayer */
 .pdf-preview__page-inner :deep(.textLayer) {
   position: absolute;
   inset: 0;
   overflow: hidden;
   line-height: 1;
-  /* Text unsichtbar, aber selektierbar */
   opacity: 1;
 }
 
@@ -538,13 +572,21 @@ onBeforeUnmount(() => {
   cursor: text;
 }
 
-/* Selektion sichtbar machen */
 .pdf-preview__page-inner :deep(.textLayer ::selection) {
   background: rgba(0, 120, 255, 0.25);
   color: transparent;
 }
 
-/* ── Zustands-Screens ───────────────────────────────────────────────────── */
+/* Suchmarkierung */
+.pdf-preview__page-inner :deep(.textLayer .pm-highlight) {
+  background: rgba(255, 200, 0, 0.45);
+  border-radius: 2px;
+  color: transparent;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* ── Ladefortschritt ────────────────────────────────────────────────────── */
 .pdf-preview__state {
   flex: 1;
   display: flex;
@@ -552,15 +594,45 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   text-align: center;
-  gap: 8px;
+  gap: 12px;
   font-size: 0.86rem;
   opacity: 0.78;
   padding: 24px;
 }
 
 .pdf-preview__state--loading {
-  flex-direction: row;
   gap: 10px;
+}
+
+.pdf-preview__progress-wrap {
+  width: 160px;
+  height: 3px;
+  background: rgb(var(--v-theme-on-surface) / 0.12);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.pdf-preview__progress-bar {
+  height: 100%;
+  background: rgb(var(--v-theme-primary));
+  border-radius: 2px;
+  transition: width 120ms ease;
+  will-change: width, transform;
+}
+
+.pdf-preview__progress-bar--indeterminate {
+  width: 40% !important;
+  transition: none;
+  animation: pdf-progress-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes pdf-progress-slide {
+  0%   { transform: translateX(-250%); }
+  100% { transform: translateX(450%); }
+}
+
+.pdf-preview__state--error {
+  gap: 8px;
 }
 
 .pdf-preview__state-title {

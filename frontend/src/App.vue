@@ -1051,6 +1051,7 @@
                   class="preview-frame"
                   :src="documentFileUrl(selectedDocumentId)"
                   :target-page="previewTargetPage"
+                  :highlight-text="previewHighlightText"
                   @failed="onPreviewFrameError(selectedDocumentId)"
                   @loaded="onPreviewFrameLoad(selectedDocumentId)"
                 />
@@ -1469,7 +1470,8 @@ const selectedDocumentId = ref(null);
 const selectedDocumentDetail = ref(null);
 
 const isLoadingDocuments = ref(false);
-const previewTargetPage = ref(null);
+const previewTargetPage    = ref(null);
+const previewHighlightText = ref('');
 
 const aiSuggestedQuestions = AI_SUGGESTED_QUESTIONS;
 const aiMessages = ref([]);
@@ -2509,7 +2511,8 @@ async function openCitation(citation) {
       : Number(citation?.page_to) > 0
         ? Number(citation.page_to)
         : null;
-  previewTargetPage.value = primaryPage;
+  previewTargetPage.value    = primaryPage;
+  previewHighlightText.value = String(citation?.snippet || '').trim();
 
   try {
     await fetchDocuments(null, { autoSelectFirst: false });
@@ -3235,7 +3238,8 @@ function handleGlobalKeydown(event) {
   selectedDocumentId.value = null;
   selectedDocumentDetail.value = null;
   isDetailsDrawerOpen.value = false;
-  previewTargetPage.value = null;
+  previewTargetPage.value    = null;
+  previewHighlightText.value = '';
   resetDetailsSectionState();
   metadataSuccessMessage.value = '';
   metadataErrorMessage.value = '';
@@ -3722,7 +3726,8 @@ async function selectDocument(documentId, options = {}) {
     return;
   }
   if (!preserveTargetPage) {
-    previewTargetPage.value = null;
+    previewTargetPage.value    = null;
+    previewHighlightText.value = '';
   }
   selectedDocumentId.value = documentId;
   metadataSuccessMessage.value = '';
