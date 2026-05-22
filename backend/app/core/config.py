@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     retrieval_max_top_k: int = Field(default=20, ge=1, le=100)
     dedupe_candidate_limit: int = Field(default=200, ge=10, le=2000)
     dedupe_text_distance_threshold: int = Field(default=6, ge=0, le=64)
+    direct_upload_api_key: str = Field(default="")
 
     @property
     def sqlalchemy_database_url(self) -> str:

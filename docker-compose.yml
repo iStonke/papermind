@@ -6,6 +6,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     command: sh -c "npm ci --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port ${FRONTEND_PORT}"
+    restart: unless-stopped
     environment:
       FRONTEND_PORT: ${FRONTEND_PORT}
       VITE_API_BASE_URL: ${VITE_API_BASE_URL}
@@ -27,7 +28,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT} --reload --reload-dir /app/app"
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT}"
+    restart: unless-stopped
     environment:
       BACKEND_PORT: ${BACKEND_PORT}
       DATABASE_URL: ${DATABASE_URL}
@@ -37,6 +39,7 @@ services:
       UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES}
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS}
       AUTO_OCR_ON_UPLOAD: ${AUTO_OCR_ON_UPLOAD}
+      DIRECT_UPLOAD_API_KEY: ${DIRECT_UPLOAD_API_KEY}
       MIN_TEXT_CHARS: ${MIN_TEXT_CHARS}
       TEXT_CHECK_PAGES: ${TEXT_CHECK_PAGES}
       SEARCH_QUERY_MAX_LENGTH: ${SEARCH_QUERY_MAX_LENGTH}
@@ -74,6 +77,7 @@ services:
 
   db:
     image: pgvector/pgvector:pg17
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -95,7 +99,8 @@ services:
     build:
       context: ./ai
       dockerfile: Dockerfile
-    command: uvicorn app.main:app --host 0.0.0.0 --port ${AI_PORT} --reload --reload-dir /app/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port ${AI_PORT}
+    restart: unless-stopped
     environment:
       AI_PORT: ${AI_PORT}
       EMBED_MODEL: ${EMBED_MODEL}
@@ -125,6 +130,7 @@ services:
       context: .
       dockerfile: worker/Dockerfile
     command: python -m app.worker.main
+    restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
       STORAGE_PATH: ${STORAGE_PATH}
@@ -144,7 +150,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    profiles: ["worker"]
     networks:
       - papermind_net
 

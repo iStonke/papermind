@@ -12,6 +12,7 @@ from app.core.errors import install_exception_handlers
 from app.db.session import SessionLocal
 from app.routers import (
     ai_router,
+    direct_upload_router,
     documents_router,
     health_router,
     import_router,
@@ -76,6 +77,7 @@ app.add_middleware(
 
 install_exception_handlers(app)
 app.include_router(health_router)
+app.include_router(direct_upload_router)
 app.include_router(documents_router)
 app.include_router(import_router)
 app.include_router(mobile_upload_router)

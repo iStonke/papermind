@@ -9,8 +9,12 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ocrmypdf \
         tesseract-ocr \
+        tesseract-ocr-deu \
         ghostscript \
         qpdf \
+        libgl1 \
+        libglib2.0-0 \
+        libheif1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY worker/requirements.txt /tmp/requirements.txt
