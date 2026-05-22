@@ -46,14 +46,10 @@
           :data-page="info.page"
           :style="pageStyle(info)"
         >
-          <img
-            v-if="renderedPages.has(info.page)"
-            :src="renderedPages.get(info.page)"
-            :alt="`Seite ${info.page}`"
-            draggable="false"
-            class="pdf-preview__page-img"
+          <div
+            :ref="el => setInnerRef(el, info.page)"
+            class="pdf-preview__page-inner"
           />
-          <div v-else class="pdf-preview__placeholder" :style="{ width: '100%', height: '100%' }" />
         </article>
       </div>
     </template>
@@ -62,9 +58,11 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
+import { TextLayer } from 'pdfjs-dist';
 import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import 'pdfjs-dist/web/pdf_viewer.css';
 
 GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
@@ -106,8 +104,8 @@ const errorMessage = ref('');
 /** Dimensionen aller Seiten – ohne Rendering befüllt */
 const pageInfos = ref([]); // [{ page, width, height }]
 
-/** Bereits gerenderte Seiten: pageNum → dataUrl */
-const renderedPages = reactive(new Map());
+/** Bereits gerenderte Seiten (plain Set – kein reactive nötig, DOM wird imperativ verwaltet) */
+const renderedPages = new Set();
 
 /** Aktuell sichtbare Seite (für Seitenanzeige) */
 const currentPage = ref(1);
@@ -118,9 +116,17 @@ let loadEpoch = 0;
 let pdfDoc = null;
 let activeLoadTask = null;
 let renderObserver = null;
-let visibilityObserver = null;
 let resizeObserver = null;
+let scrollRafId = null;
 const renderQueue = new Set();
+
+/** Imperative Refs: pageNum → inneres HTMLElement */
+const pageInnerRefs = new Map();
+
+function setInnerRef(el, pageNum) {
+  if (el) pageInnerRefs.set(pageNum, el);
+  else pageInnerRefs.delete(pageNum);
+}
 
 // ─── Hilfsfunktionen ─────────────────────────────────────────────────────────
 
@@ -159,9 +165,13 @@ async function renderPage(pageNum) {
     const info = pageInfos.value[pageNum - 1];
     if (!info) return;
 
+    const innerEl = pageInnerRefs.get(pageNum);
+    if (!innerEl) return;
+
     const scale = computeScale(info);
     const viewport = page.getViewport({ scale });
 
+    // Canvas erstellen und rendern
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
@@ -172,13 +182,35 @@ async function renderPage(pageNum) {
     await page.render({ canvasContext: ctx, viewport, background: 'rgb(255,255,255)' }).promise;
     if (epoch !== loadEpoch) return;
 
+    // Text-Layer erstellen
+    const textLayerDiv = document.createElement('div');
+    textLayerDiv.className = 'textLayer';
+
+    const textLayer = new TextLayer({
+      textContentSource: page.streamTextContent(),
+      container: textLayerDiv,
+      viewport,
+    });
+    await textLayer.render();
+    if (epoch !== loadEpoch) return;
+
     // LRU-Eviction: älteste Seite entfernen wenn Cache voll
     if (renderedPages.size >= MAX_CACHED_PAGES) {
-      const oldest = renderedPages.keys().next().value;
+      const oldest = renderedPages.values().next().value;
       renderedPages.delete(oldest);
+      const oldEl = pageInnerRefs.get(oldest);
+      if (oldEl) oldEl.innerHTML = '';
     }
 
-    renderedPages.set(pageNum, canvas.toDataURL('image/webp', 0.92));
+    // --total-scale-factor für TextLayer-Positionierung setzen
+    innerEl.style.setProperty('--total-scale-factor', String(scale));
+
+    // Canvas + TextLayer in DOM einhängen
+    innerEl.innerHTML = '';
+    innerEl.appendChild(canvas);
+    innerEl.appendChild(textLayerDiv);
+
+    renderedPages.add(pageNum);
     page.cleanup();
   } catch (_err) {
     // Einzelseite konnte nicht gerendert werden – kein Fatal-Error
@@ -189,11 +221,37 @@ async function renderPage(pageNum) {
 
 // ─── Observer Setup ──────────────────────────────────────────────────────────
 
+/** Welche Seite ist aktuell am nächsten zur Mitte des Containers? */
+function recalcCurrentPage() {
+  const container = pagesEl.value;
+  if (!container) return;
+  const mid = container.scrollTop + container.clientHeight * 0.5;
+  const articles = container.querySelectorAll('.pdf-preview__page');
+  let best = 1;
+  let bestDist = Infinity;
+  for (const el of articles) {
+    const elMid = el.offsetTop + el.offsetHeight * 0.5;
+    const dist = Math.abs(elMid - mid);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = Number(el.dataset.page);
+    }
+  }
+  currentPage.value = best;
+}
+
+function onScroll() {
+  if (scrollRafId) return;
+  scrollRafId = requestAnimationFrame(() => {
+    scrollRafId = null;
+    recalcCurrentPage();
+  });
+}
+
 function teardownObservers() {
   renderObserver?.disconnect();
-  visibilityObserver?.disconnect();
   renderObserver = null;
-  visibilityObserver = null;
+  pagesEl.value?.removeEventListener('scroll', onScroll);
 }
 
 async function setupObservers() {
@@ -215,27 +273,12 @@ async function setupObservers() {
     { root: container, rootMargin: '600px 0px', threshold: 0 }
   );
 
-  // Sichtbarkeits-Observer: welche Seite ist gerade am stärksten sichtbar?
-  visibilityObserver = new IntersectionObserver(
-    (entries) => {
-      let bestRatio = 0;
-      let bestPage = currentPage.value;
-      for (const entry of entries) {
-        if (entry.isIntersecting && entry.intersectionRatio > bestRatio) {
-          bestRatio = entry.intersectionRatio;
-          bestPage = Number(entry.target.dataset.page);
-        }
-      }
-      if (bestRatio > 0) currentPage.value = bestPage;
-    },
-    { root: container, threshold: [0, 0.25, 0.5, 0.75, 1.0] }
-  );
-
   const articles = container.querySelectorAll('.pdf-preview__page');
-  articles.forEach((el) => {
-    renderObserver.observe(el);
-    visibilityObserver.observe(el);
-  });
+  articles.forEach((el) => renderObserver.observe(el));
+
+  // Scroll-Listener für stabile Seitenanzeige
+  container.addEventListener('scroll', onScroll, { passive: true });
+  recalcCurrentPage();
 }
 
 // ─── Zoom-Reaktion ───────────────────────────────────────────────────────────
@@ -245,6 +288,10 @@ watch(currentZoom, async () => {
   // Alle gecachten Seiten verwerfen (falscher Maßstab) und neu rendern
   renderedPages.clear();
   renderQueue.clear();
+  // Inner-Divs leeren (Shimmer wieder anzeigen)
+  for (const el of pageInnerRefs.values()) {
+    el.innerHTML = '';
+  }
   await setupObservers();
 });
 
@@ -257,6 +304,7 @@ async function loadPdf(src) {
   teardownObservers();
   renderedPages.clear();
   renderQueue.clear();
+  pageInnerRefs.clear();
   pageInfos.value = [];
   currentPage.value = 1;
   errorMessage.value = '';
@@ -334,6 +382,9 @@ function onResize() {
   if (!pdfDoc) return;
   renderedPages.clear();
   renderQueue.clear();
+  for (const el of pageInnerRefs.values()) {
+    el.innerHTML = '';
+  }
   setupObservers();
 }
 
@@ -350,6 +401,7 @@ onBeforeUnmount(() => {
   loadEpoch++;
   teardownObservers();
   resizeObserver?.disconnect();
+  if (scrollRafId) cancelAnimationFrame(scrollRafId);
   if (activeLoadTask) try { activeLoadTask.destroy(); } catch (_) {}
   if (pdfDoc) try { pdfDoc.destroy(); } catch (_) {}
 });
@@ -438,20 +490,21 @@ onBeforeUnmount(() => {
 /* ── Einzelne Seite ─────────────────────────────────────────────────────── */
 .pdf-preview__page {
   flex: 0 0 auto;
+  position: relative;
   border-radius: 6px;
   overflow: hidden;
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.14);
   /* Dimension wird per :style gesetzt */
 }
 
-.pdf-preview__page-img {
-  width: 100%;
-  height: 100%;
-  display: block;
+/* Innerer Container: Canvas + TextLayer liegen hier übereinander */
+.pdf-preview__page-inner {
+  position: absolute;
+  inset: 0;
 }
 
-/* Platzhalter solange Seite noch nicht gerendert ist */
-.pdf-preview__placeholder {
+/* Shimmer solange Seite noch nicht gerendert ist */
+.pdf-preview__page-inner:empty {
   background: rgb(var(--v-theme-on-surface) / 0.05);
   animation: pdf-shimmer 1.4s ease-in-out infinite;
 }
@@ -459,6 +512,36 @@ onBeforeUnmount(() => {
 @keyframes pdf-shimmer {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.6; }
+}
+
+/* Canvas füllt den inneren Container */
+.pdf-preview__page-inner :deep(canvas) {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* TextLayer: Positionierung über pdfjs-dist/web/pdf_viewer.css,
+   hier nur Feintuning für Dark-Mode-Kompatibilität */
+.pdf-preview__page-inner :deep(.textLayer) {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  /* Text unsichtbar, aber selektierbar */
+  opacity: 1;
+}
+
+.pdf-preview__page-inner :deep(.textLayer span),
+.pdf-preview__page-inner :deep(.textLayer br) {
+  color: transparent;
+  cursor: text;
+}
+
+/* Selektion sichtbar machen */
+.pdf-preview__page-inner :deep(.textLayer ::selection) {
+  background: rgba(0, 120, 255, 0.25);
+  color: transparent;
 }
 
 /* ── Zustands-Screens ───────────────────────────────────────────────────── */
