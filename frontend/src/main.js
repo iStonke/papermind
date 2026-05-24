@@ -5,6 +5,7 @@ import MobileScanCaptureView from './views/mobile/MobileScanCaptureView.vue';
 import MobileUploadView from './views/mobile/MobileUploadView.vue';
 import vuetify from './plugins/vuetify';
 import './style.css';
+import './theme/theme.css';
 
 if (typeof Promise.withResolvers !== 'function') {
   Promise.withResolvers = function withResolvers() {

@@ -1,0 +1,114 @@
+/*
+ * PaperMind Theme – zentrale CSS-Variablen
+ *
+ * Struktur:
+ *   .papermind-app          → statische Konstanten (unveränderlich)
+ *   .papermind-app.v-theme--light → semantische Werte im Light-Mode
+ *   .papermind-app.v-theme--dark  → semantische Werte im Dark-Mode
+ *
+ * Alle Farben im Code sollen ausschließlich --pm-* Variablen verwenden.
+ * Rohwerte (Hex, rgba) gehören nur in diese Datei.
+ */
+
+/* ── Statische Konstanten ──────────────────────────────────────────────────── */
+.papermind-app {
+  /* Markenfarbe (RGB-Tripel für rgba()-Nutzung) */
+  --pm-indigo-rgb: 48, 57, 112;
+
+  /* Dark-Mode Rohwerte */
+  --pm-dark-bg:           #0b1220;
+  --pm-dark-panel-left:   #0f1a2a;
+  --pm-dark-panel-mid:    #111f33;
+  --pm-dark-panel-right:  #0c1626;
+  --pm-dark-card:         #162a44;
+  --pm-dark-card-hover:   #1b3556;
+  --pm-dark-card-active:  #22406a;
+  --pm-dark-sep:          rgba(255, 255, 255, 0.08);
+  --pm-dark-outline:      rgba(255, 255, 255, 0.06);
+  --pm-dark-shadow:       0 10px 30px rgba(0, 0, 0, 0.35);
+
+  /* Light-Mode Rohwerte */
+  --pm-light-sep:         rgba(15, 23, 42, 0.10);
+  --pm-light-outline:     rgba(15, 23, 42, 0.06);
+  --pm-light-shadow:      0 10px 30px rgba(15, 23, 42, 0.10);
+}
+
+/* ── Light-Mode ────────────────────────────────────────────────────────────── */
+.papermind-app.v-theme--light {
+  /* Text */
+  --pm-text:   rgba(15, 23, 42, 0.92);
+  --pm-muted:  rgba(15, 23, 42, 0.60);
+
+  /* Hintergründe */
+  --pm-app-surface:          #f3f6fb;
+  --pm-content-surface:      #f6f9fe;
+  --pm-sidebar-surface:      #eef3fa;
+  --pm-viewer-surface:       #f2f6fd;
+  --pm-app-surface-raised:   #ffffff;
+  --pm-app-surface-contrast: #ffffff;
+  --pm-pdf-stage-bg:         #f2f6fd;
+
+  /* Trennlinien & Schatten */
+  --pm-divider: var(--pm-light-sep);
+  --pm-outline: var(--pm-light-outline);
+  --pm-shadow:  var(--pm-light-shadow);
+
+  /* Sidebar */
+  --pm-sidebar-hover:         rgba(59, 130, 246, 0.06);
+  --pm-sidebar-active:        rgba(59, 130, 246, 0.10);
+  --pm-sidebar-count-opacity: 0.68;
+
+  /* Listenzeilen */
+  --pm-row-hover:  #f3f7ff;
+  --pm-row-active: #eaf2ff;
+
+  /* Drawer */
+  --pm-drawer-bg-expanded:     rgba(255, 255, 255, 0.90);
+  --pm-drawer-bg-collapsed:    rgba(255, 255, 255, 0.68);
+  --pm-drawer-blur-expanded:   5px;
+  --pm-drawer-blur-collapsed:  11px;
+  --pm-drawer-border-expanded:  rgba(0, 0, 0, 0.12);
+  --pm-drawer-border-collapsed: rgba(0, 0, 0, 0.10);
+  --pm-drawer-scrim:           transparent;
+}
+
+/* ── Dark-Mode ─────────────────────────────────────────────────────────────── */
+.papermind-app.v-theme--dark {
+  --v-theme-overlay-multiplier: 0;
+
+  /* Text */
+  --pm-text:   rgba(231, 237, 246, 0.92);
+  --pm-muted:  rgba(231, 237, 246, 0.60);
+
+  /* Hintergründe */
+  --pm-app-surface:          var(--pm-dark-bg);
+  --pm-content-surface:      var(--pm-dark-panel-mid);
+  --pm-sidebar-surface:      var(--pm-dark-panel-left);
+  --pm-viewer-surface:       var(--pm-dark-panel-right);
+  --pm-app-surface-raised:   var(--pm-dark-card);
+  --pm-app-surface-contrast: var(--pm-dark-card);
+  --pm-pdf-stage-bg:         var(--pm-dark-panel-right);
+
+  /* Trennlinien & Schatten */
+  --pm-divider: var(--pm-dark-sep);
+  --pm-outline: var(--pm-dark-outline);
+  --pm-shadow:  var(--pm-dark-shadow);
+
+  /* Sidebar */
+  --pm-sidebar-hover:         var(--pm-dark-card-hover);
+  --pm-sidebar-active:        #1c2b40;
+  --pm-sidebar-count-opacity: 0.90;
+
+  /* Listenzeilen */
+  --pm-row-hover:  var(--pm-dark-card-hover);
+  --pm-row-active: var(--pm-dark-card-active);
+
+  /* Drawer */
+  --pm-drawer-bg-expanded:      rgba(28, 37, 51, 0.96);
+  --pm-drawer-bg-collapsed:     rgba(28, 37, 51, 0.90);
+  --pm-drawer-blur-expanded:    2px;
+  --pm-drawer-blur-collapsed:   6px;
+  --pm-drawer-border-expanded:  rgba(255, 255, 255, 0.08);
+  --pm-drawer-border-collapsed: rgba(255, 255, 255, 0.06);
+  --pm-drawer-scrim:            transparent;
+}

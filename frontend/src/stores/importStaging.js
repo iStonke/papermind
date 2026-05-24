@@ -182,6 +182,7 @@ export const useImportStagingStore = defineStore('importStaging', {
 
     addDocumentFromSource({ sourceFileId, title, pageCount, thumbUrls = [], insertIndex = null, tags = [] }) {
       this.ensureBatch();
+      // docId leer: createDocument weist den korrekten Wert beim Anlegen zu.
       const pages = buildPagesForSource('', sourceFileId, pageCount, thumbUrls);
 
       const created = createDocument({
@@ -259,10 +260,6 @@ export const useImportStagingStore = defineStore('importStaging', {
       document.tags = normalizeTagIds(tagIds);
     },
 
-    setStageTags(documentId, tagIds = []) {
-      this.setDocumentTags(documentId, tagIds);
-    },
-
     addDocumentTag(documentId, tagId) {
       const value = normalizeTagId(tagId);
       if (!value) {
@@ -280,10 +277,6 @@ export const useImportStagingStore = defineStore('importStaging', {
       }
     },
 
-    addStageTag(documentId, tagId) {
-      this.addDocumentTag(documentId, tagId);
-    },
-
     removeDocumentTag(documentId, tagId) {
       const value = normalizeTagId(tagId);
       const document = this.documents.find((entry) => entry.id === documentId);
@@ -291,10 +284,6 @@ export const useImportStagingStore = defineStore('importStaging', {
         return;
       }
       document.tags = (document.tags || []).filter((entry) => entry !== value);
-    },
-
-    removeStageTag(documentId, tagId) {
-      this.removeDocumentTag(documentId, tagId);
     },
 
     setDocumentTitleDraft(documentId, nextTitle) {

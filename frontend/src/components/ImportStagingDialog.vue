@@ -879,7 +879,7 @@ async function createStageTagByName(rawName) {
 }
 
 function onDocumentTagsUpdate(documentId, tagIds) {
-  stagingStore.setStageTags(documentId, tagIds);
+  stagingStore.setDocumentTags(documentId, tagIds);
 }
 
 function attachPeekGlobalListeners() {

@@ -1,0 +1,127 @@
+/**
+ * useTagStore
+ *
+ * Verwaltet die Tag-Liste und alle Tag-CRUD-Operationen.
+ */
+import { defineStore } from 'pinia';
+import { ref } from 'vue';
+import {
+  createTag as apiCreateTag,
+  deleteTag as apiDeleteTag,
+  listTags,
+  mergeTag as apiMergeTag,
+  renameTag as apiRenameTag,
+} from '../api/tags.js';
+import { mapApiError, useNotifications } from './notifications.js';
+
+export const useTagStore = defineStore('tags', () => {
+  const { notify } = useNotifications();
+
+  // ── State ──────────────────────────────────────────────────────────────
+  const tags               = ref([]);
+  const isTagMutationRunning = ref(false);
+
+  // ── Helpers ────────────────────────────────────────────────────────────
+  const findByName = (name) =>
+    tags.value.find((t) => t.name.toLowerCase() === name.toLowerCase()) ?? null;
+
+  // ── Actions ────────────────────────────────────────────────────────────
+
+  /** Lädt alle Tags (inkl. Zähler). */
+  async function fetchTags() {
+    try {
+      const payload = await listTags(true);
+      tags.value = payload?.items ?? [];
+    } catch (error) {
+      console.error('Tags konnten nicht geladen werden:', error);
+    }
+  }
+
+  /**
+   * Erstellt einen Tag falls nicht vorhanden.
+   * @returns {{ ok: boolean, reason: string, name: string, id?: string }}
+   */
+  async function createTagByName(rawName) {
+    const name = rawName?.trim();
+    if (!name) return { ok: false, reason: 'empty', name: '' };
+    if (findByName(name)) return { ok: false, reason: 'exists', name };
+
+    const created = await apiCreateTag(name);
+    await fetchTags();
+    return { ok: true, reason: 'created', name, id: created?.id };
+  }
+
+  /**
+   * Stellt sicher, dass ein Tag mit diesem Namen existiert,
+   * und gibt seine ID zurück.
+   */
+  async function ensureTagIdByName(rawName) {
+    const name = rawName?.trim();
+    if (!name) return '';
+    const existing = findByName(name);
+    if (existing) return existing.id;
+
+    const result = await createTagByName(name);
+    return result.id ?? findByName(name)?.id ?? '';
+  }
+
+  /** PATCH /api/tags/{id} */
+  async function renameTag(id, newName) {
+    isTagMutationRunning.value = true;
+    try {
+      await apiRenameTag(id, newName);
+      await fetchTags();
+      notify({ type: 'success', title: 'Tag', message: `Tag umbenannt.` });
+    } catch (error) {
+      notify({ type: 'error', message: mapApiError(error, 'Tag konnte nicht umbenannt werden.') });
+      throw error;
+    } finally {
+      isTagMutationRunning.value = false;
+    }
+  }
+
+  /** POST /api/tags/{sourceId}/merge */
+  async function mergeTag(sourceId, targetId) {
+    isTagMutationRunning.value = true;
+    try {
+      await apiMergeTag(sourceId, targetId);
+      await fetchTags();
+      notify({ type: 'success', title: 'Tag', message: 'Tag zusammengeführt.' });
+    } catch (error) {
+      notify({ type: 'error', message: mapApiError(error, 'Tag konnte nicht zusammengeführt werden.') });
+      throw error;
+    } finally {
+      isTagMutationRunning.value = false;
+    }
+  }
+
+  /** DELETE /api/tags/{id} */
+  async function deleteTag(id) {
+    isTagMutationRunning.value = true;
+    try {
+      await apiDeleteTag(id);
+      tags.value = tags.value.filter((t) => t.id !== id);
+      notify({ type: 'success', title: 'Tag', message: 'Tag gelöscht.' });
+    } catch (error) {
+      notify({ type: 'error', message: mapApiError(error, 'Tag konnte nicht gelöscht werden.') });
+      throw error;
+    } finally {
+      isTagMutationRunning.value = false;
+    }
+  }
+
+  return {
+    // State
+    tags,
+    isTagMutationRunning,
+    // Helpers
+    findByName,
+    // Actions
+    fetchTags,
+    createTagByName,
+    ensureTagIdByName,
+    renameTag,
+    mergeTag,
+    deleteTag,
+  };
+});

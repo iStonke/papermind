@@ -7,6 +7,26 @@
         </button>
       </v-app-bar-title>
 
+      <div class="appbar-search">
+        <v-text-field
+          ref="appBarSearchRef"
+          v-model="searchText"
+          class="appbar-search__field"
+          prepend-inner-icon="mdi-magnify"
+          clearable
+          clear-icon="mdi-close"
+          :placeholder="searchPlaceholder"
+          density="compact"
+          variant="outlined"
+          :messages="searchHintMessages"
+          hide-details="auto"
+          @update:model-value="onAppBarSearchInput"
+          @keydown.enter.prevent="triggerSearchNow"
+          @keydown.esc.prevent="handleSearchEscape"
+          @click:clear="clearSearchFromInput"
+        />
+      </div>
+
       <template #append>
         <div class="appbar-actions">
           <v-menu location="bottom end" offset="8">
@@ -53,246 +73,7 @@
     </v-app-bar>
 
     <v-main class="app-main">
-      <BaseDialog
-        v-model="isSettingsDialogOpen"
-        max-width="640"
-        card-class="pm-settings-card"
-        body-class="pm-settings-body"
-        footer-class="pm-settings-footer"
-        title="Einstellungen"
-        header-subtitle="Globale Voreinstellungen für dein PaperMind."
-        description=""
-        variant="info"
-        primary-text="Fertig"
-        :show-secondary="false"
-        @primary="isSettingsDialogOpen = false"
-      >
-        <div v-if="isSettingsLoading" class="settings-loading">
-          <v-progress-circular indeterminate size="20" width="2" />
-          <span>Einstellungen werden geladen...</span>
-        </div>
-        <template v-else>
-          <div class="pm-settings-sections">
-            <section class="pm-settings-section">
-              <h3 class="pm-settings-title">Erscheinungsbild</h3>
-              <div class="pm-settings-content">
-                <div class="pm-setting-row pm-setting-row--column">
-                  <div class="pm-setting-content">
-                    <div class="pm-setting-label">Theme-Modus</div>
-                    <div class="pm-setting-description">Hell, dunkel oder entsprechend Systemeinstellung.</div>
-                  </div>
-                  <div
-                    class="settings-theme-segmented"
-                    role="radiogroup"
-                    aria-label="Theme-Modus auswählen"
-                    @keydown.left.prevent="stepThemeMode(-1)"
-                    @keydown.right.prevent="stepThemeMode(1)"
-                  >
-                    <button
-                      v-for="option in themeModeOptions"
-                      :key="`theme-${option.value}`"
-                      type="button"
-                      class="settings-theme-segmented__item"
-                      :class="{ 'settings-theme-segmented__item--active': settingsDraft.ui.theme_mode === option.value }"
-                      role="radio"
-                      :aria-label="`Theme: ${option.label}`"
-                      :aria-checked="settingsDraft.ui.theme_mode === option.value"
-                      :disabled="isSettingSaving.theme_mode"
-                      @click="onThemeModeChange(option.value)"
-                    >
-                      {{ option.label }}
-                    </button>
-                  </div>
-                </div>
-
-                <div
-                  class="pm-setting-row"
-                  role="button"
-                  tabindex="0"
-                  @click="toggleShowFilenameSuffixFromRow"
-                  @keydown.enter.prevent="toggleShowFilenameSuffixFromRow"
-                  @keydown.space.prevent="toggleShowFilenameSuffixFromRow"
-                >
-                  <div class="pm-setting-content">
-                    <div class="pm-setting-label">Dateiendung anzeigen</div>
-                    <div class="pm-setting-description">Blendet .pdf in Listen und Details ein/aus.</div>
-                  </div>
-                  <v-switch
-                    :model-value="settingsDraft.ui.showFilenameSuffix"
-                    color="primary"
-                    density="comfortable"
-                    hide-details
-                    inset
-                    :loading="isSettingSaving.show_filename_suffix"
-                    :disabled="isSettingSaving.show_filename_suffix"
-                    @click.stop
-                    @update:model-value="onShowFilenameSuffixChange"
-                  />
-                </div>
-              </div>
-            </section>
-
-            <section class="pm-settings-section">
-              <h3 class="pm-settings-title">Dokumente</h3>
-              <div class="pm-settings-content">
-                <div
-                  class="pm-setting-row"
-                  role="button"
-                  tabindex="0"
-                  @click="toggleAutoOcrFromRow"
-                  @keydown.enter.prevent="toggleAutoOcrFromRow"
-                  @keydown.space.prevent="toggleAutoOcrFromRow"
-                >
-                  <div class="pm-setting-content">
-                    <div class="pm-setting-label">Automatisches OCR</div>
-                    <div class="pm-setting-description">Beim Import wird Text automatisch extrahiert.</div>
-                  </div>
-                  <v-switch
-                    :model-value="settingsDraft.documents.auto_ocr"
-                    color="primary"
-                    density="comfortable"
-                    hide-details
-                    inset
-                    :loading="isSettingSaving.auto_ocr"
-                    :disabled="isSettingSaving.auto_ocr"
-                    @click.stop
-                    @update:model-value="onAutoOcrChange"
-                  />
-                </div>
-
-                <div
-                  class="pm-setting-row"
-                  role="button"
-                  tabindex="0"
-                  @click="toggleAutoTaggingFromRow"
-                  @keydown.enter.prevent="toggleAutoTaggingFromRow"
-                  @keydown.space.prevent="toggleAutoTaggingFromRow"
-                >
-                  <div class="pm-setting-content">
-                    <div class="pm-setting-label">Automatisches Tagging (KI)</div>
-                    <div class="pm-setting-description">Neue Dokumente werden automatisch verschlagwortet.</div>
-                    <div v-if="settingsDraft.documents.auto_tagging" class="pm-setting-hint">
-                      Kann je nach Modell/Hardware etwas dauern.
-                    </div>
-                  </div>
-                  <v-switch
-                    :model-value="settingsDraft.documents.auto_tagging"
-                    color="primary"
-                    density="comfortable"
-                    hide-details
-                    inset
-                    :loading="isSettingSaving.auto_tagging"
-                    :disabled="isSettingSaving.auto_tagging"
-                    @click.stop
-                    @update:model-value="onAutoTaggingChange"
-                  />
-                </div>
-
-                <div class="pm-setting-row pm-setting-row--column">
-                  <div class="pm-setting-content">
-                    <div class="pm-setting-label">Sortierung</div>
-                    <div class="pm-setting-description">Legt die Standardreihenfolge in der Dokumentliste fest.</div>
-                  </div>
-                  <v-select
-                    :model-value="settingsDraft.documents.sort_order"
-                    :items="sortOrderOptions"
-                    item-title="label"
-                    item-value="value"
-                    density="comfortable"
-                    hide-details
-                    variant="outlined"
-                    class="settings-theme-select pm-setting-select"
-                    label="Sortierung"
-                    :loading="isSettingSaving.sort_order"
-                    :disabled="isSettingSaving.sort_order"
-                    @update:model-value="onSortOrderChange"
-                  />
-                </div>
-
-                <div class="pm-setting-row pm-setting-row--column">
-                  <div class="pm-setting-content">
-                    <div class="pm-setting-label">Zeitraum für „Zuletzt hinzugefügt“</div>
-                    <div class="pm-setting-description">
-                      Legt fest, wie lange Dokumente nach dem Import in „Zuletzt hinzugefügt“ erscheinen.
-                    </div>
-                  </div>
-                  <v-select
-                    :model-value="settingsDraft.documents.recent_import_window_hours"
-                    :items="recentImportWindowOptions"
-                    item-title="label"
-                    item-value="value"
-                    density="comfortable"
-                    hide-details
-                    variant="outlined"
-                    class="settings-theme-select pm-setting-select"
-                    label="Zeitraum"
-                    :loading="isSettingSaving.recent_import_window_hours"
-                    :disabled="isSettingSaving.recent_import_window_hours"
-                    @update:model-value="onRecentImportWindowChange"
-                  />
-                </div>
-              </div>
-            </section>
-
-            <section class="pm-settings-section">
-              <h3 class="pm-settings-title">Vorschau</h3>
-              <div class="pm-settings-content">
-                <div
-                  class="pm-setting-row"
-                  role="button"
-                  tabindex="0"
-                  @click="toggleDrawerRememberStateFromRow"
-                  @keydown.enter.prevent="toggleDrawerRememberStateFromRow"
-                  @keydown.space.prevent="toggleDrawerRememberStateFromRow"
-                >
-                  <div class="pm-setting-content">
-                    <div class="pm-setting-label">Dokumentdetails merken</div>
-                    <div class="pm-setting-description">
-                      Merkt sich, ob die Schublade zuletzt ein- oder ausgeklappt war.
-                    </div>
-                  </div>
-                  <v-switch
-                    :model-value="settingsDraft.ui.drawerRememberState"
-                    color="primary"
-                    density="comfortable"
-                    hide-details
-                    inset
-                    :loading="isSettingSaving.drawer_remember_state"
-                    :disabled="isSettingSaving.drawer_remember_state"
-                    @click.stop
-                    @update:model-value="onDrawerRememberStateChange"
-                  />
-                </div>
-
-                <div
-                  class="pm-setting-row"
-                  role="button"
-                  tabindex="0"
-                  @click="toggleDrawerAlwaysExpandedFromRow"
-                  @keydown.enter.prevent="toggleDrawerAlwaysExpandedFromRow"
-                  @keydown.space.prevent="toggleDrawerAlwaysExpandedFromRow"
-                >
-                  <div class="pm-setting-content">
-                    <div class="pm-setting-label">Dokumentdetails immer ausgeklappt</div>
-                    <div class="pm-setting-description">Die Schublade bleibt dauerhaft geöffnet.</div>
-                  </div>
-                  <v-switch
-                    :model-value="settingsDraft.ui.drawerAlwaysExpanded"
-                    color="primary"
-                    density="comfortable"
-                    hide-details
-                    inset
-                    :loading="isSettingSaving.drawer_always_expanded"
-                    :disabled="isSettingSaving.drawer_always_expanded"
-                    @click.stop
-                    @update:model-value="onDrawerAlwaysExpandedChange"
-                  />
-                </div>
-              </div>
-            </section>
-          </div>
-        </template>
-      </BaseDialog>
+      <SettingsDialog v-model="isSettingsDialogOpen" @reload-imports="onSettingsReloadImports" />
 
       <ImportStagingDialog
         ref="importStagingDialogRef"
@@ -312,94 +93,7 @@
         @change="onImportPdfInputChange"
       />
 
-      <BaseDialog
-        v-model="isCreateTagDialogOpen"
-        max-width="420"
-        title="Tag erstellen"
-        description="Neuen Tag für die Dokumentorganisation anlegen."
-        primary-text="Erstellen"
-        secondary-text="Abbrechen"
-        :loading="isTagMutationRunning"
-        @primary="submitCreateTag"
-        @close="closeCreateTagDialog"
-      >
-        <v-text-field
-          v-model="createTagName"
-          label="Name"
-          density="comfortable"
-          variant="outlined"
-          hide-details
-          @keydown.enter.prevent="submitCreateTag"
-        />
-      </BaseDialog>
-
-      <BaseDialog
-        v-model="isRenameTagDialogOpen"
-        max-width="420"
-        title="Tag umbenennen"
-        description="Bestehenden Tag-Namen aktualisieren."
-        primary-text="Speichern"
-        secondary-text="Abbrechen"
-        :loading="isTagMutationRunning"
-        @primary="submitRenameTag"
-        @close="closeRenameTagDialog"
-      >
-        <v-text-field
-          v-model="renameTagName"
-          label="Neuer Name"
-          density="comfortable"
-          variant="outlined"
-          hide-details
-          @keydown.enter.prevent="submitRenameTag"
-        />
-      </BaseDialog>
-
-      <BaseDialog
-        v-model="isMergeTagDialogOpen"
-        max-width="460"
-        title="Tag zusammenführen"
-        description="Verknüpfungen vom Quell-Tag auf einen Ziel-Tag verschieben."
-        primary-text="Zusammenführen"
-        secondary-text="Abbrechen"
-        :loading="isTagMutationRunning"
-        :primary-disabled="!mergeTargetTagId"
-        @primary="submitMergeTag"
-        @close="closeMergeTagDialog"
-      >
-        <div class="text-body-2 mb-3">
-          Alle Verknüpfungen von
-          <strong>{{ mergeSourceTag?.name }}</strong>
-          werden auf den Ziel-Tag übertragen. Der Quell-Tag wird gelöscht.
-        </div>
-        <v-autocomplete
-          v-model="mergeTargetTagId"
-          :items="mergeTargetCandidates"
-          item-title="name"
-          item-value="id"
-          :return-object="false"
-          label="Ziel-Tag"
-          density="comfortable"
-          variant="outlined"
-          hide-details
-        />
-      </BaseDialog>
-
-      <BaseDialog
-        v-model="isDeleteTagDialogOpen"
-        max-width="420"
-        variant="destructive"
-        title="Tag löschen"
-        description="Tag und seine Verknüpfungen entfernen."
-        primary-text="Tag löschen"
-        secondary-text="Abbrechen"
-        :loading="isTagMutationRunning"
-        @primary="submitDeleteTag"
-        @close="closeDeleteTagDialog"
-      >
-        <p class="dialog-delete-copy">
-          Tag <strong>„{{ deleteTagTarget?.name }}“</strong> wird gelöscht.
-        </p>
-      </BaseDialog>
+      <TagDialogs ref="tagDialogsRef" @tag-mutated="onTagMutated" />
 
       <DeleteDocumentDialog
         v-model="isDeleteDocumentDialogOpen"
@@ -409,43 +103,7 @@
         @confirm="confirmDeleteDocumentFromDialog"
       />
 
-      <BaseDialog
-        v-model="isRenameDocumentDialogOpen"
-        max-width="460"
-        title="Dokument umbenennen"
-        description="Anzeigenamen für die Liste und Details ändern."
-        primary-text="Speichern"
-        secondary-text="Abbrechen"
-        :loading="isRenamingDocument"
-        @primary="submitRenameDocument"
-        @close="closeRenameDocumentDialog"
-      >
-        <v-text-field
-          v-model="renameDocumentName"
-          label="Name"
-          density="comfortable"
-          variant="outlined"
-          hide-details
-          @keydown.enter.prevent="submitRenameDocument"
-        >
-          <template #append-inner>
-            <v-tooltip text="Titel mit KI vorschlagen" location="top">
-              <template #activator="{ props: tooltipProps }">
-                <v-btn
-                  v-bind="tooltipProps"
-                  icon="mdi-robot-outline"
-                  variant="text"
-                  size="small"
-                  aria-label="Titel mit KI vorschlagen"
-                  :loading="isSuggestingRenameDocumentTitle"
-                  :disabled="isSuggestingRenameDocumentTitle || isRenamingDocument || !renameDocumentTarget?.id"
-                  @click.stop="suggestRenameDocumentTitle"
-                />
-              </template>
-            </v-tooltip>
-          </template>
-        </v-text-field>
-      </BaseDialog>
+      <RenameDocumentDialog ref="renameDocumentDialogRef" :api-base-url="apiBaseUrl" @saved="onDocumentRenamed" />
 
       <SmartFolderEditor
         v-model="isSmartFolderEditorOpen"
@@ -458,295 +116,26 @@
         @close="closeSmartFolderEditor"
       />
 
-      <BaseDialog
+      <AiDialog
         v-model="isAiDialogOpen"
-        max-width="1080"
-        width="calc(100% - 48px)"
-        body-class="app-modal__body--flush"
-        title="KI-Chat"
-        description="Fragen stellen und Quellen direkt öffnen."
-        variant="info"
-        primary-text="Fertig"
-        :show-secondary="false"
-        @primary="isAiDialogOpen = false"
-      >
-        <div class="ai-page">
-          <section class="ai-suggestions">
-            <div class="ai-section-title">Vorschlagsfragen</div>
-            <div class="ai-suggestions__grid">
-              <button
-                v-for="suggestion in aiSuggestedQuestions"
-                :key="`suggestion-${suggestion}`"
-                type="button"
-                class="ai-suggestion-card"
-                @click="askAiSuggestion(suggestion)"
-              >
-                {{ suggestion }}
-              </button>
-            </div>
-          </section>
-
-          <section class="ai-chat-panel">
-            <div ref="aiChatScrollRef" class="ai-chat-history">
-              <template v-if="aiMessages.length > 0">
-                <article
-                  v-for="message in aiMessages"
-                  :key="message.id"
-                  class="ai-message"
-                  :class="`ai-message--${message.role}`"
-                >
-                  <div class="ai-message__bubble">
-                    <div class="ai-message__bubble-content">
-                      <v-progress-circular
-                        v-if="message.isStatus"
-                        size="14"
-                        width="2"
-                        indeterminate
-                        color="primary"
-                      />
-                      <span>{{ message.text }}</span>
-                    </div>
-                  </div>
-                  <div
-                    v-if="message.role === 'assistant' && !message.isStatus && message.citations.length > 0"
-                    class="ai-sources"
-                  >
-                    <div class="ai-sources__divider" />
-                    <div class="ai-sources__label">Quellen</div>
-                    <article
-                      v-for="citation in message.citations"
-                      :key="`${message.id}-${citation.doc_id}`"
-                      class="ai-citation-card"
-                    >
-                      <div class="ai-citation-card__left">
-                        <v-icon size="16">mdi-file-document-outline</v-icon>
-                      </div>
-                      <div class="ai-citation-card__content">
-                        <div class="ai-citation-card__title">{{ formatCitationTitle(citation) }}</div>
-                        <div v-if="citationPageLabel(citation)" class="ai-citation-card__meta">
-                          {{ citationPageLabel(citation) }}
-                        </div>
-                        <div v-if="citation.snippet" class="ai-citation-card__snippet">{{ citation.snippet }}</div>
-                        <div v-if="citationHintText(citation)" class="ai-citation-card__hint">
-                          {{ citationHintText(citation) }}
-                        </div>
-                      </div>
-                      <div class="ai-citation-card__actions">
-                        <v-btn size="x-small" variant="text" color="primary" @click="openCitation(citation)">
-                          Öffnen
-                        </v-btn>
-                      </div>
-                    </article>
-                  </div>
-                </article>
-              </template>
-              <div v-else class="ai-chat-empty">
-                <v-icon size="44" class="ai-chat-empty__icon">mdi-robot-outline</v-icon>
-                <div class="ai-chat-empty__title">Stelle eine Frage zu deinen Dokumenten</div>
-                <div class="ai-chat-empty__subtitle">
-                  Die Antwort basiert auf Retrieval über OCR-Texte und zeigt Quellenkarten.
-                </div>
-              </div>
-            </div>
-
-            <div class="ai-chat-input">
-              <v-text-field
-                v-model="aiQuestionInput"
-                placeholder="Frage zu deinen Dokumenten stellen..."
-                density="comfortable"
-                variant="outlined"
-                hide-details
-                :disabled="isAiAsking"
-                @keydown.enter.prevent="submitAiQuestion()"
-              >
-                <template #append-inner>
-                  <v-btn
-                    icon="mdi-send-outline"
-                    size="small"
-                    variant="text"
-                    :loading="isAiAsking"
-                    :disabled="!aiQuestionInput.trim() || isAiAsking"
-                    @click="submitAiQuestion()"
-                  />
-                </template>
-              </v-text-field>
-            </div>
-          </section>
-        </div>
-
-      </BaseDialog>
+        :api-base-url="apiBaseUrl"
+        @open-citation="openCitation"
+      />
 
       <div class="workspace">
-        <aside class="panel panel-left">
-          <v-list nav density="compact" class="views-list">
-            <div class="sidebar-section-header">
-              <div class="sidebar-section-label">Bibliothek</div>
-            </div>
-            <div class="sidebar-section-content">
-              <SidebarItem
-                item-class="sidebar-item--primary"
-                :active="isViewActive('all')"
-                :count="allDocumentsSidebarCount"
-                @click="selectView('all')"
-              >
-                <template #icon>
-                  <v-icon size="18">{{ allDocumentsView.icon }}</v-icon>
-                </template>
-                {{ allDocumentsView.label }}
-              </SidebarItem>
-
-              <SidebarItem
-                item-class="sidebar-item--secondary sidebar-item--imports"
-                :active="isViewActive('imports')"
-                :count="importsSidebarCount"
-                @click="selectView('imports')"
-              >
-                <template #icon>
-                  <v-icon size="18">{{ importsView.icon }}</v-icon>
-                </template>
-                {{ importsView.label }}
-              </SidebarItem>
-
-              <SidebarItem
-                item-class="sidebar-item--secondary"
-                :active="isViewActive('untagged')"
-                :count="untaggedSidebarCount"
-                @click="selectView('untagged')"
-              >
-                <template #icon>
-                  <v-icon size="18">{{ untaggedView.icon }}</v-icon>
-                </template>
-                {{ untaggedView.label }}
-              </SidebarItem>
-            </div>
-          </v-list>
-
-          <v-divider class="sidebar-section-divider" />
-
-          <v-list nav density="compact" class="views-list">
-            <div class="sidebar-section-header">
-              <div class="sidebar-section-label">Ordner</div>
-              <button
-                type="button"
-                class="sidebar-section-toggle"
-                :aria-expanded="String(isSidebarSectionVisible('folders'))"
-                aria-label="Ordner ein- oder ausblenden"
-                @click="toggleSidebarSection('folders')"
-              >
-                {{ sidebarSectionToggleLabel('folders') }}
-              </button>
-            </div>
-
-            <transition name="sidebar-section-collapse">
-              <div v-if="isSidebarSectionVisible('folders')" class="sidebar-section-content">
-              <SidebarItem
-                item-class="sidebar-item--secondary sidebar-item--folder-create"
-                @click="openCreateSavedSearchDialog"
-              >
-                <template #icon>
-                  <v-icon size="18">mdi-folder-plus-outline</v-icon>
-                </template>
-                Ordner erstellen
-              </SidebarItem>
-
-              <SidebarItem
-                v-for="savedSearch in sortedFolderItems"
-                :key="savedSearch.id"
-                item-class="sidebar-item--secondary"
-                :active="activeSavedSearchId === savedSearch.id"
-                :count="savedSearchUsageCount(savedSearch.id)"
-                action-mode="hover-active"
-                @click="openSavedSearch(savedSearch.id)"
-              >
-                <template #icon>
-                  <v-icon size="18">{{ folderSidebarIcon(savedSearch, activeSavedSearchId === savedSearch.id) }}</v-icon>
-                </template>
-                {{ savedSearch.name }}
-                <template #action>
-                  <v-menu location="bottom end">
-                    <template #activator="{ props }">
-                      <v-btn
-                        class="sidebar-folder-menu-btn"
-                        icon="mdi-dots-horizontal"
-                        size="small"
-                        density="comfortable"
-                        variant="text"
-                        v-bind="props"
-                        aria-label="Ordner-Menü"
-                        @click.stop
-                      />
-                    </template>
-                    <v-list density="compact">
-                      <v-list-item @click.stop="openEditSavedSearchDialog(savedSearch)">
-                        <template #prepend>
-                          <v-icon size="16">mdi-pencil-outline</v-icon>
-                        </template>
-                        <v-list-item-title>Bearbeiten</v-list-item-title>
-                      </v-list-item>
-                      <v-list-item class="menu-item--danger" @click.stop="deleteSavedSearch(savedSearch)">
-                        <template #prepend>
-                          <v-icon size="16">mdi-trash-can-outline</v-icon>
-                        </template>
-                        <v-list-item-title>Löschen…</v-list-item-title>
-                      </v-list-item>
-                    </v-list>
-                  </v-menu>
-                </template>
-              </SidebarItem>
-
-              <v-list-item v-if="!isLoadingSavedSearches && sortedFolderItems.length === 0">
-                <v-list-item-title class="text-caption">Noch keine Ordner</v-list-item-title>
-              </v-list-item>
-              </div>
-            </transition>
-          </v-list>
-
-          <v-divider class="sidebar-section-divider" />
-
-          <v-list nav density="compact" class="views-list">
-            <div class="sidebar-section-header">
-              <div class="sidebar-section-label">Tags</div>
-              <button
-                type="button"
-                class="sidebar-section-toggle"
-                :aria-expanded="String(isSidebarSectionVisible('tags'))"
-                aria-label="Tags ein- oder ausblenden"
-                @click="toggleSidebarSection('tags')"
-              >
-                {{ sidebarSectionToggleLabel('tags') }}
-              </button>
-            </div>
-
-            <transition name="sidebar-section-collapse">
-              <div v-if="isSidebarSectionVisible('tags')" class="sidebar-section-content">
-              <SidebarItem :active="isTagView" :count="totalTagsSidebarCount" @click="openTagsView">
-                <template #icon>
-                  <v-icon size="18">mdi-tag-multiple-outline</v-icon>
-                </template>
-                Alle Tags
-              </SidebarItem>
-
-              <SidebarItem
-                v-for="tag in topTagQuicklinks"
-                :key="tag.id"
-                item-class="sidebar-item--tag"
-                :active="!isTagView && activeTagId === tag.id"
-                :count="tagUsageCount(tag.id, tag.usage_count ?? 0)"
-                @click="applyTagFilterFromSidebar(tag.id)"
-              >
-                <template #icon>
-                  <v-icon size="18">mdi-tag-text-outline</v-icon>
-                </template>
-                <span class="sidebar-tag-pill">{{ tag.name }}</span>
-              </SidebarItem>
-
-              <v-list-item v-if="topTagQuicklinks.length === 0">
-                <v-list-item-title class="text-caption">Noch keine Tags</v-list-item-title>
-              </v-list-item>
-              </div>
-            </transition>
-          </v-list>
-        </aside>
+        <AppSidebar
+          :active-view="activeView"
+          :active-saved-search-id="activeSavedSearchId"
+          :active-tag-id="activeTagId"
+          :is-tag-view="isTagView"
+          @select-view="selectView"
+          @open-saved-search="openSavedSearch"
+          @create-folder="openCreateSavedSearchDialog"
+          @edit-folder="openEditSavedSearchDialog"
+          @delete-folder="deleteSavedSearch"
+          @open-tags-view="openTagsView"
+          @apply-tag-filter="applyTagFilterFromSidebar"
+        />
 
         <section class="panel panel-middle">
           <template v-if="isTagView">
@@ -823,19 +212,19 @@
                       <v-btn icon="mdi-dots-vertical" size="small" variant="text" v-bind="props" />
                     </template>
                     <v-list density="compact">
-                      <v-list-item @click.stop="openRenameTagDialog(tag)">
+                      <v-list-item @click.stop="tagDialogsRef?.openRename(tag)">
                         <template #prepend>
                           <v-icon size="16">mdi-pencil-outline</v-icon>
                         </template>
                         <v-list-item-title>Umbenennen</v-list-item-title>
                       </v-list-item>
-                      <v-list-item @click.stop="openMergeTagDialog(tag)">
+                      <v-list-item @click.stop="tagDialogsRef?.openMerge(tag)">
                         <template #prepend>
                           <v-icon size="16">mdi-source-merge</v-icon>
                         </template>
                         <v-list-item-title>Zusammenführen</v-list-item-title>
                       </v-list-item>
-                      <v-list-item class="menu-item--danger" @click.stop="openDeleteTagDialog(tag)">
+                      <v-list-item class="menu-item--danger" @click.stop="tagDialogsRef?.openDelete(tag)">
                         <template #prepend>
                           <v-icon size="16">mdi-trash-can-outline</v-icon>
                         </template>
@@ -849,182 +238,21 @@
             </div>
           </template>
 
-          <template v-else>
-            <div
-              class="document-list-shell docs-column"
-            >
-              <div class="docs-header">
-                <div class="list-toolbar">
-                  <div class="list-toolbar__main">
-                    <v-text-field
-                      ref="searchField"
-                      v-model="searchText"
-                      class="list-toolbar__search"
-                      prepend-inner-icon="mdi-magnify"
-                      clearable
-                      clear-icon="mdi-close"
-                      placeholder="Suchen (Dateiname, Notizen, OCR-Text)..."
-                      density="comfortable"
-                      variant="outlined"
-                      :messages="searchHintMessages"
-                      hide-details="auto"
-                      @keydown.enter.prevent="triggerSearchNow"
-                      @keydown.esc.prevent="handleSearchEscape"
-                      @click:clear="clearSearchFromInput"
-                    />
-                  </div>
-                  <div
-                    v-if="listDropNotice"
-                    class="list-toolbar__upload-hint"
-                    :class="{ 'list-toolbar__upload-hint--warning': Boolean(listDropNotice) }"
-                  >
-                    {{ listDropNotice }}
-                  </div>
-                  <v-progress-linear v-if="isLoadingDocuments" indeterminate height="2" class="list-toolbar__loading" />
-                </div>
-
-                <div
-                  v-if="activeStatusFilterLabel && !isImportsView"
-                  class="active-filter-row"
-                >
-                  <v-chip size="small" variant="outlined">
-                    Status: {{ activeStatusFilterLabel }}
-                  </v-chip>
-                </div>
-
-              </div>
-
-              <div
-                class="document-list-body docs-list-dropzone"
-                :class="{ 'document-list-body--dragover': isListDragOver }"
-                @dragenter="onListDragEnter"
-                @dragover="onListDragOver"
-                @dragleave="onListDragLeave"
-                @drop="onListDrop"
-              >
-                <div class="document-list-content">
-                  <div v-if="showDocumentListEmptyState" class="document-list-empty-state-wrap">
-                    <div class="document-list-empty-state">
-                      <v-icon class="document-list-empty-state__icon" :icon="documentListEmptyState.icon" size="56" />
-                      <div class="document-list-empty-state__title">{{ documentListEmptyState.title }}</div>
-                      <div class="document-list-empty-state__subtitle">{{ documentListEmptyState.subtitle }}</div>
-                    </div>
-                  </div>
-
-                  <div v-else class="document-list">
-                    <div
-                      v-for="document in documents"
-                      :key="document.id"
-                      class="document-row pm-doc-item"
-                      :class="{ 'document-row--active': document.id === selectedDocumentId }"
-                      role="button"
-                      tabindex="0"
-                      @click="selectDocument(document.id)"
-                      @keydown.enter.prevent="selectDocument(document.id)"
-                      @keydown.space.prevent="selectDocument(document.id)"
-                    >
-                      <div class="document-row__thumb">
-                        <img
-                          v-if="!hasThumbnailError(document.id)"
-                          :src="thumbnailUrl(document.id)"
-                          alt="thumbnail"
-                          @error="onThumbnailError(document.id)"
-                        />
-                        <div v-else class="document-row__thumb-fallback">
-                          <v-icon size="22">mdi-file-pdf-box</v-icon>
-                        </div>
-                      </div>
-
-                      <div class="document-row__content">
-                        <div class="document-row__title">
-                          <span v-if="document.is_unread" class="document-row__unread-dot" aria-hidden="true" />
-                          <div class="document-row__name">{{ formatDocumentTitle(document) }}</div>
-                        </div>
-                        <div class="document-row__meta-line">
-                          <div class="document-row__meta">{{ displayListDate(document) }}</div>
-                        </div>
-                        <div v-if="Array.isArray(document.tags) && document.tags.length > 0" class="document-row__tags">
-                          <v-chip
-                            v-for="tag in document.tags.slice(0, 3)"
-                            :key="`doc-${document.id}-tag-${tag.id}`"
-                            size="x-small"
-                            variant="tonal"
-                            class="document-row__tag-chip"
-                          >
-                            {{ tag.name }}
-                          </v-chip>
-                          <v-chip
-                            v-if="document.tags.length > 3"
-                            size="x-small"
-                            variant="outlined"
-                            class="document-row__tag-chip document-row__tag-chip--more"
-                          >
-                            +{{ document.tags.length - 3 }}
-                          </v-chip>
-                        </div>
-                        <div
-                          v-if="showSnippets && document.snippet"
-                          class="document-row__snippet"
-                          v-html="formatSnippet(document.snippet)"
-                        />
-                      </div>
-
-                      <div class="document-row__aside">
-                        <div class="document-row__actions">
-                          <v-menu location="bottom end">
-                            <template #activator="{ props }">
-                              <v-btn
-                                v-bind="props"
-                                icon="mdi-dots-vertical"
-                                size="small"
-                                density="comfortable"
-                                variant="text"
-                                class="document-row__menu-btn"
-                                aria-label="Aktionen"
-                                @click.stop
-                              />
-                            </template>
-                            <v-list density="compact">
-                              <v-list-item @click.stop="downloadDocumentFromList(document)">
-                                <template #prepend>
-                                  <v-icon size="16">mdi-download-outline</v-icon>
-                                </template>
-                                <v-list-item-title>Herunterladen</v-list-item-title>
-                              </v-list-item>
-                              <v-list-item @click.stop="openRenameDocumentDialog(document)">
-                                <template #prepend>
-                                  <v-icon size="16">mdi-pencil-outline</v-icon>
-                                </template>
-                                <v-list-item-title>Umbenennen</v-list-item-title>
-                              </v-list-item>
-                              <v-list-item @click.stop="openTagManagerFromList(document)">
-                                <template #prepend>
-                                  <v-icon size="16">mdi-tag-multiple-outline</v-icon>
-                                </template>
-                                <v-list-item-title>Tags verwalten</v-list-item-title>
-                              </v-list-item>
-                              <v-list-item class="menu-item--danger" @click.stop="openDeleteDocumentDialog(document)">
-                                <template #prepend>
-                                  <v-icon size="16">mdi-trash-can-outline</v-icon>
-                                </template>
-                                <v-list-item-title>Löschen…</v-list-item-title>
-                              </v-list-item>
-                            </v-list>
-                          </v-menu>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div v-if="isListDragOver" class="document-list-drop-overlay" aria-hidden="true">
-                  <div class="document-list-drop-overlay__inner">
-                    <v-icon size="20">mdi-file-upload-outline</v-icon>
-                    <span>PDFs hier ablegen, um zu importieren</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </template>
+          <DocumentListPanel
+            v-else
+            :list-drop-notice="listDropNotice"
+            :active-status-filter-label="activeStatusFilterLabel"
+            :is-imports-view="isImportsView"
+            :show-document-list-empty-state="showDocumentListEmptyState"
+            :document-list-empty-state="documentListEmptyState"
+            :show-snippets="showSnippets"
+            @select-document="selectDocument"
+            @download="downloadDocumentFromList"
+            @rename="(doc) => renameDocumentDialogRef?.open(doc)"
+            @manage-tags="openTagManagerFromList"
+            @delete="openDeleteDocumentDialog"
+            @files-dropped="onDroppedFiles"
+          />
         </section>
 
         <section class="panel panel-right">
@@ -1035,13 +263,13 @@
             :collapsed-height="DETAILS_DRAWER_COLLAPSED_HEIGHT"
           >
             <template #viewer>
-              <div v-if="isTagView" class="preview-empty-state">
-                <v-icon size="44" class="preview-empty-state__icon">mdi-tag-multiple-outline</v-icon>
-                <div class="preview-empty-state__title">Tag-Ansicht aktiv</div>
-                <div class="preview-empty-state__subtitle">
-                  Wähle einen Tag, um die Dokumentliste zu filtern.
-                </div>
-              </div>
+              <PmEmptyState
+                v-if="isTagView"
+                icon="mdi-tag-multiple-outline"
+                title="Tag-Ansicht aktiv"
+                subtitle="Wähle einen Tag, um die Dokumentliste zu filtern."
+                size="lg"
+              />
               <div
                 v-else-if="selectedDocumentId"
                 class="preview-frame-wrap"
@@ -1056,11 +284,13 @@
                   @loaded="onPreviewFrameLoad(selectedDocumentId)"
                 />
               </div>
-              <div v-else class="preview-empty-state">
-                <v-icon size="44" class="preview-empty-state__icon">mdi-file-document-outline</v-icon>
-                <div class="preview-empty-state__title">Kein Dokument ausgewählt</div>
-                <div class="preview-empty-state__subtitle">Wähle ein Dokument aus der Liste, um die Vorschau zu öffnen.</div>
-              </div>
+              <PmEmptyState
+                v-else
+                icon="mdi-file-document-outline"
+                title="Kein Dokument ausgewählt"
+                subtitle="Wähle ein Dokument aus der Liste, um die Vorschau zu öffnen."
+                size="lg"
+              />
             </template>
 
             <template #drawer-header>
@@ -1238,16 +468,26 @@
 
 <script setup>
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { storeToRefs } from 'pinia';
 import { useTheme } from 'vuetify';
 import BaseDialog from './components/BaseDialog.vue';
+import PmEmptyState from './components/PmEmptyState.vue';
 import DeleteDocumentDialog from './components/DeleteDocumentDialog.vue';
 import DocumentPreviewLayout from './components/DocumentPreviewLayout.vue';
 import ImportStagingDialog from './components/ImportStagingDialog.vue';
 import NotificationStack from './components/NotificationStack.vue';
-import SidebarItem from './components/SidebarItem.vue';
+import AppSidebar from './components/AppSidebar.vue';
+import DocumentListPanel from './components/DocumentListPanel.vue';
 import SmartFolderEditor from './components/SmartFolderEditor.vue';
-import { mapApiError, useNotifications } from './stores/notifications';
+import TagDialogs from './components/TagDialogs.vue';
+import RenameDocumentDialog from './components/RenameDocumentDialog.vue';
+import AiDialog from './components/AiDialog.vue';
+import SettingsDialog from './components/SettingsDialog.vue';
+import { mapApiError, notifyError, logDevError, useNotifications } from './stores/notifications';
 import { useSettingsStore } from './stores/settings';
+import { useDocumentStore } from './stores/documents';
+import { useTagStore } from './stores/tags';
+import { useSidebarStore } from './stores/sidebar';
 import {
   buildAutoOcrPatch,
   buildAutoTaggingPatch,
@@ -1258,48 +498,15 @@ import {
   buildSortOrderPatch,
   buildThemeModePatch
 } from './utils/settingsApi';
+import { formatDateTime, formatDocumentDateInputFromIso, parseDocumentDateInput } from './utils/dates';
+import { useOcrPolling } from './composables/useOcrPolling';
+import { useGlobalKeyboard } from './composables/useGlobalKeyboard';
+import { useSearch } from './composables/useSearch';
 
 const PdfPreview = defineAsyncComponent(() => import('./components/PdfPreview.vue'));
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
-const allDocumentsView = {
-  key: 'all',
-  label: 'Alle Dokumente',
-  icon: 'mdi-book-open-page-variant-outline'
-};
-const importsView = {
-  key: 'imports',
-  label: 'Zuletzt hinzugefügt',
-  icon: 'mdi-tray-arrow-down'
-};
-const untaggedView = {
-  key: 'untagged',
-  label: 'Ohne Tags',
-  icon: 'mdi-tag-off-outline'
-};
-const themeModeOptions = [
-  { label: 'Hell', value: 'light' },
-  { label: 'Dunkel', value: 'dark' },
-  { label: 'System', value: 'system' }
-];
-const sortOrderOptions = [
-  { label: 'Neueste zuerst', value: 'newest' },
-  { label: 'Älteste zuerst', value: 'oldest' },
-  { label: 'Name A–Z', value: 'name_asc' },
-  { label: 'Name Z–A', value: 'name_desc' },
-  { label: 'Zuletzt geöffnet', value: 'last_opened' }
-];
-const recentImportWindowOptions = [
-  { label: '1 Stunde', value: 1 },
-  { label: '6 Stunden', value: 6 },
-  { label: '12 Stunden', value: 12 },
-  { label: '24 Stunden', value: 24 },
-  { label: '48 Stunden', value: 48 }
-];
-const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
-const SETTINGS_SORT_ORDER_VALUES = new Set(['newest', 'oldest', 'name_asc', 'name_desc', 'last_opened']);
-const RECENT_IMPORT_WINDOW_VALUES = new Set(recentImportWindowOptions.map((entry) => entry.value));
 const SETTINGS_SORT_TO_QUERY = {
   newest: { sort: 'created_at', order: 'desc' },
   oldest: { sort: 'created_at', order: 'asc' },
@@ -1308,44 +515,31 @@ const SETTINGS_SORT_TO_QUERY = {
   last_opened: { sort: 'updated_at', order: 'desc' }
 };
 
-const SEARCH_DEBOUNCE_MS = 300;
-const SEARCHABLE_STATUSES = new Set(['imported', 'processing', 'ready', 'failed']);
 const TAG_REPLACE_DEBOUNCE_MS = 300;
 const METADATA_AUTOSAVE_DEBOUNCE_MS = 450;
 const PREVIEW_RETRY_BASE_DELAY_MS = 600;
 const PREVIEW_RETRY_MAX_DELAY_MS = 4500;
 const PREVIEW_RETRY_MAX_ATTEMPTS = 5;
 const IMPORTS_RECENT_LIMIT = 100;
-const AI_DEFAULT_TOP_K = 3;
-const AI_MAX_VISIBLE_CITATIONS = 3;
-const AI_PHASE_MIN_MS = 300;
+
 const DRAWER_CHEVRON_ICON = 'mdi-chevron-up';
 const DETAILS_DRAWER_COLLAPSED_HEIGHT = 72;
-const AI_SUGGESTED_QUESTIONS = [
-  'Welche offenen Rechnungen gibt es im aktuellen Monat?',
-  'Welche Dokumente enthalten Hinweise auf Kündigungsfristen?',
-  'Fasse die wichtigsten Zahlungsbedingungen zusammen.',
-  'Welche Verträge nennen eine automatische Verlängerung?',
-  'Gibt es Dokumente mit Mahnung oder Zahlungsverzug?',
-  'Welche Dokumente gehören thematisch zu KFZ-Kosten?'
-];
-const SIDEBAR_SECTION_VISIBILITY_STORAGE_KEY = 'pm.sidebar.section_visibility.v1';
-const SIDEBAR_SECTION_DEFAULT_VISIBILITY = Object.freeze({
-  folders: true,
-  tags: true
-});
-
 const theme = useTheme();
 const { notify } = useNotifications();
 const settingsStore = useSettingsStore();
 const appSettings = computed(() => settingsStore.settings);
 const settingsDraft = settingsStore.settingsDraft;
-const isSettingsLoading = computed(() => settingsStore.isSettingsLoading);
-const isSettingSaving = settingsStore.isSettingSaving;
 const showPdfSuffix = computed(() => settingsStore.settingsDraft.ui.showFilenameSuffix);
 
-const searchText = ref('');
-const searchField = ref(null);
+// ── Domain Stores ────────────────────────────────────────────────────────
+const docStore     = useDocumentStore();
+const tagStore     = useTagStore();
+const sidebarStore = useSidebarStore();
+
+const { documents, selectedDocumentId, selectedDocumentDetail, isLoadingDocuments } = storeToRefs(docStore);
+const { tags, isTagMutationRunning } = storeToRefs(tagStore);
+const { sidebarCounts, isLoadingSidebarCounts, savedSearches, isLoadingSavedSearches } = storeToRefs(sidebarStore);
+
 const isAiDialogOpen = ref(false);
 const activeView = ref('all');
 const activeSavedSearchId = ref(null);
@@ -1369,123 +563,24 @@ const activeTagId = computed({
   }
 });
 const tagSearchText = ref('');
-const sidebarSectionVisibility = ref({ ...SIDEBAR_SECTION_DEFAULT_VISIBILITY });
 
-function sanitizeSidebarSectionVisibility(rawValue) {
-  const source = rawValue && typeof rawValue === 'object' ? rawValue : {};
-  return {
-    folders: typeof source.folders === 'boolean' ? source.folders : SIDEBAR_SECTION_DEFAULT_VISIBILITY.folders,
-    tags: typeof source.tags === 'boolean' ? source.tags : SIDEBAR_SECTION_DEFAULT_VISIBILITY.tags
-  };
-}
-
-function loadSidebarSectionVisibility() {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  try {
-    const raw = window.localStorage.getItem(SIDEBAR_SECTION_VISIBILITY_STORAGE_KEY);
-    if (!raw) {
-      return;
-    }
-    const parsed = JSON.parse(raw);
-    sidebarSectionVisibility.value = sanitizeSidebarSectionVisibility(parsed);
-  } catch {
-    sidebarSectionVisibility.value = { ...SIDEBAR_SECTION_DEFAULT_VISIBILITY };
-  }
-}
-
-function persistSidebarSectionVisibility() {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  try {
-    window.localStorage.setItem(
-      SIDEBAR_SECTION_VISIBILITY_STORAGE_KEY,
-      JSON.stringify(sidebarSectionVisibility.value)
-    );
-  } catch {
-    // ignore storage errors to keep sidebar usable
-  }
-}
-
-function isSidebarSectionVisible(sectionKey) {
-  return Boolean(sidebarSectionVisibility.value?.[sectionKey]);
-}
-
-function sidebarSectionToggleLabel(sectionKey) {
-  return isSidebarSectionVisible(sectionKey) ? 'Ausblenden' : 'Einblenden';
-}
-
-function toggleSidebarSection(sectionKey) {
-  if (!(sectionKey in SIDEBAR_SECTION_DEFAULT_VISIBILITY)) {
-    return;
-  }
-  sidebarSectionVisibility.value = {
-    ...sidebarSectionVisibility.value,
-    [sectionKey]: !isSidebarSectionVisible(sectionKey)
-  };
-  persistSidebarSectionVisibility();
-}
 const tagSearchField = ref(null);
-const savedSearches = ref([]);
-const isLoadingSavedSearches = ref(false);
-const isLoadingSidebarCounts = ref(false);
-const sidebarCounts = ref({
-  all_documents: 0,
-  untagged: 0,
-  unread_total: 0,
-  tags_total: 0,
-  imports: {
-    imported: 0,
-    processing: 0,
-    ready: 0,
-    failed: 0,
-    recent_total: 0
-  },
-  tags: {},
-  smart_folders: {},
-  saved_searches: {}
-});
 const isSavingSavedSearch = ref(false);
 const isSmartFolderEditorOpen = ref(false);
 const smartFolderEditorMode = ref('create');
 const smartFolderEditorTarget = ref(null);
 
-const isCreateTagDialogOpen = ref(false);
-const createTagName = ref('');
-const isRenameTagDialogOpen = ref(false);
-const renameTagName = ref('');
-const renameTargetTag = ref(null);
-const isMergeTagDialogOpen = ref(false);
-const mergeSourceTag = ref(null);
-const mergeTargetTagId = ref(null);
-const isDeleteTagDialogOpen = ref(false);
-const deleteTagTarget = ref(null);
-const isTagMutationRunning = ref(false);
+const tagDialogsRef = ref(null);
 
-const documents = ref([]);
-const tags = ref([]);
-const selectedDocumentId = ref(null);
-const selectedDocumentDetail = ref(null);
-
-const isLoadingDocuments = ref(false);
 const previewTargetPage    = ref(null);
 const previewHighlightText = ref('');
 
-const aiSuggestedQuestions = AI_SUGGESTED_QUESTIONS;
-const aiMessages = ref([]);
-const aiQuestionInput = ref('');
-const aiSessionId = ref('');
-const isAiAsking = ref(false);
-const aiChatScrollRef = ref(null);
+
 
 const importStagingDialogRef = ref(null);
 const importPdfInputRef = ref(null);
 const isSettingsDialogOpen = ref(false);
 const isUploadDialogOpen = ref(false);
-const isListDragOver = ref(false);
-const listDropDragDepth = ref(0);
 const listDropNotice = ref('');
 const previewReloadNonce = ref(0);
 
@@ -1514,14 +609,7 @@ const metadataTagErrorMessage = ref('');
 const isDeleteDocumentDialogOpen = ref(false);
 const deleteDocumentTarget = ref(null);
 const isDeletingDocument = ref(false);
-const isRenameDocumentDialogOpen = ref(false);
-const renameDocumentTarget = ref(null);
-const renameDocumentName = ref('');
-const isRenamingDocument = ref(false);
-const isSuggestingRenameDocumentTitle = ref(false);
-
-const thumbnailErrorMap = ref({});
-const STATUS_POLL_INTERVAL_MS = 5000;
+const renameDocumentDialogRef = ref(null);
 
 const latestOcrJob = computed(() => {
   if (!selectedDocumentDetail.value?.jobs?.length) {
@@ -1621,23 +709,6 @@ const sortedTagsByName = computed(() => {
   });
 });
 const allTagNames = computed(() => sortedTagsByName.value.map((tag) => tag.name));
-const sidebarTagsByName = computed(() => {
-  return sortedTagsByName.value.filter((tag) => tagUsageCount(tag.id, tag.usage_count ?? 0) > 0);
-});
-const topTagQuicklinks = computed(() => {
-  return [...sidebarTagsByName.value]
-    .sort((left, right) => {
-      const leftCount = tagUsageCount(left.id, left.usage_count ?? 0);
-      const rightCount = tagUsageCount(right.id, right.usage_count ?? 0);
-      if (leftCount !== rightCount) {
-        return rightCount - leftCount;
-      }
-      const leftName = normalizeTagInput(left?.name || '');
-      const rightName = normalizeTagInput(right?.name || '');
-      return tagNameCollator.compare(leftName, rightName);
-    })
-    .slice(0, 5);
-});
 const filteredTags = computed(() => {
   const query = tagSearchText.value.trim().toLocaleLowerCase('de-DE');
   if (!query) {
@@ -1684,82 +755,7 @@ const activeSavedSearch = computed(() => {
   return savedSearches.value.find((item) => item.id === activeSavedSearchId.value) || null;
 });
 const activeSavedSearchName = computed(() => activeSavedSearch.value?.name || '');
-function resolveFolderKind(folder) {
-  const explicitKind = String(
-    folder?.folder_type || folder?.kind || folder?.type || folder?.category || ''
-  )
-    .trim()
-    .toLocaleLowerCase('de-DE');
 
-  if (explicitKind) {
-    if (['manual', 'folder', 'static'].includes(explicitKind)) {
-      return 'manual';
-    }
-    if (['smart', 'smart_folder', 'smart-folder', 'intelligent', 'query'].includes(explicitKind)) {
-      return 'smart';
-    }
-  }
-
-  if (folder?.is_manual === true || folder?.isManual === true) {
-    return 'manual';
-  }
-  if (folder?.is_smart === true || folder?.isSmart === true) {
-    return 'smart';
-  }
-  if (folder?.query_json && typeof folder.query_json === 'object') {
-    return 'smart';
-  }
-  return 'smart';
-}
-
-function isSmartFolderItem(folder) {
-  return resolveFolderKind(folder) === 'smart';
-}
-
-function folderSidebarIcon(folder, isActive = false) {
-  if (isSmartFolderItem(folder)) {
-    return 'mdi-folder-search-outline';
-  }
-  return isActive ? 'mdi-folder' : 'mdi-folder-outline';
-}
-
-const sortedFolderItems = computed(() => {
-  return [...savedSearches.value].sort((left, right) => {
-    const leftSmartWeight = isSmartFolderItem(left) ? 1 : 0;
-    const rightSmartWeight = isSmartFolderItem(right) ? 1 : 0;
-    if (leftSmartWeight !== rightSmartWeight) {
-      return leftSmartWeight - rightSmartWeight;
-    }
-
-    const leftName = normalizeTagInput(left?.name || '');
-    const rightName = normalizeTagInput(right?.name || '');
-    return tagNameCollator.compare(leftName, rightName);
-  });
-});
-const allDocumentsSidebarCount = computed(() => Number(sidebarCounts.value.all_documents || 0));
-const importsSidebarCount = computed(
-  () => Number(sidebarCounts.value.imports?.recent_total || sidebarCounts.value.imports?.imported || 0)
-);
-const untaggedSidebarCount = computed(() => Number(sidebarCounts.value.untagged || 0));
-const totalTagsSidebarCount = computed(() => {
-  const tagsWithAssignments = Object.values(sidebarCounts.value.tags || {}).filter((value) => Number(value || 0) > 0).length;
-  if (tagsWithAssignments > 0 || tags.value.length === 0) {
-    return tagsWithAssignments;
-  }
-  return sidebarTagsByName.value.length;
-});
-const mergeTargetCandidates = computed(() => {
-  if (!mergeSourceTag.value) {
-    return [];
-  }
-  return sortedTagsByName.value.filter((tag) => tag.id !== mergeSourceTag.value.id);
-});
-
-const parsedSearch = computed(() => parseSearchText(searchText.value));
-const searchHintMessages = computed(() =>
-  parsedSearch.value.warning ? [parsedSearch.value.warning] : []
-);
-const showSnippets = computed(() => Boolean(parsedSearch.value.q));
 const previewRenderKey = computed(() => {
   if (!selectedDocumentId.value) {
     return `empty:${previewReloadNonce.value}`;
@@ -1858,14 +854,12 @@ const isMetadataDirty = computed(() => {
   return (metadataNotes.value || '') !== detailNotes;
 });
 
-let searchDebounceTimer = null;
 let mediaQuery = null;
-let statusPollTimer = null;
 let tagReplaceDebounceTimer = null;
 let metadataAutosaveDebounceTimer = null;
 let previewRetryTimer = null;
 let listDropNoticeTimer = null;
-let sidebarCountsRefreshTimer = null;
+// sidebarCountsRefreshTimer → jetzt in useSidebarStore verwaltet
 let shouldSkipTagAutosave = false;
 let shouldSkipMetadataAutosave = false;
 let shouldRunMetadataAutosaveAfterSave = false;
@@ -1917,242 +911,13 @@ async function fetchAppSettings(options = {}) {
     syncUiFromSettings(options);
   } catch (error) {
     if (options.silent !== true) {
-      const message = mapApiError(error, 'Einstellungen konnten nicht geladen werden.');
-      notify({ type: 'error', message });
+      notifyError(error, 'Einstellungen konnten nicht geladen werden.');
+    } else {
+      logDevError(error, 'fetchAppSettings');
     }
   }
 }
 
-async function patchSettingsWithRevert({ patch, controlKey, revert }) {
-  try {
-    const saved = await settingsStore.saveSettingPatch(apiBaseUrl, { patch, controlKey });
-    if (!saved) {
-      return false;
-    }
-    syncUiFromSettings();
-    return true;
-  } catch (error) {
-    if (typeof revert === 'function') {
-      revert();
-    }
-    notify({ type: 'error', message: 'Konnte Einstellung nicht speichern.' });
-    return false;
-  }
-}
-
-function stepThemeMode(step) {
-  const ordered = themeModeOptions.map((entry) => entry.value);
-  const currentIndex = ordered.indexOf(settingsDraft.ui.theme_mode);
-  const safeIndex = currentIndex >= 0 ? currentIndex : 0;
-  const nextIndex = (safeIndex + step + ordered.length) % ordered.length;
-  void onThemeModeChange(ordered[nextIndex]);
-}
-
-async function onThemeModeChange(nextValue) {
-  if (isSettingSaving.theme_mode) {
-    return;
-  }
-  const nextMode = THEME_MODE_VALUES.has(String(nextValue)) ? String(nextValue) : 'system';
-  if (nextMode === settingsDraft.ui.theme_mode) {
-    return;
-  }
-  const previousMode = settingsDraft.ui.theme_mode;
-  settingsStore.setDraftPatch({ ui: { theme_mode: nextMode } });
-  theme.global.name.value = resolveThemeName(nextMode);
-  await patchSettingsWithRevert({
-    patch: buildThemeModePatch(nextMode),
-    controlKey: 'theme_mode',
-    revert: () => {
-      settingsStore.setDraftPatch({ ui: { theme_mode: previousMode } });
-      applyThemeFromSettings();
-    }
-  });
-}
-
-async function onAutoOcrChange(nextValue) {
-  const nextBool = Boolean(nextValue);
-  if (nextBool === settingsDraft.documents.auto_ocr) {
-    return;
-  }
-  const previous = settingsDraft.documents.auto_ocr;
-  settingsStore.setDraftPatch({ documents: { auto_ocr: nextBool } });
-  await patchSettingsWithRevert({
-    patch: buildAutoOcrPatch(nextBool),
-    controlKey: 'auto_ocr',
-    revert: () => {
-      settingsStore.setDraftPatch({ documents: { auto_ocr: previous } });
-    }
-  });
-}
-
-function toggleAutoOcrFromRow() {
-  if (isSettingSaving.auto_ocr) {
-    return;
-  }
-  void onAutoOcrChange(!settingsDraft.documents.auto_ocr);
-}
-
-async function onAutoTaggingChange(nextValue) {
-  const nextBool = Boolean(nextValue);
-  if (nextBool === settingsDraft.documents.auto_tagging) {
-    return;
-  }
-  const previous = settingsDraft.documents.auto_tagging;
-  settingsStore.setDraftPatch({ documents: { auto_tagging: nextBool } });
-  await patchSettingsWithRevert({
-    patch: buildAutoTaggingPatch(nextBool),
-    controlKey: 'auto_tagging',
-    revert: () => {
-      settingsStore.setDraftPatch({ documents: { auto_tagging: previous } });
-    }
-  });
-}
-
-function toggleAutoTaggingFromRow() {
-  if (isSettingSaving.auto_tagging) {
-    return;
-  }
-  void onAutoTaggingChange(!settingsDraft.documents.auto_tagging);
-}
-
-async function onSortOrderChange(nextValue) {
-  if (isSettingSaving.sort_order) {
-    return;
-  }
-  const nextSortOrder = SETTINGS_SORT_ORDER_VALUES.has(String(nextValue))
-    ? String(nextValue)
-    : settingsDraft.documents.sort_order;
-  if (nextSortOrder === settingsDraft.documents.sort_order) {
-    return;
-  }
-  const previous = settingsDraft.documents.sort_order;
-  settingsStore.setDraftPatch({ documents: { sort_order: nextSortOrder } });
-  const saved = await patchSettingsWithRevert({
-    patch: buildSortOrderPatch(nextSortOrder),
-    controlKey: 'sort_order',
-    revert: () => {
-      settingsStore.setDraftPatch({ documents: { sort_order: previous } });
-    }
-  });
-  if (!saved) {
-    return;
-  }
-}
-
-async function onRecentImportWindowChange(nextValue) {
-  if (isSettingSaving.recent_import_window_hours) {
-    return;
-  }
-  const parsedHours = Number(nextValue);
-  const nextHours = RECENT_IMPORT_WINDOW_VALUES.has(parsedHours)
-    ? parsedHours
-    : settingsDraft.documents.recent_import_window_hours;
-  if (nextHours === settingsDraft.documents.recent_import_window_hours) {
-    return;
-  }
-
-  const previous = settingsDraft.documents.recent_import_window_hours;
-  settingsStore.setDraftPatch({ documents: { recent_import_window_hours: nextHours } });
-  const saved = await patchSettingsWithRevert({
-    patch: buildRecentImportWindowPatch(nextHours),
-    controlKey: 'recent_import_window_hours',
-    revert: () => {
-      settingsStore.setDraftPatch({ documents: { recent_import_window_hours: previous } });
-    }
-  });
-  if (!saved) {
-    return;
-  }
-
-  await fetchSidebarCounts();
-  if (isImportsView.value && !activeSavedSearchId.value) {
-    await fetchDocuments(selectedDocumentId.value);
-  }
-}
-
-async function onShowFilenameSuffixChange(nextValue) {
-  if (isSettingSaving.show_filename_suffix) {
-    return;
-  }
-  const nextBool = Boolean(nextValue);
-  if (nextBool === settingsDraft.ui.showFilenameSuffix) {
-    return;
-  }
-  const previous = settingsDraft.ui.showFilenameSuffix;
-  settingsStore.setDraftPatch({ ui: { showFilenameSuffix: nextBool } });
-  await patchSettingsWithRevert({
-    patch: buildShowFilenameSuffixPatch(nextBool),
-    controlKey: 'show_filename_suffix',
-    revert: () => {
-      settingsStore.setDraftPatch({ ui: { showFilenameSuffix: previous } });
-    }
-  });
-}
-
-function toggleShowFilenameSuffixFromRow() {
-  if (isSettingSaving.show_filename_suffix) {
-    return;
-  }
-  void onShowFilenameSuffixChange(!settingsDraft.ui.showFilenameSuffix);
-}
-
-async function onDrawerRememberStateChange(nextValue) {
-  if (isSettingSaving.drawer_remember_state) {
-    return;
-  }
-  const nextBool = Boolean(nextValue);
-  if (nextBool === settingsDraft.ui.drawerRememberState) {
-    return;
-  }
-  const previous = settingsDraft.ui.drawerRememberState;
-  settingsStore.setDraftPatch({ ui: { drawerRememberState: nextBool } });
-  const saved = await patchSettingsWithRevert({
-    patch: buildDrawerRememberStatePatch(nextBool),
-    controlKey: 'drawer_remember_state',
-    revert: () => {
-      settingsStore.setDraftPatch({ ui: { drawerRememberState: previous } });
-    }
-  });
-  if (!saved) {
-    return;
-  }
-}
-
-function toggleDrawerRememberStateFromRow() {
-  if (isSettingSaving.drawer_remember_state) {
-    return;
-  }
-  void onDrawerRememberStateChange(!settingsDraft.ui.drawerRememberState);
-}
-
-async function onDrawerAlwaysExpandedChange(nextValue) {
-  if (isSettingSaving.drawer_always_expanded) {
-    return;
-  }
-  const nextBool = Boolean(nextValue);
-  if (nextBool === settingsDraft.ui.drawerAlwaysExpanded) {
-    return;
-  }
-  const previous = settingsDraft.ui.drawerAlwaysExpanded;
-  settingsStore.setDraftPatch({ ui: { drawerAlwaysExpanded: nextBool } });
-  const saved = await patchSettingsWithRevert({
-    patch: buildDrawerAlwaysExpandedPatch(nextBool),
-    controlKey: 'drawer_always_expanded',
-    revert: () => {
-      settingsStore.setDraftPatch({ ui: { drawerAlwaysExpanded: previous } });
-    }
-  });
-  if (!saved) {
-    return;
-  }
-}
-
-function toggleDrawerAlwaysExpandedFromRow() {
-  if (isSettingSaving.drawer_always_expanded) {
-    return;
-  }
-  void onDrawerAlwaysExpandedChange(!settingsDraft.ui.drawerAlwaysExpanded);
-}
 
 async function openSettingsDialog() {
   isSettingsDialogOpen.value = true;
@@ -2195,289 +960,6 @@ function formatDocumentTitle(document) {
   return formatDocumentFilename(getDocumentTitle(document));
 }
 
-function formatCitationTitle(citation) {
-  const formatted = formatDocumentFilename(citation?.document_title || '');
-  return formatted || 'Dokument';
-}
-
-function createEmptySidebarCounts() {
-  return {
-    all_documents: 0,
-    untagged: 0,
-    unread_total: 0,
-    tags_total: 0,
-    imports: {
-      imported: 0,
-      processing: 0,
-      ready: 0,
-      failed: 0,
-      recent_total: 0
-    },
-    tags: {},
-    smart_folders: {},
-    saved_searches: {}
-  };
-}
-
-function normalizeSidebarCounts(payload) {
-  const fallback = createEmptySidebarCounts();
-  const normalizedImports = payload?.imports && typeof payload.imports === 'object'
-    ? payload.imports
-    : {};
-  const normalizedTags = payload?.tags && typeof payload.tags === 'object' ? payload.tags : {};
-  const normalizedSmartFolders =
-    payload?.smart_folders && typeof payload.smart_folders === 'object' ? payload.smart_folders : {};
-  const normalizedSavedSearches =
-    payload?.saved_searches && typeof payload.saved_searches === 'object' ? payload.saved_searches : {};
-
-  return {
-    all_documents: Number(payload?.all_documents || 0),
-    untagged: Number(payload?.untagged || 0),
-    unread_total: Number(payload?.unread_total || 0),
-    tags_total: Number(payload?.tags_total || 0),
-    imports: {
-      imported: Number(normalizedImports.imported || 0),
-      processing: Number(normalizedImports.processing || 0),
-      ready: Number(normalizedImports.ready || 0),
-      failed: Number(normalizedImports.failed || 0),
-      recent_total: Number(normalizedImports.recent_total || 0)
-    },
-    tags: Object.fromEntries(
-      Object.entries(normalizedTags).map(([key, value]) => [key, Number(value || 0)])
-    ),
-    smart_folders: Object.fromEntries(
-      Object.entries(normalizedSmartFolders).map(([key, value]) => [key, Number(value || 0)])
-    ),
-    saved_searches: Object.fromEntries(
-      Object.entries(normalizedSavedSearches).map(([key, value]) => [key, Number(value || 0)])
-    )
-  } || fallback;
-}
-
-function tagUsageCount(tagId, fallbackValue = 0) {
-  if (!tagId) {
-    return Number(fallbackValue || 0);
-  }
-  return Number(sidebarCounts.value.tags?.[tagId] ?? fallbackValue ?? 0);
-}
-
-function savedSearchUsageCount(savedSearchId) {
-  if (!savedSearchId) {
-    return 0;
-  }
-  const smartFolderCount = Number(sidebarCounts.value.smart_folders?.[savedSearchId] || 0);
-  if (smartFolderCount > 0) {
-    return smartFolderCount;
-  }
-  return Number(sidebarCounts.value.saved_searches?.[savedSearchId] || 0);
-}
-
-async function fetchSidebarCounts() {
-  isLoadingSidebarCounts.value = true;
-  try {
-    const response = await fetch(`${apiBaseUrl}/api/sidebar/counts`);
-    if (!response.ok) {
-      throw new Error(await parseResponseError(response));
-    }
-    const payload = await response.json();
-    sidebarCounts.value = normalizeSidebarCounts(payload);
-  } catch (error) {
-    console.warn('sidebar counts could not be loaded', error);
-  } finally {
-    isLoadingSidebarCounts.value = false;
-  }
-}
-
-function scheduleSidebarCountsRefresh(delay = 240) {
-  if (sidebarCountsRefreshTimer) {
-    window.clearTimeout(sidebarCountsRefreshTimer);
-  }
-  sidebarCountsRefreshTimer = window.setTimeout(() => {
-    sidebarCountsRefreshTimer = null;
-    void fetchSidebarCounts();
-  }, delay);
-}
-
-function statusChipLabel(status) {
-  switch (status) {
-    case 'ready':
-      return 'Ready';
-    case 'processing':
-      return 'Processing';
-    case 'failed':
-      return 'Failed';
-    case 'imported':
-      return 'Imported';
-    default:
-      return status;
-  }
-}
-
-function makeUiId(prefix) {
-  if (window.crypto?.randomUUID) {
-    return `${prefix}-${window.crypto.randomUUID()}`;
-  }
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function createAiSessionId() {
-  if (window.crypto?.randomUUID) {
-    return window.crypto.randomUUID();
-  }
-  const randomHex = () => Math.floor(Math.random() * 0x10000).toString(16).padStart(4, '0');
-  return `${randomHex()}${randomHex()}-${randomHex()}-4${randomHex().slice(1)}-a${randomHex().slice(1)}-${randomHex()}${randomHex()}${randomHex()}`;
-}
-
-function ensureAiSessionId() {
-  if (!aiSessionId.value) {
-    aiSessionId.value = createAiSessionId();
-  }
-  return aiSessionId.value;
-}
-
-function sleepMs(ms) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-async function ensureMinPhaseDuration(startTs, minDurationMs = AI_PHASE_MIN_MS) {
-  const elapsed = Date.now() - Number(startTs || 0);
-  if (elapsed < minDurationMs) {
-    await sleepMs(minDurationMs - elapsed);
-  }
-}
-
-function openLibraryView() {
-  isAiDialogOpen.value = false;
-}
-
-function openAiView() {
-  ensureAiSessionId();
-  isAiDialogOpen.value = true;
-}
-
-function pushAiMessage(payload) {
-  const message = {
-    id: payload.id || makeUiId('ai-msg'),
-      role: payload.role,
-      text: payload.text,
-      isStatus: Boolean(payload.isStatus),
-      citations: Array.isArray(payload.citations) ? payload.citations : []
-    };
-  aiMessages.value.push(message);
-  nextTick(() => {
-    const container = aiChatScrollRef.value;
-    if (container) {
-      container.scrollTop = container.scrollHeight;
-    }
-  });
-  return message.id;
-}
-
-function updateAiMessage(messageId, patch) {
-  const index = aiMessages.value.findIndex((message) => message.id === messageId);
-  if (index < 0) {
-    return;
-  }
-  aiMessages.value[index] = {
-    ...aiMessages.value[index],
-    ...patch
-  };
-}
-
-function removeAiMessage(messageId) {
-  const index = aiMessages.value.findIndex((message) => message.id === messageId);
-  if (index < 0) {
-    return;
-  }
-  aiMessages.value.splice(index, 1);
-}
-
-function citationPageLabel(citation) {
-  const from = Number(citation?.page_from || 0);
-  const to = Number(citation?.page_to || 0);
-  if (from > 0 && to > 0) {
-    if (from === to) {
-      return `Seite ${from}`;
-    }
-    return `Seite ${from}-${to}`;
-  }
-  if (from > 0) {
-    return `Seite ${from}`;
-  }
-  if (to > 0) {
-    return `Seite ${to}`;
-  }
-  return '';
-}
-
-function citationHintText(citation) {
-  const snippet = String(citation?.snippet || '').trim().toLowerCase();
-  if (snippet === 'bankdaten nicht gefunden') {
-    return 'Prüfe Bankdaten im Dokument (Fußzeile).';
-  }
-  return '';
-}
-
-async function askAiSuggestion(question) {
-  aiQuestionInput.value = String(question || '').trim();
-  await submitAiQuestion();
-}
-
-async function submitAiQuestion() {
-  const question = String(aiQuestionInput.value || '').trim();
-  if (!question || isAiAsking.value) {
-    return;
-  }
-
-  const sessionId = ensureAiSessionId();
-  pushAiMessage({ role: 'user', text: question });
-  aiQuestionInput.value = '';
-  isAiAsking.value = true;
-  const statusMessageId = pushAiMessage({
-    role: 'assistant',
-    text: 'Suche relevante Stellen…',
-    isStatus: true,
-    citations: []
-  });
-  const phaseOneStartedAt = Date.now();
-
-  try {
-    const response = await fetch(`${apiBaseUrl}/api/ai/ask`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        session_id: sessionId,
-        question,
-        top_k: AI_DEFAULT_TOP_K
-      })
-    });
-    if (!response.ok) {
-      throw new Error(await parseResponseError(response));
-    }
-
-    await ensureMinPhaseDuration(phaseOneStartedAt);
-    updateAiMessage(statusMessageId, { text: 'Formuliere Antwort…' });
-    const phaseTwoStartedAt = Date.now();
-
-    const payload = await response.json();
-    if (payload?.meta?.session_id && !aiSessionId.value) {
-      aiSessionId.value = String(payload.meta.session_id);
-    }
-
-    await ensureMinPhaseDuration(phaseTwoStartedAt);
-    updateAiMessage(statusMessageId, {
-      isStatus: false,
-      text: String(payload?.answer || 'Keine Antwort verfügbar.'),
-      citations: Array.isArray(payload?.citations) ? payload.citations.slice(0, AI_MAX_VISIBLE_CITATIONS) : []
-    });
-  } catch (error) {
-    removeAiMessage(statusMessageId);
-    const message = mapApiError(error, 'KI-Anfrage fehlgeschlagen.');
-    notify({ type: 'error', title: 'KI', message });
-  } finally {
-    isAiAsking.value = false;
-  }
-}
 
 async function openCitation(citation) {
   const documentId = citation?.doc_id;
@@ -2518,91 +1000,8 @@ async function openCitation(citation) {
     await fetchDocuments(null, { autoSelectFirst: false });
     await selectDocument(documentId, { preserveTargetPage: true });
   } catch (error) {
-    const message = mapApiError(error, 'Quelle konnte nicht geöffnet werden.');
-    notify({ type: 'error', title: 'KI', message });
+    notifyError(error, 'Quelle konnte nicht geöffnet werden.', { title: 'KI' });
   }
-}
-
-function formatDate(value) {
-  if (!value) {
-    return '-';
-  }
-  const normalized = String(value).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
-    const [year, month, day] = normalized.split('-').map((part) => Number(part));
-    return new Intl.DateTimeFormat('de-DE').format(new Date(year, month - 1, day));
-  }
-  const parsed = new Date(normalized);
-  if (Number.isNaN(parsed.getTime())) {
-    return '-';
-  }
-  return new Intl.DateTimeFormat('de-DE').format(parsed);
-}
-
-function formatDateTime(value) {
-  if (!value) {
-    return '-';
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return '-';
-  }
-  return new Intl.DateTimeFormat('de-DE', {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  }).format(parsed);
-}
-
-function formatDocumentDateInputFromIso(value) {
-  const normalized = String(value || '').trim();
-  if (!normalized) {
-    return '';
-  }
-  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) {
-    return '';
-  }
-  return `${match[3]}.${match[2]}.${match[1]}`;
-}
-
-function parseDocumentDateInput(rawValue) {
-  const normalized = String(rawValue || '').trim();
-  if (!normalized) {
-    return { ok: true, iso: null, display: '' };
-  }
-
-  const match = normalized.match(/^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})$/);
-  if (!match) {
-    return { ok: false, iso: null, display: normalized };
-  }
-
-  const day = Number(match[1]);
-  const month = Number(match[2]);
-  const year = Number(match[3]);
-  const dateValue = new Date(year, month - 1, day);
-  if (
-    Number.isNaN(dateValue.getTime()) ||
-    dateValue.getFullYear() !== year ||
-    dateValue.getMonth() !== month - 1 ||
-    dateValue.getDate() !== day
-  ) {
-    return { ok: false, iso: null, display: normalized };
-  }
-
-  const dd = String(day).padStart(2, '0');
-  const mm = String(month).padStart(2, '0');
-  return {
-    ok: true,
-    iso: `${year}-${mm}-${dd}`,
-    display: `${dd}.${mm}.${year}`
-  };
-}
-
-function displayListDate(document) {
-  if (document.document_date) {
-    return `Dokumentdatum: ${formatDate(document.document_date)}`;
-  }
-  return 'Dokumentdatum: —';
 }
 
 function documentDateIsFromOcr(document) {
@@ -2626,10 +1025,6 @@ function tagCloudItemStyle(tag) {
   };
 }
 
-function thumbnailUrl(documentId) {
-  return `${apiBaseUrl}/api/documents/${documentId}/thumbnail`;
-}
-
 function hasOcrFile(document) {
   return Boolean(document?.files?.some((file) => file.role === 'ocr'));
 }
@@ -2646,17 +1041,6 @@ function documentFileUrl(documentId) {
   return `${apiBaseUrl}/api/documents/${documentId}/file?role=${selectedRole}`;
 }
 
-function hasThumbnailError(documentId) {
-  return Boolean(thumbnailErrorMap.value[documentId]);
-}
-
-function onThumbnailError(documentId) {
-  thumbnailErrorMap.value = {
-    ...thumbnailErrorMap.value,
-    [documentId]: true
-  };
-}
-
 function setDocumentUnreadState(documentId, unreadValue) {
   const listDocument = documents.value.find((item) => item.id === documentId);
   if (listDocument) {
@@ -2671,114 +1055,7 @@ function setDocumentUnreadState(documentId, unreadValue) {
   }
 }
 
-async function markDocumentViewedOptimistic(documentId) {
-  if (!documentId) {
-    return;
-  }
-
-  const listDocument = documents.value.find((item) => item.id === documentId);
-  const detailDocument = selectedDocumentDetail.value?.id === documentId ? selectedDocumentDetail.value : null;
-  const wasUnread = Boolean(listDocument?.is_unread ?? detailDocument?.is_unread);
-  if (!wasUnread) {
-    return;
-  }
-
-  setDocumentUnreadState(documentId, false);
-  try {
-    const response = await fetch(`${apiBaseUrl}/api/documents/${documentId}/mark-viewed`, {
-      method: 'POST'
-    });
-    if (!response.ok) {
-      throw new Error(await parseResponseError(response));
-    }
-  } catch (error) {
-    setDocumentUnreadState(documentId, true);
-    console.warn('mark viewed failed', error);
-  }
-}
-
-function isValidIsoDate(value) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return false;
-  }
-  const parsed = new Date(`${value}T00:00:00.000Z`);
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
-}
-
-function parseSearchText(rawSearch) {
-  const normalized = (rawSearch || '').trim();
-  if (!normalized) {
-    return { q: '', status: '', dateFrom: '', dateTo: '', warning: '' };
-  }
-
-  const freeTerms = [];
-  const warnings = [];
-  let statusFilter = '';
-  let dateFrom = '';
-  let dateTo = '';
-
-  for (const rawToken of normalized.split(/\s+/)) {
-    const token = rawToken.trim();
-    const lowerToken = token.toLowerCase();
-
-    if (lowerToken.startsWith('status:')) {
-      const statusValue = lowerToken.slice('status:'.length);
-      if (SEARCHABLE_STATUSES.has(statusValue)) {
-        statusFilter = statusValue;
-      } else {
-        warnings.push('Ungültiger status: Filter. Er wird als Freitext behandelt.');
-        freeTerms.push(token);
-      }
-      continue;
-    }
-
-    if (lowerToken.startsWith('date:')) {
-      const rangeValue = token.slice('date:'.length);
-      const [fromDate, toDate, extraPart] = rangeValue.split('..');
-      const isValidRange =
-        !extraPart &&
-        isValidIsoDate(fromDate || '') &&
-        isValidIsoDate(toDate || '') &&
-        fromDate <= toDate;
-
-      if (isValidRange) {
-        dateFrom = fromDate;
-        dateTo = toDate;
-      } else {
-        warnings.push('Ungültiger date: Bereich. Er wird als Freitext behandelt.');
-        freeTerms.push(token);
-      }
-      continue;
-    }
-
-    freeTerms.push(token);
-  }
-
-  return {
-    q: freeTerms.join(' ').trim(),
-    status: statusFilter,
-    dateFrom,
-    dateTo,
-    warning: warnings[0] || ''
-  };
-}
-
-function escapeHtml(value) {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
-function formatSnippet(value) {
-  const snippet = String(value || '').replace(/\s+/g, ' ').trim();
-  const escaped = escapeHtml(snippet);
-  return escaped
-    .replace(/&lt;mark&gt;/g, '<mark>')
-    .replace(/&lt;\/mark&gt;/g, '</mark>');
-}
+const markDocumentViewedOptimistic = (documentId) => docStore.markViewed(documentId);
 
 function extractTagId(value) {
   if (!value) {
@@ -2817,10 +1094,6 @@ function normalizeQueryValue(value) {
   return value;
 }
 
-function statusFromView(viewKey) {
-  return null;
-}
-
 function patchDocumentListQuery(patch, options = {}) {
   const resetOffset = options.resetOffset !== false;
   let hasChanged = false;
@@ -2842,39 +1115,6 @@ function patchDocumentListQuery(patch, options = {}) {
   }
 
   return hasChanged;
-}
-
-function syncSearchStateToQuery(options = {}) {
-  const parsed = parsedSearch.value;
-  const resolvedStatus = activeView.value === 'imports' ? null : parsed.status || statusFromView(activeView.value);
-  return patchDocumentListQuery(
-    {
-      q: parsed.q || null,
-      status: resolvedStatus,
-      dateFrom: parsed.dateFrom || null,
-      dateTo: parsed.dateTo || null
-    },
-    options
-  );
-}
-
-function isViewActive(viewKey) {
-  if (viewKey === 'all') {
-    return (
-      !isTagView.value &&
-      !activeSavedSearchId.value &&
-      activeView.value === 'all' &&
-      !documentListQuery.tagId &&
-      !documentListQuery.untagged
-    );
-  }
-  if (viewKey === 'imports') {
-    return !isTagView.value && !activeSavedSearchId.value && activeView.value === 'imports';
-  }
-  if (viewKey === 'untagged') {
-    return !isTagView.value && !activeSavedSearchId.value && activeView.value === 'untagged';
-  }
-  return activeView.value === viewKey;
 }
 
 function sortedTagIds(tagIds) {
@@ -2961,7 +1201,8 @@ async function replaceDocumentTags(tagIds) {
     let detail = null;
     try {
       detail = await response.json();
-    } catch {
+    } catch (error) {
+      logDevError(error, 'json-parse');
       detail = null;
     }
     if (detail?.id) {
@@ -2974,8 +1215,7 @@ async function replaceDocumentTags(tagIds) {
     scheduleSidebarCountsRefresh();
     notify({ type: 'success', title: 'Tags', message: 'Tags gespeichert.', timeoutMs: 2500 });
   } catch (error) {
-    metadataTagErrorMessage.value = mapApiError(error, 'Tags konnten nicht gespeichert werden.');
-    notify({ type: 'error', message: metadataTagErrorMessage.value });
+    metadataTagErrorMessage.value = notifyError(error, 'Tags konnten nicht gespeichert werden.');
     syncTagSelectionLocal(previousTagIds);
   } finally {
     isSavingTags.value = false;
@@ -3003,7 +1243,8 @@ async function runManualAutoTagging() {
     let detail = null;
     try {
       detail = await response.json();
-    } catch {
+    } catch (error) {
+      logDevError(error, 'json-parse');
       detail = null;
     }
 
@@ -3026,8 +1267,7 @@ async function runManualAutoTagging() {
       notify({ type: 'success', title: 'Tags', message: 'KI-Tagging abgeschlossen.' });
     }
   } catch (error) {
-    metadataTagErrorMessage.value = mapApiError(error, 'KI-Tagging konnte nicht ausgeführt werden.');
-    notify({ type: 'error', message: metadataTagErrorMessage.value });
+    metadataTagErrorMessage.value = notifyError(error, 'KI-Tagging konnte nicht ausgeführt werden.');
   } finally {
     isRunningManualAutoTagging.value = false;
   }
@@ -3052,7 +1292,8 @@ async function queueOcrFromHeader() {
     let detail = null;
     try {
       detail = await response.json();
-    } catch {
+    } catch (error) {
+      logDevError(error, 'json-parse');
       detail = null;
     }
 
@@ -3087,7 +1328,7 @@ async function queueOcrFromHeader() {
     scheduleSidebarCountsRefresh();
     notify({ type: 'success', title: 'OCR', message: 'OCR-Analyse wurde gestartet.' });
   } catch (error) {
-    notify({ type: 'error', message: mapApiError(error, 'OCR konnte nicht gestartet werden.') });
+    notifyError(error, 'OCR konnte nicht gestartet werden.');
   } finally {
     isQueueingHeaderOcr.value = false;
   }
@@ -3307,7 +1548,8 @@ async function parseResponseError(response) {
   try {
     const payload = await response.json();
     return payload?.error?.message || `Request failed (${response.status})`;
-  } catch {
+  } catch (error) {
+    logDevError(error, 'parseResponseError');
     return `Request failed (${response.status})`;
   }
 }
@@ -3418,38 +1660,15 @@ function onActiveSavedSearchChipClose() {
 }
 
 async function fetchSavedSearches() {
-  isLoadingSavedSearches.value = true;
-  try {
-    const response = await fetch(`${apiBaseUrl}/api/smart-folders`);
-    if (!response.ok) {
-      throw new Error(await parseResponseError(response));
-    }
-
-    const payload = await response.json();
-    savedSearches.value = Array.isArray(payload?.items) ? payload.items : [];
-
-    if (
-      activeSavedSearchId.value &&
-      !savedSearches.value.some((savedSearch) => savedSearch.id === activeSavedSearchId.value)
-    ) {
-      leaveActiveSavedSearch();
-      void fetchDocuments(selectedDocumentId.value);
-    }
-  } catch (error) {
-    const message = mapApiError(error, 'Ordner konnten nicht geladen werden.');
-    notify({ type: 'error', message });
-  } finally {
-    isLoadingSavedSearches.value = false;
+  await sidebarStore.fetchSavedSearches();
+  // Falls aktiver Ordner nicht mehr existiert: zurückfallen
+  if (activeSavedSearchId.value && !savedSearches.value.some((s) => s.id === activeSavedSearchId.value)) {
+    leaveActiveSavedSearch();
+    void fetchDocuments(selectedDocumentId.value);
   }
 }
 
-async function fetchSavedSearchDetail(savedSearchId) {
-  const response = await fetch(`${apiBaseUrl}/api/smart-folders/${savedSearchId}`);
-  if (!response.ok) {
-    throw new Error(await parseResponseError(response));
-  }
-  return await response.json();
-}
+const fetchSavedSearchDetail = (id) => sidebarStore.fetchSavedSearchDetail(id);
 
 function openCreateSavedSearchDialog() {
   smartFolderEditorMode.value = 'create';
@@ -3467,8 +1686,7 @@ async function openEditSavedSearchDialog(savedSearch) {
     smartFolderEditorTarget.value = detail;
     isSmartFolderEditorOpen.value = true;
   } catch (error) {
-    const message = mapApiError(error, 'Ordner konnte nicht geladen werden.');
-    notify({ type: 'error', message });
+    notifyError(error, 'Ordner konnte nicht geladen werden.');
   }
 }
 
@@ -3541,8 +1759,7 @@ async function handleSmartFolderSave(payload) {
       message: isEdit ? 'Ordner gespeichert.' : 'Ordner erstellt.'
     });
   } catch (error) {
-    const message = mapApiError(error, 'Ordner konnte nicht gespeichert werden.');
-    notify({ type: 'error', message });
+    notifyError(error, 'Ordner konnte nicht gespeichert werden.');
     isApplyingSavedSearchQuery = false;
   } finally {
     isSavingSavedSearch.value = false;
@@ -3574,8 +1791,7 @@ async function deleteSavedSearch(savedSearch) {
       await fetchDocuments(selectedDocumentId.value);
     }
   } catch (error) {
-    const message = mapApiError(error, 'Ordner konnte nicht gelöscht werden.');
-    notify({ type: 'error', message });
+    notifyError(error, 'Ordner konnte nicht gelöscht werden.');
   } finally {
     isSavingSavedSearch.value = false;
   }
@@ -3615,25 +1831,14 @@ async function openSavedSearch(savedSearchId) {
     }, 0);
     await fetchDocuments(selectedDocumentId.value);
   } catch (error) {
-    const message = mapApiError(error, 'Ordner konnte nicht geöffnet werden.');
-    notify({ type: 'error', message });
+    notifyError(error, 'Ordner konnte nicht geöffnet werden.');
     isApplyingSavedSearchQuery = false;
   }
 }
 
 async function fetchTags() {
-  try {
-    const response = await fetch(`${apiBaseUrl}/api/tags?include_count=true`);
-    if (!response.ok) {
-      throw new Error(await parseResponseError(response));
-    }
-
-    const payload = await response.json();
-    tags.value = payload.items || [];
-    ensureActiveTagFilterIsValid();
-  } catch (error) {
-    console.error(error);
-  }
+  await tagStore.fetchTags();
+  ensureActiveTagFilterIsValid();
 }
 
 async function fetchDocumentDetail(documentId) {
@@ -3710,8 +1915,7 @@ async function fetchDocuments(preferredDocumentId = null, options = {}) {
     await fetchDocumentDetail(resolvedSelectionId);
     void markDocumentViewedOptimistic(resolvedSelectionId);
   } catch (error) {
-    const message = mapApiError(error, 'Dokumente konnten nicht geladen werden.');
-    notify({ type: 'error', message });
+    notifyError(error, 'Dokumente konnten nicht geladen werden.');
   } finally {
     isLoadingDocuments.value = false;
   }
@@ -3727,7 +1931,8 @@ async function selectDocument(documentId, options = {}) {
   }
   if (!preserveTargetPage) {
     previewTargetPage.value    = null;
-    previewHighlightText.value = '';
+    // Suchbegriff aus der globalen Suche als Highlight übernehmen
+    previewHighlightText.value = parsedSearch.value.q || '';
   }
   selectedDocumentId.value = documentId;
   metadataSuccessMessage.value = '';
@@ -3738,8 +1943,7 @@ async function selectDocument(documentId, options = {}) {
     void markDocumentViewedOptimistic(documentId);
     await fetchTags();
   } catch (error) {
-    metadataErrorMessage.value = mapApiError(error, 'Dokumentdetails konnten nicht geladen werden.');
-    notify({ type: 'error', message: metadataErrorMessage.value });
+    metadataErrorMessage.value = notifyError(error, 'Dokumentdetails konnten nicht geladen werden.');
   }
 }
 
@@ -3757,8 +1961,7 @@ async function openTagManagerFromList(document) {
     try {
       await fetchDocumentDetail(document.id);
     } catch (error) {
-      metadataErrorMessage.value = mapApiError(error, 'Dokumentdetails konnten nicht geladen werden.');
-      notify({ type: 'error', message: metadataErrorMessage.value });
+      metadataErrorMessage.value = notifyError(error, 'Dokumentdetails konnten nicht geladen werden.');
       return;
     }
   }
@@ -3795,122 +1998,13 @@ function closeDeleteDocumentDialog() {
   deleteDocumentTarget.value = null;
 }
 
-function openRenameDocumentDialog(document) {
-  if (!document?.id) {
-    return;
-  }
-  renameDocumentTarget.value = {
-    id: document.id,
-    original_filename: document.original_filename,
-    display_name: document.display_name || null
-  };
-  renameDocumentName.value = stripPdfSuffix(getDocumentTitle(document));
-  isRenameDocumentDialogOpen.value = true;
-}
-
-function closeRenameDocumentDialog(force = false) {
-  if (isRenamingDocument.value && !force) {
-    return;
-  }
-  isRenameDocumentDialogOpen.value = false;
-  renameDocumentTarget.value = null;
-  renameDocumentName.value = '';
-  isSuggestingRenameDocumentTitle.value = false;
-}
-
-function normalizeAiTitleSuggestion(rawValue) {
-  const lines = String(rawValue || '')
-    .split('\n')
-    .map((line) => normalizeTagInput(line))
-    .filter(Boolean);
-  if (lines.length <= 0) {
-    return '';
-  }
-  let candidate = lines[0];
-  candidate = candidate.replace(/^titel\s*[:\-]\s*/i, '');
-  candidate = candidate.replace(/^[\-\*\u2022\d\.\)\(\s]+/, '');
-  candidate = candidate.replace(/^[`"'„“‚‘]+/, '').replace(/[`"'„“‚‘]+$/, '');
-  candidate = stripPdfSuffix(normalizeTagInput(candidate));
-  if (candidate.length > 200) {
-    candidate = candidate.slice(0, 200).trim();
-  }
-  return candidate;
-}
-
-async function suggestRenameDocumentTitle() {
-  const target = renameDocumentTarget.value;
-  if (!target?.id || isSuggestingRenameDocumentTitle.value || isRenamingDocument.value) {
-    return;
-  }
-
-  isSuggestingRenameDocumentTitle.value = true;
-  try {
-    const response = await fetch(`${apiBaseUrl}/api/ai/ask`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        question: 'Schlage einen kurzen, präzisen deutschen Dokumenttitel vor. Antworte nur mit dem Titel ohne Zusatztext.',
-        doc_id: target.id,
-        request_type: 'summary',
-        top_k: 8
-      })
-    });
-    if (!response.ok) {
-      throw new Error(await parseResponseError(response));
-    }
-    const payload = await response.json();
-    const suggestion = normalizeAiTitleSuggestion(payload?.answer);
-    if (!suggestion) {
-      notify({ type: 'warning', title: 'KI', message: 'Kein brauchbarer Titelvorschlag gefunden.' });
-      return;
-    }
-    renameDocumentName.value = suggestion;
-    notify({ type: 'success', title: 'KI', message: 'Titelvorschlag übernommen.' });
-  } catch (error) {
-    notify({ type: 'error', title: 'KI', message: mapApiError(error, 'Titelvorschlag fehlgeschlagen.') });
-  } finally {
-    isSuggestingRenameDocumentTitle.value = false;
-  }
-}
-
-async function submitRenameDocument() {
-  const target = renameDocumentTarget.value;
-  if (!target?.id || isRenamingDocument.value || isSuggestingRenameDocumentTitle.value) {
-    return;
-  }
-
-  const nextName = normalizeTagInput(renameDocumentName.value);
-  if (!nextName) {
-    notify({ type: 'warning', message: 'Name darf nicht leer sein.' });
-    return;
-  }
-
-  isRenamingDocument.value = true;
-  try {
-    const response = await fetch(`${apiBaseUrl}/api/documents/${target.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ display_name: nextName })
-    });
-    if (!response.ok) {
-      throw new Error(await parseResponseError(response));
-    }
-
-    const updated = await response.json();
-    documents.value = documents.value.map((document) => (
-      document.id === updated.id ? { ...document, ...updated } : document
-    ));
-    if (selectedDocumentId.value === updated.id) {
-      selectedDocumentDetail.value = updated;
-      applyMetadataFromDetail(updated);
-    }
-    closeRenameDocumentDialog(true);
-    notify({ type: 'success', title: 'Dokument', message: 'Name gespeichert.' });
-  } catch (error) {
-    const message = mapApiError(error, 'Dokument konnte nicht umbenannt werden.');
-    notify({ type: 'error', message });
-  } finally {
-    isRenamingDocument.value = false;
+function onDocumentRenamed(updated) {
+  documents.value = documents.value.map((document) =>
+    document.id === updated.id ? { ...document, ...updated } : document
+  );
+  if (selectedDocumentId.value === updated.id) {
+    selectedDocumentDetail.value = updated;
+    applyMetadataFromDetail(updated);
   }
 }
 
@@ -3949,8 +2043,7 @@ async function confirmDeleteDocumentFromDialog() {
     scheduleSidebarCountsRefresh();
     notify({ type: 'success', title: 'Dokument', message: 'Dokument gelöscht.' });
   } catch (error) {
-    const message = mapApiError(error, 'Dokument konnte nicht gelöscht werden.');
-    notify({ type: 'error', message });
+    notifyError(error, 'Dokument konnte nicht gelöscht werden.');
   } finally {
     isDeletingDocument.value = false;
   }
@@ -4077,35 +2170,6 @@ function openTagDocuments(tagId) {
   syncSearchStateToQuery({ resetOffset: false });
 }
 
-function triggerSearchNow() {
-  syncSearchStateToQuery();
-  if (searchDebounceTimer) {
-    window.clearTimeout(searchDebounceTimer);
-    searchDebounceTimer = null;
-  }
-  void fetchDocuments(selectedDocumentId.value);
-}
-
-function focusSearchFieldInput() {
-  const inputEl = searchField.value?.$el?.querySelector('input');
-  inputEl?.focus?.();
-}
-
-function clearSearchFromInput() {
-  searchText.value = '';
-  triggerSearchNow();
-  nextTick(() => {
-    focusSearchFieldInput();
-  });
-}
-
-function handleSearchEscape() {
-  if (!searchText.value) {
-    return;
-  }
-  clearSearchFromInput();
-}
-
 function normalizeTagInput(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
@@ -4136,328 +2200,23 @@ function findTagByName(name) {
   return tags.value.find((tag) => normalizeTagInput(tag.name).toLocaleLowerCase('de-DE') === normalizedName) || null;
 }
 
-function openCreateTagDialog() {
-  clearTagFeedbackMessages();
-  createTagName.value = '';
-  isCreateTagDialogOpen.value = true;
-}
-
-function closeCreateTagDialog() {
-  isCreateTagDialogOpen.value = false;
-  createTagName.value = '';
-}
-
-function clearTagToolbarQuery() {
-  tagSearchText.value = '';
-}
-
-function onTagToolbarEnter() {
-  if (!canCreateTagFromToolbar.value || isTagMutationRunning.value) {
-    return;
+function onTagMutated({ action, sourceId, targetId, tagId } = {}) {
+  if (action === 'merged' && sourceId && activeTagId.value === sourceId) {
+    activeTagId.value = targetId || null;
   }
-  void createTagFromToolbar();
-}
-
-async function createTagByName(rawName) {
-  const name = normalizeTagInput(rawName);
-  if (!name) {
-    return { ok: false, reason: 'empty', name: '' };
+  if (action === 'deleted' && tagId && activeTagId.value === tagId) {
+    activeTagId.value = null;
   }
-
-  if (findTagByName(name)) {
-    return { ok: false, reason: 'exists', name };
-  }
-
-  const response = await fetch(`${apiBaseUrl}/api/tags`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name })
-  });
-  if (!response.ok) {
-    throw new Error(await parseResponseError(response));
-  }
-
-  await fetchTags();
+  void fetchTags();
+  void fetchDocuments(selectedDocumentId.value);
   scheduleSidebarCountsRefresh();
-  return { ok: true, reason: 'created', name };
 }
 
-async function createTagFromToolbar() {
-  if (!canCreateTagFromToolbar.value || isTagMutationRunning.value) {
-    return;
-  }
-
-  isTagMutationRunning.value = true;
-  try {
-    const result = await createTagByName(tagSearchText.value);
-    if (!result.ok) {
-      return;
-    }
-    notify({ type: 'success', title: 'Tag', message: `Tag "${result.name}" erstellt.` });
-    clearTagToolbarQuery();
-    await nextTick();
-    tagSearchField.value?.focus?.();
-  } catch (error) {
-    const message = mapApiError(error, 'Tag konnte nicht erstellt werden.');
-    notify({ type: 'error', message });
-  } finally {
-    isTagMutationRunning.value = false;
-  }
+function onSettingsReloadImports() {
+  void fetchDocuments(selectedDocumentId.value);
+  scheduleSidebarCountsRefresh();
 }
 
-async function ensureTagIdByName(typedName) {
-  const normalized = normalizeTagInput(typedName);
-  if (!normalized) {
-    return '';
-  }
-
-  const existingId = findTagByName(normalized)?.id || '';
-  if (existingId) {
-    return existingId;
-  }
-
-  isSavingTags.value = true;
-  try {
-    const response = await fetch(`${apiBaseUrl}/api/tags`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: normalized })
-    });
-
-    if (!response.ok) {
-      throw new Error(await parseResponseError(response));
-    }
-
-    const createdTag = await response.json();
-    await fetchTags();
-    scheduleSidebarCountsRefresh();
-    return createdTag?.id || findTagByName(normalized)?.id || '';
-  } catch (error) {
-    metadataTagErrorMessage.value =
-      error instanceof Error ? error.message : 'Tag konnte nicht erstellt werden.';
-    notify({ type: 'error', message: metadataTagErrorMessage.value });
-    return '';
-  } finally {
-    isSavingTags.value = false;
-  }
-}
-
-async function syncMetadataTagsFromNames(nextNames) {
-  if (!selectedDocumentDetail.value) {
-    return;
-  }
-
-  const normalizedNames = normalizeTagNames(nextNames);
-  metadataTagErrorMessage.value = '';
-
-  const resolvedTagIds = [];
-  for (const name of normalizedNames) {
-    let tagId = findTagByName(name)?.id || '';
-    if (!tagId) {
-      tagId = await ensureTagIdByName(name);
-    }
-    if (!tagId) {
-      continue;
-    }
-    resolvedTagIds.push(tagId);
-  }
-
-  const canonicalIds = normalizeTagIds(resolvedTagIds);
-  const canonicalNames = canonicalIds.map((tagId) => tags.value.find((tag) => tag.id === tagId)?.name || tagId);
-  const sanitizedNames = normalizeTagNames(canonicalNames);
-
-  shouldSkipTagNameSync = true;
-  metadataTagNames.value = sanitizedNames;
-  window.setTimeout(() => {
-    shouldSkipTagNameSync = false;
-  }, 0);
-
-  metadataTagIds.value = canonicalIds;
-}
-
-async function onMetadataTagNamesChange(nextValues) {
-  if (shouldSkipTagNameSync || !selectedDocumentDetail.value) {
-    return;
-  }
-  await syncMetadataTagsFromNames(nextValues);
-}
-
-async function handleMetadataTagEnter() {
-  if (!selectedDocumentDetail.value) {
-    return;
-  }
-
-  const normalizedNames = normalizeTagNames([...metadataTagNames.value, metadataTagSearch.value]);
-  if (!normalizedNames.length) {
-    return;
-  }
-  await syncMetadataTagsFromNames(normalizedNames);
-  metadataTagSearch.value = '';
-}
-
-function openRenameTagDialog(tag) {
-  clearTagFeedbackMessages();
-  renameTargetTag.value = tag;
-  renameTagName.value = tag?.name || '';
-  isRenameTagDialogOpen.value = true;
-}
-
-function closeRenameTagDialog() {
-  isRenameTagDialogOpen.value = false;
-  renameTagName.value = '';
-  renameTargetTag.value = null;
-}
-
-function openMergeTagDialog(tag) {
-  clearTagFeedbackMessages();
-  mergeSourceTag.value = tag;
-  mergeTargetTagId.value = null;
-  isMergeTagDialogOpen.value = true;
-}
-
-function closeMergeTagDialog() {
-  isMergeTagDialogOpen.value = false;
-  mergeSourceTag.value = null;
-  mergeTargetTagId.value = null;
-}
-
-function openDeleteTagDialog(tag) {
-  clearTagFeedbackMessages();
-  deleteTagTarget.value = tag;
-  isDeleteTagDialogOpen.value = true;
-}
-
-function closeDeleteTagDialog() {
-  isDeleteTagDialogOpen.value = false;
-  deleteTagTarget.value = null;
-}
-
-async function submitCreateTag() {
-  if (!normalizeTagInput(createTagName.value)) {
-    const message = 'Tag-Name darf nicht leer sein.';
-    notify({ type: 'warning', message });
-    return;
-  }
-
-  isTagMutationRunning.value = true;
-  try {
-    const result = await createTagByName(createTagName.value);
-    if (!result.ok) {
-      if (result.reason === 'exists') {
-        notify({ type: 'warning', message: `Tag "${result.name}" existiert bereits.` });
-      }
-      return;
-    }
-
-    notify({ type: 'success', title: 'Tag', message: `Tag "${result.name}" erstellt.` });
-    closeCreateTagDialog();
-  } catch (error) {
-    const message = mapApiError(error, 'Tag konnte nicht erstellt werden.');
-    notify({ type: 'error', message });
-  } finally {
-    isTagMutationRunning.value = false;
-  }
-}
-
-async function submitRenameTag() {
-  if (!renameTargetTag.value) {
-    return;
-  }
-  const newName = normalizeTagInput(renameTagName.value);
-  if (!newName) {
-    const message = 'Tag-Name darf nicht leer sein.';
-    notify({ type: 'warning', message });
-    return;
-  }
-
-  isTagMutationRunning.value = true;
-  try {
-    const response = await fetch(`${apiBaseUrl}/api/tags/${renameTargetTag.value.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newName })
-    });
-    if (!response.ok) {
-      throw new Error(await parseResponseError(response));
-    }
-
-    await fetchTags();
-    scheduleSidebarCountsRefresh();
-    notify({ type: 'success', title: 'Tag', message: `Tag "${renameTargetTag.value.name}" umbenannt.` });
-    closeRenameTagDialog();
-  } catch (error) {
-    const message = mapApiError(error, 'Tag konnte nicht umbenannt werden.');
-    notify({ type: 'error', message });
-  } finally {
-    isTagMutationRunning.value = false;
-  }
-}
-
-async function submitMergeTag() {
-  if (!mergeSourceTag.value || !mergeTargetTagId.value) {
-    return;
-  }
-
-  isTagMutationRunning.value = true;
-  try {
-    const sourceId = mergeSourceTag.value.id;
-    const targetId = mergeTargetTagId.value;
-    const targetName = tags.value.find((tag) => tag.id === targetId)?.name || 'Ziel-Tag';
-    const response = await fetch(`${apiBaseUrl}/api/tags/${sourceId}/merge`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target_id: targetId })
-    });
-    if (!response.ok) {
-      throw new Error(await parseResponseError(response));
-    }
-
-    if (activeTagId.value === sourceId) {
-      activeTagId.value = targetId;
-    }
-    await fetchTags();
-    await fetchDocuments(selectedDocumentId.value);
-    scheduleSidebarCountsRefresh();
-    notify({ type: 'success', title: 'Tag', message: `Tag wurde in "${targetName}" zusammengeführt.` });
-    closeMergeTagDialog();
-  } catch (error) {
-    const message = mapApiError(error, 'Tag konnte nicht zusammengeführt werden.');
-    notify({ type: 'error', message });
-  } finally {
-    isTagMutationRunning.value = false;
-  }
-}
-
-async function submitDeleteTag() {
-  if (!deleteTagTarget.value) {
-    return;
-  }
-
-  isTagMutationRunning.value = true;
-  try {
-    const tagId = deleteTagTarget.value.id;
-    const response = await fetch(`${apiBaseUrl}/api/tags/${tagId}`, {
-      method: 'DELETE'
-    });
-    if (!response.ok) {
-      throw new Error(await parseResponseError(response));
-    }
-
-    if (activeTagId.value === tagId) {
-      activeTagId.value = null;
-    }
-    await fetchTags();
-    await fetchDocuments(selectedDocumentId.value);
-    scheduleSidebarCountsRefresh();
-    notify({ type: 'success', title: 'Tag', message: 'Tag gelöscht.' });
-    closeDeleteTagDialog();
-  } catch (error) {
-    const message = mapApiError(error, 'Tag konnte nicht gelöscht werden.');
-    notify({ type: 'error', message });
-  } finally {
-    isTagMutationRunning.value = false;
-  }
-}
 
 function setListDropNotice(message) {
   listDropNotice.value = message;
@@ -4474,77 +2233,22 @@ function setListDropNotice(message) {
   }, 2800);
 }
 
-function hasFileDragPayload(event) {
-  const types = Array.from(event.dataTransfer?.types || []);
-  return types.includes('Files');
-}
-
-function onListDragEnter(event) {
-  if (!hasFileDragPayload(event)) {
-    return;
-  }
-  event.preventDefault();
-  event.stopPropagation();
-  listDropDragDepth.value += 1;
-  isListDragOver.value = true;
-}
-
-function onListDragOver(event) {
-  if (!hasFileDragPayload(event)) {
-    return;
-  }
-  event.preventDefault();
-  event.stopPropagation();
-  if (event.dataTransfer) {
-    event.dataTransfer.dropEffect = 'copy';
-  }
-  if (!isListDragOver.value) {
-    isListDragOver.value = true;
-  }
-}
-
-function onListDragLeave(event) {
-  if (!hasFileDragPayload(event)) {
-    return;
-  }
-  event.preventDefault();
-  event.stopPropagation();
-  listDropDragDepth.value = Math.max(0, listDropDragDepth.value - 1);
-  if (listDropDragDepth.value === 0) {
-    isListDragOver.value = false;
-  }
-}
-
-async function onListDrop(event) {
-  if (!hasFileDragPayload(event)) {
-    return;
-  }
-  event.preventDefault();
-  event.stopPropagation();
-  isListDragOver.value = false;
-  listDropDragDepth.value = 0;
-
-  const files = Array.from(event.dataTransfer?.files || []);
-  if (files.length === 0) {
-    return;
-  }
+/** Empfängt rohe File-Liste vom DocumentListPanel (nach Drag & Drop). */
+async function onDroppedFiles(files) {
+  if (!files.length) return;
 
   const selection = selectPdfFiles(files, 'dnd');
   const rejectedCount = selection.skippedNonPdf + selection.skippedDuplicates;
 
-  if (rejectedCount > 0) {
-    setListDropNotice(
-      rejectedCount === 1
+  setListDropNotice(
+    rejectedCount > 0
+      ? rejectedCount === 1
         ? 'Nur PDFs werden importiert. 1 Datei wurde ignoriert.'
         : `Nur PDFs werden importiert. ${rejectedCount} Dateien wurden ignoriert.`
-    );
-  } else {
-    setListDropNotice('');
-  }
+      : ''
+  );
 
-  if (selection.files.length === 0) {
-    return;
-  }
+  if (selection.files.length === 0) return;
 
   const dialogRef = importStagingDialogRef.value;
   if (dialogRef && typeof dialogRef.openWithFiles === 'function') {
@@ -4718,7 +2422,8 @@ async function saveMetadata(options = {}) {
     let updatedDetail = null;
     try {
       updatedDetail = await patchResponse.json();
-    } catch {
+    } catch (error) {
+      logDevError(error, 'json-parse');
       updatedDetail = null;
     }
 
@@ -4771,8 +2476,7 @@ async function saveMetadata(options = {}) {
       metadataSuccessMessage.value = 'Metadaten gespeichert.';
     }
   } catch (error) {
-    metadataErrorMessage.value = mapApiError(error, 'Speichern fehlgeschlagen.');
-    notify({ type: 'error', message: metadataErrorMessage.value });
+    metadataErrorMessage.value = notifyError(error, 'Speichern fehlgeschlagen.');
   } finally {
     isSavingMetadata.value = false;
     if (shouldRunMetadataAutosaveAfterSave) {
@@ -4829,22 +2533,6 @@ watch(isDetailsDrawerOpen, (open) => {
   void fetchTags();
 });
 
-watch(
-  () => [
-    parsedSearch.value.q,
-    parsedSearch.value.status,
-    parsedSearch.value.dateFrom,
-    parsedSearch.value.dateTo,
-    activeView.value
-  ],
-  () => {
-    if (isTagView.value) {
-      return;
-    }
-    syncSearchStateToQuery();
-  }
-);
-
 watch(documentListSavedQueryKey, (nextKey) => {
   if (!activeSavedSearchId.value || !activeSavedSearchQuery.value) {
     return;
@@ -4857,54 +2545,55 @@ watch(documentListSavedQueryKey, (nextKey) => {
   }
 });
 
-watch(documentListQueryReloadKey, () => {
-  if (searchDebounceTimer) {
-    window.clearTimeout(searchDebounceTimer);
-  }
+// ── Composables ──────────────────────────────────────────────────────────────
 
-  searchDebounceTimer = window.setTimeout(() => {
-    if (isTagView.value) {
-      return;
-    }
-    void fetchDocuments(selectedDocumentId.value);
-  }, SEARCH_DEBOUNCE_MS);
+const {
+  searchText,
+  appBarSearchRef,
+  parsedSearch,
+  searchHintMessages,
+  showSnippets,
+  searchPlaceholder,
+  syncSearchStateToQuery,
+  triggerSearchNow,
+  focusSearchFieldInput,
+  onAppBarSearchInput,
+  clearSearchFromInput,
+  handleSearchEscape
+} = useSearch({
+  documentListQuery,
+  documentListQueryReloadKey,
+  activeView,
+  activeSavedSearchId,
+  activeSavedSearchName,
+  activeTagId,
+  tags,
+  isTagView,
+  selectedDocumentId,
+  patchDocumentListQuery,
+  fetchDocuments
 });
 
-async function pollOcrStatus() {
-  if (isLoadingDocuments.value) {
-    return;
-  }
+useOcrPolling({
+  documents,
+  hasActiveOcrJob,
+  isLoadingDocuments,
+  selectedDocumentId,
+  fetchDocuments
+});
 
-  const listHasProcessing = documents.value.some((document) => document.status === 'processing');
-  if (!listHasProcessing && !hasActiveOcrJob.value) {
-    return;
-  }
-
-  try {
-    await fetchDocuments(selectedDocumentId.value);
-  } catch {
-    // ignore polling errors; foreground requests handle user-visible errors
-  }
-}
+useGlobalKeyboard(handleGlobalKeydown);
 
 onMounted(async () => {
   mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
   mediaQuery.addEventListener('change', handleSystemThemeChange);
-  window.addEventListener('keydown', handleGlobalKeydown);
-  loadSidebarSectionVisibility();
   await fetchAppSettings();
 
   await Promise.all([fetchTags(), fetchSavedSearches(), fetchSidebarCounts()]);
   await fetchDocuments(null, { autoSelectFirst: true });
-  statusPollTimer = window.setInterval(() => {
-    void pollOcrStatus();
-  }, STATUS_POLL_INTERVAL_MS);
 });
 
 onBeforeUnmount(() => {
-  if (searchDebounceTimer) {
-    window.clearTimeout(searchDebounceTimer);
-  }
   if (tagReplaceDebounceTimer) {
     window.clearTimeout(tagReplaceDebounceTimer);
   }
@@ -4915,102 +2604,12 @@ onBeforeUnmount(() => {
   if (listDropNoticeTimer) {
     window.clearTimeout(listDropNoticeTimer);
   }
-  if (sidebarCountsRefreshTimer) {
-    window.clearTimeout(sidebarCountsRefreshTimer);
-  }
-  window.removeEventListener('keydown', handleGlobalKeydown);
   mediaQuery?.removeEventListener('change', handleSystemThemeChange);
-  if (statusPollTimer) {
-    window.clearInterval(statusPollTimer);
-  }
 });
 </script>
 
-<style scoped>
-.papermind-app {
-  --pm-indigo-rgb: 48, 57, 112;
-  --pm-dark-bg: #0b1220;
-  --pm-dark-panel-left: #0f1a2a;
-  --pm-dark-panel-mid: #111f33;
-  --pm-dark-panel-right: #0c1626;
-  --pm-dark-card: #162a44;
-  --pm-dark-card-hover: #1b3556;
-  --pm-dark-card-active: #22406a;
-  --pm-dark-sep: rgba(255, 255, 255, 0.08);
-  --pm-dark-outline: rgba(255, 255, 255, 0.06);
-  --pm-dark-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-  --pm-light-sep: rgba(15, 23, 42, 0.1);
-  --pm-light-outline: rgba(15, 23, 42, 0.06);
-  --pm-light-shadow: 0 10px 30px rgba(15, 23, 42, 0.1);
-  --pm-text: rgba(15, 23, 42, 0.92);
-  --pm-muted: rgba(15, 23, 42, 0.6);
-  --pm-divider: rgba(var(--v-theme-on-surface), 0.08);
-  --pm-app-surface: #f3f6fb;
-  --pm-content-surface: #f6f9fe;
-  --pm-sidebar-surface: #eef3fa;
-  --pm-viewer-surface: #f2f6fd;
-  --pm-app-surface-raised: #ffffff;
-  --pm-app-surface-contrast: #ffffff;
-  --pm-pdf-stage-bg: #f2f6fd;
-  --pm-sidebar-hover: rgba(59, 130, 246, 0.06);
-  --pm-sidebar-active: rgba(59, 130, 246, 0.1);
-  --pm-sidebar-count-opacity: 0.68;
-  --pm-row-hover: #f3f7ff;
-  --pm-row-active: #eaf2ff;
-  --pm-drawer-bg-expanded: rgba(255, 255, 255, 0.9);
-  --pm-drawer-bg-collapsed: rgba(255, 255, 255, 0.68);
-  --pm-drawer-blur-expanded: 5px;
-  --pm-drawer-blur-collapsed: 11px;
-  --pm-drawer-border-expanded: rgba(255, 255, 255, 0.16);
-  --pm-drawer-border-collapsed: rgba(255, 255, 255, 0.14);
-  --pm-drawer-scrim: transparent;
-}
-
-.papermind-app.v-theme--light {
-  --pm-divider: var(--pm-light-sep);
-  --pm-app-surface: #f3f6fb;
-  --pm-content-surface: #f6f9fe;
-  --pm-sidebar-surface: #eef3fa;
-  --pm-viewer-surface: #f2f6fd;
-  --pm-app-surface-raised: #ffffff;
-  --pm-app-surface-contrast: #ffffff;
-  --pm-pdf-stage-bg: #f2f6fd;
-  --pm-sidebar-hover: rgba(59, 130, 246, 0.06);
-  --pm-sidebar-active: rgba(59, 130, 246, 0.1);
-  --pm-row-hover: #f3f7ff;
-  --pm-row-active: #eaf2ff;
-  --pm-drawer-bg-expanded: rgba(255, 255, 255, 0.9);
-  --pm-drawer-bg-collapsed: rgba(255, 255, 255, 0.68);
-  --pm-drawer-blur-expanded: 5px;
-  --pm-drawer-blur-collapsed: 11px;
-  --pm-drawer-border-expanded: rgba(0, 0, 0, 0.12);
-  --pm-drawer-border-collapsed: rgba(0, 0, 0, 0.1);
-  --pm-drawer-scrim: transparent;
-}
-
-.papermind-app.v-theme--dark {
-  --v-theme-overlay-multiplier: 0;
-  --pm-divider: var(--pm-dark-sep);
-  --pm-app-surface: var(--pm-dark-bg);
-  --pm-content-surface: var(--pm-dark-panel-mid);
-  --pm-sidebar-surface: var(--pm-dark-panel-left);
-  --pm-viewer-surface: var(--pm-dark-panel-right);
-  --pm-app-surface-raised: var(--pm-dark-card);
-  --pm-app-surface-contrast: var(--pm-dark-card);
-  --pm-pdf-stage-bg: var(--pm-dark-panel-right);
-  --pm-sidebar-hover: var(--pm-dark-card-hover);
-  --pm-sidebar-active: #1c2b40;
-  --pm-sidebar-count-opacity: 0.9;
-  --pm-row-hover: var(--pm-dark-card-hover);
-  --pm-row-active: var(--pm-dark-card-active);
-  --pm-drawer-bg-expanded: rgba(28, 37, 51, 0.96);
-  --pm-drawer-bg-collapsed: rgba(28, 37, 51, 0.9);
-  --pm-drawer-blur-expanded: 2px;
-  --pm-drawer-blur-collapsed: 6px;
-  --pm-drawer-border-expanded: rgba(255, 255, 255, 0.08);
-  --pm-drawer-border-collapsed: rgba(255, 255, 255, 0.06);
-  --pm-drawer-scrim: transparent;
-}
+<style>
+/* Theme-Variablen → src/theme/theme.css */
 
 .app-topbar {
   color: rgba(248, 250, 255, 0.96) !important;
@@ -5021,6 +2620,46 @@ onBeforeUnmount(() => {
 
 .app-topbar :deep(.v-toolbar__content) {
   padding: 0 16px;
+  gap: 0;
+  position: relative;
+}
+
+.appbar-search {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 480px;
+  max-width: calc(100% - 440px);
+  pointer-events: auto;
+}
+
+.appbar-search__field {
+  width: 100%;
+}
+
+.appbar-search__field :deep(.v-field) {
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(248, 250, 255, 0.96);
+}
+
+.appbar-search__field :deep(.v-field--focused) {
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+}
+
+.appbar-search__field :deep(.v-field__input),
+.appbar-search__field :deep(.v-field__prepend-inner .v-icon),
+.appbar-search__field :deep(.v-field__clearable .v-icon) {
+  color: rgba(248, 250, 255, 0.85) !important;
+}
+
+.appbar-search__field :deep(input::placeholder) {
+  color: rgba(248, 250, 255, 0.5);
+}
+
+.appbar-search__field :deep(.v-field__outline) {
+  display: none;
 }
 
 .app-main {
@@ -5424,35 +3063,6 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 14px 16px 20px;
-}
-
-.document-list-empty-state {
-  max-width: 460px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  gap: 10px;
-}
-
-.document-list-empty-state__icon {
-  opacity: 0.56;
-}
-
-.document-list-empty-state__title {
-  margin-top: 2px;
-  font-size: 1.02rem;
-  font-weight: 600;
-  line-height: 1.25;
-}
-
-.document-list-empty-state__subtitle {
-  max-width: 460px;
-  font-size: 0.84rem;
-  line-height: 1.4;
-  opacity: 0.72;
 }
 
 .document-list-body--dragover .document-row {
@@ -5798,14 +3408,14 @@ onBeforeUnmount(() => {
   transition: background-color 0.16s ease;
 }
 
-.sidebar-item :deep(.v-list-item__prepend) {
-  width: 30px;
-  min-width: 30px;
-  justify-content: center;
+.sidebar-item {
+  --v-list-prepend-gap: 10px;
 }
 
-.sidebar-item :deep(.v-list-item__prepend > .v-list-item__spacer) {
-  width: 5px;
+.sidebar-item :deep(.v-list-item__prepend) {
+  width: 24px;
+  min-width: 24px;
+  justify-content: center;
 }
 
 .sidebar-item :deep(.v-list-item-title) {
@@ -5867,8 +3477,7 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-item.v-list-item--active::before {
-  width: 3px;
-  opacity: 1;
+  display: none;
 }
 
 .sidebar-item.v-list-item--active :deep(.v-list-item-title) {
@@ -6203,8 +3812,7 @@ onBeforeUnmount(() => {
 }
 
 .papermind-app.v-theme--dark .document-row__meta,
-.papermind-app.v-theme--dark .document-row__snippet,
-.papermind-app.v-theme--dark .preview-empty-state__subtitle {
+.papermind-app.v-theme--dark .document-row__snippet {
   opacity: 0.9;
 }
 
@@ -6421,35 +4029,6 @@ onBeforeUnmount(() => {
   position: relative;
   overflow: hidden;
   background: var(--pm-viewer-surface);
-}
-
-.preview-empty-state {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  gap: 8px;
-  padding: 24px;
-}
-
-.preview-empty-state__icon {
-  opacity: 0.58;
-}
-
-.preview-empty-state__title {
-  font-size: 0.96rem;
-  font-weight: 600;
-  line-height: 1.25;
-}
-
-.preview-empty-state__subtitle {
-  max-width: 320px;
-  font-size: 0.82rem;
-  line-height: 1.4;
-  opacity: 0.72;
 }
 
 .preview-frame-wrap {

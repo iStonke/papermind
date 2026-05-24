@@ -20,12 +20,27 @@
       <span>Vorschau wird geladen…</span>
     </div>
 
-    <template v-else>
-      <!-- Toolbar: Seite + Zoom -->
+    <div
+      v-else
+      class="pdf-preview__viewer"
+      :class="{ 'pdf-preview__viewer--ready': firstPageReady }"
+    >
+      <!-- Toolbar: Seite + Zoom + Treffer -->
       <div class="pdf-preview__toolbar" aria-label="PDF-Steuerung">
         <span class="pdf-preview__page-info" aria-live="polite">
           {{ currentPage }} / {{ pageInfos.length }}
         </span>
+
+        <!-- Treffer-Badge (nur wenn Suche aktiv) -->
+        <span
+          v-if="highlightText"
+          class="pdf-preview__match-badge"
+          :class="{ 'pdf-preview__match-badge--zero': highlightCount === 0 }"
+          aria-live="polite"
+        >
+          {{ highlightCount === 0 ? 'Kein Treffer' : `${highlightCount} Treffer` }}
+        </span>
+
         <div class="pdf-preview__zoom-controls" role="group" aria-label="Zoom">
           <button
             class="pdf-preview__zoom-btn"
@@ -58,7 +73,7 @@
           />
         </article>
       </div>
-    </template>
+    </div>
 
   </div>
 </template>
@@ -109,6 +124,9 @@ const errorMessage = ref('');
 const loadProgress    = ref(0);
 const loadIndeterminate = ref(false);
 
+/** Erste Seite wurde gerendert → Viewer einblenden */
+const firstPageReady = ref(false);
+
 /** Dimensionen aller Seiten – ohne Rendering befüllt */
 const pageInfos = ref([]); // [{ page, width, height }]
 
@@ -117,6 +135,9 @@ const renderedPages = new Set();
 
 /** Aktuell sichtbare Seite (für Seitenanzeige) */
 const currentPage = ref(1);
+
+/** Gesamtanzahl Treffer über alle gerenderten Seiten */
+const highlightCount = ref(0);
 
 // ─── Interne Handles ──────────────────────────────────────────────────────────
 
@@ -159,46 +180,145 @@ function pageStyle(info) {
 // ─── Highlighting ─────────────────────────────────────────────────────────────
 
 /**
- * Extrahiert Suchbegriffe aus dem highlightText-Prop:
- * Split nach Whitespace, entfernt Sonderzeichen, filtert kurze Wörter.
+ * Baut eine Liste von Suchbegriffen auf:
+ * - Der gesamte highlightText als Phrase (falls >= 2 Zeichen)
+ * - Plus einzelne Wörter >= 2 Zeichen (für Teilwort-Treffer)
+ * Duplikate werden entfernt.
  */
 function extractTerms() {
-  if (!props.highlightText) return [];
-  return props.highlightText
-    .split(/\s+/)
-    .map(w => w.replace(/[^\wäöüÄÖÜß]/gi, ''))
-    .filter(w => w.length >= 3);
+  const raw = (props.highlightText || '').trim();
+  if (!raw) return [];
+
+  const terms = new Set();
+  // Ganzen Ausdruck als Phrase versuchen
+  if (raw.length >= 2) terms.add(raw.toLowerCase());
+  // Einzelwörter
+  for (const w of raw.split(/\s+/)) {
+    const clean = w.replace(/[^\wäöüÄÖÜß]/gi, '');
+    if (clean.length >= 2) terms.add(clean.toLowerCase());
+  }
+  // Längste Terme zuerst (verhindert Überlappungen)
+  return [...terms].sort((a, b) => b.length - a.length);
 }
 
 /**
- * Markiert passende Spans im TextLayer mit der Klasse `pm-highlight`.
- * Wird nach jedem TextLayer-Rendering aufgerufen.
+ * Markiert Treffer im TextLayer.
+ * Strategie:
+ *   1. Alle Textknoten zu einem Flat-String zusammenführen und Treffer suchen.
+ *   2. Liegt der Treffer innerhalb eines einzelnen Textknotens → <mark> via Range.
+ *   3. Liegt er über mehrere Knoten (pdfjs teilt manchmal zeichenweise auf) →
+ *      CSS-Klasse pm-highlight auf die betroffenen Eltern-Spans setzen.
+ * Gibt die Anzahl der gefundenen Treffer zurück.
  */
 function applyHighlights(textLayerDiv) {
   const terms = extractTerms();
-  if (!terms.length) return;
+  if (!terms.length) return 0;
 
-  const spans = textLayerDiv.querySelectorAll('span');
-  for (const span of spans) {
-    const text = span.textContent || '';
-    if (terms.some(term => text.toLowerCase().includes(term.toLowerCase()))) {
-      span.classList.add('pm-highlight');
+  // Alle Textknoten in Dokumentenreihenfolge sammeln
+  const walker = document.createTreeWalker(textLayerDiv, NodeFilter.SHOW_TEXT, null);
+  const nodes = [];
+  let n;
+  while ((n = walker.nextNode())) nodes.push(n);
+  if (!nodes.length) return 0;
+
+  // Flat-String + Offset-Karte
+  const offsets = [];
+  let pos = 0;
+  for (const node of nodes) {
+    offsets.push(pos);
+    pos += node.textContent.length;
+  }
+  const fullText = nodes.map(nd => nd.textContent).join('').toLowerCase();
+
+  // Treffer finden (keine Überlappungen)
+  const matches = [];
+  const covered = new Uint8Array(fullText.length);
+  for (const term of terms) {
+    let idx = 0;
+    while (idx < fullText.length) {
+      const found = fullText.indexOf(term, idx);
+      if (found === -1) break;
+      if (!covered.slice(found, found + term.length).some(Boolean)) {
+        matches.push({ start: found, end: found + term.length });
+        covered.fill(1, found, found + term.length);
+      }
+      idx = found + 1;
     }
   }
+  if (!matches.length) return 0;
+
+  // Rückwärts anwenden (DOM-Offsets bleiben stabil)
+  matches.sort((a, b) => b.start - a.start);
+  let count = 0;
+
+  for (const { start, end } of matches) {
+    // Startknoten ermitteln
+    let si = nodes.length - 1;
+    while (si > 0 && offsets[si] > start) si--;
+    // Endknoten ermitteln
+    let ei = nodes.length - 1;
+    while (ei > 0 && offsets[ei] >= end) ei--;
+
+    if (si === ei) {
+      // ── Treffer liegt in einem einzigen Textknoten → <mark> via Range ──
+      try {
+        const range = document.createRange();
+        range.setStart(nodes[si], start - offsets[si]);
+        range.setEnd(nodes[si], end - offsets[si]);
+        const mark = document.createElement('mark');
+        mark.className = 'pm-highlight';
+        range.surroundContents(mark);
+        count++;
+      } catch (_) {
+        // Fallback: Eltern-Span markieren
+        const p = nodes[si].parentElement;
+        if (p && !p.classList.contains('pm-highlight')) {
+          p.classList.add('pm-highlight');
+          count++;
+        }
+      }
+    } else {
+      // ── Treffer über mehrere Knoten → Eltern-Spans mit Klasse markieren ──
+      let marked = false;
+      for (let i = si; i <= ei; i++) {
+        const p = nodes[i].parentElement;
+        if (p && !p.classList.contains('pm-highlight')) {
+          p.classList.add('pm-highlight');
+          marked = true;
+        }
+      }
+      if (marked) count++;
+    }
+  }
+
+  return count;
+}
+
+/** Entfernt alle Markierungen (mark-Elemente und pm-highlight-Klassen). */
+function clearHighlights(el) {
+  // <mark>-Elemente auflösen
+  el.querySelectorAll('mark.pm-highlight').forEach(mark => {
+    const parent = mark.parentNode;
+    if (!parent) return;
+    while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+    parent.removeChild(mark);
+    parent.normalize();
+  });
+  // CSS-Klassen entfernen (Cross-Span-Fallback)
+  el.querySelectorAll('.pm-highlight').forEach(e => e.classList.remove('pm-highlight'));
 }
 
 /**
  * Wird aufgerufen wenn sich highlightText ändert ohne neues PDF-Loading.
- * Entfernt alte Markierungen und setzt neue auf bereits gerenderten Seiten.
+ * Entfernt alte <mark>-Elemente und markiert neu.
  */
 watch(() => props.highlightText, () => {
+  highlightCount.value = 0;
   for (const [pageNum, el] of pageInnerRefs.entries()) {
-    // Alte Markierungen entfernen
-    el.querySelectorAll('.pm-highlight').forEach(s => s.classList.remove('pm-highlight'));
-    // Neue setzen wenn Seite bereits gerendert
+    clearHighlights(el);
     if (renderedPages.has(pageNum)) {
       const tl = el.querySelector('.textLayer');
-      if (tl) applyHighlights(tl);
+      if (tl) highlightCount.value += applyHighlights(tl);
     }
   }
 });
@@ -247,10 +367,9 @@ async function renderPage(pageNum) {
       viewport,
     });
     await textLayer.render();
+    // pdfjs kann Spans intern via setTimeout/rAF nachladen – einen Tick warten
+    await new Promise(resolve => setTimeout(resolve, 0));
     if (epoch !== loadEpoch) return;
-
-    // Highlights anwenden
-    applyHighlights(textLayerDiv);
 
     // LRU-Eviction: älteste Seite entfernen wenn Cache voll
     if (renderedPages.size >= MAX_CACHED_PAGES) {
@@ -268,7 +387,11 @@ async function renderPage(pageNum) {
     innerEl.appendChild(canvas);
     innerEl.appendChild(textLayerDiv);
 
+    // Highlights anwenden (nach DOM-Einhängen, damit normalize() korrekt arbeitet)
+    highlightCount.value += applyHighlights(textLayerDiv);
+
     renderedPages.add(pageNum);
+    if (!firstPageReady.value) firstPageReady.value = true;
     page.cleanup();
   } catch (_err) {
     // Einzelseite konnte nicht gerendert werden – kein Fatal-Error
@@ -330,6 +453,7 @@ watch(currentZoom, async () => {
   if (!pdfDoc) return;
   renderedPages.clear();
   renderQueue.clear();
+  highlightCount.value = 0;
   for (const el of pageInnerRefs.values()) el.innerHTML = '';
   await setupObservers();
 });
@@ -343,11 +467,13 @@ async function loadPdf(src) {
   renderedPages.clear();
   renderQueue.clear();
   pageInnerRefs.clear();
-  pageInfos.value  = [];
+  pageInfos.value   = [];
+  firstPageReady.value = false;
   currentPage.value = 1;
   errorMessage.value = '';
   loadProgress.value = 0;
   loadIndeterminate.value = false;
+  highlightCount.value = 0;
 
   if (activeLoadTask) { try { activeLoadTask.destroy(); } catch (_) {} activeLoadTask = null; }
   if (pdfDoc)         { try { pdfDoc.destroy(); }         catch (_) {} pdfDoc = null; }
@@ -475,6 +601,26 @@ onBeforeUnmount(() => {
   min-width: 3rem;
 }
 
+.pdf-preview__match-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(255, 200, 0, 0.35);
+  color: rgb(var(--v-theme-on-surface) / 0.85);
+  border: 1px solid rgba(200, 150, 0, 0.3);
+  white-space: nowrap;
+  flex: 1;
+  text-align: center;
+}
+
+.pdf-preview__match-badge--zero {
+  background: rgb(var(--v-theme-on-surface) / 0.06);
+  border-color: rgb(var(--v-theme-on-surface) / 0.12);
+  color: rgb(var(--v-theme-on-surface) / 0.45);
+  font-weight: 400;
+}
+
 .pdf-preview__zoom-controls {
   display: flex;
   align-items: center;
@@ -514,6 +660,20 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
+/* ── Viewer-Wrapper: Fade-in nach erstem Render ─────────────────────────── */
+.pdf-preview__viewer {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.pdf-preview__viewer--ready {
+  opacity: 1;
+}
+
 /* ── Seiten-Scrollcontainer ─────────────────────────────────────────────── */
 .pdf-preview__pages {
   flex: 1;
@@ -532,6 +692,10 @@ onBeforeUnmount(() => {
   position: relative;
   border-radius: 6px;
   overflow: hidden;
+}
+
+/* Schatten erst zeigen, sobald Seite gerendert ist (Inner-Div hat Inhalt) */
+.pdf-preview__page:has(.pdf-preview__page-inner:not(:empty)) {
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.14);
 }
 
@@ -577,13 +741,16 @@ onBeforeUnmount(() => {
   color: transparent;
 }
 
-/* Suchmarkierung */
-.pdf-preview__page-inner :deep(.textLayer .pm-highlight) {
-  background: rgba(255, 200, 0, 0.45);
-  border-radius: 2px;
+/* Suchmarkierung: <mark> (Range API, same-node) UND span.pm-highlight (cross-span) */
+.pdf-preview__page-inner :deep(.textLayer mark.pm-highlight),
+.pdf-preview__page-inner :deep(.textLayer span.pm-highlight) {
+  background: rgba(255, 200, 0, 0.55);
   color: transparent;
+  border-radius: 2px;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
+  padding: 0;
+  margin: 0;
 }
 
 /* ── Ladefortschritt ────────────────────────────────────────────────────── */
@@ -602,6 +769,12 @@ onBeforeUnmount(() => {
 
 .pdf-preview__state--loading {
   gap: 10px;
+  opacity: 0;
+  animation: pm-loading-appear 0s 600ms forwards;
+}
+
+@keyframes pm-loading-appear {
+  to { opacity: 1; }
 }
 
 .pdf-preview__progress-wrap {

@@ -210,11 +210,42 @@ export function mapApiError(error, fallbackMessage = 'Aktion fehlgeschlagen.') {
   return message;
 }
 
+/**
+ * Loggt einen Fehler im Dev-Modus auf der Konsole.
+ * Kein UI-Feedback — für bewusst stille Fehler gedacht.
+ */
+export function logDevError(error, context = '') {
+  if (import.meta.env.DEV) {
+    const prefix = context ? `[PaperMind:${context}]` : '[PaperMind]';
+    console.error(prefix, error);
+  }
+}
+
+/**
+ * Zentraler Fehler-Handler: mapApiError + notify + Dev-Log in einem Aufruf.
+ *
+ * Verwendung:
+ *   catch (error) { notifyError(error, 'Dokument konnte nicht geladen werden.'); }
+ *
+ * @param {unknown} error        - Der gefangene Fehler
+ * @param {string}  fallback     - Fallback-Nachricht wenn kein spezifischer Text
+ * @param {object}  [options]    - Zusätzliche notify-Optionen (z.B. { title: 'KI' })
+ * @returns {string}             - Die angezeigte Fehlermeldung
+ */
+export function notifyError(error, fallback = 'Aktion fehlgeschlagen.', options = {}) {
+  logDevError(error, options.context ?? '');
+  const message = mapApiError(error, fallback);
+  notify({ type: 'error', message, ...options });
+  return message;
+}
+
 export function useNotifications() {
   return {
     visibleNotifications: computed(() => state.visible),
     queuedNotifications: computed(() => state.queue),
     notify,
+    notifyError,
+    logDevError,
     dismissNotification: dismiss,
     clearAllNotifications: clearAll,
     pauseNotificationTimer: pause,

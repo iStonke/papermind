@@ -1012,6 +1012,34 @@ class DocumentService:
 
         return normalized
 
+    def _build_ts_query_expr(self, normalized_query: str, fts_config: str):
+        """
+        Baut einen tsquery-Ausdruck mit Präfix-Matching auf dem letzten Token.
+
+        "Beitragsrech"        → to_tsquery('Beitragsrech:*')
+        "Kfz Versich"         → websearch_to_tsquery('Kfz') && to_tsquery('Versich:*')
+        "Beitragsrechnung KFZ" → websearch_to_tsquery('Beitragsrechnung') && to_tsquery('KFZ:*')
+        """
+        tokens = normalized_query.split()
+        if not tokens:
+            return func.websearch_to_tsquery(fts_config, normalized_query)
+
+        last_token = tokens[-1]
+        # Nur Wortzeichen (inkl. deutsche Umlaute) erlaubt, um to_tsquery-Injection zu vermeiden
+        safe_last = re.sub(r"[^\w\-]", "", last_token, flags=re.UNICODE)
+
+        if not safe_last:
+            return func.websearch_to_tsquery(fts_config, normalized_query)
+
+        prefix_expr = func.to_tsquery(fts_config, safe_last + ":*")
+
+        if len(tokens) == 1:
+            return prefix_expr
+
+        preceding = " ".join(tokens[:-1])
+        preceding_expr = func.websearch_to_tsquery(fts_config, preceding)
+        return preceding_expr.op("&&")(prefix_expr)
+
     def list_documents(
         self,
         q: str | None,
@@ -1045,7 +1073,7 @@ class DocumentService:
         fts_config = settings.fts_regconfig
         ts_query_expr = None
         if normalized_query:
-            ts_query_expr = func.websearch_to_tsquery(fts_config, normalized_query)
+            ts_query_expr = self._build_ts_query_expr(normalized_query, fts_config)
             filtered_stmt = filtered_stmt.where(Document.search_vector.op("@@")(ts_query_expr))
 
         direction = asc if order == SortOrder.asc else desc
