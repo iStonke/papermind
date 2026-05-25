@@ -60,7 +60,10 @@ html {
 }
 
 .v-overlay.v-dialog > .v-overlay__scrim {
-  transition: background-color 160ms ease, backdrop-filter 160ms ease, -webkit-backdrop-filter 160ms ease;
+  transition:
+    background-color   var(--pm-duration-normal, 210ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    backdrop-filter    var(--pm-duration-normal, 210ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    -webkit-backdrop-filter var(--pm-duration-normal, 210ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .v-theme--dark .v-overlay.v-dialog > .v-overlay__scrim {
@@ -85,7 +88,7 @@ html {
 
 body.pm-modal-open .papermind-app.v-theme--dark {
   filter: brightness(0.64) saturate(0.66) !important;
-  transition: filter 160ms ease;
+  transition: filter var(--pm-duration-normal, 210ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .v-overlay.v-dialog:not(.v-overlay--active) .v-overlay__scrim {
@@ -122,6 +125,85 @@ body.pm-modal-open .papermind-app.v-theme--dark {
   .v-theme--dark .v-overlay.v-dialog > .v-overlay__scrim {
     background: rgba(0, 0, 0, 0.92) !important;
   }
+}
+
+/* ── Globale Animations-Transitions ────────────────────────────────────────── */
+
+/* Dialog: scale + fade */
+.pm-dialog-enter-active,
+.pm-dialog-leave-active {
+  transition:
+    opacity   var(--pm-duration-normal, 210ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    transform var(--pm-duration-normal, 210ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+.pm-dialog-enter-from,
+.pm-dialog-leave-to {
+  opacity: 0;
+  transform: scale(0.96) translateY(6px);
+}
+
+/* Listeneinträge: fade + slide */
+.pm-list-item-enter-active {
+  transition:
+    opacity   var(--pm-duration-normal, 210ms) var(--pm-easing-decel, cubic-bezier(0, 0, 0.2, 1)),
+    transform var(--pm-duration-normal, 210ms) var(--pm-easing-decel, cubic-bezier(0, 0, 0.2, 1));
+}
+.pm-list-item-leave-active {
+  transition:
+    opacity   var(--pm-duration-fast, 140ms) var(--pm-easing-accel, cubic-bezier(0.4, 0, 1, 1)),
+    transform var(--pm-duration-fast, 140ms) var(--pm-easing-accel, cubic-bezier(0.4, 0, 1, 1));
+  position: absolute;
+  width: 100%;
+}
+.pm-list-item-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.pm-list-item-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+.pm-list-item-move {
+  transition: transform var(--pm-duration-normal, 210ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+/* Einfaches Fade */
+.pm-fade-enter-active,
+.pm-fade-leave-active {
+  transition: opacity var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+.pm-fade-enter-from,
+.pm-fade-leave-to {
+  opacity: 0;
+}
+
+/* Tag-Chips */
+.pm-chip-enter-active,
+.pm-chip-leave-active {
+  transition:
+    opacity   var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    transform var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+.pm-chip-leave-active {
+  position: absolute;
+}
+.pm-chip-enter-from,
+.pm-chip-leave-to {
+  opacity: 0;
+  transform: scale(0.8);
+}
+.pm-chip-move {
+  transition: transform var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+/* Panel-Crossfade (Seitenübergang) */
+.pm-panel-enter-active,
+.pm-panel-leave-active {
+  transition: opacity var(--pm-duration-normal, 210ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+.pm-panel-enter-from,
+.pm-panel-leave-to {
+  opacity: 0;
 }
 
 .app-modal {

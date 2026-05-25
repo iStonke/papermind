@@ -86,7 +86,16 @@
       @drop="onListDrop"
     >
       <div class="document-list-content">
-        <div v-if="showDocumentListEmptyState" class="document-list-empty-state-wrap">
+        <div v-if="isLoadingDocuments && documents.length === 0" class="document-list document-list--skeleton">
+          <v-skeleton-loader
+            v-for="n in 6"
+            :key="`skel-${n}`"
+            type="list-item-avatar-two-line"
+            class="document-row-skeleton"
+          />
+        </div>
+
+        <div v-else-if="showDocumentListEmptyState" class="document-list-empty-state-wrap">
           <PmEmptyState
             :icon="documentListEmptyState.icon"
             :title="documentListEmptyState.title"
@@ -95,7 +104,7 @@
           />
         </div>
 
-        <div v-else class="document-list">
+        <TransitionGroup v-else tag="div" name="pm-list-item" class="document-list">
           <div
             v-for="document in documents"
             :key="document.id"
@@ -107,7 +116,7 @@
             }"
             role="button"
             tabindex="0"
-            @click="isSelectionMode ? emit('toggle-document-selection', document.id) : emit('select-document', document.id)"
+            @click="onRowClick($event, document.id)"
             @keydown="handleDocumentRowShortcut($event, document.id)"
           >
             <div class="document-row__thumb" :class="{ 'document-row__thumb--selectable': isSelectionMode }">
@@ -141,7 +150,12 @@
               <div class="document-row__meta-line">
                 <div class="document-row__meta">{{ displayListDate(document) }}</div>
               </div>
-              <div v-if="Array.isArray(document.tags) && document.tags.length > 0" class="document-row__tags">
+              <TransitionGroup
+                v-if="Array.isArray(document.tags) && document.tags.length > 0"
+                tag="div"
+                name="pm-chip"
+                class="document-row__tags"
+              >
                 <v-chip
                   v-for="tag in document.tags.slice(0, 3)"
                   :key="`doc-${document.id}-tag-${tag.id}`"
@@ -153,13 +167,14 @@
                 </v-chip>
                 <v-chip
                   v-if="document.tags.length > 3"
+                  key="more"
                   size="x-small"
                   variant="outlined"
                   class="document-row__tag-chip document-row__tag-chip--more"
                 >
                   +{{ document.tags.length - 3 }}
                 </v-chip>
-              </div>
+              </TransitionGroup>
               <div
                 v-if="showSnippets && document.snippet"
                 class="document-row__snippet"
@@ -244,7 +259,7 @@
               </div>
             </div>
           </div>
-        </div>
+        </TransitionGroup>
       </div>
 
       <div v-if="isListDragOver" class="document-list-drop-overlay" aria-hidden="true">
@@ -346,6 +361,22 @@ function handleDocumentRowShortcut(event, documentId) {
   handleShortcut(event, SHORTCUT_ACTIONS.ACTIVATE, () => emit('select-document', documentId), {
     ignoreEditable: false
   });
+}
+
+function onRowClick(event, documentId) {
+  if (event.metaKey || event.ctrlKey) {
+    // Cmd/Ctrl+Klick: Auswahlmodus aktivieren falls nötig, dann Dokument (de)selektieren
+    if (!props.isSelectionMode) {
+      emit('toggle-selection-mode');
+    }
+    emit('toggle-document-selection', documentId);
+    return;
+  }
+  if (props.isSelectionMode) {
+    emit('toggle-document-selection', documentId);
+  } else {
+    emit('select-document', documentId);
+  }
 }
 
 // ── Formatting helpers ─────────────────────────────────────────────────────
@@ -557,6 +588,19 @@ function onListDrop(event) {
 .checkbox-pop-leave-to {
   opacity: 0;
   transform: scale(0.6);
+}
+
+/* ── Skeleton ─────────────────────────────────────────────────────────── */
+.document-list--skeleton {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.document-row-skeleton {
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 /* ── Selektierter Zustand ─────────────────────────────────────────────── */

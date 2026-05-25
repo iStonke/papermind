@@ -1,5 +1,5 @@
 <template>
-  <v-app class="papermind-app">
+  <v-app class="papermind-app" :class="{ 'pm-no-animations': !settingsStore.animationsEnabled }">
     <v-app-bar class="app-topbar" flat height="64">
       <div class="appbar-layout">
         <div class="appbar-left app-title">
@@ -254,8 +254,10 @@
             </div>
           </template>
 
+          <Transition name="pm-panel" mode="out-in">
           <DocumentListPanel
             v-else
+            :key="activeView + (documentListQuery.tagId ?? '')"
             :list-drop-notice="listDropNotice"
             :active-status-filter-label="activeStatusFilterLabel"
             :is-imports-view="isImportsView"
@@ -282,6 +284,7 @@
             @change-sort="applySort"
             @change-status="applyStatusFilter"
           />
+          </Transition>
           <BatchActionsBar
             v-if="isSelectionMode"
             :count="selectionIds.size"
@@ -3110,13 +3113,22 @@ onBeforeUnmount(() => {
 
 .appbar-search__field :deep(.v-field) {
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
   color: rgba(248, 250, 255, 0.96);
+  transition:
+    background var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    box-shadow var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.appbar-search__field :deep(.v-field:hover) {
+  background: rgba(255, 255, 255, 0.20);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
 
 .appbar-search__field :deep(.v-field--focused) {
-  background: rgba(255, 255, 255, 0.18);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.38);
 }
 
 .appbar-search__field :deep(.v-field__input),
@@ -4142,7 +4154,10 @@ onBeforeUnmount(() => {
   margin-bottom: 0;
   cursor: pointer;
   box-shadow: 0 3px 12px rgba(15, 23, 42, 0.06);
-  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+  transition:
+    background-color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    border-color     var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    box-shadow       var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .document-row + .document-row {
@@ -4552,7 +4567,10 @@ onBeforeUnmount(() => {
 .details-drawer__header {
   padding: 8px 0;
   background: transparent;
-  transition: background-color 0.18s ease, transform 0.2s ease, opacity 0.2s ease;
+  transition:
+    background-color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    transform        var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    opacity          var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .details-drawer__header:hover {
@@ -4767,7 +4785,7 @@ onBeforeUnmount(() => {
   padding: 6px 0;
   background: transparent;
   cursor: pointer;
-  transition: background-color 0.18s ease;
+  transition: background-color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .details-date-row:hover,
@@ -4882,7 +4900,7 @@ onBeforeUnmount(() => {
 
 .pm-notes-field :deep(.v-field__input) {
   min-height: 44px;
-  transition: min-height 0.18s ease;
+  transition: min-height var(--pm-duration-normal, 210ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
   padding-top: 10px;
   padding-bottom: 10px;
   align-items: flex-start;

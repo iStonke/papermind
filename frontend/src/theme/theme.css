@@ -12,6 +12,14 @@
 
 /* ── Statische Konstanten ──────────────────────────────────────────────────── */
 .papermind-app {
+  /* Animationstoken */
+  --pm-duration-fast:   140ms;
+  --pm-duration-normal: 210ms;
+  --pm-duration-slow:   340ms;
+  --pm-easing:          cubic-bezier(0.4, 0, 0.2, 1);
+  --pm-easing-decel:    cubic-bezier(0, 0, 0.2, 1);
+  --pm-easing-accel:    cubic-bezier(0.4, 0, 1, 1);
+
   /* Markenfarbe (RGB-Tripel für rgba()-Nutzung) */
   --pm-indigo-rgb: 48, 57, 112;
 
@@ -111,4 +119,19 @@
   --pm-drawer-border-expanded:  rgba(255, 255, 255, 0.08);
   --pm-drawer-border-collapsed: rgba(255, 255, 255, 0.06);
   --pm-drawer-scrim:            transparent;
+}
+
+/* ── Animationen deaktiviert ───────────────────────────────────────────────── */
+.papermind-app.pm-no-animations {
+  --pm-duration-fast:   0ms;
+  --pm-duration-normal: 0ms;
+  --pm-duration-slow:   0ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .papermind-app {
+    --pm-duration-fast:   0ms;
+    --pm-duration-normal: 0ms;
+    --pm-duration-slow:   0ms;
+  }
 }

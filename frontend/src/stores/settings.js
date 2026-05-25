@@ -10,7 +10,8 @@ const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
 const SORT_ORDER_VALUES = new Set(['newest', 'oldest', 'name_asc', 'name_desc', 'last_opened']);
 const OCR_ENGINE_VALUES = new Set(['tesseract', 'paddleocr', 'easyocr', 'abbyy']);
 const EMBEDDING_MODEL_FALLBACK = 'hash-384-v1';
-const DRAWER_EXPANDED_STORAGE_KEY = 'pm.drawerExpanded';
+const DRAWER_EXPANDED_STORAGE_KEY  = 'pm.drawerExpanded';
+const ANIMATIONS_ENABLED_STORAGE_KEY = 'pm.animationsEnabled';
 
 function toInt(value, fallback) {
   const parsed = Number(value);
@@ -145,6 +146,16 @@ function assignSettings(target, source) {
   Object.assign(target.meta, source.meta);
 }
 
+function readStoredAnimationsEnabled() {
+  try {
+    const raw = window.localStorage.getItem(ANIMATIONS_ENABLED_STORAGE_KEY);
+    if (raw === '0') return false;
+  } catch {
+    // ignore
+  }
+  return true; // Standard: aktiviert
+}
+
 function readStoredDrawerExpanded() {
   try {
     const raw = window.localStorage.getItem(DRAWER_EXPANDED_STORAGE_KEY);
@@ -182,7 +193,8 @@ export const useSettingsStore = defineStore('settings', {
       },
       drawerExpanded: false,
       drawerLastRemembered: readStoredDrawerExpanded(),
-      hasLoadedSettings: false
+      hasLoadedSettings: false,
+      animationsEnabled: readStoredAnimationsEnabled()
     };
   },
   actions: {
@@ -373,6 +385,15 @@ export const useSettingsStore = defineStore('settings', {
         window.localStorage.removeItem(DRAWER_EXPANDED_STORAGE_KEY);
       } catch {
         // ignore storage access errors
+      }
+    },
+
+    setAnimationsEnabled(value) {
+      this.animationsEnabled = Boolean(value);
+      try {
+        window.localStorage.setItem(ANIMATIONS_ENABLED_STORAGE_KEY, this.animationsEnabled ? '1' : '0');
+      } catch {
+        // ignore
       }
     },
 

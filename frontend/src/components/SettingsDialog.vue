@@ -74,6 +74,28 @@
                 @update:model-value="onShowFilenameSuffixChange"
               />
             </div>
+
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleAnimationsFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleAnimationsFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Animationen</div>
+                <div class="pm-setting-description">Sanfte Übergänge und Einblendeffekte in der Oberfläche.</div>
+              </div>
+              <v-switch
+                :model-value="animationsEnabled"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                @click.stop
+                @update:model-value="onAnimationsEnabledChange"
+              />
+            </div>
           </div>
         </section>
 
@@ -294,6 +316,7 @@ const settingsStore = useSettingsStore();
 const settingsDraft = settingsStore.settingsDraft;
 const isSettingSaving = settingsStore.isSettingSaving;
 const isSettingsLoading = computed(() => settingsStore.isSettingsLoading);
+const animationsEnabled = computed(() => settingsStore.animationsEnabled);
 
 // ── Konstanten ───────────────────────────────────────────────────────────────
 
@@ -547,5 +570,15 @@ async function onDrawerAlwaysExpandedChange(nextValue) {
 function toggleDrawerAlwaysExpandedFromRow() {
   if (isSettingSaving.drawer_always_expanded) return;
   void onDrawerAlwaysExpandedChange(!settingsDraft.ui.drawerAlwaysExpanded);
+}
+
+// ── Animationen ──────────────────────────────────────────────────────────────
+
+function onAnimationsEnabledChange(nextValue) {
+  settingsStore.setAnimationsEnabled(Boolean(nextValue));
+}
+
+function toggleAnimationsFromRow() {
+  settingsStore.setAnimationsEnabled(!settingsStore.animationsEnabled);
 }
 </script>

@@ -134,7 +134,7 @@ const isActionVisible = computed(() => {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition: opacity 0.16s ease;
+  transition: opacity var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .sidebar-item-action--visible {

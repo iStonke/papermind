@@ -5,6 +5,7 @@
     :width="width"
     :persistent="persistent"
     :scrollable="scrollable"
+    transition="pm-dialog"
     @update:model-value="onModelUpdate"
   >
     <v-card :class="['pm-dialog', `pm-dialog--${variant}`, cardClass]">
