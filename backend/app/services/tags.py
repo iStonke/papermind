@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.errors import BadRequestError, ConflictError, NotFoundError
+from app.models.document import Document
 from app.models.document_tag import document_tags
 from app.models.tag import Tag
 from app.schemas.tags import TagCreateRequest, TagMergeRequest, TagRead, TagUpdateRequest
@@ -39,12 +40,22 @@ class TagService:
         return max(result.rowcount or 0, 0)
 
     def list_tags(self, include_count: bool) -> list[TagRead]:
+        orphan_deleted_count = self.cleanup_orphan_tags(self.db)
+        if orphan_deleted_count:
+            self.db.commit()
+            logger.info("orphan tags auto-cleaned count=%s", orphan_deleted_count)
+
         if include_count:
             stmt = (
-                select(Tag, func.count(document_tags.c.document_id).label("usage_count"))
+                select(Tag, func.count(Document.id).label("usage_count"))
                 .outerjoin(document_tags, Tag.id == document_tags.c.tag_id)
+                .outerjoin(
+                    Document,
+                    (Document.id == document_tags.c.document_id) & (Document.is_deleted.is_(False)),
+                )
                 .group_by(Tag.id)
-                .order_by(func.count(document_tags.c.document_id).desc(), func.lower(Tag.name).asc())
+                .having(func.count(Document.id) > 0)
+                .order_by(func.count(Document.id).desc(), func.lower(Tag.name).asc())
             )
             rows = self.db.execute(stmt).all()
             return [

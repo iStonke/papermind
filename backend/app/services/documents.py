@@ -1280,6 +1280,34 @@ class DocumentService:
             orphan_deleted_count,
         )
 
+    def purge_expired_trash(self, retention_days: int) -> int:
+        """Endgültig löschen, was länger als retention_days im Papierkorb liegt."""
+        retention_days = int(retention_days)
+        if retention_days <= 0:
+            return 0
+
+        threshold = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        document_ids = self.db.scalars(
+            select(Document.id)
+            .where(Document.is_deleted.is_(True))
+            .where(Document.deleted_at.is_not(None))
+            .where(Document.deleted_at <= threshold)
+            .order_by(Document.deleted_at.asc())
+        ).all()
+
+        deleted_count = 0
+        for document_id in document_ids:
+            try:
+                self.delete_document(document_id)
+                deleted_count += 1
+            except Exception:
+                self.db.rollback()
+                logger.exception("expired trash document cleanup failed id=%s", document_id)
+
+        if deleted_count:
+            logger.info("expired trash cleanup deleted_count=%s retention_days=%s", deleted_count, retention_days)
+        return deleted_count
+
     def replace_document_tags(self, document_id: uuid.UUID, payload: DocumentTagReplaceRequest) -> Document:
         document = self.get_document_or_404(document_id)
         old_tag_ids = {tag.id for tag in document.tags}

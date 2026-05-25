@@ -15,6 +15,7 @@ import {
   updateSmartFolder,
 } from '../api/smartFolders.js';
 import { mapApiError, useNotifications } from './notifications.js';
+import { createEmptyCounts, normalizeCounts } from '../utils/sidebarCounts.js';
 
 const SECTION_VISIBILITY_KEY = 'pm.sidebar.section_visibility.v1';
 const SECTION_DEFAULTS = Object.freeze({ library: true, folders: true, tags: true });
@@ -41,38 +42,6 @@ export const useSidebarStore = defineStore('sidebar', () => {
   let countsRefreshTimer = null;
 
   // ── Helpers ────────────────────────────────────────────────────────────
-  function createEmptyCounts() {
-    return {
-      all_documents: 0, untagged: 0, unread_total: 0, tags_total: 0,
-      imports: { imported: 0, processing: 0, ready: 0, failed: 0, recent_total: 0 },
-      tags: {}, smart_folders: {}, saved_searches: {}
-    };
-  }
-
-  function normalizeCounts(payload) {
-    const imp = payload?.imports ?? {};
-    return {
-      all_documents: Number(payload?.all_documents  || 0),
-      untagged:      Number(payload?.untagged        || 0),
-      unread_total:  Number(payload?.unread_total    || 0),
-      tags_total:    Number(payload?.tags_total      || 0),
-      imports: {
-        imported:     Number(imp.imported     || 0),
-        processing:   Number(imp.processing   || 0),
-        ready:        Number(imp.ready        || 0),
-        failed:       Number(imp.failed       || 0),
-        recent_total: Number(imp.recent_total || 0),
-      },
-      tags:          toCountMap(payload?.tags),
-      smart_folders: toCountMap(payload?.smart_folders),
-      saved_searches:toCountMap(payload?.saved_searches),
-    };
-  }
-
-  function toCountMap(obj) {
-    if (!obj || typeof obj !== 'object') return {};
-    return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, Number(v || 0)]));
-  }
 
   function loadSectionVisibility() {
     try {

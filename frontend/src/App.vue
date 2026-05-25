@@ -350,12 +350,12 @@
                       </v-btn>
 
                       <v-btn
-                        :icon="DRAWER_CHEVRON_ICON"
+                        :icon="detailsDrawerChevronIcon"
                         size="small"
                         density="comfortable"
                         variant="text"
                         class="details-chevron-btn"
-                        :class="{ 'details-chevron-btn--expanded': isDetailsDrawerOpen }"
+                        :class="{ 'details-chevron-btn--expanded': isDetailsDrawerChevronExpanded }"
                         aria-label="Details ein- oder ausklappen"
                         :disabled="isDrawerAlwaysExpanded"
                         @click="toggleDetailsDrawer"
@@ -526,7 +526,6 @@ const PREVIEW_RETRY_MAX_DELAY_MS = 4500;
 const PREVIEW_RETRY_MAX_ATTEMPTS = 5;
 const IMPORTS_RECENT_LIMIT = 100;
 
-const DRAWER_CHEVRON_ICON = 'mdi-chevron-up';
 const DETAILS_DRAWER_COLLAPSED_HEIGHT = 72;
 const theme = useTheme();
 const { notify } = useNotifications();
@@ -595,6 +594,10 @@ const isDetailsDrawerOpen = computed({
   }
 });
 const isDrawerAlwaysExpanded = computed(() => appSettings.value.ui.drawerAlwaysExpanded);
+const isDetailsDrawerChevronExpanded = computed(() => isDrawerAlwaysExpanded.value || isDetailsDrawerOpen.value);
+const detailsDrawerChevronIcon = computed(() =>
+  isDetailsDrawerChevronExpanded.value ? 'mdi-chevron-down' : 'mdi-chevron-up'
+);
 const metadataTagsCombobox = ref(null);
 
 const metadataDocDate = ref('');
@@ -854,7 +857,9 @@ const documentListQueryReloadKey = computed(() =>
     order: documentListQuery.order,
     limit: documentListQuery.limit,
     offset: documentListQuery.offset,
-    recentImports: isImportsView.value
+    recentImports: isImportsView.value,
+    favoritesOnly: isFavoritesView.value,
+    inTrash: isTrashView.value
   })
 );
 const isMetadataDirty = computed(() => {
@@ -2233,10 +2238,24 @@ async function toggleDocumentFavorite(document) {
     const response = await fetch(`${apiBaseUrl}/api/documents/${document.id}/favorite`, { method: 'POST' });
     if (!response.ok) throw new Error(await parseResponseError(response));
     const updated = await response.json();
-    // Optimistisch im Store aktualisieren
-    documents.value = documents.value.map((doc) =>
-      doc.id === updated.id ? { ...doc, is_favorite: updated.is_favorite } : doc
-    );
+    if (isFavoritesView.value && updated.is_favorite === false) {
+      documents.value = documents.value.filter((doc) => doc.id !== updated.id);
+      if (selectedDocumentId.value === updated.id) {
+        const nextDocument = documents.value[0] || null;
+        selectedDocumentId.value = nextDocument?.id || null;
+        selectedDocumentDetail.value = null;
+        if (nextDocument?.id) {
+          await fetchDocumentDetail(nextDocument.id);
+          void markDocumentViewedOptimistic(nextDocument.id);
+        } else {
+          isDetailsDrawerOpen.value = false;
+        }
+      }
+    } else {
+      documents.value = documents.value.map((doc) =>
+        doc.id === updated.id ? { ...doc, is_favorite: updated.is_favorite } : doc
+      );
+    }
     if (selectedDocumentDetail.value?.id === updated.id) {
       selectedDocumentDetail.value = { ...selectedDocumentDetail.value, is_favorite: updated.is_favorite };
     }
@@ -2361,6 +2380,10 @@ function clearTagFilter() {
   syncSearchStateToQuery({ resetOffset: false });
 }
 
+function tagUsageCount(tagId, fallback = 0) {
+  return sidebarStore.tagCount(tagId, fallback);
+}
+
 function ensureActiveTagFilterIsValid() {
   const currentTagId = String(documentListQuery.tagId || '').trim();
   if (!currentTagId) {
@@ -2384,7 +2407,15 @@ function ensureActiveTagFilterIsValid() {
 function applyTagFilterFromSidebar(tagId) {
   activeView.value = 'all';
   leaveActiveSavedSearch();
-  selectTagFilter(tagId);
+  searchText.value = '';
+  patchDocumentListQuery({
+    q: null,
+    tagId,
+    untagged: null,
+    status: null,
+    dateFrom: null,
+    dateTo: null
+  });
   syncSearchStateToQuery({ resetOffset: false });
 }
 
@@ -2392,7 +2423,15 @@ function openTagDocuments(tagId) {
   clearTagFeedbackMessages();
   activeView.value = 'all';
   leaveActiveSavedSearch();
-  selectTagFilter(tagId);
+  searchText.value = '';
+  patchDocumentListQuery({
+    q: null,
+    tagId,
+    untagged: null,
+    status: null,
+    dateFrom: null,
+    dateTo: null
+  });
   syncSearchStateToQuery({ resetOffset: false });
 }
 
@@ -3503,7 +3542,7 @@ onBeforeUnmount(() => {
 
 .workspace {
   display: grid;
-  grid-template-columns: 240px 1fr minmax(360px, 43%);
+  grid-template-columns: 268px 1fr minmax(360px, 43%);
   height: calc(100dvh - var(--v-layout-top, 0px) - var(--v-layout-bottom, 0px));
 }
 
@@ -3886,9 +3925,8 @@ onBeforeUnmount(() => {
   text-align: left;
   margin-bottom: 0;
   cursor: pointer;
-  transform: translateY(0);
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
-  transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.06);
+  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
 .document-row + .document-row {
@@ -3897,14 +3935,14 @@ onBeforeUnmount(() => {
 
 .document-row:hover {
   background: var(--pm-row-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+  border-color: rgba(59, 130, 246, 0.16);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
 }
 
 .document-row--active {
   background: var(--pm-row-active);
   border-color: rgba(59, 130, 246, 0.22);
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.1), 0 12px 26px rgba(15, 23, 42, 0.14);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.1), 0 5px 16px rgba(15, 23, 42, 0.1);
 }
 
 .papermind-app.v-theme--light .panel-middle,
@@ -3974,7 +4012,7 @@ onBeforeUnmount(() => {
 .papermind-app.v-theme--dark .document-row {
   background: var(--pm-dark-card);
   border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.22);
 }
 
 .papermind-app.v-theme--dark .document-list {
@@ -4044,19 +4082,19 @@ onBeforeUnmount(() => {
 
 .papermind-app.v-theme--dark .document-row:hover {
   background: var(--pm-dark-card-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.3);
+  border-color: rgba(147, 167, 255, 0.18);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.26);
 }
 
 .papermind-app.v-theme--dark .document-row--active {
   background: var(--pm-dark-card-active);
   border-color: rgba(96, 165, 250, 0.3);
-  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.18), 0 12px 26px rgba(0, 0, 0, 0.32);
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.18), 0 5px 16px rgba(0, 0, 0, 0.28);
 }
 
 .papermind-app.v-theme--dark .document-row--active:hover {
   background: var(--pm-dark-card-active);
-  transform: translateY(0);
+  border-color: rgba(96, 165, 250, 0.34);
 }
 
 .papermind-app.v-theme--dark .panel-left::before,
@@ -4458,10 +4496,7 @@ onBeforeUnmount(() => {
 .details-chevron-btn :deep(.v-icon) {
   font-size: 24px;
   transition: transform 200ms ease-out;
-}
-
-.details-chevron-btn--expanded :deep(.v-icon) {
-  transform: rotate(180deg);
+  transform: rotate(0deg);
 }
 
 .details-header-progress {
@@ -4672,7 +4707,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 1260px) {
   .workspace {
-    grid-template-columns: 220px 1fr;
+    grid-template-columns: 248px 1fr;
   }
 
   .panel-right {

@@ -7,6 +7,7 @@ import {
   buildRecentImportWindowPatch,
   buildSortOrderPatch,
   buildThemeModePatch,
+  buildTrashRetentionPatch,
 } from "../src/utils/settingsApi.js";
 
 test("buildThemeModePatch returns expected payload", () => {
@@ -36,5 +37,11 @@ test("buildSortOrderPatch returns expected payload", () => {
 test("buildRecentImportWindowPatch returns expected payload", () => {
   assert.deepEqual(buildRecentImportWindowPatch(12), {
     documents: { recent_import_window_hours: 12 },
+  });
+});
+
+test("buildTrashRetentionPatch returns expected payload", () => {
+  assert.deepEqual(buildTrashRetentionPatch(30), {
+    documents: { trash_retention_days: 30 },
   });
 });

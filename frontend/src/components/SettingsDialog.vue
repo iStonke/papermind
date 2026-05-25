@@ -178,6 +178,29 @@
                 @update:model-value="onRecentImportWindowChange"
               />
             </div>
+
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Papierkorb automatisch leeren</div>
+                <div class="pm-setting-description">
+                  Legt fest, wann Dokumente im Papierkorb endgültig gelöscht werden.
+                </div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.documents.trash_retention_days"
+                :items="trashRetentionOptions"
+                item-title="label"
+                item-value="value"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Papierkorb"
+                :loading="isSettingSaving.trash_retention_days"
+                :disabled="isSettingSaving.trash_retention_days"
+                @update:model-value="onTrashRetentionChange"
+              />
+            </div>
           </div>
         </section>
 
@@ -256,7 +279,8 @@ import {
   buildRecentImportWindowPatch,
   buildShowFilenameSuffixPatch,
   buildSortOrderPatch,
-  buildThemeModePatch
+  buildThemeModePatch,
+  buildTrashRetentionPatch
 } from '../utils/settingsApi';
 
 // ── Props / Emits ────────────────────────────────────────────────────────────
@@ -299,9 +323,19 @@ const recentImportWindowOptions = [
   { label: '7 Tage', value: 168 }
 ];
 
+const trashRetentionOptions = [
+  { label: 'Nie automatisch', value: 0 },
+  { label: 'Nach 1 Tag', value: 1 },
+  { label: 'Nach 7 Tagen', value: 7 },
+  { label: 'Nach 14 Tagen', value: 14 },
+  { label: 'Nach 30 Tagen', value: 30 },
+  { label: 'Nach 90 Tagen', value: 90 }
+];
+
 const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
 const SETTINGS_SORT_ORDER_VALUES = new Set(['newest', 'oldest', 'name_asc', 'name_desc', 'last_opened']);
 const RECENT_IMPORT_WINDOW_VALUES = new Set(recentImportWindowOptions.map((e) => e.value));
+const TRASH_RETENTION_VALUES = new Set(trashRetentionOptions.map((e) => e.value));
 
 // ── Theme ────────────────────────────────────────────────────────────────────
 
@@ -428,6 +462,24 @@ async function onRecentImportWindowChange(nextValue) {
   if (saved) {
     emit('reload-imports');
   }
+}
+
+// ── Papierkorb-Aufbewahrung ────────────────────────────────────────────────
+
+async function onTrashRetentionChange(nextValue) {
+  if (isSettingSaving.trash_retention_days) return;
+  const parsedDays = Number(nextValue);
+  const nextDays = TRASH_RETENTION_VALUES.has(parsedDays)
+    ? parsedDays
+    : settingsDraft.documents.trash_retention_days;
+  if (nextDays === settingsDraft.documents.trash_retention_days) return;
+  const previous = settingsDraft.documents.trash_retention_days;
+  settingsStore.setDraftPatch({ documents: { trash_retention_days: nextDays } });
+  await patchSettingsWithRevert({
+    patch: buildTrashRetentionPatch(nextDays),
+    controlKey: 'trash_retention_days',
+    revert: () => settingsStore.setDraftPatch({ documents: { trash_retention_days: previous } })
+  });
 }
 
 // ── Dateiendung ──────────────────────────────────────────────────────────────

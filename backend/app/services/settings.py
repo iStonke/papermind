@@ -28,6 +28,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "auto_tagging": False,
         "sort_order": "newest",
         "recent_import_window_hours": 24,
+        "trash_retention_days": 30,
     },
     "llm": {
         "system_prompt": SYSTEM_PROMPT_DEFAULT,

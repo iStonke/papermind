@@ -25,6 +25,7 @@ from app.models.tag import Tag
 from app.services.deduplication import DocumentDeduplicationService
 from app.services.document_dates import apply_ocr_document_date_result, extract_document_date_candidates
 from app.services.embeddings import EmbeddingService
+from app.services.documents import DocumentService
 from app.services.ocr_pipeline import run_ocr_pipeline
 from app.services.phone_scan_service import (
     PhoneScanJob,
@@ -50,6 +51,7 @@ logging.basicConfig(level=logging.INFO)
 
 AUTO_TAG_MAX_TAGS = 5
 AUTO_TAG_MAX_TEXT_CHARS = 6000
+TRASH_CLEANUP_INTERVAL_SECONDS = 3600
 AUTO_TAG_STOPWORDS = {
     "aber",
     "alle",
@@ -333,6 +335,20 @@ def _find_document_file(document: Document, role: str) -> DocumentFile | None:
 def _load_runtime_settings(db) -> dict:
     settings_payload = SettingsService(db).get_settings().model_dump(mode="json")
     return settings_payload
+
+
+def _cleanup_expired_trash() -> None:
+    try:
+        with SessionLocal() as db:
+            runtime_settings = SettingsService(db).get_settings()
+            retention_days = int(runtime_settings.documents.trash_retention_days)
+            if retention_days <= 0:
+                return
+            deleted_count = DocumentService(db).purge_expired_trash(retention_days)
+            if deleted_count:
+                logger.info("trash retention cleanup completed deleted_count=%s", deleted_count)
+    except Exception as exc:  # pragma: no cover - defensive runtime cleanup
+        logger.exception("trash retention cleanup failed err=%s", exc)
 
 
 def _has_active_job(db, document_id: uuid.UUID, job_type: str) -> bool:
@@ -846,7 +862,13 @@ def _process_tag_job(job_id: uuid.UUID) -> None:
 
 def run() -> None:
     logger.info("worker started poll_interval=%ss storage=%s", settings.worker_poll_interval_seconds, settings.storage_path)
+    last_trash_cleanup_at = 0.0
     while True:
+        now_monotonic = time.monotonic()
+        if now_monotonic - last_trash_cleanup_at >= TRASH_CLEANUP_INTERVAL_SECONDS:
+            last_trash_cleanup_at = now_monotonic
+            _cleanup_expired_trash()
+
         _touch_phone_scan_heartbeat()
         scan_manifest = _claim_next_phone_scan_manifest()
         if scan_manifest is not None:

@@ -74,7 +74,8 @@ function createDefaultSettings() {
       auto_ocr: true,
       auto_tagging: false,
       sort_order: 'newest',
-      recent_import_window_hours: 24
+      recent_import_window_hours: 24,
+      trash_retention_days: 30
     },
     llm: {
       system_prompt: SYSTEM_PROMPT_DEFAULT,
@@ -168,6 +169,7 @@ export const useSettingsStore = defineStore('settings', {
         auto_tagging: false,
         sort_order: false,
         recent_import_window_hours: false,
+        trash_retention_days: false,
         show_filename_suffix: false,
         drawer_remember_state: false,
         drawer_always_expanded: false,
@@ -209,6 +211,7 @@ export const useSettingsStore = defineStore('settings', {
       const rawThemeMode = String(payload?.ui?.theme_mode || '').toLowerCase();
       const rawSortOrder = String(payload?.documents?.sort_order || '').toLowerCase();
       const rawRecentImportWindow = Number(payload?.documents?.recent_import_window_hours);
+      const rawTrashRetentionDays = Number(payload?.documents?.trash_retention_days);
       const rawOcrEngine = String(payload?.ocr?.engine || '').toLowerCase();
 
       const chunkChars = clampInt(payload?.rag?.chunk_chars, 600, 20000, defaults.rag.chunk_chars);
@@ -256,7 +259,11 @@ export const useSettingsStore = defineStore('settings', {
           recent_import_window_hours:
             Number.isInteger(rawRecentImportWindow) && rawRecentImportWindow > 0
               ? rawRecentImportWindow
-              : defaults.documents.recent_import_window_hours
+              : defaults.documents.recent_import_window_hours,
+          trash_retention_days:
+            Number.isInteger(rawTrashRetentionDays) && rawTrashRetentionDays >= 0
+              ? rawTrashRetentionDays
+              : defaults.documents.trash_retention_days
         },
         llm: {
           system_prompt: normalizePrompt(payload?.llm?.system_prompt, defaults.llm.system_prompt),

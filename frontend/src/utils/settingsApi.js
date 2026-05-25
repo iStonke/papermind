@@ -29,3 +29,7 @@ export function buildSortOrderPatch(sortOrder) {
 export function buildRecentImportWindowPatch(hours) {
   return { documents: { recent_import_window_hours: Number(hours) } };
 }
+
+export function buildTrashRetentionPatch(days) {
+  return { documents: { trash_retention_days: Number(days) } };
+}

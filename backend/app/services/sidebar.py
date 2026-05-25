@@ -15,6 +15,7 @@ from app.schemas.sidebar import SidebarCountsResponse, SidebarImportsCounts
 from app.schemas.saved_searches import SavedSearchQuery
 from app.services.smart_folder_query import SmartFolderQueryCompiler
 from app.services.settings import SettingsService
+from app.services.tags import TagService
 
 logger = logging.getLogger("papermind.sidebar")
 settings = get_settings()
@@ -126,6 +127,11 @@ class SidebarService:
         return counts
 
     def get_counts(self) -> SidebarCountsResponse:
+        orphan_deleted_count = TagService.cleanup_orphan_tags(self.db)
+        if orphan_deleted_count:
+            self.db.commit()
+            logger.info("orphan tags auto-cleaned count=%s", orphan_deleted_count)
+
         # Basis-Filter: nur nicht gelöschte Dokumente
         active_doc = Document.is_deleted.is_(False)
 
@@ -206,11 +212,21 @@ class SidebarService:
         tag_counts = {
             str(row.tag_id): int(row.doc_count or 0)
             for row in self.db.execute(
-                select(document_tags.c.tag_id, func.count(document_tags.c.document_id).label("doc_count"))
+                select(document_tags.c.tag_id, func.count(Document.id).label("doc_count"))
+                .join(Document, Document.id == document_tags.c.document_id)
+                .where(active_doc)
                 .group_by(document_tags.c.tag_id)
             ).all()
         }
-        tags_total = int(self.db.scalar(select(func.count(Tag.id))) or 0)
+        tags_total = int(
+            self.db.scalar(
+                select(func.count(func.distinct(document_tags.c.tag_id)))
+                .select_from(document_tags)
+                .join(Document, Document.id == document_tags.c.document_id)
+                .where(active_doc)
+            )
+            or 0
+        )
 
         smart_folder_counts = self._smart_folder_counts()
         saved_search_counts = self._saved_search_counts()
