@@ -17,7 +17,7 @@
       density="comfortable"
       variant="outlined"
       hide-details
-      @keydown.enter.prevent="submitCreate"
+      @keydown="handleCreateShortcut"
     />
   </BaseDialog>
 
@@ -39,7 +39,7 @@
       density="comfortable"
       variant="outlined"
       hide-details
-      @keydown.enter.prevent="submitRename"
+      @keydown="handleRenameShortcut"
     />
   </BaseDialog>
 
@@ -99,6 +99,7 @@ import { storeToRefs } from 'pinia';
 import BaseDialog from './BaseDialog.vue';
 import { useTagStore } from '../stores/tags';
 import { notifyError, logDevError, useNotifications } from '../stores/notifications';
+import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
 
 // ── Store ────────────────────────────────────────────────────────────────────
 
@@ -161,6 +162,10 @@ async function submitCreate() {
   }
 }
 
+function handleCreateShortcut(event) {
+  handleShortcut(event, SHORTCUT_ACTIONS.PRIMARY, submitCreate, { ignoreEditable: false });
+}
+
 // ── Rename ───────────────────────────────────────────────────────────────────
 
 const isRenameOpen = ref(false);
@@ -193,6 +198,10 @@ async function submitRename() {
   } catch (error) {
     logDevError(error, 'store-notified');
   }
+}
+
+function handleRenameShortcut(event) {
+  handleShortcut(event, SHORTCUT_ACTIONS.PRIMARY, submitRename, { ignoreEditable: false });
 }
 
 // ── Merge ────────────────────────────────────────────────────────────────────

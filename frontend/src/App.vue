@@ -21,8 +21,7 @@
           :messages="searchHintMessages"
           hide-details="auto"
           @update:model-value="onAppBarSearchInput"
-          @keydown.enter.prevent="triggerSearchNow"
-          @keydown.esc.prevent="handleSearchEscape"
+          @keydown="handleSearchShortcut"
           @click:clear="clearSearchFromInput"
         />
       </div>
@@ -150,7 +149,7 @@
                   hide-details
                   prepend-inner-icon="mdi-magnify"
                   placeholder="Tags suchen oder erstellen…"
-                  @keydown.enter.prevent="onTagToolbarEnter"
+                  @keydown="handleTagToolbarShortcut"
                 >
                   <template #append-inner>
                     <div class="tags-view-search__actions">
@@ -391,7 +390,7 @@
                       hide-details
                       :error="metadataDocDateHasError"
                       @blur="handleDocumentDateBlur"
-                      @keydown.enter.prevent="handleDocumentDateEnter"
+                      @keydown="handleDocumentDateShortcut"
                     />
                   </div>
 
@@ -424,7 +423,7 @@
                           contentClass: 'pm-menu pm-menu--tags'
                         }"
                         @update:model-value="onMetadataTagNamesChange"
-                        @keydown.enter.stop.prevent="handleMetadataTagEnter"
+                        @keydown="handleMetadataTagShortcut"
                       />
                       <v-btn
                         size="x-small"
@@ -506,6 +505,7 @@ import { formatDateTime, formatDocumentDateInputFromIso, parseDocumentDateInput 
 import { useOcrPolling } from './composables/useOcrPolling';
 import { useGlobalKeyboard } from './composables/useGlobalKeyboard';
 import { useSearch } from './composables/useSearch';
+import { SHORTCUT_ACTIONS, handleShortcut } from './keyboard/shortcuts';
 
 const PdfPreview = defineAsyncComponent(() => import('./components/PdfPreview.vue'));
 
@@ -1002,6 +1002,17 @@ function onTagToolbarEnter() {
   void createTagFromToolbar();
 }
 
+function handleSearchShortcut(event) {
+  if (handleShortcut(event, SHORTCUT_ACTIONS.SEARCH_SUBMIT, triggerSearchNow, { ignoreEditable: false })) {
+    return;
+  }
+  handleShortcut(event, SHORTCUT_ACTIONS.SEARCH_CANCEL, handleSearchEscape, { ignoreEditable: false });
+}
+
+function handleTagToolbarShortcut(event) {
+  handleShortcut(event, SHORTCUT_ACTIONS.PRIMARY, onTagToolbarEnter, { ignoreEditable: false });
+}
+
 async function onMetadataTagNamesChange(nextValues) {
   if (shouldSkipTagNameSync || !selectedDocumentDetail.value) return;
   await syncMetadataTagsFromNames(nextValues);
@@ -1013,6 +1024,13 @@ async function handleMetadataTagEnter() {
   if (!normalizedNames.length) return;
   await syncMetadataTagsFromNames(normalizedNames);
   metadataTagSearch.value = '';
+}
+
+function handleMetadataTagShortcut(event) {
+  handleShortcut(event, SHORTCUT_ACTIONS.PRIMARY, handleMetadataTagEnter, {
+    ignoreEditable: false,
+    stop: true
+  });
 }
 
 function resolveDefaultSortQuery() {
@@ -1518,6 +1536,10 @@ function handleDocumentDateEnter() {
   void commitDocumentDateValue();
 }
 
+function handleDocumentDateShortcut(event) {
+  handleShortcut(event, SHORTCUT_ACTIONS.PRIMARY, handleDocumentDateEnter, { ignoreEditable: false });
+}
+
 function resetDetailsSectionState() {
   // reserved for future section-level UI state resets
 }
@@ -1597,7 +1619,7 @@ function focusMetadataTagsInput() {
 }
 
 function handleGlobalKeydown(event) {
-  if (event.key !== 'Escape') {
+  if (!handleShortcut(event, SHORTCUT_ACTIONS.CANCEL, null, { prevent: false, ignoreEditable: false })) {
     return;
   }
   if (isDetailsDrawerOpen.value) {

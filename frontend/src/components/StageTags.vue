@@ -38,7 +38,7 @@
           :menu-props="{ maxHeight: 240 }"
           class="stage-tags__autocomplete"
           @update:model-value="onSelectItem"
-          @keydown.enter.prevent="onEnter"
+          @keydown="handleTagInputShortcut"
         />
 
         <div class="stage-tags__list-wrap">
@@ -70,6 +70,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
+import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
 
 const props = defineProps({
   tagIds: {
@@ -265,6 +266,10 @@ async function onEnter() {
   }
   await attachOrCreate(normalizedSearchValue.value);
   resetInput();
+}
+
+function handleTagInputShortcut(event) {
+  handleShortcut(event, SHORTCUT_ACTIONS.PRIMARY, onEnter, { ignoreEditable: false });
 }
 
 async function loadTagsIfNeeded() {

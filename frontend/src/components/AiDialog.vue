@@ -99,7 +99,7 @@
             variant="outlined"
             hide-details
             :disabled="isAiAsking"
-            @keydown.enter.prevent="submitAiQuestion()"
+            @keydown="handleQuestionShortcut"
           >
             <template #append-inner>
               <v-btn
@@ -122,6 +122,7 @@
 import { ref, nextTick } from 'vue';
 import BaseDialog from './BaseDialog.vue';
 import { notifyError } from '../stores/notifications';
+import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
 
 // ── Props / Emits ────────────────────────────────────────────────────────────
 
@@ -303,6 +304,10 @@ async function submitAiQuestion() {
   } finally {
     isAiAsking.value = false;
   }
+}
+
+function handleQuestionShortcut(event) {
+  handleShortcut(event, SHORTCUT_ACTIONS.PRIMARY, submitAiQuestion, { ignoreEditable: false });
 }
 
 function openCitation(citation) {

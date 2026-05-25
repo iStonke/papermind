@@ -32,8 +32,7 @@
                 class="settings-theme-segmented"
                 role="radiogroup"
                 aria-label="Theme-Modus auswählen"
-                @keydown.left.prevent="stepThemeMode(-1)"
-                @keydown.right.prevent="stepThemeMode(1)"
+                @keydown="handleThemeModeShortcut"
               >
                 <button
                   v-for="option in themeModeOptions"
@@ -57,8 +56,7 @@
               role="button"
               tabindex="0"
               @click="toggleShowFilenameSuffixFromRow"
-              @keydown.enter.prevent="toggleShowFilenameSuffixFromRow"
-              @keydown.space.prevent="toggleShowFilenameSuffixFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleShowFilenameSuffixFromRow)"
             >
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Dateiendung anzeigen</div>
@@ -87,8 +85,7 @@
               role="button"
               tabindex="0"
               @click="toggleAutoOcrFromRow"
-              @keydown.enter.prevent="toggleAutoOcrFromRow"
-              @keydown.space.prevent="toggleAutoOcrFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleAutoOcrFromRow)"
             >
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Automatisches OCR</div>
@@ -112,8 +109,7 @@
               role="button"
               tabindex="0"
               @click="toggleAutoTaggingFromRow"
-              @keydown.enter.prevent="toggleAutoTaggingFromRow"
-              @keydown.space.prevent="toggleAutoTaggingFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleAutoTaggingFromRow)"
             >
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Automatisches Tagging (KI)</div>
@@ -212,8 +208,7 @@
               role="button"
               tabindex="0"
               @click="toggleDrawerRememberStateFromRow"
-              @keydown.enter.prevent="toggleDrawerRememberStateFromRow"
-              @keydown.space.prevent="toggleDrawerRememberStateFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleDrawerRememberStateFromRow)"
             >
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Dokumentdetails merken</div>
@@ -239,8 +234,7 @@
               role="button"
               tabindex="0"
               @click="toggleDrawerAlwaysExpandedFromRow"
-              @keydown.enter.prevent="toggleDrawerAlwaysExpandedFromRow"
-              @keydown.space.prevent="toggleDrawerAlwaysExpandedFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleDrawerAlwaysExpandedFromRow)"
             >
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Dokumentdetails immer ausgeklappt</div>
@@ -272,6 +266,7 @@ import BaseDialog from './BaseDialog.vue';
 import { getBaseUrl } from '../api/client';
 import { useSettingsStore } from '../stores/settings';
 import { notifyError } from '../stores/notifications';
+import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
 import {
   buildAutoOcrPatch,
   buildAutoTaggingPatch,
@@ -370,6 +365,17 @@ function stepThemeMode(step) {
   const safeIndex = currentIndex >= 0 ? currentIndex : 0;
   const nextIndex = (safeIndex + step + ordered.length) % ordered.length;
   void onThemeModeChange(ordered[nextIndex]);
+}
+
+function handleThemeModeShortcut(event) {
+  if (handleShortcut(event, SHORTCUT_ACTIONS.STEP_PREVIOUS, () => stepThemeMode(-1), { ignoreEditable: false })) {
+    return;
+  }
+  handleShortcut(event, SHORTCUT_ACTIONS.STEP_NEXT, () => stepThemeMode(1), { ignoreEditable: false });
+}
+
+function handleSettingRowShortcut(event, handler) {
+  handleShortcut(event, SHORTCUT_ACTIONS.ACTIVATE, handler, { ignoreEditable: false });
 }
 
 async function onThemeModeChange(nextValue) {

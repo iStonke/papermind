@@ -1,4 +1,4 @@
-import { onMounted, onBeforeUnmount } from 'vue';
+import { useShortcutScope } from '../keyboard/shortcuts';
 
 /**
  * Registriert einen globalen keydown-Handler auf window.
@@ -7,11 +7,5 @@ import { onMounted, onBeforeUnmount } from 'vue';
  * @param {(event: KeyboardEvent) => void} handler
  */
 export function useGlobalKeyboard(handler) {
-  onMounted(() => {
-    window.addEventListener('keydown', handler);
-  });
-
-  onBeforeUnmount(() => {
-    window.removeEventListener('keydown', handler);
-  });
+  return useShortcutScope(handler);
 }

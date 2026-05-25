@@ -63,8 +63,7 @@
           @dragleave.prevent="onDropzoneDragLeave"
           @drop.prevent="onDropzoneDrop"
           @click="onDropzoneClick"
-          @keydown.enter.prevent="onDropzoneKeyboardActivate"
-          @keydown.space.prevent="onDropzoneKeyboardActivate"
+          @keydown="handleDropzoneShortcut"
         >
           <v-icon class="import-staging-dropzone__icon" size="56">mdi-file-upload-outline</v-icon>
           <div class="import-staging-dropzone__headline">{{ dropzoneHeadline }}</div>
@@ -181,7 +180,7 @@
                               :value="document.title"
                               @input="onDocumentTitleInput(document.id, $event)"
                               @blur="onDocumentTitleBlur(document.id)"
-                              @keydown.enter.prevent="onDocumentTitleEnter($event, document.id)"
+                              @keydown="handleDocumentTitleShortcut($event, document.id)"
                             />
 
                             <v-menu location="bottom start" offset="6">
@@ -488,6 +487,12 @@ import { suggestImportStageTitle } from '../api/importStaging';
 import { isIOS } from '../utils/platform';
 import { mapApiError, useNotifications } from '../stores/notifications';
 import { useImportStagingStore } from '../stores/importStaging';
+import {
+  SHORTCUT_ACTIONS,
+  handleShortcut,
+  isEditableShortcutTarget,
+  useShortcutScope
+} from '../keyboard/shortcuts';
 
 GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
@@ -1133,14 +1138,9 @@ watch(
 watch(
   isOpen,
   (open) => {
-    if (typeof window === 'undefined') {
-      return;
-    }
     if (open) {
-      window.addEventListener('keydown', onGlobalKeydown);
       return;
     }
-    window.removeEventListener('keydown', onGlobalKeydown);
     detachPeekGlobalListeners();
     stopAutoScroll();
     resetPageDragState();
@@ -2034,6 +2034,16 @@ function onDocumentTitleEnter(event, documentId) {
   onDocumentTitleBlur(documentId);
 }
 
+function handleDocumentTitleShortcut(event, documentId) {
+  handleShortcut(event, SHORTCUT_ACTIONS.PRIMARY, () => onDocumentTitleEnter(event, documentId), {
+    ignoreEditable: false
+  });
+}
+
+function handleDropzoneShortcut(event) {
+  handleShortcut(event, SHORTCUT_ACTIONS.ACTIVATE, onDropzoneKeyboardActivate, { ignoreEditable: false });
+}
+
 function addEmptyDocument() {
   const created = stagingStore.addEmptyDocument();
   if (!created) {
@@ -2395,39 +2405,34 @@ function onGlobalKeydown(event) {
   if (!isOpen.value) {
     return;
   }
-  const tagName = String(event.target?.tagName || '').toLowerCase();
-  const isEditableTarget =
-    tagName === 'input' ||
-    tagName === 'textarea' ||
-    Boolean(event.target?.isContentEditable);
-  if (isEditableTarget && event.key !== 'Escape') {
+  if (isEditableShortcutTarget(event.target) && !handleShortcut(event, SHORTCUT_ACTIONS.CANCEL, null, {
+    prevent: false,
+    ignoreEditable: false
+  })) {
     return;
   }
-  if (event.key === 'Escape') {
+  if (handleShortcut(event, SHORTCUT_ACTIONS.CANCEL, null, { prevent: false, ignoreEditable: false })) {
     if (peek.value.open) {
       closePeek();
       event.preventDefault();
     }
     return;
   }
-  if (event.key === 'Enter' && !isImportActionDisabled.value) {
-    event.preventDefault();
-    void commitImport();
+  if (!isImportActionDisabled.value && handleShortcut(event, SHORTCUT_ACTIONS.PRIMARY, commitImport, {
+    ignoreEditable: false
+  })) {
     return;
   }
   if (!hasSelectedPreview.value) {
     return;
   }
-  if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
-    event.preventDefault();
-    shiftSelection(1);
+  if (handleShortcut(event, SHORTCUT_ACTIONS.MOVE_NEXT, () => shiftSelection(1), { ignoreEditable: false })) {
     return;
   }
-  if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
-    event.preventDefault();
-    shiftSelection(-1);
-  }
+  handleShortcut(event, SHORTCUT_ACTIONS.MOVE_PREVIOUS, () => shiftSelection(-1), { ignoreEditable: false });
 }
+
+useShortcutScope(onGlobalKeydown, { enabled: isOpen });
 
 const DRAG_MIME = 'application/x-papermind-staging';
 
@@ -3216,7 +3221,6 @@ onBeforeUnmount(() => {
   stopAutoScroll();
   resetPageDragState();
   if (typeof window !== 'undefined') {
-    window.removeEventListener('keydown', onGlobalKeydown);
     detachPeekGlobalListeners();
     if (peekRepositionRaf) {
       window.cancelAnimationFrame(peekRepositionRaf);

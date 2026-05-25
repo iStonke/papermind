@@ -33,8 +33,7 @@
             role="button"
             tabindex="0"
             @click="emit('select-document', document.id)"
-            @keydown.enter.prevent="emit('select-document', document.id)"
-            @keydown.space.prevent="emit('select-document', document.id)"
+            @keydown="handleDocumentRowShortcut($event, document.id)"
           >
             <div class="document-row__thumb">
               <img
@@ -178,6 +177,7 @@ import { storeToRefs } from 'pinia';
 import { useDocumentStore } from '../stores/documents.js';
 import { useSettingsStore } from '../stores/settings.js';
 import { getBaseUrl } from '../api/client.js';
+import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts.js';
 import PmEmptyState from './PmEmptyState.vue';
 
 // ── Props & Emits ──────────────────────────────────────────────────────────
@@ -226,6 +226,12 @@ function hasThumbnailError(documentId) {
 
 function onThumbnailError(documentId) {
   thumbnailErrorMap.value = { ...thumbnailErrorMap.value, [documentId]: true };
+}
+
+function handleDocumentRowShortcut(event, documentId) {
+  handleShortcut(event, SHORTCUT_ACTIONS.ACTIVATE, () => emit('select-document', documentId), {
+    ignoreEditable: false
+  });
 }
 
 // ── Formatting helpers ─────────────────────────────────────────────────────

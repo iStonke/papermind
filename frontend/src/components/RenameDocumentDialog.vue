@@ -16,7 +16,7 @@
       density="comfortable"
       variant="outlined"
       hide-details
-      @keydown.enter.prevent="submitRename"
+      @keydown="handleRenameShortcut"
     >
       <template #append-inner>
         <v-tooltip text="Titel mit KI vorschlagen" location="top">
@@ -42,6 +42,7 @@
 import { ref } from 'vue';
 import BaseDialog from './BaseDialog.vue';
 import { notifyError, logDevError, useNotifications } from '../stores/notifications';
+import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
 
 // ── Props / Emits ────────────────────────────────────────────────────────────
 
@@ -183,6 +184,10 @@ async function submitRename() {
   } finally {
     isRenaming.value = false;
   }
+}
+
+function handleRenameShortcut(event) {
+  handleShortcut(event, SHORTCUT_ACTIONS.PRIMARY, submitRename, { ignoreEditable: false });
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
