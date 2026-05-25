@@ -565,6 +565,19 @@ const PREVIEW_RETRY_MAX_ATTEMPTS = 5;
 const IMPORTS_RECENT_LIMIT = 100;
 
 const DETAILS_DRAWER_COLLAPSED_HEIGHT = 72;
+const LAST_SELECTED_DOC_KEY = 'pm.lastSelectedDocumentId';
+
+function readStoredLastSelectedDocId() {
+  try { return window.localStorage.getItem(LAST_SELECTED_DOC_KEY) || null; } catch { return null; }
+}
+
+function persistLastSelectedDocId(id) {
+  try {
+    if (id) window.localStorage.setItem(LAST_SELECTED_DOC_KEY, String(id));
+    else     window.localStorage.removeItem(LAST_SELECTED_DOC_KEY);
+  } catch { /* ignore */ }
+}
+
 const theme = useTheme();
 const { notify } = useNotifications();
 const settingsStore = useSettingsStore();
@@ -579,6 +592,9 @@ const sidebarStore = useSidebarStore();
 
 const { documents, selectedDocumentId, selectedDocumentDetail, isLoadingDocuments } = storeToRefs(docStore);
 const { tags, isTagMutationRunning } = storeToRefs(tagStore);
+
+// Letztes Dokument persistent speichern
+watch(selectedDocumentId, (id) => { persistLastSelectedDocId(id); });
 const { sidebarCounts, isLoadingSidebarCounts, savedSearches, isLoadingSavedSearches } = storeToRefs(sidebarStore);
 
 const isAiDialogOpen = ref(false);
@@ -3049,7 +3065,8 @@ onMounted(async () => {
   await fetchAppSettings();
 
   await Promise.all([fetchTags(), fetchSavedSearches(), fetchSidebarCounts()]);
-  await fetchDocuments(null, { autoSelectFirst: true });
+  const restoredDocId = readStoredLastSelectedDocId();
+  await fetchDocuments(restoredDocId, { autoSelectFirst: !restoredDocId });
 });
 
 onBeforeUnmount(() => {
