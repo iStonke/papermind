@@ -957,7 +957,18 @@ class DocumentService:
         date_from: date | None,
         date_to: date | None,
         recent_imports: bool,
+        in_trash: bool = False,
+        favorites_only: bool = False,
     ):
+        # Papierkorb-Filter: standardmäßig gelöschte Dokumente ausblenden
+        if in_trash:
+            stmt = stmt.where(Document.is_deleted.is_(True))
+        else:
+            stmt = stmt.where(Document.is_deleted.is_(False))
+
+        if favorites_only:
+            stmt = stmt.where(Document.is_favorite.is_(True))
+
         if untagged:
             untagged_stmt = select(document_tags.c.document_id).where(document_tags.c.document_id == Document.id)
             stmt = stmt.where(~untagged_stmt.exists())
@@ -1053,6 +1064,8 @@ class DocumentService:
         order: SortOrder,
         limit: int,
         offset: int,
+        in_trash: bool = False,
+        favorites_only: bool = False,
     ) -> DocumentListResponse:
         if date_from and date_to and date_from > date_to:
             raise BadRequestError(
@@ -1069,6 +1082,8 @@ class DocumentService:
             date_from,
             date_to,
             recent_imports,
+            in_trash=in_trash,
+            favorites_only=favorites_only,
         )
         fts_config = settings.fts_regconfig
         ts_query_expr = None
@@ -1201,8 +1216,48 @@ class DocumentService:
         logger.info("document marked viewed id=%s", document_id)
         return True
 
-    def delete_document(self, document_id: uuid.UUID) -> None:
+    def trash_document(self, document_id: uuid.UUID) -> Document:
+        """Soft-Delete: Dokument in den Papierkorb verschieben."""
         document = self.get_document_or_404(document_id)
+        document.is_deleted = True
+        document.deleted_at = datetime.now(timezone.utc)
+        self.db.commit()
+        self.db.refresh(document)
+        logger.info("document trashed id=%s", document_id)
+        return document
+
+    def restore_document(self, document_id: uuid.UUID) -> Document:
+        """Dokument aus dem Papierkorb wiederherstellen."""
+        # get_document_or_404 filtert is_deleted=True heraus – direkt abfragen
+        from sqlalchemy import select as sa_select
+        document = self.db.scalar(sa_select(Document).where(Document.id == document_id))
+        if document is None:
+            raise NotFoundError("Document not found", details={"document_id": str(document_id)})
+        if not document.is_deleted:
+            raise BadRequestError("Document is not in trash", details={"document_id": str(document_id)})
+        document.is_deleted = False
+        document.deleted_at = None
+        self.db.commit()
+        self.db.refresh(document)
+        logger.info("document restored id=%s", document_id)
+        return document
+
+    def toggle_favorite(self, document_id: uuid.UUID) -> Document:
+        """Favoriten-Status umschalten."""
+        document = self.get_document_or_404(document_id)
+        document.is_favorite = not document.is_favorite
+        self.db.commit()
+        self.db.refresh(document)
+        logger.info("document favorite toggled id=%s is_favorite=%s", document_id, document.is_favorite)
+        return document
+
+    def delete_document(self, document_id: uuid.UUID) -> None:
+        """Endgültiges Löschen – auch für Dokumente im Papierkorb."""
+        # Auch gelöschte Dokumente permanent entfernen können
+        from sqlalchemy import select as sa_select
+        document = self.db.scalar(sa_select(Document).where(Document.id == document_id))
+        if document is None:
+            raise NotFoundError("Document not found", details={"document_id": str(document_id)})
         file_keys = {file_record.file_key for file_record in document.files}
         removed_tag_ids = {tag.id for tag in document.tags}
         if document.storage_key:

@@ -50,6 +50,8 @@ def list_documents(
         default=False,
         description="Filter by recent import window based on created_at and global settings",
     ),
+    in_trash: bool = Query(default=False, description="Show documents in trash (is_deleted=true)"),
+    favorites_only: bool = Query(default=False, description="Show only favorite documents"),
     sort: DocumentSortField = Query(default=DocumentSortField.created_at, description="Sort field"),
     order: SortOrder = Query(default=SortOrder.desc, description="Sort order"),
     limit: int = Query(default=20, ge=1, le=100, description="Page size"),
@@ -66,6 +68,8 @@ def list_documents(
         date_from=date_from,
         date_to=date_to,
         recent_imports=recent_imports,
+        in_trash=in_trash,
+        favorites_only=favorites_only,
         sort=sort,
         order=order,
         limit=limit,
@@ -266,10 +270,46 @@ def update_document(
     return service.as_detail(service.update_document(document_id, payload))
 
 
+@router.post(
+    "/{document_id}/trash",
+    response_model=DocumentDetail,
+    status_code=status.HTTP_200_OK,
+    summary="Move document to trash (soft delete)",
+    responses={404: {"model": ErrorResponse}},
+)
+def trash_document(document_id: uuid.UUID, db: Session = Depends(get_db)) -> DocumentDetail:
+    service = DocumentService(db)
+    return service.as_detail(service.trash_document(document_id))
+
+
+@router.post(
+    "/{document_id}/restore",
+    response_model=DocumentDetail,
+    status_code=status.HTTP_200_OK,
+    summary="Restore document from trash",
+    responses={404: {"model": ErrorResponse}, 400: {"model": ErrorResponse}},
+)
+def restore_document(document_id: uuid.UUID, db: Session = Depends(get_db)) -> DocumentDetail:
+    service = DocumentService(db)
+    return service.as_detail(service.restore_document(document_id))
+
+
+@router.post(
+    "/{document_id}/favorite",
+    response_model=DocumentDetail,
+    status_code=status.HTTP_200_OK,
+    summary="Toggle favorite status",
+    responses={404: {"model": ErrorResponse}},
+)
+def toggle_favorite(document_id: uuid.UUID, db: Session = Depends(get_db)) -> DocumentDetail:
+    service = DocumentService(db)
+    return service.as_detail(service.toggle_favorite(document_id))
+
+
 @router.delete(
     "/{document_id}",
     response_model=OkResponse,
-    summary="Delete document",
+    summary="Permanently delete document (also works for trashed documents)",
     responses={404: {"model": ErrorResponse}},
 )
 def delete_document(document_id: uuid.UUID, db: Session = Depends(get_db)) -> OkResponse:

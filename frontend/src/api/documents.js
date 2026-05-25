@@ -16,9 +16,21 @@ export const getDocument = (id) =>
 export const patchDocument = (id, body) =>
   apiPatch(`/api/documents/${id}`, body);
 
-/** DELETE /api/documents/{id} */
+/** DELETE /api/documents/{id} – endgültig löschen */
 export const deleteDocument = (id) =>
   apiDelete(`/api/documents/${id}`);
+
+/** POST /api/documents/{id}/trash – in Papierkorb verschieben */
+export const trashDocument = (id) =>
+  apiPost(`/api/documents/${id}/trash`, undefined);
+
+/** POST /api/documents/{id}/restore – aus Papierkorb wiederherstellen */
+export const restoreDocument = (id) =>
+  apiPost(`/api/documents/${id}/restore`, undefined);
+
+/** POST /api/documents/{id}/favorite – Favoriten-Status umschalten */
+export const toggleFavoriteApi = (id) =>
+  apiPost(`/api/documents/${id}/favorite`, undefined);
 
 /** POST /api/documents/{id}/mark-viewed */
 export const markDocumentViewed = (id) =>

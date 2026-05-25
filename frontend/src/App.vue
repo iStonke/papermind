@@ -243,6 +243,7 @@
             :list-drop-notice="listDropNotice"
             :active-status-filter-label="activeStatusFilterLabel"
             :is-imports-view="isImportsView"
+            :is-trash-view="isTrashView"
             :show-document-list-empty-state="showDocumentListEmptyState"
             :document-list-empty-state="documentListEmptyState"
             :show-snippets="showSnippets"
@@ -251,6 +252,9 @@
             @rename="(doc) => renameDocumentDialogRef?.open(doc)"
             @manage-tags="openTagManagerFromList"
             @delete="openDeleteDocumentDialog"
+            @restore="restoreDocumentFromTrash"
+            @delete-permanent="openPermanentDeleteDialog"
+            @toggle-favorite="toggleDocumentFavorite"
             @files-dropped="onDroppedFiles"
           />
         </section>
@@ -609,6 +613,7 @@ const metadataTagErrorMessage = ref('');
 const isDeleteDocumentDialogOpen = ref(false);
 const deleteDocumentTarget = ref(null);
 const isDeletingDocument = ref(false);
+const permanentDeleteMode = ref(false); // true → endgültig löschen, false → in Papierkorb
 const renameDocumentDialogRef = ref(null);
 
 const latestOcrJob = computed(() => {
@@ -697,9 +702,11 @@ const showGreenOcrChip = computed(() => {
 const showHeaderOcrActionButton = computed(() => {
   return Boolean(selectedDocumentDetail.value) && !showGreenOcrChip.value;
 });
-const isTagView = computed(() => activeView.value === 'tags');
-const isImportsView = computed(() => activeView.value === 'imports');
-const isUntaggedView = computed(() => activeView.value === 'untagged');
+const isTagView       = computed(() => activeView.value === 'tags');
+const isImportsView   = computed(() => activeView.value === 'imports');
+const isUntaggedView  = computed(() => activeView.value === 'untagged');
+const isFavoritesView = computed(() => activeView.value === 'favorites');
+const isTrashView     = computed(() => activeView.value === 'trash');
 const tagNameCollator = new Intl.Collator('de-DE', { sensitivity: 'base', numeric: true });
 const sortedTagsByName = computed(() => {
   return [...tags.value].sort((left, right) => {
@@ -792,6 +799,20 @@ const documentListEmptyState = computed(() => {
       icon: 'mdi-tray-arrow-down',
       title: 'Keine zuletzt hinzugefügten Dokumente',
       subtitle: `Keine Importe in den letzten ${recentImportWindowLabel.value}.`
+    };
+  }
+  if (isFavoritesView.value) {
+    return {
+      icon: 'mdi-star-outline',
+      title: 'Noch keine Favoriten',
+      subtitle: 'Klicke den Stern neben einem Dokument, um es als Favorit zu markieren.'
+    };
+  }
+  if (isTrashView.value) {
+    return {
+      icon: 'mdi-trash-can-outline',
+      title: 'Papierkorb ist leer',
+      subtitle: 'Gelöschte Dokumente erscheinen hier.'
     };
   }
   if (hasActiveListFilter.value) {
@@ -1630,6 +1651,14 @@ function buildDocumentListQuery() {
     params.set('recent_imports', 'true');
   }
 
+  if (isTrashView.value) {
+    params.set('in_trash', 'true');
+  }
+
+  if (isFavoritesView.value) {
+    params.set('favorites_only', 'true');
+  }
+
   return params.toString();
 }
 
@@ -2106,6 +2135,7 @@ function closeDeleteDocumentDialog() {
   }
   isDeleteDocumentDialogOpen.value = false;
   deleteDocumentTarget.value = null;
+  permanentDeleteMode.value = false;
 }
 
 function onDocumentRenamed(updated) {
@@ -2128,17 +2158,22 @@ async function confirmDeleteDocumentFromDialog() {
   const targetDocumentId = deleteDocumentTarget.value.id;
   const isDeletedSelection = selectedDocumentId.value === targetDocumentId;
   const preferredDocumentId = isDeletedSelection ? null : selectedDocumentId.value;
+  const isPermanent = permanentDeleteMode.value;
 
   try {
-    const response = await fetch(`${apiBaseUrl}/api/documents/${targetDocumentId}`, {
-      method: 'DELETE'
-    });
+    const url = isPermanent
+      ? `${apiBaseUrl}/api/documents/${targetDocumentId}`
+      : `${apiBaseUrl}/api/documents/${targetDocumentId}/trash`;
+    const method = isPermanent ? 'DELETE' : 'POST';
+
+    const response = await fetch(url, { method });
     if (!response.ok) {
       throw new Error(await parseResponseError(response));
     }
 
     isDeleteDocumentDialogOpen.value = false;
     deleteDocumentTarget.value = null;
+    permanentDeleteMode.value = false;
 
     if (isDeletedSelection) {
       isDetailsDrawerOpen.value = false;
@@ -2151,11 +2186,63 @@ async function confirmDeleteDocumentFromDialog() {
       autoSelectFirst: !isDeletedSelection
     });
     scheduleSidebarCountsRefresh();
-    notify({ type: 'success', title: 'Dokument', message: 'Dokument gelöscht.' });
+    notify({
+      type: 'success',
+      title: 'Dokument',
+      message: isPermanent ? 'Dokument endgültig gelöscht.' : 'Dokument in den Papierkorb verschoben.'
+    });
   } catch (error) {
-    notifyError(error, 'Dokument konnte nicht gelöscht werden.');
+    notifyError(error, isPermanent ? 'Dokument konnte nicht gelöscht werden.' : 'Dokument konnte nicht in den Papierkorb verschoben werden.');
   } finally {
     isDeletingDocument.value = false;
+  }
+}
+
+/** Öffnet Bestätigungsdialog für endgültiges Löschen (aus dem Papierkorb). */
+function openPermanentDeleteDialog(document) {
+  if (!document?.id) return;
+  permanentDeleteMode.value = true;
+  deleteDocumentTarget.value = {
+    id: document.id,
+    original_filename: document.original_filename,
+    display_name: document.display_name || null
+  };
+  isDeleteDocumentDialogOpen.value = true;
+}
+
+/** Dokument direkt aus dem Papierkorb wiederherstellen (kein Dialog). */
+async function restoreDocumentFromTrash(document) {
+  if (!document?.id) return;
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/documents/${document.id}/restore`, { method: 'POST' });
+    if (!response.ok) throw new Error(await parseResponseError(response));
+    await fetchDocuments(selectedDocumentId.value === document.id ? null : selectedDocumentId.value, {
+      autoSelectFirst: selectedDocumentId.value === document.id
+    });
+    scheduleSidebarCountsRefresh();
+    notify({ type: 'success', title: 'Dokument', message: 'Dokument wiederhergestellt.' });
+  } catch (error) {
+    notifyError(error, 'Wiederherstellen fehlgeschlagen.');
+  }
+}
+
+/** Favoriten-Status eines Dokuments umschalten. */
+async function toggleDocumentFavorite(document) {
+  if (!document?.id) return;
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/documents/${document.id}/favorite`, { method: 'POST' });
+    if (!response.ok) throw new Error(await parseResponseError(response));
+    const updated = await response.json();
+    // Optimistisch im Store aktualisieren
+    documents.value = documents.value.map((doc) =>
+      doc.id === updated.id ? { ...doc, is_favorite: updated.is_favorite } : doc
+    );
+    if (selectedDocumentDetail.value?.id === updated.id) {
+      selectedDocumentDetail.value = { ...selectedDocumentDetail.value, is_favorite: updated.is_favorite };
+    }
+    scheduleSidebarCountsRefresh();
+  } catch (error) {
+    notifyError(error, 'Favoriten-Status konnte nicht geändert werden.');
   }
 }
 
@@ -2210,6 +2297,35 @@ function selectView(viewKey) {
       status: null,
       sort: defaultSort.sort,
       order: defaultSort.order
+    });
+    syncSearchStateToQuery({ resetOffset: false });
+    return;
+  }
+
+  if (viewKey === 'favorites') {
+    const defaultSort = resolveDefaultSortQuery();
+    activeView.value = 'favorites';
+    leaveActiveSavedSearch();
+    patchDocumentListQuery({
+      tagId: null,
+      untagged: null,
+      status: null,
+      sort: defaultSort.sort,
+      order: defaultSort.order
+    });
+    syncSearchStateToQuery({ resetOffset: false });
+    return;
+  }
+
+  if (viewKey === 'trash') {
+    activeView.value = 'trash';
+    leaveActiveSavedSearch();
+    patchDocumentListQuery({
+      tagId: null,
+      untagged: null,
+      status: null,
+      sort: 'created_at',
+      order: 'desc'
     });
     syncSearchStateToQuery({ resetOffset: false });
     return;
@@ -4106,6 +4222,24 @@ onBeforeUnmount(() => {
 .document-row:focus-within .document-row__menu-btn,
 .document-row__menu-btn[aria-expanded='true'] {
   opacity: 1;
+}
+
+.document-row__fav-btn {
+  opacity: 0.25 !important;
+  transition: opacity 0.16s ease !important;
+}
+
+.document-row__fav-btn:hover {
+  opacity: 0.6 !important;
+}
+
+.document-row__fav-btn--active {
+  opacity: 1 !important;
+  color: #f59e0b !important;
+}
+
+.document-row__fav-btn--active:hover {
+  opacity: 1 !important;
 }
 
 .document-row__chips {

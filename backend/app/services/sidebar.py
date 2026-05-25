@@ -64,6 +64,7 @@ class SidebarService:
                         func.count(Document.id).label("doc_count"),
                     )
                     .select_from(Document)
+                    .where(Document.is_deleted.is_(False))
                     .where(*conditions)
                 )
             except Exception as exc:
@@ -104,6 +105,7 @@ class SidebarService:
                         func.count(Document.id).label("doc_count"),
                     )
                     .select_from(Document)
+                    .where(Document.is_deleted.is_(False))
                     .where(compiled_filter)
                 )
             except Exception as exc:
@@ -124,6 +126,9 @@ class SidebarService:
         return counts
 
     def get_counts(self) -> SidebarCountsResponse:
+        # Basis-Filter: nur nicht gelöschte Dokumente
+        active_doc = Document.is_deleted.is_(False)
+
         try:
             totals_row = self.db.execute(
                 select(
@@ -137,20 +142,36 @@ class SidebarService:
                         ),
                         0,
                     ).label("unread_total"),
-                )
+                    func.coalesce(
+                        func.sum(
+                            case(
+                                (Document.is_favorite.is_(True), 1),
+                                else_=0,
+                            )
+                        ),
+                        0,
+                    ).label("favorites_count"),
+                ).where(active_doc)
             ).one()
             all_documents = int(totals_row.all_documents or 0)
             unread_total = int(totals_row.unread_total or 0)
+            favorites_count = int(totals_row.favorites_count or 0)
         except ProgrammingError as exc:
             self.db.rollback()
-            logger.warning("sidebar unread count fallback used: %s", exc)
-            all_documents = int(self.db.scalar(select(func.count(Document.id))) or 0)
+            logger.warning("sidebar count fallback used: %s", exc)
+            all_documents = int(self.db.scalar(select(func.count(Document.id)).where(active_doc)) or 0)
             unread_total = 0
+            favorites_count = 0
+
+        trash_count = int(
+            self.db.scalar(select(func.count(Document.id)).where(Document.is_deleted.is_(True))) or 0
+        )
 
         imports_row_map = {
             row.status: int(row.doc_count or 0)
             for row in self.db.execute(
                 select(Document.status, func.count(Document.id).label("doc_count"))
+                .where(active_doc)
                 .where(Document.status.in_(("imported", "processing", "ready", "failed")))
                 .group_by(Document.status)
             ).all()
@@ -160,7 +181,9 @@ class SidebarService:
         recent_threshold = datetime.now(timezone.utc) - timedelta(hours=recent_window_hours)
         recent_total = int(
             self.db.scalar(
-                select(func.count(Document.id)).where(Document.created_at >= recent_threshold)
+                select(func.count(Document.id))
+                .where(active_doc)
+                .where(Document.created_at >= recent_threshold)
             )
             or 0
         )
@@ -173,9 +196,10 @@ class SidebarService:
         )
 
         untagged_stmt = select(func.count(Document.id)).where(
+            active_doc,
             ~select(document_tags.c.document_id)
             .where(document_tags.c.document_id == Document.id)
-            .exists()
+            .exists(),
         )
         untagged_count = int(self.db.scalar(untagged_stmt) or 0)
 
@@ -199,6 +223,8 @@ class SidebarService:
             untagged=untagged_count,
             unread_total=unread_total,
             tags_total=tags_total,
+            favorites_count=favorites_count,
+            trash_count=trash_count,
             imports=imports,
             tags=tag_counts,
             smart_folders=smart_folder_counts,

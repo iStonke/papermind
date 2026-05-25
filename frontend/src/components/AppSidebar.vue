@@ -41,6 +41,30 @@
           </template>
           Ohne Tags
         </SidebarItem>
+
+        <SidebarItem
+          item-class="sidebar-item--secondary sidebar-item--favorites"
+          :active="isViewActive('favorites')"
+          :count="favoritesSidebarCount"
+          @click="emit('select-view', 'favorites')"
+        >
+          <template #icon>
+            <v-icon size="18">mdi-star-outline</v-icon>
+          </template>
+          Favoriten
+        </SidebarItem>
+
+        <SidebarItem
+          item-class="sidebar-item--secondary sidebar-item--trash"
+          :active="isViewActive('trash')"
+          :count="trashSidebarCount"
+          @click="emit('select-view', 'trash')"
+        >
+          <template #icon>
+            <v-icon size="18">mdi-trash-can-outline</v-icon>
+          </template>
+          Papierkorb
+        </SidebarItem>
       </div>
     </v-list>
 
@@ -225,8 +249,10 @@ function isViewActive(viewKey) {
   if (viewKey === 'all') {
     return props.activeView === 'all' && !props.activeTagId;
   }
-  if (viewKey === 'imports')  return props.activeView === 'imports';
-  if (viewKey === 'untagged') return props.activeView === 'untagged';
+  if (viewKey === 'imports')   return props.activeView === 'imports';
+  if (viewKey === 'untagged')  return props.activeView === 'untagged';
+  if (viewKey === 'favorites') return props.activeView === 'favorites';
+  if (viewKey === 'trash')     return props.activeView === 'trash';
   return props.activeView === viewKey;
 }
 
@@ -235,7 +261,9 @@ const allDocumentsSidebarCount = computed(() => Number(sidebarCounts.value.all_d
 const importsSidebarCount = computed(
   () => Number(sidebarCounts.value.imports?.recent_total || sidebarCounts.value.imports?.imported || 0)
 );
-const untaggedSidebarCount = computed(() => Number(sidebarCounts.value.untagged || 0));
+const untaggedSidebarCount  = computed(() => Number(sidebarCounts.value.untagged       || 0));
+const favoritesSidebarCount = computed(() => Number(sidebarCounts.value.favorites_count || 0));
+const trashSidebarCount     = computed(() => Number(sidebarCounts.value.trash_count     || 0));
 
 const sortedTagsByName = computed(() =>
   [...tags.value].sort((l, r) =>

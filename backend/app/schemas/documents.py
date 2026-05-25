@@ -119,6 +119,8 @@ class DocumentSummary(ORMModel):
     duplicate_kind: DocumentDuplicateKind | None = None
     duplicate_score: float | None = None
     is_unread: bool
+    is_deleted: bool = False
+    is_favorite: bool = False
     document_date: date | None
     document_date_source: DocumentDateSource
     document_date_confidence: float | None
@@ -142,6 +144,8 @@ class DocumentDetail(ORMModel):
     duplicate_kind: DocumentDuplicateKind | None = None
     duplicate_score: float | None = None
     is_unread: bool
+    is_deleted: bool = False
+    is_favorite: bool = False
     storage_key: str | None
     created_at: datetime
     updated_at: datetime

@@ -97,6 +97,9 @@ class Document(Base):
     embedding_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     embedding_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_unread: Mapped[bool] = mapped_column(nullable=False, server_default="false")
+    is_deleted: Mapped[bool] = mapped_column(nullable=False, server_default="false")
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_favorite: Mapped[bool] = mapped_column(nullable=False, server_default="false")
     search_vector: Mapped[str | None] = mapped_column(TSVECTOR, nullable=True)
 
     @property

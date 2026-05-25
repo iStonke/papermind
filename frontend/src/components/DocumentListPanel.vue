@@ -84,6 +84,20 @@
 
             <div class="document-row__aside">
               <div class="document-row__actions">
+                <!-- Favoriten-Stern (nur außerhalb des Papierkorbs) -->
+                <v-btn
+                  v-if="!isTrashView"
+                  variant="text"
+                  size="small"
+                  density="comfortable"
+                  :class="['document-row__fav-btn', { 'document-row__fav-btn--active': document.is_favorite }]"
+                  :aria-label="document.is_favorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'"
+                  @click.stop="emit('toggle-favorite', document)"
+                >
+                  <v-icon size="20">{{ document.is_favorite ? 'mdi-star' : 'mdi-star-outline' }}</v-icon>
+                </v-btn>
+
+                <!-- Drei-Punkte-Menü -->
                 <v-menu location="bottom end">
                   <template #activator="{ props }">
                     <v-btn
@@ -97,7 +111,9 @@
                       @click.stop
                     />
                   </template>
-                  <v-list density="compact">
+
+                  <!-- Normales Menü -->
+                  <v-list v-if="!isTrashView" density="compact">
                     <v-list-item @click.stop="emit('download', document)">
                       <template #prepend>
                         <v-icon size="16">mdi-download-outline</v-icon>
@@ -120,7 +136,23 @@
                       <template #prepend>
                         <v-icon size="16">mdi-trash-can-outline</v-icon>
                       </template>
-                      <v-list-item-title>Löschen…</v-list-item-title>
+                      <v-list-item-title>In Papierkorb</v-list-item-title>
+                    </v-list-item>
+                  </v-list>
+
+                  <!-- Papierkorb-Menü -->
+                  <v-list v-else density="compact">
+                    <v-list-item @click.stop="emit('restore', document)">
+                      <template #prepend>
+                        <v-icon size="16">mdi-restore</v-icon>
+                      </template>
+                      <v-list-item-title>Wiederherstellen</v-list-item-title>
+                    </v-list-item>
+                    <v-list-item class="menu-item--danger" @click.stop="emit('delete-permanent', document)">
+                      <template #prepend>
+                        <v-icon size="16">mdi-delete-forever-outline</v-icon>
+                      </template>
+                      <v-list-item-title>Endgültig löschen…</v-list-item-title>
                     </v-list-item>
                   </v-list>
                 </v-menu>
@@ -153,6 +185,7 @@ const props = defineProps({
   listDropNotice:          { type: String,  default: '' },
   activeStatusFilterLabel: { type: String,  default: '' },
   isImportsView:           { type: Boolean, default: false },
+  isTrashView:             { type: Boolean, default: false },
   showDocumentListEmptyState: { type: Boolean, default: false },
   documentListEmptyState:  { type: Object,  default: () => ({ icon: '', title: '', subtitle: '' }) },
   showSnippets:            { type: Boolean, default: false },
@@ -164,6 +197,9 @@ const emit = defineEmits([
   'rename',
   'manage-tags',
   'delete',
+  'restore',
+  'delete-permanent',
+  'toggle-favorite',
   'files-dropped',
 ]);
 
