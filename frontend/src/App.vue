@@ -254,9 +254,8 @@
             </div>
           </template>
 
-          <Transition name="pm-panel" mode="out-in">
+          <Transition v-else name="pm-panel" mode="out-in">
           <DocumentListPanel
-            v-else
             :key="activeView + (documentListQuery.tagId ?? '')"
             :list-drop-notice="listDropNotice"
             :active-status-filter-label="activeStatusFilterLabel"
