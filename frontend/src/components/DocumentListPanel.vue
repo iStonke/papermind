@@ -86,180 +86,190 @@
       @drop="onListDrop"
     >
       <div class="document-list-content">
-        <div v-if="isLoadingDocuments && documents.length === 0" class="document-list document-list--skeleton">
-          <v-skeleton-loader
-            v-for="n in 6"
-            :key="`skel-${n}`"
-            type="list-item-avatar-two-line"
-            class="document-row-skeleton"
-          />
-        </div>
-
-        <div v-else-if="showDocumentListEmptyState" class="document-list-empty-state-wrap">
-          <PmEmptyState
-            :icon="documentListEmptyState.icon"
-            :title="documentListEmptyState.title"
-            :subtitle="documentListEmptyState.subtitle"
-            size="md"
-          />
-        </div>
-
-        <TransitionGroup v-else tag="div" name="pm-list-item" class="document-list">
+        <Transition name="pm-list-state">
           <div
-            v-for="document in documents"
-            :key="document.id"
-            class="document-row pm-doc-item"
-            :class="{
-              'document-row--active': !isSelectionMode && document.id === selectedDocumentId,
-              'document-row--selected': isSelectionMode && selectionIds.has(document.id),
-              'document-row--selection-mode': isSelectionMode
-            }"
-            role="button"
-            tabindex="0"
-            @click="onRowClick($event, document.id)"
-            @keydown="handleDocumentRowShortcut($event, document.id)"
+            v-if="isLoadingDocuments && documents.length === 0"
+            key="loading"
+            class="document-list document-list-state document-list--skeleton"
           >
-            <div class="document-row__thumb" :class="{ 'document-row__thumb--selectable': isSelectionMode }">
-              <img
-                v-if="!hasThumbnailError(document.id)"
-                :src="thumbnailUrl(document.id)"
-                alt="thumbnail"
-                @error="onThumbnailError(document.id)"
-              />
-              <div v-else class="document-row__thumb-fallback">
-                <v-icon size="22">mdi-file-pdf-box</v-icon>
-              </div>
-              <!-- Checkbox-Overlay auf dem Thumbnail -->
-              <Transition name="checkbox-pop">
-                <div
-                  v-if="isSelectionMode"
-                  class="document-row__checkbox-overlay"
-                  :class="{ 'document-row__checkbox-overlay--checked': selectionIds.has(document.id) }"
-                  aria-hidden="true"
-                >
-                  <v-icon v-if="selectionIds.has(document.id)" size="14">mdi-check</v-icon>
+            <v-skeleton-loader
+              v-for="n in 6"
+              :key="`skel-${n}`"
+              type="list-item-avatar-two-line"
+              class="document-row-skeleton"
+            />
+          </div>
+
+          <div
+            v-else-if="showDocumentListEmptyState"
+            key="empty"
+            class="document-list-state document-list-empty-state-wrap"
+          >
+            <PmEmptyState
+              :icon="documentListEmptyState.icon"
+              :title="documentListEmptyState.title"
+              :subtitle="documentListEmptyState.subtitle"
+              size="md"
+            />
+          </div>
+
+          <div v-else key="documents" class="document-list document-list-state">
+            <div
+              v-for="document in documents"
+              :key="document.id"
+              class="document-row pm-doc-item"
+              :class="{
+                'document-row--active': !isSelectionMode && document.id === selectedDocumentId,
+                'document-row--selected': isSelectionMode && selectionIds.has(document.id),
+                'document-row--selection-mode': isSelectionMode
+              }"
+              role="button"
+              tabindex="0"
+              @click="onRowClick($event, document.id)"
+              @keydown="handleDocumentRowShortcut($event, document.id)"
+            >
+              <div class="document-row__thumb" :class="{ 'document-row__thumb--selectable': isSelectionMode }">
+                <img
+                  v-if="!hasThumbnailError(document.id)"
+                  :src="thumbnailUrl(document.id)"
+                  alt="thumbnail"
+                  @error="onThumbnailError(document.id)"
+                />
+                <div v-else class="document-row__thumb-fallback">
+                  <v-icon size="22">mdi-file-pdf-box</v-icon>
                 </div>
-              </Transition>
-            </div>
-
-            <div class="document-row__content">
-              <div class="document-row__title">
-                <span v-if="document.is_unread" class="document-row__unread-dot" aria-hidden="true" />
-                <div class="document-row__name">{{ formatDocumentTitle(document) }}</div>
+                <!-- Checkbox-Overlay auf dem Thumbnail -->
+                <Transition name="checkbox-pop">
+                  <div
+                    v-if="isSelectionMode"
+                    class="document-row__checkbox-overlay"
+                    :class="{ 'document-row__checkbox-overlay--checked': selectionIds.has(document.id) }"
+                    aria-hidden="true"
+                  >
+                    <v-icon v-if="selectionIds.has(document.id)" size="14">mdi-check</v-icon>
+                  </div>
+                </Transition>
               </div>
-              <div class="document-row__meta-line">
-                <div class="document-row__meta">{{ displayListDate(document) }}</div>
+
+              <div class="document-row__content">
+                <div class="document-row__title">
+                  <span v-if="document.is_unread" class="document-row__unread-dot" aria-hidden="true" />
+                  <div class="document-row__name">{{ formatDocumentTitle(document) }}</div>
+                </div>
+                <div class="document-row__meta-line">
+                  <div class="document-row__meta">{{ displayListDate(document) }}</div>
+                </div>
+                <TransitionGroup
+                  v-if="Array.isArray(document.tags) && document.tags.length > 0"
+                  tag="div"
+                  name="pm-chip"
+                  class="document-row__tags"
+                >
+                  <v-chip
+                    v-for="tag in document.tags.slice(0, 3)"
+                    :key="`doc-${document.id}-tag-${tag.id}`"
+                    size="x-small"
+                    variant="tonal"
+                    class="document-row__tag-chip"
+                  >
+                    {{ tag.name }}
+                  </v-chip>
+                  <v-chip
+                    v-if="document.tags.length > 3"
+                    key="more"
+                    size="x-small"
+                    variant="outlined"
+                    class="document-row__tag-chip document-row__tag-chip--more"
+                  >
+                    +{{ document.tags.length - 3 }}
+                  </v-chip>
+                </TransitionGroup>
+                <div
+                  v-if="showSnippets && document.snippet"
+                  class="document-row__snippet"
+                  v-html="formatSnippet(document.snippet)"
+                />
               </div>
-              <TransitionGroup
-                v-if="Array.isArray(document.tags) && document.tags.length > 0"
-                tag="div"
-                name="pm-chip"
-                class="document-row__tags"
-              >
-                <v-chip
-                  v-for="tag in document.tags.slice(0, 3)"
-                  :key="`doc-${document.id}-tag-${tag.id}`"
-                  size="x-small"
-                  variant="tonal"
-                  class="document-row__tag-chip"
-                >
-                  {{ tag.name }}
-                </v-chip>
-                <v-chip
-                  v-if="document.tags.length > 3"
-                  key="more"
-                  size="x-small"
-                  variant="outlined"
-                  class="document-row__tag-chip document-row__tag-chip--more"
-                >
-                  +{{ document.tags.length - 3 }}
-                </v-chip>
-              </TransitionGroup>
-              <div
-                v-if="showSnippets && document.snippet"
-                class="document-row__snippet"
-                v-html="formatSnippet(document.snippet)"
-              />
-            </div>
 
-            <div class="document-row__aside">
-              <div class="document-row__actions">
-                <!-- Favoriten-Stern (nur außerhalb des Papierkorbs) -->
-                <v-btn
-                  v-if="!isTrashView"
-                  variant="text"
-                  size="small"
-                  density="comfortable"
-                  :class="['document-row__fav-btn', { 'document-row__fav-btn--active': document.is_favorite }]"
-                  :aria-label="document.is_favorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'"
-                  @click.stop="emit('toggle-favorite', document)"
-                >
-                  <v-icon size="20">{{ document.is_favorite ? 'mdi-star' : 'mdi-star-outline' }}</v-icon>
-                </v-btn>
+              <div class="document-row__aside">
+                <div class="document-row__actions">
+                  <!-- Favoriten-Stern (nur außerhalb des Papierkorbs) -->
+                  <v-btn
+                    v-if="!isTrashView"
+                    variant="text"
+                    size="small"
+                    density="comfortable"
+                    :class="['document-row__fav-btn', { 'document-row__fav-btn--active': document.is_favorite }]"
+                    :aria-label="document.is_favorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'"
+                    @click.stop="emit('toggle-favorite', document)"
+                  >
+                    <v-icon size="20">{{ document.is_favorite ? 'mdi-star' : 'mdi-star-outline' }}</v-icon>
+                  </v-btn>
 
-                <!-- Drei-Punkte-Menü -->
-                <v-menu location="bottom end">
-                  <template #activator="{ props }">
-                    <v-btn
-                      v-bind="props"
-                      icon="mdi-dots-vertical"
-                      size="small"
-                      density="comfortable"
-                      variant="text"
-                      class="document-row__menu-btn"
-                      aria-label="Aktionen"
-                      @click.stop
-                    />
-                  </template>
+                  <!-- Drei-Punkte-Menü -->
+                  <v-menu location="bottom end">
+                    <template #activator="{ props }">
+                      <v-btn
+                        v-bind="props"
+                        icon="mdi-dots-vertical"
+                        size="small"
+                        density="comfortable"
+                        variant="text"
+                        class="document-row__menu-btn"
+                        aria-label="Aktionen"
+                        @click.stop
+                      />
+                    </template>
 
-                  <!-- Normales Menü -->
-                  <v-list v-if="!isTrashView" density="compact">
-                    <v-list-item @click.stop="emit('download', document)">
-                      <template #prepend>
-                        <v-icon size="16">mdi-download-outline</v-icon>
-                      </template>
-                      <v-list-item-title>Herunterladen</v-list-item-title>
-                    </v-list-item>
-                    <v-list-item @click.stop="emit('rename', document)">
-                      <template #prepend>
-                        <v-icon size="16">mdi-pencil-outline</v-icon>
-                      </template>
-                      <v-list-item-title>Umbenennen</v-list-item-title>
-                    </v-list-item>
-                    <v-list-item @click.stop="emit('manage-tags', document)">
-                      <template #prepend>
-                        <v-icon size="16">mdi-tag-multiple-outline</v-icon>
-                      </template>
-                      <v-list-item-title>Tags verwalten</v-list-item-title>
-                    </v-list-item>
-                    <v-list-item class="menu-item--danger" @click.stop="emit('delete', document)">
-                      <template #prepend>
-                        <v-icon size="16">mdi-trash-can-outline</v-icon>
-                      </template>
-                      <v-list-item-title>In Papierkorb</v-list-item-title>
-                    </v-list-item>
-                  </v-list>
+                    <!-- Normales Menü -->
+                    <v-list v-if="!isTrashView" density="compact">
+                      <v-list-item @click.stop="emit('download', document)">
+                        <template #prepend>
+                          <v-icon size="16">mdi-download-outline</v-icon>
+                        </template>
+                        <v-list-item-title>Herunterladen</v-list-item-title>
+                      </v-list-item>
+                      <v-list-item @click.stop="emit('rename', document)">
+                        <template #prepend>
+                          <v-icon size="16">mdi-pencil-outline</v-icon>
+                        </template>
+                        <v-list-item-title>Umbenennen</v-list-item-title>
+                      </v-list-item>
+                      <v-list-item @click.stop="emit('manage-tags', document)">
+                        <template #prepend>
+                          <v-icon size="16">mdi-tag-multiple-outline</v-icon>
+                        </template>
+                        <v-list-item-title>Tags verwalten</v-list-item-title>
+                      </v-list-item>
+                      <v-list-item class="menu-item--danger" @click.stop="emit('delete', document)">
+                        <template #prepend>
+                          <v-icon size="16">mdi-trash-can-outline</v-icon>
+                        </template>
+                        <v-list-item-title>In Papierkorb</v-list-item-title>
+                      </v-list-item>
+                    </v-list>
 
-                  <!-- Papierkorb-Menü -->
-                  <v-list v-else density="compact">
-                    <v-list-item @click.stop="emit('restore', document)">
-                      <template #prepend>
-                        <v-icon size="16">mdi-restore</v-icon>
-                      </template>
-                      <v-list-item-title>Wiederherstellen</v-list-item-title>
-                    </v-list-item>
-                    <v-list-item class="menu-item--danger" @click.stop="emit('delete-permanent', document)">
-                      <template #prepend>
-                        <v-icon size="16">mdi-delete-forever-outline</v-icon>
-                      </template>
-                      <v-list-item-title>Endgültig löschen…</v-list-item-title>
-                    </v-list-item>
-                  </v-list>
-                </v-menu>
+                    <!-- Papierkorb-Menü -->
+                    <v-list v-else density="compact">
+                      <v-list-item @click.stop="emit('restore', document)">
+                        <template #prepend>
+                          <v-icon size="16">mdi-restore</v-icon>
+                        </template>
+                        <v-list-item-title>Wiederherstellen</v-list-item-title>
+                      </v-list-item>
+                      <v-list-item class="menu-item--danger" @click.stop="emit('delete-permanent', document)">
+                        <template #prepend>
+                          <v-icon size="16">mdi-delete-forever-outline</v-icon>
+                        </template>
+                        <v-list-item-title>Endgültig löschen…</v-list-item-title>
+                      </v-list-item>
+                    </v-list>
+                  </v-menu>
+                </div>
               </div>
             </div>
           </div>
-        </TransitionGroup>
+        </Transition>
       </div>
 
       <div v-if="isListDragOver" class="document-list-drop-overlay" aria-hidden="true">

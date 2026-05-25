@@ -6,7 +6,9 @@
  * gängigen Fälle ab.
  */
 
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+import { API_BASE_URL } from './config.js';
+
+const BASE_URL = API_BASE_URL;
 
 /**
  * Liest die Fehlermeldung aus einer nicht-ok Response.
@@ -42,6 +44,12 @@ export async function apiFetch(path, options = {}) {
   }
 
   if (response.status === 204) return null;
+
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  if (!contentType.includes('application/json')) {
+    throw new Error('Keine gültige Antwort vom Server.');
+  }
+
   return response.json();
 }
 

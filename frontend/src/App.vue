@@ -154,135 +154,136 @@
         />
 
         <section class="panel panel-middle">
-          <template v-if="isTagView">
-            <div class="list-toolbar tags-view-toolbar">
-              <div class="list-toolbar__main">
-                <v-text-field
-                  ref="tagSearchField"
-                  v-model="tagSearchText"
-                  class="list-toolbar__search tags-view-search"
-                  density="comfortable"
-                  variant="outlined"
-                  hide-details
-                  prepend-inner-icon="mdi-magnify"
-                  placeholder="Tags suchen oder erstellen…"
-                  @keydown="handleTagToolbarShortcut"
-                >
-                  <template #append-inner>
-                    <div class="tags-view-search__actions">
-                      <v-btn
-                        v-if="hasTagToolbarQuery"
-                        icon="mdi-close"
-                        size="x-small"
-                        variant="text"
-                        class="tags-view-search__action-btn"
-                        aria-label="Tag-Suche leeren"
-                        @click.stop="clearTagToolbarQuery"
-                      />
-                      <v-btn
-                        v-if="canCreateTagFromToolbar"
-                        icon="mdi-plus"
-                        size="x-small"
-                        variant="text"
-                        class="tags-view-search__action-btn tags-view-search__action-btn--create"
-                        aria-label="Tag erstellen"
-                        :loading="isTagMutationRunning"
-                        @click.stop="createTagFromToolbar"
-                      />
-                    </div>
-                  </template>
-                </v-text-field>
-              </div>
-              <div v-if="showTagToolbarCreateHint" class="tags-view-toolbar__hint">Enter ↵ zum Erstellen</div>
-            </div>
-
-
-            <div class="tags-view-cloud-wrap">
-              <div class="tags-view-section-title">Tag-Wolke</div>
-              <div v-if="filteredTags.length > 0" class="tag-cloud">
-                <button
-                  v-for="tag in filteredTags"
-                  :key="`cloud-${tag.id}`"
-                  type="button"
-                  class="tag-cloud-item"
-                  :style="tagCloudItemStyle(tag)"
-                  @click="openTagDocuments(tag.id)"
-                >
-                  <span>{{ tag.name }}</span>
-                  <small>{{ tag.usage_count ?? 0 }}</small>
-                </button>
-              </div>
-              <div v-else class="panel-empty">Keine Tags gefunden.</div>
-            </div>
-
-            <div class="tags-view-list-wrap">
-              <div class="tags-view-section-title">Tag-Liste</div>
-              <div v-if="filteredTags.length > 0" class="tag-table">
-                <div v-for="tag in filteredTags" :key="`row-${tag.id}`" class="tag-row">
-                  <button type="button" class="tag-row__name" @click="openTagDocuments(tag.id)">
-                    {{ tag.name }}
-                  </button>
-                  <span class="tag-row__count">{{ tag.usage_count ?? 0 }}</span>
-                  <v-menu location="bottom end">
-                    <template #activator="{ props }">
-                      <v-btn icon="mdi-dots-vertical" size="small" variant="text" v-bind="props" />
+          <Transition name="pm-panel">
+            <div v-if="isTagView" key="tags" class="panel-middle__view tags-view">
+              <div class="list-toolbar tags-view-toolbar">
+                <div class="list-toolbar__main">
+                  <v-text-field
+                    ref="tagSearchField"
+                    v-model="tagSearchText"
+                    class="list-toolbar__search tags-view-search"
+                    density="comfortable"
+                    variant="outlined"
+                    hide-details
+                    prepend-inner-icon="mdi-magnify"
+                    placeholder="Tags suchen oder erstellen…"
+                    @keydown="handleTagToolbarShortcut"
+                  >
+                    <template #append-inner>
+                      <div class="tags-view-search__actions">
+                        <v-btn
+                          v-if="hasTagToolbarQuery"
+                          icon="mdi-close"
+                          size="x-small"
+                          variant="text"
+                          class="tags-view-search__action-btn"
+                          aria-label="Tag-Suche leeren"
+                          @click.stop="clearTagToolbarQuery"
+                        />
+                        <v-btn
+                          v-if="canCreateTagFromToolbar"
+                          icon="mdi-plus"
+                          size="x-small"
+                          variant="text"
+                          class="tags-view-search__action-btn tags-view-search__action-btn--create"
+                          aria-label="Tag erstellen"
+                          :loading="isTagMutationRunning"
+                          @click.stop="createTagFromToolbar"
+                        />
+                      </div>
                     </template>
-                    <v-list density="compact">
-                      <v-list-item @click.stop="tagDialogsRef?.openRename(tag)">
-                        <template #prepend>
-                          <v-icon size="16">mdi-pencil-outline</v-icon>
-                        </template>
-                        <v-list-item-title>Umbenennen</v-list-item-title>
-                      </v-list-item>
-                      <v-list-item @click.stop="tagDialogsRef?.openMerge(tag)">
-                        <template #prepend>
-                          <v-icon size="16">mdi-source-merge</v-icon>
-                        </template>
-                        <v-list-item-title>Zusammenführen</v-list-item-title>
-                      </v-list-item>
-                      <v-list-item class="menu-item--danger" @click.stop="tagDialogsRef?.openDelete(tag)">
-                        <template #prepend>
-                          <v-icon size="16">mdi-trash-can-outline</v-icon>
-                        </template>
-                        <v-list-item-title>Löschen…</v-list-item-title>
-                      </v-list-item>
-                    </v-list>
-                  </v-menu>
+                  </v-text-field>
                 </div>
+                <div v-if="showTagToolbarCreateHint" class="tags-view-toolbar__hint">Enter ↵ zum Erstellen</div>
               </div>
-              <div v-else class="panel-empty">Keine Tags verfügbar.</div>
-            </div>
-          </template>
 
-          <Transition v-else name="pm-panel" mode="out-in">
-          <DocumentListPanel
-            :key="activeView + (documentListQuery.tagId ?? '')"
-            :list-drop-notice="listDropNotice"
-            :active-status-filter-label="activeStatusFilterLabel"
-            :is-imports-view="isImportsView"
-            :is-trash-view="isTrashView"
-            :show-document-list-empty-state="showDocumentListEmptyState"
-            :document-list-empty-state="documentListEmptyState"
-            :show-snippets="showSnippets"
-            :is-selection-mode="isSelectionMode"
-            :selection-ids="selectionIds"
-            :current-sort="currentSort"
-            :current-status="documentListQuery.status || ''"
-            @select-document="selectDocument"
-            @download="downloadDocumentFromList"
-            @rename="(doc) => renameDocumentDialogRef?.open(doc)"
-            @manage-tags="openTagManagerFromList"
-            @delete="openDeleteDocumentDialog"
-            @restore="restoreDocumentFromTrash"
-            @delete-permanent="openPermanentDeleteDialog"
-            @toggle-favorite="toggleDocumentFavorite"
-            @files-dropped="onDroppedFiles"
-            @toggle-selection-mode="toggleSelectionMode"
-            @toggle-document-selection="toggleDocumentSelection"
-            @select-all="selectAllDocuments"
-            @change-sort="applySort"
-            @change-status="applyStatusFilter"
-          />
+              <div class="tags-view-cloud-wrap">
+                <div class="tags-view-section-title">Tag-Wolke</div>
+                <div v-if="filteredTags.length > 0" class="tag-cloud">
+                  <button
+                    v-for="tag in filteredTags"
+                    :key="`cloud-${tag.id}`"
+                    type="button"
+                    class="tag-cloud-item"
+                    :style="tagCloudItemStyle(tag)"
+                    @click="openTagDocuments(tag.id)"
+                  >
+                    <span>{{ tag.name }}</span>
+                    <small>{{ tag.usage_count ?? 0 }}</small>
+                  </button>
+                </div>
+                <div v-else class="panel-empty">Keine Tags gefunden.</div>
+              </div>
+
+              <div class="tags-view-list-wrap">
+                <div class="tags-view-section-title">Tag-Liste</div>
+                <div v-if="filteredTags.length > 0" class="tag-table">
+                  <div v-for="tag in filteredTags" :key="`row-${tag.id}`" class="tag-row">
+                    <button type="button" class="tag-row__name" @click="openTagDocuments(tag.id)">
+                      {{ tag.name }}
+                    </button>
+                    <span class="tag-row__count">{{ tag.usage_count ?? 0 }}</span>
+                    <v-menu location="bottom end">
+                      <template #activator="{ props }">
+                        <v-btn icon="mdi-dots-vertical" size="small" variant="text" v-bind="props" />
+                      </template>
+                      <v-list density="compact">
+                        <v-list-item @click.stop="tagDialogsRef?.openRename(tag)">
+                          <template #prepend>
+                            <v-icon size="16">mdi-pencil-outline</v-icon>
+                          </template>
+                          <v-list-item-title>Umbenennen</v-list-item-title>
+                        </v-list-item>
+                        <v-list-item @click.stop="tagDialogsRef?.openMerge(tag)">
+                          <template #prepend>
+                            <v-icon size="16">mdi-source-merge</v-icon>
+                          </template>
+                          <v-list-item-title>Zusammenführen</v-list-item-title>
+                        </v-list-item>
+                        <v-list-item class="menu-item--danger" @click.stop="tagDialogsRef?.openDelete(tag)">
+                          <template #prepend>
+                            <v-icon size="16">mdi-trash-can-outline</v-icon>
+                          </template>
+                          <v-list-item-title>Löschen…</v-list-item-title>
+                        </v-list-item>
+                      </v-list>
+                    </v-menu>
+                  </div>
+                </div>
+                <div v-else class="panel-empty">Keine Tags verfügbar.</div>
+              </div>
+            </div>
+
+            <DocumentListPanel
+              v-else
+              key="documents"
+              class="panel-middle__view"
+              :list-drop-notice="listDropNotice"
+              :active-status-filter-label="activeStatusFilterLabel"
+              :is-imports-view="isImportsView"
+              :is-trash-view="isTrashView"
+              :show-document-list-empty-state="showDocumentListEmptyState"
+              :document-list-empty-state="documentListEmptyState"
+              :show-snippets="showSnippets"
+              :is-selection-mode="isSelectionMode"
+              :selection-ids="selectionIds"
+              :current-sort="currentSort"
+              :current-status="documentListQuery.status || ''"
+              @select-document="selectDocument"
+              @download="downloadDocumentFromList"
+              @rename="(doc) => renameDocumentDialogRef?.open(doc)"
+              @manage-tags="openTagManagerFromList"
+              @delete="openDeleteDocumentDialog"
+              @restore="restoreDocumentFromTrash"
+              @delete-permanent="openPermanentDeleteDialog"
+              @toggle-favorite="toggleDocumentFavorite"
+              @files-dropped="onDroppedFiles"
+              @toggle-selection-mode="toggleSelectionMode"
+              @toggle-document-selection="toggleDocumentSelection"
+              @select-all="selectAllDocuments"
+              @change-sort="applySort"
+              @change-status="applyStatusFilter"
+            />
           </Transition>
           <BatchActionsBar
             v-if="isSelectionMode"
@@ -543,10 +544,11 @@ import { useOcrPolling } from './composables/useOcrPolling';
 import { useGlobalKeyboard } from './composables/useGlobalKeyboard';
 import { useSearch } from './composables/useSearch';
 import { SHORTCUT_ACTIONS, handleShortcut } from './keyboard/shortcuts';
+import { getBaseUrl } from './api/client.js';
 
 const PdfPreview = defineAsyncComponent(() => import('./components/PdfPreview.vue'));
 
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+const apiBaseUrl = getBaseUrl();
 
 const SETTINGS_SORT_TO_QUERY = {
   newest: { sort: 'created_at', order: 'desc' },
@@ -577,6 +579,8 @@ function persistLastSelectedDocId(id) {
   } catch { /* ignore */ }
 }
 
+let isRestoringLastSelectedDocument = false;
+
 const theme = useTheme();
 const { notify } = useNotifications();
 const settingsStore = useSettingsStore();
@@ -593,7 +597,12 @@ const { documents, selectedDocumentId, selectedDocumentDetail, isLoadingDocument
 const { tags, isTagMutationRunning } = storeToRefs(tagStore);
 
 // Letztes Dokument persistent speichern
-watch(selectedDocumentId, (id) => { persistLastSelectedDocId(id); });
+watch(selectedDocumentId, (id) => {
+  if (isRestoringLastSelectedDocument) {
+    return;
+  }
+  persistLastSelectedDocId(id);
+});
 const { sidebarCounts, isLoadingSidebarCounts, savedSearches, isLoadingSavedSearches } = storeToRefs(sidebarStore);
 
 const isAiDialogOpen = ref(false);
@@ -1907,6 +1916,14 @@ async function parseResponseError(response) {
   }
 }
 
+async function parseJsonResponse(response) {
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  if (!contentType.includes('application/json')) {
+    throw new Error('Keine gültige Antwort vom Server.');
+  }
+  return response.json();
+}
+
 function clearPreviewRetryTimer() {
   if (!previewRetryTimer) {
     return;
@@ -2205,7 +2222,7 @@ async function fetchDocumentDetail(documentId) {
     throw new Error(await parseResponseError(response));
   }
 
-  const detail = await response.json();
+  const detail = await parseJsonResponse(response);
   selectedDocumentDetail.value = detail;
   const ocrDone =
     detail?.ocr_status === 'done' ||
@@ -2220,6 +2237,7 @@ async function fetchDocumentDetail(documentId) {
 
 async function fetchDocuments(preferredDocumentId = null, options = {}) {
   const autoSelectFirst = options.autoSelectFirst === true;
+  const allowPreferredOutsideList = options.allowPreferredOutsideList === true;
   isLoadingDocuments.value = true;
 
   try {
@@ -2232,7 +2250,7 @@ async function fetchDocuments(preferredDocumentId = null, options = {}) {
       throw new Error(await parseResponseError(response));
     }
 
-    const payload = await response.json();
+    const payload = await parseJsonResponse(response);
     documents.value = payload.items || [];
 
     if (documents.value.length === 0) {
@@ -2255,7 +2273,11 @@ async function fetchDocuments(preferredDocumentId = null, options = {}) {
         if (!canDiscardMetadataChanges()) {
           return;
         }
-        resolvedSelectionId = autoSelectFirst ? documents.value[0].id : null;
+        resolvedSelectionId = allowPreferredOutsideList && preferredDocumentId
+          ? preferredDocumentId
+          : autoSelectFirst
+            ? documents.value[0].id
+            : null;
       }
     }
 
@@ -2265,8 +2287,21 @@ async function fetchDocuments(preferredDocumentId = null, options = {}) {
       return;
     }
 
-    await fetchDocumentDetail(resolvedSelectionId);
-    void markDocumentViewedOptimistic(resolvedSelectionId);
+    try {
+      await fetchDocumentDetail(resolvedSelectionId);
+      void markDocumentViewedOptimistic(resolvedSelectionId);
+    } catch (error) {
+      if (!allowPreferredOutsideList || resolvedSelectionId !== preferredDocumentId) {
+        throw error;
+      }
+      persistLastSelectedDocId(null);
+      selectedDocumentId.value = autoSelectFirst ? documents.value[0]?.id || null : null;
+      selectedDocumentDetail.value = null;
+      if (selectedDocumentId.value) {
+        await fetchDocumentDetail(selectedDocumentId.value);
+        void markDocumentViewedOptimistic(selectedDocumentId.value);
+      }
+    }
   } catch (error) {
     notifyError(error, 'Dokumente konnten nicht geladen werden.');
   } finally {
@@ -3065,7 +3100,16 @@ onMounted(async () => {
 
   await Promise.all([fetchTags(), fetchSavedSearches(), fetchSidebarCounts()]);
   const restoredDocId = readStoredLastSelectedDocId();
-  await fetchDocuments(restoredDocId, { autoSelectFirst: !restoredDocId });
+  isRestoringLastSelectedDocument = Boolean(restoredDocId);
+  try {
+    await fetchDocuments(restoredDocId, {
+      allowPreferredOutsideList: Boolean(restoredDocId),
+      autoSelectFirst: true
+    });
+  } finally {
+    isRestoringLastSelectedDocument = false;
+  }
+  persistLastSelectedDocId(selectedDocumentId.value);
 });
 
 onBeforeUnmount(() => {
@@ -3156,6 +3200,40 @@ onBeforeUnmount(() => {
 
 .appbar-search__field :deep(.v-field__outline) {
   display: none;
+}
+
+.papermind-app.v-theme--dark .appbar-search__field :deep(.v-field) {
+  background-color: rgba(255, 255, 255, 0.2) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12) !important;
+}
+
+.papermind-app.v-theme--dark .appbar-search__field .v-field {
+  background-color: rgba(255, 255, 255, 0.2) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12) !important;
+}
+
+.papermind-app.v-theme--dark .appbar-search__field .v-field__overlay,
+.papermind-app.v-theme--dark .list-toolbar__search .v-field__overlay,
+.papermind-app.v-theme--dark .tags-view-search .v-field__overlay {
+  opacity: 0 !important;
+}
+
+.papermind-app.v-theme--dark .appbar-search__field :deep(.v-field:hover) {
+  background-color: rgba(255, 255, 255, 0.25) !important;
+}
+
+.papermind-app.v-theme--dark .appbar-search__field .v-field:hover {
+  background-color: rgba(255, 255, 255, 0.25) !important;
+}
+
+.papermind-app.v-theme--dark .appbar-search__field :deep(.v-field--focused) {
+  background-color: rgba(255, 255, 255, 0.3) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2) !important;
+}
+
+.papermind-app.v-theme--dark .appbar-search__field .v-field--focused {
+  background-color: rgba(255, 255, 255, 0.3) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2) !important;
 }
 
 .app-main {
@@ -3557,10 +3635,18 @@ onBeforeUnmount(() => {
 }
 
 .document-list-content {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+.document-list-state {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .document-list-empty-state-wrap {
@@ -3804,6 +3890,10 @@ onBeforeUnmount(() => {
   background: var(--pm-content-surface);
 }
 
+.panel-middle__view {
+  min-height: 100%;
+}
+
 .panel-right {
   border-right: 0;
   overflow: hidden;
@@ -4028,6 +4118,10 @@ onBeforeUnmount(() => {
 
 .tags-view-toolbar {
   gap: 4px;
+}
+
+.tags-view {
+  display: flow-root;
 }
 
 .tags-view-search {
@@ -4299,6 +4393,40 @@ onBeforeUnmount(() => {
 .papermind-app.v-theme--dark .tags-view-list-wrap,
 .papermind-app.v-theme--dark .tag-row {
   background: var(--pm-app-surface-raised);
+}
+
+.papermind-app.v-theme--dark .list-toolbar__search :deep(.v-field),
+.papermind-app.v-theme--dark .tags-view-search :deep(.v-field) {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.papermind-app.v-theme--dark .list-toolbar__search .v-field,
+.papermind-app.v-theme--dark .tags-view-search .v-field {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.papermind-app.v-theme--dark .list-toolbar__search :deep(.v-field:hover),
+.papermind-app.v-theme--dark .tags-view-search :deep(.v-field:hover) {
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.papermind-app.v-theme--dark .list-toolbar__search .v-field:hover,
+.papermind-app.v-theme--dark .tags-view-search .v-field:hover {
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.papermind-app.v-theme--dark .list-toolbar__search :deep(.v-field--focused),
+.papermind-app.v-theme--dark .tags-view-search :deep(.v-field--focused) {
+  background: rgba(255, 255, 255, 0.13);
+  box-shadow: inset 0 0 0 1px rgba(196, 207, 255, 0.28);
+}
+
+.papermind-app.v-theme--dark .list-toolbar__search .v-field--focused,
+.papermind-app.v-theme--dark .tags-view-search .v-field--focused {
+  background: rgba(255, 255, 255, 0.13);
+  box-shadow: inset 0 0 0 1px rgba(196, 207, 255, 0.28);
 }
 
 .papermind-app.v-theme--dark .topbar-btn--import {

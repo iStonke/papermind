@@ -590,8 +590,17 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   padding: 6px 14px;
   border-bottom: 1px solid rgb(var(--v-theme-on-surface) / 0.08);
+  background: rgb(var(--v-theme-surface) / 0.72);
+  backdrop-filter: blur(10px) saturate(1.08);
+  -webkit-backdrop-filter: blur(10px) saturate(1.08);
   gap: 12px;
   min-height: 38px;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .pdf-preview__toolbar {
+    background: rgb(var(--v-theme-surface) / 0.9);
+  }
 }
 
 .pdf-preview__page-info {

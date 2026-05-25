@@ -186,10 +186,18 @@ export function mapApiError(error, fallbackMessage = 'Aktion fehlgeschlagen.') {
   if (
     normalized.includes('failed to fetch') ||
     normalized.includes('networkerror') ||
+    normalized.includes('load failed') ||
     normalized.includes('netzwerk') ||
     normalized.includes('keine verbindung')
   ) {
     return 'Keine Verbindung zum Server.';
+  }
+
+  if (
+    normalized.includes('the string did not match the expected pattern') ||
+    normalized.includes('did not match the expected pattern')
+  ) {
+    return fallback;
   }
 
   const statusMatch = message.match(/\b(4\d{2}|5\d{2})\b/);
