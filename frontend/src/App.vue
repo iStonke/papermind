@@ -967,6 +967,10 @@ async function createTagFromToolbar() {
 
 // ── Tag-Toolbar & Metadaten-Combobox Handler ──────────────────────────────
 
+function clearTagToolbarQuery() {
+  tagSearchText.value = '';
+}
+
 function onTagToolbarEnter() {
   if (!canCreateTagFromToolbar.value || isTagMutationRunning.value) return;
   void createTagFromToolbar();
