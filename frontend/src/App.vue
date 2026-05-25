@@ -879,6 +879,112 @@ function applyThemeFromSettings() {
   theme.global.name.value = resolveThemeName(appSettings.value.ui.theme_mode);
 }
 
+// ── Sidebar-Counts ────────────────────────────────────────────────────────
+
+async function fetchSidebarCounts() {
+  await sidebarStore.fetchCounts();
+}
+
+function scheduleSidebarCountsRefresh() {
+  sidebarStore.scheduleCounts();
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────
+
+function openAiView() {
+  isAiDialogOpen.value = true;
+}
+
+function openLibraryView() {
+  leaveActiveSavedSearch();
+  selectView('all');
+}
+
+// ── Tag-Hilfsfunktionen ───────────────────────────────────────────────────
+
+async function createTagByName(rawName) {
+  const result = await tagStore.createTagByName(normalizeTagInput(rawName));
+  if (result.ok) {
+    await fetchTags();
+    scheduleSidebarCountsRefresh();
+  }
+  return result;
+}
+
+async function ensureTagIdByName(typedName) {
+  isSavingTags.value = true;
+  try {
+    const id = await tagStore.ensureTagIdByName(normalizeTagInput(typedName));
+    if (id) { await fetchTags(); scheduleSidebarCountsRefresh(); }
+    return id;
+  } catch (error) {
+    metadataTagErrorMessage.value = notifyError(error, 'Tag konnte nicht erstellt werden.');
+    return '';
+  } finally {
+    isSavingTags.value = false;
+  }
+}
+
+async function syncMetadataTagsFromNames(nextNames) {
+  if (!selectedDocumentDetail.value) return;
+  const normalizedNames = normalizeTagNames(nextNames);
+  metadataTagErrorMessage.value = '';
+
+  const resolvedTagIds = [];
+  for (const name of normalizedNames) {
+    let tagId = findTagByName(name)?.id || '';
+    if (!tagId) tagId = await ensureTagIdByName(name);
+    if (!tagId) continue;
+    resolvedTagIds.push(tagId);
+  }
+
+  const canonicalIds = normalizeTagIds(resolvedTagIds);
+  const canonicalNames = canonicalIds.map((id) => tags.value.find((t) => t.id === id)?.name || id);
+  const sanitizedNames = normalizeTagNames(canonicalNames);
+
+  shouldSkipTagNameSync = true;
+  metadataTagNames.value = sanitizedNames;
+  window.setTimeout(() => { shouldSkipTagNameSync = false; }, 0);
+  metadataTagIds.value = canonicalIds;
+}
+
+async function createTagFromToolbar() {
+  if (!canCreateTagFromToolbar.value || isTagMutationRunning.value) return;
+  isTagMutationRunning.value = true;
+  try {
+    const result = await createTagByName(tagSearchText.value);
+    if (!result.ok) return;
+    notify({ type: 'success', title: 'Tag', message: `Tag "${result.name}" erstellt.` });
+    clearTagToolbarQuery();
+    await nextTick();
+    tagSearchField.value?.focus?.();
+  } catch (error) {
+    notifyError(error, 'Tag konnte nicht erstellt werden.');
+  } finally {
+    isTagMutationRunning.value = false;
+  }
+}
+
+// ── Tag-Toolbar & Metadaten-Combobox Handler ──────────────────────────────
+
+function onTagToolbarEnter() {
+  if (!canCreateTagFromToolbar.value || isTagMutationRunning.value) return;
+  void createTagFromToolbar();
+}
+
+async function onMetadataTagNamesChange(nextValues) {
+  if (shouldSkipTagNameSync || !selectedDocumentDetail.value) return;
+  await syncMetadataTagsFromNames(nextValues);
+}
+
+async function handleMetadataTagEnter() {
+  if (!selectedDocumentDetail.value) return;
+  const normalizedNames = normalizeTagNames([...metadataTagNames.value, metadataTagSearch.value]);
+  if (!normalizedNames.length) return;
+  await syncMetadataTagsFromNames(normalizedNames);
+  metadataTagSearch.value = '';
+}
+
 function resolveDefaultSortQuery() {
   const fromSettings = SETTINGS_SORT_TO_QUERY[appSettings.value.documents.sort_order];
   if (fromSettings) {
