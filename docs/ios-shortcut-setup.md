@@ -1,6 +1,6 @@
-# iOS Shortcut — PaperMind One-Click-Scan
+# iOS Shortcut — PaperMind Scan-Inbox
 
-Mit diesem Shortcut scannst du ein Dokument auf dem iPhone und es landet automatisch in PaperMind — ein Tipp, fertig.
+Mit diesem Shortcut scannst du ein Dokument auf dem iPhone. PaperMind zeigt danach eine Badge am Importieren-Button und übernimmt den Scan in den bestehenden Import-Dialog.
 
 ---
 
@@ -52,12 +52,15 @@ Füge diese Aktionen in der Reihenfolge hinzu:
 
 #### Aktion 3: URL-Inhalt abrufen (= HTTP POST)
 - Suche nach **„URL-Inhalt abrufen"**
-- **URL:** `http://<PI_IP>:8040/api/direct-upload`
+- **URL:** `http://<PI_IP>:8040/api/import/inbox`
   *(ersetze `<PI_IP>` durch die IP-Adresse deines Pi, z.B. `192.168.1.42`)*
 - **Methode:** POST
 - **Headers** → Kopfzeile hinzufügen:
   - Name: `Authorization`
   - Wert: `Bearer <DEIN_API_KEY>`
+  - Optional zusätzlich:
+    - Name: `X-Client-Name`
+    - Wert: `iPhone`
 - **Anforderungstext:** Formular
   - Feld hinzufügen → Typ: **Datei**
   - Name: `files`
@@ -82,7 +85,9 @@ Füge diese Aktionen in der Reihenfolge hinzu:
 1. Shortcut antippen
 2. Kamera zeigt sich — Dokument scannen (mehrere Seiten möglich)
 3. **Senden** tippen
-4. Fertig. Das Dokument erscheint in PaperMind und OCR startet automatisch.
+4. In PaperMind erscheint eine Badge am **Importieren**-Button.
+5. **Importieren** → **Neue Scans anzeigen** öffnen.
+6. Seiten im Import-Dialog prüfen und importieren.
 
 ---
 
@@ -93,6 +98,7 @@ Füge diese Aktionen in der Reihenfolge hinzu:
 | „Verbindung abgelehnt" | Pi-IP falsch oder Pi nicht erreichbar | IP in Shortcut prüfen, Pi anpingen |
 | HTTP 403 | Falscher API-Key | Key in `.env` und Shortcut vergleichen |
 | HTTP 503 | `DIRECT_UPLOAD_API_KEY` nicht in `.env` gesetzt | `.env` prüfen, Backend neu starten |
+| Keine Badge | Webapp ist nicht geöffnet oder Migration fehlt | PaperMind öffnen, Backend-Migration ausführen |
 | HTTP 400 | Datei fehlt oder kein PDF | Aktion 2 „PDF erstellen" prüfen |
 
 ### Verbindung testen (curl vom Mac)
@@ -101,17 +107,23 @@ Füge diese Aktionen in der Reihenfolge hinzu:
 curl -v \
   -H "Authorization: Bearer <DEIN_API_KEY>" \
   -F "files=@/pfad/zu/test.pdf" \
-  http://<PI_IP>:8040/api/direct-upload
+  http://<PI_IP>:8040/api/import/inbox
 ```
 
 Erwartete Antwort (HTTP 201):
 ```json
 {
-  "uploaded": 1,
-  "committed": 1,
-  "errors": 0,
-  "documents": [{"doc_id": "...", "title": "test", "page_count": 2}],
-  "error_details": []
+  "items": [
+    {
+      "id": "...",
+      "source_file_id": "...",
+      "original_name": "test.pdf",
+      "page_count": 2,
+      "client_name": null,
+      "created_at": "..."
+    }
+  ],
+  "pending_count": 1
 }
 ```
 

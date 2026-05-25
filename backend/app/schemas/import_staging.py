@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -11,6 +12,34 @@ class ImportSourceRead(BaseModel):
 
 class ImportSourceUploadResponse(BaseModel):
     items: list[ImportSourceRead] = Field(default_factory=list)
+
+
+class ImportInboxItemRead(BaseModel):
+    id: str
+    source_file_id: str
+    original_name: str
+    page_count: int = Field(ge=1)
+    client_name: str | None = None
+    created_at: datetime
+
+
+class ImportInboxUploadResponse(BaseModel):
+    items: list[ImportInboxItemRead] = Field(default_factory=list)
+    pending_count: int = Field(default=0, ge=0)
+
+
+class ImportInboxListResponse(BaseModel):
+    items: list[ImportInboxItemRead] = Field(default_factory=list)
+    pending_count: int = Field(default=0, ge=0)
+
+
+class ImportInboxClaimRequest(BaseModel):
+    item_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class ImportInboxClaimResponse(BaseModel):
+    claimed: int = Field(default=0, ge=0)
+    pending_count: int = Field(default=0, ge=0)
 
 
 class ImportCommitPageInput(BaseModel):

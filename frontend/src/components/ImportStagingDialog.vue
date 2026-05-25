@@ -3193,6 +3193,12 @@ async function openWithFiles(files) {
   }
 }
 
+async function openWithRemoteSources(payload = {}) {
+  isOpen.value = true;
+  await nextTick();
+  await addRemoteSources(payload);
+}
+
 function openDialog() {
   isOpen.value = true;
 }
@@ -3200,6 +3206,7 @@ function openDialog() {
 defineExpose({
   openDialog,
   openWithFiles,
+  openWithRemoteSources,
   openForPhoneScan
 });
 

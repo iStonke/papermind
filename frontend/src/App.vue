@@ -30,12 +30,27 @@
         <div class="appbar-right appbar-actions">
           <v-menu location="bottom end" offset="8">
             <template #activator="{ props: importMenuProps }">
-              <v-btn class="topbar-btn topbar-btn--import" variant="text" v-bind="importMenuProps">
-                <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
-                Importieren
-              </v-btn>
+              <v-badge
+                :model-value="pendingImportInboxCount > 0"
+                :content="pendingImportInboxBadgeLabel"
+                color="error"
+                offset-x="3"
+                offset-y="3"
+              >
+                <v-btn class="topbar-btn topbar-btn--import" variant="text" v-bind="importMenuProps">
+                  <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
+                  Importieren
+                </v-btn>
+              </v-badge>
             </template>
             <v-list density="compact" min-width="240">
+              <v-list-item
+                v-if="pendingImportInboxCount > 0"
+                prepend-icon="mdi-inbox-arrow-down-outline"
+                :title="pendingImportInboxMenuTitle"
+                @click="openImportInboxScans"
+              />
+              <v-divider v-if="pendingImportInboxCount > 0" />
               <v-list-item
                 prepend-icon="mdi-file-upload-outline"
                 title="PDF hochladen..."
@@ -545,6 +560,7 @@ import { useGlobalKeyboard } from './composables/useGlobalKeyboard';
 import { useSearch } from './composables/useSearch';
 import { SHORTCUT_ACTIONS, handleShortcut } from './keyboard/shortcuts';
 import { getBaseUrl } from './api/client.js';
+import { claimImportInboxItems, getImportInbox } from './api/importInbox.js';
 
 const PdfPreview = defineAsyncComponent(() => import('./components/PdfPreview.vue'));
 
@@ -646,6 +662,11 @@ const importStagingDialogRef = ref(null);
 const importPdfInputRef = ref(null);
 const isSettingsDialogOpen = ref(false);
 const isShortcutsHelpDialogOpen = ref(false);
+const importInboxItems = ref([]);
+const isImportInboxLoading = ref(false);
+const importInboxSuppressedItemIds = ref(new Set());
+const activeImportInboxItemIds = ref(new Set());
+const isClaimingImportInbox = ref(false);
 
 // ── Batch-Auswahl ──────────────────────────────────────────────────────────
 const isSelectionMode = ref(false);
@@ -1065,6 +1086,7 @@ let tagReplaceDebounceTimer = null;
 let metadataAutosaveDebounceTimer = null;
 let previewRetryTimer = null;
 let listDropNoticeTimer = null;
+let importInboxPollTimer = null;
 // sidebarCountsRefreshTimer → jetzt in useSidebarStore verwaltet
 let shouldSkipTagAutosave = false;
 let shouldSkipMetadataAutosave = false;
@@ -1094,6 +1116,135 @@ async function fetchSidebarCounts() {
 function scheduleSidebarCountsRefresh() {
   sidebarStore.scheduleCounts();
 }
+
+const pendingImportInboxCount = computed(() => importInboxItems.value.length);
+const pendingImportInboxBadgeLabel = computed(() => {
+  const count = pendingImportInboxCount.value;
+  return count > 99 ? '99+' : String(count);
+});
+const pendingImportInboxMenuTitle = computed(() => {
+  const count = pendingImportInboxCount.value;
+  return count === 1 ? 'Neuen Scan anzeigen' : `Neue Scans anzeigen (${count})`;
+});
+
+function normalizeImportInboxItems(payload) {
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  return items
+    .map((item) => ({
+      id: String(item?.id || '').trim(),
+      source_file_id: String(item?.source_file_id || '').trim(),
+      original_name: String(item?.original_name || '').trim() || 'Scan Upload.pdf',
+      page_count: Number(item?.page_count || 0),
+      client_name: String(item?.client_name || '').trim(),
+      created_at: String(item?.created_at || '')
+    }))
+    .filter(
+      (item) =>
+        item.id &&
+        item.source_file_id &&
+        item.page_count > 0 &&
+        !importInboxSuppressedItemIds.value.has(item.id)
+    );
+}
+
+async function refreshImportInbox({ silent = true } = {}) {
+  if (isImportInboxLoading.value) {
+    return;
+  }
+  isImportInboxLoading.value = true;
+  try {
+    const payload = await getImportInbox({ limit: 50 });
+    importInboxItems.value = normalizeImportInboxItems(payload);
+  } catch (error) {
+    if (!silent) {
+      notify({ type: 'error', message: mapApiError(error, 'Neue Scans konnten nicht geladen werden.') });
+    }
+  } finally {
+    isImportInboxLoading.value = false;
+  }
+}
+
+function startImportInboxPolling() {
+  if (importInboxPollTimer) {
+    window.clearInterval(importInboxPollTimer);
+  }
+  void refreshImportInbox({ silent: true });
+  importInboxPollTimer = window.setInterval(() => {
+    void refreshImportInbox({ silent: true });
+  }, 7000);
+}
+
+async function openImportInboxScans() {
+  await refreshImportInbox({ silent: false });
+  const items = importInboxItems.value.slice();
+  if (items.length === 0) {
+    notify({ type: 'info', message: 'Keine neuen Scans verfügbar.' });
+    return;
+  }
+
+  const dialogRef = importStagingDialogRef.value;
+  if (!dialogRef || typeof dialogRef.openWithRemoteSources !== 'function') {
+    isUploadDialogOpen.value = true;
+    return;
+  }
+
+  try {
+    await dialogRef.openWithRemoteSources({
+      sources: items,
+      sessionId: 'import-inbox'
+    });
+    const itemIds = items.map((item) => item.id).filter(Boolean);
+    if (itemIds.length > 0) {
+      const nextSuppressed = new Set(importInboxSuppressedItemIds.value);
+      const nextActive = new Set(activeImportInboxItemIds.value);
+      for (const itemId of itemIds) {
+        nextSuppressed.add(itemId);
+        nextActive.add(itemId);
+      }
+      importInboxSuppressedItemIds.value = nextSuppressed;
+      activeImportInboxItemIds.value = nextActive;
+      importInboxItems.value = importInboxItems.value.filter((item) => !nextSuppressed.has(item.id));
+    }
+  } catch (error) {
+    notify({ type: 'error', message: mapApiError(error, 'Neue Scans konnten nicht übernommen werden.') });
+  }
+}
+
+async function claimActiveImportInboxItems() {
+  const itemIds = Array.from(activeImportInboxItemIds.value);
+  if (itemIds.length === 0) {
+    return;
+  }
+  isClaimingImportInbox.value = true;
+  try {
+    await claimImportInboxItems(itemIds);
+    activeImportInboxItemIds.value = new Set();
+    const nextSuppressed = new Set(importInboxSuppressedItemIds.value);
+    for (const itemId of itemIds) {
+      nextSuppressed.delete(itemId);
+    }
+    importInboxSuppressedItemIds.value = nextSuppressed;
+    await refreshImportInbox({ silent: true });
+  } catch (error) {
+    notify({ type: 'warning', message: mapApiError(error, 'Import-Inbox konnte nicht aktualisiert werden.') });
+  } finally {
+    isClaimingImportInbox.value = false;
+  }
+}
+
+watch(isUploadDialogOpen, (open) => {
+  if (open || isClaimingImportInbox.value || activeImportInboxItemIds.value.size === 0) {
+    return;
+  }
+  const itemIds = Array.from(activeImportInboxItemIds.value);
+  activeImportInboxItemIds.value = new Set();
+  const nextSuppressed = new Set(importInboxSuppressedItemIds.value);
+  for (const itemId of itemIds) {
+    nextSuppressed.delete(itemId);
+  }
+  importInboxSuppressedItemIds.value = nextSuppressed;
+  void refreshImportInbox({ silent: true });
+});
 
 // ── Navigation ────────────────────────────────────────────────────────────
 
@@ -2805,6 +2956,9 @@ async function onImportCommitted(payload) {
   if (!Array.isArray(payload?.created) || payload.created.length === 0) {
     return;
   }
+  if (!Array.isArray(payload?.errors) || payload.errors.length === 0) {
+    await claimActiveImportInboxItems();
+  }
   await fetchDocuments(selectedDocumentId.value, { autoSelectFirst: false });
   scheduleSidebarCountsRefresh();
 }
@@ -3110,6 +3264,7 @@ onMounted(async () => {
     isRestoringLastSelectedDocument = false;
   }
   persistLastSelectedDocId(selectedDocumentId.value);
+  startImportInboxPolling();
 });
 
 onBeforeUnmount(() => {
@@ -3122,6 +3277,9 @@ onBeforeUnmount(() => {
   clearPreviewRetryTimer();
   if (listDropNoticeTimer) {
     window.clearTimeout(listDropNoticeTimer);
+  }
+  if (importInboxPollTimer) {
+    window.clearInterval(importInboxPollTimer);
   }
   mediaQuery?.removeEventListener('change', handleSystemThemeChange);
 });
