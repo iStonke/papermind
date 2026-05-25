@@ -35,6 +35,24 @@
         </div>
       </div>
     </div>
+
+    <div class="shortcuts-help shortcuts-help--gestures">
+      <div class="shortcuts-help__group">
+        <h3 class="shortcuts-help__group-label">Mausgesten</h3>
+        <div class="shortcuts-help__rows">
+          <div
+            v-for="item in mouseGestures"
+            :key="item.description"
+            class="shortcuts-help__row"
+          >
+            <span class="shortcuts-help__desc">{{ item.description }}</span>
+            <span class="shortcuts-help__keys">
+              <kbd class="shortcuts-help__kbd">{{ item.gesture }}</kbd>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
   </BaseDialog>
 </template>
 
@@ -100,6 +118,10 @@ const shortcutGroups = [
       { action: SHORTCUT_ACTIONS.PRIMARY,  description: 'Primäre Aktion bestätigen',                keys: keysFor(SHORTCUT_ACTIONS.PRIMARY) }
     ]
   }
+];
+
+const mouseGestures = [
+  { description: 'Auswahlmodus aktivieren & Dokument selektieren', gesture: '⌘ Cmd + Klick' }
 ];
 </script>
 
