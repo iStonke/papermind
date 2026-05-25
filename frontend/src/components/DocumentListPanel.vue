@@ -6,6 +6,77 @@
       </v-chip>
     </div>
 
+    <!-- Toolbar -->
+    <div v-if="!isTrashView && !isImportsView" class="doclist-toolbar">
+      <!-- Linke Seite: im Auswahlmodus → Alle auswählen + Zähler; sonst → Sort + Status -->
+      <div class="doclist-toolbar__left">
+        <template v-if="isSelectionMode">
+          <button type="button" class="doclist-toolbar__action-btn" @click="emit('select-all')">
+            Alle auswählen
+          </button>
+          <span v-if="selectionIds.size > 0" class="doclist-toolbar__count">
+            {{ selectionIds.size }} ausgewählt
+          </span>
+        </template>
+        <template v-else>
+          <!-- Sortierung -->
+          <v-menu location="bottom start" offset="4">
+            <template #activator="{ props: menuProps }">
+              <button type="button" class="doclist-toolbar__action-btn doclist-toolbar__action-btn--icon" v-bind="menuProps">
+                <v-icon size="14">mdi-sort</v-icon>
+                {{ sortLabel }}
+              </button>
+            </template>
+            <v-list density="compact" min-width="190">
+              <v-list-item
+                v-for="opt in SORT_OPTIONS"
+                :key="opt.value"
+                :class="{ 'v-list-item--active': currentSort === opt.value }"
+                @click="emit('change-sort', opt.value)"
+              >
+                <v-list-item-title>{{ opt.label }}</v-list-item-title>
+              </v-list-item>
+            </v-list>
+          </v-menu>
+
+          <!-- Statusfilter -->
+          <v-menu location="bottom start" offset="4">
+            <template #activator="{ props: menuProps }">
+              <button
+                type="button"
+                class="doclist-toolbar__action-btn doclist-toolbar__action-btn--icon"
+                :class="{ 'doclist-toolbar__action-btn--active': currentStatus }"
+                v-bind="menuProps"
+              >
+                <v-icon size="14">mdi-filter-variant</v-icon>
+                {{ statusLabel }}
+              </button>
+            </template>
+            <v-list density="compact" min-width="170">
+              <v-list-item
+                v-for="opt in STATUS_OPTIONS"
+                :key="opt.value"
+                :class="{ 'v-list-item--active': currentStatus === opt.value }"
+                @click="emit('change-status', opt.value)"
+              >
+                <v-list-item-title>{{ opt.label }}</v-list-item-title>
+              </v-list-item>
+            </v-list>
+          </v-menu>
+        </template>
+      </div>
+
+      <!-- Rechte Seite: Auswählen / Abbrechen -->
+      <button
+        type="button"
+        class="doclist-toolbar__select-btn"
+        :class="{ 'doclist-toolbar__select-btn--cancel': isSelectionMode }"
+        @click="emit('toggle-selection-mode')"
+      >
+        {{ isSelectionMode ? 'Abbrechen' : 'Auswählen' }}
+      </button>
+    </div>
+
     <div
       class="document-list-body docs-list-dropzone"
       :class="{ 'document-list-body--dragover': isListDragOver }"
@@ -29,13 +100,17 @@
             v-for="document in documents"
             :key="document.id"
             class="document-row pm-doc-item"
-            :class="{ 'document-row--active': document.id === selectedDocumentId }"
+            :class="{
+              'document-row--active': !isSelectionMode && document.id === selectedDocumentId,
+              'document-row--selected': isSelectionMode && selectionIds.has(document.id),
+              'document-row--selection-mode': isSelectionMode
+            }"
             role="button"
             tabindex="0"
-            @click="emit('select-document', document.id)"
+            @click="isSelectionMode ? emit('toggle-document-selection', document.id) : emit('select-document', document.id)"
             @keydown="handleDocumentRowShortcut($event, document.id)"
           >
-            <div class="document-row__thumb">
+            <div class="document-row__thumb" :class="{ 'document-row__thumb--selectable': isSelectionMode }">
               <img
                 v-if="!hasThumbnailError(document.id)"
                 :src="thumbnailUrl(document.id)"
@@ -45,6 +120,17 @@
               <div v-else class="document-row__thumb-fallback">
                 <v-icon size="22">mdi-file-pdf-box</v-icon>
               </div>
+              <!-- Checkbox-Overlay auf dem Thumbnail -->
+              <Transition name="checkbox-pop">
+                <div
+                  v-if="isSelectionMode"
+                  class="document-row__checkbox-overlay"
+                  :class="{ 'document-row__checkbox-overlay--checked': selectionIds.has(document.id) }"
+                  aria-hidden="true"
+                >
+                  <v-icon v-if="selectionIds.has(document.id)" size="14">mdi-check</v-icon>
+                </div>
+              </Transition>
             </div>
 
             <div class="document-row__content">
@@ -173,6 +259,22 @@
 
 <script setup>
 import { ref, computed } from 'vue';
+
+const SORT_OPTIONS = [
+  { value: 'newest',      label: 'Neueste zuerst' },
+  { value: 'oldest',      label: 'Älteste zuerst' },
+  { value: 'name_asc',    label: 'Name A–Z' },
+  { value: 'name_desc',   label: 'Name Z–A' },
+  { value: 'last_opened', label: 'Zuletzt geöffnet' },
+];
+
+const STATUS_OPTIONS = [
+  { value: '',           label: 'Alle Status' },
+  { value: 'ready',      label: 'Bereit' },
+  { value: 'processing', label: 'Verarbeitung' },
+  { value: 'imported',   label: 'Importiert' },
+  { value: 'failed',     label: 'Fehler' },
+];
 import { storeToRefs } from 'pinia';
 import { useDocumentStore } from '../stores/documents.js';
 import { useSettingsStore } from '../stores/settings.js';
@@ -182,13 +284,17 @@ import PmEmptyState from './PmEmptyState.vue';
 
 // ── Props & Emits ──────────────────────────────────────────────────────────
 const props = defineProps({
-  listDropNotice:          { type: String,  default: '' },
-  activeStatusFilterLabel: { type: String,  default: '' },
-  isImportsView:           { type: Boolean, default: false },
-  isTrashView:             { type: Boolean, default: false },
+  listDropNotice:             { type: String,  default: '' },
+  activeStatusFilterLabel:    { type: String,  default: '' },
+  isImportsView:              { type: Boolean, default: false },
+  isTrashView:                { type: Boolean, default: false },
   showDocumentListEmptyState: { type: Boolean, default: false },
-  documentListEmptyState:  { type: Object,  default: () => ({ icon: '', title: '', subtitle: '' }) },
-  showSnippets:            { type: Boolean, default: false },
+  documentListEmptyState:     { type: Object,  default: () => ({ icon: '', title: '', subtitle: '' }) },
+  showSnippets:               { type: Boolean, default: false },
+  isSelectionMode:            { type: Boolean, default: false },
+  selectionIds:               { type: Set,     default: () => new Set() },
+  currentSort:                { type: String,  default: 'newest' },
+  currentStatus:              { type: String,  default: '' },
 });
 
 const emit = defineEmits([
@@ -201,6 +307,11 @@ const emit = defineEmits([
   'delete-permanent',
   'toggle-favorite',
   'files-dropped',
+  'toggle-selection-mode',
+  'toggle-document-selection',
+  'select-all',
+  'change-sort',
+  'change-status',
 ]);
 
 // ── Stores ─────────────────────────────────────────────────────────────────
@@ -209,6 +320,9 @@ const settingsStore = useSettingsStore();
 
 const { documents, selectedDocumentId, isLoadingDocuments } = storeToRefs(docStore);
 const showPdfSuffixComputed = computed(() => settingsStore.settingsDraft?.ui?.showFilenameSuffix ?? false);
+
+const sortLabel   = computed(() => SORT_OPTIONS.find(o => o.value === props.currentSort)?.label ?? 'Sortierung');
+const statusLabel = computed(() => STATUS_OPTIONS.find(o => o.value === props.currentStatus)?.label ?? 'Status');
 
 // ── Refs ───────────────────────────────────────────────────────────────────
 const thumbnailErrorMap = ref({});
@@ -328,3 +442,125 @@ function onListDrop(event) {
   if (files.length > 0) emit('files-dropped', files);
 }
 </script>
+
+<style scoped>
+/* ── Toolbar ──────────────────────────────────────────────────────────── */
+.doclist-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--pm-divider);
+  min-height: 36px;
+}
+
+.doclist-toolbar__left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Gemeinsame Basis für alle Toolbar-Buttons */
+.doclist-toolbar__action-btn,
+.doclist-toolbar__select-btn {
+  background: none;
+  border: none;
+  padding: 3px 7px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: background 0.12s;
+}
+
+.doclist-toolbar__action-btn {
+  color: rgba(var(--v-theme-on-surface), 0.62);
+}
+
+.doclist-toolbar__action-btn:hover {
+  background: rgba(var(--v-theme-on-surface), 0.06);
+  color: rgba(var(--v-theme-on-surface), 0.85);
+}
+
+.doclist-toolbar__action-btn--active {
+  color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.08);
+}
+
+.doclist-toolbar__select-btn {
+  color: rgb(var(--v-theme-primary));
+  flex-shrink: 0;
+}
+
+.doclist-toolbar__select-btn:hover {
+  background: rgba(var(--v-theme-primary), 0.08);
+}
+
+.doclist-toolbar__select-btn--cancel {
+  color: rgba(var(--v-theme-on-surface), 0.55);
+}
+
+.doclist-toolbar__select-btn--cancel:hover {
+  background: rgba(var(--v-theme-on-surface), 0.06);
+}
+
+.doclist-toolbar__count {
+  font-size: 0.78rem;
+  color: rgba(var(--v-theme-on-surface), 0.5);
+  padding-left: 4px;
+}
+
+/* ── Thumbnail im Auswahlmodus ────────────────────────────────────────── */
+.document-row__thumb {
+  position: relative;
+}
+
+.document-row__thumb--selectable img,
+.document-row__thumb--selectable .document-row__thumb-fallback {
+  opacity: 0.55;
+  transition: opacity 0.18s ease;
+}
+
+/* ── Checkbox-Overlay ─────────────────────────────────────────────────── */
+.document-row__checkbox-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1.5px solid rgba(var(--v-theme-on-surface), 0.35);
+  background: rgba(var(--v-theme-surface), 0.55);
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.document-row__checkbox-overlay--checked {
+  background: rgb(var(--v-theme-primary));
+  border-color: rgb(var(--v-theme-primary));
+  color: #fff;
+}
+
+/* Vue Transition */
+.checkbox-pop-enter-active,
+.checkbox-pop-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.checkbox-pop-enter-from,
+.checkbox-pop-leave-to {
+  opacity: 0;
+  transform: scale(0.6);
+}
+
+/* ── Selektierter Zustand ─────────────────────────────────────────────── */
+.document-row--selected {
+  background: rgba(var(--v-theme-primary), 0.07);
+}
+</style>

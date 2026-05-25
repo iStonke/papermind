@@ -83,6 +83,13 @@
     <v-main class="app-main">
       <SettingsDialog v-model="isSettingsDialogOpen" @reload-imports="onSettingsReloadImports" />
       <ShortcutsHelpDialog v-model="isShortcutsHelpDialogOpen" />
+      <BatchTagDialog
+        v-model="isBatchTagDialogOpen"
+        :tags="tags"
+        :count="selectionIds.size"
+        :loading="isBatchTagSaving"
+        @confirm="executeBatchTag"
+      />
 
       <ImportStagingDialog
         ref="importStagingDialogRef"
@@ -256,6 +263,10 @@
             :show-document-list-empty-state="showDocumentListEmptyState"
             :document-list-empty-state="documentListEmptyState"
             :show-snippets="showSnippets"
+            :is-selection-mode="isSelectionMode"
+            :selection-ids="selectionIds"
+            :current-sort="currentSort"
+            :current-status="documentListQuery.status || ''"
             @select-document="selectDocument"
             @download="downloadDocumentFromList"
             @rename="(doc) => renameDocumentDialogRef?.open(doc)"
@@ -265,6 +276,17 @@
             @delete-permanent="openPermanentDeleteDialog"
             @toggle-favorite="toggleDocumentFavorite"
             @files-dropped="onDroppedFiles"
+            @toggle-selection-mode="toggleSelectionMode"
+            @toggle-document-selection="toggleDocumentSelection"
+            @select-all="selectAllDocuments"
+            @change-sort="applySort"
+            @change-status="applyStatusFilter"
+          />
+          <BatchActionsBar
+            v-if="isSelectionMode"
+            :count="selectionIds.size"
+            @tag="openBatchTagDialog"
+            @delete="confirmBatchDelete"
           />
         </section>
 
@@ -491,6 +513,8 @@ import ImportStagingDialog from './components/ImportStagingDialog.vue';
 import NotificationStack from './components/NotificationStack.vue';
 import AppSidebar from './components/AppSidebar.vue';
 import DocumentListPanel from './components/DocumentListPanel.vue';
+import BatchActionsBar from './components/BatchActionsBar.vue';
+import BatchTagDialog from './components/BatchTagDialog.vue';
 import SmartFolderEditor from './components/SmartFolderEditor.vue';
 import TagDialogs from './components/TagDialogs.vue';
 import RenameDocumentDialog from './components/RenameDocumentDialog.vue';
@@ -595,6 +619,123 @@ const importStagingDialogRef = ref(null);
 const importPdfInputRef = ref(null);
 const isSettingsDialogOpen = ref(false);
 const isShortcutsHelpDialogOpen = ref(false);
+
+// ── Batch-Auswahl ──────────────────────────────────────────────────────────
+const isSelectionMode = ref(false);
+const selectionIds    = ref(new Set());
+
+function toggleSelectionMode() {
+  isSelectionMode.value = !isSelectionMode.value;
+  if (!isSelectionMode.value) selectionIds.value = new Set();
+}
+
+function exitSelectionMode() {
+  isSelectionMode.value = false;
+  selectionIds.value = new Set();
+}
+
+function toggleDocumentSelection(id) {
+  const next = new Set(selectionIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  selectionIds.value = next;
+}
+
+// ── Toolbar-Aktionen ───────────────────────────────────────────────────────
+const currentSort = computed(() => {
+  const entry = Object.entries(SETTINGS_SORT_TO_QUERY).find(
+    ([, v]) => v.sort === documentListQuery.sort && v.order === documentListQuery.order
+  );
+  return entry ? entry[0] : 'newest';
+});
+
+function applySort(sortKey) {
+  const mapping = SETTINGS_SORT_TO_QUERY[sortKey];
+  if (!mapping) return;
+  documentListQuery.sort  = mapping.sort;
+  documentListQuery.order = mapping.order;
+  void fetchDocuments(selectedDocumentId.value);
+}
+
+function applyStatusFilter(status) {
+  documentListQuery.status = status || null;
+  void fetchDocuments(null, { autoSelectFirst: false });
+}
+
+function selectAllDocuments() {
+  selectionIds.value = new Set(docStore.documents.map((d) => d.id));
+}
+
+// ── Batch Tag-Dialog ───────────────────────────────────────────────────────
+const isBatchTagDialogOpen  = ref(false);
+const isBatchTagSaving      = ref(false);
+
+function openBatchTagDialog() {
+  if (selectionIds.value.size === 0) return;
+  isBatchTagDialogOpen.value = true;
+}
+
+async function executeBatchTag(tagIdsToAdd) {
+  if (!tagIdsToAdd?.length || selectionIds.value.size === 0) return;
+  isBatchTagSaving.value = true;
+  const ids = Array.from(selectionIds.value);
+  try {
+    // Alle Dokumente sequenziell taggen; bestehende Tags erhalten (union)
+    for (const docId of ids) {
+      const doc = docStore.documents.find((d) => d.id === docId);
+      const existingTagIds = (doc?.tags || []).map((t) => t.id);
+      const mergedTagIds = Array.from(new Set([...existingTagIds, ...tagIdsToAdd]));
+      await fetch(`${apiBaseUrl}/api/documents/${docId}/tags`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tag_ids: mergedTagIds }),
+      });
+    }
+    notify({ type: 'success', title: 'Tags', message: `${ids.length} ${ids.length === 1 ? 'Dokument' : 'Dokumente'} getaggt.` });
+    isBatchTagDialogOpen.value = false;
+    exitSelectionMode();
+    await fetchDocuments(selectedDocumentId.value);
+    await fetchTags();
+  } catch (error) {
+    notifyError(error, 'Tags konnten nicht gespeichert werden.');
+  } finally {
+    isBatchTagSaving.value = false;
+  }
+}
+
+// ── Batch Löschen ──────────────────────────────────────────────────────────
+const isBatchDeleting = ref(false);
+
+async function confirmBatchDelete() {
+  if (selectionIds.value.size === 0) return;
+  const ids = Array.from(selectionIds.value);
+  const count = ids.length;
+  const confirmed = window.confirm(
+    `${count} ${count === 1 ? 'Dokument' : 'Dokumente'} in den Papierkorb verschieben?`
+  );
+  if (!confirmed) return;
+  isBatchDeleting.value = true;
+  try {
+    for (const docId of ids) {
+      await fetch(`${apiBaseUrl}/api/documents/${docId}/trash`, { method: 'POST' });
+    }
+    notify({ type: 'success', title: 'Papierkorb', message: `${count} ${count === 1 ? 'Dokument' : 'Dokumente'} verschoben.` });
+    exitSelectionMode();
+    if (ids.includes(selectedDocumentId.value)) {
+      selectedDocumentId.value = null;
+      selectedDocumentDetail.value = null;
+      isDetailsDrawerOpen.value = false;
+    }
+    await fetchDocuments(selectedDocumentId.value);
+    scheduleSidebarCountsRefresh();
+    await fetchTags();
+  } catch (error) {
+    notifyError(error, 'Dokumente konnten nicht in den Papierkorb verschoben werden.');
+  } finally {
+    isBatchDeleting.value = false;
+  }
+}
+
 const isUploadDialogOpen = ref(false);
 const listDropNotice = ref('');
 const previewReloadNonce = ref(0);

@@ -1,0 +1,85 @@
+<template>
+  <Transition name="batch-bar">
+    <div v-if="count > 0" class="batch-bar" role="toolbar" aria-label="Batch-Aktionen">
+      <span class="batch-bar__label">{{ count }} {{ count === 1 ? 'Dokument' : 'Dokumente' }} ausgewählt</span>
+
+      <div class="batch-bar__actions">
+        <v-btn
+          variant="tonal"
+          size="small"
+          class="batch-bar__btn"
+          prepend-icon="mdi-tag-multiple-outline"
+          @click="emit('tag')"
+        >
+          Tags
+        </v-btn>
+
+        <v-btn
+          variant="tonal"
+          color="error"
+          size="small"
+          class="batch-bar__btn"
+          prepend-icon="mdi-trash-can-outline"
+          @click="emit('delete')"
+        >
+          In Papierkorb
+        </v-btn>
+      </div>
+    </div>
+  </Transition>
+</template>
+
+<script setup>
+defineProps({
+  count: { type: Number, default: 0 }
+});
+
+const emit = defineEmits(['tag', 'delete']);
+</script>
+
+<style scoped>
+.batch-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: rgb(var(--v-theme-surface));
+  border-top: 1px solid var(--pm-divider);
+  box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.08);
+}
+
+.batch-bar__label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: rgba(var(--v-theme-on-surface), 0.72);
+  white-space: nowrap;
+}
+
+.batch-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.batch-bar__btn {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+
+/* Einblend-Animation */
+.batch-bar-enter-active,
+.batch-bar-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.batch-bar-enter-from,
+.batch-bar-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+</style>
