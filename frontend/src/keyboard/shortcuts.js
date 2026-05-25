@@ -9,7 +9,9 @@ export const SHORTCUT_ACTIONS = Object.freeze({
   STEP_PREVIOUS: 'step.previous',
   STEP_NEXT: 'step.next',
   MOVE_PREVIOUS: 'move.previous',
-  MOVE_NEXT: 'move.next'
+  MOVE_NEXT: 'move.next',
+  HELP: 'help',
+  TRASH: 'trash'
 });
 
 export const SHORTCUTS = Object.freeze({
@@ -21,7 +23,9 @@ export const SHORTCUTS = Object.freeze({
   [SHORTCUT_ACTIONS.STEP_PREVIOUS]: Object.freeze({ keys: Object.freeze(['ArrowLeft']) }),
   [SHORTCUT_ACTIONS.STEP_NEXT]: Object.freeze({ keys: Object.freeze(['ArrowRight']) }),
   [SHORTCUT_ACTIONS.MOVE_PREVIOUS]: Object.freeze({ keys: Object.freeze(['ArrowLeft', 'ArrowUp']) }),
-  [SHORTCUT_ACTIONS.MOVE_NEXT]: Object.freeze({ keys: Object.freeze(['ArrowRight', 'ArrowDown']) })
+  [SHORTCUT_ACTIONS.MOVE_NEXT]: Object.freeze({ keys: Object.freeze(['ArrowRight', 'ArrowDown']) }),
+  [SHORTCUT_ACTIONS.HELP]: Object.freeze({ keys: Object.freeze(['?']) }),
+  [SHORTCUT_ACTIONS.TRASH]: Object.freeze({ keys: Object.freeze(['Backspace']) })
 });
 
 function normalizeKey(key) {

@@ -1,33 +1,33 @@
 <template>
   <v-app class="papermind-app">
     <v-app-bar class="app-topbar" flat height="64">
-      <v-app-bar-title class="app-title">
-        <button type="button" class="app-title__brand app-title__brand-button" @click="openLibraryView">
-          PaperMind
-        </button>
-      </v-app-bar-title>
+      <div class="appbar-layout">
+        <div class="appbar-left app-title">
+          <button type="button" class="app-title__brand app-title__brand-button" @click="openLibraryView">
+            PaperMind
+          </button>
+        </div>
 
-      <div class="appbar-search">
-        <v-text-field
-          ref="appBarSearchRef"
-          v-model="searchText"
-          class="appbar-search__field"
-          prepend-inner-icon="mdi-magnify"
-          clearable
-          clear-icon="mdi-close"
-          :placeholder="searchPlaceholder"
-          density="compact"
-          variant="outlined"
-          :messages="searchHintMessages"
-          hide-details="auto"
-          @update:model-value="onAppBarSearchInput"
-          @keydown="handleSearchShortcut"
-          @click:clear="clearSearchFromInput"
-        />
-      </div>
+        <div class="appbar-center">
+          <v-text-field
+            ref="appBarSearchRef"
+            v-model="searchText"
+            class="appbar-search__field"
+            prepend-inner-icon="mdi-magnify"
+            clearable
+            clear-icon="mdi-close"
+            :placeholder="searchPlaceholder"
+            density="compact"
+            variant="outlined"
+            :messages="searchHintMessages"
+            hide-details="auto"
+            @update:model-value="onAppBarSearchInput"
+            @keydown="handleSearchShortcut"
+            @click:clear="clearSearchFromInput"
+          />
+        </div>
 
-      <template #append>
-        <div class="appbar-actions">
+        <div class="appbar-right appbar-actions">
           <v-menu location="bottom end" offset="8">
             <template #activator="{ props: importMenuProps }">
               <v-btn class="topbar-btn topbar-btn--import" variant="text" v-bind="importMenuProps">
@@ -62,17 +62,27 @@
           <v-btn
             class="topbar-btn topbar-btn--icon"
             variant="text"
+            aria-label="Tastaturkürzel"
+            @click="openShortcutsHelpDialog"
+          >
+            <v-icon size="20">mdi-keyboard-outline</v-icon>
+          </v-btn>
+
+          <v-btn
+            class="topbar-btn topbar-btn--icon"
+            variant="text"
             aria-label="Einstellungen"
             @click="openSettingsDialog"
           >
             <v-icon size="20">mdi-cog-outline</v-icon>
           </v-btn>
         </div>
-      </template>
+      </div>
     </v-app-bar>
 
     <v-main class="app-main">
       <SettingsDialog v-model="isSettingsDialogOpen" @reload-imports="onSettingsReloadImports" />
+      <ShortcutsHelpDialog v-model="isShortcutsHelpDialogOpen" />
 
       <ImportStagingDialog
         ref="importStagingDialogRef"
@@ -486,6 +496,7 @@ import TagDialogs from './components/TagDialogs.vue';
 import RenameDocumentDialog from './components/RenameDocumentDialog.vue';
 import AiDialog from './components/AiDialog.vue';
 import SettingsDialog from './components/SettingsDialog.vue';
+import ShortcutsHelpDialog from './components/ShortcutsHelpDialog.vue';
 import { mapApiError, notifyError, logDevError, useNotifications } from './stores/notifications';
 import { useSettingsStore } from './stores/settings';
 import { useDocumentStore } from './stores/documents';
@@ -583,6 +594,7 @@ const previewHighlightText = ref('');
 const importStagingDialogRef = ref(null);
 const importPdfInputRef = ref(null);
 const isSettingsDialogOpen = ref(false);
+const isShortcutsHelpDialogOpen = ref(false);
 const isUploadDialogOpen = ref(false);
 const listDropNotice = ref('');
 const previewReloadNonce = ref(0);
@@ -1076,6 +1088,10 @@ async function fetchAppSettings(options = {}) {
 async function openSettingsDialog() {
   isSettingsDialogOpen.value = true;
   await fetchAppSettings();
+}
+
+function openShortcutsHelpDialog() {
+  isShortcutsHelpDialogOpen.value = true;
 }
 
 function handleSystemThemeChange() {
@@ -1619,6 +1635,18 @@ function focusMetadataTagsInput() {
 }
 
 function handleGlobalKeydown(event) {
+  if (handleShortcut(event, SHORTCUT_ACTIONS.HELP, openShortcutsHelpDialog)) {
+    return;
+  }
+  if (
+    handleShortcut(event, SHORTCUT_ACTIONS.TRASH, () => {
+      if (selectedDocumentDetail.value && !isTrashView.value) {
+        openDeleteDocumentDialog(selectedDocumentDetail.value);
+      }
+    })
+  ) {
+    return;
+  }
   if (!handleShortcut(event, SHORTCUT_ACTIONS.CANCEL, null, { prevent: false, ignoreEditable: false })) {
     return;
   }
@@ -2906,18 +2934,33 @@ onBeforeUnmount(() => {
 }
 
 .app-topbar :deep(.v-toolbar__content) {
-  padding: 0 16px;
-  gap: 0;
-  position: relative;
+  padding: 0;
 }
 
-.appbar-search {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 480px;
-  max-width: calc(100% - 440px);
-  pointer-events: auto;
+.appbar-layout {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 16px;
+}
+
+.appbar-center {
+  justify-self: center;
+  width: min(480px, 100%);
+  padding: 0 16px;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.appbar-left {
+  flex-shrink: 0;
+}
+
+.appbar-right {
+  flex-shrink: 0;
 }
 
 .appbar-search__field {
@@ -2991,11 +3034,12 @@ onBeforeUnmount(() => {
 }
 
 .app-title {
-  min-width: 180px;
+  min-width: 0;
 }
 
 .app-title__brand {
   color: rgba(248, 250, 255, 0.98);
+  font-size: 1.25rem;
   font-weight: 600;
   letter-spacing: 0.015em;
 }
@@ -3015,6 +3059,7 @@ onBeforeUnmount(() => {
 
 .topbar-btn {
   height: 38px;
+  margin: 0 !important;
   border-radius: 999px;
   text-transform: none;
   font-weight: 600;
@@ -3053,6 +3098,14 @@ onBeforeUnmount(() => {
 
 .topbar-btn :deep(.v-icon) {
   color: rgba(250, 252, 255, 0.94);
+}
+
+.topbar-btn__help-label {
+  font-size: 1.1rem;
+  font-weight: 600;
+  line-height: 1;
+  color: rgba(250, 252, 255, 0.94);
+  user-select: none;
 }
 
 .list-toolbar {
