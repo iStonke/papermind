@@ -269,6 +269,7 @@
 import { computed } from 'vue';
 import { useTheme } from 'vuetify';
 import BaseDialog from './BaseDialog.vue';
+import { getBaseUrl } from '../api/client';
 import { useSettingsStore } from '../stores/settings';
 import { notifyError } from '../stores/notifications';
 import {
@@ -352,7 +353,7 @@ function applyTheme(mode) {
 
 async function patchSettingsWithRevert({ patch, controlKey, revert }) {
   try {
-    const saved = await settingsStore.saveSettingPatch(null, { patch, controlKey });
+    const saved = await settingsStore.saveSettingPatch(getBaseUrl(), { patch, controlKey });
     return saved !== false;
   } catch (error) {
     if (typeof revert === 'function') revert();

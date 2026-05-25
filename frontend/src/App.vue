@@ -3934,7 +3934,7 @@ onBeforeUnmount(() => {
 }
 
 .document-row:hover {
-  background: var(--pm-row-hover);
+  background: var(--pm-row-active);
   border-color: rgba(59, 130, 246, 0.16);
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
 }
@@ -4081,7 +4081,7 @@ onBeforeUnmount(() => {
 }
 
 .papermind-app.v-theme--dark .document-row:hover {
-  background: var(--pm-dark-card-hover);
+  background: var(--pm-dark-card-active);
   border-color: rgba(147, 167, 255, 0.18);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.26);
 }

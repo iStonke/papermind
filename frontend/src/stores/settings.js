@@ -4,7 +4,7 @@ import {
   NUMERIC_PROMPT_TEMPLATE_DEFAULT,
   SUMMARY_PROMPT_TEMPLATE_DEFAULT,
   SYSTEM_PROMPT_DEFAULT
-} from '../constants/promptDefaults';
+} from '../constants/promptDefaults.js';
 
 const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
 const SORT_ORDER_VALUES = new Set(['newest', 'oldest', 'name_asc', 'name_desc', 'last_opened']);
@@ -60,6 +60,10 @@ function normalizeString(rawValue, fallback, minLength = 1) {
     return fallback;
   }
   return normalized;
+}
+
+function normalizeApiBaseUrl(apiBaseUrl) {
+  return String(apiBaseUrl || '').replace(/\/$/, '');
 }
 
 function createDefaultSettings() {
@@ -455,12 +459,13 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     async fetchSettings(apiBaseUrl, options = {}) {
+      const baseUrl = normalizeApiBaseUrl(apiBaseUrl);
       const silent = options.silent === true;
       if (!silent) {
         this.isSettingsLoading = true;
       }
       try {
-        const response = await fetch(`${apiBaseUrl}/api/settings`);
+        const response = await fetch(`${baseUrl}/api/settings`);
         if (!response.ok) {
           throw new Error(await this.parseResponseError(response));
         }
@@ -475,7 +480,8 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     async putSettings(apiBaseUrl, payload) {
-      const response = await fetch(`${apiBaseUrl}/api/settings`, {
+      const baseUrl = normalizeApiBaseUrl(apiBaseUrl);
+      const response = await fetch(`${baseUrl}/api/settings`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload || {})
@@ -489,7 +495,8 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     async patchSettings(apiBaseUrl, patch) {
-      const response = await fetch(`${apiBaseUrl}/api/settings`, {
+      const baseUrl = normalizeApiBaseUrl(apiBaseUrl);
+      const response = await fetch(`${baseUrl}/api/settings`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch)
@@ -521,7 +528,8 @@ export const useSettingsStore = defineStore('settings', {
       }
       this.isSettingSaving.reset_prompts = true;
       try {
-        const response = await fetch(`${apiBaseUrl}/api/settings/reset-prompts`, {
+        const baseUrl = normalizeApiBaseUrl(apiBaseUrl);
+        const response = await fetch(`${baseUrl}/api/settings/reset-prompts`, {
           method: 'POST'
         });
         if (!response.ok) {
