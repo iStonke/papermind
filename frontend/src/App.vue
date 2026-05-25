@@ -18,7 +18,7 @@
             clear-icon="mdi-close"
             :placeholder="searchPlaceholder"
             density="compact"
-            variant="outlined"
+            variant="solo"
             :messages="searchHintMessages"
             hide-details="auto"
             @update:model-value="onAppBarSearchInput"
@@ -3129,22 +3129,19 @@ onBeforeUnmount(() => {
 
 .appbar-search__field :deep(.v-field) {
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.14);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  background-color: rgba(255, 255, 255, 0.16) !important;
+  box-shadow: none !important;
   color: rgba(248, 250, 255, 0.96);
   transition:
-    background var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
-    box-shadow var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+    background-color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .appbar-search__field :deep(.v-field:hover) {
-  background: rgba(255, 255, 255, 0.20);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+  background-color: rgba(255, 255, 255, 0.22) !important;
 }
 
 .appbar-search__field :deep(.v-field--focused) {
-  background: rgba(255, 255, 255, 0.22);
-  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.38);
+  background-color: rgba(255, 255, 255, 0.28) !important;
 }
 
 .appbar-search__field :deep(.v-field__input),
