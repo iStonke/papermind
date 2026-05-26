@@ -8,6 +8,7 @@ Usage: ./scripts/deploy_pi.sh [options]
 Options:
   --branch <name>  Git branch to update (default: main)
   --compose        Run docker compose up -d after git update
+  --prod           Use docker-compose.prod.yml for compose commands
   --build          Use --build with docker compose (implies --compose)
   --worker         Start/update worker with compose profile "worker"
   -h, --help       Show this help
@@ -18,6 +19,7 @@ BRANCH="main"
 RUN_COMPOSE=0
 RUN_BUILD=0
 RUN_WORKER=0
+RUN_PROD=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -31,6 +33,9 @@ while [[ $# -gt 0 ]]; do
       ;;
     --compose)
       RUN_COMPOSE=1
+      ;;
+    --prod)
+      RUN_PROD=1
       ;;
     --build)
       RUN_BUILD=1
@@ -66,21 +71,29 @@ git checkout "${BRANCH}"
 git pull --ff-only origin "${BRANCH}"
 
 if [[ "${RUN_COMPOSE}" -eq 1 ]]; then
+  compose_cmd=(docker compose)
+  if [[ "${RUN_PROD}" -eq 1 ]]; then
+    compose_cmd+=(--env-file .env.prod -f docker-compose.prod.yml)
+  fi
   compose_args=(up -d)
   if [[ "${RUN_BUILD}" -eq 1 ]]; then
     compose_args+=(--build)
   fi
-  echo "Running: docker compose ${compose_args[*]}"
-  docker compose "${compose_args[@]}"
+  echo "Running: ${compose_cmd[*]} ${compose_args[*]}"
+  "${compose_cmd[@]}" "${compose_args[@]}"
 fi
 
 if [[ "${RUN_WORKER}" -eq 1 ]]; then
+  compose_cmd=(docker compose)
+  if [[ "${RUN_PROD}" -eq 1 ]]; then
+    compose_cmd+=(--env-file .env.prod -f docker-compose.prod.yml)
+  fi
   worker_args=(--profile worker up -d worker)
   if [[ "${RUN_BUILD}" -eq 1 ]]; then
     worker_args=(--profile worker up -d --build worker)
   fi
-  echo "Running: docker compose ${worker_args[*]}"
-  docker compose "${worker_args[@]}"
+  echo "Running: ${compose_cmd[*]} ${worker_args[*]}"
+  "${compose_cmd[@]}" "${worker_args[@]}"
 fi
 
 echo "Done."

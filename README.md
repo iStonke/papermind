@@ -87,6 +87,65 @@ Mit Worker-Profil:
 ./scripts/deploy_pi.sh --compose --build --worker
 ```
 
+## Produktionsbetrieb
+
+Die Entwicklungsumgebung bleibt in `docker-compose.yml`. Für den Betrieb auf
+dem Raspberry/Heimnetz gibt es `docker-compose.prod.yml`:
+
+- Frontend wird statisch gebaut und über Nginx ausgeliefert.
+- `/api/*` läuft same-origin über den Nginx-Proxy zum Backend.
+- Öffentlich gebunden wird nur `FRONTEND_PORT`.
+- Backend, PostgreSQL und AI-Service sind nur im Compose-Netz erreichbar.
+- Es werden keine Quellcode-Dev-Volumes in Backend, Frontend oder AI gemountet.
+
+Einmalig konfigurieren:
+```bash
+cp .env.prod.example .env.prod
+```
+
+Dann Platzhalter in `.env.prod` ersetzen, insbesondere:
+- `POSTGRES_*`
+- `DATABASE_URL`
+- `PUBLIC_WEB_BASE_URL`
+- `CORS_ALLOW_ORIGINS`
+- `DIRECT_UPLOAD_API_KEY`
+
+Start ohne Worker:
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+```
+
+Start inklusive OCR/Index-Worker:
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml --profile worker up -d --build
+```
+
+Update über Deploy-Skript:
+```bash
+./scripts/deploy_pi.sh --prod --compose --build --worker
+```
+
+Status prüfen:
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml ps
+```
+
+Backup der Datenbank:
+```bash
+mkdir -p backups
+docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T db \
+  sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > "backups/papermind-db-$(date +%Y%m%d-%H%M%S).sql"
+```
+
+Backup der PDF-Dateien:
+```bash
+mkdir -p backups
+docker run --rm \
+  -v papermind_pdf_storage:/data:ro \
+  -v "$PWD/backups:/backup" \
+  alpine tar czf "/backup/papermind-files-$(date +%Y%m%d-%H%M%S).tar.gz" -C /data .
+```
+
 ## Worker-Profil (OCR)
 
 - Worker läuft im Compose-Profil `worker`.

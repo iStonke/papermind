@@ -920,6 +920,48 @@ class ImportStagingService:
         except OSError as exc:
             raise StorageError("Could not delete staged source PDF") from exc
 
+    def delete_source_pages(self, source_file_id: str, page_indices: list[int]) -> int:
+        source_path = self._source_pdf_path(source_file_id)
+        if not source_path.exists():
+            raise BadRequestError("Staged source PDF was not found")
+
+        delete_indices = sorted({int(index) for index in page_indices})
+        if not delete_indices:
+            raise BadRequestError("page_indices is required")
+
+        try:
+            reader = PdfReader(str(source_path))
+            page_count = len(reader.pages)
+        except Exception as exc:
+            raise BadRequestError("Could not read staged source PDF") from exc
+
+        invalid_indices = [index for index in delete_indices if index < 0 or index >= page_count]
+        if invalid_indices:
+            raise BadRequestError(
+                "page_index is out of range",
+                details={"invalid_page_indices": invalid_indices, "page_count": page_count},
+            )
+
+        remaining_indices = [index for index in range(page_count) if index not in set(delete_indices)]
+        if not remaining_indices:
+            self.delete_source_file(source_file_id)
+            return 0
+
+        writer = PdfWriter()
+        for page_index in remaining_indices:
+            writer.add_page(reader.pages[page_index])
+
+        temp_path = source_path.with_name(f"{source_path.stem}.{uuid.uuid4().hex}.tmp.pdf")
+        try:
+            with temp_path.open("wb") as output:
+                writer.write(output)
+            os.replace(temp_path, source_path)
+        except Exception as exc:
+            temp_path.unlink(missing_ok=True)
+            raise StorageError("Could not update staged source PDF") from exc
+
+        return len(remaining_indices)
+
     def _validate_requested_tags(self, payload: ImportCommitRequest) -> None:
         requested_tag_ids = {tag_id for document in payload.documents for tag_id in document.tag_ids}
         if not requested_tag_ids:

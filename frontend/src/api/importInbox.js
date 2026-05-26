@@ -23,3 +23,15 @@ export async function discardImportInboxItems(itemIds = []) {
     })
   });
 }
+
+export async function discardImportInboxSourcePages(sourceFileId, pageIndices = []) {
+  const normalizedSourceFileId = String(sourceFileId || '').trim();
+  return apiFetch(`/api/import/inbox/source/${encodeURIComponent(normalizedSourceFileId)}/pages/discard`, {
+    method: 'POST',
+    body: JSON.stringify({
+      page_indices: Array.from(pageIndices || [])
+        .map((index) => Number(index))
+        .filter((index) => Number.isInteger(index) && index >= 0)
+    })
+  });
+}

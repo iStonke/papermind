@@ -1160,14 +1160,16 @@ function scheduleSidebarCountsRefresh() {
   sidebarStore.scheduleCounts();
 }
 
-const pendingImportInboxCount = computed(() => importInboxItems.value.length);
+const pendingImportInboxCount = computed(() =>
+  importInboxItems.value.reduce((sum, item) => sum + Math.max(0, Number(item?.page_count || 0)), 0)
+);
 const pendingImportInboxBadgeLabel = computed(() => {
   const count = pendingImportInboxCount.value;
   return count > 99 ? '99+' : String(count);
 });
 const pendingImportInboxMenuTitle = computed(() => {
   const count = pendingImportInboxCount.value;
-  return count === 1 ? 'Neuen Scan anzeigen' : `Neue Scans anzeigen (${count})`;
+  return count === 1 ? 'Neue Scan-Seite anzeigen' : 'Neue Scans anzeigen';
 });
 
 function normalizeImportInboxItems(payload) {
@@ -3910,7 +3912,7 @@ onBeforeUnmount(() => {
 
 .list-toolbar__search :deep(.v-field) {
   border-radius: 10px;
-  background: var(--pm-app-surface-raised);
+  background: var(--pm-document-row-bg, var(--pm-app-surface-raised));
 }
 
 .list-toolbar__search :deep(.v-field--focused) {
@@ -4772,16 +4774,13 @@ onBeforeUnmount(() => {
 
 .papermind-app.v-theme--dark .document-row--active {
   background: var(--pm-document-row-active-bg, var(--pm-row-active));
-  border-color: rgba(var(--v-theme-primary), 0.72);
-  box-shadow:
-    0 0 0 1px rgba(var(--v-theme-primary), 0.34),
-    inset 4px 0 0 rgba(var(--v-theme-primary), 0.72),
-    0 6px 18px rgba(0, 0, 0, 0.3);
+  border-color: rgba(var(--v-theme-primary), 0.42);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.28);
 }
 
 .papermind-app.v-theme--dark .document-row--active:hover {
   background: var(--pm-document-row-active-bg, var(--pm-row-active));
-  border-color: rgba(var(--v-theme-primary), 0.78);
+  border-color: rgba(var(--v-theme-primary), 0.5);
 }
 
 .papermind-app.v-theme--dark .panel-left::before,

@@ -197,36 +197,23 @@
                               </v-list>
                             </v-menu>
                           </div>
-                          <div v-if="isScanTitleWorking(document)" class="scan-title-hint scan-title-hint--working">
-                            <v-progress-circular indeterminate size="12" width="2" />
-                            <span>Titel wird vorgeschlagen…</span>
-                          </div>
-                          <div v-else-if="isScanTitlePendingOcr(document)" class="scan-title-hint scan-title-hint--pending">
-                            <span>{{ document.meta.titleSuggestionPollExhausted ? 'OCR noch nicht fertig - später erneut versuchen.' : 'OCR läuft…' }}</span>
-                            <button type="button" class="scan-title-hint__apply" @click="requestScanTitleSuggestion(document.id, 'first_page')">
-                              Später erneut
-                            </button>
-                          </div>
-                          <div v-else-if="canShowScanSuggestion(document)" class="scan-title-hint scan-title-hint--ready">
-                            <span class="scan-title-hint__label">{{ getScanSuggestionPrefix(document) }} {{ document.meta.titleSuggestion }}</span>
-                            <button type="button" class="scan-title-hint__apply" @click="applyScanSuggestion(document.id)">
+                          <div v-if="getStageTitleMetaText(document)" class="scan-title-hint" :class="getStageTitleMetaClass(document)">
+                            <v-progress-circular v-if="isScanTitleWorking(document)" indeterminate size="12" width="2" />
+                            <v-icon v-else :icon="resolveIcon('mdi-robot-outline')" size="14" />
+                            <span class="scan-title-hint__label">{{ getStageTitleMetaText(document) }}</span>
+                            <button
+                              v-if="canShowScanSuggestion(document)"
+                              type="button"
+                              class="scan-title-hint__apply"
+                              @click="applyScanSuggestion(document.id)"
+                            >
                               {{ getScanSuggestionActionLabel(document) }}
                             </button>
-                          </div>
-                          <div v-if="canShowScanSuggestion(document) && getScanSuggestionDetails(document)" class="scan-title-hint scan-title-hint--meta">
-                            {{ getScanSuggestionDetails(document) }}
                           </div>
                         </div>
                       </div>
 
                       <div class="stage-toolbar stage-header-right">
-                        <div class="toolbar-left">
-                          <span class="pages-label">Seiten</span>
-                          <span class="pages-count">{{ document.pages.length }}</span>
-                        </div>
-
-                        <div class="toolbar-divider" aria-hidden="true" />
-
                         <div class="toolbar-actions">
                           <v-btn
                             :icon="resolveIcon('mdi-call-split')"
@@ -467,6 +454,7 @@ import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { useTheme } from 'vuetify';
 import BaseDialog from './BaseDialog.vue';
 import StageTags from './StageTags.vue';
+import { discardImportInboxSourcePages } from '../api/importInbox';
 import { suggestImportStageTitle } from '../api/importStaging';
 import { isIOS } from '../utils/platform';
 import { mapApiError, useNotifications } from '../stores/notifications';
@@ -652,24 +640,30 @@ function getTitleSuggestHint(documentEntry) {
   return 'Titel mit KI vorschlagen';
 }
 
-function canShowScanSuggestion(documentEntry) {
+function hasReadyScanSuggestion(documentEntry) {
   const suggestion = String(documentEntry?.meta?.titleSuggestion || '').trim();
   const status = String(documentEntry?.meta?.titleSuggestionStatus || '');
-  if (!suggestion || status !== 'ready') {
+  return Boolean(suggestion && status === 'ready');
+}
+
+function canShowScanSuggestion(documentEntry) {
+  if (!hasReadyScanSuggestion(documentEntry)) {
     return false;
   }
-  return isDefaultScanTitle(documentEntry?.title);
+  const suggestion = String(documentEntry?.meta?.titleSuggestion || '').trim();
+  const currentTitle = String(documentEntry?.title || '').trim();
+  return suggestion !== currentTitle;
 }
 
 function getScanSuggestionPrefix(documentEntry) {
   if (documentEntry?.meta?.titleSuggestionUsedFallback) {
-    return 'Titel automatisch:';
+    return 'Titel automatisch';
   }
-  return 'Vorschlag:';
+  return 'KI-Vorschlag';
 }
 
 function getScanSuggestionActionLabel(documentEntry) {
-  return documentEntry?.meta?.titleSuggestionUsedFallback ? 'Umbenennen' : 'Übernehmen';
+  return documentEntry?.meta?.titleSuggestionUsedFallback ? 'Bearbeiten' : 'Übernehmen';
 }
 
 function getScanSuggestionDetails(documentEntry) {
@@ -693,6 +687,42 @@ function getScanSuggestionDetails(documentEntry) {
     details.push(`Betrag: ${formatted}${currency === 'EUR' ? '€' : currency || ''}`);
   }
   return details.join(' · ');
+}
+
+function getStageTitleMetaText(documentEntry) {
+  if (isScanTitleWorking(documentEntry)) {
+    return 'Titel wird vorgeschlagen…';
+  }
+  if (isScanTitlePendingOcr(documentEntry)) {
+    return documentEntry?.meta?.titleSuggestionPollExhausted
+      ? 'OCR noch nicht fertig - später erneut versuchen.'
+      : 'OCR läuft…';
+  }
+  if (hasReadyScanSuggestion(documentEntry)) {
+    const suggestion = String(documentEntry?.meta?.titleSuggestion || '').trim();
+    const details = getScanSuggestionDetails(documentEntry);
+    const parts = [];
+    if (canShowScanSuggestion(documentEntry)) {
+      parts.push(`${getScanSuggestionPrefix(documentEntry)}: ${suggestion}`);
+    } else {
+      parts.push('Automatisch erkannt');
+    }
+    if (details) {
+      parts.push(details);
+    }
+    return parts.join(' · ');
+  }
+  return '';
+}
+
+function getStageTitleMetaClass(documentEntry) {
+  if (isScanTitleWorking(documentEntry)) {
+    return 'scan-title-hint--working';
+  }
+  if (isScanTitlePendingOcr(documentEntry)) {
+    return 'scan-title-hint--pending';
+  }
+  return 'scan-title-hint--ready';
 }
 const selectedDocumentEntry = computed(
   () => documents.value.find((entry) => entry.id === selected.value?.stageId) || null
@@ -1157,6 +1187,11 @@ function stripPdfSuffix(filename) {
   return String(filename || '').replace(/\.pdf$/i, '').trim();
 }
 
+function getRemoteSourceTitle(source, fallback = 'Neuer Scan') {
+  const title = stripPdfSuffix(source?.original_name || '');
+  return title || fallback;
+}
+
 function normalizeRelativePath(pathValue) {
   return String(pathValue || '')
     .replace(/\\/g, '/')
@@ -1221,7 +1256,9 @@ function ensurePdfFilename(filename) {
 }
 
 async function downloadStagingSourceFile(sourceFileId, originalName = '') {
-  const response = await fetch(`${props.apiBaseUrl}/api/import/source/${encodeURIComponent(sourceFileId)}/file`);
+  const response = await fetch(`${props.apiBaseUrl}/api/import/source/${encodeURIComponent(sourceFileId)}/file`, {
+    cache: 'no-store'
+  });
   if (!response.ok) {
     throw new Error(await parseResponseError(response));
   }
@@ -1490,9 +1527,10 @@ async function addRemoteSources(payload = []) {
   let previewFallbackCount = 0;
   let sessionStageId = preferredTargetStageId || remoteSourceStageBySession.get(sessionId) || null;
   const isSessionManagedScanStage = !preferredTargetStageId;
+  const initialScanTitle = items.map((item) => getRemoteSourceTitle(item, '')).find(Boolean) || 'Neuer Scan';
 
   if (!sessionStageId) {
-    const created = stagingStore.addEmptyDocument(null, 'Neuer Scan');
+    const created = stagingStore.addEmptyDocument(null, initialScanTitle);
     sessionStageId = created?.id || null;
     if (sessionStageId) {
       remoteSourceStageBySession.set(sessionId, sessionStageId);
@@ -1503,7 +1541,7 @@ async function addRemoteSources(payload = []) {
       }
     }
   } else if (!documents.value.some((entry) => entry.id === sessionStageId)) {
-    const recreated = stagingStore.addEmptyDocument(null, 'Neuer Scan');
+    const recreated = stagingStore.addEmptyDocument(null, initialScanTitle);
     sessionStageId = recreated?.id || null;
     if (sessionStageId) {
       remoteSourceStageBySession.set(sessionId, sessionStageId);
@@ -1535,6 +1573,7 @@ async function addRemoteSources(payload = []) {
     }
 
     const originalName = String(source?.original_name || '').trim() || 'Scan Upload.pdf';
+    const sourceTitle = getRemoteSourceTitle(source);
     let stagingFile = null;
     let thumbUrls = [];
     try {
@@ -1544,11 +1583,14 @@ async function addRemoteSources(payload = []) {
       previewFallbackCount += 1;
     }
 
-    stagingStore.setStagingFile(sourceFileId, stagingFile, { originalName, pageCount });
+    stagingStore.setStagingFile(sourceFileId, stagingFile, { originalName, pageCount, isImportInbox: true });
     const targetStageId = String(source?.target_stage_id || '').trim() || sessionStageId;
     if (targetStageId && documents.value.some((entry) => entry.id === targetStageId)) {
       const targetDoc = getDocumentById(targetStageId);
       const targetMeta = ensureScanMeta(targetDoc);
+      if (isDefaultScanTitle(targetDoc?.title) && sourceTitle) {
+        stagingStore.renameDocument(targetStageId, sourceTitle);
+      }
       if (targetMeta) {
         targetMeta.isScanSession = targetMeta.isScanSession || isSessionManagedScanStage || isDefaultScanTitle(targetDoc?.title);
         if (!targetMeta.scanSourceFileIds.includes(sourceFileId)) {
@@ -1562,7 +1604,7 @@ async function addRemoteSources(payload = []) {
       });
       touchedStageIds.add(targetStageId);
     } else {
-      const fallback = stagingStore.addEmptyDocument(null, 'Neuer Scan');
+      const fallback = stagingStore.addEmptyDocument(null, sourceTitle);
       const fallbackStageId = fallback?.id || null;
       if (fallbackStageId) {
         remoteSourceStageBySession.set(sessionId, fallbackStageId);
@@ -1583,7 +1625,7 @@ async function addRemoteSources(payload = []) {
       } else {
         stagingStore.addDocumentFromSource({
           sourceFileId,
-          title: 'Neuer Scan',
+          title: sourceTitle,
           pageCount,
           thumbUrls
         });
@@ -1599,7 +1641,7 @@ async function addRemoteSources(payload = []) {
       continue;
     }
     const hasSuggestion = Boolean(String(targetMeta.titleSuggestion || '').trim());
-    if (isDefaultScanTitle(targetDoc?.title) && !hasSuggestion && targetMeta.titleSuggestionStatus !== 'working') {
+    if (targetMeta.isScanSession && !hasSuggestion && !isScanTitleBusy(targetDoc)) {
       void requestScanTitleSuggestion(stageId, 'first_page', { silent: true });
     }
   }
@@ -2032,22 +2074,90 @@ function notifyDiscardedSourceFileIds(sourceFileIds = []) {
   }
 }
 
-function removePage(pageId) {
+function countPagesForSourceFile(sourceFileId) {
+  const normalized = normalizeSourceFileId(sourceFileId);
+  if (!normalized) {
+    return 0;
+  }
+  return documents.value.reduce(
+    (sum, documentEntry) =>
+      sum + (documentEntry.pages || []).filter((page) => normalizeSourceFileId(page?.sourceFileId) === normalized).length,
+    0
+  );
+}
+
+function isImportInboxSourceFile(sourceFileId) {
+  const normalized = normalizeSourceFileId(sourceFileId);
+  return Boolean(normalized && stagingStore.sourceMetaById?.get?.(normalized)?.isImportInbox);
+}
+
+function clearPreviewCacheForSource(sourceFileId) {
+  const normalized = normalizeSourceFileId(sourceFileId);
+  if (!normalized) {
+    return;
+  }
+  for (const cacheKey of Array.from(previewImageCache.keys())) {
+    if (String(cacheKey).startsWith(`${normalized}:`)) {
+      previewImageCache.delete(cacheKey);
+    }
+  }
+}
+
+async function refreshImportInboxSourceFile(sourceFileId, pageCount) {
+  const normalized = normalizeSourceFileId(sourceFileId);
+  const sourceMeta = stagingStore.sourceMetaById?.get?.(normalized);
+  if (!normalized || !sourceMeta) {
+    return;
+  }
+  try {
+    const refreshedFile = await downloadStagingSourceFile(normalized, sourceMeta.originalName || '');
+    const thumbUrls = await renderPdfThumbnails(refreshedFile, Number(pageCount || sourceMeta.pageCount || 0));
+    stagingStore.setStagingFile(normalized, refreshedFile, {
+      originalName: sourceMeta.originalName || refreshedFile.name,
+      pageCount: Number(pageCount || sourceMeta.pageCount || 0),
+      isImportInbox: true
+    });
+    stagingStore.updateSourceThumbnails(normalized, thumbUrls);
+    clearPreviewCacheForSource(normalized);
+  } catch {
+    // The existing thumbnails are still usable; the backend source is already updated.
+  }
+}
+
+async function removePage(pageId) {
   const location = stagingStore.findPageLocation(pageId);
   const sourceFileId = normalizeSourceFileId(location?.page?.sourceFileId);
+  const sourcePageIndex = Number(location?.page?.pageIndex || 0);
+  const shouldPersistSourcePageRemoval =
+    sourceFileId && isImportInboxSourceFile(sourceFileId) && countPagesForSourceFile(sourceFileId) > 0;
+
+  let discardPageResult = null;
+  if (shouldPersistSourcePageRemoval) {
+    try {
+      discardPageResult = await discardImportInboxSourcePages(sourceFileId, [sourcePageIndex]);
+    } catch (error) {
+      notify({ type: 'warning', message: mapApiError(error, 'Gelöschte SMB-Seite konnte nicht endgültig gelöscht werden.') });
+      return;
+    }
+  }
+
   stagingStore.removePage(pageId);
+  if (shouldPersistSourcePageRemoval) {
+    stagingStore.remapSourcePagesAfterRemoval(sourceFileId, [sourcePageIndex], discardPageResult?.page_count);
+    await refreshImportInboxSourceFile(sourceFileId, discardPageResult?.page_count);
+  }
   if (selected.value?.pageId === pageId) {
     clearActiveSelection();
   }
   notifyDiscardedSourceFileIds([sourceFileId]);
 }
 
-function removeSelectedPage(documentId) {
+async function removeSelectedPage(documentId) {
   const selectedPage = resolveSelectedPage(documentId);
   if (!selectedPage) {
     return;
   }
-  removePage(selectedPage.id);
+  await removePage(selectedPage.id);
 }
 
 function deleteDocument(documentId) {
@@ -3835,10 +3945,11 @@ onBeforeUnmount(() => {
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  opacity: 0.75;
+  opacity: 0;
 }
 
-.import-staging-doc__header:hover .stage-title-ai-btn {
+.import-staging-doc__header:hover .stage-title-ai-btn,
+.stage-title-ai-btn:focus-visible {
   opacity: 1;
 }
 
@@ -3876,10 +3987,7 @@ onBeforeUnmount(() => {
 }
 
 .scan-title-hint--ready {
-  background: rgba(var(--v-theme-primary), 0.1);
-  border: 1px solid rgba(var(--v-theme-primary), 0.18);
-  border-radius: 999px;
-  padding: 2px 8px;
+  color: rgba(var(--v-theme-on-surface), 0.58);
 }
 
 .scan-title-hint--meta {
@@ -3902,7 +4010,8 @@ onBeforeUnmount(() => {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  padding: 0;
+  padding: 0 0 0 2px;
+  opacity: 0.86;
 }
 
 :deep(.v-theme--dark) .importer-dialog .stage-title-input:focus-within {
@@ -3938,25 +4047,6 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
-.toolbar-left {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  white-space: nowrap;
-}
-
-.pages-label {
-  font-size: 0.76rem;
-  color: rgba(var(--v-theme-on-surface), 0.58);
-}
-
-.pages-count {
-  font-size: 0.84rem;
-  font-weight: 600;
-  color: rgba(var(--v-theme-on-surface), 0.82);
-  margin-left: 2px;
-}
-
 .toolbar-divider {
   width: 1px;
   height: 22px;
@@ -3968,18 +4058,6 @@ onBeforeUnmount(() => {
 .toolbar-divider--tags {
   height: 20px;
   margin: 0 8px 0 2px;
-}
-
-:deep(.v-theme--dark) .importer-dialog .toolbar-left {
-  padding-right: 12px;
-}
-
-:deep(.v-theme--dark) .importer-dialog .pages-label {
-  color: var(--pm-dm-text2);
-}
-
-:deep(.v-theme--dark) .importer-dialog .pages-count {
-  color: var(--pm-dm-text);
 }
 
 :deep(.v-theme--dark) .importer-dialog .toolbar-divider {

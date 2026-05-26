@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, status, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -10,6 +12,8 @@ from app.schemas.import_staging import (
     ImportCommitResponse,
     ImportInboxClaimRequest,
     ImportInboxClaimResponse,
+    ImportInboxDiscardPagesRequest,
+    ImportInboxDiscardPagesResponse,
     ImportInboxDiscardRequest,
     ImportInboxDiscardResponse,
     ImportInboxListResponse,
@@ -126,6 +130,21 @@ def discard_import_inbox(
 ) -> ImportInboxDiscardResponse:
     service = ImportInboxService(db)
     return service.discard(payload.item_ids)
+
+
+@router.post(
+    "/inbox/source/{source_file_id}/pages/discard",
+    response_model=ImportInboxDiscardPagesResponse,
+    summary="Discard pages from an import inbox source PDF",
+    responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def discard_import_inbox_source_pages(
+    source_file_id: uuid.UUID,
+    payload: ImportInboxDiscardPagesRequest,
+    db: Session = Depends(get_db),
+) -> ImportInboxDiscardPagesResponse:
+    service = ImportInboxService(db)
+    return service.discard_pages(source_file_id, payload.page_indices)
 
 
 @router.get(

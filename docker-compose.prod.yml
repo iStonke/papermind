@@ -1,0 +1,171 @@
+name: papermind
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-5179}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - papermind_net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8040"
+    restart: unless-stopped
+    environment:
+      BACKEND_PORT: 8040
+      DATABASE_URL: ${DATABASE_URL}
+      AI_BASE_URL: http://ai:11439
+      STORAGE_PATH: ${STORAGE_PATH:-/data/storage}
+      PUBLIC_WEB_BASE_URL: ${PUBLIC_WEB_BASE_URL}
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-26214400}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS}
+      AUTO_OCR_ON_UPLOAD: ${AUTO_OCR_ON_UPLOAD:-true}
+      DIRECT_UPLOAD_API_KEY: ${DIRECT_UPLOAD_API_KEY}
+      MIN_TEXT_CHARS: ${MIN_TEXT_CHARS:-300}
+      TEXT_CHECK_PAGES: ${TEXT_CHECK_PAGES:-2}
+      SEARCH_QUERY_MAX_LENGTH: ${SEARCH_QUERY_MAX_LENGTH:-256}
+      FTS_LANGUAGE: ${FTS_LANGUAGE:-german}
+      INDEX_AUTO_ON_READY: ${INDEX_AUTO_ON_READY:-true}
+      EMBED_MODEL: ${EMBED_MODEL:-hash-384-v1}
+      EMBED_DIM: ${EMBED_DIM:-384}
+      EMBED_BATCH_SIZE: ${EMBED_BATCH_SIZE:-32}
+      CHUNK_SIZE_CHARS: ${CHUNK_SIZE_CHARS:-1000}
+      CHUNK_OVERLAP_CHARS: ${CHUNK_OVERLAP_CHARS:-100}
+      AI_EMBED_TIMEOUT_SECONDS: ${AI_EMBED_TIMEOUT_SECONDS:-30}
+      AI_CHAT_TIMEOUT_SECONDS: ${AI_CHAT_TIMEOUT_SECONDS:-60}
+      RETRIEVAL_MAX_TOP_K: ${RETRIEVAL_MAX_TOP_K:-20}
+      DEDUPE_CANDIDATE_LIMIT: ${DEDUPE_CANDIDATE_LIMIT:-200}
+      DEDUPE_TEXT_DISTANCE_THRESHOLD: ${DEDUPE_TEXT_DISTANCE_THRESHOLD:-6}
+    expose:
+      - "8040"
+    volumes:
+      - pdf_storage:${STORAGE_PATH:-/data/storage}
+    depends_on:
+      db:
+        condition: service_healthy
+      ai:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request;urllib.request.urlopen("http://127.0.0.1:8040/health",timeout=2)
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - papermind_net
+
+  db:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    expose:
+      - "5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - papermind_net
+
+  ai:
+    build:
+      context: ./ai
+      dockerfile: Dockerfile
+    command: uvicorn app.main:app --host 0.0.0.0 --port 11439
+    restart: unless-stopped
+    environment:
+      AI_PORT: 11439
+      EMBED_MODEL: ${EMBED_MODEL:-hash-384-v1}
+      EMBED_DIM: ${EMBED_DIM:-384}
+      EMBED_MAX_TEXTS: ${EMBED_MAX_TEXTS:-64}
+      EMBED_MAX_CHARS: ${EMBED_MAX_CHARS:-4000}
+    expose:
+      - "11439"
+    volumes:
+      - ai_models:/models
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request;urllib.request.urlopen("http://127.0.0.1:11439/health",timeout=2)
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - papermind_net
+
+  worker:
+    profiles:
+      - worker
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    command: python -m app.worker.main
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      STORAGE_PATH: ${STORAGE_PATH:-/data/storage}
+      WORKER_POLL_INTERVAL_SECONDS: ${WORKER_POLL_INTERVAL_SECONDS:-3}
+      WORKER_OCR_TIMEOUT_SECONDS: ${WORKER_OCR_TIMEOUT_SECONDS:-900}
+      IMPORT_INBOX_DROP_PATH: ${IMPORT_INBOX_DROP_PATH:-/scan-inbox}
+      IMPORT_INBOX_FILE_STABLE_SECONDS: ${IMPORT_INBOX_FILE_STABLE_SECONDS:-3}
+      AI_BASE_URL: http://ai:11439
+      INDEX_AUTO_ON_READY: ${INDEX_AUTO_ON_READY:-true}
+      EMBED_MODEL: ${EMBED_MODEL:-hash-384-v1}
+      EMBED_DIM: ${EMBED_DIM:-384}
+      EMBED_BATCH_SIZE: ${EMBED_BATCH_SIZE:-32}
+      CHUNK_SIZE_CHARS: ${CHUNK_SIZE_CHARS:-1000}
+      CHUNK_OVERLAP_CHARS: ${CHUNK_OVERLAP_CHARS:-100}
+      AI_EMBED_TIMEOUT_SECONDS: ${AI_EMBED_TIMEOUT_SECONDS:-30}
+      DEDUPE_CANDIDATE_LIMIT: ${DEDUPE_CANDIDATE_LIMIT:-200}
+      DEDUPE_TEXT_DISTANCE_THRESHOLD: ${DEDUPE_TEXT_DISTANCE_THRESHOLD:-6}
+    volumes:
+      - pdf_storage:${STORAGE_PATH:-/data/storage}
+      - ./scan-inbox:${IMPORT_INBOX_DROP_PATH:-/scan-inbox}
+    depends_on:
+      db:
+        condition: service_healthy
+      ai:
+        condition: service_healthy
+    networks:
+      - papermind_net
+
+volumes:
+  postgres_data:
+  pdf_storage:
+  ai_models:
+
+networks:
+  papermind_net:
+    driver: bridge
+

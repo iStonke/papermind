@@ -176,7 +176,8 @@ export const useImportStagingStore = defineStore('importStaging', {
       this.sourceMetaById.set(sourceFileId, {
         sourceFileId,
         originalName: String(meta.originalName || file?.name || '').trim(),
-        pageCount: Number(meta.pageCount || 0)
+        pageCount: Number(meta.pageCount || 0),
+        isImportInbox: Boolean(meta.isImportInbox)
       });
     },
 
@@ -336,6 +337,53 @@ export const useImportStagingStore = defineStore('importStaging', {
       this.documents[location.docIndex].pages.splice(location.pageIndex, 1);
       this.pruneDocumentIfEmpty(sourceDocId);
       this.cleanupUnusedSources();
+    },
+
+    remapSourcePagesAfterRemoval(sourceFileId, removedPageIndices = [], nextPageCount = null) {
+      const normalizedId = String(sourceFileId || '').trim();
+      const removed = Array.from(new Set((removedPageIndices || [])
+        .map((index) => Number(index))
+        .filter((index) => Number.isInteger(index) && index >= 0)))
+        .sort((a, b) => a - b);
+      if (!normalizedId || removed.length === 0) {
+        return;
+      }
+
+      for (const document of this.documents) {
+        for (const page of document.pages || []) {
+          if (String(page?.sourceFileId || '').trim() !== normalizedId) {
+            continue;
+          }
+          const currentIndex = Number(page.pageIndex || 0);
+          const shift = removed.filter((removedIndex) => removedIndex < currentIndex).length;
+          page.pageIndex = Math.max(0, currentIndex - shift);
+        }
+      }
+
+      const meta = this.sourceMetaById.get(normalizedId);
+      if (meta) {
+        const fallbackCount = Math.max(0, Number(meta.pageCount || 0) - removed.length);
+        const normalizedNextPageCount = Number(nextPageCount);
+        meta.pageCount = nextPageCount != null && Number.isInteger(normalizedNextPageCount)
+          ? Math.max(0, normalizedNextPageCount)
+          : fallbackCount;
+        this.sourceMetaById.set(normalizedId, meta);
+      }
+    },
+
+    updateSourceThumbnails(sourceFileId, thumbUrls = []) {
+      const normalizedId = String(sourceFileId || '').trim();
+      if (!normalizedId) {
+        return;
+      }
+      for (const document of this.documents) {
+        for (const page of document.pages || []) {
+          if (String(page?.sourceFileId || '').trim() !== normalizedId) {
+            continue;
+          }
+          page.thumbUrl = String(thumbUrls[Number(page.pageIndex || 0)] || page.thumbUrl || '');
+        }
+      }
     },
 
     removeSourceFile(sourceFileId) {

@@ -51,6 +51,33 @@ class ImportInboxDiscardResponse(BaseModel):
     pending_count: int = Field(default=0, ge=0)
 
 
+class ImportInboxDiscardPagesRequest(BaseModel):
+    page_indices: list[int] = Field(default_factory=list)
+
+    @field_validator("page_indices")
+    @classmethod
+    def validate_page_indices(cls, value: list[int]) -> list[int]:
+        normalized = []
+        seen = set()
+        for page_index in value:
+            index = int(page_index)
+            if index < 0:
+                raise ValueError("page_indices must be greater than or equal to 0")
+            if index in seen:
+                continue
+            seen.add(index)
+            normalized.append(index)
+        if not normalized:
+            raise ValueError("page_indices is required")
+        return normalized
+
+
+class ImportInboxDiscardPagesResponse(BaseModel):
+    source_file_id: str
+    page_count: int = Field(default=0, ge=0)
+    pending_count: int = Field(default=0, ge=0)
+
+
 class ImportCommitPageInput(BaseModel):
     source_file_id: str = Field(min_length=1)
     page_index: int = Field(ge=0)

@@ -61,6 +61,7 @@
   --pm-sidebar-active:       rgba(59, 130, 246, 0.10);
   --pm-row-hover:            #f3f7ff;
   --pm-row-active:           #eaf2ff;
+  --pm-document-row-bg:      #fbfdff;
   --pm-appbar-bg:            #303970;
 }
 
@@ -78,6 +79,7 @@
   --pm-sidebar-active:         rgba(22, 163, 74, 0.10);
   --pm-row-hover:              #eef8f2;
   --pm-row-active:             #e3f3eb;
+  --pm-document-row-bg:        #fbfefc;
   --pm-appbar-bg:              #14532d;
 }
 
@@ -95,6 +97,7 @@
   --pm-sidebar-active:         rgba(15, 118, 110, 0.10);
   --pm-row-hover:              #eaf7f5;
   --pm-row-active:             #dff1ef;
+  --pm-document-row-bg:        #fbfefd;
   --pm-appbar-bg:              #115e59;
 }
 
@@ -112,6 +115,7 @@
   --pm-sidebar-active:         rgba(71, 85, 105, 0.10);
   --pm-row-hover:              #eef3f8;
   --pm-row-active:             #e6ecf3;
+  --pm-document-row-bg:        #fbfcfe;
   --pm-appbar-bg:              #334155;
 }
 
@@ -129,6 +133,7 @@
   --pm-sidebar-active:         rgba(87, 83, 78, 0.10);
   --pm-row-hover:              #f1eee8;
   --pm-row-active:             #e7e2d9;
+  --pm-document-row-bg:        #fffdf9;
   --pm-appbar-bg:              #44403c;
 }
 
@@ -180,12 +185,12 @@
   --pm-app-surface-raised:   var(--pm-v-card);
   --pm-app-surface-contrast: var(--pm-v-card);
   --pm-pdf-stage-bg:         var(--pm-v-panel-right);
-  --pm-sidebar-hover:        var(--pm-v-card-hover);
-  --pm-sidebar-active:       var(--pm-v-sidebar-active);
+  --pm-sidebar-hover:        color-mix(in srgb, var(--pm-v-card) 68%, white 32%);
+  --pm-sidebar-active:       color-mix(in srgb, var(--pm-v-card) 88%, transparent 12%);
   --pm-row-hover:            var(--pm-v-card-hover);
   --pm-row-active:           var(--pm-v-card-active);
-  --pm-document-row-bg:      color-mix(in srgb, var(--pm-v-card) 92%, white 8%);
-  --pm-document-row-active-bg: color-mix(in srgb, var(--pm-v-card-active) 76%, white 24%);
+  --pm-document-row-bg:      color-mix(in srgb, var(--pm-v-card-active) 76%, black 24%);
+  --pm-document-row-active-bg: color-mix(in srgb, var(--pm-v-card) 62%, white 38%);
 }
 
 /* ── Forest Dark ───────────────────────────────────────────────────────────── */

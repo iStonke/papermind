@@ -10,6 +10,7 @@ from app.core.errors import BadRequestError
 from app.models.import_inbox import ImportInboxItem
 from app.schemas.import_staging import (
     ImportInboxClaimResponse,
+    ImportInboxDiscardPagesResponse,
     ImportInboxDiscardResponse,
     ImportInboxItemRead,
     ImportInboxListResponse,
@@ -140,5 +141,25 @@ class ImportInboxService:
         self.db.commit()
         return ImportInboxDiscardResponse(
             discarded=len(items),
+            pending_count=self._pending_count(),
+        )
+
+    def discard_pages(self, source_file_id: uuid.UUID, page_indices: list[int]) -> ImportInboxDiscardPagesResponse:
+        item = self.db.scalar(
+            select(ImportInboxItem).where(ImportInboxItem.source_file_id == source_file_id)
+        )
+        if item is None:
+            raise BadRequestError("import inbox source was not found")
+
+        remaining_page_count = self.import_staging_service.delete_source_pages(str(source_file_id), page_indices)
+        if remaining_page_count <= 0:
+            self.db.delete(item)
+        else:
+            item.page_count = remaining_page_count
+
+        self.db.commit()
+        return ImportInboxDiscardPagesResponse(
+            source_file_id=str(source_file_id),
+            page_count=remaining_page_count,
             pending_count=self._pending_count(),
         )
