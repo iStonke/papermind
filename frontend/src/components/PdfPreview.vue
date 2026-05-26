@@ -584,26 +584,32 @@ onBeforeUnmount(() => {
 
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
 .pdf-preview__toolbar {
-  flex: 0 0 auto;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 4;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   padding: 6px 14px;
   border-bottom: 1px solid rgb(var(--v-theme-on-surface) / 0.08);
-  background: rgb(var(--v-theme-surface) / 0.72);
-  backdrop-filter: blur(10px) saturate(1.08);
-  -webkit-backdrop-filter: blur(10px) saturate(1.08);
+  background: rgb(var(--v-theme-surface) / 0.54);
+  backdrop-filter: blur(12px) saturate(1.12);
+  -webkit-backdrop-filter: blur(12px) saturate(1.12);
   gap: 12px;
   min-height: 38px;
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .pdf-preview__toolbar {
-    background: rgb(var(--v-theme-surface) / 0.9);
+    background: rgb(var(--v-theme-surface) / 0.82);
   }
 }
 
 .pdf-preview__page-info {
+  position: absolute;
+  left: 14px;
   font-size: 0.8rem;
   color: rgb(var(--v-theme-on-surface) / 0.55);
   white-space: nowrap;
@@ -619,7 +625,7 @@ onBeforeUnmount(() => {
   color: rgb(var(--v-theme-on-surface) / 0.85);
   border: 1px solid rgba(200, 150, 0, 0.3);
   white-space: nowrap;
-  flex: 1;
+  flex: 0 0 auto;
   text-align: center;
 }
 
@@ -631,6 +637,8 @@ onBeforeUnmount(() => {
 }
 
 .pdf-preview__zoom-controls {
+  position: absolute;
+  right: 14px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -676,6 +684,7 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
   opacity: 0;
+  position: relative;
   transition: opacity 180ms ease;
 }
 
@@ -692,7 +701,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   gap: 14px;
-  padding: 14px;
+  padding: 56px 14px 14px;
 }
 
 /* ── Einzelne Seite ─────────────────────────────────────────────────────── */

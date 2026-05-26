@@ -19,6 +19,7 @@ from app.schemas.settings import (
 DEFAULT_SETTINGS: dict[str, Any] = {
     "ui": {
         "theme_mode": "system",
+        "color_variant": "slate",
         "showFilenameSuffix": True,
         "drawerRememberState": True,
         "drawerAlwaysExpanded": False,
@@ -70,6 +71,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     },
 }
 
+COLOR_VARIANT_VALUES = {"indigo", "forest", "teal", "slate", "stone"}
+
 
 def _deep_merge_dict(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     merged = deepcopy(base)
@@ -83,7 +86,11 @@ def _deep_merge_dict(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, A
 
 def _merge_defaults(raw_settings: dict[str, Any] | None) -> dict[str, Any]:
     base = raw_settings if isinstance(raw_settings, dict) else {}
-    return _deep_merge_dict(DEFAULT_SETTINGS, base)
+    merged = _deep_merge_dict(DEFAULT_SETTINGS, base)
+    ui_settings = merged.get("ui")
+    if isinstance(ui_settings, dict) and ui_settings.get("color_variant") not in COLOR_VARIANT_VALUES:
+        ui_settings["color_variant"] = DEFAULT_SETTINGS["ui"]["color_variant"]
+    return merged
 
 
 class SettingsService:

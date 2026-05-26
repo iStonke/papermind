@@ -1,10 +1,11 @@
 /*
  * PaperMind Theme – zentrale CSS-Variablen
  *
- * Struktur:
- *   .papermind-app          → statische Konstanten (unveränderlich)
- *   .papermind-app.v-theme--light → semantische Werte im Light-Mode
- *   .papermind-app.v-theme--dark  → semantische Werte im Dark-Mode
+ * Strategie:
+ *   - Vuetify-Theme bleibt immer "light" oder "dark" (keine Varianten-Themes)
+ *   - Farbvariante wird über data-color-variant am <v-app>-Element gesteuert
+ *   - Alle --v-theme-primary-Overrides haben höhere Spezifität als Vuetifys injiziertes CSS
+ *   - --pm-* Variablen steuern die App-eigenen Oberflächen und Akzente
  *
  * Alle Farben im Code sollen ausschließlich --pm-* Variablen verwenden.
  * Rohwerte (Hex, rgba) gehören nur in diese Datei.
@@ -19,35 +20,36 @@
   --pm-easing:          cubic-bezier(0.4, 0, 0.2, 1);
   --pm-easing-decel:    cubic-bezier(0, 0, 0.2, 1);
   --pm-easing-accel:    cubic-bezier(0.4, 0, 1, 1);
-
-  /* Markenfarbe (RGB-Tripel für rgba()-Nutzung) */
-  --pm-indigo-rgb: 48, 57, 112;
-
-  /* Dark-Mode Rohwerte */
-  --pm-dark-bg:           #0b1220;
-  --pm-dark-panel-left:   #0f1a2a;
-  --pm-dark-panel-mid:    #111f33;
-  --pm-dark-panel-right:  #0c1626;
-  --pm-dark-card:         #162a44;
-  --pm-dark-card-hover:   #1b3556;
-  --pm-dark-card-active:  #22406a;
-  --pm-dark-sep:          rgba(255, 255, 255, 0.08);
-  --pm-dark-outline:      rgba(255, 255, 255, 0.06);
-  --pm-dark-shadow:       0 10px 30px rgba(0, 0, 0, 0.35);
-
-  /* Light-Mode Rohwerte */
-  --pm-light-sep:         rgba(15, 23, 42, 0.10);
-  --pm-light-outline:     rgba(15, 23, 42, 0.06);
-  --pm-light-shadow:      0 10px 30px rgba(15, 23, 42, 0.10);
 }
 
-/* ── Light-Mode ────────────────────────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════════════════════
+   LIGHT MODE (alle Varianten)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Gemeinsame Light-Semantik ─────────────────────────────────────────────── */
 .papermind-app.v-theme--light {
   /* Text */
-  --pm-text:   rgba(15, 23, 42, 0.92);
-  --pm-muted:  rgba(15, 23, 42, 0.60);
+  --pm-text:  rgba(15, 23, 42, 0.92);
+  --pm-muted: rgba(15, 23, 42, 0.60);
 
-  /* Hintergründe */
+  /* Trennlinien & Schatten */
+  --pm-divider: rgba(15, 23, 42, 0.10);
+  --pm-outline: rgba(15, 23, 42, 0.06);
+  --pm-shadow:  0 10px 30px rgba(15, 23, 42, 0.10);
+
+  /* Sidebar */
+  --pm-sidebar-count-opacity: 0.68;
+
+  /* Drawer */
+  --pm-drawer-bg-expanded:      rgba(255, 255, 255, 0.90);
+  --pm-drawer-bg-collapsed:     rgba(255, 255, 255, 0.68);
+  --pm-drawer-blur-expanded:    5px;
+  --pm-drawer-blur-collapsed:   11px;
+  --pm-drawer-border-expanded:  rgba(0, 0, 0, 0.12);
+  --pm-drawer-border-collapsed: rgba(0, 0, 0, 0.10);
+  --pm-drawer-scrim:            transparent;
+
+  /* Indigo-Standard (ohne data-color-variant oder data-color-variant="indigo") */
   --pm-app-surface:          #f3f6fb;
   --pm-content-surface:      #f6f9fe;
   --pm-sidebar-surface:      #eef3fa;
@@ -55,70 +57,205 @@
   --pm-app-surface-raised:   #ffffff;
   --pm-app-surface-contrast: #ffffff;
   --pm-pdf-stage-bg:         #f2f6fd;
-
-  /* Trennlinien & Schatten */
-  --pm-divider: var(--pm-light-sep);
-  --pm-outline: var(--pm-light-outline);
-  --pm-shadow:  var(--pm-light-shadow);
-
-  /* Sidebar */
-  --pm-sidebar-hover:         rgba(59, 130, 246, 0.06);
-  --pm-sidebar-active:        rgba(59, 130, 246, 0.10);
-  --pm-sidebar-count-opacity: 0.68;
-
-  /* Listenzeilen */
-  --pm-row-hover:  #f3f7ff;
-  --pm-row-active: #eaf2ff;
-
-  /* Drawer */
-  --pm-drawer-bg-expanded:     rgba(255, 255, 255, 0.90);
-  --pm-drawer-bg-collapsed:    rgba(255, 255, 255, 0.68);
-  --pm-drawer-blur-expanded:   5px;
-  --pm-drawer-blur-collapsed:  11px;
-  --pm-drawer-border-expanded:  rgba(0, 0, 0, 0.12);
-  --pm-drawer-border-collapsed: rgba(0, 0, 0, 0.10);
-  --pm-drawer-scrim:           transparent;
+  --pm-sidebar-hover:        rgba(59, 130, 246, 0.06);
+  --pm-sidebar-active:       rgba(59, 130, 246, 0.10);
+  --pm-row-hover:            #f3f7ff;
+  --pm-row-active:           #eaf2ff;
+  --pm-appbar-bg:            #303970;
 }
 
-/* ── Dark-Mode ─────────────────────────────────────────────────────────────── */
+/* ── Forest Light ──────────────────────────────────────────────────────────── */
+.papermind-app.v-theme--light[data-color-variant="forest"] {
+  --v-theme-primary:           22, 163, 74;
+  --pm-app-surface:            #f2f8f4;
+  --pm-content-surface:        #f5faf7;
+  --pm-sidebar-surface:        #ecf5ef;
+  --pm-viewer-surface:         #f1f8f4;
+  --pm-app-surface-raised:     #ffffff;
+  --pm-app-surface-contrast:   #ffffff;
+  --pm-pdf-stage-bg:           #f1f8f4;
+  --pm-sidebar-hover:          rgba(22, 163, 74, 0.06);
+  --pm-sidebar-active:         rgba(22, 163, 74, 0.10);
+  --pm-row-hover:              #eef8f2;
+  --pm-row-active:             #e3f3eb;
+  --pm-appbar-bg:              #14532d;
+}
+
+/* ── Teal Light ───────────────────────────────────────────────────────────── */
+.papermind-app.v-theme--light[data-color-variant="teal"] {
+  --v-theme-primary:           15, 118, 110;
+  --pm-app-surface:            #f1f8f7;
+  --pm-content-surface:        #f5faf9;
+  --pm-sidebar-surface:        #eaf4f3;
+  --pm-viewer-surface:         #eff8f7;
+  --pm-app-surface-raised:     #ffffff;
+  --pm-app-surface-contrast:   #ffffff;
+  --pm-pdf-stage-bg:           #eff8f7;
+  --pm-sidebar-hover:          rgba(15, 118, 110, 0.06);
+  --pm-sidebar-active:         rgba(15, 118, 110, 0.10);
+  --pm-row-hover:              #eaf7f5;
+  --pm-row-active:             #dff1ef;
+  --pm-appbar-bg:              #115e59;
+}
+
+/* ── Slate Light ───────────────────────────────────────────────────────────── */
+.papermind-app.v-theme--light[data-color-variant="slate"] {
+  --v-theme-primary:           71, 85, 105;
+  --pm-app-surface:            #f3f6f9;
+  --pm-content-surface:        #f7fafc;
+  --pm-sidebar-surface:        #eef3f7;
+  --pm-viewer-surface:         #f1f5f9;
+  --pm-app-surface-raised:     #ffffff;
+  --pm-app-surface-contrast:   #ffffff;
+  --pm-pdf-stage-bg:           #f1f5f9;
+  --pm-sidebar-hover:          rgba(71, 85, 105, 0.06);
+  --pm-sidebar-active:         rgba(71, 85, 105, 0.10);
+  --pm-row-hover:              #eef3f8;
+  --pm-row-active:             #e6ecf3;
+  --pm-appbar-bg:              #334155;
+}
+
+/* ── Stone Light ───────────────────────────────────────────────────────────── */
+.papermind-app.v-theme--light[data-color-variant="stone"] {
+  --v-theme-primary:           87, 83, 78;
+  --pm-app-surface:            #f7f5f1;
+  --pm-content-surface:        #fbfaf7;
+  --pm-sidebar-surface:        #f1eee8;
+  --pm-viewer-surface:         #f6f3ee;
+  --pm-app-surface-raised:     #ffffff;
+  --pm-app-surface-contrast:   #ffffff;
+  --pm-pdf-stage-bg:           #f6f3ee;
+  --pm-sidebar-hover:          rgba(87, 83, 78, 0.06);
+  --pm-sidebar-active:         rgba(87, 83, 78, 0.10);
+  --pm-row-hover:              #f1eee8;
+  --pm-row-active:             #e7e2d9;
+  --pm-appbar-bg:              #44403c;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   DARK MODE (alle Varianten)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Gemeinsame Dark-Semantik ──────────────────────────────────────────────── */
 .papermind-app.v-theme--dark {
   --v-theme-overlay-multiplier: 0;
 
   /* Text */
-  --pm-text:   rgba(231, 237, 246, 0.92);
-  --pm-muted:  rgba(231, 237, 246, 0.60);
-
-  /* Hintergründe */
-  --pm-app-surface:          var(--pm-dark-bg);
-  --pm-content-surface:      var(--pm-dark-panel-mid);
-  --pm-sidebar-surface:      var(--pm-dark-panel-left);
-  --pm-viewer-surface:       var(--pm-dark-panel-right);
-  --pm-app-surface-raised:   var(--pm-dark-card);
-  --pm-app-surface-contrast: var(--pm-dark-card);
-  --pm-pdf-stage-bg:         var(--pm-dark-panel-right);
+  --pm-text:  rgba(231, 237, 246, 0.92);
+  --pm-muted: rgba(231, 237, 246, 0.60);
 
   /* Trennlinien & Schatten */
-  --pm-divider: var(--pm-dark-sep);
-  --pm-outline: var(--pm-dark-outline);
-  --pm-shadow:  var(--pm-dark-shadow);
+  --pm-divider: rgba(255, 255, 255, 0.08);
+  --pm-outline: rgba(255, 255, 255, 0.06);
+  --pm-shadow:  0 10px 30px rgba(0, 0, 0, 0.35);
 
   /* Sidebar */
-  --pm-sidebar-hover:         var(--pm-dark-card-hover);
-  --pm-sidebar-active:        #1c2b40;
   --pm-sidebar-count-opacity: 0.90;
 
-  /* Listenzeilen */
-  --pm-row-hover:  var(--pm-dark-card-hover);
-  --pm-row-active: var(--pm-dark-card-active);
-
   /* Drawer */
-  --pm-drawer-bg-expanded:      rgba(28, 37, 51, 0.96);
-  --pm-drawer-bg-collapsed:     rgba(28, 37, 51, 0.90);
   --pm-drawer-blur-expanded:    2px;
   --pm-drawer-blur-collapsed:   6px;
   --pm-drawer-border-expanded:  rgba(255, 255, 255, 0.08);
   --pm-drawer-border-collapsed: rgba(255, 255, 255, 0.06);
   --pm-drawer-scrim:            transparent;
+
+  /* Indigo-Standard */
+  --pm-v-bg:             #0b1220;
+  --pm-v-panel-left:     #0f1a2a;
+  --pm-v-panel-mid:      #111f33;
+  --pm-v-panel-right:    #0c1626;
+  --pm-v-card:           #162a44;
+  --pm-v-card-hover:     #1b3556;
+  --pm-v-card-active:    #22406a;
+  --pm-v-sidebar-active: #1c2b40;
+  --pm-drawer-bg-expanded:  rgba(28, 37, 51, 0.96);
+  --pm-drawer-bg-collapsed: rgba(28, 37, 51, 0.90);
+  --pm-appbar-bg:        #303970;
+
+  /* Semantische Zuweisung */
+  --pm-app-surface:          var(--pm-v-bg);
+  --pm-content-surface:      var(--pm-v-panel-mid);
+  --pm-sidebar-surface:      var(--pm-v-panel-left);
+  --pm-viewer-surface:       var(--pm-v-panel-right);
+  --pm-app-surface-raised:   var(--pm-v-card);
+  --pm-app-surface-contrast: var(--pm-v-card);
+  --pm-pdf-stage-bg:         var(--pm-v-panel-right);
+  --pm-sidebar-hover:        var(--pm-v-card-hover);
+  --pm-sidebar-active:       var(--pm-v-sidebar-active);
+  --pm-row-hover:            var(--pm-v-card-hover);
+  --pm-row-active:           var(--pm-v-card-active);
+}
+
+/* ── Forest Dark ───────────────────────────────────────────────────────────── */
+.papermind-app.v-theme--dark[data-color-variant="forest"] {
+  --v-theme-primary:     34, 197, 94;
+  --pm-text:             rgba(228, 237, 231, 0.92);
+  --pm-muted:            rgba(228, 237, 231, 0.60);
+  --pm-v-bg:             #0a1a0f;
+  --pm-v-panel-left:     #0c1d12;
+  --pm-v-panel-mid:      #0f2318;
+  --pm-v-panel-right:    #0b1a10;
+  --pm-v-card:           #163320;
+  --pm-v-card-hover:     #1e4a2e;
+  --pm-v-card-active:    #265a38;
+  --pm-v-sidebar-active: #162c1e;
+  --pm-drawer-bg-expanded:  rgba(15, 35, 24, 0.96);
+  --pm-drawer-bg-collapsed: rgba(15, 35, 24, 0.90);
+  --pm-appbar-bg:        #14532d;
+}
+
+/* ── Teal Dark ────────────────────────────────────────────────────────────── */
+.papermind-app.v-theme--dark[data-color-variant="teal"] {
+  --v-theme-primary:     45, 212, 191;
+  --pm-text:             rgba(226, 239, 236, 0.92);
+  --pm-muted:            rgba(226, 239, 236, 0.60);
+  --pm-v-bg:             #071917;
+  --pm-v-panel-left:     #0a1f1d;
+  --pm-v-panel-mid:      #0d2422;
+  --pm-v-panel-right:    #081c1a;
+  --pm-v-card:           #143632;
+  --pm-v-card-hover:     #1f4f4a;
+  --pm-v-card-active:    #28625c;
+  --pm-v-sidebar-active: #15302d;
+  --pm-drawer-bg-expanded:  rgba(13, 36, 34, 0.96);
+  --pm-drawer-bg-collapsed: rgba(13, 36, 34, 0.90);
+  --pm-appbar-bg:        #115e59;
+}
+
+/* ── Slate Dark ────────────────────────────────────────────────────────────── */
+.papermind-app.v-theme--dark[data-color-variant="slate"] {
+  --v-theme-primary:     148, 163, 184;
+  --pm-text:             rgba(229, 234, 242, 0.92);
+  --pm-muted:            rgba(229, 234, 242, 0.60);
+  --pm-v-bg:             #0b1220;
+  --pm-v-panel-left:     #0f172a;
+  --pm-v-panel-mid:      #111827;
+  --pm-v-panel-right:    #0b1322;
+  --pm-v-card:           #1e293b;
+  --pm-v-card-hover:     #334155;
+  --pm-v-card-active:    #3d4b63;
+  --pm-v-sidebar-active: #263449;
+  --pm-drawer-bg-expanded:  rgba(17, 24, 39, 0.96);
+  --pm-drawer-bg-collapsed: rgba(17, 24, 39, 0.90);
+  --pm-appbar-bg:        #1e293b;
+}
+
+/* ── Stone Dark ────────────────────────────────────────────────────────────── */
+.papermind-app.v-theme--dark[data-color-variant="stone"] {
+  --v-theme-primary:     168, 162, 158;
+  --pm-text:             rgba(238, 234, 228, 0.92);
+  --pm-muted:            rgba(238, 234, 228, 0.60);
+  --pm-v-bg:             #151412;
+  --pm-v-panel-left:     #1a1816;
+  --pm-v-panel-mid:      #1f1d1a;
+  --pm-v-panel-right:    #171512;
+  --pm-v-card:           #2b2824;
+  --pm-v-card-hover:     #44403a;
+  --pm-v-card-active:    #555047;
+  --pm-v-sidebar-active: #37322d;
+  --pm-drawer-bg-expanded:  rgba(31, 29, 26, 0.96);
+  --pm-drawer-bg-collapsed: rgba(31, 29, 26, 0.90);
+  --pm-appbar-bg:        #292524;
 }
 
 /* ── Animationen deaktiviert ───────────────────────────────────────────────── */

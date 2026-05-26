@@ -3,6 +3,7 @@ import unittest
 from pydantic import ValidationError
 
 from app.schemas.settings import AppSettingsPatch, AppSettingsRead
+from app.services.settings import _merge_defaults
 
 
 class SettingsValidationTest(unittest.TestCase):
@@ -13,6 +14,18 @@ class SettingsValidationTest(unittest.TestCase):
     def test_theme_mode_rejects_invalid_value(self) -> None:
         with self.assertRaises(ValidationError):
             AppSettingsPatch.model_validate({"ui": {"theme_mode": "blue"}})
+
+    def test_color_variant_accepts_valid_values(self) -> None:
+        payload = AppSettingsPatch.model_validate({"ui": {"color_variant": "slate"}})
+        self.assertEqual(payload.ui.color_variant.value, "slate")
+
+    def test_color_variant_rejects_invalid_value(self) -> None:
+        with self.assertRaises(ValidationError):
+            AppSettingsPatch.model_validate({"ui": {"color_variant": "neon"}})
+
+    def test_legacy_color_variant_falls_back_to_default(self) -> None:
+        payload = _merge_defaults({"ui": {"color_variant": "rose"}})
+        self.assertEqual(payload["ui"]["color_variant"], "slate")
 
     def test_sort_order_accepts_valid_values(self) -> None:
         payload = AppSettingsPatch.model_validate({"documents": {"sort_order": "last_opened"}})
@@ -47,6 +60,7 @@ class SettingsValidationTest(unittest.TestCase):
     def test_ui_new_toggle_defaults_present_in_read_model(self) -> None:
         payload = AppSettingsRead.model_validate({})
         self.assertIs(payload.ui.showFilenameSuffix, True)
+        self.assertEqual(payload.ui.color_variant.value, "slate")
         self.assertIs(payload.ui.drawerRememberState, True)
         self.assertIs(payload.ui.drawerAlwaysExpanded, False)
         self.assertEqual(payload.documents.recent_import_window_hours, 24)

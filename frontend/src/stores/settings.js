@@ -7,6 +7,7 @@ import {
 } from '../constants/promptDefaults.js';
 
 const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
+const COLOR_VARIANT_VALUES = new Set(['indigo', 'forest', 'teal', 'slate', 'stone']);
 const SORT_ORDER_VALUES = new Set([
   'newest',
   'oldest',
@@ -79,6 +80,7 @@ function createDefaultSettings() {
   return {
     ui: {
       theme_mode: 'system',
+      color_variant: 'slate',
       showFilenameSuffix: true,
       drawerRememberState: true,
       drawerAlwaysExpanded: false
@@ -188,6 +190,7 @@ export const useSettingsStore = defineStore('settings', {
       isSettingsLoading: false,
       isSettingSaving: {
         theme_mode: false,
+        color_variant: false,
         auto_ocr: false,
         auto_tagging: false,
         sort_order: false,
@@ -233,6 +236,7 @@ export const useSettingsStore = defineStore('settings', {
     normalizeSettingsPayload(payload) {
       const defaults = createDefaultSettings();
       const rawThemeMode = String(payload?.ui?.theme_mode || '').toLowerCase();
+      const rawColorVariant = String(payload?.ui?.color_variant || '').toLowerCase();
       const rawSortOrder = String(payload?.documents?.sort_order || '').toLowerCase();
       const rawRecentImportWindow = Number(payload?.documents?.recent_import_window_hours);
       const rawTrashRetentionDays = Number(payload?.documents?.trash_retention_days);
@@ -257,6 +261,7 @@ export const useSettingsStore = defineStore('settings', {
       return {
         ui: {
           theme_mode: THEME_MODE_VALUES.has(rawThemeMode) ? rawThemeMode : defaults.ui.theme_mode,
+          color_variant: COLOR_VARIANT_VALUES.has(rawColorVariant) ? rawColorVariant : defaults.ui.color_variant,
           showFilenameSuffix:
             typeof payload?.ui?.showFilenameSuffix === 'boolean'
               ? payload.ui.showFilenameSuffix

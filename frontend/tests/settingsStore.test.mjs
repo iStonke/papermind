@@ -40,3 +40,25 @@ test("patchSettings normalizes an empty API base URL", async () => {
   assert.equal(calls[0].options.method, "PATCH");
   assert.equal(calls[0].options.body, JSON.stringify({ ui: { theme_mode: "dark" } }));
 });
+
+test("normalizeSettingsPayload preserves supported color variants", () => {
+  setActivePinia(createPinia());
+  const store = useSettingsStore();
+
+  const normalized = store.normalizeSettingsPayload({
+    ui: { theme_mode: "light", color_variant: "stone" },
+  });
+
+  assert.equal(normalized.ui.color_variant, "stone");
+});
+
+test("normalizeSettingsPayload falls back to default color variant", () => {
+  setActivePinia(createPinia());
+  const store = useSettingsStore();
+
+  const normalized = store.normalizeSettingsPayload({
+    ui: { theme_mode: "light", color_variant: "neon" },
+  });
+
+  assert.equal(normalized.ui.color_variant, "slate");
+});

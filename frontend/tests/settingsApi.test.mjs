@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildAutoOcrPatch,
   buildAutoTaggingPatch,
+  buildColorVariantPatch,
   buildRecentImportWindowPatch,
   buildSortOrderPatch,
   buildThemeModePatch,
@@ -13,6 +14,12 @@ import {
 test("buildThemeModePatch returns expected payload", () => {
   assert.deepEqual(buildThemeModePatch("dark"), {
     ui: { theme_mode: "dark" },
+  });
+});
+
+test("buildColorVariantPatch returns expected payload", () => {
+  assert.deepEqual(buildColorVariantPatch("forest"), {
+    ui: { color_variant: "forest" },
   });
 });
 

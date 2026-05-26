@@ -1,5 +1,9 @@
 <template>
-  <v-app class="papermind-app" :class="{ 'pm-no-animations': !settingsStore.animationsEnabled }">
+  <v-app
+    class="papermind-app"
+    :class="{ 'pm-no-animations': !settingsStore.animationsEnabled }"
+    :data-color-variant="appColorVariant"
+  >
     <v-app-bar class="app-topbar" flat height="64">
       <div class="appbar-layout">
         <div class="appbar-left app-title">
@@ -561,6 +565,7 @@ import { useSearch } from './composables/useSearch';
 import { SHORTCUT_ACTIONS, handleShortcut } from './keyboard/shortcuts';
 import { getBaseUrl } from './api/client.js';
 import { claimImportInboxItems, getImportInbox } from './api/importInbox.js';
+import { applyPaperMindVuetifyColors, resolvePaperMindColorVariant } from './theme/tokens';
 
 const PdfPreview = defineAsyncComponent(() => import('./components/PdfPreview.vue'));
 
@@ -605,6 +610,7 @@ const { notify } = useNotifications();
 const settingsStore = useSettingsStore();
 const appSettings = computed(() => settingsStore.settings);
 const settingsDraft = settingsStore.settingsDraft;
+const appColorVariant = computed(() => resolvePaperMindColorVariant(settingsDraft.ui.color_variant));
 const showPdfSuffix = computed(() => settingsStore.settingsDraft.ui.showFilenameSuffix);
 
 // ── Domain Stores ────────────────────────────────────────────────────────
@@ -1114,16 +1120,25 @@ let shouldSkipTagNameSync = false;
 const previewRetryAttemptsByDocument = ref({});
 
 function resolveThemeName(mode) {
-  if (mode === 'light' || mode === 'dark') {
-    return mode;
-  }
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  return prefersDark ? 'dark' : 'light';
+  if (mode === 'light' || mode === 'dark') return mode;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function applyColorVariant(variant) {
+  applyPaperMindVuetifyColors(theme, variant);
 }
 
 function applyThemeFromSettings() {
   theme.global.name.value = resolveThemeName(appSettings.value.ui.theme_mode);
+  applyColorVariant(appSettings.value.ui.color_variant || 'slate');
 }
+
+watch(
+  () => settingsStore.settingsDraft.ui.color_variant,
+  (variant) => {
+    applyColorVariant(variant || 'slate');
+  }
+);
 
 // ── Sidebar-Counts ────────────────────────────────────────────────────────
 
@@ -3341,7 +3356,7 @@ onBeforeUnmount(() => {
 
 .app-topbar {
   color: rgba(248, 250, 255, 0.96) !important;
-  background: rgb(var(--pm-indigo-rgb)) !important;
+  background: var(--pm-appbar-bg) !important;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: none;
 }
@@ -3642,8 +3657,8 @@ onBeforeUnmount(() => {
 }
 
 .ai-suggestion-card:hover {
-  background: rgba(var(--pm-indigo-rgb), 0.08);
-  border-color: rgba(var(--pm-indigo-rgb), 0.28);
+  background: rgba(var(--v-theme-primary), 0.08);
+  border-color: rgba(var(--v-theme-primary), 0.28);
 }
 
 .ai-chat-panel {
@@ -3714,8 +3729,8 @@ onBeforeUnmount(() => {
 .ai-message--user .ai-message__bubble {
   justify-self: end;
   max-width: min(760px, 92%);
-  background: rgba(var(--pm-indigo-rgb), 0.1);
-  border: 1px solid rgba(var(--pm-indigo-rgb), 0.22);
+  background: rgba(var(--v-theme-primary), 0.1);
+  border: 1px solid rgba(var(--v-theme-primary), 0.22);
 }
 
 .ai-message--assistant .ai-message__bubble {
@@ -3819,7 +3834,7 @@ onBeforeUnmount(() => {
 }
 
 .list-toolbar__search :deep(.v-field--focused) {
-  box-shadow: inset 0 0 0 1px rgba(var(--pm-indigo-rgb), 0.34);
+  box-shadow: inset 0 0 0 1px rgba(var(--v-theme-primary), 0.34);
 }
 
 .list-toolbar__upload-hint {
@@ -3889,8 +3904,9 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
-.menu-item--danger :deep(.v-list-item-title),
-.menu-item--danger :deep(.v-icon) {
+.menu-item--danger .v-list-item-title,
+.menu-item--danger .v-list-item__prepend,
+.menu-item--danger .v-icon {
   color: rgb(var(--v-theme-error)) !important;
   opacity: 1;
 }
@@ -3903,9 +3919,9 @@ onBeforeUnmount(() => {
   bottom: 10px;
   z-index: 4;
   pointer-events: none;
-  border: 1px dashed rgba(var(--pm-indigo-rgb), 0.36);
+  border: 1px dashed rgba(var(--v-theme-primary), 0.36);
   border-radius: 10px;
-  background: rgba(var(--pm-indigo-rgb), 0.07);
+  background: rgba(var(--v-theme-primary), 0.07);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3917,7 +3933,7 @@ onBeforeUnmount(() => {
   gap: 8px;
   padding: 8px 12px;
   border-radius: 999px;
-  border: 1px solid rgba(var(--pm-indigo-rgb), 0.24);
+  border: 1px solid rgba(var(--v-theme-primary), 0.24);
   background: rgba(var(--v-theme-surface), 0.78);
   font-size: 0.82rem;
   font-weight: 600;
@@ -3937,24 +3953,32 @@ onBeforeUnmount(() => {
 .settings-theme-segmented {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
+  gap: 8px;
+  padding: 4px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+  border-radius: 14px;
+  background: rgba(var(--v-theme-on-surface), 0.035);
 }
 
 .settings-theme-segmented__item {
-  min-height: 36px;
-  border-radius: 10px;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.2);
-  background: rgba(var(--v-theme-surface-variant), 0.3);
-  color: rgba(var(--v-theme-on-surface), 0.88);
+  min-height: 40px;
+  border-radius: 11px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(var(--v-theme-on-surface), 0.72);
   font-size: 0.84rem;
   font-weight: 600;
   cursor: pointer;
-  transition: border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease;
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    color 0.16s ease,
+    box-shadow 0.16s ease;
 }
 
 .settings-theme-segmented__item:hover:not(:disabled) {
-  border-color: rgba(var(--v-theme-primary), 0.42);
-  background: rgba(var(--v-theme-primary), 0.12);
+  background: rgba(var(--v-theme-on-surface), 0.055);
+  color: rgba(var(--v-theme-on-surface), 0.9);
 }
 
 .settings-theme-segmented__item:disabled {
@@ -3963,9 +3987,60 @@ onBeforeUnmount(() => {
 }
 
 .settings-theme-segmented__item--active {
-  border-color: rgba(var(--v-theme-primary), 0.72);
-  background: rgba(var(--v-theme-primary), 0.2);
+  border-color: rgba(var(--v-theme-primary), 0.32);
+  background: rgba(var(--v-theme-primary), 0.16);
   color: rgb(var(--v-theme-on-surface));
+  box-shadow: 0 1px 5px rgba(var(--v-theme-primary), 0.16);
+}
+
+/* ── Farbvarianten-Picker ───────────────────────────────────────────────────── */
+.settings-color-variant-picker {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.settings-color-variant-picker__item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
+  padding: 0;
+  border-radius: 12px;
+  border: 2px solid transparent;
+  background: rgba(var(--v-theme-on-surface), 0.04);
+  cursor: pointer;
+  transition: border-color 0.16s ease, background-color 0.16s ease, transform 0.12s ease;
+}
+
+.settings-color-variant-picker__item:hover:not(:disabled) {
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  transform: translateY(-1px);
+}
+
+.settings-color-variant-picker__item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.settings-color-variant-picker__item--active {
+  border-color: var(--variant-color);
+  background: color-mix(in srgb, var(--variant-color) 12%, transparent);
+}
+
+.settings-color-variant-picker__swatch {
+  display: block;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--variant-color);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--variant-color) 40%, transparent);
+  transition: box-shadow 0.16s ease;
+}
+
+.settings-color-variant-picker__item--active .settings-color-variant-picker__swatch {
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--variant-color) 55%, transparent);
 }
 
 .pm-settings-sections {
@@ -4291,7 +4366,7 @@ onBeforeUnmount(() => {
   bottom: 6px;
   width: 0;
   border-radius: 3px;
-  background: rgba(var(--pm-indigo-rgb), 0.95);
+  background: rgba(var(--v-theme-primary), 0.95);
   opacity: 0;
   transition: opacity 0.16s ease, width 0.16s ease;
 }
@@ -4314,8 +4389,8 @@ onBeforeUnmount(() => {
   max-width: 100%;
   padding: 2px 10px;
   border-radius: 999px;
-  background: rgba(var(--pm-indigo-rgb), 0.13);
-  color: rgba(var(--pm-indigo-rgb), 0.94);
+  background: rgba(var(--v-theme-primary), 0.13);
+  color: rgba(var(--v-theme-primary), 0.94);
   font-size: 0.82rem;
   font-weight: 500;
   line-height: 1.35;
@@ -4326,11 +4401,11 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-item--tag:hover .sidebar-tag-pill {
-  background: rgba(var(--pm-indigo-rgb), 0.18);
+  background: rgba(var(--v-theme-primary), 0.18);
 }
 
 .sidebar-item--tag.v-list-item--active .sidebar-tag-pill {
-  background: rgba(var(--pm-indigo-rgb), 0.24);
+  background: rgba(var(--v-theme-primary), 0.24);
 }
 
 .sidebar-folder-menu-btn {
@@ -4371,7 +4446,7 @@ onBeforeUnmount(() => {
 }
 
 .tags-view-search__action-btn--create {
-  color: rgba(var(--pm-indigo-rgb), 0.96);
+  color: rgba(var(--v-theme-primary), 0.96);
 }
 
 .tags-view-toolbar__hint {
@@ -4658,21 +4733,22 @@ onBeforeUnmount(() => {
 }
 
 .papermind-app.v-theme--dark .topbar-btn--import {
-  background: #4a5586;
-  border-color: #616da8;
+  background: color-mix(in srgb, var(--pm-appbar-bg) 72%, white 28%);
+  border-color: color-mix(in srgb, var(--pm-appbar-bg) 54%, white 46%);
 }
 
 .papermind-app.v-theme--dark .topbar-btn--import:hover {
-  background: #536099;
+  background: color-mix(in srgb, var(--pm-appbar-bg) 64%, white 36%);
 }
 
 .papermind-app.v-theme--dark .topbar-btn--ghost:hover,
 .papermind-app.v-theme--dark .topbar-btn--icon:hover {
-  background: #485380;
+  background: color-mix(in srgb, var(--pm-appbar-bg) 70%, white 30%);
 }
 
 .papermind-app.v-theme--dark .topbar-btn--active {
-  background: #56639b;
+  background: color-mix(in srgb, var(--pm-appbar-bg) 58%, white 42%);
+  border-color: color-mix(in srgb, var(--pm-appbar-bg) 48%, white 52%);
 }
 
 .papermind-app.v-theme--dark .document-row__meta,
@@ -4681,20 +4757,20 @@ onBeforeUnmount(() => {
 }
 
 .papermind-app.v-theme--dark .document-row:hover {
-  background: var(--pm-dark-card-active);
-  border-color: rgba(147, 167, 255, 0.18);
+  background: var(--pm-row-hover);
+  border-color: rgba(var(--v-theme-primary), 0.28);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.26);
 }
 
 .papermind-app.v-theme--dark .document-row--active {
-  background: var(--pm-dark-card-active);
-  border-color: rgba(96, 165, 250, 0.3);
-  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.18), 0 5px 16px rgba(0, 0, 0, 0.28);
+  background: var(--pm-row-active);
+  border-color: rgba(var(--v-theme-primary), 0.44);
+  box-shadow: 0 0 0 1px rgba(var(--v-theme-primary), 0.18), 0 5px 16px rgba(0, 0, 0, 0.28);
 }
 
 .papermind-app.v-theme--dark .document-row--active:hover {
-  background: var(--pm-dark-card-active);
-  border-color: rgba(96, 165, 250, 0.34);
+  background: var(--pm-row-active);
+  border-color: rgba(var(--v-theme-primary), 0.5);
 }
 
 .papermind-app.v-theme--dark .panel-left::before,
@@ -4750,7 +4826,7 @@ onBeforeUnmount(() => {
   height: 7px;
   flex: 0 0 7px;
   border-radius: 999px;
-  background: rgba(var(--pm-indigo-rgb), 0.96);
+  background: rgba(var(--v-theme-primary), 0.96);
 }
 
 .papermind-app.v-theme--dark .document-row__unread-dot {
@@ -4889,8 +4965,8 @@ onBeforeUnmount(() => {
 
 .document-row__ocr-chip {
   opacity: 0.9;
-  border-color: rgba(var(--pm-indigo-rgb), 0.32);
-  color: rgba(var(--pm-indigo-rgb), 0.92);
+  border-color: rgba(var(--v-theme-primary), 0.32);
+  color: rgba(var(--v-theme-primary), 0.92);
 }
 
 .papermind-app.v-theme--dark .document-row__ocr-chip {

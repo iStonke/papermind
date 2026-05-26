@@ -25,13 +25,45 @@
           <div class="pm-settings-content">
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
-                <div class="pm-setting-label">Theme-Modus</div>
+                <div class="pm-setting-label">Farbvariation</div>
+                <div class="pm-setting-description">Akzentfarbe der gesamten Oberfläche.</div>
+              </div>
+              <div
+                class="settings-color-variant-picker"
+                role="radiogroup"
+                aria-label="Farbvariante auswählen"
+              >
+                <button
+                  v-for="option in colorVariantOptions"
+                  :key="`variant-${option.value}`"
+                  type="button"
+                  class="settings-color-variant-picker__item"
+                  :class="{ 'settings-color-variant-picker__item--active': currentColorVariant === option.value }"
+                  :style="{ '--variant-color': option.color }"
+                  role="radio"
+                  :aria-label="`Farbvariante: ${option.label}`"
+                  :aria-checked="currentColorVariant === option.value"
+                  :disabled="isSettingSaving.color_variant"
+                  :title="option.label"
+                  @click="onColorVariantChange(option.value)"
+                  @pointerup.prevent="onColorVariantChange(option.value)"
+                  @keydown.enter.prevent="onColorVariantChange(option.value)"
+                  @keydown.space.prevent="onColorVariantChange(option.value)"
+                >
+                  <span class="settings-color-variant-picker__swatch" />
+                </button>
+              </div>
+            </div>
+
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Thema</div>
                 <div class="pm-setting-description">Hell, dunkel oder entsprechend Systemeinstellung.</div>
               </div>
               <div
                 class="settings-theme-segmented"
                 role="radiogroup"
-                aria-label="Theme-Modus auswählen"
+                aria-label="Thema auswählen"
                 @keydown="handleThemeModeShortcut"
               >
                 <button
@@ -41,7 +73,7 @@
                   class="settings-theme-segmented__item"
                   :class="{ 'settings-theme-segmented__item--active': settingsDraft.ui.theme_mode === option.value }"
                   role="radio"
-                  :aria-label="`Theme: ${option.label}`"
+                  :aria-label="`Thema: ${option.label}`"
                   :aria-checked="settingsDraft.ui.theme_mode === option.value"
                   :disabled="isSettingSaving.theme_mode"
                   @click="onThemeModeChange(option.value)"
@@ -314,6 +346,7 @@ import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
 import {
   buildAutoOcrPatch,
   buildAutoTaggingPatch,
+  buildColorVariantPatch,
   buildDrawerAlwaysExpandedPatch,
   buildDrawerRememberStatePatch,
   buildRecentImportWindowPatch,
@@ -340,12 +373,14 @@ const isSettingSaving = settingsStore.isSettingSaving;
 const isSettingsLoading = computed(() => settingsStore.isSettingsLoading);
 const animationsEnabled = computed(() => settingsStore.animationsEnabled);
 
+const currentColorVariant = computed(() => settingsStore.settingsDraft.ui.color_variant || 'slate');
+
 // ── Konstanten ───────────────────────────────────────────────────────────────
 
 const themeModeOptions = [
   { label: 'Hell', value: 'light' },
-  { label: 'System', value: 'system' },
-  { label: 'Dunkel', value: 'dark' }
+  { label: 'Dunkel', value: 'dark' },
+  { label: 'System', value: 'system' }
 ];
 
 const sortOrderOptions = [
@@ -374,6 +409,7 @@ const trashRetentionOptions = [
 ];
 
 const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
+const COLOR_VARIANT_VALUES = new Set(['indigo', 'forest', 'teal', 'slate', 'stone']);
 const SETTINGS_SORT_ORDER_VALUES = new Set(['newest', 'oldest', 'name_asc', 'name_desc', 'last_opened']);
 const RECENT_IMPORT_WINDOW_VALUES = new Set(recentImportWindowOptions.map((e) => e.value));
 const TRASH_RETENTION_VALUES = new Set(trashRetentionOptions.map((e) => e.value));
@@ -436,6 +472,31 @@ async function onThemeModeChange(nextValue) {
     revert: () => {
       settingsStore.setDraftPatch({ ui: { theme_mode: previousMode } });
       applyTheme(previousMode);
+    }
+  });
+}
+
+// ── Farbvariante ─────────────────────────────────────────────────────────────
+
+const colorVariantOptions = [
+  { label: 'Steingrau', value: 'stone', color: '#57534E' },
+  { label: 'Schieferblau', value: 'slate', color: '#475569' },
+  { label: 'Indigo', value: 'indigo',  color: '#2563EB' },
+  { label: 'Waldgrün', value: 'forest',  color: '#16A34A' },
+  { label: 'Teal',  value: 'teal',   color: '#0F766E' }
+];
+
+async function onColorVariantChange(nextValue) {
+  if (isSettingSaving.color_variant) return;
+  const nextVariant = COLOR_VARIANT_VALUES.has(String(nextValue)) ? String(nextValue) : 'slate';
+  if (nextVariant === currentColorVariant.value) return;
+  const previousVariant = currentColorVariant.value;
+  settingsStore.setDraftPatch({ ui: { color_variant: nextVariant } });
+  await patchSettingsWithRevert({
+    patch: buildColorVariantPatch(nextVariant),
+    controlKey: 'color_variant',
+    revert: () => {
+      settingsStore.setDraftPatch({ ui: { color_variant: previousVariant } });
     }
   });
 }

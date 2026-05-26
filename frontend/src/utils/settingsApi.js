@@ -2,6 +2,10 @@ export function buildThemeModePatch(themeMode) {
   return { ui: { theme_mode: themeMode } };
 }
 
+export function buildColorVariantPatch(colorVariant) {
+  return { ui: { color_variant: colorVariant } };
+}
+
 export function buildShowFilenameSuffixPatch(enabled) {
   return { ui: { showFilenameSuffix: Boolean(enabled) } };
 }

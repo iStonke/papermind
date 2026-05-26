@@ -118,11 +118,11 @@ function typeIcon(type) {
 }
 
 .notification-card--info .notification-card__accent {
-  background: rgba(var(--pm-indigo-rgb, 48, 57, 112), 0.62);
+  background: rgba(var(--v-theme-primary), 0.62);
 }
 
 .notification-card--info .notification-card__icon {
-  color: rgba(var(--pm-indigo-rgb, 48, 57, 112), 0.95);
+  color: rgba(var(--v-theme-primary), 0.95);
 }
 
 .notification-card--warning .notification-card__accent {

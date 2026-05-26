@@ -84,6 +84,14 @@ class ThemeMode(str, Enum):
     system = "system"
 
 
+class ColorVariant(str, Enum):
+    indigo = "indigo"
+    forest = "forest"
+    teal = "teal"
+    slate = "slate"
+    stone = "stone"
+
+
 class DocumentSortOrder(str, Enum):
     newest = "newest"
     oldest = "oldest"
@@ -103,6 +111,7 @@ class OCREngine(str, Enum):
 
 class UISettingsRead(BaseModel):
     theme_mode: ThemeMode = ThemeMode.system
+    color_variant: ColorVariant = ColorVariant.slate
     showFilenameSuffix: bool = True
     drawerRememberState: bool = True
     drawerAlwaysExpanded: bool = False
@@ -188,6 +197,7 @@ class AppSettingsRead(BaseModel):
 
 class UISettingsPatch(BaseModel):
     theme_mode: ThemeMode | None = None
+    color_variant: ColorVariant | None = None
     showFilenameSuffix: bool | None = None
     drawerRememberState: bool | None = None
     drawerAlwaysExpanded: bool | None = None
