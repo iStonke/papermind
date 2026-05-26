@@ -12,5 +12,8 @@ frontend/dist
 **/.venv
 .pycache/
 
+# Local scan drop folder shared via SMB
+scan-inbox/
+
 # OS
 .DS_Store

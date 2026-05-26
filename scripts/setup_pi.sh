@@ -7,9 +7,10 @@
 #    3. Docker + Docker Compose
 #    4. Repo klonen / aktualisieren
 #    5. .env interaktiv konfigurieren
-#    6. Docker-Autostart einrichten
-#    7. Images bauen & Stack starten
-#    8. Statusprüfung
+#    6. SMB-Scanordner einrichten
+#    7. Docker-Autostart einrichten
+#    8. Images bauen & Stack starten
+#    9. Statusprüfung
 #
 #  Verwendung:
 #    chmod +x scripts/setup_pi.sh
@@ -49,7 +50,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ── 1. Systemprüfung ──────────────────────────────────────────────────────────
-header "1 / 8  Systemprüfung"
+header "1 / 9  Systemprüfung"
 
 # Architektur
 ARCH=$(uname -m)
@@ -81,7 +82,7 @@ if [[ "$EUID" -eq 0 ]]; then
 fi
 
 # ── 2. System-Updates & Abhängigkeiten ────────────────────────────────────────
-header "2 / 8  System-Updates & Abhängigkeiten"
+header "2 / 9  System-Updates & Abhängigkeiten"
 
 log "apt update + upgrade ..."
 sudo apt-get update -qq
@@ -92,12 +93,12 @@ sudo apt-get install -y -qq \
   git curl wget ca-certificates gnupg \
   htop unzip openssl \
   lsb-release apt-transport-https \
-  software-properties-common
+  samba
 
 success "Systempakete installiert"
 
 # ── 3. Docker ─────────────────────────────────────────────────────────────────
-header "3 / 8  Docker & Docker Compose"
+header "3 / 9  Docker & Docker Compose"
 
 if command -v docker &>/dev/null; then
   DOCKER_VERSION=$(docker --version | awk '{print $3}' | tr -d ',')
@@ -137,7 +138,7 @@ else
 fi
 
 # ── 4. Repo klonen / aktualisieren ────────────────────────────────────────────
-header "4 / 8  Repository"
+header "4 / 9  Repository"
 
 if [[ -d "$REPO_DIR/.git" ]]; then
   log "Repo bereits vorhanden in $REPO_DIR – aktualisiere ..."
@@ -161,7 +162,7 @@ else
 fi
 
 # ── 5. .env konfigurieren ─────────────────────────────────────────────────────
-header "5 / 8  .env Konfiguration"
+header "5 / 9  .env Konfiguration"
 
 ENV_FILE="$REPO_DIR/.env"
 ENV_EXAMPLE="$REPO_DIR/.env.example"
@@ -227,15 +228,75 @@ fi
 # .env laden für spätere Ausgabe
 set -a; source "$ENV_FILE"; set +a
 
-# ── 6. Docker-Autostart ───────────────────────────────────────────────────────
-header "6 / 8  Docker Autostart"
+# ── 6. SMB-Scanordner ────────────────────────────────────────────────────────
+header "6 / 9  SMB Scanordner"
+
+SCAN_INBOX_DIR="$REPO_DIR/scan-inbox"
+SMB_SHARE_NAME="PaperMind Scans"
+sudo install -d -m 0770 -o "$USER" -g "$USER" "$SCAN_INBOX_DIR"
+success "Scanordner angelegt: $SCAN_INBOX_DIR"
+
+read -rp "    SMB-Freigabe '${SMB_SHARE_NAME}' für iPhone-Dateien-App einrichten? [J/n] " CONFIGURE_SMB
+if [[ "${CONFIGURE_SMB,,}" != "n" ]]; then
+  SMB_CONF="/etc/samba/smb.conf"
+  SMB_MARKER_BEGIN="# BEGIN PaperMind Scan Inbox"
+  SMB_MARKER_END="# END PaperMind Scan Inbox"
+
+  if sudo test -f "$SMB_CONF"; then
+    sudo cp "$SMB_CONF" "${SMB_CONF}.papermind.bak"
+  fi
+
+  sudo sed -i "/${SMB_MARKER_BEGIN}/,/${SMB_MARKER_END}/d" "$SMB_CONF"
+  sudo tee -a "$SMB_CONF" >/dev/null <<EOF
+
+${SMB_MARKER_BEGIN}
+[${SMB_SHARE_NAME}]
+   path = ${SCAN_INBOX_DIR}
+   browseable = yes
+   read only = no
+   guest ok = no
+   valid users = ${USER}
+   force user = ${USER}
+   create mask = 0660
+   directory mask = 0770
+   vfs objects = catia fruit streams_xattr
+   fruit:metadata = stream
+   fruit:model = MacSamba
+${SMB_MARKER_END}
+EOF
+
+  if ! sudo pdbedit -L 2>/dev/null | cut -d: -f1 | grep -qx "$USER"; then
+    echo ""
+    echo -e "  ${BOLD}SMB-Passwort für Benutzer '${USER}' festlegen.${RESET}"
+    echo "  Dieses Passwort gibst du später in der iOS Dateien-App ein."
+    read -rsp "  SMB-Passwort: " SMB_PASSWORD
+    echo ""
+    read -rsp "  SMB-Passwort wiederholen: " SMB_PASSWORD_REPEAT
+    echo ""
+    if [[ "$SMB_PASSWORD" != "$SMB_PASSWORD_REPEAT" || -z "$SMB_PASSWORD" ]]; then
+      error "SMB-Passwörter stimmen nicht überein oder sind leer."
+    fi
+    printf '%s\n%s\n' "$SMB_PASSWORD" "$SMB_PASSWORD" | sudo smbpasswd -s -a "$USER" >/dev/null
+  else
+    warn "SMB-Benutzer '${USER}' existiert bereits. Passwort bleibt unverändert."
+  fi
+
+  sudo systemctl enable smbd >/dev/null
+  sudo systemctl restart smbd
+  success "SMB-Freigabe aktiv: smb://$(hostname -I | awk '{print $1}')/${SMB_SHARE_NAME}"
+else
+  warn "SMB-Freigabe übersprungen. Der Ordner kann später manuell freigegeben werden."
+fi
+
+# ── 7. Docker-Autostart ───────────────────────────────────────────────────────
+header "7 / 9  Docker Autostart"
 
 sudo systemctl enable docker
 sudo systemctl start docker
 success "Docker-Dienst aktiviert und gestartet"
 
-# ── 7. Images bauen & Stack starten ──────────────────────────────────────────
-header "7 / 8  Docker Images bauen & Stack starten"
+# ── 8. Images bauen & Stack starten ──────────────────────────────────────────
+header "8 / 9  Docker Images bauen & Stack starten"
 
 cd "$REPO_DIR"
 
@@ -251,8 +312,8 @@ else
   success "Stack gestartet"
 fi
 
-# ── 8. Statusprüfung ─────────────────────────────────────────────────────────
-header "8 / 8  Statusprüfung"
+# ── 9. Statusprüfung ─────────────────────────────────────────────────────────
+header "9 / 9  Statusprüfung"
 
 if [[ "$NO_START" -eq 0 ]]; then
   log "Warte 15 Sekunden auf Healthchecks ..."
@@ -286,6 +347,7 @@ echo -e "${BOLD}${GREEN}━━━━━━━━━━━━━━━━━━�
 echo ""
 echo -e "  Frontend  →  ${CYAN}http://${DETECTED_IP}:${FRONTEND_PORT}${RESET}"
 echo -e "  Backend   →  ${CYAN}http://${DETECTED_IP}:${BACKEND_PORT}${RESET}"
+echo -e "  Scan SMB  →  ${CYAN}smb://${DETECTED_IP}/${SMB_SHARE_NAME}${RESET}"
 echo -e "  Repo      →  ${REPO_DIR}"
 echo ""
 echo -e "  Nützliche Befehle:"

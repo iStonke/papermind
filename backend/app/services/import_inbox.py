@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import UploadFile
 from sqlalchemy import func, select, update
@@ -63,6 +64,19 @@ class ImportInboxService:
             items=[self._read_item(item) for item in created],
             pending_count=self._pending_count(),
         )
+
+    def ingest_pdf_path(
+        self,
+        source_path: Path,
+        *,
+        original_name: str | None = None,
+        client_name: str | None = None,
+    ) -> ImportInboxUploadResponse:
+        path = Path(source_path).resolve()
+        filename = str(original_name or path.name or "Scan.pdf").strip() or "Scan.pdf"
+        with path.open("rb") as handle:
+            upload = UploadFile(filename=filename, file=handle)
+            return self.upload([upload], client_name=client_name)
 
     def list_pending(self, *, limit: int = 50) -> ImportInboxListResponse:
         normalized_limit = max(1, min(int(limit or 50), 200))

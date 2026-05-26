@@ -2,6 +2,8 @@
 
 Mit diesem Shortcut scannst du ein Dokument auf dem iPhone. PaperMind zeigt danach eine Badge am Importieren-Button und übernimmt den Scan in den bestehenden Import-Dialog.
 
+> Hinweis: Die native iOS-Shortcut-Aktion **Dokumente scannen** kann die gescannten Dokumente nicht zuverlässig an Folgeaktionen weitergeben. Für native iOS-Scans ist die SMB-Scan-Inbox der bevorzugte Weg: siehe `docs/smb-scan-inbox.md`.
+
 ---
 
 ## Voraussetzungen

@@ -136,6 +136,8 @@ services:
       STORAGE_PATH: ${STORAGE_PATH}
       WORKER_POLL_INTERVAL_SECONDS: ${WORKER_POLL_INTERVAL_SECONDS}
       WORKER_OCR_TIMEOUT_SECONDS: ${WORKER_OCR_TIMEOUT_SECONDS}
+      IMPORT_INBOX_DROP_PATH: ${IMPORT_INBOX_DROP_PATH:-/scan-inbox}
+      IMPORT_INBOX_FILE_STABLE_SECONDS: ${IMPORT_INBOX_FILE_STABLE_SECONDS:-3}
       AI_BASE_URL: ${AI_BASE_URL}
       INDEX_AUTO_ON_READY: ${INDEX_AUTO_ON_READY}
       EMBED_MODEL: ${EMBED_MODEL}
@@ -147,6 +149,7 @@ services:
     volumes:
       - ./backend/app:/app/app
       - pdf_storage:${STORAGE_PATH}
+      - ./scan-inbox:${IMPORT_INBOX_DROP_PATH:-/scan-inbox}
     depends_on:
       db:
         condition: service_healthy

@@ -26,6 +26,7 @@ from app.services.deduplication import DocumentDeduplicationService
 from app.services.document_dates import apply_ocr_document_date_result, extract_document_date_candidates
 from app.services.embeddings import EmbeddingService
 from app.services.documents import DocumentService
+from app.services.import_inbox import ImportInboxService
 from app.services.ocr_pipeline import run_ocr_pipeline
 from app.services.phone_scan_service import (
     PhoneScanJob,
@@ -52,6 +53,9 @@ logging.basicConfig(level=logging.INFO)
 AUTO_TAG_MAX_TAGS = 5
 AUTO_TAG_MAX_TEXT_CHARS = 6000
 TRASH_CLEANUP_INTERVAL_SECONDS = 3600
+IMPORT_INBOX_PROCESSED_DIR = ".papermind-processed"
+IMPORT_INBOX_PROCESSING_DIR = ".papermind-processing"
+IMPORT_INBOX_FAILED_DIR = ".papermind-failed"
 AUTO_TAG_STOPWORDS = {
     "aber",
     "alle",
@@ -349,6 +353,93 @@ def _cleanup_expired_trash() -> None:
                 logger.info("trash retention cleanup completed deleted_count=%s", deleted_count)
     except Exception as exc:  # pragma: no cover - defensive runtime cleanup
         logger.exception("trash retention cleanup failed err=%s", exc)
+
+
+def _import_inbox_drop_root() -> Path | None:
+    raw_path = str(settings.import_inbox_drop_path or "").strip()
+    if not raw_path:
+        return None
+    return Path(raw_path).resolve()
+
+
+def _import_inbox_subdir(name: str) -> Path | None:
+    root = _import_inbox_drop_root()
+    if root is None:
+        return None
+    return (root / name).resolve()
+
+
+def _safe_drop_filename(filename: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9._ -]+", "_", str(filename or "").strip()).strip(" .")
+    return normalized or "Scan.pdf"
+
+
+def _move_drop_file(source_path: Path, destination_dir: Path, *, prefix: str = "") -> Path:
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = _safe_drop_filename(source_path.name)
+    destination = (destination_dir / f"{prefix}{safe_name}").resolve()
+    if destination.exists():
+        stem = destination.stem
+        suffix = destination.suffix
+        destination = destination.with_name(f"{stem}-{uuid.uuid4().hex[:8]}{suffix}")
+    os.replace(source_path, destination)
+    return destination
+
+
+def _claim_next_import_inbox_pdf() -> tuple[Path, str] | None:
+    root = _import_inbox_drop_root()
+    processing_dir = _import_inbox_subdir(IMPORT_INBOX_PROCESSING_DIR)
+    if root is None or processing_dir is None:
+        return None
+    root.mkdir(parents=True, exist_ok=True)
+    processing_dir.mkdir(parents=True, exist_ok=True)
+
+    now = time.time()
+    stable_seconds = max(1, int(settings.import_inbox_file_stable_seconds))
+    candidates = sorted(
+        path
+        for path in root.iterdir()
+        if path.is_file() and not path.name.startswith(".") and path.suffix.lower() == ".pdf"
+    )
+    for source_path in candidates:
+        try:
+            stat = source_path.stat()
+        except OSError:
+            continue
+        if stat.st_size <= 0:
+            continue
+        if now - stat.st_mtime < stable_seconds:
+            continue
+        original_name = source_path.name
+        try:
+            claimed_path = _move_drop_file(source_path, processing_dir, prefix=f"{uuid.uuid4().hex}-")
+            return claimed_path, original_name
+        except OSError:
+            continue
+    return None
+
+
+def _process_import_inbox_drop_file(claimed_path: Path, original_name: str) -> None:
+    processed_dir = _import_inbox_subdir(IMPORT_INBOX_PROCESSED_DIR)
+    failed_dir = _import_inbox_subdir(IMPORT_INBOX_FAILED_DIR)
+    if processed_dir is None or failed_dir is None:
+        return
+    try:
+        with SessionLocal() as db:
+            result = ImportInboxService(db).ingest_pdf_path(
+                claimed_path,
+                original_name=original_name,
+                client_name="SMB",
+            )
+        created_count = len(result.items)
+        _move_drop_file(claimed_path, processed_dir)
+        logger.info("import inbox drop processed file=%s items=%s", original_name, created_count)
+    except Exception as exc:
+        logger.exception("import inbox drop failed file=%s err=%s", original_name, exc)
+        try:
+            _move_drop_file(claimed_path, failed_dir)
+        except OSError:
+            claimed_path.unlink(missing_ok=True)
 
 
 def _has_active_job(db, document_id: uuid.UUID, job_type: str) -> bool:
@@ -870,6 +961,12 @@ def run() -> None:
             _cleanup_expired_trash()
 
         _touch_phone_scan_heartbeat()
+        inbox_drop_file = _claim_next_import_inbox_pdf()
+        if inbox_drop_file is not None:
+            claimed_path, original_name = inbox_drop_file
+            _process_import_inbox_drop_file(claimed_path, original_name)
+            continue
+
         scan_manifest = _claim_next_phone_scan_manifest()
         if scan_manifest is not None:
             try:

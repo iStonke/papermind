@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     text_check_pages: int = Field(default=2, ge=1)
     worker_poll_interval_seconds: int = Field(default=3)
     worker_ocr_timeout_seconds: int = Field(default=900)
+    import_inbox_drop_path: str = Field(default="")
+    import_inbox_file_stable_seconds: int = Field(default=3, ge=1, le=120)
     search_query_max_length: int = Field(default=256)
     fts_language: Literal["german", "simple"] = Field(default="german")
     index_auto_on_ready: bool = Field(default=True)

@@ -326,6 +326,7 @@ Hinweis:
 ## UI (AP5)
 
 - AppBar enthält `Importieren`-Dialog (Modal, Multi-Upload-Queue).
+- iOS-Scans können über die SMB-Freigabe `PaperMind Scans` in `./scan-inbox` gespeichert werden; der Worker übernimmt stabile PDFs in die Import-Inbox und die App zeigt eine Badge am `Importieren`-Button. Details: `docs/smb-scan-inbox.md`.
 - Rechtes Panel zeigt OCR-Statuskarte mit Progress + Fehlertext.
 - Button `OCR starten` / `OCR erneut starten`.
 - Viewer-Toggle: `Original` / `OCR`.

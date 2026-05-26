@@ -7,11 +7,12 @@ die sofort ins Import-Staging eingestellt und automatisch committed werden.
 OCR startet anschließend automatisch.
 """
 
+import io
 import logging
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -42,32 +43,33 @@ def _filename_to_title(filename: str) -> str:
     return title[:200] or "Scan"
 
 
-def _verify_api_key(authorization: str | None = Header(default=None)) -> None:
-    """Prüft den Bearer-Token gegen DIRECT_UPLOAD_API_KEY aus der .env."""
+def _verify_api_key(
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+) -> None:
+    """Prüft den API-Key – akzeptiert Authorization: Bearer <token> oder X-Api-Key: <token>."""
     configured_key = settings.direct_upload_api_key.strip()
     if not configured_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Direct upload is not configured (DIRECT_UPLOAD_API_KEY not set).",
         )
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authorization header is required.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not token.strip():
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authorization header must use Bearer scheme.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    if token.strip() != configured_key:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid API key.",
-        )
+
+    # X-Api-Key Header (iOS Shortcut Standard)
+    if x_api_key and x_api_key.strip() == configured_key:
+        return
+
+    # Authorization: Bearer <token> (klassisch)
+    if authorization:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() == "bearer" and token.strip() == configured_key:
+            return
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Ungültiger oder fehlender API-Key.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 class DirectUploadResult(BaseModel):
@@ -92,14 +94,43 @@ class DirectUploadResult(BaseModel):
     description=(
         "Nimmt eine oder mehrere PDF-Dateien entgegen, stellt sie in das "
         "Import-Staging ein und committed sie automatisch. OCR startet danach "
-        "automatisch. Authentifizierung über Bearer-Token (DIRECT_UPLOAD_API_KEY)."
+        "automatisch. Authentifizierung über X-Api-Key oder Bearer-Token."
+        "Akzeptiert multipart/form-data (Feld 'files') oder rohen PDF-Body."
     ),
 )
-def direct_upload(
-    files: list[UploadFile] = File(..., description="Ein oder mehrere PDF-Dateien"),
+async def direct_upload(
+    request: Request,
     db: Session = Depends(get_db),
     _: None = Depends(_verify_api_key),
 ) -> DirectUploadResult:
+    content_type = request.headers.get("content-type", "")
+
+    # ── Roher PDF-Body (iOS Shortcut mit Haupttext: Datei) ────────────────────
+    if "multipart" not in content_type:
+        raw = await request.body()
+        if not raw:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Leerer Request-Body.",
+            )
+        fake_file = UploadFile(
+            filename="scan.pdf",
+            file=io.BytesIO(raw),
+            headers={"content-type": "application/pdf"},  # type: ignore[arg-type]
+        )
+        files = [fake_file]
+
+    # ── Multipart/form-data ───────────────────────────────────────────────────
+    else:
+        form = await request.form()
+        raw_files = form.getlist("files") or form.getlist("file")
+        files = [f for f in raw_files if isinstance(f, UploadFile)]
+        if not files:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Kein 'files'- oder 'file'-Feld im Formular gefunden.",
+            )
+
     if not files:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
