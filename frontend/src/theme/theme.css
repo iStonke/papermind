@@ -227,16 +227,16 @@
   --v-theme-primary:     148, 163, 184;
   --pm-text:             rgba(229, 234, 242, 0.92);
   --pm-muted:            rgba(229, 234, 242, 0.60);
-  --pm-v-bg:             #0b1220;
-  --pm-v-panel-left:     #0f172a;
-  --pm-v-panel-mid:      #111827;
-  --pm-v-panel-right:    #0b1322;
+  --pm-v-bg:             #111620;
+  --pm-v-panel-left:     #151c2a;
+  --pm-v-panel-mid:      #17202e;
+  --pm-v-panel-right:    #131924;
   --pm-v-card:           #1e293b;
-  --pm-v-card-hover:     #334155;
-  --pm-v-card-active:    #3d4b63;
-  --pm-v-sidebar-active: #263449;
-  --pm-drawer-bg-expanded:  rgba(17, 24, 39, 0.96);
-  --pm-drawer-bg-collapsed: rgba(17, 24, 39, 0.90);
+  --pm-v-card-hover:     #253247;
+  --pm-v-card-active:    #2d3c55;
+  --pm-v-sidebar-active: #1b2536;
+  --pm-drawer-bg-expanded:  rgba(23, 32, 46, 0.96);
+  --pm-drawer-bg-collapsed: rgba(23, 32, 46, 0.90);
   --pm-appbar-bg:        #1e293b;
 }
 

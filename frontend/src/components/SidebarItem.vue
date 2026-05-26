@@ -142,4 +142,9 @@ const isActionVisible = computed(() => {
   visibility: visible;
   pointer-events: auto;
 }
+
+/* Aktiver Eintrag: fett */
+.sidebar-item.v-list-item--active :deep(.v-list-item-title) {
+  font-weight: 600;
+}
 </style>

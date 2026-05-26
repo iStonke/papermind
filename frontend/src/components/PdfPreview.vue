@@ -584,27 +584,16 @@ onBeforeUnmount(() => {
 
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
 .pdf-preview__toolbar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 4;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 6px 14px;
-  border-bottom: 1px solid rgb(var(--v-theme-on-surface) / 0.08);
-  background: rgb(var(--v-theme-surface) / 0.54);
-  backdrop-filter: blur(12px) saturate(1.12);
-  -webkit-backdrop-filter: blur(12px) saturate(1.12);
+  padding: 5px 14px;
+  border-bottom: 1px solid var(--pm-divider);
+  background: var(--pm-drawer-bg-collapsed);
   gap: 12px;
-  min-height: 38px;
-}
-
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .pdf-preview__toolbar {
-    background: rgb(var(--v-theme-surface) / 0.82);
-  }
+  min-height: 36px;
+  box-sizing: border-box;
 }
 
 .pdf-preview__page-info {
@@ -701,7 +690,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   gap: 14px;
-  padding: 56px 14px 14px;
+  padding: 14px 14px 14px;
 }
 
 /* ── Einzelne Seite ─────────────────────────────────────────────────────── */

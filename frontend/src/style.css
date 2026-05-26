@@ -147,7 +147,10 @@ body.pm-modal-open .papermind-app.v-theme--dark {
 .pm-list-state-leave-active {
   backface-visibility: hidden;
   will-change: opacity;
-  transition: opacity 120ms var(--pm-easing-decel, cubic-bezier(0, 0, 0.2, 1));
+  transition: opacity 240ms var(--pm-easing-decel, cubic-bezier(0, 0, 0.2, 1));
+}
+.pm-list-state-enter-active {
+  transition-delay: 60ms;
 }
 .pm-list-state-leave-active {
   position: absolute;
