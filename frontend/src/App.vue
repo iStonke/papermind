@@ -117,6 +117,7 @@
         :auto-index="true"
         :auto-embed="true"
         @committed="onImportCommitted"
+        @discarded-sources="onImportSourcesDiscarded"
       />
       <input
         ref="importPdfInputRef"
@@ -565,7 +566,7 @@ import { useGlobalKeyboard } from './composables/useGlobalKeyboard';
 import { useSearch } from './composables/useSearch';
 import { SHORTCUT_ACTIONS, handleShortcut } from './keyboard/shortcuts';
 import { getBaseUrl } from './api/client.js';
-import { claimImportInboxItems, getImportInbox } from './api/importInbox.js';
+import { claimImportInboxItems, discardImportInboxItems, getImportInbox } from './api/importInbox.js';
 import { applyPaperMindVuetifyColors, resolvePaperMindColorVariant } from './theme/tokens';
 
 const PdfPreview = defineAsyncComponent(() => import('./components/PdfPreview.vue'));
@@ -676,6 +677,7 @@ const importInboxItems = ref([]);
 const isImportInboxLoading = ref(false);
 const importInboxSuppressedItemIds = ref(new Set());
 const activeImportInboxItemIds = ref(new Set());
+const activeImportInboxSourceToItemId = ref(new Map());
 const isClaimingImportInbox = ref(false);
 const isDocumentListSettling = ref(false);
 let documentListSettleTimer = null;
@@ -1238,12 +1240,17 @@ async function openImportInboxScans() {
     if (itemIds.length > 0) {
       const nextSuppressed = new Set(importInboxSuppressedItemIds.value);
       const nextActive = new Set(activeImportInboxItemIds.value);
+      const nextSourceMap = new Map(activeImportInboxSourceToItemId.value);
       for (const itemId of itemIds) {
         nextSuppressed.add(itemId);
         nextActive.add(itemId);
       }
+      for (const item of items) {
+        nextSourceMap.set(String(item.source_file_id || '').trim(), String(item.id || '').trim());
+      }
       importInboxSuppressedItemIds.value = nextSuppressed;
       activeImportInboxItemIds.value = nextActive;
+      activeImportInboxSourceToItemId.value = nextSourceMap;
       importInboxItems.value = importInboxItems.value.filter((item) => !nextSuppressed.has(item.id));
     }
   } catch (error) {
@@ -1260,6 +1267,7 @@ async function claimActiveImportInboxItems() {
   try {
     await claimImportInboxItems(itemIds);
     activeImportInboxItemIds.value = new Set();
+    activeImportInboxSourceToItemId.value = new Map();
     const nextSuppressed = new Set(importInboxSuppressedItemIds.value);
     for (const itemId of itemIds) {
       nextSuppressed.delete(itemId);
@@ -1273,12 +1281,48 @@ async function claimActiveImportInboxItems() {
   }
 }
 
+async function onImportSourcesDiscarded(payload = {}) {
+  const sourceFileIds = Array.isArray(payload?.sourceFileIds) ? payload.sourceFileIds : [];
+  const itemIds = [];
+  const nextActive = new Set(activeImportInboxItemIds.value);
+  const nextSuppressed = new Set(importInboxSuppressedItemIds.value);
+  const nextSourceMap = new Map(activeImportInboxSourceToItemId.value);
+
+  for (const rawSourceFileId of sourceFileIds) {
+    const sourceFileId = String(rawSourceFileId || '').trim();
+    const itemId = nextSourceMap.get(sourceFileId);
+    if (!itemId) {
+      continue;
+    }
+    itemIds.push(itemId);
+    nextActive.delete(itemId);
+    nextSuppressed.delete(itemId);
+    nextSourceMap.delete(sourceFileId);
+  }
+
+  if (itemIds.length === 0) {
+    return;
+  }
+
+  activeImportInboxItemIds.value = nextActive;
+  importInboxSuppressedItemIds.value = nextSuppressed;
+  activeImportInboxSourceToItemId.value = nextSourceMap;
+
+  try {
+    await discardImportInboxItems(itemIds);
+    await refreshImportInbox({ silent: true });
+  } catch (error) {
+    notify({ type: 'warning', message: mapApiError(error, 'Gelöschte SMB-Scans konnten nicht endgültig gelöscht werden.') });
+  }
+}
+
 watch(isUploadDialogOpen, (open) => {
   if (open || isClaimingImportInbox.value || activeImportInboxItemIds.value.size === 0) {
     return;
   }
   const itemIds = Array.from(activeImportInboxItemIds.value);
   activeImportInboxItemIds.value = new Set();
+  activeImportInboxSourceToItemId.value = new Map();
   const nextSuppressed = new Set(importInboxSuppressedItemIds.value);
   for (const itemId of itemIds) {
     nextSuppressed.delete(itemId);
@@ -4616,7 +4660,7 @@ onBeforeUnmount(() => {
 }
 
 .papermind-app.v-theme--dark .document-row {
-  background: var(--pm-dark-card);
+  background: var(--pm-document-row-bg, var(--pm-app-surface-raised));
   border: 1px solid rgba(255, 255, 255, 0.05);
   box-shadow: 0 3px 12px rgba(0, 0, 0, 0.22);
 }
@@ -4656,7 +4700,6 @@ onBeforeUnmount(() => {
 
 .papermind-app.v-theme--dark .list-toolbar__search :deep(.v-field),
 .papermind-app.v-theme--dark .tags-view-search :deep(.v-field),
-.papermind-app.v-theme--dark .document-row,
 .papermind-app.v-theme--dark .tags-view-cloud-wrap,
 .papermind-app.v-theme--dark .tags-view-list-wrap,
 .papermind-app.v-theme--dark .tag-row {
@@ -4728,14 +4771,17 @@ onBeforeUnmount(() => {
 }
 
 .papermind-app.v-theme--dark .document-row--active {
-  background: var(--pm-row-active);
-  border-color: rgba(var(--v-theme-primary), 0.44);
-  box-shadow: 0 0 0 1px rgba(var(--v-theme-primary), 0.18), 0 5px 16px rgba(0, 0, 0, 0.28);
+  background: var(--pm-document-row-active-bg, var(--pm-row-active));
+  border-color: rgba(var(--v-theme-primary), 0.72);
+  box-shadow:
+    0 0 0 1px rgba(var(--v-theme-primary), 0.34),
+    inset 4px 0 0 rgba(var(--v-theme-primary), 0.72),
+    0 6px 18px rgba(0, 0, 0, 0.3);
 }
 
 .papermind-app.v-theme--dark .document-row--active:hover {
-  background: var(--pm-row-active);
-  border-color: rgba(var(--v-theme-primary), 0.5);
+  background: var(--pm-document-row-active-bg, var(--pm-row-active));
+  border-color: rgba(var(--v-theme-primary), 0.78);
 }
 
 .papermind-app.v-theme--dark .panel-left::before,

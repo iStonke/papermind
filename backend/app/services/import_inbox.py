@@ -10,6 +10,7 @@ from app.core.errors import BadRequestError
 from app.models.import_inbox import ImportInboxItem
 from app.schemas.import_staging import (
     ImportInboxClaimResponse,
+    ImportInboxDiscardResponse,
     ImportInboxItemRead,
     ImportInboxListResponse,
     ImportInboxUploadResponse,
@@ -113,5 +114,31 @@ class ImportInboxService:
         self.db.commit()
         return ImportInboxClaimResponse(
             claimed=int(result.rowcount or 0),
+            pending_count=self._pending_count(),
+        )
+
+    def discard(self, item_ids: list[uuid.UUID]) -> ImportInboxDiscardResponse:
+        normalized_ids = []
+        seen = set()
+        for item_id in item_ids:
+            if item_id in seen:
+                continue
+            seen.add(item_id)
+            normalized_ids.append(item_id)
+        if not normalized_ids:
+            raise BadRequestError("item_ids is required")
+
+        items = list(
+            self.db.scalars(
+                select(ImportInboxItem).where(ImportInboxItem.id.in_(normalized_ids))
+            ).all()
+        )
+        for item in items:
+            self.import_staging_service.delete_source_file(str(item.source_file_id))
+            self.db.delete(item)
+
+        self.db.commit()
+        return ImportInboxDiscardResponse(
+            discarded=len(items),
             pending_count=self._pending_count(),
         )

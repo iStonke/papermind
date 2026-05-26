@@ -248,6 +248,17 @@
                             @click="rotateSelectedPage(document.id, 90)"
                           />
 
+                          <v-btn
+                            :icon="resolveIcon('mdi-trash-can-outline')"
+                            variant="text"
+                            color="error"
+                            class="pm-icon-btn stage-toolbar-btn"
+                            :style="getToolbarControlStyle(!hasSelectedPage(document.id))"
+                            aria-label="Ausgewählte Seite entfernen"
+                            :disabled="!hasSelectedPage(document.id)"
+                            @click="removeSelectedPage(document.id)"
+                          />
+
                           <div class="toolbar-divider toolbar-divider--tags" aria-hidden="true" />
 
                           <StageTags
@@ -353,7 +364,7 @@
                                   :icon="resolveIcon('mdi-trash-can-outline')"
                                   variant="tonal"
                                   color="error"
-                                  @click.stop="stagingStore.removePage(page.id)"
+                                  @click.stop="removePage(page.id)"
                                 />
                               </div>
                             </div>
@@ -477,7 +488,7 @@ const props = defineProps({
   autoEmbed: { type: Boolean, default: true }
 });
 
-const emit = defineEmits(['update:modelValue', 'committed']);
+const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources']);
 
 const { notify } = useNotifications();
 const stagingStore = useImportStagingStore();
@@ -1982,8 +1993,70 @@ function addEmptyDocument() {
   });
 }
 
+function normalizeSourceFileId(sourceFileId) {
+  return String(sourceFileId || '').trim();
+}
+
+function collectDocumentSourceFileIds(documentId) {
+  const documentEntry = documents.value.find((entry) => entry.id === documentId);
+  if (!documentEntry) {
+    return [];
+  }
+  const ids = new Set();
+  for (const page of documentEntry.pages || []) {
+    const sourceFileId = normalizeSourceFileId(page?.sourceFileId);
+    if (sourceFileId) {
+      ids.add(sourceFileId);
+    }
+  }
+  if (Array.isArray(documentEntry.meta?.scanSourceFileIds)) {
+    for (const sourceFileId of documentEntry.meta.scanSourceFileIds) {
+      const normalized = normalizeSourceFileId(sourceFileId);
+      if (normalized) {
+        ids.add(normalized);
+      }
+    }
+  }
+  return Array.from(ids);
+}
+
+function notifyDiscardedSourceFileIds(sourceFileIds = []) {
+  const candidates = Array.from(new Set((sourceFileIds || []).map(normalizeSourceFileId).filter(Boolean)));
+  if (candidates.length === 0) {
+    return;
+  }
+  const usedSourceIds = stagingStore.collectUsedSourceFileIds();
+  const discarded = candidates.filter((sourceFileId) => !usedSourceIds.has(sourceFileId));
+  if (discarded.length > 0) {
+    emit('discarded-sources', { sourceFileIds: discarded });
+  }
+}
+
+function removePage(pageId) {
+  const location = stagingStore.findPageLocation(pageId);
+  const sourceFileId = normalizeSourceFileId(location?.page?.sourceFileId);
+  stagingStore.removePage(pageId);
+  if (selected.value?.pageId === pageId) {
+    clearActiveSelection();
+  }
+  notifyDiscardedSourceFileIds([sourceFileId]);
+}
+
+function removeSelectedPage(documentId) {
+  const selectedPage = resolveSelectedPage(documentId);
+  if (!selectedPage) {
+    return;
+  }
+  removePage(selectedPage.id);
+}
+
 function deleteDocument(documentId) {
+  const sourceFileIds = collectDocumentSourceFileIds(documentId);
   stagingStore.deleteDocument(documentId);
+  if (selected.value?.stageId === documentId) {
+    clearActiveSelection();
+  }
+  notifyDiscardedSourceFileIds(sourceFileIds);
 }
 
 function setPageThumbRef(pageId, element) {

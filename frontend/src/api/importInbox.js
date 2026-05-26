@@ -14,3 +14,12 @@ export async function claimImportInboxItems(itemIds = []) {
     })
   });
 }
+
+export async function discardImportInboxItems(itemIds = []) {
+  return apiFetch('/api/import/inbox/discard', {
+    method: 'POST',
+    body: JSON.stringify({
+      item_ids: Array.from(itemIds || []).map((id) => String(id || '').trim()).filter(Boolean)
+    })
+  });
+}

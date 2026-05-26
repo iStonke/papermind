@@ -913,6 +913,13 @@ class ImportStagingService:
                 continue
             source_path.unlink(missing_ok=True)
 
+    def delete_source_file(self, source_file_id: str) -> None:
+        source_path = self._source_pdf_path(source_file_id)
+        try:
+            source_path.unlink(missing_ok=True)
+        except OSError as exc:
+            raise StorageError("Could not delete staged source PDF") from exc
+
     def _validate_requested_tags(self, payload: ImportCommitRequest) -> None:
         requested_tag_ids = {tag_id for document in payload.documents for tag_id in document.tag_ids}
         if not requested_tag_ids:

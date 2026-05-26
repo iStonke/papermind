@@ -184,6 +184,8 @@
   --pm-sidebar-active:       var(--pm-v-sidebar-active);
   --pm-row-hover:            var(--pm-v-card-hover);
   --pm-row-active:           var(--pm-v-card-active);
+  --pm-document-row-bg:      color-mix(in srgb, var(--pm-v-card) 92%, white 8%);
+  --pm-document-row-active-bg: color-mix(in srgb, var(--pm-v-card-active) 76%, white 24%);
 }
 
 /* ── Forest Dark ───────────────────────────────────────────────────────────── */
@@ -229,12 +231,14 @@
   --pm-muted:            rgba(229, 234, 242, 0.60);
   --pm-v-bg:             #111620;
   --pm-v-panel-left:     #151c2a;
-  --pm-v-panel-mid:      #17202e;
+  --pm-v-panel-mid:      #191f2c;
   --pm-v-panel-right:    #131924;
-  --pm-v-card:           #1e293b;
-  --pm-v-card-hover:     #253247;
-  --pm-v-card-active:    #2d3c55;
-  --pm-v-sidebar-active: #1b2536;
+  --pm-v-card:                #2f4462;
+  --pm-v-card-hover:          #3a5272;
+  --pm-v-card-active:         #445e80;
+  --pm-v-sidebar-active:      #1b2536;
+  --pm-app-surface-raised:    #2f4462;
+  --pm-app-surface-contrast:  #2f4462;
   --pm-drawer-bg-expanded:  rgba(23, 32, 46, 0.96);
   --pm-drawer-bg-collapsed: rgba(23, 32, 46, 0.90);
   --pm-appbar-bg:        #1e293b;

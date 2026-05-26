@@ -42,6 +42,15 @@ class ImportInboxClaimResponse(BaseModel):
     pending_count: int = Field(default=0, ge=0)
 
 
+class ImportInboxDiscardRequest(BaseModel):
+    item_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class ImportInboxDiscardResponse(BaseModel):
+    discarded: int = Field(default=0, ge=0)
+    pending_count: int = Field(default=0, ge=0)
+
+
 class ImportCommitPageInput(BaseModel):
     source_file_id: str = Field(min_length=1)
     page_index: int = Field(ge=0)

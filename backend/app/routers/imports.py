@@ -10,6 +10,8 @@ from app.schemas.import_staging import (
     ImportCommitResponse,
     ImportInboxClaimRequest,
     ImportInboxClaimResponse,
+    ImportInboxDiscardRequest,
+    ImportInboxDiscardResponse,
     ImportInboxListResponse,
     ImportInboxUploadResponse,
     ImportSourceUploadResponse,
@@ -110,6 +112,20 @@ def claim_import_inbox(
 ) -> ImportInboxClaimResponse:
     service = ImportInboxService(db)
     return service.claim(payload.item_ids)
+
+
+@router.post(
+    "/inbox/discard",
+    response_model=ImportInboxDiscardResponse,
+    summary="Discard import inbox items and delete staged source PDFs",
+    responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def discard_import_inbox(
+    payload: ImportInboxDiscardRequest,
+    db: Session = Depends(get_db),
+) -> ImportInboxDiscardResponse:
+    service = ImportInboxService(db)
+    return service.discard(payload.item_ids)
 
 
 @router.get(
