@@ -15,7 +15,6 @@ from app.schemas.sidebar import SidebarCountsResponse, SidebarImportsCounts
 from app.schemas.saved_searches import SavedSearchQuery
 from app.services.smart_folder_query import SmartFolderQueryCompiler
 from app.services.settings import SettingsService
-from app.services.tags import TagService
 
 logger = logging.getLogger("papermind.sidebar")
 settings = get_settings()
@@ -127,11 +126,6 @@ class SidebarService:
         return counts
 
     def get_counts(self) -> SidebarCountsResponse:
-        orphan_deleted_count = TagService.cleanup_orphan_tags(self.db)
-        if orphan_deleted_count:
-            self.db.commit()
-            logger.info("orphan tags auto-cleaned count=%s", orphan_deleted_count)
-
         # Basis-Filter: nur nicht gelöschte Dokumente
         active_doc = Document.is_deleted.is_(False)
 

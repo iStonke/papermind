@@ -1,8 +1,10 @@
 import unittest
 import uuid
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
+from app.core.errors import ConflictError
 from app.services.tags import TagService
+from app.schemas.tags import TagCreateRequest, TagUpdateRequest
 
 
 class TagCleanupServiceTest(unittest.TestCase):
@@ -31,6 +33,40 @@ class TagCleanupServiceTest(unittest.TestCase):
 
         self.assertEqual(deleted_count, 1)
         db.execute.assert_called_once()
+
+    def test_list_tags_does_not_auto_delete_unassigned_tags(self) -> None:
+        db = Mock()
+        db.execute.return_value.scalars.return_value.all.return_value = []
+        service = TagService(db)
+
+        with patch.object(TagService, "cleanup_orphan_tags") as cleanup:
+            result = service.list_tags(include_count=False)
+
+        self.assertEqual(result, [])
+        cleanup.assert_not_called()
+
+    def test_create_tag_rejects_case_insensitive_duplicate(self) -> None:
+        db = Mock()
+        db.execute.return_value.scalar_one_or_none.return_value = object()
+        service = TagService(db)
+
+        with self.assertRaises(ConflictError):
+            service.create_tag(TagCreateRequest(name="Rechnung"))
+
+        db.add.assert_not_called()
+
+    def test_update_tag_rejects_case_insensitive_duplicate(self) -> None:
+        tag_id = uuid.uuid4()
+        existing_tag = Mock(id=tag_id, name="Rechnung")
+        db = Mock()
+        db.get.return_value = existing_tag
+        db.execute.return_value.scalar_one_or_none.return_value = object()
+        service = TagService(db)
+
+        with self.assertRaises(ConflictError):
+            service.update_tag(tag_id, TagUpdateRequest(name="rechnung"))
+
+        db.commit.assert_not_called()
 
 
 if __name__ == "__main__":

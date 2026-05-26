@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     storage_path: str = Field(default="/data/storage")
     public_web_base_url: str = Field(default="")
     upload_max_bytes: int = Field(default=25 * 1024 * 1024)
-    cors_allow_origins: str = Field(default="*")
+    cors_allow_origins: str = Field(default="")
     auto_ocr_on_upload: bool = Field(default=True)
     min_text_chars: int = Field(default=300, ge=1)
     text_check_pages: int = Field(default=2, ge=1)
@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         raw = self.cors_allow_origins.strip()
+        if not raw:
+            return []
         if raw == "*":
             return ["*"]
         return [origin.strip() for origin in raw.split(",") if origin.strip()]

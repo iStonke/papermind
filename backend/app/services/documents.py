@@ -46,7 +46,6 @@ from app.schemas.documents import (
     SortOrder,
 )
 from app.services.settings import SettingsService
-from app.services.tags import TagService
 
 logger = logging.getLogger("papermind.documents")
 settings = get_settings()
@@ -1268,13 +1267,10 @@ class DocumentService:
         if document is None:
             raise NotFoundError("Document not found", details={"document_id": str(document_id)})
         file_keys = {file_record.file_key for file_record in document.files}
-        removed_tag_ids = {tag.id for tag in document.tags}
         if document.storage_key:
             file_keys.add(document.storage_key)
 
         self.db.delete(document)
-        self.db.flush()
-        orphan_deleted_count = TagService.cleanup_orphan_tags(self.db, candidate_tag_ids=removed_tag_ids)
         self.db.commit()
 
         for file_key in file_keys:
@@ -1283,11 +1279,7 @@ class DocumentService:
             except StorageError:
                 continue
 
-        logger.info(
-            "document deleted id=%s orphan_tags_deleted=%s",
-            document_id,
-            orphan_deleted_count,
-        )
+        logger.info("document deleted id=%s", document_id)
 
     def purge_expired_trash(self, retention_days: int) -> int:
         """Endgültig löschen, was länger als retention_days im Papierkorb liegt."""
@@ -1323,7 +1315,6 @@ class DocumentService:
         old_count = len(document.tags)
 
         unique_tag_ids = list(dict.fromkeys(payload.tag_ids))
-        new_tag_ids = set(unique_tag_ids)
         if unique_tag_ids:
             tags_stmt = select(Tag).where(Tag.id.in_(unique_tag_ids))
             tags = self.db.execute(tags_stmt).scalars().all()
@@ -1335,17 +1326,14 @@ class DocumentService:
             tags = []
 
         document.tags = tags
-        self.db.flush()
-        orphan_deleted_count = TagService.cleanup_orphan_tags(self.db, candidate_tag_ids=old_tag_ids - new_tag_ids)
         self.db.commit()
 
         updated = self.get_document_or_404(document_id)
         logger.info(
-            "document tags replaced document_id=%s old_count=%s new_count=%s orphan_tags_deleted=%s",
+            "document tags replaced document_id=%s old_count=%s new_count=%s",
             document_id,
             old_count,
             len(tags),
-            orphan_deleted_count,
         )
         return updated
 
@@ -1359,16 +1347,13 @@ class DocumentService:
             )
 
         document.tags = [tag for tag in document.tags if tag.id != tag_id]
-        self.db.flush()
-        orphan_deleted_count = TagService.cleanup_orphan_tags(self.db, candidate_tag_ids={tag_id})
         self.db.commit()
 
         updated = self.get_document_or_404(document_id)
         logger.info(
-            "document tag removed document_id=%s tag_id=%s orphan_tags_deleted=%s",
+            "document tag removed document_id=%s tag_id=%s",
             document_id,
             tag_id,
-            orphan_deleted_count,
         )
         return updated
 

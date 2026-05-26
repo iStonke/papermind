@@ -40,11 +40,6 @@ class TagService:
         return max(result.rowcount or 0, 0)
 
     def list_tags(self, include_count: bool) -> list[TagRead]:
-        orphan_deleted_count = self.cleanup_orphan_tags(self.db)
-        if orphan_deleted_count:
-            self.db.commit()
-            logger.info("orphan tags auto-cleaned count=%s", orphan_deleted_count)
-
         if include_count:
             stmt = (
                 select(Tag, func.count(Document.id).label("usage_count"))
@@ -54,8 +49,7 @@ class TagService:
                     (Document.id == document_tags.c.document_id) & (Document.is_deleted.is_(False)),
                 )
                 .group_by(Tag.id)
-                .having(func.count(Document.id) > 0)
-                .order_by(func.count(Document.id).desc(), func.lower(Tag.name).asc())
+                .order_by(func.lower(Tag.name).asc())
             )
             rows = self.db.execute(stmt).all()
             return [
@@ -69,10 +63,24 @@ class TagService:
         tags = self.db.execute(stmt).scalars().all()
         return [TagRead.model_validate(tag, from_attributes=True) for tag in tags]
 
+    def _find_case_insensitive_name_conflict(
+        self,
+        tag_name: str,
+        *,
+        exclude_tag_id: uuid.UUID | None = None,
+    ) -> Tag | None:
+        stmt = select(Tag).where(func.lower(Tag.name) == tag_name.lower())
+        if exclude_tag_id is not None:
+            stmt = stmt.where(Tag.id != exclude_tag_id)
+        return self.db.execute(stmt).scalar_one_or_none()
+
     def create_tag(self, payload: TagCreateRequest) -> Tag:
         tag_name = normalize_name(payload.name)
         if not tag_name:
             raise BadRequestError("Tag name must not be empty")
+
+        if self._find_case_insensitive_name_conflict(tag_name) is not None:
+            raise ConflictError("Tag name already exists", details={"name": tag_name})
 
         tag = Tag(name=tag_name)
         self.db.add(tag)
@@ -100,6 +108,9 @@ class TagService:
         tag_name = normalize_name(payload.name)
         if not tag_name:
             raise BadRequestError("Tag name must not be empty")
+
+        if self._find_case_insensitive_name_conflict(tag_name, exclude_tag_id=tag_id) is not None:
+            raise ConflictError("Tag name already exists", details={"name": tag_name})
 
         old_name = tag.name
         tag.name = tag_name
@@ -177,7 +188,5 @@ class TagService:
     def delete_tag(self, tag_id: uuid.UUID) -> None:
         tag = self.get_tag_or_404(tag_id)
         self.db.delete(tag)
-        self.db.flush()
-        orphan_deleted_count = self.cleanup_orphan_tags(self.db)
         self.db.commit()
-        logger.info("tag deleted id=%s orphan_tags_deleted=%s", tag_id, orphan_deleted_count)
+        logger.info("tag deleted id=%s", tag_id)

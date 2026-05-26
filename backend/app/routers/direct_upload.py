@@ -12,11 +12,13 @@ import logging
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.errors import APIError
+from app.core.security import verify_shared_upload_api_key
 from app.db import get_db
 from app.schemas.import_staging import (
     ImportCommitDocumentInput,
@@ -32,6 +34,7 @@ settings = get_settings()
 router = APIRouter(tags=["Direct Upload"])
 
 _INVALID_TITLE_CHARS = re.compile(r'[\/\\:*?"<>|]+')
+_RAW_PDF_CONTENT_TYPES = {"application/pdf", "application/x-pdf"}
 
 
 def _filename_to_title(filename: str) -> str:
@@ -44,32 +47,67 @@ def _filename_to_title(filename: str) -> str:
 
 
 def _verify_api_key(
+    request: Request,
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None),
 ) -> None:
-    """Prüft den API-Key – akzeptiert Authorization: Bearer <token> oder X-Api-Key: <token>."""
-    configured_key = settings.direct_upload_api_key.strip()
-    if not configured_key:
+    verify_shared_upload_api_key(
+        request,
+        authorization,
+        x_api_key,
+        service_name="Direct upload",
+        rate_limit_bucket="direct_upload",
+    )
+
+
+async def _read_raw_pdf_body(request: Request) -> bytes:
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > settings.upload_max_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail="Uploaded file exceeds maximum allowed size.",
+                )
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid Content-Length header.",
+            ) from None
+
+    body = bytearray()
+    header_checked = False
+    async for chunk in request.stream():
+        if not chunk:
+            continue
+
+        if not header_checked:
+            if not chunk.startswith(b"%PDF-"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="File content is not a valid PDF.",
+                )
+            header_checked = True
+
+        body.extend(chunk)
+        if len(body) > settings.upload_max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Uploaded file exceeds maximum allowed size.",
+            )
+
+    if not body:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Direct upload is not configured (DIRECT_UPLOAD_API_KEY not set).",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Leerer Request-Body.",
+        )
+    if not header_checked:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File content is not a valid PDF.",
         )
 
-    # X-Api-Key Header (iOS Shortcut Standard)
-    if x_api_key and x_api_key.strip() == configured_key:
-        return
-
-    # Authorization: Bearer <token> (klassisch)
-    if authorization:
-        scheme, _, token = authorization.partition(" ")
-        if scheme.lower() == "bearer" and token.strip() == configured_key:
-            return
-
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Ungültiger oder fehlender API-Key.",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    return bytes(body)
 
 
 class DirectUploadResult(BaseModel):
@@ -107,12 +145,13 @@ async def direct_upload(
 
     # ── Roher PDF-Body (iOS Shortcut mit Haupttext: Datei) ────────────────────
     if "multipart" not in content_type:
-        raw = await request.body()
-        if not raw:
+        raw_content_type = content_type.split(";", 1)[0].strip().lower()
+        if raw_content_type and raw_content_type not in _RAW_PDF_CONTENT_TYPES:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Leerer Request-Body.",
+                detail="Raw uploads must use application/pdf content type.",
             )
+        raw = await _read_raw_pdf_body(request)
         fake_file = UploadFile(
             filename="scan.pdf",
             file=io.BytesIO(raw),
@@ -142,11 +181,13 @@ async def direct_upload(
     # 1. Alle Dateien ins Staging hochladen
     try:
         staged = service.upload_sources(files)
+    except APIError:
+        raise
     except Exception as exc:
         logger.error("direct_upload staging failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Staging fehlgeschlagen: {exc}",
+            detail="Staging failed.",
         ) from exc
 
     if not staged.items:
@@ -184,11 +225,13 @@ async def direct_upload(
 
     try:
         commit_result = service.commit(commit_request)
+    except APIError:
+        raise
     except Exception as exc:
         logger.error("direct_upload commit failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Commit fehlgeschlagen: {exc}",
+            detail="Commit failed.",
         ) from exc
 
     created_docs = [

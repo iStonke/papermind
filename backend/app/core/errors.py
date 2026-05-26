@@ -1,8 +1,12 @@
 from typing import Any
 
+import logging
+
 from fastapi import FastAPI, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+
+logger = logging.getLogger("papermind.errors")
 
 
 class APIError(Exception):
@@ -51,9 +55,10 @@ def _error_payload(code: str, message: str, details: Any | None = None) -> dict[
 def install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(APIError)
     async def api_error_handler(_, exc: APIError) -> JSONResponse:
+        details = exc.details if exc.status_code < 500 else None
         return JSONResponse(
             status_code=exc.status_code,
-            content=_error_payload(exc.code, exc.message, exc.details),
+            content=_error_payload(exc.code, exc.message, details),
         )
 
     @app.exception_handler(RequestValidationError)
@@ -70,14 +75,16 @@ def install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(HTTPException)
     async def http_exception_handler(_, exc: HTTPException) -> JSONResponse:
         message = exc.detail if isinstance(exc.detail, str) else "Request failed"
+        details = exc.detail if exc.status_code < 500 else None
         return JSONResponse(
             status_code=exc.status_code,
-            content=_error_payload("HTTP_ERROR", message, exc.detail),
+            content=_error_payload("HTTP_ERROR", message, details),
         )
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(_, exc: Exception) -> JSONResponse:
+        logger.error("Unhandled API exception", exc_info=(type(exc), exc, exc.__traceback__))
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content=_error_payload("INTERNAL_ERROR", "Internal server error", str(exc)),
+            content=_error_payload("INTERNAL_ERROR", "Internal server error"),
         )

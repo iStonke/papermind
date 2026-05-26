@@ -22,8 +22,15 @@ export const useTagStore = defineStore('tags', () => {
   const isTagMutationRunning = ref(false);
 
   // ── Helpers ────────────────────────────────────────────────────────────
-  const findByName = (name) =>
-    tags.value.find((t) => t.name.toLowerCase() === name.toLowerCase()) ?? null;
+  function normalizeTagName(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim();
+  }
+
+  const findByName = (name) => {
+    const normalized = normalizeTagName(name).toLocaleLowerCase('de-DE');
+    if (!normalized) return null;
+    return tags.value.find((t) => normalizeTagName(t?.name).toLocaleLowerCase('de-DE') === normalized) ?? null;
+  };
 
   // ── Actions ────────────────────────────────────────────────────────────
 
@@ -42,13 +49,23 @@ export const useTagStore = defineStore('tags', () => {
    * @returns {{ ok: boolean, reason: string, name: string, id?: string }}
    */
   async function createTagByName(rawName) {
-    const name = rawName?.trim();
+    const name = normalizeTagName(rawName);
     if (!name) return { ok: false, reason: 'empty', name: '' };
-    if (findByName(name)) return { ok: false, reason: 'exists', name };
+    const existing = findByName(name);
+    if (existing) return { ok: false, reason: 'exists', name: existing.name, id: existing.id };
 
-    const created = await apiCreateTag(name);
-    await fetchTags();
-    return { ok: true, reason: 'created', name, id: created?.id };
+    try {
+      const created = await apiCreateTag(name);
+      await fetchTags();
+      return { ok: true, reason: 'created', name: created?.name || name, id: created?.id };
+    } catch (error) {
+      await fetchTags();
+      const recovered = findByName(name);
+      if (recovered) {
+        return { ok: false, reason: 'exists', name: recovered.name, id: recovered.id };
+      }
+      throw error;
+    }
   }
 
   /**
@@ -56,7 +73,7 @@ export const useTagStore = defineStore('tags', () => {
    * und gibt seine ID zurück.
    */
   async function ensureTagIdByName(rawName) {
-    const name = rawName?.trim();
+    const name = normalizeTagName(rawName);
     if (!name) return '';
     const existing = findByName(name);
     if (existing) return existing.id;

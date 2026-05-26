@@ -1,10 +1,11 @@
 import uuid
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, status, UploadFile
+from fastapi import APIRouter, Depends, File, Header, Query, Request, status, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.security import verify_shared_upload_api_key
 from app.db import get_db
 from app.schemas.common import ErrorResponse
 from app.schemas.import_staging import (
@@ -28,28 +29,16 @@ router = APIRouter(prefix="/api/import", tags=["Import"])
 settings = get_settings()
 
 
-def _verify_inbox_api_key(authorization: str | None = Header(default=None)) -> None:
-    configured_key = settings.direct_upload_api_key.strip()
-    if not configured_key:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Import inbox is not configured (DIRECT_UPLOAD_API_KEY not set).",
-        )
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authorization header is required.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not token.strip():
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authorization header must use Bearer scheme.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    if token.strip() != configured_key:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid API key.")
+def _verify_inbox_api_key(
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> None:
+    verify_shared_upload_api_key(
+        request,
+        authorization,
+        service_name="Import inbox",
+        rate_limit_bucket="import_inbox",
+    )
 
 
 @router.post(
