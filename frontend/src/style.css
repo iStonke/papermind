@@ -145,27 +145,21 @@ body.pm-modal-open .papermind-app.v-theme--dark {
 /* Listen-Zustände: Dokumente, leer, Loading */
 .pm-list-state-enter-active,
 .pm-list-state-leave-active {
-  transform-origin: center top;
   backface-visibility: hidden;
-  will-change: opacity, transform;
-  transition:
-    opacity var(--pm-duration-normal, 210ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
-    transform var(--pm-duration-normal, 210ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+  will-change: opacity;
+  transition: opacity 120ms var(--pm-easing-decel, cubic-bezier(0, 0, 0.2, 1));
 }
 .pm-list-state-leave-active {
   position: absolute;
   inset: 0;
   width: 100%;
   pointer-events: none;
-  transition-duration: var(--pm-duration-fast, 140ms);
 }
 .pm-list-state-enter-from {
   opacity: 0;
-  transform: translate3d(0, 6px, 0);
 }
 .pm-list-state-leave-to {
   opacity: 0;
-  transform: translate3d(0, -4px, 0);
 }
 
 /* Einfaches Fade */
@@ -200,35 +194,19 @@ body.pm-modal-open .papermind-app.v-theme--dark {
 /* Panel-Crossfade (Seitenübergang) */
 .pm-panel-enter-active,
 .pm-panel-leave-active {
-  transform-origin: center top;
   backface-visibility: hidden;
-  will-change: opacity, transform;
-  transition:
-    opacity var(--pm-duration-normal, 210ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
-    transform var(--pm-duration-normal, 210ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+  will-change: opacity;
+  transition: opacity 130ms var(--pm-easing-decel, cubic-bezier(0, 0, 0.2, 1));
 }
 .pm-panel-leave-active {
   position: absolute;
   inset: 0;
   width: 100%;
   pointer-events: none;
-  transition-duration: var(--pm-duration-fast, 140ms);
 }
 .pm-panel-enter-from,
 .pm-panel-leave-to {
   opacity: 0;
-  transform: translate3d(0, 8px, 0) scale(0.995);
-}
-.pm-panel-enter-active {
-  transition-delay: 45ms;
-}
-.pm-no-animations .pm-panel-enter-active {
-  transition-delay: 0ms;
-}
-@media (prefers-reduced-motion: reduce) {
-  .pm-panel-enter-active {
-    transition-delay: 0ms;
-  }
 }
 
 .app-modal {

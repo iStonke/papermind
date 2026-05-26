@@ -280,6 +280,7 @@
               :active-status-filter-label="activeStatusFilterLabel"
               :is-imports-view="isImportsView"
               :is-trash-view="isTrashView"
+              :show-document-list-loading-state="showDocumentListLoadingState"
               :show-document-list-empty-state="showDocumentListEmptyState"
               :document-list-empty-state="documentListEmptyState"
               :show-snippets="showSnippets"
@@ -676,6 +677,8 @@ const isImportInboxLoading = ref(false);
 const importInboxSuppressedItemIds = ref(new Set());
 const activeImportInboxItemIds = ref(new Set());
 const isClaimingImportInbox = ref(false);
+const isDocumentListSettling = ref(false);
+let documentListSettleTimer = null;
 
 // ── Batch-Auswahl ──────────────────────────────────────────────────────────
 const isSelectionMode = ref(false);
@@ -1008,7 +1011,12 @@ const hasActiveListFilter = computed(() => {
       documentListQuery.dateTo
   );
 });
-const showDocumentListEmptyState = computed(() => !isLoadingDocuments.value && documents.value.length === 0);
+const showDocumentListLoadingState = computed(() =>
+  documents.value.length === 0 && (isLoadingDocuments.value || isDocumentListSettling.value)
+);
+const showDocumentListEmptyState = computed(() =>
+  !isLoadingDocuments.value && !isDocumentListSettling.value && documents.value.length === 0
+);
 const recentImportWindowLabel = computed(() => {
   const parsedHours = Number(appSettings.value?.documents?.recent_import_window_hours || 24);
   const hours = Number.isFinite(parsedHours) && parsedHours > 0 ? Math.round(parsedHours) : 24;
@@ -2456,9 +2464,28 @@ async function fetchDocumentDetail(documentId) {
   applyMetadataFromDetail(detail);
 }
 
+function startDocumentListSettle() {
+  if (documentListSettleTimer) {
+    window.clearTimeout(documentListSettleTimer);
+    documentListSettleTimer = null;
+  }
+  isDocumentListSettling.value = true;
+}
+
+function finishDocumentListSettle() {
+  if (documentListSettleTimer) {
+    window.clearTimeout(documentListSettleTimer);
+  }
+  documentListSettleTimer = window.setTimeout(() => {
+    isDocumentListSettling.value = false;
+    documentListSettleTimer = null;
+  }, 180);
+}
+
 async function fetchDocuments(preferredDocumentId = null, options = {}) {
   const autoSelectFirst = options.autoSelectFirst === true;
   const allowPreferredOutsideList = options.allowPreferredOutsideList === true;
+  startDocumentListSettle();
   isLoadingDocuments.value = true;
 
   try {
@@ -2527,6 +2554,7 @@ async function fetchDocuments(preferredDocumentId = null, options = {}) {
     notifyError(error, 'Dokumente konnten nicht geladen werden.');
   } finally {
     isLoadingDocuments.value = false;
+    finishDocumentListSettle();
   }
 }
 
@@ -3303,6 +3331,13 @@ const {
   fetchDocuments
 });
 
+watch(documentListQueryReloadKey, () => {
+  if (isTagView.value) {
+    return;
+  }
+  startDocumentListSettle();
+});
+
 useOcrPolling({
   documents,
   hasActiveOcrJob,
@@ -3346,6 +3381,9 @@ onBeforeUnmount(() => {
   }
   if (importInboxPollTimer) {
     window.clearInterval(importInboxPollTimer);
+  }
+  if (documentListSettleTimer) {
+    window.clearTimeout(documentListSettleTimer);
   }
   mediaQuery?.removeEventListener('change', handleSystemThemeChange);
 });
@@ -4195,6 +4233,8 @@ onBeforeUnmount(() => {
 
 .panel-middle__view {
   min-height: 100%;
+  position: relative;
+  width: 100%;
 }
 
 .panel-right {
@@ -4265,7 +4305,9 @@ onBeforeUnmount(() => {
 
 .sidebar-section-collapse-enter-active,
 .sidebar-section-collapse-leave-active {
-  transition: max-height 0.24s ease, opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    max-height 160ms var(--pm-easing-decel, cubic-bezier(0, 0, 0.2, 1)),
+    opacity 120ms var(--pm-easing-decel, cubic-bezier(0, 0, 0.2, 1));
   overflow: hidden;
 }
 
@@ -4273,7 +4315,6 @@ onBeforeUnmount(() => {
 .sidebar-section-collapse-leave-to {
   max-height: 0;
   opacity: 0;
-  transform: translateY(-6px);
 }
 
 .sidebar-section-collapse-enter-to,

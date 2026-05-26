@@ -89,7 +89,7 @@
       <div class="document-list-content">
         <Transition name="pm-list-state">
           <div
-            v-if="isLoadingDocuments && documents.length === 0"
+            v-if="showDocumentListLoadingState"
             key="loading"
             class="document-list document-list-state document-list--skeleton"
           >
@@ -317,8 +317,9 @@ const props = defineProps({
   activeStatusFilterLabel:    { type: String,  default: '' },
   isImportsView:              { type: Boolean, default: false },
   isTrashView:                { type: Boolean, default: false },
-  showDocumentListEmptyState: { type: Boolean, default: false },
-  documentListEmptyState:     { type: Object,  default: () => ({ icon: '', title: '', subtitle: '' }) },
+  showDocumentListLoadingState: { type: Boolean, default: false },
+  showDocumentListEmptyState:   { type: Boolean, default: false },
+  documentListEmptyState:       { type: Object,  default: () => ({ icon: '', title: '', subtitle: '' }) },
   showSnippets:               { type: Boolean, default: false },
   isSelectionMode:            { type: Boolean, default: false },
   selectionDisabled:          { type: Boolean, default: false },
@@ -348,7 +349,7 @@ const emit = defineEmits([
 const docStore      = useDocumentStore();
 const settingsStore = useSettingsStore();
 
-const { documents, selectedDocumentId, isLoadingDocuments } = storeToRefs(docStore);
+const { documents, selectedDocumentId } = storeToRefs(docStore);
 const showPdfSuffixComputed = computed(() => settingsStore.settingsDraft?.ui?.showFilenameSuffix ?? false);
 
 const sortLabel   = computed(() => SORT_OPTIONS.find(o => o.value === props.currentSort)?.label ?? 'Sortierung');
