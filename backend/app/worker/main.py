@@ -28,21 +28,6 @@ from app.services.embeddings import EmbeddingService
 from app.services.documents import DocumentService
 from app.services.import_inbox import ImportInboxService
 from app.services.ocr_pipeline import run_ocr_pipeline
-from app.services.phone_scan_service import (
-    PhoneScanJob,
-    _build_external_status_payload,
-    _payload_to_uploaded_entry,
-    _read_external_status,
-    _scan_job_done_dir,
-    _scan_job_failed_dir,
-    _scan_job_processing_dir,
-    _scan_job_queue_dir,
-    _scan_worker_heartbeat_path,
-    _write_external_status,
-    _write_json_atomic,
-    _normalize_filter_mode,
-    process_phone_scan_job,
-)
 from app.services.settings import SettingsService
 
 settings = get_settings()
@@ -207,126 +192,6 @@ def _truncate_error(message: str, max_length: int = 3500) -> str:
     if len(message) <= max_length:
         return message
     return f"{message[:max_length]}..."
-
-
-def _touch_phone_scan_heartbeat() -> None:
-    try:
-        _write_json_atomic(
-            _scan_worker_heartbeat_path(),
-            {
-                "version": 1,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "pid": os.getpid(),
-            },
-        )
-    except Exception:
-        logger.debug("phone scan heartbeat update failed")
-
-
-def _claim_next_phone_scan_manifest() -> Path | None:
-    queue_dir = _scan_job_queue_dir()
-    queue_dir.mkdir(parents=True, exist_ok=True)
-    processing_dir = _scan_job_processing_dir()
-    processing_dir.mkdir(parents=True, exist_ok=True)
-    candidates = sorted(queue_dir.glob("*.json"), key=lambda item: item.stat().st_mtime)
-    for manifest_path in candidates:
-        claimed_path = (processing_dir / manifest_path.name).resolve()
-        try:
-            os.replace(manifest_path, claimed_path)
-            return claimed_path
-        except OSError:
-            continue
-    return None
-
-
-def _move_phone_scan_manifest(manifest_path: Path, destination_dir: Path) -> None:
-    destination_dir.mkdir(parents=True, exist_ok=True)
-    destination = (destination_dir / manifest_path.name).resolve()
-    try:
-        os.replace(manifest_path, destination)
-    except OSError:
-        manifest_path.unlink(missing_ok=True)
-
-
-def _parse_phone_scan_job_payload(payload: dict) -> PhoneScanJob:
-    session_id = str(payload.get("sessionId") or "").strip()
-    token = str(payload.get("token") or "").strip()
-    job_id = str(payload.get("jobId") or "").strip() or str(uuid.uuid4())
-    stage_id = str(payload.get("stageId") or "").strip() or None
-    raw_paths = [Path(str(item)).resolve() for item in (payload.get("rawPaths") or []) if str(item).strip()]
-    original_names = [str(item).strip() for item in (payload.get("originalNames") or [])]
-    content_types = [str(item).strip() for item in (payload.get("contentTypes") or [])]
-    client_timestamps = [str(item).strip()[:64] for item in (payload.get("clientTimestamps") or [])]
-    source_ip = str(payload.get("sourceIp") or "").strip()
-    source_ua = str(payload.get("sourceUa") or "").strip()
-    filter_mode = _normalize_filter_mode(str(payload.get("filterMode") or "clean"))
-    if not session_id or not token or not raw_paths:
-        raise RuntimeError("invalid phone scan payload")
-    return PhoneScanJob(
-        session_id=session_id,
-        token=token,
-        job_id=job_id,
-        stage_id=stage_id,
-        raw_paths=raw_paths,
-        original_names=original_names,
-        content_types=content_types,
-        source_ip=source_ip,
-        source_ua=source_ua,
-        filter_mode=filter_mode,
-        client_timestamps=client_timestamps,
-    )
-
-
-def _process_phone_scan_manifest(manifest_path: Path) -> None:
-    with manifest_path.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-    if not isinstance(payload, dict):
-        raise RuntimeError("invalid phone scan manifest format")
-    job = _parse_phone_scan_job_payload(payload)
-
-    existing_status = _read_external_status(job.session_id) or {}
-    existing_files = []
-    for raw in existing_status.get("files") or []:
-        if not isinstance(raw, dict):
-            continue
-        parsed = _payload_to_uploaded_entry(raw)
-        if parsed:
-            existing_files.append(parsed)
-
-    def report(state: str, step: str, progress: float, pages_done: int, pages_total: int) -> None:
-        _write_external_status(
-            job.session_id,
-            _build_external_status_payload(
-                session_id=job.session_id,
-                token=job.token,
-                state=state if state in {"receiving", "processing", "ready", "error"} else "processing",
-                step=step,
-                progress=max(0, min(100, int(round(float(progress) * 100)))),
-                error_message=None,
-                files=existing_files,
-                latest_job_id=job.job_id,
-                latest_result_source_file_id=existing_files[-1].source_file_id if existing_files else None,
-            ),
-        )
-
-    uploaded_entry, used_fallback = process_phone_scan_job(job, progress_callback=report)
-    existing_files.append(uploaded_entry)
-    _write_external_status(
-        job.session_id,
-        _build_external_status_payload(
-            session_id=job.session_id,
-            token=job.token,
-            state="ready",
-            step="pdf",
-            progress=100,
-            error_message=None,
-            files=existing_files,
-            latest_job_id=job.job_id,
-            latest_result_source_file_id=uploaded_entry.source_file_id,
-        ),
-    )
-    if used_fallback:
-        logger.info("phone scan worker used fallback detection session=%s job=%s", job.session_id, job.job_id)
 
 
 def _find_document_file(document: Document, role: str) -> DocumentFile | None:
@@ -960,53 +825,10 @@ def run() -> None:
             last_trash_cleanup_at = now_monotonic
             _cleanup_expired_trash()
 
-        _touch_phone_scan_heartbeat()
         inbox_drop_file = _claim_next_import_inbox_pdf()
         if inbox_drop_file is not None:
             claimed_path, original_name = inbox_drop_file
             _process_import_inbox_drop_file(claimed_path, original_name)
-            continue
-
-        scan_manifest = _claim_next_phone_scan_manifest()
-        if scan_manifest is not None:
-            try:
-                _process_phone_scan_manifest(scan_manifest)
-                _move_phone_scan_manifest(scan_manifest, _scan_job_done_dir())
-            except Exception as exc:  # pragma: no cover - runtime path
-                logger.exception("phone scan worker job failed manifest=%s err=%s", scan_manifest.name, exc)
-                try:
-                    with scan_manifest.open("r", encoding="utf-8") as handle:
-                        raw_payload = json.load(handle)
-                    if isinstance(raw_payload, dict):
-                        session_id = str(raw_payload.get("sessionId") or "").strip()
-                        token = str(raw_payload.get("token") or "").strip()
-                        job_id = str(raw_payload.get("jobId") or "").strip() or None
-                        if session_id and token:
-                            existing_status = _read_external_status(session_id) or {}
-                            existing_files = []
-                            for item in existing_status.get("files") or []:
-                                if not isinstance(item, dict):
-                                    continue
-                                parsed = _payload_to_uploaded_entry(item)
-                                if parsed:
-                                    existing_files.append(parsed)
-                            _write_external_status(
-                                session_id,
-                                _build_external_status_payload(
-                                    session_id=session_id,
-                                    token=token,
-                                    state="error",
-                                    step="clean",
-                                    progress=0,
-                                    error_message=str(exc),
-                                    files=existing_files,
-                                    latest_job_id=job_id,
-                                    latest_result_source_file_id=existing_files[-1].source_file_id if existing_files else None,
-                                ),
-                            )
-                except Exception:
-                    logger.debug("phone scan worker failed to publish error state manifest=%s", scan_manifest.name)
-                _move_phone_scan_manifest(scan_manifest, _scan_job_failed_dir())
             continue
 
         claimed = _claim_next_job()

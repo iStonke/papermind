@@ -11,7 +11,9 @@ from app.schemas.documents import DocumentSummary
 
 class SmartFolderSort(str, Enum):
     created_desc = "created_desc"
+    favorite_desc = "favorite_desc"
     doc_date_desc = "doc_date_desc"
+    doc_date_asc = "doc_date_asc"
     title_asc = "title_asc"
 
 

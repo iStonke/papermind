@@ -17,8 +17,6 @@ from app.routers import (
     health_router,
     import_router,
     jobs_router,
-    mobile_upload_router,
-    phone_scan_router,
     retrieval_router,
     saved_searches_router,
     settings_router,
@@ -80,8 +78,6 @@ app.include_router(health_router)
 app.include_router(direct_upload_router)
 app.include_router(documents_router)
 app.include_router(import_router)
-app.include_router(mobile_upload_router)
-app.include_router(phone_scan_router)
 app.include_router(tags_router)
 app.include_router(jobs_router)
 app.include_router(retrieval_router)

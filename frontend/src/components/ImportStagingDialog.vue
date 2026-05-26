@@ -68,32 +68,16 @@
           <v-icon class="import-staging-dropzone__icon" size="56">mdi-file-upload-outline</v-icon>
           <div class="import-staging-dropzone__headline">{{ dropzoneHeadline }}</div>
           <div class="import-staging-dropzone__actions">
-            <div class="pm-split" role="group" aria-label="Hinzufügen oder scannen" @click.stop>
-              <v-btn
-                variant="flat"
-                size="large"
-                :ripple="false"
-                class="import-staging-dropzone__cta pm-split__main"
-                :aria-label="dropzonePrimaryLabel"
-                @click="openFilePicker"
-              >
-                Hinzufügen...
-              </v-btn>
-
-              <div class="pm-split__divider" aria-hidden="true" />
-
-              <v-btn
-                variant="flat"
-                size="large"
-                :ripple="false"
-                class="import-staging-dropzone__cta pm-split__side"
-                aria-label="Dokument mit iPhone scannen"
-                title="Mit iPhone scannen"
-                @click.stop.prevent="openPhoneScanQrModal()"
-              >
-                <v-icon size="22">{{ resolveIcon('mdi-cellphone') }}</v-icon>
-              </v-btn>
-            </div>
+            <v-btn
+              variant="flat"
+              size="large"
+              :ripple="false"
+              class="import-staging-dropzone__cta"
+              :aria-label="dropzonePrimaryLabel"
+              @click.stop="openFilePicker"
+            >
+              Hinzufügen...
+            </v-btn>
           </div>
           <p v-if="isIOSDevice" class="import-staging-dropzone__ios-hint">
             Tipp: In Dateien -> ⋯ -> Dokumente scannen. Danach die PDF hier hochladen.
@@ -289,7 +273,6 @@
                             </template>
                             <v-list density="compact" min-width="220">
                               <v-list-item :prepend-icon="resolveIcon('mdi-file-document-outline')" title="PDFs hinzufügen..." @click="openCardFilePicker(document.id)" />
-                              <v-list-item prepend-icon="mdi-cellphone" title="Dokument scannen..." @click="openPhoneScanQrModal(document.id)" />
                               <v-divider class="my-1" />
                               <v-list-item
                                 class="import-staging-doc__menu-delete"
@@ -437,15 +420,6 @@
     </template>
   </BaseDialog>
 
-  <MobileScanQrDialog
-    v-model="isMobileScanDialogOpen"
-    :api-base-url="props.apiBaseUrl"
-    :target-stage-id="mobileScanTargetStageId || ''"
-    :target-stage-name="mobileScanTargetStageName"
-    :mode="mobileScanTargetStageId ? 'stage' : 'global'"
-    @sources-received="addRemoteSources"
-  />
-
   <Teleport to="body">
     <transition name="peek-popover">
       <div
@@ -481,7 +455,6 @@ import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { useTheme } from 'vuetify';
 import BaseDialog from './BaseDialog.vue';
-import MobileScanQrDialog from './import/MobileScanQrDialog.vue';
 import StageTags from './StageTags.vue';
 import { suggestImportStageTitle } from '../api/importStaging';
 import { isIOS } from '../utils/platform';
@@ -515,8 +488,6 @@ const KNOWN_ICONS = new Set([
   'mdi-file-document-outline',
   'mdi-folder-outline',
   'mdi-plus',
-  'mdi-cellphone',
-  'mdi-qrcode-scan',
   'mdi-robot-outline',
   'mdi-call-split',
   'mdi-rotate-right',
@@ -537,9 +508,7 @@ const peek = ref({ open: false, x: 0, y: 0 });
 const isUploadingSources = ref(false);
 const isCommitting = ref(false);
 const preparationProgress = ref({ done: 0, total: 0 });
-const isMobileScanDialogOpen = ref(false);
-const mobileScanTargetStageId = ref(null);
-const mobileScanStageBySession = new Map();
+const remoteSourceStageBySession = new Map();
 const titleSuggestJobByStage = new Map();
 const previewImageSrc = ref('');
 const previewImageLoading = ref(false);
@@ -593,13 +562,6 @@ const isIOSDevice = computed(() => isIOS());
 const isEmpty = computed(() => documentCount.value === 0 && totalPages.value === 0);
 const dropzoneHeadline = computed(() => (isIOSDevice.value ? 'PDFs hier ablegen' : 'PDFs oder Ordner hier ablegen'));
 const dropzonePrimaryLabel = computed(() => (isIOSDevice.value ? 'PDF auswählen' : 'PDFs oder Ordner auswählen'));
-const mobileScanTargetStageName = computed(() => {
-  const targetId = String(mobileScanTargetStageId.value || '').trim();
-  if (!targetId) {
-    return '';
-  }
-  return documents.value.find((entry) => entry.id === targetId)?.title || '';
-});
 
 function getDocumentById(documentId) {
   return documents.value.find((entry) => entry.id === documentId) || null;
@@ -634,7 +596,7 @@ function ensureScanMeta(documentEntry) {
 }
 
 function isDefaultScanTitle(title) {
-  return String(title || '').trim() === 'Dokument scannen';
+  return String(title || '').trim() === 'Neuer Scan';
 }
 
 function isScanStage(documentEntry) {
@@ -931,9 +893,7 @@ watch(
     resetPageDragState();
     clearSettledPage();
     stopAutoScroll();
-    isMobileScanDialogOpen.value = false;
-    mobileScanTargetStageId.value = null;
-    mobileScanStageBySession.clear();
+    remoteSourceStageBySession.clear();
     titleSuggestJobByStage.clear();
     previewImageSrc.value = '';
     previewImageLoading.value = false;
@@ -1173,38 +1133,6 @@ function onDialogClose() {
     return;
   }
   isOpen.value = false;
-}
-
-function openMobileScanDialog(stageId = null) {
-  const normalized = String(stageId || '').trim();
-  mobileScanTargetStageId.value = normalized || null;
-  if (!normalized) {
-    mobileScanStageBySession.clear();
-  }
-  isMobileScanDialogOpen.value = true;
-}
-
-function openPhoneScanQrModal(stageId = null) {
-  openMobileScanDialog(stageId);
-}
-
-async function openForPhoneScan(stageId = null) {
-  let targetStageId = String(stageId || '').trim();
-  if (!targetStageId) {
-    const created = stagingStore.addEmptyDocument(null, 'Dokument scannen');
-    targetStageId = String(created?.id || '').trim();
-    if (targetStageId) {
-      const createdDoc = getDocumentById(targetStageId);
-      const createdMeta = ensureScanMeta(createdDoc);
-      if (createdMeta) {
-        createdMeta.isScanSession = true;
-      }
-    }
-  }
-
-  isOpen.value = true;
-  await nextTick();
-  openPhoneScanQrModal(targetStageId || null);
 }
 
 function resolveIcon(name) {
@@ -1549,14 +1477,14 @@ async function addRemoteSources(payload = []) {
 
   let addedCount = 0;
   let previewFallbackCount = 0;
-  let sessionStageId = preferredTargetStageId || mobileScanStageBySession.get(sessionId) || null;
+  let sessionStageId = preferredTargetStageId || remoteSourceStageBySession.get(sessionId) || null;
   const isSessionManagedScanStage = !preferredTargetStageId;
 
   if (!sessionStageId) {
-    const created = stagingStore.addEmptyDocument(null, 'Dokument scannen');
+    const created = stagingStore.addEmptyDocument(null, 'Neuer Scan');
     sessionStageId = created?.id || null;
     if (sessionStageId) {
-      mobileScanStageBySession.set(sessionId, sessionStageId);
+      remoteSourceStageBySession.set(sessionId, sessionStageId);
       const createdDoc = getDocumentById(sessionStageId);
       const createdMeta = ensureScanMeta(createdDoc);
       if (createdMeta) {
@@ -1564,10 +1492,10 @@ async function addRemoteSources(payload = []) {
       }
     }
   } else if (!documents.value.some((entry) => entry.id === sessionStageId)) {
-    const recreated = stagingStore.addEmptyDocument(null, 'Dokument scannen');
+    const recreated = stagingStore.addEmptyDocument(null, 'Neuer Scan');
     sessionStageId = recreated?.id || null;
     if (sessionStageId) {
-      mobileScanStageBySession.set(sessionId, sessionStageId);
+      remoteSourceStageBySession.set(sessionId, sessionStageId);
       const recreatedDoc = getDocumentById(sessionStageId);
       const recreatedMeta = ensureScanMeta(recreatedDoc);
       if (recreatedMeta) {
@@ -1575,7 +1503,7 @@ async function addRemoteSources(payload = []) {
       }
     }
   } else {
-    mobileScanStageBySession.set(sessionId, sessionStageId);
+    remoteSourceStageBySession.set(sessionId, sessionStageId);
     const existingDoc = getDocumentById(sessionStageId);
     const existingMeta = ensureScanMeta(existingDoc);
     if (existingMeta) {
@@ -1623,10 +1551,10 @@ async function addRemoteSources(payload = []) {
       });
       touchedStageIds.add(targetStageId);
     } else {
-      const fallback = stagingStore.addEmptyDocument(null, 'Dokument scannen');
+      const fallback = stagingStore.addEmptyDocument(null, 'Neuer Scan');
       const fallbackStageId = fallback?.id || null;
       if (fallbackStageId) {
-        mobileScanStageBySession.set(sessionId, fallbackStageId);
+        remoteSourceStageBySession.set(sessionId, fallbackStageId);
         const fallbackDoc = getDocumentById(fallbackStageId);
         const fallbackMeta = ensureScanMeta(fallbackDoc);
         if (fallbackMeta) {
@@ -1644,7 +1572,7 @@ async function addRemoteSources(payload = []) {
       } else {
         stagingStore.addDocumentFromSource({
           sourceFileId,
-          title: 'Dokument scannen',
+          title: 'Neuer Scan',
           pageCount,
           thumbUrls
         });
@@ -3206,8 +3134,7 @@ function openDialog() {
 defineExpose({
   openDialog,
   openWithFiles,
-  openWithRemoteSources,
-  openForPhoneScan
+  openWithRemoteSources
 });
 
 onBeforeUnmount(() => {

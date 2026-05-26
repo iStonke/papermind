@@ -131,6 +131,9 @@ export function useSearch({
       const name = activeSavedSearchName.value;
       return name ? `In „${name}" suchen…` : 'In Ordner suchen…';
     }
+    if (activeView.value === 'all') return 'In "Alle Dokumente" suchen...';
+    if (activeView.value === 'favorites') return 'In "Favoriten" suchen...';
+    if (activeView.value === 'trash') return 'In "Papierkorb" suchen...';
     if (activeView.value === 'imports') return 'In „Zuletzt hinzugefügt" suchen…';
     if (activeView.value === 'untagged') return 'In „Ohne Tags" suchen…';
     if (activeView.value === 'tags') return 'Tags suchen…';

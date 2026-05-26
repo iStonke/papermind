@@ -276,6 +276,28 @@
             </div>
           </div>
         </section>
+
+        <section class="pm-settings-section">
+          <h3 class="pm-settings-title">Bedienung</h3>
+          <div class="pm-settings-content">
+            <div class="pm-setting-row">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Tastaturkürzel</div>
+                <div class="pm-setting-description">Zeigt verfügbare Tastenkürzel und Mausgesten.</div>
+              </div>
+              <v-btn
+                class="pm-setting-action-btn"
+                variant="tonal"
+                color="primary"
+                size="small"
+                prepend-icon="mdi-keyboard-outline"
+                @click="emit('open-shortcuts')"
+              >
+                Anzeigen
+              </v-btn>
+            </div>
+          </div>
+        </section>
       </div>
     </template>
   </BaseDialog>
@@ -307,7 +329,7 @@ const props = defineProps({
   modelValue: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(['update:modelValue', 'reload-imports']);
+const emit = defineEmits(['update:modelValue', 'reload-imports', 'open-shortcuts']);
 
 // ── Stores / Theme ───────────────────────────────────────────────────────────
 

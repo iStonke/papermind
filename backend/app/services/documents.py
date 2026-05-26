@@ -11,7 +11,7 @@ from fastapi import UploadFile
 import httpx
 import pypdfium2 as pdfium
 from pypdf import PdfReader
-from sqlalchemy import asc, desc, func, select
+from sqlalchemy import asc, case, desc, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -1102,6 +1102,10 @@ class DocumentService:
             name_expr = func.lower(func.coalesce(Document.display_name, Document.original_filename))
             order_expr = direction(name_expr)
             secondary_order_expr = desc(Document.created_at)
+        elif sort in (DocumentSortField.is_favorite, DocumentSortField.favorite):
+            favorite_rank_expr = case((Document.is_favorite.is_(True), 1), else_=0)
+            order_expr = direction(favorite_rank_expr)
+            secondary_order_expr = desc(Document.updated_at)
         else:
             order_expr = direction(Document.created_at)
             secondary_order_expr = desc(Document.id)
@@ -1124,10 +1128,15 @@ class DocumentService:
                 ts_query_expr,
                 FTS_HEADLINE_OPTIONS,
             ).label("search_snippet")
+            search_order_exprs = (
+                (order_expr, secondary_order_expr, desc(rank_expr))
+                if sort in (DocumentSortField.is_favorite, DocumentSortField.favorite)
+                else (desc(rank_expr), order_expr, secondary_order_expr)
+            )
             items_stmt = (
                 filtered_stmt.add_columns(rank_expr, snippet_expr)
                 .options(selectinload(Document.tags))
-                .order_by(desc(rank_expr), order_expr, secondary_order_expr)
+                .order_by(*search_order_exprs)
                 .limit(limit)
                 .offset(offset)
             )

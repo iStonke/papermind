@@ -87,6 +87,8 @@ class ThemeMode(str, Enum):
 class DocumentSortOrder(str, Enum):
     newest = "newest"
     oldest = "oldest"
+    document_date_desc = "document_date_desc"
+    document_date_asc = "document_date_asc"
     name_asc = "name_asc"
     name_desc = "name_desc"
     last_opened = "last_opened"

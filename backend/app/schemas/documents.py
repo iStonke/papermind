@@ -58,6 +58,8 @@ class DocumentSortField(str, Enum):
     doc_date = "doc_date"
     updated_at = "updated_at"
     name = "name"
+    is_favorite = "is_favorite"
+    favorite = "favorite"
 
 
 class SortOrder(str, Enum):

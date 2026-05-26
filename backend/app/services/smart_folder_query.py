@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timezone
 from typing import Any
 
-from sqlalchemy import and_, asc, desc, func, not_, or_, select
+from sqlalchemy import and_, asc, case, desc, func, not_, or_, select
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.errors import BadRequestError
@@ -587,9 +587,23 @@ class SmartFolderQueryCompiler:
 
 
 def build_smart_folder_sort(sort: SmartFolderSort):
+    if sort == SmartFolderSort.favorite_desc:
+        return (
+            desc(case((Document.is_favorite.is_(True), 1), else_=0)),
+            desc(Document.updated_at),
+            desc(Document.id),
+        )
+
     if sort == SmartFolderSort.doc_date_desc:
         return (
             desc(Document.document_date).nullslast(),
+            desc(Document.created_at),
+            desc(Document.id),
+        )
+
+    if sort == SmartFolderSort.doc_date_asc:
+        return (
+            asc(Document.document_date).nullslast(),
             desc(Document.created_at),
             desc(Document.id),
         )

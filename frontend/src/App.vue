@@ -18,7 +18,7 @@
             clear-icon="mdi-close"
             :placeholder="searchPlaceholder"
             density="compact"
-            variant="solo"
+            variant="outlined"
             :messages="searchHintMessages"
             hide-details="auto"
             @update:model-value="onAppBarSearchInput"
@@ -28,10 +28,10 @@
         </div>
 
         <div class="appbar-right appbar-actions">
-          <v-menu location="bottom end" offset="8">
+          <v-menu v-if="pendingImportInboxCount > 0" location="bottom end" offset="8">
             <template #activator="{ props: importMenuProps }">
               <v-badge
-                :model-value="pendingImportInboxCount > 0"
+                model-value
                 :content="pendingImportInboxBadgeLabel"
                 color="error"
                 offset-x="3"
@@ -45,24 +45,28 @@
             </template>
             <v-list density="compact" min-width="240">
               <v-list-item
-                v-if="pendingImportInboxCount > 0"
+                class="import-inbox-menu-item"
                 prepend-icon="mdi-inbox-arrow-down-outline"
                 :title="pendingImportInboxMenuTitle"
                 @click="openImportInboxScans"
               />
-              <v-divider v-if="pendingImportInboxCount > 0" />
+              <v-divider />
               <v-list-item
                 prepend-icon="mdi-file-upload-outline"
                 title="PDF hochladen..."
                 @click="openImportPdfPicker"
               />
-              <v-list-item
-                prepend-icon="mdi-cellphone"
-                title="Dokument scannen..."
-                @click="openImportPhoneScan"
-              />
             </v-list>
           </v-menu>
+          <v-btn
+            v-else
+            class="topbar-btn topbar-btn--import"
+            variant="text"
+            @click="openImportPdfPicker"
+          >
+            <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
+            Importieren
+          </v-btn>
 
           <v-btn
             class="topbar-btn topbar-btn--import"
@@ -72,15 +76,6 @@
           >
             <v-icon size="18" class="mr-1">mdi-robot</v-icon>
             KI
-          </v-btn>
-
-          <v-btn
-            class="topbar-btn topbar-btn--icon"
-            variant="text"
-            aria-label="Tastaturkürzel"
-            @click="openShortcutsHelpDialog"
-          >
-            <v-icon size="20">mdi-keyboard-outline</v-icon>
           </v-btn>
 
           <v-btn
@@ -96,7 +91,11 @@
     </v-app-bar>
 
     <v-main class="app-main">
-      <SettingsDialog v-model="isSettingsDialogOpen" @reload-imports="onSettingsReloadImports" />
+      <SettingsDialog
+        v-model="isSettingsDialogOpen"
+        @reload-imports="onSettingsReloadImports"
+        @open-shortcuts="openShortcutsFromSettings"
+      />
       <ShortcutsHelpDialog v-model="isShortcutsHelpDialogOpen" />
       <BatchTagDialog
         v-model="isBatchTagDialogOpen"
@@ -281,6 +280,7 @@
               :document-list-empty-state="documentListEmptyState"
               :show-snippets="showSnippets"
               :is-selection-mode="isSelectionMode"
+              :selection-disabled="isAllDocumentsSelectionDisabled"
               :selection-ids="selectionIds"
               :current-sort="currentSort"
               :current-status="documentListQuery.status || ''"
@@ -569,9 +569,12 @@ const apiBaseUrl = getBaseUrl();
 const SETTINGS_SORT_TO_QUERY = {
   newest: { sort: 'created_at', order: 'desc' },
   oldest: { sort: 'created_at', order: 'asc' },
+  document_date_desc: { sort: 'document_date', order: 'desc' },
+  document_date_asc: { sort: 'document_date', order: 'asc' },
   name_asc: { sort: 'name', order: 'asc' },
   name_desc: { sort: 'name', order: 'desc' },
-  last_opened: { sort: 'updated_at', order: 'desc' }
+  last_opened: { sort: 'updated_at', order: 'desc' },
+  favorites: { sort: 'favorite', order: 'desc' }
 };
 
 const TAG_REPLACE_DEBOUNCE_MS = 300;
@@ -673,6 +676,9 @@ const isSelectionMode = ref(false);
 const selectionIds    = ref(new Set());
 
 function toggleSelectionMode() {
+  if (!isSelectionMode.value && isAllDocumentsSelectionDisabled.value) {
+    return;
+  }
   isSelectionMode.value = !isSelectionMode.value;
   if (!isSelectionMode.value) selectionIds.value = new Set();
 }
@@ -690,7 +696,14 @@ function toggleDocumentSelection(id) {
 }
 
 // ── Toolbar-Aktionen ───────────────────────────────────────────────────────
+function isFavoriteSortQuery(sort = documentListQuery.sort, order = documentListQuery.order) {
+  return (sort === 'favorite' || sort === 'is_favorite') && order === 'desc';
+}
+
 const currentSort = computed(() => {
+  if (isFavoriteSortQuery()) {
+    return 'favorites';
+  }
   const entry = Object.entries(SETTINGS_SORT_TO_QUERY).find(
     ([, v]) => v.sort === documentListQuery.sort && v.order === documentListQuery.order
   );
@@ -911,6 +924,11 @@ const isImportsView   = computed(() => activeView.value === 'imports');
 const isUntaggedView  = computed(() => activeView.value === 'untagged');
 const isFavoritesView = computed(() => activeView.value === 'favorites');
 const isTrashView     = computed(() => activeView.value === 'trash');
+const isAllDocumentsSelectionDisabled = computed(() => {
+  return activeView.value === 'all' &&
+    !isLoadingSidebarCounts.value &&
+    Number(sidebarCounts.value.all_documents || 0) <= 0;
+});
 const tagNameCollator = new Intl.Collator('de-DE', { sensitivity: 'base', numeric: true });
 const sortedTagsByName = computed(() => {
   return [...tags.value].sort((left, right) => {
@@ -1411,6 +1429,12 @@ async function openSettingsDialog() {
 
 function openShortcutsHelpDialog() {
   isShortcutsHelpDialogOpen.value = true;
+}
+
+async function openShortcutsFromSettings() {
+  isSettingsDialogOpen.value = false;
+  await nextTick();
+  openShortcutsHelpDialog();
 }
 
 function handleSystemThemeChange() {
@@ -1996,8 +2020,8 @@ function buildDocumentListQuery() {
   const params = new URLSearchParams();
   params.set('limit', String(documentListQuery.limit));
   params.set('offset', String(documentListQuery.offset));
-  params.set('sort', documentListQuery.sort);
-  params.set('order', documentListQuery.order);
+  params.set('sort', isFavoriteSortQuery() ? 'created_at' : documentListQuery.sort);
+  params.set('order', isFavoriteSortQuery() ? 'desc' : documentListQuery.order);
 
   if (documentListQuery.q) {
     params.set('q', documentListQuery.q);
@@ -2037,6 +2061,9 @@ function buildDocumentListQuery() {
 }
 
 function mapDocumentSortToSmartFolderSort() {
+  if (isFavoriteSortQuery()) {
+    return 'created_desc';
+  }
   if (documentListQuery.sort === 'name' && documentListQuery.order === 'asc') {
     return 'title_asc';
   }
@@ -2045,6 +2072,12 @@ function mapDocumentSortToSmartFolderSort() {
     documentListQuery.order === 'desc'
   ) {
     return 'doc_date_desc';
+  }
+  if (
+    (documentListQuery.sort === 'doc_date' || documentListQuery.sort === 'document_date') &&
+    documentListQuery.order === 'asc'
+  ) {
+    return 'doc_date_asc';
   }
   return 'created_desc';
 }
@@ -2055,6 +2088,28 @@ function buildSmartFolderDocumentsQuery() {
   params.set('offset', String(documentListQuery.offset));
   params.set('sort', mapDocumentSortToSmartFolderSort());
   return params.toString();
+}
+
+function sortDocumentsForCurrentView(items) {
+  const normalizedItems = Array.isArray(items) ? [...items] : [];
+  if (!isFavoriteSortQuery()) {
+    return normalizedItems;
+  }
+  return normalizedItems
+    .map((document, index) => ({ document, index }))
+    .sort((left, right) => {
+      const favoriteDelta = Number(Boolean(right.document?.is_favorite)) - Number(Boolean(left.document?.is_favorite));
+      if (favoriteDelta !== 0) {
+        return favoriteDelta;
+      }
+      const rightUpdated = Date.parse(String(right.document?.updated_at || right.document?.created_at || '')) || 0;
+      const leftUpdated = Date.parse(String(left.document?.updated_at || left.document?.created_at || '')) || 0;
+      if (rightUpdated !== leftUpdated) {
+        return rightUpdated - leftUpdated;
+      }
+      return left.index - right.index;
+    })
+    .map((entry) => entry.document);
 }
 
 async function parseResponseError(response) {
@@ -2402,7 +2457,7 @@ async function fetchDocuments(preferredDocumentId = null, options = {}) {
     }
 
     const payload = await parseJsonResponse(response);
-    documents.value = payload.items || [];
+    documents.value = sortDocumentsForCurrentView(payload.items || []);
 
     if (documents.value.length === 0) {
       if (!canDiscardMetadataChanges()) {
@@ -2653,6 +2708,9 @@ async function toggleDocumentFavorite(document) {
     }
     if (selectedDocumentDetail.value?.id === updated.id) {
       selectedDocumentDetail.value = { ...selectedDocumentDetail.value, is_favorite: updated.is_favorite };
+    }
+    if (isFavoriteSortQuery() && !isFavoritesView.value) {
+      await fetchDocuments(selectedDocumentId.value);
     }
     scheduleSidebarCountsRefresh();
   } catch (error) {
@@ -2942,13 +3000,6 @@ async function onImportPdfInputChange(event) {
   const dialogRef = importStagingDialogRef.value;
   if (dialogRef && typeof dialogRef.openWithFiles === 'function') {
     await dialogRef.openWithFiles(selection.files);
-  }
-}
-
-async function openImportPhoneScan() {
-  const dialogRef = importStagingDialogRef.value;
-  if (dialogRef && typeof dialogRef.openForPhoneScan === 'function') {
-    await dialogRef.openForPhoneScan();
   }
 }
 
@@ -3357,7 +3408,16 @@ onBeforeUnmount(() => {
 }
 
 .appbar-search__field :deep(.v-field__outline) {
-  display: none;
+  color: rgba(255, 255, 255, 0.62);
+  --v-field-border-opacity: 1;
+}
+
+.appbar-search__field :deep(.v-field:hover .v-field__outline) {
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.appbar-search__field :deep(.v-field--focused .v-field__outline) {
+  color: rgba(255, 255, 255, 0.92);
 }
 
 .papermind-app.v-theme--dark .appbar-search__field :deep(.v-field) {
@@ -3477,6 +3537,16 @@ onBeforeUnmount(() => {
 
 .topbar-btn--import:hover {
   background: rgba(255, 255, 255, 0.18);
+}
+
+.import-inbox-menu-item {
+  color: rgb(var(--v-theme-primary));
+}
+
+.import-inbox-menu-item .v-list-item-title,
+.import-inbox-menu-item .v-icon {
+  color: rgb(var(--v-theme-primary));
+  font-weight: 700;
 }
 
 .topbar-btn--ghost {

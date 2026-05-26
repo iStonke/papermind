@@ -71,6 +71,7 @@
         type="button"
         class="doclist-toolbar__select-btn"
         :class="{ 'doclist-toolbar__select-btn--cancel': isSelectionMode }"
+        :disabled="!isSelectionMode && selectionDisabled"
         @click="emit('toggle-selection-mode')"
       >
         {{ isSelectionMode ? 'Abbrechen' : 'Auswählen' }}
@@ -288,9 +289,12 @@ import { ref, computed } from 'vue';
 const SORT_OPTIONS = [
   { value: 'newest',      label: 'Neueste zuerst' },
   { value: 'oldest',      label: 'Älteste zuerst' },
+  { value: 'document_date_desc', label: 'Dokumentdatum neueste zuerst' },
+  { value: 'document_date_asc',  label: 'Dokumentdatum älteste zuerst' },
   { value: 'name_asc',    label: 'Name A–Z' },
   { value: 'name_desc',   label: 'Name Z–A' },
   { value: 'last_opened', label: 'Zuletzt geöffnet' },
+  { value: 'favorites',   label: 'Favoriten zuerst' },
 ];
 
 const STATUS_OPTIONS = [
@@ -317,6 +321,7 @@ const props = defineProps({
   documentListEmptyState:     { type: Object,  default: () => ({ icon: '', title: '', subtitle: '' }) },
   showSnippets:               { type: Boolean, default: false },
   isSelectionMode:            { type: Boolean, default: false },
+  selectionDisabled:          { type: Boolean, default: false },
   selectionIds:               { type: Set,     default: () => new Set() },
   currentSort:                { type: String,  default: 'newest' },
   currentStatus:              { type: String,  default: '' },
@@ -542,6 +547,15 @@ function onListDrop(event) {
 
 .doclist-toolbar__select-btn:hover {
   background: rgba(var(--v-theme-primary), 0.08);
+}
+
+.doclist-toolbar__select-btn:disabled {
+  color: rgba(var(--v-theme-on-surface), 0.32);
+  cursor: not-allowed;
+}
+
+.doclist-toolbar__select-btn:disabled:hover {
+  background: transparent;
 }
 
 .doclist-toolbar__select-btn--cancel {

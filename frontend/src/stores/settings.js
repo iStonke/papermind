@@ -7,7 +7,15 @@ import {
 } from '../constants/promptDefaults.js';
 
 const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
-const SORT_ORDER_VALUES = new Set(['newest', 'oldest', 'name_asc', 'name_desc', 'last_opened']);
+const SORT_ORDER_VALUES = new Set([
+  'newest',
+  'oldest',
+  'document_date_desc',
+  'document_date_asc',
+  'name_asc',
+  'name_desc',
+  'last_opened'
+]);
 const OCR_ENGINE_VALUES = new Set(['tesseract', 'paddleocr', 'easyocr', 'abbyy']);
 const EMBEDDING_MODEL_FALLBACK = 'hash-384-v1';
 const DRAWER_EXPANDED_STORAGE_KEY  = 'pm.drawerExpanded';
