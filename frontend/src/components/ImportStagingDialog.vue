@@ -92,292 +92,424 @@
           @dragover.prevent="onListSurfaceDragOver"
           @drop.prevent="onListSurfaceDrop"
         >
-          <div
-            class="import-staging-content pm-import-body-shell"
-            @dragenter.prevent="onBodyShellDragEnter"
-            @dragover.prevent="onBodyShellDragOver"
-            @dragleave.prevent="onBodyShellDragLeave"
-            @drop.prevent="onBodyShellDrop"
-          >
+          <div class="import-staging-content pm-import-body-shell">
             <div class="import-staging-work-layout">
+
+              <!-- ── LEFT: Page area + bottom toolbar ── -->
               <div
-                ref="bodyScrollRef"
-                class="import-staging-scroll pm-import-body-scroll"
-                :class="{ 'pm-import-body-scroll--centered': !isBodyContentOverflowing && !isViewSwitching }"
-                @click.self="clearActiveSelection"
+                class="pm-split-left"
+                @dragenter.prevent="onBodyShellDragEnter"
+                @dragover.prevent="onBodyShellDragOver"
+                @dragleave.prevent="onBodyShellDragLeave"
+                @drop.prevent="onBodyShellDrop"
               >
                 <div
-                  ref="docsListRef"
-                  class="import-staging-docs pm-import-stages"
+                  ref="bodyScrollRef"
+                  class="import-staging-scroll pm-import-body-scroll"
+                  :class="{ 'pm-import-body-scroll--centered': !isBodyContentOverflowing && !isViewSwitching }"
+                  :style="gridScrollStyle"
                   @click.self="clearActiveSelection"
-                  @dragover.prevent="onDocsContainerDragOver"
-                  @drop.prevent="onDocsContainerDrop"
                 >
                   <div
-                    v-for="(document, documentIndex) in documents"
-                    :key="document.id"
-                    class="import-staging-doc-slot"
+                    ref="docsListRef"
+                    class="import-staging-docs pm-import-stages"
+                    @click.self="clearActiveSelection"
+                    @dragover.prevent="onDocsContainerDragOver"
+                    @drop.prevent="onDocsContainerDrop"
                   >
                     <div
-                      class="import-staging-interdrop"
-                      @dragover.prevent="onInterDropDragOver"
-                      @drop.prevent="onInterDocumentDrop($event, documentIndex)"
-                    />
-
-                    <article
-                      class="import-staging-doc stage-card"
-                      :class="{
-                        'import-staging-doc--empty': document.pages.length === 0,
-                        'import-staging-doc--collapsed': document.collapsed,
-                        'import-staging-doc--dragover': isDocumentDragActive(document.id)
-                      }"
-                      @dragenter.prevent="onDocumentDragEnter($event, document.id)"
-                      @dragover.prevent="onDocumentBodyDragOver($event, document.id)"
-                      @dragleave.prevent="onDocumentDragLeave($event, document.id)"
-                      @drop.prevent="onDocumentBodyDrop($event, document.id)"
+                      v-for="(document, documentIndex) in documents"
+                      :key="document.id"
+                      class="import-staging-doc-slot"
                     >
-                      <header class="import-staging-doc__header stage-header">
-                      <input
-                        :ref="(el) => setCardFileInputRef(document.id, el)"
-                        class="d-none"
-                        type="file"
-                        accept="application/pdf,.pdf"
-                        multiple
-                        @change="onCardFileInputChange($event, document.id)"
+                      <div
+                        class="import-staging-interdrop"
+                        @dragover.prevent="onInterDropDragOver"
+                        @drop.prevent="onInterDocumentDrop($event, documentIndex)"
                       />
 
-                      <div class="stage-header-left">
-                        <button
-                          type="button"
-                          class="import-staging-doc__collapse"
-                          :aria-label="document.collapsed ? 'Aufklappen' : 'Einklappen'"
-                          @click="onDocumentCollapseToggle(document.id)"
-                        >
-                          {{ document.collapsed ? '▸' : '▾' }}
-                        </button>
+                      <article
+                        class="import-staging-doc stage-card"
+                        :class="{
+                          'import-staging-doc--empty': document.pages.length === 0,
+                          'import-staging-doc--collapsed': document.collapsed,
+                          'import-staging-doc--dragover': isDocumentDragActive(document.id)
+                        }"
+                        @dragenter.prevent="onDocumentDragEnter($event, document.id)"
+                        @dragover.prevent="onDocumentBodyDragOver($event, document.id)"
+                        @dragleave.prevent="onDocumentDragLeave($event, document.id)"
+                        @drop.prevent="onDocumentBodyDrop($event, document.id)"
+                      >
+                        <header class="import-staging-doc__header stage-header">
+                        <input
+                          :ref="(el) => setCardFileInputRef(document.id, el)"
+                          class="d-none"
+                          type="file"
+                          accept="application/pdf,.pdf"
+                          multiple
+                          @change="onCardFileInputChange($event, document.id)"
+                        />
 
-                        <div class="stage-title-input">
-                          <div class="stage-title-row">
-                            <input
-                              :ref="(el) => setTitleInputRef(document.id, el)"
-                              class="import-staging-doc__title"
-                              :value="document.title"
-                              @input="onDocumentTitleInput(document.id, $event)"
-                              @blur="onDocumentTitleBlur(document.id)"
-                              @keydown="handleDocumentTitleShortcut($event, document.id)"
+                        <div class="stage-header-left">
+                          <button
+                            type="button"
+                            class="import-staging-doc__collapse"
+                            :aria-label="document.collapsed ? 'Aufklappen' : 'Einklappen'"
+                            @click="onDocumentCollapseToggle(document.id)"
+                          >
+                            {{ document.collapsed ? '▸' : '▾' }}
+                          </button>
+
+                          <div class="stage-title-input">
+                            <div class="stage-title-row">
+                              <input
+                                :ref="(el) => setTitleInputRef(document.id, el)"
+                                class="import-staging-doc__title"
+                                :value="document.title"
+                                @input="onDocumentTitleInput(document.id, $event)"
+                                @blur="onDocumentTitleBlur(document.id)"
+                                @keydown="handleDocumentTitleShortcut($event, document.id)"
+                              />
+                            </div>
+                            <div v-if="getStageTitleMetaText(document)" class="scan-title-hint" :class="getStageTitleMetaClass(document)">
+                              <v-progress-circular v-if="isScanTitleWorking(document)" indeterminate size="12" width="2" />
+                              <v-icon v-else :icon="resolveIcon('mdi-robot-outline')" size="14" />
+                              <span class="scan-title-hint__label">{{ getStageTitleMetaText(document) }}</span>
+                              <button
+                                v-if="canShowScanSuggestion(document)"
+                                type="button"
+                                class="scan-title-hint__apply"
+                                @click="applyScanSuggestion(document.id)"
+                              >
+                                {{ getScanSuggestionActionLabel(document) }}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div class="stage-toolbar stage-header-right">
+                          <div class="toolbar-actions">
+                            <v-btn
+                              :icon="resolveIcon('mdi-call-split')"
+                              variant="text"
+                              class="pm-icon-btn stage-toolbar-btn"
+                              :style="getToolbarControlStyle(!canSplitPage(document.id))"
+                              aria-label="Ausgewählte Seite auslagern"
+                              :disabled="!canSplitPage(document.id)"
+                              @click="splitSelectedPage(document.id)"
                             />
-
-                            <v-menu location="bottom start" offset="6">
-                              <template #activator="{ props: aiMenuProps }">
+                            <v-btn
+                              :icon="resolveIcon('mdi-trash-can-outline')"
+                              variant="text"
+                              color="error"
+                              class="pm-icon-btn stage-toolbar-btn"
+                              :style="getToolbarControlStyle(!hasSelectedPage(document.id))"
+                              aria-label="Ausgewählte Seite entfernen"
+                              :disabled="!hasSelectedPage(document.id)"
+                              @click="removeSelectedPage(document.id)"
+                            />
+                            <div class="toolbar-divider toolbar-divider--tags" aria-hidden="true" />
+                            <StageTags
+                              class="stage-toolbar__tags"
+                              :tag-ids="document.tags || []"
+                              :all-tags="stageTagPool"
+                              :button-style="toolbarControlEnabledStyle"
+                              :create-tag-by-name="createStageTagByName"
+                              :load-tags="ensureStageTagsLoaded"
+                              @update:tag-ids="onDocumentTagsUpdate(document.id, $event)"
+                            />
+                            <v-menu location="bottom end" offset="6">
+                              <template #activator="{ props: menuProps }">
                                 <v-btn
-                                  :icon="resolveIcon('mdi-robot-outline')"
+                                  :icon="resolveIcon('mdi-dots-horizontal')"
                                   variant="text"
-                                  size="small"
-                                  class="stage-title-ai-btn"
-                                  :loading="isScanTitleBusy(document)"
-                                  :disabled="isTitleSuggestActionDisabled(document)"
-                                  :aria-label="getTitleSuggestHint(document)"
-                                  :title="getTitleSuggestHint(document)"
-                                  v-bind="aiMenuProps"
+                                  class="pm-icon-btn stage-toolbar-btn"
+                                  :style="toolbarControlEnabledStyle"
+                                  aria-label="Mehr Aktionen"
+                                  v-bind="menuProps"
                                 />
                               </template>
                               <v-list density="compact" min-width="220">
+                                <v-list-item :prepend-icon="resolveIcon('mdi-file-document-outline')" title="PDFs hinzufügen..." @click="openCardFilePicker(document.id)" />
+                                <v-divider class="my-1" />
                                 <v-list-item
-                                  :prepend-icon="resolveIcon('mdi-refresh')"
-                                  title="Titel vorschlagen (Seite 1)"
-                                  :disabled="isScanTitleBusy(document)"
-                                  @click="requestScanTitleSuggestion(document.id, 'first_page')"
-                                />
-                                <v-list-item
-                                  :prepend-icon="resolveIcon('mdi-refresh')"
-                                  title="Titel vorschlagen (alle Seiten)"
-                                  :disabled="isScanTitleBusy(document)"
-                                  @click="requestScanTitleSuggestion(document.id, 'all_pages')"
+                                  class="import-staging-doc__menu-delete"
+                                  :prepend-icon="resolveIcon('mdi-trash-can-outline')"
+                                  title="Dokument löschen..."
+                                  @click="deleteDocument(document.id)"
                                 />
                               </v-list>
                             </v-menu>
                           </div>
-                          <div v-if="getStageTitleMetaText(document)" class="scan-title-hint" :class="getStageTitleMetaClass(document)">
-                            <v-progress-circular v-if="isScanTitleWorking(document)" indeterminate size="12" width="2" />
-                            <v-icon v-else :icon="resolveIcon('mdi-robot-outline')" size="14" />
-                            <span class="scan-title-hint__label">{{ getStageTitleMetaText(document) }}</span>
-                            <button
-                              v-if="canShowScanSuggestion(document)"
-                              type="button"
-                              class="scan-title-hint__apply"
-                              @click="applyScanSuggestion(document.id)"
-                            >
-                              {{ getScanSuggestionActionLabel(document) }}
-                            </button>
+                        </div>
+                      </header>
+
+                      <Transition
+                        name="stage-collapse"
+                        @before-enter="onStageBodyBeforeEnter"
+                        @enter="onStageBodyEnter"
+                        @after-enter="onStageBodyAfterEnter"
+                        @before-leave="onStageBodyBeforeLeave"
+                        @leave="onStageBodyLeave"
+                        @after-leave="onStageBodyAfterLeave"
+                      >
+                        <div v-if="!document.collapsed" class="import-staging-doc__body stage-body">
+                          <div v-if="document.pages.length === 0" class="import-staging-doc__no-pages">
+                            <span>Keine Seiten</span>
+                            <v-btn size="x-small" variant="text" color="error" @click="deleteDocument(document.id)">
+                              Dokument löschen
+                            </v-btn>
                           </div>
-                        </div>
-                      </div>
 
-                      <div class="stage-toolbar stage-header-right">
-                        <div class="toolbar-actions">
-                          <v-btn
-                            :icon="resolveIcon('mdi-call-split')"
-                            variant="text"
-                            class="pm-icon-btn stage-toolbar-btn"
-                            :style="getToolbarControlStyle(!canSplitPage(document.id))"
-                            aria-label="Ausgewählte Seite auslagern"
-                            :disabled="!canSplitPage(document.id)"
-                            @click="splitSelectedPage(document.id)"
-                          />
-
-                          <v-btn
-                            :icon="resolveIcon('mdi-rotate-right')"
-                            variant="text"
-                            class="pm-icon-btn stage-toolbar-btn"
-                            :style="getToolbarControlStyle(!hasSelectedPage(document.id))"
-                            aria-label="Seite drehen"
-                            :disabled="!hasSelectedPage(document.id)"
-                            @click="rotateSelectedPage(document.id, 90)"
-                          />
-
-                          <v-btn
-                            :icon="resolveIcon('mdi-trash-can-outline')"
-                            variant="text"
-                            color="error"
-                            class="pm-icon-btn stage-toolbar-btn"
-                            :style="getToolbarControlStyle(!hasSelectedPage(document.id))"
-                            aria-label="Ausgewählte Seite entfernen"
-                            :disabled="!hasSelectedPage(document.id)"
-                            @click="removeSelectedPage(document.id)"
-                          />
-
-                          <div class="toolbar-divider toolbar-divider--tags" aria-hidden="true" />
-
-                          <StageTags
-                            class="stage-toolbar__tags"
-                            :tag-ids="document.tags || []"
-                            :all-tags="stageTagPool"
-                            :button-style="toolbarControlEnabledStyle"
-                            :create-tag-by-name="createStageTagByName"
-                            :load-tags="ensureStageTagsLoaded"
-                            @update:tag-ids="onDocumentTagsUpdate(document.id, $event)"
-                          />
-
-                          <v-menu location="bottom end" offset="6">
-                            <template #activator="{ props: menuProps }">
-                              <v-btn
-                                :icon="resolveIcon('mdi-dots-horizontal')"
-                                variant="text"
-                                class="pm-icon-btn stage-toolbar-btn"
-                                :style="toolbarControlEnabledStyle"
-                                aria-label="Mehr Aktionen"
-                                v-bind="menuProps"
-                              />
-                            </template>
-                            <v-list density="compact" min-width="220">
-                              <v-list-item :prepend-icon="resolveIcon('mdi-file-document-outline')" title="PDFs hinzufügen..." @click="openCardFilePicker(document.id)" />
-                              <v-divider class="my-1" />
-                              <v-list-item
-                                class="import-staging-doc__menu-delete"
-                                :prepend-icon="resolveIcon('mdi-trash-can-outline')"
-                                title="Dokument löschen..."
-                                @click="deleteDocument(document.id)"
-                              />
-                            </v-list>
-                          </v-menu>
-                        </div>
-                      </div>
-                    </header>
-
-                    <Transition
-                      name="stage-collapse"
-                      @before-enter="onStageBodyBeforeEnter"
-                      @enter="onStageBodyEnter"
-                      @after-enter="onStageBodyAfterEnter"
-                      @before-leave="onStageBodyBeforeLeave"
-                      @leave="onStageBodyLeave"
-                      @after-leave="onStageBodyAfterLeave"
-                    >
-                      <div v-if="!document.collapsed" class="import-staging-doc__body stage-body">
-                        <div v-if="document.pages.length === 0" class="import-staging-doc__no-pages">
-                          <span>Keine Seiten</span>
-                          <v-btn size="x-small" variant="text" color="error" @click="deleteDocument(document.id)">
-                            Dokument löschen
-                          </v-btn>
-                        </div>
-
-                        <TransitionGroup
-                          v-else
-                          class="import-staging-pages"
-                          tag="div"
-                          name="staging-page-list"
-                          @dragover.prevent="onPagesContainerDragOver($event, document.id)"
-                          @drop.prevent="onPagesContainerDrop($event, document.id)"
-                        >
-                          <div
-                            v-for="(page, pageIndex) in document.pages"
-                            :key="page.id"
-                            :ref="(el) => setPageThumbRef(page.id, el)"
-                            class="import-staging-page"
-                            :class="{
-                              'import-staging-page--selected': isPageSelected(document.id, page.id),
-                              'import-staging-page--dragging': isDraggingPage(page.id),
-                              'import-staging-page--drop-hover': isDropHoverPage(document.id, page.id),
-                              'import-staging-page--settled': isSettledPage(page.id)
-                            }"
-                            :data-page-id="page.id"
-                            :data-page-index="pageIndex"
-                            :data-doc-id="document.id"
-                            draggable="true"
-                            @dragstart="onPageDragStart($event, document.id, page.id, pageIndex)"
-                            @dragend="onPageDragEnd"
-                            @click="onPageClick($event, document.id, page.id, pageIndex)"
-                            @dblclick="onPageDoubleClick($event, document.id, page.id, pageIndex)"
-                            @dragover.prevent="onPageDragOver($event, document.id, page.id, pageIndex)"
-                            @drop.prevent="onPageDrop($event, document.id, pageIndex)"
+                          <TransitionGroup
+                            v-else
+                            class="import-staging-pages"
+                            tag="div"
+                            name="staging-page-list"
+                            @dragover.prevent="onPagesContainerDragOver($event, document.id)"
+                            @drop.prevent="onPagesContainerDrop($event, document.id)"
                           >
-                            <div class="import-staging-page__thumb-wrap">
-                              <img
-                                v-if="page.thumbUrl"
-                                class="import-staging-page__thumb"
-                                :src="page.thumbUrl"
-                                alt="Seitenvorschau"
-                                :style="{ transform: `rotate(${page.rotation}deg)` }"
-                              />
-                              <div v-else class="import-staging-page__thumb import-staging-page__thumb--fallback">
-                                <v-icon size="18">{{ resolveIcon('mdi-file-pdf-box') }}</v-icon>
-                              </div>
-
-                              <span class="import-staging-page__order">{{ pageIndex + 1 }}</span>
-
-                              <div class="import-staging-page__actions">
-                                <v-btn
-                                  size="x-small"
-                                  :icon="resolveIcon('mdi-trash-can-outline')"
-                                  variant="tonal"
-                                  color="error"
-                                  @click.stop="removePage(page.id)"
+                            <div
+                              v-for="(page, pageIndex) in document.pages"
+                              :key="page.id"
+                              :ref="(el) => setPageThumbRef(page.id, el)"
+                              class="import-staging-page"
+                              :class="{
+                                'import-staging-page--selected': isPageSelected(document.id, page.id),
+                                'import-staging-page--dragging': isDraggingPage(page.id),
+                                'import-staging-page--drop-hover': isDropHoverPage(document.id, page.id),
+                                'import-staging-page--settled': isSettledPage(page.id)
+                              }"
+                              :data-page-id="page.id"
+                              :data-page-index="pageIndex"
+                              :data-doc-id="document.id"
+                              draggable="true"
+                              @dragstart="onPageDragStart($event, document.id, page.id, pageIndex)"
+                              @dragend="onPageDragEnd"
+                              @click="onPageClick($event, document.id, page.id, pageIndex)"
+                              @dblclick="onPageDoubleClick($event, document.id, page.id, pageIndex)"
+                              @dragover.prevent="onPageDragOver($event, document.id, page.id, pageIndex)"
+                              @drop.prevent="onPageDrop($event, document.id, pageIndex)"
+                            >
+                              <div class="import-staging-page__thumb-wrap">
+                                <img
+                                  v-if="page.thumbUrl"
+                                  class="import-staging-page__thumb"
+                                  :src="page.thumbUrl"
+                                  alt="Seitenvorschau"
+                                  :style="{ transform: `rotate(${page.rotation}deg)` }"
                                 />
+                                <div v-else class="import-staging-page__thumb import-staging-page__thumb--fallback">
+                                  <v-icon size="18">{{ resolveIcon('mdi-file-pdf-box') }}</v-icon>
+                                </div>
+
+                                <span class="import-staging-page__order">{{ pageIndex + 1 }}</span>
+
+                                <div class="import-staging-page__actions">
+                                  <v-btn
+                                    size="x-small"
+                                    :icon="resolveIcon('mdi-trash-can-outline')"
+                                    variant="tonal"
+                                    color="error"
+                                    @click.stop="removePage(page.id)"
+                                  />
+                                </div>
                               </div>
                             </div>
-                          </div>
 
-                          <div
-                            v-if="isPageDropMarkerVisible(document.id)"
-                            :key="`insert-line-${document.id}`"
-                            class="import-staging-page-insert-line"
-                            :style="pageDropMarkerStyle"
-                          >
-                            <span class="import-staging-page-insert-line__cap import-staging-page-insert-line__cap--top" />
-                            <span class="import-staging-page-insert-line__cap import-staging-page-insert-line__cap--bottom" />
-                          </div>
-                        </TransitionGroup>
-                      </div>
-                      </Transition>
-                    </article>
+                            <div
+                              v-if="isPageDropMarkerVisible(document.id)"
+                              :key="`insert-line-${document.id}`"
+                              class="import-staging-page-insert-line"
+                              :style="pageDropMarkerStyle"
+                            >
+                              <span class="import-staging-page-insert-line__cap import-staging-page-insert-line__cap--top" />
+                              <span class="import-staging-page-insert-line__cap import-staging-page-insert-line__cap--bottom" />
+                            </div>
+                          </TransitionGroup>
+                        </div>
+                        </Transition>
+                      </article>
+                    </div>
                   </div>
                 </div>
+
+                <!-- ── Bottom toolbar ── -->
+                <div class="pm-bottom-toolbar">
+                  <v-btn
+                    size="small"
+                    variant="text"
+                    class="pm-tb-btn"
+                    :prepend-icon="resolveIcon('mdi-plus')"
+                    :disabled="isUploadingSources || isCommitting"
+                    @click="openFilePicker"
+                  >
+                    Hinzufügen
+                  </v-btn>
+                  <div class="pm-tb-sep" aria-hidden="true" />
+                  <v-btn
+                    size="small"
+                    variant="text"
+                    class="pm-tb-btn"
+                    :icon="resolveIcon('mdi-rotate-left')"
+                    :disabled="!hasAnySelectedPage"
+                    title="Ausgewählte Seite nach links drehen"
+                    @click="rotateAnySelectedPage(-90)"
+                  />
+                  <v-btn
+                    size="small"
+                    variant="text"
+                    class="pm-tb-btn"
+                    :icon="resolveIcon('mdi-rotate-right')"
+                    :disabled="!hasAnySelectedPage"
+                    title="Ausgewählte Seite nach rechts drehen"
+                    @click="rotateAnySelectedPage(90)"
+                  />
+                  <div class="pm-tb-sep" aria-hidden="true" />
+                  <div class="pm-zoom-ctrl">
+                    <span class="pm-zoom-label">S</span>
+                    <input
+                      type="range"
+                      class="pm-zoom-slider"
+                      min="0"
+                      max="2"
+                      step="1"
+                      :value="gridZoomIndex"
+                      @input="onGridZoomChange($event)"
+                    />
+                    <span class="pm-zoom-label">L</span>
+                  </div>
+                  <span class="pm-page-count ml-auto text-caption">{{ totalPages }} Seiten</span>
+                </div>
+
+                <div v-if="isBodyFileDragOver" class="pm-import-drop-overlay" aria-hidden="true">
+                  <div class="pm-import-drop-overlay__text">Loslassen zum Importieren</div>
+                </div>
               </div>
-            </div>
-            <div v-if="isBodyFileDragOver" class="pm-import-drop-overlay" aria-hidden="true">
-              <div class="pm-import-drop-overlay__text">
-                Loslassen zum Importieren
+
+              <!-- ── RIGHT: Document properties ── -->
+              <div class="pm-split-props">
+                <div class="pm-props-scroll">
+
+                  <!-- Document name -->
+                  <div class="pm-field">
+                    <div class="pm-field-label">
+                      Dokumentname
+                      <span class="pm-req-dot">· Pflicht</span>
+                    </div>
+                    <div class="pm-field-row">
+                      <input
+                        class="pm-field-input"
+                        :value="primaryDocTitle"
+                        placeholder="z. B. Rechnung Stadtwerke März 2024"
+                        @input="onPrimaryDocTitleInput"
+                        @blur="onPrimaryDocTitleBlur"
+                      />
+                      <v-btn
+                        :icon="resolveIcon('mdi-robot-outline')"
+                        variant="text"
+                        size="small"
+                        class="pm-ai-trigger"
+                        :loading="isPrimaryDocTitleBusy"
+                        :disabled="!primaryDocument || primaryDocument.pages.length === 0"
+                        title="Titel mit KI vorschlagen"
+                        @click="primaryDocument && requestScanTitleSuggestion(primaryDocument.id, 'first_page')"
+                      />
+                    </div>
+                    <button
+                      v-if="primaryDocSuggestionText"
+                      type="button"
+                      class="pm-ai-chip"
+                      @click="primaryDocument && applyScanSuggestion(primaryDocument.id)"
+                    >
+                      <v-icon size="13" class="pm-ai-chip__icon">{{ resolveIcon('mdi-robot-outline') }}</v-icon>
+                      <span class="pm-ai-chip__text">{{ primaryDocSuggestionText }}</span>
+                      <span class="pm-ai-chip__action">übernehmen</span>
+                    </button>
+                  </div>
+
+                  <!-- Document date -->
+                  <div class="pm-field">
+                    <div class="pm-field-label">Dokumentdatum</div>
+                    <div class="pm-field-row">
+                      <input
+                        class="pm-field-input"
+                        type="text"
+                        placeholder="TT.MM.JJJJ"
+                        v-model="docDate"
+                      />
+                      <v-btn
+                        :icon="resolveIcon('mdi-robot-outline')"
+                        variant="text"
+                        size="small"
+                        class="pm-ai-trigger"
+                        title="Datum aus Dokument erkennen"
+                      />
+                    </div>
+                  </div>
+
+                  <!-- Category -->
+                  <div class="pm-field">
+                    <div class="pm-field-label">Kategorie</div>
+                    <select class="pm-field-select" v-model="docCategory">
+                      <option value="">— wählen —</option>
+                      <option v-for="cat in DOC_CATEGORIES" :key="cat" :value="cat">{{ cat }}</option>
+                      <option value="__new__">+ Neu erstellen</option>
+                    </select>
+                  </div>
+
+                  <!-- OCR language -->
+                  <div class="pm-field">
+                    <div class="pm-field-label">
+                      OCR-Sprache
+                      <span class="pm-field-hint" title="Wähle die Sprache des Dokuments für beste Erkennungsqualität.">ⓘ beeinflusst Qualität</span>
+                    </div>
+                    <select class="pm-field-select" v-model="docOcrLang">
+                      <option value="de">Deutsch (Standard)</option>
+                      <option value="en">Englisch</option>
+                      <option value="auto">Automatisch erkennen</option>
+                      <option value="multi">Mehrsprachig</option>
+                    </select>
+                  </div>
+
+                  <div class="pm-field-divider" />
+
+                  <!-- OCR toggle -->
+                  <div class="pm-toggle-row">
+                    <div class="pm-toggle-lbl">
+                      <span>OCR durchführen</span>
+                      <small>Text aus Seiten extrahieren</small>
+                    </div>
+                    <button
+                      type="button"
+                      class="pm-toggle"
+                      :class="{ 'pm-toggle--on': localAutoOcr }"
+                      role="switch"
+                      :aria-checked="localAutoOcr"
+                      @click="localAutoOcr = !localAutoOcr"
+                    />
+                  </div>
+
+                  <!-- AI classification toggle -->
+                  <div class="pm-toggle-row">
+                    <div class="pm-toggle-lbl">
+                      <span>KI-Klassifizierung</span>
+                      <small>Kategorie & Tags vorschlagen</small>
+                    </div>
+                    <button
+                      type="button"
+                      class="pm-toggle"
+                      :class="{ 'pm-toggle--on': localAutoIndex && localAutoOcr, 'pm-toggle--dis': !localAutoOcr }"
+                      role="switch"
+                      :aria-checked="localAutoIndex && localAutoOcr"
+                      :disabled="!localAutoOcr"
+                      @click="localAutoOcr && (localAutoIndex = !localAutoIndex)"
+                    />
+                  </div>
+
+                </div>
               </div>
+
             </div>
           </div>
         </section>
@@ -489,6 +621,7 @@ const KNOWN_ICONS = new Set([
   'mdi-plus',
   'mdi-robot-outline',
   'mdi-call-split',
+  'mdi-rotate-left',
   'mdi-rotate-right',
   'mdi-dots-horizontal',
   'mdi-trash-can-outline',
@@ -551,6 +684,14 @@ const autoScrollState = {
   dy: 0
 };
 const isViewSwitching = ref(false);
+
+const DOC_CATEGORIES = ['Rechnungen', 'Verträge', 'Briefe', 'Belege', 'Steuern', 'Versicherung', 'Bank'];
+const docDate = ref('');
+const docCategory = ref('');
+const docOcrLang = ref('de');
+const localAutoOcr = ref(true);
+const localAutoIndex = ref(true);
+const gridZoomIndex = ref(1);
 
 const isOpen = computed({
   get: () => props.modelValue,
@@ -736,12 +877,13 @@ const selectedPageEntry = computed(() => {
 });
 const hasSelectedPreview = computed(() => Boolean(selectedPageEntry.value));
 const MODAL_WORK_WIDTH_COMPACT = 900;
-const dialogMaxWidth = computed(() => MODAL_WORK_WIDTH_COMPACT);
+const MODAL_WORK_WIDTH_SPLIT = 1280;
+const dialogMaxWidth = computed(() => isEmpty.value ? MODAL_WORK_WIDTH_COMPACT : MODAL_WORK_WIDTH_SPLIT);
 const dialogCardClass = computed(() => {
   if (isEmpty.value) {
     return ['import-staging-dialog-card', 'import-modal--empty'];
   }
-  return ['import-staging-dialog-card', 'import-modal--work', 'import-modal--work-compact'];
+  return ['import-staging-dialog-card', 'import-modal--work', 'import-modal--work-split'];
 });
 const dialogBodyClass = computed(() => [
   'import-staging-dialog-body',
@@ -759,6 +901,17 @@ const pageDropMarkerStyle = computed(() => ({
 const importCount = computed(() => totalPages.value);
 const footerSummary = computed(() => `${documentCount.value} Dokumente • ${totalPages.value} Seiten`);
 const emptyHint = computed(() => (emptyDocuments.value.length > 0 ? 'Leere Dokumente werden nicht importiert.' : ''));
+const primaryDocument = computed(() => documents.value[0] || null);
+const primaryDocTitle = computed(() => primaryDocument.value?.title || '');
+const isPrimaryDocTitleBusy = computed(() => primaryDocument.value ? isScanTitleBusy(primaryDocument.value) : false);
+const primaryDocSuggestionText = computed(() => {
+  if (!primaryDocument.value) return '';
+  return canShowScanSuggestion(primaryDocument.value) ? String(primaryDocument.value.meta?.titleSuggestion || '').trim() : '';
+});
+const hasAnySelectedPage = computed(() => Boolean(selected.value?.pageId));
+const gridScrollStyle = computed(() => ({
+  '--pm-grid-min': ['78px', '98px', '128px'][gridZoomIndex.value] || '98px'
+}));
 const isImportActionDisabled = computed(() => totalPages.value <= 0 || isUploadingSources.value || isCommitting.value);
 const hasPreparationProgress = computed(() => isUploadingSources.value && preparationProgress.value.total > 0);
 const preparationProgressPercent = computed(() => {
@@ -2033,6 +2186,25 @@ function addEmptyDocument() {
   nextTick(() => {
     focusDocumentTitle(created.id);
   });
+}
+
+function onPrimaryDocTitleInput(event) {
+  if (!primaryDocument.value) return;
+  stagingStore.setDocumentTitleDraft(primaryDocument.value.id, event.target?.value || '');
+}
+
+function onPrimaryDocTitleBlur() {
+  if (!primaryDocument.value) return;
+  stagingStore.renameDocument(primaryDocument.value.id, primaryDocument.value?.title || 'Neues Dokument');
+}
+
+function rotateAnySelectedPage(delta) {
+  if (!selected.value?.stageId) return;
+  rotateSelectedPage(selected.value.stageId, delta);
+}
+
+function onGridZoomChange(event) {
+  gridZoomIndex.value = Number(event.target?.value ?? 1);
 }
 
 function normalizeSourceFileId(sourceFileId) {
@@ -3448,9 +3620,9 @@ onBeforeUnmount(() => {
   opacity: 1;
 }
 
-:deep(.import-staging-dialog-card.import-modal--work-compact) {
-  width: min(900px, calc(100vw - 96px));
-  max-width: min(900px, calc(100vw - 96px));
+:deep(.import-staging-dialog-card.import-modal--work-split) {
+  width: min(1280px, calc(100vw - 48px));
+  max-width: min(1280px, calc(100vw - 48px));
 }
 
 :deep(.import-staging-dialog-card .pm-dialog__header),
@@ -3730,8 +3902,9 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: minmax(0, 65fr) minmax(260px, 35fr);
+  gap: 0;
+  overflow: hidden;
 }
 
 .pm-import-body-scroll {
@@ -4261,7 +4434,7 @@ onBeforeUnmount(() => {
 
 .import-staging-pages {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(98px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(var(--pm-grid-min, 98px), 1fr));
   gap: 8px;
   position: relative;
   align-content: start;
@@ -4601,6 +4774,353 @@ onBeforeUnmount(() => {
     grid-template-columns: repeat(auto-fill, minmax(86px, 1fr));
     gap: 7px;
   }
+}
+
+/* ── Split layout: left page panel ── */
+.pm-split-left {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  border-right: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
+  position: relative;
+}
+
+.pm-split-left .import-staging-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ── Bottom toolbar ── */
+.pm-bottom-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
+  background: rgb(var(--v-theme-surface));
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  min-height: 48px;
+}
+
+.pm-tb-btn {
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  color: rgba(var(--v-theme-on-surface), 0.68) !important;
+}
+
+.pm-tb-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--pm-divider-soft, rgba(15, 23, 42, 0.1));
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+.pm-zoom-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+}
+
+.pm-zoom-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+  min-width: 10px;
+}
+
+.pm-zoom-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 72px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(var(--v-theme-on-surface), 0.15);
+  outline: none;
+  cursor: pointer;
+}
+
+.pm-zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: rgb(var(--v-theme-on-surface));
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.pm-zoom-slider::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: rgb(var(--v-theme-on-surface));
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.pm-page-count {
+  color: rgba(var(--v-theme-on-surface), 0.55);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Split layout: right properties panel ── */
+.pm-split-props {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: rgb(var(--v-theme-surface));
+}
+
+.pm-props-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 20px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  scrollbar-gutter: stable;
+}
+
+/* ── Property field ── */
+.pm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.pm-field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(var(--v-theme-on-surface), 0.72);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  letter-spacing: 0.01em;
+}
+
+.pm-req-dot {
+  color: rgb(var(--v-theme-error));
+  font-weight: 400;
+}
+
+.pm-field-hint {
+  color: rgba(var(--v-theme-on-surface), 0.46);
+  font-weight: 400;
+  font-size: 11px;
+  cursor: help;
+}
+
+.pm-field-row {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.pm-field-row .pm-field-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.pm-field-input {
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
+  background: rgb(var(--v-theme-surface-2, var(--v-theme-surface)));
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  color: rgb(var(--v-theme-on-surface));
+  width: 100%;
+  outline: none;
+  transition: border-color 0.14s ease;
+}
+
+.pm-field-input::placeholder {
+  color: rgba(var(--v-theme-on-surface), 0.38);
+}
+
+.pm-field-input:focus {
+  border-color: rgb(var(--v-theme-primary));
+  background: rgb(var(--v-theme-surface));
+}
+
+.pm-field-select {
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
+  background: rgb(var(--v-theme-surface-2, var(--v-theme-surface)));
+  padding: 8px 30px 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  color: rgb(var(--v-theme-on-surface));
+  width: 100%;
+  outline: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='rgba(100,116,139,0.7)' d='M0 0h10L5 6z'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  cursor: pointer;
+  transition: border-color 0.14s ease;
+}
+
+.pm-field-select:focus {
+  border-color: rgb(var(--v-theme-primary));
+  outline: none;
+}
+
+.pm-ai-trigger {
+  color: rgb(var(--v-theme-primary)) !important;
+  flex-shrink: 0;
+}
+
+.pm-ai-chip {
+  appearance: none;
+  border: 1px dashed rgba(var(--v-theme-primary), 0.5);
+  background: rgba(var(--v-theme-primary), 0.06);
+  color: rgb(var(--v-theme-primary));
+  border-radius: 999px;
+  padding: 5px 10px 5px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  align-self: flex-start;
+  transition: background 0.12s;
+}
+
+.pm-ai-chip:hover {
+  background: rgba(var(--v-theme-primary), 0.1);
+}
+
+.pm-ai-chip__icon {
+  color: rgb(var(--v-theme-primary));
+  flex-shrink: 0;
+}
+
+.pm-ai-chip__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+.pm-ai-chip__action {
+  color: rgba(var(--v-theme-primary), 0.68);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.pm-field-divider {
+  height: 1px;
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  margin: 2px 0;
+}
+
+/* ── Toggles ── */
+.pm-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pm-toggle-lbl {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pm-toggle-lbl > span {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgb(var(--v-theme-on-surface));
+}
+
+.pm-toggle-lbl small {
+  font-size: 11px;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+}
+
+.pm-toggle {
+  position: relative;
+  flex-shrink: 0;
+  width: 36px;
+  height: 20px;
+  background: rgba(var(--v-theme-on-surface), 0.2);
+  border-radius: 999px;
+  cursor: pointer;
+  border: none;
+  transition: background 0.15s;
+  padding: 0;
+}
+
+.pm-toggle::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: white;
+  border-radius: 50%;
+  top: 3px;
+  left: 3px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  transition: left 0.15s;
+}
+
+.pm-toggle--on {
+  background: rgb(var(--v-theme-primary));
+}
+
+.pm-toggle--on::after {
+  left: 19px;
+}
+
+.pm-toggle--dis {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+/* ── Grid zoom via CSS custom property ── */
+.import-staging-pages {
+  grid-template-columns: repeat(auto-fill, minmax(var(--pm-grid-min, 98px), 1fr));
+}
+
+/* ── Dark mode adjustments for new elements ── */
+:deep(.v-theme--dark) .pm-split-left {
+  border-right-color: var(--pm-dm-divider, rgba(255, 255, 255, 0.08));
+}
+
+:deep(.v-theme--dark) .pm-bottom-toolbar {
+  border-top-color: var(--pm-dm-divider, rgba(255, 255, 255, 0.08));
+}
+
+:deep(.v-theme--dark) .pm-field-input,
+:deep(.v-theme--dark) .pm-field-select {
+  border-color: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+:deep(.v-theme--dark) .pm-field-input:focus,
+:deep(.v-theme--dark) .pm-field-select:focus {
+  border-color: rgb(var(--v-theme-primary));
+}
+
+:deep(.v-theme--dark) .pm-toggle {
+  background: rgba(255, 255, 255, 0.22);
 }
 
 </style>
