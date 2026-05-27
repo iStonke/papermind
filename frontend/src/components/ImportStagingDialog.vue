@@ -305,6 +305,18 @@
 
                                 <span class="import-staging-page__order">{{ pageIndex + 1 }}</span>
 
+                                <!-- Status overlay -->
+                                <div v-if="page.ocrStatus" class="pm-pg-badge" :class="`pm-pg-badge--${page.ocrStatus}`">
+                                  <span v-if="page.ocrStatus === 'done'">✓</span>
+                                  <span v-else-if="page.ocrStatus === 'processing'">OCR…</span>
+                                </div>
+                                <div v-if="page.ocrStatus === 'error'" class="pm-pg-error-overlay">
+                                  OCR fehlgeschlagen<br>importierbar
+                                </div>
+                                <div v-if="page.ocrProgress > 0 && page.ocrProgress < 100" class="pm-pg-progress">
+                                  <div class="pm-pg-progress__fill" :style="{ width: page.ocrProgress + '%' }" />
+                                </div>
+
                                 <div class="import-staging-page__actions">
                                   <v-btn
                                     size="x-small"
@@ -405,16 +417,13 @@
                         @input="onPrimaryDocTitleInput"
                         @blur="onPrimaryDocTitleBlur"
                       />
-                      <v-btn
-                        :icon="resolveIcon('mdi-robot-outline')"
-                        variant="text"
-                        size="small"
-                        class="pm-ai-trigger"
-                        :loading="isPrimaryDocTitleBusy"
-                        :disabled="!primaryDocument || primaryDocument.pages.length === 0"
+                      <button
+                        type="button"
+                        class="pm-ai-btn"
+                        :disabled="isPrimaryDocTitleBusy || !primaryDocument || primaryDocument.pages.length === 0"
                         title="Titel mit KI vorschlagen"
                         @click="primaryDocument && requestScanTitleSuggestion(primaryDocument.id, 'first_page')"
-                      />
+                      ><span v-if="isPrimaryDocTitleBusy" class="pm-ai-btn__spinner" /><span v-else>✦ KI</span></button>
                     </div>
                     <button
                       v-if="primaryDocSuggestionText"
@@ -438,13 +447,7 @@
                         placeholder="TT.MM.JJJJ"
                         v-model="docDate"
                       />
-                      <v-btn
-                        :icon="resolveIcon('mdi-robot-outline')"
-                        variant="text"
-                        size="small"
-                        class="pm-ai-trigger"
-                        title="Datum aus Dokument erkennen"
-                      />
+                      <button type="button" class="pm-ai-btn" title="Datum aus Dokument erkennen">✦ erkennen</button>
                     </div>
                   </div>
 
@@ -456,6 +459,41 @@
                       <option v-for="cat in DOC_CATEGORIES" :key="cat" :value="cat">{{ cat }}</option>
                       <option value="__new__">+ Neu erstellen</option>
                     </select>
+                  </div>
+
+                  <!-- Tags -->
+                  <div class="pm-field">
+                    <div class="pm-field-label">
+                      Tags
+                      <span class="pm-field-hint">Enter zum Erstellen</span>
+                    </div>
+                    <div class="pm-tags-wrap" @click="focusTagInput">
+                      <span v-for="tag in primaryDocTags" :key="tag.id" class="pm-tag-chip">
+                        {{ tag.name }}
+                        <button type="button" class="pm-tag-chip__remove" @mousedown.prevent @click.stop="removePrimaryDocTag(tag.id)">×</button>
+                      </span>
+                      <input
+                        ref="tagInputRef"
+                        v-model="tagSearchInput"
+                        class="pm-tag-input"
+                        placeholder="Tag eingeben..."
+                        autocomplete="off"
+                        @keydown.enter.prevent="onTagInputEnter"
+                        @keydown.backspace="onTagInputBackspace"
+                        @focus="tagDropdownOpen = true; onTagInputFocus()"
+                        @blur="tagDropdownOpen = false"
+                      />
+                    </div>
+                    <div v-if="tagDropdownOpen && tagDropdownResults.length > 0" class="pm-tag-dropdown">
+                      <button
+                        v-for="result in tagDropdownResults"
+                        :key="result.id"
+                        type="button"
+                        class="pm-tag-dropdown-item"
+                        @mousedown.prevent
+                        @click="addPrimaryDocTagById(result.id); tagSearchInput = ''"
+                      >{{ result.name }}</button>
+                    </div>
                   </div>
 
                   <!-- OCR language -->
@@ -689,6 +727,9 @@ const DOC_CATEGORIES = ['Rechnungen', 'Verträge', 'Briefe', 'Belege', 'Steuern'
 const docDate = ref('');
 const docCategory = ref('');
 const docOcrLang = ref('de');
+const tagInputRef = ref(null);
+const tagSearchInput = ref('');
+const tagDropdownOpen = ref(false);
 const localAutoOcr = ref(true);
 const localAutoIndex = ref(true);
 const gridZoomIndex = ref(1);
@@ -907,6 +948,18 @@ const isPrimaryDocTitleBusy = computed(() => primaryDocument.value ? isScanTitle
 const primaryDocSuggestionText = computed(() => {
   if (!primaryDocument.value) return '';
   return canShowScanSuggestion(primaryDocument.value) ? String(primaryDocument.value.meta?.titleSuggestion || '').trim() : '';
+});
+const primaryDocTags = computed(() => {
+  if (!primaryDocument.value) return [];
+  return (primaryDocument.value.tags || [])
+    .map(id => stageTagPool.value.find(t => t.id === id) || { id, name: id });
+});
+const tagDropdownResults = computed(() => {
+  const q = tagSearchInput.value.trim().toLowerCase();
+  const selectedIds = new Set(primaryDocument.value?.tags || []);
+  const pool = stageTagPool.value.filter(t => !selectedIds.has(t.id));
+  if (!q) return pool.slice(0, 8);
+  return pool.filter(t => t.name.toLowerCase().includes(q)).slice(0, 8);
 });
 const hasAnySelectedPage = computed(() => Boolean(selected.value?.pageId));
 const gridScrollStyle = computed(() => ({
@@ -2206,6 +2259,37 @@ function rotateAnySelectedPage(delta) {
 function onGridZoomChange(event) {
   gridZoomIndex.value = Number(event.target?.value ?? 1);
 }
+
+function addPrimaryDocTagById(tagId) {
+  if (!primaryDocument.value) return;
+  const current = primaryDocument.value.tags || [];
+  if (!current.includes(tagId)) {
+    onDocumentTagsUpdate(primaryDocument.value.id, [...current, tagId]);
+  }
+}
+function removePrimaryDocTag(tagId) {
+  if (!primaryDocument.value) return;
+  onDocumentTagsUpdate(primaryDocument.value.id, (primaryDocument.value.tags || []).filter(id => id !== tagId));
+}
+async function onTagInputEnter() {
+  const search = tagSearchInput.value.trim();
+  if (!search) return;
+  const existing = stageTagPool.value.find(t => t.name.toLowerCase() === search.toLowerCase());
+  if (existing) { addPrimaryDocTagById(existing.id); tagSearchInput.value = ''; return; }
+  const newId = await createStageTagByName(search);
+  if (newId) addPrimaryDocTagById(newId);
+  tagSearchInput.value = '';
+}
+function onTagInputBackspace() {
+  if (tagSearchInput.value === '' && primaryDocument.value?.tags?.length > 0) {
+    const tags = primaryDocument.value.tags;
+    removePrimaryDocTag(tags[tags.length - 1]);
+  }
+}
+async function onTagInputFocus() {
+  await ensureStageTagsLoaded();
+}
+function focusTagInput() { tagInputRef.value?.focus(); }
 
 function normalizeSourceFileId(sourceFileId) {
   return String(sourceFileId || '').trim();
@@ -5122,5 +5206,169 @@ onBeforeUnmount(() => {
 :deep(.v-theme--dark) .pm-toggle {
   background: rgba(255, 255, 255, 0.22);
 }
+
+/* ── Flat grid in split-left: hide doc card chrome ── */
+.pm-split-left .stage-header {
+  display: none !important;
+}
+.pm-split-left .import-staging-doc {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  border-radius: 0 !important;
+}
+.pm-split-left .import-staging-doc__body,
+.pm-split-left .stage-body {
+  padding: 0 !important;
+  border: none !important;
+}
+.pm-split-left .import-staging-doc-slot {
+  display: contents;
+}
+.pm-split-left .import-staging-docs {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(var(--pm-grid-min, 98px), 1fr)) !important;
+  gap: 10px !important;
+  padding: 14px !important;
+  flex-direction: unset !important;
+}
+.pm-split-left .import-staging-pages {
+  display: contents !important;
+}
+.pm-split-left .import-staging-interdrop {
+  display: none !important;
+}
+
+/* ── Page status overlays ── */
+.pm-pg-badge {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 3;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 5px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+.pm-pg-badge--done { background: #22C55E; color: #fff; }
+.pm-pg-badge--processing { background: #3B82F6; color: #fff; }
+.pm-pg-error-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #b8442f;
+  line-height: 1.5;
+  padding: 8px;
+  pointer-events: none;
+}
+.pm-pg-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: rgba(59,130,246,0.18);
+  z-index: 3;
+  overflow: hidden;
+}
+.pm-pg-progress__fill {
+  height: 100%;
+  background: #3B82F6;
+}
+
+/* ── Inline AI buttons ── */
+.pm-ai-btn {
+  appearance: none;
+  border: 1.5px dashed rgba(var(--v-theme-primary), 0.65);
+  background: transparent;
+  border-radius: 6px;
+  color: rgb(var(--v-theme-primary));
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0 9px;
+  height: 32px;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  transition: background 0.15s;
+}
+.pm-ai-btn:hover:not(:disabled) { background: rgba(var(--v-theme-primary), 0.08); border-style: solid; }
+.pm-ai-btn:disabled { opacity: 0.38; cursor: default; }
+.pm-ai-btn__spinner {
+  width: 10px; height: 10px;
+  border: 2px solid rgba(var(--v-theme-primary), 0.3);
+  border-top-color: rgb(var(--v-theme-primary));
+  border-radius: 50%;
+  animation: pm-spin 0.7s linear infinite;
+  display: inline-block;
+}
+@keyframes pm-spin { to { transform: rotate(360deg); } }
+
+/* ── Inline tags input ── */
+.pm-tags-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  min-height: 38px;
+  padding: 5px 8px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.16);
+  border-radius: 8px;
+  background: rgb(var(--v-theme-surface));
+  cursor: text;
+  transition: border-color 0.15s;
+}
+.pm-tags-wrap:focus-within { border-color: rgb(var(--v-theme-primary)); }
+.pm-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(var(--v-theme-primary), 0.12);
+  color: rgb(var(--v-theme-primary));
+  border-radius: 20px;
+  padding: 2px 6px 2px 9px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.pm-tag-chip__remove {
+  appearance: none; background: none; border: none;
+  color: inherit; cursor: pointer; font-size: 13px; line-height: 1; padding: 0; opacity: 0.65;
+}
+.pm-tag-chip__remove:hover { opacity: 1; }
+.pm-tag-input {
+  flex: 1 1 80px; min-width: 80px; border: none; outline: none;
+  background: transparent; font-size: 13px; color: inherit; padding: 2px 0;
+}
+.pm-tag-input::placeholder { color: rgba(var(--v-theme-on-surface), 0.38); }
+.pm-tag-dropdown {
+  margin-top: 3px;
+  background: rgb(var(--v-theme-surface-2, var(--v-theme-surface)));
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+  max-height: 200px;
+  overflow-y: auto;
+}
+.pm-tag-dropdown-item {
+  display: block; width: 100%; text-align: left;
+  appearance: none; background: transparent; border: none;
+  padding: 8px 12px; font-size: 13px; cursor: pointer; color: inherit;
+}
+.pm-tag-dropdown-item:hover { background: rgba(var(--v-theme-primary), 0.08); }
+:deep(.v-theme--dark) .pm-tags-wrap,
+:deep(.v-theme--dark) .pm-tag-dropdown { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.14); }
 
 </style>
