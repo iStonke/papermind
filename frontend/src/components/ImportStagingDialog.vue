@@ -2,618 +2,313 @@
   <BaseDialog
     v-model="isOpen"
     :persistent="isUploadingSources || isCommitting"
-    :max-width="dialogMaxWidth"
-    :card-class="dialogCardClass"
-    :body-class="dialogBodyClass"
-    title="PDFs importieren"
-    header-subtitle="Importiere PDFs oder ganze Ordner und stelle Dokumente aus Seiten zusammen."
-    description=""
+    :max-width="MODAL_WORK_WIDTH_SPLIT"
+    :card-class="['isd-card']"
+    title="Importieren"
+    header-subtitle="Gescannte Seiten als neues Dokument"
     @close="onDialogClose"
   >
-    <div
-      class="import-modal import-staging pm-import-modal importer-dialog"
-      :class="{ 'is-empty': isEmpty, 'is-filled': !isEmpty }"
-      :style="importerThemeVars"
-      @dragover.prevent="onModalSurfaceDragOver"
-      @drop.prevent="onModalSurfaceDrop"
-    >
-      <div class="import-content" :class="{ 'import-content--empty': isEmpty, 'import-content--work': !isEmpty }">
-        <transition name="import-mode" mode="out-in">
-          <section
-            v-if="isEmpty"
-            key="empty"
-            class="import-staging-empty"
-          >
-        <input
-          v-if="isIOSDevice"
-          ref="fileInput"
-          class="d-none"
-          type="file"
-          accept="application/pdf"
-          multiple
-          @change="onFileInputChange"
-        />
-        <input
-          v-else
-          ref="fileInput"
-          class="d-none"
-          type="file"
-          accept="application/pdf"
-          multiple
-          webkitdirectory
-          directory
-          @change="onFileInputChange"
-        />
+    <div class="isd-body">
+      <!-- Hidden file input required by openFilePicker() -->
+      <input
+        v-if="isIOSDevice"
+        ref="fileInput"
+        class="d-none"
+        type="file"
+        accept="application/pdf"
+        multiple
+        @change="onFileInputChange"
+      />
+      <input
+        v-else
+        ref="fileInput"
+        class="d-none"
+        type="file"
+        accept="application/pdf"
+        multiple
+        webkitdirectory
+        directory
+        @change="onFileInputChange"
+      />
 
-        <div
-          class="import-staging-dropzone"
-          :class="{
-            'import-staging-dropzone--hover': isDropzoneHover && !isDropzoneDragOver,
-            'import-staging-dropzone--drag': isDropzoneDragOver,
-            'import-staging-dropzone--busy': isUploadingSources
-          }"
-          role="button"
-          tabindex="0"
-          @mouseenter="onDropzoneMouseEnter"
-          @mouseleave="onDropzoneMouseLeave"
-          @focusin="onDropzoneFocusIn"
-          @focusout="onDropzoneFocusOut"
-          @dragenter.prevent="onDropzoneDragEnter"
-          @dragover.prevent="onDropzoneDragOver"
-          @dragleave.prevent="onDropzoneDragLeave"
-          @drop.prevent="onDropzoneDrop"
-          @click="onDropzoneClick"
-          @keydown="handleDropzoneShortcut"
-        >
-          <v-icon class="import-staging-dropzone__icon" size="56">mdi-file-upload-outline</v-icon>
-          <div class="import-staging-dropzone__headline">{{ dropzoneHeadline }}</div>
-          <div class="import-staging-dropzone__actions">
+      <!-- Left column: page grid + bottom toolbar -->
+      <div class="isd-left">
+        <div class="isd-grid-scroll" :style="gridScrollStyle">
+
+          <!-- Empty state -->
+          <div v-if="isEmpty" class="isd-empty">
+            <v-icon size="52" class="isd-empty-icon">mdi-file-upload-outline</v-icon>
+            <p class="isd-empty-title">Noch keine Seiten</p>
+            <p class="isd-empty-hint">Dateien über die Toolbar hinzufügen<br>oder hier ablegen</p>
+          </div>
+
+          <!-- Page grid -->
+          <template v-else>
+            <template v-for="doc in documents" :key="doc.id">
+              <div v-if="documents.length > 1" class="isd-doc-label">{{ doc.title || 'Dokument' }}</div>
+              <div class="isd-page-grid">
+                <div
+                  v-for="(page, pageIndex) in doc.pages"
+                  :key="page.id"
+                  :ref="el => setPageThumbRef(page.id, el)"
+                  class="isd-page-card"
+                  :class="{ 'isd-page-card--selected': isPageSelected(doc.id, page.id) }"
+                  @click="onPageClick($event, doc.id, page.id, pageIndex)"
+                  @dblclick="onPageDoubleClick($event, doc.id, page.id, pageIndex)"
+                >
+                  <div class="isd-page-thumb-wrap">
+                    <div class="isd-page-thumb-inner">
+                      <img
+                        v-if="page.thumbUrl"
+                        :src="page.thumbUrl"
+                        class="isd-page-thumb"
+                        :style="{ transform: page.rotation ? `rotate(${page.rotation}deg)` : undefined }"
+                        draggable="false"
+                        alt=""
+                      />
+                      <v-icon v-else size="32" class="isd-page-thumb-placeholder-icon">mdi-file-document-outline</v-icon>
+                    </div>
+                  </div>
+                  <div class="isd-page-num">{{ pageIndex + 1 }}</div>
+                </div>
+              </div>
+            </template>
+          </template>
+
+        </div>
+        <div class="isd-toolbar">
+          <v-btn
+            size="small"
+            variant="outlined"
+            prepend-icon="mdi-plus"
+            class="isd-toolbar-btn"
+            :disabled="isUploadingSources || isCommitting"
+            @click="openFilePicker"
+          >
+            Dateien hinzufügen
+          </v-btn>
+
+          <div class="isd-rotate-group">
             <v-btn
-              variant="flat"
-              size="large"
-              :ripple="false"
-              class="import-staging-dropzone__cta"
-              :aria-label="dropzonePrimaryLabel"
-              @click.stop="openFilePicker"
+              icon
+              size="small"
+              variant="outlined"
+              title="Nach links drehen"
+              :disabled="!hasAnySelectedPage"
+              @click="rotateAnySelectedPage(-90)"
             >
-              Hinzufügen...
+              <v-icon size="18">mdi-rotate-left</v-icon>
+            </v-btn>
+            <v-btn
+              icon
+              size="small"
+              variant="outlined"
+              title="Nach rechts drehen"
+              :disabled="!hasAnySelectedPage"
+              @click="rotateAnySelectedPage(90)"
+            >
+              <v-icon size="18">mdi-rotate-right</v-icon>
             </v-btn>
           </div>
-          <p v-if="isIOSDevice" class="import-staging-dropzone__ios-hint">
-            Tipp: In Dateien -> ⋯ -> Dokumente scannen. Danach die PDF hier hochladen.
-          </p>
-        </div>
-        </section>
 
-        <section
-          v-else
-          key="filled"
-          class="import-modal__content import-staging-list"
-          @dragover.prevent="onListSurfaceDragOver"
-          @drop.prevent="onListSurfaceDrop"
-        >
-          <div class="import-staging-content pm-import-body-shell">
-            <div class="import-staging-work-layout">
-
-              <!-- ── LEFT: Page area + bottom toolbar ── -->
-              <div
-                class="pm-split-left"
-                @dragenter.prevent="onBodyShellDragEnter"
-                @dragover.prevent="onBodyShellDragOver"
-                @dragleave.prevent="onBodyShellDragLeave"
-                @drop.prevent="onBodyShellDrop"
-              >
-                <div
-                  ref="bodyScrollRef"
-                  class="import-staging-scroll pm-import-body-scroll"
-                  :class="{ 'pm-import-body-scroll--centered': !isBodyContentOverflowing && !isViewSwitching }"
-                  :style="gridScrollStyle"
-                  @click.self="clearActiveSelection"
-                >
-                  <div
-                    ref="docsListRef"
-                    class="import-staging-docs pm-import-stages"
-                    @click.self="clearActiveSelection"
-                    @dragover.prevent="onDocsContainerDragOver"
-                    @drop.prevent="onDocsContainerDrop"
-                  >
-                    <div
-                      v-for="(document, documentIndex) in documents"
-                      :key="document.id"
-                      class="import-staging-doc-slot"
-                    >
-                      <div
-                        class="import-staging-interdrop"
-                        @dragover.prevent="onInterDropDragOver"
-                        @drop.prevent="onInterDocumentDrop($event, documentIndex)"
-                      />
-
-                      <article
-                        class="import-staging-doc stage-card"
-                        :class="{
-                          'import-staging-doc--empty': document.pages.length === 0,
-                          'import-staging-doc--collapsed': document.collapsed,
-                          'import-staging-doc--dragover': isDocumentDragActive(document.id)
-                        }"
-                        @dragenter.prevent="onDocumentDragEnter($event, document.id)"
-                        @dragover.prevent="onDocumentBodyDragOver($event, document.id)"
-                        @dragleave.prevent="onDocumentDragLeave($event, document.id)"
-                        @drop.prevent="onDocumentBodyDrop($event, document.id)"
-                      >
-                        <header class="import-staging-doc__header stage-header">
-                        <input
-                          :ref="(el) => setCardFileInputRef(document.id, el)"
-                          class="d-none"
-                          type="file"
-                          accept="application/pdf,.pdf"
-                          multiple
-                          @change="onCardFileInputChange($event, document.id)"
-                        />
-
-                        <div class="stage-header-left">
-                          <button
-                            type="button"
-                            class="import-staging-doc__collapse"
-                            :aria-label="document.collapsed ? 'Aufklappen' : 'Einklappen'"
-                            @click="onDocumentCollapseToggle(document.id)"
-                          >
-                            {{ document.collapsed ? '▸' : '▾' }}
-                          </button>
-
-                          <div class="stage-title-input">
-                            <div class="stage-title-row">
-                              <input
-                                :ref="(el) => setTitleInputRef(document.id, el)"
-                                class="import-staging-doc__title"
-                                :value="document.title"
-                                @input="onDocumentTitleInput(document.id, $event)"
-                                @blur="onDocumentTitleBlur(document.id)"
-                                @keydown="handleDocumentTitleShortcut($event, document.id)"
-                              />
-                            </div>
-                            <div v-if="getStageTitleMetaText(document)" class="scan-title-hint" :class="getStageTitleMetaClass(document)">
-                              <v-progress-circular v-if="isScanTitleWorking(document)" indeterminate size="12" width="2" />
-                              <v-icon v-else :icon="resolveIcon('mdi-robot-outline')" size="14" />
-                              <span class="scan-title-hint__label">{{ getStageTitleMetaText(document) }}</span>
-                              <button
-                                v-if="canShowScanSuggestion(document)"
-                                type="button"
-                                class="scan-title-hint__apply"
-                                @click="applyScanSuggestion(document.id)"
-                              >
-                                {{ getScanSuggestionActionLabel(document) }}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div class="stage-toolbar stage-header-right">
-                          <div class="toolbar-actions">
-                            <v-btn
-                              :icon="resolveIcon('mdi-call-split')"
-                              variant="text"
-                              class="pm-icon-btn stage-toolbar-btn"
-                              :style="getToolbarControlStyle(!canSplitPage(document.id))"
-                              aria-label="Ausgewählte Seite auslagern"
-                              :disabled="!canSplitPage(document.id)"
-                              @click="splitSelectedPage(document.id)"
-                            />
-                            <v-btn
-                              :icon="resolveIcon('mdi-trash-can-outline')"
-                              variant="text"
-                              color="error"
-                              class="pm-icon-btn stage-toolbar-btn"
-                              :style="getToolbarControlStyle(!hasSelectedPage(document.id))"
-                              aria-label="Ausgewählte Seite entfernen"
-                              :disabled="!hasSelectedPage(document.id)"
-                              @click="removeSelectedPage(document.id)"
-                            />
-                            <div class="toolbar-divider toolbar-divider--tags" aria-hidden="true" />
-                            <StageTags
-                              class="stage-toolbar__tags"
-                              :tag-ids="document.tags || []"
-                              :all-tags="stageTagPool"
-                              :button-style="toolbarControlEnabledStyle"
-                              :create-tag-by-name="createStageTagByName"
-                              :load-tags="ensureStageTagsLoaded"
-                              @update:tag-ids="onDocumentTagsUpdate(document.id, $event)"
-                            />
-                            <v-menu location="bottom end" offset="6">
-                              <template #activator="{ props: menuProps }">
-                                <v-btn
-                                  :icon="resolveIcon('mdi-dots-horizontal')"
-                                  variant="text"
-                                  class="pm-icon-btn stage-toolbar-btn"
-                                  :style="toolbarControlEnabledStyle"
-                                  aria-label="Mehr Aktionen"
-                                  v-bind="menuProps"
-                                />
-                              </template>
-                              <v-list density="compact" min-width="220">
-                                <v-list-item :prepend-icon="resolveIcon('mdi-file-document-outline')" title="PDFs hinzufügen..." @click="openCardFilePicker(document.id)" />
-                                <v-divider class="my-1" />
-                                <v-list-item
-                                  class="import-staging-doc__menu-delete"
-                                  :prepend-icon="resolveIcon('mdi-trash-can-outline')"
-                                  title="Dokument löschen..."
-                                  @click="deleteDocument(document.id)"
-                                />
-                              </v-list>
-                            </v-menu>
-                          </div>
-                        </div>
-                      </header>
-
-                      <Transition
-                        name="stage-collapse"
-                        @before-enter="onStageBodyBeforeEnter"
-                        @enter="onStageBodyEnter"
-                        @after-enter="onStageBodyAfterEnter"
-                        @before-leave="onStageBodyBeforeLeave"
-                        @leave="onStageBodyLeave"
-                        @after-leave="onStageBodyAfterLeave"
-                      >
-                        <div v-if="!document.collapsed" class="import-staging-doc__body stage-body">
-                          <div v-if="document.pages.length === 0" class="import-staging-doc__no-pages">
-                            <span>Keine Seiten</span>
-                            <v-btn size="x-small" variant="text" color="error" @click="deleteDocument(document.id)">
-                              Dokument löschen
-                            </v-btn>
-                          </div>
-
-                          <TransitionGroup
-                            v-else
-                            class="import-staging-pages"
-                            tag="div"
-                            name="staging-page-list"
-                            @dragover.prevent="onPagesContainerDragOver($event, document.id)"
-                            @drop.prevent="onPagesContainerDrop($event, document.id)"
-                          >
-                            <div
-                              v-for="(page, pageIndex) in document.pages"
-                              :key="page.id"
-                              :ref="(el) => setPageThumbRef(page.id, el)"
-                              class="import-staging-page"
-                              :class="{
-                                'import-staging-page--selected': isPageSelected(document.id, page.id),
-                                'import-staging-page--dragging': isDraggingPage(page.id),
-                                'import-staging-page--drop-hover': isDropHoverPage(document.id, page.id),
-                                'import-staging-page--settled': isSettledPage(page.id)
-                              }"
-                              :data-page-id="page.id"
-                              :data-page-index="pageIndex"
-                              :data-doc-id="document.id"
-                              draggable="true"
-                              @dragstart="onPageDragStart($event, document.id, page.id, pageIndex)"
-                              @dragend="onPageDragEnd"
-                              @click="onPageClick($event, document.id, page.id, pageIndex)"
-                              @dblclick="onPageDoubleClick($event, document.id, page.id, pageIndex)"
-                              @dragover.prevent="onPageDragOver($event, document.id, page.id, pageIndex)"
-                              @drop.prevent="onPageDrop($event, document.id, pageIndex)"
-                            >
-                              <div class="import-staging-page__thumb-wrap">
-                                <img
-                                  v-if="page.thumbUrl"
-                                  class="import-staging-page__thumb"
-                                  :src="page.thumbUrl"
-                                  alt="Seitenvorschau"
-                                  :style="{ transform: `rotate(${page.rotation}deg)` }"
-                                />
-                                <div v-else class="import-staging-page__thumb import-staging-page__thumb--fallback">
-                                  <v-icon size="18">{{ resolveIcon('mdi-file-pdf-box') }}</v-icon>
-                                </div>
-
-                                <span class="import-staging-page__order">{{ pageIndex + 1 }}</span>
-
-                                <!-- Status overlay -->
-                                <div v-if="page.ocrStatus" class="pm-pg-badge" :class="`pm-pg-badge--${page.ocrStatus}`">
-                                  <span v-if="page.ocrStatus === 'done'">✓</span>
-                                  <span v-else-if="page.ocrStatus === 'processing'">OCR…</span>
-                                </div>
-                                <div v-if="page.ocrStatus === 'error'" class="pm-pg-error-overlay">
-                                  OCR fehlgeschlagen<br>importierbar
-                                </div>
-                                <div v-if="page.ocrProgress > 0 && page.ocrProgress < 100" class="pm-pg-progress">
-                                  <div class="pm-pg-progress__fill" :style="{ width: page.ocrProgress + '%' }" />
-                                </div>
-
-                                <div class="import-staging-page__actions">
-                                  <v-btn
-                                    size="x-small"
-                                    :icon="resolveIcon('mdi-trash-can-outline')"
-                                    variant="tonal"
-                                    color="error"
-                                    @click.stop="removePage(page.id)"
-                                  />
-                                </div>
-                              </div>
-                            </div>
-
-                            <div
-                              v-if="isPageDropMarkerVisible(document.id)"
-                              :key="`insert-line-${document.id}`"
-                              class="import-staging-page-insert-line"
-                              :style="pageDropMarkerStyle"
-                            >
-                              <span class="import-staging-page-insert-line__cap import-staging-page-insert-line__cap--top" />
-                              <span class="import-staging-page-insert-line__cap import-staging-page-insert-line__cap--bottom" />
-                            </div>
-                          </TransitionGroup>
-                        </div>
-                        </Transition>
-                      </article>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- ── Bottom toolbar ── -->
-                <div class="pm-bottom-toolbar">
-                  <v-btn
-                    size="small"
-                    variant="text"
-                    class="pm-tb-btn"
-                    :prepend-icon="resolveIcon('mdi-plus')"
-                    :disabled="isUploadingSources || isCommitting"
-                    @click="openFilePicker"
-                  >
-                    Hinzufügen
-                  </v-btn>
-                  <div class="pm-tb-sep" aria-hidden="true" />
-                  <v-btn
-                    size="small"
-                    variant="text"
-                    class="pm-tb-btn"
-                    :icon="resolveIcon('mdi-rotate-left')"
-                    :disabled="!hasAnySelectedPage"
-                    title="Ausgewählte Seite nach links drehen"
-                    @click="rotateAnySelectedPage(-90)"
-                  />
-                  <v-btn
-                    size="small"
-                    variant="text"
-                    class="pm-tb-btn"
-                    :icon="resolveIcon('mdi-rotate-right')"
-                    :disabled="!hasAnySelectedPage"
-                    title="Ausgewählte Seite nach rechts drehen"
-                    @click="rotateAnySelectedPage(90)"
-                  />
-                  <div class="pm-tb-sep" aria-hidden="true" />
-                  <div class="pm-zoom-ctrl">
-                    <span class="pm-zoom-label">S</span>
-                    <input
-                      type="range"
-                      class="pm-zoom-slider"
-                      min="0"
-                      max="2"
-                      step="1"
-                      :value="gridZoomIndex"
-                      @input="onGridZoomChange($event)"
-                    />
-                    <span class="pm-zoom-label">L</span>
-                  </div>
-                  <span class="pm-page-count ml-auto text-caption">{{ totalPages }} Seiten</span>
-                </div>
-
-                <div v-if="isBodyFileDragOver" class="pm-import-drop-overlay" aria-hidden="true">
-                  <div class="pm-import-drop-overlay__text">Loslassen zum Importieren</div>
-                </div>
-              </div>
-
-              <!-- ── RIGHT: Document properties ── -->
-              <div class="pm-split-props">
-                <div class="pm-props-scroll">
-
-                  <!-- Document name -->
-                  <div class="pm-field">
-                    <div class="pm-field-label">
-                      Dokumentname
-                      <span class="pm-req-dot">· Pflicht</span>
-                    </div>
-                    <div class="pm-field-row">
-                      <input
-                        class="pm-field-input"
-                        :value="primaryDocTitle"
-                        placeholder="z. B. Rechnung Stadtwerke März 2024"
-                        @input="onPrimaryDocTitleInput"
-                        @blur="onPrimaryDocTitleBlur"
-                      />
-                      <button
-                        type="button"
-                        class="pm-ai-btn"
-                        :disabled="isPrimaryDocTitleBusy || !primaryDocument || primaryDocument.pages.length === 0"
-                        title="Titel mit KI vorschlagen"
-                        @click="primaryDocument && requestScanTitleSuggestion(primaryDocument.id, 'first_page')"
-                      ><span v-if="isPrimaryDocTitleBusy" class="pm-ai-btn__spinner" /><span v-else>✦ KI</span></button>
-                    </div>
-                    <button
-                      v-if="primaryDocSuggestionText"
-                      type="button"
-                      class="pm-ai-chip"
-                      @click="primaryDocument && applyScanSuggestion(primaryDocument.id)"
-                    >
-                      <v-icon size="13" class="pm-ai-chip__icon">{{ resolveIcon('mdi-robot-outline') }}</v-icon>
-                      <span class="pm-ai-chip__text">{{ primaryDocSuggestionText }}</span>
-                      <span class="pm-ai-chip__action">übernehmen</span>
-                    </button>
-                  </div>
-
-                  <!-- Document date -->
-                  <div class="pm-field">
-                    <div class="pm-field-label">Dokumentdatum</div>
-                    <div class="pm-field-row">
-                      <input
-                        class="pm-field-input"
-                        type="text"
-                        placeholder="TT.MM.JJJJ"
-                        v-model="docDate"
-                      />
-                      <button type="button" class="pm-ai-btn" title="Datum aus Dokument erkennen">✦ erkennen</button>
-                    </div>
-                  </div>
-
-                  <!-- Category -->
-                  <div class="pm-field">
-                    <div class="pm-field-label">Kategorie</div>
-                    <select class="pm-field-select" v-model="docCategory">
-                      <option value="">— wählen —</option>
-                      <option v-for="cat in DOC_CATEGORIES" :key="cat" :value="cat">{{ cat }}</option>
-                      <option value="__new__">+ Neu erstellen</option>
-                    </select>
-                  </div>
-
-                  <!-- Tags -->
-                  <div class="pm-field">
-                    <div class="pm-field-label">
-                      Tags
-                      <span class="pm-field-hint">Enter zum Erstellen</span>
-                    </div>
-                    <div class="pm-tags-wrap" @click="focusTagInput">
-                      <span v-for="tag in primaryDocTags" :key="tag.id" class="pm-tag-chip">
-                        {{ tag.name }}
-                        <button type="button" class="pm-tag-chip__remove" @mousedown.prevent @click.stop="removePrimaryDocTag(tag.id)">×</button>
-                      </span>
-                      <input
-                        ref="tagInputRef"
-                        v-model="tagSearchInput"
-                        class="pm-tag-input"
-                        placeholder="Tag eingeben..."
-                        autocomplete="off"
-                        @keydown.enter.prevent="onTagInputEnter"
-                        @keydown.backspace="onTagInputBackspace"
-                        @focus="tagDropdownOpen = true; onTagInputFocus()"
-                        @blur="tagDropdownOpen = false"
-                      />
-                    </div>
-                    <div v-if="tagDropdownOpen && tagDropdownResults.length > 0" class="pm-tag-dropdown">
-                      <button
-                        v-for="result in tagDropdownResults"
-                        :key="result.id"
-                        type="button"
-                        class="pm-tag-dropdown-item"
-                        @mousedown.prevent
-                        @click="addPrimaryDocTagById(result.id); tagSearchInput = ''"
-                      >{{ result.name }}</button>
-                    </div>
-                  </div>
-
-                  <!-- OCR language -->
-                  <div class="pm-field">
-                    <div class="pm-field-label">
-                      OCR-Sprache
-                      <span class="pm-field-hint" title="Wähle die Sprache des Dokuments für beste Erkennungsqualität.">ⓘ beeinflusst Qualität</span>
-                    </div>
-                    <select class="pm-field-select" v-model="docOcrLang">
-                      <option value="de">Deutsch (Standard)</option>
-                      <option value="en">Englisch</option>
-                      <option value="auto">Automatisch erkennen</option>
-                      <option value="multi">Mehrsprachig</option>
-                    </select>
-                  </div>
-
-                  <div class="pm-field-divider" />
-
-                  <!-- OCR toggle -->
-                  <div class="pm-toggle-row">
-                    <div class="pm-toggle-lbl">
-                      <span>OCR durchführen</span>
-                      <small>Text aus Seiten extrahieren</small>
-                    </div>
-                    <button
-                      type="button"
-                      class="pm-toggle"
-                      :class="{ 'pm-toggle--on': localAutoOcr }"
-                      role="switch"
-                      :aria-checked="localAutoOcr"
-                      @click="localAutoOcr = !localAutoOcr"
-                    />
-                  </div>
-
-                  <!-- AI classification toggle -->
-                  <div class="pm-toggle-row">
-                    <div class="pm-toggle-lbl">
-                      <span>KI-Klassifizierung</span>
-                      <small>Kategorie & Tags vorschlagen</small>
-                    </div>
-                    <button
-                      type="button"
-                      class="pm-toggle"
-                      :class="{ 'pm-toggle--on': localAutoIndex && localAutoOcr, 'pm-toggle--dis': !localAutoOcr }"
-                      role="switch"
-                      :aria-checked="localAutoIndex && localAutoOcr"
-                      :disabled="!localAutoOcr"
-                      @click="localAutoOcr && (localAutoIndex = !localAutoIndex)"
-                    />
-                  </div>
-
-                </div>
-              </div>
-
-            </div>
+          <div class="isd-zoom-group">
+            <span class="isd-zoom-label">klein</span>
+            <input
+              type="range"
+              class="isd-zoom-slider"
+              min="0"
+              max="2"
+              step="1"
+              :value="gridZoomIndex"
+              @input="onGridZoomChange"
+            />
+            <span class="isd-zoom-label">groß</span>
           </div>
-        </section>
-        </transition>
+
+          <span class="isd-page-count">{{ totalPages }} Seiten</span>
+        </div>
+      </div>
+
+      <!-- Right column: document properties (no scroll) -->
+      <div class="isd-props">
+
+        <!-- Document name -->
+        <div class="isd-field">
+          <div class="isd-field-label">Dokumentname</div>
+          <div class="isd-field-row">
+            <v-text-field
+              :model-value="primaryDocTitle"
+              placeholder="z. B. Rechnung Stadtwerke März 2024"
+              density="compact"
+              variant="outlined"
+              hide-details
+              @update:model-value="onPrimaryDocTitleInput({ target: { value: $event } })"
+              @blur="onPrimaryDocTitleBlur"
+            />
+            <v-btn
+              icon
+              size="small"
+              variant="text"
+              color="primary"
+              :loading="isPrimaryDocTitleBusy"
+              :disabled="isPrimaryDocTitleBusy || !primaryDocument || primaryDocument.pages.length === 0"
+              title="Titel mit KI vorschlagen"
+              @click="primaryDocument && requestScanTitleSuggestion(primaryDocument.id, 'first_page')"
+            >
+              <v-icon size="18">mdi-creation</v-icon>
+            </v-btn>
+          </div>
+          <button
+            v-if="primaryDocSuggestionText"
+            type="button"
+            class="isd-ai-chip"
+            @click="primaryDocument && applyScanSuggestion(primaryDocument.id)"
+          >
+            <v-icon size="13">{{ resolveIcon('mdi-robot-outline') }}</v-icon>
+            <span class="isd-ai-chip__text">{{ primaryDocSuggestionText }}</span>
+            <span class="isd-ai-chip__action">übernehmen</span>
+          </button>
+        </div>
+
+        <!-- Document date -->
+        <div class="isd-field">
+          <div class="isd-field-label">Dokumentdatum</div>
+          <div class="isd-field-row">
+            <v-text-field
+              v-model="docDate"
+              placeholder="TT.MM.JJJJ"
+              density="compact"
+              variant="outlined"
+              hide-details
+            />
+            <v-btn
+              icon
+              size="small"
+              variant="text"
+              color="primary"
+              title="Datum aus Dokument erkennen"
+            >
+              <v-icon size="18">mdi-creation</v-icon>
+            </v-btn>
+          </div>
+        </div>
+
+        <!-- Category -->
+        <div class="isd-field">
+          <div class="isd-field-label">Kategorie</div>
+          <v-select
+            v-model="docCategory"
+            :items="[...DOC_CATEGORIES, '+ Neu erstellen']"
+            placeholder="— wählen —"
+            density="compact"
+            variant="outlined"
+            hide-details
+          />
+        </div>
+
+        <!-- Tags -->
+        <div class="isd-field">
+          <div class="isd-field-label">Tags</div>
+          <v-combobox
+            :model-value="primaryDocTags"
+            :items="stageTagPool"
+            item-title="name"
+            item-value="id"
+            return-object
+            multiple
+            closable-chips
+            chips
+            density="compact"
+            variant="outlined"
+            hide-details
+            placeholder="Tag eingeben..."
+            @click:control="ensureStageTagsLoaded()"
+            @update:model-value="onTagsComboboxUpdate"
+          />
+        </div>
+
+        <!-- OCR language -->
+        <div class="isd-field">
+          <div class="isd-field-label">OCR-Sprache</div>
+          <v-select
+            v-model="docOcrLang"
+            :items="[
+              { title: 'Deutsch (Standard)', value: 'de' },
+              { title: 'Englisch', value: 'en' },
+              { title: 'Automatisch erkennen', value: 'auto' },
+              { title: 'Mehrsprachig', value: 'multi' },
+            ]"
+            density="compact"
+            variant="outlined"
+            hide-details
+          />
+        </div>
+
+        <div class="isd-divider" />
+
+        <!-- OCR toggle -->
+        <div class="isd-toggle-row">
+          <div class="isd-toggle-lbl">
+            <span>OCR durchführen</span>
+            <small>Text aus Seiten extrahieren</small>
+          </div>
+          <button
+            type="button"
+            class="isd-toggle"
+            :class="{ 'isd-toggle--on': localAutoOcr }"
+            role="switch"
+            :aria-checked="localAutoOcr"
+            @click="localAutoOcr = !localAutoOcr"
+          />
+        </div>
+
+        <!-- AI classification toggle -->
+        <div class="isd-toggle-row">
+          <div class="isd-toggle-lbl">
+            <span>KI-Klassifizierung</span>
+            <small>Kategorie & Tags vorschlagen</small>
+          </div>
+          <button
+            type="button"
+            class="isd-toggle"
+            :class="{ 'isd-toggle--on': localAutoIndex && localAutoOcr, 'isd-toggle--dis': !localAutoOcr }"
+            role="switch"
+            :aria-checked="localAutoIndex && localAutoOcr"
+            :disabled="!localAutoOcr"
+            @click="localAutoOcr && (localAutoIndex = !localAutoIndex)"
+          />
+        </div>
+
       </div>
     </div>
 
     <template #footer>
-      <div v-if="hasPreparationProgress" class="import-staging-progress">
-        <div class="import-staging-progress__label">{{ preparationProgressLabel }}</div>
-        <v-progress-linear
-          :model-value="preparationProgressPercent"
-          height="4"
-          color="primary"
-          rounded
-        />
-      </div>
-      <div class="pm-import-footer">
-        <div class="import-staging-footer" :class="{ 'import-staging-footer--empty': isEmpty }">
-          <span v-if="!isEmpty" class="text-caption">{{ footerSummary }}</span>
-          <span v-if="!isEmpty && emptyHint" class="import-staging-footer__warning">{{ emptyHint }}</span>
+      <div class="isd-footer">
+        <div class="isd-footer-start">
+          <v-btn
+            variant="text"
+            :disabled="isUploadingSources || isCommitting"
+            @click="isOpen = false"
+          >
+            Abbrechen
+          </v-btn>
         </div>
-        <div class="pm-import-footer-actions">
-          <v-btn variant="text" :disabled="isUploadingSources || isCommitting" @click="isOpen = false">Abbrechen</v-btn>
+        <div class="isd-footer-end">
+          <span v-if="isCommitting || hasPreparationProgress" class="isd-footer-status">
+            {{ preparationProgressLabel || 'Verarbeitung läuft…' }}
+          </span>
           <v-btn
             color="primary"
             variant="flat"
-            class="import-staging-footer__import-btn"
-            :loading="isCommitting"
-            :title="totalPages <= 0 ? 'Bitte PDFs hinzufügen' : ''"
             :disabled="isImportActionDisabled"
             @click="commitImport"
           >
-            {{ isCommitting ? 'Importiere...' : `Importieren (${importCount})` }}
+            {{ isCommitting ? 'Verarbeitung läuft…' : `Importieren (${importCount})` }}
           </v-btn>
         </div>
       </div>
     </template>
   </BaseDialog>
-
-  <Teleport to="body">
-    <transition name="peek-popover">
-      <div
-        v-if="isOpen && peek.open && selectedPageEntry"
-        ref="peekPanelRef"
-        class="import-staging-peek"
-        :style="peekStyle"
-      >
-        <div class="import-staging-peek__viewport">
-          <v-progress-circular
-            v-if="previewImageLoading"
-            indeterminate
-            color="primary"
-            size="24"
-          />
-          <img
-            v-else-if="previewImageSrc"
-            class="import-staging-peek__image"
-            :src="previewImageSrc"
-            alt="Große Seitenvorschau"
-          />
-          <div v-else class="import-staging-peek__empty" />
-        </div>
-      </div>
-    </transition>
-  </Teleport>
 </template>
 
 <script setup>
@@ -917,8 +612,8 @@ const selectedPageEntry = computed(() => {
   return documentEntry.pages.find((page) => page.id === selected.value?.pageId) || null;
 });
 const hasSelectedPreview = computed(() => Boolean(selectedPageEntry.value));
-const MODAL_WORK_WIDTH_COMPACT = 900;
-const MODAL_WORK_WIDTH_SPLIT = 1280;
+const MODAL_WORK_WIDTH_COMPACT = 860;
+const MODAL_WORK_WIDTH_SPLIT = 1180;
 const dialogMaxWidth = computed(() => isEmpty.value ? MODAL_WORK_WIDTH_COMPACT : MODAL_WORK_WIDTH_SPLIT);
 const dialogCardClass = computed(() => {
   if (isEmpty.value) {
@@ -963,7 +658,7 @@ const tagDropdownResults = computed(() => {
 });
 const hasAnySelectedPage = computed(() => Boolean(selected.value?.pageId));
 const gridScrollStyle = computed(() => ({
-  '--pm-grid-min': ['78px', '98px', '128px'][gridZoomIndex.value] || '98px'
+  '--pm-grid-min': ['142px', '164px', '184px'][gridZoomIndex.value] || '164px'
 }));
 const isImportActionDisabled = computed(() => totalPages.value <= 0 || isUploadingSources.value || isCommitting.value);
 const hasPreparationProgress = computed(() => isUploadingSources.value && preparationProgress.value.total > 0);
@@ -1010,6 +705,22 @@ const toolbarControlDisabledStyle = Object.freeze({
   '--v-btn-color': 'rgba(var(--v-theme-on-surface), 0.34)',
   opacity: '0.5'
 });
+
+watch(
+  () => props.autoOcr,
+  (value) => {
+    localAutoOcr.value = Boolean(value);
+  },
+  { immediate: true }
+);
+
+watch(
+  () => props.autoIndex,
+  (value) => {
+    localAutoIndex.value = Boolean(value);
+  },
+  { immediate: true }
+);
 
 function getToolbarControlStyle(disabled) {
   return disabled ? toolbarControlDisabledStyle : toolbarControlEnabledStyle;
@@ -2291,6 +2002,20 @@ async function onTagInputFocus() {
 }
 function focusTagInput() { tagInputRef.value?.focus(); }
 
+async function onTagsComboboxUpdate(newItems) {
+  if (!primaryDocument.value) return;
+  const ids = [];
+  for (const item of newItems) {
+    if (typeof item === 'string') {
+      const id = await createStageTagByName(item);
+      if (id) ids.push(id);
+    } else if (item?.id) {
+      ids.push(item.id);
+    }
+  }
+  stagingStore.setDocumentTags(primaryDocument.value.id, ids);
+}
+
 function normalizeSourceFileId(sourceFileId) {
   return String(sourceFileId || '').trim();
 }
@@ -3496,8 +3221,8 @@ async function commitImport() {
       body: JSON.stringify({
         documents: commitDocuments.value,
         options: {
-          auto_ocr: Boolean(props.autoOcr),
-          auto_index: Boolean(props.autoIndex),
+          auto_ocr: Boolean(localAutoOcr.value),
+          auto_index: Boolean(localAutoIndex.value && localAutoOcr.value),
           auto_embed: Boolean(props.autoEmbed)
         }
       })
@@ -3606,1769 +3331,355 @@ onBeforeUnmount(() => {
 });
 </script>
 
-<style scoped>
-.import-staging {
-  --pm-modal-pad-y: 20px;
-  --pm-modal-pad-x: 24px;
-  --pm-toolbar-icon-color: rgba(15, 23, 42, 0.62);
-  --pm-toolbar-disabled-color: rgba(15, 23, 42, 0.34);
-  --pm-dropzone-bg: rgba(var(--v-theme-primary), 0.06);
-  --pm-dropzone-border: rgba(var(--v-theme-primary), 0.38);
-  --pm-dropzone-bg-hover: rgba(var(--v-theme-primary), 0.08);
-  --pm-dropzone-border-hover: rgba(var(--v-theme-primary), 0.52);
-  --pm-dropzone-bg-active: rgba(var(--v-theme-primary), 0.14);
-  --pm-dropzone-border-active: rgba(var(--v-theme-primary), 0.8);
-  --pmSplitBg: color-mix(in srgb, rgb(var(--v-theme-primary)) 12%, transparent);
-  --pmSplitBgHover: color-mix(in srgb, rgb(var(--v-theme-primary)) 16%, transparent);
-  --pmSplitSegHover: color-mix(in srgb, rgb(var(--v-theme-primary)) 10%, transparent);
-  --pmSplitSegActive: color-mix(in srgb, rgb(var(--v-theme-primary)) 14%, transparent);
-  --pmSplitDivider: color-mix(in srgb, rgb(var(--v-theme-primary)) 22%, transparent);
-  --pmSplitShadow: none;
-  display: grid;
-  gap: 14px;
-  height: 100%;
-  background: transparent;
-}
+<style>
+/*
+ * Unscoped — v-dialog teleportiert seinen Inhalt zu <body>, daher sind
+ * :deep()-Selektoren wirkungslos. Namespace .isd-card.pm-dialog ist
+ * eindeutig genug, um andere Dialoge nicht zu beeinflussen.
+ */
 
-:deep(.v-theme--dark) .importer-dialog {
-  --pm-dm-header-bg: rgba(255, 255, 255, 0.06);
-  --pm-dm-divider: rgba(255, 255, 255, 0.14);
-  --pm-dm-icon: rgba(255, 255, 255, 0.70);
-  --pm-dm-icon-dim: rgba(255, 255, 255, 0.70);
-  --pm-dm-hover: rgba(255, 255, 255, 0.10);
-  --pm-dm-text: rgba(255, 255, 255, 0.92);
-  --pm-dm-text2: rgba(255, 255, 255, 0.70);
-  --pm-dm-focus: rgba(110, 168, 255, 0.50);
-  --pm-toolbar-icon-color: var(--pm-dm-icon);
-  --pm-toolbar-btn-color: var(--pm-dm-text2);
-  --pm-toolbar-disabled-color: rgba(255, 255, 255, 0.36);
-  --pm-toolbar-btn-opacity: 1;
-  --pm-dropzone-bg: rgba(var(--v-theme-primary), 0.1);
-  --pm-dropzone-border: rgba(var(--v-theme-primary), 0.48);
-  --pm-dropzone-bg-hover: rgba(var(--v-theme-primary), 0.14);
-  --pm-dropzone-border-hover: rgba(var(--v-theme-primary), 0.62);
-  --pm-dropzone-bg-active: rgba(var(--v-theme-primary), 0.18);
-  --pm-dropzone-border-active: rgba(var(--v-theme-primary), 0.88);
-  --pmSplitBg: color-mix(in srgb, rgb(var(--v-theme-primary)) 18%, transparent);
-  --pmSplitBgHover: color-mix(in srgb, rgb(var(--v-theme-primary)) 24%, transparent);
-  --pmSplitSegHover: color-mix(in srgb, rgb(var(--v-theme-primary)) 14%, transparent);
-  --pmSplitSegActive: color-mix(in srgb, rgb(var(--v-theme-primary)) 18%, transparent);
-  --pmSplitDivider: color-mix(in srgb, rgb(var(--v-theme-primary)) 26%, transparent);
-  --pmSplitShadow: none;
-}
-
-.import-content {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  box-sizing: border-box;
-  padding: 0;
-  transition: padding 240ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.import-content--empty {
-  padding: var(--pm-modal-pad-y) var(--pm-modal-pad-x);
-}
-
-:deep(.import-staging-dialog-card) {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border: none !important;
-  outline: none !important;
-  box-shadow: var(--pm-shadow, 0 10px 30px rgba(15, 23, 42, 0.12)) !important;
-  transition:
-    width 280ms cubic-bezier(0.22, 1, 0.36, 1),
-    max-width 280ms cubic-bezier(0.22, 1, 0.36, 1),
-    height 280ms cubic-bezier(0.22, 1, 0.36, 1),
-    max-height 280ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
-  will-change: width, max-width, height, max-height, transform, opacity;
-}
-
-:deep(.import-staging-dialog-card.import-modal--empty) {
-  width: min(760px, calc(100vw - 64px));
-  max-width: calc(100vw - 64px);
-  height: 610px !important;
-  min-height: 610px !important;
-  max-height: calc(100vh - 96px);
-  transform: translateY(0);
-  opacity: 1;
-}
-
-:deep(.import-staging-dialog-card.import-modal--work) {
-  height: min(860px, 90vh);
-  max-height: 90vh;
-  transform: translateY(0);
-  opacity: 1;
-}
-
-:deep(.import-staging-dialog-card.import-modal--work-split) {
-  width: min(1280px, calc(100vw - 48px));
-  max-width: min(1280px, calc(100vw - 48px));
-}
-
-:deep(.import-staging-dialog-card .pm-dialog__header),
-:deep(.import-staging-dialog-card .pm-dialog__footer) {
-  flex: 0 0 auto;
-  background: rgb(var(--v-theme-surface));
-  z-index: 1;
-}
-
-:deep(.import-staging-dialog-card .pm-dialog__header) {
-  padding: 16px 18px;
-}
-
-:deep(.import-staging-dialog-card .pm-dialog__content-wrap) {
-  max-height: none;
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
+.isd-card.pm-dialog {
+  display: flex !important;
+  flex-direction: column !important;
   overflow: hidden !important;
-  scrollbar-gutter: stable;
+  height: min(820px, 90vh) !important;
+  max-height: 90vh !important;
 }
 
-:deep(.import-staging-dialog-card.import-modal--empty .pm-dialog__content-wrap) {
+.isd-card.pm-dialog .pm-dialog__header {
+  flex: 0 0 auto;
+}
+
+.isd-card.pm-dialog .pm-dialog__content-wrap {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
   max-height: none !important;
-}
-
-:deep(.import-staging-dialog-card.import-modal--empty .pm-dialog__content) {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  padding: 0;
-}
-
-:deep(.import-staging-dialog-card.import-modal--work .pm-dialog__content) {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  padding: 0;
-}
-
-:deep(.import-staging-dialog-card .pm-dialog__footer) {
-  padding: 12px 18px;
-  border-top: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
-}
-
-:deep(.import-staging-dialog-card.import-modal--empty .pm-dialog__footer) {
-  padding: 12px 18px;
-}
-
-.import-staging-empty {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-
-.import-staging-dropzone {
-  width: 100%;
-  max-width: none;
-  margin: 0;
-  min-height: clamp(220px, 34vh, 260px);
-  border: 2px dashed var(--pm-dropzone-border);
-  border-radius: 28px;
-  background: var(--pm-dropzone-bg);
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  text-align: center;
-  transition: border-color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
-  box-shadow: none;
-  cursor: pointer;
-}
-
-.import-staging-dropzone--hover {
-  border-color: var(--pm-dropzone-border-hover);
-  background: var(--pm-dropzone-bg-hover);
-  box-shadow: none;
-}
-
-.import-staging-dropzone:focus-visible {
-  border-color: var(--pm-dropzone-border-hover);
-  background: var(--pm-dropzone-bg-hover);
-  box-shadow: none;
-  outline: none;
-}
-
-.import-staging-dropzone--drag {
-  border-color: var(--pm-dropzone-border-active);
-  background: var(--pm-dropzone-bg-active);
-  box-shadow: none;
-}
-
-.import-staging-dropzone--busy {
-  opacity: 0.75;
-  pointer-events: none;
-  cursor: default;
-}
-
-.import-staging-dropzone__icon {
-  color: rgba(var(--v-theme-on-surface), 0.8);
-}
-
-.import-staging-dropzone__headline {
-  font-size: 18px;
-  font-weight: 600;
-  color: rgb(var(--v-theme-on-surface));
-  max-width: 520px;
-}
-
-.import-staging-dropzone__actions {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  max-width: 520px;
-}
-
-.import-staging-dropzone__cta {
-  text-transform: none;
-  letter-spacing: 0;
-  min-height: 48px;
-  padding-inline: 20px;
-}
-
-.pm-split {
-  display: inline-flex;
-  align-items: stretch;
-  height: 48px;
-  border-radius: 16px;
-  overflow: hidden;
-  background: var(--pmSplitBg);
-  box-shadow: var(--pmSplitShadow);
-}
-
-.pm-split__main,
-.pm-split__side {
-  height: 100% !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-  background: transparent !important;
-  color: rgb(var(--v-theme-primary)) !important;
-  transition: background-color 150ms ease, transform 120ms ease, color 150ms ease;
-}
-
-.pm-split__main {
-  min-width: 180px;
-  padding: 0 18px !important;
+  overflow: hidden !important;
   display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  font-weight: 600;
-  border-top-left-radius: 16px !important;
-  border-bottom-left-radius: 16px !important;
+  flex-direction: column !important;
 }
 
-.pm-split__side {
-  width: 56px;
-  min-width: 56px !important;
+.isd-card.pm-dialog .pm-dialog__content {
   padding: 0 !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  opacity: 0.95;
-  border-top-right-radius: 16px !important;
-  border-bottom-right-radius: 16px !important;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
-.pm-split__divider {
-  width: 1px;
-  height: 100%;
+.isd-card.pm-dialog .pm-dialog__footer {
   flex: 0 0 auto;
-  background: var(--pmSplitDivider);
-  opacity: 0.8;
-  pointer-events: none;
+  padding: 12px 18px !important;
+  justify-content: space-between !important;
 }
+</style>
 
-.pm-split__side :deep(.v-icon) {
-  transform: translateY(1px);
-  opacity: 0.95;
-}
-
-.pm-split__side:hover :deep(.v-icon) {
-  opacity: 1;
-}
-
-.pm-split:hover {
-  background: var(--pmSplitBgHover);
-}
-
-.pm-split__main:hover,
-.pm-split__side:hover {
-  background: var(--pmSplitSegHover) !important;
-  transform: translateY(-1px);
-}
-
-.pm-split__main:active,
-.pm-split__side:active {
-  background: var(--pmSplitSegActive) !important;
-  transform: translateY(0);
-}
-
-.pm-split :deep(.v-btn__overlay),
-.pm-split :deep(.v-btn__underlay) {
-  display: none !important;
-}
-
-.pm-split :deep(.v-btn__content) {
-  height: 100%;
+<style scoped>
+/* ── Body split layout ── */
+.isd-body {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
-.pm-split :deep(.v-btn:focus-visible) {
-  outline: none;
-}
-
-.import-staging-dropzone__ios-hint {
-  margin: 2px 0 0;
-  font-size: 0.8rem;
-  line-height: 1.4;
-  color: rgba(var(--v-theme-on-surface), 0.65);
-  text-align: center;
-  max-width: 420px;
-}
-
-.import-modal__content {
-  width: 100%;
-  max-width: 100%;
-}
-
-.import-staging-list {
+.isd-left {
+  flex: 0 0 65%;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  flex: 1 1 auto;
-  height: 100%;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  padding: 0;
-  overflow: hidden;
-}
-
-.import-staging-content {
-  width: 100%;
-  max-width: 1080px;
-  height: 100%;
-  min-height: 0;
-  margin: 0 auto;
-  padding: 0;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.pm-import-body-shell {
-  position: relative;
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.import-staging-work-layout {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 65fr) minmax(260px, 35fr);
-  gap: 0;
-  overflow: hidden;
-}
-
-.pm-import-body-scroll {
-  position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
-  scrollbar-gutter: stable;
-  padding: 14px 18px;
-  padding-bottom: 14px;
-  margin: 0;
-  box-sizing: border-box;
-}
-
-.pm-import-body-scroll--centered {
-  justify-content: center;
-}
-
-.import-staging-docs {
-  width: 100%;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  overflow: visible;
-}
-
-.pm-import-drop-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 20;
-  border-radius: 16px;
-  background: rgba(40, 60, 90, 0.2);
-  backdrop-filter: blur(3px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-}
-
-.pm-import-drop-overlay__text {
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(13, 20, 34, 0.32);
-  color: rgba(255, 255, 255, 0.95);
-  font-size: 0.82rem;
-  font-weight: 600;
-}
-
-.import-staging-doc-slot {
-  width: 100%;
-  display: grid;
-  gap: 10px;
-}
-
-.import-staging-doc-slot:first-child {
-  gap: 0;
-}
-
-.import-staging-doc-slot:first-child .import-staging-interdrop {
-  min-height: 0;
-}
-
-.import-staging-interdrop {
-  min-height: 12px;
-  border-radius: 6px;
-}
-
-.import-staging-doc {
-  width: 100%;
-  box-sizing: border-box;
-  border: 0;
-  border: 1px solid var(--pm-stage-border, #D6DEE9);
-  outline: 0;
-  border-radius: 18px;
-  background: var(--pm-stage-bg, #E9EEF6);
-  padding: 0;
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
-  overflow: hidden;
-  transition: border-color 0.14s ease, box-shadow 0.14s ease;
-}
-
-.import-staging-doc--empty {
-  box-shadow: inset 0 0 0 1px rgba(var(--v-theme-primary), 0.2);
-}
-
-.import-staging-doc--dragover {
-  box-shadow: 0 0 0 1px rgba(var(--v-theme-primary), 0.24), 0 8px 18px rgba(var(--v-theme-primary), 0.12);
-}
-
-.import-staging-doc__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 14px 18px;
-  border-bottom: 0;
-  background: var(--pm-stage-header-bg, #E2E8F2);
-  box-shadow: var(--pm-stage-header-inner-shadow, inset 0 -1px 0 rgba(15, 23, 42, 0.06));
-  min-width: 0;
-  overflow: hidden;
-}
-
-.import-staging-doc--collapsed .import-staging-doc__header {
-  box-shadow: none;
-}
-
-:deep(.v-theme--dark) .importer-dialog .import-staging-doc__header {
-  background: var(--pm-dm-header-bg);
-}
-
-.stage-header-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex: 1 1 auto;
-  min-width: 0;
-  padding-right: 0;
-}
-
-.stage-header-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex: 0 0 auto;
-  min-width: 0;
-}
-
-.import-staging-doc__collapse {
-  width: 24px;
-  height: 24px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: rgba(var(--v-theme-on-surface), 0.68);
-  cursor: pointer;
-}
-
-.import-staging-doc__collapse:hover {
-  background: rgba(var(--v-theme-on-surface), 0.08);
-}
-
-:deep(.v-theme--dark) .importer-dialog .import-staging-doc__collapse {
-  color: var(--pm-dm-icon);
-}
-
-:deep(.v-theme--dark) .importer-dialog .import-staging-doc__collapse:hover {
-  background: var(--pm-dm-hover);
-  color: var(--pm-dm-text);
-}
-
-.import-staging-doc__title {
-  flex: 1 1 auto;
-  width: 100%;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1.25;
-  color: inherit;
-  padding: 0;
-  outline: none;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-:deep(.v-theme--dark) .importer-dialog .import-staging-doc__title {
-  color: var(--pm-dm-text);
-}
-
-:deep(.v-theme--dark) .importer-dialog .import-staging-doc__title::placeholder {
-  color: var(--pm-dm-text2);
-}
-
-.stage-title-input {
-  display: flex;
-  align-items: flex-start;
-  justify-content: flex-start;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-width: 0;
-  width: 100%;
-  max-width: none;
-  padding: 2px 6px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  background: transparent;
-}
-
-.stage-title-row {
-  width: 100%;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.stage-title-ai-btn {
-  flex: 0 0 auto;
-  min-width: 30px !important;
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  opacity: 0;
-}
-
-.import-staging-doc__header:hover .stage-title-ai-btn,
-.stage-title-ai-btn:focus-visible {
-  opacity: 1;
-}
-
-.stage-title-ai-btn.v-btn--disabled {
-  opacity: 0.5 !important;
-}
-
-.stage-title-input .v-field__outline,
-.stage-title-input .v-field__overlay,
-.stage-title-input .v-field__loader {
-  display: none !important;
-}
-
-.stage-title-input:focus-within {
-  background: rgba(0, 0, 0, 0.04);
-}
-
-.scan-title-hint {
-  margin-top: 2px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  line-height: 1.25;
-  max-width: 100%;
-  color: rgba(var(--v-theme-on-surface), 0.7);
-}
-
-.scan-title-hint--working {
-  color: rgba(var(--v-theme-on-surface), 0.64);
-}
-
-.scan-title-hint--pending {
-  color: rgba(var(--v-theme-warning), 0.9);
-}
-
-.scan-title-hint--ready {
-  color: rgba(var(--v-theme-on-surface), 0.58);
-}
-
-.scan-title-hint--meta {
-  margin-top: 1px;
-  font-size: 11px;
-  color: rgba(var(--v-theme-on-surface), 0.58);
-}
-
-.scan-title-hint__label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-
-.scan-title-hint__apply {
-  border: 0;
-  background: transparent;
-  color: rgb(var(--v-theme-primary));
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  padding: 0 0 0 2px;
-  opacity: 0.86;
-}
-
-:deep(.v-theme--dark) .importer-dialog .stage-title-input:focus-within {
-  background: rgba(255, 255, 255, 0.12);
-}
-
-:deep(.v-theme--dark) .importer-dialog .stage-title-input {
-  border-color: transparent;
-  transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
-}
-
-:deep(.v-theme--dark) .importer-dialog .stage-title-input:hover {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: var(--pm-dm-divider);
-}
-
-:deep(.v-theme--dark) .importer-dialog .stage-title-input:focus-within {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: var(--pm-dm-focus);
-  box-shadow: 0 0 0 3px rgba(110, 168, 255, 0.18);
-}
-
-:deep(.v-theme--dark) .importer-dialog .stage-title-ai-btn {
-  color: var(--pm-dm-text2) !important;
-}
-
-.stage-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: nowrap;
-  white-space: nowrap;
-  min-width: 0;
-}
-
-.toolbar-divider {
-  width: 1px;
-  height: 22px;
-  background: var(--pm-divider, rgba(15, 23, 42, 0.14));
-  margin: 0 12px;
-  flex: 0 0 auto;
-}
-
-.toolbar-divider--tags {
-  height: 20px;
-  margin: 0 8px 0 2px;
-}
-
-:deep(.v-theme--dark) .importer-dialog .toolbar-divider {
-  background: var(--pm-dm-divider);
-  height: 22px;
-}
-
-:deep(.v-theme--dark) .importer-dialog .stage-toolbar {
-  color: var(--pm-dm-text2);
-}
-
-:deep(.v-theme--dark .importer-dialog .stage-toolbar .v-btn),
-:deep(.v-theme--dark .importer-dialog .stage-toolbar .v-btn .v-btn__content),
-:deep(.v-theme--dark .importer-dialog .stage-toolbar .v-btn .v-icon) {
-  color: var(--pm-dm-text2) !important;
-  opacity: 1 !important;
-}
-
-:deep(.v-theme--dark .importer-dialog .stage-toolbar .v-btn.v-btn--disabled),
-:deep(.v-theme--dark .importer-dialog .stage-toolbar .v-btn.v-btn--disabled .v-btn__content),
-:deep(.v-theme--dark .importer-dialog .stage-toolbar .v-btn.v-btn--disabled .v-icon) {
-  color: var(--pm-dm-text2) !important;
-  opacity: 1 !important;
-}
-
-.toolbar-actions {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: nowrap;
-  gap: 6px;
-}
-
-.stage-toolbar-btn {
-  color: var(--pm-toolbar-icon-color, rgba(15, 23, 42, 0.62)) !important;
-  border-radius: 10px !important;
-  padding: 6px 10px !important;
-  min-width: auto;
-}
-
-.stage-toolbar-btn:hover {
-  background: rgba(0, 0, 0, 0.06) !important;
-}
-
-:deep(.v-theme--dark) .importer-dialog .stage-toolbar-btn:hover {
-  background: var(--pm-dm-hover) !important;
-  color: var(--pm-dm-text) !important;
-}
-
-.stage-toolbar__tags {
-  flex: 0 0 auto;
-}
-
-.pm-icon-btn {
-  min-width: 36px !important;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px !important;
-  padding: 6px !important;
-  color: var(--pm-toolbar-icon-color, rgba(15, 23, 42, 0.62));
-  background: transparent !important;
-  border: none !important;
-  transition: background-color 150ms ease, color 150ms ease, transform 120ms ease;
-}
-
-.pm-icon-btn :deep(.v-icon) {
-  font-size: 23px;
-}
-
-:deep(.v-theme--dark) .importer-dialog .pm-icon-btn :deep(.v-icon) {
-  font-size: 21px;
-}
-
-.pm-icon-btn:hover {
-  background: rgba(0, 0, 0, 0.06) !important;
-  color: var(--pm-icon-strong, rgba(15, 23, 42, 0.85));
-  transform: translateY(-1px);
-}
-
-:deep(.v-theme--dark) .importer-dialog .pm-icon-btn:hover {
-  background: var(--pm-dm-hover) !important;
-  color: var(--pm-dm-text);
-}
-
-.pm-icon-btn:active {
-  background: var(--pm-surface-pressed, rgba(15, 23, 42, 0.1)) !important;
-  transform: translateY(0);
-}
-
-.pm-icon-btn.v-btn--disabled {
-  opacity: 0.45;
-  cursor: not-allowed !important;
-}
-
-:deep(.v-theme--dark) .importer-dialog .pm-icon-btn,
-:deep(.v-theme--dark) .importer-dialog .stage-toolbar-btn {
-  color: var(--pm-dm-text2) !important;
-}
-
-:deep(.v-theme--dark .importer-dialog .stage-toolbar .v-btn .v-btn__content),
-:deep(.v-theme--dark .importer-dialog .stage-toolbar .v-btn .v-icon) {
-  color: var(--pm-dm-text2) !important;
-  opacity: 1 !important;
-}
-
-:deep(.v-theme--dark .importer-dialog .pm-icon-btn),
-:deep(.v-theme--dark .importer-dialog .stage-toolbar-btn),
-:deep(.v-theme--dark .importer-dialog .pm-icon-btn .v-btn__content),
-:deep(.v-theme--dark .importer-dialog .stage-toolbar-btn .v-btn__content),
-:deep(.v-theme--dark .importer-dialog .pm-icon-btn .v-icon),
-:deep(.v-theme--dark .importer-dialog .stage-toolbar-btn .v-icon) {
-  color: var(--pm-dm-text2) !important;
-  opacity: 1 !important;
-}
-
-:deep(.v-theme--dark) .importer-dialog .pm-icon-btn:active,
-:deep(.v-theme--dark) .importer-dialog .stage-toolbar-btn:active {
-  background: rgba(110, 168, 255, 0.16) !important;
-  color: var(--pm-dm-text) !important;
-}
-
-:deep(.v-theme--dark) .importer-dialog .pm-icon-btn.v-btn--disabled,
-:deep(.v-theme--dark) .importer-dialog .stage-toolbar-btn.v-btn--disabled {
-  opacity: 1;
-  color: var(--pm-dm-text2) !important;
-}
-
-:deep(.v-theme--dark .importer-dialog .pm-icon-btn.v-btn--disabled),
-:deep(.v-theme--dark .importer-dialog .stage-toolbar-btn.v-btn--disabled),
-:deep(.v-theme--dark .importer-dialog .pm-icon-btn.v-btn--disabled .v-icon),
-:deep(.v-theme--dark .importer-dialog .stage-toolbar-btn.v-btn--disabled .v-icon),
-:deep(.v-theme--dark .importer-dialog .pm-icon-btn.v-btn--disabled .v-btn__content),
-:deep(.v-theme--dark .importer-dialog .stage-toolbar-btn.v-btn--disabled .v-btn__content) {
-  color: var(--pm-dm-text2) !important;
-  opacity: 1 !important;
-}
-
-.pm-icon-btn.v-btn--disabled:hover,
-.pm-icon-btn.v-btn--disabled:active {
-  background: transparent !important;
-  color: var(--pm-icon-muted, rgba(15, 23, 42, 0.55));
-  transform: none;
-}
-
-:deep(.v-theme--dark) .importer-dialog .pm-icon-btn.v-btn--disabled:hover,
-:deep(.v-theme--dark) .importer-dialog .pm-icon-btn.v-btn--disabled:active,
-:deep(.v-theme--dark) .importer-dialog .stage-toolbar-btn.v-btn--disabled:hover,
-:deep(.v-theme--dark) .importer-dialog .stage-toolbar-btn.v-btn--disabled:active {
-  background: transparent !important;
-  color: var(--pm-dm-text2) !important;
-  transform: none;
-}
-
-:deep(.importer-dialog .stage-toolbar .v-btn.v-btn--disabled),
-:deep(.importer-dialog .stage-toolbar .v-btn.v-btn--disabled .v-btn__content),
-:deep(.importer-dialog .stage-toolbar .v-btn.v-btn--disabled .v-icon) {
-  color: var(--pm-toolbar-disabled-color) !important;
-  --v-btn-color: var(--pm-toolbar-disabled-color) !important;
-  opacity: 0.5 !important;
-}
-
-:deep(.importer-dialog .stage-toolbar .v-btn.v-btn--disabled:hover),
-:deep(.importer-dialog .stage-toolbar .v-btn.v-btn--disabled:active) {
-  background: transparent !important;
-  transform: none !important;
-}
-
-.import-staging-doc__menu-delete :deep(.v-list-item-title),
-.import-staging-doc__menu-delete :deep(.v-icon),
-.import-staging-doc__menu-delete :deep(.v-list-item__prepend) {
-  color: rgb(var(--v-theme-error)) !important;
-}
-
-.import-staging-doc__menu-delete :deep(.v-list-item__prepend) {
-  opacity: 1;
-}
-
-.import-staging-doc__body {
-  padding: 18px;
-  background: transparent;
-}
-
-.stage-collapse-enter-active,
-.stage-collapse-leave-active {
-  transition: height 220ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease;
-}
-
-.stage-collapse-enter-from,
-.stage-collapse-leave-to {
-  opacity: 0;
-}
-
-.import-staging-doc__no-pages {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 6px 2px;
-  font-size: 0.82rem;
-  color: rgba(var(--v-theme-on-surface), 0.66);
-}
-
-.import-staging-pages {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--pm-grid-min, 98px), 1fr));
-  gap: 8px;
-  position: relative;
-  align-content: start;
-}
-
-.import-staging-page {
-  position: relative;
-  border: 1px solid var(--pm-border-subtle, rgba(15, 23, 42, 0.08));
-  border-radius: 12px;
-  padding: 4px;
-  background: #fff;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.06);
-  cursor: grab;
-  transition: border-color 0.14s ease, background-color 0.14s ease, transform 170ms ease-out, box-shadow 170ms ease-out, opacity 140ms ease;
-  will-change: transform;
-}
-
-.import-staging-page:active {
-  cursor: grabbing;
-}
-
-.import-staging-page--selected {
-  padding: 4px;
-  border-color: rgba(var(--v-theme-primary), 0.7);
-  background: transparent;
-  box-shadow: 0 0 0 1px rgba(var(--v-theme-primary), 0.3);
-}
-
-.import-staging-page--dragging {
-  opacity: 0.85;
-  transform: scale(1.03);
-  border-color: rgba(255, 255, 255, 0.1);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18), 0 2px 6px rgba(15, 23, 42, 0.1);
-  z-index: 40;
-  cursor: grabbing;
-}
-
-.import-staging-page--drop-hover {
-  background: rgba(var(--v-theme-primary), 0.06);
-}
-
-.import-staging-page--settled {
-  animation: staging-page-settle 170ms ease-out;
-}
-
-.import-staging-page__thumb-wrap {
-  position: relative;
-  border-radius: 10px;
-  overflow: hidden;
-  background: #fff;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.06);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 110px;
-}
-
-.import-staging-page__thumb {
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: contain;
-  transform-origin: center center;
-}
-
-.import-staging-page__thumb--fallback {
-  min-height: 110px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: rgba(var(--v-theme-on-surface), 0.68);
-}
-
-.import-staging-page__order {
-  position: absolute;
-  left: 6px;
-  bottom: 6px;
-  min-width: 20px;
-  height: 20px;
-  border-radius: 999px;
-  background: rgba(10, 14, 24, 0.8);
-  color: rgba(255, 255, 255, 0.96);
-  font-size: 0.72rem;
-  line-height: 20px;
-  text-align: center;
-  font-weight: 600;
-  padding: 0 6px;
-}
-
-.import-staging-page__actions {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.14s ease;
-}
-
-.import-staging-page:hover .import-staging-page__actions {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.import-staging-page-insert-line {
-  position: absolute;
-  width: 3px;
-  border-radius: 999px;
-  background: rgba(98, 148, 228, 0.9);
-  transform: translateX(-1.5px);
-  pointer-events: none;
-  z-index: 4;
-}
-
-.import-staging-page-insert-line__cap {
-  position: absolute;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: rgba(90, 140, 220, 0.82);
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-.import-staging-page-insert-line__cap--top {
-  top: -4px;
-}
-
-.import-staging-page-insert-line__cap--bottom {
-  bottom: -4px;
-}
-
-.import-staging-peek {
-  position: fixed;
-  z-index: 3200;
-  width: min(520px, calc(100vw - 40px));
-  max-height: 70vh;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(28, 31, 38, 0.98);
-  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.45);
-  padding: 10px;
-  overflow: hidden;
-}
-
-.import-staging-peek__viewport {
-  position: relative;
-  height: min(64vh, 600px);
-  max-height: calc(70vh - 20px);
-  border-radius: 12px;
-  background: rgba(0, 0, 0, 0.18);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 12px;
-  overflow: hidden;
-}
-
-.import-staging-peek__image {
-  max-width: 100%;
-  max-height: 100%;
-  width: auto;
-  height: auto;
-  object-fit: contain;
-  object-position: center;
-  display: block;
-}
-
-.import-staging-peek__empty {
-  width: 100%;
-  height: 100%;
-}
-
-.import-staging-footer {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.import-staging-progress {
-  display: grid;
-  gap: 6px;
-  padding: 0 2px 10px;
-}
-
-.import-staging-progress__label {
-  font-size: 0.74rem;
-  color: rgba(var(--v-theme-on-surface), 0.62);
-}
-
-.pm-import-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-}
-
-.pm-import-footer-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.import-staging-footer--empty .text-caption {
-  font-size: 0.72rem;
-  opacity: 0.64;
-}
-
-.import-staging-footer .text-caption {
-  color: rgba(var(--v-theme-on-surface), 0.62);
-}
-
-.import-staging-footer__warning {
-  font-size: 0.75rem;
-  color: rgb(var(--v-theme-warning));
-}
-
-.import-staging-footer__import-btn {
-  min-width: 142px;
-  color: #fff;
-}
-
-.import-staging-footer__import-btn :deep(.v-btn__content) {
-  letter-spacing: 0;
-}
-
-.import-staging-footer__import-btn.v-btn--disabled {
-  background: rgb(var(--v-theme-surface-3)) !important;
-  color: rgba(var(--v-theme-on-surface), 0.5) !important;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  :deep(.import-staging-dialog-card) {
-    transition: none;
-    transform: none;
-  }
-
-  .stage-collapse-enter-active,
-  .stage-collapse-leave-active {
-    transition: none;
-  }
-
-  .import-mode-enter-active,
-  .import-mode-leave-active {
-    transition: none;
-  }
-
-  .peek-popover-enter-active,
-  .peek-popover-leave-active {
-    transition: none;
-  }
-}
-
-.import-mode-enter-active,
-.import-mode-leave-active {
-  transition:
-    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
-  will-change: opacity;
-}
-
-.import-mode-enter-from,
-.import-mode-leave-to {
-  opacity: 0;
-  transform: none;
-}
-
-.import-mode-enter-to,
-.import-mode-leave-from {
-  opacity: 1;
-  transform: none;
-}
-
-.peek-popover-enter-active {
-  transition: opacity 150ms ease-out, transform 150ms ease-out;
-}
-
-.peek-popover-leave-active {
-  transition: opacity 100ms ease-in, transform 100ms ease-in;
-}
-
-.peek-popover-enter-from,
-.peek-popover-leave-to {
-  opacity: 0;
-  transform: scale(0.98);
-}
-
-@keyframes staging-page-settle {
-  0% {
-    transform: scale(1.02);
-    background: rgba(255, 255, 255, 0.09);
-  }
-  100% {
-    transform: scale(1);
-    background: rgb(var(--v-theme-surface));
-  }
-}
-
-.staging-page-list-move {
-  transition: transform 170ms ease-out;
-}
-
-@media (max-width: 760px) {
-  .import-content--empty {
-    padding: 16px 18px;
-  }
-
-  .import-staging-dropzone {
-    min-height: 180px;
-    padding: 20px;
-    border-radius: 20px;
-    gap: 10px;
-  }
-
-  .import-staging-dropzone__headline {
-    font-size: 16px;
-  }
-
-  .import-staging-peek {
-    width: calc(100vw - 24px);
-    max-height: 74vh;
-  }
-
-  .import-staging-peek__viewport {
-    height: min(58vh, 460px);
-  }
-
-  .import-staging-doc__header {
-    gap: 14px;
-    flex-wrap: nowrap;
-  }
-
-  .import-staging-pages {
-    grid-template-columns: repeat(auto-fill, minmax(86px, 1fr));
-    gap: 7px;
-  }
-}
-
-/* ── Split layout: left page panel ── */
-.pm-split-left {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
   overflow: hidden;
   border-right: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
-  position: relative;
 }
 
-.pm-split-left .import-staging-scroll {
+.isd-grid-scroll {
   flex: 1 1 auto;
   min-height: 0;
-}
-
-/* ── Bottom toolbar ── */
-.pm-bottom-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 12px;
-  border-top: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
-  background: rgb(var(--v-theme-surface));
-  flex-shrink: 0;
-  flex-wrap: nowrap;
-  min-height: 48px;
-}
-
-.pm-tb-btn {
-  text-transform: none !important;
-  letter-spacing: 0 !important;
-  color: rgba(var(--v-theme-on-surface), 0.68) !important;
-}
-
-.pm-tb-sep {
-  width: 1px;
-  height: 20px;
-  background: var(--pm-divider-soft, rgba(15, 23, 42, 0.1));
-  margin: 0 4px;
-  flex-shrink: 0;
-}
-
-.pm-zoom-ctrl {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: rgba(var(--v-theme-on-surface), 0.55);
-}
-
-.pm-zoom-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: rgba(var(--v-theme-on-surface), 0.55);
-  min-width: 10px;
-}
-
-.pm-zoom-slider {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 72px;
-  height: 3px;
-  border-radius: 2px;
-  background: rgba(var(--v-theme-on-surface), 0.15);
-  outline: none;
-  cursor: pointer;
-}
-
-.pm-zoom-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  background: rgb(var(--v-theme-on-surface));
-  cursor: pointer;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-}
-
-.pm-zoom-slider::-moz-range-thumb {
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  background: rgb(var(--v-theme-on-surface));
-  cursor: pointer;
-  border: none;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-}
-
-.pm-page-count {
-  color: rgba(var(--v-theme-on-surface), 0.55);
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-/* ── Split layout: right properties panel ── */
-.pm-split-props {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-  overflow: hidden;
-  background: rgb(var(--v-theme-surface));
-}
-
-.pm-props-scroll {
-  flex: 1 1 auto;
   overflow-y: auto;
-  overflow-x: hidden;
-  padding: 20px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  scrollbar-gutter: stable;
+  padding: 16px;
 }
 
-/* ── Property field ── */
-.pm-field {
+/* ── Empty state ── */
+.isd-empty {
+  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  color: rgba(var(--v-theme-on-surface), 0.4);
+  user-select: none;
 }
 
-.pm-field-label {
+.isd-empty-icon {
+  opacity: 0.35;
+  margin-bottom: 4px;
+}
+
+.isd-empty-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(var(--v-theme-on-surface), 0.5);
+}
+
+.isd-empty-hint {
+  margin: 0;
   font-size: 12px;
-  font-weight: 600;
-  color: rgba(var(--v-theme-on-surface), 0.72);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  letter-spacing: 0.01em;
-}
-
-.pm-req-dot {
-  color: rgb(var(--v-theme-error));
-  font-weight: 400;
-}
-
-.pm-field-hint {
-  color: rgba(var(--v-theme-on-surface), 0.46);
-  font-weight: 400;
-  font-size: 11px;
-  cursor: help;
-}
-
-.pm-field-row {
-  display: flex;
-  gap: 5px;
-  align-items: center;
-}
-
-.pm-field-row .pm-field-input {
-  flex: 1;
-  min-width: 0;
-}
-
-.pm-field-input {
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
-  background: rgb(var(--v-theme-surface-2, var(--v-theme-surface)));
-  padding: 8px 10px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-family: inherit;
-  color: rgb(var(--v-theme-on-surface));
-  width: 100%;
-  outline: none;
-  transition: border-color 0.14s ease;
-}
-
-.pm-field-input::placeholder {
+  line-height: 1.5;
   color: rgba(var(--v-theme-on-surface), 0.38);
 }
 
-.pm-field-input:focus {
-  border-color: rgb(var(--v-theme-primary));
-  background: rgb(var(--v-theme-surface));
+/* ── Document section label (multi-doc) ── */
+.isd-doc-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(var(--v-theme-on-surface), 0.45);
+  margin: 10px 0 6px;
+}
+.isd-doc-label:first-child { margin-top: 0; }
+
+/* ── Page grid ── */
+.isd-page-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--pm-grid-min, 164px), 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
 }
 
-.pm-field-select {
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
-  background: rgb(var(--v-theme-surface-2, var(--v-theme-surface)));
-  padding: 8px 30px 8px 10px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-family: inherit;
-  color: rgb(var(--v-theme-on-surface));
-  width: 100%;
-  outline: none;
-  appearance: none;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='rgba(100,116,139,0.7)' d='M0 0h10L5 6z'/></svg>");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  cursor: pointer;
-  transition: border-color 0.14s ease;
-}
-
-.pm-field-select:focus {
-  border-color: rgb(var(--v-theme-primary));
-  outline: none;
-}
-
-.pm-ai-trigger {
-  color: rgb(var(--v-theme-primary)) !important;
-  flex-shrink: 0;
-}
-
-.pm-ai-chip {
-  appearance: none;
-  border: 1px dashed rgba(var(--v-theme-primary), 0.5);
-  background: rgba(var(--v-theme-primary), 0.06);
-  color: rgb(var(--v-theme-primary));
-  border-radius: 999px;
-  padding: 5px 10px 5px 8px;
-  font-size: 12px;
-  font-family: inherit;
-  display: inline-flex;
-  align-items: center;
+/* ── Page card ── */
+.isd-page-card {
+  display: flex;
+  flex-direction: column;
   gap: 5px;
   cursor: pointer;
-  align-self: flex-start;
+  border-radius: 6px;
+  padding: 4px;
   transition: background 0.12s;
 }
 
-.pm-ai-chip:hover {
+.isd-page-card:hover {
+  background: rgba(var(--v-theme-on-surface), 0.05);
+}
+
+.isd-page-card--selected {
   background: rgba(var(--v-theme-primary), 0.1);
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: -2px;
 }
 
-.pm-ai-chip__icon {
-  color: rgb(var(--v-theme-primary));
-  flex-shrink: 0;
-}
-
-.pm-ai-chip__text {
+/* ── Thumbnail ── */
+.isd-page-thumb-wrap {
+  position: relative;
+  width: 100%;
+  padding-top: 133%; /* 3:4 portrait ratio */
+  background: rgba(var(--v-theme-on-surface), 0.05);
+  border-radius: 4px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 180px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
 }
 
-.pm-ai-chip__action {
-  color: rgba(var(--v-theme-primary), 0.68);
+.isd-page-thumb-inner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.isd-page-thumb {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.isd-page-thumb-placeholder-icon {
+  opacity: 0.3;
+}
+
+/* ── Page number badge ── */
+.isd-page-num {
   font-size: 11px;
-  flex-shrink: 0;
+  font-weight: 500;
+  text-align: center;
+  color: rgba(var(--v-theme-on-surface), 0.5);
 }
 
-.pm-field-divider {
+.isd-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
+  min-height: 46px;
+  background: rgba(var(--v-theme-on-surface), 0.03);
+}
+
+.isd-toolbar-btn {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 13px;
+}
+
+.isd-rotate-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.isd-zoom-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.isd-zoom-label {
+  font-size: 11px;
+  color: rgba(var(--v-theme-on-surface), 0.5);
+  white-space: nowrap;
+}
+
+.isd-zoom-slider {
+  width: 150px;
+  cursor: pointer;
+  accent-color: rgb(var(--v-theme-primary));
+}
+
+.isd-page-count {
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+
+.isd-props {
+  flex: 0 0 35%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow: hidden;
+  padding: 18px 20px;
+}
+
+/* ── Fields ── */
+.isd-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.isd-field-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(var(--v-theme-on-surface), 0.7);
+}
+
+
+.isd-field-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+
+
+
+.isd-ai-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  padding: 3px 9px;
+  background: rgba(var(--v-theme-primary), 0.08);
+  border: 1px solid rgba(var(--v-theme-primary), 0.2);
+  border-radius: 20px;
+  color: rgb(var(--v-theme-primary));
+  font-size: 11px;
+  cursor: pointer;
+}
+.isd-ai-chip__action { font-weight: 600; opacity: 0.8; }
+
+
+/* ── Divider & Toggles ── */
+.isd-divider {
   height: 1px;
   background: rgba(var(--v-theme-on-surface), 0.08);
   margin: 2px 0;
 }
 
-/* ── Toggles ── */
-.pm-toggle-row {
+.isd-toggle-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.pm-toggle-lbl {
+.isd-toggle-lbl {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  min-width: 0;
+  gap: 1px;
 }
+.isd-toggle-lbl span { font-size: 13px; font-weight: 400; }
+.isd-toggle-lbl small { font-size: 11px; color: rgba(var(--v-theme-on-surface), 0.54); }
 
-.pm-toggle-lbl > span {
-  font-size: 13px;
-  font-weight: 500;
-  color: rgb(var(--v-theme-on-surface));
-}
-
-.pm-toggle-lbl small {
-  font-size: 11px;
-  color: rgba(var(--v-theme-on-surface), 0.55);
-}
-
-.pm-toggle {
+.isd-toggle {
+  flex: 0 0 auto;
   position: relative;
-  flex-shrink: 0;
-  width: 36px;
-  height: 20px;
-  background: rgba(var(--v-theme-on-surface), 0.2);
-  border-radius: 999px;
-  cursor: pointer;
+  width: 38px;
+  height: 21px;
+  border-radius: 11px;
   border: none;
-  transition: background 0.15s;
-  padding: 0;
+  background: rgba(var(--v-theme-on-surface), 0.2);
+  cursor: pointer;
+  transition: background 0.2s;
+  appearance: none;
 }
-
-.pm-toggle::after {
+.isd-toggle::after {
   content: '';
   position: absolute;
-  width: 14px;
-  height: 14px;
-  background: white;
-  border-radius: 50%;
   top: 3px;
   left: 3px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
-  transition: left 0.15s;
-}
-
-.pm-toggle--on {
-  background: rgb(var(--v-theme-primary));
-}
-
-.pm-toggle--on::after {
-  left: 19px;
-}
-
-.pm-toggle--dis {
-  opacity: 0.42;
-  cursor: not-allowed;
-}
-
-/* ── Grid zoom via CSS custom property ── */
-.import-staging-pages {
-  grid-template-columns: repeat(auto-fill, minmax(var(--pm-grid-min, 98px), 1fr));
-}
-
-/* ── Dark mode adjustments for new elements ── */
-:deep(.v-theme--dark) .pm-split-left {
-  border-right-color: var(--pm-dm-divider, rgba(255, 255, 255, 0.08));
-}
-
-:deep(.v-theme--dark) .pm-bottom-toolbar {
-  border-top-color: var(--pm-dm-divider, rgba(255, 255, 255, 0.08));
-}
-
-:deep(.v-theme--dark) .pm-field-input,
-:deep(.v-theme--dark) .pm-field-select {
-  border-color: rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.9);
-}
-
-:deep(.v-theme--dark) .pm-field-input:focus,
-:deep(.v-theme--dark) .pm-field-select:focus {
-  border-color: rgb(var(--v-theme-primary));
-}
-
-:deep(.v-theme--dark) .pm-toggle {
-  background: rgba(255, 255, 255, 0.22);
-}
-
-/* ── Flat grid in split-left: hide doc card chrome ── */
-.pm-split-left .stage-header {
-  display: none !important;
-}
-.pm-split-left .import-staging-doc {
-  background: transparent !important;
-  box-shadow: none !important;
-  border: none !important;
-  border-radius: 0 !important;
-}
-.pm-split-left .import-staging-doc__body,
-.pm-split-left .stage-body {
-  padding: 0 !important;
-  border: none !important;
-}
-.pm-split-left .import-staging-doc-slot {
-  display: contents;
-}
-.pm-split-left .import-staging-docs {
-  display: grid !important;
-  grid-template-columns: repeat(auto-fill, minmax(var(--pm-grid-min, 98px), 1fr)) !important;
-  gap: 10px !important;
-  padding: 14px !important;
-  flex-direction: unset !important;
-}
-.pm-split-left .import-staging-pages {
-  display: contents !important;
-}
-.pm-split-left .import-staging-interdrop {
-  display: none !important;
-}
-
-/* ── Page status overlays ── */
-.pm-pg-badge {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  z-index: 3;
-  border-radius: 4px;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 5px;
-  line-height: 1.4;
-  pointer-events: none;
-}
-.pm-pg-badge--done { background: #22C55E; color: #fff; }
-.pm-pg-badge--processing { background: #3B82F6; color: #fff; }
-.pm-pg-error-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  font-size: 10px;
-  font-weight: 700;
-  color: #b8442f;
-  line-height: 1.5;
-  padding: 8px;
-  pointer-events: none;
-}
-.pm-pg-progress {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: rgba(59,130,246,0.18);
-  z-index: 3;
-  overflow: hidden;
-}
-.pm-pg-progress__fill {
-  height: 100%;
-  background: #3B82F6;
-}
-
-/* ── Inline AI buttons ── */
-.pm-ai-btn {
-  appearance: none;
-  border: 1.5px dashed rgba(var(--v-theme-primary), 0.65);
-  background: transparent;
-  border-radius: 6px;
-  color: rgb(var(--v-theme-primary));
-  font-size: 11px;
-  font-weight: 600;
-  padding: 0 9px;
-  height: 32px;
-  white-space: nowrap;
-  cursor: pointer;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  transition: background 0.15s;
-}
-.pm-ai-btn:hover:not(:disabled) { background: rgba(var(--v-theme-primary), 0.08); border-style: solid; }
-.pm-ai-btn:disabled { opacity: 0.38; cursor: default; }
-.pm-ai-btn__spinner {
-  width: 10px; height: 10px;
-  border: 2px solid rgba(var(--v-theme-primary), 0.3);
-  border-top-color: rgb(var(--v-theme-primary));
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
-  animation: pm-spin 0.7s linear infinite;
-  display: inline-block;
+  background: #fff;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
-@keyframes pm-spin { to { transform: rotate(360deg); } }
+.isd-toggle--on { background: rgb(var(--v-theme-primary)); }
+.isd-toggle--on::after { transform: translateX(17px); }
+.isd-toggle--dis { opacity: 0.38; cursor: not-allowed; }
 
-/* ── Inline tags input ── */
-.pm-tags-wrap {
+/* ── Footer ── */
+.isd-footer {
   display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
   align-items: center;
-  min-height: 38px;
-  padding: 5px 8px;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.16);
-  border-radius: 8px;
-  background: rgb(var(--v-theme-surface));
-  cursor: text;
-  transition: border-color 0.15s;
+  justify-content: space-between;
+  width: 100%;
 }
-.pm-tags-wrap:focus-within { border-color: rgb(var(--v-theme-primary)); }
-.pm-tag-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  background: rgba(var(--v-theme-primary), 0.12);
-  color: rgb(var(--v-theme-primary));
-  border-radius: 20px;
-  padding: 2px 6px 2px 9px;
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-.pm-tag-chip__remove {
-  appearance: none; background: none; border: none;
-  color: inherit; cursor: pointer; font-size: 13px; line-height: 1; padding: 0; opacity: 0.65;
-}
-.pm-tag-chip__remove:hover { opacity: 1; }
-.pm-tag-input {
-  flex: 1 1 80px; min-width: 80px; border: none; outline: none;
-  background: transparent; font-size: 13px; color: inherit; padding: 2px 0;
-}
-.pm-tag-input::placeholder { color: rgba(var(--v-theme-on-surface), 0.38); }
-.pm-tag-dropdown {
-  margin-top: 3px;
-  background: rgb(var(--v-theme-surface-2, var(--v-theme-surface)));
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.12);
-  max-height: 200px;
-  overflow-y: auto;
-}
-.pm-tag-dropdown-item {
-  display: block; width: 100%; text-align: left;
-  appearance: none; background: transparent; border: none;
-  padding: 8px 12px; font-size: 13px; cursor: pointer; color: inherit;
-}
-.pm-tag-dropdown-item:hover { background: rgba(var(--v-theme-primary), 0.08); }
-:deep(.v-theme--dark) .pm-tags-wrap,
-:deep(.v-theme--dark) .pm-tag-dropdown { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.14); }
 
+.isd-footer-end {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.isd-footer-status {
+  font-size: 13px;
+  color: rgba(var(--v-theme-on-surface), 0.54);
+}
 </style>
