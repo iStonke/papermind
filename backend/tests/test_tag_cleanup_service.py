@@ -45,14 +45,15 @@ class TagCleanupServiceTest(unittest.TestCase):
         self.assertEqual(result, [])
         cleanup.assert_not_called()
 
-    def test_create_tag_rejects_case_insensitive_duplicate(self) -> None:
+    def test_create_tag_returns_existing_case_insensitive_duplicate(self) -> None:
+        existing = Mock(id=uuid.uuid4(), name="Rechnung")
         db = Mock()
-        db.execute.return_value.scalar_one_or_none.return_value = object()
+        db.execute.return_value.scalar_one_or_none.return_value = existing
         service = TagService(db)
 
-        with self.assertRaises(ConflictError):
-            service.create_tag(TagCreateRequest(name="Rechnung"))
+        result = service.create_tag(TagCreateRequest(name="rechnung"))
 
+        self.assertIs(result, existing)
         db.add.assert_not_called()
 
     def test_update_tag_rejects_case_insensitive_duplicate(self) -> None:

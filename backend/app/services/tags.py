@@ -79,8 +79,9 @@ class TagService:
         if not tag_name:
             raise BadRequestError("Tag name must not be empty")
 
-        if self._find_case_insensitive_name_conflict(tag_name) is not None:
-            raise ConflictError("Tag name already exists", details={"name": tag_name})
+        existing_tag = self._find_case_insensitive_name_conflict(tag_name)
+        if existing_tag is not None:
+            return existing_tag
 
         tag = Tag(name=tag_name)
         self.db.add(tag)
@@ -90,6 +91,9 @@ class TagService:
         except IntegrityError as exc:
             self.db.rollback()
             if is_unique_violation(exc):
+                existing_tag = self._find_case_insensitive_name_conflict(tag_name)
+                if existing_tag is not None:
+                    return existing_tag
                 raise ConflictError("Tag name already exists", details={"name": tag_name}) from exc
             raise
 

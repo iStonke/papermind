@@ -64,6 +64,28 @@ Aufräumen:
 docker compose down
 ```
 
+## Tests / CI
+
+Lokale Basisprüfung:
+```bash
+./scripts/test.sh
+```
+
+Backend-Dev-Abhängigkeiten installieren:
+```bash
+python3 -m pip install -r backend/requirements-dev.txt
+```
+
+Einzelne Prüfungen:
+```bash
+PYTHONPATH=backend python3 -m pytest backend/tests
+npm --prefix frontend test
+npm --prefix frontend run build
+```
+
+Die GitHub-Actions-CI führt Backend-Tests, Alembic-Migrationen gegen
+PostgreSQL/pgvector, Frontend-Tests und den Frontend-Produktionsbuild aus.
+
 ## Raspberry Deployment Update
 
 Im geklonten Repo auf dem Pi:

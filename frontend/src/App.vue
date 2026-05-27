@@ -757,17 +757,14 @@ async function executeBatchTag(tagIdsToAdd) {
       const doc = docStore.documents.find((d) => d.id === docId);
       const existingTagIds = (doc?.tags || []).map((t) => t.id);
       const mergedTagIds = Array.from(new Set([...existingTagIds, ...tagIdsToAdd]));
-      await fetch(`${apiBaseUrl}/api/documents/${docId}/tags`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tag_ids: mergedTagIds }),
-      });
+      await docStore.syncTags(docId, mergedTagIds);
     }
     notify({ type: 'success', title: 'Tags', message: `${ids.length} ${ids.length === 1 ? 'Dokument' : 'Dokumente'} getaggt.` });
     isBatchTagDialogOpen.value = false;
     exitSelectionMode();
-    await fetchDocuments(selectedDocumentId.value);
     await fetchTags();
+    scheduleSidebarCountsRefresh();
+    await fetchDocuments(selectedDocumentId.value, { allowPreferredOutsideList: true });
   } catch (error) {
     notifyError(error, 'Tags konnten nicht gespeichert werden.');
   } finally {
@@ -1789,12 +1786,14 @@ async function replaceDocumentTags(tagIds) {
     }
     if (detail?.id) {
       selectedDocumentDetail.value = detail;
+      docStore.patchDocumentInList(detail);
       applyMetadataFromDetail(detail);
     } else {
       await fetchDocumentDetail(documentId);
     }
     await fetchTags();
     scheduleSidebarCountsRefresh();
+    await fetchDocuments(documentId, { autoSelectFirst: false, allowPreferredOutsideList: true });
     notify({ type: 'success', title: 'Tags', message: 'Tags gespeichert.', timeoutMs: 2500 });
   } catch (error) {
     metadataTagErrorMessage.value = notifyError(error, 'Tags konnten nicht gespeichert werden.');

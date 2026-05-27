@@ -119,7 +119,9 @@ export const useDocumentStore = defineStore('documents', () => {
   async function syncTags(documentId, tagIds) {
     const detail = await setDocumentTags(documentId, tagIds);
     if (detail?.id) {
-      selectedDocumentDetail.value = detail;
+      if (selectedDocumentId.value === detail.id) {
+        selectedDocumentDetail.value = detail;
+      }
       patchDocumentInList(detail);
     }
     return detail;
