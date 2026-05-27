@@ -38,12 +38,25 @@ class DocumentOCRStatus(str, Enum):
     failed = "failed"
 
 
+class DocumentOCRQualityStatus(str, Enum):
+    good = "good"
+    warning = "warning"
+    error = "error"
+
+
 class DocumentEmbeddingStatus(str, Enum):
     not_started = "not_started"
     queued = "queued"
     running = "running"
     done = "done"
     failed = "failed"
+
+
+class DocumentAIStatus(str, Enum):
+    pending = "pending"
+    done = "done"
+    skipped = "skipped"
+    error = "error"
 
 
 class DocumentDuplicateKind(str, Enum):
@@ -129,7 +142,11 @@ class DocumentSummary(ORMModel):
     document_date_candidates: list[dict[str, Any]] | None = None
     status: DocumentStatus
     ocr_status: DocumentOCRStatus
+    ocr_quality_status: DocumentOCRQualityStatus | None = None
+    ocr_confidence_score: float | None = None
     embedding_status: DocumentEmbeddingStatus
+    ai_document_type: str | None = None
+    ai_status: DocumentAIStatus = DocumentAIStatus.pending
     created_at: datetime
     updated_at: datetime
     tags: list[TagRead] = Field(default_factory=list)
@@ -158,11 +175,26 @@ class DocumentDetail(ORMModel):
     notes: str | None
     status: DocumentStatus
     ocr_status: DocumentOCRStatus
+    ocr_quality_status: DocumentOCRQualityStatus | None = None
+    ocr_confidence_score: float | None = None
+    ocr_quality_message: str | None = None
+    ocr_processing_seconds: float | None = None
     embedding_status: DocumentEmbeddingStatus
     embedding_model: str | None
     embedding_dim: int | None
     embedding_error: str | None
     embedding_updated_at: datetime | None
+    ai_document_type: str | None = None
+    ai_document_date: date | None = None
+    ai_sender: str | None = None
+    ai_recipient: str | None = None
+    ai_amount: float | None = None
+    ai_currency: str | None = None
+    ai_summary: str | None = None
+    ai_suggested_tags: list[str] | None = None
+    ai_confidence: float | None = None
+    ai_status: DocumentAIStatus = DocumentAIStatus.pending
+    ai_processed_at: datetime | None = None
     mime_type: str | None
     page_count: int | None
     flags: dict[str, Any] | None

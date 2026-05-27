@@ -114,11 +114,12 @@ function createDefaultSettings() {
     },
     ocr: {
       engine: 'tesseract',
-      language: 'deu',
+      language: 'deu+eng',
       enable_layout: true,
       enable_table_detection: true,
       deskew: true,
       denoise: true,
+      use_unpaper: true,
       dpi_target: 300,
       postprocess_hyphenation: true,
       remove_headers_footers: true
@@ -353,6 +354,10 @@ export const useSettingsStore = defineStore('settings', {
               : defaults.ocr.enable_table_detection,
           deskew: typeof payload?.ocr?.deskew === 'boolean' ? payload.ocr.deskew : defaults.ocr.deskew,
           denoise: typeof payload?.ocr?.denoise === 'boolean' ? payload.ocr.denoise : defaults.ocr.denoise,
+          use_unpaper:
+            typeof payload?.ocr?.use_unpaper === 'boolean'
+              ? payload.ocr.use_unpaper
+              : defaults.ocr.use_unpaper,
           dpi_target: clampInt(payload?.ocr?.dpi_target, 150, 600, defaults.ocr.dpi_target),
           postprocess_hyphenation:
             typeof payload?.ocr?.postprocess_hyphenation === 'boolean'

@@ -1,8 +1,11 @@
+import logging
 import re
 import shutil
 import subprocess
 import tempfile
+import time
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -10,9 +13,36 @@ import pypdfium2 as pdfium
 from PIL import Image, ImageFilter, ImageOps
 from pypdf import PdfReader
 
+try:  # Worker-only dependency; backend tests should still import this module without OpenCV.
+    import cv2
+    import numpy as np
+except Exception:  # pragma: no cover - optional runtime dependency
+    cv2 = None
+    np = None
+
+logger = logging.getLogger("papermind.ocr")
+
 _NON_ALNUM_PATTERN = re.compile(r"[^A-Za-z0-9ÄÖÜäöüß\s.,;:!?%€@+\-_/()|]")
 _NUMERIC_TOKEN_PATTERN = re.compile(r"\d")
 _TABLE_NUMBER_PATTERN = re.compile(r"\d+[.,]?\d*")
+_LANGUAGE_SEPARATOR_PATTERN = re.compile(r"[\s,+;]+")
+
+
+class OCRPipelineError(RuntimeError):
+    """Raised for corrupt, unreadable, or non-processable OCR inputs."""
+
+
+@dataclass(frozen=True)
+class OCRQuality:
+    confidence_score: float | None
+    status: str
+    message: str
+
+
+def _normalize_tesseract_languages(raw_language: str) -> str:
+    parts = [part.strip().lower() for part in _LANGUAGE_SEPARATOR_PATTERN.split(str(raw_language or "")) if part.strip()]
+    normalized = "+".join(dict.fromkeys(parts))
+    return normalized or "deu+eng"
 
 
 def _normalize_line(value: str) -> str:
@@ -25,18 +55,35 @@ def _postprocess_hyphenation(text_value: str) -> str:
 
 def _normalize_whitespace(text_value: str) -> str:
     value = str(text_value or "").replace("\r\n", "\n").replace("\r", "\n")
+    value = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
     value = re.sub(r"[ \t]+", " ", value)
+    value = "\n".join(line.strip() for line in value.split("\n"))
     value = re.sub(r"\n{3,}", "\n\n", value)
     return value.strip()
 
 
+def _validate_pdf_readable(pdf_path: Path) -> int:
+    try:
+        pdf_doc = pdfium.PdfDocument(str(pdf_path))
+        page_count = len(pdf_doc)
+    except Exception as exc:
+        raise OCRPipelineError(f"PDF is corrupt or unreadable: {exc}") from exc
+
+    if page_count <= 0:
+        raise OCRPipelineError("PDF contains no readable pages")
+    return page_count
+
+
 def _extract_pdf_text_per_page(pdf_path: Path) -> list[tuple[int, str]]:
-    reader = PdfReader(str(pdf_path))
-    page_texts: list[tuple[int, str]] = []
-    for index, page in enumerate(reader.pages, start=1):
-        text_value = str(page.extract_text() or "").strip()
-        page_texts.append((index, text_value))
-    return page_texts
+    try:
+        reader = PdfReader(str(pdf_path))
+        page_texts: list[tuple[int, str]] = []
+        for index, page in enumerate(reader.pages, start=1):
+            text_value = str(page.extract_text() or "").strip()
+            page_texts.append((index, text_value))
+        return page_texts
+    except Exception as exc:
+        raise OCRPipelineError(f"PDF text extraction failed: {exc}") from exc
 
 
 def _run_ocrmypdf(
@@ -62,7 +109,7 @@ def _run_ocrmypdf(
         "--oversample",
         str(int(dpi_target)),
         "-l",
-        str(language or "deu"),
+        _normalize_tesseract_languages(language),
     ]
     if deskew:
         command.append("--deskew")
@@ -84,13 +131,76 @@ def _run_ocrmypdf(
         raise RuntimeError("OCR output file was not created")
 
 
-def _preprocess_image(image: Image.Image, *, denoise: bool) -> Image.Image:
-    processed = image.convert("L")
-    processed = ImageOps.autocontrast(processed)
-    if denoise:
-        processed = processed.filter(ImageFilter.MedianFilter(size=3))
-    processed = processed.point(lambda value: 0 if value < 145 else 255, mode="1")
-    return processed.convert("L")
+def _deskew_cv_image(gray_image: Any) -> Any:
+    if cv2 is None or np is None:
+        return gray_image
+
+    inverted = cv2.bitwise_not(gray_image)
+    coords = np.column_stack(np.where(inverted > 0))
+    if coords.size == 0:
+        return gray_image
+
+    angle = cv2.minAreaRect(coords)[-1]
+    if angle < -45:
+        angle = -(90 + angle)
+    else:
+        angle = -angle
+    if abs(angle) < 0.25 or abs(angle) > 15:
+        return gray_image
+
+    height, width = gray_image.shape[:2]
+    center = (width // 2, height // 2)
+    matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+    return cv2.warpAffine(
+        gray_image,
+        matrix,
+        (width, height),
+        flags=cv2.INTER_CUBIC,
+        borderMode=cv2.BORDER_REPLICATE,
+    )
+
+
+def _run_unpaper_if_available(image: Image.Image) -> Image.Image:
+    if shutil.which("unpaper") is None:
+        return image
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        input_path = Path(temp_dir) / "input.pgm"
+        output_path = Path(temp_dir) / "output.pgm"
+        image.convert("L").save(input_path, format="PPM")
+        command = ["unpaper", "--no-noisefilter", str(input_path), str(output_path)]
+        result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=60)
+        if result.returncode != 0 or not output_path.exists():
+            logger.warning("unpaper preprocessing skipped: %s", (result.stderr or result.stdout or "").strip())
+            return image
+        with Image.open(output_path) as cleaned:
+            return cleaned.convert("L")
+
+
+def _preprocess_image(image: Image.Image, *, deskew: bool, denoise: bool, use_unpaper: bool) -> Image.Image:
+    logger.debug("ocr preprocessing start size=%s deskew=%s denoise=%s unpaper=%s", image.size, deskew, denoise, use_unpaper)
+    if cv2 is not None and np is not None:
+        gray = np.array(image.convert("L"))
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        processed = clahe.apply(gray)
+        if denoise:
+            processed = cv2.fastNlMeansDenoising(processed, None, 10, 7, 21)
+        if deskew:
+            processed = _deskew_cv_image(processed)
+        _, processed = cv2.threshold(processed, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        processed = cv2.medianBlur(processed, 3) if denoise else processed
+        output = Image.fromarray(processed).convert("L")
+    else:
+        output = image.convert("L")
+        output = ImageOps.autocontrast(output)
+        if denoise:
+            output = output.filter(ImageFilter.MedianFilter(size=3))
+        output = output.point(lambda value: 0 if value < 145 else 255, mode="1").convert("L")
+
+    if use_unpaper:
+        output = _run_unpaper_if_available(output)
+    logger.debug("ocr preprocessing done size=%s", output.size)
+    return output
 
 
 def _parse_tsv_rows(tsv_text: str) -> list[dict[str, Any]]:
@@ -104,8 +214,7 @@ def _parse_tsv_rows(tsv_text: str) -> list[dict[str, Any]]:
         parts = line.split("\t")
         if len(parts) < len(headers):
             continue
-        row = {headers[i]: parts[i] for i in range(len(headers))}
-        rows.append(row)
+        rows.append({headers[i]: parts[i] for i in range(len(headers))})
     return rows
 
 
@@ -140,6 +249,26 @@ def _line_to_table_row(tokens: list[dict[str, Any]]) -> tuple[str, int]:
     return " | ".join(clean_columns), len(clean_columns)
 
 
+def _word_payload(token: dict[str, Any]) -> dict[str, Any]:
+    conf = 0.0
+    try:
+        conf = float(token.get("conf") or 0.0)
+    except (TypeError, ValueError):
+        pass
+    left = int(token.get("left") or 0)
+    top = int(token.get("top") or 0)
+    width = int(token.get("width") or 0)
+    height = int(token.get("height") or 0)
+    return {
+        "text": str(token.get("text") or "").strip(),
+        "confidence": round(conf / 100.0, 3),
+        "bbox": [left, top, left + width, top + height],
+        "block": int(token.get("block_num") or 0),
+        "paragraph": int(token.get("par_num") or 0),
+        "line": int(token.get("line_num") or 0),
+    }
+
+
 def _extract_tesseract_page_data(
     image: Image.Image,
     *,
@@ -158,7 +287,7 @@ def _extract_tesseract_page_data(
             str(image_path),
             "stdout",
             "-l",
-            language or "deu",
+            _normalize_tesseract_languages(language),
             "--dpi",
             str(int(dpi_target)),
             "--psm",
@@ -175,6 +304,7 @@ def _extract_tesseract_page_data(
 
     grouped: dict[tuple[int, int, int], list[dict[str, Any]]] = defaultdict(list)
     confidences: list[float] = []
+    words: list[dict[str, Any]] = []
     for row in rows:
         text_value = str(row.get("text") or "").strip()
         if not text_value:
@@ -191,6 +321,7 @@ def _extract_tesseract_page_data(
         line_no = int(row.get("line_num") or 0)
         grouped[(block_no, par_no, line_no)].append(row)
         confidences.append(conf)
+        words.append(_word_payload(row))
 
     line_entries: list[dict[str, Any]] = []
     for key in sorted(grouped.keys()):
@@ -221,7 +352,7 @@ def _extract_tesseract_page_data(
                 "text": line_text,
                 "confidence": line_conf,
                 "bbox": [left, top, right, bottom],
-                "tokens": ordered,
+                "words": [_word_payload(token) for token in ordered if str(token.get("text") or "").strip()],
                 "table_row": table_row,
                 "table_columns": table_columns,
             }
@@ -238,18 +369,21 @@ def _extract_tesseract_page_data(
             if entry.get("table_columns", 0) >= 3 or numeric_hits >= 2:
                 table_lines.append(table_row)
 
+    lines = [
+        {
+            "text": entry["text"],
+            "confidence": round(float(entry["confidence"] or 0.0) / 100.0, 3)
+            if entry.get("confidence") is not None
+            else None,
+            "bbox": entry["bbox"],
+            "words": entry.get("words") or [],
+        }
+        for entry in line_entries
+    ]
+
     blocks = []
     if enable_layout:
-        blocks = [
-            {
-                "text": entry["text"],
-                "confidence": round(float(entry["confidence"] or 0.0) / 100.0, 3)
-                if entry.get("confidence") is not None
-                else None,
-                "bbox": entry["bbox"],
-            }
-            for entry in line_entries
-        ]
+        blocks = [{"text": entry["text"], "confidence": entry["confidence"], "bbox": entry["bbox"]} for entry in lines]
 
     avg_conf = sum(confidences) / len(confidences) / 100.0 if confidences else None
     return {
@@ -257,6 +391,8 @@ def _extract_tesseract_page_data(
         "table_text": "\n".join(table_lines).strip(),
         "confidence": avg_conf,
         "blocks": blocks,
+        "lines": lines,
+        "words": words,
     }
 
 
@@ -300,6 +436,16 @@ def _normalize_numeric_tokens(text_value: str) -> str:
     return re.sub(r"\b[0-9Oo][0-9Oo.,]+\b", replacer, text_value)
 
 
+def _quality_from_confidence(confidence_score: float | None) -> OCRQuality:
+    if confidence_score is None:
+        return OCRQuality(None, "error", "OCR-Konfidenz konnte nicht berechnet werden. Manuelle Prüfung empfohlen.")
+    if confidence_score >= 80.0:
+        return OCRQuality(confidence_score, "good", "OCR-Qualität gut.")
+    if confidence_score >= 60.0:
+        return OCRQuality(confidence_score, "warning", "OCR-Qualität eingeschränkt. KI-Ergebnisse können unzuverlässig sein.")
+    return OCRQuality(confidence_score, "error", "OCR-Qualität schlecht. Manuelle Prüfung empfohlen.")
+
+
 def _build_quality_metrics(full_text: str, page_confidences: list[float | None], warnings: list[str]) -> dict[str, Any]:
     normalized = str(full_text or "")
     char_count_total = len(normalized)
@@ -309,15 +455,22 @@ def _build_quality_metrics(full_text: str, page_confidences: list[float | None],
 
     valid_confidences = [value for value in page_confidences if isinstance(value, float)]
     avg_confidence = round(sum(valid_confidences) / len(valid_confidences), 3) if valid_confidences else None
+    confidence_score = round(avg_confidence * 100.0, 1) if avg_confidence is not None else None
+    quality = _quality_from_confidence(confidence_score)
 
     if char_count_total < 200:
         warnings.append("very_low_text")
     garbled_ratio = len(_NON_ALNUM_PATTERN.findall(normalized)) / max(1, len(normalized))
     if garbled_ratio > 0.14:
         warnings.append("many_garbled_chars")
+    if quality.status != "good":
+        warnings.append(f"ocr_quality_{quality.status}")
 
     return {
         "avg_confidence": avg_confidence,
+        "confidence_score": quality.confidence_score,
+        "status": quality.status,
+        "message": quality.message,
         "char_count_total": char_count_total,
         "percent_numeric_tokens": percent_numeric_tokens,
         "warnings": sorted(set(warnings)),
@@ -332,16 +485,31 @@ def run_ocr_pipeline(
     timeout_seconds: float,
     debug_preprocessed: bool = False,
 ) -> dict[str, Any]:
+    started_at = time.monotonic()
+    if not original_path.exists() or not original_path.is_file():
+        raise OCRPipelineError("Input PDF file does not exist")
+
     ocr_settings = runtime_settings.get("ocr", {}) if isinstance(runtime_settings, dict) else {}
     requested_engine = str(ocr_settings.get("engine") or "tesseract").strip().lower()
-    language = str(ocr_settings.get("language") or "deu").strip().lower() or "deu"
-    dpi_target = int(ocr_settings.get("dpi_target") or 300)
+    language = _normalize_tesseract_languages(str(ocr_settings.get("language") or "deu+eng"))
+    dpi_target = max(300, int(ocr_settings.get("dpi_target") or 300))
     deskew = bool(ocr_settings.get("deskew", True))
     denoise = bool(ocr_settings.get("denoise", True))
+    use_unpaper = bool(ocr_settings.get("use_unpaper", True))
     enable_layout = bool(ocr_settings.get("enable_layout", True))
     enable_table_detection = bool(ocr_settings.get("enable_table_detection", True))
     enable_hyphenation = bool(ocr_settings.get("postprocess_hyphenation", True))
     remove_headers_footers = bool(ocr_settings.get("remove_headers_footers", True))
+    page_count = _validate_pdf_readable(original_path)
+    logger.info(
+        "ocr pipeline start input=%s pages=%s lang=%s dpi=%s deskew=%s denoise=%s",
+        original_path,
+        page_count,
+        language,
+        dpi_target,
+        deskew,
+        denoise,
+    )
 
     warnings: list[str] = []
     engine_used = requested_engine
@@ -350,6 +518,7 @@ def run_ocr_pipeline(
         engine_used = "tesseract"
 
     try:
+        logger.info("ocr stage searchable_pdf start input=%s output=%s", original_path, ocr_path)
         _run_ocrmypdf(
             original_path,
             ocr_path,
@@ -359,30 +528,38 @@ def run_ocr_pipeline(
             dpi_target=dpi_target,
             timeout_seconds=timeout_seconds,
         )
+        logger.info("ocr stage searchable_pdf done output=%s", ocr_path)
     except Exception as exc:
         warnings.append("ocrmypdf_failed_fallback_copy")
         warnings.append(str(exc))
+        logger.warning("ocrmypdf failed, falling back to original copy: %s", exc)
         ocr_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(original_path, ocr_path)
 
     source_for_text = ocr_path if ocr_path.exists() else original_path
     pdf_page_texts = _extract_pdf_text_per_page(source_for_text)
-    pdf_doc = pdfium.PdfDocument(str(source_for_text))
+    try:
+        pdf_doc = pdfium.PdfDocument(str(source_for_text))
+    except Exception as exc:
+        raise OCRPipelineError(f"OCR PDF render failed: {exc}") from exc
 
     pages: list[dict[str, Any]] = []
     page_confidences: list[float | None] = []
     combined_table_chunks: list[dict[str, Any]] = []
     for index in range(len(pdf_doc)):
         page_no = index + 1
+        logger.info("ocr stage page_render start page=%s dpi=%s", page_no, dpi_target)
         page = pdf_doc[index]
         bitmap = page.render(scale=max(1.0, float(dpi_target) / 72.0))
         image = bitmap.to_pil()
-        processed = _preprocess_image(image, denoise=denoise)
+        processed = _preprocess_image(image, deskew=deskew, denoise=denoise, use_unpaper=use_unpaper)
+        logger.info("ocr stage page_preprocess done page=%s", page_no)
 
         if debug_preprocessed:
             debug_path = ocr_path.parent / f"debug-preprocessed-{page_no}.png"
             processed.save(debug_path)
 
+        logger.info("ocr stage tesseract start page=%s", page_no)
         tesseract_data = _extract_tesseract_page_data(
             processed,
             language=language,
@@ -390,6 +567,7 @@ def run_ocr_pipeline(
             enable_layout=enable_layout,
             enable_table_detection=enable_table_detection,
         )
+        logger.info("ocr stage tesseract done page=%s confidence=%s", page_no, tesseract_data.get("confidence"))
         extracted_pdf_text = ""
         if index < len(pdf_page_texts):
             extracted_pdf_text = str(pdf_page_texts[index][1] or "").strip()
@@ -403,6 +581,8 @@ def run_ocr_pipeline(
                 "page": page_no,
                 "text": page_text,
                 "blocks": tesseract_data.get("blocks") or [],
+                "lines": tesseract_data.get("lines") or [],
+                "words": tesseract_data.get("words") or [],
                 "confidence": confidence,
                 "table_text": table_text,
             }
@@ -423,11 +603,24 @@ def run_ocr_pipeline(
 
     full_text = "\n\n".join([str(page.get("text") or "").strip() for page in pages if str(page.get("text") or "").strip()])
     quality = _build_quality_metrics(full_text, page_confidences, warnings)
+    processing_time_seconds = round(time.monotonic() - started_at, 3)
+    logger.info(
+        "ocr pipeline done input=%s pages=%s seconds=%s confidence=%s status=%s",
+        original_path,
+        page_count,
+        processing_time_seconds,
+        quality.get("confidence_score"),
+        quality.get("status"),
+    )
 
     return {
         "engine_requested": requested_engine,
         "engine_used": engine_used,
         "text": full_text,
+        "confidence_score": quality.get("confidence_score"),
+        "quality_status": quality.get("status"),
+        "page_count": page_count,
+        "processing_time_seconds": processing_time_seconds,
         "pages": pages,
         "tables": combined_table_chunks,
         "quality": quality,

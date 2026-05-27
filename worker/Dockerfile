@@ -10,6 +10,8 @@ RUN apt-get update \
         ocrmypdf \
         tesseract-ocr \
         tesseract-ocr-deu \
+        tesseract-ocr-eng \
+        unpaper \
         ghostscript \
         qpdf \
         libgl1 \

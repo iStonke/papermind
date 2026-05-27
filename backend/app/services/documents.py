@@ -629,6 +629,21 @@ class DocumentService:
         self.db.add(job)
         document.status = DocumentStatus.processing.value
         document.ocr_status = DocumentOCRStatus.queued.value
+        document.ocr_quality_status = None
+        document.ocr_confidence_score = None
+        document.ocr_quality_message = None
+        document.ocr_processing_seconds = None
+        document.ai_status = "pending"
+        document.ai_document_type = None
+        document.ai_document_date = None
+        document.ai_sender = None
+        document.ai_recipient = None
+        document.ai_amount = None
+        document.ai_currency = None
+        document.ai_summary = None
+        document.ai_suggested_tags = None
+        document.ai_confidence = None
+        document.ai_processed_at = None
         return job
 
     def queue_ocr_for_document(self, document_id: uuid.UUID) -> Document:
@@ -828,6 +843,10 @@ class DocumentService:
                 if is_textful_pdf:
                     document.status = DocumentStatus.ready.value
                     document.ocr_status = DocumentOCRStatus.not_started.value
+                    document.ocr_quality_status = None
+                    document.ocr_confidence_score = None
+                    document.ocr_quality_message = None
+                    document.ocr_processing_seconds = None
                     document.text_source = DocumentTextSource.embedded.value
                     document.text_content = quick_text_sample or None
                     if settings.index_auto_on_ready:

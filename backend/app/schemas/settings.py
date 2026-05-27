@@ -157,11 +157,12 @@ class RAGSettingsRead(BaseModel):
 
 class OCRSettingsRead(BaseModel):
     engine: OCREngine = OCREngine.tesseract
-    language: str = Field(default="deu", min_length=2, max_length=24)
+    language: str = Field(default="deu+eng", min_length=2, max_length=24)
     enable_layout: bool = True
     enable_table_detection: bool = True
     deskew: bool = True
     denoise: bool = True
+    use_unpaper: bool = True
     dpi_target: int = Field(default=300, ge=150, le=600)
     postprocess_hyphenation: bool = True
     remove_headers_footers: bool = True
@@ -240,6 +241,7 @@ class OCRSettingsPatch(BaseModel):
     enable_table_detection: bool | None = None
     deskew: bool | None = None
     denoise: bool | None = None
+    use_unpaper: bool | None = None
     dpi_target: int | None = Field(default=None, ge=150, le=600)
     postprocess_hyphenation: bool | None = None
     remove_headers_footers: bool | None = None

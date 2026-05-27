@@ -76,6 +76,8 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertGreaterEqual(len(payload.llm.summary_prompt_template), 50)
         self.assertGreaterEqual(len(payload.llm.numeric_prompt_template), 50)
         self.assertEqual(payload.llm.temperature, 0.15)
+        self.assertEqual(payload.ocr.language, "deu+eng")
+        self.assertIs(payload.ocr.use_unpaper, True)
 
     def test_rag_context_limits_accept_valid_values(self) -> None:
         payload = AppSettingsPatch.model_validate({"rag": {"max_context_chars": 16000}})

@@ -385,10 +385,10 @@
                         v-if="showGreenOcrChip"
                         size="x-small"
                         variant="tonal"
-                        color="success"
+                        :color="ocrHeaderChipColor"
                         class="details-ocr-chip"
                       >
-                        OCR
+                        {{ ocrHeaderChipText }}
                       </v-chip>
                       <v-btn
                         v-else-if="showHeaderOcrActionButton"
@@ -493,6 +493,80 @@
                       >
                         <v-icon size="15">mdi-robot-outline</v-icon>
                       </v-btn>
+                    </div>
+                  </div>
+
+                  <div class="pm-drawer-section ai-metadata-section">
+                    <div class="pm-label">KI-Metadaten</div>
+                    <div class="ai-metadata-panel">
+                      <div
+                        v-if="selectedDocumentDetail.ai_status === 'pending' && selectedDocumentDetail.ocr_status === 'done'"
+                        class="ai-metadata-status"
+                      >
+                        <v-progress-circular indeterminate size="16" width="2" color="primary" />
+                        <span>Klassifizierung läuft…</span>
+                      </div>
+                      <v-chip
+                        v-else-if="selectedDocumentDetail.ai_status === 'error'"
+                        size="x-small"
+                        color="warning"
+                        variant="tonal"
+                      >
+                        KI-Fehler
+                      </v-chip>
+                      <v-chip
+                        v-else-if="selectedDocumentDetail.ai_status === 'skipped'"
+                        size="x-small"
+                        color="default"
+                        variant="tonal"
+                      >
+                        OCR-Qualität zu gering
+                      </v-chip>
+
+                      <div v-if="hasAiMetadata(selectedDocumentDetail)" class="ai-metadata-grid">
+                        <div v-if="selectedDocumentDetail.ai_document_type">
+                          <span>Typ</span>
+                          <strong>{{ selectedDocumentDetail.ai_document_type }}</strong>
+                        </div>
+                        <div v-if="selectedDocumentDetail.ai_document_date">
+                          <span>Datum</span>
+                          <strong>{{ formatDocumentDateInputFromIso(selectedDocumentDetail.ai_document_date) }}</strong>
+                        </div>
+                        <div v-if="selectedDocumentDetail.ai_sender">
+                          <span>Absender</span>
+                          <strong>{{ selectedDocumentDetail.ai_sender }}</strong>
+                        </div>
+                        <div v-if="selectedDocumentDetail.ai_recipient">
+                          <span>Empfänger</span>
+                          <strong>{{ selectedDocumentDetail.ai_recipient }}</strong>
+                        </div>
+                        <div v-if="formatAiAmount(selectedDocumentDetail)">
+                          <span>Betrag</span>
+                          <strong>{{ formatAiAmount(selectedDocumentDetail) }}</strong>
+                        </div>
+                        <div v-if="selectedDocumentDetail.ai_confidence !== null && selectedDocumentDetail.ai_confidence !== undefined">
+                          <span>Konfidenz</span>
+                          <strong>{{ Math.round(Number(selectedDocumentDetail.ai_confidence) * 100) }}%</strong>
+                        </div>
+                      </div>
+
+                      <p v-if="selectedDocumentDetail.ai_summary" class="ai-metadata-summary">
+                        {{ selectedDocumentDetail.ai_summary }}
+                      </p>
+
+                      <div v-if="aiSuggestedTags.length" class="ai-suggested-tags">
+                        <v-chip
+                          v-for="tagName in aiSuggestedTags"
+                          :key="`ai-tag-${tagName}`"
+                          size="x-small"
+                          variant="tonal"
+                          color="primary"
+                          class="ai-suggested-tag"
+                          @click="applyAiSuggestedTag(tagName)"
+                        >
+                          {{ tagName }}
+                        </v-chip>
+                      </div>
                     </div>
                   </div>
 
@@ -681,6 +755,7 @@ const activeImportInboxSourceToItemId = ref(new Map());
 const isClaimingImportInbox = ref(false);
 const isDocumentListSettling = ref(false);
 let documentListSettleTimer = null;
+const notifiedOcrQualityKeys = new Set();
 
 // ── Batch-Auswahl ──────────────────────────────────────────────────────────
 const isSelectionMode = ref(false);
@@ -924,8 +999,36 @@ const showGreenOcrChip = computed(() => {
   const isTextBased = detail.text_source === 'embedded';
   return isTextBased || hasCompletedOcr.value;
 });
+const ocrHeaderChipColor = computed(() => {
+  const status = String(selectedDocumentDetail.value?.ocr_quality_status || '').toLowerCase();
+  if (status === 'error') return 'error';
+  if (status === 'warning') return 'warning';
+  return 'success';
+});
+const ocrHeaderChipText = computed(() => {
+  const status = String(selectedDocumentDetail.value?.ocr_quality_status || '').toLowerCase();
+  if (status === 'error') return 'OCR prüfen';
+  if (status === 'warning') return 'OCR unsicher';
+  return 'OCR';
+});
 const showHeaderOcrActionButton = computed(() => {
   return Boolean(selectedDocumentDetail.value) && !showGreenOcrChip.value;
+});
+const aiSuggestedTags = computed(() => {
+  const rawTags = selectedDocumentDetail.value?.ai_suggested_tags;
+  if (!Array.isArray(rawTags)) {
+    return [];
+  }
+  const seen = new Set();
+  return rawTags
+    .map((tagName) => normalizeTagInput(tagName))
+    .filter((tagName) => {
+      if (!tagName) return false;
+      const key = tagName.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 });
 const isTagView       = computed(() => activeView.value === 'tags');
 const isImportsView   = computed(() => activeView.value === 'imports');
@@ -1731,6 +1834,57 @@ function applyMetadataFromDetail(detail) {
   }, 0);
 }
 
+function notifyOcrQualityIfNeeded(detail) {
+  const status = String(detail?.ocr_quality_status || '').toLowerCase();
+  if (!['warning', 'error'].includes(status) || detail?.ocr_status !== 'done') {
+    return;
+  }
+  const confidence = Number(detail?.ocr_confidence_score);
+  const confidenceLabel = Number.isFinite(confidence) ? `${Math.round(confidence)}%` : 'unbekannt';
+  const key = `${detail.id}:${status}:${confidenceLabel}`;
+  if (notifiedOcrQualityKeys.has(key)) {
+    return;
+  }
+  notifiedOcrQualityKeys.add(key);
+  notify({
+    type: status === 'error' ? 'error' : 'warning',
+    title: 'OCR-Qualität',
+    message: detail?.ocr_quality_message || `OCR-Konfidenz ${confidenceLabel}. KI-Ergebnisse können unzuverlässig sein.`
+  });
+}
+
+function hasAiMetadata(detail) {
+  return Boolean(
+    detail?.ai_document_type ||
+    detail?.ai_document_date ||
+    detail?.ai_sender ||
+    detail?.ai_recipient ||
+    detail?.ai_amount ||
+    detail?.ai_confidence !== null && detail?.ai_confidence !== undefined
+  );
+}
+
+function formatAiAmount(detail) {
+  const amount = Number(detail?.ai_amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return '';
+  }
+  const currency = String(detail?.ai_currency || 'EUR').trim().toUpperCase() || 'EUR';
+  return new Intl.NumberFormat('de-DE', {
+    style: 'currency',
+    currency
+  }).format(amount);
+}
+
+async function applyAiSuggestedTag(tagName) {
+  const normalized = normalizeTagInput(tagName);
+  if (!normalized || !selectedDocumentDetail.value || isSavingTags.value) {
+    return;
+  }
+  const nextNames = normalizeTagNames([...metadataTagNames.value, normalized]);
+  await syncMetadataTagsFromNames(nextNames);
+}
+
 function syncTagSelectionLocal(tagIds) {
   shouldSkipTagAutosave = true;
   const sanitizedIds = sanitizeSelectedTagIds(tagIds);
@@ -1884,6 +2038,10 @@ async function queueOcrFromHeader() {
           ...selectedDocumentDetail.value,
           status: detail.status,
           ocr_status: detail.ocr_status,
+          ocr_quality_status: detail.ocr_quality_status,
+          ocr_confidence_score: detail.ocr_confidence_score,
+          ocr_quality_message: detail.ocr_quality_message,
+          ocr_processing_seconds: detail.ocr_processing_seconds,
           jobs: detail.jobs,
           files: detail.files,
           text_source: detail.text_source,
@@ -1899,6 +2057,8 @@ async function queueOcrFromHeader() {
               ...document,
               status: detail.status,
               ocr_status: detail.ocr_status,
+              ocr_quality_status: detail.ocr_quality_status,
+              ocr_confidence_score: detail.ocr_confidence_score,
               text_source: detail.text_source,
               updated_at: detail.updated_at
             }
@@ -2507,6 +2667,7 @@ async function fetchDocumentDetail(documentId) {
     });
   }
   applyMetadataFromDetail(detail);
+  notifyOcrQualityIfNeeded(detail);
 }
 
 function startDocumentListSettle() {
@@ -5103,6 +5264,56 @@ onBeforeUnmount(() => {
 .details-tags-combobox {
   flex: 1;
   min-width: 0;
+}
+
+.ai-metadata-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.82rem;
+}
+
+.ai-metadata-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+  opacity: 0.84;
+}
+
+.ai-metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+
+.ai-metadata-grid span {
+  display: block;
+  font-size: 0.7rem;
+  opacity: 0.72;
+}
+
+.ai-metadata-grid strong {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ai-metadata-summary {
+  margin: 0;
+  line-height: 1.35;
+  color: rgba(var(--v-theme-on-surface), 0.82);
+}
+
+.ai-suggested-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-suggested-tag {
+  cursor: pointer;
 }
 
 .pm-date-field {

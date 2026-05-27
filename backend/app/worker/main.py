@@ -27,6 +27,13 @@ from app.services.document_dates import apply_ocr_document_date_result, extract_
 from app.services.embeddings import EmbeddingService
 from app.services.documents import DocumentService
 from app.services.import_inbox import ImportInboxService
+from app.services.ollama_classification import (
+    DEFAULT_OLLAMA_BASE_URL,
+    DEFAULT_OLLAMA_MODEL,
+    OllamaClassificationError,
+    OllamaClassificationInput,
+    OllamaClassificationService,
+)
 from app.services.ocr_pipeline import run_ocr_pipeline
 from app.services.settings import SettingsService
 
@@ -514,6 +521,10 @@ def _mark_job_failed(job_id: uuid.UUID, reason: str) -> None:
         if document is not None and job.type == "OCR":
             document.status = "failed"
             document.ocr_status = "failed"
+            document.ocr_quality_status = "error"
+            document.ocr_quality_message = _truncate_error(reason)
+            document.ocr_confidence_score = None
+            document.ocr_processing_seconds = None
         if document is not None and job.type == "INDEX":
             document.embedding_status = "failed"
             document.embedding_error = _truncate_error(reason)
@@ -527,6 +538,79 @@ def _mark_job_failed(job_id: uuid.UUID, reason: str) -> None:
             job.type,
             _truncate_error(reason, 500),
         )
+
+
+def _apply_ollama_classification(
+    document: Document,
+    *,
+    extracted_text: str,
+    quality_status: str | None,
+    confidence_score: float | int | None,
+) -> str | None:
+    if quality_status not in {"good", "warning"}:
+        document.ai_status = "skipped"
+        document.ai_processed_at = _now_utc()
+        message = "OCR-Qualität zu gering für automatische KI-Klassifizierung."
+        logger.warning(
+            "ollama classification skipped document_id=%s quality_status=%s",
+            document.id,
+            quality_status,
+        )
+        return message
+
+    normalized_text = " ".join(str(extracted_text or "").split()).strip()
+    if not normalized_text:
+        document.ai_status = "skipped"
+        document.ai_processed_at = _now_utc()
+        logger.warning("ollama classification skipped document_id=%s reason=empty_ocr_text", document.id)
+        return "Kein OCR-Text für automatische KI-Klassifizierung verfügbar."
+
+    service = OllamaClassificationService(base_url=DEFAULT_OLLAMA_BASE_URL, model=DEFAULT_OLLAMA_MODEL)
+    try:
+        result = service.classify(
+            OllamaClassificationInput(
+                document_id=str(document.id),
+                ocr_text=normalized_text,
+                confidence_score=float(confidence_score) if isinstance(confidence_score, (int, float)) else None,
+                quality_status=quality_status,
+            )
+        )
+    except OllamaClassificationError as exc:
+        document.ai_status = "error"
+        document.ai_processed_at = _now_utc()
+        existing_flags = dict(document.flags or {})
+        ai_flags = dict(existing_flags.get("ai_classification") or {})
+        ai_flags["error"] = _truncate_error(str(exc), 1000)
+        existing_flags["ai_classification"] = ai_flags
+        document.flags = existing_flags
+        logger.warning("ollama classification failed document_id=%s error=%s", document.id, exc)
+        return f"Ollama-Klassifizierung fehlgeschlagen: {_truncate_error(str(exc), 240)}"
+
+    document.ai_document_type = result.document_type
+    document.ai_document_date = result.document_date
+    document.ai_sender = result.sender
+    document.ai_recipient = result.recipient
+    document.ai_amount = result.amount
+    document.ai_currency = result.currency
+    document.ai_summary = result.summary
+    document.ai_suggested_tags = result.tags
+    document.ai_confidence = result.confidence
+    document.ai_status = "done"
+    document.ai_processed_at = _now_utc()
+    existing_flags = dict(document.flags or {})
+    existing_flags["ai_classification"] = {
+        "model": DEFAULT_OLLAMA_MODEL,
+        "raw_response": result.raw_response[:4000],
+    }
+    document.flags = existing_flags
+    logger.info(
+        "ollama classification completed document_id=%s type=%s confidence=%s tags=%s",
+        document.id,
+        result.document_type,
+        result.confidence,
+        result.tags,
+    )
+    return None
 
 
 def _claim_next_job() -> tuple[uuid.UUID, str] | None:
@@ -613,6 +697,11 @@ def _process_ocr_job(job_id: uuid.UUID) -> None:
                 runtime_settings,
                 timeout_seconds=settings.worker_ocr_timeout_seconds,
             )
+            quality_payload = dict(ocr_result.get("quality") or {})
+            quality_status = str(quality_payload.get("status") or ocr_result.get("quality_status") or "").strip() or None
+            confidence_score = quality_payload.get("confidence_score", ocr_result.get("confidence_score"))
+            quality_message = str(quality_payload.get("message") or "").strip() or None
+            processing_seconds = ocr_result.get("processing_time_seconds")
 
             job.progress = 70
             db.commit()
@@ -654,15 +743,23 @@ def _process_ocr_job(job_id: uuid.UUID) -> None:
             job.progress = 90
             document.text_content = sanitize_text_for_db(extracted_text) or None
             document.text_source = "ocr"
+            document.page_count = int(ocr_result.get("page_count") or document.page_count or 0) or document.page_count
+            document.ocr_quality_status = quality_status
+            document.ocr_confidence_score = float(confidence_score) if isinstance(confidence_score, (int, float)) else None
+            document.ocr_quality_message = quality_message
+            document.ocr_processing_seconds = float(processing_seconds) if isinstance(processing_seconds, (int, float)) else None
             existing_flags = dict(document.flags or {})
             existing_flags["ocr"] = {
                 "engine_requested": ocr_result.get("engine_requested"),
                 "engine_used": ocr_result.get("engine_used"),
-                "quality": ocr_result.get("quality") or {},
+                "quality": quality_payload,
+                "processing_time_seconds": ocr_result.get("processing_time_seconds"),
                 "page_metrics": [
                     {
                         "page": item.get("page"),
                         "confidence": item.get("confidence"),
+                        "line_count": len(item.get("lines") or []),
+                        "word_count": len(item.get("words") or []),
                     }
                     for item in pages_payload
                 ],
@@ -682,6 +779,12 @@ def _process_ocr_job(job_id: uuid.UUID) -> None:
                 dedupe_service.evaluate_document_text_duplicate(document, extracted_text)
             except Exception as exc:  # pragma: no cover - best effort dedupe
                 logger.warning("duplicate_text_check_failed document_id=%s error=%s", document.id, exc)
+            classification_warning = _apply_ollama_classification(
+                document,
+                extracted_text=extracted_text,
+                quality_status=quality_status,
+                confidence_score=confidence_score,
+            )
             document.status = "ready"
             document.ocr_status = "done"
             if settings.index_auto_on_ready:
@@ -690,18 +793,28 @@ def _process_ocr_job(job_id: uuid.UUID) -> None:
                 _queue_tag_job(db, document, reason="ocr_done_no_index")
             job.status = "done"
             job.progress = 100
-            job.error_message = None
+            job.error_message = classification_warning or (quality_message if quality_status in {"warning", "error"} else None)
             job.finished_at = _now_utc()
 
             db.commit()
             logger.info(
-                "ocr job completed job_id=%s document_id=%s text_bytes=%s engine=%s quality=%s",
+                "ocr job completed job_id=%s document_id=%s text_bytes=%s engine=%s quality_status=%s confidence=%s quality=%s",
                 job.id,
                 document.id,
                 len(extracted_text or ""),
                 ocr_result.get("engine_used"),
+                quality_status,
+                confidence_score,
                 ocr_result.get("quality"),
             )
+            if quality_status in {"warning", "error"}:
+                logger.warning(
+                    "ocr quality issue document_id=%s status=%s confidence=%s message=%s",
+                    document.id,
+                    quality_status,
+                    confidence_score,
+                    quality_message,
+                )
     except subprocess.TimeoutExpired:
         _mark_job_failed(job_id, f"OCR timed out after {settings.worker_ocr_timeout_seconds}s")
     except Exception as exc:  # pragma: no cover - infrastructure/runtime path

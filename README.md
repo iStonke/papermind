@@ -11,6 +11,7 @@ Aktueller Scope:
 - OCR-Job-Orchestrierung über API (`/api/documents/{id}/ocr`)
 - Asynchrone OCR-Ausführung im Worker-Container (kein OCR im Web-Request)
 - OCR-Datei (`ocr.pdf`) + Textpersistenz (`documents.text_content`)
+- OCR-Qualitätsstatus (`good|warning|error`) inkl. Konfidenzscore für KI-Verlässlichkeit
 - UI: OCR-Status, OCR-Start/Retry, Viewer-Umschaltung Original/OCR
 - Volltextsuche mit PostgreSQL FTS (`original_filename`, `notes`, `text_content`)
 - Zentrale AppBar-Suche mit Snippets/Highlight in der Dokumentliste
@@ -215,6 +216,7 @@ Neue/erweiterte Felder:
 - `documents.text_content` (`TEXT`, nullable)
 - `documents.text_source` (`none|embedded|ocr`)
 - `documents.ocr_status` (`not_started|queued|running|done|failed`)
+- `documents.ocr_quality_status`, `documents.ocr_confidence_score`, `documents.ocr_quality_message`, `documents.ocr_processing_seconds`
 - `documents.embedding_status` (`not_started|queued|running|done|failed`)
 - `documents.embedding_model`, `documents.embedding_dim`, `documents.embedding_error`
 - `documents.text_hash`, `documents.embedding_updated_at`
@@ -283,6 +285,7 @@ Verhalten:
 - prüft Dokument + `original` Datei
 - legt OCR-Job an (`type=OCR`, `status=queued`)
 - setzt Dokument auf `status=processing`, `ocr_status=queued`
+- löscht alte OCR-Qualitätswerte, bis der Worker neue Werte berechnet
 - Antwort: `202` + aktuelles `DocumentDetail`
 - falls OCR bereits aktiv: `409 CONFLICT`
 
@@ -409,6 +412,7 @@ Hinweis:
 - AppBar enthält `Importieren`-Dialog (Modal, Multi-Upload-Queue).
 - iOS-Scans können über die SMB-Freigabe `PaperMind Scans` in `./scan-inbox` gespeichert werden; der Worker übernimmt stabile PDFs in die Import-Inbox und die App zeigt eine Badge am `Importieren`-Button. Details: `docs/smb-scan-inbox.md`.
 - Rechtes Panel zeigt OCR-Statuskarte mit Progress + Fehlertext.
+- Bei OCR-Qualität `warning` oder `error` zeigt die App eine Warnung; `error` bedeutet manuelle Prüfung empfohlen.
 - Button `OCR starten` / `OCR erneut starten`.
 - Viewer-Toggle: `Original` / `OCR`.
 - Expliziter Button `Herunterladen` (nur dieser löst Download aus).
