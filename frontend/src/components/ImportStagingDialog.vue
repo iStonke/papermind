@@ -293,6 +293,34 @@
           </div>
         </div>
 
+        <!-- Category -->
+        <div class="isd-field">
+          <div class="isd-field-label">Kategorie</div>
+          <v-select
+            v-model="docCategory"
+            :items="DOC_CATEGORIES"
+            placeholder="Kategorie wählen…"
+            density="compact"
+            variant="outlined"
+            hide-details
+            clearable
+          />
+        </div>
+
+        <!-- Note -->
+        <div class="isd-field">
+          <div class="isd-field-label">Notiz</div>
+          <v-textarea
+            v-model="docNote"
+            placeholder="Interne Notiz zum Dokument…"
+            density="compact"
+            variant="outlined"
+            hide-details
+            rows="2"
+            auto-grow
+            max-rows="5"
+          />
+        </div>
 
       </div>
     </div>
@@ -445,6 +473,7 @@ const isViewSwitching = ref(false);
 const DOC_CATEGORIES = ['Rechnungen', 'Verträge', 'Briefe', 'Belege', 'Steuern', 'Versicherung', 'Bank'];
 const docDate = ref('');
 const docCategory = ref('');
+const docNote = ref('');
 const docOcrLang = computed(() => settingsStore.settings.documents.ocr_doc_lang ?? 'de');
 const tagInputRef = ref(null);
 const tagSearchInput = ref('');
@@ -3344,7 +3373,11 @@ async function commitImport() {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        documents: commitDocuments.value,
+        documents: commitDocuments.value.map((doc, idx) =>
+          idx === 0
+            ? { ...doc, category: docCategory.value || null, note: docNote.value.trim() || null }
+            : doc
+        ),
         options: {
           auto_ocr: Boolean(settingsStore.settings.documents.auto_ocr),
           auto_index: Boolean(settingsStore.settings.documents.auto_tagging && settingsStore.settings.documents.auto_ocr),
