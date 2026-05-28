@@ -266,6 +266,20 @@
           </div>
         </div>
 
+        <!-- Category -->
+        <div class="isd-field">
+          <div class="isd-field-label">Kategorie</div>
+          <v-select
+            v-model="docCategory"
+            :items="DOC_CATEGORIES"
+            placeholder="Kategorie wählen…"
+            density="compact"
+            variant="outlined"
+            hide-details
+            clearable
+          />
+        </div>
+
         <!-- Tags -->
         <div class="isd-field">
           <div class="isd-field-label">Tags</div>
@@ -293,20 +307,6 @@
           </div>
         </div>
 
-        <!-- Category -->
-        <div class="isd-field">
-          <div class="isd-field-label">Kategorie</div>
-          <v-select
-            v-model="docCategory"
-            :items="DOC_CATEGORIES"
-            placeholder="Kategorie wählen…"
-            density="compact"
-            variant="outlined"
-            hide-details
-            clearable
-          />
-        </div>
-
         <!-- Note -->
         <div class="isd-field">
           <div class="isd-field-label">Notiz</div>
@@ -316,9 +316,8 @@
             density="compact"
             variant="outlined"
             hide-details
-            rows="2"
-            auto-grow
-            max-rows="5"
+            rows="3"
+            no-resize
           />
         </div>
 
@@ -3896,7 +3895,7 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   align-content: flex-start;
   gap: 5px;
-  height: 114px; /* ~3× kompaktes Textfeld (38px) */
+  height: 76px; /* ~2× kompaktes Textfeld (38px) */
   overflow-y: auto;
   padding: 8px 10px;
   border: 1px solid rgba(var(--v-theme-on-surface), 0.24);
