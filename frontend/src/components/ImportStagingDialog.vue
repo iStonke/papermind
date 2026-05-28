@@ -284,24 +284,6 @@
           </div>
         </div>
 
-        <div class="isd-divider" />
-
-        <!-- AI classification toggle -->
-        <div class="isd-toggle-row">
-          <div class="isd-toggle-lbl">
-            <span>KI-Klassifizierung</span>
-            <small>Kategorie & Tags vorschlagen</small>
-          </div>
-          <button
-            type="button"
-            class="isd-toggle"
-            :class="{ 'isd-toggle--on': localAutoIndex && settingsStore.settings.documents.auto_ocr, 'isd-toggle--dis': !settingsStore.settings.documents.auto_ocr }"
-            role="switch"
-            :aria-checked="localAutoIndex && settingsStore.settings.documents.auto_ocr"
-            :disabled="!settingsStore.settings.documents.auto_ocr"
-            @click="settingsStore.settings.documents.auto_ocr && (localAutoIndex = !localAutoIndex)"
-          />
-        </div>
 
       </div>
     </div>
@@ -370,7 +352,6 @@ GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   apiBaseUrl: { type: String, default: '' },
-  autoIndex: { type: Boolean, default: true },
   autoEmbed: { type: Boolean, default: true }
 });
 
@@ -459,7 +440,6 @@ const docOcrLang = computed(() => settingsStore.settings.documents.ocr_doc_lang 
 const tagInputRef = ref(null);
 const tagSearchInput = ref('');
 const tagDropdownOpen = ref(false);
-const localAutoIndex = ref(true);
 const gridZoomIndex = ref(1);
 
 const isOpen = computed({
@@ -833,13 +813,6 @@ const toolbarControlDisabledStyle = Object.freeze({
   opacity: '0.5'
 });
 
-watch(
-  () => props.autoIndex,
-  (value) => {
-    localAutoIndex.value = Boolean(value);
-  },
-  { immediate: true }
-);
 
 function getToolbarControlStyle(disabled) {
   return disabled ? toolbarControlDisabledStyle : toolbarControlEnabledStyle;
@@ -3365,7 +3338,7 @@ async function commitImport() {
         documents: commitDocuments.value,
         options: {
           auto_ocr: Boolean(settingsStore.settings.documents.auto_ocr),
-          auto_index: Boolean(localAutoIndex.value && settingsStore.settings.documents.auto_ocr),
+          auto_index: Boolean(settingsStore.settings.documents.auto_tagging && settingsStore.settings.documents.auto_ocr),
           auto_embed: Boolean(props.autoEmbed)
         }
       })

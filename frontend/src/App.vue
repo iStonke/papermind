@@ -113,7 +113,6 @@
         ref="importStagingDialogRef"
         v-model="isUploadDialogOpen"
         :api-base-url="apiBaseUrl"
-        :auto-index="true"
         :auto-embed="true"
         @committed="onImportCommitted"
         @discarded-sources="onImportSourcesDiscarded"
