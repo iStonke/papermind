@@ -138,30 +138,6 @@
               class="pm-setting-row"
               role="button"
               tabindex="0"
-              @click="toggleAutoOcrFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleAutoOcrFromRow)"
-            >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Automatisches OCR</div>
-                <div class="pm-setting-description">Beim Import wird Text automatisch extrahiert.</div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.documents.auto_ocr"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :loading="isSettingSaving.auto_ocr"
-                :disabled="isSettingSaving.auto_ocr"
-                @click.stop
-                @update:model-value="onAutoOcrChange"
-              />
-            </div>
-
-            <div
-              class="pm-setting-row"
-              role="button"
-              tabindex="0"
               @click="toggleAutoTaggingFromRow"
               @keydown="handleSettingRowShortcut($event, toggleAutoTaggingFromRow)"
             >
@@ -251,6 +227,58 @@
                 @update:model-value="onTrashRetentionChange"
               />
             </div>
+
+          </div>
+        </section>
+
+        <section class="pm-settings-section">
+          <h3 class="pm-settings-title">OCR-Erkennung</h3>
+          <div class="pm-settings-content">
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleAutoOcrFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleAutoOcrFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Automatisches OCR</div>
+                <div class="pm-setting-description">Beim Import wird Text automatisch extrahiert.</div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.documents.auto_ocr"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.auto_ocr"
+                :disabled="isSettingSaving.auto_ocr"
+                @click.stop
+                @update:model-value="onAutoOcrChange"
+              />
+            </div>
+
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Erkennungssprache</div>
+                <div class="pm-setting-description">
+                  Standardsprache für die Texterkennung beim Importieren.
+                </div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.documents.ocr_doc_lang"
+                :items="ocrDocLangOptions"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Erkennungssprache"
+                :loading="isSettingSaving.ocr_doc_lang"
+                :disabled="isSettingSaving.ocr_doc_lang"
+                @update:model-value="onOcrDocLangChange"
+              />
+            </div>
+
           </div>
         </section>
 
@@ -349,6 +377,7 @@ import {
   buildColorVariantPatch,
   buildDrawerAlwaysExpandedPatch,
   buildDrawerRememberStatePatch,
+  buildOcrDocLangPatch,
   buildRecentImportWindowPatch,
   buildShowFilenameSuffixPatch,
   buildSortOrderPatch,
@@ -413,6 +442,16 @@ const COLOR_VARIANT_VALUES = new Set(['indigo', 'forest', 'teal', 'slate', 'ston
 const SETTINGS_SORT_ORDER_VALUES = new Set(['newest', 'oldest', 'name_asc', 'name_desc', 'last_opened']);
 const RECENT_IMPORT_WINDOW_VALUES = new Set(recentImportWindowOptions.map((e) => e.value));
 const TRASH_RETENTION_VALUES = new Set(trashRetentionOptions.map((e) => e.value));
+
+const ocrDocLangOptions = [
+  { title: 'Deutsch (Standard)', value: 'de' },
+  { title: 'Englisch', value: 'en' },
+  { title: 'Automatisch erkennen', value: 'auto' },
+  { title: 'Mehrsprachig', value: 'multi' }
+];
+
+const OCR_DOC_LANG_VALUES = new Set(ocrDocLangOptions.map((e) => e.value));
+
 
 // ── Theme ────────────────────────────────────────────────────────────────────
 
@@ -592,6 +631,23 @@ async function onTrashRetentionChange(nextValue) {
     patch: buildTrashRetentionPatch(nextDays),
     controlKey: 'trash_retention_days',
     revert: () => settingsStore.setDraftPatch({ documents: { trash_retention_days: previous } })
+  });
+}
+
+// ── OCR-Sprache (Dokument-Import) ─────────────────────────────────────────────
+
+async function onOcrDocLangChange(nextValue) {
+  if (isSettingSaving.ocr_doc_lang) return;
+  const nextLang = OCR_DOC_LANG_VALUES.has(String(nextValue))
+    ? String(nextValue)
+    : settingsDraft.documents.ocr_doc_lang;
+  if (nextLang === settingsDraft.documents.ocr_doc_lang) return;
+  const previous = settingsDraft.documents.ocr_doc_lang;
+  settingsStore.setDraftPatch({ documents: { ocr_doc_lang: nextLang } });
+  await patchSettingsWithRevert({
+    patch: buildOcrDocLangPatch(nextLang),
+    controlKey: 'ocr_doc_lang',
+    revert: () => settingsStore.setDraftPatch({ documents: { ocr_doc_lang: previous } })
   });
 }
 

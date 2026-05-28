@@ -18,6 +18,7 @@ const SORT_ORDER_VALUES = new Set([
   'last_opened'
 ]);
 const OCR_ENGINE_VALUES = new Set(['tesseract', 'paddleocr', 'easyocr', 'abbyy']);
+const OCR_DOC_LANG_VALUES = new Set(['de', 'en', 'auto', 'multi']);
 const EMBEDDING_MODEL_FALLBACK = 'hash-384-v1';
 const DRAWER_EXPANDED_STORAGE_KEY  = 'pm.drawerExpanded';
 const ANIMATIONS_ENABLED_STORAGE_KEY = 'pm.animationsEnabled';
@@ -90,7 +91,8 @@ function createDefaultSettings() {
       auto_tagging: false,
       sort_order: 'newest',
       recent_import_window_hours: 24,
-      trash_retention_days: 30
+      trash_retention_days: 30,
+      ocr_doc_lang: 'de'
     },
     llm: {
       system_prompt: SYSTEM_PROMPT_DEFAULT,
@@ -242,6 +244,7 @@ export const useSettingsStore = defineStore('settings', {
       const rawRecentImportWindow = Number(payload?.documents?.recent_import_window_hours);
       const rawTrashRetentionDays = Number(payload?.documents?.trash_retention_days);
       const rawOcrEngine = String(payload?.ocr?.engine || '').toLowerCase();
+      const rawOcrDocLang = String(payload?.documents?.ocr_doc_lang || '').toLowerCase();
 
       const chunkChars = clampInt(payload?.rag?.chunk_chars, 600, 20000, defaults.rag.chunk_chars);
       const overlapRaw = clampInt(
@@ -293,7 +296,8 @@ export const useSettingsStore = defineStore('settings', {
           trash_retention_days:
             Number.isInteger(rawTrashRetentionDays) && rawTrashRetentionDays >= 0
               ? rawTrashRetentionDays
-              : defaults.documents.trash_retention_days
+              : defaults.documents.trash_retention_days,
+          ocr_doc_lang: OCR_DOC_LANG_VALUES.has(rawOcrDocLang) ? rawOcrDocLang : defaults.documents.ocr_doc_lang
         },
         llm: {
           system_prompt: normalizePrompt(payload?.llm?.system_prompt, defaults.llm.system_prompt),

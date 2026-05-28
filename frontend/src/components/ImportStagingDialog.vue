@@ -33,50 +33,105 @@
 
       <!-- Left column: page grid + bottom toolbar -->
       <div class="isd-left">
-        <div class="isd-grid-scroll" :style="gridScrollStyle">
 
-          <!-- Empty state -->
-          <div v-if="isEmpty" class="isd-empty">
-            <v-icon size="52" class="isd-empty-icon">mdi-file-upload-outline</v-icon>
-            <p class="isd-empty-title">Noch keine Seiten</p>
-            <p class="isd-empty-hint">Dateien über die Toolbar hinzufügen<br>oder hier ablegen</p>
+        <!-- Ladefortschritt -->
+        <v-progress-linear
+          v-if="isUploadingSources"
+          :model-value="hasPreparationProgress ? preparationProgressPercent : undefined"
+          :indeterminate="!hasPreparationProgress"
+          color="primary"
+          height="3"
+          class="isd-progress"
+        />
+
+        <div class="isd-grid-scroll" :style="{ ...gridScrollStyle, paddingBottom: isEmpty ? '40px' : '82px' }">
+
+          <!-- Dropzone (empty state) -->
+          <div
+            v-if="isEmpty"
+            class="isd-dropzone"
+            :class="{ 'isd-dropzone--over': isDropzoneDragOver }"
+            role="button"
+            tabindex="0"
+            @click="onDropzoneClick"
+            @dragenter.prevent="onDropzoneDragEnter"
+            @dragover.prevent="onDropzoneDragOver"
+            @dragleave="onDropzoneDragLeave"
+            @drop.prevent="onDropzoneDrop"
+            @mouseenter="onDropzoneMouseEnter"
+            @mouseleave="onDropzoneMouseLeave"
+          >
+            <div class="isd-dropzone__circle">
+              <v-icon size="32">mdi-tray-arrow-down</v-icon>
+            </div>
+            <p class="isd-dropzone__title">
+              Dateien hierher ziehen<br>oder klicken zum Auswählen
+            </p>
+            <p class="isd-dropzone__subtitle">
+              Mehrere Dateien gleichzeitig möglich
+            </p>
+            <p class="isd-dropzone__types">PDF</p>
           </div>
 
           <!-- Page grid -->
-          <template v-else>
-            <template v-for="doc in documents" :key="doc.id">
-              <div v-if="documents.length > 1" class="isd-doc-label">{{ doc.title || 'Dokument' }}</div>
-              <div class="isd-page-grid">
-                <div
-                  v-for="(page, pageIndex) in doc.pages"
-                  :key="page.id"
-                  :ref="el => setPageThumbRef(page.id, el)"
-                  class="isd-page-card"
-                  :class="{ 'isd-page-card--selected': isPageSelected(doc.id, page.id) }"
-                  @click="onPageClick($event, doc.id, page.id, pageIndex)"
-                  @dblclick="onPageDoubleClick($event, doc.id, page.id, pageIndex)"
-                >
-                  <div class="isd-page-thumb-wrap">
-                    <div class="isd-page-thumb-inner">
-                      <img
-                        v-if="page.thumbUrl"
-                        :src="page.thumbUrl"
-                        class="isd-page-thumb"
-                        :style="{ transform: page.rotation ? `rotate(${page.rotation}deg)` : undefined }"
-                        draggable="false"
-                        alt=""
-                      />
-                      <v-icon v-else size="32" class="isd-page-thumb-placeholder-icon">mdi-file-document-outline</v-icon>
-                    </div>
-                  </div>
-                  <div class="isd-page-num">{{ pageIndex + 1 }}</div>
+          <div
+            v-else
+            class="isd-page-grid import-staging-pages"
+            @dragover.prevent="onPagesContainerDragOver($event, documents[0]?.id)"
+            @drop.prevent="onPagesContainerDrop($event, documents[0]?.id)"
+          >
+            <div
+              v-for="{ doc, page, globalIndex, pageIndexInDoc } in allPagesFlat"
+              :key="page.id"
+              :ref="el => setPageThumbRef(page.id, el)"
+              class="isd-page-card import-staging-page"
+              :data-page-id="page.id"
+              :data-page-index="pageIndexInDoc"
+              :draggable="true"
+              :class="{
+                'isd-page-card--selected': isPageSelected(doc.id, page.id),
+                'isd-page-card--multi': isPageMultiSelected(page.id),
+                'isd-page-card--dragging': isDraggingPage(page.id),
+                'isd-page-card--drop-before':
+                  pageDragState.active && pageDragState.overDocId === doc.id &&
+                  pageDragState.dropIndex === pageIndexInDoc && !isDraggingPage(page.id),
+                'isd-page-card--drop-after':
+                  pageDragState.active && pageDragState.overDocId === doc.id &&
+                  pageDragState.dropIndex === pageIndexInDoc + 1 && !isDraggingPage(page.id)
+              }"
+              @click="onPageGridClick($event, doc, page, globalIndex)"
+              @dblclick="onPageDoubleClick($event, doc.id, page.id, globalIndex)"
+              @dragstart="onPageDragStart($event, doc.id, page.id, pageIndexInDoc)"
+              @dragend="onPageDragEnd()"
+              @dragover.prevent="onPageDragOver($event, doc.id, page.id, pageIndexInDoc)"
+              @drop.prevent="onPageDrop($event, doc.id, pageIndexInDoc)"
+            >
+              <div class="isd-page-thumb-wrap">
+                <div class="isd-page-thumb-inner">
+                  <img
+                    v-if="page.thumbUrl"
+                    :src="page.thumbUrl"
+                    class="isd-page-thumb import-staging-page__thumb"
+                    :style="{ transform: page.rotation ? `rotate(${page.rotation}deg)` : undefined }"
+                    draggable="false"
+                    alt=""
+                  />
+                  <v-icon v-else size="32" class="isd-page-thumb-placeholder-icon">mdi-file-document-outline</v-icon>
                 </div>
+                <button
+                  class="isd-page-delete"
+                  title="Seite entfernen"
+                  @click.stop="removePage(page.id)"
+                >
+                  <v-icon size="13">mdi-trash-can-outline</v-icon>
+                </button>
               </div>
-            </template>
-          </template>
+              <div class="isd-page-num">{{ globalIndex + 1 }}</div>
+            </div>
+          </div>
 
         </div>
-        <div class="isd-toolbar">
+        <div v-show="!isEmpty" class="isd-toolbar">
           <v-btn
             size="small"
             variant="outlined"
@@ -111,13 +166,22 @@
             </v-btn>
           </div>
 
+          <v-btn
+            size="small"
+            variant="outlined"
+            class="isd-toolbar-btn"
+            @click="toggleSelectAll"
+          >
+            {{ allPagesSelected ? 'Auswahl aufheben' : 'Alle auswählen' }}
+          </v-btn>
+
           <div class="isd-zoom-group">
             <span class="isd-zoom-label">klein</span>
             <input
               type="range"
               class="isd-zoom-slider"
               min="0"
-              max="2"
+              max="3"
               step="1"
               :value="gridZoomIndex"
               @input="onGridZoomChange"
@@ -130,7 +194,7 @@
       </div>
 
       <!-- Right column: document properties (no scroll) -->
-      <div class="isd-props">
+      <div class="isd-props" :class="{ 'isd-props--disabled': isEmpty }">
 
         <!-- Document name -->
         <div class="isd-field">
@@ -193,74 +257,34 @@
           </div>
         </div>
 
-        <!-- Category -->
-        <div class="isd-field">
-          <div class="isd-field-label">Kategorie</div>
-          <v-select
-            v-model="docCategory"
-            :items="[...DOC_CATEGORIES, '+ Neu erstellen']"
-            placeholder="— wählen —"
-            density="compact"
-            variant="outlined"
-            hide-details
-          />
-        </div>
-
         <!-- Tags -->
         <div class="isd-field">
           <div class="isd-field-label">Tags</div>
-          <v-combobox
-            :model-value="primaryDocTags"
-            :items="stageTagPool"
-            item-title="name"
-            item-value="id"
-            return-object
-            multiple
-            closable-chips
-            chips
-            density="compact"
-            variant="outlined"
-            hide-details
-            placeholder="Tag eingeben..."
-            @click:control="ensureStageTagsLoaded()"
-            @update:model-value="onTagsComboboxUpdate"
-          />
-        </div>
-
-        <!-- OCR language -->
-        <div class="isd-field">
-          <div class="isd-field-label">OCR-Sprache</div>
-          <v-select
-            v-model="docOcrLang"
-            :items="[
-              { title: 'Deutsch (Standard)', value: 'de' },
-              { title: 'Englisch', value: 'en' },
-              { title: 'Automatisch erkennen', value: 'auto' },
-              { title: 'Mehrsprachig', value: 'multi' },
-            ]"
-            density="compact"
-            variant="outlined"
-            hide-details
-          />
+          <div
+            class="isd-tags-field"
+            @click="$refs.tagInlineInput?.focus()"
+          >
+            <v-chip
+              v-for="tag in primaryDocTags"
+              :key="tag.id"
+              size="small"
+              closable
+              class="isd-tags-chip"
+              @click:close.stop="removeTagById(tag.id)"
+            >{{ tag.name }}</v-chip>
+            <input
+              ref="tagInlineInput"
+              v-model="tagInlineValue"
+              class="isd-tags-input"
+              placeholder="Tag hinzufügen…"
+              @focus="ensureStageTagsLoaded()"
+              @keydown.enter.prevent="addTagByInlineInput"
+              @keydown.188.prevent="addTagByInlineInput"
+            />
+          </div>
         </div>
 
         <div class="isd-divider" />
-
-        <!-- OCR toggle -->
-        <div class="isd-toggle-row">
-          <div class="isd-toggle-lbl">
-            <span>OCR durchführen</span>
-            <small>Text aus Seiten extrahieren</small>
-          </div>
-          <button
-            type="button"
-            class="isd-toggle"
-            :class="{ 'isd-toggle--on': localAutoOcr }"
-            role="switch"
-            :aria-checked="localAutoOcr"
-            @click="localAutoOcr = !localAutoOcr"
-          />
-        </div>
 
         <!-- AI classification toggle -->
         <div class="isd-toggle-row">
@@ -271,11 +295,11 @@
           <button
             type="button"
             class="isd-toggle"
-            :class="{ 'isd-toggle--on': localAutoIndex && localAutoOcr, 'isd-toggle--dis': !localAutoOcr }"
+            :class="{ 'isd-toggle--on': localAutoIndex && settingsStore.settings.documents.auto_ocr, 'isd-toggle--dis': !settingsStore.settings.documents.auto_ocr }"
             role="switch"
-            :aria-checked="localAutoIndex && localAutoOcr"
-            :disabled="!localAutoOcr"
-            @click="localAutoOcr && (localAutoIndex = !localAutoIndex)"
+            :aria-checked="localAutoIndex && settingsStore.settings.documents.auto_ocr"
+            :disabled="!settingsStore.settings.documents.auto_ocr"
+            @click="settingsStore.settings.documents.auto_ocr && (localAutoIndex = !localAutoIndex)"
           />
         </div>
 
@@ -297,6 +321,15 @@
           <span v-if="isCommitting || hasPreparationProgress" class="isd-footer-status">
             {{ preparationProgressLabel || 'Verarbeitung läuft…' }}
           </span>
+          <v-btn
+            v-if="hasMultiSelection"
+            variant="tonal"
+            color="primary"
+            :disabled="isCommitting"
+            @click="commitSelectionImport"
+          >
+            Auswahl importieren ({{ multiSelectionCount }})
+          </v-btn>
           <v-btn
             color="primary"
             variant="flat"
@@ -324,6 +357,7 @@ import { suggestImportStageTitle } from '../api/importStaging';
 import { isIOS } from '../utils/platform';
 import { mapApiError, useNotifications } from '../stores/notifications';
 import { useImportStagingStore } from '../stores/importStaging';
+import { useSettingsStore } from '../stores/settings';
 import {
   SHORTCUT_ACTIONS,
   handleShortcut,
@@ -336,7 +370,6 @@ GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   apiBaseUrl: { type: String, default: '' },
-  autoOcr: { type: Boolean, default: true },
   autoIndex: { type: Boolean, default: true },
   autoEmbed: { type: Boolean, default: true }
 });
@@ -345,6 +378,7 @@ const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources']
 
 const { notify } = useNotifications();
 const stagingStore = useImportStagingStore();
+const settingsStore = useSettingsStore();
 const theme = useTheme();
 const { documents, documentCount, totalPages, emptyDocuments, commitDocuments } = storeToRefs(stagingStore);
 
@@ -421,11 +455,10 @@ const isViewSwitching = ref(false);
 const DOC_CATEGORIES = ['Rechnungen', 'Verträge', 'Briefe', 'Belege', 'Steuern', 'Versicherung', 'Bank'];
 const docDate = ref('');
 const docCategory = ref('');
-const docOcrLang = ref('de');
+const docOcrLang = computed(() => settingsStore.settings.documents.ocr_doc_lang ?? 'de');
 const tagInputRef = ref(null);
 const tagSearchInput = ref('');
 const tagDropdownOpen = ref(false);
-const localAutoOcr = ref(true);
 const localAutoIndex = ref(true);
 const gridZoomIndex = ref(1);
 
@@ -658,9 +691,103 @@ const tagDropdownResults = computed(() => {
 });
 const hasAnySelectedPage = computed(() => Boolean(selected.value?.pageId));
 const gridScrollStyle = computed(() => ({
-  '--pm-grid-min': ['142px', '164px', '184px'][gridZoomIndex.value] || '164px'
+  '--pm-grid-min': ['100px', '140px', '185px', '240px'][gridZoomIndex.value] || '140px'
 }));
 const isImportActionDisabled = computed(() => totalPages.value <= 0 || isUploadingSources.value || isCommitting.value);
+
+/* ── Multi-Selektion ── */
+const multiSelectedPageIds = ref(new Set());
+const hasMultiSelection = computed(() => multiSelectedPageIds.value.size > 0);
+const multiSelectionCount = computed(() => multiSelectedPageIds.value.size);
+
+function isPageMultiSelected(pageId) {
+  return multiSelectedPageIds.value.has(pageId);
+}
+
+function clearMultiSelection() {
+  if (multiSelectedPageIds.value.size > 0) {
+    multiSelectedPageIds.value = new Set();
+  }
+}
+
+const allPagesSelected = computed(() => {
+  const flat = allPagesFlat.value;
+  return flat.length > 0 && flat.every(({ page }) => multiSelectedPageIds.value.has(page.id));
+});
+
+function toggleSelectAll() {
+  if (allPagesSelected.value) {
+    clearMultiSelection();
+  } else {
+    multiSelectedPageIds.value = new Set(allPagesFlat.value.map(({ page }) => page.id));
+  }
+}
+
+function onPageGridClick(event, doc, page, globalIndex) {
+  if (event.metaKey || event.ctrlKey) {
+    const next = new Set(multiSelectedPageIds.value);
+    if (next.size === 0 && selected.value?.pageId) {
+      // Bestehende Einzelselektion beim ersten CMD+Click mit übernehmen
+      if (selected.value.pageId === page.id) {
+        // CMD+Click auf die bereits aktive Seite → komplett deselektieren
+        clearActiveSelection();
+        return;
+      }
+      next.add(selected.value.pageId);
+    }
+    if (next.has(page.id)) {
+      next.delete(page.id);
+      // Einzelselektion auf dieselbe Seite ebenfalls aufheben
+      if (selected.value?.pageId === page.id) {
+        selected.value = null;
+      }
+    } else {
+      next.add(page.id);
+      selectPage(doc.id, page.id, globalIndex);
+    }
+    multiSelectedPageIds.value = next;
+  } else if (event.shiftKey) {
+    const flat = allPagesFlat.value;
+    const anchorIndex = selected.value?.pageId
+      ? flat.findIndex(({ page: p }) => p.id === selected.value.pageId)
+      : 0;
+    const start = Math.min(anchorIndex < 0 ? 0 : anchorIndex, globalIndex);
+    const end = Math.max(anchorIndex < 0 ? 0 : anchorIndex, globalIndex);
+    const next = new Set(multiSelectedPageIds.value);
+    for (let i = start; i <= end; i++) {
+      if (flat[i]) next.add(flat[i].page.id);
+    }
+    multiSelectedPageIds.value = next;
+  } else {
+    clearMultiSelection();
+    onPageClick(event, doc.id, page.id, globalIndex);
+  }
+}
+
+async function commitSelectionImport() {
+  if (!hasMultiSelection.value || isCommitting.value) return;
+  const selectedIds = multiSelectedPageIds.value;
+  const toRemove = allPagesFlat.value
+    .filter(({ page }) => !selectedIds.has(page.id))
+    .map(({ page }) => page.id);
+  for (const pageId of toRemove) {
+    await removePage(pageId);
+  }
+  clearMultiSelection();
+  await commitImport();
+}
+
+const allPagesFlat = computed(() => {
+  let index = 0;
+  const result = [];
+  for (const doc of documents.value) {
+    let pageIndexInDoc = 0;
+    for (const page of doc.pages || []) {
+      result.push({ doc, page, globalIndex: index++, pageIndexInDoc: pageIndexInDoc++ });
+    }
+  }
+  return result;
+});
 const hasPreparationProgress = computed(() => isUploadingSources.value && preparationProgress.value.total > 0);
 const preparationProgressPercent = computed(() => {
   const total = Math.max(0, Number(preparationProgress.value.total || 0));
@@ -705,14 +832,6 @@ const toolbarControlDisabledStyle = Object.freeze({
   '--v-btn-color': 'rgba(var(--v-theme-on-surface), 0.34)',
   opacity: '0.5'
 });
-
-watch(
-  () => props.autoOcr,
-  (value) => {
-    localAutoOcr.value = Boolean(value);
-  },
-  { immediate: true }
-);
 
 watch(
   () => props.autoIndex,
@@ -1202,7 +1321,7 @@ async function renderPdfThumbnails(file, pageCount) {
       try {
         const page = await pdf.getPage(pageNumber);
         const baseViewport = page.getViewport({ scale: 1 });
-        const targetWidth = 118;
+        const targetWidth = 480; // 2× max grid size (240 px) → scharf auf Retina
         const scale = targetWidth / Math.max(1, baseViewport.width);
         const viewport = page.getViewport({ scale });
         const canvas = document.createElement('canvas');
@@ -2002,6 +2121,29 @@ async function onTagInputFocus() {
 }
 function focusTagInput() { tagInputRef.value?.focus(); }
 
+const tagInlineValue = ref('');
+
+async function addTagByInlineInput() {
+  const raw = tagInlineValue.value.trim();
+  tagInlineValue.value = '';
+  if (!raw || !primaryDocument.value) return;
+  const existing = stageTagPool.value.find(t => t.name.toLowerCase() === raw.toLowerCase());
+  const id = existing?.id ?? await createStageTagByName(raw);
+  if (!id) return;
+  const current = primaryDocument.value.tags || [];
+  if (!current.includes(id)) {
+    stagingStore.setDocumentTags(primaryDocument.value.id, [...current, id]);
+  }
+}
+
+function removeTagById(tagId) {
+  if (!primaryDocument.value) return;
+  stagingStore.setDocumentTags(
+    primaryDocument.value.id,
+    (primaryDocument.value.tags || []).filter(id => id !== tagId)
+  );
+}
+
 async function onTagsComboboxUpdate(newItems) {
   if (!primaryDocument.value) return;
   const ids = [];
@@ -2242,6 +2384,7 @@ function closePeek() {
 
 function clearActiveSelection() {
   selected.value = null;
+  clearMultiSelection();
   closePeek();
   peekAnchorEl.value = null;
 }
@@ -3221,8 +3364,8 @@ async function commitImport() {
       body: JSON.stringify({
         documents: commitDocuments.value,
         options: {
-          auto_ocr: Boolean(localAutoOcr.value),
-          auto_index: Boolean(localAutoIndex.value && localAutoOcr.value),
+          auto_ocr: Boolean(settingsStore.settings.documents.auto_ocr),
+          auto_index: Boolean(localAutoIndex.value && settingsStore.settings.documents.auto_ocr),
           auto_embed: Boolean(props.autoEmbed)
         }
       })
@@ -3343,7 +3486,8 @@ onBeforeUnmount(() => {
   flex-direction: column !important;
   overflow: hidden !important;
   height: min(820px, 90vh) !important;
-  max-height: 90vh !important;
+  min-height: min(820px, 90vh) !important;
+  max-height: min(820px, 90vh) !important;
 }
 
 .isd-card.pm-dialog .pm-dialog__header {
@@ -3384,8 +3528,13 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
+.isd-progress {
+  flex: 0 0 auto;
+}
+
 .isd-left {
   flex: 0 0 65%;
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -3397,79 +3546,131 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px;
+  padding: 40px;
 }
 
-/* ── Empty state ── */
-.isd-empty {
+
+/* ── Dropzone ── */
+.isd-dropzone {
+  width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 14px;
+  padding: 32px;
   text-align: center;
-  color: rgba(var(--v-theme-on-surface), 0.4);
-  user-select: none;
+  border: 2px dashed rgb(var(--v-theme-primary));
+  border-radius: 12px;
+  background: rgba(var(--v-theme-primary), 0.04);
+  cursor: pointer;
+  transition: background 0.15s;
+  box-sizing: border-box;
 }
 
-.isd-empty-icon {
-  opacity: 0.35;
+.isd-dropzone--over {
+  background: rgba(var(--v-theme-primary), 0.1);
+}
+
+.isd-dropzone__circle {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  border: 2px solid rgb(var(--v-theme-primary));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgb(var(--v-theme-primary));
   margin-bottom: 4px;
 }
 
-.isd-empty-title {
+.isd-dropzone__title {
   margin: 0;
-  font-size: 14px;
-  font-weight: 500;
-  color: rgba(var(--v-theme-on-surface), 0.5);
-}
-
-.isd-empty-hint {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: rgba(var(--v-theme-on-surface), 0.38);
-}
-
-/* ── Document section label (multi-doc) ── */
-.isd-doc-label {
-  font-size: 11px;
+  font-size: 17px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: rgba(var(--v-theme-on-surface), 0.45);
-  margin: 10px 0 6px;
+  line-height: 1.4;
+  color: rgba(var(--v-theme-on-surface), 0.78);
 }
-.isd-doc-label:first-child { margin-top: 0; }
+
+.isd-dropzone__subtitle {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(var(--v-theme-on-surface), 0.48);
+}
+
+.isd-dropzone__types {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  color: rgba(var(--v-theme-on-surface), 0.32);
+  margin-top: 4px;
+}
 
 /* ── Page grid ── */
 .isd-page-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--pm-grid-min, 164px), 1fr));
-  gap: 10px;
+  gap: 16px;
   margin-bottom: 10px;
 }
 
 /* ── Page card ── */
 .isd-page-card {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  cursor: pointer;
-  border-radius: 6px;
-  padding: 4px;
-  transition: background 0.12s;
+  gap: 4px;
+  cursor: grab;
+  border-radius: 5px;
+  padding: 0;
+  transition: background 0.12s, opacity 0.15s;
 }
 
-.isd-page-card:hover {
-  background: rgba(var(--v-theme-on-surface), 0.05);
+.isd-page-card:hover .isd-page-thumb-wrap {
+  border-color: rgba(var(--v-theme-on-surface), 0.2);
 }
 
-.isd-page-card--selected {
-  background: rgba(var(--v-theme-primary), 0.1);
+.isd-page-card--dragging {
+  opacity: 0.35;
+  cursor: grabbing;
+}
+
+.isd-page-card--drop-before .isd-page-thumb-wrap {
+  border-left: 3px solid rgb(var(--v-theme-primary));
+}
+
+.isd-page-card--drop-after .isd-page-thumb-wrap {
+  border-right: 3px solid rgb(var(--v-theme-primary));
+}
+
+.isd-page-card--multi .isd-page-thumb-wrap {
   outline: 2px solid rgb(var(--v-theme-primary));
-  outline-offset: -2px;
+  outline-offset: 0;
+  border-color: transparent;
+}
+
+.isd-page-card--multi::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgb(var(--v-theme-primary));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='white' d='M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z'/%3E%3C/svg%3E");
+  background-size: 12px;
+  background-repeat: no-repeat;
+  background-position: center;
+  pointer-events: none;
+}
+
+.isd-page-card--selected .isd-page-thumb-wrap {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: 0;
+  border-color: transparent;
 }
 
 /* ── Thumbnail ── */
@@ -3480,7 +3681,8 @@ onBeforeUnmount(() => {
   background: rgba(var(--v-theme-on-surface), 0.05);
   border-radius: 4px;
   overflow: hidden;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+  transition: border-color 0.12s;
 }
 
 .isd-page-thumb-inner {
@@ -3492,14 +3694,37 @@ onBeforeUnmount(() => {
 }
 
 .isd-page-thumb {
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
   display: block;
 }
 
 .isd-page-thumb-placeholder-icon {
   opacity: 0.3;
+}
+
+.isd-page-delete {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(var(--v-theme-error), 0.82);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  padding: 0;
+}
+
+.isd-page-delete:hover {
+  background: rgb(var(--v-theme-error));
+  transform: scale(1.1);
 }
 
 /* ── Page number badge ── */
@@ -3511,7 +3736,10 @@ onBeforeUnmount(() => {
 }
 
 .isd-toolbar {
-  flex: 0 0 auto;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3519,7 +3747,9 @@ onBeforeUnmount(() => {
   padding: 6px 12px;
   border-top: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
   min-height: 46px;
-  background: rgba(var(--v-theme-on-surface), 0.03);
+  background: rgba(var(--v-theme-surface), 0.82);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .isd-toolbar-btn {
@@ -3568,8 +3798,14 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 14px;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 18px 20px;
+}
+
+.isd-props--disabled {
+  pointer-events: none;
+  opacity: 0.4;
 }
 
 /* ── Fields ── */
@@ -3593,6 +3829,45 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 4px;
   align-items: center;
+}
+
+.isd-tags-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 5px;
+  height: 114px; /* ~3× kompaktes Textfeld (38px) */
+  overflow-y: auto;
+  padding: 8px 10px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.24);
+  border-radius: 4px;
+  cursor: text;
+  transition: border-color 0.15s;
+}
+
+.isd-tags-field:focus-within {
+  border-color: rgb(var(--v-theme-primary));
+  outline: 1px solid rgb(var(--v-theme-primary));
+}
+
+.isd-tags-chip {
+  flex-shrink: 0;
+}
+
+.isd-tags-input {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  color: rgb(var(--v-theme-on-surface));
+  min-width: 100px;
+  flex: 1 1 auto;
+  padding: 2px 0;
+  align-self: center;
+}
+
+.isd-tags-input::placeholder {
+  color: rgba(var(--v-theme-on-surface), 0.38);
 }
 
 
