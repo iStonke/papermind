@@ -710,7 +710,7 @@ const hasAnySelectedPage = computed(() => Boolean(selected.value?.pageId));
 const gridScrollStyle = computed(() => ({
   '--pm-grid-min': ['100px', '140px', '185px', '240px'][gridZoomIndex.value] || '140px'
 }));
-const isImportActionDisabled = computed(() => totalPages.value <= 0 || isUploadingSources.value || isCommitting.value);
+const isImportActionDisabled = computed(() => totalPages.value <= 0 || !primaryDocTitle.value.trim() || isUploadingSources.value || isCommitting.value);
 
 /* ── Multi-Selektion ── */
 const multiSelectedPageIds = ref(new Set());
@@ -2088,7 +2088,10 @@ function onPrimaryDocTitleInput(event) {
 
 function onPrimaryDocTitleBlur() {
   if (!primaryDocument.value) return;
-  stagingStore.renameDocument(primaryDocument.value.id, primaryDocument.value?.title || 'Neues Dokument');
+  const title = (primaryDocument.value?.title || '').trim();
+  if (title) {
+    stagingStore.renameDocument(primaryDocument.value.id, title);
+  }
 }
 
 function rotateAnySelectedPage(delta) {
