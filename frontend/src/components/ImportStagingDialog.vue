@@ -3901,15 +3901,19 @@ onBeforeUnmount(() => {
   height: 76px; /* ~2× kompaktes Textfeld (38px) */
   overflow-y: auto;
   padding: 8px 10px;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.24);
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.38);
   border-radius: 4px;
   cursor: text;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, border-width 0.15s, padding 0.15s;
+}
+
+.isd-tags-field:hover {
+  border-color: rgba(var(--v-theme-on-surface), var(--v-high-emphasis-opacity));
 }
 
 .isd-tags-field:focus-within {
-  border-color: rgb(var(--v-theme-primary));
-  outline: 1px solid rgb(var(--v-theme-primary));
+  border: 2px solid rgb(var(--v-theme-primary));
+  padding: 7px 9px; /* kompensiert den extra px vom 2px-Rahmen */
 }
 
 .isd-tags-chip {
