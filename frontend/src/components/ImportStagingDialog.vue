@@ -3926,7 +3926,7 @@ onBeforeUnmount(() => {
 }
 
 .isd-tags-input::placeholder {
-  color: rgba(var(--v-theme-on-surface), 0.38);
+  color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
 }
 
 
