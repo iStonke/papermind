@@ -118,13 +118,6 @@
                   />
                   <v-icon v-else size="32" class="isd-page-thumb-placeholder-icon">mdi-file-document-outline</v-icon>
                 </div>
-                <button
-                  class="isd-page-delete"
-                  title="Seite entfernen"
-                  @click.stop="removePage(page.id)"
-                >
-                  <v-icon size="13">mdi-trash-can-outline</v-icon>
-                </button>
               </div>
               <div class="isd-page-num">{{ globalIndex + 1 }}</div>
             </div>
@@ -155,33 +148,45 @@
           <div class="isd-rotate-group">
             <v-btn
               icon
-              size="small"
+              size="x-small"
               variant="outlined"
               title="Nach links drehen"
               :disabled="!hasAnySelectedPage"
               @click="rotateAnySelectedPage(-90)"
             >
-              <v-icon size="18">mdi-rotate-left</v-icon>
+              <v-icon size="16">mdi-rotate-left</v-icon>
             </v-btn>
             <v-btn
               icon
-              size="small"
+              size="x-small"
               variant="outlined"
               title="Nach rechts drehen"
               :disabled="!hasAnySelectedPage"
               @click="rotateAnySelectedPage(90)"
             >
-              <v-icon size="18">mdi-rotate-right</v-icon>
+              <v-icon size="16">mdi-rotate-right</v-icon>
             </v-btn>
           </div>
 
           <v-btn
-            size="small"
+            icon
+            size="x-small"
             variant="outlined"
-            class="isd-toolbar-btn"
-            @click="toggleSelectAll"
+            title="Ausgewählte Seiten löschen"
+            :disabled="!isDeleteEnabled"
+            @click="deleteSelectedPages"
           >
-            {{ allPagesSelected ? 'Auswahl aufheben' : 'Alle auswählen' }}
+            <v-icon size="16">mdi-trash-can-outline</v-icon>
+          </v-btn>
+
+          <v-btn
+            size="small"
+            :variant="isSelectMode ? 'tonal' : 'outlined'"
+            :color="isSelectMode ? 'primary' : undefined"
+            class="isd-toolbar-btn"
+            @click="toggleSelectMode"
+          >
+            {{ isSelectMode ? `Abbrechen${hasMultiSelection ? ' (' + multiSelectionCount + ')' : ''}` : 'Auswählen' }}
           </v-btn>
 
           <div class="isd-zoom-group">
@@ -253,6 +258,8 @@
               density="compact"
               variant="outlined"
               hide-details
+              inputmode="numeric"
+              :maxlength="10"
             />
             <v-btn
               icon
@@ -283,28 +290,30 @@
         <!-- Tags -->
         <div class="isd-field">
           <div class="isd-field-label">Tags</div>
-          <div
-            class="isd-tags-field"
-            @click="$refs.tagInlineInput?.focus()"
-          >
-            <v-chip
-              v-for="tag in primaryDocTags"
-              :key="tag.id"
-              size="small"
-              closable
-              class="isd-tags-chip"
-              @click:close.stop="removeTagById(tag.id)"
-            >{{ tag.name }}</v-chip>
-            <input
-              ref="tagInlineInput"
-              v-model="tagInlineValue"
-              class="isd-tags-input"
-              placeholder="Tag hinzufügen…"
-              @focus="ensureStageTagsLoaded()"
-              @keydown.enter.prevent="addTagByInlineInput"
-              @keydown.188.prevent="addTagByInlineInput"
-            />
-          </div>
+          <v-combobox
+            :model-value="primaryDocTagNames"
+            v-model:search="tagInlineValue"
+            :items="allTagNamesForPool"
+            multiple
+            chips
+            closable-chips
+            hide-selected
+            :clearable="false"
+            density="compact"
+            variant="outlined"
+            hide-details
+            placeholder="Tag hinzufügen…"
+            :loading="isCreatingTags"
+            :menu-props="{
+              maxHeight: 220,
+              offset: 4,
+              closeOnContentClick: false,
+              attach: 'body',
+              zIndex: 6000
+            }"
+            @update:model-value="onTagNamesChange"
+            @focus="ensureStageTagsLoaded()"
+          />
         </div>
 
         <!-- Note -->
@@ -470,13 +479,18 @@ const autoScrollState = {
 const isViewSwitching = ref(false);
 
 const DOC_CATEGORIES = ['Rechnungen', 'Verträge', 'Briefe', 'Belege', 'Steuern', 'Versicherung', 'Bank'];
-const docDate = ref('');
+const docDate = ref(todayDateStr());
 const docCategory = ref('');
 const docNote = ref('');
+
 const docOcrLang = computed(() => settingsStore.settings.documents.ocr_doc_lang ?? 'de');
+const docDateIso = computed(() => germanDateToIso(docDate.value));
+const isDocDateValid = computed(() => isValidGermanDate(docDate.value));
 const tagInputRef = ref(null);
 const tagSearchInput = ref('');
 const tagDropdownOpen = ref(false);
+const tagInlineValue = ref('');
+const isCreatingTags = ref(false);
 const gridZoomIndex = ref(1);
 
 const isOpen = computed({
@@ -706,16 +720,20 @@ const tagDropdownResults = computed(() => {
   if (!q) return pool.slice(0, 8);
   return pool.filter(t => t.name.toLowerCase().includes(q)).slice(0, 8);
 });
+const primaryDocTagNames = computed(() => primaryDocTags.value.map(t => t.name));
+const allTagNamesForPool = computed(() => stageTagPool.value.map(t => t.name));
 const hasAnySelectedPage = computed(() => Boolean(selected.value?.pageId));
 const gridScrollStyle = computed(() => ({
   '--pm-grid-min': ['100px', '140px', '185px', '240px'][gridZoomIndex.value] || '140px'
 }));
-const isImportActionDisabled = computed(() => totalPages.value <= 0 || !primaryDocTitle.value.trim() || isUploadingSources.value || isCommitting.value);
+const isImportActionDisabled = computed(() => totalPages.value <= 0 || !primaryDocTitle.value.trim() || !isDocDateValid.value || isUploadingSources.value || isCommitting.value);
 
 /* ── Multi-Selektion ── */
 const multiSelectedPageIds = ref(new Set());
 const hasMultiSelection = computed(() => multiSelectedPageIds.value.size > 0);
 const multiSelectionCount = computed(() => multiSelectedPageIds.value.size);
+const isSelectMode = ref(false);
+const isDeleteEnabled = computed(() => hasMultiSelection.value || hasAnySelectedPage.value);
 
 function isPageMultiSelected(pageId) {
   return multiSelectedPageIds.value.has(pageId);
@@ -740,7 +758,39 @@ function toggleSelectAll() {
   }
 }
 
+function toggleSelectMode() {
+  isSelectMode.value = !isSelectMode.value;
+  if (!isSelectMode.value) {
+    clearMultiSelection();
+  }
+}
+
+async function deleteSelectedPages() {
+  if (hasMultiSelection.value) {
+    const toDelete = [...multiSelectedPageIds.value];
+    clearMultiSelection();
+    for (const pageId of toDelete) {
+      await removePage(pageId);
+    }
+    if (isSelectMode.value && totalPages.value === 0) {
+      isSelectMode.value = false;
+    }
+  } else if (selected.value?.pageId) {
+    await removeSelectedPage(selected.value.stageId);
+  }
+}
+
 function onPageGridClick(event, doc, page, globalIndex) {
+  if (isSelectMode.value) {
+    const next = new Set(multiSelectedPageIds.value);
+    if (next.has(page.id)) {
+      next.delete(page.id);
+    } else {
+      next.add(page.id);
+    }
+    multiSelectedPageIds.value = next;
+    return;
+  }
   if (event.metaKey || event.ctrlKey) {
     const next = new Set(multiSelectedPageIds.value);
     if (next.size === 0 && selected.value?.pageId) {
@@ -855,6 +905,33 @@ function getToolbarControlStyle(disabled) {
   return disabled ? toolbarControlDisabledStyle : toolbarControlEnabledStyle;
 }
 
+/* ── Datum-Hilfsfunktionen ── */
+function todayDateStr() {
+  const d = new Date();
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}.${mm}.${d.getFullYear()}`;
+}
+
+function isValidGermanDate(str) {
+  if (!/^\d{2}\.\d{2}\.\d{4}$/.test(str)) return false;
+  const [dd, mm, yyyy] = str.split('.').map(Number);
+  const d = new Date(yyyy, mm - 1, dd);
+  return d.getFullYear() === yyyy && d.getMonth() === mm - 1 && d.getDate() === dd;
+}
+
+function germanDateToIso(str) {
+  if (!str || !isValidGermanDate(str)) return null;
+  const [dd, mm, yyyy] = str.split('.');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function isoToGermanDate(iso) {
+  if (!iso) return '';
+  const [yyyy, mm, dd] = iso.split('-');
+  return `${dd}.${mm}.${yyyy}`;
+}
+
 function normalizeTagName(rawName) {
   return String(rawName || '').replace(/\s+/g, ' ').trim();
 }
@@ -967,6 +1044,7 @@ watch(
       isViewSwitching.value = false;
     }
     if (open) {
+      docDate.value = todayDateStr();
       return;
     }
     isDropzoneDragOver.value = false;
@@ -2114,62 +2192,40 @@ function removePrimaryDocTag(tagId) {
   if (!primaryDocument.value) return;
   onDocumentTagsUpdate(primaryDocument.value.id, (primaryDocument.value.tags || []).filter(id => id !== tagId));
 }
-async function onTagInputEnter() {
-  const search = tagSearchInput.value.trim();
-  if (!search) return;
-  const existing = stageTagPool.value.find(t => t.name.toLowerCase() === search.toLowerCase());
-  if (existing) { addPrimaryDocTagById(existing.id); tagSearchInput.value = ''; return; }
-  const newId = await createStageTagByName(search);
-  if (newId) addPrimaryDocTagById(newId);
-  tagSearchInput.value = '';
-}
 function onTagInputBackspace() {
   if (tagSearchInput.value === '' && primaryDocument.value?.tags?.length > 0) {
     const tags = primaryDocument.value.tags;
     removePrimaryDocTag(tags[tags.length - 1]);
   }
 }
-async function onTagInputFocus() {
-  await ensureStageTagsLoaded();
-}
 function focusTagInput() { tagInputRef.value?.focus(); }
 
-const tagInlineValue = ref('');
-
-async function addTagByInlineInput() {
-  const raw = tagInlineValue.value.trim();
-  tagInlineValue.value = '';
-  if (!raw || !primaryDocument.value) return;
-  const existing = stageTagPool.value.find(t => t.name.toLowerCase() === raw.toLowerCase());
-  const id = existing?.id ?? await createStageTagByName(raw);
-  if (!id) return;
-  const current = primaryDocument.value.tags || [];
-  if (!current.includes(id)) {
-    stagingStore.setDocumentTags(primaryDocument.value.id, [...current, id]);
-  }
-}
-
-function removeTagById(tagId) {
+async function onTagNamesChange(newNames) {
   if (!primaryDocument.value) return;
-  stagingStore.setDocumentTags(
-    primaryDocument.value.id,
-    (primaryDocument.value.tags || []).filter(id => id !== tagId)
-  );
-}
-
-async function onTagsComboboxUpdate(newItems) {
-  if (!primaryDocument.value) return;
-  const ids = [];
-  for (const item of newItems) {
-    if (typeof item === 'string') {
-      const id = await createStageTagByName(item);
+  isCreatingTags.value = true;
+  try {
+    const ids = [];
+    for (const name of newNames) {
+      if (!name || typeof name !== 'string') continue;
+      const id = findStageTagIdByName(name) || await createStageTagByName(name);
       if (id) ids.push(id);
-    } else if (item?.id) {
-      ids.push(item.id);
     }
+    stagingStore.setDocumentTags(primaryDocument.value.id, ids);
+  } finally {
+    isCreatingTags.value = false;
   }
-  stagingStore.setDocumentTags(primaryDocument.value.id, ids);
 }
+
+// Auto-Masking DD.MM.YYYY beim Tippen
+watch(docDate, (newVal, oldVal) => {
+  if (newVal.length <= (oldVal?.length ?? 0)) return; // Löschen: nicht eingreifen
+  const digits = newVal.replace(/\D/g, '').slice(0, 8);
+  let formatted = digits;
+  if (digits.length > 2) formatted = digits.slice(0, 2) + '.' + digits.slice(2);
+  if (digits.length > 4) formatted = digits.slice(0, 2) + '.' + digits.slice(2, 4) + '.' + digits.slice(4);
+  if (formatted !== newVal) docDate.value = formatted;
+}, { flush: 'sync' });
+
 
 function normalizeSourceFileId(sourceFileId) {
   return String(sourceFileId || '').trim();
@@ -3377,7 +3433,7 @@ async function commitImport() {
       body: JSON.stringify({
         documents: commitDocuments.value.map((doc, idx) =>
           idx === 0
-            ? { ...doc, category: docCategory.value || null, note: docNote.value.trim() || null }
+            ? { ...doc, category: docCategory.value || null, note: docNote.value.trim() || null, date: docDateIso.value || null }
             : doc
         ),
         options: {
@@ -3721,29 +3777,6 @@ onBeforeUnmount(() => {
   opacity: 0.3;
 }
 
-.isd-page-delete {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: none;
-  background: rgba(var(--v-theme-error), 0.82);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: background 0.15s, transform 0.1s;
-  padding: 0;
-}
-
-.isd-page-delete:hover {
-  background: rgb(var(--v-theme-error));
-  transform: scale(1.1);
-}
-
 /* ── Page number badge ── */
 .isd-page-num {
   font-size: 11px;
@@ -3806,7 +3839,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 4px;
-  padding: 6px 12px;
+  padding: 8px 12px;
   border-top: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
   min-height: 46px;
   background: rgba(var(--v-theme-surface), 0.82);
@@ -3892,52 +3925,6 @@ onBeforeUnmount(() => {
   gap: 4px;
   align-items: center;
 }
-
-.isd-tags-field {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 5px;
-  height: 76px; /* ~2× kompaktes Textfeld (38px) */
-  overflow-y: auto;
-  padding: 8px 10px;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.38);
-  border-radius: 4px;
-  cursor: text;
-  transition: border-color 0.15s, border-width 0.15s, padding 0.15s;
-}
-
-.isd-tags-field:hover {
-  border-color: rgba(var(--v-theme-on-surface), var(--v-high-emphasis-opacity));
-}
-
-.isd-tags-field:focus-within {
-  border: 2px solid rgb(var(--v-theme-primary));
-  padding: 7px 9px; /* kompensiert den extra px vom 2px-Rahmen */
-}
-
-.isd-tags-chip {
-  flex-shrink: 0;
-}
-
-.isd-tags-input {
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: 13px;
-  color: rgb(var(--v-theme-on-surface));
-  min-width: 100px;
-  flex: 1 1 auto;
-  padding: 2px 0;
-  align-self: center;
-}
-
-.isd-tags-input::placeholder {
-  color: currentColor;
-  opacity: var(--v-disabled-opacity);
-}
-
-
 
 
 .isd-ai-chip {
