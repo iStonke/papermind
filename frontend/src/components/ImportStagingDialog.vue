@@ -128,20 +128,29 @@
               </div>
               <div class="isd-page-num">{{ globalIndex + 1 }}</div>
             </div>
+
+            <!-- Add-files placeholder card -->
+            <div
+              class="isd-add-page-card"
+              :class="{ 'isd-add-page-card--disabled': isUploadingSources || isCommitting }"
+              role="button"
+              tabindex="0"
+              title="Dateien hinzufügen"
+              @click="openFilePicker"
+              @keydown.enter.prevent="openFilePicker"
+              @keydown.space.prevent="openFilePicker"
+            >
+              <div class="isd-add-page-thumb-wrap">
+                <div class="isd-add-page-inner">
+                  <v-icon size="28">mdi-plus</v-icon>
+                </div>
+              </div>
+              <div class="isd-page-num" aria-hidden="true">&nbsp;</div>
+            </div>
           </div>
 
         </div>
         <div v-show="!isEmpty" class="isd-toolbar">
-          <v-btn
-            size="small"
-            variant="outlined"
-            prepend-icon="mdi-plus"
-            class="isd-toolbar-btn"
-            :disabled="isUploadingSources || isCommitting"
-            @click="openFilePicker"
-          >
-            Dateien hinzufügen
-          </v-btn>
 
           <div class="isd-rotate-group">
             <v-btn
@@ -3706,6 +3715,51 @@ onBeforeUnmount(() => {
   font-weight: 500;
   text-align: center;
   color: rgba(var(--v-theme-on-surface), 0.5);
+}
+
+/* ── Add-files placeholder card ── */
+.isd-add-page-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  border-radius: 5px;
+  padding: 0;
+}
+
+.isd-add-page-card--disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.isd-add-page-thumb-wrap {
+  position: relative;
+  width: 100%;
+  padding-top: 133%;
+  background: rgba(var(--v-theme-on-surface), 0.03);
+  border-radius: 4px;
+  border: 2px dashed rgba(var(--v-theme-on-surface), 0.18);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.isd-add-page-card:hover .isd-add-page-thumb-wrap {
+  border-color: rgba(var(--v-theme-primary), 0.55);
+  background: rgba(var(--v-theme-primary), 0.05);
+}
+
+.isd-add-page-inner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(var(--v-theme-on-surface), 0.25);
+  transition: color 0.15s;
+}
+
+.isd-add-page-card:hover .isd-add-page-inner {
+  color: rgb(var(--v-theme-primary));
 }
 
 .isd-toolbar {
