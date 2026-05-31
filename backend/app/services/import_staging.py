@@ -804,16 +804,30 @@ class ImportStagingService:
         model: str,
         timeout_seconds: float,
         max_input_chars: int,
+        existing_tags: list[str] | None = None,
     ) -> dict[str, object] | None:
         """Call Ollama to extract metadata from OCR text.
 
         Returns a dict with doc_type, issuer, subject, date, tags, amount, currency
         or None if Ollama is unreachable or returns an unparseable response.
         Text is truncated to max_input_chars before sending.
+
+        existing_tags steuert die Tag-Vergabe: das Modell soll – wenn inhaltlich
+        passend – vorhandene Tags wiederverwenden statt neue Varianten zu erfinden.
         """
         text_for_llm = " ".join(str(ocr_text or "").split())[:max_input_chars]
         if not text_for_llm:
             return None
+
+        tag_names = [str(n).strip() for n in (existing_tags or []) if str(n).strip()]
+        tag_hint = ""
+        if tag_names:
+            tag_hint = (
+                '\nWICHTIG für "tags": Bevorzuge – wenn inhaltlich passend – diese bereits '
+                "vorhandenen Tags und schreibe sie EXAKT so: "
+                + ", ".join(tag_names[:60])
+                + ". Erfinde nur dann ein neues Tag, wenn inhaltlich keines davon passt.\n"
+            )
 
         prompt = (
             "Extrahiere aus dem folgenden OCR-Text eines deutschen Dokuments die Metadaten. "
@@ -825,8 +839,9 @@ class ImportStagingService:
             '- "date": Dokumentdatum als YYYY-MM-DD oder null\n'
             '- "tags": Array mit 1–3 deutschen Schlagworten oder []\n'
             '- "amount": Gesamtbetrag als Zahl (z.B. 123.45) oder null\n'
-            '- "currency": "EUR" oder null\n\n'
-            f"OCR-Text:\n{text_for_llm}"
+            '- "currency": "EUR" oder null\n'
+            + tag_hint
+            + f"\nOCR-Text:\n{text_for_llm}"
         )
         payload = {"model": model, "stream": False, "format": "json", "prompt": prompt}
 
@@ -1086,6 +1101,15 @@ class ImportStagingService:
         filename = f"{base}{_FILENAME_SEPARATOR}{cls._format_euro(amount_value)}" if amount_value is not None else base
         return cls._clean_filename_component(filename, max_len=_FILENAME_MAX_LEN).replace(" - ", _FILENAME_SEPARATOR)
 
+    def _load_existing_tag_names(self, limit: int = 200) -> list[str]:
+        """Vorhandene Tag-Namen für die KI-Tag-Vergabe (bevorzugt wiederverwenden)."""
+        try:
+            rows = self.db.execute(select(Tag.name).order_by(Tag.name).limit(limit)).scalars().all()
+        except Exception as exc:  # noqa: BLE001 - best effort, darf die Erkennung nie blockieren
+            logger.warning("stage title: could not load existing tags: %s", exc)
+            return []
+        return [str(name).strip() for name in rows if name and str(name).strip()]
+
     def suggest_stage_title(
         self,
         source_file_ids: list[str],
@@ -1160,6 +1184,7 @@ class ImportStagingService:
         # Try Ollama first if configured, fall back to rule-based extraction.
         runtime_settings = self.settings_service.get_settings().model_dump(mode="json")
         ollama_cfg = runtime_settings.get("ollama") or {}
+        existing_tag_names = self._load_existing_tag_names()
         ollama_rich: dict[str, object] | None = None
         if ollama_cfg.get("enabled"):
             ollama_rich = self._call_ollama_for_staging(
@@ -1168,6 +1193,7 @@ class ImportStagingService:
                 model=str(ollama_cfg.get("model") or "llama3.2:3b"),
                 timeout_seconds=float(ollama_cfg.get("timeout_seconds") or 90.0),
                 max_input_chars=int(ollama_cfg.get("max_input_chars") or 800),
+                existing_tags=existing_tag_names,
             )
             if ollama_rich:
                 logger.info("SuggestTitle: ollama extraction succeeded stage=%s", str(stage_id or "").strip() or "-")
@@ -1202,6 +1228,21 @@ class ImportStagingService:
             if isinstance(tags_val, list)
             else []
         )
+        # Auf vorhandene Schreibweise einrasten: stimmt ein Tag (unabhängig von
+        # Groß-/Kleinschreibung und Randleerzeichen) mit einem bestehenden Tag
+        # überein, exakt dessen Schreibweise verwenden. Verhindert Casing-Duplikate
+        # und sorgt dafür, dass das Frontend das vorhandene Tag wiederverwendet.
+        if final_tags and existing_tag_names:
+            existing_by_lower = {name.casefold(): name for name in existing_tag_names}
+            deduped: list[str] = []
+            seen_lower: set[str] = set()
+            for tag in final_tags:
+                canonical = existing_by_lower.get(tag.casefold(), tag)
+                key = canonical.casefold()
+                if key not in seen_lower:
+                    seen_lower.add(key)
+                    deduped.append(canonical)
+            final_tags = deduped
 
         merged_meta: dict[str, object] = {
             "doc_type": normalized_doc_type,
