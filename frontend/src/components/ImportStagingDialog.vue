@@ -2136,21 +2136,45 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
               docCategory.value = aiCategory;
               docCategoryAiFilled.value = true;
             }
-            // Tags: auf bestehende Tags matchen
+            // Tags: vorhandene bevorzugen, sonst sinnvolle neu anlegen.
+            // findStageTagIdByName matcht normalisiert (Groß-/Kleinschreibung,
+            // Leerzeichen) gegen den Bestand; das Backend rastet KI-Tags zusätzlich
+            // auf die exakte Schreibweise vorhandener Tags ein. Nur wenn wirklich
+            // kein passendes Tag existiert, wird eines neu erstellt.
             const aiTags = Array.isArray(aiMeta.tags) ? aiMeta.tags : [];
             if (aiTags.length > 0 && !docTagsTouched.value && primaryDocument.value) {
               await ensureStageTagsLoaded();
-              const current = new Set(primaryDocument.value.tags || []);
+              const targetDocId = primaryDocument.value.id;
               const toAdd = [];
-              for (const tagName of aiTags) {
-                const id = findStageTagIdByName(String(tagName || ''));
-                if (id && !current.has(id)) {
+              for (const rawName of aiTags) {
+                const name = normalizeTagName(String(rawName || ''));
+                if (!name) continue;
+                let id = findStageTagIdByName(name);
+                if (!id) {
+                  try {
+                    id = await createStageTagByName(name);
+                  } catch (tagErr) {
+                    console.warn('[ImportStaging] Tag konnte nicht angelegt werden:', name, tagErr);
+                    continue;
+                  }
+                }
+                if (id && !toAdd.includes(id)) {
                   toAdd.push(id);
                 }
               }
-              if (toAdd.length > 0) {
-                onDocumentTagsUpdate(primaryDocument.value.id, [...current, ...toAdd]);
-                docTagsAiFilled.value = true;
+              // Aktuellen Tag-Stand frisch lesen (das Dokument könnte sich während
+              // der await-Aufrufe geändert haben) und nur fehlende Tags ergänzen.
+              const freshDoc = getDocumentById(targetDocId);
+              if (freshDoc && toAdd.length > 0) {
+                const current = new Set(freshDoc.tags || []);
+                const merged = [...current];
+                for (const id of toAdd) {
+                  if (!current.has(id)) merged.push(id);
+                }
+                if (merged.length > current.size) {
+                  onDocumentTagsUpdate(targetDocId, merged);
+                  docTagsAiFilled.value = true;
+                }
               }
             }
           }
