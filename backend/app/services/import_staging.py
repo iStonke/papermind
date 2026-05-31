@@ -1446,6 +1446,9 @@ class ImportStagingService:
                 assembled_path, assembled_page_count = self._build_document_pdf(title, staging_doc.pages, reader_cache)
                 upload_file = _LocalPdfUpload(self._safe_document_filename(title), assembled_path)
                 created_doc = self.document_service.upload_document(upload_file, document_date=None, notes=None)
+                if staging_doc.category:
+                    created_doc.category = staging_doc.category
+                    self.document_service.db.commit()
                 if staging_doc.tag_ids:
                     self.document_service.replace_document_tags(
                         created_doc.id,

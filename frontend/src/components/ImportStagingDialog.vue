@@ -338,7 +338,7 @@
           </div>
           <v-select
             v-model="docCategory"
-            :items="DOC_CATEGORIES"
+            :items="categoryItems"
             placeholder="Kategorie wählen…"
             density="compact"
             variant="outlined"
@@ -498,6 +498,7 @@ import { isIOS } from '../utils/platform';
 import { mapApiError, useNotifications } from '../stores/notifications';
 import { useImportStagingStore } from '../stores/importStaging';
 import { useSettingsStore } from '../stores/settings';
+import { useCategoryStore } from '../stores/categories';
 import {
   SHORTCUT_ACTIONS,
   handleShortcut,
@@ -518,6 +519,7 @@ const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources']
 const { notify } = useNotifications();
 const stagingStore = useImportStagingStore();
 const settingsStore = useSettingsStore();
+const categoryStore = useCategoryStore();
 const theme = useTheme();
 const { documents, documentCount, totalPages, emptyDocuments, commitDocuments } = storeToRefs(stagingStore);
 
@@ -594,7 +596,6 @@ const autoScrollState = {
 };
 const isViewSwitching = ref(false);
 
-const DOC_CATEGORIES = ['Rechnungen', 'Verträge', 'Briefe', 'Belege', 'Steuern', 'Versicherung', 'Bank'];
 const docDate = ref('');
 const docCategory = ref(null);
 const docNote = ref('');
@@ -606,6 +607,18 @@ const docTitleAiFilled = ref(false);
 const docDateAiFilled = ref(false);
 const docCategoryAiFilled = ref(false);
 const docTagsAiFilled = ref(false);
+
+// Auswählbare Kategorien aus der zentral verwalteten Liste (Einstellungen).
+// Ein bereits gesetzter / KI-vorgeschlagener Wert, der (noch) nicht im
+// Vokabular steht, wird trotzdem als Option ergänzt, damit er sichtbar bleibt.
+const categoryItems = computed(() => {
+  const names = [...categoryStore.categoryNames];
+  const current = docCategory.value;
+  if (current && !names.includes(current)) {
+    names.unshift(current);
+  }
+  return names;
+});
 
 const docOcrLang = computed(() => settingsStore.settings.documents.ocr_doc_lang ?? 'de');
 const docDateIso = computed(() => germanDateToIso(docDate.value));
@@ -1211,6 +1224,8 @@ watch(
       isViewSwitching.value = false;
     }
     if (open) {
+      // Verfügbare Kategorien für das Dropdown laden (zentral in den Einstellungen gepflegt).
+      void categoryStore.fetchCategories();
       return;
     }
     isDropzoneDragOver.value = false;

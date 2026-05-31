@@ -1221,6 +1221,8 @@ class DocumentService:
             document.document_date_candidates = None
         if "notes" in data:
             document.notes = data["notes"]
+        if "category" in data:
+            document.category = data["category"]
         if "status" in data and data["status"] is not None:
             document.status = data["status"].value
         if "display_name" in data:

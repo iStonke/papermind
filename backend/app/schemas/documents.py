@@ -89,8 +89,17 @@ class DocumentCreateRequest(BaseModel):
 class DocumentUpdateRequest(BaseModel):
     document_date: date | None = Field(default=None, validation_alias=AliasChoices("document_date", "doc_date"))
     notes: str | None = Field(default=None, max_length=10000)
+    category: str | None = Field(default=None, max_length=200)
     status: DocumentStatus | None = None
     display_name: str | None = Field(default=None, max_length=200)
+
+    @field_validator("category")
+    @classmethod
+    def normalize_category(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.split()).strip()
+        return normalized or None
 
     @field_validator("display_name")
     @classmethod
@@ -140,6 +149,7 @@ class DocumentSummary(ORMModel):
     document_date_source: DocumentDateSource
     document_date_confidence: float | None
     document_date_candidates: list[dict[str, Any]] | None = None
+    category: str | None = None
     status: DocumentStatus
     ocr_status: DocumentOCRStatus
     ocr_quality_status: DocumentOCRQualityStatus | None = None
@@ -173,6 +183,7 @@ class DocumentDetail(ORMModel):
     document_date_confidence: float | None
     document_date_candidates: list[dict[str, Any]] | None = None
     notes: str | None
+    category: str | None = None
     status: DocumentStatus
     ocr_status: DocumentOCRStatus
     ocr_quality_status: DocumentOCRQualityStatus | None = None

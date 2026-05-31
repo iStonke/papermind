@@ -1,4 +1,5 @@
 from app.routers.ai import router as ai_router
+from app.routers.categories import router as categories_router
 from app.routers.direct_upload import router as direct_upload_router
 from app.routers.documents import router as documents_router
 from app.routers.health import router as health_router
@@ -17,6 +18,7 @@ __all__ = [
     "direct_upload_router",
     "import_router",
     "tags_router",
+    "categories_router",
     "jobs_router",
     "retrieval_router",
     "saved_searches_router",
