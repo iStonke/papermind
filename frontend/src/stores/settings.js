@@ -127,11 +127,11 @@ function createDefaultSettings() {
       remove_headers_footers: true
     },
     ollama: {
-      enabled: false,
-      base_url: 'http://localhost:11434',
+      enabled: true,
+      base_url: 'http://host.docker.internal:11434',
       model: 'llama3.2:3b',
       timeout_seconds: 90,
-      max_input_chars: 800
+      max_input_chars: 1500
     },
     quality: {
       enable_answer_checks: true,
@@ -151,13 +151,6 @@ function cloneSettings(settingsValue) {
     llm: { ...settingsValue.llm },
     rag: { ...settingsValue.rag },
     ocr: { ...settingsValue.ocr },
-    ollama: {
-      enabled: false,
-      base_url: 'http://localhost:11434',
-      model: 'llama3.2:3b',
-      timeout_seconds: 90,
-      max_input_chars: 800
-    },
     quality: { ...settingsValue.quality },
     ollama: { ...settingsValue.ollama },
     meta: { ...settingsValue.meta }
