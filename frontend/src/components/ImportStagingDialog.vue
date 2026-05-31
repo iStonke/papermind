@@ -270,18 +270,6 @@
               @update:model-value="onPrimaryDocTitleInput({ target: { value: $event } })"
               @blur="onPrimaryDocTitleBlur"
             />
-            <v-btn
-              icon
-              size="small"
-              variant="text"
-              color="primary"
-              :loading="isPrimaryDocTitleBusy"
-              :disabled="isPrimaryDocTitleBusy || !primaryDocument || primaryDocument.pages.length === 0"
-              title="Titel mit KI vorschlagen"
-              @click="primaryDocument && requestScanTitleSuggestion(primaryDocument.id, 'first_page')"
-            >
-              <v-icon size="18">mdi-creation</v-icon>
-            </v-btn>
           </div>
           <button
             v-if="primaryDocSuggestionText"
@@ -302,7 +290,6 @@
             <v-tooltip text="Wann wurde das Dokument ausgestellt? (Nicht das Importdatum)" location="top" max-width="220">
               <template #activator="{ props: tip }"><v-icon class="isd-field-info" v-bind="tip" size="14">mdi-information-outline</v-icon></template>
             </v-tooltip>
-            <span v-if="docDateAiFilled" class="isd-ai-filled-badge">KI</span>
           </div>
           <div class="isd-field-row">
             <v-text-field
@@ -315,15 +302,6 @@
               :maxlength="10"
               @input="docDateTouched = true; docDateAiFilled = false"
             />
-            <v-btn
-              icon
-              size="small"
-              variant="text"
-              color="primary"
-              title="Datum aus Dokument erkennen"
-            >
-              <v-icon size="18">mdi-creation</v-icon>
-            </v-btn>
           </div>
         </div>
 
@@ -334,7 +312,6 @@
             <v-tooltip text="Grobe Einordnung: Was ist das Dokument? Ein Dokument gehört zu genau einer Kategorie." location="top" max-width="220">
               <template #activator="{ props: tip }"><v-icon class="isd-field-info" v-bind="tip" size="14">mdi-information-outline</v-icon></template>
             </v-tooltip>
-            <span v-if="docCategoryAiFilled" class="isd-ai-filled-badge">KI</span>
           </div>
           <v-select
             v-model="docCategory"
@@ -355,7 +332,6 @@
             <v-tooltip text="Freie Schlagwörter für Kontext, Projekt oder Personen. Mehrere Tags möglich." location="top" max-width="220">
               <template #activator="{ props: tip }"><v-icon class="isd-field-info" v-bind="tip" size="14">mdi-information-outline</v-icon></template>
             </v-tooltip>
-            <span v-if="docTagsAiFilled" class="isd-ai-filled-badge">KI</span>
           </div>
           <v-combobox
             :model-value="primaryDocTagNames"
@@ -380,7 +356,15 @@
             }"
             @update:model-value="onTagNamesChange"
             @focus="ensureStageTagsLoaded()"
-          />
+          >
+            <template #chip="{ item, props: chipProps }">
+              <!-- Neue (noch nicht angelegte) Tags gestrichelt markieren -->
+              <v-chip
+                v-bind="chipProps"
+                :class="{ 'isd-tag-chip--new': isNewTagName(item.title) }"
+              />
+            </template>
+          </v-combobox>
         </div>
 
         <!-- Note -->
@@ -641,6 +625,11 @@ function ensureScanMeta(documentEntry) {
   if (!Array.isArray(documentEntry.meta.scanSourceFileIds)) {
     documentEntry.meta.scanSourceFileIds = [];
   }
+  // Noch nicht angelegte ("neue") Tag-Namen für dieses Dokument. Sie werden im
+  // Dialog gestrichelt dargestellt und erst beim Import real angelegt.
+  if (!Array.isArray(documentEntry.meta.pendingTagNames)) {
+    documentEntry.meta.pendingTagNames = [];
+  }
   if (!documentEntry.meta.titleSuggestionStatus) {
     documentEntry.meta.titleSuggestionStatus = 'idle';
   }
@@ -846,8 +835,23 @@ const tagDropdownResults = computed(() => {
   if (!q) return pool.slice(0, 8);
   return pool.filter(t => t.name.toLowerCase().includes(q)).slice(0, 8);
 });
-const primaryDocTagNames = computed(() => primaryDocTags.value.map(t => t.name));
+const primaryDocPendingTagNames = computed(() =>
+  Array.isArray(primaryDocument.value?.meta?.pendingTagNames)
+    ? primaryDocument.value.meta.pendingTagNames
+    : []
+);
+// Bestehende Tags zuerst, danach die noch nicht angelegten ("neuen") Namen.
+const primaryDocTagNames = computed(() => [
+  ...primaryDocTags.value.map(t => t.name),
+  ...primaryDocPendingTagNames.value
+]);
 const allTagNamesForPool = computed(() => stageTagPool.value.map(t => t.name));
+
+// Ein Tag-Name ist "neu", wenn dazu (noch) kein bestehendes Tag existiert –
+// er würde beim Import erst angelegt. Solche Chips werden gestrichelt dargestellt.
+function isNewTagName(name) {
+  return !findStageTagIdByName(String(name || ''));
+}
 const hasAnySelectedPage = computed(() => Boolean(selected.value?.pageId));
 const gridScrollStyle = computed(() => ({
   '--pm-grid-min': ['100px', '140px', '185px', '240px'][gridZoomIndex.value] || '140px'
@@ -2145,34 +2149,46 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
             if (aiTags.length > 0 && !docTagsTouched.value && primaryDocument.value) {
               await ensureStageTagsLoaded();
               const targetDocId = primaryDocument.value.id;
-              const toAdd = [];
+              // Vorhandene Tags als IDs übernehmen; noch nicht existierende als
+              // "pending" merken (gestrichelt, werden erst beim Import angelegt).
+              const matchedIds = [];
+              const pendingNames = [];
+              const seenPending = new Set();
               for (const rawName of aiTags) {
                 const name = normalizeTagName(String(rawName || ''));
                 if (!name) continue;
-                let id = findStageTagIdByName(name);
-                if (!id) {
-                  try {
-                    id = await createStageTagByName(name);
-                  } catch (tagErr) {
-                    console.warn('[ImportStaging] Tag konnte nicht angelegt werden:', name, tagErr);
-                    continue;
+                const id = findStageTagIdByName(name);
+                if (id) {
+                  if (!matchedIds.includes(id)) matchedIds.push(id);
+                } else {
+                  const key = name.toLocaleLowerCase('de-DE');
+                  if (!seenPending.has(key)) {
+                    seenPending.add(key);
+                    pendingNames.push(name);
                   }
                 }
-                if (id && !toAdd.includes(id)) {
-                  toAdd.push(id);
-                }
               }
-              // Aktuellen Tag-Stand frisch lesen (das Dokument könnte sich während
-              // der await-Aufrufe geändert haben) und nur fehlende Tags ergänzen.
+              // Frisch lesen (das Dokument könnte sich während der awaits geändert haben).
               const freshDoc = getDocumentById(targetDocId);
-              if (freshDoc && toAdd.length > 0) {
+              if (freshDoc) {
                 const current = new Set(freshDoc.tags || []);
                 const merged = [...current];
-                for (const id of toAdd) {
+                for (const id of matchedIds) {
                   if (!current.has(id)) merged.push(id);
                 }
                 if (merged.length > current.size) {
                   onDocumentTagsUpdate(targetDocId, merged);
+                }
+                const freshMeta = ensureScanMeta(freshDoc);
+                if (freshMeta && pendingNames.length > 0) {
+                  const existing = Array.isArray(freshMeta.pendingTagNames) ? freshMeta.pendingTagNames : [];
+                  const existingKeys = new Set(existing.map((n) => n.toLocaleLowerCase('de-DE')));
+                  freshMeta.pendingTagNames = [
+                    ...existing,
+                    ...pendingNames.filter((n) => !existingKeys.has(n.toLocaleLowerCase('de-DE')))
+                  ];
+                }
+                if (merged.length > current.size || pendingNames.length > 0) {
                   docTagsAiFilled.value = true;
                 }
               }
@@ -2596,22 +2612,33 @@ function onTagInputBackspace() {
 }
 function focusTagInput() { tagInputRef.value?.focus(); }
 
-async function onTagNamesChange(newNames) {
+function onTagNamesChange(newNames) {
   if (!primaryDocument.value) return;
   docTagsTouched.value = true;
   docTagsAiFilled.value = false;
-  isCreatingTags.value = true;
-  try {
-    const ids = [];
-    for (const name of newNames) {
-      if (!name || typeof name !== 'string') continue;
-      const id = findStageTagIdByName(name) || await createStageTagByName(name);
-      if (id) ids.push(id);
+  // Bestehende Tags als IDs, noch nicht existierende Namen als "pending" halten
+  // (werden erst beim Import angelegt). Kein sofortiges Anlegen mehr.
+  const ids = [];
+  const pending = [];
+  const seenPending = new Set();
+  for (const name of newNames) {
+    if (!name || typeof name !== 'string') continue;
+    const norm = normalizeTagName(name);
+    if (!norm) continue;
+    const id = findStageTagIdByName(norm);
+    if (id) {
+      if (!ids.includes(id)) ids.push(id);
+    } else {
+      const key = norm.toLocaleLowerCase('de-DE');
+      if (!seenPending.has(key)) {
+        seenPending.add(key);
+        pending.push(norm);
+      }
     }
-    stagingStore.setDocumentTags(primaryDocument.value.id, ids);
-  } finally {
-    isCreatingTags.value = false;
   }
+  stagingStore.setDocumentTags(primaryDocument.value.id, ids);
+  const meta = ensureScanMeta(primaryDocument.value);
+  if (meta) meta.pendingTagNames = pending;
 }
 
 // Auto-Masking DD.MM.YYYY beim Tippen
@@ -3829,6 +3856,28 @@ async function onModalSurfaceDrop(event) {
   }
 }
 
+// Legt alle "pending" (noch nicht existierenden) Tag-Namen der zu importierenden
+// Dokumente real an und hängt die erzeugten IDs an doc.tags. Erst dadurch werden
+// die gestrichelt angezeigten Tags zu echten Tags – genau beim Import.
+async function materializePendingTags() {
+  for (const doc of documents.value) {
+    const names = doc?.meta?.pendingTagNames;
+    if (!Array.isArray(names) || names.length === 0) continue;
+    const ids = [...(doc.tags || [])];
+    for (const name of names) {
+      try {
+        const id = findStageTagIdByName(name) || (await createStageTagByName(name));
+        if (id && !ids.includes(id)) ids.push(id);
+      } catch (tagErr) {
+        console.warn('[ImportStaging] Pending-Tag konnte nicht angelegt werden:', name, tagErr);
+      }
+    }
+    stagingStore.setDocumentTags(doc.id, ids);
+    const meta = ensureScanMeta(doc);
+    if (meta) meta.pendingTagNames = [];
+  }
+}
+
 async function commitImport() {
   if (isImportActionDisabled.value) {
     return;
@@ -3836,6 +3885,7 @@ async function commitImport() {
 
   isCommitting.value = true;
   try {
+    await materializePendingTags();
     const response = await fetch(`${props.apiBaseUrl}/api/import/commit`, {
       method: 'POST',
       headers: {
@@ -4521,23 +4571,18 @@ onBeforeUnmount(() => {
   color: rgba(var(--v-theme-on-surface), 0.65) !important;
 }
 
-.isd-ai-filled-badge {
-  display: inline-flex;
-  align-items: center;
-  background: rgba(var(--v-theme-primary), 0.12);
-  color: rgb(var(--v-theme-primary));
-  font-size: 9px;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 3px;
-  letter-spacing: 0.05em;
-}
-
-
 .isd-field-row {
   display: flex;
   gap: 4px;
   align-items: center;
+}
+
+/* Neues, noch nicht angelegtes Tag: gestrichelter Rahmen + transparenter Grund,
+   damit sofort erkennbar ist, dass es beim Import erst erstellt würde. */
+:deep(.isd-tag-chip--new.v-chip) {
+  background: transparent !important;
+  border: 1px dashed rgba(var(--v-theme-primary), 0.6) !important;
+  color: rgb(var(--v-theme-primary));
 }
 
 
