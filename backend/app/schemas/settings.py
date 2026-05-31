@@ -181,6 +181,14 @@ class QualitySettingsRead(BaseModel):
     enable_self_critique: bool = False
 
 
+class OllamaSettingsRead(BaseModel):
+    enabled: bool = False
+    base_url: str = Field(default="http://localhost:11434", max_length=256)
+    model: str = Field(default="llama3.2:3b", max_length=128)
+    timeout_seconds: float = Field(default=90.0, ge=10.0, le=300.0)
+    max_input_chars: int = Field(default=800, ge=200, le=4000)
+
+
 class SettingsMetaRead(BaseModel):
     version: int = Field(default=1, ge=1)
     updated_at: datetime | None = None
@@ -193,6 +201,7 @@ class AppSettingsRead(BaseModel):
     rag: RAGSettingsRead = Field(default_factory=RAGSettingsRead)
     ocr: OCRSettingsRead = Field(default_factory=OCRSettingsRead)
     quality: QualitySettingsRead = Field(default_factory=QualitySettingsRead)
+    ollama: OllamaSettingsRead = Field(default_factory=OllamaSettingsRead)
     meta: SettingsMetaRead = Field(default_factory=SettingsMetaRead)
 
 
@@ -266,6 +275,14 @@ class SettingsMetaPatch(BaseModel):
     version: int | None = Field(default=None, ge=1)
 
 
+class OllamaSettingsPatch(BaseModel):
+    enabled: bool | None = None
+    base_url: str | None = Field(default=None, max_length=256)
+    model: str | None = Field(default=None, max_length=128)
+    timeout_seconds: float | None = Field(default=None, ge=10.0, le=300.0)
+    max_input_chars: int | None = Field(default=None, ge=200, le=4000)
+
+
 class AppSettingsPatch(BaseModel):
     ui: UISettingsPatch | None = None
     documents: DocumentsSettingsPatch | None = None
@@ -273,4 +290,5 @@ class AppSettingsPatch(BaseModel):
     rag: RAGSettingsPatch | None = None
     ocr: OCRSettingsPatch | None = None
     quality: QualitySettingsPatch | None = None
+    ollama: OllamaSettingsPatch | None = None
     meta: SettingsMetaPatch | None = None

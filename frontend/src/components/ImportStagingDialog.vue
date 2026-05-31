@@ -61,16 +61,23 @@
             @mouseenter="onDropzoneMouseEnter"
             @mouseleave="onDropzoneMouseLeave"
           >
-            <div class="isd-dropzone__circle">
-              <v-icon size="32">mdi-tray-arrow-down</v-icon>
+            <div class="isd-dropzone__icon">
+              <v-icon size="52" class="isd-dropzone__icon-svg">mdi-tray-arrow-down</v-icon>
             </div>
-            <p class="isd-dropzone__title">
-              Dateien hierher ziehen<br>oder klicken zum Auswählen
-            </p>
-            <p class="isd-dropzone__subtitle">
-              Mehrere Dateien gleichzeitig möglich
-            </p>
-            <p class="isd-dropzone__types">PDF</p>
+            <div class="isd-dropzone__text">
+              <p class="isd-dropzone__title">
+                PDF-Dateien auswählen<br>oder hierher ziehen
+              </p>
+              <p class="isd-dropzone__subtitle">
+                Mehrere Dateien gleichzeitig möglich
+              </p>
+            </div>
+            <div class="isd-dropzone__types">
+              <span class="isd-dropzone__chip">
+                <v-icon size="12" class="isd-dropzone__chip-icon">mdi-file-pdf-box</v-icon>
+                PDF
+              </span>
+            </div>
           </div>
 
           <!-- Page grid -->
@@ -118,6 +125,14 @@
                   />
                   <v-icon v-else size="32" class="isd-page-thumb-placeholder-icon">mdi-file-document-outline</v-icon>
                 </div>
+                <!-- Select-Mode Checkbox-Indikator -->
+                <div
+                  v-if="isSelectMode"
+                  class="isd-page-select-indicator"
+                  :class="{ 'isd-page-select-indicator--checked': isPageMultiSelected(page.id) }"
+                >
+                  <v-icon v-if="isPageMultiSelected(page.id)" size="14">mdi-check</v-icon>
+                </div>
               </div>
               <div class="isd-page-num">{{ globalIndex + 1 }}</div>
             </div>
@@ -145,74 +160,96 @@
         </div>
         <div v-show="!isEmpty" class="isd-toolbar">
 
-          <div class="isd-rotate-group">
+          <!-- Linke Gruppe: Modus-Toggle + Seitenaktionen -->
+          <div class="isd-toolbar-left">
             <v-btn
               icon
               size="x-small"
-              variant="outlined"
-              title="Nach links drehen"
-              :disabled="!hasAnySelectedPage"
-              @click="rotateAnySelectedPage(-90)"
+              :variant="isSelectMode ? 'flat' : 'text'"
+              :color="isSelectMode ? 'primary' : undefined"
+              :title="isSelectMode ? 'Auswahl beenden' : 'Seiten auswählen'"
+              class="isd-toolbar-select-btn"
+              :class="{ 'isd-toolbar-select-btn--active': isSelectMode }"
+              @click="toggleSelectMode"
             >
-              <v-icon size="16">mdi-rotate-left</v-icon>
+              <v-icon size="20">mdi-checkbox-multiple-outline</v-icon>
             </v-btn>
+
+            <div class="isd-toolbar-divider" />
+
+            <div class="isd-rotate-group">
+              <v-btn
+                icon
+                size="x-small"
+                variant="text"
+                title="Nach links drehen"
+                :disabled="!hasAnySelectedPage"
+                @click="rotateAnySelectedPage(-90)"
+              >
+                <v-icon size="20">mdi-rotate-left</v-icon>
+              </v-btn>
+              <v-btn
+                icon
+                size="x-small"
+                variant="text"
+                title="Nach rechts drehen"
+                :disabled="!hasAnySelectedPage"
+                @click="rotateAnySelectedPage(90)"
+              >
+                <v-icon size="20">mdi-rotate-right</v-icon>
+              </v-btn>
+            </div>
+
             <v-btn
               icon
               size="x-small"
-              variant="outlined"
-              title="Nach rechts drehen"
-              :disabled="!hasAnySelectedPage"
-              @click="rotateAnySelectedPage(90)"
+              variant="text"
+              color="error"
+              title="Ausgewählte Seiten löschen"
+              :disabled="!isDeleteEnabled"
+              @click="deleteSelectedPages"
             >
-              <v-icon size="16">mdi-rotate-right</v-icon>
+              <v-icon size="20">mdi-trash-can-outline</v-icon>
             </v-btn>
           </div>
 
-          <v-btn
-            icon
-            size="x-small"
-            variant="outlined"
-            title="Ausgewählte Seiten löschen"
-            :disabled="!isDeleteEnabled"
-            @click="deleteSelectedPages"
-          >
-            <v-icon size="16">mdi-trash-can-outline</v-icon>
-          </v-btn>
+          <!-- Flexibler Abstand -->
+          <div class="isd-toolbar-spacer" />
 
-          <v-btn
-            size="small"
-            :variant="isSelectMode ? 'tonal' : 'outlined'"
-            :color="isSelectMode ? 'primary' : undefined"
-            class="isd-toolbar-btn"
-            @click="toggleSelectMode"
-          >
-            {{ isSelectMode ? `Abbrechen${hasMultiSelection ? ' (' + multiSelectionCount + ')' : ''}` : 'Auswählen' }}
-          </v-btn>
-
-          <div class="isd-zoom-group">
-            <span class="isd-zoom-label">klein</span>
-            <input
-              type="range"
-              class="isd-zoom-slider"
-              min="0"
-              max="3"
-              step="1"
-              :value="gridZoomIndex"
-              @input="onGridZoomChange"
-            />
-            <span class="isd-zoom-label">groß</span>
+          <!-- Rechte Gruppe: Zoom + Seitenanzahl -->
+          <div class="isd-toolbar-right">
+            <div class="isd-zoom-group">
+              <span class="isd-zoom-label">klein</span>
+              <input
+                type="range"
+                class="isd-zoom-slider"
+                min="0"
+                max="3"
+                step="1"
+                :value="gridZoomIndex"
+                @input="onGridZoomChange"
+              />
+              <span class="isd-zoom-label">groß</span>
+            </div>
+            <span class="isd-page-count">{{ totalPages }} {{ totalPages === 1 ? 'Seite' : 'Seiten' }}</span>
           </div>
 
-          <span class="isd-page-count">{{ totalPages }} Seiten</span>
         </div>
       </div>
 
-      <!-- Right column: document properties (no scroll) -->
+      <!-- Right column: document properties -->
       <div class="isd-props" :class="{ 'isd-props--disabled': isEmpty }">
+
+       <div class="isd-props-scroll">
 
         <!-- Document name -->
         <div class="isd-field">
-          <div class="isd-field-label">Dokumentname</div>
+          <div class="isd-field-label">
+            Dokumentname
+            <v-tooltip text="Wie lautet der Name des Dokuments? Wird für Suche und Anzeige verwendet." location="top" max-width="220">
+              <template #activator="{ props: tip }"><v-icon class="isd-field-info" v-bind="tip" size="14">mdi-information-outline</v-icon></template>
+            </v-tooltip>
+          </div>
           <div class="isd-field-row">
             <v-text-field
               :model-value="primaryDocTitle"
@@ -250,16 +287,23 @@
 
         <!-- Document date -->
         <div class="isd-field">
-          <div class="isd-field-label">Dokumentdatum</div>
+          <div class="isd-field-label">
+            Dokumentdatum
+            <v-tooltip text="Wann wurde das Dokument ausgestellt? (Nicht das Importdatum)" location="top" max-width="220">
+              <template #activator="{ props: tip }"><v-icon class="isd-field-info" v-bind="tip" size="14">mdi-information-outline</v-icon></template>
+            </v-tooltip>
+            <span v-if="docDateAiFilled" class="isd-ai-filled-badge">KI</span>
+          </div>
           <div class="isd-field-row">
             <v-text-field
               v-model="docDate"
-              placeholder="TT.MM.JJJJ"
+              placeholder="Datum eingeben…"
               density="compact"
               variant="outlined"
               hide-details
               inputmode="numeric"
               :maxlength="10"
+              @input="docDateTouched = true; docDateAiFilled = false"
             />
             <v-btn
               icon
@@ -275,7 +319,13 @@
 
         <!-- Category -->
         <div class="isd-field">
-          <div class="isd-field-label">Kategorie</div>
+          <div class="isd-field-label">
+            Kategorie
+            <v-tooltip text="Grobe Einordnung: Was ist das Dokument? Ein Dokument gehört zu genau einer Kategorie." location="top" max-width="220">
+              <template #activator="{ props: tip }"><v-icon class="isd-field-info" v-bind="tip" size="14">mdi-information-outline</v-icon></template>
+            </v-tooltip>
+            <span v-if="docCategoryAiFilled" class="isd-ai-filled-badge">KI</span>
+          </div>
           <v-select
             v-model="docCategory"
             :items="DOC_CATEGORIES"
@@ -284,12 +334,19 @@
             variant="outlined"
             hide-details
             clearable
+            @update:model-value="docCategoryTouched = true; docCategoryAiFilled = false"
           />
         </div>
 
         <!-- Tags -->
         <div class="isd-field">
-          <div class="isd-field-label">Tags</div>
+          <div class="isd-field-label">
+            Tags
+            <v-tooltip text="Freie Schlagwörter für Kontext, Projekt oder Personen. Mehrere Tags möglich." location="top" max-width="220">
+              <template #activator="{ props: tip }"><v-icon class="isd-field-info" v-bind="tip" size="14">mdi-information-outline</v-icon></template>
+            </v-tooltip>
+            <span v-if="docTagsAiFilled" class="isd-ai-filled-badge">KI</span>
+          </div>
           <v-combobox
             :model-value="primaryDocTagNames"
             v-model:search="tagInlineValue"
@@ -318,7 +375,12 @@
 
         <!-- Note -->
         <div class="isd-field">
-          <div class="isd-field-label">Notiz</div>
+          <div class="isd-field-label">
+            Notiz
+            <v-tooltip text="Interne Notiz zum Dokument – nur für dich sichtbar." location="top" max-width="220">
+              <template #activator="{ props: tip }"><v-icon class="isd-field-info" v-bind="tip" size="14">mdi-information-outline</v-icon></template>
+            </v-tooltip>
+          </div>
           <v-textarea
             v-model="docNote"
             placeholder="Interne Notiz zum Dokument…"
@@ -328,6 +390,47 @@
             rows="3"
             no-resize
           />
+        </div>
+
+       </div>
+
+        <!-- KI-Analyse-Status (gespiegelte Toolbar, unten) -->
+        <div
+          v-if="!isEmpty"
+          class="isd-props-status"
+          :class="`isd-props-status--${aiAnalysis.kind}`"
+        >
+          <template v-if="aiAnalysis.kind === 'busy'">
+            <v-progress-circular indeterminate size="15" width="2" color="primary" />
+            <span class="isd-props-status__text">KI analysiert Dokument…</span>
+          </template>
+          <template v-else-if="aiAnalysis.kind === 'success'">
+            <v-icon size="16" color="success">mdi-check-circle-outline</v-icon>
+            <span
+              class="isd-props-status__text"
+              :title="`Automatisch erkannt: ${aiAnalysis.fields.join(', ')}`"
+            >Automatisch erkannt: {{ aiAnalysis.fields.join(', ') }}</span>
+          </template>
+          <template v-else-if="aiAnalysis.kind === 'partial'">
+            <v-icon size="16" color="success">mdi-check-circle-outline</v-icon>
+            <span class="isd-props-status__text">Analyse abgeschlossen – keine Felder ergänzt</span>
+          </template>
+          <template v-else-if="aiAnalysis.kind === 'failed'">
+            <v-icon size="16" class="isd-props-status__warn-icon">mdi-alert-circle-outline</v-icon>
+            <span class="isd-props-status__text">Keine automatische Erkennung</span>
+            <button
+              type="button"
+              class="isd-props-status__retry"
+              :disabled="!primaryDocument || primaryDocument.pages.length === 0"
+              @click="primaryDocument && requestScanTitleSuggestion(primaryDocument.id, 'first_page')"
+            >
+              Erneut versuchen
+            </button>
+          </template>
+          <template v-else>
+            <v-icon size="16" class="isd-props-status__idle-icon">mdi-creation</v-icon>
+            <span class="isd-props-status__text">Felder werden automatisch erkannt</span>
+          </template>
         </div>
 
       </div>
@@ -419,7 +522,8 @@ const KNOWN_ICONS = new Set([
   'mdi-dots-horizontal',
   'mdi-trash-can-outline',
   'mdi-file-pdf-box',
-  'mdi-refresh'
+  'mdi-refresh',
+  'mdi-check'
 ]);
 
 const isDropzoneDragOver = ref(false);
@@ -479,9 +583,17 @@ const autoScrollState = {
 const isViewSwitching = ref(false);
 
 const DOC_CATEGORIES = ['Rechnungen', 'Verträge', 'Briefe', 'Belege', 'Steuern', 'Versicherung', 'Bank'];
-const docDate = ref(todayDateStr());
-const docCategory = ref('');
+const docDate = ref('');
+const docCategory = ref(null);
 const docNote = ref('');
+const docTitleTouched = ref(false);
+const docDateTouched = ref(false);
+const docCategoryTouched = ref(false);
+const docTagsTouched = ref(false);
+const docTitleAiFilled = ref(false);
+const docDateAiFilled = ref(false);
+const docCategoryAiFilled = ref(false);
+const docTagsAiFilled = ref(false);
 
 const docOcrLang = computed(() => settingsStore.settings.documents.ocr_doc_lang ?? 'de');
 const docDateIso = computed(() => germanDateToIso(docDate.value));
@@ -557,7 +669,9 @@ function isScanTitlePendingOcr(documentEntry) {
 
 function isScanTitleBusy(documentEntry) {
   const status = String(documentEntry?.meta?.titleSuggestionStatus || '');
-  return status === 'working' || status === 'pending_ocr';
+  if (status === 'working') return true;
+  if (status === 'pending_ocr') return !Boolean(documentEntry?.meta?.titleSuggestionPollExhausted);
+  return false;
 }
 
 function canOpenTitleSuggestActions(documentEntry) {
@@ -905,6 +1019,47 @@ function getToolbarControlStyle(disabled) {
   return disabled ? toolbarControlDisabledStyle : toolbarControlEnabledStyle;
 }
 
+/* ── Dokumentweiter KI-Analyse-Status (für die Status-Zeile rechts unten) ──
+ * Spiegelt den titleSuggestionStatus des primären Dokuments auf vier UI-Zustände:
+ *   busy     – Analyse läuft
+ *   success  – fertig, mindestens ein Feld automatisch befüllt
+ *   partial  – fertig, aber keine Felder ergänzt
+ *   failed   – Analyse fehlgeschlagen/abgebrochen (Retry anbieten)
+ *   idle     – noch keine Analyse
+ */
+const aiAnalysis = computed(() => {
+  const doc = primaryDocument.value;
+  if (!doc || Number(doc.pages?.length || 0) === 0) {
+    return { kind: 'idle', fields: [] };
+  }
+  const status = String(doc.meta?.titleSuggestionStatus || '');
+  const exhausted = Boolean(doc.meta?.titleSuggestionPollExhausted);
+
+  // Wurde mindestens ein Feld per KI befüllt, gilt die Erkennung als ERFOLGREICH –
+  // unabhängig davon, ob ein späterer optionaler Schritt den Status auf 'error'
+  // gesetzt hat. Sonst zeigt die UI fälschlich "Keine automatische Erkennung",
+  // obwohl z. B. der Titel korrekt erkannt und eingetragen wurde.
+  const fields = [];
+  if (docTitleAiFilled.value) fields.push('Name');
+  if (docDateAiFilled.value) fields.push('Datum');
+  if (docCategoryAiFilled.value) fields.push('Kategorie');
+  if (docTagsAiFilled.value) fields.push('Tags');
+  if (fields.length > 0) {
+    return { kind: 'success', fields };
+  }
+
+  if (status === 'working' || (status === 'pending_ocr' && !exhausted)) {
+    return { kind: 'busy', fields: [] };
+  }
+  if (status === 'error' || (status === 'pending_ocr' && exhausted)) {
+    return { kind: 'failed', fields: [] };
+  }
+  if (status === 'ready' || status === 'applied') {
+    return { kind: 'partial', fields: [] };
+  }
+  return { kind: 'idle', fields: [] };
+});
+
 /* ── Datum-Hilfsfunktionen ── */
 function todayDateStr() {
   const d = new Date();
@@ -1044,7 +1199,6 @@ watch(
       isViewSwitching.value = false;
     }
     if (open) {
-      docDate.value = todayDateStr();
       return;
     }
     isDropzoneDragOver.value = false;
@@ -1164,22 +1318,62 @@ watch(
   { deep: true }
 );
 
+
 watch(
   isOpen,
   (open) => {
     if (!open) {
       teardownBodyLayoutObserver();
       stageTagPool.value = [];
+      docDate.value = '';
+      docCategory.value = null;
+      docNote.value = '';
+      tagInlineValue.value = '';
+      isSelectMode.value = false;
+      multiSelectedPageIds.value = new Set();
+      docTitleTouched.value = false;
+      docDateTouched.value = false;
+      docCategoryTouched.value = false;
+      docTagsTouched.value = false;
+      docTitleAiFilled.value = false;
+      docDateAiFilled.value = false;
+      docCategoryAiFilled.value = false;
+      docTagsAiFilled.value = false;
       return;
     }
     nextTick(() => {
       setupBodyLayoutObserver();
       scheduleBodyContentLayoutStateUpdate();
+      // Selbstheilung beim (Wieder-)Öffnen des Dialogs.
+      //
+      // Beim Schließen wird titleSuggestJobByStage geleert (siehe Zeile ~1207),
+      // während stagingStore.reset() um 280 ms verzögert ist. Öffnet der Nutzer den
+      // Dialog schnell wieder (oder nach einem HMR-Update), bleiben Dokumente erhalten,
+      // deren persistierter meta-Status noch 'working'/'pending_ocr'/'error' ist –
+      // ohne zugehörigen Job. Solche Dokumente NICHT als fehlgeschlagen anzeigen
+      // ("Keine automatische Erkennung"), sondern die Analyse erneut anstoßen, damit
+      // die KI-Erkennung beim nächsten Import zuverlässig läuft. Bereits fertige
+      // Dokumente ('ready'/'applied') bleiben unangetastet, der Dedup-Guard in
+      // requestScanTitleSuggestion verhindert Doppelläufe.
+      for (const doc of documents.value) {
+        const status = String(doc.meta?.titleSuggestionStatus || '');
+        const isTerminalGood = status === 'ready' || status === 'applied';
+        const hasPages = Number(doc.pages?.length || 0) > 0;
+        if (!isTerminalGood && hasPages && !titleSuggestJobByStage.has(doc.id)) {
+          const recoverMeta = ensureScanMeta(doc);
+          if (recoverMeta) {
+            recoverMeta.titleSuggestionStatus = 'idle';
+            recoverMeta.titleSuggestionPollExhausted = false;
+          }
+          void requestScanTitleSuggestion(doc.id, 'first_page', { silent: true, maxPendingRetries: 20 });
+        }
+      }
     });
     void ensureStageTagsLoaded().catch((error) => {
       notify({ type: 'error', message: mapApiError(error, 'Tags konnten nicht geladen werden.') });
     });
-  }
+  },
+  { immediate: true }
 );
 
 watch(
@@ -1579,6 +1773,7 @@ async function addFilesToStaging(candidates, options = {}) {
 
   isUploadingSources.value = true;
   preparationProgress.value = { done: 0, total: accepted.length };
+  const touchedDocumentIds = new Set();
   try {
     const uploaded = await uploadSources(accepted.map((entry) => entry.file));
     if (uploaded.length !== accepted.length) {
@@ -1603,7 +1798,12 @@ async function addFilesToStaging(candidates, options = {}) {
       const file = accepted[index].file;
       const pageCount = Number(source?.page_count || 0);
       const title = stripPdfSuffix(source?.original_name || file?.name || 'Neues Dokument');
-      const thumbs = await renderPdfThumbnails(file, pageCount);
+      let thumbs = [];
+      try {
+        thumbs = await renderPdfThumbnails(file, pageCount);
+      } catch {
+        // Thumbnails are optional; a failed render must not abort the entire batch.
+      }
 
       stagingStore.setStagingFile(source.source_file_id, file, {
         originalName: source?.original_name || file?.name || '',
@@ -1616,14 +1816,18 @@ async function addFilesToStaging(candidates, options = {}) {
           pageCount,
           thumbUrls: thumbs
         });
+        touchedDocumentIds.add(targetDocumentId);
       } else {
-        stagingStore.addDocumentFromSource({
+        const newDoc = stagingStore.addDocumentFromSource({
           sourceFileId: source.source_file_id,
           title,
           pageCount,
           thumbUrls: thumbs,
           insertIndex: nextInsertIndex
         });
+        if (newDoc?.id) {
+          touchedDocumentIds.add(newDoc.id);
+        }
         if (nextInsertIndex != null) {
           nextInsertIndex += 1;
         }
@@ -1633,8 +1837,23 @@ async function addFilesToStaging(candidates, options = {}) {
         done: index + 1
       };
     }
+
   } finally {
     isUploadingSources.value = false;
+    // Always start OCR jobs for any docs whose pages were queued for analysis.
+    // Runs in finally so a mid-batch exception (e.g. thumbnail render failure)
+    // never leaves pages stuck in 'analyzing' with no job running.
+    for (const docId of touchedDocumentIds) {
+      const docEntry = getDocumentById(docId);
+      const docMeta = ensureScanMeta(docEntry);
+      if (!docEntry || !docMeta || isScanTitleBusy(docEntry)) continue;
+      if (Number(docEntry.pages?.length || 0) === 0) continue;
+      // Trigger the per-document KI analysis unless it already completed for this doc.
+      const alreadyAnalyzed = ['ready', 'applied'].includes(String(docMeta.titleSuggestionStatus || ''));
+      if (!alreadyAnalyzed) {
+        void requestScanTitleSuggestion(docId, 'first_page', { silent: true, maxPendingRetries: 20 });
+      }
+    }
     preparationProgress.value = { done: 0, total: 0 };
   }
 }
@@ -1827,10 +2046,19 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
   meta.titleSuggestionUsedFallback = false;
   meta.titleSuggestionMeta = null;
   const job = (async () => {
-    const maxPendingRetries = Number.isInteger(options?.maxPendingRetries) ? Number(options.maxPendingRetries) : 10;
+    const maxPendingRetries = options?.maxPendingRetries != null ? options.maxPendingRetries : 10;
     let attempt = 0;
     try {
       while (attempt < maxPendingRetries) {
+        // WICHTIG: Hier KEINE Abfrage auf isOpen/modelValue, die den Job abbricht.
+        // Das war die Hauptursache für "Keine automatische Erkennung": Wird der Dialog
+        // mit einem neuen Scan geöffnet, läuft dieser Analyse-Job, während
+        // props.modelValue noch false ist (der Dialog öffnet gerade erst). Ein
+        // Abbruch mit status='error' VOR dem Request markierte dann fälschlich einen
+        // Fehlschlag – obwohl die Erkennung nie versucht wurde. Die Analyse läuft jetzt
+        // unabhängig vom Offen-Zustand; das Ergebnis landet im meta und wird beim
+        // Anzeigen genutzt. Der Request ist durch AbortController (90 s) begrenzt, ein
+        // "Ghost-working" kann es also nicht geben.
         const payload = await suggestImportStageTitle(props.apiBaseUrl, normalizedStageId, {
           sourceFileIds,
           pageScope: normalizedScope
@@ -1857,6 +2085,67 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
         meta.titleSuggestionUsedFallback = Boolean(payload?.usedFallback);
         meta.titleSuggestionMeta = payload?.meta && typeof payload.meta === 'object' ? payload.meta : null;
         meta.titleSuggestionStatus = 'ready';
+
+        // Auto-Fill aller vier Felder (Name, Datum, Kategorie, Tags) aus KI-Meta.
+        // Immer aktiv im Import-Dialog – der Nutzer prüft vor dem Import und kann
+        // jedes Feld überschreiben (überschriebene Felder werden respektiert).
+        //
+        // Best-effort: Der Vorschlag steht ab hier bereits (Status 'ready'). Ein
+        // Fehler beim Anreichern (z. B. /api/tags nicht erreichbar oder
+        // primaryDocument wechselt während eines await) darf die erfolgreiche
+        // Erkennung NICHT in den 'error'-Status kippen – sonst zeigt die UI
+        // fälschlich "Keine automatische Erkennung" trotz 200-Antwort.
+        try {
+        if (normalizedStageId === primaryDocument.value?.id) {
+          // Dokumentname: nur bei belastbarem Vorschlag (kein Fallback) automatisch
+          // übernehmen und nur, wenn der Nutzer den Titel nicht selbst angefasst hat.
+          if (suggestion && !meta.titleSuggestionUsedFallback && !docTitleTouched.value) {
+            stagingStore.renameDocument(normalizedStageId, suggestion);
+            meta.titleSuggestionStatus = 'applied';
+            docTitleAiFilled.value = true;
+          }
+
+          const aiMeta = payload?.meta;
+          if (aiMeta && typeof aiMeta === 'object') {
+            // Datum
+            const isoDate = String(aiMeta.date || '').trim();
+            if (/^\d{4}-\d{2}-\d{2}$/.test(isoDate) && !docDateTouched.value) {
+              const formatted = isoToGermanDate(isoDate);
+              if (formatted && isValidGermanDate(formatted)) {
+                docDate.value = formatted;
+                docDateAiFilled.value = true;
+              }
+            }
+            // Kategorie
+            const aiCategory = String(aiMeta.category || '').trim();
+            if (aiCategory && !docCategoryTouched.value) {
+              docCategory.value = aiCategory;
+              docCategoryAiFilled.value = true;
+            }
+            // Tags: auf bestehende Tags matchen
+            const aiTags = Array.isArray(aiMeta.tags) ? aiMeta.tags : [];
+            if (aiTags.length > 0 && !docTagsTouched.value && primaryDocument.value) {
+              await ensureStageTagsLoaded();
+              const current = new Set(primaryDocument.value.tags || []);
+              const toAdd = [];
+              for (const tagName of aiTags) {
+                const id = findStageTagIdByName(String(tagName || ''));
+                if (id && !current.has(id)) {
+                  toAdd.push(id);
+                }
+              }
+              if (toAdd.length > 0) {
+                onDocumentTagsUpdate(primaryDocument.value.id, [...current, ...toAdd]);
+                docTagsAiFilled.value = true;
+              }
+            }
+          }
+        }
+        } catch (enrichError) {
+          // Anreicherung ist optional – der Vorschlag steht bereits (Status 'ready'/'applied').
+          console.warn('[ImportStaging] KI-Felder konnten nicht angewendet werden:', enrichError);
+        }
+
         if (!options?.silent) {
           notify({ type: 'success', message: 'Titelvorschlag aktualisiert.' });
         }
@@ -1872,6 +2161,19 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
     }
   })();
   titleSuggestJobByStage.set(normalizedStageId, job);
+
+  // Safety net: the request itself is bounded by SUGGEST_TITLE_TIMEOUT_MS (90 s) via
+  // AbortController; on timeout the fetch rejects and the catch sets a terminal state.
+  // This timer is only a last resort and must fire AFTER that timeout — never before —
+  // otherwise a slow-but-successful OCR run (Tesseract auf großen Scans) wird fälschlich
+  // als Fehler markiert ("Keine automatische Erkennung").
+  const safetyTimer = window.setTimeout(() => {
+    if (meta.titleSuggestionStatus === 'working' || meta.titleSuggestionStatus === 'pending_ocr') {
+      meta.titleSuggestionStatus = 'error';
+    }
+  }, 95_000);
+  job.finally(() => window.clearTimeout(safetyTimer));
+
   return job;
 }
 
@@ -2161,6 +2463,8 @@ function addEmptyDocument() {
 
 function onPrimaryDocTitleInput(event) {
   if (!primaryDocument.value) return;
+  docTitleTouched.value = true;
+  docTitleAiFilled.value = false;
   stagingStore.setDocumentTitleDraft(primaryDocument.value.id, event.target?.value || '');
 }
 
@@ -2202,6 +2506,8 @@ function focusTagInput() { tagInputRef.value?.focus(); }
 
 async function onTagNamesChange(newNames) {
   if (!primaryDocument.value) return;
+  docTagsTouched.value = true;
+  docTagsAiFilled.value = false;
   isCreatingTags.value = true;
   try {
     const ids = [];
@@ -2225,6 +2531,13 @@ watch(docDate, (newVal, oldVal) => {
   if (digits.length > 4) formatted = digits.slice(0, 2) + '.' + digits.slice(2, 4) + '.' + digits.slice(4);
   if (formatted !== newVal) docDate.value = formatted;
 }, { flush: 'sync' });
+
+// Datum auf heute setzen sobald das erste Dokument erscheint
+watch(isEmpty, (empty) => {
+  if (!empty && !docDate.value) {
+    docDate.value = todayDateStr();
+  }
+});
 
 
 function normalizeSourceFileId(sourceFileId) {
@@ -3599,6 +3912,12 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
+  /* Gemeinsame, feste Höhe für Toolbar (links) und Statusleiste (rechts), damit
+   * ihre border-top-Linien exakt fluchten. Bei box-sizing:border-box ist die
+   * linke Toolbar tatsächlich 49px hoch: 32px Icon-Button (x-small + default
+   * density) + 2×8px Padding + 1px border-top. Die rechte Leiste übernimmt
+   * exakt denselben Wert. */
+  --isd-bar-height: 49px;
 }
 
 .isd-progress {
@@ -3624,6 +3943,11 @@ onBeforeUnmount(() => {
 
 
 /* ── Dropzone ── */
+@keyframes isd-bounce {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(5px); }
+}
+
 .isd-dropzone {
   width: 100%;
   height: 100%;
@@ -3631,54 +3955,85 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 0;
   padding: 32px;
   text-align: center;
   border: 2px dashed rgb(var(--v-theme-primary));
   border-radius: 12px;
-  background: rgba(var(--v-theme-primary), 0.04);
   cursor: pointer;
   transition: background 0.15s;
   box-sizing: border-box;
+  /* 1 — Schraffur */
+  background-image:
+    repeating-linear-gradient(
+      -45deg,
+      rgba(var(--v-theme-primary), 0.025) 0px,
+      rgba(var(--v-theme-primary), 0.025) 1px,
+      transparent 1px,
+      transparent 10px
+    );
+  background-color: rgba(var(--v-theme-primary), 0.03);
 }
 
 .isd-dropzone--over {
-  background: rgba(var(--v-theme-primary), 0.1);
+  background-color: rgba(var(--v-theme-primary), 0.08);
 }
 
-.isd-dropzone__circle {
-  width: 68px;
-  height: 68px;
-  border-radius: 50%;
-  border: 2px solid rgb(var(--v-theme-primary));
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* 2 — Icon-Animation */
+.isd-dropzone__icon {
   color: rgb(var(--v-theme-primary));
-  margin-bottom: 4px;
+  margin-bottom: 18px;
 }
 
+.isd-dropzone__icon-svg {
+  animation: isd-bounce 2.2s ease-in-out infinite;
+}
+
+.isd-dropzone__text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 4 — Titel stärker */
 .isd-dropzone__title {
   margin: 0;
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 600;
-  line-height: 1.4;
-  color: rgba(var(--v-theme-on-surface), 0.78);
+  line-height: 1.45;
+  color: rgb(var(--v-theme-on-surface));
 }
 
 .isd-dropzone__subtitle {
   margin: 0;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.5;
-  color: rgba(var(--v-theme-on-surface), 0.48);
+  color: rgba(var(--v-theme-on-surface), 0.45);
 }
 
 .isd-dropzone__types {
-  margin: 0;
+  display: flex;
+  gap: 6px;
+  margin-top: 22px;
+}
+
+/* 6 — Chip mit Icon */
+.isd-dropzone__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 11px;
-  letter-spacing: 0.07em;
-  color: rgba(var(--v-theme-on-surface), 0.32);
-  margin-top: 4px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  padding: 3px 10px 3px 7px;
+  border-radius: 20px;
+  border: 1px solid rgba(var(--v-theme-primary), 0.35);
+  color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.06);
+}
+
+.isd-dropzone__chip-icon {
+  opacity: 0.8;
 }
 
 /* ── Page grid ── */
@@ -3766,6 +4121,29 @@ onBeforeUnmount(() => {
   justify-content: center;
 }
 
+.isd-page-select-indicator {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  background: rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.isd-page-select-indicator--checked {
+  background: rgb(var(--v-theme-primary));
+  border-color: rgb(var(--v-theme-primary));
+  color: #fff;
+}
+
+
 .isd-page-thumb {
   width: 100%;
   height: 100%;
@@ -3837,14 +4215,38 @@ onBeforeUnmount(() => {
   right: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 4px;
+  gap: 0;
   padding: 8px 12px;
   border-top: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
-  min-height: 46px;
+  box-sizing: border-box;
+  height: var(--isd-bar-height, 49px);
   background: rgba(var(--v-theme-surface), 0.82);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+}
+
+.isd-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.isd-toolbar-spacer {
+  flex: 1;
+}
+
+.isd-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.isd-toolbar-divider {
+  width: 1px;
+  height: 18px;
+  background: rgba(var(--v-theme-on-surface), 0.14);
+  margin: 0 10px;
+  flex-shrink: 0;
 }
 
 .isd-toolbar-btn {
@@ -3853,10 +4255,14 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
+.isd-toolbar-select-btn--active {
+  box-shadow: 0 0 0 3px rgba(var(--v-theme-primary), 0.22);
+}
+
 .isd-rotate-group {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
 }
 
 .isd-zoom-group {
@@ -3872,7 +4278,7 @@ onBeforeUnmount(() => {
 }
 
 .isd-zoom-slider {
-  width: 150px;
+  width: 120px;
   cursor: pointer;
   accent-color: rgb(var(--v-theme-primary));
 }
@@ -3887,15 +4293,90 @@ onBeforeUnmount(() => {
   color: rgba(var(--v-theme-on-surface), 0.6);
 }
 
+/* Spiegelt exakt die Struktur der linken Spalte (.isd-left): position:relative
+ * als Anker, scrollender Inhalt, und die Statusleiste absolut am unteren Rand –
+ * identische Technik wie .isd-toolbar, damit beide Leisten pixelgenau fluchten. */
 .isd-props {
   flex: 0 0 35%;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.isd-props-scroll {
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   gap: 14px;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 18px 20px;
+  padding: 18px 20px 64px; /* unten Platz für die absolute Statusleiste */
+}
+
+/* KI-Analyse-Status: absolut am unteren Rand – exakt wie .isd-toolbar
+ * (position:absolute; bottom:0; padding:8px 12px; gemeinsame --isd-bar-height; border-top:1px). */
+.isd-props-status {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  box-sizing: border-box;
+  height: var(--isd-bar-height, 49px);
+  overflow: hidden;
+  border-top: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
+  background: rgba(var(--v-theme-surface), 0.82);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.isd-props-status__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.3;
+  color: rgba(var(--v-theme-on-surface), 0.72);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.isd-props-status--failed .isd-props-status__text {
+  color: rgba(var(--v-theme-on-surface), 0.78);
+}
+
+.isd-props-status__warn-icon {
+  color: rgb(var(--v-theme-warning)) !important;
+}
+
+.isd-props-status__idle-icon {
+  color: rgba(var(--v-theme-on-surface), 0.4) !important;
+}
+
+.isd-props-status__retry {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgb(var(--v-theme-primary));
+  padding: 3px 8px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.isd-props-status__retry:hover:not(:disabled) {
+  background: rgba(var(--v-theme-primary), 0.1);
+}
+
+.isd-props-status__retry:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .isd-props--disabled {
@@ -3919,6 +4400,29 @@ onBeforeUnmount(() => {
   color: rgba(var(--v-theme-on-surface), 0.7);
 }
 
+.isd-field-info {
+  color: rgba(var(--v-theme-on-surface), 0.35) !important;
+  cursor: default;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+
+.isd-field-info:hover {
+  color: rgba(var(--v-theme-on-surface), 0.65) !important;
+}
+
+.isd-ai-filled-badge {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(var(--v-theme-primary), 0.12);
+  color: rgb(var(--v-theme-primary));
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.05em;
+}
+
 
 .isd-field-row {
   display: flex;
@@ -3933,14 +4437,19 @@ onBeforeUnmount(() => {
   gap: 5px;
   align-self: flex-start;
   padding: 3px 9px;
-  background: rgba(var(--v-theme-primary), 0.08);
-  border: 1px solid rgba(var(--v-theme-primary), 0.2);
+  background: transparent;
+  border: 1px dashed rgba(var(--v-theme-on-surface), 0.28);
   border-radius: 20px;
-  color: rgb(var(--v-theme-primary));
+  color: rgba(var(--v-theme-on-surface), 0.5);
   font-size: 11px;
   cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
 }
-.isd-ai-chip__action { font-weight: 600; opacity: 0.8; }
+.isd-ai-chip:hover {
+  border-color: rgba(var(--v-theme-on-surface), 0.5);
+  color: rgba(var(--v-theme-on-surface), 0.75);
+}
+.isd-ai-chip__action { font-weight: 600; }
 
 
 /* ── Divider & Toggles ── */

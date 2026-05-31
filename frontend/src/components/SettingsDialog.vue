@@ -142,8 +142,8 @@
               @keydown="handleSettingRowShortcut($event, toggleAutoTaggingFromRow)"
             >
               <div class="pm-setting-content">
-                <div class="pm-setting-label">Automatisches Tagging (KI)</div>
-                <div class="pm-setting-description">Neue Dokumente werden automatisch verschlagwortet.</div>
+                <div class="pm-setting-label">KI-Analyse beim Import</div>
+                <div class="pm-setting-description">Datum, Kategorie und Tags werden beim Hinzufügen automatisch erkannt und ausgefüllt.</div>
                 <div v-if="settingsDraft.documents.auto_tagging" class="pm-setting-hint">
                   Kann je nach Modell/Hardware etwas dauern.
                 </div>
@@ -228,6 +228,111 @@
               />
             </div>
 
+          </div>
+        </section>
+
+        <!-- ── Ollama ── -->
+        <section class="pm-settings-section">
+          <h3 class="pm-settings-title">Ollama (lokale KI)</h3>
+          <div class="pm-settings-content">
+
+            <!-- Enable toggle -->
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleOllamaEnabledFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleOllamaEnabledFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Ollama aktivieren</div>
+                <div class="pm-setting-description">
+                  Nutzt ein lokal laufendes Sprachmodell (z.&thinsp;B. llama3.2:3b) für präzisere
+                  Dokument&shy;analyse beim Import. Daten verlassen das Gerät nicht.
+                </div>
+                <div v-if="settingsDraft.ollama.enabled" class="pm-setting-hint">
+                  Ollama muss lokal laufen. Empfohlen: llama3.2:3b (Pi 5: ~20 s/Dokument).
+                </div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.ollama.enabled"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.ollama_enabled"
+                :disabled="isSettingSaving.ollama_enabled"
+                @click.stop
+                @update:model-value="onOllamaEnabledChange"
+              />
+            </div>
+
+            <!-- Only shown when enabled -->
+            <template v-if="settingsDraft.ollama.enabled">
+
+              <!-- Base URL -->
+              <div class="pm-setting-row pm-setting-row--column">
+                <div class="pm-setting-content">
+                  <div class="pm-setting-label">Basis-URL</div>
+                  <div class="pm-setting-description">Adresse des Ollama-Servers (Standard: http://localhost:11434).</div>
+                </div>
+                <v-text-field
+                  :model-value="settingsDraft.ollama.base_url"
+                  density="comfortable"
+                  variant="outlined"
+                  hide-details
+                  placeholder="http://localhost:11434"
+                  :loading="isSettingSaving.ollama_base_url"
+                  :disabled="isSettingSaving.ollama_base_url"
+                  class="pm-setting-select"
+                  @change="onOllamaBaseUrlChange($event.target.value)"
+                />
+              </div>
+
+              <!-- Model -->
+              <div class="pm-setting-row pm-setting-row--column">
+                <div class="pm-setting-content">
+                  <div class="pm-setting-label">Modell</div>
+                  <div class="pm-setting-description">Ollama-Modell für die Import-Analyse.</div>
+                </div>
+                <v-combobox
+                  :model-value="settingsDraft.ollama.model"
+                  :items="ollamaModelPresets"
+                  density="comfortable"
+                  variant="outlined"
+                  hide-details
+                  :loading="isSettingSaving.ollama_model"
+                  :disabled="isSettingSaving.ollama_model"
+                  class="pm-setting-select"
+                  @update:model-value="onOllamaModelChange"
+                />
+              </div>
+
+              <!-- Max input chars -->
+              <div class="pm-setting-row pm-setting-row--column">
+                <div class="pm-setting-content">
+                  <div class="pm-setting-label">Max. Textlänge (Zeichen)</div>
+                  <div class="pm-setting-description">
+                    Nur die ersten N Zeichen des OCR-Texts werden ans Modell übergeben.
+                    Kürzere Texte = schneller, weniger Datenweitergabe bei externen Servern.
+                  </div>
+                </div>
+                <v-select
+                  :model-value="settingsDraft.ollama.max_input_chars"
+                  :items="ollamaMaxCharsOptions"
+                  item-title="label"
+                  item-value="value"
+                  density="comfortable"
+                  variant="outlined"
+                  hide-details
+                  :loading="isSettingSaving.ollama_max_input_chars"
+                  :disabled="isSettingSaving.ollama_max_input_chars"
+                  class="pm-setting-select"
+                  @update:model-value="onOllamaMaxInputCharsChange"
+                />
+              </div>
+
+            </template>
           </div>
         </section>
 
@@ -557,6 +662,77 @@ async function onAutoOcrChange(nextValue) {
 function toggleAutoOcrFromRow() {
   if (isSettingSaving.auto_ocr) return;
   void onAutoOcrChange(!settingsDraft.documents.auto_ocr);
+}
+
+// ── Ollama ───────────────────────────────────────────────────────────────────
+
+const ollamaModelPresets = [
+  'llama3.2:1b',
+  'llama3.2:3b',
+  'llama3.1:8b',
+  'phi3.5:mini',
+  'mistral:7b',
+  'gemma2:2b',
+];
+
+const ollamaMaxCharsOptions = [
+  { label: '400 Zeichen (sehr schnell)', value: 400 },
+  { label: '800 Zeichen (empfohlen)', value: 800 },
+  { label: '1600 Zeichen (detaillierter)', value: 1600 },
+  { label: '3200 Zeichen (langsam)', value: 3200 },
+];
+
+async function onOllamaEnabledChange(nextValue) {
+  const nextBool = Boolean(nextValue);
+  if (nextBool === settingsDraft.ollama.enabled) return;
+  const previous = settingsDraft.ollama.enabled;
+  settingsStore.setDraftPatch({ ollama: { enabled: nextBool } });
+  await patchSettingsWithRevert({
+    patch: { ollama: { enabled: nextBool } },
+    controlKey: 'ollama_enabled',
+    revert: () => settingsStore.setDraftPatch({ ollama: { enabled: previous } })
+  });
+}
+
+function toggleOllamaEnabledFromRow() {
+  if (isSettingSaving.ollama_enabled) return;
+  void onOllamaEnabledChange(!settingsDraft.ollama.enabled);
+}
+
+async function onOllamaBaseUrlChange(nextValue) {
+  const url = String(nextValue || '').trim() || 'http://localhost:11434';
+  if (url === settingsDraft.ollama.base_url) return;
+  const previous = settingsDraft.ollama.base_url;
+  settingsStore.setDraftPatch({ ollama: { base_url: url } });
+  await patchSettingsWithRevert({
+    patch: { ollama: { base_url: url } },
+    controlKey: 'ollama_base_url',
+    revert: () => settingsStore.setDraftPatch({ ollama: { base_url: previous } })
+  });
+}
+
+async function onOllamaModelChange(nextValue) {
+  const model = String(nextValue || '').trim() || 'llama3.2:3b';
+  if (model === settingsDraft.ollama.model) return;
+  const previous = settingsDraft.ollama.model;
+  settingsStore.setDraftPatch({ ollama: { model } });
+  await patchSettingsWithRevert({
+    patch: { ollama: { model } },
+    controlKey: 'ollama_model',
+    revert: () => settingsStore.setDraftPatch({ ollama: { model: previous } })
+  });
+}
+
+async function onOllamaMaxInputCharsChange(nextValue) {
+  const chars = Number(nextValue) || 800;
+  if (chars === settingsDraft.ollama.max_input_chars) return;
+  const previous = settingsDraft.ollama.max_input_chars;
+  settingsStore.setDraftPatch({ ollama: { max_input_chars: chars } });
+  await patchSettingsWithRevert({
+    patch: { ollama: { max_input_chars: chars } },
+    controlKey: 'ollama_max_input_chars',
+    revert: () => settingsStore.setDraftPatch({ ollama: { max_input_chars: previous } })
+  });
 }
 
 // ── Auto-Tagging ─────────────────────────────────────────────────────────────

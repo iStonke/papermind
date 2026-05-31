@@ -477,6 +477,91 @@ def _build_quality_metrics(full_text: str, page_confidences: list[float | None],
     }
 
 
+def run_ocr_lite(
+    pdf_path: Path,
+    *,
+    page_index: int = 0,
+    language: str = "deu+eng",
+    max_long_side_px: int = 2000,
+) -> str:
+    """Lightweight single-page OCR for staging title suggestions.
+
+    Skips ocrmypdf and NlMeans denoising entirely.
+    Pipeline: pdfium render → CLAHE + Otsu binarization → Tesseract (text mode).
+    Typical runtime: 2–6 s for a single A4 scan page.
+    """
+    if not pdf_path.exists() or not pdf_path.is_file():
+        raise OCRPipelineError(f"PDF not found: {pdf_path}")
+
+    try:
+        pdf_doc = pdfium.PdfDocument(str(pdf_path))
+    except Exception as exc:
+        raise OCRPipelineError(f"PDF unreadable: {exc}") from exc
+
+    if len(pdf_doc) == 0:
+        raise OCRPipelineError("PDF has no pages")
+
+    page_index = min(max(0, page_index), len(pdf_doc) - 1)
+    page = pdf_doc[page_index]
+
+    # Determine render scale: target at most max_long_side_px on the longest side,
+    # but always at least 150 DPI (scale = DPI/72).
+    width_pt = page.get_width() or 595.0
+    height_pt = page.get_height() or 842.0
+    long_side_pt = max(width_pt, height_pt)
+    scale_for_cap = max_long_side_px / long_side_pt          # keeps pixels ≤ cap
+    scale_for_min_dpi = 150.0 / 72.0                         # floor: 150 DPI
+    scale = max(scale_for_min_dpi, scale_for_cap)
+
+    try:
+        bitmap = page.render(scale=scale)
+        image = bitmap.to_pil()
+    except Exception as exc:
+        raise OCRPipelineError(f"pdfium render failed: {exc}") from exc
+
+    # Lightweight preprocessing: CLAHE contrast enhancement + Otsu binarization.
+    # No NlMeans (far too slow on large images), no unpaper.
+    if cv2 is not None and np is not None:
+        gray = np.array(image.convert("L"))
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        enhanced = clahe.apply(gray)
+        _, binarized = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        processed = Image.fromarray(binarized).convert("L")
+    else:
+        processed = image.convert("L")
+        processed = ImageOps.autocontrast(processed)
+        processed = processed.point(lambda v: 0 if v < 145 else 255, mode="1").convert("L")
+
+    dpi_hint = max(72, int(round(scale * 72)))
+
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        image_path = Path(tmp.name)
+        processed.save(image_path, format="PNG")
+
+    try:
+        result = subprocess.run(
+            [
+                "tesseract",
+                str(image_path),
+                "stdout",
+                "-l", _normalize_tesseract_languages(language),
+                "--dpi", str(dpi_hint),
+                "--psm", "6",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=45,
+        )
+        if result.returncode != 0:
+            raise RuntimeError((result.stderr or result.stdout or "tesseract failed").strip())
+        return result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("tesseract timed out after 45 s")
+    finally:
+        image_path.unlink(missing_ok=True)
+
+
 def run_ocr_pipeline(
     original_path: Path,
     ocr_path: Path,

@@ -4,6 +4,7 @@ import { h } from 'vue';
 import { paperMindDark, paperMindLight } from '../theme/tokens';
 import {
   mdiAlertCircleOutline,
+  mdiCheckboxMultipleOutline,
   mdiBookOpenPageVariantOutline,
   mdiCamera,
   mdiCameraOffOutline,
@@ -71,6 +72,7 @@ const mdiPathMap = {
   'mdi-chevron-down': mdiChevronDown,
   'mdi-chevron-up': mdiChevronUp,
   'mdi-check': mdiCheck,
+  'mdi-checkbox-multiple-outline': mdiCheckboxMultipleOutline,
   'mdi-check-circle-outline': mdiCheckCircleOutline,
   'mdi-close': mdiClose,
   'mdi-cog-outline': mdiCogOutline,

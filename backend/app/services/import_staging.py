@@ -9,7 +9,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import UploadFile
-from pypdf import PdfReader, PdfWriter
+from pypdf import PdfReader
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -26,7 +26,7 @@ from app.schemas.import_staging import (
     ImportSourceUploadResponse,
 )
 from app.services.documents import ALLOWED_PDF_CONTENT_TYPES, DocumentService
-from app.services.ocr_pipeline import run_ocr_pipeline
+from app.services.ocr_pipeline import run_ocr_lite, run_ocr_pipeline
 from app.services.settings import SettingsService
 
 logger = logging.getLogger("papermind.import_staging")
@@ -74,6 +74,14 @@ _CUSTOMER_NO_RE = re.compile(
     re.IGNORECASE,
 )
 _ISSUER_TOKEN_RE = re.compile(r"[A-Za-zÄÖÜäöüß0-9&.\-]+")
+# Tokens that indicate the issuer section has ended (document labels, not company names)
+_ISSUER_STOP_TOKENS = frozenset({
+    "herr", "frau", "dr", "prof", "an", "z.hd",
+    "idnr", "idnr.", "steuernr", "steuernummer", "ustidnr", "ust-id",
+    "kundennr", "kundennummer", "auftragsnr", "rechnungsnr",
+    "tel", "fax", "postfach", "str", "straße", "strasse", "plz",
+    "www", "http", "https", "info@", "kontakt",
+})
 _LOOSE_FIELD_PATTERNS: dict[str, re.Pattern[str]] = {
     "doc_type": re.compile(r"\b(?:doc_type|doctype|typ|dokumenttyp)\b\s*[:=]\s*(.+)", re.IGNORECASE),
     "issuer": re.compile(r"\b(?:issuer|absender|firma|company)\b\s*[:=]\s*(.+)", re.IGNORECASE),
@@ -89,6 +97,70 @@ _SUBJECT_HINTS: dict[str, tuple[str, ...]] = {
     "Energie": ("strom", "energie", "gas", "abschlag", "kilowatt"),
     "Kündigung": ("kündigung", "kuendigung"),
 }
+# Date extraction: prefer dates near contextual keywords
+_DATE_CONTEXT_RE = re.compile(
+    r"(?:datum|rechnungsdatum|briefdatum|belegdatum|leistungsdatum|"
+    r"ausgestellt\s*am|erstellt\s*am|bescheid\s*vom|bescheid\s*für|"
+    r"gültig\s*ab|fakturadatum)\s*:?\s*"
+    r"([0-3]?\d)[.\-/]([01]?\d)[.\-/]((?:19|20)\d{2})",
+    re.IGNORECASE,
+)
+# Subject heading patterns: (pattern, extractor_fn)
+_SUBJECT_HEADING_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\b(Einkommensteuer(?:bescheid)?)\s+((?:19|20)\d{2})\b", re.IGNORECASE), "{0} {1}"),
+    (re.compile(r"\b(Lohnsteuer(?:bescheid)?)\s+((?:19|20)\d{2})\b", re.IGNORECASE), "{0} {1}"),
+    (re.compile(r"\b(Umsatzsteuer(?:bescheid)?)\s+((?:19|20)\d{2})\b", re.IGNORECASE), "{0} {1}"),
+    (re.compile(r"\b(Körperschaftsteuer(?:bescheid)?)\s+((?:19|20)\d{2})\b", re.IGNORECASE), "{0} {1}"),
+    (re.compile(r"\b(Gewerbesteuer(?:bescheid)?)\s+((?:19|20)\d{2})\b", re.IGNORECASE), "{0} {1}"),
+    (re.compile(r"\b(Grundsteuer(?:bescheid)?)\s+((?:19|20)\d{2})\b", re.IGNORECASE), "{0} {1}"),
+    (re.compile(r"\b(Rentenbescheid|Renteninformation)\b", re.IGNORECASE), "{0}"),
+    (re.compile(r"\b(Jahresabrechnung)\s+((?:19|20)\d{2})\b", re.IGNORECASE), "{0} {1}"),
+    (re.compile(r"\b(Kontoauszug)\b", re.IGNORECASE), "{0}"),
+    (re.compile(r"\b(Kreditkartenabrechnung)\b", re.IGNORECASE), "{0}"),
+    (re.compile(r"\b(Gehaltsabrechnung|Lohnabrechnung|Gehaltsnachweis)\b", re.IGNORECASE), "{0}"),
+    (re.compile(r"\b(Nebenkostenabrechnung|Betriebskostenabrechnung)\b", re.IGNORECASE), "{0}"),
+    (re.compile(r"\b(Versicherungsschein|Police)\b", re.IGNORECASE), "{0}"),
+    (re.compile(r"\b(Mietvertrag)\b", re.IGNORECASE), "{0}"),
+    (re.compile(r"\b(Arbeitsvertrag)\b", re.IGNORECASE), "{0}"),
+]
+# Tag rules: list of (keywords_in_text, tags_to_apply)
+_TAG_KEYWORD_RULES: list[tuple[tuple[str, ...], list[str]]] = [
+    (("einkommensteuer",), ["Einkommensteuer", "Steuer"]),
+    (("lohnsteuer",), ["Lohnsteuer", "Steuer"]),
+    (("umsatzsteuer",), ["Umsatzsteuer", "Steuer"]),
+    (("körperschaftsteuer", "koerperschaftsteuer"), ["Körperschaftsteuer", "Steuer"]),
+    (("gewerbesteuer",), ["Gewerbesteuer", "Steuer"]),
+    (("grundsteuer",), ["Grundsteuer", "Steuer"]),
+    (("kindergeld",), ["Kindergeld"]),
+    (("rentenbescheid", "renteninformation", "rentenversicherung"), ["Rente", "Rentenversicherung"]),
+    (("krankenversicherung", "gesundheitsversicherung"), ["Krankenversicherung", "Gesundheit"]),
+    (("pflegeversicherung",), ["Pflegeversicherung"]),
+    (("unfallversicherung",), ["Unfallversicherung"]),
+    (("haftpflichtversicherung", "haftpflicht"), ["Haftpflicht", "Versicherung"]),
+    (("kfz-versicherung", "kraftfahrzeugversicherung", "fahrzeugversicherung"), ["KFZ-Versicherung", "Auto"]),
+    (("lebensversicherung",), ["Lebensversicherung"]),
+    (("strom", "stromverbrauch", "kilowattstunde", "kwh"), ["Strom", "Energie"]),
+    (("gasverbrauch", "erdgas", "gasversorger"), ["Gas", "Energie"]),
+    (("wasserverbrauch", "trinkwasser", "abwasser"), ["Wasser"]),
+    (("fernwärme", "heizung", "heizkosten"), ["Heizung", "Energie"]),
+    (("internetanschluss", "internettarif", "dsl", "breitband", "glasfaser"), ["Internet", "Telekommunikation"]),
+    (("mobilfunk", "handy", "smartphone", "vodafone", "telekom", "o2 ", "congstar"), ["Mobilfunk", "Telekommunikation"]),
+    (("festnetz", "telefon"), ["Telefon", "Telekommunikation"]),
+    (("miete", "mietvertrag", "kaltmiete", "warmmiete"), ["Miete", "Wohnen"]),
+    (("nebenkosten", "betriebskosten", "hausgeld"), ["Nebenkosten", "Wohnen"]),
+    (("arzt", "praxis", "behandlung", "untersuchung", "osteopathie", "physiotherapie", "zahnarzt", "orthopädie"), ["Arzt", "Gesundheit"]),
+    (("apotheke", "medikament", "rezept"), ["Apotheke", "Gesundheit"]),
+    (("krankenhaus", "klinik", "station"), ["Krankenhaus", "Gesundheit"]),
+    (("gehaltsabrechnung", "lohnabrechnung", "gehaltsnachweis", "entgeltabrechnung"), ["Gehalt", "Arbeit"]),
+    (("arbeitsvertrag",), ["Arbeitsvertrag", "Arbeit"]),
+    (("kündigung",), ["Kündigung"]),
+    (("mietvertrag",), ["Mietvertrag", "Wohnen"]),
+    (("kontoauszug", "kontoumsätze"), ["Kontoauszug", "Bank"]),
+    (("kreditkarte", "kreditkartenabrechnung"), ["Kreditkarte", "Bank"]),
+    (("darlehen", "kredit", "tilgung", "zinsen"), ["Kredit", "Bank"]),
+    (("depot", "wertpapier", "aktie", "fonds"), ["Geldanlage", "Bank"]),
+    (("finanzamt",), ["Finanzamt", "Steuer"]),
+]
 
 
 class _LocalPdfUpload:
@@ -283,40 +355,46 @@ class ImportStagingService:
         return merged, pages_scanned, page_refs
 
     def _extract_text_with_ocr_fallback(self, source_file_ids: list[str], *, page_scope: str) -> str:
-        normalized_ids = [str(source_file_id or "").strip() for source_file_id in source_file_ids if str(source_file_id or "").strip()]
+        """OCR fallback using the lightweight run_ocr_lite path.
+
+        Skips ocrmypdf and heavy NlMeans denoising — only pdfium + CLAHE/Otsu + Tesseract.
+        This reduces per-page time from minutes to ~2-6 seconds.
+        """
+        normalized_ids = [str(sid or "").strip() for sid in source_file_ids if str(sid or "").strip()]
         if not normalized_ids:
             return ""
+
+        ocr_settings = self.settings_service.get_settings().model_dump(mode="json").get("ocr", {})
+        language = str(ocr_settings.get("language") or "deu+eng")
         max_sources = 1 if page_scope == "first_page" else 2
-        runtime_settings = self.settings_service.get_settings().model_dump(mode="json")
+        max_pages_per_source = 1 if page_scope == "first_page" else 3
         captured_texts: list[str] = []
 
         for source_file_id in normalized_ids[:max_sources]:
             source_path = self.get_source_pdf_path(source_file_id)
-            ocr_path = self._staging_root() / f"suggest-ocr-{uuid.uuid4()}.pdf"
             try:
-                result = run_ocr_pipeline(
-                    source_path,
-                    ocr_path,
-                    runtime_settings,
-                    timeout_seconds=5.0,
-                )
-            except Exception as exc:  # pragma: no cover - runtime deps
-                logger.warning("stage title ocr fallback failed source_file_id=%s err=%s", source_file_id, exc)
-                continue
-            finally:
-                ocr_path.unlink(missing_ok=True)
+                reader = PdfReader(str(source_path))
+                total_pages = len(reader.pages)
+            except Exception as exc:
+                logger.warning("stage title ocr: could not read page count source_file_id=%s err=%s", source_file_id, exc)
+                total_pages = 1
 
-            if page_scope == "first_page":
-                pages = list(result.get("pages") or [])
-                if pages:
-                    first_page_text = self._normalize_text(str((pages[0] or {}).get("text") or ""))
-                    if first_page_text:
-                        captured_texts.append(first_page_text)
-                        break
+            page_indexes = list(range(min(total_pages, max_pages_per_source)))
+            source_texts: list[str] = []
+            for page_idx in page_indexes:
+                try:
+                    text = run_ocr_lite(source_path, page_index=page_idx, language=language)
+                    normalized = self._normalize_text(text)
+                    if normalized:
+                        source_texts.append(normalized)
+                except Exception as exc:
+                    logger.warning(
+                        "stage title ocr lite failed source_file_id=%s page=%s err=%s",
+                        source_file_id, page_idx, exc,
+                    )
 
-            full_text = self._normalize_text(str(result.get("text") or ""))
-            if full_text:
-                captured_texts.append(full_text)
+            if source_texts:
+                captured_texts.extend(source_texts)
                 if page_scope == "first_page":
                     break
 
@@ -391,10 +469,10 @@ class ImportStagingService:
         tokens = _ISSUER_TOKEN_RE.findall(head)
         cleaned_tokens: list[str] = []
         for token in tokens:
-            lowered = token.lower()
+            lowered = token.lower().rstrip(".")
             if not re.search(r"[a-zäöüß0-9]", lowered):
                 continue
-            if lowered in {"herr", "frau", "dr", "prof"}:
+            if lowered in _ISSUER_STOP_TOKENS:
                 break
             if re.fullmatch(r"\d+[a-zA-Z]?", token):
                 break
@@ -591,6 +669,266 @@ class ImportStagingService:
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _extract_document_date(text: str) -> str | None:
+        """Extract the most relevant document date from OCR text. Returns ISO string YYYY-MM-DD or None."""
+        # 1st priority: date immediately after a context keyword
+        match = _DATE_CONTEXT_RE.search(text)
+        if match:
+            try:
+                d = datetime(int(match.group(3)), int(match.group(2)), int(match.group(1)))
+                return d.strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+
+        # 2nd priority: first plausible date found in the document
+        for m in _DATE_DMY_RE.finditer(text):
+            day, month, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            try:
+                d = datetime(year, month, day)
+                if 2000 <= year <= 2099:
+                    return d.strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+
+        # 3rd priority: ISO date (YYYY-MM-DD)
+        for m in _DATE_YMD_RE.finditer(text):
+            year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            try:
+                d = datetime(year, month, day)
+                if 2000 <= year <= 2099:
+                    return d.strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+
+        return None
+
+    @staticmethod
+    def _detect_document_type_improved(text: str) -> str:
+        """Word-boundary-aware doc type detection that avoids common false positives."""
+        lower = text.lower()
+        # High-confidence Bescheid indicators — check BEFORE Rechnung
+        if re.search(r"\b(bescheid|finanzamt|steuerbescheid|einkommensteuer|lohnsteuer|umsatzsteuer"
+                     r"|grundsteuer|gewerbesteuer|rentenbescheid|bewilligungsbescheid"
+                     r"|widerspruchsbescheid|ablehnungsbescheid|anerkennungsbescheid)\b", lower):
+            return "Bescheid"
+        # Word-boundary Rechnung (avoids "Abrechnung", "Jahresabrechnung" etc.)
+        if re.search(r"\brechnung\b|\binvoice\b|\brechnungsnr\b|\brechnungsnummer\b", lower):
+            return "Rechnung"
+        # Remaining doc types in priority order
+        for doc_type, keywords in _DOC_TYPE_KEYWORDS:
+            if doc_type in {"Rechnung", "Bescheid"}:
+                continue  # already handled above
+            if any(keyword in lower for keyword in keywords):
+                return doc_type
+        return "Sonstiges"
+
+    @staticmethod
+    def _extract_subject_rich(text: str, doc_type: str) -> str | None:
+        """Extract a meaningful subject/heading from OCR text."""
+        lower = text.lower()
+        # Tax terms checked first so we use the clean embedded label, not OCR artifacts
+        tax_terms = [
+            ("einkommensteuer", "Einkommensteuer"),
+            ("lohnsteuer", "Lohnsteuer"),
+            ("umsatzsteuer", "Umsatzsteuer"),
+            ("körperschaftsteuer", "Körperschaftsteuer"),
+            ("koerperschaftsteuer", "Körperschaftsteuer"),
+            ("gewerbesteuer", "Gewerbesteuer"),
+            ("grundsteuer", "Grundsteuer"),
+        ]
+        for kw, label in tax_terms:
+            if kw in lower:
+                # Prefer explicit "für YEAR" / "Steuerjahr YEAR" context
+                ym = re.search(
+                    r"\b(?:f[üu]r|steuerjahr|est|zur|jahr)\s+(20\d{2})\b",
+                    text, re.IGNORECASE,
+                )
+                if not ym:
+                    ym = re.search(r"\b(20\d{2})\b", text)
+                if ym:
+                    return f"{label} {ym.group(1)}"
+                return label
+
+        # "Bescheid für YEAR über <SteuerArt>" — fallback when no clean term found
+        m = re.search(
+            r"\bbescheid\s+f[üu]r\s+(20\d{2})\s+[üu]ber\s+([A-ZÄÖÜ][A-Za-zÄÖÜäöüß\- ]{4,30})",
+            text, re.IGNORECASE,
+        )
+        if m:
+            year = m.group(1)
+            raw_type = " ".join(m.group(2).split())[:30].strip()
+            # Collapse spaced OCR artifacts ("E i n k o m m e n s t e u e r" → "Einkommensteuer")
+            if re.fullmatch(r"(?:[A-Za-zÄÖÜäöüß] +){3,}[A-Za-zÄÖÜäöüß]", raw_type):
+                raw_type = re.sub(r"\s+", "", raw_type)
+            return f"{raw_type} {year}"
+
+        # Fixed-label heading patterns
+        for pattern, fmt in _SUBJECT_HEADING_PATTERNS:
+            m = pattern.search(text)
+            if m:
+                groups = [m.group(i + 1) for i in range(len(m.groups()))]
+                return fmt.format(*groups)
+
+        return None
+
+    @classmethod
+    def _generate_tags_from_text(cls, text: str, doc_type: str) -> list[str]:
+        """Generate up to 3 relevant tags from OCR text using keyword rules."""
+        # Strip URLs and email addresses to avoid false positives from footers
+        clean = re.sub(r"https?://\S+|www\.\S+|\S+@\S+", " ", text, flags=re.IGNORECASE)
+        lower = clean.lower()
+        tags: list[str] = []
+        seen: set[str] = set()
+        for keywords, tag_list in _TAG_KEYWORD_RULES:
+            # Use word-boundary matching to avoid substring false positives
+            # e.g. "lohn" in "Bruttoarbeitslohn" should not trigger "Gehalt"
+            matched = any(
+                re.search(r"\b" + re.escape(kw) + r"\b", lower)
+                for kw in keywords
+            )
+            if matched:
+                for tag in tag_list:
+                    if tag not in seen and len(tags) < 3:
+                        seen.add(tag)
+                        tags.append(tag)
+            if len(tags) >= 3:
+                break
+        return tags
+
+    @staticmethod
+    def _call_ollama_for_staging(
+        ocr_text: str,
+        *,
+        base_url: str,
+        model: str,
+        timeout_seconds: float,
+        max_input_chars: int,
+    ) -> dict[str, object] | None:
+        """Call Ollama to extract metadata from OCR text.
+
+        Returns a dict with doc_type, issuer, subject, date, tags, amount, currency
+        or None if Ollama is unreachable or returns an unparseable response.
+        Text is truncated to max_input_chars before sending.
+        """
+        text_for_llm = " ".join(str(ocr_text or "").split())[:max_input_chars]
+        if not text_for_llm:
+            return None
+
+        prompt = (
+            "Extrahiere aus dem folgenden OCR-Text eines deutschen Dokuments die Metadaten. "
+            "Antworte NUR mit einem gültigen JSON-Objekt, ohne Markdown, ohne Erklärungen.\n\n"
+            "Felder:\n"
+            '- "doc_type": eines von [Rechnung, Quittung, Mahnung, Vertrag, Kündigung, Brief, Bescheid, Protokoll, Sonstiges]\n'
+            '- "issuer": Absender/Aussteller, max. 40 Zeichen, oder null\n'
+            '- "subject": Dokumentthema als kurzer Ausdruck, max. 50 Zeichen, oder null\n'
+            '- "date": Dokumentdatum als YYYY-MM-DD oder null\n'
+            '- "tags": Array mit 1–3 deutschen Schlagworten oder []\n'
+            '- "amount": Gesamtbetrag als Zahl (z.B. 123.45) oder null\n'
+            '- "currency": "EUR" oder null\n\n'
+            f"OCR-Text:\n{text_for_llm}"
+        )
+        payload = {"model": model, "stream": False, "format": "json", "prompt": prompt}
+
+        try:
+            response = httpx.post(
+                f"{base_url.rstrip('/')}/api/generate",
+                json=payload,
+                timeout=timeout_seconds,
+            )
+            response.raise_for_status()
+            raw = str(response.json().get("response") or "").strip()
+        except Exception as exc:
+            logger.warning("ollama staging call failed: %s", exc)
+            return None
+
+        if not raw:
+            return None
+
+        # Parse JSON (handle possible markdown fences)
+        candidate = raw
+        if not candidate.startswith("{"):
+            m = re.search(r"\{[\s\S]*\}", candidate)
+            candidate = m.group(0) if m else ""
+        try:
+            parsed = json.loads(candidate)
+        except Exception:
+            logger.warning("ollama staging: could not parse JSON from response: %r", raw[:200])
+            return None
+
+        if not isinstance(parsed, dict):
+            return None
+
+        # Normalise field values
+        def _str(key: str, max_len: int = 80) -> str | None:
+            v = " ".join(str(parsed.get(key) or "").split()).strip()
+            return v[:max_len] if v else None
+
+        def _date(key: str) -> str | None:
+            v = str(parsed.get(key) or "").strip()
+            return v if re.match(r"^\d{4}-\d{2}-\d{2}$", v) else None
+
+        def _tags(key: str) -> list[str]:
+            raw_tags = parsed.get(key)
+            if not isinstance(raw_tags, list):
+                return []
+            return [str(t).strip() for t in raw_tags if str(t).strip()][:3]
+
+        def _amount(key: str) -> float | None:
+            try:
+                v = float(str(parsed.get(key) or "").replace(",", "."))
+                return round(v, 2) if v > 0 else None
+            except (TypeError, ValueError):
+                return None
+
+        return {
+            "doc_type": _str("doc_type", 40),
+            "issuer": _str("issuer", 40),
+            "subject": _str("subject", 50),
+            "date": _date("date"),
+            "tags": _tags("tags"),
+            "amount": _amount("amount"),
+            "currency": "EUR" if str(parsed.get("currency") or "").upper() == "EUR" else None,
+        }
+
+    @classmethod
+    def _extract_rich_metadata(cls, ocr_text: str) -> dict[str, object]:
+        """Extract all document metadata from OCR text using rule-based patterns.
+
+        Replaces the broken AI-service call. Extracts: doc_type, issuer, subject,
+        amount, currency, date, tags — entirely locally without network calls.
+
+        Passes the ORIGINAL text (with newlines) to functions that rely on line
+        structure (sender/issuer, subject). The normalized (collapsed) version is
+        used only for keyword matching that doesn't depend on layout.
+        """
+        if not ocr_text or not ocr_text.strip():
+            return {}
+
+        # Keep original for layout-sensitive detection
+        # Use normalized (whitespace-collapsed) text for keyword patterns
+        normalized = cls._normalize_text(ocr_text)
+
+        doc_type = cls._detect_document_type_improved(ocr_text)
+        issuer = cls._detect_sender(ocr_text)          # original text → correct line splitting
+        amount, currency = cls._detect_amount_currency(normalized)
+        date_iso = cls._extract_document_date(ocr_text)
+        subject = (
+            cls._extract_subject_rich(ocr_text, doc_type)
+            or cls._detect_subject_heuristic(normalized)
+        )
+        tags = cls._generate_tags_from_text(ocr_text, doc_type)
+
+        return {
+            "doc_type": doc_type,
+            "issuer": issuer,
+            "subject": subject,
+            "amount": amount,
+            "currency": currency,
+            "date": date_iso,
+            "tags": tags,
+        }
+
     def _extract_metadata_with_ai(self, ocr_text: str, *, today_display: str) -> tuple[dict[str, object] | None, str]:
         text = self._normalize_text(ocr_text)
         if not text:
@@ -602,12 +940,16 @@ class ImportStagingService:
             "- issuer: Absender/Firma (kurz, max 30 Zeichen, ohne Rechtsform-Suffix wenn möglich)\n"
             "- subject: sehr kurzer Betreff (max 40 Zeichen)\n"
             "- amount: Gesamtbetrag als Zahl mit Punkt (z.B. 123.45) oder null\n"
-            "- currency: EUR oder null\n\n"
+            "- currency: EUR oder null\n"
+            "- date: Dokumentdatum im Format YYYY-MM-DD (z.B. 2024-03-15) oder null\n"
+            "- tags: Liste von 1-3 kurzen Schlagworten als Strings (z.B. [\"Strom\", \"Stadtwerke\"]) oder []\n\n"
             "Regeln:\n"
             "- doc_type: erkenne Rechnung robust (z.B. Rechnung, Invoice, RG, Rechnungsnr).\n"
             "- issuer: bevorzuge die erste erkennbare Firma/Marke im Kopfbereich.\n"
             "- subject: KEIN voller Satz, KEIN Datum, KEINE Rechnungsnummer.\n"
-            "- amount: wenn mehrere Beträge, nimm Endbetrag (Summe/Total/Gesamtbetrag).\n\n"
+            "- amount: wenn mehrere Beträge, nimm Endbetrag (Summe/Total/Gesamtbetrag).\n"
+            "- date: Rechnungs-/Brief-/Vertragsdatum – NICHT das heutige Datum.\n"
+            "- tags: thematische Begriffe, die das Dokument inhaltlich beschreiben.\n\n"
             f"OCR:\n<<<{text[:12000]}>>>\n\n"
             f"Heutiges Datum: {today_display}\n\n"
             "Antworte nur mit JSON im Format:\n"
@@ -616,7 +958,9 @@ class ImportStagingService:
             '  "issuer": "...",\n'
             '  "subject": "...",\n'
             '  "amount": 123.45,\n'
-            '  "currency": "EUR"\n'
+            '  "currency": "EUR",\n'
+            '  "date": "2024-03-15",\n'
+            '  "tags": ["Begriff1", "Begriff2"]\n'
             "}"
         )
         payload = {
@@ -627,7 +971,7 @@ class ImportStagingService:
                 "Wenn ein Feld nicht sicher ist, setze es auf null."
             ),
             "max_sentences": 1,
-            "max_tokens": 200,
+            "max_tokens": 300,
             "temperature": 0.1,
             "question": "Extrahiere Metadaten als JSON.",
             "user_prompt": user_prompt,
@@ -660,13 +1004,41 @@ class ImportStagingService:
         if currency not in {"EUR", None}:
             currency = None
 
+        import re as _re
+        date_raw = str(parsed.get("date") or "").strip()
+        doc_date = date_raw if _re.match(r"^\d{4}-\d{2}-\d{2}$", date_raw) else None
+
+        tags_raw = parsed.get("tags")
+        doc_tags: list[str] = (
+            [str(t).strip() for t in tags_raw if t and str(t).strip()][:3]
+            if isinstance(tags_raw, list)
+            else []
+        )
+
         return {
             "doc_type": doc_type,
             "issuer": issuer,
             "subject": subject,
             "amount": amount,
             "currency": currency,
+            "date": doc_date,
+            "tags": doc_tags,
         }, answer
+
+    _DOC_TYPE_TO_CATEGORY: dict[str, str] = {
+        "Rechnung": "Rechnungen",
+        "Quittung": "Belege",
+        "Mahnung": "Rechnungen",
+        "Vertrag": "Verträge",
+        "Kündigung": "Verträge",
+        "Brief": "Briefe",
+        "Bescheid": "Briefe",
+        "Protokoll": "Briefe",
+    }
+
+    @classmethod
+    def _map_doc_type_to_category(cls, doc_type: str) -> str | None:
+        return cls._DOC_TYPE_TO_CATEGORY.get(str(doc_type or "").strip())
 
     @classmethod
     def _format_euro(cls, amount: float) -> str:
@@ -752,7 +1124,21 @@ class ImportStagingService:
         today_filename = datetime.utcnow().strftime("%d-%m-%Y")
         today_display = datetime.utcnow().strftime("%d.%m.%Y")
         if ocr_pending:
-            return {"status": "pending_ocr", "suggestion": "", "used_fallback": False, "meta": {}}
+            return {
+                "status": "ready",
+                "suggestion": f"Scan{_FILENAME_SEPARATOR}{today_filename}",
+                "used_fallback": True,
+                "meta": {
+                    "doc_type": None,
+                    "issuer": None,
+                    "subject": None,
+                    "amount": None,
+                    "currency": None,
+                    "date": None,
+                    "category": None,
+                    "tags": [],
+                },
+            }
 
         if len(extracted_text.strip()) < 80:
             return {
@@ -765,69 +1151,80 @@ class ImportStagingService:
                     "subject": None,
                     "amount": None,
                     "currency": None,
+                    "date": None,
+                    "category": None,
+                    "tags": [],
                 },
             }
 
-        heuristic_amount, heuristic_currency = self._detect_amount_currency(extracted_text)
-        heuristic_doc_type = self._detect_document_type(extracted_text)
-        heuristic_subject = self._detect_subject_heuristic(extracted_text)
-        heuristic_meta: dict[str, object] = {
-            "doc_type": heuristic_doc_type,
-            "issuer": self._detect_sender(extracted_text),
-            "subject": heuristic_subject,
-            "amount": heuristic_amount,
-            "currency": heuristic_currency,
-        }
+        # Try Ollama first if configured, fall back to rule-based extraction.
+        runtime_settings = self.settings_service.get_settings().model_dump(mode="json")
+        ollama_cfg = runtime_settings.get("ollama") or {}
+        ollama_rich: dict[str, object] | None = None
+        if ollama_cfg.get("enabled"):
+            ollama_rich = self._call_ollama_for_staging(
+                extracted_text,
+                base_url=str(ollama_cfg.get("base_url") or "http://localhost:11434"),
+                model=str(ollama_cfg.get("model") or "llama3.2:3b"),
+                timeout_seconds=float(ollama_cfg.get("timeout_seconds") or 90.0),
+                max_input_chars=int(ollama_cfg.get("max_input_chars") or 800),
+            )
+            if ollama_rich:
+                logger.info("SuggestTitle: ollama extraction succeeded stage=%s", str(stage_id or "").strip() or "-")
 
-        llm_meta, _raw = self._extract_metadata_with_ai(extracted_text, today_display=today_display)
-        used_fallback = False
-        if llm_meta is None:
-            used_fallback = True
-            merged_meta: dict[str, object] = dict(heuristic_meta)
+        rule_rich = self._extract_rich_metadata(extracted_text)
+        # Merge: Ollama wins on fields it provided, rule-based fills remaining gaps
+        if ollama_rich:
+            rich: dict[str, object] = {
+                "doc_type": ollama_rich.get("doc_type") or rule_rich.get("doc_type"),
+                "issuer": ollama_rich.get("issuer") or rule_rich.get("issuer"),
+                "subject": ollama_rich.get("subject") or rule_rich.get("subject"),
+                "date": ollama_rich.get("date") or rule_rich.get("date"),
+                "tags": ollama_rich.get("tags") or rule_rich.get("tags") or [],
+                "amount": ollama_rich.get("amount") if ollama_rich.get("amount") is not None else rule_rich.get("amount"),
+                "currency": ollama_rich.get("currency") or rule_rich.get("currency"),
+            }
         else:
-            merged_meta = dict(llm_meta)
-            if not merged_meta.get("doc_type"):
-                merged_meta["doc_type"] = "Rechnung" if heuristic_doc_type == "Rechnung" else "Dokument"
-                used_fallback = True
-            if not merged_meta.get("issuer"):
-                merged_meta["issuer"] = self._normalize_issuer(str(heuristic_meta.get("issuer") or "")) or "Unbekannt"
-                used_fallback = True
-            llm_subject = self._normalize_subject(str(merged_meta.get("subject") or ""))
-            if (not llm_subject) or (not self._is_subject_supported_by_context(llm_subject, extracted_text, str(merged_meta.get("issuer") or ""))):
-                merged_meta["subject"] = heuristic_subject or "Ohne Betreff"
-                used_fallback = True
-            else:
-                merged_meta["subject"] = llm_subject
-            if merged_meta.get("amount") is None and heuristic_amount is not None:
-                merged_meta["amount"] = heuristic_amount
-                merged_meta["currency"] = heuristic_currency or "EUR"
+            rich = rule_rich
 
-        normalized_doc_type = self._normalize_doc_type(str(merged_meta.get("doc_type") or ""))
-        if not normalized_doc_type:
-            normalized_doc_type = "Rechnung" if heuristic_doc_type == "Rechnung" else "Dokument"
-            used_fallback = True
-        elif used_fallback and normalized_doc_type == "Sonstiges" and heuristic_doc_type != "Rechnung":
-            normalized_doc_type = "Dokument"
-        merged_meta["doc_type"] = normalized_doc_type
-        merged_meta["issuer"] = self._normalize_issuer(str(merged_meta.get("issuer") or "")) or "Unbekannt"
-        merged_meta["subject"] = self._normalize_subject(str(merged_meta.get("subject") or "")) or (heuristic_subject or "Ohne Betreff")
-        normalized_amount = self._safe_float(merged_meta.get("amount"))
+        normalized_doc_type = self._normalize_doc_type(str(rich.get("doc_type") or "")) or "Sonstiges"
+        issuer = self._normalize_issuer(str(rich.get("issuer") or "")) or "Unbekannt"
+        subject = self._normalize_subject(str(rich.get("subject") or "")) or None
+        normalized_amount = self._safe_float(rich.get("amount"))
         if normalized_amount is not None and normalized_amount <= 0:
             normalized_amount = None
-        merged_meta["amount"] = normalized_amount
-        merged_meta["currency"] = "EUR" if (str(merged_meta.get("currency") or "").upper() == "EUR" and merged_meta.get("amount") is not None) else None
+        currency = "EUR" if (normalized_amount is not None) else None
+        raw_date = str(rich.get("date") or "").strip()
+        final_date = raw_date if re.match(r"^\d{4}-\d{2}-\d{2}$", raw_date) else None
+        tags_val = rich.get("tags")
+        final_tags: list[str] = (
+            [str(t).strip() for t in tags_val if t and str(t).strip()][:3]
+            if isinstance(tags_val, list)
+            else []
+        )
 
+        merged_meta: dict[str, object] = {
+            "doc_type": normalized_doc_type,
+            "issuer": issuer,
+            "subject": subject or "Ohne Betreff",
+            "amount": normalized_amount,
+            "currency": currency,
+        }
         suggestion = self._build_filename_from_meta(merged_meta)
+
         return {
             "status": "ready",
             "suggestion": suggestion,
-            "used_fallback": used_fallback,
+            "used_fallback": not bool(subject),
             "meta": {
-                "doc_type": merged_meta.get("doc_type"),
-                "issuer": merged_meta.get("issuer"),
-                "subject": merged_meta.get("subject"),
-                "amount": merged_meta.get("amount"),
-                "currency": merged_meta.get("currency"),
+                "doc_type": normalized_doc_type,
+                "issuer": issuer,
+                "subject": subject,
+                "amount": normalized_amount,
+                "currency": currency,
+                "date": final_date,
+                "category": self._map_doc_type_to_category(normalized_doc_type),
+                "tags": final_tags,
             },
         }
 
