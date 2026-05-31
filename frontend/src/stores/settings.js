@@ -126,6 +126,13 @@ function createDefaultSettings() {
       postprocess_hyphenation: true,
       remove_headers_footers: true
     },
+    ollama: {
+      enabled: false,
+      base_url: 'http://localhost:11434',
+      model: 'llama3.2:3b',
+      timeout_seconds: 90,
+      max_input_chars: 800
+    },
     quality: {
       enable_answer_checks: true,
       enable_self_critique: false
@@ -144,7 +151,15 @@ function cloneSettings(settingsValue) {
     llm: { ...settingsValue.llm },
     rag: { ...settingsValue.rag },
     ocr: { ...settingsValue.ocr },
+    ollama: {
+      enabled: false,
+      base_url: 'http://localhost:11434',
+      model: 'llama3.2:3b',
+      timeout_seconds: 90,
+      max_input_chars: 800
+    },
     quality: { ...settingsValue.quality },
+    ollama: { ...settingsValue.ollama },
     meta: { ...settingsValue.meta }
   };
 }
@@ -156,6 +171,7 @@ function assignSettings(target, source) {
   Object.assign(target.rag, source.rag);
   Object.assign(target.ocr, source.ocr);
   Object.assign(target.quality, source.quality);
+  if (source.ollama) Object.assign(target.ollama, source.ollama);
   Object.assign(target.meta, source.meta);
 }
 
@@ -227,6 +243,9 @@ export const useSettingsStore = defineStore('settings', {
       }
       if (patch?.ocr && typeof patch.ocr === 'object') {
         Object.assign(this.settingsDraft.ocr, patch.ocr);
+      }
+      if (patch?.ollama && typeof patch.ollama === 'object') {
+        Object.assign(this.settingsDraft.ollama, patch.ollama);
       }
       if (patch?.quality && typeof patch.quality === 'object') {
         Object.assign(this.settingsDraft.quality, patch.quality);
@@ -371,6 +390,17 @@ export const useSettingsStore = defineStore('settings', {
             typeof payload?.ocr?.remove_headers_footers === 'boolean'
               ? payload.ocr.remove_headers_footers
               : defaults.ocr.remove_headers_footers
+        },
+        ollama: {
+          enabled: typeof payload?.ollama?.enabled === 'boolean' ? payload.ollama.enabled : defaults.ollama.enabled,
+          base_url: typeof payload?.ollama?.base_url === 'string' && payload.ollama.base_url.trim()
+            ? payload.ollama.base_url.trim()
+            : defaults.ollama.base_url,
+          model: typeof payload?.ollama?.model === 'string' && payload.ollama.model.trim()
+            ? payload.ollama.model.trim()
+            : defaults.ollama.model,
+          timeout_seconds: typeof payload?.ollama?.timeout_seconds === 'number' ? payload.ollama.timeout_seconds : defaults.ollama.timeout_seconds,
+          max_input_chars: typeof payload?.ollama?.max_input_chars === 'number' ? payload.ollama.max_input_chars : defaults.ollama.max_input_chars
         },
         quality: {
           enable_answer_checks:

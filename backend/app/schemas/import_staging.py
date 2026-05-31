@@ -149,4 +149,4 @@ class StageTitleSuggestResponse(BaseModel):
     status: str = "ready"
     pageScope: str = StageTitlePageScope.FIRST_PAGE
     usedFallback: bool = False
-    meta: dict[str, str | float | None] = Field(default_factory=dict)
+    meta: dict[str, object] = Field(default_factory=dict)
