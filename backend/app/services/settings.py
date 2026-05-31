@@ -67,6 +67,17 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "enable_answer_checks": True,
         "enable_self_critique": False,
     },
+    "ollama": {
+        # LLM-gestützte Metadaten-Erkennung beim Import (Titel/Betreff/Datum/Kategorie/Tags).
+        # base_url zeigt auf den Host, da das Backend im Docker-Container läuft und Ollama
+        # nativ auf dem Mac (Metal-GPU) bedient wird. Bei Nichterreichbarkeit fällt die
+        # Erkennung automatisch auf die regelbasierte Extraktion zurück.
+        "enabled": True,
+        "base_url": "http://host.docker.internal:11434",
+        "model": "llama3.2:3b",
+        "timeout_seconds": 90.0,
+        "max_input_chars": 1500,
+    },
     "meta": {
         "version": 1,
     },
