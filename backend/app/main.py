@@ -12,6 +12,7 @@ from app.core.errors import install_exception_handlers
 from app.db.session import SessionLocal
 from app.routers import (
     ai_router,
+    categories_router,
     direct_upload_router,
     documents_router,
     health_router,
@@ -79,6 +80,7 @@ app.include_router(direct_upload_router)
 app.include_router(documents_router)
 app.include_router(import_router)
 app.include_router(tags_router)
+app.include_router(categories_router)
 app.include_router(jobs_router)
 app.include_router(retrieval_router)
 app.include_router(ai_router)

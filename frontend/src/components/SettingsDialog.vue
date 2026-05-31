@@ -231,6 +231,109 @@
           </div>
         </section>
 
+        <section class="pm-settings-section">
+          <h3 class="pm-settings-title">Kategorien</h3>
+          <div class="pm-settings-content">
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Verfügbare Kategorien</div>
+                <div class="pm-setting-description">
+                  Diese Kategorien stehen beim Import zur Auswahl. Die Zahl zeigt, wie viele
+                  Dokumente die Kategorie nutzen. Löschen entfernt nur die Auswahloption –
+                  bereits zugewiesene Dokumente behalten ihre Kategorie.
+                </div>
+              </div>
+
+              <div class="settings-categories">
+                <div
+                  v-for="cat in categoryStore.categories"
+                  :key="cat.id"
+                  class="settings-category-row"
+                >
+                  <template v-if="editingCategoryId === cat.id">
+                    <v-text-field
+                      v-model="editingCategoryName"
+                      density="compact"
+                      variant="outlined"
+                      hide-details
+                      autofocus
+                      class="settings-category-edit"
+                      @keydown.enter.prevent="confirmEditCategory(cat)"
+                      @keydown.esc.prevent="cancelEditCategory"
+                    />
+                    <v-btn
+                      icon
+                      size="x-small"
+                      variant="text"
+                      color="primary"
+                      title="Speichern"
+                      @click="confirmEditCategory(cat)"
+                    >
+                      <v-icon size="18">mdi-check</v-icon>
+                    </v-btn>
+                    <v-btn icon size="x-small" variant="text" title="Abbrechen" @click="cancelEditCategory">
+                      <v-icon size="18">mdi-close</v-icon>
+                    </v-btn>
+                  </template>
+                  <template v-else>
+                    <span class="settings-category-name">{{ cat.name }}</span>
+                    <span class="settings-category-count" :title="`${cat.usage_count || 0} Dokument(e)`">
+                      {{ cat.usage_count || 0 }}
+                    </span>
+                    <v-btn
+                      icon
+                      size="x-small"
+                      variant="text"
+                      title="Umbenennen"
+                      :disabled="categoryStore.isCategoryMutationRunning"
+                      @click="startEditCategory(cat)"
+                    >
+                      <v-icon size="16">mdi-pencil-outline</v-icon>
+                    </v-btn>
+                    <v-btn
+                      icon
+                      size="x-small"
+                      variant="text"
+                      color="error"
+                      title="Löschen"
+                      :disabled="categoryStore.isCategoryMutationRunning"
+                      @click="removeCategory(cat)"
+                    >
+                      <v-icon size="16">mdi-trash-can-outline</v-icon>
+                    </v-btn>
+                  </template>
+                </div>
+
+                <div v-if="categoryStore.categories.length === 0" class="settings-category-empty">
+                  Noch keine Kategorien angelegt.
+                </div>
+
+                <div class="settings-category-add">
+                  <v-text-field
+                    v-model="newCategoryName"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    placeholder="Neue Kategorie…"
+                    :disabled="categoryStore.isCategoryMutationRunning"
+                    @keydown.enter.prevent="addCategory"
+                  />
+                  <v-btn
+                    variant="tonal"
+                    color="primary"
+                    size="small"
+                    prepend-icon="mdi-plus"
+                    :disabled="!newCategoryName.trim() || categoryStore.isCategoryMutationRunning"
+                    @click="addCategory"
+                  >
+                    Hinzufügen
+                  </v-btn>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <!-- ── Ollama ── -->
         <section class="pm-settings-section">
           <h3 class="pm-settings-title">Ollama (lokale KI)</h3>
@@ -469,11 +572,12 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useTheme } from 'vuetify';
 import BaseDialog from './BaseDialog.vue';
 import { getBaseUrl } from '../api/client';
 import { useSettingsStore } from '../stores/settings';
+import { useCategoryStore } from '../stores/categories';
 import { notifyError } from '../stores/notifications';
 import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
 import {
@@ -502,6 +606,7 @@ const emit = defineEmits(['update:modelValue', 'reload-imports', 'open-shortcuts
 
 const theme = useTheme();
 const settingsStore = useSettingsStore();
+const categoryStore = useCategoryStore();
 const settingsDraft = settingsStore.settingsDraft;
 const isSettingSaving = settingsStore.isSettingSaving;
 const isSettingsLoading = computed(() => settingsStore.isSettingsLoading);
@@ -896,4 +1001,131 @@ function onAnimationsEnabledChange(nextValue) {
 function toggleAnimationsFromRow() {
   settingsStore.setAnimationsEnabled(!settingsStore.animationsEnabled);
 }
+
+// ── Kategorien-Verwaltung ──────────────────────────────────────────────────────
+
+const newCategoryName = ref('');
+const editingCategoryId = ref(null);
+const editingCategoryName = ref('');
+
+watch(
+  () => props.modelValue,
+  (open) => {
+    if (open) {
+      void categoryStore.fetchCategories();
+    }
+  },
+  { immediate: true }
+);
+
+async function addCategory() {
+  const name = newCategoryName.value.trim();
+  if (!name || categoryStore.isCategoryMutationRunning) return;
+  try {
+    const result = await categoryStore.createCategoryByName(name);
+    if (result.ok || result.reason === 'exists') {
+      newCategoryName.value = '';
+    }
+  } catch {
+    /* Fehler wird im Store als Notification gemeldet */
+  }
+}
+
+function startEditCategory(category) {
+  editingCategoryId.value = category.id;
+  editingCategoryName.value = category.name;
+}
+
+function cancelEditCategory() {
+  editingCategoryId.value = null;
+  editingCategoryName.value = '';
+}
+
+async function confirmEditCategory(category) {
+  const name = editingCategoryName.value.trim();
+  if (!name || name === category.name) {
+    cancelEditCategory();
+    return;
+  }
+  try {
+    await categoryStore.renameCategory(category.id, name);
+    cancelEditCategory();
+  } catch {
+    /* Fehler wird im Store als Notification gemeldet */
+  }
+}
+
+async function removeCategory(category) {
+  if (categoryStore.isCategoryMutationRunning) return;
+  try {
+    await categoryStore.deleteCategory(category.id);
+  } catch {
+    /* Fehler wird im Store als Notification gemeldet */
+  }
+}
 </script>
+
+<style scoped>
+.settings-categories {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.settings-category-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
+  border-radius: 8px;
+  transition: background 0.12s;
+}
+
+.settings-category-row:hover {
+  background: rgba(var(--v-theme-on-surface), 0.04);
+}
+
+.settings-category-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 14px;
+  color: rgba(var(--v-theme-on-surface), 0.87);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-category-count {
+  flex: 0 0 auto;
+  min-width: 22px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+
+.settings-category-edit {
+  flex: 1 1 auto;
+}
+
+.settings-category-empty {
+  font-size: 13px;
+  color: rgba(var(--v-theme-on-surface), 0.5);
+  padding: 6px 10px;
+}
+
+.settings-category-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.settings-category-add :deep(.v-field) {
+  border-radius: 8px;
+}
+</style>

@@ -94,8 +94,17 @@ class ImportCommitPageInput(BaseModel):
 
 class ImportCommitDocumentInput(BaseModel):
     title: str = Field(min_length=1, max_length=200)
+    category: str | None = Field(default=None, max_length=200)
     tag_ids: list[uuid.UUID] = Field(default_factory=list)
     pages: list[ImportCommitPageInput] = Field(default_factory=list)
+
+    @field_validator("category")
+    @classmethod
+    def normalize_category(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.split()).strip()
+        return normalized or None
 
 
 class ImportCommitOptions(BaseModel):
