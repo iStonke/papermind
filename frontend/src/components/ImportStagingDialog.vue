@@ -44,7 +44,14 @@
           class="isd-progress"
         />
 
-        <div class="isd-grid-scroll" :style="{ ...gridScrollStyle, paddingBottom: isEmpty ? '40px' : '82px' }">
+        <div
+          class="isd-grid-scroll"
+          :style="{ ...gridScrollStyle, paddingBottom: isEmpty ? '40px' : '82px' }"
+          @dragenter.prevent="onMiniatureDragEnter"
+          @dragover.prevent="onMiniatureDragOver"
+          @dragleave="onMiniatureDragLeave"
+          @drop.prevent="onMiniatureDrop"
+        >
 
           <!-- Dropzone (empty state) -->
           <div
@@ -140,10 +147,13 @@
             <!-- Add-files placeholder card -->
             <div
               class="isd-add-page-card"
-              :class="{ 'isd-add-page-card--disabled': isUploadingSources || isCommitting }"
+              :class="{
+                'isd-add-page-card--disabled': isUploadingSources || isCommitting,
+                'isd-add-page-card--drag-over': isAddPageDragOver
+              }"
               role="button"
               tabindex="0"
-              title="Dateien hinzufügen"
+              title="Dateien hierher ziehen oder klicken zum Hinzufügen"
               @click="openFilePicker"
               @keydown.enter.prevent="openFilePicker"
               @keydown.space.prevent="openFilePicker"
@@ -532,6 +542,8 @@ const dropDragDepth = ref(0);
 const documentDragDepth = ref({});
 const isBodyFileDragOver = ref(false);
 const bodyFileDragDepth = ref(0);
+const isAddPageDragOver = ref(false);
+const addPageDragDepth = ref(0);
 const selected = ref(null);
 const peek = ref({ open: false, x: 0, y: 0 });
 const isUploadingSources = ref(false);
@@ -1205,6 +1217,8 @@ watch(
     dropDragDepth.value = 0;
     isBodyFileDragOver.value = false;
     bodyFileDragDepth.value = 0;
+    isAddPageDragOver.value = false;
+    addPageDragDepth.value = 0;
     documentDragDepth.value = {};
     selected.value = null;
     peek.value = { open: false, x: 0, y: 0 };
@@ -2412,6 +2426,60 @@ async function onDropzoneDrop(event) {
   }
 }
 
+// Der gesamte Miniatur-Bereich (.isd-grid-scroll – inklusive der leeren Fläche
+// unter den Seiten) ist die Drop-Zone für neue PDF-Dokumente/Seiten von außen.
+// Der Add-Page-Platzhalter dient nur als optischer Indikator: Sobald eine Datei
+// über dem Bereich schwebt, "leuchtet" er via isAddPageDragOver auf. Der
+// Tiefen-Zähler verhindert Flackern beim Überqueren von Kind-Elementen.
+// (Das Verschieben vorhandener Seiten ist kein Datei-Payload und löst kein
+// Highlight aus; im Leerzustand übernimmt die eigene .isd-dropzone.)
+function onMiniatureDragEnter(event) {
+  if (isEmpty.value || !hasFileDragPayload(event)) {
+    return;
+  }
+  addPageDragDepth.value += 1;
+  isAddPageDragOver.value = true;
+}
+
+function onMiniatureDragOver(event) {
+  if (isEmpty.value || !hasFileDragPayload(event)) {
+    return;
+  }
+  event.dataTransfer.dropEffect = 'copy';
+  isAddPageDragOver.value = true;
+}
+
+function onMiniatureDragLeave(event) {
+  if (isEmpty.value || !hasFileDragPayload(event)) {
+    return;
+  }
+  addPageDragDepth.value = Math.max(0, addPageDragDepth.value - 1);
+  if (addPageDragDepth.value === 0) {
+    isAddPageDragOver.value = false;
+  }
+}
+
+async function onMiniatureDrop(event) {
+  if (isEmpty.value || !hasFileDragPayload(event)) {
+    return;
+  }
+  isAddPageDragOver.value = false;
+  addPageDragDepth.value = 0;
+  if (isUploadingSources.value || isCommitting.value) {
+    return;
+  }
+
+  try {
+    const candidates = await collectDropCandidates(event.dataTransfer);
+    await addFilesToStaging(candidates, {
+      targetDocumentId: documents.value[0]?.id,
+      showSelectionSummary: false
+    });
+  } catch (error) {
+    notify({ type: 'error', message: mapApiError(error, 'PDFs konnten nicht hinzugefügt werden.') });
+  }
+}
+
 function setTitleInputRef(documentId, element) {
   if (!element) {
     titleInputRefs.delete(documentId);
@@ -3569,6 +3637,7 @@ function onPageDragOver(event, targetDocId, targetPageId, targetPageIndex) {
   event.dataTransfer.dropEffect = isFileDrop ? 'copy' : 'move';
   updateAutoScroll(resolveAutoScrollContainer(event.currentTarget), event.clientX, event.clientY);
   if (isFileDrop) {
+    isAddPageDragOver.value = true;
     return;
   }
   const draggedPageId = resolveDraggedPageId(event);
@@ -3582,6 +3651,8 @@ async function onPageDrop(event, targetDocId, targetPageIndex) {
   event.stopPropagation();
   stopAutoScroll();
   clearDocumentDragDepth(targetDocId);
+  isAddPageDragOver.value = false;
+  addPageDragDepth.value = 0;
 
   if (hasFileDragPayload(event)) {
     try {
@@ -3613,6 +3684,7 @@ function onPagesContainerDragOver(event, targetDocId) {
   event.dataTransfer.dropEffect = isFileDrop ? 'copy' : 'move';
   updateAutoScroll(resolveAutoScrollContainer(event.currentTarget), event.clientX, event.clientY);
   if (isFileDrop) {
+    isAddPageDragOver.value = true;
     return;
   }
   const draggedPageId = resolveDraggedPageId(event);
@@ -3626,6 +3698,8 @@ async function onPagesContainerDrop(event, targetDocId) {
   event.stopPropagation();
   stopAutoScroll();
   clearDocumentDragDepth(targetDocId);
+  isAddPageDragOver.value = false;
+  addPageDragDepth.value = 0;
 
   if (hasFileDragPayload(event)) {
     try {
@@ -4201,11 +4275,23 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   color: rgba(var(--v-theme-on-surface), 0.25);
-  transition: color 0.15s;
+  transition: color 0.15s, transform 0.15s;
 }
 
 .isd-add-page-card:hover .isd-add-page-inner {
   color: rgb(var(--v-theme-primary));
+}
+
+/* Drag-over: der gestrichelte Platzhalter "leuchtet auf" */
+.isd-add-page-card--drag-over .isd-add-page-thumb-wrap {
+  border-color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.1);
+  box-shadow: 0 0 0 3px rgba(var(--v-theme-primary), 0.18);
+}
+
+.isd-add-page-card--drag-over .isd-add-page-inner {
+  color: rgb(var(--v-theme-primary));
+  transform: scale(1.08);
 }
 
 .isd-toolbar {
