@@ -1,8 +1,8 @@
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, NotFoundError
@@ -75,3 +75,34 @@ class JobService:
         self.db.refresh(job)
         logger.info("job updated id=%s", job_id)
         return job
+
+    def get_activity(self, *, failed_window_hours: int = 24, limit: int = 100) -> dict:
+        """Aktive (queued/running) sowie kürzlich fehlgeschlagene Jobs für die
+        Header-Aktivitätsanzeige – inkl. Dokumenttitel und Zähler.
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=failed_window_hours)
+        status_order = case(
+            (Job.status == "running", 0),
+            (Job.status == "queued", 1),
+            else_=2,
+        )
+        stmt = (
+            select(Job, func.coalesce(Document.display_name, Document.original_filename))
+            .join(Document, Document.id == Job.document_id)
+            .where(
+                or_(
+                    Job.status.in_(("queued", "running")),
+                    and_(Job.status == "failed", Job.updated_at >= cutoff),
+                )
+            )
+            .order_by(status_order, Job.created_at.desc())
+            .limit(limit)
+        )
+        rows = self.db.execute(stmt).all()
+        summary = {"queued": 0, "running": 0, "failed": 0}
+        items: list[dict] = []
+        for job, title in rows:
+            if job.status in summary:
+                summary[job.status] += 1
+            items.append({"job": job, "document_title": title})
+        return {"summary": summary, "jobs": items}
