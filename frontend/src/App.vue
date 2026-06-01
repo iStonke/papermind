@@ -82,6 +82,8 @@
             KI
           </v-btn>
 
+          <ActivityIndicator ref="activityIndicatorRef" />
+
           <v-btn
             class="topbar-btn topbar-btn--icon"
             variant="text"
@@ -608,6 +610,7 @@ import DocumentPreviewLayout from './components/DocumentPreviewLayout.vue';
 import ImportStagingDialog from './components/ImportStagingDialog.vue';
 import NotificationStack from './components/NotificationStack.vue';
 import AppSidebar from './components/AppSidebar.vue';
+import ActivityIndicator from './components/ActivityIndicator.vue';
 import DocumentListPanel from './components/DocumentListPanel.vue';
 import BatchActionsBar from './components/BatchActionsBar.vue';
 import BatchTagDialog from './components/BatchTagDialog.vue';
@@ -742,6 +745,7 @@ const previewHighlightText = ref('');
 
 
 const importStagingDialogRef = ref(null);
+const activityIndicatorRef = ref(null);
 const importPdfInputRef = ref(null);
 const isSettingsDialogOpen = ref(false);
 const isShortcutsHelpDialogOpen = ref(false);
@@ -3252,6 +3256,10 @@ async function onImportCommitted(payload) {
   if (!Array.isArray(payload?.created) || payload.created.length === 0) {
     return;
   }
+  // Aktivitätsindikator sofort aufwecken: nach dem Import sind OCR/INDEX/TAG-Jobs
+  // frisch eingereiht und oft sehr kurz – ein sofortiger Poll-Schub stellt sicher,
+  // dass das Icon/Menü dafür erscheint.
+  activityIndicatorRef.value?.refresh();
   if (!Array.isArray(payload?.errors) || payload.errors.length === 0) {
     await claimActiveImportInboxItems();
   }
