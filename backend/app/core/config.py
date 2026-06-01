@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     text_check_pages: int = Field(default=2, ge=1)
     worker_poll_interval_seconds: int = Field(default=3)
     worker_ocr_timeout_seconds: int = Field(default=900)
+    # Periodischer OCR-Backfill: schließt regelmäßig Lücken (Dokumente ohne OCR).
+    ocr_backfill_interval_seconds: int = Field(default=3600, ge=60)
+    ocr_backfill_batch_size: int = Field(default=10, ge=1, le=200)
+    ocr_backfill_max_retries: int = Field(default=3, ge=0)
     import_inbox_drop_path: str = Field(default="")
     import_inbox_file_stable_seconds: int = Field(default=3, ge=1, le=120)
     search_query_max_length: int = Field(default=256)

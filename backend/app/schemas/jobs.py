@@ -46,3 +46,20 @@ class JobRead(ORMModel):
 
 class JobListResponse(BaseModel):
     items: list[JobRead]
+
+
+class JobActivityItem(JobRead):
+    """Ein Job inkl. Dokumenttitel für die Aktivitäts-Anzeige im Header."""
+
+    document_title: str | None = None
+
+
+class JobActivitySummary(BaseModel):
+    queued: int = 0
+    running: int = 0
+    failed: int = 0
+
+
+class JobActivityResponse(BaseModel):
+    summary: JobActivitySummary
+    jobs: list[JobActivityItem]

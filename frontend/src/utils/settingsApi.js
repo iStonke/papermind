@@ -26,6 +26,10 @@ export function buildAutoTaggingPatch(enabled) {
   return { documents: { auto_tagging: Boolean(enabled) } };
 }
 
+export function buildOcrBackfillEnabledPatch(enabled) {
+  return { documents: { ocr_backfill_enabled: Boolean(enabled) } };
+}
+
 export function buildSortOrderPatch(sortOrder) {
   return { documents: { sort_order: sortOrder } };
 }

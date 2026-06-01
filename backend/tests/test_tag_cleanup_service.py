@@ -69,6 +69,19 @@ class TagCleanupServiceTest(unittest.TestCase):
 
         db.commit.assert_not_called()
 
+    def test_delete_tag_detaches_relationships_before_deleting_tag(self) -> None:
+        tag_id = uuid.uuid4()
+        existing_tag = Mock(id=tag_id, name="Rechnung")
+        db = Mock()
+        db.get.return_value = existing_tag
+        service = TagService(db)
+
+        service.delete_tag(tag_id)
+
+        db.execute.assert_called_once()
+        db.delete.assert_called_once_with(existing_tag)
+        db.commit.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

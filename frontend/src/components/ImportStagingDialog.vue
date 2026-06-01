@@ -33,6 +33,7 @@
 
       <!-- Left column: page grid + bottom toolbar -->
       <div class="isd-left">
+        <div v-if="aiAnalysis.kind === 'busy' && !isEmpty" class="isd-ai-scan-line" aria-hidden="true" />
 
         <!-- Ladefortschritt -->
         <v-progress-linear
@@ -249,11 +250,33 @@
 
       <!-- Right column: document properties -->
       <div class="isd-props" :class="{ 'isd-props--disabled': isEmpty }">
+        <div class="isd-props-mode" role="tablist" aria-label="Rechte Ansicht">
+          <button
+            type="button"
+            class="isd-props-mode__button"
+            :class="{ 'isd-props-mode__button--active': rightPanelMode === 'details' }"
+            role="tab"
+            :aria-selected="rightPanelMode === 'details'"
+            @click="rightPanelMode = 'details'"
+          >
+            Details
+          </button>
+          <button
+            type="button"
+            class="isd-props-mode__button"
+            :class="{ 'isd-props-mode__button--active': rightPanelMode === 'preview' }"
+            role="tab"
+            :aria-selected="rightPanelMode === 'preview'"
+            @click="showPreviewPanel"
+          >
+            Vorschau
+          </button>
+        </div>
 
-       <div class="isd-props-scroll">
+       <div v-show="rightPanelMode === 'details'" class="isd-props-scroll">
 
         <!-- Document name -->
-        <div class="isd-field">
+        <div class="isd-field" :class="{ 'isd-field--ai-filled': docTitleAiFilled }">
           <div class="isd-field-label">
             Dokumentname
             <v-tooltip text="Wie lautet der Name des Dokuments? Wird für Suche und Anzeige verwendet." location="top" max-width="220">
@@ -261,14 +284,18 @@
             </v-tooltip>
           </div>
           <div class="isd-field-row">
-            <v-text-field
+            <v-textarea
               :model-value="primaryDocTitle"
               placeholder="z. B. Rechnung Stadtwerke März 2024"
               density="compact"
               variant="outlined"
               hide-details
+              rows="2"
+              :auto-grow="false"
+              no-resize
               @update:model-value="onPrimaryDocTitleInput({ target: { value: $event } })"
               @blur="onPrimaryDocTitleBlur"
+              @keydown.enter.prevent="$event.target.blur()"
             />
           </div>
           <button
@@ -284,7 +311,7 @@
         </div>
 
         <!-- Document date -->
-        <div class="isd-field">
+        <div class="isd-field" :class="{ 'isd-field--ai-filled': docDateAiFilled }">
           <div class="isd-field-label">
             Dokumentdatum
             <v-tooltip text="Wann wurde das Dokument ausgestellt? (Nicht das Importdatum)" location="top" max-width="220">
@@ -306,7 +333,7 @@
         </div>
 
         <!-- Category -->
-        <div class="isd-field">
+        <div class="isd-field" :class="{ 'isd-field--ai-filled': docCategoryAiFilled }">
           <div class="isd-field-label">
             Kategorie
             <v-tooltip text="Grobe Einordnung: Was ist das Dokument? Ein Dokument gehört zu genau einer Kategorie." location="top" max-width="220">
@@ -326,7 +353,7 @@
         </div>
 
         <!-- Tags -->
-        <div class="isd-field">
+        <div class="isd-field" :class="{ 'isd-field--ai-filled': docTagsAiFilled }">
           <div class="isd-field-label">
             Tags
             <v-tooltip text="Freie Schlagwörter für Kontext, Projekt oder Personen. Mehrere Tags möglich." location="top" max-width="220">
@@ -368,7 +395,7 @@
         </div>
 
         <!-- Note -->
-        <div class="isd-field">
+        <div class="isd-field" :class="{ 'isd-field--ai-filled': docNoteAiFilled }">
           <div class="isd-field-label">
             Notiz
             <v-tooltip text="Interne Notiz zum Dokument – nur für dich sichtbar." location="top" max-width="220">
@@ -383,14 +410,54 @@
             hide-details
             rows="3"
             no-resize
+            @update:model-value="docNoteTouched = true; docNoteAiFilled = false"
           />
         </div>
 
        </div>
 
+        <div v-show="rightPanelMode === 'preview'" class="isd-preview-panel">
+          <div
+            class="isd-preview-stage"
+            :class="{ 'isd-preview-stage--empty': !hasSelectedPreview }"
+          >
+            <template v-if="hasSelectedPreview">
+              <div v-if="previewImageLoading" class="isd-preview-loading">
+                <v-progress-circular indeterminate size="26" width="3" color="primary" />
+              </div>
+              <img
+                v-if="previewImageSrc"
+                :src="previewImageSrc"
+                class="isd-preview-image"
+                :alt="selectedPreviewLabel"
+                draggable="false"
+                @pointermove="onPreviewPointerMove"
+                @pointerleave="hidePreviewMagnifier"
+              />
+              <div
+                v-if="previewMagnifier.visible"
+                class="isd-preview-magnifier"
+                :style="previewMagnifierStyle"
+                aria-hidden="true"
+              />
+              <div v-if="!previewImageSrc" class="isd-preview-empty">
+                <v-icon size="40">mdi-file-document-outline</v-icon>
+                <span>Vorschau wird vorbereitet</span>
+              </div>
+            </template>
+            <div v-else class="isd-preview-empty">
+              <v-icon size="40">mdi-file-document-outline</v-icon>
+              <span>Keine Seite ausgewählt</span>
+            </div>
+          </div>
+          <div v-if="hasSelectedPreview" class="isd-preview-meta">
+            {{ selectedPreviewLabel }}
+          </div>
+        </div>
+
         <!-- KI-Analyse-Status (gespiegelte Toolbar, unten) -->
         <div
-          v-if="!isEmpty"
+          v-if="!isEmpty && rightPanelMode === 'details'"
           class="isd-props-status"
           :class="`isd-props-status--${aiAnalysis.kind}`"
         >
@@ -539,6 +606,19 @@ const remoteSourceStageBySession = new Map();
 const titleSuggestJobByStage = new Map();
 const previewImageSrc = ref('');
 const previewImageLoading = ref(false);
+const rightPanelMode = ref('details');
+const PREVIEW_MAGNIFIER_WIDTH = 220;
+const PREVIEW_MAGNIFIER_HEIGHT = 132;
+const PREVIEW_MAGNIFIER_ZOOM = 2.25;
+const previewMagnifier = ref({
+  visible: false,
+  x: 0,
+  y: 0,
+  bgX: 0,
+  bgY: 0,
+  bgWidth: 0,
+  bgHeight: 0
+});
 const stageTagPool = ref([]);
 const fileInput = ref(null);
 const peekPanelRef = ref(null);
@@ -587,10 +667,12 @@ const docTitleTouched = ref(false);
 const docDateTouched = ref(false);
 const docCategoryTouched = ref(false);
 const docTagsTouched = ref(false);
+const docNoteTouched = ref(false);
 const docTitleAiFilled = ref(false);
 const docDateAiFilled = ref(false);
 const docCategoryAiFilled = ref(false);
 const docTagsAiFilled = ref(false);
+const docNoteAiFilled = ref(false);
 
 // Auswählbare Kategorien aus der zentral verwalteten Liste (Einstellungen).
 // Ein bereits gesetzter / KI-vorgeschlagener Wert, der (noch) nicht im
@@ -804,6 +886,21 @@ const selectedPageEntry = computed(() => {
   return documentEntry.pages.find((page) => page.id === selected.value?.pageId) || null;
 });
 const hasSelectedPreview = computed(() => Boolean(selectedPageEntry.value));
+const selectedPreviewLabel = computed(() => {
+  const pageIndex = Number(selected.value?.pageIndex);
+  if (!Number.isFinite(pageIndex)) {
+    return 'Ausgewählte Seite';
+  }
+  return `Seite ${pageIndex + 1}`;
+});
+const previewMagnifierStyle = computed(() => ({
+  width: `${PREVIEW_MAGNIFIER_WIDTH}px`,
+  height: `${PREVIEW_MAGNIFIER_HEIGHT}px`,
+  transform: `translate(${Math.round(previewMagnifier.value.x - PREVIEW_MAGNIFIER_WIDTH / 2)}px, ${Math.round(previewMagnifier.value.y - PREVIEW_MAGNIFIER_HEIGHT / 2)}px)`,
+  backgroundImage: `url("${previewImageSrc.value}")`,
+  backgroundSize: `${Math.round(previewMagnifier.value.bgWidth)}px ${Math.round(previewMagnifier.value.bgHeight)}px`,
+  backgroundPosition: `${Math.round(previewMagnifier.value.bgX)}px ${Math.round(previewMagnifier.value.bgY)}px`
+}));
 const MODAL_WORK_WIDTH_COMPACT = 860;
 const MODAL_WORK_WIDTH_SPLIT = 1180;
 const dialogMaxWidth = computed(() => isEmpty.value ? MODAL_WORK_WIDTH_COMPACT : MODAL_WORK_WIDTH_SPLIT);
@@ -906,6 +1003,56 @@ function toggleSelectMode() {
   if (!isSelectMode.value) {
     clearMultiSelection();
   }
+}
+
+function showPreviewPanel() {
+  if (!selected.value?.pageId) {
+    const firstPage = allPagesFlat.value[0];
+    if (firstPage) {
+      clearMultiSelection();
+      selectPage(firstPage.doc.id, firstPage.page.id, firstPage.globalIndex);
+    }
+  }
+  rightPanelMode.value = 'preview';
+}
+
+function hidePreviewMagnifier() {
+  if (previewMagnifier.value.visible) {
+    previewMagnifier.value = {
+      ...previewMagnifier.value,
+      visible: false
+    };
+  }
+}
+
+function onPreviewPointerMove(event) {
+  if (!previewImageSrc.value || event.pointerType === 'touch') {
+    hidePreviewMagnifier();
+    return;
+  }
+  const imageEl = event.currentTarget;
+  const stageEl = imageEl?.parentElement;
+  if (!(imageEl instanceof HTMLImageElement) || !(stageEl instanceof HTMLElement)) {
+    return;
+  }
+  const imageRect = imageEl.getBoundingClientRect();
+  const stageRect = stageEl.getBoundingClientRect();
+  const imageX = Math.min(Math.max(event.clientX - imageRect.left, 0), imageRect.width);
+  const imageY = Math.min(Math.max(event.clientY - imageRect.top, 0), imageRect.height);
+  const stageX = event.clientX - stageRect.left + stageEl.scrollLeft;
+  const stageY = event.clientY - stageRect.top + stageEl.scrollTop;
+  const zoomedWidth = imageRect.width * PREVIEW_MAGNIFIER_ZOOM;
+  const zoomedHeight = imageRect.height * PREVIEW_MAGNIFIER_ZOOM;
+
+  previewMagnifier.value = {
+    visible: true,
+    x: stageX,
+    y: stageY,
+    bgX: PREVIEW_MAGNIFIER_WIDTH / 2 - imageX * PREVIEW_MAGNIFIER_ZOOM,
+    bgY: PREVIEW_MAGNIFIER_HEIGHT / 2 - imageY * PREVIEW_MAGNIFIER_ZOOM,
+    bgWidth: zoomedWidth,
+    bgHeight: zoomedHeight
+  };
 }
 
 async function deleteSelectedPages() {
@@ -1073,6 +1220,7 @@ const aiAnalysis = computed(() => {
   if (docDateAiFilled.value) fields.push('Datum');
   if (docCategoryAiFilled.value) fields.push('Kategorie');
   if (docTagsAiFilled.value) fields.push('Tags');
+  if (docNoteAiFilled.value) fields.push('Notiz');
   if (fields.length > 0) {
     return { kind: 'success', fields };
   }
@@ -1368,10 +1516,12 @@ watch(
       docDateTouched.value = false;
       docCategoryTouched.value = false;
       docTagsTouched.value = false;
+      docNoteTouched.value = false;
       docTitleAiFilled.value = false;
       docDateAiFilled.value = false;
       docCategoryAiFilled.value = false;
       docTagsAiFilled.value = false;
+      docNoteAiFilled.value = false;
       return;
     }
     nextTick(() => {
@@ -1454,6 +1604,7 @@ const selectedPreviewRenderKey = computed(() => {
 watch(
   selectedPreviewRenderKey,
   async (renderKey) => {
+    hidePreviewMagnifier();
     previewRenderNonce += 1;
     const nonce = previewRenderNonce;
     const pageEntry = selectedPageEntry.value;
@@ -1491,6 +1642,7 @@ watch(
   isOpen,
   (open) => {
     if (open) {
+      rightPanelMode.value = 'details';
       return;
     }
     detachPeekGlobalListeners();
@@ -2154,6 +2306,12 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
             if (aiCategory && !docCategoryTouched.value) {
               docCategory.value = aiCategory;
               docCategoryAiFilled.value = true;
+            }
+            // Notiz: wichtigste Fakten (nur wenn der Nutzer die Notiz nicht selbst angefasst hat)
+            const aiNote = String(aiMeta.note || '').trim();
+            if (aiNote && !docNoteTouched.value) {
+              docNote.value = aiNote;
+              docNoteAiFilled.value = true;
             }
             // Tags: vorhandene bevorzugen, sonst sinnvolle neu anlegen.
             // findStageTagIdByName matcht normalisiert (Groß-/Kleinschreibung,
@@ -4480,6 +4638,78 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
+@keyframes isd-ai-scan {
+  0% { transform: translateY(-120%); opacity: 0; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { transform: translateY(calc(min(820px, 90vh) - var(--isd-bar-height, 49px))); opacity: 0; }
+}
+
+@keyframes isd-ai-field-glow {
+  0% {
+    background: rgba(var(--v-theme-primary), 0);
+    box-shadow: 0 0 0 0 rgba(var(--v-theme-primary), 0);
+  }
+  22% {
+    background: rgba(var(--v-theme-primary), 0.08);
+    box-shadow: 0 0 0 1px rgba(var(--v-theme-primary), 0.18), 0 10px 26px rgba(var(--v-theme-primary), 0.12);
+  }
+  100% {
+    background: rgba(var(--v-theme-primary), 0);
+    box-shadow: 0 0 0 0 rgba(var(--v-theme-primary), 0);
+  }
+}
+
+.isd-ai-scan-line {
+  position: absolute;
+  z-index: 3;
+  left: 28px;
+  right: 28px;
+  top: 0;
+  height: 90px;
+  pointer-events: none;
+  border-radius: 12px;
+  background:
+    linear-gradient(
+      to bottom,
+      transparent 0%,
+      rgba(var(--v-theme-primary), 0.03) 26%,
+      rgba(var(--v-theme-primary), 0.28) 48%,
+      rgba(var(--v-theme-primary), 0.06) 62%,
+      transparent 100%
+    );
+  filter: blur(0.2px);
+  animation: isd-ai-scan 1.9s ease-in-out infinite;
+}
+
+.isd-props-mode {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin: 14px 16px 0;
+  padding: 3px;
+  border-radius: 8px;
+  background: rgba(var(--v-theme-on-surface), 0.06);
+}
+
+.isd-props-mode__button {
+  min-width: 0;
+  height: 30px;
+  border-radius: 6px;
+  color: rgba(var(--v-theme-on-surface), 0.58);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.isd-props-mode__button--active {
+  color: rgb(var(--v-theme-on-surface));
+  background: rgb(var(--v-theme-surface));
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
 .isd-props-scroll {
   flex: 1 1 auto;
   display: flex;
@@ -4489,6 +4719,105 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 18px 20px 64px; /* unten Platz für die absolute Statusleiste */
+}
+
+.isd-preview-panel {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 16px;
+  gap: 10px;
+}
+
+.isd-preview-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 16px;
+  border-radius: 8px;
+  background:
+    linear-gradient(45deg, rgba(var(--v-theme-on-surface), 0.035) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(var(--v-theme-on-surface), 0.035) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(var(--v-theme-on-surface), 0.035) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(var(--v-theme-on-surface), 0.035) 75%);
+  background-color: rgba(var(--v-theme-on-surface), 0.04);
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-size: 16px 16px;
+}
+
+.isd-preview-stage:has(.isd-preview-image:hover) {
+  cursor: crosshair;
+}
+
+.isd-preview-stage--empty {
+  background: rgba(var(--v-theme-on-surface), 0.04);
+}
+
+.isd-preview-image {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.18);
+}
+
+.isd-preview-magnifier {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  pointer-events: none;
+  border: 2px solid rgba(var(--v-theme-surface), 0.96);
+  border-radius: 8px;
+  background-repeat: no-repeat;
+  box-shadow:
+    0 10px 28px rgba(15, 23, 42, 0.28),
+    inset 0 0 0 1px rgba(15, 23, 42, 0.12);
+  will-change: transform, background-position;
+}
+
+.isd-preview-loading {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: rgba(var(--v-theme-surface), 0.86);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.isd-preview-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: rgba(var(--v-theme-on-surface), 0.45);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.isd-preview-meta {
+  flex: 0 0 auto;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+  font-size: 12px;
+  font-weight: 650;
+  text-align: center;
 }
 
 /* KI-Analyse-Status: absolut am unteren Rand – exakt wie .isd-toolbar
@@ -4564,6 +4893,21 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 5px;
+  margin: -5px -8px;
+  padding: 5px 8px;
+  border-radius: 8px;
+}
+
+.isd-field--ai-filled {
+  animation: isd-ai-field-glow 1.35s ease-out;
+}
+
+:global(.pm-no-animations) .isd-ai-scan-line {
+  display: none;
+}
+
+:global(.pm-no-animations) .isd-field--ai-filled {
+  animation: none;
 }
 
 .isd-field-label {

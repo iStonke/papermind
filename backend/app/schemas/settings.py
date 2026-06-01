@@ -120,6 +120,7 @@ class UISettingsRead(BaseModel):
 class DocumentsSettingsRead(BaseModel):
     auto_ocr: bool = True
     auto_tagging: bool = False
+    ocr_backfill_enabled: bool = True
     sort_order: DocumentSortOrder = DocumentSortOrder.newest
     recent_import_window_hours: int = Field(default=24, ge=1)
     trash_retention_days: int = Field(default=30, ge=0, le=365)
@@ -216,6 +217,7 @@ class UISettingsPatch(BaseModel):
 class DocumentsSettingsPatch(BaseModel):
     auto_ocr: bool | None = None
     auto_tagging: bool | None = None
+    ocr_backfill_enabled: bool | None = None
     sort_order: DocumentSortOrder | None = None
     recent_import_window_hours: int | None = Field(default=None, ge=1)
     trash_retention_days: int | None = Field(default=None, ge=0, le=365)

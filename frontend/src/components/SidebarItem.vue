@@ -127,7 +127,7 @@ const isActionVisible = computed(() => {
 .sidebar-item-action {
   position: absolute;
   top: 50%;
-  right: 6px;
+  right: 10px;
   transform: translateY(-50%);
   display: inline-flex;
   align-items: center;

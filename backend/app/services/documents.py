@@ -25,6 +25,7 @@ from app.core.errors import (
     StorageError,
 )
 from app.core.text import sanitize_text_for_db
+from app.models.category import Category
 from app.models.document import Document
 from app.models.document_file import DocumentFile
 from app.models.document_tag import document_tags
@@ -36,6 +37,7 @@ from app.schemas.documents import (
     DocumentFileRole,
     DocumentDateSource,
     DocumentListResponse,
+    DocumentMetadataSuggestion,
     DocumentOCRStatus,
     DocumentSortField,
     DocumentStatus,
@@ -45,6 +47,8 @@ from app.schemas.documents import (
     DocumentUpdateRequest,
     SortOrder,
 )
+from app.services.ai_classification import apply_ollama_classification
+from app.services.category_mapping import map_doc_type_to_category
 from app.services.settings import SettingsService
 
 logger = logging.getLogger("papermind.documents")
@@ -662,6 +666,83 @@ class DocumentService:
         logger.info("ocr job queued document_id=%s", document_id)
         return updated
 
+    def backfill_ocr(
+        self,
+        *,
+        limit: int,
+        include_failed: bool = True,
+        max_retries: int = 3,
+        dry_run: bool = False,
+    ) -> dict[str, object]:
+        """Schließt OCR-Lücken: reiht OCR-Jobs für nicht gelöschte Dokumente
+        ohne OCR ein (``ocr_status='not_started'``, optional ``'failed'`` bis
+        ``max_retries``). Übersprungen werden Dokumente mit aktivem OCR-Job,
+        ohne Original-PDF oder mit erschöpftem Retry-Limit. Pro Aufruf werden
+        höchstens ``limit`` neue Jobs erstellt. Gibt eine Zusammenfassung zurück.
+        """
+        target_statuses = [DocumentOCRStatus.not_started.value]
+        if include_failed:
+            target_statuses.append(DocumentOCRStatus.failed.value)
+
+        stmt = (
+            select(Document)
+            .where(
+                Document.is_deleted.is_(False),
+                Document.ocr_status.in_(target_statuses),
+            )
+            .order_by(Document.created_at.asc())
+        )
+        candidates = self.db.execute(stmt).scalars().all()
+
+        queued_ids: list[str] = []
+        skipped_active = 0
+        skipped_retry_limit = 0
+        skipped_missing_file = 0
+
+        for document in candidates:
+            if len(queued_ids) >= limit:
+                break
+            if self._has_active_job(document.id, "OCR"):
+                skipped_active += 1
+                continue
+            if document.ocr_status == DocumentOCRStatus.failed.value and max_retries > 0:
+                failed_count = self.db.execute(
+                    select(func.count())
+                    .select_from(Job)
+                    .where(
+                        Job.document_id == document.id,
+                        Job.type == "OCR",
+                        Job.status == "failed",
+                    )
+                ).scalar_one()
+                if failed_count >= max_retries:
+                    skipped_retry_limit += 1
+                    continue
+            try:
+                self._get_file_record_by_role(document, DocumentFileRole.original)
+            except NotFoundError:
+                skipped_missing_file += 1
+                continue
+            if not dry_run:
+                self._queue_ocr_job(document)
+            queued_ids.append(str(document.id))
+
+        if not dry_run and queued_ids:
+            self.db.commit()
+            logger.info("ocr backfill queued count=%s", len(queued_ids))
+
+        return {
+            "matched": len(candidates),
+            "queued": len(queued_ids),
+            "queued_document_ids": queued_ids,
+            "skipped_active": skipped_active,
+            "skipped_retry_limit": skipped_retry_limit,
+            "skipped_missing_file": skipped_missing_file,
+            "limit": limit,
+            "include_failed": include_failed,
+            "dry_run": dry_run,
+        }
+
     def queue_index_for_document(self, document_id: uuid.UUID, *, force: bool = False) -> Document:
         document = self.get_document_or_404(document_id)
         has_source = any(file_record.role in {DocumentFileRole.original.value, DocumentFileRole.ocr.value} for file_record in document.files)
@@ -734,6 +815,82 @@ class DocumentService:
             created_count,
         )
         return updated
+
+    def _build_ai_title(self, document: Document) -> str | None:
+        """Build a human-readable title from stored classification fields."""
+        doc_type = " ".join(str(document.ai_document_type or "").split()).strip()
+        sender = " ".join(str(document.ai_sender or "").split()).strip()
+        parts = [part for part in (doc_type, sender) if part]
+        if not parts:
+            return None
+        title = " – ".join(parts)
+        if document.ai_amount is not None:
+            amount = f"{float(document.ai_amount):.2f}".replace(".", ",")
+            currency = " ".join(str(document.ai_currency or "").split()).strip()
+            suffix = f"{amount}€" if not currency or currency.upper() in {"EUR", "€"} else f"{amount} {currency}"
+            title = f"{title} – {suffix}"
+        return title[:200]
+
+    def _suggest_category_from_classification(self, document: Document) -> str | None:
+        """Map the detected document type to an existing managed category name."""
+        mapped = map_doc_type_to_category(document.ai_document_type)
+        if not mapped:
+            return None
+        existing = self.db.execute(
+            select(Category.name).where(func.lower(Category.name) == mapped.lower())
+        ).scalar_one_or_none()
+        return existing
+
+    def _suggest_tags_from_classification(self, document: Document) -> list[str]:
+        """Normalize the stored AI tags, preferring the casing of existing tags."""
+        raw_tags = document.ai_suggested_tags or []
+        if not raw_tags:
+            return []
+        existing_by_lower = {
+            tag.name.lower(): tag.name
+            for tag in self.db.execute(select(Tag)).scalars().all()
+        }
+        result: list[str] = []
+        seen: set[str] = set()
+        for raw in raw_tags:
+            name = " ".join(str(raw or "").split()).strip()
+            if not name:
+                continue
+            canonical = existing_by_lower.get(name.lower(), name)
+            if canonical.lower() in seen:
+                continue
+            seen.add(canonical.lower())
+            result.append(canonical)
+        return result
+
+    def suggest_metadata(self, document_id: uuid.UUID) -> DocumentMetadataSuggestion:
+        """Return AI-derived suggestions for a document's editable fields.
+
+        Reuses the stored classification when available; otherwise runs the
+        Ollama classifier on demand (persisting the result), so the suggestions
+        stay consistent with what the OCR worker produces.
+        """
+        document = self.get_document_or_404(document_id)
+
+        if document.ai_status != "done":
+            text_value = self._extract_text_for_manual_auto_tagging(document)
+            if text_value:
+                apply_ollama_classification(
+                    document,
+                    extracted_text=text_value,
+                    quality_status=document.ocr_quality_status or "good",
+                    confidence_score=document.ocr_confidence_score,
+                )
+                self.db.commit()
+                document = self.get_document_or_404(document_id)
+
+        return DocumentMetadataSuggestion(
+            display_name=self._build_ai_title(document),
+            document_date=document.ai_document_date,
+            category=self._suggest_category_from_classification(document),
+            notes=" ".join(str(document.ai_summary or "").split()).strip() or None,
+            tags=self._suggest_tags_from_classification(document),
+        )
 
     def upload_document(self, file: UploadFile, document_date: date | None, notes: str | None) -> Document:
         runtime_settings = SettingsService(self.db).get_settings()
@@ -840,7 +997,14 @@ class DocumentService:
                     auto_tagging_enabled,
                 )
 
-                if is_textful_pdf:
+                if auto_ocr_enabled:
+                    # Beim Import IMMER OCR durchführen – unabhängig davon, ob das PDF
+                    # bereits eine eingebettete Textebene hat. (Gewünschtes Verhalten;
+                    # gegated am auto_ocr-Schalter.) INDEX/TAG werden vom Worker nach
+                    # Abschluss des OCR-Jobs nachgezogen.
+                    self._queue_ocr_job(document)
+                elif is_textful_pdf:
+                    # auto_ocr aus: vorhandene Textebene verwenden, kein OCR.
                     document.status = DocumentStatus.ready.value
                     document.ocr_status = DocumentOCRStatus.not_started.value
                     document.ocr_quality_status = None
@@ -853,8 +1017,6 @@ class DocumentService:
                         self._queue_index_job(document, reason="upload_textful")
                     elif auto_tagging_enabled:
                         self._queue_tag_job(document, reason="upload_textful_direct")
-                elif auto_ocr_enabled:
-                    self._queue_ocr_job(document)
             except Exception as exc:
                 logger.warning("upload text check failed document_id=%s error=%s", document.id, exc)
                 if auto_ocr_enabled:
@@ -1301,6 +1463,37 @@ class DocumentService:
                 continue
 
         logger.info("document deleted id=%s", document_id)
+
+    def empty_trash(self) -> int:
+        """Endgültig alle Dokumente im Papierkorb löschen."""
+        documents = list(
+            self.db.execute(
+                select(Document)
+                .where(Document.is_deleted.is_(True))
+                .options(selectinload(Document.files))
+            ).scalars()
+        )
+        if not documents:
+            return 0
+
+        file_keys: set[str] = set()
+        for document in documents:
+            file_keys.update(file_record.file_key for file_record in document.files)
+            if document.storage_key:
+                file_keys.add(document.storage_key)
+            self.db.delete(document)
+
+        self.db.commit()
+
+        for file_key in file_keys:
+            try:
+                self._cleanup_file(self._resolve_storage_path(file_key))
+            except StorageError:
+                continue
+
+        deleted_count = len(documents)
+        logger.info("trash emptied deleted_count=%s", deleted_count)
+        return deleted_count
 
     def purge_expired_trash(self, retention_days: int) -> int:
         """Endgültig löschen, was länger als retention_days im Papierkorb liegt."""

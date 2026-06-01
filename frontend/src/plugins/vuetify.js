@@ -4,6 +4,7 @@ import { h } from 'vue';
 import { paperMindDark, paperMindLight } from '../theme/tokens';
 import {
   mdiAlertCircleOutline,
+  mdiAutoFix,
   mdiCheckboxMultipleOutline,
   mdiBookOpenPageVariantOutline,
   mdiCamera,
@@ -29,6 +30,7 @@ import {
   mdiFileUploadOutline,
   mdiFilterVariant,
   mdiFolder,
+  mdiFolderMarkerOutline,
   mdiFolderPlusOutline,
   mdiFolderOutline,
   mdiFolderSearchOutline,
@@ -36,6 +38,7 @@ import {
   mdiInformationOutline,
   mdiKeyboardOutline,
   mdiMagnify,
+  mdiPaletteOutline,
   mdiPencilOutline,
   mdiPlus,
   mdiProgressClock,
@@ -65,6 +68,7 @@ import { VSvgIcon } from 'vuetify/lib/composables/icons';
 
 const mdiPathMap = {
   'mdi-alert-circle-outline': mdiAlertCircleOutline,
+  'mdi-auto-fix': mdiAutoFix,
   'mdi-book-open-page-variant-outline': mdiBookOpenPageVariantOutline,
   'mdi-camera': mdiCamera,
   'mdi-camera-off-outline': mdiCameraOffOutline,
@@ -90,6 +94,7 @@ const mdiPathMap = {
   'mdi-file-upload-outline': mdiFileUploadOutline,
   'mdi-filter-variant': mdiFilterVariant,
   'mdi-folder': mdiFolder,
+  'mdi-folder-tag-outline': mdiFolderMarkerOutline,
   'mdi-folder-plus-outline': mdiFolderPlusOutline,
   'mdi-folder-outline': mdiFolderOutline,
   'mdi-folder-search-outline': mdiFolderSearchOutline,
@@ -97,6 +102,7 @@ const mdiPathMap = {
   'mdi-information-outline': mdiInformationOutline,
   'mdi-keyboard-outline': mdiKeyboardOutline,
   'mdi-magnify': mdiMagnify,
+  'mdi-palette-outline': mdiPaletteOutline,
   'mdi-pencil-outline': mdiPencilOutline,
   'mdi-plus': mdiPlus,
   'mdi-progress-clock': mdiProgressClock,

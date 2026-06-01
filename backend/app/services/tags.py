@@ -39,6 +39,39 @@ class TagService:
         result = db.execute(delete_stmt)
         return max(result.rowcount or 0, 0)
 
+    def cleanup_unused_tags(self, *, dry_run: bool) -> dict[str, object]:
+        """Listet (und löscht optional) Tags, die an keinem Dokument hängen.
+
+        "Unbenutzt" = keine Zeile in document_tags (auch nicht zu gelöschten
+        Dokumenten). dry_run=True liefert nur die Vorschau, ohne zu löschen, sodass
+        Vorschau und tatsächliche Löschung dieselbe Definition verwenden.
+        """
+        unused_filter = ~select(document_tags.c.document_id).where(
+            document_tags.c.tag_id == Tag.id
+        ).exists()
+        rows = self.db.execute(
+            select(Tag.id, Tag.name).where(unused_filter).order_by(Tag.name)
+        ).all()
+        payload = [{"id": str(tag_id), "name": name} for tag_id, name in rows]
+
+        removed = 0
+        if not dry_run and payload:
+            # Erneut mit demselben Filter löschen (verhindert Löschen von Tags, die
+            # zwischen Vorschau und Bestätigung doch einem Dokument zugeordnet wurden).
+            result = self.db.execute(
+                delete(Tag).where(Tag.id.in_([uuid.UUID(t["id"]) for t in payload])).where(unused_filter)
+            )
+            removed = max(result.rowcount or 0, 0)
+            self.db.commit()
+            logger.info("cleanup_unused_tags removed %d tags", removed)
+
+        return {
+            "count": len(payload),
+            "removed": removed if not dry_run else 0,
+            "dry_run": dry_run,
+            "tags": payload,
+        }
+
     def list_tags(self, include_count: bool) -> list[TagRead]:
         if include_count:
             stmt = (
@@ -191,6 +224,7 @@ class TagService:
 
     def delete_tag(self, tag_id: uuid.UUID) -> None:
         tag = self.get_tag_or_404(tag_id)
+        self.db.execute(delete(document_tags).where(document_tags.c.tag_id == tag_id))
         self.db.delete(tag)
         self.db.commit()
         logger.info("tag deleted id=%s", tag_id)

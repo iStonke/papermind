@@ -27,13 +27,7 @@ from app.services.document_dates import apply_ocr_document_date_result, extract_
 from app.services.embeddings import EmbeddingService
 from app.services.documents import DocumentService
 from app.services.import_inbox import ImportInboxService
-from app.services.ollama_classification import (
-    DEFAULT_OLLAMA_BASE_URL,
-    DEFAULT_OLLAMA_MODEL,
-    OllamaClassificationError,
-    OllamaClassificationInput,
-    OllamaClassificationService,
-)
+from app.services.ai_classification import apply_ollama_classification
 from app.services.ocr_pipeline import run_ocr_pipeline
 from app.services.settings import SettingsService
 
@@ -540,77 +534,6 @@ def _mark_job_failed(job_id: uuid.UUID, reason: str) -> None:
         )
 
 
-def _apply_ollama_classification(
-    document: Document,
-    *,
-    extracted_text: str,
-    quality_status: str | None,
-    confidence_score: float | int | None,
-) -> str | None:
-    if quality_status not in {"good", "warning"}:
-        document.ai_status = "skipped"
-        document.ai_processed_at = _now_utc()
-        message = "OCR-Qualität zu gering für automatische KI-Klassifizierung."
-        logger.warning(
-            "ollama classification skipped document_id=%s quality_status=%s",
-            document.id,
-            quality_status,
-        )
-        return message
-
-    normalized_text = " ".join(str(extracted_text or "").split()).strip()
-    if not normalized_text:
-        document.ai_status = "skipped"
-        document.ai_processed_at = _now_utc()
-        logger.warning("ollama classification skipped document_id=%s reason=empty_ocr_text", document.id)
-        return "Kein OCR-Text für automatische KI-Klassifizierung verfügbar."
-
-    service = OllamaClassificationService(base_url=DEFAULT_OLLAMA_BASE_URL, model=DEFAULT_OLLAMA_MODEL)
-    try:
-        result = service.classify(
-            OllamaClassificationInput(
-                document_id=str(document.id),
-                ocr_text=normalized_text,
-                confidence_score=float(confidence_score) if isinstance(confidence_score, (int, float)) else None,
-                quality_status=quality_status,
-            )
-        )
-    except OllamaClassificationError as exc:
-        document.ai_status = "error"
-        document.ai_processed_at = _now_utc()
-        existing_flags = dict(document.flags or {})
-        ai_flags = dict(existing_flags.get("ai_classification") or {})
-        ai_flags["error"] = _truncate_error(str(exc), 1000)
-        existing_flags["ai_classification"] = ai_flags
-        document.flags = existing_flags
-        logger.warning("ollama classification failed document_id=%s error=%s", document.id, exc)
-        return f"Ollama-Klassifizierung fehlgeschlagen: {_truncate_error(str(exc), 240)}"
-
-    document.ai_document_type = result.document_type
-    document.ai_document_date = result.document_date
-    document.ai_sender = result.sender
-    document.ai_recipient = result.recipient
-    document.ai_amount = result.amount
-    document.ai_currency = result.currency
-    document.ai_summary = result.summary
-    document.ai_suggested_tags = result.tags
-    document.ai_confidence = result.confidence
-    document.ai_status = "done"
-    document.ai_processed_at = _now_utc()
-    existing_flags = dict(document.flags or {})
-    existing_flags["ai_classification"] = {
-        "model": DEFAULT_OLLAMA_MODEL,
-        "raw_response": result.raw_response[:4000],
-    }
-    document.flags = existing_flags
-    logger.info(
-        "ollama classification completed document_id=%s type=%s confidence=%s tags=%s",
-        document.id,
-        result.document_type,
-        result.confidence,
-        result.tags,
-    )
-    return None
 
 
 def _claim_next_job() -> tuple[uuid.UUID, str] | None:
@@ -779,7 +702,7 @@ def _process_ocr_job(job_id: uuid.UUID) -> None:
                 dedupe_service.evaluate_document_text_duplicate(document, extracted_text)
             except Exception as exc:  # pragma: no cover - best effort dedupe
                 logger.warning("duplicate_text_check_failed document_id=%s error=%s", document.id, exc)
-            classification_warning = _apply_ollama_classification(
+            classification_warning = apply_ollama_classification(
                 document,
                 extracted_text=extracted_text,
                 quality_status=quality_status,
@@ -929,14 +852,92 @@ def _process_tag_job(job_id: uuid.UUID) -> None:
         _mark_job_failed(job_id, str(exc))
 
 
+def _reclaim_orphaned_jobs() -> None:
+    """Verwaiste Jobs beim Worker-Start zurück in die Queue stellen.
+
+    Ein Job, der den Status 'running' hat, während kein Worker läuft, stammt aus
+    einer abgebrochenen/abgestürzten/neugestarteten Worker-Instanz. Da
+    ``_claim_next_job`` nur 'queued'-Jobs aufnimmt, würde ein solcher Job sonst
+    dauerhaft als 'running' verharren – die Aktivitätsanzeige zeigt dann einen
+    Endlos-Spinner und das Dokument bleibt ewig in 'processing'. Wir setzen ihn
+    deshalb auf 'queued' zurück, damit er erneut verarbeitet wird.
+    """
+    with SessionLocal() as db:
+        orphaned = (
+            db.execute(
+                select(Job).where(
+                    Job.type.in_(("OCR", "INDEX", "TAG")),
+                    Job.status == "running",
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not orphaned:
+            return
+        for job in orphaned:
+            job.status = "queued"
+            job.progress = 0
+            job.started_at = None
+            job.error_message = None
+            document = db.get(Document, job.document_id)
+            if document is not None:
+                if job.type == "OCR":
+                    document.status = "processing"
+                    document.ocr_status = "queued"
+                elif job.type == "INDEX":
+                    document.embedding_status = "queued"
+        db.commit()
+        logger.info(
+            "reclaimed orphaned running jobs count=%s ids=%s",
+            len(orphaned),
+            [str(job.id) for job in orphaned],
+        )
+
+
+def _run_ocr_backfill() -> None:
+    """Periodischer OCR-Backfill: reiht in kleinen Chargen OCR-Jobs für
+    Dokumente ohne OCR ein und schließt so regelmäßig die Lücken. Über den
+    Settings-Schalter ``documents.ocr_backfill_enabled`` an-/abschaltbar.
+    """
+    with SessionLocal() as db:
+        try:
+            app_settings = SettingsService(db).get_settings()
+        except Exception:  # pragma: no cover - settings should always load
+            logger.exception("ocr backfill: konnte Einstellungen nicht laden; übersprungen")
+            return
+        if not app_settings.documents.ocr_backfill_enabled:
+            return
+        result = DocumentService(db).backfill_ocr(
+            limit=settings.ocr_backfill_batch_size,
+            include_failed=True,
+            max_retries=settings.ocr_backfill_max_retries,
+        )
+    if result.get("queued"):
+        logger.info(
+            "ocr backfill sweep queued=%s matched=%s skipped_active=%s skipped_retry=%s skipped_no_file=%s",
+            result.get("queued"),
+            result.get("matched"),
+            result.get("skipped_active"),
+            result.get("skipped_retry_limit"),
+            result.get("skipped_missing_file"),
+        )
+
+
 def run() -> None:
     logger.info("worker started poll_interval=%ss storage=%s", settings.worker_poll_interval_seconds, settings.storage_path)
+    _reclaim_orphaned_jobs()
     last_trash_cleanup_at = 0.0
+    last_ocr_backfill_at = 0.0
     while True:
         now_monotonic = time.monotonic()
         if now_monotonic - last_trash_cleanup_at >= TRASH_CLEANUP_INTERVAL_SECONDS:
             last_trash_cleanup_at = now_monotonic
             _cleanup_expired_trash()
+
+        if now_monotonic - last_ocr_backfill_at >= settings.ocr_backfill_interval_seconds:
+            last_ocr_backfill_at = now_monotonic
+            _run_ocr_backfill()
 
         inbox_drop_file = _claim_next_import_inbox_pdf()
         if inbox_drop_file is not None:

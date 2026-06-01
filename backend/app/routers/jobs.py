@@ -5,10 +5,37 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.schemas.common import ErrorResponse
-from app.schemas.jobs import JobCreateRequest, JobListResponse, JobRead, JobUpdateRequest
+from app.schemas.jobs import (
+    JobActivityItem,
+    JobActivityResponse,
+    JobActivitySummary,
+    JobCreateRequest,
+    JobListResponse,
+    JobRead,
+    JobUpdateRequest,
+)
 from app.services.jobs import JobService
 
 router = APIRouter(prefix="/api", tags=["Jobs"])
+
+
+@router.get(
+    "/jobs/activity",
+    response_model=JobActivityResponse,
+    summary="Active and recently failed jobs across all documents (header activity indicator)",
+)
+def get_job_activity(db: Session = Depends(get_db)) -> JobActivityResponse:
+    service = JobService(db)
+    result = service.get_activity()
+    items = []
+    for entry in result["jobs"]:
+        item = JobActivityItem.model_validate(entry["job"], from_attributes=True)
+        item.document_title = entry["document_title"]
+        items.append(item)
+    return JobActivityResponse(
+        summary=JobActivitySummary(**result["summary"]),
+        jobs=items,
+    )
 
 
 @router.get(

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.db import get_db
 from app.schemas.common import ErrorResponse, OkResponse
 from app.schemas.documents import (
@@ -12,6 +13,7 @@ from app.schemas.documents import (
     DocumentDetail,
     DocumentFileRole,
     DocumentListResponse,
+    DocumentMetadataSuggestion,
     DocumentSortField,
     DocumentStatus,
     DocumentTagReplaceRequest,
@@ -115,6 +117,37 @@ def queue_document_ocr(document_id: uuid.UUID, db: Session = Depends(get_db)) ->
 
 
 @router.post(
+    "/ocr-backfill",
+    summary="Queue OCR jobs for documents that have no OCR yet (close gaps)",
+)
+def backfill_ocr(
+    dry_run: bool = Query(
+        default=False,
+        description="If true, only report which documents would be queued (no jobs created).",
+    ),
+    limit: int = Query(
+        default=200,
+        ge=1,
+        le=1000,
+        description="Maximum number of OCR jobs to queue in this call.",
+    ),
+    include_failed: bool = Query(
+        default=True,
+        description="Also retry documents whose previous OCR failed (bounded by the retry limit).",
+    ),
+    db: Session = Depends(get_db),
+) -> dict:
+    config = get_settings()
+    service = DocumentService(db)
+    return service.backfill_ocr(
+        limit=limit,
+        include_failed=include_failed,
+        max_retries=config.ocr_backfill_max_retries,
+        dry_run=dry_run,
+    )
+
+
+@router.post(
     "/{document_id}/index",
     response_model=DocumentDetail,
     status_code=status.HTTP_202_ACCEPTED,
@@ -139,6 +172,19 @@ def queue_document_index(
 def auto_tag_document(document_id: uuid.UUID, db: Session = Depends(get_db)) -> DocumentDetail:
     service = DocumentService(db)
     return service.as_detail(service.auto_tag_document(document_id))
+
+
+@router.post(
+    "/{document_id}/ai-metadata",
+    response_model=DocumentMetadataSuggestion,
+    summary="Suggest metadata fields (name, date, category, notes, tags) via AI",
+    responses={404: {"model": ErrorResponse}},
+)
+def suggest_document_metadata(
+    document_id: uuid.UUID, db: Session = Depends(get_db)
+) -> DocumentMetadataSuggestion:
+    service = DocumentService(db)
+    return service.suggest_metadata(document_id)
 
 
 @router.post(
@@ -304,6 +350,16 @@ def restore_document(document_id: uuid.UUID, db: Session = Depends(get_db)) -> D
 def toggle_favorite(document_id: uuid.UUID, db: Session = Depends(get_db)) -> DocumentDetail:
     service = DocumentService(db)
     return service.as_detail(service.toggle_favorite(document_id))
+
+
+@router.delete(
+    "/trash",
+    summary="Permanently delete all documents in trash",
+)
+def empty_trash(db: Session = Depends(get_db)) -> dict[str, int | bool]:
+    service = DocumentService(db)
+    deleted_count = service.empty_trash()
+    return {"ok": True, "deleted_count": deleted_count}
 
 
 @router.delete(

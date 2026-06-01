@@ -72,12 +72,37 @@
             item-class="sidebar-item--secondary sidebar-item--trash"
             :active="isViewActive('trash')"
             :count="trashSidebarCount"
+            action-mode="hover-active"
             @click="emit('select-view', 'trash')"
           >
             <template #icon>
               <v-icon size="18">mdi-trash-can-outline</v-icon>
             </template>
             Papierkorb
+            <template #action>
+              <v-menu location="bottom end">
+                <template #activator="{ props }">
+                  <v-btn
+                    class="sidebar-folder-menu-btn"
+                    icon="mdi-dots-horizontal"
+                    size="small"
+                    density="comfortable"
+                    variant="text"
+                    v-bind="props"
+                    aria-label="Papierkorb-Menü"
+                    @click.stop
+                  />
+                </template>
+                <v-list density="compact">
+                  <v-list-item class="menu-item--danger" @click.stop="emit('empty-trash')">
+                    <template #prepend>
+                      <v-icon size="16">mdi-delete-forever-outline</v-icon>
+                    </template>
+                    <v-list-item-title>Alle endgültig löschen…</v-list-item-title>
+                  </v-list-item>
+                </v-list>
+              </v-menu>
+            </template>
           </SidebarItem>
         </div>
       </div>
@@ -244,6 +269,7 @@ const emit = defineEmits([
   'create-folder',
   'edit-folder',
   'delete-folder',
+  'empty-trash',
   'open-tags-view',
   'apply-tag-filter',
 ]);

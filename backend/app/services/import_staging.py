@@ -25,6 +25,7 @@ from app.schemas.import_staging import (
     ImportSourceRead,
     ImportSourceUploadResponse,
 )
+from app.services.category_mapping import map_doc_type_to_category
 from app.services.documents import ALLOWED_PDF_CONTENT_TYPES, DocumentService
 from app.services.ocr_pipeline import run_ocr_lite, run_ocr_pipeline
 from app.services.settings import SettingsService
@@ -840,6 +841,8 @@ class ImportStagingService:
             '- "tags": Array mit 1–3 deutschen Schlagworten oder []\n'
             '- "amount": Gesamtbetrag als Zahl (z.B. 123.45) oder null\n'
             '- "currency": "EUR" oder null\n'
+            '- "summary": die 2–4 wichtigsten Fakten des Dokuments als kurzer, sachlicher '
+            'Fließtext (z.B. Fristen, Beträge, Aktenzeichen, Kernaussage), max. 240 Zeichen, oder null\n'
             + tag_hint
             + f"\nOCR-Text:\n{text_for_llm}"
         )
@@ -904,6 +907,7 @@ class ImportStagingService:
             "tags": _tags("tags"),
             "amount": _amount("amount"),
             "currency": "EUR" if str(parsed.get("currency") or "").upper() == "EUR" else None,
+            "summary": _str("summary", 240),
         }
 
     @classmethod
@@ -1040,20 +1044,9 @@ class ImportStagingService:
             "tags": doc_tags,
         }, answer
 
-    _DOC_TYPE_TO_CATEGORY: dict[str, str] = {
-        "Rechnung": "Rechnungen",
-        "Quittung": "Belege",
-        "Mahnung": "Rechnungen",
-        "Vertrag": "Verträge",
-        "Kündigung": "Verträge",
-        "Brief": "Briefe",
-        "Bescheid": "Briefe",
-        "Protokoll": "Briefe",
-    }
-
     @classmethod
     def _map_doc_type_to_category(cls, doc_type: str) -> str | None:
-        return cls._DOC_TYPE_TO_CATEGORY.get(str(doc_type or "").strip())
+        return map_doc_type_to_category(doc_type)
 
     @classmethod
     def _format_euro(cls, amount: float) -> str:
@@ -1209,6 +1202,7 @@ class ImportStagingService:
                 "tags": ollama_rich.get("tags") or rule_rich.get("tags") or [],
                 "amount": ollama_rich.get("amount") if ollama_rich.get("amount") is not None else rule_rich.get("amount"),
                 "currency": ollama_rich.get("currency") or rule_rich.get("currency"),
+                "summary": ollama_rich.get("summary") or rule_rich.get("summary"),
             }
         else:
             rich = rule_rich
@@ -1244,6 +1238,9 @@ class ImportStagingService:
                     deduped.append(canonical)
             final_tags = deduped
 
+        # Wichtigste Fakten als Notiz (nur vom LLM geliefert; regelbasiert leer).
+        final_note = str(rich.get("summary") or "").strip() or None
+
         merged_meta: dict[str, object] = {
             "doc_type": normalized_doc_type,
             "issuer": issuer,
@@ -1266,6 +1263,7 @@ class ImportStagingService:
                 "date": final_date,
                 "category": self._map_doc_type_to_category(normalized_doc_type),
                 "tags": final_tags,
+                "note": final_note,
             },
         }
 
@@ -1445,7 +1443,11 @@ class ImportStagingService:
             try:
                 assembled_path, assembled_page_count = self._build_document_pdf(title, staging_doc.pages, reader_cache)
                 upload_file = _LocalPdfUpload(self._safe_document_filename(title), assembled_path)
-                created_doc = self.document_service.upload_document(upload_file, document_date=None, notes=None)
+                created_doc = self.document_service.upload_document(
+                    upload_file,
+                    document_date=staging_doc.date,
+                    notes=staging_doc.note,
+                )
                 if staging_doc.category:
                     created_doc.category = staging_doc.category
                     self.document_service.db.commit()

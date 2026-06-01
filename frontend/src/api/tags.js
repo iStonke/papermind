@@ -19,3 +19,11 @@ export const mergeTag = (sourceId, targetId) =>
 /** DELETE /api/tags/{id} */
 export const deleteTag = (id) =>
   apiDelete(`/api/tags/${id}`);
+
+/**
+ * POST /api/tags/cleanup-unused – entfernt Tags, die an keinem Dokument hängen.
+ * dryRun=true liefert nur die Vorschau (löscht nichts).
+ * Antwort: { count, removed, dry_run, tags: [{ id, name }] }
+ */
+export const cleanupUnusedTags = (dryRun = false) =>
+  apiPost(`/api/tags/cleanup-unused?dry_run=${dryRun ? 'true' : 'false'}`, {});

@@ -27,6 +27,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "documents": {
         "auto_ocr": True,
         "auto_tagging": False,
+        "ocr_backfill_enabled": True,
         "sort_order": "newest",
         "recent_import_window_hours": 24,
         "trash_retention_days": 30,

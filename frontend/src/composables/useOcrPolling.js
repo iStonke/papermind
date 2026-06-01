@@ -33,7 +33,9 @@ export function useOcrPolling({
       return;
     }
     try {
-      await fetchDocuments(selectedDocumentId.value);
+      // Stiller Refresh: Liste im Hintergrund aktualisieren ohne Lade-Skeleton /
+      // Settle-Animation, damit die UI während der Analyse nicht flackert.
+      await fetchDocuments(selectedDocumentId.value, { silent: true });
     } catch (error) {
       logDevError(error, 'ocr-polling');
     }

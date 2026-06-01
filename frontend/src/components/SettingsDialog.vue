@@ -1,7 +1,7 @@
 <template>
   <BaseDialog
     :model-value="modelValue"
-    max-width="640"
+    max-width="820"
     card-class="pm-settings-card"
     body-class="pm-settings-body"
     footer-class="pm-settings-footer"
@@ -19,9 +19,25 @@
       <span>Einstellungen werden geladen...</span>
     </div>
     <template v-else>
-      <div class="pm-settings-sections">
-        <section class="pm-settings-section">
-          <h3 class="pm-settings-title">Erscheinungsbild</h3>
+      <div class="pm-settings-layout">
+        <nav class="pm-settings-nav" role="tablist" aria-label="Einstellungskategorien">
+          <button
+            v-for="cat in settingsCategories"
+            :key="`cat-${cat.value}`"
+            type="button"
+            class="pm-settings-nav__item"
+            :class="{ 'pm-settings-nav__item--active': activeCategory === cat.value }"
+            role="tab"
+            :aria-selected="activeCategory === cat.value"
+            @click="activeCategory = cat.value"
+          >
+            <v-icon size="18" class="pm-settings-nav__icon">{{ cat.icon }}</v-icon>
+            <span>{{ cat.label }}</span>
+          </button>
+        </nav>
+
+        <div class="pm-settings-panel">
+        <section v-show="activeCategory === 'appearance'" class="pm-settings-section">
           <div class="pm-settings-content">
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
@@ -128,60 +144,61 @@
                 @update:model-value="onAnimationsEnabledChange"
               />
             </div>
-          </div>
-        </section>
 
-        <section class="pm-settings-section">
-          <h3 class="pm-settings-title">Dokumente</h3>
-          <div class="pm-settings-content">
             <div
               class="pm-setting-row"
               role="button"
               tabindex="0"
-              @click="toggleAutoTaggingFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleAutoTaggingFromRow)"
+              @click="toggleDrawerRememberStateFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleDrawerRememberStateFromRow)"
             >
               <div class="pm-setting-content">
-                <div class="pm-setting-label">KI-Analyse beim Import</div>
-                <div class="pm-setting-description">Datum, Kategorie und Tags werden beim Hinzufügen automatisch erkannt und ausgefüllt.</div>
-                <div v-if="settingsDraft.documents.auto_tagging" class="pm-setting-hint">
-                  Kann je nach Modell/Hardware etwas dauern.
+                <div class="pm-setting-label">Dokumentdetails merken</div>
+                <div class="pm-setting-description">
+                  Merkt sich, ob die Schublade zuletzt ein- oder ausgeklappt war.
                 </div>
               </div>
               <v-switch
-                :model-value="settingsDraft.documents.auto_tagging"
+                :model-value="settingsDraft.ui.drawerRememberState"
                 color="primary"
                 density="comfortable"
                 hide-details
                 inset
-                :loading="isSettingSaving.auto_tagging"
-                :disabled="isSettingSaving.auto_tagging"
+                :loading="isSettingSaving.drawer_remember_state"
+                :disabled="isSettingSaving.drawer_remember_state"
                 @click.stop
-                @update:model-value="onAutoTaggingChange"
+                @update:model-value="onDrawerRememberStateChange"
               />
             </div>
 
-            <div class="pm-setting-row pm-setting-row--column">
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleDrawerAlwaysExpandedFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleDrawerAlwaysExpandedFromRow)"
+            >
               <div class="pm-setting-content">
-                <div class="pm-setting-label">Sortierung</div>
-                <div class="pm-setting-description">Legt die Standardreihenfolge in der Dokumentliste fest.</div>
+                <div class="pm-setting-label">Dokumentdetails immer ausgeklappt</div>
+                <div class="pm-setting-description">Die Schublade bleibt dauerhaft geöffnet.</div>
               </div>
-              <v-select
-                :model-value="settingsDraft.documents.sort_order"
-                :items="sortOrderOptions"
-                item-title="label"
-                item-value="value"
+              <v-switch
+                :model-value="settingsDraft.ui.drawerAlwaysExpanded"
+                color="primary"
                 density="comfortable"
                 hide-details
-                variant="outlined"
-                class="settings-theme-select pm-setting-select"
-                label="Sortierung"
-                :loading="isSettingSaving.sort_order"
-                :disabled="isSettingSaving.sort_order"
-                @update:model-value="onSortOrderChange"
+                inset
+                :loading="isSettingSaving.drawer_always_expanded"
+                :disabled="isSettingSaving.drawer_always_expanded"
+                @click.stop
+                @update:model-value="onDrawerAlwaysExpandedChange"
               />
             </div>
+          </div>
+        </section>
 
+        <section v-show="activeCategory === 'documents'" class="pm-settings-section">
+          <div class="pm-settings-content">
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Zeitraum für „Zuletzt hinzugefügt"</div>
@@ -228,11 +245,50 @@
               />
             </div>
 
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Unbenutzte Tags aufräumen</div>
+                <div class="pm-setting-description">
+                  Entfernt Tags, die an keinem Dokument hängen (z. B. Reste früherer, nicht abgeschlossener Importe).
+                </div>
+              </div>
+
+              <div v-if="!unusedTagsPreview">
+                <v-btn variant="tonal" :loading="tagCleanupLoading" @click="loadUnusedTagsPreview">
+                  Unbenutzte Tags suchen…
+                </v-btn>
+              </div>
+
+              <div v-else class="pm-tag-cleanup">
+                <div v-if="unusedTagsPreview.count === 0" class="pm-setting-description">
+                  Keine unbenutzten Tags gefunden. 🎉
+                </div>
+                <div v-else class="pm-setting-description">
+                  <strong>{{ unusedTagsPreview.count }}</strong> Tag{{ unusedTagsPreview.count === 1 ? '' : 's' }} werden entfernt:
+                  <span class="pm-tag-cleanup__names">{{ unusedTagsPreview.tags.map(t => t.name).join(', ') }}</span>
+                </div>
+                <div class="pm-tag-cleanup__actions">
+                  <v-btn variant="text" size="small" :disabled="tagCleanupLoading" @click="unusedTagsPreview = null">
+                    {{ unusedTagsPreview.count === 0 ? 'Schließen' : 'Abbrechen' }}
+                  </v-btn>
+                  <v-btn
+                    v-if="unusedTagsPreview.count > 0"
+                    color="error"
+                    variant="flat"
+                    size="small"
+                    :loading="tagCleanupLoading"
+                    @click="confirmTagCleanup"
+                  >
+                    {{ unusedTagsPreview.count }} entfernen
+                  </v-btn>
+                </div>
+              </div>
+            </div>
+
           </div>
         </section>
 
-        <section class="pm-settings-section">
-          <h3 class="pm-settings-title">Kategorien</h3>
+        <section v-show="activeCategory === 'categories'" class="pm-settings-section">
           <div class="pm-settings-content">
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
@@ -276,31 +332,40 @@
                     </v-btn>
                   </template>
                   <template v-else>
-                    <span class="settings-category-name">{{ cat.name }}</span>
-                    <span class="settings-category-count" :title="`${cat.usage_count || 0} Dokument(e)`">
-                      {{ cat.usage_count || 0 }}
-                    </span>
-                    <v-btn
-                      icon
-                      size="x-small"
-                      variant="text"
-                      title="Umbenennen"
-                      :disabled="categoryStore.isCategoryMutationRunning"
-                      @click="startEditCategory(cat)"
-                    >
-                      <v-icon size="16">mdi-pencil-outline</v-icon>
-                    </v-btn>
-                    <v-btn
-                      icon
-                      size="x-small"
-                      variant="text"
-                      color="error"
-                      title="Löschen"
-                      :disabled="categoryStore.isCategoryMutationRunning"
-                      @click="removeCategory(cat)"
-                    >
-                      <v-icon size="16">mdi-trash-can-outline</v-icon>
-                    </v-btn>
+                    <div class="settings-category-main">
+                      <div class="settings-category-icon" aria-hidden="true">
+                        <v-icon size="16">mdi-folder-tag-outline</v-icon>
+                      </div>
+                      <span class="settings-category-name">{{ cat.name }}</span>
+                    </div>
+                    <div class="settings-category-actions">
+                      <span class="settings-category-count" :title="`${cat.usage_count || 0} Dokument(e)`">
+                        {{ cat.usage_count || 0 }}
+                      </span>
+                      <v-btn
+                        icon
+                        size="x-small"
+                        variant="text"
+                        class="settings-category-action-btn"
+                        title="Umbenennen"
+                        :disabled="categoryStore.isCategoryMutationRunning"
+                        @click="startEditCategory(cat)"
+                      >
+                        <v-icon size="16">mdi-pencil-outline</v-icon>
+                      </v-btn>
+                      <v-btn
+                        icon
+                        size="x-small"
+                        variant="text"
+                        color="error"
+                        class="settings-category-action-btn settings-category-action-btn--danger"
+                        title="Löschen"
+                        :disabled="categoryStore.isCategoryMutationRunning"
+                        @click="removeCategory(cat)"
+                      >
+                        <v-icon size="16">mdi-trash-can-outline</v-icon>
+                      </v-btn>
+                    </div>
                   </template>
                 </div>
 
@@ -334,12 +399,144 @@
           </div>
         </section>
 
-        <!-- ── Ollama ── -->
-        <section class="pm-settings-section">
-          <h3 class="pm-settings-title">Ollama (lokale KI)</h3>
+        <section v-show="activeCategory === 'ai'" class="pm-settings-section">
           <div class="pm-settings-content">
 
-            <!-- Enable toggle -->
+            <!-- Hinweis: Import-Vorschau wird immer analysiert -->
+            <div class="pm-setting-note">
+              Im Import-Fenster werden hinzugefügte Dokumente <strong>immer</strong> automatisch
+              analysiert (Vorschau für Titel, Datum, Kategorie und Tags). Die folgenden Optionen
+              steuern Qualität und Sprache dieser Analyse sowie die automatische
+              Weiterverarbeitung <strong>nach</strong> dem Import.
+            </div>
+
+            <!-- Automatisches OCR (Grundlage für die KI-Analyse) -->
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleAutoOcrFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleAutoOcrFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Automatisches OCR</div>
+                <div class="pm-setting-description">Extrahiert den Text nach dem Import im Hintergrund – Grundlage für die KI-Analyse.</div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.documents.auto_ocr"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.auto_ocr"
+                :disabled="isSettingSaving.auto_ocr"
+                @click.stop
+                @update:model-value="onAutoOcrChange"
+              />
+            </div>
+
+            <!-- OCR-Lücken automatisch schließen -->
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleOcrBackfillFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleOcrBackfillFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">OCR-Lücken automatisch schließen</div>
+                <div class="pm-setting-description">Sucht regelmäßig im Hintergrund nach Dokumenten ohne Texterkennung und holt das OCR automatisch nach.</div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.documents.ocr_backfill_enabled"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.ocr_backfill_enabled"
+                :disabled="isSettingSaving.ocr_backfill_enabled"
+                @click.stop
+                @update:model-value="onOcrBackfillEnabledChange"
+              />
+            </div>
+
+            <!-- OCR-Lücken jetzt schließen (manuelle Sofort-Aktion) -->
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">OCR-Lücken jetzt schließen</div>
+                <div class="pm-setting-description">
+                  Reiht sofort OCR-Jobs für alle Dokumente ohne Texterkennung ein – ohne auf den nächsten automatischen Durchlauf zu warten.
+                </div>
+              </div>
+              <div>
+                <v-btn variant="tonal" :loading="ocrBackfillLoading" @click="runOcrBackfillNow">
+                  OCR-Lücken jetzt schließen
+                </v-btn>
+              </div>
+            </div>
+
+            <!-- Erkennungssprache -->
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Erkennungssprache</div>
+                <div class="pm-setting-description">
+                  Standardsprache für die Texterkennung.
+                </div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.documents.ocr_doc_lang"
+                :items="ocrDocLangOptions"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Erkennungssprache"
+                :loading="isSettingSaving.ocr_doc_lang"
+                :disabled="isSettingSaving.ocr_doc_lang"
+                @update:model-value="onOcrDocLangChange"
+              />
+            </div>
+
+            <!-- KI-gestützte Analyse: Funktion + lokale Engine (benötigt OCR) -->
+            <div class="pm-setting-group">
+            <div class="pm-setting-note pm-setting-note--group">
+              Zwei unabhängige Optionen: <strong>Lokale KI (Ollama)</strong> bestimmt, <em>womit</em>
+              analysiert wird (Engine &amp; Datenschutz). <strong>KI-Analyse nach dem Import</strong>
+              bestimmt, <em>ob</em> danach automatisch Tags ergänzt werden.
+            </div>
+            <!-- KI-Analyse nach dem Import (benötigt Automatisches OCR) -->
+            <div
+              class="pm-setting-row"
+              :class="{ 'pm-setting-row--disabled': !settingsDraft.documents.auto_ocr }"
+              role="button"
+              tabindex="0"
+              @click="toggleAutoTaggingFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleAutoTaggingFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">KI-Analyse nach dem Import</div>
+                <div class="pm-setting-description">Vergibt nach dem Import automatisch Tags und macht das Dokument durchsuchbar.</div>
+                <div v-if="!settingsDraft.documents.auto_ocr" class="pm-setting-hint">
+                  Benötigt „Automatisches OCR" – ohne extrahierten Text gibt es nichts zu analysieren.
+                </div>
+                <div v-else-if="settingsDraft.documents.auto_tagging" class="pm-setting-hint">
+                  Kann je nach Modell/Hardware etwas dauern.
+                </div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.documents.auto_ocr && settingsDraft.documents.auto_tagging"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.auto_tagging"
+                :disabled="isSettingSaving.auto_tagging || !settingsDraft.documents.auto_ocr"
+                @click.stop
+                @update:model-value="onAutoTaggingChange"
+              />
+            </div>
+
+            <!-- Ollama enable toggle -->
             <div
               class="pm-setting-row"
               role="button"
@@ -348,10 +545,10 @@
               @keydown="handleSettingRowShortcut($event, toggleOllamaEnabledFromRow)"
             >
               <div class="pm-setting-content">
-                <div class="pm-setting-label">Ollama aktivieren</div>
+                <div class="pm-setting-label">Lokale KI (Ollama)</div>
                 <div class="pm-setting-description">
-                  Nutzt ein lokal laufendes Sprachmodell (z.&thinsp;B. llama3.2:3b) für präzisere
-                  Dokument&shy;analyse beim Import. Daten verlassen das Gerät nicht.
+                  Engine für die KI-Analyse – nutzt ein lokal laufendes Sprachmodell
+                  (z.&thinsp;B. llama3.2:3b). Daten verlassen das Gerät nicht.
                 </div>
                 <div v-if="settingsDraft.ollama.enabled" class="pm-setting-hint">
                   Ollama muss lokal laufen. Empfohlen: llama3.2:3b (Pi 5: ~20 s/Dokument).
@@ -370,9 +567,19 @@
               />
             </div>
 
-            <!-- Only shown when enabled -->
+            <!-- Erweiterte Ollama-Optionen -->
             <template v-if="settingsDraft.ollama.enabled">
+              <button
+                type="button"
+                class="pm-settings-disclosure"
+                :aria-expanded="showOllamaAdvanced"
+                @click="showOllamaAdvanced = !showOllamaAdvanced"
+              >
+                <v-icon size="16">{{ showOllamaAdvanced ? 'mdi-chevron-down' : 'mdi-chevron-right' }}</v-icon>
+                <span>Erweitert</span>
+              </button>
 
+              <template v-if="showOllamaAdvanced">
               <!-- Base URL -->
               <div class="pm-setting-row pm-setting-row--column">
                 <div class="pm-setting-content">
@@ -435,137 +642,65 @@
                 />
               </div>
 
+              </template>
             </template>
+            </div>
           </div>
         </section>
 
-        <section class="pm-settings-section">
-          <h3 class="pm-settings-title">OCR-Erkennung</h3>
+        <section v-show="activeCategory === 'controls'" class="pm-settings-section">
           <div class="pm-settings-content">
-            <div
-              class="pm-setting-row"
-              role="button"
-              tabindex="0"
-              @click="toggleAutoOcrFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleAutoOcrFromRow)"
-            >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Automatisches OCR</div>
-                <div class="pm-setting-description">Beim Import wird Text automatisch extrahiert.</div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.documents.auto_ocr"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :loading="isSettingSaving.auto_ocr"
-                :disabled="isSettingSaving.auto_ocr"
-                @click.stop
-                @update:model-value="onAutoOcrChange"
-              />
-            </div>
-
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
-                <div class="pm-setting-label">Erkennungssprache</div>
-                <div class="pm-setting-description">
-                  Standardsprache für die Texterkennung beim Importieren.
-                </div>
-              </div>
-              <v-select
-                :model-value="settingsDraft.documents.ocr_doc_lang"
-                :items="ocrDocLangOptions"
-                density="comfortable"
-                hide-details
-                variant="outlined"
-                class="settings-theme-select pm-setting-select"
-                label="Erkennungssprache"
-                :loading="isSettingSaving.ocr_doc_lang"
-                :disabled="isSettingSaving.ocr_doc_lang"
-                @update:model-value="onOcrDocLangChange"
-              />
-            </div>
-
-          </div>
-        </section>
-
-        <section class="pm-settings-section">
-          <h3 class="pm-settings-title">Vorschau</h3>
-          <div class="pm-settings-content">
-            <div
-              class="pm-setting-row"
-              role="button"
-              tabindex="0"
-              @click="toggleDrawerRememberStateFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleDrawerRememberStateFromRow)"
-            >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Dokumentdetails merken</div>
-                <div class="pm-setting-description">
-                  Merkt sich, ob die Schublade zuletzt ein- oder ausgeklappt war.
-                </div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.ui.drawerRememberState"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :loading="isSettingSaving.drawer_remember_state"
-                :disabled="isSettingSaving.drawer_remember_state"
-                @click.stop
-                @update:model-value="onDrawerRememberStateChange"
-              />
-            </div>
-
-            <div
-              class="pm-setting-row"
-              role="button"
-              tabindex="0"
-              @click="toggleDrawerAlwaysExpandedFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleDrawerAlwaysExpandedFromRow)"
-            >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Dokumentdetails immer ausgeklappt</div>
-                <div class="pm-setting-description">Die Schublade bleibt dauerhaft geöffnet.</div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.ui.drawerAlwaysExpanded"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :loading="isSettingSaving.drawer_always_expanded"
-                :disabled="isSettingSaving.drawer_always_expanded"
-                @click.stop
-                @update:model-value="onDrawerAlwaysExpandedChange"
-              />
-            </div>
-          </div>
-        </section>
-
-        <section class="pm-settings-section">
-          <h3 class="pm-settings-title">Bedienung</h3>
-          <div class="pm-settings-content">
-            <div class="pm-setting-row">
-              <div class="pm-setting-content">
                 <div class="pm-setting-label">Tastaturkürzel</div>
-                <div class="pm-setting-description">Zeigt verfügbare Tastenkürzel und Mausgesten.</div>
+                <div class="pm-setting-description">Verfügbare Tastenkürzel und Mausgesten in PaperMind.</div>
               </div>
-              <v-btn
-                class="pm-setting-action-btn"
-                variant="tonal"
-                color="primary"
-                size="small"
-                prepend-icon="mdi-keyboard-outline"
-                @click="emit('open-shortcuts')"
-              >
-                Anzeigen
-              </v-btn>
+
+              <div class="shortcuts-list">
+                <div
+                  v-for="group in shortcutGroups"
+                  :key="group.label"
+                  class="shortcuts-list__group"
+                >
+                  <div class="shortcuts-list__group-label">{{ group.label }}</div>
+                  <div class="shortcuts-list__rows">
+                    <div
+                      v-for="item in group.items"
+                      :key="item.action"
+                      class="shortcuts-list__row"
+                    >
+                      <span class="shortcuts-list__desc">{{ item.description }}</span>
+                      <span class="shortcuts-list__keys">
+                        <kbd
+                          v-for="key in item.keys"
+                          :key="key"
+                          class="shortcuts-list__kbd"
+                        >{{ formatKey(key) }}</kbd>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="shortcuts-list__group">
+                  <div class="shortcuts-list__group-label">Mausgesten</div>
+                  <div class="shortcuts-list__rows">
+                    <div
+                      v-for="item in mouseGestures"
+                      :key="item.description"
+                      class="shortcuts-list__row"
+                    >
+                      <span class="shortcuts-list__desc">{{ item.description }}</span>
+                      <span class="shortcuts-list__keys">
+                        <kbd class="shortcuts-list__kbd">{{ item.gesture }}</kbd>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </section>
+        </div>
       </div>
     </template>
   </BaseDialog>
@@ -578,18 +713,21 @@ import BaseDialog from './BaseDialog.vue';
 import { getBaseUrl } from '../api/client';
 import { useSettingsStore } from '../stores/settings';
 import { useCategoryStore } from '../stores/categories';
-import { notifyError } from '../stores/notifications';
-import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
+import { notifyError, useNotifications } from '../stores/notifications';
+import { useTagStore } from '../stores/tags';
+import { cleanupUnusedTags } from '../api/tags';
+import { backfillOcr } from '../api/documents';
+import { SHORTCUT_ACTIONS, SHORTCUTS, handleShortcut } from '../keyboard/shortcuts';
 import {
   buildAutoOcrPatch,
   buildAutoTaggingPatch,
+  buildOcrBackfillEnabledPatch,
   buildColorVariantPatch,
   buildDrawerAlwaysExpandedPatch,
   buildDrawerRememberStatePatch,
   buildOcrDocLangPatch,
   buildRecentImportWindowPatch,
   buildShowFilenameSuffixPatch,
-  buildSortOrderPatch,
   buildThemeModePatch,
   buildTrashRetentionPatch
 } from '../utils/settingsApi';
@@ -597,22 +735,152 @@ import {
 // ── Props / Emits ────────────────────────────────────────────────────────────
 
 const props = defineProps({
-  modelValue: { type: Boolean, default: false }
+  modelValue: { type: Boolean, default: false },
+  initialCategory: { type: String, default: 'appearance' }
 });
 
-const emit = defineEmits(['update:modelValue', 'reload-imports', 'open-shortcuts']);
+const emit = defineEmits(['update:modelValue', 'reload-imports']);
 
 // ── Stores / Theme ───────────────────────────────────────────────────────────
 
 const theme = useTheme();
 const settingsStore = useSettingsStore();
 const categoryStore = useCategoryStore();
+const tagStore = useTagStore();
+const { notify } = useNotifications();
 const settingsDraft = settingsStore.settingsDraft;
 const isSettingSaving = settingsStore.isSettingSaving;
+
+// ── Unbenutzte Tags aufräumen ────────────────────────────────────────────────
+const tagCleanupLoading = ref(false);
+// null = nichts angefragt; sonst { count, tags: [{id,name}] } aus der Vorschau (dry_run)
+const unusedTagsPreview = ref(null);
+
+async function loadUnusedTagsPreview() {
+  tagCleanupLoading.value = true;
+  try {
+    unusedTagsPreview.value = await cleanupUnusedTags(true);
+  } catch (error) {
+    notifyError(error, 'Unbenutzte Tags konnten nicht ermittelt werden.');
+  } finally {
+    tagCleanupLoading.value = false;
+  }
+}
+
+async function confirmTagCleanup() {
+  tagCleanupLoading.value = true;
+  try {
+    const result = await cleanupUnusedTags(false);
+    const removed = Number(result?.removed ?? 0);
+    unusedTagsPreview.value = null;
+    await tagStore.fetchTags();
+    notify({ type: 'success', message: `${removed} unbenutzte${removed === 1 ? 's Tag' : ' Tags'} entfernt.` });
+  } catch (error) {
+    notifyError(error, 'Unbenutzte Tags konnten nicht entfernt werden.');
+  } finally {
+    tagCleanupLoading.value = false;
+  }
+}
+
+// ── OCR-Lücken jetzt schließen ───────────────────────────────────────────────
+const ocrBackfillLoading = ref(false);
+
+async function runOcrBackfillNow() {
+  ocrBackfillLoading.value = true;
+  try {
+    const result = await backfillOcr({ dryRun: false });
+    const queued = Number(result?.queued ?? 0);
+    if (queued > 0) {
+      notify({
+        type: 'success',
+        message: `${queued} Dokument${queued === 1 ? '' : 'e'} zur Texterkennung eingereiht.`
+      });
+    } else {
+      notify({ type: 'info', message: 'Keine Dokumente ohne Texterkennung gefunden. 🎉' });
+    }
+  } catch (error) {
+    notifyError(error, 'OCR-Lücken konnten nicht geschlossen werden.');
+  } finally {
+    ocrBackfillLoading.value = false;
+  }
+}
+
 const isSettingsLoading = computed(() => settingsStore.isSettingsLoading);
 const animationsEnabled = computed(() => settingsStore.animationsEnabled);
 
 const currentColorVariant = computed(() => settingsStore.settingsDraft.ui.color_variant || 'slate');
+
+// ── Kategorie-Navigation ─────────────────────────────────────────────────────
+
+const settingsCategories = [
+  { value: 'appearance', label: 'Darstellung', icon: 'mdi-palette-outline' },
+  { value: 'documents', label: 'Dokumente', icon: 'mdi-file-document-outline' },
+  { value: 'categories', label: 'Kategorien', icon: 'mdi-folder-tag-outline' },
+  { value: 'ai', label: 'Texterkennung', icon: 'mdi-robot-outline' },
+  { value: 'controls', label: 'Bedienung', icon: 'mdi-keyboard-outline' }
+];
+
+const activeCategory = ref('appearance');
+
+// ── Tastaturkürzel (Bereich „Bedienung") ─────────────────────────────────────
+
+const KEY_LABELS = {
+  'Enter': '↵ Enter',
+  ' ': 'Leertaste',
+  'Escape': 'Esc',
+  'Backspace': '⌫ Backspace',
+  'ArrowLeft': '←',
+  'ArrowRight': '→',
+  'ArrowUp': '↑',
+  'ArrowDown': '↓',
+  '?': '?'
+};
+
+function formatKey(key) {
+  return KEY_LABELS[key] ?? key;
+}
+
+function keysFor(action) {
+  return SHORTCUTS[action]?.keys ?? [];
+}
+
+const shortcutGroups = [
+  {
+    label: 'Allgemein',
+    items: [
+      { action: SHORTCUT_ACTIONS.HELP,   description: 'Tastaturkürzel anzeigen', keys: keysFor(SHORTCUT_ACTIONS.HELP) },
+      { action: SHORTCUT_ACTIONS.CANCEL, description: 'Dialog / Auswahl schließen', keys: keysFor(SHORTCUT_ACTIONS.CANCEL) }
+    ]
+  },
+  {
+    label: 'Suche',
+    items: [
+      { action: SHORTCUT_ACTIONS.SEARCH_SUBMIT, description: 'Suche bestätigen', keys: keysFor(SHORTCUT_ACTIONS.SEARCH_SUBMIT) },
+      { action: SHORTCUT_ACTIONS.SEARCH_CANCEL, description: 'Suche abbrechen',  keys: keysFor(SHORTCUT_ACTIONS.SEARCH_CANCEL) }
+    ]
+  },
+  {
+    label: 'Navigation',
+    items: [
+      { action: SHORTCUT_ACTIONS.MOVE_PREVIOUS, description: 'Vorheriges Element', keys: keysFor(SHORTCUT_ACTIONS.MOVE_PREVIOUS) },
+      { action: SHORTCUT_ACTIONS.MOVE_NEXT,     description: 'Nächstes Element',   keys: keysFor(SHORTCUT_ACTIONS.MOVE_NEXT) },
+      { action: SHORTCUT_ACTIONS.STEP_PREVIOUS, description: 'Schritt zurück',     keys: keysFor(SHORTCUT_ACTIONS.STEP_PREVIOUS) },
+      { action: SHORTCUT_ACTIONS.STEP_NEXT,     description: 'Schritt vor',        keys: keysFor(SHORTCUT_ACTIONS.STEP_NEXT) }
+    ]
+  },
+  {
+    label: 'Aktionen',
+    items: [
+      { action: SHORTCUT_ACTIONS.TRASH,    description: 'Selektiertes Dokument in den Papierkorb', keys: keysFor(SHORTCUT_ACTIONS.TRASH) },
+      { action: SHORTCUT_ACTIONS.ACTIVATE, description: 'Element aktivieren / auswählen',           keys: keysFor(SHORTCUT_ACTIONS.ACTIVATE) },
+      { action: SHORTCUT_ACTIONS.PRIMARY,  description: 'Primäre Aktion bestätigen',                keys: keysFor(SHORTCUT_ACTIONS.PRIMARY) }
+    ]
+  }
+];
+
+const mouseGestures = [
+  { description: 'Auswahlmodus aktivieren & Dokument selektieren', gesture: '⌘ Cmd + Klick' }
+];
 
 // ── Konstanten ───────────────────────────────────────────────────────────────
 
@@ -620,14 +888,6 @@ const themeModeOptions = [
   { label: 'Hell', value: 'light' },
   { label: 'Dunkel', value: 'dark' },
   { label: 'System', value: 'system' }
-];
-
-const sortOrderOptions = [
-  { label: 'Neueste zuerst', value: 'newest' },
-  { label: 'Älteste zuerst', value: 'oldest' },
-  { label: 'Name A–Z', value: 'name_asc' },
-  { label: 'Name Z–A', value: 'name_desc' },
-  { label: 'Zuletzt geöffnet', value: 'last_opened' }
 ];
 
 const recentImportWindowOptions = [
@@ -649,7 +909,6 @@ const trashRetentionOptions = [
 
 const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
 const COLOR_VARIANT_VALUES = new Set(['indigo', 'forest', 'teal', 'slate', 'stone']);
-const SETTINGS_SORT_ORDER_VALUES = new Set(['newest', 'oldest', 'name_asc', 'name_desc', 'last_opened']);
 const RECENT_IMPORT_WINDOW_VALUES = new Set(recentImportWindowOptions.map((e) => e.value));
 const TRASH_RETENTION_VALUES = new Set(trashRetentionOptions.map((e) => e.value));
 
@@ -769,7 +1028,26 @@ function toggleAutoOcrFromRow() {
   void onAutoOcrChange(!settingsDraft.documents.auto_ocr);
 }
 
+async function onOcrBackfillEnabledChange(nextValue) {
+  const nextBool = Boolean(nextValue);
+  if (nextBool === settingsDraft.documents.ocr_backfill_enabled) return;
+  const previous = settingsDraft.documents.ocr_backfill_enabled;
+  settingsStore.setDraftPatch({ documents: { ocr_backfill_enabled: nextBool } });
+  await patchSettingsWithRevert({
+    patch: buildOcrBackfillEnabledPatch(nextBool),
+    controlKey: 'ocr_backfill_enabled',
+    revert: () => settingsStore.setDraftPatch({ documents: { ocr_backfill_enabled: previous } })
+  });
+}
+
+function toggleOcrBackfillFromRow() {
+  if (isSettingSaving.ocr_backfill_enabled) return;
+  void onOcrBackfillEnabledChange(!settingsDraft.documents.ocr_backfill_enabled);
+}
+
 // ── Ollama ───────────────────────────────────────────────────────────────────
+
+const showOllamaAdvanced = ref(false);
 
 const ollamaModelPresets = [
   'llama3.2:1b',
@@ -856,24 +1134,9 @@ async function onAutoTaggingChange(nextValue) {
 
 function toggleAutoTaggingFromRow() {
   if (isSettingSaving.auto_tagging) return;
+  // Abhängigkeit: KI-Analyse benötigt Automatisches OCR.
+  if (!settingsDraft.documents.auto_ocr) return;
   void onAutoTaggingChange(!settingsDraft.documents.auto_tagging);
-}
-
-// ── Sortierung ───────────────────────────────────────────────────────────────
-
-async function onSortOrderChange(nextValue) {
-  if (isSettingSaving.sort_order) return;
-  const nextSortOrder = SETTINGS_SORT_ORDER_VALUES.has(String(nextValue))
-    ? String(nextValue)
-    : settingsDraft.documents.sort_order;
-  if (nextSortOrder === settingsDraft.documents.sort_order) return;
-  const previous = settingsDraft.documents.sort_order;
-  settingsStore.setDraftPatch({ documents: { sort_order: nextSortOrder } });
-  await patchSettingsWithRevert({
-    patch: buildSortOrderPatch(nextSortOrder),
-    controlKey: 'sort_order',
-    revert: () => settingsStore.setDraftPatch({ documents: { sort_order: previous } })
-  });
 }
 
 // ── Import-Zeitraum ──────────────────────────────────────────────────────────
@@ -1012,6 +1275,7 @@ watch(
   () => props.modelValue,
   (open) => {
     if (open) {
+      activeCategory.value = props.initialCategory;
       void categoryStore.fetchCategories();
     }
   },
@@ -1069,43 +1333,93 @@ async function removeCategory(category) {
 .settings-categories {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   width: 100%;
 }
 
 .settings-category-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 6px 4px 10px;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.07);
   border-radius: 8px;
-  transition: background 0.12s;
+  background: rgba(var(--v-theme-surface), 0.68);
+  transition: background 0.14s ease, border-color 0.14s ease, transform 0.14s ease;
 }
 
 .settings-category-row:hover {
-  background: rgba(var(--v-theme-on-surface), 0.04);
+  border-color: rgba(var(--v-theme-primary), 0.2);
+  background: rgba(var(--v-theme-primary), 0.045);
+  transform: translateY(-1px);
+}
+
+.settings-category-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.settings-category-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: rgba(var(--v-theme-primary), 0.9);
+  background: rgba(var(--v-theme-primary), 0.1);
 }
 
 .settings-category-name {
-  flex: 1 1 auto;
   min-width: 0;
-  font-size: 14px;
-  color: rgba(var(--v-theme-on-surface), 0.87);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: rgba(var(--v-theme-on-surface), 0.9);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.settings-category-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
 .settings-category-count {
   flex: 0 0 auto;
-  min-width: 22px;
+  min-width: 28px;
   text-align: center;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 1px 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 9px;
   border-radius: 999px;
-  background: rgba(var(--v-theme-on-surface), 0.08);
-  color: rgba(var(--v-theme-on-surface), 0.6);
+  background: rgba(var(--v-theme-on-surface), 0.075);
+  color: rgba(var(--v-theme-on-surface), 0.64);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-category-action-btn {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border-radius: 8px;
+  color: rgba(var(--v-theme-on-surface), 0.62);
+}
+
+.settings-category-action-btn:hover {
+  background: rgba(var(--v-theme-on-surface), 0.06);
+  color: rgba(var(--v-theme-on-surface), 0.88);
+}
+
+.settings-category-action-btn--danger:hover {
+  background: rgba(var(--v-theme-error), 0.08);
 }
 
 .settings-category-edit {
@@ -1127,5 +1441,138 @@ async function removeCategory(category) {
 
 .settings-category-add :deep(.v-field) {
   border-radius: 8px;
+}
+
+/* Texterkennung: Hinweis, gruppierter KI-Block, Erweitert-Aufklapper */
+.pm-setting-note {
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: rgba(var(--v-theme-on-surface), 0.62);
+  padding: 2px 0 8px;
+}
+
+.pm-setting-group {
+  border-left: 2px solid rgba(var(--v-theme-primary), 0.3);
+  padding-left: 14px;
+  margin: 2px 0 4px;
+}
+
+.pm-setting-note--group {
+  padding: 0 0 6px;
+  font-size: 0.82rem;
+}
+
+.pm-setting-group + .pm-setting-row {
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.04);
+}
+
+.pm-settings-disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 2px;
+  padding: 4px 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: rgb(var(--v-theme-primary));
+}
+
+.pm-settings-disclosure:hover {
+  text-decoration: underline;
+}
+
+.pm-setting-row--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pm-setting-row--disabled .pm-setting-hint {
+  opacity: 1;
+}
+
+/* Tastaturkürzel-Liste (Bereich „Bedienung") */
+.shortcuts-list {
+  display: grid;
+  gap: 20px;
+  width: 100%;
+}
+
+.shortcuts-list__group-label {
+  margin: 0 0 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: rgba(var(--v-theme-on-surface), 0.45);
+}
+
+.shortcuts-list__rows {
+  display: grid;
+  gap: 2px;
+}
+
+.shortcuts-list__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.06));
+}
+
+.shortcuts-list__row:last-child {
+  border-bottom: none;
+}
+
+.shortcuts-list__desc {
+  font-size: 0.88rem;
+  color: rgba(var(--v-theme-on-surface), 0.82);
+}
+
+.shortcuts-list__keys {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.shortcuts-list__kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 2px 7px;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.4;
+  border-radius: 5px;
+  background: rgba(var(--v-theme-on-surface), 0.06);
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
+  color: rgba(var(--v-theme-on-surface), 0.72);
+  white-space: nowrap;
+}
+
+.pm-tag-cleanup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pm-tag-cleanup__names {
+  display: block;
+  margin-top: 2px;
+  max-height: 120px;
+  overflow-y: auto;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  font-size: 0.82rem;
+  word-break: break-word;
+}
+.pm-tag-cleanup__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 </style>

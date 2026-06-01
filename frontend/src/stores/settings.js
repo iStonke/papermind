@@ -89,6 +89,7 @@ function createDefaultSettings() {
     documents: {
       auto_ocr: true,
       auto_tagging: false,
+      ocr_backfill_enabled: true,
       sort_order: 'newest',
       recent_import_window_hours: 24,
       trash_retention_days: 30,
@@ -205,6 +206,7 @@ export const useSettingsStore = defineStore('settings', {
         color_variant: false,
         auto_ocr: false,
         auto_tagging: false,
+        ocr_backfill_enabled: false,
         sort_order: false,
         recent_import_window_hours: false,
         trash_retention_days: false,
@@ -300,6 +302,10 @@ export const useSettingsStore = defineStore('settings', {
             typeof payload?.documents?.auto_tagging === 'boolean'
               ? payload.documents.auto_tagging
               : defaults.documents.auto_tagging,
+          ocr_backfill_enabled:
+            typeof payload?.documents?.ocr_backfill_enabled === 'boolean'
+              ? payload.documents.ocr_backfill_enabled
+              : defaults.documents.ocr_backfill_enabled,
           sort_order: SORT_ORDER_VALUES.has(rawSortOrder) ? rawSortOrder : defaults.documents.sort_order,
           recent_import_window_hours:
             Number.isInteger(rawRecentImportWindow) && rawRecentImportWindow > 0

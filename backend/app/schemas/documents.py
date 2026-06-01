@@ -221,3 +221,13 @@ class DocumentListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class DocumentMetadataSuggestion(BaseModel):
+    """AI-derived metadata suggestions for a document's editable fields."""
+
+    display_name: str | None = None
+    document_date: date | None = None
+    category: str | None = None
+    notes: str | None = None
+    tags: list[str] = Field(default_factory=list)

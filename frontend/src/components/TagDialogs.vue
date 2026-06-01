@@ -4,7 +4,7 @@
     v-model="isCreateOpen"
     max-width="420"
     title="Tag erstellen"
-    description="Neuen Tag für die Dokumentorganisation anlegen."
+    header-subtitle="Neuen Tag für die Dokumentorganisation anlegen."
     primary-text="Erstellen"
     secondary-text="Abbrechen"
     :loading="isTagMutationRunning"

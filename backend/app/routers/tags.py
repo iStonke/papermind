@@ -68,6 +68,21 @@ def merge_tag(source_id: uuid.UUID, payload: TagMergeRequest, db: Session = Depe
     return TagRead.model_validate(service.merge_tag(source_id, payload), from_attributes=True)
 
 
+@router.post(
+    "/cleanup-unused",
+    summary="Remove tags that are not attached to any document",
+)
+def cleanup_unused_tags(
+    dry_run: bool = Query(
+        default=False,
+        description="If true, only return the tags that would be removed (no deletion).",
+    ),
+    db: Session = Depends(get_db),
+) -> dict:
+    service = TagService(db)
+    return service.cleanup_unused_tags(dry_run=dry_run)
+
+
 @router.delete(
     "/{tag_id}",
     response_model=OkResponse,

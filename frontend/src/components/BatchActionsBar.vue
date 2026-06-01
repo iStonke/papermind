@@ -1,28 +1,20 @@
 <template>
   <Transition name="batch-bar">
     <div v-if="count > 0" class="batch-bar" role="toolbar" aria-label="Batch-Aktionen">
-      <span class="batch-bar__label">{{ count }} {{ count === 1 ? 'Dokument' : 'Dokumente' }} ausgewählt</span>
+      <span class="batch-bar__label">{{ count }} {{ count === 1 ? singularLabel : pluralLabel }} ausgewählt</span>
 
       <div class="batch-bar__actions">
         <v-btn
+          v-for="action in resolvedActions"
+          :key="action.key"
           variant="tonal"
+          :color="action.color"
           size="small"
           class="batch-bar__btn"
-          prepend-icon="mdi-tag-multiple-outline"
-          @click="emit('tag')"
+          :prepend-icon="action.icon"
+          @click="emitAction(action.key)"
         >
-          Tags
-        </v-btn>
-
-        <v-btn
-          variant="tonal"
-          color="error"
-          size="small"
-          class="batch-bar__btn"
-          prepend-icon="mdi-trash-can-outline"
-          @click="emit('delete')"
-        >
-          In Papierkorb
+          {{ action.label }}
         </v-btn>
       </div>
     </div>
@@ -30,11 +22,31 @@
 </template>
 
 <script setup>
-defineProps({
-  count: { type: Number, default: 0 }
+import { computed } from 'vue';
+
+const props = defineProps({
+  count: { type: Number, default: 0 },
+  singularLabel: { type: String, default: 'Dokument' },
+  pluralLabel: { type: String, default: 'Dokumente' },
+  actions: {
+    type: Array,
+    default: () => [
+      { key: 'tag', label: 'Tags', icon: 'mdi-tag-multiple-outline' },
+      { key: 'delete', label: 'In Papierkorb', icon: 'mdi-trash-can-outline', color: 'error' }
+    ]
+  }
 });
 
-const emit = defineEmits(['tag', 'delete']);
+const emit = defineEmits(['tag', 'delete', 'merge', 'action']);
+
+const resolvedActions = computed(() => props.actions.filter((action) => action?.key && action?.label));
+
+function emitAction(key) {
+  emit('action', key);
+  if (['tag', 'delete', 'merge'].includes(key)) {
+    emit(key);
+  }
+}
 </script>
 
 <style scoped>

@@ -6,77 +6,16 @@
       </v-chip>
     </div>
 
-    <!-- Toolbar -->
-    <div v-if="!isTrashView && !isImportsView" class="doclist-toolbar">
-      <!-- Linke Seite: im Auswahlmodus → Alle auswählen + Zähler; sonst → Sort + Status -->
-      <div class="doclist-toolbar__left">
-        <template v-if="isSelectionMode">
-          <button type="button" class="doclist-toolbar__action-btn" @click="emit('select-all')">
-            Alle auswählen
-          </button>
-          <span v-if="selectionIds.size > 0" class="doclist-toolbar__count">
-            {{ selectionIds.size }} ausgewählt
-          </span>
-        </template>
-        <template v-else>
-          <!-- Sortierung -->
-          <v-menu location="bottom start" offset="4">
-            <template #activator="{ props: menuProps }">
-              <button type="button" class="doclist-toolbar__action-btn doclist-toolbar__action-btn--icon" v-bind="menuProps">
-                <v-icon size="14">mdi-sort</v-icon>
-                {{ sortLabel }}
-              </button>
-            </template>
-            <v-list density="compact" min-width="190">
-              <v-list-item
-                v-for="opt in SORT_OPTIONS"
-                :key="opt.value"
-                :class="{ 'v-list-item--active': currentSort === opt.value }"
-                @click="emit('change-sort', opt.value)"
-              >
-                <v-list-item-title>{{ opt.label }}</v-list-item-title>
-              </v-list-item>
-            </v-list>
-          </v-menu>
-
-          <!-- Statusfilter -->
-          <v-menu location="bottom start" offset="4">
-            <template #activator="{ props: menuProps }">
-              <button
-                type="button"
-                class="doclist-toolbar__action-btn doclist-toolbar__action-btn--icon"
-                :class="{ 'doclist-toolbar__action-btn--active': currentStatus }"
-                v-bind="menuProps"
-              >
-                <v-icon size="14">mdi-filter-variant</v-icon>
-                {{ statusLabel }}
-              </button>
-            </template>
-            <v-list density="compact" min-width="170">
-              <v-list-item
-                v-for="opt in STATUS_OPTIONS"
-                :key="opt.value"
-                :class="{ 'v-list-item--active': currentStatus === opt.value }"
-                @click="emit('change-status', opt.value)"
-              >
-                <v-list-item-title>{{ opt.label }}</v-list-item-title>
-              </v-list-item>
-            </v-list>
-          </v-menu>
-        </template>
-      </div>
-
-      <!-- Rechte Seite: Auswählen / Abbrechen -->
-      <button
-        type="button"
-        class="doclist-toolbar__select-btn"
-        :class="{ 'doclist-toolbar__select-btn--cancel': isSelectionMode }"
-        :disabled="!isSelectionMode && selectionDisabled"
-        @click="emit('toggle-selection-mode')"
-      >
-        {{ isSelectionMode ? 'Abbrechen' : 'Auswählen' }}
-      </button>
-    </div>
+    <ListActionToolbar
+      v-if="!isTrashView && !isImportsView"
+      :actions="toolbarActions"
+      :selection-mode="isSelectionMode"
+      :selection-count="selectionIds.size"
+      :selection-disabled="selectionDisabled"
+      @action-select="handleToolbarAction"
+      @toggle-selection="emit('toggle-selection-mode')"
+      @select-all="emit('select-all')"
+    />
 
     <div
       class="document-list-body docs-list-dropzone"
@@ -289,11 +228,7 @@ import { ref, computed } from 'vue';
 const SORT_OPTIONS = [
   { value: 'newest',      label: 'Neueste zuerst' },
   { value: 'oldest',      label: 'Älteste zuerst' },
-  { value: 'document_date_desc', label: 'Dokumentdatum neueste zuerst' },
-  { value: 'document_date_asc',  label: 'Dokumentdatum älteste zuerst' },
   { value: 'name_asc',    label: 'Name A–Z' },
-  { value: 'name_desc',   label: 'Name Z–A' },
-  { value: 'last_opened', label: 'Zuletzt geöffnet' },
   { value: 'favorites',   label: 'Favoriten zuerst' },
 ];
 
@@ -309,6 +244,7 @@ import { useDocumentStore } from '../stores/documents.js';
 import { useSettingsStore } from '../stores/settings.js';
 import { getBaseUrl } from '../api/client.js';
 import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts.js';
+import ListActionToolbar from './ListActionToolbar.vue';
 import PmEmptyState from './PmEmptyState.vue';
 
 // ── Props & Emits ──────────────────────────────────────────────────────────
@@ -354,11 +290,40 @@ const showPdfSuffixComputed = computed(() => settingsStore.settingsDraft?.ui?.sh
 
 const sortLabel   = computed(() => SORT_OPTIONS.find(o => o.value === props.currentSort)?.label ?? 'Sortierung');
 const statusLabel = computed(() => STATUS_OPTIONS.find(o => o.value === props.currentStatus)?.label ?? 'Status');
+const toolbarActions = computed(() => [
+  {
+    key: 'sort',
+    icon: 'mdi-sort',
+    label: sortLabel.value,
+    value: props.currentSort,
+    options: SORT_OPTIONS,
+    minWidth: 190
+  },
+  {
+    key: 'status',
+    icon: 'mdi-filter-variant',
+    label: statusLabel.value,
+    value: props.currentStatus,
+    active: Boolean(props.currentStatus),
+    options: STATUS_OPTIONS,
+    minWidth: 170
+  }
+]);
 
 // ── Refs ───────────────────────────────────────────────────────────────────
 const thumbnailErrorMap = ref({});
 const isListDragOver    = ref(false);
 const listDropDragDepth = ref(0);
+
+function handleToolbarAction({ action, value }) {
+  if (action === 'sort') {
+    emit('change-sort', value);
+    return;
+  }
+  if (action === 'status') {
+    emit('change-status', value);
+  }
+}
 
 // ── Thumbnail helpers ──────────────────────────────────────────────────────
 function thumbnailUrl(documentId) {
@@ -491,88 +456,6 @@ function onListDrop(event) {
 </script>
 
 <style scoped>
-/* ── Toolbar ──────────────────────────────────────────────────────────── */
-.doclist-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 5px 12px;
-  border-bottom: 1px solid var(--pm-divider);
-  min-height: 36px;
-}
-
-.doclist-toolbar__left {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-}
-
-/* Gemeinsame Basis für alle Toolbar-Buttons */
-.doclist-toolbar__action-btn,
-.doclist-toolbar__select-btn {
-  background: none;
-  border: none;
-  padding: 3px 7px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.78rem;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  transition: background 0.12s;
-}
-
-.doclist-toolbar__action-btn {
-  color: rgba(var(--v-theme-on-surface), 0.62);
-}
-
-.doclist-toolbar__action-btn:hover {
-  background: rgba(var(--v-theme-on-surface), 0.06);
-  color: rgba(var(--v-theme-on-surface), 0.85);
-}
-
-.doclist-toolbar__action-btn--active {
-  color: rgb(var(--v-theme-primary));
-  background: rgba(var(--v-theme-primary), 0.08);
-}
-
-.doclist-toolbar__select-btn {
-  color: rgb(var(--v-theme-primary));
-  flex-shrink: 0;
-}
-
-.doclist-toolbar__select-btn:hover {
-  background: rgba(var(--v-theme-primary), 0.08);
-}
-
-.doclist-toolbar__select-btn:disabled {
-  color: rgba(var(--v-theme-on-surface), 0.32);
-  cursor: not-allowed;
-}
-
-.doclist-toolbar__select-btn:disabled:hover {
-  background: transparent;
-}
-
-.doclist-toolbar__select-btn--cancel {
-  color: rgba(var(--v-theme-on-surface), 0.55);
-}
-
-.doclist-toolbar__select-btn--cancel:hover {
-  background: rgba(var(--v-theme-on-surface), 0.06);
-}
-
-.doclist-toolbar__count {
-  font-size: 0.78rem;
-  color: rgba(var(--v-theme-on-surface), 0.5);
-  padding-left: 4px;
-}
-
 /* ── Thumbnail im Auswahlmodus ────────────────────────────────────────── */
 .document-row__thumb {
   position: relative;

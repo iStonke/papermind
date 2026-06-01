@@ -49,6 +49,13 @@ export const queueOcr = (id) =>
   apiPost(`/api/documents/${id}/ocr`, undefined);
 
 /**
+ * Stößt den OCR-Backfill an: reiht OCR-Jobs für Dokumente ohne OCR ein
+ * (schließt Lücken). dryRun=true liefert nur die Vorschau (keine Jobs).
+ */
+export const backfillOcr = ({ dryRun = false } = {}) =>
+  apiPost(`/api/documents/ocr-backfill?dry_run=${dryRun ? 'true' : 'false'}`, {});
+
+/**
  * Gibt die Datei-URL für einen Dokument zurück (kein fetch – nur URL-Builder).
  * Wird im <PdfPreview :src="..."> und für Downloads verwendet.
  */
