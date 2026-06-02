@@ -353,6 +353,56 @@
           />
         </div>
 
+        <!-- Correspondent -->
+        <div class="isd-field" :class="{ 'isd-field--ai-filled': aiFieldGlowActive && docCorrespondentAiFilled }">
+          <div class="isd-field-label">
+            Korrespondent
+            <v-tooltip text="Kanonischer Absender/Aussteller. Wird aus dem erkannten Absender über Aliase/Regeln aufgelöst." location="top" max-width="240">
+              <template #activator="{ props: tip }"><v-icon class="isd-field-info" v-bind="tip" size="14">mdi-information-outline</v-icon></template>
+            </v-tooltip>
+          </div>
+          <v-autocomplete
+            v-model="docCorrespondentId"
+            :items="correspondentItems"
+            item-title="title"
+            item-value="value"
+            placeholder="Korrespondent wählen…"
+            density="compact"
+            variant="outlined"
+            hide-details
+            clearable
+            :menu-props="{ maxHeight: 240, attach: 'body', zIndex: 6000 }"
+            @update:model-value="docCorrespondentTouched = true; docCorrespondentAiFilled = false"
+            @focus="correspondentStore.ensureLoaded()"
+          />
+          <div v-if="docSenderRaw" class="isd-correspondent-hint">
+            <span class="isd-correspondent-sender">Erkannter Absender: <strong>{{ docSenderRaw }}</strong></span>
+            <div class="isd-correspondent-actions">
+              <v-btn
+                v-if="canCreateCorrespondentFromSender"
+                size="x-small"
+                variant="tonal"
+                color="primary"
+                :loading="correspondentStore.isMutationRunning"
+                prepend-icon="mdi-account-plus"
+                @click="onCreateCorrespondentFromSender"
+              >
+                Neu anlegen
+              </v-btn>
+              <v-btn
+                v-if="canAddSenderAsAlias"
+                size="x-small"
+                variant="tonal"
+                :loading="correspondentStore.isMutationRunning"
+                prepend-icon="mdi-tag-plus"
+                @click="onAddSenderAsAlias"
+              >
+                Als Alias hinzufügen
+              </v-btn>
+            </div>
+          </div>
+        </div>
+
         <!-- Tags -->
         <div class="isd-field" :class="{ 'isd-field--ai-filled': aiFieldGlowActive && docTagsAiFilled }">
           <div class="isd-field-label">
@@ -556,6 +606,7 @@ import { mapApiError, useNotifications } from '../stores/notifications';
 import { useImportStagingStore } from '../stores/importStaging';
 import { useSettingsStore } from '../stores/settings';
 import { useCategoryStore } from '../stores/categories';
+import { useCorrespondentStore } from '../stores/correspondents';
 import {
   SHORTCUT_ACTIONS,
   handleShortcut,
@@ -580,6 +631,7 @@ const { notify } = useNotifications();
 const stagingStore = useImportStagingStore();
 const settingsStore = useSettingsStore();
 const categoryStore = useCategoryStore();
+const correspondentStore = useCorrespondentStore();
 const theme = useTheme();
 const { documents, documentCount, totalPages, emptyDocuments, commitDocuments } = storeToRefs(stagingStore);
 
@@ -673,16 +725,21 @@ const isViewSwitching = ref(false);
 const docDate = ref('');
 const docCategory = ref(null);
 const docNote = ref('');
+const docCorrespondentId = ref(null);
+// Roher Absender-Befund (ai_sender) aus dem KI-Vorschlag, nur zur Anzeige.
+const docSenderRaw = ref('');
 const docTitleTouched = ref(false);
 const docDateTouched = ref(false);
 const docCategoryTouched = ref(false);
 const docTagsTouched = ref(false);
 const docNoteTouched = ref(false);
+const docCorrespondentTouched = ref(false);
 const docTitleAiFilled = ref(false);
 const docDateAiFilled = ref(false);
 const docCategoryAiFilled = ref(false);
 const docTagsAiFilled = ref(false);
 const docNoteAiFilled = ref(false);
+const docCorrespondentAiFilled = ref(false);
 const aiFieldGlowActive = ref(false);
 let aiFieldGlowTimer = 0;
 
@@ -696,6 +753,32 @@ const categoryItems = computed(() => {
     names.unshift(current);
   }
   return names;
+});
+
+// Korrespondenten-Optionen für das Autocomplete ({ title, value }).
+const correspondentItems = computed(() => correspondentStore.correspondentOptions);
+
+// Aktuell ausgewählter Korrespondent (Objekt) oder null.
+const selectedCorrespondent = computed(() =>
+  docCorrespondentId.value ? correspondentStore.findById(docCorrespondentId.value) : null
+);
+
+// Der rohe Absender lässt sich als Alias/Korrespondent anlegen, solange er nicht
+// bereits exakt einem bekannten Korrespondenten entspricht.
+const canCreateCorrespondentFromSender = computed(() => {
+  const raw = String(docSenderRaw.value || '').trim();
+  if (raw.length < 2) return false;
+  return !correspondentStore.findByName(raw);
+});
+
+const canAddSenderAsAlias = computed(() => {
+  const raw = String(docSenderRaw.value || '').trim();
+  if (raw.length < 2) return false;
+  const selected = selectedCorrespondent.value;
+  if (!selected) return false;
+  if (selected.name?.toLocaleLowerCase('de-DE') === raw.toLocaleLowerCase('de-DE')) return false;
+  const aliases = Array.isArray(selected.aliases) ? selected.aliases : [];
+  return !aliases.some((a) => String(a?.alias || '').toLocaleLowerCase('de-DE') === raw.toLocaleLowerCase('de-DE'));
 });
 
 const docOcrLang = computed(() => settingsStore.settings.documents.ocr_doc_lang ?? 'de');
@@ -1424,6 +1507,8 @@ watch(
       isMinimizingToTray = false;
       // Verfügbare Dokumenttypen für das Dropdown laden (zentral in den Einstellungen gepflegt).
       void categoryStore.fetchCategories();
+      // Korrespondenten für Auswahl/Auflösung laden.
+      void correspondentStore.ensureLoaded();
       return;
     }
     if (isMinimizingToTray) {
@@ -1572,6 +1657,8 @@ watch(
       docDate.value = '';
       docCategory.value = null;
       docNote.value = '';
+      docCorrespondentId.value = null;
+      docSenderRaw.value = '';
       tagInlineValue.value = '';
       isSelectMode.value = false;
       multiSelectedPageIds.value = new Set();
@@ -1580,11 +1667,13 @@ watch(
       docCategoryTouched.value = false;
       docTagsTouched.value = false;
       docNoteTouched.value = false;
+      docCorrespondentTouched.value = false;
       docTitleAiFilled.value = false;
       docDateAiFilled.value = false;
       docCategoryAiFilled.value = false;
       docTagsAiFilled.value = false;
       docNoteAiFilled.value = false;
+      docCorrespondentAiFilled.value = false;
       aiFieldGlowActive.value = false;
       return;
     }
@@ -2384,6 +2473,18 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
             if (aiCategory && !docCategoryTouched.value) {
               docCategory.value = aiCategory;
               docCategoryAiFilled.value = true;
+            }
+            // Korrespondent: roher Absender immer anzeigen; aufgelösten
+            // Korrespondenten vorbelegen, solange der Nutzer ihn nicht selbst
+            // angefasst hat. Das Backend löst Matcher/Alias deterministisch auf.
+            docSenderRaw.value = String(aiMeta.sender_raw || '').trim();
+            const aiCorrespondent = aiMeta.correspondent && typeof aiMeta.correspondent === 'object'
+              ? aiMeta.correspondent
+              : null;
+            if (aiCorrespondent?.id && !docCorrespondentTouched.value) {
+              await correspondentStore.ensureLoaded();
+              docCorrespondentId.value = String(aiCorrespondent.id);
+              docCorrespondentAiFilled.value = true;
             }
             // Notiz: wichtigste Fakten (nur wenn der Nutzer die Notiz nicht selbst angefasst hat)
             const aiNote = String(aiMeta.note || '').trim();
@@ -4158,6 +4259,34 @@ async function materializePendingTags() {
   }
 }
 
+// Erkannten Absender als neuen Korrespondenten anlegen und direkt auswählen.
+async function onCreateCorrespondentFromSender() {
+  const raw = String(docSenderRaw.value || '').trim();
+  if (!raw) return;
+  try {
+    const result = await correspondentStore.createCorrespondentByName(raw);
+    if (result?.ok && result.id) {
+      docCorrespondentId.value = result.id;
+      docCorrespondentTouched.value = true;
+      docCorrespondentAiFilled.value = false;
+    }
+  } catch {
+    // Fehler wurde bereits im Store als Notification gemeldet.
+  }
+}
+
+// Erkannten Absender als Alias zum aktuell gewählten Korrespondenten hinzufügen.
+async function onAddSenderAsAlias() {
+  const raw = String(docSenderRaw.value || '').trim();
+  const correspondentId = docCorrespondentId.value;
+  if (!raw || !correspondentId) return;
+  try {
+    await correspondentStore.addAlias(correspondentId, raw);
+  } catch {
+    // Fehler wurde bereits im Store als Notification gemeldet.
+  }
+}
+
 async function commitImport() {
   if (isImportActionDisabled.value) {
     return;
@@ -4174,7 +4303,7 @@ async function commitImport() {
       body: JSON.stringify({
         documents: commitDocuments.value.map((doc, idx) =>
           idx === 0
-            ? { ...doc, document_type: docCategory.value || null, note: docNote.value.trim() || null, date: docDateIso.value || null }
+            ? { ...doc, document_type: docCategory.value || null, correspondent_id: docCorrespondentId.value || null, note: docNote.value.trim() || null, date: docDateIso.value || null }
             : doc
         ),
         options: {
@@ -5053,6 +5182,24 @@ onBeforeUnmount(() => {
 
 .isd-field-info:hover {
   color: rgba(var(--v-theme-on-surface), 0.65) !important;
+}
+
+.isd-correspondent-hint {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.isd-correspondent-sender {
+  font-size: 11px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+
+.isd-correspondent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .isd-field-row {

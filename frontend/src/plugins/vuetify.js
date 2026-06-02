@@ -3,6 +3,7 @@ import { createVuetify } from 'vuetify';
 import { h } from 'vue';
 import { paperMindDark, paperMindLight } from '../theme/tokens';
 import {
+  mdiAccountPlus,
   mdiAlertCircleOutline,
   mdiAutoFix,
   mdiCheckboxMultipleOutline,
@@ -59,6 +60,7 @@ import {
   mdiTagOffOutline,
   mdiTagMultipleOutline,
   mdiTagOutline,
+  mdiTagPlus,
   mdiTagSearchOutline,
   mdiTagTextOutline,
   mdiTextRecognition,
@@ -71,6 +73,7 @@ import { aliases as mdiAliases } from 'vuetify/iconsets/mdi-svg';
 import { VSvgIcon } from 'vuetify/lib/composables/icons';
 
 const mdiPathMap = {
+  'mdi-account-plus': mdiAccountPlus,
   'mdi-alert-circle-outline': mdiAlertCircleOutline,
   'mdi-auto-fix': mdiAutoFix,
   'mdi-book-open-page-variant-outline': mdiBookOpenPageVariantOutline,
@@ -127,6 +130,7 @@ const mdiPathMap = {
   'mdi-tag-off-outline': mdiTagOffOutline,
   'mdi-tag-multiple-outline': mdiTagMultipleOutline,
   'mdi-tag-outline': mdiTagOutline,
+  'mdi-tag-plus': mdiTagPlus,
   'mdi-tag-search-outline': mdiTagSearchOutline,
   'mdi-tag-text-outline': mdiTagTextOutline,
   'mdi-text-recognition': mdiTextRecognition,
