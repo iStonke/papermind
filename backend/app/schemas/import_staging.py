@@ -1,7 +1,7 @@
 import uuid
 from datetime import date as date_cls, datetime
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 from app.services.utils import NAME_MAX_LENGTH, NAME_MIN_LENGTH, validate_vocab_name
 
@@ -96,23 +96,27 @@ class ImportCommitPageInput(BaseModel):
 
 class ImportCommitDocumentInput(BaseModel):
     title: str = Field(min_length=1, max_length=200)
-    category: str | None = Field(default=None, max_length=NAME_MAX_LENGTH)
+    document_type: str | None = Field(
+        default=None,
+        max_length=NAME_MAX_LENGTH,
+        validation_alias=AliasChoices("document_type", "category"),
+    )
     date: date_cls | None = Field(default=None)
     note: str | None = Field(default=None, max_length=2000)
     tag_ids: list[uuid.UUID] = Field(default_factory=list)
     pages: list[ImportCommitPageInput] = Field(default_factory=list)
 
-    @field_validator("category")
+    @field_validator("document_type")
     @classmethod
-    def normalize_category(cls, value: str | None) -> str | None:
+    def normalize_document_type(cls, value: str | None) -> str | None:
         if value is None:
             return None
         normalized = " ".join(value.split()).strip()
         if not normalized:
             return None
         if len(normalized) < NAME_MIN_LENGTH:
-            raise ValueError(f"Category name must contain at least {NAME_MIN_LENGTH} characters")
-        return validate_vocab_name(normalized, label="Category name")
+            raise ValueError(f"Document type name must contain at least {NAME_MIN_LENGTH} characters")
+        return validate_vocab_name(normalized, label="Document type name")
 
     @field_validator("note")
     @classmethod

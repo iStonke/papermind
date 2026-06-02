@@ -150,14 +150,14 @@
                 />
               </template>
 
-              <template v-else-if="rule.field === 'category'">
+              <template v-else-if="rule.field === 'document_type' || rule.field === 'category'">
                 <v-combobox
                   :model-value="rule.value"
                   :items="categoryOptions"
                   density="comfortable"
                   variant="outlined"
                   hide-details
-                  label="Kategorie"
+                  label="Dokumenttyp"
                   @update:model-value="setRuleValue(rule.id, $event)"
                 />
               </template>
@@ -236,7 +236,7 @@ const FIELD_OPTIONS = [
   { value: 'title', label: 'Titel' },
   { value: 'filename', label: 'Dateiname' },
   { value: 'tags', label: 'Tags' },
-  { value: 'category', label: 'Kategorie' },
+  { value: 'document_type', label: 'Dokumenttyp' },
   { value: 'is_favorite', label: 'Favorit' },
   { value: 'ocr_text', label: 'OCR-Text' },
   { value: 'note', label: 'Notiz' },
@@ -272,6 +272,17 @@ const OPERATOR_MAP = {
   tags: [
     { value: 'contains', label: 'enthält' },
     { value: 'equals', label: 'ist' },
+    { value: 'not_contains', label: 'enthält nicht' },
+    { value: 'in', label: 'ist einer von' },
+    { value: 'not_in', label: 'ist keiner von' },
+    { value: 'is_empty', label: 'ist leer' },
+    { value: 'is_not_empty', label: 'ist nicht leer' }
+  ],
+  document_type: [
+    { value: 'contains', label: 'enthält' },
+    { value: 'equals', label: 'ist' },
+    { value: 'starts_with', label: 'beginnt mit' },
+    { value: 'ends_with', label: 'endet mit' },
     { value: 'not_contains', label: 'enthält nicht' },
     { value: 'in', label: 'ist einer von' },
     { value: 'not_in', label: 'ist keiner von' },
@@ -454,7 +465,7 @@ function listValueOptions(field) {
   if (field === 'tags') {
     return tagOptions.value;
   }
-  if (field === 'category') {
+  if (field === 'document_type' || field === 'category') {
     return categoryOptions.value;
   }
   return [];

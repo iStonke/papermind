@@ -25,9 +25,9 @@ from app.core.errors import (
     StorageError,
 )
 from app.core.text import sanitize_text_for_db
-from app.models.category import Category
 from app.models.document import Document
 from app.models.document_file import DocumentFile
+from app.models.document_type import DocumentType
 from app.models.document_tag import document_tags
 from app.models.job import Job
 from app.models.tag import Tag
@@ -831,13 +831,13 @@ class DocumentService:
             title = f"{title} – {suffix}"
         return title[:200]
 
-    def _suggest_category_from_classification(self, document: Document) -> str | None:
-        """Map the detected document type to an existing managed category name."""
+    def _suggest_document_type_from_classification(self, document: Document) -> str | None:
+        """Map the detected document type to an existing managed document type name."""
         mapped = map_doc_type_to_category(document.ai_document_type)
         if not mapped:
             return None
         existing = self.db.execute(
-            select(Category.name).where(func.lower(Category.name) == mapped.lower())
+            select(DocumentType.name).where(func.lower(DocumentType.name) == mapped.lower())
         ).scalar_one_or_none()
         return existing
 
@@ -863,6 +863,19 @@ class DocumentService:
             result.append(canonical)
         return result
 
+    def _load_active_document_type_names(self, limit: int = 120) -> list[str]:
+        try:
+            rows = self.db.execute(
+                select(DocumentType.name)
+                .where(DocumentType.is_active.is_(True))
+                .order_by(DocumentType.sort_order.asc(), func.lower(DocumentType.name).asc())
+                .limit(limit)
+            ).scalars().all()
+        except Exception as exc:  # noqa: BLE001 - metadata suggestions must remain best effort
+            logger.warning("could not load active document types: %s", exc)
+            return []
+        return [str(name).strip() for name in rows if name and str(name).strip()]
+
     def suggest_metadata(self, document_id: uuid.UUID) -> DocumentMetadataSuggestion:
         """Return AI-derived suggestions for a document's editable fields.
 
@@ -880,6 +893,7 @@ class DocumentService:
                     extracted_text=text_value,
                     quality_status=document.ocr_quality_status or "good",
                     confidence_score=document.ocr_confidence_score,
+                    allowed_document_types=self._load_active_document_type_names(),
                 )
                 self.db.commit()
                 document = self.get_document_or_404(document_id)
@@ -887,7 +901,8 @@ class DocumentService:
         return DocumentMetadataSuggestion(
             display_name=self._build_ai_title(document),
             document_date=document.ai_document_date,
-            category=self._suggest_category_from_classification(document),
+            document_type=self._suggest_document_type_from_classification(document),
+            category=self._suggest_document_type_from_classification(document),
             notes=" ".join(str(document.ai_summary or "").split()).strip() or None,
             tags=self._suggest_tags_from_classification(document),
         )
@@ -1396,8 +1411,8 @@ class DocumentService:
             document.document_date_candidates = None
         if "notes" in data:
             document.notes = data["notes"]
-        if "category" in data:
-            document.category = data["category"]
+        if "document_type" in data:
+            document.document_type = data["document_type"]
         if "status" in data and data["status"] is not None:
             document.status = data["status"].value
         if "display_name" in data:

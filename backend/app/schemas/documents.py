@@ -90,21 +90,25 @@ class DocumentCreateRequest(BaseModel):
 class DocumentUpdateRequest(BaseModel):
     document_date: date | None = Field(default=None, validation_alias=AliasChoices("document_date", "doc_date"))
     notes: str | None = Field(default=None, max_length=10000)
-    category: str | None = Field(default=None, max_length=NAME_MAX_LENGTH)
+    document_type: str | None = Field(
+        default=None,
+        max_length=NAME_MAX_LENGTH,
+        validation_alias=AliasChoices("document_type", "category"),
+    )
     status: DocumentStatus | None = None
     display_name: str | None = Field(default=None, max_length=200)
 
-    @field_validator("category")
+    @field_validator("document_type")
     @classmethod
-    def normalize_category(cls, value: str | None) -> str | None:
+    def normalize_document_type(cls, value: str | None) -> str | None:
         if value is None:
             return None
         normalized = " ".join(value.split()).strip()
         if not normalized:
             return None
         if len(normalized) < NAME_MIN_LENGTH:
-            raise ValueError(f"Category name must contain at least {NAME_MIN_LENGTH} characters")
-        return validate_vocab_name(normalized, label="Category name")
+            raise ValueError(f"Document type name must contain at least {NAME_MIN_LENGTH} characters")
+        return validate_vocab_name(normalized, label="Document type name")
 
     @field_validator("display_name")
     @classmethod
@@ -154,6 +158,7 @@ class DocumentSummary(ORMModel):
     document_date_source: DocumentDateSource
     document_date_confidence: float | None
     document_date_candidates: list[dict[str, Any]] | None = None
+    document_type: str | None = None
     category: str | None = None
     status: DocumentStatus
     ocr_status: DocumentOCRStatus
@@ -188,6 +193,7 @@ class DocumentDetail(ORMModel):
     document_date_confidence: float | None
     document_date_candidates: list[dict[str, Any]] | None = None
     notes: str | None
+    document_type: str | None = None
     category: str | None = None
     status: DocumentStatus
     ocr_status: DocumentOCRStatus
@@ -233,6 +239,7 @@ class DocumentMetadataSuggestion(BaseModel):
 
     display_name: str | None = None
     document_date: date | None = None
+    document_type: str | None = None
     category: str | None = None
     notes: str | None = None
     tags: list[str] = Field(default_factory=list)

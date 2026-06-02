@@ -39,6 +39,7 @@ def apply_ollama_classification(
     confidence_score: float | int | None,
     base_url: str = DEFAULT_OLLAMA_BASE_URL,
     model: str = DEFAULT_OLLAMA_MODEL,
+    allowed_document_types: list[str] | None = None,
 ) -> str | None:
     """Classify ``document`` and store the result on its ``ai_*`` fields.
 
@@ -63,7 +64,11 @@ def apply_ollama_classification(
         logger.warning("ollama classification skipped document_id=%s reason=empty_ocr_text", document.id)
         return "Kein OCR-Text für automatische KI-Klassifizierung verfügbar."
 
-    service = OllamaClassificationService(base_url=base_url, model=model)
+    service = OllamaClassificationService(
+        base_url=base_url,
+        model=model,
+        allowed_document_types=allowed_document_types,
+    )
     try:
         result = service.classify(
             OllamaClassificationInput(

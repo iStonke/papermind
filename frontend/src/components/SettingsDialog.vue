@@ -292,13 +292,39 @@
 
         <section v-show="activeCategory === 'categories'" class="pm-settings-section">
           <div class="pm-settings-content">
-            <div class="pm-setting-row pm-setting-row--column">
+            <div class="settings-category-management">
+              <div class="settings-category-header">
               <div class="pm-setting-content">
-                <div class="pm-setting-label">Verfügbare Kategorien</div>
+                <div class="pm-setting-label">Verfügbare Dokumenttypen</div>
                 <div class="pm-setting-description">
-                  Diese Kategorien stehen beim Import zur Auswahl. Die Zahl zeigt, wie viele
-                  Dokumente die Kategorie nutzen. Löschen entfernt nur die Auswahloption –
-                  bereits zugewiesene Dokumente behalten ihre Kategorie.
+                  Diese Dokumenttypen stehen beim Import zur Auswahl. Die Zahl zeigt, wie viele
+                  Dokumente den Typ nutzen. Löschen entfernt nur die Auswahloption –
+                  bereits zugewiesene Dokumente behalten ihren Dokumenttyp.
+                </div>
+              </div>
+
+                <div class="settings-category-add">
+                  <v-text-field
+                    v-model="newCategoryName"
+                    :maxlength="VOCAB_NAME_MAX_LENGTH"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    placeholder="Neuer Dokumenttyp…"
+                    :disabled="categoryStore.isCategoryMutationRunning"
+                    @keydown.enter.prevent="addCategory"
+                  />
+                  <v-btn
+                    variant="tonal"
+                    color="primary"
+                    size="default"
+                    class="settings-category-add__button"
+                    prepend-icon="mdi-plus"
+                    :disabled="!newCategoryName.trim() || categoryStore.isCategoryMutationRunning"
+                    @click="addCategory"
+                  >
+                    Hinzufügen
+                  </v-btn>
                 </div>
               </div>
 
@@ -337,9 +363,15 @@
                   <template v-else>
                     <div class="settings-category-main">
                       <div class="settings-category-icon" aria-hidden="true">
-                        <v-icon size="16">mdi-folder-tag-outline</v-icon>
+                        <v-icon size="16">{{ cat.is_active === false ? 'mdi-folder-outline' : 'mdi-file-document-multiple-outline' }}</v-icon>
                       </div>
-                      <span class="settings-category-name">{{ cat.name }}</span>
+                      <div class="settings-category-text">
+                        <span class="settings-category-name">{{ cat.name }}</span>
+                        <span class="settings-category-meta">
+                          {{ cat.is_active === false ? 'inaktiv' : 'aktiv' }}
+                          <template v-if="cat.naming_template"> · Template</template>
+                        </span>
+                      </div>
                     </div>
                     <div class="settings-category-actions">
                       <span class="settings-category-count" :title="`${cat.usage_count || 0} Dokument(e)`">
@@ -373,30 +405,7 @@
                 </div>
 
                 <div v-if="categoryStore.categories.length === 0" class="settings-category-empty">
-                  Noch keine Kategorien angelegt.
-                </div>
-
-                <div class="settings-category-add">
-                  <v-text-field
-                    v-model="newCategoryName"
-                    :maxlength="VOCAB_NAME_MAX_LENGTH"
-                    density="compact"
-                    variant="outlined"
-                    hide-details
-                    placeholder="Neue Kategorie…"
-                    :disabled="categoryStore.isCategoryMutationRunning"
-                    @keydown.enter.prevent="addCategory"
-                  />
-                  <v-btn
-                    variant="tonal"
-                    color="primary"
-                    size="small"
-                    prepend-icon="mdi-plus"
-                    :disabled="!newCategoryName.trim() || categoryStore.isCategoryMutationRunning"
-                    @click="addCategory"
-                  >
-                    Hinzufügen
-                  </v-btn>
+                  Noch keine Dokumenttypen angelegt.
                 </div>
               </div>
             </div>
@@ -409,7 +418,7 @@
             <!-- Hinweis: Import-Vorschau wird immer analysiert -->
             <div class="pm-setting-note">
               Im Import-Fenster werden hinzugefügte Dokumente <strong>immer</strong> automatisch
-              analysiert (Vorschau für Titel, Datum, Kategorie und Tags). Die folgenden Optionen
+              analysiert (Vorschau für Titel, Datum, Dokumenttyp und Tags). Die folgenden Optionen
               steuern Qualität und Sprache dieser Analyse sowie die automatische
               Weiterverarbeitung <strong>nach</strong> dem Import.
             </div>
@@ -820,12 +829,12 @@ const animationsEnabled = computed(() => settingsStore.animationsEnabled);
 
 const currentColorVariant = computed(() => settingsStore.settingsDraft.ui.color_variant || 'slate');
 
-// ── Kategorie-Navigation ─────────────────────────────────────────────────────
+// ── Einstellungsnavigation ───────────────────────────────────────────────────
 
 const settingsCategories = [
   { value: 'appearance', label: 'Darstellung', icon: 'mdi-palette-outline' },
   { value: 'documents', label: 'Dokumente', icon: 'mdi-file-document-outline' },
-  { value: 'categories', label: 'Kategorien', icon: 'mdi-folder-tag-outline' },
+  { value: 'categories', label: 'Dokumenttypen', icon: 'mdi-file-document-multiple-outline' },
   { value: 'ai', label: 'Texterkennung', icon: 'mdi-robot-outline' },
   { value: 'controls', label: 'Bedienung', icon: 'mdi-keyboard-outline' }
 ];
@@ -1275,7 +1284,7 @@ function toggleAnimationsFromRow() {
   settingsStore.setAnimationsEnabled(!settingsStore.animationsEnabled);
 }
 
-// ── Kategorien-Verwaltung ──────────────────────────────────────────────────────
+// ── Dokumenttypen-Verwaltung ───────────────────────────────────────────────────
 
 const newCategoryName = ref('');
 const editingCategoryId = ref(null);
@@ -1340,11 +1349,32 @@ async function removeCategory(category) {
 </script>
 
 <style scoped>
+.settings-category-management {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+}
+
+.settings-category-header {
+  position: sticky;
+  top: -20px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: -20px -24px 0 -22px;
+  padding: 20px 24px 14px 22px;
+  background: rgb(var(--v-theme-surface));
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+}
+
 .settings-categories {
   display: flex;
   flex-direction: column;
   gap: 8px;
   width: 100%;
+  padding-top: 12px;
 }
 
 .settings-category-row {
@@ -1385,11 +1415,28 @@ async function removeCategory(category) {
   background: rgba(var(--v-theme-primary), 0.1);
 }
 
+.settings-category-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .settings-category-name {
   min-width: 0;
   font-size: 0.9rem;
   font-weight: 600;
   color: rgba(var(--v-theme-on-surface), 0.9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-category-meta {
+  min-width: 0;
+  font-size: 0.72rem;
+  font-weight: 650;
+  color: rgba(var(--v-theme-on-surface), 0.52);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1446,11 +1493,16 @@ async function removeCategory(category) {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 8px;
+  width: 100%;
 }
 
 .settings-category-add :deep(.v-field) {
   border-radius: 8px;
+}
+
+.settings-category-add__button {
+  align-self: stretch;
+  min-height: 40px;
 }
 
 /* Texterkennung: Hinweis, gruppierter KI-Block, Erweitert-Aufklapper */

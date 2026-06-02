@@ -10,12 +10,13 @@ from pathlib import Path
 import httpx
 from fastapi import UploadFile
 from pypdf import PdfReader
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import APIError, BadRequestError, PayloadTooLargeError, StorageError
 from app.models.tag import Tag
+from app.models.document_type import DocumentType
 from app.schemas.documents import DocumentTagReplaceRequest
 from app.schemas.import_staging import (
     ImportCommitCreatedItem,
@@ -469,11 +470,17 @@ class ImportStagingService:
         return "Sonstiges"
 
     @staticmethod
-    def _normalize_doc_type(value: str | None) -> str | None:
+    def _normalize_doc_type(value: str | None, allowed_doc_types: list[str] | None = None) -> str | None:
         normalized = ImportStagingService._normalize_text(value or "")
         if not normalized:
             return None
-        if normalized in _DOC_TYPES_ALLOWED:
+        allowed = [str(item).strip() for item in (allowed_doc_types or []) if str(item).strip()]
+        if allowed:
+            by_lower = {item.lower(): item for item in allowed}
+            exact = by_lower.get(normalized.lower())
+            if exact:
+                return exact
+        elif normalized in _DOC_TYPES_ALLOWED:
             return normalized
         lower = normalized.lower()
         for doc_type, keywords in _DOC_TYPE_KEYWORDS:
@@ -910,6 +917,7 @@ class ImportStagingService:
         timeout_seconds: float,
         max_input_chars: int,
         existing_tags: list[str] | None = None,
+        allowed_doc_types: list[str] | None = None,
     ) -> dict[str, object] | None:
         """Call Ollama to extract metadata from OCR text.
 
@@ -941,11 +949,16 @@ class ImportStagingService:
                 "Schlagworte. Lieber ein einziges präzises Tag als mehrere ungenaue.\n"
             )
 
+        doc_type_names = [str(name).strip() for name in (allowed_doc_types or []) if str(name).strip()]
+        if not doc_type_names:
+            doc_type_names = sorted(_DOC_TYPES_ALLOWED)
+        doc_type_hint = ", ".join(doc_type_names[:120])
+
         prompt = (
             "Extrahiere aus dem folgenden OCR-Text eines deutschen Dokuments die Metadaten. "
             "Antworte NUR mit einem gültigen JSON-Objekt, ohne Markdown, ohne Erklärungen.\n\n"
             "Felder:\n"
-            '- "doc_type": eines von [Rechnung, Quittung, Mahnung, Vertrag, Kündigung, Brief, Bescheid, Protokoll, Sonstiges]\n'
+            f'- "doc_type": eines von [{doc_type_hint}]\n'
             '- "issuer": Absender/Aussteller, max. 40 Zeichen, oder null\n'
             '- "subject": Dokumentthema als kurzer Ausdruck, max. 50 Zeichen, oder null\n'
             '- "date": Dokumentdatum als YYYY-MM-DD oder null\n'
@@ -1011,7 +1024,7 @@ class ImportStagingService:
                 return None
 
         return {
-            "doc_type": _str("doc_type", 40),
+            "doc_type": _str("doc_type", 64),
             "issuer": _str("issuer", 40),
             "subject": _str("subject", 50),
             "date": _date("date"),
@@ -1214,6 +1227,19 @@ class ImportStagingService:
             return []
         return [str(name).strip() for name in rows if name and str(name).strip()]
 
+    def _load_active_document_type_names(self, limit: int = 120) -> list[str]:
+        try:
+            rows = self.db.execute(
+                select(DocumentType.name)
+                .where(DocumentType.is_active.is_(True))
+                .order_by(DocumentType.sort_order.asc(), func.lower(DocumentType.name).asc())
+                .limit(limit)
+            ).scalars().all()
+        except Exception as exc:  # noqa: BLE001 - best effort, rules remain fallback
+            logger.warning("stage title: could not load document types: %s", exc)
+            return []
+        return [str(name).strip() for name in rows if name and str(name).strip()]
+
     def suggest_stage_title(
         self,
         source_file_ids: list[str],
@@ -1266,6 +1292,7 @@ class ImportStagingService:
                         "amount": None,
                         "currency": None,
                         "date": None,
+                        "document_type": None,
                         "category": None,
                         "tags": [],
                         "analysis_status": diagnostic_status,
@@ -1284,6 +1311,7 @@ class ImportStagingService:
                     "amount": None,
                     "currency": None,
                     "date": None,
+                    "document_type": None,
                     "category": None,
                     "tags": [],
                     "analysis_status": "no_text",
@@ -1303,6 +1331,7 @@ class ImportStagingService:
                     "amount": None,
                     "currency": None,
                     "date": None,
+                    "document_type": None,
                     "category": None,
                     "tags": [],
                     "analysis_status": "low_text",
@@ -1314,6 +1343,7 @@ class ImportStagingService:
         runtime_settings = self.settings_service.get_settings().model_dump(mode="json")
         ollama_cfg = runtime_settings.get("ollama") or {}
         existing_tag_names = self._load_existing_tag_names()
+        active_doc_type_names = self._load_active_document_type_names()
         ollama_rich: dict[str, object] | None = None
         if ollama_cfg.get("enabled"):
             ollama_rich = self._call_ollama_for_staging(
@@ -1323,6 +1353,7 @@ class ImportStagingService:
                 timeout_seconds=float(ollama_cfg.get("timeout_seconds") or 90.0),
                 max_input_chars=int(ollama_cfg.get("max_input_chars") or 800),
                 existing_tags=existing_tag_names,
+                allowed_doc_types=active_doc_type_names,
             )
             if ollama_rich:
                 logger.info("SuggestTitle: ollama extraction succeeded stage=%s", str(stage_id or "").strip() or "-")
@@ -1343,7 +1374,7 @@ class ImportStagingService:
         else:
             rich = rule_rich
 
-        normalized_doc_type = self._normalize_doc_type(str(rich.get("doc_type") or "")) or "Sonstiges"
+        normalized_doc_type = self._normalize_doc_type(str(rich.get("doc_type") or ""), active_doc_type_names) or "Sonstiges"
         issuer = self._normalize_issuer(str(rich.get("issuer") or "")) or "Unbekannt"
         subject = self._normalize_subject(str(rich.get("subject") or "")) or None
         normalized_amount = self._safe_float(rich.get("amount"))
@@ -1416,6 +1447,7 @@ class ImportStagingService:
                 "amount": normalized_amount,
                 "currency": currency,
                 "date": final_date,
+                "document_type": self._map_doc_type_to_category(normalized_doc_type),
                 "category": self._map_doc_type_to_category(normalized_doc_type),
                 "tags": final_tags,
                 "note": final_note,
@@ -1605,8 +1637,8 @@ class ImportStagingService:
                     document_date=staging_doc.date,
                     notes=staging_doc.note,
                 )
-                if staging_doc.category:
-                    created_doc.category = staging_doc.category
+                if staging_doc.document_type:
+                    created_doc.document_type = staging_doc.document_type
                     self.document_service.db.commit()
                 if staging_doc.tag_ids:
                     self.document_service.replace_document_tags(

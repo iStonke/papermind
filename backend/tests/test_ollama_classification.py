@@ -51,6 +51,14 @@ class OllamaClassificationTest(unittest.TestCase):
         self.assertIn("JSON-SCHEMA", payload["prompt"])
         self.assertIn("ausschließlich als", payload["prompt"])
 
+    def test_payload_uses_allowed_document_types(self) -> None:
+        payload = build_ollama_classification_payload(
+            OllamaClassificationInput(document_id="doc-1", ocr_text="Gehaltsabrechnung Dezember"),
+            allowed_document_types=["Gehaltsabrechnung", "Kontoauszug"],
+        )
+
+        self.assertIn("Gehaltsabrechnung|Kontoauszug oder null", payload["prompt"])
+
     def test_unreachable_ollama_raises_classification_error(self) -> None:
         service = OllamaClassificationService(base_url="http://localhost:11434", timeout_seconds=0.01)
         with patch("app.services.ollama_classification.httpx.post", side_effect=httpx.ConnectError("no route")):

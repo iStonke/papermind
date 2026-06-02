@@ -20,6 +20,7 @@ from app.db.session import SessionLocal
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
 from app.models.document_file import DocumentFile
+from app.models.document_type import DocumentType
 from app.models.job import Job
 from app.models.tag import Tag
 from app.services.deduplication import DocumentDeduplicationService
@@ -120,6 +121,20 @@ AUTO_TAG_STOPWORDS = {
     "zum",
     "zur",
 }
+
+
+def _load_active_document_type_names(db, limit: int = 120) -> list[str]:
+    try:
+        rows = db.execute(
+            select(DocumentType.name)
+            .where(DocumentType.is_active.is_(True))
+            .order_by(DocumentType.sort_order.asc(), func.lower(DocumentType.name).asc())
+            .limit(limit)
+        ).scalars().all()
+    except Exception as exc:  # noqa: BLE001 - OCR completion must not depend on vocab loading
+        logger.warning("worker could not load active document types: %s", exc)
+        return []
+    return [str(name).strip() for name in rows if name and str(name).strip()]
 AUTO_TAG_BLOCKED_CANDIDATE_KEYS = {
     "keine information",
     "keine information gefunden",
@@ -707,6 +722,7 @@ def _process_ocr_job(job_id: uuid.UUID) -> None:
                 extracted_text=extracted_text,
                 quality_status=quality_status,
                 confidence_score=confidence_score,
+                allowed_document_types=_load_active_document_type_names(db),
             )
             document.status = "ready"
             document.ocr_status = "done"

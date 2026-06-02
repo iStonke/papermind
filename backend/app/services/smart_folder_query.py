@@ -16,6 +16,7 @@ ALLOWED_FIELDS = {
     "title",
     "filename",
     "tags",
+    "document_type",
     "category",
     "ocr_text",
     "note",
@@ -50,7 +51,7 @@ LIST_VALUE_OPERATORS = {"in", "not_in"}
 RANGE_VALUE_OPERATORS = {"between"}
 
 TEXT_FIELDS = {"title", "filename", "ocr_text", "note"}
-TEXT_LIKE_FIELDS = TEXT_FIELDS | {"category"}
+TEXT_LIKE_FIELDS = TEXT_FIELDS | {"document_type", "category"}
 TEMPORAL_DATE_FIELDS = {"doc_date"}
 TEMPORAL_DATETIME_FIELDS = {"created_at", "updated_at"}
 ENUM_FIELDS = {"ocr_status"}
@@ -111,6 +112,17 @@ FIELD_ALLOWED_OPS: dict[str, set[str]] = {
         "is_not_empty",
     },
     "category": {
+        "contains",
+        "equals",
+        "starts_with",
+        "ends_with",
+        "not_contains",
+        "in",
+        "not_in",
+        "is_empty",
+        "is_not_empty",
+    },
+    "document_type": {
         "contains",
         "equals",
         "starts_with",
@@ -436,8 +448,8 @@ class SmartFolderQueryCompiler:
                 column = Document.original_filename
             elif field == "ocr_text":
                 column = Document.text_content
-            elif field == "category":
-                column = Document.category
+            elif field in {"document_type", "category"}:
+                column = Document.document_type
             else:
                 column = Document.notes
             return self._compile_string_rule(column, op, value)

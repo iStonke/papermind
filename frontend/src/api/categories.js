@@ -1,17 +1,22 @@
-import { apiDelete, apiGet, apiPatch, apiPost } from './client.js';
+import {
+  createDocumentType,
+  deleteDocumentType,
+  listDocumentTypes,
+  renameDocumentType,
+} from './documentTypes.js';
 
-/** GET /api/categories?include_count=true */
+/** Compatibility alias for GET /api/document-types?include_count=true */
 export const listCategories = (includeCount = true) =>
-  apiGet(`/api/categories${includeCount ? '?include_count=true' : ''}`);
+  listDocumentTypes(includeCount);
 
-/** POST /api/categories */
+/** Compatibility alias for POST /api/document-types */
 export const createCategory = (name) =>
-  apiPost('/api/categories', { name });
+  createDocumentType(name);
 
-/** PATCH /api/categories/{id} */
+/** Compatibility alias for PATCH /api/document-types/{id} */
 export const renameCategory = (id, name) =>
-  apiPatch(`/api/categories/${id}`, { name });
+  renameDocumentType(id, name);
 
-/** DELETE /api/categories/{id} */
+/** Compatibility alias for DELETE /api/document-types/{id} */
 export const deleteCategory = (id) =>
-  apiDelete(`/api/categories/${id}`);
+  deleteDocumentType(id);

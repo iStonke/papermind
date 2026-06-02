@@ -345,9 +345,11 @@
                 :aria-expanded="isTagFilterDrawerOpen"
                 @click="toggleTagFilterDrawer"
               >
-                <span>Tags</span>
-                <span v-if="activeTagFilterCount > 0" class="tag-filter-drawer__count">
-                  {{ activeTagFilterCount }}
+                <span class="tag-filter-drawer__title">
+                  <span>Tags</span>
+                  <span v-if="activeTagFilterCount > 0" class="tag-filter-drawer__count">
+                    {{ activeTagFilterCount }}
+                  </span>
                 </span>
                 <v-icon size="18">{{ isTagFilterDrawerOpen ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
               </button>
@@ -370,6 +372,13 @@
                         :tabindex="isTagFilterDrawerOpen ? 0 : -1"
                         @click="toggleTagFilter(tag.id)"
                       >
+                        <v-icon
+                          v-if="activeTagFilterIdsSet.has(tag.id)"
+                          class="tag-filter-chip__check"
+                          size="13"
+                        >
+                          mdi-check
+                        </v-icon>
                         <span class="tag-filter-chip__name">{{ tag.name }}</span>
                         <span class="tag-filter-chip__count">{{ tagFilterOptionCount(tag) }}</span>
                       </button>
@@ -381,7 +390,7 @@
                     <div class="tag-filter-drawer__footer">
                       <button
                         type="button"
-                        class="tag-filter-drawer__footer-btn"
+                        class="tag-filter-drawer__footer-btn tag-filter-drawer__footer-btn--all"
                         :tabindex="isTagFilterDrawerOpen ? 0 : -1"
                         @click="showAllTagFilters"
                       >
@@ -389,7 +398,7 @@
                       </button>
                       <button
                         type="button"
-                        class="tag-filter-drawer__footer-btn"
+                        class="tag-filter-drawer__footer-btn tag-filter-drawer__footer-btn--reset"
                         :disabled="activeTagFilterCount === 0"
                         :tabindex="isTagFilterDrawerOpen ? 0 : -1"
                         @click="resetTagFilters"
@@ -696,7 +705,7 @@
                   </div>
 
                   <div class="pm-drawer-section pm-drawer-section--half">
-                    <div class="pm-label">Kategorie</div>
+                    <div class="pm-label">Dokumenttyp</div>
                     <v-select
                       :model-value="metadataDocCategory"
                       :items="categoryDrawerItems"
@@ -704,7 +713,7 @@
                       variant="outlined"
                       hide-details
                       clearable
-                      placeholder="Kategorie wählen…"
+                      placeholder="Dokumenttyp wählen…"
                       :loading="isSavingCategory"
                       :menu-props="{
                         offset: 10,
@@ -1560,9 +1569,8 @@ const activeTagFilterIds = computed(() => normalizeTagIds(documentListQuery.tagI
 const activeTagFilterIdsSet = computed(() => new Set(activeTagFilterIds.value));
 const activeTagFilterCount = computed(() => activeTagFilterIds.value.length);
 const showTagFilterDrawer = computed(() =>
-  !isTagView.value &&
-  !isImportsView.value &&
-  !isTrashView.value &&
+  activeView.value === 'all' &&
+  !activeSavedSearchId.value &&
   !isSelectionMode.value &&
   !isTagSelectionMode.value &&
   sortedTagsByName.value.length > 0
@@ -2102,21 +2110,21 @@ async function onMetadataCategoryChange(nextCategory) {
   const documentId = selectedDocumentDetail.value.id;
   const value = String(nextCategory || '').trim() || null;
   if (value) {
-    const validationMessage = validateVocabName(value, 'Kategorie');
+    const validationMessage = validateVocabName(value, 'Dokumenttyp');
     if (validationMessage) {
       notify({ type: 'warning', message: validationMessage });
-      metadataDocCategory.value = selectedDocumentDetail.value?.category || null;
+      metadataDocCategory.value = selectedDocumentDetail.value?.document_type || selectedDocumentDetail.value?.category || null;
       return;
     }
   }
   metadataDocCategory.value = value;
   isSavingCategory.value = true;
   try {
-    await docStore.patchDocument(documentId, { category: value });
+    await docStore.patchDocument(documentId, { document_type: value });
   } catch (error) {
-    notifyError(error, 'Kategorie konnte nicht gespeichert werden.');
+    notifyError(error, 'Dokumenttyp konnte nicht gespeichert werden.');
     // Bei Fehler wieder auf den gespeicherten Stand zurücksetzen
-    metadataDocCategory.value = selectedDocumentDetail.value?.category || null;
+    metadataDocCategory.value = selectedDocumentDetail.value?.document_type || selectedDocumentDetail.value?.category || null;
   } finally {
     isSavingCategory.value = false;
   }
@@ -2422,7 +2430,7 @@ function applyMetadataFromDetail(detail) {
   metadataDocName.value = getDocumentNameDraft(detail);
   metadataDocDate.value = formatDocumentDateInputFromIso(detail?.document_date);
   metadataDocDateHasError.value = false;
-  metadataDocCategory.value = detail?.category || null;
+  metadataDocCategory.value = detail?.document_type || detail?.category || null;
   void categoryStore.ensureLoaded();
   metadataNotes.value = detail?.notes || '';
   const nextTagIds = normalizeTagIds((detail?.tags || []).map((tag) => tag.id));
@@ -2583,7 +2591,7 @@ async function runAiAnalysis() {
     }
 
     // Schritt 2: Kategorie nur befüllen, wenn keine gesetzt ist.
-    const suggestedCategory = String(suggestion.category || '').trim();
+    const suggestedCategory = String(suggestion.document_type || suggestion.category || '').trim();
     if (suggestedCategory && !String(metadataDocCategory.value || '').trim()) {
       await onMetadataCategoryChange(suggestedCategory);
       filledCount += 1;
@@ -5229,25 +5237,29 @@ onBeforeUnmount(() => {
   position: sticky;
   bottom: 0;
   z-index: 4;
-  border-top: 1px solid var(--pm-divider);
-  background: rgba(var(--v-theme-surface), 0.62);
-  backdrop-filter: blur(18px) saturate(1.08);
-  -webkit-backdrop-filter: blur(18px) saturate(1.08);
-  box-shadow: 0 -6px 18px rgba(15, 23, 42, 0.08);
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.08)),
+    rgba(var(--v-theme-surface), 0.54);
+  backdrop-filter: blur(22px) saturate(1.12);
+  -webkit-backdrop-filter: blur(22px) saturate(1.12);
+  box-shadow:
+    0 -1px 0 rgba(255, 255, 255, 0.72) inset,
+    0 -10px 28px rgba(15, 23, 42, 0.1);
   transform-origin: bottom center;
 }
 
 .tag-filter-drawer__toggle {
   width: 100%;
-  min-height: 38px;
+  min-height: 36px;
   border: none;
   background: transparent;
   color: rgba(var(--v-theme-on-surface), 0.72);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  font-size: 0.86rem;
+  gap: 7px;
+  font-size: 0.84rem;
   font-weight: 700;
   cursor: pointer;
 }
@@ -5256,22 +5268,29 @@ onBeforeUnmount(() => {
   color: rgba(var(--v-theme-on-surface), 0.92);
 }
 
+.tag-filter-drawer__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1;
+}
+
 .tag-filter-drawer__count {
-  min-width: 18px;
-  height: 18px;
-  padding: 0 6px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
   border-radius: 999px;
-  background: rgba(var(--v-theme-primary), 0.14);
-  color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-on-surface), 0.1);
+  color: rgba(var(--v-theme-on-surface), 0.62);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   line-height: 1;
 }
 
 .tag-filter-drawer__body {
-  padding: 0 14px 12px;
+  padding: 0 18px 10px;
 }
 
 .tag-filter-drawer__panel {
@@ -5302,23 +5321,32 @@ onBeforeUnmount(() => {
 .tag-filter-drawer__chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 7px;
   justify-content: center;
+  max-height: min(24vh, 190px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px 10px 10px;
+  margin: 0 auto;
+  max-width: 980px;
+  scrollbar-width: thin;
 }
 
 .tag-filter-chip {
-  min-height: 28px;
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 26px;
   max-width: 100%;
   border: 1px solid transparent;
-  border-radius: 7px;
-  padding: 3px 8px;
-  background: rgba(var(--v-theme-on-surface), 0.08);
-  color: rgba(var(--v-theme-on-surface), 0.76);
+  border-radius: 6px;
+  padding: 2px 8px;
+  background: rgba(var(--v-theme-on-surface), 0.075);
+  color: rgba(var(--v-theme-on-surface), 0.74);
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.8rem;
-  font-weight: 650;
+  gap: 5px;
+  font-size: 0.75rem;
+  font-weight: 680;
   cursor: pointer;
   transform: translateY(0) scale(1);
   transition:
@@ -5330,27 +5358,35 @@ onBeforeUnmount(() => {
 }
 
 .tag-filter-chip:hover {
-  background: rgba(var(--v-theme-on-surface), 0.12);
+  background: rgba(var(--v-theme-on-surface), 0.115);
   color: rgba(var(--v-theme-on-surface), 0.9);
   transform: translateY(-1px);
 }
 
 .tag-filter-chip--active {
-  border-color: rgba(var(--v-theme-primary), 0.72);
-  background: rgb(var(--v-theme-primary));
+  border-color: transparent;
+  background: #4b5a6f;
+  background-image: none;
   color: #fff;
-  box-shadow: 0 3px 10px rgba(var(--v-theme-primary), 0.24);
-  transform: translateY(-1px) scale(1.02);
+  box-shadow: none;
+  text-shadow: none;
+  transform: translateY(-1px);
 }
 
 .tag-filter-chip--active:hover {
-  background: rgb(var(--v-theme-primary));
+  background: #4b5a6f;
+  background-image: none;
   color: #fff;
-  transform: translateY(-2px) scale(1.02);
+  transform: translateY(-2px);
 }
 
 .tag-filter-chip--active .tag-filter-chip__name {
   color: #fff !important;
+}
+
+.tag-filter-chip__check {
+  flex: 0 0 auto;
+  opacity: 0.96;
 }
 
 .tag-filter-chip__name {
@@ -5361,8 +5397,9 @@ onBeforeUnmount(() => {
 }
 
 .tag-filter-chip__count {
-  color: rgba(var(--v-theme-on-surface), 0.48);
-  font-size: 0.72rem;
+  color: rgba(var(--v-theme-on-surface), 0.46);
+  font-size: 0.7rem;
+  font-weight: 700;
 }
 
 .tag-filter-chip--active .tag-filter-chip__count {
@@ -5397,18 +5434,21 @@ onBeforeUnmount(() => {
 
 .tag-filter-drawer__footer {
   display: flex;
-  justify-content: center;
+  justify-content: space-between;
+  align-items: center;
   gap: 8px;
-  margin-top: 8px;
+  max-width: 980px;
+  margin: 2px auto 0;
+  padding: 0 10px;
 }
 
 .tag-filter-drawer__footer-btn {
   border: none;
   border-radius: 6px;
-  padding: 3px 8px;
+  padding: 3px 7px;
   background: transparent;
-  color: rgba(var(--v-theme-on-surface), 0.58);
-  font-size: 0.78rem;
+  color: rgba(var(--v-theme-on-surface), 0.54);
+  font-size: 0.72rem;
   font-weight: 650;
   cursor: pointer;
 }
@@ -5416,6 +5456,14 @@ onBeforeUnmount(() => {
 .tag-filter-drawer__footer-btn:hover:not(:disabled) {
   background: rgba(var(--v-theme-on-surface), 0.07);
   color: rgba(var(--v-theme-on-surface), 0.82);
+}
+
+.tag-filter-drawer__footer-btn--all {
+  color: rgba(var(--v-theme-primary), 0.84);
+}
+
+.tag-filter-drawer__footer-btn--reset {
+  margin-left: auto;
 }
 
 .tag-filter-drawer__footer-btn:disabled {
@@ -5549,20 +5597,21 @@ onBeforeUnmount(() => {
 }
 
 .pm-settings-nav {
-  flex: 0 0 196px;
+  flex: 0 0 220px;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 20px 20px 20px 24px;
+  padding: 20px 16px 20px 18px;
   overflow-y: auto;
 }
 
 .pm-settings-nav__item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 11px;
   width: 100%;
-  padding: 10px 12px;
+  min-width: 0;
+  padding: 10px 14px;
   border: 1px solid transparent;
   border-radius: 12px;
   font-size: 0.9rem;
@@ -5584,8 +5633,15 @@ onBeforeUnmount(() => {
 }
 
 .pm-settings-nav__icon {
-  flex: 0 0 auto;
+  flex: 0 0 20px;
   opacity: 0.85;
+}
+
+.pm-settings-nav__item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pm-settings-panel {

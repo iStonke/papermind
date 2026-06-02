@@ -333,18 +333,18 @@
           </div>
         </div>
 
-        <!-- Category -->
+        <!-- Document type -->
         <div class="isd-field" :class="{ 'isd-field--ai-filled': aiFieldGlowActive && docCategoryAiFilled }">
           <div class="isd-field-label">
-            Kategorie
-            <v-tooltip text="Grobe Einordnung: Was ist das Dokument? Ein Dokument gehört zu genau einer Kategorie." location="top" max-width="220">
+            Dokumenttyp
+            <v-tooltip text="Grobe Einordnung: Was ist das Dokument? Ein Dokument hat genau einen Dokumenttyp." location="top" max-width="220">
               <template #activator="{ props: tip }"><v-icon class="isd-field-info" v-bind="tip" size="14">mdi-information-outline</v-icon></template>
             </v-tooltip>
           </div>
           <v-select
             v-model="docCategory"
             :items="categoryItems"
-            placeholder="Kategorie wählen…"
+            placeholder="Dokumenttyp wählen…"
             density="compact"
             variant="outlined"
             hide-details
@@ -686,7 +686,7 @@ const docNoteAiFilled = ref(false);
 const aiFieldGlowActive = ref(false);
 let aiFieldGlowTimer = 0;
 
-// Auswählbare Kategorien aus der zentral verwalteten Liste (Einstellungen).
+// Auswählbare Dokumenttypen aus der zentral verwalteten Liste (Einstellungen).
 // Ein bereits gesetzter / KI-vorgeschlagener Wert, der (noch) nicht im
 // Vokabular steht, wird trotzdem als Option ergänzt, damit er sichtbar bleibt.
 const categoryItems = computed(() => {
@@ -1222,7 +1222,7 @@ const aiAnalysis = computed(() => {
   const fields = [];
   if (docTitleAiFilled.value) fields.push('Name');
   if (docDateAiFilled.value) fields.push('Datum');
-  if (docCategoryAiFilled.value) fields.push('Kategorie');
+  if (docCategoryAiFilled.value) fields.push('Dokumenttyp');
   if (docTagsAiFilled.value) fields.push('Tags');
   if (docNoteAiFilled.value) fields.push('Notiz');
   if (fields.length > 0) {
@@ -1422,7 +1422,7 @@ watch(
     }
     if (open) {
       isMinimizingToTray = false;
-      // Verfügbare Kategorien für das Dropdown laden (zentral in den Einstellungen gepflegt).
+      // Verfügbare Dokumenttypen für das Dropdown laden (zentral in den Einstellungen gepflegt).
       void categoryStore.fetchCategories();
       return;
     }
@@ -2348,7 +2348,7 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
         }
         meta.titleSuggestionStatus = 'ready';
 
-        // Auto-Fill aller vier Felder (Name, Datum, Kategorie, Tags) aus KI-Meta.
+        // Auto-Fill aller vier Felder (Name, Datum, Dokumenttyp, Tags) aus KI-Meta.
         // Immer aktiv im Import-Dialog – der Nutzer prüft vor dem Import und kann
         // jedes Feld überschreiben (überschriebene Felder werden respektiert).
         //
@@ -2379,8 +2379,8 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
                 docDateAiFilled.value = true;
               }
             }
-            // Kategorie
-            const aiCategory = String(aiMeta.category || '').trim();
+            // Dokumenttyp
+            const aiCategory = String(aiMeta.document_type || aiMeta.category || '').trim();
             if (aiCategory && !docCategoryTouched.value) {
               docCategory.value = aiCategory;
               docCategoryAiFilled.value = true;
@@ -4174,7 +4174,7 @@ async function commitImport() {
       body: JSON.stringify({
         documents: commitDocuments.value.map((doc, idx) =>
           idx === 0
-            ? { ...doc, category: docCategory.value || null, note: docNote.value.trim() || null, date: docDateIso.value || null }
+            ? { ...doc, document_type: docCategory.value || null, note: docNote.value.trim() || null, date: docDateIso.value || null }
             : doc
         ),
         options: {

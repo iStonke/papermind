@@ -61,7 +61,7 @@ class Document(Base):
         Index("ix_documents_created_at", "created_at"),
         Index("ix_documents_document_date", "document_date"),
         Index("ix_documents_status", "status"),
-        Index("ix_documents_category", "category"),
+        Index("ix_documents_document_type", "document_type"),
         Index("ix_documents_ocr_quality_status", "ocr_quality_status"),
         Index("ix_documents_embedding_status", "embedding_status"),
         Index("ix_documents_ai_status", "ai_status"),
@@ -89,7 +89,7 @@ class Document(Base):
     document_date_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     document_date_candidates: Mapped[dict[str, Any] | list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    category: Mapped[str | None] = mapped_column(Text, nullable=True)
+    document_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="imported")
     mime_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
     page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -138,6 +138,14 @@ class Document(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_favorite: Mapped[bool] = mapped_column(nullable=False, server_default="false")
     search_vector: Mapped[str | None] = mapped_column(TSVECTOR, nullable=True)
+
+    @property
+    def category(self) -> str | None:
+        return self.document_type
+
+    @category.setter
+    def category(self, value: str | None) -> None:
+        self.document_type = value
 
     @property
     def is_duplicate(self) -> bool:

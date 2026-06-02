@@ -39,7 +39,7 @@ class SmartFolderQueryValidationTest(unittest.TestCase):
         with self.assertRaises(BadRequestError):
             validate_smart_folder_query(raw_query)
 
-    def test_valid_query_with_category_and_favorite(self) -> None:
+    def test_valid_query_with_legacy_category_and_favorite(self) -> None:
         raw_query = {
             "version": 1,
             "group": {
@@ -97,7 +97,7 @@ class SmartFolderQueryCompilerTest(unittest.TestCase):
         self.assertIsNotNone(compiled)
         self.assertIn("documents", str(compiled))
 
-    def test_compile_category_and_favorite_returns_expression(self) -> None:
+    def test_compile_legacy_category_and_favorite_returns_expression(self) -> None:
         compiler = SmartFolderQueryCompiler()
         raw_query = {
             "version": 1,
@@ -113,7 +113,26 @@ class SmartFolderQueryCompilerTest(unittest.TestCase):
         compiled = compiler.compile(raw_query)
 
         self.assertIsNotNone(compiled)
-        self.assertIn("documents.category", str(compiled))
+        self.assertIn("documents.document_type", str(compiled))
+        self.assertIn("documents.is_favorite", str(compiled))
+
+    def test_compile_document_type_and_favorite_returns_expression(self) -> None:
+        compiler = SmartFolderQueryCompiler()
+        raw_query = {
+            "version": 1,
+            "group": {
+                "op": "AND",
+                "rules": [
+                    {"field": "document_type", "op": "in", "value": ["KFZ", "Versicherung"]},
+                    {"field": "is_favorite", "op": "equals", "value": "true"},
+                ],
+            },
+        }
+
+        compiled = compiler.compile(raw_query)
+
+        self.assertIsNotNone(compiled)
+        self.assertIn("documents.document_type", str(compiled))
         self.assertIn("documents.is_favorite", str(compiled))
 
 

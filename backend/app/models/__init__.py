@@ -1,4 +1,4 @@
-from app.models.category import Category
+from app.models.document_type import DocumentType
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
 from app.models.document_file import DocumentFile
@@ -10,7 +10,7 @@ from app.models.smart_folder import SmartFolder
 from app.models.tag import Tag
 
 __all__ = [
-    "Category",
+    "DocumentType",
     "Document",
     "DocumentChunk",
     "DocumentFile",

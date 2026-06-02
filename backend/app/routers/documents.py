@@ -179,7 +179,7 @@ def auto_tag_document(document_id: uuid.UUID, db: Session = Depends(get_db)) -> 
 @router.post(
     "/{document_id}/ai-metadata",
     response_model=DocumentMetadataSuggestion,
-    summary="Suggest metadata fields (name, date, category, notes, tags) via AI",
+    summary="Suggest metadata fields (name, date, document type, notes, tags) via AI",
     responses={404: {"model": ErrorResponse}},
 )
 def suggest_document_metadata(

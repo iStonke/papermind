@@ -1,9 +1,9 @@
 /**
  * useCategoryStore
  *
- * Verwaltet die Liste der zur Verfügung stehenden Dokument-Kategorien
+ * Verwaltet die Liste der zur Verfügung stehenden Dokumenttypen
  * sowie alle CRUD-Operationen. Wird in den Einstellungen gepflegt und
- * speist u. a. das Kategorie-Dropdown im Import-Dialog.
+ * speist u. a. das Dokumenttyp-Dropdown im Import-Dialog.
  */
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
@@ -28,7 +28,9 @@ export const useCategoryStore = defineStore('categories', () => {
 
   // ── Getters ──────────────────────────────────────────────────────────────
   /** Reine Namensliste (alphabetisch), z. B. als v-select :items. */
-  const categoryNames = computed(() => categories.value.map((c) => c.name));
+  const categoryNames = computed(() => categories.value
+    .filter((c) => c?.is_active !== false)
+    .map((c) => c.name));
 
   // ── Helpers ────────────────────────────────────────────────────────────
   function normalizeCategoryName(value) {
@@ -37,10 +39,10 @@ export const useCategoryStore = defineStore('categories', () => {
 
   function validateCategoryName(name) {
     if (name.length < VOCAB_NAME_MIN_LENGTH) {
-      return `Kategorie muss mindestens ${VOCAB_NAME_MIN_LENGTH} Zeichen enthalten.`;
+      return `Dokumenttyp muss mindestens ${VOCAB_NAME_MIN_LENGTH} Zeichen enthalten.`;
     }
     if (name.length > VOCAB_NAME_MAX_LENGTH) {
-      return `Kategorie darf maximal ${VOCAB_NAME_MAX_LENGTH} Zeichen enthalten.`;
+      return `Dokumenttyp darf maximal ${VOCAB_NAME_MAX_LENGTH} Zeichen enthalten.`;
     }
     return '';
   }
@@ -55,14 +57,14 @@ export const useCategoryStore = defineStore('categories', () => {
 
   // ── Actions ────────────────────────────────────────────────────────────
 
-  /** Lädt alle Kategorien (inkl. Zähler). */
+  /** Lädt alle Dokumenttypen (inkl. Zähler). */
   async function fetchCategories() {
     try {
       const payload = await listCategories(true);
       categories.value = payload?.items ?? [];
       isLoaded.value = true;
     } catch (error) {
-      console.error('Kategorien konnten nicht geladen werden:', error);
+      console.error('Dokumenttypen konnten nicht geladen werden:', error);
     }
   }
 
@@ -72,7 +74,7 @@ export const useCategoryStore = defineStore('categories', () => {
     await fetchCategories();
   }
 
-  /** POST /api/categories */
+  /** POST /api/document-types */
   async function createCategoryByName(rawName) {
     const name = normalizeCategoryName(rawName);
     if (!name) return { ok: false, reason: 'empty', name: '' };
@@ -88,17 +90,17 @@ export const useCategoryStore = defineStore('categories', () => {
     try {
       const created = await apiCreateCategory(name);
       await fetchCategories();
-      notify({ type: 'success', title: 'Kategorie', message: 'Kategorie hinzugefügt.' });
+      notify({ type: 'success', title: 'Dokumenttyp', message: 'Dokumenttyp hinzugefügt.' });
       return { ok: true, reason: 'created', name: created?.name || name, id: created?.id };
     } catch (error) {
-      notify({ type: 'error', message: mapApiError(error, 'Kategorie konnte nicht hinzugefügt werden.') });
+      notify({ type: 'error', message: mapApiError(error, 'Dokumenttyp konnte nicht hinzugefügt werden.') });
       throw error;
     } finally {
       isCategoryMutationRunning.value = false;
     }
   }
 
-  /** PATCH /api/categories/{id} */
+  /** PATCH /api/document-types/{id} */
   async function renameCategory(id, newName) {
     const name = normalizeCategoryName(newName);
     const validationMessage = validateCategoryName(name);
@@ -110,24 +112,24 @@ export const useCategoryStore = defineStore('categories', () => {
     try {
       await apiRenameCategory(id, name);
       await fetchCategories();
-      notify({ type: 'success', title: 'Kategorie', message: 'Kategorie umbenannt.' });
+      notify({ type: 'success', title: 'Dokumenttyp', message: 'Dokumenttyp umbenannt.' });
     } catch (error) {
-      notify({ type: 'error', message: mapApiError(error, 'Kategorie konnte nicht umbenannt werden.') });
+      notify({ type: 'error', message: mapApiError(error, 'Dokumenttyp konnte nicht umbenannt werden.') });
       throw error;
     } finally {
       isCategoryMutationRunning.value = false;
     }
   }
 
-  /** DELETE /api/categories/{id} */
+  /** DELETE /api/document-types/{id} */
   async function deleteCategory(id) {
     isCategoryMutationRunning.value = true;
     try {
       await apiDeleteCategory(id);
       categories.value = categories.value.filter((c) => c.id !== id);
-      notify({ type: 'success', title: 'Kategorie', message: 'Kategorie gelöscht.' });
+      notify({ type: 'success', title: 'Dokumenttyp', message: 'Dokumenttyp gelöscht.' });
     } catch (error) {
-      notify({ type: 'error', message: mapApiError(error, 'Kategorie konnte nicht gelöscht werden.') });
+      notify({ type: 'error', message: mapApiError(error, 'Dokumenttyp konnte nicht gelöscht werden.') });
       throw error;
     } finally {
       isCategoryMutationRunning.value = false;

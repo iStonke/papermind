@@ -162,10 +162,13 @@ def build_ollama_classification_payload(
     payload: OllamaClassificationInput,
     *,
     model: str = DEFAULT_OLLAMA_MODEL,
+    allowed_document_types: list[str] | None = None,
 ) -> dict[str, Any]:
     normalized_text = " ".join(str(payload.ocr_text or "").split()).strip()
+    doc_type_names = [str(name).strip() for name in (allowed_document_types or []) if str(name).strip()]
+    doc_type_hint = "|".join(doc_type_names[:120]) if doc_type_names else "Rechnung|Vertrag|Brief|Kontoauszug|Sonstiges"
     schema = {
-        "document_type": "Rechnung|Vertrag|Brief|Kontoauszug|Sonstiges oder null",
+        "document_type": f"{doc_type_hint} oder null",
         "document_date": "YYYY-MM-DD oder null",
         "sender": "Absender/Aussteller als String oder null",
         "recipient": "Empfänger als String oder null",
@@ -201,13 +204,19 @@ class OllamaClassificationService:
         base_url: str = DEFAULT_OLLAMA_BASE_URL,
         model: str = DEFAULT_OLLAMA_MODEL,
         timeout_seconds: float = OLLAMA_TIMEOUT_SECONDS,
+        allowed_document_types: list[str] | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout_seconds = timeout_seconds
+        self.allowed_document_types = allowed_document_types
 
     def build_payload(self, payload: OllamaClassificationInput) -> dict[str, Any]:
-        return build_ollama_classification_payload(payload, model=self.model)
+        return build_ollama_classification_payload(
+            payload,
+            model=self.model,
+            allowed_document_types=self.allowed_document_types,
+        )
 
     def classify(self, payload: OllamaClassificationInput) -> OllamaClassificationResult:
         request_payload = self.build_payload(payload)
