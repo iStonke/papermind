@@ -2,6 +2,7 @@
   <BaseDialog
     :model-value="modelValue"
     :title="title"
+    :header-subtitle="headerSubtitle"
     :description="description"
     variant="destructive"
     :primary-text="primaryText"
@@ -27,6 +28,7 @@ import BaseDialog from './BaseDialog.vue';
 defineProps({
   modelValue: { type: Boolean, default: false },
   title: { type: String, required: true },
+  headerSubtitle: { type: String, default: '' },
   description: { type: String, default: '' },
   primaryText: { type: String, default: 'Löschen' },
   secondaryText: { type: String, default: 'Abbrechen' },

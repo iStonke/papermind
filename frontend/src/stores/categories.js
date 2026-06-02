@@ -15,6 +15,9 @@ import {
 } from '../api/categories.js';
 import { mapApiError, useNotifications } from './notifications.js';
 
+const VOCAB_NAME_MIN_LENGTH = 2;
+const VOCAB_NAME_MAX_LENGTH = 30;
+
 export const useCategoryStore = defineStore('categories', () => {
   const { notify } = useNotifications();
 
@@ -30,6 +33,16 @@ export const useCategoryStore = defineStore('categories', () => {
   // ── Helpers ────────────────────────────────────────────────────────────
   function normalizeCategoryName(value) {
     return String(value || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function validateCategoryName(name) {
+    if (name.length < VOCAB_NAME_MIN_LENGTH) {
+      return `Kategorie muss mindestens ${VOCAB_NAME_MIN_LENGTH} Zeichen enthalten.`;
+    }
+    if (name.length > VOCAB_NAME_MAX_LENGTH) {
+      return `Kategorie darf maximal ${VOCAB_NAME_MAX_LENGTH} Zeichen enthalten.`;
+    }
+    return '';
   }
 
   const findByName = (name) => {
@@ -63,6 +76,11 @@ export const useCategoryStore = defineStore('categories', () => {
   async function createCategoryByName(rawName) {
     const name = normalizeCategoryName(rawName);
     if (!name) return { ok: false, reason: 'empty', name: '' };
+    const validationMessage = validateCategoryName(name);
+    if (validationMessage) {
+      notify({ type: 'warning', message: validationMessage });
+      return { ok: false, reason: 'invalid', name };
+    }
     const existing = findByName(name);
     if (existing) return { ok: false, reason: 'exists', name: existing.name, id: existing.id };
 
@@ -82,9 +100,15 @@ export const useCategoryStore = defineStore('categories', () => {
 
   /** PATCH /api/categories/{id} */
   async function renameCategory(id, newName) {
+    const name = normalizeCategoryName(newName);
+    const validationMessage = validateCategoryName(name);
+    if (validationMessage) {
+      notify({ type: 'warning', message: validationMessage });
+      throw new Error(validationMessage);
+    }
     isCategoryMutationRunning.value = true;
     try {
-      await apiRenameCategory(id, newName);
+      await apiRenameCategory(id, name);
       await fetchCategories();
       notify({ type: 'success', title: 'Kategorie', message: 'Kategorie umbenannt.' });
     } catch (error) {

@@ -106,6 +106,15 @@ const isActionVisible = computed(() => {
   border-inline-start: none !important;
 }
 
+.sidebar-item :deep(.v-list-item__content) {
+  min-width: 0;
+}
+
+.sidebar-item :deep(.v-list-item-title) {
+  min-width: 0;
+  overflow: hidden;
+}
+
 .sidebar-item-right {
   position: relative;
   width: var(--pm-sidebar-right-width);

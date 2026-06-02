@@ -98,6 +98,7 @@ function statusFromView(_viewKey) {
  * @param {import('vue').Ref}      options.selectedDocumentId     – Ausgewählte Doc-ID
  * @param {Function}               options.patchDocumentListQuery – Mutation der documentListQuery
  * @param {Function}               options.fetchDocuments         – Lädt Dokumente neu
+ * @param {Function}               options.resolveToolbarStatus   – Persistierter Status aus der aktuellen Toolbar
  */
 export function useSearch({
   documentListQuery,
@@ -110,7 +111,8 @@ export function useSearch({
   isTagView,
   selectedDocumentId,
   patchDocumentListQuery,
-  fetchDocuments
+  fetchDocuments,
+  resolveToolbarStatus = statusFromView
 }) {
   const searchText = ref('');
   const appBarSearchRef = ref(null);
@@ -149,7 +151,7 @@ export function useSearch({
   function syncSearchStateToQuery(options = {}) {
     const parsed = parsedSearch.value;
     const resolvedStatus =
-      activeView.value === 'imports' ? null : parsed.status || statusFromView(activeView.value);
+      parsed.status || resolveToolbarStatus(activeView.value);
     return patchDocumentListQuery(
       {
         q: parsed.q || null,

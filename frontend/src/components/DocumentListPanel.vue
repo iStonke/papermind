@@ -515,4 +515,18 @@ function onListDrop(event) {
 .document-row--selected {
   background: rgba(var(--v-theme-primary), 0.07);
 }
+
+.document-row__tag-chip {
+  min-width: 0;
+  max-width: min(150px, 42%);
+}
+
+.document-row__tag-chip :deep(.v-chip__content) {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 </style>

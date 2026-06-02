@@ -21,6 +21,7 @@ const OCR_ENGINE_VALUES = new Set(['tesseract', 'paddleocr', 'easyocr', 'abbyy']
 const OCR_DOC_LANG_VALUES = new Set(['de', 'en', 'auto', 'multi']);
 const EMBEDDING_MODEL_FALLBACK = 'hash-384-v1';
 const DRAWER_EXPANDED_STORAGE_KEY  = 'pm.drawerExpanded';
+const TAG_DRAWER_EXPANDED_STORAGE_KEY = 'pm.tagFilterDrawerExpanded';
 const ANIMATIONS_ENABLED_STORAGE_KEY = 'pm.animationsEnabled';
 
 function toInt(value, fallback) {
@@ -84,7 +85,7 @@ function createDefaultSettings() {
       color_variant: 'slate',
       showFilenameSuffix: true,
       drawerRememberState: true,
-      drawerAlwaysExpanded: false
+      tagDrawerRememberState: true
     },
     documents: {
       auto_ocr: true,
@@ -212,7 +213,7 @@ export const useSettingsStore = defineStore('settings', {
         trash_retention_days: false,
         show_filename_suffix: false,
         drawer_remember_state: false,
-        drawer_always_expanded: false,
+        tag_drawer_remember_state: false,
         prompts: false,
         reset_prompts: false
       },
@@ -288,10 +289,10 @@ export const useSettingsStore = defineStore('settings', {
             typeof payload?.ui?.drawerRememberState === 'boolean'
               ? payload.ui.drawerRememberState
               : defaults.ui.drawerRememberState,
-          drawerAlwaysExpanded:
-            typeof payload?.ui?.drawerAlwaysExpanded === 'boolean'
-              ? payload.ui.drawerAlwaysExpanded
-              : defaults.ui.drawerAlwaysExpanded
+          tagDrawerRememberState:
+            typeof payload?.ui?.tagDrawerRememberState === 'boolean'
+              ? payload.ui.tagDrawerRememberState
+              : defaults.ui.tagDrawerRememberState
         },
         documents: {
           auto_ocr:
@@ -439,6 +440,33 @@ export const useSettingsStore = defineStore('settings', {
       }
     },
 
+    readStoredTagDrawerExpanded() {
+      try {
+        const raw = window.localStorage.getItem(TAG_DRAWER_EXPANDED_STORAGE_KEY);
+        if (raw === '1') return true;
+        if (raw === '0') return false;
+      } catch {
+        // ignore storage access errors
+      }
+      return false;
+    },
+
+    persistTagDrawerExpanded(value) {
+      try {
+        window.localStorage.setItem(TAG_DRAWER_EXPANDED_STORAGE_KEY, Boolean(value) ? '1' : '0');
+      } catch {
+        // ignore storage access errors
+      }
+    },
+
+    clearPersistedTagDrawerExpanded() {
+      try {
+        window.localStorage.removeItem(TAG_DRAWER_EXPANDED_STORAGE_KEY);
+      } catch {
+        // ignore storage access errors
+      }
+    },
+
     setAnimationsEnabled(value) {
       this.animationsEnabled = Boolean(value);
       try {
@@ -449,12 +477,6 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     setDrawerExpanded(value, options = {}) {
-      const force = options.force === true;
-      if (this.settings.ui.drawerAlwaysExpanded && !force) {
-        this.drawerExpanded = true;
-        return;
-      }
-
       const normalized = Boolean(value);
       this.drawerExpanded = normalized;
 
@@ -467,18 +489,10 @@ export const useSettingsStore = defineStore('settings', {
     },
 
     toggleDrawerExpanded() {
-      if (this.settings.ui.drawerAlwaysExpanded) {
-        this.drawerExpanded = true;
-        return;
-      }
       this.setDrawerExpanded(!this.drawerExpanded);
     },
 
     initializeDrawerExpandedState() {
-      if (this.settings.ui.drawerAlwaysExpanded) {
-        this.drawerExpanded = true;
-        return;
-      }
       if (this.settings.ui.drawerRememberState) {
         this.drawerExpanded = this.drawerLastRemembered;
         return;
@@ -502,29 +516,19 @@ export const useSettingsStore = defineStore('settings', {
         return normalized;
       }
 
-      const wasAlwaysExpanded = Boolean(previous?.ui?.drawerAlwaysExpanded);
-      const isAlwaysExpanded = Boolean(normalized.ui.drawerAlwaysExpanded);
       const wasRememberState = Boolean(previous?.ui?.drawerRememberState);
       const isRememberState = Boolean(normalized.ui.drawerRememberState);
 
       if (wasRememberState && !isRememberState) {
         this.clearPersistedDrawerExpanded();
-      } else if (!wasRememberState && isRememberState && !isAlwaysExpanded) {
+      } else if (!wasRememberState && isRememberState) {
         this.persistDrawerExpanded(this.drawerExpanded);
       }
 
-      if (isAlwaysExpanded) {
-        this.setDrawerExpanded(true, { persist: false, force: true });
-        return normalized;
-      }
-
-      if (wasAlwaysExpanded && !isAlwaysExpanded) {
-        if (isRememberState) {
-          this.setDrawerExpanded(this.drawerLastRemembered, { persist: false, force: true });
-        } else {
-          this.setDrawerExpanded(false, { persist: false, force: true });
-        }
-        return normalized;
+      const wasTagRememberState = Boolean(previous?.ui?.tagDrawerRememberState);
+      const isTagRememberState = Boolean(normalized.ui.tagDrawerRememberState);
+      if (wasTagRememberState && !isTagRememberState) {
+        this.clearPersistedTagDrawerExpanded();
       }
 
       return normalized;

@@ -114,7 +114,7 @@ class UISettingsRead(BaseModel):
     color_variant: ColorVariant = ColorVariant.slate
     showFilenameSuffix: bool = True
     drawerRememberState: bool = True
-    drawerAlwaysExpanded: bool = False
+    tagDrawerRememberState: bool = True
 
 
 class DocumentsSettingsRead(BaseModel):
@@ -211,7 +211,7 @@ class UISettingsPatch(BaseModel):
     color_variant: ColorVariant | None = None
     showFilenameSuffix: bool | None = None
     drawerRememberState: bool | None = None
-    drawerAlwaysExpanded: bool | None = None
+    tagDrawerRememberState: bool | None = None
 
 
 class DocumentsSettingsPatch(BaseModel):

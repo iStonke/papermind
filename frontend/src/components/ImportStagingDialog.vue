@@ -8,6 +8,18 @@
     header-subtitle="Gescannte Seiten als neues Dokument"
     @close="onDialogClose"
   >
+    <template #header-actions>
+      <v-btn
+        icon="mdi-window-minimize"
+        size="small"
+        variant="text"
+        class="isd-minimize-btn"
+        :disabled="isCommitting"
+        aria-label="Import minimieren"
+        @click="minimizeDialog"
+      />
+    </template>
+
     <div class="isd-body">
       <!-- Hidden file input required by openFilePicker() -->
       <input
@@ -34,17 +46,6 @@
       <!-- Left column: page grid + bottom toolbar -->
       <div class="isd-left">
         <div v-if="aiAnalysis.kind === 'busy' && !isEmpty" class="isd-ai-scan-line" aria-hidden="true" />
-
-        <!-- Ladefortschritt -->
-        <v-progress-linear
-          v-if="isUploadingSources"
-          :model-value="hasPreparationProgress ? preparationProgressPercent : undefined"
-          :indeterminate="!hasPreparationProgress"
-          color="primary"
-          height="3"
-          class="isd-progress"
-        />
-
         <div
           class="isd-grid-scroll"
           :style="{ ...gridScrollStyle, paddingBottom: isEmpty ? '40px' : '82px' }"
@@ -276,7 +277,7 @@
        <div v-show="rightPanelMode === 'details'" class="isd-props-scroll">
 
         <!-- Document name -->
-        <div class="isd-field" :class="{ 'isd-field--ai-filled': docTitleAiFilled }">
+        <div class="isd-field" :class="{ 'isd-field--ai-filled': aiFieldGlowActive && docTitleAiFilled }">
           <div class="isd-field-label">
             Dokumentname
             <v-tooltip text="Wie lautet der Name des Dokuments? Wird für Suche und Anzeige verwendet." location="top" max-width="220">
@@ -311,7 +312,7 @@
         </div>
 
         <!-- Document date -->
-        <div class="isd-field" :class="{ 'isd-field--ai-filled': docDateAiFilled }">
+        <div class="isd-field" :class="{ 'isd-field--ai-filled': aiFieldGlowActive && docDateAiFilled }">
           <div class="isd-field-label">
             Dokumentdatum
             <v-tooltip text="Wann wurde das Dokument ausgestellt? (Nicht das Importdatum)" location="top" max-width="220">
@@ -333,7 +334,7 @@
         </div>
 
         <!-- Category -->
-        <div class="isd-field" :class="{ 'isd-field--ai-filled': docCategoryAiFilled }">
+        <div class="isd-field" :class="{ 'isd-field--ai-filled': aiFieldGlowActive && docCategoryAiFilled }">
           <div class="isd-field-label">
             Kategorie
             <v-tooltip text="Grobe Einordnung: Was ist das Dokument? Ein Dokument gehört zu genau einer Kategorie." location="top" max-width="220">
@@ -353,7 +354,7 @@
         </div>
 
         <!-- Tags -->
-        <div class="isd-field" :class="{ 'isd-field--ai-filled': docTagsAiFilled }">
+        <div class="isd-field" :class="{ 'isd-field--ai-filled': aiFieldGlowActive && docTagsAiFilled }">
           <div class="isd-field-label">
             Tags
             <v-tooltip text="Freie Schlagwörter für Kontext, Projekt oder Personen. Mehrere Tags möglich." location="top" max-width="220">
@@ -395,7 +396,7 @@
         </div>
 
         <!-- Note -->
-        <div class="isd-field" :class="{ 'isd-field--ai-filled': docNoteAiFilled }">
+        <div class="isd-field" :class="{ 'isd-field--ai-filled': aiFieldGlowActive && docNoteAiFilled }">
           <div class="isd-field-label">
             Notiz
             <v-tooltip text="Interne Notiz zum Dokument – nur für dich sichtbar." location="top" max-width="220">
@@ -408,7 +409,7 @@
             density="compact"
             variant="outlined"
             hide-details
-            rows="3"
+            rows="5"
             no-resize
             @update:model-value="docNoteTouched = true; docNoteAiFilled = false"
           />
@@ -479,19 +480,24 @@
           <template v-else-if="aiAnalysis.kind === 'failed'">
             <v-icon size="16" class="isd-props-status__warn-icon">mdi-alert-circle-outline</v-icon>
             <span class="isd-props-status__text">Keine automatische Erkennung</span>
-            <button
-              type="button"
-              class="isd-props-status__retry"
-              :disabled="!primaryDocument || primaryDocument.pages.length === 0"
-              @click="primaryDocument && requestScanTitleSuggestion(primaryDocument.id, 'first_page')"
-            >
-              Erneut versuchen
-            </button>
           </template>
           <template v-else>
             <v-icon size="16" class="isd-props-status__idle-icon">mdi-creation</v-icon>
             <span class="isd-props-status__text">Felder werden automatisch erkannt</span>
           </template>
+
+          <!-- Startet den gesamten Analyse-Prozess erneut (nach Abschluss/Fehlschlag) -->
+          <button
+            v-if="['success', 'partial', 'failed'].includes(aiAnalysis.kind)"
+            type="button"
+            class="isd-props-status__retry"
+            :disabled="isUploadingSources || totalPages === 0"
+            title="Den gesamten Analyse-Prozess erneut starten"
+            @click="retryAnalysis"
+          >
+            <v-icon size="14">mdi-refresh</v-icon>
+            Erneut
+          </button>
         </div>
 
       </div>
@@ -559,13 +565,16 @@ import {
 
 GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
+const VOCAB_NAME_MIN_LENGTH = 2;
+const VOCAB_NAME_MAX_LENGTH = 30;
+
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   apiBaseUrl: { type: String, default: '' },
   autoEmbed: { type: Boolean, default: true }
 });
 
-const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources']);
+const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources', 'minimize']);
 
 const { notify } = useNotifications();
 const stagingStore = useImportStagingStore();
@@ -653,6 +662,7 @@ let bodyLayoutRaf = 0;
 let bodyLayoutObserver = null;
 let closeResetTimer = 0;
 let viewSwitchTimer = 0;
+let isMinimizingToTray = false;
 const autoScrollState = {
   container: null,
   dx: 0,
@@ -673,6 +683,8 @@ const docDateAiFilled = ref(false);
 const docCategoryAiFilled = ref(false);
 const docTagsAiFilled = ref(false);
 const docNoteAiFilled = ref(false);
+const aiFieldGlowActive = ref(false);
+let aiFieldGlowTimer = 0;
 
 // Auswählbare Kategorien aus der zentral verwalteten Liste (Einstellungen).
 // Ein bereits gesetzter / KI-vorgeschlagener Wert, der (noch) nicht im
@@ -1146,14 +1158,6 @@ const allPagesFlat = computed(() => {
   return result;
 });
 const hasPreparationProgress = computed(() => isUploadingSources.value && preparationProgress.value.total > 0);
-const preparationProgressPercent = computed(() => {
-  const total = Math.max(0, Number(preparationProgress.value.total || 0));
-  const done = Math.max(0, Number(preparationProgress.value.done || 0));
-  if (total <= 0) {
-    return 0;
-  }
-  return Math.min(100, Math.round((done / total) * 100));
-});
 const preparationProgressLabel = computed(() => {
   const total = Math.max(0, Number(preparationProgress.value.total || 0));
   const done = Math.max(0, Number(preparationProgress.value.done || 0));
@@ -1237,6 +1241,32 @@ const aiAnalysis = computed(() => {
   return { kind: 'idle', fields: [] };
 });
 
+function hasAiFilledImportFields() {
+  return Boolean(
+    docTitleAiFilled.value ||
+    docDateAiFilled.value ||
+    docCategoryAiFilled.value ||
+    docTagsAiFilled.value ||
+    docNoteAiFilled.value
+  );
+}
+
+function triggerAiFieldGlow() {
+  if (typeof window !== 'undefined' && aiFieldGlowTimer) {
+    window.clearTimeout(aiFieldGlowTimer);
+  }
+  aiFieldGlowActive.value = false;
+  nextTick(() => {
+    aiFieldGlowActive.value = true;
+    if (typeof window !== 'undefined') {
+      aiFieldGlowTimer = window.setTimeout(() => {
+        aiFieldGlowActive.value = false;
+        aiFieldGlowTimer = 0;
+      }, 1450);
+    }
+  });
+}
+
 /* ── Datum-Hilfsfunktionen ── */
 function todayDateStr() {
   const d = new Date();
@@ -1266,6 +1296,16 @@ function isoToGermanDate(iso) {
 
 function normalizeTagName(rawName) {
   return String(rawName || '').replace(/\s+/g, ' ').trim();
+}
+
+function validateTagName(name) {
+  if (name.length < VOCAB_NAME_MIN_LENGTH) {
+    return `Tag muss mindestens ${VOCAB_NAME_MIN_LENGTH} Zeichen enthalten.`;
+  }
+  if (name.length > VOCAB_NAME_MAX_LENGTH) {
+    return `Tag darf maximal ${VOCAB_NAME_MAX_LENGTH} Zeichen enthalten.`;
+  }
+  return '';
 }
 
 function findStageTagIdByName(name) {
@@ -1305,6 +1345,11 @@ async function ensureStageTagsLoaded(options = {}) {
 async function createStageTagByName(rawName) {
   const normalizedName = normalizeTagName(rawName);
   if (!normalizedName) {
+    return '';
+  }
+  const validationMessage = validateTagName(normalizedName);
+  if (validationMessage) {
+    notify({ type: 'warning', message: validationMessage });
     return '';
   }
   const existingId = findStageTagIdByName(normalizedName);
@@ -1376,8 +1421,23 @@ watch(
       isViewSwitching.value = false;
     }
     if (open) {
+      isMinimizingToTray = false;
       // Verfügbare Kategorien für das Dropdown laden (zentral in den Einstellungen gepflegt).
       void categoryStore.fetchCategories();
+      return;
+    }
+    if (isMinimizingToTray) {
+      isDropzoneDragOver.value = false;
+      dropDragDepth.value = 0;
+      isBodyFileDragOver.value = false;
+      bodyFileDragDepth.value = 0;
+      isAddPageDragOver.value = false;
+      addPageDragDepth.value = 0;
+      documentDragDepth.value = {};
+      resetPageDragState();
+      clearSettledPage();
+      stopAutoScroll();
+      detachPeekGlobalListeners();
       return;
     }
     isDropzoneDragOver.value = false;
@@ -1505,6 +1565,9 @@ watch(
   (open) => {
     if (!open) {
       teardownBodyLayoutObserver();
+      if (isMinimizingToTray) {
+        return;
+      }
       stageTagPool.value = [];
       docDate.value = '';
       docCategory.value = null;
@@ -1522,6 +1585,7 @@ watch(
       docCategoryAiFilled.value = false;
       docTagsAiFilled.value = false;
       docNoteAiFilled.value = false;
+      aiFieldGlowActive.value = false;
       return;
     }
     nextTick(() => {
@@ -1676,6 +1740,15 @@ function onDialogClose() {
   if (isUploadingSources.value || isCommitting.value) {
     return;
   }
+  isOpen.value = false;
+}
+
+function minimizeDialog() {
+  if (isCommitting.value) {
+    return;
+  }
+  isMinimizingToTray = true;
+  emit('minimize');
   isOpen.value = false;
 }
 
@@ -2269,6 +2342,10 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
         }
         meta.titleSuggestionUsedFallback = Boolean(payload?.usedFallback);
         meta.titleSuggestionMeta = payload?.meta && typeof payload.meta === 'object' ? payload.meta : null;
+        if (status === 'error' || status === 'failed') {
+          meta.titleSuggestionStatus = 'error';
+          return;
+        }
         meta.titleSuggestionStatus = 'ready';
 
         // Auto-Fill aller vier Felder (Name, Datum, Kategorie, Tags) aus KI-Meta.
@@ -2280,6 +2357,7 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
         // primaryDocument wechselt während eines await) darf die erfolgreiche
         // Erkennung NICHT in den 'error'-Status kippen – sonst zeigt die UI
         // fälschlich "Keine automatische Erkennung" trotz 200-Antwort.
+        const hadAiFilledFields = hasAiFilledImportFields();
         try {
         if (normalizedStageId === primaryDocument.value?.id) {
           // Dokumentname: nur bei belastbarem Vorschlag (kein Fallback) automatisch
@@ -2372,6 +2450,9 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
           // Anreicherung ist optional – der Vorschlag steht bereits (Status 'ready'/'applied').
           console.warn('[ImportStaging] KI-Felder konnten nicht angewendet werden:', enrichError);
         }
+        if (!hadAiFilledFields && hasAiFilledImportFields()) {
+          triggerAiFieldGlow();
+        }
 
         if (!options?.silent) {
           notify({ type: 'success', message: 'Titelvorschlag aktualisiert.' });
@@ -2402,6 +2483,32 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
   job.finally(() => window.clearTimeout(safetyTimer));
 
   return job;
+}
+
+// Startet den kompletten KI-Analyse-Prozess für alle Staging-Dokumente erneut.
+// Bereits laufende Analysen werden nicht doppelt gestartet (Dedupe in
+// requestScanTitleSuggestion); abgeschlossene/fehlgeschlagene werden neu angestoßen.
+function retryAnalysis() {
+  const docs = documents.value || [];
+  let started = 0;
+  for (const doc of docs) {
+    const id = String(doc?.id || '').trim();
+    if (!id || Number(doc?.pages?.length || 0) === 0) {
+      continue;
+    }
+    void requestScanTitleSuggestion(id, 'first_page', { silent: true, maxPendingRetries: 20 });
+    started += 1;
+  }
+  if (started === 0) {
+    notify({ type: 'info', message: 'Keine Seiten zum Analysieren vorhanden.' });
+    return;
+  }
+  notify({
+    type: 'info',
+    message: started === 1
+      ? 'Analyse wird wiederholt…'
+      : `Analyse für ${started} Dokumente wird wiederholt…`
+  });
 }
 
 function applyScanSuggestion(stageId) {
@@ -4160,6 +4267,10 @@ onBeforeUnmount(() => {
     window.clearTimeout(viewSwitchTimer);
     viewSwitchTimer = 0;
   }
+  if (typeof window !== 'undefined' && aiFieldGlowTimer) {
+    window.clearTimeout(aiFieldGlowTimer);
+    aiFieldGlowTimer = 0;
+  }
   teardownBodyLayoutObserver();
   if (typeof window !== 'undefined' && bodyLayoutRaf) {
     window.cancelAnimationFrame(bodyLayoutRaf);
@@ -4239,10 +4350,6 @@ onBeforeUnmount(() => {
    * density) + 2×8px Padding + 1px border-top. Die rechte Leiste übernimmt
    * exakt denselben Wert. */
   --isd-bar-height: 49px;
-}
-
-.isd-progress {
-  flex: 0 0 auto;
 }
 
 .isd-left {
@@ -4639,10 +4746,10 @@ onBeforeUnmount(() => {
 }
 
 @keyframes isd-ai-scan {
-  0% { transform: translateY(-120%); opacity: 0; }
+  0% { top: -90px; opacity: 0; }
   12% { opacity: 1; }
   88% { opacity: 1; }
-  100% { transform: translateY(calc(min(820px, 90vh) - var(--isd-bar-height, 49px))); opacity: 0; }
+  100% { top: 100%; opacity: 0; }
 }
 
 @keyframes isd-ai-field-glow {
@@ -4660,15 +4767,29 @@ onBeforeUnmount(() => {
   }
 }
 
+/* Container: spannt die volle Breite des Hauptbereichs und endet exakt an der
+   Toolbar-Oberkante; overflow clippt die wandernde Bande, damit sie nicht in die
+   untenliegende Toolbar läuft. */
 .isd-ai-scan-line {
   position: absolute;
   z-index: 3;
-  left: 28px;
-  right: 28px;
+  left: 0;
+  right: 0;
   top: 0;
+  bottom: var(--isd-bar-height, 49px);
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* Wandernde Scan-Bande (volle Breite), animiert per top innerhalb des Containers. */
+.isd-ai-scan-line::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -90px;
   height: 90px;
   pointer-events: none;
-  border-radius: 12px;
   background:
     linear-gradient(
       to bottom,
@@ -4866,12 +4987,16 @@ onBeforeUnmount(() => {
 .isd-props-status__retry {
   margin-left: auto;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12px;
   font-weight: 600;
   color: rgb(var(--v-theme-primary));
   padding: 3px 8px;
   border-radius: 6px;
   transition: background 0.15s;
+  cursor: pointer;
 }
 
 .isd-props-status__retry:hover:not(:disabled) {

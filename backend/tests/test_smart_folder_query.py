@@ -39,6 +39,35 @@ class SmartFolderQueryValidationTest(unittest.TestCase):
         with self.assertRaises(BadRequestError):
             validate_smart_folder_query(raw_query)
 
+    def test_valid_query_with_category_and_favorite(self) -> None:
+        raw_query = {
+            "version": 1,
+            "group": {
+                "op": "AND",
+                "rules": [
+                    {"field": "category", "op": "equals", "value": "KFZ"},
+                    {"field": "is_favorite", "op": "equals", "value": True},
+                ],
+            },
+        }
+
+        normalized = validate_smart_folder_query(raw_query)
+
+        self.assertEqual(normalized["group"]["rules"][0]["field"], "category")
+        self.assertEqual(normalized["group"]["rules"][1]["value"], True)
+
+    def test_invalid_favorite_operator_raises_bad_request(self) -> None:
+        raw_query = {
+            "version": 1,
+            "group": {
+                "op": "AND",
+                "rules": [{"field": "is_favorite", "op": "contains", "value": "true"}],
+            },
+        }
+
+        with self.assertRaises(BadRequestError):
+            validate_smart_folder_query(raw_query)
+
 
 class SmartFolderQueryCompilerTest(unittest.TestCase):
     def test_compile_nested_group_returns_expression(self) -> None:
@@ -67,6 +96,25 @@ class SmartFolderQueryCompilerTest(unittest.TestCase):
 
         self.assertIsNotNone(compiled)
         self.assertIn("documents", str(compiled))
+
+    def test_compile_category_and_favorite_returns_expression(self) -> None:
+        compiler = SmartFolderQueryCompiler()
+        raw_query = {
+            "version": 1,
+            "group": {
+                "op": "AND",
+                "rules": [
+                    {"field": "category", "op": "in", "value": ["KFZ", "Versicherung"]},
+                    {"field": "is_favorite", "op": "equals", "value": "true"},
+                ],
+            },
+        }
+
+        compiled = compiler.compile(raw_query)
+
+        self.assertIsNotNone(compiled)
+        self.assertIn("documents.category", str(compiled))
+        self.assertIn("documents.is_favorite", str(compiled))
 
 
 if __name__ == "__main__":

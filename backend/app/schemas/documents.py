@@ -8,6 +8,7 @@ from pydantic import AliasChoices, BaseModel, Field, field_validator
 from app.schemas.common import ORMModel
 from app.schemas.jobs import JobRead
 from app.schemas.tags import TagRead
+from app.services.utils import NAME_MAX_LENGTH, NAME_MIN_LENGTH, validate_vocab_name
 
 
 class DocumentStatus(str, Enum):
@@ -89,7 +90,7 @@ class DocumentCreateRequest(BaseModel):
 class DocumentUpdateRequest(BaseModel):
     document_date: date | None = Field(default=None, validation_alias=AliasChoices("document_date", "doc_date"))
     notes: str | None = Field(default=None, max_length=10000)
-    category: str | None = Field(default=None, max_length=200)
+    category: str | None = Field(default=None, max_length=NAME_MAX_LENGTH)
     status: DocumentStatus | None = None
     display_name: str | None = Field(default=None, max_length=200)
 
@@ -99,7 +100,11 @@ class DocumentUpdateRequest(BaseModel):
         if value is None:
             return None
         normalized = " ".join(value.split()).strip()
-        return normalized or None
+        if not normalized:
+            return None
+        if len(normalized) < NAME_MIN_LENGTH:
+            raise ValueError(f"Category name must contain at least {NAME_MIN_LENGTH} characters")
+        return validate_vocab_name(normalized, label="Category name")
 
     @field_validator("display_name")
     @classmethod

@@ -72,7 +72,7 @@
             item-class="sidebar-item--secondary sidebar-item--trash"
             :active="isViewActive('trash')"
             :count="trashSidebarCount"
-            action-mode="hover-active"
+            :action-mode="trashSidebarCount > 0 ? 'hover-active' : 'never'"
             @click="emit('select-view', 'trash')"
           >
             <template #icon>
@@ -229,7 +229,7 @@
             v-for="tag in topTagQuicklinks"
             :key="tag.id"
             item-class="sidebar-item--tag"
-            :active="!isTagView && activeTagId === tag.id"
+            :active="false"
             :count="sidebarStore.tagCount(tag.id, tag.usage_count ?? 0)"
             @click="emit('apply-tag-filter', tag.id)"
           >
@@ -342,7 +342,7 @@ function folderSidebarIcon(folder, isActive = false) {
 function isViewActive(viewKey) {
   if (props.isTagView || props.activeSavedSearchId) return false;
   if (viewKey === 'all') {
-    return props.activeView === 'all' && !props.activeTagId;
+    return props.activeView === 'all';
   }
   if (viewKey === 'imports')   return props.activeView === 'imports';
   if (viewKey === 'untagged')  return props.activeView === 'untagged';

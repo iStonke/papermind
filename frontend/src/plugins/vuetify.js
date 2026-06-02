@@ -26,6 +26,7 @@ import {
   mdiFileDocumentOutline,
   mdiFileAlertOutline,
   mdiFileImageOutline,
+  mdiFileImportOutline,
   mdiFilePdfBox,
   mdiFileUploadOutline,
   mdiFilterVariant,
@@ -61,7 +62,8 @@ import {
   mdiTextRecognition,
   mdiTrashCanOutline,
   mdiTrayArrowDown,
-  mdiTrayArrowUp
+  mdiTrayArrowUp,
+  mdiWindowMinimize
 } from '@mdi/js';
 import { aliases as mdiAliases } from 'vuetify/iconsets/mdi-svg';
 import { VSvgIcon } from 'vuetify/lib/composables/icons';
@@ -90,6 +92,7 @@ const mdiPathMap = {
   'mdi-file-document-outline': mdiFileDocumentOutline,
   'mdi-file-alert-outline': mdiFileAlertOutline,
   'mdi-file-image-outline': mdiFileImageOutline,
+  'mdi-file-import-outline': mdiFileImportOutline,
   'mdi-file-pdf-box': mdiFilePdfBox,
   'mdi-file-upload-outline': mdiFileUploadOutline,
   'mdi-filter-variant': mdiFilterVariant,
@@ -125,7 +128,8 @@ const mdiPathMap = {
   'mdi-text-recognition': mdiTextRecognition,
   'mdi-trash-can-outline': mdiTrashCanOutline,
   'mdi-tray-arrow-down': mdiTrayArrowDown,
-  'mdi-tray-arrow-up': mdiTrayArrowUp
+  'mdi-tray-arrow-up': mdiTrayArrowUp,
+  'mdi-window-minimize': mdiWindowMinimize
 };
 
 function resolveMdiPath(iconName) {

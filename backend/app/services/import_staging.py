@@ -4,7 +4,7 @@ import os
 import re
 import shutil
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -38,6 +38,18 @@ _DATE_DMY_RE = re.compile(r"\b([0-3]?\d)[.\-/]([01]?\d)[.\-/]((?:19|20)\d{2})\b"
 _DATE_YMD_RE = re.compile(r"\b((?:19|20)\d{2})[.\-/]([01]?\d)[.\-/]([0-3]?\d)\b")
 _AMOUNT_RE = re.compile(r"\b\d{1,3}(?:[.\s]\d{3})*(?:,\d{2})\s?(?:€|EUR)?\b", re.IGNORECASE)
 _SENDER_LINE_HINTS = ("gmbh", "ag", "kg", "ug", "mbh", "ev", "e.v", "gbr", "ohg", "kasse", "auto-service")
+_SENDER_ORG_HINTS = (
+    "verein",
+    "sportverein",
+    "bank",
+    "sparkasse",
+    "versicherung",
+    "service",
+    "werkstatt",
+    "praxis",
+    "klinik",
+    "stadtwerke",
+)
 _DOC_TYPE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
     ("Rechnung", ("rechnung", "invoice", "rechnungsnummer", "gesamtbetrag")),
     ("Quittung", ("quittung", "kassenbon", "bon", "beleg")),
@@ -61,6 +73,13 @@ _DOC_TYPES_ALLOWED = {
 }
 _FILENAME_SEPARATOR = " – "
 _FILENAME_MAX_LEN = 80
+_STAGING_MIN_TEXT_CHARS = 80
+_STAGING_GOOD_TEXT_CHARS = 240
+_STAGING_OCR_ATTEMPTS = (
+    {"psm": 6, "max_long_side_px": 2800},
+    {"psm": 4, "max_long_side_px": 3200},
+    {"psm": 11, "max_long_side_px": 3200},
+)
 _ISSUER_SUFFIX_RE = re.compile(
     r"\b(gmbh|ag|ug|kg|e\.?\s?v\.?|ltd|inc)\b\.?",
     re.IGNORECASE,
@@ -355,21 +374,29 @@ class ImportStagingService:
             merged = merged[:max_chars].rstrip()
         return merged, pages_scanned, page_refs
 
-    def _extract_text_with_ocr_fallback(self, source_file_ids: list[str], *, page_scope: str) -> str:
+    def _extract_text_with_ocr_fallback(self, source_file_ids: list[str], *, page_scope: str) -> tuple[str, dict[str, object]]:
         """OCR fallback using the lightweight run_ocr_lite path.
 
-        Skips ocrmypdf and heavy NlMeans denoising — only pdfium + CLAHE/Otsu + Tesseract.
-        This reduces per-page time from minutes to ~2-6 seconds.
+        Skips ocrmypdf and heavy NlMeans denoising, but tries several Tesseract
+        page segmentation modes. This keeps the synchronous import preview fast
+        while making scans with letterheads, footers, or sparse text more robust.
         """
         normalized_ids = [str(sid or "").strip() for sid in source_file_ids if str(sid or "").strip()]
         if not normalized_ids:
-            return ""
+            return "", {"status": "empty_sources", "errors": []}
+
+        if shutil.which("tesseract") is None:
+            message = "tesseract is not available in the backend runtime"
+            logger.warning("stage title ocr unavailable: %s", message)
+            return "", {"status": "ocr_unavailable", "errors": [message], "attempts": []}
 
         ocr_settings = self.settings_service.get_settings().model_dump(mode="json").get("ocr", {})
         language = str(ocr_settings.get("language") or "deu+eng")
         max_sources = 1 if page_scope == "first_page" else 2
         max_pages_per_source = 1 if page_scope == "first_page" else 3
         captured_texts: list[str] = []
+        attempts: list[dict[str, object]] = []
+        errors: list[str] = []
 
         for source_file_id in normalized_ids[:max_sources]:
             source_path = self.get_source_pdf_path(source_file_id)
@@ -383,23 +410,53 @@ class ImportStagingService:
             page_indexes = list(range(min(total_pages, max_pages_per_source)))
             source_texts: list[str] = []
             for page_idx in page_indexes:
-                try:
-                    text = run_ocr_lite(source_path, page_index=page_idx, language=language)
-                    normalized = self._normalize_text(text)
-                    if normalized:
-                        source_texts.append(normalized)
-                except Exception as exc:
-                    logger.warning(
-                        "stage title ocr lite failed source_file_id=%s page=%s err=%s",
-                        source_file_id, page_idx, exc,
-                    )
+                best_text = ""
+                for attempt in _STAGING_OCR_ATTEMPTS:
+                    psm = int(attempt["psm"])
+                    max_long_side_px = int(attempt["max_long_side_px"])
+                    try:
+                        text = run_ocr_lite(
+                            source_path,
+                            page_index=page_idx,
+                            language=language,
+                            max_long_side_px=max_long_side_px,
+                            page_segmentation_mode=psm,
+                        )
+                        normalized = self._normalize_text(text)
+                        attempts.append({
+                            "source_file_id": source_file_id,
+                            "page_index": page_idx,
+                            "psm": psm,
+                            "max_long_side_px": max_long_side_px,
+                            "chars": len(normalized),
+                        })
+                        if len(normalized) > len(best_text):
+                            best_text = normalized
+                        if len(normalized) >= _STAGING_GOOD_TEXT_CHARS:
+                            break
+                    except Exception as exc:
+                        message = f"source={source_file_id} page={page_idx} psm={psm}: {exc}"
+                        errors.append(message[:500])
+                        logger.warning("stage title ocr lite failed %s", message)
+                if best_text:
+                    source_texts.append(best_text)
 
             if source_texts:
                 captured_texts.extend(source_texts)
                 if page_scope == "first_page":
                     break
 
-        return self._normalize_text("\n\n".join(captured_texts))
+        merged = self._normalize_text("\n\n".join(captured_texts))
+        status = "ready" if len(merged) >= _STAGING_MIN_TEXT_CHARS else "low_text"
+        if not merged and errors:
+            status = "ocr_failed"
+        return merged, {
+            "status": status,
+            "language": language,
+            "attempts": attempts,
+            "errors": errors[:5],
+            "chars": len(merged),
+        }
 
     @staticmethod
     def _detect_document_type(text_value: str) -> str:
@@ -501,16 +558,23 @@ class ImportStagingService:
         if not lines:
             return None
         candidates = lines[:20]
-        for line in candidates:
+        scored_candidates: list[tuple[int, int, str]] = []
+        for index, line in enumerate(candidates):
             normalized = line.lower()
             if any(hint in normalized for hint in _SENDER_LINE_HINTS):
                 issuer = ImportStagingService._extract_issuer_from_line(line)
-                return issuer or None
-        for line in candidates:
+                if issuer and len(issuer) >= 4:
+                    scored_candidates.append((120 - index, index, issuer))
+        for index, line in enumerate(candidates):
             if 2 <= len(line.split()) <= 6 and len(line) <= 44 and not any(char.isdigit() for char in line):
                 issuer = ImportStagingService._normalize_issuer(line)
-                return issuer or None
-        for line in candidates[:8]:
+                if issuer and len(issuer) >= 4:
+                    score = 30 - index
+                    lowered = issuer.lower()
+                    if any(hint in lowered for hint in _SENDER_ORG_HINTS):
+                        score += 60
+                    scored_candidates.append((score, index, issuer))
+        for index, line in enumerate(candidates[:8]):
             issuer = ImportStagingService._extract_issuer_from_line(line)
             if not issuer:
                 continue
@@ -521,7 +585,13 @@ class ImportStagingService:
                 continue
             if len(issuer) < 4:
                 continue
-            return issuer
+            score = 20 - index
+            if any(hint in lowered for hint in _SENDER_ORG_HINTS):
+                score += 60
+            scored_candidates.append((score, index, issuer))
+        if scored_candidates:
+            scored_candidates.sort(key=lambda item: (-item[0], item[1]))
+            return scored_candidates[0][2]
         return None
 
     @staticmethod
@@ -775,25 +845,59 @@ class ImportStagingService:
 
     @classmethod
     def _generate_tags_from_text(cls, text: str, doc_type: str) -> list[str]:
-        """Generate up to 3 relevant tags from OCR text using keyword rules."""
+        """Generate up to 2 relevant tags from OCR text using keyword rules."""
         # Strip URLs and email addresses to avoid false positives from footers
         clean = re.sub(r"https?://\S+|www\.\S+|\S+@\S+", " ", text, flags=re.IGNORECASE)
         lower = clean.lower()
         tags: list[str] = []
         seen: set[str] = set()
+
+        def add_tag(tag: str) -> None:
+            if tag not in seen and len(tags) < 2:
+                seen.add(tag)
+                tags.append(tag)
+
+        normalized_doc_type = cls._normalize_doc_type(str(doc_type or "")) or ""
+        if normalized_doc_type == "Kündigung":
+            add_tag("Kündigung")
+            if re.search(r"\b(mitgliedschaft|verein|sportverein|turnverein)\b", lower):
+                add_tag("Mitgliedschaft")
+        elif normalized_doc_type == "Rechnung":
+            add_tag("Rechnung")
+
+        telecom_content_context = any(
+            re.search(r"\b" + re.escape(keyword) + r"\b", lower)
+            for keyword in (
+                "telefonrechnung",
+                "telefonvertrag",
+                "telefonanschluss",
+                "internettarif",
+                "internetanschluss",
+                "mobilfunk",
+                "handyvertrag",
+                "dsl",
+                "glasfaser",
+                "vodafone",
+                "telekom",
+                "congstar",
+            )
+        )
+
         for keywords, tag_list in _TAG_KEYWORD_RULES:
+            if len(tags) >= 2:
+                break
             # Use word-boundary matching to avoid substring false positives
             # e.g. "lohn" in "Bruttoarbeitslohn" should not trigger "Gehalt"
             matched = any(
                 re.search(r"\b" + re.escape(kw) + r"\b", lower)
                 for kw in keywords
             )
+            if matched and set(tag_list).issubset({"Telefon", "Telekommunikation"}) and not telecom_content_context:
+                continue
             if matched:
                 for tag in tag_list:
-                    if tag not in seen and len(tags) < 3:
-                        seen.add(tag)
-                        tags.append(tag)
-            if len(tags) >= 3:
+                    add_tag(tag)
+            if len(tags) >= 2:
                 break
         return tags
 
@@ -821,13 +925,20 @@ class ImportStagingService:
             return None
 
         tag_names = [str(n).strip() for n in (existing_tags or []) if str(n).strip()]
-        tag_hint = ""
         if tag_names:
             tag_hint = (
-                '\nWICHTIG für "tags": Bevorzuge – wenn inhaltlich passend – diese bereits '
-                "vorhandenen Tags und schreibe sie EXAKT so: "
-                + ", ".join(tag_names[:60])
-                + ". Erfinde nur dann ein neues Tag, wenn inhaltlich keines davon passt.\n"
+                '\nWICHTIG für "tags": Vergib höchstens 1–2 hochwertige, treffende Schlagworte. '
+                "Prüfe ZUERST sorgfältig diese bereits vorhandenen Tags und verwende ein "
+                "inhaltlich passendes davon EXAKT in dieser Schreibweise: "
+                + ", ".join(tag_names[:80])
+                + ". Erstelle nur dann ein NEUES Tag, wenn inhaltlich wirklich KEINES der "
+                "vorhandenen passt. Im Zweifel lieber ein vorhandenes Tag oder gar kein Tag "
+                "als ein neues – Ziel: so wenige neue Tags wie möglich.\n"
+            )
+        else:
+            tag_hint = (
+                '\nWICHTIG für "tags": Vergib höchstens 1–2 hochwertige, treffende deutsche '
+                "Schlagworte. Lieber ein einziges präzises Tag als mehrere ungenaue.\n"
             )
 
         prompt = (
@@ -838,7 +949,7 @@ class ImportStagingService:
             '- "issuer": Absender/Aussteller, max. 40 Zeichen, oder null\n'
             '- "subject": Dokumentthema als kurzer Ausdruck, max. 50 Zeichen, oder null\n'
             '- "date": Dokumentdatum als YYYY-MM-DD oder null\n'
-            '- "tags": Array mit 1–3 deutschen Schlagworten oder []\n'
+            '- "tags": Array mit maximal 1–2 deutschen Schlagworten (vorhandene bevorzugen) oder []\n'
             '- "amount": Gesamtbetrag als Zahl (z.B. 123.45) oder null\n'
             '- "currency": "EUR" oder null\n'
             '- "summary": die 2–4 wichtigsten Fakten des Dokuments als kurzer, sachlicher '
@@ -890,7 +1001,7 @@ class ImportStagingService:
             raw_tags = parsed.get(key)
             if not isinstance(raw_tags, list):
                 return []
-            return [str(t).strip() for t in raw_tags if str(t).strip()][:3]
+            return [str(t).strip() for t in raw_tags if str(t).strip()][:2]
 
         def _amount(key: str) -> float | None:
             try:
@@ -961,7 +1072,7 @@ class ImportStagingService:
             "- amount: Gesamtbetrag als Zahl mit Punkt (z.B. 123.45) oder null\n"
             "- currency: EUR oder null\n"
             "- date: Dokumentdatum im Format YYYY-MM-DD (z.B. 2024-03-15) oder null\n"
-            "- tags: Liste von 1-3 kurzen Schlagworten als Strings (z.B. [\"Strom\", \"Stadtwerke\"]) oder []\n\n"
+            "- tags: Liste von maximal 1-2 hochwertigen Schlagworten als Strings (z.B. [\"Strom\"]) oder []\n\n"
             "Regeln:\n"
             "- doc_type: erkenne Rechnung robust (z.B. Rechnung, Invoice, RG, Rechnungsnr).\n"
             "- issuer: bevorzuge die erste erkennbare Firma/Marke im Kopfbereich.\n"
@@ -1029,7 +1140,7 @@ class ImportStagingService:
 
         tags_raw = parsed.get("tags")
         doc_tags: list[str] = (
-            [str(t).strip() for t in tags_raw if t and str(t).strip()][:3]
+            [str(t).strip() for t in tags_raw if t and str(t).strip()][:2]
             if isinstance(tags_raw, list)
             else []
         )
@@ -1121,8 +1232,9 @@ class ImportStagingService:
             max_chars=12000,
         )
         ocr_pending = False
+        ocr_diagnostics: dict[str, object] = {"status": "embedded_text", "chars": len(extracted_text)}
         if not extracted_text:
-            extracted_text = self._extract_text_with_ocr_fallback(source_file_ids, page_scope=normalized_scope)
+            extracted_text, ocr_diagnostics = self._extract_text_with_ocr_fallback(source_file_ids, page_scope=normalized_scope)
             if len(extracted_text) > 12000:
                 extracted_text = extracted_text[:12000].rstrip()
             if not extracted_text:
@@ -1141,6 +1253,26 @@ class ImportStagingService:
         today_filename = datetime.utcnow().strftime("%d-%m-%Y")
         today_display = datetime.utcnow().strftime("%d.%m.%Y")
         if ocr_pending:
+            diagnostic_status = str(ocr_diagnostics.get("status") or "ocr_failed")
+            if diagnostic_status in {"ocr_unavailable", "ocr_failed"}:
+                return {
+                    "status": "error",
+                    "suggestion": f"Scan{_FILENAME_SEPARATOR}{today_filename}",
+                    "used_fallback": True,
+                    "meta": {
+                        "doc_type": None,
+                        "issuer": None,
+                        "subject": None,
+                        "amount": None,
+                        "currency": None,
+                        "date": None,
+                        "category": None,
+                        "tags": [],
+                        "analysis_status": diagnostic_status,
+                        "analysis_error": "; ".join(str(e) for e in ocr_diagnostics.get("errors", []) if e)[:500] or None,
+                        "ocr": ocr_diagnostics,
+                    },
+                }
             return {
                 "status": "ready",
                 "suggestion": f"Scan{_FILENAME_SEPARATOR}{today_filename}",
@@ -1154,10 +1286,12 @@ class ImportStagingService:
                     "date": None,
                     "category": None,
                     "tags": [],
+                    "analysis_status": "no_text",
+                    "ocr": ocr_diagnostics,
                 },
             }
 
-        if len(extracted_text.strip()) < 80:
+        if len(extracted_text.strip()) < _STAGING_MIN_TEXT_CHARS:
             return {
                 "status": "ready",
                 "suggestion": f"Scan{_FILENAME_SEPARATOR}{today_filename}",
@@ -1171,6 +1305,8 @@ class ImportStagingService:
                     "date": None,
                     "category": None,
                     "tags": [],
+                    "analysis_status": "low_text",
+                    "ocr": ocr_diagnostics,
                 },
             }
 
@@ -1216,9 +1352,28 @@ class ImportStagingService:
         currency = "EUR" if (normalized_amount is not None) else None
         raw_date = str(rich.get("date") or "").strip()
         final_date = raw_date if re.match(r"^\d{4}-\d{2}-\d{2}$", raw_date) else None
+        # Nur ein plausibles Dokumentdatum übernehmen: ein echtes Datum, das nicht
+        # älter als ein Jahr ist. Verhindert, dass z. B. ein im Text gefundenes
+        # Geburtsdatum (etwa 21.10.1994) fälschlich als Dokumentdatum übernommen
+        # wird. Andernfalls bleibt das Datumsfeld leer.
+        if final_date:
+            try:
+                parsed_date = datetime.strptime(final_date, "%Y-%m-%d").date()
+            except ValueError:
+                parsed_date = None
+            if parsed_date is None:
+                final_date = None
+            else:
+                today = datetime.now().date()
+                try:
+                    min_date = today.replace(year=today.year - 1)
+                except ValueError:  # 29. Februar
+                    min_date = today - timedelta(days=365)
+                if parsed_date < min_date:
+                    final_date = None
         tags_val = rich.get("tags")
         final_tags: list[str] = (
-            [str(t).strip() for t in tags_val if t and str(t).strip()][:3]
+            [str(t).strip() for t in tags_val if t and str(t).strip()][:2]
             if isinstance(tags_val, list)
             else []
         )
@@ -1264,6 +1419,8 @@ class ImportStagingService:
                 "category": self._map_doc_type_to_category(normalized_doc_type),
                 "tags": final_tags,
                 "note": final_note,
+                "analysis_status": "ready",
+                "ocr": ocr_diagnostics,
             },
         }
 

@@ -9,7 +9,7 @@ from app.core.errors import BadRequestError, ConflictError, NotFoundError
 from app.models.category import Category
 from app.models.document import Document
 from app.schemas.categories import CategoryCreateRequest, CategoryRead, CategoryUpdateRequest
-from app.services.utils import is_unique_violation, normalize_name
+from app.services.utils import is_unique_violation, validate_vocab_name
 
 logger = logging.getLogger("papermind.categories")
 
@@ -54,9 +54,10 @@ class CategoryService:
         return self.db.execute(stmt).scalar_one_or_none()
 
     def create_category(self, payload: CategoryCreateRequest) -> Category:
-        category_name = normalize_name(payload.name)
-        if not category_name:
-            raise BadRequestError("Category name must not be empty")
+        try:
+            category_name = validate_vocab_name(payload.name, label="Category name")
+        except ValueError as exc:
+            raise BadRequestError(str(exc)) from exc
 
         existing = self._find_case_insensitive_name_conflict(category_name)
         if existing is not None:
@@ -88,9 +89,10 @@ class CategoryService:
 
     def update_category(self, category_id: uuid.UUID, payload: CategoryUpdateRequest) -> Category:
         category = self.get_category_or_404(category_id)
-        category_name = normalize_name(payload.name)
-        if not category_name:
-            raise BadRequestError("Category name must not be empty")
+        try:
+            category_name = validate_vocab_name(payload.name, label="Category name")
+        except ValueError as exc:
+            raise BadRequestError(str(exc)) from exc
 
         if self._find_case_insensitive_name_conflict(category_name, exclude_category_id=category_id) is not None:
             raise ConflictError("Category name already exists", details={"name": category_name})

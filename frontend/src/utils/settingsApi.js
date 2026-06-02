@@ -14,8 +14,8 @@ export function buildDrawerRememberStatePatch(enabled) {
   return { ui: { drawerRememberState: Boolean(enabled) } };
 }
 
-export function buildDrawerAlwaysExpandedPatch(enabled) {
-  return { ui: { drawerAlwaysExpanded: Boolean(enabled) } };
+export function buildTagDrawerRememberStatePatch(enabled) {
+  return { ui: { tagDrawerRememberState: Boolean(enabled) } };
 }
 
 export function buildAutoOcrPatch(enabled) {

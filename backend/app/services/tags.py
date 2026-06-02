@@ -11,7 +11,7 @@ from app.models.document import Document
 from app.models.document_tag import document_tags
 from app.models.tag import Tag
 from app.schemas.tags import TagCreateRequest, TagMergeRequest, TagRead, TagUpdateRequest
-from app.services.utils import is_unique_violation, normalize_name
+from app.services.utils import is_unique_violation, validate_vocab_name
 
 logger = logging.getLogger("papermind.tags")
 
@@ -108,9 +108,10 @@ class TagService:
         return self.db.execute(stmt).scalar_one_or_none()
 
     def create_tag(self, payload: TagCreateRequest) -> Tag:
-        tag_name = normalize_name(payload.name)
-        if not tag_name:
-            raise BadRequestError("Tag name must not be empty")
+        try:
+            tag_name = validate_vocab_name(payload.name, label="Tag name")
+        except ValueError as exc:
+            raise BadRequestError(str(exc)) from exc
 
         existing_tag = self._find_case_insensitive_name_conflict(tag_name)
         if existing_tag is not None:
@@ -142,9 +143,10 @@ class TagService:
 
     def update_tag(self, tag_id: uuid.UUID, payload: TagUpdateRequest) -> Tag:
         tag = self.get_tag_or_404(tag_id)
-        tag_name = normalize_name(payload.name)
-        if not tag_name:
-            raise BadRequestError("Tag name must not be empty")
+        try:
+            tag_name = validate_vocab_name(payload.name, label="Tag name")
+        except ValueError as exc:
+            raise BadRequestError(str(exc)) from exc
 
         if self._find_case_insensitive_name_conflict(tag_name, exclude_tag_id=tag_id) is not None:
             raise ConflictError("Tag name already exists", details={"name": tag_name})

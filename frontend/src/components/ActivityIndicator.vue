@@ -14,11 +14,13 @@
           :model-value="badgeCount > 0"
           :content="badgeCount"
           :color="badgeColor"
-          offset-x="2"
-          offset-y="2"
+          max="9"
+          offset-x="0"
+          offset-y="0"
+          class="activity-indicator-badge"
         >
-          <v-icon v-if="isActive" size="20" color="primary">mdi-progress-clock</v-icon>
-          <v-icon v-else size="20" color="error">mdi-alert-circle-outline</v-icon>
+          <v-icon v-if="isActive" size="22" color="primary">mdi-progress-clock</v-icon>
+          <v-icon v-else size="22" color="error">mdi-alert-circle-outline</v-icon>
         </v-badge>
       </v-btn>
     </template>
@@ -62,16 +64,6 @@
           <v-list-item-subtitle v-else class="activity-item__types">
             {{ group.typesLabel }}
           </v-list-item-subtitle>
-
-          <!-- Ladebalken nur bei echtem 0–100-Fortschritt -->
-          <v-progress-linear
-            v-if="group.status === 'running' && group.progress != null"
-            :model-value="group.progress"
-            height="4"
-            rounded
-            color="primary"
-            class="activity-item__progress"
-          />
         </v-list-item>
       </v-list>
     </v-card>
@@ -119,18 +111,12 @@ const groups = computed(() => {
     let status = 'failed';
     if (list.some((j) => j.status === 'running')) status = 'running';
     else if (list.some((j) => j.status === 'queued')) status = 'queued';
-    // Fortschritt: höchster Wert eines laufenden Jobs mit Zahl, sonst null (→ animierter Balken)
-    const progresses = list
-      .filter((j) => j.status === 'running' && j.progress != null)
-      .map((j) => Number(j.progress));
-    const progress = progresses.length ? Math.max(...progresses) : null;
     const types = [...new Set(list.map((j) => j.type))];
     const failedJob = list.find((j) => j.status === 'failed');
     result.push({
       documentId: entry.documentId,
       documentTitle: entry.documentTitle,
       status,
-      progress,
       typesLabel: types.map(typeLabel).join(' · '),
       errorMessage: status === 'failed' ? (failedJob?.error_message || null) : null
     });
@@ -218,6 +204,20 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.activity-indicator-btn {
+  --activity-badge-size: 13px;
+}
+
+.activity-indicator-badge :deep(.v-badge__badge) {
+  min-width: var(--activity-badge-size);
+  height: var(--activity-badge-size);
+  padding: 0 3px;
+  border-radius: 999px;
+  font-size: 0.58rem;
+  font-weight: 700;
+  line-height: var(--activity-badge-size);
+}
+
 .activity-card__header {
   display: flex;
   justify-content: space-between;
@@ -250,8 +250,5 @@ onBeforeUnmount(() => {
 .activity-item__error {
   color: rgb(var(--v-theme-error));
   white-space: normal;
-}
-.activity-item__progress {
-  margin-top: 6px;
 }
 </style>

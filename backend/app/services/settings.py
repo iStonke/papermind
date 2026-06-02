@@ -22,7 +22,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "color_variant": "slate",
         "showFilenameSuffix": True,
         "drawerRememberState": True,
-        "drawerAlwaysExpanded": False,
+        "tagDrawerRememberState": True,
     },
     "documents": {
         "auto_ocr": True,

@@ -14,6 +14,7 @@
     <v-text-field
       v-model="createName"
       label="Name"
+      :maxlength="VOCAB_NAME_MAX_LENGTH"
       density="comfortable"
       variant="outlined"
       hide-details
@@ -36,6 +37,7 @@
     <v-text-field
       v-model="renameName"
       label="Neuer Name"
+      :maxlength="VOCAB_NAME_MAX_LENGTH"
       density="comfortable"
       variant="outlined"
       hide-details
@@ -100,6 +102,8 @@ import BaseDialog from './BaseDialog.vue';
 import { useTagStore } from '../stores/tags';
 import { notifyError, logDevError, useNotifications } from '../stores/notifications';
 import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
+
+const VOCAB_NAME_MAX_LENGTH = 30;
 
 // ── Store ────────────────────────────────────────────────────────────────────
 

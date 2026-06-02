@@ -155,7 +155,7 @@
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Dokumentdetails merken</div>
                 <div class="pm-setting-description">
-                  Merkt sich, ob die Schublade zuletzt ein- oder ausgeklappt war.
+                  Merkt sich, ob die Dokumentdetails zuletzt ein- oder ausgeklappt waren.
                 </div>
               </div>
               <v-switch
@@ -175,23 +175,25 @@
               class="pm-setting-row"
               role="button"
               tabindex="0"
-              @click="toggleDrawerAlwaysExpandedFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleDrawerAlwaysExpandedFromRow)"
+              @click="toggleTagDrawerRememberStateFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleTagDrawerRememberStateFromRow)"
             >
               <div class="pm-setting-content">
-                <div class="pm-setting-label">Dokumentdetails immer ausgeklappt</div>
-                <div class="pm-setting-description">Die Schublade bleibt dauerhaft geöffnet.</div>
+                <div class="pm-setting-label">Tag-Schublade merken</div>
+                <div class="pm-setting-description">
+                  Merkt sich, ob die Tag-Schublade zuletzt ein- oder ausgeklappt war.
+                </div>
               </div>
               <v-switch
-                :model-value="settingsDraft.ui.drawerAlwaysExpanded"
+                :model-value="settingsDraft.ui.tagDrawerRememberState"
                 color="primary"
                 density="comfortable"
                 hide-details
                 inset
-                :loading="isSettingSaving.drawer_always_expanded"
-                :disabled="isSettingSaving.drawer_always_expanded"
+                :loading="isSettingSaving.tag_drawer_remember_state"
+                :disabled="isSettingSaving.tag_drawer_remember_state"
                 @click.stop
-                @update:model-value="onDrawerAlwaysExpandedChange"
+                @update:model-value="onTagDrawerRememberStateChange"
               />
             </div>
           </div>
@@ -309,6 +311,7 @@
                   <template v-if="editingCategoryId === cat.id">
                     <v-text-field
                       v-model="editingCategoryName"
+                      :maxlength="VOCAB_NAME_MAX_LENGTH"
                       density="compact"
                       variant="outlined"
                       hide-details
@@ -376,6 +379,7 @@
                 <div class="settings-category-add">
                   <v-text-field
                     v-model="newCategoryName"
+                    :maxlength="VOCAB_NAME_MAX_LENGTH"
                     density="compact"
                     variant="outlined"
                     hide-details
@@ -723,8 +727,8 @@ import {
   buildAutoTaggingPatch,
   buildOcrBackfillEnabledPatch,
   buildColorVariantPatch,
-  buildDrawerAlwaysExpandedPatch,
   buildDrawerRememberStatePatch,
+  buildTagDrawerRememberStatePatch,
   buildOcrDocLangPatch,
   buildRecentImportWindowPatch,
   buildShowFilenameSuffixPatch,
@@ -746,6 +750,8 @@ const emit = defineEmits(['update:modelValue', 'reload-imports']);
 const theme = useTheme();
 const settingsStore = useSettingsStore();
 const categoryStore = useCategoryStore();
+
+const VOCAB_NAME_MAX_LENGTH = 30;
 const tagStore = useTagStore();
 const { notify } = useNotifications();
 const settingsDraft = settingsStore.settingsDraft;
@@ -774,7 +780,11 @@ async function confirmTagCleanup() {
     const removed = Number(result?.removed ?? 0);
     unusedTagsPreview.value = null;
     await tagStore.fetchTags();
-    notify({ type: 'success', message: `${removed} unbenutzte${removed === 1 ? 's Tag' : ' Tags'} entfernt.` });
+    notify({
+      type: 'success',
+      message: `${removed} unbenutzte${removed === 1 ? 's Tag' : ' Tags'} entfernt.`,
+      critical: true
+    });
   } catch (error) {
     notifyError(error, 'Unbenutzte Tags konnten nicht entfernt werden.');
   } finally {
@@ -1235,24 +1245,24 @@ function toggleDrawerRememberStateFromRow() {
   void onDrawerRememberStateChange(!settingsDraft.ui.drawerRememberState);
 }
 
-// ── Drawer: immer ausgeklappt ────────────────────────────────────────────────
+// ── Tag-Schublade: Zustand merken ────────────────────────────────────────────
 
-async function onDrawerAlwaysExpandedChange(nextValue) {
-  if (isSettingSaving.drawer_always_expanded) return;
+async function onTagDrawerRememberStateChange(nextValue) {
+  if (isSettingSaving.tag_drawer_remember_state) return;
   const nextBool = Boolean(nextValue);
-  if (nextBool === settingsDraft.ui.drawerAlwaysExpanded) return;
-  const previous = settingsDraft.ui.drawerAlwaysExpanded;
-  settingsStore.setDraftPatch({ ui: { drawerAlwaysExpanded: nextBool } });
+  if (nextBool === settingsDraft.ui.tagDrawerRememberState) return;
+  const previous = settingsDraft.ui.tagDrawerRememberState;
+  settingsStore.setDraftPatch({ ui: { tagDrawerRememberState: nextBool } });
   await patchSettingsWithRevert({
-    patch: buildDrawerAlwaysExpandedPatch(nextBool),
-    controlKey: 'drawer_always_expanded',
-    revert: () => settingsStore.setDraftPatch({ ui: { drawerAlwaysExpanded: previous } })
+    patch: buildTagDrawerRememberStatePatch(nextBool),
+    controlKey: 'tag_drawer_remember_state',
+    revert: () => settingsStore.setDraftPatch({ ui: { tagDrawerRememberState: previous } })
   });
 }
 
-function toggleDrawerAlwaysExpandedFromRow() {
-  if (isSettingSaving.drawer_always_expanded) return;
-  void onDrawerAlwaysExpandedChange(!settingsDraft.ui.drawerAlwaysExpanded);
+function toggleTagDrawerRememberStateFromRow() {
+  if (isSettingSaving.tag_drawer_remember_state) return;
+  void onTagDrawerRememberStateChange(!settingsDraft.ui.tagDrawerRememberState);
 }
 
 // ── Animationen ──────────────────────────────────────────────────────────────

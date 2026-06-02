@@ -3,6 +3,8 @@ from datetime import date as date_cls, datetime
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.services.utils import NAME_MAX_LENGTH, NAME_MIN_LENGTH, validate_vocab_name
+
 
 class ImportSourceRead(BaseModel):
     source_file_id: str
@@ -94,7 +96,7 @@ class ImportCommitPageInput(BaseModel):
 
 class ImportCommitDocumentInput(BaseModel):
     title: str = Field(min_length=1, max_length=200)
-    category: str | None = Field(default=None, max_length=200)
+    category: str | None = Field(default=None, max_length=NAME_MAX_LENGTH)
     date: date_cls | None = Field(default=None)
     note: str | None = Field(default=None, max_length=2000)
     tag_ids: list[uuid.UUID] = Field(default_factory=list)
@@ -106,7 +108,11 @@ class ImportCommitDocumentInput(BaseModel):
         if value is None:
             return None
         normalized = " ".join(value.split()).strip()
-        return normalized or None
+        if not normalized:
+            return None
+        if len(normalized) < NAME_MIN_LENGTH:
+            raise ValueError(f"Category name must contain at least {NAME_MIN_LENGTH} characters")
+        return validate_vocab_name(normalized, label="Category name")
 
     @field_validator("note")
     @classmethod

@@ -482,7 +482,8 @@ def run_ocr_lite(
     *,
     page_index: int = 0,
     language: str = "deu+eng",
-    max_long_side_px: int = 2000,
+    max_long_side_px: int = 2800,
+    page_segmentation_mode: int = 6,
 ) -> str:
     """Lightweight single-page OCR for staging title suggestions.
 
@@ -539,6 +540,9 @@ def run_ocr_lite(
         processed.save(image_path, format="PNG")
 
     try:
+        psm = int(page_segmentation_mode)
+        if psm not in {3, 4, 6, 11, 12}:
+            psm = 6
         result = subprocess.run(
             [
                 "tesseract",
@@ -546,7 +550,7 @@ def run_ocr_lite(
                 "stdout",
                 "-l", _normalize_tesseract_languages(language),
                 "--dpi", str(dpi_hint),
-                "--psm", "6",
+                "--psm", str(psm),
             ],
             check=False,
             capture_output=True,

@@ -19,15 +19,18 @@
             <p v-if="headerSubtitle" class="pm-dialog__subtitle">{{ headerSubtitle }}</p>
           </div>
         </div>
-        <v-btn
-          icon="mdi-close"
-          size="small"
-          variant="text"
-          class="pm-dialog__close-btn"
-          :disabled="loading || persistent"
-          aria-label="Dialog schließen"
-          @click="onCloseClick"
-        />
+        <div class="pm-dialog__header-actions">
+          <slot name="header-actions" />
+          <v-btn
+            icon="mdi-close"
+            size="small"
+            variant="text"
+            class="pm-dialog__close-btn"
+            :disabled="loading || persistent"
+            aria-label="Dialog schließen"
+            @click="onCloseClick"
+          />
+        </div>
       </header>
 
       <div class="pm-dialog__content-wrap">
@@ -323,6 +326,13 @@ onBeforeUnmount(() => {
   font-size: 0.82rem;
   line-height: 1.35;
   color: rgba(var(--v-theme-on-surface), 0.62);
+}
+
+.pm-dialog__header-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .pm-dialog__close-btn {

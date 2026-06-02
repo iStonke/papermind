@@ -14,6 +14,9 @@ import {
 } from '../api/tags.js';
 import { mapApiError, useNotifications } from './notifications.js';
 
+const VOCAB_NAME_MIN_LENGTH = 2;
+const VOCAB_NAME_MAX_LENGTH = 30;
+
 export const useTagStore = defineStore('tags', () => {
   const { notify } = useNotifications();
 
@@ -24,6 +27,16 @@ export const useTagStore = defineStore('tags', () => {
   // ── Helpers ────────────────────────────────────────────────────────────
   function normalizeTagName(value) {
     return String(value || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function validateTagName(name) {
+    if (name.length < VOCAB_NAME_MIN_LENGTH) {
+      return `Tag muss mindestens ${VOCAB_NAME_MIN_LENGTH} Zeichen enthalten.`;
+    }
+    if (name.length > VOCAB_NAME_MAX_LENGTH) {
+      return `Tag darf maximal ${VOCAB_NAME_MAX_LENGTH} Zeichen enthalten.`;
+    }
+    return '';
   }
 
   const findByName = (name) => {
@@ -51,6 +64,11 @@ export const useTagStore = defineStore('tags', () => {
   async function createTagByName(rawName) {
     const name = normalizeTagName(rawName);
     if (!name) return { ok: false, reason: 'empty', name: '' };
+    const validationMessage = validateTagName(name);
+    if (validationMessage) {
+      notify({ type: 'warning', message: validationMessage });
+      return { ok: false, reason: 'invalid', name };
+    }
     const existing = findByName(name);
     if (existing) return { ok: false, reason: 'exists', name: existing.name, id: existing.id };
 
@@ -75,6 +93,11 @@ export const useTagStore = defineStore('tags', () => {
   async function ensureTagIdByName(rawName) {
     const name = normalizeTagName(rawName);
     if (!name) return '';
+    const validationMessage = validateTagName(name);
+    if (validationMessage) {
+      notify({ type: 'warning', message: validationMessage });
+      return '';
+    }
     const existing = findByName(name);
     if (existing) return existing.id;
 
@@ -84,9 +107,15 @@ export const useTagStore = defineStore('tags', () => {
 
   /** PATCH /api/tags/{id} */
   async function renameTag(id, newName) {
+    const normalizedName = normalizeTagName(newName);
+    const validationMessage = validateTagName(normalizedName);
+    if (validationMessage) {
+      notify({ type: 'warning', message: validationMessage });
+      throw new Error(validationMessage);
+    }
     isTagMutationRunning.value = true;
     try {
-      await apiRenameTag(id, newName);
+      await apiRenameTag(id, normalizedName);
       await fetchTags();
       notify({ type: 'success', title: 'Tag', message: `Tag umbenannt.` });
     } catch (error) {

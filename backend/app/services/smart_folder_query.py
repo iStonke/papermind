@@ -16,12 +16,14 @@ ALLOWED_FIELDS = {
     "title",
     "filename",
     "tags",
+    "category",
     "ocr_text",
     "note",
     "doc_date",
     "created_at",
     "updated_at",
     "ocr_status",
+    "is_favorite",
 }
 
 ALLOWED_OPERATORS = {
@@ -48,10 +50,12 @@ LIST_VALUE_OPERATORS = {"in", "not_in"}
 RANGE_VALUE_OPERATORS = {"between"}
 
 TEXT_FIELDS = {"title", "filename", "ocr_text", "note"}
+TEXT_LIKE_FIELDS = TEXT_FIELDS | {"category"}
 TEMPORAL_DATE_FIELDS = {"doc_date"}
 TEMPORAL_DATETIME_FIELDS = {"created_at", "updated_at"}
 ENUM_FIELDS = {"ocr_status"}
 TAG_FIELDS = {"tags"}
+BOOLEAN_FIELDS = {"is_favorite"}
 
 OCR_STATUSES = {"not_started", "queued", "running", "done", "failed"}
 GROUP_OPS = {"AND", "OR"}
@@ -100,6 +104,17 @@ FIELD_ALLOWED_OPS: dict[str, set[str]] = {
     "tags": {
         "contains",
         "equals",
+        "not_contains",
+        "in",
+        "not_in",
+        "is_empty",
+        "is_not_empty",
+    },
+    "category": {
+        "contains",
+        "equals",
+        "starts_with",
+        "ends_with",
         "not_contains",
         "in",
         "not_in",
@@ -155,6 +170,9 @@ FIELD_ALLOWED_OPS: dict[str, set[str]] = {
         "is_empty",
         "is_not_empty",
     },
+    "is_favorite": {
+        "equals",
+    },
 }
 
 
@@ -190,6 +208,19 @@ def _normalize_string_list(value: Any, path: str) -> list[str]:
     if not normalized:
         _raise_validation(path, "value list must not be empty")
     return normalized
+
+
+def _normalize_boolean(value: Any, path: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "ja"}:
+            return True
+        if normalized in {"false", "0", "no", "nein"}:
+            return False
+    _raise_validation(path, "value must be a boolean")
+    return False  # pragma: no cover
 
 
 def _parse_date(value: Any, path: str) -> str:
@@ -256,7 +287,7 @@ def _normalize_rule_value(field: str, op: str, raw_value: Any, path: str) -> Any
         if not raw_value:
             _raise_validation(path, "value list must not be empty")
 
-        if field in TEXT_FIELDS or field in TAG_FIELDS:
+        if field in TEXT_LIKE_FIELDS or field in TAG_FIELDS:
             return _normalize_string_list(raw_value, path)
         if field in TEMPORAL_DATE_FIELDS:
             return [_parse_date(item, f"{path}[{idx}]") for idx, item in enumerate(raw_value)]
@@ -270,11 +301,14 @@ def _normalize_rule_value(field: str, op: str, raw_value: Any, path: str) -> Any
             return values
         _raise_validation(path, f"unsupported field '{field}' for list values")
 
-    if field in TEXT_FIELDS:
+    if field in TEXT_LIKE_FIELDS:
         return _normalize_scalar_string(raw_value, path)
 
     if field in TAG_FIELDS:
         return _normalize_scalar_string(raw_value, path)
+
+    if field in BOOLEAN_FIELDS:
+        return _normalize_boolean(raw_value, path)
 
     if field in TEMPORAL_DATE_FIELDS:
         return _parse_date(raw_value, path)
@@ -395,13 +429,15 @@ class SmartFolderQueryCompiler:
         op = rule["op"]
         value = rule.get("value")
 
-        if field in TEXT_FIELDS:
+        if field in TEXT_LIKE_FIELDS:
             if field == "title":
                 column = func.coalesce(Document.display_name, Document.original_filename)
             elif field == "filename":
                 column = Document.original_filename
             elif field == "ocr_text":
                 column = Document.text_content
+            elif field == "category":
+                column = Document.category
             else:
                 column = Document.notes
             return self._compile_string_rule(column, op, value)
@@ -419,6 +455,9 @@ class SmartFolderQueryCompiler:
 
         if field == "ocr_status":
             return self._compile_enum_rule(Document.ocr_status, op, value)
+
+        if field == "is_favorite":
+            return self._compile_boolean_rule(Document.is_favorite, op, value)
 
         raise BadRequestError(f"Unsupported field '{field}'")
 
@@ -584,6 +623,11 @@ class SmartFolderQueryCompiler:
         if op == "not_in":
             return or_(column.is_(None), not_(column.in_([str(item) for item in value])))
         raise BadRequestError(f"Unsupported ocr_status operator '{op}'")
+
+    def _compile_boolean_rule(self, column, op: str, value: Any) -> ColumnElement[bool]:
+        if op == "equals":
+            return column.is_(bool(value))
+        raise BadRequestError(f"Unsupported boolean operator '{op}'")
 
 
 def build_smart_folder_sort(sort: SmartFolderSort):

@@ -93,13 +93,16 @@ function isDuplicate(type, message) {
   return false;
 }
 
-function notify({ type = 'info', title = '', message = '', timeoutMs } = {}) {
+function notify({ type = 'info', title = '', message = '', timeoutMs, critical = false } = {}) {
   const normalizedMessage = String(message || '').trim();
   if (!normalizedMessage) {
     return null;
   }
 
   const normalizedType = ['success', 'info', 'warning', 'error'].includes(type) ? type : 'info';
+  if ((normalizedType === 'success' || normalizedType === 'info') && !critical) {
+    return null;
+  }
   if (isDuplicate(normalizedType, normalizedMessage)) {
     return null;
   }

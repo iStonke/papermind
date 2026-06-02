@@ -1132,6 +1132,7 @@ class DocumentService:
         self,
         stmt,
         tag: str | None,
+        tag_ids: list[uuid.UUID] | None,
         untagged: bool,
         status: DocumentStatus | None,
         date_from: date | None,
@@ -1149,9 +1150,19 @@ class DocumentService:
         if favorites_only:
             stmt = stmt.where(Document.is_favorite.is_(True))
 
+        normalized_tag_ids = list(dict.fromkeys(tag_ids or []))
+
         if untagged:
             untagged_stmt = select(document_tags.c.document_id).where(document_tags.c.document_id == Document.id)
             stmt = stmt.where(~untagged_stmt.exists())
+        elif normalized_tag_ids:
+            document_id_stmt = (
+                select(document_tags.c.document_id)
+                .where(document_tags.c.tag_id.in_(normalized_tag_ids))
+                .group_by(document_tags.c.document_id)
+                .having(func.count(func.distinct(document_tags.c.tag_id)) == len(normalized_tag_ids))
+            )
+            stmt = stmt.where(Document.id.in_(document_id_stmt))
         elif tag:
             tag_value = tag.strip()
             if not tag_value:
@@ -1235,6 +1246,7 @@ class DocumentService:
         self,
         q: str | None,
         tag: str | None,
+        tag_ids: list[uuid.UUID] | None,
         untagged: bool,
         status: DocumentStatus | None,
         date_from: date | None,
@@ -1257,6 +1269,7 @@ class DocumentService:
         filtered_stmt = self._apply_filters(
             select(Document),
             tag,
+            tag_ids,
             untagged,
             status,
             date_from,

@@ -143,6 +143,7 @@
         v-model="isUploadDialogOpen"
         :api-base-url="apiBaseUrl"
         :auto-embed="true"
+        @minimize="onImportMinimized"
         @committed="onImportCommitted"
         @discarded-sources="onImportSourcesDiscarded"
       />
@@ -154,6 +155,32 @@
         multiple
         @change="onImportPdfInputChange"
       />
+
+      <Transition name="import-tray">
+        <div v-if="isImportTrayVisible" class="import-tray" role="status" aria-live="polite">
+          <div class="import-tray__icon">
+            <v-icon size="20">mdi-file-import-outline</v-icon>
+          </div>
+          <div class="import-tray__content">
+            <div class="import-tray__title">Import vorbereitet</div>
+            <div class="import-tray__meta">{{ importTraySummary }}</div>
+          </div>
+          <div class="import-tray__actions">
+            <v-btn size="small" variant="text" class="import-tray__action" @click="restoreMinimizedImport">
+              Öffnen
+            </v-btn>
+            <v-btn
+              size="small"
+              variant="text"
+              color="error"
+              class="import-tray__action"
+              @click="discardMinimizedImport"
+            >
+              Verwerfen
+            </v-btn>
+          </div>
+        </div>
+      </Transition>
 
       <TagDialogs ref="tagDialogsRef" @tag-mutated="onTagMutated" />
 
@@ -173,6 +200,7 @@
         :mode="smartFolderEditorMode"
         :folder="smartFolderEditorTarget"
         :tags="tags"
+        :categories="categoryNames"
         :api-base-url="apiBaseUrl"
         @save="handleSmartFolderSave"
         @close="closeSmartFolderEditor"
@@ -302,6 +330,78 @@
               @change-status="applyStatusFilter"
             />
           </Transition>
+          <Transition :name="isTagFilterDrawerAnimationReady ? 'tag-filter-drawer' : ''">
+            <div
+              v-if="showTagFilterDrawer"
+              class="tag-filter-drawer"
+              :class="{
+                'tag-filter-drawer--open': isTagFilterDrawerOpen,
+                'tag-filter-drawer--animate': isTagFilterDrawerAnimationReady
+              }"
+            >
+              <button
+                type="button"
+                class="tag-filter-drawer__toggle"
+                :aria-expanded="isTagFilterDrawerOpen"
+                @click="toggleTagFilterDrawer"
+              >
+                <span>Tags</span>
+                <span v-if="activeTagFilterCount > 0" class="tag-filter-drawer__count">
+                  {{ activeTagFilterCount }}
+                </span>
+                <v-icon size="18">{{ isTagFilterDrawerOpen ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
+              </button>
+
+              <div class="tag-filter-drawer__panel" :aria-hidden="!isTagFilterDrawerOpen">
+                <div class="tag-filter-drawer__panel-inner">
+                  <div class="tag-filter-drawer__body">
+                    <TransitionGroup
+                      tag="div"
+                      name="tag-filter-chip-list"
+                      class="tag-filter-drawer__chips"
+                      aria-label="Tag-Filter"
+                    >
+                      <button
+                        v-for="tag in visibleTagFilterOptions"
+                        :key="`tag-filter-${tag.id}`"
+                        type="button"
+                        class="tag-filter-chip"
+                        :class="{ 'tag-filter-chip--active': activeTagFilterIdsSet.has(tag.id) }"
+                        :tabindex="isTagFilterDrawerOpen ? 0 : -1"
+                        @click="toggleTagFilter(tag.id)"
+                      >
+                        <span class="tag-filter-chip__name">{{ tag.name }}</span>
+                        <span class="tag-filter-chip__count">{{ tagFilterOptionCount(tag) }}</span>
+                      </button>
+                      <div v-if="visibleTagFilterOptions.length === 0" class="tag-filter-drawer__empty">
+                        Keine Tags
+                      </div>
+                    </TransitionGroup>
+
+                    <div class="tag-filter-drawer__footer">
+                      <button
+                        type="button"
+                        class="tag-filter-drawer__footer-btn"
+                        :tabindex="isTagFilterDrawerOpen ? 0 : -1"
+                        @click="showAllTagFilters"
+                      >
+                        Alle Tags
+                      </button>
+                      <button
+                        type="button"
+                        class="tag-filter-drawer__footer-btn"
+                        :disabled="activeTagFilterCount === 0"
+                        :tabindex="isTagFilterDrawerOpen ? 0 : -1"
+                        @click="resetTagFilters"
+                      >
+                        Zurücksetzen
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Transition>
           <BatchActionsBar
             v-if="isSelectionMode"
             :count="selectionIds.size"
@@ -331,23 +431,43 @@
                 v-if="isTagView"
                 class="tag-focus-panel"
               >
-                <div class="tag-focus-panel__stats" aria-label="Tag-Statistik">
-                  <div class="tag-focus-stat">
+                <div class="tag-focus-panel__stats" role="group" aria-label="Tag-Filter">
+                  <button
+                    type="button"
+                    class="tag-focus-stat"
+                    :class="{ 'tag-focus-stat--active': tagUsageFilter === 'all' }"
+                    :aria-pressed="tagUsageFilter === 'all'"
+                    @click="setTagUsageFilter('all')"
+                  >
                     <strong>{{ tagCloudStats.total }}</strong>
                     <span>Gesamt</span>
-                  </div>
-                  <div class="tag-focus-stat">
+                  </button>
+                  <button
+                    type="button"
+                    class="tag-focus-stat"
+                    :class="{ 'tag-focus-stat--active': tagUsageFilter === 'used' }"
+                    :aria-pressed="tagUsageFilter === 'used'"
+                    @click="setTagUsageFilter('used')"
+                  >
                     <strong>{{ tagCloudStats.assigned }}</strong>
                     <span>Genutzt</span>
-                  </div>
-                  <div class="tag-focus-stat">
+                  </button>
+                  <button
+                    type="button"
+                    class="tag-focus-stat"
+                    :class="{ 'tag-focus-stat--active': tagUsageFilter === 'unused' }"
+                    :aria-pressed="tagUsageFilter === 'unused'"
+                    @click="setTagUsageFilter('unused')"
+                  >
                     <strong>{{ tagCloudStats.unused }}</strong>
                     <span>Leer</span>
-                  </div>
+                  </button>
                 </div>
 
+                <Transition name="tag-cloud-swap" mode="out-in">
                 <div
                   v-if="filteredTags.length > 0"
+                  :key="tagUsageFilter"
                   class="tag-focus-cloud"
                   :class="{ 'tag-focus-cloud--selection-mode': isTagSelectionMode }"
                   aria-label="Tag-Wolke"
@@ -403,11 +523,13 @@
                 </div>
                 <PmEmptyState
                   v-else
+                  key="empty"
                   icon="mdi-tag-search-outline"
                   title="Keine Tags gefunden"
                   subtitle="Passe die Suche an oder erstelle einen neuen Tag."
                   size="md"
                 />
+                </Transition>
 
               </div>
               <div
@@ -447,80 +569,91 @@
                           <div v-if="selectedDocumentDetail" class="details-drawer__subtitle">
                             {{ formatDocumentTitle(selectedDocumentDetail) }}
                           </div>
-                          <div v-if="headerMetaParts.length" class="details-drawer__meta-line">
+                          <div v-if="headerMetaParts.length || headerOcrStatus" class="details-drawer__meta-line">
                             <template v-for="(part, index) in headerMetaParts" :key="`meta-${index}`">
                               <span class="details-drawer__meta-part">{{ part }}</span>
                               <span
-                                v-if="index < headerMetaParts.length - 1"
+                                v-if="index < headerMetaParts.length - 1 || headerOcrStatus"
                                 class="details-drawer__meta-dot"
                                 aria-hidden="true"
                               />
                             </template>
+                            <span
+                              v-if="headerOcrStatus"
+                              class="details-ocr-status"
+                              :class="`details-ocr-status--${headerOcrStatus.tone}`"
+                            >
+                              <v-progress-circular
+                                v-if="headerOcrStatus.tone === 'progress'"
+                                indeterminate
+                                size="11"
+                                width="2"
+                              />
+                              <v-icon v-else size="13">{{ headerOcrStatus.icon }}</v-icon>
+                              {{ headerOcrStatus.text }}
+                            </span>
                           </div>
                         </div>
                       </div>
                     </div>
 
                     <div class="details-command-bar__right" @click.stop>
-                      <v-chip
-                        v-if="showGreenOcrChip"
-                        size="x-small"
-                        variant="tonal"
-                        :color="ocrHeaderChipColor"
-                        class="details-ocr-chip"
-                      >
-                        {{ ocrHeaderChipText }}
-                      </v-chip>
-                      <v-progress-circular
-                        v-else-if="isOcrInProgress"
-                        indeterminate
-                        size="18"
-                        width="2"
-                        color="primary"
-                        class="details-ocr-spinner"
-                        aria-label="OCR läuft…"
-                      />
-                      <v-btn
-                        v-else-if="showHeaderOcrActionButton"
-                        size="x-small"
-                        density="comfortable"
-                        variant="tonal"
-                        color="primary"
-                        class="details-ocr-action-btn"
-                        :disabled="!selectedDocumentDetail"
-                        @click="queueOcrFromHeader"
-                      >
-                        OCR durchführen
-                      </v-btn>
-
+                      <!-- Primäre Aktion: KI-Befüllung (hervorgehoben) -->
                       <v-tooltip text="Leere Felder mit KI befüllen" location="bottom">
                         <template #activator="{ props: aiTooltipProps }">
                           <v-btn
                             v-if="hasEmptyMetadataField"
                             v-bind="aiTooltipProps"
-                            size="x-small"
+                            size="small"
                             density="comfortable"
                             variant="text"
-                            class="details-ai-analyze-btn"
+                            class="details-action-btn details-action-btn--primary"
                             :loading="isRunningAiAnalysis"
                             :disabled="isRunningAiAnalysis"
                             aria-label="Leere Felder mit KI befüllen"
                             @click="runAiAnalysis"
                           >
-                            <v-icon size="16">mdi-auto-fix</v-icon>
+                            <v-icon size="18" color="primary">mdi-auto-fix</v-icon>
                           </v-btn>
                         </template>
                       </v-tooltip>
 
+                      <!-- Sekundäre Aktionen: Überlauf-Menü (leise) -->
+                      <v-menu v-if="headerMenuActions.length" location="bottom end">
+                        <template #activator="{ props: menuProps }">
+                          <v-btn
+                            v-bind="menuProps"
+                            icon="mdi-dots-vertical"
+                            size="small"
+                            density="comfortable"
+                            variant="text"
+                            class="details-action-btn details-action-btn--quiet"
+                            aria-label="Weitere Aktionen"
+                          />
+                        </template>
+                        <v-list density="compact">
+                          <v-list-item
+                            v-for="action in headerMenuActions"
+                            :key="action.key"
+                            @click.stop="action.handler"
+                          >
+                            <template #prepend>
+                              <v-icon size="16">{{ action.icon }}</v-icon>
+                            </template>
+                            <v-list-item-title>{{ action.label }}</v-list-item-title>
+                          </v-list-item>
+                        </v-list>
+                      </v-menu>
+
+                      <!-- Disclosure: Auf-/Zuklappen (leise, strukturell) -->
                       <v-btn
                         :icon="detailsDrawerChevronIcon"
                         size="small"
                         density="comfortable"
                         variant="text"
-                        class="details-chevron-btn"
+                        class="details-action-btn details-action-btn--quiet details-chevron-btn"
                         :class="{ 'details-chevron-btn--expanded': isDetailsDrawerChevronExpanded }"
                         aria-label="Details ein- oder ausklappen"
-                        :disabled="isDrawerAlwaysExpanded"
                         @click="toggleDetailsDrawer"
                       />
                     </div>
@@ -602,7 +735,7 @@
                         hide-details="auto"
                         class="details-tags-combobox"
                         placeholder="Tag hinzufügen…"
-                        :loading="isSavingTags || isRunningAiAnalysis"
+                        :loading="isSavingTags"
                         :disabled="isRunningAiAnalysis"
                         :menu-props="{
                           maxHeight: 180,
@@ -674,10 +807,10 @@ import { useDocumentStore } from './stores/documents';
 import { useTagStore } from './stores/tags';
 import { useCategoryStore } from './stores/categories';
 import { useSidebarStore } from './stores/sidebar';
+import { useImportStagingStore } from './stores/importStaging';
 import {
   buildAutoOcrPatch,
   buildAutoTaggingPatch,
-  buildDrawerAlwaysExpandedPatch,
   buildDrawerRememberStatePatch,
   buildRecentImportWindowPatch,
   buildShowFilenameSuffixPatch,
@@ -729,9 +862,15 @@ const PREVIEW_RETRY_BASE_DELAY_MS = 600;
 const PREVIEW_RETRY_MAX_DELAY_MS = 4500;
 const PREVIEW_RETRY_MAX_ATTEMPTS = 5;
 const IMPORTS_RECENT_LIMIT = 100;
+const VOCAB_NAME_MIN_LENGTH = 2;
+const VOCAB_NAME_MAX_LENGTH = 30;
 
 const DETAILS_DRAWER_COLLAPSED_HEIGHT = 72;
 const LAST_SELECTED_DOC_KEY = 'pm.lastSelectedDocumentId';
+const DOCUMENT_TOOLBAR_STATE_KEY = 'pm.documentToolbarState';
+const TAG_TOOLBAR_STATE_KEY = 'pm.tagToolbarState';
+const DOCUMENT_TOOLBAR_VIEW_KEYS = Object.freeze(['all', 'imports', 'untagged', 'favorites', 'trash']);
+const DOCUMENT_STATUS_FILTER_VALUES = Object.freeze(['imported', 'processing', 'ready', 'failed']);
 
 function readStoredLastSelectedDocId() {
   try { return window.localStorage.getItem(LAST_SELECTED_DOC_KEY) || null; } catch { return null; }
@@ -742,6 +881,70 @@ function persistLastSelectedDocId(id) {
     if (id) window.localStorage.setItem(LAST_SELECTED_DOC_KEY, String(id));
     else     window.localStorage.removeItem(LAST_SELECTED_DOC_KEY);
   } catch { /* ignore */ }
+}
+
+function readStoredJson(key, fallback) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return fallback;
+    }
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStoredJson(key, value) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch { /* ignore */ }
+}
+
+function normalizeDocumentSortKey(value) {
+  const key = String(value || '').trim();
+  return SETTINGS_SORT_TO_QUERY[key] ? key : null;
+}
+
+function normalizeDocumentStatusFilter(value) {
+  const key = String(value || '').trim();
+  return DOCUMENT_STATUS_FILTER_VALUES.includes(key) ? key : null;
+}
+
+function normalizeTagUsageFilter(value) {
+  const key = String(value || '').trim();
+  return TAG_USAGE_FILTER_OPTIONS.some((option) => option.value === key) ? key : 'all';
+}
+
+function normalizeTagSortMode(value) {
+  const key = String(value || '').trim();
+  return TAG_SORT_OPTIONS.some((option) => option.value === key) ? key : 'usage_desc';
+}
+
+function readDocumentToolbarState() {
+  const raw = readStoredJson(DOCUMENT_TOOLBAR_STATE_KEY, {});
+  const sourceViews = raw?.views && typeof raw.views === 'object' ? raw.views : raw;
+  const views = {};
+  for (const viewKey of DOCUMENT_TOOLBAR_VIEW_KEYS) {
+    const entry = sourceViews?.[viewKey] && typeof sourceViews[viewKey] === 'object'
+      ? sourceViews[viewKey]
+      : {};
+    const sort = normalizeDocumentSortKey(entry.sort);
+    const status = normalizeDocumentStatusFilter(entry.status);
+    if (sort || status) {
+      views[viewKey] = { sort, status };
+    }
+  }
+  return { views };
+}
+
+function readTagToolbarState() {
+  const raw = readStoredJson(TAG_TOOLBAR_STATE_KEY, {});
+  return {
+    usage: normalizeTagUsageFilter(raw?.usage),
+    sort: normalizeTagSortMode(raw?.sort)
+  };
 }
 
 let isRestoringLastSelectedDocument = false;
@@ -759,10 +962,15 @@ const docStore     = useDocumentStore();
 const tagStore     = useTagStore();
 const categoryStore = useCategoryStore();
 const sidebarStore = useSidebarStore();
+const importStagingStore = useImportStagingStore();
 
 const { documents, selectedDocumentId, selectedDocumentDetail, isLoadingDocuments } = storeToRefs(docStore);
 const { tags, isTagMutationRunning } = storeToRefs(tagStore);
 const { categoryNames } = storeToRefs(categoryStore);
+const {
+  documentCount: importTrayDocumentCount,
+  totalPages: importTrayPageCount
+} = storeToRefs(importStagingStore);
 
 // Letztes Dokument persistent speichern
 watch(selectedDocumentId, (id) => {
@@ -785,27 +993,41 @@ watch(activeView, (nextView, previousView) => {
 });
 const activeSavedSearchId = ref(null);
 const activeSavedSearchQuery = ref(null);
+const documentToolbarState = reactive(readDocumentToolbarState());
+const initialDocumentToolbarState = documentToolbarState.views.all || {};
+const initialDocumentSort = SETTINGS_SORT_TO_QUERY[normalizeDocumentSortKey(initialDocumentToolbarState.sort) || 'newest'];
 const documentListQuery = reactive({
   q: null,
   tagId: null,
+  tagIds: [],
   untagged: null,
-  status: null,
+  status: normalizeDocumentStatusFilter(initialDocumentToolbarState.status),
   dateFrom: null,
   dateTo: null,
-  sort: 'created_at',
-  order: 'desc',
+  sort: initialDocumentSort.sort,
+  order: initialDocumentSort.order,
   limit: 100,
   offset: 0
 });
 const activeTagId = computed({
-  get: () => documentListQuery.tagId,
+  get: () => {
+    const ids = normalizeTagIds(documentListQuery.tagIds);
+    if (ids.length === 1) {
+      return ids[0];
+    }
+    return documentListQuery.tagId;
+  },
   set: (value) => {
     documentListQuery.tagId = value || null;
+    documentListQuery.tagIds = value ? [value] : [];
   }
 });
 const tagSearchText = ref('');
-const tagUsageFilter = ref('all');
-const tagSortMode = ref('usage_desc');
+const isTagFilterDrawerOpen = ref(false);
+const isTagFilterDrawerAnimationReady = ref(false);
+const initialTagToolbarState = readTagToolbarState();
+const tagUsageFilter = ref(initialTagToolbarState.usage);
+const tagSortMode = ref(initialTagToolbarState.sort);
 const isTagSelectionMode = ref(false);
 const selectedTagIds = ref(new Set());
 const isBatchTagMergeDialogOpen = ref(false);
@@ -850,6 +1072,9 @@ function toggleSelectionMode() {
     return;
   }
   isSelectionMode.value = !isSelectionMode.value;
+  if (isSelectionMode.value) {
+    isTagFilterDrawerOpen.value = false;
+  }
   if (!isSelectionMode.value) selectionIds.value = new Set();
 }
 
@@ -880,16 +1105,83 @@ const currentSort = computed(() => {
   return entry ? entry[0] : 'newest';
 });
 
+function documentToolbarViewKey(viewKey = activeView.value) {
+  const normalized = String(viewKey || '').trim();
+  return DOCUMENT_TOOLBAR_VIEW_KEYS.includes(normalized) ? normalized : 'all';
+}
+
+function documentToolbarEntry(viewKey = activeView.value) {
+  const key = documentToolbarViewKey(viewKey);
+  if (!documentToolbarState.views[key]) {
+    documentToolbarState.views[key] = { sort: null, status: null };
+  }
+  return documentToolbarState.views[key];
+}
+
+function persistDocumentToolbarState() {
+  writeStoredJson(DOCUMENT_TOOLBAR_STATE_KEY, {
+    views: DOCUMENT_TOOLBAR_VIEW_KEYS.reduce((result, viewKey) => {
+      const entry = documentToolbarState.views[viewKey] || {};
+      const sort = normalizeDocumentSortKey(entry.sort);
+      const status = normalizeDocumentStatusFilter(entry.status);
+      if (sort || status) {
+        result[viewKey] = { sort, status };
+      }
+      return result;
+    }, {})
+  });
+}
+
+function updateDocumentToolbarState(viewKey, patch) {
+  const entry = documentToolbarEntry(viewKey);
+  if (Object.prototype.hasOwnProperty.call(patch, 'sort')) {
+    entry.sort = normalizeDocumentSortKey(patch.sort);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'status')) {
+    entry.status = normalizeDocumentStatusFilter(patch.status);
+  }
+  persistDocumentToolbarState();
+}
+
+function resolveDocumentToolbarState(viewKey = activeView.value) {
+  const entry = documentToolbarState.views[documentToolbarViewKey(viewKey)] || {};
+  const sortKey = normalizeDocumentSortKey(entry.sort) || appSettings.value.documents.sort_order || 'newest';
+  const mapping = SETTINGS_SORT_TO_QUERY[sortKey] || SETTINGS_SORT_TO_QUERY.newest;
+  return {
+    sortKey,
+    status: normalizeDocumentStatusFilter(entry.status),
+    sort: mapping.sort,
+    order: mapping.order
+  };
+}
+
+function resolveToolbarStatus(viewKey = activeView.value) {
+  if (activeSavedSearchId.value) {
+    return null;
+  }
+  return resolveDocumentToolbarState(viewKey).status;
+}
+
+function persistTagToolbarState() {
+  writeStoredJson(TAG_TOOLBAR_STATE_KEY, {
+    usage: normalizeTagUsageFilter(tagUsageFilter.value),
+    sort: normalizeTagSortMode(tagSortMode.value)
+  });
+}
+
 function applySort(sortKey) {
   const mapping = SETTINGS_SORT_TO_QUERY[sortKey];
   if (!mapping) return;
+  updateDocumentToolbarState(activeView.value, { sort: sortKey });
   documentListQuery.sort  = mapping.sort;
   documentListQuery.order = mapping.order;
   void fetchDocuments(selectedDocumentId.value);
 }
 
 function applyStatusFilter(status) {
-  documentListQuery.status = status || null;
+  const normalizedStatus = normalizeDocumentStatusFilter(status);
+  updateDocumentToolbarState(activeView.value, { status: normalizedStatus });
+  documentListQuery.status = normalizedStatus;
   void fetchDocuments(null, { autoSelectFirst: false });
 }
 
@@ -965,8 +1257,16 @@ async function confirmBatchDelete() {
 }
 
 const isUploadDialogOpen = ref(false);
+const isImportTrayVisible = ref(false);
 const listDropNotice = ref('');
 const previewReloadNonce = ref(0);
+const importTraySummary = computed(() => {
+  const docs = Number(importTrayDocumentCount.value || 0);
+  const pages = Number(importTrayPageCount.value || 0);
+  const docLabel = `${docs} ${docs === 1 ? 'Dokument' : 'Dokumente'}`;
+  const pageLabel = `${pages} ${pages === 1 ? 'Seite' : 'Seiten'}`;
+  return `${docLabel} · ${pageLabel}`;
+});
 
 const isDetailsDrawerOpen = computed({
   get: () => settingsStore.drawerExpanded,
@@ -974,8 +1274,7 @@ const isDetailsDrawerOpen = computed({
     settingsStore.setDrawerExpanded(value);
   }
 });
-const isDrawerAlwaysExpanded = computed(() => appSettings.value.ui.drawerAlwaysExpanded);
-const isDetailsDrawerChevronExpanded = computed(() => isDrawerAlwaysExpanded.value || isDetailsDrawerOpen.value);
+const isDetailsDrawerChevronExpanded = computed(() => isDetailsDrawerOpen.value);
 const detailsDrawerChevronIcon = computed(() =>
   isDetailsDrawerChevronExpanded.value ? 'mdi-chevron-down' : 'mdi-chevron-up'
 );
@@ -1097,20 +1396,42 @@ const showGreenOcrChip = computed(() => {
   // "OCR durchführen"-Button (showHeaderOcrActionButton = !showGreenOcrChip).
   return hasCompletedOcr.value;
 });
-const ocrHeaderChipColor = computed(() => {
-  const status = String(selectedDocumentDetail.value?.ocr_quality_status || '').toLowerCase();
-  if (status === 'error') return 'error';
-  if (status === 'warning') return 'warning';
-  return 'success';
-});
-const ocrHeaderChipText = computed(() => {
-  const status = String(selectedDocumentDetail.value?.ocr_quality_status || '').toLowerCase();
-  if (status === 'error') return 'OCR prüfen';
-  if (status === 'warning') return 'OCR unsicher';
-  return 'OCR';
-});
 const showHeaderOcrActionButton = computed(() => {
   return Boolean(selectedDocumentDetail.value) && !showGreenOcrChip.value;
+});
+// OCR-Status für die Meta-Zeile (Status, keine Aktion): fertig/unsicher/fehler oder laufend.
+// Wenn OCR noch aussteht, liefert dies null – die Aktion liegt dann im Überlauf-Menü.
+const headerOcrStatus = computed(() => {
+  if (!selectedDocumentDetail.value) {
+    return null;
+  }
+  if (isOcrInProgress.value) {
+    return { tone: 'progress', text: 'OCR läuft…', icon: '' };
+  }
+  if (showGreenOcrChip.value) {
+    const status = String(selectedDocumentDetail.value?.ocr_quality_status || '').toLowerCase();
+    if (status === 'error') {
+      return { tone: 'error', text: 'OCR prüfen', icon: 'mdi-alert-circle-outline' };
+    }
+    if (status === 'warning') {
+      return { tone: 'warning', text: 'OCR unsicher', icon: 'mdi-alert-circle-outline' };
+    }
+    return { tone: 'done', text: 'OCR', icon: 'mdi-check-circle-outline' };
+  }
+  return null;
+});
+// Sekundäre Aktionen für das Überlauf-Menü (⋮). Wächst künftig hier zentral.
+const headerMenuActions = computed(() => {
+  const actions = [];
+  if (showHeaderOcrActionButton.value) {
+    actions.push({
+      key: 'ocr',
+      label: 'OCR durchführen',
+      icon: 'mdi-text-recognition',
+      handler: queueOcrFromHeader
+    });
+  }
+  return actions;
 });
 const isTagView       = computed(() => activeView.value === 'tags');
 const isImportsView   = computed(() => activeView.value === 'imports');
@@ -1235,6 +1556,41 @@ const tagCloudStats = computed(() => {
     unused: Math.max(0, source.length - assigned)
   };
 });
+const activeTagFilterIds = computed(() => normalizeTagIds(documentListQuery.tagIds));
+const activeTagFilterIdsSet = computed(() => new Set(activeTagFilterIds.value));
+const activeTagFilterCount = computed(() => activeTagFilterIds.value.length);
+const showTagFilterDrawer = computed(() =>
+  !isTagView.value &&
+  !isImportsView.value &&
+  !isTrashView.value &&
+  !isSelectionMode.value &&
+  !isTagSelectionMode.value &&
+  sortedTagsByName.value.length > 0
+);
+const tagFilterResultCounts = computed(() => {
+  const counts = new Map();
+  for (const document of documents.value || []) {
+    for (const tag of document?.tags || []) {
+      const tagId = String(tag?.id || '').trim();
+      if (!tagId) {
+        continue;
+      }
+      counts.set(tagId, (counts.get(tagId) || 0) + 1);
+    }
+  }
+  return counts;
+});
+const visibleTagFilterOptions = computed(() => {
+  if (activeTagFilterCount.value > 0) {
+    const resultCounts = tagFilterResultCounts.value;
+    return sortedTagsByName.value
+      .filter((tag) => activeTagFilterIdsSet.value.has(tag.id) || resultCounts.has(tag.id))
+      .slice(0, 48);
+  }
+  return sortedTagsByName.value
+    .filter((tag) => tagUsageCount(tag.id, tag.usage_count ?? 0) > 0)
+    .slice(0, 48);
+});
 const activeTagFilterName = computed(() => {
   if (!documentListQuery.tagId) {
     return '';
@@ -1274,6 +1630,7 @@ const hasActiveListFilter = computed(() => {
     activeSavedSearchId.value ||
       (documentListQuery.q || '').trim() ||
       documentListQuery.tagId ||
+      activeTagFilterCount.value > 0 ||
       documentListQuery.untagged ||
       documentListQuery.status ||
       documentListQuery.dateFrom ||
@@ -1337,6 +1694,7 @@ const documentListSavedQueryKey = computed(() =>
   JSON.stringify({
     q: documentListQuery.q,
     tagId: documentListQuery.tagId,
+    tagIds: activeTagFilterIds.value,
     untagged: documentListQuery.untagged,
     status: documentListQuery.status,
     dateFrom: documentListQuery.dateFrom,
@@ -1351,6 +1709,7 @@ const documentListQueryReloadKey = computed(() =>
   JSON.stringify({
     q: documentListQuery.q,
     tagId: documentListQuery.tagId,
+    tagIds: activeTagFilterIds.value,
     untagged: documentListQuery.untagged,
     status: documentListQuery.status,
     dateFrom: documentListQuery.dateFrom,
@@ -1606,6 +1965,9 @@ async function onImportSourcesDiscarded(payload = {}) {
 }
 
 watch(isUploadDialogOpen, (open) => {
+  if (open) {
+    isImportTrayVisible.value = false;
+  }
   if (open || isClaimingImportInbox.value || activeImportInboxItemIds.value.size === 0) {
     return;
   }
@@ -1739,6 +2101,14 @@ async function onMetadataCategoryChange(nextCategory) {
   if (!selectedDocumentDetail.value) return;
   const documentId = selectedDocumentDetail.value.id;
   const value = String(nextCategory || '').trim() || null;
+  if (value) {
+    const validationMessage = validateVocabName(value, 'Kategorie');
+    if (validationMessage) {
+      notify({ type: 'warning', message: validationMessage });
+      metadataDocCategory.value = selectedDocumentDetail.value?.category || null;
+      return;
+    }
+  }
   metadataDocCategory.value = value;
   isSavingCategory.value = true;
   try {
@@ -1767,12 +2137,9 @@ function handleMetadataTagShortcut(event) {
   });
 }
 
-function resolveDefaultSortQuery() {
-  const fromSettings = SETTINGS_SORT_TO_QUERY[appSettings.value.documents.sort_order];
-  if (fromSettings) {
-    return fromSettings;
-  }
-  return SETTINGS_SORT_TO_QUERY.newest;
+function resolveDefaultSortQuery(viewKey = activeView.value) {
+  const toolbarState = resolveDocumentToolbarState(viewKey);
+  return { sort: toolbarState.sort, order: toolbarState.order };
 }
 
 function applyDefaultSortToQuery(options = {}) {
@@ -1878,14 +2245,16 @@ async function openCitation(citation) {
   leaveActiveSavedSearch();
   activeView.value = 'all';
   searchText.value = '';
+  const toolbarState = resolveDocumentToolbarState('all');
   patchDocumentListQuery({
     q: null,
     tagId: null,
     untagged: null,
-    status: null,
+    status: toolbarState.status,
     dateFrom: null,
     dateTo: null,
-    ...resolveDefaultSortQuery(),
+    sort: toolbarState.sort,
+    order: toolbarState.order,
     limit: 100,
     offset: 0
   });
@@ -1996,6 +2365,9 @@ function normalizeQueryValue(value) {
   if (value === null || value === '') {
     return null;
   }
+  if (Array.isArray(value)) {
+    return [...value];
+  }
   return value;
 }
 
@@ -2008,7 +2380,11 @@ function patchDocumentListQuery(patch, options = {}) {
     if (nextValue === undefined) {
       continue;
     }
-    if (documentListQuery[key] !== nextValue) {
+    const currentValue = documentListQuery[key];
+    const changed = Array.isArray(currentValue) || Array.isArray(nextValue)
+      ? JSON.stringify(currentValue || []) !== JSON.stringify(nextValue || [])
+      : currentValue !== nextValue;
+    if (changed) {
       documentListQuery[key] = nextValue;
       hasChanged = true;
     }
@@ -2189,7 +2565,7 @@ async function runAiAnalysis() {
     // gemeinsam persistieren – BEVOR Kategorie/Tags das Detail neu laden, sonst
     // würden die noch ungespeicherten Werte beim Refresh überschrieben.
     const suggestedName = normalizeDocumentName(suggestion.display_name);
-    if (suggestedName && !selectedDocumentDetail.value.display_name) {
+    if (suggestedName && !normalizeDocumentName(metadataDocName.value)) {
       metadataDocName.value = suggestedName;
       filledCount += 1;
     }
@@ -2368,9 +2744,6 @@ function canDiscardMetadataChanges() {
 }
 
 function closeDetailsDrawerWithGuard() {
-  if (isDrawerAlwaysExpanded.value) {
-    return true;
-  }
   if (!isDetailsDrawerOpen.value) {
     return true;
   }
@@ -2389,10 +2762,6 @@ function closeDetailsDrawerWithGuard() {
 }
 
 function toggleDetailsDrawer() {
-  if (isDrawerAlwaysExpanded.value) {
-    settingsStore.setDrawerExpanded(true, { force: true, persist: false });
-    return;
-  }
   if (isDetailsDrawerOpen.value) {
     closeDetailsDrawerWithGuard();
     return;
@@ -2495,6 +2864,11 @@ function buildDocumentListQuery() {
 
   if (documentListQuery.untagged) {
     params.set('untagged', 'true');
+  } else if (activeTagFilterIds.value.length > 0) {
+    params.set('tag_id', activeTagFilterIds.value[0]);
+    for (const tagId of activeTagFilterIds.value) {
+      params.append('tag_ids', tagId);
+    }
   } else if (documentListQuery.tagId) {
     params.set('tag_id', documentListQuery.tagId);
   }
@@ -2564,6 +2938,21 @@ function sortDocumentsForCurrentView(items) {
       return left.index - right.index;
     })
     .map((entry) => entry.document);
+}
+
+function filterDocumentsByActiveTagFilters(items) {
+  const requiredTagIds = activeTagFilterIds.value;
+  if (!requiredTagIds.length) {
+    return Array.isArray(items) ? items : [];
+  }
+  return (Array.isArray(items) ? items : []).filter((document) => {
+    const documentTagIds = new Set(
+      (document?.tags || [])
+        .map((tag) => String(tag?.id || '').trim())
+        .filter(Boolean)
+    );
+    return requiredTagIds.every((tagId) => documentTagIds.has(tagId));
+  });
 }
 
 async function parseResponseError(response) {
@@ -2669,17 +3058,17 @@ function onActiveSavedSearchChipClose() {
   }
   activeView.value = 'all';
   searchText.value = '';
-  const defaultSort = resolveDefaultSortQuery();
+  const toolbarState = resolveDocumentToolbarState('all');
   patchDocumentListQuery(
     {
       q: null,
       tagId: null,
       untagged: null,
-      status: null,
+      status: toolbarState.status,
       dateFrom: null,
       dateTo: null,
-      sort: defaultSort.sort,
-      order: defaultSort.order,
+      sort: toolbarState.sort,
+      order: toolbarState.order,
       limit: 100,
       offset: 0
     },
@@ -2934,7 +3323,7 @@ async function fetchDocuments(preferredDocumentId = null, options = {}) {
     }
 
     const payload = await parseJsonResponse(response);
-    documents.value = sortDocumentsForCurrentView(payload.items || []);
+    documents.value = sortDocumentsForCurrentView(filterDocumentsByActiveTagFilters(payload.items || []));
 
     if (documents.value.length === 0) {
       if (!canDiscardMetadataChanges()) {
@@ -3124,7 +3513,8 @@ async function confirmDeleteDocumentFromDialog() {
     notify({
       type: 'success',
       title: 'Dokument',
-      message: isPermanent ? 'Dokument endgültig gelöscht.' : 'Dokument in den Papierkorb verschoben.'
+      message: isPermanent ? 'Dokument endgültig gelöscht.' : 'Dokument in den Papierkorb verschoben.',
+      critical: isPermanent
     });
   } catch (error) {
     notifyError(error, isPermanent ? 'Dokument konnte nicht gelöscht werden.' : 'Dokument konnte nicht in den Papierkorb verschoben werden.');
@@ -3182,7 +3572,8 @@ async function emptyTrash() {
     notify({
       type: 'success',
       title: 'Papierkorb',
-      message: `${deletedCount} ${deletedCount === 1 ? 'Dokument endgültig gelöscht' : 'Dokumente endgültig gelöscht'}.`
+      message: `${deletedCount} ${deletedCount === 1 ? 'Dokument endgültig gelöscht' : 'Dokumente endgültig gelöscht'}.`,
+      critical: true
     });
     if (isTrashView.value) {
       selectedDocumentId.value = null;
@@ -3243,16 +3634,17 @@ function selectView(viewKey) {
   }
 
   if (viewKey === 'all') {
-    const defaultSort = resolveDefaultSortQuery();
+    const toolbarState = resolveDocumentToolbarState('all');
     const hadActiveSavedSearch = Boolean(activeSavedSearchId.value);
     activeView.value = 'all';
     leaveActiveSavedSearch();
     patchDocumentListQuery({
       tagId: null,
+      tagIds: [],
       untagged: null,
-      status: null,
-      sort: defaultSort.sort,
-      order: defaultSort.order
+      status: toolbarState.status,
+      sort: toolbarState.sort,
+      order: toolbarState.order
     });
     syncSearchStateToQuery({ resetOffset: false });
     if (hadActiveSavedSearch) {
@@ -3262,13 +3654,16 @@ function selectView(viewKey) {
   }
 
   if (viewKey === 'imports') {
+    const toolbarState = resolveDocumentToolbarState('imports');
     activeView.value = 'imports';
     leaveActiveSavedSearch();
     patchDocumentListQuery({
+      tagId: null,
       untagged: null,
-      status: null,
-      sort: 'created_at',
-      order: 'desc',
+      tagIds: [],
+      status: toolbarState.status,
+      sort: toolbarState.sort,
+      order: toolbarState.order,
       limit: IMPORTS_RECENT_LIMIT
     });
     syncSearchStateToQuery({ resetOffset: false });
@@ -3276,44 +3671,48 @@ function selectView(viewKey) {
   }
 
   if (viewKey === 'untagged') {
-    const defaultSort = resolveDefaultSortQuery();
+    const toolbarState = resolveDocumentToolbarState('untagged');
     activeView.value = 'untagged';
     leaveActiveSavedSearch();
     patchDocumentListQuery({
       tagId: null,
+      tagIds: [],
       untagged: true,
-      status: null,
-      sort: defaultSort.sort,
-      order: defaultSort.order
+      status: toolbarState.status,
+      sort: toolbarState.sort,
+      order: toolbarState.order
     });
     syncSearchStateToQuery({ resetOffset: false });
     return;
   }
 
   if (viewKey === 'favorites') {
-    const defaultSort = resolveDefaultSortQuery();
+    const toolbarState = resolveDocumentToolbarState('favorites');
     activeView.value = 'favorites';
     leaveActiveSavedSearch();
     patchDocumentListQuery({
       tagId: null,
+      tagIds: [],
       untagged: null,
-      status: null,
-      sort: defaultSort.sort,
-      order: defaultSort.order
+      status: toolbarState.status,
+      sort: toolbarState.sort,
+      order: toolbarState.order
     });
     syncSearchStateToQuery({ resetOffset: false });
     return;
   }
 
   if (viewKey === 'trash') {
+    const toolbarState = resolveDocumentToolbarState('trash');
     activeView.value = 'trash';
     leaveActiveSavedSearch();
     patchDocumentListQuery({
       tagId: null,
+      tagIds: [],
       untagged: null,
-      status: null,
-      sort: 'created_at',
-      order: 'desc'
+      status: toolbarState.status,
+      sort: toolbarState.sort,
+      order: toolbarState.order
     });
     syncSearchStateToQuery({ resetOffset: false });
     return;
@@ -3331,11 +3730,13 @@ function clearTagFeedbackMessages() {
 
 function setTagUsageFilter(value) {
   tagUsageFilter.value = TAG_USAGE_FILTER_OPTIONS.some((option) => option.value === value) ? value : 'all';
+  persistTagToolbarState();
   selectedTagIds.value = new Set();
 }
 
 function setTagSortMode(value) {
   tagSortMode.value = TAG_SORT_OPTIONS.some((option) => option.value === value) ? value : 'usage_desc';
+  persistTagToolbarState();
 }
 
 function handleTagToolbarAction({ action, value }) {
@@ -3452,7 +3853,8 @@ async function submitBatchTagMerge() {
     notify({
       type: 'success',
       title: 'Tags',
-      message: `${sourceIds.length} ${sourceIds.length === 1 ? 'Tag' : 'Tags'} zusammengeführt.`
+      message: `${sourceIds.length} ${sourceIds.length === 1 ? 'Tag' : 'Tags'} zusammengeführt.`,
+      critical: true
     });
     closeBatchTagMergeDialog();
     exitTagSelectionMode();
@@ -3488,7 +3890,8 @@ async function confirmBatchTagDelete() {
     notify({
       type: 'success',
       title: 'Tags',
-      message: `${count} ${count === 1 ? 'Tag gelöscht' : 'Tags gelöscht'}.`
+      message: `${count} ${count === 1 ? 'Tag gelöscht' : 'Tags gelöscht'}.`,
+      critical: true
     });
     exitTagSelectionMode();
     await fetchTags();
@@ -3508,21 +3911,33 @@ function openTagsView() {
 function selectTagFilter(tagId) {
   patchDocumentListQuery({
     tagId,
+    tagIds: tagId ? [tagId] : [],
     untagged: null,
-    status: null
+    status: resolveToolbarStatus('all')
   });
 }
 
 function clearTagFilter() {
   leaveActiveSavedSearch();
   patchDocumentListQuery({
-    tagId: null
+    tagId: null,
+    tagIds: []
   });
   syncSearchStateToQuery({ resetOffset: false });
 }
 
 function tagUsageCount(tagId, fallback = 0) {
   return sidebarStore.tagCount(tagId, fallback);
+}
+
+function tagFilterOptionCount(tag) {
+  if (!tag?.id) {
+    return 0;
+  }
+  if (activeTagFilterCount.value > 0) {
+    return tagFilterResultCounts.value.get(tag.id) || 0;
+  }
+  return tagUsageCount(tag.id, tag.usage_count ?? 0);
 }
 
 function ensureActiveTagFilterIsValid() {
@@ -3552,8 +3967,9 @@ function applyTagFilterFromSidebar(tagId) {
   patchDocumentListQuery({
     q: null,
     tagId,
+    tagIds: tagId ? [tagId] : [],
     untagged: null,
-    status: null,
+    status: resolveToolbarStatus('all'),
     dateFrom: null,
     dateTo: null
   });
@@ -3568,16 +3984,78 @@ function openTagDocuments(tagId) {
   patchDocumentListQuery({
     q: null,
     tagId,
+    tagIds: tagId ? [tagId] : [],
     untagged: null,
-    status: null,
+    status: resolveToolbarStatus('all'),
     dateFrom: null,
     dateTo: null
   });
   syncSearchStateToQuery({ resetOffset: false });
 }
 
+function toggleTagFilterDrawer() {
+  isTagFilterDrawerOpen.value = !isTagFilterDrawerOpen.value;
+  if (settingsStore.settings.ui.tagDrawerRememberState) {
+    settingsStore.persistTagDrawerExpanded(isTagFilterDrawerOpen.value);
+  }
+}
+
+function applyTagFilters(tagIds) {
+  const normalized = normalizeTagIds(tagIds);
+  activeView.value = 'all';
+  leaveActiveSavedSearch();
+  patchDocumentListQuery({
+    tagId: normalized.length === 1 ? normalized[0] : null,
+    tagIds: normalized,
+    untagged: null,
+    status: resolveToolbarStatus('all'),
+    dateFrom: null,
+    dateTo: null
+  });
+  syncSearchStateToQuery({ resetOffset: false });
+}
+
+function toggleTagFilter(tagId) {
+  const normalizedTagId = String(tagId || '').trim();
+  if (!normalizedTagId) {
+    return;
+  }
+  const next = new Set(activeTagFilterIds.value);
+  if (next.has(normalizedTagId)) {
+    next.delete(normalizedTagId);
+  } else {
+    next.add(normalizedTagId);
+  }
+  applyTagFilters([...next]);
+}
+
+function removeTagFilter(tagId) {
+  const next = activeTagFilterIds.value.filter((id) => id !== tagId);
+  applyTagFilters(next);
+}
+
+function resetTagFilters() {
+  applyTagFilters([]);
+}
+
+function showAllTagFilters() {
+  applyTagFilters([]);
+  openTagsView();
+}
+
 function normalizeTagInput(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function validateVocabName(value, label = 'Name') {
+  const normalized = normalizeTagInput(value);
+  if (normalized.length < VOCAB_NAME_MIN_LENGTH) {
+    return `${label} muss mindestens ${VOCAB_NAME_MIN_LENGTH} Zeichen enthalten.`;
+  }
+  if (normalized.length > VOCAB_NAME_MAX_LENGTH) {
+    return `${label} darf maximal ${VOCAB_NAME_MAX_LENGTH} Zeichen enthalten.`;
+  }
+  return '';
 }
 
 function normalizeTagNames(values) {
@@ -3623,6 +4101,27 @@ function onSettingsReloadImports() {
   scheduleSidebarCountsRefresh();
 }
 
+function onImportMinimized() {
+  isImportTrayVisible.value = importTrayPageCount.value > 0 || importTrayDocumentCount.value > 0;
+}
+
+function restoreMinimizedImport() {
+  if (importTrayPageCount.value <= 0 && importTrayDocumentCount.value <= 0) {
+    isImportTrayVisible.value = false;
+    return;
+  }
+  isUploadDialogOpen.value = true;
+  isImportTrayVisible.value = false;
+}
+
+async function discardMinimizedImport() {
+  const sourceFileIds = Array.from(importStagingStore.stagingFiles?.keys?.() || []);
+  importStagingStore.reset();
+  isImportTrayVisible.value = false;
+  if (sourceFileIds.length > 0) {
+    await onImportSourcesDiscarded({ sourceFileIds });
+  }
+}
 
 function setListDropNotice(message) {
   listDropNotice.value = message;
@@ -3692,6 +4191,7 @@ async function onImportPdfInputChange(event) {
 }
 
 async function onImportCommitted(payload) {
+  isImportTrayVisible.value = false;
   if (!Array.isArray(payload?.created) || payload.created.length === 0) {
     return;
   }
@@ -3986,7 +4486,8 @@ const {
   isTagView,
   selectedDocumentId,
   patchDocumentListQuery,
-  fetchDocuments
+  fetchDocuments,
+  resolveToolbarStatus
 });
 
 watch(documentListQueryReloadKey, () => {
@@ -4010,8 +4511,13 @@ onMounted(async () => {
   mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
   mediaQuery.addEventListener('change', handleSystemThemeChange);
   await fetchAppSettings();
+  isTagFilterDrawerOpen.value = settingsStore.settings.ui.tagDrawerRememberState
+    ? settingsStore.readStoredTagDrawerExpanded()
+    : false;
 
   await Promise.all([fetchTags(), fetchSavedSearches(), fetchSidebarCounts()]);
+  await nextTick();
+  isTagFilterDrawerAnimationReady.value = true;
   const restoredDocId = readStoredLastSelectedDocId();
   isRestoringLastSelectedDocument = Boolean(restoredDocId);
   try {
@@ -4025,6 +4531,17 @@ onMounted(async () => {
   persistLastSelectedDocId(selectedDocumentId.value);
   startImportInboxPolling();
 });
+
+watch(
+  () => settingsStore.settings.ui.tagDrawerRememberState,
+  (rememberEnabled) => {
+    if (!rememberEnabled) {
+      isTagFilterDrawerOpen.value = false;
+      return;
+    }
+    settingsStore.persistTagDrawerExpanded(isTagFilterDrawerOpen.value);
+  }
+);
 
 onBeforeUnmount(() => {
   if (tagReplaceDebounceTimer) {
@@ -4167,6 +4684,78 @@ onBeforeUnmount(() => {
 
 .app-main {
   margin-top: 0 !important;
+}
+
+.import-tray {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  z-index: 3200;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: min(440px, calc(100vw - 40px));
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+  background: rgba(var(--v-theme-surface), 0.9);
+  color: rgb(var(--v-theme-on-surface));
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.2);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.import-tray__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.12);
+}
+
+.import-tray__content {
+  min-width: 0;
+}
+
+.import-tray__title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.import-tray__meta {
+  margin-top: 1px;
+  color: rgba(var(--v-theme-on-surface), 0.62);
+  font-size: 0.76rem;
+  line-height: 1.3;
+}
+
+.import-tray__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.import-tray__action {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.import-tray-enter-active,
+.import-tray-leave-active {
+  transition:
+    transform 220ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    opacity 220ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.import-tray-enter-from,
+.import-tray-leave-to {
+  opacity: 0;
+  transform: translate3d(0, 18px, 0) scale(0.98);
 }
 
 .papermind-app,
@@ -4634,6 +5223,215 @@ onBeforeUnmount(() => {
   font-size: 0.82rem;
   font-weight: 600;
   letter-spacing: 0.01em;
+}
+
+.tag-filter-drawer {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  border-top: 1px solid var(--pm-divider);
+  background: rgba(var(--v-theme-surface), 0.62);
+  backdrop-filter: blur(18px) saturate(1.08);
+  -webkit-backdrop-filter: blur(18px) saturate(1.08);
+  box-shadow: 0 -6px 18px rgba(15, 23, 42, 0.08);
+  transform-origin: bottom center;
+}
+
+.tag-filter-drawer__toggle {
+  width: 100%;
+  min-height: 38px;
+  border: none;
+  background: transparent;
+  color: rgba(var(--v-theme-on-surface), 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tag-filter-drawer__toggle:hover {
+  color: rgba(var(--v-theme-on-surface), 0.92);
+}
+
+.tag-filter-drawer__count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(var(--v-theme-primary), 0.14);
+  color: rgb(var(--v-theme-primary));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
+.tag-filter-drawer__body {
+  padding: 0 14px 12px;
+}
+
+.tag-filter-drawer__panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.tag-filter-drawer--animate .tag-filter-drawer__panel {
+  transition:
+    grid-template-rows 0.24s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.2s ease,
+    transform 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tag-filter-drawer--open .tag-filter-drawer__panel {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.tag-filter-drawer__panel-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tag-filter-drawer__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+
+.tag-filter-chip {
+  min-height: 28px;
+  max-width: 100%;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 3px 8px;
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  color: rgba(var(--v-theme-on-surface), 0.76);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+  transform: translateY(0) scale(1);
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.tag-filter-chip:hover {
+  background: rgba(var(--v-theme-on-surface), 0.12);
+  color: rgba(var(--v-theme-on-surface), 0.9);
+  transform: translateY(-1px);
+}
+
+.tag-filter-chip--active {
+  border-color: rgba(var(--v-theme-primary), 0.72);
+  background: rgb(var(--v-theme-primary));
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(var(--v-theme-primary), 0.24);
+  transform: translateY(-1px) scale(1.02);
+}
+
+.tag-filter-chip--active:hover {
+  background: rgb(var(--v-theme-primary));
+  color: #fff;
+  transform: translateY(-2px) scale(1.02);
+}
+
+.tag-filter-chip--active .tag-filter-chip__name {
+  color: #fff !important;
+}
+
+.tag-filter-chip__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-filter-chip__count {
+  color: rgba(var(--v-theme-on-surface), 0.48);
+  font-size: 0.72rem;
+}
+
+.tag-filter-chip--active .tag-filter-chip__count {
+  color: rgba(255, 255, 255, 0.82) !important;
+}
+
+.tag-filter-chip-list-move,
+.tag-filter-chip-list-enter-active,
+.tag-filter-chip-list-leave-active {
+  transition:
+    opacity 0.18s ease,
+    transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tag-filter-chip-list-enter-from {
+  opacity: 0;
+  transform: translateY(6px) scale(0.98);
+}
+
+.tag-filter-chip-list-leave-to {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.98);
+}
+
+.tag-filter-drawer__empty {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  color: rgba(var(--v-theme-on-surface), 0.54);
+  font-size: 0.8rem;
+}
+
+.tag-filter-drawer__footer {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tag-filter-drawer__footer-btn {
+  border: none;
+  border-radius: 6px;
+  padding: 3px 8px;
+  background: transparent;
+  color: rgba(var(--v-theme-on-surface), 0.58);
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.tag-filter-drawer__footer-btn:hover:not(:disabled) {
+  background: rgba(var(--v-theme-on-surface), 0.07);
+  color: rgba(var(--v-theme-on-surface), 0.82);
+}
+
+.tag-filter-drawer__footer-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.tag-filter-drawer-enter-active,
+.tag-filter-drawer-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.tag-filter-drawer-enter-from,
+.tag-filter-drawer-leave-to {
+  opacity: 0;
+  transform: translateY(12px) scale(0.99);
 }
 
 .settings-loading {
@@ -5104,8 +5902,9 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-item--tag .sidebar-tag-pill {
-  display: inline-flex;
-  align-items: center;
+  display: inline-block;
+  min-width: 0;
+  width: fit-content;
   max-width: 100%;
   padding: 2px 10px;
   border-radius: 999px;
@@ -5631,12 +6430,16 @@ onBeforeUnmount(() => {
 
 .document-row__tag-chip {
   height: 20px;
-  max-width: 150px;
+  min-width: 0;
+  max-width: min(150px, 42%);
   font-size: 0.68rem;
   letter-spacing: 0.01em;
 }
 
 .document-row__tag-chip :deep(.v-chip__content) {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5803,6 +6606,39 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(var(--v-theme-on-surface), 0.09);
   border-radius: 8px;
   background: rgba(var(--v-theme-surface), 0.72);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.12s ease;
+}
+
+.tag-focus-stat:hover {
+  border-color: rgba(var(--v-theme-primary), 0.45);
+  background: rgba(var(--v-theme-primary), 0.06);
+}
+
+.tag-focus-stat:focus-visible {
+  outline: 2px solid rgba(var(--v-theme-primary), 0.55);
+  outline-offset: 2px;
+}
+
+.tag-focus-stat--active {
+  border-color: rgba(var(--v-theme-primary), 0.7);
+  background: rgba(var(--v-theme-primary), 0.12);
+  box-shadow: inset 0 0 0 1px rgba(var(--v-theme-primary), 0.45);
+}
+
+.tag-focus-stat--active strong {
+  color: rgb(var(--v-theme-primary));
+}
+
+.tag-focus-stat--active span {
+  opacity: 0.9;
 }
 
 .tag-focus-stat strong {
@@ -5834,6 +6670,33 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   padding: 8px 2px 12px;
   scrollbar-width: thin;
+}
+
+/* Wolke wechselt animiert, wenn ein anderer Filter (Gesamt/Genutzt/Leer) gewählt wird */
+.tag-cloud-swap-enter-active,
+.tag-cloud-swap-leave-active {
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.tag-cloud-swap-enter-from {
+  opacity: 0;
+  transform: translateY(8px) scale(0.985);
+}
+
+.tag-cloud-swap-leave-to {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.985);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tag-cloud-swap-enter-active,
+  .tag-cloud-swap-leave-active {
+    transition: opacity 0.12s ease;
+  }
+  .tag-cloud-swap-enter-from,
+  .tag-cloud-swap-leave-to {
+    transform: none;
+  }
 }
 
 .tag-focus-cloud__item {
@@ -6073,29 +6936,50 @@ onBeforeUnmount(() => {
   margin-bottom: 0;
 }
 
-.details-ai-analyze-btn {
-  width: 36px !important;
-  height: 36px !important;
-  min-width: 36px !important;
+/* Einheitliches Icon-Button-System für die Header-Aktionen */
+.details-action-btn {
+  width: 34px !important;
+  height: 34px !important;
+  min-width: 34px !important;
   padding: 0 !important;
   border-radius: 999px;
-  border: 1px solid var(--pm-divider);
-  background: rgba(var(--v-theme-on-surface), 0.08);
+  border: 1px solid transparent;
   opacity: 1 !important;
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease;
 }
 
-.details-ai-analyze-btn:hover {
-  background: rgba(var(--v-theme-on-surface), 0.14);
-}
-
-.details-ai-analyze-btn :deep(.v-btn__content) {
+.details-action-btn .v-btn__content {
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.details-ai-analyze-btn :deep(.v-icon) {
-  font-size: 16px;
+/* Primäre Aktion (KI-Befüllung): hervorgehoben mit Primary-Tint */
+.details-action-btn--primary {
+  border-color: rgba(var(--v-theme-primary), 0.4);
+  background: rgba(var(--v-theme-primary), 0.12);
+}
+
+.details-action-btn--primary:hover {
+  border-color: rgba(var(--v-theme-primary), 0.65);
+  background: rgba(var(--v-theme-primary), 0.2);
+}
+
+/* Leise Aktionen (Überlauf-Menü, Disclosure): randlos, gedämpft */
+.details-action-btn--quiet .v-btn__content {
+  opacity: 0.6;
+  transition: opacity 0.16s ease;
+}
+
+.details-action-btn--quiet:hover {
+  background: rgba(var(--v-theme-on-surface), 0.08);
+}
+
+.details-action-btn--quiet:hover .v-btn__content {
+  opacity: 0.95;
 }
 
 .details-tags-row {
@@ -6113,15 +6997,6 @@ onBeforeUnmount(() => {
   width: 100%;
   max-width: 220px;
   margin-right: auto;
-}
-
-.pm-date-field :deep(.v-field) {
-  border-radius: 8px;
-}
-
-.pm-date-field :deep(.v-field__input) {
-  min-height: 30px;
-  font-size: 0.82rem;
 }
 
 .pm-drawer-section :deep(.v-input),
@@ -6166,29 +7041,9 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
-.details-command-bar__right :deep(.v-btn) {
-  min-width: 24px;
-  opacity: 0.82;
-}
-
-.details-chevron-btn {
-  width: 36px;
-  height: 36px;
-  min-width: 36px !important;
-  border-radius: 999px;
-  border: 1px solid var(--pm-divider);
-  background: rgba(var(--v-theme-on-surface), 0.08);
-  opacity: 1 !important;
-}
-
-.details-chevron-btn:hover {
-  background: rgba(var(--v-theme-on-surface), 0.14);
-}
-
-.details-chevron-btn :deep(.v-icon) {
-  font-size: 24px;
+.details-chevron-btn .v-icon {
+  font-size: 20px;
   transition: transform 200ms ease-out;
-  transform: rotate(0deg);
 }
 
 .details-drawer__subtitle {
@@ -6226,6 +7081,31 @@ onBeforeUnmount(() => {
   background: currentColor;
   opacity: 0.75;
   flex: 0 0 auto;
+}
+
+/* OCR-Status als dezenter Hinweis in der Meta-Zeile (Status, keine Aktion) */
+.details-ocr-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+.details-ocr-status--done {
+  color: rgb(var(--v-theme-success));
+}
+
+.details-ocr-status--warning {
+  color: rgb(var(--v-theme-warning));
+}
+
+.details-ocr-status--error {
+  color: rgb(var(--v-theme-error));
+}
+
+.details-ocr-status--progress {
+  color: rgb(var(--v-theme-primary));
 }
 
 .details-date-row {
@@ -6280,28 +7160,18 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
-.details-tags-combobox :deep(.v-field) {
-  border-radius: 8px;
-}
-
-.details-tags-combobox :deep(.v-field__input) {
-  min-height: 34px;
-  padding-top: 2px;
-  padding-bottom: 2px;
-}
-
-.details-tags-combobox :deep(input) {
+.details-tags-combobox input {
   font-size: 0.85rem;
   line-height: 1.42;
 }
 
-.details-tags-combobox :deep(.v-chip) {
+.details-tags-combobox .v-chip {
   height: 22px;
   font-size: 12px;
   padding-inline: 7px;
 }
 
-.details-tags-combobox :deep(.v-chip .v-chip__close) {
+.details-tags-combobox .v-chip .v-chip__close {
   margin-inline-start: 2px;
 }
 
@@ -6347,19 +7217,12 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.08);
 }
 
-.pm-notes-field :deep(.v-field) {
-  border-radius: 8px;
-}
-
-.pm-notes-field :deep(.v-field__input) {
-  min-height: 44px;
+.pm-notes-field .v-field__input {
   transition: min-height var(--pm-duration-normal, 210ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
-  padding-top: 10px;
-  padding-bottom: 10px;
   align-items: flex-start;
 }
 
-.pm-notes-field :deep(textarea) {
+.pm-notes-field textarea {
   font-size: 0.85rem;
   line-height: 1.42;
   margin-top: 0;
@@ -6368,19 +7231,103 @@ onBeforeUnmount(() => {
   overflow-y: auto;
 }
 
-.details-ocr-action-btn {
-  text-transform: none;
-  font-size: 0.7rem;
-  letter-spacing: 0.01em;
-  min-height: 24px;
-  padding-inline: 10px;
-  border-radius: 999px;
+/* Felder in der Dokumentdetail-Schublade: gleicher Radius wie die Details im
+   Import-Screen. Bewusst ohne :deep, da dieser Style-Block global ist. */
+.pm-drawer-body .v-field,
+.pm-drawer-body .v-field__overlay,
+.pm-drawer-body .v-field__outline {
+  --v-field-border-radius: 8px !important;
+  border-radius: 8px !important;
 }
 
-.details-ocr-chip {
-  font-size: 0.66rem;
-  letter-spacing: 0.01em;
-  white-space: nowrap;
+.pm-drawer-body .v-field__outline__start {
+  border-radius: 8px 0 0 8px !important;
+}
+
+.pm-drawer-body .v-field__outline__notch {
+  border-radius: 0 !important;
+}
+
+.pm-drawer-body .v-field__outline__end {
+  border-radius: 0 8px 8px 0 !important;
+}
+
+.pm-drawer-body .v-field {
+  --v-input-control-height: 48px !important;
+  height: 48px !important;
+  min-height: 48px !important;
+}
+
+.pm-drawer-body .v-field__input {
+  min-height: 48px !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  align-items: center !important;
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.pm-drawer-body .v-select__selection,
+.pm-drawer-body .v-select__selection-text,
+.pm-drawer-body .v-combobox__selection,
+.pm-drawer-body .v-field input {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.pm-drawer-body input::placeholder,
+.pm-drawer-body textarea::placeholder,
+.pm-drawer-body .v-field__input input::placeholder {
+  color: rgba(var(--v-theme-on-surface), 0.48);
+}
+
+.pm-drawer-body .v-select.v-input--dirty .v-field__input,
+.pm-drawer-body .v-select.v-input--dirty .v-select__selection,
+.pm-drawer-body .v-select.v-input--dirty .v-select__selection-text,
+.pm-drawer-body .v-combobox.v-input--dirty .v-field__input,
+.pm-drawer-body .v-combobox.v-input--dirty .v-combobox__selection,
+.pm-drawer-body .v-combobox.v-input--dirty .v-chip {
+  color: rgb(var(--v-theme-on-surface));
+}
+
+.pm-drawer-body .v-select:not(.v-input--dirty) .v-field__input,
+.pm-drawer-body .v-combobox:not(.v-input--dirty) .v-field__input {
+  color: rgba(var(--v-theme-on-surface), 0.48);
+}
+
+.pm-drawer-body .v-field:focus,
+.pm-drawer-body .v-field:focus-visible,
+.pm-drawer-body .v-field__input:focus,
+.pm-drawer-body .v-field__input:focus-visible,
+.pm-drawer-body input:focus,
+.pm-drawer-body input:focus-visible,
+.pm-drawer-body textarea:focus,
+.pm-drawer-body textarea:focus-visible {
+  outline: none !important;
+  border-radius: 8px !important;
+}
+
+.pm-drawer-body .v-field__append-inner,
+.pm-drawer-body .v-field__clearable {
+  min-height: 48px !important;
+  padding-top: 0 !important;
+  align-items: center;
+}
+
+.pm-drawer-body .v-textarea .v-field {
+  height: auto !important;
+  min-height: 76px !important;
+}
+
+.pm-drawer-body .v-textarea .v-field__input {
+  min-height: 76px !important;
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+  align-items: flex-start;
 }
 
 .details-drawer__empty {

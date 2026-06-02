@@ -98,7 +98,7 @@
               <template v-else-if="isListOp(rule.op)">
                 <v-combobox
                   :model-value="rule.values"
-                  :items="rule.field === 'tags' ? tagOptions : []"
+                  :items="listValueOptions(rule.field)"
                   multiple
                   chips
                   closable-chips
@@ -124,6 +124,20 @@
                 />
               </template>
 
+              <template v-else-if="rule.field === 'is_favorite'">
+                <v-select
+                  :model-value="rule.value"
+                  :items="favoriteOptions"
+                  item-title="label"
+                  item-value="value"
+                  density="comfortable"
+                  variant="outlined"
+                  hide-details
+                  label="Favorit"
+                  @update:model-value="setRuleValue(rule.id, $event)"
+                />
+              </template>
+
               <template v-else-if="rule.field === 'tags'">
                 <v-combobox
                   :model-value="rule.value"
@@ -132,6 +146,18 @@
                   variant="outlined"
                   hide-details
                   label="Tag"
+                  @update:model-value="setRuleValue(rule.id, $event)"
+                />
+              </template>
+
+              <template v-else-if="rule.field === 'category'">
+                <v-combobox
+                  :model-value="rule.value"
+                  :items="categoryOptions"
+                  density="comfortable"
+                  variant="outlined"
+                  hide-details
+                  label="Kategorie"
                   @update:model-value="setRuleValue(rule.id, $event)"
                 />
               </template>
@@ -210,6 +236,8 @@ const FIELD_OPTIONS = [
   { value: 'title', label: 'Titel' },
   { value: 'filename', label: 'Dateiname' },
   { value: 'tags', label: 'Tags' },
+  { value: 'category', label: 'Kategorie' },
+  { value: 'is_favorite', label: 'Favorit' },
   { value: 'ocr_text', label: 'OCR-Text' },
   { value: 'note', label: 'Notiz' },
   { value: 'doc_date', label: 'Dokumentdatum' },
@@ -249,6 +277,20 @@ const OPERATOR_MAP = {
     { value: 'not_in', label: 'ist keiner von' },
     { value: 'is_empty', label: 'ist leer' },
     { value: 'is_not_empty', label: 'ist nicht leer' }
+  ],
+  category: [
+    { value: 'contains', label: 'enthält' },
+    { value: 'equals', label: 'ist' },
+    { value: 'starts_with', label: 'beginnt mit' },
+    { value: 'ends_with', label: 'endet mit' },
+    { value: 'not_contains', label: 'enthält nicht' },
+    { value: 'in', label: 'ist einer von' },
+    { value: 'not_in', label: 'ist keiner von' },
+    { value: 'is_empty', label: 'ist leer' },
+    { value: 'is_not_empty', label: 'ist nicht leer' }
+  ],
+  is_favorite: [
+    { value: 'equals', label: 'ist' }
   ],
   ocr_text: [
     { value: 'contains', label: 'enthält' },
@@ -313,6 +355,11 @@ const OCR_STATUS_OPTIONS = [
   { value: 'failed', label: 'Fehler' }
 ];
 
+const FAVORITE_OPTIONS = [
+  { value: 'true', label: 'Ja' },
+  { value: 'false', label: 'Nein' }
+];
+
 const NO_VALUE_OPS = new Set(['is_empty', 'is_not_empty']);
 const LIST_OPS = new Set(['in', 'not_in']);
 const DATE_FIELDS = new Set(['doc_date', 'created_at', 'updated_at']);
@@ -323,6 +370,7 @@ const props = defineProps({
   mode: { type: String, default: 'create' },
   folder: { type: Object, default: null },
   tags: { type: Array, default: () => [] },
+  categories: { type: Array, default: () => [] },
   apiBaseUrl: { type: String, default: '' }
 });
 
@@ -346,6 +394,7 @@ const matchOptions = [
 
 const fieldOptions = FIELD_OPTIONS;
 const ocrStatusOptions = OCR_STATUS_OPTIONS;
+const favoriteOptions = FAVORITE_OPTIONS;
 
 const name = ref('');
 const matchOp = ref('AND');
@@ -365,6 +414,18 @@ const previewDisplayTotal = computed(() =>
 
 const tagOptions = computed(() => {
   const values = (props.tags || []).map((tag) => String(tag?.name || '').trim()).filter(Boolean);
+  return [...new Set(values)].sort((a, b) => a.localeCompare(b, 'de-DE', { sensitivity: 'base' }));
+});
+
+const categoryOptions = computed(() => {
+  const values = (props.categories || [])
+    .map((category) => {
+      if (typeof category === 'string') {
+        return category.trim();
+      }
+      return String(category?.name || '').trim();
+    })
+    .filter(Boolean);
   return [...new Set(values)].sort((a, b) => a.localeCompare(b, 'de-DE', { sensitivity: 'base' }));
 });
 
@@ -389,9 +450,26 @@ function isDateField(field) {
   return DATE_FIELDS.has(String(field || ''));
 }
 
+function listValueOptions(field) {
+  if (field === 'tags') {
+    return tagOptions.value;
+  }
+  if (field === 'category') {
+    return categoryOptions.value;
+  }
+  return [];
+}
+
 function defaultOperatorForField(field) {
   const options = operatorOptions(field);
   return options.length > 0 ? options[0].value : 'contains';
+}
+
+function defaultValueForField(field, op) {
+  if (field === 'is_favorite' && op === 'equals') {
+    return 'true';
+  }
+  return '';
 }
 
 function createRule(seed = {}) {
@@ -402,7 +480,7 @@ function createRule(seed = {}) {
     id: makeUiId('sf-rule'),
     field,
     op,
-    value: String(seed.value ?? ''),
+    value: String(seed.value ?? defaultValueForField(field, op)),
     values: Array.isArray(seed.values) ? seed.values.map((item) => String(item || '').trim()).filter(Boolean) : [],
     from: String(seed.from ?? ''),
     to: String(seed.to ?? '')
@@ -430,10 +508,11 @@ function patchRule(ruleId, patch) {
 
 function setRuleField(ruleId, nextField) {
   const field = FIELD_OPTIONS.some((item) => item.value === nextField) ? nextField : 'title';
+  const op = defaultOperatorForField(field);
   patchRule(ruleId, {
     field,
-    op: defaultOperatorForField(field),
-    value: '',
+    op,
+    value: defaultValueForField(field, op),
     values: [],
     from: '',
     to: ''
@@ -447,7 +526,7 @@ function setRuleOp(ruleId, nextOp) {
   }
   const allowedOps = operatorOptions(current.field).map((item) => item.value);
   const op = allowedOps.includes(nextOp) ? nextOp : defaultOperatorForField(current.field);
-  patchRule(ruleId, { op, value: '', values: [], from: '', to: '' });
+  patchRule(ruleId, { op, value: defaultValueForField(current.field, op), values: [], from: '', to: '' });
 }
 
 function setRuleValue(ruleId, nextValue) {
@@ -529,6 +608,10 @@ function buildQueryDefinition() {
         throw new Error(`Regel ${index + 1}: Mindestens ein Wert erforderlich.`);
       }
       return { ...base, value: values };
+    }
+
+    if (field === 'is_favorite') {
+      return { ...base, value: String(rule.value) === 'true' };
     }
 
     const scalarValue = normalizeScalar(rule.value);
