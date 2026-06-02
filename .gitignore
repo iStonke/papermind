@@ -1,5 +1,6 @@
 # Environment
 .env
+.claude/
 
 # Node
 frontend/node_modules
