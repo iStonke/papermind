@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import APIError, BadRequestError, PayloadTooLargeError, StorageError
+from app.models.correspondent import Correspondent
 from app.models.tag import Tag
 from app.schemas.documents import DocumentTagReplaceRequest
 from app.schemas.import_staging import (
@@ -26,6 +27,7 @@ from app.schemas.import_staging import (
     ImportSourceUploadResponse,
 )
 from app.services.category_mapping import map_doc_type_to_category
+from app.services.correspondent_matching import CorrespondentMatchingService
 from app.services.document_types import (
     document_type_hint_map,
     document_type_names,
@@ -1247,6 +1249,28 @@ class ImportStagingService:
             return []
         return [str(name).strip() for name in rows if name and str(name).strip()]
 
+    def _resolve_correspondent(self, sender_raw: str | None, ocr_text: str | None) -> dict[str, object] | None:
+        """Rohen Absender/OCR-Text auf einen kanonischen Korrespondenten abbilden.
+
+        Best effort – Fehler dürfen den Titelvorschlag nie blockieren.
+        """
+        if not (str(sender_raw or "").strip() or str(ocr_text or "").strip()):
+            return None
+        try:
+            match = CorrespondentMatchingService(self.db).resolve(sender=sender_raw, ocr_text=ocr_text)
+        except Exception as exc:  # noqa: BLE001 - Korrespondenten-Matching ist optional
+            logger.warning("stage title: correspondent matching failed: %s", exc)
+            return None
+        if match is None:
+            return None
+        return {
+            "id": str(match.correspondent_id),
+            "name": match.name,
+            "short_name": match.short_name,
+            "matched_by": match.matched_by,
+            "matched_value": match.matched_value,
+        }
+
     def suggest_stage_title(
         self,
         source_file_ids: list[str],
@@ -1436,6 +1460,11 @@ class ImportStagingService:
         # Wichtigste Fakten als Notiz (nur vom LLM geliefert; regelbasiert leer).
         final_note = str(rich.get("summary") or "").strip() or None
 
+        # Korrespondent deterministisch auflösen (Matcher/Alias zuerst). Der rohe
+        # Absender bleibt sichtbar; ai_sender wird im Import nicht überschrieben.
+        sender_raw = str(rich.get("issuer") or "").strip() or None
+        correspondent_info = self._resolve_correspondent(sender_raw, extracted_text)
+
         merged_meta: dict[str, object] = {
             "doc_type": normalized_doc_type,
             "issuer": issuer,
@@ -1458,6 +1487,8 @@ class ImportStagingService:
                 "date": final_date,
                 "document_type": self._map_doc_type_to_category(normalized_doc_type),
                 "category": self._map_doc_type_to_category(normalized_doc_type),
+                "sender_raw": sender_raw,
+                "correspondent": correspondent_info,
                 "tags": final_tags,
                 "note": final_note,
                 "analysis_status": "ready",
@@ -1606,10 +1637,29 @@ class ImportStagingService:
         if missing_ids:
             raise BadRequestError("One or more tags were not found", details={"missing_tag_ids": missing_ids})
 
+    def _validate_requested_correspondents(self, payload: ImportCommitRequest) -> None:
+        requested_ids = {
+            document.correspondent_id for document in payload.documents if document.correspondent_id is not None
+        }
+        if not requested_ids:
+            return
+        found_ids = set(
+            self.db.execute(
+                select(Correspondent.id).where(Correspondent.id.in_(requested_ids))
+            ).scalars().all()
+        )
+        missing_ids = [str(cid) for cid in requested_ids if cid not in found_ids]
+        if missing_ids:
+            raise BadRequestError(
+                "One or more correspondents were not found",
+                details={"missing_correspondent_ids": missing_ids},
+            )
+
     def commit(self, payload: ImportCommitRequest) -> ImportCommitResponse:
         if not payload.documents:
             raise BadRequestError("At least one staging document is required")
         self._validate_requested_tags(payload)
+        self._validate_requested_correspondents(payload)
 
         reader_cache: dict[str, PdfReader] = {}
         created: list[ImportCommitCreatedItem] = []
@@ -1646,8 +1696,11 @@ class ImportStagingService:
                     document_date=staging_doc.date,
                     notes=staging_doc.note,
                 )
-                if staging_doc.document_type:
-                    created_doc.document_type = staging_doc.document_type
+                if staging_doc.document_type or staging_doc.correspondent_id is not None:
+                    if staging_doc.document_type:
+                        created_doc.document_type = staging_doc.document_type
+                    if staging_doc.correspondent_id is not None:
+                        created_doc.correspondent_id = staging_doc.correspondent_id
                     self.document_service.db.commit()
                 if staging_doc.tag_ids:
                     self.document_service.replace_document_tags(

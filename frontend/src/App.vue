@@ -6256,6 +6256,16 @@ onBeforeUnmount(() => {
   background: var(--pm-viewer-surface);
 }
 
+/* Tag-Schublade im Darkmode: flache Oberfläche wie die Detailschublade,
+   kein heller Farbverlauf und keine hellen Glanzkanten. */
+.papermind-app.v-theme--dark .tag-filter-drawer {
+  border-top: 1px solid var(--pm-drawer-border-expanded);
+  background: var(--pm-drawer-bg-expanded);
+  backdrop-filter: blur(var(--pm-drawer-blur-expanded)) saturate(1.05);
+  -webkit-backdrop-filter: blur(var(--pm-drawer-blur-expanded)) saturate(1.05);
+  box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.3);
+}
+
 .papermind-app.v-theme--dark .list-toolbar__search :deep(.v-field),
 .papermind-app.v-theme--dark .tags-view-search :deep(.v-field),
 .papermind-app.v-theme--dark .tags-view-list-wrap,
