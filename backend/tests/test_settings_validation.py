@@ -49,20 +49,20 @@ class SettingsValidationTest(unittest.TestCase):
                 "ui": {
                     "showFilenameSuffix": False,
                     "drawerRememberState": True,
-                    "drawerAlwaysExpanded": False,
+                    "tagDrawerRememberState": False,
                 }
             }
         )
         self.assertIs(payload.ui.showFilenameSuffix, False)
         self.assertIs(payload.ui.drawerRememberState, True)
-        self.assertIs(payload.ui.drawerAlwaysExpanded, False)
+        self.assertIs(payload.ui.tagDrawerRememberState, False)
 
     def test_ui_new_toggle_defaults_present_in_read_model(self) -> None:
         payload = AppSettingsRead.model_validate({})
         self.assertIs(payload.ui.showFilenameSuffix, True)
         self.assertEqual(payload.ui.color_variant.value, "slate")
         self.assertIs(payload.ui.drawerRememberState, True)
-        self.assertIs(payload.ui.drawerAlwaysExpanded, False)
+        self.assertIs(payload.ui.tagDrawerRememberState, True)
         self.assertEqual(payload.documents.recent_import_window_hours, 24)
 
     def test_llm_system_prompt_rejects_too_short(self) -> None:
