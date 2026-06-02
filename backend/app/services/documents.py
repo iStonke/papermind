@@ -25,6 +25,7 @@ from app.core.errors import (
     StorageError,
 )
 from app.core.text import sanitize_text_for_db
+from app.models.correspondent import Correspondent
 from app.models.document import Document
 from app.models.document_file import DocumentFile
 from app.models.document_type import DocumentType
@@ -1407,6 +1408,14 @@ class DocumentService:
             document.notes = data["notes"]
         if "document_type" in data:
             document.document_type = data["document_type"]
+        if "correspondent_id" in data:
+            correspondent_id = data["correspondent_id"]
+            if correspondent_id is not None and self.db.get(Correspondent, correspondent_id) is None:
+                raise BadRequestError(
+                    "Correspondent not found",
+                    details={"correspondent_id": str(correspondent_id)},
+                )
+            document.correspondent_id = correspondent_id
         if "status" in data and data["status"] is not None:
             document.status = data["status"].value
         if "display_name" in data:
@@ -1596,6 +1605,9 @@ class DocumentService:
     def as_detail(self, document: Document) -> DocumentDetail:
         detail = DocumentDetail.model_validate(document, from_attributes=True)
         detail.is_duplicate = document.duplicate_of_doc_id is not None
+        if document.correspondent_id is not None:
+            correspondent = self.db.get(Correspondent, document.correspondent_id)
+            detail.correspondent_name = correspondent.name if correspondent is not None else None
         return detail
 
     def _as_summary(self, document: Document) -> DocumentSummary:

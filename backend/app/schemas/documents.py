@@ -95,6 +95,7 @@ class DocumentUpdateRequest(BaseModel):
         max_length=NAME_MAX_LENGTH,
         validation_alias=AliasChoices("document_type", "category"),
     )
+    correspondent_id: uuid.UUID | None = Field(default=None)
     status: DocumentStatus | None = None
     display_name: str | None = Field(default=None, max_length=200)
 
@@ -195,6 +196,8 @@ class DocumentDetail(ORMModel):
     notes: str | None
     document_type: str | None = None
     category: str | None = None
+    correspondent_id: uuid.UUID | None = None
+    correspondent_name: str | None = None
     status: DocumentStatus
     ocr_status: DocumentOCRStatus
     ocr_quality_status: DocumentOCRQualityStatus | None = None

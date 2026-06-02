@@ -580,6 +580,7 @@
           <v-btn
             color="primary"
             variant="flat"
+            class="isd-import-btn"
             :disabled="isImportActionDisabled"
             @click="commitImport"
           >
@@ -1306,6 +1307,7 @@ const aiAnalysis = computed(() => {
   if (docTitleAiFilled.value) fields.push('Name');
   if (docDateAiFilled.value) fields.push('Datum');
   if (docCategoryAiFilled.value) fields.push('Dokumenttyp');
+  if (docCorrespondentAiFilled.value) fields.push('Korrespondent');
   if (docTagsAiFilled.value) fields.push('Tags');
   if (docNoteAiFilled.value) fields.push('Notiz');
   if (fields.length > 0) {
@@ -1329,6 +1331,7 @@ function hasAiFilledImportFields() {
     docTitleAiFilled.value ||
     docDateAiFilled.value ||
     docCategoryAiFilled.value ||
+    docCorrespondentAiFilled.value ||
     docTagsAiFilled.value ||
     docNoteAiFilled.value
   );
@@ -5305,5 +5308,17 @@ onBeforeUnmount(() => {
 .isd-footer-status {
   font-size: 13px;
   color: rgba(var(--v-theme-on-surface), 0.54);
+}
+
+/* Deaktivierter Importieren-Button im Darkmode: gedämpfte, neutrale Fläche
+   statt der hellen Primary-Farbe mit weißem Overlay. */
+.isd-import-btn.v-theme--dark.v-btn--disabled {
+  opacity: 1;
+  background-color: rgba(255, 255, 255, 0.07) !important;
+  color: rgba(255, 255, 255, 0.40) !important;
+}
+
+.isd-import-btn.v-theme--dark.v-btn--disabled :deep(.v-btn__overlay) {
+  opacity: 0 !important;
 }
 </style>

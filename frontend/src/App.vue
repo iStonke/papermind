@@ -727,6 +727,30 @@
                   </div>
 
                   <div class="pm-drawer-section">
+                    <div class="pm-label">Korrespondent</div>
+                    <v-autocomplete
+                      :model-value="metadataCorrespondentId"
+                      :items="correspondentDrawerItems"
+                      item-title="title"
+                      item-value="value"
+                      density="compact"
+                      variant="outlined"
+                      hide-details
+                      clearable
+                      placeholder="Korrespondent wählen…"
+                      :loading="isSavingCorrespondent"
+                      :menu-props="{
+                        maxHeight: 240,
+                        offset: 10,
+                        attach: 'body',
+                        zIndex: 6000,
+                        contentClass: 'pm-menu'
+                      }"
+                      @update:model-value="onMetadataCorrespondentChange"
+                    />
+                  </div>
+
+                  <div class="pm-drawer-section">
                     <div class="pm-label">Tags</div>
                     <div class="details-tags-row">
                       <v-combobox
@@ -815,6 +839,7 @@ import { useSettingsStore } from './stores/settings';
 import { useDocumentStore } from './stores/documents';
 import { useTagStore } from './stores/tags';
 import { useCategoryStore } from './stores/categories';
+import { useCorrespondentStore } from './stores/correspondents';
 import { useSidebarStore } from './stores/sidebar';
 import { useImportStagingStore } from './stores/importStaging';
 import {
@@ -970,6 +995,7 @@ const showPdfSuffix = computed(() => settingsStore.settingsDraft.ui.showFilename
 const docStore     = useDocumentStore();
 const tagStore     = useTagStore();
 const categoryStore = useCategoryStore();
+const correspondentStore = useCorrespondentStore();
 const sidebarStore = useSidebarStore();
 const importStagingStore = useImportStagingStore();
 
@@ -1294,6 +1320,8 @@ const metadataDocDate = ref('');
 const metadataDocDateHasError = ref(false);
 const metadataDocCategory = ref(null);
 const isSavingCategory = ref(false);
+const metadataCorrespondentId = ref(null);
+const isSavingCorrespondent = ref(false);
 const metadataNotes = ref('');
 const metadataTagIds = ref([]);
 const metadataTagNames = ref([]);
@@ -2130,6 +2158,34 @@ async function onMetadataCategoryChange(nextCategory) {
   }
 }
 
+// Korrespondenten-Optionen für das Detail-Drawer; aktuelle Auswahl bleibt
+// sichtbar, falls sie (noch) nicht in der geladenen Liste steht.
+const correspondentDrawerItems = computed(() => {
+  const items = correspondentStore.correspondentOptions.map((o) => ({ title: o.title, value: o.value }));
+  const currentId = metadataCorrespondentId.value;
+  if (currentId && !items.some((o) => o.value === currentId)) {
+    const name = selectedDocumentDetail.value?.correspondent_name || 'Korrespondent';
+    items.unshift({ title: name, value: currentId });
+  }
+  return items;
+});
+
+async function onMetadataCorrespondentChange(nextId) {
+  if (!selectedDocumentDetail.value) return;
+  const documentId = selectedDocumentDetail.value.id;
+  const value = nextId || null;
+  metadataCorrespondentId.value = value;
+  isSavingCorrespondent.value = true;
+  try {
+    await docStore.patchDocument(documentId, { correspondent_id: value });
+  } catch (error) {
+    notifyError(error, 'Korrespondent konnte nicht gespeichert werden.');
+    metadataCorrespondentId.value = selectedDocumentDetail.value?.correspondent_id || null;
+  } finally {
+    isSavingCorrespondent.value = false;
+  }
+}
+
 async function handleMetadataTagEnter() {
   if (!selectedDocumentDetail.value) return;
   const normalizedNames = normalizeTagNames([...metadataTagNames.value, metadataTagSearch.value]);
@@ -2432,6 +2488,8 @@ function applyMetadataFromDetail(detail) {
   metadataDocDateHasError.value = false;
   metadataDocCategory.value = detail?.document_type || detail?.category || null;
   void categoryStore.ensureLoaded();
+  metadataCorrespondentId.value = detail?.correspondent_id || null;
+  void correspondentStore.ensureLoaded();
   metadataNotes.value = detail?.notes || '';
   const nextTagIds = normalizeTagIds((detail?.tags || []).map((tag) => tag.id));
   metadataTagIds.value = nextTagIds;
