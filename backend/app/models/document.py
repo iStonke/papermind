@@ -74,6 +74,7 @@ class Document(Base):
         Index("ix_documents_simhash_bucket2", "simhash_bucket2"),
         Index("ix_documents_simhash_bucket3", "simhash_bucket3"),
         Index("ix_documents_simhash_bucket4", "simhash_bucket4"),
+        Index("ix_documents_correspondent_id", "correspondent_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -90,6 +91,11 @@ class Document(Base):
     document_date_candidates: Mapped[dict[str, Any] | list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     document_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    correspondent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("correspondents.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="imported")
     mime_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
     page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
