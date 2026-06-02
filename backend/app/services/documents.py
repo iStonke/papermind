@@ -49,6 +49,11 @@ from app.schemas.documents import (
 )
 from app.services.ai_classification import apply_ollama_classification
 from app.services.category_mapping import map_doc_type_to_category
+from app.services.document_types import (
+    document_type_hint_map,
+    document_type_names,
+    load_active_document_type_vocab,
+)
 from app.services.settings import SettingsService
 
 logger = logging.getLogger("papermind.documents")
@@ -863,19 +868,6 @@ class DocumentService:
             result.append(canonical)
         return result
 
-    def _load_active_document_type_names(self, limit: int = 120) -> list[str]:
-        try:
-            rows = self.db.execute(
-                select(DocumentType.name)
-                .where(DocumentType.is_active.is_(True))
-                .order_by(DocumentType.sort_order.asc(), func.lower(DocumentType.name).asc())
-                .limit(limit)
-            ).scalars().all()
-        except Exception as exc:  # noqa: BLE001 - metadata suggestions must remain best effort
-            logger.warning("could not load active document types: %s", exc)
-            return []
-        return [str(name).strip() for name in rows if name and str(name).strip()]
-
     def suggest_metadata(self, document_id: uuid.UUID) -> DocumentMetadataSuggestion:
         """Return AI-derived suggestions for a document's editable fields.
 
@@ -888,12 +880,14 @@ class DocumentService:
         if document.ai_status != "done":
             text_value = self._extract_text_for_manual_auto_tagging(document)
             if text_value:
+                doc_type_vocab = load_active_document_type_vocab(self.db)
                 apply_ollama_classification(
                     document,
                     extracted_text=text_value,
                     quality_status=document.ocr_quality_status or "good",
                     confidence_score=document.ocr_confidence_score,
-                    allowed_document_types=self._load_active_document_type_names(),
+                    allowed_document_types=document_type_names(doc_type_vocab),
+                    document_type_hints=document_type_hint_map(doc_type_vocab),
                 )
                 self.db.commit()
                 document = self.get_document_or_404(document_id)

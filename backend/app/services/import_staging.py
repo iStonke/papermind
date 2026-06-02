@@ -10,13 +10,12 @@ from pathlib import Path
 import httpx
 from fastapi import UploadFile
 from pypdf import PdfReader
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import APIError, BadRequestError, PayloadTooLargeError, StorageError
 from app.models.tag import Tag
-from app.models.document_type import DocumentType
 from app.schemas.documents import DocumentTagReplaceRequest
 from app.schemas.import_staging import (
     ImportCommitCreatedItem,
@@ -27,6 +26,11 @@ from app.schemas.import_staging import (
     ImportSourceUploadResponse,
 )
 from app.services.category_mapping import map_doc_type_to_category
+from app.services.document_types import (
+    document_type_hint_map,
+    document_type_names,
+    load_active_document_type_vocab,
+)
 from app.services.documents import ALLOWED_PDF_CONTENT_TYPES, DocumentService
 from app.services.ocr_pipeline import run_ocr_lite, run_ocr_pipeline
 from app.services.settings import SettingsService
@@ -918,6 +922,7 @@ class ImportStagingService:
         max_input_chars: int,
         existing_tags: list[str] | None = None,
         allowed_doc_types: list[str] | None = None,
+        doc_type_hints: dict[str, str] | None = None,
     ) -> dict[str, object] | None:
         """Call Ollama to extract metadata from OCR text.
 
@@ -954,9 +959,24 @@ class ImportStagingService:
             doc_type_names = sorted(_DOC_TYPES_ALLOWED)
         doc_type_hint = ", ".join(doc_type_names[:120])
 
+        hint_lines: list[str] = []
+        if doc_type_hints:
+            for name in doc_type_names:
+                hint = " ".join(str(doc_type_hints.get(name) or "").split()).strip()
+                if hint:
+                    hint_lines.append(f"- {name}: {hint}")
+                if len(hint_lines) >= 40:
+                    break
+        hint_block = (
+            "Typ-Hinweise zur Wahl von doc_type:\n" + "\n".join(hint_lines) + "\n\n"
+            if hint_lines
+            else ""
+        )
+
         prompt = (
             "Extrahiere aus dem folgenden OCR-Text eines deutschen Dokuments die Metadaten. "
             "Antworte NUR mit einem gültigen JSON-Objekt, ohne Markdown, ohne Erklärungen.\n\n"
+            f"{hint_block}"
             "Felder:\n"
             f'- "doc_type": eines von [{doc_type_hint}]\n'
             '- "issuer": Absender/Aussteller, max. 40 Zeichen, oder null\n'
@@ -1227,19 +1247,6 @@ class ImportStagingService:
             return []
         return [str(name).strip() for name in rows if name and str(name).strip()]
 
-    def _load_active_document_type_names(self, limit: int = 120) -> list[str]:
-        try:
-            rows = self.db.execute(
-                select(DocumentType.name)
-                .where(DocumentType.is_active.is_(True))
-                .order_by(DocumentType.sort_order.asc(), func.lower(DocumentType.name).asc())
-                .limit(limit)
-            ).scalars().all()
-        except Exception as exc:  # noqa: BLE001 - best effort, rules remain fallback
-            logger.warning("stage title: could not load document types: %s", exc)
-            return []
-        return [str(name).strip() for name in rows if name and str(name).strip()]
-
     def suggest_stage_title(
         self,
         source_file_ids: list[str],
@@ -1343,7 +1350,8 @@ class ImportStagingService:
         runtime_settings = self.settings_service.get_settings().model_dump(mode="json")
         ollama_cfg = runtime_settings.get("ollama") or {}
         existing_tag_names = self._load_existing_tag_names()
-        active_doc_type_names = self._load_active_document_type_names()
+        doc_type_vocab = load_active_document_type_vocab(self.db)
+        active_doc_type_names = document_type_names(doc_type_vocab)
         ollama_rich: dict[str, object] | None = None
         if ollama_cfg.get("enabled"):
             ollama_rich = self._call_ollama_for_staging(
@@ -1354,6 +1362,7 @@ class ImportStagingService:
                 max_input_chars=int(ollama_cfg.get("max_input_chars") or 800),
                 existing_tags=existing_tag_names,
                 allowed_doc_types=active_doc_type_names,
+                doc_type_hints=document_type_hint_map(doc_type_vocab),
             )
             if ollama_rich:
                 logger.info("SuggestTitle: ollama extraction succeeded stage=%s", str(stage_id or "").strip() or "-")
