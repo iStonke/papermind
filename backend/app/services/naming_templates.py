@@ -8,8 +8,12 @@ from sqlalchemy.orm import Session
 from app.models.document_type import DocumentType
 
 
-_FILENAME_SEPARATOR = " – "
+_FILENAME_SEPARATOR = " "
 _FILENAME_MAX_LEN = 80
+_GERMAN_MONTHS = (
+    "Januar", "Februar", "März", "April", "Mai", "Juni",
+    "Juli", "August", "September", "Oktober", "November", "Dezember",
+)
 _INVALID_TITLE_CHARS = re.compile(r'[\/\\:*?"<>|]+')
 _WHITESPACE_RE = re.compile(r"\s+")
 _PLACEHOLDER_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)(?::([^{}]+))?\}")
@@ -75,35 +79,27 @@ def _clip_with_ellipsis(value: str, max_len: int) -> str:
 
 
 def build_legacy_filename_from_meta(meta: dict[str, object]) -> str:
-    """Bisheriges festes Schema als stabiler Fallback."""
-    doc_type = _clean_filename_component(str(meta.get("doc_type") or "Dokument"), max_len=24) or "Dokument"
-    issuer = _normalize_issuer(str(meta.get("issuer") or "")) or "Unbekannt"
-    subject = _normalize_subject(str(meta.get("subject") or "")) or "Ohne Betreff"
+    """Fallback ohne Template: Betreff zuerst, kein Dokumenttyp, Leerzeichen-getrennt.
+
+    Der Korrespondent kommt nur dazu, wenn er nicht ohnehin schon im Betreff
+    steckt – sonst bleibt er das separat gepflegte Feld.
+    """
+    subject = _normalize_subject(str(meta.get("subject") or ""))
+    issuer = _normalize_issuer(str(meta.get("issuer") or ""))
     amount_value = _safe_float(meta.get("amount"))
 
-    base_parts = [doc_type, issuer, subject]
-    base = _FILENAME_SEPARATOR.join(base_parts)
+    parts: list[str] = []
+    if subject:
+        parts.append(subject)
+    if issuer and not (subject and issuer.casefold() in subject.casefold()):
+        parts.append(issuer)
+    if not parts:
+        parts.append("Dokument")
     if amount_value is not None:
-        filename = f"{base}{_FILENAME_SEPARATOR}{_format_euro(amount_value)}"
-    else:
-        filename = base
+        parts.append(_format_euro(amount_value))
 
-    filename = _clean_filename_component(filename, max_len=_FILENAME_MAX_LEN + 20)
-    filename = filename.replace(" - ", _FILENAME_SEPARATOR)
-    if len(filename) <= _FILENAME_MAX_LEN:
-        return filename
-
-    short_subject = _clip_with_ellipsis(subject, 28)
-    base = _FILENAME_SEPARATOR.join([doc_type, issuer, short_subject])
-    filename = f"{base}{_FILENAME_SEPARATOR}{_format_euro(amount_value)}" if amount_value is not None else base
-    filename = _clean_filename_component(filename, max_len=_FILENAME_MAX_LEN + 20).replace(" - ", _FILENAME_SEPARATOR)
-    if len(filename) <= _FILENAME_MAX_LEN:
-        return filename
-
-    short_issuer = _clip_with_ellipsis(issuer, 24)
-    base = _FILENAME_SEPARATOR.join([doc_type, short_issuer, short_subject])
-    filename = f"{base}{_FILENAME_SEPARATOR}{_format_euro(amount_value)}" if amount_value is not None else base
-    return _clean_filename_component(filename, max_len=_FILENAME_MAX_LEN).replace(" - ", _FILENAME_SEPARATOR)
+    filename = _clean_filename_component(_FILENAME_SEPARATOR.join(parts), max_len=_FILENAME_MAX_LEN)
+    return filename or "Dokument"
 
 
 class NamingTemplateService:
@@ -147,7 +143,8 @@ class NamingTemplateService:
             fmt = match.group(2)
             value = self._value_for_placeholder(key, meta)
             if value is None or value == "":
-                return match.group(0)
+                # Fehlende Felder werden weggelassen (kein sichtbares {platzhalter}).
+                return ""
             return self._format_value(value, fmt)
 
         return _PLACEHOLDER_RE.sub(replace, str(template or ""))
@@ -176,8 +173,17 @@ class NamingTemplateService:
             parsed = self._parse_date(meta.get("date"))
             return parsed.year if parsed else meta.get("year")
         if canonical == "month":
+            # Deutscher Monatsname (z. B. "Dezember"), passend zum Bestandsstil.
             parsed = self._parse_date(meta.get("date"))
-            return parsed.month if parsed else meta.get("month")
+            month_num = parsed.month if parsed else None
+            if month_num is None:
+                try:
+                    month_num = int(meta.get("month"))
+                except (TypeError, ValueError):
+                    month_num = None
+            if month_num and 1 <= month_num <= 12:
+                return _GERMAN_MONTHS[month_num - 1]
+            return None
         if canonical == "amount":
             amount = _safe_float(meta.get("amount"))
             return _format_euro(amount) if amount is not None else meta.get("amount")
