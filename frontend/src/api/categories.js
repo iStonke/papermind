@@ -3,6 +3,7 @@ import {
   deleteDocumentType,
   listDocumentTypes,
   renameDocumentType,
+  updateDocumentType,
 } from './documentTypes.js';
 
 /** Compatibility alias for GET /api/document-types?include_count=true */
@@ -16,6 +17,10 @@ export const createCategory = (name) =>
 /** Compatibility alias for PATCH /api/document-types/{id} */
 export const renameCategory = (id, name) =>
   renameDocumentType(id, name);
+
+/** Compatibility alias for PATCH /api/document-types/{id} */
+export const updateCategory = (id, payload) =>
+  updateDocumentType(id, payload);
 
 /** Compatibility alias for DELETE /api/document-types/{id} */
 export const deleteCategory = (id) =>

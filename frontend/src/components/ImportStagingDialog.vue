@@ -459,7 +459,7 @@
             density="compact"
             variant="outlined"
             hide-details
-            rows="5"
+            rows="2"
             no-resize
             @update:model-value="docNoteTouched = true; docNoteAiFilled = false"
           />
@@ -521,7 +521,7 @@
             <span
               class="isd-props-status__text"
               :title="`Automatisch erkannt: ${aiAnalysis.fields.join(', ')}`"
-            >Automatisch erkannt: {{ aiAnalysis.fields.join(', ') }}</span>
+            >Automatisch erkannt</span>
           </template>
           <template v-else-if="aiAnalysis.kind === 'partial'">
             <v-icon size="16" color="success">mdi-check-circle-outline</v-icon>
@@ -1062,7 +1062,30 @@ const hasAnySelectedPage = computed(() => Boolean(selected.value?.pageId));
 const gridScrollStyle = computed(() => ({
   '--pm-grid-min': ['100px', '140px', '185px', '240px'][gridZoomIndex.value] || '140px'
 }));
-const isImportActionDisabled = computed(() => totalPages.value <= 0 || !primaryDocTitle.value.trim() || !isDocDateValid.value || isUploadingSources.value || isCommitting.value);
+// Die KI-Analyse gilt als abgeschlossen, sobald nichts mehr vorbereitet wird
+// und der Analyse-Status nicht mehr "busy" (läuft) ist. Ein fehlgeschlagener
+// Lauf zählt ebenfalls als abgeschlossen – die Felder lassen sich dann manuell
+// befüllen.
+const isAnalysisComplete = computed(() =>
+  !isUploadingSources.value && aiAnalysis.value.kind !== 'busy'
+);
+
+// Alle Pflichtfelder müssen befüllt sein. Korrespondent bleibt bewusst optional:
+// Seed/Backfill sind noch im Aufbau, daher darf ein fehlender Match den Import
+// nicht blockieren.
+const areRequiredFieldsFilled = computed(() =>
+  Boolean(primaryDocTitle.value.trim()) &&
+  isDocDateValid.value &&
+  Boolean(docCategory.value) &&
+  primaryDocTagNames.value.length > 0
+);
+
+const isImportActionDisabled = computed(() =>
+  totalPages.value <= 0 ||
+  isCommitting.value ||
+  !isAnalysisComplete.value ||
+  !areRequiredFieldsFilled.value
+);
 
 /* ── Multi-Selektion ── */
 const multiSelectedPageIds = ref(new Set());
@@ -2479,7 +2502,7 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
             }
             // Korrespondent: roher Absender immer anzeigen; aufgelösten
             // Korrespondenten vorbelegen, solange der Nutzer ihn nicht selbst
-            // angefasst hat. Das Backend löst Matcher/Alias deterministisch auf.
+            // angefasst hat. Das Backend löst bekannte Aliase deterministisch auf.
             docSenderRaw.value = String(aiMeta.sender_raw || '').trim();
             const aiCorrespondent = aiMeta.correspondent && typeof aiMeta.correspondent === 'object'
               ? aiMeta.correspondent
@@ -5310,15 +5333,29 @@ onBeforeUnmount(() => {
   color: rgba(var(--v-theme-on-surface), 0.54);
 }
 
-/* Deaktivierter Importieren-Button im Darkmode: gedämpfte, neutrale Fläche
-   statt der hellen Primary-Farbe mit weißem Overlay. */
-.isd-import-btn.v-theme--dark.v-btn--disabled {
+/* ── Import-Button: Zustände klar differenzieren ──────────────────────────
+   Deaktiviert (Analyse läuft noch oder Pflichtfelder fehlen): gedämpfte,
+   neutrale Fläche mit blasser Schrift – liest sich eindeutig als inaktiv.
+   Aktiviert (bereit zum Import): volle Primary-Farbe mit Hervorhebung. */
+.isd-import-btn.v-btn--disabled {
   opacity: 1;
+  background-color: rgba(15, 23, 42, 0.06) !important;
+  color: rgba(15, 23, 42, 0.38) !important;
+  box-shadow: none !important;
+}
+
+.isd-import-btn.v-theme--dark.v-btn--disabled {
   background-color: rgba(255, 255, 255, 0.07) !important;
   color: rgba(255, 255, 255, 0.40) !important;
 }
 
-.isd-import-btn.v-theme--dark.v-btn--disabled :deep(.v-btn__overlay) {
+.isd-import-btn.v-btn--disabled :deep(.v-btn__overlay) {
   opacity: 0 !important;
+}
+
+/* Aktivierter Zustand: deutlich als Call-to-Action erkennbar. */
+.isd-import-btn:not(.v-btn--disabled) {
+  font-weight: 700;
+  box-shadow: 0 2px 12px rgba(var(--v-theme-primary), 0.42) !important;
 }
 </style>

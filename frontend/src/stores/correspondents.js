@@ -10,12 +10,16 @@ import { computed, ref } from 'vue';
 import {
   addCorrespondentAlias as apiAddAlias,
   createCorrespondent as apiCreateCorrespondent,
+  deleteCorrespondent as apiDeleteCorrespondent,
+  deleteCorrespondentAlias as apiDeleteAlias,
   listCorrespondents,
+  updateCorrespondent as apiUpdateCorrespondent,
 } from '../api/correspondents.js';
 import { mapApiError, useNotifications } from './notifications.js';
 
 const NAME_MIN_LENGTH = 2;
 const NAME_MAX_LENGTH = 120;
+const AUTO_RETRY_AFTER_MS = 5000;
 
 export const useCorrespondentStore = defineStore('correspondents', () => {
   const { notify } = useNotifications();
@@ -23,6 +27,11 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
   const correspondents = ref([]);
   const isLoaded = ref(false);
   const isMutationRunning = ref(false);
+  // Verhindert Mehrfach-/Dauerabrufe (z. B. wenn der Endpoint nicht erreichbar
+  // ist) und damit eine Konsolen-Fehlerflut.
+  let inFlight = null;
+  let loadAttempted = false;
+  let lastLoadFailedAt = 0;
 
   /** Für v-autocomplete: { title, value } sortiert nach Name. */
   const correspondentOptions = computed(() =>
@@ -48,17 +57,31 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
   };
 
   async function fetchCorrespondents() {
-    try {
-      const payload = await listCorrespondents(true);
-      correspondents.value = payload?.items ?? [];
-      isLoaded.value = true;
-    } catch (error) {
-      console.error('Korrespondenten konnten nicht geladen werden:', error);
-    }
+    if (inFlight) return inFlight;
+    inFlight = (async () => {
+      try {
+        const payload = await listCorrespondents(true);
+        correspondents.value = payload?.items ?? [];
+        isLoaded.value = true;
+        lastLoadFailedAt = 0;
+      } catch (error) {
+        // Nur warnen (nicht error-spammen): typischerweise ist das Backend
+        // noch nicht neugestartet, sodass /api/correspondents fehlt.
+        lastLoadFailedAt = Date.now();
+        console.warn('Korrespondenten konnten nicht geladen werden:', error?.message || error);
+      } finally {
+        loadAttempted = true;
+        inFlight = null;
+      }
+    })();
+    return inFlight;
   }
 
   async function ensureLoaded() {
     if (isLoaded.value) return;
+    // Nach einem fehlgeschlagenen automatischen Versuch kurz pausieren, danach
+    // erneut probieren. So heilt sich ein Backend-Neustart ohne Seiten-Reload.
+    if (loadAttempted && Date.now() - lastLoadFailedAt < AUTO_RETRY_AFTER_MS) return;
     await fetchCorrespondents();
   }
 
@@ -108,6 +131,51 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
     }
   }
 
+  async function updateCorrespondent(correspondentId, payload) {
+    isMutationRunning.value = true;
+    try {
+      const updated = await apiUpdateCorrespondent(correspondentId, payload);
+      await fetchCorrespondents();
+      notify({ type: 'success', title: 'Korrespondent', message: 'Korrespondent aktualisiert.' });
+      return { ok: true, correspondent: updated };
+    } catch (error) {
+      notify({ type: 'error', message: mapApiError(error, 'Korrespondent konnte nicht aktualisiert werden.') });
+      throw error;
+    } finally {
+      isMutationRunning.value = false;
+    }
+  }
+
+  async function deleteCorrespondent(correspondentId) {
+    isMutationRunning.value = true;
+    try {
+      await apiDeleteCorrespondent(correspondentId);
+      await fetchCorrespondents();
+      notify({ type: 'success', title: 'Korrespondent', message: 'Korrespondent gelöscht.' });
+      return { ok: true };
+    } catch (error) {
+      notify({ type: 'error', message: mapApiError(error, 'Korrespondent konnte nicht gelöscht werden.') });
+      throw error;
+    } finally {
+      isMutationRunning.value = false;
+    }
+  }
+
+  async function deleteAlias(correspondentId, aliasId) {
+    isMutationRunning.value = true;
+    try {
+      const updated = await apiDeleteAlias(correspondentId, aliasId);
+      await fetchCorrespondents();
+      notify({ type: 'success', title: 'Korrespondent', message: 'Alias entfernt.' });
+      return { ok: true, correspondent: updated };
+    } catch (error) {
+      notify({ type: 'error', message: mapApiError(error, 'Alias konnte nicht entfernt werden.') });
+      throw error;
+    } finally {
+      isMutationRunning.value = false;
+    }
+  }
+
   return {
     correspondents,
     isLoaded,
@@ -118,6 +186,9 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
     fetchCorrespondents,
     ensureLoaded,
     createCorrespondentByName,
+    updateCorrespondent,
+    deleteCorrespondent,
     addAlias,
+    deleteAlias,
   };
 });

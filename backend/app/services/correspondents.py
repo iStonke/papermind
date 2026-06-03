@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.errors import BadRequestError, ConflictError, NotFoundError
 from app.models.correspondent import Correspondent, CorrespondentAlias, CorrespondentMatcher
 from app.models.document import Document
-from app.schemas.correspondents import CorrespondentCreateRequest
+from app.schemas.correspondents import CorrespondentCreateRequest, CorrespondentMatcherCreateRequest, CorrespondentUpdateRequest
 from app.services.utils import is_unique_violation, validate_correspondent_alias, validate_correspondent_name
 
 logger = logging.getLogger("papermind.correspondents")
@@ -21,7 +21,7 @@ class CorrespondentService:
     def list_correspondents(self, include_count: bool = False) -> list[Correspondent]:
         stmt = (
             select(Correspondent)
-            .options(selectinload(Correspondent.aliases))
+            .options(selectinload(Correspondent.aliases), selectinload(Correspondent.matchers))
             .order_by(func.lower(Correspondent.name).asc())
         )
         correspondents = self.db.execute(stmt).scalars().all()
@@ -80,10 +80,57 @@ class CorrespondentService:
         return correspondent
 
     def get_correspondent_or_404(self, correspondent_id: uuid.UUID) -> Correspondent:
-        correspondent = self.db.get(Correspondent, correspondent_id)
+        correspondent = self.db.execute(
+            select(Correspondent)
+            .options(selectinload(Correspondent.aliases), selectinload(Correspondent.matchers))
+            .where(Correspondent.id == correspondent_id)
+        ).scalar_one_or_none()
         if correspondent is None:
             raise NotFoundError("Correspondent not found", details={"correspondent_id": str(correspondent_id)})
         return correspondent
+
+    def update_correspondent(self, correspondent_id: uuid.UUID, payload: CorrespondentUpdateRequest) -> Correspondent:
+        correspondent = self.get_correspondent_or_404(correspondent_id)
+        data = payload.model_dump(exclude_unset=True)
+
+        if "name" in data and data["name"] is not None:
+            try:
+                name = validate_correspondent_name(data["name"])
+            except ValueError as exc:
+                raise BadRequestError(str(exc)) from exc
+            existing = self._find_name_conflict(name, exclude_id=correspondent_id)
+            if existing is not None:
+                raise ConflictError("Correspondent name already exists", details={"name": name})
+            correspondent.name = name
+        if "short_name" in data:
+            correspondent.short_name = data["short_name"]
+        if "notes" in data:
+            correspondent.notes = data["notes"]
+
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            if is_unique_violation(exc):
+                raise ConflictError("Correspondent name already exists", details={"name": correspondent.name}) from exc
+            raise
+        return self.get_correspondent_or_404(correspondent_id)
+
+    def delete_correspondent(self, correspondent_id: uuid.UUID) -> None:
+        correspondent = self.get_correspondent_or_404(correspondent_id)
+        usage_count = self.db.execute(
+            select(func.count(Document.id)).where(
+                Document.correspondent_id == correspondent_id,
+                Document.is_deleted.is_(False),
+            )
+        ).scalar_one()
+        if int(usage_count or 0) > 0:
+            raise ConflictError(
+                "Correspondent is still used by documents",
+                details={"correspondent_id": str(correspondent_id), "usage_count": int(usage_count)},
+            )
+        self.db.delete(correspondent)
+        self.db.commit()
 
     def add_alias(self, correspondent_id: uuid.UUID, alias: str) -> Correspondent:
         correspondent = self.get_correspondent_or_404(correspondent_id)
@@ -132,7 +179,48 @@ class CorrespondentService:
 
         self.db.refresh(correspondent)
         logger.info("correspondent alias added correspondent_id=%s alias=%s", correspondent_id, normalized)
-        return correspondent
+        return self.get_correspondent_or_404(correspondent_id)
+
+    def delete_alias(self, correspondent_id: uuid.UUID, alias_id: uuid.UUID) -> Correspondent:
+        self.get_correspondent_or_404(correspondent_id)
+        alias = self.db.get(CorrespondentAlias, alias_id)
+        if alias is None or alias.correspondent_id != correspondent_id:
+            raise NotFoundError("Correspondent alias not found", details={"alias_id": str(alias_id)})
+        self.db.delete(alias)
+        self.db.commit()
+        return self.get_correspondent_or_404(correspondent_id)
+
+    def add_matcher(self, correspondent_id: uuid.UUID, payload: CorrespondentMatcherCreateRequest) -> Correspondent:
+        self.get_correspondent_or_404(correspondent_id)
+        existing = self.db.execute(
+            select(CorrespondentMatcher).where(
+                CorrespondentMatcher.correspondent_id == correspondent_id,
+                CorrespondentMatcher.kind == payload.kind,
+                CorrespondentMatcher.scope == payload.scope,
+                func.lower(CorrespondentMatcher.pattern) == payload.pattern.lower(),
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            self.db.add(
+                CorrespondentMatcher(
+                    correspondent_id=correspondent_id,
+                    kind=payload.kind,
+                    pattern=payload.pattern,
+                    scope=payload.scope,
+                    priority=payload.priority,
+                )
+            )
+            self.db.commit()
+        return self.get_correspondent_or_404(correspondent_id)
+
+    def delete_matcher(self, correspondent_id: uuid.UUID, matcher_id: uuid.UUID) -> Correspondent:
+        self.get_correspondent_or_404(correspondent_id)
+        matcher = self.db.get(CorrespondentMatcher, matcher_id)
+        if matcher is None or matcher.correspondent_id != correspondent_id:
+            raise NotFoundError("Correspondent matcher not found", details={"matcher_id": str(matcher_id)})
+        self.db.delete(matcher)
+        self.db.commit()
+        return self.get_correspondent_or_404(correspondent_id)
 
     def correspondent_ids_exist(self, correspondent_ids: set[uuid.UUID]) -> set[uuid.UUID]:
         if not correspondent_ids:

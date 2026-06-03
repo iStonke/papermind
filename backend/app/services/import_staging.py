@@ -34,6 +34,7 @@ from app.services.document_types import (
     load_active_document_type_vocab,
 )
 from app.services.documents import ALLOWED_PDF_CONTENT_TYPES, DocumentService
+from app.services.naming_templates import NamingTemplateService, build_legacy_filename_from_meta
 from app.services.ocr_pipeline import run_ocr_lite, run_ocr_pipeline
 from app.services.settings import SettingsService
 
@@ -1210,35 +1211,7 @@ class ImportStagingService:
 
     @classmethod
     def _build_filename_from_meta(cls, meta: dict[str, object]) -> str:
-        doc_type = cls._clean_filename_component(str(meta.get("doc_type") or "Dokument"), max_len=24) or "Dokument"
-        issuer = cls._normalize_issuer(str(meta.get("issuer") or "")) or "Unbekannt"
-        subject = cls._normalize_subject(str(meta.get("subject") or "")) or "Ohne Betreff"
-        amount_value = cls._safe_float(meta.get("amount"))
-
-        base_parts = [doc_type, issuer, subject]
-        base = _FILENAME_SEPARATOR.join(base_parts)
-        if amount_value is not None:
-            filename = f"{base}{_FILENAME_SEPARATOR}{cls._format_euro(amount_value)}"
-        else:
-            filename = base
-
-        filename = cls._clean_filename_component(filename, max_len=_FILENAME_MAX_LEN + 20)
-        filename = filename.replace(" - ", _FILENAME_SEPARATOR)
-        if len(filename) <= _FILENAME_MAX_LEN:
-            return filename
-
-        # 1) shorten subject, 2) shorten issuer, never shorten doc_type/amount
-        short_subject = cls._clip_with_ellipsis(subject, 28)
-        base = _FILENAME_SEPARATOR.join([doc_type, issuer, short_subject])
-        filename = f"{base}{_FILENAME_SEPARATOR}{cls._format_euro(amount_value)}" if amount_value is not None else base
-        filename = cls._clean_filename_component(filename, max_len=_FILENAME_MAX_LEN + 20).replace(" - ", _FILENAME_SEPARATOR)
-        if len(filename) <= _FILENAME_MAX_LEN:
-            return filename
-
-        short_issuer = cls._clip_with_ellipsis(issuer, 24)
-        base = _FILENAME_SEPARATOR.join([doc_type, short_issuer, short_subject])
-        filename = f"{base}{_FILENAME_SEPARATOR}{cls._format_euro(amount_value)}" if amount_value is not None else base
-        return cls._clean_filename_component(filename, max_len=_FILENAME_MAX_LEN).replace(" - ", _FILENAME_SEPARATOR)
+        return build_legacy_filename_from_meta(meta)
 
     def _load_existing_tag_names(self, limit: int = 200) -> list[str]:
         """Vorhandene Tag-Namen für die KI-Tag-Vergabe (bevorzugt wiederverwenden)."""
@@ -1467,12 +1440,15 @@ class ImportStagingService:
 
         merged_meta: dict[str, object] = {
             "doc_type": normalized_doc_type,
+            "document_type": self._map_doc_type_to_category(normalized_doc_type),
             "issuer": issuer,
             "subject": subject or "Ohne Betreff",
             "amount": normalized_amount,
             "currency": currency,
+            "date": final_date,
+            "correspondent": correspondent_info,
         }
-        suggestion = self._build_filename_from_meta(merged_meta)
+        suggestion = NamingTemplateService(self.db).build_filename(merged_meta)
 
         return {
             "status": "ready",

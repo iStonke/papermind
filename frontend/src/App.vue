@@ -5706,7 +5706,7 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  padding: 20px 24px 20px 22px;
+  padding: 12px 24px 20px 22px;
   overflow-y: auto;
   border-left: 1px solid rgba(var(--v-theme-on-surface), 0.12);
 }
@@ -5756,7 +5756,7 @@ onBeforeUnmount(() => {
   .pm-settings-panel {
     flex: 1 1 auto;
     min-height: 0;
-    padding: 16px;
+    padding: 12px 16px 16px;
     border-left: none;
   }
 }

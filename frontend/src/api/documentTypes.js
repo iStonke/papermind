@@ -12,6 +12,10 @@ export const createDocumentType = (name) =>
 export const renameDocumentType = (id, name) =>
   apiPatch(`/api/document-types/${id}`, { name });
 
+/** PATCH /api/document-types/{id} */
+export const updateDocumentType = (id, payload) =>
+  apiPatch(`/api/document-types/${id}`, payload);
+
 /** DELETE /api/document-types/{id} */
 export const deleteDocumentType = (id) =>
   apiDelete(`/api/document-types/${id}`);

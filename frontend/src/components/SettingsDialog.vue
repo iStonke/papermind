@@ -330,37 +330,16 @@
 
               <div class="settings-categories">
                 <div
-                  v-for="cat in categoryStore.categories"
+                  v-for="cat in categoryStore.sortedCategories"
                   :key="cat.id"
                   class="settings-category-row"
+                  :class="{ 'settings-category-row--active': selectedCategoryId === cat.id }"
                 >
-                  <template v-if="editingCategoryId === cat.id">
-                    <v-text-field
-                      v-model="editingCategoryName"
-                      :maxlength="VOCAB_NAME_MAX_LENGTH"
-                      density="compact"
-                      variant="outlined"
-                      hide-details
-                      autofocus
-                      class="settings-category-edit"
-                      @keydown.enter.prevent="confirmEditCategory(cat)"
-                      @keydown.esc.prevent="cancelEditCategory"
-                    />
-                    <v-btn
-                      icon
-                      size="x-small"
-                      variant="text"
-                      color="primary"
-                      title="Speichern"
-                      @click="confirmEditCategory(cat)"
-                    >
-                      <v-icon size="18">mdi-check</v-icon>
-                    </v-btn>
-                    <v-btn icon size="x-small" variant="text" title="Abbrechen" @click="cancelEditCategory">
-                      <v-icon size="18">mdi-close</v-icon>
-                    </v-btn>
-                  </template>
-                  <template v-else>
+                  <button
+                    type="button"
+                    class="settings-category-summary"
+                    @click="toggleCategory(cat)"
+                  >
                     <div class="settings-category-main">
                       <div class="settings-category-icon" aria-hidden="true">
                         <v-icon size="16">{{ cat.is_active === false ? 'mdi-folder-outline' : 'mdi-file-document-multiple-outline' }}</v-icon>
@@ -377,35 +356,322 @@
                       <span class="settings-category-count" :title="`${cat.usage_count || 0} Dokument(e)`">
                         {{ cat.usage_count || 0 }}
                       </span>
-                      <v-btn
-                        icon
-                        size="x-small"
-                        variant="text"
-                        class="settings-category-action-btn"
-                        title="Umbenennen"
-                        :disabled="categoryStore.isCategoryMutationRunning"
-                        @click="startEditCategory(cat)"
-                      >
-                        <v-icon size="16">mdi-pencil-outline</v-icon>
-                      </v-btn>
-                      <v-btn
-                        icon
-                        size="x-small"
-                        variant="text"
-                        color="error"
-                        class="settings-category-action-btn settings-category-action-btn--danger"
-                        title="Löschen"
-                        :disabled="categoryStore.isCategoryMutationRunning"
-                        @click="removeCategory(cat)"
-                      >
-                        <v-icon size="16">mdi-trash-can-outline</v-icon>
-                      </v-btn>
+                      <v-icon size="18">{{ selectedCategoryId === cat.id ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon>
                     </div>
-                  </template>
+                  </button>
+
+                  <div
+                    class="settings-category-editor-shell"
+                    :class="{ 'settings-category-editor-shell--open': selectedCategoryId === cat.id }"
+                    :aria-hidden="selectedCategoryId === cat.id ? 'false' : 'true'"
+                    :inert="selectedCategoryId === cat.id ? null : true"
+                  >
+                    <div class="settings-category-editor">
+                      <div class="settings-category-form">
+                        <v-text-field
+                          v-model="editingCategoryName"
+                          :maxlength="VOCAB_NAME_MAX_LENGTH"
+                          density="compact"
+                          variant="outlined"
+                          hide-details
+                          label="Name"
+                          @keydown.enter.prevent="saveSelectedCategory"
+                        />
+                        <v-btn
+                          icon
+                          variant="text"
+                          color="primary"
+                          class="settings-category-action-btn"
+                          title="Speichern"
+                          :loading="categoryStore.isCategoryMutationRunning"
+                          :disabled="!canSaveSelectedCategory"
+                          @click="saveSelectedCategory"
+                        >
+                          <v-icon size="18">mdi-content-save-outline</v-icon>
+                        </v-btn>
+                        <v-btn
+                          icon
+                          variant="text"
+                          color="error"
+                          class="settings-category-action-btn settings-category-action-btn--danger"
+                          title="Löschen"
+                          :disabled="categoryStore.isCategoryMutationRunning"
+                          @click="removeCategory(cat)"
+                        >
+                          <v-icon size="18">mdi-trash-can-outline</v-icon>
+                        </v-btn>
+                      </div>
+                      <div class="settings-correspondent-block">
+                        <v-textarea
+                          v-model="editingCategoryTemplate"
+                          density="compact"
+                          variant="outlined"
+                          hide-details
+                          rows="2"
+                          auto-grow
+                          label="Dateiname-Template"
+                          placeholder="z. B. Rechnung – {korrespondent} – {betreff:short} – {datum:dd.MM.yyyy}"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                <div v-if="categoryStore.categories.length === 0" class="settings-category-empty">
+                <div v-if="categoryStore.sortedCategories.length === 0" class="settings-category-empty">
                   Noch keine Dokumenttypen angelegt.
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section v-show="activeCategory === 'correspondents'" class="pm-settings-section">
+          <div class="pm-settings-content">
+            <div class="settings-category-management">
+              <div class="settings-category-header">
+                <div class="pm-setting-content">
+                  <div class="pm-setting-label">Korrespondenten</div>
+                  <div class="pm-setting-description">
+                    Kanonische Absender/Aussteller mit Aliasen. Die Zahl zeigt, wie viele
+                    Dokumente aktuell zugeordnet sind.
+                  </div>
+                </div>
+
+                <div class="settings-category-add">
+                  <v-text-field
+                    v-model="newCorrespondentName"
+                    maxlength="120"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    placeholder="Neuer Korrespondent…"
+                    :disabled="correspondentStore.isMutationRunning"
+                    @keydown.enter.prevent="addCorrespondent"
+                  />
+                  <v-btn
+                    variant="tonal"
+                    color="primary"
+                    size="default"
+                    class="settings-category-add__button"
+                    prepend-icon="mdi-plus"
+                    :disabled="!newCorrespondentName.trim() || correspondentStore.isMutationRunning"
+                    @click="addCorrespondent"
+                  >
+                    Hinzufügen
+                  </v-btn>
+                </div>
+              </div>
+
+              <div class="settings-correspondents">
+                <div v-if="unresolvedCorrespondents.length" class="settings-correspondent-review">
+                  <div class="settings-correspondent-review__header">
+                    <div>
+                      <div class="settings-correspondent-block__title">Offene Zuordnungen</div>
+                      <div class="pm-setting-description">
+                        {{ unresolvedCorrespondents.length }} Dokument{{ unresolvedCorrespondents.length === 1 ? '' : 'e' }} ohne Korrespondent.
+                      </div>
+                    </div>
+                    <v-btn
+                      icon
+                      size="small"
+                      variant="text"
+                      title="Aktualisieren"
+                      :loading="isUnresolvedCorrespondentsLoading"
+                      @click="loadUnresolvedCorrespondents"
+                    >
+                      <v-icon size="18">mdi-refresh</v-icon>
+                    </v-btn>
+                  </div>
+
+                  <div
+                    v-for="item in unresolvedCorrespondents"
+                    :key="item.document_id"
+                    class="settings-unresolved-row"
+                  >
+                    <div class="settings-unresolved-row__main">
+                      <div class="settings-category-name">{{ item.title || item.original_filename }}</div>
+                      <div class="settings-category-meta">
+                        {{ item.sender || 'kein erkannter Absender' }}
+                        <template v-if="item.document_type"> · {{ item.document_type }}</template>
+                        <template v-if="item.document_date"> · {{ item.document_date }}</template>
+                      </div>
+                    </div>
+                    <v-select
+                      v-model="unresolvedSelections[item.document_id]"
+                      :items="correspondentStore.correspondentOptions"
+                      density="compact"
+                      variant="outlined"
+                      hide-details
+                      placeholder="Korrespondent wählen…"
+                      class="settings-unresolved-row__select"
+                    />
+                    <v-btn
+                      icon
+                      variant="tonal"
+                      color="primary"
+                      title="Zuordnen"
+                      :disabled="!unresolvedSelections[item.document_id] || assigningUnresolvedId === item.document_id"
+                      :loading="assigningUnresolvedId === item.document_id"
+                      @click="assignUnresolvedCorrespondent(item, false)"
+                    >
+                      <v-icon size="18">mdi-check</v-icon>
+                    </v-btn>
+                    <v-btn
+                      icon
+                      variant="text"
+                      color="primary"
+                      title="Absender als Alias hinzufügen und zuordnen"
+                      :disabled="!item.sender || !unresolvedSelections[item.document_id] || assigningUnresolvedId === item.document_id"
+                      @click="assignUnresolvedCorrespondent(item, true)"
+                    >
+                      <v-icon size="18">mdi-tag-plus</v-icon>
+                    </v-btn>
+                    <v-btn
+                      icon
+                      variant="text"
+                      color="primary"
+                      title="Neuen Korrespondenten aus Absender anlegen"
+                      :disabled="!item.sender || creatingUnresolvedId === item.document_id"
+                      :loading="creatingUnresolvedId === item.document_id"
+                      @click="createCorrespondentFromUnresolved(item)"
+                    >
+                      <v-icon size="18">mdi-account-plus</v-icon>
+                    </v-btn>
+                    <v-btn
+                      icon
+                      variant="text"
+                      title="Bewusst leer lassen"
+                      :disabled="ignoringUnresolvedId === item.document_id"
+                      :loading="ignoringUnresolvedId === item.document_id"
+                      @click="ignoreUnresolvedCorrespondent(item)"
+                    >
+                      <v-icon size="18">mdi-close</v-icon>
+                    </v-btn>
+                  </div>
+                </div>
+
+                <div
+                  v-for="item in correspondentStore.correspondents"
+                  :key="item.id"
+                  class="settings-correspondent-row"
+                  :class="{ 'settings-correspondent-row--active': selectedCorrespondentId === item.id }"
+                >
+                  <button
+                    type="button"
+                    class="settings-correspondent-summary"
+                    @click="toggleCorrespondent(item)"
+                  >
+                    <span class="settings-category-main">
+                      <span class="settings-category-icon" aria-hidden="true">
+                        <v-icon size="16">mdi-account-outline</v-icon>
+                      </span>
+                      <span class="settings-category-text">
+                        <span class="settings-category-name">{{ item.name }}</span>
+                        <span class="settings-category-meta">
+                          {{ item.short_name || 'kein Kurzname' }} · {{ item.aliases?.length || 0 }} Alias{{ (item.aliases?.length || 0) === 1 ? '' : 'e' }}
+                        </span>
+                      </span>
+                    </span>
+                    <span class="settings-correspondent-summary__right">
+                      <span class="settings-category-count" :title="`${item.usage_count || 0} Dokument(e)`">
+                        {{ item.usage_count || 0 }}
+                      </span>
+                      <v-icon size="18">{{ selectedCorrespondentId === item.id ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon>
+                    </span>
+                  </button>
+
+                  <div
+                    class="settings-correspondent-editor-shell"
+                    :class="{ 'settings-correspondent-editor-shell--open': selectedCorrespondentId === item.id }"
+                    :aria-hidden="selectedCorrespondentId === item.id ? 'false' : 'true'"
+                    :inert="selectedCorrespondentId === item.id ? null : true"
+                  >
+                    <div class="settings-correspondent-editor">
+                      <div class="settings-correspondent-form">
+                        <v-text-field
+                          v-model="editingCorrespondentName"
+                          density="compact"
+                          variant="outlined"
+                          hide-details
+                          label="Name"
+                          maxlength="120"
+                        />
+                        <v-text-field
+                          v-model="editingCorrespondentShortName"
+                          density="compact"
+                          variant="outlined"
+                          hide-details
+                          label="Kurzname"
+                          maxlength="60"
+                        />
+                        <v-btn
+                          icon
+                          variant="text"
+                          color="primary"
+                          class="settings-correspondent-icon-action"
+                          title="Speichern"
+                          :loading="correspondentStore.isMutationRunning"
+                          :disabled="!canSaveSelectedCorrespondent"
+                          @click="saveSelectedCorrespondent"
+                        >
+                          <v-icon size="18">mdi-content-save-outline</v-icon>
+                        </v-btn>
+                        <v-btn
+                          icon
+                          variant="text"
+                          color="error"
+                          class="settings-correspondent-icon-action"
+                          title="Löschen"
+                          :disabled="correspondentStore.isMutationRunning || (item.usage_count || 0) > 0"
+                          @click="removeSelectedCorrespondent"
+                        >
+                          <v-icon size="18">mdi-trash-can-outline</v-icon>
+                        </v-btn>
+                      </div>
+
+                      <div class="settings-correspondent-block">
+                        <div class="settings-inline-add">
+                          <v-text-field
+                            v-model="newAliasName"
+                            density="compact"
+                            variant="outlined"
+                            hide-details
+                            label="Aliase"
+                            placeholder="Alias hinzufügen…"
+                            @keydown.enter.prevent="addAliasToSelected"
+                          />
+                          <v-btn
+                            icon
+                            variant="text"
+                            color="primary"
+                            class="settings-correspondent-icon-action"
+                            title="Alias hinzufügen"
+                            :disabled="!newAliasName.trim() || correspondentStore.isMutationRunning"
+                            @click="addAliasToSelected"
+                          >
+                            <v-icon size="18">mdi-plus</v-icon>
+                          </v-btn>
+                        </div>
+                        <div class="settings-chip-list">
+                          <v-chip
+                            v-for="alias in item.aliases"
+                            :key="alias.id"
+                            size="small"
+                            closable
+                            @click:close="removeAlias(alias)"
+                          >
+                            {{ alias.alias }}
+                          </v-chip>
+                          <span v-if="!item.aliases?.length" class="settings-category-empty">Keine Aliase.</span>
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+                </div>
+
+                <div v-if="correspondentStore.correspondents.length === 0" class="settings-category-empty">
+                  Noch keine Korrespondenten angelegt.
                 </div>
               </div>
             </div>
@@ -726,10 +992,15 @@ import BaseDialog from './BaseDialog.vue';
 import { getBaseUrl } from '../api/client';
 import { useSettingsStore } from '../stores/settings';
 import { useCategoryStore } from '../stores/categories';
+import { useCorrespondentStore } from '../stores/correspondents';
 import { notifyError, useNotifications } from '../stores/notifications';
 import { useTagStore } from '../stores/tags';
 import { cleanupUnusedTags } from '../api/tags';
-import { backfillOcr } from '../api/documents';
+import { backfillOcr, patchDocument as apiPatchDocument } from '../api/documents';
+import {
+  ignoreUnresolvedCorrespondent as apiIgnoreUnresolvedCorrespondent,
+  listUnresolvedCorrespondents as apiListUnresolvedCorrespondents
+} from '../api/correspondents';
 import { SHORTCUT_ACTIONS, SHORTCUTS, handleShortcut } from '../keyboard/shortcuts';
 import {
   buildAutoOcrPatch,
@@ -759,6 +1030,7 @@ const emit = defineEmits(['update:modelValue', 'reload-imports']);
 const theme = useTheme();
 const settingsStore = useSettingsStore();
 const categoryStore = useCategoryStore();
+const correspondentStore = useCorrespondentStore();
 
 const VOCAB_NAME_MAX_LENGTH = 30;
 const tagStore = useTagStore();
@@ -835,6 +1107,7 @@ const settingsCategories = [
   { value: 'appearance', label: 'Darstellung', icon: 'mdi-palette-outline' },
   { value: 'documents', label: 'Dokumente', icon: 'mdi-file-document-outline' },
   { value: 'categories', label: 'Dokumenttypen', icon: 'mdi-file-document-multiple-outline' },
+  { value: 'correspondents', label: 'Korrespondenten', icon: 'mdi-account-outline' },
   { value: 'ai', label: 'Texterkennung', icon: 'mdi-robot-outline' },
   { value: 'controls', label: 'Bedienung', icon: 'mdi-keyboard-outline' }
 ];
@@ -1287,8 +1560,48 @@ function toggleAnimationsFromRow() {
 // ── Dokumenttypen-Verwaltung ───────────────────────────────────────────────────
 
 const newCategoryName = ref('');
-const editingCategoryId = ref(null);
+const selectedCategoryId = ref(null);
 const editingCategoryName = ref('');
+const editingCategoryTemplate = ref('');
+
+const newCorrespondentName = ref('');
+const selectedCorrespondentId = ref(null);
+const editingCorrespondentName = ref('');
+const editingCorrespondentShortName = ref('');
+const newAliasName = ref('');
+const unresolvedCorrespondents = ref([]);
+const unresolvedSelections = ref({});
+const isUnresolvedCorrespondentsLoading = ref(false);
+const assigningUnresolvedId = ref(null);
+const creatingUnresolvedId = ref(null);
+const ignoringUnresolvedId = ref(null);
+
+const selectedCorrespondent = computed(() =>
+  selectedCorrespondentId.value ? correspondentStore.findById(selectedCorrespondentId.value) : null
+);
+
+const selectedCategory = computed(() =>
+  selectedCategoryId.value ? categoryStore.findById(selectedCategoryId.value) : null
+);
+
+const canSaveSelectedCategory = computed(() => {
+  const current = selectedCategory.value;
+  if (!current) return false;
+  const nextName = editingCategoryName.value.trim();
+  if (!nextName) return false;
+  return (
+    nextName !== current.name ||
+    editingCategoryTemplate.value.trim() !== (current.naming_template || '')
+  );
+});
+
+const canSaveSelectedCorrespondent = computed(() => {
+  const current = selectedCorrespondent.value;
+  if (!current) return false;
+  const nextName = editingCorrespondentName.value.trim();
+  if (!nextName) return false;
+  return nextName !== current.name || editingCorrespondentShortName.value.trim() !== (current.short_name || '');
+});
 
 watch(
   () => props.modelValue,
@@ -1296,9 +1609,49 @@ watch(
     if (open) {
       activeCategory.value = props.initialCategory;
       void categoryStore.fetchCategories();
+      void correspondentStore.fetchCorrespondents();
+      void loadUnresolvedCorrespondents();
     }
   },
   { immediate: true }
+);
+
+watch(
+  () => correspondentStore.correspondents,
+  (items) => {
+    if (!Array.isArray(items) || items.length === 0) {
+      selectedCorrespondentId.value = null;
+      return;
+    }
+    if (selectedCorrespondentId.value && !items.some((item) => item.id === selectedCorrespondentId.value)) {
+      selectedCorrespondentId.value = null;
+      return;
+    }
+    if (selectedCorrespondentId.value) {
+      const selected = items.find((item) => item.id === selectedCorrespondentId.value);
+      if (selected) syncCorrespondentEditor(selected);
+    }
+  },
+  { deep: true }
+);
+
+watch(
+  () => categoryStore.categories,
+  (items) => {
+    if (!Array.isArray(items) || items.length === 0) {
+      selectedCategoryId.value = null;
+      return;
+    }
+    if (selectedCategoryId.value && !items.some((item) => item.id === selectedCategoryId.value)) {
+      selectedCategoryId.value = null;
+      return;
+    }
+    if (selectedCategoryId.value) {
+      const selected = items.find((item) => item.id === selectedCategoryId.value);
+      if (selected) syncCategoryEditor(selected);
+    }
+  },
+  { deep: true }
 );
 
 async function addCategory() {
@@ -1314,34 +1667,200 @@ async function addCategory() {
   }
 }
 
-function startEditCategory(category) {
-  editingCategoryId.value = category.id;
-  editingCategoryName.value = category.name;
-}
-
-function cancelEditCategory() {
-  editingCategoryId.value = null;
-  editingCategoryName.value = '';
-}
-
-async function confirmEditCategory(category) {
-  const name = editingCategoryName.value.trim();
-  if (!name || name === category.name) {
-    cancelEditCategory();
-    return;
-  }
+async function removeCategory(category) {
+  if (categoryStore.isCategoryMutationRunning) return;
   try {
-    await categoryStore.renameCategory(category.id, name);
-    cancelEditCategory();
+    await categoryStore.deleteCategory(category.id);
   } catch {
     /* Fehler wird im Store als Notification gemeldet */
   }
 }
 
-async function removeCategory(category) {
-  if (categoryStore.isCategoryMutationRunning) return;
+function syncCategoryEditor(category) {
+  editingCategoryName.value = category?.name || '';
+  editingCategoryTemplate.value = category?.naming_template || '';
+}
+
+function selectCategory(category) {
+  selectedCategoryId.value = category?.id || null;
+  syncCategoryEditor(category);
+}
+
+function toggleCategory(category) {
+  if (selectedCategoryId.value === category?.id) {
+    selectedCategoryId.value = null;
+    return;
+  }
+  selectCategory(category);
+}
+
+async function saveSelectedCategory() {
+  const current = selectedCategory.value;
+  if (!current || !canSaveSelectedCategory.value) return;
   try {
-    await categoryStore.deleteCategory(category.id);
+    await categoryStore.updateCategory(current.id, {
+      name: editingCategoryName.value.trim(),
+      naming_template: editingCategoryTemplate.value.trim() || null,
+    });
+  } catch {
+    /* Fehler wird im Store als Notification gemeldet */
+  }
+}
+
+function syncCorrespondentEditor(correspondent) {
+  editingCorrespondentName.value = correspondent?.name || '';
+  editingCorrespondentShortName.value = correspondent?.short_name || '';
+}
+
+function selectCorrespondent(correspondent) {
+  selectedCorrespondentId.value = correspondent?.id || null;
+  syncCorrespondentEditor(correspondent);
+  newAliasName.value = '';
+}
+
+function toggleCorrespondent(correspondent) {
+  if (selectedCorrespondentId.value === correspondent?.id) {
+    selectedCorrespondentId.value = null;
+    return;
+  }
+  selectCorrespondent(correspondent);
+}
+
+async function addCorrespondent() {
+  const name = newCorrespondentName.value.trim();
+  if (!name || correspondentStore.isMutationRunning) return;
+  try {
+    const result = await correspondentStore.createCorrespondentByName(name);
+    if (result.ok) {
+      newCorrespondentName.value = '';
+      selectedCorrespondentId.value = result.id;
+    }
+  } catch {
+    /* Fehler wird im Store als Notification gemeldet */
+  }
+}
+
+async function loadUnresolvedCorrespondents() {
+  isUnresolvedCorrespondentsLoading.value = true;
+  try {
+    const payload = await apiListUnresolvedCorrespondents({ limit: 50, excerptChars: 240 });
+    unresolvedCorrespondents.value = payload?.items ?? [];
+    const validIds = new Set(unresolvedCorrespondents.value.map((item) => item.document_id));
+    unresolvedSelections.value = Object.fromEntries(
+      Object.entries(unresolvedSelections.value).filter(([id]) => validIds.has(id))
+    );
+  } catch (error) {
+    notifyError(error, 'Offene Korrespondenten konnten nicht geladen werden.');
+  } finally {
+    isUnresolvedCorrespondentsLoading.value = false;
+  }
+}
+
+async function assignUnresolvedCorrespondent(item, addSenderAlias = false) {
+  const documentId = item?.document_id;
+  const correspondentId = unresolvedSelections.value[documentId];
+  if (!documentId || !correspondentId) return;
+  assigningUnresolvedId.value = documentId;
+  try {
+    if (addSenderAlias && item.sender) {
+      await correspondentStore.addAlias(correspondentId, item.sender);
+    }
+    await apiPatchDocument(documentId, { correspondent_id: correspondentId });
+    await Promise.all([
+      correspondentStore.fetchCorrespondents(),
+      loadUnresolvedCorrespondents(),
+    ]);
+    emit('reload-imports');
+    notify({ type: 'success', title: 'Korrespondent', message: 'Dokument zugeordnet.' });
+  } catch (error) {
+    notifyError(error, 'Korrespondent konnte nicht zugeordnet werden.');
+  } finally {
+    assigningUnresolvedId.value = null;
+  }
+}
+
+async function createCorrespondentFromUnresolved(item) {
+  const documentId = item?.document_id;
+  const name = String(item?.sender || '').trim();
+  if (!documentId || !name) return;
+  creatingUnresolvedId.value = documentId;
+  try {
+    const result = await correspondentStore.createCorrespondentByName(name);
+    const correspondentId = result?.id;
+    if (!correspondentId) return;
+    unresolvedSelections.value = {
+      ...unresolvedSelections.value,
+      [documentId]: correspondentId,
+    };
+    await apiPatchDocument(documentId, { correspondent_id: correspondentId });
+    await Promise.all([
+      correspondentStore.fetchCorrespondents(),
+      loadUnresolvedCorrespondents(),
+    ]);
+    emit('reload-imports');
+    notify({ type: 'success', title: 'Korrespondent', message: 'Korrespondent angelegt und Dokument zugeordnet.' });
+  } catch (error) {
+    notifyError(error, 'Korrespondent konnte nicht angelegt werden.');
+  } finally {
+    creatingUnresolvedId.value = null;
+  }
+}
+
+async function ignoreUnresolvedCorrespondent(item) {
+  const documentId = item?.document_id;
+  if (!documentId) return;
+  ignoringUnresolvedId.value = documentId;
+  try {
+    await apiIgnoreUnresolvedCorrespondent(documentId, 'Bewusst ohne Korrespondent');
+    await loadUnresolvedCorrespondents();
+    notify({ type: 'success', title: 'Korrespondent', message: 'Fall ausgeblendet.' });
+  } catch (error) {
+    notifyError(error, 'Fall konnte nicht ausgeblendet werden.');
+  } finally {
+    ignoringUnresolvedId.value = null;
+  }
+}
+
+async function saveSelectedCorrespondent() {
+  const current = selectedCorrespondent.value;
+  if (!current || !canSaveSelectedCorrespondent.value) return;
+  try {
+    await correspondentStore.updateCorrespondent(current.id, {
+      name: editingCorrespondentName.value.trim(),
+      short_name: editingCorrespondentShortName.value.trim() || null,
+    });
+  } catch {
+    /* Fehler wird im Store als Notification gemeldet */
+  }
+}
+
+async function removeSelectedCorrespondent() {
+  const current = selectedCorrespondent.value;
+  if (!current || (current.usage_count || 0) > 0) return;
+  try {
+    await correspondentStore.deleteCorrespondent(current.id);
+  } catch {
+    /* Fehler wird im Store als Notification gemeldet */
+  }
+}
+
+async function addAliasToSelected() {
+  const current = selectedCorrespondent.value;
+  const alias = newAliasName.value.trim();
+  if (!current || !alias) return;
+  try {
+    await correspondentStore.addAlias(current.id, alias);
+    newAliasName.value = '';
+  } catch {
+    /* Fehler wird im Store als Notification gemeldet */
+  }
+}
+
+async function removeAlias(alias) {
+  const current = selectedCorrespondent.value;
+  if (!current || !alias?.id) return;
+  try {
+    await correspondentStore.deleteAlias(current.id, alias.id);
   } catch {
     /* Fehler wird im Store als Notification gemeldet */
   }
@@ -1358,15 +1877,16 @@ async function removeCategory(category) {
 
 .settings-category-header {
   position: sticky;
-  top: -20px;
-  z-index: 3;
+  top: 0;
+  z-index: 4;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  margin: -20px -24px 0 -22px;
-  padding: 20px 24px 14px 22px;
+  margin: 0;
+  padding: 14px 0;
   background: rgb(var(--v-theme-surface));
   border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+  box-shadow: 0 -24px 0 rgb(var(--v-theme-surface));
 }
 
 .settings-categories {
@@ -1379,21 +1899,36 @@ async function removeCategory(category) {
 
 .settings-category-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 48px;
-  padding: 8px 10px;
+  flex-direction: column;
+  width: 100%;
   border: 1px solid rgba(var(--v-theme-on-surface), 0.07);
   border-radius: 8px;
   background: rgba(var(--v-theme-surface), 0.68);
-  transition: background 0.14s ease, border-color 0.14s ease, transform 0.14s ease;
+  overflow: hidden;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease;
 }
 
-.settings-category-row:hover {
-  border-color: rgba(var(--v-theme-primary), 0.2);
-  background: rgba(var(--v-theme-primary), 0.045);
-  transform: translateY(-1px);
+.settings-category-row:hover,
+.settings-category-row--active {
+  border-color: rgba(var(--v-theme-primary), 0.24);
+  background: rgba(var(--v-theme-primary), 0.055);
+}
+
+.settings-category-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 54px;
+  padding: 8px 10px;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .settings-category-main {
@@ -1447,6 +1982,7 @@ async function removeCategory(category) {
   align-items: center;
   gap: 6px;
   flex: 0 0 auto;
+  color: rgba(var(--v-theme-on-surface), 0.5);
 }
 
 .settings-category-count {
@@ -1463,11 +1999,16 @@ async function removeCategory(category) {
 }
 
 .settings-category-action-btn {
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  border-radius: 8px;
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  border-radius: 50% !important;
   color: rgba(var(--v-theme-on-surface), 0.62);
+}
+
+.settings-category-action-btn .v-btn__overlay,
+.settings-category-action-btn .v-btn__underlay {
+  border-radius: 50% !important;
 }
 
 .settings-category-action-btn:hover {
@@ -1479,8 +2020,47 @@ async function removeCategory(category) {
   background: rgba(var(--v-theme-error), 0.08);
 }
 
-.settings-category-edit {
-  flex: 1 1 auto;
+.settings-category-editor-shell {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    grid-template-rows 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 160ms ease,
+    transform 180ms ease;
+}
+
+.settings-category-editor-shell--open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  overflow: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.settings-category-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+  padding: 0 12px 0 50px;
+  overflow: hidden;
+  transition: padding-bottom 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.settings-category-editor-shell--open > .settings-category-editor {
+  padding-top: 6px;
+  padding-bottom: 12px;
+}
+
+.settings-category-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px 36px;
+  gap: 8px;
+  align-items: center;
 }
 
 .settings-category-empty {
@@ -1503,6 +2083,210 @@ async function removeCategory(category) {
 .settings-category-add__button {
   align-self: stretch;
   min-height: 40px;
+}
+
+.settings-correspondents {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding-top: 12px;
+  min-height: 0;
+}
+
+.settings-correspondent-review {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 4px;
+  padding: 10px;
+  border: 1px solid rgba(var(--v-theme-primary), 0.18);
+  border-radius: 8px;
+  background: rgba(var(--v-theme-primary), 0.04);
+}
+
+.settings-correspondent-review__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.settings-unresolved-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(170px, 220px) repeat(4, 32px);
+  gap: 8px;
+  align-items: center;
+  min-height: 44px;
+  padding: 7px;
+  border-radius: 8px;
+  background: rgba(var(--v-theme-surface), 0.7);
+}
+
+.settings-unresolved-row__main {
+  min-width: 0;
+}
+
+.settings-unresolved-row__select {
+  min-width: 0;
+}
+
+.settings-unresolved-row :deep(.v-btn) {
+  width: 32px;
+  height: 32px;
+}
+
+.settings-correspondent-row {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.07);
+  border-radius: 8px;
+  background: rgba(var(--v-theme-surface), 0.68);
+  overflow: hidden;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease;
+}
+
+.settings-correspondent-row:hover,
+.settings-correspondent-row--active {
+  border-color: rgba(var(--v-theme-primary), 0.24);
+  background: rgba(var(--v-theme-primary), 0.055);
+}
+
+.settings-correspondent-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 54px;
+  padding: 8px 10px;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-correspondent-summary__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  color: rgba(var(--v-theme-on-surface), 0.5);
+}
+
+.settings-correspondent-editor-shell {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    grid-template-rows 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 160ms ease,
+    transform 180ms ease;
+}
+
+.settings-correspondent-editor-shell--open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  overflow: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.settings-correspondent-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+  padding: 0 12px 0 50px;
+  overflow: hidden;
+  transition: padding-bottom 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.settings-correspondent-editor-shell--open > .settings-correspondent-editor {
+  padding-top: 6px;
+  padding-bottom: 12px;
+}
+
+.settings-correspondent-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px 36px 36px;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-correspondent-icon-action {
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  border-radius: 50% !important;
+  box-shadow: none !important;
+}
+
+.settings-correspondent-icon-action::before,
+.settings-correspondent-icon-action .v-btn__overlay,
+.settings-correspondent-icon-action .v-btn__underlay {
+  border-radius: 50% !important;
+}
+
+.settings-correspondent-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-correspondent-block__title {
+  font-size: 0.78rem;
+  font-weight: 750;
+  color: rgba(var(--v-theme-on-surface), 0.72);
+}
+
+.settings-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 24px;
+}
+
+.settings-inline-add {
+  display: grid;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-inline-add {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+@media (max-width: 760px) {
+  .settings-unresolved-row,
+  .settings-category-editor,
+  .settings-category-form,
+  .settings-correspondent-form {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-category-editor,
+  .settings-correspondent-editor {
+    padding-left: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-correspondent-row,
+  .settings-category-row,
+  .settings-category-editor-shell,
+  .settings-category-editor,
+  .settings-correspondent-editor-shell,
+  .settings-correspondent-editor {
+    transition: none;
+  }
 }
 
 /* Texterkennung: Hinweis, gruppierter KI-Block, Erweitert-Aufklapper */
