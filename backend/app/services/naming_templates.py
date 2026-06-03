@@ -40,6 +40,21 @@ def _normalize_text(value: str) -> str:
     return _WHITESPACE_RE.sub(" ", str(value or "")).strip()
 
 
+def _collapse_repeated_tokens(value: str) -> str:
+    """Zieht unmittelbar wiederholte Wörter zusammen.
+
+    Verhindert Dopplungen, wenn der Betreff bereits eine Info enthält, die das
+    Template erneut anhängt (z. B. "Einkommensteuer 2024 2024" -> "... 2024").
+    """
+    tokens = str(value or "").split()
+    result: list[str] = []
+    for token in tokens:
+        if result and result[-1].casefold() == token.casefold():
+            continue
+        result.append(token)
+    return " ".join(result)
+
+
 def _normalize_issuer(value: str) -> str | None:
     text = _normalize_text(value)
     if not text:
@@ -99,6 +114,7 @@ def build_legacy_filename_from_meta(meta: dict[str, object]) -> str:
         parts.append(_format_euro(amount_value))
 
     filename = _clean_filename_component(_FILENAME_SEPARATOR.join(parts), max_len=_FILENAME_MAX_LEN)
+    filename = _collapse_repeated_tokens(filename)
     return filename or "Dokument"
 
 
@@ -119,6 +135,7 @@ class NamingTemplateService:
             return self.fallback_builder(meta)
         rendered = self.render_template(template, meta)
         filename = _clean_filename_component(rendered, max_len=_FILENAME_MAX_LEN).replace(" - ", _FILENAME_SEPARATOR)
+        filename = _collapse_repeated_tokens(filename)
         return filename or self.fallback_builder(meta)
 
     def _load_global_template(self, meta: dict[str, object]) -> str | None:

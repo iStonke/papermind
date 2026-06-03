@@ -62,6 +62,13 @@ class NamingTemplateServiceTest(unittest.TestCase):
 
         self.assertEqual(service.build_filename(meta), "Mitgliedschaftskündigung")
 
+    def test_duplicate_year_is_collapsed(self) -> None:
+        # KI packt Jahr bereits in den Betreff, Template hängt {jahr} an -> nur einmal.
+        service = NamingTemplateService(_TemplateDb("{betreff} {jahr}"))
+        meta = {"document_type": "Steuerbescheid", "subject": "Einkommensteuer 2024", "date": "2024-02-12"}
+
+        self.assertEqual(service.build_filename(meta), "Einkommensteuer 2024")
+
     def test_empty_template_uses_fallback(self) -> None:
         meta = {"doc_type": "Brief", "issuer": "", "subject": ""}
 

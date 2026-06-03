@@ -4,7 +4,7 @@ import os
 import re
 import shutil
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -1546,10 +1546,9 @@ class ImportStagingService:
         currency = "EUR" if (normalized_amount is not None) else None
         raw_date = self._coerce_llm_scalar(rich.get("date")) or ""
         final_date = raw_date if re.match(r"^\d{4}-\d{2}-\d{2}$", raw_date) else None
-        # Nur ein plausibles Dokumentdatum übernehmen: ein echtes Datum, das nicht
-        # älter als ein Jahr ist. Verhindert, dass z. B. ein im Text gefundenes
-        # Geburtsdatum (etwa 21.10.1994) fälschlich als Dokumentdatum übernommen
-        # wird. Andernfalls bleibt das Datumsfeld leer.
+        # Plausibilität: ein echtes Datum übernehmen, sofern es nicht in der Zukunft
+        # liegt und nicht offensichtlich unsinnig (vor 1990) ist. Alte Bestandsdaten
+        # bleiben erhalten – wichtig beim Import historischer Dokumente.
         if final_date:
             try:
                 parsed_date = datetime.strptime(final_date, "%Y-%m-%d").date()
@@ -1559,11 +1558,7 @@ class ImportStagingService:
                 final_date = None
             else:
                 today = datetime.now().date()
-                try:
-                    min_date = today.replace(year=today.year - 1)
-                except ValueError:  # 29. Februar
-                    min_date = today - timedelta(days=365)
-                if parsed_date < min_date:
+                if parsed_date > today or parsed_date.year < 1990:
                     final_date = None
         tags_val = rich.get("tags")
         final_tags: list[str] = []
