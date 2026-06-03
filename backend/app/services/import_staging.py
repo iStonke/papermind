@@ -10,12 +10,13 @@ from pathlib import Path
 import httpx
 from fastapi import UploadFile
 from pypdf import PdfReader
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import APIError, BadRequestError, PayloadTooLargeError, StorageError
 from app.models.correspondent import Correspondent
+from app.models.document import Document
 from app.models.tag import Tag
 from app.schemas.documents import DocumentTagReplaceRequest
 from app.schemas.import_staging import (
@@ -950,6 +951,7 @@ class ImportStagingService:
         existing_tags: list[str] | None = None,
         allowed_doc_types: list[str] | None = None,
         doc_type_hints: dict[str, str] | None = None,
+        naming_examples: list[str] | None = None,
     ) -> dict[str, object] | None:
         """Call Ollama to extract metadata from OCR text.
 
@@ -1000,10 +1002,13 @@ class ImportStagingService:
             else ""
         )
 
+        examples_block = ImportStagingService._build_naming_examples_block(naming_examples)
+
         prompt = (
             "Extrahiere aus dem folgenden OCR-Text eines deutschen Dokuments die Metadaten. "
             "Antworte NUR mit einem gültigen JSON-Objekt, ohne Markdown, ohne Erklärungen.\n\n"
             f"{hint_block}"
+            f"{examples_block}"
             "Felder:\n"
             f'- "doc_type": eines von [{doc_type_hint}]\n'
             '- "issuer": Absender/Aussteller, max. 40 Zeichen, oder null\n'
@@ -1050,11 +1055,11 @@ class ImportStagingService:
 
         # Normalise field values
         def _str(key: str, max_len: int = 80) -> str | None:
-            v = self._coerce_llm_scalar(parsed.get(key))
+            v = ImportStagingService._coerce_llm_scalar(parsed.get(key))
             return v[:max_len] if v else None
 
         def _date(key: str) -> str | None:
-            v = self._coerce_llm_scalar(parsed.get(key)) or ""
+            v = ImportStagingService._coerce_llm_scalar(parsed.get(key)) or ""
             return v if re.match(r"^\d{4}-\d{2}-\d{2}$", v) else None
 
         def _tags(key: str) -> list[str]:
@@ -1063,14 +1068,14 @@ class ImportStagingService:
                 return []
             tags: list[str] = []
             for tag in raw_tags:
-                value = self._coerce_llm_scalar(tag)
+                value = ImportStagingService._coerce_llm_scalar(tag)
                 if value:
                     tags.append(value)
             return tags[:2]
 
         def _amount(key: str) -> float | None:
             try:
-                raw_value = self._coerce_llm_scalar(parsed.get(key)) or ""
+                raw_value = ImportStagingService._coerce_llm_scalar(parsed.get(key)) or ""
                 v = float(raw_value.replace(",", "."))
                 return round(v, 2) if v > 0 else None
             except (TypeError, ValueError):
@@ -1270,6 +1275,117 @@ class ImportStagingService:
             "matched_value": match.matched_value,
         }
 
+    @staticmethod
+    def _looks_like_default_title(value: str) -> bool:
+        """Erkennt generische Scan-/Fallback-Titel, die kein Schreibmuster sind."""
+        normalized = " ".join(str(value or "").split()).strip().lower()
+        if not normalized:
+            return True
+        # z. B. "Scan", "Scan - 03-2024", "Dokument", "Neues Dokument"
+        return bool(re.match(r"^(scan|dokument|neues dokument|unbenannt|untitled)\b", normalized))
+
+    @staticmethod
+    def _build_naming_examples_block(
+        examples: list[str] | None,
+        *,
+        max_examples: int = 3,
+        max_len: int = 80,
+    ) -> str:
+        """Kurzer Few-Shot-Block aus bestehenden Dateinamen (reine Funktion, testbar).
+
+        Liefert "" wenn keine brauchbaren Beispiele vorhanden sind. Die Beispiele
+        sind als Stilvorlage für den ``subject``-Slot gedacht – nicht zum wörtlichen
+        Übernehmen.
+        """
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in examples or []:
+            name = " ".join(str(raw or "").split()).strip()
+            if name.lower().endswith(".pdf"):
+                name = name[:-4].rstrip()
+            if not name:
+                continue
+            if len(name) > max_len:
+                name = name[:max_len].rstrip()
+            key = name.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(name)
+            if len(cleaned) >= max_examples:
+                break
+        if not cleaned:
+            return ""
+        lines = "\n".join(f"- {name}" for name in cleaned)
+        return (
+            "BEISPIELE für bereits vergebene Dateinamen ähnlicher Dokumente. "
+            "Orientiere dich für \"subject\" am Schreibmuster/Stil dieser Beispiele, "
+            "übernimm sie aber NICHT wörtlich:\n"
+            f"{lines}\n\n"
+        )
+
+    def _load_naming_examples(
+        self,
+        *,
+        document_type: str | None,
+        correspondent_id: str | uuid.UUID | None,
+        limit: int = 3,
+    ) -> list[str]:
+        """Top-N kuratierte Dateinamen ähnlicher Dokumente als Few-Shot-Vorlage.
+
+        Zuerst nach (document_type UND correspondent_id) filtern; liefert das zu
+        wenige Treffer, wird auf document_type-only zurückgefallen. Best effort –
+        darf den Titelvorschlag nie blockieren.
+        """
+        doc_type = " ".join(str(document_type or "").split()).strip()
+        if not doc_type or doc_type.casefold() == "sonstiges":
+            return []
+
+        normalized_correspondent: uuid.UUID | None = None
+        if correspondent_id is not None:
+            try:
+                normalized_correspondent = uuid.UUID(str(correspondent_id))
+            except (ValueError, TypeError):
+                normalized_correspondent = None
+
+        def _query(with_correspondent: bool) -> list[str]:
+            stmt = (
+                select(Document.display_name)
+                .where(
+                    Document.is_deleted.is_(False),
+                    Document.display_name.is_not(None),
+                    func.lower(Document.document_type) == doc_type.lower(),
+                )
+                .order_by(Document.document_date.desc().nullslast(), Document.created_at.desc())
+                .limit(limit * 4)
+            )
+            if with_correspondent and normalized_correspondent is not None:
+                stmt = stmt.where(Document.correspondent_id == normalized_correspondent)
+            try:
+                rows = self.db.execute(stmt).scalars().all()
+            except Exception as exc:  # noqa: BLE001 - Few-Shot ist optional
+                logger.warning("stage title: naming example query failed: %s", exc)
+                return []
+            result: list[str] = []
+            seen: set[str] = set()
+            for name in rows:
+                cleaned = " ".join(str(name or "").split()).strip()
+                if not cleaned or self._looks_like_default_title(cleaned):
+                    continue
+                key = cleaned.casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                result.append(cleaned)
+                if len(result) >= limit:
+                    break
+            return result
+
+        examples = _query(with_correspondent=True)
+        if not examples:
+            examples = _query(with_correspondent=False)
+        return examples
+
     def suggest_stage_title(
         self,
         source_file_ids: list[str],
@@ -1377,6 +1493,15 @@ class ImportStagingService:
         active_doc_type_names = document_type_names(doc_type_vocab)
         ollama_rich: dict[str, object] | None = None
         if ollama_cfg.get("enabled"):
+            # Few-Shot: vor dem LLM grob Dokumenttyp + Korrespondent regelbasiert
+            # bestimmen und bis zu 3 bestehende Dateinamen ähnlicher Dokumente als
+            # Stilvorlage anhängen.
+            rough_doc_type = self._detect_document_type_improved(extracted_text)
+            rough_correspondent = self._resolve_correspondent(None, extracted_text)
+            naming_examples = self._load_naming_examples(
+                document_type=rough_doc_type,
+                correspondent_id=(rough_correspondent or {}).get("id"),
+            )
             ollama_rich = self._call_ollama_for_staging(
                 extracted_text,
                 base_url=str(ollama_cfg.get("base_url") or "http://localhost:11434"),
@@ -1386,6 +1511,7 @@ class ImportStagingService:
                 existing_tags=existing_tag_names,
                 allowed_doc_types=active_doc_type_names,
                 doc_type_hints=document_type_hint_map(doc_type_vocab),
+                naming_examples=naming_examples,
             )
             if ollama_rich:
                 logger.info("SuggestTitle: ollama extraction succeeded stage=%s", str(stage_id or "").strip() or "-")
