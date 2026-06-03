@@ -361,11 +361,12 @@
               <template #activator="{ props: tip }"><v-icon class="isd-field-info" v-bind="tip" size="14">mdi-information-outline</v-icon></template>
             </v-tooltip>
           </div>
-          <v-autocomplete
+          <v-combobox
             v-model="docCorrespondentId"
             :items="correspondentItems"
             item-title="title"
             item-value="value"
+            :return-object="false"
             placeholder="Korrespondent wählen…"
             density="compact"
             variant="outlined"
@@ -374,7 +375,11 @@
             :menu-props="{ maxHeight: 240, attach: 'body', zIndex: 6000 }"
             @update:model-value="docCorrespondentTouched = true; docCorrespondentAiFilled = false"
             @focus="correspondentStore.ensureLoaded()"
-          />
+          >
+            <template #no-data>
+              <v-list-item title="Als neuen Korrespondenten verwenden" />
+            </template>
+          </v-combobox>
           <div v-if="docSenderRaw" class="isd-correspondent-hint">
             <span class="isd-correspondent-sender">Erkannter Absender: <strong>{{ docSenderRaw }}</strong></span>
             <div class="isd-correspondent-actions">
@@ -538,15 +543,22 @@
 
           <!-- Startet den gesamten Analyse-Prozess erneut (nach Abschluss/Fehlschlag) -->
           <button
-            v-if="['success', 'partial', 'failed'].includes(aiAnalysis.kind)"
+            v-if="isRetryingAnalysis || ['success', 'partial', 'failed'].includes(aiAnalysis.kind)"
             type="button"
             class="isd-props-status__retry"
-            :disabled="isUploadingSources || totalPages === 0"
+            :disabled="isRetryingAnalysis || isUploadingSources || totalPages === 0"
             title="Den gesamten Analyse-Prozess erneut starten"
             @click="retryAnalysis"
           >
-            <v-icon size="14">mdi-refresh</v-icon>
-            Erneut
+            <v-progress-circular
+              v-if="isRetryingAnalysis"
+              indeterminate
+              size="14"
+              width="2"
+              color="primary"
+            />
+            <v-icon v-else size="14">mdi-refresh</v-icon>
+            <span>{{ isRetryingAnalysis ? 'Läuft…' : 'Erneut' }}</span>
           </button>
         </div>
 
@@ -742,6 +754,7 @@ const docTagsAiFilled = ref(false);
 const docNoteAiFilled = ref(false);
 const docCorrespondentAiFilled = ref(false);
 const aiFieldGlowActive = ref(false);
+const isRetryingAnalysis = ref(false);
 let aiFieldGlowTimer = 0;
 
 // Auswählbare Dokumenttypen aus der zentral verwalteten Liste (Einstellungen).
@@ -756,12 +769,24 @@ const categoryItems = computed(() => {
   return names;
 });
 
-// Korrespondenten-Optionen für das Autocomplete ({ title, value }).
+// Korrespondenten-Optionen für die Combobox ({ title, value }).
 const correspondentItems = computed(() => correspondentStore.correspondentOptions);
+
+function normalizeCorrespondentInput(value) {
+  if (value && typeof value === 'object') {
+    return String(value.value || value.id || value.title || value.name || '').replace(/\s+/g, ' ').trim();
+  }
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function isKnownCorrespondentId(value) {
+  const normalized = normalizeCorrespondentInput(value);
+  return Boolean(normalized && correspondentStore.findById(normalized));
+}
 
 // Aktuell ausgewählter Korrespondent (Objekt) oder null.
 const selectedCorrespondent = computed(() =>
-  docCorrespondentId.value ? correspondentStore.findById(docCorrespondentId.value) : null
+  isKnownCorrespondentId(docCorrespondentId.value) ? correspondentStore.findById(normalizeCorrespondentInput(docCorrespondentId.value)) : null
 );
 
 // Der rohe Absender lässt sich als Alias/Korrespondent anlegen, solange er nicht
@@ -1360,6 +1385,29 @@ function hasAiFilledImportFields() {
   );
 }
 
+function resetPrimaryAiFillState() {
+  docTitleAiFilled.value = false;
+  docDateAiFilled.value = false;
+  docCategoryAiFilled.value = false;
+  docTagsAiFilled.value = false;
+  docNoteAiFilled.value = false;
+  docCorrespondentAiFilled.value = false;
+  aiFieldGlowActive.value = false;
+}
+
+function resetScanSuggestionMeta(documentEntry) {
+  const meta = ensureScanMeta(documentEntry);
+  if (!meta) {
+    return null;
+  }
+  meta.titleSuggestion = '';
+  meta.titleSuggestionStatus = 'idle';
+  meta.titleSuggestionUsedFallback = false;
+  meta.titleSuggestionPollExhausted = false;
+  meta.titleSuggestionMeta = null;
+  return meta;
+}
+
 function triggerAiFieldGlow() {
   if (typeof window !== 'undefined' && aiFieldGlowTimer) {
     window.clearTimeout(aiFieldGlowTimer);
@@ -1377,13 +1425,6 @@ function triggerAiFieldGlow() {
 }
 
 /* ── Datum-Hilfsfunktionen ── */
-function todayDateStr() {
-  const d = new Date();
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  return `${dd}.${mm}.${d.getFullYear()}`;
-}
-
 function isValidGermanDate(str) {
   if (!/^\d{2}\.\d{2}\.\d{4}$/.test(str)) return false;
   const [dd, mm, yyyy] = str.split('.').map(Number);
@@ -2496,7 +2537,7 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
             }
             // Dokumenttyp
             const aiCategory = String(aiMeta.document_type || aiMeta.category || '').trim();
-            if (aiCategory && !docCategoryTouched.value) {
+            if (aiCategory && (!docCategoryTouched.value || !docCategory.value)) {
               docCategory.value = aiCategory;
               docCategoryAiFilled.value = true;
             }
@@ -2615,18 +2656,26 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
 // Startet den kompletten KI-Analyse-Prozess für alle Staging-Dokumente erneut.
 // Bereits laufende Analysen werden nicht doppelt gestartet (Dedupe in
 // requestScanTitleSuggestion); abgeschlossene/fehlgeschlagene werden neu angestoßen.
-function retryAnalysis() {
+async function retryAnalysis() {
+  if (isRetryingAnalysis.value) {
+    return;
+  }
   const docs = documents.value || [];
   let started = 0;
+  const jobs = [];
+  resetPrimaryAiFillState();
+  isRetryingAnalysis.value = true;
   for (const doc of docs) {
     const id = String(doc?.id || '').trim();
     if (!id || Number(doc?.pages?.length || 0) === 0) {
       continue;
     }
-    void requestScanTitleSuggestion(id, 'first_page', { silent: true, maxPendingRetries: 20 });
+    resetScanSuggestionMeta(doc);
+    jobs.push(requestScanTitleSuggestion(id, 'first_page', { silent: true, maxPendingRetries: 20 }));
     started += 1;
   }
   if (started === 0) {
+    isRetryingAnalysis.value = false;
     notify({ type: 'info', message: 'Keine Seiten zum Analysieren vorhanden.' });
     return;
   }
@@ -2636,6 +2685,11 @@ function retryAnalysis() {
       ? 'Analyse wird wiederholt…'
       : `Analyse für ${started} Dokumente wird wiederholt…`
   });
+  try {
+    await Promise.allSettled(jobs);
+  } finally {
+    isRetryingAnalysis.value = false;
+  }
 }
 
 function applyScanSuggestion(stageId) {
@@ -3057,14 +3111,6 @@ watch(docDate, (newVal, oldVal) => {
   if (digits.length > 4) formatted = digits.slice(0, 2) + '.' + digits.slice(2, 4) + '.' + digits.slice(4);
   if (formatted !== newVal) docDate.value = formatted;
 }, { flush: 'sync' });
-
-// Datum auf heute setzen sobald das erste Dokument erscheint
-watch(isEmpty, (empty) => {
-  if (!empty && !docDate.value) {
-    docDate.value = todayDateStr();
-  }
-});
-
 
 function normalizeSourceFileId(sourceFileId) {
   return String(sourceFileId || '').trim();
@@ -4285,6 +4331,33 @@ async function materializePendingTags() {
   }
 }
 
+async function materializePendingCorrespondent() {
+  const raw = normalizeCorrespondentInput(docCorrespondentId.value);
+  if (!raw) {
+    docCorrespondentId.value = null;
+    return;
+  }
+
+  const byId = correspondentStore.findById(raw);
+  if (byId?.id) {
+    docCorrespondentId.value = byId.id;
+    return;
+  }
+
+  await correspondentStore.ensureLoaded();
+  const byName = correspondentStore.findByName(raw);
+  if (byName?.id) {
+    docCorrespondentId.value = byName.id;
+    return;
+  }
+
+  const result = await correspondentStore.createCorrespondentByName(raw);
+  if (!result?.ok || !result.id) {
+    throw new Error('Korrespondent konnte nicht angelegt werden.');
+  }
+  docCorrespondentId.value = result.id;
+}
+
 // Erkannten Absender als neuen Korrespondenten anlegen und direkt auswählen.
 async function onCreateCorrespondentFromSender() {
   const raw = String(docSenderRaw.value || '').trim();
@@ -4321,6 +4394,7 @@ async function commitImport() {
   isCommitting.value = true;
   try {
     await materializePendingTags();
+    await materializePendingCorrespondent();
     const response = await fetch(`${props.apiBaseUrl}/api/import/commit`, {
       method: 'POST',
       headers: {
@@ -4888,9 +4962,8 @@ onBeforeUnmount(() => {
   color: rgba(var(--v-theme-on-surface), 0.6);
 }
 
-/* Spiegelt exakt die Struktur der linken Spalte (.isd-left): position:relative
- * als Anker, scrollender Inhalt, und die Statusleiste absolut am unteren Rand –
- * identische Technik wie .isd-toolbar, damit beide Leisten pixelgenau fluchten. */
+/* Rechte Spalte mit fixer Höhe: Tabs oben, scrollender Inhalt in der Mitte,
+ * Statusleiste unten. */
 .isd-props {
   flex: 0 0 35%;
   position: relative;
@@ -4994,7 +5067,7 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 18px 20px 64px; /* unten Platz für die absolute Statusleiste */
+  padding: 18px 20px;
 }
 
 .isd-preview-panel {
@@ -5096,13 +5169,10 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
-/* KI-Analyse-Status: absolut am unteren Rand – exakt wie .isd-toolbar
- * (position:absolute; bottom:0; padding:8px 12px; gemeinsame --isd-bar-height; border-top:1px). */
+/* KI-Analyse-Status: fester Footer der rechten Spalte. Der Bereich darüber
+ * scrollt separat, damit die Dialoghöhe konstant bleibt. */
 .isd-props-status {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;

@@ -412,6 +412,21 @@
                           label="Dateiname-Template"
                           placeholder="z. B. Rechnung – {korrespondent} – {betreff:short} – {datum:dd.MM.yyyy}"
                         />
+                        <div class="settings-template-preview">
+                          <span class="settings-template-preview__label">Vorschau</span>
+                          <span class="settings-template-preview__value">
+                            <template
+                              v-for="(part, index) in categoryTemplatePreviewParts"
+                              :key="`${part.text}-${index}`"
+                            >
+                              <span
+                                v-if="part.missing"
+                                class="settings-template-preview__missing"
+                              >{{ part.text }}</span>
+                              <span v-else>{{ part.text }}</span>
+                            </template>
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1595,6 +1610,10 @@ const canSaveSelectedCategory = computed(() => {
   );
 });
 
+const categoryTemplatePreviewParts = computed(() =>
+  renderCategoryTemplatePreviewParts(editingCategoryTemplate.value)
+);
+
 const canSaveSelectedCorrespondent = computed(() => {
   const current = selectedCorrespondent.value;
   if (!current) return false;
@@ -1602,6 +1621,46 @@ const canSaveSelectedCorrespondent = computed(() => {
   if (!nextName) return false;
   return nextName !== current.name || editingCorrespondentShortName.value.trim() !== (current.short_name || '');
 });
+
+function templatePreviewValues() {
+  return {
+    korrespondent: 'HUK',
+    absender: 'HUK',
+    aussteller: 'HUK',
+    betreff: 'Kfz-Versicherung',
+    gegenstand: 'Kfz-Versicherung',
+    sparte: 'Kfz-Versicherung',
+    datum: '01.01.2024',
+    betrag: '87,30€',
+    monat: 'Januar',
+    jahr: '2024',
+  };
+}
+
+function renderCategoryTemplatePreviewParts(template) {
+  const source = String(template || '').trim();
+  if (!source) return [{ text: 'Kein Template gesetzt.', missing: false }];
+  const values = templatePreviewValues();
+  const parts = [];
+  let lastIndex = 0;
+  const placeholderPattern = /\{([a-zA-Z_][a-zA-Z0-9_]*)(?::[^{}]+)?\}/g;
+  for (const match of source.matchAll(placeholderPattern)) {
+    if (match.index > lastIndex) {
+      parts.push({ text: source.slice(lastIndex, match.index), missing: false });
+    }
+    const key = match[1];
+    if (Object.prototype.hasOwnProperty.call(values, key)) {
+      parts.push({ text: values[key], missing: false });
+    } else {
+      parts.push({ text: match[0], missing: true });
+    }
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < source.length) {
+    parts.push({ text: source.slice(lastIndex), missing: false });
+  }
+  return parts.length ? parts : [{ text: source, missing: false }];
+}
 
 watch(
   () => props.modelValue,
@@ -2061,6 +2120,39 @@ async function removeAlias(alias) {
   grid-template-columns: minmax(0, 1fr) 36px 36px;
   gap: 8px;
   align-items: center;
+}
+
+.settings-template-preview {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+  font-size: 0.78rem;
+  color: rgba(var(--v-theme-on-surface), 0.62);
+}
+
+.settings-template-preview__label {
+  flex: 0 0 auto;
+  font-weight: 750;
+}
+
+.settings-template-preview__value {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  min-width: 0;
+  line-height: 1.6;
+}
+
+.settings-template-preview__missing {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(var(--v-theme-warning), 0.14);
+  color: rgba(var(--v-theme-on-surface), 0.78);
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
 
 .settings-category-empty {

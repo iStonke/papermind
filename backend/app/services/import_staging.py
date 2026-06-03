@@ -26,7 +26,6 @@ from app.schemas.import_staging import (
     ImportSourceRead,
     ImportSourceUploadResponse,
 )
-from app.services.category_mapping import map_doc_type_to_category
 from app.services.correspondent_matching import CorrespondentMatchingService
 from app.services.document_types import (
     document_type_hint_map,
@@ -330,6 +329,31 @@ class ImportStagingService:
     @staticmethod
     def _normalize_text(value: str) -> str:
         return _WHITESPACE_RE.sub(" ", str(value or "")).strip()
+
+    @staticmethod
+    def _coerce_llm_scalar(value: object) -> str | None:
+        """Return a plain scalar text from permissive LLM JSON values.
+
+        Some local models answer fields as {"text": "..."} despite the prompt
+        asking for strings. Treat common scalar containers as text instead of
+        stringifying the whole dict into the document title.
+        """
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            for key in ("text", "value", "name", "label"):
+                nested = ImportStagingService._coerce_llm_scalar(value.get(key))
+                if nested:
+                    return nested
+            return None
+        if isinstance(value, list):
+            for item in value:
+                nested = ImportStagingService._coerce_llm_scalar(item)
+                if nested:
+                    return nested
+            return None
+        normalized = ImportStagingService._normalize_text(str(value))
+        return normalized or None
 
     def _extract_text_for_title_suggestion(
         self,
@@ -1026,22 +1050,28 @@ class ImportStagingService:
 
         # Normalise field values
         def _str(key: str, max_len: int = 80) -> str | None:
-            v = " ".join(str(parsed.get(key) or "").split()).strip()
+            v = self._coerce_llm_scalar(parsed.get(key))
             return v[:max_len] if v else None
 
         def _date(key: str) -> str | None:
-            v = str(parsed.get(key) or "").strip()
+            v = self._coerce_llm_scalar(parsed.get(key)) or ""
             return v if re.match(r"^\d{4}-\d{2}-\d{2}$", v) else None
 
         def _tags(key: str) -> list[str]:
             raw_tags = parsed.get(key)
             if not isinstance(raw_tags, list):
                 return []
-            return [str(t).strip() for t in raw_tags if str(t).strip()][:2]
+            tags: list[str] = []
+            for tag in raw_tags:
+                value = self._coerce_llm_scalar(tag)
+                if value:
+                    tags.append(value)
+            return tags[:2]
 
         def _amount(key: str) -> float | None:
             try:
-                v = float(str(parsed.get(key) or "").replace(",", "."))
+                raw_value = self._coerce_llm_scalar(parsed.get(key)) or ""
+                v = float(raw_value.replace(",", "."))
                 return round(v, 2) if v > 0 else None
             except (TypeError, ValueError):
                 return None
@@ -1190,10 +1220,6 @@ class ImportStagingService:
             "date": doc_date,
             "tags": doc_tags,
         }, answer
-
-    @classmethod
-    def _map_doc_type_to_category(cls, doc_type: str) -> str | None:
-        return map_doc_type_to_category(doc_type)
 
     @classmethod
     def _format_euro(cls, amount: float) -> str:
@@ -1380,14 +1406,19 @@ class ImportStagingService:
         else:
             rich = rule_rich
 
-        normalized_doc_type = self._normalize_doc_type(str(rich.get("doc_type") or ""), active_doc_type_names) or "Sonstiges"
-        issuer = self._normalize_issuer(str(rich.get("issuer") or "")) or "Unbekannt"
-        subject = self._normalize_subject(str(rich.get("subject") or "")) or None
+        normalized_doc_type = self._normalize_doc_type(
+            self._coerce_llm_scalar(rich.get("doc_type")) or "",
+            active_doc_type_names,
+        ) or "Sonstiges"
+        issuer_raw = self._coerce_llm_scalar(rich.get("issuer"))
+        subject_raw = self._coerce_llm_scalar(rich.get("subject"))
+        issuer = self._normalize_issuer(issuer_raw or "") or "Unbekannt"
+        subject = self._normalize_subject(subject_raw or "") or None
         normalized_amount = self._safe_float(rich.get("amount"))
         if normalized_amount is not None and normalized_amount <= 0:
             normalized_amount = None
         currency = "EUR" if (normalized_amount is not None) else None
-        raw_date = str(rich.get("date") or "").strip()
+        raw_date = self._coerce_llm_scalar(rich.get("date")) or ""
         final_date = raw_date if re.match(r"^\d{4}-\d{2}-\d{2}$", raw_date) else None
         # Nur ein plausibles Dokumentdatum übernehmen: ein echtes Datum, das nicht
         # älter als ein Jahr ist. Verhindert, dass z. B. ein im Text gefundenes
@@ -1409,11 +1440,13 @@ class ImportStagingService:
                 if parsed_date < min_date:
                     final_date = None
         tags_val = rich.get("tags")
-        final_tags: list[str] = (
-            [str(t).strip() for t in tags_val if t and str(t).strip()][:2]
-            if isinstance(tags_val, list)
-            else []
-        )
+        final_tags: list[str] = []
+        if isinstance(tags_val, list):
+            for tag in tags_val:
+                value = self._coerce_llm_scalar(tag)
+                if value:
+                    final_tags.append(value)
+            final_tags = final_tags[:2]
         # Auf vorhandene Schreibweise einrasten: stimmt ein Tag (unabhängig von
         # Groß-/Kleinschreibung und Randleerzeichen) mit einem bestehenden Tag
         # überein, exakt dessen Schreibweise verwenden. Verhindert Casing-Duplikate
@@ -1431,16 +1464,17 @@ class ImportStagingService:
             final_tags = deduped
 
         # Wichtigste Fakten als Notiz (nur vom LLM geliefert; regelbasiert leer).
-        final_note = str(rich.get("summary") or "").strip() or None
+        final_note = self._coerce_llm_scalar(rich.get("summary"))
 
         # Korrespondent deterministisch auflösen (Matcher/Alias zuerst). Der rohe
         # Absender bleibt sichtbar; ai_sender wird im Import nicht überschrieben.
-        sender_raw = str(rich.get("issuer") or "").strip() or None
+        sender_raw = issuer_raw
         correspondent_info = self._resolve_correspondent(sender_raw, extracted_text)
+        document_type = normalized_doc_type
 
         merged_meta: dict[str, object] = {
             "doc_type": normalized_doc_type,
-            "document_type": self._map_doc_type_to_category(normalized_doc_type),
+            "document_type": document_type,
             "issuer": issuer,
             "subject": subject or "Ohne Betreff",
             "amount": normalized_amount,
@@ -1461,8 +1495,8 @@ class ImportStagingService:
                 "amount": normalized_amount,
                 "currency": currency,
                 "date": final_date,
-                "document_type": self._map_doc_type_to_category(normalized_doc_type),
-                "category": self._map_doc_type_to_category(normalized_doc_type),
+                "document_type": document_type,
+                "category": document_type,
                 "sender_raw": sender_raw,
                 "correspondent": correspondent_info,
                 "tags": final_tags,
