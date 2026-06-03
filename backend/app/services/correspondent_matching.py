@@ -9,6 +9,7 @@ Kandidaten aus der DB und ruft sie auf.
 
 import logging
 import re
+import unicodedata
 import uuid
 from dataclasses import dataclass, field
 
@@ -65,7 +66,11 @@ class _ScoredMatch:
 
 
 def _normalize(value: str | None) -> str:
-    return _WHITESPACE_RE.sub(" ", str(value or "")).strip()
+    # Unicode auf NFC vereinheitlichen: macOS-Dateinamen/Tags liegen zerlegt (NFD)
+    # vor (z. B. "ö" = o + ◌̈), die DB-Werte zusammengesetzt. Ohne Angleichung
+    # schlägt der Vergleich bei Umlauten fehl.
+    normalized = unicodedata.normalize("NFC", str(value or ""))
+    return _WHITESPACE_RE.sub(" ", normalized).strip()
 
 
 def _matcher_hits(spec: MatcherSpec, text: str) -> bool:
