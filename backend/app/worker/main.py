@@ -44,6 +44,7 @@ logging.basicConfig(level=logging.INFO)
 AUTO_TAG_MAX_TAGS = 5
 AUTO_TAG_MAX_TEXT_CHARS = 6000
 TRASH_CLEANUP_INTERVAL_SECONDS = 3600
+BACKUP_CHECK_INTERVAL_SECONDS = 60
 IMPORT_INBOX_PROCESSED_DIR = ".papermind-processed"
 IMPORT_INBOX_PROCESSING_DIR = ".papermind-processing"
 IMPORT_INBOX_FAILED_DIR = ".papermind-failed"
@@ -934,11 +935,46 @@ def _run_ocr_backfill() -> None:
         )
 
 
+def _run_backup_scheduler() -> None:
+    """Stößt ein geplantes Backup an, sobald der konfigurierte Zeitpunkt fällig ist."""
+    from datetime import datetime
+
+    from sqlalchemy import select
+
+    from app.models.backup_run import BackupRun
+    from app.services.backup import BackupService, is_backup_due
+
+    with SessionLocal() as db:
+        try:
+            service = BackupService(db)
+            config = service.get_config()
+            if not config.get("enabled"):
+                return
+            running = db.execute(select(BackupRun).where(BackupRun.status == "running").limit(1)).scalar_one_or_none()
+            if running is not None:
+                return
+            last_scheduled = db.execute(
+                select(BackupRun).where(BackupRun.kind == "scheduled").order_by(BackupRun.started_at.desc()).limit(1)
+            ).scalar_one_or_none()
+            last_at = last_scheduled.started_at if last_scheduled else None
+            if not is_backup_due(config, now=datetime.now().astimezone(), last_run_at=last_at):
+                return
+        except Exception as exc:  # noqa: BLE001 - Scheduler darf den Worker nie abbrechen
+            logger.warning("backup scheduler check failed: %s", exc)
+            return
+        logger.info("scheduled backup due -> running")
+        try:
+            service.run_backup(kind="scheduled")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("scheduled backup run failed: %s", exc)
+
+
 def run() -> None:
     logger.info("worker started poll_interval=%ss storage=%s", settings.worker_poll_interval_seconds, settings.storage_path)
     _reclaim_orphaned_jobs()
     last_trash_cleanup_at = 0.0
     last_ocr_backfill_at = 0.0
+    last_backup_check_at = 0.0
     while True:
         now_monotonic = time.monotonic()
         if now_monotonic - last_trash_cleanup_at >= TRASH_CLEANUP_INTERVAL_SECONDS:
@@ -948,6 +984,10 @@ def run() -> None:
         if now_monotonic - last_ocr_backfill_at >= settings.ocr_backfill_interval_seconds:
             last_ocr_backfill_at = now_monotonic
             _run_ocr_backfill()
+
+        if now_monotonic - last_backup_check_at >= BACKUP_CHECK_INTERVAL_SECONDS:
+            last_backup_check_at = now_monotonic
+            _run_backup_scheduler()
 
         inbox_drop_file = _claim_next_import_inbox_pdf()
         if inbox_drop_file is not None:
