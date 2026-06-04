@@ -1,4 +1,5 @@
 from app.routers.ai import router as ai_router
+from app.routers.backup import router as backup_router
 from app.routers.categories import router as categories_router
 from app.routers.correspondents import router as correspondents_router
 from app.routers.document_types import router as document_types_router
@@ -30,4 +31,5 @@ __all__ = [
     "settings_router",
     "sidebar_router",
     "ai_router",
+    "backup_router",
 ]

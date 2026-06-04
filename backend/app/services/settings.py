@@ -79,6 +79,21 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "timeout_seconds": 90.0,
         "max_input_chars": 1500,
     },
+    # Eigener Abschnitt – bewusst NICHT Teil von AppSettingsRead/Patch, damit das
+    # NAS-Passwort nicht über die generische Settings-API ausgeliefert wird. Wird
+    # über /api/backup verwaltet; der Persist-Code erhält unbekannte Keys.
+    "backup": {
+        "enabled": False,
+        "nas_host": "",
+        "nas_share": "",
+        "nas_folder": "papermind",
+        "nas_username": "",
+        "nas_password": "",
+        "frequency": "daily",
+        "time": "03:00",
+        "weekday": 6,
+        "retention": 7,
+    },
     "meta": {
         "version": 1,
     },

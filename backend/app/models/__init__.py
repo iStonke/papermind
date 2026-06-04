@@ -1,4 +1,5 @@
 from app.models.document_type import DocumentType
+from app.models.backup_run import BackupRun
 from app.models.correspondent import Correspondent, CorrespondentAlias, CorrespondentMatcher
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
@@ -12,6 +13,7 @@ from app.models.tag import Tag
 
 __all__ = [
     "DocumentType",
+    "BackupRun",
     "Correspondent",
     "CorrespondentAlias",
     "CorrespondentMatcher",
