@@ -62,3 +62,36 @@ class BackupTestResponse(BaseModel):
 class BackupRunStartResponse(BaseModel):
     started: bool
     message: str | None = None
+
+
+class BackupArchiveItem(BaseModel):
+    name: str
+    size_bytes: int = 0
+    created_at: datetime | None = None
+    complete: bool = True
+
+
+class BackupArchiveListResponse(BaseModel):
+    items: list[BackupArchiveItem] = Field(default_factory=list)
+
+
+class BackupRestoreRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        import re
+
+        normalized = str(value).strip()
+        if not re.match(r"^\d{4}-\d{2}-\d{2}_\d{6}$", normalized):
+            raise ValueError("name must be a backup timestamp folder (YYYY-MM-DD_HHMMSS)")
+        return normalized
+
+
+class BackupRestoreStatusResponse(BaseModel):
+    status: str | None = None
+    name: str | None = None
+    error: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None

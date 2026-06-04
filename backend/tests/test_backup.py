@@ -1,7 +1,9 @@
 import unittest
 from datetime import datetime, timedelta, timezone
 
+from app.schemas.backup import BackupRestoreRequest
 from app.services.backup import (
+    BackupService,
     is_backup_due,
     mask_config,
     next_scheduled_slot,
@@ -76,6 +78,26 @@ class MaskConfigTest(unittest.TestCase):
 
     def test_empty_password_flag_false(self) -> None:
         self.assertFalse(mask_config({"nas_password": ""})["nas_password_set"])
+
+
+class ArchiveCreatedAtTest(unittest.TestCase):
+    def test_parses_timestamp_folder(self) -> None:
+        dt = BackupService._archive_created_at("2026-06-04_222704")
+        self.assertIsNotNone(dt)
+        self.assertEqual((dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second), (2026, 6, 4, 22, 27, 4))
+
+    def test_returns_none_for_invalid(self) -> None:
+        self.assertIsNone(BackupService._archive_created_at("nicht-ein-backup"))
+
+
+class RestoreRequestValidationTest(unittest.TestCase):
+    def test_accepts_valid_timestamp(self) -> None:
+        self.assertEqual(BackupRestoreRequest(name="2026-06-04_222704").name, "2026-06-04_222704")
+
+    def test_rejects_path_traversal_and_garbage(self) -> None:
+        for bad in ["../etc", "2026-06-04", "2026-06-04_2227", "foo/bar", "2026-06-04_222704/.."]:
+            with self.assertRaises(ValueError):
+                BackupRestoreRequest(name=bad)
 
 
 if __name__ == "__main__":

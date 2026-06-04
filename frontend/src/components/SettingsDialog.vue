@@ -970,6 +970,11 @@
                 <span>Nächster Lauf</span><strong>{{ backupNextLabel }}</strong>
               </div>
               <div v-if="backupLastError" class="backup-status__error">{{ backupLastError }}</div>
+              <div class="backup-status__manage">
+                <v-btn variant="text" size="small" prepend-icon="mdi-folder-clock-outline" @click="openBackupManager">
+                  Backups verwalten
+                </v-btn>
+              </div>
             </div>
 
             <div class="pm-setting-label">Netzlaufwerk (NAS)</div>
@@ -978,11 +983,13 @@
               <v-text-field v-model="backup.nas_share" label="Freigabe" placeholder="papermind-backup" density="compact" variant="outlined" hide-details />
               <v-text-field v-model="backup.nas_username" label="Benutzer" density="compact" variant="outlined" hide-details />
               <v-text-field
-                v-model="backupPassword"
+                :model-value="backupPassword"
+                @update:model-value="onBackupPasswordInput"
+                @focus="onBackupPasswordFocus"
+                @blur="onBackupPasswordBlur"
                 label="Passwort"
                 type="password"
                 autocomplete="new-password"
-                :placeholder="backup.nas_password_set ? '•••••••• (gesetzt)' : ''"
                 density="compact"
                 variant="outlined"
                 hide-details
@@ -1035,6 +1042,122 @@
                 Speichern
               </v-btn>
             </div>
+
+            <!-- Backups verwalten -->
+            <v-dialog v-model="backupManagerOpen" max-width="640" :persistent="restoreInProgress">
+              <v-card>
+                <v-card-title class="d-flex align-center">
+                  <v-icon class="mr-2">mdi-folder-clock-outline</v-icon>
+                  Backups verwalten
+                  <v-spacer />
+                  <v-btn icon="mdi-close" variant="text" size="small" :disabled="restoreInProgress" @click="backupManagerOpen = false" />
+                </v-card-title>
+                <v-divider />
+                <v-card-text>
+                  <div v-if="restoreInProgress" class="restore-progress">
+                    <v-progress-circular indeterminate size="24" width="3" class="mr-3" color="primary" />
+                    <div>
+                      <div class="restore-progress__title">Wird wiederhergestellt …</div>
+                      <div class="restore-progress__sub">Die App startet anschließend automatisch neu. Bitte dieses Fenster nicht schließen.</div>
+                    </div>
+                  </div>
+
+                  <template v-else>
+                    <div v-if="backupArchivesLoading" class="text-center py-6">
+                      <v-progress-circular indeterminate size="28" />
+                    </div>
+                    <div v-else-if="backupArchivesError" class="text-error py-4">{{ backupArchivesError }}</div>
+                    <div v-else-if="!backupArchives.length" class="text-medium-emphasis py-6 text-center">
+                      Noch keine Backups auf dem NAS gefunden.
+                    </div>
+                    <v-list v-else lines="two" density="comfortable">
+                      <v-list-item v-for="a in backupArchives" :key="a.name">
+                        <template #prepend>
+                          <v-icon :color="a.complete ? 'primary' : 'warning'">
+                            {{ a.complete ? 'mdi-archive-outline' : 'mdi-alert-outline' }}
+                          </v-icon>
+                        </template>
+                        <v-list-item-title>{{ backupFormatArchiveDate(a) }}</v-list-item-title>
+                        <v-list-item-subtitle>
+                          {{ backupFormatSize(a.size_bytes) }}<span v-if="!a.complete"> · unvollständig</span>
+                        </v-list-item-subtitle>
+                        <template #append>
+                          <v-btn
+                            icon="mdi-backup-restore"
+                            variant="text"
+                            size="small"
+                            :disabled="!a.complete"
+                            title="Wiederherstellen"
+                            @click="askRestore(a)"
+                          />
+                          <v-btn
+                            icon="mdi-delete-outline"
+                            variant="text"
+                            size="small"
+                            color="error"
+                            title="Löschen"
+                            @click="askDeleteArchive(a)"
+                          />
+                        </template>
+                      </v-list-item>
+                    </v-list>
+                  </template>
+                </v-card-text>
+              </v-card>
+            </v-dialog>
+
+            <!-- Restore bestätigen (Wort eintippen) -->
+            <v-dialog v-model="restoreConfirmOpen" max-width="520" persistent>
+              <v-card>
+                <v-card-title class="text-error d-flex align-center">
+                  <v-icon class="mr-2">mdi-alert</v-icon> Wiederherstellen bestätigen
+                </v-card-title>
+                <v-card-text>
+                  <p class="mb-3">
+                    Dies <strong>überschreibt die gesamte Datenbank und alle PDFs</strong> mit dem Stand vom
+                    <strong>{{ restoreTarget ? backupFormatArchiveDate(restoreTarget) : '' }}</strong>.
+                    Der aktuelle Stand geht verloren. Die App startet danach automatisch neu.
+                  </p>
+                  <p class="mb-2 text-medium-emphasis">Zum Bestätigen <code>WIEDERHERSTELLEN</code> eingeben:</p>
+                  <v-text-field
+                    v-model="restoreConfirmText"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    autofocus
+                    placeholder="WIEDERHERSTELLEN"
+                  />
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn variant="text" @click="restoreConfirmOpen = false">Abbrechen</v-btn>
+                  <v-btn
+                    color="error"
+                    :disabled="restoreConfirmText.trim() !== 'WIEDERHERSTELLEN'"
+                    :loading="restoreStarting"
+                    @click="confirmRestore"
+                  >
+                    Wiederherstellen
+                  </v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-dialog>
+
+            <!-- Backup löschen bestätigen -->
+            <v-dialog v-model="deleteArchiveOpen" max-width="460">
+              <v-card>
+                <v-card-title>Backup löschen?</v-card-title>
+                <v-card-text>
+                  Das Backup vom <strong>{{ deleteTarget ? backupFormatArchiveDate(deleteTarget) : '' }}</strong>
+                  wird vom NAS entfernt. Das lässt sich nicht rückgängig machen.
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn variant="text" @click="deleteArchiveOpen = false">Abbrechen</v-btn>
+                  <v-btn color="error" :loading="deleteArchiveBusy" @click="confirmDeleteArchive">Löschen</v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-dialog>
           </div>
         </section>
 
@@ -1108,7 +1231,16 @@ import { notifyError, useNotifications } from '../stores/notifications';
 import { useTagStore } from '../stores/tags';
 import { cleanupUnusedTags } from '../api/tags';
 import { backfillOcr, patchDocument as apiPatchDocument } from '../api/documents';
-import { getBackupStatus, runBackupNow, testBackupConnection, updateBackupConfig } from '../api/backup';
+import {
+  deleteBackupArchive,
+  getBackupStatus,
+  getRestoreStatus,
+  listBackupArchives,
+  restoreBackup,
+  runBackupNow,
+  testBackupConnection,
+  updateBackupConfig,
+} from '../api/backup';
 import {
   ignoreUnresolvedCorrespondent as apiIgnoreUnresolvedCorrespondent,
   listUnresolvedCorrespondents as apiListUnresolvedCorrespondents
@@ -1232,13 +1364,31 @@ const backup = ref({
   enabled: false, nas_host: '', nas_share: '', nas_folder: '', nas_username: '',
   nas_password_set: false, frequency: 'daily', time: '03:00', weekday: 6, retention: 7,
 });
+const BACKUP_PW_MASK = '••••••••';
 const backupPassword = ref('');
+const backupPasswordDirty = ref(false);
 const backupStatus = ref({ last_run: null, next_run_at: null, last_success_at: null, is_running: false });
 const backupSaving = ref(false);
 const backupTesting = ref(false);
 const backupRunning = ref(false);
 const backupTestResult = ref(null);
 let backupPollTimer = 0;
+
+// Backups verwalten / Wiederherstellen
+const backupManagerOpen = ref(false);
+const backupArchives = ref([]);
+const backupArchivesLoading = ref(false);
+const backupArchivesError = ref('');
+const restoreConfirmOpen = ref(false);
+const restoreTarget = ref(null);
+const restoreConfirmText = ref('');
+const restoreStarting = ref(false);
+const restoreInProgress = ref(false);
+let restorePollTimer = 0;
+const deleteArchiveOpen = ref(false);
+const deleteTarget = ref(null);
+const deleteArchiveBusy = ref(false);
+
 const backupWeekdayItems = [
   { title: 'Montag', value: 0 }, { title: 'Dienstag', value: 1 }, { title: 'Mittwoch', value: 2 },
   { title: 'Donnerstag', value: 3 }, { title: 'Freitag', value: 4 }, { title: 'Samstag', value: 5 },
@@ -1294,6 +1444,28 @@ function applyBackupStatus(data) {
     last_run: data?.last_run || null, next_run_at: data?.next_run_at || null,
     last_success_at: data?.last_success_at || null, is_running: !!data?.is_running,
   };
+  // Gespeichertes Passwort als Punkte darstellen; Feld bleibt "gefüllt".
+  backupPasswordDirty.value = false;
+  backupPassword.value = backup.value.nas_password_set ? BACKUP_PW_MASK : '';
+}
+
+function onBackupPasswordInput(value) {
+  backupPassword.value = value;
+  backupPasswordDirty.value = true;
+}
+
+function onBackupPasswordFocus() {
+  // Beim Bearbeiten die Maske leeren, damit ein neues Passwort sauber eingegeben wird.
+  if (!backupPasswordDirty.value && backupPassword.value === BACKUP_PW_MASK) {
+    backupPassword.value = '';
+  }
+}
+
+function onBackupPasswordBlur() {
+  // Ohne Eingabe die Maske wiederherstellen – gespeichertes Passwort bleibt erhalten.
+  if (!backupPasswordDirty.value && !backupPassword.value && backup.value.nas_password_set) {
+    backupPassword.value = BACKUP_PW_MASK;
+  }
 }
 
 async function loadBackup() {
@@ -1308,7 +1480,9 @@ function backupConfigPayload() {
     nas_username: b.nas_username, frequency: b.frequency, time: b.time, weekday: b.weekday,
     retention: Number(b.retention) || 7,
   };
-  if (backupPassword.value) payload.nas_password = backupPassword.value;
+  if (backupPasswordDirty.value && backupPassword.value && backupPassword.value !== BACKUP_PW_MASK) {
+    payload.nas_password = backupPassword.value;
+  }
   return payload;
 }
 
@@ -1316,7 +1490,6 @@ async function saveBackup() {
   backupSaving.value = true;
   try {
     applyBackupStatus(await updateBackupConfig(backupConfigPayload()));
-    backupPassword.value = '';
     notify({ type: 'success', title: 'Backup', message: 'Einstellungen gespeichert.' });
   } catch (error) {
     notifyError(error, 'Backup-Einstellungen konnten nicht gespeichert werden.');
@@ -1366,6 +1539,118 @@ async function onRunBackup() {
   } catch (error) {
     notifyError(error, 'Backup konnte nicht gestartet werden.');
     backupRunning.value = false;
+  }
+}
+
+// ── Backups verwalten / Wiederherstellen ────────────────────────────────────
+function backupFormatSize(bytes) {
+  const b = Number(bytes) || 0;
+  if (b >= 1e9) return `${(b / 1e9).toFixed(1)} GB`;
+  if (b >= 1e6) return `${(b / 1e6).toFixed(0)} MB`;
+  if (b >= 1e3) return `${(b / 1e3).toFixed(0)} KB`;
+  return `${b} B`;
+}
+
+function backupFormatArchiveDate(a) {
+  if (a?.created_at) return backupFormatDate(a.created_at);
+  return a?.name || '';
+}
+
+async function loadBackupArchives() {
+  backupArchivesLoading.value = true;
+  backupArchivesError.value = '';
+  try {
+    const res = await listBackupArchives();
+    backupArchives.value = res?.items || [];
+  } catch (error) {
+    backupArchivesError.value = error?.message || 'Backups konnten nicht geladen werden.';
+    backupArchives.value = [];
+  } finally {
+    backupArchivesLoading.value = false;
+  }
+}
+
+function openBackupManager() {
+  backupManagerOpen.value = true;
+  loadBackupArchives();
+}
+
+function askRestore(a) {
+  restoreTarget.value = a;
+  restoreConfirmText.value = '';
+  restoreConfirmOpen.value = true;
+}
+
+async function confirmRestore() {
+  if (!restoreTarget.value) return;
+  restoreStarting.value = true;
+  try {
+    const res = await restoreBackup(restoreTarget.value.name);
+    if (!res?.started) {
+      notify({ type: 'info', title: 'Wiederherstellung', message: res?.message || 'Konnte nicht gestartet werden.' });
+      return;
+    }
+    restoreConfirmOpen.value = false;
+    restoreInProgress.value = true;
+    watchRestoreUntilRestart();
+  } catch (error) {
+    notifyError(error, 'Wiederherstellung konnte nicht gestartet werden.');
+  } finally {
+    restoreStarting.value = false;
+  }
+}
+
+function watchRestoreUntilRestart() {
+  let seenDown = false;
+  let ticks = 0;
+  if (restorePollTimer) window.clearInterval(restorePollTimer);
+  restorePollTimer = window.setInterval(async () => {
+    ticks += 1;
+    try {
+      const st = await getRestoreStatus();
+      if (st?.status === 'failed') {
+        window.clearInterval(restorePollTimer);
+        restorePollTimer = 0;
+        restoreInProgress.value = false;
+        notifyError(new Error(st.error || 'Unbekannter Fehler'), 'Wiederherstellung fehlgeschlagen.');
+        loadBackupArchives();
+        return;
+      }
+      // Erfolgreicher Request nach einem Ausfall ⇒ Backend ist neu gestartet ⇒ fertig.
+      if (seenDown) {
+        window.clearInterval(restorePollTimer);
+        restorePollTimer = 0;
+        window.location.reload();
+      }
+    } catch {
+      seenDown = true; // Backend gerade nicht erreichbar (Neustart läuft)
+    }
+    if (ticks > 90) {
+      window.clearInterval(restorePollTimer);
+      restorePollTimer = 0;
+      window.location.reload();
+    }
+  }, 2000);
+}
+
+function askDeleteArchive(a) {
+  deleteTarget.value = a;
+  deleteArchiveOpen.value = true;
+}
+
+async function confirmDeleteArchive() {
+  if (!deleteTarget.value) return;
+  deleteArchiveBusy.value = true;
+  try {
+    await deleteBackupArchive(deleteTarget.value.name);
+    deleteArchiveOpen.value = false;
+    notify({ type: 'success', title: 'Backup', message: 'Backup gelöscht.' });
+    await loadBackupArchives();
+    await loadBackup();
+  } catch (error) {
+    notifyError(error, 'Backup konnte nicht gelöscht werden.');
+  } finally {
+    deleteArchiveBusy.value = false;
   }
 }
 
@@ -2218,6 +2503,18 @@ async function removeAlias(alias) {
   color: rgb(var(--v-theme-error));
   word-break: break-word;
 }
+.backup-status__manage {
+  margin-top: 4px;
+  display: flex;
+  justify-content: flex-end;
+}
+.restore-progress {
+  display: flex;
+  align-items: center;
+  padding: 8px 4px;
+}
+.restore-progress__title { font-weight: 600; }
+.restore-progress__sub { font-size: 0.8rem; opacity: 0.7; margin-top: 2px; }
 .backup-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

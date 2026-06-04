@@ -10,12 +10,16 @@ ohne NAS/DB testbar.
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import re
 import shutil
 import subprocess
 import tarfile
 import tempfile
+import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -32,6 +36,9 @@ settings = get_settings()
 _HHMM_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 _BACKUP_DIR_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{6}$")
 _DEFAULT_TIME = "03:00"
+_RESTORE_STATUS_PATH = Path(tempfile.gettempdir()) / "pm_restore_status.json"
+# Ein Lauf, der länger als dies "running" ist, gilt als abgebrochen (Absturz/Neustart).
+_STALE_RUN_MINUTES = 120
 
 
 # ── Reine, testbare Helfer ────────────────────────────────────────────────────
@@ -92,6 +99,46 @@ def run_backup_in_background(*, kind: str = "manual") -> None:
     db = SessionLocal()
     try:
         BackupService(db).run_backup(kind=kind)
+    finally:
+        db.close()
+
+
+# ── Restore-Status (übersteht den Prozess-Neustart nach dem Restore) ──────────
+
+def write_restore_status(data: dict) -> None:
+    try:
+        _RESTORE_STATUS_PATH.write_text(json.dumps(data), encoding="utf-8")
+    except Exception:  # noqa: BLE001 - Status ist best effort
+        logger.warning("restore status konnte nicht geschrieben werden", exc_info=True)
+
+
+def read_restore_status() -> dict | None:
+    try:
+        return json.loads(_RESTORE_STATUS_PATH.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - kein Status vorhanden
+        return None
+
+
+def _schedule_process_exit(delay: float = 1.5) -> None:
+    """Prozess nach kurzer Verzögerung beenden → Container-Restart-Policy startet sauber neu."""
+
+    def _bye() -> None:
+        time.sleep(delay)
+        logger.info("restore abgeschlossen – Prozess wird für sauberen Neustart beendet")
+        os._exit(0)
+
+    threading.Thread(target=_bye, daemon=True).start()
+
+
+def run_restore_in_background(*, name: str) -> None:
+    """Restore mit eigener DB-Session ausführen (für Threads)."""
+    from app.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        BackupService(db).restore_archive(name)
+    except Exception:  # noqa: BLE001 - Fehler ist im Status-File protokolliert
+        logger.warning("restore im hintergrund fehlgeschlagen name=%s", name, exc_info=True)
     finally:
         db.close()
 
@@ -173,7 +220,27 @@ class BackupService:
         return self.db.execute(select(GlobalSetting).where(GlobalSetting.id == 1)).scalar_one_or_none()
 
     # ── Status ───────────────────────────────────────────────────────────────
+    def reap_stale_runs(self) -> int:
+        """Läufe, die zu lange ``running`` sind (z.B. durch Absturz/Neustart), als
+        fehlgeschlagen markieren – sonst blockieren sie Backups und Restore dauerhaft."""
+        threshold = datetime.now().astimezone() - timedelta(minutes=_STALE_RUN_MINUTES)
+        stale = (
+            self.db.execute(select(BackupRun).where(BackupRun.status == "running", BackupRun.started_at < threshold))
+            .scalars()
+            .all()
+        )
+        if not stale:
+            return 0
+        for run in stale:
+            run.status = "failed"
+            run.finished_at = datetime.now().astimezone()
+            run.error = (run.error + " " if run.error else "") + "Lauf wurde unterbrochen (Timeout)."
+        self.db.commit()
+        logger.warning("backup: %d hängende Läufe aufgeräumt", len(stale))
+        return len(stale)
+
     def get_status(self) -> dict:
+        self.reap_stale_runs()
         config = self.get_config()
         last = self.db.execute(select(BackupRun).order_by(BackupRun.started_at.desc()).limit(1)).scalar_one_or_none()
         last_success = self.db.execute(
@@ -344,3 +411,206 @@ class BackupService:
             else:
                 smbclient.remove(child)
         smbclient.rmdir(path)
+
+    # ── Archive (vorhandene Backups verwalten) ───────────────────────────────
+    @staticmethod
+    def _archive_created_at(name: str) -> datetime | None:
+        try:
+            return datetime.strptime(name, "%Y-%m-%d_%H%M%S").astimezone()
+        except ValueError:
+            return None
+
+    def list_archives(self) -> list[dict]:
+        """Vorhandene Backup-Ordner auf dem NAS samt Gesamtgröße auflisten."""
+        import smbclient
+
+        target = _SmbTarget.from_config(self.get_config())
+        target.validate()
+        smbclient.reset_connection_cache()
+        smbclient.register_session(target.host, username=target.username, password=target.password, port=445)
+        try:
+            root = self._archive_root(target)
+            items: list[dict] = []
+            for entry in smbclient.scandir(root):
+                if not (entry.is_dir() and _BACKUP_DIR_RE.match(entry.name)):
+                    continue
+                size = 0
+                names: set[str] = set()
+                try:
+                    for f in smbclient.scandir(f"{root}\\{entry.name}"):
+                        if not f.is_dir():
+                            size += f.stat().st_size
+                            names.add(f.name)
+                except Exception:  # noqa: BLE001 - unvollständiger Ordner
+                    pass
+                complete = {"database.dump", "storage.tar.gz"}.issubset(names)
+                items.append(
+                    {
+                        "name": entry.name,
+                        "size_bytes": int(size),
+                        "created_at": self._archive_created_at(entry.name),
+                        "complete": complete,
+                    }
+                )
+            items.sort(key=lambda x: x["name"], reverse=True)
+            return items
+        finally:
+            smbclient.reset_connection_cache()
+
+    def delete_archive(self, name: str) -> None:
+        import smbclient
+
+        if not _BACKUP_DIR_RE.match(name):
+            raise ValueError("Ungültiger Backup-Name")
+        target = _SmbTarget.from_config(self.get_config())
+        target.validate()
+        smbclient.reset_connection_cache()
+        smbclient.register_session(target.host, username=target.username, password=target.password, port=445)
+        try:
+            self._smb_rmtree(smbclient, f"{self._archive_root(target)}\\{name}")
+        finally:
+            smbclient.reset_connection_cache()
+
+    @staticmethod
+    def _archive_root(target: _SmbTarget) -> str:
+        return _unc(target.host, target.share, target.folder) if target.folder else _unc(target.host, target.share)
+
+    # ── Restore ──────────────────────────────────────────────────────────────
+    def restore_archive(self, name: str, *, do_exit: bool = True) -> None:
+        """Datenbank und PDF-Speicher aus einem NAS-Backup wiederherstellen.
+
+        Bei Erfolg wird der Prozess beendet, damit der Container neu gegen die
+        wiederhergestellte Datenbank startet (saubere Verbindungen/Caches).
+        """
+        if not _BACKUP_DIR_RE.match(name):
+            raise ValueError("Ungültiger Backup-Name")
+
+        target = _SmbTarget.from_config(self.get_config())
+        target.validate()
+        started = datetime.now().astimezone()
+        write_restore_status({"status": "running", "name": name, "started_at": started.isoformat()})
+
+        tmp_dir = Path(tempfile.mkdtemp(prefix="pm-restore-"))
+        try:
+            db_dump = tmp_dir / "database.dump"
+            storage_archive = tmp_dir / "storage.tar.gz"
+            self._download(target, name, "database.dump", db_dump)
+            self._download(target, name, "storage.tar.gz", storage_archive)
+
+            self._pg_restore(db_dump)
+            self._restore_storage(storage_archive)
+
+            write_restore_status(
+                {
+                    "status": "success",
+                    "name": name,
+                    "started_at": started.isoformat(),
+                    "finished_at": datetime.now().astimezone().isoformat(),
+                }
+            )
+            logger.info("restore success name=%s", name)
+        except Exception as exc:  # noqa: BLE001 - Fehler im Status protokollieren
+            write_restore_status(
+                {
+                    "status": "failed",
+                    "name": name,
+                    "error": str(exc)[:2000],
+                    "started_at": started.isoformat(),
+                    "finished_at": datetime.now().astimezone().isoformat(),
+                }
+            )
+            logger.warning("restore failed name=%s: %s", name, exc)
+            raise
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        if do_exit:
+            _schedule_process_exit()
+
+    @staticmethod
+    def _download(target: _SmbTarget, name: str, filename: str, dest: Path) -> None:
+        import smbclient
+
+        smbclient.reset_connection_cache()
+        smbclient.register_session(target.host, username=target.username, password=target.password, port=445)
+        try:
+            parts = [p for p in (target.folder, name) if p]
+            remote = _unc(target.host, target.share, *parts, filename)
+            with smbclient.open_file(remote, mode="rb") as src, open(dest, "wb") as dst:
+                shutil.copyfileobj(src, dst, length=1024 * 1024)
+        finally:
+            smbclient.reset_connection_cache()
+
+    @staticmethod
+    def _terminate_other_connections(database_url: str) -> None:
+        """Fremde DB-Verbindungen trennen, damit pg_restore --clean nicht blockiert."""
+        try:
+            subprocess.run(
+                [
+                    "psql",
+                    database_url,
+                    "-v",
+                    "ON_ERROR_STOP=0",
+                    "-c",
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                    "WHERE datname = current_database() AND pid <> pg_backend_pid();",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except Exception:  # noqa: BLE001 - best effort
+            logger.warning("Fremdverbindungen konnten nicht getrennt werden", exc_info=True)
+
+    @staticmethod
+    def _pg_restore(dump_path: Path) -> None:
+        database_url = settings.database_url
+        if not database_url:
+            raise RuntimeError("DATABASE_URL ist nicht gesetzt")
+        database_url = database_url.replace("postgresql+psycopg://", "postgresql://", 1)
+        BackupService._terminate_other_connections(database_url)
+        result = subprocess.run(
+            [
+                "pg_restore",
+                "--dbname",
+                database_url,
+                "--clean",
+                "--if-exists",
+                "--no-owner",
+                "--no-acl",
+                str(dump_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=1800,
+        )
+        # pg_restore liefert oft returncode!=0 wegen ignorierbarer Hinweise.
+        # Als echten Fehler werten wir nur Zeilen mit "error:".
+        if result.returncode != 0:
+            fatal = [ln for ln in result.stderr.splitlines() if "error:" in ln.lower()]
+            if fatal:
+                raise RuntimeError("pg_restore fehlgeschlagen: " + " | ".join(fatal[:5])[:500])
+
+    @staticmethod
+    def _restore_storage(archive_path: Path) -> None:
+        storage_root = Path(settings.storage_path)
+        storage_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="pm-storage-") as td:
+            with tarfile.open(archive_path, "r:gz") as tar:
+                tar.extractall(td, filter="data")
+            src = Path(td) / "storage"
+            if not src.is_dir():
+                src = Path(td)
+            # vorhandenen Speicher leeren …
+            for child in storage_root.iterdir():
+                if child.is_dir():
+                    shutil.rmtree(child, ignore_errors=True)
+                else:
+                    child.unlink(missing_ok=True)
+            # … und durch den Backup-Stand ersetzen.
+            for child in src.iterdir():
+                dest = storage_root / child.name
+                if child.is_dir():
+                    shutil.copytree(child, dest)
+                else:
+                    shutil.copy2(child, dest)
