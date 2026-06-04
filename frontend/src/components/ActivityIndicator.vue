@@ -32,7 +32,16 @@
       </div>
       <v-divider />
 
-      <div v-if="groups.length === 0" class="activity-empty">
+      <div v-if="ocrPending > 0" class="activity-ocr">
+        <div class="activity-ocr__label">Dokumente werden durchsuchbar gemacht</div>
+        <v-progress-linear :model-value="ocrPercent" height="6" rounded color="primary" class="activity-ocr__bar" />
+        <div class="activity-ocr__count">
+          {{ ocrBacklog.done }} / {{ ocrBacklog.total }} fertig<span v-if="ocrBacklog.failed"> · {{ ocrBacklog.failed }} fehlgeschlagen</span>
+        </div>
+      </div>
+      <v-divider v-if="ocrPending > 0" />
+
+      <div v-if="groups.length === 0 && ocrPending === 0" class="activity-empty">
         Keine laufenden Prozesse.
       </div>
 
@@ -85,6 +94,7 @@ const TYPE_LABELS = {
 };
 
 const jobs = ref([]);
+const ocrBacklog = ref({ total: 0, done: 0, pending: 0, failed: 0 });
 const menuOpen = ref(false);
 let timer = null;
 let burstTimer = null;
@@ -127,10 +137,18 @@ const groups = computed(() => {
 
 const activeGroups = computed(() => groups.value.filter((g) => g.status === 'running' || g.status === 'queued'));
 const failedGroups = computed(() => groups.value.filter((g) => g.status === 'failed'));
-const isActive = computed(() => activeGroups.value.length > 0);
+// Gesamtfortschritt der Volltext-Erkennung (Dokument-Ebene), sichtbar auch in den
+// Pausen zwischen den OCR-Häppchen.
+const ocrPending = computed(() => Number(ocrBacklog.value?.pending || 0));
+const ocrPercent = computed(() => {
+  const total = Number(ocrBacklog.value?.total || 0);
+  if (total <= 0) return 0;
+  return Math.round((Number(ocrBacklog.value?.done || 0) / total) * 100);
+});
+const isActive = computed(() => activeGroups.value.length > 0 || ocrPending.value > 0);
 const hasFailed = computed(() => failedGroups.value.length > 0);
-// Indikator nur anzeigen, wenn es überhaupt etwas zu zeigen gibt.
-const hasActivity = computed(() => groups.value.length > 0);
+// Indikator anzeigen, wenn Jobs laufen ODER noch Dokumente auf Volltext warten.
+const hasActivity = computed(() => groups.value.length > 0 || ocrPending.value > 0);
 const badgeCount = computed(() =>
   isActive.value ? activeGroups.value.length : (hasFailed.value ? failedGroups.value.length : 0)
 );
@@ -146,13 +164,14 @@ const headerSub = computed(() => {
   const parts = [];
   if (activeGroups.value.length) parts.push(`${activeGroups.value.length} in Bearbeitung`);
   if (failedGroups.value.length) parts.push(`${failedGroups.value.length} fehlgeschlagen`);
-  return parts.join(' · ') || 'im Leerlauf';
+  return parts.join(' · ') || (ocrPending.value > 0 ? 'läuft im Hintergrund' : 'im Leerlauf');
 });
 
 async function refresh() {
   try {
     const data = await getJobActivity();
     jobs.value = Array.isArray(data?.jobs) ? data.jobs : [];
+    ocrBacklog.value = data?.ocr_backlog ?? { total: 0, done: 0, pending: 0, failed: 0 };
   } catch {
     // Aktivität ist optional – Fehler beim Polling nicht stören lassen.
   }
@@ -235,6 +254,19 @@ onBeforeUnmount(() => {
   font-size: 0.85rem;
   opacity: 0.7;
   text-align: center;
+}
+.activity-ocr {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.activity-ocr__label {
+  font-size: 0.82rem;
+}
+.activity-ocr__count {
+  font-size: 0.72rem;
+  opacity: 0.7;
 }
 .activity-list {
   max-height: 340px;

@@ -13,6 +13,7 @@ from app.schemas.jobs import (
     JobListResponse,
     JobRead,
     JobUpdateRequest,
+    OcrBacklog,
 )
 from app.services.jobs import JobService
 
@@ -35,6 +36,7 @@ def get_job_activity(db: Session = Depends(get_db)) -> JobActivityResponse:
     return JobActivityResponse(
         summary=JobActivitySummary(**result["summary"]),
         jobs=items,
+        ocr_backlog=OcrBacklog(**result["ocr_backlog"]),
     )
 
 
