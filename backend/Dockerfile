@@ -13,6 +13,7 @@ RUN apt-get update \
         qpdf \
         libgl1 \
         libglib2.0-0 \
+        tzdata \
         curl \
         ca-certificates \
         gnupg \

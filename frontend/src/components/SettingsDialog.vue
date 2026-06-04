@@ -942,6 +942,102 @@
           </div>
         </section>
 
+        <section v-show="activeCategory === 'backup'" class="pm-settings-section">
+          <div class="pm-settings-content">
+            <div class="backup-hero">
+              <div class="backup-hero__badge">
+                <v-icon size="34">mdi-cloud-upload-outline</v-icon>
+              </div>
+              <div class="backup-hero__text">
+                <div class="backup-hero__title">Backup auf NAS</div>
+                <div class="backup-hero__sub">Sichert Datenbank und PDFs automatisch auf dein Netzlaufwerk.</div>
+              </div>
+              <v-switch
+                :model-value="backup.enabled"
+                color="primary"
+                hide-details
+                density="compact"
+                :loading="backupSaving"
+                @update:model-value="onToggleBackup"
+              />
+            </div>
+
+            <div class="backup-status" :class="`backup-status--${backupStatusKind}`">
+              <div class="backup-status__row">
+                <span>Letztes Backup</span><strong>{{ backupLastLabel }}</strong>
+              </div>
+              <div class="backup-status__row">
+                <span>Nächster Lauf</span><strong>{{ backupNextLabel }}</strong>
+              </div>
+              <div v-if="backupLastError" class="backup-status__error">{{ backupLastError }}</div>
+            </div>
+
+            <div class="pm-setting-label">Netzlaufwerk (NAS)</div>
+            <div class="backup-grid">
+              <v-text-field v-model="backup.nas_host" label="IP-Adresse" placeholder="192.168.178.73" density="compact" variant="outlined" hide-details />
+              <v-text-field v-model="backup.nas_share" label="Freigabe" placeholder="papermind-backup" density="compact" variant="outlined" hide-details />
+              <v-text-field v-model="backup.nas_username" label="Benutzer" density="compact" variant="outlined" hide-details />
+              <v-text-field
+                v-model="backupPassword"
+                label="Passwort"
+                type="password"
+                autocomplete="new-password"
+                :placeholder="backup.nas_password_set ? '•••••••• (gesetzt)' : ''"
+                density="compact"
+                variant="outlined"
+                hide-details
+              />
+              <v-text-field v-model="backup.nas_folder" label="Unterordner (optional)" placeholder="papermind" density="compact" variant="outlined" hide-details />
+            </div>
+            <div class="backup-actions">
+              <v-btn variant="tonal" size="small" :loading="backupTesting" prepend-icon="mdi-lan-connect" @click="onTestBackup">
+                Verbindung testen
+              </v-btn>
+              <span
+                v-if="backupTestResult"
+                class="backup-test-result"
+                :class="backupTestResult.ok ? 'backup-test-result--ok' : 'backup-test-result--err'"
+              >
+                {{ backupTestResult.message }}
+              </span>
+            </div>
+
+            <div class="pm-setting-label">Zeitplan</div>
+            <div class="backup-grid">
+              <v-select
+                v-model="backup.frequency"
+                :items="[{ title: 'Täglich', value: 'daily' }, { title: 'Wöchentlich', value: 'weekly' }]"
+                label="Häufigkeit"
+                density="compact"
+                variant="outlined"
+                hide-details
+                :menu-props="{ attach: 'body', zIndex: 6000 }"
+              />
+              <v-text-field v-model="backup.time" label="Uhrzeit" placeholder="03:00" density="compact" variant="outlined" hide-details />
+              <v-select
+                v-if="backup.frequency === 'weekly'"
+                v-model="backup.weekday"
+                :items="backupWeekdayItems"
+                label="Wochentag"
+                density="compact"
+                variant="outlined"
+                hide-details
+                :menu-props="{ attach: 'body', zIndex: 6000 }"
+              />
+              <v-text-field v-model.number="backup.retention" type="number" min="1" max="365" label="Backups behalten" density="compact" variant="outlined" hide-details />
+            </div>
+
+            <div class="backup-actions backup-actions--end">
+              <v-btn variant="tonal" size="small" :loading="backupRunning" :disabled="!backup.enabled" prepend-icon="mdi-backup-restore" @click="onRunBackup">
+                Jetzt sichern
+              </v-btn>
+              <v-btn color="primary" size="small" :loading="backupSaving" prepend-icon="mdi-content-save-outline" @click="saveBackup">
+                Speichern
+              </v-btn>
+            </div>
+          </div>
+        </section>
+
         <section v-show="activeCategory === 'controls'" class="pm-settings-section">
           <div class="pm-settings-content">
             <div class="pm-setting-row pm-setting-row--column">
@@ -1012,6 +1108,7 @@ import { notifyError, useNotifications } from '../stores/notifications';
 import { useTagStore } from '../stores/tags';
 import { cleanupUnusedTags } from '../api/tags';
 import { backfillOcr, patchDocument as apiPatchDocument } from '../api/documents';
+import { getBackupStatus, runBackupNow, testBackupConnection, updateBackupConfig } from '../api/backup';
 import {
   ignoreUnresolvedCorrespondent as apiIgnoreUnresolvedCorrespondent,
   listUnresolvedCorrespondents as apiListUnresolvedCorrespondents
@@ -1124,10 +1221,157 @@ const settingsCategories = [
   { value: 'categories', label: 'Dokumenttypen', icon: 'mdi-file-document-multiple-outline' },
   { value: 'correspondents', label: 'Korrespondenten', icon: 'mdi-account-outline' },
   { value: 'ai', label: 'Texterkennung', icon: 'mdi-robot-outline' },
+  { value: 'backup', label: 'Backup', icon: 'mdi-cloud-upload-outline' },
   { value: 'controls', label: 'Bedienung', icon: 'mdi-keyboard-outline' }
 ];
 
 const activeCategory = ref('appearance');
+
+// ── Backup ───────────────────────────────────────────────────────────────────
+const backup = ref({
+  enabled: false, nas_host: '', nas_share: '', nas_folder: '', nas_username: '',
+  nas_password_set: false, frequency: 'daily', time: '03:00', weekday: 6, retention: 7,
+});
+const backupPassword = ref('');
+const backupStatus = ref({ last_run: null, next_run_at: null, last_success_at: null, is_running: false });
+const backupSaving = ref(false);
+const backupTesting = ref(false);
+const backupRunning = ref(false);
+const backupTestResult = ref(null);
+let backupPollTimer = 0;
+const backupWeekdayItems = [
+  { title: 'Montag', value: 0 }, { title: 'Dienstag', value: 1 }, { title: 'Mittwoch', value: 2 },
+  { title: 'Donnerstag', value: 3 }, { title: 'Freitag', value: 4 }, { title: 'Samstag', value: 5 },
+  { title: 'Sonntag', value: 6 },
+];
+
+function backupFormatDate(value) {
+  if (!value) return '';
+  try { return new Date(value).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' }); }
+  catch { return String(value); }
+}
+function backupFormatBytes(n) {
+  let v = Number(n) || 0;
+  if (v < 1024) return `${v} B`;
+  const units = ['KB', 'MB', 'GB']; let i = 0; v /= 1024;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1; }
+  return `${v.toFixed(1).replace('.', ',')} ${units[i]}`;
+}
+
+const backupStatusKind = computed(() => {
+  const s = backupStatus.value;
+  if (s.is_running) return 'running';
+  if (s.last_run?.status === 'failed') return 'error';
+  if (s.last_run?.status === 'success') return 'ok';
+  return 'idle';
+});
+const backupLastLabel = computed(() => {
+  const s = backupStatus.value;
+  if (s.is_running) return 'läuft gerade…';
+  const r = s.last_run;
+  if (!r) return 'noch nie';
+  const when = backupFormatDate(r.finished_at || r.started_at);
+  if (r.status === 'success') return `${when}${r.size_bytes ? ' · ' + backupFormatBytes(r.size_bytes) : ''}`;
+  if (r.status === 'failed') return `${when} · fehlgeschlagen`;
+  return when;
+});
+const backupNextLabel = computed(() =>
+  backup.value.enabled ? (backupFormatDate(backupStatus.value.next_run_at) || '—') : 'deaktiviert');
+const backupLastError = computed(() =>
+  backupStatus.value.last_run?.status === 'failed' ? backupStatus.value.last_run?.error : '');
+
+function applyBackupStatus(data) {
+  const cfg = data?.config || {};
+  backup.value = {
+    enabled: !!cfg.enabled,
+    nas_host: cfg.nas_host || '', nas_share: cfg.nas_share || '', nas_folder: cfg.nas_folder || '',
+    nas_username: cfg.nas_username || '', nas_password_set: !!cfg.nas_password_set,
+    frequency: cfg.frequency || 'daily', time: cfg.time || '03:00',
+    weekday: typeof cfg.weekday === 'number' ? cfg.weekday : 6,
+    retention: cfg.retention || 7,
+  };
+  backupStatus.value = {
+    last_run: data?.last_run || null, next_run_at: data?.next_run_at || null,
+    last_success_at: data?.last_success_at || null, is_running: !!data?.is_running,
+  };
+}
+
+async function loadBackup() {
+  try { applyBackupStatus(await getBackupStatus()); }
+  catch { /* Status optional */ }
+}
+
+function backupConfigPayload() {
+  const b = backup.value;
+  const payload = {
+    enabled: b.enabled, nas_host: b.nas_host, nas_share: b.nas_share, nas_folder: b.nas_folder,
+    nas_username: b.nas_username, frequency: b.frequency, time: b.time, weekday: b.weekday,
+    retention: Number(b.retention) || 7,
+  };
+  if (backupPassword.value) payload.nas_password = backupPassword.value;
+  return payload;
+}
+
+async function saveBackup() {
+  backupSaving.value = true;
+  try {
+    applyBackupStatus(await updateBackupConfig(backupConfigPayload()));
+    backupPassword.value = '';
+    notify({ type: 'success', title: 'Backup', message: 'Einstellungen gespeichert.' });
+  } catch (error) {
+    notifyError(error, 'Backup-Einstellungen konnten nicht gespeichert werden.');
+  } finally {
+    backupSaving.value = false;
+  }
+}
+
+async function onToggleBackup(value) {
+  backup.value.enabled = value;
+  await saveBackup();
+}
+
+async function onTestBackup() {
+  await saveBackup();
+  backupTesting.value = true;
+  backupTestResult.value = null;
+  try {
+    backupTestResult.value = await testBackupConnection();
+  } catch {
+    backupTestResult.value = { ok: false, message: 'Test fehlgeschlagen.' };
+  } finally {
+    backupTesting.value = false;
+  }
+}
+
+async function onRunBackup() {
+  backupRunning.value = true;
+  try {
+    const res = await runBackupNow();
+    notify({
+      type: res.started ? 'success' : 'info',
+      title: 'Backup',
+      message: res.message || (res.started ? 'Backup gestartet.' : 'Läuft bereits.'),
+    });
+    let ticks = 0;
+    if (backupPollTimer) window.clearInterval(backupPollTimer);
+    backupPollTimer = window.setInterval(async () => {
+      await loadBackup();
+      ticks += 1;
+      if (!backupStatus.value.is_running || ticks > 60) {
+        window.clearInterval(backupPollTimer);
+        backupPollTimer = 0;
+        backupRunning.value = false;
+      }
+    }, 3000);
+  } catch (error) {
+    notifyError(error, 'Backup konnte nicht gestartet werden.');
+    backupRunning.value = false;
+  }
+}
+
+watch(activeCategory, (value) => {
+  if (value === 'backup') loadBackup();
+});
 
 // ── Tastaturkürzel (Bereich „Bedienung") ─────────────────────────────────────
 
@@ -1927,6 +2171,70 @@ async function removeAlias(alias) {
 </script>
 
 <style scoped>
+/* ── Backup ── */
+.backup-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(var(--v-theme-primary), 0.06);
+  margin-bottom: 16px;
+}
+.backup-hero__badge {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(var(--v-theme-primary), 0.14);
+  color: rgb(var(--v-theme-primary));
+  flex-shrink: 0;
+}
+.backup-hero__text { flex: 1; min-width: 0; }
+.backup-hero__title { font-size: 1.05rem; font-weight: 600; }
+.backup-hero__sub { font-size: 0.8rem; opacity: 0.7; }
+.backup-status {
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin-bottom: 18px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+}
+.backup-status--ok { border-color: rgba(76, 175, 80, 0.5); }
+.backup-status--error { border-color: rgba(var(--v-theme-error), 0.5); }
+.backup-status--running { border-color: rgba(var(--v-theme-primary), 0.5); }
+.backup-status__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.85rem;
+  padding: 2px 0;
+}
+.backup-status__row span { opacity: 0.7; }
+.backup-status__error {
+  margin-top: 6px;
+  font-size: 0.78rem;
+  color: rgb(var(--v-theme-error));
+  word-break: break-word;
+}
+.backup-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 8px 0 14px;
+}
+.backup-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.backup-actions--end { justify-content: flex-end; }
+.backup-test-result { font-size: 0.8rem; }
+.backup-test-result--ok { color: rgb(76, 175, 80); }
+.backup-test-result--err { color: rgb(var(--v-theme-error)); }
 .settings-category-management {
   display: flex;
   flex-direction: column;
