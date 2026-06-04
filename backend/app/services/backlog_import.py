@@ -14,6 +14,7 @@ from __future__ import annotations
 import csv as csv_module
 import io
 import unicodedata
+import uuid
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,6 +30,21 @@ _MIN_CORRESPONDENT_SCORE = 500
 
 def _nfc(value: str) -> str:
     return unicodedata.normalize("NFC", str(value or ""))
+
+
+class _LocalPdfUpload:
+    """Adaptiert eine lokale PDF-Datei an die UploadFile-Schnittstelle."""
+
+    def __init__(self, filename: str, source_path: Path) -> None:
+        self.filename = filename
+        self.content_type = "application/pdf"
+        self.file = source_path.open("rb")
+
+    def close(self) -> None:
+        try:
+            self.file.close()
+        except Exception:  # noqa: BLE001 - best effort
+            pass
 
 
 @dataclass(frozen=True)
@@ -85,6 +101,24 @@ class BacklogPlan:
                 ]
             )
         return buffer.getvalue()
+
+
+@dataclass
+class BacklogApplyResult:
+    created: int = 0
+    skipped_existing: int = 0
+    skipped_no_pdf: int = 0
+    with_correspondent: int = 0
+    errors: list[tuple[str, str]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "created": self.created,
+            "skipped_existing": self.skipped_existing,
+            "skipped_no_pdf": self.skipped_no_pdf,
+            "with_correspondent": self.with_correspondent,
+            "errors": [{"filename": fn, "message": msg} for fn, msg in self.errors],
+        }
 
 
 def parse_backlog_csv(content: str) -> list[tuple[str, list[str]]]:
@@ -217,3 +251,75 @@ class BacklogImportService:
             correspondent_tag_counts=dict(correspondent_tag_counts),
             topic_tag_counts=dict(topic_tag_counts),
         )
+
+    def apply(
+        self,
+        *,
+        csv_content: str,
+        pdf_dir: str | Path,
+        limit: int | None = None,
+    ) -> BacklogApplyResult:
+        """Importiert die PDFs und setzt Anzeigename, Korrespondent und Sach-Tags.
+
+        - Korrespondent wird nur bei genau einem Treffer gesetzt; mehrdeutige
+          Zeilen bleiben ohne Korrespondent (manuelle Klärung) und behalten alle
+          alten Tags.
+        - Idempotent: bereits importierte Dateien (gleicher Hash) werden über-
+          sprungen.
+        """
+        # Lazy-Imports, um Zyklen zu vermeiden.
+        from app.core.errors import APIError
+        from app.schemas.documents import DocumentTagReplaceRequest
+        from app.services.documents import DocumentService, DuplicateExactError
+
+        plan = self.plan(csv_content=csv_content, pdf_dir=pdf_dir)
+        doc_service = DocumentService(self.db)
+        pdf_path = Path(pdf_dir)
+        files_by_nfc = {_nfc(p.name): p for p in pdf_path.glob("*.pdf")} if pdf_path.is_dir() else {}
+
+        result = BacklogApplyResult()
+        pdf_docs = [doc for doc in plan.docs if doc.filename.lower().endswith(".pdf")]
+        if limit is not None:
+            pdf_docs = pdf_docs[:limit]
+
+        for doc in pdf_docs:
+            source_path = files_by_nfc.get(_nfc(doc.filename))
+            if source_path is None:
+                result.skipped_no_pdf += 1
+                continue
+
+            upload = _LocalPdfUpload(_nfc(doc.filename), source_path)
+            try:
+                created_doc = doc_service.upload_document(upload, document_date=None, notes=None)
+            except DuplicateExactError:
+                result.skipped_existing += 1
+                continue
+            except APIError as exc:
+                result.errors.append((doc.filename, exc.message))
+                continue
+            except Exception as exc:  # noqa: BLE001 - einzelne Datei darf den Lauf nicht abbrechen
+                result.errors.append((doc.filename, str(exc)))
+                continue
+            finally:
+                upload.close()
+
+            created_doc.display_name = doc.display_name
+            if not doc.correspondent_conflict and doc.correspondent_id:
+                created_doc.correspondent_id = uuid.UUID(doc.correspondent_id)
+                result.with_correspondent += 1
+            self.db.commit()
+
+            # Konfliktzeilen behalten alle alten Tags; sonst nur die Sach-Tags
+            # (der Korrespondent-Tag wird durch die Korrespondent-Zuordnung ersetzt).
+            tag_names = list(doc.raw_tags) if doc.correspondent_conflict else list(doc.topic_tags)
+            tag_ids = []
+            for name in tag_names:
+                tag, _created = doc_service._get_or_create_tag_case_insensitive(name)
+                if tag is not None:
+                    tag_ids.append(tag.id)
+            if tag_ids:
+                doc_service.replace_document_tags(created_doc.id, DocumentTagReplaceRequest(tag_ids=tag_ids))
+
+            result.created += 1
+
+        return result
