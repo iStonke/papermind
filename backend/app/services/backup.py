@@ -10,6 +10,7 @@ ohne NAS/DB testbar.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -175,6 +176,39 @@ class _SmbTarget:
             raise ValueError("Freigabename fehlt")
 
 
+# smbclient verwaltet seine Sessions in einem globalen, prozessweiten Cache. Laufen
+# zwei SMB-Vorgänge gleichzeitig (z. B. eine UI-Abfrage während eines laufenden
+# Uploads), entzieht der ``reset_connection_cache()``-Aufruf des einen dem anderen
+# die Session – der Upload bleibt dann ohne Timeout endlos hängen. Darum serialisieren
+# wir alle SMB-Vorgänge über eine Sperre und geben der Verbindung einen Timeout, damit
+# eine nicht reagierende NAS schnell fehlschlägt statt zu blockieren.
+_SMB_LOCK = threading.Lock()
+_SMB_CONNECTION_TIMEOUT = 30
+
+
+@contextlib.contextmanager
+def _smb_session(target: "_SmbTarget"):
+    """Serialisierter SMB-Zugriff mit Timeout; räumt den globalen Cache sauber auf."""
+    import smbclient
+
+    with _SMB_LOCK:
+        smbclient.reset_connection_cache()
+        smbclient.register_session(
+            target.host,
+            username=target.username,
+            password=target.password,
+            port=445,
+            connection_timeout=_SMB_CONNECTION_TIMEOUT,
+        )
+        try:
+            yield smbclient
+        finally:
+            try:
+                smbclient.reset_connection_cache()
+            except Exception:  # noqa: BLE001 - Aufräumen ist best effort
+                pass
+
+
 class BackupService:
     def __init__(self, db: Session):
         self.db = db
@@ -279,27 +313,17 @@ class BackupService:
         except ValueError as exc:
             return {"ok": False, "message": str(exc)}
         try:
-            import smbclient
-
-            smbclient.reset_connection_cache()
-            smbclient.register_session(target.host, username=target.username, password=target.password, port=445)
-            base = _unc(target.host, target.share, target.folder) if target.folder else _unc(target.host, target.share)
-            smbclient.makedirs(base, exist_ok=True)
-            probe = f"{base}\\.papermind_write_test"
-            with smbclient.open_file(probe, mode="wb") as handle:
-                handle.write(b"ok")
-            smbclient.remove(probe)
+            with _smb_session(target) as smbclient:
+                base = _unc(target.host, target.share, target.folder) if target.folder else _unc(target.host, target.share)
+                smbclient.makedirs(base, exist_ok=True)
+                probe = f"{base}\\.papermind_write_test"
+                with smbclient.open_file(probe, mode="wb") as handle:
+                    handle.write(b"ok")
+                smbclient.remove(probe)
             return {"ok": True, "message": "Verbindung und Schreibzugriff erfolgreich."}
         except Exception as exc:  # noqa: BLE001 - Fehler dem Nutzer melden
             logger.warning("backup test connection failed: %s", exc)
             return {"ok": False, "message": f"Verbindung fehlgeschlagen: {exc}"}
-        finally:
-            try:
-                import smbclient
-
-                smbclient.reset_connection_cache()
-            except Exception:  # noqa: BLE001
-                pass
 
     # ── Backup ausführen ─────────────────────────────────────────────────────
     def run_backup(self, *, kind: str = "manual") -> BackupRun:
@@ -369,11 +393,7 @@ class BackupService:
 
     @staticmethod
     def _upload(target: _SmbTarget, stamp: str, files: list[Path]) -> str:
-        import smbclient
-
-        smbclient.reset_connection_cache()
-        smbclient.register_session(target.host, username=target.username, password=target.password, port=445)
-        try:
+        with _smb_session(target) as smbclient:
             base_parts = [p for p in (target.folder, stamp) if p]
             dest_dir = _unc(target.host, target.share, *base_parts)
             smbclient.makedirs(dest_dir, exist_ok=True)
@@ -382,16 +402,10 @@ class BackupService:
                 with open(file_path, "rb") as src, smbclient.open_file(remote, mode="wb") as dst:
                     shutil.copyfileobj(src, dst, length=1024 * 1024)
             return dest_dir
-        finally:
-            smbclient.reset_connection_cache()
 
     @staticmethod
     def _apply_retention(target: _SmbTarget, retention: int) -> None:
-        import smbclient
-
-        smbclient.reset_connection_cache()
-        smbclient.register_session(target.host, username=target.username, password=target.password, port=445)
-        try:
+        with _smb_session(target) as smbclient:
             root = _unc(target.host, target.share, target.folder) if target.folder else _unc(target.host, target.share)
             names = []
             for entry in smbclient.scandir(root):
@@ -399,8 +413,6 @@ class BackupService:
                     names.append(entry.name)
             for name in select_old_backup_dirs(names, retention):
                 BackupService._smb_rmtree(smbclient, f"{root}\\{name}")
-        finally:
-            smbclient.reset_connection_cache()
 
     @staticmethod
     def _smb_rmtree(smbclient, path: str) -> None:
@@ -422,13 +434,9 @@ class BackupService:
 
     def list_archives(self) -> list[dict]:
         """Vorhandene Backup-Ordner auf dem NAS samt Gesamtgröße auflisten."""
-        import smbclient
-
         target = _SmbTarget.from_config(self.get_config())
         target.validate()
-        smbclient.reset_connection_cache()
-        smbclient.register_session(target.host, username=target.username, password=target.password, port=445)
-        try:
+        with _smb_session(target) as smbclient:
             root = self._archive_root(target)
             items: list[dict] = []
             for entry in smbclient.scandir(root):
@@ -454,22 +462,14 @@ class BackupService:
                 )
             items.sort(key=lambda x: x["name"], reverse=True)
             return items
-        finally:
-            smbclient.reset_connection_cache()
 
     def delete_archive(self, name: str) -> None:
-        import smbclient
-
         if not _BACKUP_DIR_RE.match(name):
             raise ValueError("Ungültiger Backup-Name")
         target = _SmbTarget.from_config(self.get_config())
         target.validate()
-        smbclient.reset_connection_cache()
-        smbclient.register_session(target.host, username=target.username, password=target.password, port=445)
-        try:
+        with _smb_session(target) as smbclient:
             self._smb_rmtree(smbclient, f"{self._archive_root(target)}\\{name}")
-        finally:
-            smbclient.reset_connection_cache()
 
     @staticmethod
     def _archive_root(target: _SmbTarget) -> str:
@@ -529,17 +529,11 @@ class BackupService:
 
     @staticmethod
     def _download(target: _SmbTarget, name: str, filename: str, dest: Path) -> None:
-        import smbclient
-
-        smbclient.reset_connection_cache()
-        smbclient.register_session(target.host, username=target.username, password=target.password, port=445)
-        try:
+        with _smb_session(target) as smbclient:
             parts = [p for p in (target.folder, name) if p]
             remote = _unc(target.host, target.share, *parts, filename)
             with smbclient.open_file(remote, mode="rb") as src, open(dest, "wb") as dst:
                 shutil.copyfileobj(src, dst, length=1024 * 1024)
-        finally:
-            smbclient.reset_connection_cache()
 
     @staticmethod
     def _terminate_other_connections(database_url: str) -> None:
