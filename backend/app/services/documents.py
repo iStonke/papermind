@@ -49,7 +49,6 @@ from app.schemas.documents import (
     SortOrder,
 )
 from app.services.ai_classification import apply_ollama_classification
-from app.services.category_mapping import map_doc_type_to_category
 from app.services.document_types import (
     document_type_hint_map,
     document_type_names,
@@ -838,14 +837,19 @@ class DocumentService:
         return title[:200]
 
     def _suggest_document_type_from_classification(self, document: Document) -> str | None:
-        """Map the detected document type to an existing managed document type name."""
-        mapped = map_doc_type_to_category(document.ai_document_type)
-        if not mapped:
+        """Den erkannten Dokumenttyp gegen die verwaltete Liste prüfen.
+
+        ``ai_document_type`` ist bereits der feine Typ (z. B. "Kündigung"). Kein
+        Legacy-Mapping mehr auf grobe Kategorien ("Verträge"). Liefert die
+        kanonische Schreibweise des Typs, falls er ein bekannter Dokumenttyp ist,
+        sonst ``None``.
+        """
+        raw = " ".join(str(document.ai_document_type or "").split()).strip()
+        if not raw:
             return None
-        existing = self.db.execute(
-            select(DocumentType.name).where(func.lower(DocumentType.name) == mapped.lower())
+        return self.db.execute(
+            select(DocumentType.name).where(func.lower(DocumentType.name) == raw.lower())
         ).scalar_one_or_none()
-        return existing
 
     def _suggest_tags_from_classification(self, document: Document) -> list[str]:
         """Normalize the stored AI tags, preferring the casing of existing tags."""
