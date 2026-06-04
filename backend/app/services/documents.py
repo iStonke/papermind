@@ -906,7 +906,14 @@ class DocumentService:
             tags=self._suggest_tags_from_classification(document),
         )
 
-    def upload_document(self, file: UploadFile, document_date: date | None, notes: str | None) -> Document:
+    def upload_document(
+        self,
+        file: UploadFile,
+        document_date: date | None,
+        notes: str | None,
+        *,
+        queue_processing: bool = True,
+    ) -> Document:
         runtime_settings = SettingsService(self.db).get_settings()
         auto_ocr_enabled = bool(runtime_settings.documents.auto_ocr)
         auto_tagging_enabled = bool(runtime_settings.documents.auto_tagging)
@@ -1011,7 +1018,18 @@ class DocumentService:
                     auto_tagging_enabled,
                 )
 
-                if auto_ocr_enabled:
+                if not queue_processing:
+                    # Metadaten-only (z. B. Altbestand-Massenimport): Dokument anlegen,
+                    # aber KEINE OCR-/Index-/Tag-Jobs starten. Auf schwacher Hardware
+                    # (Raspberry Pi) würden sonst hunderte schwere Jobs gleichzeitig
+                    # laufen. Volltext lässt sich später per "OCR-Lücken schließen"
+                    # kontrolliert nachziehen.
+                    document.status = DocumentStatus.ready.value
+                    document.ocr_status = DocumentOCRStatus.not_started.value
+                    if is_textful_pdf:
+                        document.text_source = DocumentTextSource.embedded.value
+                        document.text_content = quick_text_sample or None
+                elif auto_ocr_enabled:
                     # Beim Import IMMER OCR durchführen – unabhängig davon, ob das PDF
                     # bereits eine eingebettete Textebene hat. (Gewünschtes Verhalten;
                     # gegated am auto_ocr-Schalter.) INDEX/TAG werden vom Worker nach
@@ -1033,7 +1051,7 @@ class DocumentService:
                         self._queue_tag_job(document, reason="upload_textful_direct")
             except Exception as exc:
                 logger.warning("upload text check failed document_id=%s error=%s", document.id, exc)
-                if auto_ocr_enabled:
+                if auto_ocr_enabled and queue_processing:
                     self._queue_ocr_job(document)
 
             try:

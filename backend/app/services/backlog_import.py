@@ -258,6 +258,7 @@ class BacklogImportService:
         csv_content: str,
         pdf_dir: str | Path,
         limit: int | None = None,
+        queue_processing: bool = False,
     ) -> BacklogApplyResult:
         """Importiert die PDFs und setzt Anzeigename, Korrespondent und Sach-Tags.
 
@@ -266,6 +267,9 @@ class BacklogImportService:
           alten Tags.
         - Idempotent: bereits importierte Dateien (gleicher Hash) werden über-
           sprungen.
+        - ``queue_processing=False`` (Default): Metadaten-only, es werden KEINE
+          OCR-/Index-/Tag-Jobs gestartet. Für schwache Hardware (Pi) bei großen
+          Beständen; Volltext später per "OCR-Lücken schließen" nachziehen.
         """
         # Lazy-Imports, um Zyklen zu vermeiden.
         from app.core.errors import APIError
@@ -290,7 +294,9 @@ class BacklogImportService:
 
             upload = _LocalPdfUpload(_nfc(doc.filename), source_path)
             try:
-                created_doc = doc_service.upload_document(upload, document_date=None, notes=None)
+                created_doc = doc_service.upload_document(
+                    upload, document_date=None, notes=None, queue_processing=queue_processing
+                )
             except DuplicateExactError:
                 result.skipped_existing += 1
                 continue

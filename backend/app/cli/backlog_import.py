@@ -23,6 +23,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--csv", required=True, help="CSV-Datei (Dateiname,Tags)")
     parser.add_argument("--dir", required=True, help="Ordner mit den PDF-Dateien")
     parser.add_argument("--apply", action="store_true", help="PDFs tatsächlich importieren (sonst nur Trockenlauf)")
+    parser.add_argument(
+        "--with-ocr",
+        action="store_true",
+        help="Beim Import OCR/Index/Tagging-Jobs starten (Default: Metadaten-only, OCR später nachziehen)",
+    )
     parser.add_argument("--limit", type=int, default=None, help="Nur die ersten N PDFs verarbeiten")
     parser.add_argument("--report", default=None, help="Pfad für den CSV-Report des Trockenlaufs")
     args = parser.parse_args(argv)
@@ -34,8 +39,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         service = BacklogImportService(db)
         if args.apply:
-            result = service.apply(csv_content=csv_content, pdf_dir=args.dir, limit=args.limit)
-            print("Import abgeschlossen:")
+            result = service.apply(
+                csv_content=csv_content, pdf_dir=args.dir, limit=args.limit, queue_processing=args.with_ocr
+            )
+            print(f"Import abgeschlossen{'' if args.with_ocr else ' (Metadaten-only, ohne OCR)'}:")
             print(f"  erstellt:            {result.created}")
             print(f"  mit Korrespondent:   {result.with_correspondent}")
             print(f"  übersprungen (da schon vorhanden): {result.skipped_existing}")
