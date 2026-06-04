@@ -353,6 +353,61 @@
           />
         </div>
 
+        <!-- Correspondent -->
+        <div class="isd-field" :class="{ 'isd-field--ai-filled': aiFieldGlowActive && docCorrespondentAiFilled }">
+          <div class="isd-field-label">
+            Korrespondent
+            <v-tooltip text="Kanonischer Absender/Aussteller. Wird aus dem erkannten Absender über Aliase/Regeln aufgelöst." location="top" max-width="240">
+              <template #activator="{ props: tip }"><v-icon class="isd-field-info" v-bind="tip" size="14">mdi-information-outline</v-icon></template>
+            </v-tooltip>
+          </div>
+          <v-combobox
+            v-model="docCorrespondentId"
+            :items="correspondentItems"
+            item-title="title"
+            item-value="value"
+            :return-object="false"
+            placeholder="Korrespondent wählen…"
+            density="compact"
+            variant="outlined"
+            hide-details
+            clearable
+            :menu-props="{ maxHeight: 240, attach: 'body', zIndex: 6000 }"
+            @update:model-value="docCorrespondentTouched = true; docCorrespondentAiFilled = false"
+            @focus="correspondentStore.ensureLoaded()"
+          >
+            <template #no-data>
+              <v-list-item title="Als neuen Korrespondenten verwenden" />
+            </template>
+          </v-combobox>
+          <div v-if="docSenderRaw" class="isd-correspondent-hint">
+            <span class="isd-correspondent-sender">Erkannter Absender: <strong>{{ docSenderRaw }}</strong></span>
+            <div class="isd-correspondent-actions">
+              <v-btn
+                v-if="canCreateCorrespondentFromSender"
+                size="x-small"
+                variant="tonal"
+                color="primary"
+                :loading="correspondentStore.isMutationRunning"
+                prepend-icon="mdi-account-plus"
+                @click="onCreateCorrespondentFromSender"
+              >
+                Neu anlegen
+              </v-btn>
+              <v-btn
+                v-if="canAddSenderAsAlias"
+                size="x-small"
+                variant="tonal"
+                :loading="correspondentStore.isMutationRunning"
+                prepend-icon="mdi-tag-plus"
+                @click="onAddSenderAsAlias"
+              >
+                Als Alias hinzufügen
+              </v-btn>
+            </div>
+          </div>
+        </div>
+
         <!-- Tags -->
         <div class="isd-field" :class="{ 'isd-field--ai-filled': aiFieldGlowActive && docTagsAiFilled }">
           <div class="isd-field-label">
@@ -409,7 +464,7 @@
             density="compact"
             variant="outlined"
             hide-details
-            rows="5"
+            rows="2"
             no-resize
             @update:model-value="docNoteTouched = true; docNoteAiFilled = false"
           />
@@ -471,7 +526,7 @@
             <span
               class="isd-props-status__text"
               :title="`Automatisch erkannt: ${aiAnalysis.fields.join(', ')}`"
-            >Automatisch erkannt: {{ aiAnalysis.fields.join(', ') }}</span>
+            >Automatisch erkannt</span>
           </template>
           <template v-else-if="aiAnalysis.kind === 'partial'">
             <v-icon size="16" color="success">mdi-check-circle-outline</v-icon>
@@ -488,15 +543,22 @@
 
           <!-- Startet den gesamten Analyse-Prozess erneut (nach Abschluss/Fehlschlag) -->
           <button
-            v-if="['success', 'partial', 'failed'].includes(aiAnalysis.kind)"
+            v-if="isRetryingAnalysis || ['success', 'partial', 'failed'].includes(aiAnalysis.kind)"
             type="button"
             class="isd-props-status__retry"
-            :disabled="isUploadingSources || totalPages === 0"
+            :disabled="isRetryingAnalysis || isUploadingSources || totalPages === 0"
             title="Den gesamten Analyse-Prozess erneut starten"
             @click="retryAnalysis"
           >
-            <v-icon size="14">mdi-refresh</v-icon>
-            Erneut
+            <v-progress-circular
+              v-if="isRetryingAnalysis"
+              indeterminate
+              size="14"
+              width="2"
+              color="primary"
+            />
+            <v-icon v-else size="14">mdi-refresh</v-icon>
+            <span>{{ isRetryingAnalysis ? 'Läuft…' : 'Erneut' }}</span>
           </button>
         </div>
 
@@ -530,6 +592,7 @@
           <v-btn
             color="primary"
             variant="flat"
+            class="isd-import-btn"
             :disabled="isImportActionDisabled"
             @click="commitImport"
           >
@@ -556,6 +619,7 @@ import { mapApiError, useNotifications } from '../stores/notifications';
 import { useImportStagingStore } from '../stores/importStaging';
 import { useSettingsStore } from '../stores/settings';
 import { useCategoryStore } from '../stores/categories';
+import { useCorrespondentStore } from '../stores/correspondents';
 import {
   SHORTCUT_ACTIONS,
   handleShortcut,
@@ -580,6 +644,7 @@ const { notify } = useNotifications();
 const stagingStore = useImportStagingStore();
 const settingsStore = useSettingsStore();
 const categoryStore = useCategoryStore();
+const correspondentStore = useCorrespondentStore();
 const theme = useTheme();
 const { documents, documentCount, totalPages, emptyDocuments, commitDocuments } = storeToRefs(stagingStore);
 
@@ -673,17 +738,23 @@ const isViewSwitching = ref(false);
 const docDate = ref('');
 const docCategory = ref(null);
 const docNote = ref('');
+const docCorrespondentId = ref(null);
+// Roher Absender-Befund (ai_sender) aus dem KI-Vorschlag, nur zur Anzeige.
+const docSenderRaw = ref('');
 const docTitleTouched = ref(false);
 const docDateTouched = ref(false);
 const docCategoryTouched = ref(false);
 const docTagsTouched = ref(false);
 const docNoteTouched = ref(false);
+const docCorrespondentTouched = ref(false);
 const docTitleAiFilled = ref(false);
 const docDateAiFilled = ref(false);
 const docCategoryAiFilled = ref(false);
 const docTagsAiFilled = ref(false);
 const docNoteAiFilled = ref(false);
+const docCorrespondentAiFilled = ref(false);
 const aiFieldGlowActive = ref(false);
+const isRetryingAnalysis = ref(false);
 let aiFieldGlowTimer = 0;
 
 // Auswählbare Dokumenttypen aus der zentral verwalteten Liste (Einstellungen).
@@ -696,6 +767,44 @@ const categoryItems = computed(() => {
     names.unshift(current);
   }
   return names;
+});
+
+// Korrespondenten-Optionen für die Combobox ({ title, value }).
+const correspondentItems = computed(() => correspondentStore.correspondentOptions);
+
+function normalizeCorrespondentInput(value) {
+  if (value && typeof value === 'object') {
+    return String(value.value || value.id || value.title || value.name || '').replace(/\s+/g, ' ').trim();
+  }
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function isKnownCorrespondentId(value) {
+  const normalized = normalizeCorrespondentInput(value);
+  return Boolean(normalized && correspondentStore.findById(normalized));
+}
+
+// Aktuell ausgewählter Korrespondent (Objekt) oder null.
+const selectedCorrespondent = computed(() =>
+  isKnownCorrespondentId(docCorrespondentId.value) ? correspondentStore.findById(normalizeCorrespondentInput(docCorrespondentId.value)) : null
+);
+
+// Der rohe Absender lässt sich als Alias/Korrespondent anlegen, solange er nicht
+// bereits exakt einem bekannten Korrespondenten entspricht.
+const canCreateCorrespondentFromSender = computed(() => {
+  const raw = String(docSenderRaw.value || '').trim();
+  if (raw.length < 2) return false;
+  return !correspondentStore.findByName(raw);
+});
+
+const canAddSenderAsAlias = computed(() => {
+  const raw = String(docSenderRaw.value || '').trim();
+  if (raw.length < 2) return false;
+  const selected = selectedCorrespondent.value;
+  if (!selected) return false;
+  if (selected.name?.toLocaleLowerCase('de-DE') === raw.toLocaleLowerCase('de-DE')) return false;
+  const aliases = Array.isArray(selected.aliases) ? selected.aliases : [];
+  return !aliases.some((a) => String(a?.alias || '').toLocaleLowerCase('de-DE') === raw.toLocaleLowerCase('de-DE'));
 });
 
 const docOcrLang = computed(() => settingsStore.settings.documents.ocr_doc_lang ?? 'de');
@@ -978,7 +1087,30 @@ const hasAnySelectedPage = computed(() => Boolean(selected.value?.pageId));
 const gridScrollStyle = computed(() => ({
   '--pm-grid-min': ['100px', '140px', '185px', '240px'][gridZoomIndex.value] || '140px'
 }));
-const isImportActionDisabled = computed(() => totalPages.value <= 0 || !primaryDocTitle.value.trim() || !isDocDateValid.value || isUploadingSources.value || isCommitting.value);
+// Die KI-Analyse gilt als abgeschlossen, sobald nichts mehr vorbereitet wird
+// und der Analyse-Status nicht mehr "busy" (läuft) ist. Ein fehlgeschlagener
+// Lauf zählt ebenfalls als abgeschlossen – die Felder lassen sich dann manuell
+// befüllen.
+const isAnalysisComplete = computed(() =>
+  !isUploadingSources.value && aiAnalysis.value.kind !== 'busy'
+);
+
+// Alle Pflichtfelder müssen befüllt sein. Korrespondent bleibt bewusst optional:
+// Seed/Backfill sind noch im Aufbau, daher darf ein fehlender Match den Import
+// nicht blockieren.
+const areRequiredFieldsFilled = computed(() =>
+  Boolean(primaryDocTitle.value.trim()) &&
+  isDocDateValid.value &&
+  Boolean(docCategory.value) &&
+  primaryDocTagNames.value.length > 0
+);
+
+const isImportActionDisabled = computed(() =>
+  totalPages.value <= 0 ||
+  isCommitting.value ||
+  !isAnalysisComplete.value ||
+  !areRequiredFieldsFilled.value
+);
 
 /* ── Multi-Selektion ── */
 const multiSelectedPageIds = ref(new Set());
@@ -1223,6 +1355,7 @@ const aiAnalysis = computed(() => {
   if (docTitleAiFilled.value) fields.push('Name');
   if (docDateAiFilled.value) fields.push('Datum');
   if (docCategoryAiFilled.value) fields.push('Dokumenttyp');
+  if (docCorrespondentAiFilled.value) fields.push('Korrespondent');
   if (docTagsAiFilled.value) fields.push('Tags');
   if (docNoteAiFilled.value) fields.push('Notiz');
   if (fields.length > 0) {
@@ -1246,9 +1379,33 @@ function hasAiFilledImportFields() {
     docTitleAiFilled.value ||
     docDateAiFilled.value ||
     docCategoryAiFilled.value ||
+    docCorrespondentAiFilled.value ||
     docTagsAiFilled.value ||
     docNoteAiFilled.value
   );
+}
+
+function resetPrimaryAiFillState() {
+  docTitleAiFilled.value = false;
+  docDateAiFilled.value = false;
+  docCategoryAiFilled.value = false;
+  docTagsAiFilled.value = false;
+  docNoteAiFilled.value = false;
+  docCorrespondentAiFilled.value = false;
+  aiFieldGlowActive.value = false;
+}
+
+function resetScanSuggestionMeta(documentEntry) {
+  const meta = ensureScanMeta(documentEntry);
+  if (!meta) {
+    return null;
+  }
+  meta.titleSuggestion = '';
+  meta.titleSuggestionStatus = 'idle';
+  meta.titleSuggestionUsedFallback = false;
+  meta.titleSuggestionPollExhausted = false;
+  meta.titleSuggestionMeta = null;
+  return meta;
 }
 
 function triggerAiFieldGlow() {
@@ -1268,13 +1425,6 @@ function triggerAiFieldGlow() {
 }
 
 /* ── Datum-Hilfsfunktionen ── */
-function todayDateStr() {
-  const d = new Date();
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  return `${dd}.${mm}.${d.getFullYear()}`;
-}
-
 function isValidGermanDate(str) {
   if (!/^\d{2}\.\d{2}\.\d{4}$/.test(str)) return false;
   const [dd, mm, yyyy] = str.split('.').map(Number);
@@ -1424,6 +1574,8 @@ watch(
       isMinimizingToTray = false;
       // Verfügbare Dokumenttypen für das Dropdown laden (zentral in den Einstellungen gepflegt).
       void categoryStore.fetchCategories();
+      // Korrespondenten für Auswahl/Auflösung laden.
+      void correspondentStore.ensureLoaded();
       return;
     }
     if (isMinimizingToTray) {
@@ -1572,6 +1724,8 @@ watch(
       docDate.value = '';
       docCategory.value = null;
       docNote.value = '';
+      docCorrespondentId.value = null;
+      docSenderRaw.value = '';
       tagInlineValue.value = '';
       isSelectMode.value = false;
       multiSelectedPageIds.value = new Set();
@@ -1580,11 +1734,13 @@ watch(
       docCategoryTouched.value = false;
       docTagsTouched.value = false;
       docNoteTouched.value = false;
+      docCorrespondentTouched.value = false;
       docTitleAiFilled.value = false;
       docDateAiFilled.value = false;
       docCategoryAiFilled.value = false;
       docTagsAiFilled.value = false;
       docNoteAiFilled.value = false;
+      docCorrespondentAiFilled.value = false;
       aiFieldGlowActive.value = false;
       return;
     }
@@ -2381,9 +2537,21 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
             }
             // Dokumenttyp
             const aiCategory = String(aiMeta.document_type || aiMeta.category || '').trim();
-            if (aiCategory && !docCategoryTouched.value) {
+            if (aiCategory && (!docCategoryTouched.value || !docCategory.value)) {
               docCategory.value = aiCategory;
               docCategoryAiFilled.value = true;
+            }
+            // Korrespondent: roher Absender immer anzeigen; aufgelösten
+            // Korrespondenten vorbelegen, solange der Nutzer ihn nicht selbst
+            // angefasst hat. Das Backend löst bekannte Aliase deterministisch auf.
+            docSenderRaw.value = String(aiMeta.sender_raw || '').trim();
+            const aiCorrespondent = aiMeta.correspondent && typeof aiMeta.correspondent === 'object'
+              ? aiMeta.correspondent
+              : null;
+            if (aiCorrespondent?.id && !docCorrespondentTouched.value) {
+              await correspondentStore.ensureLoaded();
+              docCorrespondentId.value = String(aiCorrespondent.id);
+              docCorrespondentAiFilled.value = true;
             }
             // Notiz: wichtigste Fakten (nur wenn der Nutzer die Notiz nicht selbst angefasst hat)
             const aiNote = String(aiMeta.note || '').trim();
@@ -2488,18 +2656,26 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
 // Startet den kompletten KI-Analyse-Prozess für alle Staging-Dokumente erneut.
 // Bereits laufende Analysen werden nicht doppelt gestartet (Dedupe in
 // requestScanTitleSuggestion); abgeschlossene/fehlgeschlagene werden neu angestoßen.
-function retryAnalysis() {
+async function retryAnalysis() {
+  if (isRetryingAnalysis.value) {
+    return;
+  }
   const docs = documents.value || [];
   let started = 0;
+  const jobs = [];
+  resetPrimaryAiFillState();
+  isRetryingAnalysis.value = true;
   for (const doc of docs) {
     const id = String(doc?.id || '').trim();
     if (!id || Number(doc?.pages?.length || 0) === 0) {
       continue;
     }
-    void requestScanTitleSuggestion(id, 'first_page', { silent: true, maxPendingRetries: 20 });
+    resetScanSuggestionMeta(doc);
+    jobs.push(requestScanTitleSuggestion(id, 'first_page', { silent: true, maxPendingRetries: 20 }));
     started += 1;
   }
   if (started === 0) {
+    isRetryingAnalysis.value = false;
     notify({ type: 'info', message: 'Keine Seiten zum Analysieren vorhanden.' });
     return;
   }
@@ -2509,6 +2685,11 @@ function retryAnalysis() {
       ? 'Analyse wird wiederholt…'
       : `Analyse für ${started} Dokumente wird wiederholt…`
   });
+  try {
+    await Promise.allSettled(jobs);
+  } finally {
+    isRetryingAnalysis.value = false;
+  }
 }
 
 function applyScanSuggestion(stageId) {
@@ -2930,14 +3111,6 @@ watch(docDate, (newVal, oldVal) => {
   if (digits.length > 4) formatted = digits.slice(0, 2) + '.' + digits.slice(2, 4) + '.' + digits.slice(4);
   if (formatted !== newVal) docDate.value = formatted;
 }, { flush: 'sync' });
-
-// Datum auf heute setzen sobald das erste Dokument erscheint
-watch(isEmpty, (empty) => {
-  if (!empty && !docDate.value) {
-    docDate.value = todayDateStr();
-  }
-});
-
 
 function normalizeSourceFileId(sourceFileId) {
   return String(sourceFileId || '').trim();
@@ -4158,6 +4331,61 @@ async function materializePendingTags() {
   }
 }
 
+async function materializePendingCorrespondent() {
+  const raw = normalizeCorrespondentInput(docCorrespondentId.value);
+  if (!raw) {
+    docCorrespondentId.value = null;
+    return;
+  }
+
+  const byId = correspondentStore.findById(raw);
+  if (byId?.id) {
+    docCorrespondentId.value = byId.id;
+    return;
+  }
+
+  await correspondentStore.ensureLoaded();
+  const byName = correspondentStore.findByName(raw);
+  if (byName?.id) {
+    docCorrespondentId.value = byName.id;
+    return;
+  }
+
+  const result = await correspondentStore.createCorrespondentByName(raw);
+  if (!result?.ok || !result.id) {
+    throw new Error('Korrespondent konnte nicht angelegt werden.');
+  }
+  docCorrespondentId.value = result.id;
+}
+
+// Erkannten Absender als neuen Korrespondenten anlegen und direkt auswählen.
+async function onCreateCorrespondentFromSender() {
+  const raw = String(docSenderRaw.value || '').trim();
+  if (!raw) return;
+  try {
+    const result = await correspondentStore.createCorrespondentByName(raw);
+    if (result?.ok && result.id) {
+      docCorrespondentId.value = result.id;
+      docCorrespondentTouched.value = true;
+      docCorrespondentAiFilled.value = false;
+    }
+  } catch {
+    // Fehler wurde bereits im Store als Notification gemeldet.
+  }
+}
+
+// Erkannten Absender als Alias zum aktuell gewählten Korrespondenten hinzufügen.
+async function onAddSenderAsAlias() {
+  const raw = String(docSenderRaw.value || '').trim();
+  const correspondentId = docCorrespondentId.value;
+  if (!raw || !correspondentId) return;
+  try {
+    await correspondentStore.addAlias(correspondentId, raw);
+  } catch {
+    // Fehler wurde bereits im Store als Notification gemeldet.
+  }
+}
+
 async function commitImport() {
   if (isImportActionDisabled.value) {
     return;
@@ -4166,6 +4394,7 @@ async function commitImport() {
   isCommitting.value = true;
   try {
     await materializePendingTags();
+    await materializePendingCorrespondent();
     const response = await fetch(`${props.apiBaseUrl}/api/import/commit`, {
       method: 'POST',
       headers: {
@@ -4174,7 +4403,7 @@ async function commitImport() {
       body: JSON.stringify({
         documents: commitDocuments.value.map((doc, idx) =>
           idx === 0
-            ? { ...doc, document_type: docCategory.value || null, note: docNote.value.trim() || null, date: docDateIso.value || null }
+            ? { ...doc, document_type: docCategory.value || null, correspondent_id: docCorrespondentId.value || null, note: docNote.value.trim() || null, date: docDateIso.value || null }
             : doc
         ),
         options: {
@@ -4733,9 +4962,8 @@ onBeforeUnmount(() => {
   color: rgba(var(--v-theme-on-surface), 0.6);
 }
 
-/* Spiegelt exakt die Struktur der linken Spalte (.isd-left): position:relative
- * als Anker, scrollender Inhalt, und die Statusleiste absolut am unteren Rand –
- * identische Technik wie .isd-toolbar, damit beide Leisten pixelgenau fluchten. */
+/* Rechte Spalte mit fixer Höhe: Tabs oben, scrollender Inhalt in der Mitte,
+ * Statusleiste unten. */
 .isd-props {
   flex: 0 0 35%;
   position: relative;
@@ -4839,7 +5067,7 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 18px 20px 64px; /* unten Platz für die absolute Statusleiste */
+  padding: 18px 20px;
 }
 
 .isd-preview-panel {
@@ -4941,13 +5169,10 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
-/* KI-Analyse-Status: absolut am unteren Rand – exakt wie .isd-toolbar
- * (position:absolute; bottom:0; padding:8px 12px; gemeinsame --isd-bar-height; border-top:1px). */
+/* KI-Analyse-Status: fester Footer der rechten Spalte. Der Bereich darüber
+ * scrollt separat, damit die Dialoghöhe konstant bleibt. */
 .isd-props-status {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -5055,6 +5280,24 @@ onBeforeUnmount(() => {
   color: rgba(var(--v-theme-on-surface), 0.65) !important;
 }
 
+.isd-correspondent-hint {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.isd-correspondent-sender {
+  font-size: 11px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+
+.isd-correspondent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .isd-field-row {
   display: flex;
   gap: 4px;
@@ -5158,5 +5401,31 @@ onBeforeUnmount(() => {
 .isd-footer-status {
   font-size: 13px;
   color: rgba(var(--v-theme-on-surface), 0.54);
+}
+
+/* ── Import-Button: Zustände klar differenzieren ──────────────────────────
+   Deaktiviert (Analyse läuft noch oder Pflichtfelder fehlen): gedämpfte,
+   neutrale Fläche mit blasser Schrift – liest sich eindeutig als inaktiv.
+   Aktiviert (bereit zum Import): volle Primary-Farbe mit Hervorhebung. */
+.isd-import-btn.v-btn--disabled {
+  opacity: 1;
+  background-color: rgba(15, 23, 42, 0.06) !important;
+  color: rgba(15, 23, 42, 0.38) !important;
+  box-shadow: none !important;
+}
+
+.isd-import-btn.v-theme--dark.v-btn--disabled {
+  background-color: rgba(255, 255, 255, 0.07) !important;
+  color: rgba(255, 255, 255, 0.40) !important;
+}
+
+.isd-import-btn.v-btn--disabled :deep(.v-btn__overlay) {
+  opacity: 0 !important;
+}
+
+/* Aktivierter Zustand: deutlich als Call-to-Action erkennbar. */
+.isd-import-btn:not(.v-btn--disabled) {
+  font-weight: 700;
+  box-shadow: 0 2px 12px rgba(var(--v-theme-primary), 0.42) !important;
 }
 </style>

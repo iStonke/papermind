@@ -15,6 +15,13 @@ DEFAULT_OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 DEFAULT_OLLAMA_MODEL = "llama3.2:3b"
 OLLAMA_TIMEOUT_SECONDS = 60.0
 
+# Fallback-Vokabular, falls keine aktiven Dokumenttypen aus der DB geladen werden
+# können. Die Quelle der Wahrheit ist die Tabelle ``document_types``; diese Liste
+# greift nur, wenn der DB-Zugriff fehlschlägt.
+DEFAULT_DOCUMENT_TYPES = ("Rechnung", "Vertrag", "Brief", "Kontoauszug", "Sonstiges")
+# Auffangtyp für unbekannte LLM-Befunde, sofern er Teil der erlaubten Liste ist.
+FALLBACK_DOCUMENT_TYPE = "Sonstiges"
+
 CLASSIFICATION_KEYS = {
     "document_type",
     "document_date",
@@ -138,14 +145,46 @@ def _extract_json_object(raw_value: str) -> dict[str, Any]:
     return parsed
 
 
-def parse_ollama_classification_response(raw_value: str) -> OllamaClassificationResult:
+def _canonicalize_document_type(value: str | None, allowed_document_types: list[str] | None) -> str | None:
+    """Toleranter Abgleich des LLM-Typs gegen die erlaubte Liste.
+
+    - Trifft der gemeldete Typ (case-insensitiv) einen erlaubten Typ, wird dessen
+      kanonische Schreibweise zurückgegeben.
+    - Ist der Typ unbekannt, wird auf ``Sonstiges`` abgebildet, sofern dieser Typ
+      erlaubt ist; andernfalls bleibt der Rohwert als unaufgelöster Vorschlag.
+    - Ohne erlaubte Liste bleibt der Wert unverändert (rückwärtskompatibel).
+    """
+    if value is None:
+        return None
+    names = [" ".join(str(name or "").split()).strip() for name in (allowed_document_types or [])]
+    by_lower: dict[str, str] = {}
+    for name in names:
+        if name:
+            by_lower.setdefault(name.lower(), name)
+    if not by_lower:
+        return value
+    canonical = by_lower.get(value.lower())
+    if canonical is not None:
+        return canonical
+    return by_lower.get(FALLBACK_DOCUMENT_TYPE.lower(), value)
+
+
+def parse_ollama_classification_response(
+    raw_value: str,
+    *,
+    allowed_document_types: list[str] | None = None,
+) -> OllamaClassificationResult:
     parsed = _extract_json_object(raw_value)
     missing_keys = sorted(CLASSIFICATION_KEYS - set(parsed.keys()))
     if missing_keys:
         raise OllamaClassificationError(f"Ollama JSON response is missing keys: {', '.join(missing_keys)}")
 
+    document_type = _canonicalize_document_type(
+        _normalize_text(parsed.get("document_type"), max_length=64),
+        allowed_document_types,
+    )
     return OllamaClassificationResult(
-        document_type=_normalize_text(parsed.get("document_type"), max_length=64),
+        document_type=document_type,
         document_date=_parse_date(parsed.get("document_date")),
         sender=_normalize_text(parsed.get("sender"), max_length=255),
         recipient=_normalize_text(parsed.get("recipient"), max_length=255),
@@ -158,15 +197,50 @@ def parse_ollama_classification_response(raw_value: str) -> OllamaClassification
     )
 
 
+def _build_document_type_hint_block(
+    allowed_names: list[str],
+    document_type_hints: dict[str, str] | None,
+    *,
+    max_hints: int = 40,
+) -> str:
+    """Kompakter ``Typ: Hinweis``-Block für die erlaubten Typen mit Prompt-Hint.
+
+    Reihenfolge der erlaubten Liste bleibt erhalten; nur Typen mit hinterlegtem
+    Hinweis werden aufgenommen.
+    """
+    if not document_type_hints:
+        return ""
+    by_lower = {str(name or "").strip().lower(): str(name or "").strip() for name in allowed_names}
+    lines: list[str] = []
+    seen: set[str] = set()
+    for name in allowed_names:
+        key = str(name or "").strip().lower()
+        if not key or key in seen:
+            continue
+        hint = document_type_hints.get(by_lower.get(key, name))
+        normalized_hint = " ".join(str(hint or "").split()).strip()
+        if not normalized_hint:
+            continue
+        seen.add(key)
+        lines.append(f"- {by_lower.get(key, name)}: {normalized_hint}")
+        if len(lines) >= max_hints:
+            break
+    if not lines:
+        return ""
+    return "TYP-HINWEISE (helfen bei der Wahl von document_type):\n" + "\n".join(lines) + "\n\n"
+
+
 def build_ollama_classification_payload(
     payload: OllamaClassificationInput,
     *,
     model: str = DEFAULT_OLLAMA_MODEL,
     allowed_document_types: list[str] | None = None,
+    document_type_hints: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     normalized_text = " ".join(str(payload.ocr_text or "").split()).strip()
     doc_type_names = [str(name).strip() for name in (allowed_document_types or []) if str(name).strip()]
-    doc_type_hint = "|".join(doc_type_names[:120]) if doc_type_names else "Rechnung|Vertrag|Brief|Kontoauszug|Sonstiges"
+    doc_type_hint = "|".join(doc_type_names[:120]) if doc_type_names else "|".join(DEFAULT_DOCUMENT_TYPES)
+    hint_block = _build_document_type_hint_block(doc_type_names, document_type_hints)
     schema = {
         "document_type": f"{doc_type_hint} oder null",
         "document_date": "YYYY-MM-DD oder null",
@@ -190,6 +264,7 @@ def build_ollama_classification_payload(
             "Beträge nur bei Rechnungen extrahieren; sonst amount und currency null.\n\n"
             "JSON-SCHEMA:\n"
             f"{json.dumps(schema, ensure_ascii=False, indent=2)}\n\n"
+            f"{hint_block}"
             f"DOCUMENT_ID: {payload.document_id}\n"
             f"OCR_CONFIDENCE: {payload.confidence_score}\n"
             f"OCR_QUALITY: {payload.quality_status}\n\n"
@@ -205,17 +280,20 @@ class OllamaClassificationService:
         model: str = DEFAULT_OLLAMA_MODEL,
         timeout_seconds: float = OLLAMA_TIMEOUT_SECONDS,
         allowed_document_types: list[str] | None = None,
+        document_type_hints: dict[str, str] | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout_seconds = timeout_seconds
         self.allowed_document_types = allowed_document_types
+        self.document_type_hints = document_type_hints
 
     def build_payload(self, payload: OllamaClassificationInput) -> dict[str, Any]:
         return build_ollama_classification_payload(
             payload,
             model=self.model,
             allowed_document_types=self.allowed_document_types,
+            document_type_hints=self.document_type_hints,
         )
 
     def classify(self, payload: OllamaClassificationInput) -> OllamaClassificationResult:
@@ -242,4 +320,7 @@ class OllamaClassificationService:
             len(raw_response),
         )
         logger.debug("ollama classification raw document_id=%s response=%s", payload.document_id, raw_response[:4000])
-        return parse_ollama_classification_response(raw_response)
+        return parse_ollama_classification_response(
+            raw_response,
+            allowed_document_types=self.allowed_document_types,
+        )

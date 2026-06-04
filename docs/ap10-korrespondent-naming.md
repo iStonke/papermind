@@ -1,8 +1,19 @@
 # AP10 – Korrespondent, Dokumenttyp und konsistente KI-Namensvorschläge
 
-Status: Konzept
+Status: In Umsetzung
 Quelle: Auswertung `dateiliste.csv` (522 historisch getaggte Dokumente)
 Bezug zu bestehenden APs: ergänzt AP6 (Tags), AP7 (Smart Folders), AP8/AP9 (KI), Naming im Import-Stage-Flow (`import_staging.suggest_stage_title` / `_build_filename_from_meta`)
+
+## Umsetzungsstand
+
+- Schritte 1-4 der Vorschlag-Reihenfolge sind umgesetzt: `document_type` ist eingeführt, das Dokumenttypen-Vokabular ist dynamisch, Korrespondenten/Aliase existieren als eigene Tabellen, technische Matcher sind für Seeds/Erkennung vorhanden, und `documents.correspondent_id` ist nullable verknüpft.
+- Seed-Migrationen für Dokumenttypen und Korrespondenten sind vorhanden und lokal angewendet.
+- Import-Stage und Dokument-Detail können Korrespondenten anzeigen/setzen; fehlende Korrespondenten blockieren den Import bewusst noch nicht.
+- Der erste Backfill ist als kontrollierbares Skript vorhanden: `backend/scripts/backfill_correspondents.py` läuft standardmäßig als Dry-Run und schreibt nur mit `--apply`.
+- Offene Fälle werden mit `backend/scripts/report_unresolved_correspondents.py` als JSON oder Markdown prüfbar gemacht. Dieser Kontrollpunkt schließt Schritt 6 fachlich ab und liefert die Grundlage für Schritt 7.
+- Settings-UI für Korrespondenten ist auf den einfachen Nutzerfluss reduziert: Korrespondenten verwalten, Aliase pflegen, offene Zuordnungen klären. Matcher bleiben ein internes technisches Detail.
+- `NamingTemplateService` ist als erster Schritt für template-basierte Dateinamen eingeführt: globale `document_types.naming_template` werden gerendert, fehlende Platzhalter bleiben sichtbar, ohne Template greift der bisherige Fallback.
+- Nächster geplanter Schritt: UI für Dokumenttypen-Templates, danach Korrespondenten-Overrides.
 
 ## Ausgangslage
 
@@ -26,14 +37,14 @@ Lücken, die dieses AP schließt:
 
 - Hauptziel: Die KI schlägt für ähnliche Dokumente konsistente, vorhersehbare Dateinamen vor.
 - Dokumenttypen werden als verwaltbares Vokabular geführt und decken den real existierenden Bestand ab.
-- Korrespondenten werden als eigene Entität geführt, mit Aliasen und Matching-Regeln.
+- Korrespondenten werden als eigene Entität geführt, mit Aliasen für den normalen Pflegefluss. Technische Matching-Regeln können intern für Seeds und Spezialfälle bestehen.
 - Kein Bruch bestehender Daten: Migrationspfad ohne Datenverlust.
 
 ## Begriffe (Modell-Sicht)
 
 - `Document.category` → in `Document.document_type` umbenennen, gleichbedeutend mit dem ausgewählten Dokumenttyp. Die Spalte bleibt denormalisiert (String), Quelle der Wahrheit ist die Tabelle `document_types`.
 - Neue Tabelle `document_types` (ersetzt `categories`): verwaltbares Vokabular, in Settings pflegbar.
-- Neue Tabelle `correspondents`: kanonischer Name + Aliase + Matching-Regeln.
+- Neue Tabelle `correspondents`: kanonischer Name + Aliase. Interne Matching-Regeln bleiben optional für Seeds und Spezialfälle.
 - `Document.correspondent_id` als FK (nullable). `ai_sender` bleibt als roher LLM-Befund erhalten, wird beim Akzeptieren des Vorschlags auf den FK abgebildet.
 
 ## Vorgeschlagene Dokumenttypen-Liste
@@ -136,9 +147,9 @@ correspondent_matchers
   priority        int
 ```
 
-Initial-Seed aus dem Bestand (CSV-Tag → Korrespondent + Alias + Matcher):
+Initial-Seed aus dem Bestand (CSV-Tag → Korrespondent + Alias; technische Matcher optional):
 
-| Kanonisch              | short_name | Aliase / Matcher (Auszug)                                              |
+| Kanonisch              | short_name | Aliase (Auszug)                                                        |
 | ---------------------- | ---------- | ---------------------------------------------------------------------- |
 | Dataport AöR           | Dataport   | "Dataport"                                                             |
 | Vodafone GmbH          | Vodafone   | "Vodafone", "Red Plus", "GigaKombi"                                    |
@@ -201,12 +212,12 @@ HUK-Coburg × Beitragsrechnung → "Beitragsrechnung – HUK – {sparte} – {m
 Techem × Nebenkostenabrechnung → "Nebenkostenabrechnung – Techem – Abrechnungsjahr {jahr}"
 ```
 
-Templates werden in `document_types.naming_template` und optional `correspondent_naming_overrides(type_id, correspondent_id, template)` gepflegt. Die Templates sind Daten, nicht Code: der Nutzer kann sie in Settings ändern.
+Templates werden zunächst in `document_types.naming_template` gepflegt. Korrespondenten-spezifische Overrides (`correspondent_naming_overrides(type_id, correspondent_id, template)`) kommen später, nachdem globale Templates stabil sind. Die Templates sind Daten, nicht Code: der Nutzer kann sie in Settings ändern.
 
 ### Pipeline für den Namensvorschlag
 
 1. LLM klassifiziert Dokumenttyp und liefert Felder (date, sender, recipient, amount, subject, plus typ-spezifische Felder – siehe nächster Abschnitt).
-2. `sender` wird gegen `correspondent_matchers` und `correspondent_aliases` aufgelöst. Treffer → kanonischer Korrespondent + `short_name`. Kein Treffer → unaufgelöster Vorschlag, der beim Akzeptieren angelegt werden kann.
+2. `sender` wird primär gegen Korrespondenten-Aliase aufgelöst; interne Matcher können zusätzlich helfen. Treffer → kanonischer Korrespondent + `short_name`. Kein Treffer → unaufgelöster Vorschlag, der beim Akzeptieren angelegt werden kann.
 3. Anhand `document_type` (und ggf. Korrespondent-Override) wird das Naming-Template gezogen.
 4. Platzhalter werden befüllt; fehlende Pflichtfelder werden im Vorschlag als Platzhalter `{…}` belassen und im UI markiert.
 5. `_build_filename_from_meta` arbeitet künftig auf Templates statt auf der festen Reihenfolge `Typ – Aussteller – Betreff – Betrag`.
@@ -245,17 +256,17 @@ Beim Import-Vorschlag wird je gemutmaßtem (Dokumenttyp × Korrespondent) ein bi
 2. `Document.category` → `Document.document_type` (Spaltenrename, Backfill 1:1).
 3. Index `ix_documents_category` → `ix_documents_document_type`.
 4. Frontend-Begriffe austauschen (Vuetify-Strings, Schemas, Saved-Searches-Felder).
-5. `correspondents` + `correspondent_aliases` + `correspondent_matchers` neu anlegen.
+5. `correspondents` + `correspondent_aliases` neu anlegen; technische `correspondent_matchers` optional für Seeds/Spezialfälle.
 6. `Document.correspondent_id` (nullable) + Index ergänzen.
 7. Seed-Migration mit den oben gelisteten Korrespondenten und Dokumenttypen.
-8. Backfill-Job: für vorhandene Dokumente `ai_sender` gegen Matcher laufen lassen und `correspondent_id` setzen, sofern eindeutig (Konfidenz schwellenbasiert, sonst belassen).
+8. Backfill-Job: für vorhandene Dokumente `ai_sender` gegen Aliase und interne Matcher laufen lassen und `correspondent_id` setzen, sofern eindeutig (Konfidenz schwellenbasiert, sonst belassen).
 
 ## UI/UX-Hinweise
 
 - Settings → Dokumenttypen: vorhandene Kategorien-Seite umbenennen, Template-Editor je Typ.
-- Settings → Korrespondenten: CRUD, Aliase, Matcher (inkl. Live-Test gegen den Bestand).
+- Settings → Korrespondenten: CRUD, Aliase und offene Zuordnungen. Kein normaler Nutzerfluss für Matcher-Regeln.
 - Import-Stage: Vorschlag zeigt Typ, Korrespondent (mit „neu anlegen"-Option), gefüllte Felder und den daraus erzeugten Dateinamen. Vom Nutzer geänderte Felder werden zurück in den Vorschlag gespeist – kein Rerun des LLM nötig.
-- Dokument-Detail: Korrespondent als eigenes Feld neben Dokumenttyp; Anzeige von Aliasen/Matchern, die zugeordnet haben.
+- Dokument-Detail: Korrespondent als eigenes Feld neben Dokumenttyp; Anzeige des zugeordneten kanonischen Korrespondenten.
 
 ## Importer für Altbestand (522 Dokumente)
 
@@ -268,7 +279,7 @@ Mini-CLI bzw. Service-Methode, die für den Bestands-Import:
 
 ## Risiken / offene Fragen
 
-- LLM-Halluzinationen bei Korrespondenten: durch Matcher-First-Strategie (deterministisch, danach LLM) minimiert.
+- LLM-Halluzinationen bei Korrespondenten: durch Alias-First-Strategie (deterministisch, danach LLM) minimiert.
 - Template-Vielfalt vs. Wartbarkeit: Korrespondent-Overrides nur erlauben, nicht erzwingen.
 - Migration `category` → `document_type` betrifft viele Stellen (Routes, Schemas, Frontend). Sauber als eigenständiger Schritt vor allem Korrespondenten-Arbeit ausführen.
 - „Krankenkasse" und „Gesundheit" sind im Altbestand vermischt. Beim Import als Pflicht-Klärung lösen.
@@ -278,7 +289,7 @@ Mini-CLI bzw. Service-Methode, die für den Bestands-Import:
 1. Schema/Begriff: `category` → `document_type` (Tabelle, Spalte, Index, API, UI).
 2. `document_types` um `naming_template` und Felder erweitern; Seed mit obiger Liste.
 3. LLM-Prompt auf dynamische Typliste umstellen und neue Felder ins JSON-Schema aufnehmen.
-4. `correspondents` + Aliase + Matcher + FK auf `documents`; Seed.
+4. `correspondents` + Aliase + FK auf `documents`; technische Matcher nur intern/optional; Seed.
 5. Filename-Builder auf Templates umstellen; Backwards-kompatibel bei fehlendem Template Fallback aufs bisherige Schema.
 6. Few-Shot-Beispiele aus dem Bestand in den Klassifier-Prompt einhängen.
 7. Settings-UI für Dokumenttypen-Templates und Korrespondenten.

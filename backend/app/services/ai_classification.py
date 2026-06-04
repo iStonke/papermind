@@ -40,6 +40,7 @@ def apply_ollama_classification(
     base_url: str = DEFAULT_OLLAMA_BASE_URL,
     model: str = DEFAULT_OLLAMA_MODEL,
     allowed_document_types: list[str] | None = None,
+    document_type_hints: dict[str, str] | None = None,
 ) -> str | None:
     """Classify ``document`` and store the result on its ``ai_*`` fields.
 
@@ -68,6 +69,7 @@ def apply_ollama_classification(
         base_url=base_url,
         model=model,
         allowed_document_types=allowed_document_types,
+        document_type_hints=document_type_hints,
     )
     try:
         result = service.classify(

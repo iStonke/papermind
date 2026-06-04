@@ -4,7 +4,7 @@ import os
 import re
 import shutil
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -15,8 +15,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import APIError, BadRequestError, PayloadTooLargeError, StorageError
+from app.models.correspondent import Correspondent
+from app.models.document import Document
 from app.models.tag import Tag
-from app.models.document_type import DocumentType
 from app.schemas.documents import DocumentTagReplaceRequest
 from app.schemas.import_staging import (
     ImportCommitCreatedItem,
@@ -26,8 +27,14 @@ from app.schemas.import_staging import (
     ImportSourceRead,
     ImportSourceUploadResponse,
 )
-from app.services.category_mapping import map_doc_type_to_category
+from app.services.correspondent_matching import CorrespondentMatchingService
+from app.services.document_types import (
+    document_type_hint_map,
+    document_type_names,
+    load_active_document_type_vocab,
+)
 from app.services.documents import ALLOWED_PDF_CONTENT_TYPES, DocumentService
+from app.services.naming_templates import NamingTemplateService, build_legacy_filename_from_meta
 from app.services.ocr_pipeline import run_ocr_lite, run_ocr_pipeline
 from app.services.settings import SettingsService
 
@@ -323,6 +330,31 @@ class ImportStagingService:
     @staticmethod
     def _normalize_text(value: str) -> str:
         return _WHITESPACE_RE.sub(" ", str(value or "")).strip()
+
+    @staticmethod
+    def _coerce_llm_scalar(value: object) -> str | None:
+        """Return a plain scalar text from permissive LLM JSON values.
+
+        Some local models answer fields as {"text": "..."} despite the prompt
+        asking for strings. Treat common scalar containers as text instead of
+        stringifying the whole dict into the document title.
+        """
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            for key in ("text", "value", "name", "label"):
+                nested = ImportStagingService._coerce_llm_scalar(value.get(key))
+                if nested:
+                    return nested
+            return None
+        if isinstance(value, list):
+            for item in value:
+                nested = ImportStagingService._coerce_llm_scalar(item)
+                if nested:
+                    return nested
+            return None
+        normalized = ImportStagingService._normalize_text(str(value))
+        return normalized or None
 
     def _extract_text_for_title_suggestion(
         self,
@@ -918,6 +950,8 @@ class ImportStagingService:
         max_input_chars: int,
         existing_tags: list[str] | None = None,
         allowed_doc_types: list[str] | None = None,
+        doc_type_hints: dict[str, str] | None = None,
+        naming_examples: list[str] | None = None,
     ) -> dict[str, object] | None:
         """Call Ollama to extract metadata from OCR text.
 
@@ -954,9 +988,27 @@ class ImportStagingService:
             doc_type_names = sorted(_DOC_TYPES_ALLOWED)
         doc_type_hint = ", ".join(doc_type_names[:120])
 
+        hint_lines: list[str] = []
+        if doc_type_hints:
+            for name in doc_type_names:
+                hint = " ".join(str(doc_type_hints.get(name) or "").split()).strip()
+                if hint:
+                    hint_lines.append(f"- {name}: {hint}")
+                if len(hint_lines) >= 40:
+                    break
+        hint_block = (
+            "Typ-Hinweise zur Wahl von doc_type:\n" + "\n".join(hint_lines) + "\n\n"
+            if hint_lines
+            else ""
+        )
+
+        examples_block = ImportStagingService._build_naming_examples_block(naming_examples)
+
         prompt = (
             "Extrahiere aus dem folgenden OCR-Text eines deutschen Dokuments die Metadaten. "
             "Antworte NUR mit einem gültigen JSON-Objekt, ohne Markdown, ohne Erklärungen.\n\n"
+            f"{hint_block}"
+            f"{examples_block}"
             "Felder:\n"
             f'- "doc_type": eines von [{doc_type_hint}]\n'
             '- "issuer": Absender/Aussteller, max. 40 Zeichen, oder null\n'
@@ -1003,22 +1055,28 @@ class ImportStagingService:
 
         # Normalise field values
         def _str(key: str, max_len: int = 80) -> str | None:
-            v = " ".join(str(parsed.get(key) or "").split()).strip()
+            v = ImportStagingService._coerce_llm_scalar(parsed.get(key))
             return v[:max_len] if v else None
 
         def _date(key: str) -> str | None:
-            v = str(parsed.get(key) or "").strip()
+            v = ImportStagingService._coerce_llm_scalar(parsed.get(key)) or ""
             return v if re.match(r"^\d{4}-\d{2}-\d{2}$", v) else None
 
         def _tags(key: str) -> list[str]:
             raw_tags = parsed.get(key)
             if not isinstance(raw_tags, list):
                 return []
-            return [str(t).strip() for t in raw_tags if str(t).strip()][:2]
+            tags: list[str] = []
+            for tag in raw_tags:
+                value = ImportStagingService._coerce_llm_scalar(tag)
+                if value:
+                    tags.append(value)
+            return tags[:2]
 
         def _amount(key: str) -> float | None:
             try:
-                v = float(str(parsed.get(key) or "").replace(",", "."))
+                raw_value = ImportStagingService._coerce_llm_scalar(parsed.get(key)) or ""
+                v = float(raw_value.replace(",", "."))
                 return round(v, 2) if v > 0 else None
             except (TypeError, ValueError):
                 return None
@@ -1169,10 +1227,6 @@ class ImportStagingService:
         }, answer
 
     @classmethod
-    def _map_doc_type_to_category(cls, doc_type: str) -> str | None:
-        return map_doc_type_to_category(doc_type)
-
-    @classmethod
     def _format_euro(cls, amount: float) -> str:
         token = f"{amount:.2f}".replace(".", ",")
         return f"{token}€"
@@ -1188,35 +1242,7 @@ class ImportStagingService:
 
     @classmethod
     def _build_filename_from_meta(cls, meta: dict[str, object]) -> str:
-        doc_type = cls._clean_filename_component(str(meta.get("doc_type") or "Dokument"), max_len=24) or "Dokument"
-        issuer = cls._normalize_issuer(str(meta.get("issuer") or "")) or "Unbekannt"
-        subject = cls._normalize_subject(str(meta.get("subject") or "")) or "Ohne Betreff"
-        amount_value = cls._safe_float(meta.get("amount"))
-
-        base_parts = [doc_type, issuer, subject]
-        base = _FILENAME_SEPARATOR.join(base_parts)
-        if amount_value is not None:
-            filename = f"{base}{_FILENAME_SEPARATOR}{cls._format_euro(amount_value)}"
-        else:
-            filename = base
-
-        filename = cls._clean_filename_component(filename, max_len=_FILENAME_MAX_LEN + 20)
-        filename = filename.replace(" - ", _FILENAME_SEPARATOR)
-        if len(filename) <= _FILENAME_MAX_LEN:
-            return filename
-
-        # 1) shorten subject, 2) shorten issuer, never shorten doc_type/amount
-        short_subject = cls._clip_with_ellipsis(subject, 28)
-        base = _FILENAME_SEPARATOR.join([doc_type, issuer, short_subject])
-        filename = f"{base}{_FILENAME_SEPARATOR}{cls._format_euro(amount_value)}" if amount_value is not None else base
-        filename = cls._clean_filename_component(filename, max_len=_FILENAME_MAX_LEN + 20).replace(" - ", _FILENAME_SEPARATOR)
-        if len(filename) <= _FILENAME_MAX_LEN:
-            return filename
-
-        short_issuer = cls._clip_with_ellipsis(issuer, 24)
-        base = _FILENAME_SEPARATOR.join([doc_type, short_issuer, short_subject])
-        filename = f"{base}{_FILENAME_SEPARATOR}{cls._format_euro(amount_value)}" if amount_value is not None else base
-        return cls._clean_filename_component(filename, max_len=_FILENAME_MAX_LEN).replace(" - ", _FILENAME_SEPARATOR)
+        return build_legacy_filename_from_meta(meta)
 
     def _load_existing_tag_names(self, limit: int = 200) -> list[str]:
         """Vorhandene Tag-Namen für die KI-Tag-Vergabe (bevorzugt wiederverwenden)."""
@@ -1227,18 +1253,138 @@ class ImportStagingService:
             return []
         return [str(name).strip() for name in rows if name and str(name).strip()]
 
-    def _load_active_document_type_names(self, limit: int = 120) -> list[str]:
+    def _resolve_correspondent(self, sender_raw: str | None, ocr_text: str | None) -> dict[str, object] | None:
+        """Rohen Absender/OCR-Text auf einen kanonischen Korrespondenten abbilden.
+
+        Best effort – Fehler dürfen den Titelvorschlag nie blockieren.
+        """
+        if not (str(sender_raw or "").strip() or str(ocr_text or "").strip()):
+            return None
         try:
-            rows = self.db.execute(
-                select(DocumentType.name)
-                .where(DocumentType.is_active.is_(True))
-                .order_by(DocumentType.sort_order.asc(), func.lower(DocumentType.name).asc())
-                .limit(limit)
-            ).scalars().all()
-        except Exception as exc:  # noqa: BLE001 - best effort, rules remain fallback
-            logger.warning("stage title: could not load document types: %s", exc)
+            match = CorrespondentMatchingService(self.db).resolve(sender=sender_raw, ocr_text=ocr_text)
+        except Exception as exc:  # noqa: BLE001 - Korrespondenten-Matching ist optional
+            logger.warning("stage title: correspondent matching failed: %s", exc)
+            return None
+        if match is None:
+            return None
+        return {
+            "id": str(match.correspondent_id),
+            "name": match.name,
+            "short_name": match.short_name,
+            "matched_by": match.matched_by,
+            "matched_value": match.matched_value,
+        }
+
+    @staticmethod
+    def _looks_like_default_title(value: str) -> bool:
+        """Erkennt generische Scan-/Fallback-Titel, die kein Schreibmuster sind."""
+        normalized = " ".join(str(value or "").split()).strip().lower()
+        if not normalized:
+            return True
+        # z. B. "Scan", "Scan - 03-2024", "Dokument", "Neues Dokument"
+        return bool(re.match(r"^(scan|dokument|neues dokument|unbenannt|untitled)\b", normalized))
+
+    @staticmethod
+    def _build_naming_examples_block(
+        examples: list[str] | None,
+        *,
+        max_examples: int = 3,
+        max_len: int = 80,
+    ) -> str:
+        """Kurzer Few-Shot-Block aus bestehenden Dateinamen (reine Funktion, testbar).
+
+        Liefert "" wenn keine brauchbaren Beispiele vorhanden sind. Die Beispiele
+        sind als Stilvorlage für den ``subject``-Slot gedacht – nicht zum wörtlichen
+        Übernehmen.
+        """
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in examples or []:
+            name = " ".join(str(raw or "").split()).strip()
+            if name.lower().endswith(".pdf"):
+                name = name[:-4].rstrip()
+            if not name:
+                continue
+            if len(name) > max_len:
+                name = name[:max_len].rstrip()
+            key = name.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(name)
+            if len(cleaned) >= max_examples:
+                break
+        if not cleaned:
+            return ""
+        lines = "\n".join(f"- {name}" for name in cleaned)
+        return (
+            "BEISPIELE für bereits vergebene Dateinamen ähnlicher Dokumente. "
+            "Orientiere dich für \"subject\" am Schreibmuster/Stil dieser Beispiele, "
+            "übernimm sie aber NICHT wörtlich:\n"
+            f"{lines}\n\n"
+        )
+
+    def _load_naming_examples(
+        self,
+        *,
+        document_type: str | None,
+        correspondent_id: str | uuid.UUID | None,
+        limit: int = 3,
+    ) -> list[str]:
+        """Top-N kuratierte Dateinamen ähnlicher Dokumente als Few-Shot-Vorlage.
+
+        Zuerst nach (document_type UND correspondent_id) filtern; liefert das zu
+        wenige Treffer, wird auf document_type-only zurückgefallen. Best effort –
+        darf den Titelvorschlag nie blockieren.
+        """
+        doc_type = " ".join(str(document_type or "").split()).strip()
+        if not doc_type or doc_type.casefold() == "sonstiges":
             return []
-        return [str(name).strip() for name in rows if name and str(name).strip()]
+
+        normalized_correspondent: uuid.UUID | None = None
+        if correspondent_id is not None:
+            try:
+                normalized_correspondent = uuid.UUID(str(correspondent_id))
+            except (ValueError, TypeError):
+                normalized_correspondent = None
+
+        def _query(with_correspondent: bool) -> list[str]:
+            stmt = (
+                select(Document.display_name)
+                .where(
+                    Document.is_deleted.is_(False),
+                    Document.display_name.is_not(None),
+                    func.lower(Document.document_type) == doc_type.lower(),
+                )
+                .order_by(Document.document_date.desc().nullslast(), Document.created_at.desc())
+                .limit(limit * 4)
+            )
+            if with_correspondent and normalized_correspondent is not None:
+                stmt = stmt.where(Document.correspondent_id == normalized_correspondent)
+            try:
+                rows = self.db.execute(stmt).scalars().all()
+            except Exception as exc:  # noqa: BLE001 - Few-Shot ist optional
+                logger.warning("stage title: naming example query failed: %s", exc)
+                return []
+            result: list[str] = []
+            seen: set[str] = set()
+            for name in rows:
+                cleaned = " ".join(str(name or "").split()).strip()
+                if not cleaned or self._looks_like_default_title(cleaned):
+                    continue
+                key = cleaned.casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                result.append(cleaned)
+                if len(result) >= limit:
+                    break
+            return result
+
+        examples = _query(with_correspondent=True)
+        if not examples:
+            examples = _query(with_correspondent=False)
+        return examples
 
     def suggest_stage_title(
         self,
@@ -1343,9 +1489,19 @@ class ImportStagingService:
         runtime_settings = self.settings_service.get_settings().model_dump(mode="json")
         ollama_cfg = runtime_settings.get("ollama") or {}
         existing_tag_names = self._load_existing_tag_names()
-        active_doc_type_names = self._load_active_document_type_names()
+        doc_type_vocab = load_active_document_type_vocab(self.db)
+        active_doc_type_names = document_type_names(doc_type_vocab)
         ollama_rich: dict[str, object] | None = None
         if ollama_cfg.get("enabled"):
+            # Few-Shot: vor dem LLM grob Dokumenttyp + Korrespondent regelbasiert
+            # bestimmen und bis zu 3 bestehende Dateinamen ähnlicher Dokumente als
+            # Stilvorlage anhängen.
+            rough_doc_type = self._detect_document_type_improved(extracted_text)
+            rough_correspondent = self._resolve_correspondent(None, extracted_text)
+            naming_examples = self._load_naming_examples(
+                document_type=rough_doc_type,
+                correspondent_id=(rough_correspondent or {}).get("id"),
+            )
             ollama_rich = self._call_ollama_for_staging(
                 extracted_text,
                 base_url=str(ollama_cfg.get("base_url") or "http://localhost:11434"),
@@ -1354,6 +1510,8 @@ class ImportStagingService:
                 max_input_chars=int(ollama_cfg.get("max_input_chars") or 800),
                 existing_tags=existing_tag_names,
                 allowed_doc_types=active_doc_type_names,
+                doc_type_hints=document_type_hint_map(doc_type_vocab),
+                naming_examples=naming_examples,
             )
             if ollama_rich:
                 logger.info("SuggestTitle: ollama extraction succeeded stage=%s", str(stage_id or "").strip() or "-")
@@ -1374,19 +1532,23 @@ class ImportStagingService:
         else:
             rich = rule_rich
 
-        normalized_doc_type = self._normalize_doc_type(str(rich.get("doc_type") or ""), active_doc_type_names) or "Sonstiges"
-        issuer = self._normalize_issuer(str(rich.get("issuer") or "")) or "Unbekannt"
-        subject = self._normalize_subject(str(rich.get("subject") or "")) or None
+        normalized_doc_type = self._normalize_doc_type(
+            self._coerce_llm_scalar(rich.get("doc_type")) or "",
+            active_doc_type_names,
+        ) or "Sonstiges"
+        issuer_raw = self._coerce_llm_scalar(rich.get("issuer"))
+        subject_raw = self._coerce_llm_scalar(rich.get("subject"))
+        issuer = self._normalize_issuer(issuer_raw or "") or "Unbekannt"
+        subject = self._normalize_subject(subject_raw or "") or None
         normalized_amount = self._safe_float(rich.get("amount"))
         if normalized_amount is not None and normalized_amount <= 0:
             normalized_amount = None
         currency = "EUR" if (normalized_amount is not None) else None
-        raw_date = str(rich.get("date") or "").strip()
+        raw_date = self._coerce_llm_scalar(rich.get("date")) or ""
         final_date = raw_date if re.match(r"^\d{4}-\d{2}-\d{2}$", raw_date) else None
-        # Nur ein plausibles Dokumentdatum übernehmen: ein echtes Datum, das nicht
-        # älter als ein Jahr ist. Verhindert, dass z. B. ein im Text gefundenes
-        # Geburtsdatum (etwa 21.10.1994) fälschlich als Dokumentdatum übernommen
-        # wird. Andernfalls bleibt das Datumsfeld leer.
+        # Plausibilität: ein echtes Datum übernehmen, sofern es nicht in der Zukunft
+        # liegt und nicht offensichtlich unsinnig (vor 1990) ist. Alte Bestandsdaten
+        # bleiben erhalten – wichtig beim Import historischer Dokumente.
         if final_date:
             try:
                 parsed_date = datetime.strptime(final_date, "%Y-%m-%d").date()
@@ -1396,18 +1558,16 @@ class ImportStagingService:
                 final_date = None
             else:
                 today = datetime.now().date()
-                try:
-                    min_date = today.replace(year=today.year - 1)
-                except ValueError:  # 29. Februar
-                    min_date = today - timedelta(days=365)
-                if parsed_date < min_date:
+                if parsed_date > today or parsed_date.year < 1990:
                     final_date = None
         tags_val = rich.get("tags")
-        final_tags: list[str] = (
-            [str(t).strip() for t in tags_val if t and str(t).strip()][:2]
-            if isinstance(tags_val, list)
-            else []
-        )
+        final_tags: list[str] = []
+        if isinstance(tags_val, list):
+            for tag in tags_val:
+                value = self._coerce_llm_scalar(tag)
+                if value:
+                    final_tags.append(value)
+            final_tags = final_tags[:2]
         # Auf vorhandene Schreibweise einrasten: stimmt ein Tag (unabhängig von
         # Groß-/Kleinschreibung und Randleerzeichen) mit einem bestehenden Tag
         # überein, exakt dessen Schreibweise verwenden. Verhindert Casing-Duplikate
@@ -1425,16 +1585,25 @@ class ImportStagingService:
             final_tags = deduped
 
         # Wichtigste Fakten als Notiz (nur vom LLM geliefert; regelbasiert leer).
-        final_note = str(rich.get("summary") or "").strip() or None
+        final_note = self._coerce_llm_scalar(rich.get("summary"))
+
+        # Korrespondent deterministisch auflösen (Matcher/Alias zuerst). Der rohe
+        # Absender bleibt sichtbar; ai_sender wird im Import nicht überschrieben.
+        sender_raw = issuer_raw
+        correspondent_info = self._resolve_correspondent(sender_raw, extracted_text)
+        document_type = normalized_doc_type
 
         merged_meta: dict[str, object] = {
             "doc_type": normalized_doc_type,
+            "document_type": document_type,
             "issuer": issuer,
             "subject": subject or "Ohne Betreff",
             "amount": normalized_amount,
             "currency": currency,
+            "date": final_date,
+            "correspondent": correspondent_info,
         }
-        suggestion = self._build_filename_from_meta(merged_meta)
+        suggestion = NamingTemplateService(self.db).build_filename(merged_meta)
 
         return {
             "status": "ready",
@@ -1447,8 +1616,10 @@ class ImportStagingService:
                 "amount": normalized_amount,
                 "currency": currency,
                 "date": final_date,
-                "document_type": self._map_doc_type_to_category(normalized_doc_type),
-                "category": self._map_doc_type_to_category(normalized_doc_type),
+                "document_type": document_type,
+                "category": document_type,
+                "sender_raw": sender_raw,
+                "correspondent": correspondent_info,
                 "tags": final_tags,
                 "note": final_note,
                 "analysis_status": "ready",
@@ -1597,10 +1768,29 @@ class ImportStagingService:
         if missing_ids:
             raise BadRequestError("One or more tags were not found", details={"missing_tag_ids": missing_ids})
 
+    def _validate_requested_correspondents(self, payload: ImportCommitRequest) -> None:
+        requested_ids = {
+            document.correspondent_id for document in payload.documents if document.correspondent_id is not None
+        }
+        if not requested_ids:
+            return
+        found_ids = set(
+            self.db.execute(
+                select(Correspondent.id).where(Correspondent.id.in_(requested_ids))
+            ).scalars().all()
+        )
+        missing_ids = [str(cid) for cid in requested_ids if cid not in found_ids]
+        if missing_ids:
+            raise BadRequestError(
+                "One or more correspondents were not found",
+                details={"missing_correspondent_ids": missing_ids},
+            )
+
     def commit(self, payload: ImportCommitRequest) -> ImportCommitResponse:
         if not payload.documents:
             raise BadRequestError("At least one staging document is required")
         self._validate_requested_tags(payload)
+        self._validate_requested_correspondents(payload)
 
         reader_cache: dict[str, PdfReader] = {}
         created: list[ImportCommitCreatedItem] = []
@@ -1637,8 +1827,11 @@ class ImportStagingService:
                     document_date=staging_doc.date,
                     notes=staging_doc.note,
                 )
-                if staging_doc.document_type:
-                    created_doc.document_type = staging_doc.document_type
+                if staging_doc.document_type or staging_doc.correspondent_id is not None:
+                    if staging_doc.document_type:
+                        created_doc.document_type = staging_doc.document_type
+                    if staging_doc.correspondent_id is not None:
+                        created_doc.correspondent_id = staging_doc.correspondent_id
                     self.document_service.db.commit()
                 if staging_doc.tag_ids:
                     self.document_service.replace_document_tags(

@@ -101,6 +101,7 @@ class ImportCommitDocumentInput(BaseModel):
         max_length=NAME_MAX_LENGTH,
         validation_alias=AliasChoices("document_type", "category"),
     )
+    correspondent_id: uuid.UUID | None = Field(default=None)
     date: date_cls | None = Field(default=None)
     note: str | None = Field(default=None, max_length=2000)
     tag_ids: list[uuid.UUID] = Field(default_factory=list)

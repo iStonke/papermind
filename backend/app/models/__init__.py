@@ -1,4 +1,5 @@
 from app.models.document_type import DocumentType
+from app.models.correspondent import Correspondent, CorrespondentAlias, CorrespondentMatcher
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
 from app.models.document_file import DocumentFile
@@ -11,6 +12,9 @@ from app.models.tag import Tag
 
 __all__ = [
     "DocumentType",
+    "Correspondent",
+    "CorrespondentAlias",
+    "CorrespondentMatcher",
     "Document",
     "DocumentChunk",
     "DocumentFile",

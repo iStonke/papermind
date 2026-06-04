@@ -25,6 +25,7 @@ from app.core.errors import (
     StorageError,
 )
 from app.core.text import sanitize_text_for_db
+from app.models.correspondent import Correspondent
 from app.models.document import Document
 from app.models.document_file import DocumentFile
 from app.models.document_type import DocumentType
@@ -48,7 +49,11 @@ from app.schemas.documents import (
     SortOrder,
 )
 from app.services.ai_classification import apply_ollama_classification
-from app.services.category_mapping import map_doc_type_to_category
+from app.services.document_types import (
+    document_type_hint_map,
+    document_type_names,
+    load_active_document_type_vocab,
+)
 from app.services.settings import SettingsService
 
 logger = logging.getLogger("papermind.documents")
@@ -832,14 +837,19 @@ class DocumentService:
         return title[:200]
 
     def _suggest_document_type_from_classification(self, document: Document) -> str | None:
-        """Map the detected document type to an existing managed document type name."""
-        mapped = map_doc_type_to_category(document.ai_document_type)
-        if not mapped:
+        """Den erkannten Dokumenttyp gegen die verwaltete Liste prüfen.
+
+        ``ai_document_type`` ist bereits der feine Typ (z. B. "Kündigung"). Kein
+        Legacy-Mapping mehr auf grobe Kategorien ("Verträge"). Liefert die
+        kanonische Schreibweise des Typs, falls er ein bekannter Dokumenttyp ist,
+        sonst ``None``.
+        """
+        raw = " ".join(str(document.ai_document_type or "").split()).strip()
+        if not raw:
             return None
-        existing = self.db.execute(
-            select(DocumentType.name).where(func.lower(DocumentType.name) == mapped.lower())
+        return self.db.execute(
+            select(DocumentType.name).where(func.lower(DocumentType.name) == raw.lower())
         ).scalar_one_or_none()
-        return existing
 
     def _suggest_tags_from_classification(self, document: Document) -> list[str]:
         """Normalize the stored AI tags, preferring the casing of existing tags."""
@@ -863,19 +873,6 @@ class DocumentService:
             result.append(canonical)
         return result
 
-    def _load_active_document_type_names(self, limit: int = 120) -> list[str]:
-        try:
-            rows = self.db.execute(
-                select(DocumentType.name)
-                .where(DocumentType.is_active.is_(True))
-                .order_by(DocumentType.sort_order.asc(), func.lower(DocumentType.name).asc())
-                .limit(limit)
-            ).scalars().all()
-        except Exception as exc:  # noqa: BLE001 - metadata suggestions must remain best effort
-            logger.warning("could not load active document types: %s", exc)
-            return []
-        return [str(name).strip() for name in rows if name and str(name).strip()]
-
     def suggest_metadata(self, document_id: uuid.UUID) -> DocumentMetadataSuggestion:
         """Return AI-derived suggestions for a document's editable fields.
 
@@ -888,12 +885,14 @@ class DocumentService:
         if document.ai_status != "done":
             text_value = self._extract_text_for_manual_auto_tagging(document)
             if text_value:
+                doc_type_vocab = load_active_document_type_vocab(self.db)
                 apply_ollama_classification(
                     document,
                     extracted_text=text_value,
                     quality_status=document.ocr_quality_status or "good",
                     confidence_score=document.ocr_confidence_score,
-                    allowed_document_types=self._load_active_document_type_names(),
+                    allowed_document_types=document_type_names(doc_type_vocab),
+                    document_type_hints=document_type_hint_map(doc_type_vocab),
                 )
                 self.db.commit()
                 document = self.get_document_or_404(document_id)
@@ -1413,6 +1412,14 @@ class DocumentService:
             document.notes = data["notes"]
         if "document_type" in data:
             document.document_type = data["document_type"]
+        if "correspondent_id" in data:
+            correspondent_id = data["correspondent_id"]
+            if correspondent_id is not None and self.db.get(Correspondent, correspondent_id) is None:
+                raise BadRequestError(
+                    "Correspondent not found",
+                    details={"correspondent_id": str(correspondent_id)},
+                )
+            document.correspondent_id = correspondent_id
         if "status" in data and data["status"] is not None:
             document.status = data["status"].value
         if "display_name" in data:
@@ -1602,6 +1609,9 @@ class DocumentService:
     def as_detail(self, document: Document) -> DocumentDetail:
         detail = DocumentDetail.model_validate(document, from_attributes=True)
         detail.is_duplicate = document.duplicate_of_doc_id is not None
+        if document.correspondent_id is not None:
+            correspondent = self.db.get(Correspondent, document.correspondent_id)
+            detail.correspondent_name = correspondent.name if correspondent is not None else None
         return detail
 
     def _as_summary(self, document: Document) -> DocumentSummary:

@@ -20,7 +20,6 @@ from app.db.session import SessionLocal
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
 from app.models.document_file import DocumentFile
-from app.models.document_type import DocumentType
 from app.models.job import Job
 from app.models.tag import Tag
 from app.services.deduplication import DocumentDeduplicationService
@@ -29,6 +28,11 @@ from app.services.embeddings import EmbeddingService
 from app.services.documents import DocumentService
 from app.services.import_inbox import ImportInboxService
 from app.services.ai_classification import apply_ollama_classification
+from app.services.document_types import (
+    document_type_hint_map,
+    document_type_names,
+    load_active_document_type_vocab,
+)
 from app.services.ocr_pipeline import run_ocr_pipeline
 from app.services.settings import SettingsService
 
@@ -123,18 +127,6 @@ AUTO_TAG_STOPWORDS = {
 }
 
 
-def _load_active_document_type_names(db, limit: int = 120) -> list[str]:
-    try:
-        rows = db.execute(
-            select(DocumentType.name)
-            .where(DocumentType.is_active.is_(True))
-            .order_by(DocumentType.sort_order.asc(), func.lower(DocumentType.name).asc())
-            .limit(limit)
-        ).scalars().all()
-    except Exception as exc:  # noqa: BLE001 - OCR completion must not depend on vocab loading
-        logger.warning("worker could not load active document types: %s", exc)
-        return []
-    return [str(name).strip() for name in rows if name and str(name).strip()]
 AUTO_TAG_BLOCKED_CANDIDATE_KEYS = {
     "keine information",
     "keine information gefunden",
@@ -717,12 +709,14 @@ def _process_ocr_job(job_id: uuid.UUID) -> None:
                 dedupe_service.evaluate_document_text_duplicate(document, extracted_text)
             except Exception as exc:  # pragma: no cover - best effort dedupe
                 logger.warning("duplicate_text_check_failed document_id=%s error=%s", document.id, exc)
+            doc_type_vocab = load_active_document_type_vocab(db)
             classification_warning = apply_ollama_classification(
                 document,
                 extracted_text=extracted_text,
                 quality_status=quality_status,
                 confidence_score=confidence_score,
-                allowed_document_types=_load_active_document_type_names(db),
+                allowed_document_types=document_type_names(doc_type_vocab),
+                document_type_hints=document_type_hint_map(doc_type_vocab),
             )
             document.status = "ready"
             document.ocr_status = "done"

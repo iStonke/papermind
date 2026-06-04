@@ -14,6 +14,41 @@ from app.services.utils import is_unique_violation, validate_vocab_name
 logger = logging.getLogger("papermind.document_types")
 
 
+def load_active_document_type_vocab(db: Session, limit: int = 120) -> list[tuple[str, str | None]]:
+    """Aktive Dokumenttypen als ``(name, prompt_hint)``-Paare laden.
+
+    Best effort: schlägt der DB-Zugriff fehl, wird eine leere Liste geliefert,
+    damit Klassifizierung und Vorschau weiterhin auf ihre Fallbacks zurückfallen
+    können, statt zu scheitern.
+    """
+    try:
+        rows = db.execute(
+            select(DocumentType.name, DocumentType.prompt_hint)
+            .where(DocumentType.is_active.is_(True))
+            .order_by(DocumentType.sort_order.asc(), func.lower(DocumentType.name).asc())
+            .limit(limit)
+        ).all()
+    except Exception as exc:  # noqa: BLE001 - vocab loading darf nie der Blocker sein
+        logger.warning("could not load active document type vocab: %s", exc)
+        return []
+    vocab: list[tuple[str, str | None]] = []
+    for name, hint in rows:
+        clean_name = str(name or "").strip()
+        if not clean_name:
+            continue
+        clean_hint = " ".join(str(hint or "").split()).strip() or None
+        vocab.append((clean_name, clean_hint))
+    return vocab
+
+
+def document_type_names(vocab: list[tuple[str, str | None]]) -> list[str]:
+    return [name for name, _ in vocab]
+
+
+def document_type_hint_map(vocab: list[tuple[str, str | None]]) -> dict[str, str]:
+    return {name: hint for name, hint in vocab if hint}
+
+
 class DocumentTypeService:
     def __init__(self, db: Session):
         self.db = db
