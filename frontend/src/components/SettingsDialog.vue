@@ -410,7 +410,7 @@
                           rows="2"
                           auto-grow
                           label="Dateiname-Template"
-                          placeholder="z. B. Rechnung – {korrespondent} – {betreff:short} – {datum:dd.MM.yyyy}"
+                          placeholder="z. B. {betreff} {datum:dd.MM.yyyy}"
                         />
                         <div class="settings-template-preview">
                           <span class="settings-template-preview__label">Vorschau</span>
