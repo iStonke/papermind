@@ -60,6 +60,20 @@ class JobActivitySummary(BaseModel):
     failed: int = 0
 
 
+class OcrBacklog(BaseModel):
+    """Dokument-Ebene: wie viele Dokumente schon durchsuchbar (OCR) sind.
+
+    Anders als ``summary`` (Einzeljobs) zeigt das den Gesamtfortschritt, auch in
+    den Pausen zwischen den OCR-Häppchen, wenn gerade kein Job läuft.
+    """
+
+    total: int = 0
+    done: int = 0
+    pending: int = 0
+    failed: int = 0
+
+
 class JobActivityResponse(BaseModel):
     summary: JobActivitySummary
     jobs: list[JobActivityItem]
+    ocr_backlog: OcrBacklog = OcrBacklog()

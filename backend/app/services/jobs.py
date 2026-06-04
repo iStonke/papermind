@@ -105,4 +105,23 @@ class JobService:
             if job.status in summary:
                 summary[job.status] += 1
             items.append({"job": job, "document_title": title})
-        return {"summary": summary, "jobs": items}
+
+        # Dokument-Ebene: Gesamtfortschritt der Volltext-Erkennung. Unabhängig von
+        # einzelnen Jobs, damit der Backlog auch zwischen den OCR-Häppchen sichtbar
+        # ist.
+        status_rows = self.db.execute(
+            select(Document.ocr_status, func.count(Document.id))
+            .where(Document.is_deleted.is_(False))
+            .group_by(Document.ocr_status)
+        ).all()
+        status_counts = {str(status): int(count) for status, count in status_rows}
+        total = sum(status_counts.values())
+        done = status_counts.get("done", 0)
+        failed_docs = status_counts.get("failed", 0)
+        ocr_backlog = {
+            "total": total,
+            "done": done,
+            "failed": failed_docs,
+            "pending": max(0, total - done - failed_docs),
+        }
+        return {"summary": summary, "jobs": items, "ocr_backlog": ocr_backlog}
