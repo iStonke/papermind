@@ -1066,6 +1066,8 @@ const importInboxSuppressedItemIds = ref(new Set());
 const activeImportInboxItemIds = ref(new Set());
 const activeImportInboxSourceToItemId = ref(new Map());
 const isClaimingImportInbox = ref(false);
+// Unterscheidet Minimieren (Items behalten) von echtem Schließen ohne Commit (verwerfen).
+const isMinimizingImport = ref(false);
 const isDocumentListSettling = ref(false);
 let documentListSettleTimer = null;
 const notifiedOcrQualityKeys = new Set();
@@ -1972,13 +1974,22 @@ async function onImportSourcesDiscarded(payload = {}) {
   }
 }
 
-watch(isUploadDialogOpen, (open) => {
+watch(isUploadDialogOpen, async (open) => {
   if (open) {
     isImportTrayVisible.value = false;
-  }
-  if (open || isClaimingImportInbox.value || activeImportInboxItemIds.value.size === 0) {
     return;
   }
+  // Minimieren ist kein echtes Schließen: Items für späteres Wiederherstellen behalten.
+  if (isMinimizingImport.value) {
+    isMinimizingImport.value = false;
+    return;
+  }
+  // Commit-Pfad setzt isClaimingImportInbox/leert die aktiven Items → hier nichts tun.
+  if (isClaimingImportInbox.value || activeImportInboxItemIds.value.size === 0) {
+    return;
+  }
+  // Dialog ohne Commit geschlossen (Abbrechen/Esc/Klick außerhalb): geöffnete
+  // Inbox-Scans verwerfen, statt sie zurück in den Posteingang zu legen.
   const itemIds = Array.from(activeImportInboxItemIds.value);
   activeImportInboxItemIds.value = new Set();
   activeImportInboxSourceToItemId.value = new Map();
@@ -1987,7 +1998,12 @@ watch(isUploadDialogOpen, (open) => {
     nextSuppressed.delete(itemId);
   }
   importInboxSuppressedItemIds.value = nextSuppressed;
-  void refreshImportInbox({ silent: true });
+  try {
+    await discardImportInboxItems(itemIds);
+  } catch (error) {
+    notify({ type: 'warning', message: mapApiError(error, 'Verworfene Scans konnten nicht gelöscht werden.') });
+  }
+  await refreshImportInbox({ silent: true });
 });
 
 // ── Navigation ────────────────────────────────────────────────────────────
@@ -4142,6 +4158,8 @@ function onSettingsReloadImports() {
 watch(() => uiStore.importsReloadSignal, () => onSettingsReloadImports());
 
 function onImportMinimized() {
+  // Markieren, damit der Close-Watcher die Inbox-Scans NICHT verwirft (nur Tray).
+  isMinimizingImport.value = true;
   isImportTrayVisible.value = importTrayPageCount.value > 0 || importTrayDocumentCount.value > 0;
 }
 
