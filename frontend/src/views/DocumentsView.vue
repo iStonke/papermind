@@ -1989,7 +1989,7 @@ watch(isUploadDialogOpen, async (open) => {
     return;
   }
   // Dialog ohne Commit geschlossen (Abbrechen/Esc/Klick außerhalb): geöffnete
-  // Inbox-Scans verwerfen, statt sie zurück in den Posteingang zu legen.
+  // Inbox-Scans verwerfen – aber erst nach Sicherheitsabfrage.
   const itemIds = Array.from(activeImportInboxItemIds.value);
   activeImportInboxItemIds.value = new Set();
   activeImportInboxSourceToItemId.value = new Map();
@@ -1998,6 +1998,17 @@ watch(isUploadDialogOpen, async (open) => {
     nextSuppressed.delete(itemId);
   }
   importInboxSuppressedItemIds.value = nextSuppressed;
+
+  const count = itemIds.length;
+  const confirmed = window.confirm(
+    `${count} gescannte${count === 1 ? 'n Import' : ' Importe'} verwerfen? `
+      + 'Die Dateien werden endgültig gelöscht. Mit „Abbrechen" bleiben sie im Posteingang.'
+  );
+  if (!confirmed) {
+    // Behalten: Scans wandern zurück in den Posteingang.
+    await refreshImportInbox({ silent: true });
+    return;
+  }
   try {
     await discardImportInboxItems(itemIds);
   } catch (error) {
