@@ -1,0 +1,11 @@
+# PaperMind Reverse-Proxy / TLS.
+# Lokale CA (kein ACME) – ausgestellt für die Heimnetz-Hostnamen unten.
+# Caddy leitet http automatisch auf https um und proxyt an das Frontend,
+# das die SPA ausliefert und /api an das Backend weiterreicht (same-origin).
+{
+	local_certs
+}
+
+papermind, papermind.local, papermind.fritz.box {
+	reverse_proxy frontend:80
+}

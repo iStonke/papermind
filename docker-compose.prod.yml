@@ -13,8 +13,8 @@ services:
         limits:
           cpus: "0.5"
           memory: 256M
-    ports:
-      - "${FRONTEND_PORT:-5179}:80"
+    expose:
+      - "80"
     depends_on:
       backend:
         condition: service_healthy
@@ -24,6 +24,24 @@ services:
       timeout: 3s
       retries: 5
       start_period: 10s
+    networks:
+      - papermind_net
+
+  # Reverse-Proxy / TLS-Terminierung: stellt http://papermind (Redirect) und
+  # https://papermind bereit, lokales Zertifikat über Caddys interne CA.
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy
     networks:
       - papermind_net
 
@@ -229,6 +247,8 @@ volumes:
   postgres_data:
   pdf_storage:
   ai_models:
+  caddy_data:
+  caddy_config:
 
 networks:
   papermind_net:
