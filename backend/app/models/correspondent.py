@@ -18,11 +18,14 @@ class Correspondent(Base):
 
     __tablename__ = "correspondents"
     __table_args__ = (
-        UniqueConstraint("name", name="uq_correspondents_name"),
-        Index("ix_correspondents_name", "name"),
+        UniqueConstraint("owner_id", "name", name="uq_correspondents_owner_name"),
+        Index("ix_correspondents_owner_name", "owner_id", "name"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     short_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

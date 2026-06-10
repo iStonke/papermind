@@ -288,12 +288,51 @@ else
   warn "SMB-Freigabe übersprungen. Der Ordner kann später manuell freigegeben werden."
 fi
 
-# ── 7. Docker-Autostart ───────────────────────────────────────────────────────
-header "7 / 9  Docker Autostart"
+# ── 7. Docker-Autostart & Host-Helfer ─────────────────────────────────────────
+header "7 / 9  Docker Autostart & Host-Helfer"
 
 sudo systemctl enable docker
 sudo systemctl start docker
 success "Docker-Dienst aktiviert und gestartet"
+
+# Host-Control: ermöglicht Herunterfahren/Neustarten aus dem System-Tab.
+# Der Container schreibt Kommandos in $REPO_DIR/host-control, dieser
+# systemd-Service auf dem Host führt poweroff/reboot aus.
+CONTROL_DIR="$REPO_DIR/host-control"
+WATCHER="$REPO_DIR/deploy/host-control/papermind-host-control.sh"
+
+if [[ -f "$WATCHER" ]]; then
+  log "Richte Host-Helfer für Power-Aktionen ein ..."
+  mkdir -p "$CONTROL_DIR"
+  chmod 0770 "$CONTROL_DIR"
+  chmod +x "$WATCHER"
+
+  # systemd-Unit mit den tatsächlichen Pfaden erzeugen (passt zur Compose-
+  # Default-Bind-Mount ./host-control relativ zu $REPO_DIR).
+  sudo tee /etc/systemd/system/papermind-host-control.service >/dev/null <<UNIT
+[Unit]
+Description=PaperMind Host-Control (Power-Aktionen aus dem Container)
+After=multi-user.target
+
+[Service]
+Type=simple
+Environment=CONTROL_DIR=${CONTROL_DIR}
+Environment=POLL_INTERVAL=3
+ExecStart=${WATCHER}
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now papermind-host-control.service
+  success "Host-Helfer aktiv (papermind-host-control.service)"
+else
+  warn "deploy/host-control nicht gefunden – Power-Aktionen bleiben deaktiviert."
+fi
 
 # ── 8. Images bauen & Stack starten ──────────────────────────────────────────
 header "8 / 9  Docker Images bauen & Stack starten"

@@ -11,6 +11,27 @@ settings = get_settings()
 
 _RATE_LIMIT_BUCKETS: dict[str, deque[float]] = defaultdict(deque)
 
+# Periodisches Aufräumen verhindert unbegrenztes Wachstum: Buckets ohne Treffer
+# seit über einer Stunde (weit jenseits jedes Rate-Limit-Fensters von 300 s)
+# werden entfernt. Der Sweep läuft höchstens alle 5 Minuten.
+_last_sweep_at: float = 0.0
+_SWEEP_INTERVAL_SECONDS = 300
+_SWEEP_STALE_AFTER_SECONDS = 3600
+
+
+def _sweep_rate_limit_buckets(now: float) -> None:
+    global _last_sweep_at
+    if now - _last_sweep_at < _SWEEP_INTERVAL_SECONDS:
+        return
+    _last_sweep_at = now
+    stale_cutoff = now - _SWEEP_STALE_AFTER_SECONDS
+    for key in list(_RATE_LIMIT_BUCKETS.keys()):
+        hits = _RATE_LIMIT_BUCKETS[key]
+        while hits and hits[0] <= stale_cutoff:
+            hits.popleft()
+        if not hits:
+            del _RATE_LIMIT_BUCKETS[key]
+
 
 def _extract_api_key(authorization: str | None, x_api_key: str | None = None) -> str:
     if x_api_key:
@@ -42,6 +63,7 @@ def enforce_rate_limit(
     now_factory: Callable[[], float] = time.monotonic,
 ) -> None:
     now = now_factory()
+    _sweep_rate_limit_buckets(now)
     cutoff = now - window_seconds
     key = f"{bucket}:{identity}"
     hits = _RATE_LIMIT_BUCKETS[key]

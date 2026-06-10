@@ -112,9 +112,10 @@ class UnresolvedCorrespondentReport:
 class CorrespondentBackfillService:
     """Ordnet Dokumente ohne ``correspondent_id`` bestehenden Korrespondenten zu."""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, owner_id=None):
         self.db = db
-        self.matcher = CorrespondentMatchingService(db)
+        self.owner_id = owner_id
+        self.matcher = CorrespondentMatchingService(db, owner_id)
 
     def run(
         self,
@@ -131,6 +132,8 @@ class CorrespondentBackfillService:
             .order_by(Document.created_at.asc())
             .limit(limit)
         )
+        if self.owner_id is not None:
+            stmt = stmt.where(Document.owner_id == self.owner_id)
         if not include_deleted:
             stmt = stmt.where(Document.is_deleted.is_(False))
 
@@ -202,6 +205,8 @@ class CorrespondentBackfillService:
             .order_by(Document.created_at.asc())
             .limit(limit)
         )
+        if self.owner_id is not None:
+            stmt = stmt.where(Document.owner_id == self.owner_id)
         if not include_deleted:
             stmt = stmt.where(Document.is_deleted.is_(False))
 

@@ -33,6 +33,10 @@ services:
     environment:
       BACKEND_PORT: ${BACKEND_PORT}
       DATABASE_URL: ${DATABASE_URL}
+      APP_DATABASE_URL: ${APP_DATABASE_URL}
+      WORKER_DATABASE_URL: ${WORKER_DATABASE_URL}
+      # Dev: Swagger-Docs verfügbar. In Prod bewusst NICHT gesetzt (Schema bleibt aus).
+      EXPOSE_API_DOCS: ${EXPOSE_API_DOCS:-true}
       AI_BASE_URL: ${AI_BASE_URL}
       TZ: ${TZ:-Europe/Berlin}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
@@ -42,6 +46,11 @@ services:
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS}
       AUTO_OCR_ON_UPLOAD: ${AUTO_OCR_ON_UPLOAD}
       DIRECT_UPLOAD_API_KEY: ${DIRECT_UPLOAD_API_KEY}
+      AUTH_ENABLED: ${AUTH_ENABLED:-true}
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY}
+      AUTH_TOKEN_TTL_SECONDS: ${AUTH_TOKEN_TTL_SECONDS:-86400}
+      INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       MIN_TEXT_CHARS: ${MIN_TEXT_CHARS}
       TEXT_CHECK_PAGES: ${TEXT_CHECK_PAGES}
       SEARCH_QUERY_MAX_LENGTH: ${SEARCH_QUERY_MAX_LENGTH}
@@ -54,11 +63,19 @@ services:
       CHUNK_OVERLAP_CHARS: ${CHUNK_OVERLAP_CHARS}
       AI_EMBED_TIMEOUT_SECONDS: ${AI_EMBED_TIMEOUT_SECONDS}
       RETRIEVAL_MAX_TOP_K: ${RETRIEVAL_MAX_TOP_K}
+      # System-/Hardware-Status: Host-Metriken aus den read-only Mounts unten.
+      # Power-Aktionen sind in Dev bewusst deaktiviert (kein HOST_CONTROL_DIR),
+      # da kein Host-Helfer läuft – die Buttons zeigen dann "nicht eingerichtet".
+      SYSTEM_SYS_PATH: /host/sys
+      SYSTEM_HOST_ROOT: /host/root
     ports:
       - "${BACKEND_PORT}:${BACKEND_PORT}"
     volumes:
       - ./backend:/app
       - pdf_storage:${STORAGE_PATH}
+      # Host-Metriken (read-only): Temperatur/Lüfter/Modell aus /sys, Speicher aus /
+      - /sys:/host/sys:ro
+      - /:/host/root:ro
     depends_on:
       db:
         condition: service_healthy
@@ -109,6 +126,8 @@ services:
       EMBED_DIM: ${EMBED_DIM}
       EMBED_MAX_TEXTS: ${EMBED_MAX_TEXTS}
       EMBED_MAX_CHARS: ${EMBED_MAX_CHARS}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.2:3b}
     ports:
       - "${AI_PORT}:${AI_PORT}"
     volumes:
@@ -135,6 +154,7 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      WORKER_DATABASE_URL: ${WORKER_DATABASE_URL}
       STORAGE_PATH: ${STORAGE_PATH}
       TZ: ${TZ:-Europe/Berlin}
       WORKER_POLL_INTERVAL_SECONDS: ${WORKER_POLL_INTERVAL_SECONDS}

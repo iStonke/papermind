@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Index, Integer, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,11 +18,14 @@ class DocumentType(Base):
 
     __tablename__ = "document_types"
     __table_args__ = (
-        UniqueConstraint("name", name="uq_document_types_name"),
-        Index("ix_document_types_name", "name"),
+        UniqueConstraint("owner_id", "name", name="uq_document_types_owner_name"),
+        Index("ix_document_types_owner_name", "owner_id", "name"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     naming_template: Mapped[str | None] = mapped_column(Text, nullable=True)
     prompt_hint: Mapped[str | None] = mapped_column(Text, nullable=True)

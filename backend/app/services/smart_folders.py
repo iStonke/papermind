@@ -22,20 +22,29 @@ logger = logging.getLogger("papermind.smart_folders")
 
 
 class SmartFolderService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, owner_id: uuid.UUID | None = None):
         self.db = db
+        self.owner_id = owner_id
         self.compiler = SmartFolderQueryCompiler()
+
+    def _scope_documents(self, stmt):
+        """Beschränkt eine Document-Query auf den aktuellen Owner."""
+        if self.owner_id is not None:
+            return stmt.where(Document.owner_id == self.owner_id)
+        return stmt
 
     def list_smart_folders(self) -> list[SmartFolder]:
         stmt = (
             select(SmartFolder)
             .order_by(SmartFolder.is_pinned.desc(), func.lower(SmartFolder.name).asc(), SmartFolder.created_at.asc())
         )
+        if self.owner_id is not None:
+            stmt = stmt.where(SmartFolder.owner_id == self.owner_id)
         return self.db.execute(stmt).scalars().all()
 
     def get_smart_folder_or_404(self, smart_folder_id: uuid.UUID) -> SmartFolder:
         folder = self.db.get(SmartFolder, smart_folder_id)
-        if folder is None:
+        if folder is None or (self.owner_id is not None and folder.owner_id != self.owner_id):
             raise NotFoundError("Smart folder not found", details={"smart_folder_id": str(smart_folder_id)})
         return folder
 
@@ -46,6 +55,7 @@ class SmartFolderService:
 
         normalized_query = validate_smart_folder_query(payload.query_json)
         folder = SmartFolder(
+            owner_id=self.owner_id,
             name=folder_name,
             is_pinned=bool(payload.is_pinned),
             query_json=normalized_query,
@@ -108,7 +118,8 @@ class SmartFolderService:
     ) -> SmartFolderPreviewResponse:
         filter_expr = self.compiler.compile(query_json)
         if count_only:
-            total_stmt = select(func.count()).select_from(select(Document.id).where(filter_expr).subquery())
+            inner = self._scope_documents(select(Document.id).where(filter_expr))
+            total_stmt = select(func.count()).select_from(inner.subquery())
             return SmartFolderPreviewResponse(total=int(self.db.scalar(total_stmt) or 0))
 
         list_response = self._list_documents(filter_expr, limit=limit, offset=offset, sort=sort)
@@ -133,7 +144,8 @@ class SmartFolderService:
 
     def count_documents_for_query(self, query_json: dict) -> int:
         filter_expr = self.compiler.compile(query_json)
-        stmt = select(func.count()).select_from(select(Document.id).where(filter_expr).subquery())
+        inner = self._scope_documents(select(Document.id).where(filter_expr))
+        stmt = select(func.count()).select_from(inner.subquery())
         return int(self.db.scalar(stmt) or 0)
 
     def _list_documents(
@@ -146,7 +158,7 @@ class SmartFolderService:
     ) -> DocumentListResponse:
         order_exprs = build_smart_folder_sort(sort)
 
-        filtered_stmt = select(Document).where(filter_expr)
+        filtered_stmt = self._scope_documents(select(Document).where(filter_expr))
         total_stmt = select(func.count()).select_from(filtered_stmt.order_by(None).subquery())
         total = int(self.db.scalar(total_stmt) or 0)
 

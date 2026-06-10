@@ -3,6 +3,7 @@ import threading
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.deps import require_admin
 from app.db import get_db
 from app.schemas.backup import (
     BackupArchiveListResponse,
@@ -21,7 +22,8 @@ from app.services.backup import (
     run_restore_in_background,
 )
 
-router = APIRouter(prefix="/api/backup", tags=["Backup"])
+# Backup-Konfiguration (NAS-Zugangsdaten) und -Aktionen sind Admin-Funktionen.
+router = APIRouter(prefix="/api/backup", tags=["Backup"], dependencies=[Depends(require_admin)])
 
 
 @router.get("", response_model=BackupStatusResponse, summary="Backup-Konfiguration und -Status")

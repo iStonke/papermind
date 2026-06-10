@@ -1,0 +1,17 @@
+[Unit]
+Description=PaperMind Host-Control (Power-Aktionen aus dem Container)
+After=multi-user.target
+
+[Service]
+Type=simple
+# Pfad an die tatsächliche Repo-/Compose-Position anpassen:
+Environment=CONTROL_DIR=/home/pi/papermind/host-control
+Environment=POLL_INTERVAL=3
+ExecStart=/home/pi/papermind/deploy/host-control/papermind-host-control.sh
+Restart=always
+RestartSec=5
+# Muss als root laufen, um poweroff/reboot ausführen zu dürfen.
+User=root
+
+[Install]
+WantedBy=multi-user.target

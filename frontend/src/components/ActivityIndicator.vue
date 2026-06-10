@@ -19,8 +19,8 @@
           offset-y="0"
           class="activity-indicator-badge"
         >
-          <v-icon v-if="isActive" size="22" color="primary">mdi-progress-clock</v-icon>
-          <v-icon v-else size="22" color="error">mdi-alert-circle-outline</v-icon>
+          <v-icon v-if="isActive" size="22">mdi-progress-clock</v-icon>
+          <v-icon v-else size="22">mdi-alert-circle-outline</v-icon>
         </v-badge>
       </v-btn>
     </template>
@@ -41,11 +41,25 @@
       </div>
       <v-divider v-if="ocrPending > 0" />
 
-      <div v-if="groups.length === 0 && ocrPending === 0" class="activity-empty">
+      <div v-if="groups.length === 0 && ocrPending === 0 && !hasBackupFail" class="activity-empty">
         Keine laufenden Prozesse.
       </div>
 
       <v-list v-else density="compact" class="activity-list">
+        <v-list-item
+          v-if="hasBackupFail"
+          class="activity-item activity-item--clickable"
+          @click="openBackup"
+        >
+          <template #prepend>
+            <v-icon size="16" class="activity-item__icon" color="error">mdi-alert-circle-outline</v-icon>
+          </template>
+          <v-list-item-title class="activity-item__title">Backup auf NAS fehlgeschlagen</v-list-item-title>
+          <v-list-item-subtitle class="activity-item__types">
+            In den Einstellungen öffnen
+          </v-list-item-subtitle>
+        </v-list-item>
+
         <v-list-item v-for="group in groups" :key="group.documentId" class="activity-item">
           <template #prepend>
             <!-- Für laufende/eingereihte Aktivitäten immer einen Spinner zeigen;
@@ -83,6 +97,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { getJobActivity } from '../api/jobs.js';
 
+const emit = defineEmits(['open-backup']);
+
 const POLL_MS = 4000;
 const BURST_MS = 1500;   // schnelleres Polling-Intervall im Schub
 const BURST_TICKS = 8;   // Anzahl der Schub-Durchläufe (~12 s)
@@ -95,6 +111,7 @@ const TYPE_LABELS = {
 
 const jobs = ref([]);
 const ocrBacklog = ref({ total: 0, done: 0, pending: 0, failed: 0 });
+const backupFail = ref(null);
 const menuOpen = ref(false);
 let timer = null;
 let burstTimer = null;
@@ -145,33 +162,42 @@ const ocrPercent = computed(() => {
   if (total <= 0) return 0;
   return Math.round((Number(ocrBacklog.value?.done || 0) / total) * 100);
 });
+const hasBackupFail = computed(() => backupFail.value?.status === 'failed');
 const isActive = computed(() => activeGroups.value.length > 0 || ocrPending.value > 0);
-const hasFailed = computed(() => failedGroups.value.length > 0);
-// Indikator anzeigen, wenn Jobs laufen ODER noch Dokumente auf Volltext warten.
-const hasActivity = computed(() => groups.value.length > 0 || ocrPending.value > 0);
+// Fehlgeschlagene Dokument-Jobs plus ein evtl. fehlgeschlagenes Backup.
+const failedCount = computed(() => failedGroups.value.length + (hasBackupFail.value ? 1 : 0));
+const hasFailed = computed(() => failedCount.value > 0);
+// Indikator anzeigen, wenn Jobs laufen, Dokumente auf Volltext warten ODER ein Backup fehlschlug.
+const hasActivity = computed(() => groups.value.length > 0 || ocrPending.value > 0 || hasBackupFail.value);
 const badgeCount = computed(() =>
-  isActive.value ? activeGroups.value.length : (hasFailed.value ? failedGroups.value.length : 0)
+  isActive.value ? activeGroups.value.length : (hasFailed.value ? failedCount.value : 0)
 );
 const badgeColor = computed(() => (isActive.value ? 'primary' : 'error'));
 
 const ariaLabel = computed(() => {
   if (isActive.value) return `${activeGroups.value.length} Dokument(e) in Bearbeitung`;
-  if (hasFailed.value) return `${failedGroups.value.length} fehlgeschlagen`;
+  if (hasFailed.value) return `${failedCount.value} fehlgeschlagen`;
   return 'Keine laufenden Prozesse';
 });
 
 const headerSub = computed(() => {
   const parts = [];
   if (activeGroups.value.length) parts.push(`${activeGroups.value.length} in Bearbeitung`);
-  if (failedGroups.value.length) parts.push(`${failedGroups.value.length} fehlgeschlagen`);
+  if (failedCount.value) parts.push(`${failedCount.value} fehlgeschlagen`);
   return parts.join(' · ') || (ocrPending.value > 0 ? 'läuft im Hintergrund' : 'im Leerlauf');
 });
+
+function openBackup() {
+  menuOpen.value = false;
+  emit('open-backup');
+}
 
 async function refresh() {
   try {
     const data = await getJobActivity();
     jobs.value = Array.isArray(data?.jobs) ? data.jobs : [];
     ocrBacklog.value = data?.ocr_backlog ?? { total: 0, done: 0, pending: 0, failed: 0 };
+    backupFail.value = data?.backup?.status === 'failed' ? data.backup : null;
   } catch {
     // Aktivität ist optional – Fehler beim Polling nicht stören lassen.
   }
@@ -202,14 +228,11 @@ watch(menuOpen, (open) => {
 });
 
 // Menü automatisch schließen, sobald keine Aktivitäten mehr da sind.
-watch(
-  () => groups.value.length,
-  (count) => {
-    if (menuOpen.value && count === 0) {
-      menuOpen.value = false;
-    }
+watch(hasActivity, (active) => {
+  if (menuOpen.value && !active) {
+    menuOpen.value = false;
   }
-);
+});
 
 onMounted(() => {
   refresh();
@@ -282,5 +305,11 @@ onBeforeUnmount(() => {
 .activity-item__error {
   color: rgb(var(--v-theme-error));
   white-space: normal;
+}
+.activity-item--clickable {
+  cursor: pointer;
+}
+.activity-item--clickable:hover {
+  background: rgba(var(--v-theme-error), 0.06);
 }
 </style>

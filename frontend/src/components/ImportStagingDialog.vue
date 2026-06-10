@@ -609,6 +609,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { authHeaders } from '../api/client.js';
 import { useTheme } from 'vuetify';
 import BaseDialog from './BaseDialog.vue';
 import StageTags from './StageTags.vue';
@@ -1989,7 +1990,8 @@ function ensurePdfFilename(filename) {
 
 async function downloadStagingSourceFile(sourceFileId, originalName = '') {
   const response = await fetch(`${props.apiBaseUrl}/api/import/source/${encodeURIComponent(sourceFileId)}/file`, {
-    cache: 'no-store'
+    cache: 'no-store',
+    headers: { ...authHeaders() }
   });
   if (!response.ok) {
     throw new Error(await parseResponseError(response));

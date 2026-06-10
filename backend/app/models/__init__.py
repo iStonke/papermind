@@ -10,6 +10,8 @@ from app.models.job import Job
 from app.models.saved_search import SavedSearch
 from app.models.smart_folder import SmartFolder
 from app.models.tag import Tag
+from app.models.user import User
+from app.models.user_setting import UserSetting
 
 __all__ = [
     "DocumentType",
@@ -26,4 +28,6 @@ __all__ = [
     "SmartFolder",
     "GlobalSetting",
     "ImportInboxItem",
+    "User",
+    "UserSetting",
 ]

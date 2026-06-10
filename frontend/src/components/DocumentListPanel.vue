@@ -242,7 +242,7 @@ const STATUS_OPTIONS = [
 import { storeToRefs } from 'pinia';
 import { useDocumentStore } from '../stores/documents.js';
 import { useSettingsStore } from '../stores/settings.js';
-import { getBaseUrl } from '../api/client.js';
+import { authedUrl, getBaseUrl } from '../api/client.js';
 import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts.js';
 import ListActionToolbar from './ListActionToolbar.vue';
 import PmEmptyState from './PmEmptyState.vue';
@@ -327,7 +327,7 @@ function handleToolbarAction({ action, value }) {
 
 // ── Thumbnail helpers ──────────────────────────────────────────────────────
 function thumbnailUrl(documentId) {
-  return `${getBaseUrl()}/api/documents/${documentId}/thumbnail`;
+  return authedUrl(`${getBaseUrl()}/api/documents/${documentId}/thumbnail`);
 }
 
 function hasThumbnailError(documentId) {

@@ -52,9 +52,10 @@ _SESSION_LOCK = threading.Lock()
 
 
 class AIService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, owner_id=None):
         self.db = db
-        self.embedding_service = EmbeddingService(db)
+        self.owner_id = owner_id
+        self.embedding_service = EmbeddingService(db, owner_id)
         self.settings_service = SettingsService(db)
 
     @staticmethod
@@ -195,9 +196,12 @@ class AIService:
         if not doc_ids:
             return {}
 
-        rows = self.db.execute(
-            select(Document.id, Document.display_name, Document.original_filename).where(Document.id.in_(doc_ids))
-        ).all()
+        title_stmt = select(Document.id, Document.display_name, Document.original_filename).where(
+            Document.id.in_(doc_ids)
+        )
+        if self.owner_id is not None:
+            title_stmt = title_stmt.where(Document.owner_id == self.owner_id)
+        rows = self.db.execute(title_stmt).all()
         titles: dict[uuid.UUID, str] = {}
         for doc_id, display_name, original_filename in rows:
             title = (display_name or original_filename or "Dokument").strip() or "Dokument"
@@ -360,9 +364,10 @@ class AIService:
         top_p: float,
         max_tokens: int,
         timeout_seconds: float,
+        chat_model: str = "default",
     ) -> dict[str, Any]:
         payload = {
-            "model": "default",
+            "model": (chat_model or "default").strip() or "default",
             "system_prompt": system_prompt,
             "max_tokens": max_tokens,
             "max_sentences": 12,
@@ -494,6 +499,7 @@ class AIService:
         else:
             llm_result = self._call_chat_model(
                 model_question=rewritten_query or question,
+                chat_model=runtime_settings.ollama.chat_model,
                 system_prompt=llm_settings.system_prompt,
                 user_prompt=base_user_prompt,
                 contexts=contexts_payload,
@@ -564,6 +570,7 @@ class AIService:
             )
             repair_result = self._call_chat_model(
                 model_question=rewritten_query or question,
+                chat_model=runtime_settings.ollama.chat_model,
                 system_prompt=llm_settings.system_prompt,
                 user_prompt=repair_prompt,
                 contexts=[

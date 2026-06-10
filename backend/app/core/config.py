@@ -11,9 +11,25 @@ class Settings(BaseSettings):
     app_name: str = "PaperMind Backend"
     app_version: str = "0.8.0"
     api_prefix: str = "/api"
+    # Swagger/OpenAPI ist standardmäßig AUS (kein ungeschütztes API-Schema in
+    # Produktion). In der Dev-Umgebung per EXPOSE_API_DOCS=true einschalten.
+    expose_api_docs: bool = Field(default=False)
 
     backend_port: int = 8000
     database_url: str = Field(default="")
+    # Nicht-privilegierte Rolle für die Web-Requests (Row-Level Security wird
+    # erzwungen). Leer = Fallback auf database_url (Superuser → RLS unwirksam).
+    app_database_url: str = Field(default="")
+    # Rolle für den Worker: NOSUPERUSER + BYPASSRLS (system-weiter Zugriff ohne
+    # volle Superuser-Rechte). Leer = Fallback auf database_url (Superuser).
+    worker_database_url: str = Field(default="")
+    # SQLAlchemy connection pool sizing. Sync endpoints run in a threadpool
+    # (~40 threads); the default pool of 5 would queue under load. Each process
+    # (backend + worker) gets its own pool, so keep totals < Postgres
+    # max_connections (default 100).
+    db_pool_size: int = Field(default=10, ge=1, le=50)
+    db_max_overflow: int = Field(default=20, ge=0, le=100)
+    db_pool_recycle_seconds: int = Field(default=1800, ge=60)
     ai_base_url: str = Field(default="http://ai:11434")
     storage_path: str = Field(default="/data/storage")
     public_web_base_url: str = Field(default="")
@@ -41,15 +57,57 @@ class Settings(BaseSettings):
     ai_embed_timeout_seconds: float = Field(default=30.0, gt=0.0)
     ai_chat_timeout_seconds: float = Field(default=60.0, gt=0.0)
     retrieval_max_top_k: int = Field(default=20, ge=1, le=100)
+    # HNSW-Suchbreite: höher = besserer Recall der semantischen Suche, etwas mehr
+    # Latenz. Wird pro Query als `SET LOCAL hnsw.ef_search` gesetzt (Default 40).
+    hnsw_ef_search: int = Field(default=100, ge=1, le=1000)
     dedupe_candidate_limit: int = Field(default=200, ge=10, le=2000)
     dedupe_text_distance_threshold: int = Field(default=6, ge=0, le=64)
     direct_upload_api_key: str = Field(default="")
+
+    # --- System-/Hardware-Status (Raspberry Pi) ---
+    # Pfad, unter dem das Host-/sys gemountet ist (für Temperatur/Lüfter/Modell).
+    # Fällt auf das container-eigene /sys zurück, wenn nicht vorhanden.
+    system_sys_path: str = Field(default="/sys")
+    # Pfad, unter dem das Host-Root (read-only) gemountet ist (für Speicherplatz).
+    system_host_root: str = Field(default="/")
+    # Geteiltes Verzeichnis für Power-Kommandos an den Host-Helfer. Leer = aus.
+    host_control_dir: str = Field(default="")
+
+    # --- Authentication ---
+    # When enabled, every API route (except the public ones and the
+    # machine-to-machine upload endpoints) requires a valid session token.
+    auth_enabled: bool = Field(default=True)
+    # Secret used to sign access tokens. MUST be set in production; if empty an
+    # ephemeral key is generated at startup (tokens become invalid on restart).
+    auth_secret_key: str = Field(default="")
+    auth_token_ttl_seconds: int = Field(default=86400, ge=300)
+    # Bootstrap admin: created on startup only if the users table is empty.
+    initial_admin_username: str = Field(default="admin")
+    initial_admin_password: str = Field(default="")
 
     @property
     def sqlalchemy_database_url(self) -> str:
         if self.database_url.startswith("postgresql://"):
             return self.database_url.replace("postgresql://", "postgresql+psycopg://", 1)
         return self.database_url
+
+    @property
+    def sqlalchemy_app_database_url(self) -> str:
+        """Verbindung der nicht-privilegierten Web-Rolle (RLS). Fällt auf die
+        Superuser-URL zurück, wenn app_database_url nicht gesetzt ist."""
+        url = self.app_database_url or self.database_url
+        if url.startswith("postgresql://"):
+            return url.replace("postgresql://", "postgresql+psycopg://", 1)
+        return url
+
+    @property
+    def sqlalchemy_worker_database_url(self) -> str:
+        """Verbindung der Worker-Rolle (BYPASSRLS). Fällt auf die Superuser-URL
+        zurück, wenn worker_database_url nicht gesetzt ist."""
+        url = self.worker_database_url or self.database_url
+        if url.startswith("postgresql://"):
+            return url.replace("postgresql://", "postgresql+psycopg://", 1)
+        return url
 
     @property
     def cors_origins(self) -> list[str]:

@@ -16,7 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.text import sanitize_text_for_db
-from app.db.session import SessionLocal
+from app.db.session import WorkerSessionLocal as SessionLocal
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
 from app.models.document_file import DocumentFile
@@ -465,25 +465,30 @@ def _suggest_tags_with_ai(text_value: str, max_tags: int = AUTO_TAG_MAX_TAGS) ->
     return _fallback_tag_candidates(normalized_text, max_tags=max_tags)
 
 
-def _get_or_create_tag(db, tag_name: str) -> Tag | None:
+def _get_or_create_tag(db, tag_name: str, owner_id) -> Tag | None:
     normalized_name = _normalize_tag_name(tag_name)
     if not normalized_name:
         return None
     if _is_blocked_tag_candidate(normalized_name):
         return None
 
-    existing = db.execute(select(Tag).where(func.lower(Tag.name) == normalized_name.lower())).scalar_one_or_none()
+    def _lookup():
+        return db.execute(
+            select(Tag).where(Tag.owner_id == owner_id, func.lower(Tag.name) == normalized_name.lower())
+        ).scalar_one_or_none()
+
+    existing = _lookup()
     if existing is not None:
         return existing
 
     try:
         with db.begin_nested():
-            db.add(Tag(name=normalized_name))
+            db.add(Tag(owner_id=owner_id, name=normalized_name))
             db.flush()
     except IntegrityError:
         pass
 
-    return db.execute(select(Tag).where(func.lower(Tag.name) == normalized_name.lower())).scalar_one_or_none()
+    return _lookup()
 
 
 def _apply_tags_to_document(db, document: Document, tag_names: list[str]) -> tuple[int, list[str]]:
@@ -494,7 +499,7 @@ def _apply_tags_to_document(db, document: Document, tag_names: list[str]) -> tup
     added = 0
     applied: list[str] = []
     for tag_name in tag_names:
-        tag = _get_or_create_tag(db, tag_name)
+        tag = _get_or_create_tag(db, tag_name, document.owner_id)
         if tag is None:
             continue
         if tag.id in existing_tag_ids:
@@ -989,11 +994,13 @@ def run() -> None:
             last_backup_check_at = now_monotonic
             _run_backup_scheduler()
 
-        inbox_drop_file = _claim_next_import_inbox_pdf()
-        if inbox_drop_file is not None:
-            claimed_path, original_name = inbox_drop_file
-            _process_import_inbox_drop_file(claimed_path, original_name)
-            continue
+        # Inbox-Ordner-Import ist mit der Pro-Benutzer-Datentrennung vorübergehend
+        # deaktiviert (kein Benutzerkontext für eingeworfene Dateien).
+        # inbox_drop_file = _claim_next_import_inbox_pdf()
+        # if inbox_drop_file is not None:
+        #     claimed_path, original_name = inbox_drop_file
+        #     _process_import_inbox_drop_file(claimed_path, original_name)
+        #     continue
 
         claimed = _claim_next_job()
         if claimed is None:

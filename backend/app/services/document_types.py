@@ -14,20 +14,25 @@ from app.services.utils import is_unique_violation, validate_vocab_name
 logger = logging.getLogger("papermind.document_types")
 
 
-def load_active_document_type_vocab(db: Session, limit: int = 120) -> list[tuple[str, str | None]]:
+def load_active_document_type_vocab(
+    db: Session, owner_id: uuid.UUID | None = None, limit: int = 120
+) -> list[tuple[str, str | None]]:
     """Aktive Dokumenttypen als ``(name, prompt_hint)``-Paare laden.
 
     Best effort: schlägt der DB-Zugriff fehl, wird eine leere Liste geliefert,
     damit Klassifizierung und Vorschau weiterhin auf ihre Fallbacks zurückfallen
-    können, statt zu scheitern.
+    können, statt zu scheitern. ``owner_id`` scopet das Vokabular auf einen Benutzer.
     """
     try:
-        rows = db.execute(
+        stmt = (
             select(DocumentType.name, DocumentType.prompt_hint)
             .where(DocumentType.is_active.is_(True))
             .order_by(DocumentType.sort_order.asc(), func.lower(DocumentType.name).asc())
             .limit(limit)
-        ).all()
+        )
+        if owner_id is not None:
+            stmt = stmt.where(DocumentType.owner_id == owner_id)
+        rows = db.execute(stmt).all()
     except Exception as exc:  # noqa: BLE001 - vocab loading darf nie der Blocker sein
         logger.warning("could not load active document type vocab: %s", exc)
         return []
@@ -50,20 +55,23 @@ def document_type_hint_map(vocab: list[tuple[str, str | None]]) -> dict[str, str
 
 
 class DocumentTypeService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, owner_id: uuid.UUID | None = None):
         self.db = db
+        self.owner_id = owner_id
 
     def list_document_types(self, include_count: bool) -> list[DocumentTypeRead]:
         if include_count:
+            doc_join = (Document.document_type == DocumentType.name) & (Document.is_deleted.is_(False))
+            if self.owner_id is not None:
+                doc_join = doc_join & (Document.owner_id == self.owner_id)
             stmt = (
                 select(DocumentType, func.count(Document.id).label("usage_count"))
-                .outerjoin(
-                    Document,
-                    (Document.document_type == DocumentType.name) & (Document.is_deleted.is_(False)),
-                )
+                .outerjoin(Document, doc_join)
                 .group_by(DocumentType.id)
                 .order_by(DocumentType.is_active.desc(), DocumentType.sort_order.asc(), func.lower(DocumentType.name).asc())
             )
+            if self.owner_id is not None:
+                stmt = stmt.where(DocumentType.owner_id == self.owner_id)
             rows = self.db.execute(stmt).all()
             return [
                 DocumentTypeRead.model_validate(document_type, from_attributes=True).model_copy(
@@ -73,6 +81,8 @@ class DocumentTypeService:
             ]
 
         stmt = select(DocumentType).order_by(DocumentType.is_active.desc(), DocumentType.sort_order.asc(), func.lower(DocumentType.name).asc())
+        if self.owner_id is not None:
+            stmt = stmt.where(DocumentType.owner_id == self.owner_id)
         document_types = self.db.execute(stmt).scalars().all()
         return [DocumentTypeRead.model_validate(document_type, from_attributes=True) for document_type in document_types]
 
@@ -83,6 +93,8 @@ class DocumentTypeService:
         exclude_document_type_id: uuid.UUID | None = None,
     ) -> DocumentType | None:
         stmt = select(DocumentType).where(func.lower(DocumentType.name) == document_type_name.lower())
+        if self.owner_id is not None:
+            stmt = stmt.where(DocumentType.owner_id == self.owner_id)
         if exclude_document_type_id is not None:
             stmt = stmt.where(DocumentType.id != exclude_document_type_id)
         return self.db.execute(stmt).scalar_one_or_none()
@@ -98,6 +110,7 @@ class DocumentTypeService:
             return existing
 
         document_type = DocumentType(
+            owner_id=self.owner_id,
             name=document_type_name,
             naming_template=payload.naming_template,
             prompt_hint=payload.prompt_hint,
@@ -123,7 +136,9 @@ class DocumentTypeService:
 
     def get_document_type_or_404(self, document_type_id: uuid.UUID) -> DocumentType:
         document_type = self.db.get(DocumentType, document_type_id)
-        if document_type is None:
+        if document_type is None or (
+            self.owner_id is not None and document_type.owner_id != self.owner_id
+        ):
             raise NotFoundError("Document type not found", details={"document_type_id": str(document_type_id)})
         return document_type
 
@@ -157,9 +172,10 @@ class DocumentTypeService:
 
         try:
             if document_type_name is not None and old_name != document_type_name:
-                self.db.execute(
-                    update(Document).where(Document.document_type == old_name).values(document_type=document_type_name)
-                )
+                rename_stmt = update(Document).where(Document.document_type == old_name)
+                if self.owner_id is not None:
+                    rename_stmt = rename_stmt.where(Document.owner_id == self.owner_id)
+                self.db.execute(rename_stmt.values(document_type=document_type_name))
             self.db.commit()
         except IntegrityError as exc:
             self.db.rollback()

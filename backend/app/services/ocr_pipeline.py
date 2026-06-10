@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -86,6 +87,13 @@ def _extract_pdf_text_per_page(pdf_path: Path) -> list[tuple[int, str]]:
         raise OCRPipelineError(f"PDF text extraction failed: {exc}") from exc
 
 
+# CPU-Drosselung für die OCR (Pi-Härtung): begrenzt, wie viele Seiten ocrmypdf
+# parallel verarbeitet. 0/leer = ocrmypdf-Default (alle Kerne). Auf dem Pi z. B.
+# OCR_JOBS=3 setzen und im Container OMP_THREAD_LIMIT=1, damit OCR nicht alle
+# Kerne auslastet (Hitze/Lüfter) und API/DB nicht aushungert.
+OCR_JOBS = max(0, int(os.getenv("OCR_JOBS", "0") or "0"))
+
+
 def _run_ocrmypdf(
     original_path: Path,
     ocr_path: Path,
@@ -111,6 +119,8 @@ def _run_ocrmypdf(
         "-l",
         _normalize_tesseract_languages(language),
     ]
+    if OCR_JOBS > 0:
+        command.extend(["--jobs", str(OCR_JOBS)])
     if deskew:
         command.append("--deskew")
     if denoise:

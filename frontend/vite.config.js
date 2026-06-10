@@ -15,6 +15,19 @@ export default defineConfig(({ mode }) => {
       vue(),
       vuetify({ autoImport: true })
     ],
+    build: {
+      rollupOptions: {
+        output: {
+          // Schwere, selten geänderte Vendor-Libs in eigene Chunks → besseres
+          // Browser-Caching + paralleles Laden. pdfjs bleibt im lazy PdfPreview-Chunk.
+          manualChunks(id) {
+            if (id.includes('node_modules/vuetify')) return 'vuetify';
+            if (/node_modules\/(@vue|vue|vue-router|pinia)\//.test(id)) return 'vue-core';
+            return undefined;
+          }
+        }
+      }
+    },
     server: {
       host: '0.0.0.0',
       port: frontendPort,

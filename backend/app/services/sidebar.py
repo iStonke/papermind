@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import case, func, literal, select, union_all
+from sqlalchemy import and_, case, func, literal, select, true, union_all
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
 
@@ -21,9 +21,16 @@ settings = get_settings()
 
 
 class SidebarService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, owner_id=None):
         self.db = db
+        self.owner_id = owner_id
         self.smart_folder_compiler = SmartFolderQueryCompiler()
+
+    def _own(self, stmt):
+        """Beschränkt eine Document-Query auf den aktuellen Owner."""
+        if self.owner_id is not None:
+            return stmt.where(Document.owner_id == self.owner_id)
+        return stmt
 
     def _build_saved_search_conditions(self, raw_query: dict) -> list:
         query = SavedSearchQuery.model_validate(raw_query)
@@ -49,7 +56,10 @@ class SidebarService:
         return conditions
 
     def _saved_search_counts(self) -> dict[str, int]:
-        saved_search_rows = self.db.execute(select(SavedSearch.id, SavedSearch.query_json)).all()
+        ss_stmt = select(SavedSearch.id, SavedSearch.query_json)
+        if self.owner_id is not None:
+            ss_stmt = ss_stmt.where(SavedSearch.owner_id == self.owner_id)
+        saved_search_rows = self.db.execute(ss_stmt).all()
         if not saved_search_rows:
             return {}
 
@@ -59,13 +69,15 @@ class SidebarService:
             try:
                 conditions = self._build_saved_search_conditions(query_json or {})
                 count_queries.append(
-                    select(
-                        literal(str(saved_search_id)).label("saved_search_id"),
-                        func.count(Document.id).label("doc_count"),
+                    self._own(
+                        select(
+                            literal(str(saved_search_id)).label("saved_search_id"),
+                            func.count(Document.id).label("doc_count"),
+                        )
+                        .select_from(Document)
+                        .where(Document.is_deleted.is_(False))
+                        .where(*conditions)
                     )
-                    .select_from(Document)
-                    .where(Document.is_deleted.is_(False))
-                    .where(*conditions)
                 )
             except Exception as exc:
                 logger.warning(
@@ -86,7 +98,10 @@ class SidebarService:
 
     def _smart_folder_counts(self) -> dict[str, int]:
         try:
-            smart_folder_rows = self.db.execute(select(SmartFolder.id, SmartFolder.query_json)).all()
+            sf_stmt = select(SmartFolder.id, SmartFolder.query_json)
+            if self.owner_id is not None:
+                sf_stmt = sf_stmt.where(SmartFolder.owner_id == self.owner_id)
+            smart_folder_rows = self.db.execute(sf_stmt).all()
         except ProgrammingError as exc:
             self.db.rollback()
             logger.warning("smart folder counts unavailable (migration missing?): %s", exc)
@@ -100,13 +115,15 @@ class SidebarService:
             try:
                 compiled_filter = self.smart_folder_compiler.compile(query_json or {})
                 count_queries.append(
-                    select(
-                        literal(str(smart_folder_id)).label("smart_folder_id"),
-                        func.count(Document.id).label("doc_count"),
+                    self._own(
+                        select(
+                            literal(str(smart_folder_id)).label("smart_folder_id"),
+                            func.count(Document.id).label("doc_count"),
+                        )
+                        .select_from(Document)
+                        .where(Document.is_deleted.is_(False))
+                        .where(compiled_filter)
                     )
-                    .select_from(Document)
-                    .where(Document.is_deleted.is_(False))
-                    .where(compiled_filter)
                 )
             except Exception as exc:
                 logger.warning(
@@ -126,8 +143,9 @@ class SidebarService:
         return counts
 
     def get_counts(self) -> SidebarCountsResponse:
-        # Basis-Filter: nur nicht gelöschte Dokumente
-        active_doc = Document.is_deleted.is_(False)
+        # Basis-Filter: nur nicht gelöschte Dokumente des aktuellen Owners
+        owner_cond = (Document.owner_id == self.owner_id) if self.owner_id is not None else true()
+        active_doc = and_(Document.is_deleted.is_(False), owner_cond)
 
         try:
             totals_row = self.db.execute(
@@ -164,7 +182,10 @@ class SidebarService:
             favorites_count = 0
 
         trash_count = int(
-            self.db.scalar(select(func.count(Document.id)).where(Document.is_deleted.is_(True))) or 0
+            self.db.scalar(
+                select(func.count(Document.id)).where(and_(Document.is_deleted.is_(True), owner_cond))
+            )
+            or 0
         )
 
         imports_row_map = {

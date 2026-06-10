@@ -17,8 +17,9 @@ logger = logging.getLogger("papermind.tags")
 
 
 class TagService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, owner_id: uuid.UUID | None = None):
         self.db = db
+        self.owner_id = owner_id
 
     @staticmethod
     def cleanup_orphan_tags(
@@ -49,18 +50,20 @@ class TagService:
         unused_filter = ~select(document_tags.c.document_id).where(
             document_tags.c.tag_id == Tag.id
         ).exists()
-        rows = self.db.execute(
-            select(Tag.id, Tag.name).where(unused_filter).order_by(Tag.name)
-        ).all()
+        list_stmt = select(Tag.id, Tag.name).where(unused_filter)
+        if self.owner_id is not None:
+            list_stmt = list_stmt.where(Tag.owner_id == self.owner_id)
+        rows = self.db.execute(list_stmt.order_by(Tag.name)).all()
         payload = [{"id": str(tag_id), "name": name} for tag_id, name in rows]
 
         removed = 0
         if not dry_run and payload:
             # Erneut mit demselben Filter löschen (verhindert Löschen von Tags, die
             # zwischen Vorschau und Bestätigung doch einem Dokument zugeordnet wurden).
-            result = self.db.execute(
-                delete(Tag).where(Tag.id.in_([uuid.UUID(t["id"]) for t in payload])).where(unused_filter)
-            )
+            del_stmt = delete(Tag).where(Tag.id.in_([uuid.UUID(t["id"]) for t in payload])).where(unused_filter)
+            if self.owner_id is not None:
+                del_stmt = del_stmt.where(Tag.owner_id == self.owner_id)
+            result = self.db.execute(del_stmt)
             removed = max(result.rowcount or 0, 0)
             self.db.commit()
             logger.info("cleanup_unused_tags removed %d tags", removed)
@@ -84,6 +87,8 @@ class TagService:
                 .group_by(Tag.id)
                 .order_by(func.lower(Tag.name).asc())
             )
+            if self.owner_id is not None:
+                stmt = stmt.where(Tag.owner_id == self.owner_id)
             rows = self.db.execute(stmt).all()
             return [
                 TagRead.model_validate(tag, from_attributes=True).model_copy(
@@ -93,6 +98,8 @@ class TagService:
             ]
 
         stmt = select(Tag).order_by(func.lower(Tag.name).asc())
+        if self.owner_id is not None:
+            stmt = stmt.where(Tag.owner_id == self.owner_id)
         tags = self.db.execute(stmt).scalars().all()
         return [TagRead.model_validate(tag, from_attributes=True) for tag in tags]
 
@@ -103,6 +110,8 @@ class TagService:
         exclude_tag_id: uuid.UUID | None = None,
     ) -> Tag | None:
         stmt = select(Tag).where(func.lower(Tag.name) == tag_name.lower())
+        if self.owner_id is not None:
+            stmt = stmt.where(Tag.owner_id == self.owner_id)
         if exclude_tag_id is not None:
             stmt = stmt.where(Tag.id != exclude_tag_id)
         return self.db.execute(stmt).scalar_one_or_none()
@@ -117,7 +126,7 @@ class TagService:
         if existing_tag is not None:
             return existing_tag
 
-        tag = Tag(name=tag_name)
+        tag = Tag(owner_id=self.owner_id, name=tag_name)
         self.db.add(tag)
 
         try:
@@ -137,7 +146,7 @@ class TagService:
 
     def get_tag_or_404(self, tag_id: uuid.UUID) -> Tag:
         tag = self.db.get(Tag, tag_id)
-        if tag is None:
+        if tag is None or (self.owner_id is not None and tag.owner_id != self.owner_id):
             raise NotFoundError("Tag not found", details={"tag_id": str(tag_id)})
         return tag
 

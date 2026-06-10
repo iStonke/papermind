@@ -3,7 +3,9 @@ import uuid
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
+from app.core.deps import get_current_user
 from app.db import get_db
+from app.models.user import User
 from app.schemas.common import ErrorResponse, OkResponse
 from app.schemas.tags import (
     TagCreateRequest,
@@ -26,8 +28,9 @@ router = APIRouter(prefix="/api/tags", tags=["Tags"])
 def list_tags(
     include_count: bool = Query(default=False, description="Include usage_count for each tag"),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> TagListResponse:
-    service = TagService(db)
+    service = TagService(db, user.id)
     return TagListResponse(items=service.list_tags(include_count=include_count))
 
 
@@ -38,8 +41,8 @@ def list_tags(
     summary="Create a tag",
     responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
-def create_tag(payload: TagCreateRequest, db: Session = Depends(get_db)) -> TagRead:
-    service = TagService(db)
+def create_tag(payload: TagCreateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> TagRead:
+    service = TagService(db, user.id)
     return TagRead.model_validate(service.create_tag(payload), from_attributes=True)
 
 
@@ -49,8 +52,8 @@ def create_tag(payload: TagCreateRequest, db: Session = Depends(get_db)) -> TagR
     summary="Rename a tag",
     responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
-def update_tag(tag_id: uuid.UUID, payload: TagUpdateRequest, db: Session = Depends(get_db)) -> TagRead:
-    service = TagService(db)
+def update_tag(tag_id: uuid.UUID, payload: TagUpdateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> TagRead:
+    service = TagService(db, user.id)
     return TagRead.model_validate(service.update_tag(tag_id, payload), from_attributes=True)
 
 
@@ -63,8 +66,8 @@ def update_tag(tag_id: uuid.UUID, payload: TagUpdateRequest, db: Session = Depen
         404: {"model": ErrorResponse},
     },
 )
-def merge_tag(source_id: uuid.UUID, payload: TagMergeRequest, db: Session = Depends(get_db)) -> TagRead:
-    service = TagService(db)
+def merge_tag(source_id: uuid.UUID, payload: TagMergeRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> TagRead:
+    service = TagService(db, user.id)
     return TagRead.model_validate(service.merge_tag(source_id, payload), from_attributes=True)
 
 
@@ -78,8 +81,9 @@ def cleanup_unused_tags(
         description="If true, only return the tags that would be removed (no deletion).",
     ),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> dict:
-    service = TagService(db)
+    service = TagService(db, user.id)
     return service.cleanup_unused_tags(dry_run=dry_run)
 
 
@@ -96,8 +100,9 @@ def delete_tag(
         description="Detach relationships and delete tag",
     ),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> OkResponse:
     _ = behavior
-    service = TagService(db)
+    service = TagService(db, user.id)
     service.delete_tag(tag_id)
     return OkResponse(ok=True)

@@ -60,6 +60,19 @@ class JobActivitySummary(BaseModel):
     failed: int = 0
 
 
+class JobActivityBackup(BaseModel):
+    """Zustand des letzten NAS-Backups für die Header-Aktivitätsanzeige.
+
+    Wird nur befüllt, wenn das Backup aktiviert ist und der zuletzt gestartete
+    Lauf fehlgeschlagen ist – damit ein Backup-Problem sofort im Header sichtbar
+    wird, ohne dass man die Einstellungen öffnen muss.
+    """
+
+    status: str
+    error: str | None = None
+    finished_at: datetime | None = None
+
+
 class OcrBacklog(BaseModel):
     """Dokument-Ebene: wie viele Dokumente schon durchsuchbar (OCR) sind.
 
@@ -77,3 +90,4 @@ class JobActivityResponse(BaseModel):
     summary: JobActivitySummary
     jobs: list[JobActivityItem]
     ocr_backlog: OcrBacklog = OcrBacklog()
+    backup: JobActivityBackup | None = None

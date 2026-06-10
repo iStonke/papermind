@@ -6,6 +6,7 @@ import re
 import time
 from typing import Any
 
+import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
@@ -16,6 +17,19 @@ EMBED_MODEL = os.getenv("EMBED_MODEL", "hash-384-v1").strip() or "hash-384-v1"
 EMBED_DIM = max(8, int(os.getenv("EMBED_DIM", "384")))
 EMBED_MAX_TEXTS = max(1, int(os.getenv("EMBED_MAX_TEXTS", "64")))
 EMBED_MAX_CHARS = max(64, int(os.getenv("EMBED_MAX_CHARS", "4000")))
+
+# Ollama backend. When OLLAMA_BASE_URL is set, embeddings are produced by the
+# configured Ollama embedding model (EMBED_MODEL) and chat answers by the model
+# passed per request. When empty, the legacy hash-embedding / rule-based chat
+# stubs are used (offline fallback / tests).
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "").strip().rstrip("/")
+OLLAMA_EMBED_TIMEOUT = float(os.getenv("OLLAMA_EMBED_TIMEOUT_SECONDS", "60"))
+OLLAMA_CHAT_TIMEOUT = float(os.getenv("OLLAMA_CHAT_TIMEOUT_SECONDS", "120"))
+DEFAULT_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "llama3.2:3b").strip() or "llama3.2:3b"
+
+# Wiederverwendeter HTTP-Client (Connection-Pool/Keep-Alive). Thread-sicher, daher
+# über die im Threadpool laufenden sync-Endpunkte hinweg teilbar.
+_HTTP = httpx.Client(timeout=OLLAMA_CHAT_TIMEOUT)
 GERMAN_STOPWORDS = {
     "der",
     "die",
@@ -126,6 +140,92 @@ def _hash_embed(text_value: str) -> list[float]:
     if norm > 0:
         vector = [value / norm for value in vector]
     return vector
+
+
+def _ollama_embed(texts: list[str]) -> list[list[float]]:
+    """Embed texts via Ollama's /api/embed (batch). Raises on failure/dim mismatch."""
+    url = f"{OLLAMA_BASE_URL}/api/embed"
+    try:
+        response = _HTTP.post(
+            url,
+            json={"model": EMBED_MODEL, "input": texts},
+            timeout=OLLAMA_EMBED_TIMEOUT,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except Exception as exc:  # network/HTTP/json
+        logger.error("ollama embed failed: %s", exc)
+        raise HTTPException(status_code=502, detail=f"Embedding backend error: {exc}") from exc
+
+    vectors = data.get("embeddings") or []
+    if len(vectors) != len(texts):
+        raise HTTPException(status_code=502, detail="Embedding backend returned unexpected count")
+    for vec in vectors:
+        if len(vec) != EMBED_DIM:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Embedding dim mismatch: model returned {len(vec)}, expected {EMBED_DIM}",
+            )
+    return vectors
+
+
+def _build_chat_messages(
+    question: str,
+    contexts: list["ChatContext"],
+    system_prompt: str | None,
+) -> list[dict[str, str]]:
+    system = (system_prompt or "").strip() or (
+        "Du bist ein Assistent für ein Dokumentenarchiv. Beantworte die Frage "
+        "AUSSCHLIESSLICH anhand der bereitgestellten Kontextauszüge. Wenn die "
+        "Antwort nicht im Kontext steht, sage klar, dass du dazu keine Information "
+        "findest. Antworte knapp und auf Deutsch."
+    )
+    context_block = "\n\n".join(
+        f"[Auszug {i + 1}{f', Seite {c.page_from}' if c.page_from else ''}]\n{_normalize_text(c.text)}"
+        for i, c in enumerate(contexts)
+        if _normalize_text(c.text)
+    ) or "(keine Kontextauszüge gefunden)"
+    user = f"Kontext:\n{context_block}\n\nFrage: {question}"
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+
+
+def _ollama_chat(
+    question: str,
+    contexts: list["ChatContext"],
+    *,
+    model: str,
+    system_prompt: str | None,
+    temperature: float,
+    top_p: float,
+    max_tokens: int,
+) -> str | None:
+    """Answer via Ollama /api/chat. Returns None on failure (caller falls back)."""
+    url = f"{OLLAMA_BASE_URL}/api/chat"
+    try:
+        response = _HTTP.post(
+            url,
+            json={
+                "model": model,
+                "messages": _build_chat_messages(question, contexts, system_prompt),
+                "stream": False,
+                "options": {
+                    "temperature": temperature,
+                    "top_p": top_p,
+                    "num_predict": max_tokens,
+                },
+            },
+            timeout=OLLAMA_CHAT_TIMEOUT,
+        )
+        response.raise_for_status()
+        data = response.json()
+        answer = str((data.get("message") or {}).get("content") or "").strip()
+        return answer or None
+    except Exception as exc:  # network/HTTP/json
+        logger.error("ollama chat failed: %s", exc)
+        return None
 
 
 def _tokenize(value: str) -> list[str]:
@@ -431,11 +531,21 @@ app = FastAPI(title="PaperMind AI Service", version="0.2.0")
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok", "service": "ai", "model": EMBED_MODEL, "dim": EMBED_DIM}
+    return {
+        "status": "ok",
+        "service": "ai",
+        "model": EMBED_MODEL,
+        "dim": EMBED_DIM,
+        "backend": "ollama" if OLLAMA_BASE_URL else "stub",
+        "chat_model": DEFAULT_CHAT_MODEL if OLLAMA_BASE_URL else "rule-based",
+    }
 
 
+# NOTE: sync `def` (not async) on purpose — these handlers make blocking HTTP
+# calls to Ollama. FastAPI runs sync handlers in a threadpool, so a slow chat/
+# embed request does NOT block the event loop (health checks stay responsive).
 @app.post("/embed", response_model=EmbedResponse)
-async def embed(payload: EmbedRequest) -> Any:
+def embed(payload: EmbedRequest) -> Any:
     texts = payload.texts or []
     if not texts:
         raise HTTPException(status_code=400, detail="texts must not be empty")
@@ -458,7 +568,10 @@ async def embed(payload: EmbedRequest) -> Any:
         total_chars += len(normalized)
 
     started = time.perf_counter()
-    vectors = [_hash_embed(text_item) for text_item in normalized_texts]
+    if OLLAMA_BASE_URL:
+        vectors = _ollama_embed(normalized_texts)
+    else:
+        vectors = [_hash_embed(text_item) for text_item in normalized_texts]
     elapsed_ms = (time.perf_counter() - started) * 1000
     model_name = EMBED_MODEL if payload.model in ("", "default") else payload.model.strip() or EMBED_MODEL
 
@@ -475,16 +588,35 @@ async def embed(payload: EmbedRequest) -> Any:
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(payload: ChatRequest) -> Any:
+def chat(payload: ChatRequest) -> Any:
     question = _normalize_text(payload.question)
     if not question:
         raise HTTPException(status_code=400, detail="question must not be empty")
 
     contexts = payload.contexts or []
     started = time.perf_counter()
-    answer = _build_chat_answer(question, contexts, payload.max_sentences)
+    requested_model = payload.model.strip() if payload.model and payload.model.strip() else ""
+    chat_model = requested_model if requested_model and requested_model != "default" else DEFAULT_CHAT_MODEL
+
+    answer: str | None = None
+    if OLLAMA_BASE_URL:
+        answer = _ollama_chat(
+            question,
+            contexts,
+            model=chat_model,
+            system_prompt=payload.system_prompt,
+            temperature=payload.temperature,
+            top_p=payload.top_p,
+            max_tokens=payload.max_tokens,
+        )
+
+    if answer:
+        model_name = chat_model
+    else:
+        # Ollama disabled or unreachable -> rule-based fallback.
+        answer = _build_chat_answer(question, contexts, payload.max_sentences)
+        model_name = "rule-based-fallback" if OLLAMA_BASE_URL else EMBED_MODEL
     elapsed_ms = (time.perf_counter() - started) * 1000
-    model_name = payload.model.strip() if payload.model and payload.model.strip() else EMBED_MODEL
 
     logger.info(
         "chat request model=%s question_len=%s contexts=%s time_ms=%.2f",
