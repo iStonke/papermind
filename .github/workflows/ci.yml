@@ -50,6 +50,9 @@ jobs:
 
       - name: Run Alembic migrations
         working-directory: backend
+        env:
+          INITIAL_ADMIN_USERNAME: admin
+          INITIAL_ADMIN_PASSWORD: ci-bootstrap-password
         run: alembic upgrade head
 
   frontend:

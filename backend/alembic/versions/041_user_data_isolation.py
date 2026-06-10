@@ -6,6 +6,7 @@ Revises: 040_user_avatar
 Create Date: 2026-06-08 00:00:00.000000
 """
 
+import uuid
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -28,6 +29,30 @@ _NAMED = [
 _ALL_TABLES = ["documents"] + [t[0] for t in _NAMED]
 
 
+def _bootstrap_initial_admin(bind):
+    """Fresh install/CI: Seed-Daten (document_types/correspondents aus 032/034) sind
+    vorhanden, aber noch kein Admin. Legt den Initial-Admin aus INITIAL_ADMIN_* an,
+    damit owner_id gesetzt werden kann (löst das Henne-Ei beim ersten Start). Gibt
+    None zurück, wenn kein Passwort konfiguriert ist."""
+    from app.core.auth import hash_password
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    password = (settings.initial_admin_password or "").strip()
+    if not password:
+        return None
+    username = (settings.initial_admin_username or "").strip() or "admin"
+    new_id = uuid.uuid4()
+    bind.execute(
+        sa.text(
+            "INSERT INTO users (id, username, password_hash, is_admin, is_active, created_at) "
+            "VALUES (:id, :username, :pw, true, true, now())"
+        ),
+        {"id": new_id, "username": username, "pw": hash_password(password)},
+    )
+    return new_id
+
+
 def upgrade() -> None:
     bind = op.get_bind()
 
@@ -35,15 +60,21 @@ def upgrade() -> None:
         sa.text("SELECT id FROM users WHERE is_admin = true ORDER BY created_at ASC LIMIT 1")
     ).scalar()
 
-    # Guard: Es gibt Bestandsdaten, aber keinen Admin als Eigentümer.
+    # Fresh install: Bestandsdaten (Seeds) vorhanden, aber kein Admin → Initial-Admin
+    # aus INITIAL_ADMIN_* bootstrappen, sonst Henne-Ei (owner_id kann nicht gesetzt werden).
     if admin_id is None:
-        for table in _ALL_TABLES:
-            has_rows = bind.execute(sa.text(f"SELECT 1 FROM {table} LIMIT 1")).first() is not None
-            if has_rows:
+        has_rows = any(
+            bind.execute(sa.text(f"SELECT 1 FROM {table} LIMIT 1")).first() is not None
+            for table in _ALL_TABLES
+        )
+        if has_rows:
+            admin_id = _bootstrap_initial_admin(bind)
+            if admin_id is None:
                 raise RuntimeError(
-                    "Migration 041 benötigt einen Admin-Benutzer als Eigentümer für "
-                    f"vorhandene Daten (Tabelle '{table}' ist nicht leer), es existiert "
-                    "aber kein Admin. Bitte zuerst einen Admin anlegen."
+                    "Migration 041 benötigt einen Admin als Eigentümer für vorhandene "
+                    "Seed-Daten, aber es existiert keiner und INITIAL_ADMIN_PASSWORD ist "
+                    "nicht gesetzt. Bitte INITIAL_ADMIN_PASSWORD (optional "
+                    "INITIAL_ADMIN_USERNAME) setzen und erneut migrieren."
                 )
 
     # 1) Spalte nullable anlegen + Bestand auf den ersten Admin backfillen.
