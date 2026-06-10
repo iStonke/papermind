@@ -22,6 +22,7 @@ from app.models.document_chunk import DocumentChunk
 from app.models.document_file import DocumentFile
 from app.models.job import Job
 from app.models.tag import Tag
+from app.models.user import User
 from app.services.deduplication import DocumentDeduplicationService
 from app.services.document_dates import apply_ocr_document_date_result, extract_document_date_candidates
 from app.services.embeddings import EmbeddingService
@@ -293,6 +294,18 @@ def _claim_next_import_inbox_pdf() -> tuple[Path, str] | None:
     return None
 
 
+def _default_owner_id(db) -> uuid.UUID | None:
+    """Eigentümer für eingeworfene Inbox-Dateien: erster aktiver Admin
+    (Ein-Benutzer-Betrieb). Ohne Owner würde der spätere Commit am NOT-NULL-
+    owner_id scheitern."""
+    return db.execute(
+        select(User.id)
+        .where(User.is_admin.is_(True), User.is_active.is_(True))
+        .order_by(User.created_at.asc())
+        .limit(1)
+    ).scalar()
+
+
 def _process_import_inbox_drop_file(claimed_path: Path, original_name: str) -> None:
     processed_dir = _import_inbox_subdir(IMPORT_INBOX_PROCESSED_DIR)
     failed_dir = _import_inbox_subdir(IMPORT_INBOX_FAILED_DIR)
@@ -300,7 +313,8 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str) -> N
         return
     try:
         with SessionLocal() as db:
-            result = ImportInboxService(db).ingest_pdf_path(
+            owner_id = _default_owner_id(db)
+            result = ImportInboxService(db, owner_id).ingest_pdf_path(
                 claimed_path,
                 original_name=original_name,
                 client_name="SMB",
@@ -994,13 +1008,13 @@ def run() -> None:
             last_backup_check_at = now_monotonic
             _run_backup_scheduler()
 
-        # Inbox-Ordner-Import ist mit der Pro-Benutzer-Datentrennung vorübergehend
-        # deaktiviert (kein Benutzerkontext für eingeworfene Dateien).
-        # inbox_drop_file = _claim_next_import_inbox_pdf()
-        # if inbox_drop_file is not None:
-        #     claimed_path, original_name = inbox_drop_file
-        #     _process_import_inbox_drop_file(claimed_path, original_name)
-        #     continue
+        # Inbox-Ordner-Import (SMB-Scanordner): eingeworfene PDFs landen als
+        # Posteingang-Einträge (Eigentümer = erster Admin, Ein-Benutzer-Betrieb).
+        inbox_drop_file = _claim_next_import_inbox_pdf()
+        if inbox_drop_file is not None:
+            claimed_path, original_name = inbox_drop_file
+            _process_import_inbox_drop_file(claimed_path, original_name)
+            continue
 
         claimed = _claim_next_job()
         if claimed is None:
