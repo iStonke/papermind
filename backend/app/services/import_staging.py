@@ -9,7 +9,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import UploadFile
-from pypdf import PdfReader
+from pypdf import PdfReader, PdfWriter
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
