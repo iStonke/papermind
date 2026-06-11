@@ -725,7 +725,17 @@
 
                   <div class="pm-drawer-section">
                     <div class="pm-label">Tags</div>
-                    <div class="details-tags-row">
+                    <div class="pm-tags-input" :class="{ 'pm-tags-input--disabled': isRunningAiAnalysis }">
+                      <v-chip
+                        v-for="name in metadataTagNames"
+                        :key="name"
+                        size="small"
+                        closable
+                        class="pm-tags-input__chip"
+                        @click:close="removeMetadataTag(name)"
+                      >
+                        {{ name }}
+                      </v-chip>
                       <v-combobox
                         ref="metadataTagsCombobox"
                         v-model="metadataTagNames"
@@ -735,10 +745,10 @@
                         hide-selected
                         :clearable="false"
                         density="compact"
-                        variant="outlined"
-                        hide-details="auto"
-                        class="details-tags-combobox"
-                        placeholder="Tag hinzufügen…"
+                        variant="plain"
+                        hide-details
+                        class="pm-tags-input__field"
+                        :placeholder="metadataTagNames.length ? '' : 'Tag hinzufügen…'"
                         :loading="isSavingTags"
                         :disabled="isRunningAiAnalysis"
                         :menu-props="{
@@ -752,21 +762,8 @@
                         @update:model-value="onMetadataTagNamesChange"
                         @keydown="handleMetadataTagShortcut"
                       >
-                        <template #selection><!-- Tags unten als eigene Chips --></template>
+                        <template #selection></template>
                       </v-combobox>
-                    </div>
-                    <div v-if="metadataTagNames.length" class="details-tags-chips">
-                      <v-chip
-                        v-for="name in metadataTagNames"
-                        :key="name"
-                        size="small"
-                        closable
-                        class="details-tags-chip"
-                        :disabled="isRunningAiAnalysis"
-                        @click:close="removeMetadataTag(name)"
-                      >
-                        {{ name }}
-                      </v-chip>
                     </div>
                   </div>
 
@@ -2134,6 +2131,7 @@ async function onMetadataTagNamesChange(nextValues) {
 }
 
 function removeMetadataTag(name) {
+  if (isRunningAiAnalysis.value) return;
   const next = metadataTagNames.value.filter((entry) => entry !== name);
   metadataTagNames.value = next;
   onMetadataTagNamesChange(next);
@@ -7331,17 +7329,74 @@ onBeforeUnmount(() => {
   margin-inline-start: 2px;
 }
 
-/* Ausgewählte Tags als eigene, umbrechende Chip-Reihe UNTER dem Eingabefeld –
-   wächst zuverlässig mit (statt im v-field-Input über den Rahmen zu laufen). */
-.details-tags-chips {
+/* Eigenes Tag-Feld: Chips + Eingabe in EINEM umbrechenden Rahmen (Gmail-Stil).
+   Ein simpler flex-wrap-Container wächst zuverlässig mit – im Gegensatz zu
+   Vuetifys v-input-Grid, das die flex-wrap-Eingabe nur an max-content (eine
+   Zeile) bemisst und umgebrochene Chips überlaufen lässt. */
+.pm-tags-input {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
-  margin-top: 8px;
+  padding: 5px 10px;
+  /* einzeilig genauso hoch wie die anderen compact-outlined-Felder (Korrespondent) */
+  min-height: 48px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.38);
+  border-radius: var(--pm-field-radius, 8px);
+  transition: border-color 0.15s ease;
 }
-.details-tags-chip {
+/* Einheitlicher Feld-Radius im Detail-Drawer: alle outlined-Felder (Korrespondent,
+   Name, Datum, Notizen …) bekommen denselben Radius wie das Tag-Feld. Die
+   Outline-Ecken erben border-radius von .v-field. */
+.details-drawer__body .v-field {
+  border-radius: var(--pm-field-radius, 8px);
+}
+/* Hover wie bei Vuetifys outlined-Feldern: Rand von 0.38 auf high-emphasis (~0.87). */
+.pm-tags-input:hover {
+  border-color: rgba(var(--v-theme-on-surface), var(--v-high-emphasis-opacity));
+}
+.pm-tags-input:focus-within {
+  border-color: rgb(var(--v-theme-primary));
+  box-shadow: inset 0 0 0 1px rgb(var(--v-theme-primary));
+}
+.pm-tags-input--disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+.pm-tags-input__chip {
   font-size: 12px;
 }
+.pm-tags-input__field {
+  flex: 1 1 90px;
+  min-width: 90px;
+}
+/* Plain-Combobox nahtlos einbetten: kein Eigenrand/Padding. */
+.pm-tags-input__field .v-field {
+  padding: 0;
+  --v-field-padding-start: 0;
+  --v-field-padding-end: 0;
+}
+/* Eingabe EXAKT auf Chip-Höhe (26px) zwingen: Die Plain-Variante bringt sonst
+   48px Control-Height mit, wodurch mehrzeilig die untere (Eingabe-)Zeile höher
+   wird als die reinen Chip-Zeilen → ungleiche Abstände oben/unten. */
+.pm-tags-input__field .v-input__control,
+.pm-tags-input__field .v-field,
+.pm-tags-input__field .v-field__field,
+.pm-tags-input__field .v-field__input,
+.pm-tags-input__field .v-field__append-inner {
+  min-height: 26px !important;
+  height: 26px !important;
+}
+/* Eingabe + Cursor vertikal mittig (Plain-Variante richtet sonst oben aus). */
+.pm-tags-input__field .v-field__field,
+.pm-tags-input__field .v-field__input {
+  align-items: center !important;
+}
+.pm-tags-input__field .v-field__input {
+  padding: 0;
+  font-size: 0.85rem;
+}
+
 
 :deep(.pm-menu.pm-menu--tags) {
   border-radius: 12px;
