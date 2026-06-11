@@ -7312,6 +7312,20 @@ onBeforeUnmount(() => {
   margin-inline-start: 2px;
 }
 
+/* Viele Tags: Chips umbrechen lassen und das Feld vertikal mitwachsen lassen,
+   damit nichts über den Rahmen hinaus läuft und „Notizen" überlappt. */
+.details-tags-combobox .v-field {
+  height: auto;
+}
+.details-tags-combobox .v-field__input {
+  flex-wrap: wrap;
+  align-content: center;
+  min-height: 40px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  row-gap: 4px;
+}
+
 :deep(.pm-menu.pm-menu--tags) {
   border-radius: 12px;
   background: rgba(var(--v-theme-surface-2), 0.96);
