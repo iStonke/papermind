@@ -12,6 +12,18 @@ import { setFetchUnauthorizedHandler } from '../api/fetchInterceptor.js';
 // Timer-Handle für die Datei-Token-Erneuerung (kein reaktiver State).
 let fileTokenTimer = null;
 
+// Inaktivitäts-Logout: Timer + Activity-Listener (kein reaktiver State).
+let inactivityTimer = null;
+let inactivityResetFn = null;
+const AUTO_LOGOUT_KEY = 'pm.autoLogoutMinutes';
+const ACTIVITY_EVENTS = ['pointerdown', 'keydown', 'mousemove', 'wheel', 'touchstart', 'scroll'];
+
+function readAutoLogoutMinutes() {
+  if (typeof window === 'undefined') return 0;
+  const raw = Number(window.localStorage.getItem(AUTO_LOGOUT_KEY));
+  return Number.isFinite(raw) && raw > 0 ? raw : 0;
+}
+
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null,
@@ -24,6 +36,8 @@ export const useAuthStore = defineStore('auth', {
      * ?v=-Parameter an die Avatar-URL gehängt.
      */
     avatarVersion: Date.now(),
+    /** Inaktivitäts-Logout in Minuten (0 = aus); persistiert in localStorage. */
+    autoLogoutMinutes: readAutoLogoutMinutes(),
   }),
 
   getters: {
@@ -50,6 +64,7 @@ export const useAuthStore = defineStore('auth', {
         this.user = await fetchCurrentUser();
         this.status = 'authenticated';
         await this.refreshFileToken();
+        this.startInactivityWatch();
       } catch {
         this.user = null;
         this.status = 'anonymous';
@@ -65,6 +80,7 @@ export const useAuthStore = defineStore('auth', {
       this.user = result.user;
       this.status = 'authenticated';
       await this.refreshFileToken();
+      this.startInactivityWatch();
       return result.user;
     },
 
@@ -100,6 +116,7 @@ export const useAuthStore = defineStore('auth', {
 
     clearSession() {
       this.stopFileToken();
+      this.stopInactivityWatch();
       setToken(null);
       this.user = null;
       this.status = 'anonymous';
@@ -114,8 +131,51 @@ export const useAuthStore = defineStore('auth', {
     /** Wird vom API-Client bei 401 aufgerufen. */
     handleUnauthorized() {
       this.stopFileToken();
+      this.stopInactivityWatch();
       this.user = null;
       this.status = 'anonymous';
+    },
+
+    /** Inaktivitäts-Logout-Dauer setzen (Minuten, 0 = aus) und persistieren. */
+    setAutoLogoutMinutes(minutes) {
+      const value = Number(minutes) > 0 ? Math.round(Number(minutes)) : 0;
+      this.autoLogoutMinutes = value;
+      if (typeof window !== 'undefined') {
+        if (value > 0) window.localStorage.setItem(AUTO_LOGOUT_KEY, String(value));
+        else window.localStorage.removeItem(AUTO_LOGOUT_KEY);
+      }
+      if (this.isAuthenticated) this.startInactivityWatch();
+      else this.stopInactivityWatch();
+    },
+
+    /** Startet die Leerlauf-Überwachung: nach autoLogoutMinutes ohne Aktivität → Logout. */
+    startInactivityWatch() {
+      if (typeof window === 'undefined') return;
+      this.stopInactivityWatch();
+      if (!(this.autoLogoutMinutes > 0)) return;
+      const reset = () => {
+        if (inactivityTimer) window.clearTimeout(inactivityTimer);
+        inactivityTimer = window.setTimeout(() => {
+          this.logout();
+        }, this.autoLogoutMinutes * 60 * 1000);
+      };
+      inactivityResetFn = reset;
+      for (const ev of ACTIVITY_EVENTS) {
+        window.addEventListener(ev, reset, { passive: true });
+      }
+      reset();
+    },
+
+    stopInactivityWatch() {
+      if (typeof window === 'undefined') return;
+      if (inactivityTimer) {
+        window.clearTimeout(inactivityTimer);
+        inactivityTimer = null;
+      }
+      if (inactivityResetFn) {
+        for (const ev of ACTIVITY_EVENTS) window.removeEventListener(ev, inactivityResetFn);
+        inactivityResetFn = null;
+      }
     },
   },
 });
