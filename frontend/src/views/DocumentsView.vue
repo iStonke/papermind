@@ -732,8 +732,6 @@
                         v-model:search="metadataTagSearch"
                         :items="allTagNames"
                         multiple
-                        chips
-                        closable-chips
                         hide-selected
                         :clearable="false"
                         density="compact"
@@ -753,7 +751,22 @@
                         }"
                         @update:model-value="onMetadataTagNamesChange"
                         @keydown="handleMetadataTagShortcut"
-                      />
+                      >
+                        <template #selection><!-- Tags unten als eigene Chips --></template>
+                      </v-combobox>
+                    </div>
+                    <div v-if="metadataTagNames.length" class="details-tags-chips">
+                      <v-chip
+                        v-for="name in metadataTagNames"
+                        :key="name"
+                        size="small"
+                        closable
+                        class="details-tags-chip"
+                        :disabled="isRunningAiAnalysis"
+                        @click:close="removeMetadataTag(name)"
+                      >
+                        {{ name }}
+                      </v-chip>
                     </div>
                   </div>
 
@@ -2118,6 +2131,12 @@ function handleTagToolbarShortcut(event) {
 async function onMetadataTagNamesChange(nextValues) {
   if (shouldSkipTagNameSync || !selectedDocumentDetail.value) return;
   await syncMetadataTagsFromNames(nextValues);
+}
+
+function removeMetadataTag(name) {
+  const next = metadataTagNames.value.filter((entry) => entry !== name);
+  metadataTagNames.value = next;
+  onMetadataTagNamesChange(next);
 }
 
 // Auswählbare Kategorien (zentral in den Einstellungen gepflegt). Ein bereits am
@@ -7312,23 +7331,16 @@ onBeforeUnmount(() => {
   margin-inline-start: 2px;
 }
 
-/* Viele Tags: Chips umbrechen lassen und das Feld auf ALLEN Ebenen vertikal
-   mitwachsen lassen, damit nichts über den Rahmen hinaus läuft und „Notizen"
-   überlappt. */
-.details-tags-combobox .v-input,
-.details-tags-combobox .v-input__control,
-.details-tags-combobox .v-field,
-.details-tags-combobox .v-field__field {
-  height: auto;
-  min-height: 0;
-}
-.details-tags-combobox .v-field__input {
+/* Ausgewählte Tags als eigene, umbrechende Chip-Reihe UNTER dem Eingabefeld –
+   wächst zuverlässig mit (statt im v-field-Input über den Rahmen zu laufen). */
+.details-tags-chips {
+  display: flex;
   flex-wrap: wrap;
-  align-content: flex-start;
-  min-height: 38px;
-  padding-top: 5px;
-  padding-bottom: 5px;
-  row-gap: 5px;
+  gap: 6px;
+  margin-top: 8px;
+}
+.details-tags-chip {
+  font-size: 12px;
 }
 
 :deep(.pm-menu.pm-menu--tags) {
