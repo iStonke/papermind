@@ -87,15 +87,46 @@
           <v-list-item-subtitle v-else class="activity-item__types">
             {{ group.typesLabel }}
           </v-list-item-subtitle>
+
+          <template v-if="group.status === 'failed'" #append>
+            <v-btn
+              icon
+              variant="text"
+              size="x-small"
+              class="activity-item__dismiss"
+              :disabled="isDismissing"
+              title="Fehler entfernen"
+              aria-label="Fehler entfernen"
+              @click.stop="dismissGroup(group)"
+            >
+              <v-icon size="16">mdi-close</v-icon>
+            </v-btn>
+          </template>
         </v-list-item>
       </v-list>
+
+      <template v-if="failedGroups.length > 0">
+        <v-divider />
+        <div class="activity-footer">
+          <v-btn
+            variant="text"
+            size="small"
+            color="error"
+            block
+            :disabled="isDismissing"
+            @click="dismissAllFailed"
+          >
+            Alle Fehler entfernen
+          </v-btn>
+        </div>
+      </template>
     </v-card>
   </v-menu>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { getJobActivity } from '../api/jobs.js';
+import { getJobActivity, dismissJob, dismissFailedJobs } from '../api/jobs.js';
 
 const emit = defineEmits(['open-backup']);
 
@@ -113,6 +144,7 @@ const jobs = ref([]);
 const ocrBacklog = ref({ total: 0, done: 0, pending: 0, failed: 0 });
 const backupFail = ref(null);
 const menuOpen = ref(false);
+const isDismissing = ref(false);
 let timer = null;
 let burstTimer = null;
 
@@ -145,7 +177,8 @@ const groups = computed(() => {
       documentTitle: entry.documentTitle,
       status,
       typesLabel: types.map(typeLabel).join(' · '),
-      errorMessage: status === 'failed' ? (failedJob?.error_message || null) : null
+      errorMessage: status === 'failed' ? (failedJob?.error_message || null) : null,
+      jobIds: list.map((j) => j.id).filter(Boolean)
     });
   }
   result.sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status]);
@@ -200,6 +233,39 @@ async function refresh() {
     backupFail.value = data?.backup?.status === 'failed' ? data.backup : null;
   } catch {
     // Aktivität ist optional – Fehler beim Polling nicht stören lassen.
+  }
+}
+
+// Einen fehlgeschlagenen Eintrag aus der Anzeige entfernen (Job-Zeilen löschen).
+async function dismissGroup(group) {
+  if (isDismissing.value) return;
+  isDismissing.value = true;
+  try {
+    for (const jobId of group?.jobIds || []) {
+      await dismissJob(jobId);
+    }
+    const removed = new Set(group?.jobIds || []);
+    jobs.value = jobs.value.filter((j) => !removed.has(j.id));
+    await refresh();
+  } catch {
+    // ignorieren – das Polling korrigiert die Anzeige
+  } finally {
+    isDismissing.value = false;
+  }
+}
+
+// Alle fehlgeschlagenen Jobs auf einmal entfernen.
+async function dismissAllFailed() {
+  if (isDismissing.value) return;
+  isDismissing.value = true;
+  try {
+    await dismissFailedJobs();
+    jobs.value = jobs.value.filter((j) => j.status !== 'failed');
+    await refresh();
+  } catch {
+    // ignorieren
+  } finally {
+    isDismissing.value = false;
   }
 }
 
@@ -305,6 +371,15 @@ onBeforeUnmount(() => {
 .activity-item__error {
   color: rgb(var(--v-theme-error));
   white-space: normal;
+}
+.activity-item__dismiss {
+  opacity: 0.6;
+}
+.activity-item__dismiss:hover {
+  opacity: 1;
+}
+.activity-footer {
+  padding: 4px 8px 8px;
 }
 .activity-item--clickable {
   cursor: pointer;

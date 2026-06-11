@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
@@ -81,3 +81,23 @@ def create_document_job(
 def update_job(job_id: uuid.UUID, payload: JobUpdateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> JobRead:
     service = JobService(db, user.id)
     return JobRead.model_validate(service.update_job(job_id, payload), from_attributes=True)
+
+
+@router.delete(
+    "/jobs/{job_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Dismiss a finished/failed job from the activity feed",
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+def dismiss_job(job_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Response:
+    JobService(db, user.id).dismiss_job(job_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/jobs/activity/dismiss-failed",
+    summary="Dismiss all failed jobs from the activity feed",
+)
+def dismiss_failed_jobs(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+    removed = JobService(db, user.id).dismiss_failed_jobs()
+    return {"removed": removed}

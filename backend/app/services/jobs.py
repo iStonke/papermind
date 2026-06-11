@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import BadRequestError, ConflictError, NotFoundError
 from app.models.document import Document
 from app.models.job import Job
 from app.schemas.jobs import JobCreateRequest, JobUpdateRequest
@@ -65,6 +65,31 @@ class JobService:
             if owner != self.owner_id:
                 raise NotFoundError("Job not found", details={"job_id": str(job_id)})
         return job
+
+    def dismiss_job(self, job_id: uuid.UUID) -> None:
+        """Entfernt einen terminalen Job (failed/done) aus der Aktivitätsanzeige."""
+        job = self.get_job_or_404(job_id)
+        if job.status not in ("failed", "done"):
+            raise BadRequestError(
+                "Nur fehlgeschlagene oder abgeschlossene Jobs können entfernt werden.",
+                details={"status": job.status},
+            )
+        self.db.delete(job)
+        self.db.commit()
+        logger.info("job dismissed id=%s status=%s", job_id, job.status)
+
+    def dismiss_failed_jobs(self) -> int:
+        """Entfernt alle fehlgeschlagenen Jobs (des Owners) – 'Alle Fehler löschen'."""
+        stmt = select(Job).join(Document, Document.id == Job.document_id).where(Job.status == "failed")
+        if self.owner_id is not None:
+            stmt = stmt.where(Document.owner_id == self.owner_id)
+        jobs = list(self.db.execute(stmt).scalars().all())
+        for job in jobs:
+            self.db.delete(job)
+        if jobs:
+            self.db.commit()
+        logger.info("dismissed %s failed job(s)", len(jobs))
+        return len(jobs)
 
     def update_job(self, job_id: uuid.UUID, payload: JobUpdateRequest) -> Job:
         job = self.get_job_or_404(job_id)
