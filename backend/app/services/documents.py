@@ -192,8 +192,21 @@ AUTO_TAG_STOPWORDS = {
 
 
 class DocumentService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, owner_id: uuid.UUID | None = None):
         self.db = db
+        self.owner_id = owner_id
+
+    def _scope(self, stmt):
+        """Beschränkt eine Document-Query auf den aktuellen Owner (sofern gesetzt)."""
+        if self.owner_id is not None:
+            return stmt.where(Document.owner_id == self.owner_id)
+        return stmt
+
+    def _scope_tags(self, stmt):
+        """Beschränkt eine Tag-Query auf den aktuellen Owner (sofern gesetzt)."""
+        if self.owner_id is not None:
+            return stmt.where(Tag.owner_id == self.owner_id)
+        return stmt
 
     def _normalize_auto_tag_name(self, raw_value: str) -> str:
         cleaned = re.sub(r"[^A-Za-zÄÖÜäöüß0-9\-/ ]+", " ", str(raw_value or ""))
@@ -360,20 +373,26 @@ class DocumentService:
         if self._is_blocked_auto_tag_candidate(normalized_name):
             return None, False
 
-        existing = self.db.execute(select(Tag).where(func.lower(Tag.name) == normalized_name.lower())).scalar_one_or_none()
+        def _lookup():
+            stmt = select(Tag).where(func.lower(Tag.name) == normalized_name.lower())
+            if self.owner_id is not None:
+                stmt = stmt.where(Tag.owner_id == self.owner_id)
+            return self.db.execute(stmt).scalar_one_or_none()
+
+        existing = _lookup()
         if existing is not None:
             return existing, False
 
         created = False
         try:
             with self.db.begin_nested():
-                self.db.add(Tag(name=normalized_name))
+                self.db.add(Tag(owner_id=self.owner_id, name=normalized_name))
                 self.db.flush()
                 created = True
         except IntegrityError:
             created = False
 
-        tag = self.db.execute(select(Tag).where(func.lower(Tag.name) == normalized_name.lower())).scalar_one_or_none()
+        tag = _lookup()
         return tag, created and tag is not None
 
     def _extract_text_for_manual_auto_tagging(self, document: Document) -> str:
@@ -511,7 +530,9 @@ class DocumentService:
         return sha256.hexdigest(), bytes_read
 
     def _find_existing_document_by_sha256(self, file_sha256: str) -> uuid.UUID | None:
-        return self.db.execute(select(Document.id).where(Document.file_sha256 == file_sha256)).scalar_one_or_none()
+        return self.db.execute(
+            self._scope(select(Document.id).where(Document.file_sha256 == file_sha256))
+        ).scalar_one_or_none()
 
     def _store_pdf(self, file: UploadFile, destination: Path) -> int:
         temp_path = destination.with_name(f"{destination.name}.uploading")
@@ -786,7 +807,9 @@ class DocumentService:
             logger.info("manual auto-tag no candidates document_id=%s", document_id)
             return document
 
-        all_existing_tags = self.db.execute(select(Tag).order_by(func.lower(Tag.name).asc())).scalars().all()
+        all_existing_tags = self.db.execute(
+            self._scope_tags(select(Tag).order_by(func.lower(Tag.name).asc()))
+        ).scalars().all()
         matched_existing_tags = self._resolve_existing_tags_for_candidates(suggested_candidates, all_existing_tags)
 
         current_tag_ids = {tag.id for tag in document.tags}
@@ -847,9 +870,10 @@ class DocumentService:
         raw = " ".join(str(document.ai_document_type or "").split()).strip()
         if not raw:
             return None
-        return self.db.execute(
-            select(DocumentType.name).where(func.lower(DocumentType.name) == raw.lower())
-        ).scalar_one_or_none()
+        type_stmt = select(DocumentType.name).where(func.lower(DocumentType.name) == raw.lower())
+        if self.owner_id is not None:
+            type_stmt = type_stmt.where(DocumentType.owner_id == self.owner_id)
+        return self.db.execute(type_stmt).scalar_one_or_none()
 
     def _suggest_tags_from_classification(self, document: Document) -> list[str]:
         """Normalize the stored AI tags, preferring the casing of existing tags."""
@@ -858,7 +882,7 @@ class DocumentService:
             return []
         existing_by_lower = {
             tag.name.lower(): tag.name
-            for tag in self.db.execute(select(Tag)).scalars().all()
+            for tag in self.db.execute(self._scope_tags(select(Tag))).scalars().all()
         }
         result: list[str] = []
         seen: set[str] = set()
@@ -940,6 +964,7 @@ class DocumentService:
             )
 
         document = Document(
+            owner_id=self.owner_id,
             original_filename=original_filename,
             document_date=document_date,
             document_date_source=(
@@ -1299,7 +1324,7 @@ class DocumentService:
 
         normalized_query = self._normalize_search_query(q)
         filtered_stmt = self._apply_filters(
-            select(Document),
+            self._scope(select(Document)),
             tag,
             tag_ids,
             untagged,
@@ -1392,6 +1417,7 @@ class DocumentService:
 
     def create_document(self, payload: DocumentCreateRequest) -> Document:
         document = Document(
+            owner_id=self.owner_id,
             original_filename=payload.original_filename.strip(),
             document_date=payload.document_date,
             notes=payload.notes,
@@ -1407,7 +1433,7 @@ class DocumentService:
         return document
 
     def get_document_or_404(self, document_id: uuid.UUID) -> Document:
-        stmt = (
+        stmt = self._scope(
             select(Document)
             .where(Document.id == document_id)
             .options(selectinload(Document.tags), selectinload(Document.files), selectinload(Document.jobs))
@@ -1432,11 +1458,15 @@ class DocumentService:
             document.document_type = data["document_type"]
         if "correspondent_id" in data:
             correspondent_id = data["correspondent_id"]
-            if correspondent_id is not None and self.db.get(Correspondent, correspondent_id) is None:
-                raise BadRequestError(
-                    "Correspondent not found",
-                    details={"correspondent_id": str(correspondent_id)},
-                )
+            if correspondent_id is not None:
+                correspondent = self.db.get(Correspondent, correspondent_id)
+                if correspondent is None or (
+                    self.owner_id is not None and correspondent.owner_id != self.owner_id
+                ):
+                    raise BadRequestError(
+                        "Correspondent not found",
+                        details={"correspondent_id": str(correspondent_id)},
+                    )
             document.correspondent_id = correspondent_id
         if "status" in data and data["status"] is not None:
             document.status = data["status"].value
@@ -1474,7 +1504,7 @@ class DocumentService:
         """Dokument aus dem Papierkorb wiederherstellen."""
         # get_document_or_404 filtert is_deleted=True heraus – direkt abfragen
         from sqlalchemy import select as sa_select
-        document = self.db.scalar(sa_select(Document).where(Document.id == document_id))
+        document = self.db.scalar(self._scope(sa_select(Document).where(Document.id == document_id)))
         if document is None:
             raise NotFoundError("Document not found", details={"document_id": str(document_id)})
         if not document.is_deleted:
@@ -1499,7 +1529,7 @@ class DocumentService:
         """Endgültiges Löschen – auch für Dokumente im Papierkorb."""
         # Auch gelöschte Dokumente permanent entfernen können
         from sqlalchemy import select as sa_select
-        document = self.db.scalar(sa_select(Document).where(Document.id == document_id))
+        document = self.db.scalar(self._scope(sa_select(Document).where(Document.id == document_id)))
         if document is None:
             raise NotFoundError("Document not found", details={"document_id": str(document_id)})
         file_keys = {file_record.file_key for file_record in document.files}
@@ -1521,9 +1551,11 @@ class DocumentService:
         """Endgültig alle Dokumente im Papierkorb löschen."""
         documents = list(
             self.db.execute(
-                select(Document)
-                .where(Document.is_deleted.is_(True))
-                .options(selectinload(Document.files))
+                self._scope(
+                    select(Document)
+                    .where(Document.is_deleted.is_(True))
+                    .options(selectinload(Document.files))
+                )
             ).scalars()
         )
         if not documents:
@@ -1583,7 +1615,7 @@ class DocumentService:
 
         unique_tag_ids = list(dict.fromkeys(payload.tag_ids))
         if unique_tag_ids:
-            tags_stmt = select(Tag).where(Tag.id.in_(unique_tag_ids))
+            tags_stmt = self._scope_tags(select(Tag).where(Tag.id.in_(unique_tag_ids)))
             tags = self.db.execute(tags_stmt).scalars().all()
             found_ids = {tag.id for tag in tags}
             missing_ids = [str(tag_id) for tag_id in unique_tag_ids if tag_id not in found_ids]

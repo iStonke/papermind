@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPatch, apiPost, apiPut, getBaseUrl } from './client.js';
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut, authedUrl, getBaseUrl } from './client.js';
 
 /** GET /api/documents?{queryString} */
 export const listDocuments = (queryString) =>
@@ -60,8 +60,8 @@ export const backfillOcr = ({ dryRun = false } = {}) =>
  * Wird im <PdfPreview :src="..."> und für Downloads verwendet.
  */
 export const documentFileUrl = (documentId, role = 'original') =>
-  `${getBaseUrl()}/api/documents/${documentId}/file?role=${role}`;
+  authedUrl(`${getBaseUrl()}/api/documents/${documentId}/file?role=${role}`);
 
 /** Thumbnail-URL */
 export const documentThumbnailUrl = (documentId) =>
-  `${getBaseUrl()}/api/documents/${documentId}/thumbnail`;
+  authedUrl(`${getBaseUrl()}/api/documents/${documentId}/thumbnail`);

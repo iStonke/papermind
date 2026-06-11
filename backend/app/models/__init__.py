@@ -1,4 +1,5 @@
 from app.models.document_type import DocumentType
+from app.models.backup_run import BackupRun
 from app.models.correspondent import Correspondent, CorrespondentAlias, CorrespondentMatcher
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
@@ -9,9 +10,12 @@ from app.models.job import Job
 from app.models.saved_search import SavedSearch
 from app.models.smart_folder import SmartFolder
 from app.models.tag import Tag
+from app.models.user import User
+from app.models.user_setting import UserSetting
 
 __all__ = [
     "DocumentType",
+    "BackupRun",
     "Correspondent",
     "CorrespondentAlias",
     "CorrespondentMatcher",
@@ -24,4 +28,6 @@ __all__ = [
     "SmartFolder",
     "GlobalSetting",
     "ImportInboxItem",
+    "User",
+    "UserSetting",
 ]

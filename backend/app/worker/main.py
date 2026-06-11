@@ -16,12 +16,13 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.text import sanitize_text_for_db
-from app.db.session import SessionLocal
+from app.db.session import WorkerSessionLocal as SessionLocal
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
 from app.models.document_file import DocumentFile
 from app.models.job import Job
 from app.models.tag import Tag
+from app.models.user import User
 from app.services.deduplication import DocumentDeduplicationService
 from app.services.document_dates import apply_ocr_document_date_result, extract_document_date_candidates
 from app.services.embeddings import EmbeddingService
@@ -44,6 +45,7 @@ logging.basicConfig(level=logging.INFO)
 AUTO_TAG_MAX_TAGS = 5
 AUTO_TAG_MAX_TEXT_CHARS = 6000
 TRASH_CLEANUP_INTERVAL_SECONDS = 3600
+BACKUP_CHECK_INTERVAL_SECONDS = 60
 IMPORT_INBOX_PROCESSED_DIR = ".papermind-processed"
 IMPORT_INBOX_PROCESSING_DIR = ".papermind-processing"
 IMPORT_INBOX_FAILED_DIR = ".papermind-failed"
@@ -292,6 +294,18 @@ def _claim_next_import_inbox_pdf() -> tuple[Path, str] | None:
     return None
 
 
+def _default_owner_id(db) -> uuid.UUID | None:
+    """Eigentümer für eingeworfene Inbox-Dateien: erster aktiver Admin
+    (Ein-Benutzer-Betrieb). Ohne Owner würde der spätere Commit am NOT-NULL-
+    owner_id scheitern."""
+    return db.execute(
+        select(User.id)
+        .where(User.is_admin.is_(True), User.is_active.is_(True))
+        .order_by(User.created_at.asc())
+        .limit(1)
+    ).scalar()
+
+
 def _process_import_inbox_drop_file(claimed_path: Path, original_name: str) -> None:
     processed_dir = _import_inbox_subdir(IMPORT_INBOX_PROCESSED_DIR)
     failed_dir = _import_inbox_subdir(IMPORT_INBOX_FAILED_DIR)
@@ -299,7 +313,8 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str) -> N
         return
     try:
         with SessionLocal() as db:
-            result = ImportInboxService(db).ingest_pdf_path(
+            owner_id = _default_owner_id(db)
+            result = ImportInboxService(db, owner_id).ingest_pdf_path(
                 claimed_path,
                 original_name=original_name,
                 client_name="SMB",
@@ -464,25 +479,30 @@ def _suggest_tags_with_ai(text_value: str, max_tags: int = AUTO_TAG_MAX_TAGS) ->
     return _fallback_tag_candidates(normalized_text, max_tags=max_tags)
 
 
-def _get_or_create_tag(db, tag_name: str) -> Tag | None:
+def _get_or_create_tag(db, tag_name: str, owner_id) -> Tag | None:
     normalized_name = _normalize_tag_name(tag_name)
     if not normalized_name:
         return None
     if _is_blocked_tag_candidate(normalized_name):
         return None
 
-    existing = db.execute(select(Tag).where(func.lower(Tag.name) == normalized_name.lower())).scalar_one_or_none()
+    def _lookup():
+        return db.execute(
+            select(Tag).where(Tag.owner_id == owner_id, func.lower(Tag.name) == normalized_name.lower())
+        ).scalar_one_or_none()
+
+    existing = _lookup()
     if existing is not None:
         return existing
 
     try:
         with db.begin_nested():
-            db.add(Tag(name=normalized_name))
+            db.add(Tag(owner_id=owner_id, name=normalized_name))
             db.flush()
     except IntegrityError:
         pass
 
-    return db.execute(select(Tag).where(func.lower(Tag.name) == normalized_name.lower())).scalar_one_or_none()
+    return _lookup()
 
 
 def _apply_tags_to_document(db, document: Document, tag_names: list[str]) -> tuple[int, list[str]]:
@@ -493,7 +513,7 @@ def _apply_tags_to_document(db, document: Document, tag_names: list[str]) -> tup
     added = 0
     applied: list[str] = []
     for tag_name in tag_names:
-        tag = _get_or_create_tag(db, tag_name)
+        tag = _get_or_create_tag(db, tag_name, document.owner_id)
         if tag is None:
             continue
         if tag.id in existing_tag_ids:
@@ -934,11 +954,46 @@ def _run_ocr_backfill() -> None:
         )
 
 
+def _run_backup_scheduler() -> None:
+    """Stößt ein geplantes Backup an, sobald der konfigurierte Zeitpunkt fällig ist."""
+    from datetime import datetime
+
+    from sqlalchemy import select
+
+    from app.models.backup_run import BackupRun
+    from app.services.backup import BackupService, is_backup_due
+
+    with SessionLocal() as db:
+        try:
+            service = BackupService(db)
+            config = service.get_config()
+            if not config.get("enabled"):
+                return
+            running = db.execute(select(BackupRun).where(BackupRun.status == "running").limit(1)).scalar_one_or_none()
+            if running is not None:
+                return
+            last_scheduled = db.execute(
+                select(BackupRun).where(BackupRun.kind == "scheduled").order_by(BackupRun.started_at.desc()).limit(1)
+            ).scalar_one_or_none()
+            last_at = last_scheduled.started_at if last_scheduled else None
+            if not is_backup_due(config, now=datetime.now().astimezone(), last_run_at=last_at):
+                return
+        except Exception as exc:  # noqa: BLE001 - Scheduler darf den Worker nie abbrechen
+            logger.warning("backup scheduler check failed: %s", exc)
+            return
+        logger.info("scheduled backup due -> running")
+        try:
+            service.run_backup(kind="scheduled")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("scheduled backup run failed: %s", exc)
+
+
 def run() -> None:
     logger.info("worker started poll_interval=%ss storage=%s", settings.worker_poll_interval_seconds, settings.storage_path)
     _reclaim_orphaned_jobs()
     last_trash_cleanup_at = 0.0
     last_ocr_backfill_at = 0.0
+    last_backup_check_at = 0.0
     while True:
         now_monotonic = time.monotonic()
         if now_monotonic - last_trash_cleanup_at >= TRASH_CLEANUP_INTERVAL_SECONDS:
@@ -949,6 +1004,12 @@ def run() -> None:
             last_ocr_backfill_at = now_monotonic
             _run_ocr_backfill()
 
+        if now_monotonic - last_backup_check_at >= BACKUP_CHECK_INTERVAL_SECONDS:
+            last_backup_check_at = now_monotonic
+            _run_backup_scheduler()
+
+        # Inbox-Ordner-Import (SMB-Scanordner): eingeworfene PDFs landen als
+        # Posteingang-Einträge (Eigentümer = erster Admin, Ein-Benutzer-Betrieb).
         inbox_drop_file = _claim_next_import_inbox_pdf()
         if inbox_drop_file is not None:
             claimed_path, original_name = inbox_drop_file

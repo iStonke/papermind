@@ -14,16 +14,21 @@ logger = logging.getLogger("papermind.saved_searches")
 
 
 class SavedSearchService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, owner_id: uuid.UUID | None = None):
         self.db = db
+        self.owner_id = owner_id
 
     def list_saved_searches(self) -> list[SavedSearch]:
         stmt = select(SavedSearch).order_by(func.lower(SavedSearch.name).asc(), SavedSearch.created_at.asc())
+        if self.owner_id is not None:
+            stmt = stmt.where(SavedSearch.owner_id == self.owner_id)
         return self.db.execute(stmt).scalars().all()
 
     def get_saved_search_or_404(self, saved_search_id: uuid.UUID) -> SavedSearch:
         saved_search = self.db.get(SavedSearch, saved_search_id)
-        if saved_search is None:
+        if saved_search is None or (
+            self.owner_id is not None and saved_search.owner_id != self.owner_id
+        ):
             raise NotFoundError("Smart folder not found", details={"saved_search_id": str(saved_search_id)})
         return saved_search
 
@@ -33,6 +38,7 @@ class SavedSearchService:
             raise BadRequestError("Smart folder name must not be empty")
 
         saved_search = SavedSearch(
+            owner_id=self.owner_id,
             name=folder_name,
             query_json=payload.query.model_dump(mode="json", exclude_none=False),
         )

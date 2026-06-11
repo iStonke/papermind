@@ -290,3 +290,34 @@ export function applyPaperMindVuetifyColors(theme, variant) {
   assignVuetifyThemeColors(theme.themes.value.dark.colors, variantTokens.dark);
   return resolvedVariant;
 }
+
+/**
+ * Akzent-Paletten (RGB-Tripel) fuer den animierten Glass-/Aurora-Hintergrund.
+ * Je Variante der Primaerton plus 1–2 harmonische Akzente, damit der
+ * Wissensgraph zur aktiven Farbvariante passt.
+ *
+ * Dunkel: hellere, leuchtende Toene (Kontrast auf dunklem Grund).
+ * Hell:   tiefere, kraeftigere Toene (sonst waescht der helle, durchscheinende
+ *         Panel-Tint den Graph aus).
+ */
+const GLASS_PALETTES_DARK = Object.freeze({
+  indigo: [[59, 130, 246], [45, 212, 191], [129, 140, 248]],
+  forest: [[34, 197, 94], [45, 212, 191], [132, 204, 22]],
+  teal: [[45, 212, 191], [56, 189, 248], [59, 130, 246]],
+  slate: [[148, 163, 184], [96, 165, 250], [129, 140, 248]],
+  stone: [[168, 162, 158], [251, 191, 36], [120, 113, 108]]
+});
+
+const GLASS_PALETTES_LIGHT = Object.freeze({
+  indigo: [[37, 99, 235], [13, 148, 136], [79, 70, 229]],
+  forest: [[22, 163, 74], [13, 148, 136], [101, 163, 13]],
+  teal: [[13, 148, 136], [2, 132, 199], [37, 99, 235]],
+  slate: [[71, 85, 105], [37, 99, 235], [79, 70, 229]],
+  stone: [[120, 113, 108], [217, 119, 6], [87, 83, 78]]
+});
+
+export function getGlassPalette(variant, isDark = true) {
+  const resolved = resolvePaperMindColorVariant(variant);
+  const table = isDark ? GLASS_PALETTES_DARK : GLASS_PALETTES_LIGHT;
+  return table[resolved] || table.slate;
+}

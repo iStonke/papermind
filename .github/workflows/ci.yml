@@ -50,6 +50,11 @@ jobs:
 
       - name: Run Alembic migrations
         working-directory: backend
+        env:
+          INITIAL_ADMIN_USERNAME: admin
+          INITIAL_ADMIN_PASSWORD: ci-bootstrap-password
+          APP_DATABASE_URL: postgresql://papermind_app:papermind_app@127.0.0.1:5432/papermind_test
+          WORKER_DATABASE_URL: postgresql://papermind_worker:papermind_worker@127.0.0.1:5432/papermind_test
         run: alembic upgrade head
 
   frontend:

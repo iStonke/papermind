@@ -224,8 +224,9 @@ def _split_chunks(
 
 
 class EmbeddingService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, owner_id: uuid.UUID | None = None):
         self.db = db
+        self.owner_id = owner_id
 
     def _storage_root(self) -> Path:
         return Path(settings.storage_path).resolve()
@@ -307,11 +308,14 @@ class EmbeddingService:
         return model, dim, vectors, elapsed_ms
 
     def get_document_for_indexing(self, document_id: uuid.UUID) -> Document:
-        document = self.db.execute(
+        stmt = (
             select(Document)
             .where(Document.id == document_id)
             .options(selectinload(Document.files))
-        ).scalar_one_or_none()
+        )
+        if self.owner_id is not None:
+            stmt = stmt.where(Document.owner_id == self.owner_id)
+        document = self.db.execute(stmt).scalar_one_or_none()
         if document is None:
             raise NotFoundError("Document not found", details={"document_id": str(document_id)})
         return document
@@ -506,7 +510,7 @@ class EmbeddingService:
 
     def get_embedding_status(self, document_id: uuid.UUID) -> dict[str, Any]:
         document = self.db.get(Document, document_id)
-        if document is None:
+        if document is None or (self.owner_id is not None and document.owner_id != self.owner_id):
             raise NotFoundError("Document not found", details={"document_id": str(document_id)})
 
         chunk_count = self.db.scalar(
@@ -574,6 +578,9 @@ class EmbeddingService:
         ]
         params: dict[str, Any] = {"query_vector": query_vector, "top_k": top_k_value}
 
+        if self.owner_id is not None:
+            sql_parts.append(" AND d.owner_id = :owner_id")
+            params["owner_id"] = self.owner_id
         if doc_id is not None:
             sql_parts.append(" AND c.doc_id = :doc_id")
             params["doc_id"] = doc_id
@@ -602,6 +609,9 @@ class EmbeddingService:
         stmt = text("".join(sql_parts))
 
         db_start = time.perf_counter()
+        # HNSW-Suchbreite für diese Transaktion setzen (muss >= top_k sein).
+        ef_search = max(int(settings.hnsw_ef_search), top_k_value)
+        self.db.execute(text(f"SET LOCAL hnsw.ef_search = {ef_search}"))
         rows = self.db.execute(stmt, params).mappings().all()
         db_ms = (time.perf_counter() - db_start) * 1000
         total_ms = embed_ms + db_ms

@@ -230,6 +230,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { authHeaders } from '../api/client.js';
 import BaseDialog from './BaseDialog.vue';
 
 const FIELD_OPTIONS = [
@@ -686,7 +687,7 @@ async function runPreview() {
   try {
     const response = await fetch(`${props.apiBaseUrl}/api/smart-folders/preview`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({
         query_json: queryJson,
         count_only: true

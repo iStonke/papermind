@@ -83,6 +83,7 @@ function createDefaultSettings() {
     ui: {
       theme_mode: 'system',
       color_variant: 'slate',
+      glass_enabled: false,
       showFilenameSuffix: true,
       drawerRememberState: true,
       tagDrawerRememberState: true
@@ -132,6 +133,7 @@ function createDefaultSettings() {
       enabled: true,
       base_url: 'http://host.docker.internal:11434',
       model: 'llama3.2:3b',
+      chat_model: 'llama3.2:3b',
       timeout_seconds: 90,
       max_input_chars: 1500
     },
@@ -281,6 +283,10 @@ export const useSettingsStore = defineStore('settings', {
         ui: {
           theme_mode: THEME_MODE_VALUES.has(rawThemeMode) ? rawThemeMode : defaults.ui.theme_mode,
           color_variant: COLOR_VARIANT_VALUES.has(rawColorVariant) ? rawColorVariant : defaults.ui.color_variant,
+          glass_enabled:
+            typeof payload?.ui?.glass_enabled === 'boolean'
+              ? payload.ui.glass_enabled
+              : defaults.ui.glass_enabled,
           showFilenameSuffix:
             typeof payload?.ui?.showFilenameSuffix === 'boolean'
               ? payload.ui.showFilenameSuffix
@@ -399,6 +405,9 @@ export const useSettingsStore = defineStore('settings', {
           model: typeof payload?.ollama?.model === 'string' && payload.ollama.model.trim()
             ? payload.ollama.model.trim()
             : defaults.ollama.model,
+          chat_model: typeof payload?.ollama?.chat_model === 'string' && payload.ollama.chat_model.trim()
+            ? payload.ollama.chat_model.trim()
+            : defaults.ollama.chat_model,
           timeout_seconds: typeof payload?.ollama?.timeout_seconds === 'number' ? payload.ollama.timeout_seconds : defaults.ollama.timeout_seconds,
           max_input_chars: typeof payload?.ollama?.max_input_chars === 'number' ? payload.ollama.max_input_chars : defaults.ollama.max_input_chars
         },

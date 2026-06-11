@@ -8,8 +8,13 @@ services:
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
     restart: unless-stopped
-    ports:
-      - "${FRONTEND_PORT:-5179}:80"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    expose:
+      - "80"
     depends_on:
       backend:
         condition: service_healthy
@@ -22,29 +27,60 @@ services:
     networks:
       - papermind_net
 
+  # Reverse-Proxy / TLS-Terminierung: stellt http://papermind (Redirect) und
+  # https://papermind bereit, lokales Zertifikat über Caddys interne CA.
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy
+    networks:
+      - papermind_net
+
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8040"
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 1G
     environment:
       BACKEND_PORT: 8040
       DATABASE_URL: ${DATABASE_URL}
+      APP_DATABASE_URL: ${APP_DATABASE_URL}
+      WORKER_DATABASE_URL: ${WORKER_DATABASE_URL}
       AI_BASE_URL: http://ai:11439
       STORAGE_PATH: ${STORAGE_PATH:-/data/storage}
+      TZ: ${TZ:-Europe/Berlin}
       PUBLIC_WEB_BASE_URL: ${PUBLIC_WEB_BASE_URL}
       UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-26214400}
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS}
       AUTO_OCR_ON_UPLOAD: ${AUTO_OCR_ON_UPLOAD:-true}
       DIRECT_UPLOAD_API_KEY: ${DIRECT_UPLOAD_API_KEY}
+      AUTH_ENABLED: ${AUTH_ENABLED:-true}
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY}
+      AUTH_TOKEN_TTL_SECONDS: ${AUTH_TOKEN_TTL_SECONDS:-86400}
+      INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       MIN_TEXT_CHARS: ${MIN_TEXT_CHARS:-300}
       TEXT_CHECK_PAGES: ${TEXT_CHECK_PAGES:-2}
       SEARCH_QUERY_MAX_LENGTH: ${SEARCH_QUERY_MAX_LENGTH:-256}
       FTS_LANGUAGE: ${FTS_LANGUAGE:-german}
       INDEX_AUTO_ON_READY: ${INDEX_AUTO_ON_READY:-true}
-      EMBED_MODEL: ${EMBED_MODEL:-hash-384-v1}
-      EMBED_DIM: ${EMBED_DIM:-384}
+      EMBED_MODEL: ${EMBED_MODEL:-bge-m3}
+      EMBED_DIM: ${EMBED_DIM:-1024}
       EMBED_BATCH_SIZE: ${EMBED_BATCH_SIZE:-32}
       CHUNK_SIZE_CHARS: ${CHUNK_SIZE_CHARS:-1000}
       CHUNK_OVERLAP_CHARS: ${CHUNK_OVERLAP_CHARS:-100}
@@ -53,10 +89,19 @@ services:
       RETRIEVAL_MAX_TOP_K: ${RETRIEVAL_MAX_TOP_K:-20}
       DEDUPE_CANDIDATE_LIMIT: ${DEDUPE_CANDIDATE_LIMIT:-200}
       DEDUPE_TEXT_DISTANCE_THRESHOLD: ${DEDUPE_TEXT_DISTANCE_THRESHOLD:-6}
+      # System-/Hardware-Status (Raspberry Pi) – siehe gemountete Host-Pfade unten
+      SYSTEM_SYS_PATH: /host/sys
+      SYSTEM_HOST_ROOT: /host/root
+      HOST_CONTROL_DIR: /host/control
     expose:
       - "8040"
     volumes:
       - pdf_storage:${STORAGE_PATH:-/data/storage}
+      # Host-Metriken (read-only): Temperatur/Lüfter/Modell aus /sys, Speicher aus /
+      - /sys:/host/sys:ro
+      - /:/host/root:ro
+      # Power-Kommandos an den Host-Helfer (deploy/host-control)
+      - ${HOST_CONTROL_DIR:-./host-control}:/host/control
     depends_on:
       db:
         condition: service_healthy
@@ -78,6 +123,25 @@ services:
   db:
     image: pgvector/pgvector:pg17
     restart: unless-stopped
+    # Postgres-Tuning für Pi 5 (16 GB) + NVMe. Werte sind auf das Speicherlimit
+    # unten (4 GB) abgestimmt; random_page_cost/effective_io_concurrency für SSD,
+    # maintenance_work_mem hilft beim HNSW-Indexaufbau (Embeddings).
+    command: >
+      postgres
+      -c shared_buffers=1GB
+      -c effective_cache_size=3GB
+      -c maintenance_work_mem=512MB
+      -c work_mem=32MB
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c max_parallel_workers_per_gather=2
+      -c jit=off
+    shm_size: "512mb"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 4G
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -101,12 +165,19 @@ services:
       dockerfile: Dockerfile
     command: uvicorn app.main:app --host 0.0.0.0 --port 11439
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
     environment:
       AI_PORT: 11439
-      EMBED_MODEL: ${EMBED_MODEL:-hash-384-v1}
-      EMBED_DIM: ${EMBED_DIM:-384}
+      EMBED_MODEL: ${EMBED_MODEL:-bge-m3}
+      EMBED_DIM: ${EMBED_DIM:-1024}
       EMBED_MAX_TEXTS: ${EMBED_MAX_TEXTS:-64}
       EMBED_MAX_CHARS: ${EMBED_MAX_CHARS:-4000}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.2:3b}
     expose:
       - "11439"
     volumes:
@@ -132,18 +203,29 @@ services:
       dockerfile: worker/Dockerfile
     command: python -m app.worker.main
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "3.0"
+          memory: 2G
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      WORKER_DATABASE_URL: ${WORKER_DATABASE_URL}
       STORAGE_PATH: ${STORAGE_PATH:-/data/storage}
+      TZ: ${TZ:-Europe/Berlin}
       WORKER_POLL_INTERVAL_SECONDS: ${WORKER_POLL_INTERVAL_SECONDS:-3}
       WORKER_OCR_TIMEOUT_SECONDS: ${WORKER_OCR_TIMEOUT_SECONDS:-900}
+      # OCR-Drosselung (Pi): max. parallele Seiten + 1 Thread je Seite, damit OCR
+      # nicht alle Kerne auslastet (Hitze/Lüfter) und DB/API nicht aushungert.
+      OCR_JOBS: ${OCR_JOBS:-3}
+      OMP_THREAD_LIMIT: ${OMP_THREAD_LIMIT:-1}
       IMPORT_INBOX_DROP_PATH: ${IMPORT_INBOX_DROP_PATH:-/scan-inbox}
       IMPORT_INBOX_FILE_STABLE_SECONDS: ${IMPORT_INBOX_FILE_STABLE_SECONDS:-3}
       AI_BASE_URL: http://ai:11439
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://localhost:11434}
       INDEX_AUTO_ON_READY: ${INDEX_AUTO_ON_READY:-true}
-      EMBED_MODEL: ${EMBED_MODEL:-hash-384-v1}
-      EMBED_DIM: ${EMBED_DIM:-384}
+      EMBED_MODEL: ${EMBED_MODEL:-bge-m3}
+      EMBED_DIM: ${EMBED_DIM:-1024}
       EMBED_BATCH_SIZE: ${EMBED_BATCH_SIZE:-32}
       CHUNK_SIZE_CHARS: ${CHUNK_SIZE_CHARS:-1000}
       CHUNK_OVERLAP_CHARS: ${CHUNK_OVERLAP_CHARS:-100}
@@ -165,6 +247,8 @@ volumes:
   postgres_data:
   pdf_storage:
   ai_models:
+  caddy_data:
+  caddy_config:
 
 networks:
   papermind_net:

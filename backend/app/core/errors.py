@@ -38,6 +38,16 @@ class BadRequestError(APIError):
         super().__init__(status.HTTP_400_BAD_REQUEST, "BAD_REQUEST", message, details)
 
 
+class UnauthorizedError(APIError):
+    def __init__(self, message: str = "Authentication required", details: Any | None = None) -> None:
+        super().__init__(status.HTTP_401_UNAUTHORIZED, "UNAUTHORIZED", message, details)
+
+
+class ForbiddenError(APIError):
+    def __init__(self, message: str = "Insufficient permissions", details: Any | None = None) -> None:
+        super().__init__(status.HTTP_403_FORBIDDEN, "FORBIDDEN", message, details)
+
+
 class PayloadTooLargeError(APIError):
     def __init__(self, message: str = "Payload too large", details: Any | None = None) -> None:
         super().__init__(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "PAYLOAD_TOO_LARGE", message, details)

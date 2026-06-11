@@ -4,11 +4,66 @@
  * Alle Requests laufen über apiFetch(). Die Methoden-Helfer
  * (apiGet, apiPost, apiPatch, apiPut, apiDelete) decken die
  * gängigen Fälle ab.
+ *
+ * Authentifizierung: Das Access-Token wird in localStorage gehalten und
+ * automatisch als `Authorization: Bearer`-Header an jeden Request gehängt.
+ * Bei einer 401-Antwort wird das Token verworfen und ein registrierter
+ * Handler benachrichtigt (zeigt den Login-Screen).
  */
 
 import { API_BASE_URL } from './config.js';
 
 const BASE_URL = API_BASE_URL;
+const TOKEN_KEY = 'pm_auth_token';
+
+let unauthorizedHandler = null;
+
+// Kurzlebiges, datei-scoped Token (nur In-Memory) für native Ressourcen-Loads.
+// Bewusst NICHT das Session-Token, damit kein langlebiges Token in URLs/Logs landet.
+let fileToken = '';
+
+/** Registriert einen Callback, der bei 401-Antworten ausgelöst wird. */
+export function setUnauthorizedHandler(fn) {
+  unauthorizedHandler = typeof fn === 'function' ? fn : null;
+}
+
+/** Setzt das aktuelle Datei-Token (vom Auth-Store gepflegt). */
+export function setFileToken(token) {
+  fileToken = token || '';
+}
+
+/** Liest das gespeicherte Access-Token (oder leeren String). */
+export function getToken() {
+  try {
+    return localStorage.getItem(TOKEN_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+/** Speichert (oder löscht bei falsy) das Access-Token. */
+export function setToken(token) {
+  try {
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_KEY);
+    }
+  } catch {
+    /* localStorage nicht verfügbar – ignorieren */
+  }
+}
+
+/**
+ * Hängt das Token als Query-Parameter an eine rohe Ressourcen-URL an.
+ * Nötig für native Loads (z. B. <img>, PDF-Viewer, Downloads), die keinen
+ * Authorization-Header setzen können.
+ */
+export function authedUrl(url) {
+  if (!fileToken) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}token=${encodeURIComponent(fileToken)}`;
+}
 
 /**
  * Liest die Fehlermeldung aus einer nicht-ok Response.
@@ -37,7 +92,18 @@ export async function apiFetch(path, options = {}) {
     headers['Content-Type'] = 'application/json';
   }
 
+  const token = getToken();
+  if (token && !headers.Authorization && !headers.authorization) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
   const response = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+
+  if (response.status === 401) {
+    setToken(null);
+    if (unauthorizedHandler) unauthorizedHandler();
+    throw new Error(await readErrorMessage(response));
+  }
 
   if (!response.ok) {
     throw new Error(await readErrorMessage(response));
@@ -74,3 +140,9 @@ export const apiDelete = (path) =>
 
 /** Gibt die konfigurierte Base-URL zurück (z.B. für bestehende API-Module). */
 export const getBaseUrl = () => BASE_URL;
+
+/** Authorization-Header für manuelle fetch()-Aufrufe. */
+export function authHeaders() {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}

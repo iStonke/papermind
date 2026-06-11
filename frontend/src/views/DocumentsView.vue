@@ -1,107 +1,80 @@
 <template>
-  <v-app
-    class="papermind-app"
-    :class="{ 'pm-no-animations': !settingsStore.animationsEnabled }"
-    :data-color-variant="appColorVariant"
-  >
-    <v-app-bar class="app-topbar" flat height="64">
-      <div class="appbar-layout">
-        <div class="appbar-left app-title">
-          <button type="button" class="app-title__brand app-title__brand-button" @click="openLibraryView">
-            PaperMind
-          </button>
-        </div>
-
-        <div class="appbar-center">
-          <v-text-field
-            ref="appBarSearchRef"
-            v-model="searchText"
-            class="appbar-search__field"
-            prepend-inner-icon="mdi-magnify"
-            clearable
-            clear-icon="mdi-close"
-            :placeholder="searchPlaceholder"
-            density="compact"
-            variant="outlined"
-            :messages="searchHintMessages"
-            hide-details="auto"
-            @update:model-value="onAppBarSearchInput"
-            @keydown="handleSearchShortcut"
-            @click:clear="clearSearchFromInput"
-          />
-        </div>
-
-        <div class="appbar-right appbar-actions">
-          <v-menu v-if="pendingImportInboxCount > 0" location="bottom end" offset="8">
-            <template #activator="{ props: importMenuProps }">
-              <v-badge
-                model-value
-                :content="pendingImportInboxBadgeLabel"
-                color="error"
-                offset-x="3"
-                offset-y="3"
-              >
-                <v-btn class="topbar-btn topbar-btn--import" variant="text" v-bind="importMenuProps">
-                  <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
-                  Importieren
-                </v-btn>
-              </v-badge>
-            </template>
-            <v-list density="compact" min-width="240">
-              <v-list-item
-                class="import-inbox-menu-item"
-                prepend-icon="mdi-inbox-arrow-down-outline"
-                :title="pendingImportInboxMenuTitle"
-                @click="openImportInboxScans"
-              />
-              <v-divider />
-              <v-list-item
-                prepend-icon="mdi-file-upload-outline"
-                title="PDF hochladen..."
-                @click="openImportPdfPicker"
-              />
-            </v-list>
-          </v-menu>
-          <v-btn
-            v-else
-            class="topbar-btn topbar-btn--import"
-            variant="text"
-            @click="openImportPdfPicker"
-          >
-            <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
-            Importieren
-          </v-btn>
-
-          <v-btn
-            class="topbar-btn topbar-btn--import"
-            :class="{ 'topbar-btn--active': isAiDialogOpen }"
-            variant="text"
-            @click="openAiView"
-          >
-            <v-icon size="18" class="mr-1">mdi-robot</v-icon>
-            KI
-          </v-btn>
-
-          <ActivityIndicator ref="activityIndicatorRef" />
-
-          <v-btn
-            class="topbar-btn topbar-btn--icon"
-            variant="text"
-            aria-label="Einstellungen"
-            @click="openSettingsDialog"
-          >
-            <v-icon size="20">mdi-cog-outline</v-icon>
-          </v-btn>
-        </div>
-      </div>
-    </v-app-bar>
-
-    <v-main class="app-main">
-      <SettingsDialog
-        v-model="isSettingsDialogOpen"
-        :initial-category="settingsInitialCategory"
-        @reload-imports="onSettingsReloadImports"
+  <AppTopBar>
+    <template #center>
+      <v-text-field
+        ref="appBarSearchRef"
+        v-model="searchText"
+        class="appbar-search__field"
+        prepend-inner-icon="mdi-magnify"
+        clearable
+        clear-icon="mdi-close"
+        :placeholder="searchPlaceholder"
+        density="compact"
+        variant="outlined"
+        :messages="searchHintMessages"
+        hide-details="auto"
+        @update:model-value="onAppBarSearchInput"
+        @keydown="handleSearchShortcut"
+        @click:clear="clearSearchFromInput"
       />
+    </template>
+
+    <template #actions>
+      <v-menu v-if="pendingImportInboxCount > 0" location="bottom end" offset="8">
+        <template #activator="{ props: importMenuProps }">
+          <v-badge
+            model-value
+            :content="pendingImportInboxBadgeLabel"
+            color="error"
+            offset-x="3"
+            offset-y="3"
+          >
+            <v-btn class="topbar-btn topbar-btn--import" variant="text" v-bind="importMenuProps">
+              <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
+              Importieren
+            </v-btn>
+          </v-badge>
+        </template>
+        <v-list density="compact" min-width="240">
+          <v-list-item
+            class="import-inbox-menu-item"
+            prepend-icon="mdi-inbox-arrow-down-outline"
+            :title="pendingImportInboxMenuTitle"
+            @click="openImportInboxScans"
+          />
+          <v-divider />
+          <v-list-item
+            prepend-icon="mdi-file-upload-outline"
+            title="PDF hochladen..."
+            @click="openImportPdfPicker"
+          />
+        </v-list>
+      </v-menu>
+      <v-btn
+        v-else
+        class="topbar-btn topbar-btn--import"
+        variant="text"
+        @click="openImportPdfPicker"
+      >
+        <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
+        Importieren
+      </v-btn>
+
+      <v-btn
+        class="topbar-btn topbar-btn--import"
+        :class="{ 'topbar-btn--active': isAiDialogOpen }"
+        variant="text"
+        @click="openAiView"
+      >
+        <v-icon size="18" class="mr-1">mdi-robot</v-icon>
+        Chat
+      </v-btn>
+
+      <ActivityIndicator ref="activityIndicatorRef" @open-backup="openBackupSettings" />
+    </template>
+  </AppTopBar>
+
+  <v-main class="app-main">
       <BatchTagDialog
         v-model="isBatchTagDialogOpen"
         :tags="tags"
@@ -810,38 +783,38 @@
 
       <NotificationStack />
     </v-main>
-  </v-app>
 </template>
 
 <script setup>
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useTheme } from 'vuetify';
-import BaseDialog from './components/BaseDialog.vue';
-import PmEmptyState from './components/PmEmptyState.vue';
-import DeleteDocumentDialog from './components/DeleteDocumentDialog.vue';
-import DocumentPreviewLayout from './components/DocumentPreviewLayout.vue';
-import ImportStagingDialog from './components/ImportStagingDialog.vue';
-import NotificationStack from './components/NotificationStack.vue';
-import AppSidebar from './components/AppSidebar.vue';
-import ActivityIndicator from './components/ActivityIndicator.vue';
-import DocumentListPanel from './components/DocumentListPanel.vue';
-import ListActionToolbar from './components/ListActionToolbar.vue';
-import BatchActionsBar from './components/BatchActionsBar.vue';
-import BatchTagDialog from './components/BatchTagDialog.vue';
-import SmartFolderEditor from './components/SmartFolderEditor.vue';
-import TagDialogs from './components/TagDialogs.vue';
-import RenameDocumentDialog from './components/RenameDocumentDialog.vue';
-import AiDialog from './components/AiDialog.vue';
-import SettingsDialog from './components/SettingsDialog.vue';
-import { mapApiError, notifyError, logDevError, useNotifications } from './stores/notifications';
-import { useSettingsStore } from './stores/settings';
-import { useDocumentStore } from './stores/documents';
-import { useTagStore } from './stores/tags';
-import { useCategoryStore } from './stores/categories';
-import { useCorrespondentStore } from './stores/correspondents';
-import { useSidebarStore } from './stores/sidebar';
-import { useImportStagingStore } from './stores/importStaging';
+import BaseDialog from '../components/BaseDialog.vue';
+import AppTopBar from '../components/AppTopBar.vue';
+import PmEmptyState from '../components/PmEmptyState.vue';
+import DeleteDocumentDialog from '../components/DeleteDocumentDialog.vue';
+import DocumentPreviewLayout from '../components/DocumentPreviewLayout.vue';
+import ImportStagingDialog from '../components/ImportStagingDialog.vue';
+import NotificationStack from '../components/NotificationStack.vue';
+import AppSidebar from '../components/AppSidebar.vue';
+import ActivityIndicator from '../components/ActivityIndicator.vue';
+import DocumentListPanel from '../components/DocumentListPanel.vue';
+import ListActionToolbar from '../components/ListActionToolbar.vue';
+import BatchActionsBar from '../components/BatchActionsBar.vue';
+import BatchTagDialog from '../components/BatchTagDialog.vue';
+import SmartFolderEditor from '../components/SmartFolderEditor.vue';
+import TagDialogs from '../components/TagDialogs.vue';
+import RenameDocumentDialog from '../components/RenameDocumentDialog.vue';
+import AiDialog from '../components/AiDialog.vue';
+import { mapApiError, notifyError, logDevError, useNotifications } from '../stores/notifications';
+import { useSettingsStore } from '../stores/settings';
+import { useUiStore } from '../stores/ui';
+import { useDocumentStore } from '../stores/documents';
+import { useTagStore } from '../stores/tags';
+import { useCategoryStore } from '../stores/categories';
+import { useCorrespondentStore } from '../stores/correspondents';
+import { useSidebarStore } from '../stores/sidebar';
+import { useImportStagingStore } from '../stores/importStaging';
 import {
   buildAutoOcrPatch,
   buildAutoTaggingPatch,
@@ -850,17 +823,17 @@ import {
   buildShowFilenameSuffixPatch,
   buildSortOrderPatch,
   buildThemeModePatch
-} from './utils/settingsApi';
-import { formatDateTime, formatDocumentDateInputFromIso, parseDocumentDateInput } from './utils/dates';
-import { useOcrPolling } from './composables/useOcrPolling';
-import { useGlobalKeyboard } from './composables/useGlobalKeyboard';
-import { useSearch } from './composables/useSearch';
-import { SHORTCUT_ACTIONS, handleShortcut } from './keyboard/shortcuts';
-import { getBaseUrl } from './api/client.js';
-import { claimImportInboxItems, discardImportInboxItems, getImportInbox } from './api/importInbox.js';
-import { applyPaperMindVuetifyColors, resolvePaperMindColorVariant } from './theme/tokens';
+} from '../utils/settingsApi';
+import { formatDateTime, formatDocumentDateInputFromIso, parseDocumentDateInput } from '../utils/dates';
+import { useOcrPolling } from '../composables/useOcrPolling';
+import { useGlobalKeyboard } from '../composables/useGlobalKeyboard';
+import { useSearch } from '../composables/useSearch';
+import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
+import { authedUrl, getBaseUrl } from '../api/client.js';
+import { claimImportInboxItems, discardImportInboxItems, getImportInbox } from '../api/importInbox.js';
+import { applyPaperMindVuetifyColors, resolvePaperMindColorVariant } from '../theme/tokens';
 
-const PdfPreview = defineAsyncComponent(() => import('./components/PdfPreview.vue'));
+const PdfPreview = defineAsyncComponent(() => import('../components/PdfPreview.vue'));
 
 const apiBaseUrl = getBaseUrl();
 
@@ -992,6 +965,7 @@ const appColorVariant = computed(() => resolvePaperMindColorVariant(settingsDraf
 const showPdfSuffix = computed(() => settingsStore.settingsDraft.ui.showFilenameSuffix);
 
 // ── Domain Stores ────────────────────────────────────────────────────────
+const uiStore = useUiStore();
 const docStore     = useDocumentStore();
 const tagStore     = useTagStore();
 const categoryStore = useCategoryStore();
@@ -1086,14 +1060,14 @@ const previewHighlightText = ref('');
 const importStagingDialogRef = ref(null);
 const activityIndicatorRef = ref(null);
 const importPdfInputRef = ref(null);
-const isSettingsDialogOpen = ref(false);
-const settingsInitialCategory = ref('appearance');
 const importInboxItems = ref([]);
 const isImportInboxLoading = ref(false);
 const importInboxSuppressedItemIds = ref(new Set());
 const activeImportInboxItemIds = ref(new Set());
 const activeImportInboxSourceToItemId = ref(new Map());
 const isClaimingImportInbox = ref(false);
+// Unterscheidet Minimieren (Items behalten) von echtem Schließen ohne Commit (verwerfen).
+const isMinimizingImport = ref(false);
 const isDocumentListSettling = ref(false);
 let documentListSettleTimer = null;
 const notifiedOcrQualityKeys = new Set();
@@ -2000,13 +1974,22 @@ async function onImportSourcesDiscarded(payload = {}) {
   }
 }
 
-watch(isUploadDialogOpen, (open) => {
+watch(isUploadDialogOpen, async (open) => {
   if (open) {
     isImportTrayVisible.value = false;
-  }
-  if (open || isClaimingImportInbox.value || activeImportInboxItemIds.value.size === 0) {
     return;
   }
+  // Minimieren ist kein echtes Schließen: Items für späteres Wiederherstellen behalten.
+  if (isMinimizingImport.value) {
+    isMinimizingImport.value = false;
+    return;
+  }
+  // Commit-Pfad setzt isClaimingImportInbox/leert die aktiven Items → hier nichts tun.
+  if (isClaimingImportInbox.value || activeImportInboxItemIds.value.size === 0) {
+    return;
+  }
+  // Dialog ohne Commit geschlossen (Abbrechen/Esc/Klick außerhalb): geöffnete
+  // Inbox-Scans verwerfen – aber erst nach Sicherheitsabfrage.
   const itemIds = Array.from(activeImportInboxItemIds.value);
   activeImportInboxItemIds.value = new Set();
   activeImportInboxSourceToItemId.value = new Map();
@@ -2015,7 +1998,23 @@ watch(isUploadDialogOpen, (open) => {
     nextSuppressed.delete(itemId);
   }
   importInboxSuppressedItemIds.value = nextSuppressed;
-  void refreshImportInbox({ silent: true });
+
+  const count = itemIds.length;
+  const confirmed = window.confirm(
+    `${count} gescannte${count === 1 ? 'n Import' : ' Importe'} verwerfen? `
+      + 'Die Dateien werden endgültig gelöscht. Mit „Abbrechen" bleiben sie im Posteingang.'
+  );
+  if (!confirmed) {
+    // Behalten: Scans wandern zurück in den Posteingang.
+    await refreshImportInbox({ silent: true });
+    return;
+  }
+  try {
+    await discardImportInboxItems(itemIds);
+  } catch (error) {
+    notify({ type: 'warning', message: mapApiError(error, 'Verworfene Scans konnten nicht gelöscht werden.') });
+  }
+  await refreshImportInbox({ silent: true });
 });
 
 // ── Navigation ────────────────────────────────────────────────────────────
@@ -2238,16 +2237,14 @@ async function fetchAppSettings(options = {}) {
 }
 
 
-async function openSettingsDialog() {
-  settingsInitialCategory.value = 'appearance';
-  isSettingsDialogOpen.value = true;
+async function openShortcutsHelp() {
   await fetchAppSettings();
+  uiStore.openSettings('controls');
 }
 
-async function openShortcutsHelp() {
-  settingsInitialCategory.value = 'controls';
-  isSettingsDialogOpen.value = true;
+async function openBackupSettings() {
   await fetchAppSettings();
+  uiStore.openSettings('backup');
 }
 
 function handleSystemThemeChange() {
@@ -2376,7 +2373,7 @@ function resolvePreviewRole(documentId) {
 
 function documentFileUrl(documentId) {
   const selectedRole = resolvePreviewRole(documentId);
-  return `${apiBaseUrl}/api/documents/${documentId}/file?role=${selectedRole}`;
+  return authedUrl(`${apiBaseUrl}/api/documents/${documentId}/file?role=${selectedRole}`);
 }
 
 function setDocumentUnreadState(documentId, unreadValue) {
@@ -4167,7 +4164,13 @@ function onSettingsReloadImports() {
   scheduleSidebarCountsRefresh();
 }
 
+// Der SettingsDialog ist global gemountet (AppLayout); reload-imports kommt
+// als Signal über den ui-Store herein.
+watch(() => uiStore.importsReloadSignal, () => onSettingsReloadImports());
+
 function onImportMinimized() {
+  // Markieren, damit der Close-Watcher die Inbox-Scans NICHT verwirft (nur Tray).
+  isMinimizingImport.value = true;
   isImportTrayVisible.value = importTrayPageCount.value > 0 || importTrayDocumentCount.value > 0;
 }
 
@@ -4330,7 +4333,7 @@ function downloadSelectedDocument() {
   }
 
   const role = resolvePreviewRole(selectedDocumentDetail.value.id);
-  const url = `${apiBaseUrl}/api/documents/${selectedDocumentDetail.value.id}/file?role=${role}&download=true`;
+  const url = authedUrl(`${apiBaseUrl}/api/documents/${selectedDocumentDetail.value.id}/file?role=${role}&download=true`);
   window.open(url, '_blank', 'noopener');
 }
 
@@ -4343,7 +4346,7 @@ function downloadDocumentFromList(document) {
     downloadSelectedDocument();
     return;
   }
-  const url = `${apiBaseUrl}/api/documents/${documentId}/file?role=original&download=true`;
+  const url = authedUrl(`${apiBaseUrl}/api/documents/${documentId}/file?role=original&download=true`);
   window.open(url, '_blank', 'noopener');
 }
 
@@ -5292,8 +5295,8 @@ onBeforeUnmount(() => {
 }
 
 .tag-filter-drawer {
-  position: sticky;
-  bottom: 0;
+  flex: 0 0 auto;
+  position: relative;
   z-index: 4;
   border-top: 1px solid rgba(var(--v-theme-on-surface), 0.1);
   background:
@@ -5894,10 +5897,20 @@ onBeforeUnmount(() => {
 .panel-middle {
   position: relative;
   background: var(--pm-content-surface);
+  /* Eigene Spalten-Layout-Steuerung: View scrollt intern, Drawer bleibt Footer.
+     Überschreibt das overflow-y:auto von .panel, damit der Panel-Container nicht
+     als Ganzes scrollt (sonst würde der Tag-Filter-Drawer zusätzliche Scrollhöhe
+     erzeugen und die Liste unter die Toolbar schieben). */
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .panel-middle__view {
-  min-height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  overflow-y: auto;
   position: relative;
   width: 100%;
 }

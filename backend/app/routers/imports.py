@@ -4,9 +4,13 @@ from fastapi import APIRouter, Depends, File, Header, Query, Request, status, Up
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
+from fastapi import HTTPException
+
 from app.core.config import get_settings
+from app.core.deps import get_current_user
 from app.core.security import verify_shared_upload_api_key
 from app.db import get_db
+from app.models.user import User
 from app.schemas.common import ErrorResponse
 from app.schemas.import_staging import (
     ImportCommitRequest,
@@ -51,8 +55,9 @@ def _verify_inbox_api_key(
 def upload_import_sources(
     files: list[UploadFile] = File(..., description="PDF files"),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> ImportSourceUploadResponse:
-    service = ImportStagingService(db)
+    service = ImportStagingService(db, user.id)
     return service.upload_sources(files)
 
 
@@ -75,8 +80,12 @@ def upload_import_inbox(
     db: Session = Depends(get_db),
     _: None = Depends(_verify_inbox_api_key),
 ) -> ImportInboxUploadResponse:
-    service = ImportInboxService(db)
-    return service.upload(files, client_name=x_client_name)
+    # Vorübergehend deaktiviert: maschinelle Importe ohne Benutzerkontext sind
+    # mit der Pro-Benutzer-Datentrennung nicht zuordenbar.
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Der Inbox-Upload ist mit der Pro-Benutzer-Trennung vorübergehend deaktiviert.",
+    )
 
 
 @router.get(
@@ -142,8 +151,12 @@ def discard_import_inbox_source_pages(
     summary="Download staged source PDF",
     responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
 )
-def get_import_source_file(source_file_id: str, db: Session = Depends(get_db)) -> FileResponse:
-    service = ImportStagingService(db)
+def get_import_source_file(
+    source_file_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> FileResponse:
+    service = ImportStagingService(db, user.id)
     source_path = service.get_source_pdf_path(source_file_id)
     return FileResponse(
         path=str(source_path),
@@ -158,8 +171,12 @@ def get_import_source_file(source_file_id: str, db: Session = Depends(get_db)) -
     summary="Commit staged import documents",
     responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
-def commit_import_batch(payload: ImportCommitRequest, db: Session = Depends(get_db)) -> ImportCommitResponse:
-    service = ImportStagingService(db)
+def commit_import_batch(
+    payload: ImportCommitRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ImportCommitResponse:
+    service = ImportStagingService(db, user.id)
     return service.commit(payload)
 
 
@@ -173,8 +190,9 @@ def suggest_import_stage_title(
     stage_id: str,
     payload: StageTitleSuggestRequest,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> StageTitleSuggestResponse:
-    service = ImportStagingService(db)
+    service = ImportStagingService(db, user.id)
     result = service.suggest_stage_title(
         payload.sourceFileIds,
         page_scope=payload.pageScope,

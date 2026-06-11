@@ -22,7 +22,7 @@
       <div class="pm-settings-layout">
         <nav class="pm-settings-nav" role="tablist" aria-label="Einstellungskategorien">
           <button
-            v-for="cat in settingsCategories"
+            v-for="cat in visibleCategories"
             :key="`cat-${cat.value}`"
             type="button"
             class="pm-settings-nav__item"
@@ -39,6 +39,12 @@
         <div class="pm-settings-panel">
         <section v-show="activeCategory === 'appearance'" class="pm-settings-section">
           <div class="pm-settings-content">
+            <SettingsInfoCard
+              icon="mdi-palette-outline"
+              title="Darstellung"
+              subtitle="Farben, Thema und das Verhalten der Oberfläche anpassen."
+            />
+
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Farbvariation</div>
@@ -149,6 +155,33 @@
               class="pm-setting-row"
               role="button"
               tabindex="0"
+              @click="toggleGlassEnabledFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleGlassEnabledFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Glass-Look (Aurora-Hintergrund)</div>
+                <div class="pm-setting-description">
+                  Durchscheinende Oberflächen mit animiertem Wissensgraph im Hintergrund. Nutzt die aktive
+                  Farbvariante. Benötigt aktivierte Animationen.
+                </div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.ui.glass_enabled"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :disabled="!animationsEnabled || isSettingSaving.glass_enabled"
+                :loading="isSettingSaving.glass_enabled"
+                @click.stop
+                @update:model-value="onGlassEnabledChange"
+              />
+            </div>
+
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
               @click="toggleDrawerRememberStateFromRow"
               @keydown="handleSettingRowShortcut($event, toggleDrawerRememberStateFromRow)"
             >
@@ -196,11 +229,38 @@
                 @update:model-value="onTagDrawerRememberStateChange"
               />
             </div>
+
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Automatische Abmeldung</div>
+                <div class="pm-setting-description">
+                  Meldet dich nach einer Zeit ohne Aktivität automatisch ab (gilt für dieses Gerät/diesen Browser).
+                </div>
+              </div>
+              <v-select
+                :model-value="auth.autoLogoutMinutes"
+                :items="autoLogoutOptions"
+                item-title="label"
+                item-value="value"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Abmelden"
+                @update:model-value="onAutoLogoutChange"
+              />
+            </div>
           </div>
         </section>
 
         <section v-show="activeCategory === 'documents'" class="pm-settings-section">
           <div class="pm-settings-content">
+            <SettingsInfoCard
+              icon="mdi-file-document-outline"
+              title="Dokumente"
+              subtitle="Aufbewahrung, Zeiträume und Aufräum-Funktionen deiner Dokumente."
+            />
+
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Zeitraum für „Zuletzt hinzugefügt"</div>
@@ -292,6 +352,12 @@
 
         <section v-show="activeCategory === 'categories'" class="pm-settings-section">
           <div class="pm-settings-content">
+            <SettingsInfoCard
+              icon="mdi-file-document-multiple-outline"
+              title="Dokumenttypen"
+              subtitle="Auswahloptionen für den Import samt Dateiname-Templates verwalten."
+            />
+
             <div class="settings-category-management">
               <div class="settings-category-header">
               <div class="pm-setting-content">
@@ -442,6 +508,12 @@
 
         <section v-show="activeCategory === 'correspondents'" class="pm-settings-section">
           <div class="pm-settings-content">
+            <SettingsInfoCard
+              icon="mdi-account-outline"
+              title="Korrespondenten"
+              subtitle="Absender und Aussteller mit Aliasen pflegen und zuordnen."
+            />
+
             <div class="settings-category-management">
               <div class="settings-category-header">
                 <div class="pm-setting-content">
@@ -696,13 +768,11 @@
         <section v-show="activeCategory === 'ai'" class="pm-settings-section">
           <div class="pm-settings-content">
 
-            <!-- Hinweis: Import-Vorschau wird immer analysiert -->
-            <div class="pm-setting-note">
-              Im Import-Fenster werden hinzugefügte Dokumente <strong>immer</strong> automatisch
-              analysiert (Vorschau für Titel, Datum, Dokumenttyp und Tags). Die folgenden Optionen
-              steuern Qualität und Sprache dieser Analyse sowie die automatische
-              Weiterverarbeitung <strong>nach</strong> dem Import.
-            </div>
+            <SettingsInfoCard
+              icon="mdi-text-recognition"
+              title="Texterkennung"
+              subtitle="Qualität, Sprache und automatische Weiterverarbeitung der OCR-Analyse nach dem Import."
+            />
 
             <!-- Automatisches OCR (Grundlage für die KI-Analyse) -->
             <div
@@ -912,6 +982,29 @@
                 />
               </div>
 
+              <!-- Chat model (quality vs. speed) -->
+              <div class="pm-setting-row pm-setting-row--column">
+                <div class="pm-setting-content">
+                  <div class="pm-setting-label">Chat-Modell (Frage &amp; Antwort)</div>
+                  <div class="pm-setting-description">
+                    Modell für den Dokumenten-Chat. Kleine Modelle (z.&thinsp;B. llama3.2:3b)
+                    antworten schneller; größere (z.&thinsp;B. qwen2.5:7b, llama3.1:8b) liefern
+                    bessere Qualität, sind auf dem Pi aber deutlich langsamer.
+                  </div>
+                </div>
+                <v-combobox
+                  :model-value="settingsDraft.ollama.chat_model"
+                  :items="ollamaChatModelPresets"
+                  density="comfortable"
+                  variant="outlined"
+                  hide-details
+                  :loading="isSettingSaving.ollama_chat_model"
+                  :disabled="isSettingSaving.ollama_chat_model"
+                  class="pm-setting-select"
+                  @update:model-value="onOllamaChatModelChange"
+                />
+              </div>
+
               <!-- Max input chars -->
               <div class="pm-setting-row pm-setting-row--column">
                 <div class="pm-setting-content">
@@ -942,15 +1035,273 @@
           </div>
         </section>
 
-        <section v-show="activeCategory === 'controls'" class="pm-settings-section">
+        <section v-show="activeCategory === 'backup'" class="pm-settings-section">
           <div class="pm-settings-content">
-            <div class="pm-setting-row pm-setting-row--column">
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Tastaturkürzel</div>
-                <div class="pm-setting-description">Verfügbare Tastenkürzel und Mausgesten in PaperMind.</div>
+            <SettingsInfoCard
+              icon="mdi-cloud-upload-outline"
+              title="Backup auf NAS"
+              subtitle="Sichert Datenbank und PDFs automatisch auf dein Netzlaufwerk."
+            >
+              <template #actions>
+                <v-switch
+                  :model-value="backup.enabled"
+                  color="primary"
+                  hide-details
+                  density="compact"
+                  :loading="backupSaving"
+                  @update:model-value="onToggleBackup"
+                />
+              </template>
+            </SettingsInfoCard>
+
+            <div class="backup-card" :class="`backup-card--${backupCardKind}`">
+              <div class="backup-card__main">
+                <div class="backup-card__icon">
+                  <v-progress-circular v-if="backupBusy" indeterminate size="24" width="3" />
+                  <v-icon v-else size="28">{{ backupStatusIcon }}</v-icon>
+                </div>
+                <div class="backup-card__info">
+                  <div class="backup-card__state">{{ backupStateLabel }}</div>
+                  <div class="backup-card__detail">{{ backupLastLabel }}</div>
+                </div>
+                <div v-if="backup.enabled" class="backup-card__next">
+                  <div class="backup-card__next-label">Nächster Lauf</div>
+                  <div class="backup-card__next-value">{{ backupNextLabel }}</div>
+                </div>
               </div>
 
-              <div class="shortcuts-list">
+              <div class="backup-card__section">
+                <div class="backup-card__section-head">
+                  <span class="backup-card__section-title">Zeitplan</span>
+                  <v-btn
+                    variant="text"
+                    size="x-small"
+                    :loading="backupSaving"
+                    prepend-icon="mdi-content-save-outline"
+                    @click="saveBackup"
+                  >
+                    Speichern
+                  </v-btn>
+                </div>
+                <div class="backup-grid backup-grid--tight">
+                  <v-select
+                    v-model="backup.frequency"
+                    :items="[{ title: 'Täglich', value: 'daily' }, { title: 'Wöchentlich', value: 'weekly' }]"
+                    label="Häufigkeit"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    :menu-props="{ attach: 'body', zIndex: 6000 }"
+                  />
+                  <v-text-field v-model="backup.time" label="Uhrzeit" placeholder="03:00" density="compact" variant="outlined" hide-details />
+                  <v-select
+                    v-if="backup.frequency === 'weekly'"
+                    v-model="backup.weekday"
+                    :items="backupWeekdayItems"
+                    label="Wochentag"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    :menu-props="{ attach: 'body', zIndex: 6000 }"
+                  />
+                  <v-text-field v-model.number="backup.retention" type="number" min="1" max="365" label="Backups behalten" density="compact" variant="outlined" hide-details />
+                </div>
+              </div>
+
+              <div class="backup-card__actions">
+                <v-btn
+                  variant="flat"
+                  color="primary"
+                  size="small"
+                  :disabled="!backup.enabled || backupBusy"
+                  prepend-icon="mdi-backup-restore"
+                  @click="onRunBackup"
+                >
+                  {{ backupStatusKind === 'error' ? 'Erneut versuchen' : 'Jetzt sichern' }}
+                </v-btn>
+                <v-btn variant="text" size="small" prepend-icon="mdi-folder-clock-outline" @click="openBackupManager">
+                  Backups verwalten
+                </v-btn>
+              </div>
+            </div>
+
+            <v-expansion-panels v-model="backupSetupOpen" class="backup-setup" flat>
+              <v-expansion-panel>
+                <v-expansion-panel-title>
+                  <div class="backup-setup__head">
+                    <v-icon size="20" class="mr-3">mdi-cog-outline</v-icon>
+                    <div class="backup-setup__head-text">
+                      <div class="backup-setup__head-title">NAS-Verbindung</div>
+                      <div class="backup-setup__head-sub">{{ backupSetupSummary }}</div>
+                    </div>
+                  </div>
+                </v-expansion-panel-title>
+                <v-expansion-panel-text>
+                  <div class="backup-grid">
+                    <v-text-field class="backup-grid__full" v-model="backup.nas_host" label="IP-Adresse" placeholder="192.168.178.73" density="compact" variant="outlined" hide-details />
+                    <v-text-field v-model="backup.nas_username" label="Benutzer" density="compact" variant="outlined" hide-details />
+                    <v-text-field
+                      :model-value="backupPassword"
+                      @update:model-value="onBackupPasswordInput"
+                      @focus="onBackupPasswordFocus"
+                      @blur="onBackupPasswordBlur"
+                      label="Passwort"
+                      type="password"
+                      autocomplete="new-password"
+                      density="compact"
+                      variant="outlined"
+                      hide-details
+                    />
+                    <v-text-field v-model="backup.nas_share" label="Freigabe" placeholder="papermind-backup" density="compact" variant="outlined" hide-details />
+                    <v-text-field v-model="backup.nas_folder" label="Unterordner (optional)" placeholder="papermind" density="compact" variant="outlined" hide-details />
+                  </div>
+                  <div class="backup-actions">
+                    <v-btn variant="tonal" size="small" :loading="backupTesting" prepend-icon="mdi-lan-connect" @click="onTestBackup">
+                      Verbindung testen
+                    </v-btn>
+                    <span
+                      v-if="backupTestResult"
+                      class="backup-test-result"
+                      :class="backupTestResult.ok ? 'backup-test-result--ok' : 'backup-test-result--err'"
+                    >
+                      {{ backupTestResult.message }}
+                    </span>
+                    <v-spacer />
+                    <v-btn color="primary" size="small" :loading="backupSaving" prepend-icon="mdi-content-save-outline" @click="saveBackup">
+                      Speichern
+                    </v-btn>
+                  </div>
+                </v-expansion-panel-text>
+              </v-expansion-panel>
+            </v-expansion-panels>
+
+            <!-- Backups verwalten -->
+            <v-dialog v-model="backupManagerOpen" max-width="640" :persistent="restoreInProgress">
+              <v-card>
+                <v-card-title class="d-flex align-center">
+                  <v-icon class="mr-2">mdi-folder-clock-outline</v-icon>
+                  Backups verwalten
+                  <v-spacer />
+                  <v-btn icon="mdi-close" variant="text" size="small" :disabled="restoreInProgress" @click="backupManagerOpen = false" />
+                </v-card-title>
+                <v-divider />
+                <v-card-text>
+                  <div v-if="restoreInProgress" class="restore-progress">
+                    <v-progress-circular indeterminate size="24" width="3" class="mr-3" color="primary" />
+                    <div>
+                      <div class="restore-progress__title">Wird wiederhergestellt …</div>
+                      <div class="restore-progress__sub">Die App startet anschließend automatisch neu. Bitte dieses Fenster nicht schließen.</div>
+                    </div>
+                  </div>
+
+                  <template v-else>
+                    <div v-if="backupArchivesLoading" class="text-center py-6">
+                      <v-progress-circular indeterminate size="28" />
+                    </div>
+                    <div v-else-if="backupArchivesError" class="text-error py-4">{{ backupArchivesError }}</div>
+                    <div v-else-if="!backupArchives.length" class="text-medium-emphasis py-6 text-center">
+                      Noch keine Backups auf dem NAS gefunden.
+                    </div>
+                    <v-list v-else lines="two" density="comfortable">
+                      <v-list-item v-for="a in backupArchives" :key="a.name">
+                        <template #prepend>
+                          <v-icon :color="a.complete ? 'primary' : 'warning'">
+                            {{ a.complete ? 'mdi-archive-outline' : 'mdi-alert-outline' }}
+                          </v-icon>
+                        </template>
+                        <v-list-item-title>{{ backupFormatArchiveDate(a) }}</v-list-item-title>
+                        <v-list-item-subtitle>
+                          {{ backupFormatSize(a.size_bytes) }}<span v-if="!a.complete"> · unvollständig</span>
+                        </v-list-item-subtitle>
+                        <template #append>
+                          <v-btn
+                            icon="mdi-backup-restore"
+                            variant="text"
+                            size="small"
+                            :disabled="!a.complete"
+                            title="Wiederherstellen"
+                            @click="askRestore(a)"
+                          />
+                          <v-btn
+                            icon="mdi-delete-outline"
+                            variant="text"
+                            size="small"
+                            color="error"
+                            title="Löschen"
+                            @click="askDeleteArchive(a)"
+                          />
+                        </template>
+                      </v-list-item>
+                    </v-list>
+                  </template>
+                </v-card-text>
+              </v-card>
+            </v-dialog>
+
+            <!-- Restore bestätigen (Wort eintippen) -->
+            <v-dialog v-model="restoreConfirmOpen" max-width="520" persistent>
+              <v-card>
+                <v-card-title class="text-error d-flex align-center">
+                  <v-icon class="mr-2">mdi-alert</v-icon> Wiederherstellen bestätigen
+                </v-card-title>
+                <v-card-text>
+                  <p class="mb-3">
+                    Dies <strong>überschreibt die gesamte Datenbank und alle PDFs</strong> mit dem Stand vom
+                    <strong>{{ restoreTarget ? backupFormatArchiveDate(restoreTarget) : '' }}</strong>.
+                    Der aktuelle Stand geht verloren. Die App startet danach automatisch neu.
+                  </p>
+                  <p class="mb-2 text-medium-emphasis">Zum Bestätigen <code>WIEDERHERSTELLEN</code> eingeben:</p>
+                  <v-text-field
+                    v-model="restoreConfirmText"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    autofocus
+                    placeholder="WIEDERHERSTELLEN"
+                  />
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn variant="text" @click="restoreConfirmOpen = false">Abbrechen</v-btn>
+                  <v-btn
+                    color="error"
+                    :disabled="restoreConfirmText.trim() !== 'WIEDERHERSTELLEN'"
+                    :loading="restoreStarting"
+                    @click="confirmRestore"
+                  >
+                    Wiederherstellen
+                  </v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-dialog>
+
+            <!-- Backup löschen bestätigen -->
+            <v-dialog v-model="deleteArchiveOpen" max-width="460">
+              <v-card>
+                <v-card-title>Backup löschen?</v-card-title>
+                <v-card-text>
+                  Das Backup vom <strong>{{ deleteTarget ? backupFormatArchiveDate(deleteTarget) : '' }}</strong>
+                  wird vom NAS entfernt. Das lässt sich nicht rückgängig machen.
+                </v-card-text>
+                <v-card-actions>
+                  <v-spacer />
+                  <v-btn variant="text" @click="deleteArchiveOpen = false">Abbrechen</v-btn>
+                  <v-btn color="error" :loading="deleteArchiveBusy" @click="confirmDeleteArchive">Löschen</v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-dialog>
+          </div>
+        </section>
+
+        <section v-show="activeCategory === 'controls'" class="pm-settings-section">
+          <div class="pm-settings-content">
+            <SettingsInfoCard
+              icon="mdi-keyboard-outline"
+              title="Tastaturkürzel"
+              subtitle="Verfügbare Tastenkürzel und Mausgesten in PaperMind."
+            />
+
+            <div class="shortcuts-list">
                 <div
                   v-for="group in shortcutGroups"
                   :key="group.label"
@@ -991,7 +1342,12 @@
                   </div>
                 </div>
               </div>
-            </div>
+          </div>
+        </section>
+
+        <section v-show="activeCategory === 'system'" class="pm-settings-section">
+          <div class="pm-settings-content">
+            <SystemStatusPanel :active="activeCategory === 'system'" />
           </div>
         </section>
         </div>
@@ -1004,7 +1360,10 @@
 import { computed, ref, watch } from 'vue';
 import { useTheme } from 'vuetify';
 import BaseDialog from './BaseDialog.vue';
+import SettingsInfoCard from './SettingsInfoCard.vue';
+import SystemStatusPanel from './SystemStatusPanel.vue';
 import { getBaseUrl } from '../api/client';
+import { useAuthStore } from '../stores/auth';
 import { useSettingsStore } from '../stores/settings';
 import { useCategoryStore } from '../stores/categories';
 import { useCorrespondentStore } from '../stores/correspondents';
@@ -1012,6 +1371,16 @@ import { notifyError, useNotifications } from '../stores/notifications';
 import { useTagStore } from '../stores/tags';
 import { cleanupUnusedTags } from '../api/tags';
 import { backfillOcr, patchDocument as apiPatchDocument } from '../api/documents';
+import {
+  deleteBackupArchive,
+  getBackupStatus,
+  getRestoreStatus,
+  listBackupArchives,
+  restoreBackup,
+  runBackupNow,
+  testBackupConnection,
+  updateBackupConfig,
+} from '../api/backup';
 import {
   ignoreUnresolvedCorrespondent as apiIgnoreUnresolvedCorrespondent,
   listUnresolvedCorrespondents as apiListUnresolvedCorrespondents
@@ -1022,6 +1391,7 @@ import {
   buildAutoTaggingPatch,
   buildOcrBackfillEnabledPatch,
   buildColorVariantPatch,
+  buildGlassEnabledPatch,
   buildDrawerRememberStatePatch,
   buildTagDrawerRememberStatePatch,
   buildOcrDocLangPatch,
@@ -1043,6 +1413,7 @@ const emit = defineEmits(['update:modelValue', 'reload-imports']);
 // ── Stores / Theme ───────────────────────────────────────────────────────────
 
 const theme = useTheme();
+const auth = useAuthStore();
 const settingsStore = useSettingsStore();
 const categoryStore = useCategoryStore();
 const correspondentStore = useCorrespondentStore();
@@ -1120,14 +1491,381 @@ const currentColorVariant = computed(() => settingsStore.settingsDraft.ui.color_
 
 const settingsCategories = [
   { value: 'appearance', label: 'Darstellung', icon: 'mdi-palette-outline' },
-  { value: 'documents', label: 'Dokumente', icon: 'mdi-file-document-outline' },
+  { value: 'documents', label: 'Dokumente', icon: 'mdi-file-document-outline', adminOnly: true },
   { value: 'categories', label: 'Dokumenttypen', icon: 'mdi-file-document-multiple-outline' },
   { value: 'correspondents', label: 'Korrespondenten', icon: 'mdi-account-outline' },
-  { value: 'ai', label: 'Texterkennung', icon: 'mdi-robot-outline' },
-  { value: 'controls', label: 'Bedienung', icon: 'mdi-keyboard-outline' }
+  { value: 'ai', label: 'Texterkennung', icon: 'mdi-text-recognition', adminOnly: true },
+  { value: 'backup', label: 'Backup', icon: 'mdi-cloud-upload-outline', adminOnly: true },
+  { value: 'controls', label: 'Bedienung', icon: 'mdi-keyboard-outline' },
+  { value: 'system', label: 'System', icon: 'mdi-raspberry-pi', adminOnly: true }
 ];
+// Systemkonfigurations-Tabs nur für Admins; persönliche Darstellung sowie die
+// Pro-Benutzer-Daten (Dokumenttypen/Korrespondenten) und die Kürzel-Referenz
+// bleiben für alle sichtbar.
+const visibleCategories = computed(() =>
+  settingsCategories.filter((cat) => !cat.adminOnly || auth.isAdmin)
+);
 
 const activeCategory = ref('appearance');
+
+// ── Backup ───────────────────────────────────────────────────────────────────
+const backup = ref({
+  enabled: false, nas_host: '', nas_share: '', nas_folder: '', nas_username: '',
+  nas_password_set: false, frequency: 'daily', time: '03:00', weekday: 6, retention: 7,
+});
+const BACKUP_PW_MASK = '••••••••';
+const backupPassword = ref('');
+const backupPasswordDirty = ref(false);
+const backupStatus = ref({ last_run: null, next_run_at: null, last_success_at: null, is_running: false });
+const backupSaving = ref(false);
+const backupTesting = ref(false);
+const backupRunning = ref(false);
+const backupTestResult = ref(null);
+const backupSetupOpen = ref(undefined); // Index des offenen Panels (0) oder undefined
+let backupSetupInitialized = false;
+let backupPollTimer = 0;
+
+// Backups verwalten / Wiederherstellen
+const backupManagerOpen = ref(false);
+const backupArchives = ref([]);
+const backupArchivesLoading = ref(false);
+const backupArchivesError = ref('');
+const restoreConfirmOpen = ref(false);
+const restoreTarget = ref(null);
+const restoreConfirmText = ref('');
+const restoreStarting = ref(false);
+const restoreInProgress = ref(false);
+let restorePollTimer = 0;
+const deleteArchiveOpen = ref(false);
+const deleteTarget = ref(null);
+const deleteArchiveBusy = ref(false);
+
+const backupWeekdayItems = [
+  { title: 'Montag', value: 0 }, { title: 'Dienstag', value: 1 }, { title: 'Mittwoch', value: 2 },
+  { title: 'Donnerstag', value: 3 }, { title: 'Freitag', value: 4 }, { title: 'Samstag', value: 5 },
+  { title: 'Sonntag', value: 6 },
+];
+
+function backupFormatDate(value) {
+  if (!value) return '';
+  try { return new Date(value).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' }); }
+  catch { return String(value); }
+}
+function backupFormatBytes(n) {
+  let v = Number(n) || 0;
+  if (v < 1024) return `${v} B`;
+  const units = ['KB', 'MB', 'GB']; let i = 0; v /= 1024;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1; }
+  return `${v.toFixed(1).replace('.', ',')} ${units[i]}`;
+}
+function backupRelativeTime(value) {
+  if (!value) return '';
+  const ts = new Date(value).getTime();
+  if (Number.isNaN(ts)) return String(value);
+  const min = Math.round((Date.now() - ts) / 60000);
+  if (min < 1) return 'gerade eben';
+  if (min < 60) return `vor ${min} Min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `vor ${h} Std`;
+  const days = Math.round(h / 24);
+  if (days < 30) return `vor ${days} Tg`;
+  return backupFormatDate(value);
+}
+
+const backupStatusKind = computed(() => {
+  const s = backupStatus.value;
+  if (s.is_running) return 'running';
+  if (s.last_run?.status === 'failed') return 'error';
+  if (s.last_run?.status === 'success') return 'ok';
+  return 'idle';
+});
+// Sofort nach dem Klick aktiv (client-seitig), bis der Server-Lauf endet – damit das
+// Karten-Icon ohne Verzögerung dreht, auch bevor der erste Status-Poll „is_running" meldet.
+const backupBusy = computed(() => backupRunning.value || backupStatus.value.is_running);
+const backupLastLabel = computed(() => {
+  const s = backupStatus.value;
+  if (backupBusy.value) return 'Sicherung gestartet …';
+  const r = s.last_run;
+  if (!r) return 'Noch nie gesichert';
+  const when = backupRelativeTime(r.finished_at || r.started_at);
+  if (r.status === 'success') return `${when}${r.size_bytes ? ' · ' + backupFormatBytes(r.size_bytes) : ''}`;
+  return when;
+});
+const backupNextLabel = computed(() =>
+  backup.value.enabled ? (backupFormatDate(backupStatus.value.next_run_at) || '—') : 'deaktiviert');
+
+// Optik der Status-Karte (deaktiviert hat Vorrang vor dem letzten Lauf)
+const backupCardKind = computed(() => {
+  if (!backup.value.enabled) return 'disabled';
+  return backupBusy.value ? 'running' : backupStatusKind.value;
+});
+const backupStatusIcon = computed(() => {
+  switch (backupStatusKind.value) {
+    case 'ok': return 'mdi-check-circle';
+    case 'error': return 'mdi-alert-circle';
+    default: return 'mdi-cloud-outline';
+  }
+});
+const backupStateLabel = computed(() => {
+  if (!backup.value.enabled) return 'Backup deaktiviert';
+  if (backupBusy.value) return 'Backup läuft';
+  switch (backupStatusKind.value) {
+    case 'ok': return 'Gesichert';
+    case 'error': return 'Letzte Sicherung fehlgeschlagen';
+    default: return 'Aktiv – noch keine Sicherung';
+  }
+});
+
+// Zusammenfassung für das eingeklappte Einrichtungs-Panel
+const backupConfigured = computed(() => !!(backup.value.nas_host && backup.value.nas_share));
+const backupConnectionSummary = computed(() => {
+  const b = backup.value;
+  if (!b.nas_host) return '';
+  const user = b.nas_username ? `${b.nas_username}@` : '';
+  const path = [b.nas_share, b.nas_folder].filter(Boolean).join('/');
+  return `${user}${b.nas_host}${path ? ' · ' + path : ''}`;
+});
+const backupSetupSummary = computed(() => {
+  if (!backupConfigured.value) return 'Tippen, um die Verbindung einzurichten';
+  return backupConnectionSummary.value;
+});
+
+function applyBackupStatus(data) {
+  const cfg = data?.config || {};
+  backup.value = {
+    enabled: !!cfg.enabled,
+    nas_host: cfg.nas_host || '', nas_share: cfg.nas_share || '', nas_folder: cfg.nas_folder || '',
+    nas_username: cfg.nas_username || '', nas_password_set: !!cfg.nas_password_set,
+    frequency: cfg.frequency || 'daily', time: cfg.time || '03:00',
+    weekday: typeof cfg.weekday === 'number' ? cfg.weekday : 6,
+    retention: cfg.retention || 7,
+  };
+  backupStatus.value = {
+    last_run: data?.last_run || null, next_run_at: data?.next_run_at || null,
+    last_success_at: data?.last_success_at || null, is_running: !!data?.is_running,
+  };
+  // Gespeichertes Passwort als Punkte darstellen; Feld bleibt "gefüllt".
+  backupPasswordDirty.value = false;
+  backupPassword.value = backup.value.nas_password_set ? BACKUP_PW_MASK : '';
+  // Einrichtung beim ersten Laden automatisch aufklappen, falls noch nichts konfiguriert
+  // ist – danach steuert der Nutzer das Panel selbst (nicht bei jedem Poll überschreiben).
+  if (!backupSetupInitialized) {
+    backupSetupOpen.value = backupConfigured.value ? undefined : 0;
+    backupSetupInitialized = true;
+  }
+}
+
+function onBackupPasswordInput(value) {
+  backupPassword.value = value;
+  backupPasswordDirty.value = true;
+}
+
+function onBackupPasswordFocus() {
+  // Beim Bearbeiten die Maske leeren, damit ein neues Passwort sauber eingegeben wird.
+  if (!backupPasswordDirty.value && backupPassword.value === BACKUP_PW_MASK) {
+    backupPassword.value = '';
+  }
+}
+
+function onBackupPasswordBlur() {
+  // Ohne Eingabe die Maske wiederherstellen – gespeichertes Passwort bleibt erhalten.
+  if (!backupPasswordDirty.value && !backupPassword.value && backup.value.nas_password_set) {
+    backupPassword.value = BACKUP_PW_MASK;
+  }
+}
+
+async function loadBackup() {
+  try { applyBackupStatus(await getBackupStatus()); }
+  catch { /* Status optional */ }
+}
+
+function backupConfigPayload() {
+  const b = backup.value;
+  const payload = {
+    enabled: b.enabled, nas_host: b.nas_host, nas_share: b.nas_share, nas_folder: b.nas_folder,
+    nas_username: b.nas_username, frequency: b.frequency, time: b.time, weekday: b.weekday,
+    retention: Number(b.retention) || 7,
+  };
+  if (backupPasswordDirty.value && backupPassword.value && backupPassword.value !== BACKUP_PW_MASK) {
+    payload.nas_password = backupPassword.value;
+  }
+  return payload;
+}
+
+async function saveBackup() {
+  backupSaving.value = true;
+  try {
+    applyBackupStatus(await updateBackupConfig(backupConfigPayload()));
+    notify({ type: 'success', title: 'Backup', message: 'Einstellungen gespeichert.' });
+  } catch (error) {
+    notifyError(error, 'Backup-Einstellungen konnten nicht gespeichert werden.');
+  } finally {
+    backupSaving.value = false;
+  }
+}
+
+async function onToggleBackup(value) {
+  backup.value.enabled = value;
+  await saveBackup();
+}
+
+async function onTestBackup() {
+  await saveBackup();
+  backupTesting.value = true;
+  backupTestResult.value = null;
+  try {
+    backupTestResult.value = await testBackupConnection();
+  } catch {
+    backupTestResult.value = { ok: false, message: 'Test fehlgeschlagen.' };
+  } finally {
+    backupTesting.value = false;
+  }
+}
+
+async function onRunBackup() {
+  backupRunning.value = true;
+  try {
+    const res = await runBackupNow();
+    notify({
+      type: res.started ? 'success' : 'info',
+      title: 'Backup',
+      message: res.message || (res.started ? 'Backup gestartet.' : 'Läuft bereits.'),
+    });
+    let ticks = 0;
+    if (backupPollTimer) window.clearInterval(backupPollTimer);
+    backupPollTimer = window.setInterval(async () => {
+      await loadBackup();
+      ticks += 1;
+      if (!backupStatus.value.is_running || ticks > 60) {
+        window.clearInterval(backupPollTimer);
+        backupPollTimer = 0;
+        backupRunning.value = false;
+      }
+    }, 3000);
+  } catch (error) {
+    notifyError(error, 'Backup konnte nicht gestartet werden.');
+    backupRunning.value = false;
+  }
+}
+
+// ── Backups verwalten / Wiederherstellen ────────────────────────────────────
+function backupFormatSize(bytes) {
+  const b = Number(bytes) || 0;
+  if (b >= 1e9) return `${(b / 1e9).toFixed(1)} GB`;
+  if (b >= 1e6) return `${(b / 1e6).toFixed(0)} MB`;
+  if (b >= 1e3) return `${(b / 1e3).toFixed(0)} KB`;
+  return `${b} B`;
+}
+
+function backupFormatArchiveDate(a) {
+  if (a?.created_at) return backupFormatDate(a.created_at);
+  return a?.name || '';
+}
+
+async function loadBackupArchives() {
+  backupArchivesLoading.value = true;
+  backupArchivesError.value = '';
+  try {
+    const res = await listBackupArchives();
+    backupArchives.value = res?.items || [];
+  } catch (error) {
+    backupArchivesError.value = error?.message || 'Backups konnten nicht geladen werden.';
+    backupArchives.value = [];
+  } finally {
+    backupArchivesLoading.value = false;
+  }
+}
+
+function openBackupManager() {
+  backupManagerOpen.value = true;
+  loadBackupArchives();
+}
+
+function askRestore(a) {
+  restoreTarget.value = a;
+  restoreConfirmText.value = '';
+  restoreConfirmOpen.value = true;
+}
+
+async function confirmRestore() {
+  if (!restoreTarget.value) return;
+  restoreStarting.value = true;
+  try {
+    const res = await restoreBackup(restoreTarget.value.name);
+    if (!res?.started) {
+      notify({ type: 'info', title: 'Wiederherstellung', message: res?.message || 'Konnte nicht gestartet werden.' });
+      return;
+    }
+    restoreConfirmOpen.value = false;
+    restoreInProgress.value = true;
+    watchRestoreUntilRestart();
+  } catch (error) {
+    notifyError(error, 'Wiederherstellung konnte nicht gestartet werden.');
+  } finally {
+    restoreStarting.value = false;
+  }
+}
+
+function watchRestoreUntilRestart() {
+  let seenDown = false;
+  let ticks = 0;
+  if (restorePollTimer) window.clearInterval(restorePollTimer);
+  restorePollTimer = window.setInterval(async () => {
+    ticks += 1;
+    try {
+      const st = await getRestoreStatus();
+      if (st?.status === 'failed') {
+        window.clearInterval(restorePollTimer);
+        restorePollTimer = 0;
+        restoreInProgress.value = false;
+        notifyError(new Error(st.error || 'Unbekannter Fehler'), 'Wiederherstellung fehlgeschlagen.');
+        loadBackupArchives();
+        return;
+      }
+      // Erfolgreicher Request nach einem Ausfall ⇒ Backend ist neu gestartet ⇒ fertig.
+      if (seenDown) {
+        window.clearInterval(restorePollTimer);
+        restorePollTimer = 0;
+        window.location.reload();
+      }
+    } catch {
+      seenDown = true; // Backend gerade nicht erreichbar (Neustart läuft)
+    }
+    if (ticks > 90) {
+      window.clearInterval(restorePollTimer);
+      restorePollTimer = 0;
+      window.location.reload();
+    }
+  }, 2000);
+}
+
+function askDeleteArchive(a) {
+  deleteTarget.value = a;
+  deleteArchiveOpen.value = true;
+}
+
+async function confirmDeleteArchive() {
+  if (!deleteTarget.value) return;
+  deleteArchiveBusy.value = true;
+  try {
+    await deleteBackupArchive(deleteTarget.value.name);
+    deleteArchiveOpen.value = false;
+    notify({ type: 'success', title: 'Backup', message: 'Backup gelöscht.' });
+    await loadBackupArchives();
+    await loadBackup();
+  } catch (error) {
+    notifyError(error, 'Backup konnte nicht gelöscht werden.');
+  } finally {
+    deleteArchiveBusy.value = false;
+  }
+}
+
+watch(activeCategory, (value) => {
+  if (value === 'backup') {
+    backupSetupInitialized = false; // Panel-Zustand beim Betreten neu bestimmen
+    loadBackup();
+  }
+});
 
 // ── Tastaturkürzel (Bereich „Bedienung") ─────────────────────────────────────
 
@@ -1213,6 +1951,19 @@ const trashRetentionOptions = [
   { label: 'Nach 30 Tagen', value: 30 },
   { label: 'Nach 90 Tagen', value: 90 }
 ];
+
+const autoLogoutOptions = [
+  { label: 'Nie', value: 0 },
+  { label: 'Nach 5 Minuten', value: 5 },
+  { label: 'Nach 15 Minuten', value: 15 },
+  { label: 'Nach 30 Minuten', value: 30 },
+  { label: 'Nach 1 Stunde', value: 60 },
+  { label: 'Nach 4 Stunden', value: 240 }
+];
+
+function onAutoLogoutChange(value) {
+  auth.setAutoLogoutMinutes(Number(value) || 0);
+}
 
 const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
 const COLOR_VARIANT_VALUES = new Set(['indigo', 'forest', 'teal', 'slate', 'stone']);
@@ -1365,6 +2116,14 @@ const ollamaModelPresets = [
   'gemma2:2b',
 ];
 
+const ollamaChatModelPresets = [
+  'llama3.2:3b',
+  'qwen2.5:3b',
+  'qwen2.5:7b',
+  'llama3.1:8b',
+  'gemma2:2b',
+];
+
 const ollamaMaxCharsOptions = [
   { label: '400 Zeichen (sehr schnell)', value: 400 },
   { label: '800 Zeichen (empfohlen)', value: 800 },
@@ -1410,6 +2169,18 @@ async function onOllamaModelChange(nextValue) {
     patch: { ollama: { model } },
     controlKey: 'ollama_model',
     revert: () => settingsStore.setDraftPatch({ ollama: { model: previous } })
+  });
+}
+
+async function onOllamaChatModelChange(nextValue) {
+  const chatModel = String(nextValue || '').trim() || 'llama3.2:3b';
+  if (chatModel === settingsDraft.ollama.chat_model) return;
+  const previous = settingsDraft.ollama.chat_model;
+  settingsStore.setDraftPatch({ ollama: { chat_model: chatModel } });
+  await patchSettingsWithRevert({
+    patch: { ollama: { chat_model: chatModel } },
+    controlKey: 'ollama_chat_model',
+    revert: () => settingsStore.setDraftPatch({ ollama: { chat_model: previous } })
   });
 }
 
@@ -1520,6 +2291,26 @@ async function onShowFilenameSuffixChange(nextValue) {
 function toggleShowFilenameSuffixFromRow() {
   if (isSettingSaving.show_filename_suffix) return;
   void onShowFilenameSuffixChange(!settingsDraft.ui.showFilenameSuffix);
+}
+
+// ── Glass-Look (Aurora-Hintergrund) ──────────────────────────────────────────
+
+async function onGlassEnabledChange(nextValue) {
+  if (isSettingSaving.glass_enabled) return;
+  const nextBool = Boolean(nextValue);
+  if (nextBool === settingsDraft.ui.glass_enabled) return;
+  const previous = settingsDraft.ui.glass_enabled;
+  settingsStore.setDraftPatch({ ui: { glass_enabled: nextBool } });
+  await patchSettingsWithRevert({
+    patch: buildGlassEnabledPatch(nextBool),
+    controlKey: 'glass_enabled',
+    revert: () => settingsStore.setDraftPatch({ ui: { glass_enabled: previous } })
+  });
+}
+
+function toggleGlassEnabledFromRow() {
+  if (isSettingSaving.glass_enabled) return;
+  void onGlassEnabledChange(!settingsDraft.ui.glass_enabled);
 }
 
 // ── Drawer: Zustand merken ───────────────────────────────────────────────────
@@ -1666,7 +2457,8 @@ watch(
   () => props.modelValue,
   (open) => {
     if (open) {
-      activeCategory.value = props.initialCategory;
+      const allowed = visibleCategories.value.some((cat) => cat.value === props.initialCategory);
+      activeCategory.value = allowed ? props.initialCategory : 'appearance';
       void categoryStore.fetchCategories();
       void correspondentStore.fetchCorrespondents();
       void loadUnresolvedCorrespondents();
@@ -1927,6 +2719,127 @@ async function removeAlias(alias) {
 </script>
 
 <style scoped>
+/* ── Backup ── */
+.backup-card {
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 16px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+  background: rgba(var(--v-theme-on-surface), 0.02);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.backup-card--ok { border-color: rgba(76, 175, 80, 0.4); background: rgba(76, 175, 80, 0.06); }
+.backup-card--error { border-color: rgba(var(--v-theme-error), 0.4); background: rgba(var(--v-theme-error), 0.06); }
+.backup-card--running { border-color: rgba(var(--v-theme-primary), 0.4); background: rgba(var(--v-theme-primary), 0.06); }
+.backup-card--disabled { opacity: 0.6; }
+.backup-card__main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.backup-card__icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(var(--v-theme-on-surface), 0.07);
+  color: rgba(var(--v-theme-on-surface), 0.55);
+}
+.backup-card--ok .backup-card__icon { background: rgba(76, 175, 80, 0.16); color: rgb(76, 175, 80); }
+.backup-card--error .backup-card__icon { background: rgba(var(--v-theme-error), 0.16); color: rgb(var(--v-theme-error)); }
+.backup-card--running .backup-card__icon { background: rgba(var(--v-theme-primary), 0.16); color: rgb(var(--v-theme-primary)); }
+.backup-card__info { flex: 1; min-width: 0; }
+.backup-card__state { font-size: 0.95rem; font-weight: 600; }
+.backup-card__detail { font-size: 0.82rem; opacity: 0.7; margin-top: 2px; }
+.backup-card__next { text-align: right; flex-shrink: 0; }
+.backup-card__next-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.5;
+}
+.backup-card__next-value { font-size: 0.82rem; font-weight: 500; margin-top: 2px; }
+.backup-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+}
+.backup-card__section {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+}
+.backup-card__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.backup-card__section-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  opacity: 0.8;
+}
+.backup-setup { margin-bottom: 4px; }
+.backup-setup :deep(.v-expansion-panel) {
+  background: transparent;
+  border: none;
+  border-radius: 10px !important;
+}
+.backup-setup :deep(.v-expansion-panel__shadow) { display: none; }
+.backup-setup :deep(.v-expansion-panel-title) {
+  min-height: 56px;
+  padding-inline: 16px;
+  border-radius: 10px;
+  transition: background 0.15s ease;
+}
+.backup-setup :deep(.v-expansion-panel-title:hover) {
+  background: rgba(var(--v-theme-on-surface), 0.04);
+}
+.backup-setup :deep(.v-expansion-panel-text__wrapper) { padding-inline: 16px; }
+.backup-setup__head { display: flex; align-items: center; min-width: 0; }
+.backup-setup__head-text { min-width: 0; }
+.backup-setup__head-title { font-size: 0.9rem; font-weight: 600; }
+.backup-setup__head-sub {
+  font-size: 0.78rem;
+  opacity: 0.6;
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.restore-progress {
+  display: flex;
+  align-items: center;
+  padding: 8px 4px;
+}
+.restore-progress__title { font-weight: 600; }
+.restore-progress__sub { font-size: 0.8rem; opacity: 0.7; margin-top: 2px; }
+.backup-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px 12px;
+  margin: 8px 0 24px;
+}
+.backup-grid--tight { margin: 0; }
+.backup-grid__full { grid-column: 1 / -1; }
+.backup-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.backup-actions--end { justify-content: flex-end; }
+.backup-test-result { font-size: 0.8rem; }
+.backup-test-result--ok { color: rgb(76, 175, 80); }
+.backup-test-result--err { color: rgb(var(--v-theme-error)); }
 .settings-category-management {
   display: flex;
   flex-direction: column;

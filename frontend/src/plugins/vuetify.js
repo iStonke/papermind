@@ -2,162 +2,48 @@ import 'vuetify/styles';
 import { createVuetify } from 'vuetify';
 import { h } from 'vue';
 import { paperMindDark, paperMindLight } from '../theme/tokens';
-import {
-  mdiAccountPlus,
-  mdiAccountOutline,
-  mdiAlertCircleOutline,
-  mdiAutoFix,
-  mdiCheckboxMultipleOutline,
-  mdiBookOpenPageVariantOutline,
-  mdiCamera,
-  mdiCameraOffOutline,
-  mdiCallSplit,
-  mdiChevronDown,
-  mdiChevronRight,
-  mdiChevronUp,
-  mdiCheck,
-  mdiCheckCircleOutline,
-  mdiClose,
-  mdiCogOutline,
-  mdiContentCopy,
-  mdiContentSaveOutline,
-  mdiCreation,
-  mdiDotsHorizontal,
-  mdiDotsVertical,
-  mdiDownloadOutline,
-  mdiDeleteOutline,
-  mdiFileDocumentMultipleOutline,
-  mdiFileDocumentOutline,
-  mdiFileAlertOutline,
-  mdiFileImageOutline,
-  mdiFileImportOutline,
-  mdiFilePdfBox,
-  mdiFileUploadOutline,
-  mdiFilterVariant,
-  mdiFolder,
-  mdiFolderMarkerOutline,
-  mdiFolderPlusOutline,
-  mdiFolderOutline,
-  mdiFolderSearchOutline,
-  mdiInboxArrowDownOutline,
-  mdiInformationOutline,
-  mdiKeyboardOutline,
-  mdiMagnify,
-  mdiPaletteOutline,
-  mdiPencilOutline,
-  mdiPlus,
-  mdiProgressClock,
-  mdiRefresh,
-  mdiRotateLeft,
-  mdiRotateRight,
-  mdiRobot,
-  mdiRobotOutline,
-  mdiSendOutline,
-  mdiSort,
-  mdiSourceMerge,
-  mdiStar,
-  mdiStarOutline,
-  mdiRestore,
-  mdiDeleteForever,
-  mdiTagOffOutline,
-  mdiTagMultipleOutline,
-  mdiTagOutline,
-  mdiTagPlus,
-  mdiTagSearchOutline,
-  mdiTagTextOutline,
-  mdiTextRecognition,
-  mdiTrashCanOutline,
-  mdiTrayArrowDown,
-  mdiTrayArrowUp,
-  mdiWindowMinimize
-} from '@mdi/js';
+import * as REGISTERED_ICONS from './mdiIcons.js';
 import { aliases as mdiAliases } from 'vuetify/iconsets/mdi-svg';
 import { VSvgIcon } from 'vuetify/lib/composables/icons';
 
-const mdiPathMap = {
-  'mdi-account-plus': mdiAccountPlus,
-  'mdi-account-outline': mdiAccountOutline,
-  'mdi-alert-circle-outline': mdiAlertCircleOutline,
-  'mdi-auto-fix': mdiAutoFix,
-  'mdi-book-open-page-variant-outline': mdiBookOpenPageVariantOutline,
-  'mdi-camera': mdiCamera,
-  'mdi-camera-off-outline': mdiCameraOffOutline,
-  'mdi-call-split': mdiCallSplit,
-  'mdi-chevron-down': mdiChevronDown,
-  'mdi-chevron-right': mdiChevronRight,
-  'mdi-chevron-up': mdiChevronUp,
-  'mdi-check': mdiCheck,
-  'mdi-checkbox-multiple-outline': mdiCheckboxMultipleOutline,
-  'mdi-check-circle-outline': mdiCheckCircleOutline,
-  'mdi-close': mdiClose,
-  'mdi-cog-outline': mdiCogOutline,
-  'mdi-content-copy': mdiContentCopy,
-  'mdi-content-save-outline': mdiContentSaveOutline,
-  'mdi-creation': mdiCreation,
-  'mdi-dots-horizontal': mdiDotsHorizontal,
-  'mdi-dots-vertical': mdiDotsVertical,
-  'mdi-download-outline': mdiDownloadOutline,
-  'mdi-delete-outline': mdiDeleteOutline,
-  'mdi-file-document-multiple-outline': mdiFileDocumentMultipleOutline,
-  'mdi-file-document-outline': mdiFileDocumentOutline,
-  'mdi-file-alert-outline': mdiFileAlertOutline,
-  'mdi-file-image-outline': mdiFileImageOutline,
-  'mdi-file-import-outline': mdiFileImportOutline,
-  'mdi-file-pdf-box': mdiFilePdfBox,
-  'mdi-file-upload-outline': mdiFileUploadOutline,
-  'mdi-filter-variant': mdiFilterVariant,
-  'mdi-folder': mdiFolder,
-  'mdi-folder-tag-outline': mdiFolderMarkerOutline,
-  'mdi-folder-plus-outline': mdiFolderPlusOutline,
-  'mdi-folder-outline': mdiFolderOutline,
-  'mdi-folder-search-outline': mdiFolderSearchOutline,
-  'mdi-inbox-arrow-down-outline': mdiInboxArrowDownOutline,
-  'mdi-information-outline': mdiInformationOutline,
-  'mdi-keyboard-outline': mdiKeyboardOutline,
-  'mdi-magnify': mdiMagnify,
-  'mdi-palette-outline': mdiPaletteOutline,
-  'mdi-pencil-outline': mdiPencilOutline,
-  'mdi-plus': mdiPlus,
-  'mdi-progress-clock': mdiProgressClock,
-  'mdi-refresh': mdiRefresh,
-  'mdi-rotate-left': mdiRotateLeft,
-  'mdi-rotate-right': mdiRotateRight,
-  'mdi-robot': mdiRobot,
-  'mdi-robot-outline': mdiRobotOutline,
-  'mdi-send-outline': mdiSendOutline,
-  'mdi-sort': mdiSort,
-  'mdi-source-merge': mdiSourceMerge,
-  'mdi-star': mdiStar,
-  'mdi-star-outline': mdiStarOutline,
-  'mdi-restore': mdiRestore,
-  'mdi-delete-forever-outline': mdiDeleteForever,
-  'mdi-tag-off-outline': mdiTagOffOutline,
-  'mdi-tag-multiple-outline': mdiTagMultipleOutline,
-  'mdi-tag-outline': mdiTagOutline,
-  'mdi-tag-plus': mdiTagPlus,
-  'mdi-tag-search-outline': mdiTagSearchOutline,
-  'mdi-tag-text-outline': mdiTagTextOutline,
-  'mdi-text-recognition': mdiTextRecognition,
-  'mdi-trash-can-outline': mdiTrashCanOutline,
-  'mdi-tray-arrow-down': mdiTrayArrowDown,
-  'mdi-tray-arrow-up': mdiTrayArrowUp,
-  'mdi-window-minimize': mdiWindowMinimize
+/**
+ * Wandelt einen @mdi/js-Bezeichner in den in Templates genutzten kebab-Namen um:
+ *   mdiAccountCircleOutline -> mdi-account-circle-outline
+ *   mdiCpu64Bit             -> mdi-cpu-64-bit
+ */
+function camelToKebab(name) {
+  return name
+    .replace(/([a-z])([A-Z])/g, '$1-$2')
+    .replace(/([A-Za-z])([0-9])/g, '$1-$2')
+    .replace(/([0-9])([A-Z])/g, '$1-$2')
+    .toLowerCase();
+}
+
+/**
+ * Bewusste Aliase: Template-Name -> abweichendes Glyph. Nur hier eintragen,
+ * wenn ein kebab-Name absichtlich auf ein ANDERES Icon zeigen soll als die
+ * automatische Ableitung ergaebe.
+ */
+const ICON_OVERRIDES = {
+  // Gefuellte statt Outline-Variante (historisches Verhalten beibehalten).
+  'mdi-delete-forever-outline': REGISTERED_ICONS.mdiDeleteForever,
 };
+
+// Vollautomatisch aus mdiIcons.js erzeugt - kein manuelles Mapping noetig.
+const mdiPathMap = {};
+for (const [name, path] of Object.entries(REGISTERED_ICONS)) {
+  mdiPathMap[camelToKebab(name)] = path;
+}
+Object.assign(mdiPathMap, ICON_OVERRIDES);
 
 function resolveMdiPath(iconName) {
   if (!iconName) {
-    return mdiInformationOutline;
+    return REGISTERED_ICONS.mdiInformationOutline;
   }
   if (iconName.startsWith('svg:')) {
     return iconName.slice(4);
   }
-
-  const path = mdiPathMap[iconName];
-  if (path) {
-    return path;
-  }
-
-  return mdiInformationOutline;
+  return mdiPathMap[iconName] || REGISTERED_ICONS.mdiInformationOutline;
 }
 
 const mdi = {

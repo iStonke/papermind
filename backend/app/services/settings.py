@@ -5,8 +5,9 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.errors import BadRequestError
+from app.core.errors import BadRequestError, ForbiddenError
 from app.models.global_setting import GlobalSetting
+from app.models.user_setting import UserSetting
 from app.schemas.settings import (
     ANSWER_PROMPT_TEMPLATE_DEFAULT,
     AppSettingsPatch,
@@ -20,6 +21,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "ui": {
         "theme_mode": "system",
         "color_variant": "slate",
+        "glass_enabled": False,
         "showFilenameSuffix": True,
         "drawerRememberState": True,
         "tagDrawerRememberState": True,
@@ -76,8 +78,26 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "enabled": True,
         "base_url": "http://host.docker.internal:11434",
         "model": "llama3.2:3b",
+        # Modell für den Frage/Antwort-Chat (RAG). Getrennt von `model`, damit
+        # Nutzer Qualität vs. Geschwindigkeit selbst wählen können.
+        "chat_model": "llama3.2:3b",
         "timeout_seconds": 90.0,
         "max_input_chars": 1500,
+    },
+    # Eigener Abschnitt – bewusst NICHT Teil von AppSettingsRead/Patch, damit das
+    # NAS-Passwort nicht über die generische Settings-API ausgeliefert wird. Wird
+    # über /api/backup verwaltet; der Persist-Code erhält unbekannte Keys.
+    "backup": {
+        "enabled": False,
+        "nas_host": "",
+        "nas_share": "",
+        "nas_folder": "papermind",
+        "nas_username": "",
+        "nas_password": "",
+        "frequency": "daily",
+        "time": "03:00",
+        "weekday": 6,
+        "retention": 7,
     },
     "meta": {
         "version": 1,
@@ -107,8 +127,21 @@ def _merge_defaults(raw_settings: dict[str, Any] | None) -> dict[str, Any]:
 
 
 class SettingsService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, owner_id=None):
         self.db = db
+        self.owner_id = owner_id
+
+    def _user_ui_overrides(self) -> dict[str, Any]:
+        """Gespeicherte Pro-Benutzer-``ui``-Werte (leer, wenn kein Owner/keine Zeile)."""
+        if self.owner_id is None:
+            return {}
+        row = self.db.execute(
+            select(UserSetting).where(UserSetting.user_id == self.owner_id)
+        ).scalar_one_or_none()
+        if row is None or not isinstance(row.settings_json, dict):
+            return {}
+        ui = row.settings_json.get("ui")
+        return ui if isinstance(ui, dict) else {}
 
     def _get_or_create_row(self, *, for_update: bool = False) -> GlobalSetting:
         stmt = select(GlobalSetting).where(GlobalSetting.id == 1)
@@ -184,7 +217,43 @@ class SettingsService:
             self.db.commit()
             self.db.refresh(row)
             validated, persisted = self._validate_and_prepare(row.settings_json, updated_at=row.updated_at)
+        # Pro-Benutzer-ui über die globalen Werte legen (nur Web-Kontext).
+        user_ui = self._user_ui_overrides()
+        if user_ui:
+            merged = _deep_merge_dict(persisted, {"ui": user_ui})
+            validated, _ = self._validate_and_prepare(merged, updated_at=row.updated_at)
         return validated
+
+    def apply_patch(self, payload: dict[str, Any] | AppSettingsPatch, *, is_admin: bool) -> AppSettingsRead:
+        """Teilt einen Settings-Patch: ``ui`` → Pro-Benutzer; alles andere → global
+        (nur Admin). Nicht-Admins mit Nicht-ui-Keys werden mit 403 abgewiesen."""
+        parsed = self._coerce_patch_payload(payload)
+        patch_data = parsed.model_dump(exclude_unset=True, mode="json")
+        ui_patch = patch_data.pop("ui", None)
+        if patch_data and not is_admin:
+            raise ForbiddenError("Nur Administratoren dürfen Systemeinstellungen ändern")
+        if patch_data:
+            self.update_settings_patch_data(patch_data)
+        if ui_patch is not None:
+            self.update_user_ui(ui_patch)
+        return self.get_settings()
+
+    def update_user_ui(self, ui_patch: dict[str, Any]) -> AppSettingsRead:
+        if self.owner_id is None:
+            raise BadRequestError("No user context for per-user settings")
+        row = self.db.execute(
+            select(UserSetting).where(UserSetting.user_id == self.owner_id).with_for_update()
+        ).scalar_one_or_none()
+        clean_ui = dict(ui_patch or {})
+        if row is None:
+            row = UserSetting(user_id=self.owner_id, settings_json={"ui": clean_ui})
+            self.db.add(row)
+        else:
+            current = row.settings_json if isinstance(row.settings_json, dict) else {}
+            current_ui = current.get("ui") if isinstance(current.get("ui"), dict) else {}
+            row.settings_json = {**current, "ui": _deep_merge_dict(current_ui, clean_ui)}
+        self.db.commit()
+        return self.get_settings()
 
     def _coerce_patch_payload(self, payload: dict[str, Any] | AppSettingsPatch) -> AppSettingsPatch:
         if isinstance(payload, AppSettingsPatch):

@@ -35,11 +35,25 @@ test("all mdi icons used in source are registered in Vuetify icon map", () => {
     }
   }
 
-  const vuetifyPluginPath = join(SRC_DIR.pathname, "plugins/vuetify.js");
-  const vuetifyPluginSource = readFileSync(vuetifyPluginPath, "utf8");
+  // Icons werden zentral in mdiIcons.js re-exportiert und in vuetify.js
+  // automatisch zu kebab-Namen abgeleitet (siehe camelToKebab dort).
+  const camelToKebab = (name) =>
+    name
+      .replace(/([a-z])([A-Z])/g, "$1-$2")
+      .replace(/([A-Za-z])([0-9])/g, "$1-$2")
+      .replace(/([0-9])([A-Z])/g, "$1-$2")
+      .toLowerCase();
+
+  const iconsModuleSource = readFileSync(join(SRC_DIR.pathname, "plugins/mdiIcons.js"), "utf8");
   const registeredIcons = new Set(
-    [...vuetifyPluginSource.matchAll(/'([^']+)':\s*mdi[A-Z]/g)].map((match) => match[1])
+    [...iconsModuleSource.matchAll(/\bmdi[A-Z][A-Za-z0-9]*\b/g)].map((match) => camelToKebab(match[0]))
   );
+
+  // Bewusste Aliase (kebab -> abweichendes Glyph) aus vuetify.js übernehmen.
+  const vuetifyPluginSource = readFileSync(join(SRC_DIR.pathname, "plugins/vuetify.js"), "utf8");
+  for (const match of vuetifyPluginSource.matchAll(/'(mdi-[a-z0-9-]+)':/g)) {
+    registeredIcons.add(match[1]);
+  }
 
   const missingIcons = [...sourceIcons].filter((iconName) => !registeredIcons.has(iconName)).sort();
   assert.deepEqual(missingIcons, []);

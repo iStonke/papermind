@@ -112,6 +112,7 @@ class OCREngine(str, Enum):
 class UISettingsRead(BaseModel):
     theme_mode: ThemeMode = ThemeMode.system
     color_variant: ColorVariant = ColorVariant.slate
+    glass_enabled: bool = False
     showFilenameSuffix: bool = True
     drawerRememberState: bool = True
     tagDrawerRememberState: bool = True
@@ -186,6 +187,9 @@ class OllamaSettingsRead(BaseModel):
     enabled: bool = False
     base_url: str = Field(default="http://localhost:11434", max_length=256)
     model: str = Field(default="llama3.2:3b", max_length=128)
+    # Model used for the Q&A chat / RAG answers. Separate from `model` (which is
+    # used for import metadata extraction) so users can trade quality vs. speed.
+    chat_model: str = Field(default="llama3.2:3b", max_length=128)
     timeout_seconds: float = Field(default=90.0, ge=10.0, le=300.0)
     max_input_chars: int = Field(default=800, ge=200, le=4000)
 
@@ -209,6 +213,7 @@ class AppSettingsRead(BaseModel):
 class UISettingsPatch(BaseModel):
     theme_mode: ThemeMode | None = None
     color_variant: ColorVariant | None = None
+    glass_enabled: bool | None = None
     showFilenameSuffix: bool | None = None
     drawerRememberState: bool | None = None
     tagDrawerRememberState: bool | None = None
@@ -281,6 +286,7 @@ class OllamaSettingsPatch(BaseModel):
     enabled: bool | None = None
     base_url: str | None = Field(default=None, max_length=256)
     model: str | None = Field(default=None, max_length=128)
+    chat_model: str | None = Field(default=None, max_length=128)
     timeout_seconds: float | None = Field(default=None, ge=10.0, le=300.0)
     max_input_chars: int | None = Field(default=None, ge=200, le=4000)
 

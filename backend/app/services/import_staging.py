@@ -9,7 +9,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import UploadFile
-from pypdf import PdfReader
+from pypdf import PdfReader, PdfWriter
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -202,9 +202,10 @@ class _LocalPdfUpload:
 
 
 class ImportStagingService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, owner_id=None):
         self.db = db
-        self.document_service = DocumentService(db)
+        self.owner_id = owner_id
+        self.document_service = DocumentService(db, owner_id)
         self.settings_service = SettingsService(db)
 
     def _staging_root(self) -> Path:
@@ -1261,7 +1262,7 @@ class ImportStagingService:
         if not (str(sender_raw or "").strip() or str(ocr_text or "").strip()):
             return None
         try:
-            match = CorrespondentMatchingService(self.db).resolve(sender=sender_raw, ocr_text=ocr_text)
+            match = CorrespondentMatchingService(self.db, self.owner_id).resolve(sender=sender_raw, ocr_text=ocr_text)
         except Exception as exc:  # noqa: BLE001 - Korrespondenten-Matching ist optional
             logger.warning("stage title: correspondent matching failed: %s", exc)
             return None
@@ -1361,6 +1362,8 @@ class ImportStagingService:
             )
             if with_correspondent and normalized_correspondent is not None:
                 stmt = stmt.where(Document.correspondent_id == normalized_correspondent)
+            if self.owner_id is not None:
+                stmt = stmt.where(Document.owner_id == self.owner_id)
             try:
                 rows = self.db.execute(stmt).scalars().all()
             except Exception as exc:  # noqa: BLE001 - Few-Shot ist optional
@@ -1489,7 +1492,7 @@ class ImportStagingService:
         runtime_settings = self.settings_service.get_settings().model_dump(mode="json")
         ollama_cfg = runtime_settings.get("ollama") or {}
         existing_tag_names = self._load_existing_tag_names()
-        doc_type_vocab = load_active_document_type_vocab(self.db)
+        doc_type_vocab = load_active_document_type_vocab(self.db, self.owner_id)
         active_doc_type_names = document_type_names(doc_type_vocab)
         ollama_rich: dict[str, object] | None = None
         if ollama_cfg.get("enabled"):
@@ -1763,7 +1766,10 @@ class ImportStagingService:
         if not requested_tag_ids:
             return
 
-        found_tag_ids = set(self.db.execute(select(Tag.id).where(Tag.id.in_(requested_tag_ids))).scalars().all())
+        tag_stmt = select(Tag.id).where(Tag.id.in_(requested_tag_ids))
+        if self.owner_id is not None:
+            tag_stmt = tag_stmt.where(Tag.owner_id == self.owner_id)
+        found_tag_ids = set(self.db.execute(tag_stmt).scalars().all())
         missing_ids = [str(tag_id) for tag_id in requested_tag_ids if tag_id not in found_tag_ids]
         if missing_ids:
             raise BadRequestError("One or more tags were not found", details={"missing_tag_ids": missing_ids})
@@ -1774,11 +1780,10 @@ class ImportStagingService:
         }
         if not requested_ids:
             return
-        found_ids = set(
-            self.db.execute(
-                select(Correspondent.id).where(Correspondent.id.in_(requested_ids))
-            ).scalars().all()
-        )
+        corr_stmt = select(Correspondent.id).where(Correspondent.id.in_(requested_ids))
+        if self.owner_id is not None:
+            corr_stmt = corr_stmt.where(Correspondent.owner_id == self.owner_id)
+        found_ids = set(self.db.execute(corr_stmt).scalars().all())
         missing_ids = [str(cid) for cid in requested_ids if cid not in found_ids]
         if missing_ids:
             raise BadRequestError(

@@ -1,9 +1,13 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
-import App from './App.vue';
+import AppRoot from './AppRoot.vue';
+import router from './router';
 import vuetify from './plugins/vuetify';
+import { installFetchInterceptor } from './api/fetchInterceptor.js';
 import './style.css';
 import './theme/theme.css';
+
+installFetchInterceptor();
 
 if (typeof Promise.withResolvers !== 'function') {
   Promise.withResolvers = function withResolvers() {
@@ -17,5 +21,5 @@ if (typeof Promise.withResolvers !== 'function') {
   };
 }
 
-const app = createApp(App);
-app.use(createPinia()).use(vuetify).mount('#app');
+const app = createApp(AppRoot);
+app.use(createPinia()).use(router).use(vuetify).mount('#app');

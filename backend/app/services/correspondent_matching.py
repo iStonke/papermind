@@ -178,20 +178,18 @@ def match_correspondent(
 
 
 class CorrespondentMatchingService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, owner_id=None):
         self.db = db
+        self.owner_id = owner_id
 
     def load_candidates(self) -> list[CorrespondentCandidate]:
-        correspondents = (
-            self.db.execute(
-                select(Correspondent).options(
-                    selectinload(Correspondent.aliases),
-                    selectinload(Correspondent.matchers),
-                )
-            )
-            .scalars()
-            .all()
+        stmt = select(Correspondent).options(
+            selectinload(Correspondent.aliases),
+            selectinload(Correspondent.matchers),
         )
+        if self.owner_id is not None:
+            stmt = stmt.where(Correspondent.owner_id == self.owner_id)
+        correspondents = self.db.execute(stmt).scalars().all()
         candidates: list[CorrespondentCandidate] = []
         for correspondent in correspondents:
             candidates.append(

@@ -15,8 +15,9 @@ logger = logging.getLogger("papermind.correspondents")
 
 
 class CorrespondentService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, owner_id: uuid.UUID | None = None):
         self.db = db
+        self.owner_id = owner_id
 
     def list_correspondents(self, include_count: bool = False) -> list[Correspondent]:
         stmt = (
@@ -24,17 +25,20 @@ class CorrespondentService:
             .options(selectinload(Correspondent.aliases), selectinload(Correspondent.matchers))
             .order_by(func.lower(Correspondent.name).asc())
         )
+        if self.owner_id is not None:
+            stmt = stmt.where(Correspondent.owner_id == self.owner_id)
         correspondents = self.db.execute(stmt).scalars().all()
         if not include_count:
             return list(correspondents)
 
-        counts = dict(
-            self.db.execute(
-                select(Document.correspondent_id, func.count(Document.id))
-                .where(Document.correspondent_id.is_not(None), Document.is_deleted.is_(False))
-                .group_by(Document.correspondent_id)
-            ).all()
+        count_stmt = (
+            select(Document.correspondent_id, func.count(Document.id))
+            .where(Document.correspondent_id.is_not(None), Document.is_deleted.is_(False))
+            .group_by(Document.correspondent_id)
         )
+        if self.owner_id is not None:
+            count_stmt = count_stmt.where(Document.owner_id == self.owner_id)
+        counts = dict(self.db.execute(count_stmt).all())
         for correspondent in correspondents:
             # usage_count ist kein ORM-Feld; als transientes Attribut für die
             # from_attributes-Serialisierung anhängen.
@@ -48,6 +52,8 @@ class CorrespondentService:
         exclude_id: uuid.UUID | None = None,
     ) -> Correspondent | None:
         stmt = select(Correspondent).where(func.lower(Correspondent.name) == name.lower())
+        if self.owner_id is not None:
+            stmt = stmt.where(Correspondent.owner_id == self.owner_id)
         if exclude_id is not None:
             stmt = stmt.where(Correspondent.id != exclude_id)
         return self.db.execute(stmt).scalar_one_or_none()
@@ -62,7 +68,9 @@ class CorrespondentService:
         if existing is not None:
             return existing
 
-        correspondent = Correspondent(name=name, short_name=payload.short_name, notes=payload.notes)
+        correspondent = Correspondent(
+            owner_id=self.owner_id, name=name, short_name=payload.short_name, notes=payload.notes
+        )
         self.db.add(correspondent)
         try:
             self.db.commit()
@@ -80,11 +88,14 @@ class CorrespondentService:
         return correspondent
 
     def get_correspondent_or_404(self, correspondent_id: uuid.UUID) -> Correspondent:
-        correspondent = self.db.execute(
+        stmt = (
             select(Correspondent)
             .options(selectinload(Correspondent.aliases), selectinload(Correspondent.matchers))
             .where(Correspondent.id == correspondent_id)
-        ).scalar_one_or_none()
+        )
+        if self.owner_id is not None:
+            stmt = stmt.where(Correspondent.owner_id == self.owner_id)
+        correspondent = self.db.execute(stmt).scalar_one_or_none()
         if correspondent is None:
             raise NotFoundError("Correspondent not found", details={"correspondent_id": str(correspondent_id)})
         return correspondent
@@ -118,12 +129,13 @@ class CorrespondentService:
 
     def delete_correspondent(self, correspondent_id: uuid.UUID) -> None:
         correspondent = self.get_correspondent_or_404(correspondent_id)
-        usage_count = self.db.execute(
-            select(func.count(Document.id)).where(
-                Document.correspondent_id == correspondent_id,
-                Document.is_deleted.is_(False),
-            )
-        ).scalar_one()
+        usage_stmt = select(func.count(Document.id)).where(
+            Document.correspondent_id == correspondent_id,
+            Document.is_deleted.is_(False),
+        )
+        if self.owner_id is not None:
+            usage_stmt = usage_stmt.where(Document.owner_id == self.owner_id)
+        usage_count = self.db.execute(usage_stmt).scalar_one()
         if int(usage_count or 0) > 0:
             raise ConflictError(
                 "Correspondent is still used by documents",
@@ -225,8 +237,7 @@ class CorrespondentService:
     def correspondent_ids_exist(self, correspondent_ids: set[uuid.UUID]) -> set[uuid.UUID]:
         if not correspondent_ids:
             return set()
-        return set(
-            self.db.execute(
-                select(Correspondent.id).where(Correspondent.id.in_(correspondent_ids))
-            ).scalars().all()
-        )
+        stmt = select(Correspondent.id).where(Correspondent.id.in_(correspondent_ids))
+        if self.owner_id is not None:
+            stmt = stmt.where(Correspondent.owner_id == self.owner_id)
+        return set(self.db.execute(stmt).scalars().all())

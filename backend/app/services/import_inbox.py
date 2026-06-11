@@ -20,9 +20,10 @@ from app.services.import_staging import ImportStagingService
 
 
 class ImportInboxService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, owner_id=None):
         self.db = db
-        self.import_staging_service = ImportStagingService(db)
+        self.owner_id = owner_id
+        self.import_staging_service = ImportStagingService(db, owner_id)
 
     def _pending_count(self) -> int:
         return int(
