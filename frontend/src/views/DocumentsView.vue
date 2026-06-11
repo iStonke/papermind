@@ -7312,18 +7312,23 @@ onBeforeUnmount(() => {
   margin-inline-start: 2px;
 }
 
-/* Viele Tags: Chips umbrechen lassen und das Feld vertikal mitwachsen lassen,
-   damit nichts über den Rahmen hinaus läuft und „Notizen" überlappt. */
-.details-tags-combobox .v-field {
+/* Viele Tags: Chips umbrechen lassen und das Feld auf ALLEN Ebenen vertikal
+   mitwachsen lassen, damit nichts über den Rahmen hinaus läuft und „Notizen"
+   überlappt. */
+.details-tags-combobox .v-input,
+.details-tags-combobox .v-input__control,
+.details-tags-combobox .v-field,
+.details-tags-combobox .v-field__field {
   height: auto;
+  min-height: 0;
 }
 .details-tags-combobox .v-field__input {
   flex-wrap: wrap;
-  align-content: center;
-  min-height: 40px;
-  padding-top: 4px;
-  padding-bottom: 4px;
-  row-gap: 4px;
+  align-content: flex-start;
+  min-height: 38px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  row-gap: 5px;
 }
 
 :deep(.pm-menu.pm-menu--tags) {
