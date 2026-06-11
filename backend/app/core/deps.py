@@ -129,11 +129,14 @@ def _has_valid_upload_key(request: Request) -> bool:
 
 
 def _apply_owner_guc(db: Session, user: User) -> None:
-    """Setzt die Session-Variable app.owner_id für Row-Level Security. Wird vom
-    PostgreSQL-Policy-Vergleich genutzt; gilt für die gesamte Verbindung des
-    Requests (überlebt mehrere commit()), wird beim Pool-Checkout zurückgesetzt."""
+    """Bindet den Owner für Row-Level Security an die Session. Das after_begin-Event
+    (app/db/session.py) setzt app.owner_id daraus für JEDE Transaktion neu – auch
+    für die, die nach einem commit() auf einer frisch aus dem Pool geholten
+    Verbindung beginnen. Zusätzlich wird die bereits offene Transaktion sofort
+    gesetzt, damit der aktuelle Request direkt abgesichert ist."""
+    db.info["owner_id"] = str(user.id)
     try:
-        db.execute(text("SELECT set_config('app.owner_id', :uid, false)"), {"uid": str(user.id)})
+        db.execute(text("SELECT set_config('app.owner_id', :uid, true)"), {"uid": str(user.id)})
     except Exception:  # noqa: BLE001 - darf den Request nicht hart blockieren
         logger.exception("could not set app.owner_id for RLS")
 

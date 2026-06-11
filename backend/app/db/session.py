@@ -1,7 +1,7 @@
 import logging
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
@@ -48,6 +48,21 @@ def _reset_owner_on_checkout(dbapi_conn, connection_record, connection_proxy) ->
             cur.execute("RESET app.owner_id")
     except Exception:  # noqa: BLE001 - darf den Checkout nie blockieren
         logger.exception("could not reset app.owner_id on checkout")
+
+
+@event.listens_for(AppSessionLocal, "after_begin")
+def _apply_owner_on_begin(session, transaction, connection) -> None:
+    """Setzt app.owner_id für JEDE Transaktion der App-Session neu (transaktions-
+    lokal). Quelle: session.info['owner_id'] (in app/core/deps.py gesetzt). So
+    überlebt die Owner-Bindung den Connection-Wechsel nach commit()/rollback –
+    sonst liefe z. B. der Post-Commit-Refresh wegen RESET-on-checkout leer und die
+    RLS-USING-Policy fände die eigene Zeile nicht ('Could not refresh instance')."""
+    owner = session.info.get("owner_id")
+    if owner:
+        connection.execute(
+            text("SELECT set_config('app.owner_id', :owner_id, true)"),
+            {"owner_id": str(owner)},
+        )
 
 
 # Worker-Engine: NOSUPERUSER + BYPASSRLS (System-Zugriff für Hintergrundjobs,
