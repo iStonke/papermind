@@ -1,5 +1,8 @@
-# Environment
+# Environment (lokale Secrets ignorieren, Beispiel-Vorlagen behalten)
 .env
+.env.*
+!.env.example
+!.env.prod.example
 .claude/
 
 # Node
