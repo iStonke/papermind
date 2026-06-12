@@ -1,58 +1,4 @@
 <template>
-  <AppTopBar>
-    <template #actions>
-      <v-menu v-if="pendingImportInboxCount > 0" location="bottom end" offset="8">
-        <template #activator="{ props: importMenuProps }">
-          <v-badge
-            model-value
-            :content="pendingImportInboxBadgeLabel"
-            color="error"
-            offset-x="3"
-            offset-y="3"
-          >
-            <v-btn class="topbar-btn topbar-btn--import" variant="text" v-bind="importMenuProps">
-              <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
-              Importieren
-            </v-btn>
-          </v-badge>
-        </template>
-        <v-list density="compact" min-width="240">
-          <v-list-item
-            class="import-inbox-menu-item"
-            prepend-icon="mdi-inbox-arrow-down-outline"
-            :title="pendingImportInboxMenuTitle"
-            @click="openImportInboxScans"
-          />
-          <v-divider />
-          <v-list-item
-            prepend-icon="mdi-file-upload-outline"
-            title="PDF hochladen..."
-            @click="openImportPdfPicker"
-          />
-        </v-list>
-      </v-menu>
-      <v-btn
-        v-else
-        class="topbar-btn topbar-btn--import"
-        variant="text"
-        @click="openImportPdfPicker"
-      >
-        <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
-        Importieren
-      </v-btn>
-
-      <v-btn
-        class="topbar-btn topbar-btn--import"
-        :class="{ 'topbar-btn--active': isAiDialogOpen }"
-        variant="text"
-        @click="openAiView"
-      >
-        <v-icon size="18" class="mr-1">mdi-robot</v-icon>
-        Chat
-      </v-btn>
-    </template>
-  </AppTopBar>
-
   <v-main class="app-main">
       <BatchTagDialog
         v-model="isBatchTagDialogOpen"
@@ -222,6 +168,53 @@
         </AppSidebar>
 
         <section class="panel panel-middle">
+          <div class="panel-middle__header">
+            <v-menu v-if="pendingImportInboxCount > 0" location="bottom end" offset="8">
+              <template #activator="{ props: importMenuProps }">
+                <v-badge model-value :content="pendingImportInboxBadgeLabel" color="error" offset-x="6" offset-y="6">
+                  <v-btn class="list-header-btn" color="primary" variant="flat" v-bind="importMenuProps">
+                    <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
+                    Importieren
+                  </v-btn>
+                </v-badge>
+              </template>
+              <v-list density="compact" min-width="240">
+                <v-list-item
+                  class="import-inbox-menu-item"
+                  prepend-icon="mdi-inbox-arrow-down-outline"
+                  :title="pendingImportInboxMenuTitle"
+                  @click="openImportInboxScans"
+                />
+                <v-divider />
+                <v-list-item
+                  prepend-icon="mdi-file-upload-outline"
+                  title="PDF hochladen..."
+                  @click="openImportPdfPicker"
+                />
+              </v-list>
+            </v-menu>
+            <v-btn
+              v-else
+              class="list-header-btn"
+              color="primary"
+              variant="flat"
+              @click="openImportPdfPicker"
+            >
+              <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
+              Importieren
+            </v-btn>
+
+            <v-btn
+              class="list-header-btn"
+              :class="{ 'list-header-btn--active': isAiDialogOpen }"
+              variant="text"
+              @click="openAiView"
+            >
+              <v-icon size="18" class="mr-1">mdi-robot</v-icon>
+              Chat
+            </v-btn>
+          </div>
+
           <Transition name="pm-panel">
             <div v-if="isTagView" key="tags" class="panel-middle__view tags-view">
               <ListActionToolbar
@@ -988,7 +981,6 @@ import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, r
 import { storeToRefs } from 'pinia';
 import { useTheme } from 'vuetify';
 import BaseDialog from '../components/BaseDialog.vue';
-import AppTopBar from '../components/AppTopBar.vue';
 import PmEmptyState from '../components/PmEmptyState.vue';
 import DeleteDocumentDialog from '../components/DeleteDocumentDialog.vue';
 import DocumentPreviewLayout from '../components/DocumentPreviewLayout.vue';
@@ -6460,6 +6452,25 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+}
+
+.panel-middle__header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--pm-divider);
+}
+
+.panel-middle__header .v-btn {
+  text-transform: none;
+  letter-spacing: 0;
+  border-radius: 10px;
+}
+
+.list-header-btn--active {
+  color: rgb(var(--v-theme-primary));
 }
 
 .panel-middle {
