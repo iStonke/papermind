@@ -1,24 +1,5 @@
 <template>
   <AppTopBar>
-    <template #center>
-      <v-text-field
-        ref="appBarSearchRef"
-        v-model="searchText"
-        class="appbar-search__field"
-        prepend-inner-icon="mdi-magnify"
-        clearable
-        clear-icon="mdi-close"
-        :placeholder="searchPlaceholder"
-        density="compact"
-        variant="outlined"
-        :messages="searchHintMessages"
-        hide-details="auto"
-        @update:model-value="onAppBarSearchInput"
-        @keydown="handleSearchShortcut"
-        @click:clear="clearSearchFromInput"
-      />
-    </template>
-
     <template #actions>
       <v-menu v-if="pendingImportInboxCount > 0" location="bottom end" offset="8">
         <template #activator="{ props: importMenuProps }">
@@ -204,7 +185,30 @@
           @apply-tag-filter="applyTagFilterFromSidebar"
           @open-categories-view="openCategoriesView"
           @apply-category-filter="applyCategoryFilterFromSidebar"
-        />
+        >
+          <template #head>
+            <button type="button" class="sidebar-brand" @click="selectView('all')">
+              <span class="sidebar-brand__mark"><v-icon size="18">mdi-brain</v-icon></span>
+              <span class="sidebar-brand__name">PaperMind</span>
+            </button>
+            <v-text-field
+              ref="appBarSearchRef"
+              v-model="searchText"
+              class="sidebar-search__field"
+              prepend-inner-icon="mdi-magnify"
+              clearable
+              clear-icon="mdi-close"
+              :placeholder="searchPlaceholder"
+              density="compact"
+              variant="outlined"
+              :messages="searchHintMessages"
+              hide-details="auto"
+              @update:model-value="onAppBarSearchInput"
+              @keydown="handleSearchShortcut"
+              @click:clear="clearSearchFromInput"
+            />
+          </template>
+        </AppSidebar>
 
         <section class="panel panel-middle">
           <Transition name="pm-panel">
@@ -5172,6 +5176,75 @@ onBeforeUnmount(() => {
 
 .appbar-search__field :deep(.v-field:hover .v-field__outline) {
   color: rgba(255, 255, 255, 0.76);
+}
+
+/* ── Sidebar-Kopf (Marke + Suche) ──────────────────────────────────────────── */
+.sidebar-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 12px 10px;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: transparent;
+  border: 0;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--pm-text);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.sidebar-brand__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--pm-accent);
+  color: var(--pm-accent-contrast);
+}
+
+.sidebar-brand__name {
+  line-height: 1;
+}
+
+.sidebar-search__field {
+  width: 100%;
+}
+
+.sidebar-search__field :deep(.v-field) {
+  border-radius: 10px;
+  background-color: var(--pm-app-surface-raised);
+  box-shadow: none !important;
+}
+
+.sidebar-search__field :deep(.v-field__input),
+.sidebar-search__field :deep(.v-field__clearable .v-icon) {
+  color: var(--pm-text) !important;
+}
+
+.sidebar-search__field :deep(.v-field__prepend-inner .v-icon) {
+  color: var(--pm-accent) !important;
+}
+
+.sidebar-search__field :deep(input::placeholder) {
+  color: var(--pm-muted);
+}
+
+.sidebar-search__field :deep(.v-field__outline) {
+  color: var(--pm-divider);
+  --v-field-border-opacity: 1;
+}
+
+.sidebar-search__field :deep(.v-field--focused .v-field__outline) {
+  color: var(--pm-accent);
 }
 
 .appbar-search__field :deep(.v-field--focused .v-field__outline) {

@@ -1,5 +1,9 @@
 <template>
   <aside class="panel panel-left">
+    <div v-if="$slots.head" class="sidebar-head">
+      <slot name="head" />
+    </div>
+
     <!-- Bibliothek -->
     <v-list nav density="compact" class="views-list">
       <div
@@ -301,6 +305,10 @@
       </div>
     </v-list>
     </template>
+
+    <div v-if="$slots.foot" class="sidebar-foot">
+      <slot name="foot" />
+    </div>
   </aside>
 </template>
 
