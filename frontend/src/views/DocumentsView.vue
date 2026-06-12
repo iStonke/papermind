@@ -111,7 +111,7 @@
         @open-citation="openCitation"
       />
 
-      <div class="workspace">
+      <div class="workspace" :class="{ 'workspace--rail': sidebarCollapsed }">
         <AppSidebar
           :active-view="activeView"
           :active-saved-search-id="activeSavedSearchId"
@@ -131,10 +131,20 @@
           @apply-category-filter="applyCategoryFilterFromSidebar"
         >
           <template #head>
-            <button type="button" class="sidebar-brand" @click="selectView('all')">
-              <span class="sidebar-brand__mark"><v-icon size="18">mdi-brain</v-icon></span>
-              <span class="sidebar-brand__name">PaperMind</span>
-            </button>
+            <div class="sidebar-head__top">
+              <button type="button" class="sidebar-brand" @click="selectView('all')">
+                <span class="sidebar-brand__mark"><v-icon size="18">mdi-brain</v-icon></span>
+                <span class="sidebar-brand__name">PaperMind</span>
+              </button>
+              <button
+                type="button"
+                class="sidebar-rail-toggle"
+                :aria-label="sidebarCollapsed ? 'Seitenleiste ausklappen' : 'Seitenleiste einklappen'"
+                @click="toggleSidebarRail"
+              >
+                <v-icon size="18">{{ sidebarCollapsed ? 'mdi-chevron-right' : 'mdi-chevron-left' }}</v-icon>
+              </button>
+            </div>
             <v-text-field
               ref="appBarSearchRef"
               v-model="searchText"
@@ -155,15 +165,17 @@
 
           <template #foot>
             <SidebarAccount />
-            <v-btn
-              icon="mdi-cog-outline"
-              variant="text"
-              size="small"
-              class="sidebar-foot__btn"
-              aria-label="Einstellungen"
-              @click="uiStore.openSettings()"
-            />
-            <ActivityIndicator ref="activityIndicatorRef" @open-backup="openBackupSettings" />
+            <div class="sidebar-foot__actions">
+              <v-btn
+                icon="mdi-cog-outline"
+                variant="text"
+                size="small"
+                class="sidebar-foot__btn"
+                aria-label="Einstellungen"
+                @click="uiStore.openSettings()"
+              />
+              <ActivityIndicator ref="activityIndicatorRef" @open-backup="openBackupSettings" />
+            </div>
           </template>
         </AppSidebar>
 
@@ -2104,6 +2116,26 @@ watch(
     applyColorVariant(variant || 'teal');
   }
 );
+
+// ── Sidebar ein-/ausklappen (Icon-Rail, manuell + responsiv) ────────────────
+function loadSidebarRail() {
+  try { return localStorage.getItem('pm-sidebar-rail') === 'true'; } catch { return false; }
+}
+const sidebarManualCollapsed = ref(loadSidebarRail());
+const sidebarNarrow = ref(typeof window !== 'undefined' ? window.innerWidth < 700 : false);
+const sidebarCollapsed = computed(() => sidebarManualCollapsed.value || sidebarNarrow.value);
+
+function toggleSidebarRail() {
+  sidebarManualCollapsed.value = !sidebarManualCollapsed.value;
+  try { localStorage.setItem('pm-sidebar-rail', String(sidebarManualCollapsed.value)); } catch { /* ignore */ }
+}
+
+function updateSidebarNarrow() {
+  sidebarNarrow.value = window.innerWidth < 700;
+}
+
+onMounted(() => window.addEventListener('resize', updateSidebarNarrow, { passive: true }));
+onBeforeUnmount(() => window.removeEventListener('resize', updateSidebarNarrow));
 
 // ── Sidebar-Counts ────────────────────────────────────────────────────────
 
@@ -6471,6 +6503,92 @@ onBeforeUnmount(() => {
 
 .list-header-btn--active {
   color: rgb(var(--v-theme-primary));
+}
+
+/* ── Sidebar-Kopfzeile + Einklapp-Toggle ───────────────────────────────────── */
+.sidebar-head__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sidebar-head__top .sidebar-brand {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sidebar-rail-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--pm-muted);
+  cursor: pointer;
+}
+
+.sidebar-rail-toggle:hover {
+  background: var(--pm-sidebar-hover);
+  color: var(--pm-accent);
+}
+
+.sidebar-foot__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* ── Eingeklappte Icon-Spalte ──────────────────────────────────────────────── */
+.workspace.workspace--rail {
+  grid-template-columns: 64px 1fr minmax(360px, 43%);
+}
+
+.workspace--rail .panel-left .v-list-item-title,
+.workspace--rail .panel-left .sidebar-item-right,
+.workspace--rail .panel-left .sidebar-section-header,
+.workspace--rail .sidebar-brand__name,
+.workspace--rail .sidebar-search__field,
+.workspace--rail .sidebar-account__info,
+.workspace--rail .sidebar-account__chev,
+.workspace--rail .sidebar-foot__actions {
+  display: none !important;
+}
+
+.workspace--rail .sidebar-head {
+  align-items: center;
+  padding-inline: 0;
+}
+
+.workspace--rail .sidebar-head__top {
+  flex-direction: column;
+  gap: 6px;
+}
+
+.workspace--rail .sidebar-head__top .sidebar-brand {
+  flex: none;
+  justify-content: center;
+}
+
+.workspace--rail .sidebar-foot {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.workspace--rail .panel-left .v-list-item {
+  justify-content: center;
+  padding-inline: 8px !important;
+}
+
+.workspace--rail .panel-left .v-list-item__prepend {
+  margin-inline-end: 0 !important;
+}
+
+.workspace--rail .panel-left .sidebar-section-divider {
+  margin-inline: 14px;
 }
 
 .panel-middle {
