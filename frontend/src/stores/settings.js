@@ -8,7 +8,7 @@ import {
 import { normalizeSidebarSections } from '../utils/settingsApi.js';
 
 const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
-const COLOR_VARIANT_VALUES = new Set(['indigo', 'forest', 'teal', 'slate', 'stone']);
+const COLOR_VARIANT_VALUES = new Set(['teal', 'violet', 'blue']);
 const SORT_ORDER_VALUES = new Set([
   'newest',
   'oldest',
@@ -83,7 +83,7 @@ function createDefaultSettings() {
   return {
     ui: {
       theme_mode: 'system',
-      color_variant: 'slate',
+      color_variant: 'teal',
       glass_enabled: false,
       showFilenameSuffix: true,
       drawerRememberState: true,

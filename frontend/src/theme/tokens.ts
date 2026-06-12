@@ -1,265 +1,89 @@
-// ── Indigo (Standard) ────────────────────────────────────────────────────────
-export const paperMindDark = {
-  background: '#0B1220',
-  surface: '#111F33',
-  surface2: '#162A44',
-  surface3: '#1C2B40',
-  surfaceHover: '#1B3556',
-  sidebar: '#0F1A2A',
-  panelMid: '#111F33',
-  panelRight: '#0C1626',
-  card: '#162A44',
-  cardHover: '#1B3556',
-  cardActive: '#22406A',
-  pdfStage: '#0C1626',
-  text: '#E7EDF6',
-  textMuted: 'rgba(231, 237, 246, 0.72)',
+// ─────────────────────────────────────────────────────────────────────────────
+// PaperMind Farb-Tokens (eine Quelle der Wahrheit für die Vuetify-Themes)
+//
+// Eine kuratierte Identität: FIXE kühle Slate-Neutrals (hell/dunkel) + 3
+// umschaltbare Akzente (teal=Standard, violet, blue). Nur die Akzent-Primärfarbe
+// wechselt je Variante – alle Flächen bleiben neutral. Die ausführliche
+// --pm-*-Semantik (Tints, Hover/Active, Semantikfarben) lebt in theme.css.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Kühle Slate-Neutrals (accent-unabhängig) ─────────────────────────────────
+const NEUTRAL_DARK = {
+  background: '#0A0F19',
+  surface: '#0E1420',
+  surface2: '#141B28',
+  surface3: '#1B2433',
+  surfaceHover: '#1B2433',
+  sidebar: '#0C111C',
+  panelMid: '#0E1420',
+  panelRight: '#0A0F19',
+  card: '#141B28',
+  cardHover: '#1B2433',
+  cardActive: '#222E40',
+  pdfStage: '#0A0F19',
+  text: '#E6EBF2',
+  textMuted: '#9AA4B2',
   divider: 'rgba(255, 255, 255, 0.08)',
   outline: 'rgba(255, 255, 255, 0.06)',
   dividerSoft: 'rgba(255, 255, 255, 0.08)',
-  primary: '#3B82F6',
   overlayScrim: 'rgba(0, 0, 0, 0.45)',
   shadow: '0 10px 30px rgba(0, 0, 0, 0.35)'
 };
 
-export const paperMindLight = {
-  background: '#F3F6FB',
-  surface: '#F6F9FE',
+const NEUTRAL_LIGHT = {
+  background: '#EEF2F8',
+  surface: '#F7F9FC',
   surface2: '#FFFFFF',
-  surface3: '#EAF2FF',
-  surfaceHover: '#F3F7FF',
-  sidebar: '#EEF3FA',
-  panelMid: '#F6F9FE',
-  panelRight: '#F2F6FD',
+  surface3: '#E8EFF7',
+  surfaceHover: '#F3F6FB',
+  sidebar: '#E9EEF5',
+  panelMid: '#F7F9FC',
+  panelRight: '#F1F4FA',
   card: '#FFFFFF',
-  cardHover: '#F3F7FF',
-  cardActive: '#EAF2FF',
-  pdfStage: '#F2F6FD',
-  text: '#0F172A',
-  textMuted: 'rgba(15, 23, 42, 0.60)',
+  cardHover: '#F3F6FB',
+  cardActive: '#E8EFF7',
+  pdfStage: '#F1F4FA',
+  text: '#16202E',
+  textMuted: '#5A6573',
   divider: 'rgba(15, 23, 42, 0.10)',
   outline: 'rgba(15, 23, 42, 0.06)',
   dividerSoft: 'rgba(15, 23, 42, 0.08)',
-  primary: '#2563EB',
   overlayScrim: 'rgba(0, 0, 0, 0.42)',
   shadow: '0 10px 30px rgba(15, 23, 42, 0.10)'
 };
 
-// ── Forest (Grün) ─────────────────────────────────────────────────────────────
-export const forestDark = {
-  background: '#0A1A0F',
-  surface: '#0F2318',
-  surface2: '#163320',
-  surface3: '#1C3D28',
-  surfaceHover: '#1E4A2E',
-  sidebar: '#0C1D12',
-  panelMid: '#0F2318',
-  panelRight: '#0B1A10',
-  card: '#163320',
-  cardHover: '#1E4A2E',
-  cardActive: '#265A38',
-  pdfStage: '#0B1A10',
-  text: '#E4EDE7',
-  textMuted: 'rgba(228, 237, 231, 0.72)',
-  divider: 'rgba(255, 255, 255, 0.08)',
-  outline: 'rgba(255, 255, 255, 0.06)',
-  dividerSoft: 'rgba(255, 255, 255, 0.08)',
-  primary: '#22C55E',
-  overlayScrim: 'rgba(0, 0, 0, 0.45)',
-  shadow: '0 10px 30px rgba(0, 0, 0, 0.35)'
-};
+// ── Akzent-Primärfarben (das Einzige, was je Variante wechselt) ───────────────
+// Hell: kontraststarker Ton für Text/Buttons. Dunkel: leuchtender Ton.
+const ACCENT_PRIMARY = Object.freeze({
+  teal: { light: '#0E7490', dark: '#22D3EE' },
+  violet: { light: '#7C3AED', dark: '#A78BFA' },
+  blue: { light: '#2563EB', dark: '#60A5FA' }
+});
 
-export const forestLight = {
-  background: '#F2F8F4',
-  surface: '#F5FAF7',
-  surface2: '#FFFFFF',
-  surface3: '#E8F5ED',
-  surfaceHover: '#EEF8F2',
-  sidebar: '#ECF5EF',
-  panelMid: '#F5FAF7',
-  panelRight: '#F1F8F4',
-  card: '#FFFFFF',
-  cardHover: '#EEF8F2',
-  cardActive: '#E3F3EB',
-  pdfStage: '#F1F8F4',
-  text: '#0F2418',
-  textMuted: 'rgba(15, 36, 24, 0.60)',
-  divider: 'rgba(15, 36, 24, 0.10)',
-  outline: 'rgba(15, 36, 24, 0.06)',
-  dividerSoft: 'rgba(15, 36, 24, 0.08)',
-  primary: '#16A34A',
-  overlayScrim: 'rgba(0, 0, 0, 0.42)',
-  shadow: '0 10px 30px rgba(15, 36, 24, 0.10)'
-};
+function makeThemeColors(neutral, primary) {
+  return { ...neutral, primary };
+}
 
-// ── Teal (gedämpftes Schiefergrün) ───────────────────────────────────────────
-export const tealDark = {
-  background: '#071917',
-  surface: '#0D2422',
-  surface2: '#143632',
-  surface3: '#19433F',
-  surfaceHover: '#1F4F4A',
-  sidebar: '#0A1F1D',
-  panelMid: '#0D2422',
-  panelRight: '#081C1A',
-  card: '#143632',
-  cardHover: '#1F4F4A',
-  cardActive: '#28625C',
-  pdfStage: '#081C1A',
-  text: '#E2EFEC',
-  textMuted: 'rgba(226, 239, 236, 0.72)',
-  divider: 'rgba(255, 255, 255, 0.08)',
-  outline: 'rgba(255, 255, 255, 0.06)',
-  dividerSoft: 'rgba(255, 255, 255, 0.08)',
-  primary: '#2DD4BF',
-  overlayScrim: 'rgba(0, 0, 0, 0.45)',
-  shadow: '0 10px 30px rgba(0, 0, 0, 0.35)'
-};
-
-export const tealLight = {
-  background: '#F1F8F7',
-  surface: '#F5FAF9',
-  surface2: '#FFFFFF',
-  surface3: '#DFF1EF',
-  surfaceHover: '#EAF7F5',
-  sidebar: '#EAF4F3',
-  panelMid: '#F5FAF9',
-  panelRight: '#EFF8F7',
-  card: '#FFFFFF',
-  cardHover: '#EAF7F5',
-  cardActive: '#DFF1EF',
-  pdfStage: '#EFF8F7',
-  text: '#0F2523',
-  textMuted: 'rgba(15, 37, 35, 0.60)',
-  divider: 'rgba(15, 37, 35, 0.10)',
-  outline: 'rgba(15, 37, 35, 0.06)',
-  dividerSoft: 'rgba(15, 37, 35, 0.08)',
-  primary: '#0F766E',
-  overlayScrim: 'rgba(0, 0, 0, 0.42)',
-  shadow: '0 10px 30px rgba(15, 37, 35, 0.10)'
-};
-
-// ── Slate (Schieferblau) ─────────────────────────────────────────────────────
-export const slateDark = {
-  background: '#0B1220',
-  surface: '#111827',
-  surface2: '#1E293B',
-  surface3: '#263449',
-  surfaceHover: '#334155',
-  sidebar: '#0F172A',
-  panelMid: '#111827',
-  panelRight: '#0B1322',
-  card: '#1E293B',
-  cardHover: '#334155',
-  cardActive: '#3D4B63',
-  pdfStage: '#0B1322',
-  text: '#E5EAF2',
-  textMuted: 'rgba(229, 234, 242, 0.72)',
-  divider: 'rgba(255, 255, 255, 0.08)',
-  outline: 'rgba(255, 255, 255, 0.06)',
-  dividerSoft: 'rgba(255, 255, 255, 0.08)',
-  primary: '#94A3B8',
-  overlayScrim: 'rgba(0, 0, 0, 0.45)',
-  shadow: '0 10px 30px rgba(0, 0, 0, 0.35)'
-};
-
-export const slateLight = {
-  background: '#F3F6F9',
-  surface: '#F7FAFC',
-  surface2: '#FFFFFF',
-  surface3: '#E6ECF3',
-  surfaceHover: '#EEF3F8',
-  sidebar: '#EEF3F7',
-  panelMid: '#F7FAFC',
-  panelRight: '#F1F5F9',
-  card: '#FFFFFF',
-  cardHover: '#EEF3F8',
-  cardActive: '#E6ECF3',
-  pdfStage: '#F1F5F9',
-  text: '#111827',
-  textMuted: 'rgba(17, 24, 39, 0.60)',
-  divider: 'rgba(17, 24, 39, 0.10)',
-  outline: 'rgba(17, 24, 39, 0.06)',
-  dividerSoft: 'rgba(17, 24, 39, 0.08)',
-  primary: '#475569',
-  overlayScrim: 'rgba(0, 0, 0, 0.42)',
-  shadow: '0 10px 30px rgba(17, 24, 39, 0.10)'
-};
-
-// ── Stone (Steingrau) ────────────────────────────────────────────────────────
-export const stoneDark = {
-  background: '#151412',
-  surface: '#1F1D1A',
-  surface2: '#2B2824',
-  surface3: '#37322D',
-  surfaceHover: '#44403A',
-  sidebar: '#1A1816',
-  panelMid: '#1F1D1A',
-  panelRight: '#171512',
-  card: '#2B2824',
-  cardHover: '#44403A',
-  cardActive: '#555047',
-  pdfStage: '#171512',
-  text: '#EEEAE4',
-  textMuted: 'rgba(238, 234, 228, 0.72)',
-  divider: 'rgba(255, 255, 255, 0.08)',
-  outline: 'rgba(255, 255, 255, 0.06)',
-  dividerSoft: 'rgba(255, 255, 255, 0.08)',
-  primary: '#A8A29E',
-  overlayScrim: 'rgba(0, 0, 0, 0.45)',
-  shadow: '0 10px 30px rgba(0, 0, 0, 0.35)'
-};
-
-export const stoneLight = {
-  background: '#F7F5F1',
-  surface: '#FBFAF7',
-  surface2: '#FFFFFF',
-  surface3: '#ECE8E1',
-  surfaceHover: '#F1EEE8',
-  sidebar: '#F1EEE8',
-  panelMid: '#FBFAF7',
-  panelRight: '#F6F3EE',
-  card: '#FFFFFF',
-  cardHover: '#F1EEE8',
-  cardActive: '#E7E2D9',
-  pdfStage: '#F6F3EE',
-  text: '#292524',
-  textMuted: 'rgba(41, 37, 36, 0.60)',
-  divider: 'rgba(41, 37, 36, 0.10)',
-  outline: 'rgba(41, 37, 36, 0.06)',
-  dividerSoft: 'rgba(41, 37, 36, 0.08)',
-  primary: '#57534E',
-  overlayScrim: 'rgba(0, 0, 0, 0.42)',
-  shadow: '0 10px 30px rgba(41, 37, 36, 0.10)'
-};
+// Standard-Export (Teal) für die statische Vuetify-Initialisierung.
+export const paperMindLight = makeThemeColors(NEUTRAL_LIGHT, ACCENT_PRIMARY.teal.light);
+export const paperMindDark = makeThemeColors(NEUTRAL_DARK, ACCENT_PRIMARY.teal.dark);
 
 export const paperMindColorVariants = Object.freeze({
-  indigo: {
-    light: paperMindLight,
-    dark: paperMindDark
+  teal: { light: paperMindLight, dark: paperMindDark },
+  violet: {
+    light: makeThemeColors(NEUTRAL_LIGHT, ACCENT_PRIMARY.violet.light),
+    dark: makeThemeColors(NEUTRAL_DARK, ACCENT_PRIMARY.violet.dark)
   },
-  forest: {
-    light: forestLight,
-    dark: forestDark
-  },
-  teal: {
-    light: tealLight,
-    dark: tealDark
-  },
-  slate: {
-    light: slateLight,
-    dark: slateDark
-  },
-  stone: {
-    light: stoneLight,
-    dark: stoneDark
+  blue: {
+    light: makeThemeColors(NEUTRAL_LIGHT, ACCENT_PRIMARY.blue.light),
+    dark: makeThemeColors(NEUTRAL_DARK, ACCENT_PRIMARY.blue.dark)
   }
 });
 
 export const PAPER_MIND_COLOR_VARIANT_VALUES = Object.freeze(Object.keys(paperMindColorVariants));
 
 export function resolvePaperMindColorVariant(variant) {
-  return Object.prototype.hasOwnProperty.call(paperMindColorVariants, variant) ? variant : 'slate';
+  return Object.prototype.hasOwnProperty.call(paperMindColorVariants, variant) ? variant : 'teal';
 }
 
 function assignVuetifyThemeColors(target, source) {
@@ -291,33 +115,21 @@ export function applyPaperMindVuetifyColors(theme, variant) {
   return resolvedVariant;
 }
 
-/**
- * Akzent-Paletten (RGB-Tripel) fuer den animierten Glass-/Aurora-Hintergrund.
- * Je Variante der Primaerton plus 1–2 harmonische Akzente, damit der
- * Wissensgraph zur aktiven Farbvariante passt.
- *
- * Dunkel: hellere, leuchtende Toene (Kontrast auf dunklem Grund).
- * Hell:   tiefere, kraeftigere Toene (sonst waescht der helle, durchscheinende
- *         Panel-Tint den Graph aus).
- */
+// Akzent-Paletten für den Glass-/Aurora-Hintergrund (wird in Stufe 2 entfernt).
 const GLASS_PALETTES_DARK = Object.freeze({
-  indigo: [[59, 130, 246], [45, 212, 191], [129, 140, 248]],
-  forest: [[34, 197, 94], [45, 212, 191], [132, 204, 22]],
-  teal: [[45, 212, 191], [56, 189, 248], [59, 130, 246]],
-  slate: [[148, 163, 184], [96, 165, 250], [129, 140, 248]],
-  stone: [[168, 162, 158], [251, 191, 36], [120, 113, 108]]
+  teal: [[34, 211, 238], [96, 165, 250], [167, 139, 250]],
+  violet: [[167, 139, 250], [96, 165, 250], [34, 211, 238]],
+  blue: [[96, 165, 250], [34, 211, 238], [167, 139, 250]]
 });
 
 const GLASS_PALETTES_LIGHT = Object.freeze({
-  indigo: [[37, 99, 235], [13, 148, 136], [79, 70, 229]],
-  forest: [[22, 163, 74], [13, 148, 136], [101, 163, 13]],
-  teal: [[13, 148, 136], [2, 132, 199], [37, 99, 235]],
-  slate: [[71, 85, 105], [37, 99, 235], [79, 70, 229]],
-  stone: [[120, 113, 108], [217, 119, 6], [87, 83, 78]]
+  teal: [[14, 116, 144], [37, 99, 235], [124, 58, 237]],
+  violet: [[124, 58, 237], [37, 99, 235], [14, 116, 144]],
+  blue: [[37, 99, 235], [14, 116, 144], [124, 58, 237]]
 });
 
 export function getGlassPalette(variant, isDark = true) {
   const resolved = resolvePaperMindColorVariant(variant);
   const table = isDark ? GLASS_PALETTES_DARK : GLASS_PALETTES_LIGHT;
-  return table[resolved] || table.slate;
+  return table[resolved] || table.teal;
 }

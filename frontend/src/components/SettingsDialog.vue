@@ -1574,7 +1574,7 @@ async function runOcrBackfillNow() {
 const isSettingsLoading = computed(() => settingsStore.isSettingsLoading);
 const animationsEnabled = computed(() => settingsStore.animationsEnabled);
 
-const currentColorVariant = computed(() => settingsStore.settingsDraft.ui.color_variant || 'slate');
+const currentColorVariant = computed(() => settingsStore.settingsDraft.ui.color_variant || 'teal');
 
 // ── Einstellungsnavigation ───────────────────────────────────────────────────
 
@@ -2044,7 +2044,7 @@ const trashRetentionOptions = [
 
 
 const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
-const COLOR_VARIANT_VALUES = new Set(['indigo', 'forest', 'teal', 'slate', 'stone']);
+const COLOR_VARIANT_VALUES = new Set(['teal', 'violet', 'blue']);
 const RECENT_IMPORT_WINDOW_VALUES = new Set(recentImportWindowOptions.map((e) => e.value));
 const TRASH_RETENTION_VALUES = new Set(trashRetentionOptions.map((e) => e.value));
 
@@ -2123,16 +2123,14 @@ async function onThemeModeChange(nextValue) {
 // ── Farbvariante ─────────────────────────────────────────────────────────────
 
 const colorVariantOptions = [
-  { label: 'Steingrau', value: 'stone', color: '#57534E' },
-  { label: 'Schieferblau', value: 'slate', color: '#475569' },
-  { label: 'Indigo', value: 'indigo',  color: '#2563EB' },
-  { label: 'Waldgrün', value: 'forest',  color: '#16A34A' },
-  { label: 'Teal',  value: 'teal',   color: '#0F766E' }
+  { label: 'Teal', value: 'teal', color: '#0891B2' },
+  { label: 'Violett', value: 'violet', color: '#7C3AED' },
+  { label: 'Blau', value: 'blue', color: '#2563EB' }
 ];
 
 async function onColorVariantChange(nextValue) {
   if (isSettingSaving.color_variant) return;
-  const nextVariant = COLOR_VARIANT_VALUES.has(String(nextValue)) ? String(nextValue) : 'slate';
+  const nextVariant = COLOR_VARIANT_VALUES.has(String(nextValue)) ? String(nextValue) : 'teal';
   if (nextVariant === currentColorVariant.value) return;
   const previousVariant = currentColorVariant.value;
   settingsStore.setDraftPatch({ ui: { color_variant: nextVariant } });

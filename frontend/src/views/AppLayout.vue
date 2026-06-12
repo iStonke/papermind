@@ -85,11 +85,11 @@ function resolveThemeName(mode) {
 
 function applyTheme() {
   theme.global.name.value = resolveThemeName(settingsDraft.ui.theme_mode);
-  applyPaperMindVuetifyColors(theme, settingsDraft.ui.color_variant || 'slate');
+  applyPaperMindVuetifyColors(theme, settingsDraft.ui.color_variant || 'teal');
 }
 
 // Theme live nachführen (greift auch, wenn man nur auf den Konto-Seiten ist).
-watch(() => settingsDraft.ui.color_variant, (variant) => applyPaperMindVuetifyColors(theme, variant || 'slate'));
+watch(() => settingsDraft.ui.color_variant, (variant) => applyPaperMindVuetifyColors(theme, variant || 'teal'));
 watch(() => settingsDraft.ui.theme_mode, () => applyTheme());
 
 let mediaQuery = null;

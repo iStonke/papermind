@@ -29,8 +29,8 @@
 /* ── Gemeinsame Light-Semantik ─────────────────────────────────────────────── */
 .papermind-app.v-theme--light {
   /* Text */
-  --pm-text:  rgba(15, 23, 42, 0.92);
-  --pm-muted: rgba(15, 23, 42, 0.60);
+  --pm-text:  #16202e;
+  --pm-muted: #5a6573;
 
   /* Trennlinien & Schatten */
   --pm-divider: rgba(15, 23, 42, 0.10);
@@ -49,92 +49,48 @@
   --pm-drawer-border-collapsed: rgba(0, 0, 0, 0.10);
   --pm-drawer-scrim:            transparent;
 
-  /* Indigo-Standard (ohne data-color-variant oder data-color-variant="indigo") */
-  --pm-app-surface:          #f3f6fb;
-  --pm-content-surface:      #f6f9fe;
-  --pm-sidebar-surface:      #eef3fa;
-  --pm-viewer-surface:       #f2f6fd;
+  /* Akzent (Standard: Teal). Nur diese Variablen wechseln je data-color-variant. */
+  --v-theme-primary:         14, 116, 144;
+  --pm-accent:               #0891b2;
+  --pm-accent-strong:        #0e7490;
+  --pm-accent-contrast:      #ffffff;
+
+  /* Kühle Slate-Neutrals (eine Identität, accent-unabhängig) */
+  --pm-app-surface:          #eef2f8;
+  --pm-content-surface:      #f7f9fc;
+  --pm-sidebar-surface:      #e9eef5;
+  --pm-viewer-surface:       #f1f4fa;
   --pm-app-surface-raised:   #ffffff;
   --pm-app-surface-contrast: #ffffff;
-  --pm-pdf-stage-bg:         #f2f6fd;
-  --pm-sidebar-hover:        rgba(59, 130, 246, 0.06);
-  --pm-sidebar-active:       rgba(59, 130, 246, 0.10);
-  --pm-row-hover:            #f3f7ff;
-  --pm-row-active:           #eaf2ff;
+  --pm-pdf-stage-bg:         #f1f4fa;
+  --pm-sidebar-hover:        color-mix(in srgb, var(--pm-accent) 8%, transparent);
+  --pm-sidebar-active:       color-mix(in srgb, var(--pm-accent) 14%, transparent);
+  --pm-row-hover:            #f3f6fb;
+  --pm-row-active:           color-mix(in srgb, var(--pm-accent) 12%, #ffffff);
   --pm-document-row-bg:      #fbfdff;
-  --pm-appbar-bg:            #303970;
+  --pm-appbar-bg:            #1e293b;
+
+  /* Semantische Farben (hell) */
+  --pm-success: #15803d;
+  --pm-warning: #b45309;
+  --pm-error:   #dc2626;
+  --pm-info:    #475569;
 }
 
-/* ── Forest Light ──────────────────────────────────────────────────────────── */
-.papermind-app.v-theme--light[data-color-variant="forest"] {
-  --v-theme-primary:           22, 163, 74;
-  --pm-app-surface:            #f2f8f4;
-  --pm-content-surface:        #f5faf7;
-  --pm-sidebar-surface:        #ecf5ef;
-  --pm-viewer-surface:         #f1f8f4;
-  --pm-app-surface-raised:     #ffffff;
-  --pm-app-surface-contrast:   #ffffff;
-  --pm-pdf-stage-bg:           #f1f8f4;
-  --pm-sidebar-hover:          rgba(22, 163, 74, 0.06);
-  --pm-sidebar-active:         rgba(22, 163, 74, 0.10);
-  --pm-row-hover:              #eef8f2;
-  --pm-row-active:             #e3f3eb;
-  --pm-document-row-bg:        #fbfefc;
-  --pm-appbar-bg:              #14532d;
+/* ── Akzent: Violet (hell) ─────────────────────────────────────────────────── */
+.papermind-app.v-theme--light[data-color-variant="violet"] {
+  --v-theme-primary:    124, 58, 237;
+  --pm-accent:          #7c3aed;
+  --pm-accent-strong:   #6d28d9;
+  --pm-accent-contrast: #ffffff;
 }
 
-/* ── Teal Light ───────────────────────────────────────────────────────────── */
-.papermind-app.v-theme--light[data-color-variant="teal"] {
-  --v-theme-primary:           15, 118, 110;
-  --pm-app-surface:            #f1f8f7;
-  --pm-content-surface:        #f5faf9;
-  --pm-sidebar-surface:        #eaf4f3;
-  --pm-viewer-surface:         #eff8f7;
-  --pm-app-surface-raised:     #ffffff;
-  --pm-app-surface-contrast:   #ffffff;
-  --pm-pdf-stage-bg:           #eff8f7;
-  --pm-sidebar-hover:          rgba(15, 118, 110, 0.06);
-  --pm-sidebar-active:         rgba(15, 118, 110, 0.10);
-  --pm-row-hover:              #eaf7f5;
-  --pm-row-active:             #dff1ef;
-  --pm-document-row-bg:        #fbfefd;
-  --pm-appbar-bg:              #115e59;
-}
-
-/* ── Slate Light ───────────────────────────────────────────────────────────── */
-.papermind-app.v-theme--light[data-color-variant="slate"] {
-  --v-theme-primary:           71, 85, 105;
-  --pm-app-surface:            #f3f6f9;
-  --pm-content-surface:        #f7fafc;
-  --pm-sidebar-surface:        #eef3f7;
-  --pm-viewer-surface:         #f1f5f9;
-  --pm-app-surface-raised:     #ffffff;
-  --pm-app-surface-contrast:   #ffffff;
-  --pm-pdf-stage-bg:           #f1f5f9;
-  --pm-sidebar-hover:          rgba(71, 85, 105, 0.06);
-  --pm-sidebar-active:         rgba(71, 85, 105, 0.10);
-  --pm-row-hover:              #eef3f8;
-  --pm-row-active:             #e6ecf3;
-  --pm-document-row-bg:        #fbfcfe;
-  --pm-appbar-bg:              #334155;
-}
-
-/* ── Stone Light ───────────────────────────────────────────────────────────── */
-.papermind-app.v-theme--light[data-color-variant="stone"] {
-  --v-theme-primary:           87, 83, 78;
-  --pm-app-surface:            #f7f5f1;
-  --pm-content-surface:        #fbfaf7;
-  --pm-sidebar-surface:        #f1eee8;
-  --pm-viewer-surface:         #f6f3ee;
-  --pm-app-surface-raised:     #ffffff;
-  --pm-app-surface-contrast:   #ffffff;
-  --pm-pdf-stage-bg:           #f6f3ee;
-  --pm-sidebar-hover:          rgba(87, 83, 78, 0.06);
-  --pm-sidebar-active:         rgba(87, 83, 78, 0.10);
-  --pm-row-hover:              #f1eee8;
-  --pm-row-active:             #e7e2d9;
-  --pm-document-row-bg:        #fffdf9;
-  --pm-appbar-bg:              #44403c;
+/* ── Akzent: Blau (hell) ───────────────────────────────────────────────────── */
+.papermind-app.v-theme--light[data-color-variant="blue"] {
+  --v-theme-primary:    37, 99, 235;
+  --pm-accent:          #2563eb;
+  --pm-accent-strong:   #1d4ed8;
+  --pm-accent-contrast: #ffffff;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -146,8 +102,8 @@
   --v-theme-overlay-multiplier: 0;
 
   /* Text */
-  --pm-text:  rgba(231, 237, 246, 0.92);
-  --pm-muted: rgba(231, 237, 246, 0.60);
+  --pm-text:  #e6ebf2;
+  --pm-muted: #9aa4b2;
 
   /* Trennlinien & Schatten */
   --pm-divider: rgba(255, 255, 255, 0.08);
@@ -164,18 +120,30 @@
   --pm-drawer-border-collapsed: rgba(255, 255, 255, 0.06);
   --pm-drawer-scrim:            transparent;
 
-  /* Indigo-Standard */
-  --pm-v-bg:             #0b1220;
-  --pm-v-panel-left:     #0f1a2a;
-  --pm-v-panel-mid:      #111f33;
-  --pm-v-panel-right:    #0c1626;
-  --pm-v-card:           #162a44;
-  --pm-v-card-hover:     #1b3556;
-  --pm-v-card-active:    #22406a;
-  --pm-v-sidebar-active: #1c2b40;
-  --pm-drawer-bg-expanded:  rgba(28, 37, 51, 0.96);
-  --pm-drawer-bg-collapsed: rgba(28, 37, 51, 0.90);
-  --pm-appbar-bg:        #303970;
+  /* Akzent (Standard: Teal) */
+  --v-theme-primary:     34, 211, 238;
+  --pm-accent:           #22d3ee;
+  --pm-accent-strong:    #22d3ee;
+  --pm-accent-contrast:  #04241f;
+
+  /* Kühle Slate-Neutrals (dunkel) */
+  --pm-v-bg:             #0a0f19;
+  --pm-v-panel-left:     #0c111c;
+  --pm-v-panel-mid:      #0e1420;
+  --pm-v-panel-right:    #0a0f19;
+  --pm-v-card:           #141b28;
+  --pm-v-card-hover:     #1b2433;
+  --pm-v-card-active:    #222e40;
+  --pm-v-sidebar-active: #161d2a;
+  --pm-drawer-bg-expanded:  rgba(20, 27, 40, 0.96);
+  --pm-drawer-bg-collapsed: rgba(20, 27, 40, 0.90);
+  --pm-appbar-bg:        #0e1420;
+
+  /* Semantische Farben (dunkel) */
+  --pm-success: #34d399;
+  --pm-warning: #fbbf24;
+  --pm-error:   #f87171;
+  --pm-info:    #94a3b8;
 
   /* Semantische Zuweisung */
   --pm-app-surface:          var(--pm-v-bg);
@@ -185,86 +153,28 @@
   --pm-app-surface-raised:   var(--pm-v-card);
   --pm-app-surface-contrast: var(--pm-v-card);
   --pm-pdf-stage-bg:         var(--pm-v-panel-right);
-  --pm-sidebar-hover:        color-mix(in srgb, var(--pm-v-card) 68%, white 32%);
-  --pm-sidebar-active:       color-mix(in srgb, var(--pm-v-card) 88%, transparent 12%);
+  --pm-sidebar-hover:        color-mix(in srgb, var(--pm-accent) 10%, transparent);
+  --pm-sidebar-active:       color-mix(in srgb, var(--pm-accent) 16%, transparent);
   --pm-row-hover:            var(--pm-v-card-hover);
-  --pm-row-active:           var(--pm-v-card-active);
+  --pm-row-active:           color-mix(in srgb, var(--pm-accent) 16%, var(--pm-v-card));
   --pm-document-row-bg:      color-mix(in srgb, var(--pm-v-card-active) 76%, black 24%);
   --pm-document-row-active-bg: color-mix(in srgb, var(--pm-v-card) 62%, white 38%);
 }
 
-/* ── Forest Dark ───────────────────────────────────────────────────────────── */
-.papermind-app.v-theme--dark[data-color-variant="forest"] {
-  --v-theme-primary:     34, 197, 94;
-  --pm-text:             rgba(228, 237, 231, 0.92);
-  --pm-muted:            rgba(228, 237, 231, 0.60);
-  --pm-v-bg:             #0a1a0f;
-  --pm-v-panel-left:     #0c1d12;
-  --pm-v-panel-mid:      #0f2318;
-  --pm-v-panel-right:    #0b1a10;
-  --pm-v-card:           #163320;
-  --pm-v-card-hover:     #1e4a2e;
-  --pm-v-card-active:    #265a38;
-  --pm-v-sidebar-active: #162c1e;
-  --pm-drawer-bg-expanded:  rgba(15, 35, 24, 0.96);
-  --pm-drawer-bg-collapsed: rgba(15, 35, 24, 0.90);
-  --pm-appbar-bg:        #14532d;
+/* ── Akzent: Violet (dunkel) ───────────────────────────────────────────────── */
+.papermind-app.v-theme--dark[data-color-variant="violet"] {
+  --v-theme-primary:    167, 139, 250;
+  --pm-accent:          #a78bfa;
+  --pm-accent-strong:   #a78bfa;
+  --pm-accent-contrast: #2e1065;
 }
 
-/* ── Teal Dark ────────────────────────────────────────────────────────────── */
-.papermind-app.v-theme--dark[data-color-variant="teal"] {
-  --v-theme-primary:     45, 212, 191;
-  --pm-text:             rgba(226, 239, 236, 0.92);
-  --pm-muted:            rgba(226, 239, 236, 0.60);
-  --pm-v-bg:             #071917;
-  --pm-v-panel-left:     #0a1f1d;
-  --pm-v-panel-mid:      #0d2422;
-  --pm-v-panel-right:    #081c1a;
-  --pm-v-card:           #143632;
-  --pm-v-card-hover:     #1f4f4a;
-  --pm-v-card-active:    #28625c;
-  --pm-v-sidebar-active: #15302d;
-  --pm-drawer-bg-expanded:  rgba(13, 36, 34, 0.96);
-  --pm-drawer-bg-collapsed: rgba(13, 36, 34, 0.90);
-  --pm-appbar-bg:        #115e59;
-}
-
-/* ── Slate Dark ────────────────────────────────────────────────────────────── */
-.papermind-app.v-theme--dark[data-color-variant="slate"] {
-  --v-theme-primary:     148, 163, 184;
-  --pm-text:             rgba(229, 234, 242, 0.92);
-  --pm-muted:            rgba(229, 234, 242, 0.60);
-  --pm-v-bg:             #111620;
-  --pm-v-panel-left:     #151c2a;
-  --pm-v-panel-mid:      #191f2c;
-  --pm-v-panel-right:    #131924;
-  --pm-v-card:                #2f4462;
-  --pm-v-card-hover:          #3a5272;
-  --pm-v-card-active:         #445e80;
-  --pm-v-sidebar-active:      #1b2536;
-  --pm-app-surface-raised:    #2f4462;
-  --pm-app-surface-contrast:  #2f4462;
-  --pm-drawer-bg-expanded:  rgba(23, 32, 46, 0.96);
-  --pm-drawer-bg-collapsed: rgba(23, 32, 46, 0.90);
-  --pm-appbar-bg:        #1e293b;
-}
-
-/* ── Stone Dark ────────────────────────────────────────────────────────────── */
-.papermind-app.v-theme--dark[data-color-variant="stone"] {
-  --v-theme-primary:     168, 162, 158;
-  --pm-text:             rgba(238, 234, 228, 0.92);
-  --pm-muted:            rgba(238, 234, 228, 0.60);
-  --pm-v-bg:             #151412;
-  --pm-v-panel-left:     #1a1816;
-  --pm-v-panel-mid:      #1f1d1a;
-  --pm-v-panel-right:    #171512;
-  --pm-v-card:           #2b2824;
-  --pm-v-card-hover:     #44403a;
-  --pm-v-card-active:    #555047;
-  --pm-v-sidebar-active: #37322d;
-  --pm-drawer-bg-expanded:  rgba(31, 29, 26, 0.96);
-  --pm-drawer-bg-collapsed: rgba(31, 29, 26, 0.90);
-  --pm-appbar-bg:        #292524;
+/* ── Akzent: Blau (dunkel) ─────────────────────────────────────────────────── */
+.papermind-app.v-theme--dark[data-color-variant="blue"] {
+  --v-theme-primary:    96, 165, 250;
+  --pm-accent:          #60a5fa;
+  --pm-accent-strong:   #60a5fa;
+  --pm-accent-contrast: #0b2447;
 }
 
 /* ── Animationen deaktiviert ───────────────────────────────────────────────── */

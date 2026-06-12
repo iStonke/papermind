@@ -2087,13 +2087,13 @@ function applyColorVariant(variant) {
 
 function applyThemeFromSettings() {
   theme.global.name.value = resolveThemeName(appSettings.value.ui.theme_mode);
-  applyColorVariant(appSettings.value.ui.color_variant || 'slate');
+  applyColorVariant(appSettings.value.ui.color_variant || 'teal');
 }
 
 watch(
   () => settingsStore.settingsDraft.ui.color_variant,
   (variant) => {
-    applyColorVariant(variant || 'slate');
+    applyColorVariant(variant || 'teal');
   }
 );
 

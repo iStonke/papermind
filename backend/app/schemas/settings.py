@@ -85,11 +85,9 @@ class ThemeMode(str, Enum):
 
 
 class ColorVariant(str, Enum):
-    indigo = "indigo"
-    forest = "forest"
     teal = "teal"
-    slate = "slate"
-    stone = "stone"
+    violet = "violet"
+    blue = "blue"
 
 
 class DocumentSortOrder(str, Enum):
@@ -150,7 +148,7 @@ def _normalize_sidebar_sections(
 
 class UISettingsRead(BaseModel):
     theme_mode: ThemeMode = ThemeMode.system
-    color_variant: ColorVariant = ColorVariant.slate
+    color_variant: ColorVariant = ColorVariant.teal
     glass_enabled: bool = False
     showFilenameSuffix: bool = True
     drawerRememberState: bool = True

@@ -20,7 +20,7 @@ from app.schemas.settings import (
 DEFAULT_SETTINGS: dict[str, Any] = {
     "ui": {
         "theme_mode": "system",
-        "color_variant": "slate",
+        "color_variant": "teal",
         "glass_enabled": False,
         "showFilenameSuffix": True,
         "drawerRememberState": True,
@@ -111,7 +111,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     },
 }
 
-COLOR_VARIANT_VALUES = {"indigo", "forest", "teal", "slate", "stone"}
+COLOR_VARIANT_VALUES = {"teal", "violet", "blue"}
 
 
 def _deep_merge_dict(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
