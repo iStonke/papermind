@@ -4,6 +4,7 @@
       <slot name="head" />
     </div>
 
+    <div class="sidebar-scroll">
     <!-- Bibliothek -->
     <v-list nav density="compact" class="views-list">
       <div
@@ -305,6 +306,7 @@
       </div>
     </v-list>
     </template>
+    </div>
 
     <div v-if="$slots.foot" class="sidebar-foot">
       <slot name="foot" />

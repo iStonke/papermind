@@ -50,8 +50,6 @@
         <v-icon size="18" class="mr-1">mdi-robot</v-icon>
         Chat
       </v-btn>
-
-      <ActivityIndicator ref="activityIndicatorRef" @open-backup="openBackupSettings" />
     </template>
   </AppTopBar>
 
@@ -207,6 +205,19 @@
               @keydown="handleSearchShortcut"
               @click:clear="clearSearchFromInput"
             />
+          </template>
+
+          <template #foot>
+            <SidebarAccount />
+            <v-btn
+              icon="mdi-cog-outline"
+              variant="text"
+              size="small"
+              class="sidebar-foot__btn"
+              aria-label="Einstellungen"
+              @click="uiStore.openSettings()"
+            />
+            <ActivityIndicator ref="activityIndicatorRef" @open-backup="openBackupSettings" />
           </template>
         </AppSidebar>
 
@@ -984,6 +995,7 @@ import DocumentPreviewLayout from '../components/DocumentPreviewLayout.vue';
 import ImportStagingDialog from '../components/ImportStagingDialog.vue';
 import NotificationStack from '../components/NotificationStack.vue';
 import AppSidebar from '../components/AppSidebar.vue';
+import SidebarAccount from '../components/SidebarAccount.vue';
 import ActivityIndicator from '../components/ActivityIndicator.vue';
 import DocumentListPanel from '../components/DocumentListPanel.vue';
 import ListActionToolbar from '../components/ListActionToolbar.vue';
@@ -5247,6 +5259,19 @@ onBeforeUnmount(() => {
   color: var(--pm-accent);
 }
 
+/* ── Sidebar-Fuß (Konto + Einstellungen + Aktivität) ───────────────────────── */
+.sidebar-foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 8px 10px;
+  border-top: 1px solid var(--pm-divider);
+}
+
+.sidebar-foot__btn {
+  color: var(--pm-muted);
+}
+
 .appbar-search__field :deep(.v-field--focused .v-field__outline) {
   color: rgba(255, 255, 255, 0.92);
 }
@@ -6426,6 +6451,15 @@ onBeforeUnmount(() => {
 .panel-left {
   background: var(--pm-sidebar-surface);
   position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .panel-middle {
