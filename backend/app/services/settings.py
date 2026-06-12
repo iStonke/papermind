@@ -25,6 +25,13 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "showFilenameSuffix": True,
         "drawerRememberState": True,
         "tagDrawerRememberState": True,
+        "sidebar_sections": [
+            {"key": "ordner", "visible": True},
+            {"key": "tags", "visible": True},
+            {"key": "kategorien", "visible": True},
+        ],
+        "sidebar_max_tags": 5,
+        "sidebar_max_categories": 5,
     },
     "documents": {
         "auto_ocr": True,

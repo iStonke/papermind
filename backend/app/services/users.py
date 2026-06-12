@@ -252,7 +252,9 @@ class UserService:
             raise NotFoundError("Avatar file missing", details={"user_id": str(user.id)})
         return path
 
-    def delete_user(self, user_id: uuid.UUID) -> None:
+    def delete_user(self, user_id: uuid.UUID, acting_user_id: uuid.UUID | None = None) -> None:
+        if acting_user_id is not None and user_id == acting_user_id:
+            raise ConflictError("Cannot delete your own account")
         user = self.get_or_404(user_id)
         if user.is_admin and user.is_active:
             self._guard_last_admin(user, will_be_admin=False, will_be_active=False)

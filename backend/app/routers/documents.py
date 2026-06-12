@@ -44,6 +44,10 @@ def list_documents(
     tag_id: uuid.UUID | None = Query(default=None, description="Filter by tag UUID (preferred)"),
     tag_ids: list[uuid.UUID] = Query(default_factory=list, description="Filter by multiple tag UUIDs (all must match)"),
     untagged: bool = Query(default=False, description="Filter only documents without any tag assignment"),
+    document_type: str | None = Query(
+        default=None,
+        description="Filter by document type / category name (exact, case-insensitive)",
+    ),
     status_filter: DocumentStatus | None = Query(
         default=None,
         alias="status",
@@ -70,6 +74,7 @@ def list_documents(
         tag=effective_tag,
         tag_ids=tag_ids,
         untagged=untagged,
+        document_type=document_type,
         status=status_filter,
         date_from=date_from,
         date_to=date_to,

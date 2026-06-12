@@ -19,6 +19,15 @@
         <v-icon size="22" class="acct-row__chevron">mdi-chevron-right</v-icon>
       </button>
 
+      <button type="button" class="acct-row" @click="emit('navigate', 'session')">
+        <v-icon size="22" class="acct-row__icon">mdi-shield-lock-outline</v-icon>
+        <span class="acct-row__text">
+          <span class="acct-row__title">Sitzung &amp; Sicherheit</span>
+          <span class="acct-row__sub">Automatische Abmeldung bei Inaktivität</span>
+        </span>
+        <v-icon size="22" class="acct-row__chevron">mdi-chevron-right</v-icon>
+      </button>
+
       <button type="button" class="acct-row" @click="emit('navigate', 'avatar')">
         <v-icon size="22" class="acct-row__icon">mdi-image-outline</v-icon>
         <span class="acct-row__text">

@@ -156,6 +156,7 @@
       </Transition>
 
       <TagDialogs ref="tagDialogsRef" @tag-mutated="onTagMutated" />
+      <CategoryDialogs ref="categoryDialogsRef" @category-mutated="onCategoryMutated" />
 
       <DeleteDocumentDialog
         v-model="isDeleteDocumentDialogOpen"
@@ -191,6 +192,8 @@
           :active-saved-search-id="activeSavedSearchId"
           :active-tag-id="activeTagId"
           :is-tag-view="isTagView"
+          :active-category-name="activeCategoryName"
+          :is-category-view="isCategoryView"
           @select-view="selectView"
           @open-saved-search="openSavedSearch"
           @create-folder="openCreateSavedSearchDialog"
@@ -199,6 +202,8 @@
           @empty-trash="emptyTrash"
           @open-tags-view="openTagsView"
           @apply-tag-filter="applyTagFilterFromSidebar"
+          @open-categories-view="openCategoriesView"
+          @apply-category-filter="applyCategoryFilterFromSidebar"
         />
 
         <section class="panel panel-middle">
@@ -267,6 +272,67 @@
                   </div>
                 </div>
                 <div v-else class="panel-empty">Keine Tags verfügbar.</div>
+              </div>
+            </div>
+
+            <div v-else-if="isCategoryView" key="categories" class="panel-middle__view tags-view">
+              <ListActionToolbar
+                :actions="categoryToolbarActions"
+                :right-actions="categoryToolbarRightActions"
+                :selection-mode="isCategorySelectionMode"
+                :selection-count="selectedCategoryIds.size"
+                :selection-disabled="filteredCategories.length === 0"
+                @action-select="handleCategoryToolbarAction"
+                @right-action="handleCategoryToolbarRightAction"
+                @toggle-selection="toggleCategorySelectionMode"
+                @select-all="selectAllVisibleCategories"
+              />
+
+              <div class="tags-view-list-wrap">
+                <div v-if="filteredCategories.length > 0" class="tag-table">
+                  <div
+                    v-for="category in filteredCategories"
+                    :key="`cat-row-${category.id}`"
+                    class="tag-row"
+                    :class="{
+                      'tag-row--selection-mode': isCategorySelectionMode,
+                      'tag-row--selected': selectedCategoryIds.has(category.id)
+                    }"
+                    role="button"
+                    tabindex="0"
+                    @click="onCategoryRowClick(category.id)"
+                    @keydown.enter.prevent="onCategoryRowClick(category.id)"
+                    @keydown.space.prevent="onCategoryRowClick(category.id)"
+                  >
+                    <div v-if="isCategorySelectionMode" class="tag-row__checkbox" aria-hidden="true">
+                      <v-icon v-if="selectedCategoryIds.has(category.id)" size="14">mdi-check</v-icon>
+                    </div>
+                    <button type="button" class="tag-row__name" @click.stop="onCategoryRowClick(category.id)">
+                      {{ category.name }}
+                    </button>
+                    <span class="tag-row__count">{{ category.usage_count ?? 0 }}</span>
+                    <v-menu location="bottom end">
+                      <template #activator="{ props }">
+                        <v-btn icon="mdi-dots-vertical" size="small" variant="text" v-bind="props" @click.stop />
+                      </template>
+                      <v-list density="compact">
+                        <v-list-item @click.stop="categoryDialogsRef?.openRename(category)">
+                          <template #prepend>
+                            <v-icon size="16">mdi-pencil-outline</v-icon>
+                          </template>
+                          <v-list-item-title>Umbenennen</v-list-item-title>
+                        </v-list-item>
+                        <v-list-item class="menu-item--danger" @click.stop="categoryDialogsRef?.openDelete(category)">
+                          <template #prepend>
+                            <v-icon size="16">mdi-trash-can-outline</v-icon>
+                          </template>
+                          <v-list-item-title>Löschen…</v-list-item-title>
+                        </v-list-item>
+                      </v-list>
+                    </v-menu>
+                  </div>
+                </div>
+                <div v-else class="panel-empty">Keine Dokumenttypen verfügbar.</div>
               </div>
             </div>
 
@@ -399,12 +465,20 @@
             @merge="openBatchTagMergeDialog"
             @delete="confirmBatchTagDelete"
           />
+          <BatchActionsBar
+            v-if="isCategorySelectionMode"
+            :count="selectedCategoryIds.size"
+            singular-label="Dokumenttyp"
+            plural-label="Dokumenttypen"
+            :actions="categoryBatchActions"
+            @delete="confirmBatchCategoryDelete"
+          />
         </section>
 
         <section class="panel panel-right">
           <DocumentPreviewLayout
             class="panel-right__preview"
-            :show-drawer="!isTagView && Boolean(selectedDocumentDetail)"
+            :show-drawer="!isTagView && !isCategoryView && Boolean(selectedDocumentDetail)"
             :is-open="isDetailsDrawerOpen"
             :collapsed-height="DETAILS_DRAWER_COLLAPSED_HEIGHT"
           >
@@ -509,6 +583,105 @@
                   icon="mdi-tag-search-outline"
                   title="Keine Tags gefunden"
                   subtitle="Passe die Suche an oder erstelle einen neuen Tag."
+                  size="md"
+                />
+                </Transition>
+
+              </div>
+              <div
+                v-else-if="isCategoryView"
+                class="tag-focus-panel"
+              >
+                <div class="tag-focus-panel__stats" role="group" aria-label="Dokumenttyp-Filter">
+                  <button
+                    type="button"
+                    class="tag-focus-stat"
+                    :class="{ 'tag-focus-stat--active': categoryUsageFilter === 'all' }"
+                    :aria-pressed="categoryUsageFilter === 'all'"
+                    @click="setCategoryUsageFilter('all')"
+                  >
+                    <strong>{{ categoryCloudStats.total }}</strong>
+                    <span>Gesamt</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="tag-focus-stat"
+                    :class="{ 'tag-focus-stat--active': categoryUsageFilter === 'used' }"
+                    :aria-pressed="categoryUsageFilter === 'used'"
+                    @click="setCategoryUsageFilter('used')"
+                  >
+                    <strong>{{ categoryCloudStats.assigned }}</strong>
+                    <span>Genutzt</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="tag-focus-stat"
+                    :class="{ 'tag-focus-stat--active': categoryUsageFilter === 'unused' }"
+                    :aria-pressed="categoryUsageFilter === 'unused'"
+                    @click="setCategoryUsageFilter('unused')"
+                  >
+                    <strong>{{ categoryCloudStats.unused }}</strong>
+                    <span>Leer</span>
+                  </button>
+                </div>
+
+                <Transition name="tag-cloud-swap" mode="out-in">
+                <div
+                  v-if="filteredCategories.length > 0"
+                  :key="categoryUsageFilter"
+                  class="tag-focus-cloud"
+                  :class="{ 'tag-focus-cloud--selection-mode': isCategorySelectionMode }"
+                  aria-label="Dokumenttyp-Wolke"
+                >
+                  <div
+                    v-for="item in categoryCloudItems"
+                    :key="`focus-cloud-cat-${item.category.id}`"
+                    class="tag-focus-cloud__item"
+                    :class="{ 'tag-focus-cloud__item--selected': selectedCategoryIds.has(item.category.id) }"
+                    :style="item.style"
+                  >
+                    <button
+                      type="button"
+                      class="tag-focus-chip"
+                      @click="onCategoryRowClick(item.category.id)"
+                    >
+                      <span class="tag-focus-chip__name">{{ item.category.name }}</span>
+                      <span class="tag-focus-chip__count">{{ item.usage }}</span>
+                    </button>
+                    <v-menu location="bottom end">
+                      <template #activator="{ props }">
+                        <v-btn
+                          icon="mdi-dots-vertical"
+                          size="x-small"
+                          variant="text"
+                          class="tag-focus-chip__menu"
+                          aria-label="Dokumenttyp-Aktionen"
+                          v-bind="props"
+                        />
+                      </template>
+                      <v-list density="compact">
+                        <v-list-item @click.stop="categoryDialogsRef?.openRename(item.category)">
+                          <template #prepend>
+                            <v-icon size="16">mdi-pencil-outline</v-icon>
+                          </template>
+                          <v-list-item-title>Umbenennen</v-list-item-title>
+                        </v-list-item>
+                        <v-list-item class="menu-item--danger" @click.stop="categoryDialogsRef?.openDelete(item.category)">
+                          <template #prepend>
+                            <v-icon size="16">mdi-trash-can-outline</v-icon>
+                          </template>
+                          <v-list-item-title>Löschen…</v-list-item-title>
+                        </v-list-item>
+                      </v-list>
+                    </v-menu>
+                  </div>
+                </div>
+                <PmEmptyState
+                  v-else
+                  key="empty-categories"
+                  icon="mdi-file-search-outline"
+                  title="Keine Dokumenttypen gefunden"
+                  subtitle="Passe die Suche an oder erstelle einen neuen Dokumenttyp."
                   size="md"
                 />
                 </Transition>
@@ -814,6 +987,7 @@ import BatchActionsBar from '../components/BatchActionsBar.vue';
 import BatchTagDialog from '../components/BatchTagDialog.vue';
 import SmartFolderEditor from '../components/SmartFolderEditor.vue';
 import TagDialogs from '../components/TagDialogs.vue';
+import CategoryDialogs from '../components/CategoryDialogs.vue';
 import RenameDocumentDialog from '../components/RenameDocumentDialog.vue';
 import AiDialog from '../components/AiDialog.vue';
 import { mapApiError, notifyError, logDevError, useNotifications } from '../stores/notifications';
@@ -870,6 +1044,20 @@ const TAG_SORT_OPTIONS = Object.freeze([
 ]);
 const TAG_BATCH_ACTIONS = Object.freeze([
   { key: 'merge', label: 'Zusammenführen', icon: 'mdi-source-merge' },
+  { key: 'delete', label: 'Löschen', icon: 'mdi-trash-can-outline', color: 'error' }
+]);
+const CATEGORY_USAGE_FILTER_OPTIONS = Object.freeze([
+  { value: 'all', label: 'Alle Dokumenttypen' },
+  { value: 'used', label: 'Genutzte Dokumenttypen' },
+  { value: 'unused', label: 'Leere Dokumenttypen' }
+]);
+const CATEGORY_SORT_OPTIONS = Object.freeze([
+  { value: 'usage_desc', label: 'Meist genutzt' },
+  { value: 'usage_asc', label: 'Wenig genutzt' },
+  { value: 'name_asc', label: 'Name A–Z' },
+  { value: 'name_desc', label: 'Name Z–A' }
+]);
+const CATEGORY_BATCH_ACTIONS = Object.freeze([
   { key: 'delete', label: 'Löschen', icon: 'mdi-trash-can-outline', color: 'error' }
 ]);
 
@@ -985,7 +1173,7 @@ const importStagingStore = useImportStagingStore();
 
 const { documents, selectedDocumentId, selectedDocumentDetail, isLoadingDocuments } = storeToRefs(docStore);
 const { tags, isTagMutationRunning } = storeToRefs(tagStore);
-const { categoryNames } = storeToRefs(categoryStore);
+const { categoryNames, categories, sortedCategories } = storeToRefs(categoryStore);
 const {
   documentCount: importTrayDocumentCount,
   totalPages: importTrayPageCount
@@ -1019,6 +1207,7 @@ const documentListQuery = reactive({
   q: null,
   tagId: null,
   tagIds: [],
+  documentType: null,
   untagged: null,
   status: normalizeDocumentStatusFilter(initialDocumentToolbarState.status),
   dateFrom: null,
@@ -1061,6 +1250,15 @@ const smartFolderEditorMode = ref('create');
 const smartFolderEditorTarget = ref(null);
 
 const tagDialogsRef = ref(null);
+
+// ── Kategorie-Verwaltungsansicht (analog Tag-Ansicht) ──────────────────────
+const categorySearchText = ref('');
+const categoryUsageFilter = ref('all');
+const categorySortMode = ref('usage_desc');
+const isCategorySelectionMode = ref(false);
+const selectedCategoryIds = ref(new Set());
+const isBatchCategoryDeleting = ref(false);
+const categoryDialogsRef = ref(null);
 
 const previewTargetPage    = ref(null);
 const previewHighlightText = ref('');
@@ -1455,6 +1653,8 @@ const headerMenuActions = computed(() => {
   return actions;
 });
 const isTagView       = computed(() => activeView.value === 'tags');
+const isCategoryView  = computed(() => activeView.value === 'categories');
+const activeCategoryName = computed(() => documentListQuery.documentType || null);
 const isImportsView   = computed(() => activeView.value === 'imports');
 const isUntaggedView  = computed(() => activeView.value === 'untagged');
 const isFavoritesView = computed(() => activeView.value === 'favorites');
@@ -1577,6 +1777,85 @@ const tagCloudStats = computed(() => {
     unused: Math.max(0, source.length - assigned)
   };
 });
+
+// ── Kategorie-Verwaltungsansicht: abgeleiteter Zustand ──────────────────────
+const activeCategoriesForView = computed(() =>
+  sortedCategories.value.filter((category) => category?.is_active !== false)
+);
+const filteredCategories = computed(() => {
+  const query = categorySearchText.value.trim().toLocaleLowerCase('de-DE');
+  return activeCategoriesForView.value
+    .filter((category) => {
+      const usage = Number(category?.usage_count || 0);
+      if (categoryUsageFilter.value === 'used' && usage <= 0) return false;
+      if (categoryUsageFilter.value === 'unused' && usage > 0) return false;
+      if (!query) return true;
+      return String(category?.name || '').toLocaleLowerCase('de-DE').includes(query);
+    })
+    .sort(compareCategoriesForCurrentSort);
+});
+const categoryUsageFilterLabel = computed(() =>
+  CATEGORY_USAGE_FILTER_OPTIONS.find((option) => option.value === categoryUsageFilter.value)?.label || 'Alle Dokumenttypen'
+);
+const categorySortLabel = computed(() =>
+  CATEGORY_SORT_OPTIONS.find((option) => option.value === categorySortMode.value)?.label || 'Meist genutzt'
+);
+const categoryToolbarActions = computed(() => [
+  {
+    key: 'sort',
+    icon: 'mdi-sort',
+    label: categorySortLabel.value,
+    value: categorySortMode.value,
+    options: CATEGORY_SORT_OPTIONS,
+    minWidth: 170
+  },
+  {
+    key: 'usage',
+    icon: 'mdi-filter-variant',
+    label: categoryUsageFilterLabel.value,
+    value: categoryUsageFilter.value,
+    active: categoryUsageFilter.value !== 'all',
+    options: CATEGORY_USAGE_FILTER_OPTIONS,
+    minWidth: 190
+  }
+]);
+const categoryToolbarRightActions = computed(() => [
+  {
+    key: 'create',
+    label: 'Hinzufügen',
+    disabled: isCategorySelectionMode.value
+  }
+]);
+const categoryBatchActions = computed(() => CATEGORY_BATCH_ACTIONS);
+const visibleCategoryIds = computed(() => filteredCategories.value.map((category) => category.id).filter(Boolean));
+watch(filteredCategories, () => {
+  if (!isCategorySelectionMode.value || selectedCategoryIds.value.size === 0) {
+    return;
+  }
+  const visibleIds = new Set(visibleCategoryIds.value);
+  selectedCategoryIds.value = new Set([...selectedCategoryIds.value].filter((id) => visibleIds.has(id)));
+});
+const maxCategoryUsageCount = computed(() => {
+  if (!activeCategoriesForView.value.length) return 1;
+  return Math.max(...activeCategoriesForView.value.map((category) => Number(category.usage_count || 0)), 1);
+});
+const categoryCloudItems = computed(() =>
+  [...filteredCategories.value].map((category, index) => ({
+    category,
+    usage: Number(category?.usage_count || 0),
+    style: categoryCloudItemStyle(category, index)
+  }))
+);
+const categoryCloudStats = computed(() => {
+  const source = activeCategoriesForView.value;
+  const assigned = source.filter((category) => Number(category?.usage_count || 0) > 0).length;
+  return {
+    total: source.length,
+    assigned,
+    unused: Math.max(0, source.length - assigned)
+  };
+});
+
 const activeTagFilterIds = computed(() => normalizeTagIds(documentListQuery.tagIds));
 const activeTagFilterIdsSet = computed(() => new Set(activeTagFilterIds.value));
 const activeTagFilterCount = computed(() => activeTagFilterIds.value.length);
@@ -1716,6 +1995,7 @@ const documentListSavedQueryKey = computed(() =>
     tagId: documentListQuery.tagId,
     tagIds: activeTagFilterIds.value,
     untagged: documentListQuery.untagged,
+    documentType: documentListQuery.documentType,
     status: documentListQuery.status,
     dateFrom: documentListQuery.dateFrom,
     dateTo: documentListQuery.dateTo,
@@ -1731,6 +2011,7 @@ const documentListQueryReloadKey = computed(() =>
     tagId: documentListQuery.tagId,
     tagIds: activeTagFilterIds.value,
     untagged: documentListQuery.untagged,
+    documentType: documentListQuery.documentType,
     status: documentListQuery.status,
     dateFrom: documentListQuery.dateFrom,
     dateTo: documentListQuery.dateTo,
@@ -2953,6 +3234,10 @@ function buildDocumentListQuery() {
     params.set('tag_id', documentListQuery.tagId);
   }
 
+  if (documentListQuery.documentType) {
+    params.set('document_type', documentListQuery.documentType);
+  }
+
   if (isImportsView.value) {
     params.set('recent_imports', 'true');
   }
@@ -3706,7 +3991,7 @@ async function toggleDocumentFavorite(document) {
 }
 
 function selectView(viewKey) {
-  if (viewKey === 'tags' && !closeDetailsDrawerWithGuard()) {
+  if ((viewKey === 'tags' || viewKey === 'categories') && !closeDetailsDrawerWithGuard()) {
     return;
   }
   if (viewKey !== 'tags') {
@@ -3722,6 +4007,7 @@ function selectView(viewKey) {
       tagId: null,
       tagIds: [],
       untagged: null,
+      documentType: null,
       status: toolbarState.status,
       sort: toolbarState.sort,
       order: toolbarState.order
@@ -3741,6 +4027,7 @@ function selectView(viewKey) {
       tagId: null,
       untagged: null,
       tagIds: [],
+      documentType: null,
       status: toolbarState.status,
       sort: toolbarState.sort,
       order: toolbarState.order,
@@ -3758,6 +4045,7 @@ function selectView(viewKey) {
       tagId: null,
       tagIds: [],
       untagged: true,
+      documentType: null,
       status: toolbarState.status,
       sort: toolbarState.sort,
       order: toolbarState.order
@@ -3774,6 +4062,7 @@ function selectView(viewKey) {
       tagId: null,
       tagIds: [],
       untagged: null,
+      documentType: null,
       status: toolbarState.status,
       sort: toolbarState.sort,
       order: toolbarState.order
@@ -3790,6 +4079,7 @@ function selectView(viewKey) {
       tagId: null,
       tagIds: [],
       untagged: null,
+      documentType: null,
       status: toolbarState.status,
       sort: toolbarState.sort,
       order: toolbarState.order
@@ -3798,7 +4088,7 @@ function selectView(viewKey) {
     return;
   }
 
-  if (viewKey === 'tags') {
+  if (viewKey === 'tags' || viewKey === 'categories') {
     leaveActiveSavedSearch();
   }
   activeView.value = viewKey;
@@ -4049,6 +4339,7 @@ function applyTagFilterFromSidebar(tagId) {
     tagId,
     tagIds: tagId ? [tagId] : [],
     untagged: null,
+    documentType: null,
     status: resolveToolbarStatus('all'),
     dateFrom: null,
     dateTo: null
@@ -4066,11 +4357,164 @@ function openTagDocuments(tagId) {
     tagId,
     tagIds: tagId ? [tagId] : [],
     untagged: null,
+    documentType: null,
     status: resolveToolbarStatus('all'),
     dateFrom: null,
     dateTo: null
   });
   syncSearchStateToQuery({ resetOffset: false });
+}
+
+// ── Kategorien (Dokumenttypen): Verwaltungsansicht & Filter ─────────────────
+function openCategoriesView() {
+  selectView('categories');
+}
+
+function openCategoryDocuments(categoryName) {
+  const name = String(categoryName || '').trim();
+  if (!name) return;
+  activeView.value = 'all';
+  leaveActiveSavedSearch();
+  searchText.value = '';
+  patchDocumentListQuery({
+    q: null,
+    tagId: null,
+    tagIds: [],
+    untagged: null,
+    documentType: name,
+    status: resolveToolbarStatus('all'),
+    dateFrom: null,
+    dateTo: null
+  });
+  syncSearchStateToQuery({ resetOffset: false });
+}
+
+function applyCategoryFilterFromSidebar(categoryName) {
+  openCategoryDocuments(categoryName);
+}
+
+function setCategoryUsageFilter(value) {
+  categoryUsageFilter.value = CATEGORY_USAGE_FILTER_OPTIONS.some((option) => option.value === value) ? value : 'all';
+  selectedCategoryIds.value = new Set();
+}
+
+function setCategorySortMode(value) {
+  categorySortMode.value = CATEGORY_SORT_OPTIONS.some((option) => option.value === value) ? value : 'usage_desc';
+}
+
+function handleCategoryToolbarAction({ action, value }) {
+  if (action === 'sort') {
+    setCategorySortMode(value);
+    return;
+  }
+  if (action === 'usage') {
+    setCategoryUsageFilter(value);
+  }
+}
+
+function handleCategoryToolbarRightAction(action) {
+  if (action === 'create') {
+    categoryDialogsRef.value?.openCreate();
+  }
+}
+
+function toggleCategorySelectionMode() {
+  if (!isCategorySelectionMode.value && filteredCategories.value.length === 0) {
+    return;
+  }
+  isCategorySelectionMode.value = !isCategorySelectionMode.value;
+  if (!isCategorySelectionMode.value) {
+    selectedCategoryIds.value = new Set();
+  }
+}
+
+function selectAllVisibleCategories() {
+  selectedCategoryIds.value = new Set(visibleCategoryIds.value);
+}
+
+function toggleCategorySelection(categoryId) {
+  const next = new Set(selectedCategoryIds.value);
+  if (next.has(categoryId)) {
+    next.delete(categoryId);
+  } else {
+    next.add(categoryId);
+  }
+  selectedCategoryIds.value = next;
+}
+
+function onCategoryRowClick(categoryId) {
+  if (isCategorySelectionMode.value) {
+    toggleCategorySelection(categoryId);
+    return;
+  }
+  const category = categories.value.find((item) => item.id === categoryId);
+  if (category?.name) {
+    openCategoryDocuments(category.name);
+  }
+}
+
+function compareCategoriesForCurrentSort(left, right) {
+  const leftUsage = Number(left?.usage_count || 0);
+  const rightUsage = Number(right?.usage_count || 0);
+  const nameOrder = tagNameCollator.compare(
+    normalizeTagInput(left?.name || ''),
+    normalizeTagInput(right?.name || '')
+  );
+  switch (categorySortMode.value) {
+    case 'usage_asc':
+      return (leftUsage - rightUsage) || nameOrder;
+    case 'name_asc':
+      return nameOrder;
+    case 'name_desc':
+      return -nameOrder;
+    case 'usage_desc':
+    default:
+      return (rightUsage - leftUsage) || nameOrder;
+  }
+}
+
+function categoryCloudItemStyle(category, index = 0) {
+  const usage = Number(category?.usage_count || 0);
+  const ratio = Math.min(1, usage / maxCategoryUsageCount.value);
+  const fontSizeRem = 0.82 + ratio * 0.54;
+  const opacity = 0.72 + ratio * 0.28;
+  const fontWeight = Math.round(540 + ratio * 140);
+  const accent = tagCloudAccentPalette[index % tagCloudAccentPalette.length];
+  const floatDirection = index % 2 === 0 ? 1 : -1;
+  return {
+    '--tag-accent': accent,
+    '--tag-float-offset': `${floatDirection * (2 + (index % 3))}px`,
+    '--tag-float-duration': `${10 + (index % 5)}s`,
+    '--tag-float-delay': `${-(index % 7) * 0.85}s`,
+    fontSize: `${fontSizeRem.toFixed(3)}rem`,
+    opacity: opacity.toFixed(2),
+    fontWeight: String(fontWeight)
+  };
+}
+
+async function confirmBatchCategoryDelete() {
+  if (isBatchCategoryDeleting.value || selectedCategoryIds.value.size === 0) {
+    return;
+  }
+  isBatchCategoryDeleting.value = true;
+  try {
+    for (const id of [...selectedCategoryIds.value]) {
+      await categoryStore.deleteCategory(id);
+    }
+    selectedCategoryIds.value = new Set();
+    isCategorySelectionMode.value = false;
+    await categoryStore.fetchCategories();
+    sidebarStore.scheduleCounts();
+  } catch (error) {
+    logDevError(error, 'store-notified');
+  } finally {
+    isBatchCategoryDeleting.value = false;
+  }
+}
+
+function onCategoryMutated() {
+  void categoryStore.fetchCategories();
+  sidebarStore.scheduleCounts();
 }
 
 function toggleTagFilterDrawer() {
@@ -4577,7 +5021,7 @@ const {
 });
 
 watch(documentListQueryReloadKey, () => {
-  if (isTagView.value) {
+  if (isTagView.value || isCategoryView.value) {
     return;
   }
   startDocumentListSettle();
@@ -4601,7 +5045,7 @@ onMounted(async () => {
     ? settingsStore.readStoredTagDrawerExpanded()
     : false;
 
-  await Promise.all([fetchTags(), fetchSavedSearches(), fetchSidebarCounts()]);
+  await Promise.all([fetchTags(), fetchSavedSearches(), fetchSidebarCounts(), categoryStore.ensureLoaded()]);
   await nextTick();
   isTagFilterDrawerAnimationReady.value = true;
   const restoredDocId = readStoredLastSelectedDocId();

@@ -229,25 +229,109 @@
                 @update:model-value="onTagDrawerRememberStateChange"
               />
             </div>
+          </div>
+        </section>
+
+        <section v-show="activeCategory === 'sidebar'" class="pm-settings-section">
+          <div class="pm-settings-content">
+            <SettingsInfoCard
+              icon="mdi-page-layout-sidebar-left"
+              title="Seitenleiste"
+              subtitle="Reihenfolge und Sichtbarkeit der Bereiche."
+            />
 
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
-                <div class="pm-setting-label">Automatische Abmeldung</div>
+                <div class="pm-setting-label">Bereiche der Seitenleiste</div>
                 <div class="pm-setting-description">
-                  Meldet dich nach einer Zeit ohne Aktivität automatisch ab (gilt für dieses Gerät/diesen Browser).
+                  Sortiere die Bereiche per Pfeil und blende sie mit dem Schalter komplett ein oder aus.
+                  Der Bereich „Bibliothek“ bleibt immer oben.
                 </div>
               </div>
+
+              <div class="settings-sidebar-sections">
+                <div
+                  v-for="(section, index) in sidebarSectionsDraft"
+                  :key="section.key"
+                  class="settings-sidebar-section-row"
+                  :class="{ 'settings-sidebar-section-row--hidden': !section.visible }"
+                >
+                  <div class="settings-sidebar-section-reorder">
+                    <button
+                      type="button"
+                      class="settings-sidebar-section-arrow"
+                      aria-label="Nach oben"
+                      :disabled="index === 0 || isSettingSaving.sidebar_sections"
+                      @click="moveSidebarSection(index, -1)"
+                    >
+                      <v-icon size="18">mdi-chevron-up</v-icon>
+                    </button>
+                    <button
+                      type="button"
+                      class="settings-sidebar-section-arrow"
+                      aria-label="Nach unten"
+                      :disabled="index === sidebarSectionsDraft.length - 1 || isSettingSaving.sidebar_sections"
+                      @click="moveSidebarSection(index, 1)"
+                    >
+                      <v-icon size="18">mdi-chevron-down</v-icon>
+                    </button>
+                  </div>
+                  <div class="settings-sidebar-section-icon" aria-hidden="true">
+                    <v-icon size="18">{{ sidebarSectionIcon(section.key) }}</v-icon>
+                  </div>
+                  <div class="settings-sidebar-section-name">{{ sidebarSectionLabel(section.key) }}</div>
+                  <v-switch
+                    :model-value="section.visible"
+                    color="primary"
+                    density="comfortable"
+                    hide-details
+                    inset
+                    :aria-label="`${sidebarSectionLabel(section.key)} ein-/ausblenden`"
+                    :loading="isSettingSaving.sidebar_sections"
+                    :disabled="isSettingSaving.sidebar_sections"
+                    @update:model-value="(val) => setSidebarSectionVisibility(section.key, val)"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div class="pm-setting-row">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Angezeigte Tags</div>
+              </div>
               <v-select
-                :model-value="auth.autoLogoutMinutes"
-                :items="autoLogoutOptions"
+                :model-value="settingsDraft.ui.sidebar_max_tags"
+                :items="sidebarMaxOptions"
                 item-title="label"
                 item-value="value"
                 density="comfortable"
                 hide-details
                 variant="outlined"
-                class="settings-theme-select pm-setting-select"
-                label="Abmelden"
-                @update:model-value="onAutoLogoutChange"
+                class="settings-theme-select settings-sidebar-max-select"
+                aria-label="Maximale Tags in der Seitenleiste"
+                :loading="isSettingSaving.sidebar_max_tags"
+                :disabled="isSettingSaving.sidebar_max_tags"
+                @update:model-value="onSidebarMaxTagsChange"
+              />
+            </div>
+
+            <div class="pm-setting-row">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Angezeigte Dokumenttypen</div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.ui.sidebar_max_categories"
+                :items="sidebarMaxOptions"
+                item-title="label"
+                item-value="value"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select settings-sidebar-max-select"
+                aria-label="Maximale Dokumenttypen in der Seitenleiste"
+                :loading="isSettingSaving.sidebar_max_categories"
+                :disabled="isSettingSaving.sidebar_max_categories"
+                @update:model-value="onSidebarMaxCategoriesChange"
               />
             </div>
           </div>
@@ -771,7 +855,7 @@
             <SettingsInfoCard
               icon="mdi-text-recognition"
               title="Texterkennung"
-              subtitle="Qualität, Sprache und automatische Weiterverarbeitung der OCR-Analyse nach dem Import."
+              subtitle="OCR-Qualität, Sprache und automatische Analyse."
             />
 
             <!-- Automatisches OCR (Grundlage für die KI-Analyse) -->
@@ -1397,8 +1481,13 @@ import {
   buildOcrDocLangPatch,
   buildRecentImportWindowPatch,
   buildShowFilenameSuffixPatch,
+  buildSidebarSectionsPatch,
+  buildSidebarMaxTagsPatch,
+  buildSidebarMaxCategoriesPatch,
   buildThemeModePatch,
-  buildTrashRetentionPatch
+  buildTrashRetentionPatch,
+  normalizeSidebarSections,
+  sidebarSectionLabel
 } from '../utils/settingsApi';
 
 // ── Props / Emits ────────────────────────────────────────────────────────────
@@ -1491,6 +1580,7 @@ const currentColorVariant = computed(() => settingsStore.settingsDraft.ui.color_
 
 const settingsCategories = [
   { value: 'appearance', label: 'Darstellung', icon: 'mdi-palette-outline' },
+  { value: 'sidebar', label: 'Seitenleiste', icon: 'mdi-page-layout-sidebar-left' },
   { value: 'documents', label: 'Dokumente', icon: 'mdi-file-document-outline', adminOnly: true },
   { value: 'categories', label: 'Dokumenttypen', icon: 'mdi-file-document-multiple-outline' },
   { value: 'correspondents', label: 'Korrespondenten', icon: 'mdi-account-outline' },
@@ -1952,18 +2042,6 @@ const trashRetentionOptions = [
   { label: 'Nach 90 Tagen', value: 90 }
 ];
 
-const autoLogoutOptions = [
-  { label: 'Nie', value: 0 },
-  { label: 'Nach 5 Minuten', value: 5 },
-  { label: 'Nach 15 Minuten', value: 15 },
-  { label: 'Nach 30 Minuten', value: 30 },
-  { label: 'Nach 1 Stunde', value: 60 },
-  { label: 'Nach 4 Stunden', value: 240 }
-];
-
-function onAutoLogoutChange(value) {
-  auth.setAutoLogoutMinutes(Number(value) || 0);
-}
 
 const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
 const COLOR_VARIANT_VALUES = new Set(['indigo', 'forest', 'teal', 'slate', 'stone']);
@@ -2064,6 +2142,94 @@ async function onColorVariantChange(nextValue) {
     revert: () => {
       settingsStore.setDraftPatch({ ui: { color_variant: previousVariant } });
     }
+  });
+}
+
+// ── Seitenleiste (Reihenfolge & Sichtbarkeit) ────────────────────────────────
+
+const SIDEBAR_SECTION_ICONS = {
+  ordner: 'mdi-folder-outline',
+  tags: 'mdi-tag-multiple-outline',
+  kategorien: 'mdi-file-document-multiple-outline'
+};
+
+function sidebarSectionIcon(key) {
+  return SIDEBAR_SECTION_ICONS[key] || 'mdi-shape-outline';
+}
+
+const sidebarSectionsDraft = computed(() => normalizeSidebarSections(settingsDraft.ui.sidebar_sections));
+
+async function persistSidebarSections(nextSections) {
+  if (isSettingSaving.sidebar_sections) return;
+  const previous = normalizeSidebarSections(settingsDraft.ui.sidebar_sections);
+  const normalized = normalizeSidebarSections(nextSections);
+  settingsStore.setDraftPatch({ ui: { sidebar_sections: normalized } });
+  await patchSettingsWithRevert({
+    patch: buildSidebarSectionsPatch(normalized),
+    controlKey: 'sidebar_sections',
+    revert: () => {
+      settingsStore.setDraftPatch({ ui: { sidebar_sections: previous } });
+    }
+  });
+}
+
+function moveSidebarSection(index, delta) {
+  const sections = normalizeSidebarSections(settingsDraft.ui.sidebar_sections);
+  const target = index + delta;
+  if (target < 0 || target >= sections.length) return;
+  const next = [...sections];
+  [next[index], next[target]] = [next[target], next[index]];
+  void persistSidebarSections(next);
+}
+
+function setSidebarSectionVisibility(key, visible) {
+  const sections = normalizeSidebarSections(settingsDraft.ui.sidebar_sections);
+  const next = sections.map((section) => (
+    section.key === key ? { ...section, visible: Boolean(visible) } : section
+  ));
+  void persistSidebarSections(next);
+}
+
+const sidebarMaxOptions = [
+  { label: 'Keine', value: 0 },
+  { label: '3', value: 3 },
+  { label: '5', value: 5 },
+  { label: '8', value: 8 },
+  { label: '10', value: 10 },
+  { label: '15', value: 15 },
+  { label: '20', value: 20 },
+  { label: 'Alle', value: 50 }
+];
+
+function clampSidebarMaxCount(value) {
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed)) return 5;
+  return Math.min(50, Math.max(0, parsed));
+}
+
+async function onSidebarMaxTagsChange(nextValue) {
+  if (isSettingSaving.sidebar_max_tags) return;
+  const next = clampSidebarMaxCount(nextValue);
+  const previous = settingsDraft.ui.sidebar_max_tags;
+  if (next === previous) return;
+  settingsStore.setDraftPatch({ ui: { sidebar_max_tags: next } });
+  await patchSettingsWithRevert({
+    patch: buildSidebarMaxTagsPatch(next),
+    controlKey: 'sidebar_max_tags',
+    revert: () => settingsStore.setDraftPatch({ ui: { sidebar_max_tags: previous } })
+  });
+}
+
+async function onSidebarMaxCategoriesChange(nextValue) {
+  if (isSettingSaving.sidebar_max_categories) return;
+  const next = clampSidebarMaxCount(nextValue);
+  const previous = settingsDraft.ui.sidebar_max_categories;
+  if (next === previous) return;
+  settingsStore.setDraftPatch({ ui: { sidebar_max_categories: next } });
+  await patchSettingsWithRevert({
+    patch: buildSidebarMaxCategoriesPatch(next),
+    controlKey: 'sidebar_max_categories',
+    revert: () => settingsStore.setDraftPatch({ ui: { sidebar_max_categories: previous } })
   });
 }
 
@@ -2867,6 +3033,83 @@ async function removeAlias(alias) {
   gap: 8px;
   width: 100%;
   padding-top: 12px;
+}
+
+/* ── Seitenleisten-Sektionen (Reihenfolge & Sichtbarkeit) ───────────────── */
+.settings-sidebar-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding-top: 12px;
+}
+
+.settings-sidebar-section-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px 6px 6px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.07);
+  border-radius: 8px;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
+}
+
+.settings-sidebar-section-row--hidden {
+  opacity: 0.55;
+}
+
+.settings-sidebar-section-reorder {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.settings-sidebar-section-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.settings-sidebar-section-arrow:hover:not(:disabled) {
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  color: rgba(var(--v-theme-on-surface), 0.85);
+}
+
+.settings-sidebar-section-arrow:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.settings-sidebar-section-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: rgba(var(--v-theme-on-surface), 0.7);
+}
+
+.settings-sidebar-section-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.92rem;
+  font-weight: 500;
+}
+
+/* Kompaktes Anzahl-Select (Schnellzugriff-Limits) */
+.settings-sidebar-max-select {
+  flex: 0 0 auto;
+  width: 108px;
+  min-width: 108px;
 }
 
 .settings-category-row {

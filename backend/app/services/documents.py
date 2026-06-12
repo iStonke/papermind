@@ -1197,6 +1197,7 @@ class DocumentService:
         recent_imports: bool,
         in_trash: bool = False,
         favorites_only: bool = False,
+        document_type: str | None = None,
     ):
         # Papierkorb-Filter: standardmäßig gelöschte Dokumente ausblenden
         if in_trash:
@@ -1237,6 +1238,12 @@ class DocumentService:
 
         if status:
             stmt = stmt.where(Document.status == status.value)
+
+        if document_type:
+            normalized_type = " ".join(str(document_type).split()).strip()
+            if not normalized_type:
+                return stmt.where(False)
+            stmt = stmt.where(func.lower(Document.document_type) == normalized_type.lower())
 
         if recent_imports:
             runtime_settings = SettingsService(self.db).get_settings()
@@ -1315,6 +1322,7 @@ class DocumentService:
         offset: int,
         in_trash: bool = False,
         favorites_only: bool = False,
+        document_type: str | None = None,
     ) -> DocumentListResponse:
         if date_from and date_to and date_from > date_to:
             raise BadRequestError(
@@ -1334,6 +1342,7 @@ class DocumentService:
             recent_imports,
             in_trash=in_trash,
             favorites_only=favorites_only,
+            document_type=document_type,
         )
         fts_config = settings.fts_regconfig
         ts_query_expr = None
