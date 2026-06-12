@@ -114,22 +114,3 @@ export function applyPaperMindVuetifyColors(theme, variant) {
   assignVuetifyThemeColors(theme.themes.value.dark.colors, variantTokens.dark);
   return resolvedVariant;
 }
-
-// Akzent-Paletten für den Glass-/Aurora-Hintergrund (wird in Stufe 2 entfernt).
-const GLASS_PALETTES_DARK = Object.freeze({
-  teal: [[34, 211, 238], [96, 165, 250], [167, 139, 250]],
-  violet: [[167, 139, 250], [96, 165, 250], [34, 211, 238]],
-  blue: [[96, 165, 250], [34, 211, 238], [167, 139, 250]]
-});
-
-const GLASS_PALETTES_LIGHT = Object.freeze({
-  teal: [[14, 116, 144], [37, 99, 235], [124, 58, 237]],
-  violet: [[124, 58, 237], [37, 99, 235], [14, 116, 144]],
-  blue: [[37, 99, 235], [14, 116, 144], [124, 58, 237]]
-});
-
-export function getGlassPalette(variant, isDark = true) {
-  const resolved = resolvePaperMindColorVariant(variant);
-  const table = isDark ? GLASS_PALETTES_DARK : GLASS_PALETTES_LIGHT;
-  return table[resolved] || table.teal;
-}

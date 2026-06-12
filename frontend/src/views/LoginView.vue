@@ -1,7 +1,6 @@
 <template>
   <v-app theme="dark">
     <v-main class="login-main">
-      <KnowledgeGraphBackground class="login-bg" />
       <div class="login-glow login-glow--one" aria-hidden="true" />
       <div class="login-glow login-glow--two" aria-hidden="true" />
 
@@ -72,7 +71,6 @@
 import { ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import KnowledgeGraphBackground from '../components/KnowledgeGraphBackground.vue';
 import { useAuthStore } from '../stores/auth.js';
 
 const authStore = useAuthStore();
@@ -106,15 +104,9 @@ async function submit() {
   position: relative;
   overflow: hidden;
   background:
-    radial-gradient(circle at 20% 20%, #14233d 0%, transparent 55%),
-    radial-gradient(circle at 85% 80%, #102a3a 0%, transparent 50%),
-    linear-gradient(135deg, #0b1220 0%, #0a1526 60%, #0b1220 100%);
-}
-
-.login-bg {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
+    radial-gradient(circle at 20% 20%, #0c2a33 0%, transparent 55%),
+    radial-gradient(circle at 85% 80%, #0d2233 0%, transparent 50%),
+    linear-gradient(135deg, #0a0f19 0%, #0b1320 60%, #0a0f19 100%);
 }
 
 /* Weiche Farb-Aura hinter der Karte fuer mehr Tiefe. */
@@ -132,7 +124,7 @@ async function submit() {
   height: 420px;
   top: -120px;
   left: -80px;
-  background: radial-gradient(circle, rgba(59, 130, 246, 0.55), transparent 70%);
+  background: radial-gradient(circle, rgba(8, 145, 178, 0.5), transparent 70%);
   animation: float-glow 14s ease-in-out infinite;
 }
 
@@ -141,7 +133,7 @@ async function submit() {
   height: 360px;
   bottom: -100px;
   right: -60px;
-  background: radial-gradient(circle, rgba(45, 212, 191, 0.4), transparent 70%);
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.38), transparent 70%);
   animation: float-glow 18s ease-in-out infinite reverse;
 }
 
@@ -170,7 +162,7 @@ async function submit() {
   max-width: 380px;
   padding: 36px 32px 32px;
   /* Glassmorphism */
-  background: rgba(18, 30, 50, 0.55) !important;
+  background: rgba(14, 20, 32, 0.62) !important;
   backdrop-filter: blur(22px) saturate(140%);
   -webkit-backdrop-filter: blur(22px) saturate(140%);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -200,8 +192,8 @@ async function submit() {
   margin: 0 auto 16px;
   border-radius: 18px;
   color: #fff;
-  background: linear-gradient(135deg, #3b82f6, #2dd4bf);
-  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.45);
+  background: linear-gradient(135deg, #0891b2, #22d3ee);
+  box-shadow: 0 8px 24px rgba(34, 211, 238, 0.4);
 }
 
 .login-brand {

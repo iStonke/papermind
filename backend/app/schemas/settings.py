@@ -149,7 +149,6 @@ def _normalize_sidebar_sections(
 class UISettingsRead(BaseModel):
     theme_mode: ThemeMode = ThemeMode.system
     color_variant: ColorVariant = ColorVariant.teal
-    glass_enabled: bool = False
     showFilenameSuffix: bool = True
     drawerRememberState: bool = True
     tagDrawerRememberState: bool = True
@@ -259,7 +258,6 @@ class AppSettingsRead(BaseModel):
 class UISettingsPatch(BaseModel):
     theme_mode: ThemeMode | None = None
     color_variant: ColorVariant | None = None
-    glass_enabled: bool | None = None
     showFilenameSuffix: bool | None = None
     drawerRememberState: bool | None = None
     tagDrawerRememberState: bool | None = None

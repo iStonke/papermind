@@ -6,10 +6,6 @@ export function buildColorVariantPatch(colorVariant) {
   return { ui: { color_variant: colorVariant } };
 }
 
-export function buildGlassEnabledPatch(enabled) {
-  return { ui: { glass_enabled: Boolean(enabled) } };
-}
-
 export function buildShowFilenameSuffixPatch(enabled) {
   return { ui: { showFilenameSuffix: Boolean(enabled) } };
 }

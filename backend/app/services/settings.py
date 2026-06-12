@@ -21,7 +21,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "ui": {
         "theme_mode": "system",
         "color_variant": "teal",
-        "glass_enabled": False,
         "showFilenameSuffix": True,
         "drawerRememberState": True,
         "tagDrawerRememberState": True,

@@ -84,7 +84,6 @@ function createDefaultSettings() {
     ui: {
       theme_mode: 'system',
       color_variant: 'teal',
-      glass_enabled: false,
       showFilenameSuffix: true,
       drawerRememberState: true,
       tagDrawerRememberState: true,
@@ -300,10 +299,6 @@ export const useSettingsStore = defineStore('settings', {
         ui: {
           theme_mode: THEME_MODE_VALUES.has(rawThemeMode) ? rawThemeMode : defaults.ui.theme_mode,
           color_variant: COLOR_VARIANT_VALUES.has(rawColorVariant) ? rawColorVariant : defaults.ui.color_variant,
-          glass_enabled:
-            typeof payload?.ui?.glass_enabled === 'boolean'
-              ? payload.ui.glass_enabled
-              : defaults.ui.glass_enabled,
           showFilenameSuffix:
             typeof payload?.ui?.showFilenameSuffix === 'boolean'
               ? payload.ui.showFilenameSuffix

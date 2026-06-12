@@ -155,33 +155,6 @@
               class="pm-setting-row"
               role="button"
               tabindex="0"
-              @click="toggleGlassEnabledFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleGlassEnabledFromRow)"
-            >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Glass-Look (Aurora-Hintergrund)</div>
-                <div class="pm-setting-description">
-                  Durchscheinende Oberflächen mit animiertem Wissensgraph im Hintergrund. Nutzt die aktive
-                  Farbvariante. Benötigt aktivierte Animationen.
-                </div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.ui.glass_enabled"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :disabled="!animationsEnabled || isSettingSaving.glass_enabled"
-                :loading="isSettingSaving.glass_enabled"
-                @click.stop
-                @update:model-value="onGlassEnabledChange"
-              />
-            </div>
-
-            <div
-              class="pm-setting-row"
-              role="button"
-              tabindex="0"
               @click="toggleDrawerRememberStateFromRow"
               @keydown="handleSettingRowShortcut($event, toggleDrawerRememberStateFromRow)"
             >
@@ -1475,7 +1448,6 @@ import {
   buildAutoTaggingPatch,
   buildOcrBackfillEnabledPatch,
   buildColorVariantPatch,
-  buildGlassEnabledPatch,
   buildDrawerRememberStatePatch,
   buildTagDrawerRememberStatePatch,
   buildOcrDocLangPatch,
@@ -2455,26 +2427,6 @@ async function onShowFilenameSuffixChange(nextValue) {
 function toggleShowFilenameSuffixFromRow() {
   if (isSettingSaving.show_filename_suffix) return;
   void onShowFilenameSuffixChange(!settingsDraft.ui.showFilenameSuffix);
-}
-
-// ── Glass-Look (Aurora-Hintergrund) ──────────────────────────────────────────
-
-async function onGlassEnabledChange(nextValue) {
-  if (isSettingSaving.glass_enabled) return;
-  const nextBool = Boolean(nextValue);
-  if (nextBool === settingsDraft.ui.glass_enabled) return;
-  const previous = settingsDraft.ui.glass_enabled;
-  settingsStore.setDraftPatch({ ui: { glass_enabled: nextBool } });
-  await patchSettingsWithRevert({
-    patch: buildGlassEnabledPatch(nextBool),
-    controlKey: 'glass_enabled',
-    revert: () => settingsStore.setDraftPatch({ ui: { glass_enabled: previous } })
-  });
-}
-
-function toggleGlassEnabledFromRow() {
-  if (isSettingSaving.glass_enabled) return;
-  void onGlassEnabledChange(!settingsDraft.ui.glass_enabled);
 }
 
 // ── Drawer: Zustand merken ───────────────────────────────────────────────────
