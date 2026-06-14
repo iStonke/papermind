@@ -7010,12 +7010,19 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
+.sidebar-item--plain-label .v-list-item-title,
+.sidebar-item--plain-label.v-list-item--active .v-list-item-title {
+  font-weight: 400;
+}
+
 .sidebar-item--tag .sidebar-tag-pill {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   min-width: 0;
   width: fit-content;
   max-width: 100%;
-  padding: 2px 10px;
+  min-height: 24px;
+  padding: 1px 10px 2px;
   border-radius: 999px;
   background: rgba(var(--v-theme-primary), 0.13);
   color: rgba(var(--v-theme-primary), 0.94);

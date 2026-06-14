@@ -14,7 +14,7 @@
       <div class="sidebar-section-drawer">
         <div class="sidebar-section-content">
           <SidebarItem
-            item-class="sidebar-item--primary"
+            item-class="sidebar-item--primary sidebar-item--plain-label"
             :active="isViewActive('all')"
             :count="allDocumentsSidebarCount"
             @click="emit('select-view', 'all')"
@@ -225,6 +225,7 @@
       <div class="sidebar-section-drawer" :class="{ 'sidebar-section-drawer--collapsed': tagsCollapsed }">
         <div class="sidebar-section-content">
           <SidebarItem
+            item-class="sidebar-item--plain-label"
             :active="isTagView"
             :count="totalTagsSidebarCount"
             @click="emit('open-tags-view')"
@@ -280,6 +281,7 @@
       <div class="sidebar-section-drawer" :class="{ 'sidebar-section-drawer--collapsed': kategorienCollapsed }">
         <div class="sidebar-section-content">
           <SidebarItem
+            item-class="sidebar-item--plain-label"
             :active="isCategoryView"
             :count="totalCategoriesSidebarCount"
             @click="emit('open-categories-view')"
