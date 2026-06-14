@@ -3,6 +3,7 @@ import unittest
 from fastapi import HTTPException
 
 from app.core.config import Settings
+from app.core.logging import redact_query_tokens
 from app.core.security import enforce_rate_limit
 
 
@@ -40,6 +41,10 @@ class SecurityBasicsTest(unittest.TestCase):
         current_time[0] = 161.0
 
         enforce_rate_limit(bucket, "client", limit=1, window_seconds=60, now_factory=lambda: current_time[0])
+
+    def test_redacts_query_tokens_from_access_log_paths(self) -> None:
+        value = "/api/documents/123/file?token=secret-token&thumb_v=1"
+        self.assertEqual(redact_query_tokens(value), "/api/documents/123/file?token=<redacted>&thumb_v=1")
 
 
 if __name__ == "__main__":

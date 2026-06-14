@@ -97,8 +97,9 @@ def upload_import_inbox(
 def list_import_inbox(
     limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> ImportInboxListResponse:
-    service = ImportInboxService(db)
+    service = ImportInboxService(db, user.id)
     return service.list_pending(limit=limit)
 
 
@@ -111,8 +112,9 @@ def list_import_inbox(
 def claim_import_inbox(
     payload: ImportInboxClaimRequest,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> ImportInboxClaimResponse:
-    service = ImportInboxService(db)
+    service = ImportInboxService(db, user.id)
     return service.claim(payload.item_ids)
 
 
@@ -125,8 +127,9 @@ def claim_import_inbox(
 def discard_import_inbox(
     payload: ImportInboxDiscardRequest,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> ImportInboxDiscardResponse:
-    service = ImportInboxService(db)
+    service = ImportInboxService(db, user.id)
     return service.discard(payload.item_ids)
 
 
@@ -140,8 +143,9 @@ def discard_import_inbox_source_pages(
     source_file_id: uuid.UUID,
     payload: ImportInboxDiscardPagesRequest,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> ImportInboxDiscardPagesResponse:
-    service = ImportInboxService(db)
+    service = ImportInboxService(db, user.id)
     return service.discard_pages(source_file_id, payload.page_indices)
 
 

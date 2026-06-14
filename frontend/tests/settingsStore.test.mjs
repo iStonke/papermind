@@ -46,10 +46,10 @@ test("normalizeSettingsPayload preserves supported color variants", () => {
   const store = useSettingsStore();
 
   const normalized = store.normalizeSettingsPayload({
-    ui: { theme_mode: "light", color_variant: "stone" },
+    ui: { theme_mode: "light", color_variant: "violet" },
   });
 
-  assert.equal(normalized.ui.color_variant, "stone");
+  assert.equal(normalized.ui.color_variant, "violet");
 });
 
 test("normalizeSettingsPayload falls back to default color variant", () => {
@@ -60,5 +60,5 @@ test("normalizeSettingsPayload falls back to default color variant", () => {
     ui: { theme_mode: "light", color_variant: "neon" },
   });
 
-  assert.equal(normalized.ui.color_variant, "slate");
+  assert.equal(normalized.ui.color_variant, "teal");
 });

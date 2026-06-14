@@ -25,10 +25,15 @@ class ImportInboxService:
         self.owner_id = owner_id
         self.import_staging_service = ImportStagingService(db, owner_id)
 
+    def _scope(self, stmt):
+        if self.owner_id is not None:
+            return stmt.where(ImportInboxItem.owner_id == self.owner_id)
+        return stmt
+
     def _pending_count(self) -> int:
         return int(
             self.db.scalar(
-                select(func.count(ImportInboxItem.id)).where(ImportInboxItem.claimed_at.is_(None))
+                self._scope(select(func.count(ImportInboxItem.id)).where(ImportInboxItem.claimed_at.is_(None)))
             )
             or 0
         )
@@ -45,12 +50,16 @@ class ImportInboxService:
         )
 
     def upload(self, files: list[UploadFile], *, client_name: str | None = None) -> ImportInboxUploadResponse:
+        if self.owner_id is None:
+            raise BadRequestError("No user context for import inbox upload")
+
         staged = self.import_staging_service.upload_sources(files)
         created: list[ImportInboxItem] = []
         normalized_client = str(client_name or "").strip()[:200] or None
 
         for source in staged.items:
             item = ImportInboxItem(
+                owner_id=self.owner_id,
                 source_file_id=uuid.UUID(source.source_file_id),
                 original_name=source.original_name,
                 page_count=source.page_count,
@@ -85,10 +94,12 @@ class ImportInboxService:
         normalized_limit = max(1, min(int(limit or 50), 200))
         items = list(
             self.db.scalars(
-                select(ImportInboxItem)
-                .where(ImportInboxItem.claimed_at.is_(None))
-                .order_by(ImportInboxItem.created_at.asc())
-                .limit(normalized_limit)
+                self._scope(
+                    select(ImportInboxItem)
+                    .where(ImportInboxItem.claimed_at.is_(None))
+                    .order_by(ImportInboxItem.created_at.asc())
+                    .limit(normalized_limit)
+                )
             ).all()
         )
         return ImportInboxListResponse(
@@ -108,10 +119,12 @@ class ImportInboxService:
             raise BadRequestError("item_ids is required")
 
         result = self.db.execute(
-            update(ImportInboxItem)
-            .where(ImportInboxItem.id.in_(normalized_ids))
-            .where(ImportInboxItem.claimed_at.is_(None))
-            .values(claimed_at=datetime.now(timezone.utc))
+            self._scope(
+                update(ImportInboxItem)
+                .where(ImportInboxItem.id.in_(normalized_ids))
+                .where(ImportInboxItem.claimed_at.is_(None))
+                .values(claimed_at=datetime.now(timezone.utc))
+            )
         )
         self.db.commit()
         return ImportInboxClaimResponse(
@@ -132,7 +145,7 @@ class ImportInboxService:
 
         items = list(
             self.db.scalars(
-                select(ImportInboxItem).where(ImportInboxItem.id.in_(normalized_ids))
+                self._scope(select(ImportInboxItem).where(ImportInboxItem.id.in_(normalized_ids)))
             ).all()
         )
         for item in items:
@@ -147,7 +160,7 @@ class ImportInboxService:
 
     def discard_pages(self, source_file_id: uuid.UUID, page_indices: list[int]) -> ImportInboxDiscardPagesResponse:
         item = self.db.scalar(
-            select(ImportInboxItem).where(ImportInboxItem.source_file_id == source_file_id)
+            self._scope(select(ImportInboxItem).where(ImportInboxItem.source_file_id == source_file_id))
         )
         if item is None:
             raise BadRequestError("import inbox source was not found")

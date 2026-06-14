@@ -10,6 +10,7 @@ from sqlalchemy import text
 from app.core.config import get_settings
 from app.core.deps import authenticate_request
 from app.core.errors import install_exception_handlers
+from app.core.logging import install_query_token_redaction
 from app.db.session import SessionLocal
 from app.routers import (
     ai_router,
@@ -37,6 +38,7 @@ settings = get_settings()
 
 logger = logging.getLogger("papermind.backend")
 logging.basicConfig(level=logging.INFO)
+install_query_token_redaction()
 
 
 def _check_db_connection_sync() -> tuple[bool, str]:
