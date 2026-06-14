@@ -22,6 +22,10 @@ const OCR_ENGINE_VALUES = new Set(['tesseract', 'paddleocr', 'easyocr', 'abbyy']
 const OCR_DOC_LANG_VALUES = new Set(['de', 'en', 'auto', 'multi']);
 const EMBEDDING_MODEL_FALLBACK = 'hash-384-v1';
 const DRAWER_EXPANDED_STORAGE_KEY  = 'pm.drawerExpanded';
+const DRAWER_HEIGHT_STORAGE_KEY    = 'pm.drawerHeight';
+const DRAWER_HEIGHT_DEFAULT        = 320;
+const DRAWER_HEIGHT_MIN            = 180;
+const DRAWER_HEIGHT_MAX            = 720;
 const TAG_DRAWER_EXPANDED_STORAGE_KEY = 'pm.tagFilterDrawerExpanded';
 const ANIMATIONS_ENABLED_STORAGE_KEY = 'pm.animationsEnabled';
 
@@ -213,6 +217,26 @@ function readStoredDrawerExpanded() {
   return false;
 }
 
+function clampDrawerHeight(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return DRAWER_HEIGHT_DEFAULT;
+  }
+  return Math.round(Math.min(Math.max(parsed, DRAWER_HEIGHT_MIN), DRAWER_HEIGHT_MAX));
+}
+
+function readStoredDrawerHeight() {
+  try {
+    const raw = window.localStorage.getItem(DRAWER_HEIGHT_STORAGE_KEY);
+    if (raw !== null) {
+      return clampDrawerHeight(raw);
+    }
+  } catch {
+    // ignore storage access errors
+  }
+  return DRAWER_HEIGHT_DEFAULT;
+}
+
 export const useSettingsStore = defineStore('settings', {
   state: () => {
     const defaults = createDefaultSettings();
@@ -240,6 +264,7 @@ export const useSettingsStore = defineStore('settings', {
       },
       drawerExpanded: false,
       drawerLastRemembered: readStoredDrawerExpanded(),
+      drawerHeight: readStoredDrawerHeight(),
       hasLoadedSettings: false,
       animationsEnabled: readStoredAnimationsEnabled()
     };
@@ -529,6 +554,16 @@ export const useSettingsStore = defineStore('settings', {
 
     toggleDrawerExpanded() {
       this.setDrawerExpanded(!this.drawerExpanded);
+    },
+
+    setDrawerHeight(value) {
+      const normalized = clampDrawerHeight(value);
+      this.drawerHeight = normalized;
+      try {
+        window.localStorage.setItem(DRAWER_HEIGHT_STORAGE_KEY, String(normalized));
+      } catch {
+        // ignore storage access errors
+      }
     },
 
     initializeDrawerExpandedState() {

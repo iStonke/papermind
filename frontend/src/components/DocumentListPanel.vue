@@ -484,7 +484,7 @@ function displayListDate(document) {
 
 function displayDocumentType(document) {
   const documentType = String(document?.document_type || document?.category || '').trim();
-  return `Dokumenttyp: ${documentType || 'Ohne Dokumenttyp'}`;
+  return `Dokumenttyp: ${documentType || '—'}`;
 }
 
 function escapeHtml(value) {

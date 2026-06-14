@@ -168,6 +168,8 @@ let pdfDoc         = null;
 let activeLoadTask = null;
 let renderObserver = null;
 let resizeObserver = null;
+let lastRenderWidth = 0;
+let resizeRaf      = 0;
 let scrollRafId    = null;
 let highlightIdSeq = 0;
 let highlightFlashTimer = 0;
@@ -676,6 +678,7 @@ async function loadPdf(src) {
   const epoch = ++loadEpoch;
 
   teardownObservers();
+  lastRenderWidth = 0;
   renderedPages.clear();
   renderQueue.clear();
   pageInnerRefs.clear();
@@ -757,13 +760,24 @@ watch(() => props.targetPage, (page) => nextTick(() => scrollToPage(page)));
 
 function onResize() {
   if (!pdfDoc) return;
-  renderedPages.clear();
-  renderQueue.clear();
-  highlightTargets = [];
-  highlightCount.value = 0;
-  activeHighlightIndex.value = -1;
-  for (const el of pageInnerRefs.values()) el.innerHTML = '';
-  setupObservers();
+  // Die Render-Skalierung hängt allein von der Breite ab (computeScale → containerWidth).
+  // Reine Höhenänderungen (Detail-Schublade auf/zu, Splitter ziehen) erfordern kein
+  // Neu-Rendern – sonst würde die ganze Vorschau bei jedem Frame geleert (Flackern).
+  const width = containerWidth();
+  if (width === lastRenderWidth) return;
+  lastRenderWidth = width;
+
+  if (resizeRaf) cancelAnimationFrame(resizeRaf);
+  resizeRaf = requestAnimationFrame(() => {
+    resizeRaf = 0;
+    renderedPages.clear();
+    renderQueue.clear();
+    highlightTargets = [];
+    highlightCount.value = 0;
+    activeHighlightIndex.value = -1;
+    for (const el of pageInnerRefs.values()) el.innerHTML = '';
+    setupObservers();
+  });
 }
 
 watch(pagesEl, (el) => {
@@ -779,6 +793,7 @@ onBeforeUnmount(() => {
   loadEpoch++;
   teardownObservers();
   resizeObserver?.disconnect();
+  if (resizeRaf)      cancelAnimationFrame(resizeRaf);
   if (scrollRafId)    cancelAnimationFrame(scrollRafId);
   if (highlightFlashTimer) window.clearTimeout(highlightFlashTimer);
   if (activeLoadTask) try { activeLoadTask.destroy(); } catch (_) {}
@@ -798,13 +813,21 @@ onBeforeUnmount(() => {
 
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
 .pdf-preview__toolbar {
-  flex: 0 0 auto;
+  /* Overlay über dem oberen Seitenrand: das Dokument scrollt dahinter durch und
+     scheint durch das durchscheinende Frosted-Glas (wie die eingeklappte Leiste). */
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 5px 14px;
-  border-bottom: 1px solid var(--pm-divider);
+  border-bottom: 1px solid var(--pm-drawer-border-collapsed, var(--pm-divider));
   background: var(--pm-drawer-bg-collapsed);
+  backdrop-filter: blur(var(--pm-drawer-blur-collapsed, 11px)) saturate(1.05);
+  -webkit-backdrop-filter: blur(var(--pm-drawer-blur-collapsed, 11px)) saturate(1.05);
   gap: 12px;
   min-height: 36px;
   box-sizing: border-box;
@@ -939,7 +962,8 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   gap: 14px;
-  padding: 14px 14px 14px;
+  /* Oben Platz für die überlagernde (absolute) Toolbar */
+  padding: 50px 14px 14px;
 }
 
 /* ── Einzelne Seite ─────────────────────────────────────────────────────── */

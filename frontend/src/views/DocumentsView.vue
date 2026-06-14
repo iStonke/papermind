@@ -509,6 +509,9 @@
             :show-drawer="!isTagView && !isCategoryView && Boolean(selectedDocumentDetail)"
             :is-open="isDetailsDrawerOpen"
             :collapsed-height="DETAILS_DRAWER_COLLAPSED_HEIGHT"
+            :expanded-height="detailsDrawerHeight"
+            :default-expanded-height="DETAILS_DRAWER_DEFAULT_HEIGHT"
+            @update:expanded-height="setDetailsDrawerHeight"
           >
             <template #viewer>
               <div
@@ -848,139 +851,161 @@
             <template #drawer-body>
               <div v-if="selectedDocumentDetail" class="details-drawer__body">
                 <div class="details-drawer__inner pm-drawer-body">
-                  <div class="pm-drawer-section">
-                    <div class="pm-label">Dokumentname</div>
-                    <v-text-field
-                      v-model="metadataDocName"
-                      class="pm-name-field"
-                      density="compact"
-                      variant="outlined"
-                      placeholder="Dokumentname…"
-                      hide-details
-                    />
-                  </div>
-
-                  <div class="pm-drawer-row pm-drawer-row--split">
-                  <div class="pm-drawer-section pm-drawer-section--half">
-                    <div class="pm-label">Dokumentdatum</div>
-                    <v-text-field
-                      v-model="metadataDocDate"
-                      class="pm-date-field"
-                      density="compact"
-                      variant="outlined"
-                      placeholder="TT.MM.JJJJ"
-                      inputmode="numeric"
-                      maxlength="10"
-                      hide-details
-                      :error="metadataDocDateHasError"
-                      @blur="handleDocumentDateBlur"
-                      @keydown="handleDocumentDateShortcut"
-                    />
-                  </div>
-
-                  <div class="pm-drawer-section pm-drawer-section--half">
-                    <div class="pm-label">Dokumenttyp</div>
-                    <v-select
-                      :model-value="metadataDocCategory"
-                      :items="categoryDrawerItems"
-                      density="compact"
-                      variant="outlined"
-                      hide-details
-                      clearable
-                      placeholder="Dokumenttyp wählen…"
-                      :loading="isSavingCategory"
-                      :menu-props="{
-                        offset: 10,
-                        attach: 'body',
-                        zIndex: 6000,
-                        contentClass: 'pm-menu'
-                      }"
-                      @update:model-value="onMetadataCategoryChange"
-                    />
-                  </div>
-                  </div>
-
-                  <div class="pm-drawer-section">
-                    <div class="pm-label">Korrespondent</div>
-                    <v-autocomplete
-                      :model-value="metadataCorrespondentId"
-                      :items="correspondentDrawerItems"
-                      item-title="title"
-                      item-value="value"
-                      density="compact"
-                      variant="outlined"
-                      hide-details
-                      clearable
-                      placeholder="Korrespondent wählen…"
-                      :loading="isSavingCorrespondent"
-                      :menu-props="{
-                        maxHeight: 240,
-                        offset: 10,
-                        attach: 'body',
-                        zIndex: 6000,
-                        contentClass: 'pm-menu'
-                      }"
-                      @update:model-value="onMetadataCorrespondentChange"
-                    />
-                  </div>
-
-                  <div class="pm-drawer-section">
-                    <div class="pm-label">Tags</div>
-                    <div class="pm-tags-input" :class="{ 'pm-tags-input--disabled': isRunningAiAnalysis }">
-                      <v-chip
-                        v-for="name in metadataTagNames"
-                        :key="name"
-                        size="small"
-                        closable
-                        class="pm-tags-input__chip"
-                        @click:close="removeMetadataTag(name)"
-                      >
-                        {{ name }}
-                      </v-chip>
-                      <v-combobox
-                        ref="metadataTagsCombobox"
-                        v-model="metadataTagNames"
-                        v-model:search="metadataTagSearch"
-                        :items="allTagNames"
-                        multiple
-                        hide-selected
-                        :clearable="false"
-                        density="compact"
-                        variant="plain"
-                        hide-details
-                        class="pm-tags-input__field"
-                        :placeholder="metadataTagNames.length ? '' : 'Tag hinzufügen…'"
-                        :loading="isSavingTags"
-                        :disabled="isRunningAiAnalysis"
-                        :menu-props="{
-                          maxHeight: 180,
-                          offset: 10,
-                          closeOnContentClick: false,
-                          attach: 'body',
-                          zIndex: 6000,
-                          contentClass: 'pm-menu pm-menu--tags'
-                        }"
-                        @update:model-value="onMetadataTagNamesChange"
-                        @keydown="handleMetadataTagShortcut"
-                      >
-                        <template #selection></template>
-                      </v-combobox>
+                  <div class="pm-prop">
+                    <div class="pm-prop-row">
+                      <label class="pm-prop-key">Dokumentname</label>
+                      <div class="pm-prop-val">
+                        <div class="pm-prop-field">
+                          <v-text-field
+                            v-model="metadataDocName"
+                            class="pm-name-field"
+                            density="compact"
+                            variant="plain"
+                            placeholder="Dokumentname…"
+                            hide-details
+                          />
+                        </div>
+                      </div>
                     </div>
-                  </div>
 
-                  <div class="pm-drawer-section">
-                    <div class="pm-label">Notizen</div>
-                    <v-textarea
-                      v-model="metadataNotes"
-                      :rows="1"
-                      :max-rows="5"
-                      auto-grow
-                      density="compact"
-                      variant="outlined"
-                      placeholder="Notiz hinzufügen…"
-                      hide-details
-                      class="pm-notes-field"
-                    />
+                    <div class="pm-prop-row">
+                      <label class="pm-prop-key">Dokumentdatum</label>
+                      <div class="pm-prop-val">
+                        <div class="pm-prop-field pm-prop-field--inline">
+                          <v-text-field
+                            v-model="metadataDocDate"
+                            class="pm-date-field"
+                            density="compact"
+                            variant="plain"
+                            placeholder="TT.MM.JJJJ"
+                            inputmode="numeric"
+                            maxlength="10"
+                            hide-details
+                            :error="metadataDocDateHasError"
+                            @blur="handleDocumentDateBlur"
+                            @keydown="handleDocumentDateShortcut"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="pm-prop-row">
+                      <label class="pm-prop-key">Dokumenttyp</label>
+                      <div class="pm-prop-val">
+                        <div class="pm-prop-field">
+                          <v-select
+                            :model-value="metadataDocCategory"
+                            :items="categoryDrawerItems"
+                            density="compact"
+                            variant="plain"
+                            hide-details
+                            clearable
+                            placeholder="Dokumenttyp wählen…"
+                            :loading="isSavingCategory"
+                            :menu-props="{
+                              offset: 10,
+                              attach: 'body',
+                              zIndex: 6000,
+                              contentClass: 'pm-menu'
+                            }"
+                            @update:model-value="onMetadataCategoryChange"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="pm-prop-row">
+                      <label class="pm-prop-key">Korrespondent</label>
+                      <div class="pm-prop-val">
+                        <div class="pm-prop-field">
+                          <v-autocomplete
+                            :model-value="metadataCorrespondentId"
+                            :items="correspondentDrawerItems"
+                            item-title="title"
+                            item-value="value"
+                            density="compact"
+                            variant="plain"
+                            hide-details
+                            clearable
+                            placeholder="Korrespondent wählen…"
+                            :loading="isSavingCorrespondent"
+                            :menu-props="{
+                              maxHeight: 240,
+                              offset: 10,
+                              attach: 'body',
+                              zIndex: 6000,
+                              contentClass: 'pm-menu'
+                            }"
+                            @update:model-value="onMetadataCorrespondentChange"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="pm-prop-row pm-prop-row--top">
+                      <label class="pm-prop-key">Tags</label>
+                      <div class="pm-prop-val">
+                        <div class="pm-tags-input" :class="{ 'pm-tags-input--disabled': isRunningAiAnalysis }">
+                          <v-chip
+                            v-for="name in metadataTagNames"
+                            :key="name"
+                            size="small"
+                            closable
+                            class="pm-tags-input__chip"
+                            @click:close="removeMetadataTag(name)"
+                          >
+                            {{ name }}
+                          </v-chip>
+                          <v-combobox
+                            ref="metadataTagsCombobox"
+                            v-model="metadataTagNames"
+                            v-model:search="metadataTagSearch"
+                            :items="allTagNames"
+                            multiple
+                            hide-selected
+                            :clearable="false"
+                            density="compact"
+                            variant="plain"
+                            hide-details
+                            class="pm-tags-input__field"
+                            :placeholder="metadataTagNames.length ? '' : 'Tag hinzufügen…'"
+                            :loading="isSavingTags"
+                            :disabled="isRunningAiAnalysis"
+                            :menu-props="{
+                              maxHeight: 180,
+                              offset: 10,
+                              closeOnContentClick: false,
+                              attach: 'body',
+                              zIndex: 6000,
+                              contentClass: 'pm-menu pm-menu--tags'
+                            }"
+                            @update:model-value="onMetadataTagNamesChange"
+                            @keydown="handleMetadataTagShortcut"
+                          >
+                            <template #selection></template>
+                          </v-combobox>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="pm-prop-row pm-prop-row--top">
+                      <label class="pm-prop-key">Notizen</label>
+                      <div class="pm-prop-val">
+                        <div class="pm-prop-field pm-prop-field--area">
+                          <v-textarea
+                            v-model="metadataNotes"
+                            :rows="3"
+                            :max-rows="8"
+                            auto-grow
+                            density="compact"
+                            variant="plain"
+                            placeholder="Notiz hinzufügen…"
+                            hide-details
+                            class="pm-notes-field"
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1099,6 +1124,7 @@ const VOCAB_NAME_MIN_LENGTH = 2;
 const VOCAB_NAME_MAX_LENGTH = 30;
 
 const DETAILS_DRAWER_COLLAPSED_HEIGHT = 72;
+const DETAILS_DRAWER_DEFAULT_HEIGHT = 320;
 const LAST_SELECTED_DOC_KEY = 'pm.lastSelectedDocumentId';
 const DOCUMENT_TOOLBAR_STATE_KEY = 'pm.documentToolbarState';
 const TAG_TOOLBAR_STATE_KEY = 'pm.tagToolbarState';
@@ -1522,6 +1548,10 @@ const isDetailsDrawerChevronExpanded = computed(() => isDetailsDrawerOpen.value)
 const detailsDrawerChevronIcon = computed(() =>
   isDetailsDrawerChevronExpanded.value ? 'mdi-chevron-down' : 'mdi-chevron-up'
 );
+const detailsDrawerHeight = computed(() => settingsStore.drawerHeight);
+function setDetailsDrawerHeight(value) {
+  settingsStore.setDrawerHeight(value);
+}
 const metadataTagsCombobox = ref(null);
 
 const metadataDocName = ref('');
@@ -2979,9 +3009,18 @@ async function replaceDocumentTags(tagIds) {
     } else {
       await fetchDocumentDetail(documentId);
     }
-    await fetchTags();
+    // Zähler laufen debounced im Hintergrund und stören weder die offene
+    // Tag-Combobox noch die Liste. Bewusst KEIN fetchTags() hier: neu erstellte
+    // Tags sind bereits über createTagByName im Store – ein zweiter Refetch würde
+    // nur die Combobox/Liste neu sortieren und rendern (die optische Unruhe).
     scheduleSidebarCountsRefresh();
-    await fetchDocuments(documentId, { autoSelectFirst: false, allowPreferredOutsideList: true });
+    // Die Dokumentliste nur dann neu laden, wenn ihre Zusammensetzung tatsächlich
+    // von Tags abhängt (aktiver Tag-Filter oder gespeicherte/Smart-Suche). Sonst
+    // genügt die bereits in-place aktualisierte Zeile (patchDocumentInList) –
+    // kein Komplett-Reload von Liste und Vorschau.
+    if (activeTagFilterCount.value > 0 || activeSavedSearchId.value) {
+      await fetchDocuments(documentId, { autoSelectFirst: false, allowPreferredOutsideList: true });
+    }
     notify({ type: 'success', title: 'Tags', message: 'Tags gespeichert.', timeoutMs: 2500 });
   } catch (error) {
     metadataTagErrorMessage.value = notifyError(error, 'Tags konnten nicht gespeichert werden.');
@@ -6577,7 +6616,10 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: 288px 1fr minmax(360px, 43%);
   height: calc(100dvh - var(--v-layout-top, 0px) - var(--v-layout-bottom, 0px));
-  transition: grid-template-columns var(--pm-sidebar-rail-duration) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+  /* Bewusst KEINE Transition auf grid-template-columns: das Animieren der
+     Spaltenbreiten legt jeden Frame das gesamte Layout neu um (inkl. Vorschau →
+     PDF-Re-Render) und ruckelt stark. Die Spalten springen sauber um; die
+     optische Weichheit liefern die Inhalts-Fades (Labels/Icons) unten. */
 }
 
 .panel {
@@ -6874,6 +6916,10 @@ onBeforeUnmount(() => {
 
 .workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-section-divider {
   margin-inline: 16px;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-section-divider--after-library {
+  display: none;
 }
 
 .panel-middle {
@@ -8031,38 +8077,71 @@ onBeforeUnmount(() => {
 }
 
 .pm-drawer-body {
-  padding: 14px 16px 16px;
+  padding: 4px 16px 12px;
+}
+
+/* Eigenschaftslisten-Layout: Label links, Wert rechts, Hairline-Trennlinien.
+   Felder sind rahmenlos und „erwachen" erst bei Hover/Fokus (.pm-prop-field). */
+.pm-prop {
   display: flex;
   flex-direction: column;
-  gap: 14px;
 }
 
-.pm-drawer-section {
-  margin-top: 0;
+.pm-prop-row {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.07);
 }
 
-/* Zwei Felder nebeneinander (z. B. Dokumentdatum + Kategorie) */
-.pm-drawer-row--split {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  flex-wrap: wrap;
+.pm-prop-row:first-child {
+  border-top: none;
 }
-.pm-drawer-section--half {
-  flex: 1 1 160px;
+
+.pm-prop-row--top {
+  align-items: start;
+}
+
+.pm-prop-key {
+  font-size: 0.8rem;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  line-height: 1.3;
+  padding: 4px 0;
+}
+
+.pm-prop-row--top .pm-prop-key {
+  padding-top: 15px;
+}
+
+.pm-prop-val {
   min-width: 0;
-}
-/* Datumsfeld füllt im Zweispalten-Layout seine Hälfte (sonst bleibt rechts eine Lücke) */
-.pm-drawer-section--half .pm-date-field {
-  max-width: none;
-  margin-right: 0;
+  padding: 5px 0;
 }
 
-.pm-label {
-  font-size: 0.74rem;
-  font-weight: 600;
-  opacity: 0.92;
-  margin-bottom: 6px;
+.pm-prop-field {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.pm-prop-field:hover {
+  background: rgba(var(--v-theme-on-surface), 0.04);
+  border-color: rgba(var(--v-theme-on-surface), 0.12);
+}
+
+.pm-prop-field:focus-within {
+  background: rgb(var(--v-theme-surface));
+  border-color: rgba(var(--v-theme-primary), 0.6);
+  box-shadow: 0 0 0 3px rgba(var(--v-theme-primary), 0.12);
+}
+
+/* Datum braucht keine volle Spaltenbreite */
+.pm-prop-field--inline {
+  max-width: 190px;
 }
 
 .pm-section-head {
@@ -8140,14 +8219,14 @@ onBeforeUnmount(() => {
   margin-right: auto;
 }
 
-.pm-drawer-section .v-input,
-.pm-drawer-section .v-combobox,
-.pm-drawer-section .v-textarea {
+.pm-drawer-body .v-input,
+.pm-drawer-body .v-combobox,
+.pm-drawer-body .v-textarea {
   margin-top: 0;
   margin-bottom: 0;
 }
 
-.pm-drawer-section .v-input__details {
+.pm-drawer-body .v-input__details {
   display: none;
 }
 
@@ -8325,26 +8404,28 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  padding: 5px 10px;
-  /* einzeilig genauso hoch wie die anderen compact-outlined-Felder (Korrespondent) */
-  min-height: 48px;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.38);
-  border-radius: var(--pm-field-radius, 8px);
-  transition: border-color 0.15s ease;
+  /* Links 10px wie die übrigen Felder, rechts 8px (gleicher Pfeil-Inset) */
+  padding: 4px 8px 4px 10px;
+  /* rahmenlos wie die übrigen Eigenschaftsfelder; erwacht bei Hover/Fokus */
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
 }
-/* Einheitlicher Feld-Radius im Detail-Drawer: alle outlined-Felder (Korrespondent,
-   Name, Datum, Notizen …) bekommen denselben Radius wie das Tag-Feld. Die
-   Outline-Ecken erben border-radius von .v-field. */
 .details-drawer__body .v-field {
-  border-radius: var(--pm-field-radius, 8px);
+  border-radius: 8px;
 }
-/* Hover wie bei Vuetifys outlined-Feldern: Rand von 0.38 auf high-emphasis (~0.87). */
 .pm-tags-input:hover {
-  border-color: rgba(var(--v-theme-on-surface), var(--v-high-emphasis-opacity));
+  background: rgba(var(--v-theme-on-surface), 0.04);
+  border-color: rgba(var(--v-theme-on-surface), 0.12);
 }
 .pm-tags-input:focus-within {
-  border-color: rgb(var(--v-theme-primary));
-  box-shadow: inset 0 0 0 1px rgb(var(--v-theme-primary));
+  background: rgb(var(--v-theme-surface));
+  border-color: rgba(var(--v-theme-primary), 0.6);
+  box-shadow: 0 0 0 3px rgba(var(--v-theme-primary), 0.12);
 }
 .pm-tags-input--disabled {
   opacity: 0.6;
@@ -8383,13 +8464,26 @@ onBeforeUnmount(() => {
   padding: 0;
   font-size: 0.85rem;
 }
+/* Höhere Spezifität als die globale .pm-drawer-body-Regel: der 10px-Inset liegt
+   schon auf dem .pm-tags-input-Container, das Combobox-Feld selbst bleibt bündig,
+   damit Platzhalter (links) und Pfeil (rechts) mit den übrigen Feldern fluchten. */
+.pm-drawer-body .pm-tags-input__field .v-field__input {
+  padding: 0 !important;
+}
+.pm-drawer-body .pm-tags-input__field .v-field__append-inner {
+  padding-left: 4px !important;
+  padding-right: 0 !important;
+}
 
 
-.pm-menu.pm-menu--tags {
+/* Einheitliches Overlay-Menü für ALLE Detail-Drawer-Selects (Dokumenttyp,
+   Korrespondent, Tags): Hairline-Rahmen + flacher Schatten wie das Formular,
+   funktioniert in hell und dunkel. */
+.pm-menu {
   border-radius: 12px;
-  background: rgba(var(--v-theme-surface-2), 0.96);
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.38);
+  background: rgba(var(--v-theme-surface-2), 0.98);
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16);
   padding: 3px;
   z-index: 6000 !important;
   overflow: hidden;
@@ -8398,33 +8492,37 @@ onBeforeUnmount(() => {
   opacity: 1 !important;
 }
 
-.v-overlay-container .pm-menu.pm-menu--tags {
+.v-overlay-container .pm-menu {
   z-index: 6000 !important;
 }
 
-.pm-menu.pm-menu--tags .v-list {
+.pm-menu .v-list {
   background: transparent;
   padding: 0;
-  max-height: 180px;
   overflow: auto;
 }
 
-.pm-menu.pm-menu--tags .v-list-item {
+.pm-menu .v-list-item {
   min-height: 32px;
   border-radius: 10px;
   margin: 1px 0;
 }
 
-.pm-menu.pm-menu--tags .v-list-item-title {
+.pm-menu .v-list-item-title {
   font-size: 0.8rem;
 }
 
-.pm-menu.pm-menu--tags .v-list-item:hover {
-  background: rgba(255, 255, 255, 0.045);
+.pm-menu .v-list-item:hover {
+  background: rgba(var(--v-theme-on-surface), 0.06);
 }
 
-.pm-menu.pm-menu--tags .v-list-item--active {
-  background: rgba(255, 255, 255, 0.08);
+.pm-menu .v-list-item--active {
+  background: rgba(var(--v-theme-on-surface), 0.1);
+}
+
+/* Tag-Menü behält seine begrenzte Höhe */
+.pm-menu.pm-menu--tags .v-list {
+  max-height: 180px;
 }
 
 .pm-notes-field .v-field__input {
@@ -8441,39 +8539,28 @@ onBeforeUnmount(() => {
   overflow-y: auto;
 }
 
-/* Felder in der Dokumentdetail-Schublade: gleicher Radius wie die Details im
-   Import-Screen. Bewusst ohne :deep, da dieser Style-Block global ist. */
-.pm-drawer-body .v-field,
-.pm-drawer-body .v-field__overlay,
-.pm-drawer-body .v-field__outline {
-  --v-field-border-radius: 8px !important;
+/* Felder in der Dokumentdetail-Schublade: rahmenlose Plain-Variante, die erst
+   bei Hover/Fokus aufwacht. Rahmen + Hintergrund liegen auf .pm-prop-field /
+   .pm-tags-input; das v-field selbst bleibt transparent. */
+.pm-drawer-body .v-field {
+  --v-input-control-height: 34px !important;
+  --v-field-padding-start: 0 !important;
+  --v-field-padding-end: 0 !important;
+  min-height: 34px !important;
+  background: transparent !important;
   border-radius: 8px !important;
 }
 
-.pm-drawer-body .v-field__outline__start {
-  border-radius: 8px 0 0 8px !important;
-}
-
-.pm-drawer-body .v-field__outline__notch {
-  border-radius: 0 !important;
-}
-
-.pm-drawer-body .v-field__outline__end {
-  border-radius: 0 8px 8px 0 !important;
-}
-
-.pm-drawer-body .v-field {
-  --v-input-control-height: 48px !important;
-  height: 48px !important;
-  min-height: 48px !important;
+/* Plain-Variante dämpft den Inhalt sonst auf ~0.62 Opazität */
+.pm-drawer-body .v-field--variant-plain {
+  opacity: 1 !important;
 }
 
 .pm-drawer-body .v-field__input {
-  min-height: 48px !important;
-  padding-top: 0 !important;
-  padding-bottom: 0 !important;
+  min-height: 34px !important;
+  padding: 0 10px !important;
   align-items: center !important;
-  font-size: 0.88rem;
+  font-size: 0.85rem;
   line-height: 1.35;
 }
 
@@ -8483,16 +8570,16 @@ onBeforeUnmount(() => {
 .pm-drawer-body .v-field input {
   display: flex;
   align-items: center;
-  min-height: 48px;
+  min-height: 34px;
   margin: 0;
-  font-size: 0.88rem;
+  font-size: 0.85rem;
   line-height: 1.35;
 }
 
 .pm-drawer-body input::placeholder,
 .pm-drawer-body textarea::placeholder,
 .pm-drawer-body .v-field__input input::placeholder {
-  color: rgba(var(--v-theme-on-surface), 0.48);
+  color: rgba(var(--v-theme-on-surface), 0.42);
 }
 
 .pm-drawer-body .v-select.v-input--dirty .v-field__input,
@@ -8506,7 +8593,7 @@ onBeforeUnmount(() => {
 
 .pm-drawer-body .v-select:not(.v-input--dirty) .v-field__input,
 .pm-drawer-body .v-combobox:not(.v-input--dirty) .v-field__input {
-  color: rgba(var(--v-theme-on-surface), 0.48);
+  color: rgba(var(--v-theme-on-surface), 0.42);
 }
 
 .pm-drawer-body .v-field:focus,
@@ -8518,25 +8605,32 @@ onBeforeUnmount(() => {
 .pm-drawer-body textarea:focus,
 .pm-drawer-body textarea:focus-visible {
   outline: none !important;
-  border-radius: 8px !important;
 }
 
+/* Dropdown-Pfeil (append-inner) und Clear-„X" (clearable) vertikal mittig:
+   align-self überschreibt die obere Ausrichtung des Feld-Grids, align-items
+   zentriert das Icon innerhalb der Box. */
 .pm-drawer-body .v-field__append-inner,
 .pm-drawer-body .v-field__clearable {
-  min-height: 48px !important;
+  min-height: 34px !important;
+  height: 34px !important;
   padding-top: 0 !important;
-  align-items: center;
+  padding-bottom: 0 !important;
+  padding-left: 4px !important;
+  padding-right: 8px !important;
+  align-self: center !important;
+  display: flex !important;
+  align-items: center !important;
 }
 
 .pm-drawer-body .v-textarea .v-field {
   height: auto !important;
-  min-height: 76px !important;
+  min-height: 84px !important;
 }
 
 .pm-drawer-body .v-textarea .v-field__input {
-  min-height: 76px !important;
-  padding-top: 10px !important;
-  padding-bottom: 10px !important;
+  min-height: 84px !important;
+  padding: 8px 10px !important;
   align-items: flex-start;
 }
 

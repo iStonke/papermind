@@ -115,7 +115,7 @@
       </div>
     </v-list>
 
-    <v-divider class="sidebar-section-divider" />
+    <v-divider class="sidebar-section-divider sidebar-section-divider--after-library" />
 
     <template v-for="(section, idx) in orderedSidebarSections" :key="section.key">
       <v-divider v-if="idx > 0" class="sidebar-section-divider" />
