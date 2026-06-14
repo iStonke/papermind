@@ -4,7 +4,8 @@
       <slot name="head" />
     </div>
 
-    <!-- Bibliothek (fixiert, scrollt nicht mit) -->
+    <div class="sidebar-scroll">
+    <!-- Bibliothek -->
     <v-list nav density="compact" class="views-list">
       <div class="sidebar-section-header sidebar-section-header--static">
         <div class="sidebar-section-label">Bibliothek</div>
@@ -114,7 +115,8 @@
       </div>
     </v-list>
 
-    <div class="sidebar-scroll">
+    <v-divider class="sidebar-section-divider" />
+
     <template v-for="(section, idx) in orderedSidebarSections" :key="section.key">
       <v-divider v-if="idx > 0" class="sidebar-section-divider" />
 

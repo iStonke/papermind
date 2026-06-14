@@ -6606,9 +6606,8 @@ onBeforeUnmount(() => {
   padding-top: 12px;
 }
 
-/* Kopf, Bibliothek und Fuß behalten ihre volle Höhe – keine Stauchung, kein Scroll. */
+/* Kopfbereich und Profilbereich bleiben außerhalb des Scrollbereichs. */
 .panel-left > .sidebar-head,
-.panel-left > .views-list,
 .panel-left > .sidebar-foot {
   flex: none;
 }
@@ -6950,7 +6949,7 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-item--primary .v-list-item-title {
-  font-weight: 600;
+  font-weight: 400;
   color: rgba(var(--v-theme-on-surface), 0.96);
 }
 
