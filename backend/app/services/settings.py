@@ -20,11 +20,20 @@ from app.schemas.settings import (
 DEFAULT_SETTINGS: dict[str, Any] = {
     "ui": {
         "theme_mode": "system",
-        "color_variant": "slate",
-        "glass_enabled": False,
+        "color_variant": "teal",
         "showFilenameSuffix": True,
         "drawerRememberState": True,
         "tagDrawerRememberState": True,
+        "sidebar_show_recent": True,
+        "sidebar_show_untagged": True,
+        "sidebar_show_chat": True,
+        "sidebar_sections": [
+            {"key": "ordner", "visible": True},
+            {"key": "tags", "visible": True},
+            {"key": "kategorien", "visible": True},
+        ],
+        "sidebar_max_tags": 5,
+        "sidebar_max_categories": 5,
     },
     "documents": {
         "auto_ocr": True,
@@ -104,7 +113,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     },
 }
 
-COLOR_VARIANT_VALUES = {"indigo", "forest", "teal", "slate", "stone"}
+COLOR_VARIANT_VALUES = {"teal", "violet", "blue"}
 
 
 def _deep_merge_dict(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:

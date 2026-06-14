@@ -1,79 +1,4 @@
 <template>
-  <AppTopBar>
-    <template #center>
-      <v-text-field
-        ref="appBarSearchRef"
-        v-model="searchText"
-        class="appbar-search__field"
-        prepend-inner-icon="mdi-magnify"
-        clearable
-        clear-icon="mdi-close"
-        :placeholder="searchPlaceholder"
-        density="compact"
-        variant="outlined"
-        :messages="searchHintMessages"
-        hide-details="auto"
-        @update:model-value="onAppBarSearchInput"
-        @keydown="handleSearchShortcut"
-        @click:clear="clearSearchFromInput"
-      />
-    </template>
-
-    <template #actions>
-      <v-menu v-if="pendingImportInboxCount > 0" location="bottom end" offset="8">
-        <template #activator="{ props: importMenuProps }">
-          <v-badge
-            model-value
-            :content="pendingImportInboxBadgeLabel"
-            color="error"
-            offset-x="3"
-            offset-y="3"
-          >
-            <v-btn class="topbar-btn topbar-btn--import" variant="text" v-bind="importMenuProps">
-              <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
-              Importieren
-            </v-btn>
-          </v-badge>
-        </template>
-        <v-list density="compact" min-width="240">
-          <v-list-item
-            class="import-inbox-menu-item"
-            prepend-icon="mdi-inbox-arrow-down-outline"
-            :title="pendingImportInboxMenuTitle"
-            @click="openImportInboxScans"
-          />
-          <v-divider />
-          <v-list-item
-            prepend-icon="mdi-file-upload-outline"
-            title="PDF hochladen..."
-            @click="openImportPdfPicker"
-          />
-        </v-list>
-      </v-menu>
-      <v-btn
-        v-else
-        class="topbar-btn topbar-btn--import"
-        variant="text"
-        @click="openImportPdfPicker"
-      >
-        <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
-        Importieren
-      </v-btn>
-
-      <v-btn
-        class="topbar-btn topbar-btn--import"
-        :class="{ 'topbar-btn--active': isAiDialogOpen }"
-        variant="text"
-        @click="openAiView"
-      >
-        <v-icon size="18" class="mr-1">mdi-robot</v-icon>
-        Chat
-      </v-btn>
-
-      <ActivityIndicator ref="activityIndicatorRef" @open-backup="openBackupSettings" />
-    </template>
-  </AppTopBar>
-
   <v-main class="app-main">
       <BatchTagDialog
         v-model="isBatchTagDialogOpen"
@@ -156,6 +81,7 @@
       </Transition>
 
       <TagDialogs ref="tagDialogsRef" @tag-mutated="onTagMutated" />
+      <CategoryDialogs ref="categoryDialogsRef" @category-mutated="onCategoryMutated" />
 
       <DeleteDocumentDialog
         v-model="isDeleteDocumentDialogOpen"
@@ -185,13 +111,26 @@
         @open-citation="openCitation"
       />
 
-      <div class="workspace">
+      <div
+        class="workspace"
+        :class="{
+          'workspace--rail': sidebarRailActive,
+          'workspace--sidebar-transitioning': sidebarRailTransitioning,
+          'workspace--sidebar-collapsing': sidebarRailTransitioning && sidebarCollapsed,
+          'workspace--sidebar-expanding': sidebarRailTransitioning && !sidebarCollapsed
+        }"
+      >
         <AppSidebar
+          :collapsed="sidebarContentCollapsed"
+          :chat-active="isAiDialogOpen"
           :active-view="activeView"
           :active-saved-search-id="activeSavedSearchId"
           :active-tag-id="activeTagId"
           :is-tag-view="isTagView"
+          :active-category-name="activeCategoryName"
+          :is-category-view="isCategoryView"
           @select-view="selectView"
+          @open-chat="openAiView"
           @open-saved-search="openSavedSearch"
           @create-folder="openCreateSavedSearchDialog"
           @edit-folder="openEditSavedSearchDialog"
@@ -199,9 +138,103 @@
           @empty-trash="emptyTrash"
           @open-tags-view="openTagsView"
           @apply-tag-filter="applyTagFilterFromSidebar"
-        />
+          @open-categories-view="openCategoriesView"
+          @apply-category-filter="applyCategoryFilterFromSidebar"
+        >
+          <template #head>
+            <div class="sidebar-head__top">
+              <button type="button" class="sidebar-brand" @click="selectView('all')">
+                <span class="sidebar-brand__mark"><v-icon size="18">mdi-brain</v-icon></span>
+                <span class="sidebar-brand__name">PaperMind</span>
+              </button>
+              <button
+                type="button"
+                class="sidebar-rail-toggle"
+                :aria-label="sidebarCollapsed ? 'Seitenleiste ausklappen' : 'Seitenleiste einklappen'"
+                @click="toggleSidebarRail"
+              >
+                <v-icon size="18">mdi-page-layout-sidebar-left</v-icon>
+              </button>
+            </div>
+            <v-text-field
+              ref="appBarSearchRef"
+              v-model="searchText"
+              class="sidebar-search__field"
+              prepend-inner-icon="mdi-magnify"
+              clearable
+              clear-icon="mdi-close"
+              :placeholder="searchPlaceholder"
+              density="compact"
+              variant="outlined"
+              :messages="searchHintMessages"
+              hide-details="auto"
+              @update:model-value="onAppBarSearchInput"
+              @keydown="handleSearchShortcut"
+              @click:clear="clearSearchFromInput"
+            />
+          </template>
+
+          <template #foot>
+            <v-btn
+              icon="mdi-cog-outline"
+              variant="text"
+              size="small"
+              class="sidebar-foot__rail-settings"
+              aria-label="Einstellungen"
+              @click="uiStore.openSettings()"
+            />
+            <SidebarAccount />
+            <div class="sidebar-foot__actions">
+              <v-btn
+                icon="mdi-cog-outline"
+                variant="text"
+                size="small"
+                class="sidebar-foot__btn"
+                aria-label="Einstellungen"
+                @click="uiStore.openSettings()"
+              />
+              <ActivityIndicator ref="activityIndicatorRef" @open-backup="openBackupSettings" />
+            </div>
+          </template>
+        </AppSidebar>
 
         <section class="panel panel-middle">
+          <div class="panel-middle__header">
+            <div class="panel-middle__heading">{{ panelHeading }}</div>
+            <div v-if="!isTagView && !isCategoryView && !isTrashView" class="panel-middle__actions">
+              <v-badge
+                :model-value="pendingImportInboxCount > 0"
+                :content="pendingImportInboxBadgeLabel"
+                color="error"
+                offset-x="6"
+                offset-y="6"
+              >
+                <v-btn
+                  class="list-header-btn"
+                  color="primary"
+                  variant="tonal"
+                  @click="openImport"
+                >
+                  <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
+                  Importieren
+                </v-btn>
+              </v-badge>
+            </div>
+
+            <div v-if="isTrashView" class="panel-middle__actions">
+              <v-btn
+                class="list-header-btn"
+                color="error"
+                variant="tonal"
+                :disabled="!sidebarCounts.trash_count"
+                @click="emptyTrash"
+              >
+                <v-icon size="18" class="mr-1">mdi-delete-forever-outline</v-icon>
+                Endgültig löschen
+              </v-btn>
+            </div>
+          </div>
+
           <Transition name="pm-panel">
             <div v-if="isTagView" key="tags" class="panel-middle__view tags-view">
               <ListActionToolbar
@@ -267,6 +300,67 @@
                   </div>
                 </div>
                 <div v-else class="panel-empty">Keine Tags verfügbar.</div>
+              </div>
+            </div>
+
+            <div v-else-if="isCategoryView" key="categories" class="panel-middle__view tags-view">
+              <ListActionToolbar
+                :actions="categoryToolbarActions"
+                :right-actions="categoryToolbarRightActions"
+                :selection-mode="isCategorySelectionMode"
+                :selection-count="selectedCategoryIds.size"
+                :selection-disabled="filteredCategories.length === 0"
+                @action-select="handleCategoryToolbarAction"
+                @right-action="handleCategoryToolbarRightAction"
+                @toggle-selection="toggleCategorySelectionMode"
+                @select-all="selectAllVisibleCategories"
+              />
+
+              <div class="tags-view-list-wrap">
+                <div v-if="filteredCategories.length > 0" class="tag-table">
+                  <div
+                    v-for="category in filteredCategories"
+                    :key="`cat-row-${category.id}`"
+                    class="tag-row"
+                    :class="{
+                      'tag-row--selection-mode': isCategorySelectionMode,
+                      'tag-row--selected': selectedCategoryIds.has(category.id)
+                    }"
+                    role="button"
+                    tabindex="0"
+                    @click="onCategoryRowClick(category.id)"
+                    @keydown.enter.prevent="onCategoryRowClick(category.id)"
+                    @keydown.space.prevent="onCategoryRowClick(category.id)"
+                  >
+                    <div v-if="isCategorySelectionMode" class="tag-row__checkbox" aria-hidden="true">
+                      <v-icon v-if="selectedCategoryIds.has(category.id)" size="14">mdi-check</v-icon>
+                    </div>
+                    <button type="button" class="tag-row__name" @click.stop="onCategoryRowClick(category.id)">
+                      {{ category.name }}
+                    </button>
+                    <span class="tag-row__count">{{ category.usage_count ?? 0 }}</span>
+                    <v-menu location="bottom end">
+                      <template #activator="{ props }">
+                        <v-btn icon="mdi-dots-vertical" size="small" variant="text" v-bind="props" @click.stop />
+                      </template>
+                      <v-list density="compact">
+                        <v-list-item @click.stop="categoryDialogsRef?.openRename(category)">
+                          <template #prepend>
+                            <v-icon size="16">mdi-pencil-outline</v-icon>
+                          </template>
+                          <v-list-item-title>Umbenennen</v-list-item-title>
+                        </v-list-item>
+                        <v-list-item class="menu-item--danger" @click.stop="categoryDialogsRef?.openDelete(category)">
+                          <template #prepend>
+                            <v-icon size="16">mdi-trash-can-outline</v-icon>
+                          </template>
+                          <v-list-item-title>Löschen…</v-list-item-title>
+                        </v-list-item>
+                      </v-list>
+                    </v-menu>
+                  </div>
+                </div>
+                <div v-else class="panel-empty">Keine Dokumenttypen verfügbar.</div>
               </div>
             </div>
 
@@ -399,12 +493,20 @@
             @merge="openBatchTagMergeDialog"
             @delete="confirmBatchTagDelete"
           />
+          <BatchActionsBar
+            v-if="isCategorySelectionMode"
+            :count="selectedCategoryIds.size"
+            singular-label="Dokumenttyp"
+            plural-label="Dokumenttypen"
+            :actions="categoryBatchActions"
+            @delete="confirmBatchCategoryDelete"
+          />
         </section>
 
         <section class="panel panel-right">
           <DocumentPreviewLayout
             class="panel-right__preview"
-            :show-drawer="!isTagView && Boolean(selectedDocumentDetail)"
+            :show-drawer="!isTagView && !isCategoryView && Boolean(selectedDocumentDetail)"
             :is-open="isDetailsDrawerOpen"
             :collapsed-height="DETAILS_DRAWER_COLLAPSED_HEIGHT"
           >
@@ -509,6 +611,105 @@
                   icon="mdi-tag-search-outline"
                   title="Keine Tags gefunden"
                   subtitle="Passe die Suche an oder erstelle einen neuen Tag."
+                  size="md"
+                />
+                </Transition>
+
+              </div>
+              <div
+                v-else-if="isCategoryView"
+                class="tag-focus-panel"
+              >
+                <div class="tag-focus-panel__stats" role="group" aria-label="Dokumenttyp-Filter">
+                  <button
+                    type="button"
+                    class="tag-focus-stat"
+                    :class="{ 'tag-focus-stat--active': categoryUsageFilter === 'all' }"
+                    :aria-pressed="categoryUsageFilter === 'all'"
+                    @click="setCategoryUsageFilter('all')"
+                  >
+                    <strong>{{ categoryCloudStats.total }}</strong>
+                    <span>Gesamt</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="tag-focus-stat"
+                    :class="{ 'tag-focus-stat--active': categoryUsageFilter === 'used' }"
+                    :aria-pressed="categoryUsageFilter === 'used'"
+                    @click="setCategoryUsageFilter('used')"
+                  >
+                    <strong>{{ categoryCloudStats.assigned }}</strong>
+                    <span>Genutzt</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="tag-focus-stat"
+                    :class="{ 'tag-focus-stat--active': categoryUsageFilter === 'unused' }"
+                    :aria-pressed="categoryUsageFilter === 'unused'"
+                    @click="setCategoryUsageFilter('unused')"
+                  >
+                    <strong>{{ categoryCloudStats.unused }}</strong>
+                    <span>Leer</span>
+                  </button>
+                </div>
+
+                <Transition name="tag-cloud-swap" mode="out-in">
+                <div
+                  v-if="filteredCategories.length > 0"
+                  :key="categoryUsageFilter"
+                  class="tag-focus-cloud"
+                  :class="{ 'tag-focus-cloud--selection-mode': isCategorySelectionMode }"
+                  aria-label="Dokumenttyp-Wolke"
+                >
+                  <div
+                    v-for="item in categoryCloudItems"
+                    :key="`focus-cloud-cat-${item.category.id}`"
+                    class="tag-focus-cloud__item"
+                    :class="{ 'tag-focus-cloud__item--selected': selectedCategoryIds.has(item.category.id) }"
+                    :style="item.style"
+                  >
+                    <button
+                      type="button"
+                      class="tag-focus-chip"
+                      @click="onCategoryRowClick(item.category.id)"
+                    >
+                      <span class="tag-focus-chip__name">{{ item.category.name }}</span>
+                      <span class="tag-focus-chip__count">{{ item.usage }}</span>
+                    </button>
+                    <v-menu location="bottom end">
+                      <template #activator="{ props }">
+                        <v-btn
+                          icon="mdi-dots-vertical"
+                          size="x-small"
+                          variant="text"
+                          class="tag-focus-chip__menu"
+                          aria-label="Dokumenttyp-Aktionen"
+                          v-bind="props"
+                        />
+                      </template>
+                      <v-list density="compact">
+                        <v-list-item @click.stop="categoryDialogsRef?.openRename(item.category)">
+                          <template #prepend>
+                            <v-icon size="16">mdi-pencil-outline</v-icon>
+                          </template>
+                          <v-list-item-title>Umbenennen</v-list-item-title>
+                        </v-list-item>
+                        <v-list-item class="menu-item--danger" @click.stop="categoryDialogsRef?.openDelete(item.category)">
+                          <template #prepend>
+                            <v-icon size="16">mdi-trash-can-outline</v-icon>
+                          </template>
+                          <v-list-item-title>Löschen…</v-list-item-title>
+                        </v-list-item>
+                      </v-list>
+                    </v-menu>
+                  </div>
+                </div>
+                <PmEmptyState
+                  v-else
+                  key="empty-categories"
+                  icon="mdi-file-search-outline"
+                  title="Keine Dokumenttypen gefunden"
+                  subtitle="Passe die Suche an oder erstelle einen neuen Dokumenttyp."
                   size="md"
                 />
                 </Transition>
@@ -725,22 +926,30 @@
 
                   <div class="pm-drawer-section">
                     <div class="pm-label">Tags</div>
-                    <div class="details-tags-row">
+                    <div class="pm-tags-input" :class="{ 'pm-tags-input--disabled': isRunningAiAnalysis }">
+                      <v-chip
+                        v-for="name in metadataTagNames"
+                        :key="name"
+                        size="small"
+                        closable
+                        class="pm-tags-input__chip"
+                        @click:close="removeMetadataTag(name)"
+                      >
+                        {{ name }}
+                      </v-chip>
                       <v-combobox
                         ref="metadataTagsCombobox"
                         v-model="metadataTagNames"
                         v-model:search="metadataTagSearch"
                         :items="allTagNames"
                         multiple
-                        chips
-                        closable-chips
                         hide-selected
                         :clearable="false"
                         density="compact"
-                        variant="outlined"
-                        hide-details="auto"
-                        class="details-tags-combobox"
-                        placeholder="Tag hinzufügen…"
+                        variant="plain"
+                        hide-details
+                        class="pm-tags-input__field"
+                        :placeholder="metadataTagNames.length ? '' : 'Tag hinzufügen…'"
                         :loading="isSavingTags"
                         :disabled="isRunningAiAnalysis"
                         :menu-props="{
@@ -753,7 +962,9 @@
                         }"
                         @update:model-value="onMetadataTagNamesChange"
                         @keydown="handleMetadataTagShortcut"
-                      />
+                      >
+                        <template #selection></template>
+                      </v-combobox>
                     </div>
                   </div>
 
@@ -790,13 +1001,13 @@ import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, r
 import { storeToRefs } from 'pinia';
 import { useTheme } from 'vuetify';
 import BaseDialog from '../components/BaseDialog.vue';
-import AppTopBar from '../components/AppTopBar.vue';
 import PmEmptyState from '../components/PmEmptyState.vue';
 import DeleteDocumentDialog from '../components/DeleteDocumentDialog.vue';
 import DocumentPreviewLayout from '../components/DocumentPreviewLayout.vue';
 import ImportStagingDialog from '../components/ImportStagingDialog.vue';
 import NotificationStack from '../components/NotificationStack.vue';
 import AppSidebar from '../components/AppSidebar.vue';
+import SidebarAccount from '../components/SidebarAccount.vue';
 import ActivityIndicator from '../components/ActivityIndicator.vue';
 import DocumentListPanel from '../components/DocumentListPanel.vue';
 import ListActionToolbar from '../components/ListActionToolbar.vue';
@@ -804,6 +1015,7 @@ import BatchActionsBar from '../components/BatchActionsBar.vue';
 import BatchTagDialog from '../components/BatchTagDialog.vue';
 import SmartFolderEditor from '../components/SmartFolderEditor.vue';
 import TagDialogs from '../components/TagDialogs.vue';
+import CategoryDialogs from '../components/CategoryDialogs.vue';
 import RenameDocumentDialog from '../components/RenameDocumentDialog.vue';
 import AiDialog from '../components/AiDialog.vue';
 import { mapApiError, notifyError, logDevError, useNotifications } from '../stores/notifications';
@@ -860,6 +1072,20 @@ const TAG_SORT_OPTIONS = Object.freeze([
 ]);
 const TAG_BATCH_ACTIONS = Object.freeze([
   { key: 'merge', label: 'Zusammenführen', icon: 'mdi-source-merge' },
+  { key: 'delete', label: 'Löschen', icon: 'mdi-trash-can-outline', color: 'error' }
+]);
+const CATEGORY_USAGE_FILTER_OPTIONS = Object.freeze([
+  { value: 'all', label: 'Alle Dokumenttypen' },
+  { value: 'used', label: 'Genutzte Dokumenttypen' },
+  { value: 'unused', label: 'Leere Dokumenttypen' }
+]);
+const CATEGORY_SORT_OPTIONS = Object.freeze([
+  { value: 'usage_desc', label: 'Meist genutzt' },
+  { value: 'usage_asc', label: 'Wenig genutzt' },
+  { value: 'name_asc', label: 'Name A–Z' },
+  { value: 'name_desc', label: 'Name Z–A' }
+]);
+const CATEGORY_BATCH_ACTIONS = Object.freeze([
   { key: 'delete', label: 'Löschen', icon: 'mdi-trash-can-outline', color: 'error' }
 ]);
 
@@ -975,7 +1201,7 @@ const importStagingStore = useImportStagingStore();
 
 const { documents, selectedDocumentId, selectedDocumentDetail, isLoadingDocuments } = storeToRefs(docStore);
 const { tags, isTagMutationRunning } = storeToRefs(tagStore);
-const { categoryNames } = storeToRefs(categoryStore);
+const { categoryNames, categories, sortedCategories } = storeToRefs(categoryStore);
 const {
   documentCount: importTrayDocumentCount,
   totalPages: importTrayPageCount
@@ -1009,6 +1235,7 @@ const documentListQuery = reactive({
   q: null,
   tagId: null,
   tagIds: [],
+  documentType: null,
   untagged: null,
   status: normalizeDocumentStatusFilter(initialDocumentToolbarState.status),
   dateFrom: null,
@@ -1052,9 +1279,17 @@ const smartFolderEditorTarget = ref(null);
 
 const tagDialogsRef = ref(null);
 
+// ── Kategorie-Verwaltungsansicht (analog Tag-Ansicht) ──────────────────────
+const categorySearchText = ref('');
+const categoryUsageFilter = ref('all');
+const categorySortMode = ref('usage_desc');
+const isCategorySelectionMode = ref(false);
+const selectedCategoryIds = ref(new Set());
+const isBatchCategoryDeleting = ref(false);
+const categoryDialogsRef = ref(null);
+
 const previewTargetPage    = ref(null);
 const previewHighlightText = ref('');
-
 
 
 const importStagingDialogRef = ref(null);
@@ -1445,6 +1680,8 @@ const headerMenuActions = computed(() => {
   return actions;
 });
 const isTagView       = computed(() => activeView.value === 'tags');
+const isCategoryView  = computed(() => activeView.value === 'categories');
+const activeCategoryName = computed(() => documentListQuery.documentType || null);
 const isImportsView   = computed(() => activeView.value === 'imports');
 const isUntaggedView  = computed(() => activeView.value === 'untagged');
 const isFavoritesView = computed(() => activeView.value === 'favorites');
@@ -1567,6 +1804,85 @@ const tagCloudStats = computed(() => {
     unused: Math.max(0, source.length - assigned)
   };
 });
+
+// ── Kategorie-Verwaltungsansicht: abgeleiteter Zustand ──────────────────────
+const activeCategoriesForView = computed(() =>
+  sortedCategories.value.filter((category) => category?.is_active !== false)
+);
+const filteredCategories = computed(() => {
+  const query = categorySearchText.value.trim().toLocaleLowerCase('de-DE');
+  return activeCategoriesForView.value
+    .filter((category) => {
+      const usage = Number(category?.usage_count || 0);
+      if (categoryUsageFilter.value === 'used' && usage <= 0) return false;
+      if (categoryUsageFilter.value === 'unused' && usage > 0) return false;
+      if (!query) return true;
+      return String(category?.name || '').toLocaleLowerCase('de-DE').includes(query);
+    })
+    .sort(compareCategoriesForCurrentSort);
+});
+const categoryUsageFilterLabel = computed(() =>
+  CATEGORY_USAGE_FILTER_OPTIONS.find((option) => option.value === categoryUsageFilter.value)?.label || 'Alle Dokumenttypen'
+);
+const categorySortLabel = computed(() =>
+  CATEGORY_SORT_OPTIONS.find((option) => option.value === categorySortMode.value)?.label || 'Meist genutzt'
+);
+const categoryToolbarActions = computed(() => [
+  {
+    key: 'sort',
+    icon: 'mdi-sort',
+    label: categorySortLabel.value,
+    value: categorySortMode.value,
+    options: CATEGORY_SORT_OPTIONS,
+    minWidth: 170
+  },
+  {
+    key: 'usage',
+    icon: 'mdi-filter-variant',
+    label: categoryUsageFilterLabel.value,
+    value: categoryUsageFilter.value,
+    active: categoryUsageFilter.value !== 'all',
+    options: CATEGORY_USAGE_FILTER_OPTIONS,
+    minWidth: 190
+  }
+]);
+const categoryToolbarRightActions = computed(() => [
+  {
+    key: 'create',
+    label: 'Hinzufügen',
+    disabled: isCategorySelectionMode.value
+  }
+]);
+const categoryBatchActions = computed(() => CATEGORY_BATCH_ACTIONS);
+const visibleCategoryIds = computed(() => filteredCategories.value.map((category) => category.id).filter(Boolean));
+watch(filteredCategories, () => {
+  if (!isCategorySelectionMode.value || selectedCategoryIds.value.size === 0) {
+    return;
+  }
+  const visibleIds = new Set(visibleCategoryIds.value);
+  selectedCategoryIds.value = new Set([...selectedCategoryIds.value].filter((id) => visibleIds.has(id)));
+});
+const maxCategoryUsageCount = computed(() => {
+  if (!activeCategoriesForView.value.length) return 1;
+  return Math.max(...activeCategoriesForView.value.map((category) => Number(category.usage_count || 0)), 1);
+});
+const categoryCloudItems = computed(() =>
+  [...filteredCategories.value].map((category, index) => ({
+    category,
+    usage: Number(category?.usage_count || 0),
+    style: categoryCloudItemStyle(category, index)
+  }))
+);
+const categoryCloudStats = computed(() => {
+  const source = activeCategoriesForView.value;
+  const assigned = source.filter((category) => Number(category?.usage_count || 0) > 0).length;
+  return {
+    total: source.length,
+    assigned,
+    unused: Math.max(0, source.length - assigned)
+  };
+});
+
 const activeTagFilterIds = computed(() => normalizeTagIds(documentListQuery.tagIds));
 const activeTagFilterIdsSet = computed(() => new Set(activeTagFilterIds.value));
 const activeTagFilterCount = computed(() => activeTagFilterIds.value.length);
@@ -1706,6 +2022,7 @@ const documentListSavedQueryKey = computed(() =>
     tagId: documentListQuery.tagId,
     tagIds: activeTagFilterIds.value,
     untagged: documentListQuery.untagged,
+    documentType: documentListQuery.documentType,
     status: documentListQuery.status,
     dateFrom: documentListQuery.dateFrom,
     dateTo: documentListQuery.dateTo,
@@ -1721,6 +2038,7 @@ const documentListQueryReloadKey = computed(() =>
     tagId: documentListQuery.tagId,
     tagIds: activeTagFilterIds.value,
     untagged: documentListQuery.untagged,
+    documentType: documentListQuery.documentType,
     status: documentListQuery.status,
     dateFrom: documentListQuery.dateFrom,
     dateTo: documentListQuery.dateTo,
@@ -1796,15 +2114,91 @@ function applyColorVariant(variant) {
 
 function applyThemeFromSettings() {
   theme.global.name.value = resolveThemeName(appSettings.value.ui.theme_mode);
-  applyColorVariant(appSettings.value.ui.color_variant || 'slate');
+  applyColorVariant(appSettings.value.ui.color_variant || 'teal');
 }
 
 watch(
   () => settingsStore.settingsDraft.ui.color_variant,
   (variant) => {
-    applyColorVariant(variant || 'slate');
+    applyColorVariant(variant || 'teal');
   }
 );
+
+// ── Sidebar ein-/ausklappen (Icon-Rail, manuell + responsiv) ────────────────
+function loadSidebarRail() {
+  try { return localStorage.getItem('pm-sidebar-rail') === 'true'; } catch { return false; }
+}
+const sidebarManualCollapsed = ref(loadSidebarRail());
+const sidebarNarrow = ref(typeof window !== 'undefined' ? window.innerWidth < 700 : false);
+const sidebarCollapsed = computed(() => sidebarManualCollapsed.value || sidebarNarrow.value);
+const sidebarRailActive = ref(sidebarCollapsed.value);
+const sidebarRailTransitioning = ref(false);
+let sidebarRailEndTimer = null;
+const sidebarContentCollapsed = computed(() => sidebarRailActive.value && !sidebarRailTransitioning.value);
+
+function clearSidebarRailTimers() {
+  if (typeof window === 'undefined') return;
+  if (sidebarRailEndTimer) {
+    window.clearTimeout(sidebarRailEndTimer);
+    sidebarRailEndTimer = null;
+  }
+}
+
+function animateSidebarRail(nextCollapsed) {
+  if (typeof window === 'undefined') return;
+  clearSidebarRailTimers();
+  sidebarRailTransitioning.value = true;
+  sidebarRailActive.value = nextCollapsed;
+
+  sidebarRailEndTimer = window.setTimeout(() => {
+    sidebarRailActive.value = nextCollapsed;
+    sidebarRailTransitioning.value = false;
+    sidebarRailEndTimer = null;
+  }, 360);
+}
+
+function toggleSidebarRail() {
+  const nextCollapsed = !sidebarManualCollapsed.value;
+  sidebarManualCollapsed.value = nextCollapsed;
+  animateSidebarRail(sidebarCollapsed.value);
+  try { localStorage.setItem('pm-sidebar-rail', String(sidebarManualCollapsed.value)); } catch { /* ignore */ }
+}
+
+function updateSidebarNarrow() {
+  const nextNarrow = window.innerWidth < 700;
+  if (sidebarNarrow.value !== nextNarrow) {
+    sidebarNarrow.value = nextNarrow;
+    animateSidebarRail(sidebarCollapsed.value);
+    return;
+  }
+  sidebarNarrow.value = nextNarrow;
+}
+
+onMounted(() => window.addEventListener('resize', updateSidebarNarrow, { passive: true }));
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateSidebarNarrow);
+  clearSidebarRailTimers();
+});
+
+// Titel der mittleren Spalte (aktueller View/Filter) für die Kopfzeile.
+const panelHeading = computed(() => {
+  if (activeSavedSearchId.value) return activeSavedSearchName.value || 'Ordner';
+  if (isTagView.value) return 'Tags';
+  if (isCategoryView.value) return 'Dokumenttypen';
+  if (activeCategoryName.value) return activeCategoryName.value;
+  if (activeTagId.value) {
+    const tag = tags.value.find((t) => t.id === activeTagId.value);
+    return tag ? tag.name : 'Tag';
+  }
+  const labels = {
+    all: 'Alle Dokumente',
+    imports: 'Zuletzt hinzugefügt',
+    untagged: 'Ohne Tags',
+    favorites: 'Favoriten',
+    trash: 'Papierkorb'
+  };
+  return labels[activeView.value] || 'Dokumente';
+});
 
 // ── Sidebar-Counts ────────────────────────────────────────────────────────
 
@@ -2118,6 +2512,13 @@ function handleTagToolbarShortcut(event) {
 async function onMetadataTagNamesChange(nextValues) {
   if (shouldSkipTagNameSync || !selectedDocumentDetail.value) return;
   await syncMetadataTagsFromNames(nextValues);
+}
+
+function removeMetadataTag(name) {
+  if (isRunningAiAnalysis.value) return;
+  const next = metadataTagNames.value.filter((entry) => entry !== name);
+  metadataTagNames.value = next;
+  onMetadataTagNamesChange(next);
 }
 
 // Auswählbare Kategorien (zentral in den Einstellungen gepflegt). Ein bereits am
@@ -2936,6 +3337,10 @@ function buildDocumentListQuery() {
     params.set('tag_id', documentListQuery.tagId);
   }
 
+  if (documentListQuery.documentType) {
+    params.set('document_type', documentListQuery.documentType);
+  }
+
   if (isImportsView.value) {
     params.set('recent_imports', 'true');
   }
@@ -3689,7 +4094,7 @@ async function toggleDocumentFavorite(document) {
 }
 
 function selectView(viewKey) {
-  if (viewKey === 'tags' && !closeDetailsDrawerWithGuard()) {
+  if ((viewKey === 'tags' || viewKey === 'categories') && !closeDetailsDrawerWithGuard()) {
     return;
   }
   if (viewKey !== 'tags') {
@@ -3705,6 +4110,7 @@ function selectView(viewKey) {
       tagId: null,
       tagIds: [],
       untagged: null,
+      documentType: null,
       status: toolbarState.status,
       sort: toolbarState.sort,
       order: toolbarState.order
@@ -3724,6 +4130,7 @@ function selectView(viewKey) {
       tagId: null,
       untagged: null,
       tagIds: [],
+      documentType: null,
       status: toolbarState.status,
       sort: toolbarState.sort,
       order: toolbarState.order,
@@ -3741,6 +4148,7 @@ function selectView(viewKey) {
       tagId: null,
       tagIds: [],
       untagged: true,
+      documentType: null,
       status: toolbarState.status,
       sort: toolbarState.sort,
       order: toolbarState.order
@@ -3757,6 +4165,7 @@ function selectView(viewKey) {
       tagId: null,
       tagIds: [],
       untagged: null,
+      documentType: null,
       status: toolbarState.status,
       sort: toolbarState.sort,
       order: toolbarState.order
@@ -3773,6 +4182,7 @@ function selectView(viewKey) {
       tagId: null,
       tagIds: [],
       untagged: null,
+      documentType: null,
       status: toolbarState.status,
       sort: toolbarState.sort,
       order: toolbarState.order
@@ -3781,7 +4191,7 @@ function selectView(viewKey) {
     return;
   }
 
-  if (viewKey === 'tags') {
+  if (viewKey === 'tags' || viewKey === 'categories') {
     leaveActiveSavedSearch();
   }
   activeView.value = viewKey;
@@ -4032,6 +4442,7 @@ function applyTagFilterFromSidebar(tagId) {
     tagId,
     tagIds: tagId ? [tagId] : [],
     untagged: null,
+    documentType: null,
     status: resolveToolbarStatus('all'),
     dateFrom: null,
     dateTo: null
@@ -4049,11 +4460,164 @@ function openTagDocuments(tagId) {
     tagId,
     tagIds: tagId ? [tagId] : [],
     untagged: null,
+    documentType: null,
     status: resolveToolbarStatus('all'),
     dateFrom: null,
     dateTo: null
   });
   syncSearchStateToQuery({ resetOffset: false });
+}
+
+// ── Kategorien (Dokumenttypen): Verwaltungsansicht & Filter ─────────────────
+function openCategoriesView() {
+  selectView('categories');
+}
+
+function openCategoryDocuments(categoryName) {
+  const name = String(categoryName || '').trim();
+  if (!name) return;
+  activeView.value = 'all';
+  leaveActiveSavedSearch();
+  searchText.value = '';
+  patchDocumentListQuery({
+    q: null,
+    tagId: null,
+    tagIds: [],
+    untagged: null,
+    documentType: name,
+    status: resolveToolbarStatus('all'),
+    dateFrom: null,
+    dateTo: null
+  });
+  syncSearchStateToQuery({ resetOffset: false });
+}
+
+function applyCategoryFilterFromSidebar(categoryName) {
+  openCategoryDocuments(categoryName);
+}
+
+function setCategoryUsageFilter(value) {
+  categoryUsageFilter.value = CATEGORY_USAGE_FILTER_OPTIONS.some((option) => option.value === value) ? value : 'all';
+  selectedCategoryIds.value = new Set();
+}
+
+function setCategorySortMode(value) {
+  categorySortMode.value = CATEGORY_SORT_OPTIONS.some((option) => option.value === value) ? value : 'usage_desc';
+}
+
+function handleCategoryToolbarAction({ action, value }) {
+  if (action === 'sort') {
+    setCategorySortMode(value);
+    return;
+  }
+  if (action === 'usage') {
+    setCategoryUsageFilter(value);
+  }
+}
+
+function handleCategoryToolbarRightAction(action) {
+  if (action === 'create') {
+    categoryDialogsRef.value?.openCreate();
+  }
+}
+
+function toggleCategorySelectionMode() {
+  if (!isCategorySelectionMode.value && filteredCategories.value.length === 0) {
+    return;
+  }
+  isCategorySelectionMode.value = !isCategorySelectionMode.value;
+  if (!isCategorySelectionMode.value) {
+    selectedCategoryIds.value = new Set();
+  }
+}
+
+function selectAllVisibleCategories() {
+  selectedCategoryIds.value = new Set(visibleCategoryIds.value);
+}
+
+function toggleCategorySelection(categoryId) {
+  const next = new Set(selectedCategoryIds.value);
+  if (next.has(categoryId)) {
+    next.delete(categoryId);
+  } else {
+    next.add(categoryId);
+  }
+  selectedCategoryIds.value = next;
+}
+
+function onCategoryRowClick(categoryId) {
+  if (isCategorySelectionMode.value) {
+    toggleCategorySelection(categoryId);
+    return;
+  }
+  const category = categories.value.find((item) => item.id === categoryId);
+  if (category?.name) {
+    openCategoryDocuments(category.name);
+  }
+}
+
+function compareCategoriesForCurrentSort(left, right) {
+  const leftUsage = Number(left?.usage_count || 0);
+  const rightUsage = Number(right?.usage_count || 0);
+  const nameOrder = tagNameCollator.compare(
+    normalizeTagInput(left?.name || ''),
+    normalizeTagInput(right?.name || '')
+  );
+  switch (categorySortMode.value) {
+    case 'usage_asc':
+      return (leftUsage - rightUsage) || nameOrder;
+    case 'name_asc':
+      return nameOrder;
+    case 'name_desc':
+      return -nameOrder;
+    case 'usage_desc':
+    default:
+      return (rightUsage - leftUsage) || nameOrder;
+  }
+}
+
+function categoryCloudItemStyle(category, index = 0) {
+  const usage = Number(category?.usage_count || 0);
+  const ratio = Math.min(1, usage / maxCategoryUsageCount.value);
+  const fontSizeRem = 0.82 + ratio * 0.54;
+  const opacity = 0.72 + ratio * 0.28;
+  const fontWeight = Math.round(540 + ratio * 140);
+  const accent = tagCloudAccentPalette[index % tagCloudAccentPalette.length];
+  const floatDirection = index % 2 === 0 ? 1 : -1;
+  return {
+    '--tag-accent': accent,
+    '--tag-float-offset': `${floatDirection * (2 + (index % 3))}px`,
+    '--tag-float-duration': `${10 + (index % 5)}s`,
+    '--tag-float-delay': `${-(index % 7) * 0.85}s`,
+    fontSize: `${fontSizeRem.toFixed(3)}rem`,
+    opacity: opacity.toFixed(2),
+    fontWeight: String(fontWeight)
+  };
+}
+
+async function confirmBatchCategoryDelete() {
+  if (isBatchCategoryDeleting.value || selectedCategoryIds.value.size === 0) {
+    return;
+  }
+  isBatchCategoryDeleting.value = true;
+  try {
+    for (const id of [...selectedCategoryIds.value]) {
+      await categoryStore.deleteCategory(id);
+    }
+    selectedCategoryIds.value = new Set();
+    isCategorySelectionMode.value = false;
+    await categoryStore.fetchCategories();
+    sidebarStore.scheduleCounts();
+  } catch (error) {
+    logDevError(error, 'store-notified');
+  } finally {
+    isBatchCategoryDeleting.value = false;
+  }
+}
+
+function onCategoryMutated() {
+  void categoryStore.fetchCategories();
+  sidebarStore.scheduleCounts();
 }
 
 function toggleTagFilterDrawer() {
@@ -4232,6 +4796,16 @@ async function onDroppedFiles(files) {
 
 function openImportPdfPicker() {
   importPdfInputRef.value?.click?.();
+}
+
+// Importieren-Button: bei vorhandenen Posteingang-Scans direkt die Miniaturen,
+// sonst das Import-Fenster mit Drag&Drop-Zone öffnen (kein FileChooser mehr).
+async function openImport() {
+  if (pendingImportInboxCount.value > 0) {
+    await openImportInboxScans();
+  } else {
+    isUploadDialogOpen.value = true;
+  }
 }
 
 async function onImportPdfInputChange(event) {
@@ -4559,11 +5133,46 @@ const {
   resolveToolbarStatus
 });
 
+watch(
+  () => parsedSearch.value.q,
+  (query) => {
+    previewTargetPage.value = null;
+    previewHighlightText.value = query || '';
+  }
+);
+
 watch(documentListQueryReloadKey, () => {
-  if (isTagView.value) {
+  if (isTagView.value || isCategoryView.value) {
     return;
   }
   startDocumentListSettle();
+});
+
+// Beim Wechsel des Bereichs/Filters automatisch das erste Dokument der neuen Liste
+// selektieren und in der Vorschau anzeigen.
+const documentViewContextKey = computed(() =>
+  [
+    activeView.value,
+    activeSavedSearchId.value || '',
+    activeTagId.value || '',
+    activeCategoryName.value || ''
+  ].join('|')
+);
+
+let pendingSelectFirstDocument = false;
+
+watch(documentViewContextKey, () => {
+  if (isTagView.value || isCategoryView.value) return;
+  pendingSelectFirstDocument = true;
+});
+
+watch(documents, (list) => {
+  if (!pendingSelectFirstDocument) return;
+  pendingSelectFirstDocument = false;
+  const first = Array.isArray(list) ? list[0] : null;
+  if (first?.id) {
+    void selectDocument(first.id);
+  }
 });
 
 useOcrPolling({
@@ -4584,7 +5193,7 @@ onMounted(async () => {
     ? settingsStore.readStoredTagDrawerExpanded()
     : false;
 
-  await Promise.all([fetchTags(), fetchSavedSearches(), fetchSidebarCounts()]);
+  await Promise.all([fetchTags(), fetchSavedSearches(), fetchSidebarCounts(), categoryStore.ensureLoaded()]);
   await nextTick();
   isTagFilterDrawerAnimationReady.value = true;
   const restoredDocId = readStoredLastSelectedDocId();
@@ -4711,6 +5320,93 @@ onBeforeUnmount(() => {
 
 .appbar-search__field :deep(.v-field:hover .v-field__outline) {
   color: rgba(255, 255, 255, 0.76);
+}
+
+/* ── Sidebar-Kopf (Marke + Suche) ──────────────────────────────────────────── */
+.sidebar-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 12px 10px;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: transparent;
+  border: 0;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--pm-text);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.sidebar-brand__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--pm-accent);
+  color: var(--pm-accent-contrast);
+}
+
+.sidebar-brand__name {
+  line-height: 1;
+}
+
+.sidebar-search__field {
+  width: 100%;
+}
+
+.sidebar-search__field :deep(.v-field) {
+  border-radius: 10px;
+  background-color: var(--pm-app-surface-raised);
+  box-shadow: none !important;
+}
+
+.sidebar-search__field :deep(.v-field__input),
+.sidebar-search__field :deep(.v-field__clearable .v-icon) {
+  color: var(--pm-text) !important;
+}
+
+.sidebar-search__field :deep(.v-field__prepend-inner .v-icon) {
+  color: var(--pm-accent) !important;
+}
+
+.sidebar-search__field :deep(input::placeholder) {
+  color: var(--pm-muted);
+}
+
+.sidebar-search__field :deep(.v-field__outline) {
+  color: var(--pm-divider);
+  --v-field-border-opacity: 1;
+}
+
+.sidebar-search__field :deep(.v-field--focused .v-field__outline) {
+  color: var(--pm-accent);
+}
+
+/* ── Sidebar-Fuß (Konto + Einstellungen + Aktivität) ───────────────────────── */
+.sidebar-foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 8px;
+  border-top: 1px solid var(--pm-divider);
+}
+
+.sidebar-foot__btn {
+  color: var(--pm-muted);
+}
+
+.sidebar-foot__rail-settings {
+  display: none !important;
+  color: var(--pm-muted);
 }
 
 .appbar-search__field :deep(.v-field--focused .v-field__outline) {
@@ -5877,9 +6573,11 @@ onBeforeUnmount(() => {
 }
 
 .workspace {
+  --pm-sidebar-rail-duration: 260ms;
   display: grid;
   grid-template-columns: 268px 1fr minmax(360px, 43%);
   height: calc(100dvh - var(--v-layout-top, 0px) - var(--v-layout-bottom, 0px));
+  transition: grid-template-columns var(--pm-sidebar-rail-duration) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .panel {
@@ -5892,6 +6590,291 @@ onBeforeUnmount(() => {
 .panel-left {
   background: var(--pm-sidebar-surface);
   position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: background-color var(--pm-duration-fast, 140ms) ease;
+  will-change: width;
+}
+
+.sidebar-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  border-top: 1px solid color-mix(in srgb, var(--pm-divider) 65%, transparent);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+/* Kopf, Bibliothek und Fuß behalten ihre volle Höhe – keine Stauchung, kein Scroll. */
+.panel-left > .sidebar-head,
+.panel-left > .views-list,
+.panel-left > .sidebar-foot {
+  flex: none;
+}
+
+.panel-middle__header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--pm-divider);
+}
+
+.panel-middle__heading {
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: var(--pm-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.panel-middle__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.panel-middle__header .v-btn {
+  text-transform: none;
+  letter-spacing: 0;
+  border-radius: 10px;
+}
+
+.list-header-btn--active {
+  color: rgb(var(--v-theme-primary));
+}
+
+/* ── Sidebar-Kopfzeile + Einklapp-Toggle ───────────────────────────────────── */
+.sidebar-head__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sidebar-head__top .sidebar-brand {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sidebar-rail-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--pm-muted);
+  cursor: pointer;
+}
+
+.sidebar-rail-toggle:hover {
+  background: var(--pm-sidebar-hover);
+  color: var(--pm-accent);
+}
+
+.sidebar-foot__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.panel-left .v-list-item-title,
+.panel-left .v-list-item__content,
+.panel-left .v-list-item__append,
+.panel-left .sidebar-item-right,
+.panel-left .sidebar-section-header,
+.sidebar-brand__name,
+.sidebar-search__field,
+.sidebar-account__info,
+.sidebar-account__chev,
+.sidebar-foot__actions {
+  transition:
+    opacity 180ms ease,
+    transform var(--pm-sidebar-rail-duration) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+/* ── Eingeklappte Icon-Spalte ──────────────────────────────────────────────── */
+.workspace.workspace--rail {
+  grid-template-columns: 64px 1fr minmax(360px, 43%);
+}
+
+.workspace--sidebar-transitioning .panel-left {
+  pointer-events: none;
+}
+
+.workspace--sidebar-collapsing .panel-left .v-list-item-title,
+.workspace--sidebar-collapsing .panel-left .v-list-item__content,
+.workspace--sidebar-collapsing .panel-left .v-list-item__append,
+.workspace--sidebar-collapsing .panel-left .sidebar-item-right,
+.workspace--sidebar-collapsing .panel-left .sidebar-section-header,
+.workspace--sidebar-collapsing .sidebar-brand__name,
+.workspace--sidebar-collapsing .sidebar-search__field,
+.workspace--sidebar-collapsing .sidebar-account__info,
+.workspace--sidebar-collapsing .sidebar-account__chev,
+.workspace--sidebar-collapsing .sidebar-foot__actions {
+  opacity: 0;
+  transform: translateX(-10px);
+}
+
+.workspace--sidebar-expanding .panel-left .v-list-item-title,
+.workspace--sidebar-expanding .panel-left .v-list-item__content,
+.workspace--sidebar-expanding .panel-left .v-list-item__append,
+.workspace--sidebar-expanding .panel-left .sidebar-item-right,
+.workspace--sidebar-expanding .panel-left .sidebar-section-header,
+.workspace--sidebar-expanding .sidebar-brand__name,
+.workspace--sidebar-expanding .sidebar-search__field,
+.workspace--sidebar-expanding .sidebar-account__info,
+.workspace--sidebar-expanding .sidebar-account__chev,
+.workspace--sidebar-expanding .sidebar-foot__actions {
+  animation: sidebar-rail-content-in 220ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)) both;
+  animation-delay: 90ms;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .v-list-item-title,
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .v-list-item__content,
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .v-list-item__append,
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item-right,
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-section-header,
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-brand__name,
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-search__field,
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-account__info,
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-account__chev,
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-foot__actions {
+  display: none !important;
+}
+
+@keyframes sidebar-rail-content-in {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Sektions-Sammelpunkte ("Alle Tags"/"Alle Dokumenttypen") im Rail immer zeigen. */
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-section-drawer {
+  grid-template-rows: 1fr !important;
+}
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-section-content {
+  visibility: visible !important;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .views-list {
+  padding: 6px 0;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .v-list-item {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  padding: 0 !important;
+  min-height: 42px;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .v-list-item__prepend {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 42px !important;
+  min-width: 42px !important;
+  height: 42px !important;
+  margin: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .v-list-item__spacer {
+  display: none !important;
+  width: 0 !important;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item {
+  position: relative;
+  display: block !important;
+  width: 42px;
+  height: 42px;
+  min-height: 42px !important;
+  margin: 3px auto;
+  border-radius: 14px;
+  padding: 0 !important;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item::before {
+  display: none !important;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item :deep(.v-list-item__overlay),
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item :deep(.v-list-item__underlay) {
+  border-radius: inherit;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item :deep(.v-list-item__prepend),
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item :deep(.v-list-item__content),
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item :deep(.v-list-item__append) {
+  transform: none !important;
+  transition: none !important;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item :deep(.v-icon) {
+  transform: none !important;
+  transition: color 0.16s ease, opacity 0.16s ease !important;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item:hover :deep(.v-icon) {
+  transform: none !important;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-head {
+  align-items: center;
+  padding-inline: 0;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-head__top {
+  flex-direction: column;
+  gap: 8px;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-head__top .sidebar-brand {
+  flex: none;
+  justify-content: center;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-foot {
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  padding-inline: 0;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-foot__rail-settings {
+  display: inline-flex !important;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-foot .sidebar-account {
+  flex: none;
+  justify-content: center;
+  padding: 5px;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-section-divider {
+  margin-inline: 16px;
 }
 
 .panel-middle {
@@ -5937,8 +6920,8 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-section-divider {
-  margin: 10px 12px 8px;
-  opacity: 1;
+  margin: 14px 12px 12px;
+  opacity: 0.65;
 }
 
 .sidebar-section-divider.v-divider {
@@ -5957,8 +6940,8 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-item :deep(.v-list-item__prepend) {
-  width: 24px;
-  min-width: 24px;
+  width: 42px;
+  min-width: 42px;
   justify-content: center;
 }
 
@@ -6063,6 +7046,22 @@ onBeforeUnmount(() => {
 
 .sidebar-item--folder-create :deep(.v-list-item-title) {
   font-weight: 500;
+}
+
+/* Konzept „Icon-Frische": alle Navigations-Icons tragen den Akzent-Ton. */
+.papermind-app .panel-left .sidebar-item :deep(.v-icon) {
+  color: rgb(var(--v-theme-primary)) !important;
+  opacity: 1;
+}
+
+/* Aktiver Eintrag: klares Teal-Pill (Tint + Akzentrand) + Titel im Akzent. */
+.papermind-app .panel-left .sidebar-item.v-list-item--active {
+  background: color-mix(in srgb, rgb(var(--v-theme-primary)) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, rgb(var(--v-theme-primary)) 32%, transparent);
+}
+
+.papermind-app .panel-left .sidebar-item.v-list-item--active :deep(.v-list-item-title) {
+  color: rgb(var(--v-theme-primary));
 }
 
 .tags-view {
@@ -6234,7 +7233,7 @@ onBeforeUnmount(() => {
 .papermind-app.v-theme--light .panel-left {
   background: var(--pm-sidebar-surface);
   box-shadow: inset -1px 0 0 var(--pm-light-outline);
-  padding: 12px;
+  padding: 12px 12px 0;
 }
 
 .papermind-app.v-theme--light .panel-left .views-list {
@@ -6271,21 +7270,21 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(1200px 600px at 20% -10%, rgba(59, 130, 246, 0.1), transparent 55%);
-  opacity: 0.25;
+  background: radial-gradient(1200px 600px at 20% -10%, rgba(8, 145, 178, 0.1), transparent 55%);
+  opacity: 0.22;
 }
 
 .papermind-app.v-theme--dark .sidebar-item--tag .sidebar-tag-pill {
-  background: rgba(196, 207, 255, 0.17);
-  color: rgba(236, 241, 255, 0.95);
+  background: rgba(var(--v-theme-primary), 0.16);
+  color: rgb(var(--v-theme-primary));
 }
 
 .papermind-app.v-theme--dark .sidebar-item--tag:hover .sidebar-tag-pill {
-  background: rgba(196, 207, 255, 0.22);
+  background: rgba(var(--v-theme-primary), 0.24);
 }
 
 .papermind-app.v-theme--dark .sidebar-item--tag.v-list-item--active .sidebar-tag-pill {
-  background: rgba(196, 207, 255, 0.26);
+  background: rgba(var(--v-theme-primary), 0.30);
 }
 
 .papermind-app.v-theme--dark .document-row {
@@ -7311,6 +8310,75 @@ onBeforeUnmount(() => {
 .details-tags-combobox .v-chip .v-chip__close {
   margin-inline-start: 2px;
 }
+
+/* Eigenes Tag-Feld: Chips + Eingabe in EINEM umbrechenden Rahmen (Gmail-Stil).
+   Ein simpler flex-wrap-Container wächst zuverlässig mit – im Gegensatz zu
+   Vuetifys v-input-Grid, das die flex-wrap-Eingabe nur an max-content (eine
+   Zeile) bemisst und umgebrochene Chips überlaufen lässt. */
+.pm-tags-input {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  /* einzeilig genauso hoch wie die anderen compact-outlined-Felder (Korrespondent) */
+  min-height: 48px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.38);
+  border-radius: var(--pm-field-radius, 8px);
+  transition: border-color 0.15s ease;
+}
+/* Einheitlicher Feld-Radius im Detail-Drawer: alle outlined-Felder (Korrespondent,
+   Name, Datum, Notizen …) bekommen denselben Radius wie das Tag-Feld. Die
+   Outline-Ecken erben border-radius von .v-field. */
+.details-drawer__body .v-field {
+  border-radius: var(--pm-field-radius, 8px);
+}
+/* Hover wie bei Vuetifys outlined-Feldern: Rand von 0.38 auf high-emphasis (~0.87). */
+.pm-tags-input:hover {
+  border-color: rgba(var(--v-theme-on-surface), var(--v-high-emphasis-opacity));
+}
+.pm-tags-input:focus-within {
+  border-color: rgb(var(--v-theme-primary));
+  box-shadow: inset 0 0 0 1px rgb(var(--v-theme-primary));
+}
+.pm-tags-input--disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+.pm-tags-input__chip {
+  font-size: 12px;
+}
+.pm-tags-input__field {
+  flex: 1 1 90px;
+  min-width: 90px;
+}
+/* Plain-Combobox nahtlos einbetten: kein Eigenrand/Padding. */
+.pm-tags-input__field .v-field {
+  padding: 0;
+  --v-field-padding-start: 0;
+  --v-field-padding-end: 0;
+}
+/* Eingabe EXAKT auf Chip-Höhe (26px) zwingen: Die Plain-Variante bringt sonst
+   48px Control-Height mit, wodurch mehrzeilig die untere (Eingabe-)Zeile höher
+   wird als die reinen Chip-Zeilen → ungleiche Abstände oben/unten. */
+.pm-tags-input__field .v-input__control,
+.pm-tags-input__field .v-field,
+.pm-tags-input__field .v-field__field,
+.pm-tags-input__field .v-field__input,
+.pm-tags-input__field .v-field__append-inner {
+  min-height: 26px !important;
+  height: 26px !important;
+}
+/* Eingabe + Cursor vertikal mittig (Plain-Variante richtet sonst oben aus). */
+.pm-tags-input__field .v-field__field,
+.pm-tags-input__field .v-field__input {
+  align-items: center !important;
+}
+.pm-tags-input__field .v-field__input {
+  padding: 0;
+  font-size: 0.85rem;
+}
+
 
 :deep(.pm-menu.pm-menu--tags) {
   border-radius: 12px;

@@ -401,10 +401,10 @@ const uptimeLabel = computed(() => {
 .sys-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
-/* Hero kommt aus SettingsInfoCard; der sys-panel-Gap (12px) übernimmt den
+/* Hero kommt aus SettingsInfoCard; der sys-panel-Gap übernimmt den
    unteren Abstand, daher den Eigen-Abstand der Karte unten neutralisieren.
    Höhere Spezifität (.sys-panel ...), damit der Override zuverlässig greift. */
 .sys-panel :deep(.settings-info-card) {

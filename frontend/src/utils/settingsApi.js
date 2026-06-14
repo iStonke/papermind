@@ -6,10 +6,6 @@ export function buildColorVariantPatch(colorVariant) {
   return { ui: { color_variant: colorVariant } };
 }
 
-export function buildGlassEnabledPatch(enabled) {
-  return { ui: { glass_enabled: Boolean(enabled) } };
-}
-
 export function buildShowFilenameSuffixPatch(enabled) {
   return { ui: { showFilenameSuffix: Boolean(enabled) } };
 }
@@ -20,6 +16,74 @@ export function buildDrawerRememberStatePatch(enabled) {
 
 export function buildTagDrawerRememberStatePatch(enabled) {
   return { ui: { tagDrawerRememberState: Boolean(enabled) } };
+}
+
+export function buildSidebarShowRecentPatch(enabled) {
+  return { ui: { sidebar_show_recent: Boolean(enabled) } };
+}
+
+export function buildSidebarShowUntaggedPatch(enabled) {
+  return { ui: { sidebar_show_untagged: Boolean(enabled) } };
+}
+
+export function buildSidebarShowChatPatch(enabled) {
+  return { ui: { sidebar_show_chat: Boolean(enabled) } };
+}
+
+// Konfigurierbare Seitenleisten-Sektionen (Reihenfolge + harte Sichtbarkeit).
+// Reihenfolge entspricht der Standard-Anzeigereihenfolge in der Seitenleiste.
+export const SIDEBAR_SECTION_KEYS = Object.freeze(['ordner', 'tags', 'kategorien']);
+
+const SIDEBAR_SECTION_LABELS = Object.freeze({
+  ordner: 'Ordner',
+  tags: 'Tags',
+  kategorien: 'Dokumenttypen'
+});
+
+export function sidebarSectionLabel(key) {
+  return SIDEBAR_SECTION_LABELS[key] || String(key || '');
+}
+
+/**
+ * Dedupliziert nach Key (erstes Vorkommen gewinnt) und ergänzt fehlende
+ * Sektionen in der Standardreihenfolge, sodass immer genau alle bekannten
+ * Sektionen vorhanden sind. Spiegelt die Backend-Normalisierung.
+ */
+export function normalizeSidebarSections(sections) {
+  const result = [];
+  const seen = new Set();
+  for (const section of Array.isArray(sections) ? sections : []) {
+    const key = String(section?.key || '');
+    if (!SIDEBAR_SECTION_KEYS.includes(key) || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push({ key, visible: section?.visible !== false });
+  }
+  for (const key of SIDEBAR_SECTION_KEYS) {
+    if (!seen.has(key)) {
+      result.push({ key, visible: true });
+    }
+  }
+  return result;
+}
+
+export function buildSidebarSectionsPatch(sections) {
+  return { ui: { sidebar_sections: normalizeSidebarSections(sections) } };
+}
+
+function clampSidebarMax(value) {
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed)) return 5;
+  return Math.min(50, Math.max(0, parsed));
+}
+
+export function buildSidebarMaxTagsPatch(count) {
+  return { ui: { sidebar_max_tags: clampSidebarMax(count) } };
+}
+
+export function buildSidebarMaxCategoriesPatch(count) {
+  return { ui: { sidebar_max_categories: clampSidebarMax(count) } };
 }
 
 export function buildAutoOcrPatch(enabled) {

@@ -70,8 +70,10 @@
                     @click="patch(u, { is_active: !u.is_active })"
                   />
                   <v-list-item title="Passwort zurücksetzen…" @click="openReset(u)" />
-                  <v-divider />
-                  <v-list-item title="Löschen" class="text-error" @click="openDelete(u)" />
+                  <template v-if="u.id !== auth.user?.id">
+                    <v-divider />
+                    <v-list-item title="Löschen" class="text-error" @click="openDelete(u)" />
+                  </template>
                 </v-list>
               </v-menu>
             </td>
@@ -262,6 +264,8 @@ async function confirmReset() {
 }
 
 function openDelete(user) {
+  // Sich selbst zu löschen ist nicht erlaubt (zusätzlich serverseitig geschützt).
+  if (user.id === auth.user?.id) return;
   deleteTarget.value = user;
   deleteOpen.value = true;
 }

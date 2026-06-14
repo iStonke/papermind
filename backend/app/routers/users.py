@@ -84,11 +84,11 @@ def update_user(
 )
 def delete_user(
     user_id: uuid.UUID,
-    _: User = Depends(require_admin),
+    current: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> OkResponse:
     service = UserService(db)
-    service.delete_user(user_id)
+    service.delete_user(user_id, acting_user_id=current.id)
     return OkResponse(ok=True)
 
 

@@ -11,6 +11,7 @@ import { setFetchUnauthorizedHandler } from '../api/fetchInterceptor.js';
 
 // Timer-Handle für die Datei-Token-Erneuerung (kein reaktiver State).
 let fileTokenTimer = null;
+let initializePromise = null;
 
 // Inaktivitäts-Logout: Timer + Activity-Listener (kein reaktiver State).
 let inactivityTimer = null;
@@ -36,6 +37,8 @@ export const useAuthStore = defineStore('auth', {
      * ?v=-Parameter an die Avatar-URL gehängt.
      */
     avatarVersion: Date.now(),
+    /** Cache-Key für native Datei-URLs, die vom kurzlebigen File-Token abhängen. */
+    fileTokenVersion: 0,
     /** Inaktivitäts-Logout in Minuten (0 = aus); persistiert in localStorage. */
     autoLogoutMinutes: readAutoLogoutMinutes(),
   }),
@@ -49,29 +52,34 @@ export const useAuthStore = defineStore('auth', {
   actions: {
     /** Einmalig beim App-Start: 401-Handler registrieren und Token prüfen. */
     async initialize() {
-      if (this.initializing) return;
-      this.initializing = true;
-      setUnauthorizedHandler(() => this.handleUnauthorized());
-      setFetchUnauthorizedHandler(() => this.handleUnauthorized());
+      if (initializePromise) return initializePromise;
 
-      const token = getToken();
-      if (!token) {
-        this.status = 'anonymous';
-        this.initializing = false;
-        return;
-      }
-      try {
-        this.user = await fetchCurrentUser();
-        this.status = 'authenticated';
-        await this.refreshFileToken();
-        this.startInactivityWatch();
-      } catch {
-        this.user = null;
-        this.status = 'anonymous';
-        setToken(null);
-      } finally {
-        this.initializing = false;
-      }
+      this.initializing = true;
+      initializePromise = (async () => {
+        try {
+          setUnauthorizedHandler(() => this.handleUnauthorized());
+          setFetchUnauthorizedHandler(() => this.handleUnauthorized());
+
+          const token = getToken();
+          if (!token) {
+            this.status = 'anonymous';
+            return;
+          }
+          this.user = await fetchCurrentUser();
+          this.status = 'authenticated';
+          void this.refreshFileToken();
+          this.startInactivityWatch();
+        } catch {
+          this.user = null;
+          this.status = 'anonymous';
+          setToken(null);
+        } finally {
+          this.initializing = false;
+          initializePromise = null;
+        }
+      })();
+
+      return initializePromise;
     },
 
     async login(username, password) {
@@ -79,7 +87,7 @@ export const useAuthStore = defineStore('auth', {
       setToken(result.access_token);
       this.user = result.user;
       this.status = 'authenticated';
-      await this.refreshFileToken();
+      void this.refreshFileToken();
       this.startInactivityWatch();
       return result.user;
     },
@@ -89,11 +97,13 @@ export const useAuthStore = defineStore('auth', {
       try {
         const res = await fetchFileToken();
         setFileToken(res.token);
+        this.fileTokenVersion = Date.now();
         if (fileTokenTimer) clearTimeout(fileTokenTimer);
         const refreshInMs = Math.max(30, (res.expires_in || 300) - 30) * 1000;
         fileTokenTimer = setTimeout(() => { this.refreshFileToken(); }, refreshInMs);
       } catch {
         setFileToken('');
+        this.fileTokenVersion = Date.now();
       }
     },
 
@@ -103,6 +113,7 @@ export const useAuthStore = defineStore('auth', {
         fileTokenTimer = null;
       }
       setFileToken('');
+      this.fileTokenVersion = Date.now();
     },
 
     async logout() {

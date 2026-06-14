@@ -85,11 +85,9 @@ class ThemeMode(str, Enum):
 
 
 class ColorVariant(str, Enum):
-    indigo = "indigo"
-    forest = "forest"
     teal = "teal"
-    slate = "slate"
-    stone = "stone"
+    violet = "violet"
+    blue = "blue"
 
 
 class DocumentSortOrder(str, Enum):
@@ -109,13 +107,63 @@ class OCREngine(str, Enum):
     abbyy = "abbyy"
 
 
+class SidebarSectionKey(str, Enum):
+    ordner = "ordner"
+    tags = "tags"
+    kategorien = "kategorien"
+
+
+# Reihenfolge entspricht der Standard-Anzeigereihenfolge in der Seitenleiste.
+SIDEBAR_SECTION_KEYS: tuple[str, ...] = ("ordner", "tags", "kategorien")
+
+
+class SidebarSectionConfig(BaseModel):
+    key: SidebarSectionKey
+    visible: bool = True
+
+
+def _default_sidebar_sections() -> list[SidebarSectionConfig]:
+    return [SidebarSectionConfig(key=SidebarSectionKey(key)) for key in SIDEBAR_SECTION_KEYS]
+
+
+def _normalize_sidebar_sections(
+    sections: list[SidebarSectionConfig] | None,
+) -> list[SidebarSectionConfig]:
+    """Dedupliziert nach Key (erstes Vorkommen gewinnt) und ergänzt fehlende
+    Sektionen in der Standardreihenfolge, sodass immer genau alle bekannten
+    Sektionen vorhanden sind."""
+    result: list[SidebarSectionConfig] = []
+    seen: set[str] = set()
+    for section in sections or []:
+        key = section.key.value
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(section)
+    for key in SIDEBAR_SECTION_KEYS:
+        if key not in seen:
+            result.append(SidebarSectionConfig(key=SidebarSectionKey(key)))
+    return result
+
+
 class UISettingsRead(BaseModel):
     theme_mode: ThemeMode = ThemeMode.system
-    color_variant: ColorVariant = ColorVariant.slate
-    glass_enabled: bool = False
+    color_variant: ColorVariant = ColorVariant.teal
     showFilenameSuffix: bool = True
     drawerRememberState: bool = True
     tagDrawerRememberState: bool = True
+    sidebar_show_recent: bool = True
+    sidebar_show_untagged: bool = True
+    sidebar_show_chat: bool = True
+    sidebar_sections: list[SidebarSectionConfig] = Field(default_factory=_default_sidebar_sections)
+    # Max. Anzahl der Quicklinks pro Sektion in der Seitenleiste (0 = nur „Alle …").
+    sidebar_max_tags: int = Field(default=5, ge=0, le=50)
+    sidebar_max_categories: int = Field(default=5, ge=0, le=50)
+
+    @model_validator(mode="after")
+    def normalize_sidebar_sections(self) -> "UISettingsRead":
+        self.sidebar_sections = _normalize_sidebar_sections(self.sidebar_sections)
+        return self
 
 
 class DocumentsSettingsRead(BaseModel):
@@ -213,10 +261,24 @@ class AppSettingsRead(BaseModel):
 class UISettingsPatch(BaseModel):
     theme_mode: ThemeMode | None = None
     color_variant: ColorVariant | None = None
-    glass_enabled: bool | None = None
     showFilenameSuffix: bool | None = None
     drawerRememberState: bool | None = None
     tagDrawerRememberState: bool | None = None
+    sidebar_show_recent: bool | None = None
+    sidebar_show_untagged: bool | None = None
+    sidebar_show_chat: bool | None = None
+    sidebar_sections: list[SidebarSectionConfig] | None = None
+    sidebar_max_tags: int | None = Field(default=None, ge=0, le=50)
+    sidebar_max_categories: int | None = Field(default=None, ge=0, le=50)
+
+    @field_validator("sidebar_sections")
+    @classmethod
+    def normalize_sidebar_sections(
+        cls, value: list[SidebarSectionConfig] | None
+    ) -> list[SidebarSectionConfig] | None:
+        if value is None:
+            return None
+        return _normalize_sidebar_sections(value)
 
 
 class DocumentsSettingsPatch(BaseModel):

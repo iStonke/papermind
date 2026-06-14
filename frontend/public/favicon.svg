@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="PaperMind">
+  <rect width="64" height="64" rx="16" fill="#0e7490"/>
+  <path d="M19 12h20l10 10v30H19z" fill="#f8fafc"/>
+  <path d="M39 12v11h10" fill="#d9eef3"/>
+  <path d="M25 31h22v5H25zm0 10h15v5H25z" fill="#0e7490"/>
+  <path d="M19 12h20l10 10v30H19z" fill="none" stroke="#083344" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M39 12v11h10" fill="none" stroke="#083344" stroke-width="3" stroke-linejoin="round"/>
+</svg>

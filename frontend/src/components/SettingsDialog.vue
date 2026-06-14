@@ -155,33 +155,6 @@
               class="pm-setting-row"
               role="button"
               tabindex="0"
-              @click="toggleGlassEnabledFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleGlassEnabledFromRow)"
-            >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Glass-Look (Aurora-Hintergrund)</div>
-                <div class="pm-setting-description">
-                  Durchscheinende Oberflächen mit animiertem Wissensgraph im Hintergrund. Nutzt die aktive
-                  Farbvariante. Benötigt aktivierte Animationen.
-                </div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.ui.glass_enabled"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :disabled="!animationsEnabled || isSettingSaving.glass_enabled"
-                :loading="isSettingSaving.glass_enabled"
-                @click.stop
-                @update:model-value="onGlassEnabledChange"
-              />
-            </div>
-
-            <div
-              class="pm-setting-row"
-              role="button"
-              tabindex="0"
               @click="toggleDrawerRememberStateFromRow"
               @keydown="handleSettingRowShortcut($event, toggleDrawerRememberStateFromRow)"
             >
@@ -229,27 +202,157 @@
                 @update:model-value="onTagDrawerRememberStateChange"
               />
             </div>
+          </div>
+        </section>
+
+        <section v-show="activeCategory === 'sidebar'" class="pm-settings-section">
+          <div class="pm-settings-content">
+            <SettingsInfoCard
+              icon="mdi-page-layout-sidebar-left"
+              title="Seitenleiste"
+              subtitle="Reihenfolge und Sichtbarkeit der Bereiche."
+            />
 
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
-                <div class="pm-setting-label">Automatische Abmeldung</div>
+                <div class="pm-setting-label">Bereiche der Seitenleiste</div>
                 <div class="pm-setting-description">
-                  Meldet dich nach einer Zeit ohne Aktivität automatisch ab (gilt für dieses Gerät/diesen Browser).
+                  Sortiere die Bereiche per Pfeil und blende sie mit dem Schalter komplett ein oder aus.
+                  Der Bereich „Bibliothek“ bleibt immer oben.
                 </div>
               </div>
-              <v-select
-                :model-value="auth.autoLogoutMinutes"
-                :items="autoLogoutOptions"
-                item-title="label"
-                item-value="value"
-                density="comfortable"
-                hide-details
-                variant="outlined"
-                class="settings-theme-select pm-setting-select"
-                label="Abmelden"
-                @update:model-value="onAutoLogoutChange"
-              />
+
+              <div class="settings-sidebar-sections">
+                <div
+                  v-for="(section, index) in sidebarSectionsDraft"
+                  :key="section.key"
+                  class="settings-sidebar-section-row"
+                  :class="{ 'settings-sidebar-section-row--hidden': !section.visible }"
+                >
+                  <div class="settings-sidebar-section-reorder">
+                    <button
+                      type="button"
+                      class="settings-sidebar-section-arrow"
+                      aria-label="Nach oben"
+                      :disabled="index === 0 || isSettingSaving.sidebar_sections"
+                      @click="moveSidebarSection(index, -1)"
+                    >
+                      <v-icon size="18">mdi-chevron-up</v-icon>
+                    </button>
+                    <button
+                      type="button"
+                      class="settings-sidebar-section-arrow"
+                      aria-label="Nach unten"
+                      :disabled="index === sidebarSectionsDraft.length - 1 || isSettingSaving.sidebar_sections"
+                      @click="moveSidebarSection(index, 1)"
+                    >
+                      <v-icon size="18">mdi-chevron-down</v-icon>
+                    </button>
+                  </div>
+                  <div class="settings-sidebar-section-icon" aria-hidden="true">
+                    <v-icon size="18">{{ sidebarSectionIcon(section.key) }}</v-icon>
+                  </div>
+                  <div class="settings-sidebar-section-name">{{ sidebarSectionLabel(section.key) }}</div>
+                  <v-select
+                    v-if="section.key === 'tags'"
+                    :model-value="settingsDraft.ui.sidebar_max_tags"
+                    :items="sidebarMaxOptions"
+                    item-title="label"
+                    item-value="value"
+                    density="comfortable"
+                    hide-details
+                    variant="outlined"
+                    class="settings-theme-select settings-sidebar-max-select"
+                    aria-label="Maximale Tags in der Seitenleiste"
+                    :loading="isSettingSaving.sidebar_max_tags"
+                    :disabled="isSettingSaving.sidebar_max_tags"
+                    @click.stop
+                    @update:model-value="onSidebarMaxTagsChange"
+                  />
+                  <v-select
+                    v-else-if="section.key === 'kategorien'"
+                    :model-value="settingsDraft.ui.sidebar_max_categories"
+                    :items="sidebarMaxOptions"
+                    item-title="label"
+                    item-value="value"
+                    density="comfortable"
+                    hide-details
+                    variant="outlined"
+                    class="settings-theme-select settings-sidebar-max-select"
+                    aria-label="Maximale Dokumenttypen in der Seitenleiste"
+                    :loading="isSettingSaving.sidebar_max_categories"
+                    :disabled="isSettingSaving.sidebar_max_categories"
+                    @click.stop
+                    @update:model-value="onSidebarMaxCategoriesChange"
+                  />
+                  <v-switch
+                    :model-value="section.visible"
+                    color="primary"
+                    density="comfortable"
+                    hide-details
+                    inset
+                    :aria-label="`${sidebarSectionLabel(section.key)} ein-/ausblenden`"
+                    :loading="isSettingSaving.sidebar_sections"
+                    :disabled="isSettingSaving.sidebar_sections"
+                    @update:model-value="(val) => setSidebarSectionVisibility(section.key, val)"
+                  />
+                </div>
+              </div>
             </div>
+
+            <div class="settings-sidebar-library">
+              <div class="pm-setting-row settings-sidebar-library-row">
+                <div class="pm-setting-content">
+                  <div class="pm-setting-label">Zuletzt hinzugefügt</div>
+                  <div class="pm-setting-description">Bibliothek-Eintrag in der Seitenleiste anzeigen.</div>
+                </div>
+                <v-switch
+                  :model-value="settingsDraft.ui.sidebar_show_recent"
+                  color="primary"
+                  density="comfortable"
+                  hide-details
+                  inset
+                  :loading="isSettingSaving.sidebar_show_recent"
+                  :disabled="isSettingSaving.sidebar_show_recent"
+                  @update:model-value="onSidebarShowRecentChange"
+                />
+              </div>
+
+              <div class="pm-setting-row settings-sidebar-library-row">
+                <div class="pm-setting-content">
+                  <div class="pm-setting-label">Ohne Tags</div>
+                  <div class="pm-setting-description">Bibliothek-Eintrag in der Seitenleiste anzeigen.</div>
+                </div>
+                <v-switch
+                  :model-value="settingsDraft.ui.sidebar_show_untagged"
+                  color="primary"
+                  density="comfortable"
+                  hide-details
+                  inset
+                  :loading="isSettingSaving.sidebar_show_untagged"
+                  :disabled="isSettingSaving.sidebar_show_untagged"
+                  @update:model-value="onSidebarShowUntaggedChange"
+                />
+              </div>
+
+              <div class="pm-setting-row settings-sidebar-library-row">
+                <div class="pm-setting-content">
+                  <div class="pm-setting-label">KI-Chat</div>
+                  <div class="pm-setting-description">Bibliothek-Eintrag in der Seitenleiste anzeigen.</div>
+                </div>
+                <v-switch
+                  :model-value="settingsDraft.ui.sidebar_show_chat"
+                  color="primary"
+                  density="comfortable"
+                  hide-details
+                  inset
+                  :loading="isSettingSaving.sidebar_show_chat"
+                  :disabled="isSettingSaving.sidebar_show_chat"
+                  @update:model-value="onSidebarShowChatChange"
+                />
+              </div>
+            </div>
+
           </div>
         </section>
 
@@ -512,7 +615,24 @@
               icon="mdi-account-outline"
               title="Korrespondenten"
               subtitle="Absender und Aussteller mit Aliasen pflegen und zuordnen."
-            />
+            >
+              <template #actions>
+                <v-btn
+                  icon
+                  variant="tonal"
+                  size="small"
+                  class="settings-unresolved-info-action"
+                  title="Offene Zuordnungen"
+                  :loading="isUnresolvedCorrespondentsLoading"
+                  @click="openUnresolvedCorrespondentsDialog"
+                >
+                  <v-icon size="19">mdi-file-document-outline</v-icon>
+                  <span v-if="unresolvedCorrespondents.length" class="settings-unresolved-info-action__badge">
+                    {{ unresolvedCorrespondents.length }}
+                  </span>
+                </v-btn>
+              </template>
+            </SettingsInfoCard>
 
             <div class="settings-category-management">
               <div class="settings-category-header">
@@ -550,93 +670,6 @@
               </div>
 
               <div class="settings-correspondents">
-                <div v-if="unresolvedCorrespondents.length" class="settings-correspondent-review">
-                  <div class="settings-correspondent-review__header">
-                    <div>
-                      <div class="settings-correspondent-block__title">Offene Zuordnungen</div>
-                      <div class="pm-setting-description">
-                        {{ unresolvedCorrespondents.length }} Dokument{{ unresolvedCorrespondents.length === 1 ? '' : 'e' }} ohne Korrespondent.
-                      </div>
-                    </div>
-                    <v-btn
-                      icon
-                      size="small"
-                      variant="text"
-                      title="Aktualisieren"
-                      :loading="isUnresolvedCorrespondentsLoading"
-                      @click="loadUnresolvedCorrespondents"
-                    >
-                      <v-icon size="18">mdi-refresh</v-icon>
-                    </v-btn>
-                  </div>
-
-                  <div
-                    v-for="item in unresolvedCorrespondents"
-                    :key="item.document_id"
-                    class="settings-unresolved-row"
-                  >
-                    <div class="settings-unresolved-row__main">
-                      <div class="settings-category-name">{{ item.title || item.original_filename }}</div>
-                      <div class="settings-category-meta">
-                        {{ item.sender || 'kein erkannter Absender' }}
-                        <template v-if="item.document_type"> · {{ item.document_type }}</template>
-                        <template v-if="item.document_date"> · {{ item.document_date }}</template>
-                      </div>
-                    </div>
-                    <v-select
-                      v-model="unresolvedSelections[item.document_id]"
-                      :items="correspondentStore.correspondentOptions"
-                      density="compact"
-                      variant="outlined"
-                      hide-details
-                      placeholder="Korrespondent wählen…"
-                      class="settings-unresolved-row__select"
-                    />
-                    <v-btn
-                      icon
-                      variant="tonal"
-                      color="primary"
-                      title="Zuordnen"
-                      :disabled="!unresolvedSelections[item.document_id] || assigningUnresolvedId === item.document_id"
-                      :loading="assigningUnresolvedId === item.document_id"
-                      @click="assignUnresolvedCorrespondent(item, false)"
-                    >
-                      <v-icon size="18">mdi-check</v-icon>
-                    </v-btn>
-                    <v-btn
-                      icon
-                      variant="text"
-                      color="primary"
-                      title="Absender als Alias hinzufügen und zuordnen"
-                      :disabled="!item.sender || !unresolvedSelections[item.document_id] || assigningUnresolvedId === item.document_id"
-                      @click="assignUnresolvedCorrespondent(item, true)"
-                    >
-                      <v-icon size="18">mdi-tag-plus</v-icon>
-                    </v-btn>
-                    <v-btn
-                      icon
-                      variant="text"
-                      color="primary"
-                      title="Neuen Korrespondenten aus Absender anlegen"
-                      :disabled="!item.sender || creatingUnresolvedId === item.document_id"
-                      :loading="creatingUnresolvedId === item.document_id"
-                      @click="createCorrespondentFromUnresolved(item)"
-                    >
-                      <v-icon size="18">mdi-account-plus</v-icon>
-                    </v-btn>
-                    <v-btn
-                      icon
-                      variant="text"
-                      title="Bewusst leer lassen"
-                      :disabled="ignoringUnresolvedId === item.document_id"
-                      :loading="ignoringUnresolvedId === item.document_id"
-                      @click="ignoreUnresolvedCorrespondent(item)"
-                    >
-                      <v-icon size="18">mdi-close</v-icon>
-                    </v-btn>
-                  </div>
-                </div>
-
                 <div
                   v-for="item in correspondentStore.correspondents"
                   :key="item.id"
@@ -762,6 +795,116 @@
                 </div>
               </div>
             </div>
+
+            <v-dialog v-model="unresolvedCorrespondentsDialogOpen" max-width="920">
+              <v-card class="settings-unresolved-dialog">
+                <v-card-title class="settings-unresolved-dialog__title">
+                  <div>
+                    <div>Offene Zuordnungen</div>
+                    <div class="pm-setting-description">
+                      {{ unresolvedCorrespondents.length }} Dokument{{ unresolvedCorrespondents.length === 1 ? '' : 'e' }} ohne Korrespondent.
+                    </div>
+                  </div>
+                  <v-spacer />
+                  <v-btn
+                    icon
+                    size="small"
+                    variant="text"
+                    title="Aktualisieren"
+                    :loading="isUnresolvedCorrespondentsLoading"
+                    @click="loadUnresolvedCorrespondents"
+                  >
+                    <v-icon size="18">mdi-refresh</v-icon>
+                  </v-btn>
+                  <v-btn
+                    icon
+                    size="small"
+                    variant="text"
+                    title="Schließen"
+                    @click="unresolvedCorrespondentsDialogOpen = false"
+                  >
+                    <v-icon size="18">mdi-close</v-icon>
+                  </v-btn>
+                </v-card-title>
+                <v-divider />
+                <v-card-text class="settings-unresolved-dialog__body">
+                  <div v-if="isUnresolvedCorrespondentsLoading && !unresolvedCorrespondents.length" class="settings-unresolved-empty">
+                    <v-progress-circular indeterminate size="22" width="2" />
+                    <span>Offene Zuordnungen werden geladen…</span>
+                  </div>
+                  <div v-else-if="!unresolvedCorrespondents.length" class="settings-unresolved-empty">
+                    Keine offenen Zuordnungen.
+                  </div>
+                  <div v-else class="settings-correspondent-review settings-correspondent-review--dialog">
+                    <div
+                      v-for="item in unresolvedCorrespondents"
+                      :key="item.document_id"
+                      class="settings-unresolved-row"
+                    >
+                      <div class="settings-unresolved-row__main">
+                        <div class="settings-category-name">{{ item.title || item.original_filename }}</div>
+                        <div class="settings-category-meta">
+                          {{ item.sender || 'kein erkannter Absender' }}
+                          <template v-if="item.document_type"> · {{ item.document_type }}</template>
+                          <template v-if="item.document_date"> · {{ item.document_date }}</template>
+                        </div>
+                      </div>
+                      <v-select
+                        v-model="unresolvedSelections[item.document_id]"
+                        :items="correspondentStore.correspondentOptions"
+                        density="compact"
+                        variant="outlined"
+                        hide-details
+                        placeholder="Korrespondent wählen…"
+                        class="settings-unresolved-row__select"
+                      />
+                      <v-btn
+                        icon
+                        variant="tonal"
+                        color="primary"
+                        title="Zuordnen"
+                        :disabled="!unresolvedSelections[item.document_id] || assigningUnresolvedId === item.document_id"
+                        :loading="assigningUnresolvedId === item.document_id"
+                        @click="assignUnresolvedCorrespondent(item, false)"
+                      >
+                        <v-icon size="18">mdi-check</v-icon>
+                      </v-btn>
+                      <v-btn
+                        icon
+                        variant="text"
+                        color="primary"
+                        title="Absender als Alias hinzufügen und zuordnen"
+                        :disabled="!item.sender || !unresolvedSelections[item.document_id] || assigningUnresolvedId === item.document_id"
+                        @click="assignUnresolvedCorrespondent(item, true)"
+                      >
+                        <v-icon size="18">mdi-tag-plus</v-icon>
+                      </v-btn>
+                      <v-btn
+                        icon
+                        variant="text"
+                        color="primary"
+                        title="Neuen Korrespondenten aus Absender anlegen"
+                        :disabled="!item.sender || creatingUnresolvedId === item.document_id"
+                        :loading="creatingUnresolvedId === item.document_id"
+                        @click="createCorrespondentFromUnresolved(item)"
+                      >
+                        <v-icon size="18">mdi-account-plus</v-icon>
+                      </v-btn>
+                      <v-btn
+                        icon
+                        variant="text"
+                        title="Bewusst leer lassen"
+                        :disabled="ignoringUnresolvedId === item.document_id"
+                        :loading="ignoringUnresolvedId === item.document_id"
+                        @click="ignoreUnresolvedCorrespondent(item)"
+                      >
+                        <v-icon size="18">mdi-close</v-icon>
+                      </v-btn>
+                    </div>
+                  </div>
+                </v-card-text>
+              </v-card>
+            </v-dialog>
           </div>
         </section>
 
@@ -771,7 +914,7 @@
             <SettingsInfoCard
               icon="mdi-text-recognition"
               title="Texterkennung"
-              subtitle="Qualität, Sprache und automatische Weiterverarbeitung der OCR-Analyse nach dem Import."
+              subtitle="OCR-Qualität, Sprache und automatische Analyse."
             />
 
             <!-- Automatisches OCR (Grundlage für die KI-Analyse) -->
@@ -1391,14 +1534,21 @@ import {
   buildAutoTaggingPatch,
   buildOcrBackfillEnabledPatch,
   buildColorVariantPatch,
-  buildGlassEnabledPatch,
   buildDrawerRememberStatePatch,
   buildTagDrawerRememberStatePatch,
+  buildSidebarShowRecentPatch,
+  buildSidebarShowUntaggedPatch,
+  buildSidebarShowChatPatch,
   buildOcrDocLangPatch,
   buildRecentImportWindowPatch,
   buildShowFilenameSuffixPatch,
+  buildSidebarSectionsPatch,
+  buildSidebarMaxTagsPatch,
+  buildSidebarMaxCategoriesPatch,
   buildThemeModePatch,
-  buildTrashRetentionPatch
+  buildTrashRetentionPatch,
+  normalizeSidebarSections,
+  sidebarSectionLabel
 } from '../utils/settingsApi';
 
 // ── Props / Emits ────────────────────────────────────────────────────────────
@@ -1485,12 +1635,13 @@ async function runOcrBackfillNow() {
 const isSettingsLoading = computed(() => settingsStore.isSettingsLoading);
 const animationsEnabled = computed(() => settingsStore.animationsEnabled);
 
-const currentColorVariant = computed(() => settingsStore.settingsDraft.ui.color_variant || 'slate');
+const currentColorVariant = computed(() => settingsStore.settingsDraft.ui.color_variant || 'teal');
 
 // ── Einstellungsnavigation ───────────────────────────────────────────────────
 
 const settingsCategories = [
   { value: 'appearance', label: 'Darstellung', icon: 'mdi-palette-outline' },
+  { value: 'sidebar', label: 'Seitenleiste', icon: 'mdi-page-layout-sidebar-left' },
   { value: 'documents', label: 'Dokumente', icon: 'mdi-file-document-outline', adminOnly: true },
   { value: 'categories', label: 'Dokumenttypen', icon: 'mdi-file-document-multiple-outline' },
   { value: 'correspondents', label: 'Korrespondenten', icon: 'mdi-account-outline' },
@@ -1952,21 +2103,9 @@ const trashRetentionOptions = [
   { label: 'Nach 90 Tagen', value: 90 }
 ];
 
-const autoLogoutOptions = [
-  { label: 'Nie', value: 0 },
-  { label: 'Nach 5 Minuten', value: 5 },
-  { label: 'Nach 15 Minuten', value: 15 },
-  { label: 'Nach 30 Minuten', value: 30 },
-  { label: 'Nach 1 Stunde', value: 60 },
-  { label: 'Nach 4 Stunden', value: 240 }
-];
-
-function onAutoLogoutChange(value) {
-  auth.setAutoLogoutMinutes(Number(value) || 0);
-}
 
 const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
-const COLOR_VARIANT_VALUES = new Set(['indigo', 'forest', 'teal', 'slate', 'stone']);
+const COLOR_VARIANT_VALUES = new Set(['teal', 'violet', 'blue']);
 const RECENT_IMPORT_WINDOW_VALUES = new Set(recentImportWindowOptions.map((e) => e.value));
 const TRASH_RETENTION_VALUES = new Set(trashRetentionOptions.map((e) => e.value));
 
@@ -2045,16 +2184,14 @@ async function onThemeModeChange(nextValue) {
 // ── Farbvariante ─────────────────────────────────────────────────────────────
 
 const colorVariantOptions = [
-  { label: 'Steingrau', value: 'stone', color: '#57534E' },
-  { label: 'Schieferblau', value: 'slate', color: '#475569' },
-  { label: 'Indigo', value: 'indigo',  color: '#2563EB' },
-  { label: 'Waldgrün', value: 'forest',  color: '#16A34A' },
-  { label: 'Teal',  value: 'teal',   color: '#0F766E' }
+  { label: 'Teal', value: 'teal', color: '#0891B2' },
+  { label: 'Violett', value: 'violet', color: '#7C3AED' },
+  { label: 'Blau', value: 'blue', color: '#2563EB' }
 ];
 
 async function onColorVariantChange(nextValue) {
   if (isSettingSaving.color_variant) return;
-  const nextVariant = COLOR_VARIANT_VALUES.has(String(nextValue)) ? String(nextValue) : 'slate';
+  const nextVariant = COLOR_VARIANT_VALUES.has(String(nextValue)) ? String(nextValue) : 'teal';
   if (nextVariant === currentColorVariant.value) return;
   const previousVariant = currentColorVariant.value;
   settingsStore.setDraftPatch({ ui: { color_variant: nextVariant } });
@@ -2064,6 +2201,94 @@ async function onColorVariantChange(nextValue) {
     revert: () => {
       settingsStore.setDraftPatch({ ui: { color_variant: previousVariant } });
     }
+  });
+}
+
+// ── Seitenleiste (Reihenfolge & Sichtbarkeit) ────────────────────────────────
+
+const SIDEBAR_SECTION_ICONS = {
+  ordner: 'mdi-folder-outline',
+  tags: 'mdi-tag-multiple-outline',
+  kategorien: 'mdi-file-document-multiple-outline'
+};
+
+function sidebarSectionIcon(key) {
+  return SIDEBAR_SECTION_ICONS[key] || 'mdi-shape-outline';
+}
+
+const sidebarSectionsDraft = computed(() => normalizeSidebarSections(settingsDraft.ui.sidebar_sections));
+
+async function persistSidebarSections(nextSections) {
+  if (isSettingSaving.sidebar_sections) return;
+  const previous = normalizeSidebarSections(settingsDraft.ui.sidebar_sections);
+  const normalized = normalizeSidebarSections(nextSections);
+  settingsStore.setDraftPatch({ ui: { sidebar_sections: normalized } });
+  await patchSettingsWithRevert({
+    patch: buildSidebarSectionsPatch(normalized),
+    controlKey: 'sidebar_sections',
+    revert: () => {
+      settingsStore.setDraftPatch({ ui: { sidebar_sections: previous } });
+    }
+  });
+}
+
+function moveSidebarSection(index, delta) {
+  const sections = normalizeSidebarSections(settingsDraft.ui.sidebar_sections);
+  const target = index + delta;
+  if (target < 0 || target >= sections.length) return;
+  const next = [...sections];
+  [next[index], next[target]] = [next[target], next[index]];
+  void persistSidebarSections(next);
+}
+
+function setSidebarSectionVisibility(key, visible) {
+  const sections = normalizeSidebarSections(settingsDraft.ui.sidebar_sections);
+  const next = sections.map((section) => (
+    section.key === key ? { ...section, visible: Boolean(visible) } : section
+  ));
+  void persistSidebarSections(next);
+}
+
+const sidebarMaxOptions = [
+  { label: 'Keine', value: 0 },
+  { label: '3', value: 3 },
+  { label: '5', value: 5 },
+  { label: '8', value: 8 },
+  { label: '10', value: 10 },
+  { label: '15', value: 15 },
+  { label: '20', value: 20 },
+  { label: 'Alle', value: 50 }
+];
+
+function clampSidebarMaxCount(value) {
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed)) return 5;
+  return Math.min(50, Math.max(0, parsed));
+}
+
+async function onSidebarMaxTagsChange(nextValue) {
+  if (isSettingSaving.sidebar_max_tags) return;
+  const next = clampSidebarMaxCount(nextValue);
+  const previous = settingsDraft.ui.sidebar_max_tags;
+  if (next === previous) return;
+  settingsStore.setDraftPatch({ ui: { sidebar_max_tags: next } });
+  await patchSettingsWithRevert({
+    patch: buildSidebarMaxTagsPatch(next),
+    controlKey: 'sidebar_max_tags',
+    revert: () => settingsStore.setDraftPatch({ ui: { sidebar_max_tags: previous } })
+  });
+}
+
+async function onSidebarMaxCategoriesChange(nextValue) {
+  if (isSettingSaving.sidebar_max_categories) return;
+  const next = clampSidebarMaxCount(nextValue);
+  const previous = settingsDraft.ui.sidebar_max_categories;
+  if (next === previous) return;
+  settingsStore.setDraftPatch({ ui: { sidebar_max_categories: next } });
+  await patchSettingsWithRevert({
+    patch: buildSidebarMaxCategoriesPatch(next),
+    controlKey: 'sidebar_max_categories',
+    revert: () => settingsStore.setDraftPatch({ ui: { sidebar_max_categories: previous } })
   });
 }
 
@@ -2293,26 +2518,6 @@ function toggleShowFilenameSuffixFromRow() {
   void onShowFilenameSuffixChange(!settingsDraft.ui.showFilenameSuffix);
 }
 
-// ── Glass-Look (Aurora-Hintergrund) ──────────────────────────────────────────
-
-async function onGlassEnabledChange(nextValue) {
-  if (isSettingSaving.glass_enabled) return;
-  const nextBool = Boolean(nextValue);
-  if (nextBool === settingsDraft.ui.glass_enabled) return;
-  const previous = settingsDraft.ui.glass_enabled;
-  settingsStore.setDraftPatch({ ui: { glass_enabled: nextBool } });
-  await patchSettingsWithRevert({
-    patch: buildGlassEnabledPatch(nextBool),
-    controlKey: 'glass_enabled',
-    revert: () => settingsStore.setDraftPatch({ ui: { glass_enabled: previous } })
-  });
-}
-
-function toggleGlassEnabledFromRow() {
-  if (isSettingSaving.glass_enabled) return;
-  void onGlassEnabledChange(!settingsDraft.ui.glass_enabled);
-}
-
 // ── Drawer: Zustand merken ───────────────────────────────────────────────────
 
 async function onDrawerRememberStateChange(nextValue) {
@@ -2353,6 +2558,47 @@ function toggleTagDrawerRememberStateFromRow() {
   void onTagDrawerRememberStateChange(!settingsDraft.ui.tagDrawerRememberState);
 }
 
+// ── Bibliothek-Einträge (optionale Sichtbarkeit) ─────────────────────────────
+
+async function onSidebarShowRecentChange(nextValue) {
+  if (isSettingSaving.sidebar_show_recent) return;
+  const nextBool = Boolean(nextValue);
+  if (nextBool === settingsDraft.ui.sidebar_show_recent) return;
+  const previous = settingsDraft.ui.sidebar_show_recent;
+  settingsStore.setDraftPatch({ ui: { sidebar_show_recent: nextBool } });
+  await patchSettingsWithRevert({
+    patch: buildSidebarShowRecentPatch(nextBool),
+    controlKey: 'sidebar_show_recent',
+    revert: () => settingsStore.setDraftPatch({ ui: { sidebar_show_recent: previous } })
+  });
+}
+
+async function onSidebarShowUntaggedChange(nextValue) {
+  if (isSettingSaving.sidebar_show_untagged) return;
+  const nextBool = Boolean(nextValue);
+  if (nextBool === settingsDraft.ui.sidebar_show_untagged) return;
+  const previous = settingsDraft.ui.sidebar_show_untagged;
+  settingsStore.setDraftPatch({ ui: { sidebar_show_untagged: nextBool } });
+  await patchSettingsWithRevert({
+    patch: buildSidebarShowUntaggedPatch(nextBool),
+    controlKey: 'sidebar_show_untagged',
+    revert: () => settingsStore.setDraftPatch({ ui: { sidebar_show_untagged: previous } })
+  });
+}
+
+async function onSidebarShowChatChange(nextValue) {
+  if (isSettingSaving.sidebar_show_chat) return;
+  const nextBool = Boolean(nextValue);
+  if (nextBool === settingsDraft.ui.sidebar_show_chat) return;
+  const previous = settingsDraft.ui.sidebar_show_chat;
+  settingsStore.setDraftPatch({ ui: { sidebar_show_chat: nextBool } });
+  await patchSettingsWithRevert({
+    patch: buildSidebarShowChatPatch(nextBool),
+    controlKey: 'sidebar_show_chat',
+    revert: () => settingsStore.setDraftPatch({ ui: { sidebar_show_chat: previous } })
+  });
+}
+
 // ── Animationen ──────────────────────────────────────────────────────────────
 
 function onAnimationsEnabledChange(nextValue) {
@@ -2377,6 +2623,7 @@ const editingCorrespondentShortName = ref('');
 const newAliasName = ref('');
 const unresolvedCorrespondents = ref([]);
 const unresolvedSelections = ref({});
+const unresolvedCorrespondentsDialogOpen = ref(false);
 const isUnresolvedCorrespondentsLoading = ref(false);
 const assigningUnresolvedId = ref(null);
 const creatingUnresolvedId = ref(null);
@@ -2605,6 +2852,11 @@ async function loadUnresolvedCorrespondents() {
   } finally {
     isUnresolvedCorrespondentsLoading.value = false;
   }
+}
+
+function openUnresolvedCorrespondentsDialog() {
+  unresolvedCorrespondentsDialogOpen.value = true;
+  void loadUnresolvedCorrespondents();
 }
 
 async function assignUnresolvedCorrespondent(item, addSenderAlias = false) {
@@ -2847,18 +3099,26 @@ async function removeAlias(alias) {
   width: 100%;
 }
 
+.pm-settings-content > .settings-info-card {
+  margin-bottom: 0;
+}
+
+.pm-settings-content > .settings-info-card + .pm-setting-row {
+  padding-top: 10px;
+}
+
+.pm-settings-content > .settings-info-card + .backup-card,
+.pm-settings-content > .settings-info-card + .shortcuts-list {
+  margin-top: 10px;
+}
+
 .settings-category-header {
-  position: sticky;
-  top: 0;
-  z-index: 4;
   display: flex;
   flex-direction: column;
   gap: 14px;
   margin: 0;
-  padding: 14px 0;
-  background: rgb(var(--v-theme-surface));
+  padding: 10px 0 14px;
   border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
-  box-shadow: 0 -24px 0 rgb(var(--v-theme-surface));
 }
 
 .settings-categories {
@@ -2867,6 +3127,126 @@ async function removeAlias(alias) {
   gap: 8px;
   width: 100%;
   padding-top: 12px;
+}
+
+/* ── Seitenleisten-Sektionen (Reihenfolge & Sichtbarkeit) ───────────────── */
+.settings-sidebar-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding-top: 12px;
+}
+
+.settings-sidebar-section-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px 10px 8px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.07);
+  border-radius: 8px;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
+}
+
+.settings-sidebar-section-row--hidden {
+  opacity: 0.55;
+}
+
+.settings-sidebar-section-reorder {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.settings-sidebar-section-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.settings-sidebar-section-arrow:hover:not(:disabled) {
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  color: rgba(var(--v-theme-on-surface), 0.85);
+}
+
+.settings-sidebar-section-arrow:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.settings-sidebar-section-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: rgba(var(--v-theme-on-surface), 0.7);
+}
+
+.settings-sidebar-section-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.92rem;
+  font-weight: 500;
+}
+
+.settings-sidebar-library {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin-top: 8px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.07);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.settings-sidebar-library-row.pm-setting-row {
+  padding: 14px 12px;
+  border-top: none;
+}
+
+/* Kompaktes Anzahl-Select (Schnellzugriff-Limits) */
+.settings-sidebar-max-select {
+  flex: 0 0 auto;
+  width: 84px;
+  min-width: 84px;
+  margin-right: 16px;
+  opacity: 0.82;
+}
+
+.settings-sidebar-max-select:hover,
+.settings-sidebar-max-select:focus-within {
+  opacity: 1;
+}
+
+.settings-sidebar-max-select :deep(.v-field) {
+  min-height: 32px;
+  border-radius: 7px;
+  font-size: 0.82rem;
+}
+
+.settings-sidebar-max-select :deep(.v-field__input) {
+  min-height: 32px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.settings-sidebar-max-select :deep(.v-field__append-inner) {
+  min-height: 32px;
+  padding-top: 0;
+}
+
+.settings-sidebar-max-select :deep(.v-field__outline) {
+  --v-field-border-opacity: 0.16;
 }
 
 .settings-category-row {
@@ -3077,8 +3457,14 @@ async function removeAlias(alias) {
 .settings-category-add {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   width: 100%;
+}
+
+.settings-category-add > .v-input {
+  min-width: 220px;
+  flex: 1 1 260px;
 }
 
 .settings-category-add :deep(.v-field) {
@@ -3088,6 +3474,39 @@ async function removeAlias(alias) {
 .settings-category-add__button {
   align-self: stretch;
   min-height: 40px;
+}
+
+.settings-unresolved-info-action {
+  position: relative;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+  color: rgba(var(--v-theme-on-surface), 0.72);
+  background: rgba(var(--v-theme-on-surface), 0.045);
+}
+
+.settings-unresolved-info-action:hover {
+  color: rgba(var(--v-theme-on-surface), 0.9);
+  border-color: rgba(var(--v-theme-primary), 0.26);
+  background: rgba(var(--v-theme-primary), 0.08);
+}
+
+.settings-unresolved-info-action__badge {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgb(var(--v-theme-error));
+  color: rgb(var(--v-theme-on-error));
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
 }
 
 .settings-correspondents {
@@ -3108,6 +3527,13 @@ async function removeAlias(alias) {
   border: 1px solid rgba(var(--v-theme-primary), 0.18);
   border-radius: 8px;
   background: rgba(var(--v-theme-primary), 0.04);
+}
+
+.settings-correspondent-review--dialog {
+  margin-bottom: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
 }
 
 .settings-correspondent-review__header {
@@ -3139,6 +3565,29 @@ async function removeAlias(alias) {
 .settings-unresolved-row :deep(.v-btn) {
   width: 32px;
   height: 32px;
+}
+
+.settings-unresolved-dialog__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 18px;
+}
+
+.settings-unresolved-dialog__body {
+  max-height: min(58vh, 520px);
+  overflow-y: auto;
+  padding: 14px;
+}
+
+.settings-unresolved-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 96px;
+  color: rgba(var(--v-theme-on-surface), 0.62);
+  font-size: 0.9rem;
 }
 
 .settings-correspondent-row {

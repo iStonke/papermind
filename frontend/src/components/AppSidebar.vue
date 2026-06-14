@@ -1,24 +1,16 @@
 <template>
   <aside class="panel panel-left">
-    <!-- Bibliothek -->
+    <div v-if="$slots.head" class="sidebar-head">
+      <slot name="head" />
+    </div>
+
+    <!-- Bibliothek (fixiert, scrollt nicht mit) -->
     <v-list nav density="compact" class="views-list">
-      <div
-        class="sidebar-section-header"
-        :class="{ 'sidebar-section-header--collapsed': bibliothekCollapsed }"
-        @click="toggleSection('bibliothek')"
-      >
+      <div class="sidebar-section-header sidebar-section-header--static">
         <div class="sidebar-section-label">Bibliothek</div>
-        <button
-          class="sidebar-section-toggle"
-          :aria-label="bibliothekCollapsed ? 'Bereich einblenden' : 'Bereich ausblenden'"
-          tabindex="-1"
-          @click.stop="toggleSection('bibliothek')"
-        >
-          <v-icon size="13" class="sidebar-section-toggle-icon">mdi-chevron-down</v-icon>
-        </button>
       </div>
 
-      <div class="sidebar-section-drawer" :class="{ 'sidebar-section-drawer--collapsed': bibliothekCollapsed }">
+      <div class="sidebar-section-drawer">
         <div class="sidebar-section-content">
           <SidebarItem
             item-class="sidebar-item--primary"
@@ -33,6 +25,7 @@
           </SidebarItem>
 
           <SidebarItem
+            v-if="settingsStore.settings.ui.sidebar_show_recent !== false"
             item-class="sidebar-item--secondary sidebar-item--imports"
             :active="isViewActive('imports')"
             :count="importsSidebarCount"
@@ -45,6 +38,7 @@
           </SidebarItem>
 
           <SidebarItem
+            v-if="settingsStore.settings.ui.sidebar_show_untagged !== false"
             item-class="sidebar-item--secondary"
             :active="isViewActive('untagged')"
             :count="untaggedSidebarCount"
@@ -104,20 +98,35 @@
               </v-menu>
             </template>
           </SidebarItem>
+
+          <SidebarItem
+            v-if="settingsStore.settings.ui.sidebar_show_chat !== false"
+            item-class="sidebar-item--secondary sidebar-item--chat"
+            :active="chatActive"
+            @click="emit('open-chat')"
+          >
+            <template #icon>
+              <v-icon size="18">mdi-robot-outline</v-icon>
+            </template>
+            KI-Chat
+          </SidebarItem>
         </div>
       </div>
     </v-list>
 
-    <v-divider class="sidebar-section-divider" />
+    <div class="sidebar-scroll">
+    <template v-for="(section, idx) in orderedSidebarSections" :key="section.key">
+      <v-divider v-if="idx > 0" class="sidebar-section-divider" />
 
     <!-- Ordner -->
-    <v-list nav density="compact" class="views-list">
+    <v-list v-if="section.key === 'ordner' && !collapsed" nav density="compact" class="views-list">
       <div
         class="sidebar-section-header"
         :class="{ 'sidebar-section-header--collapsed': ordnerCollapsed }"
         @click="toggleSection('ordner')"
       >
         <div class="sidebar-section-label">Ordner</div>
+        <span v-if="ordnerCollapsed" class="sidebar-section-hint">einblenden</span>
         <button
           class="sidebar-section-toggle"
           :aria-label="ordnerCollapsed ? 'Bereich einblenden' : 'Bereich ausblenden'"
@@ -192,16 +201,15 @@
       </div>
     </v-list>
 
-    <v-divider class="sidebar-section-divider" />
-
     <!-- Tags -->
-    <v-list nav density="compact" class="views-list">
+    <v-list v-else-if="section.key === 'tags'" nav density="compact" class="views-list">
       <div
         class="sidebar-section-header"
         :class="{ 'sidebar-section-header--collapsed': tagsCollapsed }"
         @click="toggleSection('tags')"
       >
         <div class="sidebar-section-label">Tags</div>
+        <span v-if="tagsCollapsed" class="sidebar-section-hint">einblenden</span>
         <button
           class="sidebar-section-toggle"
           :aria-label="tagsCollapsed ? 'Bereich einblenden' : 'Bereich ausblenden'"
@@ -225,34 +233,100 @@
             Alle Tags
           </SidebarItem>
 
-          <SidebarItem
-            v-for="tag in topTagQuicklinks"
-            :key="tag.id"
-            item-class="sidebar-item--tag"
-            :active="activeTagId === tag.id"
-            :count="sidebarStore.tagCount(tag.id, tag.usage_count ?? 0)"
-            @click="emit('apply-tag-filter', tag.id)"
-          >
-            <template #icon>
-              <v-icon size="18">mdi-tag-text-outline</v-icon>
-            </template>
-            <span class="sidebar-tag-pill">{{ tag.name }}</span>
-          </SidebarItem>
+          <template v-if="!collapsed">
+            <SidebarItem
+              v-for="tag in topTagQuicklinks"
+              :key="tag.id"
+              item-class="sidebar-item--tag"
+              :active="!isTagView && activeTagId === tag.id"
+              :count="sidebarStore.tagCount(tag.id, tag.usage_count ?? 0)"
+              @click="emit('apply-tag-filter', tag.id)"
+            >
+              <template #icon>
+                <v-icon size="18">mdi-tag-text-outline</v-icon>
+              </template>
+              <span class="sidebar-tag-pill">{{ tag.name }}</span>
+            </SidebarItem>
 
-          <v-list-item v-if="topTagQuicklinks.length === 0">
-            <v-list-item-title class="text-caption">Noch keine Tags</v-list-item-title>
-          </v-list-item>
+            <v-list-item v-if="topTagQuicklinks.length === 0 && maxSidebarTags > 0">
+              <v-list-item-title class="text-caption">Noch keine Tags</v-list-item-title>
+            </v-list-item>
+          </template>
         </div>
       </div>
     </v-list>
+
+    <!-- Kategorien -->
+    <v-list v-else-if="section.key === 'kategorien'" nav density="compact" class="views-list">
+      <div
+        class="sidebar-section-header"
+        :class="{ 'sidebar-section-header--collapsed': kategorienCollapsed }"
+        @click="toggleSection('kategorien')"
+      >
+        <div class="sidebar-section-label">Dokumenttypen</div>
+        <span v-if="kategorienCollapsed" class="sidebar-section-hint">einblenden</span>
+        <button
+          class="sidebar-section-toggle"
+          :aria-label="kategorienCollapsed ? 'Bereich einblenden' : 'Bereich ausblenden'"
+          tabindex="-1"
+          @click.stop="toggleSection('kategorien')"
+        >
+          <v-icon size="13" class="sidebar-section-toggle-icon">mdi-chevron-down</v-icon>
+        </button>
+      </div>
+
+      <div class="sidebar-section-drawer" :class="{ 'sidebar-section-drawer--collapsed': kategorienCollapsed }">
+        <div class="sidebar-section-content">
+          <SidebarItem
+            :active="isCategoryView"
+            :count="totalCategoriesSidebarCount"
+            @click="emit('open-categories-view')"
+          >
+            <template #icon>
+              <v-icon size="18">mdi-file-document-multiple-outline</v-icon>
+            </template>
+            Alle Dokumenttypen
+          </SidebarItem>
+
+          <template v-if="!collapsed">
+            <SidebarItem
+              v-for="category in topCategoryQuicklinks"
+              :key="category.id"
+              item-class="sidebar-item--tag"
+              :active="!isCategoryView && activeCategoryName === category.name"
+              :count="Number(category.usage_count || 0)"
+              @click="emit('apply-category-filter', category.name)"
+            >
+              <template #icon>
+                <v-icon size="18">mdi-file-document-outline</v-icon>
+              </template>
+              <span class="sidebar-tag-pill">{{ category.name }}</span>
+            </SidebarItem>
+
+            <v-list-item v-if="topCategoryQuicklinks.length === 0 && maxSidebarCategories > 0">
+              <v-list-item-title class="text-caption">Noch keine Dokumenttypen</v-list-item-title>
+            </v-list-item>
+          </template>
+        </div>
+      </div>
+    </v-list>
+    </template>
+    </div>
+
+    <div v-if="$slots.foot" class="sidebar-foot">
+      <slot name="foot" />
+    </div>
   </aside>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useSidebarStore } from '../stores/sidebar.js';
 import { useTagStore } from '../stores/tags.js';
+import { useCategoryStore } from '../stores/categories.js';
+import { useSettingsStore } from '../stores/settings.js';
+import { normalizeSidebarSections } from '../utils/settingsApi.js';
 import SidebarItem from './SidebarItem.vue';
 
 // ── Props & Emits ──────────────────────────────────────────────────────────
@@ -261,10 +335,15 @@ const props = defineProps({
   activeSavedSearchId: { type: String,  default: null },
   activeTagId:       { type: String,  default: null },
   isTagView:         { type: Boolean, default: false },
+  activeCategoryName: { type: String,  default: null },
+  isCategoryView:    { type: Boolean, default: false },
+  collapsed:         { type: Boolean, default: false },
+  chatActive:        { type: Boolean, default: false },
 });
 
 const emit = defineEmits([
   'select-view',
+  'open-chat',
   'open-saved-search',
   'create-folder',
   'edit-folder',
@@ -272,14 +351,38 @@ const emit = defineEmits([
   'empty-trash',
   'open-tags-view',
   'apply-tag-filter',
+  'open-categories-view',
+  'apply-category-filter',
 ]);
 
 // ── Stores ─────────────────────────────────────────────────────────────────
-const sidebarStore = useSidebarStore();
-const tagStore     = useTagStore();
+const sidebarStore  = useSidebarStore();
+const tagStore      = useTagStore();
+const categoryStore = useCategoryStore();
+const settingsStore = useSettingsStore();
 
 const { sidebarCounts, savedSearches } = storeToRefs(sidebarStore);
 const { tags }                         = storeToRefs(tagStore);
+const { categories }                   = storeToRefs(categoryStore);
+
+onMounted(() => {
+  void categoryStore.ensureLoaded();
+});
+
+// ── Konfigurierbare Sektionen (Reihenfolge + Sichtbarkeit) ──────────────────
+const orderedSidebarSections = computed(() =>
+  normalizeSidebarSections(settingsStore.settings.ui.sidebar_sections)
+    .filter((section) => section.visible !== false)
+);
+
+function clampSidebarMax(value, fallback = 5) {
+  const parsed = Math.round(Number(value));
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(50, Math.max(0, parsed));
+}
+
+const maxSidebarTags = computed(() => clampSidebarMax(settingsStore.settings.ui.sidebar_max_tags));
+const maxSidebarCategories = computed(() => clampSidebarMax(settingsStore.settings.ui.sidebar_max_categories));
 
 // ── Collapsible sections ───────────────────────────────────────────────────
 function loadCollapsed(key) {
@@ -293,11 +396,13 @@ function saveCollapsed(key, value) {
 const bibliothekCollapsed = ref(loadCollapsed('bibliothek'));
 const ordnerCollapsed     = ref(loadCollapsed('ordner'));
 const tagsCollapsed       = ref(loadCollapsed('tags'));
+const kategorienCollapsed = ref(loadCollapsed('kategorien'));
 
 const sectionStates = {
   bibliothek: bibliothekCollapsed,
   ordner:     ordnerCollapsed,
   tags:       tagsCollapsed,
+  kategorien: kategorienCollapsed,
 };
 
 function toggleSection(key) {
@@ -343,7 +448,7 @@ function isViewActive(viewKey) {
   if (props.isTagView || props.activeSavedSearchId) return false;
   if (viewKey === 'all') {
     // Bei aktivem Tag-Filter NICHT „Alle Dokumente" markieren – der Tag bleibt aktiv.
-    return props.activeView === 'all' && !props.activeTagId;
+    return props.activeView === 'all' && !props.activeTagId && !props.activeCategoryName;
   }
   if (viewKey === 'imports')   return props.activeView === 'imports';
   if (viewKey === 'untagged')  return props.activeView === 'untagged';
@@ -379,7 +484,7 @@ const topTagQuicklinks = computed(() =>
       if (lc !== rc) return rc - lc;
       return tagNameCollator.compare(normalizeTagInput(l?.name || ''), normalizeTagInput(r?.name || ''));
     })
-    .slice(0, 5)
+    .slice(0, maxSidebarTags.value)
 );
 
 const totalTagsSidebarCount = computed(() => {
@@ -397,9 +502,39 @@ const sortedFolderItems = computed(() =>
     return tagNameCollator.compare(normalizeTagInput(l?.name || ''), normalizeTagInput(r?.name || ''));
   })
 );
+
+// ── Kategorien (Dokumenttypen) ──────────────────────────────────────────────
+const activeCategories = computed(() =>
+  categories.value.filter((category) => category?.is_active !== false)
+);
+
+const topCategoryQuicklinks = computed(() =>
+  [...activeCategories.value]
+    .filter((category) => Number(category?.usage_count || 0) > 0)
+    .sort((l, r) => {
+      const lc = Number(l?.usage_count || 0);
+      const rc = Number(r?.usage_count || 0);
+      if (lc !== rc) return rc - lc;
+      return tagNameCollator.compare(normalizeTagInput(l?.name || ''), normalizeTagInput(r?.name || ''));
+    })
+    .slice(0, maxSidebarCategories.value)
+);
+
+const totalCategoriesSidebarCount = computed(() => {
+  const used = activeCategories.value.filter((category) => Number(category?.usage_count || 0) > 0).length;
+  if (used > 0 || activeCategories.value.length === 0) return used;
+  return activeCategories.value.length;
+});
 </script>
 
 <style scoped>
+.sidebar-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 12px 10px;
+}
+
 /* ── Section Header ───────────────────────────────────────────────────── */
 .sidebar-section-header {
   display: flex;
@@ -416,6 +551,33 @@ const sortedFolderItems = computed(() =>
 
 .sidebar-section-header:hover {
   background: rgba(var(--v-theme-on-surface), 0.05);
+}
+
+/* Bibliothek: statischer Kopf, nicht einklappbar (Kern-Navigation). */
+.sidebar-section-header--static {
+  cursor: default;
+}
+
+.sidebar-section-header--static:hover {
+  background: transparent;
+}
+
+/* ── „einblenden"-Hinweis (nur im eingeklappten Zustand) ──────────────── */
+.sidebar-section-hint {
+  margin-left: auto;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  line-height: 1;
+  text-transform: uppercase;
+  color: rgba(var(--v-theme-primary), 0.68);
+  white-space: nowrap;
+  user-select: none;
+  transition: color 0.12s ease, opacity 0.12s ease;
+}
+
+.sidebar-section-header:hover .sidebar-section-hint {
+  color: rgb(var(--v-theme-primary));
 }
 
 /* ── Toggle button ────────────────────────────────────────────────────── */

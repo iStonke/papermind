@@ -53,6 +53,7 @@
         <ProfileEditView v-else-if="modelValue && view === 'profile-edit'" ref="panelRef" @done="goProfile" />
         <AvatarEditorView v-else-if="modelValue && view === 'avatar'" ref="panelRef" @done="goProfile" />
         <PasswordChangeView v-else-if="modelValue && view === 'password'" ref="panelRef" @done="goProfile" />
+        <SessionSecurityView v-else-if="modelValue && view === 'session'" ref="panelRef" />
         <UsersAdminView v-else-if="modelValue && view === 'users' && auth.isAdmin" ref="panelRef" />
       </div>
     </div>
@@ -121,6 +122,12 @@
           </v-btn>
         </template>
 
+        <!-- Sitzung & Sicherheit (speichert sofort) -->
+        <template v-else-if="view === 'session'">
+          <span></span>
+          <v-btn variant="tonal" color="primary" class="pm-dialog__btn" @click="close">Fertig</v-btn>
+        </template>
+
         <!-- Benutzerverwaltung -->
         <template v-else-if="view === 'users'">
           <v-btn variant="text" class="pm-dialog__btn" @click="close">Abbrechen</v-btn>
@@ -140,6 +147,7 @@ import AvatarEditorView from './account/AvatarEditorView.vue';
 import PasswordChangeView from './account/PasswordChangeView.vue';
 import ProfileEditView from './account/ProfileEditView.vue';
 import ProfileView from './account/ProfileView.vue';
+import SessionSecurityView from './account/SessionSecurityView.vue';
 import UsersAdminView from './account/UsersAdminView.vue';
 import { useAuthStore } from '../stores/auth.js';
 import { useUiStore } from '../stores/ui.js';
@@ -172,6 +180,7 @@ const TITLES = {
   'profile-edit': { title: 'Anzeigename & E-Mail', sub: 'Profildaten bearbeiten · E-Mail wird sofort geprüft.' },
   avatar: { title: 'Profilbild', sub: 'Hochladen, zuschneiden oder entfernen.' },
   password: { title: 'Passwort ändern', sub: 'Aus Sicherheitsgründen aktuelles Passwort bestätigen.' },
+  session: { title: 'Sitzung & Sicherheit', sub: 'Automatische Abmeldung bei Inaktivität · gilt für dieses Gerät.' },
   users: { title: 'Benutzerverwaltung', sub: 'Rollen, Status und Zugänge verwalten.' },
 };
 const paneTitle = computed(() => TITLES[view.value].title);

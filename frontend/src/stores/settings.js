@@ -5,9 +5,10 @@ import {
   SUMMARY_PROMPT_TEMPLATE_DEFAULT,
   SYSTEM_PROMPT_DEFAULT
 } from '../constants/promptDefaults.js';
+import { normalizeSidebarSections } from '../utils/settingsApi.js';
 
 const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
-const COLOR_VARIANT_VALUES = new Set(['indigo', 'forest', 'teal', 'slate', 'stone']);
+const COLOR_VARIANT_VALUES = new Set(['teal', 'violet', 'blue']);
 const SORT_ORDER_VALUES = new Set([
   'newest',
   'oldest',
@@ -82,11 +83,16 @@ function createDefaultSettings() {
   return {
     ui: {
       theme_mode: 'system',
-      color_variant: 'slate',
-      glass_enabled: false,
+      color_variant: 'teal',
       showFilenameSuffix: true,
       drawerRememberState: true,
-      tagDrawerRememberState: true
+      tagDrawerRememberState: true,
+      sidebar_show_recent: true,
+      sidebar_show_untagged: true,
+      sidebar_show_chat: true,
+      sidebar_sections: normalizeSidebarSections(null),
+      sidebar_max_tags: 5,
+      sidebar_max_categories: 5
     },
     documents: {
       auto_ocr: true,
@@ -148,9 +154,16 @@ function createDefaultSettings() {
   };
 }
 
+function cloneUi(uiValue) {
+  return {
+    ...uiValue,
+    sidebar_sections: normalizeSidebarSections(uiValue?.sidebar_sections)
+  };
+}
+
 function cloneSettings(settingsValue) {
   return {
-    ui: { ...settingsValue.ui },
+    ui: cloneUi(settingsValue.ui),
     documents: { ...settingsValue.documents },
     llm: { ...settingsValue.llm },
     rag: { ...settingsValue.rag },
@@ -163,6 +176,9 @@ function cloneSettings(settingsValue) {
 
 function assignSettings(target, source) {
   Object.assign(target.ui, source.ui);
+  if (source.ui && 'sidebar_sections' in source.ui) {
+    target.ui.sidebar_sections = normalizeSidebarSections(source.ui.sidebar_sections);
+  }
   Object.assign(target.documents, source.documents);
   Object.assign(target.llm, source.llm);
   Object.assign(target.rag, source.rag);
@@ -216,6 +232,9 @@ export const useSettingsStore = defineStore('settings', {
         show_filename_suffix: false,
         drawer_remember_state: false,
         tag_drawer_remember_state: false,
+        sidebar_sections: false,
+        sidebar_max_tags: false,
+        sidebar_max_categories: false,
         prompts: false,
         reset_prompts: false
       },
@@ -283,10 +302,6 @@ export const useSettingsStore = defineStore('settings', {
         ui: {
           theme_mode: THEME_MODE_VALUES.has(rawThemeMode) ? rawThemeMode : defaults.ui.theme_mode,
           color_variant: COLOR_VARIANT_VALUES.has(rawColorVariant) ? rawColorVariant : defaults.ui.color_variant,
-          glass_enabled:
-            typeof payload?.ui?.glass_enabled === 'boolean'
-              ? payload.ui.glass_enabled
-              : defaults.ui.glass_enabled,
           showFilenameSuffix:
             typeof payload?.ui?.showFilenameSuffix === 'boolean'
               ? payload.ui.showFilenameSuffix
@@ -298,7 +313,22 @@ export const useSettingsStore = defineStore('settings', {
           tagDrawerRememberState:
             typeof payload?.ui?.tagDrawerRememberState === 'boolean'
               ? payload.ui.tagDrawerRememberState
-              : defaults.ui.tagDrawerRememberState
+              : defaults.ui.tagDrawerRememberState,
+          sidebar_show_recent:
+            typeof payload?.ui?.sidebar_show_recent === 'boolean'
+              ? payload.ui.sidebar_show_recent
+              : defaults.ui.sidebar_show_recent,
+          sidebar_show_untagged:
+            typeof payload?.ui?.sidebar_show_untagged === 'boolean'
+              ? payload.ui.sidebar_show_untagged
+              : defaults.ui.sidebar_show_untagged,
+          sidebar_show_chat:
+            typeof payload?.ui?.sidebar_show_chat === 'boolean'
+              ? payload.ui.sidebar_show_chat
+              : defaults.ui.sidebar_show_chat,
+          sidebar_sections: normalizeSidebarSections(payload?.ui?.sidebar_sections),
+          sidebar_max_tags: clampInt(payload?.ui?.sidebar_max_tags, 0, 50, defaults.ui.sidebar_max_tags),
+          sidebar_max_categories: clampInt(payload?.ui?.sidebar_max_categories, 0, 50, defaults.ui.sidebar_max_categories)
         },
         documents: {
           auto_ocr:
