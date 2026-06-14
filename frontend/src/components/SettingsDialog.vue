@@ -1493,6 +1493,12 @@
             <SystemStatusPanel :active="activeCategory === 'system'" />
           </div>
         </section>
+
+        <section v-show="activeCategory === 'services'" class="pm-settings-section">
+          <div class="pm-settings-content">
+            <ServiceStatusPanel :active="activeCategory === 'services'" />
+          </div>
+        </section>
         </div>
       </div>
     </template>
@@ -1503,6 +1509,7 @@
 import { computed, ref, watch } from 'vue';
 import { useTheme } from 'vuetify';
 import BaseDialog from './BaseDialog.vue';
+import ServiceStatusPanel from './ServiceStatusPanel.vue';
 import SettingsInfoCard from './SettingsInfoCard.vue';
 import SystemStatusPanel from './SystemStatusPanel.vue';
 import { getBaseUrl } from '../api/client';
@@ -1648,6 +1655,7 @@ const settingsCategories = [
   { value: 'ai', label: 'Texterkennung', icon: 'mdi-text-recognition', adminOnly: true },
   { value: 'backup', label: 'Backup', icon: 'mdi-cloud-upload-outline', adminOnly: true },
   { value: 'controls', label: 'Bedienung', icon: 'mdi-keyboard-outline' },
+  { value: 'services', label: 'Dienste', icon: 'mdi-server-network', adminOnly: true },
   { value: 'system', label: 'System', icon: 'mdi-raspberry-pi', adminOnly: true }
 ];
 // Systemkonfigurations-Tabs nur für Admins; persönliche Darstellung sowie die

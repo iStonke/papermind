@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CpuStatus(BaseModel):
@@ -65,6 +65,43 @@ class SystemStatus(BaseModel):
     disks: list[DiskStatus]
     power: PowerInfo
     collected_at: datetime
+
+
+class ServiceActionInfo(BaseModel):
+    action: Literal["check", "start", "stop", "restart"]
+    label: str
+    enabled: bool = False
+    destructive: bool = False
+    reason: str | None = None
+
+
+class ServiceStatusItem(BaseModel):
+    key: str
+    label: str
+    description: str
+    status: Literal["ok", "warning", "error", "disabled", "unknown"]
+    enabled: bool = True
+    configurable: bool = False
+    setting_key: str | None = None
+    detail: str | None = None
+    endpoint: str | None = None
+    latency_ms: int | None = None
+    checked_at: datetime
+    actions: list[ServiceActionInfo] = Field(default_factory=list)
+
+
+class ServiceStatusResponse(BaseModel):
+    status: Literal["ok", "warning", "error", "unknown"]
+    services: list[ServiceStatusItem]
+    collected_at: datetime
+
+
+class ServiceActionResponse(BaseModel):
+    accepted: bool
+    service_key: str
+    action: str
+    detail: str
+    service: ServiceStatusItem | None = None
 
 
 class PowerActionRequest(BaseModel):

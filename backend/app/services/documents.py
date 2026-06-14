@@ -7,7 +7,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import UploadFile
+from fastapi import UploadFile, status
 import httpx
 import pypdfium2 as pdfium
 from pypdf import PdfReader
@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
 from app.core.errors import (
+    APIError,
     BadRequestError,
     ConflictError,
     DuplicateExactError,
@@ -54,6 +55,7 @@ from app.services.document_types import (
     document_type_names,
     load_active_document_type_vocab,
 )
+from app.services.correspondent_matching import CorrespondentMatchingService
 from app.services.settings import SettingsService
 
 logger = logging.getLogger("papermind.documents")
@@ -909,26 +911,74 @@ class DocumentService:
         if document.ai_status != "done":
             text_value = self._extract_text_for_manual_auto_tagging(document)
             if text_value:
+                runtime_settings = SettingsService(self.db).get_settings().model_dump(mode="json")
+                ollama_cfg = runtime_settings.get("ollama") or {}
+                if not ollama_cfg.get("enabled"):
+                    raise APIError(
+                        status.HTTP_409_CONFLICT,
+                        "AI_METADATA_DISABLED",
+                        "KI-Metadaten sind in den Einstellungen deaktiviert.",
+                    )
                 doc_type_vocab = load_active_document_type_vocab(self.db)
-                apply_ollama_classification(
+                classification_warning = apply_ollama_classification(
                     document,
                     extracted_text=text_value,
                     quality_status=document.ocr_quality_status or "good",
                     confidence_score=document.ocr_confidence_score,
+                    base_url=str(ollama_cfg.get("base_url") or "http://localhost:11434"),
+                    model=str(ollama_cfg.get("model") or "llama3.2:3b"),
+                    timeout_seconds=float(ollama_cfg.get("timeout_seconds") or 90.0),
                     allowed_document_types=document_type_names(doc_type_vocab),
                     document_type_hints=document_type_hint_map(doc_type_vocab),
                 )
                 self.db.commit()
                 document = self.get_document_or_404(document_id)
+                if classification_warning:
+                    if document.ai_status == "error":
+                        raise APIError(
+                            status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "AI_METADATA_UNAVAILABLE",
+                            classification_warning,
+                        )
+                    raise APIError(
+                        status.HTTP_409_CONFLICT,
+                        "AI_METADATA_SKIPPED",
+                        classification_warning,
+                    )
+            else:
+                raise APIError(
+                    status.HTTP_409_CONFLICT,
+                    "AI_METADATA_NO_TEXT",
+                    "Kein OCR-Text für automatische KI-Metadaten verfügbar.",
+                )
 
+        correspondent = self._suggest_correspondent_from_classification(document)
         return DocumentMetadataSuggestion(
             display_name=self._build_ai_title(document),
             document_date=document.ai_document_date,
             document_type=self._suggest_document_type_from_classification(document),
             category=self._suggest_document_type_from_classification(document),
+            correspondent_id=uuid.UUID(str(correspondent.correspondent_id)) if correspondent else None,
+            correspondent_name=correspondent.name if correspondent else None,
             notes=" ".join(str(document.ai_summary or "").split()).strip() or None,
             tags=self._suggest_tags_from_classification(document),
         )
+
+    def _suggest_correspondent_from_classification(self, document: Document):
+        """Resolve the AI sender/OCR text to a known correspondent, best effort."""
+        sender = " ".join(str(document.ai_sender or "").split()).strip()
+        text_value = self._extract_text_for_manual_auto_tagging(document)
+        if not sender and not text_value:
+            return None
+        try:
+            return CorrespondentMatchingService(self.db, self.owner_id).resolve(
+                sender=sender,
+                filename=document.display_name or document.original_filename,
+                ocr_text=text_value,
+            )
+        except Exception as exc:  # noqa: BLE001 - Korrespondenten-Vorschlag darf KI-Metadaten nicht blockieren
+            logger.warning("metadata suggestion: correspondent matching failed document_id=%s error=%s", document.id, exc)
+            return None
 
     def upload_document(
         self,

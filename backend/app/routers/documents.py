@@ -187,7 +187,7 @@ def auto_tag_document(document_id: uuid.UUID, db: Session = Depends(get_db), use
     "/{document_id}/ai-metadata",
     response_model=DocumentMetadataSuggestion,
     summary="Suggest metadata fields (name, date, document type, notes, tags) via AI",
-    responses={404: {"model": ErrorResponse}},
+    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
 )
 def suggest_document_metadata(
     document_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)

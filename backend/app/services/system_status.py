@@ -18,8 +18,15 @@ from __future__ import annotations
 import asyncio
 import glob
 import os
+import shutil
+import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
+
+import httpx
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.schemas.system import (
@@ -29,15 +36,28 @@ from app.schemas.system import (
     HostInfo,
     MemoryStatus,
     PowerInfo,
+    ServiceActionInfo,
+    ServiceActionResponse,
+    ServiceStatusItem,
+    ServiceStatusResponse,
     SystemStatus,
     TemperatureStatus,
 )
+from app.services.settings import SettingsService
 
 settings = get_settings()
 
 # Vom Host-Helfer gelesene Kommando-Datei.
 _COMMAND_FILENAME = "command"
 _VALID_ACTIONS = ("poweroff", "reboot")
+_SERVICE_TIMEOUT_SECONDS = 2.5
+_SERVICE_LABELS = {
+    "backend": "Backend",
+    "database": "Datenbank",
+    "ai": "KI-Service",
+    "ollama": "Ollama",
+    "ocr": "OCR",
+}
 
 
 def _read_text(path: str | Path) -> str | None:
@@ -343,4 +363,416 @@ async def collect_status() -> SystemStatus:
         disks=_collect_disks(),
         power=_collect_power(),
         collected_at=datetime.now(timezone.utc),
+    )
+
+
+# ── Dienste ─────────────────────────────────────────────────────────────────
+
+def _service_item(
+    *,
+    key: str,
+    label: str,
+    description: str,
+    status: str,
+    enabled: bool = True,
+    configurable: bool = False,
+    setting_key: str | None = None,
+    detail: str | None = None,
+    endpoint: str | None = None,
+    latency_ms: int | None = None,
+    checked_at: datetime | None = None,
+    actions: list[ServiceActionInfo] | None = None,
+) -> ServiceStatusItem:
+    return ServiceStatusItem(
+        key=key,
+        label=label,
+        description=description,
+        status=status,  # type: ignore[arg-type]
+        enabled=enabled,
+        configurable=configurable,
+        setting_key=setting_key,
+        detail=detail,
+        endpoint=endpoint,
+        latency_ms=latency_ms,
+        checked_at=checked_at or datetime.now(timezone.utc),
+        actions=actions if actions is not None else _service_actions(key),
+    )
+
+
+def _service_actions(key: str) -> list[ServiceActionInfo]:
+    actions = [
+        ServiceActionInfo(
+            action="check",
+            label="Testen",
+            enabled=True,
+            reason="Status und Verbindung dieses Dienstes erneut prüfen.",
+        )
+    ]
+    host_control_reason = "Start/Stop benötigt einen eingerichteten Host-Control-Handler."
+    if key == "ollama":
+        actions.extend(
+            [
+                ServiceActionInfo(action="start", label="Starten", enabled=False, reason=host_control_reason),
+                ServiceActionInfo(
+                    action="restart",
+                    label="Neu starten",
+                    enabled=False,
+                    destructive=True,
+                    reason=host_control_reason,
+                ),
+                ServiceActionInfo(action="stop", label="Stoppen", enabled=False, destructive=True, reason=host_control_reason),
+            ]
+        )
+    elif key == "ai":
+        actions.append(
+            ServiceActionInfo(
+                action="restart",
+                label="Neu starten",
+                enabled=False,
+                destructive=True,
+                reason="Docker-Service-Aktionen sind noch nicht über Host-Control freigegeben.",
+            )
+        )
+    elif key == "backend":
+        actions.append(
+            ServiceActionInfo(
+                action="restart",
+                label="Neu starten",
+                enabled=False,
+                destructive=True,
+                reason="Backend-Neustart würde die aktive API-Verbindung trennen und ist noch nicht freigegeben.",
+            )
+        )
+    elif key == "ocr":
+        actions.append(
+            ServiceActionInfo(
+                action="restart",
+                label="Neu starten",
+                enabled=False,
+                reason="OCR ist kein dauerhafter Dienst, sondern läuft pro Job im Worker.",
+            )
+        )
+    return actions
+
+
+async def _check_http_service(
+    *,
+    key: str,
+    label: str,
+    description: str,
+    url: str,
+    expected_status: int = 200,
+) -> ServiceStatusItem:
+    started = time.perf_counter()
+    checked_at = datetime.now(timezone.utc)
+    try:
+        async with httpx.AsyncClient(timeout=_SERVICE_TIMEOUT_SECONDS) as client:
+            response = await client.get(url)
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        if response.status_code == expected_status:
+            return _service_item(
+                key=key,
+                label=label,
+                description=description,
+                status="ok",
+                detail="Erreichbar",
+                endpoint=url,
+                latency_ms=latency_ms,
+                checked_at=checked_at,
+            )
+        return _service_item(
+            key=key,
+            label=label,
+            description=description,
+            status="error",
+            detail=f"HTTP {response.status_code}",
+            endpoint=url,
+            latency_ms=latency_ms,
+            checked_at=checked_at,
+        )
+    except Exception as exc:  # pragma: no cover - infra check
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        return _service_item(
+            key=key,
+            label=label,
+            description=description,
+            status="error",
+            detail=str(exc),
+            endpoint=url,
+            latency_ms=latency_ms,
+            checked_at=checked_at,
+        )
+
+
+def _check_database(db: Session) -> ServiceStatusItem:
+    started = time.perf_counter()
+    checked_at = datetime.now(timezone.utc)
+    try:
+        db.execute(text("SELECT 1"))
+        return _service_item(
+            key="database",
+            label="Datenbank",
+            description="PostgreSQL-Verbindung und Metadatenzugriff.",
+            status="ok",
+            detail="Verbunden",
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            checked_at=checked_at,
+        )
+    except Exception as exc:  # pragma: no cover - infra check
+        return _service_item(
+            key="database",
+            label="Datenbank",
+            description="PostgreSQL-Verbindung und Metadatenzugriff.",
+            status="error",
+            detail=str(exc),
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            checked_at=checked_at,
+        )
+
+
+async def _check_ollama(runtime_settings: dict[str, Any]) -> ServiceStatusItem:
+    ollama = runtime_settings.get("ollama") or {}
+    enabled = bool(ollama.get("enabled"))
+    base_url = str(ollama.get("base_url") or "").rstrip("/")
+    model = str(ollama.get("model") or "").strip()
+    url = f"{base_url}/api/tags" if base_url else None
+    checked_at = datetime.now(timezone.utc)
+
+    if not enabled:
+        return _service_item(
+            key="ollama",
+            label="Ollama",
+            description="Lokales LLM für Metadaten und Chat.",
+            status="disabled",
+            enabled=False,
+            configurable=True,
+            setting_key="ollama.enabled",
+            detail="In PaperMind deaktiviert",
+            endpoint=url,
+            checked_at=checked_at,
+        )
+    if not url:
+        return _service_item(
+            key="ollama",
+            label="Ollama",
+            description="Lokales LLM für Metadaten und Chat.",
+            status="error",
+            configurable=True,
+            setting_key="ollama.enabled",
+            detail="Keine Base URL konfiguriert",
+            checked_at=checked_at,
+        )
+
+    started = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=_SERVICE_TIMEOUT_SECONDS) as client:
+            response = await client.get(url)
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        if response.status_code != 200:
+            return _service_item(
+                key="ollama",
+                label="Ollama",
+                description="Lokales LLM für Metadaten und Chat.",
+                status="error",
+                configurable=True,
+                setting_key="ollama.enabled",
+                detail=f"HTTP {response.status_code}",
+                endpoint=url,
+                latency_ms=latency_ms,
+                checked_at=checked_at,
+            )
+
+        payload = response.json()
+        models = payload.get("models") if isinstance(payload, dict) else []
+        model_names = {
+            str(item.get("name") or item.get("model") or "").strip()
+            for item in models
+            if isinstance(item, dict)
+        }
+        if model and model not in model_names:
+            return _service_item(
+                key="ollama",
+                label="Ollama",
+                description="Lokales LLM für Metadaten und Chat.",
+                status="warning",
+                configurable=True,
+                setting_key="ollama.enabled",
+                detail=f"Erreichbar, Modell '{model}' fehlt",
+                endpoint=url,
+                latency_ms=latency_ms,
+                checked_at=checked_at,
+            )
+        detail = f"Erreichbar · {len(model_names)} Modell{'' if len(model_names) == 1 else 'e'}"
+        return _service_item(
+            key="ollama",
+            label="Ollama",
+            description="Lokales LLM für Metadaten und Chat.",
+            status="ok",
+            configurable=True,
+            setting_key="ollama.enabled",
+            detail=detail,
+            endpoint=base_url,
+            latency_ms=latency_ms,
+            checked_at=checked_at,
+        )
+    except Exception as exc:  # pragma: no cover - infra check
+        return _service_item(
+            key="ollama",
+            label="Ollama",
+            description="Lokales LLM für Metadaten und Chat.",
+            status="error",
+            configurable=True,
+            setting_key="ollama.enabled",
+            detail=str(exc),
+            endpoint=url,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            checked_at=checked_at,
+        )
+
+
+def _check_ocr(runtime_settings: dict[str, Any]) -> ServiceStatusItem:
+    documents = runtime_settings.get("documents") or {}
+    ocr = runtime_settings.get("ocr") or {}
+    enabled = bool(documents.get("auto_ocr"))
+    language = str(ocr.get("language") or "deu+eng")
+    checked_at = datetime.now(timezone.utc)
+    tesseract = shutil.which("tesseract")
+    ocrmypdf = shutil.which("ocrmypdf")
+
+    if not enabled:
+        return _service_item(
+            key="ocr",
+            label="OCR",
+            description="Texterkennung für importierte Dokumente.",
+            status="disabled",
+            enabled=False,
+            configurable=True,
+            setting_key="documents.auto_ocr",
+            detail="Automatische Texterkennung deaktiviert",
+            checked_at=checked_at,
+        )
+    if not tesseract:
+        return _service_item(
+            key="ocr",
+            label="OCR",
+            description="Texterkennung für importierte Dokumente.",
+            status="error",
+            configurable=True,
+            setting_key="documents.auto_ocr",
+            detail="Tesseract nicht gefunden",
+            checked_at=checked_at,
+        )
+    if not ocrmypdf:
+        return _service_item(
+            key="ocr",
+            label="OCR",
+            description="Texterkennung für importierte Dokumente.",
+            status="warning",
+            configurable=True,
+            setting_key="documents.auto_ocr",
+            detail=f"Tesseract verfügbar ({language}), ocrmypdf fehlt",
+            checked_at=checked_at,
+        )
+    return _service_item(
+        key="ocr",
+        label="OCR",
+        description="Texterkennung für importierte Dokumente.",
+        status="ok",
+        configurable=True,
+        setting_key="documents.auto_ocr",
+        detail=f"Tesseract und ocrmypdf verfügbar ({language})",
+        checked_at=checked_at,
+    )
+
+
+def _summary_status(items: list[ServiceStatusItem]) -> str:
+    active_items = [item for item in items if item.status != "disabled"]
+    if any(item.status == "error" for item in active_items):
+        return "error"
+    if any(item.status == "warning" for item in active_items):
+        return "warning"
+    if active_items and all(item.status == "ok" for item in active_items):
+        return "ok"
+    return "unknown"
+
+
+async def _collect_service_items(db: Session, *, collected_at: datetime | None = None) -> list[ServiceStatusItem]:
+    timestamp = collected_at or datetime.now(timezone.utc)
+    try:
+        runtime_settings = SettingsService(db).get_settings().model_dump(mode="json")
+    except Exception:
+        runtime_settings = {}
+
+    return [
+        _service_item(
+            key="backend",
+            label="Backend",
+            description="PaperMind API und Authentifizierung.",
+            status="ok",
+            detail="API antwortet",
+            checked_at=timestamp,
+        ),
+        _check_database(db),
+        await _check_http_service(
+            key="ai",
+            label="KI-Service",
+            description="Embedding- und Chat-Service im PaperMind-Stack.",
+            url=f"{settings.ai_base_url.rstrip('/')}/health",
+        ),
+        await _check_ollama(runtime_settings),
+        _check_ocr(runtime_settings),
+    ]
+
+
+async def collect_single_service_status(db: Session, service_key: str) -> ServiceStatusItem | None:
+    normalized_key = str(service_key or "").strip().lower()
+    if not normalized_key:
+        return None
+    items = await _collect_service_items(db)
+    return next((item for item in items if item.key == normalized_key), None)
+
+
+async def request_service_action(db: Session, service_key: str, action: str) -> ServiceActionResponse:
+    normalized_key = str(service_key or "").strip().lower()
+    normalized_action = str(action or "").strip().lower()
+    label = _SERVICE_LABELS.get(normalized_key, normalized_key or "Dienst")
+    item = await collect_single_service_status(db, normalized_key)
+
+    if item is None:
+        return ServiceActionResponse(
+            accepted=False,
+            service_key=normalized_key,
+            action=normalized_action,
+            detail="Unbekannter Dienst.",
+            service=None,
+        )
+
+    if normalized_action == "check":
+        return ServiceActionResponse(
+            accepted=True,
+            service_key=normalized_key,
+            action=normalized_action,
+            detail=f"{label} wurde geprüft.",
+            service=item,
+        )
+
+    action_info = next((candidate for candidate in item.actions if candidate.action == normalized_action), None)
+    reason = action_info.reason if action_info else None
+    return ServiceActionResponse(
+        accepted=False,
+        service_key=normalized_key,
+        action=normalized_action,
+        detail=reason or f"Aktion '{normalized_action}' ist für {label} nicht verfügbar.",
+        service=item,
+    )
+
+
+async def collect_service_status(db: Session) -> ServiceStatusResponse:
+    collected_at = datetime.now(timezone.utc)
+    items = await _collect_service_items(db, collected_at=collected_at)
+
+    return ServiceStatusResponse(
+        status=_summary_status(items),  # type: ignore[arg-type]
+        services=items,
+        collected_at=collected_at,
     )

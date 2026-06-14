@@ -3092,7 +3092,15 @@ async function runAiAnalysis() {
       filledCount += 1;
     }
 
-    // Schritt 3: Tags nur befüllen, wenn noch keine vorhanden sind.
+    // Schritt 3: Korrespondent nur befüllen, wenn keiner gesetzt ist.
+    const suggestedCorrespondentId = String(suggestion.correspondent_id || '').trim();
+    if (suggestedCorrespondentId && !metadataCorrespondentId.value) {
+      await correspondentStore.ensureLoaded();
+      await onMetadataCorrespondentChange(suggestedCorrespondentId);
+      filledCount += 1;
+    }
+
+    // Schritt 4: Tags nur befüllen, wenn noch keine vorhanden sind.
     const suggestedTags = Array.isArray(suggestion.tags) ? suggestion.tags.filter(Boolean) : [];
     if (suggestedTags.length && metadataTagNames.value.length === 0) {
       await syncMetadataTagsFromNames(suggestedTags);
@@ -5366,7 +5374,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 0 12px 10px;
+  padding: 14px 12px 10px;
 }
 
 .sidebar-brand {

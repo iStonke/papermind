@@ -244,5 +244,7 @@ class DocumentMetadataSuggestion(BaseModel):
     document_date: date | None = None
     document_type: str | None = None
     category: str | None = None
+    correspondent_id: uuid.UUID | None = None
+    correspondent_name: str | None = None
     notes: str | None = None
     tags: list[str] = Field(default_factory=list)

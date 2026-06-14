@@ -13,6 +13,7 @@ from app.models.document import Document
 from app.services.ollama_classification import (
     DEFAULT_OLLAMA_BASE_URL,
     DEFAULT_OLLAMA_MODEL,
+    OLLAMA_TIMEOUT_SECONDS,
     OllamaClassificationError,
     OllamaClassificationInput,
     OllamaClassificationService,
@@ -39,6 +40,7 @@ def apply_ollama_classification(
     confidence_score: float | int | None,
     base_url: str = DEFAULT_OLLAMA_BASE_URL,
     model: str = DEFAULT_OLLAMA_MODEL,
+    timeout_seconds: float | None = None,
     allowed_document_types: list[str] | None = None,
     document_type_hints: dict[str, str] | None = None,
 ) -> str | None:
@@ -68,6 +70,7 @@ def apply_ollama_classification(
     service = OllamaClassificationService(
         base_url=base_url,
         model=model,
+        timeout_seconds=timeout_seconds or OLLAMA_TIMEOUT_SECONDS,
         allowed_document_types=allowed_document_types,
         document_type_hints=document_type_hints,
     )

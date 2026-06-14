@@ -536,7 +536,7 @@ const totalCategoriesSidebarCount = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 0 12px 10px;
+  padding: 14px 12px 10px;
 }
 
 /* ── Section Header ───────────────────────────────────────────────────── */
