@@ -153,11 +153,12 @@ const emit = defineEmits(['action-select', 'right-action', 'toggle-selection', '
 
 .list-action-toolbar__select-btn {
   flex-shrink: 0;
-  color: rgb(var(--v-theme-primary));
+  color: rgba(var(--v-theme-on-surface), 0.66);
 }
 
 .list-action-toolbar__select-btn:hover {
-  background: rgba(var(--v-theme-primary), 0.08);
+  background: rgba(var(--v-theme-on-surface), 0.06);
+  color: rgba(var(--v-theme-on-surface), 0.86);
 }
 
 .list-action-toolbar__select-btn:disabled {

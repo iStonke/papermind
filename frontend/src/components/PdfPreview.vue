@@ -31,15 +31,32 @@
           {{ currentPage }} / {{ pageInfos.length }}
         </span>
 
-        <!-- Treffer-Badge (nur wenn Suche aktiv) -->
-        <span
+        <!-- Treffer-Navigation (nur wenn Suche aktiv) -->
+        <div
           v-if="highlightText"
-          class="pdf-preview__match-badge"
-          :class="{ 'pdf-preview__match-badge--zero': highlightCount === 0 }"
-          aria-live="polite"
+          class="pdf-preview__match-controls"
+          aria-label="PDF-Treffer"
         >
-          {{ highlightCount === 0 ? 'Kein Treffer' : `${highlightCount} Treffer` }}
-        </span>
+          <button
+            class="pdf-preview__match-nav-btn"
+            :disabled="highlightCount === 0"
+            aria-label="Vorheriger Treffer"
+            @click="navigateHighlight(-1)"
+          >‹</button>
+          <span
+            class="pdf-preview__match-badge"
+            :class="{ 'pdf-preview__match-badge--zero': highlightCount === 0 }"
+            aria-live="polite"
+          >
+            {{ highlightCount === 0 ? 'Kein Treffer' : `${highlightCount} Treffer` }}
+          </span>
+          <button
+            class="pdf-preview__match-nav-btn"
+            :disabled="highlightCount === 0"
+            aria-label="Nächster Treffer"
+            @click="navigateHighlight(1)"
+          >›</button>
+        </div>
 
         <div class="pdf-preview__zoom-controls" role="group" aria-label="Zoom">
           <button
@@ -101,6 +118,10 @@ const emit = defineEmits(['loaded', 'failed']);
 
 const ZOOM_STEPS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 const MAX_CACHED_PAGES = 12;
+const PDF_BYTE_CACHE_MAX_ENTRIES = 4;
+const PAGE_INFO_BATCH_SIZE = 6;
+
+const pdfByteCache = new Map();
 
 const zoomIndex = ref(2); // Standard: 1.0 = 100 %
 const currentZoom = computed(() => ZOOM_STEPS[zoomIndex.value]);
@@ -138,6 +159,7 @@ const currentPage = ref(1);
 
 /** Gesamtanzahl Treffer über alle gerenderten Seiten */
 const highlightCount = ref(0);
+const activeHighlightIndex = ref(-1);
 
 // ─── Interne Handles ──────────────────────────────────────────────────────────
 
@@ -147,7 +169,10 @@ let activeLoadTask = null;
 let renderObserver = null;
 let resizeObserver = null;
 let scrollRafId    = null;
+let highlightIdSeq = 0;
+let highlightFlashTimer = 0;
 const renderQueue  = new Set();
+let highlightTargets = [];
 
 /** Imperative Refs: pageNum → inneres HTMLElement */
 const pageInnerRefs = new Map();
@@ -177,7 +202,110 @@ function pageStyle(info) {
   };
 }
 
+function pdfCacheKey(src) {
+  try {
+    const url = new URL(src, window.location.origin);
+    url.searchParams.delete('token');
+    return url.toString();
+  } catch {
+    return String(src || '').replace(/([?&])token=[^&]*/g, '$1').replace(/[?&]$/, '');
+  }
+}
+
+function rememberPdfBytes(cacheKey, bytes) {
+  if (!cacheKey || !bytes?.byteLength) return;
+  if (pdfByteCache.has(cacheKey)) pdfByteCache.delete(cacheKey);
+  pdfByteCache.set(cacheKey, bytes);
+  while (pdfByteCache.size > PDF_BYTE_CACHE_MAX_ENTRIES) {
+    const oldestKey = pdfByteCache.keys().next().value;
+    pdfByteCache.delete(oldestKey);
+  }
+}
+
+async function fetchPdfBytes(src, epoch) {
+  const cacheKey = pdfCacheKey(src);
+  const cached = pdfByteCache.get(cacheKey);
+  if (cached?.byteLength) {
+    loadIndeterminate.value = false;
+    loadProgress.value = 100;
+    return cached;
+  }
+
+  const response = await fetch(src);
+  if (!response.ok) {
+    throw new Error(`PDF request failed (${response.status})`);
+  }
+
+  const total = Number(response.headers.get('content-length') || 0);
+  if (!response.body) {
+    loadIndeterminate.value = total <= 0;
+    const bytes = await response.arrayBuffer();
+    rememberPdfBytes(cacheKey, bytes);
+    return bytes;
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let loaded = 0;
+  loadIndeterminate.value = total <= 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (epoch !== loadEpoch) {
+      try { reader.cancel(); } catch (_) {}
+      throw new Error('PDF load cancelled');
+    }
+    chunks.push(value);
+    loaded += value.byteLength;
+    if (total > 0) {
+      loadIndeterminate.value = false;
+      loadProgress.value = Math.round((loaded / total) * 85);
+    }
+  }
+
+  const bytes = new Uint8Array(loaded);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  rememberPdfBytes(cacheKey, bytes.buffer);
+  return bytes.buffer;
+}
+
+async function readPageInfo(doc, pageNum) {
+  const page = await doc.getPage(pageNum);
+  const vp = page.getViewport({ scale: 1 });
+  page.cleanup();
+  return { page: pageNum, width: vp.width, height: vp.height };
+}
+
+async function hydrateRemainingPageInfos(doc, epoch) {
+  const pageCount = doc.numPages;
+  for (let start = 2; start <= pageCount; start += PAGE_INFO_BATCH_SIZE) {
+    const end = Math.min(pageCount, start + PAGE_INFO_BATCH_SIZE - 1);
+    const infos = await Promise.all(
+      Array.from({ length: end - start + 1 }, (_, index) => readPageInfo(doc, start + index))
+    );
+    if (epoch !== loadEpoch) return;
+
+    const nextInfos = pageInfos.value.slice();
+    for (const info of infos) {
+      nextInfos[info.page - 1] = info;
+    }
+    pageInfos.value = nextInfos;
+    await nextTick();
+  }
+}
+
 // ─── Highlighting ─────────────────────────────────────────────────────────────
+
+function nextHighlightId() {
+  highlightIdSeq += 1;
+  return `pmh-${highlightIdSeq}`;
+}
 
 /**
  * Baut eine Liste von Suchbegriffen auf:
@@ -252,6 +380,7 @@ function applyHighlights(textLayerDiv) {
   let count = 0;
 
   for (const { start, end } of matches) {
+    const highlightId = nextHighlightId();
     // Startknoten ermitteln
     let si = nodes.length - 1;
     while (si > 0 && offsets[si] > start) si--;
@@ -267,6 +396,7 @@ function applyHighlights(textLayerDiv) {
         range.setEnd(nodes[si], end - offsets[si]);
         const mark = document.createElement('mark');
         mark.className = 'pm-highlight';
+        mark.dataset.pmHighlightId = highlightId;
         range.surroundContents(mark);
         count++;
       } catch (_) {
@@ -274,6 +404,7 @@ function applyHighlights(textLayerDiv) {
         const p = nodes[si].parentElement;
         if (p && !p.classList.contains('pm-highlight')) {
           p.classList.add('pm-highlight');
+          p.dataset.pmHighlightId = highlightId;
           count++;
         }
       }
@@ -284,6 +415,7 @@ function applyHighlights(textLayerDiv) {
         const p = nodes[i].parentElement;
         if (p && !p.classList.contains('pm-highlight')) {
           p.classList.add('pm-highlight');
+          p.dataset.pmHighlightId = highlightId;
           marked = true;
         }
       }
@@ -292,6 +424,78 @@ function applyHighlights(textLayerDiv) {
   }
 
   return count;
+}
+
+function rebuildHighlightTargets() {
+  const root = pagesEl.value;
+  const activeId = highlightTargets[activeHighlightIndex.value]?.id || '';
+  if (!root) {
+    highlightTargets = [];
+    highlightCount.value = 0;
+    activeHighlightIndex.value = -1;
+    return;
+  }
+
+  const groups = new Map();
+  root.querySelectorAll('.textLayer .pm-highlight[data-pm-highlight-id]').forEach((element) => {
+    const id = element.dataset.pmHighlightId;
+    if (!id) return;
+    if (!groups.has(id)) {
+      groups.set(id, {
+        id,
+        page: Number(element.closest('.pdf-preview__page')?.dataset.page || 0),
+        elements: [],
+      });
+    }
+    groups.get(id).elements.push(element);
+  });
+
+  highlightTargets = [...groups.values()];
+  highlightCount.value = highlightTargets.length;
+
+  if (!highlightTargets.length) {
+    activeHighlightIndex.value = -1;
+    applyActiveHighlightClasses();
+    return;
+  }
+
+  const previousIndex = highlightTargets.findIndex((target) => target.id === activeId);
+  activeHighlightIndex.value = previousIndex >= 0 ? previousIndex : Math.min(activeHighlightIndex.value, highlightTargets.length - 1);
+  applyActiveHighlightClasses();
+}
+
+function applyActiveHighlightClasses() {
+  const root = pagesEl.value;
+  if (!root) return;
+  root.querySelectorAll('.pm-highlight--active, .pm-highlight--flash').forEach((element) => {
+    element.classList.remove('pm-highlight--active', 'pm-highlight--flash');
+  });
+  const target = highlightTargets[activeHighlightIndex.value];
+  if (!target) return;
+  target.elements.forEach((element) => element.classList.add('pm-highlight--active'));
+}
+
+function flashActiveHighlight() {
+  const target = highlightTargets[activeHighlightIndex.value];
+  if (!target) return;
+  if (highlightFlashTimer) window.clearTimeout(highlightFlashTimer);
+  target.elements.forEach((element) => element.classList.add('pm-highlight--flash'));
+  highlightFlashTimer = window.setTimeout(() => {
+    target.elements.forEach((element) => element.classList.remove('pm-highlight--flash'));
+    highlightFlashTimer = 0;
+  }, 650);
+}
+
+function navigateHighlight(delta) {
+  if (!highlightTargets.length) return;
+  const current = activeHighlightIndex.value >= 0 ? activeHighlightIndex.value : (delta < 0 ? 0 : -1);
+  activeHighlightIndex.value = (current + delta + highlightTargets.length) % highlightTargets.length;
+  applyActiveHighlightClasses();
+  const target = highlightTargets[activeHighlightIndex.value];
+  const element = target?.elements?.[0];
+  if (target?.page) currentPage.value = target.page;
+  element?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+  flashActiveHighlight();
 }
 
 /** Entfernt alle Markierungen (mark-Elemente und pm-highlight-Klassen). */
@@ -305,7 +509,10 @@ function clearHighlights(el) {
     parent.normalize();
   });
   // CSS-Klassen entfernen (Cross-Span-Fallback)
-  el.querySelectorAll('.pm-highlight').forEach(e => e.classList.remove('pm-highlight'));
+  el.querySelectorAll('.pm-highlight').forEach((e) => {
+    e.classList.remove('pm-highlight', 'pm-highlight--active', 'pm-highlight--flash');
+    e.removeAttribute('data-pm-highlight-id');
+  });
 }
 
 /**
@@ -313,14 +520,16 @@ function clearHighlights(el) {
  * Entfernt alte <mark>-Elemente und markiert neu.
  */
 watch(() => props.highlightText, () => {
-  highlightCount.value = 0;
+  highlightIdSeq = 0;
+  activeHighlightIndex.value = -1;
   for (const [pageNum, el] of pageInnerRefs.entries()) {
     clearHighlights(el);
     if (renderedPages.has(pageNum)) {
       const tl = el.querySelector('.textLayer');
-      if (tl) highlightCount.value += applyHighlights(tl);
+      if (tl) applyHighlights(tl);
     }
   }
+  rebuildHighlightTargets();
 });
 
 // ─── Rendering ───────────────────────────────────────────────────────────────
@@ -388,7 +597,8 @@ async function renderPage(pageNum) {
     innerEl.appendChild(textLayerDiv);
 
     // Highlights anwenden (nach DOM-Einhängen, damit normalize() korrekt arbeitet)
-    highlightCount.value += applyHighlights(textLayerDiv);
+    applyHighlights(textLayerDiv);
+    rebuildHighlightTargets();
 
     renderedPages.add(pageNum);
     if (!firstPageReady.value) firstPageReady.value = true;
@@ -453,7 +663,9 @@ watch(currentZoom, async () => {
   if (!pdfDoc) return;
   renderedPages.clear();
   renderQueue.clear();
+  highlightTargets = [];
   highlightCount.value = 0;
+  activeHighlightIndex.value = -1;
   for (const el of pageInnerRefs.values()) el.innerHTML = '';
   await setupObservers();
 });
@@ -474,6 +686,9 @@ async function loadPdf(src) {
   loadProgress.value = 0;
   loadIndeterminate.value = false;
   highlightCount.value = 0;
+  activeHighlightIndex.value = -1;
+  highlightTargets = [];
+  highlightIdSeq = 0;
 
   if (activeLoadTask) { try { activeLoadTask.destroy(); } catch (_) {} activeLoadTask = null; }
   if (pdfDoc)         { try { pdfDoc.destroy(); }         catch (_) {} pdfDoc = null; }
@@ -483,36 +698,27 @@ async function loadPdf(src) {
   isLoading.value = true;
 
   try {
-    activeLoadTask = getDocument({ url: src, withCredentials: false });
+    const bytes = await fetchPdfBytes(src, epoch);
+    if (epoch !== loadEpoch) return;
 
-    // Ladefortschritt
-    activeLoadTask.onProgress = ({ loaded, total }) => {
-      if (epoch !== loadEpoch) return;
-      if (total > 0) {
-        loadIndeterminate.value = false;
-        loadProgress.value = Math.round((loaded / total) * 100);
-      } else {
-        loadIndeterminate.value = true;
-      }
-    };
-
+    activeLoadTask = getDocument({ data: new Uint8Array(bytes.slice(0)) });
     const doc = await activeLoadTask.promise;
     if (epoch !== loadEpoch) return;
 
     pdfDoc = doc;
-    loadProgress.value = 100;
+    loadProgress.value = Math.max(loadProgress.value, 92);
 
-    // Dimensionen aller Seiten vorab lesen
-    const infos = [];
-    for (let i = 1; i <= doc.numPages; i++) {
-      const page = await doc.getPage(i);
-      const vp   = page.getViewport({ scale: 1 });
-      infos.push({ page: i, width: vp.width, height: vp.height });
-      page.cleanup();
-    }
+    const firstInfo = await readPageInfo(doc, 1);
     if (epoch !== loadEpoch) return;
 
+    const infos = Array.from({ length: doc.numPages }, (_, index) => ({
+      page: index + 1,
+      width: firstInfo.width,
+      height: firstInfo.height,
+    }));
+    infos[0] = firstInfo;
     pageInfos.value = infos;
+    loadProgress.value = 100;
     isLoading.value = false;
 
     await setupObservers();
@@ -520,6 +726,10 @@ async function loadPdf(src) {
 
     await nextTick();
     scrollToPage(props.targetPage);
+    void hydrateRemainingPageInfos(doc, epoch).then(() => {
+      if (epoch !== loadEpoch) return;
+      void setupObservers();
+    });
 
   } catch (err) {
     if (epoch !== loadEpoch) return;
@@ -549,6 +759,9 @@ function onResize() {
   if (!pdfDoc) return;
   renderedPages.clear();
   renderQueue.clear();
+  highlightTargets = [];
+  highlightCount.value = 0;
+  activeHighlightIndex.value = -1;
   for (const el of pageInnerRefs.values()) el.innerHTML = '';
   setupObservers();
 }
@@ -567,6 +780,7 @@ onBeforeUnmount(() => {
   teardownObservers();
   resizeObserver?.disconnect();
   if (scrollRafId)    cancelAnimationFrame(scrollRafId);
+  if (highlightFlashTimer) window.clearTimeout(highlightFlashTimer);
   if (activeLoadTask) try { activeLoadTask.destroy(); } catch (_) {}
   if (pdfDoc)         try { pdfDoc.destroy(); }         catch (_) {}
 });
@@ -603,6 +817,41 @@ onBeforeUnmount(() => {
   color: rgb(var(--v-theme-on-surface) / 0.55);
   white-space: nowrap;
   min-width: 3rem;
+}
+
+.pdf-preview__match-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.pdf-preview__match-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(200, 150, 0, 0.24);
+  border-radius: 999px;
+  background: rgba(255, 200, 0, 0.16);
+  color: rgb(var(--v-theme-on-surface) / 0.72);
+  cursor: pointer;
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+
+.pdf-preview__match-nav-btn:hover:not(:disabled) {
+  background: rgba(255, 200, 0, 0.28);
+  border-color: rgba(200, 150, 0, 0.4);
+  color: rgb(var(--v-theme-on-surface) / 0.9);
+}
+
+.pdf-preview__match-nav-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .pdf-preview__match-badge {
@@ -758,6 +1007,35 @@ onBeforeUnmount(() => {
   -webkit-box-decoration-break: clone;
   padding: 0;
   margin: 0;
+}
+
+.pdf-preview__page-inner :deep(.textLayer .pm-highlight.pm-highlight--active) {
+  background: rgba(255, 180, 0, 0.78);
+  box-shadow: 0 0 0 1px rgba(180, 120, 0, 0.28);
+}
+
+.pdf-preview__page-inner :deep(.textLayer .pm-highlight.pm-highlight--flash) {
+  animation: pdf-highlight-pop 620ms cubic-bezier(0.18, 0.9, 0.26, 1.25);
+  transform-origin: center;
+  will-change: transform, box-shadow;
+}
+
+@keyframes pdf-highlight-pop {
+  0% {
+    transform: translateY(0) scale(1);
+    box-shadow: 0 0 0 1px rgba(180, 120, 0, 0.28);
+  }
+  38% {
+    transform: translateY(-3px) scale(1.16);
+    box-shadow: 0 6px 14px rgba(180, 120, 0, 0.24), 0 0 0 2px rgba(255, 190, 0, 0.48);
+  }
+  68% {
+    transform: translateY(1px) scale(0.98);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    box-shadow: 0 0 0 1px rgba(180, 120, 0, 0.28);
+  }
 }
 
 /* ── Ladefortschritt ────────────────────────────────────────────────────── */

@@ -277,7 +277,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .pm-dialog {
-  border-radius: 20px;
+  border-radius: 24px;
   background: rgb(var(--v-theme-surface));
   border: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
   outline: none;

@@ -87,6 +87,9 @@ function createDefaultSettings() {
       showFilenameSuffix: true,
       drawerRememberState: true,
       tagDrawerRememberState: true,
+      sidebar_show_recent: true,
+      sidebar_show_untagged: true,
+      sidebar_show_chat: true,
       sidebar_sections: normalizeSidebarSections(null),
       sidebar_max_tags: 5,
       sidebar_max_categories: 5
@@ -311,6 +314,18 @@ export const useSettingsStore = defineStore('settings', {
             typeof payload?.ui?.tagDrawerRememberState === 'boolean'
               ? payload.ui.tagDrawerRememberState
               : defaults.ui.tagDrawerRememberState,
+          sidebar_show_recent:
+            typeof payload?.ui?.sidebar_show_recent === 'boolean'
+              ? payload.ui.sidebar_show_recent
+              : defaults.ui.sidebar_show_recent,
+          sidebar_show_untagged:
+            typeof payload?.ui?.sidebar_show_untagged === 'boolean'
+              ? payload.ui.sidebar_show_untagged
+              : defaults.ui.sidebar_show_untagged,
+          sidebar_show_chat:
+            typeof payload?.ui?.sidebar_show_chat === 'boolean'
+              ? payload.ui.sidebar_show_chat
+              : defaults.ui.sidebar_show_chat,
           sidebar_sections: normalizeSidebarSections(payload?.ui?.sidebar_sections),
           sidebar_max_tags: clampInt(payload?.ui?.sidebar_max_tags, 0, 50, defaults.ui.sidebar_max_tags),
           sidebar_max_categories: clampInt(payload?.ui?.sidebar_max_categories, 0, 50, defaults.ui.sidebar_max_categories)

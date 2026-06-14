@@ -139,6 +139,9 @@ async function onLogout() {
   border-radius: 14px;
   padding: 0;
   overflow: hidden;
+  background: rgb(var(--v-theme-card)) !important;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
 }
 
 .account-card {

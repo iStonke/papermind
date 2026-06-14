@@ -111,8 +111,18 @@
         @open-citation="openCitation"
       />
 
-      <div class="workspace" :class="{ 'workspace--rail': sidebarCollapsed }">
+      <div
+        class="workspace"
+        :class="{
+          'workspace--rail': sidebarRailActive,
+          'workspace--sidebar-transitioning': sidebarRailTransitioning,
+          'workspace--sidebar-collapsing': sidebarRailTransitioning && sidebarCollapsed,
+          'workspace--sidebar-expanding': sidebarRailTransitioning && !sidebarCollapsed
+        }"
+      >
         <AppSidebar
+          :collapsed="sidebarContentCollapsed"
+          :chat-active="isAiDialogOpen"
           :active-view="activeView"
           :active-saved-search-id="activeSavedSearchId"
           :active-tag-id="activeTagId"
@@ -120,6 +130,7 @@
           :active-category-name="activeCategoryName"
           :is-category-view="isCategoryView"
           @select-view="selectView"
+          @open-chat="openAiView"
           @open-saved-search="openSavedSearch"
           @create-folder="openCreateSavedSearchDialog"
           @edit-folder="openEditSavedSearchDialog"
@@ -142,7 +153,7 @@
                 :aria-label="sidebarCollapsed ? 'Seitenleiste ausklappen' : 'Seitenleiste einklappen'"
                 @click="toggleSidebarRail"
               >
-                <v-icon size="18">{{ sidebarCollapsed ? 'mdi-chevron-right' : 'mdi-chevron-left' }}</v-icon>
+                <v-icon size="18">mdi-page-layout-sidebar-left</v-icon>
               </button>
             </div>
             <v-text-field
@@ -164,6 +175,14 @@
           </template>
 
           <template #foot>
+            <v-btn
+              icon="mdi-cog-outline"
+              variant="text"
+              size="small"
+              class="sidebar-foot__rail-settings"
+              aria-label="Einstellungen"
+              @click="uiStore.openSettings()"
+            />
             <SidebarAccount />
             <div class="sidebar-foot__actions">
               <v-btn
@@ -181,50 +200,39 @@
 
         <section class="panel panel-middle">
           <div class="panel-middle__header">
-            <v-menu v-if="pendingImportInboxCount > 0" location="bottom end" offset="8">
-              <template #activator="{ props: importMenuProps }">
-                <v-badge model-value :content="pendingImportInboxBadgeLabel" color="error" offset-x="6" offset-y="6">
-                  <v-btn class="list-header-btn" color="primary" variant="flat" v-bind="importMenuProps">
-                    <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
-                    Importieren
-                  </v-btn>
-                </v-badge>
-              </template>
-              <v-list density="compact" min-width="240">
-                <v-list-item
-                  class="import-inbox-menu-item"
-                  prepend-icon="mdi-inbox-arrow-down-outline"
-                  :title="pendingImportInboxMenuTitle"
-                  @click="openImportInboxScans"
-                />
-                <v-divider />
-                <v-list-item
-                  prepend-icon="mdi-file-upload-outline"
-                  title="PDF hochladen..."
-                  @click="openImportPdfPicker"
-                />
-              </v-list>
-            </v-menu>
-            <v-btn
-              v-else
-              class="list-header-btn"
-              color="primary"
-              variant="flat"
-              @click="openImportPdfPicker"
-            >
-              <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
-              Importieren
-            </v-btn>
+            <div class="panel-middle__heading">{{ panelHeading }}</div>
+            <div v-if="!isTagView && !isCategoryView && !isTrashView" class="panel-middle__actions">
+              <v-badge
+                :model-value="pendingImportInboxCount > 0"
+                :content="pendingImportInboxBadgeLabel"
+                color="error"
+                offset-x="6"
+                offset-y="6"
+              >
+                <v-btn
+                  class="list-header-btn"
+                  color="primary"
+                  variant="tonal"
+                  @click="openImport"
+                >
+                  <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
+                  Importieren
+                </v-btn>
+              </v-badge>
+            </div>
 
-            <v-btn
-              class="list-header-btn"
-              :class="{ 'list-header-btn--active': isAiDialogOpen }"
-              variant="text"
-              @click="openAiView"
-            >
-              <v-icon size="18" class="mr-1">mdi-robot</v-icon>
-              Chat
-            </v-btn>
+            <div v-if="isTrashView" class="panel-middle__actions">
+              <v-btn
+                class="list-header-btn"
+                color="error"
+                variant="tonal"
+                :disabled="!sidebarCounts.trash_count"
+                @click="emptyTrash"
+              >
+                <v-icon size="18" class="mr-1">mdi-delete-forever-outline</v-icon>
+                Endgültig löschen
+              </v-btn>
+            </div>
           </div>
 
           <Transition name="pm-panel">
@@ -1284,7 +1292,6 @@ const previewTargetPage    = ref(null);
 const previewHighlightText = ref('');
 
 
-
 const importStagingDialogRef = ref(null);
 const activityIndicatorRef = ref(null);
 const importPdfInputRef = ref(null);
@@ -2124,18 +2131,74 @@ function loadSidebarRail() {
 const sidebarManualCollapsed = ref(loadSidebarRail());
 const sidebarNarrow = ref(typeof window !== 'undefined' ? window.innerWidth < 700 : false);
 const sidebarCollapsed = computed(() => sidebarManualCollapsed.value || sidebarNarrow.value);
+const sidebarRailActive = ref(sidebarCollapsed.value);
+const sidebarRailTransitioning = ref(false);
+let sidebarRailEndTimer = null;
+const sidebarContentCollapsed = computed(() => sidebarRailActive.value && !sidebarRailTransitioning.value);
+
+function clearSidebarRailTimers() {
+  if (typeof window === 'undefined') return;
+  if (sidebarRailEndTimer) {
+    window.clearTimeout(sidebarRailEndTimer);
+    sidebarRailEndTimer = null;
+  }
+}
+
+function animateSidebarRail(nextCollapsed) {
+  if (typeof window === 'undefined') return;
+  clearSidebarRailTimers();
+  sidebarRailTransitioning.value = true;
+  sidebarRailActive.value = nextCollapsed;
+
+  sidebarRailEndTimer = window.setTimeout(() => {
+    sidebarRailActive.value = nextCollapsed;
+    sidebarRailTransitioning.value = false;
+    sidebarRailEndTimer = null;
+  }, 360);
+}
 
 function toggleSidebarRail() {
-  sidebarManualCollapsed.value = !sidebarManualCollapsed.value;
+  const nextCollapsed = !sidebarManualCollapsed.value;
+  sidebarManualCollapsed.value = nextCollapsed;
+  animateSidebarRail(sidebarCollapsed.value);
   try { localStorage.setItem('pm-sidebar-rail', String(sidebarManualCollapsed.value)); } catch { /* ignore */ }
 }
 
 function updateSidebarNarrow() {
-  sidebarNarrow.value = window.innerWidth < 700;
+  const nextNarrow = window.innerWidth < 700;
+  if (sidebarNarrow.value !== nextNarrow) {
+    sidebarNarrow.value = nextNarrow;
+    animateSidebarRail(sidebarCollapsed.value);
+    return;
+  }
+  sidebarNarrow.value = nextNarrow;
 }
 
 onMounted(() => window.addEventListener('resize', updateSidebarNarrow, { passive: true }));
-onBeforeUnmount(() => window.removeEventListener('resize', updateSidebarNarrow));
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateSidebarNarrow);
+  clearSidebarRailTimers();
+});
+
+// Titel der mittleren Spalte (aktueller View/Filter) für die Kopfzeile.
+const panelHeading = computed(() => {
+  if (activeSavedSearchId.value) return activeSavedSearchName.value || 'Ordner';
+  if (isTagView.value) return 'Tags';
+  if (isCategoryView.value) return 'Dokumenttypen';
+  if (activeCategoryName.value) return activeCategoryName.value;
+  if (activeTagId.value) {
+    const tag = tags.value.find((t) => t.id === activeTagId.value);
+    return tag ? tag.name : 'Tag';
+  }
+  const labels = {
+    all: 'Alle Dokumente',
+    imports: 'Zuletzt hinzugefügt',
+    untagged: 'Ohne Tags',
+    favorites: 'Favoriten',
+    trash: 'Papierkorb'
+  };
+  return labels[activeView.value] || 'Dokumente';
+});
 
 // ── Sidebar-Counts ────────────────────────────────────────────────────────
 
@@ -4735,6 +4798,16 @@ function openImportPdfPicker() {
   importPdfInputRef.value?.click?.();
 }
 
+// Importieren-Button: bei vorhandenen Posteingang-Scans direkt die Miniaturen,
+// sonst das Import-Fenster mit Drag&Drop-Zone öffnen (kein FileChooser mehr).
+async function openImport() {
+  if (pendingImportInboxCount.value > 0) {
+    await openImportInboxScans();
+  } else {
+    isUploadDialogOpen.value = true;
+  }
+}
+
 async function onImportPdfInputChange(event) {
   const selection = selectPdfFiles(event.target?.files || [], 'file');
   event.target.value = '';
@@ -5060,11 +5133,46 @@ const {
   resolveToolbarStatus
 });
 
+watch(
+  () => parsedSearch.value.q,
+  (query) => {
+    previewTargetPage.value = null;
+    previewHighlightText.value = query || '';
+  }
+);
+
 watch(documentListQueryReloadKey, () => {
   if (isTagView.value || isCategoryView.value) {
     return;
   }
   startDocumentListSettle();
+});
+
+// Beim Wechsel des Bereichs/Filters automatisch das erste Dokument der neuen Liste
+// selektieren und in der Vorschau anzeigen.
+const documentViewContextKey = computed(() =>
+  [
+    activeView.value,
+    activeSavedSearchId.value || '',
+    activeTagId.value || '',
+    activeCategoryName.value || ''
+  ].join('|')
+);
+
+let pendingSelectFirstDocument = false;
+
+watch(documentViewContextKey, () => {
+  if (isTagView.value || isCategoryView.value) return;
+  pendingSelectFirstDocument = true;
+});
+
+watch(documents, (list) => {
+  if (!pendingSelectFirstDocument) return;
+  pendingSelectFirstDocument = false;
+  const first = Array.isArray(list) ? list[0] : null;
+  if (first?.id) {
+    void selectDocument(first.id);
+  }
 });
 
 useOcrPolling({
@@ -5219,7 +5327,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 12px 12px 10px;
+  padding: 0 12px 10px;
 }
 
 .sidebar-brand {
@@ -5288,11 +5396,16 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 8px 8px 10px;
+  padding: 10px 8px;
   border-top: 1px solid var(--pm-divider);
 }
 
 .sidebar-foot__btn {
+  color: var(--pm-muted);
+}
+
+.sidebar-foot__rail-settings {
+  display: none !important;
   color: var(--pm-muted);
 }
 
@@ -6460,9 +6573,11 @@ onBeforeUnmount(() => {
 }
 
 .workspace {
+  --pm-sidebar-rail-duration: 260ms;
   display: grid;
   grid-template-columns: 268px 1fr minmax(360px, 43%);
   height: calc(100dvh - var(--v-layout-top, 0px) - var(--v-layout-bottom, 0px));
+  transition: grid-template-columns var(--pm-sidebar-rail-duration) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .panel {
@@ -6478,21 +6593,51 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transition: background-color var(--pm-duration-fast, 140ms) ease;
+  will-change: width;
 }
 
 .sidebar-scroll {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  border-top: 1px solid color-mix(in srgb, var(--pm-divider) 65%, transparent);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+/* Kopf, Bibliothek und Fuß behalten ihre volle Höhe – keine Stauchung, kein Scroll. */
+.panel-left > .sidebar-head,
+.panel-left > .views-list,
+.panel-left > .sidebar-foot {
+  flex: none;
 }
 
 .panel-middle__header {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--pm-divider);
+}
+
+.panel-middle__heading {
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: var(--pm-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.panel-middle__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
 }
 
 .panel-middle__header .v-btn {
@@ -6542,53 +6687,194 @@ onBeforeUnmount(() => {
   gap: 2px;
 }
 
+.panel-left .v-list-item-title,
+.panel-left .v-list-item__content,
+.panel-left .v-list-item__append,
+.panel-left .sidebar-item-right,
+.panel-left .sidebar-section-header,
+.sidebar-brand__name,
+.sidebar-search__field,
+.sidebar-account__info,
+.sidebar-account__chev,
+.sidebar-foot__actions {
+  transition:
+    opacity 180ms ease,
+    transform var(--pm-sidebar-rail-duration) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
 /* ── Eingeklappte Icon-Spalte ──────────────────────────────────────────────── */
 .workspace.workspace--rail {
   grid-template-columns: 64px 1fr minmax(360px, 43%);
 }
 
-.workspace--rail .panel-left .v-list-item-title,
-.workspace--rail .panel-left .sidebar-item-right,
-.workspace--rail .panel-left .sidebar-section-header,
-.workspace--rail .sidebar-brand__name,
-.workspace--rail .sidebar-search__field,
-.workspace--rail .sidebar-account__info,
-.workspace--rail .sidebar-account__chev,
-.workspace--rail .sidebar-foot__actions {
+.workspace--sidebar-transitioning .panel-left {
+  pointer-events: none;
+}
+
+.workspace--sidebar-collapsing .panel-left .v-list-item-title,
+.workspace--sidebar-collapsing .panel-left .v-list-item__content,
+.workspace--sidebar-collapsing .panel-left .v-list-item__append,
+.workspace--sidebar-collapsing .panel-left .sidebar-item-right,
+.workspace--sidebar-collapsing .panel-left .sidebar-section-header,
+.workspace--sidebar-collapsing .sidebar-brand__name,
+.workspace--sidebar-collapsing .sidebar-search__field,
+.workspace--sidebar-collapsing .sidebar-account__info,
+.workspace--sidebar-collapsing .sidebar-account__chev,
+.workspace--sidebar-collapsing .sidebar-foot__actions {
+  opacity: 0;
+  transform: translateX(-10px);
+}
+
+.workspace--sidebar-expanding .panel-left .v-list-item-title,
+.workspace--sidebar-expanding .panel-left .v-list-item__content,
+.workspace--sidebar-expanding .panel-left .v-list-item__append,
+.workspace--sidebar-expanding .panel-left .sidebar-item-right,
+.workspace--sidebar-expanding .panel-left .sidebar-section-header,
+.workspace--sidebar-expanding .sidebar-brand__name,
+.workspace--sidebar-expanding .sidebar-search__field,
+.workspace--sidebar-expanding .sidebar-account__info,
+.workspace--sidebar-expanding .sidebar-account__chev,
+.workspace--sidebar-expanding .sidebar-foot__actions {
+  animation: sidebar-rail-content-in 220ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)) both;
+  animation-delay: 90ms;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .v-list-item-title,
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .v-list-item__content,
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .v-list-item__append,
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item-right,
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-section-header,
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-brand__name,
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-search__field,
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-account__info,
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-account__chev,
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-foot__actions {
   display: none !important;
 }
 
-.workspace--rail .sidebar-head {
+@keyframes sidebar-rail-content-in {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Sektions-Sammelpunkte ("Alle Tags"/"Alle Dokumenttypen") im Rail immer zeigen. */
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-section-drawer {
+  grid-template-rows: 1fr !important;
+}
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-section-content {
+  visibility: visible !important;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .views-list {
+  padding: 6px 0;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .v-list-item {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  padding: 0 !important;
+  min-height: 42px;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .v-list-item__prepend {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 42px !important;
+  min-width: 42px !important;
+  height: 42px !important;
+  margin: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .v-list-item__spacer {
+  display: none !important;
+  width: 0 !important;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item {
+  position: relative;
+  display: block !important;
+  width: 42px;
+  height: 42px;
+  min-height: 42px !important;
+  margin: 3px auto;
+  border-radius: 14px;
+  padding: 0 !important;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item::before {
+  display: none !important;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item :deep(.v-list-item__overlay),
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item :deep(.v-list-item__underlay) {
+  border-radius: inherit;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item :deep(.v-list-item__prepend),
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item :deep(.v-list-item__content),
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item :deep(.v-list-item__append) {
+  transform: none !important;
+  transition: none !important;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item :deep(.v-icon) {
+  transform: none !important;
+  transition: color 0.16s ease, opacity 0.16s ease !important;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item:hover :deep(.v-icon) {
+  transform: none !important;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-head {
   align-items: center;
   padding-inline: 0;
 }
 
-.workspace--rail .sidebar-head__top {
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-head__top {
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
-.workspace--rail .sidebar-head__top .sidebar-brand {
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-head__top .sidebar-brand {
   flex: none;
   justify-content: center;
 }
 
-.workspace--rail .sidebar-foot {
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-foot {
+  flex-direction: column;
   justify-content: center;
+  gap: 8px;
   padding-inline: 0;
 }
 
-.workspace--rail .panel-left .v-list-item {
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-foot__rail-settings {
+  display: inline-flex !important;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+}
+
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-foot .sidebar-account {
+  flex: none;
   justify-content: center;
-  padding-inline: 8px !important;
+  padding: 5px;
 }
 
-.workspace--rail .panel-left .v-list-item__prepend {
-  margin-inline-end: 0 !important;
-}
-
-.workspace--rail .panel-left .sidebar-section-divider {
-  margin-inline: 14px;
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-section-divider {
+  margin-inline: 16px;
 }
 
 .panel-middle {
@@ -6634,8 +6920,8 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-section-divider {
-  margin: 10px 12px 8px;
-  opacity: 1;
+  margin: 14px 12px 12px;
+  opacity: 0.65;
 }
 
 .sidebar-section-divider.v-divider {
@@ -6654,8 +6940,8 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-item :deep(.v-list-item__prepend) {
-  width: 24px;
-  min-width: 24px;
+  width: 42px;
+  min-width: 42px;
   justify-content: center;
 }
 
@@ -6760,6 +7046,22 @@ onBeforeUnmount(() => {
 
 .sidebar-item--folder-create :deep(.v-list-item-title) {
   font-weight: 500;
+}
+
+/* Konzept „Icon-Frische": alle Navigations-Icons tragen den Akzent-Ton. */
+.papermind-app .panel-left .sidebar-item :deep(.v-icon) {
+  color: rgb(var(--v-theme-primary)) !important;
+  opacity: 1;
+}
+
+/* Aktiver Eintrag: klares Teal-Pill (Tint + Akzentrand) + Titel im Akzent. */
+.papermind-app .panel-left .sidebar-item.v-list-item--active {
+  background: color-mix(in srgb, rgb(var(--v-theme-primary)) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, rgb(var(--v-theme-primary)) 32%, transparent);
+}
+
+.papermind-app .panel-left .sidebar-item.v-list-item--active :deep(.v-list-item-title) {
+  color: rgb(var(--v-theme-primary));
 }
 
 .tags-view {
@@ -6931,7 +7233,7 @@ onBeforeUnmount(() => {
 .papermind-app.v-theme--light .panel-left {
   background: var(--pm-sidebar-surface);
   box-shadow: inset -1px 0 0 var(--pm-light-outline);
-  padding: 12px;
+  padding: 12px 12px 0;
 }
 
 .papermind-app.v-theme--light .panel-left .views-list {
@@ -6968,21 +7270,21 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(1200px 600px at 20% -10%, rgba(59, 130, 246, 0.1), transparent 55%);
-  opacity: 0.25;
+  background: radial-gradient(1200px 600px at 20% -10%, rgba(8, 145, 178, 0.1), transparent 55%);
+  opacity: 0.22;
 }
 
 .papermind-app.v-theme--dark .sidebar-item--tag .sidebar-tag-pill {
-  background: rgba(196, 207, 255, 0.17);
-  color: rgba(236, 241, 255, 0.95);
+  background: rgba(var(--v-theme-primary), 0.16);
+  color: rgb(var(--v-theme-primary));
 }
 
 .papermind-app.v-theme--dark .sidebar-item--tag:hover .sidebar-tag-pill {
-  background: rgba(196, 207, 255, 0.22);
+  background: rgba(var(--v-theme-primary), 0.24);
 }
 
 .papermind-app.v-theme--dark .sidebar-item--tag.v-list-item--active .sidebar-tag-pill {
-  background: rgba(196, 207, 255, 0.26);
+  background: rgba(var(--v-theme-primary), 0.30);
 }
 
 .papermind-app.v-theme--dark .document-row {

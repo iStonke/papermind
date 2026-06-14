@@ -71,8 +71,9 @@
               <div class="document-row__thumb" :class="{ 'document-row__thumb--selectable': isSelectionMode }">
                 <img
                   v-if="!hasThumbnailError(document.id)"
-                  :src="thumbnailUrl(document.id)"
+                  :src="thumbnailUrl(document)"
                   alt="thumbnail"
+                  @load="onThumbnailLoad(document.id)"
                   @error="onThumbnailError(document.id)"
                 />
                 <div v-else class="document-row__thumb-fallback">
@@ -95,6 +96,9 @@
                 <div class="document-row__title">
                   <span v-if="document.is_unread" class="document-row__unread-dot" aria-hidden="true" />
                   <div class="document-row__name">{{ formatDocumentTitle(document) }}</div>
+                </div>
+                <div class="document-row__meta-line">
+                  <div class="document-row__meta">{{ displayDocumentType(document) }}</div>
                 </div>
                 <div class="document-row__meta-line">
                   <div class="document-row__meta">{{ displayListDate(document) }}</div>
@@ -223,7 +227,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 
 const SORT_OPTIONS = [
   { value: 'newest',      label: 'Neueste zuerst' },
@@ -242,6 +246,7 @@ const STATUS_OPTIONS = [
 import { storeToRefs } from 'pinia';
 import { useDocumentStore } from '../stores/documents.js';
 import { useSettingsStore } from '../stores/settings.js';
+import { useAuthStore } from '../stores/auth.js';
 import { authedUrl, getBaseUrl } from '../api/client.js';
 import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts.js';
 import ListActionToolbar from './ListActionToolbar.vue';
@@ -284,6 +289,7 @@ const emit = defineEmits([
 // ── Stores ─────────────────────────────────────────────────────────────────
 const docStore      = useDocumentStore();
 const settingsStore = useSettingsStore();
+const authStore     = useAuthStore();
 
 const { documents, selectedDocumentId } = storeToRefs(docStore);
 const showPdfSuffixComputed = computed(() => settingsStore.settingsDraft?.ui?.showFilenameSuffix ?? false);
@@ -314,6 +320,14 @@ const toolbarActions = computed(() => [
 const thumbnailErrorMap = ref({});
 const isListDragOver    = ref(false);
 const listDropDragDepth = ref(0);
+const thumbnailVersionByDocumentId = ref({});
+const thumbnailSignatureByDocumentId = ref({});
+
+const documentThumbnailSignature = computed(() => (
+  documents.value
+    .map((document) => thumbnailStateKey(document))
+    .join('|')
+));
 
 function handleToolbarAction({ action, value }) {
   if (action === 'sort') {
@@ -326,8 +340,29 @@ function handleToolbarAction({ action, value }) {
 }
 
 // ── Thumbnail helpers ──────────────────────────────────────────────────────
-function thumbnailUrl(documentId) {
-  return authedUrl(`${getBaseUrl()}/api/documents/${documentId}/thumbnail`);
+function appendUrlParam(url, key, value) {
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+}
+
+function thumbnailStateKey(document) {
+  return [
+    document?.id || '',
+    document?.updated_at || '',
+    document?.status || '',
+    document?.ocr_status || '',
+  ].join(':');
+}
+
+function thumbnailUrl(document) {
+  const documentId = document?.id;
+  const versionParts = [
+    authStore.fileTokenVersion || 0,
+    document?.updated_at || '',
+    thumbnailVersionByDocumentId.value[documentId] || 0,
+  ];
+  const url = authedUrl(`${getBaseUrl()}/api/documents/${documentId}/thumbnail`);
+  return appendUrlParam(url, 'thumb_v', versionParts.join(':'));
 }
 
 function hasThumbnailError(documentId) {
@@ -337,6 +372,55 @@ function hasThumbnailError(documentId) {
 function onThumbnailError(documentId) {
   thumbnailErrorMap.value = { ...thumbnailErrorMap.value, [documentId]: true };
 }
+
+function onThumbnailLoad(documentId) {
+  if (!thumbnailErrorMap.value[documentId]) return;
+  const next = { ...thumbnailErrorMap.value };
+  delete next[documentId];
+  thumbnailErrorMap.value = next;
+}
+
+function retryVisibleThumbnails() {
+  const nextErrors = {};
+  const nextVersions = { ...thumbnailVersionByDocumentId.value };
+  for (const document of documents.value) {
+    if (!document?.id) continue;
+    nextVersions[document.id] = (Number(nextVersions[document.id] || 0) + 1);
+  }
+  thumbnailErrorMap.value = nextErrors;
+  thumbnailVersionByDocumentId.value = nextVersions;
+}
+
+watch(documentThumbnailSignature, () => {
+  const nextSignatures = {};
+  const nextErrors = {};
+  const nextVersions = {};
+
+  for (const document of documents.value) {
+    if (!document?.id) continue;
+    const signature = thumbnailStateKey(document);
+    nextSignatures[document.id] = signature;
+    nextVersions[document.id] = thumbnailVersionByDocumentId.value[document.id] || 0;
+
+    if (
+      thumbnailErrorMap.value[document.id]
+      && thumbnailSignatureByDocumentId.value[document.id] === signature
+    ) {
+      nextErrors[document.id] = true;
+    }
+  }
+
+  thumbnailSignatureByDocumentId.value = nextSignatures;
+  thumbnailErrorMap.value = nextErrors;
+  thumbnailVersionByDocumentId.value = nextVersions;
+});
+
+watch(
+  () => authStore.fileTokenVersion,
+  () => {
+    retryVisibleThumbnails();
+  }
+);
 
 function handleDocumentRowShortcut(event, documentId) {
   handleShortcut(event, SHORTCUT_ACTIONS.ACTIVATE, () => emit('select-document', documentId), {
@@ -396,6 +480,11 @@ function displayListDate(document) {
     return `Dokumentdatum: ${formatDate(document.document_date)}`;
   }
   return 'Dokumentdatum: —';
+}
+
+function displayDocumentType(document) {
+  const documentType = String(document?.document_type || document?.category || '').trim();
+  return `Dokumenttyp: ${documentType || 'Ohne Dokumenttyp'}`;
 }
 
 function escapeHtml(value) {
@@ -528,5 +617,10 @@ function onListDrop(event) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.document-row__meta-line {
+  display: flex;
+  width: 100%;
 }
 </style>

@@ -4,27 +4,13 @@
       <slot name="head" />
     </div>
 
-    <div class="sidebar-scroll">
-    <!-- Bibliothek -->
+    <!-- Bibliothek (fixiert, scrollt nicht mit) -->
     <v-list nav density="compact" class="views-list">
-      <div
-        class="sidebar-section-header"
-        :class="{ 'sidebar-section-header--collapsed': bibliothekCollapsed }"
-        @click="toggleSection('bibliothek')"
-      >
+      <div class="sidebar-section-header sidebar-section-header--static">
         <div class="sidebar-section-label">Bibliothek</div>
-        <span v-if="bibliothekCollapsed" class="sidebar-section-hint">einblenden</span>
-        <button
-          class="sidebar-section-toggle"
-          :aria-label="bibliothekCollapsed ? 'Bereich einblenden' : 'Bereich ausblenden'"
-          tabindex="-1"
-          @click.stop="toggleSection('bibliothek')"
-        >
-          <v-icon size="13" class="sidebar-section-toggle-icon">mdi-chevron-down</v-icon>
-        </button>
       </div>
 
-      <div class="sidebar-section-drawer" :class="{ 'sidebar-section-drawer--collapsed': bibliothekCollapsed }">
+      <div class="sidebar-section-drawer">
         <div class="sidebar-section-content">
           <SidebarItem
             item-class="sidebar-item--primary"
@@ -39,6 +25,7 @@
           </SidebarItem>
 
           <SidebarItem
+            v-if="settingsStore.settings.ui.sidebar_show_recent !== false"
             item-class="sidebar-item--secondary sidebar-item--imports"
             :active="isViewActive('imports')"
             :count="importsSidebarCount"
@@ -51,6 +38,7 @@
           </SidebarItem>
 
           <SidebarItem
+            v-if="settingsStore.settings.ui.sidebar_show_untagged !== false"
             item-class="sidebar-item--secondary"
             :active="isViewActive('untagged')"
             :count="untaggedSidebarCount"
@@ -110,15 +98,28 @@
               </v-menu>
             </template>
           </SidebarItem>
+
+          <SidebarItem
+            v-if="settingsStore.settings.ui.sidebar_show_chat !== false"
+            item-class="sidebar-item--secondary sidebar-item--chat"
+            :active="chatActive"
+            @click="emit('open-chat')"
+          >
+            <template #icon>
+              <v-icon size="18">mdi-robot-outline</v-icon>
+            </template>
+            KI-Chat
+          </SidebarItem>
         </div>
       </div>
     </v-list>
 
-    <template v-for="section in orderedSidebarSections" :key="section.key">
-      <v-divider class="sidebar-section-divider" />
+    <div class="sidebar-scroll">
+    <template v-for="(section, idx) in orderedSidebarSections" :key="section.key">
+      <v-divider v-if="idx > 0" class="sidebar-section-divider" />
 
     <!-- Ordner -->
-    <v-list v-if="section.key === 'ordner'" nav density="compact" class="views-list">
+    <v-list v-if="section.key === 'ordner' && !collapsed" nav density="compact" class="views-list">
       <div
         class="sidebar-section-header"
         :class="{ 'sidebar-section-header--collapsed': ordnerCollapsed }"
@@ -232,23 +233,25 @@
             Alle Tags
           </SidebarItem>
 
-          <SidebarItem
-            v-for="tag in topTagQuicklinks"
-            :key="tag.id"
-            item-class="sidebar-item--tag"
-            :active="!isTagView && activeTagId === tag.id"
-            :count="sidebarStore.tagCount(tag.id, tag.usage_count ?? 0)"
-            @click="emit('apply-tag-filter', tag.id)"
-          >
-            <template #icon>
-              <v-icon size="18">mdi-tag-text-outline</v-icon>
-            </template>
-            <span class="sidebar-tag-pill">{{ tag.name }}</span>
-          </SidebarItem>
+          <template v-if="!collapsed">
+            <SidebarItem
+              v-for="tag in topTagQuicklinks"
+              :key="tag.id"
+              item-class="sidebar-item--tag"
+              :active="!isTagView && activeTagId === tag.id"
+              :count="sidebarStore.tagCount(tag.id, tag.usage_count ?? 0)"
+              @click="emit('apply-tag-filter', tag.id)"
+            >
+              <template #icon>
+                <v-icon size="18">mdi-tag-text-outline</v-icon>
+              </template>
+              <span class="sidebar-tag-pill">{{ tag.name }}</span>
+            </SidebarItem>
 
-          <v-list-item v-if="topTagQuicklinks.length === 0 && maxSidebarTags > 0">
-            <v-list-item-title class="text-caption">Noch keine Tags</v-list-item-title>
-          </v-list-item>
+            <v-list-item v-if="topTagQuicklinks.length === 0 && maxSidebarTags > 0">
+              <v-list-item-title class="text-caption">Noch keine Tags</v-list-item-title>
+            </v-list-item>
+          </template>
         </div>
       </div>
     </v-list>
@@ -285,23 +288,25 @@
             Alle Dokumenttypen
           </SidebarItem>
 
-          <SidebarItem
-            v-for="category in topCategoryQuicklinks"
-            :key="category.id"
-            item-class="sidebar-item--tag"
-            :active="!isCategoryView && activeCategoryName === category.name"
-            :count="Number(category.usage_count || 0)"
-            @click="emit('apply-category-filter', category.name)"
-          >
-            <template #icon>
-              <v-icon size="18">mdi-file-document-outline</v-icon>
-            </template>
-            <span class="sidebar-tag-pill">{{ category.name }}</span>
-          </SidebarItem>
+          <template v-if="!collapsed">
+            <SidebarItem
+              v-for="category in topCategoryQuicklinks"
+              :key="category.id"
+              item-class="sidebar-item--tag"
+              :active="!isCategoryView && activeCategoryName === category.name"
+              :count="Number(category.usage_count || 0)"
+              @click="emit('apply-category-filter', category.name)"
+            >
+              <template #icon>
+                <v-icon size="18">mdi-file-document-outline</v-icon>
+              </template>
+              <span class="sidebar-tag-pill">{{ category.name }}</span>
+            </SidebarItem>
 
-          <v-list-item v-if="topCategoryQuicklinks.length === 0 && maxSidebarCategories > 0">
-            <v-list-item-title class="text-caption">Noch keine Dokumenttypen</v-list-item-title>
-          </v-list-item>
+            <v-list-item v-if="topCategoryQuicklinks.length === 0 && maxSidebarCategories > 0">
+              <v-list-item-title class="text-caption">Noch keine Dokumenttypen</v-list-item-title>
+            </v-list-item>
+          </template>
         </div>
       </div>
     </v-list>
@@ -332,10 +337,13 @@ const props = defineProps({
   isTagView:         { type: Boolean, default: false },
   activeCategoryName: { type: String,  default: null },
   isCategoryView:    { type: Boolean, default: false },
+  collapsed:         { type: Boolean, default: false },
+  chatActive:        { type: Boolean, default: false },
 });
 
 const emit = defineEmits([
   'select-view',
+  'open-chat',
   'open-saved-search',
   'create-folder',
   'edit-folder',
@@ -440,7 +448,7 @@ function isViewActive(viewKey) {
   if (props.isTagView || props.activeSavedSearchId) return false;
   if (viewKey === 'all') {
     // Bei aktivem Tag-Filter NICHT „Alle Dokumente" markieren – der Tag bleibt aktiv.
-    return props.activeView === 'all' && !props.activeTagId;
+    return props.activeView === 'all' && !props.activeTagId && !props.activeCategoryName;
   }
   if (viewKey === 'imports')   return props.activeView === 'imports';
   if (viewKey === 'untagged')  return props.activeView === 'untagged';
@@ -520,6 +528,13 @@ const totalCategoriesSidebarCount = computed(() => {
 </script>
 
 <style scoped>
+.sidebar-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 12px 10px;
+}
+
 /* ── Section Header ───────────────────────────────────────────────────── */
 .sidebar-section-header {
   display: flex;
@@ -536,6 +551,15 @@ const totalCategoriesSidebarCount = computed(() => {
 
 .sidebar-section-header:hover {
   background: rgba(var(--v-theme-on-surface), 0.05);
+}
+
+/* Bibliothek: statischer Kopf, nicht einklappbar (Kern-Navigation). */
+.sidebar-section-header--static {
+  cursor: default;
+}
+
+.sidebar-section-header--static:hover {
+  background: transparent;
 }
 
 /* ── „einblenden"-Hinweis (nur im eingeklappten Zustand) ──────────────── */

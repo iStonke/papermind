@@ -152,6 +152,9 @@ class UISettingsRead(BaseModel):
     showFilenameSuffix: bool = True
     drawerRememberState: bool = True
     tagDrawerRememberState: bool = True
+    sidebar_show_recent: bool = True
+    sidebar_show_untagged: bool = True
+    sidebar_show_chat: bool = True
     sidebar_sections: list[SidebarSectionConfig] = Field(default_factory=_default_sidebar_sections)
     # Max. Anzahl der Quicklinks pro Sektion in der Seitenleiste (0 = nur „Alle …").
     sidebar_max_tags: int = Field(default=5, ge=0, le=50)
@@ -261,6 +264,9 @@ class UISettingsPatch(BaseModel):
     showFilenameSuffix: bool | None = None
     drawerRememberState: bool | None = None
     tagDrawerRememberState: bool | None = None
+    sidebar_show_recent: bool | None = None
+    sidebar_show_untagged: bool | None = None
+    sidebar_show_chat: bool | None = None
     sidebar_sections: list[SidebarSectionConfig] | None = None
     sidebar_max_tags: int | None = Field(default=None, ge=0, le=50)
     sidebar_max_categories: int | None = Field(default=None, ge=0, le=50)

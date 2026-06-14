@@ -24,6 +24,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "showFilenameSuffix": True,
         "drawerRememberState": True,
         "tagDrawerRememberState": True,
+        "sidebar_show_recent": True,
+        "sidebar_show_untagged": True,
+        "sidebar_show_chat": True,
         "sidebar_sections": [
             {"key": "ordner", "visible": True},
             {"key": "tags", "visible": True},

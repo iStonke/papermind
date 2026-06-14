@@ -18,6 +18,18 @@ export function buildTagDrawerRememberStatePatch(enabled) {
   return { ui: { tagDrawerRememberState: Boolean(enabled) } };
 }
 
+export function buildSidebarShowRecentPatch(enabled) {
+  return { ui: { sidebar_show_recent: Boolean(enabled) } };
+}
+
+export function buildSidebarShowUntaggedPatch(enabled) {
+  return { ui: { sidebar_show_untagged: Boolean(enabled) } };
+}
+
+export function buildSidebarShowChatPatch(enabled) {
+  return { ui: { sidebar_show_chat: Boolean(enabled) } };
+}
+
 // Konfigurierbare Seitenleisten-Sektionen (Reihenfolge + harte Sichtbarkeit).
 // Reihenfolge entspricht der Standard-Anzeigereihenfolge in der Seitenleiste.
 export const SIDEBAR_SECTION_KEYS = Object.freeze(['ordner', 'tags', 'kategorien']);

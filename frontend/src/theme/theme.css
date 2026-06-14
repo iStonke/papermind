@@ -20,6 +20,7 @@
   --pm-easing:          cubic-bezier(0.4, 0, 0.2, 1);
   --pm-easing-decel:    cubic-bezier(0, 0, 0.2, 1);
   --pm-easing-accel:    cubic-bezier(0.4, 0, 1, 1);
+  --pm-window-radius:   24px;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -158,7 +159,7 @@
   --pm-row-hover:            var(--pm-v-card-hover);
   --pm-row-active:           color-mix(in srgb, var(--pm-accent) 16%, var(--pm-v-card));
   --pm-document-row-bg:      color-mix(in srgb, var(--pm-v-card-active) 76%, black 24%);
-  --pm-document-row-active-bg: color-mix(in srgb, var(--pm-v-card) 62%, white 38%);
+  --pm-document-row-active-bg: color-mix(in srgb, var(--pm-accent) 22%, var(--pm-v-card));
 }
 
 /* ── Akzent: Violet (dunkel) ───────────────────────────────────────────────── */
@@ -194,3 +195,8 @@
 
 /* Glass/Aurora-Look entfernt (Stufe 2): keine durchscheinenden Panels,
    kein animierter Wissensgraph mehr. Die kühle Slate-Identität trägt allein. */
+
+.v-overlay-container .v-dialog > .v-overlay__content > .v-card {
+  border-radius: var(--pm-window-radius, 24px);
+  overflow: hidden;
+}
