@@ -7200,11 +7200,9 @@ onBeforeUnmount(() => {
   text-align: left;
   margin-bottom: 0;
   cursor: pointer;
-  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.06);
   transition:
     background-color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
-    border-color     var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
-    box-shadow       var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+    border-color     var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .document-row + .document-row {
@@ -7212,15 +7210,18 @@ onBeforeUnmount(() => {
 }
 
 .document-row:hover {
-  background: var(--pm-row-active);
+  background: var(--pm-row-hover);
   border-color: rgba(59, 130, 246, 0.16);
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
 }
 
 .document-row--active {
   background: var(--pm-row-active);
   border-color: rgba(59, 130, 246, 0.22);
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.1), 0 5px 16px rgba(15, 23, 42, 0.1);
+}
+
+.document-row--active:hover {
+  background: var(--pm-row-active);
+  border-color: rgba(59, 130, 246, 0.28);
 }
 
 .papermind-app.v-theme--light .panel-middle,
@@ -7458,13 +7459,11 @@ onBeforeUnmount(() => {
 .papermind-app.v-theme--dark .document-row:hover {
   background: var(--pm-row-hover);
   border-color: rgba(var(--v-theme-primary), 0.28);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.26);
 }
 
 .papermind-app.v-theme--dark .document-row--active {
   background: var(--pm-document-row-active-bg, var(--pm-row-active));
   border-color: rgba(var(--v-theme-primary), 0.42);
-  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.28);
 }
 
 .papermind-app.v-theme--dark .document-row--active:hover {

@@ -605,6 +605,10 @@ function onListDrop(event) {
   background: rgba(var(--v-theme-primary), 0.07);
 }
 
+.document-row--selected:hover {
+  background: rgba(var(--v-theme-primary), 0.07);
+}
+
 .document-row__tag-chip {
   min-width: 0;
   max-width: min(150px, 42%);

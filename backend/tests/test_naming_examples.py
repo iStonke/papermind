@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.services.import_staging import ImportStagingService
@@ -96,6 +97,30 @@ class CallOllamaStagingTest(unittest.TestCase):
         self.assertIn("BEISPIELE", captured["prompt"])
         self.assertIn("Rechnung – Vodafone – Mobilfunk – 10.2024", captured["prompt"])
 
+    def test_accepts_note_alias_for_summary(self) -> None:
+        def fake_post(url, json=None, timeout=None):
+            return _FakeResponse(
+                {
+                    "response": (
+                        '{"doc_type":"Bescheid","issuer":"Finanzamt","subject":"Einkommensteuer",'
+                        '"date":"2025-05-10","tags":["Steuer"],"amount":null,'
+                        '"currency":null,"note":"Festsetzung der Einkommensteuer 2024."}'
+                    )
+                }
+            )
+
+        with patch("app.services.import_staging.httpx.post", side_effect=fake_post):
+            result = ImportStagingService._call_ollama_for_staging(
+                "Einkommensteuerbescheid Finanzamt",
+                base_url="http://localhost:11434",
+                model="llama3.2:3b",
+                timeout_seconds=5.0,
+                max_input_chars=800,
+            )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["summary"], "Festsetzung der Einkommensteuer 2024.")
+
     def test_no_examples_no_block(self) -> None:
         def fake_post(url, json=None, timeout=None):
             self.assertNotIn("BEISPIELE", json["prompt"])
@@ -121,6 +146,77 @@ class DefaultTitleDetectionTest(unittest.TestCase):
     def test_real_titles_are_kept(self) -> None:
         for value in ["Rechnung – Vodafone – 11.2024", "Einkommensteuerbescheid 2024", "Mahnung HUK"]:
             self.assertFalse(ImportStagingService._looks_like_default_title(value), value)
+
+
+class MetadataNoteFallbackTest(unittest.TestCase):
+    def test_builds_note_from_detected_metadata(self) -> None:
+        note = ImportStagingService._build_note_from_metadata(
+            issuer="Vodafone",
+            subject="Mobilfunkrechnung",
+            doc_type="Rechnung",
+            date_iso="2024-11-01",
+            amount=12.5,
+            currency="EUR",
+        )
+
+        self.assertEqual(
+            note,
+            "Absender: Vodafone. Thema: Mobilfunkrechnung. Dokumenttyp: Rechnung. Datum: 01.11.2024. Betrag: 12,50€",
+        )
+
+    def test_returns_none_without_useful_facts(self) -> None:
+        self.assertIsNone(
+            ImportStagingService._build_note_from_metadata(
+                issuer="Unbekannt",
+                subject=None,
+                doc_type="Sonstiges",
+                date_iso=None,
+                amount=None,
+                currency=None,
+            )
+        )
+
+    def test_suggest_stage_title_uses_note_fallback_without_error(self) -> None:
+        service = ImportStagingService(db=None)
+        service.settings_service = SimpleNamespace(
+            get_settings=lambda: SimpleNamespace(model_dump=lambda mode="json": {"ollama": {"enabled": False}})
+        )
+
+        with (
+            patch.object(
+                service,
+                "_extract_text_for_title_suggestion",
+                return_value=(
+                    "Rechnung Vodafone Mobilfunk Rechnung vom 01.11.2024 Gesamtbetrag 12,50 EUR " * 2,
+                    1,
+                    ["source.pdf:1"],
+                ),
+            ),
+            patch.object(service, "_load_existing_tag_names", return_value=[]),
+            patch.object(
+                service,
+                "_extract_rich_metadata",
+                return_value={
+                    "doc_type": "Rechnung",
+                    "issuer": "Vodafone",
+                    "subject": "Mobilfunkrechnung",
+                    "date": "2024-11-01",
+                    "tags": [],
+                    "amount": 12.5,
+                    "currency": "EUR",
+                    "summary": None,
+                },
+            ),
+            patch("app.services.import_staging.load_active_document_type_vocab", return_value=[]),
+            patch.object(service, "_resolve_correspondent", return_value=None),
+        ):
+            result = service.suggest_stage_title(["source-1"], stage_id="stage-1")
+
+        self.assertEqual(result["status"], "ready")
+        self.assertEqual(
+            result["meta"]["note"],
+            "Absender: Vodafone. Thema: Mobilfunkrechnung. Dokumenttyp: Rechnung. Datum: 01.11.2024. Betrag: 12,50€",
+        )
 
 
 if __name__ == "__main__":

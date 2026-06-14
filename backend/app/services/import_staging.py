@@ -1059,6 +1059,13 @@ class ImportStagingService:
             v = ImportStagingService._coerce_llm_scalar(parsed.get(key))
             return v[:max_len] if v else None
 
+        def _first_str(keys: tuple[str, ...], max_len: int = 80) -> str | None:
+            for key in keys:
+                value = _str(key, max_len)
+                if value:
+                    return value
+            return None
+
         def _date(key: str) -> str | None:
             v = ImportStagingService._coerce_llm_scalar(parsed.get(key)) or ""
             return v if re.match(r"^\d{4}-\d{2}-\d{2}$", v) else None
@@ -1090,7 +1097,7 @@ class ImportStagingService:
             "tags": _tags("tags"),
             "amount": _amount("amount"),
             "currency": "EUR" if str(parsed.get("currency") or "").upper() == "EUR" else None,
-            "summary": _str("summary", 240),
+            "summary": _first_str(("summary", "note", "notes", "ai_summary"), 240),
         }
 
     @classmethod
@@ -1231,6 +1238,52 @@ class ImportStagingService:
     def _format_euro(cls, amount: float) -> str:
         token = f"{amount:.2f}".replace(".", ",")
         return f"{token}€"
+
+    @classmethod
+    def _build_note_from_metadata(
+        cls,
+        *,
+        issuer: str | None,
+        subject: str | None,
+        doc_type: str | None,
+        date_iso: str | None,
+        amount: float | None,
+        currency: str | None,
+        max_len: int = 500,
+    ) -> str | None:
+        facts: list[str] = []
+        normalized_issuer = cls._normalize_text(issuer or "")
+        if normalized_issuer and normalized_issuer.lower() != "unbekannt":
+            facts.append(f"Absender: {normalized_issuer}")
+
+        normalized_subject = cls._normalize_text(subject or "")
+        if normalized_subject:
+            facts.append(f"Thema: {normalized_subject}")
+
+        normalized_doc_type = cls._normalize_text(doc_type or "")
+        if normalized_doc_type and normalized_doc_type.lower() != "sonstiges":
+            facts.append(f"Dokumenttyp: {normalized_doc_type}")
+
+        normalized_date = cls._normalize_text(date_iso or "")
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", normalized_date):
+            try:
+                facts.append(f"Datum: {datetime.strptime(normalized_date, '%Y-%m-%d').strftime('%d.%m.%Y')}")
+            except ValueError:
+                pass
+
+        if amount is not None and amount > 0:
+            amount_text = cls._format_euro(amount) if currency == "EUR" else f"{amount:.2f}"
+            suffix = f" {currency}" if currency and currency != "EUR" else ""
+            facts.append(f"Betrag: {amount_text}{suffix}")
+
+        if not facts:
+            return None
+        note = " ".join(". ".join(facts).split()).strip()
+        if len(note) <= max_len:
+            return note
+        if max_len <= 1:
+            return note[:max_len]
+        return f"{note[: max_len - 1].rstrip()}…"
 
     @classmethod
     def _clip_with_ellipsis(cls, value: str, max_len: int) -> str:
@@ -1587,8 +1640,16 @@ class ImportStagingService:
                     deduped.append(canonical)
             final_tags = deduped
 
-        # Wichtigste Fakten als Notiz (nur vom LLM geliefert; regelbasiert leer).
-        final_note = self._coerce_llm_scalar(rich.get("summary"))
+        # Wichtigste Fakten als Notiz: bevorzugt LLM-Zusammenfassung; falls das
+        # Modell kein passendes Feld liefert, aus den erkannten Metadaten ableiten.
+        final_note = self._coerce_llm_scalar(rich.get("summary")) or self._build_note_from_metadata(
+            issuer=issuer,
+            subject=subject,
+            doc_type=normalized_doc_type,
+            date_iso=final_date,
+            amount=normalized_amount,
+            currency=currency,
+        )
 
         # Korrespondent deterministisch auflösen (Matcher/Alias zuerst). Der rohe
         # Absender bleibt sichtbar; ai_sender wird im Import nicht überschrieben.
