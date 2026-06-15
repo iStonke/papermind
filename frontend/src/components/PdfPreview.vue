@@ -3,7 +3,7 @@
 
     <!-- Fehlerzustand -->
     <div v-if="errorMessage" class="pdf-preview__state pdf-preview__state--error">
-      <v-icon size="20">mdi-file-alert-outline</v-icon>
+      <v-icon size="20">mdi-file-document-outline</v-icon>
       <div class="pdf-preview__state-title">Vorschau nicht verfügbar</div>
       <div class="pdf-preview__state-subtitle">{{ errorMessage }}</div>
     </div>
@@ -1169,7 +1169,7 @@ onBeforeUnmount(() => {
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 
-.pdf-preview__tool-btn:hover:not(:disabled) {
+.pdf-preview__tool-btn:hover:not(:disabled):not(.pdf-preview__tool-btn--active) {
   background: rgb(var(--v-theme-on-surface) / 0.08);
 }
 
