@@ -139,18 +139,18 @@
         </button>
       </div>
 
+      <SidebarItem
+        item-class="sidebar-item--secondary sidebar-item--folder-create"
+        @click="emit('create-folder')"
+      >
+        <template #icon>
+          <v-icon size="18">mdi-folder-plus-outline</v-icon>
+        </template>
+        Ordner erstellen
+      </SidebarItem>
+
       <div class="sidebar-section-drawer" :class="{ 'sidebar-section-drawer--collapsed': ordnerCollapsed }">
         <div class="sidebar-section-content">
-          <SidebarItem
-            item-class="sidebar-item--secondary sidebar-item--folder-create"
-            @click="emit('create-folder')"
-          >
-            <template #icon>
-              <v-icon size="18">mdi-folder-plus-outline</v-icon>
-            </template>
-            Ordner erstellen
-          </SidebarItem>
-
           <SidebarItem
             v-for="savedSearch in sortedFolderItems"
             :key="savedSearch.id"
@@ -222,20 +222,20 @@
         </button>
       </div>
 
+      <SidebarItem
+        item-class="sidebar-item--plain-label"
+        :active="isTagView"
+        :count="totalTagsSidebarCount"
+        @click="emit('open-tags-view')"
+      >
+        <template #icon>
+          <v-icon size="18">mdi-tag-multiple-outline</v-icon>
+        </template>
+        Alle Tags
+      </SidebarItem>
+
       <div class="sidebar-section-drawer" :class="{ 'sidebar-section-drawer--collapsed': tagsCollapsed }">
         <div class="sidebar-section-content">
-          <SidebarItem
-            item-class="sidebar-item--plain-label"
-            :active="isTagView"
-            :count="totalTagsSidebarCount"
-            @click="emit('open-tags-view')"
-          >
-            <template #icon>
-              <v-icon size="18">mdi-tag-multiple-outline</v-icon>
-            </template>
-            Alle Tags
-          </SidebarItem>
-
           <template v-if="!collapsed">
             <SidebarItem
               v-for="tag in topTagQuicklinks"
@@ -250,10 +250,6 @@
               </template>
               <span class="sidebar-tag-pill">{{ tag.name }}</span>
             </SidebarItem>
-
-            <v-list-item v-if="topTagQuicklinks.length === 0 && maxSidebarTags > 0">
-              <v-list-item-title class="text-caption">Noch keine Tags</v-list-item-title>
-            </v-list-item>
           </template>
         </div>
       </div>
@@ -278,20 +274,20 @@
         </button>
       </div>
 
+      <SidebarItem
+        item-class="sidebar-item--plain-label"
+        :active="isCategoryView"
+        :count="totalCategoriesSidebarCount"
+        @click="emit('open-categories-view')"
+      >
+        <template #icon>
+          <v-icon size="18">mdi-file-document-multiple-outline</v-icon>
+        </template>
+        Alle Dokumenttypen
+      </SidebarItem>
+
       <div class="sidebar-section-drawer" :class="{ 'sidebar-section-drawer--collapsed': kategorienCollapsed }">
         <div class="sidebar-section-content">
-          <SidebarItem
-            item-class="sidebar-item--plain-label"
-            :active="isCategoryView"
-            :count="totalCategoriesSidebarCount"
-            @click="emit('open-categories-view')"
-          >
-            <template #icon>
-              <v-icon size="18">mdi-file-document-multiple-outline</v-icon>
-            </template>
-            Alle Dokumenttypen
-          </SidebarItem>
-
           <template v-if="!collapsed">
             <SidebarItem
               v-for="category in topCategoryQuicklinks"
