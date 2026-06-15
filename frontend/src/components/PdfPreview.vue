@@ -977,8 +977,10 @@ function onResize() {
   // Die Render-Skalierung hängt allein von der Breite ab (computeScale → containerWidth).
   // Reine Höhenänderungen (Detail-Schublade auf/zu, Splitter ziehen) erfordern kein
   // Neu-Rendern – sonst würde die ganze Vorschau bei jedem Frame geleert (Flackern).
+  // Toleranz: Sub-Pixel-/1px-Schwankungen (z. B. durch eine laufende Layout-
+  // Animation der Nachbarspalten) sollen kein Neu-Rendern auslösen.
   const width = containerWidth();
-  if (width === lastRenderWidth) return;
+  if (Math.abs(width - lastRenderWidth) <= 2) return;
   lastRenderWidth = width;
 
   if (resizeRaf) cancelAnimationFrame(resizeRaf);

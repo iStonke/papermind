@@ -2181,11 +2181,13 @@ function animateSidebarRail(nextCollapsed) {
   sidebarRailTransitioning.value = true;
   sidebarRailActive.value = nextCollapsed;
 
+  // Knapp nach Ende der Breiten-Animation (240ms) settled der Inhalt (Labels aus,
+  // Icons zentriert), damit es keinen separaten Nach-Sprung gibt.
   sidebarRailEndTimer = window.setTimeout(() => {
     sidebarRailActive.value = nextCollapsed;
     sidebarRailTransitioning.value = false;
     sidebarRailEndTimer = null;
-  }, 360);
+  }, 260);
 }
 
 function toggleSidebarRail() {
@@ -6633,14 +6635,15 @@ onBeforeUnmount(() => {
 }
 
 .workspace {
-  --pm-sidebar-rail-duration: 260ms;
+  --pm-sidebar-rail-duration: 240ms;
   display: grid;
   grid-template-columns: 288px 1fr minmax(360px, 43%);
   height: calc(100dvh - var(--v-layout-top, 0px) - var(--v-layout-bottom, 0px));
-  /* Bewusst KEINE Transition auf grid-template-columns: das Animieren der
-     Spaltenbreiten legt jeden Frame das gesamte Layout neu um (inkl. Vorschau →
-     PDF-Re-Render) und ruckelt stark. Die Spalten springen sauber um; die
-     optische Weichheit liefern die Inhalts-Fades (Labels/Icons) unten. */
+  /* Sanftes Ein-/Ausklappen der Seitenleiste: Nur die LINKE Spalte schrumpft,
+     die Mitte wächst; die rechte Vorschau-Spalte (minmax …, 43%) bleibt konstant
+     breit → kein PDF-Re-Render. Zusammen mit der Breiten-Toleranz im PdfPreview-
+     onResize ruckelt das nicht mehr, vermeidet aber den abrupten Sprung. */
+  transition: grid-template-columns var(--pm-sidebar-rail-duration) cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .panel {
@@ -7307,11 +7310,9 @@ onBeforeUnmount(() => {
 .papermind-app.v-theme--light .panel-left {
   background: var(--pm-sidebar-surface);
   box-shadow: inset -1px 0 0 var(--pm-light-outline);
-  padding: 12px 12px 0;
-}
-
-.papermind-app.v-theme--light .panel-left .views-list {
-  padding: 0;
+  /* Keine theme-spezifischen Abstände: Light nutzt dieselben Sidebar-Maße wie
+     Dark (kein panel-left-Padding, views-list 6px aus der Basisregel). Das hält
+     beide Themes konsistent und richtet die Marke an der Bereichsüberschrift aus. */
 }
 
 .papermind-app.v-theme--light .panel-middle {
