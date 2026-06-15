@@ -15,7 +15,7 @@
           <v-form @submit.prevent="submit">
             <v-text-field
               v-model="username"
-              label="Benutzername"
+              label="Benutzername oder E-Mail"
               prepend-inner-icon="mdi-account-outline"
               variant="outlined"
               density="comfortable"

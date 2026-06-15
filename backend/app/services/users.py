@@ -108,8 +108,20 @@ class UserService:
         stmt = select(User).where(func.lower(User.username) == normalized.lower())
         return self.db.execute(stmt).scalars().first()
 
+    def get_by_email_login(self, identifier: str) -> User | None:
+        """Resolve a user by e-mail (case-insensitive). Nur für den Login-Fallback –
+        ein '@' im Bezeichner genügt als Heuristik, um unnötige Queries für reine
+        Benutzernamen zu vermeiden."""
+        normalized = (identifier or "").strip()
+        if not normalized or "@" not in normalized:
+            return None
+        stmt = select(User).where(func.lower(User.email) == normalized.lower())
+        return self.db.execute(stmt).scalars().first()
+
     def authenticate(self, username: str, password: str) -> User | None:
-        user = self.get_by_username(username)
+        # Anmeldung per Benutzername ODER registrierter E-Mail. Benutzername hat
+        # Vorrang (kein Verhaltenswechsel für bestehende Logins), E-Mail ist Fallback.
+        user = self.get_by_username(username) or self.get_by_email_login(username)
         if user is None or not user.is_active:
             # Still run a hash to reduce username-enumeration timing differences.
             verify_password(password, "scrypt$16384$8$1$x$x")
