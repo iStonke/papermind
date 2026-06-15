@@ -155,9 +155,10 @@ def _strip_extension(filename: str) -> str:
 
 
 class BacklogImportService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, owner_id: uuid.UUID | None = None):
         self.db = db
-        self.matcher = CorrespondentMatchingService(db)
+        self.owner_id = owner_id
+        self.matcher = CorrespondentMatchingService(db, owner_id)
         # Korrespondenten-Kandidaten einmal laden (für viele Tags wiederverwenden).
         self._candidates = self.matcher.load_candidates()
 
@@ -277,7 +278,7 @@ class BacklogImportService:
         from app.services.documents import DocumentService, DuplicateExactError
 
         plan = self.plan(csv_content=csv_content, pdf_dir=pdf_dir)
-        doc_service = DocumentService(self.db)
+        doc_service = DocumentService(self.db, self.owner_id)
         pdf_path = Path(pdf_dir)
         files_by_nfc = {_nfc(p.name): p for p in pdf_path.glob("*.pdf")} if pdf_path.is_dir() else {}
 

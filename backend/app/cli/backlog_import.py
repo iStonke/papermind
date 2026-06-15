@@ -13,15 +13,44 @@ from __future__ import annotations
 
 import argparse
 import sys
+import uuid
+
+from sqlalchemy import func, or_, select
 
 from app.db.session import SessionLocal
+from app.models.user import User
 from app.services.backlog_import import BacklogImportService
+
+
+def _resolve_owner_id(db, owner: str) -> uuid.UUID:
+    """Löst ``--owner`` (UUID, E-Mail oder Benutzername) zu einer User-ID auf."""
+    try:
+        return uuid.UUID(owner)
+    except (ValueError, TypeError):
+        pass
+    needle = owner.strip().casefold()
+    user = db.execute(
+        select(User).where(
+            or_(
+                func.lower(User.email) == needle,
+                func.lower(User.username) == needle,
+            )
+        )
+    ).scalars().first()
+    if user is None:
+        raise SystemExit(f"Kein Benutzer gefunden für --owner={owner!r} (UUID, E-Mail oder Benutzername).")
+    return user.id
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Altbestand-Import (Trockenlauf/Anwenden)")
     parser.add_argument("--csv", required=True, help="CSV-Datei (Dateiname,Tags)")
     parser.add_argument("--dir", required=True, help="Ordner mit den PDF-Dateien")
+    parser.add_argument(
+        "--owner",
+        required=True,
+        help="Eigentümer der importierten Dokumente (UUID, E-Mail oder Benutzername)",
+    )
     parser.add_argument("--apply", action="store_true", help="PDFs tatsächlich importieren (sonst nur Trockenlauf)")
     parser.add_argument(
         "--with-ocr",
@@ -37,7 +66,8 @@ def main(argv: list[str] | None = None) -> int:
 
     db = SessionLocal()
     try:
-        service = BacklogImportService(db)
+        owner_id = _resolve_owner_id(db, args.owner)
+        service = BacklogImportService(db, owner_id)
         if args.apply:
             result = service.apply(
                 csv_content=csv_content, pdf_dir=args.dir, limit=args.limit, queue_processing=args.with_ocr
