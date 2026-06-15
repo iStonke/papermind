@@ -291,6 +291,11 @@ def get_document_file(
         media_type=file_record.mime_type,
         filename=download_name,
         content_disposition_type="attachment" if download else "inline",
+        # Browser-Caching der Vorschau: Dateiinhalt je Dokument/Rolle ist nahezu
+        # statisch. `private` (per-Benutzer, authentifiziert), kurzes max-age als
+        # Kompromiss zur Frische nach erneutem OCR. Spart auf dem Pi den wiederholten
+        # Voll-Download. ETag/Last-Modified von FileResponse bleiben für Revalidierung.
+        headers={"Cache-Control": "private, max-age=300"},
     )
 
 

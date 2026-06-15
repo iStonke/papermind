@@ -95,6 +95,16 @@
   </div>
 </template>
 
+<script>
+// Modulweiter PDF-Byte-Cache: Die Vorschau bekommt pro Dokument einen neuen :key
+// und wird daher bei jedem Wechsel neu gemountet. Läge der Cache in <script setup>,
+// wäre er pro Instanz und ginge jedes Mal verloren → erneuter Voll-Download. Auf
+// Modulebene überlebt er die Remounts, sodass kürzlich geöffnete PDFs sofort ohne
+// Netzwerk bereitstehen.
+const PDF_BYTE_CACHE_MAX_ENTRIES = 6;
+const pdfByteCache = new Map();
+</script>
+
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
@@ -118,10 +128,9 @@ const emit = defineEmits(['loaded', 'failed']);
 
 const ZOOM_STEPS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 const MAX_CACHED_PAGES = 12;
-const PDF_BYTE_CACHE_MAX_ENTRIES = 4;
 const PAGE_INFO_BATCH_SIZE = 6;
-
-const pdfByteCache = new Map();
+// pdfByteCache + PDF_BYTE_CACHE_MAX_ENTRIES liegen modulweit (oberer <script>-Block),
+// damit sie das Neu-Mounten der Komponente überleben.
 
 const zoomIndex = ref(2); // Standard: 1.0 = 100 %
 const currentZoom = computed(() => ZOOM_STEPS[zoomIndex.value]);
