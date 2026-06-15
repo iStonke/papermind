@@ -1,5 +1,5 @@
 <template>
-  <div ref="rootEl" class="pdf-preview" role="region" aria-label="PDF Vorschau">
+  <div ref="rootEl" class="pdf-preview" role="region" aria-label="PDF Vorschau" @keydown="onKeydown">
 
     <!-- Fehlerzustand -->
     <div v-if="errorMessage" class="pdf-preview__state pdf-preview__state--error">
@@ -60,6 +60,27 @@
 
         <div class="pdf-preview__zoom-controls" role="group" aria-label="Zoom">
           <button
+            class="pdf-preview__tool-btn"
+            :disabled="!src"
+            aria-label="Original in neuem Tab öffnen"
+            title="Original in neuem Tab öffnen"
+            @click="openOriginal"
+          >
+            <v-icon size="17">mdi-open-in-new</v-icon>
+          </button>
+          <span class="pdf-preview__tool-divider" aria-hidden="true" />
+          <button
+            class="pdf-preview__tool-btn"
+            :class="{ 'pdf-preview__tool-btn--active': magnifierEnabled }"
+            :aria-pressed="magnifierEnabled"
+            aria-label="Lupe"
+            title="Lupe (Ausschnitt vergrößern)"
+            @click="toggleMagnifier"
+          >
+            <v-icon size="17">mdi-magnify</v-icon>
+          </button>
+          <span class="pdf-preview__tool-divider" aria-hidden="true" />
+          <button
             class="pdf-preview__zoom-btn"
             :disabled="zoomIndex <= 0"
             aria-label="Verkleinern"
@@ -76,7 +97,14 @@
       </div>
 
       <!-- Seiten-Container (scrollbar) -->
-      <div ref="pagesEl" class="pdf-preview__pages">
+      <div
+        ref="pagesEl"
+        class="pdf-preview__pages"
+        :class="{ 'pdf-preview__pages--magnify': magnifierEnabled }"
+        tabindex="0"
+        @pointermove="onMagnifierPointerMove"
+        @pointerleave="hideMagnifier"
+      >
         <article
           v-for="info in pageInfos"
           :key="info.page"
@@ -90,6 +118,15 @@
           />
         </article>
       </div>
+
+      <!-- Lupe (folgt dem Cursor) -->
+      <canvas
+        v-show="magnifier.visible"
+        ref="loupeEl"
+        class="pdf-preview__loupe"
+        :style="loupeStyle"
+        aria-hidden="true"
+      />
     </div>
 
   </div>
@@ -122,7 +159,7 @@ const props = defineProps({
   /** Text der im TextLayer hervorgehoben werden soll (z.B. citation.snippet) */
   highlightText: { type: String, default: '' },
 });
-const emit = defineEmits(['loaded', 'failed']);
+const emit = defineEmits(['loaded', 'failed', 'open-original']);
 
 // ─── Zoom ─────────────────────────────────────────────────────────────────────
 
@@ -141,6 +178,112 @@ function zoomIn() {
 }
 function zoomOut() {
   if (zoomIndex.value > 0) zoomIndex.value--;
+}
+
+// ─── Lupe ───────────────────────────────────────────────────────────────────
+
+const MAGNIFIER_WIDTH = 260;
+const MAGNIFIER_HEIGHT = 180;
+const MAGNIFIER_FACTOR = 2.25;
+
+const loupeEl = ref(null);
+const magnifierEnabled = ref(false);
+const magnifier = ref({ visible: false, x: 0, y: 0 });
+
+const loupeStyle = computed(() => ({
+  width: `${MAGNIFIER_WIDTH}px`,
+  height: `${MAGNIFIER_HEIGHT}px`,
+  transform: `translate(${Math.round(magnifier.value.x - MAGNIFIER_WIDTH / 2)}px, ${Math.round(magnifier.value.y - MAGNIFIER_HEIGHT / 2)}px)`,
+}));
+
+function toggleMagnifier() {
+  magnifierEnabled.value = !magnifierEnabled.value;
+  if (!magnifierEnabled.value) hideMagnifier();
+}
+
+function hideMagnifier() {
+  if (magnifier.value.visible) magnifier.value = { ...magnifier.value, visible: false };
+}
+
+function onMagnifierPointerMove(event) {
+  if (!magnifierEnabled.value || event.pointerType === 'touch') {
+    hideMagnifier();
+    return;
+  }
+  const container = pagesEl.value;
+  const pageEl = event.target?.closest?.('.pdf-preview__page');
+  const canvas = pageEl?.querySelector('canvas');
+  if (!container || !(canvas instanceof HTMLCanvasElement) || !canvas.width) {
+    hideMagnifier();
+    return;
+  }
+
+  const canvasRect = canvas.getBoundingClientRect();
+  const localX = event.clientX - canvasRect.left;
+  const localY = event.clientY - canvasRect.top;
+  if (localX < 0 || localY < 0 || localX > canvasRect.width || localY > canvasRect.height) {
+    hideMagnifier();
+    return;
+  }
+
+  const containerRect = container.getBoundingClientRect();
+  magnifier.value = {
+    visible: true,
+    x: event.clientX - containerRect.left,
+    y: event.clientY - containerRect.top,
+  };
+
+  drawLoupe(canvas, canvasRect, localX, localY);
+}
+
+function drawLoupe(canvas, canvasRect, localX, localY) {
+  const loupe = loupeEl.value;
+  if (!loupe) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const targetW = Math.round(MAGNIFIER_WIDTH * dpr);
+  const targetH = Math.round(MAGNIFIER_HEIGHT * dpr);
+  if (loupe.width !== targetW)  loupe.width = targetW;
+  if (loupe.height !== targetH) loupe.height = targetH;
+
+  const ctx = loupe.getContext('2d');
+  if (!ctx) return;
+
+  ctx.save();
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, MAGNIFIER_WIDTH, MAGNIFIER_HEIGHT);
+  // Weißer Untergrund (Bereiche außerhalb der Seite bleiben so nicht transparent)
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, MAGNIFIER_WIDTH, MAGNIFIER_HEIGHT);
+
+  // Verhältnis von Canvas-Auflösung zu Anzeigegröße
+  const ratioX = canvas.width / canvasRect.width;
+  const ratioY = canvas.height / canvasRect.height;
+
+  // Quellausschnitt (in Canvas-Pixeln), zentriert auf den Cursor
+  const srcW = (MAGNIFIER_WIDTH / MAGNIFIER_FACTOR) * ratioX;
+  const srcH = (MAGNIFIER_HEIGHT / MAGNIFIER_FACTOR) * ratioY;
+  let srcX = localX * ratioX - srcW / 2;
+  let srcY = localY * ratioY - srcH / 2;
+
+  // Skalierung Quelle → Ziel
+  const kx = MAGNIFIER_WIDTH / srcW;
+  const ky = MAGNIFIER_HEIGHT / srcH;
+
+  // Quell-/Zielrechteck an Canvas-Ränder klippen (Cursor bleibt zentriert)
+  let sx = srcX, sy = srcY, sw = srcW, sh = srcH;
+  let dx = 0, dy = 0, dw = MAGNIFIER_WIDTH, dh = MAGNIFIER_HEIGHT;
+  if (sx < 0) { dx = -sx * kx; dw -= dx; sw += sx; sx = 0; }
+  if (sy < 0) { dy = -sy * ky; dh -= dy; sh += sy; sy = 0; }
+  if (sx + sw > canvas.width)  { const over = sx + sw - canvas.width;  sw -= over; dw -= over * kx; }
+  if (sy + sh > canvas.height) { const over = sy + sh - canvas.height; sh -= over; dh -= over * ky; }
+
+  if (sw > 0 && sh > 0) {
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(canvas, sx, sy, sw, sh, dx, dy, dw, dh);
+  }
+  ctx.restore();
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -672,6 +815,7 @@ async function setupObservers() {
 
 watch(currentZoom, async () => {
   if (!pdfDoc) return;
+  hideMagnifier();
   renderedPages.clear();
   renderQueue.clear();
   highlightTargets = [];
@@ -687,6 +831,7 @@ async function loadPdf(src) {
   const epoch = ++loadEpoch;
 
   teardownObservers();
+  hideMagnifier();
   lastRenderWidth = 0;
   renderedPages.clear();
   renderQueue.clear();
@@ -758,6 +903,66 @@ function scrollToPage(pageNum) {
   if (!pageNum || pageNum < 1 || !pagesEl.value) return;
   const el = pagesEl.value.querySelector(`.pdf-preview__page[data-page="${pageNum}"]`);
   el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function goToPage(pageNum) {
+  const total = pageInfos.value.length;
+  if (!total) return;
+  scrollToPage(Math.min(Math.max(1, pageNum), total));
+}
+
+// ─── Original öffnen ─────────────────────────────────────────────────────────
+
+function openOriginal() {
+  // Das Öffnen übernimmt der Parent: Die Datei-URL muss mit einem FRISCHEN
+  // file-scoped Token gebaut werden (authedUrl ist nicht reaktiv – props.src
+  // kann ein leeres/abgelaufenes Token tragen, das im neuen Tab → 401 führt).
+  if (!props.src) return;
+  emit('open-original');
+}
+
+// ─── Tastenkürzel ─────────────────────────────────────────────────────────────
+// Aktiv, sobald der Viewer (oder ein Kind) den Fokus hat – stört also keine
+// Eingaben außerhalb der Vorschau. Hoch/Runter bleiben dem nativen Scrollen
+// überlassen; Links/Rechts springen seitenweise.
+
+function onKeydown(event) {
+  const target = event.target;
+  if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+    return;
+  }
+
+  switch (event.key) {
+    case '+':
+    case '=':
+      zoomIn();
+      event.preventDefault();
+      break;
+    case '-':
+    case '_':
+      zoomOut();
+      event.preventDefault();
+      break;
+    case 'ArrowRight':
+      goToPage(currentPage.value + 1);
+      event.preventDefault();
+      break;
+    case 'ArrowLeft':
+      goToPage(currentPage.value - 1);
+      event.preventDefault();
+      break;
+    case 'n':
+      if (props.highlightText) { navigateHighlight(1); event.preventDefault(); }
+      break;
+    case 'N':
+      if (props.highlightText) { navigateHighlight(-1); event.preventDefault(); }
+      break;
+    case 'Enter':
+      if (props.highlightText) { navigateHighlight(event.shiftKey ? -1 : 1); event.preventDefault(); }
+      break;
+    default:
+      break;
+  }
 }
 
 // ─── Watchers ────────────────────────────────────────────────────────────────
@@ -947,6 +1152,75 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
+/* ── Lupe-Toggle ─────────────────────────────────────────────────────────── */
+.pdf-preview__tool-btn {
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgb(var(--v-theme-on-surface) / 0.18);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  color: rgb(var(--v-theme-on-surface) / 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.pdf-preview__tool-btn:hover:not(:disabled) {
+  background: rgb(var(--v-theme-on-surface) / 0.08);
+}
+
+.pdf-preview__tool-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.pdf-preview__tool-btn--active {
+  background: rgb(var(--v-theme-primary));
+  border-color: rgb(var(--v-theme-primary));
+  color: rgb(var(--v-theme-on-primary));
+  box-shadow:
+    0 0 0 3px rgb(var(--v-theme-primary) / 0.28),
+    0 2px 8px rgb(var(--v-theme-primary) / 0.4);
+}
+
+.pdf-preview__tool-btn--active:hover {
+  background: rgb(var(--v-theme-primary));
+  filter: brightness(1.08);
+}
+
+.pdf-preview__tool-divider {
+  width: 1px;
+  height: 18px;
+  background: rgb(var(--v-theme-on-surface) / 0.16);
+  margin: 0 2px;
+}
+
+/* ── Lupe ──────────────────────────────────────────────────────────────────── */
+.pdf-preview__pages--magnify {
+  cursor: crosshair;
+}
+
+.pdf-preview__pages--magnify :deep(.textLayer) {
+  pointer-events: none;
+}
+
+.pdf-preview__loupe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  pointer-events: none;
+  border: 2px solid rgb(var(--v-theme-surface) / 0.96);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow:
+    0 10px 28px rgb(0 0 0 / 0.28),
+    inset 0 0 0 1px rgb(0 0 0 / 0.12);
+  will-change: transform;
+}
+
 /* ── Viewer-Wrapper: Fade-in nach erstem Render ─────────────────────────── */
 .pdf-preview__viewer {
   display: flex;
@@ -973,6 +1247,15 @@ onBeforeUnmount(() => {
   gap: 14px;
   /* Oben Platz für die überlagernde (absolute) Toolbar */
   padding: 50px 14px 14px;
+}
+
+.pdf-preview__pages:focus {
+  outline: none;
+}
+
+.pdf-preview__pages:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-primary) / 0.5);
+  outline-offset: -2px;
 }
 
 /* ── Einzelne Seite ─────────────────────────────────────────────────────── */

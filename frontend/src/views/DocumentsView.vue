@@ -730,6 +730,7 @@
                   :highlight-text="previewHighlightText"
                   @failed="onPreviewFrameError(selectedDocumentId)"
                   @loaded="onPreviewFrameLoad(selectedDocumentId)"
+                  @open-original="openSelectedDocumentInNewTab"
                 />
               </div>
               <PmEmptyState
@@ -4946,6 +4947,18 @@ function selectPdfFiles(files, source) {
     skippedNonPdf,
     skippedDuplicates
   };
+}
+
+function openSelectedDocumentInNewTab() {
+  const documentId = selectedDocumentId.value;
+  if (!documentId) {
+    return;
+  }
+  // URL beim Klick frisch bauen, damit der aktuelle file-scoped Token (Query-Param)
+  // anhängt – ein neuer Tab kann keinen Authorization-Header senden.
+  const role = resolvePreviewRole(documentId);
+  const url = authedUrl(`${apiBaseUrl}/api/documents/${documentId}/file?role=${role}`);
+  window.open(url, '_blank', 'noopener');
 }
 
 function downloadSelectedDocument() {

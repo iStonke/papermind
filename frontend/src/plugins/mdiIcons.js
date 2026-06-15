@@ -82,6 +82,7 @@ export {
   mdiMagnifyMinusOutline,
   mdiMagnifyPlusOutline,
   mdiMemory,
+  mdiOpenInNew,
   mdiPageLayoutSidebarLeft,
   mdiPaletteOutline,
   mdiPencil,
