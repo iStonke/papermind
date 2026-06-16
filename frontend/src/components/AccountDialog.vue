@@ -37,7 +37,7 @@
           </div>
           <div class="pm-account-nav__actions">
             <v-btn
-              v-if="view === 'users'"
+              v-if="view === 'users' && auth.isAdmin"
               color="primary"
               variant="outlined"
               size="small"
@@ -129,7 +129,7 @@
         </template>
 
         <!-- Benutzerverwaltung -->
-        <template v-else-if="view === 'users'">
+        <template v-else-if="view === 'users' && auth.isAdmin">
           <v-btn variant="text" class="pm-dialog__btn" @click="close">Abbrechen</v-btn>
           <span class="pm-account-footer-hint">{{ panelRef?.summary }}</span>
         </template>
