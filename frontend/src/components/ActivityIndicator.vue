@@ -364,6 +364,12 @@ onBeforeUnmount(() => {
 .activity-list {
   max-height: 340px;
   overflow-y: auto;
+  /* Die v-list bringt sonst ihren eigenen surface-Hintergrund mit und überdeckt
+     den Karten-Hintergrund (account-menu-Look) → transparent durchscheinen lassen. */
+  background: transparent !important;
+}
+.activity-list :deep(.v-list-item) {
+  background: transparent;
 }
 /* Icon-Spalte für alle Aktivitäts-Items identisch, damit laufende (Spinner)
    und fehlgeschlagene (Fehler-Icon) Einträge bündig in einer Flucht stehen.
