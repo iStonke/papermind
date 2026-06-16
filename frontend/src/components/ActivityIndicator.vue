@@ -36,7 +36,7 @@
         <div class="activity-ocr__label">Dokumente werden durchsuchbar gemacht</div>
         <v-progress-linear :model-value="ocrPercent" height="6" rounded color="primary" class="activity-ocr__bar" />
         <div class="activity-ocr__count">
-          {{ ocrBacklog.done }} / {{ ocrBacklog.total }} fertig<span v-if="ocrBacklog.failed"> · {{ ocrBacklog.failed }} fehlgeschlagen</span>
+          {{ ocrBacklog.done }} / {{ ocrBacklog.total }} fertig<span v-if="ocrBacklog.failed"> · {{ ocrBacklog.failed }} ohne Texterkennung</span>
         </div>
       </div>
       <v-divider v-if="ocrPending > 0" />
