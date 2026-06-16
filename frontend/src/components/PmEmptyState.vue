@@ -47,7 +47,7 @@ defineProps({
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
+  gap: 3px;
   max-width: 280px;
 }
 

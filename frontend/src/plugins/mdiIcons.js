@@ -37,6 +37,7 @@ export {
   mdiCheckCircleOutline,
   mdiCheckboxMultipleOutline,
   mdiChevronDown,
+  mdiChevronLeft,
   mdiChevronRight,
   mdiChevronUp,
   mdiClose,

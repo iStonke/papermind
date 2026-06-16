@@ -2,10 +2,13 @@
   <div ref="rootEl" class="pdf-preview" role="region" aria-label="PDF Vorschau" @keydown="onKeydown">
 
     <!-- Fehlerzustand -->
-    <div v-if="errorMessage" class="pdf-preview__state pdf-preview__state--error">
-      <v-icon size="20">mdi-file-document-outline</v-icon>
-      <div class="pdf-preview__state-title">Vorschau nicht verfügbar</div>
-      <div class="pdf-preview__state-subtitle">{{ errorMessage }}</div>
+    <div v-if="errorMessage" class="pdf-preview__placeholder">
+      <PmEmptyState
+        icon="mdi-file-document-outline"
+        title="Vorschau nicht verfügbar"
+        :subtitle="errorMessage"
+        size="md"
+      />
     </div>
 
     <!-- Erstes Laden: Fortschrittsbalken -->
@@ -42,7 +45,9 @@
             :disabled="highlightCount === 0"
             aria-label="Vorheriger Treffer"
             @click="navigateHighlight(-1)"
-          >‹</button>
+          >
+            <v-icon size="16">mdi-chevron-left</v-icon>
+          </button>
           <span
             class="pdf-preview__match-badge"
             :class="{ 'pdf-preview__match-badge--zero': highlightCount === 0 }"
@@ -55,7 +60,9 @@
             :disabled="highlightCount === 0"
             aria-label="Nächster Treffer"
             @click="navigateHighlight(1)"
-          >›</button>
+          >
+            <v-icon size="16">mdi-chevron-right</v-icon>
+          </button>
         </div>
 
         <div class="pdf-preview__zoom-controls" role="group" aria-label="Zoom">
@@ -148,6 +155,7 @@ import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import { TextLayer } from 'pdfjs-dist';
 import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import 'pdfjs-dist/web/pdf_viewer.css';
+import PmEmptyState from './PmEmptyState.vue';
 
 GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
@@ -709,15 +717,30 @@ async function renderPage(pageNum) {
     const scale    = computeScale(info);
     const viewport = page.getViewport({ scale });
 
+    // HiDPI/Retina: Backing-Store in GERÄTEPIXELN rendern, Anzeige bleibt logisch
+    // (Canvas-CSS = 100 % der logisch dimensionierten Seite). Ohne diesen Faktor
+    // wird das Canvas auf Retina-Displays hochskaliert dargestellt → unscharf.
+    // Ein Cap pro Dimension verhindert exzessive Canvas-Größen bei hohem Zoom.
+    const MAX_CANVAS_DIM = 5000;
+    let outputScale = window.devicePixelRatio || 1;
+    const maxTargetDim = Math.max(viewport.width, viewport.height) * outputScale;
+    if (maxTargetDim > MAX_CANVAS_DIM) {
+      outputScale *= MAX_CANVAS_DIM / maxTargetDim;
+    }
+
     // Canvas erstellen und rendern
     const canvas = document.createElement('canvas');
     const ctx    = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
 
-    canvas.width  = Math.floor(viewport.width);
-    canvas.height = Math.floor(viewport.height);
+    canvas.width  = Math.floor(viewport.width  * outputScale);
+    canvas.height = Math.floor(viewport.height * outputScale);
 
-    await page.render({ canvasContext: ctx, viewport, background: 'rgb(255,255,255)' }).promise;
+    const renderContext = { canvasContext: ctx, viewport, background: 'rgb(255,255,255)' };
+    if (outputScale !== 1) {
+      renderContext.transform = [outputScale, 0, 0, outputScale, 0, 0];
+    }
+    await page.render(renderContext).promise;
     if (epoch !== loadEpoch) return;
 
     // Text-Layer erstellen
@@ -1069,23 +1092,30 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: 1px solid rgba(200, 150, 0, 0.24);
-  border-radius: 999px;
-  background: rgba(255, 200, 0, 0.16);
-  color: rgb(var(--v-theme-on-surface) / 0.72);
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgba(200, 150, 0, 0.28);
+  border-radius: 50%;
+  background: rgba(255, 200, 0, 0.18);
+  color: rgba(150, 110, 0, 0.95);
   cursor: pointer;
-  font-size: 1.05rem;
-  font-weight: 700;
   line-height: 1;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease;
+  transition: background 130ms ease, border-color 130ms ease, color 130ms ease,
+    box-shadow 130ms ease, transform 130ms ease, opacity 130ms ease;
 }
 
 .pdf-preview__match-nav-btn:hover:not(:disabled) {
-  background: rgba(255, 200, 0, 0.28);
-  border-color: rgba(200, 150, 0, 0.4);
-  color: rgb(var(--v-theme-on-surface) / 0.9);
+  background: rgba(255, 196, 0, 0.34);
+  border-color: rgba(200, 150, 0, 0.5);
+  color: rgba(120, 88, 0, 1);
+  box-shadow: 0 2px 7px rgba(200, 150, 0, 0.28);
+  transform: translateY(-1px);
+}
+
+.pdf-preview__match-nav-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 3px rgba(200, 150, 0, 0.22);
 }
 
 .pdf-preview__match-nav-btn:disabled {
@@ -1366,7 +1396,6 @@ onBeforeUnmount(() => {
   text-align: center;
   gap: 12px;
   font-size: 0.86rem;
-  opacity: 0.78;
   padding: 24px;
 }
 
@@ -1407,19 +1436,10 @@ onBeforeUnmount(() => {
   100% { transform: translateX(450%); }
 }
 
-.pdf-preview__state--error {
-  gap: 8px;
-}
-
-.pdf-preview__state-title {
-  font-size: 0.95rem;
-  font-weight: 600;
-  line-height: 1.2;
-}
-
-.pdf-preview__state-subtitle {
-  font-size: 0.82rem;
-  opacity: 0.78;
-  line-height: 1.35;
+/* Fehlerzustand nutzt die Standard-Placeholder-Komponente (PmEmptyState). */
+.pdf-preview__placeholder {
+  flex: 1;
+  min-height: 0;
+  display: flex;
 }
 </style>
