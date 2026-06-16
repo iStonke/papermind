@@ -326,6 +326,10 @@ onBeforeUnmount(() => {
   line-height: var(--activity-badge-size);
 }
 
+.activity-card {
+  /* gleicher Hintergrund wie das Benutzermenü (account-menu) */
+  background: rgb(var(--v-theme-card)) !important;
+}
 .activity-card__header {
   display: flex;
   justify-content: space-between;
