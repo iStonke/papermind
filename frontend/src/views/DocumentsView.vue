@@ -2660,6 +2660,11 @@ async function onMetadataCategoryChange(nextCategory) {
   isSavingCategory.value = true;
   try {
     await docStore.patchDocument(documentId, { document_type: value });
+    // Seitenleiste (Dokumenttyp-Quicklinks + Zähler) hängt an categoryStore.usage_count
+    // und wird nur über fetchCategories aktualisiert – sonst bleibt die Zuweisung
+    // in der Sidebar unsichtbar.
+    await categoryStore.fetchCategories();
+    scheduleSidebarCountsRefresh();
   } catch (error) {
     notifyError(error, 'Dokumenttyp konnte nicht gespeichert werden.');
     // Bei Fehler wieder auf den gespeicherten Stand zurücksetzen
