@@ -90,6 +90,12 @@ def _parse_decimal(value: Any) -> Decimal | None:
         return None
     if parsed <= 0:
         return None
+    # Numeric(12,2): Betrag muss betragsmäßig < 10^10 bleiben, sonst sprengt er
+    # die Spalte ai_amount und lässt die gesamte OCR-Abschluss-Transaktion
+    # scheitern. Unrealistische Werte (Modell hat z. B. eine Beleg-/Kontonummer
+    # als Betrag fehlgedeutet) verwerfen, statt den Job zu killen.
+    if parsed >= Decimal("10000000000"):
+        return None
     return parsed.quantize(Decimal("0.01"))
 
 
