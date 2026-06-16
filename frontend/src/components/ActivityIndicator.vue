@@ -365,8 +365,17 @@ onBeforeUnmount(() => {
   max-height: 340px;
   overflow-y: auto;
 }
+/* Icon-Spalte für alle Aktivitäts-Items identisch, damit laufende (Spinner)
+   und fehlgeschlagene (Fehler-Icon) Einträge bündig in einer Flucht stehen.
+   Vuetifys variablen Prepend-Spacer dafür neutralisieren. */
+.activity-item :deep(.v-list-item__prepend) {
+  margin-inline-end: 8px;
+}
+.activity-item :deep(.v-list-item__spacer) {
+  display: none;
+}
 .activity-item__icon {
-  margin-right: 8px;
+  margin-right: 0;
 }
 .activity-item__doc {
   opacity: 0.7;
