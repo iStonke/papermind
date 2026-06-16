@@ -737,6 +737,7 @@ def _process_ocr_job(job_id: uuid.UUID) -> None:
                 confidence_score=confidence_score,
                 allowed_document_types=document_type_names(doc_type_vocab),
                 document_type_hints=document_type_hint_map(doc_type_vocab),
+                timeout_seconds=settings.ai_classification_timeout_seconds,
             )
             document.status = "ready"
             document.ocr_status = "done"

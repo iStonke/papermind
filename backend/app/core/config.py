@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     chunk_overlap_chars: int = Field(default=100, ge=0)
     ai_embed_timeout_seconds: float = Field(default=30.0, gt=0.0)
     ai_chat_timeout_seconds: float = Field(default=60.0, gt=0.0)
+    # KI-Klassifikation (Ollama) je Dokument: große OCR-Texte brauchen länger als
+    # die früheren 60 s. Zu knapp -> Klassifikation timeoutet und Dokument bleibt
+    # ohne Typ/Summary (ai_status='error').
+    ai_classification_timeout_seconds: float = Field(default=180.0, gt=0.0)
     retrieval_max_top_k: int = Field(default=20, ge=1, le=100)
     # HNSW-Suchbreite: höher = besserer Recall der semantischen Suche, etwas mehr
     # Latenz. Wird pro Query als `SET LOCAL hnsw.ef_search` gesetzt (Default 40).
