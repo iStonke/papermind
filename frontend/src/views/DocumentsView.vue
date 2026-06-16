@@ -9,6 +9,32 @@
       />
 
       <BaseDialog
+        v-model="isBatchCategoryDialogOpen"
+        max-width="460"
+        title="Dokumenttyp zuweisen"
+        description="Den ausgewählten Dokumenten einen Dokumenttyp zuweisen."
+        primary-text="Zuweisen"
+        secondary-text="Abbrechen"
+        :loading="isBatchCategorySaving"
+        :primary-disabled="!batchCategoryValue"
+        @primary="executeBatchCategory"
+        @close="closeBatchCategoryDialog"
+      >
+        <div class="text-body-2 mb-3">
+          {{ selectionIds.size }} {{ selectionIds.size === 1 ? 'Dokument erhält' : 'Dokumente erhalten' }} den gewählten Dokumenttyp.
+        </div>
+        <v-autocomplete
+          v-model="batchCategoryValue"
+          :items="categoryNames"
+          label="Dokumenttyp"
+          density="comfortable"
+          variant="outlined"
+          hide-details
+          clearable
+        />
+      </BaseDialog>
+
+      <BaseDialog
         v-model="isBatchTagMergeDialogOpen"
         max-width="460"
         title="Tags zusammenführen"
@@ -481,7 +507,9 @@
           <BatchActionsBar
             v-if="isSelectionMode"
             :count="selectionIds.size"
+            :actions="documentBatchActions"
             @tag="openBatchTagDialog"
+            @category="openBatchCategoryDialog"
             @delete="confirmBatchDelete"
           />
           <BatchActionsBar
@@ -738,7 +766,7 @@
                 icon="mdi-file-document-outline"
                 title="Kein Dokument ausgewählt"
                 subtitle="Wähle ein Dokument aus der Liste, um die Vorschau zu öffnen."
-                size="lg"
+                size="md"
               />
             </template>
 
@@ -1113,6 +1141,11 @@ const CATEGORY_SORT_OPTIONS = Object.freeze([
 ]);
 const CATEGORY_BATCH_ACTIONS = Object.freeze([
   { key: 'delete', label: 'Löschen', icon: 'mdi-trash-can-outline', color: 'error' }
+]);
+const DOCUMENT_BATCH_ACTIONS = Object.freeze([
+  { key: 'tag', label: 'Tags', icon: 'mdi-tag-multiple-outline' },
+  { key: 'category', label: 'Dokumenttyp', icon: 'mdi-file-document-outline' },
+  { key: 'delete', label: 'In Papierkorb', icon: 'mdi-trash-can-outline', color: 'error' }
 ]);
 
 const TAG_REPLACE_DEBOUNCE_MS = 300;
@@ -1494,6 +1527,50 @@ async function executeBatchTag(tagIdsToAdd) {
   }
 }
 
+// ── Batch Dokumenttyp-Dialog ───────────────────────────────────────────────
+const isBatchCategoryDialogOpen = ref(false);
+const isBatchCategorySaving     = ref(false);
+const batchCategoryValue        = ref(null);
+
+function openBatchCategoryDialog() {
+  if (selectionIds.value.size === 0) return;
+  batchCategoryValue.value = null;
+  void categoryStore.ensureLoaded();
+  isBatchCategoryDialogOpen.value = true;
+}
+
+function closeBatchCategoryDialog() {
+  isBatchCategoryDialogOpen.value = false;
+}
+
+async function executeBatchCategory() {
+  const value = String(batchCategoryValue.value || '').trim();
+  if (!value || selectionIds.value.size === 0) return;
+  const validationMessage = validateVocabName(value, 'Dokumenttyp');
+  if (validationMessage) {
+    notify({ type: 'warning', message: validationMessage });
+    return;
+  }
+  isBatchCategorySaving.value = true;
+  const ids = Array.from(selectionIds.value);
+  try {
+    for (const docId of ids) {
+      await docStore.patchDocument(docId, { document_type: value });
+    }
+    notify({ type: 'success', title: 'Dokumenttyp', message: `${ids.length} ${ids.length === 1 ? 'Dokument' : 'Dokumente'} aktualisiert.` });
+    isBatchCategoryDialogOpen.value = false;
+    batchCategoryValue.value = null;
+    exitSelectionMode();
+    await categoryStore.fetchCategories();
+    scheduleSidebarCountsRefresh();
+    await fetchDocuments(selectedDocumentId.value, { allowPreferredOutsideList: true });
+  } catch (error) {
+    notifyError(error, 'Dokumenttyp konnte nicht gespeichert werden.');
+  } finally {
+    isBatchCategorySaving.value = false;
+  }
+}
+
 // ── Batch Löschen ──────────────────────────────────────────────────────────
 const isBatchDeleting = ref(false);
 
@@ -1790,6 +1867,7 @@ const tagToolbarRightActions = computed(() => [
   }
 ]);
 const tagBatchActions = computed(() => TAG_BATCH_ACTIONS);
+const documentBatchActions = computed(() => DOCUMENT_BATCH_ACTIONS);
 const selectedTags = computed(() => {
   const selected = selectedTagIds.value;
   return sortedTagsByName.value.filter((tag) => selected.has(tag.id));

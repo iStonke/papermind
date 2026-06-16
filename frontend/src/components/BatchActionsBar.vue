@@ -37,13 +37,13 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['tag', 'delete', 'merge', 'action']);
+const emit = defineEmits(['tag', 'category', 'delete', 'merge', 'action']);
 
 const resolvedActions = computed(() => props.actions.filter((action) => action?.key && action?.label));
 
 function emitAction(key) {
   emit('action', key);
-  if (['tag', 'delete', 'merge'].includes(key)) {
+  if (['tag', 'category', 'delete', 'merge'].includes(key)) {
     emit(key);
   }
 }
