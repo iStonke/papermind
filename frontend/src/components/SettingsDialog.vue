@@ -337,6 +337,23 @@
 
               <div class="pm-setting-row settings-sidebar-library-row">
                 <div class="pm-setting-content">
+                  <div class="pm-setting-label">Nicht durchsuchbar</div>
+                  <div class="pm-setting-description">Bibliothek-Eintrag in der Seitenleiste anzeigen.</div>
+                </div>
+                <v-switch
+                  :model-value="settingsDraft.ui.sidebar_show_no_text"
+                  color="primary"
+                  density="comfortable"
+                  hide-details
+                  inset
+                  :loading="isSettingSaving.sidebar_show_no_text"
+                  :disabled="isSettingSaving.sidebar_show_no_text"
+                  @update:model-value="onSidebarShowNoTextChange"
+                />
+              </div>
+
+              <div class="pm-setting-row settings-sidebar-library-row">
+                <div class="pm-setting-content">
                   <div class="pm-setting-label">KI-Chat</div>
                   <div class="pm-setting-description">Bibliothek-Eintrag in der Seitenleiste anzeigen.</div>
                 </div>
@@ -1545,6 +1562,7 @@ import {
   buildTagDrawerRememberStatePatch,
   buildSidebarShowRecentPatch,
   buildSidebarShowUntaggedPatch,
+  buildSidebarShowNoTextPatch,
   buildSidebarShowChatPatch,
   buildOcrDocLangPatch,
   buildRecentImportWindowPatch,
@@ -2591,6 +2609,19 @@ async function onSidebarShowUntaggedChange(nextValue) {
     patch: buildSidebarShowUntaggedPatch(nextBool),
     controlKey: 'sidebar_show_untagged',
     revert: () => settingsStore.setDraftPatch({ ui: { sidebar_show_untagged: previous } })
+  });
+}
+
+async function onSidebarShowNoTextChange(nextValue) {
+  if (isSettingSaving.sidebar_show_no_text) return;
+  const nextBool = Boolean(nextValue);
+  if (nextBool === settingsDraft.ui.sidebar_show_no_text) return;
+  const previous = settingsDraft.ui.sidebar_show_no_text;
+  settingsStore.setDraftPatch({ ui: { sidebar_show_no_text: nextBool } });
+  await patchSettingsWithRevert({
+    patch: buildSidebarShowNoTextPatch(nextBool),
+    controlKey: 'sidebar_show_no_text',
+    revert: () => settingsStore.setDraftPatch({ ui: { sidebar_show_no_text: previous } })
   });
 }
 

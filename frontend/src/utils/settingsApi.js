@@ -26,6 +26,10 @@ export function buildSidebarShowUntaggedPatch(enabled) {
   return { ui: { sidebar_show_untagged: Boolean(enabled) } };
 }
 
+export function buildSidebarShowNoTextPatch(enabled) {
+  return { ui: { sidebar_show_no_text: Boolean(enabled) } };
+}
+
 export function buildSidebarShowChatPatch(enabled) {
   return { ui: { sidebar_show_chat: Boolean(enabled) } };
 }

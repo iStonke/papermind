@@ -39,6 +39,22 @@
             </v-list-item>
           </v-list>
         </v-menu>
+
+        <button
+          v-for="toggle in filterToggles"
+          :key="toggle.key"
+          type="button"
+          class="list-action-toolbar__action-btn list-action-toolbar__action-btn--icon"
+          :class="{ 'list-action-toolbar__action-btn--active': toggle.active }"
+          :disabled="toggle.disabled"
+          :aria-label="toggle.ariaLabel || toggle.label"
+          :aria-pressed="toggle.active == null ? undefined : String(Boolean(toggle.active))"
+          :title="toggle.ariaLabel || toggle.label"
+          @click="emit('filter-toggle', toggle.key)"
+        >
+          <v-icon v-if="toggle.icon" size="14">{{ toggle.icon }}</v-icon>
+          {{ toggle.label }}
+        </button>
       </template>
     </div>
 
@@ -48,11 +64,18 @@
         :key="action.key"
         type="button"
         class="list-action-toolbar__select-btn"
+        :class="{
+          'list-action-toolbar__select-btn--active': action.active,
+          'list-action-toolbar__select-btn--icon-only': action.iconOnly
+        }"
         :disabled="action.disabled"
+        :aria-label="action.ariaLabel || action.label"
+        :aria-pressed="action.active == null ? undefined : String(Boolean(action.active))"
+        :title="action.ariaLabel || action.label"
         @click="emit('right-action', action.key)"
       >
         <v-icon v-if="action.icon" size="14">{{ action.icon }}</v-icon>
-        {{ action.label }}
+        <span v-if="!action.iconOnly">{{ action.label }}</span>
       </button>
 
       <button
@@ -71,13 +94,14 @@
 <script setup>
 defineProps({
   actions: { type: Array, default: () => [] },
+  filterToggles: { type: Array, default: () => [] },
   rightActions: { type: Array, default: () => [] },
   selectionMode: { type: Boolean, default: false },
   selectionCount: { type: Number, default: 0 },
   selectionDisabled: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(['action-select', 'right-action', 'toggle-selection', 'select-all']);
+const emit = defineEmits(['action-select', 'filter-toggle', 'right-action', 'toggle-selection', 'select-all']);
 </script>
 
 <style scoped>
@@ -176,6 +200,24 @@ const emit = defineEmits(['action-select', 'right-action', 'toggle-selection', '
 
 .list-action-toolbar__select-btn--cancel:hover {
   background: rgba(var(--v-theme-on-surface), 0.06);
+}
+
+.list-action-toolbar__select-btn--active {
+  color: rgba(var(--v-theme-on-surface), 0.84);
+  background: rgba(var(--v-theme-on-surface), 0.1);
+}
+
+.list-action-toolbar__select-btn--active:hover {
+  background: rgba(var(--v-theme-on-surface), 0.14);
+  color: rgba(var(--v-theme-on-surface), 0.92);
+}
+
+.list-action-toolbar__select-btn--icon-only {
+  width: 26px;
+  height: 26px;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
 }
 
 .list-action-toolbar__count {

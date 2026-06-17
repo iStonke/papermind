@@ -64,6 +64,19 @@
           </SidebarItem>
 
           <SidebarItem
+            v-if="settingsStore.settings.ui.sidebar_show_no_text !== false"
+            item-class="sidebar-item--secondary"
+            :active="isViewActive('no_text')"
+            :count="noTextSidebarCount"
+            @click="emit('select-view', 'no_text')"
+          >
+            <template #icon>
+              <v-icon size="18">mdi-text-box-remove-outline</v-icon>
+            </template>
+            Nicht durchsuchbar
+          </SidebarItem>
+
+          <SidebarItem
             item-class="sidebar-item--secondary sidebar-item--trash"
             :active="isViewActive('trash')"
             :count="trashSidebarCount"
@@ -445,6 +458,7 @@ function isViewActive(viewKey) {
   if (viewKey === 'imports')   return props.activeView === 'imports';
   if (viewKey === 'untagged')  return props.activeView === 'untagged';
   if (viewKey === 'favorites') return props.activeView === 'favorites';
+  if (viewKey === 'no_text')   return props.activeView === 'no_text';
   if (viewKey === 'trash')     return props.activeView === 'trash';
   return props.activeView === viewKey;
 }
@@ -456,6 +470,7 @@ const importsSidebarCount = computed(
 );
 const untaggedSidebarCount  = computed(() => Number(sidebarCounts.value.untagged       || 0));
 const favoritesSidebarCount = computed(() => Number(sidebarCounts.value.favorites_count || 0));
+const noTextSidebarCount    = computed(() => Number(sidebarCounts.value.no_text_count   || 0));
 const trashSidebarCount     = computed(() => Number(sidebarCounts.value.trash_count     || 0));
 
 const sortedTagsByName = computed(() =>

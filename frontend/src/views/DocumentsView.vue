@@ -224,7 +224,11 @@
           </template>
         </AppSidebar>
 
-        <section class="panel panel-middle">
+        <section
+          class="panel panel-middle"
+          :class="{ 'panel-middle--tag-filter-open': showTagFilterDrawer && isTagFilterDrawerOpen }"
+          :style="tagFilterDrawerOffsetStyle"
+        >
           <div class="panel-middle__header">
             <div class="panel-middle__heading">{{ panelHeading }}</div>
             <div v-if="!isTagView && !isCategoryView && !isTrashView" class="panel-middle__actions">
@@ -406,7 +410,10 @@
               :selection-disabled="isAllDocumentsSelectionDisabled"
               :selection-ids="selectionIds"
               :current-sort="currentSort"
-              :current-status="documentListQuery.status || ''"
+              :current-date-range="currentDateRange"
+              :show-tag-filter-toggle="showTagFilterDrawer"
+              :tag-filter-drawer-open="isTagFilterDrawerOpen"
+              :bottom-spacer-height="tagFilterDocumentListSpacerHeight"
               @select-document="selectDocument"
               @download="downloadDocumentFromList"
               @rename="(doc) => renameDocumentDialogRef?.open(doc)"
@@ -420,34 +427,24 @@
               @toggle-document-selection="toggleDocumentSelection"
               @select-all="selectAllDocuments"
               @change-sort="applySort"
-              @change-status="applyStatusFilter"
+              @change-date-range="applyDateRange"
+              @toggle-tag-filter-drawer="toggleTagFilterDrawer"
             />
           </Transition>
           <Transition :name="isTagFilterDrawerAnimationReady ? 'tag-filter-drawer' : ''">
             <div
               v-if="showTagFilterDrawer"
-              class="tag-filter-drawer"
-              :class="{
-                'tag-filter-drawer--open': isTagFilterDrawerOpen,
-                'tag-filter-drawer--animate': isTagFilterDrawerAnimationReady
-              }"
+              ref="tagFilterDrawerRef"
+              class="tag-filter-drawer pm-drawer"
+              :class="[
+                isTagFilterDrawerOpen
+                  ? 'tag-filter-drawer--open pm-drawer--expanded'
+                  : 'tag-filter-drawer--closed pm-drawer--collapsed',
+                { 'tag-filter-drawer--animate': isTagFilterDrawerAnimationReady }
+              ]"
+              :aria-hidden="String(!isTagFilterDrawerOpen)"
             >
-              <button
-                type="button"
-                class="tag-filter-drawer__toggle"
-                :aria-expanded="isTagFilterDrawerOpen"
-                @click="toggleTagFilterDrawer"
-              >
-                <span class="tag-filter-drawer__title">
-                  <span>Tags</span>
-                  <span v-if="activeTagFilterCount > 0" class="tag-filter-drawer__count">
-                    {{ activeTagFilterCount }}
-                  </span>
-                </span>
-                <v-icon size="18">{{ isTagFilterDrawerOpen ? 'mdi-chevron-down' : 'mdi-chevron-up' }}</v-icon>
-              </button>
-
-              <div class="tag-filter-drawer__panel" :aria-hidden="!isTagFilterDrawerOpen">
+              <div class="tag-filter-drawer__panel">
                 <div class="tag-filter-drawer__panel-inner">
                   <div class="tag-filter-drawer__body">
                     <TransitionGroup
@@ -1104,8 +1101,8 @@ const PdfPreview = defineAsyncComponent(() => import('../components/PdfPreview.v
 const apiBaseUrl = getBaseUrl();
 
 const SETTINGS_SORT_TO_QUERY = {
-  newest: { sort: 'created_at', order: 'desc' },
-  oldest: { sort: 'created_at', order: 'asc' },
+  newest: { sort: 'document_date', order: 'desc' },
+  oldest: { sort: 'document_date', order: 'asc' },
   document_date_desc: { sort: 'document_date', order: 'desc' },
   document_date_asc: { sort: 'document_date', order: 'asc' },
   name_asc: { sort: 'name', order: 'asc' },
@@ -1162,8 +1159,9 @@ const DETAILS_DRAWER_DEFAULT_HEIGHT = 320;
 const LAST_SELECTED_DOC_KEY = 'pm.lastSelectedDocumentId';
 const DOCUMENT_TOOLBAR_STATE_KEY = 'pm.documentToolbarState';
 const TAG_TOOLBAR_STATE_KEY = 'pm.tagToolbarState';
-const DOCUMENT_TOOLBAR_VIEW_KEYS = Object.freeze(['all', 'imports', 'untagged', 'favorites', 'trash']);
+const DOCUMENT_TOOLBAR_VIEW_KEYS = Object.freeze(['all', 'imports', 'untagged', 'favorites', 'no_text', 'trash']);
 const DOCUMENT_STATUS_FILTER_VALUES = Object.freeze(['imported', 'processing', 'ready', 'failed']);
+const DOCUMENT_DATE_RANGE_VALUES = Object.freeze(['this_year', 'last_year', 'last_30_days', 'last_12_months']);
 
 function readStoredLastSelectedDocId() {
   try { return window.localStorage.getItem(LAST_SELECTED_DOC_KEY) || null; } catch { return null; }
@@ -1205,6 +1203,46 @@ function normalizeDocumentStatusFilter(value) {
   return DOCUMENT_STATUS_FILTER_VALUES.includes(key) ? key : null;
 }
 
+function normalizeDocumentDateRange(value) {
+  const key = String(value || '').trim();
+  return DOCUMENT_DATE_RANGE_VALUES.includes(key) ? key : null;
+}
+
+function toIsoDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// Übersetzt ein Zeitraum-Preset in konkrete document_date-Grenzen (lokale Zeit).
+function computeDateRangeBounds(rangeKey) {
+  const key = normalizeDocumentDateRange(rangeKey);
+  if (!key) {
+    return { dateFrom: null, dateTo: null };
+  }
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (key === 'this_year') {
+    return { dateFrom: `${today.getFullYear()}-01-01`, dateTo: `${today.getFullYear()}-12-31` };
+  }
+  if (key === 'last_year') {
+    const year = today.getFullYear() - 1;
+    return { dateFrom: `${year}-01-01`, dateTo: `${year}-12-31` };
+  }
+  if (key === 'last_30_days') {
+    const from = new Date(today);
+    from.setDate(from.getDate() - 29);
+    return { dateFrom: toIsoDate(from), dateTo: toIsoDate(today) };
+  }
+  if (key === 'last_12_months') {
+    const from = new Date(today);
+    from.setMonth(from.getMonth() - 12);
+    return { dateFrom: toIsoDate(from), dateTo: toIsoDate(today) };
+  }
+  return { dateFrom: null, dateTo: null };
+}
+
 function normalizeTagUsageFilter(value) {
   const key = String(value || '').trim();
   return TAG_USAGE_FILTER_OPTIONS.some((option) => option.value === key) ? key : 'all';
@@ -1225,8 +1263,9 @@ function readDocumentToolbarState() {
       : {};
     const sort = normalizeDocumentSortKey(entry.sort);
     const status = normalizeDocumentStatusFilter(entry.status);
-    if (sort || status) {
-      views[viewKey] = { sort, status };
+    const dateRange = normalizeDocumentDateRange(entry.dateRange);
+    if (sort || status || dateRange) {
+      views[viewKey] = { sort, status, dateRange };
     }
   }
   return { views };
@@ -1291,6 +1330,7 @@ const activeSavedSearchQuery = ref(null);
 const documentToolbarState = reactive(readDocumentToolbarState());
 const initialDocumentToolbarState = documentToolbarState.views.all || {};
 const initialDocumentSort = SETTINGS_SORT_TO_QUERY[normalizeDocumentSortKey(initialDocumentToolbarState.sort) || 'newest'];
+const initialDateRange = computeDateRangeBounds(normalizeDocumentDateRange(initialDocumentToolbarState.dateRange));
 const documentListQuery = reactive({
   q: null,
   tagId: null,
@@ -1298,8 +1338,8 @@ const documentListQuery = reactive({
   documentType: null,
   untagged: null,
   status: normalizeDocumentStatusFilter(initialDocumentToolbarState.status),
-  dateFrom: null,
-  dateTo: null,
+  dateFrom: initialDateRange.dateFrom,
+  dateTo: initialDateRange.dateTo,
   sort: initialDocumentSort.sort,
   order: initialDocumentSort.order,
   limit: 100,
@@ -1321,6 +1361,8 @@ const activeTagId = computed({
 const tagSearchText = ref('');
 const isTagFilterDrawerOpen = ref(false);
 const isTagFilterDrawerAnimationReady = ref(false);
+const tagFilterDrawerRef = ref(null);
+const tagFilterDrawerHeight = ref(0);
 const initialTagToolbarState = readTagToolbarState();
 const tagUsageFilter = ref(initialTagToolbarState.usage);
 const tagSortMode = ref(initialTagToolbarState.sort);
@@ -1409,6 +1451,13 @@ const currentSort = computed(() => {
   return entry ? entry[0] : 'newest';
 });
 
+const currentDateRange = computed(() => {
+  if (activeSavedSearchId.value) {
+    return '';
+  }
+  return resolveDocumentToolbarState(activeView.value).dateRange || '';
+});
+
 function documentToolbarViewKey(viewKey = activeView.value) {
   const normalized = String(viewKey || '').trim();
   return DOCUMENT_TOOLBAR_VIEW_KEYS.includes(normalized) ? normalized : 'all';
@@ -1417,7 +1466,7 @@ function documentToolbarViewKey(viewKey = activeView.value) {
 function documentToolbarEntry(viewKey = activeView.value) {
   const key = documentToolbarViewKey(viewKey);
   if (!documentToolbarState.views[key]) {
-    documentToolbarState.views[key] = { sort: null, status: null };
+    documentToolbarState.views[key] = { sort: null, status: null, dateRange: null };
   }
   return documentToolbarState.views[key];
 }
@@ -1428,8 +1477,9 @@ function persistDocumentToolbarState() {
       const entry = documentToolbarState.views[viewKey] || {};
       const sort = normalizeDocumentSortKey(entry.sort);
       const status = normalizeDocumentStatusFilter(entry.status);
-      if (sort || status) {
-        result[viewKey] = { sort, status };
+      const dateRange = normalizeDocumentDateRange(entry.dateRange);
+      if (sort || status || dateRange) {
+        result[viewKey] = { sort, status, dateRange };
       }
       return result;
     }, {})
@@ -1444,6 +1494,9 @@ function updateDocumentToolbarState(viewKey, patch) {
   if (Object.prototype.hasOwnProperty.call(patch, 'status')) {
     entry.status = normalizeDocumentStatusFilter(patch.status);
   }
+  if (Object.prototype.hasOwnProperty.call(patch, 'dateRange')) {
+    entry.dateRange = normalizeDocumentDateRange(patch.dateRange);
+  }
   persistDocumentToolbarState();
 }
 
@@ -1451,9 +1504,14 @@ function resolveDocumentToolbarState(viewKey = activeView.value) {
   const entry = documentToolbarState.views[documentToolbarViewKey(viewKey)] || {};
   const sortKey = normalizeDocumentSortKey(entry.sort) || appSettings.value.documents.sort_order || 'newest';
   const mapping = SETTINGS_SORT_TO_QUERY[sortKey] || SETTINGS_SORT_TO_QUERY.newest;
+  const dateRange = normalizeDocumentDateRange(entry.dateRange);
+  const { dateFrom, dateTo } = computeDateRangeBounds(dateRange);
   return {
     sortKey,
     status: normalizeDocumentStatusFilter(entry.status),
+    dateRange,
+    dateFrom,
+    dateTo,
     sort: mapping.sort,
     order: mapping.order
   };
@@ -1482,10 +1540,12 @@ function applySort(sortKey) {
   void fetchDocuments(selectedDocumentId.value);
 }
 
-function applyStatusFilter(status) {
-  const normalizedStatus = normalizeDocumentStatusFilter(status);
-  updateDocumentToolbarState(activeView.value, { status: normalizedStatus });
-  documentListQuery.status = normalizedStatus;
+function applyDateRange(rangeKey) {
+  const normalized = normalizeDocumentDateRange(rangeKey);
+  updateDocumentToolbarState(activeView.value, { dateRange: normalized });
+  const { dateFrom, dateTo } = computeDateRangeBounds(normalized);
+  documentListQuery.dateFrom = dateFrom;
+  documentListQuery.dateTo = dateTo;
   void fetchDocuments(null, { autoSelectFirst: false });
 }
 
@@ -1793,6 +1853,7 @@ const activeCategoryName = computed(() => documentListQuery.documentType || null
 const isImportsView   = computed(() => activeView.value === 'imports');
 const isUntaggedView  = computed(() => activeView.value === 'untagged');
 const isFavoritesView = computed(() => activeView.value === 'favorites');
+const isNoTextView    = computed(() => activeView.value === 'no_text');
 const isTrashView     = computed(() => activeView.value === 'trash');
 const isAllDocumentsSelectionDisabled = computed(() => {
   return activeView.value === 'all' &&
@@ -2026,6 +2087,16 @@ const visibleTagFilterOptions = computed(() => {
     .filter((tag) => tagUsageCount(tag.id, tag.usage_count ?? 0) > 0)
     .slice(0, 48);
 });
+const tagFilterDrawerOffsetStyle = computed(() => ({
+  '--tag-filter-drawer-height': showTagFilterDrawer.value && isTagFilterDrawerOpen.value
+    ? `${tagFilterDrawerHeight.value}px`
+    : '0px'
+}));
+const tagFilterDocumentListSpacerHeight = computed(() => (
+  showTagFilterDrawer.value && isTagFilterDrawerOpen.value
+    ? 20
+    : 0
+));
 const activeTagFilterName = computed(() => {
   if (!documentListQuery.tagId) {
     return '';
@@ -2105,6 +2176,13 @@ const documentListEmptyState = computed(() => {
       subtitle: 'Klicke den Stern neben einem Dokument, um es als Favorit zu markieren.'
     };
   }
+  if (isNoTextView.value) {
+    return {
+      icon: 'mdi-text-box-remove-outline',
+      title: 'Alle Dokumente sind durchsuchbar',
+      subtitle: 'Hier erscheinen Dokumente ohne erkannten Text (keine Texterkennung möglich oder ausstehend).'
+    };
+  }
   if (isTrashView.value) {
     return {
       icon: 'mdi-trash-can-outline',
@@ -2157,6 +2235,7 @@ const documentListQueryReloadKey = computed(() =>
     offset: documentListQuery.offset,
     recentImports: isImportsView.value,
     favoritesOnly: isFavoritesView.value,
+    withoutText: isNoTextView.value,
     inTrash: isTrashView.value
   })
 );
@@ -2280,9 +2359,11 @@ function updateSidebarNarrow() {
   if (sidebarNarrow.value !== nextNarrow) {
     sidebarNarrow.value = nextNarrow;
     animateSidebarRail(sidebarCollapsed.value);
+    void nextTick(measureTagFilterDrawerHeight);
     return;
   }
   sidebarNarrow.value = nextNarrow;
+  void nextTick(measureTagFilterDrawerHeight);
 }
 
 onMounted(() => window.addEventListener('resize', updateSidebarNarrow, { passive: true }));
@@ -2306,6 +2387,7 @@ const panelHeading = computed(() => {
     imports: 'Zuletzt hinzugefügt',
     untagged: 'Ohne Tags',
     favorites: 'Favoriten',
+    no_text: 'Nicht durchsuchbar',
     trash: 'Papierkorb'
   };
   return labels[activeView.value] || 'Dokumente';
@@ -2829,8 +2911,8 @@ async function openCitation(citation) {
     tagId: null,
     untagged: null,
     status: toolbarState.status,
-    dateFrom: null,
-    dateTo: null,
+    dateFrom: toolbarState.dateFrom,
+    dateTo: toolbarState.dateTo,
     sort: toolbarState.sort,
     order: toolbarState.order,
     limit: 100,
@@ -3484,6 +3566,10 @@ function buildDocumentListQuery() {
 
   if (isFavoritesView.value) {
     params.set('favorites_only', 'true');
+  }
+
+  if (isNoTextView.value) {
+    params.set('without_text', 'true');
   }
 
   return params.toString();
@@ -4245,6 +4331,8 @@ function selectView(viewKey) {
       untagged: null,
       documentType: null,
       status: toolbarState.status,
+      dateFrom: toolbarState.dateFrom,
+      dateTo: toolbarState.dateTo,
       sort: toolbarState.sort,
       order: toolbarState.order
     });
@@ -4265,6 +4353,8 @@ function selectView(viewKey) {
       tagIds: [],
       documentType: null,
       status: toolbarState.status,
+      dateFrom: toolbarState.dateFrom,
+      dateTo: toolbarState.dateTo,
       sort: toolbarState.sort,
       order: toolbarState.order,
       limit: IMPORTS_RECENT_LIMIT
@@ -4283,6 +4373,8 @@ function selectView(viewKey) {
       untagged: true,
       documentType: null,
       status: toolbarState.status,
+      dateFrom: toolbarState.dateFrom,
+      dateTo: toolbarState.dateTo,
       sort: toolbarState.sort,
       order: toolbarState.order
     });
@@ -4300,6 +4392,27 @@ function selectView(viewKey) {
       untagged: null,
       documentType: null,
       status: toolbarState.status,
+      dateFrom: toolbarState.dateFrom,
+      dateTo: toolbarState.dateTo,
+      sort: toolbarState.sort,
+      order: toolbarState.order
+    });
+    syncSearchStateToQuery({ resetOffset: false });
+    return;
+  }
+
+  if (viewKey === 'no_text') {
+    const toolbarState = resolveDocumentToolbarState('no_text');
+    activeView.value = 'no_text';
+    leaveActiveSavedSearch();
+    patchDocumentListQuery({
+      tagId: null,
+      tagIds: [],
+      untagged: null,
+      documentType: null,
+      status: toolbarState.status,
+      dateFrom: toolbarState.dateFrom,
+      dateTo: toolbarState.dateTo,
       sort: toolbarState.sort,
       order: toolbarState.order
     });
@@ -4317,6 +4430,8 @@ function selectView(viewKey) {
       untagged: null,
       documentType: null,
       status: toolbarState.status,
+      dateFrom: toolbarState.dateFrom,
+      dateTo: toolbarState.dateTo,
       sort: toolbarState.sort,
       order: toolbarState.order
     });
@@ -4758,6 +4873,21 @@ function toggleTagFilterDrawer() {
   if (settingsStore.settings.ui.tagDrawerRememberState) {
     settingsStore.persistTagDrawerExpanded(isTagFilterDrawerOpen.value);
   }
+  void nextTick(measureTagFilterDrawerHeight);
+}
+
+function measureTagFilterDrawerHeight() {
+  if (!showTagFilterDrawer.value || !isTagFilterDrawerOpen.value) {
+    tagFilterDrawerHeight.value = 0;
+    return;
+  }
+  const drawer = tagFilterDrawerRef.value;
+  if (!drawer) {
+    tagFilterDrawerHeight.value = 0;
+    return;
+  }
+  const viewportCap = Math.round(Math.min(window.innerHeight * 0.32, 244));
+  tagFilterDrawerHeight.value = Math.min(Math.ceil(drawer.scrollHeight), viewportCap);
 }
 
 function applyTagFilters(tagIds) {
@@ -5364,6 +5494,14 @@ watch(
     }
     settingsStore.persistTagDrawerExpanded(isTagFilterDrawerOpen.value);
   }
+);
+
+watch(
+  [showTagFilterDrawer, isTagFilterDrawerOpen, visibleTagFilterOptions],
+  () => {
+    void nextTick(measureTagFilterDrawerHeight);
+  },
+  { flush: 'post' }
 );
 
 onBeforeUnmount(() => {
@@ -6139,80 +6277,61 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   position: relative;
   z-index: 4;
-  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.1);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.08)),
-    rgba(var(--v-theme-surface), 0.54);
-  backdrop-filter: blur(22px) saturate(1.12);
-  -webkit-backdrop-filter: blur(22px) saturate(1.12);
-  box-shadow:
-    0 -1px 0 rgba(255, 255, 255, 0.72) inset,
-    0 -10px 28px rgba(15, 23, 42, 0.1);
-  transform-origin: bottom center;
-}
-
-.tag-filter-drawer__toggle {
-  width: 100%;
-  min-height: 36px;
-  border: none;
-  background: transparent;
-  color: rgba(var(--v-theme-on-surface), 0.72);
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  font-size: 0.84rem;
-  font-weight: 700;
-  cursor: pointer;
+  flex-direction: column;
+  overflow: hidden;
+  height: auto;
+  max-height: 0;
+  border-top: 1px solid var(--pm-drawer-border-collapsed, rgb(var(--v-theme-on-surface) / 0.12));
+  background: var(--pm-drawer-bg-collapsed, rgb(var(--v-theme-surface) / 0.6));
+  transform-origin: bottom center;
+  transition:
+    max-height 200ms ease-out,
+    margin-top 200ms ease-out,
+    background-color 200ms ease-out,
+    border-color 200ms ease-out;
+  will-change: max-height, margin-top;
 }
 
-.tag-filter-drawer__toggle:hover {
-  color: rgba(var(--v-theme-on-surface), 0.92);
+.tag-filter-drawer--open {
+  max-height: min(32vh, 244px);
+  background: rgba(255, 255, 255, 0.64);
+  border-top-color: var(--pm-drawer-border-expanded, rgb(var(--v-theme-on-surface) / 0.16));
+  backdrop-filter: blur(var(--pm-drawer-blur-collapsed, 11px)) saturate(1.05);
+  -webkit-backdrop-filter: blur(var(--pm-drawer-blur-collapsed, 11px)) saturate(1.05);
+  box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.08);
+  pointer-events: auto;
 }
 
-.tag-filter-drawer__title {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  line-height: 1;
-}
-
-.tag-filter-drawer__count {
-  min-width: 17px;
-  height: 17px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: rgba(var(--v-theme-on-surface), 0.1);
-  color: rgba(var(--v-theme-on-surface), 0.62);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.7rem;
-  line-height: 1;
+.tag-filter-drawer--closed {
+  max-height: 0;
+  border-top-color: transparent;
+  background: var(--pm-drawer-bg-collapsed, rgb(var(--v-theme-surface) / 0.6));
+  backdrop-filter: blur(var(--pm-drawer-blur-collapsed, 11px)) saturate(1.05);
+  -webkit-backdrop-filter: blur(var(--pm-drawer-blur-collapsed, 11px)) saturate(1.05);
+  box-shadow: none;
+  pointer-events: none;
 }
 
 .tag-filter-drawer__body {
-  padding: 0 18px 10px;
+  min-height: 0;
+  padding: 10px 18px;
 }
 
 .tag-filter-drawer__panel {
-  display: grid;
-  grid-template-rows: 0fr;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: hidden;
   opacity: 0;
-  transform: translateY(8px);
 }
 
 .tag-filter-drawer--animate .tag-filter-drawer__panel {
-  transition:
-    grid-template-rows 0.24s cubic-bezier(0.4, 0, 0.2, 1),
-    opacity 0.2s ease,
-    transform 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity 160ms ease-out;
 }
 
 .tag-filter-drawer--open .tag-filter-drawer__panel {
-  grid-template-rows: 1fr;
   opacity: 1;
-  transform: translateY(0);
+  overflow-y: auto;
 }
 
 .tag-filter-drawer__panel-inner {
@@ -6225,7 +6344,7 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 7px;
   justify-content: center;
-  max-height: min(24vh, 190px);
+  max-height: calc(min(32vh, 244px) - 20px);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 6px 10px 10px;
@@ -6768,6 +6887,9 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 14px;
+  background: rgba(var(--v-theme-surface), 0.68);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--pm-divider);
 }
 
@@ -7032,6 +7154,7 @@ onBeforeUnmount(() => {
 .panel-middle {
   position: relative;
   background: var(--pm-content-surface);
+  --tag-filter-drawer-gap: 20px;
   /* Eigene Spalten-Layout-Steuerung: View scrollt intern, Drawer bleibt Footer.
      Überschreibt das overflow-y:auto von .panel, damit der Panel-Container nicht
      als Ganzes scrollt (sonst würde der Tag-Filter-Drawer zusätzliche Scrollhöhe
@@ -7048,6 +7171,11 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   position: relative;
   width: 100%;
+  box-sizing: border-box;
+}
+
+.panel-middle--tag-filter-open .panel-middle__view {
+  scroll-padding-bottom: calc(var(--tag-filter-drawer-height, 0px) + var(--tag-filter-drawer-gap));
 }
 
 .panel-right {
@@ -7486,12 +7614,10 @@ onBeforeUnmount(() => {
 
 /* Tag-Schublade im Darkmode: flache Oberfläche wie die Detailschublade,
    kein heller Farbverlauf und keine hellen Glanzkanten. */
-.papermind-app.v-theme--dark .tag-filter-drawer {
+.papermind-app.v-theme--dark .tag-filter-drawer--open {
   border-top: 1px solid var(--pm-drawer-border-expanded);
-  background: var(--pm-drawer-bg-expanded);
-  backdrop-filter: blur(var(--pm-drawer-blur-expanded)) saturate(1.05);
-  -webkit-backdrop-filter: blur(var(--pm-drawer-blur-expanded)) saturate(1.05);
-  box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.3);
+  background: rgba(20, 27, 40, 0.72);
+  box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.08);
 }
 
 .papermind-app.v-theme--dark .list-toolbar__search .v-field,

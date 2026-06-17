@@ -1247,6 +1247,7 @@ class DocumentService:
         recent_imports: bool,
         in_trash: bool = False,
         favorites_only: bool = False,
+        without_text: bool = False,
         document_type: str | None = None,
     ):
         # Papierkorb-Filter: standardmäßig gelöschte Dokumente ausblenden
@@ -1257,6 +1258,10 @@ class DocumentService:
 
         if favorites_only:
             stmt = stmt.where(Document.is_favorite.is_(True))
+
+        # Dokumente ohne durchsuchbaren Text (weder eingebettet noch per OCR erkannt)
+        if without_text:
+            stmt = stmt.where(Document.text_source == "none")
 
         normalized_tag_ids = list(dict.fromkeys(tag_ids or []))
 
@@ -1372,6 +1377,7 @@ class DocumentService:
         offset: int,
         in_trash: bool = False,
         favorites_only: bool = False,
+        without_text: bool = False,
         document_type: str | None = None,
     ) -> DocumentListResponse:
         if date_from and date_to and date_from > date_to:
@@ -1392,6 +1398,7 @@ class DocumentService:
             recent_imports,
             in_trash=in_trash,
             favorites_only=favorites_only,
+            without_text=without_text,
             document_type=document_type,
         )
         fts_config = settings.fts_regconfig

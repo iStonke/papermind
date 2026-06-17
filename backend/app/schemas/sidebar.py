@@ -15,6 +15,7 @@ class SidebarCountsResponse(BaseModel):
     unread_total: int = 0
     tags_total: int = 0
     favorites_count: int = 0
+    no_text_count: int = 0
     trash_count: int = 0
     imports: SidebarImportsCounts = Field(default_factory=SidebarImportsCounts)
     tags: dict[str, int] = Field(default_factory=dict)

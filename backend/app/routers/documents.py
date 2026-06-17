@@ -61,6 +61,10 @@ def list_documents(
     ),
     in_trash: bool = Query(default=False, description="Show documents in trash (is_deleted=true)"),
     favorites_only: bool = Query(default=False, description="Show only favorite documents"),
+    without_text: bool = Query(
+        default=False,
+        description="Show only documents without searchable text (text_source = none)",
+    ),
     sort: DocumentSortField = Query(default=DocumentSortField.created_at, description="Sort field"),
     order: SortOrder = Query(default=SortOrder.desc, description="Sort order"),
     limit: int = Query(default=20, ge=1, le=100, description="Page size"),
@@ -81,6 +85,7 @@ def list_documents(
         recent_imports=recent_imports,
         in_trash=in_trash,
         favorites_only=favorites_only,
+        without_text=without_text,
         sort=sort,
         order=order,
         limit=limit,

@@ -154,6 +154,7 @@ class UISettingsRead(BaseModel):
     tagDrawerRememberState: bool = True
     sidebar_show_recent: bool = True
     sidebar_show_untagged: bool = True
+    sidebar_show_no_text: bool = True
     sidebar_show_chat: bool = True
     sidebar_sections: list[SidebarSectionConfig] = Field(default_factory=_default_sidebar_sections)
     # Max. Anzahl der Quicklinks pro Sektion in der Seitenleiste (0 = nur „Alle …").
@@ -266,6 +267,7 @@ class UISettingsPatch(BaseModel):
     tagDrawerRememberState: bool | None = None
     sidebar_show_recent: bool | None = None
     sidebar_show_untagged: bool | None = None
+    sidebar_show_no_text: bool | None = None
     sidebar_show_chat: bool | None = None
     sidebar_sections: list[SidebarSectionConfig] | None = None
     sidebar_max_tags: int | None = Field(default=None, ge=0, le=50)

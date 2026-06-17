@@ -224,6 +224,13 @@ class SidebarService:
         )
         untagged_count = int(self.db.scalar(untagged_stmt) or 0)
 
+        no_text_count = int(
+            self.db.scalar(
+                select(func.count(Document.id)).where(active_doc, Document.text_source == "none")
+            )
+            or 0
+        )
+
         tag_counts = {
             str(row.tag_id): int(row.doc_count or 0)
             for row in self.db.execute(
@@ -255,6 +262,7 @@ class SidebarService:
             unread_total=unread_total,
             tags_total=tags_total,
             favorites_count=favorites_count,
+            no_text_count=no_text_count,
             trash_count=trash_count,
             imports=imports,
             tags=tag_counts,

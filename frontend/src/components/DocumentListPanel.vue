@@ -9,10 +9,12 @@
     <ListActionToolbar
       v-if="!isTrashView && !isImportsView"
       :actions="toolbarActions"
+      :filter-toggles="toolbarFilterToggles"
       :selection-mode="isSelectionMode"
       :selection-count="selectionIds.size"
       :selection-disabled="selectionDisabled"
       @action-select="handleToolbarAction"
+      @filter-toggle="handleToolbarFilterToggle"
       @toggle-selection="emit('toggle-selection-mode')"
       @select-all="emit('select-all')"
     />
@@ -53,7 +55,12 @@
             />
           </div>
 
-          <div v-else key="documents" class="document-list document-list-state">
+          <div
+            v-else
+            key="documents"
+            class="document-list document-list-state"
+            :class="{ 'document-list--with-bottom-spacer': bottomSpacerHeight > 0 }"
+          >
             <div
               v-for="document in documents"
               :key="document.id"
@@ -212,6 +219,12 @@
                 </div>
               </div>
             </div>
+            <div
+              v-if="bottomSpacerHeight > 0"
+              class="document-list__bottom-spacer"
+              :style="{ height: `${bottomSpacerHeight}px` }"
+              aria-hidden="true"
+            />
           </div>
         </Transition>
       </div>
@@ -236,12 +249,12 @@ const SORT_OPTIONS = [
   { value: 'favorites',   label: 'Favoriten zuerst' },
 ];
 
-const STATUS_OPTIONS = [
-  { value: '',           label: 'Alle Status' },
-  { value: 'ready',      label: 'Bereit' },
-  { value: 'processing', label: 'Verarbeitung' },
-  { value: 'imported',   label: 'Importiert' },
-  { value: 'failed',     label: 'Fehler' },
+const DATE_RANGE_OPTIONS = [
+  { value: '',               label: 'Alle Zeiträume' },
+  { value: 'this_year',      label: 'Dieses Jahr' },
+  { value: 'last_year',      label: 'Letztes Jahr' },
+  { value: 'last_30_days',   label: 'Letzte 30 Tage' },
+  { value: 'last_12_months', label: 'Letzte 12 Monate' },
 ];
 import { storeToRefs } from 'pinia';
 import { useDocumentStore } from '../stores/documents.js';
@@ -266,7 +279,10 @@ const props = defineProps({
   selectionDisabled:          { type: Boolean, default: false },
   selectionIds:               { type: Set,     default: () => new Set() },
   currentSort:                { type: String,  default: 'newest' },
-  currentStatus:              { type: String,  default: '' },
+  currentDateRange:           { type: String,  default: '' },
+  showTagFilterToggle:        { type: Boolean, default: false },
+  tagFilterDrawerOpen:        { type: Boolean, default: false },
+  bottomSpacerHeight:         { type: Number,  default: 0 },
 });
 
 const emit = defineEmits([
@@ -283,7 +299,8 @@ const emit = defineEmits([
   'toggle-document-selection',
   'select-all',
   'change-sort',
-  'change-status',
+  'change-date-range',
+  'toggle-tag-filter-drawer',
 ]);
 
 // ── Stores ─────────────────────────────────────────────────────────────────
@@ -294,8 +311,8 @@ const authStore     = useAuthStore();
 const { documents, selectedDocumentId } = storeToRefs(docStore);
 const showPdfSuffixComputed = computed(() => settingsStore.settingsDraft?.ui?.showFilenameSuffix ?? false);
 
-const sortLabel   = computed(() => SORT_OPTIONS.find(o => o.value === props.currentSort)?.label ?? 'Sortierung');
-const statusLabel = computed(() => STATUS_OPTIONS.find(o => o.value === props.currentStatus)?.label ?? 'Status');
+const sortLabel      = computed(() => SORT_OPTIONS.find(o => o.value === props.currentSort)?.label ?? 'Sortierung');
+const dateRangeLabel = computed(() => DATE_RANGE_OPTIONS.find(o => o.value === props.currentDateRange)?.label ?? 'Zeitraum');
 const toolbarActions = computed(() => [
   {
     key: 'sort',
@@ -306,15 +323,29 @@ const toolbarActions = computed(() => [
     minWidth: 190
   },
   {
-    key: 'status',
-    icon: 'mdi-filter-variant',
-    label: statusLabel.value,
-    value: props.currentStatus,
-    active: Boolean(props.currentStatus),
-    options: STATUS_OPTIONS,
-    minWidth: 170
+    key: 'dateRange',
+    icon: 'mdi-calendar-range',
+    label: dateRangeLabel.value,
+    value: props.currentDateRange,
+    active: Boolean(props.currentDateRange),
+    options: DATE_RANGE_OPTIONS,
+    minWidth: 180
   }
 ]);
+const toolbarFilterToggles = computed(() => {
+  if (!props.showTagFilterToggle) {
+    return [];
+  }
+  return [
+    {
+      key: 'tagFilter',
+      icon: 'mdi-tag-multiple-outline',
+      label: 'Tags',
+      ariaLabel: props.tagFilterDrawerOpen ? 'Tag-Filter ausblenden' : 'Tag-Filter einblenden',
+      active: props.tagFilterDrawerOpen
+    }
+  ];
+});
 
 // ── Refs ───────────────────────────────────────────────────────────────────
 const thumbnailErrorMap = ref({});
@@ -334,8 +365,14 @@ function handleToolbarAction({ action, value }) {
     emit('change-sort', value);
     return;
   }
-  if (action === 'status') {
-    emit('change-status', value);
+  if (action === 'dateRange') {
+    emit('change-date-range', value);
+  }
+}
+
+function handleToolbarFilterToggle(action) {
+  if (action === 'tagFilter') {
+    emit('toggle-tag-filter-drawer');
   }
 }
 
@@ -626,5 +663,14 @@ function onListDrop(event) {
 .document-row__meta-line {
   display: flex;
   width: 100%;
+}
+
+.document-list__bottom-spacer {
+  flex: 0 0 auto;
+  pointer-events: none;
+}
+
+.document-list--with-bottom-spacer {
+  flex: 0 0 auto;
 }
 </style>
