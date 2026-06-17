@@ -278,7 +278,10 @@ onBeforeUnmount(() => {
 <style scoped>
 .pm-dialog {
   border-radius: 24px;
-  background: rgb(var(--v-theme-surface));
+  /* Angehobene Ebene: reines Weiß (Light) bzw. Card-Fläche (Dark), damit der
+     Dialog sich klar vom getönten App-Hintergrund abhebt. surface-2 wird – anders
+     als die --pm-* Variablen – auch im teleportierten Overlay korrekt aufgelöst. */
+  background: rgb(var(--v-theme-surface-2, var(--v-theme-surface)));
   border: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
   outline: none;
   box-shadow: var(--pm-shadow, 0 10px 30px rgba(15, 23, 42, 0.12));

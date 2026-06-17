@@ -43,11 +43,12 @@ defineProps({
      Badge sitzt am Kartenrand), unten = margin-bottom (12px). */
   margin: 0 0 12px;
   padding-bottom: 14px;
-  background: rgb(var(--v-theme-surface));
+  /* Muss zur angehobenen Dialogfläche passen (BaseDialog nutzt surface-2). */
+  background: rgb(var(--v-theme-surface-2, var(--v-theme-surface)));
   border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.1);
   /* Deckt den Panel-Innenabstand oberhalb der Karte ab, damit beim Scrollen
      kein Inhalt darüber durchscheint. */
-  box-shadow: 0 -16px 0 rgb(var(--v-theme-surface));
+  box-shadow: 0 -16px 0 rgb(var(--v-theme-surface-2, var(--v-theme-surface)));
 }
 .settings-info-card__badge {
   width: 48px;

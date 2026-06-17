@@ -4936,7 +4936,7 @@ function measureTagFilterDrawerHeight() {
     tagFilterDrawerHeight.value = 0;
     return;
   }
-  const viewportCap = Math.round(Math.min(window.innerHeight * 0.32, 244));
+  const viewportCap = Math.round(Math.min(window.innerHeight * 0.40, 320));
   tagFilterDrawerHeight.value = Math.min(Math.ceil(drawer.scrollHeight), viewportCap);
 }
 
@@ -6344,7 +6344,7 @@ onBeforeUnmount(() => {
 }
 
 .tag-filter-drawer--open {
-  max-height: min(32vh, 244px);
+  max-height: min(40vh, 320px);
   background: rgba(255, 255, 255, 0.64);
   border-top-color: var(--pm-drawer-border-expanded, rgb(var(--v-theme-on-surface) / 0.16));
   backdrop-filter: blur(var(--pm-drawer-blur-collapsed, 11px)) saturate(1.05);
@@ -6366,6 +6366,9 @@ onBeforeUnmount(() => {
 .tag-filter-drawer__body {
   min-height: 0;
   padding: 10px 18px;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
 }
 
 .tag-filter-drawer__panel {
@@ -6373,6 +6376,8 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow: hidden;
   opacity: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .tag-filter-drawer--animate .tag-filter-drawer__panel {
@@ -6381,20 +6386,24 @@ onBeforeUnmount(() => {
 
 .tag-filter-drawer--open .tag-filter-drawer__panel {
   opacity: 1;
-  overflow-y: auto;
 }
 
 .tag-filter-drawer__panel-inner {
   min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
 }
 
+/* Nur die Chip-Fläche scrollt; der Footer bleibt dadurch immer sichtbar. */
 .tag-filter-drawer__chips {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
   justify-content: center;
-  max-height: calc(min(32vh, 244px) - 20px);
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 6px 10px 10px;
@@ -6508,6 +6517,8 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: center;
   gap: 8px;
+  flex: 0 0 auto;
+  width: 100%;
   max-width: 980px;
   margin: 2px auto 0;
   padding: 0 10px;
