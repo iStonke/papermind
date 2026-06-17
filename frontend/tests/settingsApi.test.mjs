@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildAutoOpenImportInboxPatch,
   buildAutoOcrPatch,
   buildAutoTaggingPatch,
   buildColorVariantPatch,
@@ -32,6 +33,12 @@ test("buildAutoOcrPatch returns expected payload", () => {
 test("buildAutoTaggingPatch returns expected payload", () => {
   assert.deepEqual(buildAutoTaggingPatch(true), {
     documents: { auto_tagging: true },
+  });
+});
+
+test("buildAutoOpenImportInboxPatch returns expected payload", () => {
+  assert.deepEqual(buildAutoOpenImportInboxPatch(true), {
+    documents: { auto_open_import_inbox: true },
   });
 });
 

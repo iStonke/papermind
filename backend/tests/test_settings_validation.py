@@ -39,6 +39,10 @@ class SettingsValidationTest(unittest.TestCase):
         payload = AppSettingsPatch.model_validate({"documents": {"recent_import_window_hours": 48}})
         self.assertEqual(payload.documents.recent_import_window_hours, 48)
 
+    def test_auto_open_import_inbox_accepts_boolean_value(self) -> None:
+        payload = AppSettingsPatch.model_validate({"documents": {"auto_open_import_inbox": True}})
+        self.assertIs(payload.documents.auto_open_import_inbox, True)
+
     def test_recent_import_window_hours_rejects_invalid_value(self) -> None:
         with self.assertRaises(ValidationError):
             AppSettingsPatch.model_validate({"documents": {"recent_import_window_hours": 0}})
@@ -63,6 +67,7 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertEqual(payload.ui.color_variant.value, "teal")
         self.assertIs(payload.ui.drawerRememberState, True)
         self.assertIs(payload.ui.tagDrawerRememberState, True)
+        self.assertIs(payload.documents.auto_open_import_inbox, False)
         self.assertEqual(payload.documents.recent_import_window_hours, 24)
 
     def test_llm_system_prompt_rejects_too_short(self) -> None:

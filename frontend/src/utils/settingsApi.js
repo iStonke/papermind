@@ -102,6 +102,10 @@ export function buildOcrBackfillEnabledPatch(enabled) {
   return { documents: { ocr_backfill_enabled: Boolean(enabled) } };
 }
 
+export function buildAutoOpenImportInboxPatch(enabled) {
+  return { documents: { auto_open_import_inbox: Boolean(enabled) } };
+}
+
 export function buildSortOrderPatch(sortOrder) {
   return { documents: { sort_order: sortOrder } };
 }

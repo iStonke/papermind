@@ -381,6 +381,32 @@
               subtitle="Aufbewahrung, Zeiträume und Aufräum-Funktionen deiner Dokumente."
             />
 
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleAutoOpenImportInboxFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleAutoOpenImportInboxFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Importfenster bei neuen Scans öffnen</div>
+                <div class="pm-setting-description">
+                  Öffnet automatisch den Importdialog, sobald neue Scans im Posteingang erkannt werden.
+                </div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.documents.auto_open_import_inbox"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.auto_open_import_inbox"
+                :disabled="isSettingSaving.auto_open_import_inbox"
+                @click.stop
+                @update:model-value="onAutoOpenImportInboxChange"
+              />
+            </div>
+
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Zeitraum für „Zuletzt hinzugefügt"</div>
@@ -1554,6 +1580,7 @@ import {
 } from '../api/correspondents';
 import { SHORTCUT_ACTIONS, SHORTCUTS, handleShortcut } from '../keyboard/shortcuts';
 import {
+  buildAutoOpenImportInboxPatch,
   buildAutoOcrPatch,
   buildAutoTaggingPatch,
   buildOcrBackfillEnabledPatch,
@@ -2352,6 +2379,23 @@ async function onOcrBackfillEnabledChange(nextValue) {
 function toggleOcrBackfillFromRow() {
   if (isSettingSaving.ocr_backfill_enabled) return;
   void onOcrBackfillEnabledChange(!settingsDraft.documents.ocr_backfill_enabled);
+}
+
+async function onAutoOpenImportInboxChange(nextValue) {
+  const nextBool = Boolean(nextValue);
+  if (nextBool === settingsDraft.documents.auto_open_import_inbox) return;
+  const previous = settingsDraft.documents.auto_open_import_inbox;
+  settingsStore.setDraftPatch({ documents: { auto_open_import_inbox: nextBool } });
+  await patchSettingsWithRevert({
+    patch: buildAutoOpenImportInboxPatch(nextBool),
+    controlKey: 'auto_open_import_inbox',
+    revert: () => settingsStore.setDraftPatch({ documents: { auto_open_import_inbox: previous } })
+  });
+}
+
+function toggleAutoOpenImportInboxFromRow() {
+  if (isSettingSaving.auto_open_import_inbox) return;
+  void onAutoOpenImportInboxChange(!settingsDraft.documents.auto_open_import_inbox);
 }
 
 // ── Ollama ───────────────────────────────────────────────────────────────────

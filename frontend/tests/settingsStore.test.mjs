@@ -62,3 +62,14 @@ test("normalizeSettingsPayload falls back to default color variant", () => {
 
   assert.equal(normalized.ui.color_variant, "teal");
 });
+
+test("normalizeSettingsPayload preserves auto-open import inbox setting", () => {
+  setActivePinia(createPinia());
+  const store = useSettingsStore();
+
+  const normalized = store.normalizeSettingsPayload({
+    documents: { auto_open_import_inbox: true },
+  });
+
+  assert.equal(normalized.documents.auto_open_import_inbox, true);
+});

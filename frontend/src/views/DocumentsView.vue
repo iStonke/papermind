@@ -1408,6 +1408,9 @@ const isMinimizingImport = ref(false);
 const isDocumentListSettling = ref(false);
 let documentListSettleTimer = null;
 const notifiedOcrQualityKeys = new Set();
+let hasCompletedInitialImportInboxRefresh = false;
+let knownImportInboxItemIds = new Set();
+let isAutoOpeningImportInbox = false;
 
 // ── Batch-Auswahl ──────────────────────────────────────────────────────────
 const isSelectionMode = ref(false);
@@ -2435,14 +2438,55 @@ function normalizeImportInboxItems(payload) {
     );
 }
 
-async function refreshImportInbox({ silent = true } = {}) {
+function buildImportInboxItemIdSet(items) {
+  return new Set(
+    (Array.isArray(items) ? items : [])
+      .map((item) => String(item?.id || '').trim())
+      .filter(Boolean)
+  );
+}
+
+function shouldAutoOpenImportInbox(nextItems, newItemIds) {
+  return Boolean(settingsStore.settings?.documents?.auto_open_import_inbox) &&
+    Array.isArray(nextItems) &&
+    nextItems.length > 0 &&
+    newItemIds.length > 0 &&
+    !isUploadDialogOpen.value &&
+    !isImportTrayVisible.value &&
+    activeImportInboxItemIds.value.size === 0 &&
+    !isClaimingImportInbox.value &&
+    !isAutoOpeningImportInbox;
+}
+
+async function autoOpenImportInboxScans() {
+  isAutoOpeningImportInbox = true;
+  try {
+    await openImportInboxScans({ refresh: false });
+  } finally {
+    isAutoOpeningImportInbox = false;
+  }
+}
+
+async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) {
   if (isImportInboxLoading.value) {
     return;
   }
   isImportInboxLoading.value = true;
+  let shouldAutoOpen = false;
   try {
     const payload = await getImportInbox({ limit: 50 });
-    importInboxItems.value = normalizeImportInboxItems(payload);
+    const nextItems = normalizeImportInboxItems(payload);
+    const nextItemIds = buildImportInboxItemIdSet(nextItems);
+    const newItemIds = [...nextItemIds].filter((itemId) => !knownImportInboxItemIds.has(itemId));
+    importInboxItems.value = nextItems;
+    knownImportInboxItemIds = nextItemIds;
+
+    if (!hasCompletedInitialImportInboxRefresh) {
+      hasCompletedInitialImportInboxRefresh = true;
+      return;
+    }
+
+    shouldAutoOpen = allowAutoOpen && shouldAutoOpenImportInbox(nextItems, newItemIds);
   } catch (error) {
     if (!silent) {
       notify({ type: 'error', message: mapApiError(error, 'Neue Scans konnten nicht geladen werden.') });
@@ -2450,20 +2494,26 @@ async function refreshImportInbox({ silent = true } = {}) {
   } finally {
     isImportInboxLoading.value = false;
   }
+
+  if (shouldAutoOpen) {
+    await autoOpenImportInboxScans();
+  }
 }
 
 function startImportInboxPolling() {
   if (importInboxPollTimer) {
     window.clearInterval(importInboxPollTimer);
   }
-  void refreshImportInbox({ silent: true });
+  void refreshImportInbox({ silent: true, allowAutoOpen: false });
   importInboxPollTimer = window.setInterval(() => {
     void refreshImportInbox({ silent: true });
   }, 7000);
 }
 
-async function openImportInboxScans() {
-  await refreshImportInbox({ silent: false });
+async function openImportInboxScans({ refresh = true } = {}) {
+  if (refresh) {
+    await refreshImportInbox({ silent: false, allowAutoOpen: false });
+  }
   const items = importInboxItems.value.slice();
   if (items.length === 0) {
     notify({ type: 'info', message: 'Keine neuen Scans verfügbar.' });
@@ -2518,7 +2568,7 @@ async function claimActiveImportInboxItems() {
       nextSuppressed.delete(itemId);
     }
     importInboxSuppressedItemIds.value = nextSuppressed;
-    await refreshImportInbox({ silent: true });
+    await refreshImportInbox({ silent: true, allowAutoOpen: false });
   } catch (error) {
     notify({ type: 'warning', message: mapApiError(error, 'Import-Inbox konnte nicht aktualisiert werden.') });
   } finally {
@@ -2555,7 +2605,7 @@ async function onImportSourcesDiscarded(payload = {}) {
 
   try {
     await discardImportInboxItems(itemIds);
-    await refreshImportInbox({ silent: true });
+    await refreshImportInbox({ silent: true, allowAutoOpen: false });
   } catch (error) {
     notify({ type: 'warning', message: mapApiError(error, 'Gelöschte SMB-Scans konnten nicht endgültig gelöscht werden.') });
   }
@@ -2593,7 +2643,7 @@ watch(isUploadDialogOpen, async (open) => {
   );
   if (!confirmed) {
     // Behalten: Scans wandern zurück in den Posteingang.
-    await refreshImportInbox({ silent: true });
+    await refreshImportInbox({ silent: true, allowAutoOpen: false });
     return;
   }
   try {
@@ -2601,7 +2651,7 @@ watch(isUploadDialogOpen, async (open) => {
   } catch (error) {
     notify({ type: 'warning', message: mapApiError(error, 'Verworfene Scans konnten nicht gelöscht werden.') });
   }
-  await refreshImportInbox({ silent: true });
+  await refreshImportInbox({ silent: true, allowAutoOpen: false });
 });
 
 // ── Navigation ────────────────────────────────────────────────────────────
