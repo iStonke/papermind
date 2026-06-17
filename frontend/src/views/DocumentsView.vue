@@ -6682,9 +6682,30 @@ onBeforeUnmount(() => {
   flex: 0 0 220px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 16px;
   padding: 20px 16px 20px 18px;
   overflow-y: auto;
+}
+
+.pm-settings-nav__group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pm-settings-nav__group + .pm-settings-nav__group {
+  padding-top: 14px;
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+}
+
+.pm-settings-nav__group-label {
+  padding: 0 14px 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: rgba(var(--v-theme-on-surface), 0.46);
 }
 
 .pm-settings-nav__item {
@@ -6765,10 +6786,27 @@ onBeforeUnmount(() => {
     flex: 0 0 auto;
     flex-direction: row;
     flex-wrap: wrap;
+    gap: 12px;
     width: 100%;
     overflow: visible;
     padding: 16px 16px 12px;
     border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+  }
+
+  .pm-settings-nav__group {
+    flex: 1 1 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .pm-settings-nav__group + .pm-settings-nav__group {
+    padding-top: 10px;
+  }
+
+  .pm-settings-nav__group-label {
+    flex: 1 1 100%;
+    padding: 0 4px 2px;
   }
 
   .pm-settings-nav__item {

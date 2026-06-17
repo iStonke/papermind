@@ -21,19 +21,26 @@
     <template v-else>
       <div class="pm-settings-layout">
         <nav class="pm-settings-nav" role="tablist" aria-label="Einstellungskategorien">
-          <button
-            v-for="cat in visibleCategories"
-            :key="`cat-${cat.value}`"
-            type="button"
-            class="pm-settings-nav__item"
-            :class="{ 'pm-settings-nav__item--active': activeCategory === cat.value }"
-            role="tab"
-            :aria-selected="activeCategory === cat.value"
-            @click="activeCategory = cat.value"
+          <div
+            v-for="group in visibleCategoryGroups"
+            :key="`settings-group-${group.key}`"
+            class="pm-settings-nav__group"
           >
-            <v-icon size="18" class="pm-settings-nav__icon">{{ cat.icon }}</v-icon>
-            <span>{{ cat.label }}</span>
-          </button>
+            <div class="pm-settings-nav__group-label">{{ group.label }}</div>
+            <button
+              v-for="cat in group.items"
+              :key="`cat-${cat.value}`"
+              type="button"
+              class="pm-settings-nav__item"
+              :class="{ 'pm-settings-nav__item--active': activeCategory === cat.value }"
+              role="tab"
+              :aria-selected="activeCategory === cat.value"
+              @click="activeCategory = cat.value"
+            >
+              <v-icon size="18" class="pm-settings-nav__icon">{{ cat.icon }}</v-icon>
+              <span>{{ cat.label }}</span>
+            </button>
+          </div>
         </nav>
 
         <div class="pm-settings-panel">
@@ -376,9 +383,113 @@
         <section v-show="activeCategory === 'documents'" class="pm-settings-section">
           <div class="pm-settings-content">
             <SettingsInfoCard
-              icon="mdi-file-document-outline"
-              title="Dokumente"
-              subtitle="Aufbewahrung, Zeiträume und Aufräum-Funktionen deiner Dokumente."
+              icon="mdi-archive-outline"
+              title="Bibliothek"
+              subtitle="Listenansichten, Papierkorb und Datenpflege."
+            />
+
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">„Zuletzt hinzugefügt" anzeigen für</div>
+                <div class="pm-setting-description">
+                  Bestimmt, wie lange neue Dokumente in der Seitenleiste unter „Zuletzt hinzugefügt" auftauchen.
+                  In „Alle Dokumente" bleiben sie dauerhaft sichtbar.
+                </div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.documents.recent_import_window_hours"
+                :items="recentImportWindowOptions"
+                item-title="label"
+                item-value="value"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Anzeigen für"
+                :loading="isSettingSaving.recent_import_window_hours"
+                :disabled="isSettingSaving.recent_import_window_hours"
+                @update:model-value="onRecentImportWindowChange"
+              />
+            </div>
+
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Papierkorb endgültig löschen nach</div>
+                <div class="pm-setting-description">
+                  Gelöschte Dokumente bleiben zuerst im Papierkorb. Nach diesem Zeitraum werden sie dauerhaft entfernt.
+                </div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.documents.trash_retention_days"
+                :items="trashRetentionOptions"
+                item-title="label"
+                item-value="value"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Endgültig löschen"
+                :loading="isSettingSaving.trash_retention_days"
+                :disabled="isSettingSaving.trash_retention_days"
+                @update:model-value="onTrashRetentionChange"
+              />
+            </div>
+
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Leere Tags entfernen</div>
+                <div class="pm-setting-description">
+                  Sucht Tags, die an keinem Dokument hängen. Es werden nur diese leeren Tags gelöscht,
+                  keine Dokumente und keine verwendeten Tags.
+                </div>
+              </div>
+
+              <div v-if="!unusedTagsPreview">
+                <v-btn
+                  variant="tonal"
+                  class="pm-tag-cleanup__button"
+                  :loading="tagCleanupLoading"
+                  @click="loadUnusedTagsPreview"
+                >
+                  Leere Tags suchen
+                </v-btn>
+              </div>
+
+              <div v-else class="pm-tag-cleanup">
+                <div v-if="unusedTagsPreview.count === 0" class="pm-setting-description">
+                  Keine leeren Tags gefunden.
+                </div>
+                <div v-else class="pm-setting-description">
+                  <strong>{{ unusedTagsPreview.count }}</strong> leere{{ unusedTagsPreview.count === 1 ? 'r Tag wird' : ' Tags werden' }} gelöscht:
+                  <span class="pm-tag-cleanup__names">{{ unusedTagsPreview.tags.map(t => t.name).join(', ') }}</span>
+                </div>
+                <div class="pm-tag-cleanup__actions">
+                  <v-btn variant="text" size="small" :disabled="tagCleanupLoading" @click="unusedTagsPreview = null">
+                    {{ unusedTagsPreview.count === 0 ? 'Schließen' : 'Abbrechen' }}
+                  </v-btn>
+                  <v-btn
+                    v-if="unusedTagsPreview.count > 0"
+                    color="error"
+                    variant="flat"
+                    size="small"
+                    :loading="tagCleanupLoading"
+                    @click="confirmTagCleanup"
+                  >
+                    {{ unusedTagsPreview.count }} entfernen
+                  </v-btn>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <section v-show="activeCategory === 'import'" class="pm-settings-section">
+          <div class="pm-settings-content">
+            <SettingsInfoCard
+              icon="mdi-tray-arrow-up"
+              title="Importieren"
+              subtitle="Scan-Eingang, Importdialog und automatische Schritte nach dem Import."
             />
 
             <div
@@ -407,92 +518,85 @@
               />
             </div>
 
-            <div class="pm-setting-row pm-setting-row--column">
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleAutoOcrFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleAutoOcrFromRow)"
+            >
               <div class="pm-setting-content">
-                <div class="pm-setting-label">Zeitraum für „Zuletzt hinzugefügt"</div>
+                <div class="pm-setting-label">Automatisches OCR</div>
                 <div class="pm-setting-description">
-                  Legt fest, wie lange Dokumente nach dem Import in „Zuletzt hinzugefügt" erscheinen.
+                  Extrahiert Text nach dem Import im Hintergrund und macht neue Dokumente durchsuchbar.
                 </div>
               </div>
-              <v-select
-                :model-value="settingsDraft.documents.recent_import_window_hours"
-                :items="recentImportWindowOptions"
-                item-title="label"
-                item-value="value"
+              <v-switch
+                :model-value="settingsDraft.documents.auto_ocr"
+                color="primary"
                 density="comfortable"
                 hide-details
-                variant="outlined"
-                class="settings-theme-select pm-setting-select"
-                label="Zeitraum"
-                :loading="isSettingSaving.recent_import_window_hours"
-                :disabled="isSettingSaving.recent_import_window_hours"
-                @update:model-value="onRecentImportWindowChange"
+                inset
+                :loading="isSettingSaving.auto_ocr"
+                :disabled="isSettingSaving.auto_ocr"
+                @click.stop
+                @update:model-value="onAutoOcrChange"
               />
             </div>
 
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
-                <div class="pm-setting-label">Papierkorb automatisch leeren</div>
+                <div class="pm-setting-label">Erkennungssprache</div>
                 <div class="pm-setting-description">
-                  Legt fest, wann Dokumente im Papierkorb endgültig gelöscht werden.
+                  Standardsprache für die Texterkennung beim Import.
                 </div>
               </div>
               <v-select
-                :model-value="settingsDraft.documents.trash_retention_days"
-                :items="trashRetentionOptions"
-                item-title="label"
-                item-value="value"
+                :model-value="settingsDraft.documents.ocr_doc_lang"
+                :items="ocrDocLangOptions"
                 density="comfortable"
                 hide-details
                 variant="outlined"
                 class="settings-theme-select pm-setting-select"
-                label="Papierkorb"
-                :loading="isSettingSaving.trash_retention_days"
-                :disabled="isSettingSaving.trash_retention_days"
-                @update:model-value="onTrashRetentionChange"
+                label="Erkennungssprache"
+                :loading="isSettingSaving.ocr_doc_lang"
+                :disabled="isSettingSaving.ocr_doc_lang"
+                @update:model-value="onOcrDocLangChange"
               />
             </div>
 
-            <div class="pm-setting-row pm-setting-row--column">
+            <div
+              class="pm-setting-row"
+              :class="{ 'pm-setting-row--disabled': !settingsDraft.documents.auto_ocr }"
+              role="button"
+              tabindex="0"
+              @click="toggleAutoTaggingFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleAutoTaggingFromRow)"
+            >
               <div class="pm-setting-content">
-                <div class="pm-setting-label">Unbenutzte Tags aufräumen</div>
+                <div class="pm-setting-label">KI-Analyse nach dem Import</div>
                 <div class="pm-setting-description">
-                  Entfernt Tags, die an keinem Dokument hängen (z. B. Reste früherer, nicht abgeschlossener Importe).
+                  Ergänzt nach dem Import automatisch Metadaten und Tags.
+                </div>
+                <div v-if="!settingsDraft.documents.auto_ocr" class="pm-setting-hint">
+                  Benötigt „Automatisches OCR" – ohne extrahierten Text gibt es nichts zu analysieren.
+                </div>
+                <div v-else-if="settingsDraft.documents.auto_tagging" class="pm-setting-hint">
+                  Nutzt die unter „Texterkennung" konfigurierte lokale KI.
                 </div>
               </div>
-
-              <div v-if="!unusedTagsPreview">
-                <v-btn variant="tonal" :loading="tagCleanupLoading" @click="loadUnusedTagsPreview">
-                  Unbenutzte Tags suchen…
-                </v-btn>
-              </div>
-
-              <div v-else class="pm-tag-cleanup">
-                <div v-if="unusedTagsPreview.count === 0" class="pm-setting-description">
-                  Keine unbenutzten Tags gefunden. 🎉
-                </div>
-                <div v-else class="pm-setting-description">
-                  <strong>{{ unusedTagsPreview.count }}</strong> Tag{{ unusedTagsPreview.count === 1 ? '' : 's' }} werden entfernt:
-                  <span class="pm-tag-cleanup__names">{{ unusedTagsPreview.tags.map(t => t.name).join(', ') }}</span>
-                </div>
-                <div class="pm-tag-cleanup__actions">
-                  <v-btn variant="text" size="small" :disabled="tagCleanupLoading" @click="unusedTagsPreview = null">
-                    {{ unusedTagsPreview.count === 0 ? 'Schließen' : 'Abbrechen' }}
-                  </v-btn>
-                  <v-btn
-                    v-if="unusedTagsPreview.count > 0"
-                    color="error"
-                    variant="flat"
-                    size="small"
-                    :loading="tagCleanupLoading"
-                    @click="confirmTagCleanup"
-                  >
-                    {{ unusedTagsPreview.count }} entfernen
-                  </v-btn>
-                </div>
-              </div>
+              <v-switch
+                :model-value="settingsDraft.documents.auto_ocr && settingsDraft.documents.auto_tagging"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.auto_tagging"
+                :disabled="isSettingSaving.auto_tagging || !settingsDraft.documents.auto_ocr"
+                @click.stop
+                @update:model-value="onAutoTaggingChange"
+              />
             </div>
-
           </div>
         </section>
 
@@ -957,33 +1061,8 @@
             <SettingsInfoCard
               icon="mdi-text-recognition"
               title="Texterkennung"
-              subtitle="OCR-Qualität, Sprache und automatische Analyse."
+              subtitle="OCR-Wartung, Qualität und lokale KI-Engine."
             />
-
-            <!-- Automatisches OCR (Grundlage für die KI-Analyse) -->
-            <div
-              class="pm-setting-row"
-              role="button"
-              tabindex="0"
-              @click="toggleAutoOcrFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleAutoOcrFromRow)"
-            >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Automatisches OCR</div>
-                <div class="pm-setting-description">Extrahiert den Text nach dem Import im Hintergrund – Grundlage für die KI-Analyse.</div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.documents.auto_ocr"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :loading="isSettingSaving.auto_ocr"
-                :disabled="isSettingSaving.auto_ocr"
-                @click.stop
-                @update:model-value="onAutoOcrChange"
-              />
-            </div>
 
             <!-- OCR-Lücken automatisch schließen -->
             <div
@@ -1025,65 +1104,11 @@
               </div>
             </div>
 
-            <!-- Erkennungssprache -->
-            <div class="pm-setting-row pm-setting-row--column">
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Erkennungssprache</div>
-                <div class="pm-setting-description">
-                  Standardsprache für die Texterkennung.
-                </div>
-              </div>
-              <v-select
-                :model-value="settingsDraft.documents.ocr_doc_lang"
-                :items="ocrDocLangOptions"
-                density="comfortable"
-                hide-details
-                variant="outlined"
-                class="settings-theme-select pm-setting-select"
-                label="Erkennungssprache"
-                :loading="isSettingSaving.ocr_doc_lang"
-                :disabled="isSettingSaving.ocr_doc_lang"
-                @update:model-value="onOcrDocLangChange"
-              />
-            </div>
-
-            <!-- KI-gestützte Analyse: Funktion + lokale Engine (benötigt OCR) -->
+            <!-- Lokale KI-Engine für Import-Analyse und Chat. -->
             <div class="pm-setting-group">
             <div class="pm-setting-note pm-setting-note--group">
-              Zwei unabhängige Optionen: <strong>Lokale KI (Ollama)</strong> bestimmt, <em>womit</em>
-              analysiert wird (Engine &amp; Datenschutz). <strong>KI-Analyse nach dem Import</strong>
-              bestimmt, <em>ob</em> danach automatisch Tags ergänzt werden.
-            </div>
-            <!-- KI-Analyse nach dem Import (benötigt Automatisches OCR) -->
-            <div
-              class="pm-setting-row"
-              :class="{ 'pm-setting-row--disabled': !settingsDraft.documents.auto_ocr }"
-              role="button"
-              tabindex="0"
-              @click="toggleAutoTaggingFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleAutoTaggingFromRow)"
-            >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">KI-Analyse nach dem Import</div>
-                <div class="pm-setting-description">Vergibt nach dem Import automatisch Tags und macht das Dokument durchsuchbar.</div>
-                <div v-if="!settingsDraft.documents.auto_ocr" class="pm-setting-hint">
-                  Benötigt „Automatisches OCR" – ohne extrahierten Text gibt es nichts zu analysieren.
-                </div>
-                <div v-else-if="settingsDraft.documents.auto_tagging" class="pm-setting-hint">
-                  Kann je nach Modell/Hardware etwas dauern.
-                </div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.documents.auto_ocr && settingsDraft.documents.auto_tagging"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :loading="isSettingSaving.auto_tagging"
-                :disabled="isSettingSaving.auto_tagging || !settingsDraft.documents.auto_ocr"
-                @click.stop
-                @update:model-value="onAutoTaggingChange"
-              />
+              <strong>Lokale KI (Ollama)</strong> bestimmt, womit Import-Analyse und Dokumenten-Chat arbeiten.
+              Ob neue Importe automatisch analysiert werden, stellst du unter „Importieren" ein.
             </div>
 
             <!-- Ollama enable toggle -->
@@ -1692,22 +1717,36 @@ const currentColorVariant = computed(() => settingsStore.settingsDraft.ui.color_
 // ── Einstellungsnavigation ───────────────────────────────────────────────────
 
 const settingsCategories = [
-  { value: 'appearance', label: 'Darstellung', icon: 'mdi-palette-outline' },
-  { value: 'sidebar', label: 'Seitenleiste', icon: 'mdi-page-layout-sidebar-left' },
-  { value: 'documents', label: 'Dokumente', icon: 'mdi-file-document-outline', adminOnly: true },
-  { value: 'categories', label: 'Dokumenttypen', icon: 'mdi-file-document-multiple-outline' },
-  { value: 'correspondents', label: 'Korrespondenten', icon: 'mdi-account-outline' },
-  { value: 'ai', label: 'Texterkennung', icon: 'mdi-text-recognition', adminOnly: true },
-  { value: 'backup', label: 'Backup', icon: 'mdi-cloud-upload-outline', adminOnly: true },
-  { value: 'controls', label: 'Bedienung', icon: 'mdi-keyboard-outline' },
-  { value: 'services', label: 'Dienste', icon: 'mdi-server-network', adminOnly: true },
-  { value: 'system', label: 'System', icon: 'mdi-raspberry-pi', adminOnly: true }
+  { value: 'appearance', label: 'Darstellung', icon: 'mdi-palette-outline', group: 'surface' },
+  { value: 'controls', label: 'Bedienung', icon: 'mdi-keyboard-outline', group: 'surface' },
+  { value: 'sidebar', label: 'Seitenleiste', icon: 'mdi-page-layout-sidebar-left', group: 'surface' },
+  { value: 'import', label: 'Importieren', icon: 'mdi-tray-arrow-up', group: 'documents', adminOnly: true },
+  { value: 'documents', label: 'Bibliothek', icon: 'mdi-archive-outline', group: 'documents', adminOnly: true },
+  { value: 'categories', label: 'Dokumenttypen', icon: 'mdi-file-document-multiple-outline', group: 'documents' },
+  { value: 'correspondents', label: 'Korrespondenten', icon: 'mdi-account-outline', group: 'documents' },
+  { value: 'ai', label: 'Texterkennung', icon: 'mdi-text-recognition', group: 'documents', adminOnly: true },
+  { value: 'backup', label: 'Backup', icon: 'mdi-cloud-upload-outline', group: 'system', adminOnly: true },
+  { value: 'services', label: 'Dienste', icon: 'mdi-server-network', group: 'system', adminOnly: true },
+  { value: 'system', label: 'System', icon: 'mdi-raspberry-pi', group: 'system', adminOnly: true }
+];
+const settingsCategoryGroups = [
+  { key: 'surface', label: 'Oberfläche' },
+  { key: 'documents', label: 'Dokumente' },
+  { key: 'system', label: 'System' }
 ];
 // Systemkonfigurations-Tabs nur für Admins; persönliche Darstellung sowie die
 // Pro-Benutzer-Daten (Dokumenttypen/Korrespondenten) und die Kürzel-Referenz
 // bleiben für alle sichtbar.
 const visibleCategories = computed(() =>
   settingsCategories.filter((cat) => !cat.adminOnly || auth.isAdmin)
+);
+const visibleCategoryGroups = computed(() =>
+  settingsCategoryGroups
+    .map((group) => ({
+      ...group,
+      items: visibleCategories.value.filter((cat) => cat.group === group.key)
+    }))
+    .filter((group) => group.items.length > 0)
 );
 
 const activeCategory = ref('appearance');
@@ -3943,6 +3982,10 @@ async function removeAlias(alias) {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.pm-tag-cleanup__button {
+  text-transform: none;
+  letter-spacing: 0;
 }
 .pm-tag-cleanup__names {
   display: block;
