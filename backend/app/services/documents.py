@@ -657,6 +657,13 @@ class DocumentService:
                 details={"document_id": str(document.id)},
             )
 
+        # Explizites/erneutes Einreihen hebt eine zuvor per Dismiss gesetzte
+        # Auto-Retry-Sperre auf (der Nutzer will OCR ja gerade laufen lassen).
+        if document.flags and document.flags.get("ocr_retry_blocked"):
+            flags = dict(document.flags)
+            flags.pop("ocr_retry_blocked", None)
+            document.flags = flags or None
+
         job = Job(document_id=document.id, type="OCR", status="queued", progress=0)
         self.db.add(job)
         document.status = DocumentStatus.processing.value
@@ -726,10 +733,15 @@ class DocumentService:
         skipped_active = 0
         skipped_retry_limit = 0
         skipped_missing_file = 0
+        skipped_blocked = 0
 
         for document in candidates:
             if len(queued_ids) >= limit:
                 break
+            # Vom Nutzer per "Fehler entfernen" stillgelegte Dokumente nicht erneut einreihen.
+            if (document.flags or {}).get("ocr_retry_blocked"):
+                skipped_blocked += 1
+                continue
             if self._has_active_job(document.id, "OCR"):
                 skipped_active += 1
                 continue
@@ -766,6 +778,7 @@ class DocumentService:
             "skipped_active": skipped_active,
             "skipped_retry_limit": skipped_retry_limit,
             "skipped_missing_file": skipped_missing_file,
+            "skipped_blocked": skipped_blocked,
             "limit": limit,
             "include_failed": include_failed,
             "dry_run": dry_run,

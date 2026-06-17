@@ -66,6 +66,22 @@ class JobService:
                 raise NotFoundError("Job not found", details={"job_id": str(job_id)})
         return job
 
+    def _block_ocr_retry(self, document_id: uuid.UUID) -> None:
+        """Markiert ein Dokument, damit der OCR-Backfill es nicht erneut einreiht.
+
+        Wird beim Entfernen eines fehlgeschlagenen OCR-Jobs gesetzt: Das Löschen der
+        Job-Zeile würde sonst die Retry-Bremse (Anzahl failed-Jobs) zurücksetzen, und
+        der Backfill würde den – vom Nutzer bewusst entfernten – Fehler neu erzeugen.
+        """
+        document = self.db.get(Document, document_id)
+        if document is None:
+            return
+        flags = dict(document.flags or {})
+        if flags.get("ocr_retry_blocked"):
+            return
+        flags["ocr_retry_blocked"] = True
+        document.flags = flags
+
     def dismiss_job(self, job_id: uuid.UUID) -> None:
         """Entfernt einen terminalen Job (failed/done) aus der Aktivitätsanzeige."""
         job = self.get_job_or_404(job_id)
@@ -74,6 +90,8 @@ class JobService:
                 "Nur fehlgeschlagene oder abgeschlossene Jobs können entfernt werden.",
                 details={"status": job.status},
             )
+        if job.status == "failed" and job.type == "OCR":
+            self._block_ocr_retry(job.document_id)
         self.db.delete(job)
         self.db.commit()
         logger.info("job dismissed id=%s status=%s", job_id, job.status)
@@ -85,6 +103,8 @@ class JobService:
             stmt = stmt.where(Document.owner_id == self.owner_id)
         jobs = list(self.db.execute(stmt).scalars().all())
         for job in jobs:
+            if job.type == "OCR":
+                self._block_ocr_retry(job.document_id)
             self.db.delete(job)
         if jobs:
             self.db.commit()
