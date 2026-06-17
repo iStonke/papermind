@@ -944,17 +944,19 @@
                       <label class="pm-prop-key">Korrespondent</label>
                       <div class="pm-prop-val">
                         <div class="pm-prop-field">
-                          <v-autocomplete
-                            :model-value="metadataCorrespondentId"
+                          <v-combobox
+                            :model-value="metadataCorrespondentDraft"
                             :items="correspondentDrawerItems"
                             item-title="title"
                             item-value="value"
+                            :return-object="false"
                             density="compact"
                             variant="plain"
                             hide-details
                             clearable
-                            placeholder="Korrespondent wählen…"
-                            :loading="isSavingCorrespondent"
+                            placeholder="Korrespondent wählen oder neu anlegen…"
+                            :loading="isSavingCorrespondent || correspondentStore.isMutationRunning"
+                            :disabled="isSavingCorrespondent"
                             :menu-props="{
                               maxHeight: 240,
                               offset: 10,
@@ -962,8 +964,15 @@
                               zIndex: 6000,
                               contentClass: 'pm-menu'
                             }"
-                            @update:model-value="onMetadataCorrespondentChange"
-                          />
+                            @update:model-value="onMetadataCorrespondentInput"
+                            @keydown.enter.prevent="commitMetadataCorrespondent"
+                            @blur="handleMetadataCorrespondentBlur"
+                            @focus="correspondentStore.ensureLoaded()"
+                          >
+                            <template #no-data>
+                              <v-list-item title="Als neuen Korrespondenten anlegen" />
+                            </template>
+                          </v-combobox>
                         </div>
                       </div>
                     </div>
@@ -1701,6 +1710,7 @@ const metadataDocDateHasError = ref(false);
 const metadataDocCategory = ref(null);
 const isSavingCategory = ref(false);
 const metadataCorrespondentId = ref(null);
+const metadataCorrespondentDraft = ref(null);
 const isSavingCorrespondent = ref(false);
 const metadataNotes = ref('');
 const metadataTagIds = ref([]);
@@ -2818,17 +2828,65 @@ const correspondentDrawerItems = computed(() => {
   return items;
 });
 
-async function onMetadataCorrespondentChange(nextId) {
+function normalizeCorrespondentInput(value) {
+  if (value && typeof value === 'object') {
+    return String(value.value || value.id || value.title || value.name || '').replace(/\s+/g, ' ').trim();
+  }
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function onMetadataCorrespondentInput(nextValue) {
+  metadataCorrespondentDraft.value = nextValue;
+  const rawValue = normalizeCorrespondentInput(nextValue);
+  if (!rawValue || correspondentStore.findById(rawValue)) {
+    void commitMetadataCorrespondent();
+  }
+}
+
+function handleMetadataCorrespondentBlur() {
+  window.setTimeout(() => {
+    void commitMetadataCorrespondent();
+  }, 0);
+}
+
+async function commitMetadataCorrespondent() {
+  if (isSavingCorrespondent.value) return;
   if (!selectedDocumentDetail.value) return;
   const documentId = selectedDocumentDetail.value.id;
-  const value = nextId || null;
-  metadataCorrespondentId.value = value;
+  const previousId = selectedDocumentDetail.value?.correspondent_id || null;
+  const rawValue = normalizeCorrespondentInput(metadataCorrespondentDraft.value);
+  let phase = 'resolving';
   isSavingCorrespondent.value = true;
   try {
-    await docStore.patchDocument(documentId, { correspondent_id: value });
+    let correspondentId = null;
+    if (rawValue) {
+      await correspondentStore.ensureLoaded();
+      const existing = correspondentStore.findById(rawValue) || correspondentStore.findByName(rawValue);
+      if (existing?.id) {
+        correspondentId = existing.id;
+      } else {
+        phase = 'creating';
+        const result = await correspondentStore.createCorrespondentByName(rawValue);
+        if (!result?.ok || !result.id) {
+          metadataCorrespondentId.value = previousId;
+          metadataCorrespondentDraft.value = previousId;
+          return;
+        }
+        correspondentId = result.id;
+      }
+    }
+
+    metadataCorrespondentId.value = correspondentId;
+    metadataCorrespondentDraft.value = correspondentId;
+    phase = 'patching';
+    await docStore.patchDocument(documentId, { correspondent_id: correspondentId });
   } catch (error) {
-    notifyError(error, 'Korrespondent konnte nicht gespeichert werden.');
-    metadataCorrespondentId.value = selectedDocumentDetail.value?.correspondent_id || null;
+    // Das Anlegen meldet API-Fehler bereits zentral über den Korrespondenten-Store.
+    if (phase !== 'creating') {
+      notifyError(error, 'Korrespondent konnte nicht gespeichert werden.');
+    }
+    metadataCorrespondentId.value = previousId;
+    metadataCorrespondentDraft.value = previousId;
   } finally {
     isSavingCorrespondent.value = false;
   }
@@ -3135,6 +3193,7 @@ function applyMetadataFromDetail(detail) {
   metadataDocCategory.value = detail?.document_type || detail?.category || null;
   void categoryStore.ensureLoaded();
   metadataCorrespondentId.value = detail?.correspondent_id || null;
+  metadataCorrespondentDraft.value = metadataCorrespondentId.value;
   void correspondentStore.ensureLoaded();
   metadataNotes.value = detail?.notes || '';
   const nextTagIds = normalizeTagIds((detail?.tags || []).map((tag) => tag.id));
@@ -3314,7 +3373,8 @@ async function runAiAnalysis() {
     const suggestedCorrespondentId = String(suggestion.correspondent_id || '').trim();
     if (suggestedCorrespondentId && !metadataCorrespondentId.value) {
       await correspondentStore.ensureLoaded();
-      await onMetadataCorrespondentChange(suggestedCorrespondentId);
+      metadataCorrespondentDraft.value = suggestedCorrespondentId;
+      await commitMetadataCorrespondent();
       filledCount += 1;
     }
 
