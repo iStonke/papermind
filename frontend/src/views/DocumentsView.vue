@@ -414,6 +414,10 @@
               :show-tag-filter-toggle="showTagFilterDrawer"
               :tag-filter-drawer-open="isTagFilterDrawerOpen"
               :bottom-spacer-height="tagFilterDocumentListSpacerHeight"
+              :has-more-documents="hasMoreDocuments"
+              :is-loading-more-documents="isLoadingMoreDocuments"
+              :loaded-document-count="documentListLoadedCount"
+              :total-document-count="documentListTotal"
               @select-document="selectDocument"
               @download="downloadDocumentFromList"
               @rename="(doc) => renameDocumentDialogRef?.open(doc)"
@@ -429,6 +433,7 @@
               @change-sort="applySort"
               @change-date-range="applyDateRange"
               @toggle-tag-filter-drawer="toggleTagFilterDrawer"
+              @load-more="loadMoreDocuments"
             />
           </Transition>
           <Transition :name="isTagFilterDrawerAnimationReady ? 'tag-filter-drawer' : ''">
@@ -1368,6 +1373,13 @@ const documentListQuery = reactive({
   limit: 100,
   offset: 0
 });
+const documentListTotal = ref(0);
+const documentListLoadedCount = ref(0);
+const isLoadingMoreDocuments = ref(false);
+const hasMoreDocuments = computed(() =>
+  documentListLoadedCount.value < documentListTotal.value
+);
+let documentListRequestGeneration = 0;
 const activeTagId = computed({
   get: () => {
     const ids = normalizeTagIds(documentListQuery.tagIds);
@@ -3797,10 +3809,12 @@ function handleGlobalKeydown(event) {
   metadataTagErrorMessage.value = '';
 }
 
-function buildDocumentListQuery() {
+function buildDocumentListQuery(options = {}) {
+  const limit = options.limit ?? documentListQuery.limit;
+  const offset = options.offset ?? documentListQuery.offset;
   const params = new URLSearchParams();
-  params.set('limit', String(documentListQuery.limit));
-  params.set('offset', String(documentListQuery.offset));
+  params.set('limit', String(limit));
+  params.set('offset', String(offset));
   params.set('sort', isFavoriteSortQuery() ? 'created_at' : documentListQuery.sort);
   params.set('order', isFavoriteSortQuery() ? 'desc' : documentListQuery.order);
 
@@ -3876,10 +3890,12 @@ function mapDocumentSortToSmartFolderSort() {
   return 'created_desc';
 }
 
-function buildSmartFolderDocumentsQuery() {
+function buildSmartFolderDocumentsQuery(options = {}) {
+  const limit = options.limit ?? documentListQuery.limit;
+  const offset = options.offset ?? documentListQuery.offset;
   const params = new URLSearchParams();
-  params.set('limit', String(documentListQuery.limit));
-  params.set('offset', String(documentListQuery.offset));
+  params.set('limit', String(limit));
+  params.set('offset', String(offset));
   params.set('sort', mapDocumentSortToSmartFolderSort());
   return params.toString();
 }
@@ -4285,30 +4301,107 @@ function finishDocumentListSettle() {
   isDocumentListSettling.value = false;
 }
 
+function documentListEndpoint({ offset = 0 } = {}) {
+  const queryOptions = { limit: documentListQuery.limit, offset };
+  const query = activeSavedSearchId.value
+    ? buildSmartFolderDocumentsQuery(queryOptions)
+    : buildDocumentListQuery(queryOptions);
+  return activeSavedSearchId.value
+    ? `${apiBaseUrl}/api/smart-folders/${activeSavedSearchId.value}/documents?${query}`
+    : `${apiBaseUrl}/api/documents?${query}`;
+}
+
+async function loadMoreDocuments() {
+  if (isLoadingMoreDocuments.value || !hasMoreDocuments.value) {
+    return;
+  }
+
+  const generation = documentListRequestGeneration;
+  const offset = documentListLoadedCount.value;
+  isLoadingMoreDocuments.value = true;
+  try {
+    const response = await fetch(documentListEndpoint({ offset }));
+    if (!response.ok) {
+      throw new Error(await parseResponseError(response));
+    }
+    const payload = await parseJsonResponse(response);
+    if (generation !== documentListRequestGeneration) {
+      return;
+    }
+
+    const incoming = applyKnownFavoriteStates(payload.items || []);
+    const existingIds = new Set(documents.value.map((document) => document.id));
+    const appended = incoming.filter((document) => !existingIds.has(document.id));
+    documents.value = sortDocumentsForCurrentView(
+      filterDocumentsByActiveTagFilters([...documents.value, ...appended])
+    );
+    documentListLoadedCount.value = Math.max(
+      documentListLoadedCount.value,
+      Number(payload.offset || offset) + incoming.length
+    );
+    documentListTotal.value = Number(payload.total ?? documentListTotal.value);
+  } catch (error) {
+    notifyError(error, 'Weitere Dokumente konnten nicht geladen werden.');
+  } finally {
+    if (generation === documentListRequestGeneration) {
+      isLoadingMoreDocuments.value = false;
+    }
+  }
+}
+
 async function fetchDocuments(preferredDocumentId = null, options = {}) {
+  const generation = ++documentListRequestGeneration;
   const autoSelectFirst = options.autoSelectFirst === true;
   const allowPreferredOutsideList = options.allowPreferredOutsideList === true;
   // Stiller Hintergrund-Refresh (z. B. OCR-Status-Polling): kein Settle/Skeleton
   // und kein Lade-Flag, damit die Dokumentenliste während der Analyse nicht flackert.
   const silent = options.silent === true;
+  isLoadingMoreDocuments.value = false;
   if (!silent) {
     startDocumentListSettle();
     isLoadingDocuments.value = true;
   }
 
   try {
-    const query = activeSavedSearchId.value ? buildSmartFolderDocumentsQuery() : buildDocumentListQuery();
-    const endpoint = activeSavedSearchId.value
-      ? `${apiBaseUrl}/api/smart-folders/${activeSavedSearchId.value}/documents?${query}`
-      : `${apiBaseUrl}/api/documents?${query}`;
-    const response = await fetch(endpoint);
+    const response = await fetch(documentListEndpoint({ offset: 0 }));
     if (!response.ok) {
       throw new Error(await parseResponseError(response));
     }
 
     const payload = await parseJsonResponse(response);
+    if (generation !== documentListRequestGeneration) {
+      return;
+    }
+    let pageItems = applyKnownFavoriteStates(payload.items || []);
+    const total = Number(payload.total ?? pageItems.length);
+    let loadedCount = Number(payload.offset || 0) + pageItems.length;
+
+    // Hintergrundaktualisierungen (z. B. OCR-Polling) dürfen eine bereits
+    // weitergeladene Liste nicht wieder auf die ersten 100 Einträge kürzen.
+    const refreshTarget = silent
+      ? Math.min(total, Math.max(documentListLoadedCount.value, documentListQuery.limit))
+      : loadedCount;
+    while (loadedCount < refreshTarget) {
+      const nextResponse = await fetch(documentListEndpoint({ offset: loadedCount }));
+      if (!nextResponse.ok) {
+        throw new Error(await parseResponseError(nextResponse));
+      }
+      const nextPayload = await parseJsonResponse(nextResponse);
+      if (generation !== documentListRequestGeneration) {
+        return;
+      }
+      const nextItems = applyKnownFavoriteStates(nextPayload.items || []);
+      if (!nextItems.length) {
+        break;
+      }
+      pageItems = [...pageItems, ...nextItems];
+      loadedCount = Number(nextPayload.offset || loadedCount) + nextItems.length;
+    }
+
+    documentListTotal.value = total;
+    documentListLoadedCount.value = loadedCount;
     documents.value = sortDocumentsForCurrentView(
-      filterDocumentsByActiveTagFilters(applyKnownFavoriteStates(payload.items || []))
+      filterDocumentsByActiveTagFilters(pageItems)
     );
 
     if (documents.value.length === 0) {

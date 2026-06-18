@@ -1,5 +1,5 @@
 <template>
-  <div class="document-list-shell docs-column">
+  <div ref="listShell" class="document-list-shell docs-column" @scroll.passive="handleListScroll">
     <div v-if="activeStatusFilterLabel && !isImportsView" class="active-filter-row">
       <v-chip size="small" variant="outlined">
         Status: {{ activeStatusFilterLabel }}
@@ -80,6 +80,7 @@
                   v-if="!hasThumbnailError(document.id)"
                   :src="thumbnailUrl(document)"
                   alt="thumbnail"
+                  loading="lazy"
                   @load="onThumbnailLoad(document.id)"
                   @error="onThumbnailError(document.id)"
                 />
@@ -226,6 +227,23 @@
               :style="{ height: `${bottomSpacerHeight}px` }"
               aria-hidden="true"
             />
+            <div v-if="hasMoreDocuments || totalDocumentCount > 0" class="document-list__pagination">
+              <v-progress-circular
+                v-if="isLoadingMoreDocuments"
+                indeterminate
+                size="18"
+                width="2"
+              />
+              <span>{{ paginationLabel }}</span>
+              <v-btn
+                v-if="hasMoreDocuments && !isLoadingMoreDocuments"
+                size="small"
+                variant="text"
+                @click="emit('load-more')"
+              >
+                Weitere laden
+              </v-btn>
+            </div>
           </div>
         </Transition>
       </div>
@@ -241,7 +259,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, nextTick, watch } from 'vue';
 
 const SORT_OPTIONS = [
   { value: 'newest',      label: 'Neueste zuerst' },
@@ -284,6 +302,10 @@ const props = defineProps({
   showTagFilterToggle:        { type: Boolean, default: false },
   tagFilterDrawerOpen:        { type: Boolean, default: false },
   bottomSpacerHeight:         { type: Number,  default: 0 },
+  hasMoreDocuments:           { type: Boolean, default: false },
+  isLoadingMoreDocuments:     { type: Boolean, default: false },
+  loadedDocumentCount:        { type: Number,  default: 0 },
+  totalDocumentCount:         { type: Number,  default: 0 },
 });
 
 const emit = defineEmits([
@@ -302,6 +324,7 @@ const emit = defineEmits([
   'change-sort',
   'change-date-range',
   'toggle-tag-filter-drawer',
+  'load-more',
 ]);
 
 // ── Stores ─────────────────────────────────────────────────────────────────
@@ -310,7 +333,32 @@ const settingsStore = useSettingsStore();
 const authStore     = useAuthStore();
 
 const { documents, selectedDocumentId } = storeToRefs(docStore);
+const listShell = ref(null);
 const showPdfSuffixComputed = computed(() => settingsStore.settingsDraft?.ui?.showFilenameSuffix ?? false);
+const paginationLabel = computed(() => {
+  const loaded = Math.min(props.loadedDocumentCount, props.totalDocumentCount);
+  return `${loaded} von ${props.totalDocumentCount} Dokumenten`;
+});
+
+function requestMoreIfNearEnd(element = listShell.value) {
+  if (!element || !props.hasMoreDocuments || props.isLoadingMoreDocuments) return;
+  const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
+  if (remaining <= 480) {
+    emit('load-more');
+  }
+}
+
+function handleListScroll(event) {
+  requestMoreIfNearEnd(event.currentTarget);
+}
+
+watch(
+  () => [props.hasMoreDocuments, props.isLoadingMoreDocuments, props.loadedDocumentCount],
+  () => {
+    void nextTick(() => requestMoreIfNearEnd());
+  },
+  { flush: 'post' }
+);
 
 const sortLabel      = computed(() => SORT_OPTIONS.find(o => o.value === props.currentSort)?.label ?? 'Sortierung');
 const dateRangeLabel = computed(() => DATE_RANGE_OPTIONS.find(o => o.value === props.currentDateRange)?.label ?? 'Zeitraum');
@@ -674,6 +722,16 @@ function onListDrop(event) {
 .document-list__bottom-spacer {
   flex: 0 0 auto;
   pointer-events: none;
+}
+
+.document-list__pagination {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: rgba(var(--v-theme-on-surface), 0.62);
+  font-size: 0.78rem;
 }
 
 .document-list--with-bottom-spacer {
