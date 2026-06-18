@@ -147,15 +147,15 @@
                   <!-- Favoriten-Stern (nur außerhalb des Papierkorbs) -->
                   <v-btn
                     v-if="!isTrashView"
+                    :icon="document.is_favorite ? 'mdi-star' : 'mdi-star-outline'"
                     variant="text"
                     size="small"
                     density="comfortable"
+                    :ripple="false"
                     :class="['document-row__fav-btn', { 'document-row__fav-btn--active': document.is_favorite }]"
                     :aria-label="document.is_favorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'"
                     @click.stop="emit('toggle-favorite', document)"
-                  >
-                    <v-icon size="20">{{ document.is_favorite ? 'mdi-star' : 'mdi-star-outline' }}</v-icon>
-                  </v-btn>
+                  />
 
                   <!-- Drei-Punkte-Menü -->
                   <v-menu location="bottom end">
@@ -166,6 +166,7 @@
                         size="small"
                         density="comfortable"
                         variant="text"
+                        :ripple="false"
                         class="document-row__menu-btn"
                         aria-label="Aktionen"
                         @click.stop
@@ -502,14 +503,19 @@ function formatDocumentTitle(document) {
 
 function formatDate(value) {
   if (!value) return '-';
+  const formatter = new Intl.DateTimeFormat('de-DE', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  });
   const normalized = String(value).trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
     const [year, month, day] = normalized.split('-').map(Number);
-    return new Intl.DateTimeFormat('de-DE').format(new Date(year, month - 1, day));
+    return formatter.format(new Date(year, month - 1, day));
   }
   const parsed = new Date(normalized);
   if (Number.isNaN(parsed.getTime())) return '-';
-  return new Intl.DateTimeFormat('de-DE').format(parsed);
+  return formatter.format(parsed);
 }
 
 function displayListDate(document) {

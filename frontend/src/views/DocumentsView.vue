@@ -876,7 +876,11 @@
 
             <template #drawer-body>
               <div v-if="selectedDocumentDetail" class="details-drawer__body">
-                <div class="details-drawer__inner pm-drawer-body">
+                <div
+                  class="details-drawer__inner pm-drawer-body"
+                  @focusin="handleDetailsEditorFocusIn"
+                  @focusout="handleDetailsEditorFocusOut"
+                >
                   <div class="pm-prop">
                     <div class="pm-prop-row">
                       <label class="pm-prop-key">Dokumentname</label>
@@ -889,6 +893,7 @@
                             variant="plain"
                             placeholder="Dokumentname…"
                             hide-details
+                            @blur="commitMetadataTextFields"
                           />
                         </div>
                       </div>
@@ -928,12 +933,7 @@
                             clearable
                             placeholder="Dokumenttyp wählen…"
                             :loading="isSavingCategory"
-                            :menu-props="{
-                              offset: 10,
-                              attach: 'body',
-                              zIndex: 6000,
-                              contentClass: 'pm-menu'
-                            }"
+                            :menu-props="detailsCategoryMenuProps"
                             @update:model-value="onMetadataCategoryChange"
                           />
                         </div>
@@ -956,19 +956,15 @@
                             clearable
                             placeholder="Korrespondent wählen oder neu anlegen…"
                             :loading="isSavingCorrespondent || correspondentStore.isMutationRunning"
-                            :disabled="isSavingCorrespondent"
-                            :menu-props="{
-                              maxHeight: 240,
-                              offset: 10,
-                              attach: 'body',
-                              zIndex: 6000,
-                              contentClass: 'pm-menu'
-                            }"
+                            :menu-props="detailsCorrespondentMenuProps"
                             @update:model-value="onMetadataCorrespondentInput"
                             @keydown.enter.prevent="commitMetadataCorrespondent"
                             @blur="handleMetadataCorrespondentBlur"
                             @focus="correspondentStore.ensureLoaded()"
                           >
+                            <template #selection="{ item }">
+                              {{ item.raw?.short_name || item.title }}
+                            </template>
                             <template #no-data>
                               <v-list-item title="Als neuen Korrespondenten anlegen" />
                             </template>
@@ -1004,16 +1000,9 @@
                             hide-details
                             class="pm-tags-input__field"
                             :placeholder="metadataTagNames.length ? '' : 'Tag hinzufügen…'"
-                            :loading="isSavingTags"
+                            :loading="isSavingTags || isResolvingTagNames"
                             :disabled="isRunningAiAnalysis"
-                            :menu-props="{
-                              maxHeight: 180,
-                              offset: 10,
-                              closeOnContentClick: false,
-                              attach: 'body',
-                              zIndex: 6000,
-                              contentClass: 'pm-menu pm-menu--tags'
-                            }"
+                            :menu-props="detailsTagsMenuProps"
                             @update:model-value="onMetadataTagNamesChange"
                             @keydown="handleMetadataTagShortcut"
                           >
@@ -1037,6 +1026,7 @@
                             placeholder="Notiz hinzufügen…"
                             hide-details
                             class="pm-notes-field"
+                            @blur="commitMetadataTextFields"
                           />
                         </div>
                       </div>
@@ -1155,13 +1145,37 @@ const DOCUMENT_BATCH_ACTIONS = Object.freeze([
 ]);
 
 const TAG_REPLACE_DEBOUNCE_MS = 300;
-const METADATA_AUTOSAVE_DEBOUNCE_MS = 450;
+const METADATA_AUTOSAVE_DEBOUNCE_MS = 900;
 const PREVIEW_RETRY_BASE_DELAY_MS = 600;
 const PREVIEW_RETRY_MAX_DELAY_MS = 4500;
 const PREVIEW_RETRY_MAX_ATTEMPTS = 5;
 const IMPORTS_RECENT_LIMIT = 100;
 const VOCAB_NAME_MIN_LENGTH = 2;
 const VOCAB_NAME_MAX_LENGTH = 30;
+const DETAILS_MENU_BASE_PROPS = Object.freeze({
+  location: 'top start',
+  origin: 'bottom start',
+  offset: 10,
+  attach: 'body',
+  zIndex: 6000,
+  scrollStrategy: 'reposition'
+});
+const detailsCategoryMenuProps = Object.freeze({
+  ...DETAILS_MENU_BASE_PROPS,
+  maxHeight: 240,
+  contentClass: 'pm-menu'
+});
+const detailsCorrespondentMenuProps = Object.freeze({
+  ...DETAILS_MENU_BASE_PROPS,
+  maxHeight: 240,
+  contentClass: 'pm-menu'
+});
+const detailsTagsMenuProps = Object.freeze({
+  ...DETAILS_MENU_BASE_PROPS,
+  maxHeight: 180,
+  closeOnContentClick: false,
+  contentClass: 'pm-menu pm-menu--tags'
+});
 
 const DETAILS_DRAWER_COLLAPSED_HEIGHT = 72;
 const DETAILS_DRAWER_DEFAULT_HEIGHT = 320;
@@ -1716,8 +1730,13 @@ const metadataNotes = ref('');
 const metadataTagIds = ref([]);
 const metadataTagNames = ref([]);
 const metadataTagSearch = ref('');
+const metadataDraftDocumentId = ref(null);
+const metadataDraftRevision = ref(0);
+const metadataTagDraftRevision = ref(0);
+const detailsEditorHasFocus = ref(false);
 const isSavingMetadata = ref(false);
 const isSavingTags = ref(false);
+const isResolvingTagNames = ref(false);
 const isRunningAiAnalysis = ref(false);
 const isQueueingHeaderOcr = ref(false);
 const metadataSuccessMessage = ref('');
@@ -2253,7 +2272,10 @@ const documentListQueryReloadKey = computed(() =>
   })
 );
 const isMetadataDirty = computed(() => {
-  if (!selectedDocumentDetail.value) {
+  if (
+    !selectedDocumentDetail.value
+    || metadataDraftDocumentId.value !== selectedDocumentDetail.value.id
+  ) {
     return false;
   }
 
@@ -2275,6 +2297,16 @@ const isMetadataDirty = computed(() => {
 
   return (metadataNotes.value || '') !== detailNotes;
 });
+const isTagSelectionDirty = computed(() => {
+  if (
+    !selectedDocumentDetail.value
+    || metadataDraftDocumentId.value !== selectedDocumentDetail.value.id
+  ) {
+    return false;
+  }
+  const detailTagIds = normalizeTagIds((selectedDocumentDetail.value.tags || []).map((tag) => tag.id));
+  return !isSameTagSelection(metadataTagIds.value, detailTagIds);
+});
 
 // Steuert die Sichtbarkeit des KI-Befüllen-Buttons: nur anzeigen, wenn mindestens
 // eines der bearbeitbaren Felder (Name, Datum, Kategorie, Notizen, Tags) leer ist.
@@ -2291,7 +2323,7 @@ const hasEmptyMetadataField = computed(() => {
 });
 
 let mediaQuery = null;
-let tagReplaceDebounceTimer = null;
+const tagReplaceDebounceTimers = new Map();
 let metadataAutosaveDebounceTimer = null;
 let previewRetryTimer = null;
 let listDropNoticeTimer = null;
@@ -2302,6 +2334,8 @@ let shouldSkipMetadataAutosave = false;
 let shouldRunMetadataAutosaveAfterSave = false;
 let isApplyingSavedSearchQuery = false;
 let shouldSkipTagNameSync = false;
+let isDocumentTagSaveRunning = false;
+const queuedDocumentTagSaves = new Map();
 const previewRetryAttemptsByDocument = ref({});
 
 function resolveThemeName(mode) {
@@ -2687,40 +2721,52 @@ async function createTagByName(rawName) {
 }
 
 async function ensureTagIdByName(typedName) {
-  isSavingTags.value = true;
   try {
     const id = await tagStore.ensureTagIdByName(normalizeTagInput(typedName));
-    if (id) { await fetchTags(); scheduleSidebarCountsRefresh(); }
+    if (id) scheduleSidebarCountsRefresh();
     return id;
   } catch (error) {
     metadataTagErrorMessage.value = notifyError(error, 'Tag konnte nicht erstellt werden.');
     return '';
-  } finally {
-    isSavingTags.value = false;
   }
 }
 
 async function syncMetadataTagsFromNames(nextNames) {
   if (!selectedDocumentDetail.value) return;
+  const documentId = selectedDocumentDetail.value.id;
+  const revision = ++metadataTagDraftRevision.value;
   const normalizedNames = normalizeTagNames(nextNames);
   metadataTagErrorMessage.value = '';
+  isResolvingTagNames.value = true;
 
-  const resolvedTagIds = [];
-  for (const name of normalizedNames) {
-    let tagId = findTagByName(name)?.id || '';
-    if (!tagId) tagId = await ensureTagIdByName(name);
-    if (!tagId) continue;
-    resolvedTagIds.push(tagId);
+  try {
+    const resolvedTagIds = [];
+    for (const name of normalizedNames) {
+      let tagId = findTagByName(name)?.id || '';
+      if (!tagId) tagId = await ensureTagIdByName(name);
+      if (
+        revision !== metadataTagDraftRevision.value
+        || selectedDocumentId.value !== documentId
+      ) {
+        return;
+      }
+      if (!tagId) continue;
+      resolvedTagIds.push(tagId);
+    }
+
+    const canonicalIds = normalizeTagIds(resolvedTagIds);
+    const canonicalNames = canonicalIds.map((id) => tags.value.find((t) => t.id === id)?.name || id);
+    const sanitizedNames = normalizeTagNames(canonicalNames);
+
+    shouldSkipTagNameSync = true;
+    metadataTagNames.value = sanitizedNames;
+    window.setTimeout(() => { shouldSkipTagNameSync = false; }, 0);
+    metadataTagIds.value = canonicalIds;
+  } finally {
+    if (revision === metadataTagDraftRevision.value) {
+      isResolvingTagNames.value = false;
+    }
   }
-
-  const canonicalIds = normalizeTagIds(resolvedTagIds);
-  const canonicalNames = canonicalIds.map((id) => tags.value.find((t) => t.id === id)?.name || id);
-  const sanitizedNames = normalizeTagNames(canonicalNames);
-
-  shouldSkipTagNameSync = true;
-  metadataTagNames.value = sanitizedNames;
-  window.setTimeout(() => { shouldSkipTagNameSync = false; }, 0);
-  metadataTagIds.value = canonicalIds;
 }
 
 async function createTagFromToolbar() {
@@ -2769,9 +2815,28 @@ async function onMetadataTagNamesChange(nextValues) {
 
 function removeMetadataTag(name) {
   if (isRunningAiAnalysis.value) return;
-  const next = metadataTagNames.value.filter((entry) => entry !== name);
-  metadataTagNames.value = next;
-  onMetadataTagNamesChange(next);
+  metadataTagDraftRevision.value += 1;
+  isResolvingTagNames.value = false;
+  const normalizedName = normalizeTagInput(name).toLocaleLowerCase('de-DE');
+  const tagId = (
+    tags.value.find((tag) => normalizeTagInput(tag.name).toLocaleLowerCase('de-DE') === normalizedName)
+    || selectedDocumentDetail.value?.tags?.find(
+      (tag) => normalizeTagInput(tag.name).toLocaleLowerCase('de-DE') === normalizedName
+    )
+  )?.id;
+  if (!tagId) {
+    metadataTagNames.value = metadataTagNames.value.filter(
+      (entry) => normalizeTagInput(entry).toLocaleLowerCase('de-DE') !== normalizedName
+    );
+    return;
+  }
+  const nextIds = metadataTagIds.value.filter((id) => id !== tagId);
+  syncTagSelectionLocal(nextIds);
+  scheduleReplaceDocumentTags(
+    selectedDocumentDetail.value.id,
+    nextIds,
+    metadataTagDraftRevision.value
+  );
 }
 
 // Auswählbare Kategorien (zentral in den Einstellungen gepflegt). Ein bereits am
@@ -2819,7 +2884,11 @@ async function onMetadataCategoryChange(nextCategory) {
 // Korrespondenten-Optionen für das Detail-Drawer; aktuelle Auswahl bleibt
 // sichtbar, falls sie (noch) nicht in der geladenen Liste steht.
 const correspondentDrawerItems = computed(() => {
-  const items = correspondentStore.correspondentOptions.map((o) => ({ title: o.title, value: o.value }));
+  const items = correspondentStore.correspondentOptions.map((o) => ({
+    title: o.title,
+    value: o.value,
+    short_name: o.short_name
+  }));
   const currentId = metadataCorrespondentId.value;
   if (currentId && !items.some((o) => o.value === currentId)) {
     const name = selectedDocumentDetail.value?.correspondent_name || 'Korrespondent';
@@ -3187,6 +3256,9 @@ function sanitizeSelectedTagIds(tagValues) {
 function applyMetadataFromDetail(detail) {
   shouldSkipTagAutosave = true;
   shouldSkipMetadataAutosave = true;
+  metadataDraftDocumentId.value = detail?.id || null;
+  metadataTagDraftRevision.value += 1;
+  isResolvingTagNames.value = false;
   metadataDocName.value = getDocumentNameDraft(detail);
   metadataDocDate.value = formatDocumentDateInputFromIso(detail?.document_date);
   metadataDocDateHasError.value = false;
@@ -3244,22 +3316,33 @@ function syncTagSelectionLocal(tagIds) {
   }, 0);
 }
 
-async function replaceDocumentTags(tagIds) {
-  if (!selectedDocumentDetail.value) {
-    return;
-  }
+function applyTagsFromDetail(detail) {
+  const nextTagIds = normalizeTagIds((detail?.tags || []).map((tag) => tag.id));
+  metadataTagIds.value = nextTagIds;
+  metadataTagNames.value = (detail?.tags || []).map((tag) => normalizeTagInput(tag.name)).filter(Boolean);
+  metadataTagSearch.value = '';
+  metadataTagErrorMessage.value = '';
+}
 
-  const documentId = selectedDocumentDetail.value.id;
+async function persistDocumentTags(documentId, tagIds, draftRevision) {
   const nextTagIds = sanitizeSelectedTagIds(tagIds);
-  const previousTagIds = normalizeTagIds((selectedDocumentDetail.value.tags || []).map((tag) => tag.id));
+  const sourceDocument = selectedDocumentDetail.value?.id === documentId
+    ? selectedDocumentDetail.value
+    : documents.value.find((document) => document.id === documentId);
+  const previousTagIds = normalizeTagIds((sourceDocument?.tags || []).map((tag) => tag.id));
 
   if (isSameTagSelection(nextTagIds, previousTagIds)) {
-    syncTagSelectionLocal(nextTagIds);
+    if (
+      selectedDocumentId.value === documentId
+      && draftRevision === metadataTagDraftRevision.value
+      && isSameTagSelection(metadataTagIds.value, nextTagIds)
+    ) {
+      syncTagSelectionLocal(nextTagIds);
+    }
     return;
   }
 
   metadataTagErrorMessage.value = '';
-  isSavingTags.value = true;
 
   try {
     const response = await fetch(`${apiBaseUrl}/api/documents/${documentId}/tags`, {
@@ -3280,11 +3363,20 @@ async function replaceDocumentTags(tagIds) {
       detail = null;
     }
     if (detail?.id) {
-      selectedDocumentDetail.value = detail;
       docStore.patchDocumentInList(detail);
-      applyMetadataFromDetail(detail);
-    } else {
-      await fetchDocumentDetail(documentId);
+      if (selectedDocumentId.value === documentId) {
+        selectedDocumentDetail.value = detail;
+        if (
+          draftRevision === metadataTagDraftRevision.value
+          && isSameTagSelection(metadataTagIds.value, nextTagIds)
+        ) {
+          shouldSkipTagAutosave = true;
+          applyTagsFromDetail(detail);
+          window.setTimeout(() => {
+            shouldSkipTagAutosave = false;
+          }, 0);
+        }
+      }
     }
     // Zähler laufen debounced im Hintergrund und stören weder die offene
     // Tag-Combobox noch die Liste. Bewusst KEIN fetchTags() hier: neu erstellte
@@ -3298,11 +3390,37 @@ async function replaceDocumentTags(tagIds) {
     if (activeTagFilterCount.value > 0 || activeSavedSearchId.value) {
       await fetchDocuments(documentId, { autoSelectFirst: false, allowPreferredOutsideList: true });
     }
-    notify({ type: 'success', title: 'Tags', message: 'Tags gespeichert.', timeoutMs: 2500 });
   } catch (error) {
     metadataTagErrorMessage.value = notifyError(error, 'Tags konnten nicht gespeichert werden.');
-    syncTagSelectionLocal(previousTagIds);
+    if (
+      selectedDocumentId.value === documentId
+      && draftRevision === metadataTagDraftRevision.value
+      && isSameTagSelection(metadataTagIds.value, nextTagIds)
+    ) {
+      syncTagSelectionLocal(previousTagIds);
+    }
+  }
+}
+
+async function replaceDocumentTags(documentId, tagIds, draftRevision) {
+  queuedDocumentTagSaves.set(documentId, {
+    tagIds: normalizeTagIds(tagIds),
+    draftRevision
+  });
+  if (isDocumentTagSaveRunning) {
+    return;
+  }
+
+  isDocumentTagSaveRunning = true;
+  isSavingTags.value = true;
+  try {
+    while (queuedDocumentTagSaves.size > 0) {
+      const [nextDocumentId, nextSave] = queuedDocumentTagSaves.entries().next().value;
+      queuedDocumentTagSaves.delete(nextDocumentId);
+      await persistDocumentTags(nextDocumentId, nextSave.tagIds, nextSave.draftRevision);
+    }
   } finally {
+    isDocumentTagSaveRunning = false;
     isSavingTags.value = false;
   }
 }
@@ -3466,13 +3584,16 @@ async function queueOcrFromHeader() {
   }
 }
 
-function scheduleReplaceDocumentTags(tagIds) {
-  if (tagReplaceDebounceTimer) {
-    window.clearTimeout(tagReplaceDebounceTimer);
+function scheduleReplaceDocumentTags(documentId, tagIds, draftRevision) {
+  const existingTimer = tagReplaceDebounceTimers.get(documentId);
+  if (existingTimer) {
+    window.clearTimeout(existingTimer);
   }
-  tagReplaceDebounceTimer = window.setTimeout(() => {
-    void replaceDocumentTags(tagIds);
+  const timer = window.setTimeout(() => {
+    tagReplaceDebounceTimers.delete(documentId);
+    void replaceDocumentTags(documentId, tagIds, draftRevision);
   }, TAG_REPLACE_DEBOUNCE_MS);
+  tagReplaceDebounceTimers.set(documentId, timer);
 }
 
 function scheduleMetadataAutosave() {
@@ -3489,6 +3610,21 @@ function scheduleMetadataAutosave() {
     }
     void saveMetadata({ skipDocumentReload: true, silentSuccess: true });
   }, METADATA_AUTOSAVE_DEBOUNCE_MS);
+}
+
+function commitMetadataTextFields() {
+  if (metadataAutosaveDebounceTimer) {
+    window.clearTimeout(metadataAutosaveDebounceTimer);
+    metadataAutosaveDebounceTimer = null;
+  }
+  if (!selectedDocumentDetail.value || !isMetadataDirty.value) {
+    return;
+  }
+  if (isSavingMetadata.value) {
+    shouldRunMetadataAutosaveAfterSave = true;
+    return;
+  }
+  void saveMetadata({ skipDocumentReload: true, silentSuccess: true });
 }
 
 async function commitDocumentDateValue() {
@@ -3516,6 +3652,17 @@ function handleDocumentDateEnter() {
 
 function handleDocumentDateShortcut(event) {
   handleShortcut(event, SHORTCUT_ACTIONS.PRIMARY, handleDocumentDateEnter, { ignoreEditable: false });
+}
+
+function handleDetailsEditorFocusIn() {
+  detailsEditorHasFocus.value = true;
+}
+
+function handleDetailsEditorFocusOut(event) {
+  if (event.currentTarget?.contains(event.relatedTarget)) {
+    return;
+  }
+  detailsEditorHasFocus.value = false;
 }
 
 function resetDetailsSectionState() {
@@ -4069,6 +4216,18 @@ async function fetchDocumentDetail(documentId) {
   }
 
   const detail = await parseJsonResponse(response);
+  if (selectedDocumentId.value !== documentId) {
+    return detail;
+  }
+  const hasLocalDraft =
+    metadataDraftDocumentId.value === documentId
+    && (
+      detailsEditorHasFocus.value
+      || isMetadataDirty.value
+      || isTagSelectionDirty.value
+      || isSavingMetadata.value
+      || isSavingTags.value
+    );
   selectedDocumentDetail.value = detail;
   const ocrDone =
     detail?.ocr_status === 'done' ||
@@ -4078,7 +4237,9 @@ async function fetchDocumentDetail(documentId) {
       documentId
     });
   }
-  applyMetadataFromDetail(detail);
+  if (!hasLocalDraft) {
+    applyMetadataFromDetail(detail);
+  }
   notifyOcrQualityIfNeeded(detail);
 }
 
@@ -5326,26 +5487,32 @@ async function saveMetadata(options = {}) {
   metadataSuccessMessage.value = '';
   metadataErrorMessage.value = '';
   isSavingMetadata.value = true;
+  const documentId = selectedDocumentDetail.value.id;
+  const saveRevision = metadataDraftRevision.value;
+  const draftDocumentName = metadataDocName.value;
+  const draftDocumentDate = metadataDocDate.value;
+  const draftNotes = metadataNotes.value;
 
   try {
-    const documentId = selectedDocumentDetail.value.id;
-    const parsedDocumentDate = parseDocumentDateInput(metadataDocDate.value);
+    const parsedDocumentDate = parseDocumentDateInput(draftDocumentDate);
     if (!parsedDocumentDate.ok) {
       metadataDocDateHasError.value = true;
       return;
     }
 
     metadataDocDateHasError.value = false;
-    metadataDocDate.value = parsedDocumentDate.display;
+    if (metadataDraftRevision.value === saveRevision) {
+      metadataDocDate.value = parsedDocumentDate.display;
+    }
     const normalizedDocDate = parsedDocumentDate.iso;
-    const normalizedNotes = metadataNotes.value || null;
+    const normalizedNotes = draftNotes || null;
 
     const patchBody = {
       document_date: normalizedDocDate,
       notes: normalizedNotes
     };
 
-    const normalizedDocName = normalizeDocumentName(metadataDocName.value);
+    const normalizedDocName = normalizeDocumentName(draftDocumentName);
     if (normalizedDocName && normalizedDocName !== getDocumentNameDraft(selectedDocumentDetail.value)) {
       patchBody.display_name = normalizedDocName;
     }
@@ -5369,7 +5536,6 @@ async function saveMetadata(options = {}) {
     }
 
     if (updatedDetail?.id) {
-      selectedDocumentDetail.value = updatedDetail;
       const listIndex = documents.value.findIndex((document) => document.id === updatedDetail.id);
       if (listIndex >= 0) {
         const existing = documents.value[listIndex];
@@ -5378,7 +5544,12 @@ async function saveMetadata(options = {}) {
           ...updatedDetail
         });
       }
-      applyMetadataFromDetail(updatedDetail);
+      if (selectedDocumentId.value === documentId) {
+        selectedDocumentDetail.value = updatedDetail;
+      }
+      if (selectedDocumentId.value === documentId && metadataDraftRevision.value === saveRevision) {
+        applyMetadataFromDetail(updatedDetail);
+      }
     } else {
       const localPatch = {
         document_date: normalizedDocDate,
@@ -5405,7 +5576,9 @@ async function saveMetadata(options = {}) {
         });
       }
       if (selectedDocumentDetail.value?.id === documentId) {
-        applyMetadataFromDetail(selectedDocumentDetail.value);
+        if (metadataDraftRevision.value === saveRevision) {
+          applyMetadataFromDetail(selectedDocumentDetail.value);
+        }
       }
       if (!skipDocumentReload) {
         await fetchDocumentDetail(documentId);
@@ -5422,9 +5595,17 @@ async function saveMetadata(options = {}) {
     metadataErrorMessage.value = notifyError(error, 'Speichern fehlgeschlagen.');
   } finally {
     isSavingMetadata.value = false;
-    if (shouldRunMetadataAutosaveAfterSave) {
+    if (
+      selectedDocumentId.value === documentId
+      && (shouldRunMetadataAutosaveAfterSave || isMetadataDirty.value)
+    ) {
       shouldRunMetadataAutosaveAfterSave = false;
       scheduleMetadataAutosave();
+    } else {
+      shouldRunMetadataAutosaveAfterSave = false;
+      if (selectedDocumentId.value !== documentId && isMetadataDirty.value) {
+        scheduleMetadataAutosave();
+      }
     }
   }
 }
@@ -5438,6 +5619,11 @@ async function deleteSelectedDocument() {
 
 watch(selectedDocumentId, (nextId, previousId) => {
   if (nextId !== previousId) {
+    metadataDraftDocumentId.value = null;
+    metadataTagDraftRevision.value += 1;
+    isResolvingTagNames.value = false;
+    detailsEditorHasFocus.value = false;
+    metadataDraftRevision.value += 1;
     clearPreviewRetryTimer();
     previewRetryAttemptsByDocument.value = {};
     resetDetailsSectionState();
@@ -5453,13 +5639,18 @@ watch(metadataTagIds, (nextValue) => {
     syncTagSelectionLocal(sanitizedTagIds);
     return;
   }
-  scheduleReplaceDocumentTags(sanitizedTagIds);
+  scheduleReplaceDocumentTags(
+    selectedDocumentDetail.value.id,
+    sanitizedTagIds,
+    metadataTagDraftRevision.value
+  );
 });
 
 watch([metadataDocName, metadataDocDate, metadataNotes], () => {
   if (shouldSkipMetadataAutosave || !selectedDocumentDetail.value) {
     return;
   }
+  metadataDraftRevision.value += 1;
   const parsedDocumentDate = parseDocumentDateInput(metadataDocDate.value);
   if (!parsedDocumentDate.ok) {
     return;
@@ -5615,9 +5806,10 @@ watch(
 );
 
 onBeforeUnmount(() => {
-  if (tagReplaceDebounceTimer) {
-    window.clearTimeout(tagReplaceDebounceTimer);
+  for (const timer of tagReplaceDebounceTimers.values()) {
+    window.clearTimeout(timer);
   }
+  tagReplaceDebounceTimers.clear();
   if (metadataAutosaveDebounceTimer) {
     window.clearTimeout(metadataAutosaveDebounceTimer);
   }
@@ -8065,6 +8257,34 @@ onBeforeUnmount(() => {
   min-height: 0;
   display: flex;
   align-items: center;
+}
+
+.document-row__fav-btn,
+.document-row__menu-btn {
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  flex: 0 0 36px;
+  padding: 0 !important;
+  transform: none !important;
+  transition-property: opacity, background-color !important;
+}
+
+.document-row__fav-btn:hover,
+.document-row__fav-btn:focus-visible,
+.document-row__fav-btn:active,
+.document-row__menu-btn:hover,
+.document-row__menu-btn:focus-visible,
+.document-row__menu-btn:active {
+  transform: none !important;
+}
+
+.document-row__fav-btn .v-btn__content,
+.document-row__menu-btn .v-btn__content,
+.document-row__fav-btn .v-icon,
+.document-row__menu-btn .v-icon {
+  transform: none !important;
+  transition: none !important;
 }
 
 .document-row__menu-btn {
