@@ -2337,6 +2337,27 @@ let shouldSkipTagNameSync = false;
 let isDocumentTagSaveRunning = false;
 const queuedDocumentTagSaves = new Map();
 const previewRetryAttemptsByDocument = ref({});
+const favoriteStateByDocumentId = new Map();
+
+function applyKnownFavoriteState(document) {
+  const knownState = document?.id ? favoriteStateByDocumentId.get(document.id) : null;
+  if (!knownState) {
+    return document;
+  }
+  const incomingUpdatedAt = Date.parse(String(document.updated_at || '')) || 0;
+  if (incomingUpdatedAt > knownState.updatedAt) {
+    favoriteStateByDocumentId.delete(document.id);
+    return document;
+  }
+  return {
+    ...document,
+    is_favorite: knownState.value
+  };
+}
+
+function applyKnownFavoriteStates(items) {
+  return (Array.isArray(items) ? items : []).map(applyKnownFavoriteState);
+}
 
 function resolveThemeName(mode) {
   if (mode === 'light' || mode === 'dark') return mode;
@@ -3363,6 +3384,7 @@ async function persistDocumentTags(documentId, tagIds, draftRevision) {
       detail = null;
     }
     if (detail?.id) {
+      detail = applyKnownFavoriteState(detail);
       docStore.patchDocumentInList(detail);
       if (selectedDocumentId.value === documentId) {
         selectedDocumentDetail.value = detail;
@@ -4204,9 +4226,11 @@ async function fetchTags() {
   ensureActiveTagFilterIsValid();
 }
 
-async function fetchDocumentDetail(documentId) {
+async function fetchDocumentDetail(documentId, options = {}) {
+  const forceApplyMetadata = options.forceApplyMetadata === true;
   if (!documentId) {
     selectedDocumentDetail.value = null;
+    metadataDraftDocumentId.value = null;
     return;
   }
 
@@ -4215,11 +4239,13 @@ async function fetchDocumentDetail(documentId) {
     throw new Error(await parseResponseError(response));
   }
 
-  const detail = await parseJsonResponse(response);
+  const detail = applyKnownFavoriteState(await parseJsonResponse(response));
   if (selectedDocumentId.value !== documentId) {
     return detail;
   }
   const hasLocalDraft =
+    !forceApplyMetadata
+    &&
     metadataDraftDocumentId.value === documentId
     && (
       detailsEditorHasFocus.value
@@ -4281,7 +4307,9 @@ async function fetchDocuments(preferredDocumentId = null, options = {}) {
     }
 
     const payload = await parseJsonResponse(response);
-    documents.value = sortDocumentsForCurrentView(filterDocumentsByActiveTagFilters(payload.items || []));
+    documents.value = sortDocumentsForCurrentView(
+      filterDocumentsByActiveTagFilters(applyKnownFavoriteStates(payload.items || []))
+    );
 
     if (documents.value.length === 0) {
       if (!canDiscardMetadataChanges()) {
@@ -4311,6 +4339,7 @@ async function fetchDocuments(preferredDocumentId = null, options = {}) {
       }
     }
 
+    const selectionChanged = selectedDocumentId.value !== resolvedSelectionId;
     selectedDocumentId.value = resolvedSelectionId;
     if (!resolvedSelectionId) {
       selectedDocumentDetail.value = null;
@@ -4318,7 +4347,7 @@ async function fetchDocuments(preferredDocumentId = null, options = {}) {
     }
 
     try {
-      await fetchDocumentDetail(resolvedSelectionId);
+      await fetchDocumentDetail(resolvedSelectionId, { forceApplyMetadata: selectionChanged });
       void markDocumentViewedOptimistic(resolvedSelectionId);
     } catch (error) {
       if (!allowPreferredOutsideList || resolvedSelectionId !== preferredDocumentId) {
@@ -4328,7 +4357,7 @@ async function fetchDocuments(preferredDocumentId = null, options = {}) {
       selectedDocumentId.value = autoSelectFirst ? documents.value[0]?.id || null : null;
       selectedDocumentDetail.value = null;
       if (selectedDocumentId.value) {
-        await fetchDocumentDetail(selectedDocumentId.value);
+        await fetchDocumentDetail(selectedDocumentId.value, { forceApplyMetadata: true });
         void markDocumentViewedOptimistic(selectedDocumentId.value);
       }
     }
@@ -4355,12 +4384,17 @@ async function selectDocument(documentId, options = {}) {
     // Suchbegriff aus der globalen Suche als Highlight übernehmen
     previewHighlightText.value = parsedSearch.value.q || '';
   }
+  // Ein expliziter Dokumentwechsel verwirft den Formularbezug zum vorherigen
+  // Dokument sofort. Hintergrund-Refreshes desselben Dokuments schützen dagegen
+  // weiterhin aktive Eingaben.
+  metadataDraftDocumentId.value = null;
+  detailsEditorHasFocus.value = false;
   selectedDocumentId.value = documentId;
   metadataSuccessMessage.value = '';
   metadataErrorMessage.value = '';
   metadataTagErrorMessage.value = '';
   try {
-    await fetchDocumentDetail(documentId);
+    await fetchDocumentDetail(documentId, { forceApplyMetadata: true });
     void markDocumentViewedOptimistic(documentId);
     await fetchTags();
   } catch (error) {
@@ -4421,6 +4455,7 @@ function closeDeleteDocumentDialog() {
 }
 
 function onDocumentRenamed(updated) {
+  updated = applyKnownFavoriteState(updated);
   documents.value = documents.value.map((document) =>
     document.id === updated.id ? { ...document, ...updated } : document
   );
@@ -4553,6 +4588,10 @@ async function toggleDocumentFavorite(document) {
     const response = await fetch(`${apiBaseUrl}/api/documents/${document.id}/favorite`, { method: 'POST' });
     if (!response.ok) throw new Error(await parseResponseError(response));
     const updated = await response.json();
+    favoriteStateByDocumentId.set(updated.id, {
+      value: Boolean(updated.is_favorite),
+      updatedAt: Date.parse(String(updated.updated_at || '')) || Date.now()
+    });
     if (isFavoritesView.value && updated.is_favorite === false) {
       documents.value = documents.value.filter((doc) => doc.id !== updated.id);
       if (selectedDocumentId.value === updated.id) {
@@ -4560,7 +4599,7 @@ async function toggleDocumentFavorite(document) {
         selectedDocumentId.value = nextDocument?.id || null;
         selectedDocumentDetail.value = null;
         if (nextDocument?.id) {
-          await fetchDocumentDetail(nextDocument.id);
+          await fetchDocumentDetail(nextDocument.id, { forceApplyMetadata: true });
           void markDocumentViewedOptimistic(nextDocument.id);
         } else {
           isDetailsDrawerOpen.value = false;
@@ -5529,7 +5568,7 @@ async function saveMetadata(options = {}) {
 
     let updatedDetail = null;
     try {
-      updatedDetail = await patchResponse.json();
+      updatedDetail = applyKnownFavoriteState(await patchResponse.json());
     } catch (error) {
       logDevError(error, 'json-parse');
       updatedDetail = null;
