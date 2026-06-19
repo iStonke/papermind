@@ -418,6 +418,7 @@
               :is-loading-more-documents="isLoadingMoreDocuments"
               :loaded-document-count="documentListLoadedCount"
               :total-document-count="documentListTotal"
+              :load-more-batch-size="documentListQuery.limit"
               @select-document="selectDocument"
               @download="downloadDocumentFromList"
               @rename="(doc) => renameDocumentDialogRef?.open(doc)"

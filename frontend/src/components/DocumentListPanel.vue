@@ -227,21 +227,56 @@
               :style="{ height: `${bottomSpacerHeight}px` }"
               aria-hidden="true"
             />
-            <div v-if="hasMoreDocuments || totalDocumentCount > 0" class="document-list__pagination">
-              <v-progress-circular
-                v-if="isLoadingMoreDocuments"
-                indeterminate
-                size="18"
-                width="2"
+            <div
+              v-if="totalDocumentCount > 0"
+              class="document-list__pagination"
+              :class="{ 'document-list__pagination--complete': !hasMoreDocuments }"
+              aria-live="polite"
+            >
+              <div class="document-list__pagination-status">
+                <div class="document-list__pagination-label">
+                  <v-progress-circular
+                    v-if="isLoadingMoreDocuments"
+                    indeterminate
+                    size="16"
+                    width="2"
+                    aria-hidden="true"
+                  />
+                  <v-icon
+                    v-else-if="!hasMoreDocuments"
+                    size="16"
+                    color="success"
+                    aria-hidden="true"
+                  >
+                    mdi-check-circle-outline
+                  </v-icon>
+                  <span>{{ paginationStatusLabel }}</span>
+                </div>
+                <span v-if="hasMoreDocuments" class="document-list__pagination-count">
+                  {{ paginationLabel }}
+                </span>
+              </div>
+              <v-progress-linear
+                :model-value="paginationProgress"
+                :indeterminate="isLoadingMoreDocuments"
+                height="3"
+                rounded
+                color="primary"
+                class="document-list__pagination-progress"
               />
-              <span>{{ paginationLabel }}</span>
               <v-btn
-                v-if="hasMoreDocuments && !isLoadingMoreDocuments"
+                v-if="hasMoreDocuments"
+                block
                 size="small"
-                variant="text"
+                variant="tonal"
+                color="primary"
+                prepend-icon="mdi-chevron-down"
+                :loading="isLoadingMoreDocuments"
+                :disabled="isLoadingMoreDocuments"
+                class="document-list__pagination-button"
                 @click="emit('load-more')"
               >
-                Weitere laden
+                {{ loadMoreLabel }}
               </v-btn>
             </div>
           </div>
@@ -306,6 +341,7 @@ const props = defineProps({
   isLoadingMoreDocuments:     { type: Boolean, default: false },
   loadedDocumentCount:        { type: Number,  default: 0 },
   totalDocumentCount:         { type: Number,  default: 0 },
+  loadMoreBatchSize:           { type: Number,  default: 100 },
 });
 
 const emit = defineEmits([
@@ -339,6 +375,24 @@ const paginationLabel = computed(() => {
   const loaded = Math.min(props.loadedDocumentCount, props.totalDocumentCount);
   return `${loaded} von ${props.totalDocumentCount} Dokumenten`;
 });
+const remainingDocumentCount = computed(() =>
+  Math.max(0, props.totalDocumentCount - props.loadedDocumentCount)
+);
+const nextLoadCount = computed(() =>
+  Math.min(props.loadMoreBatchSize, remainingDocumentCount.value)
+);
+const paginationProgress = computed(() => {
+  if (props.totalDocumentCount <= 0) return 0;
+  return Math.min(100, (props.loadedDocumentCount / props.totalDocumentCount) * 100);
+});
+const paginationStatusLabel = computed(() => {
+  if (props.isLoadingMoreDocuments) return 'Weitere Dokumente werden geladen …';
+  if (!props.hasMoreDocuments) return `Alle ${props.totalDocumentCount} Dokumente geladen`;
+  return 'Weitere Dokumente verfügbar';
+});
+const loadMoreLabel = computed(() =>
+  `${nextLoadCount.value} weitere laden`
+);
 
 function requestMoreIfNearEnd(element = listShell.value) {
   if (!element || !props.hasMoreDocuments || props.isLoadingMoreDocuments) return;
@@ -725,13 +779,63 @@ function onListDrop(event) {
 }
 
 .document-list__pagination {
-  min-height: 48px;
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 4px;
+  padding: 12px 14px 14px;
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+  background: rgba(var(--v-theme-surface), 0.97);
+  box-shadow: 0 -5px 14px rgba(var(--v-theme-on-surface), 0.06);
+  backdrop-filter: blur(8px);
   color: rgba(var(--v-theme-on-surface), 0.62);
   font-size: 0.78rem;
+}
+
+.document-list__pagination--complete {
+  padding-block: 11px;
+  box-shadow: none;
+}
+
+.document-list__pagination-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-width: 0;
+  gap: 12px;
+}
+
+.document-list__pagination-label {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  color: rgba(var(--v-theme-on-surface), 0.76);
+  font-weight: 500;
+}
+
+.document-list__pagination-label span,
+.document-list__pagination-count {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.document-list__pagination-count {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.document-list__pagination-progress {
+  flex: 0 0 auto;
+}
+
+.document-list__pagination-button {
+  min-height: 34px;
 }
 
 .document-list--with-bottom-spacer {
