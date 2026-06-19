@@ -417,8 +417,6 @@
               :has-more-documents="hasMoreDocuments"
               :is-loading-more-documents="isLoadingMoreDocuments"
               :loaded-document-count="documentListLoadedCount"
-              :total-document-count="documentListTotal"
-              :load-more-batch-size="documentListQuery.limit"
               @select-document="selectDocument"
               @download="downloadDocumentFromList"
               @rename="(doc) => renameDocumentDialogRef?.open(doc)"
@@ -1371,7 +1369,7 @@ const documentListQuery = reactive({
   dateTo: initialDateRange.dateTo,
   sort: initialDocumentSort.sort,
   order: initialDocumentSort.order,
-  limit: 100,
+  limit: 50,
   offset: 0
 });
 const documentListTotal = ref(0);
@@ -7960,6 +7958,8 @@ onBeforeUnmount(() => {
 
 .document-row {
   width: 100%;
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 104px;
   display: grid;
   grid-template-columns: 58px 1fr auto;
   gap: 10px;

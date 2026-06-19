@@ -3,7 +3,7 @@ import uuid
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.core.errors import BadRequestError, ConflictError, NotFoundError
 from app.models.document import Document
@@ -15,6 +15,7 @@ from app.schemas.smart_folders import (
     SmartFolderSort,
     SmartFolderUpdateRequest,
 )
+from app.services.documents import DocumentService
 from app.services.smart_folder_query import SmartFolderQueryCompiler, build_smart_folder_sort, validate_smart_folder_query
 from app.services.utils import is_unique_violation, normalize_name
 
@@ -159,11 +160,12 @@ class SmartFolderService:
         order_exprs = build_smart_folder_sort(sort)
 
         filtered_stmt = self._scope_documents(select(Document).where(filter_expr))
-        total_stmt = select(func.count()).select_from(filtered_stmt.order_by(None).subquery())
+        total_source = filtered_stmt.with_only_columns(Document.id).order_by(None).subquery()
+        total_stmt = select(func.count()).select_from(total_source)
         total = int(self.db.scalar(total_stmt) or 0)
 
         items_stmt = (
-            filtered_stmt.options(selectinload(Document.tags))
+            filtered_stmt.options(*DocumentService._summary_load_options())
             .order_by(*order_exprs)
             .limit(limit)
             .offset(offset)

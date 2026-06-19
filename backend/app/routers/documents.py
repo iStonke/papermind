@@ -317,6 +317,7 @@ def get_document_thumbnail(document_id: uuid.UUID, db: Session = Depends(get_db)
         media_type=file_record.mime_type,
         filename=file_record.filename or "thumbnail.png",
         content_disposition_type="inline",
+        headers={"Cache-Control": "private, max-age=3600"},
     )
 
 

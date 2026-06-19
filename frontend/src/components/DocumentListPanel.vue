@@ -228,55 +228,29 @@
               aria-hidden="true"
             />
             <div
-              v-if="totalDocumentCount > 0"
-              class="document-list__pagination"
-              :class="{ 'document-list__pagination--complete': !hasMoreDocuments }"
+              v-if="hasMoreDocuments"
+              class="document-list__load-more"
               aria-live="polite"
             >
-              <div class="document-list__pagination-status">
-                <div class="document-list__pagination-label">
-                  <v-progress-circular
-                    v-if="isLoadingMoreDocuments"
-                    indeterminate
-                    size="16"
-                    width="2"
-                    aria-hidden="true"
-                  />
-                  <v-icon
-                    v-else-if="!hasMoreDocuments"
-                    size="16"
-                    color="success"
-                    aria-hidden="true"
-                  >
-                    mdi-check-circle-outline
-                  </v-icon>
-                  <span>{{ paginationStatusLabel }}</span>
-                </div>
-                <span v-if="hasMoreDocuments" class="document-list__pagination-count">
-                  {{ paginationLabel }}
-                </span>
+              <div v-if="isLoadingMoreDocuments" class="document-list__loading-more">
+                <v-progress-circular
+                  indeterminate
+                  size="18"
+                  width="2"
+                  aria-hidden="true"
+                />
+                <span>Weitere Dokumente werden geladen</span>
               </div>
-              <v-progress-linear
-                :model-value="paginationProgress"
-                :indeterminate="isLoadingMoreDocuments"
-                height="3"
-                rounded
-                color="primary"
-                class="document-list__pagination-progress"
-              />
               <v-btn
-                v-if="hasMoreDocuments"
-                block
-                size="small"
-                variant="tonal"
+                v-else
+                size="x-small"
+                variant="text"
                 color="primary"
-                prepend-icon="mdi-chevron-down"
-                :loading="isLoadingMoreDocuments"
-                :disabled="isLoadingMoreDocuments"
-                class="document-list__pagination-button"
+                append-icon="mdi-chevron-down"
+                class="document-list__load-more-button"
                 @click="emit('load-more')"
               >
-                {{ loadMoreLabel }}
+                Weitere laden
               </v-btn>
             </div>
           </div>
@@ -340,8 +314,6 @@ const props = defineProps({
   hasMoreDocuments:           { type: Boolean, default: false },
   isLoadingMoreDocuments:     { type: Boolean, default: false },
   loadedDocumentCount:        { type: Number,  default: 0 },
-  totalDocumentCount:         { type: Number,  default: 0 },
-  loadMoreBatchSize:           { type: Number,  default: 100 },
 });
 
 const emit = defineEmits([
@@ -371,29 +343,6 @@ const authStore     = useAuthStore();
 const { documents, selectedDocumentId } = storeToRefs(docStore);
 const listShell = ref(null);
 const showPdfSuffixComputed = computed(() => settingsStore.settingsDraft?.ui?.showFilenameSuffix ?? false);
-const paginationLabel = computed(() => {
-  const loaded = Math.min(props.loadedDocumentCount, props.totalDocumentCount);
-  return `${loaded} von ${props.totalDocumentCount} Dokumenten`;
-});
-const remainingDocumentCount = computed(() =>
-  Math.max(0, props.totalDocumentCount - props.loadedDocumentCount)
-);
-const nextLoadCount = computed(() =>
-  Math.min(props.loadMoreBatchSize, remainingDocumentCount.value)
-);
-const paginationProgress = computed(() => {
-  if (props.totalDocumentCount <= 0) return 0;
-  return Math.min(100, (props.loadedDocumentCount / props.totalDocumentCount) * 100);
-});
-const paginationStatusLabel = computed(() => {
-  if (props.isLoadingMoreDocuments) return 'Weitere Dokumente werden geladen …';
-  if (!props.hasMoreDocuments) return `Alle ${props.totalDocumentCount} Dokumente geladen`;
-  return 'Weitere Dokumente verfügbar';
-});
-const loadMoreLabel = computed(() =>
-  `${nextLoadCount.value} weitere laden`
-);
-
 function requestMoreIfNearEnd(element = listShell.value) {
   if (!element || !props.hasMoreDocuments || props.isLoadingMoreDocuments) return;
   const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
@@ -778,64 +727,25 @@ function onListDrop(event) {
   pointer-events: none;
 }
 
-.document-list__pagination {
-  position: sticky;
-  bottom: 0;
-  z-index: 3;
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  margin-top: 4px;
-  padding: 12px 14px 14px;
-  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.1);
-  background: rgba(var(--v-theme-surface), 0.97);
-  box-shadow: 0 -5px 14px rgba(var(--v-theme-on-surface), 0.06);
-  backdrop-filter: blur(8px);
-  color: rgba(var(--v-theme-on-surface), 0.62);
-  font-size: 0.78rem;
-}
-
-.document-list__pagination--complete {
-  padding-block: 11px;
-  box-shadow: none;
-}
-
-.document-list__pagination-status {
+.document-list__load-more {
+  min-height: 44px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   width: 100%;
-  min-width: 0;
-  gap: 12px;
+  padding: 8px 12px 12px;
 }
 
-.document-list__pagination-label {
+.document-list__loading-more {
   display: flex;
   align-items: center;
-  min-width: 0;
-  gap: 6px;
-  color: rgba(var(--v-theme-on-surface), 0.76);
-  font-weight: 500;
+  gap: 8px;
+  color: rgba(var(--v-theme-on-surface), 0.56);
+  font-size: 0.75rem;
 }
 
-.document-list__pagination-label span,
-.document-list__pagination-count {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.document-list__pagination-count {
-  flex: 0 0 auto;
-  font-variant-numeric: tabular-nums;
-}
-
-.document-list__pagination-progress {
-  flex: 0 0 auto;
-}
-
-.document-list__pagination-button {
-  min-height: 34px;
+.document-list__load-more-button {
+  opacity: 0.72;
 }
 
 .document-list--with-bottom-spacer {

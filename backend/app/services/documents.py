@@ -13,7 +13,7 @@ import pypdfium2 as pdfium
 from pypdf import PdfReader
 from sqlalchemy import asc, case, desc, func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, load_only, noload, selectinload
 
 from app.core.config import get_settings
 from app.core.errors import (
@@ -209,6 +209,40 @@ class DocumentService:
         if self.owner_id is not None:
             return stmt.where(Tag.owner_id == self.owner_id)
         return stmt
+
+    @staticmethod
+    def _summary_load_options():
+        return (
+            load_only(
+                Document.id,
+                Document.original_filename,
+                Document.display_name,
+                Document.duplicate_of_doc_id,
+                Document.duplicate_kind,
+                Document.duplicate_score,
+                Document.is_unread,
+                Document.is_deleted,
+                Document.is_favorite,
+                Document.document_date,
+                Document.document_date_source,
+                Document.document_date_confidence,
+                Document.document_date_candidates,
+                Document.document_type,
+                Document.status,
+                Document.ocr_status,
+                Document.ocr_quality_status,
+                Document.ocr_confidence_score,
+                Document.embedding_status,
+                Document.ai_document_type,
+                Document.ai_status,
+                Document.created_at,
+                Document.updated_at,
+            ),
+            selectinload(Document.tags).noload(Tag.documents),
+            noload(Document.files),
+            noload(Document.jobs),
+            noload(Document.chunks),
+        )
 
     def _normalize_auto_tag_name(self, raw_value: str) -> str:
         cleaned = re.sub(r"[^A-Za-zÄÖÜäöüß0-9\-/ ]+", " ", str(raw_value or ""))
@@ -1230,7 +1264,25 @@ class DocumentService:
         )
 
     def get_document_file_by_role(self, document_id: uuid.UUID, role: DocumentFileRole) -> tuple[Document, DocumentFile, Path]:
-        document = self.get_document_or_404(document_id)
+        stmt = self._scope(
+            select(Document)
+            .where(Document.id == document_id)
+            .options(
+                load_only(
+                    Document.id,
+                    Document.original_filename,
+                    Document.storage_key,
+                    Document.mime_type,
+                ),
+                selectinload(Document.files).noload(DocumentFile.document),
+                noload(Document.tags),
+                noload(Document.jobs),
+                noload(Document.chunks),
+            )
+        )
+        document = self.db.execute(stmt).scalar_one_or_none()
+        if document is None:
+            raise NotFoundError("Document not found", details={"document_id": str(document_id)})
         file_record = self._get_file_record_by_role(document, role)
         file_path = self._resolve_storage_path(file_record.file_key)
 
@@ -1439,7 +1491,8 @@ class DocumentService:
             order_expr = direction(Document.created_at)
             secondary_order_expr = desc(Document.id)
 
-        total_stmt = select(func.count()).select_from(filtered_stmt.order_by(None).subquery())
+        total_source = filtered_stmt.with_only_columns(Document.id).order_by(None).subquery()
+        total_stmt = select(func.count()).select_from(total_source)
         total = self.db.scalar(total_stmt) or 0
 
         if ts_query_expr is not None:
@@ -1464,7 +1517,7 @@ class DocumentService:
             )
             items_stmt = (
                 filtered_stmt.add_columns(rank_expr, snippet_expr)
-                .options(selectinload(Document.tags))
+                .options(*self._summary_load_options())
                 .order_by(*search_order_exprs)
                 .limit(limit)
                 .offset(offset)
@@ -1479,7 +1532,7 @@ class DocumentService:
                 items.append(summary)
         else:
             items_stmt = (
-                filtered_stmt.options(selectinload(Document.tags))
+                filtered_stmt.options(*self._summary_load_options())
                 .order_by(order_expr, secondary_order_expr)
                 .limit(limit)
                 .offset(offset)
@@ -1515,7 +1568,12 @@ class DocumentService:
         stmt = self._scope(
             select(Document)
             .where(Document.id == document_id)
-            .options(selectinload(Document.tags), selectinload(Document.files), selectinload(Document.jobs))
+            .options(
+                selectinload(Document.tags).noload(Tag.documents),
+                selectinload(Document.files).noload(DocumentFile.document),
+                selectinload(Document.jobs).noload(Job.document),
+                noload(Document.chunks),
+            )
         )
         document = self.db.execute(stmt).scalar_one_or_none()
         if document is None:
