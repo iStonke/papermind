@@ -18,6 +18,7 @@ from app.schemas.documents import (
     DocumentMetadataSuggestion,
     DocumentSortField,
     DocumentStatus,
+    DocumentStatusListResponse,
     DocumentTagReplaceRequest,
     DocumentUpdateRequest,
     SortOrder,
@@ -69,6 +70,7 @@ def list_documents(
     order: SortOrder = Query(default=SortOrder.desc, description="Sort order"),
     limit: int = Query(default=20, ge=1, le=100, description="Page size"),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
+    include_total: bool = Query(default=True, description="Calculate the total number of matching documents"),
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ) -> DocumentListResponse:
     service = DocumentService(db, user.id)
@@ -90,7 +92,21 @@ def list_documents(
         order=order,
         limit=limit,
         offset=offset,
+        include_total=include_total,
     )
+
+
+@router.get(
+    "/statuses",
+    response_model=DocumentStatusListResponse,
+    summary="Get lightweight processing status for multiple documents",
+)
+def get_document_statuses(
+    document_ids: list[uuid.UUID] = Query(default_factory=list, max_length=100),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> DocumentStatusListResponse:
+    return DocumentService(db, user.id).get_document_statuses(document_ids)
 
 
 @router.post(

@@ -27,5 +27,5 @@ class Tag(Base):
         "Document",
         secondary=document_tags,
         back_populates="tags",
-        lazy="selectin",
+        lazy="select",
     )

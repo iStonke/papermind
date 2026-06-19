@@ -126,7 +126,14 @@ def list_smart_folder_documents(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     sort: SmartFolderSort = Query(default=SmartFolderSort.created_desc),
+    include_total: bool = Query(default=True),
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ) -> DocumentListResponse:
     service = SmartFolderService(db, user.id)
-    return service.list_folder_documents(smart_folder_id, limit=limit, offset=offset, sort=sort)
+    return service.list_folder_documents(
+        smart_folder_id,
+        limit=limit,
+        offset=offset,
+        sort=sort,
+        include_total=include_total,
+    )

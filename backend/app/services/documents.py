@@ -43,6 +43,8 @@ from app.schemas.documents import (
     DocumentOCRStatus,
     DocumentSortField,
     DocumentStatus,
+    DocumentStatusListResponse,
+    DocumentStatusRead,
     DocumentSummary,
     DocumentTagReplaceRequest,
     DocumentTextSource,
@@ -238,7 +240,7 @@ class DocumentService:
                 Document.created_at,
                 Document.updated_at,
             ),
-            selectinload(Document.tags).noload(Tag.documents),
+            selectinload(Document.tags),
             noload(Document.files),
             noload(Document.jobs),
             noload(Document.chunks),
@@ -1274,7 +1276,7 @@ class DocumentService:
                     Document.storage_key,
                     Document.mime_type,
                 ),
-                selectinload(Document.files).noload(DocumentFile.document),
+                selectinload(Document.files),
                 noload(Document.tags),
                 noload(Document.jobs),
                 noload(Document.chunks),
@@ -1440,6 +1442,7 @@ class DocumentService:
         order: SortOrder,
         limit: int,
         offset: int,
+        include_total: bool = True,
         in_trash: bool = False,
         favorites_only: bool = False,
         without_text: bool = False,
@@ -1491,9 +1494,11 @@ class DocumentService:
             order_expr = direction(Document.created_at)
             secondary_order_expr = desc(Document.id)
 
-        total_source = filtered_stmt.with_only_columns(Document.id).order_by(None).subquery()
-        total_stmt = select(func.count()).select_from(total_source)
-        total = self.db.scalar(total_stmt) or 0
+        total = None
+        if include_total:
+            total_source = filtered_stmt.with_only_columns(Document.id).order_by(None).subquery()
+            total_stmt = select(func.count()).select_from(total_source)
+            total = self.db.scalar(total_stmt) or 0
 
         if ts_query_expr is not None:
             rank_expr = func.ts_rank(Document.search_vector, ts_query_expr).label("search_rank")
@@ -1547,6 +1552,36 @@ class DocumentService:
             offset=offset,
         )
 
+    def get_document_statuses(self, document_ids: list[uuid.UUID]) -> DocumentStatusListResponse:
+        unique_ids = list(dict.fromkeys(document_ids))
+        if not unique_ids:
+            return DocumentStatusListResponse(items=[])
+
+        stmt = self._scope(
+            select(
+                Document.id,
+                Document.status,
+                Document.ocr_status,
+                Document.ocr_quality_status,
+                Document.ocr_confidence_score,
+                Document.updated_at,
+            ).where(Document.id.in_(unique_ids))
+        )
+        rows = self.db.execute(stmt).all()
+        return DocumentStatusListResponse(
+            items=[
+                DocumentStatusRead(
+                    id=row.id,
+                    status=row.status,
+                    ocr_status=row.ocr_status,
+                    ocr_quality_status=row.ocr_quality_status,
+                    ocr_confidence_score=row.ocr_confidence_score,
+                    updated_at=row.updated_at,
+                )
+                for row in rows
+            ]
+        )
+
     def create_document(self, payload: DocumentCreateRequest) -> Document:
         document = Document(
             owner_id=self.owner_id,
@@ -1569,9 +1604,9 @@ class DocumentService:
             select(Document)
             .where(Document.id == document_id)
             .options(
-                selectinload(Document.tags).noload(Tag.documents),
-                selectinload(Document.files).noload(DocumentFile.document),
-                selectinload(Document.jobs).noload(Job.document),
+                selectinload(Document.tags),
+                selectinload(Document.files),
+                selectinload(Document.jobs),
                 noload(Document.chunks),
             )
         )

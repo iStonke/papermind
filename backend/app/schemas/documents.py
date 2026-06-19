@@ -232,9 +232,22 @@ class DocumentDetail(ORMModel):
 
 class DocumentListResponse(BaseModel):
     items: list[DocumentSummary]
-    total: int
+    total: int | None
     limit: int
     offset: int
+
+
+class DocumentStatusRead(BaseModel):
+    id: uuid.UUID
+    status: DocumentStatus
+    ocr_status: DocumentOCRStatus
+    ocr_quality_status: DocumentOCRQualityStatus | None = None
+    ocr_confidence_score: float | None = None
+    updated_at: datetime
+
+
+class DocumentStatusListResponse(BaseModel):
+    items: list[DocumentStatusRead]
 
 
 class DocumentMetadataSuggestion(BaseModel):

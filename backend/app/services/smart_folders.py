@@ -138,10 +138,17 @@ class SmartFolderService:
         limit: int = 20,
         offset: int = 0,
         sort: SmartFolderSort = SmartFolderSort.created_desc,
+        include_total: bool = True,
     ) -> DocumentListResponse:
         folder = self.get_smart_folder_or_404(smart_folder_id)
         filter_expr = self.compiler.compile(folder.query_json)
-        return self._list_documents(filter_expr, limit=limit, offset=offset, sort=sort)
+        return self._list_documents(
+            filter_expr,
+            limit=limit,
+            offset=offset,
+            sort=sort,
+            include_total=include_total,
+        )
 
     def count_documents_for_query(self, query_json: dict) -> int:
         filter_expr = self.compiler.compile(query_json)
@@ -156,13 +163,16 @@ class SmartFolderService:
         limit: int,
         offset: int,
         sort: SmartFolderSort,
+        include_total: bool = True,
     ) -> DocumentListResponse:
         order_exprs = build_smart_folder_sort(sort)
 
         filtered_stmt = self._scope_documents(select(Document).where(filter_expr))
-        total_source = filtered_stmt.with_only_columns(Document.id).order_by(None).subquery()
-        total_stmt = select(func.count()).select_from(total_source)
-        total = int(self.db.scalar(total_stmt) or 0)
+        total = None
+        if include_total:
+            total_source = filtered_stmt.with_only_columns(Document.id).order_by(None).subquery()
+            total_stmt = select(func.count()).select_from(total_source)
+            total = int(self.db.scalar(total_stmt) or 0)
 
         items_stmt = (
             filtered_stmt.options(*DocumentService._summary_load_options())

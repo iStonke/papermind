@@ -3811,9 +3811,13 @@ function handleGlobalKeydown(event) {
 function buildDocumentListQuery(options = {}) {
   const limit = options.limit ?? documentListQuery.limit;
   const offset = options.offset ?? documentListQuery.offset;
+  const includeTotal = options.includeTotal !== false;
   const params = new URLSearchParams();
   params.set('limit', String(limit));
   params.set('offset', String(offset));
+  if (!includeTotal) {
+    params.set('include_total', 'false');
+  }
   params.set('sort', isFavoriteSortQuery() ? 'created_at' : documentListQuery.sort);
   params.set('order', isFavoriteSortQuery() ? 'desc' : documentListQuery.order);
 
@@ -3892,9 +3896,13 @@ function mapDocumentSortToSmartFolderSort() {
 function buildSmartFolderDocumentsQuery(options = {}) {
   const limit = options.limit ?? documentListQuery.limit;
   const offset = options.offset ?? documentListQuery.offset;
+  const includeTotal = options.includeTotal !== false;
   const params = new URLSearchParams();
   params.set('limit', String(limit));
   params.set('offset', String(offset));
+  if (!includeTotal) {
+    params.set('include_total', 'false');
+  }
   params.set('sort', mapDocumentSortToSmartFolderSort());
   return params.toString();
 }
@@ -4284,6 +4292,56 @@ async function fetchDocumentDetail(documentId, options = {}) {
   notifyOcrQualityIfNeeded(detail);
 }
 
+async function refreshDocumentStatuses(documentIds) {
+  const uniqueIds = [...new Set(documentIds)].filter(Boolean).slice(0, 100);
+  if (uniqueIds.length === 0) {
+    return;
+  }
+
+  const params = new URLSearchParams();
+  for (const documentId of uniqueIds) {
+    params.append('document_ids', documentId);
+  }
+  const response = await fetch(`${apiBaseUrl}/api/documents/statuses?${params}`);
+  if (!response.ok) {
+    throw new Error(await parseResponseError(response));
+  }
+
+  const payload = await parseJsonResponse(response);
+  const statusById = new Map(
+    (payload.items || []).map((item) => [item.id, item])
+  );
+  if (statusById.size === 0) {
+    return;
+  }
+
+  let selectedStatusChanged = false;
+  documents.value = documents.value.map((document) => {
+    const statusUpdate = statusById.get(document.id);
+    if (!statusUpdate) {
+      return document;
+    }
+    if (
+      document.id === selectedDocumentId.value
+      && (
+        document.status !== statusUpdate.status
+        || document.ocr_status !== statusUpdate.ocr_status
+      )
+    ) {
+      selectedStatusChanged = true;
+    }
+    return { ...document, ...statusUpdate };
+  });
+
+  if (
+    selectedDocumentId.value
+    && statusById.has(selectedDocumentId.value)
+    && (selectedStatusChanged || hasActiveOcrJob.value)
+  ) {
+    await fetchDocumentDetail(selectedDocumentId.value);
+  }
+}
+
 function startDocumentListSettle() {
   if (documentListSettleTimer) {
     window.clearTimeout(documentListSettleTimer);
@@ -4300,8 +4358,8 @@ function finishDocumentListSettle() {
   isDocumentListSettling.value = false;
 }
 
-function documentListEndpoint({ offset = 0 } = {}) {
-  const queryOptions = { limit: documentListQuery.limit, offset };
+function documentListEndpoint({ offset = 0, includeTotal = true } = {}) {
+  const queryOptions = { limit: documentListQuery.limit, offset, includeTotal };
   const query = activeSavedSearchId.value
     ? buildSmartFolderDocumentsQuery(queryOptions)
     : buildDocumentListQuery(queryOptions);
@@ -4319,7 +4377,7 @@ async function loadMoreDocuments() {
   const offset = documentListLoadedCount.value;
   isLoadingMoreDocuments.value = true;
   try {
-    const response = await fetch(documentListEndpoint({ offset }));
+    const response = await fetch(documentListEndpoint({ offset, includeTotal: false }));
     if (!response.ok) {
       throw new Error(await parseResponseError(response));
     }
@@ -5887,7 +5945,7 @@ useOcrPolling({
   hasActiveOcrJob,
   isLoadingDocuments,
   selectedDocumentId,
-  fetchDocuments
+  refreshDocumentStatuses
 });
 
 useGlobalKeyboard(handleGlobalKeydown);

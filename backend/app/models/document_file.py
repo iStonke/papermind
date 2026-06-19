@@ -34,4 +34,4 @@ class DocumentFile(Base):
     page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
-    document: Mapped["Document"] = relationship("Document", back_populates="files", lazy="selectin")
+    document: Mapped["Document"] = relationship("Document", back_populates="files", lazy="select")
