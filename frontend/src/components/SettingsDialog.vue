@@ -1,7 +1,7 @@
 <template>
   <BaseDialog
     :model-value="modelValue"
-    max-width="640"
+    max-width="820"
     card-class="pm-settings-card"
     body-class="pm-settings-body"
     footer-class="pm-settings-footer"
@@ -19,9 +19,26 @@
       <span>Einstellungen werden geladen...</span>
     </div>
     <template v-else>
-      <div class="pm-settings-sections">
-        <section class="pm-settings-section">
-          <h3 class="pm-settings-title">Erscheinungsbild</h3>
+      <div class="pm-settings-layout">
+        <nav class="pm-settings-nav" role="tablist" aria-label="Einstellungskategorien">
+          <button
+            v-for="cat in settingsCategories"
+            :key="`cat-${cat.value}`"
+            type="button"
+            class="pm-settings-nav__item"
+            :class="{ 'pm-settings-nav__item--active': activeCategory === cat.value }"
+            role="tab"
+            :aria-selected="activeCategory === cat.value"
+            @click="activeCategory = cat.value"
+          >
+            <v-icon size="18" class="pm-settings-nav__icon">{{ cat.icon }}</v-icon>
+            <span>{{ cat.label }}</span>
+          </button>
+        </nav>
+
+        <div class="pm-settings-panel">
+        <section v-show="activeCategory === 'appearance'" class="pm-settings-section">
+          <h3 class="pm-settings-title">Darstellung</h3>
           <div class="pm-settings-content">
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
@@ -128,39 +145,62 @@
                 @update:model-value="onAnimationsEnabledChange"
               />
             </div>
-          </div>
-        </section>
 
-        <section class="pm-settings-section">
-          <h3 class="pm-settings-title">Dokumente</h3>
-          <div class="pm-settings-content">
             <div
               class="pm-setting-row"
               role="button"
               tabindex="0"
-              @click="toggleAutoTaggingFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleAutoTaggingFromRow)"
+              @click="toggleDrawerRememberStateFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleDrawerRememberStateFromRow)"
             >
               <div class="pm-setting-content">
-                <div class="pm-setting-label">KI-Analyse beim Import</div>
-                <div class="pm-setting-description">Datum, Kategorie und Tags werden beim Hinzufügen automatisch erkannt und ausgefüllt.</div>
-                <div v-if="settingsDraft.documents.auto_tagging" class="pm-setting-hint">
-                  Kann je nach Modell/Hardware etwas dauern.
+                <div class="pm-setting-label">Dokumentdetails merken</div>
+                <div class="pm-setting-description">
+                  Merkt sich, ob die Schublade zuletzt ein- oder ausgeklappt war.
                 </div>
               </div>
               <v-switch
-                :model-value="settingsDraft.documents.auto_tagging"
+                :model-value="settingsDraft.ui.drawerRememberState"
                 color="primary"
                 density="comfortable"
                 hide-details
                 inset
-                :loading="isSettingSaving.auto_tagging"
-                :disabled="isSettingSaving.auto_tagging"
+                :loading="isSettingSaving.drawer_remember_state"
+                :disabled="isSettingSaving.drawer_remember_state"
                 @click.stop
-                @update:model-value="onAutoTaggingChange"
+                @update:model-value="onDrawerRememberStateChange"
               />
             </div>
 
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleDrawerAlwaysExpandedFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleDrawerAlwaysExpandedFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Dokumentdetails immer ausgeklappt</div>
+                <div class="pm-setting-description">Die Schublade bleibt dauerhaft geöffnet.</div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.ui.drawerAlwaysExpanded"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.drawer_always_expanded"
+                :disabled="isSettingSaving.drawer_always_expanded"
+                @click.stop
+                @update:model-value="onDrawerAlwaysExpandedChange"
+              />
+            </div>
+          </div>
+        </section>
+
+        <section v-show="activeCategory === 'documents'" class="pm-settings-section">
+          <h3 class="pm-settings-title">Dokumente</h3>
+          <div class="pm-settings-content">
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Sortierung</div>
@@ -231,12 +271,39 @@
           </div>
         </section>
 
-        <!-- ── Ollama ── -->
-        <section class="pm-settings-section">
-          <h3 class="pm-settings-title">Ollama (lokale KI)</h3>
+        <section v-show="activeCategory === 'ai'" class="pm-settings-section">
+          <h3 class="pm-settings-title">KI &amp; Texterkennung</h3>
           <div class="pm-settings-content">
 
-            <!-- Enable toggle -->
+            <!-- KI-Analyse beim Import -->
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleAutoTaggingFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleAutoTaggingFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">KI-Analyse beim Import</div>
+                <div class="pm-setting-description">Datum, Kategorie und Tags werden beim Hinzufügen automatisch erkannt und ausgefüllt.</div>
+                <div v-if="settingsDraft.documents.auto_tagging" class="pm-setting-hint">
+                  Kann je nach Modell/Hardware etwas dauern.
+                </div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.documents.auto_tagging"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.auto_tagging"
+                :disabled="isSettingSaving.auto_tagging"
+                @click.stop
+                @update:model-value="onAutoTaggingChange"
+              />
+            </div>
+
+            <!-- Ollama enable toggle -->
             <div
               class="pm-setting-row"
               role="button"
@@ -245,7 +312,7 @@
               @keydown="handleSettingRowShortcut($event, toggleOllamaEnabledFromRow)"
             >
               <div class="pm-setting-content">
-                <div class="pm-setting-label">Ollama aktivieren</div>
+                <div class="pm-setting-label">Ollama (lokale KI) aktivieren</div>
                 <div class="pm-setting-description">
                   Nutzt ein lokal laufendes Sprachmodell (z.&thinsp;B. llama3.2:3b) für präzisere
                   Dokument&shy;analyse beim Import. Daten verlassen das Gerät nicht.
@@ -333,12 +400,8 @@
               </div>
 
             </template>
-          </div>
-        </section>
 
-        <section class="pm-settings-section">
-          <h3 class="pm-settings-title">OCR-Erkennung</h3>
-          <div class="pm-settings-content">
+            <!-- Automatisches OCR -->
             <div
               class="pm-setting-row"
               role="button"
@@ -363,6 +426,7 @@
               />
             </div>
 
+            <!-- Erkennungssprache -->
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Erkennungssprache</div>
@@ -383,66 +447,10 @@
                 @update:model-value="onOcrDocLangChange"
               />
             </div>
-
           </div>
         </section>
 
-        <section class="pm-settings-section">
-          <h3 class="pm-settings-title">Vorschau</h3>
-          <div class="pm-settings-content">
-            <div
-              class="pm-setting-row"
-              role="button"
-              tabindex="0"
-              @click="toggleDrawerRememberStateFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleDrawerRememberStateFromRow)"
-            >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Dokumentdetails merken</div>
-                <div class="pm-setting-description">
-                  Merkt sich, ob die Schublade zuletzt ein- oder ausgeklappt war.
-                </div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.ui.drawerRememberState"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :loading="isSettingSaving.drawer_remember_state"
-                :disabled="isSettingSaving.drawer_remember_state"
-                @click.stop
-                @update:model-value="onDrawerRememberStateChange"
-              />
-            </div>
-
-            <div
-              class="pm-setting-row"
-              role="button"
-              tabindex="0"
-              @click="toggleDrawerAlwaysExpandedFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleDrawerAlwaysExpandedFromRow)"
-            >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Dokumentdetails immer ausgeklappt</div>
-                <div class="pm-setting-description">Die Schublade bleibt dauerhaft geöffnet.</div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.ui.drawerAlwaysExpanded"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :loading="isSettingSaving.drawer_always_expanded"
-                :disabled="isSettingSaving.drawer_always_expanded"
-                @click.stop
-                @update:model-value="onDrawerAlwaysExpandedChange"
-              />
-            </div>
-          </div>
-        </section>
-
-        <section class="pm-settings-section">
+        <section v-show="activeCategory === 'controls'" class="pm-settings-section">
           <h3 class="pm-settings-title">Bedienung</h3>
           <div class="pm-settings-content">
             <div class="pm-setting-row">
@@ -463,13 +471,14 @@
             </div>
           </div>
         </section>
+        </div>
       </div>
     </template>
   </BaseDialog>
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useTheme } from 'vuetify';
 import BaseDialog from './BaseDialog.vue';
 import { getBaseUrl } from '../api/client';
@@ -508,6 +517,17 @@ const isSettingsLoading = computed(() => settingsStore.isSettingsLoading);
 const animationsEnabled = computed(() => settingsStore.animationsEnabled);
 
 const currentColorVariant = computed(() => settingsStore.settingsDraft.ui.color_variant || 'slate');
+
+// ── Kategorie-Navigation ─────────────────────────────────────────────────────
+
+const settingsCategories = [
+  { value: 'appearance', label: 'Darstellung', icon: 'mdi-palette-outline' },
+  { value: 'documents', label: 'Dokumente', icon: 'mdi-file-document-outline' },
+  { value: 'ai', label: 'KI & Texterkennung', icon: 'mdi-robot-outline' },
+  { value: 'controls', label: 'Bedienung', icon: 'mdi-keyboard-outline' }
+];
+
+const activeCategory = ref('appearance');
 
 // ── Konstanten ───────────────────────────────────────────────────────────────
 
