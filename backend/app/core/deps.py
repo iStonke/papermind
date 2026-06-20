@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hmac
 import logging
+import re
 import secrets
 import uuid
 
@@ -34,8 +35,11 @@ _EPHEMERAL_SECRET = secrets.token_hex(32)
 # Paths that never require authentication.
 _EXEMPT_EXACT = {
     "/health",
+    "/health/live",
+    "/health/ready",
     "/api/health",
     "/api/auth/login",
+    "/api/auth/refresh",
     "/openapi.json",
     "/docs",
     "/docs/oauth2-redirect",
@@ -48,6 +52,16 @@ _UPLOAD_PREFIXES = (
     "/api/direct-upload",
     "/api/import/inbox",
 )
+
+_FILE_TOKEN_PATHS = (
+    re.compile(r"^/api/auth/me/avatar$"),
+    re.compile(r"^/api/users/[0-9a-fA-F-]{36}/avatar$"),
+    re.compile(r"^/api/documents/[0-9a-fA-F-]{36}/(?:file|thumbnail)$"),
+)
+
+
+def _allows_file_query_token(method: str, path: str) -> bool:
+    return method.upper() == "GET" and any(pattern.fullmatch(path) for pattern in _FILE_TOKEN_PATHS)
 
 
 def token_secret() -> str:
@@ -83,6 +97,9 @@ def _user_from_token(db: Session, token: str, *, allowed_scopes: set[str]) -> Us
     user = db.get(User, user_id)
     if user is None or not user.is_active:
         return None
+    session_version = payload.get("sv")
+    if not isinstance(session_version, int) or session_version != user.session_version:
+        return None
     return user
 
 
@@ -105,13 +122,16 @@ def _resolve_user(request: Request, db: Session) -> User | None:
     # Header bearer (the session token) — full access.
     header_token = _header_token(request)
     if header_token:
-        user = _user_from_token(db, header_token, allowed_scopes={"session", "file"})
+        user = _user_from_token(db, header_token, allowed_scopes={"session"})
         if user is not None:
             return user
     # Query-string token — ONLY short-lived file-scoped tokens are accepted here,
     # so a session token leaked via logs/history can never be used in a URL.
     query_token = _query_token(request)
-    if query_token:
+    if (
+        query_token
+        and _allows_file_query_token(request.method, request.url.path)
+    ):
         return _user_from_token(db, query_token, allowed_scopes={"file"})
     return None
 
@@ -148,7 +168,9 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     (globale Dependency, läuft vor jedem Endpoint) – hier daher kein zweiter
     set_config-Roundtrip.
     """
-    user = _resolve_user(request, db)
+    user = getattr(request.state, "user", None)
+    if user is None:
+        user = _resolve_user(request, db)
     if user is None:
         raise UnauthorizedError("Authentication required")
     request.state.user = user

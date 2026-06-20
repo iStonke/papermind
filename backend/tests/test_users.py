@@ -126,6 +126,18 @@ class AuthenticateLastLoginTest(unittest.TestCase):
         self.assertIsNone(user.last_login_at)
 
 
+class SessionRevocationTest(unittest.TestCase):
+    def test_revoke_sessions_increments_version(self) -> None:
+        db = MagicMock()
+        service = UserService(db)
+        user = User(username="erin", password_hash="x", session_version=4)
+
+        service.revoke_sessions(user)
+
+        self.assertEqual(user.session_version, 5)
+        db.commit.assert_called_once()
+
+
 class ProcessAvatarImageTest(unittest.TestCase):
     def test_valid_image_yields_square_webp(self) -> None:
         out = process_avatar_image(_png_bytes(640, 400))

@@ -2,6 +2,7 @@ import { onMounted, onBeforeUnmount } from 'vue';
 import { logDevError } from '../stores/notifications';
 
 const STATUS_POLL_INTERVAL_MS = 5000;
+const HIDDEN_POLL_INTERVAL_MS = 30000;
 
 /**
  * Startet einen regelmäßigen Polling-Zyklus der Dokumentenliste,
@@ -23,9 +24,10 @@ export function useOcrPolling({
   refreshDocumentStatuses
 }) {
   let statusPollTimer = null;
+  let pollInFlight = false;
 
   async function pollOcrStatus() {
-    if (isLoadingDocuments.value) {
+    if (isLoadingDocuments.value || pollInFlight) {
       return;
     }
     const processingIds = documents.value
@@ -39,22 +41,40 @@ export function useOcrPolling({
     if (uniqueIds.length === 0) {
       return;
     }
+    pollInFlight = true;
     try {
       await refreshDocumentStatuses(uniqueIds);
     } catch (error) {
       logDevError(error, 'ocr-polling');
+    } finally {
+      pollInFlight = false;
     }
   }
 
+  function schedulePoll(delay = null) {
+    if (statusPollTimer) window.clearTimeout(statusPollTimer);
+    const nextDelay = delay ?? (
+      document.hidden ? HIDDEN_POLL_INTERVAL_MS : STATUS_POLL_INTERVAL_MS
+    );
+    statusPollTimer = window.setTimeout(async () => {
+      await pollOcrStatus();
+      schedulePoll();
+    }, nextDelay);
+  }
+
+  function handleVisibilityChange() {
+    schedulePoll(document.hidden ? HIDDEN_POLL_INTERVAL_MS : 0);
+  }
+
   onMounted(() => {
-    statusPollTimer = window.setInterval(() => {
-      void pollOcrStatus();
-    }, STATUS_POLL_INTERVAL_MS);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    schedulePoll();
   });
 
   onBeforeUnmount(() => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
     if (statusPollTimer) {
-      window.clearInterval(statusPollTimer);
+      window.clearTimeout(statusPollTimer);
     }
   });
 }

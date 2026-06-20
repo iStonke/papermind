@@ -88,9 +88,9 @@ if [[ "${RUN_WORKER}" -eq 1 ]]; then
   if [[ "${RUN_PROD}" -eq 1 ]]; then
     compose_cmd+=(--env-file .env.prod -f docker-compose.prod.yml)
   fi
-  worker_args=(--profile worker up -d worker)
+  worker_args=(up -d worker)
   if [[ "${RUN_BUILD}" -eq 1 ]]; then
-    worker_args=(--profile worker up -d --build worker)
+    worker_args=(up -d --build worker)
   fi
   echo "Running: ${compose_cmd[*]} ${worker_args[*]}"
   "${compose_cmd[@]}" "${worker_args[@]}"

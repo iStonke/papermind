@@ -159,6 +159,7 @@ const lastUpdatedLabel = computed(() => {
 });
 
 async function refresh() {
+  if (loading.value) return;
   loading.value = true;
   try {
     const data = await getServiceStatus();

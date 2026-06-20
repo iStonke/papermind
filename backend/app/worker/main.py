@@ -2,15 +2,18 @@ import json
 import logging
 import os
 import re
+import socket
 import subprocess
+import threading
 import time
 import uuid
 from collections import Counter
-from datetime import datetime, timezone
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
@@ -42,10 +45,16 @@ settings = get_settings()
 logger = logging.getLogger("papermind.worker")
 logging.basicConfig(level=logging.INFO)
 
+WORKER_ID = (
+    os.environ.get("WORKER_ID", "").strip()
+    or f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
+)
+
 AUTO_TAG_MAX_TAGS = 5
 AUTO_TAG_MAX_TEXT_CHARS = 6000
 TRASH_CLEANUP_INTERVAL_SECONDS = 3600
 BACKUP_CHECK_INTERVAL_SECONDS = 60
+JOB_RECLAIM_INTERVAL_SECONDS = 30
 IMPORT_INBOX_PROCESSED_DIR = ".papermind-processed"
 IMPORT_INBOX_PROCESSING_DIR = ".papermind-processing"
 IMPORT_INBOX_FAILED_DIR = ".papermind-failed"
@@ -526,9 +535,74 @@ def _apply_tags_to_document(db, document: Document, tag_names: list[str]) -> tup
     return added, applied
 
 
-def _mark_job_failed(job_id: uuid.UUID, reason: str) -> None:
+def _clear_job_lease(job: Job) -> None:
+    job.worker_id = None
+    job.lease_token = None
+    job.heartbeat_at = None
+    job.lease_expires_at = None
+
+
+def _still_owns_job(db, job: Job, lease_token: uuid.UUID) -> bool:
+    db.refresh(job, attribute_names=["status", "lease_token"])
+    return job.status == "running" and job.lease_token == lease_token
+
+
+def _heartbeat_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> bool:
+    now = _now_utc()
+    lease_expires_at = now + timedelta(seconds=settings.worker_job_lease_seconds)
     with SessionLocal() as db:
-        job = db.get(Job, job_id)
+        result = db.execute(
+            update(Job)
+            .where(
+                Job.id == job_id,
+                Job.status == "running",
+                Job.lease_token == lease_token,
+            )
+            .values(
+                heartbeat_at=now,
+                lease_expires_at=lease_expires_at,
+            )
+        )
+        db.commit()
+        return bool(result.rowcount)
+
+
+@contextmanager
+def _job_lease_heartbeat(job_id: uuid.UUID, lease_token: uuid.UUID):
+    stop = threading.Event()
+
+    def run_heartbeat() -> None:
+        interval = min(
+            settings.worker_job_heartbeat_seconds,
+            max(5, settings.worker_job_lease_seconds // 3),
+        )
+        while not stop.wait(interval):
+            try:
+                if not _heartbeat_job(job_id, lease_token):
+                    logger.warning("job lease lost job_id=%s worker_id=%s", job_id, WORKER_ID)
+                    return
+            except Exception:
+                logger.exception("job heartbeat failed job_id=%s worker_id=%s", job_id, WORKER_ID)
+
+    thread = threading.Thread(
+        target=run_heartbeat,
+        name=f"job-heartbeat-{job_id}",
+        daemon=True,
+    )
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join(timeout=2)
+
+
+def _mark_job_failed(job_id: uuid.UUID, reason: str, lease_token: uuid.UUID | None = None) -> None:
+    with SessionLocal() as db:
+        stmt = select(Job).where(Job.id == job_id)
+        if lease_token is not None:
+            stmt = stmt.where(Job.status == "running", Job.lease_token == lease_token)
+        job = db.execute(stmt).scalar_one_or_none()
         if job is None:
             return
 
@@ -538,6 +612,7 @@ def _mark_job_failed(job_id: uuid.UUID, reason: str) -> None:
         job.finished_at = _now_utc()
         if job.progress is None:
             job.progress = 0
+        _clear_job_lease(job)
 
         if document is not None and job.type == "OCR":
             document.status = "failed"
@@ -563,7 +638,7 @@ def _mark_job_failed(job_id: uuid.UUID, reason: str) -> None:
 
 
 
-def _claim_next_job() -> tuple[uuid.UUID, str] | None:
+def _claim_next_job() -> tuple[uuid.UUID, str, uuid.UUID] | None:
     with SessionLocal() as db:
         stmt = (
             select(Job)
@@ -585,9 +660,15 @@ def _claim_next_job() -> tuple[uuid.UUID, str] | None:
             return None
 
         job.status = "running"
+        lease_token = uuid.uuid4()
+        now = _now_utc()
         job.progress = 10 if job.type == "OCR" else 5
-        job.started_at = _now_utc()
+        job.started_at = now
         job.error_message = None
+        job.worker_id = WORKER_ID
+        job.lease_token = lease_token
+        job.heartbeat_at = now
+        job.lease_expires_at = now + timedelta(seconds=settings.worker_job_lease_seconds)
         if job.type == "OCR":
             document.status = "processing"
             document.ocr_status = "running"
@@ -597,15 +678,15 @@ def _claim_next_job() -> tuple[uuid.UUID, str] | None:
 
         db.commit()
         logger.info("job claimed job_id=%s document_id=%s type=%s", job.id, job.document_id, job.type)
-        return job.id, job.type
+        return job.id, job.type, lease_token
 
 
-def _process_ocr_job(job_id: uuid.UUID) -> None:
+def _process_ocr_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
     try:
         with SessionLocal() as db:
             job = db.execute(
                 select(Job)
-                .where(Job.id == job_id)
+                .where(Job.id == job_id, Job.lease_token == lease_token)
                 .options(selectinload(Job.document))
             ).scalar_one_or_none()
             if job is None:
@@ -647,6 +728,9 @@ def _process_ocr_job(job_id: uuid.UUID) -> None:
                 runtime_settings,
                 timeout_seconds=settings.worker_ocr_timeout_seconds,
             )
+            if not _still_owns_job(db, job, lease_token):
+                db.rollback()
+                return
             quality_payload = dict(ocr_result.get("quality") or {})
             quality_status = str(quality_payload.get("status") or ocr_result.get("quality_status") or "").strip() or None
             confidence_score = quality_payload.get("confidence_score", ocr_result.get("confidence_score"))
@@ -749,6 +833,7 @@ def _process_ocr_job(job_id: uuid.UUID) -> None:
             job.progress = 100
             job.error_message = classification_warning or (quality_message if quality_status in {"warning", "error"} else None)
             job.finished_at = _now_utc()
+            _clear_job_lease(job)
 
             db.commit()
             logger.info(
@@ -770,15 +855,21 @@ def _process_ocr_job(job_id: uuid.UUID) -> None:
                     quality_message,
                 )
     except subprocess.TimeoutExpired:
-        _mark_job_failed(job_id, f"OCR timed out after {settings.worker_ocr_timeout_seconds}s")
+        _mark_job_failed(
+            job_id,
+            f"OCR timed out after {settings.worker_ocr_timeout_seconds}s",
+            lease_token,
+        )
     except Exception as exc:  # pragma: no cover - infrastructure/runtime path
-        _mark_job_failed(job_id, str(exc))
+        _mark_job_failed(job_id, str(exc), lease_token)
 
 
-def _process_index_job(job_id: uuid.UUID) -> None:
+def _process_index_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
     try:
         with SessionLocal() as db:
-            job = db.get(Job, job_id)
+            job = db.execute(
+                select(Job).where(Job.id == job_id, Job.lease_token == lease_token)
+            ).scalar_one_or_none()
             if job is None:
                 return
 
@@ -790,13 +881,15 @@ def _process_index_job(job_id: uuid.UUID) -> None:
             stats = service.index_document(document.id)
 
             refreshed_job = db.get(Job, job_id)
-            if refreshed_job is None:
+            if refreshed_job is None or not _still_owns_job(db, refreshed_job, lease_token):
+                db.rollback()
                 return
 
             refreshed_job.status = "done"
             refreshed_job.progress = 100
             refreshed_job.error_message = None
             refreshed_job.finished_at = _now_utc()
+            _clear_job_lease(refreshed_job)
             runtime_settings = _load_runtime_settings(db)
             auto_tagging_enabled = bool(runtime_settings.get("documents", {}).get("auto_tagging", False))
             logger.info(
@@ -819,13 +912,15 @@ def _process_index_job(job_id: uuid.UUID) -> None:
                 bool(stats.get("skipped")),
             )
     except Exception as exc:  # pragma: no cover - infrastructure/runtime path
-        _mark_job_failed(job_id, str(exc))
+        _mark_job_failed(job_id, str(exc), lease_token)
 
 
-def _process_tag_job(job_id: uuid.UUID) -> None:
+def _process_tag_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
     try:
         with SessionLocal() as db:
-            job = db.get(Job, job_id)
+            job = db.execute(
+                select(Job).where(Job.id == job_id, Job.lease_token == lease_token)
+            ).scalar_one_or_none()
             if job is None:
                 return
 
@@ -851,6 +946,7 @@ def _process_tag_job(job_id: uuid.UUID) -> None:
                 job.progress = 100
                 job.error_message = None
                 job.finished_at = _now_utc()
+                _clear_job_lease(job)
                 db.commit()
                 return
 
@@ -860,16 +956,21 @@ def _process_tag_job(job_id: uuid.UUID) -> None:
                 job.progress = 100
                 job.error_message = None
                 job.finished_at = _now_utc()
+                _clear_job_lease(job)
                 db.commit()
                 logger.info("tag job skipped document_id=%s reason=no_text", document.id)
                 return
 
             candidates = _suggest_tags_with_ai(text_value, max_tags=AUTO_TAG_MAX_TAGS)
+            if not _still_owns_job(db, job, lease_token):
+                db.rollback()
+                return
             added_count, applied_names = _apply_tags_to_document(db, document, candidates)
             job.status = "done"
             job.progress = 100
             job.error_message = None
             job.finished_at = _now_utc()
+            _clear_job_lease(job)
             db.commit()
             logger.info(
                 "tag job completed job_id=%s document_id=%s suggested=%s applied=%s added=%s",
@@ -880,18 +981,15 @@ def _process_tag_job(job_id: uuid.UUID) -> None:
                 added_count,
             )
     except Exception as exc:  # pragma: no cover - infrastructure/runtime path
-        _mark_job_failed(job_id, str(exc))
+        _mark_job_failed(job_id, str(exc), lease_token)
 
 
 def _reclaim_orphaned_jobs() -> None:
-    """Verwaiste Jobs beim Worker-Start zurück in die Queue stellen.
+    """Jobs mit abgelaufener oder alter, lease-loser Ausführung zurückstellen.
 
-    Ein Job, der den Status 'running' hat, während kein Worker läuft, stammt aus
-    einer abgebrochenen/abgestürzten/neugestarteten Worker-Instanz. Da
-    ``_claim_next_job`` nur 'queued'-Jobs aufnimmt, würde ein solcher Job sonst
-    dauerhaft als 'running' verharren – die Aktivitätsanzeige zeigt dann einen
-    Endlos-Spinner und das Dokument bleibt ewig in 'processing'. Wir setzen ihn
-    deshalb auf 'queued' zurück, damit er erneut verarbeitet wird.
+    Der Sweep läuft beim Start und anschließend periodisch. Dadurch wird ein Job
+    auch dann wieder aufgenommen, wenn der Container schneller neu startet als
+    die Lease abläuft.
     """
     with SessionLocal() as db:
         orphaned = (
@@ -899,6 +997,10 @@ def _reclaim_orphaned_jobs() -> None:
                 select(Job).where(
                     Job.type.in_(("OCR", "INDEX", "TAG")),
                     Job.status == "running",
+                    or_(
+                        Job.lease_expires_at.is_(None),
+                        Job.lease_expires_at < _now_utc(),
+                    ),
                 )
             )
             .scalars()
@@ -911,6 +1013,7 @@ def _reclaim_orphaned_jobs() -> None:
             job.progress = 0
             job.started_at = None
             job.error_message = None
+            _clear_job_lease(job)
             document = db.get(Document, job.document_id)
             if document is not None:
                 if job.type == "OCR":
@@ -990,13 +1093,25 @@ def _run_backup_scheduler() -> None:
 
 
 def run() -> None:
-    logger.info("worker started poll_interval=%ss storage=%s", settings.worker_poll_interval_seconds, settings.storage_path)
+    logger.info(
+        "worker started worker_id=%s poll_interval=%ss lease=%ss heartbeat=%ss storage=%s",
+        WORKER_ID,
+        settings.worker_poll_interval_seconds,
+        settings.worker_job_lease_seconds,
+        settings.worker_job_heartbeat_seconds,
+        settings.storage_path,
+    )
     _reclaim_orphaned_jobs()
     last_trash_cleanup_at = 0.0
     last_ocr_backfill_at = 0.0
     last_backup_check_at = 0.0
+    last_job_reclaim_at = time.monotonic()
     while True:
         now_monotonic = time.monotonic()
+        if now_monotonic - last_job_reclaim_at >= JOB_RECLAIM_INTERVAL_SECONDS:
+            last_job_reclaim_at = now_monotonic
+            _reclaim_orphaned_jobs()
+
         if now_monotonic - last_trash_cleanup_at >= TRASH_CLEANUP_INTERVAL_SECONDS:
             last_trash_cleanup_at = now_monotonic
             _cleanup_expired_trash()
@@ -1021,15 +1136,16 @@ def run() -> None:
         if claimed is None:
             time.sleep(settings.worker_poll_interval_seconds)
             continue
-        job_id, job_type = claimed
-        if job_type == "OCR":
-            _process_ocr_job(job_id)
-        elif job_type == "INDEX":
-            _process_index_job(job_id)
-        elif job_type == "TAG":
-            _process_tag_job(job_id)
-        else:
-            _mark_job_failed(job_id, f"Unsupported job type {job_type}")
+        job_id, job_type, lease_token = claimed
+        with _job_lease_heartbeat(job_id, lease_token):
+            if job_type == "OCR":
+                _process_ocr_job(job_id, lease_token)
+            elif job_type == "INDEX":
+                _process_index_job(job_id, lease_token)
+            elif job_type == "TAG":
+                _process_tag_job(job_id, lease_token)
+            else:
+                _mark_job_failed(job_id, f"Unsupported job type {job_type}", lease_token)
 
 
 if __name__ == "__main__":

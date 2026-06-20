@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     text_check_pages: int = Field(default=2, ge=1)
     worker_poll_interval_seconds: int = Field(default=3)
     worker_ocr_timeout_seconds: int = Field(default=900)
+    worker_job_lease_seconds: int = Field(default=120, ge=30, le=3600)
+    worker_job_heartbeat_seconds: int = Field(default=30, ge=5, le=300)
     # Periodischer OCR-Backfill: schließt regelmäßig Lücken (Dokumente ohne OCR).
     ocr_backfill_interval_seconds: int = Field(default=3600, ge=60)
     ocr_backfill_batch_size: int = Field(default=10, ge=1, le=200)
@@ -85,6 +87,7 @@ class Settings(BaseSettings):
     # ephemeral key is generated at startup (tokens become invalid on restart).
     auth_secret_key: str = Field(default="")
     auth_token_ttl_seconds: int = Field(default=86400, ge=300)
+    auth_refresh_token_ttl_seconds: int = Field(default=30 * 86400, ge=86400)
     # Bootstrap admin: created on startup only if the users table is empty.
     initial_admin_username: str = Field(default="admin")
     initial_admin_password: str = Field(default="")

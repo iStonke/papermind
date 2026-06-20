@@ -121,6 +121,11 @@ class JobService:
                 job.started_at = datetime.now(timezone.utc)
             if data["status"].value in {"done", "failed"}:
                 job.finished_at = datetime.now(timezone.utc)
+            if data["status"].value != "running":
+                job.worker_id = None
+                job.lease_token = None
+                job.heartbeat_at = None
+                job.lease_expires_at = None
         if "progress" in data:
             job.progress = data["progress"]
         if "error_message" in data:

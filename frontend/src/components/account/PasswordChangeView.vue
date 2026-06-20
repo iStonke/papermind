@@ -47,7 +47,7 @@
     />
 
     <p class="pw__hint">
-      Nach dem Ändern bleibst du in dieser Sitzung angemeldet. Andere Geräte werden abgemeldet.
+      Nach dem Ändern werden alle Sitzungen beendet. Anschließend meldest du dich erneut an.
     </p>
   </div>
 </template>
@@ -56,12 +56,14 @@
 import { computed, ref } from 'vue';
 
 import { changePassword } from '../../api/auth.js';
+import { useAuthStore } from '../../stores/auth.js';
 import { notifyError, useNotifications } from '../../stores/notifications';
 
 const MIN_LENGTH = 8;
 
 const emit = defineEmits(['done']);
 
+const auth = useAuthStore();
 const { notify } = useNotifications();
 
 const currentPassword = ref('');
@@ -99,8 +101,10 @@ async function submit() {
     currentPassword.value = '';
     newPassword.value = '';
     repeatPassword.value = '';
-    notify({ type: 'success', message: 'Passwort geändert.', critical: true });
+    notify({ type: 'success', message: 'Passwort geändert. Bitte erneut anmelden.', critical: true });
+    auth.clearSession();
     emit('done');
+    window.setTimeout(() => window.location.assign('/login'), 400);
   } catch (err) {
     notifyError(err, 'Passwortänderung fehlgeschlagen.');
   } finally {

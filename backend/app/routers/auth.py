@@ -1,8 +1,10 @@
+import uuid
+
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from app.core.auth import create_access_token
+from app.core.auth import create_access_token, decode_access_token
 from app.core.config import get_settings
 from app.core.deps import get_current_user, token_secret
 from app.core.errors import UnauthorizedError
@@ -14,6 +16,7 @@ from app.schemas.auth import (
     FileTokenResponse,
     LoginRequest,
     ProfileUpdateRequest,
+    RefreshTokenRequest,
     TokenResponse,
     UserRead,
 )
@@ -26,6 +29,32 @@ router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 # where the token must travel in the query string. Kept brief so a leak via
 # access logs / browser history is only exploitable for a few minutes.
 FILE_TOKEN_TTL_SECONDS = 300
+
+
+def _issue_token_response(user: User) -> TokenResponse:
+    settings = get_settings()
+    access_ttl = settings.auth_token_ttl_seconds
+    refresh_ttl = settings.auth_refresh_token_ttl_seconds
+    access_token = create_access_token(
+        user.id,
+        token_secret(),
+        access_ttl,
+        session_version=user.session_version,
+    )
+    refresh_token = create_access_token(
+        user.id,
+        token_secret(),
+        refresh_ttl,
+        scope="refresh",
+        session_version=user.session_version,
+    )
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=access_ttl,
+        refresh_expires_in=refresh_ttl,
+        user=UserRead.model_validate(user, from_attributes=True),
+    )
 
 
 @router.post(
@@ -47,14 +76,33 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
     if user is None:
         raise UnauthorizedError("Invalid username or password")
 
-    settings = get_settings()
-    ttl = settings.auth_token_ttl_seconds
-    token = create_access_token(user.id, token_secret(), ttl)
-    return TokenResponse(
-        access_token=token,
-        expires_in=ttl,
-        user=UserRead.model_validate(user, from_attributes=True),
-    )
+    return _issue_token_response(user)
+
+
+@router.post(
+    "/refresh",
+    response_model=TokenResponse,
+    summary="Renew an authenticated browser session",
+    responses={401: {"model": ErrorResponse}},
+)
+def refresh_session(payload: RefreshTokenRequest, db: Session = Depends(get_db)) -> TokenResponse:
+    token_payload = decode_access_token(payload.refresh_token, token_secret())
+    if not token_payload or token_payload.get("scope") != "refresh":
+        raise UnauthorizedError("Session refresh expired")
+    try:
+        user_id = uuid.UUID(str(token_payload.get("sub")))
+    except (TypeError, ValueError) as exc:
+        raise UnauthorizedError("Session refresh expired") from exc
+    user = db.get(User, user_id)
+    token_version = token_payload.get("sv")
+    if (
+        user is None
+        or not user.is_active
+        or not isinstance(token_version, int)
+        or token_version != user.session_version
+    ):
+        raise UnauthorizedError("Session refresh expired")
+    return _issue_token_response(user)
 
 
 @router.get(
@@ -65,6 +113,16 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
 )
 def me(user: User = Depends(get_current_user)) -> UserRead:
     return UserRead.model_validate(user, from_attributes=True)
+
+
+@router.post(
+    "/renew",
+    response_model=TokenResponse,
+    summary="Add refresh capability to an active session",
+    responses={401: {"model": ErrorResponse}},
+)
+def renew_session(user: User = Depends(get_current_user)) -> TokenResponse:
+    return _issue_token_response(user)
 
 
 @router.get(
@@ -79,6 +137,7 @@ def file_token(user: User = Depends(get_current_user)) -> FileTokenResponse:
         token_secret(),
         FILE_TOKEN_TTL_SECONDS,
         scope="file",
+        session_version=user.session_version,
     )
     return FileTokenResponse(token=token, expires_in=FILE_TOKEN_TTL_SECONDS)
 
@@ -164,6 +223,6 @@ def change_password(
     response_model=OkResponse,
     summary="Log out (client discards the token)",
 )
-def logout(_: User = Depends(get_current_user)) -> OkResponse:
-    # Tokens are stateless; logout is handled client-side by discarding the token.
+def logout(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> OkResponse:
+    UserService(db).revoke_sessions(user)
     return OkResponse(ok=True)

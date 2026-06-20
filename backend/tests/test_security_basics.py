@@ -3,11 +3,21 @@ import unittest
 from fastapi import HTTPException
 
 from app.core.config import Settings
+from app.core.deps import _allows_file_query_token
 from app.core.logging import redact_query_tokens
 from app.core.security import enforce_rate_limit
 
 
 class SecurityBasicsTest(unittest.TestCase):
+    def test_file_query_tokens_are_limited_to_native_get_resources(self) -> None:
+        document_id = "123e4567-e89b-12d3-a456-426614174000"
+        self.assertTrue(_allows_file_query_token("GET", f"/api/documents/{document_id}/file"))
+        self.assertTrue(_allows_file_query_token("GET", f"/api/documents/{document_id}/thumbnail"))
+        self.assertTrue(_allows_file_query_token("GET", "/api/auth/me/avatar"))
+        self.assertFalse(_allows_file_query_token("POST", f"/api/documents/{document_id}/file"))
+        self.assertFalse(_allows_file_query_token("GET", f"/api/documents/{document_id}"))
+        self.assertFalse(_allows_file_query_token("GET", "/api/settings"))
+
     def test_cors_origins_default_to_closed(self) -> None:
         settings = Settings(cors_allow_origins="")
         self.assertEqual(settings.cors_origins, [])

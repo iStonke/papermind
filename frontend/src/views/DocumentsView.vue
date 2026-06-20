@@ -510,6 +510,7 @@
             :count="selectionIds.size"
             :actions="documentBatchActions"
             @tag="openBatchTagDialog"
+            @favorite="executeBatchFavorite"
             @category="openBatchCategoryDialog"
             @delete="confirmBatchDelete"
           />
@@ -1449,6 +1450,7 @@ let isAutoOpeningImportInbox = false;
 // ── Batch-Auswahl ──────────────────────────────────────────────────────────
 const isSelectionMode = ref(false);
 const selectionIds    = ref(new Set());
+const isBatchFavoriteSaving = ref(false);
 
 function toggleSelectionMode() {
   if (!isSelectionMode.value && isAllDocumentsSelectionDisabled.value) {
@@ -1665,6 +1667,62 @@ async function executeBatchCategory() {
     notifyError(error, 'Dokumenttyp konnte nicht gespeichert werden.');
   } finally {
     isBatchCategorySaving.value = false;
+  }
+}
+
+// ── Batch Favoriten ───────────────────────────────────────────────────────
+async function executeBatchFavorite() {
+  if (selectionIds.value.size === 0 || isBatchFavoriteSaving.value) return;
+
+  const targetFavoriteState = !areAllSelectedDocumentsFavorites.value;
+  const documentsToUpdate = selectedDocuments.value.filter(
+    (document) => Boolean(document.is_favorite) !== targetFavoriteState
+  );
+  if (documentsToUpdate.length === 0) return;
+
+  const updatedDocumentIds = [];
+  isBatchFavoriteSaving.value = true;
+  try {
+    for (const document of documentsToUpdate) {
+      const response = await fetch(`${apiBaseUrl}/api/documents/${document.id}/favorite`, { method: 'POST' });
+      if (!response.ok) throw new Error(await parseResponseError(response));
+      const updated = await response.json();
+      favoriteStateByDocumentId.set(updated.id, {
+        value: Boolean(updated.is_favorite),
+        updatedAt: Date.parse(String(updated.updated_at || '')) || Date.now()
+      });
+      updatedDocumentIds.push(updated.id);
+    }
+
+    const count = documentsToUpdate.length;
+    notify({
+      type: 'success',
+      title: 'Favoriten',
+      message: targetFavoriteState
+        ? `${count} ${count === 1 ? 'Dokument wurde' : 'Dokumente wurden'} als Favorit markiert.`
+        : `${count} ${count === 1 ? 'Dokument wurde' : 'Dokumente wurden'} aus den Favoriten entfernt.`
+    });
+    exitSelectionMode();
+    scheduleSidebarCountsRefresh();
+    await fetchDocuments(
+      targetFavoriteState || !isFavoritesView.value ? selectedDocumentId.value : null,
+      { autoSelectFirst: isFavoritesView.value }
+    );
+  } catch (error) {
+    notifyError(error, 'Favoriten-Status konnte nicht für alle Dokumente geändert werden.');
+    await fetchDocuments(selectedDocumentId.value, { autoSelectFirst: isFavoritesView.value });
+    if (updatedDocumentIds.length > 0) {
+      const visibleDocumentIds = new Set(documents.value.map((document) => document.id));
+      selectionIds.value = new Set(
+        Array.from(selectionIds.value).filter((documentId) => visibleDocumentIds.has(documentId))
+      );
+      if (selectionIds.value.size === 0) {
+        exitSelectionMode();
+      }
+    }
+    scheduleSidebarCountsRefresh();
+  } finally {
+    isBatchFavoriteSaving.value = false;
   }
 }
 
@@ -1971,7 +2029,32 @@ const tagToolbarRightActions = computed(() => [
   }
 ]);
 const tagBatchActions = computed(() => TAG_BATCH_ACTIONS);
-const documentBatchActions = computed(() => DOCUMENT_BATCH_ACTIONS);
+const selectedDocuments = computed(() => {
+  const selected = selectionIds.value;
+  return documents.value.filter((document) => selected.has(document.id));
+});
+const areAllSelectedDocumentsFavorites = computed(() =>
+  selectedDocuments.value.length > 0
+  && selectedDocuments.value.every((document) => Boolean(document.is_favorite))
+);
+const documentBatchActions = computed(() => {
+  if (isTrashView.value) {
+    return DOCUMENT_BATCH_ACTIONS;
+  }
+  const favoriteAction = {
+    key: 'favorite',
+    label: areAllSelectedDocumentsFavorites.value ? 'Stern entfernen' : 'Favorit',
+    icon: areAllSelectedDocumentsFavorites.value ? 'mdi-star-off-outline' : 'mdi-star-outline',
+    color: areAllSelectedDocumentsFavorites.value ? 'warning' : undefined,
+    disabled: isBatchFavoriteSaving.value,
+    loading: isBatchFavoriteSaving.value
+  };
+  return [
+    DOCUMENT_BATCH_ACTIONS[0],
+    favoriteAction,
+    ...DOCUMENT_BATCH_ACTIONS.slice(1)
+  ];
+});
 const selectedTags = computed(() => {
   const selected = selectedTagIds.value;
   return sortedTagsByName.value.filter((tag) => selected.has(tag.id));
@@ -2578,12 +2661,25 @@ async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) 
 
 function startImportInboxPolling() {
   if (importInboxPollTimer) {
-    window.clearInterval(importInboxPollTimer);
+    window.clearTimeout(importInboxPollTimer);
   }
   void refreshImportInbox({ silent: true, allowAutoOpen: false });
-  importInboxPollTimer = window.setInterval(() => {
-    void refreshImportInbox({ silent: true });
-  }, 7000);
+  scheduleImportInboxPoll();
+}
+
+function scheduleImportInboxPoll(delay = null) {
+  if (importInboxPollTimer) {
+    window.clearTimeout(importInboxPollTimer);
+  }
+  const nextDelay = delay ?? (document.hidden ? 60000 : 15000);
+  importInboxPollTimer = window.setTimeout(async () => {
+    await refreshImportInbox({ silent: true });
+    scheduleImportInboxPoll();
+  }, nextDelay);
+}
+
+function handleImportInboxVisibilityChange() {
+  scheduleImportInboxPoll(document.hidden ? 60000 : 0);
 }
 
 async function openImportInboxScans({ refresh = true } = {}) {
@@ -5972,6 +6068,7 @@ onMounted(async () => {
     isRestoringLastSelectedDocument = false;
   }
   persistLastSelectedDocId(selectedDocumentId.value);
+  document.addEventListener('visibilitychange', handleImportInboxVisibilityChange);
   startImportInboxPolling();
 });
 
@@ -6007,8 +6104,9 @@ onBeforeUnmount(() => {
     window.clearTimeout(listDropNoticeTimer);
   }
   if (importInboxPollTimer) {
-    window.clearInterval(importInboxPollTimer);
+    window.clearTimeout(importInboxPollTimer);
   }
+  document.removeEventListener('visibilitychange', handleImportInboxVisibilityChange);
   if (documentListSettleTimer) {
     window.clearTimeout(documentListSettleTimer);
   }

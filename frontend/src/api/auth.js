@@ -2,7 +2,25 @@ import { apiFetch, apiGet, apiPatch, apiPost } from './client.js';
 
 /** POST /api/auth/login – Anmeldung, liefert Token + Benutzer. */
 export const login = (username, password) =>
-  apiPost('/api/auth/login', { username, password });
+  apiFetch('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+    handleUnauthorized: false,
+  });
+
+export const refreshSession = (refreshToken) =>
+  apiFetch('/api/auth/refresh', {
+    method: 'POST',
+    body: JSON.stringify({ refresh_token: refreshToken }),
+    handleUnauthorized: false,
+  });
+
+export const renewSession = () =>
+  apiFetch('/api/auth/renew', {
+    method: 'POST',
+    body: JSON.stringify({}),
+    handleUnauthorized: false,
+  });
 
 /** GET /api/auth/me – aktueller Benutzer (validiert das Token). */
 export const fetchCurrentUser = () => apiGet('/api/auth/me');

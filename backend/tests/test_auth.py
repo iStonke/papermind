@@ -41,11 +41,18 @@ class AccessTokenTest(unittest.TestCase):
 
     def test_create_and_decode_roundtrip(self) -> None:
         user_id = uuid.uuid4()
-        token = create_access_token(user_id, self.SECRET, ttl_seconds=3600, now=1_000_000)
+        token = create_access_token(
+            user_id,
+            self.SECRET,
+            ttl_seconds=3600,
+            session_version=3,
+            now=1_000_000,
+        )
         payload = decode_access_token(token, self.SECRET, now=1_000_100)
         self.assertIsNotNone(payload)
         self.assertEqual(payload["sub"], str(user_id))
         self.assertEqual(payload["exp"], 1_003_600)
+        self.assertEqual(payload["sv"], 3)
 
     def test_expired_token_rejected(self) -> None:
         token = create_access_token(uuid.uuid4(), self.SECRET, ttl_seconds=60, now=1_000_000)
@@ -78,6 +85,19 @@ class AccessTokenTest(unittest.TestCase):
         token = create_access_token(uuid.uuid4(), self.SECRET, ttl_seconds=300, scope="file", now=1_000_000)
         payload = decode_access_token(token, self.SECRET, now=1_000_100)
         self.assertEqual(payload["scope"], "file")
+
+    def test_refresh_scope_and_session_version_are_embedded(self) -> None:
+        token = create_access_token(
+            uuid.uuid4(),
+            self.SECRET,
+            ttl_seconds=3600,
+            scope="refresh",
+            session_version=7,
+            now=1_000_000,
+        )
+        payload = decode_access_token(token, self.SECRET, now=1_000_100)
+        self.assertEqual(payload["scope"], "refresh")
+        self.assertEqual(payload["sv"], 7)
 
 
 if __name__ == "__main__":

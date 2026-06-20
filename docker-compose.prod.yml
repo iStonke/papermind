@@ -72,6 +72,7 @@ services:
       AUTH_ENABLED: ${AUTH_ENABLED:-true}
       AUTH_SECRET_KEY: ${AUTH_SECRET_KEY}
       AUTH_TOKEN_TTL_SECONDS: ${AUTH_TOKEN_TTL_SECONDS:-86400}
+      AUTH_REFRESH_TOKEN_TTL_SECONDS: ${AUTH_REFRESH_TOKEN_TTL_SECONDS:-2592000}
       INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       MIN_TEXT_CHARS: ${MIN_TEXT_CHARS:-300}
@@ -112,7 +113,7 @@ services:
         - CMD
         - python
         - -c
-        - import urllib.request;urllib.request.urlopen("http://127.0.0.1:8040/health",timeout=2)
+        - import urllib.request;urllib.request.urlopen("http://127.0.0.1:8040/health/ready",timeout=2)
       interval: 10s
       timeout: 3s
       retries: 5
@@ -196,8 +197,6 @@ services:
       - papermind_net
 
   worker:
-    profiles:
-      - worker
     build:
       context: .
       dockerfile: worker/Dockerfile
@@ -210,11 +209,14 @@ services:
           memory: 2G
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      APP_DATABASE_URL: ${APP_DATABASE_URL}
       WORKER_DATABASE_URL: ${WORKER_DATABASE_URL}
       STORAGE_PATH: ${STORAGE_PATH:-/data/storage}
       TZ: ${TZ:-Europe/Berlin}
       WORKER_POLL_INTERVAL_SECONDS: ${WORKER_POLL_INTERVAL_SECONDS:-3}
       WORKER_OCR_TIMEOUT_SECONDS: ${WORKER_OCR_TIMEOUT_SECONDS:-900}
+      WORKER_JOB_LEASE_SECONDS: ${WORKER_JOB_LEASE_SECONDS:-120}
+      WORKER_JOB_HEARTBEAT_SECONDS: ${WORKER_JOB_HEARTBEAT_SECONDS:-30}
       # OCR-Drosselung (Pi): max. parallele Seiten + 1 Thread je Seite, damit OCR
       # nicht alle Kerne auslastet (Hitze/Lüfter) und DB/API nicht aushungert.
       OCR_JOBS: ${OCR_JOBS:-3}
@@ -236,7 +238,7 @@ services:
       - pdf_storage:${STORAGE_PATH:-/data/storage}
       - ./scan-inbox:${IMPORT_INBOX_DROP_PATH:-/scan-inbox}
     depends_on:
-      db:
+      backend:
         condition: service_healthy
       ai:
         condition: service_healthy

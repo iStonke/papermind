@@ -110,6 +110,7 @@ export {
   mdiSourceMerge,
   mdiSpeedometer,
   mdiStar,
+  mdiStarOffOutline,
   mdiStarOutline,
   mdiStop,
   mdiTagMultipleOutline,

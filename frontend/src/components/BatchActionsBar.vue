@@ -12,6 +12,8 @@
           size="small"
           class="batch-bar__btn"
           :prepend-icon="action.icon"
+          :disabled="action.disabled"
+          :loading="action.loading"
           @click="emitAction(action.key)"
         >
           {{ action.label }}
@@ -37,13 +39,13 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['tag', 'category', 'delete', 'merge', 'action']);
+const emit = defineEmits(['tag', 'favorite', 'category', 'delete', 'merge', 'action']);
 
 const resolvedActions = computed(() => props.actions.filter((action) => action?.key && action?.label));
 
 function emitAction(key) {
   emit('action', key);
-  if (['tag', 'category', 'delete', 'merge'].includes(key)) {
+  if (['tag', 'favorite', 'category', 'delete', 'merge'].includes(key)) {
     emit(key);
   }
 }

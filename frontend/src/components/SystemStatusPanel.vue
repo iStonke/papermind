@@ -231,6 +231,7 @@ const confirmAction = ref(null);
 const powerBusy = ref(false);
 
 async function refresh() {
+  if (loading.value) return;
   loading.value = true;
   try {
     const data = await getSystemStatus();

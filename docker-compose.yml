@@ -49,6 +49,7 @@ services:
       AUTH_ENABLED: ${AUTH_ENABLED:-true}
       AUTH_SECRET_KEY: ${AUTH_SECRET_KEY}
       AUTH_TOKEN_TTL_SECONDS: ${AUTH_TOKEN_TTL_SECONDS:-86400}
+      AUTH_REFRESH_TOKEN_TTL_SECONDS: ${AUTH_REFRESH_TOKEN_TTL_SECONDS:-2592000}
       INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       MIN_TEXT_CHARS: ${MIN_TEXT_CHARS}
@@ -86,7 +87,7 @@ services:
         - CMD
         - python
         - -c
-        - import os,urllib.request;urllib.request.urlopen(f"http://127.0.0.1:{os.environ['BACKEND_PORT']}/health",timeout=2)
+        - import os,urllib.request;urllib.request.urlopen(f"http://127.0.0.1:{os.environ['BACKEND_PORT']}/health/ready",timeout=2)
       interval: 10s
       timeout: 3s
       retries: 5
@@ -154,11 +155,14 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      APP_DATABASE_URL: ${APP_DATABASE_URL}
       WORKER_DATABASE_URL: ${WORKER_DATABASE_URL}
       STORAGE_PATH: ${STORAGE_PATH}
       TZ: ${TZ:-Europe/Berlin}
       WORKER_POLL_INTERVAL_SECONDS: ${WORKER_POLL_INTERVAL_SECONDS}
       WORKER_OCR_TIMEOUT_SECONDS: ${WORKER_OCR_TIMEOUT_SECONDS}
+      WORKER_JOB_LEASE_SECONDS: ${WORKER_JOB_LEASE_SECONDS:-120}
+      WORKER_JOB_HEARTBEAT_SECONDS: ${WORKER_JOB_HEARTBEAT_SECONDS:-30}
       IMPORT_INBOX_DROP_PATH: ${IMPORT_INBOX_DROP_PATH:-/scan-inbox}
       IMPORT_INBOX_FILE_STABLE_SECONDS: ${IMPORT_INBOX_FILE_STABLE_SECONDS:-3}
       AI_BASE_URL: ${AI_BASE_URL}
@@ -175,7 +179,9 @@ services:
       - pdf_storage:${STORAGE_PATH}
       - ./scan-inbox:${IMPORT_INBOX_DROP_PATH:-/scan-inbox}
     depends_on:
-      db:
+      backend:
+        condition: service_healthy
+      ai:
         condition: service_healthy
     networks:
       - papermind_net

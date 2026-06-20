@@ -55,7 +55,7 @@ Bei Konflikten Ports in `.env` anpassen.
 Alltag (Compose-Gruppe in Docker Desktop behalten):
 ```bash
 docker compose up -d --build
-docker compose --profile worker up -d --build worker
+docker compose up -d --build worker
 docker compose stop
 docker compose start
 ```
@@ -105,7 +105,7 @@ Mit Container-Update:
 ./scripts/deploy_pi.sh --compose --build
 ```
 
-Mit Worker-Profil:
+Worker gezielt neu bauen/starten:
 ```bash
 ./scripts/deploy_pi.sh --compose --build --worker
 ```
@@ -120,6 +120,8 @@ dem Raspberry/Heimnetz gibt es `docker-compose.prod.yml`:
 - Öffentlich gebunden wird nur `FRONTEND_PORT`.
 - Backend, PostgreSQL und AI-Service sind nur im Compose-Netz erreichbar.
 - Es werden keine Quellcode-Dev-Volumes in Backend, Frontend oder AI gemountet.
+- Der OCR/Index-Worker startet standardmäßig mit und wartet auf das migrierte,
+  einsatzbereite Backend.
 
 Einmalig konfigurieren:
 ```bash
@@ -133,14 +135,14 @@ Dann Platzhalter in `.env.prod` ersetzen, insbesondere:
 - `CORS_ALLOW_ORIGINS`
 - `DIRECT_UPLOAD_API_KEY`
 
-Start ohne Worker:
+Produktionsstack starten:
 ```bash
 docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
 ```
 
-Start inklusive OCR/Index-Worker:
+Worker bei Bedarf gezielt neu bauen:
 ```bash
-docker compose --env-file .env.prod -f docker-compose.prod.yml --profile worker up -d --build
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build worker
 ```
 
 Update über Deploy-Skript:
@@ -447,7 +449,7 @@ Suchsyntax (AP5 minimal):
 1) Projekt starten:
 ```bash
 docker compose up -d --build
-docker compose --profile worker up -d --build worker
+docker compose up -d --build worker
 ```
 
 2) Upload:
@@ -479,7 +481,7 @@ docker run --rm -v papermind_pdf_storage:/data alpine sh -lc "find /data -maxdep
 
 7) Worker-Logs:
 ```bash
-docker compose --profile worker logs -f worker
+docker compose logs -f worker
 ```
 
 8) AP5 Smoke-Test (FTS + Syntax):
@@ -508,7 +510,7 @@ curl -sS -X POST "http://localhost:8040/api/retrieval/query" \
 
 - `POST /ocr` gibt `409`: Es läuft bereits ein OCR-Job (`queued` oder `running`).
 - `role=ocr` gibt `404`: OCR ist noch nicht fertig oder fehlgeschlagen.
-- Worker startet nicht: Profil vergessen (`--profile worker`) oder Build-Fehler.
+- Worker startet nicht: Backend-Readiness, Migrationen und Worker-Logs prüfen.
 - OCR-Fehler im Job: `jobs.error_message` prüfen + `worker` Logs ansehen.
 - Suche findet nichts trotz OCR: prüfen, ob OCR abgeschlossen ist (`ocr_status=done`) und `q` nicht nur Whitespace ist.
 

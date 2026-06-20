@@ -7,14 +7,16 @@
  *
  * Authentifizierung: Das Access-Token wird in localStorage gehalten und
  * automatisch als `Authorization: Bearer`-Header an jeden Request gehängt.
- * Bei einer 401-Antwort wird das Token verworfen und ein registrierter
- * Handler benachrichtigt (zeigt den Login-Screen).
+ * Bei einer 401-Antwort wird ein registrierter Handler benachrichtigt. Der
+ * Auth-Store versucht zunächst eine Session-Erneuerung und meldet nur ab, wenn
+ * auch das Refresh-Token ausdrücklich abgelehnt wird.
  */
 
 import { API_BASE_URL } from './config.js';
 
 const BASE_URL = API_BASE_URL;
 const TOKEN_KEY = 'pm_auth_token';
+const REFRESH_TOKEN_KEY = 'pm_auth_refresh_token';
 
 let unauthorizedHandler = null;
 
@@ -54,6 +56,26 @@ export function setToken(token) {
   }
 }
 
+export function getRefreshToken() {
+  try {
+    return localStorage.getItem(REFRESH_TOKEN_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+export function setRefreshToken(token) {
+  try {
+    if (token) {
+      localStorage.setItem(REFRESH_TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(REFRESH_TOKEN_KEY);
+    }
+  } catch {
+    /* localStorage nicht verfügbar – ignorieren */
+  }
+}
+
 /**
  * Hängt das Token als Query-Parameter an eine rohe Ressourcen-URL an.
  * Nötig für native Loads (z. B. <img>, PDF-Viewer, Downloads), die keinen
@@ -78,6 +100,12 @@ async function readErrorMessage(response) {
   }
 }
 
+async function responseError(response) {
+  const error = new Error(await readErrorMessage(response));
+  error.status = response.status;
+  return error;
+}
+
 /**
  * Basis-Fetch. Wirft bei !response.ok einen Error mit der
  * API-Fehlermeldung. Gibt null zurück bei 204 No Content.
@@ -87,8 +115,9 @@ async function readErrorMessage(response) {
  * @returns {Promise<any>}
  */
 export async function apiFetch(path, options = {}) {
-  const headers = { ...options.headers };
-  if (options.body && typeof options.body === 'string') {
+  const { handleUnauthorized = true, ...fetchOptions } = options;
+  const headers = { ...fetchOptions.headers };
+  if (fetchOptions.body && typeof fetchOptions.body === 'string') {
     headers['Content-Type'] = 'application/json';
   }
 
@@ -97,16 +126,15 @@ export async function apiFetch(path, options = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+  const response = await fetch(`${BASE_URL}${path}`, { ...fetchOptions, headers });
 
-  if (response.status === 401) {
-    setToken(null);
+  if (response.status === 401 && handleUnauthorized) {
     if (unauthorizedHandler) unauthorizedHandler();
-    throw new Error(await readErrorMessage(response));
+    throw await responseError(response);
   }
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    throw await responseError(response);
   }
 
   if (response.status === 204) return null;

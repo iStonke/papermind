@@ -4,7 +4,8 @@
       <div class="sess__label">Automatische Abmeldung</div>
       <div class="sess__description">
         Meldet dich nach einer Zeit ohne Aktivität automatisch ab. Gilt nur für dieses Gerät bzw.
-        diesen Browser – andere angemeldete Geräte bleiben unberührt.
+        diesen Browser – andere angemeldete Geräte bleiben unberührt. Bei „Nie“ wird die Sitzung
+        im Hintergrund verlängert; eine erneute Anmeldung ist erst nach längerer Nichtnutzung nötig.
       </div>
       <v-select
         :model-value="auth.autoLogoutMinutes"

@@ -103,6 +103,7 @@ def create_access_token(
     ttl_seconds: int,
     *,
     scope: str = "session",
+    session_version: int = 0,
     now: float | None = None,
 ) -> str:
     """Create a signed token embedding the user id, an absolute expiry and a scope.
@@ -117,6 +118,7 @@ def create_access_token(
     payload = {
         "sub": str(user_id),
         "scope": scope,
+        "sv": int(session_version),
         "iat": issued_at,
         "exp": issued_at + int(ttl_seconds),
         "jti": secrets.token_hex(8),

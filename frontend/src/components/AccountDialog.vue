@@ -14,83 +14,163 @@
     :show-secondary="false"
     @update:model-value="emit('update:modelValue', $event)"
   >
-    <div class="pm-account-layout">
-      <aside class="pm-account-side">
-        <AccountSidebar @navigate="onNavigate" />
-      </aside>
-
-      <div class="pm-account-pane">
-        <!-- Minimale Navigationsleiste nur für Unterseiten -->
-        <div v-if="view !== 'profile'" class="pm-account-nav">
-          <v-btn
-            icon="mdi-arrow-left"
-            size="x-small"
-            variant="text"
-            density="comfortable"
-            class="pm-account-nav__back"
-            aria-label="Zurück zum Konto"
-            @click="goProfile"
-          />
-          <div class="pm-account-nav__titles">
-            <div class="pm-account-nav__title">{{ paneTitle }}</div>
-            <div class="pm-account-nav__sub">{{ paneSubtitle }}</div>
-          </div>
-          <div class="pm-account-nav__actions">
-            <v-btn
-              v-if="view === 'users' && auth.isAdmin"
-              color="primary"
-              variant="outlined"
-              size="small"
-              prepend-icon="mdi-account-plus"
-              @click="panelRef?.openCreate()"
-            >
-              Benutzer anlegen
-            </v-btn>
-          </div>
+    <div class="pm-settings-layout">
+      <nav class="pm-settings-nav" role="tablist" aria-label="Kontoeinstellungen">
+        <div
+          v-for="group in visibleCategoryGroups"
+          :key="`account-group-${group.key}`"
+          class="pm-settings-nav__group"
+        >
+          <div class="pm-settings-nav__group-label">{{ group.label }}</div>
+          <button
+            v-for="category in group.items"
+            :key="`account-category-${category.value}`"
+            type="button"
+            class="pm-settings-nav__item"
+            :class="{ 'pm-settings-nav__item--active': view === category.value }"
+            role="tab"
+            :aria-selected="view === category.value"
+            @click="view = category.value"
+          >
+            <v-icon size="18" class="pm-settings-nav__icon">{{ category.icon }}</v-icon>
+            <span>{{ category.label }}</span>
+          </button>
         </div>
+      </nav>
 
-        <ProfileView v-if="modelValue && view === 'profile'" ref="panelRef" @navigate="onNavigate" />
-        <ProfileEditView v-else-if="modelValue && view === 'profile-edit'" ref="panelRef" @done="goProfile" />
-        <AvatarEditorView v-else-if="modelValue && view === 'avatar'" ref="panelRef" @done="goProfile" />
-        <PasswordChangeView v-else-if="modelValue && view === 'password'" ref="panelRef" @done="goProfile" />
-        <SessionSecurityView v-else-if="modelValue && view === 'session'" ref="panelRef" />
-        <UsersAdminView v-else-if="modelValue && view === 'users' && auth.isAdmin" ref="panelRef" />
+      <div class="pm-settings-panel">
+        <section v-show="view === 'profile'" class="pm-settings-section">
+          <div class="pm-settings-content pm-account-content">
+            <SettingsInfoCard
+              title="Profil"
+              subtitle="Anzeigename, E-Mail-Adresse und Kontoinformationen."
+            >
+              <template #badge>
+                <UserAvatar :user="auth.user" current :size="42" />
+              </template>
+              <template #actions>
+                <v-chip
+                  size="small"
+                  :color="auth.isAdmin ? 'primary' : undefined"
+                  variant="tonal"
+                >
+                  {{ auth.isAdmin ? 'Administrator' : 'Benutzer' }}
+                </v-chip>
+              </template>
+            </SettingsInfoCard>
+            <ProfileEditView
+              v-if="modelValue"
+              ref="profileRef"
+            />
+            <div class="pm-account-meta">
+              <div class="pm-account-meta__item">
+                <span class="pm-account-meta__label">Mitglied seit</span>
+                <span class="pm-account-meta__value">
+                  {{ formatDateTime(auth.user?.created_at) || '–' }}
+                </span>
+              </div>
+              <div class="pm-account-meta__item">
+                <span class="pm-account-meta__label">Letzte Anmeldung</span>
+                <span class="pm-account-meta__value">
+                  {{ formatDateTime(auth.user?.last_login_at) || 'unbekannt' }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section v-show="view === 'avatar'" class="pm-settings-section">
+          <div class="pm-settings-content pm-account-content">
+            <SettingsInfoCard
+              icon="mdi-image-outline"
+              title="Profilbild"
+              subtitle="Bild hochladen, zuschneiden oder entfernen."
+            />
+            <AvatarEditorView
+              v-if="modelValue"
+              ref="avatarRef"
+              @done="view = 'profile'"
+            />
+          </div>
+        </section>
+
+        <section v-show="view === 'password'" class="pm-settings-section">
+          <div class="pm-settings-content pm-account-content">
+            <SettingsInfoCard
+              icon="mdi-lock-outline"
+              title="Passwort ändern"
+              subtitle="Das aktuelle Passwort bestätigen und ein neues vergeben."
+            />
+            <PasswordChangeView
+              v-if="modelValue"
+              ref="passwordRef"
+            />
+          </div>
+        </section>
+
+        <section v-show="view === 'session'" class="pm-settings-section">
+          <div class="pm-settings-content pm-account-content">
+            <SettingsInfoCard
+              icon="mdi-shield-lock-outline"
+              title="Sitzung &amp; Sicherheit"
+              subtitle="Automatische Abmeldung bei Inaktivität für dieses Gerät."
+            />
+            <SessionSecurityView v-if="modelValue" />
+          </div>
+        </section>
+
+        <section v-if="auth.isAdmin" v-show="view === 'users'" class="pm-settings-section">
+          <div class="pm-settings-content pm-account-content">
+            <SettingsInfoCard
+              icon="mdi-account-group-outline"
+              title="Benutzerverwaltung"
+              subtitle="Rollen, Status und Zugänge verwalten."
+            >
+              <template #actions>
+                <v-btn
+                  color="primary"
+                  variant="outlined"
+                  size="small"
+                  prepend-icon="mdi-account-plus"
+                  @click="usersRef?.openCreate()"
+                >
+                  Benutzer anlegen
+                </v-btn>
+              </template>
+            </SettingsInfoCard>
+            <UsersAdminView
+              v-if="modelValue"
+              ref="usersRef"
+            />
+          </div>
+        </section>
       </div>
     </div>
 
-    <!-- Pro Ansicht eigener Footer -->
     <template #footer>
       <div class="pm-account-footer-row">
-        <!-- Profil -->
         <template v-if="view === 'profile'">
-          <span></span>
-          <v-btn variant="tonal" color="primary" class="pm-dialog__btn" @click="close">Fertig</v-btn>
-        </template>
-
-        <!-- Profildaten (Anzeigename & E-Mail) -->
-        <template v-else-if="view === 'profile-edit'">
-          <v-btn variant="text" class="pm-dialog__btn" @click="goProfile">Abbrechen</v-btn>
+          <v-btn variant="text" class="pm-dialog__btn" @click="close">Schließen</v-btn>
           <v-btn
             variant="tonal"
             color="primary"
             class="pm-dialog__btn"
-            :loading="panelRef?.saving"
-            :disabled="!panelRef?.canSubmit"
-            @click="panelRef?.submit()"
+            :loading="profileRef?.saving"
+            :disabled="!profileRef?.canSubmit"
+            @click="profileRef?.submit()"
           >
             Speichern
           </v-btn>
         </template>
 
-        <!-- Profilbild -->
         <template v-else-if="view === 'avatar'">
           <v-btn variant="text" class="pm-dialog__btn" @click="close">Abbrechen</v-btn>
           <div class="pm-account-footer-right">
             <v-btn
-              v-if="panelRef?.hasImage"
+              v-if="avatarRef?.hasImage"
               variant="outlined"
               class="pm-dialog__btn"
-              @click="panelRef?.pickFile()"
+              @click="avatarRef?.pickFile()"
             >
               Neue Datei
             </v-btn>
@@ -98,40 +178,37 @@
               variant="tonal"
               color="primary"
               class="pm-dialog__btn"
-              :loading="panelRef?.applying"
-              :disabled="!panelRef?.canApply"
-              @click="panelRef?.apply()"
+              :loading="avatarRef?.applying"
+              :disabled="!avatarRef?.canApply"
+              @click="avatarRef?.apply()"
             >
               Zuschnitt übernehmen
             </v-btn>
           </div>
         </template>
 
-        <!-- Passwort -->
         <template v-else-if="view === 'password'">
           <v-btn variant="text" class="pm-dialog__btn" @click="close">Abbrechen</v-btn>
           <v-btn
             variant="tonal"
             color="primary"
             class="pm-dialog__btn"
-            :loading="panelRef?.saving"
-            :disabled="!panelRef?.canSubmit"
-            @click="panelRef?.submit()"
+            :loading="passwordRef?.saving"
+            :disabled="!passwordRef?.canSubmit"
+            @click="passwordRef?.submit()"
           >
             Passwort aktualisieren
           </v-btn>
         </template>
 
-        <!-- Sitzung & Sicherheit (speichert sofort) -->
         <template v-else-if="view === 'session'">
           <span></span>
           <v-btn variant="tonal" color="primary" class="pm-dialog__btn" @click="close">Fertig</v-btn>
         </template>
 
-        <!-- Benutzerverwaltung -->
         <template v-else-if="view === 'users' && auth.isAdmin">
-          <v-btn variant="text" class="pm-dialog__btn" @click="close">Abbrechen</v-btn>
-          <span class="pm-account-footer-hint">{{ panelRef?.summary }}</span>
+          <span class="pm-account-footer-hint">{{ usersRef?.summary }}</span>
+          <v-btn variant="tonal" color="primary" class="pm-dialog__btn" @click="close">Fertig</v-btn>
         </template>
       </div>
     </template>
@@ -142,15 +219,16 @@
 import { computed, ref, watch } from 'vue';
 
 import BaseDialog from './BaseDialog.vue';
-import AccountSidebar from './account/AccountSidebar.vue';
+import SettingsInfoCard from './SettingsInfoCard.vue';
+import UserAvatar from './UserAvatar.vue';
 import AvatarEditorView from './account/AvatarEditorView.vue';
 import PasswordChangeView from './account/PasswordChangeView.vue';
 import ProfileEditView from './account/ProfileEditView.vue';
-import ProfileView from './account/ProfileView.vue';
 import SessionSecurityView from './account/SessionSecurityView.vue';
 import UsersAdminView from './account/UsersAdminView.vue';
 import { useAuthStore } from '../stores/auth.js';
 import { useUiStore } from '../stores/ui.js';
+import { formatDateTime } from '../utils/dates.js';
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -161,7 +239,34 @@ const auth = useAuthStore();
 const ui = useUiStore();
 
 const view = ref('profile');
-const panelRef = ref(null);
+const profileRef = ref(null);
+const avatarRef = ref(null);
+const passwordRef = ref(null);
+const usersRef = ref(null);
+
+const accountCategories = [
+  { value: 'profile', label: 'Profil', icon: 'mdi-card-account-details-outline', group: 'account' },
+  { value: 'avatar', label: 'Profilbild', icon: 'mdi-image-outline', group: 'account' },
+  { value: 'password', label: 'Passwort', icon: 'mdi-lock-outline', group: 'security' },
+  { value: 'session', label: 'Sitzung & Sicherheit', icon: 'mdi-shield-lock-outline', group: 'security' },
+  { value: 'users', label: 'Benutzerverwaltung', icon: 'mdi-account-group-outline', group: 'administration', adminOnly: true },
+];
+const accountCategoryGroups = [
+  { key: 'account', label: 'Konto' },
+  { key: 'security', label: 'Sicherheit' },
+  { key: 'administration', label: 'Verwaltung' },
+];
+const visibleCategories = computed(() =>
+  accountCategories.filter((category) => !category.adminOnly || auth.isAdmin)
+);
+const visibleCategoryGroups = computed(() =>
+  accountCategoryGroups
+    .map((group) => ({
+      ...group,
+      items: visibleCategories.value.filter((category) => category.group === group.key),
+    }))
+    .filter((group) => group.items.length > 0)
+);
 
 // Beim Öffnen die Einstiegsansicht aus dem UI-Store übernehmen
 // (Konto-Menü: „Konto“ → profile, „Benutzerverwaltung“ → users).
@@ -174,25 +279,6 @@ watch(
   },
   { immediate: true }
 );
-
-const TITLES = {
-  profile: { title: 'Konto', sub: '' },
-  'profile-edit': { title: 'Anzeigename & E-Mail', sub: 'Profildaten bearbeiten · E-Mail wird sofort geprüft.' },
-  avatar: { title: 'Profilbild', sub: 'Hochladen, zuschneiden oder entfernen.' },
-  password: { title: 'Passwort ändern', sub: 'Aus Sicherheitsgründen aktuelles Passwort bestätigen.' },
-  session: { title: 'Sitzung & Sicherheit', sub: 'Automatische Abmeldung bei Inaktivität · gilt für dieses Gerät.' },
-  users: { title: 'Benutzerverwaltung', sub: 'Rollen, Status und Zugänge verwalten.' },
-};
-const paneTitle = computed(() => TITLES[view.value].title);
-const paneSubtitle = computed(() => TITLES[view.value].sub);
-
-function onNavigate(target) {
-  if (target === 'users' && !auth.isAdmin) return;
-  view.value = target;
-}
-function goProfile() {
-  view.value = 'profile';
-}
 function close() {
   emit('update:modelValue', false);
 }
@@ -201,91 +287,54 @@ function close() {
 <!-- Global (nicht gescopt): v-dialog teleportiert seinen Inhalt aus der
      Komponente heraus, daher würden gescopte Styles den Dialog nicht erreichen. -->
 <style>
-/* Höhe passt sich dem Inhalt an (keine feste Höhe → keine Leerfläche),
-   mit Obergrenze; darüber hinaus wird gescrollt. */
+/* Wie bei den globalen Einstellungen bleibt die Dialoghöhe beim Wechsel
+   zwischen den Bereichen stabil; nur der Hauptbereich scrollt. */
 .pm-dialog.pm-account-card .pm-dialog__content-wrap {
-  max-height: min(70vh + 25px, 625px);
-  overflow-y: auto;
-}
-
-/* Stabile Mindesthöhe: ~15px mehr als die natürliche Höhe der Seitenleiste
-   (≈ 426px), damit das Fenster etwas mehr Luft bekommt. */
-.pm-dialog.pm-account-card .pm-account-layout {
-  min-height: 441px;
+  height: min(62vh, 600px);
+  overflow: hidden;
 }
 
 .pm-dialog.pm-account-card .pm-dialog__content {
+  height: 100%;
   padding: 0;
-}
-
-.pm-account-layout {
-  display: flex;
-  align-items: stretch;
-  min-height: 100%;
-}
-
-.pm-account-side {
-  flex: 0 0 248px;
-  padding: 28px 24px;
-}
-
-/* Durchgehender vertikaler Trennstrich (wie im Einstellungen-Dialog). */
-.pm-account-pane {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 28px 24px;
-  border-left: 1px solid rgba(var(--v-theme-on-surface), 0.12);
-}
-
-/* Minimale, schlanke Navigationsleiste der Unterseiten – bündig unter dem
-   Header, über die volle Breite des Hauptbereichs, mit leichter Färbung. */
-.pm-account-nav {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  /* full-bleed: zieht die Leiste an die Ränder des (gepolsterten) Bereichs */
-  margin: -28px -24px 22px;
-  padding: 12px 20px;
-  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.1);
-}
-.pm-account-nav__back {
-  flex: 0 0 auto;
-  color: rgba(var(--v-theme-on-surface), 0.75);
-}
-.pm-account-nav__titles {
-  flex: 1 1 auto;
-  min-width: 0;
-  text-align: left;
-}
-.pm-account-nav__actions {
-  flex: 0 0 auto;
-}
-.pm-account-nav__title {
-  font-size: 0.95rem;
-  font-weight: 650;
-  line-height: 1.25;
-}
-.pm-account-nav__sub {
-  margin-top: 3px;
-  font-size: 0.78rem;
-  line-height: 1.25;
-  color: rgba(var(--v-theme-on-surface), 0.6);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  box-sizing: border-box;
 }
 
-@media (max-width: 680px) {
-  .pm-account-layout {
-    flex-direction: column;
-  }
-  .pm-account-side {
-    flex: 0 0 auto;
-  }
-  .pm-account-pane {
-    border-left: none;
-    border-top: 1px solid rgba(var(--v-theme-on-surface), 0.12);
-  }
+.pm-account-content > .settings-info-card {
+  margin-bottom: 18px;
+}
+
+.pm-account-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  max-width: 520px;
+  width: 100%;
+  margin: 22px auto 0;
+}
+
+.pm-account-meta__item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+  border-radius: 12px;
+  background: rgba(var(--v-theme-on-surface), 0.025);
+}
+
+.pm-account-meta__label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgba(var(--v-theme-on-surface), 0.48);
+}
+
+.pm-account-meta__value {
+  font-size: 0.86rem;
+  font-weight: 500;
 }
 
 .pm-account-footer-row {
@@ -306,5 +355,11 @@ function close() {
   font-size: 0.85rem;
   font-style: italic;
   color: rgba(var(--v-theme-on-surface), 0.55);
+}
+
+@media (max-width: 640px) {
+  .pm-account-meta {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

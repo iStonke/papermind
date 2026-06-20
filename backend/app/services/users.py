@@ -165,9 +165,11 @@ class UserService:
 
     def update_user(self, user_id: uuid.UUID, payload: UserUpdateRequest) -> User:
         user = self.get_or_404(user_id)
+        revoke_sessions = False
 
         if payload.password is not None:
             user.password_hash = hash_password(payload.password)
+            revoke_sessions = True
         if payload.display_name is not None:
             user.display_name = _normalize_optional(payload.display_name)
         if payload.email is not None:
@@ -180,7 +182,11 @@ class UserService:
             user.is_admin = payload.is_admin
         if payload.is_active is not None:
             self._guard_last_admin(user, will_be_admin=user.is_admin, will_be_active=payload.is_active)
+            if user.is_active and not payload.is_active:
+                revoke_sessions = True
             user.is_active = payload.is_active
+        if revoke_sessions:
+            user.session_version = int(user.session_version or 0) + 1
 
         self.db.commit()
         self.db.refresh(user)
@@ -205,8 +211,14 @@ class UserService:
         if not verify_password(current_password, user.password_hash):
             raise BadRequestError("Current password is incorrect")
         user.password_hash = hash_password(new_password)
+        user.session_version = int(user.session_version or 0) + 1
         self.db.commit()
         logger.info("password changed for user id=%s", user.id)
+
+    def revoke_sessions(self, user: User) -> None:
+        user.session_version = int(user.session_version or 0) + 1
+        self.db.commit()
+        logger.info("sessions revoked for user id=%s", user.id)
 
     # ── Avatar / profile picture ──────────────────────────────────────────────
     @staticmethod

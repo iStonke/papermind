@@ -130,7 +130,9 @@ import { getJobActivity, dismissJob, dismissFailedJobs } from '../api/jobs.js';
 
 const emit = defineEmits(['open-backup']);
 
-const POLL_MS = 4000;
+const ACTIVE_POLL_MS = 4000;
+const IDLE_POLL_MS = 15000;
+const HIDDEN_POLL_MS = 60000;
 const BURST_MS = 1500;   // schnelleres Polling-Intervall im Schub
 const BURST_TICKS = 8;   // Anzahl der Schub-Durchläufe (~12 s)
 const TYPE_LABELS = {
@@ -147,6 +149,7 @@ const menuOpen = ref(false);
 const isDismissing = ref(false);
 let timer = null;
 let burstTimer = null;
+let refreshPromise = null;
 
 const STATUS_RANK = { running: 0, queued: 1, failed: 2 };
 
@@ -226,14 +229,35 @@ function openBackup() {
 }
 
 async function refresh() {
-  try {
-    const data = await getJobActivity();
-    jobs.value = Array.isArray(data?.jobs) ? data.jobs : [];
-    ocrBacklog.value = data?.ocr_backlog ?? { total: 0, done: 0, pending: 0, failed: 0 };
-    backupFail.value = data?.backup?.status === 'failed' ? data.backup : null;
-  } catch {
-    // Aktivität ist optional – Fehler beim Polling nicht stören lassen.
-  }
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = (async () => {
+    try {
+      const data = await getJobActivity();
+      jobs.value = Array.isArray(data?.jobs) ? data.jobs : [];
+      ocrBacklog.value = data?.ocr_backlog ?? { total: 0, done: 0, pending: 0, failed: 0 };
+      backupFail.value = data?.backup?.status === 'failed' ? data.backup : null;
+    } catch {
+      // Aktivität ist optional – Fehler beim Polling nicht stören lassen.
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+  return refreshPromise;
+}
+
+function schedulePoll(delay = null) {
+  if (timer) window.clearTimeout(timer);
+  const nextDelay = delay ?? (
+    document.hidden ? HIDDEN_POLL_MS : (hasActivity.value ? ACTIVE_POLL_MS : IDLE_POLL_MS)
+  );
+  timer = window.setTimeout(async () => {
+    await refresh();
+    schedulePoll();
+  }, nextDelay);
+}
+
+function handleVisibilityChange() {
+  schedulePoll(document.hidden ? HIDDEN_POLL_MS : 0);
 }
 
 // Einen fehlgeschlagenen Eintrag aus der Anzeige entfernen (Job-Zeilen löschen).
@@ -301,12 +325,13 @@ watch(hasActivity, (active) => {
 });
 
 onMounted(() => {
-  refresh();
-  timer = window.setInterval(refresh, POLL_MS);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  void refresh().finally(() => schedulePoll());
 });
 
 onBeforeUnmount(() => {
-  if (timer) window.clearInterval(timer);
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
+  if (timer) window.clearTimeout(timer);
   if (burstTimer) window.clearInterval(burstTimer);
 });
 </script>
