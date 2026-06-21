@@ -88,9 +88,15 @@
     <!-- Anlegen -->
     <v-dialog v-model="createOpen" max-width="520">
       <v-card rounded="lg">
-        <v-card-title class="d-flex align-center">
-          <v-icon class="mr-2">mdi-account-plus</v-icon> Benutzer anlegen
-        </v-card-title>
+        <v-card-item>
+          <template #prepend>
+            <v-icon>mdi-account-plus</v-icon>
+          </template>
+          <v-card-title>Benutzer anlegen</v-card-title>
+          <v-card-subtitle style="white-space: normal;">
+            Zugangsdaten und Rolle für das neue Konto festlegen.
+          </v-card-subtitle>
+        </v-card-item>
         <v-divider />
         <v-card-text class="d-flex flex-column ga-3">
           <v-text-field v-model="newUser.username" label="Benutzername" variant="outlined" density="comfortable" hide-details="auto" />

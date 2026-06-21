@@ -50,12 +50,6 @@
         title="Konto"
         @click="ui.openAccount('profile')"
       />
-      <v-list-item
-        v-if="auth.isAdmin"
-        prepend-icon="mdi-account-group-outline"
-        title="Benutzer"
-        @click="ui.openAccount('users')"
-      />
 
       <v-divider />
 

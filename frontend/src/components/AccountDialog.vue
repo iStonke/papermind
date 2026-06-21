@@ -130,7 +130,7 @@
     <template #footer>
       <div class="pm-account-footer-row">
         <template v-if="view === 'profile'">
-          <v-btn variant="text" class="pm-dialog__btn" @click="close">Schließen</v-btn>
+          <span></span>
           <v-btn
             variant="tonal"
             color="primary"
@@ -266,6 +266,7 @@ function close() {
 /* Trennlinie zwischen Passwort- und Abmelde-Abschnitt auf der Sicherheits-Seite. */
 .pm-account-divider {
   margin: 28px auto;
+  width: 100%;
   max-width: 520px;
 }
 
