@@ -87,7 +87,7 @@ defineExpose({ canSubmit, saving, submit });
   display: flex;
   flex-direction: column;
   gap: 20px;
-  max-width: 520px;
+  max-width: 420px;
   margin-inline: auto;
 }
 .pe__hint {

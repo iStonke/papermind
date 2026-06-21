@@ -1,25 +1,16 @@
 <template>
   <div class="sess">
-    <div class="sess__field">
-      <div class="sess__label">Automatische Abmeldung</div>
-      <div class="sess__description">
-        Meldet dich nach einer Zeit ohne Aktivität automatisch ab. Gilt nur für dieses Gerät bzw.
-        diesen Browser – andere angemeldete Geräte bleiben unberührt. Bei „Nie“ wird die Sitzung
-        im Hintergrund verlängert; eine erneute Anmeldung ist erst nach längerer Nichtnutzung nötig.
-      </div>
-      <v-select
-        :model-value="auth.autoLogoutMinutes"
-        :items="autoLogoutOptions"
-        item-title="label"
-        item-value="value"
-        density="comfortable"
-        variant="outlined"
-        hide-details
-        label="Abmelden"
-        class="sess__select"
-        @update:model-value="onAutoLogoutChange"
-      />
-    </div>
+    <v-select
+      :model-value="auth.autoLogoutMinutes"
+      :items="autoLogoutOptions"
+      item-title="label"
+      item-value="value"
+      label="Automatische Abmeldung"
+      variant="outlined"
+      density="comfortable"
+      hide-details="auto"
+      @update:model-value="onAutoLogoutChange"
+    />
   </div>
 </template>
 
@@ -47,25 +38,8 @@ function onAutoLogoutChange(value) {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  width: 100%;
   max-width: 520px;
   margin-inline: auto;
-}
-.sess__field {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.sess__label {
-  font-size: 0.96rem;
-  font-weight: 600;
-  color: rgb(var(--v-theme-on-surface));
-}
-.sess__description {
-  font-size: 0.82rem;
-  line-height: 1.45;
-  color: rgba(var(--v-theme-on-surface), 0.6);
-}
-.sess__select {
-  margin-top: 4px;
 }
 </style>

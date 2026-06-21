@@ -49,6 +49,18 @@
     <p class="pw__hint">
       Nach dem Ändern werden alle Sitzungen beendet. Anschließend meldest du dich erneut an.
     </p>
+
+    <div class="pw__actions">
+      <v-btn
+        variant="flat"
+        color="primary"
+        :loading="savingPassword"
+        :disabled="!canSubmit"
+        @click="submit"
+      >
+        Passwort aktualisieren
+      </v-btn>
+    </div>
   </div>
 </template>
 
@@ -149,5 +161,9 @@ defineExpose({ canSubmit, saving: savingPassword, submit });
   font-size: 0.82rem;
   line-height: 1.45;
   color: rgba(var(--v-theme-on-surface), 0.6);
+}
+.pw__actions {
+  display: flex;
+  justify-content: flex-end;
 }
 </style>

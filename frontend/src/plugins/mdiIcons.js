@@ -32,6 +32,7 @@ export {
   mdiCalendarRange,
   mdiCallSplit,
   mdiCamera,
+  mdiCameraOutline,
   mdiCardAccountDetailsOutline,
   mdiCheck,
   mdiCheckCircle,

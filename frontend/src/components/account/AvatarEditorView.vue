@@ -43,6 +43,19 @@
           <v-icon size="18">mdi-magnify-plus-outline</v-icon>
         </div>
         <div class="ave__fileinfo">{{ fileInfo }}</div>
+        <div class="ave__actions">
+          <v-btn variant="outlined" size="small" @click="pickFile">Neue Datei</v-btn>
+          <v-btn
+            variant="flat"
+            color="primary"
+            size="small"
+            :loading="applying"
+            :disabled="!canApply"
+            @click="apply"
+          >
+            Zuschnitt übernehmen
+          </v-btn>
+        </div>
       </div>
     </div>
 
@@ -70,17 +83,15 @@
 
     <!-- Aktuelles Bild entfernen -->
     <div v-if="hasCurrentAvatar" class="ave__remove">
-      <span class="ave__remove-hint">
-        Aktuelles Bild kann jederzeit entfernt werden → zurück zum Initialen-Kreis.
-      </span>
       <v-btn
         variant="outlined"
         color="error"
         size="small"
+        prepend-icon="mdi-delete-outline"
         :loading="removing"
         @click="remove"
       >
-        Entfernen
+        Bild entfernen
       </v-btn>
     </div>
 
@@ -381,6 +392,12 @@ defineExpose({ canApply, applying, hasImage: imgLoaded, pickFile, apply });
   color: rgba(var(--v-theme-on-surface), 0.55);
   text-transform: uppercase;
 }
+.ave__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
 
 /* Drop-Zone */
 .ave__dropzone {
@@ -442,13 +459,6 @@ defineExpose({ canApply, applying, hasImage: imgLoaded, pickFile, apply });
 /* Entfernen-Zeile */
 .ave__remove {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
   padding-top: 4px;
-}
-.ave__remove-hint {
-  font-size: 0.82rem;
-  color: rgba(var(--v-theme-on-surface), 0.6);
 }
 </style>

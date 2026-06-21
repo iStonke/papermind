@@ -53,7 +53,7 @@
       <v-list-item
         v-if="auth.isAdmin"
         prepend-icon="mdi-account-group-outline"
-        title="Benutzerverwaltung"
+        title="Benutzer"
         @click="ui.openAccount('users')"
       />
 
