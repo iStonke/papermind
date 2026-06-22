@@ -153,11 +153,11 @@ const pdfByteCache = new Map();
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import { TextLayer } from 'pdfjs-dist';
-import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import PmEmptyState from './PmEmptyState.vue';
+import { PDF_WORKER_SRC } from '../utils/pdfWorker.js';
 
-GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
+GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
 
 // ─── Props & Emits ────────────────────────────────────────────────────────────
 

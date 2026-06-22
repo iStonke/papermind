@@ -608,7 +608,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
-import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { PDF_WORKER_SRC } from '../utils/pdfWorker.js';
 import { authHeaders } from '../api/client.js';
 import { useTheme } from 'vuetify';
 import BaseDialog from './BaseDialog.vue';
@@ -628,7 +628,7 @@ import {
   useShortcutScope
 } from '../keyboard/shortcuts';
 
-GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
+GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
 
 const VOCAB_NAME_MIN_LENGTH = 2;
 const VOCAB_NAME_MAX_LENGTH = 30;
