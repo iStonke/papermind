@@ -41,6 +41,7 @@ class CorrespondentSchemaTest(unittest.TestCase):
         self.assertIsNone(CorrespondentCreateRequest(name="Werkstatt").kind)
         self.assertEqual(CorrespondentCreateRequest(name="Werkstatt", kind=" Organization ").kind, "organization")
         self.assertEqual(CorrespondentCreateRequest(name="Torge", kind="PERSON").kind, "person")
+        self.assertEqual(CorrespondentCreateRequest(name="Banken", kind=" Collection ").kind, "collection")
 
     def test_kind_rejects_unknown_value(self) -> None:
         with self.assertRaises(ValidationError):

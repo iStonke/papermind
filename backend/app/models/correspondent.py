@@ -23,7 +23,7 @@ class Correspondent(Base):
         Index("ix_correspondents_parent_id", "parent_id"),
         # Erlaubte Typen (NULL = noch nicht typisiert).
         CheckConstraint(
-            "kind IS NULL OR kind IN ('organization', 'person')",
+            "kind IS NULL OR kind IN ('organization', 'person', 'collection')",
             name="ck_correspondents_kind",
         ),
         # Zwei-Ebenen-Regel: nur Personen dürfen einer Organisation zugeordnet sein.
@@ -42,7 +42,7 @@ class Correspondent(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False)
     short_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # 'organization' | 'person'; NULL bedeutet "noch nicht typisiert" (Altbestand).
+    # 'organization' | 'person' | 'collection'; NULL = noch nicht typisiert.
     kind: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Zugehörige Organisation einer Person (Self-FK, genau zwei Ebenen).
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -79,7 +79,7 @@ class Correspondent(Base):
 
 
 class CorrespondentAlias(Base):
-    """Alternative Schreibweise eines Korrespondenten für die exakte Auflösung."""
+    """Alternative Schreibweise bzw. Erkennungsname für die Auflösung."""
 
     __tablename__ = "correspondent_aliases"
     __table_args__ = (

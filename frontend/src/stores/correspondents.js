@@ -36,7 +36,16 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
   /** Für v-autocomplete: { title, value } sortiert nach Name. */
   const correspondentOptions = computed(() =>
     correspondents.value
-      .map((c) => ({ title: c.name, value: c.id, short_name: c.short_name }))
+      .map((c) => ({
+        title: c.kind === 'collection' ? `${c.name} · Sammlung` : c.name,
+        value: c.id,
+        name: c.name,
+        kind: c.kind,
+        short_name: c.short_name,
+        props: {
+          prependIcon: c.kind === 'collection' ? 'mdi-shape-outline' : undefined,
+        },
+      }))
       .sort((a, b) => a.title.localeCompare(b.title, 'de-DE'))
   );
 
@@ -113,18 +122,20 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
   /** POST /api/correspondents/{id}/aliases */
   async function addAlias(correspondentId, rawAlias) {
     const alias = normalizeName(rawAlias);
+    const isRecognitionName = findById(correspondentId)?.kind === 'collection';
+    const term = isRecognitionName ? 'Erkennungsname' : 'Alias';
     if (!alias) {
-      notify({ type: 'warning', message: 'Alias darf nicht leer sein.' });
+      notify({ type: 'warning', message: `${term} darf nicht leer sein.` });
       return { ok: false };
     }
     isMutationRunning.value = true;
     try {
       const updated = await apiAddAlias(correspondentId, alias);
       await fetchCorrespondents();
-      notify({ type: 'success', title: 'Korrespondent', message: `Alias „${alias}" hinzugefügt.` });
+      notify({ type: 'success', title: 'Korrespondent', message: `${term} „${alias}" hinzugefügt.` });
       return { ok: true, correspondent: updated };
     } catch (error) {
-      notify({ type: 'error', message: mapApiError(error, 'Alias konnte nicht hinzugefügt werden.') });
+      notify({ type: 'error', message: mapApiError(error, `${term} konnte nicht hinzugefügt werden.`) });
       throw error;
     } finally {
       isMutationRunning.value = false;
@@ -163,14 +174,16 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
   }
 
   async function deleteAlias(correspondentId, aliasId) {
+    const isRecognitionName = findById(correspondentId)?.kind === 'collection';
+    const term = isRecognitionName ? 'Erkennungsname' : 'Alias';
     isMutationRunning.value = true;
     try {
       const updated = await apiDeleteAlias(correspondentId, aliasId);
       await fetchCorrespondents();
-      notify({ type: 'success', title: 'Korrespondent', message: 'Alias entfernt.' });
+      notify({ type: 'success', title: 'Korrespondent', message: `${term} entfernt.` });
       return { ok: true, correspondent: updated };
     } catch (error) {
-      notify({ type: 'error', message: mapApiError(error, 'Alias konnte nicht entfernt werden.') });
+      notify({ type: 'error', message: mapApiError(error, `${term} konnte nicht entfernt werden.`) });
       throw error;
     } finally {
       isMutationRunning.value = false;

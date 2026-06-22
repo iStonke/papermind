@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 NAME_MIN_LENGTH = 2
 NAME_MAX_LENGTH = 30
 
-# Korrespondentennamen sind echte Organisations-/Personennamen und dürfen länger
+# Korrespondentennamen sowie Sammelbezeichnungen dürfen länger
 # sein als das knappe Vokabular für Tags/Dokumenttypen.
 CORRESPONDENT_NAME_MIN_LENGTH = 2
 CORRESPONDENT_NAME_MAX_LENGTH = 120

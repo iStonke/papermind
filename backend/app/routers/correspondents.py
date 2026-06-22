@@ -31,7 +31,7 @@ router = APIRouter(prefix="/api/correspondents", tags=["Correspondents"])
 )
 def list_correspondents(
     include_count: bool = Query(default=False, description="Include usage_count for each correspondent"),
-    kind: str | None = Query(default=None, description="Filter by kind: organization | person"),
+    kind: str | None = Query(default=None, description="Filter by kind: organization | person | collection"),
     parent_id: uuid.UUID | None = Query(default=None, description="Filter by parent organization"),
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ) -> CorrespondentListResponse:

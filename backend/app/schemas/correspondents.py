@@ -11,7 +11,7 @@ from app.services.utils import (
     validate_correspondent_name,
 )
 
-CORRESPONDENT_KINDS = {"organization", "person"}
+CORRESPONDENT_KINDS = {"organization", "person", "collection"}
 
 
 def _normalize_kind(value: str | None) -> str | None:
@@ -21,7 +21,7 @@ def _normalize_kind(value: str | None) -> str | None:
     if not normalized:
         return None
     if normalized not in CORRESPONDENT_KINDS:
-        raise ValueError("Correspondent kind must be organization or person")
+        raise ValueError("Correspondent kind must be organization, person or collection")
     return normalized
 
 
@@ -29,7 +29,7 @@ class CorrespondentCreateRequest(BaseModel):
     name: str = Field(min_length=CORRESPONDENT_NAME_MIN_LENGTH, max_length=CORRESPONDENT_NAME_MAX_LENGTH)
     short_name: str | None = Field(default=None, max_length=60)
     notes: str | None = Field(default=None, max_length=2000)
-    kind: str | None = Field(default=None, description="organization | person")
+    kind: str | None = Field(default=None, description="organization | person | collection")
     parent_id: uuid.UUID | None = Field(default=None, description="Organisation einer Person")
 
     @field_validator("name")
@@ -64,7 +64,7 @@ class CorrespondentUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=CORRESPONDENT_NAME_MIN_LENGTH, max_length=CORRESPONDENT_NAME_MAX_LENGTH)
     short_name: str | None = Field(default=None, max_length=60)
     notes: str | None = Field(default=None, max_length=2000)
-    kind: str | None = Field(default=None, description="organization | person")
+    kind: str | None = Field(default=None, description="organization | person | collection")
     parent_id: uuid.UUID | None = Field(default=None, description="Organisation einer Person (null löst die Zuordnung)")
 
     @field_validator("name")

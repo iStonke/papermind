@@ -68,6 +68,23 @@ class CorrespondentService:
             stmt = stmt.where(Correspondent.id != exclude_id)
         return self.db.execute(stmt).scalar_one_or_none()
 
+    def _find_alias_conflict(
+        self,
+        name: str,
+        *,
+        exclude_correspondent_id: uuid.UUID | None = None,
+    ) -> CorrespondentAlias | None:
+        stmt = (
+            select(CorrespondentAlias)
+            .join(Correspondent, Correspondent.id == CorrespondentAlias.correspondent_id)
+            .where(func.lower(CorrespondentAlias.alias) == name.lower())
+        )
+        if self.owner_id is not None:
+            stmt = stmt.where(Correspondent.owner_id == self.owner_id)
+        if exclude_correspondent_id is not None:
+            stmt = stmt.where(CorrespondentAlias.correspondent_id != exclude_correspondent_id)
+        return self.db.execute(stmt).scalar_one_or_none()
+
     def _has_children(self, correspondent_id: uuid.UUID) -> bool:
         stmt = select(func.count(Correspondent.id)).where(Correspondent.parent_id == correspondent_id)
         if self.owner_id is not None:
@@ -88,18 +105,23 @@ class CorrespondentService:
         """
         if parent_id is not None:
             if entity_id is not None and parent_id == entity_id:
-                raise BadRequestError("A correspondent cannot be its own organization")
+                raise BadRequestError("Ein Korrespondent kann nicht sich selbst als Organisation zugeordnet werden.")
             if kind != "person":
-                raise BadRequestError("Only persons can be assigned to an organization")
+                raise BadRequestError("Nur Personen können einer Organisation zugeordnet werden.")
             parent = self._get_owned(parent_id)
             if parent is None:
-                raise BadRequestError("Parent organization not found", details={"parent_id": str(parent_id)})
+                raise BadRequestError(
+                    "Die ausgewählte Organisation wurde nicht gefunden.",
+                    details={"parent_id": str(parent_id)},
+                )
             if parent.kind != "organization":
-                raise BadRequestError("Parent correspondent must be an organization")
+                raise BadRequestError("Als übergeordneter Korrespondent ist nur eine Organisation zulässig.")
 
         # Wer Kinder hat (zugeordnete Personen), muss eine Organisation bleiben.
         if entity_id is not None and kind != "organization" and self._has_children(entity_id):
-            raise BadRequestError("A correspondent with assigned persons must stay an organization")
+            raise BadRequestError(
+                "Der Typ kann nicht geändert werden, solange Personen dieser Organisation zugeordnet sind."
+            )
 
     def _get_owned(self, correspondent_id: uuid.UUID) -> Correspondent | None:
         stmt = select(Correspondent).where(Correspondent.id == correspondent_id)
@@ -116,6 +138,11 @@ class CorrespondentService:
         existing = self._find_name_conflict(name)
         if existing is not None:
             return existing
+        if self._find_alias_conflict(name) is not None:
+            raise ConflictError(
+                "Dieser Name wird bereits als Alias oder Erkennungsname verwendet.",
+                details={"name": name},
+            )
 
         self._validate_hierarchy(entity_id=None, kind=payload.kind, parent_id=payload.parent_id)
 
@@ -136,7 +163,7 @@ class CorrespondentService:
                 existing = self._find_name_conflict(name)
                 if existing is not None:
                     return existing
-                raise ConflictError("Correspondent name already exists", details={"name": name}) from exc
+                raise ConflictError("Ein Korrespondent mit diesem Namen existiert bereits.", details={"name": name}) from exc
             raise
 
         self.db.refresh(correspondent)
@@ -153,7 +180,7 @@ class CorrespondentService:
             stmt = stmt.where(Correspondent.owner_id == self.owner_id)
         correspondent = self.db.execute(stmt).scalar_one_or_none()
         if correspondent is None:
-            raise NotFoundError("Correspondent not found", details={"correspondent_id": str(correspondent_id)})
+            raise NotFoundError("Korrespondent wurde nicht gefunden.", details={"correspondent_id": str(correspondent_id)})
         return correspondent
 
     def update_correspondent(self, correspondent_id: uuid.UUID, payload: CorrespondentUpdateRequest) -> Correspondent:
@@ -167,7 +194,12 @@ class CorrespondentService:
                 raise BadRequestError(str(exc)) from exc
             existing = self._find_name_conflict(name, exclude_id=correspondent_id)
             if existing is not None:
-                raise ConflictError("Correspondent name already exists", details={"name": name})
+                raise ConflictError("Ein Korrespondent mit diesem Namen existiert bereits.", details={"name": name})
+            if self._find_alias_conflict(name, exclude_correspondent_id=correspondent_id) is not None:
+                raise ConflictError(
+                    "Dieser Name wird bereits als Alias oder Erkennungsname verwendet.",
+                    details={"name": name},
+                )
             correspondent.name = name
         if "short_name" in data:
             correspondent.short_name = data["short_name"]
@@ -194,7 +226,10 @@ class CorrespondentService:
         except IntegrityError as exc:
             self.db.rollback()
             if is_unique_violation(exc):
-                raise ConflictError("Correspondent name already exists", details={"name": correspondent.name}) from exc
+                raise ConflictError(
+                    "Ein Korrespondent mit diesem Namen existiert bereits.",
+                    details={"name": correspondent.name},
+                ) from exc
             raise
         return self.get_correspondent_or_404(correspondent_id)
 
@@ -209,7 +244,7 @@ class CorrespondentService:
         usage_count = self.db.execute(usage_stmt).scalar_one()
         if int(usage_count or 0) > 0:
             raise ConflictError(
-                "Correspondent is still used by documents",
+                "Der Korrespondent kann nicht gelöscht werden, solange Dokumente zugeordnet sind.",
                 details={"correspondent_id": str(correspondent_id), "usage_count": int(usage_count)},
             )
         self.db.delete(correspondent)
@@ -221,6 +256,23 @@ class CorrespondentService:
             normalized = validate_correspondent_alias(alias)
         except ValueError as exc:
             raise BadRequestError(str(exc)) from exc
+
+        name_conflict = self._find_name_conflict(normalized)
+        if name_conflict is not None and name_conflict.id != correspondent_id:
+            raise ConflictError(
+                "Dieser Alias oder Erkennungsname wird bereits als Korrespondentenname verwendet.",
+                details={"alias": normalized},
+            )
+
+        conflicting_alias = self._find_alias_conflict(
+            normalized,
+            exclude_correspondent_id=correspondent_id,
+        )
+        if conflicting_alias is not None:
+            raise ConflictError(
+                "Dieser Alias oder Erkennungsname ist bereits einem anderen Korrespondenten zugeordnet.",
+                details={"alias": normalized},
+            )
 
         existing_alias = self.db.execute(
             select(CorrespondentAlias).where(
@@ -268,7 +320,16 @@ class CorrespondentService:
         self.get_correspondent_or_404(correspondent_id)
         alias = self.db.get(CorrespondentAlias, alias_id)
         if alias is None or alias.correspondent_id != correspondent_id:
-            raise NotFoundError("Correspondent alias not found", details={"alias_id": str(alias_id)})
+            raise NotFoundError("Alias oder Erkennungsname wurde nicht gefunden.", details={"alias_id": str(alias_id)})
+        auto_matchers = self.db.execute(
+            select(CorrespondentMatcher).where(
+                CorrespondentMatcher.correspondent_id == correspondent_id,
+                CorrespondentMatcher.kind == "contains",
+                func.lower(CorrespondentMatcher.pattern) == alias.alias.lower(),
+            )
+        ).scalars().all()
+        for matcher in auto_matchers:
+            self.db.delete(matcher)
         self.db.delete(alias)
         self.db.commit()
         return self.get_correspondent_or_404(correspondent_id)
@@ -300,7 +361,7 @@ class CorrespondentService:
         self.get_correspondent_or_404(correspondent_id)
         matcher = self.db.get(CorrespondentMatcher, matcher_id)
         if matcher is None or matcher.correspondent_id != correspondent_id:
-            raise NotFoundError("Correspondent matcher not found", details={"matcher_id": str(matcher_id)})
+            raise NotFoundError("Erkennungsregel wurde nicht gefunden.", details={"matcher_id": str(matcher_id)})
         self.db.delete(matcher)
         self.db.commit()
         return self.get_correspondent_or_404(correspondent_id)

@@ -928,19 +928,32 @@
                     <div class="pm-prop-row">
                       <label class="pm-prop-key">Dokumenttyp</label>
                       <div class="pm-prop-val">
-                        <div class="pm-prop-field">
-                          <v-select
-                            :model-value="metadataDocCategory"
-                            :items="categoryDrawerItems"
-                            density="compact"
-                            variant="plain"
-                            hide-details
-                            clearable
-                            placeholder="Dokumenttyp wählen…"
-                            :loading="isSavingCategory"
-                            :menu-props="detailsCategoryMenuProps"
-                            @update:model-value="onMetadataCategoryChange"
-                          />
+                        <div class="pm-prop-value-with-action">
+                          <div class="pm-prop-field">
+                            <v-select
+                              :model-value="metadataDocCategory"
+                              :items="categoryDrawerItems"
+                              density="compact"
+                              variant="plain"
+                              hide-details
+                              clearable
+                              placeholder="Dokumenttyp wählen…"
+                              :loading="isSavingCategory"
+                              :menu-props="detailsCategoryMenuProps"
+                              @update:model-value="onMetadataCategoryChange"
+                            />
+                          </div>
+                          <v-btn
+                            icon
+                            variant="text"
+                            size="small"
+                            class="pm-prop-settings-link"
+                            title="Dokumenttypen verwalten"
+                            aria-label="Dokumenttypen verwalten"
+                            @click="openDocumentTypeSettings"
+                          >
+                            <v-icon size="17">mdi-cog-outline</v-icon>
+                          </v-btn>
                         </div>
                       </div>
                     </div>
@@ -948,32 +961,46 @@
                     <div class="pm-prop-row">
                       <label class="pm-prop-key">Korrespondent</label>
                       <div class="pm-prop-val">
-                        <div class="pm-prop-field">
-                          <v-combobox
-                            :model-value="metadataCorrespondentDraft"
-                            :items="correspondentDrawerItems"
-                            item-title="title"
-                            item-value="value"
-                            :return-object="false"
-                            density="compact"
-                            variant="plain"
-                            hide-details
-                            clearable
-                            placeholder="Korrespondent wählen oder neu anlegen…"
-                            :loading="isSavingCorrespondent || correspondentStore.isMutationRunning"
-                            :menu-props="detailsCorrespondentMenuProps"
-                            @update:model-value="onMetadataCorrespondentInput"
-                            @keydown.enter.prevent="commitMetadataCorrespondent"
-                            @blur="handleMetadataCorrespondentBlur"
-                            @focus="correspondentStore.ensureLoaded()"
+                        <div class="pm-prop-value-with-action">
+                          <div class="pm-prop-field">
+                            <v-combobox
+                              :model-value="metadataCorrespondentDraft"
+                              :items="correspondentDrawerItems"
+                              item-title="title"
+                              item-value="value"
+                              :return-object="false"
+                              density="compact"
+                              variant="plain"
+                              hide-details
+                              clearable
+                              placeholder="Korrespondent wählen oder neu anlegen…"
+                              :loading="isSavingCorrespondent || correspondentStore.isMutationRunning"
+                              :menu-props="detailsCorrespondentMenuProps"
+                              @update:model-value="onMetadataCorrespondentInput"
+                              @keydown.enter.prevent="commitMetadataCorrespondent"
+                              @blur="handleMetadataCorrespondentBlur"
+                              @focus="correspondentStore.ensureLoaded()"
+                            >
+                              <template #selection="{ item }">
+                                {{ item.raw?.short_name || item.raw?.name || item.title }}
+                                <span v-if="item.raw?.kind === 'collection'"> · Sammlung</span>
+                              </template>
+                              <template #no-data>
+                                <v-list-item title="Als neuen Korrespondenten anlegen" />
+                              </template>
+                            </v-combobox>
+                          </div>
+                          <v-btn
+                            icon
+                            variant="text"
+                            size="small"
+                            class="pm-prop-settings-link"
+                            title="Korrespondenten verwalten"
+                            aria-label="Korrespondenten verwalten"
+                            @click="openCorrespondentSettings"
                           >
-                            <template #selection="{ item }">
-                              {{ item.raw?.short_name || item.title }}
-                            </template>
-                            <template #no-data>
-                              <v-list-item title="Als neuen Korrespondenten anlegen" />
-                            </template>
-                          </v-combobox>
+                            <v-icon size="17">mdi-cog-outline</v-icon>
+                          </v-btn>
                         </div>
                       </div>
                     </div>
@@ -3041,11 +3068,7 @@ async function onMetadataCategoryChange(nextCategory) {
 // Korrespondenten-Optionen für das Detail-Drawer; aktuelle Auswahl bleibt
 // sichtbar, falls sie (noch) nicht in der geladenen Liste steht.
 const correspondentDrawerItems = computed(() => {
-  const items = correspondentStore.correspondentOptions.map((o) => ({
-    title: o.title,
-    value: o.value,
-    short_name: o.short_name
-  }));
+  const items = correspondentStore.correspondentOptions.map((o) => ({ ...o }));
   const currentId = metadataCorrespondentId.value;
   if (currentId && !items.some((o) => o.value === currentId)) {
     const name = selectedDocumentDetail.value?.correspondent_name || 'Korrespondent';
@@ -3178,6 +3201,14 @@ async function openShortcutsHelp() {
 async function openBackupSettings() {
   await fetchAppSettings();
   uiStore.openSettings('backup');
+}
+
+function openDocumentTypeSettings() {
+  uiStore.openSettings('categories');
+}
+
+function openCorrespondentSettings() {
+  uiStore.openSettings('correspondents');
 }
 
 function handleSystemThemeChange() {
@@ -9117,12 +9148,32 @@ onBeforeUnmount(() => {
 }
 
 .pm-prop-field {
+  min-width: 0;
   border: 1px solid transparent;
   border-radius: 8px;
   transition:
     background-color 0.12s ease,
     border-color 0.12s ease,
     box-shadow 0.12s ease;
+}
+
+.pm-prop-value-with-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 4px;
+}
+
+.pm-prop-settings-link {
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 30px !important;
+  color: rgba(var(--v-theme-on-surface), 0.46) !important;
+}
+
+.pm-prop-settings-link:hover {
+  color: rgb(var(--v-theme-primary)) !important;
+  background: rgba(var(--v-theme-primary), 0.08);
 }
 
 .pm-prop-field:hover {

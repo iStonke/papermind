@@ -402,7 +402,7 @@
                 prepend-icon="mdi-tag-plus"
                 @click="onAddSenderAsAlias"
               >
-                Als Alias hinzufügen
+                {{ selectedCorrespondent?.kind === 'collection' ? 'Als Erkennungsname hinzufügen' : 'Als Alias hinzufügen' }}
               </v-btn>
             </div>
           </div>

@@ -752,7 +752,7 @@
             <SettingsInfoCard
               icon="mdi-account-outline"
               title="Korrespondenten"
-              subtitle="Absender und Aussteller mit Aliasen pflegen und zuordnen."
+              subtitle="Absender, Aussteller und Sammelkorrespondenten pflegen und zuordnen."
             >
               <template #actions>
                 <v-btn
@@ -781,7 +781,7 @@
                     density="compact"
                     variant="outlined"
                     hide-details
-                    :placeholder="newCorrespondentKind === 'person' ? 'Neue Person…' : 'Neue Organisation…'"
+                    :placeholder="newCorrespondentPlaceholder"
                     :disabled="correspondentStore.isMutationRunning"
                     @keydown.enter.prevent="addCorrespondent"
                   >
@@ -794,11 +794,9 @@
                             variant="text"
                             size="small"
                             class="settings-correspondent-kind-menu"
-                            :title="newCorrespondentKind === 'person' ? 'Person' : 'Organisation'"
+                            :title="correspondentKindLabel(newCorrespondentKind)"
                           >
-                            <v-icon size="19">
-                              {{ newCorrespondentKind === 'person' ? 'mdi-account-outline' : 'mdi-domain' }}
-                            </v-icon>
+                            <v-icon size="19">{{ correspondentKindIcon({ kind: newCorrespondentKind }) }}</v-icon>
                           </v-btn>
                         </template>
                         <v-list density="compact">
@@ -813,6 +811,12 @@
                             prepend-icon="mdi-account-outline"
                             :active="newCorrespondentKind === 'person'"
                             @click="newCorrespondentKind = 'person'"
+                          />
+                          <v-list-item
+                            title="Sammlung"
+                            prepend-icon="mdi-shape-outline"
+                            :active="newCorrespondentKind === 'collection'"
+                            @click="newCorrespondentKind = 'collection'"
                           />
                         </v-list>
                       </v-menu>
@@ -846,6 +850,9 @@
                   </v-chip>
                   <v-chip value="person" size="small" variant="outlined" filter>
                     Personen {{ personCorrespondentCount }}
+                  </v-chip>
+                  <v-chip value="collection" size="small" variant="outlined" filter>
+                    Sammlungen {{ collectionCorrespondentCount }}
                   </v-chip>
                 </v-chip-group>
               </div>
@@ -907,6 +914,9 @@
                           <v-btn value="person" size="small">
                             <v-icon size="16" start>mdi-account-outline</v-icon>Person
                           </v-btn>
+                          <v-btn value="collection" size="small">
+                            <v-icon size="16" start>mdi-shape-outline</v-icon>Sammlung
+                          </v-btn>
                         </v-btn-toggle>
 
                         <v-spacer />
@@ -924,17 +934,21 @@
                           </span>
                         </transition>
 
-                        <v-btn
-                          icon
-                          variant="text"
-                          size="small"
-                          class="settings-correspondent-icon-action settings-correspondent-delete"
-                          title="Korrespondent löschen"
-                          :disabled="correspondentStore.isMutationRunning || (item.usage_count || 0) > 0"
-                          @click="removeSelectedCorrespondent"
+                        <span
+                          class="settings-correspondent-delete-wrapper"
+                          :title="correspondentDeleteTitle(item)"
                         >
-                          <v-icon size="18">mdi-trash-can-outline</v-icon>
-                        </v-btn>
+                          <v-btn
+                            icon
+                            variant="text"
+                            size="small"
+                            class="settings-correspondent-icon-action settings-correspondent-delete"
+                            :disabled="correspondentStore.isMutationRunning || (item.usage_count || 0) > 0"
+                            @click="removeSelectedCorrespondent"
+                          >
+                            <v-icon size="18">mdi-trash-can-outline</v-icon>
+                          </v-btn>
+                        </span>
                       </div>
 
                       <div class="settings-correspondent-fields">
@@ -982,8 +996,8 @@
                             density="compact"
                             variant="outlined"
                             hide-details
-                            label="Aliase"
-                            placeholder="Alias hinzufügen…"
+                            :label="correspondentAliasLabel(item)"
+                            :placeholder="correspondentAliasPlaceholder(item)"
                             @keydown.enter.prevent="addAliasToSelected"
                           />
                           <v-btn
@@ -991,7 +1005,7 @@
                             variant="text"
                             color="primary"
                             class="settings-correspondent-icon-action"
-                            title="Alias hinzufügen"
+                            :title="correspondentAliasAddTitle(item)"
                             :disabled="!newAliasName.trim() || correspondentStore.isMutationRunning"
                             @click="addAliasToSelected"
                           >
@@ -1098,7 +1112,7 @@
                         icon
                         variant="text"
                         color="primary"
-                        title="Absender als Alias hinzufügen und zuordnen"
+                        :title="unresolvedRecognitionTitle(item.document_id)"
                         :disabled="!item.sender || !unresolvedSelections[item.document_id] || assigningUnresolvedId === item.document_id"
                         @click="assignUnresolvedCorrespondent(item, true)"
                       >
@@ -1130,6 +1144,19 @@
                 </v-card-text>
               </v-card>
             </v-dialog>
+
+            <ConfirmDialog
+              v-model="collectionTypeConfirmOpen"
+              title="In eine Sammlung umwandeln?"
+              :description="collectionTypeConfirmDescription"
+              primary-text="In Sammlung umwandeln"
+              secondary-text="Abbrechen"
+              icon="mdi-shape-outline"
+              max-width="520"
+              @primary="confirmCollectionTypeChange"
+              @secondary="cancelCollectionTypeChange"
+              @close="cancelCollectionTypeChange"
+            />
           </div>
         </section>
 
@@ -1655,6 +1682,7 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import { useTheme } from 'vuetify';
 import BaseDialog from './BaseDialog.vue';
+import ConfirmDialog from './ConfirmDialog.vue';
 import ServiceStatusPanel from './ServiceStatusPanel.vue';
 import SettingsInfoCard from './SettingsInfoCard.vue';
 import SystemStatusPanel from './SystemStatusPanel.vue';
@@ -2824,6 +2852,8 @@ const editingCorrespondentName = ref('');
 const editingCorrespondentShortName = ref('');
 const editingCorrespondentKind = ref(null);
 const editingCorrespondentParentId = ref(null);
+const collectionTypeConfirmOpen = ref(false);
+const pendingCorrespondentKind = ref(null);
 // Auto-Speichern: Status für die dezente Anzeige statt eines Speichern-Buttons.
 const correspondentSaveState = ref('idle'); // 'idle' | 'saving' | 'saved'
 let correspondentAutosaveTimer = null;
@@ -2901,14 +2931,32 @@ const personCorrespondentCount = computed(
   () => correspondentStore.correspondents.filter((c) => c.kind === 'person').length
 );
 
+const collectionCorrespondentCount = computed(
+  () => correspondentStore.correspondents.filter((c) => c.kind === 'collection').length
+);
+
+const newCorrespondentPlaceholder = computed(() => {
+  if (newCorrespondentKind.value === 'person') return 'Neue Person…';
+  if (newCorrespondentKind.value === 'collection') return 'Neue Sammlung…';
+  return 'Neue Organisation…';
+});
+
+const collectionTypeConfirmDescription = computed(() => {
+  if (editingCorrespondentKind.value === 'person') {
+    return 'Die Person wird zu einer Sammlung. Eine bestehende Zuordnung zu einer Organisation wird dabei entfernt. Dokumentzuordnungen und Aliase bleiben erhalten.';
+  }
+  return 'Die Organisation wird zu einer Sammlung. Dokumentzuordnungen und Aliase bleiben erhalten; Aliase werden anschließend als Erkennungsnamen verwendet.';
+});
+
 /**
- * Korrespondenten gruppiert für die Liste: jede Organisation gefolgt von ihren
- * zugeordneten Personen, danach Personen ohne Organisation, danach noch nicht
- * typisierte Einträge. Der Typ-Filter blendet entsprechend aus.
+ * Korrespondenten gruppiert für die Liste: zuerst Sammelkorrespondenten, dann
+ * jede Organisation gefolgt von ihren zugeordneten Personen, danach Personen
+ * ohne Organisation und noch nicht typisierte Einträge.
  */
 const displayedCorrespondents = computed(() => {
   const all = correspondentStore.correspondents;
   const byId = new Map(all.map((c) => [c.id, c]));
+  const collections = all.filter((c) => c.kind === 'collection').slice().sort(correspondentNameSort);
   const orgs = all.filter((c) => c.kind === 'organization').slice().sort(correspondentNameSort);
   const personsByParent = new Map();
   const orphanPersons = [];
@@ -2921,11 +2969,11 @@ const displayedCorrespondents = computed(() => {
       } else {
         orphanPersons.push(c);
       }
-    } else if (c.kind !== 'organization') {
+    } else if (c.kind !== 'organization' && c.kind !== 'collection') {
       untyped.push(c);
     }
   }
-  const ordered = [];
+  const ordered = [...collections];
   for (const org of orgs) {
     ordered.push(org);
     for (const p of (personsByParent.get(org.id) || []).slice().sort(correspondentNameSort)) {
@@ -2936,6 +2984,7 @@ const displayedCorrespondents = computed(() => {
   for (const u of untyped.slice().sort(correspondentNameSort)) ordered.push(u);
 
   const filter = correspondentTypeFilter.value;
+  if (filter === 'collection') return ordered.filter((c) => c.kind === 'collection');
   if (filter === 'organization') return ordered.filter((c) => c.kind === 'organization');
   if (filter === 'person') return ordered.filter((c) => c.kind === 'person');
   return ordered;
@@ -2953,7 +3002,42 @@ function correspondentIsNested(item) {
 function correspondentKindIcon(item) {
   if (item?.kind === 'organization') return 'mdi-domain';
   if (item?.kind === 'person') return 'mdi-account-outline';
+  if (item?.kind === 'collection') return 'mdi-shape-outline';
   return 'mdi-help-circle-outline';
+}
+
+function correspondentKindLabel(kind) {
+  if (kind === 'person') return 'Person';
+  if (kind === 'collection') return 'Sammelkorrespondent';
+  if (kind === 'organization') return 'Organisation';
+  return 'Ohne Typ';
+}
+
+function correspondentAliasLabel(item) {
+  return item?.kind === 'collection' ? 'Erkennungsnamen' : 'Aliase';
+}
+
+function correspondentAliasPlaceholder(item) {
+  return item?.kind === 'collection' ? 'Erkennungsname hinzufügen…' : 'Alias hinzufügen…';
+}
+
+function correspondentAliasAddTitle(item) {
+  return item?.kind === 'collection' ? 'Erkennungsname hinzufügen' : 'Alias hinzufügen';
+}
+
+function correspondentDeleteTitle(item) {
+  const usageCount = Number(item?.usage_count || 0);
+  if (usageCount === 1) return 'Kann nicht gelöscht werden: 1 Dokument ist zugeordnet.';
+  if (usageCount > 1) return `Kann nicht gelöscht werden: ${usageCount} Dokumente sind zugeordnet.`;
+  if (correspondentStore.isMutationRunning) return 'Bitte warten, solange eine Änderung gespeichert wird.';
+  return 'Korrespondent löschen';
+}
+
+function unresolvedRecognitionTitle(documentId) {
+  const correspondent = correspondentStore.findById(unresolvedSelections.value[documentId]);
+  return correspondent?.kind === 'collection'
+    ? 'Absender als Erkennungsname hinzufügen und zuordnen'
+    : 'Absender als Alias hinzufügen und zuordnen';
 }
 
 function correspondentMetaText(item) {
@@ -2968,7 +3052,11 @@ function correspondentMetaText(item) {
     parts.push(`${personCount} ${personCount === 1 ? 'Person' : 'Personen'}`);
   }
   const aliasCount = item?.aliases?.length || 0;
-  parts.push(`${aliasCount} Alias${aliasCount === 1 ? '' : 'e'}`);
+  if (item?.kind === 'collection') {
+    parts.push(`${aliasCount} Erkennungsname${aliasCount === 1 ? '' : 'n'}`);
+  } else {
+    parts.push(`${aliasCount} Alias${aliasCount === 1 ? '' : 'e'}`);
+  }
   return parts.join(' · ');
 }
 
@@ -3186,12 +3274,49 @@ watch([editingCorrespondentName, editingCorrespondentShortName], () => scheduleC
 
 /** Beim Umschalten des Typs die Zwei-Ebenen-Regel spiegeln und sofort speichern. */
 function onEditingKindChange(nextKind) {
+  const current = selectedCorrespondent.value;
+  if (!current || !nextKind || nextKind === editingCorrespondentKind.value) return;
+  if (nextKind === 'collection' && editingCorrespondentKind.value !== 'collection') {
+    if (current.kind === 'organization') {
+      const assignedPersons = correspondentStore.correspondents.filter(
+        (correspondent) => correspondent.kind === 'person' && correspondent.parent_id === current.id
+      ).length;
+      if (assignedPersons > 0) {
+        notify({
+          type: 'warning',
+          message: `Typ kann nicht geändert werden: ${assignedPersons} ${
+            assignedPersons === 1 ? 'Person ist' : 'Personen sind'
+          } dieser Organisation zugeordnet.`,
+        });
+        return;
+      }
+    }
+    pendingCorrespondentKind.value = nextKind;
+    collectionTypeConfirmOpen.value = true;
+    return;
+  }
+  applyEditingKindChange(nextKind);
+}
+
+function applyEditingKindChange(nextKind) {
   editingCorrespondentKind.value = nextKind || null;
   // Nur Personen dürfen einer Organisation zugeordnet sein.
   if (nextKind !== 'person') {
     editingCorrespondentParentId.value = null;
   }
   scheduleCorrespondentAutosave(true);
+}
+
+function confirmCollectionTypeChange() {
+  const nextKind = pendingCorrespondentKind.value;
+  collectionTypeConfirmOpen.value = false;
+  pendingCorrespondentKind.value = null;
+  if (nextKind) applyEditingKindChange(nextKind);
+}
+
+function cancelCollectionTypeChange() {
+  collectionTypeConfirmOpen.value = false;
+  pendingCorrespondentKind.value = null;
 }
 
 /** Organisations-Zuordnung geändert → sofort speichern. */
@@ -4109,6 +4234,11 @@ async function removeAlias(alias) {
 /* Löschen bewusst zurückhaltend (kein Dauer-Rot in der Kopfzeile). */
 .settings-correspondent-delete {
   color: rgba(var(--v-theme-on-surface), 0.5) !important;
+}
+
+.settings-correspondent-delete-wrapper {
+  display: inline-flex;
+  flex: 0 0 auto;
 }
 
 .settings-correspondent-delete:hover:not(:disabled) {
