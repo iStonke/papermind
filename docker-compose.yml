@@ -6,7 +6,11 @@ services:
       context: ./frontend
       dockerfile: Dockerfile.prod
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+        # Der Prod-Container spricht die API IMMER relativ (/api) an; die nginx
+        # proxyt an das Backend. VITE_API_BASE_URL aus der .env ist ausschliesslich
+        # das Proxy-Ziel des Vite-Dev-Servers und darf hier NICHT eingebacken
+        # werden (sonst ruft das Frontend cross-origin localhost:8040 auf).
+        VITE_API_BASE_URL: ""
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT}:80"
