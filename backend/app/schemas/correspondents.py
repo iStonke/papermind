@@ -11,16 +11,36 @@ from app.services.utils import (
     validate_correspondent_name,
 )
 
+CORRESPONDENT_KINDS = {"organization", "person"}
+
+
+def _normalize_kind(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = " ".join(str(value).split()).strip().lower()
+    if not normalized:
+        return None
+    if normalized not in CORRESPONDENT_KINDS:
+        raise ValueError("Correspondent kind must be organization or person")
+    return normalized
+
 
 class CorrespondentCreateRequest(BaseModel):
     name: str = Field(min_length=CORRESPONDENT_NAME_MIN_LENGTH, max_length=CORRESPONDENT_NAME_MAX_LENGTH)
     short_name: str | None = Field(default=None, max_length=60)
     notes: str | None = Field(default=None, max_length=2000)
+    kind: str | None = Field(default=None, description="organization | person")
+    parent_id: uuid.UUID | None = Field(default=None, description="Organisation einer Person")
 
     @field_validator("name")
     @classmethod
     def normalize_name(cls, value: str) -> str:
         return validate_correspondent_name(value)
+
+    @field_validator("kind")
+    @classmethod
+    def normalize_kind(cls, value: str | None) -> str | None:
+        return _normalize_kind(value)
 
     @field_validator("short_name", "notes")
     @classmethod
@@ -44,6 +64,8 @@ class CorrespondentUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=CORRESPONDENT_NAME_MIN_LENGTH, max_length=CORRESPONDENT_NAME_MAX_LENGTH)
     short_name: str | None = Field(default=None, max_length=60)
     notes: str | None = Field(default=None, max_length=2000)
+    kind: str | None = Field(default=None, description="organization | person")
+    parent_id: uuid.UUID | None = Field(default=None, description="Organisation einer Person (null löst die Zuordnung)")
 
     @field_validator("name")
     @classmethod
@@ -51,6 +73,11 @@ class CorrespondentUpdateRequest(BaseModel):
         if value is None:
             return None
         return validate_correspondent_name(value)
+
+    @field_validator("kind")
+    @classmethod
+    def normalize_kind(cls, value: str | None) -> str | None:
+        return _normalize_kind(value)
 
     @field_validator("short_name", "notes")
     @classmethod
@@ -110,6 +137,9 @@ class CorrespondentRead(ORMModel):
     name: str
     short_name: str | None = None
     notes: str | None = None
+    kind: str | None = None
+    parent_id: uuid.UUID | None = None
+    parent_name: str | None = None
     created_at: datetime
     aliases: list[CorrespondentAliasRead] = Field(default_factory=list)
     matchers: list[CorrespondentMatcherRead] = Field(default_factory=list)

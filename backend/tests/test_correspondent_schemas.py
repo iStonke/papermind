@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from app.schemas.correspondents import (
     CorrespondentAliasCreateRequest,
     CorrespondentCreateRequest,
+    CorrespondentUpdateRequest,
 )
 from app.schemas.import_staging import ImportCommitDocumentInput
 
@@ -35,6 +36,21 @@ class CorrespondentSchemaTest(unittest.TestCase):
         self.assertEqual(payload.alias, "Red Plus")
         with self.assertRaises(ValidationError):
             CorrespondentAliasCreateRequest(alias="   ")
+
+    def test_kind_defaults_none_and_normalizes(self) -> None:
+        self.assertIsNone(CorrespondentCreateRequest(name="Werkstatt").kind)
+        self.assertEqual(CorrespondentCreateRequest(name="Werkstatt", kind=" Organization ").kind, "organization")
+        self.assertEqual(CorrespondentCreateRequest(name="Torge", kind="PERSON").kind, "person")
+
+    def test_kind_rejects_unknown_value(self) -> None:
+        with self.assertRaises(ValidationError):
+            CorrespondentCreateRequest(name="Werkstatt", kind="company")
+
+    def test_update_accepts_kind_and_parent_id(self) -> None:
+        parent = uuid.uuid4()
+        payload = CorrespondentUpdateRequest(kind="person", parent_id=parent)
+        self.assertEqual(payload.kind, "person")
+        self.assertEqual(payload.parent_id, parent)
 
 
 class ImportCommitCorrespondentTest(unittest.TestCase):
