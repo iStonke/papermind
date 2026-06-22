@@ -1,7 +1,7 @@
 # PaperMind (AP9)
 
-Monorepo mit Docker-Compose-Entwicklungsumgebung:
-- Frontend: Vue 3 + Vuetify + Vite
+Monorepo mit Docker-Compose-Laufzeit:
+- Frontend: Vue 3 + Vuetify, statisch gebaut und über Nginx ausgeliefert
 - Backend: FastAPI + SQLAlchemy + Alembic
 - DB: PostgreSQL 17 + pgvector
 - AI-Service: Embedding-API (lokales Modell)
@@ -112,8 +112,9 @@ Worker gezielt neu bauen/starten:
 
 ## Produktionsbetrieb
 
-Die Entwicklungsumgebung bleibt in `docker-compose.yml`. Für den Betrieb auf
-dem Raspberry/Heimnetz gibt es `docker-compose.prod.yml`:
+`docker-compose.yml` verwendet bereits den statischen Frontend-Build. Für den
+gehärteten Betrieb auf dem Raspberry/Heimnetz gibt es zusätzlich
+`docker-compose.prod.yml` ohne Quellcode-Volumes und mit TLS-Reverse-Proxy:
 
 - Frontend wird statisch gebaut und über Nginx ausgeliefert.
 - `/api/*` läuft same-origin über den Nginx-Proxy zum Backend.
@@ -133,7 +134,7 @@ Dann Platzhalter in `.env.prod` ersetzen, insbesondere:
 - `DATABASE_URL`
 - `PUBLIC_WEB_BASE_URL`
 - `CORS_ALLOW_ORIGINS`
-- `DIRECT_UPLOAD_API_KEY`
+- `AUTH_SECRET_KEY`
 
 Produktionsstack starten:
 ```bash

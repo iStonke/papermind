@@ -86,8 +86,14 @@ class Settings(BaseSettings):
     # Secret used to sign access tokens. MUST be set in production; if empty an
     # ephemeral key is generated at startup (tokens become invalid on restart).
     auth_secret_key: str = Field(default="")
-    auth_token_ttl_seconds: int = Field(default=86400, ge=300)
+    auth_token_ttl_seconds: int = Field(default=3600, ge=300)
     auth_refresh_token_ttl_seconds: int = Field(default=30 * 86400, ge=86400)
+    auth_cookie_name: str = Field(default="pm_refresh")
+    auth_cookie_secure: bool = Field(default=False)
+    auth_cookie_samesite: Literal["lax", "strict", "none"] = Field(default="lax")
+    auth_login_rate_limit: int = Field(default=10, ge=1, le=100)
+    auth_login_rate_window_seconds: int = Field(default=300, ge=10, le=86400)
+    slow_query_threshold_ms: int = Field(default=500, ge=0, le=60000)
     # Bootstrap admin: created on startup only if the users table is empty.
     initial_admin_username: str = Field(default="admin")
     initial_admin_password: str = Field(default="")

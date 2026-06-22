@@ -59,6 +59,7 @@ from app.services.document_types import (
 )
 from app.services.correspondent_matching import CorrespondentMatchingService
 from app.services.settings import SettingsService
+from app.services.utils import is_unique_violation
 
 logger = logging.getLogger("papermind.documents")
 settings = get_settings()
@@ -732,7 +733,16 @@ class DocumentService:
             ) from exc
 
         self._queue_ocr_job(document)
-        self.db.commit()
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            if is_unique_violation(exc, "uq_jobs_document_type_active"):
+                raise ConflictError(
+                    "OCR job is already queued or running for this document",
+                    details={"document_id": str(document_id)},
+                ) from exc
+            raise
         updated = self.get_document_or_404(document_id)
         logger.info("ocr job queued document_id=%s", document_id)
         return updated
@@ -839,7 +849,16 @@ class DocumentService:
             document.text_hash = None
 
         self._queue_index_job(document, reason="manual_request")
-        self.db.commit()
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            if is_unique_violation(exc, "uq_jobs_document_type_active"):
+                raise ConflictError(
+                    "INDEX job is already queued or running for this document",
+                    details={"document_id": str(document_id)},
+                ) from exc
+            raise
         updated = self.get_document_or_404(document_id)
         logger.info("index job queued document_id=%s", document_id)
         return updated

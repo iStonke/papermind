@@ -1,9 +1,12 @@
 import hmac
+import hashlib
 import time
 from collections import defaultdict, deque
 from collections.abc import Callable
 
 from fastapi import Header, HTTPException, Request, status
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 
@@ -78,6 +81,53 @@ def enforce_rate_limit(
         )
 
     hits.append(now)
+
+
+def enforce_persistent_rate_limit(
+    db: Session,
+    bucket: str,
+    identity: str,
+    *,
+    limit: int,
+    window_seconds: int,
+) -> None:
+    """Atomically enforce a rate limit in PostgreSQL.
+
+    The identity is hashed before persistence so usernames and client addresses
+    do not become readable operational data in the rate-limit table.
+    """
+    identity_hash = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    key = f"{bucket}:{identity_hash}"
+    row = db.execute(
+        text(
+            """
+            INSERT INTO auth_rate_limits (key, window_started_at, hits, updated_at)
+            VALUES (:key, now(), 1, now())
+            ON CONFLICT (key) DO UPDATE SET
+                hits = CASE
+                    WHEN auth_rate_limits.window_started_at
+                         <= now() - make_interval(secs => :window_seconds)
+                    THEN 1
+                    ELSE auth_rate_limits.hits + 1
+                END,
+                window_started_at = CASE
+                    WHEN auth_rate_limits.window_started_at
+                         <= now() - make_interval(secs => :window_seconds)
+                    THEN now()
+                    ELSE auth_rate_limits.window_started_at
+                END,
+                updated_at = now()
+            RETURNING hits
+            """
+        ),
+        {"key": key, "window_seconds": window_seconds},
+    ).scalar_one()
+    db.commit()
+    if int(row) > limit:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Please try again later.",
+        )
 
 
 def verify_shared_upload_api_key(

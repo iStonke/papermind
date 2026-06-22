@@ -49,7 +49,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8040"
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8040 --no-access-log"
     restart: unless-stopped
     deploy:
       resources:
@@ -68,11 +68,15 @@ services:
       UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-26214400}
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS}
       AUTO_OCR_ON_UPLOAD: ${AUTO_OCR_ON_UPLOAD:-true}
-      DIRECT_UPLOAD_API_KEY: ${DIRECT_UPLOAD_API_KEY}
       AUTH_ENABLED: ${AUTH_ENABLED:-true}
       AUTH_SECRET_KEY: ${AUTH_SECRET_KEY}
-      AUTH_TOKEN_TTL_SECONDS: ${AUTH_TOKEN_TTL_SECONDS:-86400}
+      AUTH_TOKEN_TTL_SECONDS: ${AUTH_TOKEN_TTL_SECONDS:-3600}
       AUTH_REFRESH_TOKEN_TTL_SECONDS: ${AUTH_REFRESH_TOKEN_TTL_SECONDS:-2592000}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
+      AUTH_COOKIE_SAMESITE: ${AUTH_COOKIE_SAMESITE:-lax}
+      AUTH_LOGIN_RATE_LIMIT: ${AUTH_LOGIN_RATE_LIMIT:-10}
+      AUTH_LOGIN_RATE_WINDOW_SECONDS: ${AUTH_LOGIN_RATE_WINDOW_SECONDS:-300}
+      SLOW_QUERY_THRESHOLD_MS: ${SLOW_QUERY_THRESHOLD_MS:-500}
       INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       MIN_TEXT_CHARS: ${MIN_TEXT_CHARS:-300}

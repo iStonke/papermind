@@ -59,7 +59,6 @@ test('initialize recovers an expired access token without logging out', async ()
   setRefreshToken('valid-refresh-token');
 
   const renewedAccess = tokenWithExpiry(3600);
-  const renewedRefresh = tokenWithExpiry(30 * 86400);
   globalThis.fetch = async (url) => {
     if (String(url).endsWith('/api/auth/me')) {
       return new Response(
@@ -70,7 +69,6 @@ test('initialize recovers an expired access token without logging out', async ()
     if (String(url).endsWith('/api/auth/refresh')) {
       return new Response(JSON.stringify({
         access_token: renewedAccess,
-        refresh_token: renewedRefresh,
         expires_in: 3600,
         refresh_expires_in: 30 * 86400,
         token_type: 'bearer',
@@ -92,7 +90,7 @@ test('initialize recovers an expired access token without logging out', async ()
   assert.equal(auth.isAuthenticated, true);
   assert.equal(auth.username, 'admin');
   assert.equal(getToken(), renewedAccess);
-  assert.equal(getRefreshToken(), renewedRefresh);
+  assert.equal(getRefreshToken(), '');
 
   await new Promise((resolve) => setImmediate(resolve));
   auth.clearSession();
@@ -104,7 +102,6 @@ test('initialize upgrades an existing access-only session without logging out', 
   setToken(tokenWithExpiry(3600));
 
   const renewedAccess = tokenWithExpiry(7200);
-  const renewedRefresh = tokenWithExpiry(30 * 86400);
   globalThis.fetch = async (url) => {
     if (String(url).endsWith('/api/auth/me')) {
       return new Response(
@@ -115,7 +112,6 @@ test('initialize upgrades an existing access-only session without logging out', 
     if (String(url).endsWith('/api/auth/renew')) {
       return new Response(JSON.stringify({
         access_token: renewedAccess,
-        refresh_token: renewedRefresh,
         expires_in: 7200,
         refresh_expires_in: 30 * 86400,
         token_type: 'bearer',
@@ -136,7 +132,7 @@ test('initialize upgrades an existing access-only session without logging out', 
 
   assert.equal(auth.isAuthenticated, true);
   assert.equal(getToken(), renewedAccess);
-  assert.equal(getRefreshToken(), renewedRefresh);
+  assert.equal(getRefreshToken(), '');
 
   await new Promise((resolve) => setImmediate(resolve));
   auth.clearSession();

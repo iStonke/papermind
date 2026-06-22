@@ -85,12 +85,8 @@ export const useAuthStore = defineStore('auth', {
 
           const token = getToken();
           if (!token) {
-            if (getRefreshToken()) {
-              const recovered = await this.recoverSession();
-              if (!recovered && this.status !== 'authenticated') this.status = 'anonymous';
-            } else {
-              this.status = 'anonymous';
-            }
+            const recovered = await this.recoverSession();
+            if (!recovered && this.status !== 'authenticated') this.status = 'anonymous';
             return;
           }
           try {
@@ -128,7 +124,9 @@ export const useAuthStore = defineStore('auth', {
 
     applyTokenResponse(result) {
       setToken(result.access_token);
-      setRefreshToken(result.refresh_token);
+      // Entfernt ggf. noch vorhandene Refresh-Tokens aus der Altversion. Die
+      // aktuelle Session wird serverseitig über ein HttpOnly-Cookie geführt.
+      setRefreshToken(null);
       this.user = result.user;
       this.status = 'authenticated';
       this.scheduleSessionRefresh(result.access_token);
@@ -139,25 +137,6 @@ export const useAuthStore = defineStore('auth', {
     async recoverSession() {
       if (recoveryPromise) return recoveryPromise;
       const refreshToken = getRefreshToken();
-      if (!refreshToken) {
-        if (!getToken()) {
-          this.clearSession();
-          return false;
-        }
-        recoveryPromise = (async () => {
-          try {
-            const result = await renewSessionRequest();
-            this.applyTokenResponse(result);
-            return true;
-          } catch (error) {
-            if (error?.status === 401) this.clearSession();
-            return false;
-          } finally {
-            recoveryPromise = null;
-          }
-        })();
-        return recoveryPromise;
-      }
       recoveryPromise = (async () => {
         try {
           const result = await refreshSessionRequest(refreshToken);
@@ -165,6 +144,17 @@ export const useAuthStore = defineStore('auth', {
           return true;
         } catch (error) {
           if (error?.status === 401) {
+            // Übergang für einen noch gültigen Access-Token aus der Altversion,
+            // zu dem noch kein serverseitiges Session-Cookie existiert.
+            if (getToken()) {
+              try {
+                const renewed = await renewSessionRequest();
+                this.applyTokenResponse(renewed);
+                return true;
+              } catch {
+                /* endgültig abgelaufen */
+              }
+            }
             this.clearSession();
             return false;
           }

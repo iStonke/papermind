@@ -11,6 +11,7 @@ from app.core.config import get_settings
 from app.core.deps import authenticate_request
 from app.core.errors import install_exception_handlers
 from app.core.logging import install_query_token_redaction
+from app.core.observability import request_metrics_middleware
 from app.db.session import SessionLocal
 from app.routers import (
     ai_router,
@@ -38,6 +39,7 @@ settings = get_settings()
 
 logger = logging.getLogger("papermind.backend")
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 install_query_token_redaction()
 
 
@@ -79,11 +81,12 @@ app = FastAPI(
     docs_url="/docs" if settings.expose_api_docs else None,
     redoc_url="/redoc" if settings.expose_api_docs else None,
 )
+app.middleware("http")(request_metrics_middleware)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_credentials=False,
+    allow_credentials="*" not in settings.cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

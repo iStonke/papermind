@@ -4,20 +4,12 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
-    command: sh -c "npm ci --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port ${FRONTEND_PORT}"
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
     restart: unless-stopped
-    environment:
-      FRONTEND_PORT: ${FRONTEND_PORT}
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL}
-      VITE_HMR_HOST: ${VITE_HMR_HOST}
-      VITE_HMR_PORT: ${VITE_HMR_PORT}
-      VITE_HMR_PROTOCOL: ${VITE_HMR_PROTOCOL}
     ports:
-      - "${FRONTEND_PORT}:${FRONTEND_PORT}"
-    volumes:
-      - ./frontend:/app
-      - frontend_node_modules:/app/node_modules
+      - "${FRONTEND_PORT}:80"
     depends_on:
       backend:
         condition: service_healthy
@@ -28,7 +20,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT} --reload --reload-dir /app/app"
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT} --reload --reload-dir /app/app --no-access-log"
     restart: unless-stopped
     environment:
       BACKEND_PORT: ${BACKEND_PORT}
@@ -45,11 +37,15 @@ services:
       UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES}
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS}
       AUTO_OCR_ON_UPLOAD: ${AUTO_OCR_ON_UPLOAD}
-      DIRECT_UPLOAD_API_KEY: ${DIRECT_UPLOAD_API_KEY}
       AUTH_ENABLED: ${AUTH_ENABLED:-true}
       AUTH_SECRET_KEY: ${AUTH_SECRET_KEY}
-      AUTH_TOKEN_TTL_SECONDS: ${AUTH_TOKEN_TTL_SECONDS:-86400}
+      AUTH_TOKEN_TTL_SECONDS: ${AUTH_TOKEN_TTL_SECONDS:-3600}
       AUTH_REFRESH_TOKEN_TTL_SECONDS: ${AUTH_REFRESH_TOKEN_TTL_SECONDS:-2592000}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      AUTH_COOKIE_SAMESITE: ${AUTH_COOKIE_SAMESITE:-lax}
+      AUTH_LOGIN_RATE_LIMIT: ${AUTH_LOGIN_RATE_LIMIT:-10}
+      AUTH_LOGIN_RATE_WINDOW_SECONDS: ${AUTH_LOGIN_RATE_WINDOW_SECONDS:-300}
+      SLOW_QUERY_THRESHOLD_MS: ${SLOW_QUERY_THRESHOLD_MS:-500}
       INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       MIN_TEXT_CHARS: ${MIN_TEXT_CHARS}
@@ -190,7 +186,6 @@ volumes:
   postgres_data:
   pdf_storage:
   ai_models:
-  frontend_node_modules:
 
 networks:
   papermind_net:

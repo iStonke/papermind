@@ -11,7 +11,7 @@ export const login = (username, password) =>
 export const refreshSession = (refreshToken) =>
   apiFetch('/api/auth/refresh', {
     method: 'POST',
-    body: JSON.stringify({ refresh_token: refreshToken }),
+    body: JSON.stringify(refreshToken ? { refresh_token: refreshToken } : {}),
     handleUnauthorized: false,
   });
 
@@ -50,5 +50,5 @@ export const uploadAvatar = (file) => {
 export const deleteAvatar = () =>
   apiFetch('/api/auth/me/avatar', { method: 'DELETE' });
 
-/** POST /api/auth/logout – serverseitig zustandslos, nur der Vollständigkeit halber. */
+/** POST /api/auth/logout – widerruft nur die aktuelle Geräte-Session. */
 export const logout = () => apiPost('/api/auth/logout', {});

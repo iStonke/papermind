@@ -49,7 +49,7 @@ export function installFetchInterceptor() {
     if (token && !headers.has('Authorization')) {
       headers.set('Authorization', `Bearer ${token}`);
     }
-    const nextInit = { ...init, headers };
+    const nextInit = { credentials: 'include', ...init, headers };
 
     const response = await originalFetch(
       typeof input === 'string' ? input : input.url,

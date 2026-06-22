@@ -104,6 +104,7 @@ def create_access_token(
     *,
     scope: str = "session",
     session_version: int = 0,
+    claims: dict | None = None,
     now: float | None = None,
 ) -> str:
     """Create a signed token embedding the user id, an absolute expiry and a scope.
@@ -123,6 +124,8 @@ def create_access_token(
         "exp": issued_at + int(ttl_seconds),
         "jti": secrets.token_hex(8),
     }
+    if claims:
+        payload.update(claims)
     payload_b64 = _b64e(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8"))
     return f"{payload_b64}.{_sign(payload_b64, secret)}"
 

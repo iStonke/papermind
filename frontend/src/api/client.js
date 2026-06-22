@@ -5,7 +5,7 @@
  * (apiGet, apiPost, apiPatch, apiPut, apiDelete) decken die
  * gängigen Fälle ab.
  *
- * Authentifizierung: Das Access-Token wird in localStorage gehalten und
+ * Authentifizierung: Das Access-Token wird nur im Arbeitsspeicher gehalten und
  * automatisch als `Authorization: Bearer`-Header an jeden Request gehängt.
  * Bei einer 401-Antwort wird ein registrierter Handler benachrichtigt. Der
  * Auth-Store versucht zunächst eine Session-Erneuerung und meldet nur ab, wenn
@@ -19,6 +19,20 @@ const TOKEN_KEY = 'pm_auth_token';
 const REFRESH_TOKEN_KEY = 'pm_auth_refresh_token';
 
 let unauthorizedHandler = null;
+let accessToken = '';
+let legacyRefreshToken = '';
+
+// Einmalige Übernahme bestehender Sessions. Neue Tokens werden nicht mehr in
+// Web Storage geschrieben; das Refresh-Token lebt ausschließlich im
+// HttpOnly-Cookie.
+try {
+  accessToken = localStorage.getItem(TOKEN_KEY) || '';
+  legacyRefreshToken = localStorage.getItem(REFRESH_TOKEN_KEY) || '';
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
+} catch {
+  /* Web Storage nicht verfügbar */
+}
 
 // Kurzlebiges, datei-scoped Token (nur In-Memory) für native Ressourcen-Loads.
 // Bewusst NICHT das Session-Token, damit kein langlebiges Token in URLs/Logs landet.
@@ -36,44 +50,20 @@ export function setFileToken(token) {
 
 /** Liest das gespeicherte Access-Token (oder leeren String). */
 export function getToken() {
-  try {
-    return localStorage.getItem(TOKEN_KEY) || '';
-  } catch {
-    return '';
-  }
+  return accessToken;
 }
 
-/** Speichert (oder löscht bei falsy) das Access-Token. */
+/** Hält das Access-Token nur für die Lebensdauer des aktuellen Tabs. */
 export function setToken(token) {
-  try {
-    if (token) {
-      localStorage.setItem(TOKEN_KEY, token);
-    } else {
-      localStorage.removeItem(TOKEN_KEY);
-    }
-  } catch {
-    /* localStorage nicht verfügbar – ignorieren */
-  }
+  accessToken = token || '';
 }
 
 export function getRefreshToken() {
-  try {
-    return localStorage.getItem(REFRESH_TOKEN_KEY) || '';
-  } catch {
-    return '';
-  }
+  return legacyRefreshToken;
 }
 
 export function setRefreshToken(token) {
-  try {
-    if (token) {
-      localStorage.setItem(REFRESH_TOKEN_KEY, token);
-    } else {
-      localStorage.removeItem(REFRESH_TOKEN_KEY);
-    }
-  } catch {
-    /* localStorage nicht verfügbar – ignorieren */
-  }
+  legacyRefreshToken = token || '';
 }
 
 /**
@@ -126,7 +116,11 @@ export async function apiFetch(path, options = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${BASE_URL}${path}`, { ...fetchOptions, headers });
+  const response = await fetch(`${BASE_URL}${path}`, {
+    credentials: 'include',
+    ...fetchOptions,
+    headers,
+  });
 
   if (response.status === 401 && handleUnauthorized) {
     if (unauthorizedHandler) unauthorizedHandler();

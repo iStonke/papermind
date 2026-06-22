@@ -25,6 +25,7 @@ from app.core.config import get_settings
 from app.core.errors import ForbiddenError, UnauthorizedError
 from app.db import get_db
 from app.models.user import User
+from app.services.auth_sessions import is_session_active
 
 logger = logging.getLogger("papermind.auth")
 
@@ -100,6 +101,14 @@ def _user_from_token(db: Session, token: str, *, allowed_scopes: set[str]) -> Us
     session_version = payload.get("sv")
     if not isinstance(session_version, int) or session_version != user.session_version:
         return None
+    session_id_raw = payload.get("sid")
+    if session_id_raw is not None and payload.get("scope", "session") == "session":
+        try:
+            session_id = uuid.UUID(str(session_id_raw))
+        except (ValueError, TypeError):
+            return None
+        if not is_session_active(db, session_id, user):
+            return None
     return user
 
 

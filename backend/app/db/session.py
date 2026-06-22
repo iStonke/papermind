@@ -5,6 +5,7 @@ from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
+from app.core.observability import install_slow_query_logging
 
 logger = logging.getLogger("papermind.db")
 settings = get_settings()
@@ -80,6 +81,9 @@ if settings.worker_database_url:
 else:
     worker_engine = engine
     WorkerSessionLocal = SessionLocal
+
+for observed_engine in {engine, app_engine, worker_engine}:
+    install_slow_query_logging(observed_engine, settings.slow_query_threshold_ms)
 
 
 def get_db() -> Generator[Session, None, None]:

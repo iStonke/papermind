@@ -4,11 +4,13 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from app.core.errors import BadRequestError, ConflictError, NotFoundError
 from app.models.document import Document
 from app.models.job import Job
 from app.schemas.jobs import JobCreateRequest, JobUpdateRequest
+from app.services.utils import is_unique_violation
 
 logger = logging.getLogger("papermind.jobs")
 
@@ -49,7 +51,16 @@ class JobService:
 
         job = Job(document_id=document_id, type=payload.type.value, status="queued")
         self.db.add(job)
-        self.db.commit()
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            if is_unique_violation(exc, "uq_jobs_document_type_active"):
+                raise ConflictError(
+                    f"{payload.type.value} job is already queued or running for this document",
+                    details={"document_id": str(document_id), "type": payload.type.value},
+                ) from exc
+            raise
         self.db.refresh(job)
         logger.info("job created id=%s document_id=%s type=%s", job.id, document_id, payload.type.value)
         return job

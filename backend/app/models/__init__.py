@@ -12,6 +12,7 @@ from app.models.smart_folder import SmartFolder
 from app.models.tag import Tag
 from app.models.user import User
 from app.models.user_setting import UserSetting
+from app.models.auth_session import AuthRateLimit, AuthSession
 
 __all__ = [
     "DocumentType",
@@ -30,4 +31,6 @@ __all__ = [
     "ImportInboxItem",
     "User",
     "UserSetting",
+    "AuthSession",
+    "AuthRateLimit",
 ]

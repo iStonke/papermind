@@ -203,9 +203,8 @@ if [[ "${SKIP_ENV}" -eq 0 ]]; then
     log "Generiertes Passwort: ${BOLD}${POSTGRES_PASSWORD}${RESET}  ← bitte notieren!"
   fi
 
-  # API-Key
-  DIRECT_UPLOAD_API_KEY=$(openssl rand -hex 32)
-  log "Generierter API-Key für iOS Shortcut: ${BOLD}${DIRECT_UPLOAD_API_KEY}${RESET}  ← im Shortcut eintragen!"
+  # Signaturschlüssel für Browser-Sessions
+  AUTH_SECRET_KEY_GENERATED=$(openssl rand -hex 32)
 
   # .env schreiben
   cp "$ENV_EXAMPLE" "$ENV_FILE"
@@ -215,13 +214,12 @@ if [[ "${SKIP_ENV}" -eq 0 ]]; then
   sed -i "s|<your_db_user>|${POSTGRES_USER}|g"       "$ENV_FILE"
   sed -i "s|<your_db_password>|${POSTGRES_PASSWORD}|g" "$ENV_FILE"
   sed -i "s|<PI_IP>|${PI_IP}|g"                       "$ENV_FILE"
-  sed -i "s|<generate_with_openssl_rand_hex_32>|${DIRECT_UPLOAD_API_KEY}|g" "$ENV_FILE"
+  sed -i "s|<generate_with_openssl_rand_hex_32>|${AUTH_SECRET_KEY_GENERATED}|g" "$ENV_FILE"
 
   success ".env konfiguriert für $PI_IP"
   echo ""
   echo -e "  ${YELLOW}Bitte jetzt notieren:${RESET}"
   echo -e "    DB-Passwort : ${BOLD}${POSTGRES_PASSWORD}${RESET}"
-  echo -e "    API-Key     : ${BOLD}${DIRECT_UPLOAD_API_KEY}${RESET}"
   echo ""
 fi
 

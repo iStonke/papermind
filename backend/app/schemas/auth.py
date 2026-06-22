@@ -25,7 +25,6 @@ class UserRead(ORMModel):
 
 class TokenResponse(BaseModel):
     access_token: str
-    refresh_token: str
     token_type: str = "bearer"
     expires_in: int
     refresh_expires_in: int
@@ -40,7 +39,9 @@ class FileTokenResponse(BaseModel):
 
 
 class RefreshTokenRequest(BaseModel):
-    refresh_token: str = Field(min_length=1, max_length=4096)
+    # Temporary migration path for browsers that still hold the former
+    # localStorage refresh token. New clients use the HttpOnly cookie.
+    refresh_token: str | None = Field(default=None, min_length=1, max_length=4096)
 
 
 class ChangePasswordRequest(BaseModel):
