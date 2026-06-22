@@ -936,17 +936,17 @@
                       </div>
 
                       <div class="settings-correspondent-fields">
-                        <v-text-field
-                          v-model="editingCorrespondentName"
-                          density="compact"
-                          variant="outlined"
-                          hide-details="auto"
-                          label="Name"
-                          maxlength="120"
-                          :rules="[(v) => (v || '').trim().length >= 2 || 'Mindestens 2 Zeichen']"
-                          @blur="scheduleCorrespondentAutosave(true)"
-                        />
-                        <div class="settings-correspondent-fields__row">
+                        <div class="settings-correspondent-fields__name-row">
+                          <v-text-field
+                            v-model="editingCorrespondentName"
+                            density="compact"
+                            variant="outlined"
+                            hide-details="auto"
+                            label="Name"
+                            maxlength="120"
+                            :rules="[(v) => (v || '').trim().length >= 2 || 'Mindestens 2 Zeichen']"
+                            @blur="scheduleCorrespondentAutosave(true)"
+                          />
                           <v-text-field
                             v-model="editingCorrespondentShortName"
                             density="compact"
@@ -957,20 +957,20 @@
                             maxlength="60"
                             @blur="scheduleCorrespondentAutosave(true)"
                           />
-                          <v-select
-                            v-if="editingCorrespondentKind === 'person'"
-                            :model-value="editingCorrespondentParentId"
-                            :items="organizationOptions.filter((o) => o.value !== item.id)"
-                            density="compact"
-                            variant="outlined"
-                            hide-details
-                            clearable
-                            label="Gehört zu Organisation"
-                            placeholder="Keine Zuordnung"
-                            class="settings-correspondent-parent-select"
-                            @update:model-value="onEditingParentChange"
-                          />
                         </div>
+                        <v-select
+                          v-if="editingCorrespondentKind === 'person'"
+                          :model-value="editingCorrespondentParentId"
+                          :items="organizationOptions.filter((o) => o.value !== item.id)"
+                          density="compact"
+                          variant="outlined"
+                          hide-details
+                          clearable
+                          label="Gehört zu Organisation"
+                          placeholder="Keine Zuordnung"
+                          class="settings-correspondent-parent-select"
+                          @update:model-value="onEditingParentChange"
+                        />
                       </div>
 
                       <div class="settings-correspondent-block">
@@ -4043,9 +4043,10 @@ async function removeAlias(alias) {
   gap: 10px;
 }
 
-.settings-correspondent-fields__row {
+/* Name und Kurzname in einer Zeile, ca. 70:30. */
+.settings-correspondent-fields__name-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
   gap: 10px;
   align-items: start;
 }
@@ -4155,7 +4156,7 @@ async function removeAlias(alias) {
   .settings-unresolved-row,
   .settings-category-editor,
   .settings-category-form,
-  .settings-correspondent-fields__row {
+  .settings-correspondent-fields__name-row {
     grid-template-columns: 1fr;
   }
 
