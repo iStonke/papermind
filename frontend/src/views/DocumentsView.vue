@@ -1057,9 +1057,7 @@ import { storeToRefs } from 'pinia';
 import { useTheme } from 'vuetify';
 import BaseDialog from '../components/BaseDialog.vue';
 import PmEmptyState from '../components/PmEmptyState.vue';
-import DeleteDocumentDialog from '../components/DeleteDocumentDialog.vue';
 import DocumentPreviewLayout from '../components/DocumentPreviewLayout.vue';
-import ImportStagingDialog from '../components/ImportStagingDialog.vue';
 import NotificationStack from '../components/NotificationStack.vue';
 import AppSidebar from '../components/AppSidebar.vue';
 import SidebarAccount from '../components/SidebarAccount.vue';
@@ -1067,12 +1065,20 @@ import ActivityIndicator from '../components/ActivityIndicator.vue';
 import DocumentListPanel from '../components/DocumentListPanel.vue';
 import ListActionToolbar from '../components/ListActionToolbar.vue';
 import BatchActionsBar from '../components/BatchActionsBar.vue';
-import BatchTagDialog from '../components/BatchTagDialog.vue';
-import SmartFolderEditor from '../components/SmartFolderEditor.vue';
+// Ref-basiert geöffnet (ref.open()) → müssen synchron als Instanz verfügbar
+// sein, daher eager.
 import TagDialogs from '../components/TagDialogs.vue';
 import CategoryDialogs from '../components/CategoryDialogs.vue';
 import RenameDocumentDialog from '../components/RenameDocumentDialog.vue';
-import AiDialog from '../components/AiDialog.vue';
+
+// Boolean-gesteuerte Dialoge (öffnen über v-model). Erst bei Bedarf gebraucht
+// und teils sehr groß (ImportStagingDialog/SmartFolderEditor) → eigene Chunks,
+// damit sie nicht den kritischen Boot-Pfad von DocumentsView blockieren.
+const DeleteDocumentDialog = defineAsyncComponent(() => import('../components/DeleteDocumentDialog.vue'));
+const ImportStagingDialog = defineAsyncComponent(() => import('../components/ImportStagingDialog.vue'));
+const BatchTagDialog = defineAsyncComponent(() => import('../components/BatchTagDialog.vue'));
+const SmartFolderEditor = defineAsyncComponent(() => import('../components/SmartFolderEditor.vue'));
+const AiDialog = defineAsyncComponent(() => import('../components/AiDialog.vue'));
 import { mapApiError, notifyError, logDevError, useNotifications } from '../stores/notifications';
 import { useSettingsStore } from '../stores/settings';
 import { useUiStore } from '../stores/ui';
@@ -1380,6 +1386,29 @@ const hasMoreDocuments = computed(() =>
   documentListLoadedCount.value < documentListTotal.value
 );
 let documentListRequestGeneration = 0;
+
+// Stale-while-revalidate-Cache für die erste Seite je Ansicht/Filter/Sortierung.
+// Beim Wechsel zwischen Ordnern/Tags/Ansichten wird die zuletzt gesehene Liste
+// sofort gezeigt (kein Skeleton-Flash) und im Hintergrund neu geladen. Wird durch
+// jeden fetchDocuments-Aufruf nach Mutationen automatisch frisch gehalten.
+const DOCUMENT_LIST_CACHE_LIMIT = 12;
+const documentListCache = new Map();
+
+function readDocumentListCache(key) {
+  return documentListCache.get(key) || null;
+}
+
+function writeDocumentListCache(key, entry) {
+  // LRU: vorhandenen Key ans Ende rücken, ältesten verdrängen.
+  if (documentListCache.has(key)) {
+    documentListCache.delete(key);
+  } else if (documentListCache.size >= DOCUMENT_LIST_CACHE_LIMIT) {
+    const oldest = documentListCache.keys().next().value;
+    if (oldest !== undefined) documentListCache.delete(oldest);
+  }
+  documentListCache.set(key, entry);
+}
+
 const activeTagId = computed({
   get: () => {
     const ids = normalizeTagIds(documentListQuery.tagIds);
@@ -4510,7 +4539,20 @@ async function fetchDocuments(preferredDocumentId = null, options = {}) {
   // und kein Lade-Flag, damit die Dokumentenliste während der Analyse nicht flackert.
   const silent = options.silent === true;
   isLoadingMoreDocuments.value = false;
-  if (!silent) {
+
+  // Cache-Treffer → zuletzt gesehene Liste sofort zeigen und ohne Skeleton im
+  // Hintergrund revalidieren. Cache-Key bildet Ansicht/Filter/Sortierung ab.
+  const cacheKey = documentListEndpoint({ offset: 0, includeTotal: false });
+  const cached = silent ? null : readDocumentListCache(cacheKey);
+  if (cached) {
+    documents.value = cached.items;
+    documentListTotal.value = cached.total;
+    documentListLoadedCount.value = cached.loadedCount;
+  }
+
+  // Skeleton nur zeigen, wenn wir nichts Vorbefülltes anzeigen können.
+  const showSkeleton = !silent && !cached;
+  if (showSkeleton) {
     startDocumentListSettle();
     isLoadingDocuments.value = true;
   }
@@ -4556,6 +4598,13 @@ async function fetchDocuments(preferredDocumentId = null, options = {}) {
     documents.value = sortDocumentsForCurrentView(
       filterDocumentsByActiveTagFilters(pageItems)
     );
+
+    // Frische erste Seite für diese Ansicht cachen (für sofortiges Zurückwechseln).
+    writeDocumentListCache(cacheKey, {
+      items: documents.value,
+      total: documentListTotal.value,
+      loadedCount: documentListLoadedCount.value
+    });
 
     if (documents.value.length === 0) {
       if (!canDiscardMetadataChanges()) {

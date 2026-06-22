@@ -58,11 +58,18 @@
           <div
             v-else
             key="documents"
+            ref="documentListRef"
             class="document-list document-list-state"
             :class="{ 'document-list--with-bottom-spacer': bottomSpacerHeight > 0 }"
           >
             <div
-              v-for="document in documents"
+              v-if="virtualTopPad > 0"
+              class="document-list__virtual-pad"
+              :style="{ height: `${virtualTopPad}px` }"
+              aria-hidden="true"
+            />
+            <div
+              v-for="document in renderedDocuments"
               :key="document.id"
               class="document-row pm-doc-item"
               :class="{
@@ -222,6 +229,12 @@
               </div>
             </div>
             <div
+              v-if="virtualBottomPad > 0"
+              class="document-list__virtual-pad"
+              :style="{ height: `${virtualBottomPad}px` }"
+              aria-hidden="true"
+            />
+            <div
               v-if="bottomSpacerHeight > 0"
               class="document-list__bottom-spacer"
               :style="{ height: `${bottomSpacerHeight}px` }"
@@ -268,7 +281,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, watch } from 'vue';
+import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue';
 
 const SORT_OPTIONS = [
   { value: 'newest',      label: 'Neueste zuerst' },
@@ -342,7 +355,88 @@ const authStore     = useAuthStore();
 
 const { documents, selectedDocumentId } = storeToRefs(docStore);
 const listShell = ref(null);
+const documentListRef = ref(null);
 const showPdfSuffixComputed = computed(() => settingsStore.settingsDraft?.ui?.showFilenameSuffix ?? false);
+
+// ── Virtualisierung (Windowing) ─────────────────────────────────────────────
+// Lange Listen erzeugen sonst pro Zeile teure Komponenten (v-menu/v-btn/v-chip).
+// Wir rendern nur ein Fenster sichtbarer Zeilen + Overscan und halten die
+// Scrollhöhe über Platzhalter (Spacer) konstant. content-visibility übernimmt
+// zusätzlich das Paint-Skipping der gerenderten Zeilen.
+const VIRTUALIZE_THRESHOLD = 60;   // Erst ab dieser Länge virtualisieren.
+const ROW_STEP_FALLBACK = 114;     // Zeilenhöhe (~104) + Abstand (10) als Startwert.
+const ROW_OVERSCAN = 8;            // Puffer-Zeilen ober-/unterhalb des Viewports.
+
+const measuredRowStep = ref(ROW_STEP_FALLBACK);
+const listScrollTop = ref(0);
+const listViewport = ref(0);
+let rowMeasureFrame = 0;
+let listResizeObserver = null;
+
+const isVirtualized = computed(() => documents.value.length > VIRTUALIZE_THRESHOLD);
+
+const virtualStartIndex = computed(() => {
+  if (!isVirtualized.value) return 0;
+  const step = measuredRowStep.value || ROW_STEP_FALLBACK;
+  return Math.max(0, Math.floor(listScrollTop.value / step) - ROW_OVERSCAN);
+});
+
+const virtualVisibleCount = computed(() => {
+  if (!isVirtualized.value) return documents.value.length;
+  const step = measuredRowStep.value || ROW_STEP_FALLBACK;
+  const rows = Math.ceil((listViewport.value || 0) / step) + ROW_OVERSCAN * 2;
+  return Math.max(rows, ROW_OVERSCAN * 2);
+});
+
+const virtualEndIndex = computed(() => {
+  if (!isVirtualized.value) return documents.value.length;
+  return Math.min(documents.value.length, virtualStartIndex.value + virtualVisibleCount.value);
+});
+
+const renderedDocuments = computed(() => {
+  if (!isVirtualized.value) return documents.value;
+  return documents.value.slice(virtualStartIndex.value, virtualEndIndex.value);
+});
+
+const virtualTopPad = computed(() =>
+  isVirtualized.value ? virtualStartIndex.value * (measuredRowStep.value || ROW_STEP_FALLBACK) : 0
+);
+
+const virtualBottomPad = computed(() => {
+  if (!isVirtualized.value) return 0;
+  const remaining = documents.value.length - virtualEndIndex.value;
+  return Math.max(0, remaining * (measuredRowStep.value || ROW_STEP_FALLBACK));
+});
+
+function updateVirtualWindow(element = listShell.value) {
+  if (!element) return;
+  listScrollTop.value = element.scrollTop;
+  listViewport.value = element.clientHeight;
+}
+
+function measureRowStep() {
+  const container = documentListRef.value;
+  if (!container) return;
+  const rows = container.querySelectorAll('.document-row');
+  if (rows.length >= 2) {
+    const step = rows[1].offsetTop - rows[0].offsetTop;
+    if (step > 0 && Math.abs(step - measuredRowStep.value) > 0.5) {
+      measuredRowStep.value = step;
+    }
+  } else if (rows.length === 1) {
+    const h = rows[0].offsetHeight;
+    if (h > 0) measuredRowStep.value = h + 10;
+  }
+}
+
+function scheduleRowMeasure() {
+  if (rowMeasureFrame) cancelAnimationFrame(rowMeasureFrame);
+  rowMeasureFrame = requestAnimationFrame(() => {
+    rowMeasureFrame = 0;
+    measureRowStep();
+  });
+}
+
 function requestMoreIfNearEnd(element = listShell.value) {
   if (!element || !props.hasMoreDocuments || props.isLoadingMoreDocuments) return;
   const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
@@ -352,8 +446,38 @@ function requestMoreIfNearEnd(element = listShell.value) {
 }
 
 function handleListScroll(event) {
-  requestMoreIfNearEnd(event.currentTarget);
+  const element = event.currentTarget;
+  updateVirtualWindow(element);
+  requestMoreIfNearEnd(element);
 }
+
+// Liste neu vermessen, wenn sich der Bestand ändert (Fenster + Zeilenhöhe).
+watch(
+  () => documents.value.length,
+  () => {
+    void nextTick(() => {
+      updateVirtualWindow();
+      scheduleRowMeasure();
+    });
+  }
+);
+
+onMounted(() => {
+  updateVirtualWindow();
+  scheduleRowMeasure();
+  if (typeof ResizeObserver !== 'undefined' && listShell.value) {
+    listResizeObserver = new ResizeObserver(() => updateVirtualWindow());
+    listResizeObserver.observe(listShell.value);
+  }
+});
+
+onBeforeUnmount(() => {
+  if (rowMeasureFrame) cancelAnimationFrame(rowMeasureFrame);
+  if (listResizeObserver) {
+    listResizeObserver.disconnect();
+    listResizeObserver = null;
+  }
+});
 
 watch(
   () => [props.hasMoreDocuments, props.isLoadingMoreDocuments, props.loadedDocumentCount],
@@ -406,11 +530,18 @@ const listDropDragDepth = ref(0);
 const thumbnailVersionByDocumentId = ref({});
 const thumbnailSignatureByDocumentId = ref({});
 
-const documentThumbnailSignature = computed(() => (
-  documents.value
-    .map((document) => thumbnailStateKey(document))
-    .join('|')
-));
+// Treibt den Thumbnail-State-Watch unten: erkennt, wenn sich für ein Dokument
+// updated_at/status/ocr_status ändert (z. B. nach OCR), um Fehler-/Versionsstate
+// zurückzusetzen. Single-Pass ohne Zwischen-Array, um Allokationen bei großen
+// Listen gering zu halten; die String-Gleichheit als Änderungssignal bleibt.
+const documentThumbnailSignature = computed(() => {
+  let signature = '';
+  for (const document of documents.value) {
+    signature += thumbnailStateKey(document);
+    signature += '|';
+  }
+  return signature;
+});
 
 function handleToolbarAction({ action, value }) {
   if (action === 'sort') {
@@ -724,6 +855,14 @@ function onListDrop(event) {
 
 .document-list__bottom-spacer {
   flex: 0 0 auto;
+  pointer-events: none;
+}
+
+/* Platzhalter für virtualisierte (nicht gerenderte) Zeilen ober-/unterhalb des
+   sichtbaren Fensters – hält die Scrollhöhe konstant. */
+.document-list__virtual-pad {
+  flex: 0 0 auto;
+  width: 100%;
   pointer-events: none;
 }
 

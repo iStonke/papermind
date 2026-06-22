@@ -23,11 +23,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onBeforeUnmount, watch } from 'vue';
+import { computed, defineAsyncComponent, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useTheme } from 'vuetify';
 
-import AccountDialog from '../components/AccountDialog.vue';
-import SettingsDialog from '../components/SettingsDialog.vue';
+// Global gemountet, aber erst beim Öffnen gebraucht. SettingsDialog ist mit
+// ~4000 Zeilen der größte Einzeldialog → als eigener Chunk ausgelagert, damit
+// er den Initial-Load nicht belastet.
+const AccountDialog = defineAsyncComponent(() => import('../components/AccountDialog.vue'));
+const SettingsDialog = defineAsyncComponent(() => import('../components/SettingsDialog.vue'));
 import { useSettingsStore } from '../stores/settings';
 import { useUiStore } from '../stores/ui';
 import { getBaseUrl } from '../api/client.js';

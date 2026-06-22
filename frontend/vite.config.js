@@ -23,6 +23,9 @@ export default defineConfig(({ mode }) => {
           manualChunks(id) {
             if (id.includes('node_modules/vuetify')) return 'vuetify';
             if (/node_modules\/(@vue|vue|vue-router|pinia)\//.test(id)) return 'vue-core';
+            // pdfjs wird von mehreren lazy Chunks (PdfPreview, ImportStaging)
+            // genutzt → eigener gemeinsamer Chunk statt Duplizierung.
+            if (id.includes('node_modules/pdfjs-dist')) return 'pdfjs';
             return undefined;
           }
         }

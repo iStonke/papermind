@@ -4,6 +4,11 @@ import { getToken } from '../api/client.js';
 import { useAuthStore } from '../stores/auth.js';
 import LoginView from '../views/LoginView.vue';
 import AppLayout from '../views/AppLayout.vue';
+// Route-Komponenten bleiben bewusst STATISCH importiert: dynamische Route-Imports
+// haben hier einen Startup-Deadlock verursacht (siehe Commit 24caf70 + Regressions-
+// test routerBoot.test.mjs). Bundle-Splitting passiert stattdessen auf
+// Komponenten-Ebene (defineAsyncComponent für die schweren Dialoge), was den
+// Navigations-Guard nicht blockiert.
 import DocumentsView from '../views/DocumentsView.vue';
 
 const routes = [
