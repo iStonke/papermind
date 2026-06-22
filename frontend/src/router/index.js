@@ -2,25 +2,28 @@ import { createRouter, createWebHistory } from 'vue-router';
 
 import { getToken } from '../api/client.js';
 import { useAuthStore } from '../stores/auth.js';
+import LoginView from '../views/LoginView.vue';
+import AppLayout from '../views/AppLayout.vue';
+import DocumentsView from '../views/DocumentsView.vue';
 
 const routes = [
   {
     path: '/login',
     name: 'login',
-    component: () => import('../views/LoginView.vue'),
+    component: LoginView,
     meta: { public: true },
   },
   {
     // Authentifizierter Bereich: gemeinsame Shell (v-app + globaler
     // SettingsDialog + Theme-Bootstrap) bleibt über alle Kind-Routen gemountet.
     path: '/',
-    component: () => import('../views/AppLayout.vue'),
+    component: AppLayout,
     meta: { requiresAuth: true },
     children: [
       {
         path: '',
         name: 'documents',
-        component: () => import('../views/DocumentsView.vue'),
+        component: DocumentsView,
       },
     ],
   },

@@ -7,22 +7,46 @@
           <span class="app-boot-mark">P</span>
         </div>
         <div class="app-boot-title">PaperMind</div>
-        <div class="app-boot-subtitle">
+        <div v-if="!bootTimedOut" class="app-boot-subtitle">
           Wird geladen<span class="app-boot-dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>
         </div>
+        <template v-else>
+          <div class="app-boot-subtitle app-boot-subtitle--error">
+            Die Anwendung konnte nicht vollständig gestartet werden.
+          </div>
+          <button type="button" class="app-boot-reload" @click="reloadApp">
+            Neu laden
+          </button>
+        </template>
       </div>
     </div>
   </router-view>
 </template>
 
 <script setup>
-import { watch } from 'vue';
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { useAuthStore } from './stores/auth.js';
 
 const router = useRouter();
 const authStore = useAuthStore();
+const bootTimedOut = ref(false);
+let bootTimer = null;
+
+function reloadApp() {
+  window.location.reload();
+}
+
+onMounted(() => {
+  bootTimer = window.setTimeout(() => {
+    bootTimedOut.value = true;
+  }, 12_000);
+});
+
+onBeforeUnmount(() => {
+  if (bootTimer) window.clearTimeout(bootTimer);
+});
 
 // Wird die Session ungültig (z. B. 401 während der Nutzung), zurück zum Login.
 watch(
@@ -124,6 +148,22 @@ watch(
 .app-boot-subtitle {
   font-size: 0.85rem;
   opacity: 0.64;
+}
+
+.app-boot-subtitle--error {
+  max-width: 320px;
+  text-align: center;
+}
+
+.app-boot-reload {
+  border: 0;
+  border-radius: 10px;
+  padding: 9px 16px;
+  background: rgb(var(--v-theme-primary, 13 148 166));
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .app-boot-dots span {
