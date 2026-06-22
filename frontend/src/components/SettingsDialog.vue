@@ -610,15 +610,6 @@
 
             <div class="settings-category-management">
               <div class="settings-category-header">
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Verfügbare Dokumenttypen</div>
-                <div class="pm-setting-description">
-                  Diese Dokumenttypen stehen beim Import zur Auswahl. Die Zahl zeigt, wie viele
-                  Dokumente den Typ nutzen. Löschen entfernt nur die Auswahloption –
-                  bereits zugewiesene Dokumente behalten ihren Dokumenttyp.
-                </div>
-              </div>
-
                 <div class="settings-category-add">
                   <v-text-field
                     v-model="newCategoryName"
@@ -782,31 +773,8 @@
             </SettingsInfoCard>
 
             <div class="settings-category-management">
-              <div class="settings-category-header">
-                <div class="pm-setting-content">
-                  <div class="pm-setting-label">Korrespondenten</div>
-                  <div class="pm-setting-description">
-                    Kanonische Absender/Aussteller mit Aliasen. Die Zahl zeigt, wie viele
-                    Dokumente aktuell zugeordnet sind.
-                  </div>
-                </div>
-
-                <div class="settings-category-add">
-                  <v-btn-toggle
-                    v-model="newCorrespondentKind"
-                    mandatory
-                    density="compact"
-                    variant="outlined"
-                    divided
-                    class="settings-correspondent-kind-toggle"
-                  >
-                    <v-btn value="organization" size="small" title="Organisation">
-                      <v-icon size="18">mdi-domain</v-icon>
-                    </v-btn>
-                    <v-btn value="person" size="small" title="Person">
-                      <v-icon size="18">mdi-account-outline</v-icon>
-                    </v-btn>
-                  </v-btn-toggle>
+              <div class="settings-correspondent-create">
+                <div class="settings-category-add settings-correspondent-add">
                   <v-text-field
                     v-model="newCorrespondentName"
                     maxlength="120"
@@ -816,7 +784,40 @@
                     :placeholder="newCorrespondentKind === 'person' ? 'Neue Person…' : 'Neue Organisation…'"
                     :disabled="correspondentStore.isMutationRunning"
                     @keydown.enter.prevent="addCorrespondent"
-                  />
+                  >
+                    <template #prepend-inner>
+                      <v-menu>
+                        <template #activator="{ props: activatorProps }">
+                          <v-btn
+                            v-bind="activatorProps"
+                            icon
+                            variant="text"
+                            size="small"
+                            class="settings-correspondent-kind-menu"
+                            :title="newCorrespondentKind === 'person' ? 'Person' : 'Organisation'"
+                          >
+                            <v-icon size="19">
+                              {{ newCorrespondentKind === 'person' ? 'mdi-account-outline' : 'mdi-domain' }}
+                            </v-icon>
+                          </v-btn>
+                        </template>
+                        <v-list density="compact">
+                          <v-list-item
+                            title="Organisation"
+                            prepend-icon="mdi-domain"
+                            :active="newCorrespondentKind === 'organization'"
+                            @click="newCorrespondentKind = 'organization'"
+                          />
+                          <v-list-item
+                            title="Person"
+                            prepend-icon="mdi-account-outline"
+                            :active="newCorrespondentKind === 'person'"
+                            @click="newCorrespondentKind = 'person'"
+                          />
+                        </v-list>
+                      </v-menu>
+                    </template>
+                  </v-text-field>
                   <v-btn
                     variant="tonal"
                     color="primary"
@@ -832,21 +833,21 @@
               </div>
 
               <div class="settings-correspondent-filter">
-                <v-btn-toggle
+                <v-chip-group
                   v-model="correspondentTypeFilter"
                   mandatory
-                  density="compact"
-                  variant="outlined"
-                  divided
+                  selected-class="text-primary"
                 >
-                  <v-btn value="all" size="small">Alle</v-btn>
-                  <v-btn value="organization" size="small">
-                    <v-icon size="16" start>mdi-domain</v-icon>Organisationen
-                  </v-btn>
-                  <v-btn value="person" size="small">
-                    <v-icon size="16" start>mdi-account-outline</v-icon>Personen
-                  </v-btn>
-                </v-btn-toggle>
+                  <v-chip value="all" size="small" variant="outlined" filter>
+                    Alle {{ correspondentStore.correspondents.length }}
+                  </v-chip>
+                  <v-chip value="organization" size="small" variant="outlined" filter>
+                    Organisationen {{ organizationCorrespondentCount }}
+                  </v-chip>
+                  <v-chip value="person" size="small" variant="outlined" filter>
+                    Personen {{ personCorrespondentCount }}
+                  </v-chip>
+                </v-chip-group>
               </div>
 
               <div class="settings-correspondents">
@@ -856,7 +857,8 @@
                   class="settings-correspondent-row"
                   :class="{
                     'settings-correspondent-row--active': selectedCorrespondentId === item.id,
-                    'settings-correspondent-row--nested': correspondentIsNested(item),
+                    'settings-correspondent-row--nested':
+                      correspondentTypeFilter === 'all' && correspondentIsNested(item),
                   }"
                 >
                   <button
@@ -996,7 +998,7 @@
                             <v-icon size="18">mdi-plus</v-icon>
                           </v-btn>
                         </div>
-                        <div class="settings-chip-list">
+                        <div v-if="item.aliases?.length" class="settings-chip-list">
                           <v-chip
                             v-for="alias in item.aliases"
                             :key="alias.id"
@@ -1006,7 +1008,6 @@
                           >
                             {{ alias.alias }}
                           </v-chip>
-                          <span v-if="!item.aliases?.length" class="settings-category-empty">Keine Aliase.</span>
                         </div>
                       </div>
 
@@ -2892,6 +2893,14 @@ const organizationOptions = computed(() =>
     .map((c) => ({ title: c.name, value: c.id }))
 );
 
+const organizationCorrespondentCount = computed(
+  () => correspondentStore.correspondents.filter((c) => c.kind === 'organization').length
+);
+
+const personCorrespondentCount = computed(
+  () => correspondentStore.correspondents.filter((c) => c.kind === 'person').length
+);
+
 /**
  * Korrespondenten gruppiert für die Liste: jede Organisation gefolgt von ihren
  * zugeordneten Personen, danach Personen ohne Organisation, danach noch nicht
@@ -2952,6 +2961,12 @@ function correspondentMetaText(item) {
   if (item?.kind === 'person' && item?.parent_name) parts.push(item.parent_name);
   else if (!item?.kind) parts.push('ohne Typ');
   parts.push(item?.short_name || 'kein Kurzname');
+  if (item?.kind === 'organization') {
+    const personCount = correspondentStore.correspondents.filter(
+      (correspondent) => correspondent.kind === 'person' && correspondent.parent_id === item.id
+    ).length;
+    parts.push(`${personCount} ${personCount === 1 ? 'Person' : 'Personen'}`);
+  }
   const aliasCount = item?.aliases?.length || 0;
   parts.push(`${aliasCount} Alias${aliasCount === 1 ? '' : 'e'}`);
   return parts.join(' · ');
@@ -3118,6 +3133,12 @@ function syncCorrespondentEditor(correspondent) {
   });
 }
 
+function clearCorrespondentAutosaveTimer() {
+  if (!correspondentAutosaveTimer) return;
+  clearTimeout(correspondentAutosaveTimer);
+  correspondentAutosaveTimer = null;
+}
+
 /** Speichert die Editor-Änderungen automatisch (still, ohne Erfolgs-Toast). */
 async function runCorrespondentAutosave() {
   const current = selectedCorrespondent.value;
@@ -3152,10 +3173,7 @@ async function runCorrespondentAutosave() {
 /** Plant das Auto-Speichern: ``immediate`` für Typ/Organisation, sonst entprellt. */
 function scheduleCorrespondentAutosave(immediate = false) {
   if (suppressCorrespondentAutosave) return;
-  if (correspondentAutosaveTimer) {
-    clearTimeout(correspondentAutosaveTimer);
-    correspondentAutosaveTimer = null;
-  }
+  clearCorrespondentAutosaveTimer();
   if (immediate) {
     runCorrespondentAutosave();
     return;
@@ -3183,6 +3201,9 @@ function onEditingParentChange(value) {
 }
 
 function selectCorrespondent(correspondent) {
+  // Ein Timer des vorherigen Editors darf nicht nach dem Wechsel mit dessen
+  // Feldwerten auf dem neu ausgewählten Korrespondenten speichern.
+  clearCorrespondentAutosaveTimer();
   selectedCorrespondentId.value = correspondent?.id || null;
   syncCorrespondentEditor(correspondent);
   newAliasName.value = '';
@@ -3190,6 +3211,7 @@ function selectCorrespondent(correspondent) {
 
 function toggleCorrespondent(correspondent) {
   if (selectedCorrespondentId.value === correspondent?.id) {
+    clearCorrespondentAutosaveTimer();
     selectedCorrespondentId.value = null;
     return;
   }
@@ -3205,7 +3227,11 @@ async function addCorrespondent() {
     });
     if (result.ok) {
       newCorrespondentName.value = '';
-      selectedCorrespondentId.value = result.id;
+      // createCorrespondentByName lädt die Liste neu. Den vollständigen neuen
+      // Datensatz in den Editor übernehmen, statt nur seine ID zu selektieren
+      // und dadurch die Feldwerte der zuvor geöffneten Karte beizubehalten.
+      const created = correspondentStore.findById(result.id);
+      if (created) selectCorrespondent(created);
     }
   } catch {
     /* Fehler wird im Store als Notification gemeldet */
@@ -3837,6 +3863,20 @@ async function removeAlias(alias) {
   min-height: 40px;
 }
 
+.settings-correspondent-create {
+  padding: 10px 0 14px;
+}
+
+.settings-correspondent-add :deep(.v-field__prepend-inner) {
+  align-items: center;
+  padding-top: 0;
+}
+
+.settings-correspondent-kind-menu {
+  margin-inline-start: -6px;
+  color: rgba(var(--v-theme-on-surface), 0.72);
+}
+
 .settings-unresolved-info-action {
   position: relative;
   border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
@@ -4040,7 +4080,7 @@ async function removeAlias(alias) {
 .settings-correspondent-fields {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 18px;
 }
 
 /* Name und Kurzname in einer Zeile, ca. 70:30. */
@@ -4077,18 +4117,19 @@ async function removeAlias(alias) {
 
 .settings-correspondent-filter {
   display: flex;
-  justify-content: flex-end;
-  margin: 2px 0 -4px;
+  justify-content: flex-start;
+  margin: 2px 0;
 }
 
-.settings-correspondent-kind-toggle {
-  flex: 0 0 auto;
+.settings-correspondent-filter :deep(.v-chip-group) {
+  padding: 0;
 }
 
 /* Eine Person, die einer Organisation zugeordnet ist, wird eingerückt und
    bekommt eine farbige Kante als Zugehörigkeits-Hinweis. */
 .settings-correspondent-row--nested {
-  margin-left: 22px;
+  align-self: flex-end;
+  width: calc(100% - 22px);
   border-left: 2px solid rgba(var(--v-theme-primary), 0.35);
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;

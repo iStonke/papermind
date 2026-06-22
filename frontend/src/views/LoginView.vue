@@ -1,9 +1,11 @@
 <template>
   <v-app theme="dark">
-    <v-main ref="rootEl" class="login-main">
+    <v-main class="login-main">
       <div class="login-glow login-glow--one" aria-hidden="true" />
       <div class="login-glow login-glow--two" aria-hidden="true" />
       <div class="login-glow login-glow--three" aria-hidden="true" />
+      <div class="login-glow login-glow--four" aria-hidden="true" />
+      <div class="login-glow login-glow--five" aria-hidden="true" />
 
       <div class="login-wrapper">
         <v-card class="login-card" rounded="xl">
@@ -27,6 +29,7 @@
               class="mb-4 login-rise login-rise--4"
             />
             <v-text-field
+              ref="passwordField"
               v-model="password"
               label="Passwort"
               prepend-inner-icon="mdi-lock-outline"
@@ -41,15 +44,20 @@
               @click:append-inner="showPassword = !showPassword"
             />
 
-            <v-alert
-              v-if="error"
-              type="error"
-              variant="tonal"
-              density="compact"
-              class="mb-3"
-            >
-              {{ error }}
-            </v-alert>
+            <v-expand-transition>
+              <v-alert
+                v-if="error"
+                type="error"
+                variant="tonal"
+                density="compact"
+                icon="mdi-alert-circle-outline"
+                :title="error.title"
+                :text="error.text"
+                class="mb-3 login-alert"
+                role="alert"
+                aria-live="assertive"
+              />
+            </v-expand-transition>
 
             <v-btn
               type="submit"
@@ -70,7 +78,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { useAuthStore } from '../stores/auth.js';
@@ -83,59 +91,87 @@ const username = ref('');
 const password = ref('');
 const showPassword = ref(false);
 const loading = ref(false);
-const error = ref('');
+/** Fehler als { title, text } oder null. */
+const error = ref(null);
+const passwordField = ref(null);
 
-// ── Maus-Parallax: Aura und Karte folgen leicht dem Cursor (Tiefe) ──────────
-const rootEl = ref(null);
-let parallaxTarget = null;
-
-function rootElement() {
-  const el = rootEl.value;
-  return el?.$el || el || null;
-}
-
-function onParallaxMove(event) {
-  if (!parallaxTarget) return;
-  const rect = parallaxTarget.getBoundingClientRect();
-  if (!rect.width || !rect.height) return;
-  const px = (event.clientX - rect.left) / rect.width - 0.5;
-  const py = (event.clientY - rect.top) / rect.height - 0.5;
-  parallaxTarget.style.setProperty('--px', px.toFixed(3));
-  parallaxTarget.style.setProperty('--py', py.toFixed(3));
-}
-
-function resetParallax() {
-  if (!parallaxTarget) return;
-  parallaxTarget.style.setProperty('--px', '0');
-  parallaxTarget.style.setProperty('--py', '0');
-}
-
-onMounted(() => {
-  const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
-  if (reduce) return;
-  parallaxTarget = rootElement();
-  if (!parallaxTarget) return;
-  parallaxTarget.addEventListener('pointermove', onParallaxMove);
-  parallaxTarget.addEventListener('pointerleave', resetParallax);
+// Fehler verschwindet, sobald der Nutzer die Eingabe korrigiert.
+watch([username, password], () => {
+  if (error.value) error.value = null;
 });
 
-onBeforeUnmount(() => {
-  if (!parallaxTarget) return;
-  parallaxTarget.removeEventListener('pointermove', onParallaxMove);
-  parallaxTarget.removeEventListener('pointerleave', resetParallax);
-  parallaxTarget = null;
-});
+/**
+ * Übersetzt einen Login-Fehler in eine freundliche, deutsche, handlungs-
+ * leitende Meldung. Der Text wird hier im Frontend bestimmt – die (englischen)
+ * Backend-Texte werden bewusst nicht durchgereicht.
+ */
+function mapLoginError(err) {
+  const status = err?.status;
+  const code = err?.code;
+  const raw = String(err?.message || '').toLowerCase();
+  const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+
+  if (status === 401) {
+    return {
+      title: 'Anmeldung fehlgeschlagen',
+      text: 'Benutzername oder Passwort ist falsch.',
+      focusPassword: true,
+    };
+  }
+  if (status === 429) {
+    return {
+      title: 'Zu viele Versuche',
+      text: 'Aus Sicherheitsgründen pausiert. Bitte warte ein paar Minuten und versuche es erneut.',
+    };
+  }
+  if (code === 'REQUEST_TIMEOUT') {
+    return {
+      title: 'Server antwortet nicht',
+      text: 'Die Anmeldung dauert ungewöhnlich lange. Bitte versuche es gleich erneut.',
+    };
+  }
+  if (
+    offline ||
+    err instanceof TypeError ||
+    raw.includes('failed to fetch') ||
+    raw.includes('load failed') ||
+    raw.includes('networkerror')
+  ) {
+    return {
+      title: 'Keine Verbindung',
+      text: 'Prüfe deine Internetverbindung und versuche es erneut.',
+    };
+  }
+  if (typeof status === 'number' && status >= 500) {
+    return {
+      title: 'Serverfehler',
+      text: 'Auf dem Server ist etwas schiefgelaufen. Bitte versuche es später erneut.',
+    };
+  }
+  return {
+    title: 'Anmeldung fehlgeschlagen',
+    text: 'Es ist ein unerwarteter Fehler aufgetreten. Bitte versuche es erneut.',
+  };
+}
 
 async function submit() {
   if (!username.value || !password.value || loading.value) return;
   loading.value = true;
-  error.value = '';
+  error.value = null;
   try {
     await authStore.login(username.value.trim(), password.value);
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/';
     router.push(redirect);
   } catch (err) {
-    error.value = err?.message || 'Anmeldung fehlgeschlagen.';
+    const mapped = mapLoginError(err);
+    error.value = { title: mapped.title, text: mapped.text };
+    // Erst die Sperre lösen, dann fokussieren – ein disabled-Feld nimmt keinen
+    // Fokus an.
+    loading.value = false;
+    if (mapped.focusPassword) {
+      await nextTick();
+      passwordField.value?.focus?.();
+    }
   } finally {
     loading.value = false;
   }
@@ -161,24 +197,22 @@ async function submit() {
 .login-main::before {
   inset: -30%;
   background:
-    radial-gradient(circle at 18% 22%, rgba(34, 211, 238, 0.22) 0 12%, transparent 34%),
-    radial-gradient(circle at 72% 34%, rgba(8, 145, 178, 0.18) 0 10%, transparent 31%),
-    radial-gradient(circle at 40% 78%, rgba(13, 148, 136, 0.18) 0 11%, transparent 33%),
-    radial-gradient(circle at 86% 76%, rgba(59, 130, 246, 0.11) 0 9%, transparent 28%);
-  opacity: 0.92;
-  transform: translate3d(calc(var(--px, 0) * -14px), calc(var(--py, 0) * -14px), 0);
-  animation: login-aurora-drift 18s ease-in-out infinite alternate;
+    radial-gradient(circle at 18% 22%, rgba(34, 211, 238, 0.34) 0 12%, transparent 36%),
+    radial-gradient(circle at 72% 34%, rgba(8, 145, 178, 0.30) 0 10%, transparent 33%),
+    radial-gradient(circle at 40% 78%, rgba(13, 148, 136, 0.30) 0 11%, transparent 35%),
+    radial-gradient(circle at 86% 76%, rgba(59, 130, 246, 0.22) 0 9%, transparent 30%);
+  opacity: 0.95;
+  animation: login-aurora-drift 14s ease-in-out infinite;
   will-change: transform;
 }
 
 .login-main::after {
   inset: -18%;
   background:
-    radial-gradient(ellipse at 30% 20%, rgba(255, 255, 255, 0.04), transparent 34%),
-    radial-gradient(ellipse at 72% 82%, rgba(34, 211, 238, 0.08), transparent 42%);
-  opacity: 0.68;
-  transform: translate3d(calc(var(--px, 0) * 10px), calc(var(--py, 0) * 10px), 0);
-  animation: login-sheen-drift 24s ease-in-out infinite alternate;
+    radial-gradient(ellipse at 30% 20%, rgba(255, 255, 255, 0.06), transparent 34%),
+    radial-gradient(ellipse at 72% 82%, rgba(34, 211, 238, 0.14), transparent 42%);
+  opacity: 0.72;
+  animation: login-sheen-drift 18s ease-in-out infinite alternate;
   will-change: transform;
 }
 
@@ -188,93 +222,116 @@ async function submit() {
   position: absolute;
   inset: -42%;
   border-radius: 0;
-  opacity: 0.42;
+  opacity: 0.5;
   z-index: 0;
   pointer-events: none;
   background-repeat: no-repeat;
   background-size: 100% 100%;
   will-change: transform, opacity;
-  transition: opacity 0.4s ease-out;
 }
 
 .login-glow--one {
-  background: radial-gradient(circle at 12% 18%, rgba(8, 145, 178, 0.34) 0%, transparent 42%);
-  animation: drift-one 13s ease-in-out infinite alternate;
+  background: radial-gradient(circle at 12% 18%, rgba(8, 145, 178, 0.5) 0%, transparent 44%);
+  animation: drift-one 11s ease-in-out infinite alternate;
 }
 
 .login-glow--two {
-  background: radial-gradient(circle at 88% 86%, rgba(34, 211, 238, 0.28) 0%, transparent 40%);
-  animation: drift-two 16s ease-in-out infinite alternate;
+  background: radial-gradient(circle at 88% 86%, rgba(34, 211, 238, 0.44) 0%, transparent 42%);
+  animation: drift-two 13s ease-in-out infinite alternate;
 }
 
 .login-glow--three {
-  opacity: 0.32;
-  background: radial-gradient(circle at 46% 56%, rgba(13, 148, 136, 0.26) 0%, transparent 38%);
-  animation: drift-three 19s ease-in-out infinite alternate;
+  opacity: 0.44;
+  background: radial-gradient(circle at 46% 56%, rgba(13, 148, 136, 0.42) 0%, transparent 40%);
+  animation: drift-three 16s ease-in-out infinite alternate;
 }
 
+.login-glow--four {
+  opacity: 0.4;
+  background: radial-gradient(circle at 78% 16%, rgba(59, 130, 246, 0.36) 0%, transparent 40%);
+  animation: drift-four 12s ease-in-out infinite alternate;
+}
+
+.login-glow--five {
+  opacity: 0.36;
+  background: radial-gradient(circle at 22% 88%, rgba(45, 212, 191, 0.36) 0%, transparent 42%);
+  animation: drift-five 14s ease-in-out infinite alternate;
+}
+
+/* Hintergrund-Auren bewegen sich jetzt frei (kein Cursor-Einfluss mehr) ueber
+   einen geschlossenen Pfad, mit kraeftigeren Wegen und mehr Rotation. */
 @keyframes login-aurora-drift {
   0% {
-    transform:
-      translate3d(calc(-2% + var(--px, 0) * -14px), calc(-1% + var(--py, 0) * -14px), 0)
-      rotate(0deg)
-      scale(1.02);
+    transform: translate3d(-7%, -5%, 0) rotate(0deg) scale(1.06);
   }
-  50% {
-    transform:
-      translate3d(calc(2% + var(--px, 0) * -14px), calc(3% + var(--py, 0) * -14px), 0)
-      rotate(5deg)
-      scale(1.07);
+  33% {
+    transform: translate3d(9%, 7%, 0) rotate(14deg) scale(1.22);
+  }
+  66% {
+    transform: translate3d(-5%, 10%, 0) rotate(-10deg) scale(1.14);
   }
   100% {
-    transform:
-      translate3d(calc(4% + var(--px, 0) * -14px), calc(-2% + var(--py, 0) * -14px), 0)
-      rotate(-3deg)
-      scale(1.04);
+    transform: translate3d(-7%, -5%, 0) rotate(0deg) scale(1.06);
   }
 }
 
 @keyframes login-sheen-drift {
   0% {
-    transform:
-      translate3d(calc(2% + var(--px, 0) * 10px), calc(-2% + var(--py, 0) * 10px), 0)
-      rotate(-4deg)
-      scale(1.02);
+    transform: translate3d(7%, -7%, 0) rotate(-12deg) scale(1.04);
   }
   100% {
-    transform:
-      translate3d(calc(-3% + var(--px, 0) * 10px), calc(3% + var(--py, 0) * 10px), 0)
-      rotate(4deg)
-      scale(1.06);
+    transform: translate3d(-9%, 9%, 0) rotate(12deg) scale(1.16);
   }
 }
 
 @keyframes drift-one {
   0% {
-    transform: translate3d(calc(var(--px, 0) * -24px), calc(var(--py, 0) * -24px), 0) scale(1);
+    transform: translate3d(-10vw, -8vh, 0) scale(1) rotate(0deg);
   }
   100% {
-    transform: translate3d(calc(9vw + var(--px, 0) * -24px), calc(6vh + var(--py, 0) * -24px), 0) scale(1.1);
+    transform: translate3d(26vw, 18vh, 0) scale(1.4) rotate(14deg);
   }
 }
 
 @keyframes drift-two {
   0% {
-    transform: translate3d(calc(var(--px, 0) * 28px), calc(var(--py, 0) * 28px), 0) scale(1.02);
+    transform: translate3d(11vw, 9vh, 0) scale(1.06) rotate(0deg);
   }
   100% {
-    transform: translate3d(calc(-8vw + var(--px, 0) * 28px), calc(-8vh + var(--py, 0) * 28px), 0) scale(1.14);
+    transform: translate3d(-24vw, -22vh, 0) scale(1.46) rotate(-15deg);
   }
 }
 
 @keyframes drift-three {
   0% {
-    transform: translate3d(calc(var(--px, 0) * 16px), calc(var(--py, 0) * -16px), 0) scale(1);
-    opacity: 0.24;
+    transform: translate3d(-12vw, 8vh, 0) scale(1) rotate(0deg);
+    opacity: 0.3;
   }
   100% {
-    transform: translate3d(calc(6vw + var(--px, 0) * 16px), calc(-5vh + var(--py, 0) * -16px), 0) scale(1.12);
-    opacity: 0.38;
+    transform: translate3d(20vw, -18vh, 0) scale(1.42) rotate(12deg);
+    opacity: 0.55;
+  }
+}
+
+@keyframes drift-four {
+  0% {
+    transform: translate3d(12vw, -9vh, 0) scale(1.02) rotate(0deg);
+    opacity: 0.26;
+  }
+  100% {
+    transform: translate3d(-22vw, 20vh, 0) scale(1.38) rotate(-13deg);
+    opacity: 0.5;
+  }
+}
+
+@keyframes drift-five {
+  0% {
+    transform: translate3d(-11vw, -11vh, 0) scale(1) rotate(0deg);
+    opacity: 0.22;
+  }
+  100% {
+    transform: translate3d(24vw, 16vh, 0) scale(1.36) rotate(14deg);
+    opacity: 0.5;
   }
 }
 
@@ -286,23 +343,21 @@ async function submit() {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  /* Karte folgt dem Cursor leicht (geringere Amplitude als die Aura = Tiefe). */
-  transform: translate(calc(var(--px, 0) * 8px), calc(var(--py, 0) * 8px));
-  transition: transform 0.3s ease-out;
 }
 
 .login-card {
   width: 100%;
   max-width: 380px;
   padding: 36px 32px 32px;
-  /* Glassmorphism */
-  background: rgba(14, 20, 32, 0.62) !important;
-  backdrop-filter: blur(22px) saturate(140%);
-  -webkit-backdrop-filter: blur(22px) saturate(140%);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  /* Glassmorphism — staerkerer Blur + hoehere Saettigung fuer kraeftigeres Glas. */
+  background: rgba(14, 20, 32, 0.5) !important;
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   box-shadow:
     0 24px 60px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
   animation: card-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
@@ -385,12 +440,11 @@ async function submit() {
 }
 
 /* Bewegungsempfindliche Nutzer/Systeme: alle Dauer-Animationen still, Inhalte
-   sofort sichtbar, Parallax neutral. Der Maus-Parallax wird zusätzlich im Script
-   gar nicht erst registriert, wenn reduce gesetzt ist. */
+   sofort sichtbar. */
 @media (prefers-reduced-motion: reduce) {
-  .login-glow--one,
-  .login-glow--two,
-  .login-glow--three,
+  .login-main::before,
+  .login-main::after,
+  .login-glow,
   .login-logo.login-rise {
     animation: none;
   }
