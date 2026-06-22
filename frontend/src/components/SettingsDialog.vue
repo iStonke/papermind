@@ -792,13 +792,28 @@
                 </div>
 
                 <div class="settings-category-add">
+                  <v-btn-toggle
+                    v-model="newCorrespondentKind"
+                    mandatory
+                    density="compact"
+                    variant="outlined"
+                    divided
+                    class="settings-correspondent-kind-toggle"
+                  >
+                    <v-btn value="organization" size="small" title="Organisation">
+                      <v-icon size="18">mdi-domain</v-icon>
+                    </v-btn>
+                    <v-btn value="person" size="small" title="Person">
+                      <v-icon size="18">mdi-account-outline</v-icon>
+                    </v-btn>
+                  </v-btn-toggle>
                   <v-text-field
                     v-model="newCorrespondentName"
                     maxlength="120"
                     density="compact"
                     variant="outlined"
                     hide-details
-                    placeholder="Neuer Korrespondent…"
+                    :placeholder="newCorrespondentKind === 'person' ? 'Neue Person…' : 'Neue Organisation…'"
                     :disabled="correspondentStore.isMutationRunning"
                     @keydown.enter.prevent="addCorrespondent"
                   />
@@ -816,12 +831,33 @@
                 </div>
               </div>
 
+              <div class="settings-correspondent-filter">
+                <v-btn-toggle
+                  v-model="correspondentTypeFilter"
+                  mandatory
+                  density="compact"
+                  variant="outlined"
+                  divided
+                >
+                  <v-btn value="all" size="small">Alle</v-btn>
+                  <v-btn value="organization" size="small">
+                    <v-icon size="16" start>mdi-domain</v-icon>Organisationen
+                  </v-btn>
+                  <v-btn value="person" size="small">
+                    <v-icon size="16" start>mdi-account-outline</v-icon>Personen
+                  </v-btn>
+                </v-btn-toggle>
+              </div>
+
               <div class="settings-correspondents">
                 <div
-                  v-for="item in correspondentStore.correspondents"
+                  v-for="item in displayedCorrespondents"
                   :key="item.id"
                   class="settings-correspondent-row"
-                  :class="{ 'settings-correspondent-row--active': selectedCorrespondentId === item.id }"
+                  :class="{
+                    'settings-correspondent-row--active': selectedCorrespondentId === item.id,
+                    'settings-correspondent-row--nested': correspondentIsNested(item),
+                  }"
                 >
                   <button
                     type="button"
@@ -830,12 +866,12 @@
                   >
                     <span class="settings-category-main">
                       <span class="settings-category-icon" aria-hidden="true">
-                        <v-icon size="16">mdi-account-outline</v-icon>
+                        <v-icon size="16">{{ correspondentKindIcon(item) }}</v-icon>
                       </span>
                       <span class="settings-category-text">
                         <span class="settings-category-name">{{ item.name }}</span>
                         <span class="settings-category-meta">
-                          {{ item.short_name || 'kein Kurzname' }} · {{ item.aliases?.length || 0 }} Alias{{ (item.aliases?.length || 0) === 1 ? '' : 'e' }}
+                          {{ correspondentMetaText(item) }}
                         </span>
                       </span>
                     </span>
@@ -894,6 +930,36 @@
                         >
                           <v-icon size="18">mdi-trash-can-outline</v-icon>
                         </v-btn>
+                      </div>
+
+                      <div class="settings-correspondent-type-row">
+                        <v-btn-toggle
+                          :model-value="editingCorrespondentKind"
+                          density="compact"
+                          variant="outlined"
+                          divided
+                          class="settings-correspondent-kind-toggle"
+                          @update:model-value="onEditingKindChange"
+                        >
+                          <v-btn value="organization" size="small">
+                            <v-icon size="16" start>mdi-domain</v-icon>Organisation
+                          </v-btn>
+                          <v-btn value="person" size="small">
+                            <v-icon size="16" start>mdi-account-outline</v-icon>Person
+                          </v-btn>
+                        </v-btn-toggle>
+                        <v-select
+                          v-if="editingCorrespondentKind === 'person'"
+                          v-model="editingCorrespondentParentId"
+                          :items="organizationOptions.filter((o) => o.value !== item.id)"
+                          density="compact"
+                          variant="outlined"
+                          hide-details
+                          clearable
+                          label="Gehört zu Organisation"
+                          placeholder="Keine Zuordnung"
+                          class="settings-correspondent-parent-select"
+                        />
                       </div>
 
                       <div class="settings-correspondent-block">
@@ -2739,9 +2805,13 @@ const editingCategoryName = ref('');
 const editingCategoryTemplate = ref('');
 
 const newCorrespondentName = ref('');
+const newCorrespondentKind = ref('organization');
+const correspondentTypeFilter = ref('all');
 const selectedCorrespondentId = ref(null);
 const editingCorrespondentName = ref('');
 const editingCorrespondentShortName = ref('');
+const editingCorrespondentKind = ref(null);
+const editingCorrespondentParentId = ref(null);
 const newAliasName = ref('');
 const unresolvedCorrespondents = ref([]);
 const unresolvedSelections = ref({});
@@ -2779,8 +2849,91 @@ const canSaveSelectedCorrespondent = computed(() => {
   if (!current) return false;
   const nextName = editingCorrespondentName.value.trim();
   if (!nextName) return false;
-  return nextName !== current.name || editingCorrespondentShortName.value.trim() !== (current.short_name || '');
+  // Personen ohne gewählte Organisation sind erlaubt (Privatperson); eine
+  // Organisation darf nie einen Parent tragen (UI erzwingt das beim Umschalten).
+  return (
+    nextName !== current.name ||
+    editingCorrespondentShortName.value.trim() !== (current.short_name || '') ||
+    (editingCorrespondentKind.value || null) !== (current.kind || null) ||
+    (editingCorrespondentParentId.value || null) !== (current.parent_id || null)
+  );
 });
+
+const correspondentNameSort = (a, b) => a.name.localeCompare(b.name, 'de-DE');
+
+/** Organisationen als Auswahl für den Parent-Picker einer Person. */
+const organizationOptions = computed(() =>
+  correspondentStore.correspondents
+    .filter((c) => c.kind === 'organization')
+    .slice()
+    .sort(correspondentNameSort)
+    .map((c) => ({ title: c.name, value: c.id }))
+);
+
+/**
+ * Korrespondenten gruppiert für die Liste: jede Organisation gefolgt von ihren
+ * zugeordneten Personen, danach Personen ohne Organisation, danach noch nicht
+ * typisierte Einträge. Der Typ-Filter blendet entsprechend aus.
+ */
+const displayedCorrespondents = computed(() => {
+  const all = correspondentStore.correspondents;
+  const byId = new Map(all.map((c) => [c.id, c]));
+  const orgs = all.filter((c) => c.kind === 'organization').slice().sort(correspondentNameSort);
+  const personsByParent = new Map();
+  const orphanPersons = [];
+  const untyped = [];
+  for (const c of all) {
+    if (c.kind === 'person') {
+      if (c.parent_id && byId.has(c.parent_id)) {
+        if (!personsByParent.has(c.parent_id)) personsByParent.set(c.parent_id, []);
+        personsByParent.get(c.parent_id).push(c);
+      } else {
+        orphanPersons.push(c);
+      }
+    } else if (c.kind !== 'organization') {
+      untyped.push(c);
+    }
+  }
+  const ordered = [];
+  for (const org of orgs) {
+    ordered.push(org);
+    for (const p of (personsByParent.get(org.id) || []).slice().sort(correspondentNameSort)) {
+      ordered.push(p);
+    }
+  }
+  for (const p of orphanPersons.slice().sort(correspondentNameSort)) ordered.push(p);
+  for (const u of untyped.slice().sort(correspondentNameSort)) ordered.push(u);
+
+  const filter = correspondentTypeFilter.value;
+  if (filter === 'organization') return ordered.filter((c) => c.kind === 'organization');
+  if (filter === 'person') return ordered.filter((c) => c.kind === 'person');
+  return ordered;
+});
+
+/** Einrückung: eine Person, die einer (vorhandenen) Organisation zugeordnet ist. */
+function correspondentIsNested(item) {
+  return Boolean(
+    item?.kind === 'person' &&
+      item?.parent_id &&
+      correspondentStore.correspondents.some((c) => c.id === item.parent_id)
+  );
+}
+
+function correspondentKindIcon(item) {
+  if (item?.kind === 'organization') return 'mdi-domain';
+  if (item?.kind === 'person') return 'mdi-account-outline';
+  return 'mdi-help-circle-outline';
+}
+
+function correspondentMetaText(item) {
+  const parts = [];
+  if (item?.kind === 'person' && item?.parent_name) parts.push(item.parent_name);
+  else if (!item?.kind) parts.push('ohne Typ');
+  parts.push(item?.short_name || 'kein Kurzname');
+  const aliasCount = item?.aliases?.length || 0;
+  parts.push(`${aliasCount} Alias${aliasCount === 1 ? '' : 'e'}`);
+  return parts.join(' · ');
+}
 
 function templatePreviewValues() {
   return {
@@ -2930,6 +3083,17 @@ async function saveSelectedCategory() {
 function syncCorrespondentEditor(correspondent) {
   editingCorrespondentName.value = correspondent?.name || '';
   editingCorrespondentShortName.value = correspondent?.short_name || '';
+  editingCorrespondentKind.value = correspondent?.kind || null;
+  editingCorrespondentParentId.value = correspondent?.parent_id || null;
+}
+
+/** Beim Umschalten des Typs die Zwei-Ebenen-Regel im Formular spiegeln. */
+function onEditingKindChange(nextKind) {
+  editingCorrespondentKind.value = nextKind || null;
+  // Nur Personen dürfen einer Organisation zugeordnet sein.
+  if (nextKind !== 'person') {
+    editingCorrespondentParentId.value = null;
+  }
 }
 
 function selectCorrespondent(correspondent) {
@@ -2950,7 +3114,9 @@ async function addCorrespondent() {
   const name = newCorrespondentName.value.trim();
   if (!name || correspondentStore.isMutationRunning) return;
   try {
-    const result = await correspondentStore.createCorrespondentByName(name);
+    const result = await correspondentStore.createCorrespondentByName(name, {
+      kind: newCorrespondentKind.value,
+    });
     if (result.ok) {
       newCorrespondentName.value = '';
       selectedCorrespondentId.value = result.id;
@@ -3053,6 +3219,10 @@ async function saveSelectedCorrespondent() {
     await correspondentStore.updateCorrespondent(current.id, {
       name: editingCorrespondentName.value.trim(),
       short_name: editingCorrespondentShortName.value.trim() || null,
+      kind: editingCorrespondentKind.value || null,
+      parent_id: editingCorrespondentKind.value === 'person'
+        ? editingCorrespondentParentId.value || null
+        : null,
     });
   } catch {
     /* Fehler wird im Store als Notification gemeldet */
@@ -3795,6 +3965,37 @@ async function removeAlias(alias) {
   grid-template-columns: minmax(0, 1fr) 150px 36px 36px;
   gap: 8px;
   align-items: center;
+}
+
+.settings-correspondent-filter {
+  display: flex;
+  justify-content: flex-end;
+  margin: 2px 0 -4px;
+}
+
+.settings-correspondent-kind-toggle {
+  flex: 0 0 auto;
+}
+
+/* Eine Person, die einer Organisation zugeordnet ist, wird eingerückt und
+   bekommt eine farbige Kante als Zugehörigkeits-Hinweis. */
+.settings-correspondent-row--nested {
+  margin-left: 22px;
+  border-left: 2px solid rgba(var(--v-theme-primary), 0.35);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.settings-correspondent-type-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.settings-correspondent-parent-select {
+  flex: 1 1 240px;
+  min-width: 200px;
 }
 
 .settings-correspondent-icon-action {

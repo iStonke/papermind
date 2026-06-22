@@ -86,7 +86,7 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
   }
 
   /** POST /api/correspondents – legt an oder liefert vorhandenen (idempotent). */
-  async function createCorrespondentByName(rawName) {
+  async function createCorrespondentByName(rawName, { kind = null } = {}) {
     const name = normalizeName(rawName);
     if (name.length < NAME_MIN_LENGTH) {
       notify({ type: 'warning', message: `Korrespondent muss mindestens ${NAME_MIN_LENGTH} Zeichen enthalten.` });
@@ -98,7 +98,7 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
     }
     isMutationRunning.value = true;
     try {
-      const created = await apiCreateCorrespondent({ name });
+      const created = await apiCreateCorrespondent(kind ? { name, kind } : { name });
       await fetchCorrespondents();
       notify({ type: 'success', title: 'Korrespondent', message: 'Korrespondent angelegt.' });
       return { ok: true, id: created?.id, name: created?.name || name };
