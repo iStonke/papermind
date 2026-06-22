@@ -18,6 +18,10 @@ services:
           memory: 256M
     expose:
       - "80"
+    volumes:
+      # Gehashte Assets deploymentübergreifend behalten. So funktionieren auch
+      # bereits offene/gecachte Browser-Tabs nach einem Update weiter.
+      - ./.runtime/frontend-assets:/usr/share/nginx/html/assets
     depends_on:
       backend:
         condition: service_healthy

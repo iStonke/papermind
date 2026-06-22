@@ -70,10 +70,26 @@ git fetch origin "${BRANCH}"
 git checkout "${BRANCH}"
 git pull --ff-only origin "${BRANCH}"
 
+preserve_frontend_assets() {
+  local assets_dir="${REPO_DIR}/.runtime/frontend-assets"
+  local frontend_id
+
+  mkdir -p "${assets_dir}"
+  frontend_id="$("${compose_cmd[@]}" ps -q frontend 2>/dev/null || true)"
+  if [[ -z "${frontend_id}" ]]; then
+    return
+  fi
+
+  echo "Preserving frontend assets from the running container ..."
+  docker cp "${frontend_id}:/usr/share/nginx/html/assets/." "${assets_dir}/" \
+    || echo "Warning: existing frontend assets could not be preserved." >&2
+}
+
 if [[ "${RUN_COMPOSE}" -eq 1 ]]; then
   compose_cmd=(docker compose)
   if [[ "${RUN_PROD}" -eq 1 ]]; then
     compose_cmd+=(--env-file .env.prod -f docker-compose.prod.yml)
+    preserve_frontend_assets
   fi
   compose_args=(up -d)
   if [[ "${RUN_BUILD}" -eq 1 ]]; then
