@@ -4879,15 +4879,61 @@ async function emptyTrash() {
 /** Favoriten-Status eines Dokuments umschalten. */
 async function toggleDocumentFavorite(document) {
   if (!document?.id) return;
+  const documentId = document.id;
+  const nextValue = !Boolean(document.is_favorite);
+
+  // Generation festhalten: wechselt der Nutzer während des Requests die Ansicht
+  // (fetchDocuments erhöht den Zähler), dürfen wir die Liste nicht mehr anfassen.
+  const generation = documentListRequestGeneration;
+
+  // Rollback-Snapshots.
+  const previousDocuments = documents.value;
+  const previousSelectedId = selectedDocumentId.value;
+  const previousDetail = selectedDocumentDetail.value;
+  const previousFavoriteState = favoriteStateByDocumentId.get(documentId);
+
+  // Optimistisch: Stern sofort umschalten (Liste + Detail + bekannter Zustand),
+  // damit der Klick ohne Roundtrip-Verzögerung reagiert. Das Entfernen aus der
+  // Favoriten-Ansicht bleibt bewusst bis zur Server-Bestätigung, um komplexe
+  // Selektions-Rollbacks zu vermeiden.
+  favoriteStateByDocumentId.set(documentId, { value: nextValue, updatedAt: Date.now() });
+  documents.value = documents.value.map((doc) =>
+    doc.id === documentId ? { ...doc, is_favorite: nextValue } : doc
+  );
+  if (selectedDocumentDetail.value?.id === documentId) {
+    selectedDocumentDetail.value = { ...selectedDocumentDetail.value, is_favorite: nextValue };
+  }
+
   try {
-    const response = await fetch(`${apiBaseUrl}/api/documents/${document.id}/favorite`, { method: 'POST' });
+    const response = await fetch(`${apiBaseUrl}/api/documents/${documentId}/favorite`, { method: 'POST' });
     if (!response.ok) throw new Error(await parseResponseError(response));
     const updated = await response.json();
+    const serverValue = Boolean(updated.is_favorite);
+
+    // Server ist autoritativ.
     favoriteStateByDocumentId.set(updated.id, {
-      value: Boolean(updated.is_favorite),
+      value: serverValue,
       updatedAt: Date.parse(String(updated.updated_at || '')) || Date.now()
     });
-    if (isFavoritesView.value && updated.is_favorite === false) {
+
+    // Ansicht inzwischen gewechselt → Listenmutationen überspringen; der bekannte
+    // Favoritenzustand oben wird beim nächsten Laden ohnehin angewandt.
+    if (generation !== documentListRequestGeneration) {
+      scheduleSidebarCountsRefresh();
+      return;
+    }
+
+    // Widerspricht der Server der Annahme, korrigieren.
+    if (serverValue !== nextValue) {
+      documents.value = documents.value.map((doc) =>
+        doc.id === updated.id ? { ...doc, is_favorite: serverValue } : doc
+      );
+      if (selectedDocumentDetail.value?.id === updated.id) {
+        selectedDocumentDetail.value = { ...selectedDocumentDetail.value, is_favorite: serverValue };
+      }
+    }
+
+    if (isFavoritesView.value && serverValue === false) {
       documents.value = documents.value.filter((doc) => doc.id !== updated.id);
       if (selectedDocumentId.value === updated.id) {
         const nextDocument = documents.value[0] || null;
@@ -4900,19 +4946,22 @@ async function toggleDocumentFavorite(document) {
           isDetailsDrawerOpen.value = false;
         }
       }
-    } else {
-      documents.value = documents.value.map((doc) =>
-        doc.id === updated.id ? { ...doc, is_favorite: updated.is_favorite } : doc
-      );
-    }
-    if (selectedDocumentDetail.value?.id === updated.id) {
-      selectedDocumentDetail.value = { ...selectedDocumentDetail.value, is_favorite: updated.is_favorite };
-    }
-    if (isFavoriteSortQuery() && !isFavoritesView.value) {
+    } else if (isFavoriteSortQuery() && !isFavoritesView.value) {
       await fetchDocuments(selectedDocumentId.value);
     }
     scheduleSidebarCountsRefresh();
   } catch (error) {
+    // Optimistische Änderung zurücknehmen (nur wenn die Ansicht unverändert ist).
+    if (generation === documentListRequestGeneration) {
+      documents.value = previousDocuments;
+      selectedDocumentId.value = previousSelectedId;
+      selectedDocumentDetail.value = previousDetail;
+    }
+    if (previousFavoriteState) {
+      favoriteStateByDocumentId.set(documentId, previousFavoriteState);
+    } else {
+      favoriteStateByDocumentId.delete(documentId);
+    }
     notifyError(error, 'Favoriten-Status konnte nicht geändert werden.');
   }
 }
