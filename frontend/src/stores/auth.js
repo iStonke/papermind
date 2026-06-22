@@ -105,8 +105,7 @@ export const useAuthStore = defineStore('auth', {
             if (!recovered) this.clearSession();
           }
         } catch {
-          if (!getRefreshToken()) this.clearSession();
-          else if (this.status !== 'authenticated') this.status = 'anonymous';
+          if (this.status !== 'authenticated') this.clearSession();
         } finally {
           this.initializing = false;
           initializePromise = null;

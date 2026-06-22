@@ -105,7 +105,11 @@ async function responseError(response) {
  * @returns {Promise<any>}
  */
 export async function apiFetch(path, options = {}) {
-  const { handleUnauthorized = true, ...fetchOptions } = options;
+  const {
+    handleUnauthorized = true,
+    timeoutMs = 0,
+    ...fetchOptions
+  } = options;
   const headers = { ...fetchOptions.headers };
   if (fetchOptions.body && typeof fetchOptions.body === 'string') {
     headers['Content-Type'] = 'application/json';
@@ -116,11 +120,30 @@ export async function apiFetch(path, options = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${BASE_URL}${path}`, {
-    credentials: 'include',
-    ...fetchOptions,
-    headers,
-  });
+  const timeoutController = timeoutMs > 0 ? new AbortController() : null;
+  let timeoutHandle = null;
+  if (timeoutController) {
+    timeoutHandle = setTimeout(() => timeoutController.abort(), timeoutMs);
+  }
+
+  let response;
+  try {
+    response = await fetch(`${BASE_URL}${path}`, {
+      credentials: 'include',
+      ...fetchOptions,
+      signal: timeoutController?.signal || fetchOptions.signal,
+      headers,
+    });
+  } catch (error) {
+    if (timeoutController?.signal.aborted) {
+      const timeoutError = new Error('Der Server antwortet nicht.');
+      timeoutError.code = 'REQUEST_TIMEOUT';
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
 
   if (response.status === 401 && handleUnauthorized) {
     if (unauthorizedHandler) unauthorizedHandler();

@@ -6,7 +6,10 @@ services:
       context: ./frontend
       dockerfile: Dockerfile.prod
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+        # Production always uses the same-origin nginx proxy. Do not inherit a
+        # stale direct backend URL from an existing .env.prod: port 8040 is not
+        # published in this stack and would leave auth bootstrap requests hanging.
+        VITE_API_BASE_URL: ""
     restart: unless-stopped
     deploy:
       resources:

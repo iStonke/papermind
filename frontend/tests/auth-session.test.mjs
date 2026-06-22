@@ -33,7 +33,13 @@ globalThis.window = {
 };
 
 const { useAuthStore } = await import('../src/stores/auth.js');
-const { getRefreshToken, getToken, setRefreshToken, setToken } = await import('../src/api/client.js');
+const {
+  apiFetch,
+  getRefreshToken,
+  getToken,
+  setRefreshToken,
+  setToken,
+} = await import('../src/api/client.js');
 
 function tokenWithExpiry(secondsFromNow) {
   const payload = Buffer.from(JSON.stringify({
@@ -136,4 +142,23 @@ test('initialize upgrades an existing access-only session without logging out', 
 
   await new Promise((resolve) => setImmediate(resolve));
   auth.clearSession();
+});
+
+test('API bootstrap requests abort instead of hanging forever', async () => {
+  globalThis.fetch = async (_url, options = {}) =>
+    new Promise((_resolve, reject) => {
+      options.signal?.addEventListener('abort', () => {
+        reject(new DOMException('Aborted', 'AbortError'));
+      });
+    });
+
+  await assert.rejects(
+    apiFetch('/api/auth/refresh', {
+      method: 'POST',
+      body: '{}',
+      handleUnauthorized: false,
+      timeoutMs: 10,
+    }),
+    (error) => error?.code === 'REQUEST_TIMEOUT',
+  );
 });

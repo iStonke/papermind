@@ -1,11 +1,14 @@
 import { apiFetch, apiGet, apiPatch, apiPost } from './client.js';
 
+const AUTH_BOOTSTRAP_TIMEOUT_MS = 10_000;
+
 /** POST /api/auth/login – Anmeldung, liefert Token + Benutzer. */
 export const login = (username, password) =>
   apiFetch('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify({ username, password }),
     handleUnauthorized: false,
+    timeoutMs: AUTH_BOOTSTRAP_TIMEOUT_MS,
   });
 
 export const refreshSession = (refreshToken) =>
@@ -13,6 +16,7 @@ export const refreshSession = (refreshToken) =>
     method: 'POST',
     body: JSON.stringify(refreshToken ? { refresh_token: refreshToken } : {}),
     handleUnauthorized: false,
+    timeoutMs: AUTH_BOOTSTRAP_TIMEOUT_MS,
   });
 
 export const renewSession = () =>
@@ -20,6 +24,7 @@ export const renewSession = () =>
     method: 'POST',
     body: JSON.stringify({}),
     handleUnauthorized: false,
+    timeoutMs: AUTH_BOOTSTRAP_TIMEOUT_MS,
   });
 
 /** GET /api/auth/me – aktueller Benutzer (validiert das Token). */
