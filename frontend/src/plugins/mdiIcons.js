@@ -45,6 +45,7 @@ export {
   mdiClose,
   mdiClockOutline,
   mdiCloudOutline,
+  mdiCloudSyncOutline,
   mdiCloudUploadOutline,
   mdiCogOutline,
   mdiContentSaveOutline,

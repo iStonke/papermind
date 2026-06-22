@@ -890,49 +890,7 @@
                     :inert="selectedCorrespondentId === item.id ? null : true"
                   >
                     <div class="settings-correspondent-editor">
-                      <div class="settings-correspondent-form">
-                        <v-text-field
-                          v-model="editingCorrespondentName"
-                          density="compact"
-                          variant="outlined"
-                          hide-details
-                          label="Name"
-                          maxlength="120"
-                        />
-                        <v-text-field
-                          v-model="editingCorrespondentShortName"
-                          density="compact"
-                          variant="outlined"
-                          hide-details
-                          label="Kurzname"
-                          maxlength="60"
-                        />
-                        <v-btn
-                          icon
-                          variant="text"
-                          color="primary"
-                          class="settings-correspondent-icon-action"
-                          title="Speichern"
-                          :loading="correspondentStore.isMutationRunning"
-                          :disabled="!canSaveSelectedCorrespondent"
-                          @click="saveSelectedCorrespondent"
-                        >
-                          <v-icon size="18">mdi-content-save-outline</v-icon>
-                        </v-btn>
-                        <v-btn
-                          icon
-                          variant="text"
-                          color="error"
-                          class="settings-correspondent-icon-action"
-                          title="Löschen"
-                          :disabled="correspondentStore.isMutationRunning || (item.usage_count || 0) > 0"
-                          @click="removeSelectedCorrespondent"
-                        >
-                          <v-icon size="18">mdi-trash-can-outline</v-icon>
-                        </v-btn>
-                      </div>
-
-                      <div class="settings-correspondent-type-row">
+                      <div class="settings-correspondent-editor__head">
                         <v-btn-toggle
                           :model-value="editingCorrespondentKind"
                           density="compact"
@@ -948,18 +906,71 @@
                             <v-icon size="16" start>mdi-account-outline</v-icon>Person
                           </v-btn>
                         </v-btn-toggle>
-                        <v-select
-                          v-if="editingCorrespondentKind === 'person'"
-                          v-model="editingCorrespondentParentId"
-                          :items="organizationOptions.filter((o) => o.value !== item.id)"
+
+                        <v-spacer />
+
+                        <transition name="fade">
+                          <span
+                            v-if="correspondentSaveState !== 'idle'"
+                            class="settings-correspondent-savestate"
+                            :class="`settings-correspondent-savestate--${correspondentSaveState}`"
+                          >
+                            <v-icon size="14">
+                              {{ correspondentSaveState === 'saving' ? 'mdi-cloud-sync-outline' : 'mdi-check-circle-outline' }}
+                            </v-icon>
+                            {{ correspondentSaveState === 'saving' ? 'Speichert…' : 'Gespeichert' }}
+                          </span>
+                        </transition>
+
+                        <v-btn
+                          icon
+                          variant="text"
+                          size="small"
+                          class="settings-correspondent-icon-action settings-correspondent-delete"
+                          title="Korrespondent löschen"
+                          :disabled="correspondentStore.isMutationRunning || (item.usage_count || 0) > 0"
+                          @click="removeSelectedCorrespondent"
+                        >
+                          <v-icon size="18">mdi-trash-can-outline</v-icon>
+                        </v-btn>
+                      </div>
+
+                      <div class="settings-correspondent-fields">
+                        <v-text-field
+                          v-model="editingCorrespondentName"
                           density="compact"
                           variant="outlined"
-                          hide-details
-                          clearable
-                          label="Gehört zu Organisation"
-                          placeholder="Keine Zuordnung"
-                          class="settings-correspondent-parent-select"
+                          hide-details="auto"
+                          label="Name"
+                          maxlength="120"
+                          :rules="[(v) => (v || '').trim().length >= 2 || 'Mindestens 2 Zeichen']"
+                          @blur="scheduleCorrespondentAutosave(true)"
                         />
+                        <div class="settings-correspondent-fields__row">
+                          <v-text-field
+                            v-model="editingCorrespondentShortName"
+                            density="compact"
+                            variant="outlined"
+                            hide-details
+                            label="Kurzname"
+                            placeholder="optional"
+                            maxlength="60"
+                            @blur="scheduleCorrespondentAutosave(true)"
+                          />
+                          <v-select
+                            v-if="editingCorrespondentKind === 'person'"
+                            :model-value="editingCorrespondentParentId"
+                            :items="organizationOptions.filter((o) => o.value !== item.id)"
+                            density="compact"
+                            variant="outlined"
+                            hide-details
+                            clearable
+                            label="Gehört zu Organisation"
+                            placeholder="Keine Zuordnung"
+                            class="settings-correspondent-parent-select"
+                            @update:model-value="onEditingParentChange"
+                          />
+                        </div>
                       </div>
 
                       <div class="settings-correspondent-block">
@@ -1640,7 +1651,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { useTheme } from 'vuetify';
 import BaseDialog from './BaseDialog.vue';
 import ServiceStatusPanel from './ServiceStatusPanel.vue';
@@ -2812,6 +2823,11 @@ const editingCorrespondentName = ref('');
 const editingCorrespondentShortName = ref('');
 const editingCorrespondentKind = ref(null);
 const editingCorrespondentParentId = ref(null);
+// Auto-Speichern: Status für die dezente Anzeige statt eines Speichern-Buttons.
+const correspondentSaveState = ref('idle'); // 'idle' | 'saving' | 'saved'
+let correspondentAutosaveTimer = null;
+let correspondentSavedResetTimer = null;
+let suppressCorrespondentAutosave = false;
 const newAliasName = ref('');
 const unresolvedCorrespondents = ref([]);
 const unresolvedSelections = ref({});
@@ -2844,20 +2860,26 @@ const categoryTemplatePreviewParts = computed(() =>
   renderCategoryTemplatePreviewParts(editingCategoryTemplate.value)
 );
 
-const canSaveSelectedCorrespondent = computed(() => {
+/**
+ * Weicht der Editor-Zustand vom gespeicherten Korrespondenten ab? Steuert das
+ * Auto-Speichern und schützt laufende Eingaben vor dem Re-Sync bei Listen-Reload.
+ * Personen ohne Organisation sind erlaubt (Privatperson); eine Organisation
+ * trägt nie einen Parent (UI erzwingt das beim Umschalten).
+ */
+function correspondentEditorDirty() {
   const current = selectedCorrespondent.value;
   if (!current) return false;
   const nextName = editingCorrespondentName.value.trim();
   if (!nextName) return false;
-  // Personen ohne gewählte Organisation sind erlaubt (Privatperson); eine
-  // Organisation darf nie einen Parent tragen (UI erzwingt das beim Umschalten).
+  const nextParentId =
+    editingCorrespondentKind.value === 'person' ? editingCorrespondentParentId.value || null : null;
   return (
     nextName !== current.name ||
-    editingCorrespondentShortName.value.trim() !== (current.short_name || '') ||
+    (editingCorrespondentShortName.value.trim() || '') !== (current.short_name || '') ||
     (editingCorrespondentKind.value || null) !== (current.kind || null) ||
-    (editingCorrespondentParentId.value || null) !== (current.parent_id || null)
+    nextParentId !== (current.parent_id || null)
   );
-});
+}
 
 const correspondentNameSort = (a, b) => a.name.localeCompare(b.name, 'de-DE');
 
@@ -3002,7 +3024,9 @@ watch(
     }
     if (selectedCorrespondentId.value) {
       const selected = items.find((item) => item.id === selectedCorrespondentId.value);
-      if (selected) syncCorrespondentEditor(selected);
+      // Nur re-synchronisieren, wenn der Nutzer gerade nichts Ungespeichertes tippt
+      // (verhindert, dass ein nebenläufiger Reload aktive Eingaben überschreibt).
+      if (selected && !correspondentEditorDirty()) syncCorrespondentEditor(selected);
     }
   },
   { deep: true }
@@ -3081,19 +3105,81 @@ async function saveSelectedCategory() {
 }
 
 function syncCorrespondentEditor(correspondent) {
+  // Programmatisches Setzen darf kein Auto-Speichern auslösen.
+  suppressCorrespondentAutosave = true;
   editingCorrespondentName.value = correspondent?.name || '';
   editingCorrespondentShortName.value = correspondent?.short_name || '';
   editingCorrespondentKind.value = correspondent?.kind || null;
   editingCorrespondentParentId.value = correspondent?.parent_id || null;
+  correspondentSaveState.value = 'idle';
+  // Erst nach dem Durchlaufen der Watches wieder freigeben.
+  nextTick(() => {
+    suppressCorrespondentAutosave = false;
+  });
 }
 
-/** Beim Umschalten des Typs die Zwei-Ebenen-Regel im Formular spiegeln. */
+/** Speichert die Editor-Änderungen automatisch (still, ohne Erfolgs-Toast). */
+async function runCorrespondentAutosave() {
+  const current = selectedCorrespondent.value;
+  if (!current) return;
+  const name = editingCorrespondentName.value.trim();
+  if (name.length < 2) return; // ungültiger Name: nicht speichern (Feld zeigt Hinweis)
+  if (!correspondentEditorDirty()) return;
+  correspondentSaveState.value = 'saving';
+  try {
+    await correspondentStore.updateCorrespondent(
+      current.id,
+      {
+        name,
+        short_name: editingCorrespondentShortName.value.trim() || null,
+        kind: editingCorrespondentKind.value || null,
+        parent_id:
+          editingCorrespondentKind.value === 'person' ? editingCorrespondentParentId.value || null : null,
+      },
+      { silent: true }
+    );
+    correspondentSaveState.value = 'saved';
+    if (correspondentSavedResetTimer) clearTimeout(correspondentSavedResetTimer);
+    correspondentSavedResetTimer = setTimeout(() => {
+      if (correspondentSaveState.value === 'saved') correspondentSaveState.value = 'idle';
+    }, 1800);
+  } catch {
+    // Fehler wird im Store als Notification gemeldet.
+    correspondentSaveState.value = 'idle';
+  }
+}
+
+/** Plant das Auto-Speichern: ``immediate`` für Typ/Organisation, sonst entprellt. */
+function scheduleCorrespondentAutosave(immediate = false) {
+  if (suppressCorrespondentAutosave) return;
+  if (correspondentAutosaveTimer) {
+    clearTimeout(correspondentAutosaveTimer);
+    correspondentAutosaveTimer = null;
+  }
+  if (immediate) {
+    runCorrespondentAutosave();
+    return;
+  }
+  correspondentAutosaveTimer = setTimeout(runCorrespondentAutosave, 700);
+}
+
+// Textfelder: entprelltes Auto-Speichern beim Tippen.
+watch([editingCorrespondentName, editingCorrespondentShortName], () => scheduleCorrespondentAutosave(false));
+
+/** Beim Umschalten des Typs die Zwei-Ebenen-Regel spiegeln und sofort speichern. */
 function onEditingKindChange(nextKind) {
   editingCorrespondentKind.value = nextKind || null;
   // Nur Personen dürfen einer Organisation zugeordnet sein.
   if (nextKind !== 'person') {
     editingCorrespondentParentId.value = null;
   }
+  scheduleCorrespondentAutosave(true);
+}
+
+/** Organisations-Zuordnung geändert → sofort speichern. */
+function onEditingParentChange(value) {
+  editingCorrespondentParentId.value = value || null;
+  scheduleCorrespondentAutosave(true);
 }
 
 function selectCorrespondent(correspondent) {
@@ -3209,23 +3295,6 @@ async function ignoreUnresolvedCorrespondent(item) {
     notifyError(error, 'Fall konnte nicht ausgeblendet werden.');
   } finally {
     ignoringUnresolvedId.value = null;
-  }
-}
-
-async function saveSelectedCorrespondent() {
-  const current = selectedCorrespondent.value;
-  if (!current || !canSaveSelectedCorrespondent.value) return;
-  try {
-    await correspondentStore.updateCorrespondent(current.id, {
-      name: editingCorrespondentName.value.trim(),
-      short_name: editingCorrespondentShortName.value.trim() || null,
-      kind: editingCorrespondentKind.value || null,
-      parent_id: editingCorrespondentKind.value === 'person'
-        ? editingCorrespondentParentId.value || null
-        : null,
-    });
-  } catch {
-    /* Fehler wird im Store als Notification gemeldet */
   }
 }
 
@@ -3960,11 +4029,49 @@ async function removeAlias(alias) {
   padding-bottom: 12px;
 }
 
-.settings-correspondent-form {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 150px 36px 36px;
-  gap: 8px;
+/* Kopfzeile des Editors: Typ links, Speicher-Status + Löschen rechts. */
+.settings-correspondent-editor__head {
+  display: flex;
   align-items: center;
+  gap: 10px;
+}
+
+/* Felder gestapelt: Name in voller Breite, darunter Kurzname + Organisation. */
+.settings-correspondent-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-correspondent-fields__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 10px;
+  align-items: start;
+}
+
+/* Dezenter Auto-Speichern-Status statt eines Speichern-Buttons. */
+.settings-correspondent-savestate {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: rgba(var(--v-theme-on-surface), 0.5);
+}
+
+.settings-correspondent-savestate--saved {
+  color: rgb(76, 175, 80);
+}
+
+/* Löschen bewusst zurückhaltend (kein Dauer-Rot in der Kopfzeile). */
+.settings-correspondent-delete {
+  color: rgba(var(--v-theme-on-surface), 0.5) !important;
+}
+
+.settings-correspondent-delete:hover:not(:disabled) {
+  color: rgb(var(--v-theme-error)) !important;
 }
 
 .settings-correspondent-filter {
@@ -3986,16 +4093,19 @@ async function removeAlias(alias) {
   border-bottom-left-radius: 0;
 }
 
-.settings-correspondent-type-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
+.settings-correspondent-parent-select {
+  min-width: 0;
 }
 
-.settings-correspondent-parent-select {
-  flex: 1 1 240px;
-  min-width: 200px;
+/* Sanftes Ein-/Ausblenden des Speicher-Status. */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 200ms ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 
 .settings-correspondent-icon-action {
@@ -4045,7 +4155,7 @@ async function removeAlias(alias) {
   .settings-unresolved-row,
   .settings-category-editor,
   .settings-category-form,
-  .settings-correspondent-form {
+  .settings-correspondent-fields__row {
     grid-template-columns: 1fr;
   }
 

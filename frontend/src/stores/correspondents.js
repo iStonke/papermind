@@ -131,12 +131,13 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
     }
   }
 
-  async function updateCorrespondent(correspondentId, payload) {
+  async function updateCorrespondent(correspondentId, payload, { silent = false } = {}) {
     isMutationRunning.value = true;
     try {
       const updated = await apiUpdateCorrespondent(correspondentId, payload);
       await fetchCorrespondents();
-      notify({ type: 'success', title: 'Korrespondent', message: 'Korrespondent aktualisiert.' });
+      // Beim Auto-Speichern keine Erfolgsmeldung (sonst Toast-Flut pro Tastendruck).
+      if (!silent) notify({ type: 'success', title: 'Korrespondent', message: 'Korrespondent aktualisiert.' });
       return { ok: true, correspondent: updated };
     } catch (error) {
       notify({ type: 'error', message: mapApiError(error, 'Korrespondent konnte nicht aktualisiert werden.') });
