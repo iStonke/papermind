@@ -981,6 +981,20 @@
                               @blur="handleMetadataCorrespondentBlur"
                               @focus="correspondentStore.ensureLoaded()"
                             >
+                              <template #item="{ props: itemProps, item }">
+                                <v-list-item v-bind="itemProps" :prepend-icon="undefined" :title="undefined">
+                                  <template #title>
+                                    <span class="pm-corr-opt">
+                                      <span class="pm-corr-opt__icon">
+                                        <v-icon v-if="item.raw?.kind === 'collection'" size="16">mdi-shape-outline</v-icon>
+                                      </span>
+                                      <span class="pm-corr-opt__label">
+                                        {{ item.raw?.name || item.title }}<template v-if="item.raw?.kind === 'collection'"> · Sammlung</template>
+                                      </span>
+                                    </span>
+                                  </template>
+                                </v-list-item>
+                              </template>
                               <template #selection="{ item }">
                                 {{ item.raw?.short_name || item.raw?.name || item.title }}
                                 <span v-if="item.raw?.kind === 'collection'"> · Sammlung</span>
@@ -1206,7 +1220,7 @@ const detailsCategoryMenuProps = Object.freeze({
 const detailsCorrespondentMenuProps = Object.freeze({
   ...DETAILS_MENU_BASE_PROPS,
   maxHeight: 240,
-  contentClass: 'pm-menu'
+  contentClass: 'pm-menu pm-menu--correspondent'
 });
 const detailsTagsMenuProps = Object.freeze({
   ...DETAILS_MENU_BASE_PROPS,
@@ -9560,13 +9574,28 @@ onBeforeUnmount(() => {
   font-size: 0.8rem;
 }
 
-/* Abstand zwischen Prepend-Icon (z. B. Sammlungs-Symbol) und Beschriftung knapper. */
-.pm-menu .v-list-item__prepend > .v-list-item__spacer {
-  width: 8px;
+/* Korrespondenten-Dropdown: jede Option rendert eine feste Icon-Spalte im
+   Textfluss (Symbol bei Sammlungen, sonst leer), sodass die Beschriftungen
+   aller Einträge in einer Flucht stehen – ohne Überlappung. */
+.pm-corr-opt {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
 }
 
-.pm-menu .v-list-item__prepend > .v-icon {
-  margin-inline-end: 0;
+.pm-corr-opt__icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  justify-content: center;
+  width: 20px;
+  margin-inline-end: 8px;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+}
+
+.pm-corr-opt__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pm-menu .v-list-item:hover {
