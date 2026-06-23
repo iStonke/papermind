@@ -114,6 +114,7 @@ class DocumentTypeService:
             name=document_type_name,
             naming_template=payload.naming_template,
             prompt_hint=payload.prompt_hint,
+            area=payload.area,
             is_active=payload.is_active,
             sort_order=payload.sort_order,
         )
@@ -165,6 +166,8 @@ class DocumentTypeService:
             document_type.naming_template = payload.naming_template
         if "prompt_hint" in fields_set:
             document_type.prompt_hint = payload.prompt_hint
+        if "area" in fields_set:
+            document_type.area = payload.area
         if payload.is_active is not None:
             document_type.is_active = payload.is_active
         if payload.sort_order is not None:

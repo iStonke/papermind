@@ -65,6 +65,24 @@ class CorrespondentAliasDeletionTest(unittest.TestCase):
         db.commit.assert_called_once()
 
 
+class CorrespondentDocumentUnlinkTest(unittest.TestCase):
+    def test_unlink_documents_clears_all_owned_assignments(self) -> None:
+        db = MagicMock()
+        db.execute.return_value.rowcount = 3
+        owner_id = uuid.uuid4()
+        correspondent_id = uuid.uuid4()
+        service = CorrespondentService(db, owner_id)
+        service.get_correspondent_or_404 = MagicMock(
+            return_value=SimpleNamespace(id=correspondent_id)
+        )
+
+        count = service.unlink_documents(correspondent_id)
+
+        self.assertEqual(count, 3)
+        db.execute.assert_called_once()
+        db.commit.assert_called_once()
+
+
 class CorrespondentAliasConflictTest(unittest.TestCase):
     def test_alias_cannot_belong_to_two_correspondents(self) -> None:
         db = MagicMock()

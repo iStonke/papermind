@@ -7006,6 +7006,9 @@ onBeforeUnmount(() => {
 }
 
 .tag-filter-drawer {
+  --tag-drawer-duration: 360ms;
+  --tag-drawer-content-duration: 280ms;
+  --tag-drawer-easing: cubic-bezier(0.22, 1, 0.36, 1);
   flex: 0 0 auto;
   position: relative;
   z-index: 4;
@@ -7018,10 +7021,11 @@ onBeforeUnmount(() => {
   background: var(--pm-drawer-bg-collapsed, rgb(var(--v-theme-surface) / 0.6));
   transform-origin: bottom center;
   transition:
-    max-height 200ms ease-out,
-    margin-top 200ms ease-out,
-    background-color 200ms ease-out,
-    border-color 200ms ease-out;
+    max-height var(--tag-drawer-duration) var(--tag-drawer-easing),
+    margin-top var(--tag-drawer-duration) var(--tag-drawer-easing),
+    background-color 240ms ease,
+    border-color 240ms ease,
+    box-shadow 240ms ease;
   will-change: max-height, margin-top;
 }
 
@@ -7058,16 +7062,21 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow: hidden;
   opacity: 0;
+  transform: translate3d(0, 10px, 0);
   display: flex;
   flex-direction: column;
+  will-change: opacity, transform;
 }
 
 .tag-filter-drawer--animate .tag-filter-drawer__panel {
-  transition: opacity 160ms ease-out;
+  transition:
+    opacity var(--tag-drawer-content-duration) ease,
+    transform var(--tag-drawer-duration) var(--tag-drawer-easing);
 }
 
 .tag-filter-drawer--open .tag-filter-drawer__panel {
   opacity: 1;
+  transform: translate3d(0, 0, 0);
 }
 
 .tag-filter-drawer__panel-inner {
@@ -7237,13 +7246,15 @@ onBeforeUnmount(() => {
 
 .tag-filter-drawer-enter-active,
 .tag-filter-drawer-leave-active {
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transition:
+    opacity 240ms ease,
+    transform 360ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .tag-filter-drawer-enter-from,
 .tag-filter-drawer-leave-to {
   opacity: 0;
-  transform: translateY(12px) scale(0.99);
+  transform: translate3d(0, 10px, 0);
 }
 
 .settings-loading {
@@ -9120,6 +9131,35 @@ onBeforeUnmount(() => {
 
 .pm-drawer-body {
   padding: 4px 16px 12px;
+}
+
+/* Interaktive Elemente in der Detailsschublade dürfen bei Hover/Fokus ihre
+   Geometrie nicht verändern. Vuetify bringt für Buttons, Icons und Felder
+   Transform-Transitions mit, die hier als leichtes Wackeln sichtbar werden. */
+.details-drawer__header .v-btn,
+.details-drawer__header .v-btn__content,
+.details-drawer__header .v-icon,
+.details-drawer__body .v-btn,
+.details-drawer__body .v-btn__content,
+.details-drawer__body .v-chip,
+.details-drawer__body .v-chip__content,
+.details-drawer__body .v-chip__close,
+.details-drawer__body .v-icon,
+.details-drawer__body .v-field,
+.details-drawer__body .v-field__input,
+.details-drawer__body .pm-prop-field,
+.details-drawer__body .pm-tags-input {
+  transform: none !important;
+  translate: none !important;
+}
+
+.details-drawer__header .v-btn,
+.details-drawer__body .v-btn,
+.details-drawer__body .v-chip,
+.details-drawer__body .v-field,
+.details-drawer__body .pm-prop-field,
+.details-drawer__body .pm-tags-input {
+  transition-property: background-color, border-color, box-shadow, color, opacity !important;
 }
 
 /* Eigenschaftslisten-Layout: Label links, Wert rechts, Hairline-Trennlinien.

@@ -13,6 +13,7 @@ import {
   deleteCorrespondent as apiDeleteCorrespondent,
   deleteCorrespondentAlias as apiDeleteAlias,
   listCorrespondents,
+  unlinkCorrespondentDocuments as apiUnlinkCorrespondentDocuments,
   updateCorrespondent as apiUpdateCorrespondent,
 } from '../api/correspondents.js';
 import { mapApiError, useNotifications } from './notifications.js';
@@ -181,6 +182,31 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
     }
   }
 
+  async function unlinkDocuments(correspondentId) {
+    isMutationRunning.value = true;
+    try {
+      const result = await apiUnlinkCorrespondentDocuments(correspondentId);
+      await fetchCorrespondents();
+      const count = Number(result?.count || 0);
+      notify({
+        type: 'success',
+        title: 'Korrespondent',
+        message: count === 1
+          ? '1 Dokumentzuordnung wurde gelöst.'
+          : `${count} Dokumentzuordnungen wurden gelöst.`,
+      });
+      return { ok: true, count };
+    } catch (error) {
+      notify({
+        type: 'error',
+        message: mapApiError(error, 'Dokumentzuordnungen konnten nicht gelöst werden.'),
+      });
+      throw error;
+    } finally {
+      isMutationRunning.value = false;
+    }
+  }
+
   async function deleteAlias(correspondentId, aliasId) {
     const isRecognitionName = findById(correspondentId)?.kind === 'collection';
     const term = isRecognitionName ? 'Erkennungsname' : 'Alias';
@@ -210,6 +236,7 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
     createCorrespondentByName,
     updateCorrespondent,
     deleteCorrespondent,
+    unlinkDocuments,
     addAlias,
     deleteAlias,
   };

@@ -1,7 +1,7 @@
 import logging
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -249,6 +249,22 @@ class CorrespondentService:
             )
         self.db.delete(correspondent)
         self.db.commit()
+
+    def unlink_documents(self, correspondent_id: uuid.UUID) -> int:
+        """Löst alle Dokumentzuordnungen, behält den Korrespondenten aber bei."""
+        self.get_correspondent_or_404(correspondent_id)
+        stmt = update(Document).where(Document.correspondent_id == correspondent_id)
+        if self.owner_id is not None:
+            stmt = stmt.where(Document.owner_id == self.owner_id)
+        result = self.db.execute(stmt.values(correspondent_id=None))
+        self.db.commit()
+        count = int(result.rowcount or 0)
+        logger.info(
+            "correspondent document assignments unlinked correspondent_id=%s count=%s",
+            correspondent_id,
+            count,
+        )
+        return count
 
     def add_alias(self, correspondent_id: uuid.UUID, alias: str) -> Correspondent:
         correspondent = self.get_correspondent_or_404(correspondent_id)

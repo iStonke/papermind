@@ -635,9 +635,34 @@
                 </div>
               </div>
 
+              <div class="settings-category-filter">
+                <v-chip-group
+                  v-model="documentTypeAreaFilter"
+                  mandatory
+                  selected-class="text-primary"
+                >
+                  <v-chip value="all" size="small" variant="outlined" filter>
+                    Alle {{ categoryStore.sortedCategories.length }}
+                  </v-chip>
+                  <v-chip
+                    v-for="area in documentTypeAreas"
+                    :key="area.value"
+                    :value="area.value"
+                    size="small"
+                    variant="outlined"
+                    filter
+                  >
+                    {{ area.label }} {{ documentTypeAreaCounts[area.value] || 0 }}
+                  </v-chip>
+                  <v-chip value="unassigned" size="small" variant="outlined" filter>
+                    Ohne Zuordnung {{ documentTypeAreaCounts.unassigned || 0 }}
+                  </v-chip>
+                </v-chip-group>
+              </div>
+
               <div class="settings-categories">
                 <div
-                  v-for="cat in categoryStore.sortedCategories"
+                  v-for="cat in displayedDocumentTypes"
                   :key="cat.id"
                   class="settings-category-row"
                   :class="{ 'settings-category-row--active': selectedCategoryId === cat.id }"
@@ -654,8 +679,7 @@
                       <div class="settings-category-text">
                         <span class="settings-category-name">{{ cat.name }}</span>
                         <span class="settings-category-meta">
-                          {{ cat.is_active === false ? 'inaktiv' : 'aktiv' }}
-                          <template v-if="cat.naming_template"> · Template</template>
+                          {{ documentTypeAreaLabel(cat.area) }}
                         </span>
                       </div>
                     </div>
@@ -684,6 +708,19 @@
                           label="Name"
                           @keydown.enter.prevent="scheduleCategoryAutosave(true)"
                           @blur="scheduleCategoryAutosave(true)"
+                        />
+                        <v-select
+                          v-model="editingCategoryArea"
+                          :items="documentTypeAreas"
+                          item-title="label"
+                          item-value="value"
+                          density="compact"
+                          variant="outlined"
+                          hide-details
+                          clearable
+                          label="Bereich"
+                          placeholder="Ohne Zuordnung"
+                          @update:model-value="scheduleCategoryAutosave(true)"
                         />
                         <transition name="fade">
                           <span
@@ -741,8 +778,10 @@
                   </div>
                 </div>
 
-                <div v-if="categoryStore.sortedCategories.length === 0" class="settings-category-empty">
-                  Noch keine Dokumenttypen angelegt.
+                <div v-if="displayedDocumentTypes.length === 0" class="settings-category-empty">
+                  {{ categoryStore.sortedCategories.length === 0
+                    ? 'Noch keine Dokumenttypen angelegt.'
+                    : 'Keine Dokumenttypen in diesem Bereich.' }}
                 </div>
               </div>
             </div>
@@ -936,16 +975,29 @@
                           </span>
                         </transition>
 
-                        <span
-                          class="settings-correspondent-delete-wrapper"
-                          :title="correspondentDeleteTitle(item)"
-                        >
+                        <span class="settings-correspondent-delete-wrapper">
                           <v-btn
+                            v-if="(item.usage_count || 0) > 0"
                             icon
                             variant="text"
                             size="small"
+                            color="primary"
+                            class="settings-correspondent-icon-action settings-correspondent-unlink"
+                            :title="correspondentUnlinkTitle(item)"
+                            :disabled="correspondentStore.isMutationRunning"
+                            @click="openCorrespondentUnlinkConfirm(item)"
+                          >
+                            <v-icon size="18">mdi-link-off</v-icon>
+                          </v-btn>
+                          <v-btn
+                            v-else
+                            icon
+                            variant="text"
+                            size="small"
+                            color="error"
                             class="settings-correspondent-icon-action settings-correspondent-delete"
-                            :disabled="correspondentStore.isMutationRunning || (item.usage_count || 0) > 0"
+                            title="Korrespondent löschen"
+                            :disabled="correspondentStore.isMutationRunning"
                             @click="removeSelectedCorrespondent"
                           >
                             <v-icon size="18">mdi-trash-can-outline</v-icon>
@@ -1158,6 +1210,20 @@
               @primary="confirmCollectionTypeChange"
               @secondary="cancelCollectionTypeChange"
               @close="cancelCollectionTypeChange"
+            />
+
+            <ConfirmDialog
+              v-model="correspondentUnlinkConfirmOpen"
+              title="Alle Dokumentzuordnungen lösen?"
+              :description="correspondentUnlinkConfirmDescription"
+              primary-text="Zuordnungen lösen"
+              secondary-text="Abbrechen"
+              icon="mdi-link-off"
+              max-width="540"
+              :loading="correspondentStore.isMutationRunning"
+              @primary="confirmCorrespondentUnlink"
+              @secondary="cancelCorrespondentUnlink"
+              @close="cancelCorrespondentUnlink"
             />
           </div>
         </section>
@@ -1754,6 +1820,19 @@ const categoryStore = useCategoryStore();
 const correspondentStore = useCorrespondentStore();
 
 const VOCAB_NAME_MAX_LENGTH = 30;
+const documentTypeAreas = [
+  { value: 'finance', label: 'Finanzen' },
+  { value: 'contracts_law', label: 'Verträge & Recht' },
+  { value: 'insurance', label: 'Versicherungen' },
+  { value: 'government_tax', label: 'Behörden & Steuern' },
+  { value: 'employment', label: 'Personal' },
+  { value: 'health', label: 'Gesundheit' },
+  { value: 'access_it', label: 'Zugang & IT' },
+  { value: 'other', label: 'Sonstiges' },
+];
+const documentTypeAreaLabels = Object.fromEntries(
+  documentTypeAreas.map((area) => [area.value, area.label])
+);
 const tagStore = useTagStore();
 const { notify } = useNotifications();
 const settingsDraft = settingsStore.settingsDraft;
@@ -2842,9 +2921,11 @@ function toggleAnimationsFromRow() {
 // ── Dokumenttypen-Verwaltung ───────────────────────────────────────────────────
 
 const newCategoryName = ref('');
+const documentTypeAreaFilter = ref('all');
 const selectedCategoryId = ref(null);
 const editingCategoryName = ref('');
 const editingCategoryTemplate = ref('');
+const editingCategoryArea = ref(null);
 // Auto-Speichern (analog Korrespondenten): dezenter Status statt Speichern-Button.
 const categorySaveState = ref('idle'); // 'idle' | 'saving' | 'saved'
 let categoryAutosaveTimer = null;
@@ -2861,6 +2942,8 @@ const editingCorrespondentKind = ref(null);
 const editingCorrespondentParentId = ref(null);
 const collectionTypeConfirmOpen = ref(false);
 const pendingCorrespondentKind = ref(null);
+const correspondentUnlinkConfirmOpen = ref(false);
+const pendingCorrespondentUnlink = ref(null);
 // Auto-Speichern: Status für die dezente Anzeige statt eines Speichern-Buttons.
 const correspondentSaveState = ref('idle'); // 'idle' | 'saving' | 'saved'
 let correspondentAutosaveTimer = null;
@@ -2883,6 +2966,29 @@ const selectedCategory = computed(() =>
   selectedCategoryId.value ? categoryStore.findById(selectedCategoryId.value) : null
 );
 
+const documentTypeAreaCounts = computed(() => {
+  const counts = { unassigned: 0 };
+  for (const category of categoryStore.sortedCategories) {
+    const key = category?.area || 'unassigned';
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  return counts;
+});
+
+const displayedDocumentTypes = computed(() => {
+  if (documentTypeAreaFilter.value === 'all') return categoryStore.sortedCategories;
+  if (documentTypeAreaFilter.value === 'unassigned') {
+    return categoryStore.sortedCategories.filter((category) => !category?.area);
+  }
+  return categoryStore.sortedCategories.filter(
+    (category) => category?.area === documentTypeAreaFilter.value
+  );
+});
+
+function documentTypeAreaLabel(area) {
+  return documentTypeAreaLabels[area] || 'Ohne Zuordnung';
+}
+
 /** Weicht der Kategorie-Editor vom gespeicherten Stand ab? (steuert Auto-Speichern) */
 function categoryEditorDirty() {
   const current = selectedCategory.value;
@@ -2891,7 +2997,8 @@ function categoryEditorDirty() {
   if (!nextName) return false;
   return (
     nextName !== current.name ||
-    editingCategoryTemplate.value.trim() !== (current.naming_template || '')
+    editingCategoryTemplate.value.trim() !== (current.naming_template || '') ||
+    (editingCategoryArea.value || null) !== (current.area || null)
   );
 }
 
@@ -3033,13 +3140,21 @@ function correspondentAliasAddTitle(item) {
   return item?.kind === 'collection' ? 'Erkennungsname hinzufügen' : 'Alias hinzufügen';
 }
 
-function correspondentDeleteTitle(item) {
+function correspondentUnlinkTitle(item) {
   const usageCount = Number(item?.usage_count || 0);
-  if (usageCount === 1) return 'Kann nicht gelöscht werden: 1 Dokument ist zugeordnet.';
-  if (usageCount > 1) return `Kann nicht gelöscht werden: ${usageCount} Dokumente sind zugeordnet.`;
-  if (correspondentStore.isMutationRunning) return 'Bitte warten, solange eine Änderung gespeichert wird.';
-  return 'Korrespondent löschen';
+  if (usageCount === 1) return 'Zuordnung zu 1 Dokument lösen';
+  return `Zuordnungen zu ${usageCount} Dokumenten lösen`;
 }
+
+const correspondentUnlinkConfirmDescription = computed(() => {
+  const item = pendingCorrespondentUnlink.value;
+  const usageCount = Number(item?.usage_count || 0);
+  if (!item || usageCount <= 0) return '';
+  const assignmentText = usageCount === 1
+    ? 'Die Zuordnung zu 1 Dokument'
+    : `Die Zuordnungen zu ${usageCount} Dokumenten`;
+  return `${assignmentText} werden gelöst. Der Korrespondent „${item.name}“ sowie seine Aliase bleiben erhalten.`;
+});
 
 function unresolvedRecognitionTitle(documentId) {
   const correspondent = correspondentStore.findById(unresolvedSelections.value[documentId]);
@@ -3190,6 +3305,7 @@ function syncCategoryEditor(category) {
   suppressCategoryAutosave = true;
   editingCategoryName.value = category?.name || '';
   editingCategoryTemplate.value = category?.naming_template || '';
+  editingCategoryArea.value = category?.area || null;
   categorySaveState.value = 'idle';
   nextTick(() => {
     suppressCategoryAutosave = false;
@@ -3209,6 +3325,7 @@ async function runCategoryAutosave() {
       {
         name: editingCategoryName.value.trim(),
         naming_template: editingCategoryTemplate.value.trim() || null,
+        area: editingCategoryArea.value || null,
       },
       { silent: true }
     );
@@ -3238,7 +3355,10 @@ function scheduleCategoryAutosave(immediate = false) {
 }
 
 // Felder: entprelltes Auto-Speichern beim Tippen.
-watch([editingCategoryName, editingCategoryTemplate], () => scheduleCategoryAutosave(false));
+watch(
+  [editingCategoryName, editingCategoryTemplate, editingCategoryArea],
+  () => scheduleCategoryAutosave(false)
+);
 
 function selectCategory(category) {
   selectedCategoryId.value = category?.id || null;
@@ -3506,6 +3626,31 @@ async function removeSelectedCorrespondent() {
   }
 }
 
+function openCorrespondentUnlinkConfirm(item) {
+  if (!item || Number(item.usage_count || 0) <= 0) return;
+  pendingCorrespondentUnlink.value = item;
+  correspondentUnlinkConfirmOpen.value = true;
+}
+
+function cancelCorrespondentUnlink() {
+  if (correspondentStore.isMutationRunning) return;
+  correspondentUnlinkConfirmOpen.value = false;
+  pendingCorrespondentUnlink.value = null;
+}
+
+async function confirmCorrespondentUnlink() {
+  const item = pendingCorrespondentUnlink.value;
+  if (!item || correspondentStore.isMutationRunning) return;
+  try {
+    await correspondentStore.unlinkDocuments(item.id);
+    correspondentUnlinkConfirmOpen.value = false;
+    pendingCorrespondentUnlink.value = null;
+    emit('reload-imports');
+  } catch {
+    /* Fehler wird im Store als Notification gemeldet */
+  }
+}
+
 async function addAliasToSelected() {
   const current = selectedCorrespondent.value;
   const alias = newAliasName.value.trim();
@@ -3677,7 +3822,6 @@ async function removeAlias(alias) {
   gap: 14px;
   margin: 0;
   padding: 10px 0 14px;
-  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
 }
 
 .settings-categories {
@@ -3686,6 +3830,16 @@ async function removeAlias(alias) {
   gap: 8px;
   width: 100%;
   padding-top: 12px;
+}
+
+.settings-category-filter {
+  display: flex;
+  justify-content: flex-start;
+  margin: 2px 0;
+}
+
+.settings-category-filter :deep(.v-chip-group) {
+  padding: 0;
 }
 
 /* ── Seitenleisten-Sektionen (Reihenfolge & Sichtbarkeit) ───────────────── */
@@ -3969,7 +4123,7 @@ async function removeAlias(alias) {
 
 .settings-category-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 36px;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.55fr) auto 36px;
   gap: 8px;
   align-items: center;
 }
@@ -4278,9 +4432,8 @@ async function removeAlias(alias) {
   color: rgb(76, 175, 80);
 }
 
-/* Löschen bewusst zurückhaltend (kein Dauer-Rot in der Kopfzeile). */
 .settings-correspondent-delete {
-  color: rgba(var(--v-theme-on-surface), 0.5) !important;
+  color: rgb(var(--v-theme-error)) !important;
 }
 
 .settings-correspondent-delete-wrapper {
@@ -4290,6 +4443,15 @@ async function removeAlias(alias) {
 
 .settings-correspondent-delete:hover:not(:disabled) {
   color: rgb(var(--v-theme-error)) !important;
+  background: rgba(var(--v-theme-error), 0.08);
+}
+
+.settings-correspondent-unlink {
+  color: rgba(var(--v-theme-primary), 0.9) !important;
+}
+
+.settings-correspondent-unlink:hover:not(:disabled) {
+  background: rgba(var(--v-theme-primary), 0.08);
 }
 
 .settings-correspondent-filter {

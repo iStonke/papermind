@@ -24,6 +24,10 @@ export const updateCorrespondent = (correspondentId, payload) =>
 export const deleteCorrespondent = (correspondentId) =>
   apiDelete(`/api/correspondents/${correspondentId}`);
 
+/** POST /api/correspondents/{id}/unlink-documents */
+export const unlinkCorrespondentDocuments = (correspondentId) =>
+  apiPost(`/api/correspondents/${correspondentId}/unlink-documents`, {});
+
 /** POST /api/correspondents/{id}/aliases */
 export const addCorrespondentAlias = (correspondentId, alias) =>
   apiPost(`/api/correspondents/${correspondentId}/aliases`, { alias });

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_current_user
 from app.db import get_db
 from app.models.user import User
-from app.schemas.common import ErrorResponse, OkResponse
+from app.schemas.common import CountResponse, ErrorResponse, OkResponse
 from app.schemas.correspondents import (
     CorrespondentAliasCreateRequest,
     CorrespondentCreateRequest,
@@ -123,6 +123,21 @@ def delete_correspondent(correspondent_id: uuid.UUID, db: Session = Depends(get_
     service = CorrespondentService(db, user.id)
     service.delete_correspondent(correspondent_id)
     return OkResponse()
+
+
+@router.post(
+    "/{correspondent_id}/unlink-documents",
+    response_model=CountResponse,
+    summary="Remove all document assignments from a correspondent",
+    responses={404: {"model": ErrorResponse}},
+)
+def unlink_correspondent_documents(
+    correspondent_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> CountResponse:
+    service = CorrespondentService(db, user.id)
+    return CountResponse(count=service.unlink_documents(correspondent_id))
 
 
 @router.post(
