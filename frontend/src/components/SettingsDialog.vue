@@ -682,20 +682,21 @@
                           variant="outlined"
                           hide-details
                           label="Name"
-                          @keydown.enter.prevent="saveSelectedCategory"
+                          @keydown.enter.prevent="scheduleCategoryAutosave(true)"
+                          @blur="scheduleCategoryAutosave(true)"
                         />
-                        <v-btn
-                          icon
-                          variant="text"
-                          color="primary"
-                          class="settings-category-action-btn"
-                          title="Speichern"
-                          :loading="categoryStore.isCategoryMutationRunning"
-                          :disabled="!canSaveSelectedCategory"
-                          @click="saveSelectedCategory"
-                        >
-                          <v-icon size="18">mdi-content-save-outline</v-icon>
-                        </v-btn>
+                        <transition name="fade">
+                          <span
+                            v-if="categorySaveState !== 'idle'"
+                            class="settings-correspondent-savestate"
+                            :class="`settings-correspondent-savestate--${categorySaveState}`"
+                          >
+                            <v-icon size="14">
+                              {{ categorySaveState === 'saving' ? 'mdi-cloud-sync-outline' : 'mdi-check-circle-outline' }}
+                            </v-icon>
+                            {{ categorySaveState === 'saving' ? 'Speichert…' : 'Gespeichert' }}
+                          </span>
+                        </transition>
                         <v-btn
                           icon
                           variant="text"
@@ -718,6 +719,7 @@
                           auto-grow
                           label="Dateiname-Template"
                           placeholder="z. B. {betreff} {datum:dd.MM.yyyy}"
+                          @blur="scheduleCategoryAutosave(true)"
                         />
                         <div class="settings-template-preview">
                           <span class="settings-template-preview__label">Vorschau</span>
@@ -2843,6 +2845,11 @@ const newCategoryName = ref('');
 const selectedCategoryId = ref(null);
 const editingCategoryName = ref('');
 const editingCategoryTemplate = ref('');
+// Auto-Speichern (analog Korrespondenten): dezenter Status statt Speichern-Button.
+const categorySaveState = ref('idle'); // 'idle' | 'saving' | 'saved'
+let categoryAutosaveTimer = null;
+let categorySavedResetTimer = null;
+let suppressCategoryAutosave = false;
 
 const newCorrespondentName = ref('');
 const newCorrespondentKind = ref('organization');
@@ -2876,7 +2883,8 @@ const selectedCategory = computed(() =>
   selectedCategoryId.value ? categoryStore.findById(selectedCategoryId.value) : null
 );
 
-const canSaveSelectedCategory = computed(() => {
+/** Weicht der Kategorie-Editor vom gespeicherten Stand ab? (steuert Auto-Speichern) */
+function categoryEditorDirty() {
   const current = selectedCategory.value;
   if (!current) return false;
   const nextName = editingCategoryName.value.trim();
@@ -2885,7 +2893,7 @@ const canSaveSelectedCategory = computed(() => {
     nextName !== current.name ||
     editingCategoryTemplate.value.trim() !== (current.naming_template || '')
   );
-});
+}
 
 const categoryTemplatePreviewParts = computed(() =>
   renderCategoryTemplatePreviewParts(editingCategoryTemplate.value)
@@ -3148,7 +3156,8 @@ watch(
     }
     if (selectedCategoryId.value) {
       const selected = items.find((item) => item.id === selectedCategoryId.value);
-      if (selected) syncCategoryEditor(selected);
+      // Laufende Eingaben nicht überschreiben.
+      if (selected && !categoryEditorDirty()) syncCategoryEditor(selected);
     }
   },
   { deep: true }
@@ -3177,9 +3186,59 @@ async function removeCategory(category) {
 }
 
 function syncCategoryEditor(category) {
+  // Programmatisches Setzen darf kein Auto-Speichern auslösen.
+  suppressCategoryAutosave = true;
   editingCategoryName.value = category?.name || '';
   editingCategoryTemplate.value = category?.naming_template || '';
+  categorySaveState.value = 'idle';
+  nextTick(() => {
+    suppressCategoryAutosave = false;
+  });
 }
+
+/** Speichert die Dokumenttyp-Änderungen automatisch (still, ohne Erfolgs-Toast). */
+async function runCategoryAutosave() {
+  const current = selectedCategory.value;
+  if (!current) return;
+  if (!editingCategoryName.value.trim()) return; // leerer Name: nicht speichern
+  if (!categoryEditorDirty()) return;
+  categorySaveState.value = 'saving';
+  try {
+    await categoryStore.updateCategory(
+      current.id,
+      {
+        name: editingCategoryName.value.trim(),
+        naming_template: editingCategoryTemplate.value.trim() || null,
+      },
+      { silent: true }
+    );
+    categorySaveState.value = 'saved';
+    if (categorySavedResetTimer) clearTimeout(categorySavedResetTimer);
+    categorySavedResetTimer = setTimeout(() => {
+      if (categorySaveState.value === 'saved') categorySaveState.value = 'idle';
+    }, 1800);
+  } catch {
+    // Fehler wird im Store als Notification gemeldet.
+    categorySaveState.value = 'idle';
+  }
+}
+
+/** Plant das Auto-Speichern: ``immediate`` beim Verlassen des Felds, sonst entprellt. */
+function scheduleCategoryAutosave(immediate = false) {
+  if (suppressCategoryAutosave) return;
+  if (categoryAutosaveTimer) {
+    clearTimeout(categoryAutosaveTimer);
+    categoryAutosaveTimer = null;
+  }
+  if (immediate) {
+    runCategoryAutosave();
+    return;
+  }
+  categoryAutosaveTimer = setTimeout(runCategoryAutosave, 700);
+}
+
+// Felder: entprelltes Auto-Speichern beim Tippen.
+watch([editingCategoryName, editingCategoryTemplate], () => scheduleCategoryAutosave(false));
 
 function selectCategory(category) {
   selectedCategoryId.value = category?.id || null;
@@ -3194,18 +3253,6 @@ function toggleCategory(category) {
   selectCategory(category);
 }
 
-async function saveSelectedCategory() {
-  const current = selectedCategory.value;
-  if (!current || !canSaveSelectedCategory.value) return;
-  try {
-    await categoryStore.updateCategory(current.id, {
-      name: editingCategoryName.value.trim(),
-      naming_template: editingCategoryTemplate.value.trim() || null,
-    });
-  } catch {
-    /* Fehler wird im Store als Notification gemeldet */
-  }
-}
 
 function syncCorrespondentEditor(correspondent) {
   // Programmatisches Setzen darf kein Auto-Speichern auslösen.
@@ -3922,7 +3969,7 @@ async function removeAlias(alias) {
 
 .settings-category-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 36px 36px;
+  grid-template-columns: minmax(0, 1fr) auto 36px;
   gap: 8px;
   align-items: center;
 }

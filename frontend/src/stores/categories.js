@@ -142,7 +142,7 @@ export const useCategoryStore = defineStore('categories', () => {
   }
 
   /** PATCH /api/document-types/{id} */
-  async function updateCategory(id, payload = {}) {
+  async function updateCategory(id, payload = {}, { silent = false } = {}) {
     const nextPayload = { ...payload };
     if ('name' in nextPayload) {
       nextPayload.name = normalizeCategoryName(nextPayload.name);
@@ -167,7 +167,8 @@ export const useCategoryStore = defineStore('categories', () => {
     try {
       const updated = await apiUpdateCategory(id, nextPayload);
       await fetchCategories();
-      notify({ type: 'success', title: 'Dokumenttyp', message: 'Dokumenttyp aktualisiert.' });
+      // Beim Auto-Speichern keine Erfolgsmeldung (sonst Toast-Flut pro Tastendruck).
+      if (!silent) notify({ type: 'success', title: 'Dokumenttyp', message: 'Dokumenttyp aktualisiert.' });
       return { ok: true, category: updated };
     } catch (error) {
       notify({ type: 'error', message: mapApiError(error, 'Dokumenttyp konnte nicht aktualisiert werden.') });
