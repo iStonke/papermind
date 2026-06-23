@@ -33,7 +33,10 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
   let loadAttempted = false;
   let lastLoadFailedAt = 0;
 
-  /** Für v-autocomplete: { title, value } sortiert nach Name. */
+  /**
+   * Für v-autocomplete: { title, value }. Sammlungen stehen geschlossen am
+   * Anfang (jeweils A–Z), danach die übrigen Korrespondenten A–Z.
+   */
   const correspondentOptions = computed(() =>
     correspondents.value
       .map((c) => ({
@@ -46,7 +49,12 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
           prependIcon: c.kind === 'collection' ? 'mdi-shape-outline' : undefined,
         },
       }))
-      .sort((a, b) => a.title.localeCompare(b.title, 'de-DE'))
+      .sort((a, b) => {
+        const aCollection = a.kind === 'collection';
+        const bCollection = b.kind === 'collection';
+        if (aCollection !== bCollection) return aCollection ? -1 : 1;
+        return a.name.localeCompare(b.name, 'de-DE');
+      })
   );
 
   function normalizeName(value) {

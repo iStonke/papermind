@@ -9560,6 +9560,15 @@ onBeforeUnmount(() => {
   font-size: 0.8rem;
 }
 
+/* Abstand zwischen Prepend-Icon (z. B. Sammlungs-Symbol) und Beschriftung knapper. */
+.pm-menu .v-list-item__prepend > .v-list-item__spacer {
+  width: 8px;
+}
+
+.pm-menu .v-list-item__prepend > .v-icon {
+  margin-inline-end: 0;
+}
+
 .pm-menu .v-list-item:hover {
   background: rgba(var(--v-theme-on-surface), 0.06);
 }
