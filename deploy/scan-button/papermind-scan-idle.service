@@ -4,9 +4,11 @@ Description=PaperMind Scan – Batch automatisch abschließen, wenn er ruht
 
 [Service]
 Type=oneshot
-Environment=SCAN_INBOX_DIR=/home/pi/papermind/scan-inbox
 Environment=IDLE_SECONDS=180
-ExecStart=/home/pi/papermind/deploy/scan-button/papermind-scan.sh finalize-idle
-# Muss dieselbe Identität wie scanbd haben, damit der Lock/Batch passt:
-User=saned
-Group=scanner
+# Pfad an die tatsächliche Repo-Position anpassen (scan-inbox wird vom Script
+# selbst aus dem Repo-Pfad abgeleitet):
+ExecStart=/home/jan/papermind/deploy/scan-button/papermind-scan.sh finalize-idle
+# Gleiche Identität wie scanbd (siehe scanbd.conf user/group), damit Lock/Batch
+# und Dateibesitz konsistent sind:
+User=jan
+Group=jan

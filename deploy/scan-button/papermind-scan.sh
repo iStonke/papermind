@@ -3,8 +3,8 @@
 #  PaperMind – Flachbett-Scan über Hardware-Tasten (Canon LiDE 400)
 #
 #  Der Scanner hängt per USB am HOST (Pi), nicht im unprivilegierten Container.
-#  Dieses Script läuft daher auf dem HOST und wird von ``scanbd`` aufgerufen,
-#  wenn eine der 5 Scan-Tasten gedrückt wird (siehe scanbd-papermind.conf).
+#  Dieses Script läuft daher auf dem HOST und wird vom Tasten-Poller
+#  ``papermind-scan-watch.sh`` aufgerufen, wenn eine Scan-Taste gedrückt wird.
 #
 #  Es schreibt das fertige PDF in den bestehenden Drop-Ordner ``scan-inbox``.
 #  Ab da übernimmt der ganz normale PaperMind-Weg (identisch zur SMB-Aktion):
@@ -23,8 +23,8 @@
 #                  (Sicherheitsnetz, von einem systemd-Timer aufgerufen).
 #    status        Aktuellen Batch-Stand ausgeben (Debug).
 #
-#  Konfiguration über Environment (Defaults für /home/pi/papermind):
-#    SCAN_INBOX_DIR   Ziel-Drop-Ordner (== Host-Mount von /scan-inbox)
+#  Konfiguration über Environment:
+#    SCAN_INBOX_DIR   Ziel-Drop-Ordner (Default: aus Repo-Pfad abgeleitet)
 #    SCAN_DEVICE      SANE-Device (leer = Default-Scanner)
 #    SCAN_RESOLUTION  DPI (Default 300)
 #    SCAN_MODE        Color | Gray | Lineart (Default Color)
@@ -33,18 +33,31 @@
 
 set -euo pipefail
 
-SCAN_INBOX_DIR="${SCAN_INBOX_DIR:-/home/pi/papermind/scan-inbox}"
+# scan-inbox wird standardmäßig aus dem eigenen Repo-Pfad abgeleitet
+# (<repo>/deploy/scan-button/ -> <repo>/scan-inbox), damit der Pfad nicht vom
+# Benutzernamen abhängt. Per SCAN_INBOX_DIR override-bar.
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+_REPO_ROOT="$(cd "${_SCRIPT_DIR}/../.." && pwd)"
+SCAN_INBOX_DIR="${SCAN_INBOX_DIR:-${_REPO_ROOT}/scan-inbox}"
 # Batch-Ablage als Dot-Verzeichnis IM Drop-Ordner: Der Worker ignoriert
 # Dateien/Ordner mit führendem Punkt, sieht also nur die fertige PDF.
 BATCH_DIR="${BATCH_DIR:-${SCAN_INBOX_DIR}/.papermind-batch}"
 LOCK_FILE="${LOCK_FILE:-${SCAN_INBOX_DIR}/.papermind-scan.lock}"
 
+# Gerät: SCAN_DEVICE wird vom Poller (papermind-scan-watch.sh) exportiert;
+# leer = SANE-Default-Scanner.
 SCAN_DEVICE="${SCAN_DEVICE:-}"
 SCAN_RESOLUTION="${SCAN_RESOLUTION:-300}"
 SCAN_MODE="${SCAN_MODE:-Color}"
 IDLE_SECONDS="${IDLE_SECONDS:-180}"
 
-log() { echo "[papermind-scan] $*"; }
+# Ausgabe sowohl auf stdout (manueller Aufruf) als auch nach syslog – Letzteres,
+# damit man bei tastengesteuerten Läufen (scanbd verschluckt stdout) in
+# `journalctl -t papermind-scan` sieht, was passiert ist.
+log() {
+  echo "[papermind-scan] $*"
+  command -v logger >/dev/null 2>&1 && logger -t papermind-scan -- "$*" || true
+}
 die() { log "FEHLER: $*"; exit 1; }
 
 _require() { command -v "$1" >/dev/null 2>&1 || die "Benötigtes Programm fehlt: $1"; }

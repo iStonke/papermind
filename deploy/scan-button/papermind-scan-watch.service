@@ -1,0 +1,19 @@
+[Unit]
+Description=PaperMind Scan-Tasten-Poller (Canon LiDE 400, Ersatz für scanbd)
+After=multi-user.target
+
+[Service]
+Type=simple
+# Pfad an die tatsächliche Repo-Position anpassen:
+ExecStart=/home/jan/papermind/deploy/scan-button/papermind-scan-watch.sh
+Restart=always
+RestartSec=5
+# Muss der Eigentümer von scan-inbox sein und den Scanner nutzen dürfen:
+User=jan
+Group=jan
+# Optional festes Gerät statt Auto-Erkennung:
+# Environment=SCAN_DEVICE=pixma:04A91912_50F25C
+# Environment=POLL_INTERVAL=0.7
+
+[Install]
+WantedBy=multi-user.target
