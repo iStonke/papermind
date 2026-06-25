@@ -1,0 +1,12 @@
+[Unit]
+Description=PaperMind Scan – Batch automatisch abschließen, wenn er ruht
+# Sicherheitsnetz, falls die "PDF/file"-Taste mal vergessen wird.
+
+[Service]
+Type=oneshot
+Environment=SCAN_INBOX_DIR=/home/pi/papermind/scan-inbox
+Environment=IDLE_SECONDS=180
+ExecStart=/home/pi/papermind/deploy/scan-button/papermind-scan.sh finalize-idle
+# Muss dieselbe Identität wie scanbd haben, damit der Lock/Batch passt:
+User=saned
+Group=scanner
