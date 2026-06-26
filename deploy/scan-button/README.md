@@ -145,7 +145,9 @@ in `papermind-scan.sh` (oder als `Environment=` in der `.service`):
 | Variable          | Default                         | Bedeutung                                    |
 | ----------------- | ------------------------------- | -------------------------------------------- |
 | `SCAN_DEVICE`     | *(auto: erster pixma-Scanner)*  | SANE-Device aus `scanimage -L`               |
-| `POLL_INTERVAL`   | `0.7`                           | Sekunden zwischen den Tasten-Abfragen        |
+| `ACTIVE_POLL_INTERVAL` | `0.7`                      | Tasten-Abfrage-Intervall kurz nach einer Aktion (schnell) |
+| `IDLE_POLL_INTERVAL`   | `3`                        | Tasten-Abfrage-Intervall in Ruhe (Normalfall, schont USB) |
+| `ACTIVE_WINDOW_SECONDS`| `10`                       | Wie lange nach einer Taste das schnelle Intervall gilt |
 | `SCAN_INBOX_DIR`  | *(aus Repo-Pfad abgeleitet)*    | Drop-Ordner (= Host-Mount von `/scan-inbox`) |
 | `SCAN_RESOLUTION` | `300`                           | DPI                                          |
 | `SCAN_MODE`       | `Color`                         | `Color` \| `Gray` \| `Lineart`               |

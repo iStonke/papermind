@@ -15,9 +15,18 @@
 #  Läuft als systemd-Dienst (papermind-scan-watch.service) als Benutzer jan.
 #  WICHTIG: scanbd muss deaktiviert sein, sonst belegt es das Gerät.
 #
+#  Jeder Poll ist ein USB-Control-Transfer zum Scanner (open/close der
+#  pixma-Session). Dauerhaft im Sekundenbruchteil-Takt zu pollen erzeugt
+#  unnötige USB-Last auf dem Pi. Daher adaptives Intervall: kurz nach einer
+#  Tastenaktion wird schnell gepollt (flüssiges Mehrseiten-Scannen), nach
+#  ACTIVE_WINDOW_SECONDS Ruhe ohne weitere Taste fällt der Poller auf das
+#  seltenere Ruhe-Intervall zurück – das ist der Normalfall über den Tag.
+#
 #  Konfiguration über Environment:
-#    SCAN_DEVICE    SANE-Device (leer = pixma-Scanner automatisch suchen)
-#    POLL_INTERVAL  Sekunden zwischen den Abfragen (Default 0.7)
+#    SCAN_DEVICE            SANE-Device (leer = pixma-Scanner automatisch suchen)
+#    ACTIVE_POLL_INTERVAL   Sekunden zwischen Abfragen kurz nach einer Taste (Default 0.7)
+#    IDLE_POLL_INTERVAL     Sekunden zwischen Abfragen in Ruhe (Default 3)
+#    ACTIVE_WINDOW_SECONDS  Wie lange nach einer Taste das schnelle Intervall gilt (Default 10)
 # =============================================================================
 
 # Bewusst KEIN `set -e`: Ein einzelner Lesefehler darf den Daemon nicht beenden.
@@ -25,7 +34,9 @@ set -uo pipefail
 
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 SCAN_SCRIPT="${_SCRIPT_DIR}/papermind-scan.sh"
-POLL_INTERVAL="${POLL_INTERVAL:-0.7}"
+ACTIVE_POLL_INTERVAL="${ACTIVE_POLL_INTERVAL:-0.7}"
+IDLE_POLL_INTERVAL="${IDLE_POLL_INTERVAL:-3}"
+ACTIVE_WINDOW_SECONDS="${ACTIVE_WINDOW_SECONDS:-10}"
 
 log() {
   echo "[papermind-scan-watch] $*"
@@ -54,7 +65,19 @@ DEV="${SCAN_DEVICE:-}"
 [ -n "$DEV" ] || DEV="$(detect_device)"
 export SCAN_DEVICE="$DEV"
 
-log "Poller gestartet (Gerät: ${DEV:-suche…}, Intervall ${POLL_INTERVAL}s). button-1→page, button-2→finish."
+log "Poller gestartet (Gerät: ${DEV:-suche…}, aktiv ${ACTIVE_POLL_INTERVAL}s / Ruhe ${IDLE_POLL_INTERVAL}s). button-1→page, button-2→finish."
+
+# Sekunden-Timestamp der letzten Tastenaktion; 0 = noch keine -> sofort Ruhe-Intervall.
+last_activity=0
+
+current_interval() {
+  local now=$EPOCHSECONDS
+  if [ "$last_activity" != 0 ] && (( now - last_activity < ACTIVE_WINDOW_SECONDS )); then
+    echo "$ACTIVE_POLL_INTERVAL"
+  else
+    echo "$IDLE_POLL_INTERVAL"
+  fi
+}
 
 last1=0
 last2=0
@@ -63,7 +86,7 @@ while true; do
     DEV="$(detect_device)"
     export SCAN_DEVICE="$DEV"
     [ -n "$DEV" ] && log "Scanner gefunden: $DEV"
-    sleep "$POLL_INTERVAL"
+    sleep "$(current_interval)"
     continue
   fi
 
@@ -71,20 +94,22 @@ while true; do
 
   # Lesefehler: nicht als Tastendruck werten, Zustand nicht verändern.
   if [ "$b1" = x ] || [ "$b2" = x ]; then
-    sleep "$POLL_INTERVAL"
+    sleep "$(current_interval)"
     continue
   fi
 
   if [ "$b1" = 1 ] && [ "$last1" != 1 ]; then
     log "button-1 → Seite scannen"
+    last_activity=$EPOCHSECONDS
     "$SCAN_SCRIPT" page || log "page fehlgeschlagen"
   fi
   if [ "$b2" = 1 ] && [ "$last2" != 1 ]; then
     log "button-2 → Batch abschließen"
+    last_activity=$EPOCHSECONDS
     "$SCAN_SCRIPT" finish || log "finish fehlgeschlagen"
   fi
 
   last1="$b1"
   last2="$b2"
-  sleep "$POLL_INTERVAL"
+  sleep "$(current_interval)"
 done
