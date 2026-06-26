@@ -2683,13 +2683,14 @@ function buildImportInboxItemIdSet(items) {
 }
 
 function shouldAutoOpenImportInbox(nextItems, newItemIds) {
-  const newOwnItemIds = newItemIds.filter((itemId) =>
-    nextItems.some((item) => item.id === itemId && item.is_assigned_to_me)
-  );
+  // nextItems ist serverseitig schon auf "für mich sichtbar" eingeschränkt
+  // (eigene Items + Scanner-Items mit registrierter Empfängerschaft) - ein
+  // neues Item muss dafür nicht zusätzlich bereits zugewiesen sein.
+  // openImportInboxScans() übernimmt unzugewiesene Scanner-Items selbst.
   return Boolean(settingsStore.settings?.documents?.auto_open_import_inbox) &&
     Array.isArray(nextItems) &&
     nextItems.length > 0 &&
-    newOwnItemIds.length > 0 &&
+    newItemIds.length > 0 &&
     !isUploadDialogOpen.value &&
     !isImportTrayVisible.value &&
     activeImportInboxItemIds.value.size === 0 &&
