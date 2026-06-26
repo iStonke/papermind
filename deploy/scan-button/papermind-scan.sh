@@ -91,6 +91,18 @@ _live_page_mode_enabled() {
   [[ -f "$cfg" ]] && grep -q '^LIVE_PAGE_MODE=true$' "$cfg" 2>/dev/null
 }
 
+# Umgekehrte Richtung zu _live_page_mode_enabled: Status für den Worker
+# schreiben, damit das Importfenster anzeigen kann, dass aktuell gescannt
+# wird. Der Worker liest diese Datei nur, er schreibt sie nicht.
+_write_scan_status() {
+  local status_file="${SCAN_INBOX_DIR}/.papermind-scanner-status"
+  if [[ "$1" == "true" ]]; then
+    printf 'SCANNING=true\nSTARTED_AT=%s\n' "$(date +%s)" > "$status_file" 2>/dev/null || true
+  else
+    printf 'SCANNING=false\n' > "$status_file" 2>/dev/null || true
+  fi
+}
+
 # Live-Modus: eine Seite scannen und SOFORT als eigene 1-Seiten-PDF nach
 # scan-inbox legen - kein Batch, kein Warten auf button-2.
 _scan_live_page() {
@@ -129,6 +141,12 @@ _scan_live_page() {
 cmd_page() {
   _require scanimage
   _with_lock
+  # Status für die gesamte Lebensdauer dieses Prozesses verwalten: egal ob
+  # Live- oder Batch-Pfad gleich normal zurückkehrt oder scanimage weiter
+  # unten per die()/exit 1 abbricht (z.B. USB-Disconnect) - der EXIT-Trap
+  # setzt den Status garantiert wieder auf "false".
+  trap '_write_scan_status false' EXIT
+  _write_scan_status true
 
   if _live_page_mode_enabled; then
     _scan_live_page

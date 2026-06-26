@@ -135,6 +135,18 @@ Die Einstellung wird vom Worker alle paar Sekunden in
 `scan-inbox/.papermind-scanner-config` gespiegelt; dieses Script liest nur
 diese Datei (kein Netzwerkzugriff, kein zusätzliches Setup auf dem Pi nötig).
 
+## Scanvorgang im Importfenster sichtbar machen
+
+Während `scanimage` läuft, schreibt dieses Script in
+`scan-inbox/.papermind-scanner-status` (umgekehrte Richtung zur
+`.papermind-scanner-config`-Datei oben: Host → App, nicht von Hand anfassen).
+Der Worker liest diese Datei alle paar Sekunden und spiegelt sie in die
+Datenbank; das Importfenster zeigt daraufhin eine pulsierende
+"Scanne…"-Platzhalterkarte, solange ein Scan läuft. Kein zusätzliches Setup
+nötig - die Datei wird automatisch verwaltet (auch bei einem
+`scanimage`-Fehler, z. B. USB-Disconnect, wird der Status garantiert wieder
+zurückgesetzt).
+
 ## (Optional) Idle-Sicherheitsnetz
 
 Schließt einen vergessenen Batch nach `IDLE_SECONDS` (Default 180) Ruhe

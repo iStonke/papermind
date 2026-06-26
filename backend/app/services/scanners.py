@@ -18,8 +18,24 @@ from app.schemas.scanners import (
 from app.services.utils import is_unique_violation
 
 
+SCAN_STATUS_STALE_SECONDS = 30
+
+
 def normalize_scanner_device_key(raw: str | None) -> str:
     return " ".join(str(raw or "").split()).strip()
+
+
+def is_scanning_active(scanner: ScannerDevice) -> bool:
+    """True, wenn der Host kürzlich "scanning" gemeldet hat.
+
+    Das Staleness-Fenster fängt den Fall ab, dass der Host mittendrin
+    abstürzt (z. B. USB-Disconnect) und kein "fertig"-Status mehr
+    geschrieben wird - sonst würde die UI dauerhaft "Scanne..." anzeigen.
+    """
+    if scanner.scanning_since is None:
+        return False
+    age = (datetime.now(timezone.utc) - scanner.scanning_since).total_seconds()
+    return age < SCAN_STATUS_STALE_SECONDS
 
 
 class ScannerService:
@@ -67,6 +83,13 @@ class ScannerService:
         if not normalized:
             return None
         return self.db.scalar(select(ScannerDevice).where(ScannerDevice.device_key == normalized))
+
+    def set_scanning_state(self, device_key: str, scanning_since: datetime | None) -> None:
+        scanner = self.get_by_key(device_key)
+        if scanner is None or scanner.scanning_since == scanning_since:
+            return
+        scanner.scanning_since = scanning_since
+        self.db.commit()
 
     def get_or_create_for_worker(self, device_key: str, *, name: str | None = None) -> ScannerDevice:
         normalized_key = normalize_scanner_device_key(device_key)

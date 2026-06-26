@@ -60,6 +60,7 @@ BACKUP_CHECK_INTERVAL_SECONDS = 60
 JOB_RECLAIM_INTERVAL_SECONDS = 30
 SCANNER_CONFIG_SYNC_INTERVAL_SECONDS = 5
 SCANNER_CONFIG_FILENAME = ".papermind-scanner-config"
+SCANNER_STATUS_FILENAME = ".papermind-scanner-status"
 IMPORT_INBOX_PROCESSED_DIR = ".papermind-processed"
 IMPORT_INBOX_PROCESSING_DIR = ".papermind-processing"
 IMPORT_INBOX_FAILED_DIR = ".papermind-failed"
@@ -405,6 +406,30 @@ def _sync_scanner_live_mode_config() -> None:
             config_path.write_text(content)
     except OSError:
         logger.warning("scanner config sync failed path=%s", config_path)
+
+
+def _sync_scanner_scan_status() -> None:
+    """Liest den vom Host geschriebenen Scan-Status (umgekehrte Richtung zu
+    _sync_scanner_live_mode_config) und spiegelt ihn in scanner_devices, damit
+    das Importfenster anzeigen kann, dass aktuell gescannt wird.
+    """
+    root = _import_inbox_drop_root()
+    if root is None or not IMPORT_INBOX_SCANNER_DEVICE_KEY:
+        return
+    status_path = root / SCANNER_STATUS_FILENAME
+    started_at = None
+    try:
+        if status_path.exists():
+            content = status_path.read_text()
+            if "SCANNING=true" in content:
+                match = re.search(r"STARTED_AT=(\d+)", content)
+                if match:
+                    started_at = datetime.fromtimestamp(int(match.group(1)), tz=timezone.utc)
+    except OSError:
+        logger.warning("scanner status read failed path=%s", status_path)
+        return
+    with SessionLocal() as db:
+        ScannerService(db).set_scanning_state(IMPORT_INBOX_SCANNER_DEVICE_KEY, started_at)
 
 
 def _scanner_device_id_for_drop(db) -> uuid.UUID | None:
@@ -1256,6 +1281,7 @@ def run() -> None:
         if now_monotonic - last_scanner_config_sync_at >= SCANNER_CONFIG_SYNC_INTERVAL_SECONDS:
             last_scanner_config_sync_at = now_monotonic
             _sync_scanner_live_mode_config()
+            _sync_scanner_scan_status()
 
         if now_monotonic - last_trash_cleanup_at >= TRASH_CLEANUP_INTERVAL_SECONDS:
             last_trash_cleanup_at = now_monotonic

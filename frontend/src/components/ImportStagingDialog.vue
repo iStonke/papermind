@@ -70,16 +70,24 @@
             @mouseenter="onDropzoneMouseEnter"
             @mouseleave="onDropzoneMouseLeave"
           >
-            <div class="isd-dropzone__icon">
-              <v-icon size="52" class="isd-dropzone__icon-svg">mdi-tray-arrow-down</v-icon>
+            <div class="isd-dropzone__icon" :class="{ 'isd-dropzone__icon--scanning': props.scannerActive }">
+              <v-icon size="52" class="isd-dropzone__icon-svg">
+                {{ props.scannerActive ? 'mdi-scanner' : 'mdi-tray-arrow-down' }}
+              </v-icon>
             </div>
             <div class="isd-dropzone__text">
-              <p class="isd-dropzone__title">
-                PDF-Dateien auswählen<br>oder hierher ziehen
-              </p>
-              <p class="isd-dropzone__subtitle">
-                Mehrere Dateien gleichzeitig möglich
-              </p>
+              <template v-if="props.scannerActive">
+                <p class="isd-dropzone__title">Scanner aktiv…</p>
+                <p class="isd-dropzone__subtitle">Die erste Seite erscheint gleich hier</p>
+              </template>
+              <template v-else>
+                <p class="isd-dropzone__title">
+                  PDF-Dateien auswählen<br>oder hierher ziehen
+                </p>
+                <p class="isd-dropzone__subtitle">
+                  Mehrere Dateien gleichzeitig möglich
+                </p>
+              </template>
             </div>
             <div class="isd-dropzone__types">
               <span class="isd-dropzone__chip">
@@ -128,7 +136,14 @@
                     v-if="page.thumbUrl"
                     :src="page.thumbUrl"
                     class="isd-page-thumb import-staging-page__thumb"
-                    :style="{ transform: page.rotation ? `rotate(${page.rotation}deg)` : undefined }"
+                    :style="{
+                      transform: page.rotation ? `rotate(${page.rotation}deg)` : undefined,
+                      filter: page.colorMode === 'grayscale'
+                        ? 'grayscale(1)'
+                        : page.colorMode === 'bw'
+                          ? 'grayscale(1) contrast(4)'
+                          : undefined
+                    }"
                     draggable="false"
                     alt=""
                   />
@@ -144,6 +159,14 @@
                 </div>
               </div>
               <div class="isd-page-num">{{ globalIndex + 1 }}</div>
+            </div>
+
+            <!-- Scan-in-progress placeholder: zeigt, wo die nächste Seite gleich auftaucht -->
+            <div v-if="props.scannerActive" class="isd-scanning-page-card" aria-hidden="true">
+              <div class="isd-scanning-page-thumb-wrap">
+                <v-icon size="28" class="isd-scanning-page-icon">mdi-scanner</v-icon>
+              </div>
+              <div class="isd-page-num isd-scanning-page-label">Scanne…</div>
             </div>
 
             <!-- Add-files placeholder card -->
@@ -223,6 +246,47 @@
             >
               <v-icon size="20">mdi-trash-can-outline</v-icon>
             </v-btn>
+
+            <div class="isd-toolbar-divider" />
+
+            <div class="isd-color-group">
+              <v-btn
+                icon
+                size="x-small"
+                variant="text"
+                title="Schwarz/Weiß"
+                :color="selectedPageColorMode === 'bw' ? 'primary' : undefined"
+                :class="{ 'isd-color-btn--active': selectedPageColorMode === 'bw' }"
+                :disabled="!hasAnySelectedPage"
+                @click="setAnySelectedPageColorMode('bw')"
+              >
+                <v-icon size="20">mdi-contrast-box</v-icon>
+              </v-btn>
+              <v-btn
+                icon
+                size="x-small"
+                variant="text"
+                title="Graustufe"
+                :color="selectedPageColorMode === 'grayscale' ? 'primary' : undefined"
+                :class="{ 'isd-color-btn--active': selectedPageColorMode === 'grayscale' }"
+                :disabled="!hasAnySelectedPage"
+                @click="setAnySelectedPageColorMode('grayscale')"
+              >
+                <v-icon size="20">mdi-circle-half-full</v-icon>
+              </v-btn>
+              <v-btn
+                icon
+                size="x-small"
+                variant="text"
+                title="Farbe"
+                :color="selectedPageColorMode === 'color' ? 'primary' : undefined"
+                :class="{ 'isd-color-btn--active': selectedPageColorMode === 'color' }"
+                :disabled="!hasAnySelectedPage"
+                @click="setAnySelectedPageColorMode('color')"
+              >
+                <v-icon size="20">mdi-palette-outline</v-icon>
+              </v-btn>
+            </div>
           </div>
 
           <!-- Flexibler Abstand -->
@@ -636,7 +700,8 @@ const VOCAB_NAME_MAX_LENGTH = 30;
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   apiBaseUrl: { type: String, default: '' },
-  autoEmbed: { type: Boolean, default: true }
+  autoEmbed: { type: Boolean, default: true },
+  scannerActive: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources', 'minimize']);
@@ -1085,6 +1150,7 @@ function isNewTagName(name) {
   return !findStageTagIdByName(String(name || ''));
 }
 const hasAnySelectedPage = computed(() => Boolean(selected.value?.pageId));
+const selectedPageColorMode = computed(() => selectedPageEntry.value?.colorMode || 'color');
 const gridScrollStyle = computed(() => ({
   '--pm-grid-min': ['100px', '140px', '185px', '240px'][gridZoomIndex.value] || '140px'
 }));
@@ -3062,6 +3128,11 @@ function rotateAnySelectedPage(delta) {
   rotateSelectedPage(selected.value.stageId, delta);
 }
 
+function setAnySelectedPageColorMode(colorMode) {
+  if (!selected.value?.pageId) return;
+  stagingStore.setPageColorMode(selected.value.pageId, colorMode);
+}
+
 function onGridZoomChange(event) {
   gridZoomIndex.value = Number(event.target?.value ?? 1);
 }
@@ -4889,6 +4960,59 @@ onBeforeUnmount(() => {
   transform: scale(1.08);
 }
 
+/* ── Scan-in-progress placeholder card ── */
+.isd-scanning-page-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-radius: 5px;
+}
+
+.isd-scanning-page-thumb-wrap {
+  position: relative;
+  width: 100%;
+  padding-top: 133%;
+  background: rgba(var(--v-theme-primary), 0.06);
+  border-radius: 4px;
+  border: 2px solid rgba(var(--v-theme-primary), 0.3);
+  animation: isd-scanning-pulse 1.4s ease-in-out infinite;
+}
+
+.isd-scanning-page-icon {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 28px;
+  height: 28px;
+  color: rgb(var(--v-theme-primary));
+}
+
+.isd-scanning-page-label {
+  color: rgb(var(--v-theme-primary));
+}
+
+@keyframes isd-scanning-pulse {
+  0%, 100% {
+    opacity: 0.55;
+    border-color: rgba(var(--v-theme-primary), 0.3);
+  }
+  50% {
+    opacity: 1;
+    border-color: rgba(var(--v-theme-primary), 0.7);
+  }
+}
+
+.isd-dropzone__icon--scanning .isd-dropzone__icon-svg {
+  color: rgb(var(--v-theme-primary));
+  animation: isd-scanning-icon-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes isd-scanning-icon-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
 .isd-toolbar {
   position: absolute;
   bottom: 0;
@@ -4944,6 +5068,16 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+.isd-color-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.isd-color-btn--active {
+  opacity: 1;
 }
 
 .isd-zoom-group {

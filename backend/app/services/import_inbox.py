@@ -19,6 +19,7 @@ from app.schemas.import_staging import (
     ImportInboxUploadResponse,
 )
 from app.services.import_staging import ImportStagingService
+from app.services.scanners import is_scanning_active
 
 
 def _normalize_item_ids(item_ids: list[uuid.UUID]) -> list[uuid.UUID]:
@@ -80,6 +81,18 @@ class ImportInboxService:
             )
             or 0
         )
+
+    def _scanning_active(self) -> bool:
+        if self.owner_id is None:
+            return False
+        scanners = self.db.scalars(
+            select(ScannerDevice)
+            .join(ScannerDeviceRecipient, ScannerDeviceRecipient.scanner_device_id == ScannerDevice.id)
+            .where(ScannerDeviceRecipient.user_id == self.owner_id)
+            .where(ScannerDevice.enabled.is_(True))
+            .where(ScannerDevice.scanning_since.is_not(None))
+        ).all()
+        return any(is_scanning_active(scanner) for scanner in scanners)
 
     def _read_item(self, item: ImportInboxItem) -> ImportInboxItemRead:
         return ImportInboxItemRead(
@@ -169,6 +182,7 @@ class ImportInboxService:
         return ImportInboxListResponse(
             items=[self._read_item(item) for item in items],
             pending_count=self._pending_count(),
+            scanning=self._scanning_active(),
         )
 
     def assign_to_current_user(self, item_ids: list[uuid.UUID]) -> ImportInboxAssignResponse:

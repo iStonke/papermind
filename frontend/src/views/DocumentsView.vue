@@ -67,6 +67,7 @@
         v-model="isUploadDialogOpen"
         :api-base-url="apiBaseUrl"
         :auto-embed="true"
+        :scanner-active="isImportScannerActive"
         @minimize="onImportMinimized"
         @committed="onImportCommitted"
         @discarded-sources="onImportSourcesDiscarded"
@@ -1504,6 +1505,7 @@ const activityIndicatorRef = ref(null);
 const importPdfInputRef = ref(null);
 const importInboxItems = ref([]);
 const isImportInboxLoading = ref(false);
+const isImportScannerActive = ref(false);
 const importInboxSuppressedItemIds = ref(new Set());
 const activeImportInboxItemIds = ref(new Set());
 const activeImportInboxSourceToItemId = ref(new Map());
@@ -2716,6 +2718,7 @@ async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) 
   let shouldLivePush = false;
   try {
     const payload = await getImportInbox({ limit: 50 });
+    isImportScannerActive.value = Boolean(payload?.scanning);
     const nextItems = normalizeImportInboxItems(payload);
     const nextItemIds = buildImportInboxItemIdSet(nextItems);
     const newItemIds = [...nextItemIds].filter((itemId) => !knownImportInboxItemIds.has(itemId));
@@ -2760,12 +2763,18 @@ function scheduleImportInboxPoll(delay = null) {
   if (importInboxPollTimer) {
     window.clearTimeout(importInboxPollTimer);
   }
-  const nextDelay = delay ?? (document.hidden ? 60000 : 15000);
+  // Bei offenem Importdialog schneller pollen, damit der Scan-Status
+  // (gerade am Scannen?) sich live anfühlt statt erst nach bis zu 15s.
+  const nextDelay = delay ?? (document.hidden ? 60000 : (isUploadDialogOpen.value ? 2000 : 15000));
   importInboxPollTimer = window.setTimeout(async () => {
     await refreshImportInbox({ silent: true });
     scheduleImportInboxPoll();
   }, nextDelay);
 }
+
+// Beim Öffnen/Schließen sofort mit dem dann passenden Intervall neu pollen,
+// statt bis zu 15s auf den nächsten Tick zu warten.
+watch(isUploadDialogOpen, () => scheduleImportInboxPoll(0));
 
 function handleImportInboxVisibilityChange() {
   scheduleImportInboxPoll(document.hidden ? 60000 : 0);

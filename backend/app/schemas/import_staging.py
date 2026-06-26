@@ -36,6 +36,7 @@ class ImportInboxUploadResponse(BaseModel):
 class ImportInboxListResponse(BaseModel):
     items: list[ImportInboxItemRead] = Field(default_factory=list)
     pending_count: int = Field(default=0, ge=0)
+    scanning: bool = False
 
 
 class ImportInboxClaimRequest(BaseModel):
