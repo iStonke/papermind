@@ -166,6 +166,7 @@ und der Mount stehen in `docker-compose.yml` / `.env`.
 | `device busy` im Scan | Läuft noch `scanbd`/`ipp-usb`? Beide abschalten (Schritt 3) |
 | Scan bricht ~60% ab, `usb ... disconnect` | USB-Strom: Pi-5-Netzteil (5V/5A) oder aktiver USB-Hub |
 | PDF erscheint nicht in der App | App neu laden; Worker-Log: `import inbox drop processed`; PDF in `scan-inbox/.papermind-processed/`? |
+| Worker-Log: `exceeds maximum allowed size`, PDF landet in `scan-inbox/.papermind-failed/` | `UPLOAD_MAX_BYTES` zu niedrig für mehrseitige Color-Scans (~15 MB/Seite bei 300dpi). In `.env.prod` erhöhen (Default jetzt 100 MB) und `backend`+`worker` neu starten. |
 
 ## Dateien
 
