@@ -2635,9 +2635,13 @@ function scheduleSidebarCountsRefresh() {
   sidebarStore.scheduleCounts();
 }
 
-const pendingImportInboxCount = computed(() =>
-  importInboxItems.value.reduce((sum, item) => sum + Math.max(0, Number(item?.page_count || 0)), 0)
-);
+const pendingImportInboxCount = computed(() => {
+  const loadedPageCount = importInboxItems.value.reduce(
+    (sum, item) => sum + Math.max(0, Number(item?.page_count || 0)),
+    0
+  );
+  return Math.max(loadedPageCount, Number(sidebarCounts.value.pending_import_inbox_count || 0));
+});
 const pendingImportInboxBadgeLabel = computed(() => {
   const count = pendingImportInboxCount.value;
   return count > 99 ? '99+' : String(count);

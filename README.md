@@ -114,15 +114,19 @@ Worker gezielt neu bauen/starten:
 
 `docker-compose.yml` verwendet bereits den statischen Frontend-Build. Für den
 gehärteten Betrieb auf dem Raspberry/Heimnetz gibt es zusätzlich
-`docker-compose.prod.yml` ohne Quellcode-Volumes und mit TLS-Reverse-Proxy:
+`docker-compose.prod.yml` ohne Quellcode-Volumes und mit Caddy-Reverse-Proxy:
 
 - Frontend wird statisch gebaut und über Nginx ausgeliefert.
-- `/api/*` läuft same-origin über den Nginx-Proxy zum Backend.
-- Öffentlich gebunden wird nur `FRONTEND_PORT`.
+- `/api/*` läuft same-origin über Caddy/Nginx zum Backend.
+- Öffentlich gebunden werden nur `HTTP_PORT`/`HTTPS_PORT` (Default 80/443).
 - Backend, PostgreSQL und AI-Service sind nur im Compose-Netz erreichbar.
 - Es werden keine Quellcode-Dev-Volumes in Backend, Frontend oder AI gemountet.
 - Der OCR/Index-Worker startet standardmäßig mit und wartet auf das migrierte,
   einsatzbereite Backend.
+- Hostseitige Dienste wie Ollama werden aus Containern über Docker
+  `host-gateway` erreicht (`OLLAMA_BASE_URL=http://host.docker.internal:11434`).
+- Docker-Container-Logs sind größenbegrenzt, damit die SD/NVMe nicht durch
+  unendliche `json-file`-Logs vollläuft.
 
 Einmalig konfigurieren:
 ```bash
@@ -132,9 +136,23 @@ cp .env.prod.example .env.prod
 Dann Platzhalter in `.env.prod` ersetzen, insbesondere:
 - `POSTGRES_*`
 - `DATABASE_URL`
-- `PUBLIC_WEB_BASE_URL`
+- `PUBLIC_WEB_BASE_URL` (bevorzugt `https://papermind.local` oder
+  `https://papermind.fritz.box`)
 - `CORS_ALLOW_ORIGINS`
+- `OLLAMA_BASE_URL`, falls Ollama nicht auf dem Pi-Host-Port `11434` läuft
 - `AUTH_SECRET_KEY`
+
+Stabilen Pi-Betrieb einrichten bzw. nachziehen:
+```bash
+./scripts/prod_pi_stabilize.sh
+```
+
+Das Skript ist idempotent und richtet Docker-Logrotation, Runtime-Ordner,
+Host-Control, Scanner-Dienste und den Prod-Stack ein. Wenn der Scanner nicht am
+Pi hängt:
+```bash
+./scripts/prod_pi_stabilize.sh --no-scanner
+```
 
 Produktionsstack starten:
 ```bash

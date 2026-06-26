@@ -1,6 +1,7 @@
 export function createEmptyCounts() {
   return {
     all_documents: 0, untagged: 0, unread_total: 0, tags_total: 0,
+    pending_import_inbox_count: 0,
     favorites_count: 0, no_text_count: 0, trash_count: 0,
     imports: { imported: 0, processing: 0, ready: 0, failed: 0, recent_total: 0 },
     tags: {}, smart_folders: {}, saved_searches: {}
@@ -13,6 +14,7 @@ export function normalizeCounts(payload) {
     all_documents: Number(payload?.all_documents  || 0),
     untagged:      Number(payload?.untagged        || 0),
     unread_total:  Number(payload?.unread_total    || 0),
+    pending_import_inbox_count: Number(payload?.pending_import_inbox_count || 0),
     tags_total:    Number(payload?.tags_total      || 0),
     favorites_count: Number(payload?.favorites_count || 0),
     no_text_count: Number(payload?.no_text_count   || 0),

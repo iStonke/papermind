@@ -23,6 +23,7 @@ from app.db.session import WorkerSessionLocal as SessionLocal
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
 from app.models.document_file import DocumentFile
+from app.models.auth_session import AuthSession
 from app.models.job import Job
 from app.models.tag import Tag
 from app.models.user import User
@@ -304,9 +305,24 @@ def _claim_next_import_inbox_pdf() -> tuple[Path, str] | None:
 
 
 def _default_owner_id(db) -> uuid.UUID | None:
-    """Eigentümer für eingeworfene Inbox-Dateien: erster aktiver Admin
-    (Ein-Benutzer-Betrieb). Ohne Owner würde der spätere Commit am NOT-NULL-
-    owner_id scheitern."""
+    """Eigentümer für eingeworfene Inbox-Dateien.
+
+    Scanner/SMB-Drops haben keinen Request-Kontext. Nimm deshalb zuerst den
+    zuletzt aktiv genutzten Admin-Account und falle für frische Installationen
+    auf den ältesten aktiven Admin zurück.
+    """
+    active_admin = db.execute(
+        select(User.id)
+        .join(AuthSession, AuthSession.user_id == User.id)
+        .where(User.is_admin.is_(True), User.is_active.is_(True))
+        .where(AuthSession.revoked_at.is_(None))
+        .where(AuthSession.expires_at > _now_utc())
+        .order_by(AuthSession.last_used_at.desc(), AuthSession.created_at.desc())
+        .limit(1)
+    ).scalar()
+    if active_admin is not None:
+        return active_admin
+
     return db.execute(
         select(User.id)
         .where(User.is_admin.is_(True), User.is_active.is_(True))

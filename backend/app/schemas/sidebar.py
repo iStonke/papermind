@@ -13,6 +13,7 @@ class SidebarCountsResponse(BaseModel):
     all_documents: int = 0
     untagged: int = 0
     unread_total: int = 0
+    pending_import_inbox_count: int = 0
     tags_total: int = 0
     favorites_count: int = 0
     no_text_count: int = 0

@@ -6,6 +6,7 @@ import { createEmptyCounts, normalizeCounts } from "../src/utils/sidebarCounts.j
 test("createEmptyCounts includes library counters", () => {
   assert.equal(createEmptyCounts().favorites_count, 0);
   assert.equal(createEmptyCounts().trash_count, 0);
+  assert.equal(createEmptyCounts().pending_import_inbox_count, 0);
 });
 
 test("normalizeCounts preserves favorites and trash counts", () => {
@@ -13,11 +14,13 @@ test("normalizeCounts preserves favorites and trash counts", () => {
     all_documents: 7,
     favorites_count: 3,
     trash_count: 2,
+    pending_import_inbox_count: 4,
     imports: { recent_total: 1 },
   });
 
   assert.equal(normalized.all_documents, 7);
   assert.equal(normalized.favorites_count, 3);
   assert.equal(normalized.trash_count, 2);
+  assert.equal(normalized.pending_import_inbox_count, 4);
   assert.equal(normalized.imports.recent_total, 1);
 });

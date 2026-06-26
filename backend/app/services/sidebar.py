@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models.document import Document
 from app.models.document_tag import document_tags
+from app.models.import_inbox import ImportInboxItem
 from app.models.saved_search import SavedSearch
 from app.models.smart_folder import SmartFolder
 from app.models.tag import Tag
@@ -187,6 +188,14 @@ class SidebarService:
             )
             or 0
         )
+        pending_import_inbox_count = int(
+            self.db.scalar(
+                select(func.coalesce(func.sum(ImportInboxItem.page_count), 0))
+                .where(ImportInboxItem.claimed_at.is_(None))
+                .where(ImportInboxItem.owner_id == self.owner_id if self.owner_id is not None else true())
+            )
+            or 0
+        )
 
         imports_row_map = {
             row.status: int(row.doc_count or 0)
@@ -260,6 +269,7 @@ class SidebarService:
             all_documents=all_documents,
             untagged=untagged_count,
             unread_total=unread_total,
+            pending_import_inbox_count=pending_import_inbox_count,
             tags_total=tags_total,
             favorites_count=favorites_count,
             no_text_count=no_text_count,

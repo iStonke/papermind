@@ -9,3 +9,9 @@
 papermind, papermind.local, papermind.fritz.box {
 	reverse_proxy frontend:80
 }
+
+# Fallback für direkten Zugriff per IP im Heimnetz. Für dauerhaften Betrieb ist
+# einer der Hostnamen oben bevorzugt, damit HTTPS + sichere Auth-Cookies greifen.
+:80 {
+	reverse_proxy frontend:80
+}

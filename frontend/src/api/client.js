@@ -129,6 +129,10 @@ export async function apiFetch(path, options = {}) {
   let response;
   try {
     response = await fetch(`${BASE_URL}${path}`, {
+      // API-Antworten nie aus dem Browser-Cache bedienen – sonst liefern
+      // wiederholte GETs (z. B. das 15s-Polling der Import-Inbox) veraltete
+      // Daten und neue Scans erscheinen erst nach einem harten Reload.
+      cache: 'no-store',
       credentials: 'include',
       ...fetchOptions,
       signal: timeoutController?.signal || fetchOptions.signal,
