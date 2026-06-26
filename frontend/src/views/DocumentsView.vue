@@ -1144,7 +1144,7 @@ import { useGlobalKeyboard } from '../composables/useGlobalKeyboard';
 import { useSearch } from '../composables/useSearch';
 import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
 import { authedUrl, getBaseUrl } from '../api/client.js';
-import { claimImportInboxItems, discardImportInboxItems, getImportInbox } from '../api/importInbox.js';
+import { assignImportInboxItems, claimImportInboxItems, discardImportInboxItems, getImportInbox } from '../api/importInbox.js';
 import { applyPaperMindVuetifyColors, resolvePaperMindColorVariant } from '../theme/tokens';
 
 const PdfPreview = defineAsyncComponent(() => import('../components/PdfPreview.vue'));
@@ -2660,6 +2660,9 @@ function normalizeImportInboxItems(payload) {
       original_name: String(item?.original_name || '').trim() || 'Scan Upload.pdf',
       page_count: Number(item?.page_count || 0),
       client_name: String(item?.client_name || '').trim(),
+      source_type: String(item?.source_type || 'shortcut').trim() || 'shortcut',
+      scanner_device_id: String(item?.scanner_device_id || '').trim(),
+      is_assigned_to_me: item?.is_assigned_to_me !== false,
       created_at: String(item?.created_at || '')
     }))
     .filter(
@@ -2680,10 +2683,13 @@ function buildImportInboxItemIdSet(items) {
 }
 
 function shouldAutoOpenImportInbox(nextItems, newItemIds) {
+  const newOwnItemIds = newItemIds.filter((itemId) =>
+    nextItems.some((item) => item.id === itemId && item.is_assigned_to_me)
+  );
   return Boolean(settingsStore.settings?.documents?.auto_open_import_inbox) &&
     Array.isArray(nextItems) &&
     nextItems.length > 0 &&
-    newItemIds.length > 0 &&
+    newOwnItemIds.length > 0 &&
     !isUploadDialogOpen.value &&
     !isImportTrayVisible.value &&
     activeImportInboxItemIds.value.size === 0 &&
@@ -2773,6 +2779,23 @@ async function openImportInboxScans({ refresh = true } = {}) {
   }
 
   try {
+    const assignableItemIds = items
+      .filter((item) => !item.is_assigned_to_me && item.source_type === 'scanner')
+      .map((item) => item.id)
+      .filter(Boolean);
+    if (assignableItemIds.length > 0) {
+      const assignResult = await assignImportInboxItems(assignableItemIds);
+      if (Number(assignResult?.assigned || 0) !== assignableItemIds.length) {
+        notify({ type: 'info', message: 'Einige Scanner-Scans wurden bereits übernommen.' });
+        await refreshImportInbox({ silent: true, allowAutoOpen: false });
+        return;
+      }
+      for (const item of items) {
+        if (assignableItemIds.includes(item.id)) {
+          item.is_assigned_to_me = true;
+        }
+      }
+    }
     await dialogRef.openWithRemoteSources({
       sources: items,
       sessionId: 'import-inbox'

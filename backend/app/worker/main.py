@@ -25,6 +25,7 @@ from app.models.document_chunk import DocumentChunk
 from app.models.document_file import DocumentFile
 from app.models.auth_session import AuthSession
 from app.models.job import Job
+from app.models.scanner import ScannerDeviceRecipient
 from app.models.tag import Tag
 from app.models.user import User
 from app.services.deduplication import DocumentDeduplicationService
@@ -32,6 +33,7 @@ from app.services.document_dates import apply_ocr_document_date_result, extract_
 from app.services.embeddings import EmbeddingService
 from app.services.documents import DocumentService
 from app.services.import_inbox import ImportInboxService
+from app.services.scanners import ScannerService
 from app.services.ai_classification import apply_ollama_classification
 from app.services.document_types import (
     document_type_hint_map,
@@ -60,6 +62,11 @@ IMPORT_INBOX_PROCESSED_DIR = ".papermind-processed"
 IMPORT_INBOX_PROCESSING_DIR = ".papermind-processing"
 IMPORT_INBOX_FAILED_DIR = ".papermind-failed"
 IMPORT_INBOX_OWNER_USERNAME = os.environ.get("IMPORT_INBOX_OWNER_USERNAME", "").strip()
+IMPORT_INBOX_SCANNER_DEVICE_KEY = os.environ.get("IMPORT_INBOX_SCANNER_DEVICE_KEY", "flatbed-pi").strip()
+IMPORT_INBOX_SCANNER_DEVICE_NAME = os.environ.get(
+    "IMPORT_INBOX_SCANNER_DEVICE_NAME",
+    "Canon LiDE 400 am Pi",
+).strip()
 AUTO_TAG_STOPWORDS = {
     "aber",
     "alle",
@@ -350,6 +357,58 @@ def _default_owner_id(db) -> uuid.UUID | None:
     ).scalar()
 
 
+def _initial_scanner_recipient_id(db) -> uuid.UUID | None:
+    if IMPORT_INBOX_OWNER_USERNAME:
+        configured_owner = db.execute(
+            select(User.id)
+            .where(User.is_active.is_(True))
+            .where(
+                or_(
+                    func.lower(User.username) == IMPORT_INBOX_OWNER_USERNAME.lower(),
+                    func.lower(User.email) == IMPORT_INBOX_OWNER_USERNAME.lower(),
+                )
+            )
+            .order_by(User.is_admin.desc(), User.created_at.asc())
+            .limit(1)
+        ).scalar()
+        if configured_owner is not None:
+            return configured_owner
+        logger.warning("configured scanner recipient not found username=%s", IMPORT_INBOX_OWNER_USERNAME)
+
+    return db.execute(
+        select(User.id)
+        .where(User.is_admin.is_(True), User.is_active.is_(True))
+        .order_by(User.created_at.asc())
+        .limit(1)
+    ).scalar()
+
+
+def _scanner_device_id_for_drop(db) -> uuid.UUID | None:
+    if not IMPORT_INBOX_SCANNER_DEVICE_KEY:
+        return None
+
+    scanner = ScannerService(db).get_or_create_for_worker(
+        IMPORT_INBOX_SCANNER_DEVICE_KEY,
+        name=IMPORT_INBOX_SCANNER_DEVICE_NAME,
+    )
+    has_recipients = db.scalar(
+        select(func.count(ScannerDeviceRecipient.user_id)).where(
+            ScannerDeviceRecipient.scanner_device_id == scanner.id
+        )
+    )
+    if int(has_recipients or 0) == 0:
+        recipient_id = _initial_scanner_recipient_id(db)
+        if recipient_id is not None:
+            db.add(ScannerDeviceRecipient(scanner_device_id=scanner.id, user_id=recipient_id))
+            db.flush()
+            logger.info(
+                "scanner device initial recipient configured device_key=%s recipient_id=%s",
+                scanner.device_key,
+                recipient_id,
+            )
+    return scanner.id
+
+
 def _process_import_inbox_drop_file(claimed_path: Path, original_name: str) -> None:
     processed_dir = _import_inbox_subdir(IMPORT_INBOX_PROCESSED_DIR)
     failed_dir = _import_inbox_subdir(IMPORT_INBOX_FAILED_DIR)
@@ -357,21 +416,34 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str) -> N
         return
     try:
         with SessionLocal() as db:
-            owner_id = _default_owner_id(db)
-            owner_name = (
-                db.execute(select(User.username).where(User.id == owner_id)).scalar() if owner_id is not None else None
-            )
+            scanner_device_id = _scanner_device_id_for_drop(db)
+            if scanner_device_id is None:
+                owner_id = _default_owner_id(db)
+                owner_name = (
+                    db.execute(select(User.username).where(User.id == owner_id)).scalar()
+                    if owner_id is not None
+                    else None
+                )
+                source_type = "shortcut"
+            else:
+                owner_id = None
+                owner_name = None
+                source_type = "scanner"
             result = ImportInboxService(db, owner_id).ingest_pdf_path(
                 claimed_path,
                 original_name=original_name,
                 client_name="SMB",
+                source_type=source_type,
+                scanner_device_id=scanner_device_id,
             )
         created_count = len(result.items)
         _move_drop_file(claimed_path, processed_dir)
         logger.info(
-            "import inbox drop processed file=%s items=%s owner=%s owner_id=%s",
+            "import inbox drop processed file=%s items=%s source_type=%s scanner_device_id=%s owner=%s owner_id=%s",
             original_name,
             created_count,
+            source_type,
+            scanner_device_id,
             owner_name,
             owner_id,
         )

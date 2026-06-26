@@ -15,6 +15,8 @@ from app.schemas.common import ErrorResponse
 from app.schemas.import_staging import (
     ImportCommitRequest,
     ImportCommitResponse,
+    ImportInboxAssignRequest,
+    ImportInboxAssignResponse,
     ImportInboxClaimRequest,
     ImportInboxClaimResponse,
     ImportInboxDiscardPagesRequest,
@@ -101,6 +103,21 @@ def list_import_inbox(
 ) -> ImportInboxListResponse:
     service = ImportInboxService(db, user.id)
     return service.list_pending(limit=limit)
+
+
+@router.post(
+    "/inbox/assign",
+    response_model=ImportInboxAssignResponse,
+    summary="Assign visible scanner inbox items to the current user",
+    responses={400: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+)
+def assign_import_inbox(
+    payload: ImportInboxAssignRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ImportInboxAssignResponse:
+    service = ImportInboxService(db, user.id)
+    return service.assign_to_current_user(payload.item_ids)
 
 
 @router.post(

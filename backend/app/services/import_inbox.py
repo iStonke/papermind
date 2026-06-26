@@ -3,12 +3,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import UploadFile
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, exists, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.errors import BadRequestError
 from app.models.import_inbox import ImportInboxItem
+from app.models.scanner import ScannerDevice, ScannerDeviceRecipient
 from app.schemas.import_staging import (
+    ImportInboxAssignResponse,
     ImportInboxClaimResponse,
     ImportInboxDiscardPagesResponse,
     ImportInboxDiscardResponse,
@@ -19,39 +21,92 @@ from app.schemas.import_staging import (
 from app.services.import_staging import ImportStagingService
 
 
+def _normalize_item_ids(item_ids: list[uuid.UUID]) -> list[uuid.UUID]:
+    normalized_ids = []
+    seen = set()
+    for item_id in item_ids:
+        if item_id in seen:
+            continue
+        seen.add(item_id)
+        normalized_ids.append(item_id)
+    if not normalized_ids:
+        raise BadRequestError("item_ids is required")
+    return normalized_ids
+
+
 class ImportInboxService:
     def __init__(self, db: Session, owner_id=None):
         self.db = db
         self.owner_id = owner_id
         self.import_staging_service = ImportStagingService(db, owner_id)
 
-    def _scope(self, stmt):
+    def _owned_scope(self, stmt):
         if self.owner_id is not None:
             return stmt.where(ImportInboxItem.owner_id == self.owner_id)
         return stmt
 
+    def _visible_scanner_condition(self):
+        if self.owner_id is None:
+            return False
+        return and_(
+            ImportInboxItem.owner_id.is_(None),
+            ImportInboxItem.source_type == "scanner",
+            ImportInboxItem.claimed_at.is_(None),
+            ImportInboxItem.scanner_device_id.is_not(None),
+            exists(
+                select(1)
+                .select_from(ScannerDeviceRecipient)
+                .join(ScannerDevice, ScannerDevice.id == ScannerDeviceRecipient.scanner_device_id)
+                .where(ScannerDeviceRecipient.scanner_device_id == ImportInboxItem.scanner_device_id)
+                .where(ScannerDeviceRecipient.user_id == self.owner_id)
+                .where(ScannerDevice.enabled.is_(True))
+            ),
+        )
+
+    def _visible_scope(self, stmt):
+        if self.owner_id is None:
+            return stmt
+        return stmt.where(
+            or_(
+                ImportInboxItem.owner_id == self.owner_id,
+                self._visible_scanner_condition(),
+            )
+        )
+
     def _pending_count(self) -> int:
         return int(
             self.db.scalar(
-                self._scope(select(func.count(ImportInboxItem.id)).where(ImportInboxItem.claimed_at.is_(None)))
+                self._visible_scope(select(func.count(ImportInboxItem.id)).where(ImportInboxItem.claimed_at.is_(None)))
             )
             or 0
         )
 
-    @staticmethod
-    def _read_item(item: ImportInboxItem) -> ImportInboxItemRead:
+    def _read_item(self, item: ImportInboxItem) -> ImportInboxItemRead:
         return ImportInboxItemRead(
             id=str(item.id),
             source_file_id=str(item.source_file_id),
             original_name=item.original_name,
             page_count=item.page_count,
             client_name=item.client_name,
+            source_type=item.source_type,
+            scanner_device_id=str(item.scanner_device_id) if item.scanner_device_id else None,
+            is_assigned_to_me=self.owner_id is not None and item.owner_id == self.owner_id,
             created_at=item.created_at,
         )
 
-    def upload(self, files: list[UploadFile], *, client_name: str | None = None) -> ImportInboxUploadResponse:
-        if self.owner_id is None:
+    def upload(
+        self,
+        files: list[UploadFile],
+        *,
+        client_name: str | None = None,
+        source_type: str = "shortcut",
+        scanner_device_id: uuid.UUID | None = None,
+    ) -> ImportInboxUploadResponse:
+        normalized_source_type = str(source_type or "shortcut").strip() or "shortcut"
+        if normalized_source_type != "scanner" and self.owner_id is None:
             raise BadRequestError("No user context for import inbox upload")
+        if normalized_source_type == "scanner" and scanner_device_id is None:
+            raise BadRequestError("scanner_device_id is required for scanner uploads")
 
         staged = self.import_staging_service.upload_sources(files)
         created: list[ImportInboxItem] = []
@@ -59,7 +114,9 @@ class ImportInboxService:
 
         for source in staged.items:
             item = ImportInboxItem(
-                owner_id=self.owner_id,
+                owner_id=None if normalized_source_type == "scanner" else self.owner_id,
+                scanner_device_id=scanner_device_id if normalized_source_type == "scanner" else None,
+                source_type=normalized_source_type,
                 source_file_id=uuid.UUID(source.source_file_id),
                 original_name=source.original_name,
                 page_count=source.page_count,
@@ -83,18 +140,25 @@ class ImportInboxService:
         *,
         original_name: str | None = None,
         client_name: str | None = None,
+        source_type: str = "shortcut",
+        scanner_device_id: uuid.UUID | None = None,
     ) -> ImportInboxUploadResponse:
         path = Path(source_path).resolve()
         filename = str(original_name or path.name or "Scan.pdf").strip() or "Scan.pdf"
         with path.open("rb") as handle:
             upload = UploadFile(filename=filename, file=handle)
-            return self.upload([upload], client_name=client_name)
+            return self.upload(
+                [upload],
+                client_name=client_name,
+                source_type=source_type,
+                scanner_device_id=scanner_device_id,
+            )
 
     def list_pending(self, *, limit: int = 50) -> ImportInboxListResponse:
         normalized_limit = max(1, min(int(limit or 50), 200))
         items = list(
             self.db.scalars(
-                self._scope(
+                self._visible_scope(
                     select(ImportInboxItem)
                     .where(ImportInboxItem.claimed_at.is_(None))
                     .order_by(ImportInboxItem.created_at.asc())
@@ -107,19 +171,27 @@ class ImportInboxService:
             pending_count=self._pending_count(),
         )
 
+    def assign_to_current_user(self, item_ids: list[uuid.UUID]) -> ImportInboxAssignResponse:
+        if self.owner_id is None:
+            raise BadRequestError("No user context for import inbox assignment")
+        normalized_ids = _normalize_item_ids(item_ids)
+        result = self.db.execute(
+            update(ImportInboxItem)
+            .where(ImportInboxItem.id.in_(normalized_ids))
+            .where(self._visible_scanner_condition())
+            .values(owner_id=self.owner_id)
+        )
+        self.db.commit()
+        return ImportInboxAssignResponse(
+            assigned=int(result.rowcount or 0),
+            pending_count=self._pending_count(),
+        )
+
     def claim(self, item_ids: list[uuid.UUID]) -> ImportInboxClaimResponse:
-        normalized_ids = []
-        seen = set()
-        for item_id in item_ids:
-            if item_id in seen:
-                continue
-            seen.add(item_id)
-            normalized_ids.append(item_id)
-        if not normalized_ids:
-            raise BadRequestError("item_ids is required")
+        normalized_ids = _normalize_item_ids(item_ids)
 
         result = self.db.execute(
-            self._scope(
+            self._owned_scope(
                 update(ImportInboxItem)
                 .where(ImportInboxItem.id.in_(normalized_ids))
                 .where(ImportInboxItem.claimed_at.is_(None))
@@ -133,19 +205,11 @@ class ImportInboxService:
         )
 
     def discard(self, item_ids: list[uuid.UUID]) -> ImportInboxDiscardResponse:
-        normalized_ids = []
-        seen = set()
-        for item_id in item_ids:
-            if item_id in seen:
-                continue
-            seen.add(item_id)
-            normalized_ids.append(item_id)
-        if not normalized_ids:
-            raise BadRequestError("item_ids is required")
+        normalized_ids = _normalize_item_ids(item_ids)
 
         items = list(
             self.db.scalars(
-                self._scope(select(ImportInboxItem).where(ImportInboxItem.id.in_(normalized_ids)))
+                self._owned_scope(select(ImportInboxItem).where(ImportInboxItem.id.in_(normalized_ids)))
             ).all()
         )
         for item in items:
@@ -160,7 +224,7 @@ class ImportInboxService:
 
     def discard_pages(self, source_file_id: uuid.UUID, page_indices: list[int]) -> ImportInboxDiscardPagesResponse:
         item = self.db.scalar(
-            self._scope(select(ImportInboxItem).where(ImportInboxItem.source_file_id == source_file_id))
+            self._owned_scope(select(ImportInboxItem).where(ImportInboxItem.source_file_id == source_file_id))
         )
         if item is None:
             raise BadRequestError("import inbox source was not found")

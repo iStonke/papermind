@@ -141,7 +141,10 @@ Dann Platzhalter in `.env.prod` ersetzen, insbesondere:
 - `CORS_ALLOW_ORIGINS`
 - `OLLAMA_BASE_URL`, falls Ollama nicht auf dem Pi-Host-Port `11434` läuft
 - `IMPORT_INBOX_OWNER_USERNAME`, falls Scanner-/SMB-Imports immer einem festen
-  App-Benutzer gehören sollen
+  App-Benutzer gehören sollen; im Mehrbenutzer-Scanner-Flow dient der Wert nur
+  noch als initialer Empfänger für einen neu erkannten Scanner
+- `IMPORT_INBOX_SCANNER_DEVICE_KEY` / `IMPORT_INBOX_SCANNER_DEVICE_NAME` für
+  die Scanner-Zuordnung des Pi-Drop-Ordners
 - `AUTH_SECRET_KEY`
 
 Stabilen Pi-Betrieb einrichten bzw. nachziehen:

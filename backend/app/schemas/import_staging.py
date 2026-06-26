@@ -22,6 +22,9 @@ class ImportInboxItemRead(BaseModel):
     original_name: str
     page_count: int = Field(ge=1)
     client_name: str | None = None
+    source_type: str = "shortcut"
+    scanner_device_id: str | None = None
+    is_assigned_to_me: bool = True
     created_at: datetime
 
 
@@ -41,6 +44,15 @@ class ImportInboxClaimRequest(BaseModel):
 
 class ImportInboxClaimResponse(BaseModel):
     claimed: int = Field(default=0, ge=0)
+    pending_count: int = Field(default=0, ge=0)
+
+
+class ImportInboxAssignRequest(BaseModel):
+    item_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class ImportInboxAssignResponse(BaseModel):
+    assigned: int = Field(default=0, ge=0)
     pending_count: int = Field(default=0, ge=0)
 
 

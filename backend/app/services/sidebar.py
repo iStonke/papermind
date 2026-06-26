@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, case, func, literal, select, true, union_all
+from sqlalchemy import and_, case, exists, func, literal, or_, select, true, union_all
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
 
@@ -10,6 +10,7 @@ from app.models.document import Document
 from app.models.document_tag import document_tags
 from app.models.import_inbox import ImportInboxItem
 from app.models.saved_search import SavedSearch
+from app.models.scanner import ScannerDevice, ScannerDeviceRecipient
 from app.models.smart_folder import SmartFolder
 from app.models.tag import Tag
 from app.schemas.sidebar import SidebarCountsResponse, SidebarImportsCounts
@@ -188,11 +189,30 @@ class SidebarService:
             )
             or 0
         )
+        if self.owner_id is None:
+            import_inbox_visibility_cond = true()
+        else:
+            import_inbox_visibility_cond = or_(
+                ImportInboxItem.owner_id == self.owner_id,
+                and_(
+                    ImportInboxItem.owner_id.is_(None),
+                    ImportInboxItem.source_type == "scanner",
+                    ImportInboxItem.scanner_device_id.is_not(None),
+                    exists(
+                        select(1)
+                        .select_from(ScannerDeviceRecipient)
+                        .join(ScannerDevice, ScannerDevice.id == ScannerDeviceRecipient.scanner_device_id)
+                        .where(ScannerDeviceRecipient.scanner_device_id == ImportInboxItem.scanner_device_id)
+                        .where(ScannerDeviceRecipient.user_id == self.owner_id)
+                        .where(ScannerDevice.enabled.is_(True))
+                    ),
+                ),
+            )
         pending_import_inbox_count = int(
             self.db.scalar(
                 select(func.coalesce(func.sum(ImportInboxItem.page_count), 0))
                 .where(ImportInboxItem.claimed_at.is_(None))
-                .where(ImportInboxItem.owner_id == self.owner_id if self.owner_id is not None else true())
+                .where(import_inbox_visibility_cond)
             )
             or 0
         )

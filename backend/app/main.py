@@ -26,6 +26,7 @@ from app.routers import (
     jobs_router,
     retrieval_router,
     saved_searches_router,
+    scanners_router,
     settings_router,
     sidebar_router,
     smart_folders_router,
@@ -109,6 +110,7 @@ app.include_router(retrieval_router)
 app.include_router(ai_router)
 app.include_router(backup_router)
 app.include_router(saved_searches_router)
+app.include_router(scanners_router)
 app.include_router(smart_folders_router)
 app.include_router(settings_router)
 app.include_router(sidebar_router)
