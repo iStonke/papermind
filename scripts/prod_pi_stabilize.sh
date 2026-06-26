@@ -62,9 +62,11 @@ validate_env_prod() {
 
 ensure_runtime_dirs() {
   log "Ensuring runtime directories"
-  install -d -m 0770 scan-inbox host-control backups
-  install -d -m 0775 .runtime/frontend-assets
+  sudo install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0770 scan-inbox host-control backups
+  sudo install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0775 .runtime .runtime/frontend-assets
   sudo chown -R "${SERVICE_USER}:${SERVICE_GROUP}" scan-inbox host-control backups .runtime
+  chmod 0770 scan-inbox host-control backups
+  chmod 0775 .runtime .runtime/frontend-assets
 }
 
 configure_docker_daemon() {
