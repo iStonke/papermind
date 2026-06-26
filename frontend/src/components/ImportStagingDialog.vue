@@ -2283,6 +2283,7 @@ async function addRemoteSources(payload = []) {
   }
 
   let addedCount = 0;
+  let addedScannerCount = 0;
   let previewFallbackCount = 0;
   let sessionStageId = preferredTargetStageId || remoteSourceStageBySession.get(sessionId) || null;
   const isSessionManagedScanStage = !preferredTargetStageId;
@@ -2391,6 +2392,9 @@ async function addRemoteSources(payload = []) {
       }
     }
     addedCount += 1;
+    if (String(source?.source_type || '').trim() === 'scanner') {
+      addedScannerCount += 1;
+    }
   }
 
   for (const stageId of touchedStageIds) {
@@ -2406,15 +2410,21 @@ async function addRemoteSources(payload = []) {
   }
 
   if (addedCount > 0) {
+    const label =
+      addedScannerCount === addedCount
+        ? `Scan-Seite${addedCount === 1 ? '' : 'n'}`
+        : addedScannerCount === 0
+          ? `iPhone-Upload${addedCount === 1 ? '' : 's'}`
+          : `Datei${addedCount === 1 ? '' : 'en'}`;
     notify({
       type: 'success',
-      message: `${addedCount} iPhone-Upload${addedCount === 1 ? '' : 's'} hinzugefügt.`
+      message: `${addedCount} ${label} hinzugefügt.`
     });
   }
   if (previewFallbackCount > 0) {
     notify({
       type: 'warning',
-      message: `Bei ${previewFallbackCount} iPhone-Upload${previewFallbackCount === 1 ? '' : 's'} fehlen Vorschaubilder.`
+      message: `Bei ${previewFallbackCount} Datei${previewFallbackCount === 1 ? '' : 'en'} fehlen Vorschaubilder.`
     });
   }
 }

@@ -680,6 +680,25 @@
                   />
                 </div>
 
+                <div class="scanner-card__live-mode">
+                  <div>
+                    <div class="pm-setting-label">Seiten sofort senden</div>
+                    <div class="pm-setting-description">
+                      Jede gescannte Seite wird sofort ins Importfenster gesendet, ohne auf die
+                      Abschluss-Taste zu warten.
+                    </div>
+                  </div>
+                  <v-switch
+                    v-model="scanner.live_page_mode"
+                    color="primary"
+                    density="compact"
+                    hide-details
+                    inset
+                    :disabled="scannerSavingIds.has(scanner.id)"
+                    @update:model-value="() => markScannerDirty(scanner.id)"
+                  />
+                </div>
+
                 <div class="scanner-card__actions">
                   <span class="scanner-card__status">
                     {{ scannerStatusLabel(scanner) }}
@@ -2033,6 +2052,7 @@ function normalizeScannerDraft(scanner) {
     device_key: String(scanner?.device_key || '').trim(),
     name: String(scanner?.name || '').trim(),
     enabled: scanner?.enabled !== false,
+    live_page_mode: scanner?.live_page_mode === true,
     last_seen_at: scanner?.last_seen_at || null,
     recipient_user_ids: Array.isArray(scanner?.recipients)
       ? scanner.recipients.map((user) => String(user?.id || '').trim()).filter(Boolean)
@@ -2106,6 +2126,7 @@ async function saveScanner(scanner) {
     const saved = await updateScanner(scanner.id, {
       name: normalizedName,
       enabled: Boolean(scanner.enabled),
+      live_page_mode: Boolean(scanner.live_page_mode),
       recipient_user_ids: Array.isArray(scanner.recipient_user_ids) ? scanner.recipient_user_ids : []
     });
     const nextScanner = normalizeScannerDraft(saved);
@@ -4139,6 +4160,15 @@ async function removeAlias(alias) {
   grid-template-columns: minmax(160px, 0.9fr) minmax(220px, 1.25fr);
   gap: 10px;
   align-items: start;
+}
+
+.scanner-card__live-mode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.08);
 }
 
 .scanner-card__actions {

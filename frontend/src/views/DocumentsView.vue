@@ -2713,6 +2713,7 @@ async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) 
   }
   isImportInboxLoading.value = true;
   let shouldAutoOpen = false;
+  let shouldLivePush = false;
   try {
     const payload = await getImportInbox({ limit: 50 });
     const nextItems = normalizeImportInboxItems(payload);
@@ -2727,6 +2728,11 @@ async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) 
     }
 
     shouldAutoOpen = allowAutoOpen && shouldAutoOpenImportInbox(nextItems, newItemIds);
+    // Dialog schon voll offen (nicht minimiert) und neue Seiten da: nicht erneut
+    // "öffnen", sondern die bereits laufende Scan-Session live nachfüttern.
+    // addRemoteSources() ist idempotent pro source_file_id, daher unbedenklich
+    // mit der vollständigen Liste erneut aufrufbar.
+    shouldLivePush = !shouldAutoOpen && allowAutoOpen && newItemIds.length > 0 && isUploadDialogOpen.value;
   } catch (error) {
     if (!silent) {
       notify({ type: 'error', message: mapApiError(error, 'Neue Scans konnten nicht geladen werden.') });
@@ -2737,6 +2743,8 @@ async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) 
 
   if (shouldAutoOpen) {
     await autoOpenImportInboxScans();
+  } else if (shouldLivePush) {
+    await openImportInboxScans({ refresh: false });
   }
 }
 

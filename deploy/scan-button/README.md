@@ -121,6 +121,20 @@ Drück die 5 Tasten durch; merk dir die zwei, die `Seite scannen` bzw.
 3. Am Ende **button-2-Taste** → alle Seiten werden zu **einer** PDF und
    erscheinen als ein Eintrag im Importscreen (ggf. App kurz neu laden).
 
+## (Optional) Live-Modus: jede Seite sofort senden
+
+Standardmäßig sammelt **button-1** Seiten lokal und erst **button-2**
+schickt sie als fertige PDF ab. Alternativ kann pro Scanner in den
+**Scanner-Einstellungen** der App ("Seiten sofort senden") ein Live-Modus
+aktiviert werden: jede mit **button-1** gescannte Seite wird sofort als
+eigene 1-Seiten-PDF nach `scan-inbox/` gelegt. Bei offenem Importfenster
+erscheinen die Seiten dort nacheinander als ein wachsendes Dokument -
+**button-2** wird in diesem Modus nicht mehr benötigt.
+
+Die Einstellung wird vom Worker alle paar Sekunden in
+`scan-inbox/.papermind-scanner-config` gespiegelt; dieses Script liest nur
+diese Datei (kein Netzwerkzugriff, kein zusätzliches Setup auf dem Pi nötig).
+
 ## (Optional) Idle-Sicherheitsnetz
 
 Schließt einen vergessenen Batch nach `IDLE_SECONDS` (Default 180) Ruhe

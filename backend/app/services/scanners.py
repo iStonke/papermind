@@ -46,6 +46,7 @@ class ScannerService:
             device_key=scanner.device_key,
             name=scanner.name,
             enabled=scanner.enabled,
+            live_page_mode=scanner.live_page_mode,
             created_at=scanner.created_at,
             updated_at=scanner.updated_at,
             last_seen_at=scanner.last_seen_at,
@@ -137,6 +138,8 @@ class ScannerService:
             scanner.name = normalize_scanner_device_key(payload.name)
         if payload.enabled is not None:
             scanner.enabled = bool(payload.enabled)
+        if payload.live_page_mode is not None:
+            scanner.live_page_mode = bool(payload.live_page_mode)
         scanner.updated_at = datetime.now(timezone.utc)
         if payload.recipient_user_ids is not None:
             self._set_recipients(scanner.id, payload.recipient_user_ids)

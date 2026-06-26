@@ -16,6 +16,14 @@
 #  Dokumente werden als "Batch" gesammelt und mit einer zweiten Taste (oder per
 #  Idle-Timeout) zu einer mehrseitigen PDF abgeschlossen.
 #
+#  Optionaler Live-Modus (pro Scanner in den Scanner-Einstellungen der App):
+#  Statt zu sammeln wird jede Seite SOFORT als eigene 1-Seiten-PDF nach
+#  scan-inbox/ gelegt. Das Frontend gruppiert mehrere kurz hintereinander
+#  eintreffende Seiten im offenen Importfenster zu einem Dokument - button-2
+#  wird dann nicht mehr benötigt. Der Worker spiegelt die Einstellung in
+#  ``${SCAN_INBOX_DIR}/.papermind-scanner-config`` (siehe worker/main.py,
+#  _sync_scanner_live_mode_config); dieses Script liest nur diese Datei.
+#
 #  Unterbefehle:
 #    page          Eine Seite scannen und an den laufenden Batch anhängen.
 #    finish        Laufenden Batch zu einer PDF abschließen -> scan-inbox.
@@ -77,9 +85,56 @@ _scan_args() {
   printf '%s\n' "${args[@]}"
 }
 
+# Vom Worker gespiegelte Einstellung lesen (kein jq nötig, einfaches key=value).
+_live_page_mode_enabled() {
+  local cfg="${SCAN_INBOX_DIR}/.papermind-scanner-config"
+  [[ -f "$cfg" ]] && grep -q '^LIVE_PAGE_MODE=true$' "$cfg" 2>/dev/null
+}
+
+# Live-Modus: eine Seite scannen und SOFORT als eigene 1-Seiten-PDF nach
+# scan-inbox legen - kein Batch, kein Warten auf button-2.
+_scan_live_page() {
+  local tmp_dir="${SCAN_INBOX_DIR}/.papermind-live-tmp"
+  mkdir -p "$tmp_dir"
+
+  local ts png_part png incoming target
+  ts="$(date +%Y%m%d-%H%M%S-%N)"
+  png_part="${tmp_dir}/page-${ts}.png.part"
+  png="${tmp_dir}/page-${ts}.png"
+
+  log "Scanne Seite live (${SCAN_RESOLUTION}dpi ${SCAN_MODE})…"
+  # shellcheck disable=SC2046
+  if ! scanimage $(_scan_args) > "$png_part"; then
+    rm -f "$png_part"
+    die "scanimage fehlgeschlagen (Device frei? Deckel zu? 'scanimage -L' prüfen)"
+  fi
+  [[ -s "$png_part" ]] || { rm -f "$png_part"; die "Leeres Scan-Ergebnis"; }
+  mv -f "$png_part" "$png"
+
+  incoming="${SCAN_INBOX_DIR}/.incoming-${ts}.pdf"
+  target="${SCAN_INBOX_DIR}/Scan-${ts}.pdf"
+  if command -v img2pdf >/dev/null 2>&1; then
+    img2pdf --output "$incoming" "$png"
+  elif command -v convert >/dev/null 2>&1; then
+    convert "$png" "$incoming"   # ImageMagick-Fallback
+  else
+    rm -f "$png"
+    die "Weder img2pdf noch ImageMagick (convert) installiert"
+  fi
+  mv -f "$incoming" "$target"
+  rm -f "$png"
+  log "Seite live gesendet: ${target##*/}"
+}
+
 cmd_page() {
   _require scanimage
   _with_lock
+
+  if _live_page_mode_enabled; then
+    _scan_live_page
+    return
+  fi
+
   mkdir -p "$BATCH_DIR"
 
   # Nächsten, nullgepolsterten Seitenindex bestimmen.

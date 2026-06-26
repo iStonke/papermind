@@ -15,6 +15,7 @@ class ScannerDeviceRead(BaseModel):
     device_key: str
     name: str
     enabled: bool
+    live_page_mode: bool
     created_at: datetime
     updated_at: datetime
     last_seen_at: datetime | None = None
@@ -43,6 +44,7 @@ class ScannerDeviceCreateRequest(BaseModel):
 class ScannerDeviceUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=150)
     enabled: bool | None = None
+    live_page_mode: bool | None = None
     recipient_user_ids: list[uuid.UUID] | None = None
 
     @field_validator("name")

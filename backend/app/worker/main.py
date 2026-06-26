@@ -58,6 +58,8 @@ AUTO_TAG_MAX_TEXT_CHARS = 6000
 TRASH_CLEANUP_INTERVAL_SECONDS = 3600
 BACKUP_CHECK_INTERVAL_SECONDS = 60
 JOB_RECLAIM_INTERVAL_SECONDS = 30
+SCANNER_CONFIG_SYNC_INTERVAL_SECONDS = 5
+SCANNER_CONFIG_FILENAME = ".papermind-scanner-config"
 IMPORT_INBOX_PROCESSED_DIR = ".papermind-processed"
 IMPORT_INBOX_PROCESSING_DIR = ".papermind-processing"
 IMPORT_INBOX_FAILED_DIR = ".papermind-failed"
@@ -381,6 +383,28 @@ def _initial_scanner_recipient_id(db) -> uuid.UUID | None:
         .order_by(User.created_at.asc())
         .limit(1)
     ).scalar()
+
+
+def _sync_scanner_live_mode_config() -> None:
+    """Spiegelt scanner_devices.live_page_mode in eine lokale Datei in scan-inbox.
+
+    Die Host-Skripte (papermind-scan.sh) laufen außerhalb der Container und
+    haben keine Backend-Session - sie lesen stattdessen diese Datei aus dem
+    ohnehin gemounteten scan-inbox-Verzeichnis.
+    """
+    root = _import_inbox_drop_root()
+    if root is None or not IMPORT_INBOX_SCANNER_DEVICE_KEY:
+        return
+    with SessionLocal() as db:
+        scanner = ScannerService(db).get_by_key(IMPORT_INBOX_SCANNER_DEVICE_KEY)
+        live_mode = bool(scanner.live_page_mode) if scanner is not None else False
+    content = f"LIVE_PAGE_MODE={'true' if live_mode else 'false'}\n"
+    config_path = root / SCANNER_CONFIG_FILENAME
+    try:
+        if not config_path.exists() or config_path.read_text() != content:
+            config_path.write_text(content)
+    except OSError:
+        logger.warning("scanner config sync failed path=%s", config_path)
 
 
 def _scanner_device_id_for_drop(db) -> uuid.UUID | None:
@@ -1221,12 +1245,17 @@ def run() -> None:
     last_trash_cleanup_at = 0.0
     last_ocr_backfill_at = 0.0
     last_backup_check_at = 0.0
+    last_scanner_config_sync_at = 0.0
     last_job_reclaim_at = time.monotonic()
     while True:
         now_monotonic = time.monotonic()
         if now_monotonic - last_job_reclaim_at >= JOB_RECLAIM_INTERVAL_SECONDS:
             last_job_reclaim_at = now_monotonic
             _reclaim_orphaned_jobs()
+
+        if now_monotonic - last_scanner_config_sync_at >= SCANNER_CONFIG_SYNC_INTERVAL_SECONDS:
+            last_scanner_config_sync_at = now_monotonic
+            _sync_scanner_live_mode_config()
 
         if now_monotonic - last_trash_cleanup_at >= TRASH_CLEANUP_INTERVAL_SECONDS:
             last_trash_cleanup_at = now_monotonic
