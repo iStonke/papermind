@@ -600,6 +600,108 @@
           </div>
         </section>
 
+        <section v-show="activeCategory === 'scanners'" class="pm-settings-section">
+          <div class="pm-settings-content">
+            <SettingsInfoCard
+              icon="mdi-scanner"
+              title="Scanner"
+              subtitle="Empfänger und Sichtbarkeit für neue Scanner-Scans verwalten."
+            />
+
+            <div v-if="scannerSettingsLoading" class="scanner-settings-state">
+              <v-progress-circular indeterminate size="22" width="2" />
+              <span>Scanner werden geladen...</span>
+            </div>
+
+            <div v-else-if="scannerSettingsError" class="scanner-settings-state scanner-settings-state--error">
+              <v-icon size="20">mdi-alert-circle-outline</v-icon>
+              <span>{{ scannerSettingsError }}</span>
+              <v-btn variant="text" size="small" @click="loadScannerSettings">Erneut laden</v-btn>
+            </div>
+
+            <div v-else-if="scannerDrafts.length === 0" class="scanner-empty">
+              <v-icon size="28">mdi-scanner-off</v-icon>
+              <div>
+                <div class="scanner-empty__title">Noch kein Scanner erkannt</div>
+                <div class="scanner-empty__text">Der erste Scan legt den Scanner automatisch an.</div>
+              </div>
+            </div>
+
+            <div v-else class="scanner-list">
+              <div
+                v-for="scanner in scannerDrafts"
+                :key="scanner.id"
+                class="scanner-card"
+              >
+                <div class="scanner-card__header">
+                  <div class="scanner-card__identity">
+                    <v-icon size="22">mdi-scanner</v-icon>
+                    <div>
+                      <div class="scanner-card__title">{{ scanner.name || scanner.device_key }}</div>
+                      <div class="scanner-card__meta">
+                        {{ scanner.device_key }} · {{ scannerLastSeenLabel(scanner) }}
+                      </div>
+                    </div>
+                  </div>
+                  <v-switch
+                    v-model="scanner.enabled"
+                    color="primary"
+                    density="compact"
+                    hide-details
+                    inset
+                    :disabled="scannerSavingIds.has(scanner.id)"
+                    @update:model-value="() => markScannerDirty(scanner.id)"
+                  />
+                </div>
+
+                <div class="scanner-card__grid">
+                  <v-text-field
+                    v-model="scanner.name"
+                    label="Name"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    :disabled="scannerSavingIds.has(scanner.id)"
+                    @update:model-value="() => markScannerDirty(scanner.id)"
+                  />
+                  <v-autocomplete
+                    v-model="scanner.recipient_user_ids"
+                    :items="scannerUserOptions"
+                    label="Empfänger"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    chips
+                    closable-chips
+                    multiple
+                    :disabled="scannerSavingIds.has(scanner.id)"
+                    :menu-props="{ attach: 'body', zIndex: 6000 }"
+                    @update:model-value="() => markScannerDirty(scanner.id)"
+                  />
+                </div>
+
+                <div class="scanner-card__actions">
+                  <span class="scanner-card__status">
+                    {{ scannerStatusLabel(scanner) }}
+                  </span>
+                  <v-spacer />
+                  <v-btn
+                    color="primary"
+                    variant="flat"
+                    size="small"
+                    prepend-icon="mdi-content-save-outline"
+                    :disabled="!scannerDirtyIds.has(scanner.id)"
+                    :loading="scannerSavingIds.has(scanner.id)"
+                    @click="saveScanner(scanner)"
+                  >
+                    Speichern
+                  </v-btn>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section v-show="activeCategory === 'categories'" class="pm-settings-section">
           <div class="pm-settings-content">
             <SettingsInfoCard
@@ -1763,6 +1865,8 @@ import { notifyError, useNotifications } from '../stores/notifications';
 import { useTagStore } from '../stores/tags';
 import { cleanupUnusedTags } from '../api/tags';
 import { backfillOcr, patchDocument as apiPatchDocument } from '../api/documents';
+import { listScanners, updateScanner } from '../api/scanners';
+import { listUsers } from '../api/users';
 import {
   deleteBackupArchive,
   getBackupStatus,
@@ -1901,6 +2005,126 @@ const animationsEnabled = computed(() => settingsStore.animationsEnabled);
 
 const currentColorVariant = computed(() => settingsStore.settingsDraft.ui.color_variant || 'teal');
 
+// ── Scanner-Einstellungen ───────────────────────────────────────────────────
+
+const scannerDrafts = ref([]);
+const scannerUsers = ref([]);
+const scannerSettingsLoading = ref(false);
+const scannerSettingsError = ref('');
+const scannerDirtyIds = ref(new Set());
+const scannerSavingIds = ref(new Set());
+let scannerSettingsLoaded = false;
+
+const scannerUserOptions = computed(() =>
+  scannerUsers.value
+    .filter((user) => user?.is_active !== false)
+    .map((user) => ({
+      title: user.display_name || user.username,
+      value: user.id,
+      props: {
+        subtitle: user.email || user.username
+      }
+    }))
+);
+
+function normalizeScannerDraft(scanner) {
+  return {
+    id: String(scanner?.id || '').trim(),
+    device_key: String(scanner?.device_key || '').trim(),
+    name: String(scanner?.name || '').trim(),
+    enabled: scanner?.enabled !== false,
+    last_seen_at: scanner?.last_seen_at || null,
+    recipient_user_ids: Array.isArray(scanner?.recipients)
+      ? scanner.recipients.map((user) => String(user?.id || '').trim()).filter(Boolean)
+      : []
+  };
+}
+
+function scannerLastSeenLabel(scanner) {
+  if (!scanner?.last_seen_at) return 'noch nicht gesehen';
+  try {
+    return `zuletzt gesehen ${new Intl.DateTimeFormat('de-DE', {
+      dateStyle: 'short',
+      timeStyle: 'short'
+    }).format(new Date(scanner.last_seen_at))}`;
+  } catch {
+    return 'zuletzt gesehen';
+  }
+}
+
+function scannerStatusLabel(scanner) {
+  if (scannerSavingIds.value.has(scanner.id)) return 'Wird gespeichert...';
+  if (scannerDirtyIds.value.has(scanner.id)) return 'Ungespeicherte Änderungen';
+  const count = Array.isArray(scanner.recipient_user_ids) ? scanner.recipient_user_ids.length : 0;
+  if (!scanner.enabled) return 'Deaktiviert';
+  if (count === 0) return 'Keine Empfänger';
+  return `${count} Empfänger`;
+}
+
+function markScannerDirty(scannerId) {
+  const next = new Set(scannerDirtyIds.value);
+  next.add(scannerId);
+  scannerDirtyIds.value = next;
+}
+
+async function loadScannerSettings({ force = false } = {}) {
+  if (!auth.isAdmin) return;
+  if (scannerSettingsLoading.value) return;
+  if (scannerSettingsLoaded && !force) return;
+  scannerSettingsLoading.value = true;
+  scannerSettingsError.value = '';
+  try {
+    const [scannerPayload, userPayload] = await Promise.all([
+      listScanners(),
+      listUsers()
+    ]);
+    scannerDrafts.value = Array.isArray(scannerPayload?.items)
+      ? scannerPayload.items.map(normalizeScannerDraft).filter((scanner) => scanner.id)
+      : [];
+    scannerUsers.value = Array.isArray(userPayload?.items) ? userPayload.items : [];
+    scannerDirtyIds.value = new Set();
+    scannerSettingsLoaded = true;
+  } catch (error) {
+    scannerSettingsError.value = error?.message || 'Scanner-Einstellungen konnten nicht geladen werden.';
+    notifyError(error, 'Scanner-Einstellungen konnten nicht geladen werden.');
+  } finally {
+    scannerSettingsLoading.value = false;
+  }
+}
+
+async function saveScanner(scanner) {
+  if (!scanner?.id || scannerSavingIds.value.has(scanner.id)) return;
+  const normalizedName = String(scanner.name || '').trim();
+  if (!normalizedName) {
+    notify({ type: 'warning', message: 'Scannername darf nicht leer sein.' });
+    return;
+  }
+  const nextSaving = new Set(scannerSavingIds.value);
+  nextSaving.add(scanner.id);
+  scannerSavingIds.value = nextSaving;
+  try {
+    const saved = await updateScanner(scanner.id, {
+      name: normalizedName,
+      enabled: Boolean(scanner.enabled),
+      recipient_user_ids: Array.isArray(scanner.recipient_user_ids) ? scanner.recipient_user_ids : []
+    });
+    const nextScanner = normalizeScannerDraft(saved);
+    scannerDrafts.value = scannerDrafts.value.map((item) => (
+      item.id === scanner.id ? nextScanner : item
+    ));
+    const nextDirty = new Set(scannerDirtyIds.value);
+    nextDirty.delete(scanner.id);
+    scannerDirtyIds.value = nextDirty;
+    notify({ type: 'success', message: 'Scanner-Einstellungen gespeichert.' });
+  } catch (error) {
+    notifyError(error, 'Scanner-Einstellungen konnten nicht gespeichert werden.');
+  } finally {
+    const doneSaving = new Set(scannerSavingIds.value);
+    doneSaving.delete(scanner.id);
+    scannerSavingIds.value = doneSaving;
+  }
+}
+
 // ── Einstellungsnavigation ───────────────────────────────────────────────────
 
 const settingsCategories = [
@@ -1908,6 +2132,7 @@ const settingsCategories = [
   { value: 'controls', label: 'Bedienung', icon: 'mdi-keyboard-outline', group: 'surface' },
   { value: 'sidebar', label: 'Seitenleiste', icon: 'mdi-page-layout-sidebar-left', group: 'surface' },
   { value: 'import', label: 'Importieren', icon: 'mdi-tray-arrow-up', group: 'documents', adminOnly: true },
+  { value: 'scanners', label: 'Scanner', icon: 'mdi-scanner', group: 'documents', adminOnly: true },
   { value: 'documents', label: 'Bibliothek', icon: 'mdi-archive-outline', group: 'documents', adminOnly: true },
   { value: 'categories', label: 'Dokumenttypen', icon: 'mdi-file-document-multiple-outline', group: 'documents' },
   { value: 'correspondents', label: 'Korrespondenten', icon: 'mdi-account-outline', group: 'documents' },
@@ -2294,6 +2519,9 @@ watch(activeCategory, (value) => {
   if (value === 'backup') {
     backupSetupInitialized = false; // Panel-Zustand beim Betreten neu bestimmen
     loadBackup();
+  }
+  if (value === 'scanners') {
+    void loadScannerSettings();
   }
 });
 
@@ -3232,6 +3460,9 @@ watch(
       void categoryStore.fetchCategories();
       void correspondentStore.fetchCorrespondents();
       void loadUnresolvedCorrespondents();
+      if (activeCategory.value === 'scanners') {
+        void loadScannerSettings();
+      }
     }
   },
   { immediate: true }
@@ -3814,6 +4045,111 @@ async function removeAlias(alias) {
 .pm-settings-content > .settings-info-card + .backup-card,
 .pm-settings-content > .settings-info-card + .shortcuts-list {
   margin-top: 10px;
+}
+
+/* ── Scanner ─────────────────────────────────────────────────────────────── */
+.scanner-settings-state,
+.scanner-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 72px;
+  padding: 14px 12px;
+  color: rgba(var(--v-theme-on-surface), 0.64);
+  font-size: 0.9rem;
+}
+
+.scanner-settings-state--error {
+  color: rgb(var(--v-theme-error));
+}
+
+.scanner-empty {
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+  border-radius: 8px;
+  background: rgba(var(--v-theme-on-surface), 0.025);
+}
+
+.scanner-empty__title {
+  font-size: 0.92rem;
+  font-weight: 650;
+  color: rgba(var(--v-theme-on-surface), 0.82);
+}
+
+.scanner-empty__text {
+  margin-top: 2px;
+  font-size: 0.82rem;
+  color: rgba(var(--v-theme-on-surface), 0.56);
+}
+
+.scanner-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.scanner-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+  border-radius: 8px;
+  background: rgba(var(--v-theme-surface), 0.72);
+}
+
+.scanner-card__header,
+.scanner-card__identity,
+.scanner-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.scanner-card__header {
+  justify-content: space-between;
+}
+
+.scanner-card__identity {
+  min-width: 0;
+  color: rgba(var(--v-theme-on-surface), 0.72);
+}
+
+.scanner-card__title {
+  min-width: 0;
+  font-size: 0.96rem;
+  font-weight: 650;
+  color: rgba(var(--v-theme-on-surface), 0.9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scanner-card__meta {
+  margin-top: 2px;
+  font-size: 0.76rem;
+  color: rgba(var(--v-theme-on-surface), 0.52);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scanner-card__grid {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.9fr) minmax(220px, 1.25fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.scanner-card__actions {
+  min-height: 32px;
+}
+
+.scanner-card__status {
+  min-width: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: rgba(var(--v-theme-on-surface), 0.56);
 }
 
 .settings-category-header {
@@ -4536,13 +4872,28 @@ async function removeAlias(alias) {
   .settings-unresolved-row,
   .settings-category-editor,
   .settings-category-form,
-  .settings-correspondent-fields__name-row {
+  .settings-correspondent-fields__name-row,
+  .scanner-card__grid {
     grid-template-columns: 1fr;
   }
 
   .settings-category-editor,
   .settings-correspondent-editor {
     padding-left: 12px;
+  }
+
+  .scanner-card__header,
+  .scanner-card__actions {
+    align-items: flex-start;
+  }
+
+  .scanner-card__actions {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .scanner-card__actions :deep(.v-spacer) {
+    display: none;
   }
 }
 

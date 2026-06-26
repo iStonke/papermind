@@ -106,6 +106,8 @@ export {
   mdiRobotOutline,
   mdiRotateLeft,
   mdiRotateRight,
+  mdiScanner,
+  mdiScannerOff,
   mdiSendOutline,
   mdiServerNetwork,
   mdiShapeOutline,
