@@ -162,23 +162,23 @@
               class="pm-setting-row"
               role="button"
               tabindex="0"
-              @click="toggleScanAnimationFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleScanAnimationFromRow)"
+              @click="toggleScanLineAnimationFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleScanLineAnimationFromRow)"
             >
               <div class="pm-setting-content">
-                <div class="pm-setting-label">Große Scan-Animation</div>
+                <div class="pm-setting-label">Scan-Balken bei KI-Analyse</div>
                 <div class="pm-setting-description">
-                  Pulsierendes Scanner-Symbol im Importfenster, solange der Scanner aktiv ist.
+                  Wandernder Balken im Importfenster, solange die KI ein Dokument analysiert.
                 </div>
               </div>
               <v-switch
-                :model-value="scanAnimationEnabled"
+                :model-value="scanLineAnimationEnabled"
                 color="primary"
                 density="comfortable"
                 hide-details
                 inset
                 @click.stop
-                @update:model-value="onScanAnimationEnabledChange"
+                @update:model-value="onScanLineAnimationEnabledChange"
               />
             </div>
 
@@ -2045,7 +2045,7 @@ async function runOcrBackfillNow() {
 
 const isSettingsLoading = computed(() => settingsStore.isSettingsLoading);
 const animationsEnabled = computed(() => settingsStore.animationsEnabled);
-const scanAnimationEnabled = computed(() => settingsStore.scanAnimationEnabled);
+const scanLineAnimationEnabled = computed(() => settingsStore.scanLineAnimationEnabled);
 
 const currentColorVariant = computed(() => settingsStore.settingsDraft.ui.color_variant || 'teal');
 
@@ -3192,12 +3192,12 @@ function toggleAnimationsFromRow() {
   settingsStore.setAnimationsEnabled(!settingsStore.animationsEnabled);
 }
 
-function onScanAnimationEnabledChange(nextValue) {
-  settingsStore.setScanAnimationEnabled(Boolean(nextValue));
+function onScanLineAnimationEnabledChange(nextValue) {
+  settingsStore.setScanLineAnimationEnabled(Boolean(nextValue));
 }
 
-function toggleScanAnimationFromRow() {
-  settingsStore.setScanAnimationEnabled(!settingsStore.scanAnimationEnabled);
+function toggleScanLineAnimationFromRow() {
+  settingsStore.setScanLineAnimationEnabled(!settingsStore.scanLineAnimationEnabled);
 }
 
 // ── Dokumenttypen-Verwaltung ───────────────────────────────────────────────────

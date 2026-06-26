@@ -28,7 +28,7 @@ const DRAWER_HEIGHT_MIN            = 180;
 const DRAWER_HEIGHT_MAX            = 720;
 const TAG_DRAWER_EXPANDED_STORAGE_KEY = 'pm.tagFilterDrawerExpanded';
 const ANIMATIONS_ENABLED_STORAGE_KEY = 'pm.animationsEnabled';
-const SCAN_ANIMATION_ENABLED_STORAGE_KEY = 'pm.scanAnimationEnabled';
+const SCAN_LINE_ANIMATION_ENABLED_STORAGE_KEY = 'pm.scanLineAnimationEnabled';
 
 function toInt(value, fallback) {
   const parsed = Number(value);
@@ -205,9 +205,9 @@ function readStoredAnimationsEnabled() {
   return true; // Standard: aktiviert
 }
 
-function readStoredScanAnimationEnabled() {
+function readStoredScanLineAnimationEnabled() {
   try {
-    const raw = window.localStorage.getItem(SCAN_ANIMATION_ENABLED_STORAGE_KEY);
+    const raw = window.localStorage.getItem(SCAN_LINE_ANIMATION_ENABLED_STORAGE_KEY);
     if (raw === '0') return false;
   } catch {
     // ignore
@@ -281,7 +281,7 @@ export const useSettingsStore = defineStore('settings', {
       drawerHeight: readStoredDrawerHeight(),
       hasLoadedSettings: false,
       animationsEnabled: readStoredAnimationsEnabled(),
-      scanAnimationEnabled: readStoredScanAnimationEnabled()
+      scanLineAnimationEnabled: readStoredScanLineAnimationEnabled()
     };
   },
   actions: {
@@ -563,10 +563,10 @@ export const useSettingsStore = defineStore('settings', {
       }
     },
 
-    setScanAnimationEnabled(value) {
-      this.scanAnimationEnabled = Boolean(value);
+    setScanLineAnimationEnabled(value) {
+      this.scanLineAnimationEnabled = Boolean(value);
       try {
-        window.localStorage.setItem(SCAN_ANIMATION_ENABLED_STORAGE_KEY, this.scanAnimationEnabled ? '1' : '0');
+        window.localStorage.setItem(SCAN_LINE_ANIMATION_ENABLED_STORAGE_KEY, this.scanLineAnimationEnabled ? '1' : '0');
       } catch {
         // ignore
       }

@@ -45,7 +45,11 @@
 
       <!-- Left column: page grid + bottom toolbar -->
       <div class="isd-left">
-        <div v-if="aiAnalysis.kind === 'busy' && !isEmpty" class="isd-ai-scan-line" aria-hidden="true" />
+        <div
+          v-if="aiAnalysis.kind === 'busy' && !isEmpty && settingsStore.scanLineAnimationEnabled"
+          class="isd-ai-scan-line"
+          aria-hidden="true"
+        />
         <div
           class="isd-grid-scroll"
           :style="{ ...gridScrollStyle, paddingBottom: isEmpty ? '40px' : '82px' }"
@@ -70,13 +74,7 @@
             @mouseenter="onDropzoneMouseEnter"
             @mouseleave="onDropzoneMouseLeave"
           >
-            <div
-              class="isd-dropzone__icon"
-              :class="{
-                'isd-dropzone__icon--scanning': props.scannerActive,
-                'isd-dropzone__icon--scanning-pulse': props.scannerActive && settingsStore.scanAnimationEnabled
-              }"
-            >
+            <div class="isd-dropzone__icon" :class="{ 'isd-dropzone__icon--scanning': props.scannerActive }">
               <v-icon size="52" class="isd-dropzone__icon-svg">
                 {{ props.scannerActive ? 'mdi-scanner' : 'mdi-tray-arrow-down' }}
               </v-icon>
@@ -5010,9 +5008,6 @@ onBeforeUnmount(() => {
 
 .isd-dropzone__icon--scanning .isd-dropzone__icon-svg {
   color: rgb(var(--v-theme-primary));
-}
-
-.isd-dropzone__icon--scanning-pulse .isd-dropzone__icon-svg {
   animation: isd-scanning-icon-pulse 1.4s ease-in-out infinite;
 }
 
