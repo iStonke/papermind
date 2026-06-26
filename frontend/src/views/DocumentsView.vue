@@ -2904,7 +2904,11 @@ watch(isUploadDialogOpen, async (open) => {
     return;
   }
   // Dialog ohne Commit geschlossen (Abbrechen/Esc/Klick außerhalb): geöffnete
-  // Inbox-Scans verwerfen – aber erst nach Sicherheitsabfrage.
+  // Inbox-Scans konsequent verwerfen. Wer sie behalten will, nutzt "Minimieren"
+  // statt zu schließen - daher hier keine zusätzliche Rückfrage mehr: ein
+  // window.confirm() mit invertierter Bedeutung ("Abbrechen" = behalten) führte
+  // dazu, dass reflexhaft weggeklickte Scans unbeabsichtigt im Posteingang
+  // blieben und nach einem Refresh wieder als rotes Badge auftauchten.
   const itemIds = Array.from(activeImportInboxItemIds.value);
   activeImportInboxItemIds.value = new Set();
   activeImportInboxSourceToItemId.value = new Map();
@@ -2914,16 +2918,6 @@ watch(isUploadDialogOpen, async (open) => {
   }
   importInboxSuppressedItemIds.value = nextSuppressed;
 
-  const count = itemIds.length;
-  const confirmed = window.confirm(
-    `${count} gescannte${count === 1 ? 'n Import' : ' Importe'} verwerfen? `
-      + 'Die Dateien werden endgültig gelöscht. Mit „Abbrechen" bleiben sie im Posteingang.'
-  );
-  if (!confirmed) {
-    // Behalten: Scans wandern zurück in den Posteingang.
-    await refreshImportInbox({ silent: true, allowAutoOpen: false });
-    return;
-  }
   try {
     await discardImportInboxItems(itemIds);
   } catch (error) {
