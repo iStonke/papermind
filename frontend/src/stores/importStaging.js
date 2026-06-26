@@ -37,6 +37,7 @@ function createDocument({ title, sourceType = 'manual', pages = [], collapsed = 
     id: page.id || makeId('staging-page'),
     docId: id,
     rotation: normalizeRotation(page.rotation),
+    colorMode: normalizeColorMode(page.colorMode),
     deleted: Boolean(page.deleted)
   }));
   return {
@@ -70,6 +71,12 @@ function normalizeRotation(value) {
   return 0;
 }
 
+const PAGE_COLOR_MODES = ['color', 'grayscale', 'bw'];
+
+function normalizeColorMode(value) {
+  return PAGE_COLOR_MODES.includes(value) ? value : 'color';
+}
+
 function buildPagesForSource(docId, sourceFileId, pageCount, thumbUrls = []) {
   const normalizedPageCount = Math.max(0, Number(pageCount || 0));
   return Array.from({ length: normalizedPageCount }, (_, pageIndex) => ({
@@ -78,6 +85,7 @@ function buildPagesForSource(docId, sourceFileId, pageCount, thumbUrls = []) {
     sourceFileId,
     pageIndex,
     rotation: 0,
+    colorMode: 'color',
     thumbUrl: String(thumbUrls[pageIndex] || ''),
     deleted: false
   }));
@@ -326,6 +334,14 @@ export const useImportStagingStore = defineStore('importStaging', {
       const delta = direction === 'left' ? -90 : 90;
       const nextRotation = (location.page.rotation + delta + 360) % 360;
       location.page.rotation = normalizeRotation(nextRotation);
+    },
+
+    setPageColorMode(pageId, colorMode) {
+      const location = this.findPageLocation(pageId);
+      if (!location) {
+        return;
+      }
+      location.page.colorMode = normalizeColorMode(colorMode);
     },
 
     removePage(pageId) {

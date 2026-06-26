@@ -5077,7 +5077,7 @@ onBeforeUnmount(() => {
 }
 
 .isd-color-btn--active {
-  opacity: 1;
+  box-shadow: 0 0 0 3px rgba(var(--v-theme-primary), 0.22);
 }
 
 .isd-zoom-group {
