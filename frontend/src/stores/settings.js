@@ -28,6 +28,7 @@ const DRAWER_HEIGHT_MIN            = 180;
 const DRAWER_HEIGHT_MAX            = 720;
 const TAG_DRAWER_EXPANDED_STORAGE_KEY = 'pm.tagFilterDrawerExpanded';
 const ANIMATIONS_ENABLED_STORAGE_KEY = 'pm.animationsEnabled';
+const SCAN_ANIMATION_ENABLED_STORAGE_KEY = 'pm.scanAnimationEnabled';
 
 function toInt(value, fallback) {
   const parsed = Number(value);
@@ -204,6 +205,16 @@ function readStoredAnimationsEnabled() {
   return true; // Standard: aktiviert
 }
 
+function readStoredScanAnimationEnabled() {
+  try {
+    const raw = window.localStorage.getItem(SCAN_ANIMATION_ENABLED_STORAGE_KEY);
+    if (raw === '0') return false;
+  } catch {
+    // ignore
+  }
+  return true; // Standard: aktiviert
+}
+
 function readStoredDrawerExpanded() {
   try {
     const raw = window.localStorage.getItem(DRAWER_EXPANDED_STORAGE_KEY);
@@ -269,7 +280,8 @@ export const useSettingsStore = defineStore('settings', {
       drawerLastRemembered: readStoredDrawerExpanded(),
       drawerHeight: readStoredDrawerHeight(),
       hasLoadedSettings: false,
-      animationsEnabled: readStoredAnimationsEnabled()
+      animationsEnabled: readStoredAnimationsEnabled(),
+      scanAnimationEnabled: readStoredScanAnimationEnabled()
     };
   },
   actions: {
@@ -546,6 +558,15 @@ export const useSettingsStore = defineStore('settings', {
       this.animationsEnabled = Boolean(value);
       try {
         window.localStorage.setItem(ANIMATIONS_ENABLED_STORAGE_KEY, this.animationsEnabled ? '1' : '0');
+      } catch {
+        // ignore
+      }
+    },
+
+    setScanAnimationEnabled(value) {
+      this.scanAnimationEnabled = Boolean(value);
+      try {
+        window.localStorage.setItem(SCAN_ANIMATION_ENABLED_STORAGE_KEY, this.scanAnimationEnabled ? '1' : '0');
       } catch {
         // ignore
       }

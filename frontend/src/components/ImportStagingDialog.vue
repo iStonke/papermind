@@ -70,7 +70,13 @@
             @mouseenter="onDropzoneMouseEnter"
             @mouseleave="onDropzoneMouseLeave"
           >
-            <div class="isd-dropzone__icon" :class="{ 'isd-dropzone__icon--scanning': props.scannerActive }">
+            <div
+              class="isd-dropzone__icon"
+              :class="{
+                'isd-dropzone__icon--scanning': props.scannerActive,
+                'isd-dropzone__icon--scanning-pulse': props.scannerActive && settingsStore.scanAnimationEnabled
+              }"
+            >
               <v-icon size="52" class="isd-dropzone__icon-svg">
                 {{ props.scannerActive ? 'mdi-scanner' : 'mdi-tray-arrow-down' }}
               </v-icon>
@@ -285,6 +291,36 @@
                 @click="setAnySelectedPageColorMode('color')"
               >
                 <v-icon size="20">mdi-palette-outline</v-icon>
+              </v-btn>
+            </div>
+
+            <div class="isd-toolbar-divider" />
+
+            <div class="isd-ai-group">
+              <v-btn
+                icon
+                size="x-small"
+                variant="text"
+                class="isd-ai-status-btn"
+                :class="`isd-ai-status-btn--${aiAnalysis.kind}`"
+                :title="aiStatusTitle"
+                :disabled="isRetryingAnalysis || isUploadingSources || totalPages === 0"
+                @click="retryAnalysis"
+              >
+                <v-progress-circular
+                  v-if="isRetryingAnalysis || aiAnalysis.kind === 'busy'"
+                  indeterminate
+                  size="16"
+                  width="2"
+                  color="primary"
+                />
+                <v-icon v-else-if="['success', 'partial'].includes(aiAnalysis.kind)" size="20" color="success">
+                  mdi-check-circle-outline
+                </v-icon>
+                <v-icon v-else-if="aiAnalysis.kind === 'failed'" size="20" color="warning">
+                  mdi-alert-circle-outline
+                </v-icon>
+                <v-icon v-else size="20">mdi-creation</v-icon>
               </v-btn>
             </div>
           </div>
@@ -573,57 +609,6 @@
           <div v-if="hasSelectedPreview" class="isd-preview-meta">
             {{ selectedPreviewLabel }}
           </div>
-        </div>
-
-        <!-- KI-Analyse-Status (gespiegelte Toolbar, unten) -->
-        <div
-          v-if="!isEmpty && rightPanelMode === 'details'"
-          class="isd-props-status"
-          :class="`isd-props-status--${aiAnalysis.kind}`"
-        >
-          <template v-if="aiAnalysis.kind === 'busy'">
-            <v-progress-circular indeterminate size="15" width="2" color="primary" />
-            <span class="isd-props-status__text">KI analysiert Dokument…</span>
-          </template>
-          <template v-else-if="aiAnalysis.kind === 'success'">
-            <v-icon size="16" color="success">mdi-check-circle-outline</v-icon>
-            <span
-              class="isd-props-status__text"
-              :title="`Automatisch erkannt: ${aiAnalysis.fields.join(', ')}`"
-            >Automatisch erkannt</span>
-          </template>
-          <template v-else-if="aiAnalysis.kind === 'partial'">
-            <v-icon size="16" color="success">mdi-check-circle-outline</v-icon>
-            <span class="isd-props-status__text">Analyse abgeschlossen – keine Felder ergänzt</span>
-          </template>
-          <template v-else-if="aiAnalysis.kind === 'failed'">
-            <v-icon size="16" class="isd-props-status__warn-icon">mdi-alert-circle-outline</v-icon>
-            <span class="isd-props-status__text">Keine automatische Erkennung</span>
-          </template>
-          <template v-else>
-            <v-icon size="16" class="isd-props-status__idle-icon">mdi-creation</v-icon>
-            <span class="isd-props-status__text">Felder werden automatisch erkannt</span>
-          </template>
-
-          <!-- Startet den gesamten Analyse-Prozess erneut (nach Abschluss/Fehlschlag) -->
-          <button
-            v-if="isRetryingAnalysis || ['success', 'partial', 'failed'].includes(aiAnalysis.kind)"
-            type="button"
-            class="isd-props-status__retry"
-            :disabled="isRetryingAnalysis || isUploadingSources || totalPages === 0"
-            title="Den gesamten Analyse-Prozess erneut starten"
-            @click="retryAnalysis"
-          >
-            <v-progress-circular
-              v-if="isRetryingAnalysis"
-              indeterminate
-              size="14"
-              width="2"
-              color="primary"
-            />
-            <v-icon v-else size="14">mdi-refresh</v-icon>
-            <span>{{ isRetryingAnalysis ? 'Läuft…' : 'Erneut' }}</span>
-          </button>
         </div>
 
       </div>
@@ -1439,6 +1424,26 @@ const aiAnalysis = computed(() => {
     return { kind: 'partial', fields: [] };
   }
   return { kind: 'idle', fields: [] };
+});
+
+const aiStatusTitle = computed(() => {
+  if (isRetryingAnalysis.value) {
+    return 'Analyse läuft erneut…';
+  }
+  const kind = aiAnalysis.value.kind;
+  if (kind === 'busy') {
+    return 'KI analysiert Dokument…';
+  }
+  if (kind === 'success') {
+    return `Automatisch erkannt: ${aiAnalysis.value.fields.join(', ')} — Klicken, um die Analyse erneut zu starten`;
+  }
+  if (kind === 'partial') {
+    return 'Analyse abgeschlossen – keine Felder ergänzt — Klicken, um die Analyse erneut zu starten';
+  }
+  if (kind === 'failed') {
+    return 'Keine automatische Erkennung — Klicken, um die Analyse erneut zu starten';
+  }
+  return 'Felder werden automatisch erkannt';
 });
 
 function hasAiFilledImportFields() {
@@ -5005,6 +5010,9 @@ onBeforeUnmount(() => {
 
 .isd-dropzone__icon--scanning .isd-dropzone__icon-svg {
   color: rgb(var(--v-theme-primary));
+}
+
+.isd-dropzone__icon--scanning-pulse .isd-dropzone__icon-svg {
   animation: isd-scanning-icon-pulse 1.4s ease-in-out infinite;
 }
 
@@ -5078,6 +5086,16 @@ onBeforeUnmount(() => {
 
 .isd-color-btn--active {
   box-shadow: 0 0 0 3px rgba(var(--v-theme-primary), 0.22);
+}
+
+.isd-ai-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.isd-ai-status-btn--failed {
+  color: rgb(var(--v-theme-warning)) !important;
 }
 
 .isd-zoom-group {
@@ -5313,70 +5331,6 @@ onBeforeUnmount(() => {
   font-size: 12px;
   font-weight: 650;
   text-align: center;
-}
-
-/* KI-Analyse-Status: fester Footer der rechten Spalte. Der Bereich darüber
- * scrollt separat, damit die Dialoghöhe konstant bleibt. */
-.isd-props-status {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  box-sizing: border-box;
-  height: var(--isd-bar-height, 49px);
-  overflow: hidden;
-  border-top: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
-  background: rgba(var(--v-theme-surface), 0.82);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-
-.isd-props-status__text {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 12.5px;
-  line-height: 1.3;
-  color: rgba(var(--v-theme-on-surface), 0.72);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.isd-props-status--failed .isd-props-status__text {
-  color: rgba(var(--v-theme-on-surface), 0.78);
-}
-
-.isd-props-status__warn-icon {
-  color: rgb(var(--v-theme-warning)) !important;
-}
-
-.isd-props-status__idle-icon {
-  color: rgba(var(--v-theme-on-surface), 0.4) !important;
-}
-
-.isd-props-status__retry {
-  margin-left: auto;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  color: rgb(var(--v-theme-primary));
-  padding: 3px 8px;
-  border-radius: 6px;
-  transition: background 0.15s;
-  cursor: pointer;
-}
-
-.isd-props-status__retry:hover:not(:disabled) {
-  background: rgba(var(--v-theme-primary), 0.1);
-}
-
-.isd-props-status__retry:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 .isd-props--disabled {

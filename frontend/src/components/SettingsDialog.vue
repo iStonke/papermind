@@ -162,6 +162,30 @@
               class="pm-setting-row"
               role="button"
               tabindex="0"
+              @click="toggleScanAnimationFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleScanAnimationFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Große Scan-Animation</div>
+                <div class="pm-setting-description">
+                  Pulsierendes Scanner-Symbol im Importfenster, solange der Scanner aktiv ist.
+                </div>
+              </div>
+              <v-switch
+                :model-value="scanAnimationEnabled"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                @click.stop
+                @update:model-value="onScanAnimationEnabledChange"
+              />
+            </div>
+
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
               @click="toggleDrawerRememberStateFromRow"
               @keydown="handleSettingRowShortcut($event, toggleDrawerRememberStateFromRow)"
             >
@@ -2021,6 +2045,7 @@ async function runOcrBackfillNow() {
 
 const isSettingsLoading = computed(() => settingsStore.isSettingsLoading);
 const animationsEnabled = computed(() => settingsStore.animationsEnabled);
+const scanAnimationEnabled = computed(() => settingsStore.scanAnimationEnabled);
 
 const currentColorVariant = computed(() => settingsStore.settingsDraft.ui.color_variant || 'teal');
 
@@ -3165,6 +3190,14 @@ function onAnimationsEnabledChange(nextValue) {
 
 function toggleAnimationsFromRow() {
   settingsStore.setAnimationsEnabled(!settingsStore.animationsEnabled);
+}
+
+function onScanAnimationEnabledChange(nextValue) {
+  settingsStore.setScanAnimationEnabled(Boolean(nextValue));
+}
+
+function toggleScanAnimationFromRow() {
+  settingsStore.setScanAnimationEnabled(!settingsStore.scanAnimationEnabled);
 }
 
 // ── Dokumenttypen-Verwaltung ───────────────────────────────────────────────────
