@@ -169,9 +169,15 @@ Worker bei Bedarf gezielt neu bauen:
 docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build worker
 ```
 
-Update über Deploy-Skript:
+Update über Deploy-Skript (Code ziehen + alle Container inkl. Frontend neu
+bauen, in einem Schritt):
 ```bash
-./scripts/deploy_pi.sh --prod --compose --build --worker
+./scripts/deploy_pi.sh --prod
+```
+
+Nur den Code aktualisieren, ohne Container neu zu bauen:
+```bash
+./scripts/deploy_pi.sh --prod --code-only
 ```
 
 Status prüfen:

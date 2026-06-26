@@ -5,12 +5,24 @@ usage() {
   cat <<'EOF'
 Usage: ./scripts/deploy_pi.sh [options]
 
+Bequemster Aufruf für ein volles Prod-Update (Code + alle Container neu
+gebaut, inkl. Frontend):
+
+  ./scripts/deploy_pi.sh --prod
+
+Das entspricht "--prod --compose --build" - bei --prod werden Compose-Update
+und -Build automatisch aktiviert, sofern nicht --code-only angegeben wird.
+
 Options:
   --branch <name>  Git branch to update (default: current branch)
+  --code-only      Bei --prod nur git pull, KEIN docker compose up
   --compose        Run docker compose up -d after git update
-  --prod           Use docker-compose.prod.yml for compose commands
+  --prod           Use docker-compose.prod.yml; impliziert --compose --build
+                    (außer --code-only ist gesetzt)
   --build          Use --build with docker compose (implies --compose)
-  --worker         Start/update worker with compose profile "worker"
+  --worker         Worker zusätzlich explizit neu starten (normalerweise
+                    überflüssig, da --compose ohnehin alle Services inkl.
+                    Worker aktualisiert)
   -h, --help       Show this help
 EOF
 }
@@ -20,6 +32,7 @@ RUN_COMPOSE=0
 RUN_BUILD=0
 RUN_WORKER=0
 RUN_PROD=0
+CODE_ONLY=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -36,6 +49,9 @@ while [[ $# -gt 0 ]]; do
       ;;
     --prod)
       RUN_PROD=1
+      ;;
+    --code-only)
+      CODE_ONLY=1
       ;;
     --build)
       RUN_BUILD=1
@@ -56,6 +72,11 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+if [[ "${RUN_PROD}" -eq 1 && "${CODE_ONLY}" -eq 0 ]]; then
+  RUN_COMPOSE=1
+  RUN_BUILD=1
+fi
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_DIR}"
