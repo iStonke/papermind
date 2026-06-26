@@ -61,6 +61,7 @@ JOB_RECLAIM_INTERVAL_SECONDS = 30
 SCANNER_CONFIG_SYNC_INTERVAL_SECONDS = 5
 SCANNER_CONFIG_FILENAME = ".papermind-scanner-config"
 SCANNER_STATUS_FILENAME = ".papermind-scanner-status"
+IMPORT_INBOX_FAST_STABLE_CHECK_SECONDS = 0.2
 IMPORT_INBOX_PROCESSED_DIR = ".papermind-processed"
 IMPORT_INBOX_PROCESSING_DIR = ".papermind-processing"
 IMPORT_INBOX_FAILED_DIR = ".papermind-failed"
@@ -297,6 +298,8 @@ def _claim_next_import_inbox_pdf() -> tuple[Path, str] | None:
         for path in root.iterdir()
         if path.is_file() and not path.name.startswith(".") and path.suffix.lower() == ".pdf"
     )
+
+    pending: list[tuple[Path, int]] = []
     for source_path in candidates:
         try:
             stat = source_path.stat()
@@ -304,15 +307,44 @@ def _claim_next_import_inbox_pdf() -> tuple[Path, str] | None:
             continue
         if stat.st_size <= 0:
             continue
-        if now - stat.st_mtime < stable_seconds:
+        if now - stat.st_mtime >= stable_seconds:
+            claimed = _claim_drop_file(source_path, processing_dir)
+            if claimed is not None:
+                return claimed
             continue
-        original_name = source_path.name
+        pending.append((source_path, stat.st_size))
+
+    if not pending:
+        return None
+
+    # Schnellpfad für Dateien, die jünger als stable_seconds sind (typisch
+    # der Scanner-Drop per atomarem mv, schon beim Erscheinen vollständig):
+    # Größe zweimal kurz hintereinander prüfen statt blind stable_seconds
+    # abzuwarten. Ändert sie sich nicht, ist die Datei fertig. Ein noch
+    # laufender SMB-Kopiervorgang wächst dagegen weiter, fällt einfach durch
+    # und wird beim nächsten Aufruf wie bisher über die mtime-Wartezeit oben
+    # geclaimt - kein Risiko für den Netzwerk-Copy-Fall.
+    time.sleep(IMPORT_INBOX_FAST_STABLE_CHECK_SECONDS)
+    for source_path, initial_size in pending:
         try:
-            claimed_path = _move_drop_file(source_path, processing_dir, prefix=f"{uuid.uuid4().hex}-")
-            return claimed_path, original_name
+            stat = source_path.stat()
         except OSError:
             continue
+        if stat.st_size <= 0 or stat.st_size != initial_size:
+            continue
+        claimed = _claim_drop_file(source_path, processing_dir)
+        if claimed is not None:
+            return claimed
     return None
+
+
+def _claim_drop_file(source_path: Path, processing_dir: Path) -> tuple[Path, str] | None:
+    original_name = source_path.name
+    try:
+        claimed_path = _move_drop_file(source_path, processing_dir, prefix=f"{uuid.uuid4().hex}-")
+    except OSError:
+        return None
+    return claimed_path, original_name
 
 
 def _default_owner_id(db) -> uuid.UUID | None:
