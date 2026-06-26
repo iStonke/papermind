@@ -59,6 +59,7 @@ JOB_RECLAIM_INTERVAL_SECONDS = 30
 IMPORT_INBOX_PROCESSED_DIR = ".papermind-processed"
 IMPORT_INBOX_PROCESSING_DIR = ".papermind-processing"
 IMPORT_INBOX_FAILED_DIR = ".papermind-failed"
+IMPORT_INBOX_OWNER_USERNAME = os.environ.get("IMPORT_INBOX_OWNER_USERNAME", "").strip()
 AUTO_TAG_STOPWORDS = {
     "aber",
     "alle",
@@ -307,10 +308,28 @@ def _claim_next_import_inbox_pdf() -> tuple[Path, str] | None:
 def _default_owner_id(db) -> uuid.UUID | None:
     """Eigentümer für eingeworfene Inbox-Dateien.
 
-    Scanner/SMB-Drops haben keinen Request-Kontext. Nimm deshalb zuerst den
-    zuletzt aktiv genutzten Admin-Account und falle für frische Installationen
-    auf den ältesten aktiven Admin zurück.
+    Scanner/SMB-Drops haben keinen Request-Kontext. Wenn konfiguriert, gewinnt
+    IMPORT_INBOX_OWNER_USERNAME. Sonst nimm den zuletzt aktiv genutzten
+    Admin-Account und falle für frische Installationen auf den ältesten aktiven
+    Admin zurück.
     """
+    if IMPORT_INBOX_OWNER_USERNAME:
+        configured_owner = db.execute(
+            select(User.id)
+            .where(User.is_active.is_(True))
+            .where(
+                or_(
+                    func.lower(User.username) == IMPORT_INBOX_OWNER_USERNAME.lower(),
+                    func.lower(User.email) == IMPORT_INBOX_OWNER_USERNAME.lower(),
+                )
+            )
+            .order_by(User.is_admin.desc(), User.created_at.asc())
+            .limit(1)
+        ).scalar()
+        if configured_owner is not None:
+            return configured_owner
+        logger.warning("configured import inbox owner not found username=%s", IMPORT_INBOX_OWNER_USERNAME)
+
     active_admin = db.execute(
         select(User.id)
         .join(AuthSession, AuthSession.user_id == User.id)
@@ -339,6 +358,9 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str) -> N
     try:
         with SessionLocal() as db:
             owner_id = _default_owner_id(db)
+            owner_name = (
+                db.execute(select(User.username).where(User.id == owner_id)).scalar() if owner_id is not None else None
+            )
             result = ImportInboxService(db, owner_id).ingest_pdf_path(
                 claimed_path,
                 original_name=original_name,
@@ -346,7 +368,13 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str) -> N
             )
         created_count = len(result.items)
         _move_drop_file(claimed_path, processed_dir)
-        logger.info("import inbox drop processed file=%s items=%s", original_name, created_count)
+        logger.info(
+            "import inbox drop processed file=%s items=%s owner=%s owner_id=%s",
+            original_name,
+            created_count,
+            owner_name,
+            owner_id,
+        )
     except Exception as exc:
         logger.exception("import inbox drop failed file=%s err=%s", original_name, exc)
         try:

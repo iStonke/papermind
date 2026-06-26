@@ -140,6 +140,8 @@ Dann Platzhalter in `.env.prod` ersetzen, insbesondere:
   `https://papermind.fritz.box`)
 - `CORS_ALLOW_ORIGINS`
 - `OLLAMA_BASE_URL`, falls Ollama nicht auf dem Pi-Host-Port `11434` läuft
+- `IMPORT_INBOX_OWNER_USERNAME`, falls Scanner-/SMB-Imports immer einem festen
+  App-Benutzer gehören sollen
 - `AUTH_SECRET_KEY`
 
 Stabilen Pi-Betrieb einrichten bzw. nachziehen:
