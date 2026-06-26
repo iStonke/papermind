@@ -60,8 +60,8 @@ done
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_DIR}"
 
-if [[ -n "$(git status --porcelain)" ]]; then
-  echo "Working tree is not clean. Commit/stash changes before deploy." >&2
+if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+  echo "Working tree has tracked changes. Commit/stash changes before deploy." >&2
   exit 1
 fi
 

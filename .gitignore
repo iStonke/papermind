@@ -20,5 +20,8 @@ frontend/dist
 # Local scan drop folder shared via SMB
 scan-inbox/
 
+# Local host-control command directory shared with the production container
+host-control/
+
 # OS
 .DS_Store
