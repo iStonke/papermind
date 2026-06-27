@@ -656,26 +656,46 @@
                 v-for="scanner in scannerDrafts"
                 :key="scanner.id"
                 class="scanner-card"
+                :class="{ 'scanner-card--disabled': !scanner.enabled }"
               >
                 <div class="scanner-card__header">
                   <div class="scanner-card__identity">
-                    <v-icon size="22">mdi-scanner</v-icon>
-                    <div>
+                    <span
+                      class="scanner-card__presence"
+                      :class="scannerIsOnline(scanner) ? 'is-online' : 'is-offline'"
+                      :title="scannerIsOnline(scanner) ? 'Online' : 'Längere Zeit nicht gesehen'"
+                    />
+                    <div class="scanner-card__identity-text">
                       <div class="scanner-card__title">{{ scanner.name || scanner.device_key }}</div>
                       <div class="scanner-card__meta">
                         {{ scanner.device_key }} · {{ scannerLastSeenLabel(scanner) }}
                       </div>
                     </div>
                   </div>
-                  <v-switch
-                    v-model="scanner.enabled"
-                    color="primary"
-                    density="compact"
-                    hide-details
-                    inset
-                    :disabled="scannerSavingIds.has(scanner.id)"
-                    @update:model-value="() => markScannerDirty(scanner.id)"
-                  />
+                  <div class="scanner-card__header-end">
+                    <span
+                      v-if="scannerSavingIds.has(scanner.id)"
+                      class="scanner-card__savestate"
+                    >
+                      <v-progress-circular indeterminate size="13" width="2" />
+                      Speichern…
+                    </span>
+                    <span
+                      v-else-if="scannerSavedIds.has(scanner.id)"
+                      class="scanner-card__savestate scanner-card__savestate--done"
+                    >
+                      <v-icon size="14">mdi-check</v-icon>
+                      Gespeichert
+                    </span>
+                    <v-switch
+                      v-model="scanner.enabled"
+                      color="primary"
+                      density="compact"
+                      hide-details
+                      inset
+                      @update:model-value="() => scheduleScannerSave(scanner, 200)"
+                    />
+                  </div>
                 </div>
 
                 <div class="scanner-card__grid">
@@ -685,8 +705,7 @@
                     density="compact"
                     variant="outlined"
                     hide-details
-                    :disabled="scannerSavingIds.has(scanner.id)"
-                    @update:model-value="() => markScannerDirty(scanner.id)"
+                    @update:model-value="() => scheduleScannerSave(scanner)"
                   />
                   <v-autocomplete
                     v-model="scanner.recipient_user_ids"
@@ -698,10 +717,19 @@
                     chips
                     closable-chips
                     multiple
-                    :disabled="scannerSavingIds.has(scanner.id)"
                     :menu-props="{ attach: 'body', zIndex: 6000 }"
-                    @update:model-value="() => markScannerDirty(scanner.id)"
-                  />
+                    @update:model-value="() => scheduleScannerSave(scanner, 200)"
+                  >
+                    <template #chip="{ props: chipProps }">
+                      <v-chip
+                        v-bind="chipProps"
+                        color="primary"
+                        variant="tonal"
+                        size="small"
+                        class="scanner-card__recipient-chip"
+                      />
+                    </template>
+                  </v-autocomplete>
                 </div>
 
                 <div class="scanner-card__live-mode">
@@ -718,27 +746,8 @@
                     density="compact"
                     hide-details
                     inset
-                    :disabled="scannerSavingIds.has(scanner.id)"
-                    @update:model-value="() => markScannerDirty(scanner.id)"
+                    @update:model-value="() => scheduleScannerSave(scanner, 200)"
                   />
-                </div>
-
-                <div class="scanner-card__actions">
-                  <span class="scanner-card__status">
-                    {{ scannerStatusLabel(scanner) }}
-                  </span>
-                  <v-spacer />
-                  <v-btn
-                    color="primary"
-                    variant="flat"
-                    size="small"
-                    prepend-icon="mdi-content-save-outline"
-                    :disabled="!scannerDirtyIds.has(scanner.id)"
-                    :loading="scannerSavingIds.has(scanner.id)"
-                    @click="saveScanner(scanner)"
-                  >
-                    Speichern
-                  </v-btn>
                 </div>
               </div>
             </div>
@@ -1892,7 +1901,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useTheme } from 'vuetify';
 import BaseDialog from './BaseDialog.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
@@ -2057,6 +2066,10 @@ const scannerSettingsLoading = ref(false);
 const scannerSettingsError = ref('');
 const scannerDirtyIds = ref(new Set());
 const scannerSavingIds = ref(new Set());
+const scannerSavedIds = ref(new Set());
+// Pro Scanner laufende Debounce-/Flash-Timer für das automatische Speichern.
+const scannerSaveTimers = new Map();
+const scannerSavedTimers = new Map();
 let scannerSettingsLoaded = false;
 
 const scannerUserOptions = computed(() =>
@@ -2097,13 +2110,12 @@ function scannerLastSeenLabel(scanner) {
   }
 }
 
-function scannerStatusLabel(scanner) {
-  if (scannerSavingIds.value.has(scanner.id)) return 'Wird gespeichert...';
-  if (scannerDirtyIds.value.has(scanner.id)) return 'Ungespeicherte Änderungen';
-  const count = Array.isArray(scanner.recipient_user_ids) ? scanner.recipient_user_ids.length : 0;
-  if (!scanner.enabled) return 'Deaktiviert';
-  if (count === 0) return 'Keine Empfänger';
-  return `${count} Empfänger`;
+function scannerIsOnline(scanner) {
+  if (!scanner?.last_seen_at) return false;
+  const seen = new Date(scanner.last_seen_at).getTime();
+  if (Number.isNaN(seen)) return false;
+  // Der Scanner-Poller meldet sich regelmäßig; innerhalb 15 Min gilt als online.
+  return Date.now() - seen <= 15 * 60 * 1000;
 }
 
 function markScannerDirty(scannerId) {
@@ -2111,6 +2123,49 @@ function markScannerDirty(scannerId) {
   next.add(scannerId);
   scannerDirtyIds.value = next;
 }
+
+// Auto-Save: Jede Änderung wird automatisch gesichert. Toggles/Empfänger
+// speichern quasi sofort (kurzer Delay coalesct schnelle Mehrfachklicks),
+// das Namensfeld wird beim Tippen entprellt.
+function scheduleScannerSave(scanner, delay = 700) {
+  if (!scanner?.id) return;
+  const id = scanner.id;
+  markScannerDirty(id);
+  const existing = scannerSaveTimers.get(id);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(() => {
+    scannerSaveTimers.delete(id);
+    // Läuft noch ein Speichervorgang, kurz später erneut versuchen.
+    if (scannerSavingIds.value.has(id)) {
+      scheduleScannerSave(scanner, 200);
+      return;
+    }
+    saveScanner(scanner);
+  }, delay);
+  scannerSaveTimers.set(id, timer);
+}
+
+function flashScannerSaved(id) {
+  const next = new Set(scannerSavedIds.value);
+  next.add(id);
+  scannerSavedIds.value = next;
+  const existing = scannerSavedTimers.get(id);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(() => {
+    const done = new Set(scannerSavedIds.value);
+    done.delete(id);
+    scannerSavedIds.value = done;
+    scannerSavedTimers.delete(id);
+  }, 2000);
+  scannerSavedTimers.set(id, timer);
+}
+
+onBeforeUnmount(() => {
+  scannerSaveTimers.forEach((timer) => clearTimeout(timer));
+  scannerSavedTimers.forEach((timer) => clearTimeout(timer));
+  scannerSaveTimers.clear();
+  scannerSavedTimers.clear();
+});
 
 async function loadScannerSettings({ force = false } = {}) {
   if (!auth.isAdmin) return;
@@ -2140,28 +2195,24 @@ async function loadScannerSettings({ force = false } = {}) {
 async function saveScanner(scanner) {
   if (!scanner?.id || scannerSavingIds.value.has(scanner.id)) return;
   const normalizedName = String(scanner.name || '').trim();
-  if (!normalizedName) {
-    notify({ type: 'warning', message: 'Scannername darf nicht leer sein.' });
-    return;
-  }
+  // Auto-Save: bei (noch) leerem Namen nichts speichern, aber auch nicht stören.
+  if (!normalizedName) return;
   const nextSaving = new Set(scannerSavingIds.value);
   nextSaving.add(scanner.id);
   scannerSavingIds.value = nextSaving;
   try {
-    const saved = await updateScanner(scanner.id, {
+    await updateScanner(scanner.id, {
       name: normalizedName,
       enabled: Boolean(scanner.enabled),
       live_page_mode: Boolean(scanner.live_page_mode),
       recipient_user_ids: Array.isArray(scanner.recipient_user_ids) ? scanner.recipient_user_ids : []
     });
-    const nextScanner = normalizeScannerDraft(saved);
-    scannerDrafts.value = scannerDrafts.value.map((item) => (
-      item.id === scanner.id ? nextScanner : item
-    ));
+    // Den Draft bewusst NICHT durch die Server-Antwort ersetzen: Sonst würde
+    // ein parallel weiter getipptes Namensfeld zurückspringen.
     const nextDirty = new Set(scannerDirtyIds.value);
     nextDirty.delete(scanner.id);
     scannerDirtyIds.value = nextDirty;
-    notify({ type: 'success', message: 'Scanner-Einstellungen gespeichert.' });
+    flashScannerSaved(scanner.id);
   } catch (error) {
     notifyError(error, 'Scanner-Einstellungen konnten nicht gespeichert werden.');
   } finally {
@@ -4101,6 +4152,12 @@ async function removeAlias(alias) {
   margin-top: 10px;
 }
 
+.pm-settings-content > .settings-info-card + .scanner-list,
+.pm-settings-content > .settings-info-card + .scanner-empty,
+.pm-settings-content > .settings-info-card + .scanner-settings-state {
+  margin-top: 12px;
+}
+
 /* ── Scanner ─────────────────────────────────────────────────────────────── */
 .scanner-settings-state,
 .scanner-empty {
@@ -4146,15 +4203,21 @@ async function removeAlias(alias) {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 12px;
+  padding: 14px;
   border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
-  border-radius: 8px;
+  border-radius: 10px;
   background: rgba(var(--v-theme-surface), 0.72);
+  transition: opacity 0.2s ease, filter 0.2s ease;
+}
+
+.scanner-card--disabled {
+  opacity: 0.6;
+  filter: saturate(0.55);
 }
 
 .scanner-card__header,
 .scanner-card__identity,
-.scanner-card__actions {
+.scanner-card__header-end {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -4164,9 +4227,54 @@ async function removeAlias(alias) {
   justify-content: space-between;
 }
 
+.scanner-card__header-end {
+  flex: 0 0 auto;
+}
+
+.scanner-card__savestate {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: rgba(var(--v-theme-on-surface), 0.5);
+  animation: scanner-savestate-in 0.18s ease;
+}
+
+@keyframes scanner-savestate-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.scanner-card__savestate--done {
+  color: rgb(var(--v-theme-success, 76 175 80));
+}
+
 .scanner-card__identity {
   min-width: 0;
   color: rgba(var(--v-theme-on-surface), 0.72);
+  gap: 12px;
+}
+
+.scanner-card__identity-text {
+  min-width: 0;
+}
+
+.scanner-card__presence {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.scanner-card__presence.is-online {
+  background: rgb(var(--v-theme-success, 76 175 80));
+  box-shadow: 0 0 0 3px rgba(var(--v-theme-success, 76 175 80), 0.2);
+}
+
+.scanner-card__presence.is-offline {
+  background: rgba(var(--v-theme-on-surface), 0.28);
 }
 
 .scanner-card__title {
@@ -4190,7 +4298,7 @@ async function removeAlias(alias) {
 
 .scanner-card__grid {
   display: grid;
-  grid-template-columns: minmax(160px, 0.9fr) minmax(220px, 1.25fr);
+  grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
   gap: 10px;
   align-items: start;
 }
@@ -4199,20 +4307,34 @@ async function removeAlias(alias) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding-top: 4px;
-  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+  gap: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(var(--v-theme-on-surface), 0.04);
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.06);
 }
 
-.scanner-card__actions {
-  min-height: 32px;
+/* #2: Empfänger-Chips brauchen Luft zum schwebenden Feld-Label. */
+.scanner-card__grid :deep(.v-autocomplete .v-field__input) {
+  padding-top: 10px;
 }
 
-.scanner-card__status {
-  min-width: 0;
-  font-size: 0.78rem;
+.scanner-card__recipient-chip {
   font-weight: 600;
-  color: rgba(var(--v-theme-on-surface), 0.56);
+  margin-top: 2px;
+}
+
+/* #3: Switch innerhalb der Live-Mode-Fläche halten (kein Überstand am Rand). */
+.scanner-card__live-mode :deep(.v-switch) {
+  flex: 0 0 auto;
+}
+
+.scanner-card__live-mode :deep(.v-switch .v-selection-control) {
+  min-height: 0;
+}
+
+.scanner-card__live-mode :deep(.v-switch .v-selection-control__wrapper) {
+  margin-inline-end: 0;
 }
 
 .settings-category-header {
@@ -4945,18 +5067,8 @@ async function removeAlias(alias) {
     padding-left: 12px;
   }
 
-  .scanner-card__header,
-  .scanner-card__actions {
+  .scanner-card__header {
     align-items: flex-start;
-  }
-
-  .scanner-card__actions {
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .scanner-card__actions :deep(.v-spacer) {
-    display: none;
   }
 }
 
