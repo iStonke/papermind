@@ -296,24 +296,21 @@
 
             <div class="isd-ai-group">
               <v-btn
-                icon
                 size="x-small"
                 variant="text"
                 class="isd-ai-status-btn"
                 :class="`isd-ai-status-btn--${aiAnalysis.kind}`"
+                :icon="!(isRetryingAnalysis || aiAnalysis.kind === 'busy')"
                 :title="aiStatusTitle"
                 :disabled="isRetryingAnalysis || isUploadingSources || totalPages === 0"
                 @click="retryAnalysis"
               >
-                <v-progress-circular
-                  v-if="isRetryingAnalysis || aiAnalysis.kind === 'busy'"
-                  indeterminate
-                  size="16"
-                  width="2"
-                  color="primary"
-                />
+                <template v-if="isRetryingAnalysis || aiAnalysis.kind === 'busy'">
+                  <v-progress-circular indeterminate size="14" width="2" color="primary" />
+                  <span class="isd-ai-status-btn__text">Analysiert…</span>
+                </template>
                 <v-icon v-else-if="['success', 'partial'].includes(aiAnalysis.kind)" size="20" color="success">
-                  mdi-check-circle-outline
+                  mdi-auto-fix
                 </v-icon>
                 <v-icon v-else-if="aiAnalysis.kind === 'failed'" size="20" color="warning">
                   mdi-alert-circle-outline
@@ -5063,6 +5060,10 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
+.isd-toolbar-left :deep(.v-icon) {
+  color: rgba(255, 255, 255, 0.92);
+}
+
 .isd-toolbar-select-btn--active {
   box-shadow: 0 0 0 3px rgba(var(--v-theme-primary), 0.22);
 }
@@ -5079,9 +5080,6 @@ onBeforeUnmount(() => {
   gap: 4px;
 }
 
-.isd-color-btn--active {
-  box-shadow: 0 0 0 3px rgba(var(--v-theme-primary), 0.22);
-}
 
 .isd-ai-group {
   display: flex;
@@ -5091,6 +5089,16 @@ onBeforeUnmount(() => {
 
 .isd-ai-status-btn--failed {
   color: rgb(var(--v-theme-warning)) !important;
+}
+
+.isd-ai-status-btn--busy :deep(.v-btn__content) {
+  gap: 6px;
+}
+
+.isd-ai-status-btn__text {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .isd-zoom-group {
