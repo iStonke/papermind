@@ -66,6 +66,7 @@ export {
   mdiFileAlertOutline,
   mdiFileDocumentMultipleOutline,
   mdiFileDocumentOutline,
+  mdiFileDocumentPlusOutline,
   mdiFileImportOutline,
   mdiFilePdfBox,
   mdiFileSearchOutline,
