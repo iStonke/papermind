@@ -68,6 +68,7 @@
         :api-base-url="apiBaseUrl"
         :auto-embed="true"
         :scanner-active="isImportScannerFeedbackActive"
+        :scanner-feedback-state="importScannerFeedbackState"
         :scanner="importScanner"
         @scan="onScanTrigger"
         @minimize="onImportMinimized"
@@ -1146,7 +1147,7 @@ import { useOcrPolling } from '../composables/useOcrPolling';
 import { useGlobalKeyboard } from '../composables/useGlobalKeyboard';
 import { useSearch } from '../composables/useSearch';
 import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
-import { authedUrl, getBaseUrl } from '../api/client.js';
+import { apiFetch, authedUrl, getBaseUrl } from '../api/client.js';
 import { assignImportInboxItems, claimImportInboxItems, discardImportInboxItems, getImportInbox } from '../api/importInbox.js';
 import { triggerScan } from '../api/scanners.js';
 import { applyPaperMindVuetifyColors, resolvePaperMindColorVariant } from '../theme/tokens';
@@ -1511,6 +1512,16 @@ const isImportInboxLoading = ref(false);
 const isImportScannerActive = ref(false);
 const isImportScannerOptimisticActive = ref(false);
 const isImportScannerFeedbackActive = computed(() => isImportScannerActive.value || isImportScannerOptimisticActive.value);
+const importScannerFeedbackState = computed(() => {
+  if (isImportScannerActive.value) {
+    return 'scanning';
+  }
+  if (isImportScannerOptimisticActive.value) {
+    return 'pending';
+  }
+  return 'idle';
+});
+const isDirectListImporting = ref(false);
 const importScanner = ref(null);
 const importInboxSuppressedItemIds = ref(new Set());
 const activeImportInboxItemIds = ref(new Set());
@@ -2767,7 +2778,7 @@ async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) 
     const nextItems = normalizeImportInboxItems(payload);
     const nextItemIds = buildImportInboxItemIdSet(nextItems);
     const newItemIds = [...nextItemIds].filter((itemId) => !knownImportInboxItemIds.has(itemId));
-    if (newItemIds.length > 0 || isImportScannerActive.value) {
+    if (newItemIds.length > 0) {
       clearImportScannerOptimisticActive();
     }
     importInboxItems.value = nextItems;
@@ -5822,6 +5833,90 @@ function setListDropNotice(message) {
   }, 2800);
 }
 
+function buildDirectImportDocument(source) {
+  const pageCount = Math.max(0, Number(source?.page_count || 0));
+  return {
+    title: stripPdfSuffix(source?.original_name || 'Neues Dokument') || 'Neues Dokument',
+    tag_ids: [],
+    pages: Array.from({ length: pageCount }, (_, pageIndex) => ({
+      source_file_id: source.source_file_id,
+      page_index: pageIndex,
+      rotation: 0
+    }))
+  };
+}
+
+async function directImportPdfFiles(files) {
+  if (isDirectListImporting.value) {
+    notify({ type: 'info', message: 'Ein Import läuft bereits.' });
+    return;
+  }
+  isDirectListImporting.value = true;
+  setListDropNotice(`${files.length} ${files.length === 1 ? 'PDF wird' : 'PDFs werden'} importiert…`);
+  try {
+    const formData = new FormData();
+    for (const file of files) {
+      formData.append('files', file, file.name || 'document.pdf');
+    }
+    const uploadResult = await apiFetch('/api/import/source', {
+      method: 'POST',
+      body: formData
+    });
+    const sources = Array.isArray(uploadResult?.items) ? uploadResult.items : [];
+    if (sources.length === 0) {
+      throw new Error('Keine PDF-Datei konnte vorbereitet werden.');
+    }
+    const documents = sources
+      .map(buildDirectImportDocument)
+      .filter((document) => document.pages.length > 0);
+    if (documents.length === 0) {
+      throw new Error('Keine Seiten zum Importieren gefunden.');
+    }
+    const commitResult = await apiFetch('/api/import/commit', {
+      method: 'POST',
+      body: JSON.stringify({
+        documents,
+        options: {
+          auto_ocr: true,
+          auto_index: true,
+          auto_embed: true
+        }
+      })
+    });
+    const created = Array.isArray(commitResult?.created) ? commitResult.created : [];
+    const errors = Array.isArray(commitResult?.errors) ? commitResult.errors : [];
+    if (created.length > 0) {
+      notify({
+        type: errors.length > 0 ? 'warning' : 'success',
+        title: 'Import',
+        message:
+          created.length === 1
+            ? '1 Dokument importiert. OCR und KI-Analyse laufen im Hintergrund.'
+            : `${created.length} Dokumente importiert. OCR und KI-Analyse laufen im Hintergrund.`
+      });
+      activityIndicatorRef.value?.refresh();
+      await fetchDocuments(selectedDocumentId.value, { autoSelectFirst: false });
+      scheduleSidebarCountsRefresh();
+    }
+    if (errors.length > 0) {
+      notify({
+        type: 'warning',
+        title: 'Import',
+        message:
+          errors.length === 1
+            ? `1 Dokument konnte nicht importiert werden: ${errors[0]?.message || 'Unbekannter Fehler'}`
+            : `${errors.length} Dokumente konnten nicht importiert werden.`
+      });
+    }
+    setListDropNotice('');
+  } catch (error) {
+    setListDropNotice('');
+    notify({ type: 'error', message: mapApiError(error, 'PDFs konnten nicht direkt importiert werden.') });
+  } finally {
+    isDirectListImporting.value = false;
+  }
+}
+
 /** Empfängt rohe File-Liste vom DocumentListPanel (nach Drag & Drop). */
 async function onDroppedFiles(files) {
   if (!files.length) return;
@@ -5839,10 +5934,7 @@ async function onDroppedFiles(files) {
 
   if (selection.files.length === 0) return;
 
-  const dialogRef = importStagingDialogRef.value;
-  if (dialogRef && typeof dialogRef.openWithFiles === 'function') {
-    await dialogRef.openWithFiles(selection.files);
-  }
+  await directImportPdfFiles(selection.files);
 }
 
 function openImportPdfPicker() {

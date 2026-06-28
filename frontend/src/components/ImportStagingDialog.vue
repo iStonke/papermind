@@ -67,15 +67,10 @@
             v-if="isEmpty"
             class="isd-dropzone"
             :class="{ 'isd-dropzone--over': isDropzoneDragOver }"
-            role="button"
-            tabindex="0"
-            @click="onDropzoneClick"
             @dragenter.prevent="onDropzoneDragEnter"
             @dragover.prevent="onDropzoneDragOver"
             @dragleave="onDropzoneDragLeave"
             @drop.prevent="onDropzoneDrop"
-            @mouseenter="onDropzoneMouseEnter"
-            @mouseleave="onDropzoneMouseLeave"
           >
             <div class="isd-dropzone__icon" :class="{ 'isd-dropzone__icon--scanning': props.scannerActive }">
               <v-icon size="52" class="isd-dropzone__icon-svg">
@@ -84,8 +79,8 @@
             </div>
             <div class="isd-dropzone__text">
               <template v-if="props.scannerActive">
-                <p class="isd-dropzone__title">Scanner aktiv…</p>
-                <p class="isd-dropzone__subtitle">Die erste Seite erscheint gleich hier</p>
+                <p class="isd-dropzone__title">{{ scannerFeedbackTitle }}</p>
+                <p class="isd-dropzone__subtitle">{{ scannerFeedbackSubtitle }}</p>
               </template>
               <template v-else>
                 <p class="isd-dropzone__title">
@@ -189,7 +184,7 @@
               <div class="isd-scanning-page-thumb-wrap">
                 <v-icon size="28" class="isd-scanning-page-icon">mdi-scanner</v-icon>
               </div>
-              <div class="isd-page-num isd-scanning-page-label">Scanne…</div>
+              <div class="isd-page-num isd-scanning-page-label">{{ scannerFeedbackCardLabel }}</div>
             </div>
 
             <!-- Add-files / scan placeholder card -->
@@ -539,10 +534,31 @@
             variant="outlined"
             hide-details
             clearable
-            :menu-props="{ maxHeight: 240, attach: 'body', zIndex: 6000 }"
+            :menu-props="{ maxHeight: 240, attach: 'body', zIndex: 6000, contentClass: 'isd-correspondent-menu' }"
             @update:model-value="docCorrespondentTouched = true; docCorrespondentAiFilled = false"
             @focus="correspondentStore.ensureLoaded()"
           >
+            <template #item="{ props: itemProps, item }">
+              <v-list-item
+                v-bind="compactCorrespondentItemProps(itemProps)"
+                density="compact"
+                class="isd-correspondent-menu__item"
+              >
+                <template #prepend>
+                  <v-icon
+                    v-if="item.raw?.kind === 'collection'"
+                    size="19"
+                    class="isd-correspondent-menu__icon"
+                  >
+                    mdi-shape-outline
+                  </v-icon>
+                </template>
+                <v-list-item-title class="isd-correspondent-menu__title">
+                  {{ item.raw?.name || item.raw?.title || item.title }}
+                  <span v-if="item.raw?.kind === 'collection'" class="isd-correspondent-menu__meta">· Sammlung</span>
+                </v-list-item-title>
+              </v-list-item>
+            </template>
             <template #no-data>
               <v-list-item title="Als neuen Korrespondenten verwenden" />
             </template>
@@ -771,6 +787,11 @@ const props = defineProps({
   apiBaseUrl: { type: String, default: '' },
   autoEmbed: { type: Boolean, default: true },
   scannerActive: { type: Boolean, default: false },
+  scannerFeedbackState: {
+    type: String,
+    default: 'idle',
+    validator: (value) => ['idle', 'scanning', 'pending'].includes(value)
+  },
   // Auslösbarer Scanner des aktuellen Benutzers (oder null). Siehe ScannerTriggerInfo.
   scanner: { type: Object, default: null }
 });
@@ -781,6 +802,16 @@ const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources',
 // Im Batch-Modus sammelt der Scanner und braucht ein explizites Abschließen.
 const canTriggerScan = computed(() => Boolean(props.scanner?.id));
 const showScanFinish = computed(() => canTriggerScan.value && !props.scanner?.live_page_mode);
+const isScannerFeedbackPending = computed(() => props.scannerFeedbackState === 'pending');
+const scannerFeedbackTitle = computed(() => (
+  isScannerFeedbackPending.value ? 'Scan wird übernommen…' : 'Scanner aktiv…'
+));
+const scannerFeedbackSubtitle = computed(() => (
+  isScannerFeedbackPending.value ? 'Die neue Seite wird vorbereitet' : 'Die erste Seite erscheint gleich hier'
+));
+const scannerFeedbackCardLabel = computed(() => (
+  isScannerFeedbackPending.value ? 'Wird übernommen…' : 'Scanne…'
+));
 function emitScan(command) {
   if (!canTriggerScan.value) {
     return;
@@ -811,7 +842,6 @@ const KNOWN_ICONS = new Set([
 ]);
 
 const isDropzoneDragOver = ref(false);
-const isDropzoneHover = ref(false);
 const dropDragDepth = ref(0);
 const documentDragDepth = ref({});
 const isBodyFileDragOver = ref(false);
@@ -920,6 +950,11 @@ const categoryItems = computed(() => {
 
 // Korrespondenten-Optionen für die Combobox ({ title, value }).
 const correspondentItems = computed(() => correspondentStore.correspondentOptions);
+
+function compactCorrespondentItemProps(itemProps = {}) {
+  const { title, prependIcon, ...rest } = itemProps || {};
+  return rest;
+}
 
 function normalizeCorrespondentInput(value) {
   if (value && typeof value === 'object') {
@@ -3029,45 +3064,6 @@ function onDropzoneDragLeave(event) {
   }
 }
 
-function onDropzoneMouseEnter() {
-  isDropzoneHover.value = true;
-}
-
-function onDropzoneMouseLeave() {
-  isDropzoneHover.value = false;
-}
-
-function onDropzoneFocusIn() {
-  isDropzoneHover.value = true;
-}
-
-function onDropzoneFocusOut(event) {
-  const currentTarget = event?.currentTarget;
-  const nextTarget = event?.relatedTarget;
-  if (currentTarget instanceof HTMLElement && nextTarget instanceof Node && currentTarget.contains(nextTarget)) {
-    return;
-  }
-  isDropzoneHover.value = false;
-}
-
-function onDropzoneClick(event) {
-  if (isUploadingSources.value || isCommitting.value) {
-    return;
-  }
-  const target = event?.target;
-  if (target instanceof HTMLElement && target.closest('button, a, input, label')) {
-    return;
-  }
-  openFilePicker();
-}
-
-function onDropzoneKeyboardActivate() {
-  if (isUploadingSources.value || isCommitting.value) {
-    return;
-  }
-  openFilePicker();
-}
-
 function readFileEntry(entry, prefix = '') {
   return new Promise((resolve) => {
     entry.file((file) => {
@@ -3248,10 +3244,6 @@ function handleDocumentTitleShortcut(event, documentId) {
   handleShortcut(event, SHORTCUT_ACTIONS.PRIMARY, () => onDocumentTitleEnter(event, documentId), {
     ignoreEditable: false
   });
-}
-
-function handleDropzoneShortcut(event) {
-  handleShortcut(event, SHORTCUT_ACTIONS.ACTIVATE, onDropzoneKeyboardActivate, { ignoreEditable: false });
 }
 
 function addEmptyDocument() {
@@ -4803,6 +4795,37 @@ onBeforeUnmount(() => {
   padding: 12px 18px !important;
   justify-content: space-between !important;
 }
+
+.isd-correspondent-menu .v-list {
+  padding: 4px 0;
+}
+
+.isd-correspondent-menu__item.v-list-item {
+  min-height: 40px;
+  padding-inline: 12px 16px;
+}
+
+.isd-correspondent-menu__item .v-list-item__prepend {
+  width: 28px;
+  margin-inline-end: 10px;
+}
+
+.isd-correspondent-menu__item .v-list-item__spacer {
+  width: 0;
+}
+
+.isd-correspondent-menu__icon {
+  color: rgba(var(--v-theme-on-surface), 0.58);
+}
+
+.isd-correspondent-menu__title {
+  font-size: 0.92rem;
+  line-height: 1.25;
+}
+
+.isd-correspondent-menu__meta {
+  color: rgba(var(--v-theme-on-surface), 0.58);
+}
 </style>
 
 <style scoped>
@@ -4856,7 +4879,7 @@ onBeforeUnmount(() => {
   text-align: center;
   border: 2px dashed rgb(var(--v-theme-primary));
   border-radius: 12px;
-  cursor: pointer;
+  cursor: default;
   transition: background 0.15s;
   box-sizing: border-box;
   /* 1 — Schraffur */
