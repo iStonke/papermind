@@ -221,9 +221,14 @@ class ImportInboxService:
     def discard(self, item_ids: list[uuid.UUID]) -> ImportInboxDiscardResponse:
         normalized_ids = _normalize_item_ids(item_ids)
 
+        # _visible_scope statt _owned_scope: ein sichtbares, aber noch nicht
+        # explizit zugewiesenes Scanner-Item (owner_id NULL) muss verwerfbar
+        # sein, ohne vorher zwingend per /assign übernommen worden zu sein -
+        # sonst läuft der Discard fehlerfrei durch, löscht aber nichts (0
+        # getroffene Zeilen) und das Item taucht nach einem Refresh wieder auf.
         items = list(
             self.db.scalars(
-                self._owned_scope(select(ImportInboxItem).where(ImportInboxItem.id.in_(normalized_ids)))
+                self._visible_scope(select(ImportInboxItem).where(ImportInboxItem.id.in_(normalized_ids)))
             ).all()
         )
         for item in items:
@@ -237,8 +242,10 @@ class ImportInboxService:
         )
 
     def discard_pages(self, source_file_id: uuid.UUID, page_indices: list[int]) -> ImportInboxDiscardPagesResponse:
+        # Wie discard(): _visible_scope, damit ein noch nicht zugewiesenes,
+        # aber sichtbares Scanner-Item ebenfalls verwerfbar ist.
         item = self.db.scalar(
-            self._owned_scope(select(ImportInboxItem).where(ImportInboxItem.source_file_id == source_file_id))
+            self._visible_scope(select(ImportInboxItem).where(ImportInboxItem.source_file_id == source_file_id))
         )
         if item is None:
             raise BadRequestError("import inbox source was not found")
