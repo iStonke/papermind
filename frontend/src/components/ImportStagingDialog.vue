@@ -59,38 +59,6 @@
           @drop.prevent="onMiniatureDrop"
         >
 
-          <!-- Scan-Leiste: Scan direkt aus der UI auslösen (optional, nur wenn
-               dem Benutzer ein aktiver Scanner zugeordnet ist) -->
-          <div v-if="canTriggerScan" class="isd-scan-bar">
-            <div class="isd-scan-bar__label">
-              <v-icon size="16" class="isd-scan-bar__icon">mdi-scanner</v-icon>
-              <span class="isd-scan-bar__name">{{ props.scanner.name }}</span>
-            </div>
-            <div class="isd-scan-bar__actions">
-              <v-btn
-                size="small"
-                variant="flat"
-                color="primary"
-                prepend-icon="mdi-file-document-plus-outline"
-                :loading="props.scannerActive"
-                :disabled="props.scannerActive"
-                @click="emitScan('page')"
-              >
-                Seite scannen
-              </v-btn>
-              <v-btn
-                v-if="showScanFinish"
-                size="small"
-                variant="tonal"
-                prepend-icon="mdi-check"
-                :disabled="props.scannerActive || isEmpty"
-                @click="emitScan('finish')"
-              >
-                Fertig
-              </v-btn>
-            </div>
-          </div>
-
           <!-- Dropzone (empty state) -->
           <div
             v-if="isEmpty"
@@ -130,6 +98,25 @@
                 <v-icon size="12" class="isd-dropzone__chip-icon">mdi-file-pdf-box</v-icon>
                 PDF
               </span>
+            </div>
+            <div
+              v-if="canTriggerScan"
+              class="isd-dropzone__scan"
+              :title="props.scanner?.name || 'Scanner'"
+              @click.stop
+            >
+              <v-btn
+                size="small"
+                variant="text"
+                color="primary"
+                prepend-icon="mdi-scanner"
+                class="isd-dropzone__scan-btn"
+                :loading="props.scannerActive"
+                :disabled="props.scannerActive"
+                @click.stop="emitScan('page')"
+              >
+                {{ props.scannerActive ? 'Scanner aktiv' : 'Seite scannen' }}
+              </v-btn>
             </div>
           </div>
 
@@ -247,6 +234,33 @@
             </v-btn>
 
             <div class="isd-toolbar-divider" />
+
+            <div v-if="canTriggerScan" class="isd-toolbar-scan-group">
+              <v-btn
+                icon
+                size="x-small"
+                variant="text"
+                :title="props.scanner?.name ? `${props.scanner.name}: Seite scannen` : 'Seite scannen'"
+                :loading="props.scannerActive"
+                :disabled="props.scannerActive"
+                @click="emitScan('page')"
+              >
+                <v-icon size="20">mdi-scanner</v-icon>
+              </v-btn>
+              <v-btn
+                v-if="showScanFinish"
+                icon
+                size="x-small"
+                variant="text"
+                title="Scan abschließen"
+                :disabled="props.scannerActive || isEmpty"
+                @click="emitScan('finish')"
+              >
+                <v-icon size="20">mdi-check</v-icon>
+              </v-btn>
+            </div>
+
+            <div v-if="canTriggerScan" class="isd-toolbar-divider" />
 
             <div class="isd-rotate-group">
               <v-btn
@@ -4701,45 +4715,6 @@ onBeforeUnmount(() => {
   50%       { transform: translateY(5px); }
 }
 
-.isd-scan-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
-  padding: 8px 12px;
-  border: 1px solid rgba(var(--v-theme-primary), 0.28);
-  border-radius: 10px;
-  background: rgba(var(--v-theme-primary), 0.06);
-}
-
-.isd-scan-bar__label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: rgb(var(--v-theme-on-surface));
-}
-
-.isd-scan-bar__icon {
-  color: rgb(var(--v-theme-primary));
-}
-
-.isd-scan-bar__name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.isd-scan-bar__actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .isd-dropzone {
   width: 100%;
   height: 100%;
@@ -4826,6 +4801,17 @@ onBeforeUnmount(() => {
 
 .isd-dropzone__chip-icon {
   opacity: 0.8;
+}
+
+.isd-dropzone__scan {
+  margin-top: 12px;
+}
+
+.isd-dropzone__scan-btn {
+  min-width: 0;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
 }
 
 /* ── Page grid ── */
@@ -5124,6 +5110,12 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+.isd-toolbar-scan-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .isd-color-group {

@@ -242,15 +242,57 @@
                 offset-x="6"
                 offset-y="6"
               >
-                <v-btn
-                  class="list-header-btn"
-                  color="primary"
-                  variant="tonal"
-                  @click="openImport"
-                >
-                  <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
-                  Importieren
-                </v-btn>
+                <div class="import-action" :class="{ 'import-action--split': canTriggerImportScan }">
+                  <v-btn
+                    class="list-header-btn import-action__primary"
+                    color="primary"
+                    variant="tonal"
+                    @click="openImport"
+                  >
+                    <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
+                    Importieren
+                  </v-btn>
+                  <v-menu v-if="canTriggerImportScan" location="bottom end" offset="6">
+                    <template #activator="{ props: menuProps }">
+                      <v-btn
+                        v-bind="menuProps"
+                        class="list-header-btn import-action__menu-btn"
+                        color="primary"
+                        variant="tonal"
+                        icon="mdi-chevron-down"
+                        aria-label="Import-Optionen"
+                      />
+                    </template>
+                    <v-list density="compact" class="import-action-menu">
+                      <v-list-item @click="openImport">
+                        <template #prepend>
+                          <v-icon size="18">mdi-tray-arrow-up</v-icon>
+                        </template>
+                        <v-list-item-title>{{ pendingImportInboxCount > 0 ? 'Neue Scans anzeigen' : 'PDFs importieren' }}</v-list-item-title>
+                      </v-list-item>
+                      <v-list-item
+                        :disabled="isImportScannerActive"
+                        @click="scanFromImportMenu('page')"
+                      >
+                        <template #prepend>
+                          <v-icon size="18">mdi-scanner</v-icon>
+                        </template>
+                        <v-list-item-title>{{ isImportScannerActive ? 'Scanner aktiv…' : 'Seite scannen' }}</v-list-item-title>
+                        <v-list-item-subtitle v-if="importScanner?.name">{{ importScanner.name }}</v-list-item-subtitle>
+                      </v-list-item>
+                      <v-list-item
+                        v-if="showImportScanFinish"
+                        :disabled="isImportScannerActive"
+                        @click="scanFromImportMenu('finish')"
+                      >
+                        <template #prepend>
+                          <v-icon size="18">mdi-check</v-icon>
+                        </template>
+                        <v-list-item-title>Scan abschließen</v-list-item-title>
+                      </v-list-item>
+                    </v-list>
+                  </v-menu>
+                </div>
               </v-badge>
             </div>
 
@@ -2656,6 +2698,8 @@ const pendingImportInboxMenuTitle = computed(() => {
   const count = pendingImportInboxCount.value;
   return count === 1 ? 'Neue Scan-Seite anzeigen' : 'Neue Scans anzeigen';
 });
+const canTriggerImportScan = computed(() => Boolean(importScanner.value?.id));
+const showImportScanFinish = computed(() => canTriggerImportScan.value && !importScanner.value?.live_page_mode);
 
 function normalizeImportInboxItems(payload) {
   const items = Array.isArray(payload?.items) ? payload.items : [];
@@ -2728,6 +2772,17 @@ async function onScanTrigger(command) {
   } catch (error) {
     notifyError(error, 'Scan konnte nicht ausgelöst werden.');
   }
+}
+
+async function scanFromImportMenu(command) {
+  if (!canTriggerImportScan.value) {
+    return;
+  }
+  if (!isUploadDialogOpen.value) {
+    isUploadDialogOpen.value = true;
+    await nextTick();
+  }
+  await onScanTrigger(command);
 }
 
 async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) {
@@ -7769,6 +7824,33 @@ onBeforeUnmount(() => {
   text-transform: none;
   letter-spacing: 0;
   border-radius: 10px;
+}
+
+.import-action {
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.import-action--split .import-action__primary {
+  border-top-right-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+}
+
+.import-action__menu-btn {
+  width: 34px;
+  min-width: 34px;
+  padding-inline: 0 !important;
+  border-top-left-radius: 0 !important;
+  border-bottom-left-radius: 0 !important;
+  border-left: 1px solid rgba(var(--v-theme-primary), 0.18);
+}
+
+.import-action-menu .v-list-item-title {
+  font-size: 0.86rem;
+}
+
+.import-action-menu .v-list-item-subtitle {
+  font-size: 0.74rem;
 }
 
 .list-header-btn--active {
