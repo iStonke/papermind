@@ -17,6 +17,7 @@ from app.schemas.import_staging import (
     ImportInboxItemRead,
     ImportInboxListResponse,
     ImportInboxUploadResponse,
+    ScannerTriggerInfo,
 )
 from app.services.import_staging import ImportStagingService
 from app.services.scanners import is_scanning_active
@@ -93,6 +94,30 @@ class ImportInboxService:
             .where(ScannerDevice.scanning_since.is_not(None))
         ).all()
         return any(is_scanning_active(scanner) for scanner in scanners)
+
+    def _triggerable_scanner(self) -> ScannerTriggerInfo | None:
+        """Der Scanner, den der aktuelle Benutzer aus der UI auslösen darf.
+
+        Single-Pi-Setup: i. d. R. genau ein Scanner. Bei mehreren wird der
+        zuletzt gesehene genommen.
+        """
+        if self.owner_id is None:
+            return None
+        scanner = self.db.scalars(
+            select(ScannerDevice)
+            .join(ScannerDeviceRecipient, ScannerDeviceRecipient.scanner_device_id == ScannerDevice.id)
+            .where(ScannerDeviceRecipient.user_id == self.owner_id)
+            .where(ScannerDevice.enabled.is_(True))
+            .order_by(ScannerDevice.last_seen_at.desc().nullslast())
+        ).first()
+        if scanner is None:
+            return None
+        return ScannerTriggerInfo(
+            id=scanner.id,
+            name=scanner.name,
+            live_page_mode=bool(scanner.live_page_mode),
+            last_seen_at=scanner.last_seen_at,
+        )
 
     def _read_item(self, item: ImportInboxItem) -> ImportInboxItemRead:
         return ImportInboxItemRead(
@@ -183,6 +208,7 @@ class ImportInboxService:
             items=[self._read_item(item) for item in items],
             pending_count=self._pending_count(),
             scanning=self._scanning_active(),
+            scanner=self._triggerable_scanner(),
         )
 
     def assign_to_current_user(self, item_ids: list[uuid.UUID]) -> ImportInboxAssignResponse:

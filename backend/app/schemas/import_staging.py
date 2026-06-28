@@ -33,10 +33,24 @@ class ImportInboxUploadResponse(BaseModel):
     pending_count: int = Field(default=0, ge=0)
 
 
+class ScannerTriggerInfo(BaseModel):
+    """Minimaler Deskriptor, damit der Import-Dialog einen Scan auslösen kann.
+
+    Wird in der Inbox-Status-Antwort mitgeliefert (die der Dialog ohnehin pollt),
+    da listScanners admin-only ist. Auf den/die Scanner des aktuellen Benutzers
+    beschränkt."""
+
+    id: uuid.UUID
+    name: str
+    live_page_mode: bool = False
+    last_seen_at: datetime | None = None
+
+
 class ImportInboxListResponse(BaseModel):
     items: list[ImportInboxItemRead] = Field(default_factory=list)
     pending_count: int = Field(default=0, ge=0)
     scanning: bool = False
+    scanner: ScannerTriggerInfo | None = None
 
 
 class ImportInboxClaimRequest(BaseModel):
