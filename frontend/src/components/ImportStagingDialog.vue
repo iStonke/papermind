@@ -654,7 +654,6 @@ import { storeToRefs } from 'pinia';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import { PDF_WORKER_SRC } from '../utils/pdfWorker.js';
 import { authHeaders } from '../api/client.js';
-import { useTheme } from 'vuetify';
 import BaseDialog from './BaseDialog.vue';
 import StageTags from './StageTags.vue';
 import { discardImportInboxSourcePages } from '../api/importInbox';
@@ -691,7 +690,6 @@ const stagingStore = useImportStagingStore();
 const settingsStore = useSettingsStore();
 const categoryStore = useCategoryStore();
 const correspondentStore = useCorrespondentStore();
-const theme = useTheme();
 const { documents, documentCount, totalPages, emptyDocuments, commitDocuments } = storeToRefs(stagingStore);
 
 const KNOWN_ICONS = new Set([
@@ -1347,36 +1345,6 @@ const preparationProgressLabel = computed(() => {
 });
 const previewImageCache = new Map();
 let previewRenderNonce = 0;
-const importerThemeVars = computed(() => {
-  if (theme.global.current.value.dark) {
-    return {
-      '--pm-toolbar-btn-color': 'rgba(255, 255, 255, 0.72)',
-      '--pm-toolbar-btn-opacity': '1',
-      '--pm-toolbar-icon-color': 'rgba(255, 255, 255, 0.72)',
-      '--pm-dm-text2': 'rgba(255, 255, 255, 0.72)'
-    };
-  }
-  return {
-    '--pm-toolbar-btn-color': 'rgba(15, 23, 42, 0.62)',
-    '--pm-toolbar-btn-opacity': '1',
-    '--pm-toolbar-icon-color': 'rgba(15, 23, 42, 0.62)'
-  };
-});
-const toolbarControlEnabledStyle = Object.freeze({
-  color: 'rgba(var(--v-theme-on-surface), 0.72)',
-  '--v-btn-color': 'rgba(var(--v-theme-on-surface), 0.72)',
-  opacity: '1'
-});
-const toolbarControlDisabledStyle = Object.freeze({
-  color: 'rgba(var(--v-theme-on-surface), 0.34)',
-  '--v-btn-color': 'rgba(var(--v-theme-on-surface), 0.34)',
-  opacity: '0.5'
-});
-
-
-function getToolbarControlStyle(disabled) {
-  return disabled ? toolbarControlDisabledStyle : toolbarControlEnabledStyle;
-}
 
 /* ── Dokumentweiter KI-Analyse-Status (für die Status-Zeile rechts unten) ──
  * Spiegelt den titleSuggestionStatus des primären Dokuments auf vier UI-Zustände:
@@ -5061,7 +5029,7 @@ onBeforeUnmount(() => {
 }
 
 .isd-toolbar-left :deep(.v-icon) {
-  color: rgba(255, 255, 255, 0.92);
+  color: rgba(var(--v-theme-on-surface), 0.72);
 }
 
 .isd-toolbar-select-btn--active {

@@ -2764,8 +2764,10 @@ function scheduleImportInboxPoll(delay = null) {
     window.clearTimeout(importInboxPollTimer);
   }
   // Bei offenem Importdialog schneller pollen, damit der Scan-Status
-  // (gerade am Scannen?) sich live anfühlt statt erst nach bis zu 15s.
-  const nextDelay = delay ?? (document.hidden ? 60000 : (isUploadDialogOpen.value ? 2000 : 15000));
+  // (gerade am Scannen?) sich live anfühlt. Auch im Ruhezustand (Dialog noch
+  // zu) moderat zügig pollen, weil genau dieses Intervall bestimmt, wie
+  // schnell die allererste gescannte Seite den Auto-Open überhaupt auslöst.
+  const nextDelay = delay ?? (document.hidden ? 60000 : (isUploadDialogOpen.value ? 2000 : 5000));
   importInboxPollTimer = window.setTimeout(async () => {
     await refreshImportInbox({ silent: true });
     scheduleImportInboxPoll();
