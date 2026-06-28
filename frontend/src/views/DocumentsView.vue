@@ -1508,6 +1508,7 @@ const importStagingDialogRef = ref(null);
 const activityIndicatorRef = ref(null);
 const importPdfInputRef = ref(null);
 const importInboxItems = ref([]);
+const importInboxPendingCount = ref(null);
 const isImportInboxLoading = ref(false);
 const isImportScannerActive = ref(false);
 const isImportScannerOptimisticActive = ref(false);
@@ -2513,6 +2514,8 @@ let previewRetryTimer = null;
 let listDropNoticeTimer = null;
 let importInboxPollTimer = null;
 let importScannerOptimisticTimer = null;
+const IMPORT_SCANNER_SCANNING_FALLBACK_MS = 15000;
+const IMPORT_SCANNER_PENDING_FALLBACK_MS = 60000;
 // sidebarCountsRefreshTimer → jetzt in useSidebarStore verwaltet
 let shouldSkipTagAutosave = false;
 let shouldSkipMetadataAutosave = false;
@@ -2656,13 +2659,49 @@ function scheduleSidebarCountsRefresh() {
   sidebarStore.scheduleCounts();
 }
 
-const pendingImportInboxCount = computed(() => {
-  const loadedPageCount = importInboxItems.value.reduce(
+function countImportInboxPages(items) {
+  return (Array.isArray(items) ? items : []).reduce(
     (sum, item) => sum + Math.max(0, Number(item?.page_count || 0)),
     0
   );
+}
+
+const pendingImportInboxCount = computed(() => {
+  if (importInboxPendingCount.value !== null) {
+    return Math.max(0, Number(importInboxPendingCount.value || 0));
+  }
+  const loadedPageCount = countImportInboxPages(importInboxItems.value);
   return Math.max(loadedPageCount, Number(sidebarCounts.value.pending_import_inbox_count || 0));
 });
+
+function setImportInboxPendingCount(count) {
+  importInboxPendingCount.value = Math.max(0, Number(count || 0));
+}
+
+function updateImportInboxPendingCountFromPayload(payload, visibleItems) {
+  const visiblePageCount = countImportInboxPages(visibleItems);
+  if (importInboxSuppressedItemIds.value.size > 0) {
+    setImportInboxPendingCount(visiblePageCount);
+    return;
+  }
+  const serverPendingCount = Number(payload?.pending_count);
+  setImportInboxPendingCount(
+    Number.isFinite(serverPendingCount)
+      ? Math.max(visiblePageCount, serverPendingCount)
+      : visiblePageCount
+  );
+}
+
+function updateImportInboxPendingCountFromMutation(result) {
+  if (importInboxSuppressedItemIds.value.size > 0) {
+    setImportInboxPendingCount(countImportInboxPages(importInboxItems.value));
+    return;
+  }
+  const serverPendingCount = Number(result?.pending_count);
+  if (Number.isFinite(serverPendingCount)) {
+    setImportInboxPendingCount(serverPendingCount);
+  }
+}
 const pendingImportInboxBadgeLabel = computed(() => {
   const count = pendingImportInboxCount.value;
   return count > 99 ? '99+' : String(count);
@@ -2722,7 +2761,7 @@ function shouldAutoOpenImportInbox(nextItems, newItemIds) {
 async function autoOpenImportInboxScans() {
   isAutoOpeningImportInbox = true;
   try {
-    await openImportInboxScans({ refresh: false });
+    return await openImportInboxScans({ refresh: false });
   } finally {
     isAutoOpeningImportInbox = false;
   }
@@ -2744,7 +2783,8 @@ async function onScanTrigger(command) {
 
 function setImportScannerOptimisticActive(phase = 'scanning') {
   isImportScannerOptimisticActive.value = true;
-  importScannerOptimisticPhase.value = phase === 'pending' ? 'pending' : 'scanning';
+  const normalizedPhase = phase === 'pending' ? 'pending' : 'scanning';
+  importScannerOptimisticPhase.value = normalizedPhase;
   if (typeof window === 'undefined') {
     return;
   }
@@ -2755,7 +2795,7 @@ function setImportScannerOptimisticActive(phase = 'scanning') {
     importScannerOptimisticTimer = null;
     isImportScannerOptimisticActive.value = false;
     importScannerOptimisticPhase.value = 'idle';
-  }, 15000);
+  }, normalizedPhase === 'pending' ? IMPORT_SCANNER_PENDING_FALLBACK_MS : IMPORT_SCANNER_SCANNING_FALLBACK_MS);
 }
 
 function clearImportScannerOptimisticActive() {
@@ -2787,11 +2827,23 @@ async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) 
     const nextItems = normalizeImportInboxItems(payload);
     const nextItemIds = buildImportInboxItemIdSet(nextItems);
     const newItemIds = [...nextItemIds].filter((itemId) => !knownImportInboxItemIds.has(itemId));
+    const shouldKeepScannerFeedbackUntilLoaded =
+      newItemIds.length > 0 &&
+      isUploadDialogOpen.value &&
+      (wasImportScannerActive ||
+        nextImportScannerActive ||
+        isImportScannerFeedbackActive.value ||
+        nextItems.some((item) => newItemIds.includes(item.id) && item.source_type === 'scanner'));
     if (newItemIds.length > 0) {
-      clearImportScannerOptimisticActive();
+      if (shouldKeepScannerFeedbackUntilLoaded) {
+        setImportScannerOptimisticActive('pending');
+      } else {
+        clearImportScannerOptimisticActive();
+      }
     } else if (wasImportScannerActive && !nextImportScannerActive) {
       setImportScannerOptimisticActive('pending');
     }
+    updateImportInboxPendingCountFromPayload(payload, nextItems);
     importInboxItems.value = nextItems;
     knownImportInboxItemIds = nextItemIds;
 
@@ -2815,9 +2867,15 @@ async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) 
   }
 
   if (shouldAutoOpen) {
-    await autoOpenImportInboxScans();
+    const opened = await autoOpenImportInboxScans();
+    if (opened) {
+      clearImportScannerOptimisticActive();
+    }
   } else if (shouldLivePush) {
-    await openImportInboxScans({ refresh: false });
+    const opened = await openImportInboxScans({ refresh: false });
+    if (opened) {
+      clearImportScannerOptimisticActive();
+    }
   }
 }
 
@@ -2852,20 +2910,22 @@ function handleImportInboxVisibilityChange() {
   scheduleImportInboxPoll(document.hidden ? 60000 : 0);
 }
 
-async function openImportInboxScans({ refresh = true } = {}) {
+async function openImportInboxScans({ refresh = true, notifyWhenEmpty = true } = {}) {
   if (refresh) {
     await refreshImportInbox({ silent: false, allowAutoOpen: false });
   }
   const items = importInboxItems.value.slice();
   if (items.length === 0) {
-    notify({ type: 'info', message: 'Keine neuen Scans verfügbar.' });
-    return;
+    if (notifyWhenEmpty) {
+      notify({ type: 'info', message: 'Keine neuen Scans verfügbar.' });
+    }
+    return false;
   }
 
   const dialogRef = importStagingDialogRef.value;
   if (!dialogRef || typeof dialogRef.openWithRemoteSources !== 'function') {
     isUploadDialogOpen.value = true;
-    return;
+    return true;
   }
 
   try {
@@ -2878,7 +2938,7 @@ async function openImportInboxScans({ refresh = true } = {}) {
       if (Number(assignResult?.assigned || 0) !== assignableItemIds.length) {
         notify({ type: 'info', message: 'Einige Scanner-Scans wurden bereits übernommen.' });
         await refreshImportInbox({ silent: true, allowAutoOpen: false });
-        return;
+        return false;
       }
       for (const item of items) {
         if (assignableItemIds.includes(item.id)) {
@@ -2906,10 +2966,13 @@ async function openImportInboxScans({ refresh = true } = {}) {
       activeImportInboxItemIds.value = nextActive;
       activeImportInboxSourceToItemId.value = nextSourceMap;
       importInboxItems.value = importInboxItems.value.filter((item) => !nextSuppressed.has(item.id));
+      setImportInboxPendingCount(countImportInboxPages(importInboxItems.value));
     }
   } catch (error) {
     notify({ type: 'error', message: mapApiError(error, 'Neue Scans konnten nicht übernommen werden.') });
+    return false;
   }
+  return true;
 }
 
 async function claimActiveImportInboxItems() {
@@ -2919,7 +2982,8 @@ async function claimActiveImportInboxItems() {
   }
   isClaimingImportInbox.value = true;
   try {
-    await claimImportInboxItems(itemIds);
+    const result = await claimImportInboxItems(itemIds);
+    updateImportInboxPendingCountFromMutation(result);
     activeImportInboxItemIds.value = new Set();
     activeImportInboxSourceToItemId.value = new Map();
     const nextSuppressed = new Set(importInboxSuppressedItemIds.value);
@@ -2963,7 +3027,8 @@ async function onImportSourcesDiscarded(payload = {}) {
   activeImportInboxSourceToItemId.value = nextSourceMap;
 
   try {
-    await discardImportInboxItems(itemIds);
+    const result = await discardImportInboxItems(itemIds);
+    updateImportInboxPendingCountFromMutation(result);
     await refreshImportInbox({ silent: true, allowAutoOpen: false });
   } catch (error) {
     notify({ type: 'warning', message: mapApiError(error, 'Gelöschte SMB-Scans konnten nicht endgültig gelöscht werden.') });
@@ -3000,7 +3065,8 @@ watch(isUploadDialogOpen, async (open) => {
   importInboxSuppressedItemIds.value = nextSuppressed;
 
   try {
-    await discardImportInboxItems(itemIds);
+    const result = await discardImportInboxItems(itemIds);
+    updateImportInboxPendingCountFromMutation(result);
   } catch (error) {
     notify({ type: 'warning', message: mapApiError(error, 'Verworfene Scans konnten nicht gelöscht werden.') });
   }
@@ -5956,10 +6022,12 @@ function openImportPdfPicker() {
 // sonst das Import-Fenster mit Drag&Drop-Zone öffnen (kein FileChooser mehr).
 async function openImport() {
   if (pendingImportInboxCount.value > 0) {
-    await openImportInboxScans();
-  } else {
-    isUploadDialogOpen.value = true;
+    const openedInbox = await openImportInboxScans({ notifyWhenEmpty: false });
+    if (openedInbox) {
+      return;
+    }
   }
+  isUploadDialogOpen.value = true;
 }
 
 async function onImportPdfInputChange(event) {
