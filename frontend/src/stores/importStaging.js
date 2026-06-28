@@ -235,7 +235,9 @@ export const useImportStagingStore = defineStore('importStaging', {
         pages: [],
         collapsed: false
       });
-      const targetIndex = clamp(Number(insertIndex) || 0, 0, this.documents.length);
+      const targetIndex = insertIndex == null
+        ? this.documents.length
+        : clamp(Number(insertIndex) || 0, 0, this.documents.length);
       this.documents.splice(targetIndex, 0, document);
       return document;
     },

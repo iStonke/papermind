@@ -67,7 +67,7 @@
         v-model="isUploadDialogOpen"
         :api-base-url="apiBaseUrl"
         :auto-embed="true"
-        :scanner-active="isImportScannerActive"
+        :scanner-active="isImportScannerFeedbackActive"
         :scanner="importScanner"
         @scan="onScanTrigger"
         @minimize="onImportMinimized"
@@ -1509,6 +1509,8 @@ const importPdfInputRef = ref(null);
 const importInboxItems = ref([]);
 const isImportInboxLoading = ref(false);
 const isImportScannerActive = ref(false);
+const isImportScannerOptimisticActive = ref(false);
+const isImportScannerFeedbackActive = computed(() => isImportScannerActive.value || isImportScannerOptimisticActive.value);
 const importScanner = ref(null);
 const importInboxSuppressedItemIds = ref(new Set());
 const activeImportInboxItemIds = ref(new Set());
@@ -2498,6 +2500,7 @@ let metadataAutosaveDebounceTimer = null;
 let previewRetryTimer = null;
 let listDropNoticeTimer = null;
 let importInboxPollTimer = null;
+let importScannerOptimisticTimer = null;
 // sidebarCountsRefreshTimer → jetzt in useSidebarStore verwaltet
 let shouldSkipTagAutosave = false;
 let shouldSkipMetadataAutosave = false;
@@ -2718,16 +2721,36 @@ async function onScanTrigger(command) {
   if (!scanner?.id) {
     return;
   }
+  setImportScannerOptimisticActive();
   try {
     await triggerScan(scanner.id, command);
-    // Optimistisch: zeigt sofort die "Scanne…"-Animation; der Worker spiegelt
-    // den echten Status kurz darauf nach.
-    if (command === 'page') {
-      isImportScannerActive.value = true;
-    }
   } catch (error) {
+    clearImportScannerOptimisticActive();
     notifyError(error, 'Scan konnte nicht ausgelöst werden.');
   }
+}
+
+function setImportScannerOptimisticActive() {
+  isImportScannerOptimisticActive.value = true;
+  if (typeof window === 'undefined') {
+    return;
+  }
+  if (importScannerOptimisticTimer) {
+    window.clearTimeout(importScannerOptimisticTimer);
+  }
+  importScannerOptimisticTimer = window.setTimeout(() => {
+    importScannerOptimisticTimer = null;
+    isImportScannerOptimisticActive.value = false;
+  }, 15000);
+}
+
+function clearImportScannerOptimisticActive() {
+  isImportScannerOptimisticActive.value = false;
+  if (typeof window === 'undefined' || !importScannerOptimisticTimer) {
+    return;
+  }
+  window.clearTimeout(importScannerOptimisticTimer);
+  importScannerOptimisticTimer = null;
 }
 
 async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) {
@@ -2744,6 +2767,9 @@ async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) 
     const nextItems = normalizeImportInboxItems(payload);
     const nextItemIds = buildImportInboxItemIdSet(nextItems);
     const newItemIds = [...nextItemIds].filter((itemId) => !knownImportInboxItemIds.has(itemId));
+    if (newItemIds.length > 0 || isImportScannerActive.value) {
+      clearImportScannerOptimisticActive();
+    }
     importInboxItems.value = nextItems;
     knownImportInboxItemIds = nextItemIds;
 
@@ -6312,6 +6338,7 @@ onBeforeUnmount(() => {
   if (importInboxPollTimer) {
     window.clearTimeout(importInboxPollTimer);
   }
+  clearImportScannerOptimisticActive();
   document.removeEventListener('visibilitychange', handleImportInboxVisibilityChange);
   if (documentListSettleTimer) {
     window.clearTimeout(documentListSettleTimer);

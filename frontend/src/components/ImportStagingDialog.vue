@@ -59,6 +59,7 @@
           @dragover.prevent="onMiniatureDragOver"
           @dragleave="onMiniatureDragLeave"
           @drop.prevent="onMiniatureDrop"
+          @click="onMiniatureAreaClick"
         >
 
           <!-- Dropzone (empty state) -->
@@ -1421,6 +1422,26 @@ function onPageGridClick(event, doc, page, globalIndex) {
     clearMultiSelection();
     onPageClick(event, doc.id, page.id, globalIndex);
   }
+}
+
+function onMiniatureAreaClick(event) {
+  if (isEmpty.value || isUploadingSources.value || isCommitting.value) {
+    return;
+  }
+  const target = event?.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+  const interactiveTarget = target.closest(
+    '.isd-page-card, .isd-add-page-card, .isd-scanning-page-card, button, input, textarea, select, a, [role="button"]'
+  );
+  if (interactiveTarget) {
+    return;
+  }
+  if (!selected.value?.pageId && multiSelectedPageIds.value.size === 0) {
+    return;
+  }
+  clearActiveSelection();
 }
 
 async function commitSelectionImport() {
