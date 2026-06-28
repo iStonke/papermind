@@ -2,10 +2,12 @@
   <BaseDialog
     v-model="isOpen"
     :persistent="isUploadingSources || isCommitting"
+    :guard-close="hasStagedPages"
     :max-width="MODAL_WORK_WIDTH_SPLIT"
     :card-class="['isd-card']"
     title="Importieren"
     header-subtitle="Gescannte Seiten als neues Dokument"
+    @request-close="requestCloseImport"
     @close="onDialogClose"
   >
     <template #header-actions>
@@ -93,30 +95,27 @@
                 </p>
               </template>
             </div>
-            <div class="isd-dropzone__types">
-              <span class="isd-dropzone__chip">
-                <v-icon size="12" class="isd-dropzone__chip-icon">mdi-file-pdf-box</v-icon>
-                PDF
-              </span>
-            </div>
-            <div
-              v-if="canTriggerScan"
-              class="isd-dropzone__scan"
-              :title="props.scanner?.name || 'Scanner'"
-              @click.stop
-            >
-              <v-btn
-                size="small"
-                variant="text"
-                color="primary"
-                prepend-icon="mdi-scanner"
-                class="isd-dropzone__scan-btn"
-                :loading="props.scannerActive"
-                :disabled="props.scannerActive"
-                @click.stop="emitScan('page')"
+            <div class="isd-dropzone__actions" @click.stop>
+              <button
+                type="button"
+                class="isd-dropzone__action"
+                :disabled="isUploadingSources || isCommitting"
+                @click="openFilePicker"
               >
-                {{ props.scannerActive ? 'Scanner aktiv' : 'Seite scannen' }}
-              </v-btn>
+                <v-icon size="16">mdi-file-pdf-box</v-icon>
+                <span>PDF auswählen</span>
+              </button>
+              <button
+                v-if="canTriggerScan"
+                type="button"
+                class="isd-dropzone__action"
+                :disabled="props.scannerActive || isUploadingSources || isCommitting"
+                :title="props.scanner?.name || 'Scanner'"
+                @click="emitScan('page')"
+              >
+                <v-icon size="16">mdi-scanner</v-icon>
+                <span>{{ props.scannerActive ? 'Scanner aktiv' : 'Scannen' }}</span>
+              </button>
             </div>
           </div>
 
@@ -687,7 +686,7 @@
           <v-btn
             variant="text"
             :disabled="isUploadingSources || isCommitting"
-            @click="isOpen = false"
+            @click="requestCloseImport"
           >
             Abbrechen
           </v-btn>
@@ -718,6 +717,23 @@
       </div>
     </template>
   </BaseDialog>
+
+  <DestructiveDialog
+    v-model="discardImportConfirmOpen"
+    title="Seiten verwerfen?"
+    :header-subtitle="discardImportConfirmSubtitle"
+    primary-text="Verwerfen"
+    secondary-text="Zurück"
+    icon="mdi-trash-can-outline"
+    max-width="460"
+    @primary="confirmDiscardImport"
+    @secondary="cancelDiscardImport"
+    @close="cancelDiscardImport"
+  >
+    <p class="isd-discard-confirm__text">
+      {{ discardImportConfirmDescription }}
+    </p>
+  </DestructiveDialog>
 </template>
 
 <script setup>
@@ -727,6 +743,7 @@ import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import { PDF_WORKER_SRC } from '../utils/pdfWorker.js';
 import { authHeaders } from '../api/client.js';
 import BaseDialog from './BaseDialog.vue';
+import DestructiveDialog from './DestructiveDialog.vue';
 import StageTags from './StageTags.vue';
 import { discardImportInboxSourcePages } from '../api/importInbox';
 import { suggestImportStageTitle } from '../api/importStaging';
@@ -811,6 +828,7 @@ const titleSuggestJobByStage = new Map();
 const previewImageSrc = ref('');
 const previewImageLoading = ref(false);
 const rightPanelMode = ref('details');
+const discardImportConfirmOpen = ref(false);
 const PREVIEW_MAGNIFIER_WIDTH = 220;
 const PREVIEW_MAGNIFIER_HEIGHT = 132;
 const PREVIEW_MAGNIFIER_ZOOM = 2.25;
@@ -954,6 +972,15 @@ const isOpen = computed({
 
 const isIOSDevice = computed(() => isIOS());
 const isEmpty = computed(() => documentCount.value === 0 && totalPages.value === 0);
+const hasStagedPages = computed(() => totalPages.value > 0);
+const stagedPageCountLabel = computed(() => `${totalPages.value} ${totalPages.value === 1 ? 'Seite' : 'Seiten'}`);
+const discardImportConfirmSubtitle = computed(() => {
+  return `${stagedPageCountLabel.value} im aktuellen Import`;
+});
+const discardImportConfirmDescription = computed(() => {
+  const verb = totalPages.value === 1 ? 'wurde' : 'wurden';
+  return `${stagedPageCountLabel.value} ${verb} noch nicht importiert. Wenn du sie verwirfst, geht dieser Importentwurf verloren.`;
+});
 const dropzoneHeadline = computed(() => (isIOSDevice.value ? 'PDFs hier ablegen' : 'PDFs oder Ordner hier ablegen'));
 const dropzonePrimaryLabel = computed(() => (isIOSDevice.value ? 'PDF auswählen' : 'PDFs oder Ordner auswählen'));
 
@@ -1700,6 +1727,7 @@ watch(
       return;
     }
     if (isMinimizingToTray) {
+      discardImportConfirmOpen.value = false;
       isDropzoneDragOver.value = false;
       dropDragDepth.value = 0;
       isBodyFileDragOver.value = false;
@@ -1713,6 +1741,7 @@ watch(
       detachPeekGlobalListeners();
       return;
     }
+    discardImportConfirmOpen.value = false;
     isDropzoneDragOver.value = false;
     dropDragDepth.value = 0;
     isBodyFileDragOver.value = false;
@@ -2021,9 +2050,26 @@ watch(
 );
 
 function onDialogClose() {
+  requestCloseImport();
+}
+
+function requestCloseImport() {
   if (isUploadingSources.value || isCommitting.value) {
     return;
   }
+  if (hasStagedPages.value) {
+    discardImportConfirmOpen.value = true;
+    return;
+  }
+  isOpen.value = false;
+}
+
+function cancelDiscardImport() {
+  discardImportConfirmOpen.value = false;
+}
+
+function confirmDiscardImport() {
+  discardImportConfirmOpen.value = false;
   isOpen.value = false;
 }
 
@@ -4840,40 +4886,48 @@ onBeforeUnmount(() => {
   color: rgba(var(--v-theme-on-surface), 0.45);
 }
 
-.isd-dropzone__types {
-  display: flex;
-  gap: 6px;
+.isd-dropzone__actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
   margin-top: 22px;
 }
 
-/* 6 — Chip mit Icon */
-.isd-dropzone__chip {
+.isd-dropzone__action {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  padding: 3px 10px 3px 7px;
-  border-radius: 20px;
-  border: 1px solid rgba(var(--v-theme-primary), 0.35);
+  justify-content: center;
+  gap: 7px;
+  min-width: 132px;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid rgba(var(--v-theme-primary), 0.26);
+  border-radius: 8px;
+  background: rgba(var(--v-theme-surface), 0.78);
   color: rgb(var(--v-theme-primary));
-  background: rgba(var(--v-theme-primary), 0.06);
-}
-
-.isd-dropzone__chip-icon {
-  opacity: 0.8;
-}
-
-.isd-dropzone__scan {
-  margin-top: 12px;
-}
-
-.isd-dropzone__scan-btn {
-  min-width: 0;
-  text-transform: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
   letter-spacing: 0;
-  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.isd-dropzone__action:hover:not(:disabled),
+.isd-dropzone__action:focus-visible {
+  border-color: rgba(var(--v-theme-primary), 0.45);
+  background: rgba(var(--v-theme-primary), 0.08);
+  outline: none;
+}
+
+.isd-dropzone__action:disabled {
+  cursor: default;
+  opacity: 0.48;
 }
 
 /* ── Page grid ── */
@@ -5656,6 +5710,13 @@ onBeforeUnmount(() => {
 .isd-footer-status {
   font-size: 13px;
   color: rgba(var(--v-theme-on-surface), 0.54);
+}
+
+.isd-discard-confirm__text {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: rgba(var(--v-theme-on-surface), 0.68);
 }
 
 /* ── Import-Button: Zustände klar differenzieren ──────────────────────────

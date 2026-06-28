@@ -116,6 +116,7 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   primaryDisabled: { type: Boolean, default: false },
   dangerRequireConfirmText: { type: String, default: '' },
+  guardClose: { type: Boolean, default: false },
   scrollable: { type: Boolean, default: false },
   cardClass: { type: [String, Array, Object], default: '' },
   headerClass: { type: [String, Array, Object], default: '' },
@@ -123,7 +124,7 @@ const props = defineProps({
   footerClass: { type: [String, Array, Object], default: '' }
 });
 
-const emit = defineEmits(['update:modelValue', 'primary', 'secondary', 'close']);
+const emit = defineEmits(['update:modelValue', 'primary', 'secondary', 'close', 'request-close']);
 
 const contentRef = ref(null);
 const dangerInputRef = ref(null);
@@ -175,6 +176,10 @@ const isPrimaryDisabled = computed(() => {
 });
 
 function closeDialog() {
+  if (props.guardClose) {
+    emit('request-close');
+    return;
+  }
   emit('update:modelValue', false);
   emit('close');
 }
@@ -198,6 +203,10 @@ function registerClose() {
 }
 
 function onModelUpdate(value) {
+  if (!value && props.guardClose) {
+    emit('request-close');
+    return;
+  }
   emit('update:modelValue', value);
   if (!value) {
     emit('close');
