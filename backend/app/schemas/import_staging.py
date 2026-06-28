@@ -55,6 +55,7 @@ class ScannerScanJobRead(BaseModel):
     import_inbox_item_id: str | None = None
     page_count: int = Field(default=0, ge=0)
     error: str | None = None
+    error_kind: str | None = None
     created_at: datetime
     updated_at: datetime
     started_at: datetime | None = None

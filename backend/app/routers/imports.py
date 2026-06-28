@@ -1,7 +1,12 @@
+import asyncio
+import hashlib
+import json
+import logging
+import time
 import uuid
 
 from fastapi import APIRouter, Depends, File, Header, Query, Request, status, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from fastapi import HTTPException
@@ -10,6 +15,7 @@ from app.core.config import get_settings
 from app.core.deps import get_current_user
 from app.core.security import verify_shared_upload_api_key
 from app.db import get_db
+from app.db.session import AppSessionLocal
 from app.models.user import User
 from app.schemas.common import ErrorResponse
 from app.schemas.import_staging import (
@@ -33,6 +39,30 @@ from app.services.import_staging import ImportStagingService
 
 router = APIRouter(prefix="/api/import", tags=["Import"])
 settings = get_settings()
+logger = logging.getLogger("papermind.import")
+
+# Server-seitiges Poll-Intervall des SSE-Streams. Der Client hält EINE offene
+# Verbindung und bekommt Änderungen gepusht; sein eigenes Polling ist nur noch
+# Fallback. Die DB-Abfrage ist günstig (indizierte Owner-Query), das Intervall
+# bestimmt also nur, wie schnell ein Scan-Statuswechsel beim Client ankommt.
+SSE_POLL_INTERVAL_SECONDS = 1.5
+# Kommentar-Heartbeat, damit Proxys (Caddy) die Leerlaufverbindung nicht kappen.
+SSE_HEARTBEAT_SECONDS = 20.0
+
+
+def _load_inbox_payload(owner_id: uuid.UUID) -> dict:
+    """Inbox-Status für einen Benutzer laden (eigene RLS-Session pro Aufruf).
+
+    Läuft in einem Thread, daher eine kurzlebige Session statt der request-
+    gebundenen - sonst bliebe für die Lebensdauer des Streams eine Verbindung
+    belegt. owner_id wird für die RLS-Policy gesetzt (siehe db/session.py)."""
+    db = AppSessionLocal()
+    try:
+        db.info["owner_id"] = str(owner_id)
+        result = ImportInboxService(db, owner_id).list_pending(limit=50)
+        return result.model_dump(mode="json")
+    finally:
+        db.close()
 
 
 def _verify_inbox_api_key(
@@ -103,6 +133,62 @@ def list_import_inbox(
 ) -> ImportInboxListResponse:
     service = ImportInboxService(db, user.id)
     return service.list_pending(limit=limit)
+
+
+@router.get(
+    "/inbox/events",
+    summary="Server-Sent Events stream of import inbox / scan job changes",
+    responses={401: {"model": ErrorResponse}},
+)
+async def stream_import_inbox_events(
+    request: Request,
+    user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    """Pusht den Inbox-/Scan-Job-Status als Server-Sent Events.
+
+    Der Client abonniert diesen Stream und braucht dann nicht mehr selbst zu
+    pollen (Polling bleibt nur Fallback). Es werden nur tatsächliche Änderungen
+    gesendet (Hash-Vergleich) plus gelegentliche Heartbeats.
+    """
+    owner_id = user.id
+
+    async def event_stream():
+        last_digest: str | None = None
+        last_emit = time.monotonic()
+        # Stream sofort öffnen, damit der Browser die Verbindung als etabliert
+        # ansieht, bevor die erste Inbox-Abfrage durch ist.
+        yield ": connected\n\n"
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                payload = await asyncio.to_thread(_load_inbox_payload, owner_id)
+            except Exception:  # noqa: BLE001 - transienter DB-Fehler darf den Stream nicht abreißen
+                logger.exception("inbox sse payload load failed owner_id=%s", owner_id)
+                await asyncio.sleep(SSE_POLL_INTERVAL_SECONDS)
+                continue
+            payload_json = json.dumps(payload, separators=(",", ":"), sort_keys=True, default=str)
+            digest = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+            now = time.monotonic()
+            if digest != last_digest:
+                last_digest = digest
+                last_emit = now
+                yield f"event: inbox\ndata: {payload_json}\n\n"
+            elif now - last_emit >= SSE_HEARTBEAT_SECONDS:
+                last_emit = now
+                yield ": keepalive\n\n"
+            await asyncio.sleep(SSE_POLL_INTERVAL_SECONDS)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-store",
+            "Connection": "keep-alive",
+            # nginx/Caddy davon abhalten, den Stream zu puffern.
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post(

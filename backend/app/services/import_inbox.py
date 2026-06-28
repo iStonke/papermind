@@ -145,6 +145,7 @@ class ImportInboxService:
             import_inbox_item_id=str(job.import_inbox_item_id) if job.import_inbox_item_id else None,
             page_count=job.page_count,
             error=job.error,
+            error_kind=job.error_kind,
             created_at=job.created_at,
             updated_at=job.updated_at,
             started_at=job.started_at,
@@ -161,7 +162,10 @@ class ImportInboxService:
                 .join(ScannerDeviceRecipient, ScannerDeviceRecipient.scanner_device_id == ScannerDevice.id)
                 .where(ScannerDeviceRecipient.user_id == self.owner_id)
                 .where(ScannerDevice.enabled.is_(True))
-                .where(ScannerScanJob.state.in_(("queued", "scanning", "processing")))
+                # Aktive Jobs IMMER zeigen; Fehlerjobs nur, solange sie frisch
+                # sind, damit die UI Timeout/Datei fehlt/Scanner offline melden
+                # kann, ohne alte Fehler ewig nachzuhängen.
+                .where(ScannerScanJob.state.in_(("queued", "scanning", "processing", "error")))
                 .where(ScannerScanJob.updated_at >= datetime.now(timezone.utc) - timedelta(seconds=SCAN_JOB_VISIBLE_STALE_SECONDS))
                 .order_by(ScannerScanJob.created_at.asc())
                 .limit(max(1, min(int(limit or 20), 50)))

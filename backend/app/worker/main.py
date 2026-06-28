@@ -33,7 +33,7 @@ from app.services.document_dates import apply_ocr_document_date_result, extract_
 from app.services.embeddings import EmbeddingService
 from app.services.documents import DocumentService
 from app.services.import_inbox import ImportInboxService
-from app.services.scanners import ScannerService
+from app.services.scanners import SCAN_ERROR_FILE_MISSING, ScannerService
 from app.services.ai_classification import apply_ollama_classification
 from app.services.document_types import (
     document_type_hint_map,
@@ -59,6 +59,11 @@ TRASH_CLEANUP_INTERVAL_SECONDS = 3600
 BACKUP_CHECK_INTERVAL_SECONDS = 60
 JOB_RECLAIM_INTERVAL_SECONDS = 30
 SCANNER_CONFIG_SYNC_INTERVAL_SECONDS = 2
+# Hängengebliebene Scan-Jobs auf Timeout setzen: häufig genug, dass die UI nicht
+# ewig "Scanne..." zeigt, selten genug, um nicht jede Sekunde zu prüfen.
+SCANNER_JOB_MAINTENANCE_INTERVAL_SECONDS = 30
+# Aufräumen alter, abgeschlossener Scan-Jobs deutlich seltener (täglicher Takt).
+SCANNER_JOB_CLEANUP_INTERVAL_SECONDS = 6 * 3600
 SCANNER_CONFIG_FILENAME = ".papermind-scanner-config"
 SCANNER_STATUS_FILENAME = ".papermind-scanner-status"
 SCANNER_COMMAND_FILE_PREFIX = ".papermind-scan-command-"
@@ -265,6 +270,35 @@ def _import_inbox_subdir(name: str) -> Path | None:
     if root is None:
         return None
     return (root / name).resolve()
+
+
+# Der Host bettet die Backend-Job-ID als ``__pmjob-<uuid>`` in den PDF-Dateinamen
+# ein (papermind-scan.sh). Hier wird sie wieder herausgelöst, damit der Scan exakt
+# diesem Job zugeordnet werden kann - und für die Anzeige aus dem Namen entfernt.
+SCANNER_JOB_FILENAME_MARKER = re.compile(r"__pmjob-([0-9a-fA-F-]{36})")
+
+
+def _extract_scan_job_id(filename: str) -> tuple[str, uuid.UUID | None]:
+    """Trennt eine eingebettete Job-ID vom Anzeigenamen.
+
+    Gibt (bereinigter_name, job_id|None) zurück. Ein nicht parsebarer Marker
+    wird einfach entfernt und ignoriert (keine Zuordnung)."""
+    raw = str(filename or "")
+    match = SCANNER_JOB_FILENAME_MARKER.search(raw)
+    if not match:
+        # Kein Marker: Dateiname unverändert lassen (SMB-Drops o. Ä. dürfen ihre
+        # Originalnamen behalten, inkl. " - "-Trenner).
+        return (raw or "Scan.pdf"), None
+    job_id: uuid.UUID | None = None
+    try:
+        job_id = uuid.UUID(match.group(1))
+    except (ValueError, TypeError):
+        job_id = None
+    # Nur den Marker-Bereich aufräumen: Marker entfernen und die dadurch
+    # entstehende doppelte Trennzeichenlücke glätten.
+    stem = SCANNER_JOB_FILENAME_MARKER.sub("", raw)
+    cleaned = re.sub(r"[ _-]{2,}", "-", stem).strip(" _-")
+    return (cleaned or "Scan.pdf"), job_id
 
 
 def _safe_drop_filename(filename: str) -> str:
@@ -487,18 +521,49 @@ def _drain_scanner_scan_commands() -> None:
         if scanner is None:
             return
         commands = service.claim_pending_scan_commands(scanner.id)
-    for command in commands:
+    for command, scan_job_id in commands:
         # Monotone, kollisionsfreie Sequenz aus ns-Zeitstempel; der Host sortiert
         # die Dateien lexikografisch und führt sie damit in FIFO-Reihenfolge aus.
         seq = time.time_ns()
         target = root / f"{SCANNER_COMMAND_FILE_PREFIX}{seq}"
         tmp = root / f".{SCANNER_COMMAND_FILE_PREFIX}{seq}.part"
+        # Tab-getrennt: "<command>\t<job_id>". Der Host schreibt die Job-ID in den
+        # Dateinamen der erzeugten PDF zurück, sodass der Hardwarelauf exakt diesem
+        # Job zugeordnet werden kann. Job-ID ist optional (leer = keine).
+        job_field = str(scan_job_id) if scan_job_id else ""
         try:
-            tmp.write_text(f"{command}\n")
+            tmp.write_text(f"{command}\t{job_field}\n")
             tmp.rename(target)  # atomar: Host sieht nie eine halbfertige Datei
-            logger.info("scanner scan command dispatched command=%s file=%s", command, target.name)
+            logger.info(
+                "scanner scan command dispatched command=%s job_id=%s file=%s",
+                command,
+                job_field or "-",
+                target.name,
+            )
         except OSError:
             logger.warning("scanner scan command write failed command=%s", command)
+
+
+def _expire_stale_scanner_jobs() -> None:
+    """Hängengebliebene aktive Scan-Jobs auf error/timeout setzen."""
+    try:
+        with SessionLocal() as db:
+            expired = ScannerService(db).expire_stale_scan_jobs()
+        if expired:
+            logger.info("scanner scan jobs expired as timeout count=%s", expired)
+    except Exception as exc:  # pragma: no cover - defensive runtime maintenance
+        logger.exception("scanner job timeout sweep failed err=%s", exc)
+
+
+def _cleanup_old_scanner_jobs() -> None:
+    """Abgeschlossene Scan-Jobs (ready/error) nach Ablauf der Frist löschen."""
+    try:
+        with SessionLocal() as db:
+            removed = ScannerService(db).cleanup_old_scan_jobs()
+        if removed:
+            logger.info("scanner scan jobs cleaned up count=%s", removed)
+    except Exception as exc:  # pragma: no cover - defensive runtime maintenance
+        logger.exception("scanner job cleanup failed err=%s", exc)
 
 
 def _scanner_device_id_for_drop(db) -> uuid.UUID | None:
@@ -532,6 +597,10 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str) -> N
     failed_dir = _import_inbox_subdir(IMPORT_INBOX_FAILED_DIR)
     if processed_dir is None or failed_dir is None:
         return
+    # Vom Host eingebettete Job-ID herauslösen (exakte Zuordnung) und den
+    # Anzeigenamen davon bereinigen.
+    display_name, scan_job_id = _extract_scan_job_id(original_name)
+    scanner_device_id: uuid.UUID | None = None
     try:
         with SessionLocal() as db:
             scanner_device_id = _scanner_device_id_for_drop(db)
@@ -549,7 +618,7 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str) -> N
                 source_type = "scanner"
             result = ImportInboxService(db, owner_id).ingest_pdf_path(
                 claimed_path,
-                original_name=original_name,
+                original_name=display_name,
                 client_name="SMB",
                 source_type=source_type,
                 scanner_device_id=scanner_device_id,
@@ -561,21 +630,38 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str) -> N
                     import_inbox_item_id=uuid.UUID(first_item.id),
                     source_file_id=uuid.UUID(first_item.source_file_id),
                     page_count=first_item.page_count,
+                    job_id=scan_job_id,
                 )
                 db.commit()
         created_count = len(result.items)
         _move_drop_file(claimed_path, processed_dir)
         logger.info(
-            "import inbox drop processed file=%s items=%s source_type=%s scanner_device_id=%s owner=%s owner_id=%s",
-            original_name,
+            "import inbox drop processed file=%s items=%s source_type=%s scanner_device_id=%s job_id=%s owner=%s owner_id=%s",
+            display_name,
             created_count,
             source_type,
             scanner_device_id,
+            scan_job_id or "-",
             owner_name,
             owner_id,
         )
     except Exception as exc:
-        logger.exception("import inbox drop failed file=%s err=%s", original_name, exc)
+        logger.exception("import inbox drop failed file=%s err=%s", display_name, exc)
+        # Den zugehörigen Scan-Job (sofern UI-ausgelöst bzw. ein aktiver
+        # Hardwarelauf existiert) als Fehler melden, statt ihn ewig "scannend"
+        # hängen zu lassen.
+        if scanner_device_id is not None or scan_job_id is not None:
+            try:
+                with SessionLocal() as db:
+                    ScannerService(db).fail_scan_job(
+                        scanner_id=scanner_device_id,
+                        job_id=scan_job_id,
+                        error_kind=SCAN_ERROR_FILE_MISSING,
+                        message="Der gescannte Beleg konnte nicht verarbeitet werden.",
+                        commit=True,
+                    )
+            except Exception:  # pragma: no cover - defensive
+                logger.exception("scan job failure marking failed file=%s", display_name)
         try:
             _move_drop_file(claimed_path, failed_dir)
         except OSError:
@@ -1349,6 +1435,8 @@ def run() -> None:
     last_ocr_backfill_at = 0.0
     last_backup_check_at = 0.0
     last_scanner_config_sync_at = 0.0
+    last_scanner_job_maintenance_at = 0.0
+    last_scanner_job_cleanup_at = 0.0
     last_job_reclaim_at = time.monotonic()
     while True:
         now_monotonic = time.monotonic()
@@ -1361,6 +1449,14 @@ def run() -> None:
             _sync_scanner_live_mode_config()
             _sync_scanner_scan_status()
             _drain_scanner_scan_commands()
+
+        if now_monotonic - last_scanner_job_maintenance_at >= SCANNER_JOB_MAINTENANCE_INTERVAL_SECONDS:
+            last_scanner_job_maintenance_at = now_monotonic
+            _expire_stale_scanner_jobs()
+
+        if now_monotonic - last_scanner_job_cleanup_at >= SCANNER_JOB_CLEANUP_INTERVAL_SECONDS:
+            last_scanner_job_cleanup_at = now_monotonic
+            _cleanup_old_scanner_jobs()
 
         if now_monotonic - last_trash_cleanup_at >= TRASH_CLEANUP_INTERVAL_SECONDS:
             last_trash_cleanup_at = now_monotonic

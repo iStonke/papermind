@@ -63,18 +63,31 @@ consume_scan_commands() {
   local files=("$SCAN_INBOX_DIR"/$SCAN_COMMAND_GLOB)
   shopt -u nullglob
   # Lexikografisch = FIFO (Sequenz ist ein ns-Zeitstempel).
-  local file claimed cmd
+  local file claimed raw line cmd jobid
   for file in $(printf '%s\n' "${files[@]}" | sort); do
     # Atomar wegrenamen, damit ein zweiter Loop-Durchlauf denselben Befehl nicht
     # doppelt ausführt; scheitert das Rename, hat es ein anderer schon geschnappt.
     claimed="${file}.taken"
     mv -n "$file" "$claimed" 2>/dev/null || continue
     [ -f "$claimed" ] || continue
-    cmd="$(tr -d '[:space:]' < "$claimed" 2>/dev/null)"
+    # Inhalt ist eine Zeile, Tab-getrennt: "<command>\t<job_id>". Die Job-ID ist
+    # optional (Altformat ohne Tab = nur das Kommando). Sie wird per Env an das
+    # Scan-Skript gereicht, das sie in den PDF-Dateinamen einbettet, damit das
+    # Backend den Hardwarelauf exakt diesem Job zuordnen kann.
+    raw="$(cat "$claimed" 2>/dev/null)"
     rm -f "$claimed"
+    line="${raw%%$'\n'*}"
+    cmd="${line%%$'\t'*}"
+    if [ "$line" = "$cmd" ]; then
+      jobid=""   # kein Tab → keine Job-ID
+    else
+      jobid="${line#*$'\t'}"
+    fi
+    cmd="$(printf '%s' "$cmd" | tr -d '[:space:]')"
+    jobid="$(printf '%s' "$jobid" | tr -d '[:space:]')"
     case "$cmd" in
-      page)   log "UI-Befehl → Seite scannen";   "$SCAN_SCRIPT" page   || log "page (UI) fehlgeschlagen"; did_work=0 ;;
-      finish) log "UI-Befehl → Batch abschließen"; "$SCAN_SCRIPT" finish || log "finish (UI) fehlgeschlagen"; did_work=0 ;;
+      page)   log "UI-Befehl → Seite scannen (job ${jobid:--})";   PAPERMIND_SCAN_JOB_ID="$jobid" "$SCAN_SCRIPT" page   || log "page (UI) fehlgeschlagen"; did_work=0 ;;
+      finish) log "UI-Befehl → Batch abschließen (job ${jobid:--})"; PAPERMIND_SCAN_JOB_ID="$jobid" "$SCAN_SCRIPT" finish || log "finish (UI) fehlgeschlagen"; did_work=0 ;;
       *)      log "Unbekannter UI-Befehl ignoriert: '${cmd}'" ;;
     esac
   done
