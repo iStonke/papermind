@@ -61,6 +61,7 @@ JOB_RECLAIM_INTERVAL_SECONDS = 30
 SCANNER_CONFIG_SYNC_INTERVAL_SECONDS = 2
 SCANNER_CONFIG_FILENAME = ".papermind-scanner-config"
 SCANNER_STATUS_FILENAME = ".papermind-scanner-status"
+SCANNER_COMMAND_FILE_PREFIX = ".papermind-scan-command-"
 IMPORT_INBOX_FAST_STABLE_CHECK_SECONDS = 0.2
 IMPORT_INBOX_PROCESSED_DIR = ".papermind-processed"
 IMPORT_INBOX_PROCESSING_DIR = ".papermind-processing"
@@ -462,6 +463,37 @@ def _sync_scanner_scan_status() -> None:
         return
     with SessionLocal() as db:
         ScannerService(db).set_scanning_state(IMPORT_INBOX_SCANNER_DEVICE_KEY, started_at)
+
+
+def _drain_scanner_scan_commands() -> None:
+    """Schreibt UI-eingereihte Scan-Befehle als Dateien in scan-inbox.
+
+    Gegenstück zum Host-Poller (papermind-scan-watch.sh), der diese Dateien im
+    Poll-Loop konsumiert und ``papermind-scan.sh page|finish`` ausführt - also
+    bitgleich zum Hardware-Tastendruck. Eindeutige, fortlaufende Dateinamen,
+    damit eine "page, page, finish"-Folge nicht überschrieben wird.
+    """
+    root = _import_inbox_drop_root()
+    if root is None or not IMPORT_INBOX_SCANNER_DEVICE_KEY:
+        return
+    with SessionLocal() as db:
+        service = ScannerService(db)
+        scanner = service.get_by_key(IMPORT_INBOX_SCANNER_DEVICE_KEY)
+        if scanner is None:
+            return
+        commands = service.claim_pending_scan_commands(scanner.id)
+    for command in commands:
+        # Monotone, kollisionsfreie Sequenz aus ns-Zeitstempel; der Host sortiert
+        # die Dateien lexikografisch und führt sie damit in FIFO-Reihenfolge aus.
+        seq = time.time_ns()
+        target = root / f"{SCANNER_COMMAND_FILE_PREFIX}{seq}"
+        tmp = root / f".{SCANNER_COMMAND_FILE_PREFIX}{seq}.part"
+        try:
+            tmp.write_text(f"{command}\n")
+            tmp.rename(target)  # atomar: Host sieht nie eine halbfertige Datei
+            logger.info("scanner scan command dispatched command=%s file=%s", command, target.name)
+        except OSError:
+            logger.warning("scanner scan command write failed command=%s", command)
 
 
 def _scanner_device_id_for_drop(db) -> uuid.UUID | None:
@@ -1314,6 +1346,7 @@ def run() -> None:
             last_scanner_config_sync_at = now_monotonic
             _sync_scanner_live_mode_config()
             _sync_scanner_scan_status()
+            _drain_scanner_scan_commands()
 
         if now_monotonic - last_trash_cleanup_at >= TRASH_CLEANUP_INTERVAL_SECONDS:
             last_trash_cleanup_at = now_monotonic
