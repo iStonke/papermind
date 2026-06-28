@@ -3,11 +3,13 @@ import uuid
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import require_admin
+from app.core.deps import get_current_user, require_admin
 from app.db import get_db
 from app.models.user import User
 from app.schemas.common import ErrorResponse
 from app.schemas.scanners import (
+    ScanCommandRequest,
+    ScanCommandResponse,
     ScannerDeviceCreateRequest,
     ScannerDeviceListResponse,
     ScannerDeviceRead,
@@ -41,6 +43,26 @@ def create_scanner(
     db: Session = Depends(get_db),
 ) -> ScannerDeviceRead:
     return ScannerService(db).create_device(payload)
+
+
+@router.post(
+    "/{scanner_id}/scan",
+    response_model=ScanCommandResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Trigger a scan from the UI (page or finish)",
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+    },
+)
+def trigger_scan(
+    scanner_id: uuid.UUID,
+    payload: ScanCommandRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ScanCommandResponse:
+    return ScannerService(db).enqueue_scan_command(scanner_id, payload.command, requested_by=user.id)
 
 
 @router.patch(

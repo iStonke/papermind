@@ -5,11 +5,13 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.errors import ConflictError, NotFoundError
-from app.models.scanner import ScannerDevice, ScannerDeviceRecipient
+from app.core.errors import BadRequestError, ConflictError, NotFoundError
+from app.models.scanner import ScannerDevice, ScannerDeviceRecipient, ScannerScanCommand
 from app.models.user import User
 from app.schemas.auth import UserRead
 from app.schemas.scanners import (
+    ScanCommand,
+    ScanCommandResponse,
     ScannerDeviceCreateRequest,
     ScannerDeviceListResponse,
     ScannerDeviceRead,
@@ -19,6 +21,10 @@ from app.services.utils import is_unique_violation
 
 
 SCAN_STATUS_STALE_SECONDS = 30
+# Eingereihte Befehle, die der Worker länger nicht abholen konnte (z. B. Host-
+# Poller war aus), gelten als veraltet und werden verworfen statt verspätet zu
+# feuern - ein Scan soll nur kurz nach dem Klick passieren, nie Minuten später.
+SCAN_COMMAND_EXPIRY_SECONDS = 90
 
 
 def normalize_scanner_device_key(raw: str | None) -> str:
@@ -111,6 +117,61 @@ class ScannerService:
         self.db.add(scanner)
         self.db.flush()
         return scanner
+
+    def enqueue_scan_command(
+        self,
+        scanner_id: uuid.UUID,
+        command: ScanCommand,
+        *,
+        requested_by: uuid.UUID | None = None,
+    ) -> ScanCommandResponse:
+        """Reiht einen UI-Scan-Befehl ein, den der Worker an den Host weiterreicht."""
+        scanner = self.db.get(ScannerDevice, scanner_id)
+        if scanner is None:
+            raise NotFoundError("Scanner device not found", details={"scanner_id": str(scanner_id)})
+        if not scanner.enabled:
+            raise BadRequestError("Scanner is disabled", details={"scanner_id": str(scanner_id)})
+
+        entry = ScannerScanCommand(
+            scanner_device_id=scanner.id,
+            command=command,
+            requested_by_user_id=requested_by,
+        )
+        self.db.add(entry)
+        self.db.commit()
+        self.db.refresh(entry)
+        return ScanCommandResponse(id=entry.id, command=command, created_at=entry.created_at)
+
+    def claim_pending_scan_commands(self, scanner_id: uuid.UUID) -> list[ScanCommand]:
+        """Holt offene Befehle eines Scanners FIFO und markiert sie als konsumiert.
+
+        Wird vom Worker im Sync-Tick aufgerufen. Veraltete Befehle (siehe
+        SCAN_COMMAND_EXPIRY_SECONDS) werden als konsumiert markiert, aber nicht
+        zurückgegeben - so feuert ein lange liegengebliebener Klick nicht mehr.
+        """
+        rows = list(
+            self.db.scalars(
+                select(ScannerScanCommand)
+                .where(
+                    ScannerScanCommand.consumed_at.is_(None),
+                    ScannerScanCommand.scanner_device_id == scanner_id,
+                )
+                .order_by(ScannerScanCommand.created_at.asc())
+                .with_for_update(skip_locked=True)
+            ).all()
+        )
+        if not rows:
+            return []
+
+        now = datetime.now(timezone.utc)
+        claimed: list[ScanCommand] = []
+        for row in rows:
+            row.consumed_at = now
+            age = (now - row.created_at).total_seconds()
+            if age <= SCAN_COMMAND_EXPIRY_SECONDS:
+                claimed.append(row.command)  # type: ignore[arg-type]
+        self.db.commit()
+        return claimed
 
     def _set_recipients(self, scanner_id: uuid.UUID, user_ids: list[uuid.UUID]) -> None:
         normalized_ids = []

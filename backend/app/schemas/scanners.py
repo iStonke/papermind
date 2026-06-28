@@ -1,9 +1,12 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.auth import UserRead
+
+ScanCommand = Literal["page", "finish"]
 
 
 def _normalize_text(value: str | None) -> str:
@@ -39,6 +42,16 @@ class ScannerDeviceCreateRequest(BaseModel):
         if not normalized:
             raise ValueError("must not be empty")
         return normalized
+
+
+class ScanCommandRequest(BaseModel):
+    command: ScanCommand
+
+
+class ScanCommandResponse(BaseModel):
+    id: uuid.UUID
+    command: ScanCommand
+    created_at: datetime
 
 
 class ScannerDeviceUpdateRequest(BaseModel):
