@@ -193,63 +193,58 @@
             </div>
 
             <!-- Add-files / scan placeholder card -->
-            <v-menu
+            <div
               v-if="canTriggerScan"
-              location="top center"
-              offset="8"
-              :disabled="isUploadingSources || isCommitting"
+              class="isd-add-page-card"
+              :class="{
+                'isd-add-page-card--disabled': isUploadingSources || isCommitting,
+                'isd-add-page-card--drag-over': isAddPageDragOver,
+                'isd-add-page-card--chooser': addSourceChooserOpen
+              }"
+              role="button"
+              tabindex="0"
+              title="Seite hinzufügen"
+              @click="toggleAddSourceChooser"
+              @keydown.enter.prevent="toggleAddSourceChooser"
+              @keydown.space.prevent="toggleAddSourceChooser"
             >
-              <template #activator="{ props: addSourceMenuProps }">
-                <div
-                  v-bind="addSourceMenuProps"
-                  class="isd-add-page-card"
-                  :class="{
-                    'isd-add-page-card--disabled': isUploadingSources || isCommitting,
-                    'isd-add-page-card--drag-over': isAddPageDragOver
-                  }"
-                  role="button"
-                  tabindex="0"
-                  title="Seite hinzufügen"
-                  @keydown.enter.prevent="$event.currentTarget.click()"
-                  @keydown.space.prevent="$event.currentTarget.click()"
-                >
-                  <div class="isd-add-page-thumb-wrap">
-                    <div class="isd-add-page-inner">
-                      <v-icon size="28">mdi-plus</v-icon>
-                    </div>
-                  </div>
-                  <div class="isd-page-num" aria-hidden="true">&nbsp;</div>
+              <div class="isd-add-page-thumb-wrap">
+                <div v-if="!addSourceChooserOpen" class="isd-add-page-inner">
+                  <v-icon size="28">mdi-plus</v-icon>
                 </div>
-              </template>
-              <v-list density="compact" class="isd-add-source-menu">
-                <v-list-item @click="openFilePicker">
-                  <template #prepend>
+                <div v-else class="isd-add-page-choices" @click.stop>
+                  <button
+                    type="button"
+                    class="isd-add-page-choice"
+                    @click="choosePdfSource"
+                  >
                     <v-icon size="18">mdi-file-pdf-box</v-icon>
-                  </template>
-                  <v-list-item-title>PDF auswählen</v-list-item-title>
-                </v-list-item>
-                <v-list-item
-                  :disabled="props.scannerActive"
-                  @click="emitScan('page')"
-                >
-                  <template #prepend>
+                    <span>PDF</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="isd-add-page-choice"
+                    :disabled="props.scannerActive"
+                    :title="props.scanner?.name || 'Scanner'"
+                    @click="chooseScanSource"
+                  >
                     <v-icon size="18">mdi-scanner</v-icon>
-                  </template>
-                  <v-list-item-title>{{ props.scannerActive ? 'Scanner aktiv…' : 'Seite scannen' }}</v-list-item-title>
-                  <v-list-item-subtitle v-if="props.scanner?.name">{{ props.scanner.name }}</v-list-item-subtitle>
-                </v-list-item>
-                <v-list-item
-                  v-if="showScanFinish"
-                  :disabled="props.scannerActive || isEmpty"
-                  @click="emitScan('finish')"
-                >
-                  <template #prepend>
+                    <span>{{ props.scannerActive ? 'Aktiv' : 'Scan' }}</span>
+                  </button>
+                  <button
+                    v-if="showScanFinish"
+                    type="button"
+                    class="isd-add-page-choice isd-add-page-choice--finish"
+                    :disabled="props.scannerActive || isEmpty"
+                    @click="chooseScanFinish"
+                  >
                     <v-icon size="18">mdi-check</v-icon>
-                  </template>
-                  <v-list-item-title>Scan abschließen</v-list-item-title>
-                </v-list-item>
-              </v-list>
-            </v-menu>
+                    <span>Fertig</span>
+                  </button>
+                </div>
+              </div>
+              <div class="isd-page-num" aria-hidden="true">&nbsp;</div>
+            </div>
             <div
               v-else
               class="isd-add-page-card"
@@ -805,6 +800,7 @@ const isBodyFileDragOver = ref(false);
 const bodyFileDragDepth = ref(0);
 const isAddPageDragOver = ref(false);
 const addPageDragDepth = ref(0);
+const addSourceChooserOpen = ref(false);
 const selected = ref(null);
 const peek = ref({ open: false, x: 0, y: 0 });
 const isUploadingSources = ref(false);
@@ -1842,6 +1838,7 @@ watch(
   (open) => {
     if (!open) {
       teardownBodyLayoutObserver();
+      addSourceChooserOpen.value = false;
       if (isMinimizingToTray) {
         return;
       }
@@ -1903,6 +1900,12 @@ watch(
   },
   { immediate: true }
 );
+
+watch(canTriggerScan, (enabled) => {
+  if (!enabled) {
+    addSourceChooserOpen.value = false;
+  }
+});
 
 watch(
   documents,
@@ -2849,7 +2852,35 @@ function applyScanSuggestion(stageId) {
 }
 
 function openFilePicker() {
+  addSourceChooserOpen.value = false;
   fileInput.value?.click();
+}
+
+function toggleAddSourceChooser() {
+  if (isUploadingSources.value || isCommitting.value) {
+    return;
+  }
+  addSourceChooserOpen.value = !addSourceChooserOpen.value;
+}
+
+function choosePdfSource() {
+  openFilePicker();
+}
+
+function chooseScanSource() {
+  if (props.scannerActive) {
+    return;
+  }
+  addSourceChooserOpen.value = false;
+  emitScan('page');
+}
+
+function chooseScanFinish() {
+  if (props.scannerActive || isEmpty.value) {
+    return;
+  }
+  addSourceChooserOpen.value = false;
+  emitScan('finish');
 }
 
 function setCardFileInputRef(documentId, element) {
@@ -5003,6 +5034,11 @@ onBeforeUnmount(() => {
   background: rgba(var(--v-theme-primary), 0.05);
 }
 
+.isd-add-page-card--chooser .isd-add-page-thumb-wrap {
+  border-color: rgba(var(--v-theme-primary), 0.38);
+  background: rgba(var(--v-theme-primary), 0.045);
+}
+
 .isd-add-page-inner {
   position: absolute;
   inset: 0;
@@ -5029,12 +5065,48 @@ onBeforeUnmount(() => {
   transform: scale(1.08);
 }
 
-.isd-add-source-menu .v-list-item-title {
-  font-size: 0.86rem;
+.isd-add-page-choices {
+  position: absolute;
+  inset: 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
 }
 
-.isd-add-source-menu .v-list-item-subtitle {
-  font-size: 0.74rem;
+.isd-add-page-choice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  width: 100%;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+  border-radius: 7px;
+  background: rgba(var(--v-theme-surface), 0.86);
+  color: rgba(var(--v-theme-on-surface), 0.74);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.isd-add-page-choice:hover:not(:disabled) {
+  border-color: rgba(var(--v-theme-primary), 0.35);
+  background: rgba(var(--v-theme-primary), 0.08);
+  color: rgb(var(--v-theme-primary));
+}
+
+.isd-add-page-choice:disabled {
+  cursor: default;
+  opacity: 0.44;
+}
+
+.isd-add-page-choice--finish {
+  color: rgba(var(--v-theme-on-surface), 0.62);
 }
 
 /* ── Scan-in-progress placeholder card ── */
