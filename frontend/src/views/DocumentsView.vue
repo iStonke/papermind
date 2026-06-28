@@ -1511,13 +1511,14 @@ const importInboxItems = ref([]);
 const isImportInboxLoading = ref(false);
 const isImportScannerActive = ref(false);
 const isImportScannerOptimisticActive = ref(false);
+const importScannerOptimisticPhase = ref('idle');
 const isImportScannerFeedbackActive = computed(() => isImportScannerActive.value || isImportScannerOptimisticActive.value);
 const importScannerFeedbackState = computed(() => {
   if (isImportScannerActive.value) {
     return 'scanning';
   }
   if (isImportScannerOptimisticActive.value) {
-    return 'pending';
+    return importScannerOptimisticPhase.value === 'pending' ? 'pending' : 'scanning';
   }
   return 'idle';
 });
@@ -2732,7 +2733,7 @@ async function onScanTrigger(command) {
   if (!scanner?.id) {
     return;
   }
-  setImportScannerOptimisticActive();
+  setImportScannerOptimisticActive(command === 'finish' ? 'pending' : 'scanning');
   try {
     await triggerScan(scanner.id, command);
   } catch (error) {
@@ -2741,8 +2742,9 @@ async function onScanTrigger(command) {
   }
 }
 
-function setImportScannerOptimisticActive() {
+function setImportScannerOptimisticActive(phase = 'scanning') {
   isImportScannerOptimisticActive.value = true;
+  importScannerOptimisticPhase.value = phase === 'pending' ? 'pending' : 'scanning';
   if (typeof window === 'undefined') {
     return;
   }
@@ -2752,11 +2754,13 @@ function setImportScannerOptimisticActive() {
   importScannerOptimisticTimer = window.setTimeout(() => {
     importScannerOptimisticTimer = null;
     isImportScannerOptimisticActive.value = false;
+    importScannerOptimisticPhase.value = 'idle';
   }, 15000);
 }
 
 function clearImportScannerOptimisticActive() {
   isImportScannerOptimisticActive.value = false;
+  importScannerOptimisticPhase.value = 'idle';
   if (typeof window === 'undefined' || !importScannerOptimisticTimer) {
     return;
   }
@@ -2773,13 +2777,20 @@ async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) 
   let shouldLivePush = false;
   try {
     const payload = await getImportInbox({ limit: 50 });
-    isImportScannerActive.value = Boolean(payload?.scanning);
+    const wasImportScannerActive = isImportScannerActive.value;
+    const nextImportScannerActive = Boolean(payload?.scanning);
+    isImportScannerActive.value = nextImportScannerActive;
+    if (isImportScannerActive.value && isImportScannerOptimisticActive.value) {
+      importScannerOptimisticPhase.value = 'pending';
+    }
     importScanner.value = payload?.scanner || null;
     const nextItems = normalizeImportInboxItems(payload);
     const nextItemIds = buildImportInboxItemIdSet(nextItems);
     const newItemIds = [...nextItemIds].filter((itemId) => !knownImportInboxItemIds.has(itemId));
     if (newItemIds.length > 0) {
       clearImportScannerOptimisticActive();
+    } else if (wasImportScannerActive && !nextImportScannerActive) {
+      setImportScannerOptimisticActive('pending');
     }
     importInboxItems.value = nextItems;
     knownImportInboxItemIds = nextItemIds;
