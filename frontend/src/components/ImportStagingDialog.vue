@@ -192,8 +192,66 @@
               <div class="isd-page-num isd-scanning-page-label">Scanne…</div>
             </div>
 
-            <!-- Add-files placeholder card -->
+            <!-- Add-files / scan placeholder card -->
+            <v-menu
+              v-if="canTriggerScan"
+              location="top center"
+              offset="8"
+              :disabled="isUploadingSources || isCommitting"
+            >
+              <template #activator="{ props: addSourceMenuProps }">
+                <div
+                  v-bind="addSourceMenuProps"
+                  class="isd-add-page-card"
+                  :class="{
+                    'isd-add-page-card--disabled': isUploadingSources || isCommitting,
+                    'isd-add-page-card--drag-over': isAddPageDragOver
+                  }"
+                  role="button"
+                  tabindex="0"
+                  title="Seite hinzufügen"
+                  @keydown.enter.prevent="$event.currentTarget.click()"
+                  @keydown.space.prevent="$event.currentTarget.click()"
+                >
+                  <div class="isd-add-page-thumb-wrap">
+                    <div class="isd-add-page-inner">
+                      <v-icon size="28">mdi-plus</v-icon>
+                    </div>
+                  </div>
+                  <div class="isd-page-num" aria-hidden="true">&nbsp;</div>
+                </div>
+              </template>
+              <v-list density="compact" class="isd-add-source-menu">
+                <v-list-item @click="openFilePicker">
+                  <template #prepend>
+                    <v-icon size="18">mdi-file-pdf-box</v-icon>
+                  </template>
+                  <v-list-item-title>PDF auswählen</v-list-item-title>
+                </v-list-item>
+                <v-list-item
+                  :disabled="props.scannerActive"
+                  @click="emitScan('page')"
+                >
+                  <template #prepend>
+                    <v-icon size="18">mdi-scanner</v-icon>
+                  </template>
+                  <v-list-item-title>{{ props.scannerActive ? 'Scanner aktiv…' : 'Seite scannen' }}</v-list-item-title>
+                  <v-list-item-subtitle v-if="props.scanner?.name">{{ props.scanner.name }}</v-list-item-subtitle>
+                </v-list-item>
+                <v-list-item
+                  v-if="showScanFinish"
+                  :disabled="props.scannerActive || isEmpty"
+                  @click="emitScan('finish')"
+                >
+                  <template #prepend>
+                    <v-icon size="18">mdi-check</v-icon>
+                  </template>
+                  <v-list-item-title>Scan abschließen</v-list-item-title>
+                </v-list-item>
+              </v-list>
+            </v-menu>
             <div
+              v-else
               class="isd-add-page-card"
               :class="{
                 'isd-add-page-card--disabled': isUploadingSources || isCommitting,
@@ -234,33 +292,6 @@
             </v-btn>
 
             <div class="isd-toolbar-divider" />
-
-            <div v-if="canTriggerScan" class="isd-toolbar-scan-group">
-              <v-btn
-                icon
-                size="x-small"
-                variant="text"
-                :title="props.scanner?.name ? `${props.scanner.name}: Seite scannen` : 'Seite scannen'"
-                :loading="props.scannerActive"
-                :disabled="props.scannerActive"
-                @click="emitScan('page')"
-              >
-                <v-icon size="20">mdi-scanner</v-icon>
-              </v-btn>
-              <v-btn
-                v-if="showScanFinish"
-                icon
-                size="x-small"
-                variant="text"
-                title="Scan abschließen"
-                :disabled="props.scannerActive || isEmpty"
-                @click="emitScan('finish')"
-              >
-                <v-icon size="20">mdi-check</v-icon>
-              </v-btn>
-            </div>
-
-            <div v-if="canTriggerScan" class="isd-toolbar-divider" />
 
             <div class="isd-rotate-group">
               <v-btn
@@ -4998,6 +5029,14 @@ onBeforeUnmount(() => {
   transform: scale(1.08);
 }
 
+.isd-add-source-menu .v-list-item-title {
+  font-size: 0.86rem;
+}
+
+.isd-add-source-menu .v-list-item-subtitle {
+  font-size: 0.74rem;
+}
+
 /* ── Scan-in-progress placeholder card ── */
 .isd-scanning-page-card {
   position: relative;
@@ -5110,12 +5149,6 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 4px;
-}
-
-.isd-toolbar-scan-group {
-  display: flex;
-  align-items: center;
-  gap: 2px;
 }
 
 .isd-color-group {
