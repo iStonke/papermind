@@ -59,6 +59,38 @@
           @drop.prevent="onMiniatureDrop"
         >
 
+          <!-- Scan-Leiste: Scan direkt aus der UI auslösen (optional, nur wenn
+               dem Benutzer ein aktiver Scanner zugeordnet ist) -->
+          <div v-if="canTriggerScan" class="isd-scan-bar">
+            <div class="isd-scan-bar__label">
+              <v-icon size="16" class="isd-scan-bar__icon">mdi-scanner</v-icon>
+              <span class="isd-scan-bar__name">{{ props.scanner.name }}</span>
+            </div>
+            <div class="isd-scan-bar__actions">
+              <v-btn
+                size="small"
+                variant="flat"
+                color="primary"
+                prepend-icon="mdi-file-document-plus-outline"
+                :loading="props.scannerActive"
+                :disabled="props.scannerActive"
+                @click="emitScan('page')"
+              >
+                Seite scannen
+              </v-btn>
+              <v-btn
+                v-if="showScanFinish"
+                size="small"
+                variant="tonal"
+                prepend-icon="mdi-check"
+                :disabled="props.scannerActive || isEmpty"
+                @click="emitScan('finish')"
+              >
+                Fertig
+              </v-btn>
+            </div>
+          </div>
+
           <!-- Dropzone (empty state) -->
           <div
             v-if="isEmpty"
@@ -680,10 +712,23 @@ const props = defineProps({
   modelValue: { type: Boolean, default: false },
   apiBaseUrl: { type: String, default: '' },
   autoEmbed: { type: Boolean, default: true },
-  scannerActive: { type: Boolean, default: false }
+  scannerActive: { type: Boolean, default: false },
+  // Auslösbarer Scanner des aktuellen Benutzers (oder null). Siehe ScannerTriggerInfo.
+  scanner: { type: Object, default: null }
 });
 
-const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources', 'minimize']);
+const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources', 'minimize', 'scan']);
+
+// Im Live-Modus erzeugt jede Seite sofort ein eigenes Dokument -> kein "Fertig".
+// Im Batch-Modus sammelt der Scanner und braucht ein explizites Abschließen.
+const canTriggerScan = computed(() => Boolean(props.scanner?.id));
+const showScanFinish = computed(() => canTriggerScan.value && !props.scanner?.live_page_mode);
+function emitScan(command) {
+  if (!canTriggerScan.value) {
+    return;
+  }
+  emit('scan', command);
+}
 
 const { notify } = useNotifications();
 const stagingStore = useImportStagingStore();
@@ -4656,6 +4701,45 @@ onBeforeUnmount(() => {
   50%       { transform: translateY(5px); }
 }
 
+.isd-scan-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border: 1px solid rgba(var(--v-theme-primary), 0.28);
+  border-radius: 10px;
+  background: rgba(var(--v-theme-primary), 0.06);
+}
+
+.isd-scan-bar__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: rgb(var(--v-theme-on-surface));
+}
+
+.isd-scan-bar__icon {
+  color: rgb(var(--v-theme-primary));
+}
+
+.isd-scan-bar__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.isd-scan-bar__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .isd-dropzone {
   width: 100%;
   height: 100%;
@@ -5065,8 +5149,11 @@ onBeforeUnmount(() => {
 
 .isd-ai-status-btn__text {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
   white-space: nowrap;
+  color: rgba(var(--v-theme-on-surface), 0.64);
 }
 
 .isd-zoom-group {

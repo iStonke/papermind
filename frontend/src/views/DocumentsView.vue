@@ -68,6 +68,8 @@
         :api-base-url="apiBaseUrl"
         :auto-embed="true"
         :scanner-active="isImportScannerActive"
+        :scanner="importScanner"
+        @scan="onScanTrigger"
         @minimize="onImportMinimized"
         @committed="onImportCommitted"
         @discarded-sources="onImportSourcesDiscarded"
@@ -1146,6 +1148,7 @@ import { useSearch } from '../composables/useSearch';
 import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
 import { authedUrl, getBaseUrl } from '../api/client.js';
 import { assignImportInboxItems, claimImportInboxItems, discardImportInboxItems, getImportInbox } from '../api/importInbox.js';
+import { triggerScan } from '../api/scanners.js';
 import { applyPaperMindVuetifyColors, resolvePaperMindColorVariant } from '../theme/tokens';
 
 const PdfPreview = defineAsyncComponent(() => import('../components/PdfPreview.vue'));
@@ -1506,6 +1509,7 @@ const importPdfInputRef = ref(null);
 const importInboxItems = ref([]);
 const isImportInboxLoading = ref(false);
 const isImportScannerActive = ref(false);
+const importScanner = ref(null);
 const importInboxSuppressedItemIds = ref(new Set());
 const activeImportInboxItemIds = ref(new Set());
 const activeImportInboxSourceToItemId = ref(new Map());
@@ -2709,6 +2713,23 @@ async function autoOpenImportInboxScans() {
   }
 }
 
+async function onScanTrigger(command) {
+  const scanner = importScanner.value;
+  if (!scanner?.id) {
+    return;
+  }
+  try {
+    await triggerScan(scanner.id, command);
+    // Optimistisch: zeigt sofort die "Scanne…"-Animation; der Worker spiegelt
+    // den echten Status kurz darauf nach.
+    if (command === 'page') {
+      isImportScannerActive.value = true;
+    }
+  } catch (error) {
+    notifyError(error, 'Scan konnte nicht ausgelöst werden.');
+  }
+}
+
 async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) {
   if (isImportInboxLoading.value) {
     return;
@@ -2719,6 +2740,7 @@ async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) 
   try {
     const payload = await getImportInbox({ limit: 50 });
     isImportScannerActive.value = Boolean(payload?.scanning);
+    importScanner.value = payload?.scanner || null;
     const nextItems = normalizeImportInboxItems(payload);
     const nextItemIds = buildImportInboxItemIdSet(nextItems);
     const newItemIds = [...nextItemIds].filter((itemId) => !knownImportInboxItemIds.has(itemId));

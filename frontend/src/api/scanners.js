@@ -7,3 +7,7 @@ export const createScanner = ({ device_key, name, enabled = true, recipient_user
 
 export const updateScanner = (id, payload) =>
   apiPatch(`/api/scanners/${encodeURIComponent(String(id))}`, payload);
+
+// command: 'page' (Seite scannen) | 'finish' (Batch abschließen)
+export const triggerScan = (id, command) =>
+  apiPost(`/api/scanners/${encodeURIComponent(String(id))}/scan`, { command });
