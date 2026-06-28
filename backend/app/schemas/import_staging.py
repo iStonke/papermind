@@ -46,11 +46,27 @@ class ScannerTriggerInfo(BaseModel):
     last_seen_at: datetime | None = None
 
 
+class ScannerScanJobRead(BaseModel):
+    id: str
+    scanner_device_id: str
+    state: str
+    command: str
+    source_file_id: str | None = None
+    import_inbox_item_id: str | None = None
+    page_count: int = Field(default=0, ge=0)
+    error: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
 class ImportInboxListResponse(BaseModel):
     items: list[ImportInboxItemRead] = Field(default_factory=list)
     pending_count: int = Field(default=0, ge=0)
     scanning: bool = False
     scanner: ScannerTriggerInfo | None = None
+    scan_jobs: list[ScannerScanJobRead] = Field(default_factory=list)
 
 
 class ImportInboxClaimRequest(BaseModel):

@@ -1509,14 +1509,29 @@ const activityIndicatorRef = ref(null);
 const importPdfInputRef = ref(null);
 const importInboxItems = ref([]);
 const importInboxPendingCount = ref(null);
+const importScannerJobs = ref([]);
 const isImportInboxLoading = ref(false);
 const isImportScannerActive = ref(false);
 const isImportScannerOptimisticActive = ref(false);
 const importScannerOptimisticPhase = ref('idle');
-const isImportScannerFeedbackActive = computed(() => isImportScannerActive.value || isImportScannerOptimisticActive.value);
+const isImportScannerFeedbackActive = computed(() =>
+  isImportScannerActive.value ||
+  isImportScannerOptimisticActive.value ||
+  importScannerJobs.value.length > 0
+);
 const importScannerFeedbackState = computed(() => {
-  if (isImportScannerActive.value) {
+  const jobs = importScannerJobs.value;
+  const hasScannerRunningJob = jobs.some(
+    (job) => job.state === 'scanning' || (job.state === 'queued' && job.command !== 'finish')
+  );
+  if (isImportScannerActive.value || hasScannerRunningJob) {
     return 'scanning';
+  }
+  const hasScannerPendingJob = jobs.some(
+    (job) => job.state === 'processing' || (job.state === 'queued' && job.command === 'finish')
+  );
+  if (hasScannerPendingJob) {
+    return 'pending';
   }
   if (isImportScannerOptimisticActive.value) {
     return importScannerOptimisticPhase.value === 'pending' ? 'pending' : 'scanning';
@@ -2702,6 +2717,24 @@ function updateImportInboxPendingCountFromMutation(result) {
     setImportInboxPendingCount(serverPendingCount);
   }
 }
+
+function normalizeImportScannerJobs(payload) {
+  const jobs = Array.isArray(payload?.scan_jobs) ? payload.scan_jobs : [];
+  return jobs
+    .map((job) => ({
+      id: String(job?.id || '').trim(),
+      scanner_device_id: String(job?.scanner_device_id || '').trim(),
+      state: String(job?.state || '').trim(),
+      command: String(job?.command || '').trim(),
+      source_file_id: String(job?.source_file_id || '').trim(),
+      import_inbox_item_id: String(job?.import_inbox_item_id || '').trim(),
+      page_count: Number(job?.page_count || 0),
+      created_at: String(job?.created_at || ''),
+      updated_at: String(job?.updated_at || '')
+    }))
+    .filter((job) => job.id && ['queued', 'scanning', 'processing'].includes(job.state));
+}
+
 const pendingImportInboxBadgeLabel = computed(() => {
   const count = pendingImportInboxCount.value;
   return count > 99 ? '99+' : String(count);
@@ -2824,6 +2857,7 @@ async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) 
       importScannerOptimisticPhase.value = 'pending';
     }
     importScanner.value = payload?.scanner || null;
+    importScannerJobs.value = normalizeImportScannerJobs(payload);
     const nextItems = normalizeImportInboxItems(payload);
     const nextItemIds = buildImportInboxItemIdSet(nextItems);
     const newItemIds = [...nextItemIds].filter((itemId) => !knownImportInboxItemIds.has(itemId));
@@ -2853,11 +2887,13 @@ async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) 
     }
 
     shouldAutoOpen = allowAutoOpen && shouldAutoOpenImportInbox(nextItems, newItemIds);
-    // Dialog schon voll offen (nicht minimiert) und neue Seiten da: nicht erneut
-    // "öffnen", sondern die bereits laufende Scan-Session live nachfüttern.
+    // Dialog schon voll offen (nicht minimiert): alle noch sichtbaren Inbox-
+    // Items nachfüttern. Nicht nur newItemIds: Wenn ein Refresh mit
+    // allowAutoOpen=false das Item zuerst gesehen hat, ist es beim nächsten
+    // Poll nicht mehr "neu", muss aber trotzdem in den Dialog.
     // addRemoteSources() ist idempotent pro source_file_id, daher unbedenklich
     // mit der vollständigen Liste erneut aufrufbar.
-    shouldLivePush = !shouldAutoOpen && allowAutoOpen && newItemIds.length > 0 && isUploadDialogOpen.value;
+    shouldLivePush = !shouldAutoOpen && allowAutoOpen && nextItems.length > 0 && isUploadDialogOpen.value;
   } catch (error) {
     if (!silent) {
       notify({ type: 'error', message: mapApiError(error, 'Neue Scans konnten nicht geladen werden.') });
@@ -2870,10 +2906,14 @@ async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) 
     const opened = await autoOpenImportInboxScans();
     if (opened) {
       clearImportScannerOptimisticActive();
+    } else if (!isImportScannerActive.value) {
+      clearImportScannerOptimisticActive();
     }
   } else if (shouldLivePush) {
     const opened = await openImportInboxScans({ refresh: false });
     if (opened) {
+      clearImportScannerOptimisticActive();
+    } else if (!isImportScannerActive.value) {
       clearImportScannerOptimisticActive();
     }
   }

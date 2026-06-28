@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import UploadFile
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import BadRequestError
 from app.models.import_inbox import ImportInboxItem
-from app.models.scanner import ScannerDevice, ScannerDeviceRecipient
+from app.models.scanner import ScannerDevice, ScannerDeviceRecipient, ScannerScanJob
 from app.schemas.import_staging import (
     ImportInboxAssignResponse,
     ImportInboxClaimResponse,
@@ -17,10 +17,13 @@ from app.schemas.import_staging import (
     ImportInboxItemRead,
     ImportInboxListResponse,
     ImportInboxUploadResponse,
+    ScannerScanJobRead,
     ScannerTriggerInfo,
 )
 from app.services.import_staging import ImportStagingService
 from app.services.scanners import is_scanning_active
+
+SCAN_JOB_VISIBLE_STALE_SECONDS = 300
 
 
 def _normalize_item_ids(item_ids: list[uuid.UUID]) -> list[uuid.UUID]:
@@ -132,6 +135,40 @@ class ImportInboxService:
             created_at=item.created_at,
         )
 
+    def _read_scan_job(self, job: ScannerScanJob) -> ScannerScanJobRead:
+        return ScannerScanJobRead(
+            id=str(job.id),
+            scanner_device_id=str(job.scanner_device_id),
+            state=job.state,
+            command=job.command,
+            source_file_id=str(job.source_file_id) if job.source_file_id else None,
+            import_inbox_item_id=str(job.import_inbox_item_id) if job.import_inbox_item_id else None,
+            page_count=job.page_count,
+            error=job.error,
+            created_at=job.created_at,
+            updated_at=job.updated_at,
+            started_at=job.started_at,
+            finished_at=job.finished_at,
+        )
+
+    def _active_scan_jobs(self, *, limit: int = 20) -> list[ScannerScanJobRead]:
+        if self.owner_id is None:
+            return []
+        rows = list(
+            self.db.scalars(
+                select(ScannerScanJob)
+                .join(ScannerDevice, ScannerDevice.id == ScannerScanJob.scanner_device_id)
+                .join(ScannerDeviceRecipient, ScannerDeviceRecipient.scanner_device_id == ScannerDevice.id)
+                .where(ScannerDeviceRecipient.user_id == self.owner_id)
+                .where(ScannerDevice.enabled.is_(True))
+                .where(ScannerScanJob.state.in_(("queued", "scanning", "processing")))
+                .where(ScannerScanJob.updated_at >= datetime.now(timezone.utc) - timedelta(seconds=SCAN_JOB_VISIBLE_STALE_SECONDS))
+                .order_by(ScannerScanJob.created_at.asc())
+                .limit(max(1, min(int(limit or 20), 50)))
+            ).all()
+        )
+        return [self._read_scan_job(job) for job in rows]
+
     def upload(
         self,
         files: list[UploadFile],
@@ -209,6 +246,7 @@ class ImportInboxService:
             pending_count=self._pending_count(),
             scanning=self._scanning_active(),
             scanner=self._triggerable_scanner(),
+            scan_jobs=self._active_scan_jobs(),
         )
 
     def assign_to_current_user(self, item_ids: list[uuid.UUID]) -> ImportInboxAssignResponse:

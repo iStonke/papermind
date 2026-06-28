@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.errors import BadRequestError, ConflictError, NotFoundError
-from app.models.scanner import ScannerDevice, ScannerDeviceRecipient, ScannerScanCommand
+from app.models.scanner import ScannerDevice, ScannerDeviceRecipient, ScannerScanCommand, ScannerScanJob
 from app.models.user import User
 from app.schemas.auth import UserRead
 from app.schemas.scanners import (
@@ -25,6 +25,7 @@ SCAN_STATUS_STALE_SECONDS = 30
 # Poller war aus), gelten als veraltet und werden verworfen statt verspätet zu
 # feuern - ein Scan soll nur kurz nach dem Klick passieren, nie Minuten später.
 SCAN_COMMAND_EXPIRY_SECONDS = 90
+SCAN_JOB_ACTIVE_STATES = ("queued", "scanning", "processing")
 
 
 def normalize_scanner_device_key(raw: str | None) -> str:
@@ -92,9 +93,18 @@ class ScannerService:
 
     def set_scanning_state(self, device_key: str, scanning_since: datetime | None) -> None:
         scanner = self.get_by_key(device_key)
-        if scanner is None or scanner.scanning_since == scanning_since:
+        if scanner is None:
             return
+        if scanner.scanning_since == scanning_since:
+            return
+        previous_active = is_scanning_active(scanner)
         scanner.scanning_since = scanning_since
+        next_active = scanning_since is not None
+        now = datetime.now(timezone.utc)
+        if next_active and not previous_active:
+            self.mark_scan_started(scanner.id, started_at=scanning_since or now)
+        elif previous_active and not next_active:
+            self.mark_scan_processing(scanner.id, finished_at=now)
         self.db.commit()
 
     def get_or_create_for_worker(self, device_key: str, *, name: str | None = None) -> ScannerDevice:
@@ -137,10 +147,81 @@ class ScannerService:
             command=command,
             requested_by_user_id=requested_by,
         )
+        job = ScannerScanJob(
+            scanner_device_id=scanner.id,
+            command=command,
+            requested_by_user_id=requested_by,
+            state="queued",
+        )
         self.db.add(entry)
+        self.db.add(job)
         self.db.commit()
         self.db.refresh(entry)
         return ScanCommandResponse(id=entry.id, command=command, created_at=entry.created_at)
+
+    def _latest_active_job(self, scanner_id: uuid.UUID, states: tuple[str, ...] = SCAN_JOB_ACTIVE_STATES) -> ScannerScanJob | None:
+        return self.db.scalars(
+            select(ScannerScanJob)
+            .where(ScannerScanJob.scanner_device_id == scanner_id)
+            .where(ScannerScanJob.import_inbox_item_id.is_(None))
+            .where(ScannerScanJob.state.in_(states))
+            .order_by(ScannerScanJob.created_at.asc())
+            .with_for_update(skip_locked=True)
+        ).first()
+
+    def mark_scan_started(self, scanner_id: uuid.UUID, *, started_at: datetime | None = None) -> ScannerScanJob:
+        now = datetime.now(timezone.utc)
+        job = self._latest_active_job(scanner_id, ("queued", "processing"))
+        if job is None:
+            job = ScannerScanJob(
+                scanner_device_id=scanner_id,
+                command="hardware",
+                state="scanning",
+                started_at=started_at or now,
+            )
+            self.db.add(job)
+        else:
+            job.state = "scanning"
+            job.started_at = job.started_at or started_at or now
+            job.error = None
+        job.updated_at = now
+        return job
+
+    def mark_scan_processing(self, scanner_id: uuid.UUID, *, finished_at: datetime | None = None) -> ScannerScanJob | None:
+        now = datetime.now(timezone.utc)
+        job = self._latest_active_job(scanner_id, ("scanning", "queued"))
+        if job is None:
+            return None
+        job.state = "processing"
+        job.finished_at = finished_at or now
+        job.updated_at = now
+        return job
+
+    def mark_scan_ready(
+        self,
+        scanner_id: uuid.UUID,
+        *,
+        import_inbox_item_id: uuid.UUID,
+        source_file_id: uuid.UUID,
+        page_count: int,
+    ) -> ScannerScanJob:
+        now = datetime.now(timezone.utc)
+        job = self._latest_active_job(scanner_id, ("processing", "scanning", "queued"))
+        if job is None:
+            job = ScannerScanJob(
+                scanner_device_id=scanner_id,
+                command="hardware",
+                created_at=now,
+            )
+            self.db.add(job)
+        job.state = "ready"
+        job.import_inbox_item_id = import_inbox_item_id
+        job.source_file_id = source_file_id
+        job.page_count = max(0, int(page_count or 0))
+        job.finished_at = job.finished_at or now
+        job.updated_at = now
+        job.error = None
+        return job
 
     def claim_pending_scan_commands(self, scanner_id: uuid.UUID) -> list[ScanCommand]:
         """Holt offene Befehle eines Scanners FIFO und markiert sie als konsumiert.

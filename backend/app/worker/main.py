@@ -462,7 +462,12 @@ def _sync_scanner_scan_status() -> None:
         logger.warning("scanner status read failed path=%s", status_path)
         return
     with SessionLocal() as db:
-        ScannerService(db).set_scanning_state(IMPORT_INBOX_SCANNER_DEVICE_KEY, started_at)
+        service = ScannerService(db)
+        service.get_or_create_for_worker(
+            IMPORT_INBOX_SCANNER_DEVICE_KEY,
+            name=IMPORT_INBOX_SCANNER_DEVICE_NAME,
+        )
+        service.set_scanning_state(IMPORT_INBOX_SCANNER_DEVICE_KEY, started_at)
 
 
 def _drain_scanner_scan_commands() -> None:
@@ -549,6 +554,15 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str) -> N
                 source_type=source_type,
                 scanner_device_id=scanner_device_id,
             )
+            if scanner_device_id is not None and result.items:
+                first_item = result.items[0]
+                ScannerService(db).mark_scan_ready(
+                    scanner_device_id,
+                    import_inbox_item_id=uuid.UUID(first_item.id),
+                    source_file_id=uuid.UUID(first_item.source_file_id),
+                    page_count=first_item.page_count,
+                )
+                db.commit()
         created_count = len(result.items)
         _move_drop_file(claimed_path, processed_dir)
         logger.info(
