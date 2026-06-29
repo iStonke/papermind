@@ -512,7 +512,7 @@
           <div class="pm-settings-content">
             <SettingsInfoCard
               icon="mdi-tray-arrow-up"
-              title="Importieren & Scanner"
+              title="Importieren"
               subtitle="Scanner, Scan-Eingang und automatische Schritte nach dem Import."
             />
 
@@ -2222,7 +2222,7 @@ const settingsCategories = [
   { value: 'appearance', label: 'Darstellung', icon: 'mdi-palette-outline', group: 'surface' },
   { value: 'controls', label: 'Bedienung', icon: 'mdi-keyboard-outline', group: 'surface' },
   { value: 'sidebar', label: 'Seitenleiste', icon: 'mdi-page-layout-sidebar-left', group: 'surface' },
-  { value: 'import', label: 'Importieren & Scanner', icon: 'mdi-tray-arrow-up', group: 'documents', adminOnly: true },
+  { value: 'import', label: 'Importieren', icon: 'mdi-tray-arrow-up', group: 'documents', adminOnly: true },
   { value: 'documents', label: 'Bibliothek', icon: 'mdi-archive-outline', group: 'documents', adminOnly: true },
   { value: 'categories', label: 'Dokumenttypen', icon: 'mdi-file-document-multiple-outline', group: 'documents' },
   { value: 'correspondents', label: 'Korrespondenten', icon: 'mdi-account-outline', group: 'documents' },
