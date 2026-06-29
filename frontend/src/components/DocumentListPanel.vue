@@ -575,15 +575,44 @@ function thumbnailStateKey(document) {
   ].join(':');
 }
 
+// Gebaute Thumbnail-URLs je Dokument zwischenspeichern. Die URL hängt bewusst
+// NUR an Inhalts-Signatur (updated_at) + Fehler-Retry-Version, NICHT an der
+// rotierenden fileTokenVersion. Sonst bekämen bei jeder Token-Erneuerung (~4,5
+// min) alle sichtbaren Thumbnails eine neue URL und luden gleichzeitig neu
+// ("Blitz durch die Liste"). Ein bereits geladenes Bild bleibt im Browser-Cache
+// gültig; ein abgelaufenes Token trifft nur noch NICHT geladene Bilder, deren
+// Fehler-Retry dann ein frisches Token einbaut.
+const thumbnailUrlCache = new Map();
+
 function thumbnailUrl(document) {
   const documentId = document?.id;
-  const versionParts = [
-    authStore.fileTokenVersion || 0,
+  if (!documentId) return '';
+  const sig = [
     document?.updated_at || '',
     thumbnailVersionByDocumentId.value[documentId] || 0,
-  ];
-  const url = authedUrl(`${getBaseUrl()}/api/documents/${documentId}/thumbnail`);
-  return appendUrlParam(url, 'thumb_v', versionParts.join(':'));
+  ].join(':');
+  const cached = thumbnailUrlCache.get(documentId);
+  if (cached && cached.sig === sig) {
+    return cached.url;
+  }
+  const base = authedUrl(`${getBaseUrl()}/api/documents/${documentId}/thumbnail`);
+  const url = appendUrlParam(base, 'thumb_v', sig);
+  thumbnailUrlCache.set(documentId, { sig, url });
+  return url;
+}
+
+// Nur Thumbnails, die aktuell im Fehlerzustand sind, mit frischem Token erneut
+// versuchen (z. B. nachdem das Token nach dem Login angekommen ist). Bereits
+// geladene Bilder bleiben unangetastet → kein periodisches Neuladen.
+function retryErroredThumbnails() {
+  const erroredIds = Object.keys(thumbnailErrorMap.value);
+  if (erroredIds.length === 0) return;
+  const nextVersions = { ...thumbnailVersionByDocumentId.value };
+  for (const documentId of erroredIds) {
+    nextVersions[documentId] = Number(nextVersions[documentId] || 0) + 1;
+  }
+  thumbnailErrorMap.value = {};
+  thumbnailVersionByDocumentId.value = nextVersions;
 }
 
 function hasThumbnailError(documentId) {
@@ -599,17 +628,6 @@ function onThumbnailLoad(documentId) {
   const next = { ...thumbnailErrorMap.value };
   delete next[documentId];
   thumbnailErrorMap.value = next;
-}
-
-function retryVisibleThumbnails() {
-  const nextErrors = {};
-  const nextVersions = { ...thumbnailVersionByDocumentId.value };
-  for (const document of documents.value) {
-    if (!document?.id) continue;
-    nextVersions[document.id] = (Number(nextVersions[document.id] || 0) + 1);
-  }
-  thumbnailErrorMap.value = nextErrors;
-  thumbnailVersionByDocumentId.value = nextVersions;
 }
 
 watch(documentThumbnailSignature, () => {
@@ -639,7 +657,7 @@ watch(documentThumbnailSignature, () => {
 watch(
   () => authStore.fileTokenVersion,
   () => {
-    retryVisibleThumbnails();
+    retryErroredThumbnails();
   }
 );
 

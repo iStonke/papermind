@@ -795,7 +795,7 @@
                 <PdfPreview
                   :key="previewRenderKey"
                   class="preview-frame"
-                  :src="documentFileUrl(selectedDocumentId)"
+                  :src="previewSrc"
                   :target-page="previewTargetPage"
                   :highlight-text="previewHighlightText"
                   @failed="onPreviewFrameError(selectedDocumentId)"
@@ -2409,6 +2409,30 @@ const previewRenderKey = computed(() => {
   }
   return `${selectedDocumentId.value}:${previewReloadNonce.value}`;
 });
+
+// Vorschau-Rolle (original vs. ocr) als eigener, stabiler String. Ändert sich
+// nur, wenn OCR fertig wird – nicht bei jedem Detail-Refresh des OCR-Pollings.
+const previewRole = computed(() => {
+  const id = selectedDocumentId.value;
+  if (id && selectedDocumentDetail.value?.id === id && hasOcrFile(selectedDocumentDetail.value)) {
+    return 'ocr';
+  }
+  return 'original';
+});
+
+// Stabile Vorschau-URL. Hängt bewusst NUR an Dokument-ID + Rolle, NICHT am
+// rotierenden Datei-Token (authedUrl liest es nicht-reaktiv) und nicht an
+// sonstigen Re-Renders. Sonst wechselte :src bei jeder Token-Erneuerung (~4,5
+// min) oder bei jedem OCR-Poll → die Vorschau lud sichtbar neu ("Blitz"). Der
+// einmal geladene PDF-Stream bleibt gültig; ein abgelaufenes Token beim
+// Erstaufruf fängt der Fehler-Retry (previewReloadNonce → Key-Wechsel) ab.
+const previewSrc = computed(() => {
+  const id = selectedDocumentId.value;
+  if (!id) {
+    return '';
+  }
+  return authedUrl(`${apiBaseUrl}/api/documents/${id}/file?role=${previewRole.value}`);
+});
 const hasActiveListFilter = computed(() => {
   return Boolean(
     activeSavedSearchId.value ||
@@ -3731,10 +3755,6 @@ function resolvePreviewRole(documentId) {
   return 'original';
 }
 
-function documentFileUrl(documentId) {
-  const selectedRole = resolvePreviewRole(documentId);
-  return authedUrl(`${apiBaseUrl}/api/documents/${documentId}/file?role=${selectedRole}`);
-}
 
 function setDocumentUnreadState(documentId, unreadValue) {
   const listDocument = documents.value.find((item) => item.id === documentId);
