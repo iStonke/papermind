@@ -12,7 +12,7 @@
       <header :class="['pm-dialog__header', headerClass]">
         <div class="pm-dialog__title-wrap">
           <slot name="icon">
-            <v-icon v-if="icon" size="20" class="pm-dialog__title-icon">{{ icon }}</v-icon>
+            <v-icon v-if="resolvedIcon" size="22" class="pm-dialog__title-icon">{{ resolvedIcon }}</v-icon>
           </slot>
           <div class="pm-dialog__title-block">
             <h2 class="pm-dialog__title">{{ title }}</h2>
@@ -110,7 +110,7 @@ const props = defineProps({
   secondaryText: { type: String, default: 'Abbrechen' },
   showSecondary: { type: Boolean, default: true },
   icon: { type: String, default: '' },
-  maxWidth: { type: [String, Number], default: 720 },
+  maxWidth: { type: [String, Number], default: 520 },
   width: { type: [String, Number], default: undefined },
   persistent: { type: Boolean, default: false },
   loading: { type: Boolean, default: false },
@@ -144,6 +144,16 @@ const resolvedPrimaryText = computed(() => {
     return 'Löschen';
   }
   return 'Bestätigen';
+});
+
+const resolvedIcon = computed(() => {
+  if (props.icon) {
+    return props.icon;
+  }
+  if (props.variant === 'destructive') {
+    return 'mdi-trash-can-outline';
+  }
+  return '';
 });
 
 const primaryButtonVariant = computed(() => {
@@ -286,22 +296,24 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .pm-dialog {
-  border-radius: 24px;
+  border-radius: 20px;
   /* Angehobene Ebene: reines Weiß (Light) bzw. Card-Fläche (Dark), damit der
      Dialog sich klar vom getönten App-Hintergrund abhebt. surface-2 wird – anders
      als die --pm-* Variablen – auch im teleportierten Overlay korrekt aufgelöst. */
   background: rgb(var(--v-theme-surface-2, var(--v-theme-surface)));
   border: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
   outline: none;
-  box-shadow: var(--pm-shadow, 0 10px 30px rgba(15, 23, 42, 0.12));
+  box-shadow:
+    0 22px 60px rgba(0, 0, 0, 0.20),
+    0 8px 24px rgba(15, 23, 42, 0.12);
 }
 
 .pm-dialog__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 20px 24px;
+  gap: 16px;
+  padding: 22px 24px 20px;
   border-bottom: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
 }
 
@@ -309,25 +321,31 @@ onBeforeUnmount(() => {
   min-width: 0;
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 12px;
 }
 
 .pm-dialog__title-icon {
-  opacity: 0.9;
-  margin-top: 2px;
+  opacity: 0.86;
+  margin-top: 1px;
+  color: rgba(var(--v-theme-on-surface), 0.76);
+}
+
+.pm-dialog--destructive .pm-dialog__title-icon {
+  color: rgb(var(--v-theme-error));
+  opacity: 0.92;
 }
 
 .pm-dialog__title-block {
   min-width: 0;
   display: grid;
-  gap: 2px;
+  gap: 4px;
 }
 
 .pm-dialog__title {
   margin: 0;
-  font-size: 1.1rem;
-  font-weight: 650;
-  line-height: 1.3;
+  font-size: 1.22rem;
+  font-weight: 700;
+  line-height: 1.22;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -335,8 +353,8 @@ onBeforeUnmount(() => {
 
 .pm-dialog__subtitle {
   margin: 0;
-  font-size: 0.82rem;
-  line-height: 1.35;
+  font-size: 0.92rem;
+  line-height: 1.38;
   color: rgba(var(--v-theme-on-surface), 0.62);
 }
 
@@ -349,6 +367,11 @@ onBeforeUnmount(() => {
 
 .pm-dialog__close-btn {
   flex: 0 0 auto;
+  color: rgba(var(--v-theme-on-surface), 0.68);
+}
+
+.pm-dialog__close-btn:hover {
+  color: rgba(var(--v-theme-on-surface), 0.92);
 }
 
 .pm-dialog__content-wrap {
@@ -357,19 +380,19 @@ onBeforeUnmount(() => {
 }
 
 .pm-dialog__content {
-  padding: 20px 24px;
+  padding: 22px 24px;
 }
 
 .pm-dialog__description {
-  margin: 0 0 12px;
-  font-size: 0.92rem;
+  margin: 0 0 14px;
+  font-size: 0.98rem;
   line-height: 1.45;
   color: rgba(var(--v-theme-on-surface), 0.62);
 }
 
 .pm-dialog__description--destructive {
-  color: rgba(var(--v-theme-error), 0.86);
-  opacity: 0.92;
+  color: rgba(var(--v-theme-on-surface), 0.72);
+  opacity: 1;
 }
 
 .pm-dialog__danger-confirm {
@@ -387,15 +410,25 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
-  padding: 16px 24px;
+  gap: 12px;
+  padding: 18px 24px;
   border-top: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
 }
 
 .pm-dialog__btn {
   text-transform: none;
   letter-spacing: 0;
-  font-weight: 500;
+  font-weight: 650;
+  min-width: 112px;
+}
+
+.pm-dialog--destructive .pm-dialog__btn:last-child {
+  background: color-mix(in srgb, rgb(var(--v-theme-error)) 16%, transparent);
+  color: rgb(var(--v-theme-error));
+}
+
+.pm-dialog--destructive .pm-dialog__btn:last-child:hover {
+  background: color-mix(in srgb, rgb(var(--v-theme-error)) 22%, transparent);
 }
 
 @media (max-width: 900px) {
@@ -404,6 +437,25 @@ onBeforeUnmount(() => {
   .pm-dialog__footer {
     padding-left: 18px;
     padding-right: 18px;
+  }
+}
+
+@media (max-width: 520px) {
+  .pm-dialog {
+    border-radius: 18px;
+  }
+
+  .pm-dialog__title {
+    white-space: normal;
+  }
+
+  .pm-dialog__footer {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .pm-dialog__btn {
+    width: 100%;
   }
 }
 </style>

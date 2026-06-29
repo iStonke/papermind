@@ -1770,58 +1770,40 @@
               </v-card>
             </v-dialog>
 
-            <!-- Restore bestätigen (Wort eintippen) -->
-            <v-dialog v-model="restoreConfirmOpen" max-width="520" persistent>
-              <v-card>
-                <v-card-title class="text-error d-flex align-center">
-                  <v-icon class="mr-2">mdi-alert</v-icon> Wiederherstellen bestätigen
-                </v-card-title>
-                <v-card-text>
-                  <p class="mb-3">
-                    Dies <strong>überschreibt die gesamte Datenbank und alle PDFs</strong> mit dem Stand vom
-                    <strong>{{ restoreTarget ? backupFormatArchiveDate(restoreTarget) : '' }}</strong>.
-                    Der aktuelle Stand geht verloren. Die App startet danach automatisch neu.
-                  </p>
-                  <p class="mb-2 text-medium-emphasis">Zum Bestätigen <code>WIEDERHERSTELLEN</code> eingeben:</p>
-                  <v-text-field
-                    v-model="restoreConfirmText"
-                    density="compact"
-                    variant="outlined"
-                    hide-details
-                    autofocus
-                    placeholder="WIEDERHERSTELLEN"
-                  />
-                </v-card-text>
-                <v-card-actions>
-                  <v-spacer />
-                  <v-btn variant="text" @click="restoreConfirmOpen = false">Abbrechen</v-btn>
-                  <v-btn
-                    color="error"
-                    :disabled="restoreConfirmText.trim() !== 'WIEDERHERSTELLEN'"
-                    :loading="restoreStarting"
-                    @click="confirmRestore"
-                  >
-                    Wiederherstellen
-                  </v-btn>
-                </v-card-actions>
-              </v-card>
-            </v-dialog>
+            <DestructiveDialog
+              v-model="restoreConfirmOpen"
+              max-width="540"
+              persistent
+              title="Wiederherstellen bestätigen"
+              :header-subtitle="restoreTarget ? backupFormatArchiveDate(restoreTarget) : ''"
+              primary-text="Wiederherstellen"
+              secondary-text="Zurück"
+              icon="mdi-backup-restore"
+              danger-require-confirm-text="WIEDERHERSTELLEN"
+              :loading="restoreStarting"
+              @primary="confirmRestore"
+            >
+              <p class="backup-confirm-copy">
+                Dies überschreibt die gesamte Datenbank und alle PDFs. Der aktuelle Stand geht verloren.
+                Die App startet danach automatisch neu.
+              </p>
+            </DestructiveDialog>
 
-            <!-- Backup löschen bestätigen -->
-            <v-dialog v-model="deleteArchiveOpen" max-width="460">
-              <v-card>
-                <v-card-title>Backup löschen?</v-card-title>
-                <v-card-text>
-                  Das Backup vom <strong>{{ deleteTarget ? backupFormatArchiveDate(deleteTarget) : '' }}</strong>
-                  wird vom NAS entfernt. Das lässt sich nicht rückgängig machen.
-                </v-card-text>
-                <v-card-actions>
-                  <v-spacer />
-                  <v-btn variant="text" @click="deleteArchiveOpen = false">Abbrechen</v-btn>
-                  <v-btn color="error" :loading="deleteArchiveBusy" @click="confirmDeleteArchive">Löschen</v-btn>
-                </v-card-actions>
-              </v-card>
-            </v-dialog>
+            <DestructiveDialog
+              v-model="deleteArchiveOpen"
+              max-width="460"
+              title="Backup löschen?"
+              :header-subtitle="deleteTarget ? backupFormatArchiveDate(deleteTarget) : ''"
+              primary-text="Löschen"
+              secondary-text="Zurück"
+              icon="mdi-delete-forever-outline"
+              :loading="deleteArchiveBusy"
+              @primary="confirmDeleteArchive"
+            >
+              <p class="backup-confirm-copy">
+                Das Backup wird vom NAS entfernt. Das lässt sich nicht rückgängig machen.
+              </p>
+            </DestructiveDialog>
           </div>
         </section>
 
@@ -1899,6 +1881,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useTheme } from 'vuetify';
 import BaseDialog from './BaseDialog.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
+import DestructiveDialog from './DestructiveDialog.vue';
 import ServiceStatusPanel from './ServiceStatusPanel.vue';
 import SettingsInfoCard from './SettingsInfoCard.vue';
 import SystemStatusPanel from './SystemStatusPanel.vue';
@@ -2277,7 +2260,6 @@ const backupArchivesLoading = ref(false);
 const backupArchivesError = ref('');
 const restoreConfirmOpen = ref(false);
 const restoreTarget = ref(null);
-const restoreConfirmText = ref('');
 const restoreStarting = ref(false);
 const restoreInProgress = ref(false);
 let restorePollTimer = 0;
@@ -2528,7 +2510,6 @@ function openBackupManager() {
 
 function askRestore(a) {
   restoreTarget.value = a;
-  restoreConfirmText.value = '';
   restoreConfirmOpen.value = true;
 }
 
@@ -5225,5 +5206,11 @@ async function removeAlias(alias) {
   display: flex;
   gap: 8px;
   align-items: center;
+}
+.backup-confirm-copy {
+  margin: 0;
+  color: rgba(var(--v-theme-on-surface), 0.74);
+  font-size: 0.98rem;
+  line-height: 1.48;
 }
 </style>

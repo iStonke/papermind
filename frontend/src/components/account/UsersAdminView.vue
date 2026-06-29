@@ -85,93 +85,72 @@
       </v-table>
     </section>
 
-    <!-- Anlegen -->
-    <v-dialog v-model="createOpen" max-width="520">
-      <v-card rounded="lg">
-        <v-card-item>
-          <template #prepend>
-            <v-icon>mdi-account-plus</v-icon>
-          </template>
-          <v-card-title>Benutzer anlegen</v-card-title>
-          <v-card-subtitle style="white-space: normal;">
-            Zugangsdaten und Rolle für das neue Konto festlegen.
-          </v-card-subtitle>
-        </v-card-item>
-        <v-divider />
-        <v-card-text class="d-flex flex-column ga-3">
-          <v-text-field v-model="newUser.username" label="Benutzername" variant="outlined" density="comfortable" hide-details="auto" />
-          <v-text-field v-model="newUser.display_name" label="Anzeigename (optional)" variant="outlined" density="comfortable" hide-details="auto" />
-          <v-text-field v-model="newUser.email" label="E-Mail (optional)" type="email" variant="outlined" density="comfortable" hide-details="auto" />
-          <v-text-field v-model="newUser.password" label="Passwort (min. 8)" type="password" variant="outlined" density="comfortable" hide-details="auto" />
-          <v-checkbox v-model="newUser.is_admin" label="Administrator" density="compact" hide-details />
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="createOpen = false">Abbrechen</v-btn>
-          <v-btn
-            color="primary"
-            variant="flat"
-            :loading="creating"
-            :disabled="!newUser.username || newUser.password.length < 8"
-            @click="onCreate"
-          >
-            Anlegen
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <BaseDialog
+      v-model="createOpen"
+      max-width="520"
+      title="Benutzer anlegen"
+      header-subtitle="Zugangsdaten und Rolle für das neue Konto festlegen."
+      primary-text="Anlegen"
+      secondary-text="Zurück"
+      icon="mdi-account-plus"
+      :loading="creating"
+      :primary-disabled="!newUser.username || newUser.password.length < 8"
+      @primary="onCreate"
+    >
+      <div class="users-dialog-fields">
+        <v-text-field v-model="newUser.username" label="Benutzername" variant="outlined" density="comfortable" hide-details="auto" />
+        <v-text-field v-model="newUser.display_name" label="Anzeigename (optional)" variant="outlined" density="comfortable" hide-details="auto" />
+        <v-text-field v-model="newUser.email" label="E-Mail (optional)" type="email" variant="outlined" density="comfortable" hide-details="auto" />
+        <v-text-field v-model="newUser.password" label="Passwort (min. 8)" type="password" variant="outlined" density="comfortable" hide-details="auto" />
+        <v-checkbox v-model="newUser.is_admin" label="Administrator" density="compact" hide-details />
+      </div>
+    </BaseDialog>
 
-    <!-- Passwort zurücksetzen -->
-    <v-dialog v-model="resetOpen" max-width="460">
-      <v-card rounded="lg">
-        <v-card-title>Passwort zurücksetzen</v-card-title>
-        <v-card-text>
-          <p class="mb-3 text-medium-emphasis">
-            Neues Passwort für <strong>{{ resetTarget?.username }}</strong> (min. 8 Zeichen):
-          </p>
-          <v-text-field
-            v-model="resetPassword"
-            label="Neues Passwort"
-            type="password"
-            variant="outlined"
-            density="comfortable"
-            autofocus
-            hide-details="auto"
-          />
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="resetOpen = false">Abbrechen</v-btn>
-          <v-btn color="primary" variant="flat" :disabled="resetPassword.length < 8" :loading="resetting" @click="confirmReset">
-            Zurücksetzen
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <BaseDialog
+      v-model="resetOpen"
+      max-width="460"
+      title="Passwort zurücksetzen"
+      :header-subtitle="resetTarget?.username || ''"
+      primary-text="Zurücksetzen"
+      secondary-text="Zurück"
+      icon="mdi-lock-reset"
+      :loading="resetting"
+      :primary-disabled="resetPassword.length < 8"
+      @primary="confirmReset"
+    >
+      <v-text-field
+        v-model="resetPassword"
+        label="Neues Passwort"
+        type="password"
+        variant="outlined"
+        density="comfortable"
+        autofocus
+        hide-details="auto"
+      />
+    </BaseDialog>
 
-    <!-- Löschen -->
-    <v-dialog v-model="deleteOpen" max-width="440">
-      <v-card rounded="lg">
-        <v-card-title class="text-error d-flex align-center">
-          <v-icon class="mr-2">mdi-alert</v-icon> Benutzer löschen?
-        </v-card-title>
-        <v-card-text>
-          Benutzer <strong>{{ deleteTarget?.username }}</strong> wird endgültig gelöscht.
-          Das lässt sich nicht rückgängig machen.
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="deleteOpen = false">Abbrechen</v-btn>
-          <v-btn color="error" variant="flat" :loading="deleting" @click="confirmDelete">Löschen</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <DestructiveDialog
+      v-model="deleteOpen"
+      max-width="460"
+      title="Benutzer löschen?"
+      header-subtitle="Das Konto wird endgültig entfernt."
+      primary-text="Benutzer löschen"
+      secondary-text="Zurück"
+      :loading="deleting"
+      @primary="confirmDelete"
+    >
+      <p class="users-dialog-copy">
+        Benutzer <strong>{{ deleteTarget?.username }}</strong> wird gelöscht. Das lässt sich nicht rückgängig machen.
+      </p>
+    </DestructiveDialog>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
 
+import BaseDialog from '../BaseDialog.vue';
+import DestructiveDialog from '../DestructiveDialog.vue';
 import UserAvatar from '../UserAvatar.vue';
 import { createUser, deleteUser, listUsers, updateUser } from '../../api/users.js';
 import { useAuthStore } from '../../stores/auth.js';
@@ -345,5 +324,15 @@ async function confirmDelete() {
   text-align: center;
   padding: 28px 0;
   opacity: 0.6;
+}
+.users-dialog-fields {
+  display: grid;
+  gap: 12px;
+}
+.users-dialog-copy {
+  margin: 0;
+  color: rgba(var(--v-theme-on-surface), 0.74);
+  font-size: 0.98rem;
+  line-height: 1.48;
 }
 </style>

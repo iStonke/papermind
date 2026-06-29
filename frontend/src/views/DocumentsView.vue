@@ -115,11 +115,33 @@
 
       <DeleteDocumentDialog
         v-model="isDeleteDocumentDialogOpen"
+        :title="deleteDocumentDialogTitle"
+        :header-subtitle="deleteDocumentDialogSubtitle"
         :document-name="formatDocumentTitle(deleteDocumentTarget)"
-        @close="closeDeleteDocumentDialog"
         :loading="isDeletingDocument"
+        :primary-text="deleteDocumentDialogPrimaryText"
+        secondary-text="Zurück"
+        @close="closeDeleteDocumentDialog"
         @confirm="confirmDeleteDocumentFromDialog"
       />
+
+      <DestructiveDialog
+        v-model="destructiveConfirm.open"
+        :title="destructiveConfirm.title"
+        :header-subtitle="destructiveConfirm.headerSubtitle"
+        :description="destructiveConfirm.description"
+        :primary-text="destructiveConfirm.primaryText"
+        :secondary-text="destructiveConfirm.secondaryText"
+        :icon="destructiveConfirm.icon"
+        :max-width="destructiveConfirm.maxWidth"
+        :loading="destructiveConfirm.loading"
+        @primary="confirmDestructiveAction"
+        @close="closeDestructiveConfirm"
+      >
+        <p v-if="destructiveConfirm.body" class="destructive-confirm__body">
+          {{ destructiveConfirm.body }}
+        </p>
+      </DestructiveDialog>
 
       <RenameDocumentDialog ref="renameDocumentDialogRef" :api-base-url="apiBaseUrl" @saved="onDocumentRenamed" />
 
@@ -1146,6 +1168,7 @@ import ActivityIndicator from '../components/ActivityIndicator.vue';
 import DocumentListPanel from '../components/DocumentListPanel.vue';
 import ListActionToolbar from '../components/ListActionToolbar.vue';
 import BatchActionsBar from '../components/BatchActionsBar.vue';
+import DestructiveDialog from '../components/DestructiveDialog.vue';
 // Ref-basiert geöffnet (ref.open()) → müssen synchron als Instanz verfügbar
 // sein, daher eager.
 import TagDialogs from '../components/TagDialogs.vue';
@@ -1422,6 +1445,65 @@ const categoryStore = useCategoryStore();
 const correspondentStore = useCorrespondentStore();
 const sidebarStore = useSidebarStore();
 const importStagingStore = useImportStagingStore();
+
+function createDestructiveConfirmState() {
+  return {
+    open: false,
+    title: '',
+    headerSubtitle: '',
+    description: '',
+    body: '',
+    primaryText: 'Löschen',
+    secondaryText: 'Zurück',
+    icon: 'mdi-trash-can-outline',
+    maxWidth: 480,
+    loading: false,
+    onConfirm: null
+  };
+}
+
+const destructiveConfirm = reactive(createDestructiveConfirmState());
+
+function resetDestructiveConfirm() {
+  Object.assign(destructiveConfirm, createDestructiveConfirmState());
+}
+
+function openDestructiveConfirm(options) {
+  Object.assign(destructiveConfirm, createDestructiveConfirmState(), options, {
+    open: true,
+    loading: false,
+    secondaryText: options.secondaryText || 'Zurück',
+    icon: options.icon || 'mdi-trash-can-outline',
+    maxWidth: options.maxWidth || 480
+  });
+}
+
+function closeDestructiveConfirm(force = false) {
+  if (destructiveConfirm.loading && !force) {
+    return;
+  }
+  resetDestructiveConfirm();
+}
+
+async function confirmDestructiveAction() {
+  if (destructiveConfirm.loading) {
+    return;
+  }
+  const handler = destructiveConfirm.onConfirm;
+  if (typeof handler !== 'function') {
+    closeDestructiveConfirm(true);
+    return;
+  }
+  destructiveConfirm.loading = true;
+  try {
+    await handler();
+    closeDestructiveConfirm(true);
+  } catch (error) {
+    notifyError(error, 'Aktion konnte nicht ausgeführt werden.');
+  } finally {
+    destructiveConfirm.loading = false;
+  }
+}
 
 const { documents, selectedDocumentId, selectedDocumentDetail, isLoadingDocuments } = storeToRefs(docStore);
 const { tags, isTagMutationRunning } = storeToRefs(tagStore);
@@ -1885,10 +1967,17 @@ async function confirmBatchDelete() {
   if (selectionIds.value.size === 0) return;
   const ids = Array.from(selectionIds.value);
   const count = ids.length;
-  const confirmed = window.confirm(
-    `${count} ${count === 1 ? 'Dokument' : 'Dokumente'} in den Papierkorb verschieben?`
-  );
-  if (!confirmed) return;
+  openDestructiveConfirm({
+    title: count === 1 ? 'Dokument in den Papierkorb?' : 'Dokumente in den Papierkorb?',
+    headerSubtitle: `${count} ${count === 1 ? 'Dokument wird' : 'Dokumente werden'} verschoben.`,
+    body: 'Die Auswahl kann später aus dem Papierkorb wiederhergestellt werden.',
+    primaryText: 'In Papierkorb',
+    onConfirm: () => executeBatchDelete(ids)
+  });
+}
+
+async function executeBatchDelete(ids) {
+  const count = ids.length;
   isBatchDeleting.value = true;
   try {
     for (const docId of ids) {
@@ -1962,6 +2051,17 @@ const isDeleteDocumentDialogOpen = ref(false);
 const deleteDocumentTarget = ref(null);
 const isDeletingDocument = ref(false);
 const permanentDeleteMode = ref(false); // true → endgültig löschen, false → in Papierkorb
+const deleteDocumentDialogTitle = computed(() =>
+  permanentDeleteMode.value ? 'Dokument endgültig löschen?' : 'Dokument in den Papierkorb?'
+);
+const deleteDocumentDialogSubtitle = computed(() =>
+  permanentDeleteMode.value
+    ? 'Diese Aktion kann nicht rückgängig gemacht werden.'
+    : 'Das Dokument kann später aus dem Papierkorb wiederhergestellt werden.'
+);
+const deleteDocumentDialogPrimaryText = computed(() =>
+  permanentDeleteMode.value ? 'Endgültig löschen' : 'In Papierkorb'
+);
 const renameDocumentDialogRef = ref(null);
 
 const latestOcrJob = computed(() => {
@@ -2263,6 +2363,10 @@ const filteredCategories = computed(() => {
       return String(category?.name || '').toLocaleLowerCase('de-DE').includes(query);
     })
     .sort(compareCategoriesForCurrentSort);
+});
+const selectedCategories = computed(() => {
+  const selected = selectedCategoryIds.value;
+  return activeCategoriesForView.value.filter((category) => selected.has(category.id));
 });
 const categoryUsageFilterLabel = computed(() =>
   CATEGORY_USAGE_FILTER_OPTIONS.find((option) => option.value === categoryUsageFilter.value)?.label || 'Alle Dokumenttypen'
@@ -4730,12 +4834,21 @@ async function handleSmartFolderSave(payload) {
   }
 }
 
-async function deleteSavedSearch(savedSearch) {
-  const confirmed = window.confirm(`Ordner "${savedSearch.name}" wirklich löschen?`);
-  if (!confirmed) {
+function deleteSavedSearch(savedSearch) {
+  if (!savedSearch?.id) {
     return;
   }
+  openDestructiveConfirm({
+    title: 'Ordner löschen?',
+    headerSubtitle: savedSearch.name || 'Unbenannter Ordner',
+    body: 'Der gespeicherte Filter wird entfernt. Dokumente bleiben erhalten.',
+    primaryText: 'Ordner löschen',
+    icon: 'mdi-folder-outline',
+    onConfirm: () => executeDeleteSavedSearch(savedSearch)
+  });
+}
 
+async function executeDeleteSavedSearch(savedSearch) {
   isSavingSavedSearch.value = true;
   try {
     const response = await fetch(`${apiBaseUrl}/api/smart-folders/${savedSearch.id}`, {
@@ -5336,13 +5449,17 @@ async function emptyTrash() {
     notify({ type: 'info', title: 'Papierkorb', message: 'Der Papierkorb ist leer.' });
     return;
   }
-  const confirmed = window.confirm(
-    `${count} ${count === 1 ? 'Dokument' : 'Dokumente'} endgültig löschen? Diese Aktion kann nicht rückgängig gemacht werden.`
-  );
-  if (!confirmed) {
-    return;
-  }
+  openDestructiveConfirm({
+    title: 'Papierkorb leeren?',
+    headerSubtitle: `${count} ${count === 1 ? 'Dokument wird' : 'Dokumente werden'} endgültig gelöscht.`,
+    body: 'Diese Aktion kann nicht rückgängig gemacht werden.',
+    primaryText: 'Endgültig löschen',
+    icon: 'mdi-delete-forever-outline',
+    onConfirm: () => executeEmptyTrash(count)
+  });
+}
 
+async function executeEmptyTrash(count) {
   try {
     const response = await fetch(`${apiBaseUrl}/api/documents/trash`, { method: 'DELETE' });
     if (!response.ok) throw new Error(await parseResponseError(response));
@@ -5740,14 +5857,22 @@ async function confirmBatchTagDelete() {
   }
   const selected = selectedTags.value;
   const count = selected.length;
-  const previewNames = selected.slice(0, 6).map((tag) => tag.name).join(', ');
-  const suffix = selected.length > 6 ? ` und ${selected.length - 6} weitere` : '';
-  const confirmed = window.confirm(
-    `${count} ${count === 1 ? 'Tag' : 'Tags'} löschen?\n\n${previewNames}${suffix}`
-  );
-  if (!confirmed) {
+  if (count === 0) {
     return;
   }
+  const previewNames = selected.slice(0, 6).map((tag) => tag.name).join(', ');
+  const suffix = selected.length > 6 ? ` und ${selected.length - 6} weitere` : '';
+  openDestructiveConfirm({
+    title: count === 1 ? 'Tag löschen?' : 'Tags löschen?',
+    headerSubtitle: `${count} ${count === 1 ? 'Tag wird' : 'Tags werden'} entfernt.`,
+    body: `${previewNames}${suffix}`,
+    primaryText: count === 1 ? 'Tag löschen' : 'Tags löschen',
+    onConfirm: () => executeBatchTagDelete(selected)
+  });
+}
+
+async function executeBatchTagDelete(selected) {
+  const count = selected.length;
   isBatchTagDeleting.value = true;
   try {
     for (const tag of selected) {
@@ -5992,10 +6117,27 @@ async function confirmBatchCategoryDelete() {
   if (isBatchCategoryDeleting.value || selectedCategoryIds.value.size === 0) {
     return;
   }
+  const selected = selectedCategories.value;
+  const count = selected.length;
+  if (count === 0) {
+    return;
+  }
+  const previewNames = selected.slice(0, 6).map((category) => category.name).join(', ');
+  const suffix = selected.length > 6 ? ` und ${selected.length - 6} weitere` : '';
+  openDestructiveConfirm({
+    title: count === 1 ? 'Dokumenttyp löschen?' : 'Dokumenttypen löschen?',
+    headerSubtitle: `${count} ${count === 1 ? 'Dokumenttyp wird' : 'Dokumenttypen werden'} entfernt.`,
+    body: `${previewNames}${suffix}`,
+    primaryText: count === 1 ? 'Dokumenttyp löschen' : 'Dokumenttypen löschen',
+    onConfirm: () => executeBatchCategoryDelete(selected)
+  });
+}
+
+async function executeBatchCategoryDelete(selected) {
   isBatchCategoryDeleting.value = true;
   try {
-    for (const id of [...selectedCategoryIds.value]) {
-      await categoryStore.deleteCategory(id);
+    for (const category of selected) {
+      await categoryStore.deleteCategory(category.id);
     }
     selectedCategoryIds.value = new Set();
     isCategorySelectionMode.value = false;
@@ -6806,6 +6948,13 @@ onBeforeUnmount(() => {
 
 <style>
 /* Theme-Variablen → src/theme/theme.css */
+
+.destructive-confirm__body {
+  margin: 0;
+  color: rgba(var(--v-theme-on-surface), 0.74);
+  font-size: 0.98rem;
+  line-height: 1.48;
+}
 
 .app-topbar {
   color: rgba(248, 250, 255, 0.96) !important;

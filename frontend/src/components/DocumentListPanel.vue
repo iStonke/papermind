@@ -183,25 +183,25 @@
 
                     <!-- Normales Menü -->
                     <v-list v-if="!isTrashView" density="compact">
-                      <v-list-item @click.stop="emit('download', document)">
+                      <v-list-item @click="emit('download', document)">
                         <template #prepend>
                           <v-icon size="16">mdi-download-outline</v-icon>
                         </template>
                         <v-list-item-title>Herunterladen</v-list-item-title>
                       </v-list-item>
-                      <v-list-item @click.stop="emit('rename', document)">
+                      <v-list-item @click="emit('rename', document)">
                         <template #prepend>
                           <v-icon size="16">mdi-pencil-outline</v-icon>
                         </template>
                         <v-list-item-title>Umbenennen</v-list-item-title>
                       </v-list-item>
-                      <v-list-item @click.stop="emit('manage-tags', document)">
+                      <v-list-item @click="emit('manage-tags', document)">
                         <template #prepend>
                           <v-icon size="16">mdi-tag-multiple-outline</v-icon>
                         </template>
                         <v-list-item-title>Tags verwalten</v-list-item-title>
                       </v-list-item>
-                      <v-list-item class="menu-item--danger" @click.stop="emit('delete', document)">
+                      <v-list-item class="menu-item--danger" @click="emit('delete', document)">
                         <template #prepend>
                           <v-icon size="16">mdi-trash-can-outline</v-icon>
                         </template>
@@ -211,13 +211,13 @@
 
                     <!-- Papierkorb-Menü -->
                     <v-list v-else density="compact">
-                      <v-list-item @click.stop="emit('restore', document)">
+                      <v-list-item @click="emit('restore', document)">
                         <template #prepend>
                           <v-icon size="16">mdi-restore</v-icon>
                         </template>
                         <v-list-item-title>Wiederherstellen</v-list-item-title>
                       </v-list-item>
-                      <v-list-item class="menu-item--danger" @click.stop="emit('delete-permanent', document)">
+                      <v-list-item class="menu-item--danger" @click="emit('delete-permanent', document)">
                         <template #prepend>
                           <v-icon size="16">mdi-delete-forever-outline</v-icon>
                         </template>

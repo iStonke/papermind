@@ -169,43 +169,33 @@
       </div>
     </template>
 
-    <!-- Bestätigung -->
-    <v-dialog v-model="confirmOpen" max-width="440">
-      <v-card>
-        <v-card-title class="d-flex align-center">
-          <v-icon class="mr-2" :color="confirmAction === 'poweroff' ? 'error' : 'primary'">
-            {{ confirmAction === 'poweroff' ? 'mdi-power' : 'mdi-restart' }}
-          </v-icon>
-          {{ confirmAction === 'poweroff' ? 'Raspberry Pi ausschalten?' : 'Raspberry Pi neu starten?' }}
-        </v-card-title>
-        <v-card-text>
-          <template v-if="confirmAction === 'poweroff'">
-            Der Pi wird heruntergefahren. PaperMind ist danach nicht mehr erreichbar,
-            bis das Gerät wieder manuell eingeschaltet wird.
-          </template>
-          <template v-else>
-            Der Pi startet neu. PaperMind ist für etwa eine Minute nicht erreichbar.
-          </template>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="confirmOpen = false">Abbrechen</v-btn>
-          <v-btn
-            :color="confirmAction === 'poweroff' ? 'error' : 'primary'"
-            variant="flat"
-            :loading="powerBusy"
-            @click="confirmPower"
-          >
-            {{ confirmAction === 'poweroff' ? 'Ausschalten' : 'Neustarten' }}
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <BaseDialog
+      v-model="confirmOpen"
+      max-width="460"
+      :variant="confirmAction === 'poweroff' ? 'destructive' : 'confirm'"
+      :title="confirmAction === 'poweroff' ? 'Raspberry Pi ausschalten?' : 'Raspberry Pi neu starten?'"
+      :header-subtitle="confirmAction === 'poweroff' ? 'PaperMind ist danach offline.' : 'PaperMind ist kurz nicht erreichbar.'"
+      :primary-text="confirmAction === 'poweroff' ? 'Ausschalten' : 'Neustarten'"
+      secondary-text="Zurück"
+      :icon="confirmAction === 'poweroff' ? 'mdi-power' : 'mdi-restart'"
+      :loading="powerBusy"
+      @primary="confirmPower"
+    >
+      <p class="sys-power-confirm__body">
+        <template v-if="confirmAction === 'poweroff'">
+          Der Pi wird heruntergefahren und muss danach manuell wieder eingeschaltet werden.
+        </template>
+        <template v-else>
+          Der Pi startet neu. PaperMind ist für etwa eine Minute nicht erreichbar.
+        </template>
+      </p>
+    </BaseDialog>
   </div>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import BaseDialog from './BaseDialog.vue';
 import SettingsInfoCard from './SettingsInfoCard.vue';
 import SystemGauge from './SystemGauge.vue';
 import { getSystemStatus, triggerPowerAction } from '../api/system';
@@ -567,6 +557,12 @@ const uptimeLabel = computed(() => {
   padding: 1px 5px;
   border-radius: 5px;
   background: rgba(var(--v-theme-on-surface), 0.08);
+}
+.sys-power-confirm__body {
+  margin: 0;
+  color: rgba(var(--v-theme-on-surface), 0.74);
+  font-size: 0.98rem;
+  line-height: 1.48;
 }
 
 @media (max-width: 620px) {
