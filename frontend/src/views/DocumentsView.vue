@@ -4875,28 +4875,45 @@ async function refreshDocumentStatuses(documentIds) {
     return;
   }
 
+  // Nur tatsächlich geänderte Dokumente neu referenzieren und die Liste nur dann
+  // neu zuweisen, wenn sich etwas geändert hat. Das OCR-Polling (alle 5 s) liefert
+  // sonst bei jedem Tick neue Objekt-Referenzen für die ganze Liste → unnötige
+  // Re-Renders der gesamten Dokumentliste, obwohl sich nichts geändert hat.
   let selectedStatusChanged = false;
-  documents.value = documents.value.map((document) => {
+  let listChanged = false;
+  const nextDocuments = documents.value.map((document) => {
     const statusUpdate = statusById.get(document.id);
     if (!statusUpdate) {
       return document;
     }
-    if (
-      document.id === selectedDocumentId.value
-      && (
-        document.status !== statusUpdate.status
-        || document.ocr_status !== statusUpdate.ocr_status
-      )
-    ) {
+    let documentChanged = false;
+    for (const key in statusUpdate) {
+      if (document[key] !== statusUpdate[key]) {
+        documentChanged = true;
+        break;
+      }
+    }
+    if (!documentChanged) {
+      return document; // gleiche Referenz behalten → kein Re-Render
+    }
+    if (document.id === selectedDocumentId.value) {
       selectedStatusChanged = true;
     }
+    listChanged = true;
     return { ...document, ...statusUpdate };
   });
+  if (listChanged) {
+    documents.value = nextDocuments;
+  }
 
+  // Detail nur nachladen, wenn sich am ausgewählten Dokument wirklich etwas
+  // geändert hat (z. B. OCR fertig). Das frühere "|| hasActiveOcrJob" lud das
+  // Detail bei laufendem OCR im 5-Sekunden-Takt neu, obwohl der Header nur einen
+  // unbestimmten Spinner zeigt - reine Last ohne sichtbaren Mehrwert.
   if (
     selectedDocumentId.value
     && statusById.has(selectedDocumentId.value)
-    && (selectedStatusChanged || hasActiveOcrJob.value)
+    && selectedStatusChanged
   ) {
     await fetchDocumentDetail(selectedDocumentId.value);
   }
