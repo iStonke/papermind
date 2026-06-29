@@ -31,16 +31,31 @@ from app.services.scanners import (
 )
 
 
-def _db_reachable() -> bool:
+# Nicht nur Erreichbarkeit prüfen, sondern auch, dass das Schema migriert ist:
+# In CI läuft die Test-Suite VOR `alembic upgrade head`, d. h. die DB ist zwar
+# erreichbar, aber leer. Dieser Test braucht die echten Tabellen, sonst würde er
+# beim ersten INSERT scheitern statt sauber zu überspringen (analog test_rls).
+_REQUIRED_TABLES = (
+    "users",
+    "scanner_devices",
+    "scanner_scan_jobs",
+    "scanner_scan_commands",
+    "import_inbox_items",
+)
+
+
+def _schema_ready() -> bool:
     try:
         with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
+            for table in _REQUIRED_TABLES:
+                if conn.execute(text("SELECT to_regclass(:t)"), {"t": f"public.{table}"}).scalar() is None:
+                    return False
         return True
     except Exception:  # noqa: BLE001
         return False
 
 
-@unittest.skipUnless(_db_reachable(), "Keine DB erreichbar – Lifecycle-Test übersprungen.")
+@unittest.skipUnless(_schema_ready(), "DB nicht migriert/erreichbar – Lifecycle-Test übersprungen.")
 class ScannerScanJobLifecycleTest(unittest.TestCase):
     def setUp(self) -> None:
         self.db = SessionLocal()  # Superuser → Setup/Assertions ohne RLS
