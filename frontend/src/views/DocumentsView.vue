@@ -3573,7 +3573,11 @@ function formatDocumentFilename(filename) {
   if (showPdfSuffix.value) {
     return value;
   }
-  return value.replace(/\.[^./\\]+$/, '');
+  // Nur eine echte Dateiendung entfernen (Buchstabe + bis zu 7 alphanum.
+  // Zeichen, z. B. .pdf/.jpeg/.docx). Frühere Variante [^./\\]+ erfasste auch
+  // Leerzeichen und kappte Titel wie "Antrag a. Rückerstattung_300768" zu
+  // "Antrag a".
+  return value.replace(/\.[A-Za-z][A-Za-z0-9]{0,7}$/, '');
 }
 
 function stripPdfSuffix(filename) {
