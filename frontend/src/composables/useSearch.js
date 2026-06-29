@@ -3,6 +3,14 @@ import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue';
 const SEARCH_DEBOUNCE_MS = 300;
 const SEARCHABLE_STATUSES = new Set(['imported', 'processing', 'ready', 'failed']);
 const SEARCH_SCOPES = new Set(['all', 'title', 'ocr_text', 'document_type', 'correspondent', 'tags']);
+const SEARCH_SCOPE_PLACEHOLDERS = Object.freeze({
+  all: 'Suchen…',
+  title: 'Titel oder Dateiname suchen…',
+  ocr_text: 'OCR-Text suchen…',
+  document_type: 'Dokumenttyp suchen…',
+  correspondent: 'Korrespondent suchen…',
+  tags: 'Tags suchen…'
+});
 
 function isValidIsoDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
@@ -132,7 +140,7 @@ export function useSearch({
 
   const searchPlaceholder = computed(() => {
     if (activeView.value === 'tags') return 'Tags suchen…';
-    return 'Suchen…';
+    return SEARCH_SCOPE_PLACEHOLDERS[searchScope.value] || SEARCH_SCOPE_PLACEHOLDERS.all;
   });
 
   // ── Funktionen ──────────────────────────────────────────────────────────────
