@@ -2,6 +2,7 @@ import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue';
 
 const SEARCH_DEBOUNCE_MS = 300;
 const SEARCHABLE_STATUSES = new Set(['imported', 'processing', 'ready', 'failed']);
+const SEARCH_SCOPES = new Set(['all', 'title', 'ocr_text', 'document_type', 'correspondent', 'tags']);
 
 function isValidIsoDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
@@ -115,6 +116,7 @@ export function useSearch({
   resolveToolbarStatus = statusFromView
 }) {
   const searchText = ref('');
+  const searchScope = ref('all');
   const appBarSearchRef = ref(null);
   let searchDebounceTimer = null;
 
@@ -139,9 +141,11 @@ export function useSearch({
     const parsed = parsedSearch.value;
     const resolvedStatus =
       parsed.status || resolveToolbarStatus(activeView.value);
+    const normalizedScope = SEARCH_SCOPES.has(searchScope.value) ? searchScope.value : 'all';
     return patchDocumentListQuery(
       {
         q: parsed.q || null,
+        searchScope: normalizedScope,
         status: resolvedStatus,
         dateFrom: parsed.dateFrom || null,
         dateTo: parsed.dateTo || null
@@ -192,6 +196,7 @@ export function useSearch({
       parsedSearch.value.status,
       parsedSearch.value.dateFrom,
       parsedSearch.value.dateTo,
+      searchScope.value,
       activeView.value
     ],
     () => {
@@ -225,6 +230,7 @@ export function useSearch({
 
   return {
     searchText,
+    searchScope,
     appBarSearchRef,
     parsedSearch,
     searchHintMessages,

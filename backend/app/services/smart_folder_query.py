@@ -7,6 +7,7 @@ from sqlalchemy import and_, asc, case, desc, func, not_, or_, select
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.errors import BadRequestError
+from app.models.correspondent import Correspondent
 from app.models.document import Document
 from app.models.document_tag import document_tags
 from app.models.tag import Tag
@@ -18,6 +19,7 @@ ALLOWED_FIELDS = {
     "tags",
     "document_type",
     "category",
+    "correspondent",
     "ocr_text",
     "note",
     "doc_date",
@@ -56,6 +58,7 @@ TEMPORAL_DATE_FIELDS = {"doc_date"}
 TEMPORAL_DATETIME_FIELDS = {"created_at", "updated_at"}
 ENUM_FIELDS = {"ocr_status"}
 TAG_FIELDS = {"tags"}
+CORRESPONDENT_FIELDS = {"correspondent"}
 BOOLEAN_FIELDS = {"is_favorite"}
 
 OCR_STATUSES = {"not_started", "queued", "running", "done", "failed"}
@@ -123,6 +126,17 @@ FIELD_ALLOWED_OPS: dict[str, set[str]] = {
         "is_not_empty",
     },
     "document_type": {
+        "contains",
+        "equals",
+        "starts_with",
+        "ends_with",
+        "not_contains",
+        "in",
+        "not_in",
+        "is_empty",
+        "is_not_empty",
+    },
+    "correspondent": {
         "contains",
         "equals",
         "starts_with",
@@ -299,7 +313,7 @@ def _normalize_rule_value(field: str, op: str, raw_value: Any, path: str) -> Any
         if not raw_value:
             _raise_validation(path, "value list must not be empty")
 
-        if field in TEXT_LIKE_FIELDS or field in TAG_FIELDS:
+        if field in TEXT_LIKE_FIELDS or field in TAG_FIELDS or field in CORRESPONDENT_FIELDS:
             return _normalize_string_list(raw_value, path)
         if field in TEMPORAL_DATE_FIELDS:
             return [_parse_date(item, f"{path}[{idx}]") for idx, item in enumerate(raw_value)]
@@ -317,6 +331,9 @@ def _normalize_rule_value(field: str, op: str, raw_value: Any, path: str) -> Any
         return _normalize_scalar_string(raw_value, path)
 
     if field in TAG_FIELDS:
+        return _normalize_scalar_string(raw_value, path)
+
+    if field in CORRESPONDENT_FIELDS:
         return _normalize_scalar_string(raw_value, path)
 
     if field in BOOLEAN_FIELDS:
@@ -457,6 +474,9 @@ class SmartFolderQueryCompiler:
         if field in TAG_FIELDS:
             return self._compile_tag_rule(op, value)
 
+        if field in CORRESPONDENT_FIELDS:
+            return self._compile_correspondent_rule(op, value)
+
         if field in TEMPORAL_DATE_FIELDS:
             return self._compile_date_rule(Document.document_date, op, value)
 
@@ -565,6 +585,27 @@ class SmartFolderQueryCompiler:
             return tag_match if op == "in" else not_(tag_match)
 
         raise BadRequestError(f"Unsupported tags operator '{op}'")
+
+    def _compile_correspondent_rule(self, op: str, value: Any) -> ColumnElement[bool]:
+        if op == "is_empty":
+            return Document.correspondent_id.is_(None)
+        if op == "is_not_empty":
+            return Document.correspondent_id.is_not(None)
+
+        positive_op = {"not_contains": "contains", "not_in": "in"}.get(op, op)
+        name_clause = self._compile_string_rule(Correspondent.name, positive_op, value)
+        correspondent_match = (
+            select(Correspondent.id)
+            .where(
+                Correspondent.id == Document.correspondent_id,
+                name_clause,
+            )
+            .exists()
+        )
+
+        if op in {"not_contains", "not_in"}:
+            return not_(correspondent_match)
+        return correspondent_match
 
     def _compile_date_rule(self, column, op: str, value: Any) -> ColumnElement[bool]:
         if op == "is_empty":

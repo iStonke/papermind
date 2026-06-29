@@ -76,6 +76,15 @@ class DocumentSortField(str, Enum):
     favorite = "favorite"
 
 
+class DocumentSearchScope(str, Enum):
+    all = "all"
+    title = "title"
+    ocr_text = "ocr_text"
+    document_type = "document_type"
+    correspondent = "correspondent"
+    tags = "tags"
+
+
 class SortOrder(str, Enum):
     asc = "asc"
     desc = "desc"

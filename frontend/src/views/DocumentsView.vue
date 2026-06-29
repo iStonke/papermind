@@ -130,6 +130,7 @@
         :folder="smartFolderEditorTarget"
         :tags="tags"
         :categories="categoryNames"
+        :correspondents="correspondentStore.correspondents"
         :api-base-url="apiBaseUrl"
         @save="handleSmartFolderSave"
         @close="closeSmartFolderEditor"
@@ -186,22 +187,57 @@
                 <v-icon size="18">mdi-page-layout-sidebar-left</v-icon>
               </button>
             </div>
-            <v-text-field
-              ref="appBarSearchRef"
-              v-model="searchText"
-              class="sidebar-search__field"
-              prepend-inner-icon="mdi-magnify"
-              clearable
-              clear-icon="mdi-close"
-              :placeholder="searchPlaceholder"
-              density="compact"
-              variant="outlined"
-              :messages="searchHintMessages"
-              hide-details="auto"
-              @update:model-value="onAppBarSearchInput"
-              @keydown="handleSearchShortcut"
-              @click:clear="clearSearchFromInput"
-            />
+            <div class="sidebar-search">
+              <v-text-field
+                ref="appBarSearchRef"
+                v-model="searchText"
+                class="sidebar-search__field"
+                prepend-inner-icon="mdi-magnify"
+                clearable
+                clear-icon="mdi-close"
+                :placeholder="searchPlaceholder"
+                density="compact"
+                variant="outlined"
+                :messages="searchHintMessages"
+                hide-details="auto"
+                @update:model-value="onAppBarSearchInput"
+                @keydown="handleSearchShortcut"
+                @click:clear="clearSearchFromInput"
+              >
+                <template #append-inner>
+                  <v-menu location="bottom end" :close-on-content-click="true">
+                    <template #activator="{ props: menuProps }">
+                      <v-btn
+                        v-bind="menuProps"
+                        class="sidebar-search__scope-btn"
+                        :class="{ 'sidebar-search__scope-btn--active': searchScope !== 'all' }"
+                        icon="mdi-filter-variant"
+                        variant="text"
+                        size="small"
+                        density="comfortable"
+                        :aria-label="`Suchbereich: ${activeSearchScopeLabel}`"
+                        @click.stop
+                      />
+                    </template>
+                    <v-list class="pm-menu sidebar-search-menu" density="compact" min-width="190">
+                      <v-list-item
+                        v-for="option in searchScopeOptions"
+                        :key="option.value"
+                        :active="searchScope === option.value"
+                        :title="option.label"
+                        @click="selectSearchScope(option.value)"
+                      >
+                        <template #prepend>
+                          <v-icon size="18">
+                            {{ searchScope === option.value ? 'mdi-check' : option.icon }}
+                          </v-icon>
+                        </template>
+                      </v-list-item>
+                    </v-list>
+                  </v-menu>
+                </template>
+              </v-text-field>
+            </div>
           </template>
 
           <template #foot>
@@ -1195,6 +1231,14 @@ const CATEGORY_SORT_OPTIONS = Object.freeze([
 const CATEGORY_BATCH_ACTIONS = Object.freeze([
   { key: 'delete', label: 'Löschen', icon: 'mdi-trash-can-outline', color: 'error' }
 ]);
+const SEARCH_SCOPE_OPTIONS = Object.freeze([
+  { value: 'all', label: 'Alles', icon: 'mdi-file-search-outline' },
+  { value: 'title', label: 'Titel', icon: 'mdi-file-document-outline' },
+  { value: 'ocr_text', label: 'OCR', icon: 'mdi-text-recognition' },
+  { value: 'document_type', label: 'Dokumenttyp', icon: 'mdi-file-document-outline' },
+  { value: 'correspondent', label: 'Korrespondent', icon: 'mdi-account-outline' },
+  { value: 'tags', label: 'Tags', icon: 'mdi-tag-outline' }
+]);
 const DOCUMENT_BATCH_ACTIONS = Object.freeze([
   { key: 'tag', label: 'Tags', icon: 'mdi-tag-multiple-outline' },
   { key: 'category', label: 'Dokumenttyp', icon: 'mdi-file-document-outline' },
@@ -1413,6 +1457,7 @@ const initialDocumentSort = SETTINGS_SORT_TO_QUERY[normalizeDocumentSortKey(init
 const initialDateRange = computeDateRangeBounds(normalizeDocumentDateRange(initialDocumentToolbarState.dateRange));
 const documentListQuery = reactive({
   q: null,
+  searchScope: 'all',
   tagId: null,
   tagIds: [],
   documentType: null,
@@ -2438,6 +2483,7 @@ const documentListEmptyState = computed(() => {
 const documentListSavedQueryKey = computed(() =>
   JSON.stringify({
     q: documentListQuery.q,
+    searchScope: documentListQuery.q ? documentListQuery.searchScope : 'all',
     tagId: documentListQuery.tagId,
     tagIds: activeTagFilterIds.value,
     untagged: documentListQuery.untagged,
@@ -2454,6 +2500,7 @@ const documentListSavedQueryKey = computed(() =>
 const documentListQueryReloadKey = computed(() =>
   JSON.stringify({
     q: documentListQuery.q,
+    searchScope: documentListQuery.q ? documentListQuery.searchScope : 'all',
     tagId: documentListQuery.tagId,
     tagIds: activeTagFilterIds.value,
     untagged: documentListQuery.untagged,
@@ -4312,6 +4359,9 @@ function buildDocumentListQuery(options = {}) {
 
   if (documentListQuery.q) {
     params.set('q', documentListQuery.q);
+    if (documentListQuery.searchScope && documentListQuery.searchScope !== 'all') {
+      params.set('search_scope', documentListQuery.searchScope);
+    }
   }
 
   if (documentListQuery.status) {
@@ -4568,6 +4618,7 @@ async function fetchSavedSearches() {
 const fetchSavedSearchDetail = (id) => sidebarStore.fetchSavedSearchDetail(id);
 
 function openCreateSavedSearchDialog() {
+  void correspondentStore.ensureLoaded();
   smartFolderEditorMode.value = 'create';
   smartFolderEditorTarget.value = null;
   isSmartFolderEditorOpen.value = true;
@@ -4578,6 +4629,7 @@ async function openEditSavedSearchDialog(savedSearch) {
     return;
   }
   try {
+    void correspondentStore.ensureLoaded();
     const detail = await fetchSavedSearchDetail(savedSearch.id);
     smartFolderEditorMode.value = 'edit';
     smartFolderEditorTarget.value = detail;
@@ -6512,6 +6564,7 @@ watch(documentListSavedQueryKey, (nextKey) => {
 
 const {
   searchText,
+  searchScope,
   appBarSearchRef,
   parsedSearch,
   searchHintMessages,
@@ -6537,6 +6590,17 @@ const {
   fetchDocuments,
   resolveToolbarStatus
 });
+const searchScopeOptions = SEARCH_SCOPE_OPTIONS;
+const activeSearchScopeLabel = computed(
+  () => searchScopeOptions.find((option) => option.value === searchScope.value)?.label || 'Alles'
+);
+
+function selectSearchScope(scope) {
+  searchScope.value = searchScopeOptions.some((option) => option.value === scope) ? scope : 'all';
+  nextTick(() => {
+    focusSearchFieldInput();
+  });
+}
 
 watch(
   () => parsedSearch.value.q,
@@ -6781,6 +6845,10 @@ onBeforeUnmount(() => {
   line-height: 1;
 }
 
+.sidebar-search {
+  width: 100%;
+}
+
 .sidebar-search__field {
   width: 100%;
 }
@@ -6797,6 +6865,15 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-search__field .v-field__prepend-inner .v-icon {
+  color: var(--pm-accent) !important;
+}
+
+.sidebar-search__scope-btn {
+  color: var(--pm-muted) !important;
+}
+
+.sidebar-search__scope-btn--active,
+.sidebar-search__scope-btn:hover {
   color: var(--pm-accent) !important;
 }
 
@@ -8162,7 +8239,7 @@ onBeforeUnmount(() => {
 .panel-left .sidebar-item-right,
 .panel-left .sidebar-section-header,
 .sidebar-brand__name,
-.sidebar-search__field,
+.sidebar-search,
 .sidebar-account__info,
 .sidebar-account__chev,
 .sidebar-foot__actions {
@@ -8186,7 +8263,7 @@ onBeforeUnmount(() => {
 .workspace--sidebar-collapsing .panel-left .sidebar-item-right,
 .workspace--sidebar-collapsing .panel-left .sidebar-section-header,
 .workspace--sidebar-collapsing .sidebar-brand__name,
-.workspace--sidebar-collapsing .sidebar-search__field,
+.workspace--sidebar-collapsing .sidebar-search,
 .workspace--sidebar-collapsing .sidebar-account__info,
 .workspace--sidebar-collapsing .sidebar-account__chev,
 .workspace--sidebar-collapsing .sidebar-foot__actions {
@@ -8200,7 +8277,7 @@ onBeforeUnmount(() => {
 .workspace--sidebar-expanding .panel-left .sidebar-item-right,
 .workspace--sidebar-expanding .panel-left .sidebar-section-header,
 .workspace--sidebar-expanding .sidebar-brand__name,
-.workspace--sidebar-expanding .sidebar-search__field,
+.workspace--sidebar-expanding .sidebar-search,
 .workspace--sidebar-expanding .sidebar-account__info,
 .workspace--sidebar-expanding .sidebar-account__chev,
 .workspace--sidebar-expanding .sidebar-foot__actions {
@@ -8214,7 +8291,7 @@ onBeforeUnmount(() => {
 .workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item-right,
 .workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-section-header,
 .workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-brand__name,
-.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-search__field,
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-search,
 .workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-account__info,
 .workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-account__chev,
 .workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-foot__actions {

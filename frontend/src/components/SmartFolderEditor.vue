@@ -162,6 +162,18 @@
                 />
               </template>
 
+              <template v-else-if="rule.field === 'correspondent'">
+                <v-combobox
+                  :model-value="rule.value"
+                  :items="correspondentOptions"
+                  density="comfortable"
+                  variant="outlined"
+                  hide-details
+                  label="Korrespondent"
+                  @update:model-value="setRuleValue(rule.id, $event)"
+                />
+              </template>
+
               <template v-else-if="isDateField(rule.field)">
                 <v-text-field
                   :model-value="rule.value"
@@ -238,6 +250,7 @@ const FIELD_OPTIONS = [
   { value: 'filename', label: 'Dateiname' },
   { value: 'tags', label: 'Tags' },
   { value: 'document_type', label: 'Dokumenttyp' },
+  { value: 'correspondent', label: 'Korrespondent' },
   { value: 'is_favorite', label: 'Favorit' },
   { value: 'ocr_text', label: 'OCR-Text' },
   { value: 'note', label: 'Notiz' },
@@ -291,6 +304,17 @@ const OPERATOR_MAP = {
     { value: 'is_not_empty', label: 'ist nicht leer' }
   ],
   category: [
+    { value: 'contains', label: 'enthält' },
+    { value: 'equals', label: 'ist' },
+    { value: 'starts_with', label: 'beginnt mit' },
+    { value: 'ends_with', label: 'endet mit' },
+    { value: 'not_contains', label: 'enthält nicht' },
+    { value: 'in', label: 'ist einer von' },
+    { value: 'not_in', label: 'ist keiner von' },
+    { value: 'is_empty', label: 'ist leer' },
+    { value: 'is_not_empty', label: 'ist nicht leer' }
+  ],
+  correspondent: [
     { value: 'contains', label: 'enthält' },
     { value: 'equals', label: 'ist' },
     { value: 'starts_with', label: 'beginnt mit' },
@@ -383,6 +407,7 @@ const props = defineProps({
   folder: { type: Object, default: null },
   tags: { type: Array, default: () => [] },
   categories: { type: Array, default: () => [] },
+  correspondents: { type: Array, default: () => [] },
   apiBaseUrl: { type: String, default: '' }
 });
 
@@ -441,6 +466,18 @@ const categoryOptions = computed(() => {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b, 'de-DE', { sensitivity: 'base' }));
 });
 
+const correspondentOptions = computed(() => {
+  const values = (props.correspondents || [])
+    .map((correspondent) => {
+      if (typeof correspondent === 'string') {
+        return correspondent.trim();
+      }
+      return String(correspondent?.name || correspondent?.title || '').trim();
+    })
+    .filter(Boolean);
+  return [...new Set(values)].sort((a, b) => a.localeCompare(b, 'de-DE', { sensitivity: 'base' }));
+});
+
 let previewTimer = null;
 
 function makeUiId(prefix) {
@@ -468,6 +505,9 @@ function listValueOptions(field) {
   }
   if (field === 'document_type' || field === 'category') {
     return categoryOptions.value;
+  }
+  if (field === 'correspondent') {
+    return correspondentOptions.value;
   }
   return [];
 }

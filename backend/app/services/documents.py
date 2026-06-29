@@ -11,7 +11,7 @@ from fastapi import UploadFile, status
 import httpx
 import pypdfium2 as pdfium
 from pypdf import PdfReader
-from sqlalchemy import asc, case, desc, func, select
+from sqlalchemy import asc, case, desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, load_only, noload, selectinload
 
@@ -41,6 +41,7 @@ from app.schemas.documents import (
     DocumentListResponse,
     DocumentMetadataSuggestion,
     DocumentOCRStatus,
+    DocumentSearchScope,
     DocumentSortField,
     DocumentStatus,
     DocumentStatusListResponse,
@@ -1447,6 +1448,48 @@ class DocumentService:
         preceding_expr = func.websearch_to_tsquery(fts_config, preceding)
         return preceding_expr.op("&&")(prefix_expr)
 
+    def _escape_like(self, value: str) -> str:
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+    def _build_scoped_search_filter(self, normalized_query: str, search_scope: DocumentSearchScope):
+        escaped_query = self._escape_like(normalized_query)
+        like_value = f"%{escaped_query}%"
+
+        if search_scope == DocumentSearchScope.title:
+            return or_(
+                func.coalesce(Document.display_name, "").ilike(like_value, escape="\\"),
+                Document.original_filename.ilike(like_value, escape="\\"),
+            )
+
+        if search_scope == DocumentSearchScope.ocr_text:
+            return func.coalesce(Document.text_content, "").ilike(like_value, escape="\\")
+
+        if search_scope == DocumentSearchScope.document_type:
+            return func.coalesce(Document.document_type, "").ilike(like_value, escape="\\")
+
+        if search_scope == DocumentSearchScope.correspondent:
+            return (
+                select(Correspondent.id)
+                .where(
+                    Correspondent.id == Document.correspondent_id,
+                    Correspondent.name.ilike(like_value, escape="\\"),
+                )
+                .exists()
+            )
+
+        if search_scope == DocumentSearchScope.tags:
+            return (
+                select(document_tags.c.document_id)
+                .join(Tag, Tag.id == document_tags.c.tag_id)
+                .where(
+                    document_tags.c.document_id == Document.id,
+                    Tag.name.ilike(like_value, escape="\\"),
+                )
+                .exists()
+            )
+
+        return None
+
     def list_documents(
         self,
         q: str | None,
@@ -1466,6 +1509,7 @@ class DocumentService:
         favorites_only: bool = False,
         without_text: bool = False,
         document_type: str | None = None,
+        search_scope: DocumentSearchScope = DocumentSearchScope.all,
     ) -> DocumentListResponse:
         if date_from and date_to and date_from > date_to:
             raise BadRequestError(
@@ -1491,8 +1535,13 @@ class DocumentService:
         fts_config = settings.fts_regconfig
         ts_query_expr = None
         if normalized_query:
-            ts_query_expr = self._build_ts_query_expr(normalized_query, fts_config)
-            filtered_stmt = filtered_stmt.where(Document.search_vector.op("@@")(ts_query_expr))
+            if search_scope == DocumentSearchScope.all:
+                ts_query_expr = self._build_ts_query_expr(normalized_query, fts_config)
+                filtered_stmt = filtered_stmt.where(Document.search_vector.op("@@")(ts_query_expr))
+            else:
+                scoped_filter = self._build_scoped_search_filter(normalized_query, search_scope)
+                if scoped_filter is not None:
+                    filtered_stmt = filtered_stmt.where(scoped_filter)
 
         direction = asc if order == SortOrder.asc else desc
         if sort in (DocumentSortField.document_date, DocumentSortField.doc_date):

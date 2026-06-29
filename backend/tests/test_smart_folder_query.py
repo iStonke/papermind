@@ -56,6 +56,20 @@ class SmartFolderQueryValidationTest(unittest.TestCase):
         self.assertEqual(normalized["group"]["rules"][0]["field"], "category")
         self.assertEqual(normalized["group"]["rules"][1]["value"], True)
 
+    def test_valid_query_with_correspondent(self) -> None:
+        raw_query = {
+            "version": 1,
+            "group": {
+                "op": "AND",
+                "rules": [{"field": "correspondent", "op": "equals", "value": "Reventlouschule"}],
+            },
+        }
+
+        normalized = validate_smart_folder_query(raw_query)
+
+        self.assertEqual(normalized["group"]["rules"][0]["field"], "correspondent")
+        self.assertEqual(normalized["group"]["rules"][0]["value"], "Reventlouschule")
+
     def test_invalid_favorite_operator_raises_bad_request(self) -> None:
         raw_query = {
             "version": 1,
@@ -134,6 +148,38 @@ class SmartFolderQueryCompilerTest(unittest.TestCase):
         self.assertIsNotNone(compiled)
         self.assertIn("documents.document_type", str(compiled))
         self.assertIn("documents.is_favorite", str(compiled))
+
+    def test_compile_correspondent_returns_expression(self) -> None:
+        compiler = SmartFolderQueryCompiler()
+        raw_query = {
+            "version": 1,
+            "group": {
+                "op": "AND",
+                "rules": [{"field": "correspondent", "op": "contains", "value": "Schule"}],
+            },
+        }
+
+        compiled = compiler.compile(raw_query)
+
+        self.assertIsNotNone(compiled)
+        compiled_sql = str(compiled)
+        self.assertIn("correspondents", compiled_sql)
+        self.assertIn("documents.correspondent_id", compiled_sql)
+
+    def test_compile_empty_correspondent_returns_expression(self) -> None:
+        compiler = SmartFolderQueryCompiler()
+        raw_query = {
+            "version": 1,
+            "group": {
+                "op": "AND",
+                "rules": [{"field": "correspondent", "op": "is_empty"}],
+            },
+        }
+
+        compiled = compiler.compile(raw_query)
+
+        self.assertIsNotNone(compiled)
+        self.assertIn("documents.correspondent_id IS NULL", str(compiled))
 
 
 if __name__ == "__main__":

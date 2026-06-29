@@ -17,6 +17,7 @@ from app.schemas.documents import (
     DocumentListResponse,
     DocumentMetadataSuggestion,
     DocumentSortField,
+    DocumentSearchScope,
     DocumentStatus,
     DocumentStatusListResponse,
     DocumentTagReplaceRequest,
@@ -40,6 +41,10 @@ def list_documents(
     q: str | None = Query(
         default=None,
         description="Full-text search in filename, notes and OCR text (language configurable via FTS_LANGUAGE)",
+    ),
+    search_scope: DocumentSearchScope = Query(
+        default=DocumentSearchScope.all,
+        description="Restrict q to a specific document field group",
     ),
     tag: str | None = Query(default=None, description="Filter by tag UUID or exact tag name"),
     tag_id: uuid.UUID | None = Query(default=None, description="Filter by tag UUID (preferred)"),
@@ -77,6 +82,7 @@ def list_documents(
     effective_tag = str(tag_id) if tag_id is not None else tag
     return service.list_documents(
         q=q,
+        search_scope=search_scope,
         tag=effective_tag,
         tag_ids=tag_ids,
         untagged=untagged,
