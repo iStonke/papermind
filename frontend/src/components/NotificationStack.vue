@@ -51,8 +51,9 @@ function typeIcon(type) {
 <style scoped>
 .notification-stack {
   position: fixed;
-  right: 24px;
-  bottom: 24px;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 2600;
   pointer-events: none;
 }
@@ -60,7 +61,7 @@ function typeIcon(type) {
 .notification-stack__list {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: center;
   gap: 10px;
 }
 
@@ -149,14 +150,15 @@ function typeIcon(type) {
 .notification-card-enter-from,
 .notification-card-leave-to {
   opacity: 0;
-  transform: translateY(14px);
+  transform: translateY(-14px);
 }
 
 @media (max-width: 900px) {
   .notification-stack {
-    right: 12px;
+    top: 12px;
     left: 12px;
-    bottom: 14px;
+    right: 12px;
+    transform: none;
   }
 
   .notification-stack__list {

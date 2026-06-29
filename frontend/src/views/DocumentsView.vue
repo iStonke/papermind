@@ -1549,7 +1549,6 @@ const isClaimingImportInbox = ref(false);
 const isMinimizingImport = ref(false);
 const isDocumentListSettling = ref(false);
 let documentListSettleTimer = null;
-const notifiedOcrQualityKeys = new Set();
 let hasCompletedInitialImportInboxRefresh = false;
 let knownImportInboxItemIds = new Set();
 let isAutoOpeningImportInbox = false;
@@ -3816,25 +3815,6 @@ function applyMetadataFromDetail(detail) {
   }, 0);
 }
 
-function notifyOcrQualityIfNeeded(detail) {
-  const status = String(detail?.ocr_quality_status || '').toLowerCase();
-  if (!['warning', 'error'].includes(status) || detail?.ocr_status !== 'done') {
-    return;
-  }
-  const confidence = Number(detail?.ocr_confidence_score);
-  const confidenceLabel = Number.isFinite(confidence) ? `${Math.round(confidence)}%` : 'unbekannt';
-  const key = `${detail.id}:${status}:${confidenceLabel}`;
-  if (notifiedOcrQualityKeys.has(key)) {
-    return;
-  }
-  notifiedOcrQualityKeys.add(key);
-  notify({
-    type: status === 'error' ? 'error' : 'warning',
-    title: 'OCR-Qualität',
-    message: detail?.ocr_quality_message || `OCR-Konfidenz ${confidenceLabel}. KI-Ergebnisse können unzuverlässig sein.`
-  });
-}
-
 function syncTagSelectionLocal(tagIds) {
   shouldSkipTagAutosave = true;
   const sanitizedIds = sanitizeSelectedTagIds(tagIds);
@@ -4794,7 +4774,6 @@ async function fetchDocumentDetail(documentId, options = {}) {
   if (!hasLocalDraft) {
     applyMetadataFromDetail(detail);
   }
-  notifyOcrQualityIfNeeded(detail);
 }
 
 async function refreshDocumentStatuses(documentIds) {
