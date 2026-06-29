@@ -1,7 +1,8 @@
 import unittest
 
 from app.core.errors import BadRequestError
-from app.services.smart_folder_query import SmartFolderQueryCompiler, validate_smart_folder_query
+from app.schemas.smart_folders import SmartFolderSort
+from app.services.smart_folder_query import SmartFolderQueryCompiler, build_smart_folder_sort, validate_smart_folder_query
 
 
 class SmartFolderQueryValidationTest(unittest.TestCase):
@@ -180,6 +181,13 @@ class SmartFolderQueryCompilerTest(unittest.TestCase):
 
         self.assertIsNotNone(compiled)
         self.assertIn("documents.correspondent_id IS NULL", str(compiled))
+
+    def test_build_unread_sort_returns_expression(self) -> None:
+        order_exprs = build_smart_folder_sort(SmartFolderSort.unread_desc)
+        compiled_sql = " ".join(str(expr) for expr in order_exprs)
+
+        self.assertIn("documents.is_unread", compiled_sql)
+        self.assertIn("documents.updated_at", compiled_sql)
 
 
 if __name__ == "__main__":

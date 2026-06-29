@@ -287,6 +287,7 @@ const SORT_OPTIONS = [
   { value: 'newest',      label: 'Neueste zuerst' },
   { value: 'oldest',      label: 'Älteste zuerst' },
   { value: 'name_asc',    label: 'Name A–Z' },
+  { value: 'unread',      label: 'Ungelesen zuerst' },
   { value: 'favorites',   label: 'Favoriten zuerst' },
 ];
 

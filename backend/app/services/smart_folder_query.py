@@ -691,6 +691,13 @@ def build_smart_folder_sort(sort: SmartFolderSort):
             desc(Document.id),
         )
 
+    if sort == SmartFolderSort.unread_desc:
+        return (
+            desc(case((Document.is_unread.is_(True), 1), else_=0)),
+            desc(Document.updated_at),
+            desc(Document.id),
+        )
+
     if sort == SmartFolderSort.doc_date_desc:
         return (
             desc(Document.document_date).nullslast(),

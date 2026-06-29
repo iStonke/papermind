@@ -15,6 +15,7 @@ class SmartFolderSort(str, Enum):
     doc_date_desc = "doc_date_desc"
     doc_date_asc = "doc_date_asc"
     title_asc = "title_asc"
+    unread_desc = "unread_desc"
 
 
 class SmartFolderCreateRequest(BaseModel):

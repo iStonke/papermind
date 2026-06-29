@@ -1,6 +1,6 @@
 import unittest
 
-from app.schemas.documents import DocumentSearchScope
+from app.schemas.documents import DocumentSearchScope, DocumentSortField
 from app.services.documents import DocumentService
 
 
@@ -33,6 +33,10 @@ class DocumentSearchScopeTest(unittest.TestCase):
 
         self.assertIn("document_tags", sql)
         self.assertIn("tags", sql)
+
+    def test_unread_sort_field_is_supported(self) -> None:
+        self.assertEqual(DocumentSortField("is_unread"), DocumentSortField.is_unread)
+        self.assertEqual(DocumentSortField("unread"), DocumentSortField.unread)
 
 
 if __name__ == "__main__":

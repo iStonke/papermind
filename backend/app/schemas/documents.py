@@ -72,6 +72,8 @@ class DocumentSortField(str, Enum):
     doc_date = "doc_date"
     updated_at = "updated_at"
     name = "name"
+    is_unread = "is_unread"
+    unread = "unread"
     is_favorite = "is_favorite"
     favorite = "favorite"
 

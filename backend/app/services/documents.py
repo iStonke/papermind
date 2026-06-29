@@ -1554,6 +1554,10 @@ class DocumentService:
             name_expr = func.lower(func.coalesce(Document.display_name, Document.original_filename))
             order_expr = direction(name_expr)
             secondary_order_expr = desc(Document.created_at)
+        elif sort in (DocumentSortField.is_unread, DocumentSortField.unread):
+            unread_rank_expr = case((Document.is_unread.is_(True), 1), else_=0)
+            order_expr = direction(unread_rank_expr)
+            secondary_order_expr = desc(Document.updated_at)
         elif sort in (DocumentSortField.is_favorite, DocumentSortField.favorite):
             favorite_rank_expr = case((Document.is_favorite.is_(True), 1), else_=0)
             order_expr = direction(favorite_rank_expr)

@@ -1200,6 +1200,7 @@ const SETTINGS_SORT_TO_QUERY = {
   name_asc: { sort: 'name', order: 'asc' },
   name_desc: { sort: 'name', order: 'desc' },
   last_opened: { sort: 'updated_at', order: 'desc' },
+  unread: { sort: 'is_unread', order: 'desc' },
   favorites: { sort: 'favorite', order: 'desc' }
 };
 const TAG_USAGE_FILTER_OPTIONS = Object.freeze([
@@ -2490,11 +2491,7 @@ const documentListSavedQueryKey = computed(() =>
     documentType: documentListQuery.documentType,
     status: documentListQuery.status,
     dateFrom: documentListQuery.dateFrom,
-    dateTo: documentListQuery.dateTo,
-    sort: documentListQuery.sort,
-    order: documentListQuery.order,
-    limit: documentListQuery.limit,
-    offset: documentListQuery.offset
+    dateTo: documentListQuery.dateTo
   })
 );
 const documentListQueryReloadKey = computed(() =>
@@ -4428,6 +4425,9 @@ function mapDocumentSortToSmartFolderSort() {
     documentListQuery.order === 'asc'
   ) {
     return 'doc_date_asc';
+  }
+  if (documentListQuery.sort === 'is_unread' && documentListQuery.order === 'desc') {
+    return 'unread_desc';
   }
   return 'created_desc';
 }
