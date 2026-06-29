@@ -1896,12 +1896,7 @@ async function confirmBatchDelete() {
     }
     notify({ type: 'success', title: 'Papierkorb', message: `${count} ${count === 1 ? 'Dokument' : 'Dokumente'} verschoben.` });
     exitSelectionMode();
-    if (ids.includes(selectedDocumentId.value)) {
-      selectedDocumentId.value = null;
-      selectedDocumentDetail.value = null;
-      isDetailsDrawerOpen.value = false;
-    }
-    await fetchDocuments(selectedDocumentId.value);
+    await removeDocumentsFromList(ids);
     scheduleSidebarCountsRefresh();
     await fetchTags();
   } catch (error) {
@@ -4983,6 +4978,61 @@ async function loadMoreDocuments() {
   }
 }
 
+// Entfernt Dokumente in-place aus der Liste, statt sie über fetchDocuments neu
+// zu laden. Verhindert Flackern und Scrollsprung nach Löschen/Papierkorb/
+// Wiederherstellen. Wird die aktuelle Auswahl entfernt, rückt der nächste
+// Nachbar nach (sonst der vorherige; sonst leere Auswahl + Schublade zu).
+async function removeDocumentsFromList(idsToRemove) {
+  const removeSet = new Set(
+    (Array.isArray(idsToRemove) ? idsToRemove : [idsToRemove])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean)
+  );
+  if (removeSet.size === 0) {
+    return;
+  }
+
+  const current = documents.value;
+  const selectedRemoved = removeSet.has(selectedDocumentId.value);
+
+  // Nachrück-Auswahl VOR dem Filtern bestimmen (nächster, sonst vorheriger).
+  let neighborId = null;
+  if (selectedRemoved) {
+    const selectedIndex = current.findIndex((doc) => doc.id === selectedDocumentId.value);
+    for (let i = selectedIndex + 1; i < current.length; i += 1) {
+      if (!removeSet.has(current[i].id)) { neighborId = current[i].id; break; }
+    }
+    if (!neighborId) {
+      for (let i = selectedIndex - 1; i >= 0; i -= 1) {
+        if (!removeSet.has(current[i].id)) { neighborId = current[i].id; break; }
+      }
+    }
+  }
+
+  const next = current.filter((doc) => !removeSet.has(doc.id));
+  const removedCount = current.length - next.length;
+  if (removedCount === 0) {
+    return;
+  }
+  documents.value = next;
+  documentListLoadedCount.value = Math.max(0, documentListLoadedCount.value - removedCount);
+  documentListTotal.value = Math.max(0, documentListTotal.value - removedCount);
+
+  if (!selectedRemoved) {
+    return;
+  }
+  if (neighborId) {
+    selectedDocumentId.value = neighborId;
+    selectedDocumentDetail.value = null;
+    await fetchDocumentDetail(neighborId, { forceApplyMetadata: true });
+    void markDocumentViewedOptimistic(neighborId);
+  } else {
+    selectedDocumentId.value = null;
+    selectedDocumentDetail.value = null;
+    isDetailsDrawerOpen.value = false;
+  }
+}
+
 async function fetchDocuments(preferredDocumentId = null, options = {}) {
   const generation = ++documentListRequestGeneration;
   const autoSelectFirst = options.autoSelectFirst === true;
@@ -5220,8 +5270,6 @@ async function confirmDeleteDocumentFromDialog() {
   isDeletingDocument.value = true;
 
   const targetDocumentId = deleteDocumentTarget.value.id;
-  const isDeletedSelection = selectedDocumentId.value === targetDocumentId;
-  const preferredDocumentId = isDeletedSelection ? null : selectedDocumentId.value;
   const isPermanent = permanentDeleteMode.value;
 
   try {
@@ -5239,16 +5287,8 @@ async function confirmDeleteDocumentFromDialog() {
     deleteDocumentTarget.value = null;
     permanentDeleteMode.value = false;
 
-    if (isDeletedSelection) {
-      isDetailsDrawerOpen.value = false;
-      selectedDocumentId.value = null;
-      selectedDocumentDetail.value = null;
-    }
-
+    await removeDocumentsFromList([targetDocumentId]);
     await fetchTags();
-    await fetchDocuments(preferredDocumentId, {
-      autoSelectFirst: !isDeletedSelection
-    });
     scheduleSidebarCountsRefresh();
     notify({
       type: 'success',
@@ -5281,9 +5321,8 @@ async function restoreDocumentFromTrash(document) {
   try {
     const response = await fetch(`${apiBaseUrl}/api/documents/${document.id}/restore`, { method: 'POST' });
     if (!response.ok) throw new Error(await parseResponseError(response));
-    await fetchDocuments(selectedDocumentId.value === document.id ? null : selectedDocumentId.value, {
-      autoSelectFirst: selectedDocumentId.value === document.id
-    });
+    // Aus der aktuellen (Papierkorb-)Liste entfernen statt neu zu laden.
+    await removeDocumentsFromList([document.id]);
     scheduleSidebarCountsRefresh();
     notify({ type: 'success', title: 'Dokument', message: 'Dokument wiederhergestellt.' });
   } catch (error) {
