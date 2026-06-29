@@ -47,6 +47,29 @@
 
       <!-- Left column: page grid + bottom toolbar -->
       <div class="isd-left">
+        <!-- Scanner-Fehler (Timeout / Datei fehlt / Scanner offline) -->
+        <div v-if="props.scannerErrors.length > 0" class="isd-scan-errors" role="alert" aria-live="assertive">
+          <div
+            v-for="error in props.scannerErrors"
+            :key="error.id"
+            class="isd-scan-error"
+            :class="`isd-scan-error--${error.kind}`"
+          >
+            <v-icon size="18" class="isd-scan-error__icon">mdi-alert-circle-outline</v-icon>
+            <div class="isd-scan-error__text">
+              <span class="isd-scan-error__title">{{ error.title }}</span>
+              <span v-if="error.detail" class="isd-scan-error__detail">{{ error.detail }}</span>
+            </div>
+            <button
+              type="button"
+              class="isd-scan-error__dismiss"
+              title="Hinweis ausblenden"
+              @click="emit('dismiss-scan-error', error.id)"
+            >
+              <v-icon size="16">mdi-close</v-icon>
+            </button>
+          </div>
+        </div>
         <div
           v-if="aiAnalysis.kind === 'busy' && !isEmpty && settingsStore.scanLineAnimationEnabled"
           class="isd-ai-scan-line"
@@ -793,10 +816,12 @@ const props = defineProps({
     validator: (value) => ['idle', 'scanning', 'pending'].includes(value)
   },
   // Auslösbarer Scanner des aktuellen Benutzers (oder null). Siehe ScannerTriggerInfo.
-  scanner: { type: Object, default: null }
+  scanner: { type: Object, default: null },
+  // Fehlerhafte Scan-Jobs zur Anzeige: [{ id, kind, title, detail }].
+  scannerErrors: { type: Array, default: () => [] }
 });
 
-const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources', 'minimize', 'scan']);
+const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources', 'minimize', 'scan', 'dismiss-scan-error']);
 
 // Im Live-Modus erzeugt jede Seite sofort ein eigenes Dokument -> kein "Fertig".
 // Im Batch-Modus sammelt der Scanner und braucht ein explizites Abschließen.
@@ -4860,6 +4885,78 @@ onBeforeUnmount(() => {
   padding: 40px;
 }
 
+
+/* ── Scanner-Fehler ── */
+.isd-scan-errors {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 0;
+}
+
+.isd-scan-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(var(--v-theme-error), 0.4);
+  background: rgba(var(--v-theme-error), 0.08);
+  color: rgb(var(--v-theme-on-surface));
+}
+
+.isd-scan-error--scanner_offline {
+  border-color: rgba(var(--v-theme-warning), 0.45);
+  background: rgba(var(--v-theme-warning), 0.1);
+}
+
+.isd-scan-error__icon {
+  color: rgb(var(--v-theme-error));
+  margin-top: 1px;
+  flex: 0 0 auto;
+}
+
+.isd-scan-error--scanner_offline .isd-scan-error__icon {
+  color: rgb(var(--v-theme-warning));
+}
+
+.isd-scan-error__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.isd-scan-error__title {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.isd-scan-error__detail {
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+
+.isd-scan-error__dismiss {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+}
+
+.isd-scan-error__dismiss:hover {
+  opacity: 1;
+  background: rgba(var(--v-theme-on-surface), 0.08);
+}
 
 /* ── Dropzone ── */
 @keyframes isd-bounce {

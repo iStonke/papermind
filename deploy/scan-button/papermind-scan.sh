@@ -58,6 +58,10 @@ SCAN_DEVICE="${SCAN_DEVICE:-}"
 SCAN_RESOLUTION="${SCAN_RESOLUTION:-300}"
 SCAN_MODE="${SCAN_MODE:-Color}"
 IDLE_SECONDS="${IDLE_SECONDS:-180}"
+# Optionale Backend-Job-ID (vom Poller bei UI-ausgelösten Scans gesetzt). Wird in
+# den PDF-Dateinamen eingebettet, damit das Backend den Lauf exakt diesem Job
+# zuordnen kann. Leer bei Hardware-Tasten / Idle-Finalisierung.
+PAPERMIND_SCAN_JOB_ID="${PAPERMIND_SCAN_JOB_ID:-}"
 
 # Ausgabe sowohl auf stdout (manueller Aufruf) als auch nach syslog – Letzteres,
 # damit man bei tastengesteuerten Läufen (scanbd verschluckt stdout) in
@@ -69,6 +73,16 @@ log() {
 die() { log "FEHLER: $*"; exit 1; }
 
 _require() { command -v "$1" >/dev/null 2>&1 || die "Benötigtes Programm fehlt: $1"; }
+
+# Eingebettete Job-ID für den PDF-Dateinamen: "__pmjob-<uuid>", sonst leer. Der
+# Worker löst den Marker wieder heraus (bereinigt den Anzeigenamen) und ordnet
+# den Scan exakt diesem Backend-Job zu.
+_job_filename_suffix() {
+  local id="${PAPERMIND_SCAN_JOB_ID:-}"
+  if [[ "$id" =~ ^[0-9a-fA-F-]{36}$ ]]; then
+    printf '__pmjob-%s' "$id"
+  fi
+}
 
 # Alle device-berührenden Aktionen serialisieren – zwei schnelle Tastendrücke
 # dürfen sich nicht überlappen (Scanner erlaubt nur einen Zugriff).
@@ -124,7 +138,7 @@ _scan_live_page() {
   mv -f "$png_part" "$png"
 
   incoming="${SCAN_INBOX_DIR}/.incoming-${ts}.pdf"
-  target="${SCAN_INBOX_DIR}/Scan-${ts}.pdf"
+  target="${SCAN_INBOX_DIR}/Scan-${ts}$(_job_filename_suffix).pdf"
   if command -v img2pdf >/dev/null 2>&1; then
     img2pdf --output "$incoming" "$png"
   elif command -v convert >/dev/null 2>&1; then
@@ -191,7 +205,7 @@ _finalize() {
   # Erst als Dot-Tempdatei schreiben, dann atomar umbenennen, damit der Worker
   # niemals eine halbfertige PDF sieht (er wartet zusätzlich auf Datei-Ruhe).
   incoming="${SCAN_INBOX_DIR}/.incoming-${ts}.pdf"
-  target="${SCAN_INBOX_DIR}/Scan-${ts}.pdf"
+  target="${SCAN_INBOX_DIR}/Scan-${ts}$(_job_filename_suffix).pdf"
 
   log "Schließe Batch mit ${#pages[@]} Seite(n) zu ${target##*/} ab…"
   if command -v img2pdf >/dev/null 2>&1; then

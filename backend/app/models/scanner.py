@@ -54,6 +54,14 @@ class ScannerScanCommand(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Verknüpft den Befehl mit dem Job, den er ausgelöst hat (UI-Scans). So lässt
+    # sich ein abgelaufener Befehl dem Job als scanner_offline melden und der
+    # Hardwarelauf später exakt diesem Job zuordnen (Job-ID im Befehl/Dateiname).
+    scan_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("scanner_scan_jobs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -89,6 +97,9 @@ class ScannerScanJob(Base):
     state: Mapped[str] = mapped_column(Text, nullable=False, server_default="queued")
     page_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Strukturierte Fehlerart für die UI: timeout | file_missing | scanner_offline
+    # | failed. Nur gesetzt, wenn state == "error".
+    error_kind: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

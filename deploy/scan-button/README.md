@@ -22,6 +22,20 @@ PDF-Produzent für `scan-inbox` (analog zu iOS via SMB, siehe
 Welche der 5 physischen Tasten `button-1` bzw. `button-2` auslöst, ist je nach
 Gerät unterschiedlich – einmal ausprobieren (siehe „Tastenzuordnung" unten).
 
+**UI-ausgelöste Scans & Job-Zuordnung.** Wird ein Scan aus dem Importfenster
+ausgelöst, reiht das Backend einen Befehl ein; der Worker schreibt ihn als
+Datei `.papermind-scan-command-<seq>` nach `scan-inbox`, die der Poller im
+selben Loop konsumiert (bitgleich zum Tastendruck). Der Dateiinhalt ist
+tab-getrennt: `"<command>\t<job_id>"`. Die Job-ID reicht der Poller per
+`PAPERMIND_SCAN_JOB_ID` an `papermind-scan.sh` weiter, das sie als
+`__pmjob-<uuid>` in den PDF-Dateinamen einbettet. Der Worker löst den Marker
+wieder heraus (bereinigt den Anzeigenamen) und ordnet den Hardwarelauf so
+**exakt** dem auslösenden Backend-Job zu. Das Altformat ohne Tab (nur das
+Kommando) bleibt unterstützt – dann ohne Job-Zuordnung.
+
+> Nach Änderungen an `papermind-scan.sh`/`papermind-scan-watch.sh` den
+> Host-Dienst neu starten: `sudo systemctl restart papermind-scan-watch`.
+
 ## Warum ein eigener Poller statt scanbd?
 
 Bei der LiDE 400 läuft der Scanner über das **`pixma`**-SANE-Backend. Der

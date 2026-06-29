@@ -70,7 +70,9 @@
         :scanner-active="isImportScannerFeedbackActive"
         :scanner-feedback-state="importScannerFeedbackState"
         :scanner="importScanner"
+        :scanner-errors="importScannerErrorJobs"
         @scan="onScanTrigger"
+        @dismiss-scan-error="dismissImportScannerError"
         @minimize="onImportMinimized"
         @committed="onImportCommitted"
         @discarded-sources="onImportSourcesDiscarded"
@@ -1148,7 +1150,7 @@ import { useGlobalKeyboard } from '../composables/useGlobalKeyboard';
 import { useSearch } from '../composables/useSearch';
 import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
 import { apiFetch, authedUrl, getBaseUrl } from '../api/client.js';
-import { assignImportInboxItems, claimImportInboxItems, discardImportInboxItems, getImportInbox } from '../api/importInbox.js';
+import { assignImportInboxItems, claimImportInboxItems, discardImportInboxItems, getImportInbox, subscribeImportInbox } from '../api/importInbox.js';
 import { triggerScan } from '../api/scanners.js';
 import { applyPaperMindVuetifyColors, resolvePaperMindColorVariant } from '../theme/tokens';
 
@@ -1517,7 +1519,8 @@ const importScannerOptimisticPhase = ref('idle');
 const isImportScannerFeedbackActive = computed(() =>
   isImportScannerActive.value ||
   isImportScannerOptimisticActive.value ||
-  importScannerJobs.value.length > 0
+  // Fehlerjobs zählen NICHT als aktives Scannen (sie haben eine eigene Anzeige).
+  importScannerJobs.value.some((job) => job.state !== 'error')
 );
 const importScannerFeedbackState = computed(() => {
   const jobs = importScannerJobs.value;
@@ -2529,6 +2532,12 @@ let previewRetryTimer = null;
 let listDropNoticeTimer = null;
 let importInboxPollTimer = null;
 let importScannerOptimisticTimer = null;
+let importInboxStream = null;
+let importInboxStreamReconnectTimer = null;
+const isImportInboxStreamActive = ref(false);
+// Reconnect-Verzögerung nach Stream-Abbruch (Netzwerk/Proxy). Solange der Stream
+// aus ist, übernimmt das Polling lückenlos.
+const IMPORT_INBOX_STREAM_RECONNECT_MS = 8000;
 const IMPORT_SCANNER_SCANNING_FALLBACK_MS = 15000;
 const IMPORT_SCANNER_PENDING_FALLBACK_MS = 60000;
 // sidebarCountsRefreshTimer → jetzt in useSidebarStore verwaltet
@@ -2729,10 +2738,39 @@ function normalizeImportScannerJobs(payload) {
       source_file_id: String(job?.source_file_id || '').trim(),
       import_inbox_item_id: String(job?.import_inbox_item_id || '').trim(),
       page_count: Number(job?.page_count || 0),
+      error: String(job?.error || '').trim(),
+      error_kind: String(job?.error_kind || '').trim(),
       created_at: String(job?.created_at || ''),
       updated_at: String(job?.updated_at || '')
     }))
-    .filter((job) => job.id && ['queued', 'scanning', 'processing'].includes(job.state));
+    .filter((job) => job.id && ['queued', 'scanning', 'processing', 'error'].includes(job.state));
+}
+
+const SCAN_ERROR_LABELS = {
+  timeout: 'Zeitüberschreitung beim Scan',
+  file_missing: 'Gescannter Beleg nicht gefunden',
+  scanner_offline: 'Scanner nicht erreichbar',
+  failed: 'Scan fehlgeschlagen'
+};
+
+// Fehlerhafte Scan-Jobs für die Anzeige aufbereiten (Timeout, Datei fehlt,
+// Scanner offline). Neueste zuerst.
+const importScannerErrorJobs = computed(() =>
+  importScannerJobs.value
+    .filter((job) => job.state === 'error')
+    .map((job) => ({
+      id: job.id,
+      kind: job.error_kind || 'failed',
+      title: SCAN_ERROR_LABELS[job.error_kind] || SCAN_ERROR_LABELS.failed,
+      detail: job.error || ''
+    }))
+    .sort((a, b) => b.id.localeCompare(a.id))
+);
+
+function dismissImportScannerError(jobId) {
+  // Nur lokal ausblenden; der Job wird serverseitig ohnehin nach kurzer Zeit
+  // aus dem Status entfernt bzw. später bereinigt.
+  importScannerJobs.value = importScannerJobs.value.filter((job) => job.id !== jobId);
 }
 
 const pendingImportInboxBadgeLabel = computed(() => {
@@ -2846,10 +2884,25 @@ async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) 
     return;
   }
   isImportInboxLoading.value = true;
-  let shouldAutoOpen = false;
-  let shouldLivePush = false;
   try {
     const payload = await getImportInbox({ limit: 50 });
+    await handleImportInboxPayload(payload, { allowAutoOpen });
+  } catch (error) {
+    if (!silent) {
+      notify({ type: 'error', message: mapApiError(error, 'Neue Scans konnten nicht geladen werden.') });
+    }
+  } finally {
+    isImportInboxLoading.value = false;
+  }
+}
+
+// Wendet einen Inbox-Status (egal ob via Polling-GET oder SSE-Push) auf den
+// lokalen Zustand an. Enthält die gesamte Auto-Open-/Live-Push-Logik, damit
+// beide Quellen sich identisch verhalten.
+async function handleImportInboxPayload(payload, { allowAutoOpen = true } = {}) {
+  let shouldAutoOpen = false;
+  let shouldLivePush = false;
+  {
     const wasImportScannerActive = isImportScannerActive.value;
     const nextImportScannerActive = Boolean(payload?.scanning);
     isImportScannerActive.value = nextImportScannerActive;
@@ -2894,12 +2947,6 @@ async function refreshImportInbox({ silent = true, allowAutoOpen = true } = {}) 
     // addRemoteSources() ist idempotent pro source_file_id, daher unbedenklich
     // mit der vollständigen Liste erneut aufrufbar.
     shouldLivePush = !shouldAutoOpen && allowAutoOpen && nextItems.length > 0 && isUploadDialogOpen.value;
-  } catch (error) {
-    if (!silent) {
-      notify({ type: 'error', message: mapApiError(error, 'Neue Scans konnten nicht geladen werden.') });
-    }
-  } finally {
-    isImportInboxLoading.value = false;
   }
 
   if (shouldAutoOpen) {
@@ -2925,17 +2972,75 @@ function startImportInboxPolling() {
   }
   void refreshImportInbox({ silent: true, allowAutoOpen: false });
   scheduleImportInboxPoll();
+  startImportInboxStream();
+}
+
+// SSE-Abo: pusht Inbox-/Scan-Job-Änderungen in Echtzeit. Solange der Stream
+// läuft, ist das Polling nur noch ein langsamer Sicherheits-Fallback.
+function startImportInboxStream() {
+  if (typeof window === 'undefined' || typeof fetch !== 'function' || !window.ReadableStream) {
+    return; // SSE-Fallback: reines Polling
+  }
+  if (importInboxStream || document.hidden) {
+    return;
+  }
+  if (importInboxStreamReconnectTimer) {
+    window.clearTimeout(importInboxStreamReconnectTimer);
+    importInboxStreamReconnectTimer = null;
+  }
+  importInboxStream = subscribeImportInbox(
+    (payload) => {
+      isImportInboxStreamActive.value = true;
+      // allowAutoOpen wie beim Polling: ein gepushter neuer Scan darf den
+      // Importdialog automatisch öffnen.
+      void handleImportInboxPayload(payload, { allowAutoOpen: true });
+      // Poll-Takt zurückfahren, sobald der Stream nachweislich liefert.
+      scheduleImportInboxPoll();
+    },
+    {
+      onError: () => {
+        isImportInboxStreamActive.value = false;
+        stopImportInboxStream();
+        // Polling sofort wieder auf das aktive Intervall ziehen und Reconnect planen.
+        scheduleImportInboxPoll();
+        if (!document.hidden && !importInboxStreamReconnectTimer) {
+          importInboxStreamReconnectTimer = window.setTimeout(() => {
+            importInboxStreamReconnectTimer = null;
+            startImportInboxStream();
+          }, IMPORT_INBOX_STREAM_RECONNECT_MS);
+        }
+      }
+    }
+  );
+}
+
+function stopImportInboxStream() {
+  if (importInboxStream) {
+    importInboxStream.close();
+    importInboxStream = null;
+  }
+  isImportInboxStreamActive.value = false;
 }
 
 function scheduleImportInboxPoll(delay = null) {
   if (importInboxPollTimer) {
     window.clearTimeout(importInboxPollTimer);
   }
-  // Bei offenem Importdialog schneller pollen, damit der Scan-Status
-  // (gerade am Scannen?) sich live anfühlt. Auch im Ruhezustand (Dialog noch
-  // zu) moderat zügig pollen, weil genau dieses Intervall bestimmt, wie
-  // schnell die allererste gescannte Seite den Auto-Open überhaupt auslöst.
-  const nextDelay = delay ?? (document.hidden ? 60000 : (isUploadDialogOpen.value ? 2000 : 5000));
+  // Bei aktivem SSE-Stream wird nur als Sicherheitsnetz selten gepollt – die
+  // Echtzeit-Updates kommen über den Stream. Ohne Stream das bisherige Verhalten:
+  // bei offenem Importdialog schneller pollen, damit der Scan-Status sich live
+  // anfühlt; im Ruhezustand moderat (bestimmt, wie schnell die erste Seite den
+  // Auto-Open auslöst).
+  let nextDelay = delay;
+  if (nextDelay === null) {
+    if (document.hidden) {
+      nextDelay = 60000;
+    } else if (isImportInboxStreamActive.value) {
+      nextDelay = 30000;
+    } else {
+      nextDelay = isUploadDialogOpen.value ? 2000 : 5000;
+    }
+  }
   importInboxPollTimer = window.setTimeout(async () => {
     await refreshImportInbox({ silent: true });
     scheduleImportInboxPoll();
@@ -2948,6 +3053,13 @@ watch(isUploadDialogOpen, () => scheduleImportInboxPoll(0));
 
 function handleImportInboxVisibilityChange() {
   scheduleImportInboxPoll(document.hidden ? 60000 : 0);
+  // Im Hintergrund die offene SSE-Verbindung freigeben; beim Zurückkehren neu
+  // aufbauen (sofortiger Refresh deckt die Lücke ab).
+  if (document.hidden) {
+    stopImportInboxStream();
+  } else {
+    startImportInboxStream();
+  }
 }
 
 async function openImportInboxScans({ refresh = true, notifyWhenEmpty = true } = {}) {
@@ -6549,6 +6661,11 @@ onBeforeUnmount(() => {
   if (importInboxPollTimer) {
     window.clearTimeout(importInboxPollTimer);
   }
+  if (importInboxStreamReconnectTimer) {
+    window.clearTimeout(importInboxStreamReconnectTimer);
+    importInboxStreamReconnectTimer = null;
+  }
+  stopImportInboxStream();
   clearImportScannerOptimisticActive();
   document.removeEventListener('visibilitychange', handleImportInboxVisibilityChange);
   if (documentListSettleTimer) {
