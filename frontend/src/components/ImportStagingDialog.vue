@@ -2528,7 +2528,21 @@ async function addFilesToStaging(candidates, options = {}) {
   }
 }
 
-async function addRemoteSources(payload = []) {
+// Serialisiert addRemoteSources-Aufrufe. SSE-Push und Polling können fast
+// gleichzeitig dieselbe neue Scan-Quelle einspielen; ohne Serialisierung liefen
+// zwei Aufrufe durch ihre awaits verschränkt, bestünden beide den
+// sourceMetaById-Check, bevor einer setStagingFile() aufruft - und legten
+// dieselbe Seite (und ggf. ein zweites Scan-Dokument) doppelt an.
+let remoteSourcesChain = Promise.resolve();
+
+function addRemoteSources(payload = []) {
+  const run = remoteSourcesChain.then(() => addRemoteSourcesImpl(payload));
+  // Kette am Leben halten, auch wenn ein Lauf fehlschlägt.
+  remoteSourcesChain = run.then(() => {}, () => {});
+  return run;
+}
+
+async function addRemoteSourcesImpl(payload = []) {
   const items = Array.isArray(payload) ? payload : Array.isArray(payload?.sources) ? payload.sources : [];
   const preferredTargetStageId = String(payload?.targetStageId || '').trim() || null;
   const sessionId = String(payload?.sessionId || '').trim() || '__scan_default__';
