@@ -513,124 +513,10 @@
             <SettingsInfoCard
               icon="mdi-tray-arrow-up"
               title="Importieren"
-              subtitle="Scan-Eingang, Importdialog und automatische Schritte nach dem Import."
+              subtitle="Scanner, Scan-Eingang und automatische Schritte nach dem Import."
             />
 
-            <div
-              class="pm-setting-row"
-              role="button"
-              tabindex="0"
-              @click="toggleAutoOpenImportInboxFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleAutoOpenImportInboxFromRow)"
-            >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Importfenster bei neuen Scans öffnen</div>
-                <div class="pm-setting-description">
-                  Öffnet automatisch den Importdialog, sobald neue Scans im Posteingang erkannt werden.
-                </div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.documents.auto_open_import_inbox"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :loading="isSettingSaving.auto_open_import_inbox"
-                :disabled="isSettingSaving.auto_open_import_inbox"
-                @click.stop
-                @update:model-value="onAutoOpenImportInboxChange"
-              />
-            </div>
-
-            <div
-              class="pm-setting-row"
-              role="button"
-              tabindex="0"
-              @click="toggleAutoOcrFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleAutoOcrFromRow)"
-            >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Automatisches OCR</div>
-                <div class="pm-setting-description">
-                  Extrahiert Text nach dem Import im Hintergrund und macht neue Dokumente durchsuchbar.
-                </div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.documents.auto_ocr"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :loading="isSettingSaving.auto_ocr"
-                :disabled="isSettingSaving.auto_ocr"
-                @click.stop
-                @update:model-value="onAutoOcrChange"
-              />
-            </div>
-
-            <div class="pm-setting-row pm-setting-row--column">
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Erkennungssprache</div>
-                <div class="pm-setting-description">
-                  Standardsprache für die Texterkennung beim Import.
-                </div>
-              </div>
-              <v-select
-                :model-value="settingsDraft.documents.ocr_doc_lang"
-                :items="ocrDocLangOptions"
-                density="comfortable"
-                hide-details
-                variant="outlined"
-                class="settings-theme-select pm-setting-select"
-                label="Erkennungssprache"
-                :loading="isSettingSaving.ocr_doc_lang"
-                :disabled="isSettingSaving.ocr_doc_lang"
-                @update:model-value="onOcrDocLangChange"
-              />
-            </div>
-
-            <div
-              class="pm-setting-row"
-              :class="{ 'pm-setting-row--disabled': !settingsDraft.documents.auto_ocr }"
-              role="button"
-              tabindex="0"
-              @click="toggleAutoTaggingFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleAutoTaggingFromRow)"
-            >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">KI-Analyse nach dem Import</div>
-                <div class="pm-setting-description">
-                  Ergänzt nach dem Import automatisch Metadaten und Tags.
-                </div>
-                <div v-if="!settingsDraft.documents.auto_ocr" class="pm-setting-hint">
-                  Benötigt „Automatisches OCR" – ohne extrahierten Text gibt es nichts zu analysieren.
-                </div>
-                <div v-else-if="settingsDraft.documents.auto_tagging" class="pm-setting-hint">
-                  Nutzt die unter „Texterkennung" konfigurierte lokale KI.
-                </div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.documents.auto_ocr && settingsDraft.documents.auto_tagging"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :loading="isSettingSaving.auto_tagging"
-                :disabled="isSettingSaving.auto_tagging || !settingsDraft.documents.auto_ocr"
-                @click.stop
-                @update:model-value="onAutoTaggingChange"
-              />
-            </div>
-          </div>
-        </section>
-
-        <section v-show="activeCategory === 'scanners'" class="pm-settings-section">
-          <div class="pm-settings-content">
-            <SettingsInfoCard
-              icon="mdi-scanner"
-              title="Scanner"
-              subtitle="Empfänger und Sichtbarkeit für neue Scanner-Scans verwalten."
-            />
+            <div class="pm-settings-subhead">Scanner</div>
 
             <div v-if="scannerSettingsLoading" class="scanner-settings-state">
               <v-progress-circular indeterminate size="22" width="2" />
@@ -750,6 +636,114 @@
                   />
                 </div>
               </div>
+            </div>
+
+            <div class="pm-settings-subhead">Import</div>
+
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleAutoOpenImportInboxFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleAutoOpenImportInboxFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Importfenster bei neuen Scans öffnen</div>
+                <div class="pm-setting-description">
+                  Öffnet automatisch den Importdialog, sobald neue Scans im Posteingang erkannt werden.
+                </div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.documents.auto_open_import_inbox"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.auto_open_import_inbox"
+                :disabled="isSettingSaving.auto_open_import_inbox"
+                @click.stop
+                @update:model-value="onAutoOpenImportInboxChange"
+              />
+            </div>
+
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleAutoOcrFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleAutoOcrFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Automatisches OCR</div>
+                <div class="pm-setting-description">
+                  Extrahiert Text nach dem Import im Hintergrund und macht neue Dokumente durchsuchbar.
+                </div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.documents.auto_ocr"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.auto_ocr"
+                :disabled="isSettingSaving.auto_ocr"
+                @click.stop
+                @update:model-value="onAutoOcrChange"
+              />
+            </div>
+
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Erkennungssprache</div>
+                <div class="pm-setting-description">
+                  Standardsprache für die Texterkennung beim Import.
+                </div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.documents.ocr_doc_lang"
+                :items="ocrDocLangOptions"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Erkennungssprache"
+                :loading="isSettingSaving.ocr_doc_lang"
+                :disabled="isSettingSaving.ocr_doc_lang"
+                @update:model-value="onOcrDocLangChange"
+              />
+            </div>
+
+            <div
+              class="pm-setting-row"
+              :class="{ 'pm-setting-row--disabled': !settingsDraft.documents.auto_ocr }"
+              role="button"
+              tabindex="0"
+              @click="toggleAutoTaggingFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleAutoTaggingFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">KI-Analyse nach dem Import</div>
+                <div class="pm-setting-description">
+                  Ergänzt nach dem Import automatisch Metadaten und Tags.
+                </div>
+                <div v-if="!settingsDraft.documents.auto_ocr" class="pm-setting-hint">
+                  Benötigt „Automatisches OCR" – ohne extrahierten Text gibt es nichts zu analysieren.
+                </div>
+                <div v-else-if="settingsDraft.documents.auto_tagging" class="pm-setting-hint">
+                  Nutzt die unter „Texterkennung" konfigurierte lokale KI.
+                </div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.documents.auto_ocr && settingsDraft.documents.auto_tagging"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.auto_tagging"
+                :disabled="isSettingSaving.auto_tagging || !settingsDraft.documents.auto_ocr"
+                @click.stop
+                @update:model-value="onAutoTaggingChange"
+              />
             </div>
           </div>
         </section>
@@ -2229,7 +2223,6 @@ const settingsCategories = [
   { value: 'controls', label: 'Bedienung', icon: 'mdi-keyboard-outline', group: 'surface' },
   { value: 'sidebar', label: 'Seitenleiste', icon: 'mdi-page-layout-sidebar-left', group: 'surface' },
   { value: 'import', label: 'Importieren', icon: 'mdi-tray-arrow-up', group: 'documents', adminOnly: true },
-  { value: 'scanners', label: 'Scanner', icon: 'mdi-scanner', group: 'documents', adminOnly: true },
   { value: 'documents', label: 'Bibliothek', icon: 'mdi-archive-outline', group: 'documents', adminOnly: true },
   { value: 'categories', label: 'Dokumenttypen', icon: 'mdi-file-document-multiple-outline', group: 'documents' },
   { value: 'correspondents', label: 'Korrespondenten', icon: 'mdi-account-outline', group: 'documents' },
@@ -2617,7 +2610,7 @@ watch(activeCategory, (value) => {
     backupSetupInitialized = false; // Panel-Zustand beim Betreten neu bestimmen
     loadBackup();
   }
-  if (value === 'scanners') {
+  if (value === 'import') {
     void loadScannerSettings();
   }
 });
@@ -3565,7 +3558,7 @@ watch(
       void categoryStore.fetchCategories();
       void correspondentStore.fetchCorrespondents();
       void loadUnresolvedCorrespondents();
-      if (activeCategory.value === 'scanners') {
+      if (activeCategory.value === 'import') {
         void loadScannerSettings();
       }
     }
@@ -4155,6 +4148,20 @@ async function removeAlias(alias) {
 .pm-settings-content > .settings-info-card + .scanner-list,
 .pm-settings-content > .settings-info-card + .scanner-empty,
 .pm-settings-content > .settings-info-card + .scanner-settings-state {
+  margin-top: 12px;
+}
+
+/* Unterüberschrift zur Gliederung innerhalb eines zusammengefassten Bereichs. */
+.pm-settings-subhead {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+  margin: 18px 0 6px;
+}
+
+.pm-settings-content > .settings-info-card + .pm-settings-subhead {
   margin-top: 12px;
 }
 
