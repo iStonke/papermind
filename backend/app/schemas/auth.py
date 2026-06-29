@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import ORMModel
 
@@ -9,6 +9,15 @@ from app.schemas.common import ORMModel
 class LoginRequest(BaseModel):
     username: str = Field(min_length=1, max_length=150)
     password: str = Field(min_length=1, max_length=1024)
+
+
+class RegisterRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    username: str = Field(min_length=1, max_length=150)
+    password: str = Field(min_length=8, max_length=1024)
+    display_name: str | None = Field(default=None, max_length=150)
+    email: str | None = Field(default=None, max_length=320)
 
 
 class UserRead(ORMModel):

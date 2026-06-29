@@ -13,7 +13,9 @@
             <v-icon icon="mdi-brain" size="34" />
           </div>
           <div class="login-brand login-rise login-rise--2">PaperMind</div>
-          <div class="login-subtitle login-rise login-rise--3">Bitte anmelden</div>
+          <div class="login-subtitle login-rise login-rise--3">
+            {{ isRegisterMode ? 'Konto erstellen' : 'Bitte anmelden' }}
+          </div>
 
           <v-form @submit.prevent="submit">
             <v-text-field
@@ -28,6 +30,32 @@
               hide-details="auto"
               class="mb-4 login-rise login-rise--4"
             />
+            <v-expand-transition>
+              <div v-if="isRegisterMode">
+                <v-text-field
+                  v-model="displayName"
+                  label="Anzeigename"
+                  prepend-inner-icon="mdi-card-account-details-outline"
+                  variant="outlined"
+                  density="comfortable"
+                  autocomplete="name"
+                  :disabled="loading"
+                  hide-details="auto"
+                  class="mb-4 login-rise login-rise--4"
+                />
+                <v-text-field
+                  v-model="email"
+                  label="E-Mail (optional)"
+                  prepend-inner-icon="mdi-email-outline"
+                  variant="outlined"
+                  density="comfortable"
+                  autocomplete="email"
+                  :disabled="loading"
+                  hide-details="auto"
+                  class="mb-4 login-rise login-rise--4"
+                />
+              </div>
+            </v-expand-transition>
             <v-text-field
               ref="passwordField"
               v-model="password"
@@ -37,12 +65,27 @@
               :append-inner-icon="showPassword ? 'mdi-eye-off' : 'mdi-eye'"
               variant="outlined"
               density="comfortable"
-              autocomplete="current-password"
+              :autocomplete="isRegisterMode ? 'new-password' : 'current-password'"
               :disabled="loading"
               hide-details="auto"
-              class="mb-2 login-rise login-rise--5"
+              :class="isRegisterMode ? 'mb-4 login-rise login-rise--5' : 'mb-2 login-rise login-rise--5'"
               @click:append-inner="showPassword = !showPassword"
             />
+            <v-expand-transition>
+              <v-text-field
+                v-if="isRegisterMode"
+                v-model="passwordConfirm"
+                label="Passwort wiederholen"
+                prepend-inner-icon="mdi-lock-check-outline"
+                :type="showPassword ? 'text' : 'password'"
+                variant="outlined"
+                density="comfortable"
+                autocomplete="new-password"
+                :disabled="loading"
+                hide-details="auto"
+                class="mb-2 login-rise login-rise--5"
+              />
+            </v-expand-transition>
 
             <v-expand-transition>
               <v-alert
@@ -66,9 +109,21 @@
               size="large"
               class="login-rise login-rise--6"
               :loading="loading"
-              :disabled="!username || !password"
+              :disabled="!canSubmit"
             >
-              Anmelden
+              {{ isRegisterMode ? 'Registrieren' : 'Anmelden' }}
+            </v-btn>
+
+            <v-btn
+              type="button"
+              variant="text"
+              color="primary"
+              block
+              class="mt-2 login-rise login-rise--6"
+              :disabled="loading"
+              @click="toggleMode"
+            >
+              {{ isRegisterMode ? 'Schon ein Konto? Anmelden' : 'Neues Konto erstellen' }}
             </v-btn>
           </v-form>
         </v-card>
@@ -78,7 +133,7 @@
 </template>
 
 <script setup>
-import { nextTick, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { useAuthStore } from '../stores/auth.js';
@@ -88,15 +143,24 @@ const router = useRouter();
 const route = useRoute();
 
 const username = ref('');
+const displayName = ref('');
+const email = ref('');
 const password = ref('');
+const passwordConfirm = ref('');
 const showPassword = ref(false);
 const loading = ref(false);
+const isRegisterMode = ref(false);
 /** Fehler als { title, text } oder null. */
 const error = ref(null);
 const passwordField = ref(null);
+const canSubmit = computed(() => {
+  if (!username.value.trim() || !password.value) return false;
+  if (!isRegisterMode.value) return true;
+  return password.value.length >= 8 && passwordConfirm.value.length >= 8;
+});
 
 // Fehler verschwindet, sobald der Nutzer die Eingabe korrigiert.
-watch([username, password], () => {
+watch([username, displayName, email, password, passwordConfirm, isRegisterMode], () => {
   if (error.value) error.value = null;
 });
 
@@ -154,16 +218,72 @@ function mapLoginError(err) {
   };
 }
 
+function mapRegisterError(err) {
+  const status = err?.status;
+  const raw = String(err?.message || '').toLowerCase();
+
+  if (status === 409) {
+    if (raw.includes('e-mail')) {
+      return {
+        title: 'E-Mail bereits vergeben',
+        text: 'Diese E-Mail-Adresse ist schon registriert.',
+      };
+    }
+    return {
+      title: 'Benutzername bereits vergeben',
+      text: 'Bitte wähle einen anderen Benutzernamen.',
+    };
+  }
+  if (status === 400 || status === 422) {
+    return {
+      title: 'Registrierung nicht möglich',
+      text: 'Bitte prüfe Benutzername, E-Mail und Passwort.',
+    };
+  }
+  if (status === 429) {
+    return {
+      title: 'Zu viele Versuche',
+      text: 'Aus Sicherheitsgründen pausiert. Bitte warte ein paar Minuten und versuche es erneut.',
+    };
+  }
+  return mapLoginError(err);
+}
+
+function toggleMode() {
+  isRegisterMode.value = !isRegisterMode.value;
+  password.value = '';
+  passwordConfirm.value = '';
+  error.value = null;
+}
+
 async function submit() {
-  if (!username.value || !password.value || loading.value) return;
+  if (!canSubmit.value || loading.value) return;
+  if (isRegisterMode.value && password.value !== passwordConfirm.value) {
+    error.value = {
+      title: 'Passwörter stimmen nicht überein',
+      text: 'Bitte gib zweimal dasselbe Passwort ein.',
+    };
+    await nextTick();
+    passwordField.value?.focus?.();
+    return;
+  }
   loading.value = true;
   error.value = null;
   try {
-    await authStore.login(username.value.trim(), password.value);
+    if (isRegisterMode.value) {
+      await authStore.register({
+        username: username.value.trim(),
+        password: password.value,
+        display_name: displayName.value.trim() || null,
+        email: email.value.trim() || null,
+      });
+    } else {
+      await authStore.login(username.value.trim(), password.value);
+    }
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/';
     router.push(redirect);
   } catch (err) {
-    const mapped = mapLoginError(err);
+    const mapped = isRegisterMode.value ? mapRegisterError(err) : mapLoginError(err);
     error.value = { title: mapped.title, text: mapped.text };
     // Erst die Sperre lösen, dann fokussieren – ein disabled-Feld nimmt keinen
     // Fokus an.
@@ -347,7 +467,7 @@ async function submit() {
 
 .login-card {
   width: 100%;
-  max-width: 380px;
+  max-width: 420px;
   padding: 36px 32px 32px;
   /* Glassmorphism — staerkerer Blur + hoehere Saettigung fuer kraeftigeres Glas. */
   background: rgba(14, 20, 32, 0.5) !important;

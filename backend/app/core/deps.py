@@ -40,6 +40,7 @@ _EXEMPT_EXACT = {
     "/health/ready",
     "/api/health",
     "/api/auth/login",
+    "/api/auth/register",
     "/api/auth/refresh",
     "/openapi.json",
     "/docs",

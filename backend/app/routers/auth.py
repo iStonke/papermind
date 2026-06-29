@@ -16,11 +16,13 @@ from app.schemas.auth import (
     FileTokenResponse,
     LoginRequest,
     ProfileUpdateRequest,
+    RegisterRequest,
     RefreshTokenRequest,
     TokenResponse,
     UserRead,
 )
 from app.schemas.common import ErrorResponse, OkResponse
+from app.schemas.users import UserCreateRequest
 from app.services.users import UserService
 from app.services.auth_sessions import AuthSessionService
 from app.models.auth_session import AuthSession
@@ -122,6 +124,47 @@ def login(
     if user is None:
         raise UnauthorizedError("Invalid username or password")
 
+    session, refresh_token = AuthSessionService(db).create(user, request)
+    _set_refresh_cookie(response, refresh_token)
+    return _issue_token_response(user, session)
+
+
+@router.post(
+    "/register",
+    response_model=TokenResponse,
+    summary="Register a new user and start a browser session",
+    responses={
+        400: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+        429: {"model": ErrorResponse},
+    },
+)
+def register(
+    payload: RegisterRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    settings = get_settings()
+    enforce_persistent_rate_limit(
+        db,
+        "register",
+        _client_identity(request, payload.username),
+        limit=settings.auth_login_rate_limit,
+        window_seconds=settings.auth_login_rate_window_seconds,
+    )
+
+    service = UserService(db)
+    user = service.create_user(
+        UserCreateRequest(
+            username=payload.username,
+            password=payload.password,
+            display_name=payload.display_name,
+            email=payload.email,
+            is_admin=False,
+        )
+    )
     session, refresh_token = AuthSessionService(db).create(user, request)
     _set_refresh_cookie(response, refresh_token)
     return _issue_token_response(user, session)

@@ -85,6 +85,7 @@ export {
   mdiKeyboardOutline,
   mdiLanConnect,
   mdiLinkOff,
+  mdiLockCheckOutline,
   mdiLockOutline,
   mdiLockReset,
   mdiLogout,

@@ -5,6 +5,7 @@ import {
   fetchFileToken,
   login as loginRequest,
   logout as logoutRequest,
+  register as registerRequest,
   refreshSession as refreshSessionRequest,
   renewSession as renewSessionRequest,
 } from '../api/auth.js';
@@ -117,6 +118,12 @@ export const useAuthStore = defineStore('auth', {
 
     async login(username, password) {
       const result = await loginRequest(username, password);
+      this.applyTokenResponse(result);
+      return result.user;
+    },
+
+    async register(payload) {
+      const result = await registerRequest(payload);
       this.applyTokenResponse(result);
       return result.user;
     },

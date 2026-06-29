@@ -11,6 +11,14 @@ export const login = (username, password) =>
     timeoutMs: AUTH_BOOTSTRAP_TIMEOUT_MS,
   });
 
+export const register = ({ username, password, display_name, email }) =>
+  apiFetch('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ username, password, display_name, email }),
+    handleUnauthorized: false,
+    timeoutMs: AUTH_BOOTSTRAP_TIMEOUT_MS,
+  });
+
 export const refreshSession = (refreshToken) =>
   apiFetch('/api/auth/refresh', {
     method: 'POST',
