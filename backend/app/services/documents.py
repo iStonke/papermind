@@ -232,6 +232,7 @@ class DocumentService:
                 Document.document_date_confidence,
                 Document.document_date_candidates,
                 Document.document_type,
+                Document.correspondent_id,
                 Document.status,
                 Document.ocr_status,
                 Document.ocr_quality_status,
@@ -1617,6 +1618,8 @@ class DocumentService:
             rows = self.db.execute(items_stmt).scalars().unique().all()
             items = [self._as_summary(item) for item in rows]
 
+        self._attach_summary_correspondents(items)
+
         return DocumentListResponse(
             items=items,
             total=total,
@@ -1912,3 +1915,19 @@ class DocumentService:
         summary = DocumentSummary.model_validate(document, from_attributes=True)
         summary.is_duplicate = document.duplicate_of_doc_id is not None
         return summary
+
+    def _attach_summary_correspondents(self, items: list[DocumentSummary]) -> None:
+        correspondent_ids = {
+            item.correspondent_id
+            for item in items
+            if item.correspondent_id is not None
+        }
+        if not correspondent_ids:
+            return
+        stmt = select(Correspondent.id, Correspondent.name).where(Correspondent.id.in_(correspondent_ids))
+        if self.owner_id is not None:
+            stmt = stmt.where(Correspondent.owner_id == self.owner_id)
+        name_by_id = {correspondent_id: name for correspondent_id, name in self.db.execute(stmt).all()}
+        for item in items:
+            if item.correspondent_id is not None:
+                item.correspondent_name = name_by_id.get(item.correspondent_id)

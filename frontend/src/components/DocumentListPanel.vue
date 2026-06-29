@@ -112,11 +112,23 @@
                   <span v-if="document.is_unread" class="document-row__unread-dot" aria-hidden="true" />
                   <div class="document-row__name">{{ formatDocumentTitle(document) }}</div>
                 </div>
-                <div class="document-row__meta-line">
-                  <div class="document-row__meta">{{ displayDocumentType(document) }}</div>
-                </div>
-                <div class="document-row__meta-line">
-                  <div class="document-row__meta">{{ displayListDate(document) }}</div>
+                <div class="document-row__meta-list">
+                  <div class="document-row__meta" :aria-label="`Dokumenttyp: ${displayDocumentType(document)}`">
+                    <v-icon size="17" class="document-row__meta-icon" title="Dokumenttyp">mdi-file-document-outline</v-icon>
+                    <span>{{ displayDocumentType(document) }}</span>
+                  </div>
+                  <div class="document-row__meta" :aria-label="`Dokumentdatum: ${displayListDate(document)}`">
+                    <v-icon size="17" class="document-row__meta-icon" title="Dokumentdatum">mdi-calendar-outline</v-icon>
+                    <span>{{ displayListDate(document) }}</span>
+                  </div>
+                  <div
+                    v-if="displayCorrespondent(document)"
+                    class="document-row__meta"
+                    :aria-label="`Korrespondent: ${displayCorrespondent(document)}`"
+                  >
+                    <v-icon size="17" class="document-row__meta-icon" title="Korrespondent">mdi-account-outline</v-icon>
+                    <span>{{ displayCorrespondent(document) }}</span>
+                  </div>
                 </div>
                 <TransitionGroup
                   v-if="Array.isArray(document.tags) && document.tags.length > 0"
@@ -365,7 +377,7 @@ const showPdfSuffixComputed = computed(() => settingsStore.settingsDraft?.ui?.sh
 // Scrollhöhe über Platzhalter (Spacer) konstant. content-visibility übernimmt
 // zusätzlich das Paint-Skipping der gerenderten Zeilen.
 const VIRTUALIZE_THRESHOLD = 60;   // Erst ab dieser Länge virtualisieren.
-const ROW_STEP_FALLBACK = 114;     // Zeilenhöhe (~104) + Abstand (10) als Startwert.
+const ROW_STEP_FALLBACK = 128;     // Zeilenhöhe (~118) + Abstand (10) als Startwert.
 const ROW_OVERSCAN = 8;            // Puffer-Zeilen ober-/unterhalb des Viewports.
 
 const measuredRowStep = ref(ROW_STEP_FALLBACK);
@@ -724,14 +736,26 @@ function formatDate(value) {
 
 function displayListDate(document) {
   if (document.document_date) {
-    return `Dokumentdatum: ${formatDate(document.document_date)}`;
+    return formatDate(document.document_date);
   }
-  return 'Dokumentdatum: —';
+  return '—';
 }
 
 function displayDocumentType(document) {
   const documentType = String(document?.document_type || document?.category || '').trim();
-  return `Dokumenttyp: ${documentType || '—'}`;
+  return documentType || '—';
+}
+
+function displayCorrespondent(document) {
+  const correspondent = document?.correspondent;
+  return String(
+    document?.correspondent_name ||
+    document?.correspondent_short_name ||
+    correspondent?.short_name ||
+    correspondent?.name ||
+    correspondent?.title ||
+    ''
+  ).trim();
 }
 
 function escapeHtml(value) {
@@ -868,11 +892,6 @@ function onListDrop(event) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.document-row__meta-line {
-  display: flex;
-  width: 100%;
 }
 
 .document-list__bottom-spacer {

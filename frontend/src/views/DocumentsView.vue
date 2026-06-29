@@ -8978,7 +8978,7 @@ onBeforeUnmount(() => {
 .document-row {
   width: 100%;
   content-visibility: auto;
-  contain-intrinsic-block-size: auto 104px;
+  contain-intrinsic-block-size: auto 118px;
   display: grid;
   grid-template-columns: 58px 1fr auto;
   gap: 10px;
@@ -9328,15 +9328,31 @@ onBeforeUnmount(() => {
 }
 
 .document-row__meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-size: 0.8rem;
   opacity: 0.72;
 }
 
-.document-row__meta-line {
-  margin-top: 4px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.document-row__meta-list {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+.document-row__meta-icon {
+  flex: 0 0 auto;
+  opacity: 0.78;
+}
+
+.document-row__meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .document-row__tags {

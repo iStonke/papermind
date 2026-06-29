@@ -172,6 +172,8 @@ class DocumentSummary(ORMModel):
     document_date_candidates: list[dict[str, Any]] | None = None
     document_type: str | None = None
     category: str | None = None
+    correspondent_id: uuid.UUID | None = None
+    correspondent_name: str | None = None
     status: DocumentStatus
     ocr_status: DocumentOCRStatus
     ocr_quality_status: DocumentOCRQualityStatus | None = None
