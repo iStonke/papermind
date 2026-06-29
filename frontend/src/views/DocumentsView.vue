@@ -70,9 +70,7 @@
         :scanner-active="isImportScannerFeedbackActive"
         :scanner-feedback-state="importScannerFeedbackState"
         :scanner="importScanner"
-        :scanner-errors="importScannerErrorJobs"
         @scan="onScanTrigger"
-        @dismiss-scan-error="dismissImportScannerError"
         @minimize="onImportMinimized"
         @committed="onImportCommitted"
         @discarded-sources="onImportSourcesDiscarded"
@@ -2753,24 +2751,29 @@ const SCAN_ERROR_LABELS = {
   failed: 'Scan fehlgeschlagen'
 };
 
-// Fehlerhafte Scan-Jobs für die Anzeige aufbereiten (Timeout, Datei fehlt,
-// Scanner offline). Neueste zuerst.
-const importScannerErrorJobs = computed(() =>
-  importScannerJobs.value
-    .filter((job) => job.state === 'error')
-    .map((job) => ({
-      id: job.id,
-      kind: job.error_kind || 'failed',
-      title: SCAN_ERROR_LABELS[job.error_kind] || SCAN_ERROR_LABELS.failed,
-      detail: job.error || ''
-    }))
-    .sort((a, b) => b.id.localeCompare(a.id))
-);
+// Fehlerhafte Scan-Jobs (Timeout, Datei fehlt, Scanner offline) werden über das
+// globale Benachrichtigungssystem gemeldet - je Job genau einmal, damit das
+// wiederholte Eintreffen desselben Status (SSE/Polling) nicht mehrfach toastet.
+const notifiedScanErrorIds = new Set();
 
-function dismissImportScannerError(jobId) {
-  // Nur lokal ausblenden; der Job wird serverseitig ohnehin nach kurzer Zeit
-  // aus dem Status entfernt bzw. später bereinigt.
-  importScannerJobs.value = importScannerJobs.value.filter((job) => job.id !== jobId);
+function processScannerErrorNotifications({ silent = false } = {}) {
+  for (const job of importScannerJobs.value) {
+    if (job.state !== 'error' || !job.id || notifiedScanErrorIds.has(job.id)) {
+      continue;
+    }
+    notifiedScanErrorIds.add(job.id);
+    // silent: beim ersten Laden vorhandene (alte) Fehler nur merken, nicht
+    // toasten - sonst poppen beim App-Start Hinweise zu längst vergangenen Läufen.
+    if (silent) {
+      continue;
+    }
+    const title = SCAN_ERROR_LABELS[job.error_kind] || SCAN_ERROR_LABELS.failed;
+    notify({
+      type: job.error_kind === 'scanner_offline' ? 'warning' : 'error',
+      title,
+      message: job.error || title
+    });
+  }
 }
 
 const pendingImportInboxBadgeLabel = computed(() => {
@@ -2911,6 +2914,9 @@ async function handleImportInboxPayload(payload, { allowAutoOpen = true } = {}) 
     }
     importScanner.value = payload?.scanner || null;
     importScannerJobs.value = normalizeImportScannerJobs(payload);
+    // Beim allerersten Status nur die schon vorhandenen Fehler merken (kein
+    // Toast für alte Läufe); danach jeden neuen Fehler einmal melden.
+    processScannerErrorNotifications({ silent: !hasCompletedInitialImportInboxRefresh });
     const nextItems = normalizeImportInboxItems(payload);
     const nextItemIds = buildImportInboxItemIdSet(nextItems);
     const newItemIds = [...nextItemIds].filter((itemId) => !knownImportInboxItemIds.has(itemId));
