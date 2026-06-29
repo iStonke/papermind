@@ -35,12 +35,15 @@ const imageUrl = computed(() => {
   const endpoint = props.current
     ? '/api/auth/me/avatar'
     : `/api/users/${props.user?.id}/avatar`;
-  // fileTokenVersion bewusst mitlesen: Die URL hängt über authedUrl vom
-  // kurzlebigen Datei-Token ab. Beim App-Start rendert der Avatar evtl. bevor das
-  // Token da ist (refreshFileToken läuft async) → tokenlose URL → 401. Ohne diese
-  // Abhängigkeit würde die computed nicht neu berechnen, sobald das Token kommt,
-  // und der <img> bliebe kaputt. Token-Version zusätzlich an ?v= → Cache-Bust.
-  return authedUrl(`${getBaseUrl()}${endpoint}?v=${auth.avatarVersion}.${auth.fileTokenVersion}`);
+  // hasFileToken (statt fileTokenVersion) mitlesen: Die URL hängt über authedUrl
+  // vom kurzlebigen Datei-Token ab. Beim App-Start rendert der Avatar evtl. bevor
+  // das Token da ist (refreshFileToken läuft async) → tokenlose URL → 401. Über
+  // hasFileToken rechnet die computed einmal neu, sobald das Token erstmals da ist
+  // – aber NICHT bei jeder Token-Erneuerung (~4,5 min), sonst lüde der Avatar
+  // periodisch neu. Cache-Bust über avatarVersion (ändert sich nur bei echtem
+  // Avatar-Wechsel).
+  void auth.hasFileToken;
+  return authedUrl(`${getBaseUrl()}${endpoint}?v=${auth.avatarVersion}`);
 });
 
 const initials = computed(() => {

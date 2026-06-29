@@ -63,6 +63,14 @@ export const useAuthStore = defineStore('auth', {
     avatarVersion: Date.now(),
     /** Cache-Key für native Datei-URLs, die vom kurzlebigen File-Token abhängen. */
     fileTokenVersion: 0,
+    /**
+     * Ob aktuell überhaupt ein Datei-Token vorliegt. Flippt beim ersten
+     * erfolgreichen Abruf einmal von false→true und bleibt dann stabil – im
+     * Gegensatz zu fileTokenVersion, das bei JEDER Erneuerung (~4,5 min) wechselt.
+     * Avatare hängen daran (statt an der Version), damit sie nicht bei jeder
+     * Token-Rotation neu laden.
+     */
+    hasFileToken: false,
     /** Inaktivitäts-Logout in Minuten (0 = aus); persistiert in localStorage. */
     autoLogoutMinutes: readAutoLogoutMinutes(),
   }),
@@ -199,12 +207,14 @@ export const useAuthStore = defineStore('auth', {
         const res = await fetchFileToken();
         setFileToken(res.token);
         this.fileTokenVersion = Date.now();
+        this.hasFileToken = Boolean(res.token);
         if (fileTokenTimer) clearTimeout(fileTokenTimer);
         const refreshInMs = Math.max(30, (res.expires_in || 300) - 30) * 1000;
         fileTokenTimer = setTimeout(() => { this.refreshFileToken(); }, refreshInMs);
       } catch {
         setFileToken('');
         this.fileTokenVersion = Date.now();
+        this.hasFileToken = false;
         if (fileTokenTimer) clearTimeout(fileTokenTimer);
         if (this.isAuthenticated) {
           fileTokenTimer = setTimeout(() => { this.refreshFileToken(); }, 30_000);
@@ -219,6 +229,7 @@ export const useAuthStore = defineStore('auth', {
       }
       setFileToken('');
       this.fileTokenVersion = Date.now();
+      this.hasFileToken = false;
     },
 
     async logout() {
