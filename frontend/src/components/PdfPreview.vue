@@ -87,19 +87,31 @@
             <v-icon size="17">mdi-magnify</v-icon>
           </button>
           <span class="pdf-preview__tool-divider" aria-hidden="true" />
-          <button
-            class="pdf-preview__zoom-btn"
-            :disabled="zoomIndex <= 0"
-            aria-label="Verkleinern"
-            @click="zoomOut"
-          >−</button>
-          <span class="pdf-preview__zoom-label">{{ zoomPercent }}%</span>
-          <button
-            class="pdf-preview__zoom-btn"
-            :disabled="zoomIndex >= ZOOM_STEPS.length - 1"
-            aria-label="Vergrößern"
-            @click="zoomIn"
-          >+</button>
+          <div class="pdf-preview__zoom-stepper">
+            <button
+              class="pdf-preview__zoom-seg"
+              :disabled="!canZoomOut"
+              aria-label="Verkleinern"
+              @click="zoomOut"
+            >
+              <v-icon size="16">mdi-minus</v-icon>
+            </button>
+            <button
+              class="pdf-preview__zoom-value"
+              :class="{ 'pdf-preview__zoom-value--default': isDefaultZoom }"
+              :aria-label="`Zoom ${zoomPercent} Prozent – auf 100 % zurücksetzen`"
+              title="Auf 100 % zurücksetzen"
+              @click="resetZoom"
+            >{{ zoomPercent }}%</button>
+            <button
+              class="pdf-preview__zoom-seg"
+              :disabled="!canZoomIn"
+              aria-label="Vergrößern"
+              @click="zoomIn"
+            >
+              <v-icon size="16">mdi-plus</v-icon>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -111,6 +123,7 @@
         tabindex="0"
         @pointermove="onMagnifierPointerMove"
         @pointerleave="hideMagnifier"
+        @wheel="onPagesWheel"
       >
         <article
           v-for="info in pageInfos"
@@ -171,21 +184,198 @@ const emit = defineEmits(['loaded', 'failed', 'open-original']);
 
 // ─── Zoom ─────────────────────────────────────────────────────────────────────
 
-const ZOOM_STEPS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+const MIN_ZOOM = 0.4;
+const MAX_ZOOM = 3.0;
+const DEFAULT_ZOOM = 1.0;
+const ZOOM_BUTTON_FACTOR = 1.12;
+const ZOOM_WHEEL_SENSITIVITY = 0.0025;
+const ZOOM_RENDER_DEBOUNCE_MS = 240;
+const ZOOM_EPSILON = 0.001;
 const MAX_CACHED_PAGES = 12;
 const PAGE_INFO_BATCH_SIZE = 6;
 // pdfByteCache + PDF_BYTE_CACHE_MAX_ENTRIES liegen modulweit (oberer <script>-Block),
 // damit sie das Neu-Mounten der Komponente überleben.
 
-const zoomIndex = ref(2); // Standard: 1.0 = 100 %
-const currentZoom = computed(() => ZOOM_STEPS[zoomIndex.value]);
+const currentZoom = ref(DEFAULT_ZOOM);
 const zoomPercent = computed(() => Math.round(currentZoom.value * 100));
+const isDefaultZoom = computed(() => Math.abs(currentZoom.value - DEFAULT_ZOOM) <= ZOOM_EPSILON);
+const canZoomOut = computed(() => currentZoom.value > MIN_ZOOM + ZOOM_EPSILON);
+const canZoomIn = computed(() => currentZoom.value < MAX_ZOOM - ZOOM_EPSILON);
+
+let pendingZoomAnchor = null;
+let gestureStartZoom = DEFAULT_ZOOM;
+let gestureActive = false;
+let zoomRenderTimer = 0;
+
+function clampZoom(value) {
+  if (!Number.isFinite(value)) return currentZoom.value;
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
+}
 
 function zoomIn() {
-  if (zoomIndex.value < ZOOM_STEPS.length - 1) zoomIndex.value++;
+  setZoom(currentZoom.value * ZOOM_BUTTON_FACTOR);
 }
 function zoomOut() {
-  if (zoomIndex.value > 0) zoomIndex.value--;
+  setZoom(currentZoom.value / ZOOM_BUTTON_FACTOR);
+}
+function resetZoom() {
+  setZoom(DEFAULT_ZOOM);
+}
+
+function scheduleZoomRender() {
+  if (zoomRenderTimer) window.clearTimeout(zoomRenderTimer);
+  zoomRenderTimer = window.setTimeout(() => {
+    zoomRenderTimer = 0;
+    commitZoomRender();
+  }, ZOOM_RENDER_DEBOUNCE_MS);
+}
+
+function commitZoomRender() {
+  if (!pdfDoc) return;
+  renderGeneration++;
+  renderedPages.clear();
+  renderQueue.clear();
+  highlightTargets = [];
+  highlightCount.value = 0;
+  activeHighlightIndex.value = -1;
+  void setupObservers();
+}
+
+function defaultZoomClientPoint() {
+  const rect = pagesEl.value?.getBoundingClientRect();
+  if (!rect) return null;
+  return {
+    clientX: rect.left + rect.width / 2,
+    clientY: rect.top + rect.height / 2,
+  };
+}
+
+function setZoom(value, anchor = null) {
+  const nextZoom = clampZoom(value);
+  if (Math.abs(nextZoom - currentZoom.value) <= ZOOM_EPSILON) return;
+  const point = anchor && Number.isFinite(anchor.clientX) && Number.isFinite(anchor.clientY)
+    ? anchor
+    : defaultZoomClientPoint();
+  pendingZoomAnchor = point ? captureZoomAnchor(point.clientX, point.clientY) : null;
+  currentZoom.value = nextZoom;
+}
+
+function normalizeWheelDelta(event) {
+  if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) return event.deltaY * 16;
+  if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) return event.deltaY * (pagesEl.value?.clientHeight || 800);
+  return event.deltaY;
+}
+
+function onPagesWheel(event) {
+  if (!event.ctrlKey && !event.metaKey) return;
+  event.preventDefault();
+  hideMagnifier();
+
+  const delta = normalizeWheelDelta(event);
+  if (!Number.isFinite(delta) || Math.abs(delta) < 0.01) return;
+  const factor = Math.exp(-delta * ZOOM_WHEEL_SENSITIVITY);
+  setZoom(currentZoom.value * factor, { clientX: event.clientX, clientY: event.clientY });
+}
+
+function onGestureStart(event) {
+  event.preventDefault();
+  gestureActive = true;
+  gestureStartZoom = currentZoom.value;
+  pendingZoomAnchor = captureZoomAnchor(event.clientX, event.clientY);
+  hideMagnifier();
+}
+
+function onGestureChange(event) {
+  if (!gestureActive) return;
+  event.preventDefault();
+  const scale = Number(event.scale || 1);
+  setZoom(gestureStartZoom * scale, { clientX: event.clientX, clientY: event.clientY });
+}
+
+function onGestureEnd(event) {
+  if (!gestureActive) return;
+  event.preventDefault();
+  gestureActive = false;
+}
+
+function attachGestureZoomListeners(el) {
+  el.addEventListener('gesturestart', onGestureStart, { passive: false });
+  el.addEventListener('gesturechange', onGestureChange, { passive: false });
+  el.addEventListener('gestureend', onGestureEnd, { passive: false });
+}
+
+function detachGestureZoomListeners(el) {
+  el?.removeEventListener('gesturestart', onGestureStart);
+  el?.removeEventListener('gesturechange', onGestureChange);
+  el?.removeEventListener('gestureend', onGestureEnd);
+}
+
+function clampScroll(value, max) {
+  return Math.min(Math.max(0, value), Math.max(0, max));
+}
+
+function captureZoomAnchor(clientX, clientY) {
+  const container = pagesEl.value;
+  if (!container) return null;
+
+  const containerRect = container.getBoundingClientRect();
+  const safeClientX = Number.isFinite(clientX) ? clientX : containerRect.left + containerRect.width / 2;
+  const safeClientY = Number.isFinite(clientY) ? clientY : containerRect.top + containerRect.height / 2;
+  const viewportX = Math.min(Math.max(safeClientX - containerRect.left, 0), container.clientWidth);
+  const viewportY = Math.min(Math.max(safeClientY - containerRect.top, 0), container.clientHeight);
+  const pointedEl = document.elementFromPoint(safeClientX, safeClientY);
+  const pageEl = pointedEl?.closest?.('.pdf-preview__page');
+
+  if (pageEl && container.contains(pageEl)) {
+    const pageRect = pageEl.getBoundingClientRect();
+    return {
+      type: 'page',
+      page: Number(pageEl.dataset.page),
+      ratioX: Math.min(Math.max((safeClientX - pageRect.left) / Math.max(1, pageRect.width), 0), 1),
+      ratioY: Math.min(Math.max((safeClientY - pageRect.top) / Math.max(1, pageRect.height), 0), 1),
+      viewportX,
+      viewportY,
+    };
+  }
+
+  return {
+    type: 'container',
+    ratioX: (container.scrollLeft + viewportX) / Math.max(1, container.scrollWidth),
+    ratioY: (container.scrollTop + viewportY) / Math.max(1, container.scrollHeight),
+    viewportX,
+    viewportY,
+  };
+}
+
+function restoreZoomAnchor(anchor) {
+  const container = pagesEl.value;
+  if (!container || !anchor) return;
+
+  if (anchor.type === 'page') {
+    const pageEl = container.querySelector(`.pdf-preview__page[data-page="${anchor.page}"]`);
+    if (pageEl) {
+      container.scrollLeft = clampScroll(
+        pageEl.offsetLeft + pageEl.offsetWidth * anchor.ratioX - anchor.viewportX,
+        container.scrollWidth - container.clientWidth
+      );
+      container.scrollTop = clampScroll(
+        pageEl.offsetTop + pageEl.offsetHeight * anchor.ratioY - anchor.viewportY,
+        container.scrollHeight - container.clientHeight
+      );
+      recalcCurrentPage();
+      return;
+    }
+  }
+
+  container.scrollLeft = clampScroll(
+    container.scrollWidth * anchor.ratioX - anchor.viewportX,
+    container.scrollWidth - container.clientWidth
+  );
+  container.scrollTop = clampScroll(
+    container.scrollHeight * anchor.ratioY - anchor.viewportY,
+    container.scrollHeight - container.clientHeight
+  );
+  recalcCurrentPage();
 }
 
 // ─── Lupe ───────────────────────────────────────────────────────────────────
@@ -333,6 +523,7 @@ let resizeRaf      = 0;
 let scrollRafId    = null;
 let highlightIdSeq = 0;
 let highlightFlashTimer = 0;
+let renderGeneration = 0;
 const renderQueue  = new Set();
 let highlightTargets = [];
 
@@ -702,11 +893,12 @@ async function renderPage(pageNum) {
   if (!pdfDoc) return;
 
   const epoch = loadEpoch;
+  const generation = renderGeneration;
   renderQueue.add(pageNum);
 
   try {
     const page = await pdfDoc.getPage(pageNum);
-    if (epoch !== loadEpoch) return;
+    if (epoch !== loadEpoch || generation !== renderGeneration) return;
 
     const info = pageInfos.value[pageNum - 1];
     if (!info) return;
@@ -741,7 +933,7 @@ async function renderPage(pageNum) {
       renderContext.transform = [outputScale, 0, 0, outputScale, 0, 0];
     }
     await page.render(renderContext).promise;
-    if (epoch !== loadEpoch) return;
+    if (epoch !== loadEpoch || generation !== renderGeneration) return;
 
     // Text-Layer erstellen
     const textLayerDiv = document.createElement('div');
@@ -755,7 +947,7 @@ async function renderPage(pageNum) {
     await textLayer.render();
     // pdfjs kann Spans intern via setTimeout/rAF nachladen – einen Tick warten
     await new Promise(resolve => setTimeout(resolve, 0));
-    if (epoch !== loadEpoch) return;
+    if (epoch !== loadEpoch || generation !== renderGeneration) return;
 
     // LRU-Eviction: älteste Seite entfernen wenn Cache voll
     if (renderedPages.size >= MAX_CACHED_PAGES) {
@@ -838,14 +1030,15 @@ async function setupObservers() {
 
 watch(currentZoom, async () => {
   if (!pdfDoc) return;
+  const anchor = pendingZoomAnchor;
+  pendingZoomAnchor = null;
+  // Ein laufender pdf.js-Render passt nicht mehr zum aktuellen Zoom. Nicht sofort
+  // neu rendern: Trackpads liefern viele kleine Deltas und würden sonst stottern.
+  renderGeneration++;
   hideMagnifier();
-  renderedPages.clear();
-  renderQueue.clear();
-  highlightTargets = [];
-  highlightCount.value = 0;
-  activeHighlightIndex.value = -1;
-  for (const el of pageInnerRefs.values()) el.innerHTML = '';
-  await setupObservers();
+  await nextTick();
+  restoreZoomAnchor(anchor);
+  scheduleZoomRender();
 });
 
 // ─── PDF Laden ───────────────────────────────────────────────────────────────
@@ -855,7 +1048,12 @@ async function loadPdf(src) {
 
   teardownObservers();
   hideMagnifier();
+  if (zoomRenderTimer) {
+    window.clearTimeout(zoomRenderTimer);
+    zoomRenderTimer = 0;
+  }
   lastRenderWidth = 0;
+  renderGeneration++;
   renderedPages.clear();
   renderQueue.clear();
   pageInnerRefs.clear();
@@ -1009,21 +1207,23 @@ function onResize() {
   if (resizeRaf) cancelAnimationFrame(resizeRaf);
   resizeRaf = requestAnimationFrame(() => {
     resizeRaf = 0;
+    renderGeneration++;
     renderedPages.clear();
     renderQueue.clear();
     highlightTargets = [];
     highlightCount.value = 0;
     activeHighlightIndex.value = -1;
-    for (const el of pageInnerRefs.values()) el.innerHTML = '';
     setupObservers();
   });
 }
 
-watch(pagesEl, (el) => {
+watch(pagesEl, (el, oldEl) => {
   resizeObserver?.disconnect();
+  detachGestureZoomListeners(oldEl);
   if (!el) return;
   resizeObserver = new ResizeObserver(onResize);
   resizeObserver.observe(el);
+  attachGestureZoomListeners(el);
 });
 
 // ─── Cleanup ─────────────────────────────────────────────────────────────────
@@ -1032,9 +1232,11 @@ onBeforeUnmount(() => {
   loadEpoch++;
   teardownObservers();
   resizeObserver?.disconnect();
+  detachGestureZoomListeners(pagesEl.value);
   if (resizeRaf)      cancelAnimationFrame(resizeRaf);
   if (scrollRafId)    cancelAnimationFrame(scrollRafId);
   if (highlightFlashTimer) window.clearTimeout(highlightFlashTimer);
+  if (zoomRenderTimer) window.clearTimeout(zoomRenderTimer);
   if (activeLoadTask) try { activeLoadTask.destroy(); } catch (_) {}
   if (pdfDoc)         try { pdfDoc.destroy(); }         catch (_) {}
 });
@@ -1148,40 +1350,69 @@ onBeforeUnmount(() => {
   right: 14px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
 }
 
-.pdf-preview__zoom-btn {
-  width: 26px;
-  height: 26px;
-  border: 1px solid rgb(var(--v-theme-on-surface) / 0.18);
-  border-radius: 6px;
-  background: transparent;
-  cursor: pointer;
-  font-size: 1rem;
-  line-height: 1;
-  color: rgb(var(--v-theme-on-surface));
-  display: flex;
+/* Zoom: zusammenhängendes, weiches Pill-Steuerelement (−  100 %  +). */
+.pdf-preview__zoom-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  padding: 1px;
+  border-radius: 999px;
+  background: rgb(var(--v-theme-on-surface) / 0.07);
+}
+
+.pdf-preview__zoom-seg {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 120ms ease, opacity 120ms ease;
-  user-select: none;
+  width: 24px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgb(var(--v-theme-on-surface) / 0.7);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, transform 120ms ease, opacity 140ms ease;
 }
 
-.pdf-preview__zoom-btn:hover:not(:disabled) {
-  background: rgb(var(--v-theme-on-surface) / 0.08);
+.pdf-preview__zoom-seg:hover:not(:disabled) {
+  background: rgb(var(--v-theme-on-surface) / 0.12);
+  color: rgb(var(--v-theme-on-surface));
 }
 
-.pdf-preview__zoom-btn:disabled {
-  opacity: 0.3;
+.pdf-preview__zoom-seg:active:not(:disabled) {
+  transform: scale(0.9);
+}
+
+.pdf-preview__zoom-seg:disabled {
+  opacity: 0.28;
   cursor: default;
 }
 
-.pdf-preview__zoom-label {
-  font-size: 0.8rem;
-  color: rgb(var(--v-theme-on-surface) / 0.7);
-  min-width: 2.8rem;
-  text-align: center;
+.pdf-preview__zoom-value {
+  min-width: 2.7rem;
+  height: 26px;
+  padding: 0 2px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgb(var(--v-theme-on-surface) / 0.85);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.pdf-preview__zoom-value:hover {
+  background: rgb(var(--v-theme-on-surface) / 0.12);
+  color: rgb(var(--v-theme-on-surface));
+}
+
+.pdf-preview__zoom-value--default {
+  color: rgb(var(--v-theme-on-surface) / 0.55);
 }
 
 /* ── Lupe-Toggle ─────────────────────────────────────────────────────────── */
@@ -1224,8 +1455,8 @@ onBeforeUnmount(() => {
 
 .pdf-preview__tool-divider {
   width: 1px;
-  height: 18px;
-  background: rgb(var(--v-theme-on-surface) / 0.16);
+  height: 16px;
+  background: rgb(var(--v-theme-on-surface) / 0.1);
   margin: 0 2px;
 }
 
