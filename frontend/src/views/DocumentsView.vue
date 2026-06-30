@@ -815,14 +815,21 @@
                 class="preview-frame-wrap"
               >
                 <PdfPreview
+                  ref="panePreviewRef"
                   :key="previewRenderKey"
                   class="preview-frame"
                   :src="previewSrc"
                   :target-page="previewTargetPage"
                   :highlight-text="previewHighlightText"
+                  :annotatable="true"
+                  :annotations="documentAnnotations"
+                  :enable-reader="true"
                   @failed="onPreviewFrameError(selectedDocumentId)"
                   @loaded="onPreviewFrameLoad(selectedDocumentId)"
-                  @open-original="openSelectedDocumentInNewTab"
+                  @create-annotation="onCreateAnnotation"
+                  @delete-annotation="onDeleteAnnotation"
+                  @open-reader="openReader"
+                  @request-link="onRequestLink"
                 />
               </div>
               <PmEmptyState
@@ -1151,12 +1158,34 @@
       </div>
 
       <NotificationStack />
+
+      <DocumentReader
+        v-if="isReaderOpen"
+        :src="previewSrc"
+        :target-page="readerStartPage"
+        :annotations="documentAnnotations"
+        :title="readerTitle"
+        @close="closeReader"
+        @create-annotation="onCreateAnnotation"
+        @delete-annotation="onDeleteAnnotation"
+        @update-annotation="onUpdateAnnotation"
+        @request-link="onRequestLink"
+        @open-link="onFollowLink"
+      />
+
+      <LinkTargetDialog
+        v-model="isLinkDialogOpen"
+        :current-document-id="selectedDocumentId"
+        :quote="pendingLinkDraft?.quote || ''"
+        @select="onLinkTargetSelected"
+      />
     </v-main>
 </template>
 
 <script setup>
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
+import { useRoute, useRouter } from 'vue-router';
 import { useTheme } from 'vuetify';
 import BaseDialog from '../components/BaseDialog.vue';
 import PmEmptyState from '../components/PmEmptyState.vue';
@@ -1192,6 +1221,7 @@ import { useCategoryStore } from '../stores/categories';
 import { useCorrespondentStore } from '../stores/correspondents';
 import { useSidebarStore } from '../stores/sidebar';
 import { useImportStagingStore } from '../stores/importStaging';
+import { useAnnotationStore } from '../stores/annotations';
 import {
   buildAutoOcrPatch,
   buildAutoTaggingPatch,
@@ -1212,6 +1242,8 @@ import { triggerScan } from '../api/scanners.js';
 import { applyPaperMindVuetifyColors, resolvePaperMindColorVariant } from '../theme/tokens';
 
 const PdfPreview = defineAsyncComponent(() => import('../components/PdfPreview.vue'));
+const DocumentReader = defineAsyncComponent(() => import('../components/DocumentReader.vue'));
+const LinkTargetDialog = defineAsyncComponent(() => import('../components/LinkTargetDialog.vue'));
 
 const apiBaseUrl = getBaseUrl();
 
@@ -1301,7 +1333,6 @@ const detailsTagsMenuProps = Object.freeze({
   closeOnContentClick: false,
   contentClass: 'pm-menu pm-menu--tags'
 });
-
 const DETAILS_DRAWER_COLLAPSED_HEIGHT = 72;
 const DETAILS_DRAWER_DEFAULT_HEIGHT = 320;
 const LAST_SELECTED_DOC_KEY = 'pm.lastSelectedDocumentId';
@@ -1445,6 +1476,7 @@ const categoryStore = useCategoryStore();
 const correspondentStore = useCorrespondentStore();
 const sidebarStore = useSidebarStore();
 const importStagingStore = useImportStagingStore();
+const annotationStore = useAnnotationStore();
 
 function createDestructiveConfirmState() {
   return {
@@ -1520,6 +1552,97 @@ watch(selectedDocumentId, (id) => {
   }
   persistLastSelectedDocId(id);
 });
+
+// Markierungen des gewählten Dokuments laden (Overlay-Ebene der Vorschau).
+const { annotations: documentAnnotations } = storeToRefs(annotationStore);
+watch(selectedDocumentId, (id) => {
+  annotationStore.load(id || null);
+}, { immediate: true });
+
+async function onCreateAnnotation(payload) {
+  const docId = selectedDocumentId.value;
+  if (!docId) return;
+  await annotationStore.create(docId, payload);
+}
+
+function onDeleteAnnotation(annotationId) {
+  annotationStore.remove(annotationId);
+}
+
+function onUpdateAnnotation(annotationId, patch) {
+  annotationStore.update(annotationId, patch);
+}
+
+// ── Lesemodus (Vollbild-Reader) ──────────────────────────────────────────────
+const route = useRoute();
+const router = useRouter();
+const panePreviewRef = ref(null);
+const isReaderOpen = ref(false);
+const readerStartPage = ref(null);
+
+const readerTitle = computed(() =>
+  selectedDocumentDetail.value ? formatDocumentTitle(selectedDocumentDetail.value) : '',
+);
+
+// Query ?reader=1 ist die Quelle der Wahrheit (deep-link- & Zurück-tauglich).
+watch(
+  [() => route.query.reader, selectedDocumentId],
+  ([flag, docId]) => { isReaderOpen.value = flag === '1' && Boolean(docId); },
+  { immediate: true },
+);
+
+function openReader() {
+  if (!selectedDocumentId.value) return;
+  readerStartPage.value = panePreviewRef.value?.currentPage || null;
+  if (route.query.reader !== '1') {
+    router.replace({ query: { ...route.query, reader: '1' } });
+  } else {
+    isReaderOpen.value = true;
+  }
+}
+
+function closeReader() {
+  if (route.query.reader === '1') {
+    const query = { ...route.query };
+    delete query.reader;
+    router.replace({ query });
+  } else {
+    isReaderOpen.value = false;
+  }
+}
+
+// ── Verknüpfen (Phase 4) ─────────────────────────────────────────────────────
+const LINK_ANNOTATION_COLOR = '#B5D4F4';
+const isLinkDialogOpen = ref(false);
+const pendingLinkDraft = ref(null);
+
+function onRequestLink(draft) {
+  pendingLinkDraft.value = draft;
+  isLinkDialogOpen.value = true;
+}
+
+async function onLinkTargetSelected(target) {
+  const docId = selectedDocumentId.value;
+  const draft = pendingLinkDraft.value;
+  if (!docId || !draft || !target?.id) return;
+  await annotationStore.create(docId, {
+    page: draft.page,
+    kind: 'link',
+    color: LINK_ANNOTATION_COLOR,
+    rects: draft.rects,
+    quote: draft.quote,
+    target_document_id: target.id,
+  });
+  pendingLinkDraft.value = null;
+}
+
+// Einer Verknüpfung folgen: Zieldokument auswählen (der Reader folgt reaktiv).
+function onFollowLink(annotation) {
+  const targetId = annotation?.target_document_id;
+  if (!targetId) return;
+  readerStartPage.value = null;
+  selectDocument(targetId);
+}
 const { sidebarCounts, isLoadingSidebarCounts, savedSearches, isLoadingSavedSearches } = storeToRefs(sidebarStore);
 
 const isAiDialogOpen = ref(false);
@@ -6534,18 +6657,6 @@ function selectPdfFiles(files, source) {
   };
 }
 
-function openSelectedDocumentInNewTab() {
-  const documentId = selectedDocumentId.value;
-  if (!documentId) {
-    return;
-  }
-  // URL beim Klick frisch bauen, damit der aktuelle file-scoped Token (Query-Param)
-  // anhängt – ein neuer Tab kann keinen Authorization-Header senden.
-  const role = resolvePreviewRole(documentId);
-  const url = authedUrl(`${apiBaseUrl}/api/documents/${documentId}/file?role=${role}`);
-  window.open(url, '_blank', 'noopener');
-}
-
 function downloadSelectedDocument() {
   if (!selectedDocumentDetail.value) {
     return;
@@ -6728,6 +6839,7 @@ watch(selectedDocumentId, (nextId, previousId) => {
     resetDetailsSectionState();
   }
 });
+
 
 watch(metadataTagIds, (nextValue) => {
   if (shouldSkipTagAutosave || !selectedDocumentDetail.value) {

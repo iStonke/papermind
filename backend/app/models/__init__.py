@@ -1,4 +1,5 @@
 from app.models.document_type import DocumentType
+from app.models.annotation import Annotation
 from app.models.backup_run import BackupRun
 from app.models.correspondent import Correspondent, CorrespondentAlias, CorrespondentMatcher
 from app.models.document import Document
@@ -17,6 +18,7 @@ from app.models.auth_session import AuthRateLimit, AuthSession
 
 __all__ = [
     "DocumentType",
+    "Annotation",
     "BackupRun",
     "Correspondent",
     "CorrespondentAlias",

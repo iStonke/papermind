@@ -186,3 +186,10 @@ class Document(Base):
         lazy="selectin",
         order_by="DocumentChunk.chunk_index.asc()",
     )
+    annotations: Mapped[list["Annotation"]] = relationship(
+        "Annotation",
+        back_populates="document",
+        cascade="all, delete-orphan",
+        lazy="select",
+        foreign_keys="Annotation.document_id",
+    )

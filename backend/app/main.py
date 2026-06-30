@@ -15,6 +15,7 @@ from app.core.observability import request_metrics_middleware
 from app.db.session import SessionLocal
 from app.routers import (
     ai_router,
+    annotations_router,
     auth_router,
     backup_router,
     categories_router,
@@ -102,6 +103,7 @@ app.include_router(users_router)
 app.include_router(documents_router)
 app.include_router(import_router)
 app.include_router(tags_router)
+app.include_router(annotations_router)
 app.include_router(categories_router)
 app.include_router(correspondents_router)
 app.include_router(document_types_router)

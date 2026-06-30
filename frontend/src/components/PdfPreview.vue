@@ -30,9 +30,21 @@
     >
       <!-- Toolbar: Seite + Zoom + Treffer -->
       <div class="pdf-preview__toolbar" aria-label="PDF-Steuerung">
-        <span class="pdf-preview__page-info" aria-live="polite">
-          {{ currentPage }} / {{ pageInfos.length }}
-        </span>
+        <div class="pdf-preview__left-controls">
+          <button
+            v-if="enableReader"
+            class="pdf-preview__tool-btn"
+            :disabled="!src"
+            aria-label="Im Lesemodus öffnen"
+            title="Im Lesemodus öffnen (f)"
+            @click="emit('open-reader')"
+          >
+            <v-icon size="17">mdi-arrow-expand</v-icon>
+          </button>
+          <span class="pdf-preview__page-info" aria-live="polite">
+            {{ currentPage }} / {{ pageInfos.length }}
+          </span>
+        </div>
 
         <!-- Treffer-Navigation (nur wenn Suche aktiv) -->
         <div
@@ -66,16 +78,6 @@
         </div>
 
         <div class="pdf-preview__zoom-controls" role="group" aria-label="Zoom">
-          <button
-            class="pdf-preview__tool-btn"
-            :disabled="!src"
-            aria-label="Original in neuem Tab öffnen"
-            title="Original in neuem Tab öffnen"
-            @click="openOriginal"
-          >
-            <v-icon size="17">mdi-open-in-new</v-icon>
-          </button>
-          <span class="pdf-preview__tool-divider" aria-hidden="true" />
           <button
             class="pdf-preview__tool-btn"
             :class="{ 'pdf-preview__tool-btn--active': magnifierEnabled }"
@@ -123,6 +125,7 @@
         tabindex="0"
         @pointermove="onMagnifierPointerMove"
         @pointerleave="hideMagnifier"
+        @pointerup="onPagesPointerUp"
         @wheel="onPagesWheel"
       >
         <article
@@ -147,6 +150,30 @@
         :style="loupeStyle"
         aria-hidden="true"
       />
+
+      <!-- Auswahl-Menü: erscheint über markiertem Text (nur wenn annotatable) -->
+      <div
+        v-if="annotatable && selectionMenu.visible"
+        class="pm-sel-menu"
+        :style="{ left: `${selectionMenu.x}px`, top: `${selectionMenu.y}px` }"
+        @mousedown.prevent
+      >
+        <button
+          v-for="c in ANNOT_COLORS"
+          :key="c"
+          class="pm-sel-menu__color"
+          :style="{ background: c }"
+          :aria-label="`Mit dieser Farbe markieren`"
+          @click="createAnnotationFromSelection(c)"
+        />
+        <span class="pm-sel-menu__divider" aria-hidden="true" />
+        <button class="pm-sel-menu__btn" aria-label="Mit Dokument verknüpfen" title="Verknüpfen" @click="requestLinkFromSelection">
+          <v-icon size="16">mdi-link-variant</v-icon>
+        </button>
+        <button class="pm-sel-menu__btn" aria-label="Auswahl kopieren" title="Kopieren" @click="copySelection">
+          <v-icon size="16">mdi-content-copy</v-icon>
+        </button>
+      </div>
     </div>
 
   </div>
@@ -179,8 +206,14 @@ const props = defineProps({
   targetPage:    { type: Number, default: null },
   /** Text der im TextLayer hervorgehoben werden soll (z.B. citation.snippet) */
   highlightText: { type: String, default: '' },
+  /** Aktiviert die Markierungsebene (Auswahl-Menü + Overlay-Highlights). */
+  annotatable:   { type: Boolean, default: false },
+  /** Persistierte Markierungen: [{ id, page, kind, color, rects:[{x,y,w,h}], comment }] */
+  annotations:   { type: Array, default: () => [] },
+  /** Zeigt den „Lesemodus"-Button in der Toolbar und aktiviert die Taste „f". */
+  enableReader:  { type: Boolean, default: false },
 });
-const emit = defineEmits(['loaded', 'failed', 'open-original']);
+const emit = defineEmits(['loaded', 'failed', 'create-annotation', 'delete-annotation', 'open-reader', 'request-link']);
 
 // ─── Zoom ─────────────────────────────────────────────────────────────────────
 
@@ -885,6 +918,161 @@ watch(() => props.highlightText, () => {
   rebuildHighlightTargets();
 });
 
+// ─── Markierungsebene (Annotations) ─────────────────────────────────────────
+// Highlights liegen als eigene Overlay-Ebene ZWISCHEN Canvas und TextLayer:
+// so bleibt der (transparente) TextLayer oben selektierbar, die Farbe scheint
+// durch. Das Original-PDF wird nie verändert.
+
+const ANNOT_COLORS = ['#FAC775', '#9FE1CB', '#F4C0D1', '#B5D4F4'];
+const DEFAULT_ANNOT_COLOR = ANNOT_COLORS[0];
+
+const selectionMenu = ref({ visible: false, x: 0, y: 0 });
+let selectionDraft = null; // { page, rects:[{x,y,w,h}], quote }
+
+function annotationsForPage(pageNum) {
+  return (props.annotations || []).filter((a) => Number(a.page) === pageNum);
+}
+
+/** Zeichnet die Overlay-Rechtecke einer Seite (idempotent: alte Ebene ersetzt). */
+function applyAnnotationsToPage(innerEl, pageNum) {
+  if (!innerEl) return;
+  innerEl.querySelector('.pm-annot-layer')?.remove();
+
+  const items = annotationsForPage(pageNum);
+  if (!items.length) return;
+
+  const layer = document.createElement('div');
+  layer.className = 'pm-annot-layer';
+
+  for (const annot of items) {
+    const color = annot.color || DEFAULT_ANNOT_COLOR;
+    for (const rect of annot.rects || []) {
+      const el = document.createElement('div');
+      el.className = 'pm-annot-rect';
+      el.dataset.annotId = annot.id;
+      el.style.left   = `${rect.x * 100}%`;
+      el.style.top    = `${rect.y * 100}%`;
+      el.style.width  = `${rect.w * 100}%`;
+      el.style.height = `${rect.h * 100}%`;
+      if (annot.kind === 'underline') {
+        el.classList.add('pm-annot-rect--underline');
+        el.style.borderBottomColor = color;
+      } else {
+        el.style.background = color;
+        if (annot.kind === 'link') el.classList.add('pm-annot-rect--link');
+      }
+      if (annot.comment) el.title = annot.comment;
+      else if (annot.kind === 'link' && annot.target_document_title) el.title = `→ ${annot.target_document_title}`;
+      layer.appendChild(el);
+    }
+  }
+
+  // Ebene VOR den TextLayer hängen, damit Text oben selektierbar bleibt.
+  const textLayer = innerEl.querySelector('.textLayer');
+  if (textLayer) innerEl.insertBefore(layer, textLayer);
+  else innerEl.appendChild(layer);
+}
+
+/** Aktualisiert alle gerenderten Seiten (z.B. nach Änderung der annotations-Prop). */
+function redrawAllAnnotations() {
+  for (const [pageNum, el] of pageInnerRefs.entries()) {
+    if (renderedPages.has(pageNum)) applyAnnotationsToPage(el, pageNum);
+  }
+}
+
+watch(() => props.annotations, () => redrawAllAnnotations(), { deep: true });
+
+function hideSelectionMenu() {
+  if (selectionMenu.value.visible) selectionMenu.value = { visible: false, x: 0, y: 0 };
+  selectionDraft = null;
+}
+
+/** Liest die aktuelle Textauswahl und positioniert das Auswahl-Menü. */
+function onPagesPointerUp() {
+  if (!props.annotatable) return;
+  // Einen Tick warten, damit die Selection final steht.
+  setTimeout(() => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) { hideSelectionMenu(); return; }
+    const quote = sel.toString().trim();
+    if (!quote) { hideSelectionMenu(); return; }
+
+    const range = sel.getRangeAt(0);
+    const startEl = range.startContainer.nodeType === 1
+      ? range.startContainer
+      : range.startContainer.parentElement;
+    const pageEl = startEl?.closest?.('.pdf-preview__page');
+    const pageNum = Number(pageEl?.dataset.page || 0);
+    const innerEl = pageInnerRefs.get(pageNum);
+    if (!innerEl) { hideSelectionMenu(); return; }
+
+    const innerRect = innerEl.getBoundingClientRect();
+    if (!innerRect.width || !innerRect.height) { hideSelectionMenu(); return; }
+
+    const clamp = (v) => Math.min(1, Math.max(0, v));
+    const rects = [];
+    for (const r of range.getClientRects()) {
+      if (r.width < 1 || r.height < 1) continue;
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      // Nur Rechtecke innerhalb DIESER Seite übernehmen.
+      if (cx < innerRect.left || cx > innerRect.right || cy < innerRect.top || cy > innerRect.bottom) continue;
+      rects.push({
+        x: clamp((r.left - innerRect.left) / innerRect.width),
+        y: clamp((r.top  - innerRect.top)  / innerRect.height),
+        w: clamp(r.width  / innerRect.width),
+        h: clamp(r.height / innerRect.height),
+      });
+    }
+    if (!rects.length) { hideSelectionMenu(); return; }
+
+    selectionDraft = { page: pageNum, rects, quote };
+
+    const rootRect = rootEl.value?.getBoundingClientRect();
+    const first = range.getClientRects()[0];
+    if (rootRect && first) {
+      selectionMenu.value = {
+        visible: true,
+        x: first.left - rootRect.left + first.width / 2,
+        y: first.top  - rootRect.top,
+      };
+    }
+  }, 0);
+}
+
+function createAnnotationFromSelection(color) {
+  if (!selectionDraft) return;
+  emit('create-annotation', {
+    page: selectionDraft.page,
+    kind: 'highlight',
+    color,
+    rects: selectionDraft.rects,
+    quote: selectionDraft.quote,
+  });
+  window.getSelection()?.removeAllRanges();
+  hideSelectionMenu();
+}
+
+async function copySelection() {
+  if (!selectionDraft) return;
+  try { await navigator.clipboard?.writeText(selectionDraft.quote); } catch (_) { /* clipboard blockiert */ }
+  window.getSelection()?.removeAllRanges();
+  hideSelectionMenu();
+}
+
+function requestLinkFromSelection() {
+  if (!selectionDraft) return;
+  // Auswahl an den Parent geben; der öffnet den Ziel-Picker und legt danach die
+  // Verknüpfung über das normale create-annotation an (kind: 'link').
+  emit('request-link', {
+    page: selectionDraft.page,
+    rects: selectionDraft.rects,
+    quote: selectionDraft.quote,
+  });
+  window.getSelection()?.removeAllRanges();
+  hideSelectionMenu();
+}
+
 // ─── Rendering ───────────────────────────────────────────────────────────────
 
 async function renderPage(pageNum) {
@@ -968,6 +1156,7 @@ async function renderPage(pageNum) {
     // Highlights anwenden (nach DOM-Einhängen, damit normalize() korrekt arbeitet)
     applyHighlights(textLayerDiv);
     rebuildHighlightTargets();
+    applyAnnotationsToPage(innerEl, pageNum);
 
     renderedPages.add(pageNum);
     if (!firstPageReady.value) firstPageReady.value = true;
@@ -995,6 +1184,7 @@ function recalcCurrentPage() {
 }
 
 function onScroll() {
+  hideSelectionMenu();
   if (scrollRafId) return;
   scrollRafId = requestAnimationFrame(() => { scrollRafId = null; recalcCurrentPage(); });
 }
@@ -1036,6 +1226,7 @@ watch(currentZoom, async () => {
   // neu rendern: Trackpads liefern viele kleine Deltas und würden sonst stottern.
   renderGeneration++;
   hideMagnifier();
+  hideSelectionMenu();
   await nextTick();
   restoreZoomAnchor(anchor);
   scheduleZoomRender();
@@ -1048,6 +1239,7 @@ async function loadPdf(src) {
 
   teardownObservers();
   hideMagnifier();
+  hideSelectionMenu();
   if (zoomRenderTimer) {
     window.clearTimeout(zoomRenderTimer);
     zoomRenderTimer = 0;
@@ -1132,15 +1324,37 @@ function goToPage(pageNum) {
   scrollToPage(Math.min(Math.max(1, pageNum), total));
 }
 
-// ─── Original öffnen ─────────────────────────────────────────────────────────
+const pageCount = computed(() => pageInfos.value.length);
 
-function openOriginal() {
-  // Das Öffnen übernimmt der Parent: Die Datei-URL muss mit einem FRISCHEN
-  // file-scoped Token gebaut werden (authedUrl ist nicht reaktiv – props.src
-  // kann ein leeres/abgelaufenes Token tragen, das im neuen Tab → 401 führt).
-  if (!props.src) return;
-  emit('open-original');
+/**
+ * Rendert eine Seite klein in das übergebene Canvas (für die Miniatur-Leiste des
+ * Lesemodus). Nutzt das bereits geladene pdfDoc – KEIN zweiter Netzwerk-Ladevorgang.
+ * Fehler werden geschluckt (Platzhalter bleibt stehen).
+ */
+async function renderThumbnail(pageNum, canvas, cssWidth = 116) {
+  if (!pdfDoc || !canvas) return;
+  try {
+    const page = await pdfDoc.getPage(pageNum);
+    const base = page.getViewport({ scale: 1 });
+    const scale = cssWidth / base.width;
+    const vp = page.getViewport({ scale });
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width  = Math.floor(vp.width  * dpr);
+    canvas.height = Math.floor(vp.height * dpr);
+    canvas.style.width  = `${Math.floor(vp.width)}px`;
+    canvas.style.height = `${Math.floor(vp.height)}px`;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) return;
+    const renderContext = { canvasContext: ctx, viewport: vp, background: 'rgb(255,255,255)' };
+    if (dpr !== 1) renderContext.transform = [dpr, 0, 0, dpr, 0, 0];
+    await page.render(renderContext).promise;
+    page.cleanup();
+  } catch (_) {
+    /* Miniatur konnte nicht gerendert werden – unkritisch */
+  }
 }
+
+defineExpose({ goToPage, currentPage, pageCount, renderThumbnail });
 
 // ─── Tastenkürzel ─────────────────────────────────────────────────────────────
 // Aktiv, sobald der Viewer (oder ein Kind) den Fokus hat – stört also keine
@@ -1180,6 +1394,10 @@ function onKeydown(event) {
       break;
     case 'Enter':
       if (props.highlightText) { navigateHighlight(event.shiftKey ? -1 : 1); event.preventDefault(); }
+      break;
+    case 'f':
+    case 'F':
+      if (props.enableReader) { emit('open-reader'); event.preventDefault(); }
       break;
     default:
       break;
@@ -1254,31 +1472,56 @@ onBeforeUnmount(() => {
 
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
 .pdf-preview__toolbar {
-  /* Overlay über dem oberen Seitenrand: das Dokument scrollt dahinter durch und
-     scheint durch das durchscheinende Frosted-Glas (wie die eingeklappte Leiste). */
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  top: 12px;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
   z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 5px 14px;
-  border-bottom: 1px solid var(--pm-drawer-border-collapsed, var(--pm-divider));
-  background: var(--pm-drawer-bg-collapsed);
-  backdrop-filter: blur(var(--pm-drawer-blur-collapsed, 11px)) saturate(1.05);
-  -webkit-backdrop-filter: blur(var(--pm-drawer-blur-collapsed, 11px)) saturate(1.05);
-  gap: 12px;
-  min-height: 36px;
+  width: auto;
+  min-width: 330px;
+  max-width: calc(100% - 24px);
+  min-height: 34px;
+  gap: 10px;
+  padding: 4px 8px;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 999px;
+  background: rgb(15 23 42 / 0.72);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 0.24);
+  backdrop-filter: blur(12px) saturate(1.08);
+  -webkit-backdrop-filter: blur(12px) saturate(1.08);
   box-sizing: border-box;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
+.pdf-preview__viewer:has(.pdf-preview__page:hover) .pdf-preview__toolbar,
+.pdf-preview__toolbar:hover,
+.pdf-preview__toolbar:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pdf-preview__toolbar {
+    transition: none;
+  }
+}
+
+.pdf-preview__left-controls {
+  position: static;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .pdf-preview__page-info {
-  position: absolute;
-  left: 14px;
   font-size: 0.8rem;
-  color: rgb(var(--v-theme-on-surface) / 0.55);
+  color: rgb(var(--v-theme-on-surface) / 0.85);
   white-space: nowrap;
   min-width: 3rem;
 }
@@ -1346,8 +1589,7 @@ onBeforeUnmount(() => {
 }
 
 .pdf-preview__zoom-controls {
-  position: absolute;
-  right: 14px;
+  position: static;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -1417,21 +1659,26 @@ onBeforeUnmount(() => {
 
 /* ── Lupe-Toggle ─────────────────────────────────────────────────────────── */
 .pdf-preview__tool-btn {
-  width: 26px;
+  width: 28px;
   height: 26px;
-  border: 1px solid rgb(var(--v-theme-on-surface) / 0.18);
-  border-radius: 6px;
+  border: none;
+  border-radius: 8px;
   background: transparent;
   cursor: pointer;
-  color: rgb(var(--v-theme-on-surface) / 0.8);
+  color: rgb(var(--v-theme-on-surface) / 0.72);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition: background 140ms ease, color 140ms ease, transform 120ms ease;
+}
+
+.pdf-preview__tool-btn:active:not(:disabled) {
+  transform: scale(0.92);
 }
 
 .pdf-preview__tool-btn:hover:not(:disabled):not(.pdf-preview__tool-btn--active) {
-  background: rgb(var(--v-theme-on-surface) / 0.08);
+  background: rgb(var(--v-theme-on-surface) / 0.1);
+  color: rgb(var(--v-theme-on-surface));
 }
 
 .pdf-preview__tool-btn:disabled {
@@ -1508,8 +1755,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   gap: 14px;
-  /* Oben Platz für die überlagernde (absolute) Toolbar */
-  padding: 50px 14px 14px;
+  padding: 0 14px 14px;
 }
 
 .pdf-preview__pages:focus {
@@ -1615,6 +1861,106 @@ onBeforeUnmount(() => {
     transform: translateY(0) scale(1);
     box-shadow: 0 0 0 1px rgba(180, 120, 0, 0.28);
   }
+}
+
+/* ── Markierungsebene (Annotations) ──────────────────────────────────────── */
+/* Liegt zwischen Canvas und TextLayer (DOM-Reihenfolge); pointer-events: none,
+   damit Textauswahl/Neu-Markieren durch die Highlights hindurch funktioniert. */
+.pdf-preview__page-inner :deep(.pm-annot-layer) {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.pdf-preview__page-inner :deep(.pm-annot-rect) {
+  position: absolute;
+  border-radius: 2px;
+  opacity: 0.4;
+  mix-blend-mode: multiply;
+  animation: pm-annot-in 180ms ease;
+}
+
+/* from-only Keyframe: animiert von opacity 0 zur jeweiligen Eigen-Opazität. */
+@keyframes pm-annot-in {
+  from { opacity: 0; }
+}
+
+.pdf-preview__page-inner :deep(.pm-annot-rect--underline) {
+  opacity: 0.95;
+  border-radius: 0;
+  border-bottom: 2px solid currentColor;
+  background: transparent !important;
+}
+
+/* Verknüpfungen: getönt wie ein Highlight, zusätzlich gestrichelte Linkfarbe. */
+.pdf-preview__page-inner :deep(.pm-annot-rect--link) {
+  border-bottom: 2px dashed rgba(24, 95, 165, 0.9);
+}
+
+/* ── Auswahl-Menü ─────────────────────────────────────────────────────────── */
+.pm-sel-menu {
+  position: absolute;
+  z-index: 5;
+  transform: translate(-50%, calc(-100% - 8px));
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 7px;
+  border-radius: 10px;
+  background: rgb(var(--v-theme-surface));
+  border: 1px solid rgb(var(--v-theme-on-surface) / 0.16);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.22);
+  animation: pm-sel-pop 130ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes pm-sel-pop {
+  from { opacity: 0; transform: translate(-50%, calc(-100% - 2px)) scale(0.96); }
+  to   { opacity: 1; transform: translate(-50%, calc(-100% - 8px)) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pdf-preview__page-inner :deep(.pm-annot-rect),
+  .pm-sel-menu {
+    animation: none;
+  }
+}
+
+.pm-sel-menu__color {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgb(0 0 0 / 0.18);
+  cursor: pointer;
+  transition: transform 120ms ease;
+}
+
+.pm-sel-menu__color:hover {
+  transform: scale(1.15);
+}
+
+.pm-sel-menu__divider {
+  width: 1px;
+  height: 18px;
+  background: rgb(var(--v-theme-on-surface) / 0.16);
+  margin: 0 2px;
+}
+
+.pm-sel-menu__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgb(var(--v-theme-on-surface) / 0.75);
+  cursor: pointer;
+}
+
+.pm-sel-menu__btn:hover {
+  background: rgb(var(--v-theme-on-surface) / 0.08);
 }
 
 /* ── Ladefortschritt ────────────────────────────────────────────────────── */
