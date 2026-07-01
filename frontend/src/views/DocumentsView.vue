@@ -828,8 +828,10 @@
                   @loaded="onPreviewFrameLoad(selectedDocumentId)"
                   @create-annotation="onCreateAnnotation"
                   @delete-annotation="onDeleteAnnotation"
+                  @update-annotation="onUpdateAnnotation"
                   @open-reader="openReader"
                   @request-link="onRequestLink"
+                  @request-comment="onRequestCommentAnnotation"
                 />
               </div>
               <PmEmptyState
@@ -1165,6 +1167,8 @@
         :target-page="readerStartPage"
         :annotations="documentAnnotations"
         :title="readerTitle"
+        :meta-parts="readerMetaParts"
+        :edit-annotation-id="readerEditAnnotationId"
         @close="closeReader"
         @create-annotation="onCreateAnnotation"
         @delete-annotation="onDeleteAnnotation"
@@ -1562,7 +1566,12 @@ watch(selectedDocumentId, (id) => {
 async function onCreateAnnotation(payload) {
   const docId = selectedDocumentId.value;
   if (!docId) return;
-  await annotationStore.create(docId, payload);
+  const { _afterCreate, ...annotationPayload } = payload || {};
+  const created = await annotationStore.create(docId, annotationPayload);
+  if (created && typeof _afterCreate === 'function') {
+    _afterCreate(created);
+  }
+  return created;
 }
 
 function onDeleteAnnotation(annotationId) {
@@ -1579,10 +1588,20 @@ const router = useRouter();
 const panePreviewRef = ref(null);
 const isReaderOpen = ref(false);
 const readerStartPage = ref(null);
+const readerEditAnnotationId = ref(null);
 
 const readerTitle = computed(() =>
   selectedDocumentDetail.value ? formatDocumentTitle(selectedDocumentDetail.value) : '',
 );
+const readerMetaParts = computed(() => {
+  const detail = selectedDocumentDetail.value;
+  if (!detail) return [];
+  return [
+    detail.document_type || detail.category,
+    formatDocumentDateInputFromIso(detail.document_date),
+    detail.correspondent_name,
+  ].map((part) => String(part || '').trim()).filter(Boolean);
+});
 
 // Query ?reader=1 ist die Quelle der Wahrheit (deep-link- & Zurück-tauglich).
 watch(
@@ -1591,9 +1610,9 @@ watch(
   { immediate: true },
 );
 
-function openReader() {
+function openReader(page = null) {
   if (!selectedDocumentId.value) return;
-  readerStartPage.value = panePreviewRef.value?.currentPage || null;
+  readerStartPage.value = page || panePreviewRef.value?.currentPage || null;
   if (route.query.reader !== '1') {
     router.replace({ query: { ...route.query, reader: '1' } });
   } else {
@@ -1602,6 +1621,7 @@ function openReader() {
 }
 
 function closeReader() {
+  readerEditAnnotationId.value = null;
   if (route.query.reader === '1') {
     const query = { ...route.query };
     delete query.reader;
@@ -1619,6 +1639,20 @@ const pendingLinkDraft = ref(null);
 function onRequestLink(draft) {
   pendingLinkDraft.value = draft;
   isLinkDialogOpen.value = true;
+}
+
+async function onRequestCommentAnnotation(draft) {
+  const created = await onCreateAnnotation({
+    page: draft?.page,
+    kind: 'note',
+    color: draft?.color || '#FAC775',
+    rects: draft?.rects,
+    quote: draft?.quote,
+    comment: null,
+  });
+  if (!created) return;
+  readerEditAnnotationId.value = created.id;
+  openReader(created.page || draft?.page || null);
 }
 
 async function onLinkTargetSelected(target) {

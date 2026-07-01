@@ -16,7 +16,20 @@
           </button>
           <div class="doc-reader__title-wrap">
             <div class="doc-reader__title" :title="title">{{ title || 'Dokument' }}</div>
-            <span v-if="pageTotal" class="doc-reader__page-chip">{{ currentPage }} / {{ pageTotal }}</span>
+            <div
+              v-if="metaParts.length"
+              class="doc-reader__title-meta"
+              :title="metaParts.join(' · ')"
+            >
+              <template v-for="(part, index) in metaParts" :key="`${part}-${index}`">
+                <span class="doc-reader__title-meta-part">{{ part }}</span>
+                <span
+                  v-if="index < metaParts.length - 1"
+                  class="doc-reader__title-meta-dot"
+                  aria-hidden="true"
+                />
+              </template>
+            </div>
           </div>
         </div>
         <div class="doc-reader__bar-actions">
@@ -35,12 +48,12 @@
               class="doc-reader__icon-btn"
               :class="{ 'doc-reader__icon-btn--active': showNotes }"
               :aria-pressed="showNotes"
-              aria-label="Notizen umschalten"
-              title="Notizen"
+              aria-label="Kommentar ein- oder ausblenden"
+              title="Kommentar"
               @click="showNotes = !showNotes"
             >
               <v-icon size="20">mdi-comment-text-outline</v-icon>
-              <span v-if="annotations.length" class="doc-reader__badge">{{ annotations.length }}</span>
+              <span v-if="noteAnnotations.length" class="doc-reader__badge">{{ noteAnnotations.length }}</span>
             </button>
           </div>
         </div>
@@ -75,24 +88,28 @@
             :annotations="annotations"
             @loaded="onPreviewLoaded"
             @create-annotation="$emit('create-annotation', $event)"
+            @delete-annotation="$emit('delete-annotation', $event)"
+            @update-annotation="(...args) => $emit('update-annotation', ...args)"
             @request-link="$emit('request-link', $event)"
+            @request-comment="onRequestComment"
           />
         </main>
 
-        <!-- Notizen-Leiste -->
-        <aside v-show="showNotes" class="doc-reader__notes" aria-label="Notizen und Markierungen">
+        <!-- Kommentar-Leiste -->
+        <aside v-show="showNotes" class="doc-reader__notes" aria-label="Kommentare">
           <div class="doc-reader__notes-head">
-            <span>Notizen</span>
-            <span class="doc-reader__notes-count">{{ annotations.length }}</span>
+            <span>Kommentare</span>
+            <span class="doc-reader__notes-count">{{ noteAnnotations.length }}</span>
           </div>
 
-          <div v-if="!annotations.length" class="doc-reader__notes-empty">
-            Keine Notizen
+          <div v-if="!noteAnnotations.length" class="doc-reader__notes-empty">
+            <strong>Keine Kommentare</strong>
+            <span>Markiere Text im Dokument und wähle im Auswahlmenü das Kommentar-Symbol.</span>
           </div>
 
           <TransitionGroup v-else tag="ul" name="note" class="doc-reader__notes-list">
             <li
-              v-for="annot in sortedAnnotations"
+              v-for="annot in sortedNoteAnnotations"
               :key="annot.id"
               class="doc-reader__note"
               :style="{ '--note-color': annot.color || '#FAC775' }"
@@ -153,7 +170,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 import PdfPreview from './PdfPreview.vue';
 
@@ -162,6 +179,8 @@ const props = defineProps({
   targetPage:  { type: Number, default: null },
   annotations: { type: Array, default: () => [] },
   title:       { type: String, default: '' },
+  metaParts:   { type: Array, default: () => [] },
+  editAnnotationId: { type: [String, Number], default: null },
 });
 
 const emit = defineEmits(['close', 'create-annotation', 'delete-annotation', 'update-annotation', 'request-link', 'open-link']);
@@ -177,12 +196,17 @@ const leaving = ref(false); // steuert die Leave-Transition vor dem Schließen
 
 const editingId = ref(null);
 const editingText = ref('');
+const handledEditAnnotationId = ref(null);
 
 // Aktuelle Seite aus der (exposeten) PdfPreview – reaktiv für Rail-Hervorhebung.
 const currentPage = computed(() => previewRef.value?.currentPage || 1);
 
-const sortedAnnotations = computed(() =>
-  [...props.annotations].sort((a, b) => (a.page - b.page) || (a.created_at < b.created_at ? -1 : 1)),
+const noteAnnotations = computed(() =>
+  props.annotations.filter((annot) => annot.kind === 'note' || annot.kind === 'link' || Boolean(annot.comment)),
+);
+
+const sortedNoteAnnotations = computed(() =>
+  [...noteAnnotations.value].sort((a, b) => (a.page - b.page) || (a.created_at < b.created_at ? -1 : 1)),
 );
 
 // ── Miniaturen ────────────────────────────────────────────────────────────────
@@ -248,6 +272,43 @@ function startEdit(annot) {
     field?.focus();
   });
 }
+
+function openAnnotationEditor(annot, { markHandled = false } = {}) {
+  if (!annot?.id) return;
+  if (markHandled) handledEditAnnotationId.value = annot.id;
+  showNotes.value = true;
+  if (annot.page) goToPage(annot.page);
+  startEdit(annot);
+}
+
+function onRequestComment(draft) {
+  if (!draft) return;
+  showNotes.value = true;
+  emit('create-annotation', {
+    page: draft.page,
+    kind: 'note',
+    color: draft.color || '#FAC775',
+    rects: draft.rects,
+    quote: draft.quote,
+    comment: null,
+    _afterCreate: (created) => {
+      if (!created) return;
+      nextTick(() => openAnnotationEditor(created, { markHandled: true }));
+    },
+  });
+}
+
+watch(
+  [() => props.editAnnotationId, () => props.annotations],
+  ([requestedId]) => {
+    if (!requestedId || requestedId === handledEditAnnotationId.value) return;
+    const annot = props.annotations.find((item) => item.id === requestedId);
+    if (!annot) return;
+    nextTick(() => openAnnotationEditor(annot, { markHandled: true }));
+  },
+  { immediate: true },
+);
+
 function cancelEdit() {
   editingId.value = null;
   editingText.value = '';
@@ -344,10 +405,12 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 12px;
   min-width: 0;
+  max-width: 100%;
 }
 
 .doc-reader__title {
-  min-width: 0;
+  flex: 0 1 auto;
+  min-width: 4rem;
   font-size: 0.95rem;
   font-weight: 600;
   white-space: nowrap;
@@ -356,15 +419,33 @@ onBeforeUnmount(() => {
   color: var(--reader-text);
 }
 
-.doc-reader__page-chip {
-  flex: 0 0 auto;
-  padding: 2px 8px;
-  border: 1px solid rgb(255 255 255 / 0.1);
-  border-radius: 999px;
+.doc-reader__title-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   color: var(--reader-muted);
-  background: rgb(255 255 255 / 0.04);
-  font-size: 0.76rem;
-  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.doc-reader__title-meta-part {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.doc-reader__title-meta-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.7;
+  flex: 0 0 auto;
 }
 
 .doc-reader__bar-actions {
@@ -511,24 +592,20 @@ onBeforeUnmount(() => {
   right: auto;
   transform: translateX(-50%);
   width: auto;
-  min-width: 330px;
+  min-width: 0;
   min-height: 34px;
   justify-content: center;
-  gap: 10px;
+  gap: var(--pdf-toolbar-group-gap);
   padding: 4px 8px;
-  border: 1px solid rgb(255 255 255 / 0.1);
+  border: 1px solid var(--pdf-toolbar-border);
   border-radius: 999px;
-  background: rgb(15 23 42 / 0.72);
-  box-shadow: 0 8px 22px rgb(0 0 0 / 0.24);
+  background: var(--pdf-toolbar-bg);
+  box-shadow: var(--pdf-toolbar-shadow);
 }
 
 .doc-reader__main :deep(.pdf-preview__left-controls),
 .doc-reader__main :deep(.pdf-preview__zoom-controls) {
   position: static;
-}
-
-.doc-reader__main :deep(.pdf-preview__page-info) {
-  color: rgb(var(--v-theme-on-surface) / 0.85);
 }
 
 .doc-reader__main :deep(.pdf-preview__pages) {
@@ -580,9 +657,21 @@ onBeforeUnmount(() => {
   padding: 14px 12px;
   border: 1px dashed rgb(255 255 255 / 0.12);
   border-radius: 8px;
-  font-size: 0.82rem;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
   color: var(--reader-muted);
   line-height: 1.5;
+}
+
+.doc-reader__notes-empty strong {
+  color: rgb(241 245 249 / 0.82);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.doc-reader__notes-empty span {
+  font-size: 0.76rem;
 }
 .doc-reader__notes-list {
   list-style: none;

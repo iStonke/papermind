@@ -46,36 +46,38 @@
           </span>
         </div>
 
-        <!-- Treffer-Navigation (nur wenn Suche aktiv) -->
-        <div
-          v-if="highlightText"
-          class="pdf-preview__match-controls"
-          aria-label="PDF-Treffer"
-        >
-          <button
-            class="pdf-preview__match-nav-btn"
-            :disabled="highlightCount === 0"
-            aria-label="Vorheriger Treffer"
-            @click="navigateHighlight(-1)"
+        <Transition name="pdf-preview-match">
+          <!-- Treffer-Navigation (nur wenn Suche aktiv) -->
+          <div
+            v-if="highlightText"
+            class="pdf-preview__match-controls"
+            aria-label="PDF-Treffer"
           >
-            <v-icon size="16">mdi-chevron-left</v-icon>
-          </button>
-          <span
-            class="pdf-preview__match-badge"
-            :class="{ 'pdf-preview__match-badge--zero': highlightCount === 0 }"
-            aria-live="polite"
-          >
-            {{ highlightCount === 0 ? 'Kein Treffer' : `${highlightCount} Treffer` }}
-          </span>
-          <button
-            class="pdf-preview__match-nav-btn"
-            :disabled="highlightCount === 0"
-            aria-label="Nächster Treffer"
-            @click="navigateHighlight(1)"
-          >
-            <v-icon size="16">mdi-chevron-right</v-icon>
-          </button>
-        </div>
+            <button
+              class="pdf-preview__match-nav-btn"
+              :disabled="highlightCount === 0"
+              aria-label="Vorheriger Treffer"
+              @click="navigateHighlight(-1)"
+            >
+              <v-icon size="16">mdi-chevron-left</v-icon>
+            </button>
+            <span
+              class="pdf-preview__match-badge"
+              :class="{ 'pdf-preview__match-badge--zero': highlightCount === 0 }"
+              aria-live="polite"
+            >
+              {{ highlightCount === 0 ? 'Kein Treffer' : `${highlightCount} Treffer` }}
+            </span>
+            <button
+              class="pdf-preview__match-nav-btn"
+              :disabled="highlightCount === 0"
+              aria-label="Nächster Treffer"
+              @click="navigateHighlight(1)"
+            >
+              <v-icon size="16">mdi-chevron-right</v-icon>
+            </button>
+          </div>
+        </Transition>
 
         <div class="pdf-preview__zoom-controls" role="group" aria-label="Zoom">
           <button
@@ -88,7 +90,6 @@
           >
             <v-icon size="17">mdi-magnify</v-icon>
           </button>
-          <span class="pdf-preview__tool-divider" aria-hidden="true" />
           <div class="pdf-preview__zoom-stepper">
             <button
               class="pdf-preview__zoom-seg"
@@ -162,11 +163,16 @@
           v-for="c in ANNOT_COLORS"
           :key="c"
           class="pm-sel-menu__color"
+          :class="{ 'pm-sel-menu__color--active': isSelectionColorActive(c) }"
           :style="{ background: c }"
-          :aria-label="`Mit dieser Farbe markieren`"
-          @click="createAnnotationFromSelection(c)"
+          :aria-label="selectionColorLabel(c)"
+          :aria-pressed="isSelectionColorActive(c)"
+          @click="toggleAnnotationColorFromSelection(c)"
         />
         <span class="pm-sel-menu__divider" aria-hidden="true" />
+        <button class="pm-sel-menu__btn" aria-label="Kommentar hinzufügen" title="Kommentar" @click="requestCommentFromSelection">
+          <v-icon size="16">mdi-comment-text-outline</v-icon>
+        </button>
         <button class="pm-sel-menu__btn" aria-label="Mit Dokument verknüpfen" title="Verknüpfen" @click="requestLinkFromSelection">
           <v-icon size="16">mdi-link-variant</v-icon>
         </button>
@@ -213,7 +219,7 @@ const props = defineProps({
   /** Zeigt den „Lesemodus"-Button in der Toolbar und aktiviert die Taste „f". */
   enableReader:  { type: Boolean, default: false },
 });
-const emit = defineEmits(['loaded', 'failed', 'create-annotation', 'delete-annotation', 'open-reader', 'request-link']);
+const emit = defineEmits(['loaded', 'failed', 'create-annotation', 'delete-annotation', 'update-annotation', 'open-reader', 'request-link', 'request-comment']);
 
 // ─── Zoom ─────────────────────────────────────────────────────────────────────
 
@@ -925,12 +931,62 @@ watch(() => props.highlightText, () => {
 
 const ANNOT_COLORS = ['#FAC775', '#9FE1CB', '#F4C0D1', '#B5D4F4'];
 const DEFAULT_ANNOT_COLOR = ANNOT_COLORS[0];
+const COMMENT_ANNOTATION_COLOR = DEFAULT_ANNOT_COLOR;
 
-const selectionMenu = ref({ visible: false, x: 0, y: 0 });
-let selectionDraft = null; // { page, rects:[{x,y,w,h}], quote }
+const selectionMenu = ref({ visible: false, x: 0, y: 0, activeColor: '' });
+let selectionDraft = null; // { page, rects:[{x,y,w,h}], quote, annotations:[annotation] }
 
 function annotationsForPage(pageNum) {
   return (props.annotations || []).filter((a) => Number(a.page) === pageNum);
+}
+
+function rectsOverlap(a, b) {
+  if (!a || !b) return false;
+  const epsilon = 0.002;
+  return (
+    a.x < b.x + b.w + epsilon &&
+    a.x + a.w + epsilon > b.x &&
+    a.y < b.y + b.h + epsilon &&
+    a.y + a.h + epsilon > b.y
+  );
+}
+
+function annotationsForSelection(pageNum, selectionRects) {
+  const items = [];
+  for (const annot of annotationsForPage(pageNum)) {
+    if (!annot?.id) continue;
+    const annotRects = Array.isArray(annot.rects) ? annot.rects : [];
+    if (annotRects.some((annotRect) => selectionRects.some((selRect) => rectsOverlap(annotRect, selRect)))) {
+      items.push(annot);
+    }
+  }
+  return items;
+}
+
+function normalizedColor(color) {
+  return String(color || DEFAULT_ANNOT_COLOR).trim().toLowerCase();
+}
+
+function isPureHighlight(annot) {
+  return annot?.kind === 'highlight' && !annot.comment && !annot.target_document_id && !annot.target_url;
+}
+
+function highlightAnnotationsForSelection() {
+  return (selectionDraft?.annotations || []).filter(isPureHighlight);
+}
+
+function activeSelectionColor(overlappingAnnotations) {
+  const colors = new Set(overlappingAnnotations.filter(isPureHighlight).map((annot) => normalizedColor(annot.color)));
+  return colors.size === 1 ? [...colors][0] : '';
+}
+
+function isSelectionColorActive(color) {
+  return Boolean(selectionMenu.value.activeColor) && selectionMenu.value.activeColor === normalizedColor(color);
+}
+
+function selectionColorLabel(color) {
+  if (isSelectionColorActive(color)) return 'Markierung entfernen';
+  return highlightAnnotationsForSelection().length ? 'Markierung umfärben' : 'Mit dieser Farbe markieren';
 }
 
 /** Zeichnet die Overlay-Rechtecke einer Seite (idempotent: alte Ebene ersetzt). */
@@ -983,7 +1039,7 @@ function redrawAllAnnotations() {
 watch(() => props.annotations, () => redrawAllAnnotations(), { deep: true });
 
 function hideSelectionMenu() {
-  if (selectionMenu.value.visible) selectionMenu.value = { visible: false, x: 0, y: 0 };
+  if (selectionMenu.value.visible) selectionMenu.value = { visible: false, x: 0, y: 0, activeColor: '' };
   selectionDraft = null;
 }
 
@@ -1026,7 +1082,8 @@ function onPagesPointerUp() {
     }
     if (!rects.length) { hideSelectionMenu(); return; }
 
-    selectionDraft = { page: pageNum, rects, quote };
+    const overlappingAnnotations = annotationsForSelection(pageNum, rects);
+    selectionDraft = { page: pageNum, rects, quote, annotations: overlappingAnnotations };
 
     const rootRect = rootEl.value?.getBoundingClientRect();
     const first = range.getClientRects()[0];
@@ -1035,13 +1092,32 @@ function onPagesPointerUp() {
         visible: true,
         x: first.left - rootRect.left + first.width / 2,
         y: first.top  - rootRect.top,
+        activeColor: activeSelectionColor(overlappingAnnotations),
       };
     }
   }, 0);
 }
 
-function createAnnotationFromSelection(color) {
+function toggleAnnotationColorFromSelection(color) {
   if (!selectionDraft) return;
+  const highlights = highlightAnnotationsForSelection();
+  const nextColor = normalizedColor(color);
+  const sameColorHighlights = highlights.filter((annot) => normalizedColor(annot.color) === nextColor);
+
+  if (sameColorHighlights.length && sameColorHighlights.length === highlights.length) {
+    for (const annot of sameColorHighlights) emit('delete-annotation', annot.id);
+    window.getSelection()?.removeAllRanges();
+    hideSelectionMenu();
+    return;
+  }
+
+  if (highlights.length) {
+    for (const annot of highlights) emit('update-annotation', annot.id, { color });
+    window.getSelection()?.removeAllRanges();
+    hideSelectionMenu();
+    return;
+  }
+
   emit('create-annotation', {
     page: selectionDraft.page,
     kind: 'highlight',
@@ -1068,6 +1144,18 @@ function requestLinkFromSelection() {
     page: selectionDraft.page,
     rects: selectionDraft.rects,
     quote: selectionDraft.quote,
+  });
+  window.getSelection()?.removeAllRanges();
+  hideSelectionMenu();
+}
+
+function requestCommentFromSelection() {
+  if (!selectionDraft) return;
+  emit('request-comment', {
+    page: selectionDraft.page,
+    rects: selectionDraft.rects,
+    quote: selectionDraft.quote,
+    color: COMMENT_ANNOTATION_COLOR,
   });
   window.getSelection()?.removeAllRanges();
   hideSelectionMenu();
@@ -1462,12 +1550,34 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .pdf-preview {
+  --pdf-toolbar-bg: rgb(15 23 42 / 0.72);
+  --pdf-toolbar-border: rgb(255 255 255 / 0.1);
+  --pdf-toolbar-shadow: 0 8px 22px rgb(0 0 0 / 0.24);
+  --pdf-toolbar-text: rgb(226 232 240 / 0.85);
+  --pdf-toolbar-text-muted: rgb(226 232 240 / 0.68);
+  --pdf-toolbar-icon: rgb(226 232 240 / 0.72);
+  --pdf-toolbar-hover-bg: rgb(255 255 255 / 0.1);
+  --pdf-toolbar-stepper-bg: rgb(255 255 255 / 0.07);
+  --pdf-toolbar-divider: rgb(255 255 255 / 0.12);
+  --pdf-toolbar-group-gap: 8px;
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--pm-pdf-stage-bg, rgb(var(--v-theme-surface)));
+}
+
+:global(.v-theme--light) .pdf-preview {
+  --pdf-toolbar-bg: rgb(255 255 255 / 0.76);
+  --pdf-toolbar-border: rgb(15 23 42 / 0.1);
+  --pdf-toolbar-shadow: 0 10px 24px rgb(15 23 42 / 0.14);
+  --pdf-toolbar-text: rgb(15 23 42 / 0.85);
+  --pdf-toolbar-text-muted: rgb(15 23 42 / 0.62);
+  --pdf-toolbar-icon: rgb(15 23 42 / 0.7);
+  --pdf-toolbar-hover-bg: rgb(15 23 42 / 0.08);
+  --pdf-toolbar-stepper-bg: rgb(15 23 42 / 0.06);
+  --pdf-toolbar-divider: rgb(15 23 42 / 0.1);
 }
 
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
@@ -1482,21 +1592,25 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   width: auto;
-  min-width: 330px;
+  min-width: 0;
   max-width: calc(100% - 24px);
   min-height: 34px;
-  gap: 10px;
+  gap: var(--pdf-toolbar-group-gap);
   padding: 4px 8px;
-  border: 1px solid rgb(255 255 255 / 0.1);
+  border: 1px solid var(--pdf-toolbar-border);
   border-radius: 999px;
-  background: rgb(15 23 42 / 0.72);
-  box-shadow: 0 8px 22px rgb(0 0 0 / 0.24);
+  background: var(--pdf-toolbar-bg);
+  box-shadow: var(--pdf-toolbar-shadow);
   backdrop-filter: blur(12px) saturate(1.08);
   -webkit-backdrop-filter: blur(12px) saturate(1.08);
   box-sizing: border-box;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 160ms ease;
+  transition:
+    opacity 160ms ease,
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
 }
 
 .pdf-preview__viewer:has(.pdf-preview__page:hover) .pdf-preview__toolbar,
@@ -1507,7 +1621,9 @@ onBeforeUnmount(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pdf-preview__toolbar {
+  .pdf-preview__toolbar,
+  .pdf-preview-match-enter-active,
+  .pdf-preview-match-leave-active {
     transition: none;
   }
 }
@@ -1516,51 +1632,83 @@ onBeforeUnmount(() => {
   position: static;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--pdf-toolbar-group-gap);
 }
 
 .pdf-preview__page-info {
-  font-size: 0.8rem;
-  color: rgb(var(--v-theme-on-surface) / 0.85);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 3.4rem;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--pdf-toolbar-stepper-bg);
+  color: var(--pdf-toolbar-text);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  min-width: 3rem;
 }
 
 .pdf-preview__match-controls {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 0;
   flex: 0 0 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 1px;
+  border-radius: 999px;
+  background: var(--pdf-toolbar-stepper-bg);
+}
+
+.pdf-preview-match-enter-active,
+.pdf-preview-match-leave-active {
+  max-width: 220px;
+  opacity: 1;
+  transition:
+    max-width 190ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 140ms ease,
+    transform 190ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.pdf-preview-match-enter-from,
+.pdf-preview-match-leave-to {
+  max-width: 0;
+  opacity: 0;
+  transform: scaleX(0.92);
+}
+
+.pdf-preview-match-enter-to,
+.pdf-preview-match-leave-from {
+  max-width: 220px;
+  opacity: 1;
+  transform: scaleX(1);
 }
 
 .pdf-preview__match-nav-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
+  width: 24px;
   height: 26px;
   padding: 0;
-  border: 1px solid rgba(200, 150, 0, 0.28);
-  border-radius: 50%;
-  background: rgba(255, 200, 0, 0.18);
-  color: rgba(150, 110, 0, 0.95);
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--pdf-toolbar-icon);
   cursor: pointer;
   line-height: 1;
-  transition: background 130ms ease, border-color 130ms ease, color 130ms ease,
-    box-shadow 130ms ease, transform 130ms ease, opacity 130ms ease;
+  transition: background 140ms ease, color 140ms ease, transform 120ms ease, opacity 140ms ease;
 }
 
 .pdf-preview__match-nav-btn:hover:not(:disabled) {
-  background: rgba(255, 196, 0, 0.34);
-  border-color: rgba(200, 150, 0, 0.5);
-  color: rgba(120, 88, 0, 1);
-  box-shadow: 0 2px 7px rgba(200, 150, 0, 0.28);
-  transform: translateY(-1px);
+  background: var(--pdf-toolbar-hover-bg);
+  color: var(--pdf-toolbar-text);
 }
 
 .pdf-preview__match-nav-btn:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: 0 1px 3px rgba(200, 150, 0, 0.22);
+  transform: scale(0.9);
 }
 
 .pdf-preview__match-nav-btn:disabled {
@@ -1569,22 +1717,26 @@ onBeforeUnmount(() => {
 }
 
 .pdf-preview__match-badge {
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: rgba(255, 200, 0, 0.35);
-  color: rgb(var(--v-theme-on-surface) / 0.85);
-  border: 1px solid rgba(200, 150, 0, 0.3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 5.2rem;
+  height: 26px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--pdf-toolbar-text);
+  font-size: 0.78rem;
+  font-weight: 500;
   white-space: nowrap;
   flex: 0 0 auto;
   text-align: center;
 }
 
 .pdf-preview__match-badge--zero {
-  background: rgb(var(--v-theme-on-surface) / 0.06);
-  border-color: rgb(var(--v-theme-on-surface) / 0.12);
-  color: rgb(var(--v-theme-on-surface) / 0.45);
+  background: transparent;
+  color: var(--pdf-toolbar-text-muted);
   font-weight: 400;
 }
 
@@ -1592,7 +1744,7 @@ onBeforeUnmount(() => {
   position: static;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--pdf-toolbar-group-gap);
 }
 
 /* Zoom: zusammenhängendes, weiches Pill-Steuerelement (−  100 %  +). */
@@ -1602,7 +1754,7 @@ onBeforeUnmount(() => {
   gap: 0;
   padding: 1px;
   border-radius: 999px;
-  background: rgb(var(--v-theme-on-surface) / 0.07);
+  background: var(--pdf-toolbar-stepper-bg);
 }
 
 .pdf-preview__zoom-seg {
@@ -1615,14 +1767,14 @@ onBeforeUnmount(() => {
   border: none;
   border-radius: 999px;
   background: transparent;
-  color: rgb(var(--v-theme-on-surface) / 0.7);
+  color: var(--pdf-toolbar-icon);
   cursor: pointer;
   transition: background 140ms ease, color 140ms ease, transform 120ms ease, opacity 140ms ease;
 }
 
 .pdf-preview__zoom-seg:hover:not(:disabled) {
-  background: rgb(var(--v-theme-on-surface) / 0.12);
-  color: rgb(var(--v-theme-on-surface));
+  background: var(--pdf-toolbar-hover-bg);
+  color: var(--pdf-toolbar-text);
 }
 
 .pdf-preview__zoom-seg:active:not(:disabled) {
@@ -1641,7 +1793,7 @@ onBeforeUnmount(() => {
   border: none;
   border-radius: 999px;
   background: transparent;
-  color: rgb(var(--v-theme-on-surface) / 0.85);
+  color: var(--pdf-toolbar-text);
   font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
@@ -1649,12 +1801,12 @@ onBeforeUnmount(() => {
 }
 
 .pdf-preview__zoom-value:hover {
-  background: rgb(var(--v-theme-on-surface) / 0.12);
-  color: rgb(var(--v-theme-on-surface));
+  background: var(--pdf-toolbar-hover-bg);
+  color: var(--pdf-toolbar-text);
 }
 
 .pdf-preview__zoom-value--default {
-  color: rgb(var(--v-theme-on-surface) / 0.55);
+  color: var(--pdf-toolbar-text-muted);
 }
 
 /* ── Lupe-Toggle ─────────────────────────────────────────────────────────── */
@@ -1665,7 +1817,7 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   background: transparent;
   cursor: pointer;
-  color: rgb(var(--v-theme-on-surface) / 0.72);
+  color: var(--pdf-toolbar-icon);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1677,8 +1829,8 @@ onBeforeUnmount(() => {
 }
 
 .pdf-preview__tool-btn:hover:not(:disabled):not(.pdf-preview__tool-btn--active) {
-  background: rgb(var(--v-theme-on-surface) / 0.1);
-  color: rgb(var(--v-theme-on-surface));
+  background: var(--pdf-toolbar-hover-bg);
+  color: var(--pdf-toolbar-text);
 }
 
 .pdf-preview__tool-btn:disabled {
@@ -1703,7 +1855,7 @@ onBeforeUnmount(() => {
 .pdf-preview__tool-divider {
   width: 1px;
   height: 16px;
-  background: rgb(var(--v-theme-on-surface) / 0.1);
+  background: var(--pdf-toolbar-divider);
   margin: 0 2px;
 }
 
@@ -1899,6 +2051,15 @@ onBeforeUnmount(() => {
 
 /* ── Auswahl-Menü ─────────────────────────────────────────────────────────── */
 .pm-sel-menu {
+  --pm-sel-menu-bg: rgb(255 255 255 / 0.92);
+  --pm-sel-menu-border: rgb(15 23 42 / 0.1);
+  --pm-sel-menu-shadow: 0 10px 24px rgb(15 23 42 / 0.16);
+  --pm-sel-menu-icon: rgb(15 23 42 / 0.62);
+  --pm-sel-menu-icon-hover: rgb(15 23 42 / 0.86);
+  --pm-sel-menu-hover-bg: rgb(15 23 42 / 0.08);
+  --pm-sel-menu-divider: rgb(15 23 42 / 0.12);
+  --pm-sel-menu-swatch-border: rgb(15 23 42 / 0.18);
+  --pm-sel-menu-swatch-active-ring: rgb(15 23 42 / 0.48);
   position: absolute;
   z-index: 5;
   transform: translate(-50%, calc(-100% - 8px));
@@ -1907,10 +2068,24 @@ onBeforeUnmount(() => {
   gap: 4px;
   padding: 5px 7px;
   border-radius: 10px;
-  background: rgb(var(--v-theme-surface));
-  border: 1px solid rgb(var(--v-theme-on-surface) / 0.16);
-  box-shadow: 0 6px 18px rgb(0 0 0 / 0.22);
+  background: var(--pm-sel-menu-bg);
+  border: 1px solid var(--pm-sel-menu-border);
+  box-shadow: var(--pm-sel-menu-shadow);
+  backdrop-filter: blur(12px) saturate(1.08);
+  -webkit-backdrop-filter: blur(12px) saturate(1.08);
   animation: pm-sel-pop 130ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+:global(.v-theme--dark) .pm-sel-menu {
+  --pm-sel-menu-bg: rgb(15 23 42 / 0.86);
+  --pm-sel-menu-border: rgb(255 255 255 / 0.1);
+  --pm-sel-menu-shadow: 0 10px 24px rgb(0 0 0 / 0.28);
+  --pm-sel-menu-icon: rgb(226 232 240 / 0.68);
+  --pm-sel-menu-icon-hover: rgb(226 232 240 / 0.92);
+  --pm-sel-menu-hover-bg: rgb(255 255 255 / 0.1);
+  --pm-sel-menu-divider: rgb(255 255 255 / 0.14);
+  --pm-sel-menu-swatch-border: rgb(255 255 255 / 0.24);
+  --pm-sel-menu-swatch-active-ring: rgb(226 232 240 / 0.72);
 }
 
 @keyframes pm-sel-pop {
@@ -1926,23 +2101,42 @@ onBeforeUnmount(() => {
 }
 
 .pm-sel-menu__color {
+  position: relative;
   width: 18px;
   height: 18px;
   padding: 0;
   border-radius: 50%;
-  border: 1px solid rgb(0 0 0 / 0.18);
+  border: 1px solid var(--pm-sel-menu-swatch-border);
   cursor: pointer;
-  transition: transform 120ms ease;
+  transition: box-shadow 120ms ease, transform 120ms ease;
 }
 
 .pm-sel-menu__color:hover {
   transform: scale(1.15);
 }
 
+.pm-sel-menu__color::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border: 2px solid transparent;
+  border-radius: inherit;
+  pointer-events: none;
+  transition: border-color 120ms ease;
+}
+
+.pm-sel-menu__color--active {
+  border-color: var(--pm-sel-menu-swatch-active-ring);
+}
+
+.pm-sel-menu__color--active::after {
+  border-color: var(--pm-sel-menu-swatch-active-ring);
+}
+
 .pm-sel-menu__divider {
   width: 1px;
   height: 18px;
-  background: rgb(var(--v-theme-on-surface) / 0.16);
+  background: var(--pm-sel-menu-divider);
   margin: 0 2px;
 }
 
@@ -1955,12 +2149,14 @@ onBeforeUnmount(() => {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: rgb(var(--v-theme-on-surface) / 0.75);
+  color: var(--pm-sel-menu-icon);
   cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
 }
 
 .pm-sel-menu__btn:hover {
-  background: rgb(var(--v-theme-on-surface) / 0.08);
+  background: var(--pm-sel-menu-hover-bg);
+  color: var(--pm-sel-menu-icon-hover);
 }
 
 /* ── Ladefortschritt ────────────────────────────────────────────────────── */
