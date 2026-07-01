@@ -64,6 +64,10 @@ SCANNER_CONFIG_SYNC_INTERVAL_SECONDS = 2
 SCANNER_JOB_MAINTENANCE_INTERVAL_SECONDS = 30
 # Aufräumen alter, abgeschlossener Scan-Jobs deutlich seltener (täglicher Takt).
 SCANNER_JOB_CLEANUP_INTERVAL_SECONDS = 6 * 3600
+# Speicherverbrauch des Worker-Prozesses periodisch loggen, damit ein langsames
+# Leck im Dauerbetrieb sichtbar wird (unabhängig davon, ob `docker stats` RAM
+# anzeigt - das hängt am Memory-Cgroup des Hosts).
+WORKER_MEMORY_LOG_INTERVAL_SECONDS = 900
 SCANNER_CONFIG_FILENAME = ".papermind-scanner-config"
 SCANNER_STATUS_FILENAME = ".papermind-scanner-status"
 SCANNER_COMMAND_FILE_PREFIX = ".papermind-scan-command-"
@@ -1421,6 +1425,24 @@ def _run_backup_scheduler() -> None:
             logger.warning("scheduled backup run failed: %s", exc)
 
 
+def _read_process_rss_mb() -> float | None:
+    """Resident-Set-Size des eigenen Prozesses in MB (Linux, /proc)."""
+    try:
+        with open("/proc/self/status", "r", encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("VmRSS:"):
+                    return round(float(line.split()[1]) / 1024, 1)
+    except Exception:  # pragma: no cover - Plattform ohne /proc o. Ä.
+        return None
+    return None
+
+
+def _log_worker_memory() -> None:
+    rss_mb = _read_process_rss_mb()
+    if rss_mb is not None:
+        logger.info("worker memory rss_mb=%s worker_id=%s", rss_mb, WORKER_ID)
+
+
 def run() -> None:
     logger.info(
         "worker started worker_id=%s poll_interval=%ss lease=%ss heartbeat=%ss storage=%s",
@@ -1431,18 +1453,24 @@ def run() -> None:
         settings.storage_path,
     )
     _reclaim_orphaned_jobs()
+    _log_worker_memory()
     last_trash_cleanup_at = 0.0
     last_ocr_backfill_at = 0.0
     last_backup_check_at = 0.0
     last_scanner_config_sync_at = 0.0
     last_scanner_job_maintenance_at = 0.0
     last_scanner_job_cleanup_at = 0.0
+    last_memory_log_at = time.monotonic()
     last_job_reclaim_at = time.monotonic()
     while True:
         now_monotonic = time.monotonic()
         if now_monotonic - last_job_reclaim_at >= JOB_RECLAIM_INTERVAL_SECONDS:
             last_job_reclaim_at = now_monotonic
             _reclaim_orphaned_jobs()
+
+        if now_monotonic - last_memory_log_at >= WORKER_MEMORY_LOG_INTERVAL_SECONDS:
+            last_memory_log_at = now_monotonic
+            _log_worker_memory()
 
         if now_monotonic - last_scanner_config_sync_at >= SCANNER_CONFIG_SYNC_INTERVAL_SECONDS:
             last_scanner_config_sync_at = now_monotonic

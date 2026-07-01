@@ -1,5 +1,6 @@
 import { onMounted, onBeforeUnmount } from 'vue';
 import { logDevError } from '../stores/notifications';
+import { useDocumentVisibility } from './useDocumentVisibility.js';
 
 const STATUS_POLL_INTERVAL_MS = 5000;
 const HIDDEN_POLL_INTERVAL_MS = 30000;
@@ -25,6 +26,8 @@ export function useOcrPolling({
 }) {
   let statusPollTimer = null;
   let pollInFlight = false;
+  const { onVisibilityChange } = useDocumentVisibility();
+  let stopVisibility = null;
 
   async function pollOcrStatus() {
     if (isLoadingDocuments.value || pollInFlight) {
@@ -67,12 +70,15 @@ export function useOcrPolling({
   }
 
   onMounted(() => {
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    stopVisibility = onVisibilityChange(handleVisibilityChange);
     schedulePoll();
   });
 
   onBeforeUnmount(() => {
-    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    if (stopVisibility) {
+      stopVisibility();
+      stopVisibility = null;
+    }
     if (statusPollTimer) {
       window.clearTimeout(statusPollTimer);
     }
