@@ -108,27 +108,16 @@
               </div>
 
               <div class="document-row__content">
-                <div class="document-row__title">
+                <div class="document-row__kicker">
                   <span v-if="document.is_unread" class="document-row__unread-dot" aria-hidden="true" />
-                  <div class="document-row__name">{{ formatDocumentTitle(document) }}</div>
+                  <span class="document-row__kicker-type">{{ displayDocumentType(document) }}</span>
+                  <template v-if="displayCorrespondent(document)">
+                    <span class="document-row__kicker-dot" aria-hidden="true">·</span>
+                    <span class="document-row__kicker-corr">{{ displayCorrespondent(document) }}</span>
+                  </template>
                 </div>
-                <div class="document-row__meta-list">
-                  <div class="document-row__meta" :aria-label="`Dokumenttyp: ${displayDocumentType(document)}`">
-                    <v-icon size="17" class="document-row__meta-icon" title="Dokumenttyp">mdi-file-document-outline</v-icon>
-                    <span>{{ displayDocumentType(document) }}</span>
-                  </div>
-                  <div class="document-row__meta" :aria-label="`Dokumentdatum: ${displayListDate(document)}`">
-                    <v-icon size="17" class="document-row__meta-icon" title="Dokumentdatum">mdi-calendar-outline</v-icon>
-                    <span>{{ displayListDate(document) }}</span>
-                  </div>
-                  <div
-                    v-if="displayCorrespondent(document)"
-                    class="document-row__meta"
-                    :aria-label="`Korrespondent: ${displayCorrespondent(document)}`"
-                  >
-                    <v-icon size="17" class="document-row__meta-icon" title="Korrespondent">mdi-account-outline</v-icon>
-                    <span>{{ displayCorrespondent(document) }}</span>
-                  </div>
+                <div class="document-row__title">
+                  <div class="document-row__name">{{ formatDocumentTitle(document) }}</div>
                 </div>
                 <TransitionGroup
                   v-if="Array.isArray(document.tags) && document.tags.length > 0"
@@ -238,6 +227,7 @@
                     </v-list>
                   </v-menu>
                 </div>
+                <div class="document-row__date">{{ displayListDate(document) }}</div>
               </div>
             </div>
             <div
