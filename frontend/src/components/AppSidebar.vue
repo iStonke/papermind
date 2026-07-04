@@ -15,6 +15,17 @@
         <div class="sidebar-section-content">
           <SidebarItem
             item-class="sidebar-item--primary sidebar-item--plain-label"
+            :active="isViewActive('dashboard')"
+            @click="emit('select-view', 'dashboard')"
+          >
+            <template #icon>
+              <v-icon size="18">mdi-view-dashboard-outline</v-icon>
+            </template>
+            Übersicht
+          </SidebarItem>
+
+          <SidebarItem
+            item-class="sidebar-item--primary sidebar-item--plain-label"
             :active="isViewActive('all')"
             :count="allDocumentsSidebarCount"
             @click="emit('select-view', 'all')"
@@ -619,6 +630,10 @@ const flyoutRows = computed(() => {
   switch (railFlyoutSection.value) {
     case 'bibliothek': {
       const rows = [{
+        id: 'dashboard', icon: 'mdi-view-dashboard-outline', label: 'Übersicht',
+        count: null, active: isViewActive('dashboard'),
+        run: () => emit('select-view', 'dashboard'),
+      }, {
         id: 'all', icon: 'mdi-book-open-page-variant-outline', label: 'Alle Dokumente',
         count: allDocumentsSidebarCount.value, active: isViewActive('all'),
         run: () => emit('select-view', 'all'),

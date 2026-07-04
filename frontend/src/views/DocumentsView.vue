@@ -168,6 +168,7 @@
         class="workspace"
         :class="{
           'workspace--rail': sidebarRailActive,
+          'workspace--dashboard': activeView === 'dashboard',
           'workspace--sidebar-transitioning': sidebarRailTransitioning,
           'workspace--sidebar-collapsing': sidebarRailTransitioning && sidebarCollapsed,
           'workspace--sidebar-expanding': sidebarRailTransitioning && !sidebarCollapsed
@@ -286,7 +287,19 @@
           </template>
         </AppSidebar>
 
+        <DashboardView
+          v-if="activeView === 'dashboard'"
+          class="panel panel-dashboard"
+          @open-import="openImport"
+          @open-scan="openImport"
+          @open-ai="openAiView"
+          @open-document="openDocumentFromDashboard"
+          @attention-select="handleDashboardAttention"
+          @show-all-recent="selectView('imports')"
+        />
+
         <section
+          v-if="activeView !== 'dashboard'"
           class="panel panel-middle"
           :class="{ 'panel-middle--tag-filter-open': showTagFilterDrawer && isTagFilterDrawerOpen }"
           :style="tagFilterDrawerOffsetStyle"
@@ -595,7 +608,7 @@
           />
         </section>
 
-        <section class="panel panel-right">
+        <section v-if="activeView !== 'dashboard'" class="panel panel-right">
           <DocumentPreviewLayout
             class="panel-right__preview panel-right__preview--card-drawer"
             :style="detailsDrawerCardStyle"
@@ -1364,6 +1377,7 @@ const ImportStagingDialog = defineAsyncComponent(() => import('../components/Imp
 const BatchTagDialog = defineAsyncComponent(() => import('../components/BatchTagDialog.vue'));
 const SmartFolderEditor = defineAsyncComponent(() => import('../components/SmartFolderEditor.vue'));
 const AiDialog = defineAsyncComponent(() => import('../components/AiDialog.vue'));
+const DashboardView = defineAsyncComponent(() => import('./DashboardView.vue'));
 import { mapApiError, notifyError, logDevError, useNotifications } from '../stores/notifications';
 import { useSettingsStore } from '../stores/settings';
 import { useUiStore } from '../stores/ui';
@@ -5946,6 +5960,12 @@ function selectView(viewKey) {
     clearTagFeedbackMessages();
   }
 
+  if (viewKey === 'dashboard') {
+    activeView.value = 'dashboard';
+    leaveActiveSavedSearch();
+    return;
+  }
+
   if (viewKey === 'all') {
     const toolbarState = resolveDocumentToolbarState('all');
     const hadActiveSavedSearch = Boolean(activeSavedSearchId.value);
@@ -6069,6 +6089,24 @@ function selectView(viewKey) {
     leaveActiveSavedSearch();
   }
   activeView.value = viewKey;
+}
+
+/** Dokument aus dem Dashboard öffnen: in die Gesamtliste wechseln und auswählen. */
+function openDocumentFromDashboard(documentId) {
+  if (!documentId) return;
+  selectView('all');
+  void selectDocument(documentId);
+}
+
+/** Aufmerksamkeits-Kachel im Dashboard: in die passende (gefilterte) Ansicht. */
+function handleDashboardAttention(key) {
+  if (key === 'untagged') {
+    selectView('untagged');
+    return;
+  }
+  // unread / retention_due / to_review haben (noch) keinen dedizierten
+  // Server-Filter → vorerst Gesamtliste (unread-first ist dort Standard).
+  selectView('all');
 }
 
 function clearTagFeedbackMessages() {
@@ -9074,6 +9112,19 @@ onBeforeUnmount(() => {
 /* ── Eingeklappte Icon-Spalte ──────────────────────────────────────────────── */
 .workspace.workspace--rail {
   grid-template-columns: 64px 1fr minmax(360px, 43%);
+}
+
+/* Dashboard: rechte Vorschauspalte entfällt → Übersicht nutzt die volle Restbreite. */
+.workspace.workspace--dashboard {
+  grid-template-columns: 288px 1fr;
+}
+
+.workspace.workspace--rail.workspace--dashboard {
+  grid-template-columns: 64px 1fr;
+}
+
+.panel-dashboard {
+  overflow: hidden;
 }
 
 /* Rail: das Hover-Flyout (6b) darf aus der 64px-Spalte herausragen. */

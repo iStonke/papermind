@@ -20,6 +20,7 @@ from app.routers import (
     backup_router,
     categories_router,
     correspondents_router,
+    dashboard_router,
     document_types_router,
     documents_router,
     health_router,
@@ -118,6 +119,7 @@ app.include_router(scanners_router)
 app.include_router(smart_folders_router)
 app.include_router(settings_router)
 app.include_router(sidebar_router)
+app.include_router(dashboard_router)
 app.include_router(system_router)
 
 

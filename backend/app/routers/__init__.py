@@ -4,6 +4,7 @@ from app.routers.auth import router as auth_router
 from app.routers.backup import router as backup_router
 from app.routers.categories import router as categories_router
 from app.routers.correspondents import router as correspondents_router
+from app.routers.dashboard import router as dashboard_router
 from app.routers.document_types import router as document_types_router
 from app.routers.direct_upload import router as direct_upload_router
 from app.routers.documents import router as documents_router
@@ -32,6 +33,7 @@ __all__ = [
     "annotations_router",
     "categories_router",
     "correspondents_router",
+    "dashboard_router",
     "document_types_router",
     "jobs_router",
     "retrieval_router",
