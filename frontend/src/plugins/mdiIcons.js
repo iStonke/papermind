@@ -76,6 +76,7 @@ export {
   mdiFilePdfBox,
   mdiFileSearchOutline,
   mdiFileUploadOutline,
+  mdiFilterOutline,
   mdiFilterVariant,
   mdiFolder,
   mdiFolderClockOutline,

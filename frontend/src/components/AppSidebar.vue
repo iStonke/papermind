@@ -1,12 +1,12 @@
 <template>
-  <aside class="panel panel-left">
+  <aside ref="rootRef" class="panel panel-left">
     <div v-if="$slots.head" class="sidebar-head">
       <slot name="head" />
     </div>
 
-    <div class="sidebar-scroll">
+    <div class="sidebar-scroll" @mouseleave="scheduleFlyoutClose">
     <!-- Bibliothek -->
-    <v-list nav density="compact" class="views-list">
+    <v-list nav density="compact" class="views-list" @mouseenter="onRailSectionEnter('bibliothek', $event)">
       <div class="sidebar-section-header sidebar-section-header--static">
         <div class="sidebar-section-label">Bibliothek</div>
       </div>
@@ -134,27 +134,38 @@
       <v-divider v-if="idx > 0" class="sidebar-section-divider" />
 
     <!-- Ordner -->
-    <v-list v-if="section.key === 'ordner' && !collapsed" nav density="compact" class="views-list">
+    <v-list v-if="section.key === 'ordner'" nav density="compact" class="views-list" @mouseenter="onRailSectionEnter('ordner', $event)">
       <div
         class="sidebar-section-header"
         :class="{ 'sidebar-section-header--collapsed': ordnerCollapsed }"
         @click="toggleSection('ordner')"
       >
         <div class="sidebar-section-label">Ordner</div>
-        <span v-if="ordnerCollapsed && sortedFolderItems.length" class="sidebar-section-count">{{ sortedFolderItems.length }}</span>
-        <button
-          class="sidebar-section-toggle"
-          :aria-label="ordnerCollapsed ? 'Bereich einblenden' : 'Bereich ausblenden'"
-          tabindex="-1"
-          @click.stop="toggleSection('ordner')"
-        >
-          <v-icon size="13" class="sidebar-section-toggle-icon">mdi-chevron-down</v-icon>
-        </button>
+        <div class="sidebar-section-header-actions">
+          <button
+            type="button"
+            class="sidebar-section-icon-action"
+            aria-label="Ordner erstellen"
+            @click.stop="emit('create-folder')"
+          >
+            <v-icon size="15">mdi-folder-plus-outline</v-icon>
+          </button>
+          <button
+            type="button"
+            class="sidebar-section-toggle"
+            :aria-label="ordnerCollapsed ? 'Bereich einblenden' : 'Bereich ausblenden'"
+            tabindex="-1"
+            @click.stop="toggleSection('ordner')"
+          >
+            <v-icon size="13" class="sidebar-section-toggle-icon">mdi-chevron-down</v-icon>
+          </button>
+        </div>
       </div>
 
       <div class="sidebar-section-drawer" :class="{ 'sidebar-section-drawer--collapsed': ordnerCollapsed }">
         <div class="sidebar-section-content">
           <SidebarItem
+            v-if="collapsed"
             item-class="sidebar-item--secondary sidebar-item--folder-create"
             @click="emit('create-folder')"
           >
@@ -213,27 +224,38 @@
     </v-list>
 
     <!-- Tags -->
-    <v-list v-else-if="section.key === 'tags'" nav density="compact" class="views-list">
+    <v-list v-else-if="section.key === 'tags'" nav density="compact" class="views-list" @mouseenter="onRailSectionEnter('tags', $event)">
       <div
         class="sidebar-section-header"
         :class="{ 'sidebar-section-header--collapsed': tagsCollapsed }"
         @click="toggleSection('tags')"
       >
         <div class="sidebar-section-label">Tags</div>
-        <span v-if="tagsCollapsed && totalTagsSidebarCount" class="sidebar-section-count">{{ totalTagsSidebarCount }}</span>
-        <button
-          class="sidebar-section-toggle"
-          :aria-label="tagsCollapsed ? 'Bereich einblenden' : 'Bereich ausblenden'"
-          tabindex="-1"
-          @click.stop="toggleSection('tags')"
-        >
-          <v-icon size="13" class="sidebar-section-toggle-icon">mdi-chevron-down</v-icon>
-        </button>
+        <div class="sidebar-section-header-actions">
+          <button
+            type="button"
+            class="sidebar-section-icon-action"
+            aria-label="Alle Tags anzeigen"
+            @click.stop="emit('open-tags-view')"
+          >
+            <v-icon size="15">mdi-view-grid-outline</v-icon>
+          </button>
+          <button
+            type="button"
+            class="sidebar-section-toggle"
+            :aria-label="tagsCollapsed ? 'Bereich einblenden' : 'Bereich ausblenden'"
+            tabindex="-1"
+            @click.stop="toggleSection('tags')"
+          >
+            <v-icon size="13" class="sidebar-section-toggle-icon">mdi-chevron-down</v-icon>
+          </button>
+        </div>
       </div>
 
       <div class="sidebar-section-drawer" :class="{ 'sidebar-section-drawer--collapsed': tagsCollapsed }">
         <div class="sidebar-section-content">
           <SidebarItem
+            v-if="collapsed"
             item-class="sidebar-item--plain-label"
             :active="isTagView"
             :count="totalTagsSidebarCount"
@@ -245,47 +267,56 @@
             Alle Tags
           </SidebarItem>
 
-          <template v-if="!collapsed">
-            <SidebarItem
+          <div v-if="!collapsed && topTagQuicklinks.length" class="sidebar-chips">
+            <button
               v-for="tag in topTagQuicklinks"
               :key="tag.id"
-              item-class="sidebar-item--tag"
-              :active="!isTagView && activeTagId === tag.id"
-              :count="sidebarStore.tagCount(tag.id, tag.usage_count ?? 0)"
+              type="button"
+              class="sidebar-chip"
+              :class="{ 'sidebar-chip--active': !isTagView && activeTagId === tag.id }"
               @click="emit('apply-tag-filter', tag.id)"
             >
-              <template #icon>
-                <v-icon size="18">mdi-tag-text-outline</v-icon>
-              </template>
-              <span class="sidebar-tag-pill">{{ tag.name }}</span>
-            </SidebarItem>
-          </template>
+              <span class="sidebar-chip__label">{{ tag.name }}</span>
+              <span class="sidebar-chip__count">{{ sidebarStore.tagCount(tag.id, tag.usage_count ?? 0) }}</span>
+            </button>
+          </div>
         </div>
       </div>
     </v-list>
 
     <!-- Kategorien -->
-    <v-list v-else-if="section.key === 'kategorien'" nav density="compact" class="views-list">
+    <v-list v-else-if="section.key === 'kategorien'" nav density="compact" class="views-list" @mouseenter="onRailSectionEnter('kategorien', $event)">
       <div
         class="sidebar-section-header"
         :class="{ 'sidebar-section-header--collapsed': kategorienCollapsed }"
         @click="toggleSection('kategorien')"
       >
         <div class="sidebar-section-label">Dokumenttypen</div>
-        <span v-if="kategorienCollapsed && totalCategoriesSidebarCount" class="sidebar-section-count">{{ totalCategoriesSidebarCount }}</span>
-        <button
-          class="sidebar-section-toggle"
-          :aria-label="kategorienCollapsed ? 'Bereich einblenden' : 'Bereich ausblenden'"
-          tabindex="-1"
-          @click.stop="toggleSection('kategorien')"
-        >
-          <v-icon size="13" class="sidebar-section-toggle-icon">mdi-chevron-down</v-icon>
-        </button>
+        <div class="sidebar-section-header-actions">
+          <button
+            type="button"
+            class="sidebar-section-icon-action"
+            aria-label="Alle Dokumenttypen anzeigen"
+            @click.stop="emit('open-categories-view')"
+          >
+            <v-icon size="15">mdi-view-grid-outline</v-icon>
+          </button>
+          <button
+            type="button"
+            class="sidebar-section-toggle"
+            :aria-label="kategorienCollapsed ? 'Bereich einblenden' : 'Bereich ausblenden'"
+            tabindex="-1"
+            @click.stop="toggleSection('kategorien')"
+          >
+            <v-icon size="13" class="sidebar-section-toggle-icon">mdi-chevron-down</v-icon>
+          </button>
+        </div>
       </div>
 
       <div class="sidebar-section-drawer" :class="{ 'sidebar-section-drawer--collapsed': kategorienCollapsed }">
         <div class="sidebar-section-content">
           <SidebarItem
+            v-if="collapsed"
             item-class="sidebar-item--plain-label"
             :active="isCategoryView"
             :count="totalCategoriesSidebarCount"
@@ -297,25 +328,63 @@
             Alle Dokumenttypen
           </SidebarItem>
 
-          <template v-if="!collapsed">
-            <SidebarItem
+          <div v-if="!collapsed" class="sidebar-chips">
+            <button
               v-for="category in topCategoryQuicklinks"
               :key="category.id"
-              item-class="sidebar-item--tag"
-              :active="!isCategoryView && activeCategoryName === category.name"
-              :count="Number(category.usage_count || 0)"
+              type="button"
+              class="sidebar-chip"
+              :class="{ 'sidebar-chip--active': !isCategoryView && activeCategoryName === category.name }"
               @click="emit('apply-category-filter', category.name)"
             >
-              <template #icon>
-                <v-icon size="18">mdi-file-document-outline</v-icon>
-              </template>
-              <span class="sidebar-tag-pill">{{ category.name }}</span>
-            </SidebarItem>
-          </template>
+              <span class="sidebar-chip__label">{{ category.name }}</span>
+              <span class="sidebar-chip__count">{{ Number(category.usage_count || 0) }}</span>
+            </button>
+          </div>
         </div>
       </div>
     </v-list>
     </template>
+    </div>
+
+    <!-- Rail-Flyout (Vorlage 6b): Sektion öffnet sich beim Hover -->
+    <div
+      v-if="collapsed && railFlyoutSection"
+      class="sidebar-rail-flyout"
+      :style="{ top: railFlyoutTop + 'px' }"
+      @mouseenter="keepFlyoutOpen"
+      @mouseleave="scheduleFlyoutClose"
+    >
+      <div class="sidebar-rail-flyout__arrow"></div>
+      <div class="sidebar-rail-flyout__title">{{ flyoutTitle }}</div>
+      <button
+        v-for="row in flyoutRows"
+        :key="row.id"
+        type="button"
+        class="sidebar-rail-flyout__row"
+        :class="{ 'sidebar-rail-flyout__row--active': row.active }"
+        @click="runFlyout(row)"
+      >
+        <v-icon size="17" class="sidebar-rail-flyout__icon">{{ row.icon }}</v-icon>
+        <span class="sidebar-rail-flyout__label">{{ row.label }}</span>
+        <span
+          v-if="row.count !== null && row.count !== undefined"
+          class="sidebar-rail-flyout__count"
+        >{{ row.count }}</span>
+      </button>
+      <div v-if="flyoutChips.length" class="sidebar-chips sidebar-chips--flyout">
+        <button
+          v-for="chip in flyoutChips"
+          :key="chip.id"
+          type="button"
+          class="sidebar-chip"
+          :class="{ 'sidebar-chip--active': chip.active }"
+          @click="runFlyout(chip)"
+        >
+          <span class="sidebar-chip__label">{{ chip.name }}</span>
+          <span class="sidebar-chip__count">{{ chip.count }}</span>
+        </button>
+      </div>
     </div>
 
     <div v-if="$slots.foot" class="sidebar-foot">
@@ -325,7 +394,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useSidebarStore } from '../stores/sidebar.js';
 import { useTagStore } from '../stores/tags.js';
@@ -444,7 +513,6 @@ function isSmartFolderItem(folder) {
 }
 
 function folderSidebarIcon(folder, isActive = false) {
-  if (isSmartFolderItem(folder)) return 'mdi-folder-search-outline';
   return isActive ? 'mdi-folder' : 'mdi-folder-outline';
 }
 
@@ -532,6 +600,146 @@ const totalCategoriesSidebarCount = computed(() => {
   if (used > 0 || activeCategories.value.length === 0) return used;
   return activeCategories.value.length;
 });
+
+// ── Rail-Flyout (Vorlage 6b) ────────────────────────────────────────────────
+const rootRef = ref(null);
+const railFlyoutSection = ref(null);
+const railFlyoutTop = ref(0);
+let flyoutCloseTimer = null;
+
+const flyoutTitle = computed(() => ({
+  bibliothek: 'Bibliothek',
+  ordner: 'Ordner',
+  tags: 'Tags',
+  kategorien: 'Dokumenttypen',
+}[railFlyoutSection.value] || ''));
+
+const flyoutRows = computed(() => {
+  const ui = settingsStore.settings.ui;
+  switch (railFlyoutSection.value) {
+    case 'bibliothek': {
+      const rows = [{
+        id: 'all', icon: 'mdi-book-open-page-variant-outline', label: 'Alle Dokumente',
+        count: allDocumentsSidebarCount.value, active: isViewActive('all'),
+        run: () => emit('select-view', 'all'),
+      }];
+      if (ui.sidebar_show_recent !== false) rows.push({
+        id: 'imports', icon: 'mdi-tray-arrow-down', label: 'Zuletzt hinzugefügt',
+        count: importsSidebarCount.value, active: isViewActive('imports'),
+        run: () => emit('select-view', 'imports'),
+      });
+      if (ui.sidebar_show_untagged !== false) rows.push({
+        id: 'untagged', icon: 'mdi-tag-off-outline', label: 'Ohne Tags',
+        count: untaggedSidebarCount.value, active: isViewActive('untagged'),
+        run: () => emit('select-view', 'untagged'),
+      });
+      rows.push({
+        id: 'favorites', icon: 'mdi-star-outline', label: 'Favoriten',
+        count: favoritesSidebarCount.value, active: isViewActive('favorites'),
+        run: () => emit('select-view', 'favorites'),
+      });
+      if (ui.sidebar_show_no_text !== false) rows.push({
+        id: 'no_text', icon: 'mdi-text-box-remove-outline', label: 'Nicht durchsuchbar',
+        count: noTextSidebarCount.value, active: isViewActive('no_text'),
+        run: () => emit('select-view', 'no_text'),
+      });
+      rows.push({
+        id: 'trash', icon: 'mdi-trash-can-outline', label: 'Papierkorb',
+        count: trashSidebarCount.value, active: isViewActive('trash'),
+        run: () => emit('select-view', 'trash'),
+      });
+      if (ui.sidebar_show_chat !== false) rows.push({
+        id: 'chat', icon: 'mdi-robot-outline', label: 'KI-Chat',
+        count: null, active: props.chatActive, run: () => emit('open-chat'),
+      });
+      return rows;
+    }
+    case 'ordner': {
+      const rows = [{
+        id: 'create', icon: 'mdi-folder-plus-outline', label: 'Ordner erstellen',
+        count: null, active: false, run: () => emit('create-folder'),
+      }];
+      for (const folder of sortedFolderItems.value) {
+        rows.push({
+          id: folder.id,
+          icon: folderSidebarIcon(folder, props.activeSavedSearchId === folder.id),
+          label: folder.name,
+          count: sidebarStore.savedSearchCount(folder.id),
+          active: props.activeSavedSearchId === folder.id,
+          run: () => emit('open-saved-search', folder.id),
+        });
+      }
+      return rows;
+    }
+    case 'tags':
+      return [{
+        id: 'all-tags', icon: 'mdi-view-grid-outline', label: 'Alle Tags',
+        count: totalTagsSidebarCount.value, active: props.isTagView,
+        run: () => emit('open-tags-view'),
+      }];
+    case 'kategorien':
+      return [{
+        id: 'all-cats', icon: 'mdi-view-grid-outline', label: 'Alle Dokumenttypen',
+        count: totalCategoriesSidebarCount.value, active: props.isCategoryView,
+        run: () => emit('open-categories-view'),
+      }];
+    default:
+      return [];
+  }
+});
+
+const flyoutChips = computed(() => {
+  if (railFlyoutSection.value === 'tags') {
+    return topTagQuicklinks.value.map((tag) => ({
+      id: tag.id, name: tag.name,
+      count: sidebarStore.tagCount(tag.id, tag.usage_count ?? 0),
+      active: !props.isTagView && props.activeTagId === tag.id,
+      run: () => emit('apply-tag-filter', tag.id),
+    }));
+  }
+  if (railFlyoutSection.value === 'kategorien') {
+    return topCategoryQuicklinks.value.map((category) => ({
+      id: category.id, name: category.name,
+      count: Number(category.usage_count || 0),
+      active: !props.isCategoryView && props.activeCategoryName === category.name,
+      run: () => emit('apply-category-filter', category.name),
+    }));
+  }
+  return [];
+});
+
+function onRailSectionEnter(key, evt) {
+  if (!props.collapsed) return;
+  if (flyoutCloseTimer) { clearTimeout(flyoutCloseTimer); flyoutCloseTimer = null; }
+  const asideEl = rootRef.value;
+  const listEl = evt?.currentTarget;
+  if (asideEl && listEl) {
+    const asideRect = asideEl.getBoundingClientRect();
+    const listRect = listEl.getBoundingClientRect();
+    railFlyoutTop.value = Math.max(8, Math.round(listRect.top - asideRect.top));
+  }
+  railFlyoutSection.value = key;
+}
+
+function scheduleFlyoutClose() {
+  if (!props.collapsed) return;
+  if (flyoutCloseTimer) clearTimeout(flyoutCloseTimer);
+  flyoutCloseTimer = setTimeout(() => { railFlyoutSection.value = null; }, 160);
+}
+
+function keepFlyoutOpen() {
+  if (flyoutCloseTimer) { clearTimeout(flyoutCloseTimer); flyoutCloseTimer = null; }
+}
+
+function runFlyout(item) {
+  item?.run?.();
+  railFlyoutSection.value = null;
+  if (flyoutCloseTimer) { clearTimeout(flyoutCloseTimer); flyoutCloseTimer = null; }
+}
+
+onBeforeUnmount(() => {
+  if (flyoutCloseTimer) clearTimeout(flyoutCloseTimer);
+});
 </script>
 
 <style scoped>
@@ -539,7 +747,7 @@ const totalCategoriesSidebarCount = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 14px 12px 10px;
+  padding: 14px 16px 10px;
 }
 
 /* ── Section Header ───────────────────────────────────────────────────── */
@@ -547,13 +755,14 @@ const totalCategoriesSidebarCount = computed(() => {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  min-height: 24px;
-  padding: 4px 8px 6px 10px;
+  min-height: 0;
+  padding: 8px 10px 5px;
+  margin-bottom: 4px;
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: 8px;
   user-select: none;
-  gap: 7px;
-  transition: background 0.12s ease;
+  gap: 8px;
+  transition: background 0.12s ease, margin-bottom 0.12s ease;
 }
 
 .sidebar-section-header:hover {
@@ -567,6 +776,41 @@ const totalCategoriesSidebarCount = computed(() => {
 
 .sidebar-section-header--static:hover {
   background: transparent;
+}
+
+.sidebar-section-header-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 70px;
+  gap: 5px;
+  margin-inline-start: auto;
+  min-width: 0;
+}
+
+.sidebar-section-icon-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--pm-muted);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.sidebar-section-icon-action:hover {
+  background: rgba(var(--v-theme-on-surface), 0.06);
+  color: var(--pm-text);
+}
+
+.sidebar-section-icon-action:focus-visible {
+  outline: 2px solid rgba(var(--v-theme-primary), 0.7);
+  outline-offset: 1px;
 }
 
 /* ── Zähler-Chip (nur im eingeklappten Zustand) ───────────────────────── */
@@ -601,7 +845,7 @@ const totalCategoriesSidebarCount = computed(() => {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  margin-left: auto;
+  margin-left: 0;
   width: 20px;
   height: 20px;
   padding: 0;
@@ -610,16 +854,15 @@ const totalCategoriesSidebarCount = computed(() => {
   border-radius: 4px;
   cursor: pointer;
   color: rgba(var(--v-theme-on-surface), 0.5);
-  opacity: 0;
-  pointer-events: none;
+  opacity: 0.55;
+  pointer-events: auto;
   transition: opacity 0.15s ease, background 0.12s ease, color 0.12s ease;
 }
 
 .sidebar-section-header:hover .sidebar-section-toggle,
 .sidebar-section-header:focus-within .sidebar-section-toggle,
 .sidebar-section-header--collapsed .sidebar-section-toggle {
-  opacity: 1;
-  pointer-events: auto;
+  opacity: 0.86;
 }
 
 .sidebar-section-toggle:hover {
@@ -644,25 +887,191 @@ const totalCategoriesSidebarCount = computed(() => {
   transform: rotate(-90deg);
 }
 
-/* ── Drawer animation (grid trick) ────────────────────────────────────── */
+/* ── Drawer animation ─────────────────────────────────────────────────── */
 .sidebar-section-drawer {
-  display: grid;
-  grid-template-rows: 1fr;
-  transition: grid-template-rows 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  max-height: var(--pm-sidebar-section-open-height, 420px);
+  overflow: hidden;
+  opacity: 1;
+  transition:
+    max-height 0.24s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.16s ease;
 }
 
 .sidebar-section-drawer--collapsed {
-  grid-template-rows: 0fr;
+  max-height: 0;
+  opacity: 0;
+}
+
+.sidebar-section-header--collapsed {
+  margin-bottom: 0;
 }
 
 .sidebar-section-content {
-  min-height: 0;
   overflow: hidden;
+  visibility: visible;
+  transition: visibility 0s linear 0s;
 }
 
 /* Eingeklappte Items aus Tab-Reihenfolge entfernen */
 .sidebar-section-drawer--collapsed .sidebar-section-content {
   visibility: hidden;
+  transition: visibility 0s linear 0.24s;
+}
+
+/* ── Chip-Wolke (Tags & Dokumenttypen, Vorlage 6a) ────────────────────── */
+.sidebar-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 5px 10px 6px;
+}
+
+.sidebar-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 9px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.09);
+  border-radius: 8px;
+  background: rgba(var(--v-theme-on-surface), 0.07);
+  color: color-mix(in srgb, var(--pm-text) 80%, transparent);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.35;
+  cursor: pointer;
+  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.sidebar-chip:hover {
+  background: rgba(var(--v-theme-on-surface), 0.1);
+  border-color: rgba(var(--v-theme-on-surface), 0.14);
+}
+
+.sidebar-chip__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-chip__count {
+  flex: none;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--pm-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-chip--active {
+  background: color-mix(in srgb, var(--pm-accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--pm-accent) 42%, transparent);
+  color: var(--pm-accent);
+}
+
+.sidebar-chip--active .sidebar-chip__count {
+  color: var(--pm-accent);
+}
+
+.sidebar-chip:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--pm-accent) 55%, transparent);
+  outline-offset: 1px;
+}
+
+/* ── Rail-Flyout (Vorlage 6b) ─────────────────────────────────────────── */
+.sidebar-rail-flyout {
+  position: absolute;
+  left: calc(100% + 6px);
+  z-index: 60;
+  width: 216px;
+  padding: 8px;
+  background: var(--pm-app-surface-raised);
+  border: 1px solid color-mix(in srgb, var(--pm-text) 13%, transparent);
+  border-radius: 12px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+  animation: sidebar-flyout-in 0.14s ease;
+}
+
+@keyframes sidebar-flyout-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.sidebar-rail-flyout__arrow {
+  position: absolute;
+  left: -5px;
+  top: 18px;
+  width: 10px;
+  height: 10px;
+  background: var(--pm-app-surface-raised);
+  border-left: 1px solid color-mix(in srgb, var(--pm-text) 13%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--pm-text) 13%, transparent);
+  transform: rotate(45deg);
+}
+
+.sidebar-rail-flyout__title {
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--pm-muted);
+  padding: 5px 8px 6px;
+}
+
+.sidebar-rail-flyout__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pm-text);
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.82rem;
+  transition: background-color 0.14s ease;
+}
+
+.sidebar-rail-flyout__row:hover {
+  background: rgba(var(--v-theme-on-surface), 0.06);
+}
+
+.sidebar-rail-flyout__icon {
+  flex: none;
+  color: var(--pm-muted) !important;
+}
+
+.sidebar-rail-flyout__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-rail-flyout__count {
+  flex: none;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--pm-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-rail-flyout__row--active {
+  background: color-mix(in srgb, var(--pm-accent) 12%, transparent);
+  box-shadow: none;
+}
+
+.sidebar-rail-flyout__row--active .sidebar-rail-flyout__label,
+.sidebar-rail-flyout__row--active .sidebar-rail-flyout__count,
+.sidebar-rail-flyout__row--active .sidebar-rail-flyout__icon {
+  color: var(--pm-accent) !important;
+}
+
+.sidebar-chips--flyout {
+  padding: 6px 4px 2px;
 }
 
 /* Touch-Geräte: Toggle immer sichtbar */

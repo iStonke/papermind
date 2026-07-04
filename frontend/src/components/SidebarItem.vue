@@ -102,7 +102,7 @@ const isActionVisible = computed(() => {
 
 <style scoped>
 .sidebar-item {
-  --pm-sidebar-right-width: 44px;
+  --pm-sidebar-right-width: 24px;
   border-inline-start: none !important;
 }
 

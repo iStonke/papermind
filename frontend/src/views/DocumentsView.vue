@@ -233,7 +233,7 @@
                         v-bind="menuProps"
                         class="sidebar-search__scope-btn"
                         :class="{ 'sidebar-search__scope-btn--active': searchScope !== 'all' }"
-                        icon="mdi-filter-variant"
+                        icon="mdi-filter-outline"
                         variant="text"
                         size="small"
                         density="comfortable"
@@ -7636,7 +7636,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 14px 12px 10px;
+  padding: 14px 16px 10px;
 }
 
 .sidebar-brand {
@@ -7718,7 +7718,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 10px 8px;
+  padding: 10px 12px;
   border-top: 1px solid var(--pm-divider);
 }
 
@@ -9076,6 +9076,12 @@ onBeforeUnmount(() => {
   grid-template-columns: 64px 1fr minmax(360px, 43%);
 }
 
+/* Rail: das Hover-Flyout (6b) darf aus der 64px-Spalte herausragen. */
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left {
+  overflow: visible;
+  z-index: 30;
+}
+
 .workspace--sidebar-transitioning .panel-left {
   pointer-events: none;
 }
@@ -9134,7 +9140,8 @@ onBeforeUnmount(() => {
 
 /* Sektions-Sammelpunkte ("Alle Tags"/"Alle Dokumenttypen") im Rail immer zeigen. */
 .workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-section-drawer {
-  grid-template-rows: 1fr !important;
+  max-height: var(--pm-sidebar-section-open-height, 420px) !important;
+  opacity: 1 !important;
 }
 .workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-section-content {
   visibility: visible !important;
@@ -9184,6 +9191,12 @@ onBeforeUnmount(() => {
 
 .workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item::before {
   display: none !important;
+}
+
+/* Rail: aktives Icon ist ein zentriertes, getöntes Quadrat – kein Links-Balken. */
+.workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item.v-list-item--active {
+  box-shadow: none;
+  border-radius: 14px;
 }
 
 .workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item .v-list-item__overlay,
@@ -9284,48 +9297,56 @@ onBeforeUnmount(() => {
 }
 
 .views-list {
-  padding: 6px;
+  padding: 0 10px;
   background: transparent !important;
   border-radius: 0;
   box-shadow: none;
 }
 
 .sidebar-section-label {
-  font-size: 0.75rem;
+  font-size: 0.66rem;
   font-weight: 600;
-  letter-spacing: 0.03em;
-  opacity: 0.66;
-  text-transform: none;
+  letter-spacing: 0.09em;
+  line-height: 1;
+  color: var(--pm-muted);
+  opacity: 0.62;
+  text-transform: uppercase;
 }
 
 .sidebar-section-divider {
-  margin: 14px 12px 12px;
-  opacity: 0.65;
+  margin: 8px 14px;
+  opacity: 1;
 }
 
 .sidebar-section-divider.v-divider {
-  border-color: var(--pm-divider);
+  border-color: color-mix(in srgb, var(--pm-divider) 60%, transparent);
 }
 
 .sidebar-item {
   position: relative;
-  border-radius: 12px;
-  margin: 2px 4px;
+  border-radius: 8px;
+  margin: 1px 0;
+  padding-inline: 10px !important;
+  min-height: 34px !important;
+  --v-list-item-min-height: 34px;
   transition: background-color 0.16s ease;
 }
 
-.sidebar-item {
-  --v-list-prepend-gap: 10px;
+/* Vorlage 6a: schmaler Icon→Label-Abstand (11px), kein 42px-Icon-Block. */
+.sidebar-item .v-list-item__prepend {
+  width: auto !important;
+  min-width: 0 !important;
+  justify-content: flex-start !important;
+  margin-inline-end: 11px !important;
 }
 
-.sidebar-item .v-list-item__prepend {
-  width: 42px;
-  min-width: 42px;
-  justify-content: center;
+.sidebar-item .v-list-item__spacer {
+  display: none !important;
+  width: 0 !important;
 }
 
 .sidebar-item .v-list-item-title {
-  font-size: 0.9rem;
+  font-size: 0.84rem;
 }
 
 .sidebar-item--primary .v-list-item-title {
@@ -9335,10 +9356,6 @@ onBeforeUnmount(() => {
 
 .sidebar-item--primary .v-icon {
   opacity: 0.95;
-}
-
-.sidebar-item--secondary {
-  --v-list-item-min-height: 34px;
 }
 
 .sidebar-item--secondary .v-list-item-title {
@@ -9395,34 +9412,6 @@ onBeforeUnmount(() => {
   font-weight: 400;
 }
 
-.sidebar-item--tag .sidebar-tag-pill {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-  width: fit-content;
-  max-width: 100%;
-  min-height: 24px;
-  padding: 1px 10px 2px;
-  border-radius: 999px;
-  background: rgba(var(--v-theme-primary), 0.13);
-  color: rgba(var(--v-theme-primary), 0.94);
-  font-size: 0.82rem;
-  font-weight: 500;
-  line-height: 1.35;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: background-color 0.16s ease;
-}
-
-.sidebar-item--tag:hover .sidebar-tag-pill {
-  background: rgba(var(--v-theme-primary), 0.18);
-}
-
-.sidebar-item--tag.v-list-item--active .sidebar-tag-pill {
-  background: rgba(var(--v-theme-primary), 0.24);
-}
-
 .sidebar-folder-menu-btn {
   width: 32px;
   height: 32px;
@@ -9434,20 +9423,33 @@ onBeforeUnmount(() => {
   font-weight: 500;
 }
 
-/* Konzept „Icon-Frische": alle Navigations-Icons tragen den Akzent-Ton. */
+/* Vorlage 6a: Icons inaktiv gedämpft, aktiv im Akzent-Ton. */
 .papermind-app .panel-left .sidebar-item .v-icon {
-  color: rgb(var(--v-theme-primary)) !important;
+  color: var(--pm-muted) !important;
   opacity: 1;
 }
 
-/* Aktiver Eintrag: klares Teal-Pill (Tint + Akzentrand) + Titel im Akzent. */
+.papermind-app .panel-left .sidebar-item:hover .v-icon {
+  color: color-mix(in srgb, var(--pm-text) 74%, transparent) !important;
+}
+
+.papermind-app .panel-left .sidebar-item.v-list-item--active .v-icon {
+  color: var(--pm-accent) !important;
+}
+
+/* Aktiver Eintrag: zarte Tönung + Akzentfarbe ohne Seitenbalken. */
 .papermind-app .panel-left .sidebar-item.v-list-item--active {
-  background: color-mix(in srgb, rgb(var(--v-theme-primary)) 18%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, rgb(var(--v-theme-primary)) 32%, transparent);
+  background: color-mix(in srgb, var(--pm-accent) 12%, transparent);
+  box-shadow: none;
 }
 
 .papermind-app .panel-left .sidebar-item.v-list-item--active .v-list-item-title {
-  color: rgb(var(--v-theme-primary));
+  color: var(--pm-accent);
+}
+
+.papermind-app .panel-left .sidebar-item.v-list-item--active .sidebar-item-count {
+  color: var(--pm-accent);
+  opacity: 1;
 }
 
 .tags-view {
@@ -9624,7 +9626,7 @@ onBeforeUnmount(() => {
   background: var(--pm-sidebar-surface);
   box-shadow: inset -1px 0 0 var(--pm-light-outline);
   /* Keine theme-spezifischen Abstände: Light nutzt dieselben Sidebar-Maße wie
-     Dark (kein panel-left-Padding, views-list 6px aus der Basisregel). Das hält
+     Dark (kein panel-left-Padding, views-list 10px aus der Basisregel). Das hält
      beide Themes konsistent und richtet die Marke an der Bereichsüberschrift aus. */
 }
 
@@ -9660,19 +9662,6 @@ onBeforeUnmount(() => {
   pointer-events: none;
   background: radial-gradient(1200px 600px at 20% -10%, rgba(8, 145, 178, 0.1), transparent 55%);
   opacity: 0.22;
-}
-
-.papermind-app.v-theme--dark .sidebar-item--tag .sidebar-tag-pill {
-  background: rgba(var(--v-theme-primary), 0.16);
-  color: rgb(var(--v-theme-primary));
-}
-
-.papermind-app.v-theme--dark .sidebar-item--tag:hover .sidebar-tag-pill {
-  background: rgba(var(--v-theme-primary), 0.24);
-}
-
-.papermind-app.v-theme--dark .sidebar-item--tag.v-list-item--active .sidebar-tag-pill {
-  background: rgba(var(--v-theme-primary), 0.30);
 }
 
 .papermind-app.v-theme--dark .document-row {
