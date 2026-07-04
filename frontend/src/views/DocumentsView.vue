@@ -1207,8 +1207,9 @@
                                 </v-list-item>
                               </template>
                               <template #selection="{ item }">
-                                {{ item.raw?.short_name || item.raw?.name || item.title }}
-                                <span v-if="item.raw?.kind === 'collection'"> · Sammlung</span>
+                                <span class="pm-corr-selection">
+                                  {{ item.raw?.short_name || item.raw?.name || item.title }}<template v-if="item.raw?.kind === 'collection'"> · Sammlung</template>
+                                </span>
                               </template>
                               <template #no-data>
                                 <v-list-item title="Als neuen Korrespondenten anlegen" />
@@ -11581,6 +11582,27 @@ onBeforeUnmount(() => {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.pm-corr-selection {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.pm-prop-field .v-combobox .v-field__input {
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.pm-prop-field .v-combobox .v-combobox__selection {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .pm-menu .v-list-item:hover {
