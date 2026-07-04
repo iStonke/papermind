@@ -80,6 +80,21 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "enable_answer_checks": True,
         "enable_self_critique": False,
     },
+    "retention": {
+        "enabled": True,
+        # Grundlagen-Quelle für die KI-Aufbewahrungsbewertung. usage_mode gibt den
+        # rechtlichen Kontext vor (geschäftlich → §147 AO/§257 HGB greifen; privat →
+        # meist keine Pflicht). rules liefert kuratierte Default-Fristen pro Dokument-
+        # typ, die als Hausregel in den Prompt einfließen (Text bleibt maßgeblich).
+        "usage_mode": "business",
+        "rules": [
+            {"document_type": "Rechnung", "paper_original": "scan_sufficient", "period_years": 10, "basis": "§ 147 AO"},
+            {"document_type": "Kontoauszug", "paper_original": "scan_sufficient", "period_years": 10, "basis": "§ 257 HGB"},
+            {"document_type": "Vertrag", "paper_original": "unclear", "period_years": None, "basis": "Einzelfall – Original ggf. nötig"},
+            {"document_type": "Zeugnis", "paper_original": "keep", "period_years": -1, "basis": "Beweiswert des Originals"},
+            {"document_type": "Werbung", "paper_original": "not_applicable", "period_years": None, "basis": ""},
+        ],
+    },
     "ollama": {
         # LLM-gestützte Metadaten-Erkennung beim Import (Titel/Betreff/Datum/Kategorie/Tags).
         # base_url zeigt auf den Host, da das Backend im Docker-Container läuft und Ollama
@@ -201,6 +216,7 @@ class SettingsService:
         persisted["rag"] = normalized_known["rag"]
         persisted["ocr"] = normalized_known["ocr"]
         persisted["quality"] = normalized_known["quality"]
+        persisted["retention"] = normalized_known["retention"]
         persisted_meta = dict(normalized_known.get("meta") or {})
         persisted_meta.pop("updated_at", None)
         persisted_meta["version"] = self._normalize_version(persisted_meta.get("version"))

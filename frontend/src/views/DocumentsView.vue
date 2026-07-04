@@ -597,13 +597,12 @@
 
         <section class="panel panel-right">
           <DocumentPreviewLayout
-            class="panel-right__preview"
+            class="panel-right__preview panel-right__preview--card-drawer"
+            :style="detailsDrawerCardStyle"
             :show-drawer="!isTagView && !isCategoryView && Boolean(selectedDocumentDetail)"
             :is-open="isDetailsDrawerOpen"
+            floating-card
             :collapsed-height="DETAILS_DRAWER_COLLAPSED_HEIGHT"
-            :expanded-height="detailsDrawerHeight"
-            :default-expanded-height="DETAILS_DRAWER_DEFAULT_HEIGHT"
-            @update:expanded-height="setDetailsDrawerHeight"
           >
             <template #viewer>
               <div
@@ -854,7 +853,11 @@
                     <div class="details-command-bar__left">
                       <div class="details-drawer__title-row">
                         <div class="details-drawer__title-wrap">
-                          <div v-if="selectedDocumentDetail" class="details-drawer__subtitle">
+                          <div
+                            v-if="selectedDocumentDetail"
+                            class="details-drawer__subtitle"
+                            :style="detailsHeaderTitleStyle"
+                          >
                             {{ formatDocumentTitle(selectedDocumentDetail) }}
                           </div>
                           <div v-if="headerMetaParts.length || headerOcrStatus" class="details-drawer__meta-line">
@@ -957,11 +960,148 @@
                   @focusin="handleDetailsEditorFocusIn"
                   @focusout="handleDetailsEditorFocusOut"
                 >
+                  <div
+                    v-if="isRetentionFeatureEnabled"
+                    class="retention-zone"
+                    :class="{ 'retention-zone--open': isEditingRetention }"
+                  >
+                    <div
+                      class="retention-bar"
+                      :class="[`retention-bar--${retentionState}`, { 'retention-bar--open': isEditingRetention }]"
+                      role="button"
+                      tabindex="0"
+                      aria-label="Aufbewahrung ein- oder ausklappen"
+                      @click="onRetentionBarClick"
+                      @keydown.enter.prevent="toggleRetentionEdit"
+                      @keydown.space.prevent="toggleRetentionEdit"
+                    >
+                      <span class="retention-bar__badge">
+                        <v-icon size="15">{{ retentionBadge.icon }}</v-icon>
+                      </span>
+                      <div class="retention-bar__text">
+                        <div class="retention-bar__title-row">
+                          <span class="retention-bar__title">{{ retentionBadge.title }}</span>
+                          <span v-if="retentionState === 'ai'" class="retention-bar__ki">KI-Vorschlag</span>
+                        </div>
+                        <div v-if="retentionBadge.subtitle" class="retention-bar__subtitle">{{ retentionBadge.subtitle }}</div>
+                      </div>
+
+                      <button
+                        v-if="retentionState === 'ai'"
+                        type="button"
+                        class="retention-bar__accept"
+                        :disabled="isSavingRetention"
+                        @click.stop="acceptRetentionSuggestion"
+                      >Übernehmen</button>
+                      <span v-else class="retention-bar__pencil" aria-hidden="true">
+                        <v-icon size="14">mdi-pencil-outline</v-icon>
+                      </span>
+
+                      <v-icon
+                        class="retention-bar__chev"
+                        :class="{ 'retention-bar__chev--open': isEditingRetention }"
+                        size="16"
+                      >mdi-chevron-down</v-icon>
+                    </div>
+
+                    <div v-if="isEditingRetention" class="retention-form" @click.stop>
+                      <div class="retention-form__grid">
+                        <div class="retention-form__field">
+                          <label>Aufbewahrungsdauer</label>
+                          <v-select
+                            v-model="retentionDraft.period_years"
+                            :items="retentionPeriodItems"
+                            density="compact"
+                            variant="outlined"
+                            hide-details
+                            class="retention-form__input"
+                            :menu-props="detailsCategoryMenuProps"
+                          />
+                        </div>
+                        <div class="retention-form__field">
+                          <label>Ablaufdatum</label>
+                          <div class="retention-form__static">{{ retentionExpiryLabel || '—' }}</div>
+                        </div>
+                      </div>
+
+                      <div class="retention-toggle-row">
+                        <div class="retention-toggle-row__text">
+                          <div class="retention-toggle-row__title">Original behalten</div>
+                          <div class="retention-toggle-row__hint">Physisches Original muss aufbewahrt werden</div>
+                        </div>
+                        <button
+                          type="button"
+                          class="retention-toggle"
+                          :class="{ 'retention-toggle--on': retentionKeepOriginal }"
+                          role="switch"
+                          :aria-checked="String(retentionKeepOriginal)"
+                          aria-label="Original behalten"
+                          @click="retentionKeepOriginal = !retentionKeepOriginal"
+                        >
+                          <span class="retention-toggle__knob" />
+                        </button>
+                      </div>
+
+                      <div class="retention-form__field">
+                        <label>Begründung</label>
+                        <v-textarea
+                          v-model="retentionDraft.reason"
+                          :rows="2"
+                          :max-rows="4"
+                          auto-grow
+                          density="compact"
+                          variant="outlined"
+                          hide-details
+                          class="retention-form__input"
+                          placeholder="Kurzer Grund, z. B. Rechtsgrundlage…"
+                        />
+                      </div>
+
+                      <div v-if="retentionErrorMessage" class="retention-form__error">{{ retentionErrorMessage }}</div>
+                      <div class="retention-form__disclaimer">KI-Hinweis, keine Rechtsberatung. Vor Vernichtung prüfen.</div>
+
+                      <div class="retention-form__actions">
+                        <v-btn
+                          v-if="retentionState !== 'ai'"
+                          size="small"
+                          variant="text"
+                          class="retention-form__ai"
+                          :loading="isSuggestingRetention"
+                          :disabled="isSuggestingRetention"
+                          @click="requestRetentionSuggestion"
+                        >
+                          <v-icon size="14" start>mdi-auto-fix</v-icon>
+                          KI-Bewertung
+                        </v-btn>
+                        <v-btn
+                          size="small"
+                          variant="text"
+                          class="retention-form__cancel"
+                          :disabled="isSavingRetention"
+                          @click="cancelRetentionEdit"
+                        >
+                          Abbrechen
+                        </v-btn>
+                        <v-btn
+                          size="small"
+                          color="primary"
+                          variant="flat"
+                          class="retention-form__save"
+                          :loading="isSavingRetention"
+                          :disabled="isSavingRetention"
+                          @click="saveRetention"
+                        >
+                          Speichern
+                        </v-btn>
+                      </div>
+                    </div>
+                  </div>
+
                   <div class="pm-prop">
-                    <div class="pm-prop-row">
+                    <div class="pm-prop-row pm-prop-row--text">
                       <label class="pm-prop-key">Dokumentname</label>
-                      <div class="pm-prop-val">
-                        <div class="pm-prop-field">
+                      <div class="pm-prop-val pm-prop-val--text">
+                        <div class="pm-prop-field pm-prop-field--boxed pm-prop-field--name">
                           <v-text-field
                             v-model="metadataDocName"
                             class="pm-name-field"
@@ -975,10 +1115,10 @@
                       </div>
                     </div>
 
-                    <div class="pm-prop-row">
+                    <div class="pm-prop-row pm-prop-row--date">
                       <label class="pm-prop-key">Dokumentdatum</label>
-                      <div class="pm-prop-val">
-                        <div class="pm-prop-field pm-prop-field--inline">
+                      <div class="pm-prop-val pm-prop-val--date">
+                        <div class="pm-prop-field pm-prop-field--inline pm-prop-field--boxed">
                           <v-text-field
                             v-model="metadataDocDate"
                             class="pm-date-field"
@@ -996,11 +1136,11 @@
                       </div>
                     </div>
 
-                    <div class="pm-prop-row">
+                    <div class="pm-prop-row pm-prop-row--medium">
                       <label class="pm-prop-key">Dokumenttyp</label>
-                      <div class="pm-prop-val">
-                        <div class="pm-prop-value-with-action">
-                          <div class="pm-prop-field">
+                      <div class="pm-prop-val pm-prop-val--medium">
+                        <div class="pm-prop-value-with-action pm-prop-value-with-action--medium">
+                          <div class="pm-prop-field pm-prop-field--boxed">
                             <v-select
                               :model-value="metadataDocCategory"
                               :items="categoryDrawerItems"
@@ -1029,11 +1169,11 @@
                       </div>
                     </div>
 
-                    <div class="pm-prop-row">
+                    <div class="pm-prop-row pm-prop-row--medium">
                       <label class="pm-prop-key">Korrespondent</label>
-                      <div class="pm-prop-val">
-                        <div class="pm-prop-value-with-action">
-                          <div class="pm-prop-field">
+                      <div class="pm-prop-val pm-prop-val--medium">
+                        <div class="pm-prop-value-with-action pm-prop-value-with-action--medium">
+                          <div class="pm-prop-field pm-prop-field--boxed">
                             <v-combobox
                               :model-value="metadataCorrespondentDraft"
                               :items="correspondentDrawerItems"
@@ -1090,9 +1230,9 @@
                       </div>
                     </div>
 
-                    <div class="pm-prop-row pm-prop-row--top">
+                    <div class="pm-prop-row pm-prop-row--top pm-prop-row--tags">
                       <label class="pm-prop-key">Tags</label>
-                      <div class="pm-prop-val">
+                      <div class="pm-prop-val pm-prop-val--tags">
                         <div class="pm-tags-input" :class="{ 'pm-tags-input--disabled': isRunningAiAnalysis }">
                           <v-chip
                             v-for="name in metadataTagNames"
@@ -1116,7 +1256,7 @@
                             variant="plain"
                             hide-details
                             class="pm-tags-input__field"
-                            :placeholder="metadataTagNames.length ? '' : 'Tag hinzufügen…'"
+                            menu-icon=""
                             :loading="isSavingTags || isResolvingTagNames"
                             :disabled="isRunningAiAnalysis"
                             :menu-props="detailsTagsMenuProps"
@@ -1124,15 +1264,21 @@
                             @keydown="handleMetadataTagShortcut"
                           >
                             <template #selection></template>
+                            <template #prepend-inner>
+                              <span class="pm-tags-input__add">
+                                <v-icon size="14" class="pm-tags-input__plus">mdi-plus</v-icon>
+                                <span class="pm-tags-input__add-label">Tag</span>
+                              </span>
+                            </template>
                           </v-combobox>
                         </div>
                       </div>
                     </div>
 
-                    <div class="pm-prop-row pm-prop-row--top">
+                    <div class="pm-prop-row pm-prop-row--top pm-prop-row--text" data-drawer-expand-boundary>
                       <label class="pm-prop-key">Notizen</label>
-                      <div class="pm-prop-val">
-                        <div class="pm-prop-field pm-prop-field--area">
+                      <div class="pm-prop-val pm-prop-val--text">
+                        <div class="pm-prop-field pm-prop-field--area pm-prop-field--boxed pm-prop-field--notes">
                           <v-textarea
                             v-model="metadataNotes"
                             :rows="3"
@@ -1149,6 +1295,7 @@
                       </div>
                     </div>
                   </div>
+
                 </div>
               </div>
               <div v-else class="panel-empty details-drawer__empty">
@@ -1241,6 +1388,13 @@ import { useGlobalKeyboard } from '../composables/useGlobalKeyboard';
 import { useSearch } from '../composables/useSearch';
 import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
 import { apiFetch, authedUrl, getBaseUrl } from '../api/client.js';
+import {
+  acceptDocumentRetention,
+  discardDocumentRetention,
+  getDocumentRetention,
+  putDocumentRetention,
+  suggestDocumentRetention
+} from '../api/documents.js';
 import { assignImportInboxItems, claimImportInboxItems, discardImportInboxItems, getImportInbox, subscribeImportInbox } from '../api/importInbox.js';
 import { triggerScan } from '../api/scanners.js';
 import { applyPaperMindVuetifyColors, resolvePaperMindColorVariant } from '../theme/tokens';
@@ -1337,8 +1491,23 @@ const detailsTagsMenuProps = Object.freeze({
   closeOnContentClick: false,
   contentClass: 'pm-menu pm-menu--tags'
 });
+// Kurzphrase zum Papieroriginal für den Untertitel der Statusleiste.
+const RETENTION_PAPER_PHRASE = Object.freeze({
+  unclear: 'Papieroriginal offen',
+  keep: 'Original erforderlich',
+  scan_sufficient: 'Scan genügt',
+  not_applicable: 'Kein Original nötig'
+});
+const RETENTION_PERIOD_UNLIMITED = -1;
+const retentionPeriodItems = Object.freeze([
+  { title: 'Unklar', value: null },
+  { title: '3 Jahre', value: 3 },
+  { title: '6 Jahre', value: 6 },
+  { title: '10 Jahre', value: 10 },
+  { title: '30 Jahre', value: 30 },
+  { title: 'Unbegrenzt', value: RETENTION_PERIOD_UNLIMITED }
+]);
 const DETAILS_DRAWER_COLLAPSED_HEIGHT = 72;
-const DETAILS_DRAWER_DEFAULT_HEIGHT = 320;
 const LAST_SELECTED_DOC_KEY = 'pm.lastSelectedDocumentId';
 const DOCUMENT_TOOLBAR_STATE_KEY = 'pm.documentToolbarState';
 const TAG_TOOLBAR_STATE_KEY = 'pm.tagToolbarState';
@@ -2174,10 +2343,35 @@ const isDetailsDrawerChevronExpanded = computed(() => isDetailsDrawerOpen.value)
 const detailsDrawerChevronIcon = computed(() =>
   isDetailsDrawerChevronExpanded.value ? 'mdi-chevron-down' : 'mdi-chevron-up'
 );
-const detailsDrawerHeight = computed(() => settingsStore.drawerHeight);
-function setDetailsDrawerHeight(value) {
-  settingsStore.setDrawerHeight(value);
-}
+const detailsDrawerCardStyle = computed(() => {
+  const isDark = theme.global.name.value === 'dark';
+  return {
+    '--preview-drawer-card-bg': isDark ? '#111923' : '#ffffff',
+    '--preview-drawer-card-hover-bg': isDark ? '#152131' : '#f8fafc',
+    '--preview-drawer-card-hover-border': isDark ? 'rgba(96, 165, 250, 0.3)' : 'rgba(59, 130, 246, 0.28)',
+    '--preview-drawer-card-hover-ring': isDark ? 'rgba(96, 165, 250, 0.12)' : 'rgba(59, 130, 246, 0.09)',
+    '--preview-drawer-collapsed-border': isDark ? 'rgba(148, 163, 184, 0.18)' : 'rgba(100, 116, 139, 0.24)',
+    '--preview-drawer-collapsed-shadow': isDark
+      ? '0 18px 48px rgba(0, 0, 0, 0.32), 0 2px 8px rgba(0, 0, 0, 0.24)'
+      : '0 24px 60px rgba(15, 23, 42, 0.22), 0 8px 18px rgba(15, 23, 42, 0.12), 0 0 0 1px rgba(255, 255, 255, 0.9) inset',
+    '--preview-drawer-scrim-rgb': '255, 255, 255'
+  };
+});
+const detailsHeaderTitleStyle = computed(() => {
+  const title = selectedDocumentDetail.value ? formatDocumentTitle(selectedDocumentDetail.value) : '';
+  const titleLength = Array.from(title).length;
+  let size = '1.18rem';
+  if (titleLength > 78) {
+    size = '0.98rem';
+  } else if (titleLength > 62) {
+    size = '1.02rem';
+  } else if (titleLength > 46) {
+    size = '1.06rem';
+  } else if (titleLength > 32) {
+    size = '1.12rem';
+  }
+  return { '--details-header-title-size': size };
+});
 const metadataTagsCombobox = ref(null);
 
 const metadataDocName = ref('');
@@ -2201,6 +2395,18 @@ const isSavingTags = ref(false);
 const isResolvingTagNames = ref(false);
 const isRunningAiAnalysis = ref(false);
 const isQueueingHeaderOcr = ref(false);
+const retentionData = ref(null);
+const isLoadingRetention = ref(false);
+const isSavingRetention = ref(false);
+const isSuggestingRetention = ref(false);
+const isEditingRetention = ref(false);
+const retentionErrorMessage = ref('');
+const isRetentionFeatureEnabled = computed(() => appSettings.value?.retention?.enabled !== false);
+const retentionDraft = reactive({
+  period_years: null,
+  paper_original: 'unclear',
+  reason: '',
+});
 const metadataSuccessMessage = ref('');
 const metadataErrorMessage = ref('');
 const metadataTagErrorMessage = ref('');
@@ -6861,19 +7067,264 @@ async function deleteSelectedDocument() {
   openDeleteDocumentDialog(selectedDocumentDetail.value);
 }
 
+function resetRetentionDraft(data = null) {
+  const rawPeriod = data?.period_years;
+  retentionDraft.period_years = rawPeriod === null || rawPeriod === undefined ? null : Number(rawPeriod);
+  retentionDraft.paper_original = data?.paper_original || 'unclear';
+  retentionDraft.reason = data?.reason || '';
+}
+
+async function loadRetention(documentId = selectedDocumentId.value, { force = false } = {}) {
+  if (!isRetentionFeatureEnabled.value) {
+    return null;
+  }
+  if (!documentId || (retentionData.value?.document_id === documentId && !force)) {
+    return retentionData.value;
+  }
+  isLoadingRetention.value = true;
+  retentionErrorMessage.value = '';
+  try {
+    const data = await getDocumentRetention(documentId);
+    if (selectedDocumentId.value === documentId) {
+      retentionData.value = data;
+      resetRetentionDraft(data);
+    }
+    return data;
+  } catch (error) {
+    if (selectedDocumentId.value === documentId) {
+      retentionErrorMessage.value = mapApiError(error, 'Aufbewahrung konnte nicht geladen werden.');
+    }
+    return null;
+  } finally {
+    if (selectedDocumentId.value === documentId) {
+      isLoadingRetention.value = false;
+    }
+  }
+}
+
+function toggleRetentionEdit() {
+  if (!isRetentionFeatureEnabled.value) {
+    return;
+  }
+  if (isEditingRetention.value) {
+    isEditingRetention.value = false;
+    return;
+  }
+  openRetentionEdit();
+}
+
+function openRetentionEdit() {
+  if (!isRetentionFeatureEnabled.value) {
+    return;
+  }
+  if (isEditingRetention.value) {
+    return;
+  }
+  resetRetentionDraft(retentionData.value);
+  retentionErrorMessage.value = '';
+  isEditingRetention.value = true;
+}
+
+function cancelRetentionEdit() {
+  resetRetentionDraft(retentionData.value);
+  retentionErrorMessage.value = '';
+  isEditingRetention.value = false;
+}
+
+async function saveRetention() {
+  const documentId = selectedDocumentId.value;
+  if (!documentId || !isRetentionFeatureEnabled.value) return;
+  isSavingRetention.value = true;
+  retentionErrorMessage.value = '';
+  try {
+    const updated = await putDocumentRetention(documentId, {
+      status: 'manual',
+      period_years: retentionDraft.period_years === null || retentionDraft.period_years === ''
+        ? null
+        : Number(retentionDraft.period_years),
+      paper_original: retentionDraft.paper_original || 'unclear',
+      reason: retentionDraft.reason || null,
+    });
+    if (selectedDocumentId.value === documentId) {
+      retentionData.value = updated;
+      resetRetentionDraft(updated);
+      isEditingRetention.value = false;
+    }
+    notify({ type: 'success', title: 'Aufbewahrung', message: 'Angaben gespeichert.' });
+  } catch (error) {
+    retentionErrorMessage.value = mapApiError(error, 'Aufbewahrung konnte nicht gespeichert werden.');
+    notify({ type: 'error', title: 'Aufbewahrung', message: retentionErrorMessage.value });
+  } finally {
+    isSavingRetention.value = false;
+  }
+}
+
+async function acceptRetentionSuggestion() {
+  const documentId = selectedDocumentId.value;
+  if (!documentId || !isRetentionFeatureEnabled.value) return;
+  isSavingRetention.value = true;
+  retentionErrorMessage.value = '';
+  try {
+    const updated = await acceptDocumentRetention(documentId);
+    if (selectedDocumentId.value === documentId) {
+      retentionData.value = updated;
+      resetRetentionDraft(updated);
+      isEditingRetention.value = false;
+    }
+    notify({ type: 'success', title: 'Aufbewahrung', message: 'KI-Vorschlag übernommen.' });
+  } catch (error) {
+    retentionErrorMessage.value = mapApiError(error, 'Vorschlag konnte nicht übernommen werden.');
+    notify({ type: 'error', title: 'Aufbewahrung', message: retentionErrorMessage.value });
+  } finally {
+    isSavingRetention.value = false;
+  }
+}
+
+async function discardRetention() {
+  const documentId = selectedDocumentId.value;
+  if (!documentId || !isRetentionFeatureEnabled.value) return;
+  isSavingRetention.value = true;
+  retentionErrorMessage.value = '';
+  try {
+    const updated = await discardDocumentRetention(documentId);
+    if (selectedDocumentId.value === documentId) {
+      retentionData.value = updated;
+      resetRetentionDraft(updated);
+      isEditingRetention.value = false;
+    }
+  } catch (error) {
+    retentionErrorMessage.value = mapApiError(error, 'Vorschlag konnte nicht verworfen werden.');
+    notify({ type: 'error', title: 'Aufbewahrung', message: retentionErrorMessage.value });
+  } finally {
+    isSavingRetention.value = false;
+  }
+}
+
+async function requestRetentionSuggestion() {
+  const documentId = selectedDocumentId.value;
+  if (!documentId || !isRetentionFeatureEnabled.value) return;
+  isSuggestingRetention.value = true;
+  retentionErrorMessage.value = '';
+  try {
+    const updated = await suggestDocumentRetention(documentId);
+    if (selectedDocumentId.value === documentId) {
+      retentionData.value = updated;
+      resetRetentionDraft(updated);
+      isEditingRetention.value = false;
+    }
+    notify({ type: 'success', title: 'Aufbewahrung', message: 'KI-Bewertung erstellt.' });
+  } catch (error) {
+    retentionErrorMessage.value = mapApiError(error, 'KI-Bewertung nicht möglich.');
+    notify({ type: 'error', title: 'Aufbewahrung', message: retentionErrorMessage.value });
+  } finally {
+    isSuggestingRetention.value = false;
+  }
+}
+
+// Drei Anzeigezustände der Statusleiste (Vorlage 1a): leer · KI-Vorschlag · befüllt.
+const retentionState = computed(() => {
+  const status = retentionData.value?.status;
+  if (status === 'suggested') return 'ai';
+  if (status === 'accepted' || status === 'manual') return 'filled';
+  return 'empty';
+});
+
+function formatRetentionPeriod(period) {
+  if (period === RETENTION_PERIOD_UNLIMITED) return 'Unbegrenzt';
+  const years = Number(period);
+  if (Number.isFinite(years) && years > 0) return `${years} Jahre`;
+  return 'Erfasst';
+}
+
+// Icon-Badge + Titel/Untertitel je Zustand (siehe Handoff „Statusleiste").
+const retentionBadge = computed(() => {
+  const data = retentionData.value;
+  if (retentionState.value === 'empty') {
+    return {
+      icon: 'mdi-shield-outline',
+      title: 'Nicht erfasst',
+      subtitle: 'Aufbewahrungspflicht ergänzen'
+    };
+  }
+  const title = formatRetentionPeriod(data?.period_years);
+  const phrase = RETENTION_PAPER_PHRASE[data?.paper_original] || RETENTION_PAPER_PHRASE.unclear;
+  if (retentionState.value === 'ai') {
+    return { icon: 'mdi-creation', title, subtitle: `${phrase} · zur Prüfung` };
+  }
+  let expiry;
+  if (data?.retain_until) {
+    expiry = `bis ${formatDocumentDateInputFromIso(data.retain_until) || data.retain_until}`;
+  } else if (data?.period_years === RETENTION_PERIOD_UNLIMITED) {
+    expiry = 'kein Ablauf';
+  } else {
+    expiry = 'ohne Ablaufdatum';
+  }
+  return { icon: 'mdi-shield-outline', title, subtitle: `${phrase} · ${expiry}` };
+});
+
+// Toggle „Original behalten" (Vorlage): keep ↔ scan_sufficient auf paper_original.
+const retentionKeepOriginal = computed({
+  get: () => retentionDraft.paper_original === 'keep',
+  set: (value) => {
+    retentionDraft.paper_original = value ? 'keep' : 'scan_sufficient';
+  }
+});
+
+// Ablaufdatum leitet sich (wie serverseitig) aus Dokumentdatum + gewählter Frist ab.
+const retentionExpiryLabel = computed(() => {
+  const period = retentionDraft.period_years;
+  if (period === RETENTION_PERIOD_UNLIMITED) return 'Kein Ablauf';
+  const years = Number(period);
+  if (!Number.isFinite(years) || years <= 0) return '';
+  const parsed = parseDocumentDateInput(metadataDocDate.value);
+  if (!parsed.ok || !parsed.iso) return '';
+  const [y, m, d] = parsed.iso.split('-').map(Number);
+  const target = new Date(y + years, m - 1, d);
+  if (target.getMonth() !== m - 1) target.setDate(0); // 29.02. → 28.02. im Nicht-Schaltjahr
+  const dd = String(target.getDate()).padStart(2, '0');
+  const mm = String(target.getMonth() + 1).padStart(2, '0');
+  return `${dd}.${mm}.${target.getFullYear()}`;
+});
+
+function onRetentionBarClick(event) {
+  const interactive = event?.target?.closest?.('button, a, input, textarea, select, [data-retention-action]');
+  if (interactive && interactive !== event.currentTarget) {
+    return;
+  }
+  toggleRetentionEdit();
+}
+
 watch(selectedDocumentId, (nextId, previousId) => {
   if (nextId !== previousId) {
     metadataDraftDocumentId.value = null;
     metadataTagDraftRevision.value += 1;
     isResolvingTagNames.value = false;
     detailsEditorHasFocus.value = false;
+    retentionData.value = null;
+    retentionErrorMessage.value = '';
+    isEditingRetention.value = false;
     metadataDraftRevision.value += 1;
     clearPreviewRetryTimer();
     previewRetryAttemptsByDocument.value = {};
     resetDetailsSectionState();
+    if (nextId && isRetentionFeatureEnabled.value) {
+      void loadRetention(nextId, { force: true });
+    }
   }
 });
 
+watch(isRetentionFeatureEnabled, (enabled) => {
+  retentionData.value = null;
+  retentionErrorMessage.value = '';
+  isEditingRetention.value = false;
+  isLoadingRetention.value = false;
+  isSavingRetention.value = false;
+  isSuggestingRetention.value = false;
+  resetRetentionDraft(null);
+  if (enabled && selectedDocumentId.value) {
+    void loadRetention(selectedDocumentId.value, { force: true });
+  }
+});
 
 watch(metadataTagIds, (nextValue) => {
   if (shouldSkipTagAutosave || !selectedDocumentDetail.value) {
@@ -9258,7 +9709,12 @@ onBeforeUnmount(() => {
 
 .papermind-app.v-theme--dark .panel-right,
 .papermind-app.v-theme--dark .panel-right__preview {
-  background: var(--pm-viewer-surface);
+  background: #f1f4fa;
+}
+
+.papermind-app.v-theme--dark .panel-right__preview {
+  --pm-viewer-surface: #f1f4fa;
+  --pm-pdf-stage-bg: #f1f4fa;
 }
 
 /* Tag-Schublade im Darkmode: flache Oberfläche wie die Detailschublade,
@@ -9667,6 +10123,29 @@ onBeforeUnmount(() => {
   background: var(--pm-viewer-surface);
 }
 
+.panel-right__preview--card-drawer .details-drawer__inner {
+  max-width: none;
+  padding: 0 20px;
+}
+
+.panel-right__preview--card-drawer .details-drawer__header--expanded {
+  padding: 20px 0 18px;
+}
+
+.panel-right__preview--card-drawer .details-drawer__header--collapsed {
+  padding: 12px 0;
+}
+
+.panel-right__preview--card-drawer .pm-drawer-body {
+  --pm-detail-body-x: 20px;
+  padding: 0 var(--pm-detail-body-x) 28px;
+}
+
+.panel-right__preview--card-drawer .retention-zone {
+  max-width: none;
+  margin: 12px 0;
+}
+
 .tag-focus-panel {
   flex: 1;
   min-height: 0;
@@ -10001,33 +10480,395 @@ onBeforeUnmount(() => {
 }
 
 .pm-drawer-body {
-  padding: 4px 16px 12px;
+  --pm-detail-body-x: 16px;
+  --pm-detail-info-bg: #f4f6f9;
+  --pm-detail-info-border: #dde2e8;
+  --pm-detail-field-bg: #ffffff;
+  --pm-detail-field-border: #d7dce3;
+  --pm-detail-field-hover-border: #c8ced8;
+  --pm-detail-field-focus-border: rgba(var(--v-theme-primary), 0.6);
+  --pm-detail-field-focus-ring: rgba(var(--v-theme-primary), 0.12);
+  --pm-detail-chip-bg: #f0f2f5;
+  --pm-detail-chip-border: #dce2e9;
+  --pm-detail-chip-close-color: #647181;
+  --pm-detail-chip-add-border: #c7ccd4;
+  --pm-detail-row-divider: rgba(var(--v-theme-on-surface), 0.07);
+  padding: 0 var(--pm-detail-body-x) 12px;
+}
+
+.papermind-app.v-theme--dark .pm-drawer-body {
+  --pm-detail-info-bg: #161f2b;
+  --pm-detail-info-border: #263244;
+  --pm-detail-field-bg: #0e141f;
+  --pm-detail-field-border: #283244;
+  --pm-detail-field-hover-border: #354258;
+  --pm-detail-field-focus-border: rgba(var(--v-theme-primary), 0.62);
+  --pm-detail-field-focus-ring: rgba(var(--v-theme-primary), 0.16);
+  --pm-detail-chip-bg: #263548;
+  --pm-detail-chip-border: #34455c;
+  --pm-detail-chip-close-color: #c4ccd6;
+  --pm-detail-chip-add-border: #475367;
+}
+
+/* ===== Aufbewahrungs-Statusleiste (Handoff-Vorlage 1a) =====================
+   Schlanke, klickbare Zeile unter dem Kopf; klappt zum nahtlos andockenden
+   Formular auf. Amber = Aufbewahrung/Original, Teal (Primary) = KI/Aktionen. */
+.retention-zone {
+  --retention-amber: 224, 171, 75;      /* #e0ab4b */
+  margin: 16px 0 16px;
+  max-width: 620px;
+  border-radius: 10px;
+}
+
+.retention-zone--open {
+  overflow: hidden;
+  background: var(--pm-detail-info-bg);
+  border: 1px solid var(--pm-detail-info-border);
+}
+
+.retention-bar {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 12px;
+  background: var(--pm-detail-info-bg);
+  border: 1px solid var(--pm-detail-info-border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background-color 0.16s ease;
+}
+
+.retention-zone--open .retention-bar {
+  border: 1px solid transparent;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.06);
+  border-radius: 10px 10px 0 0;
+  background: transparent;
+}
+
+.retention-bar:hover {
+  border-color: var(--pm-detail-field-hover-border);
+}
+
+.retention-zone--open .retention-bar:hover {
+  border-color: transparent;
+  border-bottom-color: rgba(var(--v-theme-on-surface), 0.06);
+}
+
+.retention-bar:focus-visible {
+  outline: 2px solid rgba(var(--v-theme-primary), 0.4);
+  outline-offset: 1px;
+}
+
+/* Icon-Badge links (28×28), Farbe je Zustand. */
+.retention-bar__badge {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.retention-bar__badge .v-icon {
+  color: inherit;
+}
+
+.retention-bar--filled .retention-bar__badge {
+  background: rgba(var(--retention-amber), 0.14);
+  color: rgb(var(--retention-amber));
+}
+
+.retention-bar--empty .retention-bar__badge {
+  border: 1px dashed rgba(var(--v-theme-on-surface), 0.22);
+  color: rgba(var(--v-theme-on-surface), 0.5);
+}
+
+.retention-bar--ai .retention-bar__badge {
+  background: rgba(var(--v-theme-primary), 0.14);
+  color: rgb(var(--v-theme-primary));
+}
+
+.retention-bar__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.retention-bar__title-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.retention-bar__title {
+  font-weight: 600;
+  font-size: 0.845rem;
+  color: rgb(var(--v-theme-on-surface));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.retention-bar--empty .retention-bar__title {
+  color: rgba(var(--v-theme-on-surface), 0.72);
+}
+
+.retention-bar__ki {
+  flex: none;
+  font-weight: 600;
+  font-size: 0.6rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.16);
+  border-radius: 5px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+
+.retention-bar__subtitle {
+  margin-top: 1px;
+  font-size: 0.75rem;
+  color: rgba(var(--v-theme-on-surface), 0.56);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.retention-bar__accept {
+  flex: none;
+  font-weight: 600;
+  font-size: 0.75rem;
+  color: rgb(var(--v-theme-primary));
+  background: transparent;
+  border: none;
+  padding: 2px 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.retention-bar__accept:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.retention-bar__pencil {
+  flex: none;
+  display: inline-flex;
+  padding: 4px;
+  color: rgba(var(--v-theme-on-surface), 0.45);
+}
+
+.retention-bar__chev {
+  flex: none;
+  color: rgba(var(--v-theme-on-surface), 0.45);
+  transition: transform 0.2s ease;
+}
+
+.retention-bar__chev--open {
+  transform: rotate(180deg);
+}
+
+/* Ausgeklapptes Formular – dockt nahtlos unter der Leiste an. */
+.retention-form {
+  background: var(--pm-detail-info-bg);
+  border: 0;
+  border-radius: 0 0 10px 10px;
+  margin: 0;
+  padding: 12px 14px 13px;
+}
+
+.retention-form__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.retention-form__field {
+  display: flex;
+  flex-direction: column;
+}
+
+.retention-form__field label {
+  font-size: 0.72rem;
+  color: rgba(var(--v-theme-on-surface), 0.58);
+  margin-bottom: 6px;
+}
+
+.retention-form__static {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 10px;
+  background: var(--pm-detail-field-bg);
+  border: 1px solid var(--pm-detail-field-border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: rgba(var(--v-theme-on-surface), 0.82);
+}
+
+/* Formular-Inputs: gefüllte Box mit eigenem Rahmen (Vorlage) statt Plain. */
+.retention-form .v-field {
+  background: var(--pm-detail-field-bg) !important;
+  border: 1px solid var(--pm-detail-field-border) !important;
+  border-radius: 8px !important;
+}
+
+.retention-form .v-field--variant-outlined .v-field__outline {
+  display: none !important;
+}
+
+.retention-form .v-field--focused {
+  border-color: var(--pm-detail-field-focus-border) !important;
+}
+
+.retention-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--pm-detail-field-bg);
+  border: 1px solid var(--pm-detail-field-border);
+  border-radius: 8px;
+  padding: 9px 12px;
+  margin-bottom: 12px;
+}
+
+.retention-toggle-row__title {
+  font-weight: 600;
+  font-size: 0.78rem;
+  color: rgb(var(--v-theme-on-surface));
+}
+
+.retention-toggle-row__hint {
+  margin-top: 1px;
+  font-size: 0.69rem;
+  color: rgba(var(--v-theme-on-surface), 0.56);
+}
+
+/* iOS-artiger Schalter (40×23). */
+.retention-toggle {
+  position: relative;
+  width: 40px;
+  height: 23px;
+  flex: none;
+  padding: 0;
+  border: none;
+  border-radius: 12px;
+  background: rgba(var(--v-theme-on-surface), 0.22);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.retention-toggle--on {
+  background: rgb(var(--v-theme-primary));
+}
+
+.retention-toggle__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s ease;
+}
+
+.retention-toggle--on .retention-toggle__knob {
+  transform: translateX(17px);
+}
+
+.retention-form__error {
+  color: rgb(var(--v-theme-error));
+  font-size: 0.75rem;
+  margin-bottom: 8px;
+}
+
+.retention-form__disclaimer {
+  color: rgba(var(--v-theme-on-surface), 0.48);
+  font-size: 0.66rem;
+  line-height: 1.35;
+  margin-bottom: 10px;
+}
+
+.retention-form__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.retention-form__ai {
+  margin-right: auto;
+}
+
+/* Vorlage nutzt Satz- statt Großschreibung; Vuetify-Defaults zurücknehmen. */
+.retention-form__actions .v-btn {
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.retention-form__cancel {
+  color: rgba(var(--v-theme-on-surface), 0.62) !important;
+}
+
+.retention-form__save {
+  border-radius: 8px;
 }
 
 /* Interaktive Elemente in der Detailsschublade dürfen bei Hover/Fokus ihre
    Geometrie nicht verändern. Vuetify bringt für Buttons, Icons und Felder
    Transform-Transitions mit, die hier als leichtes Wackeln sichtbar werden. */
 .details-drawer__header .v-btn,
+.details-drawer__header .v-btn:hover,
+.details-drawer__header .v-btn:focus,
+.details-drawer__header .v-btn:active,
 .details-drawer__header .v-btn__content,
 .details-drawer__header .v-icon,
+.details-drawer__body .v-btn,
+.details-drawer__body .v-btn:hover,
+.details-drawer__body .v-btn:focus,
+.details-drawer__body .v-btn:active,
+.details-drawer__body .v-btn__content,
+.details-drawer__body .v-chip,
+.details-drawer__body .v-chip:hover,
+.details-drawer__body .v-chip__content,
+.details-drawer__body .v-chip__close,
+.details-drawer__body .v-icon,
+.details-drawer__body .v-input,
+.details-drawer__body .v-input:hover,
+.details-drawer__body .v-input:focus-within,
+.details-drawer__body .v-input__control,
+.details-drawer__body .v-field,
+.details-drawer__body .v-field:hover,
+.details-drawer__body .v-field:focus-within,
+.details-drawer__body .v-field__field,
+.details-drawer__body .v-field__input,
+.details-drawer__body .pm-prop-field,
+.details-drawer__body .pm-prop-field:hover,
+.details-drawer__body .pm-prop-field:focus-within,
+.details-drawer__body .pm-tags-input {
+  transform: none !important;
+  translate: none !important;
+  scale: 1 !important;
+  rotate: 0deg !important;
+  will-change: auto !important;
+}
+
+.details-drawer__header .v-btn,
+.details-drawer__header .v-btn__content,
 .details-drawer__body .v-btn,
 .details-drawer__body .v-btn__content,
 .details-drawer__body .v-chip,
 .details-drawer__body .v-chip__content,
 .details-drawer__body .v-chip__close,
-.details-drawer__body .v-icon,
+.details-drawer__body .v-input,
+.details-drawer__body .v-input__control,
 .details-drawer__body .v-field,
+.details-drawer__body .v-field__field,
 .details-drawer__body .v-field__input,
-.details-drawer__body .pm-prop-field,
-.details-drawer__body .pm-tags-input {
-  transform: none !important;
-  translate: none !important;
-}
-
-.details-drawer__header .v-btn,
-.details-drawer__body .v-btn,
-.details-drawer__body .v-chip,
-.details-drawer__body .v-field,
 .details-drawer__body .pm-prop-field,
 .details-drawer__body .pm-tags-input {
   transition-property: background-color, border-color, box-shadow, color, opacity !important;
@@ -10041,35 +10882,78 @@ onBeforeUnmount(() => {
 }
 
 .pm-prop-row {
+  --pm-prop-label-w: clamp(116px, 15vw, 140px);
+  --pm-prop-value-w: 330px;
+  position: relative;
   display: grid;
-  grid-template-columns: 130px minmax(0, 1fr);
+  grid-template-columns: var(--pm-prop-label-w) minmax(0, min(var(--pm-prop-value-w), calc(100% - var(--pm-prop-label-w) - 10px)));
   align-items: center;
   gap: 10px;
-  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.07);
 }
 
-.pm-prop-row:first-child {
-  border-top: none;
+.pm-prop-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 100vw;
+  border-top: 1px solid var(--pm-detail-row-divider);
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 
 .pm-prop-row--top {
   align-items: start;
 }
 
+.pm-prop-row--text {
+  --pm-prop-value-w: 330px;
+}
+
+.pm-prop-row--medium {
+  --pm-prop-value-w: 330px;
+}
+
+.pm-prop-row--date {
+  --pm-prop-value-w: 330px;
+}
+
+.pm-prop-row--tags {
+  --pm-prop-value-w: 330px;
+}
+
 .pm-prop-key {
   font-size: 0.8rem;
   color: rgba(var(--v-theme-on-surface), 0.6);
   line-height: 1.3;
-  padding: 4px 0;
+  padding: 12px 0;
 }
 
 .pm-prop-row--top .pm-prop-key {
-  padding-top: 15px;
+  padding-top: 18px;
 }
 
 .pm-prop-val {
   min-width: 0;
-  padding: 5px 0;
+  padding: 12px 0;
+  justify-self: stretch;
+  width: 100%;
+}
+
+.pm-prop-val--text {
+  width: 100%;
+}
+
+.pm-prop-val--medium {
+  width: 100%;
+}
+
+.pm-prop-val--date {
+  width: 100%;
+}
+
+.pm-prop-val--tags {
+  width: 100%;
 }
 
 .pm-prop-field {
@@ -10084,15 +10968,20 @@ onBeforeUnmount(() => {
 
 .pm-prop-value-with-action {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 32px;
+  grid-template-columns: minmax(0, 1fr) 30px;
   align-items: center;
-  gap: 4px;
+  gap: 10px;
+}
+
+.pm-prop-value-with-action--medium {
+  width: 100%;
 }
 
 .pm-prop-settings-link {
   width: 30px !important;
   height: 30px !important;
   min-width: 30px !important;
+  justify-self: end;
   color: rgba(var(--v-theme-on-surface), 0.46) !important;
 }
 
@@ -10107,15 +10996,42 @@ onBeforeUnmount(() => {
 }
 
 .pm-prop-field:focus-within {
-  background: rgb(var(--v-theme-surface));
-  border-color: rgba(var(--v-theme-primary), 0.6);
-  box-shadow: 0 0 0 3px rgba(var(--v-theme-primary), 0.12);
+  background: var(--pm-detail-field-bg);
+  border-color: var(--pm-detail-field-focus-border);
+  box-shadow: 0 0 0 3px var(--pm-detail-field-focus-ring);
 }
 
 /* Datum braucht keine volle Spaltenbreite */
 .pm-prop-field--inline {
-  max-width: 190px;
+  width: 100%;
+  max-width: none;
 }
+
+.pm-prop-field--name {
+  width: 100%;
+}
+
+.pm-prop-field--notes {
+  width: 100%;
+}
+
+/* Dokumenttyp/Korrespondent: dauerhaft umrandete Dropdown-Box (Vorlage) statt
+   erst bei Hover/Fokus erwachender Plain-Look. */
+.pm-prop-field--boxed {
+  background: var(--pm-detail-field-bg);
+  border-color: var(--pm-detail-field-border);
+}
+
+.pm-prop-field--boxed:hover {
+  background: var(--pm-detail-field-bg);
+  border-color: var(--pm-detail-field-hover-border);
+}
+
+.pm-prop-field--boxed:focus-within {
+  background: var(--pm-detail-field-bg);
+  border-color: var(--pm-detail-field-focus-border);
+}
+
 
 .pm-section-head {
   display: flex;
@@ -10204,11 +11120,11 @@ onBeforeUnmount(() => {
 }
 
 .details-command-bar {
-  min-height: 42px;
+  min-height: 46px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
+  align-items: stretch;
+  gap: 16px;
 }
 
 .details-command-bar__left {
@@ -10230,6 +11146,7 @@ onBeforeUnmount(() => {
   justify-self: end;
   display: inline-flex;
   align-items: center;
+  align-self: stretch;
   gap: 8px;
   min-width: 0;
 }
@@ -10241,8 +11158,10 @@ onBeforeUnmount(() => {
 
 .details-drawer__subtitle {
   margin-top: 0;
-  font-size: 0.9rem;
-  font-weight: 650;
+  font-size: var(--details-header-title-size, 2rem);
+  line-height: 1.18;
+  font-weight: 700;
+  color: rgb(var(--v-theme-on-surface));
   opacity: 1;
   white-space: nowrap;
   overflow: hidden;
@@ -10250,12 +11169,14 @@ onBeforeUnmount(() => {
 }
 
 .details-drawer__meta-line {
-  margin-top: 2px;
-  font-size: 0.72rem;
-  opacity: 0.80;
+  margin-top: 4px;
+  font-size: 0.78rem;
+  line-height: 1.25;
+  color: rgba(var(--v-theme-on-surface), 0.64);
+  opacity: 1;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -10268,11 +11189,11 @@ onBeforeUnmount(() => {
 }
 
 .details-drawer__meta-dot {
-  width: 4px;
-  height: 4px;
+  width: 3px;
+  height: 3px;
   border-radius: 999px;
   background: currentColor;
-  opacity: 0.75;
+  opacity: 0.48;
   flex: 0 0 auto;
 }
 
@@ -10280,7 +11201,7 @@ onBeforeUnmount(() => {
 .details-ocr-status {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 5px;
   flex: 0 0 auto;
   font-weight: 600;
 }
@@ -10368,84 +11289,172 @@ onBeforeUnmount(() => {
   margin-inline-start: 2px;
 }
 
-/* Eigenes Tag-Feld: Chips + Eingabe in EINEM umbrechenden Rahmen (Gmail-Stil).
-   Ein simpler flex-wrap-Container wächst zuverlässig mit – im Gegensatz zu
-   Vuetifys v-input-Grid, das die flex-wrap-Eingabe nur an max-content (eine
-   Zeile) bemisst und umgebrochene Chips überlaufen lässt. */
+/* Tags (Vorlage): reine Pill-Chip-Liste + gestrichelter „+ Tag"-Button, KEINE
+   umschließende Feld-Box. Ein flex-wrap-Container wächst zuverlässig mit. */
 .pm-tags-input {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  /* Links 10px wie die übrigen Felder, rechts 8px (gleicher Pfeil-Inset) */
-  padding: 4px 8px 4px 10px;
-  /* rahmenlos wie die übrigen Eigenschaftsfelder; erwacht bei Hover/Fokus */
+  gap: 7px;
+  padding: 2px 0;
   min-height: 34px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  transition:
-    background-color 0.12s ease,
-    border-color 0.12s ease,
-    box-shadow 0.12s ease;
 }
 .details-drawer__body .v-field {
   border-radius: 8px;
-}
-.pm-tags-input:hover {
-  background: rgba(var(--v-theme-on-surface), 0.04);
-  border-color: rgba(var(--v-theme-on-surface), 0.12);
-}
-.pm-tags-input:focus-within {
-  background: rgb(var(--v-theme-surface));
-  border-color: rgba(var(--v-theme-primary), 0.6);
-  box-shadow: 0 0 0 3px rgba(var(--v-theme-primary), 0.12);
 }
 .pm-tags-input--disabled {
   opacity: 0.6;
   pointer-events: none;
 }
-.pm-tags-input__chip {
-  font-size: 12px;
+
+/* Chip = Pille mit dezenter Füllung, dünnem Rand und rundem ×. */
+.pm-tags-input__chip.v-chip {
+  height: 26px !important;
+  border-radius: 15px !important;
+  background: var(--pm-detail-chip-bg) !important;
+  border: 1px solid var(--pm-detail-chip-border) !important;
+  color: rgba(var(--v-theme-on-surface), 0.88) !important;
+  font-size: 12.5px !important;
+  padding-inline: 11px 7px !important;
 }
-.pm-tags-input__field {
-  flex: 1 1 90px;
-  min-width: 90px;
+.pm-tags-input__chip .v-chip__underlay,
+.pm-tags-input__chip .v-chip__overlay {
+  opacity: 0 !important;
+  background: transparent !important;
 }
-/* Plain-Combobox nahtlos einbetten: kein Eigenrand/Padding. */
+.pm-tags-input__chip .v-chip__close {
+  width: 18px !important;
+  height: 18px !important;
+  margin-inline-start: 5px !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  font-size: 16px !important;
+  color: var(--pm-detail-chip-close-color) !important;
+  opacity: 1 !important;
+}
+.pm-tags-input__chip .v-chip__close:hover {
+  color: rgb(var(--v-theme-on-surface)) !important;
+}
+
+/* „+ Tag"-Pille: gestrichelt im Ruhezustand, solide-teal bei Fokus. Die Breite
+   folgt dem Inhalt; Label und Eingabe animieren ihre Breite, sodass die Pille
+   beim Reinklicken weich aufgeht. Der Rahmen wird über zwei Pseudo-Elemente
+   übergeblendet, da border-style (gestrichelt↔solide) nicht animierbar ist. */
+.pm-tags-input__field.v-input {
+  position: relative;
+  flex: 0 0 auto;
+  width: auto;
+  border: none;
+  border-radius: 15px;
+  padding: 0 11px 0 9px;
+}
+.pm-tags-input__field.v-input::before,
+.pm-tags-input__field.v-input::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  transition: opacity 0.18s ease, border-color 0.12s ease;
+}
+.pm-tags-input__field.v-input::before {
+  border: 1px dashed var(--pm-detail-chip-add-border);
+}
+.pm-tags-input__field.v-input:hover::before {
+  border-color: var(--pm-detail-field-hover-border);
+}
+.pm-tags-input__field.v-input::after {
+  border: 1px solid rgba(var(--v-theme-primary), 0.6);
+  opacity: 0;
+}
+.pm-tags-input__field.v-input--focused::before {
+  opacity: 0;
+}
+.pm-tags-input__field.v-input--focused::after {
+  opacity: 1;
+}
+
+/* Label „Tag": kollabiert bei Fokus weich zur Seite, damit die Eingabe Platz
+   bekommt (Breitenanimation statt hartem display:none). */
+.pm-tags-input__add {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+.pm-tags-input__plus {
+  color: inherit;
+}
+.pm-tags-input__add-label {
+  font-size: 12.5px;
+  margin-left: 4px;
+  max-width: 3.5em;
+  overflow: hidden;
+  opacity: 1;
+  transition: max-width 0.18s ease, opacity 0.18s ease, margin-left 0.18s ease;
+}
+.pm-tags-input__field.v-input--focused .pm-tags-input__add-label {
+  max-width: 0;
+  margin-left: 0;
+  opacity: 0;
+}
+
+/* Eingabebreite animieren: im Ruhezustand 0, bei Fokus Tippbreite. Die
+   Auto-Breite der Pille folgt diesen Kind-Breiten frame-genau → weiches Aufgehen. */
+.pm-tags-input__field .v-field__input {
+  width: 0;
+  min-width: 0 !important;
+  flex: 0 0 auto;
+  transition: width 0.18s ease;
+}
+.pm-tags-input__field.v-input--focused .v-field__input {
+  width: 104px;
+}
+
+/* Plain-Combobox nahtlos in die Pille einbetten: kein Eigenrand/Padding.
+   Control-Höhe von global 34px auf 26px zwingen, sonst überläuft das v-field
+   die Pille nach unten und „+ Tag" sitzt nicht mittig. */
+/* 3-Klassen-Selektor schlägt die globale .pm-drawer-body .v-field-Regel
+   (34px), sonst überläuft das v-field die 26px-Pille nach unten. */
+.pm-drawer-body .pm-tags-input__field .v-field,
+.pm-tags-input__field.v-input {
+  --v-input-control-height: 26px !important;
+  min-height: 26px !important;
+  height: 26px !important;
+}
 .pm-tags-input__field .v-field {
   padding: 0;
   --v-field-padding-start: 0;
   --v-field-padding-end: 0;
 }
-/* Eingabe EXAKT auf Chip-Höhe (26px) zwingen: Die Plain-Variante bringt sonst
-   48px Control-Height mit, wodurch mehrzeilig die untere (Eingabe-)Zeile höher
-   wird als die reinen Chip-Zeilen → ungleiche Abstände oben/unten. */
+/* Eingabe auf Chip-Höhe (26px) zwingen (Plain bringt sonst 48px mit). */
 .pm-tags-input__field .v-input__control,
 .pm-tags-input__field .v-field,
 .pm-tags-input__field .v-field__field,
 .pm-tags-input__field .v-field__input,
+.pm-tags-input__field .v-field__prepend-inner,
 .pm-tags-input__field .v-field__append-inner {
   min-height: 26px !important;
   height: 26px !important;
 }
-/* Eingabe + Cursor vertikal mittig (Plain-Variante richtet sonst oben aus). */
+/* Prepend (Plus + „Tag") und Eingabe vertikal zentrieren; Vuetifys 8px
+   padding-top am prepend-inner drückt den Inhalt sonst nach unten. */
 .pm-tags-input__field .v-field__field,
-.pm-tags-input__field .v-field__input {
+.pm-tags-input__field .v-field__input,
+.pm-tags-input__field .v-field__prepend-inner {
   align-items: center !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
 }
-.pm-tags-input__field .v-field__input {
-  padding: 0;
-  font-size: 0.85rem;
+.pm-tags-input__field .v-field__prepend-inner {
+  padding-inline-end: 5px !important;
 }
-/* Höhere Spezifität als die globale .pm-drawer-body-Regel: der 10px-Inset liegt
-   schon auf dem .pm-tags-input-Container, das Combobox-Feld selbst bleibt bündig,
-   damit Platzhalter (links) und Pfeil (rechts) mit den übrigen Feldern fluchten. */
 .pm-drawer-body .pm-tags-input__field .v-field__input {
   padding: 0 !important;
+  font-size: 0.85rem;
 }
 .pm-drawer-body .pm-tags-input__field .v-field__append-inner {
-  padding-left: 4px !important;
-  padding-right: 0 !important;
+  padding: 0 !important;
 }
 
 
@@ -10546,6 +11555,15 @@ onBeforeUnmount(() => {
   min-height: 34px !important;
   background: transparent !important;
   border-radius: 8px !important;
+}
+
+.pm-drawer-body .retention-form .v-field {
+  background: var(--pm-detail-field-bg) !important;
+  border-color: var(--pm-detail-field-border) !important;
+}
+
+.pm-drawer-body .retention-form .v-field--focused {
+  border-color: var(--pm-detail-field-focus-border) !important;
 }
 
 /* Plain-Variante dämpft den Inhalt sonst auf ~0.62 Opazität */
@@ -10695,8 +11713,42 @@ onBeforeUnmount(() => {
     padding: 0 14px;
   }
 
+  .panel-right__preview--card-drawer .details-drawer__inner {
+    padding: 0 22px;
+  }
+
+  .panel-right__preview--card-drawer .details-drawer__header--expanded {
+    padding: 16px 0 14px;
+  }
+
+  .panel-right__preview--card-drawer .details-command-bar {
+    min-height: 42px;
+  }
+
+  .panel-right__preview--card-drawer .details-drawer__subtitle {
+    font-size: min(var(--details-header-title-size, 1.12rem), 1.12rem);
+  }
+
+  .panel-right__preview--card-drawer .details-drawer__meta-line {
+    margin-top: 4px;
+    font-size: 0.76rem;
+  }
+
+  .panel-right__preview--card-drawer .pm-drawer-body {
+    --pm-detail-body-x: 22px;
+    padding: 0 var(--pm-detail-body-x) 22px;
+  }
+
+  .panel-right__preview--card-drawer .retention-zone {
+    margin: 12px 0;
+  }
+
   .pm-drawer-body {
     padding: 12px 12px 14px;
+  }
+
+  .pm-prop-row {
+    --pm-prop-label-w: clamp(130px, 24vw, 190px);
   }
 
   .topbar-btn--import {
@@ -10721,6 +11773,22 @@ onBeforeUnmount(() => {
 
   .ai-suggestions__grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .pm-prop-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .pm-prop-key,
+  .pm-prop-row--top .pm-prop-key {
+    padding: 12px 0 0;
+  }
+
+  .pm-prop-val {
+    padding: 6px 0 12px;
   }
 }
 </style>

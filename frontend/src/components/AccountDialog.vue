@@ -5,13 +5,11 @@
     scrollable
     card-class="pm-account-card"
     body-class="pm-account-body"
-    footer-class="pm-account-footer"
     title="Konto"
     header-subtitle="Profil, Sicherheit und Zugänge verwalten."
     description=""
     variant="info"
-    primary-text="Fertig"
-    :show-secondary="false"
+    :show-footer="false"
     @update:model-value="emit('update:modelValue', $event)"
   >
     <div class="pm-settings-layout">
@@ -68,6 +66,18 @@
               v-if="modelValue"
               ref="profileRef"
             />
+            <div class="pm-account-profile-actions">
+              <v-btn
+                variant="tonal"
+                color="primary"
+                class="pm-dialog__btn"
+                :loading="profileRef?.saving"
+                :disabled="!profileRef?.canSubmit"
+                @click="profileRef?.submit()"
+              >
+                Speichern
+              </v-btn>
+            </div>
 
             <dl class="pm-account-facts">
               <div class="pm-account-facts__item">
@@ -126,34 +136,6 @@
         </section>
       </div>
     </div>
-
-    <template #footer>
-      <div class="pm-account-footer-row">
-        <template v-if="view === 'profile'">
-          <span></span>
-          <v-btn
-            variant="tonal"
-            color="primary"
-            class="pm-dialog__btn"
-            :loading="profileRef?.saving"
-            :disabled="!profileRef?.canSubmit"
-            @click="profileRef?.submit()"
-          >
-            Speichern
-          </v-btn>
-        </template>
-
-        <template v-else-if="view === 'security'">
-          <span></span>
-          <v-btn variant="tonal" color="primary" class="pm-dialog__btn" @click="close">Fertig</v-btn>
-        </template>
-
-        <template v-else-if="view === 'users' && auth.isAdmin">
-          <span class="pm-account-footer-hint">{{ usersRef?.summary }}</span>
-          <v-btn variant="tonal" color="primary" class="pm-dialog__btn" @click="close">Fertig</v-btn>
-        </template>
-      </div>
-    </template>
   </BaseDialog>
 
   <!-- Profilbild-Editor als eigenes Fenster (kein eingeklapptes Inline-Panel). -->
@@ -231,9 +213,6 @@ watch(
   },
   { immediate: true }
 );
-function close() {
-  emit('update:modelValue', false);
-}
 </script>
 
 <!-- Global (nicht gescopt): v-dialog teleportiert seinen Inhalt aus der
@@ -290,6 +269,14 @@ function close() {
 }
 .pm-account-id__role {
   margin-top: 4px;
+}
+
+.pm-account-profile-actions {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  max-width: 420px;
+  margin: 12px auto 0;
 }
 
 /* Avatar als Editier-Trigger mit Kamera-Badge. */
@@ -366,9 +353,4 @@ function close() {
   gap: 12px;
 }
 
-.pm-account-footer-hint {
-  font-size: 0.85rem;
-  font-style: italic;
-  color: rgba(var(--v-theme-on-surface), 0.55);
-}
 </style>

@@ -4,14 +4,11 @@
     max-width="820"
     card-class="pm-settings-card"
     body-class="pm-settings-body"
-    footer-class="pm-settings-footer"
     title="Einstellungen"
     header-subtitle="Globale Voreinstellungen für dein PaperMind."
     description=""
     variant="info"
-    primary-text="Fertig"
-    :show-secondary="false"
-    @primary="emit('update:modelValue', false)"
+    :show-footer="false"
     @update:model-value="emit('update:modelValue', $event)"
   >
     <div v-if="isSettingsLoading" class="settings-loading">
@@ -930,6 +927,146 @@
                   {{ categoryStore.sortedCategories.length === 0
                     ? 'Noch keine Dokumenttypen angelegt.'
                     : 'Keine Dokumenttypen in diesem Bereich.' }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section v-show="activeCategory === 'retention'" class="pm-settings-section">
+          <div class="pm-settings-content">
+            <SettingsInfoCard
+              icon="mdi-folder-clock-outline"
+              title="Aufbewahrung"
+              subtitle="Grundlagen, aus denen die KI ihre Aufbewahrungs-Einschätzung ableitet."
+            >
+              <template #actions>
+                <v-switch
+                  :model-value="settingsDraft.retention.enabled"
+                  color="primary"
+                  hide-details
+                  density="compact"
+                  :true-value="true"
+                  :false-value="false"
+                  :loading="isSettingSaving.retention_enabled"
+                  :disabled="isSettingSaving.retention_enabled"
+                  @update:model-value="onRetentionEnabledChange"
+                />
+              </template>
+            </SettingsInfoCard>
+
+            <div
+              class="settings-retention-config"
+              :class="{ 'settings-retention-config--disabled': !settingsDraft.retention.enabled }"
+            >
+              <div class="pm-setting-row pm-setting-row--column">
+                <div class="pm-setting-content">
+                  <div class="pm-setting-label">Nutzung</div>
+                  <div class="pm-setting-description">
+                    Bestimmt den rechtlichen Rahmen: geschäftlich gelten die Fristen aus § 147 AO und § 257 HGB,
+                    privat bestehen für die meisten Dokumente keine gesetzlichen Aufbewahrungspflichten.
+                  </div>
+                </div>
+                <div class="settings-theme-segmented" role="radiogroup" aria-label="Nutzung auswählen">
+                  <button
+                    v-for="option in retentionUsageOptions"
+                    :key="`usage-${option.value}`"
+                    type="button"
+                    class="settings-theme-segmented__item"
+                    :class="{ 'settings-theme-segmented__item--active': settingsDraft.retention.usage_mode === option.value }"
+                    role="radio"
+                    :aria-checked="settingsDraft.retention.usage_mode === option.value"
+                    :disabled="!settingsDraft.retention.enabled || isSettingSaving.retention_usage_mode"
+                    @click="onRetentionUsageChange(option.value)"
+                  >
+                    {{ option.label }}
+                  </button>
+                </div>
+              </div>
+
+              <div class="pm-setting-group">
+                <div class="pm-setting-note pm-setting-note--group">
+                  <strong>Regeltabelle</strong> — kuratierte Standardvorgaben pro Dokumenttyp. Sie fließen als Hausregel
+                  in die KI-Bewertung ein; die KI übernimmt sie und beurteilt nur die Randfälle selbst.
+                </div>
+
+                <div class="settings-retention-rules">
+                  <div
+                    v-for="(rule, index) in settingsDraft.retention.rules"
+                    :key="`rule-${index}-${rule.document_type}`"
+                    class="settings-retention-rule"
+                  >
+                    <div class="settings-retention-rule__head">
+                      <span class="settings-retention-rule__type">{{ rule.document_type }}</span>
+                      <v-btn
+                        icon="mdi-close"
+                        size="x-small"
+                        variant="text"
+                        class="settings-retention-rule__remove"
+                        :aria-label="`Regel für ${rule.document_type} entfernen`"
+                        :disabled="!settingsDraft.retention.enabled || isSettingSaving.retention_rules"
+                        @click="removeRetentionRule(index)"
+                      />
+                    </div>
+                    <div class="settings-retention-rule__controls">
+                      <v-select
+                        :model-value="rule.paper_original"
+                        :items="retentionPaperItems"
+                        label="Papieroriginal"
+                        density="compact"
+                        variant="outlined"
+                        hide-details
+                        :disabled="!settingsDraft.retention.enabled || isSettingSaving.retention_rules"
+                        @update:model-value="value => updateRetentionRule(index, 'paper_original', value)"
+                      />
+                      <v-select
+                        :model-value="rule.period_years"
+                        :items="retentionPeriodItems"
+                        label="Frist"
+                        density="compact"
+                        variant="outlined"
+                        hide-details
+                        :disabled="!settingsDraft.retention.enabled || isSettingSaving.retention_rules"
+                        @update:model-value="value => updateRetentionRule(index, 'period_years', value)"
+                      />
+                      <v-text-field
+                        :model-value="rule.basis"
+                        label="Grundlage"
+                        density="compact"
+                        variant="outlined"
+                        hide-details
+                        placeholder="z. B. § 147 AO"
+                        class="settings-retention-rule__basis"
+                        :disabled="!settingsDraft.retention.enabled || isSettingSaving.retention_rules"
+                        @change="event => updateRetentionRule(index, 'basis', event.target.value)"
+                      />
+                    </div>
+                  </div>
+
+                  <div v-if="settingsDraft.retention.rules.length === 0" class="settings-retention-empty">
+                    Noch keine Regeln. Füge unten einen Dokumenttyp hinzu.
+                  </div>
+                </div>
+
+                <div class="settings-retention-add">
+                  <v-select
+                    v-model="newRetentionRuleType"
+                    :items="availableRetentionRuleTypes"
+                    placeholder="Dokumenttyp wählen…"
+                    density="comfortable"
+                    variant="outlined"
+                    hide-details
+                    no-data-text="Alle Dokumenttypen haben bereits eine Regel"
+                    class="settings-retention-add__select"
+                    :disabled="!settingsDraft.retention.enabled"
+                  />
+                  <v-btn
+                    variant="tonal"
+                    :disabled="!settingsDraft.retention.enabled || !newRetentionRuleType || isSettingSaving.retention_rules"
+                    @click="addRetentionRule"
+                  >
+                    Regel hinzufügen
+                  </v-btn>
                 </div>
               </div>
             </div>
@@ -1944,6 +2081,8 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'reload-imports']);
 
+const SETTINGS_ACTIVE_CATEGORY_STORAGE_KEY = 'pm.settings.activeCategory';
+
 // ── Stores / Theme ───────────────────────────────────────────────────────────
 
 const theme = useTheme();
@@ -2209,6 +2348,7 @@ const settingsCategories = [
   { value: 'documents', label: 'Bibliothek', icon: 'mdi-archive-outline', group: 'documents', adminOnly: true },
   { value: 'categories', label: 'Dokumenttypen', icon: 'mdi-file-document-multiple-outline', group: 'documents' },
   { value: 'correspondents', label: 'Korrespondenten', icon: 'mdi-account-outline', group: 'documents' },
+  { value: 'retention', label: 'Aufbewahrung', icon: 'mdi-folder-clock-outline', group: 'documents', adminOnly: true },
   { value: 'ai', label: 'Texterkennung', icon: 'mdi-text-recognition', group: 'documents', adminOnly: true },
   { value: 'backup', label: 'Backup', icon: 'mdi-cloud-upload-outline', group: 'system', adminOnly: true },
   { value: 'services', label: 'Dienste', icon: 'mdi-server-network', group: 'system', adminOnly: true },
@@ -2235,6 +2375,39 @@ const visibleCategoryGroups = computed(() =>
 );
 
 const activeCategory = ref('appearance');
+
+function isVisibleCategory(categoryValue) {
+  return visibleCategories.value.some((cat) => cat.value === categoryValue);
+}
+
+function readStoredSettingsCategory() {
+  try {
+    const stored = window.localStorage.getItem(SETTINGS_ACTIVE_CATEGORY_STORAGE_KEY);
+    return isVisibleCategory(stored) ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistSettingsCategory(categoryValue) {
+  if (!isVisibleCategory(categoryValue)) return;
+  try {
+    window.localStorage.setItem(SETTINGS_ACTIVE_CATEGORY_STORAGE_KEY, categoryValue);
+  } catch {
+    // ignore storage access errors
+  }
+}
+
+function fallbackSettingsCategory() {
+  return readStoredSettingsCategory() || visibleCategories.value[0]?.value || 'appearance';
+}
+
+function resolveInitialSettingsCategory(categoryValue) {
+  if (categoryValue && isVisibleCategory(categoryValue)) {
+    return categoryValue;
+  }
+  return fallbackSettingsCategory();
+}
 
 // ── Backup ───────────────────────────────────────────────────────────────────
 const backup = ref({
@@ -2587,6 +2760,7 @@ async function confirmDeleteArchive() {
 }
 
 watch(activeCategory, (value) => {
+  persistSettingsCategory(value);
   if (value === 'backup') {
     backupSetupInitialized = false; // Panel-Zustand beim Betreten neu bestimmen
     loadBackup();
@@ -3014,6 +3188,107 @@ async function onOllamaMaxInputCharsChange(nextValue) {
     controlKey: 'ollama_max_input_chars',
     revert: () => settingsStore.setDraftPatch({ ollama: { max_input_chars: previous } })
   });
+}
+
+// ── Aufbewahrungsregeln ──────────────────────────────────────────────────────
+
+const retentionUsageOptions = [
+  { value: 'private', label: 'Privat' },
+  { value: 'business', label: 'Geschäftlich' }
+];
+const retentionPaperItems = [
+  { title: 'Unklar', value: 'unclear' },
+  { title: 'Original behalten', value: 'keep' },
+  { title: 'Scan reicht', value: 'scan_sufficient' },
+  { title: 'Kein Original nötig', value: 'not_applicable' }
+];
+const retentionPeriodItems = [
+  { title: 'Unklar', value: null },
+  { title: '2 Jahre', value: 2 },
+  { title: '3 Jahre', value: 3 },
+  { title: '6 Jahre', value: 6 },
+  { title: '10 Jahre', value: 10 },
+  { title: '30 Jahre', value: 30 },
+  { title: 'Unbegrenzt', value: -1 }
+];
+const newRetentionRuleType = ref(null);
+
+const availableRetentionRuleTypes = computed(() => {
+  const used = new Set(
+    settingsDraft.retention.rules.map((rule) => String(rule.document_type || '').trim().toLocaleLowerCase('de-DE'))
+  );
+  return categoryStore.categoryNames.filter(
+    (name) => !used.has(String(name || '').trim().toLocaleLowerCase('de-DE'))
+  );
+});
+
+function currentRetentionRulesSnapshot() {
+  return settingsDraft.retention.rules.map((rule) => ({ ...rule }));
+}
+
+async function saveRetentionRules(nextRules, previousRules) {
+  settingsStore.setDraftPatch({ retention: { rules: nextRules } });
+  await patchSettingsWithRevert({
+    patch: { retention: { rules: nextRules } },
+    controlKey: 'retention_rules',
+    revert: () => settingsStore.setDraftPatch({ retention: { rules: previousRules } })
+  });
+}
+
+async function onRetentionEnabledChange(nextValue) {
+  const enabled = nextValue !== false;
+  if (enabled === settingsDraft.retention.enabled) return;
+  const previous = settingsDraft.retention.enabled;
+  settingsStore.setDraftPatch({ retention: { enabled } });
+  await patchSettingsWithRevert({
+    patch: { retention: { enabled } },
+    controlKey: 'retention_enabled',
+    revert: () => settingsStore.setDraftPatch({ retention: { enabled: previous } })
+  });
+}
+
+async function onRetentionUsageChange(nextValue) {
+  if (nextValue === settingsDraft.retention.usage_mode) return;
+  const previous = settingsDraft.retention.usage_mode;
+  settingsStore.setDraftPatch({ retention: { usage_mode: nextValue } });
+  await patchSettingsWithRevert({
+    patch: { retention: { usage_mode: nextValue } },
+    controlKey: 'retention_usage_mode',
+    revert: () => settingsStore.setDraftPatch({ retention: { usage_mode: previous } })
+  });
+}
+
+async function addRetentionRule() {
+  const name = String(newRetentionRuleType.value || '').trim();
+  if (!name) return;
+  const previous = currentRetentionRulesSnapshot();
+  if (previous.some((rule) => String(rule.document_type).toLocaleLowerCase('de-DE') === name.toLocaleLowerCase('de-DE'))) {
+    return;
+  }
+  const next = [...previous, { document_type: name, paper_original: 'unclear', period_years: null, basis: '' }];
+  newRetentionRuleType.value = null;
+  await saveRetentionRules(next, previous);
+}
+
+async function removeRetentionRule(index) {
+  const previous = currentRetentionRulesSnapshot();
+  if (index < 0 || index >= previous.length) return;
+  const next = previous.filter((_, i) => i !== index);
+  await saveRetentionRules(next, previous);
+}
+
+async function updateRetentionRule(index, field, value) {
+  const previous = currentRetentionRulesSnapshot();
+  if (index < 0 || index >= previous.length) return;
+  let nextValue = value;
+  if (field === 'basis') {
+    nextValue = String(value || '').trim().slice(0, 200);
+  } else if (field === 'period_years') {
+    nextValue = value === null || value === '' ? null : Number(value);
+  }
+  if (previous[index][field] === nextValue) return;
+  const next = previous.map((rule, i) => (i === index ? { ...rule, [field]: nextValue } : rule));
+  await saveRetentionRules(next, previous);
 }
 
 // ── Auto-Tagging ─────────────────────────────────────────────────────────────
@@ -3534,8 +3809,7 @@ watch(
   () => props.modelValue,
   (open) => {
     if (open) {
-      const allowed = visibleCategories.value.some((cat) => cat.value === props.initialCategory);
-      activeCategory.value = allowed ? props.initialCategory : 'appearance';
+      activeCategory.value = resolveInitialSettingsCategory(props.initialCategory);
       void categoryStore.fetchCategories();
       void correspondentStore.fetchCorrespondents();
       void loadUnresolvedCorrespondents();
@@ -5092,6 +5366,77 @@ async function removeAlias(alias) {
 
 .pm-setting-group + .pm-setting-row {
   border-top: 1px solid rgba(var(--v-theme-on-surface), 0.04);
+}
+
+.settings-retention-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.settings-retention-config {
+  transition: opacity 0.15s ease;
+}
+
+.settings-retention-config--disabled {
+  opacity: 0.45;
+}
+
+.settings-retention-rule {
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.settings-retention-rule__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.settings-retention-rule__type {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: rgba(var(--v-theme-on-surface), 0.9);
+}
+
+.settings-retention-rule__remove {
+  color: rgba(var(--v-theme-on-surface), 0.45) !important;
+}
+
+.settings-retention-rule__remove:hover {
+  color: rgb(var(--v-theme-error)) !important;
+}
+
+.settings-retention-rule__controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.settings-retention-rule__basis {
+  grid-column: 1 / -1;
+}
+
+.settings-retention-empty {
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  font-size: 0.84rem;
+  padding: 10px 2px;
+}
+
+.settings-retention-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.settings-retention-add__select {
+  flex: 1;
+  min-width: 0;
 }
 
 .pm-settings-disclosure {

@@ -11,6 +11,7 @@ from app.routers.health import router as health_router
 from app.routers.imports import router as import_router
 from app.routers.jobs import router as jobs_router
 from app.routers.retrieval import router as retrieval_router
+from app.routers.retention import router as retention_router
 from app.routers.saved_searches import router as saved_searches_router
 from app.routers.scanners import router as scanners_router
 from app.routers.settings import router as settings_router
@@ -34,6 +35,7 @@ __all__ = [
     "document_types_router",
     "jobs_router",
     "retrieval_router",
+    "retention_router",
     "saved_searches_router",
     "scanners_router",
     "smart_folders_router",

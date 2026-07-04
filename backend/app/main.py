@@ -26,6 +26,7 @@ from app.routers import (
     import_router,
     jobs_router,
     retrieval_router,
+    retention_router,
     saved_searches_router,
     scanners_router,
     settings_router,
@@ -109,6 +110,7 @@ app.include_router(correspondents_router)
 app.include_router(document_types_router)
 app.include_router(jobs_router)
 app.include_router(retrieval_router)
+app.include_router(retention_router)
 app.include_router(ai_router)
 app.include_router(backup_router)
 app.include_router(saved_searches_router)

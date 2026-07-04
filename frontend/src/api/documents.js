@@ -12,9 +12,29 @@ export const listSmartFolderDocuments = (folderId, queryString) =>
 export const getDocument = (id) =>
   apiGet(`/api/documents/${id}`);
 
+/** GET /api/documents/{id}/retention */
+export const getDocumentRetention = (id) =>
+  apiGet(`/api/documents/${id}/retention`);
+
 /** PATCH /api/documents/{id} */
 export const patchDocument = (id, body) =>
   apiPatch(`/api/documents/${id}`, body);
+
+/** PUT /api/documents/{id}/retention */
+export const putDocumentRetention = (id, body) =>
+  apiPut(`/api/documents/${id}/retention`, body);
+
+/** POST /api/documents/{id}/retention/suggest */
+export const suggestDocumentRetention = (id) =>
+  apiPost(`/api/documents/${id}/retention/suggest`);
+
+/** POST /api/documents/{id}/retention/accept */
+export const acceptDocumentRetention = (id) =>
+  apiPost(`/api/documents/${id}/retention/accept`);
+
+/** POST /api/documents/{id}/retention/discard */
+export const discardDocumentRetention = (id) =>
+  apiPost(`/api/documents/${id}/retention/discard`);
 
 /** DELETE /api/documents/{id} – endgültig löschen */
 export const deleteDocument = (id) =>

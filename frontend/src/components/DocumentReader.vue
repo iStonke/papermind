@@ -40,9 +40,19 @@
               :aria-pressed="showThumbs"
               aria-label="Miniaturen umschalten"
               title="Miniaturen"
-              @click="showThumbs = !showThumbs"
+              @click="toggleThumbs"
             >
               <v-icon size="20">mdi-view-grid-outline</v-icon>
+            </button>
+            <button
+              class="doc-reader__icon-btn"
+              :class="{ 'doc-reader__icon-btn--active': showTools }"
+              :aria-pressed="showTools"
+              aria-label="Werkzeuge ein- oder ausblenden"
+              title="Werkzeuge"
+              @click="showTools = !showTools"
+            >
+              <v-icon size="20">mdi-toolbox-outline</v-icon>
             </button>
             <button
               class="doc-reader__icon-btn"
@@ -61,7 +71,14 @@
 
       <div class="doc-reader__body">
         <!-- Miniatur-Leiste -->
-        <aside v-show="showThumbs" ref="railEl" class="doc-reader__rail" aria-label="Seitenminiaturen">
+        <aside
+          ref="railEl"
+          class="doc-reader__rail"
+          :class="{ 'doc-reader__rail--hidden': !showThumbs }"
+          :aria-hidden="!showThumbs"
+          :inert="!showThumbs"
+          aria-label="Seitenminiaturen"
+        >
           <button
             v-for="page in pageTotal"
             :key="page"
@@ -85,6 +102,8 @@
             :src="src"
             :target-page="targetPage"
             :annotatable="true"
+            :annotation-tool="showTools ? activeTool : ''"
+            :annotation-color="activeColor"
             :annotations="annotations"
             @loaded="onPreviewLoaded"
             @create-annotation="$emit('create-annotation', $event)"
@@ -95,8 +114,51 @@
           />
         </main>
 
+        <!-- Werkzeug-Leiste -->
+        <aside
+          class="doc-reader__tools"
+          :class="{ 'doc-reader__tools--hidden': !showTools }"
+          :aria-hidden="!showTools"
+          :inert="!showTools"
+          aria-label="Werkzeuge"
+        >
+          <button
+            v-for="tool in readerTools"
+            :key="tool.id"
+            class="doc-reader__tool-btn"
+            :class="{ 'doc-reader__tool-btn--active': activeTool === tool.id }"
+            :aria-label="tool.label"
+            :aria-pressed="activeTool === tool.id"
+            :title="tool.label"
+            @click="activeTool = tool.id"
+          >
+            <v-icon size="20">{{ tool.icon }}</v-icon>
+          </button>
+
+          <!-- Universelle Farbwahl: gilt für Rechteck/Stift/Text, nur bei diesen sichtbar -->
+          <template v-if="usesDrawColor">
+            <div class="doc-reader__tool-divider" role="separator" />
+            <button
+              v-for="c in drawColors"
+              :key="c"
+              class="doc-reader__color-btn"
+              :class="{ 'doc-reader__color-btn--active': activeColor === c }"
+              :style="{ '--swatch-color': c }"
+              :aria-label="`Farbe wählen: ${c}`"
+              :aria-pressed="activeColor === c"
+              @click="activeColor = c"
+            />
+          </template>
+        </aside>
+
         <!-- Kommentar-Leiste -->
-        <aside v-show="showNotes" class="doc-reader__notes" aria-label="Kommentare">
+        <aside
+          class="doc-reader__notes"
+          :class="{ 'doc-reader__notes--hidden': !showNotes }"
+          :aria-hidden="!showNotes"
+          :inert="!showNotes"
+          aria-label="Kommentare"
+        >
           <div class="doc-reader__notes-head">
             <span>Kommentare</span>
             <span class="doc-reader__notes-count">{{ noteAnnotations.length }}</span>
@@ -189,14 +251,44 @@ const previewRef = ref(null);
 const railEl = ref(null);
 const editFieldEl = ref(null);
 
-const showThumbs = ref(true);
-const showNotes = ref(true);
+const READER_TOGGLE_STORAGE_KEY = 'papermind.reader.viewToggles.v1';
+
+function readStoredToggles() {
+  if (typeof window === 'undefined') return {};
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(READER_TOGGLE_STORAGE_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+const storedToggles = readStoredToggles();
+
+const showThumbs = ref(typeof storedToggles.thumbs === 'boolean' ? storedToggles.thumbs : true);
+const showNotes = ref(typeof storedToggles.notes === 'boolean' ? storedToggles.notes : true);
+const showTools = ref(typeof storedToggles.tools === 'boolean' ? storedToggles.tools : false);
 const pageTotal = ref(0);
 const leaving = ref(false); // steuert die Leave-Transition vor dem Schließen
 
 const editingId = ref(null);
 const editingText = ref('');
 const handledEditAnnotationId = ref(null);
+const activeTool = ref('highlight');
+
+const readerTools = [
+  { id: 'text', label: 'Text', icon: 'mdi-format-text' },
+  { id: 'highlight', label: 'Hervorheben', icon: 'mdi-format-color-highlight' },
+  { id: 'rectangle', label: 'Rechteck', icon: 'mdi-rectangle-outline' },
+  { id: 'pen', label: 'Stift', icon: 'mdi-pencil-outline' },
+  { id: 'eraser', label: 'Radierer', icon: 'mdi-eraser' },
+];
+
+// Universelle Farbwahl: eine gemeinsame Farbe für Rechteck/Stift/Text statt
+// je Werkzeug eine feste Farbe. Nur relevant/sichtbar bei diesen 3 Werkzeugen.
+const drawColors = ['#0F172A', '#DC2626', '#EA580C', '#16A34A', '#0EA5E9', '#7C3AED'];
+const activeColor = ref(drawColors[4]);
+const usesDrawColor = computed(() => ['rectangle', 'pen', 'text'].includes(activeTool.value));
 
 // Aktuelle Seite aus der (exposeten) PdfPreview – reaktiv für Rail-Hervorhebung.
 const currentPage = computed(() => previewRef.value?.currentPage || 1);
@@ -220,8 +312,24 @@ function setThumbRef(el, page) {
   else thumbEls.delete(page);
 }
 function setCanvasRef(el, page) {
-  if (el) canvasEls.set(page, el);
-  else canvasEls.delete(page);
+  if (el) {
+    canvasEls.set(page, el);
+    return;
+  }
+  canvasEls.delete(page);
+  renderedThumbs.delete(page);
+}
+
+function renderVisibleThumbs() {
+  const rail = railEl.value;
+  if (!rail) return;
+  const railRect = rail.getBoundingClientRect();
+  for (const [page, thumb] of thumbEls.entries()) {
+    const rect = thumb.getBoundingClientRect();
+    if (rect.bottom >= railRect.top - 300 && rect.top <= railRect.bottom + 300) {
+      renderThumb(page);
+    }
+  }
 }
 
 function setupThumbObserver() {
@@ -238,6 +346,7 @@ function setupThumbObserver() {
     { root: railEl.value, rootMargin: '300px 0px', threshold: 0 },
   );
   for (const el of thumbEls.values()) thumbObserver.observe(el);
+  renderVisibleThumbs();
 }
 
 async function renderThumb(page) {
@@ -246,8 +355,13 @@ async function renderThumb(page) {
   const api = previewRef.value;
   if (!canvas || !api?.renderThumbnail) return;
   renderedThumbs.add(page);
-  await api.renderThumbnail(page, canvas);
-  canvas.style.opacity = '1'; // sanftes Einblenden nach dem Rendern
+  try {
+    await api.renderThumbnail(page, canvas);
+    canvas.style.opacity = '1'; // sanftes Einblenden nach dem Rendern
+  } catch (error) {
+    renderedThumbs.delete(page);
+    console.warn('Miniatur konnte nicht gerendert werden:', error);
+  }
 }
 
 async function onPreviewLoaded() {
@@ -261,6 +375,11 @@ function goToPage(page) {
   previewRef.value?.goToPage(page);
   // Aktive Miniatur in den sichtbaren Bereich rollen.
   nextTick(() => thumbEls.get(page)?.scrollIntoView({ block: 'nearest' }));
+}
+
+function toggleThumbs() {
+  showThumbs.value = !showThumbs.value;
+  if (showThumbs.value) nextTick(() => renderVisibleThumbs());
 }
 
 // ── Notiz-Kommentar bearbeiten ──────────────────────────────────────────────
@@ -309,6 +428,14 @@ watch(
   { immediate: true },
 );
 
+watch([showThumbs, showNotes, showTools], ([thumbs, notes, tools]) => {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(
+    READER_TOGGLE_STORAGE_KEY,
+    JSON.stringify({ thumbs, notes, tools }),
+  );
+});
+
 function cancelEdit() {
   editingId.value = null;
   editingText.value = '';
@@ -344,19 +471,30 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* Sanfter Ein-/Ausblend-Übergang beim Screenwechsel in/aus dem Lesemodus. */
-.reader-enter-active,
+/* Lesemodus fährt wie eine Schublade von unten hoch und schließt nach unten. */
+.reader-enter-active {
+  transition: transform 460ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
 .reader-leave-active {
-  transition: opacity 200ms ease, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform 620ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
 }
 .reader-enter-from,
 .reader-leave-to {
-  opacity: 0;
-  transform: scale(0.985) translateY(10px);
+  transform: translateY(100%);
+}
+.reader-enter-to,
+.reader-leave-from {
+  transform: translateY(0);
 }
 @media (prefers-reduced-motion: reduce) {
   .reader-enter-active,
   .reader-leave-active,
+  .doc-reader__rail,
+  .doc-reader__tools,
+  .doc-reader__notes,
   .note-enter-active,
   .note-leave-active,
   .note-move,
@@ -457,11 +595,7 @@ onBeforeUnmount(() => {
 .doc-reader__view-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 3px;
-  border: 1px solid rgb(255 255 255 / 0.1);
-  border-radius: 10px;
-  background: rgb(255 255 255 / 0.04);
+  gap: 10px;
 }
 
 .doc-reader__icon-btn {
@@ -474,30 +608,35 @@ onBeforeUnmount(() => {
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: rgb(226 232 240 / 0.78);
+  color: rgb(226 232 240 / 0.66);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease, transform 120ms ease;
 }
 .doc-reader__icon-btn:hover {
-  background: rgb(255 255 255 / 0.08);
+  background: rgb(255 255 255 / 0.07);
   color: var(--reader-text);
 }
+.doc-reader__icon-btn:active {
+  transform: scale(0.94);
+}
 .doc-reader__icon-btn--active {
-  background: rgb(var(--v-theme-primary) / 0.18);
-  border-color: rgb(var(--v-theme-primary) / 0.38);
-  color: rgb(120 231 255);
+  background: rgb(255 255 255 / 0.075);
+  border-color: rgb(255 255 255 / 0.08);
+  color: rgb(241 245 249 / 0.92);
 }
 .doc-reader__badge {
   position: absolute;
-  top: -6px;
-  right: -6px;
+  top: -4px;
+  right: -4px;
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  background: rgb(var(--v-theme-primary));
-  color: rgb(var(--v-theme-on-primary));
+  border: 1px solid rgb(8 13 23);
+  background: rgb(34 211 238);
+  color: rgb(8 13 23);
   font-size: 0.65rem;
+  font-weight: 700;
   line-height: 16px;
   text-align: center;
 }
@@ -512,8 +651,9 @@ onBeforeUnmount(() => {
 /* ── Miniatur-Leiste ─────────────────────────────────────────────────────── */
 .doc-reader__rail {
   flex: 0 0 auto;
-  width: 138px;
+  width: 168px;
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -521,6 +661,24 @@ onBeforeUnmount(() => {
   padding: 16px 8px 18px;
   border-right: 1px solid var(--reader-divider);
   background: var(--reader-panel-bg);
+  contain: layout paint style;
+  will-change: width, opacity, transform;
+  transition:
+    width 150ms cubic-bezier(0.2, 0, 0, 1),
+    padding 150ms cubic-bezier(0.2, 0, 0, 1),
+    border-color 150ms ease,
+    opacity 110ms ease,
+    transform 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.doc-reader__rail--hidden {
+  width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-right-color: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-6px);
 }
 
 .doc-reader__thumb {
@@ -541,12 +699,15 @@ onBeforeUnmount(() => {
 .doc-reader__thumb--active {
   background: rgb(var(--v-theme-primary) / 0.12);
   border-color: rgb(var(--v-theme-primary) / 0.72);
-  box-shadow: inset 3px 0 0 rgb(var(--v-theme-primary));
+}
+.doc-reader__thumb--active:hover {
+  background: rgb(var(--v-theme-primary) / 0.14);
+  border-color: rgb(var(--v-theme-primary) / 0.72);
 }
 .doc-reader__thumb-canvas {
   display: block;
-  width: 104px;
-  min-height: 136px;
+  width: 128px;
+  min-height: 168px;
   border-radius: 4px;
   background: #fff;
   box-shadow: 0 4px 12px rgb(0 0 0 / 0.22);
@@ -574,6 +735,7 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   min-width: 0;
   position: relative;
+  contain: layout paint style;
   background:
     linear-gradient(90deg, rgb(8 13 23) 0, rgb(12 18 30) 16%, rgb(12 18 30) 84%, rgb(8 13 23) 100%);
 }
@@ -621,15 +783,120 @@ onBeforeUnmount(() => {
   box-shadow: 0 14px 34px rgb(0 0 0 / 0.3);
 }
 
+/* ── Werkzeug-Leiste ─────────────────────────────────────────────────────── */
+.doc-reader__tools {
+  flex: 0 0 auto;
+  width: 56px;
+  padding: 14px 8px;
+  overflow: hidden;
+  border-left: 1px solid var(--reader-divider);
+  background: var(--reader-panel-bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  contain: layout paint style;
+  will-change: width, opacity, transform;
+  transition:
+    width 140ms cubic-bezier(0.2, 0, 0, 1),
+    padding 140ms cubic-bezier(0.2, 0, 0, 1),
+    border-color 140ms ease,
+    opacity 110ms ease,
+    transform 140ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.doc-reader__tools--hidden {
+  width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-left-color: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(6px);
+}
+
+.doc-reader__tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: rgb(226 232 240 / 0.66);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+
+.doc-reader__tool-btn:hover {
+  background: rgb(255 255 255 / 0.07);
+  color: var(--reader-text);
+}
+
+.doc-reader__tool-btn:active {
+  transform: scale(0.94);
+}
+
+.doc-reader__tool-btn--active {
+  border-color: rgb(var(--v-theme-primary) / 0.46);
+  background: rgb(var(--v-theme-primary) / 0.14);
+  color: rgb(165 243 252);
+  box-shadow: inset 0 0 0 1px rgb(var(--v-theme-primary) / 0.22);
+}
+
+.doc-reader__tool-divider {
+  width: 26px;
+  height: 1px;
+  margin: 2px 0;
+  background: var(--reader-divider);
+}
+
+.doc-reader__color-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  /* Sichtbarer Rand auch für dunkle Farben (z. B. Schwarz) auf dem dunklen Panel. */
+  border: 2px solid rgb(255 255 255 / 0.18);
+  background: var(--swatch-color);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 120ms ease, border-color 120ms ease;
+}
+
+.doc-reader__color-btn:hover {
+  transform: scale(1.1);
+}
+
+.doc-reader__color-btn--active {
+  border-color: var(--reader-text);
+  box-shadow: 0 0 0 2px var(--reader-panel-bg), 0 0 0 3px rgb(var(--v-theme-primary) / 0.5);
+}
+
 /* ── Notizen-Leiste ───────────────────────────────────────────────────────── */
 .doc-reader__notes {
   flex: 0 0 auto;
   width: 310px;
   overflow-y: auto;
+  overflow-x: hidden;
   border-left: 1px solid var(--reader-divider);
   background: var(--reader-panel-bg);
   display: flex;
   flex-direction: column;
+  contain: layout paint style;
+  will-change: width, opacity, transform;
+  transition:
+    width 150ms cubic-bezier(0.2, 0, 0, 1),
+    border-color 150ms ease,
+    opacity 110ms ease,
+    transform 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.doc-reader__notes--hidden {
+  width: 0;
+  border-left-color: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(6px);
 }
 .doc-reader__notes-head {
   display: flex;

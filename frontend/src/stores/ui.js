@@ -9,7 +9,7 @@ import { defineStore } from 'pinia';
 export const useUiStore = defineStore('ui', {
   state: () => ({
     settingsOpen: false,
-    settingsCategory: 'appearance',
+    settingsCategory: '',
     // Konto-Dialog (Profil + ggf. Benutzerverwaltung), global gemountet, damit
     // das Konto-Menü auf jeder Route funktioniert – analog zum Settings-Dialog.
     accountOpen: false,
@@ -20,8 +20,8 @@ export const useUiStore = defineStore('ui', {
     importsReloadSignal: 0,
   }),
   actions: {
-    openSettings(category = 'appearance') {
-      this.settingsCategory = category || 'appearance';
+    openSettings(category = '') {
+      this.settingsCategory = category || '';
       this.settingsOpen = true;
     },
     closeSettings() {

@@ -154,11 +154,49 @@ function createDefaultSettings() {
       enable_answer_checks: true,
       enable_self_critique: false
     },
+    retention: {
+      enabled: true,
+      usage_mode: 'business',
+      rules: []
+    },
     meta: {
       version: 1,
       updated_at: null
     }
   };
+}
+
+function cloneRetentionRules(rulesValue) {
+  return Array.isArray(rulesValue) ? rulesValue.map((rule) => ({ ...rule })) : [];
+}
+
+const RETENTION_PAPER_VALUES = new Set(['unclear', 'keep', 'scan_sufficient', 'not_applicable']);
+const RETENTION_USAGE_VALUES = new Set(['private', 'business']);
+
+function normalizeRetentionRule(rawRule) {
+  if (!rawRule || typeof rawRule !== 'object') return null;
+  const documentType = normalizeString(rawRule.document_type, '', 1);
+  if (!documentType) return null;
+  const paperOriginal = RETENTION_PAPER_VALUES.has(rawRule.paper_original) ? rawRule.paper_original : 'unclear';
+  let periodYears = null;
+  if (rawRule.period_years === -1 || (Number.isFinite(Number(rawRule.period_years)) && rawRule.period_years !== null && rawRule.period_years !== '')) {
+    periodYears = Number(rawRule.period_years);
+  }
+  const basis = typeof rawRule.basis === 'string' ? rawRule.basis.trim().slice(0, 200) : '';
+  return { document_type: documentType.slice(0, 64), paper_original: paperOriginal, period_years: periodYears, basis };
+}
+
+function normalizeRetention(rawRetention, defaults) {
+  const enabled = typeof rawRetention?.enabled === 'boolean'
+    ? rawRetention.enabled
+    : defaults.retention.enabled;
+  const usageMode = RETENTION_USAGE_VALUES.has(rawRetention?.usage_mode)
+    ? rawRetention.usage_mode
+    : defaults.retention.usage_mode;
+  const rules = Array.isArray(rawRetention?.rules)
+    ? rawRetention.rules.map(normalizeRetentionRule).filter(Boolean)
+    : cloneRetentionRules(defaults.retention.rules);
+  return { enabled, usage_mode: usageMode, rules };
 }
 
 function cloneUi(uiValue) {
@@ -177,6 +215,11 @@ function cloneSettings(settingsValue) {
     ocr: { ...settingsValue.ocr },
     quality: { ...settingsValue.quality },
     ollama: { ...settingsValue.ollama },
+    retention: {
+      enabled: settingsValue.retention?.enabled !== false,
+      usage_mode: settingsValue.retention?.usage_mode || 'business',
+      rules: cloneRetentionRules(settingsValue.retention?.rules)
+    },
     meta: { ...settingsValue.meta }
   };
 }
@@ -192,6 +235,11 @@ function assignSettings(target, source) {
   Object.assign(target.ocr, source.ocr);
   Object.assign(target.quality, source.quality);
   if (source.ollama) Object.assign(target.ollama, source.ollama);
+  if (source.retention) {
+    if ('enabled' in source.retention) target.retention.enabled = source.retention.enabled !== false;
+    if ('usage_mode' in source.retention) target.retention.usage_mode = source.retention.usage_mode;
+    if ('rules' in source.retention) target.retention.rules = cloneRetentionRules(source.retention.rules);
+  }
   Object.assign(target.meta, source.meta);
 }
 
@@ -306,6 +354,13 @@ export const useSettingsStore = defineStore('settings', {
       }
       if (patch?.quality && typeof patch.quality === 'object') {
         Object.assign(this.settingsDraft.quality, patch.quality);
+      }
+      if (patch?.retention && typeof patch.retention === 'object') {
+        if ('enabled' in patch.retention) this.settingsDraft.retention.enabled = patch.retention.enabled !== false;
+        if ('usage_mode' in patch.retention) this.settingsDraft.retention.usage_mode = patch.retention.usage_mode;
+        if (Array.isArray(patch.retention.rules)) {
+          this.settingsDraft.retention.rules = cloneRetentionRules(patch.retention.rules);
+        }
       }
       if (patch?.meta && typeof patch.meta === 'object') {
         Object.assign(this.settingsDraft.meta, patch.meta);
@@ -499,6 +554,7 @@ export const useSettingsStore = defineStore('settings', {
               ? payload.quality.enable_self_critique
               : defaults.quality.enable_self_critique
         },
+        retention: normalizeRetention(payload?.retention, defaults),
         meta: {
           version: Math.max(1, toInt(payload?.meta?.version, defaults.meta.version)),
           updated_at:

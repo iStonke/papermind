@@ -1,5 +1,13 @@
 <template>
-  <div ref="rootEl" class="pdf-preview" role="region" aria-label="PDF Vorschau" @keydown="onKeydown">
+  <div
+    ref="rootEl"
+    class="pdf-preview"
+    :class="pdfPreviewClasses"
+    :style="pdfPreviewThemeStyle"
+    role="region"
+    aria-label="PDF Vorschau"
+    @keydown="onKeydown"
+  >
 
     <!-- Fehlerzustand -->
     <div v-if="errorMessage" class="pdf-preview__placeholder">
@@ -44,6 +52,27 @@
           <span class="pdf-preview__page-info" aria-live="polite">
             {{ currentPage }} / {{ pageInfos.length }}
           </span>
+        </div>
+
+        <div class="pdf-preview__rotate-controls" role="group" aria-label="Aktive Seite drehen">
+          <button
+            class="pdf-preview__rotate-btn"
+            :disabled="!pageInfos.length"
+            aria-label="Aktive Seite nach links drehen"
+            title="Aktive Seite nach links drehen"
+            @click="rotateActivePage(-90)"
+          >
+            <v-icon size="16">mdi-rotate-left</v-icon>
+          </button>
+          <button
+            class="pdf-preview__rotate-btn"
+            :disabled="!pageInfos.length"
+            aria-label="Aktive Seite nach rechts drehen"
+            title="Aktive Seite nach rechts drehen"
+            @click="rotateActivePage(90)"
+          >
+            <v-icon size="16">mdi-rotate-right</v-icon>
+          </button>
         </div>
 
         <Transition name="pdf-preview-match">
@@ -124,8 +153,9 @@
         class="pdf-preview__pages"
         :class="{ 'pdf-preview__pages--magnify': magnifierEnabled }"
         tabindex="0"
-        @pointermove="onMagnifierPointerMove"
-        @pointerleave="hideMagnifier"
+        @pointerdown="onPagesPointerDown"
+        @pointermove="onPagesPointerMove"
+        @pointerleave="onPagesPointerLeave"
         @pointerup="onPagesPointerUp"
         @wheel="onPagesWheel"
       >
@@ -196,10 +226,12 @@ const pdfByteCache = new Map();
 </script>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import { TextLayer } from 'pdfjs-dist';
 import 'pdfjs-dist/web/pdf_viewer.css';
+import Konva from 'konva';
+import { useTheme } from 'vuetify';
 import PmEmptyState from './PmEmptyState.vue';
 import { PDF_WORKER_SRC } from '../utils/pdfWorker.js';
 
@@ -216,10 +248,55 @@ const props = defineProps({
   annotatable:   { type: Boolean, default: false },
   /** Persistierte Markierungen: [{ id, page, kind, color, rects:[{x,y,w,h}], comment }] */
   annotations:   { type: Array, default: () => [] },
+  /** Aktives Werkzeug im Lesemodus: highlight | rectangle | eraser | text | pen */
+  annotationTool: { type: String, default: '' },
+  /** Aktive Farbe für Rechteck/Stift/Text (universelle Farbwahl in der Werkzeug-Leiste). */
+  annotationColor: { type: String, default: '' },
   /** Zeigt den „Lesemodus"-Button in der Toolbar und aktiviert die Taste „f". */
   enableReader:  { type: Boolean, default: false },
 });
 const emit = defineEmits(['loaded', 'failed', 'create-annotation', 'delete-annotation', 'update-annotation', 'open-reader', 'request-link', 'request-comment']);
+const theme = useTheme();
+
+const pdfPreviewThemeStyle = computed(() => {
+  if (theme.global.current.value.dark) {
+    return {
+      '--pdf-toolbar-bg': 'rgb(15 23 42 / 0.72)',
+      '--pdf-toolbar-border': 'rgb(255 255 255 / 0.1)',
+      '--pdf-toolbar-shadow': '0 8px 22px rgb(0 0 0 / 0.24)',
+      '--pdf-toolbar-text': 'rgb(226 232 240 / 0.85)',
+      '--pdf-toolbar-text-muted': 'rgb(226 232 240 / 0.68)',
+      '--pdf-toolbar-icon': 'rgb(226 232 240 / 0.72)',
+      '--pdf-toolbar-hover-bg': 'rgb(255 255 255 / 0.1)',
+      '--pdf-toolbar-stepper-bg': 'rgb(255 255 255 / 0.07)',
+      '--pdf-toolbar-divider': 'rgb(255 255 255 / 0.12)'
+    };
+  }
+  return {
+    '--pdf-toolbar-bg': 'rgb(255 255 255 / 0.94)',
+    '--pdf-toolbar-border': 'rgb(203 213 225 / 0.92)',
+    '--pdf-toolbar-shadow': '0 14px 34px rgb(15 23 42 / 0.12), 0 2px 8px rgb(15 23 42 / 0.08)',
+    '--pdf-toolbar-text': 'rgb(31 41 55 / 0.88)',
+    '--pdf-toolbar-text-muted': 'rgb(75 85 99 / 0.72)',
+    '--pdf-toolbar-icon': 'rgb(71 85 105 / 0.76)',
+    '--pdf-toolbar-hover-bg': 'rgb(15 23 42 / 0.07)',
+    '--pdf-toolbar-stepper-bg': 'rgb(241 245 249 / 0.96)',
+    '--pdf-toolbar-divider': 'rgb(148 163 184 / 0.24)'
+  };
+});
+
+const activeAnnotationTool = computed(() => {
+  if (!props.annotatable) return '';
+  return String(props.annotationTool || '').trim();
+});
+
+const pdfPreviewClasses = computed(() => {
+  const tool = activeAnnotationTool.value;
+  return {
+    'pdf-preview--tool-active': Boolean(tool),
+    [`pdf-preview--tool-${tool}`]: Boolean(tool),
+  };
+});
 
 // ─── Zoom ─────────────────────────────────────────────────────────────────────
 
@@ -539,6 +616,7 @@ const firstPageReady = ref(false);
 
 /** Dimensionen aller Seiten – ohne Rendering befüllt */
 const pageInfos = ref([]); // [{ page, width, height }]
+const pageRotations = ref({}); // pageNum -> zusätzliche Rotation in Grad
 
 /** Bereits gerenderte Seiten (plain Set – DOM wird imperativ verwaltet) */
 const renderedPages = new Set();
@@ -574,23 +652,50 @@ function setInnerRef(el, pageNum) {
   else    pageInnerRefs.delete(pageNum);
 }
 
+/**
+ * Konva-Stage pro Seite für die interaktiven Werkzeuge Rechteck/Stift/Text:
+ * pageNum → { stage, layer, containerEl, widthPx, heightPx }. Übernimmt Ziehen/
+ * Skalieren/Hit-Testing von einer erprobten Canvas-Bibliothek statt eigener
+ * Pointer-Mathematik (die für Rechteck/Stift/Text bei echten Mausgesten nicht
+ * zuverlässig funktionierte).
+ */
+const konvaStages = new Map();
+
 // ─── Hilfsfunktionen ─────────────────────────────────────────────────────────
 
 function containerWidth() {
   return Math.max(340, (pagesEl.value?.clientWidth || 900));
 }
 
+function normalizeRotation(value) {
+  return ((Number(value) % 360) + 360) % 360;
+}
+
+function pageRotation(pageNum) {
+  return normalizeRotation(pageRotations.value[pageNum] || 0);
+}
+
+function visualPageDimensions(info) {
+  const rotation = pageRotation(info.page);
+  if (rotation === 90 || rotation === 270) {
+    return { width: info.height, height: info.width };
+  }
+  return { width: info.width, height: info.height };
+}
+
 function computeScale(info) {
   const maxW = Math.min(containerWidth() - 28, 980);
-  const base = maxW / info.width;
+  const visual = visualPageDimensions(info);
+  const base = maxW / visual.width;
   return Math.max(0.2, base * currentZoom.value);
 }
 
 function pageStyle(info) {
   const scale = computeScale(info);
+  const visual = visualPageDimensions(info);
   return {
-    width:  `${Math.floor(info.width  * scale)}px`,
-    height: `${Math.floor(info.height * scale)}px`,
+    width:  `${Math.floor(visual.width  * scale)}px`,
+    height: `${Math.floor(visual.height * scale)}px`,
   };
 }
 
@@ -932,9 +1037,26 @@ watch(() => props.highlightText, () => {
 const ANNOT_COLORS = ['#FAC775', '#9FE1CB', '#F4C0D1', '#B5D4F4'];
 const DEFAULT_ANNOT_COLOR = ANNOT_COLORS[0];
 const COMMENT_ANNOTATION_COLOR = DEFAULT_ANNOT_COLOR;
+/** Fallback, falls DocumentReader (noch) keine Farbe durchreicht. */
+const DEFAULT_DRAWING_COLOR = '#0EA5E9';
+
+/** Aktuell gewählte Farbe für Rechteck/Stift/Text (universelle Farbwahl). */
+const activeDrawColor = computed(() => props.annotationColor || DEFAULT_DRAWING_COLOR);
+
+function withAlpha(hexColor, alpha) {
+  const hex = String(hexColor || '').replace('#', '');
+  if (hex.length !== 6) return hexColor;
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
 const selectionMenu = ref({ visible: false, x: 0, y: 0, activeColor: '' });
 let selectionDraft = null; // { page, rects:[{x,y,w,h}], quote, annotations:[annotation] }
+let konvaDraft = null; // laufender Rechteck-/Stift-Entwurf: { type, page, entry, node, ... }
+let textDraft = null; // laufende Textbox: { pageNum, entry, rect, transformer, inputEl, commit, committed }
+let suppressSelectionAfterPointer = false;
 
 function annotationsForPage(pageNum) {
   return (props.annotations || []).filter((a) => Number(a.page) === pageNum);
@@ -949,6 +1071,544 @@ function rectsOverlap(a, b) {
     a.y < b.y + b.h + epsilon &&
     a.y + a.h + epsilon > b.y
   );
+}
+
+function rectForRotation(rect, rotation) {
+  const r = normalizeRotation(rotation);
+  const x = Number(rect.x || 0);
+  const y = Number(rect.y || 0);
+  const w = Number(rect.w || 0);
+  const h = Number(rect.h || 0);
+  if (r === 90) return { x: 1 - y - h, y: x, w: h, h: w };
+  if (r === 180) return { x: 1 - x - w, y: 1 - y - h, w, h };
+  if (r === 270) return { x: y, y: 1 - x - w, w: h, h: w };
+  return { x, y, w, h };
+}
+
+function rectFromRotation(rect, rotation) {
+  return rectForRotation(rect, 360 - normalizeRotation(rotation));
+}
+
+function pointForRotation(point, rotation) {
+  const rect = rectForRotation({ x: point.x, y: point.y, w: 0, h: 0 }, rotation);
+  return { x: rect.x, y: rect.y };
+}
+
+function pointFromRotation(point, rotation) {
+  return pointForRotation(point, 360 - normalizeRotation(rotation));
+}
+
+function normalizedPagePointFromEvent(event) {
+  const pageEl = event.target?.closest?.('.pdf-preview__page');
+  const pageNum = Number(pageEl?.dataset.page || 0);
+  const innerEl = pageInnerRefs.get(pageNum);
+  if (!innerEl) return null;
+
+  const innerRect = innerEl.getBoundingClientRect();
+  if (!innerRect.width || !innerRect.height) return null;
+  if (
+    event.clientX < innerRect.left ||
+    event.clientX > innerRect.right ||
+    event.clientY < innerRect.top ||
+    event.clientY > innerRect.bottom
+  ) {
+    return null;
+  }
+
+  const clamp = (value) => Math.min(1, Math.max(0, value));
+  return {
+    page: pageNum,
+    innerEl,
+    x: clamp((event.clientX - innerRect.left) / innerRect.width),
+    y: clamp((event.clientY - innerRect.top) / innerRect.height),
+  };
+}
+
+function rectFromPoints(startX, startY, endX, endY) {
+  const x = Math.min(startX, endX);
+  const y = Math.min(startY, endY);
+  return {
+    x,
+    y,
+    w: Math.max(0, Math.max(startX, endX) - x),
+    h: Math.max(0, Math.max(startY, endY) - y),
+  };
+}
+
+function removeTextDraft() {
+  if (!textDraft) return;
+  textDraft.transformer?.destroy();
+  textDraft.titlebar?.destroy();
+  textDraft.grip?.destroy();
+  textDraft.rect?.destroy();
+  textDraft.inputEl?.remove();
+  textDraft.entry?.layer?.batchDraw();
+  textDraft = null;
+}
+
+/** Verwirft einen laufenden Rechteck-/Stift-Entwurf (Esc / Werkzeugwechsel). */
+function cancelKonvaDraft() {
+  if (!konvaDraft) return;
+  konvaDraft.node?.destroy();
+  konvaDraft.entry?.layer?.batchDraw();
+  konvaDraft = null;
+}
+
+/**
+ * Bricht einen laufenden Rechteck-/Stift-/Text-Entwurf per Esc ab, BEVOR das
+ * Ereignis den Lesemodus (DocumentReader) erreicht — sonst schließt Esc dort
+ * versehentlich den ganzen Lesemodus statt nur den Entwurf zu verwerfen.
+ * Capture-Phase, damit es unabhängig von der Mount-Reihenfolge zuerst greift.
+ */
+function onWindowKeydownCapture(event) {
+  if (event.key !== 'Escape') return;
+  if (konvaDraft) {
+    cancelKonvaDraft();
+  } else if (textDraft) {
+    removeTextDraft();
+  } else {
+    return;
+  }
+  // stopPropagation() allein reicht nicht: DocumentReader registriert seinen
+  // Esc-Handler ebenfalls direkt auf window, und andere Listener DESSELBEN
+  // Ziels feuern trotz stopPropagation weiter — nur stopImmediatePropagation
+  // verhindert, dass der Lesemodus sich zusätzlich schließt.
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onWindowKeydownCapture, true);
+});
+
+// ─── Konva-Ebene: Rechteck/Stift/Text ──────────────────────────────────────────
+// Zeichnen (Ziehen/Skalieren/Hit-Testing) übernimmt Konva statt eigener
+// Pointer-Mathematik, die sich bei echten Mausgesten als unzuverlässig erwiesen
+// hat. Eine Stage pro Seite, exakt über dem Seiten-Canvas positioniert;
+// Koordinaten sind Stage-lokale CSS-Pixel (== Seitengröße bei aktuellem Zoom)
+// und werden beim Speichern auf 0–1 normalisiert (wie der Rest der Annotationen).
+
+const TEXT_DRAFT_DEFAULT_W = 200;
+const TEXT_DRAFT_DEFAULT_H = 64;
+const TEXT_DRAFT_MIN_W = 90;
+const TEXT_DRAFT_MIN_H = 32;
+const TEXT_BOX_INSET = 6; // Rand um die <textarea>, damit Transformer-Anfasser klickbar bleiben
+const PEN_DRAFT_STROKE_WIDTH = 3;
+const PEN_HIT_STROKE_WIDTH = 34; // großzügige, unsichtbare Trefferfläche zum Radieren dünner Linien
+
+function destroyKonvaStage(pageNum) {
+  const entry = konvaStages.get(pageNum);
+  if (!entry) return;
+  if (konvaDraft?.page === pageNum) konvaDraft = null;
+  if (textDraft?.pageNum === pageNum) removeTextDraft();
+  entry.stage.destroy();
+  entry.containerEl.remove();
+  konvaStages.delete(pageNum);
+}
+
+function ensureKonvaStage(pageNum, innerEl, widthPx, heightPx) {
+  destroyKonvaStage(pageNum);
+
+  const containerEl = document.createElement('div');
+  containerEl.className = 'pm-konva-layer';
+  const textLayerEl = innerEl.querySelector('.textLayer');
+  if (textLayerEl) innerEl.insertBefore(containerEl, textLayerEl);
+  else innerEl.appendChild(containerEl);
+
+  const stage = new Konva.Stage({ container: containerEl, width: widthPx, height: heightPx });
+  const layer = new Konva.Layer();
+  stage.add(layer);
+
+  const entry = { stage, layer, containerEl, widthPx, heightPx };
+  konvaStages.set(pageNum, entry);
+  attachStageDraftHandlers(pageNum, entry);
+  return entry;
+}
+
+/** Rechteck/Stift/Text-Werkzeug per Klick/Drag auf der Stage der jeweiligen Seite. */
+function attachStageDraftHandlers(pageNum, entry) {
+  const { stage } = entry;
+
+  stage.on('mousedown touchstart', (e) => {
+    const tool = activeAnnotationTool.value;
+    if (tool === 'rectangle') {
+      const pos = stage.getPointerPosition();
+      if (pos) startKonvaRectangleDraft(pageNum, entry, pos);
+    } else if (tool === 'pen') {
+      const pos = stage.getPointerPosition();
+      if (pos) startKonvaPenDraft(pageNum, entry, pos);
+    } else if (tool === 'text') {
+      // Klick auf die bereits offene Box, ihre Griffleiste/Anfasser oder eine
+      // bestehende (jederzeit verschiebbare) Textnotiz: Konva übernimmt das
+      // Ziehen selbst, hier keine neue Box daneben anlegen.
+      const hitsOwnDraft = textDraft && (
+        e.target === textDraft.rect
+        || e.target === textDraft.titlebar
+        || e.target === textDraft.grip
+        || e.target?.getParent?.() === textDraft.transformer
+      );
+      const hitsExistingTextAnnotation = e.target?.getParent?.()?.getClassName?.() === 'Label';
+      if (hitsOwnDraft || hitsExistingTextAnnotation) return;
+      const pos = stage.getPointerPosition();
+      if (pos) startKonvaTextDraft(pageNum, entry, pos);
+    }
+  });
+
+  stage.on('mousemove touchmove', () => {
+    if (!konvaDraft || konvaDraft.page !== pageNum) return;
+    const pos = stage.getPointerPosition();
+    if (!pos) return;
+    if (konvaDraft.type === 'rectangle') updateKonvaRectangleDraft(pos);
+    else if (konvaDraft.type === 'pen') updateKonvaPenDraft(pos);
+  });
+
+  stage.on('mouseup touchend', () => {
+    if (!konvaDraft || konvaDraft.page !== pageNum) return;
+    if (konvaDraft.type === 'rectangle') finishKonvaRectangleDraft();
+    else if (konvaDraft.type === 'pen') finishKonvaPenDraft();
+  });
+}
+
+function startKonvaRectangleDraft(pageNum, entry, pos) {
+  cancelKonvaDraft();
+  const color = activeDrawColor.value;
+  const rect = new Konva.Rect({
+    x: pos.x,
+    y: pos.y,
+    width: 0,
+    height: 0,
+    stroke: color,
+    strokeWidth: 2,
+    dash: [5, 4],
+    fill: withAlpha(color, 0.12),
+    listening: false,
+  });
+  entry.layer.add(rect);
+  entry.layer.batchDraw();
+  konvaDraft = { type: 'rectangle', page: pageNum, entry, node: rect, startX: pos.x, startY: pos.y };
+}
+
+function updateKonvaRectangleDraft(pos) {
+  const { node, startX, startY, entry } = konvaDraft;
+  const x = Math.min(startX, pos.x);
+  const y = Math.min(startY, pos.y);
+  node.position({ x, y });
+  node.size({ width: Math.abs(pos.x - startX), height: Math.abs(pos.y - startY) });
+  entry.layer.batchDraw();
+}
+
+function finishKonvaRectangleDraft() {
+  const { node, entry, page } = konvaDraft;
+  const visibleRect = {
+    x: node.x() / entry.widthPx,
+    y: node.y() / entry.heightPx,
+    w: node.width() / entry.widthPx,
+    h: node.height() / entry.heightPx,
+  };
+  node.destroy();
+  entry.layer.batchDraw();
+  konvaDraft = null;
+  if (visibleRect.w < 0.006 || visibleRect.h < 0.006) return;
+
+  emit('create-annotation', {
+    page,
+    kind: 'rectangle',
+    color: activeDrawColor.value,
+    rects: [rectFromRotation(visibleRect, pageRotation(page))],
+    quote: null,
+  });
+}
+
+function startKonvaPenDraft(pageNum, entry, pos) {
+  cancelKonvaDraft();
+  const line = new Konva.Line({
+    points: [pos.x, pos.y],
+    stroke: activeDrawColor.value,
+    strokeWidth: PEN_DRAFT_STROKE_WIDTH,
+    lineCap: 'round',
+    lineJoin: 'round',
+    tension: 0.3,
+    listening: false,
+  });
+  entry.layer.add(line);
+  entry.layer.batchDraw();
+  konvaDraft = { type: 'pen', page: pageNum, entry, node: line, points: [{ x: pos.x, y: pos.y }] };
+}
+
+function updateKonvaPenDraft(pos) {
+  const points = konvaDraft.points;
+  const last = points[points.length - 1];
+  if (last && Math.hypot(pos.x - last.x, pos.y - last.y) < 1.5) return;
+  points.push({ x: pos.x, y: pos.y });
+  konvaDraft.node.points(points.flatMap((p) => [p.x, p.y]));
+  konvaDraft.entry.layer.batchDraw();
+}
+
+function finishKonvaPenDraft() {
+  const { entry, page, points, node } = konvaDraft;
+  node.destroy();
+  entry.layer.batchDraw();
+  konvaDraft = null;
+  if (points.length < 2) return;
+
+  const norm = points.map((p) => ({ x: p.x / entry.widthPx, y: p.y / entry.heightPx }));
+  let minX = 1, minY = 1, maxX = 0, maxY = 0;
+  for (const p of norm) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+  const pad = 0.006;
+  const bounds = {
+    x: Math.max(0, minX - pad),
+    y: Math.max(0, minY - pad),
+    w: Math.min(1, maxX + pad) - Math.max(0, minX - pad),
+    h: Math.min(1, maxY + pad) - Math.max(0, minY - pad),
+  };
+  if (bounds.w < 0.004 || bounds.h < 0.004) return;
+
+  emit('create-annotation', {
+    page,
+    kind: 'pen',
+    color: activeDrawColor.value,
+    rects: [rectFromRotation(bounds, pageRotation(page))],
+    quote: JSON.stringify({
+      type: 'pen',
+      points: norm.map((p) => pointFromRotation(p, pageRotation(page))),
+    }),
+  });
+}
+
+const TEXT_TITLEBAR_H = 20; // Griffleiste oben an der Box — großer, eindeutiger Zieh-Bereich
+
+/**
+ * Textbox frei positionierbar/skalierbar: eine Griffleiste oben (einzige
+ * Zieh-Fläche, groß genug für echte Mausbedienung — ein schmaler Rand allein
+ * war in der Praxis kaum zu treffen) + Konva.Rect+Transformer für die Größe,
+ * dazu eine echte <textarea> (leicht eingerückt, damit die Transformer-
+ * Anfasser am Rand klickbar bleiben) fürs Tippen darüber.
+ */
+function startKonvaTextDraft(pageNum, entry, pos) {
+  // Klick woanders während eine Box offen ist übernimmt deren Text (verwirft
+  // ihn NICHT) — nur Esc verwirft explizit, siehe onWindowKeydownCapture.
+  if (textDraft) textDraft.commit();
+
+  const color = activeDrawColor.value;
+  const width = TEXT_DRAFT_DEFAULT_W;
+  const height = TEXT_DRAFT_DEFAULT_H;
+  const x = Math.min(Math.max(0, entry.widthPx - width), pos.x);
+  const y = Math.min(Math.max(0, entry.heightPx - height - TEXT_TITLEBAR_H), pos.y);
+
+  const titlebar = new Konva.Rect({
+    x, y, width, height: TEXT_TITLEBAR_H,
+    fill: color,
+    cornerRadius: [4, 4, 0, 0],
+    draggable: true,
+  });
+  const grip = new Konva.Text({
+    x, y, width, height: TEXT_TITLEBAR_H,
+    text: '•••',
+    align: 'center',
+    verticalAlign: 'middle',
+    fontSize: 11,
+    fill: 'rgba(255, 255, 255, 0.85)',
+    listening: false,
+  });
+  const body = new Konva.Rect({
+    x, y: y + TEXT_TITLEBAR_H, width, height,
+    fill: 'rgba(255, 255, 255, 0.92)',
+    stroke: color,
+    strokeWidth: 1,
+    cornerRadius: [0, 0, 4, 4],
+  });
+  entry.layer.add(body);
+  entry.layer.add(titlebar);
+  entry.layer.add(grip);
+
+  const transformer = new Konva.Transformer({
+    nodes: [body],
+    rotateEnabled: false,
+    enabledAnchors: ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'middle-left', 'middle-right', 'top-center', 'bottom-center'],
+    boundBoxFunc: (oldBox, newBox) => (
+      (newBox.width < TEXT_DRAFT_MIN_W || newBox.height < TEXT_DRAFT_MIN_H) ? oldBox : newBox
+    ),
+  });
+  entry.layer.add(transformer);
+  // Synchron zeichnen: die Griffleiste muss SOFORT ziehbar sein, batchDraw()
+  // verzögert den Hit-Graph bis zum nächsten Animation-Frame (siehe
+  // renderKonvaAnnotations für dieselbe Problematik beim Radierer).
+  entry.layer.draw();
+
+  const inputEl = document.createElement('textarea');
+  inputEl.className = 'pm-text-draft';
+  entry.containerEl.parentElement.appendChild(inputEl);
+
+  const syncTitlebarToBody = () => {
+    titlebar.position({ x: body.x(), y: body.y() - TEXT_TITLEBAR_H });
+    titlebar.width(body.width());
+    grip.position(titlebar.position());
+    grip.width(body.width());
+  };
+  const syncInputToBody = () => {
+    inputEl.style.left   = `${body.x() + TEXT_BOX_INSET}px`;
+    inputEl.style.top    = `${body.y() + TEXT_BOX_INSET}px`;
+    inputEl.style.width  = `${Math.max(0, body.width()  - TEXT_BOX_INSET * 2)}px`;
+    inputEl.style.height = `${Math.max(0, body.height() - TEXT_BOX_INSET * 2)}px`;
+  };
+  syncInputToBody();
+
+  titlebar.on('mouseenter', () => { entry.stage.container().style.cursor = 'move'; });
+  titlebar.on('mouseleave', () => { entry.stage.container().style.cursor = ''; });
+  titlebar.on('dragmove', () => {
+    body.position({ x: titlebar.x(), y: titlebar.y() + TEXT_TITLEBAR_H });
+    syncTitlebarToBody();
+    syncInputToBody();
+  });
+  body.on('transform', () => {
+    // Standard-Konva-Rezept: Skalierung sofort in reale Breite/Höhe einrechnen
+    // und zurücksetzen, sonst verzerrt sich die Box bei weiteren Resizes.
+    body.width(Math.max(TEXT_DRAFT_MIN_W, body.width() * body.scaleX()));
+    body.height(Math.max(TEXT_DRAFT_MIN_H, body.height() * body.scaleY()));
+    body.scaleX(1);
+    body.scaleY(1);
+    syncTitlebarToBody();
+    syncInputToBody();
+  });
+
+  const draft = {
+    pageNum, entry, rect: body, titlebar, grip, transformer, inputEl, committed: false,
+    commit: () => {
+      if (draft.committed) return;
+      draft.committed = true;
+      const text = inputEl.value.trim();
+      const visibleRect = {
+        x: body.x() / entry.widthPx,
+        y: body.y() / entry.heightPx,
+        w: body.width() / entry.widthPx,
+        h: body.height() / entry.heightPx,
+      };
+      removeTextDraft();
+      if (!text) return;
+      emit('create-annotation', {
+        page: pageNum,
+        kind: 'text',
+        color,
+        rects: [rectFromRotation(visibleRect, pageRotation(pageNum))],
+        quote: text,
+      });
+    },
+  };
+  textDraft = draft;
+
+  inputEl.addEventListener('keydown', (keyboardEvent) => {
+    if (keyboardEvent.key === 'Enter' && !keyboardEvent.shiftKey) {
+      keyboardEvent.preventDefault();
+      draft.commit();
+    }
+    // Escape wird zentral von onWindowKeydownCapture behandelt (verwirft die Box).
+  });
+  requestAnimationFrame(() => inputEl.focus());
+}
+
+/** Zeichnet die persistierten Rechteck-/Stift-/Text-Annotationen einer Seite in Konva. */
+function renderKonvaAnnotations(pageNum) {
+  const entry = konvaStages.get(pageNum);
+  if (!entry) return;
+  const { layer, widthPx, heightPx } = entry;
+  layer.destroyChildren();
+
+  const eraseIfActive = (annotId) => (e) => {
+    if (activeAnnotationTool.value !== 'eraser') return;
+    e.cancelBubble = true;
+    emit('delete-annotation', annotId);
+  };
+
+  for (const annot of annotationsForPage(pageNum)) {
+    const color = annot.color || DEFAULT_ANNOT_COLOR;
+
+    if (annot.kind === 'rectangle') {
+      const rect = annot.rects?.[0];
+      if (!rect) continue;
+      const vis = rectForRotation(rect, pageRotation(pageNum));
+      const node = new Konva.Rect({
+        x: vis.x * widthPx,
+        y: vis.y * heightPx,
+        width: vis.w * widthPx,
+        height: vis.h * heightPx,
+        stroke: color,
+        strokeWidth: 2,
+        // Ohne fill zählt bei Konva nur der 2px-Rand als Trefferfläche —
+        // die (unsichtbare) Füllung macht das ganze Rechteck klickbar/radierbar.
+        fill: withAlpha(color, 0.001),
+      });
+      node.on('mousedown touchstart', eraseIfActive(annot.id));
+      layer.add(node);
+    } else if (annot.kind === 'pen') {
+      let payload = null;
+      try { payload = JSON.parse(annot.quote || ''); } catch (_) { payload = null; }
+      const points = Array.isArray(payload?.points) ? payload.points : [];
+      if (points.length < 2) continue;
+      const flat = points
+        .map((p) => pointForRotation(p, pageRotation(pageNum)))
+        .flatMap((p) => [p.x * widthPx, p.y * heightPx]);
+      const node = new Konva.Line({
+        points: flat,
+        stroke: color,
+        strokeWidth: PEN_DRAFT_STROKE_WIDTH,
+        lineCap: 'round',
+        lineJoin: 'round',
+        hitStrokeWidth: PEN_HIT_STROKE_WIDTH,
+      });
+      node.on('mousedown touchstart', eraseIfActive(annot.id));
+      layer.add(node);
+    } else if (annot.kind === 'text') {
+      const rect = annot.rects?.[0];
+      if (!rect) continue;
+      const vis = rectForRotation(rect, pageRotation(pageNum));
+      const label = new Konva.Label({
+        x: vis.x * widthPx,
+        y: vis.y * heightPx,
+        // Bleibt jederzeit verschiebbar, solange das Text-Werkzeug aktiv ist —
+        // kein Rahmen mehr nach dem Verfassen, nur ein dezenter Hintergrund
+        // für Lesbarkeit (kein stroke/strokeWidth auf dem Tag).
+        draggable: activeAnnotationTool.value === 'text',
+      });
+      label.add(new Konva.Tag({ fill: 'rgba(255, 255, 255, 0.68)', cornerRadius: 3 }));
+      label.add(new Konva.Text({
+        text: annot.quote || '',
+        width: Math.max(TEXT_DRAFT_MIN_W, vis.w * widthPx),
+        padding: 4,
+        fill: color,
+        fontSize: 14,
+        fontStyle: '500',
+        wrap: 'word',
+      }));
+      label.on('mousedown touchstart', eraseIfActive(annot.id));
+      label.on('mouseenter', () => {
+        if (label.draggable()) entry.stage.container().style.cursor = 'move';
+      });
+      label.on('mouseleave', () => { entry.stage.container().style.cursor = ''; });
+      label.on('dragend', () => {
+        const visibleRect = {
+          x: label.x() / widthPx,
+          y: label.y() / heightPx,
+          w: label.width() / widthPx,
+          h: label.height() / heightPx,
+        };
+        emit('update-annotation', annot.id, {
+          rects: [rectFromRotation(visibleRect, pageRotation(pageNum))],
+        });
+      });
+      layer.add(label);
+    }
+  }
+
+  // Synchron zeichnen (statt batchDraw/rAF): sonst ist der Hit-Graph beim
+  // ersten Klick direkt nach dem Rendern noch nicht aktuell und der Radierer
+  // trifft nichts — batchDraw() verzögert sich in Hintergrund-Tabs/CDP-
+  // gesteuerten Browsern spürbar, da requestAnimationFrame dort gedrosselt wird.
+  layer.draw();
 }
 
 function annotationsForSelection(pageNum, selectionRects) {
@@ -990,11 +1650,19 @@ function selectionColorLabel(color) {
 }
 
 /** Zeichnet die Overlay-Rechtecke einer Seite (idempotent: alte Ebene ersetzt). */
+/**
+ * Zeichnet Highlight/Unterstreichung/Verknüpfung/Notiz als DOM-Overlay
+ * (unverändert). Rechteck/Stift/Text laufen separat über Konva, siehe
+ * renderKonvaAnnotations — die brauchen echtes Ziehen/Skalieren/Hit-Testing,
+ * das eine DOM-Ebene mit pointer-events:none nicht bieten kann.
+ */
 function applyAnnotationsToPage(innerEl, pageNum) {
   if (!innerEl) return;
   innerEl.querySelector('.pm-annot-layer')?.remove();
 
-  const items = annotationsForPage(pageNum);
+  const items = annotationsForPage(pageNum).filter(
+    (annot) => annot.kind !== 'rectangle' && annot.kind !== 'pen' && annot.kind !== 'text',
+  );
   if (!items.length) return;
 
   const layer = document.createElement('div');
@@ -1003,13 +1671,14 @@ function applyAnnotationsToPage(innerEl, pageNum) {
   for (const annot of items) {
     const color = annot.color || DEFAULT_ANNOT_COLOR;
     for (const rect of annot.rects || []) {
+      const visibleRect = rectForRotation(rect, pageRotation(pageNum));
       const el = document.createElement('div');
       el.className = 'pm-annot-rect';
       el.dataset.annotId = annot.id;
-      el.style.left   = `${rect.x * 100}%`;
-      el.style.top    = `${rect.y * 100}%`;
-      el.style.width  = `${rect.w * 100}%`;
-      el.style.height = `${rect.h * 100}%`;
+      el.style.left   = `${visibleRect.x * 100}%`;
+      el.style.top    = `${visibleRect.y * 100}%`;
+      el.style.width  = `${visibleRect.w * 100}%`;
+      el.style.height = `${visibleRect.h * 100}%`;
       if (annot.kind === 'underline') {
         el.classList.add('pm-annot-rect--underline');
         el.style.borderBottomColor = color;
@@ -1033,6 +1702,7 @@ function applyAnnotationsToPage(innerEl, pageNum) {
 function redrawAllAnnotations() {
   for (const [pageNum, el] of pageInnerRefs.entries()) {
     if (renderedPages.has(pageNum)) applyAnnotationsToPage(el, pageNum);
+    if (konvaStages.has(pageNum)) renderKonvaAnnotations(pageNum);
   }
 }
 
@@ -1043,9 +1713,84 @@ function hideSelectionMenu() {
   selectionDraft = null;
 }
 
+watch(activeAnnotationTool, (tool) => {
+  hideSelectionMenu();
+  cancelKonvaDraft();
+  textDraft?.commit();
+  suppressSelectionAfterPointer = false;
+  window.getSelection()?.removeAllRanges();
+
+  // Persistierte Textnotizen bleiben jederzeit verschiebbar, solange das
+  // Text-Werkzeug aktiv ist — ohne die Stage neu zu rendern (sonst ginge ein
+  // laufender Drag verloren).
+  const isText = tool === 'text';
+  for (const stageEntry of konvaStages.values()) {
+    for (const label of stageEntry.layer.find('Label')) {
+      label.draggable(isText);
+    }
+  }
+});
+
+function eraseAnnotationFromEvent(event) {
+  // event.target ist während des Radierer-Werkzeugs meist das (unsichtbare,
+  // aber pointer-events:auto) Konva-Canvas, das über der ganzen Seite liegt —
+  // .closest() auf event.target würde die darunterliegende DOM-Markierung nie
+  // finden. elementsFromPoint prüft den ganzen Stapel an dieser Stelle.
+  const stack = document.elementsFromPoint(event.clientX, event.clientY);
+  const rectEl = stack.find((el) => el.classList?.contains('pm-annot-rect'));
+  const annotationId = rectEl?.dataset?.annotId;
+  if (!annotationId) return false;
+  emit('delete-annotation', annotationId);
+  return true;
+}
+
+/**
+ * Rechteck/Stift/Text werden über die Konva-Stage der jeweiligen Seite
+ * gezeichnet (siehe attachStageDraftHandlers) — hier nur noch der Radierer
+ * für die DOM-basierten Kinds (Highlight/Unterstreichung/Verknüpfung/Notiz)
+ * sowie das Unterdrücken der Textauswahl während ein Werkzeug aktiv ist.
+ */
+function onPagesPointerDown(event) {
+  const tool = activeAnnotationTool.value;
+  if (!tool) return;
+
+  if (tool === 'eraser') {
+    if (!eraseAnnotationFromEvent(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    suppressSelectionAfterPointer = true;
+    hideSelectionMenu();
+    window.getSelection()?.removeAllRanges();
+    return;
+  }
+
+  if (tool === 'rectangle' || tool === 'pen' || tool === 'text') {
+    suppressSelectionAfterPointer = true;
+    hideSelectionMenu();
+    window.getSelection()?.removeAllRanges();
+  }
+}
+
+function onPagesPointerMove(event) {
+  onMagnifierPointerMove(event);
+}
+
+function onPagesPointerLeave() {
+  hideMagnifier();
+}
+
 /** Liest die aktuelle Textauswahl und positioniert das Auswahl-Menü. */
-function onPagesPointerUp() {
+function onPagesPointerUp(event) {
+  if (suppressSelectionAfterPointer) {
+    suppressSelectionAfterPointer = false;
+    hideSelectionMenu();
+    return;
+  }
   if (!props.annotatable) return;
+  if (activeAnnotationTool.value && activeAnnotationTool.value !== 'highlight') {
+    hideSelectionMenu();
+    return;
+  }
   // Einen Tick warten, damit die Selection final steht.
   setTimeout(() => {
     const sel = window.getSelection();
@@ -1066,24 +1811,30 @@ function onPagesPointerUp() {
     if (!innerRect.width || !innerRect.height) { hideSelectionMenu(); return; }
 
     const clamp = (v) => Math.min(1, Math.max(0, v));
-    const rects = [];
+    const visibleRects = [];
     for (const r of range.getClientRects()) {
       if (r.width < 1 || r.height < 1) continue;
       const cx = r.left + r.width / 2;
       const cy = r.top + r.height / 2;
       // Nur Rechtecke innerhalb DIESER Seite übernehmen.
       if (cx < innerRect.left || cx > innerRect.right || cy < innerRect.top || cy > innerRect.bottom) continue;
-      rects.push({
+      visibleRects.push({
         x: clamp((r.left - innerRect.left) / innerRect.width),
         y: clamp((r.top  - innerRect.top)  / innerRect.height),
         w: clamp(r.width  / innerRect.width),
         h: clamp(r.height / innerRect.height),
       });
     }
-    if (!rects.length) { hideSelectionMenu(); return; }
+    if (!visibleRects.length) { hideSelectionMenu(); return; }
 
+    const rects = visibleRects.map((rect) => rectFromRotation(rect, pageRotation(pageNum)));
     const overlappingAnnotations = annotationsForSelection(pageNum, rects);
     selectionDraft = { page: pageNum, rects, quote, annotations: overlappingAnnotations };
+
+    if (activeAnnotationTool.value === 'highlight') {
+      toggleAnnotationColorFromSelection(DEFAULT_ANNOT_COLOR);
+      return;
+    }
 
     const rootRect = rootEl.value?.getBoundingClientRect();
     const first = range.getClientRects()[0];
@@ -1183,7 +1934,7 @@ async function renderPage(pageNum) {
     if (!innerEl) return;
 
     const scale    = computeScale(info);
-    const viewport = page.getViewport({ scale });
+    const viewport = page.getViewport({ scale, rotation: normalizeRotation(page.rotate + pageRotation(pageNum)) });
 
     // HiDPI/Retina: Backing-Store in GERÄTEPIXELN rendern, Anzeige bleibt logisch
     // (Canvas-CSS = 100 % der logisch dimensionierten Seite). Ohne diesen Faktor
@@ -1229,6 +1980,7 @@ async function renderPage(pageNum) {
     if (renderedPages.size >= MAX_CACHED_PAGES) {
       const oldest = renderedPages.values().next().value;
       renderedPages.delete(oldest);
+      destroyKonvaStage(oldest);
       const oldEl = pageInnerRefs.get(oldest);
       if (oldEl) oldEl.innerHTML = '';
     }
@@ -1237,6 +1989,7 @@ async function renderPage(pageNum) {
     innerEl.style.setProperty('--total-scale-factor', String(scale));
 
     // Canvas + TextLayer in DOM einhängen
+    destroyKonvaStage(pageNum);
     innerEl.innerHTML = '';
     innerEl.appendChild(canvas);
     innerEl.appendChild(textLayerDiv);
@@ -1245,6 +1998,8 @@ async function renderPage(pageNum) {
     applyHighlights(textLayerDiv);
     rebuildHighlightTargets();
     applyAnnotationsToPage(innerEl, pageNum);
+    ensureKonvaStage(pageNum, innerEl, viewport.width, viewport.height);
+    renderKonvaAnnotations(pageNum);
 
     renderedPages.add(pageNum);
     if (!firstPageReady.value) firstPageReady.value = true;
@@ -1254,6 +2009,31 @@ async function renderPage(pageNum) {
   } finally {
     renderQueue.delete(pageNum);
   }
+}
+
+function rotateActivePage(delta) {
+  const pageNum = currentPage.value;
+  if (!pageNum || !pageInfos.value[pageNum - 1]) return;
+
+  pageRotations.value = {
+    ...pageRotations.value,
+    [pageNum]: normalizeRotation(pageRotation(pageNum) + delta),
+  };
+
+  renderGeneration++;
+  renderQueue.delete(pageNum);
+  renderedPages.delete(pageNum);
+  hideMagnifier();
+  hideSelectionMenu();
+
+  destroyKonvaStage(pageNum);
+  const innerEl = pageInnerRefs.get(pageNum);
+  if (innerEl) innerEl.innerHTML = '';
+
+  nextTick(() => {
+    scrollToPage(pageNum);
+    renderPage(pageNum);
+  });
 }
 
 // ─── Observer Setup ──────────────────────────────────────────────────────────
@@ -1336,8 +2116,10 @@ async function loadPdf(src) {
   renderGeneration++;
   renderedPages.clear();
   renderQueue.clear();
+  for (const pageNum of [...konvaStages.keys()]) destroyKonvaStage(pageNum);
   pageInnerRefs.clear();
   pageInfos.value   = [];
+  pageRotations.value = {};
   firstPageReady.value = false;
   currentPage.value = 1;
   errorMessage.value = '';
@@ -1535,6 +2317,8 @@ watch(pagesEl, (el, oldEl) => {
 // ─── Cleanup ─────────────────────────────────────────────────────────────────
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onWindowKeydownCapture, true);
+  for (const pageNum of [...konvaStages.keys()]) destroyKonvaStage(pageNum);
   loadEpoch++;
   teardownObservers();
   resizeObserver?.disconnect();
@@ -1568,16 +2352,19 @@ onBeforeUnmount(() => {
   background: var(--pm-pdf-stage-bg, rgb(var(--v-theme-surface)));
 }
 
-:global(.v-theme--light) .pdf-preview {
-  --pdf-toolbar-bg: rgb(255 255 255 / 0.76);
-  --pdf-toolbar-border: rgb(15 23 42 / 0.1);
-  --pdf-toolbar-shadow: 0 10px 24px rgb(15 23 42 / 0.14);
-  --pdf-toolbar-text: rgb(15 23 42 / 0.85);
-  --pdf-toolbar-text-muted: rgb(15 23 42 / 0.62);
-  --pdf-toolbar-icon: rgb(15 23 42 / 0.7);
-  --pdf-toolbar-hover-bg: rgb(15 23 42 / 0.08);
-  --pdf-toolbar-stepper-bg: rgb(15 23 42 / 0.06);
-  --pdf-toolbar-divider: rgb(15 23 42 / 0.1);
+:global(.v-theme--light) .pdf-preview,
+:global(.papermind-app.v-theme--light) .pdf-preview {
+  --pdf-toolbar-bg: rgb(255 255 255 / 0.94);
+  --pdf-toolbar-border: rgb(203 213 225 / 0.92);
+  --pdf-toolbar-shadow:
+    0 14px 34px rgb(15 23 42 / 0.12),
+    0 2px 8px rgb(15 23 42 / 0.08);
+  --pdf-toolbar-text: rgb(31 41 55 / 0.88);
+  --pdf-toolbar-text-muted: rgb(75 85 99 / 0.72);
+  --pdf-toolbar-icon: rgb(71 85 105 / 0.76);
+  --pdf-toolbar-hover-bg: rgb(15 23 42 / 0.07);
+  --pdf-toolbar-stepper-bg: rgb(241 245 249 / 0.96);
+  --pdf-toolbar-divider: rgb(148 163 184 / 0.24);
 }
 
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
@@ -1587,7 +2374,7 @@ onBeforeUnmount(() => {
   left: 50%;
   right: auto;
   transform: translateX(-50%);
-  z-index: 2;
+  z-index: 30;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1738,6 +2525,45 @@ onBeforeUnmount(() => {
   background: transparent;
   color: var(--pdf-toolbar-text-muted);
   font-weight: 400;
+}
+
+.pdf-preview__rotate-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  padding: 1px;
+  border-radius: 999px;
+  background: var(--pdf-toolbar-stepper-bg);
+}
+
+.pdf-preview__rotate-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--pdf-toolbar-icon);
+  cursor: pointer;
+  line-height: 1;
+  transition: background 140ms ease, color 140ms ease, transform 120ms ease, opacity 140ms ease;
+}
+
+.pdf-preview__rotate-btn:hover:not(:disabled) {
+  background: var(--pdf-toolbar-hover-bg);
+  color: var(--pdf-toolbar-text);
+}
+
+.pdf-preview__rotate-btn:active:not(:disabled) {
+  transform: scale(0.9);
+}
+
+.pdf-preview__rotate-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .pdf-preview__zoom-controls {
@@ -1919,6 +2745,22 @@ onBeforeUnmount(() => {
   outline-offset: -2px;
 }
 
+.pdf-preview--tool-rectangle .pdf-preview__pages {
+  cursor: crosshair;
+}
+
+.pdf-preview--tool-pen .pdf-preview__pages {
+  cursor: crosshair;
+}
+
+.pdf-preview--tool-text .pdf-preview__pages {
+  cursor: text;
+}
+
+.pdf-preview--tool-eraser .pdf-preview__pages {
+  cursor: default;
+}
+
 /* ── Einzelne Seite ─────────────────────────────────────────────────────── */
 .pdf-preview__page {
   flex: 0 0 auto;
@@ -1961,6 +2803,14 @@ onBeforeUnmount(() => {
   overflow: hidden;
   line-height: 1;
   opacity: 1;
+  z-index: 3;
+}
+
+.pdf-preview--tool-text .pdf-preview__page-inner :deep(.textLayer),
+.pdf-preview--tool-pen .pdf-preview__page-inner :deep(.textLayer),
+.pdf-preview--tool-rectangle .pdf-preview__page-inner :deep(.textLayer),
+.pdf-preview--tool-eraser .pdf-preview__page-inner :deep(.textLayer) {
+  pointer-events: none;
 }
 
 .pdf-preview__page-inner :deep(.textLayer span),
@@ -2016,12 +2866,20 @@ onBeforeUnmount(() => {
 }
 
 /* ── Markierungsebene (Annotations) ──────────────────────────────────────── */
-/* Liegt zwischen Canvas und TextLayer (DOM-Reihenfolge); pointer-events: none,
-   damit Textauswahl/Neu-Markieren durch die Highlights hindurch funktioniert. */
+/* DOM-Ebene für Highlight/Unterstreichung/Verknüpfung/Notiz: liegt zwischen
+   Canvas und TextLayer, pointer-events: none, damit Textauswahl/Neu-Markieren
+   durch die Highlights hindurch funktioniert. Rechteck/Stift/Text laufen
+   separat über die Konva-Ebene (siehe .pm-konva-layer weiter unten). */
 .pdf-preview__page-inner :deep(.pm-annot-layer) {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  z-index: 2;
+}
+
+.pdf-preview--tool-eraser .pdf-preview__page-inner :deep(.pm-annot-layer) {
+  pointer-events: auto;
+  z-index: 4;
 }
 
 .pdf-preview__page-inner :deep(.pm-annot-rect) {
@@ -2030,6 +2888,17 @@ onBeforeUnmount(() => {
   opacity: 0.4;
   mix-blend-mode: multiply;
   animation: pm-annot-in 180ms ease;
+}
+
+.pdf-preview--tool-eraser .pdf-preview__page-inner :deep(.pm-annot-rect) {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.pdf-preview--tool-eraser .pdf-preview__page-inner :deep(.pm-annot-rect:hover) {
+  opacity: 0.72;
+  outline: 2px solid rgb(var(--v-theme-error) / 0.78);
+  outline-offset: 1px;
 }
 
 /* from-only Keyframe: animiert von opacity 0 zur jeweiligen Eigen-Opazität. */
@@ -2047,6 +2916,41 @@ onBeforeUnmount(() => {
 /* Verknüpfungen: getönt wie ein Highlight, zusätzlich gestrichelte Linkfarbe. */
 .pdf-preview__page-inner :deep(.pm-annot-rect--link) {
   border-bottom: 2px dashed rgba(24, 95, 165, 0.9);
+}
+
+/* ── Konva-Ebene: Rechteck/Stift/Text (Zeichnen + persistierte Anzeige) ───── */
+/* Liegt ÜBER dem TextLayer (anders als .pm-annot-layer) — das sind eigene
+   Zeichnungen, keine Text-Overlays. pointer-events nur aktiv, während eines
+   der zugehörigen Werkzeuge gewählt ist, sonst bleibt der TextLayer darunter
+   für Auswahl/Highlight erreichbar. */
+.pdf-preview__page-inner :deep(.pm-konva-layer) {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.pdf-preview--tool-rectangle .pdf-preview__page-inner :deep(.pm-konva-layer),
+.pdf-preview--tool-pen .pdf-preview__page-inner :deep(.pm-konva-layer),
+.pdf-preview--tool-text .pdf-preview__page-inner :deep(.pm-konva-layer),
+.pdf-preview--tool-eraser .pdf-preview__page-inner :deep(.pm-konva-layer) {
+  pointer-events: auto;
+}
+
+/* Echte <textarea> zum Tippen, liegt über der Konva-Box (die Rahmen/Hintergrund
+   liefert); leicht eingerückt, damit die Transformer-Anfasser am Rand der
+   Konva-Box klickbar bleiben statt von der Textarea verdeckt zu werden. */
+.pdf-preview__page-inner :deep(.pm-text-draft) {
+  position: absolute;
+  padding: 0;
+  border: none;
+  outline: none;
+  resize: none;
+  pointer-events: auto;
+  background: transparent;
+  color: rgb(15 23 42);
+  font: 500 14px/1.3 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  z-index: 5;
 }
 
 /* ── Auswahl-Menü ─────────────────────────────────────────────────────────── */

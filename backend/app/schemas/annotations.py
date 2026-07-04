@@ -12,6 +12,9 @@ class AnnotationKind(str, Enum):
     underline = "underline"
     note = "note"
     link = "link"
+    rectangle = "rectangle"
+    text = "text"
+    pen = "pen"
 
 
 class AnnotationRect(BaseModel):

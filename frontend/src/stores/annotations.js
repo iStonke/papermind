@@ -23,6 +23,10 @@ export const useAnnotationStore = defineStore('annotations', () => {
   const annotations = ref([]);
   const documentId = ref(null);
   const isLoading = ref(false);
+  // IDs von Entwürfen, die radiert wurden, während ihr create() noch unterwegs
+  // war (siehe create()/remove() unten) — verhindert, dass sie nach der
+  // Server-Antwort ungewollt wieder auftauchen.
+  const pendingRemovals = new Set();
 
   /** Lädt die Markierungen für ein Dokument (leert vorher; race-sicher). */
   async function load(docId) {
@@ -41,15 +45,38 @@ export const useAnnotationStore = defineStore('annotations', () => {
     }
   }
 
-  /** Legt eine Markierung an und hängt sie an die lokale Liste. */
+  /**
+   * Legt eine Markierung an — optimistisch: erscheint SOFORT lokal (mit
+   * temporärer ID), noch bevor die Server-Antwort da ist. Ohne das gab es
+   * ein Zeitfenster (Netzwerk-Laufzeit) direkt nach dem Zeichnen, in dem die
+   * Zeichnung nirgends existierte (Entwurf schon zerstört, echte Markierung
+   * noch nicht gerendert) — ein Klick mit dem Radierer in genau diesem
+   * Moment traf dadurch ins Leere.
+   */
   async function create(docId, payload) {
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const isCurrentDoc = documentId.value === docId;
+    if (isCurrentDoc) {
+      annotations.value = [...annotations.value, { ...payload, id: tempId }];
+    }
     try {
       const created = await apiCreate(docId, payload);
+      if (pendingRemovals.has(tempId)) {
+        // Wurde radiert, während die Anfrage noch lief — Server-Eintrag
+        // gleich wieder löschen, damit er nicht doch noch auftaucht.
+        pendingRemovals.delete(tempId);
+        apiDelete(created.id).catch(() => {});
+        return created;
+      }
       if (documentId.value === docId) {
-        annotations.value = [...annotations.value, created];
+        annotations.value = annotations.value.map((a) => (a.id === tempId ? created : a));
       }
       return created;
     } catch (error) {
+      if (documentId.value === docId) {
+        annotations.value = annotations.value.filter((a) => a.id !== tempId);
+      }
+      pendingRemovals.delete(tempId);
       notify({ type: 'error', message: mapApiError(error, 'Markierung konnte nicht gespeichert werden.') });
       return null;
     }
@@ -69,6 +96,13 @@ export const useAnnotationStore = defineStore('annotations', () => {
 
   /** Entfernt eine Markierung (optimistisch, mit Rollback bei Fehler). */
   async function remove(id) {
+    if (String(id).startsWith('temp-')) {
+      // Entwurf, dessen create() noch unterwegs ist: lokal sofort entfernen;
+      // create() räumt den Server-Eintrag nach, sobald die Antwort da ist.
+      pendingRemovals.add(id);
+      annotations.value = annotations.value.filter((a) => a.id !== id);
+      return;
+    }
     const previous = annotations.value;
     annotations.value = annotations.value.filter((a) => a.id !== id);
     try {

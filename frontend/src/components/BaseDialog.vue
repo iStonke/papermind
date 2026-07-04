@@ -56,7 +56,7 @@
         </section>
       </div>
 
-      <footer :class="['pm-dialog__footer', footerClass]">
+      <footer v-if="showFooter" :class="['pm-dialog__footer', footerClass]">
         <slot name="footer">
           <v-btn
             v-if="showSecondary"
@@ -109,6 +109,7 @@ const props = defineProps({
   primaryText: { type: String, default: '' },
   secondaryText: { type: String, default: 'Abbrechen' },
   showSecondary: { type: Boolean, default: true },
+  showFooter: { type: Boolean, default: true },
   icon: { type: String, default: '' },
   maxWidth: { type: [String, Number], default: 520 },
   width: { type: [String, Number], default: undefined },

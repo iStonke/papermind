@@ -1,7 +1,10 @@
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+from app.schemas.retention import RetentionPaperOriginal
 
 SYSTEM_PROMPT_DEFAULT = """
 Du bist ein präziser Assistent für Dokumentenanalyse.
@@ -244,6 +247,35 @@ class OllamaSettingsRead(BaseModel):
     max_input_chars: int = Field(default=800, ge=200, le=4000)
 
 
+RetentionUsageMode = Literal["private", "business"]
+
+
+class RetentionRule(BaseModel):
+    document_type: str = Field(max_length=64)
+    paper_original: RetentionPaperOriginal = RetentionPaperOriginal.unclear
+    period_years: int | None = Field(default=None, ge=-1, le=100)
+    basis: str = Field(default="", max_length=200)
+
+    @field_validator("document_type")
+    @classmethod
+    def normalize_document_type(cls, value: str) -> str:
+        normalized = " ".join(str(value or "").split()).strip()
+        if not normalized:
+            raise ValueError("document_type must not be empty")
+        return normalized
+
+    @field_validator("basis")
+    @classmethod
+    def normalize_basis(cls, value: str) -> str:
+        return " ".join(str(value or "").split()).strip()
+
+
+class RetentionSettingsRead(BaseModel):
+    enabled: bool = True
+    usage_mode: RetentionUsageMode = "business"
+    rules: list[RetentionRule] = Field(default_factory=list)
+
+
 class SettingsMetaRead(BaseModel):
     version: int = Field(default=1, ge=1)
     updated_at: datetime | None = None
@@ -257,6 +289,7 @@ class AppSettingsRead(BaseModel):
     ocr: OCRSettingsRead = Field(default_factory=OCRSettingsRead)
     quality: QualitySettingsRead = Field(default_factory=QualitySettingsRead)
     ollama: OllamaSettingsRead = Field(default_factory=OllamaSettingsRead)
+    retention: RetentionSettingsRead = Field(default_factory=RetentionSettingsRead)
     meta: SettingsMetaRead = Field(default_factory=SettingsMetaRead)
 
 
@@ -357,6 +390,12 @@ class OllamaSettingsPatch(BaseModel):
     max_input_chars: int | None = Field(default=None, ge=200, le=4000)
 
 
+class RetentionSettingsPatch(BaseModel):
+    enabled: bool | None = None
+    usage_mode: RetentionUsageMode | None = None
+    rules: list[RetentionRule] | None = None
+
+
 class AppSettingsPatch(BaseModel):
     ui: UISettingsPatch | None = None
     documents: DocumentsSettingsPatch | None = None
@@ -365,4 +404,5 @@ class AppSettingsPatch(BaseModel):
     ocr: OCRSettingsPatch | None = None
     quality: QualitySettingsPatch | None = None
     ollama: OllamaSettingsPatch | None = None
+    retention: RetentionSettingsPatch | None = None
     meta: SettingsMetaPatch | None = None

@@ -5,6 +5,7 @@ from app.models.correspondent import Correspondent, CorrespondentAlias, Correspo
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
 from app.models.document_file import DocumentFile
+from app.models.document_retention import DocumentRetention
 from app.models.global_setting import GlobalSetting
 from app.models.import_inbox import ImportInboxItem
 from app.models.job import Job
@@ -26,6 +27,7 @@ __all__ = [
     "Document",
     "DocumentChunk",
     "DocumentFile",
+    "DocumentRetention",
     "Tag",
     "Job",
     "SavedSearch",
