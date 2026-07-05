@@ -475,14 +475,14 @@ watch(rankListEl, observeRankList, { flush: 'post' });
 watch(() => topCorrespondents.value.length, () => nextTick(updateVisibleRankCount), { flush: 'post' });
 
 const chartPalette = [
-  'var(--pm-accent)',
-  '#2563eb',
-  '#7c3aed',
-  '#d97706',
-  '#16a34a',
-  '#dc2626',
-  '#64748b',
-  '#c026d3',
+  '#5bb7c8',
+  '#7aa2e3',
+  '#a78bda',
+  '#e8a45d',
+  '#75b798',
+  '#e27d7d',
+  '#94a3b8',
+  '#d48ac8',
 ];
 
 /** Farbpalette fuer Ranglisten, Suchbalken und Donut-Segmente. */
@@ -572,8 +572,8 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
 
 <style scoped>
 .dashboard {
-  --dash-chart-current: #0891b2;
-  --dash-chart-line: #2563eb;
+  --dash-chart-current: #5bb7c8;
+  --dash-chart-line: #7aa2e3;
   height: 100%;
   min-height: 0;
   overflow: hidden;
