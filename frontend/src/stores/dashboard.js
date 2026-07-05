@@ -15,6 +15,7 @@ function createEmptyOverview() {
       this_month: 0,
       correspondents: 0,
       tags: 0,
+      document_types: 0,
       storage_bytes: 0,
       storage_limit_bytes: null,
       total_trend_pct: null,
@@ -27,7 +28,11 @@ function createEmptyOverview() {
     top_correspondents: [],
     tag_distribution: [],
     tag_count_total: 0,
-    attention: { unread: 0, untagged: 0, retention_due: 0, to_review: 0 },
+    type_distribution: [],
+    type_count_total: 0,
+    storage_series: [],
+    top_searches: [],
+    attention: { unread: 0, untagged: 0, retention_due: 0, to_review: 0, unclassified: 0, ocr_issues: 0, without_document_type: 0 },
     recent: [],
   };
 }

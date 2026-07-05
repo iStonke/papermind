@@ -109,6 +109,28 @@
               </div>
             </div>
 
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Startseite</div>
+                <div class="pm-setting-description">Womit die App nach dem Login startet.</div>
+              </div>
+              <v-select
+                :model-value="currentStartView"
+                :items="startViewOptions"
+                item-title="label"
+                item-value="value"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Startseite"
+                aria-label="Startseite auswählen"
+                :loading="isSettingSaving.start_view"
+                :disabled="isSettingSaving.start_view"
+                @update:model-value="onStartViewChange"
+              />
+            </div>
+
             <div
               class="pm-setting-row"
               role="button"
@@ -967,21 +989,21 @@
                     privat bestehen für die meisten Dokumente keine gesetzlichen Aufbewahrungspflichten.
                   </div>
                 </div>
-                <div class="settings-theme-segmented" role="radiogroup" aria-label="Nutzung auswählen">
-                  <button
-                    v-for="option in retentionUsageOptions"
-                    :key="`usage-${option.value}`"
-                    type="button"
-                    class="settings-theme-segmented__item"
-                    :class="{ 'settings-theme-segmented__item--active': settingsDraft.retention.usage_mode === option.value }"
-                    role="radio"
-                    :aria-checked="settingsDraft.retention.usage_mode === option.value"
-                    :disabled="!settingsDraft.retention.enabled || isSettingSaving.retention_usage_mode"
-                    @click="onRetentionUsageChange(option.value)"
-                  >
-                    {{ option.label }}
-                  </button>
-                </div>
+                <v-select
+                  :model-value="settingsDraft.retention.usage_mode"
+                  :items="retentionUsageOptions"
+                  item-title="label"
+                  item-value="value"
+                  density="comfortable"
+                  hide-details
+                  variant="outlined"
+                  class="settings-theme-select pm-setting-select"
+                  label="Nutzung"
+                  aria-label="Nutzung auswählen"
+                  :loading="isSettingSaving.retention_usage_mode"
+                  :disabled="!settingsDraft.retention.enabled || isSettingSaving.retention_usage_mode"
+                  @update:model-value="onRetentionUsageChange"
+                />
               </div>
 
               <div class="pm-setting-group">
@@ -2067,6 +2089,7 @@ import {
   buildSidebarMaxTagsPatch,
   buildSidebarMaxCategoriesPatch,
   buildThemeModePatch,
+  buildStartViewPatch,
   buildTrashRetentionPatch,
   normalizeSidebarSections,
   sidebarSectionLabel
@@ -2952,6 +2975,32 @@ async function onColorVariantChange(nextValue) {
     controlKey: 'color_variant',
     revert: () => {
       settingsStore.setDraftPatch({ ui: { color_variant: previousVariant } });
+    }
+  });
+}
+
+// ── Startseite ───────────────────────────────────────────────────────────────
+
+const START_VIEW_VALUES = new Set(['dashboard', 'all']);
+const startViewOptions = [
+  { label: 'Übersicht', value: 'dashboard' },
+  { label: 'Alle Dokumente', value: 'all' }
+];
+const currentStartView = computed(() =>
+  START_VIEW_VALUES.has(settingsDraft.ui.start_view) ? settingsDraft.ui.start_view : 'all'
+);
+
+async function onStartViewChange(nextValue) {
+  if (isSettingSaving.start_view) return;
+  const nextView = START_VIEW_VALUES.has(String(nextValue)) ? String(nextValue) : 'all';
+  if (nextView === currentStartView.value) return;
+  const previousView = currentStartView.value;
+  settingsStore.setDraftPatch({ ui: { start_view: nextView } });
+  await patchSettingsWithRevert({
+    patch: buildStartViewPatch(nextView),
+    controlKey: 'start_view',
+    revert: () => {
+      settingsStore.setDraftPatch({ ui: { start_view: previousView } });
     }
   });
 }

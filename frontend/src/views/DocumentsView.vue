@@ -296,6 +296,7 @@
           @open-document="openDocumentFromDashboard"
           @attention-select="handleDashboardAttention"
           @show-all-recent="selectView('imports')"
+          @search-term="runSearchFromDashboard"
         />
 
         <section
@@ -1412,6 +1413,7 @@ import {
 } from '../api/documents.js';
 import { assignImportInboxItems, claimImportInboxItems, discardImportInboxItems, getImportInbox, subscribeImportInbox } from '../api/importInbox.js';
 import { triggerScan } from '../api/scanners.js';
+import { logSearchEvent } from '../api/searchEvents.js';
 import { applyPaperMindVuetifyColors, resolvePaperMindColorVariant } from '../theme/tokens';
 
 const PdfPreview = defineAsyncComponent(() => import('../components/PdfPreview.vue'));
@@ -1865,6 +1867,15 @@ const { sidebarCounts, isLoadingSidebarCounts, savedSearches, isLoadingSavedSear
 
 const isAiDialogOpen = ref(false);
 const activeView = ref('all');
+// Welche Dashboard-Aufmerksamkeits-Kachel gerade als gefilterte Liste offen ist.
+const activeAttention = ref(null);
+const ATTENTION_LABELS = Object.freeze({
+  unread: 'Ungelesen',
+  unclassified: 'Nicht klassifiziert',
+  without_document_type: 'Ohne Dokumenttyp',
+  ocr_issues: 'OCR prüfen',
+  retention_due: 'Fristen laufen ab',
+});
 watch(activeView, (nextView, previousView) => {
   if (nextView === previousView) {
     return;
@@ -2917,6 +2928,7 @@ const hasActiveListFilter = computed(() => {
       documentListQuery.tagId ||
       activeTagFilterCount.value > 0 ||
       documentListQuery.untagged ||
+      (activeView.value === 'attention' && activeAttention.value) ||
       documentListQuery.status ||
       documentListQuery.dateFrom ||
       documentListQuery.dateTo
@@ -2969,6 +2981,13 @@ const documentListEmptyState = computed(() => {
       subtitle: 'Gelöschte Dokumente erscheinen hier.'
     };
   }
+  if (activeView.value === 'attention' && activeAttention.value === 'without_document_type') {
+    return {
+      icon: 'mdi-file-document-multiple-outline',
+      title: 'Alle Dokumente haben einen Dokumenttyp',
+      subtitle: 'Hier erscheinen PDFs ohne gesetzten Dokumenttyp.'
+    };
+  }
   if (hasActiveListFilter.value) {
     return {
       icon: 'mdi-magnify',
@@ -2989,6 +3008,7 @@ const documentListSavedQueryKey = computed(() =>
     tagId: documentListQuery.tagId,
     tagIds: activeTagFilterIds.value,
     untagged: documentListQuery.untagged,
+    attention: activeView.value === 'attention' ? activeAttention.value : null,
     documentType: documentListQuery.documentType,
     status: documentListQuery.status,
     dateFrom: documentListQuery.dateFrom,
@@ -3002,6 +3022,7 @@ const documentListQueryReloadKey = computed(() =>
     tagId: documentListQuery.tagId,
     tagIds: activeTagFilterIds.value,
     untagged: documentListQuery.untagged,
+    attention: activeView.value === 'attention' ? activeAttention.value : null,
     documentType: documentListQuery.documentType,
     status: documentListQuery.status,
     dateFrom: documentListQuery.dateFrom,
@@ -3203,6 +3224,9 @@ const panelHeading = computed(() => {
   if (activeTagId.value) {
     const tag = tags.value.find((t) => t.id === activeTagId.value);
     return tag ? tag.name : 'Tag';
+  }
+  if (activeView.value === 'attention') {
+    return ATTENTION_LABELS[activeAttention.value] || 'Dokumente';
   }
   const labels = {
     all: 'Alle Dokumente',
@@ -3876,6 +3900,8 @@ function onTagToolbarEnter() {
 
 function handleSearchShortcut(event) {
   if (handleShortcut(event, SHORTCUT_ACTIONS.SEARCH_SUBMIT, triggerSearchNow, { ignoreEditable: false })) {
+    // Nur committete Suchen (Enter) protokollieren – für die Dashboard-Statistik.
+    logSearchEvent(parsedSearch.value.q);
     return;
   }
   handleShortcut(event, SHORTCUT_ACTIONS.SEARCH_CANCEL, handleSearchEscape, { ignoreEditable: false });
@@ -4899,6 +4925,10 @@ function buildDocumentListQuery(options = {}) {
 
   if (isNoTextView.value) {
     params.set('without_text', 'true');
+  }
+
+  if (activeView.value === 'attention' && activeAttention.value) {
+    params.set('attention', activeAttention.value);
   }
 
   return params.toString();
@@ -5959,6 +5989,8 @@ function selectView(viewKey) {
   if (viewKey !== 'tags') {
     clearTagFeedbackMessages();
   }
+  // Aufmerksamkeits-Filter verlassen, sobald eine reguläre Ansicht gewählt wird.
+  activeAttention.value = null;
 
   if (viewKey === 'dashboard') {
     activeView.value = 'dashboard';
@@ -6098,15 +6130,49 @@ function openDocumentFromDashboard(documentId) {
   void selectDocument(documentId);
 }
 
+/** Suchbegriff aus dem Dashboard übernehmen: in die Liste wechseln und suchen. */
+function runSearchFromDashboard(term) {
+  const value = String(term || '').trim();
+  if (!value) return;
+  selectView('all');
+  searchText.value = value;
+  triggerSearchNow();
+}
+
 /** Aufmerksamkeits-Kachel im Dashboard: in die passende (gefilterte) Ansicht. */
 function handleDashboardAttention(key) {
   if (key === 'untagged') {
     selectView('untagged');
     return;
   }
-  // unread / retention_due / to_review haben (noch) keinen dedizierten
-  // Server-Filter → vorerst Gesamtliste (unread-first ist dort Standard).
+  if (ATTENTION_LABELS[key]) {
+    openAttentionView(key);
+    return;
+  }
   selectView('all');
+}
+
+/** Öffnet eine dedizierte, serverseitig gefilterte Aufmerksamkeits-Liste. */
+function openAttentionView(key) {
+  const toolbarState = resolveDocumentToolbarState('all');
+  activeAttention.value = key;
+  activeView.value = 'attention';
+  leaveActiveSavedSearch();
+  patchDocumentListQuery({
+    tagId: null,
+    tagIds: [],
+    untagged: null,
+    documentType: null,
+    status: null,
+    dateFrom: toolbarState.dateFrom,
+    dateTo: toolbarState.dateTo,
+    sort: toolbarState.sort,
+    order: toolbarState.order,
+  });
+  syncSearchStateToQuery({ resetOffset: true });
+  // Explizit neu laden: bei Wechsel zwischen zwei Kacheln ändert sich
+  // documentListQuery ggf. nicht, nur activeAttention → Watcher greift sonst nicht.
+  void fetchDocuments();
 }
 
 function clearTagFeedbackMessages() {
@@ -7512,6 +7578,19 @@ onMounted(async () => {
   mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
   mediaQuery.addEventListener('change', handleSystemThemeChange);
   await fetchAppSettings();
+
+  // Startseite gemäß Einstellung (nur beim ersten Laden, wenn keine Suche/kein
+  // Ordner/Tag aktiv ist – z.B. über einen geteilten Link).
+  if (
+    settingsStore.settings.ui.start_view === 'dashboard' &&
+    activeView.value === 'all' &&
+    !activeSavedSearchId.value &&
+    !activeTagId.value &&
+    !parsedSearch.value.q
+  ) {
+    activeView.value = 'dashboard';
+  }
+
   isTagFilterDrawerOpen.value = settingsStore.settings.ui.tagDrawerRememberState
     ? settingsStore.readStoredTagDrawerExpanded()
     : false;
@@ -8620,6 +8699,19 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
   border-radius: 14px;
   background: rgba(var(--v-theme-on-surface), 0.035);
+}
+
+/* Kompakte Variante (nur so breit wie nötig, linksbündig) – z.B. Startseite. */
+.settings-theme-segmented--compact {
+  display: inline-grid;
+  grid-template-columns: repeat(2, auto);
+  width: fit-content;
+  align-self: flex-start;
+  justify-self: start;
+}
+
+.settings-theme-segmented--compact .settings-theme-segmented__item {
+  padding: 0 20px;
 }
 
 .settings-theme-segmented__item {

@@ -29,11 +29,13 @@ from app.core.text import sanitize_text_for_db
 from app.models.correspondent import Correspondent
 from app.models.document import Document
 from app.models.document_file import DocumentFile
+from app.models.document_retention import DocumentRetention
 from app.models.document_type import DocumentType
 from app.models.document_tag import document_tags
 from app.models.job import Job
 from app.models.tag import Tag
 from app.schemas.documents import (
+    DocumentAttentionFilter,
     DocumentCreateRequest,
     DocumentDetail,
     DocumentFileRole,
@@ -1337,6 +1339,7 @@ class DocumentService:
         favorites_only: bool = False,
         without_text: bool = False,
         document_type: str | None = None,
+        attention: DocumentAttentionFilter | None = None,
     ):
         # Papierkorb-Filter: standardmäßig gelöschte Dokumente ausblenden
         if in_trash:
@@ -1399,6 +1402,43 @@ class DocumentService:
 
         if date_to:
             stmt = stmt.where(Document.document_date <= date_to)
+
+        if attention is not None:
+            stmt = self._apply_attention_filter(stmt, attention)
+
+        return stmt
+
+    def _apply_attention_filter(self, stmt, attention: DocumentAttentionFilter):
+        """Übersetzt eine Dashboard-Aufmerksamkeits-Kachel in eine WHERE-Klausel."""
+        if attention == DocumentAttentionFilter.unread:
+            return stmt.where(Document.is_unread.is_(True))
+
+        if attention == DocumentAttentionFilter.unclassified:
+            return stmt.where(Document.ai_status.in_(("pending", "error")))
+
+        if attention == DocumentAttentionFilter.without_document_type:
+            return stmt.where(func.coalesce(func.trim(Document.document_type), "") == "")
+
+        if attention == DocumentAttentionFilter.ocr_issues:
+            return stmt.where(
+                or_(
+                    Document.text_source == "none",
+                    Document.ocr_quality_status.in_(("warning", "error")),
+                )
+            )
+
+        if attention == DocumentAttentionFilter.retention_due:
+            today = datetime.now(timezone.utc).date()
+            due_end = today + timedelta(days=30)
+            due_ids = (
+                select(DocumentRetention.document_id)
+                .where(
+                    DocumentRetention.retain_until.is_not(None),
+                    DocumentRetention.retain_until >= today,
+                    DocumentRetention.retain_until <= due_end,
+                )
+            )
+            return stmt.where(Document.id.in_(due_ids))
 
         return stmt
 
@@ -1511,6 +1551,7 @@ class DocumentService:
         without_text: bool = False,
         document_type: str | None = None,
         search_scope: DocumentSearchScope = DocumentSearchScope.all,
+        attention: DocumentAttentionFilter | None = None,
     ) -> DocumentListResponse:
         if date_from and date_to and date_from > date_to:
             raise BadRequestError(
@@ -1532,6 +1573,7 @@ class DocumentService:
             favorites_only=favorites_only,
             without_text=without_text,
             document_type=document_type,
+            attention=attention,
         )
         fts_config = settings.fts_regconfig
         ts_query_expr = None

@@ -9,15 +9,20 @@ from app.models.correspondent import Correspondent
 from app.models.document import Document
 from app.models.document_retention import DocumentRetention
 from app.models.document_tag import document_tags
+from app.models.document_type import DocumentType
 from app.models.tag import Tag
+from app.models.search_event import SearchEvent
 from app.schemas.dashboard import (
     DashboardAttention,
     DashboardCorrespondent,
     DashboardMonthPoint,
     DashboardOverviewResponse,
     DashboardRecentItem,
+    DashboardSearchTerm,
     DashboardStats,
+    DashboardStoragePoint,
     DashboardTagShare,
+    DashboardTypeShare,
     DashboardYearPoint,
 )
 
@@ -65,6 +70,9 @@ class DashboardService:
         per_year = self._documents_per_year(today, active)
         top_correspondents = self._top_correspondents(active)
         tag_distribution, tag_count_total = self._tag_distribution(active)
+        type_distribution, type_count_total = self._type_distribution(active)
+        storage_series = self._storage_series(today, active)
+        top_searches = self._top_searches()
         attention = self._attention(today, active)
         recent = self._recent(active)
 
@@ -76,6 +84,10 @@ class DashboardService:
             top_correspondents=top_correspondents,
             tag_distribution=tag_distribution,
             tag_count_total=tag_count_total,
+            type_distribution=type_distribution,
+            type_count_total=type_count_total,
+            storage_series=storage_series,
+            top_searches=top_searches,
             attention=attention,
             recent=recent,
         )
@@ -139,6 +151,13 @@ class DashboardService:
             self.db.rollback()
             tags_total = 0
 
+        type_owner = (DocumentType.owner_id == self.owner_id) if self.owner_id is not None else true()
+        try:
+            document_types_total = int(self.db.scalar(select(func.count(DocumentType.id)).where(type_owner)) or 0)
+        except ProgrammingError:
+            self.db.rollback()
+            document_types_total = 0
+
         untagged = self._untagged_count(active)
         untagged_pct = round(untagged / total * 100.0, 1) if total > 0 else 0.0
 
@@ -147,6 +166,7 @@ class DashboardService:
             this_month=this_month,
             correspondents=corr_total,
             tags=tags_total,
+            document_types=document_types_total,
             storage_bytes=storage_bytes,
             storage_limit_bytes=None,
             total_trend_pct=total_trend_pct,
@@ -215,7 +235,7 @@ class DashboardService:
         return series
 
     # ── Top-Korrespondenten ─────────────────────────────────────────────────
-    def _top_correspondents(self, active, limit: int = 5) -> list[DashboardCorrespondent]:
+    def _top_correspondents(self, active, limit: int = 12) -> list[DashboardCorrespondent]:
         rows = self.db.execute(
             select(Correspondent.name, func.count(Document.id).label("count"))
             .join(Correspondent, Correspondent.id == Document.correspondent_id)
@@ -251,6 +271,70 @@ class DashboardService:
         )
         return distribution, total
 
+    # ── Dokumenttyp-Verteilung ──────────────────────────────────────────────
+    def _type_distribution(self, active, limit: int = 6):
+        rows = self.db.execute(
+            select(Document.document_type, func.count(Document.id).label("count"))
+            .where(active, Document.document_type.is_not(None), Document.document_type != "")
+            .group_by(Document.document_type)
+            .order_by(func.count(Document.id).desc(), Document.document_type.asc())
+            .limit(limit)
+        ).all()
+        distribution = [DashboardTypeShare(type=row.document_type, count=int(row.count or 0)) for row in rows]
+
+        total = int(
+            self.db.scalar(
+                select(func.count(func.distinct(Document.document_type))).where(
+                    active, Document.document_type.is_not(None), Document.document_type != ""
+                )
+            )
+            or 0
+        )
+        return distribution, total
+
+    # ── Speicher-Wachstum (kumuliert je Monat, nach Ablagedatum) ────────────
+    def _storage_series(self, today: date, active) -> list[DashboardStoragePoint]:
+        month_start = _first_of_month(today)
+        window_start = _add_months(month_start, -(MONTHS_BACK - 1))
+
+        bucket = func.to_char(func.date_trunc("month", Document.created_at), "YYYY-MM")
+        rows = self.db.execute(
+            select(bucket.label("month"), func.coalesce(func.sum(Document.file_size_bytes), 0).label("bytes"))
+            .where(active)
+            .group_by(bucket)
+        ).all()
+        per_month = {row.month: int(row.bytes or 0) for row in rows}
+
+        # Sockel: alles, was vor dem Fenster abgelegt wurde.
+        baseline = sum(size for month, size in per_month.items() if month < f"{window_start.year:04d}-{window_start.month:02d}")
+
+        series: list[DashboardStoragePoint] = []
+        running = baseline
+        for offset in range(MONTHS_BACK):
+            m = _add_months(window_start, offset)
+            key = f"{m.year:04d}-{m.month:02d}"
+            running += per_month.get(key, 0)
+            series.append(DashboardStoragePoint(month=key, bytes=running))
+        return series
+
+    # ── Top-Suchbegriffe ────────────────────────────────────────────────────
+    def _top_searches(self, limit: int = 5) -> list[DashboardSearchTerm]:
+        try:
+            key = func.lower(SearchEvent.term)
+            stmt = (
+                select(func.min(SearchEvent.term).label("term"), func.count().label("count"))
+                .group_by(key)
+                .order_by(func.count().desc(), func.min(SearchEvent.term).asc())
+                .limit(limit)
+            )
+            if self.owner_id is not None:
+                stmt = stmt.where(SearchEvent.owner_id == self.owner_id)
+            return [DashboardSearchTerm(term=row.term, count=int(row.count or 0)) for row in self.db.execute(stmt).all()]
+        except ProgrammingError as exc:
+            self.db.rollback()
+            logger.warning("search terms unavailable (migration missing?): %s", exc)
+            return []
+
     # ── Aufmerksamkeit ──────────────────────────────────────────────────────
     def _attention(self, today: date, active) -> DashboardAttention:
         row = self.db.execute(
@@ -273,6 +357,27 @@ class DashboardService:
                     ),
                     0,
                 ).label("to_review"),
+                func.coalesce(
+                    func.sum(case((Document.ai_status.in_(("pending", "error")), 1), else_=0)), 0
+                ).label("unclassified"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                or_(
+                                    Document.text_source == "none",
+                                    Document.ocr_quality_status.in_(("warning", "error")),
+                                ),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("ocr_issues"),
+                func.coalesce(
+                    func.sum(case((func.coalesce(func.trim(Document.document_type), "") == "", 1), else_=0)), 0
+                ).label("without_document_type"),
             ).where(active)
         ).one()
 
@@ -296,6 +401,9 @@ class DashboardService:
             untagged=self._untagged_count(active),
             retention_due=retention_due,
             to_review=int(row.to_review or 0),
+            unclassified=int(row.unclassified or 0),
+            ocr_issues=int(row.ocr_issues or 0),
+            without_document_type=int(row.without_document_type or 0),
         )
 
     # ── Zuletzt hinzugefügt ─────────────────────────────────────────────────

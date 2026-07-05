@@ -5,6 +5,22 @@
     </div>
 
     <div class="sidebar-scroll" @mouseleave="scheduleFlyoutClose">
+    <!-- Übersicht (eigenständig, über der Bibliothek) -->
+    <v-list nav density="compact" class="views-list views-list--standalone" @mouseenter="onRailSectionEnter('uebersicht', $event)">
+      <SidebarItem
+        item-class="sidebar-item--primary sidebar-item--plain-label"
+        :active="isViewActive('dashboard')"
+        @click="emit('select-view', 'dashboard')"
+      >
+        <template #icon>
+          <v-icon size="18">mdi-view-dashboard-outline</v-icon>
+        </template>
+        Übersicht
+      </SidebarItem>
+    </v-list>
+
+    <v-divider class="sidebar-section-divider sidebar-section-divider--after-uebersicht" />
+
     <!-- Bibliothek -->
     <v-list nav density="compact" class="views-list" @mouseenter="onRailSectionEnter('bibliothek', $event)">
       <div class="sidebar-section-header sidebar-section-header--static">
@@ -13,17 +29,6 @@
 
       <div class="sidebar-section-drawer">
         <div class="sidebar-section-content">
-          <SidebarItem
-            item-class="sidebar-item--primary sidebar-item--plain-label"
-            :active="isViewActive('dashboard')"
-            @click="emit('select-view', 'dashboard')"
-          >
-            <template #icon>
-              <v-icon size="18">mdi-view-dashboard-outline</v-icon>
-            </template>
-            Übersicht
-          </SidebarItem>
-
           <SidebarItem
             item-class="sidebar-item--primary sidebar-item--plain-label"
             :active="isViewActive('all')"
@@ -619,6 +624,7 @@ const railFlyoutTop = ref(0);
 let flyoutCloseTimer = null;
 
 const flyoutTitle = computed(() => ({
+  uebersicht: 'Übersicht',
   bibliothek: 'Bibliothek',
   ordner: 'Ordner',
   tags: 'Tags',
@@ -628,12 +634,14 @@ const flyoutTitle = computed(() => ({
 const flyoutRows = computed(() => {
   const ui = settingsStore.settings.ui;
   switch (railFlyoutSection.value) {
-    case 'bibliothek': {
-      const rows = [{
+    case 'uebersicht':
+      return [{
         id: 'dashboard', icon: 'mdi-view-dashboard-outline', label: 'Übersicht',
         count: null, active: isViewActive('dashboard'),
         run: () => emit('select-view', 'dashboard'),
-      }, {
+      }];
+    case 'bibliothek': {
+      const rows = [{
         id: 'all', icon: 'mdi-book-open-page-variant-outline', label: 'Alle Dokumente',
         count: allDocumentsSidebarCount.value, active: isViewActive('all'),
         run: () => emit('select-view', 'all'),

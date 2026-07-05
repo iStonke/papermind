@@ -12,10 +12,6 @@
             <v-icon size="15">mdi-tray-arrow-up</v-icon>
             Importieren
           </button>
-          <button type="button" class="dash-btn" @click="emit('open-scan')">
-            <v-icon size="15">mdi-scanner</v-icon>
-            Scannen
-          </button>
           <button type="button" class="dash-btn" @click="emit('open-ai')">
             <v-icon size="15">mdi-creation</v-icon>
             KI fragen
@@ -37,7 +33,17 @@
       <template v-else>
         <!-- 2) Kennzahlen-Band -->
         <div class="dash-stats" :class="{ 'is-loading': showSkeleton }">
-          <article v-for="card in statCards" :key="card.key" class="dash-card dash-stat">
+          <article
+            v-for="card in statCards"
+            :key="card.key"
+            class="dash-card dash-stat"
+            :class="{ 'dash-stat--clickable': card.attentionKey }"
+            :role="card.attentionKey ? 'button' : undefined"
+            :tabindex="card.attentionKey ? 0 : undefined"
+            @click="handleStatCardClick(card)"
+            @keydown.enter.prevent="handleStatCardClick(card)"
+            @keydown.space.prevent="handleStatCardClick(card)"
+          >
             <div class="dash-stat__head">
               <span class="dash-stat__label">{{ card.label }}</span>
               <v-icon size="16" class="dash-stat__icon">{{ card.icon }}</v-icon>
@@ -55,12 +61,6 @@
                 :class="{ 'dash-spark__bar--current': i === sparkline.length - 1 }"
                 :style="{ height: `${h}%` }"
               />
-            </div>
-            <div v-else-if="card.key === 'storage'" class="dash-stat__foot">
-              <div v-if="storagePct !== null" class="dash-progress">
-                <span class="dash-progress__fill" :style="{ width: `${storagePct}%` }" />
-              </div>
-              <span class="dash-stat__sub">{{ card.sub }}</span>
             </div>
             <div v-else class="dash-stat__trend" :class="card.trendClass">
               <v-icon v-if="card.trendIcon" size="13">{{ card.trendIcon }}</v-icon>
@@ -80,6 +80,9 @@
                 <div v-if="years.length" class="dash-chart__legend">
                   <span class="dash-chart__legend-item"><span class="dash-chart__legend-swatch dash-chart__legend-swatch--bar"></span>pro Jahr</span>
                   <span class="dash-chart__legend-item"><span class="dash-chart__legend-swatch dash-chart__legend-swatch--line"></span>kumuliert</span>
+                  <span v-if="gapCaption" class="dash-chart__gap" :title="`Jahre ohne Dokumente: ${gapYears.join(', ')}`">
+                    <v-icon size="12">mdi-alert-outline</v-icon>{{ gapCaption }}
+                  </span>
                 </div>
               </div>
               <span class="dash-chart__total">{{ formatInt(cumulativeTotal) }} gesamt</span>
@@ -90,9 +93,12 @@
                 <div v-for="(p, i) in years" :key="p.year" class="dash-bars__col">
                   <div
                     class="dash-bars__bar"
-                    :class="{ 'dash-bars__bar--current': i === years.length - 1 }"
+                    :class="{
+                      'dash-bars__bar--current': i === years.length - 1,
+                      'dash-bars__bar--gap': Number(p.count || 0) === 0,
+                    }"
                     :style="{ height: `${yearBarHeight(p.count)}%` }"
-                    :title="`${p.year}: ${p.count} Dokumente`"
+                    :title="Number(p.count || 0) === 0 ? `${p.year}: keine Dokumente` : `${p.year}: ${p.count} Dokumente`"
                   />
                 </div>
               </div>
@@ -123,8 +129,8 @@
             <!-- Top-Korrespondenten -->
             <article class="dash-card dash-rank">
               <h2 class="dash-card__title">Top-Korrespondenten</h2>
-              <div v-if="overview.top_correspondents.length" class="dash-rank__list">
-                <div v-for="(c, i) in overview.top_correspondents" :key="c.name" class="dash-rank__row">
+              <div v-if="topCorrespondents.length" ref="rankListEl" class="dash-rank__list">
+                <div v-for="(c, i) in visibleTopCorrespondents" :key="c.name" class="dash-rank__row">
                   <div class="dash-rank__meta">
                     <span class="dash-rank__name">{{ c.name }}</span>
                     <span class="dash-rank__count">{{ formatInt(c.count) }}</span>
@@ -132,7 +138,7 @@
                   <div class="dash-rank__track">
                     <span
                       class="dash-rank__fill"
-                      :style="{ width: `${rankPct(c.count)}%`, background: rampColor(i, overview.top_correspondents.length) }"
+                      :style="{ width: `${rankPct(c.count)}%`, background: rampColor(i, topCorrespondents.length) }"
                     />
                   </div>
                 </div>
@@ -140,82 +146,100 @@
               <p v-else class="dash-card__empty">Noch keine Korrespondenten zugeordnet.</p>
             </article>
 
-            <!-- Tag-Verteilung -->
+          </div>
+        </div>
+
+        <!-- 4) Untere Inhalte -->
+        <div class="dash-lower">
+          <div class="dash-lower__main">
+            <div class="dash-recent">
+              <div class="dash-recent__head">
+                <h2 class="dash-card__title">Zuletzt importiert</h2>
+                <button type="button" class="dash-link" @click="emit('show-all-recent')">Alle anzeigen</button>
+              </div>
+              <div v-if="overview.recent.length" class="dash-recent__grid">
+                <button
+                  v-for="doc in overview.recent"
+                  :key="doc.id"
+                  type="button"
+                  class="dash-card dash-doc"
+                  @click="emit('open-document', doc.id)"
+                >
+                  <span class="dash-doc__thumb">
+                    <img
+                      v-if="!thumbError[doc.id]"
+                      :src="thumbUrl(doc.id)"
+                      alt=""
+                      loading="lazy"
+                      @error="thumbError[doc.id] = true"
+                    />
+                    <v-icon v-else size="20">mdi-file-outline</v-icon>
+                  </span>
+                  <span class="dash-doc__text">
+                    <span class="dash-doc__title">{{ doc.title }}</span>
+                    <span class="dash-doc__corr">{{ doc.correspondent || 'Ohne Korrespondent' }}</span>
+                    <span class="dash-doc__date">{{ formatDate(doc.date) }}</span>
+                  </span>
+                </button>
+              </div>
+              <p v-else class="dash-card__empty">Noch keine Dokumente vorhanden.</p>
+            </div>
+
+            <!-- Top-Suchbegriffe -->
+            <article class="dash-card dash-searches">
+              <h2 class="dash-card__title">Häufig gesucht</h2>
+              <ul v-if="topSearches.length" class="dash-searches__list">
+                <li v-for="(s, i) in topSearches" :key="s.term" class="dash-searches__row">
+                  <button type="button" class="dash-searches__term" :title="s.term" @click="emit('search-term', s.term)">
+                    <v-icon size="13" class="dash-searches__icon">mdi-magnify</v-icon>
+                    <span class="dash-searches__label">{{ s.term }}</span>
+                    <span class="dash-searches__count">{{ formatInt(s.count) }}</span>
+                  </button>
+                  <div class="dash-searches__track">
+                    <span class="dash-searches__fill" :style="{ width: `${searchPct(s.count)}%`, background: rampColor(i, topSearches.length) }" />
+                  </div>
+                </li>
+              </ul>
+              <p v-else class="dash-card__empty">Noch keine Suchen erfasst.</p>
+            </article>
+          </div>
+
+          <div class="dash-lower__side">
+            <!-- Verteilung: Tags ↔ Dokumenttypen -->
             <article class="dash-card dash-donut-card">
-              <h2 class="dash-card__title">Tag-Verteilung</h2>
-              <div v-if="overview.tag_distribution.length" class="dash-donut-card__body">
+              <div class="dash-donut-card__head">
+                <h2 class="dash-card__title">Verteilung</h2>
+                <div class="dash-toggle" role="group" aria-label="Verteilung umschalten">
+                  <button
+                    v-for="m in donutModes"
+                    :key="m.key"
+                    type="button"
+                    class="dash-toggle__btn"
+                    :class="{ 'dash-toggle__btn--active': donutMode === m.key }"
+                    @click="donutMode = m.key"
+                  >{{ m.label }}</button>
+                </div>
+              </div>
+              <div v-if="donutSegments.length" class="dash-donut-card__body">
                 <div class="dash-donut" :style="{ background: donutGradient }">
                   <div class="dash-donut__hole">
-                    <span class="dash-donut__value">{{ formatInt(overview.tag_count_total) }}</span>
-                    <span class="dash-donut__label">Tags</span>
+                    <span class="dash-donut__value">{{ formatInt(donutData.total) }}</span>
+                    <span class="dash-donut__label">{{ donutData.centerLabel }}</span>
                   </div>
                 </div>
                 <ul class="dash-legend">
-                  <li v-for="(t, i) in legendTags" :key="t.tag" class="dash-legend__item">
-                    <span class="dash-legend__swatch" :style="{ background: rampColor(i, legendTags.length) }" />
-                    <span class="dash-legend__name">{{ t.tag }}</span>
+                  <li v-for="(t, i) in donutLegend" :key="`${t.name}-${i}`" class="dash-legend__item">
+                    <span class="dash-legend__swatch" :style="{ background: rampColor(i, donutLegend.length) }" />
+                    <span class="dash-legend__name">{{ t.name }}</span>
                     <span class="dash-legend__count">{{ formatInt(t.count) }}</span>
                   </li>
                 </ul>
               </div>
-              <p v-else class="dash-card__empty">Noch keine Tags vergeben.</p>
+              <p v-else class="dash-card__empty">
+                {{ donutMode === 'types' ? 'Noch keine Dokumenttypen vergeben.' : 'Noch keine Tags vergeben.' }}
+              </p>
             </article>
           </div>
-        </div>
-
-        <!-- 4) Aufmerksamkeit -->
-        <div class="dash-attention">
-          <button
-            v-for="tile in attentionTiles"
-            :key="tile.key"
-            type="button"
-            class="dash-card dash-tile"
-            :class="`dash-tile--${tile.tone}`"
-            @click="emit('attention-select', tile.key)"
-          >
-            <span class="dash-tile__badge">
-              <v-icon size="18">{{ tile.icon }}</v-icon>
-            </span>
-            <span class="dash-tile__body">
-              <span class="dash-tile__value">{{ formatInt(tile.value) }}</span>
-              <span class="dash-tile__label">{{ tile.label }}</span>
-            </span>
-            <v-icon size="16" class="dash-tile__chevron">mdi-chevron-right</v-icon>
-          </button>
-        </div>
-
-        <!-- 5) Zuletzt -->
-        <div class="dash-recent">
-          <div class="dash-recent__head">
-            <h2 class="dash-card__title">Zuletzt importiert</h2>
-            <button type="button" class="dash-link" @click="emit('show-all-recent')">Alle anzeigen</button>
-          </div>
-          <div v-if="overview.recent.length" class="dash-recent__grid">
-            <button
-              v-for="doc in overview.recent"
-              :key="doc.id"
-              type="button"
-              class="dash-card dash-doc"
-              @click="emit('open-document', doc.id)"
-            >
-              <span class="dash-doc__thumb">
-                <img
-                  v-if="!thumbError[doc.id]"
-                  :src="thumbUrl(doc.id)"
-                  alt=""
-                  loading="lazy"
-                  @error="thumbError[doc.id] = true"
-                />
-                <v-icon v-else size="20">mdi-file-outline</v-icon>
-              </span>
-              <span class="dash-doc__text">
-                <span class="dash-doc__title">{{ doc.title }}</span>
-                <span class="dash-doc__corr">{{ doc.correspondent || 'Ohne Korrespondent' }}</span>
-                <span class="dash-doc__date">{{ formatDate(doc.date) }}</span>
-              </span>
-            </button>
-          </div>
-          <p v-else class="dash-card__empty">Noch keine Dokumente vorhanden.</p>
         </div>
       </template>
     </div>
@@ -223,25 +247,34 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
+import { useAuthStore } from '../stores/auth.js';
 import { useDashboardStore } from '../stores/dashboard.js';
 import { documentThumbnailUrl } from '../api/documents.js';
 
 const emit = defineEmits([
   'open-import',
-  'open-scan',
   'open-ai',
   'open-document',
   'attention-select',
   'show-all-recent',
+  'search-term',
 ]);
 
 const dashboardStore = useDashboardStore();
+const auth = useAuthStore();
 const { overview, isLoading, hasLoadedOnce } = storeToRefs(dashboardStore);
+const rankListEl = ref(null);
+const visibleRankCount = ref(6);
+let rankResizeObserver = null;
 
 onMounted(() => {
   void dashboardStore.fetchOverview();
+});
+
+onBeforeUnmount(() => {
+  rankResizeObserver?.disconnect();
 });
 
 const showSkeleton = computed(() => isLoading.value && !hasLoadedOnce.value);
@@ -251,17 +284,6 @@ const isEmpty = computed(() => hasLoadedOnce.value && overview.value.stats.docum
 const intFormatter = new Intl.NumberFormat('de-DE');
 const formatInt = (n) => intFormatter.format(Number(n || 0));
 
-function formatStorage(bytes) {
-  const b = Number(bytes || 0);
-  if (b < 1024) return { value: String(b), unit: ' B' };
-  const units = [' KB', ' MB', ' GB', ' TB'];
-  let val = b / 1024;
-  let idx = 0;
-  while (val >= 1024 && idx < units.length - 1) { val /= 1024; idx += 1; }
-  const digits = val >= 100 ? 0 : 1;
-  return { value: val.toLocaleString('de-DE', { minimumFractionDigits: digits, maximumFractionDigits: digits }), unit: units[idx] };
-}
-
 function formatDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length <= 10 ? `${iso}T00:00:00` : iso);
@@ -270,10 +292,15 @@ function formatDate(iso) {
 }
 
 // ── Kopfzeile ───────────────────────────────────────────────────────────────
+const userGreetingName = computed(() => {
+  const name = auth.user?.display_name || auth.username;
+  return String(name || '').trim();
+});
+
 const greeting = computed(() => {
   const h = new Date().getHours();
   const part = h < 5 ? 'Gute Nacht' : h < 11 ? 'Guten Morgen' : h < 18 ? 'Guten Tag' : 'Guten Abend';
-  return part;
+  return userGreetingName.value ? `${part}, ${userGreetingName.value}` : part;
 });
 
 const headMeta = computed(() =>
@@ -283,7 +310,14 @@ const headMeta = computed(() =>
 // ── Kennzahlen-Karten ───────────────────────────────────────────────────────
 const statCards = computed(() => {
   const s = overview.value.stats;
-  const storage = formatStorage(s.storage_bytes);
+  const documentsTotal = Number(s.documents_total || 0);
+  const withoutDocumentType = Math.min(
+    documentsTotal,
+    Math.max(0, Number(overview.value.attention?.without_document_type || 0))
+  );
+  const withoutDocumentTypePct = documentsTotal > 0
+    ? Math.round((withoutDocumentType / documentsTotal) * 100)
+    : 0;
   const trendPct = s.total_trend_pct;
   const hasTrend = trendPct !== null && trendPct !== undefined;
   const trendUp = hasTrend && trendPct >= 0;
@@ -323,19 +357,25 @@ const statCards = computed(() => {
       sub: `${(s.untagged_pct || 0).toLocaleString('de-DE', { maximumFractionDigits: 0 })} % ohne Tags`,
       trendIcon: null,
       trendClass: 'is-muted',
+      attentionKey: 'untagged',
     },
     {
-      key: 'storage',
-      label: 'Speicher',
-      icon: 'mdi-database-outline',
-      value: storage.value,
-      unit: storage.unit,
-      sub: s.storage_limit_bytes
-        ? `von ${formatStorage(s.storage_limit_bytes).value}${formatStorage(s.storage_limit_bytes).unit}`
-        : 'belegt',
+      key: 'document_types',
+      label: 'Dokumenttypen',
+      icon: 'mdi-file-document-multiple-outline',
+      value: formatInt(s.document_types ?? overview.value.type_count_total),
+      sub: `${withoutDocumentTypePct.toLocaleString('de-DE', { maximumFractionDigits: 0 })} % ohne Dokumenttyp`,
+      trendIcon: null,
+      trendClass: 'is-muted',
+      attentionKey: 'without_document_type',
     },
   ];
 });
+
+function handleStatCardClick(card) {
+  if (!card?.attentionKey) return;
+  emit('attention-select', card.attentionKey);
+}
 
 // ── Sparkline (letzte 7 Monate) ─────────────────────────────────────────────
 const sparkline = computed(() => {
@@ -398,53 +438,132 @@ const cumulativeEndStyle = computed(() => {
 });
 
 // ── Rangliste ───────────────────────────────────────────────────────────────
+const topCorrespondents = computed(() => overview.value.top_correspondents || []);
 const maxRankCount = computed(() =>
-  Math.max(1, ...overview.value.top_correspondents.map((c) => Number(c.count || 0)))
+  Math.max(1, ...topCorrespondents.value.map((c) => Number(c.count || 0)))
 );
 const rankPct = (count) => Math.max(4, Math.round((Number(count || 0) / maxRankCount.value) * 100));
+const visibleTopCorrespondents = computed(() =>
+  topCorrespondents.value.slice(0, Math.max(1, visibleRankCount.value))
+);
 
-/** Teal→Slate-Rampe, theme-adaptiv über vorhandene Tokens. */
-function rampColor(index, total) {
-  if (total <= 1) return 'var(--pm-accent)';
-  const t = index / (total - 1); // 0 = stärkster
-  const accentShare = Math.round((1 - t) * 78 + 12); // 90%…12%
-  return `color-mix(in srgb, var(--pm-accent) ${accentShare}%, var(--pm-muted))`;
+function updateVisibleRankCount() {
+  const el = rankListEl.value;
+  const total = topCorrespondents.value.length;
+  if (!el || !total) {
+    visibleRankCount.value = 6;
+    return;
+  }
+
+  const styles = window.getComputedStyle(el);
+  const gap = Number.parseFloat(styles.rowGap || styles.gap || '0') || 0;
+  const row = el.querySelector('.dash-rank__row');
+  const rowHeight = row?.getBoundingClientRect().height || 34;
+  const capacity = Math.floor((el.clientHeight + gap) / (rowHeight + gap));
+  visibleRankCount.value = Math.max(1, Math.min(total, capacity || 1));
 }
 
-// ── Donut ───────────────────────────────────────────────────────────────────
-const legendTags = computed(() => overview.value.tag_distribution.slice(0, 4));
+function observeRankList(el, oldEl) {
+  if (oldEl && rankResizeObserver) rankResizeObserver.unobserve(oldEl);
+  if (!el || typeof ResizeObserver === 'undefined') return;
+  rankResizeObserver ??= new ResizeObserver(() => updateVisibleRankCount());
+  rankResizeObserver.observe(el);
+  nextTick(updateVisibleRankCount);
+}
+
+watch(rankListEl, observeRankList, { flush: 'post' });
+watch(() => topCorrespondents.value.length, () => nextTick(updateVisibleRankCount), { flush: 'post' });
+
+const chartPalette = [
+  'var(--pm-accent)',
+  '#2563eb',
+  '#7c3aed',
+  '#d97706',
+  '#16a34a',
+  '#dc2626',
+  '#64748b',
+  '#c026d3',
+];
+
+/** Farbpalette fuer Ranglisten, Suchbalken und Donut-Segmente. */
+function rampColor(index, total) {
+  if (total <= 1) return chartPalette[0];
+  return chartPalette[index % chartPalette.length];
+}
+
+// ── Verteilung (Donut) – umschaltbar Tags ↔ Dokumenttypen ────────────────────
+const donutMode = ref('tags');
+const donutModes = [
+  { key: 'tags', label: 'Tags' },
+  { key: 'types', label: 'Typen' },
+];
+const DONUT_MAX_SEGMENTS = 6;
+
+const donutData = computed(() => {
+  if (donutMode.value === 'types') {
+    return {
+      segments: overview.value.type_distribution.map((t) => ({ name: t.type, count: t.count })),
+      total: overview.value.type_count_total,
+      centerLabel: 'Typen',
+    };
+  }
+  return {
+    segments: overview.value.tag_distribution.map((t) => ({ name: t.tag, count: t.count })),
+    total: overview.value.tag_count_total,
+    centerLabel: 'Tags',
+  };
+});
+
+function compactDonutSegments(segments) {
+  const normalized = segments
+    .map((t) => ({ name: t.name || 'Ohne Zuordnung', count: Number(t.count || 0) }))
+    .filter((t) => t.count > 0);
+  if (normalized.length <= DONUT_MAX_SEGMENTS) return normalized;
+
+  const visible = normalized.slice(0, DONUT_MAX_SEGMENTS - 1);
+  const rest = normalized
+    .slice(DONUT_MAX_SEGMENTS - 1)
+    .reduce((sum, t) => sum + t.count, 0);
+  return [...visible, { name: 'Weitere', count: rest }];
+}
+
+const donutSegments = computed(() => compactDonutSegments(donutData.value.segments));
+const donutLegend = computed(() => donutSegments.value);
 
 const donutGradient = computed(() => {
-  const tags = overview.value.tag_distribution;
-  const total = tags.reduce((sum, t) => sum + Number(t.count || 0), 0);
+  const segs = donutSegments.value;
+  const total = segs.reduce((sum, t) => sum + Number(t.count || 0), 0);
   if (total <= 0) return 'var(--pm-divider)';
   let acc = 0;
-  const stops = tags.map((t, i) => {
+  const stops = segs.map((t, i) => {
     const start = (acc / total) * 360;
     acc += Number(t.count || 0);
     const end = (acc / total) * 360;
-    return `${rampColor(i, tags.length)} ${start}deg ${end}deg`;
+    return `${rampColor(i, segs.length)} ${start}deg ${end}deg`;
   });
   return `conic-gradient(${stops.join(', ')})`;
 });
 
-// ── Aufmerksamkeit ──────────────────────────────────────────────────────────
-const attentionTiles = computed(() => {
-  const a = overview.value.attention;
-  return [
-    { key: 'unread', label: 'Ungelesen', value: a.unread, icon: 'mdi-information-outline', tone: 'teal' },
-    { key: 'untagged', label: 'Ohne Tags', value: a.untagged, icon: 'mdi-tag-off-outline', tone: 'neutral' },
-    { key: 'retention_due', label: 'Fristen laufen ab', value: a.retention_due, icon: 'mdi-clock-outline', tone: 'amber' },
-    { key: 'to_review', label: 'Zu prüfen', value: a.to_review, icon: 'mdi-alert-outline', tone: 'amber' },
-  ];
+// ── Lückenanalyse: Jahre ohne Dokumente in der Historie ─────────────────────
+const gapYears = computed(() => {
+  const arr = years.value;
+  if (arr.length < 2) return [];
+  // Innenliegende Null-Jahre (Randjahre haben immer Dokumente per Definition).
+  return arr.slice(1, -1).filter((p) => Number(p.count || 0) === 0).map((p) => p.year);
+});
+const gapCaption = computed(() => {
+  const g = gapYears.value;
+  if (!g.length) return '';
+  if (g.length <= 6) return `Lücken: ${g.join(', ')}`;
+  return `${g.length} Jahre ohne Dokumente`;
 });
 
-// ── Speicher-Progress ───────────────────────────────────────────────────────
-const storagePct = computed(() => {
-  const s = overview.value.stats;
-  if (!s.storage_limit_bytes) return null;
-  return Math.min(100, Math.round((Number(s.storage_bytes || 0) / Number(s.storage_limit_bytes)) * 100));
-});
+// ── Top-Suchbegriffe ─────────────────────────────────────────────────────────
+const topSearches = computed(() => overview.value.top_searches || []);
+const maxSearchCount = computed(() =>
+  Math.max(1, ...topSearches.value.map((s) => Number(s.count || 0)))
+);
+const searchPct = (count) => Math.max(6, Math.round((Number(count || 0) / maxSearchCount.value) * 100));
 
 // ── Thumbnails ──────────────────────────────────────────────────────────────
 const thumbError = reactive({});
@@ -453,6 +572,8 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
 
 <style scoped>
 .dashboard {
+  --dash-chart-current: #0891b2;
+  --dash-chart-line: #2563eb;
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -553,6 +674,18 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
   padding: 16px 17px;
 }
 
+.dash-stat--clickable {
+  cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+
+.dash-stat--clickable:hover,
+.dash-stat--clickable:focus-visible {
+  border-color: color-mix(in srgb, var(--pm-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--pm-accent) 5%, var(--pm-v-card, var(--pm-app-surface-raised)));
+  outline: none;
+}
+
 .dash-stat__head {
   display: flex;
   align-items: flex-start;
@@ -627,39 +760,27 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
 }
 
 .dash-spark__bar--current {
-  background: var(--pm-accent);
-}
-
-/* Progress */
-.dash-progress {
-  height: 5px;
-  border-radius: 3px;
-  background: rgba(var(--v-theme-on-surface), 0.1);
-  overflow: hidden;
-  margin-bottom: 5px;
-}
-
-.dash-progress__fill {
-  display: block;
-  height: 100%;
-  border-radius: 3px;
-  background: var(--pm-accent);
+  background: var(--dash-chart-current);
 }
 
 /* ── Visualisierungen ─────────────────────────────────────────────────── */
 .dash-viz {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
   margin-bottom: 16px;
-  flex: 1 1 auto;
+  flex: 0 1 clamp(330px, 45vh, 460px);
   min-height: 0;
 }
 
+.dash-chart {
+  grid-column: 1 / span 3;
+}
+
 .dash-viz__side {
+  grid-column: 4 / span 2;
   display: flex;
   flex-direction: column;
-  gap: 16px;
   min-width: 0;
   min-height: 0;
 }
@@ -738,13 +859,31 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
   width: 16px;
   height: 2px;
   border-radius: 2px;
-  background: var(--pm-accent);
+  background: var(--dash-chart-line);
+}
+
+.dash-chart__gap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--pm-warning);
+}
+
+.dash-bars__bar--gap {
+  background: repeating-linear-gradient(
+    45deg,
+    color-mix(in srgb, var(--pm-warning) 32%, transparent) 0 2px,
+    transparent 2px 4px
+  );
+  min-height: 4px;
+  border-radius: 2px 2px 0 0;
 }
 
 .dash-chart__plot {
   position: relative;
   flex: 1 1 auto;
-  min-height: 90px;
+  min-height: 0;
 }
 
 .dash-bars {
@@ -763,11 +902,12 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
   height: 100%;
   overflow: visible;
   pointer-events: none;
+  animation: dash-line-reveal 0.72s ease-out 0.12s both;
 }
 
 .dash-line__path {
   fill: none;
-  stroke: var(--pm-accent);
+  stroke: var(--dash-chart-line);
   stroke-width: 2;
   stroke-linejoin: round;
   stroke-linecap: round;
@@ -779,10 +919,12 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--pm-accent);
+  background: var(--dash-chart-line);
   transform: translate(-50%, -50%);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pm-accent) 22%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dash-chart-line) 22%, transparent);
   pointer-events: none;
+  opacity: 0;
+  animation: dash-dot-pop 0.28s ease-out 0.74s forwards;
 }
 
 .dash-bars__col {
@@ -798,14 +940,28 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
   background: color-mix(in srgb, var(--pm-muted) 34%, transparent);
   transition: background 0.14s ease;
   min-height: 2px;
+  transform-origin: bottom;
+  animation: dash-bar-grow 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
+
+.dash-bars__col:nth-child(2) .dash-bars__bar { animation-delay: 0.03s; }
+.dash-bars__col:nth-child(3) .dash-bars__bar { animation-delay: 0.06s; }
+.dash-bars__col:nth-child(4) .dash-bars__bar { animation-delay: 0.09s; }
+.dash-bars__col:nth-child(5) .dash-bars__bar { animation-delay: 0.12s; }
+.dash-bars__col:nth-child(6) .dash-bars__bar { animation-delay: 0.15s; }
+.dash-bars__col:nth-child(7) .dash-bars__bar { animation-delay: 0.18s; }
+.dash-bars__col:nth-child(8) .dash-bars__bar { animation-delay: 0.21s; }
+.dash-bars__col:nth-child(9) .dash-bars__bar { animation-delay: 0.24s; }
+.dash-bars__col:nth-child(10) .dash-bars__bar { animation-delay: 0.27s; }
+.dash-bars__col:nth-child(11) .dash-bars__bar { animation-delay: 0.3s; }
+.dash-bars__col:nth-child(12) .dash-bars__bar { animation-delay: 0.33s; }
 
 .dash-bars__bar:hover {
   background: color-mix(in srgb, var(--pm-muted) 52%, transparent);
 }
 
 .dash-bars__bar--current {
-  background: var(--pm-accent);
+  background: var(--dash-chart-current);
 }
 
 .dash-bars__axis {
@@ -828,14 +984,24 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
 
 /* Rangliste */
 .dash-rank {
+  flex: 1 1 auto;
   padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
 }
 
 .dash-rank__list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  flex: 1 1 auto;
+  gap: 10px;
   margin-top: 16px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dash-rank__row {
+  flex: none;
 }
 
 .dash-rank__meta {
@@ -873,11 +1039,50 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
   display: block;
   height: 100%;
   border-radius: 3px;
+  transform-origin: left center;
+  animation: dash-fill-grow 0.5s ease-out both;
 }
+
+.dash-rank__row:nth-child(2) .dash-rank__fill { animation-delay: 0.05s; }
+.dash-rank__row:nth-child(3) .dash-rank__fill { animation-delay: 0.1s; }
+.dash-rank__row:nth-child(4) .dash-rank__fill { animation-delay: 0.15s; }
+.dash-rank__row:nth-child(5) .dash-rank__fill { animation-delay: 0.2s; }
 
 /* Donut */
 .dash-donut-card {
   padding: 18px 20px;
+}
+
+.dash-donut-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dash-toggle {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(var(--v-theme-on-surface), 0.06);
+}
+
+.dash-toggle__btn {
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--pm-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.dash-toggle__btn--active {
+  background: var(--pm-v-card, var(--pm-app-surface-raised));
+  color: var(--pm-accent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
 .dash-donut-card__body {
@@ -893,6 +1098,7 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
   height: 96px;
   border-radius: 50%;
   flex-shrink: 0;
+  animation: dash-donut-in 0.5s ease-out both;
 }
 
 .dash-donut__hole {
@@ -933,7 +1139,14 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
   display: flex;
   align-items: center;
   gap: 8px;
+  animation: dash-fade-up 0.34s ease-out both;
 }
+
+.dash-legend__item:nth-child(2) { animation-delay: 0.05s; }
+.dash-legend__item:nth-child(3) { animation-delay: 0.1s; }
+.dash-legend__item:nth-child(4) { animation-delay: 0.15s; }
+.dash-legend__item:nth-child(5) { animation-delay: 0.2s; }
+.dash-legend__item:nth-child(6) { animation-delay: 0.25s; }
 
 .dash-legend__swatch {
   width: 9px;
@@ -958,92 +1171,161 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Aufmerksamkeit ───────────────────────────────────────────────────── */
-.dash-attention {
+/* ── Untere Inhalte ──────────────────────────────────────────────────── */
+.dash-lower {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 14px;
-  margin-bottom: 16px;
-  flex: none;
-}
-
-.dash-tile {
-  display: flex;
-  align-items: center;
+  flex: 1 1 0;
   min-width: 0;
-  gap: 13px;
-  padding: 14px 16px;
-  border-radius: 14px;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.14s ease, background 0.14s ease;
+  min-height: 0;
 }
 
-.dash-tile:hover {
-  background: rgba(var(--v-theme-on-surface), 0.02);
+.dash-lower__main {
+  grid-column: 1 / span 3;
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
 }
 
-.dash-tile__badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-  flex-shrink: 0;
-}
-
-.dash-tile__body {
+.dash-lower__side {
+  grid-column: 4 / span 2;
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
+}
+
+.dash-lower__side .dash-donut-card {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.dash-lower__side .dash-donut-card__body {
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dash-lower__side .dash-donut {
+  width: clamp(128px, min(17vw, 29vh), 200px);
+  height: clamp(128px, min(17vw, 29vh), 200px);
+}
+
+.dash-lower__side .dash-donut__hole {
+  inset: clamp(24px, min(3.4vw, 5.8vh), 40px);
+}
+
+.dash-lower__side .dash-donut__value {
+  font-size: clamp(22px, 2.4vw, 34px);
+}
+
+.dash-lower__side .dash-donut__label {
+  font-size: clamp(11px, 1.1vw, 15px);
+}
+
+.dash-recent {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.dash-searches {
+  min-width: 0;
+  min-height: 128px;
+  height: 100%;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dash-searches .dash-card__title {
+  margin-bottom: 12px;
+}
+
+.dash-searches__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  overflow: hidden;
+}
+
+.dash-searches__row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dash-searches__term {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.dash-searches__icon {
+  flex: none;
+  color: var(--pm-muted) !important;
+}
+
+.dash-searches__label {
   flex: 1;
-}
-
-.dash-tile__value {
-  font-size: 20px;
-  font-weight: 650;
-  line-height: 1;
-  color: var(--pm-text);
-  font-variant-numeric: tabular-nums;
-}
-
-.dash-tile__label {
-  font-size: 12.5px;
-  color: var(--pm-muted);
-  margin-top: 3px;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 12.5px;
+  color: color-mix(in srgb, var(--pm-text) 88%, transparent);
 }
 
-.dash-tile__chevron {
-  color: color-mix(in srgb, var(--pm-muted) 70%, transparent) !important;
-  flex-shrink: 0;
-}
-
-.dash-tile--teal .dash-tile__badge {
-  background: color-mix(in srgb, var(--pm-accent) 14%, transparent);
+.dash-searches__term:hover .dash-searches__label {
   color: var(--pm-accent);
 }
-.dash-tile--teal:hover { border-color: color-mix(in srgb, var(--pm-accent) 45%, transparent); }
 
-.dash-tile--neutral .dash-tile__badge {
-  background: rgba(var(--v-theme-on-surface), 0.06);
-  color: var(--pm-muted);
-}
-.dash-tile--neutral:hover { border-color: color-mix(in srgb, var(--pm-accent) 45%, transparent); }
-
-.dash-tile--amber .dash-tile__badge {
-  background: color-mix(in srgb, var(--pm-warning) 16%, transparent);
-  color: var(--pm-warning);
-}
-.dash-tile--amber:hover { border-color: color-mix(in srgb, var(--pm-warning) 50%, transparent); }
-
-/* ── Zuletzt ──────────────────────────────────────────────────────────── */
-.dash-recent {
+.dash-searches__count {
   flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pm-muted);
+  font-variant-numeric: tabular-nums;
 }
+
+.dash-searches__track {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  overflow: hidden;
+}
+
+.dash-searches__fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  transform-origin: left center;
+  animation: dash-fill-grow 0.46s ease-out both;
+}
+
+.dash-searches__row:nth-child(2) .dash-searches__fill { animation-delay: 0.05s; }
+.dash-searches__row:nth-child(3) .dash-searches__fill { animation-delay: 0.1s; }
+.dash-searches__row:nth-child(4) .dash-searches__fill { animation-delay: 0.15s; }
 
 .dash-recent__head {
   display: flex;
@@ -1065,42 +1347,28 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
 .dash-link:hover { text-decoration: underline; }
 
 .dash-recent__grid {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
   gap: 14px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-bottom: 6px;
-  scroll-snap-type: x proximity;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--pm-muted) 45%, transparent) transparent;
-}
-
-.dash-recent__grid::-webkit-scrollbar {
-  height: 8px;
-}
-
-.dash-recent__grid::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--pm-muted) 40%, transparent);
-  border-radius: 4px;
-}
-
-.dash-recent__grid::-webkit-scrollbar-track {
-  background: transparent;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .dash-doc {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 12px;
   padding: 12px;
   text-align: left;
   cursor: pointer;
   transition: border-color 0.14s ease;
-  /* Fixe Grundbreite: füllt bei wenigen Karten die Reihe (grow),
-     scrollt bei vielen/langen Titeln horizontal statt herauszuragen. */
-  flex: 1 0 240px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
   min-width: 0;
-  scroll-snap-align: start;
+  overflow: hidden;
 }
 
 .dash-doc:hover {
@@ -1108,10 +1376,11 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
 }
 
 .dash-doc__thumb {
-  width: 42px;
-  height: 54px;
+  width: clamp(56px, 18%, 92px);
+  height: min(72%, 128px);
   border-radius: 6px;
   flex-shrink: 0;
+  align-self: center;
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -1130,6 +1399,7 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
 .dash-doc__text {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   min-width: 0;
   flex: 1;
 }
@@ -1194,17 +1464,440 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
   opacity: 0.35;
 }
 
+/* ── Diagramm-Animationen ─────────────────────────────────────────────── */
+@keyframes dash-bar-grow {
+  from {
+    opacity: 0.55;
+    transform: scaleY(0.08);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+@keyframes dash-fill-grow {
+  from {
+    opacity: 0.45;
+    transform: scaleX(0);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+@keyframes dash-line-reveal {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+@keyframes dash-dot-pop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.55);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes dash-donut-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92) rotate(-8deg);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes dash-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-bars__bar,
+  .dash-rank__fill,
+  .dash-searches__fill,
+  .dash-donut,
+  .dash-legend__item,
+  .dash-line {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .dash-line__dot {
+    animation: none;
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+}
+
 /* ── Responsive ───────────────────────────────────────────────────────── */
+@media (max-height: 920px) and (min-width: 1181px) {
+  .dashboard__scroll {
+    padding: 18px 24px 20px;
+  }
+
+  .dash-head {
+    margin-bottom: 12px;
+  }
+
+  .dash-head__greeting {
+    font-size: 19px;
+  }
+
+  .dash-head__meta {
+    font-size: 12.5px;
+  }
+
+  .dash-btn {
+    height: 32px;
+    padding: 0 11px;
+  }
+
+  .dash-stats {
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .dash-stat {
+    padding: 12px 14px;
+  }
+
+  .dash-stat__value {
+    font-size: 26px;
+    margin-top: 7px;
+  }
+
+  .dash-stat__trend {
+    margin-top: 6px;
+    font-size: 11.5px;
+  }
+
+  .dash-spark {
+    height: 12px;
+    margin-top: 9px;
+  }
+
+  .dash-viz {
+    gap: 12px;
+    margin-bottom: 12px;
+    flex-basis: clamp(300px, 42vh, 390px);
+    min-height: 250px;
+  }
+
+  .dash-chart,
+  .dash-rank,
+  .dash-donut-card {
+    padding: 14px 16px;
+  }
+
+  .dash-chart__head {
+    margin-bottom: 10px;
+  }
+
+  .dash-chart__plot {
+    min-height: 150px;
+  }
+
+  .dash-rank__list {
+    gap: 9px;
+    margin-top: 12px;
+  }
+
+  .dash-lower {
+    gap: 12px;
+    flex: 1 1 0;
+    min-height: 0;
+  }
+
+  .dash-lower__main {
+    gap: 12px;
+  }
+
+  .dash-searches {
+    min-height: 0;
+    padding: 12px 14px;
+  }
+
+  .dash-recent__head {
+    margin-bottom: 8px;
+  }
+
+  .dash-recent__grid {
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .dash-doc {
+    min-height: 0;
+    gap: 10px;
+    padding: 9px 10px;
+    overflow: hidden;
+  }
+
+  .dash-doc__thumb {
+    width: clamp(48px, 17%, 76px);
+    height: min(70%, 104px);
+  }
+
+  .dash-doc__title {
+    font-size: 12.5px;
+  }
+
+  .dash-doc__corr {
+    font-size: 11.5px;
+    margin-top: 2px;
+  }
+
+  .dash-doc__date {
+    font-size: 11px;
+    margin-top: 1px;
+  }
+
+  .dash-lower__side .dash-donut {
+    width: clamp(118px, min(15vw, 26vh), 170px);
+    height: clamp(118px, min(15vw, 26vh), 170px);
+  }
+
+  .dash-lower__side .dash-donut__hole {
+    inset: clamp(22px, min(3vw, 5vh), 34px);
+  }
+}
+
+@media (max-height: 700px) and (min-width: 1181px) {
+  .dashboard__scroll {
+    padding: 14px 20px 16px;
+  }
+
+  .dash-head {
+    margin-bottom: 9px;
+  }
+
+  .dash-head__meta {
+    display: none;
+  }
+
+  .dash-stats {
+    margin-bottom: 10px;
+  }
+
+  .dash-stat {
+    padding: 10px 12px;
+  }
+
+  .dash-stat__value {
+    font-size: 23px;
+  }
+
+  .dash-stat__trend {
+    font-size: 11px;
+  }
+
+  .dash-viz {
+    flex-basis: clamp(230px, 34vh, 280px);
+    min-height: 210px;
+    margin-bottom: 10px;
+  }
+
+  .dash-chart__legend {
+    margin-top: 5px;
+  }
+
+  .dash-chart__plot {
+    min-height: 112px;
+  }
+
+  .dash-lower {
+    flex: 1 1 0;
+    min-height: 0;
+  }
+
+  .dash-recent__grid {
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .dash-doc {
+    min-height: 0;
+    padding: 8px 9px;
+  }
+
+  .dash-doc__thumb {
+    display: none;
+  }
+
+  .dash-doc__title {
+    font-size: 12px;
+  }
+
+  .dash-doc__corr {
+    font-size: 11px;
+  }
+
+  .dash-doc__date {
+    display: none;
+  }
+
+  .dash-searches .dash-card__title {
+    margin-bottom: 9px;
+  }
+}
+
+@media (max-height: 620px) and (min-width: 1181px) {
+  .dashboard__scroll {
+    padding: 10px 18px 12px;
+  }
+
+  .dash-head__actions {
+    gap: 6px;
+  }
+
+  .dash-btn {
+    height: 28px;
+    padding: 0 9px;
+    font-size: 12px;
+  }
+
+  .dash-stats {
+    margin-bottom: 8px;
+  }
+
+  .dash-stat {
+    padding: 8px 10px;
+  }
+
+  .dash-stat__label {
+    font-size: 10.5px;
+  }
+
+  .dash-stat__value {
+    font-size: 20px;
+  }
+
+  .dash-stat__trend {
+    margin-top: 4px;
+  }
+
+  .dash-viz {
+    flex-basis: clamp(180px, 30vh, 220px);
+    min-height: 170px;
+    margin-bottom: 8px;
+  }
+
+  .dash-chart,
+  .dash-rank,
+  .dash-donut-card {
+    padding: 10px 12px;
+  }
+
+  .dash-card__title {
+    font-size: 13.5px;
+  }
+
+  .dash-card__subtitle,
+  .dash-chart__legend,
+  .dash-chart__total {
+    font-size: 11px;
+  }
+
+  .dash-chart__plot {
+    min-height: 82px;
+  }
+
+  .dash-rank__list {
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .dash-rank__track {
+    height: 4px;
+  }
+
+  .dash-recent__head {
+    margin-bottom: 6px;
+  }
+
+  .dash-recent__grid {
+    gap: 6px;
+  }
+
+  .dash-doc {
+    align-items: stretch;
+    padding: 5px 8px;
+    border-radius: 10px;
+  }
+
+  .dash-doc__corr {
+    display: none;
+  }
+
+  .dash-searches {
+    padding: 10px 12px;
+  }
+
+  .dash-searches__list {
+    gap: 6px;
+  }
+
+  .dash-lower__side .dash-donut {
+    width: 96px;
+    height: 96px;
+  }
+
+  .dash-lower__side .dash-donut__hole {
+    inset: 20px;
+  }
+}
+
 @media (max-width: 1180px) {
   .dash-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .dash-viz { grid-template-columns: minmax(0, 1fr); }
-  .dash-attention { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-viz {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+    flex-basis: auto;
+  }
+  .dash-chart__plot { min-height: 240px; }
+  .dash-chart,
+  .dash-viz__side {
+    grid-column: auto;
+  }
+  .dash-lower { grid-template-columns: minmax(0, 1fr); }
+  .dash-lower__main,
+  .dash-lower__side,
+  .dash-searches {
+    grid-column: auto;
+  }
+  .dash-lower__side .dash-donut {
+    width: 128px;
+    height: 128px;
+  }
+  .dash-lower__side .dash-donut__hole { inset: 24px; }
+  .dash-lower__side .dash-donut__value { font-size: 22px; }
+  .dash-lower__side .dash-donut__label { font-size: 11px; }
+  .dash-searches { min-height: 128px; }
 }
 
 @media (max-width: 720px) {
   .dashboard__scroll { padding: 18px 16px 24px; }
   .dash-head { flex-direction: column; align-items: stretch; }
   .dash-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .dash-attention { grid-template-columns: minmax(0, 1fr); }
+  .dash-lower__main { grid-template-columns: minmax(0, 1fr); }
+  .dash-recent__grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
 }
 </style>

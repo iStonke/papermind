@@ -93,6 +93,13 @@ class ColorVariant(str, Enum):
     blue = "blue"
 
 
+class StartView(str, Enum):
+    """Startseite nach dem Login."""
+
+    dashboard = "dashboard"
+    all = "all"
+
+
 class DocumentSortOrder(str, Enum):
     newest = "newest"
     oldest = "oldest"
@@ -152,6 +159,7 @@ def _normalize_sidebar_sections(
 class UISettingsRead(BaseModel):
     theme_mode: ThemeMode = ThemeMode.system
     color_variant: ColorVariant = ColorVariant.teal
+    start_view: StartView = StartView.all
     showFilenameSuffix: bool = True
     drawerRememberState: bool = True
     tagDrawerRememberState: bool = True
@@ -296,6 +304,7 @@ class AppSettingsRead(BaseModel):
 class UISettingsPatch(BaseModel):
     theme_mode: ThemeMode | None = None
     color_variant: ColorVariant | None = None
+    start_view: StartView | None = None
     showFilenameSuffix: bool | None = None
     drawerRememberState: bool | None = None
     tagDrawerRememberState: bool | None = None

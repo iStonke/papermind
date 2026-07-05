@@ -6,6 +6,10 @@ export function buildColorVariantPatch(colorVariant) {
   return { ui: { color_variant: colorVariant } };
 }
 
+export function buildStartViewPatch(startView) {
+  return { ui: { start_view: startView } };
+}
+
 export function buildShowFilenameSuffixPatch(enabled) {
   return { ui: { showFilenameSuffix: Boolean(enabled) } };
 }

@@ -11,6 +11,7 @@ from app.db import get_db
 from app.models.user import User
 from app.schemas.common import ErrorResponse, OkResponse
 from app.schemas.documents import (
+    DocumentAttentionFilter,
     DocumentCreateRequest,
     DocumentDetail,
     DocumentFileRole,
@@ -71,6 +72,10 @@ def list_documents(
         default=False,
         description="Show only documents without searchable text (text_source = none)",
     ),
+    attention: DocumentAttentionFilter | None = Query(
+        default=None,
+        description="Filter by a dashboard attention category (unread, unclassified, without_document_type, ocr_issues, retention_due)",
+    ),
     sort: DocumentSortField = Query(default=DocumentSortField.created_at, description="Sort field"),
     order: SortOrder = Query(default=SortOrder.desc, description="Sort order"),
     limit: int = Query(default=20, ge=1, le=100, description="Page size"),
@@ -94,6 +99,7 @@ def list_documents(
         in_trash=in_trash,
         favorites_only=favorites_only,
         without_text=without_text,
+        attention=attention,
         sort=sort,
         order=order,
         limit=limit,

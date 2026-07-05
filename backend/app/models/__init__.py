@@ -10,6 +10,7 @@ from app.models.global_setting import GlobalSetting
 from app.models.import_inbox import ImportInboxItem
 from app.models.job import Job
 from app.models.saved_search import SavedSearch
+from app.models.search_event import SearchEvent
 from app.models.scanner import ScannerDevice, ScannerDeviceRecipient, ScannerScanCommand, ScannerScanJob
 from app.models.smart_folder import SmartFolder
 from app.models.tag import Tag
@@ -31,6 +32,7 @@ __all__ = [
     "Tag",
     "Job",
     "SavedSearch",
+    "SearchEvent",
     "ScannerDevice",
     "ScannerDeviceRecipient",
     "ScannerScanCommand",

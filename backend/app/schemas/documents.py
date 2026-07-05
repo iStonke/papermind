@@ -92,6 +92,16 @@ class SortOrder(str, Enum):
     desc = "desc"
 
 
+class DocumentAttentionFilter(str, Enum):
+    """Handlungsleitende Filter für die Dashboard-Aufmerksamkeits-Kacheln."""
+
+    unread = "unread"
+    unclassified = "unclassified"  # ai_status pending/error
+    without_document_type = "without_document_type"  # kein gesetzter Dokumenttyp
+    ocr_issues = "ocr_issues"  # kein durchsuchbarer Text oder schlechte OCR-Qualität
+    retention_due = "retention_due"  # Aufbewahrungsfrist läuft in den nächsten 30 Tagen ab
+
+
 class DocumentCreateRequest(BaseModel):
     original_filename: str = Field(min_length=1, max_length=1000)
     document_date: date | None = Field(default=None, validation_alias=AliasChoices("document_date", "doc_date"))
