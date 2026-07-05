@@ -5427,6 +5427,18 @@ onBeforeUnmount(() => {
   gap: 4px;
 }
 
+/* Aktiver Farbmodus deutlich hervorheben: getönte Fläche + Akzent-Icon.
+   Ohne dies überschreibt die generische .isd-toolbar-left .v-icon-Regel
+   (on-surface 0.72) die primary-Färbung, sodass die aktive Aktion
+   optisch nicht von den inaktiven zu unterscheiden war. */
+.isd-color-btn--active:not(.v-btn--disabled) {
+  background: rgba(var(--v-theme-primary), 0.16) !important;
+}
+
+.isd-color-btn--active:not(.v-btn--disabled) :deep(.v-icon) {
+  color: rgb(var(--v-theme-primary)) !important;
+}
+
 
 .isd-ai-group {
   display: flex;
