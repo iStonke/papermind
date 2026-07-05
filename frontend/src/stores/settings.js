@@ -92,6 +92,7 @@ function createDefaultSettings() {
       color_variant: 'teal',
       start_view: 'all',
       showFilenameSuffix: true,
+      previewDrawerGradientEnabled: true,
       drawerRememberState: true,
       tagDrawerRememberState: true,
       sidebar_show_recent: true,
@@ -319,6 +320,7 @@ export const useSettingsStore = defineStore('settings', {
         recent_import_window_hours: false,
         trash_retention_days: false,
         show_filename_suffix: false,
+        preview_drawer_gradient: false,
         drawer_remember_state: false,
         tag_drawer_remember_state: false,
         sidebar_sections: false,
@@ -406,6 +408,10 @@ export const useSettingsStore = defineStore('settings', {
             typeof payload?.ui?.showFilenameSuffix === 'boolean'
               ? payload.ui.showFilenameSuffix
               : defaults.ui.showFilenameSuffix,
+          previewDrawerGradientEnabled:
+            typeof payload?.ui?.previewDrawerGradientEnabled === 'boolean'
+              ? payload.ui.previewDrawerGradientEnabled
+              : defaults.ui.previewDrawerGradientEnabled,
           drawerRememberState:
             typeof payload?.ui?.drawerRememberState === 'boolean'
               ? payload.ui.drawerRememberState

@@ -60,7 +60,7 @@
             key="documents"
             ref="documentListRef"
             class="document-list document-list-state"
-            :class="{ 'document-list--with-bottom-spacer': bottomSpacerHeight > 0 }"
+            :class="{ 'document-list--with-bottom-spacer': effectiveBottomSpacerHeight > 0 }"
           >
             <div
               v-if="virtualTopPad > 0"
@@ -237,9 +237,9 @@
               aria-hidden="true"
             />
             <div
-              v-if="bottomSpacerHeight > 0"
+              v-if="effectiveBottomSpacerHeight > 0"
               class="document-list__bottom-spacer"
-              :style="{ height: `${bottomSpacerHeight}px` }"
+              :style="{ height: `${effectiveBottomSpacerHeight}px` }"
               aria-hidden="true"
             />
             <div
@@ -360,6 +360,10 @@ const { documents, selectedDocumentId } = storeToRefs(docStore);
 const listShell = ref(null);
 const documentListRef = ref(null);
 const showPdfSuffixComputed = computed(() => settingsStore.settingsDraft?.ui?.showFilenameSuffix ?? false);
+const DOCUMENT_LIST_BOTTOM_SPACER = 16;
+const effectiveBottomSpacerHeight = computed(() =>
+  DOCUMENT_LIST_BOTTOM_SPACER + Math.max(0, Number(props.bottomSpacerHeight || 0))
+);
 
 // ── Virtualisierung (Windowing) ─────────────────────────────────────────────
 // Lange Listen erzeugen sonst pro Zeile teure Komponenten (v-menu/v-btn/v-chip).

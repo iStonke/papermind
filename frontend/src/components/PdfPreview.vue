@@ -293,6 +293,7 @@ const activeAnnotationTool = computed(() => {
 const pdfPreviewClasses = computed(() => {
   const tool = activeAnnotationTool.value;
   return {
+    'pdf-preview--document-ready': firstPageReady.value,
     'pdf-preview--tool-active': Boolean(tool),
     [`pdf-preview--tool-${tool}`]: Boolean(tool),
   };
@@ -2349,6 +2350,10 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: var(--pm-viewer-surface, rgb(var(--v-theme-surface)));
+}
+
+.pdf-preview--document-ready {
   background: var(--pm-pdf-stage-bg, rgb(var(--v-theme-surface)));
 }
 
@@ -2767,6 +2772,7 @@ onBeforeUnmount(() => {
   position: relative;
   border-radius: 6px;
   overflow: hidden;
+  background: var(--pm-pdf-page-bg, #fff);
 }
 
 /* Schatten erst zeigen, sobald Seite gerendert ist (Inner-Div hat Inhalt) */
@@ -2781,7 +2787,7 @@ onBeforeUnmount(() => {
 
 /* Shimmer solange noch nicht gerendert */
 .pdf-preview__page-inner:empty {
-  background: rgb(var(--v-theme-on-surface) / 0.05);
+  background: var(--pm-pdf-page-bg, rgb(var(--v-theme-on-surface) / 0.05));
   animation: pdf-shimmer 1.4s ease-in-out infinite;
 }
 

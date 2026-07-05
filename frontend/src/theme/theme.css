@@ -64,6 +64,7 @@
   --pm-app-surface-raised:   #ffffff;
   --pm-app-surface-contrast: #ffffff;
   --pm-pdf-stage-bg:         #f1f4fa;
+  --pm-pdf-page-bg:          #ffffff;
   --pm-sidebar-hover:        color-mix(in srgb, var(--pm-accent) 8%, transparent);
   --pm-sidebar-active:       color-mix(in srgb, var(--pm-accent) 14%, transparent);
   --pm-row-hover:            #f3f6fb;
@@ -154,6 +155,7 @@
   --pm-app-surface-raised:   var(--pm-v-card);
   --pm-app-surface-contrast: var(--pm-v-card);
   --pm-pdf-stage-bg:         var(--pm-v-panel-right);
+  --pm-pdf-page-bg:          #f8fafc;
   --pm-sidebar-hover:        color-mix(in srgb, var(--pm-accent) 10%, transparent);
   --pm-sidebar-active:       color-mix(in srgb, var(--pm-accent) 16%, transparent);
   --pm-row-hover:            var(--pm-v-card-hover);

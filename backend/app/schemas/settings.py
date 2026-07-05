@@ -161,6 +161,7 @@ class UISettingsRead(BaseModel):
     color_variant: ColorVariant = ColorVariant.teal
     start_view: StartView = StartView.all
     showFilenameSuffix: bool = True
+    previewDrawerGradientEnabled: bool = True
     drawerRememberState: bool = True
     tagDrawerRememberState: bool = True
     sidebar_show_recent: bool = True
@@ -306,6 +307,7 @@ class UISettingsPatch(BaseModel):
     color_variant: ColorVariant | None = None
     start_view: StartView | None = None
     showFilenameSuffix: bool | None = None
+    previewDrawerGradientEnabled: bool | None = None
     drawerRememberState: bool | None = None
     tagDrawerRememberState: bool | None = None
     sidebar_show_recent: bool | None = None

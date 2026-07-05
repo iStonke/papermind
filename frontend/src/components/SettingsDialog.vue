@@ -205,6 +205,32 @@
               class="pm-setting-row"
               role="button"
               tabindex="0"
+              @click="togglePreviewDrawerGradientFromRow"
+              @keydown="handleSettingRowShortcut($event, togglePreviewDrawerGradientFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Vorschau-Verlauf</div>
+                <div class="pm-setting-description">
+                  Blendet den Bereich hinter den Dokumentdetails weich aus.
+                </div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.ui.previewDrawerGradientEnabled"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.preview_drawer_gradient"
+                :disabled="isSettingSaving.preview_drawer_gradient"
+                @click.stop
+                @update:model-value="onPreviewDrawerGradientChange"
+              />
+            </div>
+
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
               @click="toggleDrawerRememberStateFromRow"
               @keydown="handleSettingRowShortcut($event, toggleDrawerRememberStateFromRow)"
             >
@@ -2083,6 +2109,7 @@ import {
   buildSidebarShowNoTextPatch,
   buildSidebarShowChatPatch,
   buildOcrDocLangPatch,
+  buildPreviewDrawerGradientPatch,
   buildRecentImportWindowPatch,
   buildShowFilenameSuffixPatch,
   buildSidebarSectionsPatch,
@@ -3435,6 +3462,26 @@ async function onShowFilenameSuffixChange(nextValue) {
 function toggleShowFilenameSuffixFromRow() {
   if (isSettingSaving.show_filename_suffix) return;
   void onShowFilenameSuffixChange(!settingsDraft.ui.showFilenameSuffix);
+}
+
+// ── Vorschau-Verlauf ─────────────────────────────────────────────────────────
+
+async function onPreviewDrawerGradientChange(nextValue) {
+  if (isSettingSaving.preview_drawer_gradient) return;
+  const nextBool = Boolean(nextValue);
+  if (nextBool === settingsDraft.ui.previewDrawerGradientEnabled) return;
+  const previous = settingsDraft.ui.previewDrawerGradientEnabled;
+  settingsStore.setDraftPatch({ ui: { previewDrawerGradientEnabled: nextBool } });
+  await patchSettingsWithRevert({
+    patch: buildPreviewDrawerGradientPatch(nextBool),
+    controlKey: 'preview_drawer_gradient',
+    revert: () => settingsStore.setDraftPatch({ ui: { previewDrawerGradientEnabled: previous } })
+  });
+}
+
+function togglePreviewDrawerGradientFromRow() {
+  if (isSettingSaving.preview_drawer_gradient) return;
+  void onPreviewDrawerGradientChange(!settingsDraft.ui.previewDrawerGradientEnabled);
 }
 
 // ── Drawer: Zustand merken ───────────────────────────────────────────────────

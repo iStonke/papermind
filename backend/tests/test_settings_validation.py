@@ -52,18 +52,21 @@ class SettingsValidationTest(unittest.TestCase):
             {
                 "ui": {
                     "showFilenameSuffix": False,
+                    "previewDrawerGradientEnabled": False,
                     "drawerRememberState": True,
                     "tagDrawerRememberState": False,
                 }
             }
         )
         self.assertIs(payload.ui.showFilenameSuffix, False)
+        self.assertIs(payload.ui.previewDrawerGradientEnabled, False)
         self.assertIs(payload.ui.drawerRememberState, True)
         self.assertIs(payload.ui.tagDrawerRememberState, False)
 
     def test_ui_new_toggle_defaults_present_in_read_model(self) -> None:
         payload = AppSettingsRead.model_validate({})
         self.assertIs(payload.ui.showFilenameSuffix, True)
+        self.assertIs(payload.ui.previewDrawerGradientEnabled, True)
         self.assertEqual(payload.ui.color_variant.value, "teal")
         self.assertIs(payload.ui.drawerRememberState, True)
         self.assertIs(payload.ui.tagDrawerRememberState, True)

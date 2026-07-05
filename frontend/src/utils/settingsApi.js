@@ -14,6 +14,10 @@ export function buildShowFilenameSuffixPatch(enabled) {
   return { ui: { showFilenameSuffix: Boolean(enabled) } };
 }
 
+export function buildPreviewDrawerGradientPatch(enabled) {
+  return { ui: { previewDrawerGradientEnabled: Boolean(enabled) } };
+}
+
 export function buildDrawerRememberStatePatch(enabled) {
   return { ui: { drawerRememberState: Boolean(enabled) } };
 }

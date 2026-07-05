@@ -23,6 +23,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "color_variant": "teal",
         "start_view": "all",
         "showFilenameSuffix": True,
+        "previewDrawerGradientEnabled": True,
         "drawerRememberState": True,
         "tagDrawerRememberState": True,
         "sidebar_show_recent": True,

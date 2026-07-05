@@ -2369,6 +2369,9 @@ const isDetailsDrawerChevronExpanded = computed(() => isDetailsDrawerOpen.value)
 const detailsDrawerChevronIcon = computed(() =>
   isDetailsDrawerChevronExpanded.value ? 'mdi-chevron-down' : 'mdi-chevron-up'
 );
+const previewDrawerGradientEnabled = computed(
+  () => settingsStore.settingsDraft.ui.previewDrawerGradientEnabled !== false
+);
 const detailsDrawerCardStyle = computed(() => {
   const isDark = theme.global.name.value === 'dark';
   return {
@@ -2380,7 +2383,8 @@ const detailsDrawerCardStyle = computed(() => {
     '--preview-drawer-collapsed-shadow': isDark
       ? '0 18px 48px rgba(0, 0, 0, 0.32), 0 2px 8px rgba(0, 0, 0, 0.24)'
       : '0 24px 60px rgba(15, 23, 42, 0.22), 0 8px 18px rgba(15, 23, 42, 0.12), 0 0 0 1px rgba(255, 255, 255, 0.9) inset',
-    '--preview-drawer-scrim-rgb': '255, 255, 255'
+    '--preview-drawer-scrim-opacity': previewDrawerGradientEnabled.value ? '1' : '0',
+    '--preview-drawer-scrim-rgb': isDark ? '17, 25, 35' : '255, 255, 255'
   };
 });
 const detailsHeaderTitleStyle = computed(() => {
@@ -7840,12 +7844,27 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-foot__btn {
-  color: var(--pm-muted);
+  border-radius: 10px;
+  color: var(--pm-muted) !important;
+  transition:
+    background-color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .sidebar-foot__rail-settings {
   display: none !important;
-  color: var(--pm-muted);
+  color: var(--pm-muted) !important;
+  transition:
+    background-color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.sidebar-foot__btn:hover,
+.sidebar-foot__btn:focus-visible,
+.sidebar-foot__rail-settings:hover,
+.sidebar-foot__rail-settings:focus-visible {
+  background: var(--pm-sidebar-hover) !important;
+  color: var(--pm-accent) !important;
 }
 
 .appbar-search__field .v-field--focused .v-field__outline {
@@ -9841,14 +9860,8 @@ onBeforeUnmount(() => {
   box-shadow: inset -1px 0 0 var(--pm-dark-outline);
 }
 
-.papermind-app.v-theme--dark .panel-right,
 .papermind-app.v-theme--dark .panel-right__preview {
-  background: #f1f4fa;
-}
-
-.papermind-app.v-theme--dark .panel-right__preview {
-  --pm-viewer-surface: #f1f4fa;
-  --pm-pdf-stage-bg: #f1f4fa;
+  --pm-pdf-stage-bg: var(--pm-viewer-surface);
 }
 
 /* Tag-Schublade im Darkmode: flache Oberfläche wie die Detailschublade,
@@ -10630,7 +10643,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: stretch;
   justify-content: center;
-  background: var(--pm-pdf-stage-bg);
+  background: var(--pm-viewer-surface);
 }
 
 .preview-frame {

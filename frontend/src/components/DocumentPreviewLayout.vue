@@ -193,7 +193,7 @@ const drawerStyle = computed(() => {
 }
 
 .preview-layout--floating-card.preview-layout--drawer-open::after {
-  opacity: 1;
+  opacity: var(--preview-drawer-scrim-opacity, 1);
 }
 
 .preview-layout__viewer {
