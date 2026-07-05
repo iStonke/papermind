@@ -4,7 +4,7 @@
     :persistent="isUploadingSources || isCommitting"
     :guard-close="hasStagedPages"
     :max-width="MODAL_WORK_WIDTH_SPLIT"
-    :card-class="['isd-card']"
+    :card-class="['isd-card', { 'isd-card--empty': isEmpty }]"
     title="Importieren"
     header-subtitle="Gescannte Seiten als neues Dokument"
     @request-close="requestCloseImport"
@@ -72,25 +72,35 @@
             @dragleave="onDropzoneDragLeave"
             @drop.prevent="onDropzoneDrop"
           >
-            <div class="isd-dropzone__icon" :class="{ 'isd-dropzone__icon--scanning': props.scannerActive }">
-              <v-icon size="52" class="isd-dropzone__icon-svg">
-                {{ props.scannerActive ? 'mdi-scanner' : 'mdi-tray-arrow-down' }}
-              </v-icon>
-            </div>
-            <div class="isd-dropzone__text">
-              <template v-if="props.scannerActive">
+            <!-- Scanner-Feedback: pulsierendes Scanner-Icon -->
+            <template v-if="props.scannerActive">
+              <div class="isd-dropzone__icon isd-dropzone__icon--scanning">
+                <v-icon size="52" class="isd-dropzone__icon-svg">mdi-scanner</v-icon>
+              </div>
+              <div class="isd-dropzone__text">
                 <p class="isd-dropzone__title">{{ scannerFeedbackTitle }}</p>
                 <p class="isd-dropzone__subtitle">{{ scannerFeedbackSubtitle }}</p>
-              </template>
-              <template v-else>
-                <p class="isd-dropzone__title">
-                  PDF-Dateien auswählen<br>oder hierher ziehen
-                </p>
-                <p class="isd-dropzone__subtitle">
-                  Mehrere Dateien gleichzeitig möglich
-                </p>
-              </template>
-            </div>
+              </div>
+            </template>
+
+            <!-- Leerzustand: schwebender Papierstapel -->
+            <template v-else>
+              <div class="isd-dz-stack" aria-hidden="true">
+                <div class="isd-dz-stack__page isd-dz-stack__page--back-a"></div>
+                <div class="isd-dz-stack__page isd-dz-stack__page--back-b"></div>
+                <div class="isd-dz-stack__page isd-dz-stack__page--front">
+                  <span class="isd-dz-stack__line isd-dz-stack__line--accent"></span>
+                  <span class="isd-dz-stack__line" style="width: 100%"></span>
+                  <span class="isd-dz-stack__line" style="width: 88%"></span>
+                  <span class="isd-dz-stack__line" style="width: 94%"></span>
+                  <span class="isd-dz-stack__line isd-dz-stack__line--soft" style="width: 60%"></span>
+                </div>
+              </div>
+              <div class="isd-dropzone__text">
+                <p class="isd-dropzone__title">Seiten hierher ziehen</p>
+                <p class="isd-dropzone__subtitle">werden zu einem neuen Dokument zusammengefügt</p>
+              </div>
+            </template>
             <div class="isd-dropzone__actions" @click.stop>
               <button
                 type="button"
@@ -411,8 +421,11 @@
         </div>
       </div>
 
-      <!-- Right column: document properties -->
-      <div class="isd-props" :class="{ 'isd-props--disabled': isEmpty }">
+      <!-- Right column: document properties.
+           Wird im Leerzustand ausgeblendet und erst eingeblendet (Slide/Expand),
+           sobald mindestens eine Seite hinzugefügt wurde. -->
+      <Transition name="isd-props-reveal">
+      <div v-if="!isEmpty" class="isd-props">
         <div class="isd-props-mode" role="tablist" aria-label="Rechte Ansicht">
           <button
             type="button"
@@ -695,6 +708,7 @@
         </div>
 
       </div>
+      </Transition>
     </div>
 
     <template #footer>
@@ -1215,19 +1229,7 @@ const previewMagnifierStyle = computed(() => ({
   backgroundSize: `${Math.round(previewMagnifier.value.bgWidth)}px ${Math.round(previewMagnifier.value.bgHeight)}px`,
   backgroundPosition: `${Math.round(previewMagnifier.value.bgX)}px ${Math.round(previewMagnifier.value.bgY)}px`
 }));
-const MODAL_WORK_WIDTH_COMPACT = 860;
 const MODAL_WORK_WIDTH_SPLIT = 1180;
-const dialogMaxWidth = computed(() => isEmpty.value ? MODAL_WORK_WIDTH_COMPACT : MODAL_WORK_WIDTH_SPLIT);
-const dialogCardClass = computed(() => {
-  if (isEmpty.value) {
-    return ['import-staging-dialog-card', 'import-modal--empty'];
-  }
-  return ['import-staging-dialog-card', 'import-modal--work', 'import-modal--work-split'];
-});
-const dialogBodyClass = computed(() => [
-  'import-staging-dialog-body',
-  isEmpty.value ? 'import-staging-dialog-body--empty' : 'import-staging-dialog-body--work'
-]);
 const peekStyle = computed(() => ({
   left: `${Math.round(peek.value.x)}px`,
   top: `${Math.round(peek.value.y)}px`
@@ -4780,6 +4782,24 @@ onBeforeUnmount(() => {
   height: min(820px, 90vh) !important;
   min-height: min(820px, 90vh) !important;
   max-height: min(820px, 90vh) !important;
+  /* Volle Arbeitsbreite (Split). Im Leerzustand kleiner (siehe --empty).
+     Die Breitenänderung wird animiert, wenn die erste Seite hinzukommt. */
+  width: 1180px;
+  max-width: 100%;
+  /* Der Overlay-Container (.v-overlay__content) ist ein 1180px-Flexbox mit
+     justify:flex-start; das schmale Leer-Fenster bliebe sonst linksbündig.
+     auto-Ränder zentrieren die Karte und halten sie beim Aufziehen mittig. */
+  margin-inline: auto;
+  transition: width 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Leerzustand: deutlich schmaleres Fenster (nur Dropzone). */
+.isd-card--empty.pm-dialog {
+  width: 680px;
+}
+
+.pm-no-animations .isd-card.pm-dialog {
+  transition: none !important;
 }
 
 .isd-card.pm-dialog .pm-dialog__header {
@@ -4858,7 +4878,10 @@ onBeforeUnmount(() => {
 }
 
 .isd-left {
-  flex: 0 0 65%;
+  /* Wächst auf volle Breite, solange die rechte Leiste (isd-props) fehlt
+     (Leerzustand); mit sichtbarer Leiste bleiben es effektiv 65 %. */
+  flex: 1 1 auto;
+  min-width: 0;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -4881,6 +4904,12 @@ onBeforeUnmount(() => {
   50%       { transform: translateY(5px); }
 }
 
+/* Schwebende vordere Seite des Papierstapels */
+@keyframes isd-dz-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-7px); }
+}
+
 .isd-dropzone {
   width: 100%;
   height: 100%;
@@ -4889,30 +4918,87 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 0;
-  padding: 32px;
+  padding: 30px;
   text-align: center;
-  border: 2px dashed rgb(var(--v-theme-primary));
-  border-radius: 12px;
+  border: 1.6px dashed rgba(var(--v-theme-on-surface), 0.16);
+  border-radius: 16px;
   cursor: default;
-  transition: background 0.15s;
   box-sizing: border-box;
-  /* 1 — Schraffur */
-  background-image:
-    repeating-linear-gradient(
-      -45deg,
-      rgba(var(--v-theme-primary), 0.025) 0px,
-      rgba(var(--v-theme-primary), 0.025) 1px,
-      transparent 1px,
-      transparent 10px
-    );
-  background-color: rgba(var(--v-theme-primary), 0.03);
+  background-color: rgba(var(--v-theme-on-surface), 0.015);
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .isd-dropzone--over {
+  border-color: rgba(var(--v-theme-primary), 0.55);
   background-color: rgba(var(--v-theme-primary), 0.08);
+  box-shadow:
+    inset 0 0 0 2px rgba(var(--v-theme-primary), 0.55),
+    0 0 60px rgba(var(--v-theme-primary), 0.18);
 }
 
-/* 2 — Icon-Animation */
+/* Papierstapel-Illustration (reines CSS) */
+.isd-dz-stack {
+  position: relative;
+  width: 150px;
+  height: 150px;
+  margin-bottom: 24px;
+}
+
+.isd-dz-stack__page {
+  position: absolute;
+  width: 90px;
+  height: 112px;
+  border-radius: 9px;
+}
+
+.isd-dz-stack__page--back-a {
+  left: 22px;
+  top: 44px;
+  background: rgb(var(--v-theme-surface-2));
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+  transform: rotate(-11deg);
+}
+
+.isd-dz-stack__page--back-b {
+  left: 38px;
+  top: 34px;
+  background: rgb(var(--v-theme-surface-3));
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+  transform: rotate(6deg);
+}
+
+.isd-dz-stack__page--front {
+  left: 30px;
+  top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 14px;
+  background: linear-gradient(160deg, #e9eef4, #c9d4de);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.4);
+  animation: isd-dz-float 4s ease-in-out infinite;
+}
+
+.isd-dz-stack__line {
+  height: 5px;
+  border-radius: 3px;
+  background: #aab6c2;
+}
+
+.isd-dz-stack__line--accent {
+  height: 6px;
+  width: 70%;
+  background: rgb(var(--v-theme-primary));
+}
+
+.isd-dz-stack__line--soft {
+  background: #c2ccd6;
+}
+
+/* Scanner-Feedback-Icon (Scanner aktiv) */
 .isd-dropzone__icon {
   color: rgb(var(--v-theme-primary));
   margin-bottom: 18px;
@@ -4925,49 +5011,49 @@ onBeforeUnmount(() => {
 .isd-dropzone__text {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
 
-/* 4 — Titel stärker */
 .isd-dropzone__title {
   margin: 0;
-  font-size: 15px;
+  font-size: 19px;
   font-weight: 600;
-  line-height: 1.45;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
   color: rgb(var(--v-theme-on-surface));
 }
 
 .isd-dropzone__subtitle {
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
-  color: rgba(var(--v-theme-on-surface), 0.45);
+  color: rgb(var(--v-theme-text-muted));
 }
 
 .isd-dropzone__actions {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 260px;
+  max-width: 100%;
+  margin-top: 28px;
 }
 
 .isd-dropzone__action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  min-width: 132px;
-  min-height: 34px;
-  padding: 0 14px;
-  border: 1px solid rgba(var(--v-theme-primary), 0.26);
-  border-radius: 8px;
-  background: rgba(var(--v-theme-surface), 0.78);
-  color: rgb(var(--v-theme-primary));
+  gap: 9px;
+  width: 100%;
+  min-height: 44px;
+  padding: 13px 20px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
+  border-radius: 11px;
+  background: rgba(var(--v-theme-on-surface), 0.03);
+  color: rgba(var(--v-theme-on-surface), 0.82);
   font: inherit;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
   letter-spacing: 0;
   cursor: pointer;
   transition:
@@ -4978,8 +5064,8 @@ onBeforeUnmount(() => {
 
 .isd-dropzone__action:hover:not(:disabled),
 .isd-dropzone__action:focus-visible {
-  border-color: rgba(var(--v-theme-primary), 0.45);
-  background: rgba(var(--v-theme-primary), 0.08);
+  border-color: rgba(var(--v-theme-primary), 0.4);
+  color: rgb(var(--v-theme-on-surface));
   outline: none;
 }
 
@@ -5397,11 +5483,42 @@ onBeforeUnmount(() => {
  * Statusleiste unten. */
 .isd-props {
   flex: 0 0 35%;
+  min-width: 0;
   position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+}
+
+/* Rechte Leiste einblenden, sobald die erste Seite da ist: aus 0-Breite
+   aufziehen + einblenden/hereinschieben. Umgekehrt beim Leeren. */
+.isd-props-reveal-enter-active {
+  transition:
+    flex-basis 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.3s ease 0.04s,
+    transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
+}
+
+.isd-props-reveal-leave-active {
+  transition:
+    flex-basis 0.24s cubic-bezier(0.4, 0, 1, 1),
+    opacity 0.18s ease,
+    transform 0.24s ease;
+  overflow: hidden;
+}
+
+.isd-props-reveal-enter-from,
+.isd-props-reveal-leave-to {
+  flex-basis: 0 !important;
+  opacity: 0;
+  transform: translateX(18px);
+}
+
+:global(.pm-no-animations) .isd-props-reveal-enter-active,
+:global(.pm-no-animations) .isd-props-reveal-leave-active {
+  transition: none;
 }
 
 @keyframes isd-ai-scan {
@@ -5598,11 +5715,6 @@ onBeforeUnmount(() => {
   font-size: 12px;
   font-weight: 650;
   text-align: center;
-}
-
-.isd-props--disabled {
-  pointer-events: none;
-  opacity: 0.4;
 }
 
 /* ── Fields ── */
