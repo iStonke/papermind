@@ -155,5 +155,7 @@ export {
   mdiTrendingUp,
   mdiViewDashboardOutline,
   mdiViewGridOutline,
+  mdiWeatherNight,
+  mdiWeatherSunny,
   mdiWindowMinimize,
 } from '@mdi/js';

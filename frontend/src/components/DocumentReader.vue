@@ -4,6 +4,7 @@
     <div
       v-if="!leaving"
       class="doc-reader"
+      :class="{ 'doc-reader--light': readerTheme === 'light' }"
       role="dialog"
       aria-modal="true"
       :aria-label="`Lesemodus: ${title || 'Dokument'}`"
@@ -34,6 +35,16 @@
         </div>
         <div class="doc-reader__bar-actions">
           <div class="doc-reader__view-toggle" role="group" aria-label="Ansicht">
+            <button
+              class="doc-reader__icon-btn"
+              :aria-pressed="readerTheme === 'light'"
+              :aria-label="readerTheme === 'light' ? 'Dunklen Lesemodus aktivieren' : 'Hellen Lesemodus aktivieren'"
+              :title="readerTheme === 'light' ? 'Dunkle Ansicht' : 'Helle Ansicht'"
+              @click="toggleReaderTheme"
+            >
+              <v-icon size="20">{{ readerTheme === 'light' ? 'mdi-weather-night' : 'mdi-weather-sunny' }}</v-icon>
+            </button>
+            <span class="doc-reader__view-divider" role="separator" aria-hidden="true" />
             <button
               class="doc-reader__icon-btn"
               :class="{ 'doc-reader__icon-btn--active': showThumbs }"
@@ -268,6 +279,8 @@ const storedToggles = readStoredToggles();
 const showThumbs = ref(typeof storedToggles.thumbs === 'boolean' ? storedToggles.thumbs : true);
 const showNotes = ref(typeof storedToggles.notes === 'boolean' ? storedToggles.notes : true);
 const showTools = ref(typeof storedToggles.tools === 'boolean' ? storedToggles.tools : false);
+// Eigenständige Lesemodus-Optik (unabhängig vom App-Theme): dunkel als Voreinstellung.
+const readerTheme = ref(storedToggles.theme === 'light' ? 'light' : 'dark');
 const pageTotal = ref(0);
 const leaving = ref(false); // steuert die Leave-Transition vor dem Schließen
 
@@ -428,13 +441,17 @@ watch(
   { immediate: true },
 );
 
-watch([showThumbs, showNotes, showTools], ([thumbs, notes, tools]) => {
+watch([showThumbs, showNotes, showTools, readerTheme], ([thumbs, notes, tools, theme]) => {
   if (typeof window === 'undefined') return;
   window.localStorage.setItem(
     READER_TOGGLE_STORAGE_KEY,
-    JSON.stringify({ thumbs, notes, tools }),
+    JSON.stringify({ thumbs, notes, tools, theme }),
   );
 });
+
+function toggleReaderTheme() {
+  readerTheme.value = readerTheme.value === 'light' ? 'dark' : 'light';
+}
 
 function cancelEdit() {
   editingId.value = null;
@@ -509,13 +526,44 @@ onBeforeUnmount(() => {
   z-index: 2000;
   display: flex;
   flex-direction: column;
+
+  /* Dunkle Voreinstellung. Alle Flächen/Trenner laufen über diese Tokens,
+     damit die helle Variante nur die Werte umschalten muss. */
+  --reader-bg: rgb(8 13 23);
   --reader-panel-bg: rgb(12 18 30);
   --reader-panel-bg-soft: rgb(15 22 36);
-  --reader-divider: rgb(255 255 255 / 0.08);
-  --reader-muted: rgb(226 232 240 / 0.62);
+  --reader-bar-bg: rgb(10 16 27 / 0.96);
+  --reader-input-bg: rgb(8 13 23);
   --reader-text: rgb(241 245 249);
-  background: rgb(8 13 23);
+  --reader-text-rgb: 241 245 249;
+  --reader-muted: rgb(226 232 240 / 0.62);
+  --reader-muted-rgb: 226 232 240;
+  /* Grund-Ton für durchscheinende Overlays (Hover/Ränder/Chips). */
+  --reader-overlay-rgb: 255 255 255;
+  --reader-divider: rgb(var(--reader-overlay-rgb) / 0.08);
+  --reader-page-shadow: rgb(0 0 0 / 0.3);
+  --reader-thumb-shadow: rgb(0 0 0 / 0.22);
+  --reader-thumb-num-bg: rgb(15 23 42 / 0.72);
+
+  background: var(--reader-bg);
   color: var(--reader-text);
+}
+
+.doc-reader--light {
+  --reader-bg: #eef2f8;
+  --reader-panel-bg: #f1f4fa;
+  --reader-panel-bg-soft: #e9eef5;
+  --reader-bar-bg: rgb(247 249 252 / 0.96);
+  --reader-input-bg: #ffffff;
+  --reader-text: #0f172a;
+  --reader-text-rgb: 15 23 42;
+  --reader-muted: rgb(51 65 85 / 0.72);
+  --reader-muted-rgb: 51 65 85;
+  --reader-overlay-rgb: 15 23 42;
+  --reader-divider: rgb(var(--reader-overlay-rgb) / 0.1);
+  --reader-page-shadow: rgb(15 23 42 / 0.14);
+  --reader-thumb-shadow: rgb(15 23 42 / 0.12);
+  --reader-thumb-num-bg: rgb(15 23 42 / 0.6);
 }
 
 .doc-reader__bar {
@@ -527,7 +575,7 @@ onBeforeUnmount(() => {
   min-height: 54px;
   padding: 8px 18px;
   border-bottom: 1px solid var(--reader-divider);
-  background: rgb(10 16 27 / 0.96);
+  background: var(--reader-bar-bg);
 }
 
 .doc-reader__bar-left {
@@ -598,6 +646,12 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
+.doc-reader__view-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--reader-divider);
+}
+
 .doc-reader__icon-btn {
   position: relative;
   display: inline-flex;
@@ -608,21 +662,21 @@ onBeforeUnmount(() => {
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: rgb(226 232 240 / 0.66);
+  color: rgb(var(--reader-muted-rgb) / 0.78);
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease, border-color 120ms ease, transform 120ms ease;
 }
 .doc-reader__icon-btn:hover {
-  background: rgb(255 255 255 / 0.07);
+  background: rgb(var(--reader-overlay-rgb) / 0.07);
   color: var(--reader-text);
 }
 .doc-reader__icon-btn:active {
   transform: scale(0.94);
 }
 .doc-reader__icon-btn--active {
-  background: rgb(255 255 255 / 0.075);
-  border-color: rgb(255 255 255 / 0.08);
-  color: rgb(241 245 249 / 0.92);
+  background: rgb(var(--reader-overlay-rgb) / 0.08);
+  border-color: rgb(var(--reader-overlay-rgb) / 0.1);
+  color: var(--reader-text);
 }
 .doc-reader__badge {
   position: absolute;
@@ -632,9 +686,9 @@ onBeforeUnmount(() => {
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  border: 1px solid rgb(8 13 23);
-  background: rgb(34 211 238);
-  color: rgb(8 13 23);
+  border: 1px solid var(--reader-bg);
+  background: rgb(var(--v-theme-primary));
+  color: #fff;
   font-size: 0.65rem;
   font-weight: 700;
   line-height: 16px;
@@ -645,7 +699,7 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
-  background: rgb(8 13 23);
+  background: var(--reader-bg);
 }
 
 /* ── Miniatur-Leiste ─────────────────────────────────────────────────────── */
@@ -693,8 +747,8 @@ onBeforeUnmount(() => {
   transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
 }
 .doc-reader__thumb:hover {
-  background: rgb(255 255 255 / 0.05);
-  border-color: rgb(255 255 255 / 0.08);
+  background: rgb(var(--reader-overlay-rgb) / 0.05);
+  border-color: rgb(var(--reader-overlay-rgb) / 0.08);
 }
 .doc-reader__thumb--active {
   background: rgb(var(--v-theme-primary) / 0.12);
@@ -710,7 +764,7 @@ onBeforeUnmount(() => {
   min-height: 168px;
   border-radius: 4px;
   background: #fff;
-  box-shadow: 0 4px 12px rgb(0 0 0 / 0.22);
+  box-shadow: 0 4px 12px var(--reader-thumb-shadow);
   opacity: 0;
   transition: opacity 220ms ease;
 }
@@ -722,7 +776,7 @@ onBeforeUnmount(() => {
   height: 18px;
   padding: 0 5px;
   border-radius: 9px;
-  background: rgb(15 23 42 / 0.72);
+  background: var(--reader-thumb-num-bg);
   color: #fff;
   font-size: 0.7rem;
   line-height: 18px;
@@ -737,7 +791,7 @@ onBeforeUnmount(() => {
   position: relative;
   contain: layout paint style;
   background:
-    linear-gradient(90deg, rgb(8 13 23) 0, rgb(12 18 30) 16%, rgb(12 18 30) 84%, rgb(8 13 23) 100%);
+    linear-gradient(90deg, var(--reader-bg) 0, var(--reader-panel-bg) 16%, var(--reader-panel-bg) 84%, var(--reader-bg) 100%);
 }
 
 .doc-reader__main :deep(.pdf-preview) {
@@ -780,7 +834,7 @@ onBeforeUnmount(() => {
 }
 
 .doc-reader__main :deep(.pdf-preview__page:has(.pdf-preview__page-inner:not(:empty))) {
-  box-shadow: 0 14px 34px rgb(0 0 0 / 0.3);
+  box-shadow: 0 14px 34px var(--reader-page-shadow);
 }
 
 /* ── Werkzeug-Leiste ─────────────────────────────────────────────────────── */
@@ -824,13 +878,13 @@ onBeforeUnmount(() => {
   border: 1px solid transparent;
   border-radius: 9px;
   background: transparent;
-  color: rgb(226 232 240 / 0.66);
+  color: rgb(var(--reader-muted-rgb) / 0.78);
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease, border-color 120ms ease, transform 120ms ease;
 }
 
 .doc-reader__tool-btn:hover {
-  background: rgb(255 255 255 / 0.07);
+  background: rgb(var(--reader-overlay-rgb) / 0.07);
   color: var(--reader-text);
 }
 
@@ -840,8 +894,8 @@ onBeforeUnmount(() => {
 
 .doc-reader__tool-btn--active {
   border-color: rgb(var(--v-theme-primary) / 0.46);
-  background: rgb(var(--v-theme-primary) / 0.14);
-  color: rgb(165 243 252);
+  background: rgb(var(--v-theme-primary) / 0.16);
+  color: rgb(var(--v-theme-primary));
   box-shadow: inset 0 0 0 1px rgb(var(--v-theme-primary) / 0.22);
 }
 
@@ -856,8 +910,8 @@ onBeforeUnmount(() => {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  /* Sichtbarer Rand auch für dunkle Farben (z. B. Schwarz) auf dem dunklen Panel. */
-  border: 2px solid rgb(255 255 255 / 0.18);
+  /* Sichtbarer Rand auch für dunkle Farben (z. B. Schwarz) auf dem Panel. */
+  border: 2px solid rgb(var(--reader-overlay-rgb) / 0.22);
   background: var(--swatch-color);
   cursor: pointer;
   padding: 0;
@@ -913,7 +967,7 @@ onBeforeUnmount(() => {
   height: 22px;
   padding: 0 8px;
   border-radius: 11px;
-  background: rgb(255 255 255 / 0.07);
+  background: rgb(var(--reader-overlay-rgb) / 0.07);
   color: var(--reader-muted);
   font-size: 0.72rem;
   line-height: 22px;
@@ -922,7 +976,7 @@ onBeforeUnmount(() => {
 .doc-reader__notes-empty {
   margin: 4px 18px;
   padding: 14px 12px;
-  border: 1px dashed rgb(255 255 255 / 0.12);
+  border: 1px dashed rgb(var(--reader-overlay-rgb) / 0.14);
   border-radius: 8px;
   display: flex;
   flex-direction: column;
@@ -932,7 +986,7 @@ onBeforeUnmount(() => {
 }
 
 .doc-reader__notes-empty strong {
-  color: rgb(241 245 249 / 0.82);
+  color: rgb(var(--reader-text-rgb) / 0.86);
   font-size: 0.82rem;
   font-weight: 600;
 }
@@ -970,15 +1024,15 @@ onBeforeUnmount(() => {
 .doc-reader__note {
   position: relative;
   padding: 10px 38px 10px 12px;
-  border: 1px solid rgb(255 255 255 / 0.08);
+  border: 1px solid rgb(var(--reader-overlay-rgb) / 0.08);
   border-left: 3px solid var(--note-color);
   border-radius: 8px;
-  background: rgb(255 255 255 / 0.035);
+  background: rgb(var(--reader-overlay-rgb) / 0.035);
   transition: background 120ms ease, border-color 120ms ease;
 }
 .doc-reader__note:hover {
-  background: rgb(255 255 255 / 0.055);
-  border-color: rgb(255 255 255 / 0.12);
+  background: rgb(var(--reader-overlay-rgb) / 0.06);
+  border-color: rgb(var(--reader-overlay-rgb) / 0.14);
 }
 .doc-reader__note-jump {
   display: flex;
@@ -1011,7 +1065,7 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   min-width: 0;
   font-size: 0.82rem;
-  color: rgb(241 245 249 / 0.9);
+  color: rgb(var(--reader-text-rgb) / 0.92);
   line-height: 1.35;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1021,9 +1075,9 @@ onBeforeUnmount(() => {
 .doc-reader__note-page {
   flex: 0 0 auto;
   padding: 2px 7px;
-  border: 1px solid rgb(255 255 255 / 0.08);
+  border: 1px solid rgb(var(--reader-overlay-rgb) / 0.08);
   border-radius: 999px;
-  background: rgb(255 255 255 / 0.04);
+  background: rgb(var(--reader-overlay-rgb) / 0.04);
   font-size: 0.7rem;
   color: var(--reader-muted);
   font-variant-numeric: tabular-nums;
@@ -1066,21 +1120,21 @@ onBeforeUnmount(() => {
   background: transparent;
   text-align: left;
   font-size: 0.78rem;
-  color: rgb(226 232 240 / 0.68);
+  color: rgb(var(--reader-muted-rgb) / 0.85);
   line-height: 1.4;
   cursor: text;
 }
 .doc-reader__note-comment--empty {
-  color: rgb(226 232 240 / 0.38);
+  color: rgb(var(--reader-muted-rgb) / 0.55);
   font-style: italic;
 }
 .doc-reader__note-input {
   width: 100%;
   margin-top: 6px;
   padding: 6px 8px;
-  border: 1px solid rgb(255 255 255 / 0.16);
+  border: 1px solid rgb(var(--reader-overlay-rgb) / 0.18);
   border-radius: 6px;
-  background: rgb(8 13 23);
+  background: var(--reader-input-bg);
   color: var(--reader-text);
   font: inherit;
   font-size: 0.8rem;
@@ -1117,7 +1171,7 @@ onBeforeUnmount(() => {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: rgb(226 232 240 / 0.42);
+  color: rgb(var(--reader-muted-rgb) / 0.55);
   cursor: pointer;
   opacity: 0;
   transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
