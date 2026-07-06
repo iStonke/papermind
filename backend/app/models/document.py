@@ -3,7 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import BIGINT, CheckConstraint, Date, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, Text, func
+from sqlalchemy import BIGINT, CheckConstraint, Date, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -75,6 +75,20 @@ class Document(Base):
         Index("ix_documents_simhash_bucket3", "simhash_bucket3"),
         Index("ix_documents_simhash_bucket4", "simhash_bucket4"),
         Index("ix_documents_correspondent_id", "correspondent_id"),
+        # Partielle Composite-Indizes für die usage_count-Aggregationen der
+        # Einstellungslisten (nur nicht-gelöschte Dokumente, pro Owner gruppiert).
+        Index(
+            "ix_documents_owner_type_active",
+            "owner_id",
+            "document_type",
+            postgresql_where=text("is_deleted = false"),
+        ),
+        Index(
+            "ix_documents_owner_correspondent_active",
+            "owner_id",
+            "correspondent_id",
+            postgresql_where=text("is_deleted = false"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

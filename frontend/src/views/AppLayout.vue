@@ -6,16 +6,21 @@
   >
     <router-view />
 
-    <!-- Global gemountet, damit das Zahnrad auf jeder Route funktioniert. -->
+    <!-- Global verfügbar, damit das Zahnrad auf jeder Route funktioniert. Der
+         Chunk (~114 kB) wird aber erst geladen/gemountet, sobald der Dialog das
+         erste Mal geöffnet wird (settingsEverOpened rastet ein) → schnellerer
+         Initial-Load. -->
     <SettingsDialog
+      v-if="settingsEverOpened"
       :model-value="ui.settingsOpen"
       :initial-category="ui.settingsCategory"
       @update:model-value="ui.settingsOpen = $event"
       @reload-imports="ui.signalImportsReload()"
     />
 
-    <!-- Konto-Dialog (Profil + Benutzerverwaltung), ebenfalls global. -->
+    <!-- Konto-Dialog (Profil + Benutzerverwaltung), ebenfalls global und faul. -->
     <AccountDialog
+      v-if="accountEverOpened"
       :model-value="ui.accountOpen"
       @update:model-value="ui.accountOpen = $event"
     />
@@ -23,7 +28,7 @@
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, onMounted, onBeforeUnmount, watch } from 'vue';
+import { computed, defineAsyncComponent, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useTheme } from 'vuetify';
 
 // Global gemountet, aber erst beim Öffnen gebraucht. SettingsDialog ist mit
@@ -42,6 +47,13 @@ const ui = useUiStore();
 const settingsDraft = settingsStore.settingsDraft;
 
 const appColorVariant = computed(() => resolvePaperMindColorVariant(settingsDraft.ui.color_variant));
+
+// Rasten beim ersten Öffnen ein und bleiben true, damit der Dialog danach seinen
+// Zustand behält und der zugehörige Chunk nur bei Bedarf geladen wird.
+const settingsEverOpened = ref(false);
+const accountEverOpened = ref(false);
+watch(() => ui.settingsOpen, (open) => { if (open) settingsEverOpened.value = true; }, { immediate: true });
+watch(() => ui.accountOpen, (open) => { if (open) accountEverOpened.value = true; }, { immediate: true });
 
 function resolveThemeName(mode) {
   if (mode === 'light' || mode === 'dark') return mode;

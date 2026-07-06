@@ -27,6 +27,7 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
 
   const correspondents = ref([]);
   const isLoaded = ref(false);
+  const isLoading = ref(false);
   const isMutationRunning = ref(false);
   // Verhindert Mehrfach-/Dauerabrufe (z. B. wenn der Endpoint nicht erreichbar
   // ist) und damit eine Konsolen-Fehlerflut.
@@ -76,6 +77,7 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
 
   async function fetchCorrespondents() {
     if (inFlight) return inFlight;
+    isLoading.value = true;
     inFlight = (async () => {
       try {
         const payload = await listCorrespondents(true);
@@ -90,6 +92,7 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
       } finally {
         loadAttempted = true;
         inFlight = null;
+        isLoading.value = false;
       }
     })();
     return inFlight;
@@ -227,6 +230,7 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
   return {
     correspondents,
     isLoaded,
+    isLoading,
     isMutationRunning,
     correspondentOptions,
     findById,

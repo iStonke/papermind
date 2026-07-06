@@ -26,6 +26,7 @@ export const useCategoryStore = defineStore('categories', () => {
   // ── State ──────────────────────────────────────────────────────────────
   const categories = ref([]);
   const isLoaded = ref(false);
+  const isLoading = ref(false);
   const isCategoryMutationRunning = ref(false);
 
   // ── Getters ──────────────────────────────────────────────────────────────
@@ -70,12 +71,15 @@ export const useCategoryStore = defineStore('categories', () => {
 
   /** Lädt alle Dokumenttypen (inkl. Zähler). */
   async function fetchCategories() {
+    isLoading.value = true;
     try {
       const payload = await listCategories(true);
       categories.value = payload?.items ?? [];
       isLoaded.value = true;
     } catch (error) {
       console.error('Dokumenttypen konnten nicht geladen werden:', error);
+    } finally {
+      isLoading.value = false;
     }
   }
 
@@ -197,6 +201,7 @@ export const useCategoryStore = defineStore('categories', () => {
     // State
     categories,
     isLoaded,
+    isLoading,
     isCategoryMutationRunning,
     // Getters
     sortedCategories,
