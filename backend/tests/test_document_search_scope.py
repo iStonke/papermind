@@ -34,6 +34,17 @@ class DocumentSearchScopeTest(unittest.TestCase):
         self.assertIn("document_tags", sql)
         self.assertIn("tags", sql)
 
+    def test_year_scope_searches_document_date_year(self) -> None:
+        compiled = self.service._build_scoped_search_filter("2026", DocumentSearchScope.year)
+        sql = str(compiled)
+
+        self.assertIn("EXTRACT(year FROM documents.document_date)", sql)
+
+    def test_year_scope_rejects_non_year_query(self) -> None:
+        compiled = self.service._build_scoped_search_filter("2026 Rechnung", DocumentSearchScope.year)
+
+        self.assertEqual(str(compiled), "false")
+
     def test_unread_sort_field_is_supported(self) -> None:
         self.assertEqual(DocumentSortField("is_unread"), DocumentSortField.is_unread)
         self.assertEqual(DocumentSortField("unread"), DocumentSortField.unread)

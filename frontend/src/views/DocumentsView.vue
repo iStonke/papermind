@@ -297,6 +297,7 @@
           @attention-select="handleDashboardAttention"
           @show-all-recent="selectView('imports')"
           @search-term="runSearchFromDashboard"
+          @year-select="showDocumentsFromDashboardYear"
         />
 
         <section
@@ -1265,9 +1266,10 @@
                             ref="metadataTagsCombobox"
                             v-model="metadataTagNames"
                             v-model:search="metadataTagSearch"
-                            :items="allTagNames"
+                            :items="metadataTagComboboxItems"
                             multiple
                             hide-selected
+                            no-filter
                             :clearable="false"
                             density="compact"
                             variant="plain"
@@ -1278,9 +1280,15 @@
                             :disabled="isRunningAiAnalysis"
                             :menu-props="detailsTagsMenuProps"
                             @update:model-value="onMetadataTagNamesChange"
-                            @keydown="handleMetadataTagShortcut"
+                            @keydown.capture="handleMetadataTagShortcut"
                           >
                             <template #selection></template>
+                            <template #item="{ props, item }">
+                              <v-list-item
+                                v-bind="props"
+                                :class="{ 'pm-tags-input__menu-item--active': isMetadataTagSuggestionActive(item) }"
+                              />
+                            </template>
                             <template #prepend-inner>
                               <span class="pm-tags-input__add">
                                 <v-icon size="14" class="pm-tags-input__plus">mdi-plus</v-icon>
@@ -1470,7 +1478,8 @@ const SEARCH_SCOPE_OPTIONS = Object.freeze([
   { value: 'ocr_text', label: 'OCR', icon: 'mdi-text-recognition' },
   { value: 'document_type', label: 'Dokumenttyp', icon: 'mdi-file-document-outline' },
   { value: 'correspondent', label: 'Korrespondent', icon: 'mdi-account-outline' },
-  { value: 'tags', label: 'Tags', icon: 'mdi-tag-outline' }
+  { value: 'tags', label: 'Tags', icon: 'mdi-tag-outline' },
+  { value: 'year', label: 'Jahr', icon: 'mdi-calendar-outline' }
 ]);
 const DOCUMENT_BATCH_ACTIONS = Object.freeze([
   { key: 'tag', label: 'Tags', icon: 'mdi-tag-multiple-outline' },
@@ -1533,6 +1542,7 @@ const TAG_TOOLBAR_STATE_KEY = 'pm.tagToolbarState';
 const DOCUMENT_TOOLBAR_VIEW_KEYS = Object.freeze(['all', 'imports', 'untagged', 'favorites', 'no_text', 'trash']);
 const DOCUMENT_STATUS_FILTER_VALUES = Object.freeze(['imported', 'processing', 'ready', 'failed']);
 const DOCUMENT_DATE_RANGE_VALUES = Object.freeze(['this_year', 'last_year', 'last_30_days', 'last_12_months']);
+const DOCUMENT_YEAR_RANGE_RE = /^year:(\d{4})$/;
 
 function readStoredLastSelectedDocId() {
   try { return window.localStorage.getItem(LAST_SELECTED_DOC_KEY) || null; } catch { return null; }
@@ -1576,6 +1586,11 @@ function normalizeDocumentStatusFilter(value) {
 
 function normalizeDocumentDateRange(value) {
   const key = String(value || '').trim();
+  const yearMatch = DOCUMENT_YEAR_RANGE_RE.exec(key);
+  if (yearMatch) {
+    const year = Number(yearMatch[1]);
+    return year >= 1000 && year <= 9999 ? `year:${yearMatch[1]}` : null;
+  }
   return DOCUMENT_DATE_RANGE_VALUES.includes(key) ? key : null;
 }
 
@@ -1600,6 +1615,10 @@ function computeDateRangeBounds(rangeKey) {
   if (key === 'last_year') {
     const year = today.getFullYear() - 1;
     return { dateFrom: `${year}-01-01`, dateTo: `${year}-12-31` };
+  }
+  const yearMatch = DOCUMENT_YEAR_RANGE_RE.exec(key);
+  if (yearMatch) {
+    return { dateFrom: `${yearMatch[1]}-01-01`, dateTo: `${yearMatch[1]}-12-31` };
   }
   if (key === 'last_30_days') {
     const from = new Date(today);
@@ -2418,6 +2437,11 @@ const metadataNotes = ref('');
 const metadataTagIds = ref([]);
 const metadataTagNames = ref([]);
 const metadataTagSearch = ref('');
+const metadataTagQuery = ref('');
+const metadataTagActiveSuggestionIndex = ref(-1);
+const shouldPreserveMetadataTagQuery = ref(false);
+const metadataTagSuppressedSearchKey = ref('');
+const metadataTagSuppressedReplacementName = ref('');
 const metadataDraftDocumentId = ref(null);
 const metadataDraftRevision = ref(0);
 const metadataTagDraftRevision = ref(0);
@@ -2619,7 +2643,38 @@ const sortedTagsByName = computed(() => {
     return tagNameCollator.compare(leftName, rightName);
   });
 });
-const allTagNames = computed(() => sortedTagsByName.value.map((tag) => tag.name));
+const allTagNames = computed(() => tags.value.map((tag) => tag.name));
+const metadataTagSuggestions = computed(() => {
+  const query = normalizeTagInput(metadataTagQuery.value || metadataTagSearch.value).toLocaleLowerCase('de-DE');
+  if (!query) {
+    return [];
+  }
+  const selectedNames = new Set(
+    metadataTagNames.value.map((name) => normalizeTagInput(name).toLocaleLowerCase('de-DE'))
+  );
+  return allTagNames.value.filter((name) => {
+    const normalizedName = normalizeTagInput(name).toLocaleLowerCase('de-DE');
+    return normalizedName.includes(query) && !selectedNames.has(normalizedName);
+  });
+});
+const metadataTagSearchHasSuggestion = computed(() => metadataTagSuggestions.value.length > 0);
+const metadataTagComboboxItems = computed(() => {
+  const hasQuery = Boolean(normalizeTagInput(metadataTagQuery.value || metadataTagSearch.value));
+  return hasQuery ? metadataTagSuggestions.value : allTagNames.value;
+});
+watch(metadataTagSearch, (nextSearch) => {
+  if (shouldPreserveMetadataTagQuery.value) {
+    shouldPreserveMetadataTagQuery.value = false;
+    return;
+  }
+  metadataTagQuery.value = nextSearch;
+  metadataTagActiveSuggestionIndex.value = -1;
+});
+watch(metadataTagSuggestions, () => {
+  if (metadataTagActiveSuggestionIndex.value >= metadataTagSuggestions.value.length) {
+    metadataTagActiveSuggestionIndex.value = -1;
+  }
+});
 const filteredTags = computed(() => {
   const query = tagSearchText.value.trim().toLocaleLowerCase('de-DE');
   return sortedTagsByName.value
@@ -3919,6 +3974,22 @@ function handleTagToolbarShortcut(event) {
 
 async function onMetadataTagNamesChange(nextValues) {
   if (shouldSkipTagNameSync || !selectedDocumentDetail.value) return;
+  const suppressedKey = metadataTagSuppressedSearchKey.value;
+  if (suppressedKey) {
+    const sanitizedValues = normalizeTagNames([
+      ...normalizeTagNames(nextValues).filter(
+        (name) => normalizeTagInput(name).toLocaleLowerCase('de-DE') !== suppressedKey
+      ),
+      metadataTagSuppressedReplacementName.value
+    ]);
+    metadataTagSuppressedSearchKey.value = '';
+    metadataTagSuppressedReplacementName.value = '';
+    shouldSkipTagNameSync = true;
+    metadataTagNames.value = sanitizedValues;
+    window.setTimeout(() => { shouldSkipTagNameSync = false; }, 0);
+    await syncMetadataTagsFromNames(sanitizedValues);
+    return;
+  }
   await syncMetadataTagsFromNames(nextValues);
 }
 
@@ -4061,13 +4132,134 @@ async function commitMetadataCorrespondent() {
 
 async function handleMetadataTagEnter() {
   if (!selectedDocumentDetail.value) return;
-  const normalizedNames = normalizeTagNames([...metadataTagNames.value, metadataTagSearch.value]);
+  const normalizedNames = normalizeTagNames([...metadataTagNames.value, metadataTagSearch.value || metadataTagQuery.value]);
   if (!normalizedNames.length) return;
+  metadataTagQuery.value = '';
   await syncMetadataTagsFromNames(normalizedNames);
-  metadataTagSearch.value = '';
+  setMetadataTagInputValue('');
+}
+
+function getMetadataTagItemName(item) {
+  if (item && typeof item === 'object') {
+    return normalizeTagInput(item.title || item.value || item.raw || '');
+  }
+  return normalizeTagInput(item);
+}
+
+function isMetadataTagSuggestionActive(item) {
+  const activeName = metadataTagSuggestions.value[metadataTagActiveSuggestionIndex.value];
+  return Boolean(activeName && getMetadataTagItemName(item) === activeName);
+}
+
+function isMetadataTagMenuAboveInput() {
+  const field = metadataTagsCombobox.value;
+  const rootElement = field?.$el || field;
+  const inputElement = rootElement?.querySelector?.('input');
+  const menuElement = document.querySelector('.v-overlay--active .pm-menu--tags') || document.querySelector('.pm-menu--tags');
+  if (!inputElement || !menuElement) {
+    return true;
+  }
+  const inputRect = inputElement.getBoundingClientRect();
+  const menuRect = menuElement.getBoundingClientRect();
+  return menuRect.top + menuRect.height / 2 < inputRect.top + inputRect.height / 2;
+}
+
+function scrollActiveMetadataTagSuggestionIntoView() {
+  void nextTick().then(() => {
+    document
+      .querySelector('.pm-menu--tags .pm-tags-input__menu-item--active')
+      ?.scrollIntoView?.({ block: 'nearest' });
+  });
+}
+
+/**
+ * Schreibt Text in das Eingabefeld der Tag-Combobox – imperativ, weil Vuetify
+ * eine extern gesetzte `search`-Ref nicht in das <input>-DOM zurückspiegelt.
+ * Über ein echtes input-Event landet der Wert sowohl im DOM als auch (via
+ * Vuetify → v-model:search) in metadataTagSearch. `preserveQuery` hält dabei die
+ * getippte Query in metadataTagQuery fest, damit die Trefferliste stabil bleibt.
+ */
+function setMetadataTagInputValue(text, { preserveQuery = false } = {}) {
+  const field = metadataTagsCombobox.value;
+  const input = (field?.$el || field)?.querySelector?.('input');
+  if (!input) return false;
+  if (input.value === text) return true;
+  if (preserveQuery) {
+    shouldPreserveMetadataTagQuery.value = true;
+  }
+  const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')?.set;
+  if (setter) setter.call(input, text);
+  else input.value = text;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  return true;
+}
+
+function moveMetadataTagSuggestion(step) {
+  const suggestions = metadataTagSuggestions.value;
+  if (!suggestions.length) {
+    metadataTagActiveSuggestionIndex.value = -1;
+    return false;
+  }
+  const currentIndex = metadataTagActiveSuggestionIndex.value;
+  if (currentIndex < 0) {
+    metadataTagActiveSuggestionIndex.value = step < 0 && isMetadataTagMenuAboveInput()
+      ? suggestions.length - 1
+      : 0;
+  } else {
+    metadataTagActiveSuggestionIndex.value = (currentIndex + step + suggestions.length) % suggestions.length;
+  }
+  // Vorschau direkt in die getippte Eingabepille schreiben (getippte Query bleibt
+  // in metadataTagQuery erhalten, damit die Trefferliste stabil bleibt).
+  const activeName = suggestions[metadataTagActiveSuggestionIndex.value] || '';
+  setMetadataTagInputValue(activeName, { preserveQuery: true });
+  scrollActiveMetadataTagSuggestionIntoView();
+  return true;
+}
+
+async function selectActiveMetadataTagSuggestion() {
+  const activeName = metadataTagSuggestions.value[metadataTagActiveSuggestionIndex.value];
+  if (!activeName) {
+    return false;
+  }
+  const searchKey = normalizeTagInput(metadataTagQuery.value || metadataTagSearch.value).toLocaleLowerCase('de-DE');
+  const selectedTagNameKeys = new Set(
+    metadataTagIds.value
+      .map((tagId) => {
+        const fromList = tags.value.find((tag) => tag.id === tagId)?.name;
+        const fromDetail = selectedDocumentDetail.value?.tags?.find((tag) => tag.id === tagId)?.name;
+        return normalizeTagInput(fromList || fromDetail || '').toLocaleLowerCase('de-DE');
+      })
+      .filter(Boolean)
+  );
+  const baseNames = metadataTagNames.value.filter((name) => {
+    const key = normalizeTagInput(name).toLocaleLowerCase('de-DE');
+    return !searchKey || key !== searchKey || selectedTagNameKeys.has(key);
+  });
+  metadataTagSuppressedSearchKey.value = searchKey;
+  metadataTagSuppressedReplacementName.value = activeName;
+  shouldPreserveMetadataTagQuery.value = false;
+  metadataTagQuery.value = '';
+  setMetadataTagInputValue('');
+  await syncMetadataTagsFromNames([...baseNames, activeName]);
+  metadataTagActiveSuggestionIndex.value = -1;
+  return true;
 }
 
 function handleMetadataTagShortcut(event) {
+  if ((event?.key === 'ArrowUp' || event?.key === 'ArrowDown') && metadataTagSearchHasSuggestion.value) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+    moveMetadataTagSuggestion(event.key === 'ArrowUp' ? -1 : 1);
+    return;
+  }
+  if (event?.key === 'Enter' && metadataTagActiveSuggestionIndex.value >= 0) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+    void selectActiveMetadataTagSuggestion();
+    return;
+  }
   handleShortcut(event, SHORTCUT_ACTIONS.PRIMARY, handleMetadataTagEnter, {
     ignoreEditable: false,
     stop: true
@@ -4377,7 +4569,10 @@ function applyMetadataFromDetail(detail) {
   const nextTagIds = normalizeTagIds((detail?.tags || []).map((tag) => tag.id));
   metadataTagIds.value = nextTagIds;
   metadataTagNames.value = (detail?.tags || []).map((tag) => normalizeTagInput(tag.name)).filter(Boolean);
+  shouldPreserveMetadataTagQuery.value = false;
+  metadataTagQuery.value = '';
   metadataTagSearch.value = '';
+  metadataTagActiveSuggestionIndex.value = -1;
   metadataTagErrorMessage.value = '';
   window.setTimeout(() => {
     shouldSkipTagAutosave = false;
@@ -4407,7 +4602,10 @@ function applyTagsFromDetail(detail) {
   const nextTagIds = normalizeTagIds((detail?.tags || []).map((tag) => tag.id));
   metadataTagIds.value = nextTagIds;
   metadataTagNames.value = (detail?.tags || []).map((tag) => normalizeTagInput(tag.name)).filter(Boolean);
+  shouldPreserveMetadataTagQuery.value = false;
+  metadataTagQuery.value = '';
   metadataTagSearch.value = '';
+  metadataTagActiveSuggestionIndex.value = -1;
   metadataTagErrorMessage.value = '';
 }
 
@@ -4458,11 +4656,12 @@ async function persistDocumentTags(documentId, tagIds, draftRevision) {
           draftRevision === metadataTagDraftRevision.value
           && isSameTagSelection(metadataTagIds.value, nextTagIds)
         ) {
-          shouldSkipTagAutosave = true;
-          applyTagsFromDetail(detail);
-          window.setTimeout(() => {
-            shouldSkipTagAutosave = false;
-          }, 0);
+          syncTagSelectionLocal(nextTagIds);
+          shouldPreserveMetadataTagQuery.value = false;
+          metadataTagQuery.value = '';
+          metadataTagSearch.value = '';
+          metadataTagActiveSuggestionIndex.value = -1;
+          metadataTagErrorMessage.value = '';
         }
       }
     }
@@ -6138,6 +6337,37 @@ function runSearchFromDashboard(term) {
   triggerSearchNow();
 }
 
+/** Jahresbalken aus dem Dashboard: alle Dokumente dieses Dokumentjahres anzeigen. */
+function showDocumentsFromDashboardYear(year) {
+  const numericYear = Number(year);
+  if (!Number.isInteger(numericYear) || numericYear < 1000 || numericYear > 9999) {
+    return;
+  }
+
+  const dateRange = `year:${numericYear}`;
+  updateDocumentToolbarState('all', { dateRange });
+  const toolbarState = resolveDocumentToolbarState('all');
+  activeAttention.value = null;
+  activeView.value = 'all';
+  leaveActiveSavedSearch();
+  searchText.value = `jahr:${numericYear}`;
+  searchScope.value = 'all';
+  patchDocumentListQuery({
+    q: null,
+    searchScope: 'all',
+    tagId: null,
+    tagIds: [],
+    untagged: null,
+    documentType: null,
+    status: toolbarState.status,
+    dateFrom: toolbarState.dateFrom,
+    dateTo: toolbarState.dateTo,
+    sort: toolbarState.sort,
+    order: toolbarState.order
+  });
+  void fetchDocuments(null, { autoSelectFirst: false });
+}
+
 /** Aufmerksamkeits-Kachel im Dashboard: in die passende (gefilterte) Ansicht. */
 function handleDashboardAttention(key) {
   if (key === 'untagged') {
@@ -7528,6 +7758,15 @@ watch(
     previewHighlightText.value = query || '';
   }
 );
+
+// Wird in der Dashboard-Ansicht etwas in die Suchleiste eingegeben, in die
+// Dokumentenliste wechseln, damit die Treffer sichtbar werden. Der aktuelle
+// Suchzustand bleibt erhalten (selectView('all') synchronisiert ihn in die Query).
+watch(searchText, (value) => {
+  if (activeView.value === 'dashboard' && String(value || '').trim()) {
+    selectView('all');
+  }
+});
 
 watch(documentListQueryReloadKey, () => {
   if (isTagView.value || isCategoryView.value) {
@@ -11751,6 +11990,10 @@ onBeforeUnmount(() => {
 
 .pm-menu .v-list-item--active {
   background: rgba(var(--v-theme-on-surface), 0.1);
+}
+
+.pm-menu.pm-menu--tags .pm-tags-input__menu-item--active {
+  background: rgba(var(--v-theme-primary), 0.13);
 }
 
 /* Tag-Menü behält seine begrenzte Höhe */
