@@ -1188,7 +1188,7 @@
                       <div class="pm-prop-val pm-prop-val--medium">
                         <div class="pm-prop-value-with-action pm-prop-value-with-action--medium">
                           <div class="pm-prop-field pm-prop-field--boxed">
-                            <v-combobox
+                            <v-autocomplete
                               :model-value="metadataCorrespondentDraft"
                               :items="correspondentDrawerItems"
                               item-title="title"
@@ -1198,11 +1198,10 @@
                               variant="plain"
                               hide-details
                               clearable
-                              placeholder="Korrespondent wählen oder neu anlegen…"
+                              placeholder="Korrespondent wählen…"
                               :loading="isSavingCorrespondent || correspondentStore.isMutationRunning"
                               :menu-props="detailsCorrespondentMenuProps"
                               @update:model-value="onMetadataCorrespondentInput"
-                              @keydown.enter.prevent="commitMetadataCorrespondent"
                               @blur="handleMetadataCorrespondentBlur"
                               @focus="correspondentStore.ensureLoaded()"
                             >
@@ -1226,9 +1225,12 @@
                                 </span>
                               </template>
                               <template #no-data>
-                                <v-list-item title="Als neuen Korrespondenten anlegen" />
+                                <v-list-item
+                                  title="Kein Korrespondent gefunden"
+                                  subtitle="Neue Korrespondenten in den Einstellungen anlegen"
+                                />
                               </template>
-                            </v-combobox>
+                            </v-autocomplete>
                           </div>
                           <v-btn
                             icon
@@ -4027,7 +4029,6 @@ async function commitMetadataCorrespondent() {
   const documentId = selectedDocumentDetail.value.id;
   const previousId = selectedDocumentDetail.value?.correspondent_id || null;
   const rawValue = normalizeCorrespondentInput(metadataCorrespondentDraft.value);
-  let phase = 'resolving';
   isSavingCorrespondent.value = true;
   try {
     let correspondentId = null;
@@ -4037,26 +4038,20 @@ async function commitMetadataCorrespondent() {
       if (existing?.id) {
         correspondentId = existing.id;
       } else {
-        phase = 'creating';
-        const result = await correspondentStore.createCorrespondentByName(rawValue);
-        if (!result?.ok || !result.id) {
-          metadataCorrespondentId.value = previousId;
-          metadataCorrespondentDraft.value = previousId;
-          return;
-        }
-        correspondentId = result.id;
+        // Neue Korrespondenten dürfen nicht mehr aus der Detailschublade
+        // angelegt werden – nur noch über die Einstellungen. Unbekannte
+        // Eingaben werden verworfen und der vorige Wert wiederhergestellt.
+        metadataCorrespondentId.value = previousId;
+        metadataCorrespondentDraft.value = previousId;
+        return;
       }
     }
 
     metadataCorrespondentId.value = correspondentId;
     metadataCorrespondentDraft.value = correspondentId;
-    phase = 'patching';
     await docStore.patchDocument(documentId, { correspondent_id: correspondentId });
   } catch (error) {
-    // Das Anlegen meldet API-Fehler bereits zentral über den Korrespondenten-Store.
-    if (phase !== 'creating') {
-      notifyError(error, 'Korrespondent konnte nicht gespeichert werden.');
-    }
+    notifyError(error, 'Korrespondent konnte nicht gespeichert werden.');
     metadataCorrespondentId.value = previousId;
     metadataCorrespondentDraft.value = previousId;
   } finally {
