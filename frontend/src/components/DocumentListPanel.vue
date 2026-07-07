@@ -374,7 +374,7 @@ const effectiveBottomSpacerHeight = computed(() =>
 // zusätzlich das Paint-Skipping der gerenderten Zeilen.
 const VIRTUALIZE_THRESHOLD = 60;   // Erst ab dieser Länge virtualisieren.
 const ROW_STEP_FALLBACK = 128;     // Zeilenhöhe (~118) + Abstand (10) als Startwert.
-const ROW_OVERSCAN = 8;            // Puffer-Zeilen ober-/unterhalb des Viewports.
+const ROW_OVERSCAN = 12;           // Puffer-Zeilen ober-/unterhalb des Viewports.
 
 const measuredRowStep = ref(ROW_STEP_FALLBACK);
 const listScrollTop = ref(0);
@@ -428,7 +428,12 @@ function measureRowStep() {
   if (!container) return;
   const rows = container.querySelectorAll('.document-row');
   if (rows.length >= 2) {
-    const step = rows[1].offsetTop - rows[0].offsetTop;
+    // Durchschnittlichen Zeilenabstand über das gesamte gerenderte Fenster
+    // nehmen (nicht nur die ersten zwei Zeilen): Zeilen sind je nach Tags/Snippet
+    // unterschiedlich hoch, ein Mittelwert hält das Windowing stabiler.
+    const first = rows[0];
+    const last = rows[rows.length - 1];
+    const step = (last.offsetTop - first.offsetTop) / (rows.length - 1);
     if (step > 0 && Math.abs(step - measuredRowStep.value) > 0.5) {
       measuredRowStep.value = step;
     }
@@ -454,10 +459,21 @@ function requestMoreIfNearEnd(element = listShell.value) {
   }
 }
 
+// Das Fenster bei jedem Scroll-Event aktualisieren (Vue bündelt die daraus
+// folgenden Re-Renders ohnehin). Den Zeilenabstand messen wir dabei nur zeitlich
+// gedrosselt nach, damit das erzwungene Layout (offsetTop-Lesen) nicht bei jedem
+// Event anfällt – so bleibt das Windowing bei variablen Zeilenhöhen akkurat
+// (fixt u. a. das Nachhängen der Tags beim Zurückscrollen), ohne Layout-Thrash.
+let lastStepMeasureTs = 0;
 function handleListScroll(event) {
   const element = event.currentTarget;
   updateVirtualWindow(element);
   requestMoreIfNearEnd(element);
+  const now = performance.now();
+  if (now - lastStepMeasureTs > 150) {
+    lastStepMeasureTs = now;
+    measureRowStep();
+  }
 }
 
 // Liste neu vermessen, wenn sich der Bestand ändert (Fenster + Zeilenhöhe).
