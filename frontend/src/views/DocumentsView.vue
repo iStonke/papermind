@@ -9989,13 +9989,24 @@ onBeforeUnmount(() => {
 }
 
 .document-list {
+  --document-row-gap: 10px;
+  --document-row-height: 112px;
   padding: 10px 10px 12px;
+  overflow-anchor: none;
+}
+
+.document-list--with-snippets {
+  --document-row-height: 152px;
 }
 
 .document-row {
   width: 100%;
-  content-visibility: auto;
-  contain-intrinsic-block-size: auto 118px;
+  height: var(--document-row-height);
+  min-height: var(--document-row-height);
+  box-sizing: border-box;
+  overflow: hidden;
+  contain: layout paint style;
+  overflow-anchor: none;
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr) auto;
   gap: 15px;
@@ -10013,7 +10024,7 @@ onBeforeUnmount(() => {
 }
 
 .document-row + .document-row {
-  margin-top: 10px;
+  margin-top: var(--document-row-gap);
 }
 
 .document-row:hover {
@@ -10304,6 +10315,7 @@ onBeforeUnmount(() => {
 .document-row__content {
   min-width: 0;
   align-self: center;
+  overflow: hidden;
 }
 
 .document-row__kicker {
@@ -10374,7 +10386,7 @@ onBeforeUnmount(() => {
   font-weight: 600;
   font-size: 1.02rem;
   line-height: 1.25;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   display: block;
   white-space: nowrap;
   overflow: hidden;
@@ -10415,29 +10427,44 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 4px;
   flex-wrap: nowrap;
+  height: 20px;
   min-width: 0;
   overflow: hidden;
 }
 
 .document-row__tag-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 1 auto;
   height: 20px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0 7px;
+  background: rgba(var(--v-theme-primary), 0.1);
+  color: rgba(var(--v-theme-primary), 0.88);
   min-width: 0;
   max-width: min(150px, 42%);
   font-size: 0.68rem;
-  letter-spacing: 0.01em;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1;
 }
 
+.document-row__tag-chip,
 .document-row__tag-chip .v-chip__content {
-  display: block;
   min-width: 0;
-  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .document-row__tag-chip--more {
+  flex: 0 0 auto;
   max-width: none;
+  background: transparent;
+  border-color: rgba(var(--v-theme-on-surface), 0.16);
+  color: rgba(var(--v-theme-on-surface), 0.6);
   font-variant-numeric: tabular-nums;
 }
 

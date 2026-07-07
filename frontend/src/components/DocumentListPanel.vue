@@ -60,7 +60,10 @@
             key="documents"
             ref="documentListRef"
             class="document-list document-list-state"
-            :class="{ 'document-list--with-bottom-spacer': effectiveBottomSpacerHeight > 0 }"
+            :class="{
+              'document-list--with-bottom-spacer': effectiveBottomSpacerHeight > 0,
+              'document-list--with-snippets': showSnippets
+            }"
           >
             <div
               v-if="virtualTopPad > 0"
@@ -119,31 +122,25 @@
                 <div class="document-row__title">
                   <div class="document-row__name">{{ formatDocumentTitle(document) }}</div>
                 </div>
-                <TransitionGroup
+                <div
                   v-if="Array.isArray(document.tags) && document.tags.length > 0"
-                  tag="div"
-                  name="pm-chip"
                   class="document-row__tags"
                 >
-                  <v-chip
+                  <span
                     v-for="tag in document.tags.slice(0, 3)"
                     :key="`doc-${document.id}-tag-${tag.id}`"
-                    size="x-small"
-                    variant="tonal"
                     class="document-row__tag-chip"
                   >
                     {{ tag.name }}
-                  </v-chip>
-                  <v-chip
+                  </span>
+                  <span
                     v-if="document.tags.length > 3"
                     key="more"
-                    size="x-small"
-                    variant="outlined"
                     class="document-row__tag-chip document-row__tag-chip--more"
                   >
                     +{{ document.tags.length - 3 }}
-                  </v-chip>
-                </TransitionGroup>
+                  </span>
+                </div>
                 <div
                   v-if="showSnippets && document.snippet"
                   class="document-row__snippet"
@@ -368,72 +365,43 @@ const effectiveBottomSpacerHeight = computed(() =>
 );
 
 // ── Virtualisierung (Windowing) ─────────────────────────────────────────────
-// Lange Listen erzeugen sonst pro Zeile teure Komponenten (v-menu/v-btn/v-chip).
-// Wir rendern nur ein Fenster sichtbarer Zeilen + Overscan und halten die
-// Scrollhöhe über Platzhalter (Spacer) konstant. content-visibility übernimmt
-// zusätzlich das Paint-Skipping der gerenderten Zeilen.
-const VIRTUALIZE_THRESHOLD = 60;   // Erst ab dieser Länge virtualisieren.
-const ROW_STEP_FALLBACK = 128;     // Zeilenhöhe (~118) + Abstand (10) als Startwert.
-const ROW_OVERSCAN = 12;           // Puffer-Zeilen ober-/unterhalb des Viewports.
+// Die Liste bleibt ab der ersten Seite im gleichen Windowing-Modus. Dadurch
+// entsteht beim ersten Nachladen kein Wechsel von "volle DOM-Liste" zu
+// "virtualisiertes Fenster". Die Zeilen haben feste Layout-Metriken; Spacer
+// müssen während des Scrollens nicht nachgemessen und korrigiert werden.
+const VIRTUAL_ROW_HEIGHT = 112;
+const VIRTUAL_ROW_HEIGHT_WITH_SNIPPET = 152;
+const VIRTUAL_ROW_GAP = 10;
+const ROW_OVERSCAN = 12;
 
-const measuredRowStep = ref(ROW_STEP_FALLBACK);
 const listScrollTop = ref(0);
 const listViewport = ref(0);
-let rowMeasureFrame = 0;
+const listContentOffsetTop = ref(0);
+let virtualWindowFrame = 0;
+let pendingVirtualWindowElement = null;
 let listResizeObserver = null;
 
-const isVirtualized = computed(() => documents.value.length > VIRTUALIZE_THRESHOLD);
-
-// Tatsächlich gemessener Zeilenabstand (Oberkante zu Oberkante, inkl. Lücke) je
-// Dokument-ID. Zeilen sind je nach Tags/Snippet unterschiedlich hoch; eine
-// einzelne Schätzung ließe die Platzhalter driften → Sprünge beim Hochscrollen.
-// Schlüssel ist die Doc-ID (nicht der Index), damit Nachladen/Umsortieren die
-// gemessenen Höhen nicht invalidiert. `rowStepVersion` triggert die Neuberechnung.
-const rowStepByDocId = new Map();
-const rowStepVersion = ref(0);
-
-// Präfix-Summen der Zeilen-Offsets: prefix[i] = kumulierte Höhe der Zeilen 0..i-1.
-// Für noch ungemessene Zeilen greift die globale Schätzung measuredRowStep.
-const prefixOffsets = computed(() => {
-  void rowStepVersion.value; // Abhängigkeit auf gemessene Höhen
-  const docs = documents.value;
-  const arr = new Float64Array(docs.length + 1);
-  const estimate = measuredRowStep.value || ROW_STEP_FALLBACK;
-  for (let i = 0; i < docs.length; i++) {
-    const step = rowStepByDocId.get(docs[i]?.id);
-    arr[i + 1] = arr[i] + (step > 0 ? step : estimate);
-  }
-  return arr;
-});
+const isVirtualized = computed(() => documents.value.length > 0);
+const virtualRowHeight = computed(() =>
+  props.showSnippets ? VIRTUAL_ROW_HEIGHT_WITH_SNIPPET : VIRTUAL_ROW_HEIGHT
+);
+const virtualRowStep = computed(() => virtualRowHeight.value + VIRTUAL_ROW_GAP);
+const rowRelativeScrollTop = computed(() =>
+  Math.max(0, listScrollTop.value - listContentOffsetTop.value)
+);
 
 const virtualStartIndex = computed(() => {
   if (!isVirtualized.value) return 0;
-  const prefix = prefixOffsets.value;
-  const target = listScrollTop.value;
-  // Größter Index i mit prefix[i] <= scrollTop (Binärsuche).
-  let lo = 0;
-  let hi = prefix.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (prefix[mid] <= target) lo = mid;
-    else hi = mid - 1;
-  }
-  return Math.max(0, lo - ROW_OVERSCAN);
+  return Math.max(0, Math.floor(rowRelativeScrollTop.value / virtualRowStep.value) - ROW_OVERSCAN);
 });
 
 const virtualEndIndex = computed(() => {
   if (!isVirtualized.value) return documents.value.length;
-  const prefix = prefixOffsets.value;
-  const target = listScrollTop.value + (listViewport.value || 0);
-  // Kleinster Index i mit prefix[i] >= unterer Viewport-Kante (Binärsuche).
-  let lo = 0;
-  let hi = prefix.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (prefix[mid] < target) lo = mid + 1;
-    else hi = mid;
-  }
-  return Math.min(documents.value.length, lo + ROW_OVERSCAN);
+  const visibleEnd = Math.ceil((rowRelativeScrollTop.value + (listViewport.value || 0)) / virtualRowStep.value);
+  return Math.min(
+    documents.value.length,
+    Math.max(virtualStartIndex.value + 1, visibleEnd + ROW_OVERSCAN)
+  );
 });
 
 const renderedDocuments = computed(() => {
@@ -442,66 +410,29 @@ const renderedDocuments = computed(() => {
 });
 
 const virtualTopPad = computed(() =>
-  isVirtualized.value ? prefixOffsets.value[virtualStartIndex.value] : 0
+  isVirtualized.value ? virtualStartIndex.value * virtualRowStep.value : 0
 );
 
 const virtualBottomPad = computed(() => {
   if (!isVirtualized.value) return 0;
-  const prefix = prefixOffsets.value;
-  return Math.max(0, prefix[documents.value.length] - prefix[virtualEndIndex.value]);
+  return Math.max(0, (documents.value.length - virtualEndIndex.value) * virtualRowStep.value);
 });
 
 function updateVirtualWindow(element = listShell.value) {
   if (!element) return;
   listScrollTop.value = element.scrollTop;
   listViewport.value = element.clientHeight;
+  listContentOffsetTop.value = documentListRef.value?.offsetTop || 0;
 }
 
-// Misst die echten Zeilenabstände der aktuell gerenderten Zeilen und legt sie je
-// Doc-ID ab. Die globale Schätzung folgt dem Mittel der bekannten Werte, damit
-// noch ungemessene Zeilen realistisch veranschlagt werden.
-function measureRenderedRows() {
-  const container = documentListRef.value;
-  if (!container) return;
-  const rows = container.querySelectorAll('.document-row');
-  if (rows.length < 2) {
-    if (rows.length === 1) {
-      const h = rows[0].offsetHeight;
-      if (h > 0 && Math.abs(h + 10 - measuredRowStep.value) > 0.5) measuredRowStep.value = h + 10;
-    }
-    return;
-  }
-  const start = virtualStartIndex.value;
-  const docs = documents.value;
-  let changed = false;
-  for (let i = 0; i < rows.length - 1; i++) {
-    const step = rows[i + 1].offsetTop - rows[i].offsetTop;
-    const doc = docs[start + i];
-    if (step > 0 && doc && rowStepByDocId.get(doc.id) !== step) {
-      rowStepByDocId.set(doc.id, step);
-      changed = true;
-    }
-  }
-  if (changed) {
-    let sum = 0;
-    let n = 0;
-    for (const value of rowStepByDocId.values()) {
-      sum += value;
-      n += 1;
-    }
-    if (n > 0) {
-      const average = sum / n;
-      if (Math.abs(average - measuredRowStep.value) > 0.5) measuredRowStep.value = average;
-    }
-    rowStepVersion.value += 1;
-  }
-}
-
-function scheduleRowMeasure() {
-  if (rowMeasureFrame) cancelAnimationFrame(rowMeasureFrame);
-  rowMeasureFrame = requestAnimationFrame(() => {
-    rowMeasureFrame = 0;
-    measureRenderedRows();
+function scheduleVirtualWindowUpdate(element = listShell.value) {
+  if (!element) return;
+  pendingVirtualWindowElement = element;
+  if (virtualWindowFrame) return;
+  virtualWindowFrame = requestAnimationFrame(() => {
+    virtualWindowFrame = 0;
+    updateVirtualWindow(pendingVirtualWindowElement || listShell.value);
+    pendingVirtualWindowElement = null;
   });
 }
 
@@ -513,21 +444,10 @@ function requestMoreIfNearEnd(element = listShell.value) {
   }
 }
 
-// Das Fenster bei jedem Scroll-Event aktualisieren (Vue bündelt die daraus
-// folgenden Re-Renders ohnehin). Den Zeilenabstand messen wir dabei nur zeitlich
-// gedrosselt nach, damit das erzwungene Layout (offsetTop-Lesen) nicht bei jedem
-// Event anfällt – so bleibt das Windowing bei variablen Zeilenhöhen akkurat
-// (fixt u. a. das Nachhängen der Tags beim Zurückscrollen), ohne Layout-Thrash.
-let lastStepMeasureTs = 0;
 function handleListScroll(event) {
   const element = event.currentTarget;
-  updateVirtualWindow(element);
+  scheduleVirtualWindowUpdate(element);
   requestMoreIfNearEnd(element);
-  const now = performance.now();
-  if (now - lastStepMeasureTs > 100) {
-    lastStepMeasureTs = now;
-    measureRenderedRows();
-  }
 }
 
 // Liste neu vermessen, wenn sich der Bestand ändert (Fenster + Zeilenhöhe).
@@ -536,14 +456,19 @@ watch(
   () => {
     void nextTick(() => {
       updateVirtualWindow();
-      scheduleRowMeasure();
     });
+  }
+);
+
+watch(
+  () => [props.showSnippets, props.isImportsView, props.activeStatusFilterLabel],
+  () => {
+    void nextTick(() => updateVirtualWindow());
   }
 );
 
 onMounted(() => {
   updateVirtualWindow();
-  scheduleRowMeasure();
   if (typeof ResizeObserver !== 'undefined' && listShell.value) {
     listResizeObserver = new ResizeObserver(() => updateVirtualWindow());
     listResizeObserver.observe(listShell.value);
@@ -551,7 +476,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-  if (rowMeasureFrame) cancelAnimationFrame(rowMeasureFrame);
+  if (virtualWindowFrame) cancelAnimationFrame(virtualWindowFrame);
   if (listResizeObserver) {
     listResizeObserver.disconnect();
     listResizeObserver = null;
