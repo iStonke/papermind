@@ -325,6 +325,8 @@ const props = defineProps({
   currentDateRange:           { type: String,  default: '' },
   showTagFilterToggle:        { type: Boolean, default: false },
   tagFilterDrawerOpen:        { type: Boolean, default: false },
+  showDocumentTypeFilterToggle: { type: Boolean, default: false },
+  documentTypeFilterDrawerOpen: { type: Boolean, default: false },
   bottomSpacerHeight:         { type: Number,  default: 0 },
   hasMoreDocuments:           { type: Boolean, default: false },
   isLoadingMoreDocuments:     { type: Boolean, default: false },
@@ -347,6 +349,7 @@ const emit = defineEmits([
   'change-sort',
   'change-date-range',
   'toggle-tag-filter-drawer',
+  'toggle-document-type-filter-drawer',
   'load-more',
 ]);
 
@@ -519,18 +522,28 @@ const toolbarActions = computed(() => [
   }
 ]);
 const toolbarFilterToggles = computed(() => {
-  if (!props.showTagFilterToggle) {
-    return [];
+  const toggles = [];
+  if (props.showDocumentTypeFilterToggle) {
+    toggles.push({
+      key: 'documentTypeFilter',
+      icon: 'mdi-file-document-outline',
+      label: 'Typen',
+      ariaLabel: props.documentTypeFilterDrawerOpen
+        ? 'Dokumenttyp-Filter ausblenden'
+        : 'Dokumenttyp-Filter einblenden',
+      active: props.documentTypeFilterDrawerOpen
+    });
   }
-  return [
-    {
+  if (props.showTagFilterToggle) {
+    toggles.push({
       key: 'tagFilter',
       icon: 'mdi-tag-multiple-outline',
       label: 'Tags',
       ariaLabel: props.tagFilterDrawerOpen ? 'Tag-Filter ausblenden' : 'Tag-Filter einblenden',
       active: props.tagFilterDrawerOpen
-    }
-  ];
+    });
+  }
+  return toggles;
 });
 
 // ── Refs ───────────────────────────────────────────────────────────────────
@@ -564,6 +577,10 @@ function handleToolbarAction({ action, value }) {
 }
 
 function handleToolbarFilterToggle(action) {
+  if (action === 'documentTypeFilter') {
+    emit('toggle-document-type-filter-drawer');
+    return;
+  }
   if (action === 'tagFilter') {
     emit('toggle-tag-filter-drawer');
   }

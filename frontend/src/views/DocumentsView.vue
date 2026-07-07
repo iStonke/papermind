@@ -303,8 +303,8 @@
         <section
           v-if="activeView !== 'dashboard'"
           class="panel panel-middle"
-          :class="{ 'panel-middle--tag-filter-open': showTagFilterDrawer && isTagFilterDrawerOpen }"
-          :style="tagFilterDrawerOffsetStyle"
+          :class="{ 'panel-middle--tag-filter-open': isListFilterDrawerOpen }"
+          :style="listFilterDrawerOffsetStyle"
         >
           <div class="panel-middle__header">
             <div class="panel-middle__heading">{{ panelHeading }}</div>
@@ -488,6 +488,8 @@
               :selection-ids="selectionIds"
               :current-sort="currentSort"
               :current-date-range="currentDateRange"
+              :show-document-type-filter-toggle="showDocumentTypeFilterDrawer"
+              :document-type-filter-drawer-open="isDocumentTypeFilterDrawerOpen"
               :show-tag-filter-toggle="showTagFilterDrawer"
               :tag-filter-drawer-open="isTagFilterDrawerOpen"
               :bottom-spacer-height="tagFilterDocumentListSpacerHeight"
@@ -508,6 +510,7 @@
               @select-all="selectAllDocuments"
               @change-sort="applySort"
               @change-date-range="applyDateRange"
+              @toggle-document-type-filter-drawer="toggleDocumentTypeFilterDrawer"
               @toggle-tag-filter-drawer="toggleTagFilterDrawer"
               @load-more="loadMoreDocuments"
             />
@@ -573,6 +576,76 @@
                         :disabled="activeTagFilterCount === 0"
                         :tabindex="isTagFilterDrawerOpen ? 0 : -1"
                         @click="resetTagFilters"
+                      >
+                        Zurücksetzen
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Transition>
+          <Transition :name="isTagFilterDrawerAnimationReady ? 'tag-filter-drawer' : ''">
+            <div
+              v-if="showDocumentTypeFilterDrawer"
+              ref="documentTypeFilterDrawerRef"
+              class="tag-filter-drawer pm-drawer"
+              :class="[
+                isDocumentTypeFilterDrawerOpen
+                  ? 'tag-filter-drawer--open pm-drawer--expanded'
+                  : 'tag-filter-drawer--closed pm-drawer--collapsed',
+                { 'tag-filter-drawer--animate': isTagFilterDrawerAnimationReady }
+              ]"
+              :aria-hidden="String(!isDocumentTypeFilterDrawerOpen)"
+            >
+              <div class="tag-filter-drawer__panel">
+                <div class="tag-filter-drawer__panel-inner">
+                  <div class="tag-filter-drawer__body">
+                    <TransitionGroup
+                      tag="div"
+                      name="tag-filter-chip-list"
+                      class="tag-filter-drawer__chips"
+                      aria-label="Dokumenttyp-Filter"
+                    >
+                      <button
+                        v-for="category in visibleDocumentTypeFilterOptions"
+                        :key="`document-type-filter-${category.id || category.name}`"
+                        type="button"
+                        class="tag-filter-chip"
+                        :class="{ 'tag-filter-chip--active': isActiveDocumentTypeFilter(category.name) }"
+                        :tabindex="isDocumentTypeFilterDrawerOpen ? 0 : -1"
+                        @click="toggleDocumentTypeFilter(category.name)"
+                      >
+                        <v-icon
+                          v-if="isActiveDocumentTypeFilter(category.name)"
+                          class="tag-filter-chip__check"
+                          size="13"
+                        >
+                          mdi-check
+                        </v-icon>
+                        <span class="tag-filter-chip__name">{{ category.name }}</span>
+                        <span class="tag-filter-chip__count">{{ documentTypeFilterOptionCount(category) }}</span>
+                      </button>
+                      <div v-if="visibleDocumentTypeFilterOptions.length === 0" class="tag-filter-drawer__empty">
+                        Keine Dokumenttypen
+                      </div>
+                    </TransitionGroup>
+
+                    <div class="tag-filter-drawer__footer">
+                      <button
+                        type="button"
+                        class="tag-filter-drawer__footer-btn tag-filter-drawer__footer-btn--all"
+                        :tabindex="isDocumentTypeFilterDrawerOpen ? 0 : -1"
+                        @click="showAllDocumentTypeFilters"
+                      >
+                        Alle Typen
+                      </button>
+                      <button
+                        type="button"
+                        class="tag-filter-drawer__footer-btn tag-filter-drawer__footer-btn--reset"
+                        :disabled="activeDocumentTypeFilterCount === 0"
+                        :tabindex="isDocumentTypeFilterDrawerOpen ? 0 : -1"
+                        @click="resetDocumentTypeFilters"
                       >
                         Zurücksetzen
                       </button>
@@ -1986,6 +2059,9 @@ const isTagFilterDrawerOpen = ref(false);
 const isTagFilterDrawerAnimationReady = ref(false);
 const tagFilterDrawerRef = ref(null);
 const tagFilterDrawerHeight = ref(0);
+const isDocumentTypeFilterDrawerOpen = ref(false);
+const documentTypeFilterDrawerRef = ref(null);
+const documentTypeFilterDrawerHeight = ref(0);
 const initialTagToolbarState = readTagToolbarState();
 const tagUsageFilter = ref(initialTagToolbarState.usage);
 const tagSortMode = ref(initialTagToolbarState.sort);
@@ -2078,6 +2154,7 @@ function toggleSelectionMode() {
   isSelectionMode.value = !isSelectionMode.value;
   if (isSelectionMode.value) {
     isTagFilterDrawerOpen.value = false;
+    isDocumentTypeFilterDrawerOpen.value = false;
   }
   if (!isSelectionMode.value) selectionIds.value = new Set();
 }
@@ -2892,6 +2969,27 @@ const categoryCloudStats = computed(() => {
   };
 });
 
+const activeDocumentTypeFilterName = computed(() => String(documentListQuery.documentType || '').trim());
+const activeDocumentTypeFilterCount = computed(() => activeDocumentTypeFilterName.value ? 1 : 0);
+const showDocumentTypeFilterDrawer = computed(() =>
+  activeView.value === 'all' &&
+  !activeSavedSearchId.value &&
+  !isSelectionMode.value &&
+  !isTagSelectionMode.value &&
+  activeCategoriesForView.value.length > 0
+);
+const visibleDocumentTypeFilterOptions = computed(() => {
+  const activeName = activeDocumentTypeFilterName.value.toLocaleLowerCase('de-DE');
+  return activeCategoriesForView.value
+    .filter((category) => {
+      const name = String(category?.name || '').trim();
+      if (!name) return false;
+      const isActive = activeName && name.toLocaleLowerCase('de-DE') === activeName;
+      return isActive || Number(category?.usage_count || 0) > 0;
+    })
+    .slice(0, 48);
+});
+
 const activeTagFilterIds = computed(() => normalizeTagIds(documentListQuery.tagIds));
 const activeTagFilterIdsSet = computed(() => new Set(activeTagFilterIds.value));
 const activeTagFilterCount = computed(() => activeTagFilterIds.value.length);
@@ -2926,13 +3024,17 @@ const visibleTagFilterOptions = computed(() => {
     .filter((tag) => tagUsageCount(tag.id, tag.usage_count ?? 0) > 0)
     .slice(0, 48);
 });
-const tagFilterDrawerOffsetStyle = computed(() => ({
-  '--tag-filter-drawer-height': showTagFilterDrawer.value && isTagFilterDrawerOpen.value
-    ? `${tagFilterDrawerHeight.value}px`
+const isListFilterDrawerOpen = computed(() =>
+  (showTagFilterDrawer.value && isTagFilterDrawerOpen.value) ||
+  (showDocumentTypeFilterDrawer.value && isDocumentTypeFilterDrawerOpen.value)
+);
+const listFilterDrawerOffsetStyle = computed(() => ({
+  '--tag-filter-drawer-height': isListFilterDrawerOpen.value
+    ? `${Math.max(tagFilterDrawerHeight.value, documentTypeFilterDrawerHeight.value)}px`
     : '0px'
 }));
 const tagFilterDocumentListSpacerHeight = computed(() => (
-  showTagFilterDrawer.value && isTagFilterDrawerOpen.value
+  isListFilterDrawerOpen.value
     ? 20
     : 0
 ));
@@ -3000,6 +3102,7 @@ const hasActiveListFilter = computed(() => {
       (documentListQuery.q || '').trim() ||
       documentListQuery.tagId ||
       activeTagFilterCount.value > 0 ||
+      documentListQuery.documentType ||
       documentListQuery.untagged ||
       (activeView.value === 'attention' && activeAttention.value) ||
       documentListQuery.status ||
@@ -3277,11 +3380,11 @@ function updateSidebarNarrow() {
   if (sidebarNarrow.value !== nextNarrow) {
     sidebarNarrow.value = nextNarrow;
     animateSidebarRail(sidebarCollapsed.value);
-    void nextTick(measureTagFilterDrawerHeight);
+    void nextTick(measureListFilterDrawerHeights);
     return;
   }
   sidebarNarrow.value = nextNarrow;
-  void nextTick(measureTagFilterDrawerHeight);
+  void nextTick(measureListFilterDrawerHeights);
 }
 
 onMounted(() => window.addEventListener('resize', updateSidebarNarrow, { passive: true }));
@@ -6860,6 +6963,7 @@ async function executeBatchCategoryDelete(selected) {
     selectedCategoryIds.value = new Set();
     isCategorySelectionMode.value = false;
     await categoryStore.fetchCategories();
+    ensureActiveDocumentTypeFilterIsValid();
     sidebarStore.scheduleCounts();
   } catch (error) {
     logDevError(error, 'store-notified');
@@ -6869,30 +6973,120 @@ async function executeBatchCategoryDelete(selected) {
 }
 
 function onCategoryMutated() {
-  void categoryStore.fetchCategories();
+  void categoryStore.fetchCategories().then(() => {
+    ensureActiveDocumentTypeFilterIsValid();
+  });
   sidebarStore.scheduleCounts();
 }
 
 function toggleTagFilterDrawer() {
-  isTagFilterDrawerOpen.value = !isTagFilterDrawerOpen.value;
+  const nextOpen = !isTagFilterDrawerOpen.value;
+  isTagFilterDrawerOpen.value = nextOpen;
+  if (nextOpen) {
+    isDocumentTypeFilterDrawerOpen.value = false;
+  }
   if (settingsStore.settings.ui.tagDrawerRememberState) {
     settingsStore.persistTagDrawerExpanded(isTagFilterDrawerOpen.value);
   }
-  void nextTick(measureTagFilterDrawerHeight);
+  void nextTick(measureListFilterDrawerHeights);
+}
+
+function toggleDocumentTypeFilterDrawer() {
+  const nextOpen = !isDocumentTypeFilterDrawerOpen.value;
+  isDocumentTypeFilterDrawerOpen.value = nextOpen;
+  if (nextOpen) {
+    isTagFilterDrawerOpen.value = false;
+    if (settingsStore.settings.ui.tagDrawerRememberState) {
+      settingsStore.persistTagDrawerExpanded(false);
+    }
+  }
+  void nextTick(measureListFilterDrawerHeights);
+}
+
+function measureFilterDrawerHeight({ drawer, visible, open }) {
+  if (!visible || !open || !drawer) {
+    return 0;
+  }
+  const viewportCap = Math.round(Math.min(window.innerHeight * 0.40, 320));
+  return Math.min(Math.ceil(drawer.scrollHeight), viewportCap);
+}
+
+function measureListFilterDrawerHeights() {
+  measureTagFilterDrawerHeight();
+  measureDocumentTypeFilterDrawerHeight();
 }
 
 function measureTagFilterDrawerHeight() {
-  if (!showTagFilterDrawer.value || !isTagFilterDrawerOpen.value) {
-    tagFilterDrawerHeight.value = 0;
+  tagFilterDrawerHeight.value = measureFilterDrawerHeight({
+    drawer: tagFilterDrawerRef.value,
+    visible: showTagFilterDrawer.value,
+    open: isTagFilterDrawerOpen.value
+  });
+}
+
+function measureDocumentTypeFilterDrawerHeight() {
+  documentTypeFilterDrawerHeight.value = measureFilterDrawerHeight({
+    drawer: documentTypeFilterDrawerRef.value,
+    visible: showDocumentTypeFilterDrawer.value,
+    open: isDocumentTypeFilterDrawerOpen.value
+  });
+}
+
+function normalizeDocumentTypeFilterName(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function isActiveDocumentTypeFilter(name) {
+  const activeName = activeDocumentTypeFilterName.value.toLocaleLowerCase('de-DE');
+  return Boolean(activeName) && normalizeDocumentTypeFilterName(name).toLocaleLowerCase('de-DE') === activeName;
+}
+
+function documentTypeFilterOptionCount(category) {
+  return Number(category?.usage_count || 0);
+}
+
+function applyDocumentTypeFilter(categoryName) {
+  const name = normalizeDocumentTypeFilterName(categoryName);
+  activeView.value = 'all';
+  leaveActiveSavedSearch();
+  patchDocumentListQuery({
+    documentType: name || null,
+    untagged: null,
+    status: resolveToolbarStatus('all'),
+    dateFrom: null,
+    dateTo: null
+  });
+  syncSearchStateToQuery({ resetOffset: false });
+}
+
+function toggleDocumentTypeFilter(categoryName) {
+  const name = normalizeDocumentTypeFilterName(categoryName);
+  if (!name) return;
+  applyDocumentTypeFilter(isActiveDocumentTypeFilter(name) ? null : name);
+}
+
+function resetDocumentTypeFilters() {
+  applyDocumentTypeFilter(null);
+}
+
+function showAllDocumentTypeFilters() {
+  applyDocumentTypeFilter(null);
+  openCategoriesView();
+}
+
+function ensureActiveDocumentTypeFilterIsValid() {
+  const activeName = activeDocumentTypeFilterName.value.toLocaleLowerCase('de-DE');
+  if (!activeName) {
     return;
   }
-  const drawer = tagFilterDrawerRef.value;
-  if (!drawer) {
-    tagFilterDrawerHeight.value = 0;
+  const hasActiveType = activeCategoriesForView.value.some((category) =>
+    String(category?.name || '').trim().toLocaleLowerCase('de-DE') === activeName
+  );
+  if (hasActiveType) {
     return;
   }
-  const viewportCap = Math.round(Math.min(window.innerHeight * 0.40, 320));
-  tagFilterDrawerHeight.value = Math.min(Math.ceil(drawer.scrollHeight), viewportCap);
+  patchDocumentListQuery({ documentType: null });
+  syncSearchStateToQuery({ resetOffset: false });
 }
 
 function applyTagFilters(tagIds) {
@@ -7845,6 +8039,7 @@ onMounted(async () => {
     activeView.value === 'all' &&
     !activeSavedSearchId.value &&
     !activeTagId.value &&
+    !activeDocumentTypeFilterName.value &&
     !parsedSearch.value.q
   ) {
     activeView.value = 'dashboard';
@@ -7855,6 +8050,7 @@ onMounted(async () => {
     : false;
 
   await Promise.all([fetchTags(), fetchSavedSearches(), fetchSidebarCounts(), categoryStore.ensureLoaded()]);
+  ensureActiveDocumentTypeFilterIsValid();
   await nextTick();
   isTagFilterDrawerAnimationReady.value = true;
   const restoredDocId = readStoredLastSelectedDocId();
@@ -7877,6 +8073,7 @@ watch(
   (rememberEnabled) => {
     if (!rememberEnabled) {
       isTagFilterDrawerOpen.value = false;
+      void nextTick(measureListFilterDrawerHeights);
       return;
     }
     settingsStore.persistTagDrawerExpanded(isTagFilterDrawerOpen.value);
@@ -7884,9 +8081,16 @@ watch(
 );
 
 watch(
-  [showTagFilterDrawer, isTagFilterDrawerOpen, visibleTagFilterOptions],
+  [
+    showTagFilterDrawer,
+    isTagFilterDrawerOpen,
+    visibleTagFilterOptions,
+    showDocumentTypeFilterDrawer,
+    isDocumentTypeFilterDrawerOpen,
+    visibleDocumentTypeFilterOptions
+  ],
   () => {
-    void nextTick(measureTagFilterDrawerHeight);
+    void nextTick(measureListFilterDrawerHeights);
   },
   { flush: 'post' }
 );
