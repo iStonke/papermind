@@ -1543,6 +1543,9 @@ const DOCUMENT_TOOLBAR_VIEW_KEYS = Object.freeze(['all', 'imports', 'untagged', 
 const DOCUMENT_STATUS_FILTER_VALUES = Object.freeze(['imported', 'processing', 'ready', 'failed']);
 const DOCUMENT_DATE_RANGE_VALUES = Object.freeze(['this_year', 'last_year', 'last_30_days', 'last_12_months']);
 const DOCUMENT_YEAR_RANGE_RE = /^year:(\d{4})$/;
+// „bis einschließlich Jahr" (offene Untergrenze) – für den gedeckelten
+// „<jahr> und früher"-Balken im Dashboard.
+const DOCUMENT_UNTIL_RANGE_RE = /^until:(\d{4})$/;
 
 function readStoredLastSelectedDocId() {
   try { return window.localStorage.getItem(LAST_SELECTED_DOC_KEY) || null; } catch { return null; }
@@ -1591,6 +1594,11 @@ function normalizeDocumentDateRange(value) {
     const year = Number(yearMatch[1]);
     return year >= 1000 && year <= 9999 ? `year:${yearMatch[1]}` : null;
   }
+  const untilMatch = DOCUMENT_UNTIL_RANGE_RE.exec(key);
+  if (untilMatch) {
+    const year = Number(untilMatch[1]);
+    return year >= 1000 && year <= 9999 ? `until:${untilMatch[1]}` : null;
+  }
   return DOCUMENT_DATE_RANGE_VALUES.includes(key) ? key : null;
 }
 
@@ -1619,6 +1627,10 @@ function computeDateRangeBounds(rangeKey) {
   const yearMatch = DOCUMENT_YEAR_RANGE_RE.exec(key);
   if (yearMatch) {
     return { dateFrom: `${yearMatch[1]}-01-01`, dateTo: `${yearMatch[1]}-12-31` };
+  }
+  const untilMatch = DOCUMENT_UNTIL_RANGE_RE.exec(key);
+  if (untilMatch) {
+    return { dateFrom: null, dateTo: `${untilMatch[1]}-12-31` };
   }
   if (key === 'last_30_days') {
     const from = new Date(today);
@@ -6337,20 +6349,27 @@ function runSearchFromDashboard(term) {
   triggerSearchNow();
 }
 
-/** Jahresbalken aus dem Dashboard: alle Dokumente dieses Dokumentjahres anzeigen. */
-function showDocumentsFromDashboardYear(year) {
+/**
+ * Jahresbalken aus dem Dashboard: Dokumente des gewählten Jahres anzeigen.
+ * Der gedeckelte Startbalken (`clipped`) sammelt zusätzlich alle älteren
+ * Dokumente auf ("<jahr> und früher") → dann mit offener Untergrenze filtern,
+ * sonst wäre die Liste leer, weil der Bestand vor dem Jahr liegt.
+ */
+function showDocumentsFromDashboardYear(payload) {
+  const year = typeof payload === 'object' && payload !== null ? payload.year : payload;
+  const clipped = Boolean(typeof payload === 'object' && payload !== null && payload.clipped);
   const numericYear = Number(year);
   if (!Number.isInteger(numericYear) || numericYear < 1000 || numericYear > 9999) {
     return;
   }
 
-  const dateRange = `year:${numericYear}`;
+  const dateRange = clipped ? `until:${numericYear}` : `year:${numericYear}`;
   updateDocumentToolbarState('all', { dateRange });
   const toolbarState = resolveDocumentToolbarState('all');
   activeAttention.value = null;
   activeView.value = 'all';
   leaveActiveSavedSearch();
-  searchText.value = `jahr:${numericYear}`;
+  searchText.value = clipped ? `bis:${numericYear}` : `jahr:${numericYear}`;
   searchScope.value = 'all';
   patchDocumentListQuery({
     q: null,
