@@ -11,7 +11,7 @@ from fastapi import UploadFile, status
 import httpx
 import pypdfium2 as pdfium
 from pypdf import PdfReader
-from sqlalchemy import asc, case, desc, func, or_, select
+from sqlalchemy import asc, case, desc, false, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, load_only, noload, selectinload
 
@@ -1492,6 +1492,14 @@ class DocumentService:
     def _escape_like(self, value: str) -> str:
         return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
+    def _parse_search_year(self, normalized_query: str) -> int | None:
+        stripped_query = normalized_query.strip()
+        if not stripped_query.isdigit() or len(stripped_query) != 4:
+            return None
+
+        year = int(stripped_query)
+        return year if 1000 <= year <= 9999 else None
+
     def _build_scoped_search_filter(self, normalized_query: str, search_scope: DocumentSearchScope):
         escaped_query = self._escape_like(normalized_query)
         like_value = f"%{escaped_query}%"
@@ -1527,6 +1535,15 @@ class DocumentService:
                     Tag.name.ilike(like_value, escape="\\"),
                 )
                 .exists()
+            )
+
+        if search_scope == DocumentSearchScope.year:
+            year = self._parse_search_year(normalized_query)
+            if year is None:
+                return false()
+            return (
+                Document.document_date.is_not(None)
+                & (func.extract("year", Document.document_date) == year)
             )
 
         return None

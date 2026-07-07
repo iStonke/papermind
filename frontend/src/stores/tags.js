@@ -45,6 +45,23 @@ export const useTagStore = defineStore('tags', () => {
     return tags.value.find((t) => normalizeTagName(t?.name).toLocaleLowerCase('de-DE') === normalized) ?? null;
   };
 
+  function upsertTagLocally(tag) {
+    const tagId = String(tag?.id || '').trim();
+    const tagName = normalizeTagName(tag?.name);
+    if (!tagId || !tagName) return;
+    const tagKey = tagName.toLocaleLowerCase('de-DE');
+    const existingIndex = tags.value.findIndex((entry) => {
+      if (entry?.id === tagId) return true;
+      return normalizeTagName(entry?.name).toLocaleLowerCase('de-DE') === tagKey;
+    });
+    const nextTag = { usage_count: 0, ...tag, id: tagId, name: tagName };
+    if (existingIndex >= 0) {
+      tags.value.splice(existingIndex, 1, { ...tags.value[existingIndex], ...nextTag });
+      return;
+    }
+    tags.value.push(nextTag);
+  }
+
   // ── Actions ────────────────────────────────────────────────────────────
 
   /** Lädt alle Tags (inkl. Zähler). */
@@ -74,7 +91,7 @@ export const useTagStore = defineStore('tags', () => {
 
     try {
       const created = await apiCreateTag(name);
-      await fetchTags();
+      upsertTagLocally(created);
       return { ok: true, reason: 'created', name: created?.name || name, id: created?.id };
     } catch (error) {
       await fetchTags();

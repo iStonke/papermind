@@ -91,7 +91,8 @@
             <div v-if="years.length" class="dash-chart__plot">
               <div class="dash-bars">
                 <div v-for="(p, i) in years" :key="p.year" class="dash-bars__col">
-                  <div
+                  <button
+                    type="button"
                     class="dash-bars__bar"
                     :class="{
                       'dash-bars__bar--current': i === years.length - 1,
@@ -99,6 +100,8 @@
                     }"
                     :style="{ height: `${yearBarHeight(p.count)}%` }"
                     :title="Number(p.count || 0) === 0 ? `${p.year}: keine Dokumente` : `${p.year}: ${p.count} Dokumente`"
+                    :aria-label="`Dokumente aus ${p.year} anzeigen`"
+                    @click="emit('year-select', p.year)"
                   />
                 </div>
               </div>
@@ -221,7 +224,7 @@
                 </div>
               </div>
               <div v-if="donutSegments.length" class="dash-donut-card__body">
-                <div class="dash-donut" :style="{ background: donutGradient }">
+                <div class="dash-donut" :style="{ '--dash-donut-gradient': donutGradient }">
                   <div class="dash-donut__hole">
                     <span class="dash-donut__value">{{ formatInt(donutData.total) }}</span>
                     <span class="dash-donut__label">{{ donutData.centerLabel }}</span>
@@ -253,6 +256,15 @@ import { useAuthStore } from '../stores/auth.js';
 import { useDashboardStore } from '../stores/dashboard.js';
 import { documentThumbnailUrl } from '../api/documents.js';
 
+// Winkel-Custom-Property für den Uhrzeiger-Aufbau des Donuts registrieren.
+// @property-Regeln überleben Vues scoped-Style-Pipeline nicht, ohne Registrierung
+// interpoliert der Winkel nicht (harter Sprung bei Keyframe-Mitte). Idempotent.
+if (typeof CSS !== 'undefined' && typeof CSS.registerProperty === 'function') {
+  try {
+    CSS.registerProperty({ name: '--dash-donut-sweep', syntax: '<angle>', inherits: false, initialValue: '0deg' });
+  } catch { /* bereits registriert */ }
+}
+
 const emit = defineEmits([
   'open-import',
   'open-ai',
@@ -260,6 +272,7 @@ const emit = defineEmits([
   'attention-select',
   'show-all-recent',
   'search-term',
+  'year-select',
 ]);
 
 const dashboardStore = useDashboardStore();
@@ -936,12 +949,15 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
 
 .dash-bars__bar {
   width: 100%;
+  padding: 0;
+  border: 0;
   border-radius: 4px 4px 0 0;
   background: color-mix(in srgb, var(--pm-muted) 34%, transparent);
-  transition: background 0.14s ease;
+  transition: background 0.14s ease, transform 0.14s ease;
   min-height: 2px;
   transform-origin: bottom;
   animation: dash-bar-grow 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  cursor: pointer;
 }
 
 .dash-bars__col:nth-child(2) .dash-bars__bar { animation-delay: 0.03s; }
@@ -958,6 +974,12 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
 
 .dash-bars__bar:hover {
   background: color-mix(in srgb, var(--pm-muted) 52%, transparent);
+  transform: scaleY(1.015);
+}
+
+.dash-bars__bar:focus-visible {
+  outline: 2px solid var(--dash-chart-line);
+  outline-offset: 3px;
 }
 
 .dash-bars__bar--current {
@@ -1099,6 +1121,19 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
   border-radius: 50%;
   flex-shrink: 0;
   animation: dash-donut-in 0.5s ease-out both;
+}
+
+/* Farbfläche als eigene Ebene, damit die Uhrzeiger-Maske das Mittelloch
+   (den Zählwert) nicht miterfasst. */
+.dash-donut::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--dash-donut-gradient, var(--pm-divider));
+  -webkit-mask: conic-gradient(from 0deg, #000 var(--dash-donut-sweep, 360deg), transparent 0);
+  mask: conic-gradient(from 0deg, #000 var(--dash-donut-sweep, 360deg), transparent 0);
+  animation: dash-donut-sweep 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .dash-donut__hole {
@@ -1511,6 +1546,25 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
   to {
     opacity: 1;
     transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes dash-donut-sweep {
+  from {
+    --dash-donut-sweep: 0deg;
+  }
+  to {
+    --dash-donut-sweep: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-donut,
+  .dash-donut::before {
+    animation: none;
+  }
+  .dash-donut::before {
+    --dash-donut-sweep: 360deg;
   }
 }
 

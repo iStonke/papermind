@@ -2,15 +2,24 @@ import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue';
 
 const SEARCH_DEBOUNCE_MS = 300;
 const SEARCHABLE_STATUSES = new Set(['imported', 'processing', 'ready', 'failed']);
-const SEARCH_SCOPES = new Set(['all', 'title', 'ocr_text', 'document_type', 'correspondent', 'tags']);
+const SEARCH_SCOPES = new Set(['all', 'title', 'ocr_text', 'document_type', 'correspondent', 'tags', 'year']);
 const SEARCH_SCOPE_PLACEHOLDERS = Object.freeze({
   all: 'Suchen…',
   title: 'Titel oder Dateiname suchen…',
   ocr_text: 'OCR-Text suchen…',
   document_type: 'Dokumenttyp suchen…',
   correspondent: 'Korrespondent suchen…',
-  tags: 'Tags suchen…'
+  tags: 'Tags suchen…',
+  year: 'Jahr suchen…'
 });
+
+function isValidYear(value) {
+  if (!/^\d{4}$/.test(value)) {
+    return false;
+  }
+  const year = Number(value);
+  return year >= 1000 && year <= 9999;
+}
 
 function isValidIsoDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
@@ -22,7 +31,8 @@ function isValidIsoDate(value) {
 
 /**
  * Parst den rohen Suchtext und extrahiert Freitext, Status-Filter und Datums-Filter.
- * Unterstützte Operatoren: `status:<wert>` und `date:<von>..<bis>` (ISO-Daten).
+ * Unterstützte Operatoren: `status:<wert>`, `date:<von>..<bis>` (ISO-Daten)
+ * und `jahr:<yyyy>`/`year:<yyyy>`.
  */
 function parseSearchText(rawSearch) {
   const normalized = (rawSearch || '').trim();
@@ -65,6 +75,20 @@ function parseSearchText(rawSearch) {
         dateTo = toDate;
       } else {
         warnings.push('Ungültiger date: Bereich. Er wird als Freitext behandelt.');
+        freeTerms.push(token);
+      }
+      continue;
+    }
+
+    if (lowerToken.startsWith('jahr:') || lowerToken.startsWith('year:')) {
+      const separatorIndex = token.indexOf(':');
+      const yearValue = token.slice(separatorIndex + 1);
+
+      if (isValidYear(yearValue)) {
+        dateFrom = `${yearValue}-01-01`;
+        dateTo = `${yearValue}-12-31`;
+      } else {
+        warnings.push('Ungültiger jahr: Filter. Er wird als Freitext behandelt.');
         freeTerms.push(token);
       }
       continue;

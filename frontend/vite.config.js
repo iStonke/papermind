@@ -10,6 +10,16 @@ export default defineConfig(({ mode }) => {
   const frontendPort = Number(env.FRONTEND_PORT || 5173);
   const apiTarget = String(env.VITE_API_BASE_URL || `http://localhost:${env.BACKEND_PORT || 8040}`).replace(/\/$/, '');
 
+  // HMR nur explizit konfigurieren, wenn per Env vorgegeben (z. B. Zugriff über
+  // einen Hostnamen/Reverse-Proxy). Ohne Vorgabe leitet Vite den HMR-Kanal aus
+  // dem tatsächlichen Dev-Server-Port und dem Browser-Host ab. Ein fest
+  // verdrahteter HMR-Port würde sonst mit parallelen Dev-Servern auf anderen
+  // Ports kollidieren (führte zu „failed to connect to websocket").
+  const hmr = {};
+  if (env.VITE_HMR_HOST) hmr.host = env.VITE_HMR_HOST;
+  if (env.VITE_HMR_PORT) hmr.port = Number(env.VITE_HMR_PORT);
+  if (env.VITE_HMR_PROTOCOL) hmr.protocol = env.VITE_HMR_PROTOCOL;
+
   return {
     plugins: [
       vue(),
@@ -35,11 +45,7 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       port: frontendPort,
       strictPort: true,
-      hmr: {
-        host: env.VITE_HMR_HOST || 'localhost',
-        port: Number(env.VITE_HMR_PORT || frontendPort),
-        protocol: env.VITE_HMR_PROTOCOL || 'ws'
-      },
+      ...(Object.keys(hmr).length ? { hmr } : {}),
       proxy: {
         '/api': {
           target: apiTarget,

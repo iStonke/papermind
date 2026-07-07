@@ -300,6 +300,7 @@ const DATE_RANGE_OPTIONS = [
   { value: 'last_30_days',   label: 'Letzte 30 Tage' },
   { value: 'last_12_months', label: 'Letzte 12 Monate' },
 ];
+const YEAR_RANGE_RE = /^year:(\d{4})$/;
 import { storeToRefs } from 'pinia';
 import { useDocumentStore } from '../stores/documents.js';
 import { useSettingsStore } from '../stores/settings.js';
@@ -495,7 +496,11 @@ watch(
 );
 
 const sortLabel      = computed(() => SORT_OPTIONS.find(o => o.value === props.currentSort)?.label ?? 'Sortierung');
-const dateRangeLabel = computed(() => DATE_RANGE_OPTIONS.find(o => o.value === props.currentDateRange)?.label ?? 'Zeitraum');
+const dateRangeLabel = computed(() => {
+  const yearMatch = YEAR_RANGE_RE.exec(props.currentDateRange || '');
+  if (yearMatch) return yearMatch[1];
+  return DATE_RANGE_OPTIONS.find(o => o.value === props.currentDateRange)?.label ?? 'Zeitraum';
+});
 const toolbarActions = computed(() => [
   {
     key: 'sort',

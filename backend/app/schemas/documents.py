@@ -85,6 +85,7 @@ class DocumentSearchScope(str, Enum):
     document_type = "document_type"
     correspondent = "correspondent"
     tags = "tags"
+    year = "year"
 
 
 class SortOrder(str, Enum):

@@ -244,6 +244,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useTheme } from 'vuetify';
 
 import PdfPreview from './PdfPreview.vue';
 
@@ -279,8 +280,23 @@ const storedToggles = readStoredToggles();
 const showThumbs = ref(typeof storedToggles.thumbs === 'boolean' ? storedToggles.thumbs : true);
 const showNotes = ref(typeof storedToggles.notes === 'boolean' ? storedToggles.notes : true);
 const showTools = ref(typeof storedToggles.tools === 'boolean' ? storedToggles.tools : false);
-// Eigenständige Lesemodus-Optik (unabhängig vom App-Theme): dunkel als Voreinstellung.
-const readerTheme = ref(storedToggles.theme === 'light' ? 'light' : 'dark');
+
+// Der Lesemodus richtet sich in erster Linie nach dem global eingestellten Theme
+// (Vuetify hell/dunkel). Über das Toggle kann der Benutzer davon abweichen; diese
+// Abweichung wird als Override gemerkt. Ändert sich das globale Theme, „gewinnt"
+// es und der Override wird verworfen (siehe Watch + Baseline-Prüfung unten).
+const vuetifyTheme = useTheme();
+const globalThemeName = computed(() => (vuetifyTheme.global.name.value === 'light' ? 'light' : 'dark'));
+
+// Persistierten Override nur übernehmen, wenn das globale Theme seither unverändert
+// ist. Wurde es bei geschlossenem Reader gewechselt, folgt der Reader wieder global.
+const initialReaderThemeOverride =
+  (storedToggles.theme === 'light' || storedToggles.theme === 'dark') &&
+  storedToggles.themeBase === globalThemeName.value
+    ? storedToggles.theme
+    : null;
+const readerThemeOverride = ref(initialReaderThemeOverride);
+const readerTheme = computed(() => readerThemeOverride.value ?? globalThemeName.value);
 const pageTotal = ref(0);
 const leaving = ref(false); // steuert die Leave-Transition vor dem Schließen
 
@@ -441,16 +457,28 @@ watch(
   { immediate: true },
 );
 
-watch([showThumbs, showNotes, showTools, readerTheme], ([thumbs, notes, tools, theme]) => {
+watch([showThumbs, showNotes, showTools, readerThemeOverride, globalThemeName], () => {
   if (typeof window === 'undefined') return;
   window.localStorage.setItem(
     READER_TOGGLE_STORAGE_KEY,
-    JSON.stringify({ thumbs, notes, tools, theme }),
+    JSON.stringify({
+      thumbs: showThumbs.value,
+      notes: showNotes.value,
+      tools: showTools.value,
+      theme: readerThemeOverride.value,
+      themeBase: globalThemeName.value,
+    }),
   );
 });
 
+// Global „gewinnt": Wechselt das App-Theme während der Reader offen ist, folgt der
+// Lesemodus wieder dem globalen Theme (Override zurücksetzen).
+watch(globalThemeName, () => {
+  readerThemeOverride.value = null;
+});
+
 function toggleReaderTheme() {
-  readerTheme.value = readerTheme.value === 'light' ? 'dark' : 'light';
+  readerThemeOverride.value = readerTheme.value === 'light' ? 'dark' : 'light';
 }
 
 function cancelEdit() {
