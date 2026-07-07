@@ -3148,7 +3148,9 @@ const isTagSelectionDirty = computed(() => {
 });
 
 // Steuert die Sichtbarkeit des KI-Befüllen-Buttons: nur anzeigen, wenn mindestens
-// eines der bearbeitbaren Felder (Name, Datum, Kategorie, Notizen, Tags) leer ist.
+// eines der strukturierten Felder (Name, Datum, Dokumenttyp, Korrespondent, Tags)
+// leer ist. Die Freitext-Notiz bleibt bewusst außen vor – sie ist oft absichtlich
+// leer und soll den Button nicht dauerhaft sichtbar halten.
 const hasEmptyMetadataField = computed(() => {
   if (!selectedDocumentDetail.value) {
     return false;
@@ -3156,9 +3158,9 @@ const hasEmptyMetadataField = computed(() => {
   const nameEmpty = !normalizeDocumentName(metadataDocName.value);
   const dateEmpty = !String(metadataDocDate.value || '').trim();
   const categoryEmpty = !String(metadataDocCategory.value || '').trim();
-  const notesEmpty = !String(metadataNotes.value || '').trim();
+  const correspondentEmpty = !metadataCorrespondentId.value;
   const tagsEmpty = metadataTagNames.value.length === 0;
-  return nameEmpty || dateEmpty || categoryEmpty || notesEmpty || tagsEmpty;
+  return nameEmpty || dateEmpty || categoryEmpty || correspondentEmpty || tagsEmpty;
 });
 
 let mediaQuery = null;
