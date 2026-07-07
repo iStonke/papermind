@@ -31,8 +31,8 @@ function isValidIsoDate(value) {
 
 /**
  * Parst den rohen Suchtext und extrahiert Freitext, Status-Filter und Datums-Filter.
- * Unterstützte Operatoren: `status:<wert>`, `date:<von>..<bis>` (ISO-Daten)
- * und `jahr:<yyyy>`/`year:<yyyy>`.
+ * Unterstützte Operatoren: `status:<wert>`, `date:<von>..<bis>` (ISO-Daten),
+ * `jahr:<yyyy>`/`year:<yyyy>` und `bis:<yyyy>`/`until:<yyyy>` (bis einschl. Jahr).
  */
 function parseSearchText(rawSearch) {
   const normalized = (rawSearch || '').trim();
@@ -89,6 +89,22 @@ function parseSearchText(rawSearch) {
         dateTo = `${yearValue}-12-31`;
       } else {
         warnings.push('Ungültiger jahr: Filter. Er wird als Freitext behandelt.');
+        freeTerms.push(token);
+      }
+      continue;
+    }
+
+    // `bis:<yyyy>`/`until:<yyyy>`: alles bis einschließlich diesem Jahr (offene
+    // Untergrenze). Genutzt für den gedeckelten „<jahr> und früher"-Balken im
+    // Dashboard, dessen Bestand vor dem Jahr liegen kann.
+    if (lowerToken.startsWith('bis:') || lowerToken.startsWith('until:')) {
+      const separatorIndex = token.indexOf(':');
+      const yearValue = token.slice(separatorIndex + 1);
+
+      if (isValidYear(yearValue)) {
+        dateTo = `${yearValue}-12-31`;
+      } else {
+        warnings.push('Ungültiger bis: Filter. Er wird als Freitext behandelt.');
         freeTerms.push(token);
       }
       continue;

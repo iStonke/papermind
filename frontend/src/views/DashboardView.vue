@@ -99,9 +99,9 @@
                       'dash-bars__bar--gap': Number(p.count || 0) === 0,
                     }"
                     :style="{ height: `${yearBarHeight(p.count)}%` }"
-                    :title="Number(p.count || 0) === 0 ? `${p.year}: keine Dokumente` : `${p.year}: ${p.count} Dokumente`"
-                    :aria-label="`Dokumente aus ${p.year} anzeigen`"
-                    @click="emit('year-select', p.year)"
+                    :title="yearBarTitle(p)"
+                    :aria-label="p.clipped ? `Dokumente aus ${p.year} und früher anzeigen` : `Dokumente aus ${p.year} anzeigen`"
+                    @click="emit('year-select', { year: p.year, clipped: !!p.clipped })"
                   />
                 </div>
               </div>
@@ -413,6 +413,14 @@ const maxYearCount = computed(() =>
   Math.max(1, ...years.value.map((p) => Number(p.count || 0)))
 );
 const yearBarHeight = (count) => Math.max(2, Math.round((Number(count || 0) / maxYearCount.value) * 100));
+
+// Der gedeckelte Startbalken sammelt zusätzlich alle älteren Dokumente auf und
+// wird daher als „<jahr> und früher" ausgewiesen.
+const yearBarTitle = (p) => {
+  const count = Number(p.count || 0);
+  const label = p.clipped ? `${p.year} und früher` : `${p.year}`;
+  return count === 0 ? `${label}: keine Dokumente` : `${label}: ${count} Dokumente`;
+};
 
 // Bei vielen Jahren die Achse ausdünnen (jedes 2./3. Label), Rand-Jahre immer.
 const yearTick = (year) => {

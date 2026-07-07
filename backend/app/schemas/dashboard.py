@@ -23,6 +23,10 @@ class DashboardMonthPoint(BaseModel):
 class DashboardYearPoint(BaseModel):
     year: int
     count: int = 0
+    # True für den gedeckelten Startbalken, der zusätzlich alle noch älteren
+    # Dokumente aufsammelt ("<year> und früher"). Der Klick darauf muss daher mit
+    # offener Untergrenze filtern statt exakt auf das Jahr.
+    clipped: bool = False
 
 
 class DashboardCorrespondent(BaseModel):

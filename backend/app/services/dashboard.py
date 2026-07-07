@@ -224,14 +224,15 @@ class DashboardService:
         start_year = max(earliest, current_year - MAX_HISTORY_YEARS)
         # Dokumente vor dem Deckel in das Startjahr zusammenfassen, damit die
         # Gesamtsumme stimmt und kein Bestand "verschwindet".
-        clipped = sum(count for year, count in counts.items() if year < start_year)
+        clipped_count = sum(count for year, count in counts.items() if year < start_year)
 
         series: list[DashboardYearPoint] = []
         for year in range(start_year, current_year + 1):
             value = counts.get(year, 0)
-            if year == start_year:
-                value += clipped
-            series.append(DashboardYearPoint(year=year, count=value))
+            is_clipped = year == start_year and clipped_count > 0
+            if is_clipped:
+                value += clipped_count
+            series.append(DashboardYearPoint(year=year, count=value, clipped=is_clipped))
         return series
 
     # ── Top-Korrespondenten ─────────────────────────────────────────────────
