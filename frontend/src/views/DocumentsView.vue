@@ -3273,6 +3273,8 @@ let previewRetryTimer = null;
 let listDropNoticeTimer = null;
 let importInboxPollTimer = null;
 let importScannerOptimisticTimer = null;
+let importInboxDiscardSuppressionTimer = null;
+let importInboxDiscardSuppressionReleaseIds = new Set();
 let importInboxStream = null;
 let importInboxStreamReconnectTimer = null;
 const isImportInboxStreamActive = ref(false);
@@ -3281,6 +3283,7 @@ const isImportInboxStreamActive = ref(false);
 const IMPORT_INBOX_STREAM_RECONNECT_MS = 8000;
 const IMPORT_SCANNER_SCANNING_FALLBACK_MS = 15000;
 const IMPORT_SCANNER_PENDING_FALLBACK_MS = 60000;
+const IMPORT_INBOX_DISCARD_SUPPRESSION_RELEASE_MS = 10000;
 // sidebarCountsRefreshTimer → jetzt in useSidebarStore verwaltet
 let shouldSkipTagAutosave = false;
 let shouldSkipMetadataAutosave = false;
@@ -3469,6 +3472,49 @@ function updateImportInboxPendingCountFromMutation(result) {
   if (Number.isFinite(serverPendingCount)) {
     setImportInboxPendingCount(serverPendingCount);
   }
+}
+
+// Beim Verwerfen koennen SSE/Polling kurz noch alte Server-Staende liefern.
+// Die betroffenen Items bleiben deshalb kurz unterdrueckt, bis der Discard
+// sicher durch alle lokalen Refresh-/Stream-Pfade gelaufen ist.
+function keepImportInboxItemsSuppressed(itemIds) {
+  const ids = (Array.isArray(itemIds) ? itemIds : [])
+    .map((itemId) => String(itemId || '').trim())
+    .filter(Boolean);
+  if (ids.length === 0) {
+    return;
+  }
+  const nextSuppressed = new Set(importInboxSuppressedItemIds.value);
+  for (const itemId of ids) {
+    nextSuppressed.add(itemId);
+  }
+  importInboxSuppressedItemIds.value = nextSuppressed;
+}
+
+function releaseImportInboxDiscardSuppressionLater(itemIds) {
+  const ids = (Array.isArray(itemIds) ? itemIds : [])
+    .map((itemId) => String(itemId || '').trim())
+    .filter(Boolean);
+  if (ids.length === 0 || typeof window === 'undefined') {
+    return;
+  }
+  for (const itemId of ids) {
+    importInboxDiscardSuppressionReleaseIds.add(itemId);
+  }
+  if (importInboxDiscardSuppressionTimer) {
+    window.clearTimeout(importInboxDiscardSuppressionTimer);
+  }
+  importInboxDiscardSuppressionTimer = window.setTimeout(() => {
+    importInboxDiscardSuppressionTimer = null;
+    const releaseIds = Array.from(importInboxDiscardSuppressionReleaseIds);
+    importInboxDiscardSuppressionReleaseIds = new Set();
+    const nextSuppressed = new Set(importInboxSuppressedItemIds.value);
+    for (const itemId of releaseIds) {
+      nextSuppressed.delete(itemId);
+    }
+    importInboxSuppressedItemIds.value = nextSuppressed;
+    setImportInboxPendingCount(countImportInboxPages(importInboxItems.value));
+  }, IMPORT_INBOX_DISCARD_SUPPRESSION_RELEASE_MS);
 }
 
 function normalizeImportScannerJobs(payload) {
@@ -3908,7 +3954,6 @@ async function onImportSourcesDiscarded(payload = {}) {
   const sourceFileIds = Array.isArray(payload?.sourceFileIds) ? payload.sourceFileIds : [];
   const itemIds = [];
   const nextActive = new Set(activeImportInboxItemIds.value);
-  const nextSuppressed = new Set(importInboxSuppressedItemIds.value);
   const nextSourceMap = new Map(activeImportInboxSourceToItemId.value);
 
   for (const rawSourceFileId of sourceFileIds) {
@@ -3919,7 +3964,6 @@ async function onImportSourcesDiscarded(payload = {}) {
     }
     itemIds.push(itemId);
     nextActive.delete(itemId);
-    nextSuppressed.delete(itemId);
     nextSourceMap.delete(sourceFileId);
   }
 
@@ -3928,7 +3972,7 @@ async function onImportSourcesDiscarded(payload = {}) {
   }
 
   activeImportInboxItemIds.value = nextActive;
-  importInboxSuppressedItemIds.value = nextSuppressed;
+  keepImportInboxItemsSuppressed(itemIds);
   activeImportInboxSourceToItemId.value = nextSourceMap;
 
   try {
@@ -3937,6 +3981,8 @@ async function onImportSourcesDiscarded(payload = {}) {
     await refreshImportInbox({ silent: true, allowAutoOpen: false });
   } catch (error) {
     notify({ type: 'warning', message: mapApiError(error, 'Gelöschte SMB-Scans konnten nicht endgültig gelöscht werden.') });
+  } finally {
+    releaseImportInboxDiscardSuppressionLater(itemIds);
   }
 }
 
@@ -3963,19 +4009,17 @@ watch(isUploadDialogOpen, async (open) => {
   const itemIds = Array.from(activeImportInboxItemIds.value);
   activeImportInboxItemIds.value = new Set();
   activeImportInboxSourceToItemId.value = new Map();
-  const nextSuppressed = new Set(importInboxSuppressedItemIds.value);
-  for (const itemId of itemIds) {
-    nextSuppressed.delete(itemId);
-  }
-  importInboxSuppressedItemIds.value = nextSuppressed;
+  keepImportInboxItemsSuppressed(itemIds);
 
   try {
     const result = await discardImportInboxItems(itemIds);
     updateImportInboxPendingCountFromMutation(result);
+    await refreshImportInbox({ silent: true, allowAutoOpen: false });
   } catch (error) {
     notify({ type: 'warning', message: mapApiError(error, 'Verworfene Scans konnten nicht gelöscht werden.') });
+  } finally {
+    releaseImportInboxDiscardSuppressionLater(itemIds);
   }
-  await refreshImportInbox({ silent: true, allowAutoOpen: false });
 });
 
 // ── Navigation ────────────────────────────────────────────────────────────
@@ -8110,6 +8154,11 @@ onBeforeUnmount(() => {
   }
   if (importInboxPollTimer) {
     window.clearTimeout(importInboxPollTimer);
+  }
+  if (importInboxDiscardSuppressionTimer) {
+    window.clearTimeout(importInboxDiscardSuppressionTimer);
+    importInboxDiscardSuppressionTimer = null;
+    importInboxDiscardSuppressionReleaseIds = new Set();
   }
   if (importInboxStreamReconnectTimer) {
     window.clearTimeout(importInboxStreamReconnectTimer);
