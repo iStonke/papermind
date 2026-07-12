@@ -869,6 +869,8 @@ const isCommitting = ref(false);
 const preparationProgress = ref({ done: 0, total: 0 });
 const remoteSourceStageBySession = new Map();
 const titleSuggestJobByStage = new Map();
+const IMPORT_ANALYSIS_RETRY_DELAY_MS = 1500;
+const IMPORT_ANALYSIS_MAX_TRANSIENT_RETRIES = 3;
 const previewImageSrc = ref('');
 const previewImageLoading = ref(false);
 const rightPanelMode = ref('details');
@@ -2743,6 +2745,39 @@ function collectScanSourceFileIds(stageId) {
   return Array.from(new Set([...fromMeta, ...fromPages]));
 }
 
+function waitForImportAnalysisRetry() {
+  if (typeof window === 'undefined') {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => window.setTimeout(resolve, IMPORT_ANALYSIS_RETRY_DELAY_MS));
+}
+
+function getImportAnalysisStatus(payload) {
+  const meta = payload?.meta && typeof payload.meta === 'object' ? payload.meta : {};
+  const ocr = meta?.ocr && typeof meta.ocr === 'object' ? meta.ocr : {};
+  return String(meta.analysis_status || ocr.status || '').trim().toLowerCase();
+}
+
+function isRetryableImportAnalysisPayload(payload) {
+  const status = String(payload?.status || '').trim().toLowerCase();
+  if (status !== 'error' && status !== 'failed') {
+    return false;
+  }
+  const analysisStatus = getImportAnalysisStatus(payload);
+  return analysisStatus === 'ocr_failed' || analysisStatus === 'empty_sources';
+}
+
+function isRetryableImportAnalysisError(error) {
+  if (error?.name === 'AbortError' || error?.code === 'REQUEST_TIMEOUT') {
+    return false;
+  }
+  const status = Number(error?.status || 0);
+  if (status === 403 || status === 422) {
+    return false;
+  }
+  return true;
+}
+
 async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', options = {}) {
   const normalizedStageId = String(stageId || '').trim();
   if (!normalizedStageId) {
@@ -2771,11 +2806,15 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
   meta.titleSuggestionPollExhausted = false;
   meta.titleSuggestionUsedFallback = false;
   meta.titleSuggestionMeta = null;
+  const maxPendingRetries = options?.maxPendingRetries != null ? options.maxPendingRetries : 10;
+  const maxTransientRetries = options?.maxTransientRetries != null
+    ? Math.max(0, Number(options.maxTransientRetries) || 0)
+    : IMPORT_ANALYSIS_MAX_TRANSIENT_RETRIES;
   const job = (async () => {
-    const maxPendingRetries = options?.maxPendingRetries != null ? options.maxPendingRetries : 10;
-    let attempt = 0;
+    let pendingAttempt = 0;
+    let transientAttempt = 0;
     try {
-      while (attempt < maxPendingRetries) {
+      while (pendingAttempt < maxPendingRetries) {
         // WICHTIG: Hier KEINE Abfrage auf isOpen/modelValue, die den Job abbricht.
         // Das war die Hauptursache für "Keine automatische Erkennung": Wird der Dialog
         // mit einem neuen Scan geöffnet, läuft dieser Analyse-Job, während
@@ -2785,15 +2824,27 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
         // unabhängig vom Offen-Zustand; das Ergebnis landet im meta und wird beim
         // Anzeigen genutzt. Der Request ist durch AbortController (90 s) begrenzt, ein
         // "Ghost-working" kann es also nicht geben.
-        const payload = await suggestImportStageTitle(props.apiBaseUrl, normalizedStageId, {
-          sourceFileIds,
-          pageScope: normalizedScope
-        });
+        let payload;
+        try {
+          payload = await suggestImportStageTitle(props.apiBaseUrl, normalizedStageId, {
+            sourceFileIds,
+            pageScope: normalizedScope
+          });
+        } catch (error) {
+          if (transientAttempt < maxTransientRetries && isRetryableImportAnalysisError(error)) {
+            transientAttempt += 1;
+            meta.titleSuggestionStatus = 'pending_ocr';
+            meta.titleSuggestionPollExhausted = false;
+            await waitForImportAnalysisRetry();
+            continue;
+          }
+          throw error;
+        }
         const status = String(payload?.status || 'ready').trim().toLowerCase();
         if (status === 'pending_ocr') {
           meta.titleSuggestionStatus = 'pending_ocr';
-          attempt += 1;
-          if (attempt >= maxPendingRetries) {
+          pendingAttempt += 1;
+          if (pendingAttempt >= maxPendingRetries) {
             meta.titleSuggestionPollExhausted = true;
             if (!options?.silent) {
               notify({ type: 'warning', message: 'OCR noch nicht fertig - bitte später erneut versuchen.' });
@@ -2801,6 +2852,14 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
             return;
           }
           await new Promise((resolve) => window.setTimeout(resolve, 1500));
+          continue;
+        }
+
+        if (isRetryableImportAnalysisPayload(payload) && transientAttempt < maxTransientRetries) {
+          transientAttempt += 1;
+          meta.titleSuggestionStatus = 'pending_ocr';
+          meta.titleSuggestionPollExhausted = false;
+          await waitForImportAnalysisRetry();
           continue;
         }
 
@@ -2955,11 +3014,12 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
   // This timer is only a last resort and must fire AFTER that timeout — never before —
   // otherwise a slow-but-successful OCR run (Tesseract auf großen Scans) wird fälschlich
   // als Fehler markiert ("Keine automatische Erkennung").
+  const safetyTimeoutMs = 95_000 * (1 + maxTransientRetries) + (maxPendingRetries * IMPORT_ANALYSIS_RETRY_DELAY_MS);
   const safetyTimer = window.setTimeout(() => {
     if (meta.titleSuggestionStatus === 'working' || meta.titleSuggestionStatus === 'pending_ocr') {
       meta.titleSuggestionStatus = 'error';
     }
-  }, 95_000);
+  }, safetyTimeoutMs);
   job.finally(() => window.clearTimeout(safetyTimer));
 
   return job;
