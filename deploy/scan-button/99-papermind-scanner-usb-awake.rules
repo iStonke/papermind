@@ -1,0 +1,1 @@
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="04a9", TAG+="systemd", ENV{SYSTEMD_WANTS}+="papermind-scanner-usb-awake.service"

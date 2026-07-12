@@ -1,6 +1,7 @@
 [Unit]
 Description=PaperMind Scan-Tasten-Poller (Canon LiDE 400, Ersatz für scanbd)
-After=multi-user.target
+Wants=papermind-scanner-usb-awake.service
+After=multi-user.target papermind-scanner-usb-awake.service
 
 [Service]
 Type=simple
@@ -13,10 +14,10 @@ User=jan
 Group=jan
 # Optional festes Gerät statt Auto-Erkennung:
 # Environment=SCAN_DEVICE=pixma:04A91912_50F25C
-# Adaptives Poll-Intervall (Defaults: 0.7s aktiv / 3s Ruhe / 10s Aktiv-Fenster):
-# Environment=ACTIVE_POLL_INTERVAL=0.7
-# Environment=IDLE_POLL_INTERVAL=3
-# Environment=ACTIVE_WINDOW_SECONDS=10
+# Adaptives Poll-Intervall: haelt den USB-Scanner reaktionsbereit.
+Environment=ACTIVE_POLL_INTERVAL=0.35
+Environment=IDLE_POLL_INTERVAL=1
+Environment=ACTIVE_WINDOW_SECONDS=30
 
 [Install]
 WantedBy=multi-user.target

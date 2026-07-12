@@ -1,0 +1,14 @@
+[Unit]
+Description=PaperMind Scanner USB-Autosuspend deaktivieren
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/jan/papermind/deploy/scan-button/papermind-scanner-usb-awake.sh
+User=root
+# Canon vendor. Optional enger auf LiDE 400 begrenzen:
+Environment=SCANNER_USB_VENDOR=04a9
+# Environment=SCANNER_USB_PRODUCT=1912
+
+[Install]
+WantedBy=multi-user.target

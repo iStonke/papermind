@@ -35,6 +35,8 @@ Kommando) bleibt unterstützt – dann ohne Job-Zuordnung.
 
 > Nach Änderungen an `papermind-scan.sh`/`papermind-scan-watch.sh` den
 > Host-Dienst neu starten: `sudo systemctl restart papermind-scan-watch`.
+> Nach Änderungen an der USB-Wachhalter-Konfiguration zusätzlich:
+> `sudo systemctl restart papermind-scanner-usb-awake`.
 
 ## Warum ein eigener Poller statt scanbd?
 
@@ -67,7 +69,7 @@ scanimage -L
 # Erwartet:  device `pixma:04A91912_50F25C' is a CANON CanoScan LiDE 400 ...
 ```
 
-Wird der Scanker nicht (oder nur als `escl:`/`airscan:`) gefunden, siehe
+Wird der Scanner nicht (oder nur als `escl:`/`airscan:`) gefunden, siehe
 Abschnitt **ipp-usb** unten.
 
 ## 3. ipp-usb deaktivieren (wichtig!)
@@ -96,6 +98,7 @@ Per git (oder `scp`) den Ordner `deploy/scan-button/` auf den Pi bringen, dann:
 ```bash
 chmod +x /home/jan/papermind/deploy/scan-button/papermind-scan.sh
 chmod +x /home/jan/papermind/deploy/scan-button/papermind-scan-watch.sh
+chmod +x /home/jan/papermind/deploy/scan-button/papermind-scanner-usb-awake.sh
 ```
 
 Kurzer Funktionstest ohne Tasten (legt eine 1-seitige PDF in der Inbox ab):
@@ -106,13 +109,26 @@ Kurzer Funktionstest ohne Tasten (legt eine 1-seitige PDF in der Inbox ab):
 ```
 → In PaperMind sollte die Badge am **Importieren**-Button erscheinen.
 
-## 5. Poller-Dienst installieren
+## 5. USB-Wachhalter und Poller-Dienst installieren
+
+Der USB-Wachhalter deaktiviert Linux Runtime-Autosuspend fuer Canon-USB-Geraete
+(`idVendor=04a9`). Das nimmt dem ersten Zugriff nach langer Inaktivitaet die
+USB-Aufwach-Latenz. Optional kann in der `.service` oder udev-Regel enger auf
+die LiDE 400 (`idProduct=1912`) begrenzt werden.
 
 ```bash
+sudo cp /home/jan/papermind/deploy/scan-button/papermind-scanner-usb-awake.service \
+        /etc/systemd/system/
+sudo cp /home/jan/papermind/deploy/scan-button/99-papermind-scanner-usb-awake.rules \
+        /etc/udev/rules.d/
 sudo cp /home/jan/papermind/deploy/scan-button/papermind-scan-watch.service \
         /etc/systemd/system/
 sudo systemctl daemon-reload
+sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=usb --attr-match=idVendor=04a9
+sudo systemctl enable --now papermind-scanner-usb-awake.service
 sudo systemctl enable --now papermind-scan-watch.service
+systemctl status papermind-scanner-usb-awake.service --no-pager   # letzter Lauf erfolgreich?
 systemctl status papermind-scan-watch.service --no-pager   # active (running)?
 ```
 
@@ -185,10 +201,12 @@ in `papermind-scan.sh` (oder als `Environment=` in der `.service`):
 | Variable          | Default                         | Bedeutung                                    |
 | ----------------- | ------------------------------- | -------------------------------------------- |
 | `SCAN_DEVICE`     | *(auto: erster pixma-Scanner)*  | SANE-Device aus `scanimage -L`               |
-| `ACTIVE_POLL_INTERVAL` | `0.7`                      | Tasten-Abfrage-Intervall kurz nach einer Aktion (schnell) |
-| `IDLE_POLL_INTERVAL`   | `3`                        | Tasten-Abfrage-Intervall in Ruhe (Normalfall, schont USB) |
-| `ACTIVE_WINDOW_SECONDS`| `10`                       | Wie lange nach einer Taste das schnelle Intervall gilt |
+| `ACTIVE_POLL_INTERVAL` | `0.35`                     | Tasten-Abfrage-Intervall kurz nach einer Aktion (schnell) |
+| `IDLE_POLL_INTERVAL`   | `1`                        | Tasten-Abfrage-Intervall in Ruhe; bewusst unter typischen USB-Autosuspend-Zeiten |
+| `ACTIVE_WINDOW_SECONDS`| `30`                       | Wie lange nach einer Taste das schnelle Intervall gilt |
 | `SCAN_INBOX_DIR`  | *(aus Repo-Pfad abgeleitet)*    | Drop-Ordner (= Host-Mount von `/scan-inbox`) |
+| `SCANNER_USB_VENDOR` | `04a9`                      | USB-Vendor fuer den Wachhalter (Canon)       |
+| `SCANNER_USB_PRODUCT` | *(leer)*                    | Optionales USB-Produkt, z. B. `1912` fuer LiDE 400 |
 | `SCAN_RESOLUTION` | `300`                           | DPI                                          |
 | `SCAN_MODE`       | `Color`                         | `Color` \| `Gray` \| `Lineart`               |
 | `IDLE_SECONDS`    | `180`                           | Ruhezeit für `finalize-idle`                 |
@@ -197,7 +215,8 @@ in `papermind-scan.sh` (oder als `Environment=` in der `.service`):
 ist für Scanner-PDFs mit Sidecar-Vorschau nicht mehr die gefühlte UI-Grenze:
 atomar verschobene Dateien werden im Worker-Schnellpfad geprüft und die
 Vorschau erscheint im Importfenster ohne vorheriges PDF-Thumbnail-Rendering.
-und der Mount stehen in `docker-compose.yml` / `.env`.
+Das klassische Import-Stabilitätsfenster und der Mount stehen in
+`docker-compose.yml` / `.env`.
 
 ## Fehlersuche
 
@@ -206,6 +225,7 @@ und der Mount stehen in `docker-compose.yml` / `.env`.
 | `scanimage -L` zeigt nur `escl:`/`airscan:` | `ipp-usb` maskieren (Schritt 3), USB neu stecken |
 | `ScannerCarriageLockError` / `Error during device I/O` | meist `ipp-usb` aktiv; sonst Transportverriegelung am Gerät / USB-Strom |
 | Taste tut nichts | `journalctl -t papermind-scan-watch -f`; richtige Taste? Dienst `active`? |
+| Erster Zugriff nach langer Pause ist traege | `systemctl status papermind-scanner-usb-awake`; bei Canon-USB-Geraet sollte `/sys/bus/usb/devices/.../power/control` auf `on` stehen |
 | `device busy` im Scan | Läuft noch `scanbd`/`ipp-usb`? Beide abschalten (Schritt 3) |
 | Scan bricht ~60% ab, `usb ... disconnect` | USB-Strom: Pi-5-Netzteil (5V/5A) oder aktiver USB-Hub |
 | PDF erscheint nicht in der App | App neu laden; Worker-Log: `import inbox drop processed`; PDF in `scan-inbox/.papermind-processed/`? |
@@ -217,6 +237,8 @@ und der Mount stehen in `docker-compose.yml` / `.env`.
 | --- | --- |
 | [`papermind-scan-watch.sh`](./papermind-scan-watch.sh) | Poller: liest Tasten, ruft `page`/`finish` |
 | [`papermind-scan-watch.service`](./papermind-scan-watch.service) | systemd-Dienst für den Poller |
+| [`papermind-scanner-usb-awake.sh`](./papermind-scanner-usb-awake.sh) | setzt Canon-USB-Geraete auf `power/control=on` |
+| [`papermind-scanner-usb-awake.service`](./papermind-scanner-usb-awake.service) / [`99-papermind-scanner-usb-awake.rules`](./99-papermind-scanner-usb-awake.rules) | Boot- und USB-Ansteck-Aktivierung fuer den Wachhalter |
 | [`papermind-scan.sh`](./papermind-scan.sh) | scannt (`page`), baut PDF (`finish`), Idle-Abschluss |
 | [`papermind-scan-idle.service`](./papermind-scan-idle.service) / [`.timer`](./papermind-scan-idle.timer) | optionales Idle-Sicherheitsnetz |
 

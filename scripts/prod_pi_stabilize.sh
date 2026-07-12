@@ -128,8 +128,16 @@ install_scan_button_services() {
   [[ "${RUN_SCANNER}" -eq 1 ]] || return 0
   local scan_script="${REPO_DIR}/deploy/scan-button/papermind-scan.sh"
   local watch_script="${REPO_DIR}/deploy/scan-button/papermind-scan-watch.sh"
+  local awake_script="${REPO_DIR}/deploy/scan-button/papermind-scanner-usb-awake.sh"
+  local scanner_usb_vendor="${SCANNER_USB_VENDOR:-04a9}"
+  local scanner_usb_product="${SCANNER_USB_PRODUCT:-}"
+  local product_env_line=""
+  scanner_usb_vendor="${scanner_usb_vendor,,}"
+  scanner_usb_product="${scanner_usb_product,,}"
+  [[ -n "${scanner_usb_product}" ]] && product_env_line="Environment=SCANNER_USB_PRODUCT=${scanner_usb_product}"
   require_file "${scan_script}"
   require_file "${watch_script}"
+  require_file "${awake_script}"
 
   log "Installing scanner packages and services"
   sudo apt-get update -qq
@@ -139,14 +147,42 @@ install_scan_button_services() {
   sudo systemctl mask --now ipp-usb >/dev/null 2>&1 || true
   sudo systemctl disable --now scanbd >/dev/null 2>&1 || sudo systemctl mask scanbd >/dev/null 2>&1 || true
 
-  chmod +x "${scan_script}" "${watch_script}"
+  chmod +x "${scan_script}" "${watch_script}" "${awake_script}"
+  sudo tee /etc/systemd/system/papermind-scanner-usb-awake.service >/dev/null <<UNIT
+[Unit]
+Description=PaperMind Scanner USB-Autosuspend deaktivieren
+After=multi-user.target
+
+[Service]
+Type=oneshot
+Environment=SCANNER_USB_VENDOR=${scanner_usb_vendor}
+${product_env_line}
+ExecStart=${awake_script}
+User=root
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+  if [[ -n "${scanner_usb_product}" ]]; then
+    printf 'ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="%s", ATTR{idProduct}=="%s", TAG+="systemd", ENV{SYSTEMD_WANTS}+="papermind-scanner-usb-awake.service"\n' \
+      "${scanner_usb_vendor}" "${scanner_usb_product}" | sudo tee /etc/udev/rules.d/99-papermind-scanner-usb-awake.rules >/dev/null
+  else
+    printf 'ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="%s", TAG+="systemd", ENV{SYSTEMD_WANTS}+="papermind-scanner-usb-awake.service"\n' \
+      "${scanner_usb_vendor}" | sudo tee /etc/udev/rules.d/99-papermind-scanner-usb-awake.rules >/dev/null
+  fi
+
   sudo tee /etc/systemd/system/papermind-scan-watch.service >/dev/null <<UNIT
 [Unit]
 Description=PaperMind Scan-Tasten-Poller (Canon LiDE 400)
-After=multi-user.target docker.service
+Wants=papermind-scanner-usb-awake.service
+After=multi-user.target docker.service papermind-scanner-usb-awake.service
 
 [Service]
 Type=simple
+Environment=ACTIVE_POLL_INTERVAL=0.35
+Environment=IDLE_POLL_INTERVAL=1
+Environment=ACTIVE_WINDOW_SECONDS=30
 ExecStart=${watch_script}
 Restart=always
 RestartSec=5
@@ -185,6 +221,9 @@ WantedBy=timers.target
 UNIT
 
   sudo systemctl daemon-reload
+  sudo udevadm control --reload-rules >/dev/null 2>&1 || true
+  sudo udevadm trigger --subsystem-match=usb --attr-match=idVendor="${scanner_usb_vendor}" >/dev/null 2>&1 || true
+  sudo systemctl enable --now papermind-scanner-usb-awake.service >/dev/null
   sudo systemctl enable --now papermind-scan-watch.service >/dev/null
   sudo systemctl enable --now papermind-scan-idle.timer >/dev/null
 }

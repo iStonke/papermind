@@ -16,11 +16,9 @@
 #  WICHTIG: scanbd muss deaktiviert sein, sonst belegt es das Gerät.
 #
 #  Jeder Poll ist ein USB-Control-Transfer zum Scanner (open/close der
-#  pixma-Session). Dauerhaft im Sekundenbruchteil-Takt zu pollen erzeugt
-#  unnötige USB-Last auf dem Pi. Daher adaptives Intervall: kurz nach einer
-#  Tastenaktion wird schnell gepollt (flüssiges Mehrseiten-Scannen), nach
-#  ACTIVE_WINDOW_SECONDS Ruhe ohne weitere Taste fällt der Poller auf das
-#  seltenere Ruhe-Intervall zurück – das ist der Normalfall über den Tag.
+#  pixma-Session). Das Ruhe-Intervall bleibt bewusst unter typischen Linux-
+#  USB-Autosuspend-Zeiten, damit der direkt angeschlossene Scanner nicht nach
+#  längerer Inaktivität erst wieder aufwachen muss.
 #
 #  Neben den Hardware-Tasten konsumiert der Poller auch UI-ausgelöste Scans:
 #  Das Backend reiht einen Befehl ein, der Worker schreibt ihn als Datei
@@ -31,9 +29,9 @@
 #  Konfiguration über Environment:
 #    SCAN_DEVICE            SANE-Device (leer = pixma-Scanner automatisch suchen)
 #    SCAN_INBOX_DIR         Drop-Ordner für Befehlsdateien (Default: aus Repo-Pfad)
-#    ACTIVE_POLL_INTERVAL   Sekunden zwischen Abfragen kurz nach einer Taste (Default 0.7)
-#    IDLE_POLL_INTERVAL     Sekunden zwischen Abfragen in Ruhe (Default 3)
-#    ACTIVE_WINDOW_SECONDS  Wie lange nach einer Taste das schnelle Intervall gilt (Default 10)
+#    ACTIVE_POLL_INTERVAL   Sekunden zwischen Abfragen kurz nach einer Taste (Default 0.35)
+#    IDLE_POLL_INTERVAL     Sekunden zwischen Abfragen in Ruhe (Default 1)
+#    ACTIVE_WINDOW_SECONDS  Wie lange nach einer Taste das schnelle Intervall gilt (Default 30)
 # =============================================================================
 
 # Bewusst KEIN `set -e`: Ein einzelner Lesefehler darf den Daemon nicht beenden.
@@ -46,9 +44,9 @@ SCAN_SCRIPT="${_SCRIPT_DIR}/papermind-scan.sh"
 # wo der Worker sie hinschreibt. Per SCAN_INBOX_DIR override-bar.
 SCAN_INBOX_DIR="${SCAN_INBOX_DIR:-${_REPO_ROOT}/scan-inbox}"
 SCAN_COMMAND_GLOB=".papermind-scan-command-*"
-ACTIVE_POLL_INTERVAL="${ACTIVE_POLL_INTERVAL:-0.7}"
-IDLE_POLL_INTERVAL="${IDLE_POLL_INTERVAL:-3}"
-ACTIVE_WINDOW_SECONDS="${ACTIVE_WINDOW_SECONDS:-10}"
+ACTIVE_POLL_INTERVAL="${ACTIVE_POLL_INTERVAL:-0.35}"
+IDLE_POLL_INTERVAL="${IDLE_POLL_INTERVAL:-1}"
+ACTIVE_WINDOW_SECONDS="${ACTIVE_WINDOW_SECONDS:-30}"
 
 log() {
   echo "[papermind-scan-watch] $*"

@@ -74,7 +74,10 @@ run "${COMPOSE[@]}" logs --tail=80 caddy
 run "${COMPOSE[@]}" logs --tail=80 worker
 
 section "Systemd Services"
-run_sh "systemctl --no-pager --full status docker papermind-host-control papermind-scan-watch papermind-scan-idle.timer 2>/dev/null || true"
+run_sh "systemctl --no-pager --full status docker papermind-host-control papermind-scanner-usb-awake papermind-scan-watch papermind-scan-idle.timer 2>/dev/null || true"
+
+section "Scanner USB Power"
+run_sh "for d in /sys/bus/usb/devices/*; do [ -r \"\$d/idVendor\" ] || continue; v=\$(tr '[:upper:]' '[:lower:]' < \"\$d/idVendor\"); [ \"\$v\" = \"04a9\" ] || continue; p=\$(cat \"\$d/idProduct\" 2>/dev/null || true); c=\$(cat \"\$d/power/control\" 2>/dev/null || true); delay=\$(cat \"\$d/power/autosuspend_delay_ms\" 2>/dev/null || cat \"\$d/power/autosuspend\" 2>/dev/null || true); echo \"\${d##*/} idVendor=\$v idProduct=\$p power/control=\$c autosuspend=\$delay\"; done"
 
 section "Kernel / Journal Warnings"
 run_sh "journalctl -k -p warning..alert --since '2 hours ago' --no-pager 2>/dev/null | tail -200 || true"
