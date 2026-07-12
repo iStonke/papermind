@@ -129,6 +129,7 @@ class ImportInboxService:
             original_name=item.original_name,
             page_count=item.page_count,
             preview_url=self.import_staging_service.source_preview_url(str(item.source_file_id)),
+            analysis=self.import_staging_service.get_source_analysis_response(str(item.source_file_id)),
             client_name=item.client_name,
             source_type=item.source_type,
             scanner_device_id=str(item.scanner_device_id) if item.scanner_device_id else None,

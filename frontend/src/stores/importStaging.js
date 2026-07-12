@@ -30,6 +30,10 @@ function normalizeTagIds(tagIds = []) {
   return normalized;
 }
 
+function normalizeAnalysisPayload(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+
 function createDocument({ title, sourceType = 'manual', pages = [], collapsed = false, tags = [] } = {}) {
   const id = makeId('staging-doc');
   const normalizedPages = pages.map((page) => ({
@@ -185,7 +189,23 @@ export const useImportStagingStore = defineStore('importStaging', {
         sourceFileId,
         originalName: String(meta.originalName || file?.name || '').trim(),
         pageCount: Number(meta.pageCount || 0),
-        isImportInbox: Boolean(meta.isImportInbox)
+        isImportInbox: Boolean(meta.isImportInbox),
+        analysis: normalizeAnalysisPayload(meta.analysis)
+      });
+    },
+
+    setSourceAnalysis(sourceFileId, analysis) {
+      const normalizedId = String(sourceFileId || '').trim();
+      if (!normalizedId) {
+        return;
+      }
+      const existing = this.sourceMetaById.get(normalizedId);
+      if (!existing) {
+        return;
+      }
+      this.sourceMetaById.set(normalizedId, {
+        ...existing,
+        analysis: normalizeAnalysisPayload(analysis)
       });
     },
 

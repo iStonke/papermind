@@ -1069,6 +1069,9 @@ function ensureScanMeta(documentEntry) {
   if (!documentEntry.meta.titleSuggestionMeta || typeof documentEntry.meta.titleSuggestionMeta !== 'object') {
     documentEntry.meta.titleSuggestionMeta = null;
   }
+  if (typeof documentEntry.meta.appliedImportAnalysisKey !== 'string') {
+    documentEntry.meta.appliedImportAnalysisKey = '';
+  }
   return documentEntry.meta;
 }
 
@@ -1612,6 +1615,7 @@ function resetScanSuggestionMeta(documentEntry) {
   meta.titleSuggestionUsedFallback = false;
   meta.titleSuggestionPollExhausted = false;
   meta.titleSuggestionMeta = null;
+  meta.appliedImportAnalysisKey = '';
   return meta;
 }
 
@@ -2642,6 +2646,7 @@ async function addRemoteSourcesImpl(payload = []) {
       continue;
     }
     if (stagingStore.sourceMetaById?.has?.(sourceFileId)) {
+      await applySourceAnalysisToExistingStages(sourceFileId, source?.analysis);
       continue;
     }
 
@@ -2650,7 +2655,12 @@ async function addRemoteSourcesImpl(payload = []) {
     const thumbUrls = remotePreviewThumbUrls(source, pageCount);
     const hadFastPreview = thumbUrls.some((url) => String(url || '').trim());
 
-    stagingStore.setStagingFile(sourceFileId, null, { originalName, pageCount, isImportInbox: true });
+    stagingStore.setStagingFile(sourceFileId, null, {
+      originalName,
+      pageCount,
+      isImportInbox: true,
+      analysis: source?.analysis
+    });
     const targetStageId = String(source?.target_stage_id || '').trim() || sessionStageId;
     if (targetStageId && documents.value.some((entry) => entry.id === targetStageId)) {
       const targetDoc = getDocumentById(targetStageId);
@@ -2669,6 +2679,7 @@ async function addRemoteSourcesImpl(payload = []) {
         pageCount,
         thumbUrls
       });
+      await applyCachedImportAnalysis(targetStageId, source?.analysis);
       touchedStageIds.add(targetStageId);
     } else {
       const fallback = stagingStore.addEmptyDocument(null, sourceTitle);
@@ -2688,14 +2699,16 @@ async function addRemoteSourcesImpl(payload = []) {
           pageCount,
           thumbUrls
         });
+        await applyCachedImportAnalysis(fallbackStageId, source?.analysis);
         touchedStageIds.add(fallbackStageId);
       } else {
-        stagingStore.addDocumentFromSource({
+        const createdDoc = stagingStore.addDocumentFromSource({
           sourceFileId,
           title: sourceTitle,
           pageCount,
           thumbUrls
         });
+        await applyCachedImportAnalysis(createdDoc?.id, source?.analysis);
       }
     }
     addedCount += 1;
@@ -2776,6 +2789,208 @@ function isRetryableImportAnalysisError(error) {
     return false;
   }
   return true;
+}
+
+function getImportAnalysisCacheKey(analysis) {
+  if (!analysis || typeof analysis !== 'object') {
+    return '';
+  }
+  const meta = analysis.meta && typeof analysis.meta === 'object' ? analysis.meta : {};
+  return [
+    String(meta.cached_at || ''),
+    String(meta.analysis_phase || ''),
+    String(analysis.status || ''),
+    String(analysis.suggestion || '')
+  ].join('|');
+}
+
+function findStageIdsForSourceFile(sourceFileId) {
+  const normalized = String(sourceFileId || '').trim();
+  if (!normalized) {
+    return [];
+  }
+  const ids = [];
+  for (const doc of documents.value || []) {
+    const metaIds = Array.isArray(doc?.meta?.scanSourceFileIds)
+      ? doc.meta.scanSourceFileIds.map((entry) => String(entry || '').trim())
+      : [];
+    const pageIds = Array.isArray(doc?.pages)
+      ? doc.pages.map((page) => String(page?.sourceFileId || '').trim())
+      : [];
+    if ([...metaIds, ...pageIds].includes(normalized)) {
+      ids.push(doc.id);
+    }
+  }
+  return ids;
+}
+
+async function applyImportAnalysisPayload(stageId, payload, options = {}) {
+  const normalizedStageId = String(stageId || '').trim();
+  if (!normalizedStageId || !payload || typeof payload !== 'object') {
+    return false;
+  }
+  const documentEntry = getDocumentById(normalizedStageId);
+  if (!documentEntry) {
+    return false;
+  }
+  const meta = ensureScanMeta(documentEntry);
+  if (!meta) {
+    return false;
+  }
+
+  const status = String(payload?.status || 'ready').trim().toLowerCase();
+  const suggestion = String(payload?.suggestion || '').trim();
+  if (suggestion) {
+    meta.titleSuggestion = suggestion;
+  }
+  meta.titleSuggestionUsedFallback = Boolean(payload?.usedFallback ?? payload?.used_fallback);
+  meta.titleSuggestionMeta = payload?.meta && typeof payload.meta === 'object' ? payload.meta : null;
+  if (status === 'error' || status === 'failed') {
+    meta.titleSuggestionStatus = 'error';
+    return false;
+  }
+  if (status === 'pending_ocr') {
+    meta.titleSuggestionStatus = 'pending_ocr';
+    meta.titleSuggestionPollExhausted = false;
+    return false;
+  }
+  meta.titleSuggestionStatus = 'ready';
+
+  const hadAiFilledFields = hasAiFilledImportFields();
+  try {
+    if (normalizedStageId === primaryDocument.value?.id) {
+      if (suggestion && !meta.titleSuggestionUsedFallback && !docTitleTouched.value) {
+        stagingStore.renameDocument(normalizedStageId, suggestion);
+        meta.titleSuggestionStatus = 'applied';
+        docTitleAiFilled.value = true;
+      }
+
+      const aiMeta = payload?.meta;
+      if (aiMeta && typeof aiMeta === 'object') {
+        const isoDate = String(aiMeta.date || '').trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(isoDate) && !docDateTouched.value) {
+          const formatted = isoToGermanDate(isoDate);
+          if (formatted && isValidGermanDate(formatted)) {
+            docDate.value = formatted;
+            docDateAiFilled.value = true;
+          }
+        }
+
+        const aiCategory = String(aiMeta.document_type || aiMeta.category || '').trim();
+        if (aiCategory && (!docCategoryTouched.value || !docCategory.value)) {
+          docCategory.value = aiCategory;
+          docCategoryAiFilled.value = true;
+        }
+
+        docSenderRaw.value = String(aiMeta.sender_raw || '').trim();
+        const aiCorrespondent = aiMeta.correspondent && typeof aiMeta.correspondent === 'object'
+          ? aiMeta.correspondent
+          : null;
+        if (aiCorrespondent?.id && !docCorrespondentTouched.value) {
+          await correspondentStore.ensureLoaded();
+          docCorrespondentId.value = String(aiCorrespondent.id);
+          docCorrespondentAiFilled.value = true;
+        }
+
+        const aiNote = String(aiMeta.note || '').trim();
+        if (aiNote && !docNoteTouched.value) {
+          docNote.value = aiNote;
+          docNoteAiFilled.value = true;
+        }
+
+        const aiTags = Array.isArray(aiMeta.tags) ? aiMeta.tags : [];
+        if (aiTags.length > 0 && !docTagsTouched.value && primaryDocument.value) {
+          await ensureStageTagsLoaded();
+          const targetDocId = primaryDocument.value.id;
+          const matchedIds = [];
+          const pendingNames = [];
+          const seenPending = new Set();
+          for (const rawName of aiTags) {
+            const name = normalizeTagName(String(rawName || ''));
+            if (!name) continue;
+            const id = findStageTagIdByName(name);
+            if (id) {
+              if (!matchedIds.includes(id)) matchedIds.push(id);
+            } else {
+              const key = name.toLocaleLowerCase('de-DE');
+              if (!seenPending.has(key)) {
+                seenPending.add(key);
+                pendingNames.push(name);
+              }
+            }
+          }
+          const freshDoc = getDocumentById(targetDocId);
+          if (freshDoc) {
+            const current = new Set(freshDoc.tags || []);
+            const merged = [...current];
+            for (const id of matchedIds) {
+              if (!current.has(id)) merged.push(id);
+            }
+            if (merged.length > current.size) {
+              onDocumentTagsUpdate(targetDocId, merged);
+            }
+            const freshMeta = ensureScanMeta(freshDoc);
+            if (freshMeta && pendingNames.length > 0) {
+              const existing = Array.isArray(freshMeta.pendingTagNames) ? freshMeta.pendingTagNames : [];
+              const existingKeys = new Set(existing.map((name) => name.toLocaleLowerCase('de-DE')));
+              freshMeta.pendingTagNames = [
+                ...existing,
+                ...pendingNames.filter((name) => !existingKeys.has(name.toLocaleLowerCase('de-DE')))
+              ];
+            }
+            if (merged.length > current.size || pendingNames.length > 0) {
+              docTagsAiFilled.value = true;
+            }
+          }
+        }
+      }
+    }
+  } catch (enrichError) {
+    console.warn('[ImportStaging] KI-Felder konnten nicht angewendet werden:', enrichError);
+  }
+  if (!hadAiFilledFields && hasAiFilledImportFields()) {
+    triggerAiFieldGlow();
+  }
+
+  if (!options?.silent) {
+    notify({ type: 'success', message: 'Titelvorschlag aktualisiert.' });
+  }
+  return true;
+}
+
+async function applyCachedImportAnalysis(stageId, analysis) {
+  if (!analysis || typeof analysis !== 'object') {
+    return false;
+  }
+  const documentEntry = getDocumentById(stageId);
+  const meta = ensureScanMeta(documentEntry);
+  if (!meta) {
+    return false;
+  }
+  const cacheKey = getImportAnalysisCacheKey(analysis);
+  if (cacheKey && meta.appliedImportAnalysisKey === cacheKey) {
+    return false;
+  }
+  const applied = await applyImportAnalysisPayload(stageId, analysis, { silent: true });
+  if (applied && cacheKey) {
+    meta.appliedImportAnalysisKey = cacheKey;
+  }
+  return applied;
+}
+
+async function applySourceAnalysisToExistingStages(sourceFileId, analysis) {
+  const normalized = String(sourceFileId || '').trim();
+  if (!normalized || !analysis || typeof analysis !== 'object') {
+    return false;
+  }
+  if (typeof stagingStore.setSourceAnalysis === 'function') {
+    stagingStore.setSourceAnalysis(normalized, analysis);
+  }
+  let applied = false;
+  for (const stageId of findStageIdsForSourceFile(normalized)) {
+    applied = (await applyCachedImportAnalysis(stageId, analysis)) || applied;
+  }
+  return applied;
 }
 
 async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', options = {}) {
@@ -2863,139 +3078,7 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
           continue;
         }
 
-        const suggestion = String(payload?.suggestion || '').trim();
-        if (suggestion) {
-          meta.titleSuggestion = suggestion;
-        }
-        meta.titleSuggestionUsedFallback = Boolean(payload?.usedFallback);
-        meta.titleSuggestionMeta = payload?.meta && typeof payload.meta === 'object' ? payload.meta : null;
-        if (status === 'error' || status === 'failed') {
-          meta.titleSuggestionStatus = 'error';
-          return;
-        }
-        meta.titleSuggestionStatus = 'ready';
-
-        // Auto-Fill aller vier Felder (Name, Datum, Dokumenttyp, Tags) aus KI-Meta.
-        // Immer aktiv im Import-Dialog – der Nutzer prüft vor dem Import und kann
-        // jedes Feld überschreiben (überschriebene Felder werden respektiert).
-        //
-        // Best-effort: Der Vorschlag steht ab hier bereits (Status 'ready'). Ein
-        // Fehler beim Anreichern (z. B. /api/tags nicht erreichbar oder
-        // primaryDocument wechselt während eines await) darf die erfolgreiche
-        // Erkennung NICHT in den 'error'-Status kippen – sonst zeigt die UI
-        // fälschlich "Keine automatische Erkennung" trotz 200-Antwort.
-        const hadAiFilledFields = hasAiFilledImportFields();
-        try {
-        if (normalizedStageId === primaryDocument.value?.id) {
-          // Dokumentname: nur bei belastbarem Vorschlag (kein Fallback) automatisch
-          // übernehmen und nur, wenn der Nutzer den Titel nicht selbst angefasst hat.
-          if (suggestion && !meta.titleSuggestionUsedFallback && !docTitleTouched.value) {
-            stagingStore.renameDocument(normalizedStageId, suggestion);
-            meta.titleSuggestionStatus = 'applied';
-            docTitleAiFilled.value = true;
-          }
-
-          const aiMeta = payload?.meta;
-          if (aiMeta && typeof aiMeta === 'object') {
-            // Datum
-            const isoDate = String(aiMeta.date || '').trim();
-            if (/^\d{4}-\d{2}-\d{2}$/.test(isoDate) && !docDateTouched.value) {
-              const formatted = isoToGermanDate(isoDate);
-              if (formatted && isValidGermanDate(formatted)) {
-                docDate.value = formatted;
-                docDateAiFilled.value = true;
-              }
-            }
-            // Dokumenttyp
-            const aiCategory = String(aiMeta.document_type || aiMeta.category || '').trim();
-            if (aiCategory && (!docCategoryTouched.value || !docCategory.value)) {
-              docCategory.value = aiCategory;
-              docCategoryAiFilled.value = true;
-            }
-            // Korrespondent: roher Absender immer anzeigen; aufgelösten
-            // Korrespondenten vorbelegen, solange der Nutzer ihn nicht selbst
-            // angefasst hat. Das Backend löst bekannte Aliase deterministisch auf.
-            docSenderRaw.value = String(aiMeta.sender_raw || '').trim();
-            const aiCorrespondent = aiMeta.correspondent && typeof aiMeta.correspondent === 'object'
-              ? aiMeta.correspondent
-              : null;
-            if (aiCorrespondent?.id && !docCorrespondentTouched.value) {
-              await correspondentStore.ensureLoaded();
-              docCorrespondentId.value = String(aiCorrespondent.id);
-              docCorrespondentAiFilled.value = true;
-            }
-            // Notiz: wichtigste Fakten (nur wenn der Nutzer die Notiz nicht selbst angefasst hat)
-            const aiNote = String(aiMeta.note || '').trim();
-            if (aiNote && !docNoteTouched.value) {
-              docNote.value = aiNote;
-              docNoteAiFilled.value = true;
-            }
-            // Tags: vorhandene bevorzugen, sonst sinnvolle neu anlegen.
-            // findStageTagIdByName matcht normalisiert (Groß-/Kleinschreibung,
-            // Leerzeichen) gegen den Bestand; das Backend rastet KI-Tags zusätzlich
-            // auf die exakte Schreibweise vorhandener Tags ein. Nur wenn wirklich
-            // kein passendes Tag existiert, wird eines neu erstellt.
-            const aiTags = Array.isArray(aiMeta.tags) ? aiMeta.tags : [];
-            if (aiTags.length > 0 && !docTagsTouched.value && primaryDocument.value) {
-              await ensureStageTagsLoaded();
-              const targetDocId = primaryDocument.value.id;
-              // Vorhandene Tags als IDs übernehmen; noch nicht existierende als
-              // "pending" merken (gestrichelt, werden erst beim Import angelegt).
-              const matchedIds = [];
-              const pendingNames = [];
-              const seenPending = new Set();
-              for (const rawName of aiTags) {
-                const name = normalizeTagName(String(rawName || ''));
-                if (!name) continue;
-                const id = findStageTagIdByName(name);
-                if (id) {
-                  if (!matchedIds.includes(id)) matchedIds.push(id);
-                } else {
-                  const key = name.toLocaleLowerCase('de-DE');
-                  if (!seenPending.has(key)) {
-                    seenPending.add(key);
-                    pendingNames.push(name);
-                  }
-                }
-              }
-              // Frisch lesen (das Dokument könnte sich während der awaits geändert haben).
-              const freshDoc = getDocumentById(targetDocId);
-              if (freshDoc) {
-                const current = new Set(freshDoc.tags || []);
-                const merged = [...current];
-                for (const id of matchedIds) {
-                  if (!current.has(id)) merged.push(id);
-                }
-                if (merged.length > current.size) {
-                  onDocumentTagsUpdate(targetDocId, merged);
-                }
-                const freshMeta = ensureScanMeta(freshDoc);
-                if (freshMeta && pendingNames.length > 0) {
-                  const existing = Array.isArray(freshMeta.pendingTagNames) ? freshMeta.pendingTagNames : [];
-                  const existingKeys = new Set(existing.map((n) => n.toLocaleLowerCase('de-DE')));
-                  freshMeta.pendingTagNames = [
-                    ...existing,
-                    ...pendingNames.filter((n) => !existingKeys.has(n.toLocaleLowerCase('de-DE')))
-                  ];
-                }
-                if (merged.length > current.size || pendingNames.length > 0) {
-                  docTagsAiFilled.value = true;
-                }
-              }
-            }
-          }
-        }
-        } catch (enrichError) {
-          // Anreicherung ist optional – der Vorschlag steht bereits (Status 'ready'/'applied').
-          console.warn('[ImportStaging] KI-Felder konnten nicht angewendet werden:', enrichError);
-        }
-        if (!hadAiFilledFields && hasAiFilledImportFields()) {
-          triggerAiFieldGlow();
-        }
-
-        if (!options?.silent) {
-          notify({ type: 'success', message: 'Titelvorschlag aktualisiert.' });
-        }
+        await applyImportAnalysisPayload(normalizedStageId, payload, options);
         return;
       }
     } catch (error) {

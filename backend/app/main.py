@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 import os
 
@@ -39,6 +40,7 @@ from app.routers import (
     users_router,
 )
 from app.services.users import UserService
+from app.services.settings import SettingsService
 
 settings = get_settings()
 
@@ -46,6 +48,9 @@ logger = logging.getLogger("papermind.backend")
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 install_query_token_redaction()
+
+OLLAMA_WARMUP_INTERVAL_SECONDS = 600
+_ollama_warmup_task: asyncio.Task | None = None
 
 
 def _check_db_connection_sync() -> tuple[bool, str]:
@@ -74,6 +79,50 @@ async def _check_ai_connection() -> tuple[bool, str]:
         return False, f"HTTP {response.status_code}"
     except Exception as exc:  # pragma: no cover - startup infra check
         return False, str(exc)
+
+
+def _load_ollama_warmup_config_sync() -> dict[str, object] | None:
+    try:
+        with SessionLocal() as session:
+            runtime_settings = SettingsService(session).get_settings().model_dump(mode="json")
+    except Exception as exc:  # pragma: no cover - settings DB best effort
+        logger.debug("Ollama warmup settings load failed: %s", exc)
+        return None
+    ollama_cfg = runtime_settings.get("ollama") or {}
+    if not ollama_cfg.get("enabled"):
+        return None
+    return {
+        "base_url": str(ollama_cfg.get("base_url") or "http://localhost:11434").rstrip("/"),
+        "model": str(ollama_cfg.get("model") or "llama3.2:3b"),
+        "timeout_seconds": max(2.0, min(float(ollama_cfg.get("timeout_seconds") or 90.0), 20.0)),
+    }
+
+
+async def _warm_ollama_for_import_analysis_once() -> None:
+    cfg = await asyncio.to_thread(_load_ollama_warmup_config_sync)
+    if not cfg:
+        return
+    payload = {
+        "model": cfg["model"],
+        "stream": False,
+        "format": "json",
+        "keep_alive": "15m",
+        "prompt": 'Antworte nur mit {"status":"ok"}.',
+    }
+    try:
+        async with httpx.AsyncClient(timeout=float(cfg["timeout_seconds"])) as client:
+            response = await client.post(f"{cfg['base_url']}/api/generate", json=payload)
+        response.raise_for_status()
+        logger.debug("Ollama import analysis warmup completed model=%s", cfg["model"])
+    except Exception as exc:  # pragma: no cover - optional local service
+        logger.debug("Ollama import analysis warmup skipped: %s", exc)
+
+
+async def _ollama_warmup_loop() -> None:
+    await asyncio.sleep(5)
+    while True:
+        await _warm_ollama_for_import_analysis_once()
+        await asyncio.sleep(OLLAMA_WARMUP_INTERVAL_SECONDS)
 
 
 app = FastAPI(
@@ -152,6 +201,7 @@ def _bootstrap_admin_sync() -> None:
 
 @app.on_event("startup")
 async def on_startup() -> None:
+    global _ollama_warmup_task
     os.makedirs(settings.storage_path, exist_ok=True)
 
     db_ok, db_detail = await _check_db_connection()
@@ -172,3 +222,17 @@ async def on_startup() -> None:
         logger.info("AI startup check passed")
     else:
         logger.error("AI startup check failed: %s", ai_detail)
+
+    if _ollama_warmup_task is None or _ollama_warmup_task.done():
+        _ollama_warmup_task = asyncio.create_task(_ollama_warmup_loop())
+
+
+@app.on_event("shutdown")
+async def on_shutdown() -> None:
+    global _ollama_warmup_task
+    if _ollama_warmup_task is None:
+        return
+    _ollama_warmup_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await _ollama_warmup_task
+    _ollama_warmup_task = None

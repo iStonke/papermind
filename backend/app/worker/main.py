@@ -33,6 +33,7 @@ from app.services.document_dates import apply_ocr_document_date_result, extract_
 from app.services.embeddings import EmbeddingService
 from app.services.documents import DocumentService
 from app.services.import_inbox import ImportInboxService
+from app.services.import_staging import ImportStagingService
 from app.services.scanners import SCAN_ERROR_FILE_MISSING, ScannerService
 from app.services.ai_classification import apply_ollama_classification
 from app.services.document_types import (
@@ -467,6 +468,29 @@ def _initial_scanner_recipient_id(db) -> uuid.UUID | None:
     ).scalar()
 
 
+def _scanner_analysis_owner_id(db, scanner_device_id: uuid.UUID | None) -> uuid.UUID | None:
+    if scanner_device_id is None:
+        return None
+    return db.execute(
+        select(ScannerDeviceRecipient.user_id)
+        .where(ScannerDeviceRecipient.scanner_device_id == scanner_device_id)
+        .order_by(ScannerDeviceRecipient.created_at.asc())
+        .limit(1)
+    ).scalar()
+
+
+def _preanalyze_import_sources(source_file_ids: list[str], owner_id: uuid.UUID | None) -> None:
+    if not source_file_ids:
+        return
+    try:
+        with SessionLocal() as db:
+            service = ImportStagingService(db, owner_id)
+            for source_file_id in source_file_ids:
+                service.preanalyze_source(source_file_id, page_scope="first_page")
+    except Exception as exc:  # pragma: no cover - best effort background speed-up
+        logger.exception("import inbox preanalysis failed owner_id=%s err=%s", owner_id, exc)
+
+
 def _sync_scanner_live_mode_config() -> None:
     """Spiegelt scanner_devices.live_page_mode in eine lokale Datei in scan-inbox.
 
@@ -648,6 +672,11 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str, prev
                     job_id=scan_job_id,
                 )
                 db.commit()
+            analysis_owner_id = owner_id
+            if scanner_device_id is not None:
+                analysis_owner_id = _scanner_analysis_owner_id(db, scanner_device_id)
+            preanalysis_source_ids = [str(item.source_file_id) for item in result.items]
+        _preanalyze_import_sources(preanalysis_source_ids, analysis_owner_id)
         created_count = len(result.items)
         _move_drop_file(claimed_path, processed_dir)
         if preview_path is not None and preview_path.exists():

@@ -85,10 +85,40 @@ _FILENAME_MAX_LEN = 80
 _STAGING_MIN_TEXT_CHARS = 80
 _STAGING_GOOD_TEXT_CHARS = 240
 _STAGING_PREVIEW_MAX_LONG_EDGE = 640
+_STAGING_ANALYSIS_CACHE_VERSION = 1
+_OWNER_SENTINEL = object()
 _STAGING_OCR_ATTEMPTS = (
     {"psm": 6, "max_long_side_px": 2800},
     {"psm": 4, "max_long_side_px": 3200},
     {"psm": 11, "max_long_side_px": 3200},
+)
+_LLM_SIGNAL_KEYWORDS = (
+    "rechnung",
+    "rechnungsnummer",
+    "rechnungsnr",
+    "invoice",
+    "gesamtbetrag",
+    "summe",
+    "total",
+    "betrag",
+    "datum",
+    "rechnungsdatum",
+    "belegdatum",
+    "kundennummer",
+    "kunden-nr",
+    "vertragsnummer",
+    "aktenzeichen",
+    "frist",
+    "fällig",
+    "faellig",
+    "bescheid",
+    "steuer",
+    "versicherung",
+    "kündigung",
+    "kuendigung",
+    "vertrag",
+    "mahnung",
+    "zahlbar",
 )
 _ISSUER_SUFFIX_RE = re.compile(
     r"\b(gmbh|ag|ug|kg|e\.?\s?v\.?|ltd|inc)\b\.?",
@@ -233,6 +263,112 @@ class ImportStagingService:
         except ValueError as exc:
             raise BadRequestError("source_file_id is invalid", details={"source_file_id": source_id}) from exc
         return self._staging_root() / f"{parsed}.preview.png"
+
+    @staticmethod
+    def _analysis_owner_key(owner_id) -> str:
+        if owner_id is None:
+            return "global"
+        try:
+            return str(uuid.UUID(str(owner_id)))
+        except (TypeError, ValueError):
+            return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(owner_id or "").strip()) or "global"
+
+    def _source_analysis_path(self, source_file_id: str, owner_id=_OWNER_SENTINEL) -> Path:
+        source_path = self._source_pdf_path(source_file_id)
+        owner_key = self._analysis_owner_key(self.owner_id if owner_id is _OWNER_SENTINEL else owner_id)
+        return source_path.with_name(f"{source_path.stem}.analysis.{owner_key}.json")
+
+    def _source_analysis_paths(self, source_file_id: str) -> list[Path]:
+        source_path = self._source_pdf_path(source_file_id)
+        return list(source_path.parent.glob(f"{source_path.stem}.analysis.*.json"))
+
+    @staticmethod
+    def _source_analysis_response_payload(result: dict[str, object] | None) -> dict[str, object] | None:
+        if not isinstance(result, dict):
+            return None
+        meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+        return {
+            "suggestion": str(result.get("suggestion") or "").strip(),
+            "status": str(result.get("status") or "ready").strip() or "ready",
+            "pageScope": str(result.get("page_scope") or result.get("pageScope") or "first_page"),
+            "usedFallback": bool(result.get("used_fallback", result.get("usedFallback", False))),
+            "meta": dict(meta or {}),
+        }
+
+    def get_source_analysis(self, source_file_id: str) -> dict[str, object] | None:
+        try:
+            paths = [self._source_analysis_path(source_file_id)]
+            if self.owner_id is not None:
+                paths.append(self._source_analysis_path(source_file_id, owner_id=None))
+        except BadRequestError:
+            return None
+        for path in paths:
+            try:
+                if not path.exists() or not path.is_file():
+                    continue
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                logger.warning("import source analysis cache read failed path=%s err=%s", path, exc)
+                continue
+            if not isinstance(payload, dict):
+                continue
+            if int(payload.get("analysis_version") or 0) != _STAGING_ANALYSIS_CACHE_VERSION:
+                continue
+            result = payload.get("result")
+            if isinstance(result, dict):
+                return result
+        return None
+
+    def get_source_analysis_response(self, source_file_id: str) -> dict[str, object] | None:
+        return self._source_analysis_response_payload(self.get_source_analysis(source_file_id))
+
+    def store_source_analysis(
+        self,
+        source_file_id: str,
+        result: dict[str, object],
+        *,
+        page_scope: str = "first_page",
+        analysis_phase: str = "llm",
+    ) -> dict[str, object]:
+        if not isinstance(result, dict):
+            raise BadRequestError("analysis result is invalid")
+        normalized_scope = "all_pages" if str(page_scope or "").strip().lower() == "all_pages" else "first_page"
+        cached_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        stored_result = dict(result)
+        stored_meta = dict(stored_result.get("meta") or {})
+        stored_meta.update({
+            "analysis_phase": str(analysis_phase or "llm"),
+            "cached_at": cached_at,
+            "source_file_id": str(source_file_id),
+        })
+        stored_result["meta"] = stored_meta
+        stored_result["page_scope"] = normalized_scope
+        payload = {
+            "analysis_version": _STAGING_ANALYSIS_CACHE_VERSION,
+            "source_file_id": str(source_file_id),
+            "owner_key": self._analysis_owner_key(self.owner_id),
+            "page_scope": normalized_scope,
+            "cached_at": cached_at,
+            "result": stored_result,
+        }
+        destination = self._source_analysis_path(source_file_id)
+        temp_path = destination.with_name(f"{destination.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temp_path.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+            os.replace(temp_path, destination)
+        except OSError as exc:
+            temp_path.unlink(missing_ok=True)
+            raise StorageError("Could not store import source analysis") from exc
+        return stored_result
+
+    def _delete_source_analyses(self, source_file_id: str) -> None:
+        try:
+            paths = self._source_analysis_paths(source_file_id)
+        except BadRequestError:
+            return
+        for path in paths:
+            path.unlink(missing_ok=True)
 
     def source_preview_url(self, source_file_id: str) -> str | None:
         try:
@@ -413,14 +549,8 @@ class ImportStagingService:
         normalized = ImportStagingService._normalize_text(str(value))
         return normalized or None
 
-    def _extract_text_for_title_suggestion(
-        self,
-        source_file_ids: list[str],
-        *,
-        page_scope: str,
-        max_pages: int = 5,
-        max_chars: int = 12000,
-    ) -> tuple[str, int, list[str]]:
+    @staticmethod
+    def _normalize_source_file_ids(source_file_ids: list[str]) -> list[str]:
         normalized_ids = []
         seen = set()
         for source_file_id in source_file_ids:
@@ -429,6 +559,25 @@ class ImportStagingService:
                 continue
             seen.add(value)
             normalized_ids.append(value)
+        return normalized_ids
+
+    @staticmethod
+    def _is_valid_source_file_id(source_file_id: str) -> bool:
+        try:
+            uuid.UUID(str(source_file_id or "").strip())
+            return True
+        except (TypeError, ValueError):
+            return False
+
+    def _extract_text_for_title_suggestion(
+        self,
+        source_file_ids: list[str],
+        *,
+        page_scope: str,
+        max_pages: int = 5,
+        max_chars: int = 12000,
+    ) -> tuple[str, int, list[str]]:
+        normalized_ids = self._normalize_source_file_ids(source_file_ids)
         if not normalized_ids:
             raise BadRequestError("sourceFileIds is required")
 
@@ -998,6 +1147,80 @@ class ImportStagingService:
         return tags
 
     @staticmethod
+    def _select_staging_llm_text(ocr_text: str, max_chars: int) -> str:
+        """Keep the high-value OCR parts for the staging LLM prompt.
+
+        Full-page OCR often spends many tokens on addresses, footers and legal
+        boilerplate. The extractor needs header, identifiers, amounts, dates and
+        closing context; preserving those lines gives the model less noise at the
+        same quality target.
+        """
+        limit = max(300, int(max_chars or 800))
+        raw = str(ocr_text or "").replace("\r", "\n")
+        lines = [ImportStagingService._normalize_text(line) for line in raw.split("\n")]
+        lines = [line for line in lines if line]
+        if len(lines) <= 2:
+            compact = ImportStagingService._normalize_text(raw)
+            if len(compact) <= limit:
+                return compact
+            chunks = re.split(r"(?<=[.!?])\s+|(?<=€)\s+|(?<=EUR)\s+", compact, flags=re.IGNORECASE)
+            lines = [chunk.strip() for chunk in chunks if chunk.strip()]
+            if len(lines) <= 1:
+                lines = [compact[index : index + 180].strip() for index in range(0, len(compact), 180)]
+
+        if len("\n".join(lines)) <= limit:
+            return "\n".join(lines)[:limit].rstrip()
+
+        selected: dict[int, str] = {}
+        for index, line in enumerate(lines[:18]):
+            selected[index] = line
+        for index, line in enumerate(lines[-8:], start=max(0, len(lines) - 8)):
+            selected[index] = line
+
+        scored: list[tuple[int, int, str]] = []
+        for index, line in enumerate(lines):
+            lowered = line.lower()
+            score = 0
+            if any(keyword in lowered for keyword in _LLM_SIGNAL_KEYWORDS):
+                score += 80
+            if _AMOUNT_RE.search(line):
+                score += 45
+            if _DATE_DMY_RE.search(line) or _DATE_YMD_RE.search(line):
+                score += 35
+            if re.search(r"\b[A-Z0-9][A-Z0-9-]{4,}\b", line):
+                score += 20
+            if len(line) > 180:
+                score -= 20
+            if score > 0:
+                scored.append((score, index, line))
+        scored.sort(key=lambda item: (-item[0], item[1]))
+        for _score, index, line in scored[:32]:
+            selected[index] = line
+
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for index in sorted(selected):
+            line = selected[index]
+            key = line.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(line)
+
+        result_parts: list[str] = []
+        current_len = 0
+        for line in deduped:
+            projected = current_len + len(line) + (1 if result_parts else 0)
+            if projected > limit:
+                remaining = limit - current_len - (1 if result_parts else 0)
+                if remaining > 40:
+                    result_parts.append(line[:remaining].rstrip())
+                break
+            result_parts.append(line)
+            current_len = projected
+        return "\n".join(result_parts).strip()
+
+    @staticmethod
     def _call_ollama_for_staging(
         ocr_text: str,
         *,
@@ -1019,7 +1242,7 @@ class ImportStagingService:
         existing_tags steuert die Tag-Vergabe: das Modell soll – wenn inhaltlich
         passend – vorhandene Tags wiederverwenden statt neue Varianten zu erfinden.
         """
-        text_for_llm = " ".join(str(ocr_text or "").split())[:max_input_chars]
+        text_for_llm = ImportStagingService._select_staging_llm_text(ocr_text, max_input_chars)
         if not text_for_llm:
             return None
 
@@ -1498,32 +1721,17 @@ class ImportStagingService:
             examples = _query(with_correspondent=False)
         return examples
 
-    def suggest_stage_title(
+    def _build_stage_title_result(
         self,
-        source_file_ids: list[str],
         *,
-        page_scope: str = "first_page",
+        extracted_text: str,
+        normalized_scope: str,
+        page_refs: list[str],
+        ocr_pending: bool,
+        ocr_diagnostics: dict[str, object],
         stage_id: str | None = None,
+        use_ollama: bool = True,
     ) -> dict[str, object]:
-        normalized_scope = str(page_scope or "first_page").strip().lower()
-        if normalized_scope not in {"first_page", "all_pages"}:
-            raise BadRequestError("pageScope must be first_page or all_pages")
-
-        extracted_text, _pages_scanned, page_refs = self._extract_text_for_title_suggestion(
-            source_file_ids,
-            page_scope=normalized_scope,
-            max_pages=5 if normalized_scope == "all_pages" else 1,
-            max_chars=12000,
-        )
-        ocr_pending = False
-        ocr_diagnostics: dict[str, object] = {"status": "embedded_text", "chars": len(extracted_text)}
-        if not extracted_text:
-            extracted_text, ocr_diagnostics = self._extract_text_with_ocr_fallback(source_file_ids, page_scope=normalized_scope)
-            if len(extracted_text) > 12000:
-                extracted_text = extracted_text[:12000].rstrip()
-            if not extracted_text:
-                ocr_pending = True
-
         preview = extracted_text[:300].replace("\n", " ").replace("\r", " ")
         logger.info(
             "SuggestTitle: stage=%s scope=%s pages=%s ocr_len=%d ocr_preview=%r pending_ocr=%s",
@@ -1535,7 +1743,6 @@ class ImportStagingService:
             ocr_pending,
         )
         today_filename = datetime.utcnow().strftime("%d-%m-%Y")
-        today_display = datetime.utcnow().strftime("%d.%m.%Y")
         if ocr_pending:
             diagnostic_status = str(ocr_diagnostics.get("status") or "ocr_failed")
             if diagnostic_status in {"ocr_unavailable", "ocr_failed"}:
@@ -1555,6 +1762,7 @@ class ImportStagingService:
                         "tags": [],
                         "analysis_status": diagnostic_status,
                         "analysis_error": "; ".join(str(e) for e in ocr_diagnostics.get("errors", []) if e)[:500] or None,
+                        "analysis_phase": "rule",
                         "ocr": ocr_diagnostics,
                     },
                 }
@@ -1573,6 +1781,7 @@ class ImportStagingService:
                     "category": None,
                     "tags": [],
                     "analysis_status": "no_text",
+                    "analysis_phase": "rule",
                     "ocr": ocr_diagnostics,
                 },
             }
@@ -1593,21 +1802,18 @@ class ImportStagingService:
                     "category": None,
                     "tags": [],
                     "analysis_status": "low_text",
+                    "analysis_phase": "rule",
                     "ocr": ocr_diagnostics,
                 },
             }
 
-        # Try Ollama first if configured, fall back to rule-based extraction.
         runtime_settings = self.settings_service.get_settings().model_dump(mode="json")
         ollama_cfg = runtime_settings.get("ollama") or {}
         existing_tag_names = self._load_existing_tag_names()
         doc_type_vocab = load_active_document_type_vocab(self.db, self.owner_id)
         active_doc_type_names = document_type_names(doc_type_vocab)
         ollama_rich: dict[str, object] | None = None
-        if ollama_cfg.get("enabled"):
-            # Few-Shot: vor dem LLM grob Dokumenttyp + Korrespondent regelbasiert
-            # bestimmen und bis zu 3 bestehende Dateinamen ähnlicher Dokumente als
-            # Stilvorlage anhängen.
+        if use_ollama and ollama_cfg.get("enabled"):
             rough_doc_type = self._detect_document_type_improved(extracted_text)
             rough_correspondent = self._resolve_correspondent(None, extracted_text)
             naming_examples = self._load_naming_examples(
@@ -1629,7 +1835,6 @@ class ImportStagingService:
                 logger.info("SuggestTitle: ollama extraction succeeded stage=%s", str(stage_id or "").strip() or "-")
 
         rule_rich = self._extract_rich_metadata(extracted_text)
-        # Merge: Ollama wins on fields it provided, rule-based fills remaining gaps
         if ollama_rich:
             rich: dict[str, object] = {
                 "doc_type": ollama_rich.get("doc_type") or rule_rich.get("doc_type"),
@@ -1658,9 +1863,6 @@ class ImportStagingService:
         currency = "EUR" if (normalized_amount is not None) else None
         raw_date = self._coerce_llm_scalar(rich.get("date")) or ""
         final_date = raw_date if re.match(r"^\d{4}-\d{2}-\d{2}$", raw_date) else None
-        # Plausibilität: ein echtes Datum übernehmen, sofern es nicht in der Zukunft
-        # liegt und nicht offensichtlich unsinnig (vor 1990) ist. Alte Bestandsdaten
-        # bleiben erhalten – wichtig beim Import historischer Dokumente.
         if final_date:
             try:
                 parsed_date = datetime.strptime(final_date, "%Y-%m-%d").date()
@@ -1680,10 +1882,6 @@ class ImportStagingService:
                 if value:
                     final_tags.append(value)
             final_tags = final_tags[:2]
-        # Auf vorhandene Schreibweise einrasten: stimmt ein Tag (unabhängig von
-        # Groß-/Kleinschreibung und Randleerzeichen) mit einem bestehenden Tag
-        # überein, exakt dessen Schreibweise verwenden. Verhindert Casing-Duplikate
-        # und sorgt dafür, dass das Frontend das vorhandene Tag wiederverwendet.
         if final_tags and existing_tag_names:
             existing_by_lower = {name.casefold(): name for name in existing_tag_names}
             deduped: list[str] = []
@@ -1696,8 +1894,6 @@ class ImportStagingService:
                     deduped.append(canonical)
             final_tags = deduped
 
-        # Wichtigste Fakten als Notiz: bevorzugt LLM-Zusammenfassung; falls das
-        # Modell kein passendes Feld liefert, aus den erkannten Metadaten ableiten.
         final_note = self._coerce_llm_scalar(rich.get("summary")) or self._build_note_from_metadata(
             issuer=issuer,
             subject=subject,
@@ -1707,8 +1903,6 @@ class ImportStagingService:
             currency=currency,
         )
 
-        # Korrespondent deterministisch auflösen (Matcher/Alias zuerst). Der rohe
-        # Absender bleibt sichtbar; ai_sender wird im Import nicht überschrieben.
         sender_raw = issuer_raw
         correspondent_info = self._resolve_correspondent(sender_raw, extracted_text)
         document_type = normalized_doc_type
@@ -1725,6 +1919,7 @@ class ImportStagingService:
         }
         suggestion = NamingTemplateService(self.db).build_filename(merged_meta)
 
+        analysis_phase = "llm" if ollama_rich else "rule"
         return {
             "status": "ready",
             "suggestion": suggestion,
@@ -1743,9 +1938,152 @@ class ImportStagingService:
                 "tags": final_tags,
                 "note": final_note,
                 "analysis_status": "ready",
+                "analysis_phase": analysis_phase,
                 "ocr": ocr_diagnostics,
             },
         }
+
+    def suggest_stage_title(
+        self,
+        source_file_ids: list[str],
+        *,
+        page_scope: str = "first_page",
+        stage_id: str | None = None,
+    ) -> dict[str, object]:
+        normalized_scope = str(page_scope or "first_page").strip().lower()
+        if normalized_scope not in {"first_page", "all_pages"}:
+            raise BadRequestError("pageScope must be first_page or all_pages")
+        normalized_ids = self._normalize_source_file_ids(source_file_ids)
+        if not normalized_ids:
+            raise BadRequestError("sourceFileIds is required")
+        is_cacheable_single_source = (
+            normalized_scope == "first_page" and
+            len(normalized_ids) == 1 and
+            self._is_valid_source_file_id(normalized_ids[0])
+        )
+        if is_cacheable_single_source:
+            cached = self.get_source_analysis(normalized_ids[0])
+            cached_phase = str((cached.get("meta") if isinstance(cached, dict) else {}).get("analysis_phase") or "")
+            if cached and cached_phase == "llm":
+                return cached
+
+        extracted_text, _pages_scanned, page_refs = self._extract_text_for_title_suggestion(
+            normalized_ids,
+            page_scope=normalized_scope,
+            max_pages=5 if normalized_scope == "all_pages" else 1,
+            max_chars=12000,
+        )
+        ocr_pending = False
+        ocr_diagnostics: dict[str, object] = {"status": "embedded_text", "chars": len(extracted_text)}
+        if not extracted_text:
+            extracted_text, ocr_diagnostics = self._extract_text_with_ocr_fallback(normalized_ids, page_scope=normalized_scope)
+            if len(extracted_text) > 12000:
+                extracted_text = extracted_text[:12000].rstrip()
+            if not extracted_text:
+                ocr_pending = True
+
+        result = self._build_stage_title_result(
+            extracted_text=extracted_text,
+            normalized_scope=normalized_scope,
+            page_refs=page_refs,
+            ocr_pending=ocr_pending,
+            ocr_diagnostics=ocr_diagnostics,
+            stage_id=stage_id,
+            use_ollama=True,
+        )
+        if is_cacheable_single_source:
+            phase = str((result.get("meta") if isinstance(result, dict) else {}).get("analysis_phase") or "llm")
+            try:
+                result = self.store_source_analysis(
+                    normalized_ids[0],
+                    result,
+                    page_scope=normalized_scope,
+                    analysis_phase=phase,
+                )
+            except Exception as exc:  # noqa: BLE001 - Cache darf den Vorschlag nicht blockieren
+                logger.warning("stage title analysis cache write failed source_file_id=%s err=%s", normalized_ids[0], exc)
+        return result
+
+    def preanalyze_source(self, source_file_id: str, *, page_scope: str = "first_page") -> dict[str, object] | None:
+        """Build and cache import analysis before the dialog asks for it.
+
+        The rule result is written first so the UI can fill fields quickly. When
+        Ollama is enabled, the same OCR text is then refined by the model and
+        stored over the rule result; the inbox SSE digest changes because the
+        sidecar JSON changed.
+        """
+        normalized_ids = self._normalize_source_file_ids([source_file_id])
+        if not normalized_ids:
+            return None
+        normalized_scope = "all_pages" if str(page_scope or "").strip().lower() == "all_pages" else "first_page"
+        source_id = normalized_ids[0]
+        cached = self.get_source_analysis(source_id)
+        cached_phase = str((cached.get("meta") if isinstance(cached, dict) else {}).get("analysis_phase") or "")
+        if cached and cached_phase == "llm":
+            return cached
+
+        extracted_text, _pages_scanned, page_refs = self._extract_text_for_title_suggestion(
+            normalized_ids,
+            page_scope=normalized_scope,
+            max_pages=5 if normalized_scope == "all_pages" else 1,
+            max_chars=12000,
+        )
+        ocr_pending = False
+        ocr_diagnostics: dict[str, object] = {"status": "embedded_text", "chars": len(extracted_text)}
+        if not extracted_text:
+            extracted_text, ocr_diagnostics = self._extract_text_with_ocr_fallback(normalized_ids, page_scope=normalized_scope)
+            if len(extracted_text) > 12000:
+                extracted_text = extracted_text[:12000].rstrip()
+            if not extracted_text:
+                ocr_pending = True
+
+        rule_result = self._build_stage_title_result(
+            extracted_text=extracted_text,
+            normalized_scope=normalized_scope,
+            page_refs=page_refs,
+            ocr_pending=ocr_pending,
+            ocr_diagnostics=ocr_diagnostics,
+            stage_id=source_id,
+            use_ollama=False,
+        )
+        try:
+            rule_result = self.store_source_analysis(
+                source_id,
+                rule_result,
+                page_scope=normalized_scope,
+                analysis_phase="rule",
+            )
+        except Exception as exc:  # noqa: BLE001 - Voranalyse ist best effort
+            logger.warning("import source rule analysis cache write failed source_file_id=%s err=%s", source_id, exc)
+
+        if ocr_pending:
+            return rule_result
+
+        runtime_settings = self.settings_service.get_settings().model_dump(mode="json")
+        ollama_cfg = runtime_settings.get("ollama") or {}
+        if not ollama_cfg.get("enabled"):
+            return rule_result
+
+        llm_result = self._build_stage_title_result(
+            extracted_text=extracted_text,
+            normalized_scope=normalized_scope,
+            page_refs=page_refs,
+            ocr_pending=ocr_pending,
+            ocr_diagnostics=ocr_diagnostics,
+            stage_id=source_id,
+            use_ollama=True,
+        )
+        phase = str((llm_result.get("meta") if isinstance(llm_result, dict) else {}).get("analysis_phase") or "llm")
+        try:
+            return self.store_source_analysis(
+                source_id,
+                llm_result,
+                page_scope=normalized_scope,
+                analysis_phase=phase,
+            )
+        except Exception as exc:  # noqa: BLE001 - UI kann immer noch synchron anfragen
+            logger.warning("import source llm analysis cache write failed source_file_id=%s err=%s", source_id, exc)
+            return llm_result
 
     def _load_source_reader(self, source_file_id: str, reader_cache: dict[str, PdfReader]) -> PdfReader:
         cached = reader_cache.get(source_file_id)
@@ -1830,6 +2168,7 @@ class ImportStagingService:
                 continue
             source_path.unlink(missing_ok=True)
             preview_path.unlink(missing_ok=True)
+            self._delete_source_analyses(source_file_id)
 
     def delete_source_file(self, source_file_id: str) -> None:
         source_path = self._source_pdf_path(source_file_id)
@@ -1837,6 +2176,7 @@ class ImportStagingService:
         try:
             source_path.unlink(missing_ok=True)
             preview_path.unlink(missing_ok=True)
+            self._delete_source_analyses(source_file_id)
         except OSError as exc:
             raise StorageError("Could not delete staged source PDF") from exc
 
@@ -1877,6 +2217,7 @@ class ImportStagingService:
                 writer.write(output)
             os.replace(temp_path, source_path)
             self._source_preview_path(source_file_id).unlink(missing_ok=True)
+            self._delete_source_analyses(source_file_id)
         except Exception as exc:
             temp_path.unlink(missing_ok=True)
             raise StorageError("Could not update staged source PDF") from exc

@@ -3437,11 +3437,17 @@ function countImportInboxPages(items) {
   );
 }
 
+function visiblePendingImportInboxItems(items) {
+  return (Array.isArray(items) ? items : []).filter(
+    (item) => !importInboxSuppressedItemIds.value.has(String(item?.id || '').trim())
+  );
+}
+
 const pendingImportInboxCount = computed(() => {
   if (importInboxPendingCount.value !== null) {
     return Math.max(0, Number(importInboxPendingCount.value || 0));
   }
-  const loadedPageCount = countImportInboxPages(importInboxItems.value);
+  const loadedPageCount = countImportInboxPages(visiblePendingImportInboxItems(importInboxItems.value));
   return Math.max(loadedPageCount, Number(sidebarCounts.value.pending_import_inbox_count || 0));
 });
 
@@ -3450,7 +3456,7 @@ function setImportInboxPendingCount(count) {
 }
 
 function updateImportInboxPendingCountFromPayload(payload, visibleItems) {
-  const visiblePageCount = countImportInboxPages(visibleItems);
+  const visiblePageCount = countImportInboxPages(visiblePendingImportInboxItems(visibleItems));
   if (importInboxSuppressedItemIds.value.size > 0) {
     setImportInboxPendingCount(visiblePageCount);
     return;
@@ -3465,7 +3471,7 @@ function updateImportInboxPendingCountFromPayload(payload, visibleItems) {
 
 function updateImportInboxPendingCountFromMutation(result) {
   if (importInboxSuppressedItemIds.value.size > 0) {
-    setImportInboxPendingCount(countImportInboxPages(importInboxItems.value));
+    setImportInboxPendingCount(countImportInboxPages(visiblePendingImportInboxItems(importInboxItems.value)));
     return;
   }
   const serverPendingCount = Number(result?.pending_count);
@@ -3513,7 +3519,7 @@ function releaseImportInboxDiscardSuppressionLater(itemIds) {
       nextSuppressed.delete(itemId);
     }
     importInboxSuppressedItemIds.value = nextSuppressed;
-    setImportInboxPendingCount(countImportInboxPages(importInboxItems.value));
+    setImportInboxPendingCount(countImportInboxPages(visiblePendingImportInboxItems(importInboxItems.value)));
   }, IMPORT_INBOX_DISCARD_SUPPRESSION_RELEASE_MS);
 }
 
@@ -3590,6 +3596,7 @@ function normalizeImportInboxItems(payload) {
       source_type: String(item?.source_type || 'shortcut').trim() || 'shortcut',
       scanner_device_id: String(item?.scanner_device_id || '').trim(),
       is_assigned_to_me: item?.is_assigned_to_me !== false,
+      analysis: item?.analysis && typeof item.analysis === 'object' ? item.analysis : null,
       created_at: String(item?.created_at || '')
     }))
     .filter(
@@ -3597,7 +3604,10 @@ function normalizeImportInboxItems(payload) {
         item.id &&
         item.source_file_id &&
         item.page_count > 0 &&
-        !importInboxSuppressedItemIds.value.has(item.id)
+        (
+          !importInboxSuppressedItemIds.value.has(item.id) ||
+          activeImportInboxItemIds.value.has(item.id)
+        )
     );
 }
 
