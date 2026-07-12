@@ -8,7 +8,6 @@
     title="Importieren"
     header-subtitle="Gescannte Seiten als neues Dokument"
     @request-close="requestCloseImport"
-    @close="onDialogClose"
   >
     <template #header-actions>
       <v-btn
@@ -2106,10 +2105,6 @@ watch(
     detachPeekGlobalListeners();
   }
 );
-
-function onDialogClose() {
-  requestCloseImport();
-}
 
 function requestCloseImport() {
   if (isUploadingSources.value || isCommitting.value) {
