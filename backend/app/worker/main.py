@@ -58,7 +58,7 @@ AUTO_TAG_MAX_TEXT_CHARS = 6000
 TRASH_CLEANUP_INTERVAL_SECONDS = 3600
 BACKUP_CHECK_INTERVAL_SECONDS = 60
 JOB_RECLAIM_INTERVAL_SECONDS = 30
-SCANNER_CONFIG_SYNC_INTERVAL_SECONDS = 2
+SCANNER_CONFIG_SYNC_INTERVAL_SECONDS = 0.5
 # Hängengebliebene Scan-Jobs auf Timeout setzen: häufig genug, dass die UI nicht
 # ewig "Scanne..." zeigt, selten genug, um nicht jede Sekunde zu prüfen.
 SCANNER_JOB_MAINTENANCE_INTERVAL_SECONDS = 30
@@ -71,7 +71,8 @@ WORKER_MEMORY_LOG_INTERVAL_SECONDS = 900
 SCANNER_CONFIG_FILENAME = ".papermind-scanner-config"
 SCANNER_STATUS_FILENAME = ".papermind-scanner-status"
 SCANNER_COMMAND_FILE_PREFIX = ".papermind-scan-command-"
-IMPORT_INBOX_FAST_STABLE_CHECK_SECONDS = 0.2
+IMPORT_INBOX_FAST_STABLE_CHECK_SECONDS = 0.05
+IMPORT_INBOX_PREVIEW_SUFFIX = ".preview.png"
 IMPORT_INBOX_PROCESSED_DIR = ".papermind-processed"
 IMPORT_INBOX_PROCESSING_DIR = ".papermind-processing"
 IMPORT_INBOX_FAILED_DIR = ".papermind-failed"
@@ -322,7 +323,7 @@ def _move_drop_file(source_path: Path, destination_dir: Path, *, prefix: str = "
     return destination
 
 
-def _claim_next_import_inbox_pdf() -> tuple[Path, str] | None:
+def _claim_next_import_inbox_pdf() -> tuple[Path, str, Path | None] | None:
     root = _import_inbox_drop_root()
     processing_dir = _import_inbox_subdir(IMPORT_INBOX_PROCESSING_DIR)
     if root is None or processing_dir is None:
@@ -377,13 +378,22 @@ def _claim_next_import_inbox_pdf() -> tuple[Path, str] | None:
     return None
 
 
-def _claim_drop_file(source_path: Path, processing_dir: Path) -> tuple[Path, str] | None:
+def _claim_drop_file(source_path: Path, processing_dir: Path) -> tuple[Path, str, Path | None] | None:
     original_name = source_path.name
+    preview_source_path = source_path.with_name(f"{source_path.name}{IMPORT_INBOX_PREVIEW_SUFFIX}")
     try:
         claimed_path = _move_drop_file(source_path, processing_dir, prefix=f"{uuid.uuid4().hex}-")
     except OSError:
         return None
-    return claimed_path, original_name
+    claimed_preview_path = None
+    if preview_source_path.exists():
+        preview_target_path = claimed_path.with_name(f"{claimed_path.name}{IMPORT_INBOX_PREVIEW_SUFFIX}")
+        try:
+            os.replace(preview_source_path, preview_target_path)
+            claimed_preview_path = preview_target_path
+        except OSError:
+            claimed_preview_path = None
+    return claimed_path, original_name, claimed_preview_path
 
 
 def _default_owner_id(db) -> uuid.UUID | None:
@@ -596,7 +606,7 @@ def _scanner_device_id_for_drop(db) -> uuid.UUID | None:
     return scanner.id
 
 
-def _process_import_inbox_drop_file(claimed_path: Path, original_name: str) -> None:
+def _process_import_inbox_drop_file(claimed_path: Path, original_name: str, preview_path: Path | None = None) -> None:
     processed_dir = _import_inbox_subdir(IMPORT_INBOX_PROCESSED_DIR)
     failed_dir = _import_inbox_subdir(IMPORT_INBOX_FAILED_DIR)
     if processed_dir is None or failed_dir is None:
@@ -626,6 +636,7 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str) -> N
                 client_name="SMB",
                 source_type=source_type,
                 scanner_device_id=scanner_device_id,
+                preview_path=preview_path,
             )
             if scanner_device_id is not None and result.items:
                 first_item = result.items[0]
@@ -639,6 +650,8 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str) -> N
                 db.commit()
         created_count = len(result.items)
         _move_drop_file(claimed_path, processed_dir)
+        if preview_path is not None and preview_path.exists():
+            _move_drop_file(preview_path, processed_dir)
         logger.info(
             "import inbox drop processed file=%s items=%s source_type=%s scanner_device_id=%s job_id=%s owner=%s owner_id=%s",
             display_name,
@@ -668,8 +681,12 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str) -> N
                 logger.exception("scan job failure marking failed file=%s", display_name)
         try:
             _move_drop_file(claimed_path, failed_dir)
+            if preview_path is not None and preview_path.exists():
+                _move_drop_file(preview_path, failed_dir)
         except OSError:
             claimed_path.unlink(missing_ok=True)
+            if preview_path is not None:
+                preview_path.unlink(missing_ok=True)
 
 
 def _has_active_job(db, document_id: uuid.UUID, job_type: str) -> bool:
@@ -1502,8 +1519,8 @@ def run() -> None:
         # Posteingang-Einträge (Eigentümer = erster Admin, Ein-Benutzer-Betrieb).
         inbox_drop_file = _claim_next_import_inbox_pdf()
         if inbox_drop_file is not None:
-            claimed_path, original_name = inbox_drop_file
-            _process_import_inbox_drop_file(claimed_path, original_name)
+            claimed_path, original_name, preview_path = inbox_drop_file
+            _process_import_inbox_drop_file(claimed_path, original_name, preview_path)
             continue
 
         claimed = _claim_next_job()

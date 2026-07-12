@@ -133,7 +133,7 @@ install_scan_button_services() {
 
   log "Installing scanner packages and services"
   sudo apt-get update -qq
-  sudo apt-get install -y -qq sane-utils img2pdf >/dev/null
+  sudo apt-get install -y -qq sane-utils img2pdf imagemagick >/dev/null
   sudo usermod -aG scanner,lp "${SERVICE_USER}" || true
 
   sudo systemctl mask --now ipp-usb >/dev/null 2>&1 || true

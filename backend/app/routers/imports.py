@@ -45,7 +45,7 @@ logger = logging.getLogger("papermind.import")
 # Verbindung und bekommt Änderungen gepusht; sein eigenes Polling ist nur noch
 # Fallback. Die DB-Abfrage ist günstig (indizierte Owner-Query), das Intervall
 # bestimmt also nur, wie schnell ein Scan-Statuswechsel beim Client ankommt.
-SSE_POLL_INTERVAL_SECONDS = 1.5
+SSE_POLL_INTERVAL_SECONDS = 0.5
 # Kommentar-Heartbeat, damit Proxys (Caddy) die Leerlaufverbindung nicht kappen.
 SSE_HEARTBEAT_SECONDS = 20.0
 
@@ -269,6 +269,28 @@ def get_import_source_file(
         path=str(source_path),
         media_type="application/pdf",
         filename=f"{source_file_id}.pdf",
+    )
+
+
+@router.get(
+    "/source/{source_file_id}/preview",
+    response_class=FileResponse,
+    summary="Serve staged source quick preview",
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+def get_import_source_preview(
+    source_file_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> FileResponse:
+    service = ImportStagingService(db, user.id)
+    preview_path = service.get_source_preview_path(source_file_id)
+    if preview_path is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Preview not found")
+    return FileResponse(
+        path=str(preview_path),
+        media_type="image/png",
+        filename=f"{source_file_id}.preview.png",
     )
 
 

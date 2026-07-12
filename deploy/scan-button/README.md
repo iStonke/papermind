@@ -55,8 +55,8 @@ sequenziell, also nie ein Konflikt ums Gerät.
 
 ```bash
 sudo apt update
-sudo apt install -y sane-utils img2pdf
-# img2pdf erzeugt verlustfreie PDFs. Alternativ tut es ImageMagick ("convert").
+sudo apt install -y sane-utils img2pdf imagemagick
+# img2pdf erzeugt verlustfreie PDFs; ImageMagick erzeugt die schnelle Preview-Sidecar-Datei.
 # scanbd wird NICHT benötigt.
 ```
 
@@ -194,6 +194,9 @@ in `papermind-scan.sh` (oder als `Environment=` in der `.service`):
 | `IDLE_SECONDS`    | `180`                           | Ruhezeit für `finalize-idle`                 |
 
 `scan-inbox`-Stabilitätsfenster (`IMPORT_INBOX_FILE_STABLE_SECONDS`, Default 3s)
+ist für Scanner-PDFs mit Sidecar-Vorschau nicht mehr die gefühlte UI-Grenze:
+atomar verschobene Dateien werden im Worker-Schnellpfad geprüft und die
+Vorschau erscheint im Importfenster ohne vorheriges PDF-Thumbnail-Rendering.
 und der Mount stehen in `docker-compose.yml` / `.env`.
 
 ## Fehlersuche

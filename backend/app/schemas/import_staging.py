@@ -10,6 +10,7 @@ class ImportSourceRead(BaseModel):
     source_file_id: str
     original_name: str
     page_count: int = Field(ge=1)
+    preview_url: str | None = None
 
 
 class ImportSourceUploadResponse(BaseModel):
@@ -21,6 +22,7 @@ class ImportInboxItemRead(BaseModel):
     source_file_id: str
     original_name: str
     page_count: int = Field(ge=1)
+    preview_url: str | None = None
     client_name: str | None = None
     source_type: str = "shortcut"
     scanner_device_id: str | None = None

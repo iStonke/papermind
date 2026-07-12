@@ -128,6 +128,7 @@ class ImportInboxService:
             source_file_id=str(item.source_file_id),
             original_name=item.original_name,
             page_count=item.page_count,
+            preview_url=self.import_staging_service.source_preview_url(str(item.source_file_id)),
             client_name=item.client_name,
             source_type=item.source_type,
             scanner_device_id=str(item.scanner_device_id) if item.scanner_device_id else None,
@@ -180,6 +181,7 @@ class ImportInboxService:
         client_name: str | None = None,
         source_type: str = "shortcut",
         scanner_device_id: uuid.UUID | None = None,
+        preview_paths: list[Path | None] | None = None,
     ) -> ImportInboxUploadResponse:
         normalized_source_type = str(source_type or "shortcut").strip() or "shortcut"
         if normalized_source_type != "scanner" and self.owner_id is None:
@@ -188,10 +190,13 @@ class ImportInboxService:
             raise BadRequestError("scanner_device_id is required for scanner uploads")
 
         staged = self.import_staging_service.upload_sources(files)
+        normalized_preview_paths = list(preview_paths or [])
         created: list[ImportInboxItem] = []
         normalized_client = str(client_name or "").strip()[:200] or None
 
-        for source in staged.items:
+        for index, source in enumerate(staged.items):
+            preview_path = normalized_preview_paths[index] if index < len(normalized_preview_paths) else None
+            self.import_staging_service.store_source_preview(source.source_file_id, preview_path)
             item = ImportInboxItem(
                 owner_id=None if normalized_source_type == "scanner" else self.owner_id,
                 scanner_device_id=scanner_device_id if normalized_source_type == "scanner" else None,
@@ -221,6 +226,7 @@ class ImportInboxService:
         client_name: str | None = None,
         source_type: str = "shortcut",
         scanner_device_id: uuid.UUID | None = None,
+        preview_path: Path | None = None,
     ) -> ImportInboxUploadResponse:
         path = Path(source_path).resolve()
         filename = str(original_name or path.name or "Scan.pdf").strip() or "Scan.pdf"
@@ -231,6 +237,7 @@ class ImportInboxService:
                 client_name=client_name,
                 source_type=source_type,
                 scanner_device_id=scanner_device_id,
+                preview_paths=[preview_path] if preview_path is not None else None,
             )
 
     def list_pending(self, *, limit: int = 50) -> ImportInboxListResponse:

@@ -211,7 +211,7 @@ Wichtige ENV-Variablen:
 - `AUTO_OCR_ON_UPLOAD=true` (wenn `true`: OCR wird nur bei textarmen PDFs automatisch gestartet)
 - `MIN_TEXT_CHARS=300` (Schwellwert für "textful" PDFs, gemessen als Nicht-Whitespace-Zeichen)
 - `TEXT_CHECK_PAGES=2` (Anzahl Seiten für schnellen Text-Check beim Upload)
-- `WORKER_POLL_INTERVAL_SECONDS=3`
+- `WORKER_POLL_INTERVAL_SECONDS=1`
 - `WORKER_OCR_TIMEOUT_SECONDS=900`
 - `SEARCH_QUERY_MAX_LENGTH=256`
 - `FTS_LANGUAGE=german` (`german` oder `simple`)

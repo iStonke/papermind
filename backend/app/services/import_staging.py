@@ -9,6 +9,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import UploadFile
+from PIL import Image, ImageOps
 from pypdf import PdfReader, PdfWriter
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -83,6 +84,7 @@ _FILENAME_SEPARATOR = " – "
 _FILENAME_MAX_LEN = 80
 _STAGING_MIN_TEXT_CHARS = 80
 _STAGING_GOOD_TEXT_CHARS = 240
+_STAGING_PREVIEW_MAX_LONG_EDGE = 640
 _STAGING_OCR_ATTEMPTS = (
     {"psm": 6, "max_long_side_px": 2800},
     {"psm": 4, "max_long_side_px": 3200},
@@ -222,6 +224,31 @@ class ImportStagingService:
             raise BadRequestError("source_file_id is invalid", details={"source_file_id": source_id}) from exc
         return self._staging_root() / f"{parsed}.pdf"
 
+    def _source_preview_path(self, source_file_id: str) -> Path:
+        source_id = str(source_file_id or "").strip()
+        if not source_id:
+            raise BadRequestError("source_file_id is missing")
+        try:
+            parsed = uuid.UUID(source_id)
+        except ValueError as exc:
+            raise BadRequestError("source_file_id is invalid", details={"source_file_id": source_id}) from exc
+        return self._staging_root() / f"{parsed}.preview.png"
+
+    def source_preview_url(self, source_file_id: str) -> str | None:
+        try:
+            preview_path = self._source_preview_path(source_file_id)
+        except BadRequestError:
+            return None
+        if not preview_path.exists() or not preview_path.is_file():
+            return None
+        return f"/api/import/source/{source_file_id}/preview"
+
+    def get_source_preview_path(self, source_file_id: str) -> Path | None:
+        preview_path = self._source_preview_path(source_file_id)
+        if not preview_path.exists() or not preview_path.is_file():
+            return None
+        return preview_path
+
     def get_source_pdf_path(self, source_file_id: str) -> Path:
         source_path = self._source_pdf_path(source_file_id)
         if not source_path.exists() or not source_path.is_file():
@@ -289,6 +316,34 @@ class ImportStagingService:
         finally:
             file.file.seek(0)
 
+    def store_source_preview(self, source_file_id: str, preview_path: Path | None) -> Path | None:
+        if preview_path is None:
+            return None
+        source_path = Path(preview_path)
+        try:
+            has_preview = source_path.exists() and source_path.is_file() and source_path.stat().st_size > 0
+        except OSError:
+            has_preview = False
+        if not has_preview:
+            return None
+
+        destination = self._source_preview_path(source_file_id)
+        temp_path = destination.with_name(f"{destination.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            with Image.open(source_path) as raw_image:
+                image = ImageOps.exif_transpose(raw_image)
+                if image.mode not in {"RGB", "L"}:
+                    image = image.convert("RGB")
+                image.thumbnail((_STAGING_PREVIEW_MAX_LONG_EDGE, _STAGING_PREVIEW_MAX_LONG_EDGE))
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                image.save(temp_path, format="PNG", optimize=True)
+            os.replace(temp_path, destination)
+            return destination
+        except Exception as exc:  # noqa: BLE001 - Vorschau ist optional
+            temp_path.unlink(missing_ok=True)
+            logger.warning("import source preview skipped source_file_id=%s err=%s", source_file_id, exc)
+            return None
+
     def _safe_document_filename(self, title: str) -> str:
         normalized = " ".join(str(title or "").split()).strip()
         if not normalized:
@@ -323,6 +378,7 @@ class ImportStagingService:
                     source_file_id=source_file_id,
                     original_name=original_name,
                     page_count=page_count,
+                    preview_url=self.source_preview_url(source_file_id),
                 )
             )
 
@@ -1769,14 +1825,18 @@ class ImportStagingService:
         for source_file_id in source_file_ids:
             try:
                 source_path = self._source_pdf_path(source_file_id)
+                preview_path = self._source_preview_path(source_file_id)
             except BadRequestError:
                 continue
             source_path.unlink(missing_ok=True)
+            preview_path.unlink(missing_ok=True)
 
     def delete_source_file(self, source_file_id: str) -> None:
         source_path = self._source_pdf_path(source_file_id)
+        preview_path = self._source_preview_path(source_file_id)
         try:
             source_path.unlink(missing_ok=True)
+            preview_path.unlink(missing_ok=True)
         except OSError as exc:
             raise StorageError("Could not delete staged source PDF") from exc
 
@@ -1816,6 +1876,7 @@ class ImportStagingService:
             with temp_path.open("wb") as output:
                 writer.write(output)
             os.replace(temp_path, source_path)
+            self._source_preview_path(source_file_id).unlink(missing_ok=True)
         except Exception as exc:
             temp_path.unlink(missing_ok=True)
             raise StorageError("Could not update staged source PDF") from exc

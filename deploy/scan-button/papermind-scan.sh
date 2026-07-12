@@ -84,6 +84,30 @@ _job_filename_suffix() {
   fi
 }
 
+_write_preview_sidecar() {
+  local source_png="$1"
+  local target_preview="$2"
+  local incoming_preview="${target_preview}.incoming"
+
+  rm -f "$incoming_preview"
+  if command -v convert >/dev/null 2>&1; then
+    convert "$source_png" -auto-orient -thumbnail '640x640>' -strip "$incoming_preview" 2>/dev/null || {
+      rm -f "$incoming_preview"
+      return 0
+    }
+  elif command -v magick >/dev/null 2>&1; then
+    magick "$source_png" -auto-orient -thumbnail '640x640>' -strip "$incoming_preview" 2>/dev/null || {
+      rm -f "$incoming_preview"
+      return 0
+    }
+  else
+    # Kein harter Fehler: die PDF ist der verbindliche Importinhalt. Ohne
+    # Preview fällt die App auf das normale PDF.js-Thumbnail zurück.
+    return 0
+  fi
+  [[ -s "$incoming_preview" ]] && mv -f "$incoming_preview" "$target_preview"
+}
+
 # Alle device-berührenden Aktionen serialisieren – zwei schnelle Tastendrücke
 # dürfen sich nicht überlappen (Scanner erlaubt nur einen Zugriff).
 _with_lock() {
@@ -123,7 +147,7 @@ _scan_live_page() {
   local tmp_dir="${SCAN_INBOX_DIR}/.papermind-live-tmp"
   mkdir -p "$tmp_dir"
 
-  local ts png_part png incoming target
+  local ts png_part png incoming target preview_target
   ts="$(date +%Y%m%d-%H%M%S-%N)"
   png_part="${tmp_dir}/page-${ts}.png.part"
   png="${tmp_dir}/page-${ts}.png"
@@ -139,6 +163,7 @@ _scan_live_page() {
 
   incoming="${SCAN_INBOX_DIR}/.incoming-${ts}.pdf"
   target="${SCAN_INBOX_DIR}/Scan-${ts}$(_job_filename_suffix).pdf"
+  preview_target="${target}.preview.png"
   if command -v img2pdf >/dev/null 2>&1; then
     img2pdf --output "$incoming" "$png"
   elif command -v convert >/dev/null 2>&1; then
@@ -147,6 +172,7 @@ _scan_live_page() {
     rm -f "$png"
     die "Weder img2pdf noch ImageMagick (convert) installiert"
   fi
+  _write_preview_sidecar "$png" "$preview_target"
   mv -f "$incoming" "$target"
   rm -f "$png"
   log "Seite live gesendet: ${target##*/}"
@@ -200,12 +226,13 @@ _finalize() {
     return 0
   fi
 
-  local ts incoming target
+  local ts incoming target preview_target
   ts="$(date +%Y%m%d-%H%M%S)"
   # Erst als Dot-Tempdatei schreiben, dann atomar umbenennen, damit der Worker
   # niemals eine halbfertige PDF sieht (er wartet zusätzlich auf Datei-Ruhe).
   incoming="${SCAN_INBOX_DIR}/.incoming-${ts}.pdf"
   target="${SCAN_INBOX_DIR}/Scan-${ts}$(_job_filename_suffix).pdf"
+  preview_target="${target}.preview.png"
 
   log "Schließe Batch mit ${#pages[@]} Seite(n) zu ${target##*/} ab…"
   if command -v img2pdf >/dev/null 2>&1; then
@@ -216,6 +243,7 @@ _finalize() {
     die "Weder img2pdf noch ImageMagick (convert) installiert"
   fi
 
+  _write_preview_sidecar "${pages[0]}" "$preview_target"
   mv -f "$incoming" "$target"
   rm -f "$BATCH_DIR"/page-*.png
   log "Fertig: ${target} – erscheint gleich im Importscreen."

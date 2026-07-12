@@ -772,7 +772,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import { PDF_WORKER_SRC } from '../utils/pdfWorker.js';
-import { authHeaders } from '../api/client.js';
+import { authedUrl, authHeaders } from '../api/client.js';
 import BaseDialog from './BaseDialog.vue';
 import DestructiveDialog from './DestructiveDialog.vue';
 import StageTags from './StageTags.vue';
@@ -2234,6 +2234,77 @@ async function downloadStagingSourceFile(sourceFileId, originalName = '') {
   });
 }
 
+function buildApiResourceUrl(pathOrUrl) {
+  const raw = String(pathOrUrl || '').trim();
+  if (!raw) {
+    return '';
+  }
+  if (/^https?:\/\//i.test(raw)) {
+    return raw;
+  }
+  const base = String(props.apiBaseUrl || '').replace(/\/+$/, '');
+  const path = raw.startsWith('/') ? raw : `/${raw}`;
+  return `${base}${path}`;
+}
+
+function remotePreviewThumbUrls(source, pageCount) {
+  const total = Math.max(0, Number(pageCount || 0));
+  if (total <= 0) {
+    return [];
+  }
+  const rawPreviewUrl = buildApiResourceUrl(source?.preview_url);
+  if (!rawPreviewUrl) {
+    return [];
+  }
+  const previewUrl = authedUrl(rawPreviewUrl);
+  const thumbs = Array.from({ length: total }, () => '');
+  thumbs[0] = previewUrl;
+  return thumbs;
+}
+
+function upgradeRemoteSourceFile(sourceFileId, originalName, pageCount, { hadFastPreview = false } = {}) {
+  const normalized = String(sourceFileId || '').trim();
+  if (!normalized || remoteSourceUpgradeInFlight.has(normalized)) {
+    return;
+  }
+  remoteSourceUpgradeInFlight.add(normalized);
+  void (async () => {
+    try {
+      const stagingFile = await downloadStagingSourceFile(normalized, originalName);
+      let thumbUrls = [];
+      try {
+        thumbUrls = await renderPdfThumbnails(stagingFile, Number(pageCount || 0));
+      } catch {
+        thumbUrls = [];
+      }
+      const usedSourceIds = typeof stagingStore.collectUsedSourceFileIds === 'function'
+        ? stagingStore.collectUsedSourceFileIds()
+        : new Set();
+      if (!usedSourceIds.has(normalized)) {
+        return;
+      }
+      stagingStore.setStagingFile(normalized, stagingFile, {
+        originalName: originalName || stagingFile.name,
+        pageCount: Number(pageCount || 0),
+        isImportInbox: true
+      });
+      if (thumbUrls.some((url) => String(url || '').trim())) {
+        stagingStore.updateSourceThumbnails(normalized, thumbUrls);
+        clearPreviewCacheForSource(normalized);
+      }
+    } catch {
+      if (!hadFastPreview) {
+        notify({
+          type: 'warning',
+          message: 'Eine Scan-Datei konnte noch nicht für die Detailvorschau geladen werden.'
+        });
+      }
+    } finally {
+      remoteSourceUpgradeInFlight.delete(normalized);
+    }
+  })();
+}
+
 async function renderPdfThumbnails(file, pageCount) {
   if (!(file instanceof File) || pageCount <= 0) {
     return [];
@@ -2511,6 +2582,7 @@ async function addFilesToStaging(candidates, options = {}) {
 // sourceMetaById-Check, bevor einer setStagingFile() aufruft - und legten
 // dieselbe Seite (und ggf. ein zweites Scan-Dokument) doppelt an.
 let remoteSourcesChain = Promise.resolve();
+const remoteSourceUpgradeInFlight = new Set();
 
 function addRemoteSources(payload = []) {
   const run = remoteSourcesChain.then(() => addRemoteSourcesImpl(payload));
@@ -2529,7 +2601,6 @@ async function addRemoteSourcesImpl(payload = []) {
 
   let addedCount = 0;
   let addedScannerCount = 0;
-  let previewFallbackCount = 0;
   let sessionStageId = preferredTargetStageId || remoteSourceStageBySession.get(sessionId) || null;
   const isSessionManagedScanStage = !preferredTargetStageId;
   const initialScanTitle = items.map((item) => getRemoteSourceTitle(item, '')).find(Boolean) || 'Neuer Scan';
@@ -2579,16 +2650,10 @@ async function addRemoteSourcesImpl(payload = []) {
 
     const originalName = String(source?.original_name || '').trim() || 'Scan Upload.pdf';
     const sourceTitle = getRemoteSourceTitle(source);
-    let stagingFile = null;
-    let thumbUrls = [];
-    try {
-      stagingFile = await downloadStagingSourceFile(sourceFileId, originalName);
-      thumbUrls = await renderPdfThumbnails(stagingFile, pageCount);
-    } catch {
-      previewFallbackCount += 1;
-    }
+    const thumbUrls = remotePreviewThumbUrls(source, pageCount);
+    const hadFastPreview = thumbUrls.some((url) => String(url || '').trim());
 
-    stagingStore.setStagingFile(sourceFileId, stagingFile, { originalName, pageCount, isImportInbox: true });
+    stagingStore.setStagingFile(sourceFileId, null, { originalName, pageCount, isImportInbox: true });
     const targetStageId = String(source?.target_stage_id || '').trim() || sessionStageId;
     if (targetStageId && documents.value.some((entry) => entry.id === targetStageId)) {
       const targetDoc = getDocumentById(targetStageId);
@@ -2640,6 +2705,7 @@ async function addRemoteSourcesImpl(payload = []) {
     if (String(source?.source_type || '').trim() === 'scanner') {
       addedScannerCount += 1;
     }
+    upgradeRemoteSourceFile(sourceFileId, originalName, pageCount, { hadFastPreview });
   }
 
   for (const stageId of touchedStageIds) {
@@ -2664,12 +2730,6 @@ async function addRemoteSourcesImpl(payload = []) {
     notify({
       type: 'success',
       message: `${addedCount} ${label} hinzugefügt.`
-    });
-  }
-  if (previewFallbackCount > 0) {
-    notify({
-      type: 'warning',
-      message: `Bei ${previewFallbackCount} Datei${previewFallbackCount === 1 ? '' : 'en'} fehlen Vorschaubilder.`
     });
   }
 }

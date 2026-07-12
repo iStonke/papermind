@@ -3539,6 +3539,7 @@ function normalizeImportInboxItems(payload) {
       source_file_id: String(item?.source_file_id || '').trim(),
       original_name: String(item?.original_name || '').trim() || 'Scan Upload.pdf',
       page_count: Number(item?.page_count || 0),
+      preview_url: String(item?.preview_url || '').trim(),
       client_name: String(item?.client_name || '').trim(),
       source_type: String(item?.source_type || 'shortcut').trim() || 'shortcut',
       scanner_device_id: String(item?.scanner_device_id || '').trim(),

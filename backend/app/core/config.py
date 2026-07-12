@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     auto_ocr_on_upload: bool = Field(default=True)
     min_text_chars: int = Field(default=300, ge=1)
     text_check_pages: int = Field(default=2, ge=1)
-    worker_poll_interval_seconds: int = Field(default=3)
+    worker_poll_interval_seconds: int = Field(default=1)
     worker_ocr_timeout_seconds: int = Field(default=900)
     worker_job_lease_seconds: int = Field(default=120, ge=30, le=3600)
     worker_job_heartbeat_seconds: int = Field(default=30, ge=5, le=300)
