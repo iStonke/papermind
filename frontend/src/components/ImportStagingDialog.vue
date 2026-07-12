@@ -4861,6 +4861,15 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
 }
 
+.isd-card.pm-dialog .isd-minimize-btn {
+  flex: 0 0 auto;
+  color: rgba(var(--v-theme-on-surface), 0.68);
+}
+
+.isd-card.pm-dialog .isd-minimize-btn:hover {
+  color: rgba(var(--v-theme-on-surface), 0.92);
+}
+
 .isd-card.pm-dialog .pm-dialog__content-wrap {
   flex: 1 1 auto !important;
   min-height: 0 !important;
