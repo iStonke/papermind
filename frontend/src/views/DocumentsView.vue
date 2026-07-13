@@ -1048,142 +1048,18 @@
                   @focusin="handleDetailsEditorFocusIn"
                   @focusout="handleDetailsEditorFocusOut"
                 >
-                  <div
+                  <RetentionStatusBar
                     v-if="isRetentionFeatureEnabled"
-                    class="retention-zone"
-                    :class="{ 'retention-zone--open': isEditingRetention }"
-                  >
-                    <div
-                      class="retention-bar"
-                      :class="[`retention-bar--${retentionState}`, { 'retention-bar--open': isEditingRetention }]"
-                      role="button"
-                      tabindex="0"
-                      aria-label="Aufbewahrung ein- oder ausklappen"
-                      @click="onRetentionBarClick"
-                      @keydown.enter.prevent="toggleRetentionEdit"
-                      @keydown.space.prevent="toggleRetentionEdit"
-                    >
-                      <span class="retention-bar__badge">
-                        <v-icon size="15">{{ retentionBadge.icon }}</v-icon>
-                      </span>
-                      <div class="retention-bar__text">
-                        <div class="retention-bar__title-row">
-                          <span class="retention-bar__title">{{ retentionBadge.title }}</span>
-                          <span v-if="retentionState === 'ai'" class="retention-bar__ki">KI-Vorschlag</span>
-                        </div>
-                        <div v-if="retentionBadge.subtitle" class="retention-bar__subtitle">{{ retentionBadge.subtitle }}</div>
-                      </div>
-
-                      <button
-                        v-if="retentionState === 'ai'"
-                        type="button"
-                        class="retention-bar__accept"
-                        :disabled="isSavingRetention"
-                        @click.stop="acceptRetentionSuggestion"
-                      >Übernehmen</button>
-                      <span v-else class="retention-bar__pencil" aria-hidden="true">
-                        <v-icon size="14">mdi-pencil-outline</v-icon>
-                      </span>
-
-                      <v-icon
-                        class="retention-bar__chev"
-                        :class="{ 'retention-bar__chev--open': isEditingRetention }"
-                        size="16"
-                      >mdi-chevron-down</v-icon>
-                    </div>
-
-                    <div v-if="isEditingRetention" class="retention-form" @click.stop>
-                      <div class="retention-form__grid">
-                        <div class="retention-form__field">
-                          <label>Aufbewahrungsdauer</label>
-                          <v-select
-                            v-model="retentionDraft.period_years"
-                            :items="retentionPeriodItems"
-                            density="compact"
-                            variant="outlined"
-                            hide-details
-                            class="retention-form__input"
-                            :menu-props="detailsCategoryMenuProps"
-                          />
-                        </div>
-                        <div class="retention-form__field">
-                          <label>Ablaufdatum</label>
-                          <div class="retention-form__static">{{ retentionExpiryLabel || '—' }}</div>
-                        </div>
-                      </div>
-
-                      <div class="retention-toggle-row">
-                        <div class="retention-toggle-row__text">
-                          <div class="retention-toggle-row__title">Original behalten</div>
-                          <div class="retention-toggle-row__hint">Physisches Original muss aufbewahrt werden</div>
-                        </div>
-                        <button
-                          type="button"
-                          class="retention-toggle"
-                          :class="{ 'retention-toggle--on': retentionKeepOriginal }"
-                          role="switch"
-                          :aria-checked="String(retentionKeepOriginal)"
-                          aria-label="Original behalten"
-                          @click="retentionKeepOriginal = !retentionKeepOriginal"
-                        >
-                          <span class="retention-toggle__knob" />
-                        </button>
-                      </div>
-
-                      <div class="retention-form__field">
-                        <label>Begründung</label>
-                        <v-textarea
-                          v-model="retentionDraft.reason"
-                          :rows="2"
-                          :max-rows="4"
-                          auto-grow
-                          density="compact"
-                          variant="outlined"
-                          hide-details
-                          class="retention-form__input"
-                          placeholder="Kurzer Grund, z. B. Rechtsgrundlage…"
-                        />
-                      </div>
-
-                      <div v-if="retentionErrorMessage" class="retention-form__error">{{ retentionErrorMessage }}</div>
-                      <div class="retention-form__disclaimer">KI-Hinweis, keine Rechtsberatung. Vor Vernichtung prüfen.</div>
-
-                      <div class="retention-form__actions">
-                        <v-btn
-                          v-if="retentionState !== 'ai'"
-                          size="small"
-                          variant="text"
-                          class="retention-form__ai"
-                          :loading="isSuggestingRetention"
-                          :disabled="isSuggestingRetention"
-                          @click="requestRetentionSuggestion"
-                        >
-                          <v-icon size="14" start>mdi-auto-fix</v-icon>
-                          KI-Bewertung
-                        </v-btn>
-                        <v-btn
-                          size="small"
-                          variant="text"
-                          class="retention-form__cancel"
-                          :disabled="isSavingRetention"
-                          @click="cancelRetentionEdit"
-                        >
-                          Abbrechen
-                        </v-btn>
-                        <v-btn
-                          size="small"
-                          color="primary"
-                          variant="flat"
-                          class="retention-form__save"
-                          :loading="isSavingRetention"
-                          :disabled="isSavingRetention"
-                          @click="saveRetention"
-                        >
-                          Speichern
-                        </v-btn>
-                      </div>
-                    </div>
-                  </div>
+                    :model-value="retentionData"
+                    :document-date-iso="metadataDocDateIso"
+                    :saving="isSavingRetention"
+                    :suggesting="isSuggestingRetention"
+                    :error-message="retentionErrorMessage"
+                    :menu-props="detailsCategoryMenuProps"
+                    @accept="acceptRetentionSuggestion"
+                    @save="saveRetention"
+                    @suggest="requestRetentionSuggestion"
+                  />
 
                   <div class="pm-prop">
                     <div class="pm-prop-row pm-prop-row--text">
@@ -1452,6 +1328,7 @@ import DestructiveDialog from '../components/DestructiveDialog.vue';
 import TagDialogs from '../components/TagDialogs.vue';
 import CategoryDialogs from '../components/CategoryDialogs.vue';
 import RenameDocumentDialog from '../components/RenameDocumentDialog.vue';
+import RetentionStatusBar from '../components/RetentionStatusBar.vue';
 
 // Boolean-gesteuerte Dialoge (öffnen über v-model). Erst bei Bedarf gebraucht
 // und teils sehr groß (ImportStagingDialog/SmartFolderEditor) → eigene Chunks,
@@ -1489,7 +1366,6 @@ import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
 import { apiFetch, authedUrl, getBaseUrl } from '../api/client.js';
 import {
   acceptDocumentRetention,
-  discardDocumentRetention,
   getDocumentRetention,
   putDocumentRetention,
   suggestDocumentRetention
@@ -1592,22 +1468,6 @@ const detailsTagsMenuProps = Object.freeze({
   closeOnContentClick: false,
   contentClass: 'pm-menu pm-menu--tags'
 });
-// Kurzphrase zum Papieroriginal für den Untertitel der Statusleiste.
-const RETENTION_PAPER_PHRASE = Object.freeze({
-  unclear: 'Papieroriginal offen',
-  keep: 'Original erforderlich',
-  scan_sufficient: 'Scan genügt',
-  not_applicable: 'Kein Original nötig'
-});
-const RETENTION_PERIOD_UNLIMITED = -1;
-const retentionPeriodItems = Object.freeze([
-  { title: 'Unklar', value: null },
-  { title: '3 Jahre', value: 3 },
-  { title: '6 Jahre', value: 6 },
-  { title: '10 Jahre', value: 10 },
-  { title: '30 Jahre', value: 30 },
-  { title: 'Unbegrenzt', value: RETENTION_PERIOD_UNLIMITED }
-]);
 const DETAILS_DRAWER_COLLAPSED_HEIGHT = 72;
 const LAST_SELECTED_DOC_KEY = 'pm.lastSelectedDocumentId';
 const DOCUMENT_TOOLBAR_STATE_KEY = 'pm.documentToolbarState';
@@ -2133,6 +1993,7 @@ const importScanner = ref(null);
 const importInboxSuppressedItemIds = ref(new Set());
 const activeImportInboxItemIds = ref(new Set());
 const activeImportInboxSourceToItemId = ref(new Map());
+const importInboxTimingBySource = new Map();
 const isClaimingImportInbox = ref(false);
 // Unterscheidet Minimieren (Items behalten) von echtem Schließen ohne Commit (verwerfen).
 const isMinimizingImport = ref(false);
@@ -2544,13 +2405,12 @@ const retentionData = ref(null);
 const isLoadingRetention = ref(false);
 const isSavingRetention = ref(false);
 const isSuggestingRetention = ref(false);
-const isEditingRetention = ref(false);
 const retentionErrorMessage = ref('');
 const isRetentionFeatureEnabled = computed(() => appSettings.value?.retention?.enabled !== false);
-const retentionDraft = reactive({
-  period_years: null,
-  paper_original: 'unclear',
-  reason: '',
+// Dokumentdatum als ISO für die Ablaufdatum-Vorschau der RetentionStatusBar.
+const metadataDocDateIso = computed(() => {
+  const parsed = parseDocumentDateInput(metadataDocDate.value);
+  return parsed.ok && parsed.iso ? parsed.iso : '';
 });
 const metadataSuccessMessage = ref('');
 const metadataErrorMessage = ref('');
@@ -3437,6 +3297,73 @@ function countImportInboxPages(items) {
   );
 }
 
+function importInboxTimingNow() {
+  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+    return performance.now();
+  }
+  return Date.now();
+}
+
+function logImportTiming(event, fields = {}) {
+  if (typeof console === 'undefined' || typeof console.info !== 'function') {
+    return;
+  }
+  console.info('[ImportTiming]', {
+    event,
+    at: new Date().toISOString(),
+    ...fields
+  });
+}
+
+function importInboxAnalysisKey(analysis) {
+  if (!analysis || typeof analysis !== 'object') {
+    return '';
+  }
+  const meta = analysis.meta && typeof analysis.meta === 'object' ? analysis.meta : {};
+  return [
+    String(meta.cached_at || ''),
+    String(meta.analysis_phase || ''),
+    String(analysis.status || ''),
+    String(analysis.suggestion || '')
+  ].join('|');
+}
+
+function rememberImportInboxTiming(items) {
+  for (const item of Array.isArray(items) ? items : []) {
+    const sourceFileId = String(item?.source_file_id || '').trim();
+    if (!sourceFileId) {
+      continue;
+    }
+    let state = importInboxTimingBySource.get(sourceFileId);
+    if (!state) {
+      state = { seenAt: importInboxTimingNow() };
+      importInboxTimingBySource.set(sourceFileId, state);
+      const createdAtMs = Date.parse(String(item?.created_at || ''));
+      logImportTiming('inbox_source_seen', {
+        source_file_id: sourceFileId,
+        inbox_item_id: String(item?.id || ''),
+        source_type: String(item?.source_type || ''),
+        page_count: Number(item?.page_count || 0),
+        server_created_to_browser_ms: Number.isFinite(createdAtMs) ? Math.max(0, Date.now() - createdAtMs) : null
+      });
+    }
+
+    const analysisKey = importInboxAnalysisKey(item?.analysis);
+    if (analysisKey && state.analysisKey !== analysisKey) {
+      state.analysisKey = analysisKey;
+      const meta = item.analysis?.meta && typeof item.analysis.meta === 'object' ? item.analysis.meta : {};
+      logImportTiming('inbox_analysis_seen', {
+        source_file_id: sourceFileId,
+        inbox_item_id: String(item?.id || ''),
+        status: String(item.analysis?.status || ''),
+        phase: String(meta.analysis_phase || ''),
+        cached_at: String(meta.cached_at || ''),
+        ms_since_inbox_source_seen: Math.round((importInboxTimingNow() - state.seenAt) * 10) / 10
+      });
+    }
+  }
+}
+
 function visiblePendingImportInboxItems(items) {
   return (Array.isArray(items) ? items : []).filter(
     (item) => !importInboxSuppressedItemIds.value.has(String(item?.id || '').trim())
@@ -3721,6 +3648,7 @@ async function handleImportInboxPayload(payload, { allowAutoOpen = true } = {}) 
     // Toast für alte Läufe); danach jeden neuen Fehler einmal melden.
     processScannerErrorNotifications({ silent: !hasCompletedInitialImportInboxRefresh });
     const nextItems = normalizeImportInboxItems(payload);
+    rememberImportInboxTiming(nextItems);
     const nextItemIds = buildImportInboxItemIdSet(nextItems);
     const newItemIds = [...nextItemIds].filter((itemId) => !knownImportInboxItemIds.has(itemId));
     const shouldKeepScannerFeedbackUntilLoaded =
@@ -7671,13 +7599,6 @@ async function deleteSelectedDocument() {
   openDeleteDocumentDialog(selectedDocumentDetail.value);
 }
 
-function resetRetentionDraft(data = null) {
-  const rawPeriod = data?.period_years;
-  retentionDraft.period_years = rawPeriod === null || rawPeriod === undefined ? null : Number(rawPeriod);
-  retentionDraft.paper_original = data?.paper_original || 'unclear';
-  retentionDraft.reason = data?.reason || '';
-}
-
 async function loadRetention(documentId = selectedDocumentId.value, { force = false } = {}) {
   if (!isRetentionFeatureEnabled.value) {
     return null;
@@ -7691,7 +7612,6 @@ async function loadRetention(documentId = selectedDocumentId.value, { force = fa
     const data = await getDocumentRetention(documentId);
     if (selectedDocumentId.value === documentId) {
       retentionData.value = data;
-      resetRetentionDraft(data);
     }
     return data;
   } catch (error) {
@@ -7706,36 +7626,8 @@ async function loadRetention(documentId = selectedDocumentId.value, { force = fa
   }
 }
 
-function toggleRetentionEdit() {
-  if (!isRetentionFeatureEnabled.value) {
-    return;
-  }
-  if (isEditingRetention.value) {
-    isEditingRetention.value = false;
-    return;
-  }
-  openRetentionEdit();
-}
-
-function openRetentionEdit() {
-  if (!isRetentionFeatureEnabled.value) {
-    return;
-  }
-  if (isEditingRetention.value) {
-    return;
-  }
-  resetRetentionDraft(retentionData.value);
-  retentionErrorMessage.value = '';
-  isEditingRetention.value = true;
-}
-
-function cancelRetentionEdit() {
-  resetRetentionDraft(retentionData.value);
-  retentionErrorMessage.value = '';
-  isEditingRetention.value = false;
-}
-
-async function saveRetention() {
+// Speichern manueller Angaben – Payload liefert die RetentionStatusBar-Komponente.
+async function saveRetention(payload) {
   const documentId = selectedDocumentId.value;
   if (!documentId || !isRetentionFeatureEnabled.value) return;
   isSavingRetention.value = true;
@@ -7743,16 +7635,12 @@ async function saveRetention() {
   try {
     const updated = await putDocumentRetention(documentId, {
       status: 'manual',
-      period_years: retentionDraft.period_years === null || retentionDraft.period_years === ''
-        ? null
-        : Number(retentionDraft.period_years),
-      paper_original: retentionDraft.paper_original || 'unclear',
-      reason: retentionDraft.reason || null,
+      period_years: payload?.period_years ?? null,
+      paper_original: payload?.paper_original || 'unclear',
+      reason: payload?.reason || null,
     });
     if (selectedDocumentId.value === documentId) {
       retentionData.value = updated;
-      resetRetentionDraft(updated);
-      isEditingRetention.value = false;
     }
     notify({ type: 'success', title: 'Aufbewahrung', message: 'Angaben gespeichert.' });
   } catch (error) {
@@ -7772,32 +7660,10 @@ async function acceptRetentionSuggestion() {
     const updated = await acceptDocumentRetention(documentId);
     if (selectedDocumentId.value === documentId) {
       retentionData.value = updated;
-      resetRetentionDraft(updated);
-      isEditingRetention.value = false;
     }
     notify({ type: 'success', title: 'Aufbewahrung', message: 'KI-Vorschlag übernommen.' });
   } catch (error) {
     retentionErrorMessage.value = mapApiError(error, 'Vorschlag konnte nicht übernommen werden.');
-    notify({ type: 'error', title: 'Aufbewahrung', message: retentionErrorMessage.value });
-  } finally {
-    isSavingRetention.value = false;
-  }
-}
-
-async function discardRetention() {
-  const documentId = selectedDocumentId.value;
-  if (!documentId || !isRetentionFeatureEnabled.value) return;
-  isSavingRetention.value = true;
-  retentionErrorMessage.value = '';
-  try {
-    const updated = await discardDocumentRetention(documentId);
-    if (selectedDocumentId.value === documentId) {
-      retentionData.value = updated;
-      resetRetentionDraft(updated);
-      isEditingRetention.value = false;
-    }
-  } catch (error) {
-    retentionErrorMessage.value = mapApiError(error, 'Vorschlag konnte nicht verworfen werden.');
     notify({ type: 'error', title: 'Aufbewahrung', message: retentionErrorMessage.value });
   } finally {
     isSavingRetention.value = false;
@@ -7813,8 +7679,6 @@ async function requestRetentionSuggestion() {
     const updated = await suggestDocumentRetention(documentId);
     if (selectedDocumentId.value === documentId) {
       retentionData.value = updated;
-      resetRetentionDraft(updated);
-      isEditingRetention.value = false;
     }
     notify({ type: 'success', title: 'Aufbewahrung', message: 'KI-Bewertung erstellt.' });
   } catch (error) {
@@ -7825,79 +7689,6 @@ async function requestRetentionSuggestion() {
   }
 }
 
-// Drei Anzeigezustände der Statusleiste (Vorlage 1a): leer · KI-Vorschlag · befüllt.
-const retentionState = computed(() => {
-  const status = retentionData.value?.status;
-  if (status === 'suggested') return 'ai';
-  if (status === 'accepted' || status === 'manual') return 'filled';
-  return 'empty';
-});
-
-function formatRetentionPeriod(period) {
-  if (period === RETENTION_PERIOD_UNLIMITED) return 'Unbegrenzt';
-  const years = Number(period);
-  if (Number.isFinite(years) && years > 0) return `${years} Jahre`;
-  return 'Erfasst';
-}
-
-// Icon-Badge + Titel/Untertitel je Zustand (siehe Handoff „Statusleiste").
-const retentionBadge = computed(() => {
-  const data = retentionData.value;
-  if (retentionState.value === 'empty') {
-    return {
-      icon: 'mdi-shield-outline',
-      title: 'Nicht erfasst',
-      subtitle: 'Aufbewahrungspflicht ergänzen'
-    };
-  }
-  const title = formatRetentionPeriod(data?.period_years);
-  const phrase = RETENTION_PAPER_PHRASE[data?.paper_original] || RETENTION_PAPER_PHRASE.unclear;
-  if (retentionState.value === 'ai') {
-    return { icon: 'mdi-creation', title, subtitle: `${phrase} · zur Prüfung` };
-  }
-  let expiry;
-  if (data?.retain_until) {
-    expiry = `bis ${formatDocumentDateInputFromIso(data.retain_until) || data.retain_until}`;
-  } else if (data?.period_years === RETENTION_PERIOD_UNLIMITED) {
-    expiry = 'kein Ablauf';
-  } else {
-    expiry = 'ohne Ablaufdatum';
-  }
-  return { icon: 'mdi-shield-outline', title, subtitle: `${phrase} · ${expiry}` };
-});
-
-// Toggle „Original behalten" (Vorlage): keep ↔ scan_sufficient auf paper_original.
-const retentionKeepOriginal = computed({
-  get: () => retentionDraft.paper_original === 'keep',
-  set: (value) => {
-    retentionDraft.paper_original = value ? 'keep' : 'scan_sufficient';
-  }
-});
-
-// Ablaufdatum leitet sich (wie serverseitig) aus Dokumentdatum + gewählter Frist ab.
-const retentionExpiryLabel = computed(() => {
-  const period = retentionDraft.period_years;
-  if (period === RETENTION_PERIOD_UNLIMITED) return 'Kein Ablauf';
-  const years = Number(period);
-  if (!Number.isFinite(years) || years <= 0) return '';
-  const parsed = parseDocumentDateInput(metadataDocDate.value);
-  if (!parsed.ok || !parsed.iso) return '';
-  const [y, m, d] = parsed.iso.split('-').map(Number);
-  const target = new Date(y + years, m - 1, d);
-  if (target.getMonth() !== m - 1) target.setDate(0); // 29.02. → 28.02. im Nicht-Schaltjahr
-  const dd = String(target.getDate()).padStart(2, '0');
-  const mm = String(target.getMonth() + 1).padStart(2, '0');
-  return `${dd}.${mm}.${target.getFullYear()}`;
-});
-
-function onRetentionBarClick(event) {
-  const interactive = event?.target?.closest?.('button, a, input, textarea, select, [data-retention-action]');
-  if (interactive && interactive !== event.currentTarget) {
-    return;
-  }
-  toggleRetentionEdit();
-}
-
 watch(selectedDocumentId, (nextId, previousId) => {
   if (nextId !== previousId) {
     metadataDraftDocumentId.value = null;
@@ -7906,7 +7697,6 @@ watch(selectedDocumentId, (nextId, previousId) => {
     detailsEditorHasFocus.value = false;
     retentionData.value = null;
     retentionErrorMessage.value = '';
-    isEditingRetention.value = false;
     metadataDraftRevision.value += 1;
     clearPreviewRetryTimer();
     previewRetryAttemptsByDocument.value = {};
@@ -7920,11 +7710,9 @@ watch(selectedDocumentId, (nextId, previousId) => {
 watch(isRetentionFeatureEnabled, (enabled) => {
   retentionData.value = null;
   retentionErrorMessage.value = '';
-  isEditingRetention.value = false;
   isLoadingRetention.value = false;
   isSavingRetention.value = false;
   isSuggestingRetention.value = false;
-  resetRetentionDraft(null);
   if (enabled && selectedDocumentId.value) {
     void loadRetention(selectedDocumentId.value, { force: true });
   }
@@ -11267,313 +11055,6 @@ onBeforeUnmount(() => {
   --pm-detail-chip-add-border: #475367;
 }
 
-/* ===== Aufbewahrungs-Statusleiste (Handoff-Vorlage 1a) =====================
-   Schlanke, klickbare Zeile unter dem Kopf; klappt zum nahtlos andockenden
-   Formular auf. Amber = Aufbewahrung/Original, Teal (Primary) = KI/Aktionen. */
-.retention-zone {
-  --retention-amber: 224, 171, 75;      /* #e0ab4b */
-  margin: 16px 0 16px;
-  max-width: 620px;
-  border-radius: 10px;
-}
-
-.retention-zone--open {
-  overflow: hidden;
-  background: var(--pm-detail-info-bg);
-  border: 1px solid var(--pm-detail-info-border);
-}
-
-.retention-bar {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 9px 12px;
-  background: var(--pm-detail-info-bg);
-  border: 1px solid var(--pm-detail-info-border);
-  border-radius: 10px;
-  cursor: pointer;
-  transition: border-color 0.16s ease, background-color 0.16s ease;
-}
-
-.retention-zone--open .retention-bar {
-  border: 1px solid transparent;
-  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.06);
-  border-radius: 10px 10px 0 0;
-  background: transparent;
-}
-
-.retention-bar:hover {
-  border-color: var(--pm-detail-field-hover-border);
-}
-
-.retention-zone--open .retention-bar:hover {
-  border-color: transparent;
-  border-bottom-color: rgba(var(--v-theme-on-surface), 0.06);
-}
-
-.retention-bar:focus-visible {
-  outline: 2px solid rgba(var(--v-theme-primary), 0.4);
-  outline-offset: 1px;
-}
-
-/* Icon-Badge links (28×28), Farbe je Zustand. */
-.retention-bar__badge {
-  width: 28px;
-  height: 28px;
-  flex: none;
-  border-radius: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.retention-bar__badge .v-icon {
-  color: inherit;
-}
-
-.retention-bar--filled .retention-bar__badge {
-  background: rgba(var(--retention-amber), 0.14);
-  color: rgb(var(--retention-amber));
-}
-
-.retention-bar--empty .retention-bar__badge {
-  border: 1px dashed rgba(var(--v-theme-on-surface), 0.22);
-  color: rgba(var(--v-theme-on-surface), 0.5);
-}
-
-.retention-bar--ai .retention-bar__badge {
-  background: rgba(var(--v-theme-primary), 0.14);
-  color: rgb(var(--v-theme-primary));
-}
-
-.retention-bar__text {
-  flex: 1;
-  min-width: 0;
-}
-
-.retention-bar__title-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.retention-bar__title {
-  font-weight: 600;
-  font-size: 0.845rem;
-  color: rgb(var(--v-theme-on-surface));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.retention-bar--empty .retention-bar__title {
-  color: rgba(var(--v-theme-on-surface), 0.72);
-}
-
-.retention-bar__ki {
-  flex: none;
-  font-weight: 600;
-  font-size: 0.6rem;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: rgb(var(--v-theme-primary));
-  background: rgba(var(--v-theme-primary), 0.16);
-  border-radius: 5px;
-  padding: 2px 6px;
-  white-space: nowrap;
-}
-
-.retention-bar__subtitle {
-  margin-top: 1px;
-  font-size: 0.75rem;
-  color: rgba(var(--v-theme-on-surface), 0.56);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.retention-bar__accept {
-  flex: none;
-  font-weight: 600;
-  font-size: 0.75rem;
-  color: rgb(var(--v-theme-primary));
-  background: transparent;
-  border: none;
-  padding: 2px 4px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.retention-bar__accept:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.retention-bar__pencil {
-  flex: none;
-  display: inline-flex;
-  padding: 4px;
-  color: rgba(var(--v-theme-on-surface), 0.45);
-}
-
-.retention-bar__chev {
-  flex: none;
-  color: rgba(var(--v-theme-on-surface), 0.45);
-  transition: transform 0.2s ease;
-}
-
-.retention-bar__chev--open {
-  transform: rotate(180deg);
-}
-
-/* Ausgeklapptes Formular – dockt nahtlos unter der Leiste an. */
-.retention-form {
-  background: var(--pm-detail-info-bg);
-  border: 0;
-  border-radius: 0 0 10px 10px;
-  margin: 0;
-  padding: 12px 14px 13px;
-}
-
-.retention-form__grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.retention-form__field {
-  display: flex;
-  flex-direction: column;
-}
-
-.retention-form__field label {
-  font-size: 0.72rem;
-  color: rgba(var(--v-theme-on-surface), 0.58);
-  margin-bottom: 6px;
-}
-
-.retention-form__static {
-  display: flex;
-  align-items: center;
-  min-height: 34px;
-  padding: 0 10px;
-  background: var(--pm-detail-field-bg);
-  border: 1px solid var(--pm-detail-field-border);
-  border-radius: 8px;
-  font-size: 0.85rem;
-  color: rgba(var(--v-theme-on-surface), 0.82);
-}
-
-/* Formular-Inputs: gefüllte Box mit eigenem Rahmen (Vorlage) statt Plain. */
-.retention-form .v-field {
-  background: var(--pm-detail-field-bg) !important;
-  border: 1px solid var(--pm-detail-field-border) !important;
-  border-radius: 8px !important;
-}
-
-.retention-form .v-field--variant-outlined .v-field__outline {
-  display: none !important;
-}
-
-.retention-form .v-field--focused {
-  border-color: var(--pm-detail-field-focus-border) !important;
-}
-
-.retention-toggle-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  background: var(--pm-detail-field-bg);
-  border: 1px solid var(--pm-detail-field-border);
-  border-radius: 8px;
-  padding: 9px 12px;
-  margin-bottom: 12px;
-}
-
-.retention-toggle-row__title {
-  font-weight: 600;
-  font-size: 0.78rem;
-  color: rgb(var(--v-theme-on-surface));
-}
-
-.retention-toggle-row__hint {
-  margin-top: 1px;
-  font-size: 0.69rem;
-  color: rgba(var(--v-theme-on-surface), 0.56);
-}
-
-/* iOS-artiger Schalter (40×23). */
-.retention-toggle {
-  position: relative;
-  width: 40px;
-  height: 23px;
-  flex: none;
-  padding: 0;
-  border: none;
-  border-radius: 12px;
-  background: rgba(var(--v-theme-on-surface), 0.22);
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-}
-
-.retention-toggle--on {
-  background: rgb(var(--v-theme-primary));
-}
-
-.retention-toggle__knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 19px;
-  height: 19px;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform 0.2s ease;
-}
-
-.retention-toggle--on .retention-toggle__knob {
-  transform: translateX(17px);
-}
-
-.retention-form__error {
-  color: rgb(var(--v-theme-error));
-  font-size: 0.75rem;
-  margin-bottom: 8px;
-}
-
-.retention-form__disclaimer {
-  color: rgba(var(--v-theme-on-surface), 0.48);
-  font-size: 0.66rem;
-  line-height: 1.35;
-  margin-bottom: 10px;
-}
-
-.retention-form__actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
-.retention-form__ai {
-  margin-right: auto;
-}
-
-/* Vorlage nutzt Satz- statt Großschreibung; Vuetify-Defaults zurücknehmen. */
-.retention-form__actions .v-btn {
-  text-transform: none;
-  letter-spacing: normal;
-}
-
-.retention-form__cancel {
-  color: rgba(var(--v-theme-on-surface), 0.62) !important;
-}
-
-.retention-form__save {
-  border-radius: 8px;
-}
 
 /* Interaktive Elemente in der Detailsschublade dürfen bei Hover/Fokus ihre
    Geometrie nicht verändern. Vuetify bringt für Buttons, Icons und Felder

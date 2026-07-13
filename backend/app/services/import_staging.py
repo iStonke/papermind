@@ -4,7 +4,7 @@ import os
 import re
 import shutil
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import httpx
@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.errors import APIError, BadRequestError, PayloadTooLargeError, StorageError
+from app.core.errors import APIError, BadRequestError, ForbiddenError, PayloadTooLargeError, StorageError
 from app.models.correspondent import Correspondent
 from app.models.document import Document
 from app.models.tag import Tag
@@ -35,8 +35,10 @@ from app.services.document_types import (
     load_active_document_type_vocab,
 )
 from app.services.documents import ALLOWED_PDF_CONTENT_TYPES, DocumentService
+from app.services.import_timing import elapsed_ms, log_import_timing, now_perf
 from app.services.naming_templates import NamingTemplateService, build_legacy_filename_from_meta
 from app.services.ocr_pipeline import run_ocr_lite, run_ocr_pipeline
+from app.services.retention import DocumentRetentionService, evaluate_retention_suggestion
 from app.services.settings import SettingsService
 
 logger = logging.getLogger("papermind.import_staging")
@@ -453,7 +455,14 @@ class ImportStagingService:
             file.file.seek(0)
 
     def store_source_preview(self, source_file_id: str, preview_path: Path | None) -> Path | None:
+        preview_started = now_perf()
         if preview_path is None:
+            log_import_timing(
+                "preview_skipped",
+                source_file_id=source_file_id,
+                reason="no_preview_path",
+                duration_ms=elapsed_ms(preview_started),
+            )
             return None
         source_path = Path(preview_path)
         try:
@@ -461,6 +470,12 @@ class ImportStagingService:
         except OSError:
             has_preview = False
         if not has_preview:
+            log_import_timing(
+                "preview_skipped",
+                source_file_id=source_file_id,
+                reason="empty_or_missing_preview",
+                duration_ms=elapsed_ms(preview_started),
+            )
             return None
 
         destination = self._source_preview_path(source_file_id)
@@ -474,10 +489,21 @@ class ImportStagingService:
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 image.save(temp_path, format="PNG", optimize=True)
             os.replace(temp_path, destination)
+            log_import_timing(
+                "preview_stored",
+                source_file_id=source_file_id,
+                duration_ms=elapsed_ms(preview_started),
+            )
             return destination
         except Exception as exc:  # noqa: BLE001 - Vorschau ist optional
             temp_path.unlink(missing_ok=True)
             logger.warning("import source preview skipped source_file_id=%s err=%s", source_file_id, exc)
+            log_import_timing(
+                "preview_skipped",
+                source_file_id=source_file_id,
+                reason="preview_store_failed",
+                duration_ms=elapsed_ms(preview_started),
+            )
             return None
 
     def _safe_document_filename(self, title: str) -> str:
@@ -495,12 +521,14 @@ class ImportStagingService:
 
         items: list[ImportSourceRead] = []
         for file in files:
+            source_started = now_perf()
             original_name = self._validate_source_file(file)
             source_file_id = str(uuid.uuid4())
             source_path = self._source_pdf_path(source_file_id)
+            bytes_written = 0
 
             try:
-                self._store_source_pdf(file, source_path)
+                bytes_written = self._store_source_pdf(file, source_path)
                 reader = PdfReader(str(source_path))
                 page_count = len(reader.pages)
                 if page_count <= 0:
@@ -508,6 +536,14 @@ class ImportStagingService:
             except Exception:
                 source_path.unlink(missing_ok=True)
                 raise
+            log_import_timing(
+                "source_staged",
+                source_file_id=source_file_id,
+                original_name=original_name,
+                page_count=page_count,
+                bytes=bytes_written,
+                duration_ms=elapsed_ms(source_started),
+            )
 
             items.append(
                 ImportSourceRead(
@@ -1304,6 +1340,7 @@ class ImportStagingService:
         )
         payload = {"model": model, "stream": False, "format": "json", "prompt": prompt}
 
+        ollama_started = now_perf()
         try:
             response = httpx.post(
                 f"{base_url.rstrip('/')}/api/generate",
@@ -1314,7 +1351,22 @@ class ImportStagingService:
             raw = str(response.json().get("response") or "").strip()
         except Exception as exc:
             logger.warning("ollama staging call failed: %s", exc)
+            log_import_timing(
+                "analysis_ollama_call",
+                model=model,
+                success=False,
+                input_chars=len(text_for_llm),
+                duration_ms=elapsed_ms(ollama_started),
+            )
             return None
+        log_import_timing(
+            "analysis_ollama_call",
+            model=model,
+            success=True,
+            input_chars=len(text_for_llm),
+            response_chars=len(raw),
+            duration_ms=elapsed_ms(ollama_started),
+        )
 
         if not raw:
             return None
@@ -1919,6 +1971,27 @@ class ImportStagingService:
         }
         suggestion = NamingTemplateService(self.db).build_filename(merged_meta)
 
+        retention_meta: dict[str, object] | None = None
+        if use_ollama:
+            document_date_obj: date | None = None
+            if final_date:
+                try:
+                    document_date_obj = datetime.strptime(final_date, "%Y-%m-%d").date()
+                except ValueError:
+                    document_date_obj = None
+            try:
+                retention_meta = evaluate_retention_suggestion(
+                    runtime_settings,
+                    ocr_text=extracted_text,
+                    document_type=normalized_doc_type,
+                    tags=tuple(final_tags),
+                    document_date=document_date_obj,
+                    document_id=str(stage_id or "staging"),
+                )
+            except Exception as exc:  # noqa: BLE001 - Aufbewahrungsvorschlag darf den Titel nicht blockieren
+                logger.warning("staging retention suggestion failed stage=%s err=%s", str(stage_id or "-"), exc)
+                retention_meta = None
+
         analysis_phase = "llm" if ollama_rich else "rule"
         return {
             "status": "ready",
@@ -1937,6 +2010,7 @@ class ImportStagingService:
                 "correspondent": correspondent_info,
                 "tags": final_tags,
                 "note": final_note,
+                "retention": retention_meta,
                 "analysis_status": "ready",
                 "analysis_phase": analysis_phase,
                 "ocr": ocr_diagnostics,
@@ -1950,6 +2024,7 @@ class ImportStagingService:
         page_scope: str = "first_page",
         stage_id: str | None = None,
     ) -> dict[str, object]:
+        request_started = now_perf()
         normalized_scope = str(page_scope or "first_page").strip().lower()
         if normalized_scope not in {"first_page", "all_pages"}:
             raise BadRequestError("pageScope must be first_page or all_pages")
@@ -1965,23 +2040,52 @@ class ImportStagingService:
             cached = self.get_source_analysis(normalized_ids[0])
             cached_phase = str((cached.get("meta") if isinstance(cached, dict) else {}).get("analysis_phase") or "")
             if cached and cached_phase == "llm":
+                log_import_timing(
+                    "analysis_cache_hit",
+                    source_file_id=normalized_ids[0],
+                    stage_id=stage_id,
+                    phase=cached_phase,
+                    total_ms=elapsed_ms(request_started),
+                )
                 return cached
 
+        embedded_started = now_perf()
         extracted_text, _pages_scanned, page_refs = self._extract_text_for_title_suggestion(
             normalized_ids,
             page_scope=normalized_scope,
             max_pages=5 if normalized_scope == "all_pages" else 1,
             max_chars=12000,
         )
+        log_import_timing(
+            "analysis_embedded_text",
+            source_file_id=normalized_ids[0] if len(normalized_ids) == 1 else None,
+            stage_id=stage_id,
+            page_scope=normalized_scope,
+            chars=len(extracted_text),
+            page_refs=page_refs,
+            duration_ms=elapsed_ms(embedded_started),
+        )
         ocr_pending = False
         ocr_diagnostics: dict[str, object] = {"status": "embedded_text", "chars": len(extracted_text)}
         if not extracted_text:
+            ocr_started = now_perf()
             extracted_text, ocr_diagnostics = self._extract_text_with_ocr_fallback(normalized_ids, page_scope=normalized_scope)
             if len(extracted_text) > 12000:
                 extracted_text = extracted_text[:12000].rstrip()
             if not extracted_text:
                 ocr_pending = True
+            log_import_timing(
+                "analysis_ocr_fallback",
+                source_file_id=normalized_ids[0] if len(normalized_ids) == 1 else None,
+                stage_id=stage_id,
+                page_scope=normalized_scope,
+                status=str(ocr_diagnostics.get("status") or ""),
+                chars=len(extracted_text),
+                attempts=len(ocr_diagnostics.get("attempts") or []),
+                duration_ms=elapsed_ms(ocr_started),
+            )
 
+        build_started = now_perf()
         result = self._build_stage_title_result(
             extracted_text=extracted_text,
             normalized_scope=normalized_scope,
@@ -1991,6 +2095,7 @@ class ImportStagingService:
             stage_id=stage_id,
             use_ollama=True,
         )
+        build_ms = elapsed_ms(build_started)
         if is_cacheable_single_source:
             phase = str((result.get("meta") if isinstance(result, dict) else {}).get("analysis_phase") or "llm")
             try:
@@ -2002,6 +2107,17 @@ class ImportStagingService:
                 )
             except Exception as exc:  # noqa: BLE001 - Cache darf den Vorschlag nicht blockieren
                 logger.warning("stage title analysis cache write failed source_file_id=%s err=%s", normalized_ids[0], exc)
+        result_meta = result.get("meta") if isinstance(result, dict) else {}
+        log_import_timing(
+            "analysis_request_done",
+            source_file_id=normalized_ids[0] if len(normalized_ids) == 1 else None,
+            stage_id=stage_id,
+            page_scope=normalized_scope,
+            status=str(result.get("status") or "") if isinstance(result, dict) else "",
+            phase=str(result_meta.get("analysis_phase") or "") if isinstance(result_meta, dict) else "",
+            build_ms=build_ms,
+            total_ms=elapsed_ms(request_started),
+        )
         return result
 
     def preanalyze_source(self, source_file_id: str, *, page_scope: str = "first_page") -> dict[str, object] | None:
@@ -2017,26 +2133,53 @@ class ImportStagingService:
             return None
         normalized_scope = "all_pages" if str(page_scope or "").strip().lower() == "all_pages" else "first_page"
         source_id = normalized_ids[0]
+        preanalysis_started = now_perf()
         cached = self.get_source_analysis(source_id)
         cached_phase = str((cached.get("meta") if isinstance(cached, dict) else {}).get("analysis_phase") or "")
         if cached and cached_phase == "llm":
+            log_import_timing(
+                "preanalysis_cache_hit",
+                source_file_id=source_id,
+                phase=cached_phase,
+                total_ms=elapsed_ms(preanalysis_started),
+            )
             return cached
 
+        embedded_started = now_perf()
         extracted_text, _pages_scanned, page_refs = self._extract_text_for_title_suggestion(
             normalized_ids,
             page_scope=normalized_scope,
             max_pages=5 if normalized_scope == "all_pages" else 1,
             max_chars=12000,
         )
+        log_import_timing(
+            "preanalysis_embedded_text",
+            source_file_id=source_id,
+            page_scope=normalized_scope,
+            chars=len(extracted_text),
+            page_refs=page_refs,
+            duration_ms=elapsed_ms(embedded_started),
+        )
         ocr_pending = False
         ocr_diagnostics: dict[str, object] = {"status": "embedded_text", "chars": len(extracted_text)}
         if not extracted_text:
+            ocr_started = now_perf()
             extracted_text, ocr_diagnostics = self._extract_text_with_ocr_fallback(normalized_ids, page_scope=normalized_scope)
             if len(extracted_text) > 12000:
                 extracted_text = extracted_text[:12000].rstrip()
             if not extracted_text:
                 ocr_pending = True
+            log_import_timing(
+                "preanalysis_ocr_fallback",
+                source_file_id=source_id,
+                page_scope=normalized_scope,
+                status=str(ocr_diagnostics.get("status") or ""),
+                chars=len(extracted_text),
+                attempts=len(ocr_diagnostics.get("attempts") or []),
+                duration_ms=elapsed_ms(ocr_started),
+            )
 
+        rule_started = now_perf()
         rule_result = self._build_stage_title_result(
             extracted_text=extracted_text,
             normalized_scope=normalized_scope,
@@ -2055,6 +2198,14 @@ class ImportStagingService:
             )
         except Exception as exc:  # noqa: BLE001 - Voranalyse ist best effort
             logger.warning("import source rule analysis cache write failed source_file_id=%s err=%s", source_id, exc)
+        log_import_timing(
+            "preanalysis_rule_cached",
+            source_file_id=source_id,
+            page_scope=normalized_scope,
+            status=str(rule_result.get("status") or ""),
+            duration_ms=elapsed_ms(rule_started),
+            total_ms=elapsed_ms(preanalysis_started),
+        )
 
         if ocr_pending:
             return rule_result
@@ -2064,6 +2215,7 @@ class ImportStagingService:
         if not ollama_cfg.get("enabled"):
             return rule_result
 
+        llm_started = now_perf()
         llm_result = self._build_stage_title_result(
             extracted_text=extracted_text,
             normalized_scope=normalized_scope,
@@ -2075,14 +2227,32 @@ class ImportStagingService:
         )
         phase = str((llm_result.get("meta") if isinstance(llm_result, dict) else {}).get("analysis_phase") or "llm")
         try:
-            return self.store_source_analysis(
+            stored_llm_result = self.store_source_analysis(
                 source_id,
                 llm_result,
                 page_scope=normalized_scope,
                 analysis_phase=phase,
             )
+            log_import_timing(
+                "preanalysis_llm_cached",
+                source_file_id=source_id,
+                page_scope=normalized_scope,
+                status=str(stored_llm_result.get("status") or ""),
+                phase=phase,
+                duration_ms=elapsed_ms(llm_started),
+                total_ms=elapsed_ms(preanalysis_started),
+            )
+            return stored_llm_result
         except Exception as exc:  # noqa: BLE001 - UI kann immer noch synchron anfragen
             logger.warning("import source llm analysis cache write failed source_file_id=%s err=%s", source_id, exc)
+            log_import_timing(
+                "preanalysis_llm_failed",
+                source_file_id=source_id,
+                page_scope=normalized_scope,
+                phase=phase,
+                duration_ms=elapsed_ms(llm_started),
+                total_ms=elapsed_ms(preanalysis_started),
+            )
             return llm_result
 
     def _load_source_reader(self, source_file_id: str, reader_cache: dict[str, PdfReader]) -> PdfReader:
@@ -2306,6 +2476,15 @@ class ImportStagingService:
                         created_doc.id,
                         DocumentTagReplaceRequest(tag_ids=staging_doc.tag_ids),
                     )
+                if staging_doc.retention is not None:
+                    try:
+                        DocumentRetentionService(self.db, self.owner_id).update_retention(
+                            created_doc.id,
+                            staging_doc.retention,
+                        )
+                    except ForbiddenError:
+                        # Aufbewahrung in den Einstellungen deaktiviert → still ignorieren.
+                        logger.info("skip retention on commit (disabled) doc_id=%s", created_doc.id)
                 detail = self.document_service.as_detail(self.document_service.get_document_or_404(created_doc.id))
                 created.append(
                     ImportCommitCreatedItem(

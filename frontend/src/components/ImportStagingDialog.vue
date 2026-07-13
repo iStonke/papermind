@@ -450,6 +450,46 @@
 
        <div v-show="rightPanelMode === 'details'" class="isd-props-scroll">
 
+        <!-- Aufbewahrung: fest in die Feldspalte integriert, amber abgehoben, einklappbar -->
+        <div v-if="isRetentionEnabled" class="isd-retention" :class="{ 'isd-retention--open': retentionExpanded }">
+          <div
+            class="isd-retention__head"
+            role="button"
+            tabindex="0"
+            :aria-expanded="String(retentionExpanded)"
+            aria-label="Aufbewahrung ein- oder ausklappen"
+            @click="retentionExpanded = !retentionExpanded"
+            @keydown.enter.prevent="retentionExpanded = !retentionExpanded"
+            @keydown.space.prevent="retentionExpanded = !retentionExpanded"
+          >
+            <span class="isd-retention__title">Aufbewahrungspflicht</span>
+            <div class="isd-retention__spacer" />
+            <span v-if="!retentionExpanded" class="isd-retention__summary">{{ retentionSummary }}</span>
+            <button
+              v-if="docRetention && docRetention.status === 'suggested'"
+              type="button"
+              class="isd-retention__accept"
+              @click.stop="onRetentionAccept"
+            >Übernehmen</button>
+            <v-icon
+              size="18"
+              class="isd-retention__chev"
+              :class="{ 'isd-retention__chev--open': retentionExpanded }"
+            >mdi-chevron-down</v-icon>
+          </div>
+          <RetentionForm
+            v-show="retentionExpanded"
+            :period-years="docRetention ? docRetention.period_years : null"
+            :paper-original="docRetention ? docRetention.paper_original : 'unclear'"
+            :reason="docRetention ? docRetention.reason || '' : ''"
+            :expiry-label="retentionExpiryLabel"
+            :show-actions="false"
+            @update:period-years="onRetentionField('period_years', $event)"
+            @update:paper-original="onRetentionField('paper_original', $event)"
+            @update:reason="onRetentionField('reason', $event)"
+          />
+        </div>
+
         <!-- Document name -->
         <div class="isd-field" :class="{ 'isd-field--ai-filled': aiFieldGlowActive && docTitleAiFilled }">
           <div class="isd-field-label">
@@ -571,36 +611,20 @@
                 </v-list-item-title>
               </v-list-item>
             </template>
+            <template #selection="{ item }">
+              <!-- Noch nicht angelegter Vorschlag gestrichelt (wie neue Tags), sonst schlichter Text. -->
+              <v-chip
+                v-if="isNewCorrespondentValue(item)"
+                class="isd-tag-chip--new"
+                size="small"
+                label
+              >{{ item?.title || item?.value }}</v-chip>
+              <span v-else class="isd-correspondent-selection">{{ item?.title || item?.value }}</span>
+            </template>
             <template #no-data>
               <v-list-item title="Als neuen Korrespondenten verwenden" />
             </template>
           </v-combobox>
-          <div v-if="docSenderRaw" class="isd-correspondent-hint">
-            <span class="isd-correspondent-sender">Erkannter Absender: <strong>{{ docSenderRaw }}</strong></span>
-            <div class="isd-correspondent-actions">
-              <v-btn
-                v-if="canCreateCorrespondentFromSender"
-                size="x-small"
-                variant="tonal"
-                color="primary"
-                :loading="correspondentStore.isMutationRunning"
-                prepend-icon="mdi-account-plus"
-                @click="onCreateCorrespondentFromSender"
-              >
-                Neu anlegen
-              </v-btn>
-              <v-btn
-                v-if="canAddSenderAsAlias"
-                size="x-small"
-                variant="tonal"
-                :loading="correspondentStore.isMutationRunning"
-                prepend-icon="mdi-tag-plus"
-                @click="onAddSenderAsAlias"
-              >
-                {{ selectedCorrespondent?.kind === 'collection' ? 'Als Erkennungsname hinzufügen' : 'Als Alias hinzufügen' }}
-              </v-btn>
-            </div>
-          </div>
         </div>
 
         <!-- Tags -->
@@ -775,6 +799,7 @@ import { authedUrl, authHeaders } from '../api/client.js';
 import BaseDialog from './BaseDialog.vue';
 import DestructiveDialog from './DestructiveDialog.vue';
 import StageTags from './StageTags.vue';
+import RetentionForm from './RetentionForm.vue';
 import { discardImportInboxSourcePages } from '../api/importInbox';
 import { suggestImportStageTitle } from '../api/importStaging';
 import { isIOS } from '../utils/platform';
@@ -869,6 +894,7 @@ const isCommitting = ref(false);
 const preparationProgress = ref({ done: 0, total: 0 });
 const remoteSourceStageBySession = new Map();
 const titleSuggestJobByStage = new Map();
+const importTimingBySource = new Map();
 const IMPORT_ANALYSIS_RETRY_DELAY_MS = 1500;
 const IMPORT_ANALYSIS_MAX_TRANSIENT_RETRIES = 3;
 const previewImageSrc = ref('');
@@ -933,8 +959,6 @@ const docDate = ref('');
 const docCategory = ref(null);
 const docNote = ref('');
 const docCorrespondentId = ref(null);
-// Roher Absender-Befund (ai_sender) aus dem KI-Vorschlag, nur zur Anzeige.
-const docSenderRaw = ref('');
 const docTitleTouched = ref(false);
 const docDateTouched = ref(false);
 const docCategoryTouched = ref(false);
@@ -947,6 +971,11 @@ const docCategoryAiFilled = ref(false);
 const docTagsAiFilled = ref(false);
 const docNoteAiFilled = ref(false);
 const docCorrespondentAiFilled = ref(false);
+// Aufbewahrung: Vorschlag aus der Analyse, Entscheidung direkt beim Import; einklappbar.
+const docRetention = ref(null);
+const docRetentionTouched = ref(false);
+const retentionExpanded = ref(false);
+const isRetentionEnabled = computed(() => settingsStore.settings?.retention?.enabled !== false);
 const aiFieldGlowActive = ref(false);
 const isRetryingAnalysis = ref(false);
 let aiFieldGlowTimer = 0;
@@ -978,37 +1007,94 @@ function normalizeCorrespondentInput(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
-function isKnownCorrespondentId(value) {
-  const normalized = normalizeCorrespondentInput(value);
-  return Boolean(normalized && correspondentStore.findById(normalized));
+// Ein Korrespondenten-Wert ist „noch nicht angelegt", wenn er weder einer bekannten
+// ID noch einem bekannten Namen entspricht (→ gestrichelter Chip, Anlage beim Import).
+function isNewCorrespondentValue(item) {
+  const value = normalizeCorrespondentInput(item?.value ?? item?.raw ?? item);
+  if (!value) return false;
+  return !correspondentStore.findById(value) && !correspondentStore.findByName(value);
 }
-
-// Aktuell ausgewählter Korrespondent (Objekt) oder null.
-const selectedCorrespondent = computed(() =>
-  isKnownCorrespondentId(docCorrespondentId.value) ? correspondentStore.findById(normalizeCorrespondentInput(docCorrespondentId.value)) : null
-);
-
-// Der rohe Absender lässt sich als Alias/Korrespondent anlegen, solange er nicht
-// bereits exakt einem bekannten Korrespondenten entspricht.
-const canCreateCorrespondentFromSender = computed(() => {
-  const raw = String(docSenderRaw.value || '').trim();
-  if (raw.length < 2) return false;
-  return !correspondentStore.findByName(raw);
-});
-
-const canAddSenderAsAlias = computed(() => {
-  const raw = String(docSenderRaw.value || '').trim();
-  if (raw.length < 2) return false;
-  const selected = selectedCorrespondent.value;
-  if (!selected) return false;
-  if (selected.name?.toLocaleLowerCase('de-DE') === raw.toLocaleLowerCase('de-DE')) return false;
-  const aliases = Array.isArray(selected.aliases) ? selected.aliases : [];
-  return !aliases.some((a) => String(a?.alias || '').toLocaleLowerCase('de-DE') === raw.toLocaleLowerCase('de-DE'));
-});
 
 const docOcrLang = computed(() => settingsStore.settings.documents.ocr_doc_lang ?? 'de');
 const docDateIso = computed(() => germanDateToIso(docDate.value));
 const isDocDateValid = computed(() => isValidGermanDate(docDate.value));
+
+// Ablaufdatum lokal aus Dokumentdatum + Frist (Backend rechnet es beim Commit final neu).
+function computeRetainUntilIso(periodYears) {
+  const iso = docDateIso.value;
+  if (!iso || periodYears === null || periodYears === undefined || Number(periodYears) === -1) return null;
+  const years = Number(periodYears);
+  if (!Number.isFinite(years) || years <= 0) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso));
+  if (!match) return null;
+  const [, y, m, d] = match.map(Number);
+  const target = new Date(y + years, m - 1, d);
+  if (target.getMonth() !== m - 1) target.setDate(0);
+  const mm = String(target.getMonth() + 1).padStart(2, '0');
+  const dd = String(target.getDate()).padStart(2, '0');
+  return `${target.getFullYear()}-${mm}-${dd}`;
+}
+
+// Einzelfeld live übernehmen: eine Nutzeränderung macht aus dem KI-Vorschlag eine manuelle Angabe.
+function onRetentionField(key, value) {
+  const base = docRetention.value || {
+    status: 'manual',
+    period_years: null,
+    paper_original: 'unclear',
+    reason: null,
+    retain_until: null
+  };
+  const next = { ...base, [key]: value, status: 'manual' };
+  next.reason = next.reason || null;
+  next.retain_until = computeRetainUntilIso(next.period_years);
+  docRetention.value = next;
+  docRetentionTouched.value = true;
+}
+
+// „Übernehmen": KI-Vorschlag als akzeptiert markieren.
+function onRetentionAccept() {
+  if (!docRetention.value) return;
+  docRetention.value = { ...docRetention.value, status: 'accepted' };
+  docRetentionTouched.value = true;
+}
+
+// Kompakte Zusammenfassung für den eingeklappten Zustand.
+const RETENTION_PAPER_PHRASE = Object.freeze({
+  unclear: 'Papieroriginal offen',
+  keep: 'Original erforderlich',
+  scan_sufficient: 'Scan genügt',
+  not_applicable: 'Kein Original nötig'
+});
+const retentionSummary = computed(() => {
+  const r = docRetention.value;
+  if (!r || (r.period_years == null && (r.paper_original || 'unclear') === 'unclear')) {
+    return 'Nicht erfasst';
+  }
+  const period = r.period_years === -1
+    ? 'Unbegrenzt'
+    : (Number(r.period_years) > 0 ? `${r.period_years} Jahre` : 'Erfasst');
+  const phrase = RETENTION_PAPER_PHRASE[r.paper_original] || RETENTION_PAPER_PHRASE.unclear;
+  return `${period} · ${phrase}`;
+});
+
+// Ablaufdatum-Vorschau (dd.mm.yyyy) aus Dokumentdatum + Frist.
+const retentionExpiryLabel = computed(() => {
+  const period = docRetention.value ? docRetention.value.period_years : null;
+  if (period === -1) return 'Kein Ablauf';
+  const iso = computeRetainUntilIso(period);
+  if (!iso) return '';
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : '';
+});
+
+// Ändert sich das Dokumentdatum, die Ablaufdatum-Vorschau mitziehen.
+watch(docDateIso, () => {
+  if (!docRetention.value) return;
+  const next = computeRetainUntilIso(docRetention.value.period_years);
+  if (next !== docRetention.value.retain_until) {
+    docRetention.value = { ...docRetention.value, retain_until: next };
+  }
+});
 const tagInputRef = ref(null);
 const tagSearchInput = ref('');
 const tagDropdownOpen = ref(false);
@@ -1034,6 +1120,80 @@ const discardImportConfirmDescription = computed(() => {
 });
 const dropzoneHeadline = computed(() => (isIOSDevice.value ? 'PDFs hier ablegen' : 'PDFs oder Ordner hier ablegen'));
 const dropzonePrimaryLabel = computed(() => (isIOSDevice.value ? 'PDF auswählen' : 'PDFs oder Ordner auswählen'));
+
+function importTimingNow() {
+  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+    return performance.now();
+  }
+  return Date.now();
+}
+
+function importTimingDateMs(value) {
+  const parsed = Date.parse(String(value || ''));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getImportTimingState(sourceFileId) {
+  const normalized = String(sourceFileId || '').trim();
+  if (!normalized) {
+    return null;
+  }
+  if (!importTimingBySource.has(normalized)) {
+    importTimingBySource.set(normalized, {});
+  }
+  return importTimingBySource.get(normalized);
+}
+
+function msSinceImportSourceSeen(sourceFileId) {
+  const state = getImportTimingState(sourceFileId);
+  if (!state?.seenAt) {
+    return null;
+  }
+  return Math.round((importTimingNow() - state.seenAt) * 10) / 10;
+}
+
+function logImportTiming(event, fields = {}) {
+  if (typeof console === 'undefined' || typeof console.info !== 'function') {
+    return;
+  }
+  const payload = {
+    event,
+    at: new Date().toISOString(),
+    ...fields
+  };
+  console.info('[ImportTiming]', payload);
+}
+
+function rememberImportSourceTiming(source) {
+  const sourceFileId = String(source?.source_file_id || '').trim();
+  const state = getImportTimingState(sourceFileId);
+  if (!state) {
+    return;
+  }
+  if (!state.seenAt) {
+    state.seenAt = importTimingNow();
+    const createdAtMs = importTimingDateMs(source?.created_at);
+    state.createdAtMs = createdAtMs;
+    logImportTiming('dialog_source_seen', {
+      source_file_id: sourceFileId,
+      source_type: String(source?.source_type || ''),
+      page_count: Number(source?.page_count || 0),
+      server_created_to_dialog_ms: createdAtMs == null ? null : Math.max(0, Date.now() - createdAtMs)
+    });
+  }
+}
+
+function logPreviewVisibleTiming(sourceFileId, { fast = false, pageCount = 0, stageId = '' } = {}) {
+  nextTick(() => {
+    logImportTiming('preview_visible', {
+      source_file_id: sourceFileId,
+      stage_id: stageId,
+      fast_preview: Boolean(fast),
+      page_count: Number(pageCount || 0),
+      ms_since_dialog_source_seen: msSinceImportSourceSeen(sourceFileId)
+    });
+  });
+}
 
 function getDocumentById(documentId) {
   return documents.value.find((entry) => entry.id === documentId) || null;
@@ -1820,6 +1980,7 @@ watch(
     stopAutoScroll();
     remoteSourceStageBySession.clear();
     titleSuggestJobByStage.clear();
+    importTimingBySource.clear();
     previewImageSrc.value = '';
     previewImageLoading.value = false;
     previewImageCache.clear();
@@ -1939,7 +2100,6 @@ watch(
       docCategory.value = null;
       docNote.value = '';
       docCorrespondentId.value = null;
-      docSenderRaw.value = '';
       tagInlineValue.value = '';
       isSelectMode.value = false;
       multiSelectedPageIds.value = new Set();
@@ -1955,6 +2115,9 @@ watch(
       docTagsAiFilled.value = false;
       docNoteAiFilled.value = false;
       docCorrespondentAiFilled.value = false;
+      docRetention.value = null;
+      docRetentionTouched.value = false;
+      retentionExpanded.value = false;
       aiFieldGlowActive.value = false;
       return;
     }
@@ -2292,6 +2455,11 @@ function upgradeRemoteSourceFile(sourceFileId, originalName, pageCount, { hadFas
       if (thumbUrls.some((url) => String(url || '').trim())) {
         stagingStore.updateSourceThumbnails(normalized, thumbUrls);
         clearPreviewCacheForSource(normalized);
+        logPreviewVisibleTiming(normalized, {
+          fast: false,
+          pageCount,
+          stageId: findStageIdsForSourceFile(normalized)[0] || ''
+        });
       }
     } catch {
       if (!hadFastPreview) {
@@ -2645,6 +2813,7 @@ async function addRemoteSourcesImpl(payload = []) {
     if (!sourceFileId || pageCount <= 0) {
       continue;
     }
+    rememberImportSourceTiming(source);
     if (stagingStore.sourceMetaById?.has?.(sourceFileId)) {
       await applySourceAnalysisToExistingStages(sourceFileId, source?.analysis);
       continue;
@@ -2654,6 +2823,12 @@ async function addRemoteSourcesImpl(payload = []) {
     const sourceTitle = getRemoteSourceTitle(source);
     const thumbUrls = remotePreviewThumbUrls(source, pageCount);
     const hadFastPreview = thumbUrls.some((url) => String(url || '').trim());
+    logImportTiming('source_added_to_dialog', {
+      source_file_id: sourceFileId,
+      page_count: pageCount,
+      fast_preview: hadFastPreview,
+      ms_since_dialog_source_seen: msSinceImportSourceSeen(sourceFileId)
+    });
 
     stagingStore.setStagingFile(sourceFileId, null, {
       originalName,
@@ -2680,6 +2855,9 @@ async function addRemoteSourcesImpl(payload = []) {
         thumbUrls
       });
       await applyCachedImportAnalysis(targetStageId, source?.analysis);
+      if (hadFastPreview) {
+        logPreviewVisibleTiming(sourceFileId, { fast: true, pageCount, stageId: targetStageId });
+      }
       touchedStageIds.add(targetStageId);
     } else {
       const fallback = stagingStore.addEmptyDocument(null, sourceTitle);
@@ -2700,6 +2878,9 @@ async function addRemoteSourcesImpl(payload = []) {
           thumbUrls
         });
         await applyCachedImportAnalysis(fallbackStageId, source?.analysis);
+        if (hadFastPreview) {
+          logPreviewVisibleTiming(sourceFileId, { fast: true, pageCount, stageId: fallbackStageId });
+        }
         touchedStageIds.add(fallbackStageId);
       } else {
         const createdDoc = stagingStore.addDocumentFromSource({
@@ -2709,6 +2890,9 @@ async function addRemoteSourcesImpl(payload = []) {
           thumbUrls
         });
         await applyCachedImportAnalysis(createdDoc?.id, source?.analysis);
+        if (hadFastPreview) {
+          logPreviewVisibleTiming(sourceFileId, { fast: true, pageCount, stageId: createdDoc?.id || '' });
+        }
       }
     }
     addedCount += 1;
@@ -2839,19 +3023,35 @@ async function applyImportAnalysisPayload(stageId, payload, options = {}) {
   }
 
   const status = String(payload?.status || 'ready').trim().toLowerCase();
+  const payloadMeta = payload?.meta && typeof payload.meta === 'object' ? payload.meta : {};
+  const analysisSourceFileId = String(payloadMeta.source_file_id || collectScanSourceFileIds(normalizedStageId)[0] || '').trim();
   const suggestion = String(payload?.suggestion || '').trim();
   if (suggestion) {
     meta.titleSuggestion = suggestion;
   }
   meta.titleSuggestionUsedFallback = Boolean(payload?.usedFallback ?? payload?.used_fallback);
-  meta.titleSuggestionMeta = payload?.meta && typeof payload.meta === 'object' ? payload.meta : null;
+  meta.titleSuggestionMeta = payloadMeta || null;
   if (status === 'error' || status === 'failed') {
     meta.titleSuggestionStatus = 'error';
+    logImportTiming('analysis_applied_to_ui', {
+      source_file_id: analysisSourceFileId,
+      stage_id: normalizedStageId,
+      status,
+      phase: String(payloadMeta.analysis_phase || ''),
+      cached_at: String(payloadMeta.cached_at || ''),
+      ms_since_dialog_source_seen: msSinceImportSourceSeen(analysisSourceFileId)
+    });
     return false;
   }
   if (status === 'pending_ocr') {
     meta.titleSuggestionStatus = 'pending_ocr';
     meta.titleSuggestionPollExhausted = false;
+    logImportTiming('analysis_pending_in_ui', {
+      source_file_id: analysisSourceFileId,
+      stage_id: normalizedStageId,
+      phase: String(payloadMeta.analysis_phase || ''),
+      ms_since_dialog_source_seen: msSinceImportSourceSeen(analysisSourceFileId)
+    });
     return false;
   }
   meta.titleSuggestionStatus = 'ready';
@@ -2882,14 +3082,31 @@ async function applyImportAnalysisPayload(stageId, payload, options = {}) {
           docCategoryAiFilled.value = true;
         }
 
-        docSenderRaw.value = String(aiMeta.sender_raw || '').trim();
+        const aiRetention = aiMeta.retention && typeof aiMeta.retention === 'object' ? aiMeta.retention : null;
+        if (isRetentionEnabled.value && aiRetention && !docRetentionTouched.value) {
+          docRetention.value = {
+            status: String(aiRetention.status || 'suggested'),
+            period_years: aiRetention.period_years ?? null,
+            paper_original: aiRetention.paper_original || 'unclear',
+            reason: aiRetention.reason || null,
+            retain_until: aiRetention.retain_until || null
+          };
+        }
+
         const aiCorrespondent = aiMeta.correspondent && typeof aiMeta.correspondent === 'object'
           ? aiMeta.correspondent
           : null;
-        if (aiCorrespondent?.id && !docCorrespondentTouched.value) {
+        const senderRaw = String(aiMeta.sender_raw || '').trim();
+        if (!docCorrespondentTouched.value) {
           await correspondentStore.ensureLoaded();
-          docCorrespondentId.value = String(aiCorrespondent.id);
-          docCorrespondentAiFilled.value = true;
+          if (aiCorrespondent?.id) {
+            docCorrespondentId.value = String(aiCorrespondent.id);
+            docCorrespondentAiFilled.value = true;
+          } else if (senderRaw.length >= 2 && !correspondentStore.findByName(senderRaw)) {
+            // Noch nicht angelegter Vorschlag: als gestrichelter Chip zeigen, beim Import anlegen.
+            docCorrespondentId.value = senderRaw;
+            docCorrespondentAiFilled.value = true;
+          }
         }
 
         const aiNote = String(aiMeta.note || '').trim();
@@ -2955,6 +3172,15 @@ async function applyImportAnalysisPayload(stageId, payload, options = {}) {
   if (!options?.silent) {
     notify({ type: 'success', message: 'Titelvorschlag aktualisiert.' });
   }
+  logImportTiming('analysis_applied_to_ui', {
+    source_file_id: analysisSourceFileId,
+    stage_id: normalizedStageId,
+    status,
+    phase: String(payloadMeta.analysis_phase || ''),
+    cached_at: String(payloadMeta.cached_at || ''),
+    suggestion: String(payload?.suggestion || '').trim(),
+    ms_since_dialog_source_seen: msSinceImportSourceSeen(analysisSourceFileId)
+  });
   return true;
 }
 
@@ -3016,6 +3242,12 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
   if (sourceFileIds.length === 0) {
     return;
   }
+  const requestStarted = importTimingNow();
+  logImportTiming('analysis_request_started', {
+    stage_id: normalizedStageId,
+    source_file_ids: sourceFileIds,
+    page_scope: normalizedScope
+  });
 
   meta.titleSuggestionStatus = 'working';
   meta.titleSuggestionPollExhausted = false;
@@ -3044,6 +3276,13 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
           payload = await suggestImportStageTitle(props.apiBaseUrl, normalizedStageId, {
             sourceFileIds,
             pageScope: normalizedScope
+          });
+          logImportTiming('analysis_request_response', {
+            stage_id: normalizedStageId,
+            source_file_ids: sourceFileIds,
+            page_scope: normalizedScope,
+            status: String(payload?.status || ''),
+            duration_ms: Math.round((importTimingNow() - requestStarted) * 10) / 10
           });
         } catch (error) {
           if (transientAttempt < maxTransientRetries && isRetryableImportAnalysisError(error)) {
@@ -3083,6 +3322,12 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
       }
     } catch (error) {
       meta.titleSuggestionStatus = 'error';
+      logImportTiming('analysis_request_failed', {
+        stage_id: normalizedStageId,
+        source_file_ids: sourceFileIds,
+        page_scope: normalizedScope,
+        duration_ms: Math.round((importTimingNow() - requestStarted) * 10) / 10
+      });
       if (!options?.silent) {
         notify({ type: 'error', message: mapApiError(error, 'Titelvorschlag konnte nicht erstellt werden.') });
       }
@@ -4803,34 +5048,6 @@ async function materializePendingCorrespondent() {
   docCorrespondentId.value = result.id;
 }
 
-// Erkannten Absender als neuen Korrespondenten anlegen und direkt auswählen.
-async function onCreateCorrespondentFromSender() {
-  const raw = String(docSenderRaw.value || '').trim();
-  if (!raw) return;
-  try {
-    const result = await correspondentStore.createCorrespondentByName(raw);
-    if (result?.ok && result.id) {
-      docCorrespondentId.value = result.id;
-      docCorrespondentTouched.value = true;
-      docCorrespondentAiFilled.value = false;
-    }
-  } catch {
-    // Fehler wurde bereits im Store als Notification gemeldet.
-  }
-}
-
-// Erkannten Absender als Alias zum aktuell gewählten Korrespondenten hinzufügen.
-async function onAddSenderAsAlias() {
-  const raw = String(docSenderRaw.value || '').trim();
-  const correspondentId = docCorrespondentId.value;
-  if (!raw || !correspondentId) return;
-  try {
-    await correspondentStore.addAlias(correspondentId, raw);
-  } catch {
-    // Fehler wurde bereits im Store als Notification gemeldet.
-  }
-}
-
 async function commitImport() {
   if (isImportActionDisabled.value) {
     return;
@@ -4848,7 +5065,21 @@ async function commitImport() {
       body: JSON.stringify({
         documents: commitDocuments.value.map((doc, idx) =>
           idx === 0
-            ? { ...doc, document_type: docCategory.value || null, correspondent_id: docCorrespondentId.value || null, note: docNote.value.trim() || null, date: docDateIso.value || null }
+            ? {
+                ...doc,
+                document_type: docCategory.value || null,
+                correspondent_id: docCorrespondentId.value || null,
+                note: docNote.value.trim() || null,
+                date: docDateIso.value || null,
+                retention: isRetentionEnabled.value && docRetention.value
+                  ? {
+                      status: docRetention.value.status || 'manual',
+                      period_years: docRetention.value.period_years ?? null,
+                      paper_original: docRetention.value.paper_original || 'unclear',
+                      reason: docRetention.value.reason || null
+                    }
+                  : null
+              }
             : doc
         ),
         options: {
@@ -5937,6 +6168,102 @@ onBeforeUnmount(() => {
 }
 
 /* ── Fields ── */
+/* Aufbewahrung: farblich abgehobene, fest integrierte Sektion in der Feldspalte. */
+.isd-retention {
+  --isd-amber: 200, 145, 47;
+  /* Feld-Variablen lokal setzen, damit RetentionForm konsistent geboxte Felder rendert. */
+  --pm-detail-field-bg: rgb(var(--v-theme-surface));
+  --pm-detail-field-border: rgba(var(--v-theme-on-surface), 0.16);
+  --pm-detail-field-focus-border: rgb(var(--v-theme-primary));
+  /* In der Flex-Spalte nicht schrumpfen (overflow:hidden würde die Min-Höhe sonst auf 0 setzen). */
+  flex: 0 0 auto;
+  margin: 2px 0;
+  border: 1px solid rgba(var(--isd-amber), 0.45);
+  background: rgba(var(--isd-amber), 0.08);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.isd-retention__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px 9px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.isd-retention__head:focus-visible {
+  outline: 2px solid rgba(var(--isd-amber), 0.6);
+  outline-offset: -2px;
+  border-radius: 10px;
+}
+
+.isd-retention__title {
+  font-weight: 600;
+  font-size: 12.5px;
+  color: rgba(var(--v-theme-on-surface), 0.9);
+  flex-shrink: 0;
+}
+
+.isd-retention__summary {
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.isd-retention__chev {
+  flex-shrink: 0;
+  color: rgba(var(--v-theme-on-surface), 0.5) !important;
+  transition: transform 0.2s ease;
+}
+
+.isd-retention__chev--open {
+  transform: rotate(180deg);
+}
+
+.isd-retention__spacer {
+  flex: 1;
+}
+
+.isd-retention__accept {
+  flex-shrink: 0;
+  font-weight: 600;
+  font-size: 12px;
+  color: rgb(var(--v-theme-primary));
+  background: transparent;
+  border: none;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+/* Formularkörper: Trenner zur Kopfzeile, gleichmäßige Flucht der Felder. */
+.isd-retention :deep(.retention-form) {
+  background: transparent;
+  border-top: 1px solid rgba(var(--isd-amber), 0.22);
+  border-radius: 0;
+  padding: 12px;
+}
+
+.isd-retention :deep(.retention-form__grid) {
+  margin-bottom: 14px;
+}
+
+.isd-retention :deep(.retention-toggle-row) {
+  margin-bottom: 14px;
+}
+
+.isd-retention :deep(.retention-form__static) {
+  min-height: 40px;
+}
+
+.isd-retention :deep(.retention-form__disclaimer) {
+  margin-bottom: 0;
+}
+
 .isd-field {
   display: flex;
   flex-direction: column;
@@ -5976,24 +6303,6 @@ onBeforeUnmount(() => {
 
 .isd-field-info:hover {
   color: rgba(var(--v-theme-on-surface), 0.65) !important;
-}
-
-.isd-correspondent-hint {
-  margin-top: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.isd-correspondent-sender {
-  font-size: 11px;
-  color: rgba(var(--v-theme-on-surface), 0.6);
-}
-
-.isd-correspondent-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
 }
 
 .isd-field-row {

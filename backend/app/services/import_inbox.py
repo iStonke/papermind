@@ -21,6 +21,7 @@ from app.schemas.import_staging import (
     ScannerTriggerInfo,
 )
 from app.services.import_staging import ImportStagingService
+from app.services.import_timing import elapsed_ms, log_import_timing, now_perf
 from app.services.scanners import is_scanning_active
 
 SCAN_JOB_VISIBLE_STALE_SECONDS = 300
@@ -190,6 +191,7 @@ class ImportInboxService:
         if normalized_source_type == "scanner" and scanner_device_id is None:
             raise BadRequestError("scanner_device_id is required for scanner uploads")
 
+        upload_started = now_perf()
         staged = self.import_staging_service.upload_sources(files)
         normalized_preview_paths = list(preview_paths or [])
         created: list[ImportInboxItem] = []
@@ -213,6 +215,15 @@ class ImportInboxService:
         self.db.commit()
         for item in created:
             self.db.refresh(item)
+            log_import_timing(
+                "inbox_item_created",
+                source_file_id=str(item.source_file_id),
+                inbox_item_id=str(item.id),
+                source_type=item.source_type,
+                scanner_device_id=str(item.scanner_device_id) if item.scanner_device_id else None,
+                page_count=item.page_count,
+                duration_ms=elapsed_ms(upload_started),
+            )
 
         return ImportInboxUploadResponse(
             items=[self._read_item(item) for item in created],

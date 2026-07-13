@@ -3,6 +3,7 @@ from datetime import date as date_cls, datetime
 
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 
+from app.schemas.retention import DocumentRetentionUpdateRequest
 from app.services.utils import NAME_MAX_LENGTH, NAME_MIN_LENGTH, validate_vocab_name
 
 
@@ -153,6 +154,7 @@ class ImportCommitDocumentInput(BaseModel):
     date: date_cls | None = Field(default=None)
     note: str | None = Field(default=None, max_length=2000)
     tag_ids: list[uuid.UUID] = Field(default_factory=list)
+    retention: DocumentRetentionUpdateRequest | None = Field(default=None)
     pages: list[ImportCommitPageInput] = Field(default_factory=list)
 
     @field_validator("document_type")

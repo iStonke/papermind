@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import date, datetime, timezone
 
@@ -24,6 +25,86 @@ from app.services.retention_classification import (
     OllamaRetentionService,
 )
 from app.services.settings import SettingsService
+
+logger = logging.getLogger("papermind.retention")
+
+
+def _classify_retention(
+    runtime_settings: dict,
+    *,
+    ocr_text: str,
+    document_type: str | None,
+    tags: tuple[str, ...],
+    document_id: str,
+):
+    """Führe die reine KI-Aufbewahrungsbewertung aus (ohne persistiertes Dokument).
+
+    Baut den Ollama-Dienst aus den Laufzeit-Settings, sucht die passende Hausregel
+    und ruft den Klassifikator. Wirft ``OllamaRetentionError`` bei Modell-/Netzfehlern.
+    """
+    ollama_cfg = runtime_settings.get("ollama") or {}
+    retention_cfg = runtime_settings.get("retention") or {}
+    usage_mode = retention_cfg.get("usage_mode") or "business"
+    matched_rule = _match_retention_rule(retention_cfg.get("rules"), document_type)
+    service = OllamaRetentionService(
+        base_url=str(ollama_cfg.get("base_url") or DEFAULT_OLLAMA_BASE_URL),
+        model=str(ollama_cfg.get("model") or DEFAULT_OLLAMA_MODEL),
+        timeout_seconds=float(ollama_cfg.get("timeout_seconds") or OLLAMA_TIMEOUT_SECONDS),
+    )
+    return service.classify(
+        OllamaRetentionInput(
+            document_id=document_id,
+            ocr_text=ocr_text,
+            document_type=document_type,
+            tags=tuple(tags),
+            usage_mode=usage_mode,
+            rule=matched_rule,
+        )
+    )
+
+
+def evaluate_retention_suggestion(
+    runtime_settings: dict,
+    *,
+    ocr_text: str,
+    document_type: str | None = None,
+    tags: tuple[str, ...] = (),
+    document_date: date | None = None,
+    document_id: str = "staging",
+) -> dict | None:
+    """Best-effort-KI-Aufbewahrungsvorschlag für den Import (kein Dokument nötig).
+
+    Gibt ``None`` zurück, wenn Aufbewahrung oder Ollama deaktiviert sind, kein Text
+    vorliegt oder die Bewertung fehlschlägt – der Import darf dadurch nie blockieren.
+    """
+    retention_cfg = runtime_settings.get("retention") or {}
+    if retention_cfg.get("enabled") is False:
+        return None
+    text_value = " ".join(str(ocr_text or "").split()).strip()
+    if not text_value:
+        return None
+    ollama_cfg = runtime_settings.get("ollama") or {}
+    if not ollama_cfg.get("enabled"):
+        return None
+    try:
+        result = _classify_retention(
+            runtime_settings,
+            ocr_text=text_value,
+            document_type=document_type,
+            tags=tuple(tags),
+            document_id=document_id,
+        )
+    except OllamaRetentionError as exc:
+        logger.warning("import retention suggestion failed document_id=%s err=%s", document_id, exc)
+        return None
+    retain_until = _compute_retain_until(document_date, result.period_years)
+    return {
+        "paper_original": result.paper_original,
+        "period_years": result.period_years,
+        "retain_until": retain_until.isoformat() if retain_until else None,
+        "reason": result.reason,
+        "status": RetentionStatus.suggested.value,
+    }
 
 
 def _match_retention_rule(rules: list | None, document_type: str | None) -> OllamaRetentionRule | None:
@@ -163,26 +244,14 @@ class DocumentRetentionService:
                 details={"document_id": str(document_id)},
             )
 
-        retention_cfg = runtime_settings.get("retention") or {}
-        usage_mode = retention_cfg.get("usage_mode") or "business"
-        matched_rule = _match_retention_rule(retention_cfg.get("rules"), document.document_type)
-
-        service = OllamaRetentionService(
-            base_url=str(ollama_cfg.get("base_url") or DEFAULT_OLLAMA_BASE_URL),
-            model=str(ollama_cfg.get("model") or DEFAULT_OLLAMA_MODEL),
-            timeout_seconds=float(ollama_cfg.get("timeout_seconds") or OLLAMA_TIMEOUT_SECONDS),
-        )
         tag_names = tuple(tag.name for tag in (document.tags or []) if getattr(tag, "name", None))
         try:
-            result = service.classify(
-                OllamaRetentionInput(
-                    document_id=str(document.id),
-                    ocr_text=text_value,
-                    document_type=document.document_type,
-                    tags=tag_names,
-                    usage_mode=usage_mode,
-                    rule=matched_rule,
-                )
+            result = _classify_retention(
+                runtime_settings,
+                ocr_text=text_value,
+                document_type=document.document_type,
+                tags=tag_names,
+                document_id=str(document.id),
             )
         except OllamaRetentionError as exc:
             raise ConflictError(

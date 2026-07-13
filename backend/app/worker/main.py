@@ -34,6 +34,7 @@ from app.services.embeddings import EmbeddingService
 from app.services.documents import DocumentService
 from app.services.import_inbox import ImportInboxService
 from app.services.import_staging import ImportStagingService
+from app.services.import_timing import elapsed_ms, log_import_timing, now_perf
 from app.services.scanners import SCAN_ERROR_FILE_MISSING, ScannerService
 from app.services.ai_classification import apply_ollama_classification
 from app.services.document_types import (
@@ -482,13 +483,28 @@ def _scanner_analysis_owner_id(db, scanner_device_id: uuid.UUID | None) -> uuid.
 def _preanalyze_import_sources(source_file_ids: list[str], owner_id: uuid.UUID | None) -> None:
     if not source_file_ids:
         return
+    started = now_perf()
     try:
         with SessionLocal() as db:
             service = ImportStagingService(db, owner_id)
             for source_file_id in source_file_ids:
                 service.preanalyze_source(source_file_id, page_scope="first_page")
+        log_import_timing(
+            "preanalysis_batch_done",
+            source_file_ids=source_file_ids,
+            owner_id=owner_id,
+            count=len(source_file_ids),
+            duration_ms=elapsed_ms(started),
+        )
     except Exception as exc:  # pragma: no cover - best effort background speed-up
         logger.exception("import inbox preanalysis failed owner_id=%s err=%s", owner_id, exc)
+        log_import_timing(
+            "preanalysis_batch_failed",
+            source_file_ids=source_file_ids,
+            owner_id=owner_id,
+            count=len(source_file_ids),
+            duration_ms=elapsed_ms(started),
+        )
 
 
 def _sync_scanner_live_mode_config() -> None:
@@ -639,6 +655,12 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str, prev
     # Anzeigenamen davon bereinigen.
     display_name, scan_job_id = _extract_scan_job_id(original_name)
     scanner_device_id: uuid.UUID | None = None
+    drop_started = now_perf()
+    file_age_ms: float | None = None
+    try:
+        file_age_ms = round(max(0.0, time.time() - claimed_path.stat().st_mtime) * 1000, 1)
+    except OSError:
+        file_age_ms = None
     try:
         with SessionLocal() as db:
             scanner_device_id = _scanner_device_id_for_drop(db)
@@ -676,11 +698,29 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str, prev
             if scanner_device_id is not None:
                 analysis_owner_id = _scanner_analysis_owner_id(db, scanner_device_id)
             preanalysis_source_ids = [str(item.source_file_id) for item in result.items]
+            log_import_timing(
+                "drop_ingested",
+                source_file_ids=preanalysis_source_ids,
+                source_type=source_type,
+                scanner_device_id=scanner_device_id,
+                job_id=scan_job_id,
+                file_age_ms=file_age_ms,
+                duration_ms=elapsed_ms(drop_started),
+            )
         _preanalyze_import_sources(preanalysis_source_ids, analysis_owner_id)
         created_count = len(result.items)
         _move_drop_file(claimed_path, processed_dir)
         if preview_path is not None and preview_path.exists():
             _move_drop_file(preview_path, processed_dir)
+        log_import_timing(
+            "drop_processed",
+            source_file_ids=preanalysis_source_ids,
+            source_type=source_type,
+            scanner_device_id=scanner_device_id,
+            job_id=scan_job_id,
+            count=created_count,
+            total_ms=elapsed_ms(drop_started),
+        )
         logger.info(
             "import inbox drop processed file=%s items=%s source_type=%s scanner_device_id=%s job_id=%s owner=%s owner_id=%s",
             display_name,
@@ -693,6 +733,14 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str, prev
         )
     except Exception as exc:
         logger.exception("import inbox drop failed file=%s err=%s", display_name, exc)
+        log_import_timing(
+            "drop_failed",
+            source_type="scanner" if scanner_device_id is not None else "shortcut",
+            scanner_device_id=scanner_device_id,
+            job_id=scan_job_id,
+            file_age_ms=file_age_ms,
+            total_ms=elapsed_ms(drop_started),
+        )
         # Den zugehörigen Scan-Job (sofern UI-ausgelöst bzw. ein aktiver
         # Hardwarelauf existiert) als Fehler melden, statt ihn ewig "scannend"
         # hängen zu lassen.
