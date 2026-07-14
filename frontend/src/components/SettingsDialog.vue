@@ -764,6 +764,39 @@
               />
             </div>
 
+            <div
+              class="pm-setting-row"
+              :class="{ 'pm-setting-row--disabled': !settingsDraft.documents.auto_ocr }"
+              role="button"
+              tabindex="0"
+              @click="toggleAutoTaggingFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleAutoTaggingFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">KI-Analyse nach dem Import</div>
+                <div class="pm-setting-description">
+                  Ergänzt nach dem Import automatisch Metadaten und Tags.
+                </div>
+                <div v-if="!settingsDraft.documents.auto_ocr" class="pm-setting-hint">
+                  Benötigt „Automatisches OCR" – ohne extrahierten Text gibt es nichts zu analysieren.
+                </div>
+                <div v-else-if="settingsDraft.documents.auto_tagging" class="pm-setting-hint">
+                  Nutzt die unter „Texterkennung" konfigurierte lokale KI.
+                </div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.documents.auto_ocr && settingsDraft.documents.auto_tagging"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.auto_tagging"
+                :disabled="isSettingSaving.auto_tagging || !settingsDraft.documents.auto_ocr"
+                @click.stop
+                @update:model-value="onAutoTaggingChange"
+              />
+            </div>
+
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Erkennungssprache</div>
@@ -831,39 +864,6 @@
                 :loading="isSettingSaving.scan_cleanup"
                 :disabled="isSettingSaving.scan_cleanup"
                 @update:model-value="onScanCleanupChange"
-              />
-            </div>
-
-            <div
-              class="pm-setting-row"
-              :class="{ 'pm-setting-row--disabled': !settingsDraft.documents.auto_ocr }"
-              role="button"
-              tabindex="0"
-              @click="toggleAutoTaggingFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleAutoTaggingFromRow)"
-            >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">KI-Analyse nach dem Import</div>
-                <div class="pm-setting-description">
-                  Ergänzt nach dem Import automatisch Metadaten und Tags.
-                </div>
-                <div v-if="!settingsDraft.documents.auto_ocr" class="pm-setting-hint">
-                  Benötigt „Automatisches OCR" – ohne extrahierten Text gibt es nichts zu analysieren.
-                </div>
-                <div v-else-if="settingsDraft.documents.auto_tagging" class="pm-setting-hint">
-                  Nutzt die unter „Texterkennung" konfigurierte lokale KI.
-                </div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.documents.auto_ocr && settingsDraft.documents.auto_tagging"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :loading="isSettingSaving.auto_tagging"
-                :disabled="isSettingSaving.auto_tagging || !settingsDraft.documents.auto_ocr"
-                @click.stop
-                @update:model-value="onAutoTaggingChange"
               />
             </div>
           </div>
