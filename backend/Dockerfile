@@ -3,7 +3,7 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-RUN apt-get update \
+RUN apt-get update -o Acquire::Retries=5 \
     && apt-get install -y --no-install-recommends \
         tesseract-ocr \
         tesseract-ocr-deu \
@@ -18,11 +18,15 @@ RUN apt-get update \
         ca-certificates \
         gnupg \
     && install -d /usr/share/postgresql-common/pgdg \
-    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    && (curl -fsSL --connect-timeout 15 --retry 5 --retry-delay 2 --retry-connrefused --retry-all-errors \
+        https://apt.postgresql.org/pub/repos/apt/ACCC4CF8.asc \
         -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+        || curl -fsSL --connect-timeout 15 --retry 5 --retry-delay 2 --retry-connrefused --retry-all-errors \
+        https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+        -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc) \
     && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] http://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo $VERSION_CODENAME)-pgdg main" \
         > /etc/apt/sources.list.d/pgdg.list \
-    && apt-get update \
+    && apt-get update -o Acquire::Retries=5 \
     && apt-get install -y --no-install-recommends postgresql-client-17 \
     && rm -rf /var/lib/apt/lists/*
 
