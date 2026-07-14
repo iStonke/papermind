@@ -20,6 +20,7 @@ const SORT_ORDER_VALUES = new Set([
   'last_opened'
 ]);
 const OCR_ENGINE_VALUES = new Set(['tesseract', 'paddleocr', 'easyocr', 'abbyy']);
+const SCAN_CLEANUP_VALUES = new Set(['off', 'white', 'bw']);
 const OCR_DOC_LANG_VALUES = new Set(['de', 'en', 'auto', 'multi']);
 const EMBEDDING_MODEL_FALLBACK = 'hash-384-v1';
 const DRAWER_EXPANDED_STORAGE_KEY  = 'pm.drawerExpanded';
@@ -108,6 +109,7 @@ function createDefaultSettings() {
       auto_tagging: false,
       ocr_backfill_enabled: true,
       auto_open_import_inbox: false,
+      scan_live_page_mode: false,
       sort_order: 'newest',
       recent_import_window_hours: 24,
       trash_retention_days: 30,
@@ -143,7 +145,8 @@ function createDefaultSettings() {
       use_unpaper: true,
       dpi_target: 300,
       postprocess_hyphenation: true,
-      remove_headers_footers: true
+      remove_headers_footers: true,
+      scan_cleanup: 'bw'
     },
     ollama: {
       enabled: true,
@@ -314,6 +317,8 @@ export const useSettingsStore = defineStore('settings', {
         start_view: false,
         auto_ocr: false,
         auto_tagging: false,
+        scan_cleanup: false,
+        scan_live_page_mode: false,
         ocr_backfill_enabled: false,
         auto_open_import_inbox: false,
         sort_order: false,
@@ -457,6 +462,10 @@ export const useSettingsStore = defineStore('settings', {
             typeof payload?.documents?.auto_open_import_inbox === 'boolean'
               ? payload.documents.auto_open_import_inbox
               : defaults.documents.auto_open_import_inbox,
+          scan_live_page_mode:
+            typeof payload?.documents?.scan_live_page_mode === 'boolean'
+              ? payload.documents.scan_live_page_mode
+              : defaults.documents.scan_live_page_mode,
           sort_order: SORT_ORDER_VALUES.has(rawSortOrder) ? rawSortOrder : defaults.documents.sort_order,
           recent_import_window_hours:
             Number.isInteger(rawRecentImportWindow) && rawRecentImportWindow > 0
@@ -539,7 +548,10 @@ export const useSettingsStore = defineStore('settings', {
           remove_headers_footers:
             typeof payload?.ocr?.remove_headers_footers === 'boolean'
               ? payload.ocr.remove_headers_footers
-              : defaults.ocr.remove_headers_footers
+              : defaults.ocr.remove_headers_footers,
+          scan_cleanup: SCAN_CLEANUP_VALUES.has(payload?.ocr?.scan_cleanup)
+            ? payload.ocr.scan_cleanup
+            : defaults.ocr.scan_cleanup
         },
         ollama: {
           enabled: typeof payload?.ollama?.enabled === 'boolean' ? payload.ollama.enabled : defaults.ollama.enabled,

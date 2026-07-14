@@ -184,6 +184,10 @@ class DocumentsSettingsRead(BaseModel):
     auto_tagging: bool = False
     ocr_backfill_enabled: bool = True
     auto_open_import_inbox: bool = False
+    # „Seiten sofort senden": global (nicht mehr pro Scanner). Steuert, ob der
+    # Host-Poller jede gescannte Seite sofort ins Importfenster schickt oder auf
+    # die Abschluss-Taste wartet.
+    scan_live_page_mode: bool = False
     sort_order: DocumentSortOrder = DocumentSortOrder.newest
     recent_import_window_hours: int = Field(default=24, ge=1)
     trash_retention_days: int = Field(default=30, ge=0, le=365)
@@ -219,6 +223,9 @@ class RAGSettingsRead(BaseModel):
         return self
 
 
+ScanCleanupMode = Literal["off", "white", "bw"]
+
+
 class OCRSettingsRead(BaseModel):
     engine: OCREngine = OCREngine.tesseract
     language: str = Field(default="deu+eng", min_length=2, max_length=24)
@@ -230,6 +237,10 @@ class OCRSettingsRead(BaseModel):
     dpi_target: int = Field(default=300, ge=150, le=600)
     postprocess_hyphenation: bool = True
     remove_headers_footers: bool = True
+    # Bereinigung des sichtbaren Scans: "off" behält das Original, "white" glättet
+    # den Hintergrund auf Weiß und erhält Farben, "bw" liefert einen sauberen
+    # Schwarz-Weiß-Scan. Wirkt auf die angezeigte ocr.pdf.
+    scan_cleanup: ScanCleanupMode = "bw"
 
     @field_validator("language")
     @classmethod
@@ -333,6 +344,7 @@ class DocumentsSettingsPatch(BaseModel):
     auto_tagging: bool | None = None
     ocr_backfill_enabled: bool | None = None
     auto_open_import_inbox: bool | None = None
+    scan_live_page_mode: bool | None = None
     sort_order: DocumentSortOrder | None = None
     recent_import_window_hours: int | None = Field(default=None, ge=1)
     trash_retention_days: int | None = Field(default=None, ge=0, le=365)
@@ -371,6 +383,7 @@ class OCRSettingsPatch(BaseModel):
     dpi_target: int | None = Field(default=None, ge=150, le=600)
     postprocess_hyphenation: bool | None = None
     remove_headers_footers: bool | None = None
+    scan_cleanup: ScanCleanupMode | None = None
 
     @field_validator("language")
     @classmethod

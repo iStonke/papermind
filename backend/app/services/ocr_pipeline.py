@@ -12,7 +12,7 @@ from typing import Any
 
 import pypdfium2 as pdfium
 from PIL import Image, ImageFilter, ImageOps
-from pypdf import PdfReader
+from pypdf import PdfReader, PdfWriter
 
 try:  # Worker-only dependency; backend tests should still import this module without OpenCV.
     import cv2
@@ -139,6 +139,104 @@ def _run_ocrmypdf(
         raise RuntimeError(f"OCR failed: {message}")
     if not ocr_path.exists() or not ocr_path.is_file():
         raise RuntimeError("OCR output file was not created")
+
+
+SCAN_CLEANUP_MODES = ("off", "white", "bw")
+
+
+def _normalize_scan_cleanup_mode(value: Any) -> str:
+    mode = str(value or "off").strip().lower()
+    return mode if mode in SCAN_CLEANUP_MODES else "off"
+
+
+def _clean_scan_image(image: Image.Image, mode: str) -> Image.Image:
+    """Glättet ungleichmäßige Beleuchtung und Faltenschatten, damit Scans einen
+    richtig weißen Hintergrund bekommen.
+
+    mode='white' erhält die Farben (Logos bleiben), zieht den Hintergrund aber
+    auf Weiß. mode='bw' liefert einen sauberen Graustufen-Schwarz-auf-Weiß-Scan.
+
+    Verfahren: pro Kanal wird der Hintergrund mit einem großen Gauß-Blur
+    geschätzt und herausgeteilt. Das σ skaliert mit der Bildbreite, damit das
+    Ergebnis auflösungsunabhängig ist.
+    """
+    if mode not in {"white", "bw"} or cv2 is None or np is None:
+        return image
+
+    rgb = np.asarray(image.convert("RGB"), dtype=np.float32)
+    width = rgb.shape[1]
+    sigma = max(15.0, width / 48.0)  # ~35 @1700px, ~52 @2480px
+    out = np.empty_like(rgb)
+    for channel in range(3):
+        plane = rgb[:, :, channel]
+        background = cv2.GaussianBlur(plane, (0, 0), sigma)
+        out[:, :, channel] = plane / np.maximum(background, 1.0) * 255.0
+    out = np.clip(out, 0, 255)
+
+    if mode == "white":
+        # Sanfter Weißpunkt: der fast-weiße Hintergrund klippt auf reines Weiß.
+        out = np.clip((out - 12.0) / (243.0 - 12.0) * 255.0, 0, 255)
+        return Image.fromarray(out.astype(np.uint8), "RGB")
+
+    # bw: Graustufen + festerer Kontrast-Stretch → richtig weiß, sattes Schwarz.
+    gray = cv2.cvtColor(out.astype(np.uint8), cv2.COLOR_RGB2GRAY).astype(np.float32)
+    gray = np.clip((gray - 32.0) / (200.0 - 32.0) * 255.0, 0, 255)
+    return Image.fromarray(gray.astype(np.uint8), "L")
+
+
+def _build_cleaned_input_pdf(
+    original_path: Path,
+    output_path: Path,
+    *,
+    mode: str,
+    dpi_target: int,
+) -> Path | None:
+    """Rendert jede Seite, bereinigt sie (siehe _clean_scan_image) und schreibt
+    ein neues, reines Bild-PDF. Rückgabe ist der Ausgabepfad oder None, wenn die
+    Bereinigung nicht möglich war (dann wird das Original weiterverwendet).
+
+    Speicherschonend: Es wird immer nur eine Seite gleichzeitig als Einzelseiten-
+    PDF gerendert und per PdfWriter angehängt (wichtig für große Scans auf dem Pi).
+    """
+    mode = _normalize_scan_cleanup_mode(mode)
+    if mode not in {"white", "bw"} or cv2 is None or np is None:
+        return None
+
+    try:
+        pdf_doc = pdfium.PdfDocument(str(original_path))
+    except Exception as exc:  # noqa: BLE001 - Bereinigung ist optional
+        logger.warning("scan cleanup: input unreadable, keeping original: %s", exc)
+        return None
+
+    page_count = len(pdf_doc)
+    if page_count <= 0:
+        return None
+
+    scale = max(1.0, float(dpi_target) / 72.0)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    writer = PdfWriter()
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for index in range(page_count):
+                page = pdf_doc[index]
+                bitmap = page.render(scale=scale)
+                image = bitmap.to_pil()
+                cleaned = _clean_scan_image(image, mode)
+                cleaned = cleaned.convert("L" if mode == "bw" else "RGB")
+                page_pdf = Path(temp_dir) / f"page-{index}.pdf"
+                cleaned.save(page_pdf, format="PDF", resolution=float(dpi_target))
+                page_reader = PdfReader(str(page_pdf))
+                writer.add_page(page_reader.pages[0])
+            if len(writer.pages) <= 0:
+                return None
+            with output_path.open("wb") as handle:
+                writer.write(handle)
+    except Exception as exc:  # noqa: BLE001 - bei Fehler auf Original zurückfallen
+        logger.warning("scan cleanup failed, keeping original: %s", exc)
+        output_path.unlink(missing_ok=True)
+        return None
+    logger.info("scan cleanup done mode=%s pages=%s output=%s", mode, page_count, output_path)
+    return output_path
 
 
 def _deskew_cv_image(gray_image: Any) -> Any:
@@ -599,15 +697,17 @@ def run_ocr_pipeline(
     enable_table_detection = bool(ocr_settings.get("enable_table_detection", True))
     enable_hyphenation = bool(ocr_settings.get("postprocess_hyphenation", True))
     remove_headers_footers = bool(ocr_settings.get("remove_headers_footers", True))
+    scan_cleanup = _normalize_scan_cleanup_mode(ocr_settings.get("scan_cleanup"))
     page_count = _validate_pdf_readable(original_path)
     logger.info(
-        "ocr pipeline start input=%s pages=%s lang=%s dpi=%s deskew=%s denoise=%s",
+        "ocr pipeline start input=%s pages=%s lang=%s dpi=%s deskew=%s denoise=%s scan_cleanup=%s",
         original_path,
         page_count,
         language,
         dpi_target,
         deskew,
         denoise,
+        scan_cleanup,
     )
 
     warnings: list[str] = []
@@ -616,10 +716,29 @@ def run_ocr_pipeline(
         warnings.append(f"engine_{requested_engine}_fallback_to_tesseract")
         engine_used = "tesseract"
 
-    try:
-        logger.info("ocr stage searchable_pdf start input=%s output=%s", original_path, ocr_path)
-        _run_ocrmypdf(
+    # Scan-Bereinigung: erzeugt vor dem OCR ein gereinigtes (weißes bzw. S/W)
+    # Bild-PDF, das ocrmypdf dann mit der Textebene versieht. So bekommt die
+    # angezeigte ocr.pdf einen richtig weißen Hintergrund ohne Faltenschatten.
+    ocr_input_path = original_path
+    cleaned_input_path: Path | None = None
+    if scan_cleanup in {"white", "bw"}:
+        candidate = ocr_path.parent / f"{ocr_path.stem}.cleaned-input.pdf"
+        produced = _build_cleaned_input_pdf(
             original_path,
+            candidate,
+            mode=scan_cleanup,
+            dpi_target=dpi_target,
+        )
+        if produced is not None:
+            cleaned_input_path = produced
+            ocr_input_path = produced
+        else:
+            warnings.append("scan_cleanup_failed")
+
+    try:
+        logger.info("ocr stage searchable_pdf start input=%s output=%s", ocr_input_path, ocr_path)
+        _run_ocrmypdf(
+            ocr_input_path,
             ocr_path,
             language=language,
             deskew=deskew,
@@ -631,9 +750,13 @@ def run_ocr_pipeline(
     except Exception as exc:
         warnings.append("ocrmypdf_failed_fallback_copy")
         warnings.append(str(exc))
-        logger.warning("ocrmypdf failed, falling back to original copy: %s", exc)
+        logger.warning("ocrmypdf failed, falling back to input copy: %s", exc)
         ocr_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(original_path, ocr_path)
+        # Auch im Fehlerfall die bereinigte Variante behalten, damit die Anzeige weiß bleibt.
+        shutil.copy2(ocr_input_path, ocr_path)
+    finally:
+        if cleaned_input_path is not None:
+            cleaned_input_path.unlink(missing_ok=True)
 
     source_for_text = ocr_path if ocr_path.exists() else original_path
     pdf_page_texts = _extract_pdf_text_per_page(source_for_text)

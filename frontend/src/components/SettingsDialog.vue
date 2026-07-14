@@ -591,16 +591,17 @@
               >
                 <div class="scanner-card__header">
                   <div class="scanner-card__identity">
-                    <span
-                      class="scanner-card__presence"
-                      :class="scannerIsOnline(scanner) ? 'is-online' : 'is-offline'"
-                      :title="scannerIsOnline(scanner) ? 'Online' : 'Längere Zeit nicht gesehen'"
-                    />
+                    <v-icon class="scanner-card__glyph" size="26">mdi-scanner</v-icon>
                     <div class="scanner-card__identity-text">
-                      <div class="scanner-card__title">{{ scanner.name || scanner.device_key }}</div>
-                      <div class="scanner-card__meta">
-                        {{ scanner.device_key }} · {{ scannerLastSeenLabel(scanner) }}
+                      <div class="scanner-card__device-line">
+                        <span class="scanner-card__device-key">{{ scanner.device_key }}</span>
+                        <span
+                          class="scanner-card__presence"
+                          :class="scannerIsOnline(scanner) ? 'is-online' : 'is-offline'"
+                          :title="scannerIsOnline(scanner) ? 'Bereit' : 'Längere Zeit nicht erreichbar'"
+                        />
                       </div>
+                      <span class="scanner-card__meta">{{ scannerLastSeenLabel(scanner) }}</span>
                     </div>
                   </div>
                   <div class="scanner-card__header-end">
@@ -651,39 +652,38 @@
                     :menu-props="{ attach: 'body', zIndex: 6000 }"
                     @update:model-value="() => scheduleScannerSave(scanner, 200)"
                   >
-                    <template #chip="{ props: chipProps }">
+                    <template #chip="{ props: chipProps, item }">
                       <v-chip
                         v-bind="chipProps"
                         color="primary"
                         variant="tonal"
                         size="small"
                         class="scanner-card__recipient-chip"
-                      />
+                      >
+                        <template #prepend>
+                          <UserAvatar
+                            :user="item.raw.user"
+                            :size="20"
+                            class="scanner-card__recipient-avatar"
+                          />
+                        </template>
+                        {{ item.title }}
+                      </v-chip>
+                    </template>
+                    <template #item="{ props: itemProps, item }">
+                      <v-list-item v-bind="itemProps">
+                        <template #prepend>
+                          <UserAvatar :user="item.raw.user" :size="28" />
+                        </template>
+                      </v-list-item>
                     </template>
                   </v-autocomplete>
-                </div>
-
-                <div class="scanner-card__live-mode">
-                  <div>
-                    <div class="pm-setting-label">Seiten sofort senden</div>
-                    <div class="pm-setting-description">
-                      Jede gescannte Seite wird sofort ins Importfenster gesendet, ohne auf die
-                      Abschluss-Taste zu warten.
-                    </div>
-                  </div>
-                  <v-switch
-                    v-model="scanner.live_page_mode"
-                    color="primary"
-                    density="compact"
-                    hide-details
-                    inset
-                    @update:model-value="() => scheduleScannerSave(scanner, 200)"
-                  />
                 </div>
               </div>
             </div>
 
             <div class="pm-settings-subhead">Import</div>
+            <div class="pm-settings-subhead-hint">Gilt für alle Scanner und Importquellen.</div>
 
             <div
               class="pm-setting-row"
@@ -708,6 +708,33 @@
                 :disabled="isSettingSaving.auto_open_import_inbox"
                 @click.stop
                 @update:model-value="onAutoOpenImportInboxChange"
+              />
+            </div>
+
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleScanLivePageModeFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleScanLivePageModeFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Seiten sofort senden</div>
+                <div class="pm-setting-description">
+                  Jede gescannte Seite wird sofort ins Importfenster gesendet, ohne auf die
+                  Abschluss-Taste zu warten.
+                </div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.documents.scan_live_page_mode"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.scan_live_page_mode"
+                :disabled="isSettingSaving.scan_live_page_mode"
+                @click.stop
+                @update:model-value="onScanLivePageModeChange"
               />
             </div>
 
@@ -755,6 +782,55 @@
                 :loading="isSettingSaving.ocr_doc_lang"
                 :disabled="isSettingSaving.ocr_doc_lang"
                 @update:model-value="onOcrDocLangChange"
+              />
+            </div>
+
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleScanEnhancementFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleScanEnhancementFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Seitenverbesserung</div>
+                <div class="pm-setting-description">
+                  Glättet Faltenschatten und ungleichmäßige Beleuchtung, damit gescannte Seiten
+                  einen richtig weißen Hintergrund bekommen. Wirkt auf das durchsuchbare Dokument
+                  nach dem Import.
+                </div>
+              </div>
+              <v-switch
+                :model-value="scanEnhancementEnabled"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.scan_cleanup"
+                :disabled="isSettingSaving.scan_cleanup"
+                @click.stop
+                @update:model-value="onScanEnhancementToggle"
+              />
+            </div>
+
+            <div v-if="scanEnhancementEnabled" class="pm-setting-row pm-setting-row--column pm-setting-row--nested">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Modus der Seitenverbesserung</div>
+                <div class="pm-setting-description">
+                  Schwarz-Weiß liefert einen sauberen S/W-Scan; „Weiß" erhält farbige Logos.
+                </div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.ocr.scan_cleanup"
+                :items="scanEnhancementModeOptions"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Modus"
+                :loading="isSettingSaving.scan_cleanup"
+                :disabled="isSettingSaving.scan_cleanup"
+                @update:model-value="onScanCleanupChange"
               />
             </div>
 
@@ -2082,6 +2158,7 @@ import BaseDialog from './BaseDialog.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import DestructiveDialog from './DestructiveDialog.vue';
 import SettingsInfoCard from './SettingsInfoCard.vue';
+import UserAvatar from './UserAvatar.vue';
 // Nur in den Admin-Tabs „Dienste"/„System" sichtbar → als eigene Chunks lazy
 // geladen, damit sie den Haupt-Chunk des Dialogs nicht aufblähen.
 const ServiceStatusPanel = defineAsyncComponent(() => import('./ServiceStatusPanel.vue'));
@@ -2114,6 +2191,7 @@ import {
 import { SHORTCUT_ACTIONS, SHORTCUTS, handleShortcut } from '../keyboard/shortcuts';
 import {
   buildAutoOpenImportInboxPatch,
+  buildScanLivePageModePatch,
   buildAutoOcrPatch,
   buildAutoTaggingPatch,
   buildOcrBackfillEnabledPatch,
@@ -2125,6 +2203,7 @@ import {
   buildSidebarShowNoTextPatch,
   buildSidebarShowChatPatch,
   buildOcrDocLangPatch,
+  buildOcrScanCleanupPatch,
   buildPreviewDrawerGradientPatch,
   buildRecentImportWindowPatch,
   buildShowFilenameSuffixPatch,
@@ -2260,6 +2339,7 @@ const scannerUserOptions = computed(() =>
     .map((user) => ({
       title: user.display_name || user.username,
       value: user.id,
+      user,
       props: {
         subtitle: user.email || user.username
       }
@@ -2272,7 +2352,6 @@ function normalizeScannerDraft(scanner) {
     device_key: String(scanner?.device_key || '').trim(),
     name: String(scanner?.name || '').trim(),
     enabled: scanner?.enabled !== false,
-    live_page_mode: scanner?.live_page_mode === true,
     last_seen_at: scanner?.last_seen_at || null,
     recipient_user_ids: Array.isArray(scanner?.recipients)
       ? scanner.recipients.map((user) => String(user?.id || '').trim()).filter(Boolean)
@@ -2292,12 +2371,16 @@ function scannerLastSeenLabel(scanner) {
   }
 }
 
+// Optimistische Statusanzeige: Der Scanner gilt als in Ordnung (grün), solange
+// er sich innerhalb der letzten 24 h gemeldet hat. Grau erst bei einem echten
+// Problem – noch nie gesehen oder länger als 24 h stumm.
+const SCANNER_STALE_MS = 24 * 60 * 60 * 1000;
+
 function scannerIsOnline(scanner) {
   if (!scanner?.last_seen_at) return false;
   const seen = new Date(scanner.last_seen_at).getTime();
   if (Number.isNaN(seen)) return false;
-  // Der Scanner-Poller meldet sich regelmäßig; innerhalb 15 Min gilt als online.
-  return Date.now() - seen <= 15 * 60 * 1000;
+  return Date.now() - seen <= SCANNER_STALE_MS;
 }
 
 function markScannerDirty(scannerId) {
@@ -2386,7 +2469,6 @@ async function saveScanner(scanner) {
     await updateScanner(scanner.id, {
       name: normalizedName,
       enabled: Boolean(scanner.enabled),
-      live_page_mode: Boolean(scanner.live_page_mode),
       recipient_user_ids: Array.isArray(scanner.recipient_user_ids) ? scanner.recipient_user_ids : []
     });
     // Den Draft bewusst NICHT durch die Server-Antwort ersetzen: Sonst würde
@@ -2979,6 +3061,33 @@ const ocrDocLangOptions = [
 
 const OCR_DOC_LANG_VALUES = new Set(ocrDocLangOptions.map((e) => e.value));
 
+const scanCleanupOptions = [
+  { title: 'Schwarz-Weiß (empfohlen)', value: 'bw' },
+  { title: 'Weiß, Farben erhalten', value: 'white' },
+  { title: 'Aus (Original behalten)', value: 'off' }
+];
+
+const SCAN_CLEANUP_VALUES = new Set(scanCleanupOptions.map((e) => e.value));
+
+// Seitenverbesserung als Ein/Aus-Schalter + Modus: „off" = aus, sonst
+// „bw"/„white". scanEnhancementMode merkt sich den zuletzt aktiven Modus, damit
+// Aus→Ein den vorherigen Modus wiederherstellt (Default S/W).
+const scanEnhancementModeOptions = [
+  { title: 'Schwarz-Weiß (empfohlen)', value: 'bw' },
+  { title: 'Weiß, Farben erhalten', value: 'white' }
+];
+const scanEnhancementMode = ref('bw');
+const scanEnhancementEnabled = computed(() => settingsDraft.ocr.scan_cleanup !== 'off');
+watch(
+  () => settingsDraft.ocr.scan_cleanup,
+  (value) => {
+    if (value === 'white' || value === 'bw') {
+      scanEnhancementMode.value = value;
+    }
+  },
+  { immediate: true }
+);
+
 
 // ── Theme ────────────────────────────────────────────────────────────────────
 
@@ -3230,6 +3339,37 @@ async function onAutoOpenImportInboxChange(nextValue) {
 function toggleAutoOpenImportInboxFromRow() {
   if (isSettingSaving.auto_open_import_inbox) return;
   void onAutoOpenImportInboxChange(!settingsDraft.documents.auto_open_import_inbox);
+}
+
+async function onScanLivePageModeChange(nextValue) {
+  if (isSettingSaving.scan_live_page_mode) return;
+  const nextBool = Boolean(nextValue);
+  if (nextBool === settingsDraft.documents.scan_live_page_mode) return;
+  const previous = settingsDraft.documents.scan_live_page_mode;
+  settingsStore.setDraftPatch({ documents: { scan_live_page_mode: nextBool } });
+  await patchSettingsWithRevert({
+    patch: buildScanLivePageModePatch(nextBool),
+    controlKey: 'scan_live_page_mode',
+    revert: () => settingsStore.setDraftPatch({ documents: { scan_live_page_mode: previous } })
+  });
+}
+
+function toggleScanLivePageModeFromRow() {
+  if (isSettingSaving.scan_live_page_mode) return;
+  void onScanLivePageModeChange(!settingsDraft.documents.scan_live_page_mode);
+}
+
+// Seitenverbesserung ein/aus: aus → scan_cleanup='off', ein → gemerkter Modus.
+async function onScanEnhancementToggle(nextValue) {
+  if (isSettingSaving.scan_cleanup) return;
+  const enable = Boolean(nextValue);
+  const nextMode = enable ? (scanEnhancementMode.value || 'bw') : 'off';
+  await onScanCleanupChange(nextMode);
+}
+
+function toggleScanEnhancementFromRow() {
+  if (isSettingSaving.scan_cleanup) return;
+  void onScanEnhancementToggle(!scanEnhancementEnabled.value);
 }
 
 // ── Ollama ───────────────────────────────────────────────────────────────────
@@ -3500,6 +3640,23 @@ async function onOcrDocLangChange(nextValue) {
     patch: buildOcrDocLangPatch(nextLang),
     controlKey: 'ocr_doc_lang',
     revert: () => settingsStore.setDraftPatch({ documents: { ocr_doc_lang: previous } })
+  });
+}
+
+// ── Scan-Bereinigung (weißer Hintergrund / S-W beim Import) ───────────────────
+
+async function onScanCleanupChange(nextValue) {
+  if (isSettingSaving.scan_cleanup) return;
+  const nextMode = SCAN_CLEANUP_VALUES.has(String(nextValue))
+    ? String(nextValue)
+    : settingsDraft.ocr.scan_cleanup;
+  if (nextMode === settingsDraft.ocr.scan_cleanup) return;
+  const previous = settingsDraft.ocr.scan_cleanup;
+  settingsStore.setDraftPatch({ ocr: { scan_cleanup: nextMode } });
+  await patchSettingsWithRevert({
+    patch: buildOcrScanCleanupPatch(nextMode),
+    controlKey: 'scan_cleanup',
+    revert: () => settingsStore.setDraftPatch({ ocr: { scan_cleanup: previous } })
   });
 }
 

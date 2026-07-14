@@ -508,18 +508,19 @@ def _preanalyze_import_sources(source_file_ids: list[str], owner_id: uuid.UUID |
 
 
 def _sync_scanner_live_mode_config() -> None:
-    """Spiegelt scanner_devices.live_page_mode in eine lokale Datei in scan-inbox.
+    """Spiegelt die globale Einstellung documents.scan_live_page_mode in eine
+    lokale Datei in scan-inbox.
 
-    Die Host-Skripte (papermind-scan.sh) laufen außerhalb der Container und
-    haben keine Backend-Session - sie lesen stattdessen diese Datei aus dem
-    ohnehin gemounteten scan-inbox-Verzeichnis.
+    „Seiten sofort senden" ist bewusst global (nicht mehr pro Scanner). Die
+    Host-Skripte (papermind-scan.sh) laufen außerhalb der Container und haben
+    keine Backend-Session - sie lesen stattdessen diese Datei aus dem ohnehin
+    gemounteten scan-inbox-Verzeichnis.
     """
     root = _import_inbox_drop_root()
     if root is None or not IMPORT_INBOX_SCANNER_DEVICE_KEY:
         return
     with SessionLocal() as db:
-        scanner = ScannerService(db).get_by_key(IMPORT_INBOX_SCANNER_DEVICE_KEY)
-        live_mode = bool(scanner.live_page_mode) if scanner is not None else False
+        live_mode = bool(SettingsService(db).get_settings().documents.scan_live_page_mode)
     content = f"LIVE_PAGE_MODE={'true' if live_mode else 'false'}\n"
     config_path = root / SCANNER_CONFIG_FILENAME
     try:

@@ -42,6 +42,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "auto_tagging": False,
         "ocr_backfill_enabled": True,
         "auto_open_import_inbox": False,
+        "scan_live_page_mode": False,
         "sort_order": "newest",
         "recent_import_window_hours": 24,
         "trash_retention_days": 30,
@@ -77,6 +78,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "dpi_target": 300,
         "postprocess_hyphenation": True,
         "remove_headers_footers": True,
+        "scan_cleanup": "bw",
     },
     "quality": {
         "enable_answer_checks": True,

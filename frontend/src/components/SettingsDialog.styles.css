@@ -159,6 +159,18 @@
   margin-top: 12px;
 }
 
+.pm-settings-subhead-hint {
+  font-size: 0.78rem;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+  margin: -2px 0 8px;
+}
+
+.pm-setting-row--nested {
+  margin-left: 16px;
+  border-left: 2px solid rgba(var(--v-theme-primary), 0.25);
+  padding-left: 14px;
+}
+
 /* ── Scanner ─────────────────────────────────────────────────────────────── */
 .scanner-settings-state,
 .scanner-empty {
@@ -203,10 +215,10 @@
 .scanner-card {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 14px;
+  gap: 16px;
+  padding: 16px;
   border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
-  border-radius: 10px;
+  border-radius: 14px;
   background: rgba(var(--v-theme-surface), 0.72);
   transition: opacity 0.2s ease, filter 0.2s ease;
 }
@@ -258,84 +270,97 @@
   gap: 12px;
 }
 
+.scanner-card__identity {
+  gap: 12px;
+}
+
 .scanner-card__identity-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* Schlichtes Inline-Icon (bewusst KEINE getönte Kachel, um die Redundanz zur
+   InfoCard-Kachel oben zu vermeiden). */
+.scanner-card__glyph {
+  flex: 0 0 auto;
+  color: rgba(var(--v-theme-primary), 0.85);
+}
+
+/* Kennung + Presence-Punkt in einer Zeile. */
+.scanner-card__device-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
 }
 
+/* Presence als kleiner Status-Punkt neben der Kennung. */
 .scanner-card__presence {
   flex: 0 0 auto;
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
 }
 
 .scanner-card__presence.is-online {
   background: rgb(var(--v-theme-success, 76 175 80));
-  box-shadow: 0 0 0 3px rgba(var(--v-theme-success, 76 175 80), 0.2);
+  box-shadow: 0 0 0 3px rgba(var(--v-theme-success, 76 175 80), 0.18);
 }
 
 .scanner-card__presence.is-offline {
-  background: rgba(var(--v-theme-on-surface), 0.28);
+  background: rgba(var(--v-theme-on-surface), 0.32);
 }
 
-.scanner-card__title {
+.scanner-card__device-key {
   min-width: 0;
-  font-size: 0.96rem;
-  font-weight: 650;
-  color: rgba(var(--v-theme-on-surface), 0.9);
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: rgba(var(--v-theme-on-surface), 0.82);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .scanner-card__meta {
-  margin-top: 2px;
   font-size: 0.76rem;
-  color: rgba(var(--v-theme-on-surface), 0.52);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: rgba(var(--v-theme-on-surface), 0.5);
   white-space: nowrap;
 }
 
+/* Name und Empfänger untereinander, jeweils volle Breite: Das Empfänger-Feld
+   ist ein wachsendes Chip-Feld und braucht die ganze Kartenbreite, damit die
+   Chips horizontal fließen statt gedrungen zu stapeln. */
 .scanner-card__grid {
   display: grid;
-  grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
-  gap: 10px;
+  grid-template-columns: 1fr;
+  gap: 12px;
   align-items: start;
 }
 
-.scanner-card__live-mode {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px;
-  border-radius: 10px;
-  background: rgba(var(--v-theme-on-surface), 0.04);
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.06);
-}
-
-/* #2: Empfänger-Chips brauchen Luft zum schwebenden Feld-Label. */
+/* Empfänger-Chips: Luft zum schwebenden Feld-Label und gleichmäßige Abstände,
+   damit mehrere Chips ruhig nebeneinander fließen. */
 .scanner-card__grid :deep(.v-autocomplete .v-field__input) {
-  padding-top: 10px;
+  min-height: 46px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  gap: 6px;
+  align-items: center;
 }
 
 .scanner-card__recipient-chip {
   font-weight: 600;
-  margin-top: 2px;
 }
 
-/* #3: Switch innerhalb der Live-Mode-Fläche halten (kein Überstand am Rand). */
-.scanner-card__live-mode :deep(.v-switch) {
-  flex: 0 0 auto;
+/* Avatar bündig im Chip: linkes Chip-Padding verkleinern, damit der Avatar den
+   Rand füllt, und etwas Abstand zum Namen. */
+.scanner-card__recipient-chip :deep(.v-chip__prepend) {
+  margin-inline: -6px 6px;
 }
 
-.scanner-card__live-mode :deep(.v-switch .v-selection-control) {
-  min-height: 0;
-}
-
-.scanner-card__live-mode :deep(.v-switch .v-selection-control__wrapper) {
-  margin-inline-end: 0;
+.scanner-card__recipient-avatar {
+  font-size: 9px;
 }
 
 .settings-category-header {

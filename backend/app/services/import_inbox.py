@@ -23,6 +23,7 @@ from app.schemas.import_staging import (
 from app.services.import_staging import ImportStagingService
 from app.services.import_timing import elapsed_ms, log_import_timing, now_perf
 from app.services.scanners import is_scanning_active
+from app.services.settings import SettingsService
 
 SCAN_JOB_VISIBLE_STALE_SECONDS = 300
 
@@ -116,10 +117,13 @@ class ImportInboxService:
         ).first()
         if scanner is None:
             return None
+        # „Seiten sofort senden" ist global (nicht mehr pro Scanner); der
+        # Import-Dialog nutzt den Wert, um die Abschluss-Taste ein-/auszublenden.
+        live_page_mode = bool(SettingsService(self.db).get_settings().documents.scan_live_page_mode)
         return ScannerTriggerInfo(
             id=scanner.id,
             name=scanner.name,
-            live_page_mode=bool(scanner.live_page_mode),
+            live_page_mode=live_page_mode,
             last_seen_at=scanner.last_seen_at,
         )
 
