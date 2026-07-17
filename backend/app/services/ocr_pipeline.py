@@ -149,6 +149,10 @@ def _normalize_scan_cleanup_mode(value: Any) -> str:
     return mode if mode in SCAN_CLEANUP_MODES else "off"
 
 
+def normalize_scan_cleanup_mode(value: Any) -> str:
+    return _normalize_scan_cleanup_mode(value)
+
+
 def _clean_scan_image(image: Image.Image, mode: str) -> Image.Image:
     """Glättet ungleichmäßige Beleuchtung und Faltenschatten, damit Scans einen
     richtig weißen Hintergrund bekommen.
@@ -237,6 +241,21 @@ def _build_cleaned_input_pdf(
         return None
     logger.info("scan cleanup done mode=%s pages=%s output=%s", mode, page_count, output_path)
     return output_path
+
+
+def build_cleaned_scan_pdf(
+    original_path: Path,
+    output_path: Path,
+    *,
+    mode: str,
+    dpi_target: int,
+) -> Path | None:
+    return _build_cleaned_input_pdf(
+        original_path,
+        output_path,
+        mode=mode,
+        dpi_target=dpi_target,
+    )
 
 
 def _deskew_cv_image(gray_image: Any) -> Any:

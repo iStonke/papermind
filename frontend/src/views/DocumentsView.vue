@@ -3524,6 +3524,7 @@ function normalizeImportInboxItems(payload) {
       scanner_device_id: String(item?.scanner_device_id || '').trim(),
       is_assigned_to_me: item?.is_assigned_to_me !== false,
       analysis: item?.analysis && typeof item.analysis === 'object' ? item.analysis : null,
+      scan_cleanup: item?.scan_cleanup && typeof item.scan_cleanup === 'object' ? item.scan_cleanup : null,
       created_at: String(item?.created_at || '')
     }))
     .filter(

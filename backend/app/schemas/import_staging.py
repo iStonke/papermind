@@ -13,6 +13,7 @@ class ImportSourceRead(BaseModel):
     page_count: int = Field(ge=1)
     preview_url: str | None = None
     analysis: dict[str, object] | None = None
+    scan_cleanup: dict[str, object] | None = None
 
 
 class ImportSourceUploadResponse(BaseModel):
@@ -26,6 +27,7 @@ class ImportInboxItemRead(BaseModel):
     page_count: int = Field(ge=1)
     preview_url: str | None = None
     analysis: dict[str, object] | None = None
+    scan_cleanup: dict[str, object] | None = None
     client_name: str | None = None
     source_type: str = "shortcut"
     scanner_device_id: str | None = None

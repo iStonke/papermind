@@ -507,6 +507,33 @@ def _preanalyze_import_sources(source_file_ids: list[str], owner_id: uuid.UUID |
         )
 
 
+def _enhance_scanner_import_sources(source_file_ids: list[str], owner_id: uuid.UUID | None) -> None:
+    if not source_file_ids:
+        return
+    started = now_perf()
+    try:
+        with SessionLocal() as db:
+            service = ImportStagingService(db, owner_id)
+            for source_file_id in source_file_ids:
+                service.enhance_source_scan(source_file_id)
+        log_import_timing(
+            "scan_cleanup_batch_done",
+            source_file_ids=source_file_ids,
+            owner_id=owner_id,
+            count=len(source_file_ids),
+            duration_ms=elapsed_ms(started),
+        )
+    except Exception as exc:  # pragma: no cover - Rohscan bleibt weiter importierbar
+        logger.exception("scanner import source cleanup failed owner_id=%s err=%s", owner_id, exc)
+        log_import_timing(
+            "scan_cleanup_batch_failed",
+            source_file_ids=source_file_ids,
+            owner_id=owner_id,
+            count=len(source_file_ids),
+            duration_ms=elapsed_ms(started),
+        )
+
+
 def _sync_scanner_live_mode_config() -> None:
     """Spiegelt die globale Einstellung documents.scan_live_page_mode in eine
     lokale Datei in scan-inbox.
@@ -708,6 +735,8 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str, prev
                 file_age_ms=file_age_ms,
                 duration_ms=elapsed_ms(drop_started),
             )
+        if scanner_device_id is not None:
+            _enhance_scanner_import_sources(preanalysis_source_ids, analysis_owner_id)
         _preanalyze_import_sources(preanalysis_source_ids, analysis_owner_id)
         created_count = len(result.items)
         _move_drop_file(claimed_path, processed_dir)
@@ -1145,6 +1174,18 @@ def _process_ocr_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
             ocr_key = f"{document.id}/ocr.pdf"
             ocr_path = _resolve_storage_path(ocr_key)
             runtime_settings = _load_runtime_settings(db)
+            scan_cleanup_flags = dict((document.flags or {}).get("scan_cleanup") or {})
+            if scan_cleanup_flags.get("applied"):
+                runtime_settings = dict(runtime_settings)
+                ocr_settings = dict(runtime_settings.get("ocr") or {})
+                ocr_settings["scan_cleanup"] = "off"
+                runtime_settings["ocr"] = ocr_settings
+                logger.info(
+                    "ocr scan cleanup skipped document_id=%s source=%s mode=%s",
+                    document.id,
+                    scan_cleanup_flags.get("source") or "-",
+                    scan_cleanup_flags.get("mode") or "-",
+                )
             auto_tagging_enabled = bool(runtime_settings.get("documents", {}).get("auto_tagging", False))
 
             job.progress = 40

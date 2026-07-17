@@ -1059,6 +1059,8 @@ class DocumentService:
         notes: str | None,
         *,
         queue_processing: bool = True,
+        scan_cleanup_applied: bool = False,
+        scan_cleanup_mode: str | None = None,
     ) -> Document:
         runtime_settings = SettingsService(self.db).get_settings()
         auto_ocr_enabled = bool(runtime_settings.documents.auto_ocr)
@@ -1100,6 +1102,17 @@ class DocumentService:
             mime_type="application/pdf",
             file_sha256=file_sha256,
             file_size_bytes=file_size_bytes,
+            flags=(
+                {
+                    "scan_cleanup": {
+                        "applied": True,
+                        "source": "import_staging",
+                        "mode": str(scan_cleanup_mode or "").strip(),
+                    }
+                }
+                if scan_cleanup_applied
+                else None
+            ),
         )
         self.db.add(document)
 

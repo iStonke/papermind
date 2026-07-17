@@ -4,7 +4,7 @@ import os
 import re
 import shutil
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -37,7 +37,7 @@ from app.services.document_types import (
 from app.services.documents import ALLOWED_PDF_CONTENT_TYPES, DocumentService
 from app.services.import_timing import elapsed_ms, log_import_timing, now_perf
 from app.services.naming_templates import NamingTemplateService, build_legacy_filename_from_meta
-from app.services.ocr_pipeline import run_ocr_lite, run_ocr_pipeline
+from app.services.ocr_pipeline import build_cleaned_scan_pdf, normalize_scan_cleanup_mode, run_ocr_lite, run_ocr_pipeline
 from app.services.retention import DocumentRetentionService, evaluate_retention_suggestion
 from app.services.settings import SettingsService
 
@@ -88,6 +88,7 @@ _STAGING_MIN_TEXT_CHARS = 80
 _STAGING_GOOD_TEXT_CHARS = 240
 _STAGING_PREVIEW_MAX_LONG_EDGE = 640
 _STAGING_ANALYSIS_CACHE_VERSION = 1
+_STAGING_SCAN_CLEANUP_CACHE_VERSION = 1
 _OWNER_SENTINEL = object()
 _STAGING_OCR_ATTEMPTS = (
     {"psm": 6, "max_long_side_px": 2800},
@@ -266,6 +267,29 @@ class ImportStagingService:
             raise BadRequestError("source_file_id is invalid", details={"source_file_id": source_id}) from exc
         return self._staging_root() / f"{parsed}.preview.png"
 
+    def _source_raw_pdf_path(self, source_file_id: str) -> Path:
+        source_path = self._source_pdf_path(source_file_id)
+        return source_path.with_name(f"{source_path.stem}.raw.pdf")
+
+    def _source_scan_cleanup_path(self, source_file_id: str) -> Path:
+        source_path = self._source_pdf_path(source_file_id)
+        return source_path.with_name(f"{source_path.stem}.scan-cleanup.json")
+
+    @staticmethod
+    def _utc_timestamp() -> str:
+        return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+    @staticmethod
+    def _source_file_signature(path: Path) -> dict[str, int] | None:
+        try:
+            stat = path.stat()
+        except OSError:
+            return None
+        return {
+            "size": int(stat.st_size),
+            "mtime_ns": int(stat.st_mtime_ns),
+        }
+
     @staticmethod
     def _analysis_owner_key(owner_id) -> str:
         if owner_id is None:
@@ -371,6 +395,81 @@ class ImportStagingService:
             return
         for path in paths:
             path.unlink(missing_ok=True)
+
+    def _read_source_scan_cleanup(self, source_file_id: str) -> dict[str, object] | None:
+        try:
+            path = self._source_scan_cleanup_path(source_file_id)
+        except BadRequestError:
+            return None
+        try:
+            if not path.exists() or not path.is_file():
+                return None
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("import source scan cleanup cache read failed path=%s err=%s", path, exc)
+            return None
+        if not isinstance(payload, dict):
+            return None
+        if int(payload.get("cleanup_version") or 0) != _STAGING_SCAN_CLEANUP_CACHE_VERSION:
+            return None
+        return payload
+
+    def get_source_scan_cleanup_response(self, source_file_id: str) -> dict[str, object] | None:
+        payload = self._read_source_scan_cleanup(source_file_id)
+        if not isinstance(payload, dict):
+            return None
+        status = str(payload.get("status") or "").strip()
+        if not status:
+            return None
+        response: dict[str, object] = {
+            "status": status,
+            "mode": str(payload.get("mode") or "").strip(),
+            "updated_at": str(payload.get("updated_at") or "").strip(),
+        }
+        for key in ("started_at", "completed_at", "duration_ms", "revision", "message"):
+            value = payload.get(key)
+            if value not in (None, ""):
+                response[key] = value
+        return response
+
+    def _write_source_scan_cleanup(
+        self,
+        source_file_id: str,
+        *,
+        status: str,
+        mode: str,
+        **extra: object,
+    ) -> dict[str, object]:
+        destination = self._source_scan_cleanup_path(source_file_id)
+        payload: dict[str, object] = {
+            "cleanup_version": _STAGING_SCAN_CLEANUP_CACHE_VERSION,
+            "source_file_id": str(source_file_id),
+            "status": str(status or "").strip() or "unknown",
+            "mode": str(mode or "").strip(),
+            "updated_at": self._utc_timestamp(),
+            **extra,
+        }
+        temp_path = destination.with_name(f"{destination.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temp_path.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+            os.replace(temp_path, destination)
+        except OSError as exc:
+            temp_path.unlink(missing_ok=True)
+            logger.warning("import source scan cleanup cache write failed source_file_id=%s err=%s", source_file_id, exc)
+        return payload
+
+    def _delete_source_scan_cleanup_artifacts(self, source_file_id: str) -> None:
+        try:
+            source_path = self._source_pdf_path(source_file_id)
+            raw_path = self._source_raw_pdf_path(source_file_id)
+            cleanup_path = self._source_scan_cleanup_path(source_file_id)
+        except BadRequestError:
+            return
+        raw_path.unlink(missing_ok=True)
+        cleanup_path.unlink(missing_ok=True)
+        for temp_path in source_path.parent.glob(f"{source_path.stem}.scan-cleanup.*.tmp.pdf"):
+            temp_path.unlink(missing_ok=True)
 
     def source_preview_url(self, source_file_id: str) -> str | None:
         try:
@@ -506,6 +605,138 @@ class ImportStagingService:
             )
             return None
 
+    def enhance_source_scan(self, source_file_id: str) -> dict[str, object] | None:
+        source_id = str(source_file_id or "").strip()
+        if not source_id:
+            return None
+
+        runtime_settings = self.settings_service.get_settings().model_dump(mode="json")
+        ocr_settings = runtime_settings.get("ocr", {}) if isinstance(runtime_settings, dict) else {}
+        mode = normalize_scan_cleanup_mode(ocr_settings.get("scan_cleanup"))
+        if mode not in {"white", "bw"}:
+            return None
+        try:
+            dpi_target = max(300, int(ocr_settings.get("dpi_target") or 300))
+        except (TypeError, ValueError):
+            dpi_target = 300
+
+        cleanup_started = now_perf()
+        source_path = self._source_pdf_path(source_id)
+        if not source_path.exists() or not source_path.is_file():
+            return self._write_source_scan_cleanup(
+                source_id,
+                status="failed",
+                mode=mode,
+                message="source_missing",
+                duration_ms=elapsed_ms(cleanup_started),
+            )
+
+        initial_signature = self._source_file_signature(source_path)
+        if initial_signature is None:
+            return self._write_source_scan_cleanup(
+                source_id,
+                status="failed",
+                mode=mode,
+                message="source_unreadable",
+                duration_ms=elapsed_ms(cleanup_started),
+            )
+
+        started_at = self._utc_timestamp()
+        self._write_source_scan_cleanup(
+            source_id,
+            status="running",
+            mode=mode,
+            started_at=started_at,
+            source_signature=initial_signature,
+        )
+        candidate_path = source_path.with_name(f"{source_path.stem}.scan-cleanup.{uuid.uuid4().hex}.tmp.pdf")
+        produced_path: Path | None = None
+        try:
+            produced_path = build_cleaned_scan_pdf(
+                source_path,
+                candidate_path,
+                mode=mode,
+                dpi_target=dpi_target,
+            )
+            if produced_path is None or not produced_path.exists():
+                return self._write_source_scan_cleanup(
+                    source_id,
+                    status="failed",
+                    mode=mode,
+                    started_at=started_at,
+                    message="cleanup_unavailable",
+                    duration_ms=elapsed_ms(cleanup_started),
+                )
+
+            current_signature = self._source_file_signature(source_path)
+            if current_signature != initial_signature:
+                produced_path.unlink(missing_ok=True)
+                return self._write_source_scan_cleanup(
+                    source_id,
+                    status="stale",
+                    mode=mode,
+                    started_at=started_at,
+                    message="source_changed",
+                    source_signature=current_signature or {},
+                    duration_ms=elapsed_ms(cleanup_started),
+                )
+
+            raw_path = self._source_raw_pdf_path(source_id)
+            if not raw_path.exists():
+                raw_temp_path = raw_path.with_name(f"{raw_path.name}.{uuid.uuid4().hex}.tmp")
+                try:
+                    shutil.copy2(source_path, raw_temp_path)
+                    os.replace(raw_temp_path, raw_path)
+                except OSError:
+                    raw_temp_path.unlink(missing_ok=True)
+                    raise
+
+            os.replace(produced_path, source_path)
+            produced_path = None
+            self._source_preview_path(source_id).unlink(missing_ok=True)
+            self._delete_source_analyses(source_id)
+            final_signature = self._source_file_signature(source_path) or {}
+            revision = str(final_signature.get("mtime_ns") or uuid.uuid4())
+            result = self._write_source_scan_cleanup(
+                source_id,
+                status="ready",
+                mode=mode,
+                started_at=started_at,
+                completed_at=self._utc_timestamp(),
+                duration_ms=elapsed_ms(cleanup_started),
+                revision=revision,
+                source_signature=final_signature,
+            )
+            logger.info(
+                "import source scan cleanup applied source_file_id=%s mode=%s dpi=%s duration_ms=%s",
+                source_id,
+                mode,
+                dpi_target,
+                result.get("duration_ms"),
+            )
+            log_import_timing(
+                "source_scan_cleanup_ready",
+                source_file_id=source_id,
+                mode=mode,
+                dpi=dpi_target,
+                duration_ms=result.get("duration_ms"),
+            )
+            return result
+        except Exception as exc:  # noqa: BLE001 - Staging bleibt mit Rohscan nutzbar
+            logger.warning("import source scan cleanup failed source_file_id=%s err=%s", source_id, exc)
+            return self._write_source_scan_cleanup(
+                source_id,
+                status="failed",
+                mode=mode,
+                started_at=started_at,
+                message=str(exc)[:300],
+                duration_ms=elapsed_ms(cleanup_started),
+            )
+        finally:
+            if produced_path is not None:
+                produced_path.unlink(missing_ok=True)
+            candidate_path.unlink(missing_ok=True)
+
     def _safe_document_filename(self, title: str) -> str:
         normalized = " ".join(str(title or "").split()).strip()
         if not normalized:
@@ -551,6 +782,7 @@ class ImportStagingService:
                     original_name=original_name,
                     page_count=page_count,
                     preview_url=self.source_preview_url(source_file_id),
+                    scan_cleanup=self.get_source_scan_cleanup_response(source_file_id),
                 )
             )
 
@@ -2329,6 +2561,24 @@ class ImportStagingService:
 
         return assembled_path, len(writer.pages)
 
+    def _scan_cleanup_mode_for_committed_pages(self, pages: list) -> str | None:
+        source_ids = {str(page.source_file_id or "").strip() for page in pages}
+        source_ids.discard("")
+        if not source_ids:
+            return None
+        modes: set[str] = set()
+        for source_file_id in source_ids:
+            payload = self._read_source_scan_cleanup(source_file_id)
+            if not isinstance(payload, dict) or str(payload.get("status") or "") != "ready":
+                return None
+            mode = normalize_scan_cleanup_mode(payload.get("mode"))
+            if mode not in {"white", "bw"}:
+                return None
+            modes.add(mode)
+        if len(modes) == 1:
+            return next(iter(modes))
+        return "mixed"
+
     def _cleanup_source_files(self, source_file_ids: set[str]) -> None:
         for source_file_id in source_file_ids:
             try:
@@ -2339,6 +2589,7 @@ class ImportStagingService:
             source_path.unlink(missing_ok=True)
             preview_path.unlink(missing_ok=True)
             self._delete_source_analyses(source_file_id)
+            self._delete_source_scan_cleanup_artifacts(source_file_id)
 
     def delete_source_file(self, source_file_id: str) -> None:
         source_path = self._source_pdf_path(source_file_id)
@@ -2347,6 +2598,7 @@ class ImportStagingService:
             source_path.unlink(missing_ok=True)
             preview_path.unlink(missing_ok=True)
             self._delete_source_analyses(source_file_id)
+            self._delete_source_scan_cleanup_artifacts(source_file_id)
         except OSError as exc:
             raise StorageError("Could not delete staged source PDF") from exc
 
@@ -2388,6 +2640,7 @@ class ImportStagingService:
             os.replace(temp_path, source_path)
             self._source_preview_path(source_file_id).unlink(missing_ok=True)
             self._delete_source_analyses(source_file_id)
+            self._delete_source_scan_cleanup_artifacts(source_file_id)
         except Exception as exc:
             temp_path.unlink(missing_ok=True)
             raise StorageError("Could not update staged source PDF") from exc
@@ -2458,12 +2711,16 @@ class ImportStagingService:
             assembled_path: Path | None = None
             upload_file: _LocalPdfUpload | None = None
             try:
+                scan_cleanup_mode = self._scan_cleanup_mode_for_committed_pages(staging_doc.pages)
                 assembled_path, assembled_page_count = self._build_document_pdf(title, staging_doc.pages, reader_cache)
                 upload_file = _LocalPdfUpload(self._safe_document_filename(title), assembled_path)
                 created_doc = self.document_service.upload_document(
                     upload_file,
                     document_date=staging_doc.date,
                     notes=staging_doc.note,
+                    queue_processing=bool(payload.options.auto_ocr),
+                    scan_cleanup_applied=scan_cleanup_mode is not None,
+                    scan_cleanup_mode=scan_cleanup_mode,
                 )
                 if staging_doc.document_type or staging_doc.correspondent_id is not None:
                     if staging_doc.document_type:

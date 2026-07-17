@@ -34,6 +34,23 @@ function normalizeAnalysisPayload(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
 }
 
+function normalizeScanCleanupPayload(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const status = String(value.status || '').trim();
+  if (!status) {
+    return null;
+  }
+  return {
+    ...value,
+    status,
+    mode: String(value.mode || '').trim(),
+    updated_at: String(value.updated_at || '').trim(),
+    revision: String(value.revision || '').trim()
+  };
+}
+
 function createDocument({ title, sourceType = 'manual', pages = [], collapsed = false, tags = [] } = {}) {
   const id = makeId('staging-doc');
   const normalizedPages = pages.map((page) => ({
@@ -190,7 +207,8 @@ export const useImportStagingStore = defineStore('importStaging', {
         originalName: String(meta.originalName || file?.name || '').trim(),
         pageCount: Number(meta.pageCount || 0),
         isImportInbox: Boolean(meta.isImportInbox),
-        analysis: normalizeAnalysisPayload(meta.analysis)
+        analysis: normalizeAnalysisPayload(meta.analysis),
+        scanCleanup: normalizeScanCleanupPayload(meta.scanCleanup || meta.scan_cleanup)
       });
     },
 
@@ -206,6 +224,21 @@ export const useImportStagingStore = defineStore('importStaging', {
       this.sourceMetaById.set(normalizedId, {
         ...existing,
         analysis: normalizeAnalysisPayload(analysis)
+      });
+    },
+
+    setSourceScanCleanup(sourceFileId, scanCleanup) {
+      const normalizedId = String(sourceFileId || '').trim();
+      if (!normalizedId) {
+        return;
+      }
+      const existing = this.sourceMetaById.get(normalizedId);
+      if (!existing) {
+        return;
+      }
+      this.sourceMetaById.set(normalizedId, {
+        ...existing,
+        scanCleanup: normalizeScanCleanupPayload(scanCleanup)
       });
     },
 

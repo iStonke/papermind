@@ -184,6 +184,13 @@
                 >
                   <v-icon v-if="isPageMultiSelected(page.id)" size="14">mdi-check</v-icon>
                 </div>
+                <div
+                  v-if="isPageScanCleanupRunning(page)"
+                  class="isd-page-enhancement-indicator"
+                  title="Seitenverbesserung läuft"
+                >
+                  <v-progress-circular indeterminate size="16" width="2" color="primary" />
+                </div>
               </div>
               <div class="isd-page-num">{{ globalIndex + 1 }}</div>
             </div>
@@ -2426,6 +2433,44 @@ function remotePreviewThumbUrls(source, pageCount) {
   return thumbs;
 }
 
+function normalizeRemoteScanCleanup(source) {
+  const payload = source?.scan_cleanup;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return null;
+  }
+  const status = String(payload.status || '').trim();
+  if (!status) {
+    return null;
+  }
+  return {
+    ...payload,
+    status,
+    mode: String(payload.mode || '').trim(),
+    updated_at: String(payload.updated_at || '').trim(),
+    revision: String(payload.revision || '').trim()
+  };
+}
+
+function scanCleanupKey(cleanup) {
+  if (!cleanup || typeof cleanup !== 'object') {
+    return '';
+  }
+  return [
+    String(cleanup.status || ''),
+    String(cleanup.mode || ''),
+    String(cleanup.revision || ''),
+    String(cleanup.updated_at || '')
+  ].join('|');
+}
+
+function isScanCleanupReady(cleanup) {
+  return String(cleanup?.status || '').trim() === 'ready';
+}
+
+function shouldRefreshForScanCleanup(previousCleanup, nextCleanup) {
+  return isScanCleanupReady(nextCleanup) && scanCleanupKey(previousCleanup) !== scanCleanupKey(nextCleanup);
+}
+
 function upgradeRemoteSourceFile(sourceFileId, originalName, pageCount, { hadFastPreview = false } = {}) {
   const normalized = String(sourceFileId || '').trim();
   if (!normalized || remoteSourceUpgradeInFlight.has(normalized)) {
@@ -2447,10 +2492,13 @@ function upgradeRemoteSourceFile(sourceFileId, originalName, pageCount, { hadFas
       if (!usedSourceIds.has(normalized)) {
         return;
       }
+      const currentMeta = stagingStore.sourceMetaById?.get?.(normalized);
       stagingStore.setStagingFile(normalized, stagingFile, {
         originalName: originalName || stagingFile.name,
         pageCount: Number(pageCount || 0),
-        isImportInbox: true
+        isImportInbox: true,
+        analysis: currentMeta?.analysis,
+        scanCleanup: currentMeta?.scanCleanup
       });
       if (thumbUrls.some((url) => String(url || '').trim())) {
         stagingStore.updateSourceThumbnails(normalized, thumbUrls);
@@ -2752,6 +2800,7 @@ async function addFilesToStaging(candidates, options = {}) {
 // dieselbe Seite (und ggf. ein zweites Scan-Dokument) doppelt an.
 let remoteSourcesChain = Promise.resolve();
 const remoteSourceUpgradeInFlight = new Set();
+const remoteSourceRefreshInFlight = new Set();
 
 function addRemoteSources(payload = []) {
   const run = remoteSourcesChain.then(() => addRemoteSourcesImpl(payload));
@@ -2815,7 +2864,15 @@ async function addRemoteSourcesImpl(payload = []) {
     }
     rememberImportSourceTiming(source);
     if (stagingStore.sourceMetaById?.has?.(sourceFileId)) {
+      const previousCleanup = stagingStore.sourceMetaById?.get?.(sourceFileId)?.scanCleanup || null;
+      const nextCleanup = normalizeRemoteScanCleanup(source);
+      if (typeof stagingStore.setSourceScanCleanup === 'function') {
+        stagingStore.setSourceScanCleanup(sourceFileId, nextCleanup);
+      }
       await applySourceAnalysisToExistingStages(sourceFileId, source?.analysis);
+      if (shouldRefreshForScanCleanup(previousCleanup, nextCleanup)) {
+        await refreshImportInboxSourceFile(sourceFileId, pageCount, { scanCleanup: nextCleanup });
+      }
       continue;
     }
 
@@ -2834,7 +2891,8 @@ async function addRemoteSourcesImpl(payload = []) {
       originalName,
       pageCount,
       isImportInbox: true,
-      analysis: source?.analysis
+      analysis: source?.analysis,
+      scanCleanup: normalizeRemoteScanCleanup(source)
     });
     const targetStageId = String(source?.target_stage_id || '').trim() || sessionStageId;
     if (targetStageId && documents.value.some((entry) => entry.id === targetStageId)) {
@@ -3858,6 +3916,14 @@ function isImportInboxSourceFile(sourceFileId) {
   return Boolean(normalized && stagingStore.sourceMetaById?.get?.(normalized)?.isImportInbox);
 }
 
+function isPageScanCleanupRunning(pageEntry) {
+  const normalized = normalizeSourceFileId(pageEntry?.sourceFileId);
+  if (!normalized) {
+    return false;
+  }
+  return String(stagingStore.sourceMetaById?.get?.(normalized)?.scanCleanup?.status || '') === 'running';
+}
+
 function clearPreviewCacheForSource(sourceFileId) {
   const normalized = normalizeSourceFileId(sourceFileId);
   if (!normalized) {
@@ -3870,24 +3936,32 @@ function clearPreviewCacheForSource(sourceFileId) {
   }
 }
 
-async function refreshImportInboxSourceFile(sourceFileId, pageCount) {
+async function refreshImportInboxSourceFile(sourceFileId, pageCount, metaPatch = {}) {
   const normalized = normalizeSourceFileId(sourceFileId);
   const sourceMeta = stagingStore.sourceMetaById?.get?.(normalized);
-  if (!normalized || !sourceMeta) {
+  if (!normalized || !sourceMeta || remoteSourceRefreshInFlight.has(normalized)) {
     return;
   }
+  remoteSourceRefreshInFlight.add(normalized);
   try {
     const refreshedFile = await downloadStagingSourceFile(normalized, sourceMeta.originalName || '');
     const thumbUrls = await renderPdfThumbnails(refreshedFile, Number(pageCount || sourceMeta.pageCount || 0));
+    const nextScanCleanup = Object.prototype.hasOwnProperty.call(metaPatch, 'scanCleanup')
+      ? metaPatch.scanCleanup
+      : sourceMeta.scanCleanup;
     stagingStore.setStagingFile(normalized, refreshedFile, {
       originalName: sourceMeta.originalName || refreshedFile.name,
       pageCount: Number(pageCount || sourceMeta.pageCount || 0),
-      isImportInbox: true
+      isImportInbox: true,
+      analysis: sourceMeta.analysis,
+      scanCleanup: nextScanCleanup
     });
     stagingStore.updateSourceThumbnails(normalized, thumbUrls);
     clearPreviewCacheForSource(normalized);
   } catch {
     // The existing thumbnails are still usable; the backend source is already updated.
+  } finally {
+    remoteSourceRefreshInFlight.delete(normalized);
   }
 }
 
@@ -5617,6 +5691,20 @@ onBeforeUnmount(() => {
   background: rgb(var(--v-theme-primary));
   border-color: rgb(var(--v-theme-primary));
   color: #fff;
+}
+
+.isd-page-enhancement-indicator {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: rgb(var(--v-theme-surface));
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.16);
 }
 
 
