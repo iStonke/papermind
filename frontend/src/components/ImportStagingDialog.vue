@@ -2467,8 +2467,28 @@ function isScanCleanupReady(cleanup) {
   return String(cleanup?.status || '').trim() === 'ready';
 }
 
-function shouldRefreshForScanCleanup(previousCleanup, nextCleanup) {
-  return isScanCleanupReady(nextCleanup) && scanCleanupKey(previousCleanup) !== scanCleanupKey(nextCleanup);
+// Erst nach einem erfolgreich durchgelaufenen Refresh gilt eine Bereinigung als
+// im Dialog angekommen. Der Status allein reicht nicht: schlägt der Download
+// fehl oder läuft gerade einer, käme sonst nie ein zweiter Versuch, weil der
+// Status sich nicht mehr ändert.
+const appliedScanCleanupKeys = new Map();
+
+function shouldRefreshForScanCleanup(sourceFileId, nextCleanup) {
+  if (!isScanCleanupReady(nextCleanup)) {
+    return false;
+  }
+  return appliedScanCleanupKeys.get(String(sourceFileId || '').trim()) !== scanCleanupKey(nextCleanup);
+}
+
+function markScanCleanupApplied(sourceFileId, cleanup) {
+  const normalized = String(sourceFileId || '').trim();
+  if (normalized) {
+    appliedScanCleanupKeys.set(normalized, scanCleanupKey(cleanup));
+  }
+}
+
+function forgetScanCleanupApplied(sourceFileId) {
+  appliedScanCleanupKeys.delete(String(sourceFileId || '').trim());
 }
 
 function upgradeRemoteSourceFile(sourceFileId, originalName, pageCount, { hadFastPreview = false } = {}) {
@@ -2477,6 +2497,7 @@ function upgradeRemoteSourceFile(sourceFileId, originalName, pageCount, { hadFas
     return;
   }
   remoteSourceUpgradeInFlight.add(normalized);
+  const cleanupKeyBeforeDownload = scanCleanupKey(stagingStore.sourceMetaById?.get?.(normalized)?.scanCleanup);
   void (async () => {
     try {
       const stagingFile = await downloadStagingSourceFile(normalized, originalName);
@@ -2493,6 +2514,13 @@ function upgradeRemoteSourceFile(sourceFileId, originalName, pageCount, { hadFas
         return;
       }
       const currentMeta = stagingStore.sourceMetaById?.get?.(normalized);
+      // Während des Downloads kann die Bereinigung fertig geworden sein. Dann
+      // hält diese Datei noch den Rohscan und darf die bereinigte Fassung nicht
+      // überschreiben - der Refresh-Pfad lädt sie ohnehin neu.
+      if (scanCleanupKey(currentMeta?.scanCleanup) !== cleanupKeyBeforeDownload) {
+        forgetScanCleanupApplied(normalized);
+        return;
+      }
       stagingStore.setStagingFile(normalized, stagingFile, {
         originalName: originalName || stagingFile.name,
         pageCount: Number(pageCount || 0),
@@ -2864,13 +2892,12 @@ async function addRemoteSourcesImpl(payload = []) {
     }
     rememberImportSourceTiming(source);
     if (stagingStore.sourceMetaById?.has?.(sourceFileId)) {
-      const previousCleanup = stagingStore.sourceMetaById?.get?.(sourceFileId)?.scanCleanup || null;
       const nextCleanup = normalizeRemoteScanCleanup(source);
       if (typeof stagingStore.setSourceScanCleanup === 'function') {
         stagingStore.setSourceScanCleanup(sourceFileId, nextCleanup);
       }
       await applySourceAnalysisToExistingStages(sourceFileId, source?.analysis);
-      if (shouldRefreshForScanCleanup(previousCleanup, nextCleanup)) {
+      if (shouldRefreshForScanCleanup(sourceFileId, nextCleanup)) {
         await refreshImportInboxSourceFile(sourceFileId, pageCount, { scanCleanup: nextCleanup });
       }
       continue;
@@ -3921,7 +3948,8 @@ function isPageScanCleanupRunning(pageEntry) {
   if (!normalized) {
     return false;
   }
-  return String(stagingStore.sourceMetaById?.get?.(normalized)?.scanCleanup?.status || '') === 'running';
+  const status = String(stagingStore.sourceMetaById?.get?.(normalized)?.scanCleanup?.status || '');
+  return status === 'pending' || status === 'running';
 }
 
 function clearPreviewCacheForSource(sourceFileId) {
@@ -3958,8 +3986,12 @@ async function refreshImportInboxSourceFile(sourceFileId, pageCount, metaPatch =
     });
     stagingStore.updateSourceThumbnails(normalized, thumbUrls);
     clearPreviewCacheForSource(normalized);
+    if (isScanCleanupReady(nextScanCleanup)) {
+      markScanCleanupApplied(normalized, nextScanCleanup);
+    }
   } catch {
-    // The existing thumbnails are still usable; the backend source is already updated.
+    // Die bisherigen Thumbnails bleiben nutzbar. Der Versuch wird nicht als
+    // erledigt vermerkt, damit der nächste Inbox-Push ihn wiederholt.
   } finally {
     remoteSourceRefreshInFlight.delete(normalized);
   }

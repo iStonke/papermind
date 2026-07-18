@@ -514,6 +514,11 @@ def _enhance_scanner_import_sources(source_file_ids: list[str], owner_id: uuid.U
     try:
         with SessionLocal() as db:
             service = ImportStagingService(db, owner_id)
+            # Erst die ganze Charge als wartend markieren, damit im Importfenster
+            # sofort auf allen Karten der Spinner steht - nicht erst, wenn die
+            # jeweilige Seite an der Reihe ist.
+            if not service.mark_scan_cleanup_pending(source_file_ids):
+                return
             for source_file_id in source_file_ids:
                 service.enhance_source_scan(source_file_id)
         log_import_timing(

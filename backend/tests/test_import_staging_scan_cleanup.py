@@ -3,6 +3,8 @@ import unittest
 import uuid
 from types import SimpleNamespace
 
+from PIL import Image
+
 from app.services import import_staging
 from app.services.import_staging import ImportStagingService
 
@@ -53,6 +55,48 @@ class ImportStagingScanCleanupTest(unittest.TestCase):
 
         self.service._write_source_scan_cleanup(second_source_id, status="ready", mode="white")
         self.assertEqual(self.service._scan_cleanup_mode_for_committed_pages(pages), "mixed")
+
+    def test_mark_pending_only_when_cleanup_enabled(self) -> None:
+        source_ids = [str(uuid.uuid4()) for _ in range(2)]
+
+        self.service._scan_cleanup_settings = lambda: ("bw", 300)
+        self.assertTrue(self.service.mark_scan_cleanup_pending(source_ids))
+        for source_id in source_ids:
+            self.assertEqual(self.service.get_source_scan_cleanup_response(source_id)["status"], "pending")
+
+        # Bereinigung aus: kein Status, sonst bliebe im Dialog ein Spinner stehen.
+        disabled_id = str(uuid.uuid4())
+        self.service._scan_cleanup_settings = lambda: (None, 300)
+        self.assertFalse(self.service.mark_scan_cleanup_pending([disabled_id]))
+        self.assertIsNone(self.service.get_source_scan_cleanup_response(disabled_id))
+
+    def test_regenerate_source_preview_writes_png(self) -> None:
+        source_file_id = str(uuid.uuid4())
+        source_path = self.service._source_pdf_path(source_file_id)
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (600, 850), (255, 255, 255)).save(source_path, format="PDF", resolution=300.0)
+
+        self.service._regenerate_source_preview(source_file_id, source_path)
+
+        preview_path = self.service._source_preview_path(source_file_id)
+        self.assertTrue(preview_path.exists())
+        with Image.open(preview_path) as preview:
+            self.assertEqual(preview.format, "PNG")
+            self.assertLessEqual(max(preview.size), import_staging._STAGING_PREVIEW_MAX_LONG_EDGE)
+        self.assertFalse(any(preview_path.parent.glob(f"{preview_path.name}.*.tmp")))
+
+    def test_regenerate_source_preview_drops_stale_png_on_failure(self) -> None:
+        source_file_id = str(uuid.uuid4())
+        source_path = self.service._source_pdf_path(source_file_id)
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        source_path.write_bytes(b"not a pdf")
+        preview_path = self.service._source_preview_path(source_file_id)
+        preview_path.write_bytes(b"stale raw preview")
+
+        self.service._regenerate_source_preview(source_file_id, source_path)
+
+        # Lieber gar keine Vorschau als die des Rohscans.
+        self.assertFalse(preview_path.exists())
 
     def test_delete_scan_cleanup_artifacts(self) -> None:
         source_file_id = str(uuid.uuid4())

@@ -258,6 +258,44 @@ def build_cleaned_scan_pdf(
     )
 
 
+def render_pdf_page_preview(
+    pdf_path: Path,
+    output_path: Path,
+    *,
+    max_long_edge: int,
+    page_index: int = 0,
+) -> Path | None:
+    """Rendert eine PDF-Seite als PNG-Vorschau.
+
+    Wird nach der Scan-Bereinigung gebraucht: die vom Host gelieferte Vorschau
+    zeigt noch den Rohscan und muss durch die bereinigte Seite ersetzt werden.
+    """
+    try:
+        pdf_doc = pdfium.PdfDocument(str(pdf_path))
+    except Exception as exc:  # noqa: BLE001 - Vorschau ist optional
+        logger.warning("preview render: input unreadable: %s", exc)
+        return None
+
+    if len(pdf_doc) <= page_index:
+        return None
+
+    try:
+        page = pdf_doc[page_index]
+        long_edge_pt = max(float(page.get_width()), float(page.get_height())) or 1.0
+        scale = max(0.1, min(4.0, float(max_long_edge) / long_edge_pt))
+        image = page.render(scale=scale).to_pil()
+        if image.mode not in {"RGB", "L"}:
+            image = image.convert("RGB")
+        image.thumbnail((max_long_edge, max_long_edge))
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        image.save(output_path, format="PNG", optimize=True)
+    except Exception as exc:  # noqa: BLE001 - Vorschau ist optional
+        logger.warning("preview render failed path=%s err=%s", pdf_path, exc)
+        output_path.unlink(missing_ok=True)
+        return None
+    return output_path
+
+
 def _deskew_cv_image(gray_image: Any) -> Any:
     if cv2 is None or np is None:
         return gray_image

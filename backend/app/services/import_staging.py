@@ -37,7 +37,13 @@ from app.services.document_types import (
 from app.services.documents import ALLOWED_PDF_CONTENT_TYPES, DocumentService
 from app.services.import_timing import elapsed_ms, log_import_timing, now_perf
 from app.services.naming_templates import NamingTemplateService, build_legacy_filename_from_meta
-from app.services.ocr_pipeline import build_cleaned_scan_pdf, normalize_scan_cleanup_mode, run_ocr_lite, run_ocr_pipeline
+from app.services.ocr_pipeline import (
+    build_cleaned_scan_pdf,
+    normalize_scan_cleanup_mode,
+    render_pdf_page_preview,
+    run_ocr_lite,
+    run_ocr_pipeline,
+)
 from app.services.retention import DocumentRetentionService, evaluate_retention_suggestion
 from app.services.settings import SettingsService
 
@@ -471,6 +477,30 @@ class ImportStagingService:
         for temp_path in source_path.parent.glob(f"{source_path.stem}.scan-cleanup.*.tmp.pdf"):
             temp_path.unlink(missing_ok=True)
 
+    def _regenerate_source_preview(self, source_file_id: str, source_path: Path) -> None:
+        """Vorschau-PNG aus der bereinigten PDF neu rendern.
+
+        Das vom Host gelieferte PNG zeigt den Rohscan. Würde es nur gelöscht,
+        bliebe preview_url dauerhaft leer und die Karte im Importfenster hätte
+        bis zum fertigen Client-Rendering kein Bild mehr.
+        """
+        destination = self._source_preview_path(source_file_id)
+        temp_path = destination.with_name(f"{destination.name}.{uuid.uuid4().hex}.tmp")
+        rendered = render_pdf_page_preview(
+            source_path,
+            temp_path,
+            max_long_edge=_STAGING_PREVIEW_MAX_LONG_EDGE,
+        )
+        if rendered is None:
+            temp_path.unlink(missing_ok=True)
+            destination.unlink(missing_ok=True)
+            return
+        try:
+            os.replace(temp_path, destination)
+        except OSError as exc:
+            temp_path.unlink(missing_ok=True)
+            logger.warning("import source preview refresh failed source_file_id=%s err=%s", source_file_id, exc)
+
     def source_preview_url(self, source_file_id: str) -> str | None:
         try:
             preview_path = self._source_preview_path(source_file_id)
@@ -605,20 +635,41 @@ class ImportStagingService:
             )
             return None
 
+    def _scan_cleanup_settings(self) -> tuple[str | None, int]:
+        runtime_settings = self.settings_service.get_settings().model_dump(mode="json")
+        ocr_settings = runtime_settings.get("ocr", {}) if isinstance(runtime_settings, dict) else {}
+        mode = normalize_scan_cleanup_mode(ocr_settings.get("scan_cleanup"))
+        try:
+            dpi_target = max(300, int(ocr_settings.get("dpi_target") or 300))
+        except (TypeError, ValueError):
+            dpi_target = 300
+        return (mode if mode in {"white", "bw"} else None), dpi_target
+
+    def mark_scan_cleanup_pending(self, source_file_ids: list[str]) -> bool:
+        """Wartende Quellen sofort als "pending" markieren.
+
+        Ohne das bekäme bei einer Charge nur die gerade laufende Quelle einen
+        Status - die übrigen Karten zeigen bis zu ihrem eigenen Durchlauf keinen
+        Spinner, obwohl die Bereinigung für sie bereits eingeplant ist.
+        """
+        mode, _ = self._scan_cleanup_settings()
+        if mode is None:
+            return False
+        for source_file_id in source_file_ids:
+            source_id = str(source_file_id or "").strip()
+            if not source_id:
+                continue
+            self._write_source_scan_cleanup(source_id, status="pending", mode=mode)
+        return True
+
     def enhance_source_scan(self, source_file_id: str) -> dict[str, object] | None:
         source_id = str(source_file_id or "").strip()
         if not source_id:
             return None
 
-        runtime_settings = self.settings_service.get_settings().model_dump(mode="json")
-        ocr_settings = runtime_settings.get("ocr", {}) if isinstance(runtime_settings, dict) else {}
-        mode = normalize_scan_cleanup_mode(ocr_settings.get("scan_cleanup"))
-        if mode not in {"white", "bw"}:
+        mode, dpi_target = self._scan_cleanup_settings()
+        if mode is None:
             return None
-        try:
-            dpi_target = max(300, int(ocr_settings.get("dpi_target") or 300))
-        except (TypeError, ValueError):
-            dpi_target = 300
 
         cleanup_started = now_perf()
         source_path = self._source_pdf_path(source_id)
@@ -693,7 +744,7 @@ class ImportStagingService:
 
             os.replace(produced_path, source_path)
             produced_path = None
-            self._source_preview_path(source_id).unlink(missing_ok=True)
+            self._regenerate_source_preview(source_id, source_path)
             self._delete_source_analyses(source_id)
             final_signature = self._source_file_signature(source_path) or {}
             revision = str(final_signature.get("mtime_ns") or uuid.uuid4())
