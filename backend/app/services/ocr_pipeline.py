@@ -182,9 +182,21 @@ def _clean_scan_image(image: Image.Image, mode: str) -> Image.Image:
         out = np.clip((out - 12.0) / (243.0 - 12.0) * 255.0, 0, 255)
         return Image.fromarray(out.astype(np.uint8), "RGB")
 
-    # bw: Graustufen + festerer Kontrast-Stretch → richtig weiß, sattes Schwarz.
+    # bw: Graustufen + Kontrast-Stretch → richtig weiß, sattes Schwarz.
     gray = cv2.cvtColor(out.astype(np.uint8), cv2.COLOR_RGB2GRAY).astype(np.float32)
-    gray = np.clip((gray - 32.0) / (200.0 - 32.0) * 255.0, 0, 255)
+
+    # Der Schwarzpunkt richtet sich nach der tatsächlichen Tinte der Seite.
+    # Ein fester Wert passt nur zu sehr kräftigen Vorlagen; blasse Schrift bleibt
+    # sonst grau, weil sie oberhalb der Schwelle landet und der Stretch sie sogar
+    # noch aufhellt. Das Perzentil trifft die Strichkerne (Textdeckung einer
+    # normalen Seite liegt deutlich darüber), die Grenzen fangen leere Seiten
+    # und bildlastige Vorlagen ab.
+    black_point = float(np.clip(np.percentile(gray, 2.0), 24.0, 150.0))
+    white_point = 200.0
+    if white_point - black_point < 60.0:
+        white_point = black_point + 60.0
+
+    gray = np.clip((gray - black_point) / (white_point - black_point) * 255.0, 0, 255)
     return Image.fromarray(gray.astype(np.uint8), "L")
 
 
