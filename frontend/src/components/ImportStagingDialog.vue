@@ -2828,7 +2828,7 @@ async function addFilesToStaging(candidates, options = {}) {
 // dieselbe Seite (und ggf. ein zweites Scan-Dokument) doppelt an.
 let remoteSourcesChain = Promise.resolve();
 const remoteSourceUpgradeInFlight = new Set();
-const remoteSourceRefreshInFlight = new Set();
+const remoteSourceRefreshInFlight = new Map();
 
 function addRemoteSources(payload = []) {
   const run = remoteSourcesChain.then(() => addRemoteSourcesImpl(payload));
@@ -2898,7 +2898,10 @@ async function addRemoteSourcesImpl(payload = []) {
       }
       await applySourceAnalysisToExistingStages(sourceFileId, source?.analysis);
       if (shouldRefreshForScanCleanup(sourceFileId, nextCleanup)) {
-        await refreshImportInboxSourceFile(sourceFileId, pageCount, { scanCleanup: nextCleanup });
+        // Bewusst nicht abgewartet: ein langsamer Download/Render darf die
+        // Verarbeitung der uebrigen Quellen (und damit deren Spinner-Status)
+        // nicht aufhalten.
+        void refreshImportInboxSourceFile(sourceFileId, pageCount, { scanCleanup: nextCleanup });
       }
       continue;
     }
@@ -3967,34 +3970,45 @@ function clearPreviewCacheForSource(sourceFileId) {
 async function refreshImportInboxSourceFile(sourceFileId, pageCount, metaPatch = {}) {
   const normalized = normalizeSourceFileId(sourceFileId);
   const sourceMeta = stagingStore.sourceMetaById?.get?.(normalized);
-  if (!normalized || !sourceMeta || remoteSourceRefreshInFlight.has(normalized)) {
+  if (!normalized || !sourceMeta) {
     return;
   }
-  remoteSourceRefreshInFlight.add(normalized);
-  try {
-    const refreshedFile = await downloadStagingSourceFile(normalized, sourceMeta.originalName || '');
-    const thumbUrls = await renderPdfThumbnails(refreshedFile, Number(pageCount || sourceMeta.pageCount || 0));
-    const nextScanCleanup = Object.prototype.hasOwnProperty.call(metaPatch, 'scanCleanup')
-      ? metaPatch.scanCleanup
-      : sourceMeta.scanCleanup;
-    stagingStore.setStagingFile(normalized, refreshedFile, {
-      originalName: sourceMeta.originalName || refreshedFile.name,
-      pageCount: Number(pageCount || sourceMeta.pageCount || 0),
-      isImportInbox: true,
-      analysis: sourceMeta.analysis,
-      scanCleanup: nextScanCleanup
-    });
-    stagingStore.updateSourceThumbnails(normalized, thumbUrls);
-    clearPreviewCacheForSource(normalized);
-    if (isScanCleanupReady(nextScanCleanup)) {
-      markScanCleanupApplied(normalized, nextScanCleanup);
-    }
-  } catch {
-    // Die bisherigen Thumbnails bleiben nutzbar. Der Versuch wird nicht als
-    // erledigt vermerkt, damit der nächste Inbox-Push ihn wiederholt.
-  } finally {
-    remoteSourceRefreshInFlight.delete(normalized);
+  // Pro Quelle darf immer nur ein Refresh laufen. Zwei parallele Laeufe laden
+  // die Datei zu unterschiedlichen Zeitpunkten; straddelt einer das serverseitige
+  // Ersetzen, haelt er noch den Rohscan und ueberschreibt als letzter Schreiber
+  // die bereits bereinigte Vorschau.
+  const running = remoteSourceRefreshInFlight.get(normalized);
+  if (running) {
+    return running;
   }
+  const task = (async () => {
+    try {
+      const refreshedFile = await downloadStagingSourceFile(normalized, sourceMeta.originalName || '');
+      const thumbUrls = await renderPdfThumbnails(refreshedFile, Number(pageCount || sourceMeta.pageCount || 0));
+      const nextScanCleanup = Object.prototype.hasOwnProperty.call(metaPatch, 'scanCleanup')
+        ? metaPatch.scanCleanup
+        : sourceMeta.scanCleanup;
+      stagingStore.setStagingFile(normalized, refreshedFile, {
+        originalName: sourceMeta.originalName || refreshedFile.name,
+        pageCount: Number(pageCount || sourceMeta.pageCount || 0),
+        isImportInbox: true,
+        analysis: sourceMeta.analysis,
+        scanCleanup: nextScanCleanup
+      });
+      stagingStore.updateSourceThumbnails(normalized, thumbUrls);
+      clearPreviewCacheForSource(normalized);
+      if (isScanCleanupReady(nextScanCleanup)) {
+        markScanCleanupApplied(normalized, nextScanCleanup);
+      }
+    } catch {
+      // Die bisherigen Thumbnails bleiben nutzbar. Der Versuch wird nicht als
+      // erledigt vermerkt, damit der nächste Inbox-Push ihn wiederholt.
+    } finally {
+      remoteSourceRefreshInFlight.delete(normalized);
+    }
+  })();
+  remoteSourceRefreshInFlight.set(normalized, task);
+  return task;
 }
 
 async function removePage(pageId) {
