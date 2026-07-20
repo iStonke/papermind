@@ -92,6 +92,8 @@ class OllamaClassificationTest(unittest.TestCase):
 
         self.assertEqual(payload["format"], "json")
         self.assertFalse(payload["stream"])
+        # keep_alive hält das Modell resident, sonst Reload-Kosten pro Call.
+        self.assertTrue(str(payload["keep_alive"]))
         self.assertIn("JSON-SCHEMA", payload["prompt"])
         self.assertIn("ausschließlich als", payload["prompt"])
 

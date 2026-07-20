@@ -14,6 +14,11 @@ logger = logging.getLogger("papermind.ollama_classification")
 DEFAULT_OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").strip() or "http://localhost:11434"
 DEFAULT_OLLAMA_MODEL = "llama3.2:3b"
 OLLAMA_TIMEOUT_SECONDS = 60.0
+# Hält das Modell nach einem Call im Speicher des Ollama-Hosts. Ohne dies fällt
+# es (Ollama-Default 5 min) zwischen den beiden Analyse-Calls pro Dokument oft
+# aus dem RAM und wird jedes Mal neu geladen – auf schwacher Hardware zweistellige
+# Sekunden pro Call. Per OLLAMA_KEEP_ALIVE override-bar (z. B. "-1" = nie entladen).
+OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "30m").strip() or "30m"
 
 # Fallback-Vokabular, falls keine aktiven Dokumenttypen aus der DB geladen werden
 # können. Die Quelle der Wahrheit ist die Tabelle ``document_types``; diese Liste
@@ -262,6 +267,7 @@ def build_ollama_classification_payload(
         "model": model,
         "stream": False,
         "format": "json",
+        "keep_alive": OLLAMA_KEEP_ALIVE,
         "prompt": (
             "Du klassifizierst OCR-Text aus Dokumenten. Antworte ausschließlich auf Deutsch und ausschließlich als "
             "gültiges JSON-Objekt. Kein Markdown, keine Erklärungen, kein zusätzlicher Text.\n"

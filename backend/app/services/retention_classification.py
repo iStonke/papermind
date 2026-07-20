@@ -20,6 +20,8 @@ logger = logging.getLogger("papermind.retention_classification")
 DEFAULT_OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").strip() or "http://localhost:11434"
 DEFAULT_OLLAMA_MODEL = "llama3.2:3b"
 OLLAMA_TIMEOUT_SECONDS = 60.0
+# Modell zwischen den Calls im Speicher halten – siehe ollama_classification.py.
+OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "30m").strip() or "30m"
 
 _PAPER_ORIGINAL_VALUES = {"unclear", "keep", "scan_sufficient", "not_applicable"}
 
@@ -147,6 +149,7 @@ def build_ollama_retention_payload(
         "model": model,
         "stream": False,
         "format": "json",
+        "keep_alive": OLLAMA_KEEP_ALIVE,
         "prompt": (
             "Du bewertest fuer ein deutsches Dokumentenarchiv, ob das Papieroriginal eines Dokuments "
             "aufbewahrt werden muss oder ein Scan ausreicht, und wie lange es aufbewahrt werden muss. "
