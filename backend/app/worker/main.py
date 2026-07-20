@@ -1584,6 +1584,29 @@ def _log_worker_memory() -> None:
         logger.info("worker memory rss_mb=%s worker_id=%s", rss_mb, WORKER_ID)
 
 
+def _run_scanner_dispatch_loop(stop_event: threading.Event) -> None:
+    """Scanner-Sync und UI-Scan-Befehle in einem eigenen Thread ausliefern.
+
+    Der Haupt-Loop des Workers ist seriell und kann durch OCR, Scan-Bereinigung
+    oder langsame LLM-Voranalysen minutenlang blockieren. Liefe der Scan-Befehl-
+    Dispatch dort mit, käme der Befehl für die nächste Seite erst nach dieser
+    Blockade beim Host an – der Scanner "springt nicht an". Schlimmer: ein Befehl
+    kann in der Zwischenzeit seine Frist (SCAN_COMMAND_EXPIRY_SECONDS) reißen und
+    wird dann als scanner_offline verworfen, obwohl die Hardware bereit war. In
+    einem eigenen Thread werden Befehle dagegen binnen ~0,5 s ausgeliefert,
+    unabhängig von der Last des Haupt-Loops.
+    """
+    logger.info("scanner dispatch loop started interval=%ss", SCANNER_CONFIG_SYNC_INTERVAL_SECONDS)
+    while not stop_event.is_set():
+        try:
+            _sync_scanner_live_mode_config()
+            _sync_scanner_scan_status()
+            _drain_scanner_scan_commands()
+        except Exception:  # noqa: BLE001 - ein transienter Fehler darf den Thread nicht beenden
+            logger.exception("scanner dispatch loop iteration failed")
+        stop_event.wait(SCANNER_CONFIG_SYNC_INTERVAL_SECONDS)
+
+
 def run() -> None:
     logger.info(
         "worker started worker_id=%s poll_interval=%ss lease=%ss heartbeat=%ss storage=%s",
@@ -1595,10 +1618,20 @@ def run() -> None:
     )
     _reclaim_orphaned_jobs()
     _log_worker_memory()
+    # Scanner-Dispatch läuft in einem eigenen Thread, damit UI-ausgelöste Scans
+    # nicht hinter langlaufender OCR/Bereinigung/LLM-Voranalyse im seriellen
+    # Haupt-Loop warten müssen (siehe _run_scanner_dispatch_loop).
+    scanner_dispatch_stop = threading.Event()
+    scanner_dispatch_thread = threading.Thread(
+        target=_run_scanner_dispatch_loop,
+        args=(scanner_dispatch_stop,),
+        name="scanner-dispatch",
+        daemon=True,
+    )
+    scanner_dispatch_thread.start()
     last_trash_cleanup_at = 0.0
     last_ocr_backfill_at = 0.0
     last_backup_check_at = 0.0
-    last_scanner_config_sync_at = 0.0
     last_scanner_job_maintenance_at = 0.0
     last_scanner_job_cleanup_at = 0.0
     last_memory_log_at = time.monotonic()
@@ -1612,12 +1645,6 @@ def run() -> None:
         if now_monotonic - last_memory_log_at >= WORKER_MEMORY_LOG_INTERVAL_SECONDS:
             last_memory_log_at = now_monotonic
             _log_worker_memory()
-
-        if now_monotonic - last_scanner_config_sync_at >= SCANNER_CONFIG_SYNC_INTERVAL_SECONDS:
-            last_scanner_config_sync_at = now_monotonic
-            _sync_scanner_live_mode_config()
-            _sync_scanner_scan_status()
-            _drain_scanner_scan_commands()
 
         if now_monotonic - last_scanner_job_maintenance_at >= SCANNER_JOB_MAINTENANCE_INTERVAL_SECONDS:
             last_scanner_job_maintenance_at = now_monotonic
