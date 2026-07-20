@@ -8,6 +8,7 @@ import threading
 import time
 import uuid
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -539,6 +540,40 @@ def _enhance_scanner_import_sources(source_file_ids: list[str], owner_id: uuid.U
         )
 
 
+# Schwere Nachbearbeitung eines Import-Drops (Scan-Bereinigung + Voranalyse inkl.
+# LLM) läuft außerhalb des seriellen Haupt-Loops. Ein einzelner Worker
+# serialisiert diese Arbeit, hält sie aber vom Ingest-Pfad fern: Ein frisch
+# gescanntes PDF wird dadurch sofort ingestet und erscheint im Importfenster,
+# statt hinter der minutenlangen Analyse der Vorseite zu warten.
+_post_ingest_executor: ThreadPoolExecutor | None = None
+
+
+def _run_post_ingest_work(
+    source_file_ids: list[str],
+    owner_id: uuid.UUID | None,
+    scanner_device_id: uuid.UUID | None,
+) -> None:
+    if scanner_device_id is not None:
+        _enhance_scanner_import_sources(source_file_ids, owner_id)
+    _preanalyze_import_sources(source_file_ids, owner_id)
+
+
+def _submit_post_ingest_work(
+    source_file_ids: list[str],
+    owner_id: uuid.UUID | None,
+    scanner_device_id: uuid.UUID | None,
+) -> None:
+    if not source_file_ids:
+        return
+    executor = _post_ingest_executor
+    if executor is None:
+        # Kein Hintergrund-Executor aktiv (z. B. Direktaufruf im Test): inline
+        # ausführen, damit sich das Verhalten außerhalb des Workers nicht ändert.
+        _run_post_ingest_work(source_file_ids, owner_id, scanner_device_id)
+        return
+    executor.submit(_run_post_ingest_work, source_file_ids, owner_id, scanner_device_id)
+
+
 def _sync_scanner_live_mode_config() -> None:
     """Spiegelt die globale Einstellung documents.scan_live_page_mode in eine
     lokale Datei in scan-inbox.
@@ -740,13 +775,14 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str, prev
                 file_age_ms=file_age_ms,
                 duration_ms=elapsed_ms(drop_started),
             )
-        if scanner_device_id is not None:
-            _enhance_scanner_import_sources(preanalysis_source_ids, analysis_owner_id)
-        _preanalyze_import_sources(preanalysis_source_ids, analysis_owner_id)
         created_count = len(result.items)
         _move_drop_file(claimed_path, processed_dir)
         if preview_path is not None and preview_path.exists():
             _move_drop_file(preview_path, processed_dir)
+        # Ingest ist fertig, das Item ist jetzt im Importfenster sichtbar. Die
+        # schwere Nachbearbeitung (Bereinigung + Voranalyse inkl. minutenlanger
+        # LLM-Calls) läuft im Hintergrund, damit der Haupt-Loop sofort die
+        # nächste gescannte Seite abholen kann - sonst hängt "Wird übernommen…".
         log_import_timing(
             "drop_processed",
             source_file_ids=preanalysis_source_ids,
@@ -756,6 +792,7 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str, prev
             count=created_count,
             total_ms=elapsed_ms(drop_started),
         )
+        _submit_post_ingest_work(preanalysis_source_ids, analysis_owner_id, scanner_device_id)
         logger.info(
             "import inbox drop processed file=%s items=%s source_type=%s scanner_device_id=%s job_id=%s owner=%s owner_id=%s",
             display_name,
@@ -1618,6 +1655,11 @@ def run() -> None:
     )
     _reclaim_orphaned_jobs()
     _log_worker_memory()
+    # Schwere Nachbearbeitung eines Import-Drops (Bereinigung + Voranalyse inkl.
+    # LLM) läuft in einem eigenen Thread, damit der frische Ingest den seriellen
+    # Haupt-Loop nicht minutenlang blockiert (siehe _submit_post_ingest_work).
+    global _post_ingest_executor
+    _post_ingest_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="post-ingest")
     # Scanner-Dispatch läuft in einem eigenen Thread, damit UI-ausgelöste Scans
     # nicht hinter langlaufender OCR/Bereinigung/LLM-Voranalyse im seriellen
     # Haupt-Loop warten müssen (siehe _run_scanner_dispatch_loop).
