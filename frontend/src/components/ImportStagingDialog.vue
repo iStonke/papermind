@@ -184,13 +184,6 @@
                 >
                   <v-icon v-if="isPageMultiSelected(page.id)" size="14">mdi-check</v-icon>
                 </div>
-                <div
-                  v-if="isPageScanCleanupRunning(page)"
-                  class="isd-page-enhancement-indicator"
-                  title="Seitenverbesserung läuft"
-                >
-                  <v-progress-circular indeterminate size="16" width="2" color="primary" />
-                </div>
               </div>
               <div class="isd-page-num">{{ globalIndex + 1 }}</div>
             </div>
@@ -382,15 +375,15 @@
                 size="x-small"
                 variant="text"
                 class="isd-ai-status-btn"
-                :class="`isd-ai-status-btn--${aiAnalysis.kind}`"
-                :icon="!(isRetryingAnalysis || aiAnalysis.kind === 'busy')"
+                :class="`isd-ai-status-btn--${prepStatus.kind}`"
+                :icon="!prepStatus.busy"
                 :title="aiStatusTitle"
-                :disabled="isRetryingAnalysis || isUploadingSources || totalPages === 0"
+                :disabled="isScanCleanupRunning || isRetryingAnalysis || isUploadingSources || totalPages === 0"
                 @click="retryAnalysis"
               >
-                <template v-if="isRetryingAnalysis || aiAnalysis.kind === 'busy'">
+                <template v-if="prepStatus.busy">
                   <v-progress-circular indeterminate size="14" width="2" color="primary" />
-                  <span class="isd-ai-status-btn__text">Analysiert…</span>
+                  <span class="isd-ai-status-btn__text">{{ prepStatus.label }}</span>
                 </template>
                 <v-icon v-else-if="['success', 'partial'].includes(aiAnalysis.kind)" size="20" color="success">
                   mdi-auto-fix
@@ -1696,6 +1689,23 @@ let previewRenderNonce = 0;
  *   failed   – Analyse fehlgeschlagen/abgebrochen (Retry anbieten)
  *   idle     – noch keine Analyse
  */
+// Läuft für irgendeine noch offene Scan-Quelle die Seitenverbesserung? Bewusst
+// dialogweit statt pro Seite: der Status lebt jetzt einzig in der Toolbar, ein
+// zusätzlicher Spinner pro Thumbnail wäre unruhig.
+const isScanCleanupRunning = computed(() => {
+  const metaMap = stagingStore.sourceMetaById;
+  if (!metaMap || typeof metaMap.values !== 'function') {
+    return false;
+  }
+  for (const meta of metaMap.values()) {
+    const status = String(meta?.scanCleanup?.status || '');
+    if (status === 'pending' || status === 'running') {
+      return true;
+    }
+  }
+  return false;
+});
+
 const aiAnalysis = computed(() => {
   const doc = primaryDocument.value;
   if (!doc || Number(doc.pages?.length || 0) === 0) {
@@ -1731,7 +1741,23 @@ const aiAnalysis = computed(() => {
   return { kind: 'idle', fields: [] };
 });
 
+// Vereint Seitenverbesserung und KI-Analyse zu einer einzigen Toolbar-Anzeige.
+// Priorität: erst wird der Scan bereinigt, dann analysiert die KI – nie beides
+// als getrennter Spinner.
+const prepStatus = computed(() => {
+  if (isScanCleanupRunning.value) {
+    return { busy: true, label: 'Seiten werden verbessert…', kind: 'busy' };
+  }
+  if (isRetryingAnalysis.value || aiAnalysis.value.kind === 'busy') {
+    return { busy: true, label: 'Analysiert…', kind: 'busy' };
+  }
+  return { busy: false, label: '', kind: aiAnalysis.value.kind };
+});
+
 const aiStatusTitle = computed(() => {
+  if (isScanCleanupRunning.value) {
+    return 'Seiten werden verbessert…';
+  }
   if (isRetryingAnalysis.value) {
     return 'Analyse läuft erneut…';
   }
@@ -3946,15 +3972,6 @@ function isImportInboxSourceFile(sourceFileId) {
   return Boolean(normalized && stagingStore.sourceMetaById?.get?.(normalized)?.isImportInbox);
 }
 
-function isPageScanCleanupRunning(pageEntry) {
-  const normalized = normalizeSourceFileId(pageEntry?.sourceFileId);
-  if (!normalized) {
-    return false;
-  }
-  const status = String(stagingStore.sourceMetaById?.get?.(normalized)?.scanCleanup?.status || '');
-  return status === 'pending' || status === 'running';
-}
-
 function clearPreviewCacheForSource(sourceFileId) {
   const normalized = normalizeSourceFileId(sourceFileId);
   if (!normalized) {
@@ -5738,21 +5755,6 @@ onBeforeUnmount(() => {
   border-color: rgb(var(--v-theme-primary));
   color: #fff;
 }
-
-.isd-page-enhancement-indicator {
-  position: absolute;
-  right: 7px;
-  bottom: 7px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 999px;
-  background: rgb(var(--v-theme-surface));
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.16);
-}
-
 
 .isd-page-thumb {
   width: 100%;
