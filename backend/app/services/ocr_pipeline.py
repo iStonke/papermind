@@ -271,6 +271,84 @@ def build_cleaned_scan_pdf(
     )
 
 
+def _otsu_threshold(histogram: list[int]) -> int:
+    """Optimaler globaler Schwellwert nach Otsu, direkt aus dem 256-Bin-
+    Graustufen-Histogramm – reine Python-Arithmetik, ohne numpy."""
+    total = sum(histogram)
+    if total <= 0:
+        return 128
+    sum_all = sum(index * count for index, count in enumerate(histogram))
+    weight_bg = 0
+    sum_bg = 0.0
+    best_variance = -1.0
+    threshold = 128
+    for level in range(256):
+        weight_bg += histogram[level]
+        if weight_bg == 0:
+            continue
+        weight_fg = total - weight_bg
+        if weight_fg == 0:
+            break
+        sum_bg += level * histogram[level]
+        mean_bg = sum_bg / weight_bg
+        mean_fg = (sum_all - sum_bg) / weight_fg
+        between = weight_bg * weight_fg * (mean_bg - mean_fg) ** 2
+        if between > best_variance:
+            best_variance = between
+            threshold = level
+    return threshold
+
+
+def _binarize_pil_image(image: Image.Image) -> Image.Image:
+    """Schwarz/Weiß per Otsu-Schwellwert – ohne cv2/numpy.
+
+    Für den manuellen bw-Override, der auf der (bei aktiver Bereinigung bereits
+    licht-korrigierten) Staging-Seite arbeitet. Die aufwändige Schatten-/
+    Beleuchtungsglättung übernimmt weiterhin die Scan-Bereinigung im Worker;
+    hier genügt eine saubere Binarisierung des bereits gleichmäßigen Bildes.
+    """
+    gray = image.convert("L")
+    threshold = _otsu_threshold(gray.histogram())
+    mono = gray.point(lambda value, cut=threshold: 255 if value > cut else 0)
+    return mono.convert("1", dither=Image.Dither.NONE)
+
+
+def build_bw_pdf(
+    original_path: Path,
+    output_path: Path,
+    *,
+    dpi_target: int,
+) -> Path | None:
+    """Schreibt ein mehrseitiges Schwarz/Weiß-PDF für den manuellen Importmodus
+    (PIL + Otsu, ohne cv2 – läuft damit auch im Backend-Prozess)."""
+    try:
+        pdf_doc = pdfium.PdfDocument(str(original_path))
+    except Exception as exc:  # noqa: BLE001 - Import kann das Original weiterverwenden
+        logger.warning("bw conversion: input unreadable: %s", exc)
+        return None
+
+    if len(pdf_doc) <= 0:
+        return None
+
+    scale = max(1.0, float(dpi_target) / 72.0)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    writer = PdfWriter()
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for index in range(len(pdf_doc)):
+                image = _binarize_pil_image(pdf_doc[index].render(scale=scale).to_pil())
+                page_path = Path(temp_dir) / f"page-{index}.pdf"
+                image.save(page_path, format="PDF", resolution=float(dpi_target))
+                writer.add_page(PdfReader(str(page_path)).pages[0])
+            with output_path.open("wb") as handle:
+                writer.write(handle)
+    except Exception as exc:  # noqa: BLE001 - der Aufrufer meldet den Importfehler
+        logger.warning("bw conversion failed: %s", exc)
+        output_path.unlink(missing_ok=True)
+        return None
+    return output_path
+
+
 def build_grayscale_pdf(
     original_path: Path,
     output_path: Path,
@@ -356,7 +434,9 @@ def render_pdf_page_color_preview(
         if mode == "grayscale":
             image = image.convert("L")
         elif mode == "bw":
-            image = _clean_scan_image(image, "bw")
+            # PIL+Otsu statt _clean_scan_image: läuft ohne cv2 auch im Backend
+            # und bildet exakt ab, was build_bw_pdf beim Commit schreibt.
+            image = _binarize_pil_image(image)
         else:
             image = image.convert("RGB")
         buffer = BytesIO()

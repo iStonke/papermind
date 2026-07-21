@@ -38,6 +38,7 @@ from app.services.documents import ALLOWED_PDF_CONTENT_TYPES, DocumentService
 from app.services.import_timing import elapsed_ms, log_import_timing, now_perf
 from app.services.naming_templates import NamingTemplateService, build_legacy_filename_from_meta
 from app.services.ocr_pipeline import (
+    build_bw_pdf,
     build_cleaned_scan_pdf,
     build_grayscale_pdf,
     detect_pdf_color_page_indices,
@@ -2684,8 +2685,8 @@ class ImportStagingService:
                 with source_page_path.open("wb") as output:
                     source_writer.write(output)
                 if color_mode == "bw":
-                    result = build_cleaned_scan_pdf(
-                        source_page_path, converted_path, mode="bw", dpi_target=self._manual_color_mode_dpi()
+                    result = build_bw_pdf(
+                        source_page_path, converted_path, dpi_target=self._manual_color_mode_dpi()
                     )
                 else:
                     result = build_grayscale_pdf(source_page_path, converted_path, dpi_target=self._manual_color_mode_dpi())

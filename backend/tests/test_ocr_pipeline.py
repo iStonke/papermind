@@ -1,10 +1,13 @@
 import unittest
 
 from app.services.ocr_pipeline import (
+    _binarize_pil_image,
     _build_quality_metrics,
     _clean_scan_image,
     _normalize_tesseract_languages,
+    _otsu_threshold,
     _postprocess_hyphenation,
+    build_bw_pdf,
     cv2,
     np,
 )
@@ -95,6 +98,51 @@ class ScanCleanupContrastTest(unittest.TestCase):
         # Ohne Tinte darf der adaptive Schwarzpunkt kein Rauschen hervorholen.
         self.assertGreater(float(arr.mean()), 250.0)
         self.assertEqual(float((arr < 128).mean()), 0.0)
+
+
+@unittest.skipIf(Image is None, "PIL erforderlich")
+class ManualBwConversionTest(unittest.TestCase):
+    """Der manuelle bw-Override läuft cv2-frei (PIL + Otsu), damit er auch im
+    Backend-Prozess funktioniert – dort fehlt opencv."""
+
+    def test_otsu_splits_between_two_peaks(self) -> None:
+        histogram = [0] * 256
+        histogram[30] = 500   # dunkle Tinte
+        histogram[220] = 5000  # heller Hintergrund
+        threshold = _otsu_threshold(histogram)
+        self.assertTrue(30 <= threshold < 220, f"Schwellwert {threshold} liegt nicht zwischen den Moden")
+
+    def test_binarize_yields_pure_black_and_white(self) -> None:
+        # Grauverlauf → nach Binarisierung nur noch zwei Werte
+        gradient = Image.new("L", (256, 32))
+        gradient.putdata([x for _ in range(32) for x in range(256)])
+        mono = _binarize_pil_image(gradient.convert("RGB"))
+        levels = set(mono.convert("L").getdata())
+        self.assertTrue(levels <= {0, 255}, f"nicht bitonal: {sorted(levels)}")
+        self.assertEqual(len(levels), 2, "sollte sowohl Schwarz als auch Weiß enthalten")
+
+    def test_build_bw_pdf_is_readable_and_bitonal(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src.pdf"
+            page = Image.new("RGB", (600, 800), (255, 255, 255))
+            draw = ImageDraw.Draw(page)
+            draw.rectangle([60, 80, 540, 130], fill=(190, 40, 40))   # Farbe
+            draw.rectangle([60, 200, 400, 240], fill=(40, 40, 40))    # dunkler Text
+            page.save(src, format="PDF", resolution=150.0)
+
+            out = Path(tmp) / "bw.pdf"
+            result = build_bw_pdf(src, out, dpi_target=200)
+            self.assertIsNotNone(result)
+            self.assertTrue(out.exists())
+
+            import pypdfium2 as pdfium
+
+            rendered = pdfium.PdfDocument(str(out))[0].render(scale=1.0).to_pil().convert("RGB")
+            colored = sum(1 for r, g, b in rendered.getdata() if max(r, g, b) - min(r, g, b) >= 16)
+            self.assertEqual(colored, 0, "bw-PDF darf keine Farbpixel enthalten")
 
 
 if __name__ == "__main__":
