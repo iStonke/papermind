@@ -540,12 +540,40 @@ def _enhance_scanner_import_sources(source_file_ids: list[str], owner_id: uuid.U
         )
 
 
-# Schwere Nachbearbeitung eines Import-Drops (Scan-Bereinigung + Voranalyse inkl.
-# LLM) läuft außerhalb des seriellen Haupt-Loops. Ein einzelner Worker
-# serialisiert diese Arbeit, hält sie aber vom Ingest-Pfad fern: Ein frisch
-# gescanntes PDF wird dadurch sofort ingestet und erscheint im Importfenster,
-# statt hinter der minutenlangen Analyse der Vorseite zu warten.
-_post_ingest_executor: ThreadPoolExecutor | None = None
+# Schwere Nachbearbeitung eines Import-Drops läuft außerhalb des seriellen
+# Haupt-Loops, damit ein frischer Scan sofort ingestet wird. Bewusst ZWEI
+# getrennte Spuren:
+#   - Bereinigungs-Spur: schnell (~13 s, lokale cv2-Arbeit), für den Nutzer
+#     sichtbar (Thumbnail wird weiß). Muss zuverlässig mithalten.
+#   - Voranalyse-Spur: langsam (OCR-lite + LLM, überwiegend Netz-Wartezeit auf
+#     den Ollama-Host), unkritisch für die Anzeige.
+# In einer gemeinsamen Warteschlange würde die langsame Analyse einer Seite die
+# Bereinigung aller folgenden Seiten blockieren – nach wenigen Scans liefe die
+# Bereinigung faktisch nicht mehr. Getrennte Spuren halten die Bereinigung
+# aktuell, während die Analyse in ihrem eigenen Tempo nachzieht.
+_cleanup_executor: ThreadPoolExecutor | None = None
+_preanalysis_executor: ThreadPoolExecutor | None = None
+
+
+def _queue_preanalysis(source_file_ids: list[str], owner_id: uuid.UUID | None) -> None:
+    executor = _preanalysis_executor
+    if executor is None:
+        _preanalyze_import_sources(source_file_ids, owner_id)
+        return
+    executor.submit(_preanalyze_import_sources, source_file_ids, owner_id)
+
+
+def _run_cleanup_stage(
+    source_file_ids: list[str],
+    owner_id: uuid.UUID | None,
+    scanner_device_id: uuid.UUID | None,
+) -> None:
+    # Erst die schnelle, sichtbare Bereinigung …
+    if scanner_device_id is not None:
+        _enhance_scanner_import_sources(source_file_ids, owner_id)
+    # … dann die langsame Voranalyse in die eigene Spur geben, damit sie die
+    # Bereinigung der nächsten Seite nicht aufhält.
+    _queue_preanalysis(source_file_ids, owner_id)
 
 
 def _run_post_ingest_work(
@@ -553,6 +581,8 @@ def _run_post_ingest_work(
     owner_id: uuid.UUID | None,
     scanner_device_id: uuid.UUID | None,
 ) -> None:
+    # Inline-Variante ohne Executoren (Direktaufruf/Test): dieselbe Reihenfolge,
+    # nur ohne Spur-Trennung.
     if scanner_device_id is not None:
         _enhance_scanner_import_sources(source_file_ids, owner_id)
     _preanalyze_import_sources(source_file_ids, owner_id)
@@ -565,13 +595,12 @@ def _submit_post_ingest_work(
 ) -> None:
     if not source_file_ids:
         return
-    executor = _post_ingest_executor
-    if executor is None:
+    if _cleanup_executor is None:
         # Kein Hintergrund-Executor aktiv (z. B. Direktaufruf im Test): inline
         # ausführen, damit sich das Verhalten außerhalb des Workers nicht ändert.
         _run_post_ingest_work(source_file_ids, owner_id, scanner_device_id)
         return
-    executor.submit(_run_post_ingest_work, source_file_ids, owner_id, scanner_device_id)
+    _cleanup_executor.submit(_run_cleanup_stage, source_file_ids, owner_id, scanner_device_id)
 
 
 def _sync_scanner_live_mode_config() -> None:
@@ -1655,11 +1684,13 @@ def run() -> None:
     )
     _reclaim_orphaned_jobs()
     _log_worker_memory()
-    # Schwere Nachbearbeitung eines Import-Drops (Bereinigung + Voranalyse inkl.
-    # LLM) läuft in einem eigenen Thread, damit der frische Ingest den seriellen
-    # Haupt-Loop nicht minutenlang blockiert (siehe _submit_post_ingest_work).
-    global _post_ingest_executor
-    _post_ingest_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="post-ingest")
+    # Schwere Nachbearbeitung eines Import-Drops läuft in eigenen Threads, damit
+    # der frische Ingest den seriellen Haupt-Loop nicht blockiert. Zwei getrennte
+    # Spuren, damit die langsame LLM-Voranalyse die schnelle, sichtbare
+    # Bereinigung nicht aufhält (siehe _submit_post_ingest_work).
+    global _cleanup_executor, _preanalysis_executor
+    _cleanup_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="scan-cleanup")
+    _preanalysis_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="preanalysis")
     # Scanner-Dispatch läuft in einem eigenen Thread, damit UI-ausgelöste Scans
     # nicht hinter langlaufender OCR/Bereinigung/LLM-Voranalyse im seriellen
     # Haupt-Loop warten müssen (siehe _run_scanner_dispatch_loop).
