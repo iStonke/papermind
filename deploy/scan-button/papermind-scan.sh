@@ -47,6 +47,7 @@ set -euo pipefail
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 _REPO_ROOT="$(cd "${_SCRIPT_DIR}/../.." && pwd)"
 SCAN_INBOX_DIR="${SCAN_INBOX_DIR:-${_REPO_ROOT}/scan-inbox}"
+CANCEL_FILE="${SCAN_INBOX_DIR}/.papermind-scan-cancel"
 # Batch-Ablage als Dot-Verzeichnis IM Drop-Ordner: Der Worker ignoriert
 # Dateien/Ordner mit führendem Punkt, sieht also nur die fertige PDF.
 BATCH_DIR="${BATCH_DIR:-${SCAN_INBOX_DIR}/.papermind-batch}"
@@ -141,6 +142,24 @@ _write_scan_status() {
   fi
 }
 
+_scanimage_cancellable() {
+  local output="$1"
+  # shellcheck disable=SC2046
+  scanimage $(_scan_args) > "$output" &
+  local scan_pid=$!
+  while kill -0 "$scan_pid" 2>/dev/null; do
+    if [[ -f "$CANCEL_FILE" ]]; then
+      log "Scan wird auf Benutzerwunsch abgebrochen."
+      kill "$scan_pid" 2>/dev/null || true
+      wait "$scan_pid" 2>/dev/null || true
+      rm -f "$CANCEL_FILE" "$output"
+      return 130
+    fi
+    sleep 0.1
+  done
+  wait "$scan_pid"
+}
+
 # Live-Modus: eine Seite scannen und SOFORT als eigene 1-Seiten-PDF nach
 # scan-inbox legen - kein Batch, kein Warten auf button-2.
 _scan_live_page() {
@@ -154,7 +173,7 @@ _scan_live_page() {
 
   log "Scanne Seite live (${SCAN_RESOLUTION}dpi ${SCAN_MODE})…"
   # shellcheck disable=SC2046
-  if ! scanimage $(_scan_args) > "$png_part"; then
+  if ! _scanimage_cancellable "$png_part"; then
     rm -f "$png_part"
     die "scanimage fehlgeschlagen (Device frei? Deckel zu? 'scanimage -L' prüfen)"
   fi
@@ -207,7 +226,7 @@ cmd_page() {
 
   log "Scanne Seite ${idx} (${SCAN_RESOLUTION}dpi ${SCAN_MODE})…"
   # shellcheck disable=SC2046
-  if ! scanimage $(_scan_args) > "$part"; then
+  if ! _scanimage_cancellable "$part"; then
     rm -f "$part"
     die "scanimage fehlgeschlagen (Device frei? Deckel zu? 'scanimage -L' prüfen)"
   fi

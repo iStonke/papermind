@@ -673,6 +673,16 @@ def _drain_scanner_scan_commands() -> None:
             return
         commands = service.claim_pending_scan_commands(scanner.id)
     for command, scan_job_id in commands:
+        if command == "cancel":
+            target = root / ".papermind-scan-cancel"
+            temp = root / ".papermind-scan-cancel.part"
+            try:
+                temp.write_text("cancel\n")
+                temp.rename(target)
+                logger.info("scanner cancel signal dispatched")
+            except OSError:
+                logger.warning("scanner cancel signal write failed")
+            continue
         # Monotone, kollisionsfreie Sequenz aus ns-Zeitstempel; der Host sortiert
         # die Dateien lexikografisch und führt sie damit in FIFO-Reihenfolge aus.
         seq = time.time_ns()

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.auth import UserRead
 
-ScanCommand = Literal["page", "finish"]
+ScanCommand = Literal["page", "finish", "cancel"]
 
 
 def _normalize_text(value: str | None) -> str:

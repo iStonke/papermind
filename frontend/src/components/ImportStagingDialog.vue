@@ -186,12 +186,30 @@
                 </div>
               </div>
               <div class="isd-page-num">{{ globalIndex + 1 }}</div>
+              <div
+                v-if="page.colorMode !== 'auto'"
+                class="isd-page-mode-badge"
+                :title="`Manuell: ${pageColorModeLabel(page.colorMode)}`"
+              >
+                {{ pageColorModeLabel(page.colorMode) }}
+              </div>
             </div>
 
             <!-- Scan-in-progress placeholder: zeigt, wo die nächste Seite gleich auftaucht -->
-            <div v-if="props.scannerActive" class="isd-scanning-page-card" aria-hidden="true">
+            <div v-if="props.scannerActive" class="isd-scanning-page-card">
               <div class="isd-scanning-page-thumb-wrap">
                 <v-icon size="28" class="isd-scanning-page-icon">mdi-scanner</v-icon>
+                <v-btn
+                  icon
+                  size="x-small"
+                  variant="text"
+                  class="isd-scanning-page-cancel"
+                  title="Scan abbrechen"
+                  aria-label="Scan abbrechen"
+                  @click.stop="emitScan('cancel')"
+                >
+                  <v-icon size="16">mdi-close</v-icon>
+                </v-btn>
               </div>
               <div class="isd-page-num isd-scanning-page-label">{{ scannerFeedbackCardLabel }}</div>
             </div>
@@ -234,16 +252,6 @@
                   >
                     <v-icon size="18">mdi-scanner</v-icon>
                     <span>{{ props.scannerActive ? 'Aktiv' : 'Scan' }}</span>
-                  </button>
-                  <button
-                    v-if="showScanFinish"
-                    type="button"
-                    class="isd-add-page-choice isd-add-page-choice--finish"
-                    :disabled="props.scannerActive || isEmpty"
-                    @click="chooseScanFinish"
-                  >
-                    <v-icon size="18">mdi-check</v-icon>
-                    <span>Fertig</span>
                   </button>
                 </div>
               </div>
@@ -358,13 +366,25 @@
                 icon
                 size="x-small"
                 variant="text"
-                title="Farbe"
+                :title="originalButtonTitle"
                 :color="selectedPageColorMode === 'color' ? 'primary' : undefined"
                 :class="{ 'isd-color-btn--active': selectedPageColorMode === 'color' }"
-                :disabled="!hasAnySelectedPage"
+                :disabled="!hasAnySelectedPage || !selectedPageHasColorSource"
                 @click="setAnySelectedPageColorMode('color')"
               >
                 <v-icon size="20">mdi-palette-outline</v-icon>
+              </v-btn>
+              <v-btn
+                icon
+                size="x-small"
+                variant="text"
+                title="Automatisch – Scanbereinigung folgen"
+                :color="selectedPageEntry?.colorMode === 'auto' ? 'primary' : undefined"
+                :class="{ 'isd-color-btn--active': selectedPageEntry?.colorMode === 'auto' }"
+                :disabled="!hasAnySelectedPage || selectedPageEntry?.colorMode === 'auto'"
+                @click="setAnySelectedPageColorMode('auto')"
+              >
+                <v-icon size="20">mdi-restore</v-icon>
               </v-btn>
             </div>
 
@@ -870,7 +890,6 @@ const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources',
 // Im Live-Modus erzeugt jede Seite sofort ein eigenes Dokument -> kein "Fertig".
 // Im Batch-Modus sammelt der Scanner und braucht ein explizites Abschließen.
 const canTriggerScan = computed(() => Boolean(props.scanner?.id));
-const showScanFinish = computed(() => canTriggerScan.value && !props.scanner?.live_page_mode);
 const isScannerFeedbackPending = computed(() => props.scannerFeedbackState === 'pending');
 const scannerFeedbackTitle = computed(() => (
   isScannerFeedbackPending.value ? 'Scan wird übernommen…' : 'Scanner aktiv…'
@@ -1501,6 +1520,31 @@ function resolvePageColorMode(page) {
   return cleanupMode === 'bw' ? 'bw' : 'color';
 }
 const selectedPageColorMode = computed(() => resolvePageColorMode(selectedPageEntry.value));
+// „Farbe“ ist nur sinnvoll, wenn die ursprüngliche Seite tatsächlich Farbinhalte
+// hatte. Entscheidend ist der Rohscan, nicht die eventuell schon bereinigte
+// schwarz-weiße Vorschau.
+const selectedPageHasColorSource = computed(() => {
+  const page = selectedPageEntry.value;
+  const sourceFileId = normalizeSourceFileId(page?.sourceFileId);
+  if (!sourceFileId) return true;
+  const colorPageIndices = stagingStore.sourceMetaById?.get?.(sourceFileId)?.colorPageIndices;
+  const detectionAvailable = stagingStore.sourceMetaById?.get?.(sourceFileId)?.colorDetectionAvailable;
+  if (detectionAvailable === false) return true;
+  if (!Array.isArray(colorPageIndices)) return true;
+  return colorPageIndices.includes(Number(page?.pageIndex || 0));
+});
+const originalButtonTitle = computed(() => {
+  const page = selectedPageEntry.value;
+  const sourceFileId = normalizeSourceFileId(page?.sourceFileId);
+  const available = sourceFileId
+    ? stagingStore.sourceMetaById?.get?.(sourceFileId)?.colorDetectionAvailable
+    : true;
+  if (available === false) return 'Original – Farberkennung nicht eindeutig';
+  return selectedPageHasColorSource.value ? 'Original' : 'Originalseite enthält keine Farben';
+});
+function pageColorModeLabel(mode) {
+  return ({ color: 'Original', grayscale: 'Grau', bw: 'S/W' })[String(mode || '')] || 'Automatisch';
+}
 const gridScrollStyle = computed(() => ({
   '--pm-grid-min': ['100px', '140px', '185px', '240px'][gridZoomIndex.value] || '140px'
 }));
@@ -2290,7 +2334,8 @@ const selectedPreviewRenderKey = computed(() => {
     pageEntry.id,
     pageEntry.sourceFileId,
     Number(pageEntry.pageIndex || 0),
-    Number(pageEntry.rotation || 0)
+    Number(pageEntry.rotation || 0),
+    String(pageEntry.colorMode || 'auto')
   ].join(':');
 });
 
@@ -2308,7 +2353,8 @@ watch(
       return;
     }
 
-    const cacheKey = `${pageEntry.sourceFileId}:${pageEntry.pageIndex}:r${Number(pageEntry.rotation || 0)}:lg`;
+    const colorMode = String(pageEntry.colorMode || 'auto');
+    const cacheKey = `${pageEntry.sourceFileId}:${pageEntry.pageIndex}:r${Number(pageEntry.rotation || 0)}:m${colorMode}:lg`;
     const cached = previewImageCache.get(cacheKey);
     if (cached) {
       previewImageSrc.value = cached;
@@ -2319,7 +2365,8 @@ watch(
     previewImageSrc.value = pageEntry.thumbUrl || '';
     previewImageLoading.value = true;
 
-    const rendered = await renderLargePreview(pageEntry, 1400, Number(pageEntry.rotation || 0));
+    const rendered = await renderServerColorPreview(pageEntry, colorMode)
+      || await renderLargePreview(pageEntry, 1400, Number(pageEntry.rotation || 0));
     if (nonce !== previewRenderNonce) {
       return;
     }
@@ -2609,7 +2656,9 @@ function upgradeRemoteSourceFile(sourceFileId, originalName, pageCount, { hadFas
         pageCount: Number(pageCount || 0),
         isImportInbox: true,
         analysis: currentMeta?.analysis,
-        scanCleanup: currentMeta?.scanCleanup
+        scanCleanup: currentMeta?.scanCleanup,
+        colorPageIndices: currentMeta?.colorPageIndices,
+        colorDetectionAvailable: currentMeta?.colorDetectionAvailable
       });
       if (thumbUrls.some((url) => String(url || '').trim())) {
         stagingStore.updateSourceThumbnails(normalized, thumbUrls);
@@ -2724,6 +2773,31 @@ async function renderLargePreview(pageEntry, targetLongEdge = 1400, rotation = 0
     } catch {
       // ignore cleanup failures
     }
+  }
+}
+
+async function renderServerColorPreview(pageEntry, colorMode) {
+  const sourceFileId = normalizeSourceFileId(pageEntry?.sourceFileId);
+  if (!sourceFileId) return '';
+  const query = new URLSearchParams({
+    page_index: String(Math.max(0, Number(pageEntry?.pageIndex || 0))),
+    mode: String(colorMode || 'auto')
+  });
+  try {
+    const response = await fetch(
+      `${props.apiBaseUrl}/api/import/source/${encodeURIComponent(sourceFileId)}/color-preview?${query}`,
+      { cache: 'no-store', headers: { ...authHeaders() } }
+    );
+    if (!response.ok) return '';
+    const blob = await response.blob();
+    return await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return '';
   }
 }
 
@@ -2853,7 +2927,9 @@ async function addFilesToStaging(candidates, options = {}) {
 
       stagingStore.setStagingFile(source.source_file_id, file, {
         originalName: source?.original_name || file?.name || '',
-        pageCount
+        pageCount,
+        colorPageIndices: source?.color_page_indices,
+        colorDetectionAvailable: source?.color_detection_available
       });
 
       if (targetDocumentId) {
@@ -3005,7 +3081,9 @@ async function addRemoteSourcesImpl(payload = []) {
       pageCount,
       isImportInbox: true,
       analysis: source?.analysis,
-      scanCleanup: normalizeRemoteScanCleanup(source)
+      scanCleanup: normalizeRemoteScanCleanup(source),
+      colorPageIndices: source?.color_page_indices,
+      colorDetectionAvailable: source?.color_detection_available
     });
     const targetStageId = String(source?.target_stage_id || '').trim() || sessionStageId;
     if (targetStageId && documents.value.some((entry) => entry.id === targetStageId)) {
@@ -3607,13 +3685,6 @@ function chooseScanSource() {
   emitScan('page');
 }
 
-function chooseScanFinish() {
-  if (props.scannerActive || isEmpty.value) {
-    return;
-  }
-  addSourceChooserOpen.value = false;
-  emitScan('finish');
-}
 
 function setCardFileInputRef(documentId, element) {
   if (!element) {
@@ -4063,7 +4134,9 @@ async function refreshImportInboxSourceFile(sourceFileId, pageCount, metaPatch =
         pageCount: Number(pageCount || sourceMeta.pageCount || 0),
         isImportInbox: true,
         analysis: sourceMeta.analysis,
-        scanCleanup: nextScanCleanup
+        scanCleanup: nextScanCleanup,
+        colorPageIndices: sourceMeta.colorPageIndices,
+        colorDetectionAvailable: sourceMeta.colorDetectionAvailable
       });
       stagingStore.updateSourceThumbnails(normalized, thumbUrls);
       clearPreviewCacheForSource(normalized);
@@ -5930,10 +6003,6 @@ onBeforeUnmount(() => {
   opacity: 0.44;
 }
 
-.isd-add-page-choice--finish {
-  color: rgba(var(--v-theme-on-surface), 0.62);
-}
-
 /* ── Scan-in-progress placeholder card ── */
 .isd-scanning-page-card {
   position: relative;
@@ -5951,6 +6020,24 @@ onBeforeUnmount(() => {
   border-radius: 4px;
   border: 2px solid rgba(var(--v-theme-primary), 0.3);
   animation: isd-scanning-pulse 1.4s ease-in-out infinite;
+}
+
+.isd-scanning-page-cancel {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  min-width: 26px !important;
+  width: 26px;
+  height: 26px;
+  color: rgba(var(--v-theme-on-surface), 0.72);
+  background: rgba(var(--v-theme-surface), 0.8);
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.16);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.16);
+}
+
+.isd-scanning-page-cancel:hover {
+  color: rgb(var(--v-theme-error));
+  background: rgba(var(--v-theme-surface), 0.96);
 }
 
 .isd-scanning-page-icon {
@@ -6066,6 +6153,25 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+.isd-page-card {
+  position: relative;
+}
+
+.isd-page-mode-badge {
+  position: absolute;
+  right: 6px;
+  bottom: 25px;
+  z-index: 2;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(24, 24, 27, 0.78);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
 }
 
 /* Aktiver Farbmodus deutlich hervorheben: getönte Fläche + Akzent-Icon.

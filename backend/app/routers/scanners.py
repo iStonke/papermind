@@ -65,6 +65,21 @@ def trigger_scan(
     return ScannerService(db).enqueue_scan_command(scanner_id, payload.command, requested_by=user.id)
 
 
+@router.post(
+    "/{scanner_id}/cancel",
+    response_model=ScanCommandResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Cancel active scanner work",
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+def cancel_scan(
+    scanner_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ScanCommandResponse:
+    return ScannerService(db).cancel_active_scan(scanner_id, requested_by=user.id)
+
+
 @router.patch(
     "/{scanner_id}",
     response_model=ScannerDeviceRead,

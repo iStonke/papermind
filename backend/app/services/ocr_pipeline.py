@@ -1,4 +1,5 @@
 import logging
+from io import BytesIO
 import os
 import re
 import shutil
@@ -268,6 +269,102 @@ def build_cleaned_scan_pdf(
         mode=mode,
         dpi_target=dpi_target,
     )
+
+
+def build_grayscale_pdf(
+    original_path: Path,
+    output_path: Path,
+    *,
+    dpi_target: int,
+) -> Path | None:
+    """Schreibt ein mehrseitiges Graustufen-PDF für den manuellen Importmodus."""
+    try:
+        pdf_doc = pdfium.PdfDocument(str(original_path))
+    except Exception as exc:  # noqa: BLE001 - Import kann das Original weiterverwenden
+        logger.warning("grayscale conversion: input unreadable: %s", exc)
+        return None
+
+    if len(pdf_doc) <= 0:
+        return None
+
+    scale = max(1.0, float(dpi_target) / 72.0)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    writer = PdfWriter()
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for index in range(len(pdf_doc)):
+                image = pdf_doc[index].render(scale=scale).to_pil().convert("L")
+                page_path = Path(temp_dir) / f"page-{index}.pdf"
+                image.save(page_path, format="PDF", resolution=float(dpi_target))
+                writer.add_page(PdfReader(str(page_path)).pages[0])
+            with output_path.open("wb") as handle:
+                writer.write(handle)
+    except Exception as exc:  # noqa: BLE001 - der Aufrufer meldet den Importfehler
+        logger.warning("grayscale conversion failed: %s", exc)
+        output_path.unlink(missing_ok=True)
+        return None
+    return output_path
+
+
+def detect_pdf_color_page_indices(pdf_path: Path, *, max_long_edge: int = 240) -> list[int] | None:
+    """Ermittelt Seiten mit echten Farbpixeln, nicht nur RGB-kodierten Grautönen."""
+    try:
+        pdf_doc = pdfium.PdfDocument(str(pdf_path))
+    except Exception as exc:  # noqa: BLE001 - fehlende Info lässt die UI Auswahl zu
+        logger.warning("color detection: input unreadable: %s", exc)
+        return None
+
+    color_pages: list[int] = []
+    for index in range(len(pdf_doc)):
+        try:
+            page = pdf_doc[index]
+            long_edge_pt = max(float(page.get_width()), float(page.get_height())) or 1.0
+            scale = max(0.1, min(2.0, float(max_long_edge) / long_edge_pt))
+            image = page.render(scale=scale).to_pil().convert("RGB")
+            # Kleine JPEG-Artefakte zählen nicht als Farbe. Ein farbiger Stempel,
+            # ein Logo oder ein Foto überschreitet diese Schwelle klar.
+            colored_pixels = sum(
+                1
+                for red, green, blue in image.getdata()
+                if max(red, green, blue) - min(red, green, blue) >= 16
+            )
+            if colored_pixels >= max(12, int(image.width * image.height * 0.001)):
+                color_pages.append(index)
+        except Exception as exc:  # noqa: BLE001 - eine defekte Seite blockiert den Import nicht
+            logger.warning("color detection failed page=%s: %s", index, exc)
+    return color_pages
+
+
+def render_pdf_page_color_preview(
+    pdf_path: Path,
+    *,
+    page_index: int,
+    mode: str,
+    max_long_edge: int = 1400,
+) -> bytes | None:
+    """Rendert die tatsächlich zu importierende Farbvariante als PNG."""
+    if mode not in {"auto", "color", "grayscale", "bw"}:
+        return None
+    try:
+        pdf_doc = pdfium.PdfDocument(str(pdf_path))
+        if page_index < 0 or page_index >= len(pdf_doc):
+            return None
+        page = pdf_doc[page_index]
+        long_edge_pt = max(float(page.get_width()), float(page.get_height())) or 1.0
+        scale = max(0.1, min(4.0, float(max_long_edge) / long_edge_pt))
+        image = page.render(scale=scale).to_pil()
+        if mode == "grayscale":
+            image = image.convert("L")
+        elif mode == "bw":
+            image = _clean_scan_image(image, "bw")
+        else:
+            image = image.convert("RGB")
+        buffer = BytesIO()
+        image.save(buffer, format="PNG", optimize=True)
+        return buffer.getvalue()
+    except Exception as exc:  # noqa: BLE001 - die lokale Vorschau bleibt Fallback
+        logger.warning("color preview render failed page=%s mode=%s: %s", page_index, mode, exc)
+        return None
 
 
 def render_pdf_page_preview(

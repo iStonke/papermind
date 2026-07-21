@@ -6,7 +6,7 @@ import time
 import uuid
 
 from fastapi import APIRouter, Depends, File, Header, Query, Request, status, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from sqlalchemy.orm import Session
 
 from fastapi import HTTPException
@@ -270,6 +270,25 @@ def get_import_source_file(
         media_type="application/pdf",
         filename=f"{source_file_id}.pdf",
     )
+
+
+@router.get(
+    "/source/{source_file_id}/color-preview",
+    response_class=Response,
+    summary="Render staged page with selected color mode",
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+def get_import_source_color_preview(
+    source_file_id: str,
+    page_index: int = Query(ge=0),
+    mode: str = Query("auto"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    preview = ImportStagingService(db, user.id).render_source_page_color_preview(source_file_id, page_index, mode)
+    if preview is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Preview not found")
+    return Response(content=preview, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
 @router.get(

@@ -25,6 +25,7 @@ from app.models.scanner import (
 )
 from app.models.user import User
 from app.services.scanners import (
+    SCAN_ERROR_CANCELLED,
     SCAN_ERROR_SCANNER_OFFLINE,
     SCAN_ERROR_TIMEOUT,
     ScannerService,
@@ -151,6 +152,19 @@ class ScannerScanJobLifecycleTest(unittest.TestCase):
         self.assertEqual(job.page_count, 2)
         self.assertIsNone(job.error)
         self.assertIsNone(job.error_kind)
+
+    def test_cancel_marks_active_jobs_and_dispatches_host_signal(self) -> None:
+        response = self.service.enqueue_scan_command(self.scanner.id, "page", requested_by=self.user.id)
+        job_id = self.db.get(ScannerScanCommand, response.id).scan_job_id
+
+        cancelled = self.service.cancel_active_scan(self.scanner.id, requested_by=self.user.id)
+
+        job = self._job(job_id)
+        self.assertEqual(job.state, "error")
+        self.assertEqual(job.error_kind, SCAN_ERROR_CANCELLED)
+        command = self.db.get(ScannerScanCommand, cancelled.id)
+        self.assertEqual(command.command, "cancel")
+        self.assertIsNone(command.scan_job_id)
 
     def test_ready_collapses_sibling_active_jobs(self) -> None:
         # Mehrseitige UI-Folge: mehrere Befehle = mehrere Jobs, aber nur EIN Beleg.

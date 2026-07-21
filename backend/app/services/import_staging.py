@@ -39,8 +39,11 @@ from app.services.import_timing import elapsed_ms, log_import_timing, now_perf
 from app.services.naming_templates import NamingTemplateService, build_legacy_filename_from_meta
 from app.services.ocr_pipeline import (
     build_cleaned_scan_pdf,
+    build_grayscale_pdf,
+    detect_pdf_color_page_indices,
     normalize_scan_cleanup_mode,
     render_pdf_page_preview,
+    render_pdf_page_color_preview,
     run_ocr_lite,
     run_ocr_pipeline,
 )
@@ -95,6 +98,7 @@ _STAGING_GOOD_TEXT_CHARS = 240
 _STAGING_PREVIEW_MAX_LONG_EDGE = 640
 _STAGING_ANALYSIS_CACHE_VERSION = 1
 _STAGING_SCAN_CLEANUP_CACHE_VERSION = 1
+_STAGING_COLOR_PROFILE_CACHE_VERSION = 1
 _OWNER_SENTINEL = object()
 _STAGING_OCR_ATTEMPTS = (
     {"psm": 6, "max_long_side_px": 2800},
@@ -280,6 +284,10 @@ class ImportStagingService:
     def _source_scan_cleanup_path(self, source_file_id: str) -> Path:
         source_path = self._source_pdf_path(source_file_id)
         return source_path.with_name(f"{source_path.stem}.scan-cleanup.json")
+
+    def _source_color_profile_path(self, source_file_id: str) -> Path:
+        source_path = self._source_pdf_path(source_file_id)
+        return source_path.with_name(f"{source_path.stem}.color-profile.json")
 
     @staticmethod
     def _utc_timestamp() -> str:
@@ -474,8 +482,51 @@ class ImportStagingService:
             return
         raw_path.unlink(missing_ok=True)
         cleanup_path.unlink(missing_ok=True)
+        self._source_color_profile_path(source_file_id).unlink(missing_ok=True)
         for temp_path in source_path.parent.glob(f"{source_path.stem}.scan-cleanup.*.tmp.pdf"):
             temp_path.unlink(missing_ok=True)
+
+    def get_source_color_profile(self, source_file_id: str) -> dict[str, object]:
+        """Gecachte Farbfähigkeit des unveränderten Scans, pro Seite."""
+        raw_path = self._source_raw_pdf_path(source_file_id)
+        source_path = raw_path if raw_path.exists() else self._source_pdf_path(source_file_id)
+        signature = self._source_file_signature(source_path)
+        if signature is None:
+            return {"color_page_indices": [], "color_detection_available": False}
+        profile_path = self._source_color_profile_path(source_file_id)
+        try:
+            cached = json.loads(profile_path.read_text(encoding="utf-8"))
+            if (
+                int(cached.get("version") or 0) == _STAGING_COLOR_PROFILE_CACHE_VERSION
+                and cached.get("source_signature") == signature
+            ):
+                return {
+                    "color_page_indices": [int(index) for index in cached.get("color_page_indices") or [] if int(index) >= 0],
+                    "color_detection_available": bool(cached.get("color_detection_available", True)),
+                }
+        except (OSError, ValueError, TypeError):
+            pass
+
+        detected_indices = detect_pdf_color_page_indices(source_path)
+        detection_available = detected_indices is not None
+        color_page_indices = detected_indices or []
+        payload = {
+            "version": _STAGING_COLOR_PROFILE_CACHE_VERSION,
+            "source_signature": signature,
+            "color_page_indices": color_page_indices,
+            "color_detection_available": detection_available,
+        }
+        temp_path = profile_path.with_name(f"{profile_path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            profile_path.parent.mkdir(parents=True, exist_ok=True)
+            temp_path.write_text(json.dumps(payload), encoding="utf-8")
+            os.replace(temp_path, profile_path)
+        except OSError:
+            temp_path.unlink(missing_ok=True)
+        return {"color_page_indices": color_page_indices, "color_detection_available": detection_available}
+
+    def get_source_color_page_indices(self, source_file_id: str) -> list[int]:
+        return list(self.get_source_color_profile(source_file_id)["color_page_indices"])
 
     def _regenerate_source_preview(self, source_file_id: str, source_path: Path) -> None:
         """Vorschau-PNG aus der bereinigten PDF neu rendern.
@@ -521,6 +572,15 @@ class ImportStagingService:
         if not source_path.exists() or not source_path.is_file():
             raise BadRequestError("Staging source PDF not found", details={"source_file_id": source_file_id})
         return source_path
+
+    def render_source_page_color_preview(self, source_file_id: str, page_index: int, mode: str) -> bytes | None:
+        normalized_mode = str(mode or "auto").strip().lower()
+        source_path = self._source_path_for_color_mode(source_file_id, normalized_mode)
+        return render_pdf_page_color_preview(
+            source_path,
+            page_index=int(page_index),
+            mode=normalized_mode,
+        )
 
     def _validate_source_file(self, file: UploadFile) -> str:
         filename = (file.filename or "").strip()
@@ -827,6 +887,7 @@ class ImportStagingService:
                 duration_ms=elapsed_ms(source_started),
             )
 
+            color_profile = self.get_source_color_profile(source_file_id)
             items.append(
                 ImportSourceRead(
                     source_file_id=source_file_id,
@@ -834,6 +895,8 @@ class ImportStagingService:
                     page_count=page_count,
                     preview_url=self.source_preview_url(source_file_id),
                     scan_cleanup=self.get_source_scan_cleanup_response(source_file_id),
+                    color_page_indices=color_profile["color_page_indices"],
+                    color_detection_available=bool(color_profile["color_detection_available"]),
                 )
             )
 
@@ -2570,7 +2633,68 @@ class ImportStagingService:
                 return False
             if page.rotation != 0:
                 return False
+            if page.color_mode != "auto":
+                return False
         return True
+
+    def _source_path_for_color_mode(self, source_file_id: str, color_mode: str) -> Path:
+        """Liefert für explizite Farbwahl wieder den unveränderten Scan.
+
+        Die automatische Scan-Bereinigung ersetzt die Staging-Datei, legt davor
+        aber eine .raw.pdf ab. Damit kann ein Nutzer vor dem Import bewusst
+        wieder Farbe wählen. War der Originalscan selbst schon schwarz-weiß,
+        kann und soll diese Auswahl selbstverständlich keine Farben erfinden.
+        """
+        if color_mode == "color":
+            raw_path = self._source_raw_pdf_path(source_file_id)
+            if raw_path.exists() and raw_path.is_file():
+                return raw_path
+        return self._source_pdf_path(source_file_id)
+
+    def _manual_color_mode_dpi(self) -> int:
+        _, dpi_target = self._scan_cleanup_settings()
+        return dpi_target
+
+    def _append_page_with_color_mode(self, writer: PdfWriter, page, reader_cache: dict[str, PdfReader]) -> None:
+        color_mode = str(page.color_mode or "auto")
+        source_path = self._source_path_for_color_mode(page.source_file_id, color_mode)
+        cache_key = f"{source_path}:{color_mode}"
+        reader = reader_cache.get(cache_key)
+        if reader is None:
+            try:
+                reader = PdfReader(str(source_path))
+            except Exception as exc:
+                raise BadRequestError("Could not read staging source PDF") from exc
+            reader_cache[cache_key] = reader
+        if page.page_index >= len(reader.pages):
+            raise BadRequestError(
+                "page_index is out of range",
+                details={"source_file_id": page.source_file_id, "page_index": page.page_index},
+            )
+
+        if color_mode in {"auto", "color"}:
+            writer.add_page(reader.pages[page.page_index])
+        else:
+            staging_root = self._staging_root()
+            source_page_path = staging_root / f"color-source-{uuid.uuid4()}.pdf"
+            converted_path = staging_root / f"color-result-{uuid.uuid4()}.pdf"
+            try:
+                source_writer = PdfWriter()
+                source_writer.add_page(reader.pages[page.page_index])
+                with source_page_path.open("wb") as output:
+                    source_writer.write(output)
+                if color_mode == "bw":
+                    result = build_cleaned_scan_pdf(
+                        source_page_path, converted_path, mode="bw", dpi_target=self._manual_color_mode_dpi()
+                    )
+                else:
+                    result = build_grayscale_pdf(source_page_path, converted_path, dpi_target=self._manual_color_mode_dpi())
+                if result is None:
+                    raise StorageError("Could not apply selected color mode")
+                writer.add_page(PdfReader(str(result)).pages[0])
+            finally:
+                source_page_path.unlink(missing_ok=True)
+                converted_path.unlink(missing_ok=True)
 
     def _build_document_pdf(self, title: str, pages: list, reader_cache: dict[str, PdfReader]) -> tuple[Path, int]:
         if not pages:
@@ -2590,17 +2714,7 @@ class ImportStagingService:
 
         writer = PdfWriter()
         for page in pages:
-            reader = self._load_source_reader(page.source_file_id, reader_cache)
-            if page.page_index >= len(reader.pages):
-                raise BadRequestError(
-                    "page_index is out of range",
-                    details={
-                        "source_file_id": page.source_file_id,
-                        "page_index": page.page_index,
-                        "max_page_index": len(reader.pages) - 1,
-                    },
-                )
-            writer.add_page(reader.pages[page.page_index])
+            self._append_page_with_color_mode(writer, page, reader_cache)
             if page.rotation:
                 writer.pages[-1].rotate(page.rotation)
 
@@ -2762,7 +2876,15 @@ class ImportStagingService:
             assembled_path: Path | None = None
             upload_file: _LocalPdfUpload | None = None
             try:
-                scan_cleanup_mode = self._scan_cleanup_mode_for_committed_pages(staging_doc.pages)
+                # Ein manueller Farbmodus ist ein bewusster finaler Override.
+                # Er darf nicht unmittelbar danach nochmals von der globalen
+                # OCR-Scan-Bereinigung überschrieben werden.
+                has_manual_color_mode = any(page.color_mode != "auto" for page in staging_doc.pages)
+                scan_cleanup_mode = (
+                    "manual"
+                    if has_manual_color_mode
+                    else self._scan_cleanup_mode_for_committed_pages(staging_doc.pages)
+                )
                 assembled_path, assembled_page_count = self._build_document_pdf(title, staging_doc.pages, reader_cache)
                 upload_file = _LocalPdfUpload(self._safe_document_filename(title), assembled_path)
                 created_doc = self.document_service.upload_document(

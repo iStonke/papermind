@@ -1,12 +1,14 @@
 import tempfile
 import unittest
 import uuid
+from io import BytesIO
 from types import SimpleNamespace
 
 from PIL import Image
 
 from app.services import import_staging
 from app.services.import_staging import ImportStagingService
+from app.schemas.import_staging import ImportCommitPageInput
 
 
 class ImportStagingScanCleanupTest(unittest.TestCase):
@@ -55,6 +57,53 @@ class ImportStagingScanCleanupTest(unittest.TestCase):
 
         self.service._write_source_scan_cleanup(second_source_id, status="ready", mode="white")
         self.assertEqual(self.service._scan_cleanup_mode_for_committed_pages(pages), "mixed")
+
+    def test_explicit_color_uses_preserved_raw_scan(self) -> None:
+        source_file_id = str(uuid.uuid4())
+        source_path = self.service._source_pdf_path(source_file_id)
+        raw_path = self.service._source_raw_pdf_path(source_file_id)
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        source_path.write_bytes(b"cleaned")
+        raw_path.write_bytes(b"original")
+
+        self.assertEqual(self.service._source_path_for_color_mode(source_file_id, "color"), raw_path)
+        self.assertEqual(self.service._source_path_for_color_mode(source_file_id, "bw"), source_path)
+
+    def test_grayscale_mode_is_written_into_committed_pdf(self) -> None:
+        source_file_id = str(uuid.uuid4())
+        source_path = self.service._source_pdf_path(source_file_id)
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (100, 100), (220, 40, 20)).save(source_path, format="PDF", resolution=150.0)
+        self.service._scan_cleanup_settings = lambda: (None, 300)
+        page = ImportCommitPageInput(source_file_id=source_file_id, page_index=0, color_mode="grayscale")
+
+        assembled_path, page_count = self.service._build_document_pdf("Test", [page], {})
+        self.addCleanup(assembled_path.unlink, missing_ok=True)
+
+        self.assertEqual(page_count, 1)
+        self.assertIn(b"/DeviceGray", assembled_path.read_bytes())
+
+    def test_color_profile_marks_only_color_pages(self) -> None:
+        source_file_id = str(uuid.uuid4())
+        source_path = self.service._source_pdf_path(source_file_id)
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (100, 100), (220, 40, 20)).save(source_path, format="PDF", resolution=150.0)
+
+        self.assertEqual(self.service.get_source_color_page_indices(source_file_id), [0])
+        # Zweiter Aufruf kommt aus dem Cache, nicht aus einer erneuten PDF-Analyse.
+        self.assertEqual(self.service.get_source_color_page_indices(source_file_id), [0])
+
+    def test_server_preview_matches_requested_grayscale_mode(self) -> None:
+        source_file_id = str(uuid.uuid4())
+        source_path = self.service._source_pdf_path(source_file_id)
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (100, 100), (220, 40, 20)).save(source_path, format="PDF", resolution=150.0)
+
+        preview = self.service.render_source_page_color_preview(source_file_id, 0, "grayscale")
+
+        self.assertIsNotNone(preview)
+        with Image.open(BytesIO(preview)) as image:
+            self.assertEqual(image.mode, "L")
 
     def test_mark_pending_only_when_cleanup_enabled(self) -> None:
         source_ids = [str(uuid.uuid4()) for _ in range(2)]

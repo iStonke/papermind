@@ -8,7 +8,7 @@ from app.schemas.correspondents import (
     CorrespondentCreateRequest,
     CorrespondentUpdateRequest,
 )
-from app.schemas.import_staging import ImportCommitDocumentInput
+from app.schemas.import_staging import ImportCommitDocumentInput, ImportCommitPageInput
 
 
 class CorrespondentSchemaTest(unittest.TestCase):
@@ -63,6 +63,12 @@ class ImportCommitCorrespondentTest(unittest.TestCase):
     def test_commit_document_correspondent_id_defaults_none(self) -> None:
         doc = ImportCommitDocumentInput(title="Rechnung")
         self.assertIsNone(doc.correspondent_id)
+
+    def test_commit_page_accepts_only_supported_color_modes(self) -> None:
+        page = ImportCommitPageInput(source_file_id="source", page_index=0, color_mode="grayscale")
+        self.assertEqual(page.color_mode, "grayscale")
+        with self.assertRaises(ValidationError):
+            ImportCommitPageInput(source_file_id="source", page_index=0, color_mode="sepia")
 
 
 if __name__ == "__main__":

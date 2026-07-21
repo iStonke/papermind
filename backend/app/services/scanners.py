@@ -34,6 +34,7 @@ SCAN_ERROR_TIMEOUT = "timeout"
 SCAN_ERROR_FILE_MISSING = "file_missing"
 SCAN_ERROR_SCANNER_OFFLINE = "scanner_offline"
 SCAN_ERROR_FAILED = "failed"
+SCAN_ERROR_CANCELLED = "cancelled"
 
 # Ein aktiver Job, der so lange nicht mehr fortgeschritten ist, gilt als
 # hängengeblieben und wird auf "error/timeout" gesetzt - sonst zeigt die UI ewig
@@ -188,6 +189,42 @@ class ScannerService:
         self.db.commit()
         self.db.refresh(entry)
         return ScanCommandResponse(id=entry.id, command=command, created_at=entry.created_at)
+
+    def cancel_active_scan(self, scanner_id: uuid.UUID, *, requested_by: uuid.UUID | None = None) -> ScanCommandResponse:
+        """Bricht laufende bzw. noch wartende UI-Scanaufträge eines Geräts ab."""
+        scanner = self.db.get(ScannerDevice, scanner_id)
+        if scanner is None:
+            raise NotFoundError("Scanner device not found", details={"scanner_id": str(scanner_id)})
+
+        active_jobs = list(
+            self.db.scalars(
+                select(ScannerScanJob)
+                .where(ScannerScanJob.scanner_device_id == scanner_id)
+                .where(ScannerScanJob.state.in_(SCAN_JOB_ACTIVE_STATES))
+                .with_for_update(skip_locked=True)
+            ).all()
+        )
+        now = datetime.now(timezone.utc)
+        for job in active_jobs:
+            job.state = "error"
+            job.error_kind = SCAN_ERROR_CANCELLED
+            job.error = "Scan wurde abgebrochen."
+            job.finished_at = now
+            job.updated_at = now
+        self.db.execute(
+            delete(ScannerScanCommand)
+            .where(ScannerScanCommand.scanner_device_id == scanner_id)
+            .where(ScannerScanCommand.consumed_at.is_(None))
+        )
+        entry = ScannerScanCommand(
+            scanner_device_id=scanner_id,
+            command="cancel",
+            requested_by_user_id=requested_by,
+        )
+        self.db.add(entry)
+        self.db.commit()
+        self.db.refresh(entry)
+        return ScanCommandResponse(id=entry.id, command="cancel", created_at=entry.created_at)
 
     def _job_for_update(self, job_id: uuid.UUID, states: tuple[str, ...]) -> ScannerScanJob | None:
         """Genau diesen Job laden, wenn er noch in einem der Zustände ist.

@@ -1371,7 +1371,7 @@ import {
   suggestDocumentRetention
 } from '../api/documents.js';
 import { assignImportInboxItems, claimImportInboxItems, discardImportInboxItems, getImportInbox, subscribeImportInbox } from '../api/importInbox.js';
-import { triggerScan } from '../api/scanners.js';
+import { cancelScan, triggerScan } from '../api/scanners.js';
 import { logSearchEvent } from '../api/searchEvents.js';
 import { applyPaperMindVuetifyColors, resolvePaperMindColorVariant } from '../theme/tokens';
 
@@ -3470,6 +3470,7 @@ function normalizeImportScannerJobs(payload) {
 }
 
 const SCAN_ERROR_LABELS = {
+  cancelled: 'Scan abgebrochen',
   timeout: 'Zeitüberschreitung beim Scan',
   file_missing: 'Gescannter Beleg nicht gefunden',
   scanner_offline: 'Scanner nicht erreichbar',
@@ -3487,6 +3488,11 @@ function processScannerErrorNotifications({ silent = false } = {}) {
       continue;
     }
     notifiedScanErrorIds.add(job.id);
+    // Der Abbruch wurde ausdrücklich vom Benutzer angefordert; dafür keine
+    // Fehlermeldung anzeigen, die den erfolgreichen Klick wie ein Problem wirkt.
+    if (job.error_kind === 'cancelled') {
+      continue;
+    }
     // silent: beim ersten Laden vorhandene (alte) Fehler nur merken, nicht
     // toasten - sonst poppen beim App-Start Hinweise zu längst vergangenen Läufen.
     if (silent) {
@@ -3575,6 +3581,15 @@ async function autoOpenImportInboxScans() {
 async function onScanTrigger(command) {
   const scanner = importScanner.value;
   if (!scanner?.id) {
+    return;
+  }
+  if (command === 'cancel') {
+    try {
+      await cancelScan(scanner.id);
+      clearImportScannerOptimisticActive();
+    } catch (error) {
+      notifyError(error, 'Scan konnte nicht abgebrochen werden.');
+    }
     return;
   }
   setImportScannerOptimisticActive(command === 'finish' ? 'pending' : 'scanning');

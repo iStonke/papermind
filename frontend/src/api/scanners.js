@@ -11,3 +11,6 @@ export const updateScanner = (id, payload) =>
 // command: 'page' (Seite scannen) | 'finish' (Batch abschließen)
 export const triggerScan = (id, command) =>
   apiPost(`/api/scanners/${encodeURIComponent(String(id))}/scan`, { command });
+
+export const cancelScan = (id) =>
+  apiPost(`/api/scanners/${encodeURIComponent(String(id))}/cancel`, {});

@@ -128,6 +128,7 @@ class ImportInboxService:
         )
 
     def _read_item(self, item: ImportInboxItem) -> ImportInboxItemRead:
+        color_profile = self.import_staging_service.get_source_color_profile(str(item.source_file_id))
         return ImportInboxItemRead(
             id=str(item.id),
             source_file_id=str(item.source_file_id),
@@ -136,6 +137,8 @@ class ImportInboxService:
             preview_url=self.import_staging_service.source_preview_url(str(item.source_file_id)),
             analysis=self.import_staging_service.get_source_analysis_response(str(item.source_file_id)),
             scan_cleanup=self.import_staging_service.get_source_scan_cleanup_response(str(item.source_file_id)),
+            color_page_indices=color_profile["color_page_indices"],
+            color_detection_available=bool(color_profile["color_detection_available"]),
             client_name=item.client_name,
             source_type=item.source_type,
             scanner_device_id=str(item.scanner_device_id) if item.scanner_device_id else None,

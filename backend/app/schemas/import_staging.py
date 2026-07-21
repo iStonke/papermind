@@ -1,4 +1,5 @@
 import uuid
+from typing import Literal
 from datetime import date as date_cls, datetime
 
 from pydantic import AliasChoices, BaseModel, Field, field_validator
@@ -14,6 +15,8 @@ class ImportSourceRead(BaseModel):
     preview_url: str | None = None
     analysis: dict[str, object] | None = None
     scan_cleanup: dict[str, object] | None = None
+    color_page_indices: list[int] = Field(default_factory=list)
+    color_detection_available: bool = True
 
 
 class ImportSourceUploadResponse(BaseModel):
@@ -28,6 +31,8 @@ class ImportInboxItemRead(BaseModel):
     preview_url: str | None = None
     analysis: dict[str, object] | None = None
     scan_cleanup: dict[str, object] | None = None
+    color_page_indices: list[int] = Field(default_factory=list)
+    color_detection_available: bool = True
     client_name: str | None = None
     source_type: str = "shortcut"
     scanner_device_id: str | None = None
@@ -135,6 +140,7 @@ class ImportCommitPageInput(BaseModel):
     source_file_id: str = Field(min_length=1)
     page_index: int = Field(ge=0)
     rotation: int = Field(default=0)
+    color_mode: Literal["auto", "color", "grayscale", "bw"] = "auto"
 
     @field_validator("rotation")
     @classmethod

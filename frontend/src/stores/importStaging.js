@@ -142,7 +142,11 @@ export const useImportStagingStore = defineStore('importStaging', {
         pages: doc.pages.map((page) => ({
           source_file_id: page.sourceFileId,
           page_index: Number(page.pageIndex),
-          rotation: normalizeRotation(page.rotation)
+          rotation: normalizeRotation(page.rotation),
+          // Der Modus wird beim Commit serverseitig in die importierte PDF
+          // geschrieben. 'auto' lässt die bereits erfolgte Scan-Bereinigung
+          // unverändert; die anderen Werte sind bewusste Benutzer-Overrides.
+          color_mode: normalizeColorMode(page.colorMode)
         }))
       }));
     }
@@ -211,7 +215,11 @@ export const useImportStagingStore = defineStore('importStaging', {
         pageCount: Number(meta.pageCount || 0),
         isImportInbox: Boolean(meta.isImportInbox),
         analysis: normalizeAnalysisPayload(meta.analysis),
-        scanCleanup: normalizeScanCleanupPayload(meta.scanCleanup || meta.scan_cleanup)
+        scanCleanup: normalizeScanCleanupPayload(meta.scanCleanup || meta.scan_cleanup),
+        colorPageIndices: Array.from(new Set((meta.colorPageIndices || meta.color_page_indices || [])
+          .map(Number)
+          .filter(index => Number.isInteger(index) && index >= 0))),
+        colorDetectionAvailable: meta.colorDetectionAvailable ?? meta.color_detection_available ?? true
       });
     },
 
