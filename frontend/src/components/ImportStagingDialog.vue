@@ -343,8 +343,8 @@
                 size="x-small"
                 variant="text"
                 title="Schwarz/Weiß"
-                :color="selectedPageColorMode === 'bw' ? 'primary' : undefined"
-                :class="{ 'isd-color-btn--active': selectedPageColorMode === 'bw' }"
+                :color="selectedPageColorChoice === 'bw' ? 'primary' : undefined"
+                :class="{ 'isd-color-btn--active': selectedPageColorChoice === 'bw' }"
                 :disabled="!hasAnySelectedPage"
                 @click="setAnySelectedPageColorMode('bw')"
               >
@@ -355,8 +355,8 @@
                 size="x-small"
                 variant="text"
                 title="Graustufe"
-                :color="selectedPageColorMode === 'grayscale' ? 'primary' : undefined"
-                :class="{ 'isd-color-btn--active': selectedPageColorMode === 'grayscale' }"
+                :color="selectedPageColorChoice === 'grayscale' ? 'primary' : undefined"
+                :class="{ 'isd-color-btn--active': selectedPageColorChoice === 'grayscale' }"
                 :disabled="!hasAnySelectedPage"
                 @click="setAnySelectedPageColorMode('grayscale')"
               >
@@ -367,8 +367,8 @@
                 size="x-small"
                 variant="text"
                 :title="originalButtonTitle"
-                :color="selectedPageColorMode === 'color' ? 'primary' : undefined"
-                :class="{ 'isd-color-btn--active': selectedPageColorMode === 'color' }"
+                :color="selectedPageColorChoice === 'color' ? 'primary' : undefined"
+                :class="{ 'isd-color-btn--active': selectedPageColorChoice === 'color' }"
                 :disabled="!hasAnySelectedPage || !selectedPageHasColorSource"
                 @click="setAnySelectedPageColorMode('color')"
               >
@@ -379,9 +379,9 @@
                 size="x-small"
                 variant="text"
                 title="Automatisch – Scanbereinigung folgen"
-                :color="selectedPageEntry?.colorMode === 'auto' ? 'primary' : undefined"
-                :class="{ 'isd-color-btn--active': selectedPageEntry?.colorMode === 'auto' }"
-                :disabled="!hasAnySelectedPage || selectedPageEntry?.colorMode === 'auto'"
+                :color="selectedPageColorChoice === 'auto' ? 'primary' : undefined"
+                :class="{ 'isd-color-btn--active': selectedPageColorChoice === 'auto' }"
+                :disabled="!hasAnySelectedPage || selectedPageColorChoice === 'auto'"
                 @click="setAnySelectedPageColorMode('auto')"
               >
                 <v-icon size="20">mdi-restore</v-icon>
@@ -1501,25 +1501,11 @@ function isNewTagName(name) {
   return !findStageTagIdByName(String(name || ''));
 }
 const hasAnySelectedPage = computed(() => Boolean(selected.value?.pageId));
-// Löst den 'auto'-Modus zum tatsächlich sichtbaren Modus auf: eine Seite folgt
-// dem Scan-Bereinigungsmodus (bw → Schwarz/Weiß), bis der Nutzer selbst eine
-// Umwandlung wählt. So zeigt die Toolbar nicht mehr „Farbe" für ein bw-Blatt.
-function resolvePageColorMode(page) {
-  const mode = String(page?.colorMode || 'auto');
-  if (mode !== 'auto') {
-    return mode;
-  }
-  const normalized = normalizeSourceFileId(page?.sourceFileId);
-  const cleanup = normalized ? stagingStore.sourceMetaById?.get?.(normalized)?.scanCleanup : null;
-  // Nur den fertigen Zustand ('ready') abbilden: solange die Bereinigung läuft
-  // oder fehlschlägt, zeigt das Thumbnail noch den Rohscan (Farbe). So passen
-  // Indikator und Vorschau immer zusammen. 'bw' → Schwarz/Weiß; 'white' erhält
-  // die Farben; 'off'/unbekannt bleiben Farbe.
-  const isReady = String(cleanup?.status || '').trim() === 'ready';
-  const cleanupMode = isReady ? String(cleanup?.mode || '').trim() : '';
-  return cleanupMode === 'bw' ? 'bw' : 'color';
-}
-const selectedPageColorMode = computed(() => resolvePageColorMode(selectedPageEntry.value));
+// Die vier Farb-Buttons spiegeln die AUSWAHL des Nutzers (roher colorMode) –
+// genau ein Wert, also immer nur ein Button aktiv. 'auto' = „Scanbereinigung
+// folgen"; ein bw-bereinigter Scan zeigt damit „Automatisch" (nicht „Farbe"),
+// die dedizierte Automatisch-Option ersetzt die frühere Ersatz-Anzeige.
+const selectedPageColorChoice = computed(() => String(selectedPageEntry.value?.colorMode || 'auto'));
 // „Farbe“ ist nur sinnvoll, wenn die ursprüngliche Seite tatsächlich Farbinhalte
 // hatte. Entscheidend ist der Rohscan, nicht die eventuell schon bereinigte
 // schwarz-weiße Vorschau.
