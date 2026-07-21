@@ -92,10 +92,13 @@ function normalizeRotation(value) {
   return 0;
 }
 
-const PAGE_COLOR_MODES = ['color', 'grayscale', 'bw'];
+// 'auto' = folge dem Scan-Bereinigungsmodus (bw-Bereinigung → Schwarz/Weiß),
+// solange der Nutzer nicht selbst eine Umwandlung wählt. Ohne dies stünde die
+// Toolbar auch bei einem bw-gescannten Blatt auf „Farbe".
+const PAGE_COLOR_MODES = ['auto', 'color', 'grayscale', 'bw'];
 
 function normalizeColorMode(value) {
-  return PAGE_COLOR_MODES.includes(value) ? value : 'color';
+  return PAGE_COLOR_MODES.includes(value) ? value : 'auto';
 }
 
 function buildPagesForSource(docId, sourceFileId, pageCount, thumbUrls = []) {
@@ -106,7 +109,7 @@ function buildPagesForSource(docId, sourceFileId, pageCount, thumbUrls = []) {
     sourceFileId,
     pageIndex,
     rotation: 0,
-    colorMode: 'color',
+    colorMode: 'auto',
     thumbUrl: String(thumbUrls[pageIndex] || ''),
     deleted: false
   }));

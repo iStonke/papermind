@@ -1482,7 +1482,25 @@ function isNewTagName(name) {
   return !findStageTagIdByName(String(name || ''));
 }
 const hasAnySelectedPage = computed(() => Boolean(selected.value?.pageId));
-const selectedPageColorMode = computed(() => selectedPageEntry.value?.colorMode || 'color');
+// Löst den 'auto'-Modus zum tatsächlich sichtbaren Modus auf: eine Seite folgt
+// dem Scan-Bereinigungsmodus (bw → Schwarz/Weiß), bis der Nutzer selbst eine
+// Umwandlung wählt. So zeigt die Toolbar nicht mehr „Farbe" für ein bw-Blatt.
+function resolvePageColorMode(page) {
+  const mode = String(page?.colorMode || 'auto');
+  if (mode !== 'auto') {
+    return mode;
+  }
+  const normalized = normalizeSourceFileId(page?.sourceFileId);
+  const cleanup = normalized ? stagingStore.sourceMetaById?.get?.(normalized)?.scanCleanup : null;
+  // Nur den fertigen Zustand ('ready') abbilden: solange die Bereinigung läuft
+  // oder fehlschlägt, zeigt das Thumbnail noch den Rohscan (Farbe). So passen
+  // Indikator und Vorschau immer zusammen. 'bw' → Schwarz/Weiß; 'white' erhält
+  // die Farben; 'off'/unbekannt bleiben Farbe.
+  const isReady = String(cleanup?.status || '').trim() === 'ready';
+  const cleanupMode = isReady ? String(cleanup?.mode || '').trim() : '';
+  return cleanupMode === 'bw' ? 'bw' : 'color';
+}
+const selectedPageColorMode = computed(() => resolvePageColorMode(selectedPageEntry.value));
 const gridScrollStyle = computed(() => ({
   '--pm-grid-min': ['100px', '140px', '185px', '240px'][gridZoomIndex.value] || '140px'
 }));
