@@ -51,6 +51,17 @@ function normalizeScanCleanupPayload(value) {
   };
 }
 
+// Fehlt die Farbseiten-Info ganz (nicht durchgereicht/alte Payload), darf das
+// NICHT als „keine Farben" gelten - sonst sperren wir den Farb-Button
+// fälschlich. null = unbekannt → permissiv; ein Array (auch leeres) = echtes
+// Erkennungsergebnis.
+function normalizeColorPageIndices(value) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  return Array.from(new Set(value.map(Number).filter((index) => Number.isInteger(index) && index >= 0)));
+}
+
 function createDocument({ title, sourceType = 'manual', pages = [], collapsed = false, tags = [] } = {}) {
   const id = makeId('staging-doc');
   const normalizedPages = pages.map((page) => ({
@@ -216,9 +227,7 @@ export const useImportStagingStore = defineStore('importStaging', {
         isImportInbox: Boolean(meta.isImportInbox),
         analysis: normalizeAnalysisPayload(meta.analysis),
         scanCleanup: normalizeScanCleanupPayload(meta.scanCleanup || meta.scan_cleanup),
-        colorPageIndices: Array.from(new Set((meta.colorPageIndices || meta.color_page_indices || [])
-          .map(Number)
-          .filter(index => Number.isInteger(index) && index >= 0))),
+        colorPageIndices: normalizeColorPageIndices(meta.colorPageIndices ?? meta.color_page_indices),
         colorDetectionAvailable: meta.colorDetectionAvailable ?? meta.color_detection_available ?? true
       });
     },
