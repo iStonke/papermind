@@ -368,36 +368,37 @@
               </v-btn>
             </div>
 
-            <div class="isd-toolbar-divider" />
-
-            <div class="isd-ai-group">
-              <v-btn
-                size="x-small"
-                variant="text"
-                class="isd-ai-status-btn"
-                :class="`isd-ai-status-btn--${prepStatus.kind}`"
-                :icon="!prepStatus.busy"
-                :title="aiStatusTitle"
-                :disabled="isScanCleanupRunning || isRetryingAnalysis || isUploadingSources || totalPages === 0"
-                @click="retryAnalysis"
-              >
-                <template v-if="prepStatus.busy">
-                  <v-progress-circular indeterminate size="14" width="2" color="primary" />
-                  <span class="isd-ai-status-btn__text">{{ prepStatus.label }}</span>
-                </template>
-                <v-icon v-else-if="['success', 'partial'].includes(aiAnalysis.kind)" size="20" color="success">
-                  mdi-auto-fix
-                </v-icon>
-                <v-icon v-else-if="aiAnalysis.kind === 'failed'" size="20" color="warning">
-                  mdi-alert-circle-outline
-                </v-icon>
-                <v-icon v-else size="20">mdi-creation</v-icon>
-              </v-btn>
-            </div>
           </div>
 
-          <!-- Flexibler Abstand -->
-          <div class="isd-toolbar-spacer" />
+          <!-- Mittlere, flexible Zone: KI-Status. Sie ist das einzige Element,
+               das schrumpft/ellipsiert – so werden die festen Button-Gruppen
+               links und rechts nie aus dem Rahmen geschoben. -->
+          <div class="isd-toolbar-center">
+            <div class="isd-toolbar-divider" />
+            <div v-if="prepStatus.busy" class="isd-ai-status" :title="aiStatusTitle">
+              <v-progress-circular indeterminate size="14" width="2" color="primary" />
+              <span class="isd-ai-status__text">{{ prepStatus.label }}</span>
+            </div>
+            <v-btn
+              v-else
+              icon
+              size="x-small"
+              variant="text"
+              class="isd-ai-status-btn"
+              :class="`isd-ai-status-btn--${prepStatus.kind}`"
+              :title="aiStatusTitle"
+              :disabled="isScanCleanupRunning || isRetryingAnalysis || isUploadingSources || totalPages === 0"
+              @click="retryAnalysis"
+            >
+              <v-icon v-if="['success', 'partial'].includes(aiAnalysis.kind)" size="20" color="success">
+                mdi-auto-fix
+              </v-icon>
+              <v-icon v-else-if="aiAnalysis.kind === 'failed'" size="20" color="warning">
+                mdi-alert-circle-outline
+              </v-icon>
+              <v-icon v-else size="20">mdi-creation</v-icon>
+            </v-btn>
+          </div>
 
           <!-- Rechte Gruppe: Zoom + Seitenanzahl -->
           <div class="isd-toolbar-right">
@@ -5949,22 +5950,36 @@ onBeforeUnmount(() => {
   background: rgba(var(--v-theme-surface), 0.82);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+  /* Responsive nach der TATSÄCHLICHEN Toolbar-Breite, nicht nach dem Viewport:
+     der Dialog ist oft deutlich schmaler als das Fenster (Split-Screen, kleine
+     Laptops), eine Viewport-Media-Query würde zu spät greifen. */
+  container: isd-toolbar / inline-size;
 }
 
 .isd-toolbar-left {
   display: flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
 }
 
-.isd-toolbar-spacer {
-  flex: 1;
+/* Flexible Mittelzone: nimmt den Platz zwischen den festen Gruppen ein und ist
+   das einzige Element, das schrumpfen darf (min-width:0). Ihr Inhalt – der
+   KI-Status – kürzt sich dadurch per Ellipsis, statt die rechte Gruppe aus dem
+   Rahmen zu drücken. */
+.isd-toolbar-center {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .isd-toolbar-right {
   display: flex;
   align-items: center;
   gap: 14px;
+  flex-shrink: 0;
 }
 
 .isd-toolbar-divider {
@@ -6014,26 +6029,25 @@ onBeforeUnmount(() => {
 }
 
 
-.isd-ai-group {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
 .isd-ai-status-btn--failed {
   color: rgb(var(--v-theme-warning)) !important;
 }
 
-.isd-ai-status-btn--busy :deep(.v-btn__content) {
+/* Laufender Status in der Mittelzone: Spinner + Text, der als Erstes kürzt. */
+.isd-ai-status {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
+  min-width: 0;
+  padding-left: 4px;
 }
 
-.isd-ai-status-btn__text {
+.isd-ai-status__text {
   font-size: 12px;
   font-weight: 500;
-  text-transform: none;
-  letter-spacing: normal;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: rgba(var(--v-theme-on-surface), 0.64);
 }
 
@@ -6063,6 +6077,30 @@ onBeforeUnmount(() => {
   border-radius: 20px;
   background: rgba(var(--v-theme-on-surface), 0.08);
   color: rgba(var(--v-theme-on-surface), 0.6);
+  flex-shrink: 0;
+}
+
+/* Enge Toolbar: die „klein/groß"-Beschriftungen weglassen, den Slider verkürzen
+   und die Trenner-Abstände straffen, damit die festen Gruppen kompakt bleiben.
+   Der Slider bleibt bedienbar, die Enden sind durch die Grid-Vorschau
+   selbsterklärend. Container-Query = reagiert auf die Toolbar-, nicht die
+   Fensterbreite. */
+@container isd-toolbar (max-width: 640px) {
+  .isd-zoom-label {
+    display: none;
+  }
+
+  .isd-zoom-slider {
+    width: 84px;
+  }
+
+  .isd-toolbar-divider {
+    margin: 0 5px;
+  }
+
+  .isd-toolbar-right {
+    gap: 8px;
+  }
 }
 
 /* Rechte Spalte mit fixer Höhe: Tabs oben, scrollender Inhalt in der Mitte,
