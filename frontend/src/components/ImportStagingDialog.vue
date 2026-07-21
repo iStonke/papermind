@@ -400,21 +400,51 @@
             </v-btn>
           </div>
 
-          <!-- Rechte Gruppe: Zoom + Seitenanzahl -->
+          <!-- Rechte Gruppe: Miniaturgröße + Seitenanzahl -->
           <div class="isd-toolbar-right">
-            <div class="isd-zoom-group">
-              <span class="isd-zoom-label">klein</span>
-              <input
-                type="range"
-                class="isd-zoom-slider"
-                min="0"
-                max="3"
-                step="1"
-                :value="gridZoomIndex"
-                @input="onGridZoomChange"
-              />
-              <span class="isd-zoom-label">groß</span>
-            </div>
+            <v-menu location="top" :offset="8" :close-on-content-click="false">
+              <template #activator="{ props: menuProps }">
+                <v-btn
+                  icon
+                  size="x-small"
+                  variant="text"
+                  class="isd-zoom-trigger"
+                  title="Miniaturgröße"
+                  v-bind="menuProps"
+                >
+                  <v-icon size="20">mdi-view-grid-outline</v-icon>
+                </v-btn>
+              </template>
+              <v-list density="compact" min-width="184" class="isd-zoom-menu">
+                <v-list-subheader>Miniaturgröße</v-list-subheader>
+                <v-list-item
+                  v-for="opt in gridZoomOptions"
+                  :key="opt.index"
+                  :active="gridZoomIndex === opt.index"
+                  @click="gridZoomIndex = opt.index"
+                >
+                  <template #prepend>
+                    <span
+                      class="isd-zoom-swatch"
+                      :style="{
+                        display: 'inline-block',
+                        width: opt.dot + 'px',
+                        height: opt.dot + 'px',
+                        marginRight: '12px',
+                        borderRadius: '3px',
+                        background: gridZoomIndex === opt.index
+                          ? 'rgb(var(--v-theme-primary))'
+                          : 'rgba(var(--v-theme-on-surface), 0.5)'
+                      }"
+                    />
+                  </template>
+                  <v-list-item-title>{{ opt.label }}</v-list-item-title>
+                  <template #append>
+                    <v-icon v-if="gridZoomIndex === opt.index" size="16">mdi-check</v-icon>
+                  </template>
+                </v-list-item>
+              </v-list>
+            </v-menu>
             <span class="isd-page-count">{{ totalPages }} {{ totalPages === 1 ? 'Seite' : 'Seiten' }}</span>
           </div>
 
@@ -1102,6 +1132,14 @@ const tagDropdownOpen = ref(false);
 const tagInlineValue = ref('');
 const isCreatingTags = ref(false);
 const gridZoomIndex = ref(1);
+// Stufen der Miniaturgröße (Index → Grid-Mindestbreite in gridScrollStyle). Das
+// Quadrat (dot) wächst mit der Stufe und zeigt die Größe direkt im Menü.
+const gridZoomOptions = [
+  { index: 0, label: 'Sehr klein', dot: 8 },
+  { index: 1, label: 'Klein', dot: 11 },
+  { index: 2, label: 'Mittel', dot: 14 },
+  { index: 3, label: 'Groß', dot: 17 }
+];
 
 const isOpen = computed({
   get: () => props.modelValue,
@@ -3855,10 +3893,6 @@ function setAnySelectedPageColorMode(colorMode) {
   stagingStore.setPageColorMode(selected.value.pageId, colorMode);
 }
 
-function onGridZoomChange(event) {
-  gridZoomIndex.value = Number(event.target?.value ?? 1);
-}
-
 function addPrimaryDocTagById(tagId) {
   if (!primaryDocument.value) return;
   const current = primaryDocument.value.tags || [];
@@ -6051,22 +6085,8 @@ onBeforeUnmount(() => {
   color: rgba(var(--v-theme-on-surface), 0.64);
 }
 
-.isd-zoom-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.isd-zoom-label {
-  font-size: 11px;
-  color: rgba(var(--v-theme-on-surface), 0.5);
-  white-space: nowrap;
-}
-
-.isd-zoom-slider {
-  width: 120px;
-  cursor: pointer;
-  accent-color: rgb(var(--v-theme-primary));
+.isd-zoom-trigger {
+  flex-shrink: 0;
 }
 
 .isd-page-count {
@@ -6080,20 +6100,11 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 
-/* Enge Toolbar: die „klein/groß"-Beschriftungen weglassen, den Slider verkürzen
-   und die Trenner-Abstände straffen, damit die festen Gruppen kompakt bleiben.
-   Der Slider bleibt bedienbar, die Enden sind durch die Grid-Vorschau
-   selbsterklärend. Container-Query = reagiert auf die Toolbar-, nicht die
-   Fensterbreite. */
-@container isd-toolbar (max-width: 640px) {
-  .isd-zoom-label {
-    display: none;
-  }
-
-  .isd-zoom-slider {
-    width: 84px;
-  }
-
+/* Enge Toolbar: Trenner-Abstände straffen und die rechte Gruppe zusammenrücken,
+   damit die festen Gruppen kompakt bleiben. Container-Query = reagiert auf die
+   Toolbar-, nicht die Fensterbreite (der Dialog ist oft schmaler als das
+   Fenster). */
+@container isd-toolbar (max-width: 560px) {
   .isd-toolbar-divider {
     margin: 0 5px;
   }
