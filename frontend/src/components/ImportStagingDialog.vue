@@ -342,18 +342,6 @@
                 icon
                 size="x-small"
                 variant="text"
-                title="Schwarz/Weiß"
-                :color="selectedPageColorChoice === 'bw' ? 'primary' : undefined"
-                :class="{ 'isd-color-btn--active': selectedPageColorChoice === 'bw' }"
-                :disabled="!hasAnySelectedPage"
-                @click="setAnySelectedPageColorMode('bw')"
-              >
-                <v-icon size="20">mdi-contrast-box</v-icon>
-              </v-btn>
-              <v-btn
-                icon
-                size="x-small"
-                variant="text"
                 title="Graustufe"
                 :color="selectedPageColorChoice === 'grayscale' ? 'primary' : undefined"
                 :class="{ 'isd-color-btn--active': selectedPageColorChoice === 'grayscale' }"
