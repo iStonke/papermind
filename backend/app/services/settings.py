@@ -78,7 +78,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "dpi_target": 300,
         "postprocess_hyphenation": True,
         "remove_headers_footers": True,
-        "scan_cleanup": "bw",
+        "scan_cleanup": "white",
     },
     "quality": {
         "enable_answer_checks": True,

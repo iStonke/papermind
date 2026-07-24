@@ -240,7 +240,7 @@ class OCRSettingsRead(BaseModel):
     # Bereinigung des sichtbaren Scans: "off" behält das Original, "white" glättet
     # den Hintergrund auf Weiß und erhält Farben, "bw" liefert einen sauberen
     # Schwarz-Weiß-Scan. Wirkt auf die angezeigte ocr.pdf.
-    scan_cleanup: ScanCleanupMode = "bw"
+    scan_cleanup: ScanCleanupMode = "white"
 
     @field_validator("language")
     @classmethod

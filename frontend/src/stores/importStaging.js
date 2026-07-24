@@ -103,13 +103,15 @@ function normalizeRotation(value) {
   return 0;
 }
 
-// 'auto' = folge dem Scan-Bereinigungsmodus (bw-Bereinigung → Schwarz/Weiß),
-// solange der Nutzer nicht selbst eine Umwandlung wählt. Ohne dies stünde die
-// Toolbar auch bei einem bw-gescannten Blatt auf „Farbe".
+// Farbmodus pro Importseite: 'color' = Original (Rohscan, keine Bereinigung),
+// 'grayscale' = bereinigt + Graustufen (Default), 'auto' = bereinigt + Farbe.
+// ('bw' bleibt für Alt-/Backend-Kompatibilität gültig, wird von der UI aber
+// nicht mehr angeboten.)
 const PAGE_COLOR_MODES = ['auto', 'color', 'grayscale', 'bw'];
+const DEFAULT_PAGE_COLOR_MODE = 'grayscale';
 
 function normalizeColorMode(value) {
-  return PAGE_COLOR_MODES.includes(value) ? value : 'auto';
+  return PAGE_COLOR_MODES.includes(value) ? value : DEFAULT_PAGE_COLOR_MODE;
 }
 
 function buildPagesForSource(docId, sourceFileId, pageCount, thumbUrls = []) {
@@ -120,7 +122,7 @@ function buildPagesForSource(docId, sourceFileId, pageCount, thumbUrls = []) {
     sourceFileId,
     pageIndex,
     rotation: 0,
-    colorMode: 'auto',
+    colorMode: DEFAULT_PAGE_COLOR_MODE,
     thumbUrl: String(thumbUrls[pageIndex] || ''),
     deleted: false
   }));

@@ -187,9 +187,9 @@
               </div>
               <div class="isd-page-num">{{ globalIndex + 1 }}</div>
               <div
-                v-if="page.colorMode !== 'auto'"
+                v-if="page.colorMode !== 'grayscale'"
                 class="isd-page-mode-badge"
-                :title="`Manuell: ${pageColorModeLabel(page.colorMode)}`"
+                :title="`Farbmodus: ${pageColorModeLabel(page.colorMode)}`"
               >
                 {{ pageColorModeLabel(page.colorMode) }}
               </div>
@@ -342,7 +342,19 @@
                 icon
                 size="x-small"
                 variant="text"
-                title="Graustufe"
+                title="Original – keine Bereinigung"
+                :color="selectedPageColorChoice === 'color' ? 'primary' : undefined"
+                :class="{ 'isd-color-btn--active': selectedPageColorChoice === 'color' }"
+                :disabled="!hasAnySelectedPage"
+                @click="setAnySelectedPageColorMode('color')"
+              >
+                <v-icon size="20">mdi-image-outline</v-icon>
+              </v-btn>
+              <v-btn
+                icon
+                size="x-small"
+                variant="text"
+                title="Bereinigt – Graustufen"
                 :color="selectedPageColorChoice === 'grayscale' ? 'primary' : undefined"
                 :class="{ 'isd-color-btn--active': selectedPageColorChoice === 'grayscale' }"
                 :disabled="!hasAnySelectedPage"
@@ -354,25 +366,13 @@
                 icon
                 size="x-small"
                 variant="text"
-                :title="originalButtonTitle"
-                :color="selectedPageColorChoice === 'color' ? 'primary' : undefined"
-                :class="{ 'isd-color-btn--active': selectedPageColorChoice === 'color' }"
-                :disabled="!hasAnySelectedPage || !selectedPageHasColorSource"
-                @click="setAnySelectedPageColorMode('color')"
-              >
-                <v-icon size="20">mdi-palette-outline</v-icon>
-              </v-btn>
-              <v-btn
-                icon
-                size="x-small"
-                variant="text"
-                title="Automatisch – Scanbereinigung folgen"
+                title="Bereinigt – Farbe"
                 :color="selectedPageColorChoice === 'auto' ? 'primary' : undefined"
                 :class="{ 'isd-color-btn--active': selectedPageColorChoice === 'auto' }"
-                :disabled="!hasAnySelectedPage || selectedPageColorChoice === 'auto'"
+                :disabled="!hasAnySelectedPage"
                 @click="setAnySelectedPageColorMode('auto')"
               >
-                <v-icon size="20">mdi-restore</v-icon>
+                <v-icon size="20">mdi-palette-outline</v-icon>
               </v-btn>
             </div>
 
@@ -1493,31 +1493,9 @@ const hasAnySelectedPage = computed(() => Boolean(selected.value?.pageId));
 // genau ein Wert, also immer nur ein Button aktiv. 'auto' = „Scanbereinigung
 // folgen"; ein bw-bereinigter Scan zeigt damit „Automatisch" (nicht „Farbe"),
 // die dedizierte Automatisch-Option ersetzt die frühere Ersatz-Anzeige.
-const selectedPageColorChoice = computed(() => String(selectedPageEntry.value?.colorMode || 'auto'));
-// „Farbe“ ist nur sinnvoll, wenn die ursprüngliche Seite tatsächlich Farbinhalte
-// hatte. Entscheidend ist der Rohscan, nicht die eventuell schon bereinigte
-// schwarz-weiße Vorschau.
-const selectedPageHasColorSource = computed(() => {
-  const page = selectedPageEntry.value;
-  const sourceFileId = normalizeSourceFileId(page?.sourceFileId);
-  if (!sourceFileId) return true;
-  const colorPageIndices = stagingStore.sourceMetaById?.get?.(sourceFileId)?.colorPageIndices;
-  const detectionAvailable = stagingStore.sourceMetaById?.get?.(sourceFileId)?.colorDetectionAvailable;
-  if (detectionAvailable === false) return true;
-  if (!Array.isArray(colorPageIndices)) return true;
-  return colorPageIndices.includes(Number(page?.pageIndex || 0));
-});
-const originalButtonTitle = computed(() => {
-  const page = selectedPageEntry.value;
-  const sourceFileId = normalizeSourceFileId(page?.sourceFileId);
-  const available = sourceFileId
-    ? stagingStore.sourceMetaById?.get?.(sourceFileId)?.colorDetectionAvailable
-    : true;
-  if (available === false) return 'Original – Farberkennung nicht eindeutig';
-  return selectedPageHasColorSource.value ? 'Original' : 'Originalseite enthält keine Farben';
-});
+const selectedPageColorChoice = computed(() => String(selectedPageEntry.value?.colorMode || 'grayscale'));
 function pageColorModeLabel(mode) {
-  return ({ color: 'Original', grayscale: 'Grau', bw: 'S/W' })[String(mode || '')] || 'Automatisch';
+  return ({ color: 'Original', grayscale: 'Grau', auto: 'Farbe', bw: 'S/W' })[String(mode || '')] || 'Farbe';
 }
 const gridScrollStyle = computed(() => ({
   '--pm-grid-min': ['100px', '140px', '185px', '240px'][gridZoomIndex.value] || '140px'

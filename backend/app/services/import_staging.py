@@ -704,7 +704,12 @@ class ImportStagingService:
             dpi_target = max(300, int(ocr_settings.get("dpi_target") or 300))
         except (TypeError, ValueError):
             dpi_target = 300
-        return (mode if mode in {"white", "bw"} else None), dpi_target
+        # Die Staging-Bereinigung erhält bewusst IMMER die Farbe (white): Ob das
+        # importierte Dokument farbig oder grau wird, entscheidet die Auswahl im
+        # Importdialog (Original / Bereinigt Graustufen / Bereinigt Farbe). Ein
+        # persistiertes „bw" (Altwert) wird daher wie „white" behandelt, damit
+        # „Bereinigt Farbe" verlässlich Farbe liefern kann.
+        return ("white" if mode in {"white", "bw"} else None), dpi_target
 
     def mark_scan_cleanup_pending(self, source_file_ids: list[str]) -> bool:
         """Wartende Quellen sofort als "pending" markieren.

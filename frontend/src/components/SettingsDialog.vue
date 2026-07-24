@@ -829,8 +829,8 @@
                 <div class="pm-setting-label">Seitenverbesserung</div>
                 <div class="pm-setting-description">
                   Glättet Faltenschatten und ungleichmäßige Beleuchtung, damit gescannte Seiten
-                  einen richtig weißen Hintergrund bekommen. Wirkt auf das durchsuchbare Dokument
-                  nach dem Import.
+                  einen richtig weißen Hintergrund bekommen; Farben bleiben dabei erhalten. Ob ein
+                  Dokument farbig oder in Graustufen importiert wird, wählst du beim Import.
                 </div>
               </div>
               <v-switch
@@ -843,27 +843,6 @@
                 :disabled="isSettingSaving.scan_cleanup"
                 @click.stop
                 @update:model-value="onScanEnhancementToggle"
-              />
-            </div>
-
-            <div v-if="scanEnhancementEnabled" class="pm-setting-row pm-setting-row--column pm-setting-row--nested">
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Modus der Seitenverbesserung</div>
-                <div class="pm-setting-description">
-                  Schwarz-Weiß liefert einen sauberen S/W-Scan; „Weiß" erhält farbige Logos.
-                </div>
-              </div>
-              <v-select
-                :model-value="settingsDraft.ocr.scan_cleanup"
-                :items="scanEnhancementModeOptions"
-                density="comfortable"
-                hide-details
-                variant="outlined"
-                class="settings-theme-select pm-setting-select"
-                label="Modus"
-                :loading="isSettingSaving.scan_cleanup"
-                :disabled="isSettingSaving.scan_cleanup"
-                @update:model-value="onScanCleanupChange"
               />
             </div>
           </div>
@@ -3069,24 +3048,9 @@ const scanCleanupOptions = [
 
 const SCAN_CLEANUP_VALUES = new Set(scanCleanupOptions.map((e) => e.value));
 
-// Seitenverbesserung als Ein/Aus-Schalter + Modus: „off" = aus, sonst
-// „bw"/„white". scanEnhancementMode merkt sich den zuletzt aktiven Modus, damit
-// Aus→Ein den vorherigen Modus wiederherstellt (Default S/W).
-const scanEnhancementModeOptions = [
-  { title: 'Schwarz-Weiß (empfohlen)', value: 'bw' },
-  { title: 'Weiß, Farben erhalten', value: 'white' }
-];
-const scanEnhancementMode = ref('bw');
+// Seitenverbesserung ist ein reiner Ein/Aus-Schalter: „off" = aus, „white" = an
+// (farberhaltende Bereinigung). Grau/Farbe wird pro Dokument beim Import gewählt.
 const scanEnhancementEnabled = computed(() => settingsDraft.ocr.scan_cleanup !== 'off');
-watch(
-  () => settingsDraft.ocr.scan_cleanup,
-  (value) => {
-    if (value === 'white' || value === 'bw') {
-      scanEnhancementMode.value = value;
-    }
-  },
-  { immediate: true }
-);
 
 
 // ── Theme ────────────────────────────────────────────────────────────────────
@@ -3359,11 +3323,11 @@ function toggleScanLivePageModeFromRow() {
   void onScanLivePageModeChange(!settingsDraft.documents.scan_live_page_mode);
 }
 
-// Seitenverbesserung ein/aus: aus → scan_cleanup='off', ein → gemerkter Modus.
+// Seitenverbesserung ein/aus: aus → scan_cleanup='off', ein → 'white' (Farbe
+// erhaltend). Grau vs. Farbe entscheidet die Auswahl im Importdialog.
 async function onScanEnhancementToggle(nextValue) {
   if (isSettingSaving.scan_cleanup) return;
-  const enable = Boolean(nextValue);
-  const nextMode = enable ? (scanEnhancementMode.value || 'bw') : 'off';
+  const nextMode = nextValue ? 'white' : 'off';
   await onScanCleanupChange(nextMode);
 }
 
