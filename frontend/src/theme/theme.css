@@ -1,5 +1,5 @@
 /*
- * PaperMind Theme – zentrale CSS-Variablen
+ * PaperMind Theme – zentrale CSS-Variablen · Farbschema „Kontur"
  *
  * Strategie:
  *   - Vuetify-Theme bleibt immer "light" oder "dark" (keine Varianten-Themes)
@@ -7,8 +7,17 @@
  *   - Alle --v-theme-primary-Overrides haben höhere Spezifität als Vuetifys injiziertes CSS
  *   - --pm-* Variablen steuern die App-eigenen Oberflächen und Akzente
  *
+ * Farbschema „Kontur" (Claude Design). Quelle der Wahrheit (oklch) liegt in
+ * docs/design/tokens.css; hier stehen die daraus abgeleiteten sRGB-Hex-Werte,
+ * damit Vuetify (kein oklch-Parser) und die --pm-*-Ebene identische Farben führen.
+ *
+ * Prinzip: Türkis ist NUR Zustandsfarbe (Auswahl, Primäraktion, Fokus, aktiv),
+ * keine blaugrauen Füllflächen mehr. Zonentrennung über Fläche statt Farbe:
+ * Hellmodus dunkle Tinten-Seitenleiste + weißer Inhalt + leicht getönter Leser;
+ * Dunkelmodus vier klar gestufte Helligkeitsebenen.
+ *
  * Alle Farben im Code sollen ausschließlich --pm-* Variablen verwenden.
- * Rohwerte (Hex, rgba) gehören nur in diese Datei.
+ * Rohwerte (Hex, rgba) gehören nur in diese Datei bzw. theme/tokens.ts.
  */
 
 /* ── Statische Konstanten ──────────────────────────────────────────────────── */
@@ -24,22 +33,23 @@
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   LIGHT MODE (alle Varianten)
+   LIGHT MODE (alle Varianten) – Kontur „Runde 1c"
    ════════════════════════════════════════════════════════════════════════════ */
 
 /* ── Gemeinsame Light-Semantik ─────────────────────────────────────────────── */
 .papermind-app.v-theme--light {
   /* Text */
-  --pm-text:  #16202e;
-  --pm-muted: #5a6573;
+  --pm-text:  #0e181b;
+  --pm-muted: #535e62;
 
   /* Trennlinien & Schatten */
-  --pm-divider: rgba(15, 23, 42, 0.10);
-  --pm-outline: rgba(15, 23, 42, 0.06);
-  --pm-shadow:  0 10px 30px rgba(15, 23, 42, 0.10);
+  --pm-divider:      #d8dfe1;   /* --pm-border */
+  --pm-row-border:   #dde4e6;
+  --pm-outline:      #e7eef0;
+  --pm-shadow:       0 10px 30px rgba(15, 23, 42, 0.10);
 
   /* Sidebar */
-  --pm-sidebar-count-opacity: 0.68;
+  --pm-sidebar-count-opacity: 0.90;
 
   /* Drawer */
   --pm-drawer-bg-expanded:      rgba(255, 255, 255, 0.90);
@@ -50,33 +60,71 @@
   --pm-drawer-border-collapsed: rgba(0, 0, 0, 0.10);
   --pm-drawer-scrim:            transparent;
 
-  /* Akzent (Standard: Teal). Nur diese Variablen wechseln je data-color-variant. */
-  --v-theme-primary:         14, 116, 144;
-  --pm-accent:               #0891b2;
-  --pm-accent-strong:        #0e7490;
+  /* Akzent (Standard: Teal/Kontur). Nur diese vier Zeilen wechseln je data-color-variant. */
+  --v-theme-primary:         0, 107, 117;
+  --pm-accent:               #006b75;
+  --pm-accent-strong:        #00555f;
   --pm-accent-contrast:      #ffffff;
 
-  /* Kühle Slate-Neutrals (eine Identität, accent-unabhängig) */
-  --pm-app-surface:          #eef2f8;
-  --pm-content-surface:      #f7f9fc;
-  --pm-sidebar-surface:      #e9eef5;
-  --pm-viewer-surface:       #f1f4fa;
+  /* Abgeleitete Akzent-Aliasse (folgen automatisch der Variante) */
+  --pm-accent-text: var(--pm-accent-strong);
+  --pm-on-accent:   var(--pm-accent-contrast);
+
+  /* Flächen – weißer Inhalt, leicht getönter Leser, dunkle Tinten-Seitenleiste */
+  --pm-app-surface:          #ffffff;
+  --pm-content-surface:      #ffffff;
+  --pm-sidebar-surface:      #152a31;
+  --pm-viewer-surface:       #f0f6f7;
   --pm-app-surface-raised:   #ffffff;
   --pm-app-surface-contrast: #ffffff;
-  --pm-pdf-stage-bg:         #f1f4fa;
+  --pm-pdf-stage-bg:         #f0f6f7;
   --pm-pdf-page-bg:          #ffffff;
-  --pm-sidebar-hover:        color-mix(in srgb, var(--pm-accent) 8%, transparent);
-  --pm-sidebar-active:       color-mix(in srgb, var(--pm-accent) 14%, transparent);
-  --pm-row-hover:            #f3f6fb;
-  --pm-row-active:           color-mix(in srgb, var(--pm-accent) 12%, #ffffff);
-  --pm-document-row-bg:      #fbfdff;
-  --pm-appbar-bg:            #1e293b;
+  --pm-document-row-bg:      #ffffff;
+  --pm-appbar-bg:            #152a31;
 
-  /* Semantische Farben (hell) */
-  --pm-success: #15803d;
+  /* Auswahl / Hover */
+  --pm-selected:       #dbf3f6;
+  --pm-sidebar-hover:  rgba(255, 255, 255, 0.06);
+  --pm-sidebar-active: var(--pm-sidebar-selected);
+  --pm-row-hover:      #f0f6f7;
+  --pm-row-active:     var(--pm-selected);
+
+  /* Dunkle Seitenleiste (helle Schrift, eigene Chip-/Feld-Töne) */
+  --pm-sidebar-text:          #ecf3f5;
+  --pm-sidebar-muted:         #95a7ad;
+  --pm-sidebar-border:        #253a42;
+  --pm-sidebar-selected:      #14494f;
+  --pm-sidebar-selected-text: #e9f7f8;
+  --pm-sidebar-accent:        #48b7bd;   /* Logo-Mark auf dunkler Leiste */
+  --pm-sidebar-chip-bg:       #263a41;
+  --pm-sidebar-chip-text:     #dee6e9;
+  --pm-sidebar-chip-count:    #9eaeb4;
+  --pm-field-bg:              #24373e;    /* Suchfeld in der dunklen Leiste */
+  --pm-field-border:          #344a52;
+
+  /* Chips (Tags/Dokumenttypen im Inhaltsbereich) – ein ruhiger Ton für alle */
+  --pm-chip-bg:    #e7eef0;
+  --pm-chip-text:  #2b3538;
+  --pm-chip-count: #6c777a;
+
+  /* Codeblöcke im Leser */
+  --pm-code-bg:     #edf4f5;
+  --pm-code-border: #dde4e6;
+  --pm-code-text:   #1d2629;
+  --pm-code-string: #83451e;
+
+  /* Weitere Komponenten */
+  --pm-track:       #e2e9eb;   /* Segmented Control / Toggle „aus" */
+  --pm-dialog-rail: #eef5f6;   /* linke Rubrikenleiste im Einstellungsdialog */
+  --pm-thumb-bg:    #f7fbfc;
+  --pm-thumb-line:  #d8dfe1;
+
+  /* Status */
+  --pm-star:    #b97a13;
+  --pm-success: #307041;
   --pm-warning: #b45309;
-  --pm-error:   #dc2626;
-  --pm-info:    #475569;
+  --pm-error:   #af3d36;
+  --pm-info:    #535e62;
 }
 
 /* ── Akzent: Violet (hell) ─────────────────────────────────────────────────── */
@@ -85,6 +133,9 @@
   --pm-accent:          #7c3aed;
   --pm-accent-strong:   #6d28d9;
   --pm-accent-contrast: #ffffff;
+  /* Auswahltöne folgen dem Akzent, damit nichts türkis durchscheint */
+  --pm-selected:        color-mix(in srgb, var(--pm-accent) 12%, #ffffff);
+  --pm-sidebar-selected: color-mix(in srgb, var(--pm-accent) 42%, var(--pm-sidebar-surface));
 }
 
 /* ── Akzent: Blau (hell) ───────────────────────────────────────────────────── */
@@ -93,10 +144,12 @@
   --pm-accent:          #2563eb;
   --pm-accent-strong:   #1d4ed8;
   --pm-accent-contrast: #ffffff;
+  --pm-selected:        color-mix(in srgb, var(--pm-accent) 12%, #ffffff);
+  --pm-sidebar-selected: color-mix(in srgb, var(--pm-accent) 42%, var(--pm-sidebar-surface));
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   DARK MODE (alle Varianten)
+   DARK MODE (alle Varianten) – Kontur „Runde 2a"
    ════════════════════════════════════════════════════════════════════════════ */
 
 /* ── Gemeinsame Dark-Semantik ──────────────────────────────────────────────── */
@@ -104,13 +157,14 @@
   --v-theme-overlay-multiplier: 0;
 
   /* Text */
-  --pm-text:  #e6ebf2;
-  --pm-muted: #9aa4b2;
+  --pm-text:  #f0f4f6;
+  --pm-muted: #a8b3b7;
 
   /* Trennlinien & Schatten */
-  --pm-divider: rgba(255, 255, 255, 0.08);
-  --pm-outline: rgba(255, 255, 255, 0.06);
-  --pm-shadow:  0 10px 30px rgba(0, 0, 0, 0.35);
+  --pm-divider:    #3e484c;   /* --pm-border */
+  --pm-row-border: #404a4d;
+  --pm-outline:    #3e484c;
+  --pm-shadow:     0 10px 30px rgba(0, 0, 0, 0.35);
 
   /* Sidebar */
   --pm-sidebar-count-opacity: 0.90;
@@ -122,30 +176,28 @@
   --pm-drawer-border-collapsed: rgba(255, 255, 255, 0.06);
   --pm-drawer-scrim:            transparent;
 
-  /* Akzent (Standard: Teal) */
-  --v-theme-primary:     34, 211, 238;
-  --pm-accent:           #22d3ee;
-  --pm-accent-strong:    #22d3ee;
-  --pm-accent-contrast:  #04241f;
+  /* Akzent (Standard: Teal/Kontur) – hell, daher dunkle Schrift via --pm-on-accent */
+  --v-theme-primary:     79, 197, 203;
+  --pm-accent:           #4fc5cb;
+  --pm-accent-strong:    #80dee3;
+  --pm-accent-contrast:  #031a1b;
 
-  /* Kühle Slate-Neutrals (dunkel) */
-  --pm-v-bg:             #0a0f19;
-  --pm-v-panel-left:     #0c111c;
-  --pm-v-panel-mid:      #0e1420;
-  --pm-v-panel-right:    #0a0f19;
-  --pm-v-card:           #141b28;
-  --pm-v-card-hover:     #1b2433;
-  --pm-v-card-active:    #222e40;
-  --pm-v-sidebar-active: #161d2a;
-  --pm-drawer-bg-expanded:  rgba(20, 27, 40, 0.96);
-  --pm-drawer-bg-collapsed: rgba(20, 27, 40, 0.78);
-  --pm-appbar-bg:        #0e1420;
+  --pm-accent-text: var(--pm-accent-strong);
+  --pm-on-accent:   var(--pm-accent-contrast);
 
-  /* Semantische Farben (dunkel) */
-  --pm-success: #34d399;
-  --pm-warning: #fbbf24;
-  --pm-error:   #f87171;
-  --pm-info:    #94a3b8;
+  /* Flächen – vier klar gestufte Ebenen (Seitenleiste am tiefsten → Liste →
+     Karten am hellsten; Leser bewusst zurückgesetzt) */
+  --pm-v-bg:             #20292d;
+  --pm-v-panel-left:     #182226;
+  --pm-v-panel-mid:      #283134;
+  --pm-v-panel-right:    #1a2326;
+  --pm-v-card:           #333b3e;
+  --pm-v-card-hover:     #3a4346;
+  --pm-v-card-active:    #1b494e;
+  --pm-v-sidebar-active: #1a555b;
+  --pm-drawer-bg-expanded:  rgba(38, 48, 51, 0.96);
+  --pm-drawer-bg-collapsed: rgba(38, 48, 51, 0.78);
+  --pm-appbar-bg:        #182226;
 
   /* Semantische Zuweisung */
   --pm-app-surface:          var(--pm-v-bg);
@@ -156,28 +208,72 @@
   --pm-app-surface-contrast: var(--pm-v-card);
   --pm-pdf-stage-bg:         var(--pm-v-panel-right);
   --pm-pdf-page-bg:          #f8fafc;
-  --pm-sidebar-hover:        color-mix(in srgb, var(--pm-accent) 10%, transparent);
-  --pm-sidebar-active:       color-mix(in srgb, var(--pm-accent) 16%, transparent);
+  --pm-document-row-bg:      var(--pm-v-card);
+
+  /* Auswahl / Hover */
+  --pm-selected:             #1b494e;
+  --pm-sidebar-hover:        rgba(255, 255, 255, 0.05);
+  --pm-sidebar-active:       var(--pm-sidebar-selected);
   --pm-row-hover:            var(--pm-v-card-hover);
-  --pm-row-active:           color-mix(in srgb, var(--pm-accent) 16%, var(--pm-v-card));
-  --pm-document-row-bg:      color-mix(in srgb, var(--pm-v-card-active) 76%, black 24%);
-  --pm-document-row-active-bg: color-mix(in srgb, var(--pm-accent) 22%, var(--pm-v-card));
+  --pm-row-active:           var(--pm-selected);
+  --pm-document-row-active-bg: var(--pm-selected);
+
+  /* Seitenleiste */
+  --pm-sidebar-text:          #f0f4f6;
+  --pm-sidebar-muted:         #a5b2b7;
+  --pm-sidebar-border:        #303b3f;
+  --pm-sidebar-selected:      #1a555b;
+  --pm-sidebar-selected-text: #ecfafc;
+  --pm-sidebar-accent:        #56c4ca;
+  --pm-sidebar-chip-bg:       #2b363a;
+  --pm-sidebar-chip-text:     #e4ebed;
+  --pm-sidebar-chip-count:    #a5b2b7;
+  --pm-field-bg:              #293437;
+  --pm-field-border:          #3d484d;
+
+  /* Chips */
+  --pm-chip-bg:    #3e484c;
+  --pm-chip-text:  #e9eef0;
+  --pm-chip-count: #adb8bc;
+
+  /* Codeblöcke */
+  --pm-code-bg:     #263033;
+  --pm-code-border: #3c4649;
+  --pm-code-text:   #e2e9eb;
+  --pm-code-string: #f0b871;
+
+  /* Weitere Komponenten */
+  --pm-track:       #394346;
+  --pm-dialog-rail: #252e32;
+  --pm-thumb-bg:    #464f52;
+  --pm-thumb-line:  #626b6e;
+
+  /* Status */
+  --pm-star:    #f1af57;
+  --pm-success: #7fc48e;
+  --pm-warning: #fbbf24;
+  --pm-error:   #ef7f74;
+  --pm-info:    #a5b2b7;
 }
 
 /* ── Akzent: Violet (dunkel) ───────────────────────────────────────────────── */
 .papermind-app.v-theme--dark[data-color-variant="violet"] {
   --v-theme-primary:    167, 139, 250;
   --pm-accent:          #a78bfa;
-  --pm-accent-strong:   #a78bfa;
+  --pm-accent-strong:   #c4b5fd;
   --pm-accent-contrast: #2e1065;
+  --pm-selected:        color-mix(in srgb, var(--pm-accent) 22%, var(--pm-v-card));
+  --pm-sidebar-selected: color-mix(in srgb, var(--pm-accent) 30%, var(--pm-sidebar-surface));
 }
 
 /* ── Akzent: Blau (dunkel) ─────────────────────────────────────────────────── */
 .papermind-app.v-theme--dark[data-color-variant="blue"] {
   --v-theme-primary:    96, 165, 250;
   --pm-accent:          #60a5fa;
-  --pm-accent-strong:   #60a5fa;
+  --pm-accent-strong:   #93c5fd;
   --pm-accent-contrast: #0b2447;
+  --pm-selected:        color-mix(in srgb, var(--pm-accent) 22%, var(--pm-v-card));
+  --pm-sidebar-selected: color-mix(in srgb, var(--pm-accent) 30%, var(--pm-sidebar-surface));
 }
 
 /* ── Animationen deaktiviert ───────────────────────────────────────────────── */
@@ -196,7 +292,7 @@
 }
 
 /* Glass/Aurora-Look entfernt (Stufe 2): keine durchscheinenden Panels,
-   kein animierter Wissensgraph mehr. Die kühle Slate-Identität trägt allein. */
+   kein animierter Wissensgraph mehr. Die kühle Kontur-Identität trägt allein. */
 
 .v-overlay-container .v-dialog > .v-overlay__content > .v-card {
   border-radius: var(--pm-window-radius, 24px);

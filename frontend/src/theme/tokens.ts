@@ -7,55 +7,58 @@
 // --pm-*-Semantik (Tints, Hover/Active, Semantikfarben) lebt in theme.css.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ── Kühle Slate-Neutrals (accent-unabhängig) ─────────────────────────────────
+// ── Neutrals „Kontur" (accent-unabhängig) ────────────────────────────────────
+// sRGB-Hex, abgeleitet aus docs/design/tokens.css (oklch). Vuetify parst kein
+// oklch, deshalb hier die Hex-Entsprechungen – identisch zu den --pm-* in theme.css.
 const NEUTRAL_DARK = {
-  background: '#0A0F19',
-  surface: '#0E1420',
-  surface2: '#141B28',
-  surface3: '#1B2433',
-  surfaceHover: '#1B2433',
-  sidebar: '#0C111C',
-  panelMid: '#0E1420',
-  panelRight: '#0A0F19',
-  card: '#141B28',
-  cardHover: '#1B2433',
-  cardActive: '#222E40',
-  pdfStage: '#0A0F19',
-  text: '#E6EBF2',
-  textMuted: '#9AA4B2',
-  divider: 'rgba(255, 255, 255, 0.08)',
-  outline: 'rgba(255, 255, 255, 0.06)',
-  dividerSoft: 'rgba(255, 255, 255, 0.08)',
+  background: '#20292D',   // --pm-bg
+  surface: '#333B3E',      // Karten-/Menü-/Dialogfläche = --pm-surface-card
+  surface2: '#333B3E',
+  surface3: '#3E484C',     // --pm-chip-bg / --pm-border
+  surfaceHover: '#3A4346',
+  sidebar: '#182226',      // --pm-sidebar-bg (tiefste Ebene)
+  panelMid: '#283134',     // --pm-surface-list
+  panelRight: '#1A2326',   // --pm-surface-reader (bewusst zurückgesetzt)
+  card: '#333B3E',
+  cardHover: '#3A4346',
+  cardActive: '#1B494E',   // --pm-selected
+  pdfStage: '#1A2326',
+  text: '#F0F4F6',
+  textMuted: '#A8B3B7',
+  divider: '#3E484C',
+  outline: '#3E484C',
+  dividerSoft: '#3E484C',
   overlayScrim: 'rgba(0, 0, 0, 0.45)',
   shadow: '0 10px 30px rgba(0, 0, 0, 0.35)'
 };
 
 const NEUTRAL_LIGHT = {
-  background: '#EEF2F8',
-  surface: '#F7F9FC',
+  background: '#FFFFFF',   // --pm-bg (weißer Inhalt)
+  surface: '#FFFFFF',      // Karten-/Menü-/Dialogfläche
   surface2: '#FFFFFF',
-  surface3: '#E8EFF7',
-  surfaceHover: '#F3F6FB',
-  sidebar: '#E9EEF5',
-  panelMid: '#F7F9FC',
-  panelRight: '#F1F4FA',
+  surface3: '#E7EEF0',     // --pm-chip-bg
+  surfaceHover: '#F0F6F7',
+  sidebar: '#152A31',      // --pm-sidebar-bg (dunkle Tinte)
+  panelMid: '#FFFFFF',     // --pm-surface-list
+  panelRight: '#F0F6F7',   // --pm-surface-reader (leicht getönt)
   card: '#FFFFFF',
-  cardHover: '#F3F6FB',
-  cardActive: '#E8EFF7',
-  pdfStage: '#F1F4FA',
-  text: '#16202E',
-  textMuted: '#5A6573',
-  divider: 'rgba(15, 23, 42, 0.10)',
-  outline: 'rgba(15, 23, 42, 0.06)',
-  dividerSoft: 'rgba(15, 23, 42, 0.08)',
+  cardHover: '#F0F6F7',
+  cardActive: '#DBF3F6',   // --pm-selected
+  pdfStage: '#F0F6F7',
+  text: '#0E181B',
+  textMuted: '#535E62',
+  divider: '#D8DFE1',
+  outline: '#E7EEF0',
+  dividerSoft: '#E7EEF0',
   overlayScrim: 'rgba(0, 0, 0, 0.42)',
   shadow: '0 10px 30px rgba(15, 23, 42, 0.10)'
 };
 
 // ── Akzent-Primärfarben (das Einzige, was je Variante wechselt) ───────────────
-// Hell: kontraststarker Ton für Text/Buttons. Dunkel: leuchtender Ton.
+// Teal = Kontur-Marke (nur Zustandsfarbe). Hell: kontraststarker Ton für
+// Text/Buttons. Dunkel: leuchtender Ton (Schrift darauf via --pm-on-accent).
 const ACCENT_PRIMARY = Object.freeze({
-  teal: { light: '#0E7490', dark: '#22D3EE' },
+  teal: { light: '#006B75', dark: '#4FC5CB' },
   violet: { light: '#7C3AED', dark: '#A78BFA' },
   blue: { light: '#2563EB', dark: '#60A5FA' }
 });
