@@ -9865,11 +9865,14 @@ onBeforeUnmount(() => {
 
 .sidebar-item .v-list-item-title {
   font-size: 0.84rem;
+  /* Explizit heller Sidebar-Text – unabhängig von Vuetifys --v-theme-on-surface,
+     das in verschachtelten Listen-/Theme-Scopes neu gesetzt werden kann. */
+  color: var(--pm-sidebar-text);
 }
 
 .sidebar-item--primary .v-list-item-title {
   font-weight: 400;
-  color: rgba(var(--v-theme-on-surface), 0.96);
+  color: var(--pm-sidebar-text);
 }
 
 .sidebar-item--primary .v-icon {
@@ -10182,15 +10185,12 @@ onBeforeUnmount(() => {
   opacity: 0.78;
 }
 
+/* Türkiser Aurora-Schleier entfernt (Kontur: keine türkisen Flächen). Die
+   Zonentrennung trägt allein über Fläche/Kontrast. */
 .papermind-app.v-theme--light .panel-left::before,
 .papermind-app.v-theme--light .panel-middle::before,
 .papermind-app.v-theme--light .panel-right::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(1200px 600px at 20% -10%, rgba(8, 145, 178, 0.1), transparent 55%);
-  opacity: 0.22;
+  content: none;
 }
 
 .papermind-app.v-theme--dark .document-row {
@@ -10374,14 +10374,10 @@ onBeforeUnmount(() => {
   border-color: rgba(var(--v-theme-primary), 0.5);
 }
 
+/* Blauer Aurora-Schleier entfernt (Kontur: neutrale, klar gestufte Flächen). */
 .papermind-app.v-theme--dark .panel-left::before,
 .papermind-app.v-theme--dark .panel-middle::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(1200px 600px at 20% -10%, rgba(59, 130, 246, 0.1), transparent 55%);
-  opacity: 0.35;
+  content: none;
 }
 
 .document-row__thumb {

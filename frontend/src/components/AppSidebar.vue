@@ -789,7 +789,7 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-section-header:hover {
-  background: rgba(var(--v-theme-on-surface), 0.05);
+  background: var(--pm-sidebar-hover);
 }
 
 /* Bibliothek: statischer Kopf, nicht einklappbar (Kern-Navigation). */
@@ -827,8 +827,8 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-section-icon-action:hover {
-  background: rgba(var(--v-theme-on-surface), 0.06);
-  color: var(--pm-text);
+  background: var(--pm-sidebar-hover);
+  color: var(--pm-sidebar-text);
 }
 
 .sidebar-section-icon-action:focus-visible {
@@ -847,9 +847,9 @@ onBeforeUnmount(() => {
   font-size: 0.68rem;
   font-weight: 600;
   line-height: 1;
-  color: rgba(var(--v-theme-on-surface), 0.6);
-  background: rgba(var(--v-theme-on-surface), 0.07);
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+  color: var(--pm-sidebar-chip-count);
+  background: var(--pm-sidebar-chip-bg);
+  border: 1px solid transparent;
   border-radius: 999px;
   white-space: nowrap;
   user-select: none;
@@ -857,9 +857,8 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-section-header:hover .sidebar-section-count {
-  color: rgba(var(--v-theme-on-surface), 0.78);
-  background: rgba(var(--v-theme-on-surface), 0.1);
-  border-color: rgba(var(--v-theme-on-surface), 0.16);
+  color: var(--pm-sidebar-chip-text);
+  background: color-mix(in srgb, var(--pm-sidebar-chip-bg) 80%, var(--pm-sidebar-text));
 }
 
 /* ── Toggle button ────────────────────────────────────────────────────── */
@@ -876,7 +875,7 @@ onBeforeUnmount(() => {
   background: none;
   border-radius: 4px;
   cursor: pointer;
-  color: rgba(var(--v-theme-on-surface), 0.5);
+  color: var(--pm-sidebar-muted);
   opacity: 0.55;
   pointer-events: auto;
   transition: opacity 0.15s ease, background 0.12s ease, color 0.12s ease;
@@ -889,8 +888,8 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-section-toggle:hover {
-  background: rgba(var(--v-theme-on-surface), 0.08);
-  color: rgba(var(--v-theme-on-surface), 0.8);
+  background: var(--pm-sidebar-hover);
+  color: var(--pm-sidebar-text);
 }
 
 .sidebar-section-toggle:focus-visible {
