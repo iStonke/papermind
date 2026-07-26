@@ -7,11 +7,10 @@ Für den Zugriff auf den Produktiv-Pi **immer** den lokalen LaunchAgent
 `127.0.0.1:2222 → Pi-LAN-Adresse:22` automatisch aufrecht und wird bei
 Verbindungsabbrüchen von macOS neu gestartet.
 
-- Pi-Kommandos über den bestehenden Control-Socket ausführen:
-  `ssh -S /tmp/papermind-ssh-control.sock -o HostKeyAlias=papermind-pi-lan jan@192.168.178.92 '<befehl>'`.
-  Keine direkte Verbindung zu `jan@papermind` voraussetzen.
-- Vor längeren Pi-Aktionen die Erreichbarkeit mit
-  `ssh -S /tmp/papermind-ssh-control.sock -O check jan@192.168.178.92`
+- Pi-Kommandos ausschließlich über
+  `ssh -o HostKeyAlias=papermind-pi-lan -p 2222 jan@127.0.0.1 '<befehl>'`
+  ausführen; keine direkte Verbindung zu `jan@papermind` voraussetzen.
+- Vor längeren Pi-Aktionen die Erreichbarkeit mit `nc -vz 127.0.0.1 2222`
   prüfen.
 - Falls der Tunnel nicht erreichbar ist, den Dienst gezielt neu starten:
   `launchctl kickstart -k gui/$(id -u)/com.papermind.ssh-tunnel`.

@@ -7,7 +7,7 @@ Der dauerhafte Zugriff auf den Raspberry Pi läuft über den macOS-LaunchAgent
 `jan@papermind` voraussetzen.
 
 - Vor Pi-Aktionen: `nc -vz 127.0.0.1 2222`
-- Pi-Kommandos: `ssh -S /tmp/papermind-ssh-control.sock -o HostKeyAlias=papermind-pi-lan jan@192.168.178.92 '<befehl>'`
+- Pi-Kommandos: `ssh -o HostKeyAlias=papermind-pi-lan -p 2222 jan@127.0.0.1 '<befehl>'`
 - Bei fehlendem Tunnel: `launchctl kickstart -k gui/$(id -u)/com.papermind.ssh-tunnel`
 
 Der Dienst verwendet `~/.ssh/id_rsa`. Niemals Schlüsselmaterial oder
