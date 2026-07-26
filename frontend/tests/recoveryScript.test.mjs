@@ -15,3 +15,17 @@ test('production recovery suite requires explicit confirmation and protects serv
   assert.match(source, /restart worker/);
   assert.match(source, /non-destructive/);
 });
+
+test('isolated restore drill never targets the production database or storage', async () => {
+  const source = await readFile(
+    new URL('../../scripts/prod_pi_restore_drill.sh', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(source, /--confirm-production/);
+  assert.match(source, /papermind-restore-db/);
+  assert.match(source, /papermind_restore_storage/);
+  assert.match(source, /docker volume rm -f/);
+  assert.match(source, /isolated backend/);
+  assert.doesNotMatch(source, /restore_archive\(/);
+});
