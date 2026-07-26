@@ -69,7 +69,7 @@ db = SessionLocal()
 try:
     archive = next((item for item in BackupService(db).list_archives() if item.get("complete")), None)
     assert archive is not None, "No complete archive found"
-    print(f"{archive[\"name\"]}|{int(archive[\"size_bytes\"])}")
+    print("{}|{}".format(archive["name"], int(archive["size_bytes"])))
 finally:
     db.close()
 ')"
