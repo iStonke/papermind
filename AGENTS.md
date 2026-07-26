@@ -2,15 +2,16 @@
 
 ## Produktiv-Pi
 
-Der dauerhafte Zugriff auf den Raspberry Pi läuft über den macOS-LaunchAgent
-`com.papermind.ssh-tunnel`. Nie eine direkte Verbindung zu
-`jan@papermind` voraussetzen.
+Der Zugriff auf den Raspberry Pi läuft über die lokale, allow-gelistete
+macOS-Bridge `com.papermind.pi-bridge`. Nie eine direkte Verbindung zu
+`jan@papermind` voraussetzen und keine SSH-Befehle selbst zusammensetzen.
 
-- Vor Pi-Aktionen: `nc -vz 127.0.0.1 2222`
-- Pi-Kommandos: `ssh -o HostKeyAlias=papermind-pi-lan -p 2222 jan@127.0.0.1 '<befehl>'`
-- Bei fehlendem Tunnel: `launchctl kickstart -k gui/$(id -u)/com.papermind.ssh-tunnel`
+- Zulässige Pi-Aktionen über `python3 scripts/pi_bridge.py <aktion>`:
+  `status`, `restore_drill`, `recovery_check`.
+- Bei fehlender Bridge: `launchctl kickstart -k gui/$(id -u)/com.papermind.pi-bridge`.
 
-Der Dienst verwendet `~/.ssh/id_rsa`. Niemals Schlüsselmaterial oder
-Passwörter auslesen, anzeigen oder ins Repository aufnehmen.
+Die Bridge ist nur über den lokalen Unix-Socket mit Berechtigung `0600`
+erreichbar und verwendet `~/.ssh/id_rsa`. Niemals Schlüsselmaterial,
+Passwörter oder frei formulierte Shell-Kommandos in die Bridge aufnehmen.
 
 Weitere projektspezifische Hinweise stehen in `CLAUDE.md`.

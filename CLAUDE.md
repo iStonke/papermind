@@ -1,21 +1,18 @@
 # PaperMind – Hinweise für KI-Agenten
 
-## Raspberry Pi: dauerhafter SSH-Zugang
+## Raspberry Pi: lokaler, eingeschränkter Zugang
 
-Für den Zugriff auf den Produktiv-Pi **immer** den lokalen LaunchAgent
-`com.papermind.ssh-tunnel` verwenden. Er hält eine SSH-Portweiterleitung
-`127.0.0.1:2222 → Pi-LAN-Adresse:22` automatisch aufrecht und wird bei
-Verbindungsabbrüchen von macOS neu gestartet.
+Für den Zugriff auf den Produktiv-Pi **immer** die lokale, allow-gelistete
+Bridge `com.papermind.pi-bridge` verwenden. Sie läuft als macOS-LaunchAgent,
+öffnet keinen Netzwerkport und führt ausschließlich feste PaperMind-Operationen
+im Mac-Benutzerkontext aus.
 
-- Pi-Kommandos ausschließlich über
-  `ssh -o HostKeyAlias=papermind-pi-lan -p 2222 jan@127.0.0.1 '<befehl>'`
-  ausführen; keine direkte Verbindung zu `jan@papermind` voraussetzen.
-- Vor längeren Pi-Aktionen die Erreichbarkeit mit `nc -vz 127.0.0.1 2222`
-  prüfen.
-- Falls der Tunnel nicht erreichbar ist, den Dienst gezielt neu starten:
-  `launchctl kickstart -k gui/$(id -u)/com.papermind.ssh-tunnel`.
-- Der Dienst nutzt den lokalen Schlüssel `~/.ssh/id_rsa`; keine Passwörter oder
-  Schlüsselmaterial auslesen, anzeigen oder ins Repository aufnehmen.
+- Aufrufe nur über `python3 scripts/pi_bridge.py <aktion>`: `status`,
+  `restore_drill` oder `recovery_check`.
+- Falls die Bridge nicht erreichbar ist, den Dienst gezielt neu starten:
+  `launchctl kickstart -k gui/$(id -u)/com.papermind.pi-bridge`.
+- Der Unix-Socket ist auf `0600` beschränkt. Nie frei formulierte
+  Shell-Kommandos, Passwörter oder Schlüsselmaterial in die Bridge aufnehmen.
 
 ## Lokale Frontend-Entwicklung: immer den Vite-Dev-Server auf 5179 nutzen
 
