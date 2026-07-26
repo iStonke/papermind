@@ -36,7 +36,43 @@ from app.services.document_types import (
 )
 from app.services.documents import ALLOWED_PDF_CONTENT_TYPES, DocumentService
 from app.services.import_timing import elapsed_ms, log_import_timing, now_perf
-from app.services.naming_templates import NamingTemplateService, build_legacy_filename_from_meta
+from app.services.import_metadata_rules import (
+    AMOUNT_RE as _AMOUNT_RE,
+    DATE_DMY_RE as _DATE_DMY_RE,
+    DATE_YMD_RE as _DATE_YMD_RE,
+    DOC_TYPES_ALLOWED as _DOC_TYPES_ALLOWED,
+    detect_amount_currency,
+    detect_document_type,
+    detect_document_type_improved,
+    extract_document_date,
+    normalize_document_type,
+)
+from app.services.import_metadata_response import (
+    coerce_llm_scalar,
+    extract_json_object,
+    extract_loose_fields,
+    safe_float,
+)
+from app.services.import_metadata_heuristics import (
+    detect_sender,
+    detect_subject_heuristic,
+    extract_issuer_from_line,
+    extract_subject_rich,
+    generate_tags_from_text,
+    is_subject_supported_by_context,
+    normalize_issuer,
+    normalize_subject,
+)
+from app.services.import_ollama_prompt import build_naming_examples_block, select_staging_llm_text
+from app.services.import_ollama_client import request_generation
+from app.services.import_title_formatting import (
+    build_fallback_title,
+    build_filename_from_meta,
+    build_note_from_metadata,
+    format_euro,
+    sanitize_title,
+)
+from app.services.naming_templates import NamingTemplateService
 from app.services.ocr_pipeline import (
     build_bw_pdf,
     build_cleaned_scan_pdf,
@@ -55,43 +91,6 @@ logger = logging.getLogger("papermind.import_staging")
 settings = get_settings()
 _INVALID_TITLE_CHARS = re.compile(r'[\/\\:*?"<>|]+')
 _WHITESPACE_RE = re.compile(r"\s+")
-_DATE_DMY_RE = re.compile(r"\b([0-3]?\d)[.\-/]([01]?\d)[.\-/]((?:19|20)\d{2})\b")
-_DATE_YMD_RE = re.compile(r"\b((?:19|20)\d{2})[.\-/]([01]?\d)[.\-/]([0-3]?\d)\b")
-_AMOUNT_RE = re.compile(r"\b\d{1,3}(?:[.\s]\d{3})*(?:,\d{2})\s?(?:€|EUR)?\b", re.IGNORECASE)
-_SENDER_LINE_HINTS = ("gmbh", "ag", "kg", "ug", "mbh", "ev", "e.v", "gbr", "ohg", "kasse", "auto-service")
-_SENDER_ORG_HINTS = (
-    "verein",
-    "sportverein",
-    "bank",
-    "sparkasse",
-    "versicherung",
-    "service",
-    "werkstatt",
-    "praxis",
-    "klinik",
-    "stadtwerke",
-)
-_DOC_TYPE_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
-    ("Rechnung", ("rechnung", "invoice", "rechnungsnummer", "gesamtbetrag")),
-    ("Quittung", ("quittung", "kassenbon", "bon", "beleg")),
-    ("Kündigung", ("kündigung", "kuendigung", "ordentliche kündigung")),
-    ("Vertrag", ("vertrag", "vereinbarung", "contract")),
-    ("Mahnung", ("mahnung", "zahlungserinnerung", "überfällig", "ueberfaellig")),
-    ("Bescheid", ("bescheid", "amt", "behörde", "behoerde")),
-    ("Protokoll", ("protokoll", "sitzung", "meeting")),
-    ("Brief", ("sehr geehrte", "mit freundlichen grüßen", "mit freundlichen gruessen")),
-]
-_DOC_TYPES_ALLOWED = {
-    "Rechnung",
-    "Quittung",
-    "Mahnung",
-    "Vertrag",
-    "Kündigung",
-    "Brief",
-    "Bescheid",
-    "Protokoll",
-    "Sonstiges",
-}
 _FILENAME_SEPARATOR = " – "
 _FILENAME_MAX_LEN = 80
 _STAGING_MIN_TEXT_CHARS = 80
@@ -134,11 +133,6 @@ _LLM_SIGNAL_KEYWORDS = (
     "mahnung",
     "zahlbar",
 )
-_ISSUER_SUFFIX_RE = re.compile(
-    r"\b(gmbh|ag|ug|kg|e\.?\s?v\.?|ltd|inc)\b\.?",
-    re.IGNORECASE,
-)
-_TRAILING_PUNCT_RE = re.compile(r"[.,;:\-–\s]+$")
 _INVOICE_NO_RE = re.compile(
     r"\b(?:rechnungsnummer|rechnung\s*nr|invoice\s*no|belegnummer|belegnr|rg)\s*[:#-]?\s*([A-Z0-9-]{3,})\b",
     re.IGNORECASE,
@@ -147,95 +141,6 @@ _CUSTOMER_NO_RE = re.compile(
     r"\b(?:kundennummer|kunden[-\s]?nr|customer\s*id)\s*[:#-]?\s*([A-Z0-9-]{2,})\b",
     re.IGNORECASE,
 )
-_ISSUER_TOKEN_RE = re.compile(r"[A-Za-zÄÖÜäöüß0-9&.\-]+")
-# Tokens that indicate the issuer section has ended (document labels, not company names)
-_ISSUER_STOP_TOKENS = frozenset({
-    "herr", "frau", "dr", "prof", "an", "z.hd",
-    "idnr", "idnr.", "steuernr", "steuernummer", "ustidnr", "ust-id",
-    "kundennr", "kundennummer", "auftragsnr", "rechnungsnr",
-    "tel", "fax", "postfach", "str", "straße", "strasse", "plz",
-    "www", "http", "https", "info@", "kontakt",
-})
-_LOOSE_FIELD_PATTERNS: dict[str, re.Pattern[str]] = {
-    "doc_type": re.compile(r"\b(?:doc_type|doctype|typ|dokumenttyp)\b\s*[:=]\s*(.+)", re.IGNORECASE),
-    "issuer": re.compile(r"\b(?:issuer|absender|firma|company)\b\s*[:=]\s*(.+)", re.IGNORECASE),
-    "subject": re.compile(r"\b(?:subject|betreff|thema)\b\s*[:=]\s*(.+)", re.IGNORECASE),
-    "amount": re.compile(r"\b(?:amount|betrag|summe|gesamtbetrag)\b\s*[:=]\s*(.+)", re.IGNORECASE),
-    "currency": re.compile(r"\b(?:currency|währung|waehrung)\b\s*[:=]\s*(.+)", re.IGNORECASE),
-}
-_SUBJECT_HINTS: dict[str, tuple[str, ...]] = {
-    "Hauptuntersuchung": ("hauptuntersuchung", "tüv", "tuev", " hu ", "abgas", "au "),
-    "Kfz-Service": ("auto-service", "werkstatt", "inspektion", "reparatur", "kfz", "fahrzeug"),
-    "Versicherung": ("versicherung", "police", "versicherungsschein"),
-    "Vodafone": ("vodafone",),
-    "Energie": ("strom", "energie", "gas", "abschlag", "kilowatt"),
-    "Kündigung": ("kündigung", "kuendigung"),
-}
-# Date extraction: prefer dates near contextual keywords
-_DATE_CONTEXT_RE = re.compile(
-    r"(?:datum|rechnungsdatum|briefdatum|belegdatum|leistungsdatum|"
-    r"ausgestellt\s*am|erstellt\s*am|bescheid\s*vom|bescheid\s*für|"
-    r"gültig\s*ab|fakturadatum)\s*:?\s*"
-    r"([0-3]?\d)[.\-/]([01]?\d)[.\-/]((?:19|20)\d{2})",
-    re.IGNORECASE,
-)
-# Subject heading patterns: (pattern, extractor_fn)
-_SUBJECT_HEADING_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"\b(Einkommensteuer(?:bescheid)?)\s+((?:19|20)\d{2})\b", re.IGNORECASE), "{0} {1}"),
-    (re.compile(r"\b(Lohnsteuer(?:bescheid)?)\s+((?:19|20)\d{2})\b", re.IGNORECASE), "{0} {1}"),
-    (re.compile(r"\b(Umsatzsteuer(?:bescheid)?)\s+((?:19|20)\d{2})\b", re.IGNORECASE), "{0} {1}"),
-    (re.compile(r"\b(Körperschaftsteuer(?:bescheid)?)\s+((?:19|20)\d{2})\b", re.IGNORECASE), "{0} {1}"),
-    (re.compile(r"\b(Gewerbesteuer(?:bescheid)?)\s+((?:19|20)\d{2})\b", re.IGNORECASE), "{0} {1}"),
-    (re.compile(r"\b(Grundsteuer(?:bescheid)?)\s+((?:19|20)\d{2})\b", re.IGNORECASE), "{0} {1}"),
-    (re.compile(r"\b(Rentenbescheid|Renteninformation)\b", re.IGNORECASE), "{0}"),
-    (re.compile(r"\b(Jahresabrechnung)\s+((?:19|20)\d{2})\b", re.IGNORECASE), "{0} {1}"),
-    (re.compile(r"\b(Kontoauszug)\b", re.IGNORECASE), "{0}"),
-    (re.compile(r"\b(Kreditkartenabrechnung)\b", re.IGNORECASE), "{0}"),
-    (re.compile(r"\b(Gehaltsabrechnung|Lohnabrechnung|Gehaltsnachweis)\b", re.IGNORECASE), "{0}"),
-    (re.compile(r"\b(Nebenkostenabrechnung|Betriebskostenabrechnung)\b", re.IGNORECASE), "{0}"),
-    (re.compile(r"\b(Versicherungsschein|Police)\b", re.IGNORECASE), "{0}"),
-    (re.compile(r"\b(Mietvertrag)\b", re.IGNORECASE), "{0}"),
-    (re.compile(r"\b(Arbeitsvertrag)\b", re.IGNORECASE), "{0}"),
-]
-# Tag rules: list of (keywords_in_text, tags_to_apply)
-_TAG_KEYWORD_RULES: list[tuple[tuple[str, ...], list[str]]] = [
-    (("einkommensteuer",), ["Einkommensteuer", "Steuer"]),
-    (("lohnsteuer",), ["Lohnsteuer", "Steuer"]),
-    (("umsatzsteuer",), ["Umsatzsteuer", "Steuer"]),
-    (("körperschaftsteuer", "koerperschaftsteuer"), ["Körperschaftsteuer", "Steuer"]),
-    (("gewerbesteuer",), ["Gewerbesteuer", "Steuer"]),
-    (("grundsteuer",), ["Grundsteuer", "Steuer"]),
-    (("kindergeld",), ["Kindergeld"]),
-    (("rentenbescheid", "renteninformation", "rentenversicherung"), ["Rente", "Rentenversicherung"]),
-    (("krankenversicherung", "gesundheitsversicherung"), ["Krankenversicherung", "Gesundheit"]),
-    (("pflegeversicherung",), ["Pflegeversicherung"]),
-    (("unfallversicherung",), ["Unfallversicherung"]),
-    (("haftpflichtversicherung", "haftpflicht"), ["Haftpflicht", "Versicherung"]),
-    (("kfz-versicherung", "kraftfahrzeugversicherung", "fahrzeugversicherung"), ["KFZ-Versicherung", "Auto"]),
-    (("lebensversicherung",), ["Lebensversicherung"]),
-    (("strom", "stromverbrauch", "kilowattstunde", "kwh"), ["Strom", "Energie"]),
-    (("gasverbrauch", "erdgas", "gasversorger"), ["Gas", "Energie"]),
-    (("wasserverbrauch", "trinkwasser", "abwasser"), ["Wasser"]),
-    (("fernwärme", "heizung", "heizkosten"), ["Heizung", "Energie"]),
-    (("internetanschluss", "internettarif", "dsl", "breitband", "glasfaser"), ["Internet", "Telekommunikation"]),
-    (("mobilfunk", "handy", "smartphone", "vodafone", "telekom", "o2 ", "congstar"), ["Mobilfunk", "Telekommunikation"]),
-    (("festnetz", "telefon"), ["Telefon", "Telekommunikation"]),
-    (("miete", "mietvertrag", "kaltmiete", "warmmiete"), ["Miete", "Wohnen"]),
-    (("nebenkosten", "betriebskosten", "hausgeld"), ["Nebenkosten", "Wohnen"]),
-    (("arzt", "praxis", "behandlung", "untersuchung", "osteopathie", "physiotherapie", "zahnarzt", "orthopädie"), ["Arzt", "Gesundheit"]),
-    (("apotheke", "medikament", "rezept"), ["Apotheke", "Gesundheit"]),
-    (("krankenhaus", "klinik", "station"), ["Krankenhaus", "Gesundheit"]),
-    (("gehaltsabrechnung", "lohnabrechnung", "gehaltsnachweis", "entgeltabrechnung"), ["Gehalt", "Arbeit"]),
-    (("arbeitsvertrag",), ["Arbeitsvertrag", "Arbeit"]),
-    (("kündigung",), ["Kündigung"]),
-    (("mietvertrag",), ["Mietvertrag", "Wohnen"]),
-    (("kontoauszug", "kontoumsätze"), ["Kontoauszug", "Bank"]),
-    (("kreditkarte", "kreditkartenabrechnung"), ["Kreditkarte", "Bank"]),
-    (("darlehen", "kredit", "tilgung", "zinsen"), ["Kredit", "Bank"]),
-    (("depot", "wertpapier", "aktie", "fonds"), ["Geldanlage", "Bank"]),
-    (("finanzamt",), ["Finanzamt", "Steuer"]),
-]
-
 
 class _LocalPdfUpload:
     def __init__(self, filename: str, source_path: Path) -> None:
@@ -374,7 +279,7 @@ class ImportStagingService:
         if not isinstance(result, dict):
             raise BadRequestError("analysis result is invalid")
         normalized_scope = "all_pages" if str(page_scope or "").strip().lower() == "all_pages" else "first_page"
-        cached_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        cached_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
         stored_result = dict(result)
         stored_meta = dict(stored_result.get("meta") or {})
         stored_meta.update({
@@ -914,28 +819,7 @@ class ImportStagingService:
 
     @staticmethod
     def _coerce_llm_scalar(value: object) -> str | None:
-        """Return a plain scalar text from permissive LLM JSON values.
-
-        Some local models answer fields as {"text": "..."} despite the prompt
-        asking for strings. Treat common scalar containers as text instead of
-        stringifying the whole dict into the document title.
-        """
-        if value is None:
-            return None
-        if isinstance(value, dict):
-            for key in ("text", "value", "name", "label"):
-                nested = ImportStagingService._coerce_llm_scalar(value.get(key))
-                if nested:
-                    return nested
-            return None
-        if isinstance(value, list):
-            for item in value:
-                nested = ImportStagingService._coerce_llm_scalar(item)
-                if nested:
-                    return nested
-            return None
-        normalized = ImportStagingService._normalize_text(str(value))
-        return normalized or None
+        return coerce_llm_scalar(value)
 
     @staticmethod
     def _normalize_source_file_ids(source_file_ids: list[str]) -> list[str]:
@@ -1087,32 +971,11 @@ class ImportStagingService:
 
     @staticmethod
     def _detect_document_type(text_value: str) -> str:
-        normalized = str(text_value or "").lower()
-        if any(token in normalized for token in ("rechnung", "invoice", "rechnungsnr", "rechnungsnummer", "rg ")):
-            return "Rechnung"
-        for doc_type, keywords in _DOC_TYPE_KEYWORDS:
-            if any(keyword in normalized for keyword in keywords):
-                return doc_type
-        return "Sonstiges"
+        return detect_document_type(text_value)
 
     @staticmethod
     def _normalize_doc_type(value: str | None, allowed_doc_types: list[str] | None = None) -> str | None:
-        normalized = ImportStagingService._normalize_text(value or "")
-        if not normalized:
-            return None
-        allowed = [str(item).strip() for item in (allowed_doc_types or []) if str(item).strip()]
-        if allowed:
-            by_lower = {item.lower(): item for item in allowed}
-            exact = by_lower.get(normalized.lower())
-            if exact:
-                return exact
-        elif normalized in _DOC_TYPES_ALLOWED:
-            return normalized
-        lower = normalized.lower()
-        for doc_type, keywords in _DOC_TYPE_KEYWORDS:
-            if doc_type.lower() in lower or any(keyword in lower for keyword in keywords):
-                return doc_type
-        return None
+        return normalize_document_type(value, allowed_doc_types)
 
     @staticmethod
     def _clean_filename_component(value: str, *, max_len: int = 80) -> str:
@@ -1125,177 +988,35 @@ class ImportStagingService:
 
     @staticmethod
     def _normalize_issuer(value: str) -> str:
-        normalized = ImportStagingService._clean_filename_component(value, max_len=40)
-        normalized = normalized.replace(" - ", " ").replace(" – ", " ")
-        normalized = _ISSUER_SUFFIX_RE.sub("", normalized)
-        normalized = _TRAILING_PUNCT_RE.sub("", normalized).strip()
-        if len(normalized) > 30:
-            normalized = normalized[:30].rstrip(" .,-")
-        return normalized
+        return normalize_issuer(value)
 
     @staticmethod
     def _extract_issuer_from_line(line: str) -> str:
-        compact = ImportStagingService._normalize_text(line)
-        if not compact:
-            return ""
-
-        head = compact.split(",")[0].strip()
-        if not head:
-            head = compact
-        head = re.sub(r"^[^A-Za-zÄÖÜäöüß0-9]+", "", head).strip()
-        if not head:
-            return ""
-
-        # Collapse duplicated leading token groups, e.g. "Firma Firma, ..."
-        head_tokens = head.split()
-        if len(head_tokens) >= 2:
-            max_group = len(head_tokens) // 2
-            for group_size in range(max_group, 0, -1):
-                left = head_tokens[:group_size]
-                right = head_tokens[group_size : group_size * 2]
-                if left == right:
-                    head = " ".join(left)
-                    break
-
-        tokens = _ISSUER_TOKEN_RE.findall(head)
-        cleaned_tokens: list[str] = []
-        for token in tokens:
-            lowered = token.lower().rstrip(".")
-            if not re.search(r"[a-zäöüß0-9]", lowered):
-                continue
-            if lowered in _ISSUER_STOP_TOKENS:
-                break
-            if re.fullmatch(r"\d+[a-zA-Z]?", token):
-                break
-            cleaned_tokens.append(token)
-            if len(cleaned_tokens) >= 6:
-                break
-
-        candidate = " ".join(cleaned_tokens).strip()
-        return ImportStagingService._normalize_issuer(candidate)
+        return extract_issuer_from_line(line)
 
     @staticmethod
     def _normalize_subject(value: str) -> str:
-        normalized = ImportStagingService._clean_filename_component(value, max_len=60)
-        normalized = normalized.replace(" - ", " ").replace(" – ", " ")
-        normalized = re.sub(r"\b\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4}\b", "", normalized)
-        normalized = re.sub(r"\b(?:rechnungsnummer|rechnung\s*nr|invoice\s*no|belegnummer|belegnr)\b.*$", "", normalized, flags=re.IGNORECASE)
-        normalized = _WHITESPACE_RE.sub(" ", normalized).strip(" .,-_")
-        if len(normalized) > 40:
-            normalized = normalized[:40].rstrip(" .,-_")
-        return normalized
+        return normalize_subject(value)
 
     @staticmethod
     def _detect_sender(text_value: str) -> str | None:
-        lines = [line.strip() for line in str(text_value or "").splitlines() if line.strip()]
-        if not lines:
-            return None
-        candidates = lines[:20]
-        scored_candidates: list[tuple[int, int, str]] = []
-        for index, line in enumerate(candidates):
-            normalized = line.lower()
-            if any(hint in normalized for hint in _SENDER_LINE_HINTS):
-                issuer = ImportStagingService._extract_issuer_from_line(line)
-                if issuer and len(issuer) >= 4:
-                    scored_candidates.append((120 - index, index, issuer))
-        for index, line in enumerate(candidates):
-            if 2 <= len(line.split()) <= 6 and len(line) <= 44 and not any(char.isdigit() for char in line):
-                issuer = ImportStagingService._normalize_issuer(line)
-                if issuer and len(issuer) >= 4:
-                    score = 30 - index
-                    lowered = issuer.lower()
-                    if any(hint in lowered for hint in _SENDER_ORG_HINTS):
-                        score += 60
-                    scored_candidates.append((score, index, issuer))
-        for index, line in enumerate(candidates[:8]):
-            issuer = ImportStagingService._extract_issuer_from_line(line)
-            if not issuer:
-                continue
-            lowered = issuer.lower()
-            if lowered in {"herr", "frau"}:
-                continue
-            if re.search(r"\b\d{3,}\b", issuer):
-                continue
-            if len(issuer) < 4:
-                continue
-            score = 20 - index
-            if any(hint in lowered for hint in _SENDER_ORG_HINTS):
-                score += 60
-            scored_candidates.append((score, index, issuer))
-        if scored_candidates:
-            scored_candidates.sort(key=lambda item: (-item[0], item[1]))
-            return scored_candidates[0][2]
-        return None
+        return detect_sender(text_value)
 
     @staticmethod
     def _detect_amount_currency(text_value: str) -> tuple[float | None, str | None]:
-        source = str(text_value or "")
-        matches = list(_AMOUNT_RE.finditer(source))
-        if not matches:
-            return None, None
-        prioritized = None
-        for match in matches:
-            start = max(0, match.start() - 28)
-            end = min(len(source), match.end() + 28)
-            window = source[start:end].lower()
-            if any(key in window for key in ("gesamt", "summe", "total", "endbetrag", "brutto")):
-                prioritized = match
-        chosen = prioritized or matches[-1]
-        token = chosen.group(0).replace(" ", "")
-        currency = "EUR" if ("€" in token or "eur" in token.lower()) else None
-        numeric = re.sub(r"[^0-9,.-]", "", token)
-        numeric = numeric.replace(".", "").replace(",", ".")
-        try:
-            amount = round(float(numeric), 2)
-        except ValueError:
-            return None, currency
-        if amount <= 0:
-            return None, None
-        return amount, currency
+        return detect_amount_currency(text_value)
 
     @staticmethod
     def _detect_subject_heuristic(text_value: str) -> str:
-        normalized = f" {str(text_value or '').lower()} "
-        if any(token in normalized for token in _SUBJECT_HINTS["Hauptuntersuchung"]):
-            return "Hauptuntersuchung"
-        if any(token in normalized for token in _SUBJECT_HINTS["Kfz-Service"]):
-            return "Kfz-Service"
-        if "versicherung" in normalized:
-            return "Versicherung"
-        if "vodafone" in normalized:
-            return "Vodafone"
-        if any(token in normalized for token in _SUBJECT_HINTS["Energie"]):
-            return "Energie"
-        if "kündigung" in normalized or "kuendigung" in normalized:
-            return "Kündigung"
-        return "Ohne Betreff"
+        return detect_subject_heuristic(text_value)
 
     @staticmethod
     def _is_subject_supported_by_context(subject: str, text_value: str, issuer_value: str = "") -> bool:
-        normalized_subject = ImportStagingService._normalize_subject(subject).lower()
-        if not normalized_subject:
-            return False
-        if len(normalized_subject.split()) > 5:
-            return False
-        context = f" {str(text_value or '').lower()} {str(issuer_value or '').lower()} "
-        known = {key.lower(): key for key in _SUBJECT_HINTS}
-        if normalized_subject in known:
-            return any(token in context for token in _SUBJECT_HINTS[known[normalized_subject]])
-        if normalized_subject == "ohne betreff":
-            return False
-        return True
+        return is_subject_supported_by_context(subject, text_value, issuer_value)
 
     @classmethod
     def _sanitize_title(cls, value: str, *, fallback: str | None = None, max_len: int = _FILENAME_MAX_LEN) -> str:
-        sanitized = _INVALID_TITLE_CHARS.sub(" ", str(value or ""))
-        sanitized = _WHITESPACE_RE.sub(" ", sanitized).strip(" .-_")
-        if len(sanitized) > max_len:
-            sanitized = sanitized[:max_len].rstrip(" .-_")
-        if sanitized:
-            return sanitized
-        if fallback:
-            return cls._sanitize_title(fallback, fallback=None)
-        return f"Scan - {datetime.utcnow().date().isoformat()}"
+        return sanitize_title(value, fallback=fallback, max_len=max_len)
 
     @classmethod
     def _build_fallback_title(
@@ -1307,306 +1028,45 @@ class ImportStagingService:
         amount: float | None,
         currency: str | None,
     ) -> str:
-        today = datetime.utcnow().strftime("%d-%m-%Y")
-        combinations = [
-            [doc_type, sender, date_value],
-            [doc_type, sender, f"{amount:.2f}{currency or ''}" if isinstance(amount, float) else None],
-            [doc_type, sender],
-            [doc_type, date_value],
-            [f"Scan - {today}"],
-        ]
-        for parts in combinations:
-            filtered = [cls._sanitize_title(part) for part in parts if str(part or "").strip()]
-            if filtered:
-                candidate = _FILENAME_SEPARATOR.join(filtered)
-                return cls._sanitize_title(candidate, max_len=_FILENAME_MAX_LEN)
-        return f"Scan - {today}"
+        return build_fallback_title(
+            doc_type=doc_type,
+            sender=sender,
+            date_value=date_value,
+            amount=amount,
+            currency=currency,
+        )
 
     @classmethod
     def _extract_json_object(cls, value: str) -> dict[str, object] | None:
-        raw = str(value or "").strip()
-        if not raw:
-            return None
-        candidate = raw
-        if not (candidate.startswith("{") and candidate.endswith("}")):
-            match = re.search(r"\{[\s\S]*\}", candidate)
-            if not match:
-                return None
-            candidate = match.group(0)
-        try:
-            parsed = json.loads(candidate)
-        except json.JSONDecodeError:
-            return None
-        if not isinstance(parsed, dict):
-            return None
-        return parsed
+        return extract_json_object(value)
 
     @classmethod
     def _extract_loose_fields(cls, raw_text: str) -> dict[str, object] | None:
-        lines = [cls._normalize_text(line) for line in str(raw_text or "").splitlines()]
-        lines = [line for line in lines if line]
-        if not lines:
-            return None
-
-        extracted: dict[str, object] = {}
-        for key, pattern in _LOOSE_FIELD_PATTERNS.items():
-            value = ""
-            for line in lines:
-                match = pattern.search(line)
-                if match:
-                    value = cls._normalize_text(match.group(1))
-                    break
-            if not value:
-                continue
-            extracted[key] = value
-
-        if not extracted:
-            return None
-        return extracted
+        return extract_loose_fields(raw_text)
 
     @staticmethod
     def _safe_float(value: object) -> float | None:
-        if value is None:
-            return None
-        try:
-            return round(float(str(value).replace(",", ".")), 2)
-        except (TypeError, ValueError):
-            return None
+        return safe_float(value)
 
     @staticmethod
     def _extract_document_date(text: str) -> str | None:
-        """Extract the most relevant document date from OCR text. Returns ISO string YYYY-MM-DD or None."""
-        # 1st priority: date immediately after a context keyword
-        match = _DATE_CONTEXT_RE.search(text)
-        if match:
-            try:
-                d = datetime(int(match.group(3)), int(match.group(2)), int(match.group(1)))
-                return d.strftime("%Y-%m-%d")
-            except ValueError:
-                pass
-
-        # 2nd priority: first plausible date found in the document
-        for m in _DATE_DMY_RE.finditer(text):
-            day, month, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
-            try:
-                d = datetime(year, month, day)
-                if 2000 <= year <= 2099:
-                    return d.strftime("%Y-%m-%d")
-            except ValueError:
-                pass
-
-        # 3rd priority: ISO date (YYYY-MM-DD)
-        for m in _DATE_YMD_RE.finditer(text):
-            year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
-            try:
-                d = datetime(year, month, day)
-                if 2000 <= year <= 2099:
-                    return d.strftime("%Y-%m-%d")
-            except ValueError:
-                pass
-
-        return None
+        return extract_document_date(text)
 
     @staticmethod
     def _detect_document_type_improved(text: str) -> str:
-        """Word-boundary-aware doc type detection that avoids common false positives."""
-        lower = text.lower()
-        # High-confidence Bescheid indicators — check BEFORE Rechnung
-        if re.search(r"\b(bescheid|finanzamt|steuerbescheid|einkommensteuer|lohnsteuer|umsatzsteuer"
-                     r"|grundsteuer|gewerbesteuer|rentenbescheid|bewilligungsbescheid"
-                     r"|widerspruchsbescheid|ablehnungsbescheid|anerkennungsbescheid)\b", lower):
-            return "Bescheid"
-        # Word-boundary Rechnung (avoids "Abrechnung", "Jahresabrechnung" etc.)
-        if re.search(r"\brechnung\b|\binvoice\b|\brechnungsnr\b|\brechnungsnummer\b", lower):
-            return "Rechnung"
-        # Remaining doc types in priority order
-        for doc_type, keywords in _DOC_TYPE_KEYWORDS:
-            if doc_type in {"Rechnung", "Bescheid"}:
-                continue  # already handled above
-            if any(keyword in lower for keyword in keywords):
-                return doc_type
-        return "Sonstiges"
+        return detect_document_type_improved(text)
 
     @staticmethod
     def _extract_subject_rich(text: str, doc_type: str) -> str | None:
-        """Extract a meaningful subject/heading from OCR text."""
-        lower = text.lower()
-        # Tax terms checked first so we use the clean embedded label, not OCR artifacts
-        tax_terms = [
-            ("einkommensteuer", "Einkommensteuer"),
-            ("lohnsteuer", "Lohnsteuer"),
-            ("umsatzsteuer", "Umsatzsteuer"),
-            ("körperschaftsteuer", "Körperschaftsteuer"),
-            ("koerperschaftsteuer", "Körperschaftsteuer"),
-            ("gewerbesteuer", "Gewerbesteuer"),
-            ("grundsteuer", "Grundsteuer"),
-        ]
-        for kw, label in tax_terms:
-            if kw in lower:
-                # Prefer explicit "für YEAR" / "Steuerjahr YEAR" context
-                ym = re.search(
-                    r"\b(?:f[üu]r|steuerjahr|est|zur|jahr)\s+(20\d{2})\b",
-                    text, re.IGNORECASE,
-                )
-                if not ym:
-                    ym = re.search(r"\b(20\d{2})\b", text)
-                if ym:
-                    return f"{label} {ym.group(1)}"
-                return label
-
-        # "Bescheid für YEAR über <SteuerArt>" — fallback when no clean term found
-        m = re.search(
-            r"\bbescheid\s+f[üu]r\s+(20\d{2})\s+[üu]ber\s+([A-ZÄÖÜ][A-Za-zÄÖÜäöüß\- ]{4,30})",
-            text, re.IGNORECASE,
-        )
-        if m:
-            year = m.group(1)
-            raw_type = " ".join(m.group(2).split())[:30].strip()
-            # Collapse spaced OCR artifacts ("E i n k o m m e n s t e u e r" → "Einkommensteuer")
-            if re.fullmatch(r"(?:[A-Za-zÄÖÜäöüß] +){3,}[A-Za-zÄÖÜäöüß]", raw_type):
-                raw_type = re.sub(r"\s+", "", raw_type)
-            return f"{raw_type} {year}"
-
-        # Fixed-label heading patterns
-        for pattern, fmt in _SUBJECT_HEADING_PATTERNS:
-            m = pattern.search(text)
-            if m:
-                groups = [m.group(i + 1) for i in range(len(m.groups()))]
-                return fmt.format(*groups)
-
-        return None
+        return extract_subject_rich(text, doc_type)
 
     @classmethod
     def _generate_tags_from_text(cls, text: str, doc_type: str) -> list[str]:
-        """Generate up to 2 relevant tags from OCR text using keyword rules."""
-        # Strip URLs and email addresses to avoid false positives from footers
-        clean = re.sub(r"https?://\S+|www\.\S+|\S+@\S+", " ", text, flags=re.IGNORECASE)
-        lower = clean.lower()
-        tags: list[str] = []
-        seen: set[str] = set()
-
-        def add_tag(tag: str) -> None:
-            if tag not in seen and len(tags) < 2:
-                seen.add(tag)
-                tags.append(tag)
-
-        normalized_doc_type = cls._normalize_doc_type(str(doc_type or "")) or ""
-        if normalized_doc_type == "Kündigung":
-            add_tag("Kündigung")
-            if re.search(r"\b(mitgliedschaft|verein|sportverein|turnverein)\b", lower):
-                add_tag("Mitgliedschaft")
-        elif normalized_doc_type == "Rechnung":
-            add_tag("Rechnung")
-
-        telecom_content_context = any(
-            re.search(r"\b" + re.escape(keyword) + r"\b", lower)
-            for keyword in (
-                "telefonrechnung",
-                "telefonvertrag",
-                "telefonanschluss",
-                "internettarif",
-                "internetanschluss",
-                "mobilfunk",
-                "handyvertrag",
-                "dsl",
-                "glasfaser",
-                "vodafone",
-                "telekom",
-                "congstar",
-            )
-        )
-
-        for keywords, tag_list in _TAG_KEYWORD_RULES:
-            if len(tags) >= 2:
-                break
-            # Use word-boundary matching to avoid substring false positives
-            # e.g. "lohn" in "Bruttoarbeitslohn" should not trigger "Gehalt"
-            matched = any(
-                re.search(r"\b" + re.escape(kw) + r"\b", lower)
-                for kw in keywords
-            )
-            if matched and set(tag_list).issubset({"Telefon", "Telekommunikation"}) and not telecom_content_context:
-                continue
-            if matched:
-                for tag in tag_list:
-                    add_tag(tag)
-            if len(tags) >= 2:
-                break
-        return tags
+        return generate_tags_from_text(text, doc_type)
 
     @staticmethod
     def _select_staging_llm_text(ocr_text: str, max_chars: int) -> str:
-        """Keep the high-value OCR parts for the staging LLM prompt.
-
-        Full-page OCR often spends many tokens on addresses, footers and legal
-        boilerplate. The extractor needs header, identifiers, amounts, dates and
-        closing context; preserving those lines gives the model less noise at the
-        same quality target.
-        """
-        limit = max(300, int(max_chars or 800))
-        raw = str(ocr_text or "").replace("\r", "\n")
-        lines = [ImportStagingService._normalize_text(line) for line in raw.split("\n")]
-        lines = [line for line in lines if line]
-        if len(lines) <= 2:
-            compact = ImportStagingService._normalize_text(raw)
-            if len(compact) <= limit:
-                return compact
-            chunks = re.split(r"(?<=[.!?])\s+|(?<=€)\s+|(?<=EUR)\s+", compact, flags=re.IGNORECASE)
-            lines = [chunk.strip() for chunk in chunks if chunk.strip()]
-            if len(lines) <= 1:
-                lines = [compact[index : index + 180].strip() for index in range(0, len(compact), 180)]
-
-        if len("\n".join(lines)) <= limit:
-            return "\n".join(lines)[:limit].rstrip()
-
-        selected: dict[int, str] = {}
-        for index, line in enumerate(lines[:18]):
-            selected[index] = line
-        for index, line in enumerate(lines[-8:], start=max(0, len(lines) - 8)):
-            selected[index] = line
-
-        scored: list[tuple[int, int, str]] = []
-        for index, line in enumerate(lines):
-            lowered = line.lower()
-            score = 0
-            if any(keyword in lowered for keyword in _LLM_SIGNAL_KEYWORDS):
-                score += 80
-            if _AMOUNT_RE.search(line):
-                score += 45
-            if _DATE_DMY_RE.search(line) or _DATE_YMD_RE.search(line):
-                score += 35
-            if re.search(r"\b[A-Z0-9][A-Z0-9-]{4,}\b", line):
-                score += 20
-            if len(line) > 180:
-                score -= 20
-            if score > 0:
-                scored.append((score, index, line))
-        scored.sort(key=lambda item: (-item[0], item[1]))
-        for _score, index, line in scored[:32]:
-            selected[index] = line
-
-        deduped: list[str] = []
-        seen: set[str] = set()
-        for index in sorted(selected):
-            line = selected[index]
-            key = line.casefold()
-            if key in seen:
-                continue
-            seen.add(key)
-            deduped.append(line)
-
-        result_parts: list[str] = []
-        current_len = 0
-        for line in deduped:
-            projected = current_len + len(line) + (1 if result_parts else 0)
-            if projected > limit:
-                remaining = limit - current_len - (1 if result_parts else 0)
-                if remaining > 40:
-                    result_parts.append(line[:remaining].rstrip())
-                break
-            result_parts.append(line)
-            current_len = projected
-        return "\n".join(result_parts).strip()
+        return select_staging_llm_text(ocr_text, max_chars)
 
     @staticmethod
     def _call_ollama_for_staging(
@@ -1692,35 +1152,15 @@ class ImportStagingService:
         )
         payload = {"model": model, "stream": False, "format": "json", "prompt": prompt}
 
-        ollama_started = now_perf()
-        try:
-            response = httpx.post(
-                f"{base_url.rstrip('/')}/api/generate",
-                json=payload,
-                timeout=timeout_seconds,
-            )
-            response.raise_for_status()
-            raw = str(response.json().get("response") or "").strip()
-        except Exception as exc:
-            logger.warning("ollama staging call failed: %s", exc)
-            log_import_timing(
-                "analysis_ollama_call",
-                model=model,
-                success=False,
-                input_chars=len(text_for_llm),
-                duration_ms=elapsed_ms(ollama_started),
-            )
-            return None
-        log_import_timing(
-            "analysis_ollama_call",
+        raw = request_generation(
+            base_url=base_url,
+            payload=payload,
+            timeout_seconds=timeout_seconds,
             model=model,
-            success=True,
             input_chars=len(text_for_llm),
-            response_chars=len(raw),
-            duration_ms=elapsed_ms(ollama_started),
+            http_post=httpx.post,
         )
-
-        if not raw:
+        if raw is None:
             return None
 
         # Parse JSON (handle possible markdown fences)
@@ -1919,8 +1359,7 @@ class ImportStagingService:
 
     @classmethod
     def _format_euro(cls, amount: float) -> str:
-        token = f"{amount:.2f}".replace(".", ",")
-        return f"{token}€"
+        return format_euro(amount)
 
     @classmethod
     def _build_note_from_metadata(
@@ -1934,39 +1373,15 @@ class ImportStagingService:
         currency: str | None,
         max_len: int = 500,
     ) -> str | None:
-        facts: list[str] = []
-        normalized_issuer = cls._normalize_text(issuer or "")
-        if normalized_issuer and normalized_issuer.lower() != "unbekannt":
-            facts.append(f"Absender: {normalized_issuer}")
-
-        normalized_subject = cls._normalize_text(subject or "")
-        if normalized_subject:
-            facts.append(f"Thema: {normalized_subject}")
-
-        normalized_doc_type = cls._normalize_text(doc_type or "")
-        if normalized_doc_type and normalized_doc_type.lower() != "sonstiges":
-            facts.append(f"Dokumenttyp: {normalized_doc_type}")
-
-        normalized_date = cls._normalize_text(date_iso or "")
-        if re.match(r"^\d{4}-\d{2}-\d{2}$", normalized_date):
-            try:
-                facts.append(f"Datum: {datetime.strptime(normalized_date, '%Y-%m-%d').strftime('%d.%m.%Y')}")
-            except ValueError:
-                pass
-
-        if amount is not None and amount > 0:
-            amount_text = cls._format_euro(amount) if currency == "EUR" else f"{amount:.2f}"
-            suffix = f" {currency}" if currency and currency != "EUR" else ""
-            facts.append(f"Betrag: {amount_text}{suffix}")
-
-        if not facts:
-            return None
-        note = " ".join(". ".join(facts).split()).strip()
-        if len(note) <= max_len:
-            return note
-        if max_len <= 1:
-            return note[:max_len]
-        return f"{note[: max_len - 1].rstrip()}…"
+        return build_note_from_metadata(
+            issuer=issuer,
+            subject=subject,
+            doc_type=doc_type,
+            date_iso=date_iso,
+            amount=amount,
+            currency=currency,
+            max_len=max_len,
+        )
 
     @classmethod
     def _clip_with_ellipsis(cls, value: str, max_len: int) -> str:
@@ -1979,7 +1394,7 @@ class ImportStagingService:
 
     @classmethod
     def _build_filename_from_meta(cls, meta: dict[str, object]) -> str:
-        return build_legacy_filename_from_meta(meta)
+        return build_filename_from_meta(meta)
 
     def _load_existing_tag_names(self, limit: int = 200) -> list[str]:
         """Vorhandene Tag-Namen für die KI-Tag-Vergabe (bevorzugt wiederverwenden)."""
@@ -2034,32 +1449,7 @@ class ImportStagingService:
         sind als Stilvorlage für den ``subject``-Slot gedacht – nicht zum wörtlichen
         Übernehmen.
         """
-        cleaned: list[str] = []
-        seen: set[str] = set()
-        for raw in examples or []:
-            name = " ".join(str(raw or "").split()).strip()
-            if name.lower().endswith(".pdf"):
-                name = name[:-4].rstrip()
-            if not name:
-                continue
-            if len(name) > max_len:
-                name = name[:max_len].rstrip()
-            key = name.casefold()
-            if key in seen:
-                continue
-            seen.add(key)
-            cleaned.append(name)
-            if len(cleaned) >= max_examples:
-                break
-        if not cleaned:
-            return ""
-        lines = "\n".join(f"- {name}" for name in cleaned)
-        return (
-            "BEISPIELE für bereits vergebene Dateinamen ähnlicher Dokumente. "
-            "Orientiere dich für \"subject\" am Schreibmuster/Stil dieser Beispiele, "
-            "übernimm sie aber NICHT wörtlich:\n"
-            f"{lines}\n\n"
-        )
+        return build_naming_examples_block(examples, max_examples=max_examples, max_len=max_len)
 
     def _load_naming_examples(
         self,
@@ -2146,7 +1536,7 @@ class ImportStagingService:
             preview,
             ocr_pending,
         )
-        today_filename = datetime.utcnow().strftime("%d-%m-%Y")
+        today_filename = datetime.now(timezone.utc).strftime("%d-%m-%Y")
         if ocr_pending:
             diagnostic_status = str(ocr_diagnostics.get("status") or "ocr_failed")
             if diagnostic_status in {"ocr_unavailable", "ocr_failed"}:

@@ -1682,14 +1682,19 @@ function onMiniatureAreaClick(event) {
   if (isUploadingSources.value || isCommitting.value) {
     return;
   }
-  const target = event?.target;
-  if (!(target instanceof HTMLElement)) {
-    return;
-  }
-  const interactiveTarget = target.closest(
-    '.isd-page-card, .isd-add-page-card, .isd-scanning-page-card, button, input, textarea, select, a, [role="button"]'
+  // WICHTIG: nicht target.closest() verwenden. Ein Klick auf die Add-Karte
+  // öffnet den Wähler und ersetzt dabei per v-if das geklickte Element noch
+  // während der Ereignisausbreitung – target wäre dann losgelöst und closest()
+  // liefert null, sodass dieser Handler den Klick fälschlich als „ins Leere"
+  // wertet und sofort wieder zumacht. Der beim Auslösen erfasste composedPath()
+  // bleibt dagegen gültig.
+  const path = typeof event?.composedPath === 'function' ? event.composedPath() : [];
+  const interactiveSelector =
+    '.isd-page-card, .isd-add-page-card, .isd-scanning-page-card, button, input, textarea, select, a, [role="button"]';
+  const hitInteractive = path.some(
+    (node) => node instanceof Element && node.matches?.(interactiveSelector)
   );
-  if (interactiveTarget) {
+  if (hitInteractive) {
     return;
   }
   // Ein Klick ins Leere klappt auch den PDF/Scan-Wähler wieder zu – dieselbe

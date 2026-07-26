@@ -7,13 +7,11 @@ import subprocess
 import threading
 import time
 import uuid
-from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import httpx
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
@@ -36,6 +34,7 @@ from app.services.documents import DocumentService
 from app.services.import_inbox import ImportInboxService
 from app.services.import_staging import ImportStagingService
 from app.services.import_timing import elapsed_ms, log_import_timing, now_perf
+from app.services.job_queue import enqueue_document_job, has_active_document_job
 from app.services.scanners import SCAN_ERROR_FILE_MISSING, ScannerService
 from app.services.ai_classification import apply_ollama_classification
 from app.services.document_types import (
@@ -45,6 +44,13 @@ from app.services.document_types import (
 )
 from app.services.ocr_pipeline import run_ocr_pipeline
 from app.services.settings import SettingsService
+from app.services.tag_suggestions import (
+    fallback_tag_candidates,
+    is_blocked_tag_candidate,
+    normalize_tag_key,
+    normalize_tag_name,
+    suggest_tags_with_ai,
+)
 
 settings = get_settings()
 
@@ -85,139 +91,6 @@ IMPORT_INBOX_SCANNER_DEVICE_NAME = os.environ.get(
     "IMPORT_INBOX_SCANNER_DEVICE_NAME",
     "Canon LiDE 400 am Pi",
 ).strip()
-AUTO_TAG_STOPWORDS = {
-    "aber",
-    "alle",
-    "alles",
-    "als",
-    "also",
-    "am",
-    "an",
-    "auch",
-    "auf",
-    "aus",
-    "bei",
-    "bin",
-    "bis",
-    "das",
-    "dass",
-    "dein",
-    "dem",
-    "den",
-    "der",
-    "des",
-    "die",
-    "dies",
-    "diese",
-    "dieser",
-    "doch",
-    "dort",
-    "ein",
-    "eine",
-    "einem",
-    "einer",
-    "eines",
-    "er",
-    "es",
-    "etwas",
-    "für",
-    "hat",
-    "haben",
-    "hier",
-    "ich",
-    "ihm",
-    "im",
-    "in",
-    "ist",
-    "jede",
-    "jeder",
-    "kann",
-    "kein",
-    "keine",
-    "mit",
-    "nach",
-    "nicht",
-    "noch",
-    "nur",
-    "oder",
-    "sein",
-    "seine",
-    "sich",
-    "sie",
-    "sind",
-    "so",
-    "und",
-    "uns",
-    "vom",
-    "von",
-    "vor",
-    "war",
-    "was",
-    "weil",
-    "wenn",
-    "wer",
-    "wie",
-    "wir",
-    "wird",
-    "zu",
-    "zum",
-    "zur",
-}
-
-
-AUTO_TAG_BLOCKED_CANDIDATE_KEYS = {
-    "keine information",
-    "keine information gefunden",
-    "keine informationen",
-    "keine informationen gefunden",
-    "keine infos",
-    "keine infos gefunden",
-    "keine tags",
-    "keine tags gefunden",
-    "keine schlagworte",
-    "keine schlagwoerter",
-    "keine schlagworte gefunden",
-    "keine schlagwoerter gefunden",
-    "keine relevanten informationen",
-    "keine relevanten infos",
-    "kein tag",
-    "kein tag gefunden",
-    "kein schlagwort",
-    "kein schlagwort gefunden",
-    "kein ergebnis",
-    "nicht gefunden",
-    "n a",
-    "na",
-    "none",
-    "null",
-    "unknown",
-    "unbekannt",
-}
-AUTO_TAG_BLOCKED_CANDIDATE_PREFIXES = (
-    "dazu finde ich keine information",
-    "dazu finde ich keine infos",
-    "ich finde keine information",
-    "ich finde keine infos",
-    "keine information",
-    "keine infos",
-    "keine tags",
-    "keine schlagworte",
-    "keine schlagwoerter",
-    "keine schlagwörter",
-    "kein tag",
-    "kein schlagwort",
-    "kein ergebnis",
-)
-AUTO_TAG_BLOCKED_CANDIDATE_CONTAINS = (
-    "keine information",
-    "keine infos",
-    "keine relevanten information",
-    "nicht gefunden",
-    "finde ich keine",
-    "finde keine",
-)
-
-
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -553,6 +426,56 @@ def _enhance_scanner_import_sources(source_file_ids: list[str], owner_id: uuid.U
 # aktuell, während die Analyse in ihrem eigenen Tempo nachzieht.
 _cleanup_executor: ThreadPoolExecutor | None = None
 _preanalysis_executor: ThreadPoolExecutor | None = None
+_backup_executor: ThreadPoolExecutor | None = None
+_backup_future: Future | None = None
+_worker_health_last_at = 0.0
+
+
+def _touch_worker_health(*, state: str, job_id: uuid.UUID | None = None, force: bool = False) -> None:
+    """Schreibt einen atomaren, containerlokalen Prozess-Heartbeat."""
+    global _worker_health_last_at
+    now = time.time()
+    if not force and now - _worker_health_last_at < settings.worker_health_interval_seconds:
+        return
+
+    target = Path(settings.worker_health_path)
+    payload = {
+        "updated_at": now,
+        "worker_id": WORKER_ID,
+        "state": state,
+        "job_id": str(job_id) if job_id is not None else None,
+    }
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_name(f".{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+        temporary.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+        os.replace(temporary, target)
+        _worker_health_last_at = now
+    except OSError as exc:
+        logger.warning("worker health heartbeat write failed path=%s error=%s", target, exc)
+
+
+def _submit_scheduled_backup() -> bool:
+    """Startet höchstens ein geplantes Backup außerhalb des OCR-Worker-Loops."""
+    global _backup_executor, _backup_future
+    if _backup_future is not None and not _backup_future.done():
+        return False
+    if _backup_executor is None:
+        _backup_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="scheduled-backup")
+
+    from app.services.backup import run_backup_in_background
+
+    future = _backup_executor.submit(run_backup_in_background, kind="scheduled")
+    _backup_future = future
+
+    def _log_completion(completed: Future) -> None:
+        try:
+            completed.result()
+        except Exception:  # pragma: no cover - defensive worker boundary
+            logger.exception("scheduled backup worker crashed")
+
+    future.add_done_callback(_log_completion)
+    return True
 
 
 def _queue_preanalysis(source_file_ids: list[str], owner_id: uuid.UUID | None) -> None:
@@ -878,152 +801,48 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str, prev
 
 
 def _has_active_job(db, document_id: uuid.UUID, job_type: str) -> bool:
-    active_job = db.execute(
-        select(Job.id).where(
-            Job.document_id == document_id,
-            Job.type == job_type,
-            Job.status.in_(("queued", "running")),
-        )
-    ).scalar_one_or_none()
-    return active_job is not None
+    return has_active_document_job(db, document_id, job_type)
 
 
 def _queue_index_job(db, document: Document, *, reason: str) -> bool:
-    if _has_active_job(db, document.id, "INDEX"):
+    if enqueue_document_job(db, document.id, "INDEX") is None:
         return False
-    db.add(Job(document_id=document.id, type="INDEX", status="queued", progress=0))
     document.embedding_status = "queued"
     logger.info("index job queued document_id=%s reason=%s", document.id, reason)
     return True
 
 
 def _queue_tag_job(db, document: Document, *, reason: str) -> bool:
-    if _has_active_job(db, document.id, "TAG"):
+    if enqueue_document_job(db, document.id, "TAG") is None:
         return False
-    db.add(Job(document_id=document.id, type="TAG", status="queued", progress=0))
     logger.info("tag job queued document_id=%s reason=%s", document.id, reason)
     return True
 
 
 def _normalize_tag_name(raw_value: str) -> str:
-    cleaned = re.sub(r"[^A-Za-zÄÖÜäöüß0-9\-/ ]+", " ", str(raw_value or ""))
-    normalized = " ".join(cleaned.split()).strip()
-    if not normalized:
-        return ""
-    if len(normalized) > 48:
-        normalized = normalized[:48].rstrip()
-    return normalized
+    return normalize_tag_name(raw_value)
 
 
 def _normalize_tag_key(raw_value: str) -> str:
-    normalized = _normalize_tag_name(raw_value).lower()
-    return re.sub(r"[^a-z0-9äöüß]+", " ", normalized).strip()
+    return normalize_tag_key(raw_value)
 
 
 def _is_blocked_tag_candidate(candidate: str) -> bool:
-    candidate_key = _normalize_tag_key(candidate)
-    if not candidate_key:
-        return True
-    if candidate_key in AUTO_TAG_BLOCKED_CANDIDATE_KEYS:
-        return True
-    if any(candidate_key.startswith(prefix) for prefix in AUTO_TAG_BLOCKED_CANDIDATE_PREFIXES):
-        return True
-    return any(fragment in candidate_key for fragment in AUTO_TAG_BLOCKED_CANDIDATE_CONTAINS)
+    return is_blocked_tag_candidate(candidate)
 
 
 def _fallback_tag_candidates(text_value: str, max_tags: int = AUTO_TAG_MAX_TAGS) -> list[str]:
-    tokens = re.findall(r"[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß\-]{2,}", text_value.lower())
-    if not tokens:
-        return []
-    counts = Counter(
-        token for token in tokens if token not in AUTO_TAG_STOPWORDS and not token.isnumeric() and len(token) >= 3
-    )
-    tags: list[str] = []
-    for token, _ in counts.most_common(max_tags * 3):
-        candidate = _normalize_tag_name(token)
-        if not candidate:
-            continue
-        if _is_blocked_tag_candidate(candidate):
-            continue
-        label = candidate[0].upper() + candidate[1:]
-        if label.lower() in {existing.lower() for existing in tags}:
-            continue
-        tags.append(label)
-        if len(tags) >= max_tags:
-            break
-    return tags
+    return fallback_tag_candidates(text_value, max_tags=max_tags)
 
 
 def _suggest_tags_with_ai(text_value: str, max_tags: int = AUTO_TAG_MAX_TAGS) -> list[str]:
-    normalized_text = " ".join(str(text_value or "").split()).strip()
-    if not normalized_text:
-        return []
-
-    payload = {
-        "model": "default",
-        "system_prompt": (
-            "Du extrahierst kurze deutsche Schlagwörter für Dokumente. "
-            "Antworte nur mit einem JSON-Array von 1 bis 5 Strings ohne weitere Erklärungen."
-        ),
-        "max_sentences": 1,
-        "max_tokens": 120,
-        "temperature": 0.1,
-        "question": "Extrahiere bis zu 5 prägnante Tags.",
-        "user_prompt": (
-            "Gib nur ein JSON-Array zurück, z.B. [\"Rechnung\", \"KFZ\", \"Versicherung\"].\n\n"
-            f"TEXT:\n{normalized_text[:AUTO_TAG_MAX_TEXT_CHARS]}"
-        ),
-        "contexts": [],
-    }
-
-    try:
-        response = httpx.post(
-            f"{settings.ai_base_url.rstrip('/')}/chat",
-            json=payload,
-            timeout=settings.ai_chat_timeout_seconds,
-        )
-        response.raise_for_status()
-        raw_answer = str(response.json().get("answer") or "").strip()
-    except Exception as exc:  # pragma: no cover - network runtime path
-        logger.warning("auto tagging ai call failed: %s", exc)
-        return _fallback_tag_candidates(normalized_text, max_tags=max_tags)
-
-    candidates: list[str] = []
-    if raw_answer:
-        array_match = re.search(r"\[[\s\S]*\]", raw_answer)
-        candidate_text = array_match.group(0) if array_match else raw_answer
-        try:
-            import json
-
-            parsed = json.loads(candidate_text)
-            if isinstance(parsed, list):
-                candidates = [str(item) for item in parsed]
-        except Exception:
-            split_candidates = re.split(r"[,;\n]", raw_answer)
-            candidates = [part.strip(" -\t\r\n\"'") for part in split_candidates if part.strip()]
-
-    has_ai_candidates = len(candidates) > 0
-    normalized_candidates: list[str] = []
-    seen = set()
-    for candidate in candidates:
-        normalized = _normalize_tag_name(candidate)
-        if not normalized:
-            continue
-        if _is_blocked_tag_candidate(normalized):
-            continue
-        key = normalized.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        normalized_candidates.append(normalized)
-        if len(normalized_candidates) >= max_tags:
-            break
-
-    if normalized_candidates:
-        return normalized_candidates
-    if has_ai_candidates:
-        return []
-    return _fallback_tag_candidates(normalized_text, max_tags=max_tags)
+    return suggest_tags_with_ai(
+        text_value,
+        max_tags=max_tags,
+        max_text_chars=AUTO_TAG_MAX_TEXT_CHARS,
+        ai_base_url=settings.ai_base_url,
+        timeout_seconds=settings.ai_chat_timeout_seconds,
+    )
 
 
 def _get_or_create_tag(db, tag_name: str, owner_id) -> Tag | None:
@@ -1119,6 +938,7 @@ def _job_lease_heartbeat(job_id: uuid.UUID, lease_token: uuid.UUID):
                 if not _heartbeat_job(job_id, lease_token):
                     logger.warning("job lease lost job_id=%s worker_id=%s", job_id, WORKER_ID)
                     return
+                _touch_worker_health(state="processing", job_id=job_id)
             except Exception:
                 logger.exception("job heartbeat failed job_id=%s worker_id=%s", job_id, WORKER_ID)
 
@@ -1635,11 +1455,8 @@ def _run_backup_scheduler() -> None:
         except Exception as exc:  # noqa: BLE001 - Scheduler darf den Worker nie abbrechen
             logger.warning("backup scheduler check failed: %s", exc)
             return
-        logger.info("scheduled backup due -> running")
-        try:
-            service.run_backup(kind="scheduled")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("scheduled backup run failed: %s", exc)
+    if _submit_scheduled_backup():
+        logger.info("scheduled backup due -> submitted")
 
 
 def _read_process_rss_mb() -> float | None:
@@ -1692,15 +1509,17 @@ def run() -> None:
         settings.worker_job_heartbeat_seconds,
         settings.storage_path,
     )
+    _touch_worker_health(state="starting", force=True)
     _reclaim_orphaned_jobs()
     _log_worker_memory()
     # Schwere Nachbearbeitung eines Import-Drops läuft in eigenen Threads, damit
     # der frische Ingest den seriellen Haupt-Loop nicht blockiert. Zwei getrennte
     # Spuren, damit die langsame LLM-Voranalyse die schnelle, sichtbare
     # Bereinigung nicht aufhält (siehe _submit_post_ingest_work).
-    global _cleanup_executor, _preanalysis_executor
+    global _backup_executor, _cleanup_executor, _preanalysis_executor
     _cleanup_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="scan-cleanup")
     _preanalysis_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="preanalysis")
+    _backup_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="scheduled-backup")
     # Scanner-Dispatch läuft in einem eigenen Thread, damit UI-ausgelöste Scans
     # nicht hinter langlaufender OCR/Bereinigung/LLM-Voranalyse im seriellen
     # Haupt-Loop warten müssen (siehe _run_scanner_dispatch_loop).
@@ -1721,6 +1540,7 @@ def run() -> None:
     last_job_reclaim_at = time.monotonic()
     while True:
         now_monotonic = time.monotonic()
+        _touch_worker_health(state="idle")
         if now_monotonic - last_job_reclaim_at >= JOB_RECLAIM_INTERVAL_SECONDS:
             last_job_reclaim_at = now_monotonic
             _reclaim_orphaned_jobs()
@@ -1762,6 +1582,7 @@ def run() -> None:
             time.sleep(settings.worker_poll_interval_seconds)
             continue
         job_id, job_type, lease_token = claimed
+        _touch_worker_health(state=job_type.lower(), job_id=job_id, force=True)
         with _job_lease_heartbeat(job_id, lease_token):
             if job_type == "OCR":
                 _process_ocr_job(job_id, lease_token)

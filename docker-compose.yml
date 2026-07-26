@@ -66,19 +66,21 @@ services:
       CHUNK_OVERLAP_CHARS: ${CHUNK_OVERLAP_CHARS}
       AI_EMBED_TIMEOUT_SECONDS: ${AI_EMBED_TIMEOUT_SECONDS}
       RETRIEVAL_MAX_TOP_K: ${RETRIEVAL_MAX_TOP_K}
-      # System-/Hardware-Status: Host-Metriken aus den read-only Mounts unten.
+      # System-/Hardware-Status: minimale Host-Metriken aus den read-only Mounts unten.
       # Power-Aktionen sind in Dev bewusst deaktiviert (kein HOST_CONTROL_DIR),
       # da kein Host-Helfer läuft – die Buttons zeigen dann "nicht eingerichtet".
       SYSTEM_SYS_PATH: /host/sys
-      SYSTEM_HOST_ROOT: /host/root
+      SYSTEM_HOST_ETC_PATH: /host/etc
     ports:
       - "${BACKEND_PORT}:${BACKEND_PORT}"
     volumes:
       - ./backend:/app
       - pdf_storage:${STORAGE_PATH}
-      # Host-Metriken (read-only): Temperatur/Lüfter/Modell aus /sys, Speicher aus /
+      # Host-Metriken (read-only): Temperatur/Lüfter/Modell aus /sys sowie
+      # Hostname und OS-Version aus zwei einzelnen Dateien.
       - /sys:/host/sys:ro
-      - /:/host/root:ro
+      - /etc/hostname:/host/etc/hostname:ro
+      - /etc/os-release:/host/etc/os-release:ro
     depends_on:
       db:
         condition: service_healthy
@@ -166,6 +168,9 @@ services:
       WORKER_OCR_TIMEOUT_SECONDS: ${WORKER_OCR_TIMEOUT_SECONDS}
       WORKER_JOB_LEASE_SECONDS: ${WORKER_JOB_LEASE_SECONDS:-120}
       WORKER_JOB_HEARTBEAT_SECONDS: ${WORKER_JOB_HEARTBEAT_SECONDS:-30}
+      WORKER_HEALTH_PATH: /tmp/papermind-worker-health.json
+      WORKER_HEALTH_INTERVAL_SECONDS: ${WORKER_HEALTH_INTERVAL_SECONDS:-15}
+      WORKER_HEALTH_MAX_AGE_SECONDS: ${WORKER_HEALTH_MAX_AGE_SECONDS:-120}
       IMPORT_INBOX_DROP_PATH: ${IMPORT_INBOX_DROP_PATH:-/scan-inbox}
       IMPORT_INBOX_FILE_STABLE_SECONDS: ${IMPORT_INBOX_FILE_STABLE_SECONDS:-3}
       AI_BASE_URL: ${AI_BASE_URL}
@@ -186,6 +191,16 @@ services:
         condition: service_healthy
       ai:
         condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import json,os,time;payload=json.load(open(os.environ['WORKER_HEALTH_PATH']));assert time.time()-float(payload['updated_at']) < int(os.environ['WORKER_HEALTH_MAX_AGE_SECONDS'])
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 60s
     networks:
       - papermind_net
 

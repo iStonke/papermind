@@ -24,6 +24,9 @@ let fileTokenTimer = null;
 let sessionRefreshTimer = null;
 let initializePromise = null;
 let recoveryPromise = null;
+// Verhindert, dass ein beim Start noch laufender fehlgeschlagener Refresh eine
+// inzwischen erfolgreich angemeldete Session wieder löscht.
+let sessionEpoch = 0;
 
 // Inaktivitäts-Logout: Timer + Activity-Listener (kein reaktiver State).
 let inactivityTimer = null;
@@ -39,7 +42,7 @@ function readAutoLogoutMinutes() {
 
 function tokenExpiryMs(token) {
   try {
-    const payloadPart = String(token || '').split('.', 1)[0];
+    const payloadPart = String(token || '').split('.')[1];
     const normalized = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
     const padding = '='.repeat((4 - (normalized.length % 4)) % 4);
     const payload = JSON.parse(window.atob(normalized + padding));
@@ -125,18 +128,21 @@ export const useAuthStore = defineStore('auth', {
     },
 
     async login(username, password) {
+      sessionEpoch += 1;
       const result = await loginRequest(username, password);
       this.applyTokenResponse(result);
       return result.user;
     },
 
     async register(payload) {
+      sessionEpoch += 1;
       const result = await registerRequest(payload);
       this.applyTokenResponse(result);
       return result.user;
     },
 
     applyTokenResponse(result) {
+      sessionEpoch += 1;
       setToken(result.access_token);
       // Entfernt ggf. noch vorhandene Refresh-Tokens aus der Altversion. Die
       // aktuelle Session wird serverseitig über ein HttpOnly-Cookie geführt.
@@ -151,12 +157,15 @@ export const useAuthStore = defineStore('auth', {
     async recoverSession() {
       if (recoveryPromise) return recoveryPromise;
       const refreshToken = getRefreshToken();
+      const recoveryEpoch = sessionEpoch;
       recoveryPromise = (async () => {
         try {
           const result = await refreshSessionRequest(refreshToken);
+          if (recoveryEpoch !== sessionEpoch) return this.isAuthenticated;
           this.applyTokenResponse(result);
           return true;
         } catch (error) {
+          if (recoveryEpoch !== sessionEpoch) return this.isAuthenticated;
           if (error?.status === 401) {
             // Übergang für einen noch gültigen Access-Token aus der Altversion,
             // zu dem noch kein serverseitiges Session-Cookie existiert.
@@ -233,6 +242,7 @@ export const useAuthStore = defineStore('auth', {
     },
 
     async logout() {
+      sessionEpoch += 1;
       try {
         await logoutRequest();
       } catch {
@@ -242,6 +252,7 @@ export const useAuthStore = defineStore('auth', {
     },
 
     clearSession() {
+      sessionEpoch += 1;
       this.stopFileToken();
       this.stopSessionRefresh();
       this.stopInactivityWatch();

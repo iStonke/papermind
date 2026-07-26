@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     worker_ocr_timeout_seconds: int = Field(default=900)
     worker_job_lease_seconds: int = Field(default=120, ge=30, le=3600)
     worker_job_heartbeat_seconds: int = Field(default=30, ge=5, le=300)
+    # Prozess-Heartbeat für den Docker-Healthcheck des Workers. Der Pfad bleibt
+    # containerlokal; die JSON-Datei enthält keine Nutzdaten oder Geheimnisse.
+    worker_health_path: str = Field(default="/tmp/papermind-worker-health.json")
+    worker_health_interval_seconds: int = Field(default=15, ge=5, le=60)
+    worker_health_max_age_seconds: int = Field(default=120, ge=30, le=900)
     # Periodischer OCR-Backfill: schließt regelmäßig Lücken (Dokumente ohne OCR).
     ocr_backfill_interval_seconds: int = Field(default=3600, ge=60)
     ocr_backfill_batch_size: int = Field(default=10, ge=1, le=200)
@@ -74,8 +79,9 @@ class Settings(BaseSettings):
     # Pfad, unter dem das Host-/sys gemountet ist (für Temperatur/Lüfter/Modell).
     # Fällt auf das container-eigene /sys zurück, wenn nicht vorhanden.
     system_sys_path: str = Field(default="/sys")
-    # Pfad, unter dem das Host-Root (read-only) gemountet ist (für Speicherplatz).
-    system_host_root: str = Field(default="/")
+    # Pfad zu minimal eingebundenen Host-Identitätsdateien (hostname, os-release).
+    # Ein vollständiger Host-Root-Mount ist bewusst nicht erforderlich.
+    system_host_etc_path: str = Field(default="")
     # Geteiltes Verzeichnis für Power-Kommandos an den Host-Helfer. Leer = aus.
     host_control_dir: str = Field(default="")
 

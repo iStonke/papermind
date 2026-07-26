@@ -45,7 +45,7 @@ function tokenWithExpiry(secondsFromNow) {
   const payload = Buffer.from(JSON.stringify({
     exp: Math.floor(Date.now() / 1000) + secondsFromNow,
   })).toString('base64url');
-  return `${payload}.signature`;
+  return `header.${payload}.signature`;
 }
 
 function userPayload() {
@@ -141,6 +141,51 @@ test('initialize upgrades an existing access-only session without logging out', 
   assert.equal(getRefreshToken(), '');
 
   await new Promise((resolve) => setImmediate(resolve));
+  auth.clearSession();
+});
+
+test('a late failed refresh cannot clear a newly logged-in session', async () => {
+  setActivePinia(createPinia());
+  storage.values.clear();
+  setToken('expired-access-token');
+
+  let finishRefresh;
+  const loginAccess = tokenWithExpiry(3600);
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith('/api/auth/refresh')) {
+      return new Promise((resolve) => { finishRefresh = resolve; });
+    }
+    if (String(url).endsWith('/api/auth/login')) {
+      return new Response(JSON.stringify({
+        access_token: loginAccess,
+        expires_in: 3600,
+        refresh_expires_in: 30 * 86400,
+        token_type: 'bearer',
+        user: userPayload(),
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (String(url).endsWith('/api/auth/file-token')) {
+      return new Response(
+        JSON.stringify({ token: tokenWithExpiry(300), expires_in: 300 }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+
+  const auth = useAuthStore();
+  const recovery = auth.recoverSession();
+  await new Promise((resolve) => setImmediate(resolve));
+  await auth.login('admin', 'correct-password');
+  finishRefresh(new Response(
+    JSON.stringify({ error: { message: 'Authentication required' } }),
+    { status: 401, headers: { 'content-type': 'application/json' } },
+  ));
+  await recovery;
+
+  assert.equal(auth.isAuthenticated, true);
+  assert.equal(auth.username, 'admin');
+  assert.equal(getToken(), loginAccess);
   auth.clearSession();
 });
 

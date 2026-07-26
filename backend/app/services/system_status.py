@@ -3,9 +3,10 @@
 Das Backend läuft im Container, teilt sich aber den Kernel mit dem Host.
 CPU/RAM/Load werden daher aus dem container-eigenen ``/proc`` gelesen
 (spiegelt den Host). Temperatur, Lüfter und Geräteinfos kommen aus ``/sys``
-bzw. dem Device-Tree, der Wurzel-Speicher aus dem (read-only) gemounteten
-Host-Root. Fehlende Pfade werden tolerant mit ``None`` quittiert, damit die
-Anzeige auch in Dev-Umgebungen ohne Mounts funktioniert.
+bzw. dem Device-Tree. Für Hostname und Betriebssystem reichen zwei gezielt
+eingebundene Dateien; der Speicher wird am Dokument-Volume ermittelt. Fehlende
+Pfade werden tolerant mit ``None`` quittiert, damit die Anzeige auch in
+Dev-Umgebungen ohne Mounts funktioniert.
 
 Power-Aktionen (poweroff/reboot) kann ein Container nicht selbst ausführen.
 Statt dessen wird eine Kommando-Datei in ein geteiltes Verzeichnis geschrieben,
@@ -87,8 +88,8 @@ def _sys_path(*parts: str) -> str:
     return os.path.join(base, *parts)
 
 
-def _host_root() -> str:
-    return _resolve_base(settings.system_host_root, "/")
+def _host_etc_path() -> str:
+    return _resolve_base(settings.system_host_etc_path, "/etc")
 
 
 # ── CPU ───────────────────────────────────────────────────────────────────────
@@ -186,12 +187,11 @@ def _disk_for(label: str, path: str) -> DiskStatus | None:
 
 def _collect_disks() -> list[DiskStatus]:
     disks: list[DiskStatus] = []
-    root = _disk_for("System", _host_root())
-    if root:
-        disks.append(root)
-    # Dokumentspeicher (PDF-Volume) – nur ergänzen, wenn anderes Gerät.
+    # Das Dokument-Volume liegt im Produktivbetrieb auf dem relevanten
+    # Datenlaufwerk. Ein Mount von / nur für dessen statvfs-Werte würde dem
+    # Backend unnötig Einblick in das komplette Host-Dateisystem geben.
     storage = _disk_for("Dokumente", settings.storage_path)
-    if storage and not any(d.path == storage.path for d in disks):
+    if storage:
         disks.append(storage)
     return disks
 
@@ -276,12 +276,12 @@ def _collect_host() -> HostInfo:
     if kernel:
         info.kernel = kernel
 
-    host_root = _host_root()
-    hostname = _read_first_line(os.path.join(host_root, "etc", "hostname"))
+    host_etc = _host_etc_path()
+    hostname = _read_first_line(os.path.join(host_etc, "hostname"))
     if hostname:
         info.hostname = hostname
 
-    os_release = _read_text(os.path.join(host_root, "etc", "os-release"))
+    os_release = _read_text(os.path.join(host_etc, "os-release"))
     if os_release:
         for line in os_release.splitlines():
             if line.startswith("PRETTY_NAME="):
