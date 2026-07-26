@@ -99,21 +99,6 @@ git fetch origin "${BRANCH}"
 git switch "${BRANCH}"
 git pull --ff-only origin "${BRANCH}"
 
-preserve_frontend_assets() {
-  local assets_dir="${REPO_DIR}/.runtime/frontend-assets"
-  local frontend_id
-
-  mkdir -p "${assets_dir}"
-  frontend_id="$("${compose_cmd[@]}" ps -q frontend 2>/dev/null || true)"
-  if [[ -z "${frontend_id}" ]]; then
-    return
-  fi
-
-  echo "Preserving frontend assets from the running container ..."
-  docker cp "${frontend_id}:/usr/share/nginx/html/assets/." "${assets_dir}/" \
-    || echo "Warning: existing frontend assets could not be preserved." >&2
-}
-
 validate_db_revision_is_known() {
   local db_id db_revision revision_file
   db_id="$("${compose_cmd[@]}" ps -q db 2>/dev/null || true)"
@@ -142,7 +127,6 @@ if [[ "${RUN_COMPOSE}" -eq 1 ]]; then
   if [[ "${RUN_PROD}" -eq 1 ]]; then
     compose_cmd+=(--env-file .env.prod -f docker-compose.prod.yml)
     validate_db_revision_is_known
-    preserve_frontend_assets
   fi
   compose_args=(up -d)
   if [[ "${RUN_BUILD}" -eq 1 ]]; then
