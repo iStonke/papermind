@@ -949,16 +949,17 @@ onBeforeUnmount(() => {
   padding: 5px 10px 6px;
 }
 
+/* Chips in der dunklen Seitenleiste: einheitlicher Sidebar-Chip-Ton (Kontur). */
 .sidebar-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   max-width: 100%;
   padding: 4px 9px;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.09);
+  border: 1px solid transparent;
   border-radius: 8px;
-  background: rgba(var(--v-theme-on-surface), 0.07);
-  color: color-mix(in srgb, var(--pm-text) 80%, transparent);
+  background: var(--pm-sidebar-chip-bg);
+  color: var(--pm-sidebar-chip-text);
   font-size: 0.78rem;
   font-weight: 500;
   line-height: 1.35;
@@ -967,8 +968,7 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-chip:hover {
-  background: rgba(var(--v-theme-on-surface), 0.1);
-  border-color: rgba(var(--v-theme-on-surface), 0.14);
+  background: color-mix(in srgb, var(--pm-sidebar-chip-bg) 82%, var(--pm-sidebar-text));
 }
 
 .sidebar-chip__label {
@@ -982,7 +982,7 @@ onBeforeUnmount(() => {
   flex: none;
   font-size: 0.68rem;
   font-weight: 600;
-  color: var(--pm-muted);
+  color: var(--pm-sidebar-chip-count);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1095,6 +1095,30 @@ onBeforeUnmount(() => {
 
 .sidebar-chips--flyout {
   padding: 6px 4px 2px;
+}
+
+/* Chips im weißen Rail-Flyout tragen den hellen Inhalts-Chip-Ton (nicht den
+   dunklen Sidebar-Ton), da der Flyout ein heller, angehobener Popover ist. */
+.sidebar-chips--flyout .sidebar-chip {
+  background: var(--pm-chip-bg);
+  color: var(--pm-chip-text);
+}
+
+.sidebar-chips--flyout .sidebar-chip:hover {
+  background: color-mix(in srgb, var(--pm-chip-bg) 82%, var(--pm-chip-text));
+}
+
+.sidebar-chips--flyout .sidebar-chip__count {
+  color: var(--pm-chip-count);
+}
+
+.sidebar-chips--flyout .sidebar-chip--active {
+  background: color-mix(in srgb, var(--pm-accent) 16%, transparent);
+  color: var(--pm-accent);
+}
+
+.sidebar-chips--flyout .sidebar-chip--active .sidebar-chip__count {
+  color: var(--pm-accent);
 }
 
 /* Touch-Geräte: Toggle immer sichtbar */

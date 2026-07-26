@@ -8124,7 +8124,7 @@ onBeforeUnmount(() => {
 
 .sidebar-search__field .v-field {
   border-radius: 10px;
-  background-color: var(--pm-app-surface-raised);
+  background-color: var(--pm-field-bg);
   box-shadow: none !important;
 }
 
@@ -8151,7 +8151,7 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-search__field .v-field__outline {
-  color: var(--pm-divider);
+  color: var(--pm-field-border);
   --v-field-border-opacity: 1;
 }
 
@@ -9436,6 +9436,37 @@ onBeforeUnmount(() => {
   overflow: hidden;
   transition: background-color var(--pm-duration-fast, 140ms) ease;
   will-change: width;
+}
+
+/* ── Dunkle Tinten-Seitenleiste (Kontur) ─────────────────────────────────────
+   Die Seitenleiste ist in BEIDEN Themes dunkle Tinte mit heller Schrift. Damit
+   die vielen bestehenden var(--pm-text)/--pm-muted/--pm-accent- und
+   rgba(var(--v-theme-on-surface))-Nutzungen automatisch hell werden, biegen wir
+   die Tokens im Sidebar-Scope (Kopf/Scroll/Fuß) auf die --pm-sidebar-*-Werte um.
+   Der weiße Rail-Flyout ist Geschwister von .sidebar-scroll und bleibt außen vor,
+   ebenso alle in die Overlay-Ebene teleportierten Menüs. */
+.papermind-app .panel-left .sidebar-head,
+.papermind-app .panel-left .sidebar-scroll,
+.papermind-app .panel-left .sidebar-foot {
+  --pm-text:             var(--pm-sidebar-text);
+  --pm-muted:            var(--pm-sidebar-muted);
+  --pm-divider:          var(--pm-sidebar-border);
+  --pm-accent:           var(--pm-sidebar-accent);
+  --pm-accent-contrast:  var(--pm-sidebar-bg);
+}
+
+.papermind-app.v-theme--light .panel-left .sidebar-head,
+.papermind-app.v-theme--light .panel-left .sidebar-scroll,
+.papermind-app.v-theme--light .panel-left .sidebar-foot {
+  --v-theme-on-surface: 236, 243, 245;  /* --pm-sidebar-text (hell) */
+  --v-theme-primary:    72, 183, 189;   /* --pm-sidebar-accent (hell) */
+}
+
+.papermind-app.v-theme--dark .panel-left .sidebar-head,
+.papermind-app.v-theme--dark .panel-left .sidebar-scroll,
+.papermind-app.v-theme--dark .panel-left .sidebar-foot {
+  --v-theme-on-surface: 240, 244, 246;  /* --pm-sidebar-text (dunkel) */
+  --v-theme-primary:    86, 196, 202;   /* --pm-sidebar-accent (dunkel) */
 }
 
 .sidebar-scroll {
