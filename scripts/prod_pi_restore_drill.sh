@@ -44,6 +44,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
+report_error() {
+  local exit_code=$?
+  echo "FAIL: restore drill stopped at line ${BASH_LINENO[0]} (exit ${exit_code})." >&2
+  exit "${exit_code}"
+}
+trap report_error ERR
+
 fail() {
   echo "FAIL: $*" >&2
   exit 1
