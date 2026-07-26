@@ -1,5 +1,22 @@
 # PaperMind – Hinweise für KI-Agenten
 
+## Raspberry Pi: dauerhafter SSH-Zugang
+
+Für den Zugriff auf den Produktiv-Pi **immer** den lokalen LaunchAgent
+`com.papermind.ssh-tunnel` verwenden. Er hält eine SSH-Portweiterleitung
+`127.0.0.1:2222 → Pi-LAN-Adresse:22` automatisch aufrecht und wird bei
+Verbindungsabbrüchen von macOS neu gestartet.
+
+- Pi-Kommandos ausschließlich über
+  `ssh -o HostKeyAlias=papermind-pi-lan -p 2222 jan@127.0.0.1 '<befehl>'`
+  ausführen; keine direkte Verbindung zu `jan@papermind` voraussetzen.
+- Vor längeren Pi-Aktionen die Erreichbarkeit mit `nc -vz 127.0.0.1 2222`
+  prüfen.
+- Falls der Tunnel nicht erreichbar ist, den Dienst gezielt neu starten:
+  `launchctl kickstart -k gui/$(id -u)/com.papermind.ssh-tunnel`.
+- Der Dienst nutzt den lokalen Schlüssel `~/.ssh/id_rsa`; keine Passwörter oder
+  Schlüsselmaterial auslesen, anzeigen oder ins Repository aufnehmen.
+
 ## Lokale Frontend-Entwicklung: immer den Vite-Dev-Server auf 5179 nutzen
 
 Zum Prüfen von Frontend-Änderungen **immer den Vite-Dev-Server** verwenden, der
