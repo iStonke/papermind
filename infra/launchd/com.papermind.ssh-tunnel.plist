@@ -6,29 +6,8 @@
   <string>com.papermind.ssh-tunnel</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/bin/ssh</string>
-    <string>-N</string>
-    <string>-i</string>
-    <string>/Users/admin/.ssh/id_rsa</string>
-    <string>-o</string>
-    <string>HostKeyAlias=papermind-pi-lan</string>
-    <string>-o</string>
-    <string>StrictHostKeyChecking=accept-new</string>
-    <string>-o</string>
-    <string>BatchMode=yes</string>
-    <string>-o</string>
-    <string>ExitOnForwardFailure=yes</string>
-    <string>-o</string>
-    <string>ConnectTimeout=15</string>
-    <string>-o</string>
-    <string>ServerAliveInterval=30</string>
-    <string>-o</string>
-    <string>ServerAliveCountMax=3</string>
-    <string>-o</string>
-    <string>TCPKeepAlive=yes</string>
-    <string>-L</string>
-    <string>127.0.0.1:2222:192.168.178.92:22</string>
-    <string>jan@192.168.178.92</string>
+    <string>/bin/sh</string>
+    <string>/Users/admin/Library/Application Support/PaperMind/papermind-ssh-master.sh</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
