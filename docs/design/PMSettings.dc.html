@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  body { margin: 0; }
+  * { box-sizing: border-box; }
+</style>
+</helmet>
+<div style="width: 880px; height: 620px; display: flex; overflow: hidden; border-radius: 14px; background: var(--card, #ffffff); border: 1px solid var(--border, #e4e4e2); font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', Helvetica, sans-serif; color: var(--text, #1e1e1c); box-shadow: 0 30px 70px -30px rgba(0,0,0,.45);">
+
+  <div style="width: 232px; flex: none; background: var(--dialog-rail, #f7f7f4); border-right: 1px solid var(--border, #e4e4e2); padding: 18px 12px; display: flex; flex-direction: column; gap: 16px;">
+    <div style="display: flex; flex-direction: column; gap: 2px;">
+      <div style="font-size: 10.5px; font-weight: 620; letter-spacing: .09em; color: var(--muted, #6b6b64); padding: 0 10px 6px;">OBERFLÄCHE</div>
+      <div style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: 8px; font-size: 13.5px; font-weight: 560; background: var(--sel, #e6f2f4); color: var(--accent-text, #0f5563);">
+        <span style="width: 15px; text-align: center; font-size: 12px;">◐</span><span>Darstellung</span>
+      </div>
+      <sc-for list="{{ rail1 }}" as="i" hint-placeholder-count="3">
+        <div style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: 8px; font-size: 13.5px;">
+          <span style="width: 15px; text-align: center; font-size: 12px; color: var(--muted, #6b6b64);">{{ i.icon }}</span><span>{{ i.label }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 2px;">
+      <div style="font-size: 10.5px; font-weight: 620; letter-spacing: .09em; color: var(--muted, #6b6b64); padding: 0 10px 6px;">IMPORT</div>
+      <sc-for list="{{ rail2 }}" as="i" hint-placeholder-count="2">
+        <div style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: 8px; font-size: 13.5px;">
+          <span style="width: 15px; text-align: center; font-size: 12px; color: var(--muted, #6b6b64);">{{ i.icon }}</span><span>{{ i.label }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 2px;">
+      <div style="font-size: 10.5px; font-weight: 620; letter-spacing: .09em; color: var(--muted, #6b6b64); padding: 0 10px 6px;">DOKUMENTE</div>
+      <sc-for list="{{ rail3 }}" as="i" hint-placeholder-count="3">
+        <div style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: 8px; font-size: 13.5px;">
+          <span style="width: 15px; text-align: center; font-size: 12px; color: var(--muted, #6b6b64);">{{ i.icon }}</span><span>{{ i.label }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="flex: 1; min-width: 0; padding: 20px 26px; display: flex; flex-direction: column; gap: 18px;">
+    <div style="display: flex; align-items: flex-start; gap: 12px;">
+      <div style="display: flex; flex-direction: column; gap: 3px;">
+        <div style="font-size: 17px; font-weight: 660; letter-spacing: -.012em;">Darstellung</div>
+        <div style="font-size: 12.5px; color: var(--muted, #6b6b64);">Farben, Thema und Verhalten der Oberfläche anpassen.</div>
+      </div>
+      <div style="margin-left: auto; font-size: 15px; color: var(--muted, #6b6b64);">✕</div>
+    </div>
+
+    <div style="height: 1px; background: var(--border, #e4e4e2);"></div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div style="font-size: 13.5px; font-weight: 600;">Farbvariation</div>
+      <div style="font-size: 12.5px; color: var(--muted, #6b6b64);">Akzentfarbe der gesamten Oberfläche.</div>
+      <div style="display: flex; gap: 10px; margin-top: 2px;">
+        <div style="width: 46px; height: 46px; border-radius: 11px; background: var(--sel, #e6f2f4); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px var(--accent, #146d7e);">
+          <div style="width: 22px; height: 22px; border-radius: 50%; background: var(--accent, #146d7e);"></div>
+        </div>
+        <sc-for list="{{ swatches }}" as="s" hint-placeholder-count="2">
+          <div style="width: 46px; height: 46px; border-radius: 11px; background: var(--chip, #ececE8); display: flex; align-items: center; justify-content: center;">
+            <div style="width: 22px; height: 22px; border-radius: 50%; background: {{ s }};"></div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <div style="font-size: 13.5px; font-weight: 600;">Thema</div>
+      <div style="display: flex; padding: 3px; border-radius: 10px; background: var(--track, #efefeb); gap: 3px;">
+        <div style="flex: 1; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 13px; color: var(--muted, #6b6b64);">Hell</div>
+        <div style="flex: 1; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 13px; color: var(--muted, #6b6b64);">Dunkel</div>
+        <div style="flex: 1; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 580; border-radius: 8px; background: var(--card, #ffffff); color: var(--text, #1e1e1c); box-shadow: 0 1px 3px rgba(0,0,0,.12);">System</div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+      <div style="font-size: 13.5px; font-weight: 600;">Startseite</div>
+      <div style="display: flex; align-items: center; height: 40px; padding: 0 14px; border-radius: 9px; background: var(--field, #ffffff); border: 1px solid var(--field-border, #e0e0dd); font-size: 13.5px;">
+        <span>Übersicht</span>
+        <span style="margin-left: auto; font-size: 11px; color: var(--muted, #6b6b64);">⌄</span>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 2px;">
+      <div style="display: flex; align-items: center; gap: 14px;">
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <div style="font-size: 13.5px; font-weight: 560;">Dateiendung anzeigen</div>
+          <div style="font-size: 12px; color: var(--muted, #6b6b64);">Blendet .pdf in Listen und Details ein/aus.</div>
+        </div>
+        <div style="margin-left: auto; width: 42px; height: 24px; border-radius: 12px; background: var(--track, #efefeb); border: 1px solid var(--field-border, #e0e0dd); display: flex; align-items: center; padding: 2px;">
+          <div style="width: 18px; height: 18px; border-radius: 50%; background: var(--card, #ffffff); box-shadow: 0 1px 2px rgba(0,0,0,.25);"></div>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 14px;">
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <div style="font-size: 13.5px; font-weight: 560;">Animationen</div>
+          <div style="font-size: 12px; color: var(--muted, #6b6b64);">Sanfte Übergänge und Einblendeffekte.</div>
+        </div>
+        <div style="margin-left: auto; width: 42px; height: 24px; border-radius: 12px; background: var(--accent, #146d7e); display: flex; align-items: center; justify-content: flex-end; padding: 2px;">
+          <div style="width: 18px; height: 18px; border-radius: 50%; background: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,.25);"></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top: auto; display: flex; align-items: center; gap: 10px; padding-top: 16px; border-top: 1px solid var(--border, #e4e4e2);">
+      <div style="margin-left: auto; display: flex; align-items: center; height: 34px; padding: 0 14px; border-radius: 9px; font-size: 13px; color: var(--text, #1e1e1c); background: var(--chip, #ececE8);">Abbrechen</div>
+      <div style="display: flex; align-items: center; height: 34px; padding: 0 16px; border-radius: 9px; font-size: 13px; font-weight: 560; background: var(--accent, #146d7e); color: var(--on-accent, #ffffff);">Speichern</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:880,&quot;height&quot;:620}}">
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      rail1: [
+        { label: 'Bedienung', icon: '⌨' }, { label: 'Seitenleiste', icon: '▤' }, { label: 'Bibliothek', icon: '▥' }
+      ],
+      rail2: [ { label: 'Importieren', icon: '↑' }, { label: 'Texterkennung', icon: '⌗' } ],
+      rail3: [
+        { label: 'Dokumenttypen', icon: '▢' }, { label: 'Korrespondenten', icon: '◍' }, { label: 'Aufbewahrung', icon: '◷' }
+      ],
+      swatches: [
+        this.props.swatchB || 'oklch(0.55 0.14 285)',
+        this.props.swatchC || 'oklch(0.55 0.15 250)'
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

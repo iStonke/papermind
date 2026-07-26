@@ -1,0 +1,106 @@
+/* PaperMind – Farbschema "Kontur"
+   Hellmodus: Runde 1c · Dunkelmodus: Runde 2a
+   Alle Werte in oklch. Neutrale Achse: hue 222, sehr niedrige Chroma (0.008–0.030).
+   Marke/Akzent: hue 200–205 (Türkis), bewusst NUR für Auswahl, Primäraktion und Fokus.
+   Regel: keine blaugrauen Füllflächen mehr, Tags/Dokumenttypen tragen einen einzigen ruhigen Chip-Ton.
+*/
+
+:root {
+  /* Flächen */
+  --pm-bg: #ffffff;
+  --pm-surface-list: #ffffff;
+  --pm-surface-card: #ffffff;
+  --pm-surface-reader: oklch(0.968 0.006 210);
+  --pm-sidebar-bg: oklch(0.272 0.030 222);
+  --pm-sidebar-border: oklch(0.335 0.030 222);
+  --pm-border: oklch(0.900 0.008 210);
+  --pm-row-border: oklch(0.915 0.008 210);
+
+  /* Text */
+  --pm-text: oklch(0.200 0.015 220);
+  --pm-text-muted: oklch(0.475 0.015 220);
+  --pm-sidebar-text: oklch(0.960 0.008 220);
+  --pm-sidebar-muted: oklch(0.715 0.022 220);
+
+  /* Akzent (Marke) */
+  --pm-accent: oklch(0.475 0.095 205);
+  --pm-accent-text: oklch(0.400 0.090 205);
+  --pm-on-accent: #ffffff;
+  --pm-selected: oklch(0.948 0.026 205);
+  --pm-sidebar-selected: oklch(0.375 0.055 205);
+  --pm-sidebar-selected-text: oklch(0.965 0.015 205);
+  --pm-sidebar-accent: oklch(0.720 0.100 200); /* Logo-Mark auf dunkler Leiste */
+
+  /* Komponenten */
+  --pm-chip-bg: oklch(0.945 0.008 210);
+  --pm-chip-text: oklch(0.320 0.015 220);
+  --pm-chip-count: oklch(0.560 0.014 220);
+  --pm-sidebar-chip-bg: oklch(0.335 0.028 222);
+  --pm-sidebar-chip-text: oklch(0.920 0.010 220);
+  --pm-sidebar-chip-count: oklch(0.740 0.020 220);
+  --pm-field-bg: oklch(0.325 0.028 222);      /* Suchfeld in der dunklen Leiste */
+  --pm-field-border: oklch(0.395 0.030 222);
+  --pm-code-bg: oklch(0.962 0.008 210);
+  --pm-code-border: oklch(0.915 0.008 210);
+  --pm-code-text: oklch(0.260 0.014 220);
+  --pm-code-string: oklch(0.460 0.100 50);
+  --pm-track: oklch(0.930 0.008 210);          /* Segmented Control / Toggle aus */
+  --pm-dialog-rail: oklch(0.965 0.008 210);
+  --pm-thumb-bg: oklch(0.985 0.004 210);
+  --pm-thumb-line: oklch(0.900 0.008 210);
+
+  /* Status */
+  --pm-star: oklch(0.630 0.130 72);
+  --pm-success: oklch(0.490 0.100 150);
+  --pm-danger: oklch(0.520 0.150 27);
+}
+
+:root[data-theme="dark"], .dark {
+  /* Flächen – bewusst vier unterscheidbare Ebenen (Runde 2a) */
+  --pm-bg: oklch(0.275 0.014 222);
+  --pm-surface-list: oklch(0.305 0.013 222);
+  --pm-surface-card: oklch(0.345 0.012 222);
+  --pm-surface-reader: oklch(0.250 0.014 222);
+  --pm-sidebar-bg: oklch(0.245 0.016 222);
+  --pm-sidebar-border: oklch(0.345 0.016 222);
+  --pm-border: oklch(0.395 0.014 222);
+  --pm-row-border: oklch(0.400 0.014 222);
+
+  /* Text */
+  --pm-text: oklch(0.965 0.005 220);
+  --pm-text-muted: oklch(0.760 0.014 220);
+  --pm-sidebar-text: oklch(0.965 0.005 220);
+  --pm-sidebar-muted: oklch(0.755 0.016 220);
+
+  /* Akzent */
+  --pm-accent: oklch(0.760 0.105 200);
+  --pm-accent-text: oklch(0.845 0.090 200);
+  --pm-on-accent: oklch(0.200 0.030 200);
+  --pm-selected: oklch(0.375 0.050 205);
+  --pm-sidebar-selected: oklch(0.415 0.060 205);
+  --pm-sidebar-selected-text: oklch(0.975 0.015 205);
+  --pm-sidebar-accent: oklch(0.760 0.100 200);
+
+  /* Komponenten */
+  --pm-chip-bg: oklch(0.395 0.014 222);
+  --pm-chip-text: oklch(0.945 0.006 220);
+  --pm-chip-count: oklch(0.775 0.014 220);
+  --pm-sidebar-chip-bg: oklch(0.325 0.016 222);
+  --pm-sidebar-chip-text: oklch(0.935 0.008 220);
+  --pm-sidebar-chip-count: oklch(0.755 0.016 220);
+  --pm-field-bg: oklch(0.315 0.016 222);
+  --pm-field-border: oklch(0.395 0.016 222);
+  --pm-code-bg: oklch(0.300 0.014 222);
+  --pm-code-border: oklch(0.385 0.014 222);
+  --pm-code-text: oklch(0.930 0.008 220);
+  --pm-code-string: oklch(0.820 0.110 72);
+  --pm-track: oklch(0.375 0.014 222);
+  --pm-dialog-rail: oklch(0.295 0.014 222);
+  --pm-thumb-bg: oklch(0.420 0.012 222);
+  --pm-thumb-line: oklch(0.520 0.012 222);
+
+  /* Status */
+  --pm-star: oklch(0.800 0.130 72);
+  --pm-success: oklch(0.760 0.105 150);
+  --pm-danger: oklch(0.720 0.140 27);
+}
