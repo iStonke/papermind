@@ -1679,7 +1679,7 @@ function onPageGridClick(event, doc, page, globalIndex) {
 }
 
 function onMiniatureAreaClick(event) {
-  if (isEmpty.value || isUploadingSources.value || isCommitting.value) {
+  if (isUploadingSources.value || isCommitting.value) {
     return;
   }
   const target = event?.target;
@@ -1692,6 +1692,11 @@ function onMiniatureAreaClick(event) {
   if (interactiveTarget) {
     return;
   }
+  // Ein Klick ins Leere klappt auch den PDF/Scan-Wähler wieder zu – dieselbe
+  // Geste wie das Aufheben der Seitenauswahl. Bewusst vor der Auswahl-Prüfung
+  // und ohne isEmpty-Abbruch: die Add-Karte ist auch im Leerzustand sichtbar,
+  // dort gibt es aber keine Auswahl, die aufzuheben wäre.
+  addSourceChooserOpen.value = false;
   if (!selected.value?.pageId && multiSelectedPageIds.value.size === 0) {
     return;
   }
