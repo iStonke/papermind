@@ -555,17 +555,17 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
 
-  /* Dunkle Voreinstellung. Alle Flächen/Trenner laufen über diese Tokens,
-     damit die helle Variante nur die Werte umschalten muss. */
-  --reader-bg: rgb(8 13 23);
-  --reader-panel-bg: rgb(12 18 30);
-  --reader-panel-bg-soft: rgb(15 22 36);
-  --reader-bar-bg: rgb(10 16 27 / 0.96);
-  --reader-input-bg: rgb(8 13 23);
-  --reader-text: rgb(241 245 249);
-  --reader-text-rgb: 241 245 249;
-  --reader-muted: rgb(226 232 240 / 0.62);
-  --reader-muted-rgb: 226 232 240;
+  /* Dunkle Voreinstellung (Kontur). Alle Flächen/Trenner laufen über diese
+     Tokens, damit die helle Variante nur die Werte umschalten muss. */
+  --reader-bg: rgb(26 35 38);            /* --pm-surface-reader dunkel #1A2326 */
+  --reader-panel-bg: rgb(51 59 62);       /* --pm-surface-card #333B3E */
+  --reader-panel-bg-soft: rgb(40 49 52);  /* --pm-surface-list #283134 */
+  --reader-bar-bg: rgb(26 35 38 / 0.96);
+  --reader-input-bg: rgb(41 52 55);       /* --pm-field-bg #293437 */
+  --reader-text: rgb(240 244 246);        /* --pm-text dunkel #F0F4F6 */
+  --reader-text-rgb: 240 244 246;
+  --reader-muted: rgb(168 179 183 / 0.85);
+  --reader-muted-rgb: 168 179 183;
   /* Grund-Ton für durchscheinende Overlays (Hover/Ränder/Chips). */
   --reader-overlay-rgb: 255 255 255;
   --reader-divider: rgb(var(--reader-overlay-rgb) / 0.08);
@@ -578,16 +578,16 @@ onBeforeUnmount(() => {
 }
 
 .doc-reader--light {
-  --reader-bg: #eef2f8;
-  --reader-panel-bg: #f1f4fa;
-  --reader-panel-bg-soft: #e9eef5;
-  --reader-bar-bg: rgb(247 249 252 / 0.96);
+  --reader-bg: #f0f6f7;                    /* --pm-surface-reader hell */
+  --reader-panel-bg: #ffffff;              /* --pm-surface-card */
+  --reader-panel-bg-soft: #edf4f5;         /* --pm-code-bg hell */
+  --reader-bar-bg: rgb(240 246 247 / 0.96);
   --reader-input-bg: #ffffff;
-  --reader-text: #0f172a;
-  --reader-text-rgb: 15 23 42;
-  --reader-muted: rgb(51 65 85 / 0.72);
-  --reader-muted-rgb: 51 65 85;
-  --reader-overlay-rgb: 15 23 42;
+  --reader-text: #0e181b;                  /* --pm-text hell */
+  --reader-text-rgb: 14 24 27;
+  --reader-muted: rgb(83 94 98 / 0.9);
+  --reader-muted-rgb: 83 94 98;
+  --reader-overlay-rgb: 14 24 27;
   --reader-divider: rgb(var(--reader-overlay-rgb) / 0.1);
   --reader-page-shadow: rgb(15 23 42 / 0.14);
   --reader-thumb-shadow: rgb(15 23 42 / 0.12);

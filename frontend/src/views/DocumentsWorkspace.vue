@@ -10542,8 +10542,8 @@ onBeforeUnmount(() => {
   border: 1px solid transparent;
   border-radius: 999px;
   padding: 0 7px;
-  background: rgba(var(--v-theme-primary), 0.1);
-  color: rgba(var(--v-theme-primary), 0.88);
+  background: var(--pm-chip-bg);
+  color: var(--pm-chip-text);
   min-width: 0;
   max-width: min(150px, 42%);
   font-size: 0.68rem;
@@ -10564,8 +10564,8 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   max-width: none;
   background: transparent;
-  border-color: rgba(var(--v-theme-on-surface), 0.16);
-  color: rgba(var(--v-theme-on-surface), 0.6);
+  border-color: color-mix(in srgb, var(--pm-chip-text) 20%, transparent);
+  color: var(--pm-chip-count);
   font-variant-numeric: tabular-nums;
 }
 
@@ -10677,7 +10677,7 @@ onBeforeUnmount(() => {
 
 .document-row__fav-btn--active {
   opacity: 1 !important;
-  color: #f59e0b !important;
+  color: var(--pm-star) !important;
 }
 
 .document-row__fav-btn--active:hover {
@@ -10698,9 +10698,9 @@ onBeforeUnmount(() => {
 }
 
 .papermind-app.v-theme--dark .document-row__ocr-chip {
-  background: rgba(147, 167, 255, 0.16);
-  color: rgb(210, 220, 255);
-  border-color: rgba(147, 167, 255, 0.4);
+  background: color-mix(in srgb, var(--pm-accent) 16%, transparent);
+  color: var(--pm-accent);
+  border-color: color-mix(in srgb, var(--pm-accent) 40%, transparent);
 }
 
 .panel-right {
@@ -10749,10 +10749,7 @@ onBeforeUnmount(() => {
   padding: 24px;
   overflow: hidden;
   color: rgba(var(--v-theme-on-surface), 0.94);
-  background:
-    linear-gradient(145deg, rgba(44, 114, 182, 0.09), transparent 36%),
-    linear-gradient(28deg, rgba(42, 135, 121, 0.08), transparent 42%),
-    var(--pm-viewer-surface);
+  background: var(--pm-viewer-surface);
 }
 
 .tag-focus-panel__header {
@@ -11073,35 +11070,23 @@ onBeforeUnmount(() => {
   display: block;
 }
 
+/* Detail-Schublade: alle Tokens laufen über die globalen Kontur-Tokens und
+   folgen damit automatisch dem Theme (kein separater Dunkel-Block mehr nötig). */
 .pm-drawer-body {
   --pm-detail-body-x: 16px;
-  --pm-detail-info-bg: #f4f6f9;
-  --pm-detail-info-border: #dde2e8;
-  --pm-detail-field-bg: #ffffff;
-  --pm-detail-field-border: #d7dce3;
-  --pm-detail-field-hover-border: #c8ced8;
+  --pm-detail-info-bg: var(--pm-chip-bg);
+  --pm-detail-info-border: var(--pm-divider);
+  --pm-detail-field-bg: var(--pm-app-surface-raised);
+  --pm-detail-field-border: var(--pm-divider);
+  --pm-detail-field-hover-border: color-mix(in srgb, var(--pm-divider) 55%, var(--pm-text));
   --pm-detail-field-focus-border: rgba(var(--v-theme-primary), 0.6);
   --pm-detail-field-focus-ring: rgba(var(--v-theme-primary), 0.12);
-  --pm-detail-chip-bg: #f0f2f5;
-  --pm-detail-chip-border: #dce2e9;
-  --pm-detail-chip-close-color: #647181;
-  --pm-detail-chip-add-border: #c7ccd4;
+  --pm-detail-chip-bg: var(--pm-chip-bg);
+  --pm-detail-chip-border: color-mix(in srgb, var(--pm-chip-text) 14%, transparent);
+  --pm-detail-chip-close-color: var(--pm-chip-count);
+  --pm-detail-chip-add-border: color-mix(in srgb, var(--pm-muted) 55%, transparent);
   --pm-detail-row-divider: rgba(var(--v-theme-on-surface), 0.07);
   padding: 0 var(--pm-detail-body-x) 12px;
-}
-
-.papermind-app.v-theme--dark .pm-drawer-body {
-  --pm-detail-info-bg: #161f2b;
-  --pm-detail-info-border: #263244;
-  --pm-detail-field-bg: #0e141f;
-  --pm-detail-field-border: #283244;
-  --pm-detail-field-hover-border: #354258;
-  --pm-detail-field-focus-border: rgba(var(--v-theme-primary), 0.62);
-  --pm-detail-field-focus-ring: rgba(var(--v-theme-primary), 0.16);
-  --pm-detail-chip-bg: #263548;
-  --pm-detail-chip-border: #34455c;
-  --pm-detail-chip-close-color: #c4ccd6;
-  --pm-detail-chip-add-border: #475367;
 }
 
 

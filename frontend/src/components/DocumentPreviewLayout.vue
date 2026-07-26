@@ -166,7 +166,7 @@ const drawerStyle = computed(() => {
 
 .preview-layout--floating-card {
   --preview-drawer-block-end-gap: 18px;
-  --preview-drawer-card-bg: #ffffff;
+  --preview-drawer-card-bg: var(--pm-app-surface-raised);
   --preview-drawer-max-width: none;
   --preview-drawer-radius: 28px;
   --preview-drawer-width: min(520px, calc(100% - 220px));
