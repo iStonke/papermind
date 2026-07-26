@@ -5640,7 +5640,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 8px;
   padding: 16px 14px;
-  background: linear-gradient(160deg, #e9eef4, #c9d4de);
+  background: linear-gradient(160deg, var(--pm-thumb-bg), var(--pm-chip-bg));
   box-shadow: 0 14px 30px rgba(0, 0, 0, 0.4);
   animation: isd-dz-float 4s ease-in-out infinite;
 }
@@ -5648,7 +5648,7 @@ onBeforeUnmount(() => {
 .isd-dz-stack__line {
   height: 5px;
   border-radius: 3px;
-  background: #aab6c2;
+  background: var(--pm-thumb-line);
 }
 
 .isd-dz-stack__line--accent {
@@ -5658,7 +5658,7 @@ onBeforeUnmount(() => {
 }
 
 .isd-dz-stack__line--soft {
-  background: #c2ccd6;
+  background: color-mix(in srgb, var(--pm-thumb-line) 60%, transparent);
 }
 
 /* Scanner-Feedback-Icon (Scanner aktiv) */

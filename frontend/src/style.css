@@ -1,10 +1,10 @@
 :root {
   font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
   --pm-modal-radius: 14px;
-  --pm-modal-bg: #F4F6FA;
-  --pm-stage-bg: #E9EEF6;
-  --pm-stage-header-bg: #E2E8F2;
-  --pm-stage-border: #D6DEE9;
+  --pm-modal-bg: #ffffff;
+  --pm-stage-bg: #f0f6f7;
+  --pm-stage-header-bg: #e7eef0;
+  --pm-stage-border: #d8dfe1;
   --pm-stage-header-inner-shadow: inset 0 -1px 0 rgba(15, 23, 42, 0.06);
   --pm-divider: rgba(15, 23, 42, 0.12);
   --pm-divider-soft: rgba(15, 23, 42, 0.08);
@@ -24,10 +24,10 @@
 }
 
 :root[data-theme="light"] {
-  --pm-modal-bg: #F4F6FA;
-  --pm-stage-bg: #E9EEF6;
-  --pm-stage-header-bg: #E2E8F2;
-  --pm-stage-border: #D6DEE9;
+  --pm-modal-bg: #ffffff;
+  --pm-stage-bg: #f0f6f7;
+  --pm-stage-header-bg: #e7eef0;
+  --pm-stage-border: #d8dfe1;
 }
 
 html,
@@ -96,9 +96,9 @@ body.pm-modal-open .papermind-app.v-theme--dark {
 }
 
 .v-theme--dark {
-  --pm-modal-bg: #0B1220;
-  --pm-stage-bg: #1E2A3D;
-  --pm-stage-header-bg: #24324A;
+  --pm-modal-bg: #283134;
+  --pm-stage-bg: #1a2326;
+  --pm-stage-header-bg: #20292d;
   --pm-stage-border: rgba(255, 255, 255, 0.1);
   --pm-stage-header-inner-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.05);
   --pm-divider: rgba(255, 255, 255, 0.1);
@@ -114,10 +114,10 @@ body.pm-modal-open .papermind-app.v-theme--dark {
 }
 
 .v-theme--light {
-  --pm-modal-bg: #F4F6FA;
-  --pm-stage-bg: #E9EEF6;
-  --pm-stage-header-bg: #E2E8F2;
-  --pm-stage-border: #D6DEE9;
+  --pm-modal-bg: #ffffff;
+  --pm-stage-bg: #f0f6f7;
+  --pm-stage-header-bg: #e7eef0;
+  --pm-stage-border: #d8dfe1;
   --pm-stage-header-inner-shadow: inset 0 -1px 0 rgba(15, 23, 42, 0.06);
 }
 

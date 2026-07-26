@@ -3118,7 +3118,7 @@ async function onThemeModeChange(nextValue) {
 // ── Farbvariante ─────────────────────────────────────────────────────────────
 
 const colorVariantOptions = [
-  { label: 'Teal', value: 'teal', color: '#0891B2' },
+  { label: 'Teal', value: 'teal', color: '#006B75' },
   { label: 'Violett', value: 'violet', color: '#7C3AED' },
   { label: 'Blau', value: 'blue', color: '#2563EB' }
 ];
