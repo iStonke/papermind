@@ -2375,7 +2375,7 @@ onBeforeUnmount(() => {
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
 .pdf-preview__toolbar {
   position: absolute;
-  top: 12px;
+  top: 24px;
   left: 50%;
   right: auto;
   transform: translateX(-50%);
