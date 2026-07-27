@@ -77,6 +77,7 @@
   --pm-viewer-surface:       #e7eef0;
   --pm-app-surface-raised:   #ffffff;
   --pm-app-surface-contrast: #ffffff;
+  --pm-dashboard-surface:    var(--pm-stage-bg);
   --pm-pdf-stage-bg:         #e7eef0;
   --pm-pdf-page-bg:          #ffffff;
   --pm-document-row-bg:      #ffffff;
@@ -185,6 +186,7 @@
   --pm-viewer-surface:       var(--pm-v-panel-right);
   --pm-app-surface-raised:   var(--pm-v-card);
   --pm-app-surface-contrast: var(--pm-v-card);
+  --pm-dashboard-surface:    var(--pm-content-surface);
   --pm-pdf-stage-bg:         var(--pm-v-panel-right);
   --pm-pdf-page-bg:          #f8fafc;
   --pm-document-row-bg:      var(--pm-v-card);

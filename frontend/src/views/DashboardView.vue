@@ -598,7 +598,7 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: var(--pm-content-surface, transparent);
+  background: var(--pm-dashboard-surface, var(--pm-content-surface, transparent));
 }
 
 .dashboard__scroll {

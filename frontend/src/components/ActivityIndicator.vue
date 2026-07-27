@@ -1,5 +1,11 @@
 <template>
-  <v-menu v-if="hasActivity" v-model="menuOpen" location="bottom end" :close-on-content-click="false">
+  <v-menu
+    v-if="hasActivity"
+    v-model="menuOpen"
+    location="bottom end"
+    :close-on-content-click="false"
+    :theme="theme.global.name.value"
+  >
     <template #activator="{ props }">
       <v-btn
         v-bind="props"
@@ -126,9 +132,11 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useTheme } from 'vuetify';
 import { getJobActivity, dismissJob, dismissFailedJobs } from '../api/jobs.js';
 
 const emit = defineEmits(['open-backup']);
+const theme = useTheme();
 
 const ACTIVE_POLL_MS = 4000;
 const IDLE_POLL_MS = 15000;
@@ -352,8 +360,14 @@ onBeforeUnmount(() => {
 }
 
 .activity-card {
-  /* gleicher Hintergrund wie das Benutzermenü (account-menu) */
+  color: rgb(var(--v-theme-on-surface)) !important;
   background: rgb(var(--v-theme-card)) !important;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.32) !important;
+}
+.activity-card :deep(.v-divider) {
+  border-color: rgba(var(--v-theme-on-surface), 0.12);
+  opacity: 1;
 }
 .activity-card__header {
   display: flex;
@@ -389,12 +403,22 @@ onBeforeUnmount(() => {
 .activity-list {
   max-height: 340px;
   overflow-y: auto;
+  color: rgb(var(--v-theme-on-surface)) !important;
   /* Die v-list bringt sonst ihren eigenen surface-Hintergrund mit und überdeckt
      den Karten-Hintergrund (account-menu-Look) → transparent durchscheinen lassen. */
   background: transparent !important;
 }
 .activity-list :deep(.v-list-item) {
   background: transparent;
+}
+.activity-item__title {
+  color: rgb(var(--v-theme-on-surface));
+}
+.activity-item__types,
+.activity-card__sub,
+.activity-ocr__count {
+  color: rgba(var(--v-theme-on-surface), 0.66);
+  opacity: 1;
 }
 /* Icon-Spalte für alle Aktivitäts-Items identisch, damit laufende (Spinner)
    und fehlgeschlagene (Fehler-Icon) Einträge bündig in einer Flucht stehen.
@@ -429,6 +453,6 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 .activity-item--clickable:hover {
-  background: rgba(var(--v-theme-error), 0.06);
+  background: color-mix(in srgb, rgb(var(--v-theme-error)) 9%, transparent);
 }
 </style>
