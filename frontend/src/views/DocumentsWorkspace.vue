@@ -2345,17 +2345,19 @@ const previewDrawerGradientEnabled = computed(
 );
 const detailsDrawerCardStyle = computed(() => {
   const isDark = theme.global.name.value === 'dark';
+  // Kontur: Farben über --pm-*-Tokens (folgen dem Theme automatisch, kein
+  // isDark-Zweig mehr für Flächen/Ränder). Schatten bleiben neutral.
   return {
-    '--preview-drawer-card-bg': isDark ? '#111923' : '#ffffff',
-    '--preview-drawer-card-hover-bg': isDark ? '#152131' : '#f8fafc',
-    '--preview-drawer-card-hover-border': isDark ? 'rgba(96, 165, 250, 0.3)' : 'rgba(59, 130, 246, 0.28)',
-    '--preview-drawer-card-hover-ring': isDark ? 'rgba(96, 165, 250, 0.12)' : 'rgba(59, 130, 246, 0.09)',
-    '--preview-drawer-collapsed-border': isDark ? 'rgba(148, 163, 184, 0.18)' : 'rgba(100, 116, 139, 0.24)',
+    '--preview-drawer-card-bg': 'var(--pm-app-surface-raised)',
+    '--preview-drawer-card-hover-bg': 'var(--pm-row-hover)',
+    '--preview-drawer-card-hover-border': 'color-mix(in srgb, var(--pm-accent) 30%, transparent)',
+    '--preview-drawer-card-hover-ring': 'color-mix(in srgb, var(--pm-accent) 12%, transparent)',
+    '--preview-drawer-collapsed-border': 'var(--pm-divider)',
     '--preview-drawer-collapsed-shadow': isDark
       ? '0 18px 48px rgba(0, 0, 0, 0.32), 0 2px 8px rgba(0, 0, 0, 0.24)'
-      : '0 24px 60px rgba(15, 23, 42, 0.22), 0 8px 18px rgba(15, 23, 42, 0.12), 0 0 0 1px rgba(255, 255, 255, 0.9) inset',
+      : '0 24px 60px rgba(15, 23, 42, 0.16), 0 8px 18px rgba(15, 23, 42, 0.10)',
     '--preview-drawer-scrim-opacity': previewDrawerGradientEnabled.value ? '1' : '0',
-    '--preview-drawer-scrim-rgb': isDark ? '17, 25, 35' : '255, 255, 255'
+    '--preview-drawer-scrim-rgb': isDark ? '26, 35, 38' : '255, 255, 255'
   };
 });
 const detailsHeaderTitleStyle = computed(() => {
