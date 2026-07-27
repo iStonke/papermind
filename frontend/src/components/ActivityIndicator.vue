@@ -347,6 +347,21 @@ onBeforeUnmount(() => {
 <style scoped>
 .activity-indicator-btn {
   --activity-badge-size: 13px;
+  border-radius: 10px;
+  color: var(--pm-muted) !important;
+  transition:
+    background-color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.activity-indicator-btn :deep(.v-icon) {
+  color: inherit !important;
+}
+
+.activity-indicator-btn:hover,
+.activity-indicator-btn:focus-visible {
+  background: var(--pm-sidebar-hover) !important;
+  color: var(--pm-accent) !important;
 }
 
 .activity-indicator-badge :deep(.v-badge__badge) {
