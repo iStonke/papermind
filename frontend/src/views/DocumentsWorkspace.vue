@@ -10141,7 +10141,6 @@ onBeforeUnmount(() => {
 .document-row--active {
   background: var(--pm-row-active);
   border-color: color-mix(in srgb, var(--pm-accent) 30%, transparent);
-  box-shadow: inset 3px 0 0 rgba(var(--v-theme-primary), 0.9);
 }
 
 .document-row--active:hover {
@@ -10368,7 +10367,7 @@ onBeforeUnmount(() => {
 .papermind-app.v-theme--dark .document-row--active {
   background: var(--pm-document-row-active-bg, var(--pm-row-active));
   border-color: rgba(var(--v-theme-primary), 0.42);
-  box-shadow: inset 3px 0 0 rgba(var(--v-theme-primary), 0.9), 0 3px 12px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.22);
 }
 
 .papermind-app.v-theme--dark .document-row--active:hover {
@@ -10453,12 +10452,14 @@ onBeforeUnmount(() => {
   letter-spacing: 0.02em;
 }
 
+/* Auf der türkisen Selektionsfläche liest sich Türkis-Text schlecht → Typ und
+   Korrespondent bleiben im neutralen Textton (etwas kräftiger als im Ruhezustand). */
 .document-row--active .document-row__kicker {
-  color: rgba(var(--v-theme-primary), 0.85);
+  color: rgba(var(--v-theme-on-surface), 0.72);
 }
 
 .document-row--active .document-row__kicker-corr {
-  color: rgba(var(--v-theme-primary), 0.6);
+  color: rgba(var(--v-theme-on-surface), 0.55);
 }
 
 .document-row__title {
@@ -10537,7 +10538,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   flex: 0 1 auto;
   height: 20px;
-  border: 1px solid transparent;
+  border: 1px solid color-mix(in srgb, var(--pm-chip-text) 16%, transparent);
   border-radius: 999px;
   padding: 0 7px;
   background: var(--pm-chip-bg);
@@ -10706,7 +10707,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   /* Getönte Vorschau-Fläche auch als Spalten-Hintergrund, damit der oberste
      Streifen nicht die weiße App-Fläche durchscheinen lässt (Naht zum „Papier"). */
-  background: var(--pm-viewer-surface);
+  background: var(--pm-pdf-stage-bg, var(--pm-viewer-surface));
 }
 
 .panel-right__preview {
@@ -10715,7 +10716,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   position: relative;
   overflow: hidden;
-  background: var(--pm-viewer-surface);
+  background: var(--pm-pdf-stage-bg, var(--pm-viewer-surface));
 }
 
 .panel-right__preview--card-drawer .details-drawer__inner {
@@ -11024,7 +11025,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: stretch;
   justify-content: center;
-  background: var(--pm-viewer-surface);
+  background: var(--pm-pdf-stage-bg, var(--pm-viewer-surface));
 }
 
 .preview-frame {
