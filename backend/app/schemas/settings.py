@@ -87,12 +87,6 @@ class ThemeMode(str, Enum):
     system = "system"
 
 
-class ColorVariant(str, Enum):
-    teal = "teal"
-    violet = "violet"
-    blue = "blue"
-
-
 class StartView(str, Enum):
     """Startseite nach dem Login."""
 
@@ -158,7 +152,6 @@ def _normalize_sidebar_sections(
 
 class UISettingsRead(BaseModel):
     theme_mode: ThemeMode = ThemeMode.system
-    color_variant: ColorVariant = ColorVariant.teal
     start_view: StartView = StartView.all
     showFilenameSuffix: bool = True
     previewDrawerGradientEnabled: bool = True
@@ -315,7 +308,6 @@ class AppSettingsRead(BaseModel):
 
 class UISettingsPatch(BaseModel):
     theme_mode: ThemeMode | None = None
-    color_variant: ColorVariant | None = None
     start_view: StartView | None = None
     showFilenameSuffix: bool | None = None
     previewDrawerGradientEnabled: bool | None = None

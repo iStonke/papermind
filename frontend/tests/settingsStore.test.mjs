@@ -41,7 +41,7 @@ test("patchSettings normalizes an empty API base URL", async () => {
   assert.equal(calls[0].options.body, JSON.stringify({ ui: { theme_mode: "dark" } }));
 });
 
-test("normalizeSettingsPayload preserves supported color variants", () => {
+test("normalizeSettingsPayload drops legacy color variants", () => {
   setActivePinia(createPinia());
   const store = useSettingsStore();
 
@@ -49,18 +49,7 @@ test("normalizeSettingsPayload preserves supported color variants", () => {
     ui: { theme_mode: "light", color_variant: "violet" },
   });
 
-  assert.equal(normalized.ui.color_variant, "violet");
-});
-
-test("normalizeSettingsPayload falls back to default color variant", () => {
-  setActivePinia(createPinia());
-  const store = useSettingsStore();
-
-  const normalized = store.normalizeSettingsPayload({
-    ui: { theme_mode: "light", color_variant: "neon" },
-  });
-
-  assert.equal(normalized.ui.color_variant, "teal");
+  assert.equal("color_variant" in normalized.ui, false);
 });
 
 test("normalizeSettingsPayload preserves auto-open import inbox setting", () => {

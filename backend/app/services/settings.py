@@ -20,7 +20,6 @@ from app.schemas.settings import (
 DEFAULT_SETTINGS: dict[str, Any] = {
     "ui": {
         "theme_mode": "system",
-        "color_variant": "teal",
         "start_view": "all",
         "showFilenameSuffix": True,
         "previewDrawerGradientEnabled": True,
@@ -133,9 +132,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     },
 }
 
-COLOR_VARIANT_VALUES = {"teal", "violet", "blue"}
-
-
 def _deep_merge_dict(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     merged = deepcopy(base)
     for key, value in patch.items():
@@ -147,12 +143,11 @@ def _deep_merge_dict(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, A
 
 
 def _merge_defaults(raw_settings: dict[str, Any] | None) -> dict[str, Any]:
-    base = raw_settings if isinstance(raw_settings, dict) else {}
-    merged = _deep_merge_dict(DEFAULT_SETTINGS, base)
-    ui_settings = merged.get("ui")
-    if isinstance(ui_settings, dict) and ui_settings.get("color_variant") not in COLOR_VARIANT_VALUES:
-        ui_settings["color_variant"] = DEFAULT_SETTINGS["ui"]["color_variant"]
-    return merged
+    base = deepcopy(raw_settings) if isinstance(raw_settings, dict) else {}
+    ui_settings = base.get("ui")
+    if isinstance(ui_settings, dict):
+        ui_settings.pop("color_variant", None)
+    return _deep_merge_dict(DEFAULT_SETTINGS, base)
 
 
 class SettingsService:
@@ -170,7 +165,17 @@ class SettingsService:
         if row is None or not isinstance(row.settings_json, dict):
             return {}
         ui = row.settings_json.get("ui")
-        return ui if isinstance(ui, dict) else {}
+        if not isinstance(ui, dict):
+            return {}
+        clean_ui = dict(ui)
+        had_legacy_color_variant = "color_variant" in clean_ui
+        clean_ui.pop("color_variant", None)
+        if had_legacy_color_variant:
+            current = dict(row.settings_json)
+            current["ui"] = clean_ui
+            row.settings_json = current
+            self.db.commit()
+        return clean_ui
 
     def _get_or_create_row(self, *, for_update: bool = False) -> GlobalSetting:
         stmt = select(GlobalSetting).where(GlobalSetting.id == 1)

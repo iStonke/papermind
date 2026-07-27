@@ -2,10 +2,6 @@ export function buildThemeModePatch(themeMode) {
   return { ui: { theme_mode: themeMode } };
 }
 
-export function buildColorVariantPatch(colorVariant) {
-  return { ui: { color_variant: colorVariant } };
-}
-
 export function buildStartViewPatch(startView) {
   return { ui: { start_view: startView } };
 }

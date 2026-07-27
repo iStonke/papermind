@@ -46,40 +46,8 @@
             <SettingsInfoCard
               icon="mdi-palette-outline"
               title="Darstellung"
-              subtitle="Farben, Thema und das Verhalten der Oberfläche anpassen."
+              subtitle="Thema und Verhalten der Oberfläche anpassen."
             />
-
-            <div class="pm-setting-row pm-setting-row--column">
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Farbvariation</div>
-                <div class="pm-setting-description">Akzentfarbe der gesamten Oberfläche.</div>
-              </div>
-              <div
-                class="settings-color-variant-picker"
-                role="radiogroup"
-                aria-label="Farbvariante auswählen"
-              >
-                <button
-                  v-for="option in colorVariantOptions"
-                  :key="`variant-${option.value}`"
-                  type="button"
-                  class="settings-color-variant-picker__item"
-                  :class="{ 'settings-color-variant-picker__item--active': currentColorVariant === option.value }"
-                  :style="{ '--variant-color': option.color }"
-                  role="radio"
-                  :aria-label="`Farbvariante: ${option.label}`"
-                  :aria-checked="currentColorVariant === option.value"
-                  :disabled="isSettingSaving.color_variant"
-                  :title="option.label"
-                  @click="onColorVariantChange(option.value)"
-                  @pointerup.prevent="onColorVariantChange(option.value)"
-                  @keydown.enter.prevent="onColorVariantChange(option.value)"
-                  @keydown.space.prevent="onColorVariantChange(option.value)"
-                >
-                  <span class="settings-color-variant-picker__swatch" />
-                </button>
-              </div>
-            </div>
 
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
@@ -109,25 +77,28 @@
               </div>
             </div>
 
-            <div class="pm-setting-row pm-setting-row--column">
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleStartViewFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleStartViewFromRow)"
+            >
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Startseite</div>
-                <div class="pm-setting-description">Womit die App nach dem Login startet.</div>
+                <div class="pm-setting-description">Nach dem Login die Übersicht statt „Alle Dokumente“ anzeigen.</div>
               </div>
-              <v-select
-                :model-value="currentStartView"
-                :items="startViewOptions"
-                item-title="label"
-                item-value="value"
+              <v-switch
+                :model-value="dashboardStartEnabled"
+                color="primary"
                 density="comfortable"
                 hide-details
-                variant="outlined"
-                class="settings-theme-select pm-setting-select"
-                label="Startseite"
-                aria-label="Startseite auswählen"
+                inset
+                aria-label="Übersicht als Startseite verwenden"
                 :loading="isSettingSaving.start_view"
                 :disabled="isSettingSaving.start_view"
-                @update:model-value="onStartViewChange"
+                @click.stop
+                @update:model-value="onStartViewToggle"
               />
             </div>
 
@@ -2174,7 +2145,6 @@ import {
   buildAutoOcrPatch,
   buildAutoTaggingPatch,
   buildOcrBackfillEnabledPatch,
-  buildColorVariantPatch,
   buildDrawerRememberStatePatch,
   buildTagDrawerRememberStatePatch,
   buildSidebarShowRecentPatch,
@@ -2295,8 +2265,6 @@ async function runOcrBackfillNow() {
 const isSettingsLoading = computed(() => settingsStore.isSettingsLoading);
 const animationsEnabled = computed(() => settingsStore.animationsEnabled);
 const scanLineAnimationEnabled = computed(() => settingsStore.scanLineAnimationEnabled);
-
-const currentColorVariant = computed(() => settingsStore.settingsDraft.ui.color_variant || 'teal');
 
 // ── Scanner-Einstellungen ───────────────────────────────────────────────────
 
@@ -3027,7 +2995,6 @@ const trashRetentionOptions = [
 
 
 const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
-const COLOR_VARIANT_VALUES = new Set(['teal', 'violet', 'blue']);
 const RECENT_IMPORT_WINDOW_VALUES = new Set(recentImportWindowOptions.map((e) => e.value));
 const TRASH_RETENTION_VALUES = new Set(trashRetentionOptions.map((e) => e.value));
 
@@ -3115,39 +3082,13 @@ async function onThemeModeChange(nextValue) {
   });
 }
 
-// ── Farbvariante ─────────────────────────────────────────────────────────────
-
-const colorVariantOptions = [
-  { label: 'Teal', value: 'teal', color: '#006B75' },
-  { label: 'Violett', value: 'violet', color: '#7C3AED' },
-  { label: 'Blau', value: 'blue', color: '#2563EB' }
-];
-
-async function onColorVariantChange(nextValue) {
-  if (isSettingSaving.color_variant) return;
-  const nextVariant = COLOR_VARIANT_VALUES.has(String(nextValue)) ? String(nextValue) : 'teal';
-  if (nextVariant === currentColorVariant.value) return;
-  const previousVariant = currentColorVariant.value;
-  settingsStore.setDraftPatch({ ui: { color_variant: nextVariant } });
-  await patchSettingsWithRevert({
-    patch: buildColorVariantPatch(nextVariant),
-    controlKey: 'color_variant',
-    revert: () => {
-      settingsStore.setDraftPatch({ ui: { color_variant: previousVariant } });
-    }
-  });
-}
-
 // ── Startseite ───────────────────────────────────────────────────────────────
 
 const START_VIEW_VALUES = new Set(['dashboard', 'all']);
-const startViewOptions = [
-  { label: 'Übersicht', value: 'dashboard' },
-  { label: 'Alle Dokumente', value: 'all' }
-];
 const currentStartView = computed(() =>
   START_VIEW_VALUES.has(settingsDraft.ui.start_view) ? settingsDraft.ui.start_view : 'all'
 );
+const dashboardStartEnabled = computed(() => currentStartView.value === 'dashboard');
 
 async function onStartViewChange(nextValue) {
   if (isSettingSaving.start_view) return;
@@ -3162,6 +3103,15 @@ async function onStartViewChange(nextValue) {
       settingsStore.setDraftPatch({ ui: { start_view: previousView } });
     }
   });
+}
+
+function onStartViewToggle(nextValue) {
+  void onStartViewChange(Boolean(nextValue) ? 'dashboard' : 'all');
+}
+
+function toggleStartViewFromRow() {
+  if (isSettingSaving.start_view) return;
+  void onStartViewChange(dashboardStartEnabled.value ? 'all' : 'dashboard');
 }
 
 // ── Seitenleiste (Reihenfolge & Sichtbarkeit) ────────────────────────────────

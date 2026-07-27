@@ -15,17 +15,9 @@ class SettingsValidationTest(unittest.TestCase):
         with self.assertRaises(ValidationError):
             AppSettingsPatch.model_validate({"ui": {"theme_mode": "blue"}})
 
-    def test_color_variant_accepts_valid_values(self) -> None:
-        payload = AppSettingsPatch.model_validate({"ui": {"color_variant": "violet"}})
-        self.assertEqual(payload.ui.color_variant.value, "violet")
-
-    def test_color_variant_rejects_invalid_value(self) -> None:
-        with self.assertRaises(ValidationError):
-            AppSettingsPatch.model_validate({"ui": {"color_variant": "neon"}})
-
-    def test_legacy_color_variant_falls_back_to_default(self) -> None:
+    def test_legacy_color_variant_is_removed(self) -> None:
         payload = _merge_defaults({"ui": {"color_variant": "rose"}})
-        self.assertEqual(payload["ui"]["color_variant"], "teal")
+        self.assertNotIn("color_variant", payload["ui"])
 
     def test_sort_order_accepts_valid_values(self) -> None:
         payload = AppSettingsPatch.model_validate({"documents": {"sort_order": "last_opened"}})
@@ -67,7 +59,6 @@ class SettingsValidationTest(unittest.TestCase):
         payload = AppSettingsRead.model_validate({})
         self.assertIs(payload.ui.showFilenameSuffix, True)
         self.assertIs(payload.ui.previewDrawerGradientEnabled, True)
-        self.assertEqual(payload.ui.color_variant.value, "teal")
         self.assertIs(payload.ui.drawerRememberState, True)
         self.assertIs(payload.ui.tagDrawerRememberState, True)
         self.assertIs(payload.documents.auto_open_import_inbox, False)

@@ -2,7 +2,6 @@
   <v-app
     class="papermind-app"
     :class="{ 'pm-no-animations': !settingsStore.animationsEnabled }"
-    :data-color-variant="appColorVariant"
   >
     <router-view />
 
@@ -28,7 +27,7 @@
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, onMounted, onBeforeUnmount, ref, watch } from 'vue';
+import { defineAsyncComponent, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useTheme } from 'vuetify';
 
 // Global gemountet, aber erst beim Öffnen gebraucht. SettingsDialog ist mit
@@ -39,14 +38,11 @@ const SettingsDialog = defineAsyncComponent(() => import('../components/Settings
 import { useSettingsStore } from '../stores/settings';
 import { useUiStore } from '../stores/ui';
 import { getBaseUrl } from '../api/client.js';
-import { applyPaperMindVuetifyColors, resolvePaperMindColorVariant } from '../theme/tokens';
 
 const theme = useTheme();
 const settingsStore = useSettingsStore();
 const ui = useUiStore();
 const settingsDraft = settingsStore.settingsDraft;
-
-const appColorVariant = computed(() => resolvePaperMindColorVariant(settingsDraft.ui.color_variant));
 
 // Rasten beim ersten Öffnen ein und bleiben true, damit der Dialog danach seinen
 // Zustand behält und der zugehörige Chunk nur bei Bedarf geladen wird.
@@ -64,11 +60,9 @@ function applyTheme() {
   const themeName = resolveThemeName(settingsDraft.ui.theme_mode);
   theme.global.name.value = themeName;
   document.documentElement.dataset.theme = themeName;
-  applyPaperMindVuetifyColors(theme, settingsDraft.ui.color_variant || 'teal');
 }
 
 // Theme live nachführen (greift auch, wenn man nur auf den Konto-Seiten ist).
-watch(() => settingsDraft.ui.color_variant, (variant) => applyPaperMindVuetifyColors(theme, variant || 'teal'));
 watch(() => settingsDraft.ui.theme_mode, () => applyTheme());
 
 let mediaQuery = null;

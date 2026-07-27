@@ -1373,7 +1373,6 @@ import {
 import { assignImportInboxItems, claimImportInboxItems, discardImportInboxItems, getImportInbox, subscribeImportInbox } from '../api/importInbox.js';
 import { cancelScan, triggerScan } from '../api/scanners.js';
 import { logSearchEvent } from '../api/searchEvents.js';
-import { applyPaperMindVuetifyColors, resolvePaperMindColorVariant } from '../theme/tokens';
 
 const PdfPreview = defineAsyncComponent(() => import('../components/PdfPreview.vue'));
 const DocumentReader = defineAsyncComponent(() => import('../components/DocumentReader.vue'));
@@ -1620,8 +1619,6 @@ const theme = useTheme();
 const { notify } = useNotifications();
 const settingsStore = useSettingsStore();
 const appSettings = computed(() => settingsStore.settings);
-const settingsDraft = settingsStore.settingsDraft;
-const appColorVariant = computed(() => resolvePaperMindColorVariant(settingsDraft.ui.color_variant));
 const showPdfSuffix = computed(() => settingsStore.settingsDraft.ui.showFilenameSuffix);
 
 // ── Domain Stores ────────────────────────────────────────────────────────
@@ -3182,21 +3179,11 @@ function resolveThemeName(mode) {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
-function applyColorVariant(variant) {
-  applyPaperMindVuetifyColors(theme, variant);
-}
-
 function applyThemeFromSettings() {
-  theme.global.name.value = resolveThemeName(appSettings.value.ui.theme_mode);
-  applyColorVariant(appSettings.value.ui.color_variant || 'teal');
+  const themeName = resolveThemeName(appSettings.value.ui.theme_mode);
+  theme.global.name.value = themeName;
+  document.documentElement.dataset.theme = themeName;
 }
-
-watch(
-  () => settingsStore.settingsDraft.ui.color_variant,
-  (variant) => {
-    applyColorVariant(variant || 'teal');
-  }
-);
 
 // ── Sidebar ein-/ausklappen (Icon-Rail, manuell + responsiv) ────────────────
 function loadSidebarRail() {
@@ -9093,56 +9080,6 @@ onBeforeUnmount(() => {
   box-shadow: 0 1px 5px rgba(var(--v-theme-primary), 0.16);
 }
 
-/* ── Farbvarianten-Picker ───────────────────────────────────────────────────── */
-.settings-color-variant-picker {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.settings-color-variant-picker__item {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 54px;
-  height: 54px;
-  padding: 0;
-  border-radius: 12px;
-  border: 2px solid transparent;
-  background: rgba(var(--v-theme-on-surface), 0.04);
-  cursor: pointer;
-  transition: border-color 0.16s ease, background-color 0.16s ease, transform 0.12s ease;
-}
-
-.settings-color-variant-picker__item:hover:not(:disabled) {
-  background: rgba(var(--v-theme-on-surface), 0.08);
-  transform: translateY(-1px);
-}
-
-.settings-color-variant-picker__item:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.settings-color-variant-picker__item--active {
-  border-color: var(--variant-color);
-  background: color-mix(in srgb, var(--variant-color) 12%, transparent);
-}
-
-.settings-color-variant-picker__swatch {
-  display: block;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--variant-color);
-  box-shadow: 0 2px 6px color-mix(in srgb, var(--variant-color) 40%, transparent);
-  transition: box-shadow 0.16s ease;
-}
-
-.settings-color-variant-picker__item--active .settings-color-variant-picker__swatch {
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--variant-color) 55%, transparent);
-}
-
 .pm-settings-sections {
   display: block;
 }
@@ -11610,7 +11547,7 @@ onBeforeUnmount(() => {
   color: rgb(var(--v-theme-on-surface)) !important;
 }
 
-/* „+ Tag"-Pille: gestrichelt im Ruhezustand, solide-teal bei Fokus. Die Breite
+/* „+ Tag"-Pille: gestrichelt im Ruhezustand, solide-grün bei Fokus. Die Breite
    folgt dem Inhalt; Label und Eingabe animieren ihre Breite, sodass die Pille
    beim Reinklicken weich aufgeht. Der Rahmen wird über zwei Pseudo-Elemente
    übergeblendet, da border-style (gestrichelt↔solide) nicht animierbar ist. */

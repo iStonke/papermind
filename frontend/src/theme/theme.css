@@ -3,7 +3,7 @@
  *
  * Strategie:
  *   - Vuetify-Theme bleibt immer "light" oder "dark" (keine Varianten-Themes)
- *   - Farbvariante wird über data-color-variant am <v-app>-Element gesteuert
+ *   - Der grüne PaperMind-Akzent ist fest vorgegeben
  *   - Alle --v-theme-primary-Overrides haben höhere Spezifität als Vuetifys injiziertes CSS
  *   - --pm-* Variablen steuern die App-eigenen Oberflächen und Akzente
  *
@@ -33,7 +33,7 @@
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   LIGHT MODE (alle Varianten) – Kontur „Runde 1c"
+   LIGHT MODE – Kontur „Runde 1c"
    ════════════════════════════════════════════════════════════════════════════ */
 
 /* ── Gemeinsame Light-Semantik ─────────────────────────────────────────────── */
@@ -60,7 +60,7 @@
   --pm-drawer-border-collapsed: rgba(0, 0, 0, 0.10);
   --pm-drawer-scrim:            transparent;
 
-  /* Akzent (Standard: Teal/Kontur). Nur diese vier Zeilen wechseln je data-color-variant. */
+  /* Fester grüner Akzent (Kontur) */
   --v-theme-primary:         0, 107, 117;
   --pm-accent:               #006b75;
   --pm-accent-strong:        #00555f;
@@ -127,29 +127,8 @@
   --pm-info:    #535e62;
 }
 
-/* ── Akzent: Violet (hell) ─────────────────────────────────────────────────── */
-.papermind-app.v-theme--light[data-color-variant="violet"] {
-  --v-theme-primary:    124, 58, 237;
-  --pm-accent:          #7c3aed;
-  --pm-accent-strong:   #6d28d9;
-  --pm-accent-contrast: #ffffff;
-  /* Auswahltöne folgen dem Akzent, damit nichts türkis durchscheint */
-  --pm-selected:        color-mix(in srgb, var(--pm-accent) 12%, #ffffff);
-  --pm-sidebar-selected: color-mix(in srgb, var(--pm-accent) 42%, var(--pm-sidebar-surface));
-}
-
-/* ── Akzent: Blau (hell) ───────────────────────────────────────────────────── */
-.papermind-app.v-theme--light[data-color-variant="blue"] {
-  --v-theme-primary:    37, 99, 235;
-  --pm-accent:          #2563eb;
-  --pm-accent-strong:   #1d4ed8;
-  --pm-accent-contrast: #ffffff;
-  --pm-selected:        color-mix(in srgb, var(--pm-accent) 12%, #ffffff);
-  --pm-sidebar-selected: color-mix(in srgb, var(--pm-accent) 42%, var(--pm-sidebar-surface));
-}
-
 /* ════════════════════════════════════════════════════════════════════════════
-   DARK MODE (alle Varianten) – Kontur „Runde 2a"
+   DARK MODE – Kontur „Runde 2a"
    ════════════════════════════════════════════════════════════════════════════ */
 
 /* ── Gemeinsame Dark-Semantik ──────────────────────────────────────────────── */
@@ -176,7 +155,7 @@
   --pm-drawer-border-collapsed: rgba(255, 255, 255, 0.06);
   --pm-drawer-scrim:            transparent;
 
-  /* Akzent (Standard: Teal/Kontur) – hell, daher dunkle Schrift via --pm-on-accent */
+  /* Fester grüner Akzent – hell, daher dunkle Schrift via --pm-on-accent */
   --v-theme-primary:     79, 197, 203;
   --pm-accent:           #4fc5cb;
   --pm-accent-strong:    #80dee3;
@@ -254,26 +233,6 @@
   --pm-warning: #fbbf24;
   --pm-error:   #ef7f74;
   --pm-info:    #a5b2b7;
-}
-
-/* ── Akzent: Violet (dunkel) ───────────────────────────────────────────────── */
-.papermind-app.v-theme--dark[data-color-variant="violet"] {
-  --v-theme-primary:    167, 139, 250;
-  --pm-accent:          #a78bfa;
-  --pm-accent-strong:   #c4b5fd;
-  --pm-accent-contrast: #2e1065;
-  --pm-selected:        color-mix(in srgb, var(--pm-accent) 22%, var(--pm-v-card));
-  --pm-sidebar-selected: color-mix(in srgb, var(--pm-accent) 30%, var(--pm-sidebar-surface));
-}
-
-/* ── Akzent: Blau (dunkel) ─────────────────────────────────────────────────── */
-.papermind-app.v-theme--dark[data-color-variant="blue"] {
-  --v-theme-primary:    96, 165, 250;
-  --pm-accent:          #60a5fa;
-  --pm-accent-strong:   #93c5fd;
-  --pm-accent-contrast: #0b2447;
-  --pm-selected:        color-mix(in srgb, var(--pm-accent) 22%, var(--pm-v-card));
-  --pm-sidebar-selected: color-mix(in srgb, var(--pm-accent) 30%, var(--pm-sidebar-surface));
 }
 
 /* ── Animationen deaktiviert ───────────────────────────────────────────────── */

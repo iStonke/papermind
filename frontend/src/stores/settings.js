@@ -8,7 +8,6 @@ import {
 import { normalizeSidebarSections } from '../utils/settingsApi.js';
 
 const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
-const COLOR_VARIANT_VALUES = new Set(['teal', 'violet', 'blue']);
 const START_VIEW_VALUES = new Set(['dashboard', 'all']);
 const SORT_ORDER_VALUES = new Set([
   'newest',
@@ -90,7 +89,6 @@ function createDefaultSettings() {
   return {
     ui: {
       theme_mode: 'system',
-      color_variant: 'teal',
       start_view: 'all',
       showFilenameSuffix: true,
       previewDrawerGradientEnabled: true,
@@ -313,7 +311,6 @@ export const useSettingsStore = defineStore('settings', {
       isSettingsLoading: false,
       isSettingSaving: {
         theme_mode: false,
-        color_variant: false,
         start_view: false,
         auto_ocr: false,
         auto_tagging: false,
@@ -380,7 +377,6 @@ export const useSettingsStore = defineStore('settings', {
     normalizeSettingsPayload(payload) {
       const defaults = createDefaultSettings();
       const rawThemeMode = String(payload?.ui?.theme_mode || '').toLowerCase();
-      const rawColorVariant = String(payload?.ui?.color_variant || '').toLowerCase();
       const rawStartView = String(payload?.ui?.start_view || '').toLowerCase();
       const rawSortOrder = String(payload?.documents?.sort_order || '').toLowerCase();
       const rawRecentImportWindow = Number(payload?.documents?.recent_import_window_hours);
@@ -407,7 +403,6 @@ export const useSettingsStore = defineStore('settings', {
       return {
         ui: {
           theme_mode: THEME_MODE_VALUES.has(rawThemeMode) ? rawThemeMode : defaults.ui.theme_mode,
-          color_variant: COLOR_VARIANT_VALUES.has(rawColorVariant) ? rawColorVariant : defaults.ui.color_variant,
           start_view: START_VIEW_VALUES.has(rawStartView) ? rawStartView : defaults.ui.start_view,
           showFilenameSuffix:
             typeof payload?.ui?.showFilenameSuffix === 'boolean'
