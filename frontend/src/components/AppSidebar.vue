@@ -80,7 +80,7 @@
           </SidebarItem>
 
           <SidebarItem
-            v-if="settingsStore.settings.ui.sidebar_show_favorites !== false"
+            v-if="settingsStore.settings.ui.sidebar_show_favorites !== false && favoritesSidebarCount > 0"
             item-class="sidebar-item--secondary sidebar-item--favorites"
             :active="isViewActive('favorites')"
             :count="favoritesSidebarCount"
@@ -664,7 +664,7 @@ const flyoutRows = computed(() => {
         count: untaggedSidebarCount.value, active: isViewActive('untagged'),
         run: () => emit('select-view', 'untagged'),
       });
-      if (ui.sidebar_show_favorites !== false) rows.push({
+      if (ui.sidebar_show_favorites !== false && favoritesSidebarCount.value > 0) rows.push({
         id: 'favorites', icon: 'mdi-star-outline', label: 'Favoriten',
         count: favoritesSidebarCount.value, active: isViewActive('favorites'),
         run: () => emit('select-view', 'favorites'),
