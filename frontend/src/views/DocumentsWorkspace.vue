@@ -158,12 +158,6 @@
         @close="closeSmartFolderEditor"
       />
 
-      <AiDialog
-        v-model="isAiDialogOpen"
-        :api-base-url="apiBaseUrl"
-        @open-citation="openCitation"
-      />
-
       <div
         class="workspace"
         :class="{
@@ -176,7 +170,7 @@
       >
         <AppSidebar
           :collapsed="sidebarContentCollapsed"
-          :chat-active="isAiDialogOpen"
+          :chat-active="isChatView"
           :active-view="activeView"
           :active-saved-search-id="activeSavedSearchId"
           :active-tag-id="activeTagId"
@@ -308,7 +302,7 @@
         >
           <div class="panel-middle__header">
             <div class="panel-middle__heading">{{ panelHeading }}</div>
-            <div v-if="!isTagView && !isCategoryView && !isTrashView" class="panel-middle__actions">
+            <div v-if="!isChatView && !isTagView && !isCategoryView && !isTrashView" class="panel-middle__actions">
               <v-badge
                 :model-value="pendingImportInboxCount > 0"
                 :content="pendingImportInboxBadgeLabel"
@@ -343,7 +337,15 @@
           </div>
 
           <Transition name="pm-panel">
-            <div v-if="isTagView" key="tags" class="panel-middle__view tags-view">
+            <AiDialog
+              v-if="isChatView"
+              key="chat"
+              class="panel-middle__view ai-chat-view"
+              :api-base-url="apiBaseUrl"
+              @open-citation="openCitation"
+            />
+
+            <div v-else-if="isTagView" key="tags" class="panel-middle__view tags-view">
               <ListActionToolbar
                 :actions="tagToolbarActions"
                 :right-actions="tagToolbarRightActions"
@@ -1068,6 +1070,7 @@
                         <div class="pm-prop-field pm-prop-field--boxed pm-prop-field--name">
                           <v-text-field
                             v-model="metadataDocName"
+                            maxlength="200"
                             class="pm-name-field"
                             density="compact"
                             variant="plain"
@@ -1255,6 +1258,7 @@
                         <div class="pm-prop-field pm-prop-field--area pm-prop-field--boxed pm-prop-field--notes">
                           <v-textarea
                             v-model="metadataNotes"
+                            maxlength="10000"
                             :rows="3"
                             :max-rows="8"
                             auto-grow
@@ -1359,6 +1363,7 @@ import {
   buildThemeModePatch
 } from '../utils/settingsApi';
 import { formatDateTime, formatDocumentDateInputFromIso, parseDocumentDateInput } from '../utils/dates';
+import { buildDocumentMetadataPatch } from '../utils/documentMetadata.js';
 import { useOcrPolling } from '../composables/useOcrPolling';
 import { useGlobalKeyboard } from '../composables/useGlobalKeyboard';
 import { useSearch } from '../composables/useSearch';
@@ -1828,7 +1833,6 @@ function onFollowLink(annotation) {
 }
 const { sidebarCounts, isLoadingSidebarCounts, savedSearches, isLoadingSavedSearches } = storeToRefs(sidebarStore);
 
-const isAiDialogOpen = ref(false);
 const activeView = ref('all');
 // Welche Dashboard-Aufmerksamkeits-Kachel gerade als gefilterte Liste offen ist.
 const activeAttention = ref(null);
@@ -2564,6 +2568,7 @@ const headerMenuActions = computed(() => {
 });
 const isTagView       = computed(() => activeView.value === 'tags');
 const isCategoryView  = computed(() => activeView.value === 'categories');
+const isChatView      = computed(() => activeView.value === 'chat');
 const activeCategoryName = computed(() => documentListQuery.documentType || null);
 const isImportsView   = computed(() => activeView.value === 'imports');
 const isUntaggedView  = computed(() => activeView.value === 'untagged');
@@ -3092,7 +3097,7 @@ const isMetadataDirty = computed(() => {
   }
 
   const draftName = normalizeDocumentName(metadataDocName.value);
-  if (draftName && draftName !== getDocumentNameDraft(selectedDocumentDetail.value)) {
+  if (draftName !== getDocumentNameDraft(selectedDocumentDetail.value)) {
     return true;
   }
 
@@ -3151,6 +3156,10 @@ let isApplyingSavedSearchQuery = false;
 let shouldSkipTagNameSync = false;
 let isDocumentTagSaveRunning = false;
 const queuedDocumentTagSaves = new Map();
+const queuedCategorySaves = new Map();
+let categorySaveDrainPromise = null;
+const queuedCorrespondentSaves = new Map();
+let correspondentSaveDrainPromise = null;
 const previewRetryAttemptsByDocument = ref({});
 const favoriteStateByDocumentId = new Map();
 
@@ -3970,7 +3979,7 @@ watch(isUploadDialogOpen, async (open) => {
 // ── Navigation ────────────────────────────────────────────────────────────
 
 function openAiView() {
-  isAiDialogOpen.value = true;
+  selectView('chat');
 }
 
 function openLibraryView() {
@@ -4138,6 +4147,60 @@ const categoryDrawerItems = computed(() => {
   return names;
 });
 
+async function persistMetadataCategory(documentId, value) {
+  const sourceDocument = selectedDocumentDetail.value?.id === documentId
+    ? selectedDocumentDetail.value
+    : documents.value.find((document) => document.id === documentId);
+  const previousValue = sourceDocument?.document_type || sourceDocument?.category || null;
+  try {
+    await docStore.patchDocument(documentId, { document_type: value });
+    scheduleSidebarCountsRefresh();
+    if (
+      activeSavedSearchId.value
+      || isCategoryView.value
+      || documentListQuery.documentType
+      || (documentListQuery.q && ['all', 'document_type'].includes(documentListQuery.searchScope))
+    ) {
+      await fetchDocuments(documentId, { autoSelectFirst: false, allowPreferredOutsideList: true });
+    }
+  } catch (error) {
+    notifyError(error, 'Dokumenttyp konnte nicht gespeichert werden.');
+    if (
+      selectedDocumentId.value === documentId
+      && String(metadataDocCategory.value || '').trim() === String(value || '').trim()
+    ) {
+      metadataDocCategory.value = previousValue;
+    }
+    return;
+  }
+
+  try {
+    // Die Zähler sind Folgeinformationen. Ihr Refetch darf einen bereits
+    // erfolgreichen Dokument-PATCH nicht als fehlgeschlagen darstellen.
+    await categoryStore.fetchCategories();
+  } catch (error) {
+    logDevError(error, 'category-count-refresh');
+    notify({
+      type: 'warning',
+      message: 'Dokumenttyp gespeichert, Zähler konnten nicht aktualisiert werden.'
+    });
+  }
+}
+
+async function drainMetadataCategorySaves() {
+  isSavingCategory.value = true;
+  try {
+    while (queuedCategorySaves.size > 0) {
+      const [documentId, value] = queuedCategorySaves.entries().next().value;
+      queuedCategorySaves.delete(documentId);
+      await persistMetadataCategory(documentId, value);
+    }
+  } finally {
+    isSavingCategory.value = false;
+    categorySaveDrainPromise = null;
+  }
+}
+
 async function onMetadataCategoryChange(nextCategory) {
   if (!selectedDocumentDetail.value) return;
   const documentId = selectedDocumentDetail.value.id;
@@ -4151,21 +4214,11 @@ async function onMetadataCategoryChange(nextCategory) {
     }
   }
   metadataDocCategory.value = value;
-  isSavingCategory.value = true;
-  try {
-    await docStore.patchDocument(documentId, { document_type: value });
-    // Seitenleiste (Dokumenttyp-Quicklinks + Zähler) hängt an categoryStore.usage_count
-    // und wird nur über fetchCategories aktualisiert – sonst bleibt die Zuweisung
-    // in der Sidebar unsichtbar.
-    await categoryStore.fetchCategories();
-    scheduleSidebarCountsRefresh();
-  } catch (error) {
-    notifyError(error, 'Dokumenttyp konnte nicht gespeichert werden.');
-    // Bei Fehler wieder auf den gespeicherten Stand zurücksetzen
-    metadataDocCategory.value = selectedDocumentDetail.value?.document_type || selectedDocumentDetail.value?.category || null;
-  } finally {
-    isSavingCategory.value = false;
+  queuedCategorySaves.set(documentId, value);
+  if (!categorySaveDrainPromise) {
+    categorySaveDrainPromise = drainMetadataCategorySaves();
   }
+  await categorySaveDrainPromise;
 }
 
 // Korrespondenten-Optionen für das Detail-Drawer; aktuelle Auswahl bleibt
@@ -4201,13 +4254,11 @@ function handleMetadataCorrespondentBlur() {
   }, 0);
 }
 
-async function commitMetadataCorrespondent() {
-  if (isSavingCorrespondent.value) return;
-  if (!selectedDocumentDetail.value) return;
-  const documentId = selectedDocumentDetail.value.id;
-  const previousId = selectedDocumentDetail.value?.correspondent_id || null;
-  const rawValue = normalizeCorrespondentInput(metadataCorrespondentDraft.value);
-  isSavingCorrespondent.value = true;
+async function persistMetadataCorrespondent(documentId, rawValue) {
+  const sourceDocument = selectedDocumentDetail.value?.id === documentId
+    ? selectedDocumentDetail.value
+    : documents.value.find((document) => document.id === documentId);
+  const previousId = sourceDocument?.correspondent_id || null;
   try {
     let correspondentId = null;
     if (rawValue) {
@@ -4219,22 +4270,60 @@ async function commitMetadataCorrespondent() {
         // Neue Korrespondenten dürfen nicht mehr aus der Detailschublade
         // angelegt werden – nur noch über die Einstellungen. Unbekannte
         // Eingaben werden verworfen und der vorige Wert wiederhergestellt.
-        metadataCorrespondentId.value = previousId;
-        metadataCorrespondentDraft.value = previousId;
+        if (
+          selectedDocumentId.value === documentId
+          && normalizeCorrespondentInput(metadataCorrespondentDraft.value) === rawValue
+        ) {
+          metadataCorrespondentId.value = previousId;
+          metadataCorrespondentDraft.value = previousId;
+        }
         return;
       }
     }
 
-    metadataCorrespondentId.value = correspondentId;
-    metadataCorrespondentDraft.value = correspondentId;
     await docStore.patchDocument(documentId, { correspondent_id: correspondentId });
+    if (
+      selectedDocumentId.value === documentId
+      && normalizeCorrespondentInput(metadataCorrespondentDraft.value) === rawValue
+    ) {
+      metadataCorrespondentId.value = correspondentId;
+      metadataCorrespondentDraft.value = correspondentId;
+    }
   } catch (error) {
     notifyError(error, 'Korrespondent konnte nicht gespeichert werden.');
-    metadataCorrespondentId.value = previousId;
-    metadataCorrespondentDraft.value = previousId;
+    if (
+      selectedDocumentId.value === documentId
+      && normalizeCorrespondentInput(metadataCorrespondentDraft.value) === rawValue
+    ) {
+      metadataCorrespondentId.value = previousId;
+      metadataCorrespondentDraft.value = previousId;
+    }
+  }
+}
+
+async function drainMetadataCorrespondentSaves() {
+  isSavingCorrespondent.value = true;
+  try {
+    while (queuedCorrespondentSaves.size > 0) {
+      const [documentId, rawValue] = queuedCorrespondentSaves.entries().next().value;
+      queuedCorrespondentSaves.delete(documentId);
+      await persistMetadataCorrespondent(documentId, rawValue);
+    }
   } finally {
     isSavingCorrespondent.value = false;
+    correspondentSaveDrainPromise = null;
   }
+}
+
+async function commitMetadataCorrespondent() {
+  if (!selectedDocumentDetail.value) return;
+  const documentId = selectedDocumentDetail.value.id;
+  const rawValue = normalizeCorrespondentInput(metadataCorrespondentDraft.value);
+  queuedCorrespondentSaves.set(documentId, rawValue);
+  if (!correspondentSaveDrainPromise) {
+    correspondentSaveDrainPromise = drainMetadataCorrespondentSaves();
+  }
+  await correspondentSaveDrainPromise;
 }
 
 async function handleMetadataTagEnter() {
@@ -4486,8 +4575,6 @@ async function openCitation(citation) {
   if (!closeDetailsDrawerWithGuard()) {
     return;
   }
-  isAiDialogOpen.value = false;
-
   leaveActiveSavedSearch();
   activeView.value = 'all';
   searchText.value = '';
@@ -4740,7 +4827,8 @@ async function persistDocumentTags(documentId, tagIds, draftRevision) {
     const response = await fetch(`${apiBaseUrl}/api/documents/${documentId}/tags`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tag_ids: nextTagIds })
+      body: JSON.stringify({ tag_ids: nextTagIds }),
+      keepalive: true
     });
 
     if (!response.ok) {
@@ -4979,15 +5067,19 @@ async function queueOcrFromHeader() {
 }
 
 function scheduleReplaceDocumentTags(documentId, tagIds, draftRevision) {
-  const existingTimer = tagReplaceDebounceTimers.get(documentId);
-  if (existingTimer) {
-    window.clearTimeout(existingTimer);
+  const existingSave = tagReplaceDebounceTimers.get(documentId);
+  if (existingSave?.timer) {
+    window.clearTimeout(existingSave.timer);
   }
   const timer = window.setTimeout(() => {
     tagReplaceDebounceTimers.delete(documentId);
     void replaceDocumentTags(documentId, tagIds, draftRevision);
   }, TAG_REPLACE_DEBOUNCE_MS);
-  tagReplaceDebounceTimers.set(documentId, timer);
+  tagReplaceDebounceTimers.set(documentId, {
+    timer,
+    tagIds: normalizeTagIds(tagIds),
+    draftRevision
+  });
 }
 
 function scheduleMetadataAutosave() {
@@ -4995,6 +5087,7 @@ function scheduleMetadataAutosave() {
     window.clearTimeout(metadataAutosaveDebounceTimer);
   }
   metadataAutosaveDebounceTimer = window.setTimeout(() => {
+    metadataAutosaveDebounceTimer = null;
     if (!selectedDocumentDetail.value || !isMetadataDirty.value) {
       return;
     }
@@ -6288,7 +6381,7 @@ async function toggleDocumentFavorite(document) {
 }
 
 function selectView(viewKey) {
-  if ((viewKey === 'tags' || viewKey === 'categories') && !closeDetailsDrawerWithGuard()) {
+  if ((viewKey === 'tags' || viewKey === 'categories' || viewKey === 'chat') && !closeDetailsDrawerWithGuard()) {
     return;
   }
   if (viewKey !== 'tags') {
@@ -6299,6 +6392,12 @@ function selectView(viewKey) {
 
   if (viewKey === 'dashboard') {
     activeView.value = 'dashboard';
+    leaveActiveSavedSearch();
+    return;
+  }
+
+  if (viewKey === 'chat') {
+    activeView.value = 'chat';
     leaveActiveSavedSearch();
     return;
   }
@@ -7473,43 +7572,36 @@ async function saveMetadata(options = {}) {
     return;
   }
 
+  const documentId = selectedDocumentDetail.value.id;
+  const detailSnapshot = selectedDocumentDetail.value;
+  const saveRevision = metadataDraftRevision.value;
+  const metadataPatch = buildDocumentMetadataPatch({
+    detail: detailSnapshot,
+    currentNameDraft: getDocumentNameDraft(detailSnapshot),
+    draftName: metadataDocName.value,
+    draftDate: metadataDocDate.value,
+    draftNotes: metadataNotes.value
+  });
+  metadataDocDateHasError.value = !metadataPatch.parsedDocumentDate.ok;
+  if (!metadataPatch.hasChanges) {
+    return;
+  }
+
   metadataSuccessMessage.value = '';
   metadataErrorMessage.value = '';
   isSavingMetadata.value = true;
-  const documentId = selectedDocumentDetail.value.id;
-  const saveRevision = metadataDraftRevision.value;
-  const draftDocumentName = metadataDocName.value;
-  const draftDocumentDate = metadataDocDate.value;
-  const draftNotes = metadataNotes.value;
+  const { patchBody, parsedDocumentDate, dateChanged } = metadataPatch;
 
   try {
-    const parsedDocumentDate = parseDocumentDateInput(draftDocumentDate);
-    if (!parsedDocumentDate.ok) {
-      metadataDocDateHasError.value = true;
-      return;
-    }
-
-    metadataDocDateHasError.value = false;
-    if (metadataDraftRevision.value === saveRevision) {
+    if (parsedDocumentDate.ok && metadataDraftRevision.value === saveRevision) {
       metadataDocDate.value = parsedDocumentDate.display;
-    }
-    const normalizedDocDate = parsedDocumentDate.iso;
-    const normalizedNotes = draftNotes || null;
-
-    const patchBody = {
-      document_date: normalizedDocDate,
-      notes: normalizedNotes
-    };
-
-    const normalizedDocName = normalizeDocumentName(draftDocumentName);
-    if (normalizedDocName && normalizedDocName !== getDocumentNameDraft(selectedDocumentDetail.value)) {
-      patchBody.display_name = normalizedDocName;
     }
 
     const patchResponse = await fetch(`${apiBaseUrl}/api/documents/${documentId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patchBody)
+      body: JSON.stringify(patchBody),
+      keepalive: true
     });
 
     if (!patchResponse.ok) {
@@ -7536,19 +7628,19 @@ async function saveMetadata(options = {}) {
       if (selectedDocumentId.value === documentId) {
         selectedDocumentDetail.value = updatedDetail;
       }
-      if (selectedDocumentId.value === documentId && metadataDraftRevision.value === saveRevision) {
+      if (
+        selectedDocumentId.value === documentId
+        && metadataDraftRevision.value === saveRevision
+        && parsedDocumentDate.ok
+      ) {
         applyMetadataFromDetail(updatedDetail);
       }
     } else {
-      const localPatch = {
-        document_date: normalizedDocDate,
-        document_date_source: 'manual',
-        document_date_confidence: null,
-        document_date_candidates: null,
-        notes: normalizedNotes
-      };
-      if (patchBody.display_name) {
-        localPatch.display_name = patchBody.display_name;
+      const localPatch = { ...patchBody };
+      if (dateChanged) {
+        localPatch.document_date_source = 'manual';
+        localPatch.document_date_confidence = null;
+        localPatch.document_date_candidates = null;
       }
       if (selectedDocumentDetail.value?.id === documentId) {
         selectedDocumentDetail.value = {
@@ -7565,7 +7657,7 @@ async function saveMetadata(options = {}) {
         });
       }
       if (selectedDocumentDetail.value?.id === documentId) {
-        if (metadataDraftRevision.value === saveRevision) {
+        if (metadataDraftRevision.value === saveRevision && parsedDocumentDate.ok) {
           applyMetadataFromDetail(selectedDocumentDetail.value);
         }
       }
@@ -7574,8 +7666,24 @@ async function saveMetadata(options = {}) {
       }
     }
 
-    if (!skipDocumentReload) {
-      await fetchDocuments();
+    const listDependsOnPatch = (
+      dateChanged
+      || (!skipDocumentReload)
+      || (Object.prototype.hasOwnProperty.call(patchBody, 'display_name') && (
+        documentListQuery.sort === 'name' || Boolean(documentListQuery.q)
+      ))
+      || (Object.prototype.hasOwnProperty.call(patchBody, 'notes') && Boolean(documentListQuery.q))
+      || documentListQuery.sort === 'updated_at'
+    );
+    if (listDependsOnPatch) {
+      await fetchDocuments(documentId, {
+        autoSelectFirst: false,
+        allowPreferredOutsideList: true,
+        silent: true
+      });
+    }
+    if (dateChanged && selectedDocumentId.value === documentId && isRetentionFeatureEnabled.value) {
+      await loadRetention(documentId, { force: true });
     }
     if (!silentSuccess) {
       metadataSuccessMessage.value = 'Metadaten gespeichert.';
@@ -7584,17 +7692,15 @@ async function saveMetadata(options = {}) {
     metadataErrorMessage.value = notifyError(error, 'Speichern fehlgeschlagen.');
   } finally {
     isSavingMetadata.value = false;
+    const hadQueuedSave = shouldRunMetadataAutosaveAfterSave;
+    const hasNewerDraft = metadataDraftRevision.value !== saveRevision;
+    shouldRunMetadataAutosaveAfterSave = false;
     if (
       selectedDocumentId.value === documentId
-      && (shouldRunMetadataAutosaveAfterSave || isMetadataDirty.value)
+      && (hadQueuedSave || hasNewerDraft)
+      && isMetadataDirty.value
     ) {
-      shouldRunMetadataAutosaveAfterSave = false;
       scheduleMetadataAutosave();
-    } else {
-      shouldRunMetadataAutosaveAfterSave = false;
-      if (selectedDocumentId.value !== documentId && isMetadataDirty.value) {
-        scheduleMetadataAutosave();
-      }
     }
   }
 }
@@ -7747,13 +7853,56 @@ watch([metadataDocName, metadataDocDate, metadataNotes], () => {
   }
   metadataDraftRevision.value += 1;
   const parsedDocumentDate = parseDocumentDateInput(metadataDocDate.value);
-  if (!parsedDocumentDate.ok) {
-    return;
+  if (parsedDocumentDate.ok) {
+    metadataDocDateHasError.value = false;
   }
-  metadataDocDateHasError.value = false;
   metadataErrorMessage.value = '';
   scheduleMetadataAutosave();
 });
+
+function sendKeepaliveRequest(url, options) {
+  void fetch(url, { ...options, keepalive: true }).catch((error) => {
+    logDevError(error, 'keepalive-save');
+  });
+}
+
+function flushPendingDocumentEdits() {
+  const detail = selectedDocumentDetail.value;
+  if (detail && metadataDraftDocumentId.value === detail.id) {
+    const { patchBody, hasChanges } = buildDocumentMetadataPatch({
+      detail,
+      currentNameDraft: getDocumentNameDraft(detail),
+      draftName: metadataDocName.value,
+      draftDate: metadataDocDate.value,
+      draftNotes: metadataNotes.value
+    });
+    if (hasChanges) {
+      sendKeepaliveRequest(`${apiBaseUrl}/api/documents/${detail.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patchBody)
+      });
+    }
+  }
+
+  const pendingTagSaves = new Map();
+  for (const [documentId, pendingSave] of tagReplaceDebounceTimers) {
+    pendingTagSaves.set(documentId, pendingSave.tagIds);
+  }
+  for (const [documentId, pendingSave] of queuedDocumentTagSaves) {
+    pendingTagSaves.set(documentId, pendingSave.tagIds);
+  }
+  if (detail?.id && isTagSelectionDirty.value) {
+    pendingTagSaves.set(detail.id, normalizeTagIds(metadataTagIds.value));
+  }
+  for (const [documentId, tagIds] of pendingTagSaves) {
+    sendKeepaliveRequest(`${apiBaseUrl}/api/documents/${documentId}/tags`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tag_ids: normalizeTagIds(tagIds) })
+    });
+  }
+}
 
 watch(isDetailsDrawerOpen, (open) => {
   if (!open) {
@@ -7878,6 +8027,7 @@ useOcrPolling({
 useGlobalKeyboard(handleGlobalKeydown);
 
 onMounted(async () => {
+  window.addEventListener('pagehide', flushPendingDocumentEdits);
   mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
   mediaQuery.addEventListener('change', handleSystemThemeChange);
   await fetchAppSettings();
@@ -7946,8 +8096,10 @@ watch(
 );
 
 onBeforeUnmount(() => {
-  for (const timer of tagReplaceDebounceTimers.values()) {
-    window.clearTimeout(timer);
+  flushPendingDocumentEdits();
+  window.removeEventListener('pagehide', flushPendingDocumentEdits);
+  for (const pendingSave of tagReplaceDebounceTimers.values()) {
+    window.clearTimeout(pendingSave.timer);
   }
   tagReplaceDebounceTimers.clear();
   if (metadataAutosaveDebounceTimer) {
@@ -8429,8 +8581,8 @@ onBeforeUnmount(() => {
 }
 
 .ai-page {
-  height: min(76vh, 760px);
-  min-height: 520px;
+  height: 100%;
+  min-height: 0;
   display: grid;
   grid-template-rows: auto 1fr;
   gap: 10px;
@@ -9526,6 +9678,14 @@ onBeforeUnmount(() => {
 }
 
 .workspace.workspace--rail.workspace--dashboard {
+  grid-template-columns: 64px 1fr;
+}
+
+.workspace.workspace--chat {
+  grid-template-columns: 288px 1fr;
+}
+
+.workspace.workspace--rail.workspace--chat {
   grid-template-columns: 64px 1fr;
 }
 
@@ -11739,13 +11899,15 @@ onBeforeUnmount(() => {
   line-height: 1.2;
 }
 
-.pm-prop-field .v-combobox .v-field__input {
+.pm-prop-field .v-combobox .v-field__input,
+.pm-prop-field .v-autocomplete .v-field__input {
   flex-wrap: nowrap;
   min-width: 0;
   overflow: hidden;
 }
 
-.pm-prop-field .v-combobox .v-combobox__selection {
+.pm-prop-field .v-combobox .v-combobox__selection,
+.pm-prop-field .v-autocomplete .v-autocomplete__selection {
   min-width: 0;
   max-width: 100%;
 }
@@ -12002,8 +12164,6 @@ onBeforeUnmount(() => {
   }
 
   .ai-page {
-    height: min(72vh, 640px);
-    min-height: 420px;
     padding: 10px;
   }
 

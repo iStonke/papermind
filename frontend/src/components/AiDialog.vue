@@ -1,18 +1,5 @@
 <template>
-  <BaseDialog
-    :model-value="modelValue"
-    max-width="1080"
-    width="calc(100% - 48px)"
-    body-class="app-modal__body--flush"
-    title="KI-Chat"
-    description="Fragen stellen und Quellen direkt öffnen."
-    variant="info"
-    primary-text="Fertig"
-    :show-secondary="false"
-    @primary="emit('update:modelValue', false)"
-    @update:model-value="emit('update:modelValue', $event)"
-  >
-    <div class="ai-page">
+  <div class="ai-page">
       <section class="ai-suggestions">
         <div class="ai-section-title">Vorschlagsfragen</div>
         <div class="ai-suggestions__grid">
@@ -114,24 +101,21 @@
           </v-text-field>
         </div>
       </section>
-    </div>
-  </BaseDialog>
+  </div>
 </template>
 
 <script setup>
 import { ref, nextTick } from 'vue';
-import BaseDialog from './BaseDialog.vue';
 import { notifyError } from '../stores/notifications';
 import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
 
 // ── Props / Emits ────────────────────────────────────────────────────────────
 
 const props = defineProps({
-  modelValue: { type: Boolean, default: false },
   apiBaseUrl: { type: String, default: '' }
 });
 
-const emit = defineEmits(['update:modelValue', 'open-citation']);
+const emit = defineEmits(['open-citation']);
 
 // ── Konstanten ───────────────────────────────────────────────────────────────
 

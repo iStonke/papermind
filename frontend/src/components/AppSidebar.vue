@@ -17,6 +17,18 @@
         </template>
         Übersicht
       </SidebarItem>
+
+      <SidebarItem
+        v-if="settingsStore.settings.ui.sidebar_show_chat !== false"
+        item-class="sidebar-item--secondary sidebar-item--chat"
+        :active="chatActive"
+        @click="emit('open-chat')"
+      >
+        <template #icon>
+          <v-icon size="18">mdi-robot-outline</v-icon>
+        </template>
+        KI-Chat
+      </SidebarItem>
     </v-list>
 
     <v-divider class="sidebar-section-divider sidebar-section-divider--after-uebersicht" />
@@ -55,7 +67,7 @@
           </SidebarItem>
 
           <SidebarItem
-            v-if="settingsStore.settings.ui.sidebar_show_untagged !== false"
+            v-if="settingsStore.settings.ui.sidebar_show_untagged !== false && untaggedSidebarCount > 0"
             item-class="sidebar-item--secondary"
             :active="isViewActive('untagged')"
             :count="untaggedSidebarCount"
@@ -68,6 +80,7 @@
           </SidebarItem>
 
           <SidebarItem
+            v-if="settingsStore.settings.ui.sidebar_show_favorites !== false"
             item-class="sidebar-item--secondary sidebar-item--favorites"
             :active="isViewActive('favorites')"
             :count="favoritesSidebarCount"
@@ -129,17 +142,6 @@
             </template>
           </SidebarItem>
 
-          <SidebarItem
-            v-if="settingsStore.settings.ui.sidebar_show_chat !== false"
-            item-class="sidebar-item--secondary sidebar-item--chat"
-            :active="chatActive"
-            @click="emit('open-chat')"
-          >
-            <template #icon>
-              <v-icon size="18">mdi-robot-outline</v-icon>
-            </template>
-            KI-Chat
-          </SidebarItem>
         </div>
       </div>
     </v-list>
@@ -634,12 +636,18 @@ const flyoutTitle = computed(() => ({
 const flyoutRows = computed(() => {
   const ui = settingsStore.settings.ui;
   switch (railFlyoutSection.value) {
-    case 'uebersicht':
-      return [{
+    case 'uebersicht': {
+      const rows = [{
         id: 'dashboard', icon: 'mdi-view-dashboard-outline', label: 'Übersicht',
         count: null, active: isViewActive('dashboard'),
         run: () => emit('select-view', 'dashboard'),
       }];
+      if (ui.sidebar_show_chat !== false) rows.push({
+        id: 'chat', icon: 'mdi-robot-outline', label: 'KI-Chat',
+        count: null, active: props.chatActive, run: () => emit('open-chat'),
+      });
+      return rows;
+    }
     case 'bibliothek': {
       const rows = [{
         id: 'all', icon: 'mdi-book-open-page-variant-outline', label: 'Alle Dokumente',
@@ -651,12 +659,12 @@ const flyoutRows = computed(() => {
         count: importsSidebarCount.value, active: isViewActive('imports'),
         run: () => emit('select-view', 'imports'),
       });
-      if (ui.sidebar_show_untagged !== false) rows.push({
+      if (ui.sidebar_show_untagged !== false && untaggedSidebarCount.value > 0) rows.push({
         id: 'untagged', icon: 'mdi-tag-off-outline', label: 'Ohne Tags',
         count: untaggedSidebarCount.value, active: isViewActive('untagged'),
         run: () => emit('select-view', 'untagged'),
       });
-      rows.push({
+      if (ui.sidebar_show_favorites !== false) rows.push({
         id: 'favorites', icon: 'mdi-star-outline', label: 'Favoriten',
         count: favoritesSidebarCount.value, active: isViewActive('favorites'),
         run: () => emit('select-view', 'favorites'),
@@ -670,10 +678,6 @@ const flyoutRows = computed(() => {
         id: 'trash', icon: 'mdi-trash-can-outline', label: 'Papierkorb',
         count: trashSidebarCount.value, active: isViewActive('trash'),
         run: () => emit('select-view', 'trash'),
-      });
-      if (ui.sidebar_show_chat !== false) rows.push({
-        id: 'chat', icon: 'mdi-robot-outline', label: 'KI-Chat',
-        count: null, active: props.chatActive, run: () => emit('open-chat'),
       });
       return rows;
     }

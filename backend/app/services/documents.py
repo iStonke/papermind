@@ -22,6 +22,7 @@ from app.core.errors import (
 from app.models.correspondent import Correspondent
 from app.models.document import Document
 from app.models.document_file import DocumentFile
+from app.models.document_retention import DocumentRetention
 from app.models.document_type import DocumentType
 from app.models.job import Job
 from app.models.tag import Tag
@@ -54,6 +55,7 @@ from app.services.document_job_lifecycle import DocumentJobLifecycleService
 from app.services.document_query_service import DocumentQueryService
 from app.services.correspondent_matching import CorrespondentMatchingService
 from app.services.job_queue import enqueue_document_job, has_active_document_job
+from app.services.retention import _compute_retain_until
 from app.services.settings import SettingsService
 from app.services.tag_suggestions import (
     fallback_tag_candidates,
@@ -1019,6 +1021,15 @@ class DocumentService:
             document.document_date_source = "manual"
             document.document_date_confidence = None
             document.document_date_candidates = None
+            retention = self.db.execute(
+                select(DocumentRetention).where(DocumentRetention.document_id == document_id)
+            ).scalar_one_or_none()
+            if retention is not None:
+                retention.retain_until = _compute_retain_until(
+                    data["document_date"],
+                    retention.period_years,
+                )
+                retention.updated_at = datetime.now(timezone.utc)
         if "notes" in data:
             document.notes = data["notes"]
         if "document_type" in data:

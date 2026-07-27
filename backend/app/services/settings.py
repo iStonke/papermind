@@ -27,6 +27,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "tagDrawerRememberState": True,
         "sidebar_show_recent": True,
         "sidebar_show_untagged": True,
+        "sidebar_show_favorites": True,
         "sidebar_show_chat": True,
         "sidebar_sections": [
             {"key": "ordner", "visible": True},

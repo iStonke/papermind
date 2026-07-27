@@ -47,6 +47,7 @@ class SettingsValidationTest(unittest.TestCase):
                     "previewDrawerGradientEnabled": False,
                     "drawerRememberState": True,
                     "tagDrawerRememberState": False,
+                    "sidebar_show_favorites": False,
                 }
             }
         )
@@ -54,6 +55,7 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertIs(payload.ui.previewDrawerGradientEnabled, False)
         self.assertIs(payload.ui.drawerRememberState, True)
         self.assertIs(payload.ui.tagDrawerRememberState, False)
+        self.assertIs(payload.ui.sidebar_show_favorites, False)
 
     def test_ui_new_toggle_defaults_present_in_read_model(self) -> None:
         payload = AppSettingsRead.model_validate({})
@@ -61,6 +63,7 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertIs(payload.ui.previewDrawerGradientEnabled, True)
         self.assertIs(payload.ui.drawerRememberState, True)
         self.assertIs(payload.ui.tagDrawerRememberState, True)
+        self.assertIs(payload.ui.sidebar_show_favorites, True)
         self.assertIs(payload.documents.auto_open_import_inbox, False)
         self.assertEqual(payload.documents.recent_import_window_hours, 24)
 

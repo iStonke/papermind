@@ -274,7 +274,6 @@
                   v-for="(section, index) in sidebarSectionsDraft"
                   :key="section.key"
                   class="settings-sidebar-section-row"
-                  :class="{ 'settings-sidebar-section-row--hidden': !section.visible }"
                 >
                   <div class="settings-sidebar-section-reorder">
                     <button
@@ -384,6 +383,23 @@
 
               <div class="pm-setting-row settings-sidebar-library-row">
                 <div class="pm-setting-content">
+                  <div class="pm-setting-label">Favoriten</div>
+                  <div class="pm-setting-description">Bibliothek-Eintrag in der Seitenleiste anzeigen.</div>
+                </div>
+                <v-switch
+                  :model-value="settingsDraft.ui.sidebar_show_favorites"
+                  color="primary"
+                  density="comfortable"
+                  hide-details
+                  inset
+                  :loading="isSettingSaving.sidebar_show_favorites"
+                  :disabled="isSettingSaving.sidebar_show_favorites"
+                  @update:model-value="onSidebarShowFavoritesChange"
+                />
+              </div>
+
+              <div class="pm-setting-row settings-sidebar-library-row">
+                <div class="pm-setting-content">
                   <div class="pm-setting-label">Nicht durchsuchbar</div>
                   <div class="pm-setting-description">Bibliothek-Eintrag in der Seitenleiste anzeigen.</div>
                 </div>
@@ -402,7 +418,7 @@
               <div class="pm-setting-row settings-sidebar-library-row">
                 <div class="pm-setting-content">
                   <div class="pm-setting-label">KI-Chat</div>
-                  <div class="pm-setting-description">Bibliothek-Eintrag in der Seitenleiste anzeigen.</div>
+                  <div class="pm-setting-description">Eintrag unter „Übersicht“ in der Seitenleiste anzeigen.</div>
                 </div>
                 <v-switch
                   :model-value="settingsDraft.ui.sidebar_show_chat"
@@ -2149,6 +2165,7 @@ import {
   buildTagDrawerRememberStatePatch,
   buildSidebarShowRecentPatch,
   buildSidebarShowUntaggedPatch,
+  buildSidebarShowFavoritesPatch,
   buildSidebarShowNoTextPatch,
   buildSidebarShowChatPatch,
   buildOcrDocLangPatch,
@@ -3679,6 +3696,19 @@ async function onSidebarShowUntaggedChange(nextValue) {
     patch: buildSidebarShowUntaggedPatch(nextBool),
     controlKey: 'sidebar_show_untagged',
     revert: () => settingsStore.setDraftPatch({ ui: { sidebar_show_untagged: previous } })
+  });
+}
+
+async function onSidebarShowFavoritesChange(nextValue) {
+  if (isSettingSaving.sidebar_show_favorites) return;
+  const nextBool = Boolean(nextValue);
+  if (nextBool === settingsDraft.ui.sidebar_show_favorites) return;
+  const previous = settingsDraft.ui.sidebar_show_favorites;
+  settingsStore.setDraftPatch({ ui: { sidebar_show_favorites: nextBool } });
+  await patchSettingsWithRevert({
+    patch: buildSidebarShowFavoritesPatch(nextBool),
+    controlKey: 'sidebar_show_favorites',
+    revert: () => settingsStore.setDraftPatch({ ui: { sidebar_show_favorites: previous } })
   });
 }
 

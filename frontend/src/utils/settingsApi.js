@@ -30,6 +30,10 @@ export function buildSidebarShowUntaggedPatch(enabled) {
   return { ui: { sidebar_show_untagged: Boolean(enabled) } };
 }
 
+export function buildSidebarShowFavoritesPatch(enabled) {
+  return { ui: { sidebar_show_favorites: Boolean(enabled) } };
+}
+
 export function buildSidebarShowNoTextPatch(enabled) {
   return { ui: { sidebar_show_no_text: Boolean(enabled) } };
 }

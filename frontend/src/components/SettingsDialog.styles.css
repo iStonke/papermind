@@ -409,10 +409,6 @@
   transition: opacity 0.15s ease, border-color 0.15s ease;
 }
 
-.settings-sidebar-section-row--hidden {
-  opacity: 0.55;
-}
-
 .settings-sidebar-section-reorder {
   display: flex;
   flex-direction: column;
