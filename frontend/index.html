@@ -3,6 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Safari färbt den Bereich oberhalb der Seite anhand von theme-color.
+         Ohne diese Angabe bleibt er weiß, obwohl der PDF-Viewer getönt ist. -->
+    <meta name="theme-color" content="#e7eef0" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1a2326" media="(prefers-color-scheme: dark)" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>PaperMind</title>
   </head>

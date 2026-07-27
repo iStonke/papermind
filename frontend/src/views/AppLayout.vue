@@ -61,7 +61,9 @@ function resolveThemeName(mode) {
 }
 
 function applyTheme() {
-  theme.global.name.value = resolveThemeName(settingsDraft.ui.theme_mode);
+  const themeName = resolveThemeName(settingsDraft.ui.theme_mode);
+  theme.global.name.value = themeName;
+  document.documentElement.dataset.theme = themeName;
   applyPaperMindVuetifyColors(theme, settingsDraft.ui.color_variant || 'teal');
 }
 

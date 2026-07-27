@@ -40,11 +40,11 @@ const NEUTRAL_LIGHT = {
   surfaceHover: '#F0F6F7',
   sidebar: '#152A31',      // --pm-sidebar-bg (dunkle Tinte)
   panelMid: '#FFFFFF',     // --pm-surface-list
-  panelRight: '#F0F6F7',   // --pm-surface-reader (leicht getönt)
+  panelRight: '#E7EEF0',   // --pm-surface-reader (getönt, klar sichtbar)
   card: '#FFFFFF',
   cardHover: '#F0F6F7',
   cardActive: '#DBF3F6',   // --pm-selected
-  pdfStage: '#F0F6F7',
+  pdfStage: '#E7EEF0',
   text: '#0E181B',
   textMuted: '#535E62',
   divider: '#D8DFE1',

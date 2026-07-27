@@ -162,6 +162,10 @@ const drawerStyle = computed(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* Der Wrapper schließt den Bereich oberhalb des PDF-Viewers. Er muss
+     dieselbe Stage-Farbe tragen wie die PDF-Seitenfläche, damit dort keine
+     weiße App-Oberfläche sichtbar wird. */
+  background: var(--pm-pdf-stage-bg, var(--pm-viewer-surface));
 }
 
 .preview-layout--floating-card {
@@ -204,6 +208,7 @@ const drawerStyle = computed(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: var(--pm-pdf-stage-bg, var(--pm-viewer-surface));
 }
 
 .preview-layout__drawer {

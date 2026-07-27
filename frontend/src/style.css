@@ -1,5 +1,6 @@
 :root {
   font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --pm-browser-chrome-bg: #e7eef0;
   --pm-modal-radius: 14px;
   --pm-modal-bg: #ffffff;
   --pm-stage-bg: #f0f6f7;
@@ -24,10 +25,15 @@
 }
 
 :root[data-theme="light"] {
+  --pm-browser-chrome-bg: #e7eef0;
   --pm-modal-bg: #ffffff;
   --pm-stage-bg: #f0f6f7;
   --pm-stage-header-bg: #e7eef0;
   --pm-stage-border: #d8dfe1;
+}
+
+:root[data-theme="dark"] {
+  --pm-browser-chrome-bg: #1a2326;
 }
 
 html,
@@ -37,7 +43,9 @@ body,
   width: 100%;
   min-height: 100%;
   height: 100%;
-  background-color: rgb(var(--v-theme-background, 244, 245, 248));
+  /* Safari 26 leitet die Farbe des Bereichs oberhalb der Webseite aus der
+     Wurzelfläche ab. Deshalb entspricht sie der PDF-Vorschaufläche. */
+  background-color: var(--pm-browser-chrome-bg);
   color: rgb(var(--v-theme-on-surface, 29, 36, 48));
 }
 

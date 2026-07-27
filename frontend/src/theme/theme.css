@@ -74,10 +74,10 @@
   --pm-app-surface:          #ffffff;
   --pm-content-surface:      #ffffff;
   --pm-sidebar-surface:      #152a31;
-  --pm-viewer-surface:       #f0f6f7;
+  --pm-viewer-surface:       #e7eef0;
   --pm-app-surface-raised:   #ffffff;
   --pm-app-surface-contrast: #ffffff;
-  --pm-pdf-stage-bg:         #f0f6f7;
+  --pm-pdf-stage-bg:         #e7eef0;
   --pm-pdf-page-bg:          #ffffff;
   --pm-document-row-bg:      #ffffff;
   --pm-appbar-bg:            #152a31;

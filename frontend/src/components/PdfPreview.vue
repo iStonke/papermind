@@ -2375,7 +2375,7 @@ onBeforeUnmount(() => {
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
 .pdf-preview__toolbar {
   position: absolute;
-  top: 24px;
+  top: 12px;
   left: 50%;
   right: auto;
   transform: translateX(-50%);
@@ -2738,9 +2738,10 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   gap: 14px;
-  /* Oben denselben getönten Abstand wie seitlich/unten, damit die erste Seite
-     nicht an der Oberkante klebt, sondern sauber auf der Stage schwebt. */
-  padding: 14px;
+  /* Die erste Seite beginnt bündig mit der Oberkante des Vorschaubereichs und
+     damit auf einer Höhe mit dem linken Container. Seitlich und unten bleibt
+     der Abstand zur Stage erhalten. */
+  padding: 0 14px 14px;
 }
 
 .pdf-preview__pages:focus {
