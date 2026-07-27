@@ -10702,6 +10702,9 @@ onBeforeUnmount(() => {
 .panel-right {
   border-right: 0;
   overflow: hidden;
+  /* Getönte Vorschau-Fläche auch als Spalten-Hintergrund, damit der oberste
+     Streifen nicht die weiße App-Fläche durchscheinen lässt (Naht zum „Papier"). */
+  background: var(--pm-viewer-surface);
 }
 
 .panel-right__preview {

@@ -2738,7 +2738,9 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   gap: 14px;
-  padding: 0 14px 14px;
+  /* Oben denselben getönten Abstand wie seitlich/unten, damit die erste Seite
+     nicht an der Oberkante klebt, sondern sauber auf der Stage schwebt. */
+  padding: 14px;
 }
 
 .pdf-preview__pages:focus {
