@@ -10135,18 +10135,18 @@ onBeforeUnmount(() => {
 
 .document-row:hover {
   background: var(--pm-row-hover);
-  border-color: rgba(59, 130, 246, 0.16);
+  border-color: color-mix(in srgb, var(--pm-accent) 16%, transparent);
 }
 
 .document-row--active {
   background: var(--pm-row-active);
-  border-color: rgba(59, 130, 246, 0.22);
+  border-color: color-mix(in srgb, var(--pm-accent) 30%, transparent);
   box-shadow: inset 3px 0 0 rgba(var(--v-theme-primary), 0.9);
 }
 
 .document-row--active:hover {
   background: var(--pm-row-active);
-  border-color: rgba(59, 130, 246, 0.28);
+  border-color: color-mix(in srgb, var(--pm-accent) 38%, transparent);
 }
 
 .papermind-app.v-theme--light .panel-middle,
@@ -10478,7 +10478,7 @@ onBeforeUnmount(() => {
 }
 
 .papermind-app.v-theme--dark .document-row__unread-dot {
-  background: rgba(147, 167, 255, 0.9);
+  background: color-mix(in srgb, var(--pm-accent) 90%, transparent);
 }
 
 .document-row__name {
