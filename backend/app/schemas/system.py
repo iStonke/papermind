@@ -28,6 +28,8 @@ class DiskStatus(BaseModel):
     used_bytes: int | None = None
     free_bytes: int | None = None
     used_percent: float | None = None
+    document_bytes: int | None = None
+    system_bytes: int | None = None
 
 
 class TemperatureStatus(BaseModel):

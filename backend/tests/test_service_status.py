@@ -55,6 +55,38 @@ class ServiceStatusTest(unittest.TestCase):
         self.assertEqual(host.hostname, "papermind-pi")
         self.assertEqual(host.os, "Pi OS")
 
+    @patch("app.services.system_status._storage_footprint_bytes", return_value=200_000)
+    @patch("app.services.system_status.os.statvfs")
+    def test_disk_separates_document_and_system_usage(self, statvfs, _footprint) -> None:
+        statvfs.return_value = SimpleNamespace(
+            f_blocks=1_000,
+            f_bfree=250,
+            f_bavail=250,
+            f_frsize=1_024,
+        )
+
+        disk = system_status._disk_for("Dokumente", "/data/storage")
+
+        self.assertIsNotNone(disk)
+        self.assertEqual(disk.document_bytes, 200_000)
+        self.assertEqual(disk.system_bytes, 568_000)
+
+    @patch("app.services.system_status._storage_footprint_bytes", return_value=900_000)
+    @patch("app.services.system_status.os.statvfs")
+    def test_disk_footprint_is_capped_to_used_space(self, statvfs, _footprint) -> None:
+        statvfs.return_value = SimpleNamespace(
+            f_blocks=1_000,
+            f_bfree=250,
+            f_bavail=250,
+            f_frsize=1_024,
+        )
+
+        disk = system_status._disk_for("Dokumente", "/data/storage")
+
+        self.assertIsNotNone(disk)
+        self.assertEqual(disk.document_bytes, 768_000)
+        self.assertEqual(disk.system_bytes, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

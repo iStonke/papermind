@@ -52,6 +52,7 @@ settings = get_settings()
 _COMMAND_FILENAME = "command"
 _VALID_ACTIONS = ("poweroff", "reboot")
 _SERVICE_TIMEOUT_SECONDS = 2.5
+_STORAGE_FOOTPRINT_CACHE_SECONDS = 60.0
 _SERVICE_LABELS = {
     "backend": "Backend",
     "database": "Datenbank",
@@ -59,6 +60,12 @@ _SERVICE_LABELS = {
     "ollama": "Ollama",
     "ocr": "OCR",
 }
+
+# Das Archiv wird in der Systemansicht alle vier Sekunden aktualisiert. Seine
+# Größe wird daher bewusst nur einmal pro Minute ermittelt: Ein vollständiger
+# Dateisystem-Durchlauf für jede Aktualisierung wäre bei größeren Archiven
+# unnötig teuer.
+_storage_footprint_cache: dict[str, tuple[float, int | None]] = {}
 
 
 def _read_text(path: str | Path) -> str | None:
@@ -171,6 +178,40 @@ def _collect_memory() -> MemoryStatus:
 
 # ── Disk ──────────────────────────────────────────────────────────────────
 
+def _storage_footprint_bytes(path: str) -> int | None:
+    """Ermittelt den tatsächlich belegten Platz im Dokument-Volume.
+
+    ``st_blocks`` berücksichtigt die auf dem Dateisystem belegten Blöcke und
+    ist damit aussagekräftiger als die logische Dateigröße, etwa bei sparsamen
+    Dateien. Nicht lesbare Einträge werden übersprungen, damit eine einzelne
+    defekte Datei die Systemanzeige nicht ausfallen lässt.
+    """
+    now = time.monotonic()
+    cached = _storage_footprint_cache.get(path)
+    if cached and now - cached[0] < _STORAGE_FOOTPRINT_CACHE_SECONDS:
+        return cached[1]
+
+    if not os.path.isdir(path):
+        _storage_footprint_cache[path] = (now, None)
+        return None
+
+    total = 0
+    try:
+        for root, _directories, files in os.walk(path, followlinks=False):
+            for filename in files:
+                try:
+                    file_status = os.stat(os.path.join(root, filename), follow_symlinks=False)
+                except OSError:
+                    continue
+                total += getattr(file_status, "st_blocks", 0) * 512
+    except OSError:
+        _storage_footprint_cache[path] = (now, None)
+        return None
+
+    _storage_footprint_cache[path] = (now, total)
+    return total
+
+
 def _disk_for(label: str, path: str) -> DiskStatus | None:
     try:
         st = os.statvfs(path)
@@ -179,7 +220,23 @@ def _disk_for(label: str, path: str) -> DiskStatus | None:
     total = st.f_blocks * st.f_frsize
     free = st.f_bavail * st.f_frsize
     used = total - st.f_bfree * st.f_frsize
-    status = DiskStatus(label=label, path=path, total_bytes=total, free_bytes=free, used_bytes=used)
+    document_bytes = _storage_footprint_bytes(path)
+    # Das Dokument-Volume liegt auf derselben Platte wie die Systemdaten. Die
+    # Differenz bildet deshalb Betriebssystem, Docker und weitere Host-Daten ab.
+    # Metadaten des Dateisystems können den Volume-Fußabdruck geringfügig
+    # verändern; die Werte werden für eine konsistente Balkendarstellung gedeckelt.
+    if document_bytes is not None:
+        document_bytes = min(document_bytes, used)
+
+    status = DiskStatus(
+        label=label,
+        path=path,
+        total_bytes=total,
+        free_bytes=free,
+        used_bytes=used,
+        document_bytes=document_bytes,
+        system_bytes=used - document_bytes if document_bytes is not None else None,
+    )
     if total > 0:
         status.used_percent = round(used / total * 100.0, 1)
     return status

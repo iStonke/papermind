@@ -118,15 +118,30 @@
         </div>
         <div v-for="disk in status.disks" :key="disk.path" class="sys-disk">
           <div class="sys-disk__top">
-            <span class="sys-disk__label">{{ disk.label }}</span>
+            <span class="sys-disk__label">Belegt</span>
             <span class="sys-disk__detail">
               {{ formatBytes(disk.used_bytes) }} / {{ formatBytes(disk.total_bytes) }}
               <span class="sys-disk__free">· {{ formatBytes(disk.free_bytes) }} frei</span>
             </span>
           </div>
+          <div v-if="hasDiskBreakdown(disk)" class="sys-disk__legend" aria-label="Aufteilung des belegten Speicherplatzes">
+            <span class="sys-disk__legend-item">
+              <i class="sys-disk__swatch sys-disk__swatch--documents" />
+              Dokumente {{ formatBytes(disk.document_bytes) }}
+            </span>
+            <span class="sys-disk__legend-item">
+              <i class="sys-disk__swatch sys-disk__swatch--system" />
+              System {{ formatBytes(disk.system_bytes) }}
+            </span>
+          </div>
           <div class="sys-disk__bar">
+            <template v-if="hasDiskBreakdown(disk)">
+              <div class="sys-disk__segment sys-disk__segment--documents" :style="{ width: `${diskPercent(disk, disk.document_bytes)}%` }" />
+              <div class="sys-disk__segment sys-disk__segment--system" :style="{ width: `${diskPercent(disk, disk.system_bytes)}%` }" />
+            </template>
             <div
-              class="sys-disk__fill"
+              v-else
+              class="sys-disk__segment"
               :style="{ width: `${Math.min(100, disk.used_percent ?? 0)}%`, background: levelColor(disk.used_percent, 75, 90) }"
             />
           </div>
@@ -309,6 +324,15 @@ function formatBytes(bytes) {
   }
   const digits = value >= 100 || i <= 1 ? 0 : 1;
   return `${value.toFixed(digits)} ${units[i]}`;
+}
+
+function hasDiskBreakdown(disk) {
+  return disk?.document_bytes != null && disk?.system_bytes != null;
+}
+
+function diskPercent(disk, bytes) {
+  if (!disk?.total_bytes || bytes == null) return 0;
+  return Math.min(100, Math.max(0, (bytes / disk.total_bytes) * 100));
 }
 
 function sparkPoints(history, max) {
@@ -523,15 +547,38 @@ const uptimeLabel = computed(() => {
   text-align: right;
 }
 .sys-disk__free { opacity: 0.7; }
+.sys-disk__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-bottom: 6px;
+  font-size: 0.73rem;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+.sys-disk__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.sys-disk__swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.sys-disk__swatch--documents,
+.sys-disk__segment--documents { background: #3fae6a; }
+.sys-disk__swatch--system,
+.sys-disk__segment--system { background: #8373d1; }
 .sys-disk__bar {
   height: 9px;
   border-radius: 6px;
   background: rgba(var(--v-theme-on-surface), 0.1);
   overflow: hidden;
+  display: flex;
 }
-.sys-disk__fill {
+.sys-disk__segment {
   height: 100%;
-  border-radius: 6px;
   transition: width 0.6s ease, background 0.4s ease;
 }
 
