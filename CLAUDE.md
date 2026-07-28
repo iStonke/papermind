@@ -8,7 +8,11 @@ Bridge `com.papermind.pi-bridge` verwenden. Sie läuft als macOS-LaunchAgent,
 im Mac-Benutzerkontext aus.
 
 - Aufrufe nur über `python3 scripts/pi_bridge.py <aktion>`: `status`,
-  `restore_drill` oder `recovery_check`.
+  `restore_drill`, `recovery_check` oder `quiet_fan_profile`.
+- `quiet_fan_profile` schreibt nur die fest hinterlegte, reversible
+  PaperMind-Lüfterkennlinie nach `/boot/firmware/config.txt`, sichert die
+  vorherige Datei als `.papermind-fan.bak` und löst keinen Neustart aus.
+  Den dafür erforderlichen Neustart nie ohne ausdrückliche Freigabe ausführen.
 - Falls die Bridge nicht erreichbar ist, den Dienst gezielt neu starten:
   `launchctl kickstart -k gui/$(id -u)/com.papermind.pi-bridge`.
 - Der Unix-Socket ist auf `0600` beschränkt. Nie frei formulierte
