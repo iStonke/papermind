@@ -15,6 +15,15 @@ class BackupConfigPatch(BaseModel):
     time: str | None = Field(default=None, max_length=5)
     weekday: int | None = Field(default=None, ge=0, le=6)
     retention: int | None = Field(default=None, ge=1, le=365)
+    retention_daily: int | None = Field(default=None, ge=1, le=365)
+    retention_weekly: int | None = Field(default=None, ge=0, le=260)
+    retention_monthly: int | None = Field(default=None, ge=0, le=120)
+    secondary_enabled: bool | None = None
+    secondary_nas_host: str | None = Field(default=None, max_length=255)
+    secondary_nas_share: str | None = Field(default=None, max_length=255)
+    secondary_nas_folder: str | None = Field(default=None, max_length=255)
+    secondary_nas_username: str | None = Field(default=None, max_length=255)
+    secondary_nas_password: str | None = Field(default=None, max_length=255)
 
     @field_validator("frequency")
     @classmethod
@@ -38,7 +47,16 @@ class BackupConfigPatch(BaseModel):
             raise ValueError("time must be HH:MM (24h)")
         return normalized
 
-    @field_validator("nas_host", "nas_share", "nas_folder", "nas_username")
+    @field_validator(
+        "nas_host",
+        "nas_share",
+        "nas_folder",
+        "nas_username",
+        "secondary_nas_host",
+        "secondary_nas_share",
+        "secondary_nas_folder",
+        "secondary_nas_username",
+    )
     @classmethod
     def strip_text(cls, value: str | None) -> str | None:
         if value is None:
@@ -52,6 +70,7 @@ class BackupStatusResponse(BaseModel):
     last_success_at: datetime | None = None
     next_run_at: datetime | None = None
     is_running: bool = False
+    last_restore_test_at: datetime | None = None
 
 
 class BackupTestResponse(BaseModel):
@@ -69,6 +88,9 @@ class BackupArchiveItem(BaseModel):
     size_bytes: int = 0
     created_at: datetime | None = None
     complete: bool = True
+    verified: bool = False
+    encrypted: bool = False
+    format_version: int | None = None
 
 
 class BackupArchiveListResponse(BaseModel):
@@ -95,3 +117,5 @@ class BackupRestoreStatusResponse(BaseModel):
     error: str | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    verified_at: datetime | None = None
+    safety_backup: str | None = None

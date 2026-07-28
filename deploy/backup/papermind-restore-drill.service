@@ -1,0 +1,17 @@
+[Unit]
+Description=PaperMind isolated restore verification
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+User=jan
+Group=jan
+WorkingDirectory=/home/jan/papermind
+ExecStart=/home/jan/papermind/scripts/prod_pi_restore_drill.sh --confirm-production
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target

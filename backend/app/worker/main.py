@@ -1454,6 +1454,7 @@ def _run_backup_scheduler() -> None:
             config = service.get_config()
             if not config.get("enabled"):
                 return
+            service.maybe_alert_stale()
             running = db.execute(select(BackupRun).where(BackupRun.status == "running").limit(1)).scalar_one_or_none()
             if running is not None:
                 return
@@ -1502,6 +1503,11 @@ def _run_scanner_dispatch_loop(stop_event: threading.Event) -> None:
     """
     logger.info("scanner dispatch loop started interval=%ss", SCANNER_CONFIG_SYNC_INTERVAL_SECONDS)
     while not stop_event.is_set():
+        from app.services.maintenance import is_maintenance_active
+
+        if is_maintenance_active():
+            stop_event.wait(SCANNER_CONFIG_SYNC_INTERVAL_SECONDS)
+            continue
         try:
             _sync_scanner_live_mode_config()
             _sync_scanner_scan_status()
@@ -1550,6 +1556,12 @@ def run() -> None:
     last_memory_log_at = time.monotonic()
     last_job_reclaim_at = time.monotonic()
     while True:
+        from app.services.maintenance import is_maintenance_active
+
+        if is_maintenance_active():
+            _touch_worker_health(state="maintenance")
+            time.sleep(settings.worker_poll_interval_seconds)
+            continue
         now_monotonic = time.monotonic()
         _touch_worker_health(state="idle")
         if now_monotonic - last_job_reclaim_at >= JOB_RECLAIM_INTERVAL_SECONDS:

@@ -332,10 +332,45 @@ else
   warn "deploy/host-control nicht gefunden – Power-Aktionen bleiben deaktiviert."
 fi
 
+# Monatlicher, vollständig isolierter Restore-Drill. Der Service läuft als der
+# eingeloggte Benutzer, damit er dessen Docker-Zugriff und Projektdateien nutzt.
+if [[ -x "$REPO_DIR/scripts/prod_pi_restore_drill.sh" ]]; then
+  sudo tee /etc/systemd/system/papermind-restore-drill.service >/dev/null <<UNIT
+[Unit]
+Description=PaperMind isolated restore verification
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+User=${USER}
+Group=${USER}
+WorkingDirectory=${REPO_DIR}
+ExecStart=${REPO_DIR}/scripts/prod_pi_restore_drill.sh --confirm-production
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+UNIT
+  sudo cp "$REPO_DIR/deploy/backup/papermind-restore-drill.timer" /etc/systemd/system/
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now papermind-restore-drill.timer >/dev/null
+  success "Monatlicher Restore-Drill aktiviert"
+fi
+
 # ── 8. Images bauen & Stack starten ──────────────────────────────────────────
 header "8 / 9  Docker Images bauen & Stack starten"
 
 cd "$REPO_DIR"
+
+BACKUP_SECRET_DIR="$REPO_DIR/.runtime/secrets"
+BACKUP_SECRET_FILE="$BACKUP_SECRET_DIR/backup.key"
+install -d -m 0700 "$BACKUP_SECRET_DIR"
+if [[ ! -s "$BACKUP_SECRET_FILE" ]]; then
+  umask 077
+  openssl rand -base64 32 >"$BACKUP_SECRET_FILE"
+  success "Backup-Verschlüsselungsschlüssel erzeugt. Bitte $BACKUP_SECRET_FILE offline sichern."
+fi
+chmod 0600 "$BACKUP_SECRET_FILE"
 
 if [[ "$NO_START" -eq 1 ]]; then
   warn "--no-start gesetzt: Überspringe docker compose up."

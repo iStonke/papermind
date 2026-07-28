@@ -46,7 +46,28 @@ trap cleanup EXIT
 
 report_error() {
   local exit_code=$?
-  echo "FAIL: restore drill stopped at line ${BASH_LINENO[0]} (exit ${exit_code})." >&2
+  local failed_line="${BASH_LINENO[0]}"
+  trap - ERR
+  set +e
+  if [[ -n "${backend_id}" ]]; then
+    "${compose[@]}" exec -T \
+      -e PM_RESTORE_ARCHIVE="${archive_name:-unknown}" \
+      -e PM_RESTORE_ERROR="Restore drill failed at line ${failed_line} (exit ${exit_code})." \
+      backend python -c '
+import os
+from datetime import datetime, timezone
+from app.services.backup import BackupService, write_restore_drill_status
+message = os.environ["PM_RESTORE_ERROR"]
+write_restore_drill_status({
+    "status": "failed",
+    "archive": os.environ.get("PM_RESTORE_ARCHIVE"),
+    "error": message,
+    "finished_at": datetime.now(timezone.utc).isoformat(),
+})
+BackupService._send_alert("restore_drill_failed", message)
+' >/dev/null 2>&1
+  fi
+  echo "FAIL: restore drill stopped at line ${failed_line} (exit ${exit_code})." >&2
   exit "${exit_code}"
 }
 trap report_error ERR
@@ -97,17 +118,22 @@ echo "[2/7] Downloading ${archive_name} into an isolated temporary directory ...
 import os
 from pathlib import Path
 from app.db.session import SessionLocal
-from app.services.backup import BackupService, _SmbTarget
+from app.services.backup import BackupService
 
 destination = Path(os.environ["PM_RESTORE_SOURCE_DIR"])
 destination.mkdir(parents=True, exist_ok=True)
 db = SessionLocal()
 try:
     service = BackupService(db)
-    target = _SmbTarget.from_config(service.get_config())
-    target.validate()
-    BackupService._download(target, os.environ["PM_RESTORE_ARCHIVE"], "database.dump", destination / "database.dump")
-    BackupService._download(target, os.environ["PM_RESTORE_ARCHIVE"], "storage.tar.gz", destination / "storage.tar.gz")
+    errors = []
+    for label, target in service._targets(service.get_config()):
+        try:
+            service._download_and_prepare_archive(target, os.environ["PM_RESTORE_ARCHIVE"], destination)
+            break
+        except Exception as exc:
+            errors.append(f"{label}: {exc}")
+    else:
+        raise RuntimeError("No backup target could provide the archive: " + " | ".join(errors))
 finally:
     db.close()
 '
@@ -167,7 +193,7 @@ for child in source.iterdir():
 echo "[5/7] Verifying restored document files against database storage keys ..."
 docker exec -e PGPASSWORD="${db_password}" "${db_container}" \
   psql -At -U restore_user -d papermind_restore -c \
-  'SELECT storage_key FROM documents WHERE storage_key IS NOT NULL AND NOT is_deleted ORDER BY storage_key' \
+  'SELECT storage_key FROM documents WHERE storage_key IS NOT NULL UNION SELECT file_key FROM document_files WHERE file_key IS NOT NULL ORDER BY 1' \
   | docker run --rm -i -v "${storage_volume}:/restore:ro" --entrypoint python "${backend_image}" -c '
 import sys
 from pathlib import Path
@@ -178,6 +204,28 @@ missing = [key for key in keys if not (root / key).is_file()]
 assert not missing, f"Missing restored document files: {missing[:5]}"
 print(f"verified storage keys: {len(keys)}")
 '
+
+if [[ -s "${drill_dir}/input/manifest.json" ]]; then
+  echo "[5b/7] Verifying table counts and document metadata fingerprint ..."
+  docker run --rm --network "${network_name}" \
+    -e DATABASE_URL="postgresql://restore_user:${db_password}@papermind-restore-db:5432/papermind_restore" \
+    -v "${drill_dir}/input:/input:ro" \
+    --entrypoint python "${backend_image}" -c '
+import json
+import os
+import psycopg
+from app.services.backup import BackupService
+
+manifest = json.load(open("/input/manifest.json", encoding="utf-8"))
+with psycopg.connect(os.environ["DATABASE_URL"]) as connection:
+    actual = BackupService._snapshot_database_metadata(connection)
+expected = manifest["database"]
+assert actual["counts"] == expected["counts"], "restored table counts differ from manifest"
+assert actual["document_metadata_sha256"] == expected["document_metadata_sha256"], "metadata fingerprint differs"
+assert actual["storage_keys_sha256"] == expected["storage_keys_sha256"], "storage-key fingerprint differs"
+print("metadata fingerprint verified")
+'
+fi
 
 echo "[6/7] Starting an isolated backend against the restored data ..."
 database_url="postgresql://restore_user:${db_password}@papermind-restore-db:5432/papermind_restore"
@@ -205,5 +253,20 @@ if [[ -n "${document_id}" ]]; then
   docker exec "${app_container}" python -c \
     "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:8040/api/documents/${document_id}/file', timeout=10).status == 200"
 fi
+
+"${compose[@]}" exec -T \
+  -e PM_RESTORE_ARCHIVE="${archive_name}" \
+  -e PM_RESTORE_DOCUMENTS="${document_count}" \
+  backend python -c '
+import os
+from datetime import datetime, timezone
+from app.services.backup import write_restore_drill_status
+write_restore_drill_status({
+    "status": "success",
+    "archive": os.environ["PM_RESTORE_ARCHIVE"],
+    "documents": int(os.environ["PM_RESTORE_DOCUMENTS"]),
+    "verified_at": datetime.now(timezone.utc).isoformat(),
+})
+'
 
 echo "PASS: restore drill succeeded for ${archive_name} (revision ${revision}, documents ${document_count})."

@@ -122,9 +122,46 @@ validate_db_revision_is_known() {
   fi
 }
 
+ensure_backup_encryption_key() {
+  local secret_dir secret_file
+  secret_dir="${REPO_DIR}/.runtime/secrets"
+  secret_file="${secret_dir}/backup.key"
+  install -d -m 0700 "${secret_dir}"
+  if [[ ! -s "${secret_file}" ]]; then
+    umask 077
+    openssl rand -base64 32 >"${secret_file}"
+    echo "Backup encryption key generated at ${secret_file}. Keep an offline copy for disaster recovery."
+  fi
+  chmod 0600 "${secret_file}"
+}
+
+install_restore_drill_timer() {
+  local service_source timer_source
+  service_source="${REPO_DIR}/deploy/backup/papermind-restore-drill.service"
+  timer_source="${REPO_DIR}/deploy/backup/papermind-restore-drill.timer"
+  if ! command -v systemctl >/dev/null 2>&1 || [[ ! -f "${service_source}" || ! -f "${timer_source}" ]]; then
+    return 0
+  fi
+  if [[ "${EUID}" -eq 0 ]]; then
+    install -m 0644 "${service_source}" /etc/systemd/system/papermind-restore-drill.service
+    install -m 0644 "${timer_source}" /etc/systemd/system/papermind-restore-drill.timer
+    systemctl daemon-reload
+    systemctl enable --now papermind-restore-drill.timer >/dev/null
+  elif sudo -n true >/dev/null 2>&1; then
+    sudo install -m 0644 "${service_source}" /etc/systemd/system/papermind-restore-drill.service
+    sudo install -m 0644 "${timer_source}" /etc/systemd/system/papermind-restore-drill.timer
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now papermind-restore-drill.timer >/dev/null
+  else
+    echo "Warning: restore-drill timer was not installed because passwordless sudo is unavailable." >&2
+    echo "Run scripts/setup_pi.sh once or install deploy/backup/papermind-restore-drill.* manually." >&2
+  fi
+}
+
 if [[ "${RUN_COMPOSE}" -eq 1 ]]; then
   compose_cmd=(docker compose)
   if [[ "${RUN_PROD}" -eq 1 ]]; then
+    ensure_backup_encryption_key
     compose_cmd+=(--env-file .env.prod -f docker-compose.prod.yml)
     validate_db_revision_is_known
   fi
@@ -134,6 +171,9 @@ if [[ "${RUN_COMPOSE}" -eq 1 ]]; then
   fi
   echo "Running: ${compose_cmd[*]} ${compose_args[*]}"
   "${compose_cmd[@]}" "${compose_args[@]}"
+  if [[ "${RUN_PROD}" -eq 1 ]]; then
+    install_restore_drill_timer
+  fi
 fi
 
 if [[ "${RUN_WORKER}" -eq 1 ]]; then

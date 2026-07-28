@@ -1,0 +1,11 @@
+[Unit]
+Description=Verify a PaperMind backup by restoring it monthly
+
+[Timer]
+OnCalendar=Sun *-*-01..07 04:30:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=papermind-restore-drill.service
+
+[Install]
+WantedBy=timers.target

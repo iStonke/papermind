@@ -1827,62 +1827,27 @@
               </template>
             </SettingsInfoCard>
 
-            <div class="backup-card" :class="`backup-card--${backupCardKind}`">
-              <div class="backup-card__main">
-                <div class="backup-card__icon">
-                  <v-progress-circular v-if="backupBusy" indeterminate size="24" width="3" />
-                  <v-icon v-else size="28">{{ backupStatusIcon }}</v-icon>
+            <div class="backup-summary" :class="`backup-summary--${backupCardKind}`">
+              <div class="backup-summary__head">
+                <div class="backup-summary__icon">
+                  <v-progress-circular v-if="backupBusy" indeterminate size="22" width="3" />
+                  <v-icon v-else size="22">{{ backupStatusIcon }}</v-icon>
                 </div>
-                <div class="backup-card__info">
-                  <div class="backup-card__state">{{ backupStateLabel }}</div>
-                  <div class="backup-card__detail">{{ backupLastLabel }}</div>
+                <div class="backup-summary__headline">
+                  <div class="backup-summary__title-row">
+                    <span class="backup-summary__title">{{ backupStateLabel }}</span>
+                    <span
+                      v-if="backup.enabled && backup.encryption_configured"
+                      class="backup-tag backup-tag--ok"
+                    >
+                      <v-icon size="13">mdi-lock-check-outline</v-icon>
+                      Verschlüsselt
+                    </span>
+                  </div>
+                  <div class="backup-summary__meta">Letzte Sicherung: {{ backupLastLabel }}</div>
                 </div>
-                <div v-if="backup.enabled" class="backup-card__next">
-                  <div class="backup-card__next-label">Nächster Lauf</div>
-                  <div class="backup-card__next-value">{{ backupNextLabel }}</div>
-                </div>
-              </div>
-
-              <div class="backup-card__section">
-                <div class="backup-card__section-head">
-                  <span class="backup-card__section-title">Zeitplan</span>
-                  <v-btn
-                    variant="text"
-                    size="x-small"
-                    :loading="backupSaving"
-                    prepend-icon="mdi-content-save-outline"
-                    @click="saveBackup"
-                  >
-                    Speichern
-                  </v-btn>
-                </div>
-                <div class="backup-grid backup-grid--tight">
-                  <v-select
-                    v-model="backup.frequency"
-                    :items="[{ title: 'Täglich', value: 'daily' }, { title: 'Wöchentlich', value: 'weekly' }]"
-                    label="Häufigkeit"
-                    density="compact"
-                    variant="outlined"
-                    hide-details
-                    :menu-props="{ attach: 'body', zIndex: 6000 }"
-                  />
-                  <v-text-field v-model="backup.time" label="Uhrzeit" placeholder="03:00" density="compact" variant="outlined" hide-details />
-                  <v-select
-                    v-if="backup.frequency === 'weekly'"
-                    v-model="backup.weekday"
-                    :items="backupWeekdayItems"
-                    label="Wochentag"
-                    density="compact"
-                    variant="outlined"
-                    hide-details
-                    :menu-props="{ attach: 'body', zIndex: 6000 }"
-                  />
-                  <v-text-field v-model.number="backup.retention" type="number" min="1" max="365" label="Backups behalten" density="compact" variant="outlined" hide-details />
-                </div>
-              </div>
-
-              <div class="backup-card__actions">
                 <v-btn
+                  class="backup-summary__cta"
                   variant="flat"
                   color="primary"
                   size="small"
@@ -1892,101 +1857,74 @@
                 >
                   {{ backupStatusKind === 'error' ? 'Erneut versuchen' : 'Jetzt sichern' }}
                 </v-btn>
-                <v-btn variant="text" size="small" prepend-icon="mdi-folder-clock-outline" @click="openBackupManager">
-                  Backups verwalten
-                </v-btn>
               </div>
-            </div>
 
-            <v-expansion-panels v-model="backupSetupOpen" class="backup-setup" flat>
-              <v-expansion-panel>
-                <v-expansion-panel-title>
-                  <div class="backup-setup__head">
-                    <v-icon size="20" class="mr-3">mdi-cog-outline</v-icon>
-                    <div class="backup-setup__head-text">
-                      <div class="backup-setup__head-title">NAS-Verbindung</div>
-                      <div class="backup-setup__head-sub">{{ backupSetupSummary }}</div>
-                    </div>
-                  </div>
-                </v-expansion-panel-title>
-                <v-expansion-panel-text>
-                  <div class="backup-grid">
-                    <v-text-field class="backup-grid__full" v-model="backup.nas_host" label="IP-Adresse" placeholder="192.168.178.73" density="compact" variant="outlined" hide-details />
-                    <v-text-field v-model="backup.nas_username" label="Benutzer" density="compact" variant="outlined" hide-details />
-                    <v-text-field
-                      :model-value="backupPassword"
-                      @update:model-value="onBackupPasswordInput"
-                      @focus="onBackupPasswordFocus"
-                      @blur="onBackupPasswordBlur"
-                      label="Passwort"
-                      type="password"
-                      autocomplete="new-password"
-                      density="compact"
-                      variant="outlined"
-                      hide-details
-                    />
-                    <v-text-field v-model="backup.nas_share" label="Freigabe" placeholder="papermind-backup" density="compact" variant="outlined" hide-details />
-                    <v-text-field v-model="backup.nas_folder" label="Unterordner (optional)" placeholder="papermind" density="compact" variant="outlined" hide-details />
-                  </div>
-                  <div class="backup-actions">
-                    <v-btn variant="tonal" size="small" :loading="backupTesting" prepend-icon="mdi-lan-connect" @click="onTestBackup">
-                      Verbindung testen
-                    </v-btn>
-                    <span
-                      v-if="backupTestResult"
-                      class="backup-test-result"
-                      :class="backupTestResult.ok ? 'backup-test-result--ok' : 'backup-test-result--err'"
-                    >
-                      {{ backupTestResult.message }}
-                    </span>
-                    <v-spacer />
-                    <v-btn color="primary" size="small" :loading="backupSaving" prepend-icon="mdi-content-save-outline" @click="saveBackup">
-                      Speichern
-                    </v-btn>
-                  </div>
-                </v-expansion-panel-text>
-              </v-expansion-panel>
-            </v-expansion-panels>
+              <div
+                v-if="backup.enabled && !backup.encryption_configured"
+                class="backup-note"
+              >
+                <v-icon size="16">mdi-shield-lock-outline</v-icon>
+                <span>Sicherungen sind aktuell noch unverschlüsselt. Die Verschlüsselung wird beim nächsten Server-Update automatisch eingerichtet.</span>
+              </div>
 
-            <!-- Backups verwalten -->
-            <v-dialog v-model="backupManagerOpen" max-width="640" :persistent="restoreInProgress">
-              <v-card>
-                <v-card-title class="d-flex align-center">
-                  <v-icon class="mr-2">mdi-folder-clock-outline</v-icon>
-                  Backups verwalten
-                  <v-spacer />
-                  <v-btn icon="mdi-close" variant="text" size="small" :disabled="restoreInProgress" @click="backupManagerOpen = false" />
-                </v-card-title>
-                <v-divider />
-                <v-card-text>
+              <div class="backup-summary__facts">
+                <div class="backup-summary__fact">
+                  <span class="backup-summary__fact-label">Nächste Sicherung</span>
+                  <span class="backup-summary__fact-value">{{ backupNextLabel }}</span>
+                </div>
+                <div class="backup-summary__fact">
+                  <span class="backup-summary__fact-label">Wiederherstellung geprüft</span>
+                  <span class="backup-summary__fact-value">
+                    {{ backupStatus.last_restore_test_at ? backupRelativeTime(backupStatus.last_restore_test_at) : 'Noch nicht geprüft' }}
+                  </span>
+                </div>
+              </div>
+
+              <div class="backup-summary__actions">
+                <button
+                  type="button"
+                  class="backup-manage-toggle"
+                  :class="{ 'is-open': backupManagerOpen }"
+                  @click="toggleBackupManager"
+                >
+                  <v-icon size="18">mdi-folder-clock-outline</v-icon>
+                  <span>Backups verwalten</span>
+                  <v-icon size="18" class="backup-manage-toggle__chevron">mdi-chevron-down</v-icon>
+                </button>
+              </div>
+
+              <v-expand-transition>
+                <div v-if="backupManagerOpen" class="backup-manager">
                   <div v-if="restoreInProgress" class="restore-progress">
-                    <v-progress-circular indeterminate size="24" width="3" class="mr-3" color="primary" />
+                    <v-progress-circular indeterminate size="22" width="3" class="mr-3" color="primary" />
                     <div>
                       <div class="restore-progress__title">Wird wiederhergestellt …</div>
-                      <div class="restore-progress__sub">Die App startet anschließend automatisch neu. Bitte dieses Fenster nicht schließen.</div>
+                      <div class="restore-progress__sub">Die App startet anschließend automatisch neu. Bitte das Fenster nicht schließen.</div>
                     </div>
                   </div>
 
                   <template v-else>
-                    <div v-if="backupArchivesLoading" class="text-center py-6">
-                      <v-progress-circular indeterminate size="28" />
+                    <div v-if="backupArchivesLoading" class="backup-manager__state">
+                      <v-progress-circular indeterminate size="24" />
                     </div>
-                    <div v-else-if="backupArchivesError" class="text-error py-4">{{ backupArchivesError }}</div>
-                    <div v-else-if="!backupArchives.length" class="text-medium-emphasis py-6 text-center">
+                    <div v-else-if="backupArchivesError" class="backup-manager__state backup-manager__state--error">
+                      {{ backupArchivesError }}
+                    </div>
+                    <div v-else-if="!backupArchives.length" class="backup-manager__state">
                       Noch keine Backups auf dem NAS gefunden.
                     </div>
-                    <v-list v-else lines="two" density="comfortable">
-                      <v-list-item v-for="a in backupArchives" :key="a.name">
-                        <template #prepend>
-                          <v-icon :color="a.complete ? 'primary' : 'warning'">
-                            {{ a.complete ? 'mdi-archive-outline' : 'mdi-alert-outline' }}
-                          </v-icon>
-                        </template>
-                        <v-list-item-title>{{ backupFormatArchiveDate(a) }}</v-list-item-title>
-                        <v-list-item-subtitle>
-                          {{ backupFormatSize(a.size_bytes) }}<span v-if="!a.complete"> · unvollständig</span>
-                        </v-list-item-subtitle>
-                        <template #append>
+                    <div v-else class="backup-archive-list">
+                      <div v-for="a in backupArchives" :key="a.name" class="backup-archive">
+                        <v-icon size="20" class="backup-archive__icon" :color="a.complete ? 'primary' : 'warning'">
+                          {{ a.verified ? 'mdi-shield-check-outline' : (a.complete ? 'mdi-archive-outline' : 'mdi-alert-outline') }}
+                        </v-icon>
+                        <div class="backup-archive__text">
+                          <div class="backup-archive__title">{{ backupFormatArchiveDate(a) }}</div>
+                          <div class="backup-archive__meta">
+                            {{ backupFormatSize(a.size_bytes) }}<span v-if="a.encrypted"> · verschlüsselt</span><span v-if="a.verified"> · geprüft</span><span v-if="!a.complete"> · unvollständig</span>
+                          </div>
+                        </div>
+                        <div class="backup-archive__actions">
                           <v-btn
                             icon="mdi-backup-restore"
                             variant="text"
@@ -2003,13 +1941,153 @@
                             title="Löschen"
                             @click="askDeleteArchive(a)"
                           />
-                        </template>
-                      </v-list-item>
-                    </v-list>
+                        </div>
+                      </div>
+                    </div>
                   </template>
-                </v-card-text>
-              </v-card>
-            </v-dialog>
+                </div>
+              </v-expand-transition>
+            </div>
+
+            <v-expansion-panels v-model="backupSetupOpen" class="backup-setup" flat>
+              <v-expansion-panel>
+                <v-expansion-panel-title>
+                  <div class="backup-setup__head">
+                    <v-icon size="18">mdi-cog-outline</v-icon>
+                    <div class="backup-setup__head-text">
+                      <div class="backup-setup__head-title">Einstellungen</div>
+                      <div class="backup-setup__head-sub">{{ backupSetupSummary }}</div>
+                    </div>
+                  </div>
+                </v-expansion-panel-title>
+                <v-expansion-panel-text>
+                  <div class="backup-config-section">
+                    <div class="backup-config-section__title">Zeitplan</div>
+                    <div class="backup-grid backup-grid--tight">
+                      <v-select
+                        v-model="backup.frequency"
+                        :items="[{ title: 'Täglich', value: 'daily' }, { title: 'Wöchentlich', value: 'weekly' }]"
+                        label="Häufigkeit"
+                        density="compact"
+                        variant="outlined"
+                        hide-details
+                        :menu-props="{ attach: 'body', zIndex: 6000 }"
+                      />
+                      <v-text-field v-model="backup.time" label="Uhrzeit" placeholder="03:00" density="compact" variant="outlined" hide-details />
+                      <v-select
+                        v-if="backup.frequency === 'weekly'"
+                        v-model="backup.weekday"
+                        :items="backupWeekdayItems"
+                        label="Wochentag"
+                        density="compact"
+                        variant="outlined"
+                        hide-details
+                        :menu-props="{ attach: 'body', zIndex: 6000 }"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="backup-config-section">
+                    <div class="backup-config-section__title">Aufbewahrung</div>
+                    <div class="backup-config-section__hint">Wie viel Verlauf auf dem NAS behalten wird. Ältere Sicherungen werden platzsparend ausgedünnt.</div>
+                    <div class="backup-retention-presets">
+                      <button
+                        v-for="p in backupRetentionPresets"
+                        :key="p.value"
+                        type="button"
+                        class="backup-preset"
+                        :class="{ 'is-active': backupRetentionPreset === p.value }"
+                        @click="selectBackupRetentionPreset(p)"
+                      >
+                        <div class="backup-preset__head">
+                          <span class="backup-preset__name">{{ p.title }}</span>
+                          <v-icon v-if="backupRetentionPreset === p.value" size="18" class="backup-preset__check">mdi-check-circle</v-icon>
+                        </div>
+                        <div class="backup-preset__span">{{ p.span }}</div>
+                        <div class="backup-preset__nums">{{ backupRetentionNums(p) }}</div>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="backup-config-section">
+                    <div class="backup-config-section__title">Speicherziel</div>
+                  <div class="backup-grid">
+                    <v-text-field class="backup-grid__full" v-model="backup.nas_host" label="Netzwerkadresse" placeholder="192.168.178.73" density="compact" variant="outlined" hide-details />
+                    <v-text-field v-model="backup.nas_username" label="Benutzername" density="compact" variant="outlined" hide-details />
+                    <v-text-field
+                      :model-value="backupPassword"
+                      @update:model-value="onBackupPasswordInput"
+                      @focus="onBackupPasswordFocus"
+                      @blur="onBackupPasswordBlur"
+                      label="Passwort"
+                      type="password"
+                      autocomplete="new-password"
+                      density="compact"
+                      variant="outlined"
+                      hide-details
+                    />
+                    <template v-if="backupConnectionDetailsOpen">
+                      <v-text-field v-model="backup.nas_share" label="Freigabe" placeholder="papermind-backup" density="compact" variant="outlined" hide-details />
+                      <v-text-field v-model="backup.nas_folder" label="Unterordner (optional)" placeholder="papermind" density="compact" variant="outlined" hide-details />
+                    </template>
+                  </div>
+                  <v-btn
+                    variant="text"
+                    size="small"
+                    class="backup-details-toggle"
+                    @click="backupConnectionDetailsOpen = !backupConnectionDetailsOpen"
+                  >
+                    {{ backupConnectionDetailsOpen ? 'Weniger Verbindungsdetails' : 'Weitere Verbindungsdetails' }}
+                  </v-btn>
+                  </div>
+
+                  <div class="backup-config-section">
+                    <div class="backup-secondary-toggle">
+                      <div>
+                        <div class="backup-config-section__title">Zweites Speicherziel</div>
+                        <div class="backup-config-section__hint">Optional: zusätzliche Kopie an einem anderen Speicherort.</div>
+                      </div>
+                      <v-switch v-model="backup.secondary_enabled" color="primary" hide-details density="compact" />
+                    </div>
+                    <div v-if="backup.secondary_enabled" class="backup-grid">
+                      <v-text-field class="backup-grid__full" v-model="backup.secondary_nas_host" label="Netzwerkadresse" density="compact" variant="outlined" hide-details />
+                      <v-text-field v-model="backup.secondary_nas_username" label="Benutzername" density="compact" variant="outlined" hide-details />
+                      <v-text-field
+                        :model-value="secondaryBackupPassword"
+                        @update:model-value="onSecondaryBackupPasswordInput"
+                        @focus="onSecondaryBackupPasswordFocus"
+                        @blur="onSecondaryBackupPasswordBlur"
+                        label="Passwort"
+                        type="password"
+                        autocomplete="new-password"
+                        density="compact"
+                        variant="outlined"
+                        hide-details
+                      />
+                      <v-text-field v-model="backup.secondary_nas_share" label="Freigabe" density="compact" variant="outlined" hide-details />
+                      <v-text-field v-model="backup.secondary_nas_folder" label="Unterordner" placeholder="papermind" density="compact" variant="outlined" hide-details />
+                    </div>
+                  </div>
+
+                  <div class="backup-actions">
+                    <v-btn variant="tonal" size="small" :loading="backupTesting" prepend-icon="mdi-lan-connect" @click="onTestBackup">
+                      Verbindung prüfen
+                    </v-btn>
+                    <span
+                      v-if="backupTestResult"
+                      class="backup-test-result"
+                      :class="backupTestResult.ok ? 'backup-test-result--ok' : 'backup-test-result--err'"
+                    >
+                      {{ backupTestResult.message }}
+                    </span>
+                    <v-spacer />
+                    <v-btn color="primary" size="small" :loading="backupSaving" prepend-icon="mdi-content-save-outline" @click="saveBackup">
+                      Speichern
+                    </v-btn>
+                  </div>
+                </v-expansion-panel-text>
+              </v-expansion-panel>
+            </v-expansion-panels>
 
             <DestructiveDialog
               v-model="restoreConfirmOpen"
@@ -2525,17 +2603,24 @@ function resolveInitialSettingsCategory(categoryValue) {
 // ── Backup ───────────────────────────────────────────────────────────────────
 const backup = ref({
   enabled: false, nas_host: '', nas_share: '', nas_folder: '', nas_username: '',
-  nas_password_set: false, frequency: 'daily', time: '03:00', weekday: 6, retention: 7,
+  nas_password_set: false, frequency: 'daily', time: '03:00', weekday: 6,
+  retention: 7, retention_daily: 7, retention_weekly: 5, retention_monthly: 12,
+  encryption_configured: false, secondary_enabled: false,
+  secondary_nas_host: '', secondary_nas_share: '', secondary_nas_folder: '',
+  secondary_nas_username: '', secondary_nas_password_set: false,
 });
 const BACKUP_PW_MASK = '••••••••';
 const backupPassword = ref('');
 const backupPasswordDirty = ref(false);
-const backupStatus = ref({ last_run: null, next_run_at: null, last_success_at: null, is_running: false });
+const secondaryBackupPassword = ref('');
+const secondaryBackupPasswordDirty = ref(false);
+const backupStatus = ref({ last_run: null, next_run_at: null, last_success_at: null, last_restore_test_at: null, is_running: false });
 const backupSaving = ref(false);
 const backupTesting = ref(false);
 const backupRunning = ref(false);
 const backupTestResult = ref(null);
 const backupSetupOpen = ref(undefined); // Index des offenen Panels (0) oder undefined
+const backupConnectionDetailsOpen = ref(false);
 let backupSetupInitialized = false;
 let backupPollTimer = 0;
 
@@ -2558,6 +2643,36 @@ const backupWeekdayItems = [
   { title: 'Donnerstag', value: 3 }, { title: 'Freitag', value: 4 }, { title: 'Samstag', value: 5 },
   { title: 'Sonntag', value: 6 },
 ];
+
+// Aufbewahrung als einfache Voreinstellungen statt dreier Zahlenfelder: jede Stufe
+// setzt darunter die täglichen/wöchentlichen/monatlichen Generationen (Großvater-Vater-Sohn).
+const backupRetentionPresets = [
+  { value: 'sparsam', title: 'Sparsam', span: '≈ 1 Monat', daily: 7, weekly: 4, monthly: 0 },
+  { value: 'standard', title: 'Standard', span: '≈ 1 Jahr', daily: 7, weekly: 5, monthly: 12 },
+  { value: 'ausfuehrlich', title: 'Ausführlich', span: '≈ 2 Jahre', daily: 14, weekly: 8, monthly: 24 },
+];
+// Aktive Stufe aus den gespeicherten Zahlen ableiten (null = keine exakte Entsprechung).
+const backupRetentionPreset = computed(() => {
+  const b = backup.value;
+  const match = backupRetentionPresets.find(
+    (p) => p.daily === Number(b.retention_daily)
+      && p.weekly === Number(b.retention_weekly)
+      && p.monthly === Number(b.retention_monthly),
+  );
+  return match ? match.value : null;
+});
+function backupRetentionNums(p) {
+  const parts = [`${p.daily} täglich`];
+  if (p.weekly) parts.push(`${p.weekly} wöchentlich`);
+  if (p.monthly) parts.push(`${p.monthly} monatlich`);
+  return parts.join(' · ');
+}
+function selectBackupRetentionPreset(p) {
+  backup.value.retention_daily = p.daily;
+  backup.value.retention_weekly = p.weekly;
+  backup.value.retention_monthly = p.monthly;
+  backup.value.retention = p.daily; // Legacy-Feld konsistent halten
+}
 
 function backupFormatDate(value) {
   if (!value) return '';
@@ -2614,8 +2729,8 @@ const backupCardKind = computed(() => {
 });
 const backupStatusIcon = computed(() => {
   switch (backupStatusKind.value) {
-    case 'ok': return 'mdi-check-circle';
-    case 'error': return 'mdi-alert-circle';
+    case 'ok': return 'mdi-check';
+    case 'error': return 'mdi-alert';
     default: return 'mdi-cloud-outline';
   }
 });
@@ -2629,19 +2744,21 @@ const backupStateLabel = computed(() => {
   }
 });
 
-// Zusammenfassung für das eingeklappte Einrichtungs-Panel
-const backupConfigured = computed(() => !!(backup.value.nas_host && backup.value.nas_share));
-const backupConnectionSummary = computed(() => {
-  const b = backup.value;
-  if (!b.nas_host) return '';
-  const user = b.nas_username ? `${b.nas_username}@` : '';
-  const path = [b.nas_share, b.nas_folder].filter(Boolean).join('/');
-  return `${user}${b.nas_host}${path ? ' · ' + path : ''}`;
-});
+// Kurzfassung der gewählten Backup-Optionen im Header. Sie bleibt einzeilig,
+// damit das Panel beim Öffnen nicht höher wird.
 const backupSetupSummary = computed(() => {
-  if (!backupConfigured.value) return 'Tippen, um die Verbindung einzurichten';
-  return backupConnectionSummary.value;
+  const weekday = backupWeekdayItems.find((item) => item.value === Number(backup.value.weekday))?.title;
+  const frequency = backup.value.frequency === 'weekly'
+    ? ['Wöchentlich', weekday].filter(Boolean).join(' · ')
+    : 'Täglich';
+  const retention = backupRetentionPresets.find((preset) => preset.value === backupRetentionPreset.value);
+  return [frequency, backup.value.time || '03:00', retention?.title || 'Individuelle Aufbewahrung']
+    .filter(Boolean)
+    .join(' · ');
 });
+
+// Steuert, ob die Einrichtung beim ersten Laden auto-aufklappt (siehe applyBackupStatus).
+const backupConfigured = computed(() => !!(backup.value.nas_host && backup.value.nas_share));
 
 function applyBackupStatus(data) {
   const cfg = data?.config || {};
@@ -2652,18 +2769,33 @@ function applyBackupStatus(data) {
     frequency: cfg.frequency || 'daily', time: cfg.time || '03:00',
     weekday: typeof cfg.weekday === 'number' ? cfg.weekday : 6,
     retention: cfg.retention || 7,
+    retention_daily: cfg.retention_daily ?? cfg.retention ?? 7,
+    retention_weekly: cfg.retention_weekly ?? 5,
+    retention_monthly: cfg.retention_monthly ?? 12,
+    encryption_configured: !!cfg.encryption_configured,
+    secondary_enabled: !!cfg.secondary_enabled,
+    secondary_nas_host: cfg.secondary_nas_host || '',
+    secondary_nas_share: cfg.secondary_nas_share || '',
+    secondary_nas_folder: cfg.secondary_nas_folder || '',
+    secondary_nas_username: cfg.secondary_nas_username || '',
+    secondary_nas_password_set: !!cfg.secondary_nas_password_set,
   };
   backupStatus.value = {
     last_run: data?.last_run || null, next_run_at: data?.next_run_at || null,
-    last_success_at: data?.last_success_at || null, is_running: !!data?.is_running,
+    last_success_at: data?.last_success_at || null,
+    last_restore_test_at: data?.last_restore_test_at || null,
+    is_running: !!data?.is_running,
   };
   // Gespeichertes Passwort als Punkte darstellen; Feld bleibt "gefüllt".
   backupPasswordDirty.value = false;
   backupPassword.value = backup.value.nas_password_set ? BACKUP_PW_MASK : '';
+  secondaryBackupPasswordDirty.value = false;
+  secondaryBackupPassword.value = backup.value.secondary_nas_password_set ? BACKUP_PW_MASK : '';
   // Einrichtung beim ersten Laden automatisch aufklappen, falls noch nichts konfiguriert
   // ist – danach steuert der Nutzer das Panel selbst (nicht bei jedem Poll überschreiben).
   if (!backupSetupInitialized) {
     backupSetupOpen.value = backupConfigured.value ? undefined : 0;
+    backupConnectionDetailsOpen.value = !backupConfigured.value;
     backupSetupInitialized = true;
   }
 }
@@ -2671,6 +2803,23 @@ function applyBackupStatus(data) {
 function onBackupPasswordInput(value) {
   backupPassword.value = value;
   backupPasswordDirty.value = true;
+}
+
+function onSecondaryBackupPasswordInput(value) {
+  secondaryBackupPassword.value = value;
+  secondaryBackupPasswordDirty.value = true;
+}
+
+function onSecondaryBackupPasswordFocus() {
+  if (!secondaryBackupPasswordDirty.value && secondaryBackupPassword.value === BACKUP_PW_MASK) {
+    secondaryBackupPassword.value = '';
+  }
+}
+
+function onSecondaryBackupPasswordBlur() {
+  if (!secondaryBackupPasswordDirty.value && !secondaryBackupPassword.value && backup.value.secondary_nas_password_set) {
+    secondaryBackupPassword.value = BACKUP_PW_MASK;
+  }
 }
 
 function onBackupPasswordFocus() {
@@ -2698,9 +2847,24 @@ function backupConfigPayload() {
     enabled: b.enabled, nas_host: b.nas_host, nas_share: b.nas_share, nas_folder: b.nas_folder,
     nas_username: b.nas_username, frequency: b.frequency, time: b.time, weekday: b.weekday,
     retention: Number(b.retention) || 7,
+    retention_daily: Number(b.retention_daily) || 7,
+    retention_weekly: Math.max(0, Number(b.retention_weekly) || 0),
+    retention_monthly: Math.max(0, Number(b.retention_monthly) || 0),
+    secondary_enabled: !!b.secondary_enabled,
+    secondary_nas_host: b.secondary_nas_host,
+    secondary_nas_share: b.secondary_nas_share,
+    secondary_nas_folder: b.secondary_nas_folder,
+    secondary_nas_username: b.secondary_nas_username,
   };
   if (backupPasswordDirty.value && backupPassword.value && backupPassword.value !== BACKUP_PW_MASK) {
     payload.nas_password = backupPassword.value;
+  }
+  if (
+    secondaryBackupPasswordDirty.value
+    && secondaryBackupPassword.value
+    && secondaryBackupPassword.value !== BACKUP_PW_MASK
+  ) {
+    payload.secondary_nas_password = secondaryBackupPassword.value;
   }
   return payload;
 }
@@ -2789,9 +2953,11 @@ async function loadBackupArchives() {
   }
 }
 
-function openBackupManager() {
-  backupManagerOpen.value = true;
-  loadBackupArchives();
+function toggleBackupManager() {
+  // Während einer laufenden Wiederherstellung offen lassen (App startet gleich neu).
+  if (restoreInProgress.value) return;
+  backupManagerOpen.value = !backupManagerOpen.value;
+  if (backupManagerOpen.value) loadBackupArchives();
 }
 
 function askRestore(a) {
@@ -2915,6 +3081,7 @@ function loadSectionData(value) {
       break;
     case 'backup':
       backupSetupInitialized = false; // Panel-Zustand beim Betreten neu bestimmen
+      backupManagerOpen.value = false; // Backup-Liste immer eingeklappt starten
       loadBackup();
       break;
   }

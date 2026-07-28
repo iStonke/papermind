@@ -6,6 +6,7 @@ import os
 import httpx
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.core.config import get_settings
@@ -41,6 +42,7 @@ from app.routers import (
 )
 from app.services.users import UserService
 from app.services.settings import SettingsService
+from app.services.maintenance import is_maintenance_active
 
 settings = get_settings()
 
@@ -136,6 +138,26 @@ app = FastAPI(
     redoc_url="/redoc" if settings.expose_api_docs else None,
 )
 app.middleware("http")(request_metrics_middleware)
+
+
+@app.middleware("http")
+async def maintenance_write_guard(request, call_next):
+    """Während Backup/Restore nur lesende Requests zulassen."""
+    if (
+        is_maintenance_active()
+        and request.method.upper() not in {"GET", "HEAD", "OPTIONS"}
+    ):
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": {
+                    "message": "PaperMind erstellt oder prüft gerade eine Sicherung. Bitte gleich erneut versuchen.",
+                    "code": "maintenance_active",
+                }
+            },
+            headers={"Retry-After": "5"},
+        )
+    return await call_next(request)
 
 app.add_middleware(
     CORSMiddleware,

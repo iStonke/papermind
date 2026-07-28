@@ -20,6 +20,7 @@ from app.services.backup import (
     read_restore_status,
     run_backup_in_background,
     run_restore_in_background,
+    write_restore_status,
 )
 
 # Backup-Konfiguration (NAS-Zugangsdaten) und -Aktionen sind Admin-Funktionen.
@@ -45,6 +46,9 @@ def test_backup_connection(db: Session = Depends(get_db)) -> BackupTestResponse:
 
 @router.post("/run", response_model=BackupRunStartResponse, summary="Backup jetzt starten")
 def run_backup_now(db: Session = Depends(get_db)) -> BackupRunStartResponse:
+    restore = read_restore_status() or {}
+    if restore.get("status") in {"starting", "running"}:
+        return BackupRunStartResponse(started=False, message="Eine Wiederherstellung läuft gerade.")
     status = BackupService(db).get_status()
     if status.get("is_running"):
         return BackupRunStartResponse(started=False, message="Ein Backup läuft bereits.")
@@ -82,7 +86,8 @@ def restore_backup(payload: BackupRestoreRequest, db: Session = Depends(get_db))
     if status.get("is_running"):
         return BackupRunStartResponse(started=False, message="Ein Backup läuft gerade – bitte später erneut versuchen.")
     current = read_restore_status() or {}
-    if current.get("status") == "running":
+    if current.get("status") in {"starting", "running"}:
         return BackupRunStartResponse(started=False, message="Eine Wiederherstellung läuft bereits.")
+    write_restore_status({"status": "starting", "name": payload.name})
     threading.Thread(target=run_restore_in_background, kwargs={"name": payload.name}, daemon=True).start()
     return BackupRunStartResponse(started=True, message="Wiederherstellung gestartet.")

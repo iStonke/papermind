@@ -129,6 +129,7 @@ export {
   mdiServerNetwork,
   mdiShapeOutline,
   mdiShieldAccount,
+  mdiShieldCheckOutline,
   mdiShieldLockOutline,
   mdiShieldOutline,
   mdiSort,
