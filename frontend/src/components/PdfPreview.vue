@@ -2778,11 +2778,6 @@ onBeforeUnmount(() => {
   background: var(--pm-pdf-page-bg, #fff);
 }
 
-/* Schatten erst zeigen, sobald Seite gerendert ist (Inner-Div hat Inhalt) */
-.pdf-preview__page:has(.pdf-preview__page-inner:not(:empty)) {
-  box-shadow: 0 2px 8px rgb(0 0 0 / 0.14);
-}
-
 .pdf-preview__page-inner {
   position: absolute;
   inset: 0;
