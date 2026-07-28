@@ -99,6 +99,32 @@ class ScanCleanupContrastTest(unittest.TestCase):
         self.assertGreater(float(arr.mean()), 250.0)
         self.assertEqual(float((arr < 128).mean()), 0.0)
 
+    def test_removes_continuous_black_right_edge_band(self) -> None:
+        page = self._page(120)
+        band_width = 18
+        ImageDraw.Draw(page).rectangle(
+            [self.WIDTH - band_width, 0, self.WIDTH - 1, self.HEIGHT - 1],
+            fill=(0, 0, 0),
+        )
+
+        cleaned = _clean_scan_image(page, "white")
+        right_edge = np.asarray(cleaned.convert("RGB"), dtype=np.uint8)[:, -band_width:, :]
+
+        self.assertGreater(float(right_edge.mean()), 248.0)
+
+    def test_white_cleanup_darkens_neutral_text_but_keeps_color(self) -> None:
+        page = Image.new("RGB", (self.WIDTH, self.HEIGHT), (238, 238, 238))
+        draw = ImageDraw.Draw(page)
+        draw.rectangle([180, 300, 600, 303], fill=(150, 150, 150))
+        draw.rectangle([180, 360, 600, 363], fill=(30, 150, 210))
+
+        cleaned = _clean_scan_image(page, "white").convert("RGB")
+        text_pixel = cleaned.getpixel((350, 301))
+        logo_pixel = cleaned.getpixel((350, 361))
+
+        self.assertLess(text_pixel[0], 110)
+        self.assertGreater(logo_pixel[2] - logo_pixel[0], 70)
+
 
 @unittest.skipIf(Image is None, "PIL erforderlich")
 class ManualBwConversionTest(unittest.TestCase):

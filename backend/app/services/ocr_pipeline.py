@@ -154,6 +154,48 @@ def normalize_scan_cleanup_mode(value: Any) -> str:
     return _normalize_scan_cleanup_mode(value)
 
 
+def _remove_dark_edge_bands(rgb: Any) -> Any:
+    """Entfernt einen durchgehenden schwarzen Rand vom Flachbettscanner.
+
+    Liegt ein Blatt bündig an der Führung, kann der Scanner trotzdem einen
+    schmalen Streifen des dunklen Scannerbetts aufnehmen. Im Gegensatz zu
+    Dokumentinhalt ist dieser Streifen über nahezu die komplette Seitenhöhe
+    gleichmäßig dunkel und sitzt direkt am Bildrand. Nur dieses sehr enge
+    Muster wird auf Weiß gesetzt; reguläre Linien, Stempel und Randnotizen
+    bleiben damit unangetastet.
+    """
+    if cv2 is None or np is None:
+        return rgb
+
+    height, width = rgb.shape[:2]
+    if height < 64 or width < 64:
+        return rgb
+
+    gray = cv2.cvtColor(rgb.astype(np.uint8), cv2.COLOR_RGB2GRAY)
+    vertical_margin = max(2, int(height * 0.02))
+    visible_rows = gray[vertical_margin : height - vertical_margin]
+    if visible_rows.size == 0:
+        return rgb
+
+    # Ein Dokumentrand ist selten über praktisch die ganze Höhe tiefschwarz.
+    # Die Breitenbegrenzung verhindert, dass eine schwarze Seite bzw. ein Foto
+    # als Scannerartefakt klassifiziert wird.
+    max_band_width = max(3, int(width * 0.03))
+    dark_columns = (visible_rows[:, width - max_band_width :] < 72).mean(axis=0) >= 0.92
+    band_width = 0
+    for is_dark in reversed(dark_columns):
+        if not is_dark:
+            break
+        band_width += 1
+
+    if band_width >= 2:
+        cleaned = rgb.copy()
+        cleaned[:, width - band_width :, :] = 255
+        logger.info("scan cleanup removed dark right edge band width=%s", band_width)
+        return cleaned
+    return rgb
+
+
 def _clean_scan_image(image: Image.Image, mode: str) -> Image.Image:
     """Glättet ungleichmäßige Beleuchtung und Faltenschatten, damit Scans einen
     richtig weißen Hintergrund bekommen.
@@ -169,6 +211,7 @@ def _clean_scan_image(image: Image.Image, mode: str) -> Image.Image:
         return image
 
     rgb = np.asarray(image.convert("RGB"), dtype=np.float32)
+    rgb = _remove_dark_edge_bands(rgb)
     width = rgb.shape[1]
     sigma = max(15.0, width / 48.0)  # ~35 @1700px, ~52 @2480px
     out = np.empty_like(rgb)
@@ -181,6 +224,17 @@ def _clean_scan_image(image: Image.Image, mode: str) -> Image.Image:
     if mode == "white":
         # Sanfter Weißpunkt: der fast-weiße Hintergrund klippt auf reines Weiß.
         out = np.clip((out - 12.0) / (243.0 - 12.0) * 255.0, 0, 255)
+
+        # Im Farbmodus wird der Hintergrund zwar sauber weiß, graue
+        # Druckerschrift blieb bislang aber sichtbar zu hell. Eine stärkere
+        # Tonkurve nur für nahezu entsättigte Pixel macht Text und Stempel
+        # deutlich lesbarer, ohne farbige Logos oder Markierungen zu verfälschen.
+        gray = cv2.cvtColor(out.astype(np.uint8), cv2.COLOR_RGB2GRAY).astype(np.float32)
+        chroma = out.max(axis=2) - out.min(axis=2)
+        neutral_ink = chroma <= 24.0
+        strengthened = np.power(gray / 255.0, 2.0) * 255.0
+        strengthened = np.clip((strengthened - 30.0) / 195.0 * 255.0, 0, 255)
+        out[neutral_ink] = strengthened[neutral_ink, None]
         return Image.fromarray(out.astype(np.uint8), "RGB")
 
     # bw: Graustufen + Kontrast-Stretch → richtig weiß, sattes Schwarz.
