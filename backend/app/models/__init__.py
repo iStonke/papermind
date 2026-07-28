@@ -1,6 +1,7 @@
 from app.models.document_type import DocumentType
 from app.models.annotation import Annotation
 from app.models.backup_run import BackupRun
+from app.models.backup_source_state import BackupSourceState
 from app.models.correspondent import Correspondent, CorrespondentAlias, CorrespondentMatcher
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
@@ -22,6 +23,7 @@ __all__ = [
     "DocumentType",
     "Annotation",
     "BackupRun",
+    "BackupSourceState",
     "Correspondent",
     "CorrespondentAlias",
     "CorrespondentMatcher",

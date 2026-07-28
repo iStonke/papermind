@@ -70,9 +70,9 @@
   line-height: 1.5;
   white-space: nowrap;
 }
-.backup-tag--ok {
-  color: rgb(var(--v-theme-success));
-  background: rgba(var(--v-theme-success), 0.14);
+.backup-tag--neutral {
+  color: rgba(var(--v-theme-on-surface), 0.72);
+  background: rgba(var(--v-theme-on-surface), 0.1);
 }
 
 /* Ruhiger Hinweis (z. B. „Verschlüsselung folgt") innerhalb der Karte */

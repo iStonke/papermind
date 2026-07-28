@@ -25,7 +25,7 @@ class BackupRun(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    # 'running' | 'success' | 'failed'
+    # 'running' | 'success' | 'failed' | 'skipped'
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="running")
     # 'scheduled' | 'manual'
     kind: Mapped[str] = mapped_column(Text, nullable=False, server_default="manual")

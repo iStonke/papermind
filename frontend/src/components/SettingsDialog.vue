@@ -1838,7 +1838,7 @@
                     <span class="backup-summary__title">{{ backupStateLabel }}</span>
                     <span
                       v-if="backup.enabled && backup.encryption_configured"
-                      class="backup-tag backup-tag--ok"
+                      class="backup-tag backup-tag--neutral"
                     >
                       <v-icon size="13">mdi-lock-check-outline</v-icon>
                       Verschlüsselt
@@ -2704,6 +2704,7 @@ const backupStatusKind = computed(() => {
   const s = backupStatus.value;
   if (s.is_running) return 'running';
   if (s.last_run?.status === 'failed') return 'error';
+  if (s.last_run?.status === 'skipped') return 'unchanged';
   if (s.last_run?.status === 'success') return 'ok';
   return 'idle';
 });
@@ -2717,6 +2718,7 @@ const backupLastLabel = computed(() => {
   if (!r) return 'Noch nie gesichert';
   const when = backupRelativeTime(r.finished_at || r.started_at);
   if (r.status === 'success') return `${when}${r.size_bytes ? ' · ' + backupFormatBytes(r.size_bytes) : ''}`;
+  if (r.status === 'skipped') return `Keine Änderungen · ${when}`;
   return when;
 });
 const backupNextLabel = computed(() =>
@@ -2730,6 +2732,7 @@ const backupCardKind = computed(() => {
 const backupStatusIcon = computed(() => {
   switch (backupStatusKind.value) {
     case 'ok': return 'mdi-check';
+    case 'unchanged': return 'mdi-check';
     case 'error': return 'mdi-alert';
     default: return 'mdi-cloud-outline';
   }
@@ -2739,6 +2742,7 @@ const backupStateLabel = computed(() => {
   if (backupBusy.value) return 'Backup läuft';
   switch (backupStatusKind.value) {
     case 'ok': return 'Gesichert';
+    case 'unchanged': return 'Stand unverändert';
     case 'error': return 'Letzte Sicherung fehlgeschlagen';
     default: return 'Aktiv – noch keine Sicherung';
   }

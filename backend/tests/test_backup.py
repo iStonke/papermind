@@ -10,12 +10,14 @@ from unittest.mock import patch
 from app.schemas.backup import BackupRestoreRequest
 from app.services.backup import (
     BackupService,
+    backup_source_is_dirty,
     is_backup_due,
     mask_config,
     next_scheduled_slot,
     previous_scheduled_slot,
     select_gfs_backup_dirs,
     select_old_backup_dirs,
+    should_skip_unchanged_backup,
 )
 from app.services.backup_crypto import (
     backup_encryption_key,
@@ -26,6 +28,29 @@ from app.services.backup_crypto import (
     manifest_hmac,
 )
 from app.services.maintenance import is_maintenance_active, maintenance_marker_path, maintenance_mode
+
+
+class BackupSourceStateTest(unittest.TestCase):
+    def test_only_a_new_generation_requires_a_scheduled_backup(self):
+        self.assertFalse(backup_source_is_dirty(7, 7))
+        self.assertTrue(backup_source_is_dirty(8, 7))
+
+    def test_only_unchanged_scheduled_backups_are_skipped(self):
+        self.assertTrue(
+            should_skip_unchanged_backup(
+                kind="scheduled", preserve_to=None, generation=7, backed_up_generation=7
+            )
+        )
+        self.assertFalse(
+            should_skip_unchanged_backup(
+                kind="manual", preserve_to=None, generation=7, backed_up_generation=7
+            )
+        )
+        self.assertFalse(
+            should_skip_unchanged_backup(
+                kind="scheduled", preserve_to=Path("/tmp/safety"), generation=7, backed_up_generation=7
+            )
+        )
 
 TZ = timezone(timedelta(hours=2))  # feste Zone für deterministische Tests
 

@@ -37,6 +37,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.backup_run import BackupRun
+from app.models.backup_source_state import BackupSourceState
 from app.models.job import Job
 from app.services.backup_crypto import (
     backup_encryption_key,
@@ -104,6 +105,18 @@ def is_backup_due(config: dict, *, now: datetime, last_run_at: datetime | None) 
         return False
     slot = previous_scheduled_slot(config, now=now)
     return last_run_at is None or last_run_at < slot
+
+
+def backup_source_is_dirty(generation: int, backed_up_generation: int) -> bool:
+    """Ob sich seit dem letzten vollständigen Backup relevante Daten geändert haben."""
+    return int(generation) > int(backed_up_generation)
+
+
+def should_skip_unchanged_backup(
+    *, kind: str, preserve_to: Path | None, generation: int, backed_up_generation: int
+) -> bool:
+    """Nur reguläre Scheduler-Läufe dürfen einen unveränderten Stand überspringen."""
+    return kind == "scheduled" and preserve_to is None and not backup_source_is_dirty(generation, backed_up_generation)
 
 
 def select_old_backup_dirs(dir_names: list[str], retention: int) -> list[str]:
@@ -508,7 +521,10 @@ class BackupService:
         config = self.get_config()
         last = self.db.execute(select(BackupRun).order_by(BackupRun.started_at.desc()).limit(1)).scalar_one_or_none()
         last_success = self.db.execute(
-            select(BackupRun).where(BackupRun.status == "success").order_by(BackupRun.started_at.desc()).limit(1)
+            select(BackupRun)
+            .where(BackupRun.status.in_(("success", "skipped")))
+            .order_by(BackupRun.started_at.desc())
+            .limit(1)
         ).scalar_one_or_none()
         now = datetime.now().astimezone()
         next_run = next_scheduled_slot(config, now=now) if config.get("enabled") else None
@@ -526,7 +542,10 @@ class BackupService:
         if not config.get("enabled"):
             return False
         last_success = self.db.execute(
-            select(BackupRun).where(BackupRun.status == "success").order_by(BackupRun.started_at.desc()).limit(1)
+            select(BackupRun)
+            .where(BackupRun.status.in_(("success", "skipped")))
+            .order_by(BackupRun.started_at.desc())
+            .limit(1)
         ).scalar_one_or_none()
         max_age_hours = max(1, int(os.environ.get("BACKUP_ALERT_MAX_AGE_HOURS") or 36))
         now = datetime.now(timezone.utc)
@@ -546,7 +565,7 @@ class BackupService:
                 return False
         except Exception:
             pass
-        message = f"Seit mehr als {max_age_hours} Stunden existiert kein erfolgreiches PaperMind-Backup."
+        message = f"Seit mehr als {max_age_hours} Stunden gab es kein erfolgreiches oder unverändert bestätigtes PaperMind-Backup."
         self._send_alert("backup_stale", message)
         state_path.parent.mkdir(parents=True, exist_ok=True)
         state_path.write_text(json.dumps({"stale_alert_at": now.isoformat()}), encoding="utf-8")
@@ -589,6 +608,39 @@ class BackupService:
             return {"ok": False, "message": f"Verbindung fehlgeschlagen: {exc}"}
 
     # ── Backup ausführen ─────────────────────────────────────────────────────
+    def _source_state(self, *, for_update: bool = False) -> BackupSourceState:
+        statement = select(BackupSourceState).where(BackupSourceState.id == 1)
+        if for_update:
+            statement = statement.with_for_update()
+        state = self.db.execute(statement).scalar_one_or_none()
+        if state is None:
+            raise RuntimeError("Backup-Änderungszustand fehlt; Datenbankmigration ist erforderlich.")
+        return state
+
+    def _mark_source_backed_up(self, generation: int) -> None:
+        """Bestätigt nur den unveränderten Stand.
+
+        Änderungen während der Sicherung bleiben absichtlich als ausstehend markiert,
+        damit der nächste geplante Lauf noch einmal vollständig sichert.
+        """
+        state = self._source_state(for_update=True)
+        if int(state.generation) == int(generation):
+            state.backed_up_generation = int(generation)
+
+    def _record_skipped_backup(self, *, kind: str) -> BackupRun:
+        now = datetime.now().astimezone()
+        run = BackupRun(
+            status="skipped",
+            kind=kind if kind in ("scheduled", "manual") else "manual",
+            finished_at=now,
+            location="Keine Änderungen seit der letzten vollständigen Sicherung.",
+        )
+        self.db.add(run)
+        self.db.commit()
+        self.db.refresh(run)
+        logger.info("backup skipped run=%s: source is unchanged", run.id)
+        return run
+
     def run_backup(
         self,
         *,
@@ -609,6 +661,15 @@ class BackupService:
                     and backup_encryption_key() is None
                 ):
                     raise RuntimeError("Backup-Verschlüsselung ist vorgeschrieben, aber kein Schlüssel ist konfiguriert.")
+
+                source_state = self._source_state()
+                if should_skip_unchanged_backup(
+                    kind=kind,
+                    preserve_to=preserve_to,
+                    generation=source_state.generation,
+                    backed_up_generation=source_state.backed_up_generation,
+                ):
+                    return self._record_skipped_backup(kind=kind)
 
                 run = BackupRun(status="running", kind=kind if kind in ("scheduled", "manual") else "manual")
                 self.db.add(run)
@@ -638,6 +699,10 @@ class BackupService:
                 run.finished_at = datetime.now().astimezone()
                 run.size_bytes = int(total_size)
                 run.location = " | ".join(locations)
+                # Das lokale Sicherheitsbackup vor einem Restore darf den Zustand
+                # nicht als extern gesichert markieren.
+                if preserve_to is None:
+                    self._mark_source_backed_up(source_state.generation)
                 self.db.commit()
                 self.db.refresh(run)
                 (system_state_dir() / "backup_alert_state.json").unlink(missing_ok=True)
