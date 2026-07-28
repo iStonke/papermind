@@ -935,6 +935,10 @@ const titleSuggestJobByStage = new Map();
 const importTimingBySource = new Map();
 const IMPORT_ANALYSIS_RETRY_DELAY_MS = 1500;
 const IMPORT_ANALYSIS_MAX_TRANSIENT_RETRIES = 3;
+// Scanner-Seiten werden nach dem sichtbaren Import erst bereinigt und dann im
+// Worker analysiert. Auf dem Pi darf diese Warteschlange mehrere Minuten
+// dauern; die UI pollt daher den Worker-Cache, statt voreilig rot zu melden.
+const IMPORT_ANALYSIS_MAX_PENDING_RETRIES = 160;
 const previewImageSrc = ref('');
 const previewImageLoading = ref(false);
 const rightPanelMode = ref('details');
@@ -1795,8 +1799,11 @@ const aiAnalysis = computed(() => {
   if (status === 'working' || (status === 'pending_ocr' && !exhausted)) {
     return { kind: 'busy', fields: [] };
   }
-  if (status === 'error' || (status === 'pending_ocr' && exhausted)) {
+  if (status === 'error') {
     return { kind: 'failed', fields: [] };
+  }
+  if (status === 'pending_ocr' && exhausted) {
+    return { kind: 'partial', fields: [] };
   }
   if (status === 'ready' || status === 'applied') {
     return { kind: 'partial', fields: [] };
@@ -1832,6 +1839,9 @@ const aiStatusTitle = computed(() => {
     return `Automatisch erkannt: ${aiAnalysis.value.fields.join(', ')} — Klicken, um die Analyse erneut zu starten`;
   }
   if (kind === 'partial') {
+    if (String(primaryDocument.value?.meta?.titleSuggestionStatus || '') === 'pending_ocr') {
+      return 'Analyse wird im Hintergrund vorbereitet — Klicken, um sie erneut abzufragen';
+    }
     return 'Analyse abgeschlossen – keine Felder ergänzt — Klicken, um die Analyse erneut zu starten';
   }
   if (kind === 'failed') {
@@ -2241,7 +2251,7 @@ watch(
             recoverMeta.titleSuggestionStatus = 'idle';
             recoverMeta.titleSuggestionPollExhausted = false;
           }
-          void requestScanTitleSuggestion(doc.id, 'first_page', { silent: true, maxPendingRetries: 20 });
+          void requestScanTitleSuggestion(doc.id, 'first_page', { silent: true });
         }
       }
     });
@@ -2935,7 +2945,7 @@ async function addFilesToStaging(candidates, options = {}) {
       // Trigger the per-document KI analysis unless it already completed for this doc.
       const alreadyAnalyzed = ['ready', 'applied'].includes(String(docMeta.titleSuggestionStatus || ''));
       if (!alreadyAnalyzed) {
-        void requestScanTitleSuggestion(docId, 'first_page', { silent: true, maxPendingRetries: 20 });
+        void requestScanTitleSuggestion(docId, 'first_page', { silent: true });
       }
     }
     preparationProgress.value = { done: 0, total: 0 };
@@ -3464,7 +3474,9 @@ async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', opt
   meta.titleSuggestionPollExhausted = false;
   meta.titleSuggestionUsedFallback = false;
   meta.titleSuggestionMeta = null;
-  const maxPendingRetries = options?.maxPendingRetries != null ? options.maxPendingRetries : 10;
+  const maxPendingRetries = options?.maxPendingRetries != null
+    ? options.maxPendingRetries
+    : IMPORT_ANALYSIS_MAX_PENDING_RETRIES;
   const maxTransientRetries = options?.maxTransientRetries != null
     ? Math.max(0, Number(options.maxTransientRetries) || 0)
     : IMPORT_ANALYSIS_MAX_TRANSIENT_RETRIES;
@@ -3582,7 +3594,7 @@ async function retryAnalysis() {
       continue;
     }
     resetScanSuggestionMeta(doc);
-    jobs.push(requestScanTitleSuggestion(id, 'first_page', { silent: true, maxPendingRetries: 20 }));
+    jobs.push(requestScanTitleSuggestion(id, 'first_page', { silent: true }));
     started += 1;
   }
   if (started === 0) {

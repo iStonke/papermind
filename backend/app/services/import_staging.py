@@ -97,8 +97,10 @@ _STAGING_MIN_TEXT_CHARS = 80
 _STAGING_GOOD_TEXT_CHARS = 240
 _STAGING_PREVIEW_MAX_LONG_EDGE = 640
 _STAGING_ANALYSIS_CACHE_VERSION = 1
+_STAGING_PREANALYSIS_STATE_VERSION = 1
 _STAGING_SCAN_CLEANUP_CACHE_VERSION = 1
 _STAGING_COLOR_PROFILE_CACHE_VERSION = 1
+_STAGING_PREANALYSIS_MAX_AGE_SECONDS = 15 * 60
 _OWNER_SENTINEL = object()
 _STAGING_OCR_ATTEMPTS = (
     {"psm": 6, "max_long_side_px": 2800},
@@ -227,6 +229,58 @@ class ImportStagingService:
     def _source_analysis_paths(self, source_file_id: str) -> list[Path]:
         source_path = self._source_pdf_path(source_file_id)
         return list(source_path.parent.glob(f"{source_path.stem}.analysis.*.json"))
+
+    def _source_preanalysis_state_path(self, source_file_id: str) -> Path:
+        source_path = self._source_pdf_path(source_file_id)
+        return source_path.with_name(f"{source_path.stem}.preanalysis.json")
+
+    def mark_source_preanalysis_pending(self, source_file_ids: list[str]) -> None:
+        """Advertise that the worker owns the expensive first analysis.
+
+        Scanner imports arrive in the dialog before cleanup and OCR-lite finish.
+        Without this shared marker, the API and worker start the same OCR in
+        parallel; on the Pi that makes the browser timeout look like a failure.
+        """
+        for source_file_id in self._normalize_source_file_ids(source_file_ids):
+            try:
+                destination = self._source_preanalysis_state_path(source_file_id)
+            except BadRequestError:
+                continue
+            payload = {
+                "preanalysis_version": _STAGING_PREANALYSIS_STATE_VERSION,
+                "source_file_id": source_file_id,
+                "status": "pending",
+                "updated_at": self._utc_timestamp(),
+            }
+            temp_path = destination.with_name(f"{destination.name}.{uuid.uuid4().hex}.tmp")
+            try:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                temp_path.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+                os.replace(temp_path, destination)
+            except OSError as exc:
+                temp_path.unlink(missing_ok=True)
+                logger.warning("import source preanalysis marker write failed source_file_id=%s err=%s", source_file_id, exc)
+
+    def clear_source_preanalysis_pending(self, source_file_id: str) -> None:
+        try:
+            self._source_preanalysis_state_path(source_file_id).unlink(missing_ok=True)
+        except (BadRequestError, OSError):
+            pass
+
+    def is_source_preanalysis_pending(self, source_file_id: str) -> bool:
+        try:
+            path = self._source_preanalysis_state_path(source_file_id)
+            stat = path.stat()
+            if datetime.now(timezone.utc).timestamp() - stat.st_mtime > _STAGING_PREANALYSIS_MAX_AGE_SECONDS:
+                return False
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (BadRequestError, OSError, ValueError, TypeError):
+            return False
+        return (
+            isinstance(payload, dict)
+            and int(payload.get("preanalysis_version") or 0) == _STAGING_PREANALYSIS_STATE_VERSION
+            and str(payload.get("status") or "") == "pending"
+        )
 
     @staticmethod
     def _source_analysis_response_payload(result: dict[str, object] | None) -> dict[str, object] | None:
@@ -388,6 +442,7 @@ class ImportStagingService:
             return
         raw_path.unlink(missing_ok=True)
         cleanup_path.unlink(missing_ok=True)
+        self.clear_source_preanalysis_pending(source_file_id)
         self._source_color_profile_path(source_file_id).unlink(missing_ok=True)
         for temp_path in source_path.parent.glob(f"{source_path.stem}.scan-cleanup.*.tmp.pdf"):
             temp_path.unlink(missing_ok=True)
@@ -1780,16 +1835,30 @@ class ImportStagingService:
         )
         if is_cacheable_single_source:
             cached = self.get_source_analysis(normalized_ids[0])
-            cached_phase = str((cached.get("meta") if isinstance(cached, dict) else {}).get("analysis_phase") or "")
-            if cached and cached_phase == "llm":
+            # Der Worker legt zuerst eine schnelle regelbasierte Analyse ab und
+            # verfeinert sie danach mit Ollama. Sie ist bereits ein brauchbares
+            # Ergebnis; auf dem Pi darf der API-Request sie nicht ignorieren und
+            # parallel dieselbe OCR/LLM-Arbeit noch einmal starten.
+            if cached:
                 log_import_timing(
                     "analysis_cache_hit",
                     source_file_id=normalized_ids[0],
                     stage_id=stage_id,
-                    phase=cached_phase,
+                    phase=str((cached.get("meta") if isinstance(cached, dict) else {}).get("analysis_phase") or ""),
                     total_ms=elapsed_ms(request_started),
                 )
                 return cached
+            if self.is_source_preanalysis_pending(normalized_ids[0]):
+                return {
+                    "status": "pending_ocr",
+                    "suggestion": "",
+                    "used_fallback": True,
+                    "meta": {
+                        "analysis_status": "pending_ocr",
+                        "analysis_phase": "worker_queue",
+                        "ocr": {"status": "pending_ocr"},
+                    },
+                }
 
         embedded_started = now_perf()
         extracted_text, _pages_scanned, page_refs = self._extract_text_for_title_suggestion(

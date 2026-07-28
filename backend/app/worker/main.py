@@ -362,7 +362,12 @@ def _preanalyze_import_sources(source_file_ids: list[str], owner_id: uuid.UUID |
         with SessionLocal() as db:
             service = ImportStagingService(db, owner_id)
             for source_file_id in source_file_ids:
-                service.preanalyze_source(source_file_id, page_scope="first_page")
+                try:
+                    service.preanalyze_source(source_file_id, page_scope="first_page")
+                except Exception as exc:  # pragma: no cover - one bad scan must not block the batch
+                    logger.warning("import source preanalysis failed source_file_id=%s err=%s", source_file_id, exc)
+                finally:
+                    service.clear_source_preanalysis_pending(source_file_id)
         log_import_timing(
             "preanalysis_batch_done",
             source_file_ids=source_file_ids,
@@ -518,6 +523,12 @@ def _submit_post_ingest_work(
 ) -> None:
     if not source_file_ids:
         return
+    # Mark immediately, before the cleanup executor gets CPU time. The dialog
+    # can therefore poll the worker result instead of launching duplicate OCR.
+    try:
+        ImportStagingService(None, owner_id).mark_source_preanalysis_pending(source_file_ids)
+    except Exception as exc:  # pragma: no cover - optimization marker only
+        logger.warning("could not mark import preanalysis pending owner_id=%s err=%s", owner_id, exc)
     if _cleanup_executor is None:
         # Kein Hintergrund-Executor aktiv (z. B. Direktaufruf im Test): inline
         # ausführen, damit sich das Verhalten außerhalb des Workers nicht ändert.
