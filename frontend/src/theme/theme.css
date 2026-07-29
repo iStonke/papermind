@@ -81,6 +81,7 @@
   --pm-pdf-stage-bg:         #e7eef0;
   --pm-pdf-page-bg:          #ffffff;
   --pm-document-row-bg:      #ffffff;
+  --pm-document-row-shadow:  0 2px 8px rgba(15, 23, 42, 0.08);
   --pm-appbar-bg:            #152a31;
 
   /* Auswahl / Hover */

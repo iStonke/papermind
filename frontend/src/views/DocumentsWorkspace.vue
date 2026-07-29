@@ -10287,6 +10287,11 @@ onBeforeUnmount(() => {
   background: var(--pm-content-surface);
 }
 
+.papermind-app.v-theme--light .document-row {
+  border-color: var(--pm-row-border);
+  box-shadow: var(--pm-document-row-shadow);
+}
+
 .papermind-app.v-theme--light .sidebar-item {
   color: var(--pm-text);
 }
@@ -10713,9 +10718,11 @@ onBeforeUnmount(() => {
 }
 
 .document-row__actions {
+  width: 72px;
   min-height: 0;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   margin-right: -6px;
 }
 
@@ -10762,7 +10769,7 @@ onBeforeUnmount(() => {
 
 .document-row__menu-btn {
   opacity: 0.38;
-  transition: opacity 0.16s ease, background-color 0.16s ease;
+  transition: none !important;
 }
 
 .document-row__menu-btn .v-icon {
