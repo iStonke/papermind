@@ -818,8 +818,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   position: relative;
   contain: layout paint style;
-  background:
-    linear-gradient(90deg, var(--reader-bg) 0, var(--reader-panel-bg) 16%, var(--reader-panel-bg) 84%, var(--reader-bg) 100%);
+  background: var(--reader-bg);
 }
 
 .doc-reader__main :deep(.pdf-preview) {

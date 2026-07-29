@@ -2140,9 +2140,22 @@ function applySort(sortKey) {
 function applyDateRange(rangeKey) {
   const normalized = normalizeDocumentDateRange(rangeKey);
   updateDocumentToolbarState(activeView.value, { dateRange: normalized });
+
+  // Ein Dashboard-Jahresbalken setzt zusätzlich einen lesbaren Suchausdruck
+  // (z. B. `jahr:2015`). Beim Zurücksetzen auf alle Zeiträume muss dieser
+  // Ausdruck mit dem Zeitraum verschwinden, sonst bleibt die Liste gefiltert.
+  if (!normalized) {
+    searchText.value = '';
+    searchScope.value = 'all';
+  }
+
   const { dateFrom, dateTo } = computeDateRangeBounds(normalized);
-  documentListQuery.dateFrom = dateFrom;
-  documentListQuery.dateTo = dateTo;
+  patchDocumentListQuery({
+    q: normalized ? undefined : null,
+    searchScope: normalized ? undefined : 'all',
+    dateFrom,
+    dateTo
+  });
   void fetchDocuments(null, { autoSelectFirst: false });
 }
 
