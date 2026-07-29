@@ -305,6 +305,7 @@ import { useSettingsStore } from '../stores/settings.js';
 import { useAuthStore } from '../stores/auth.js';
 import { authedUrl, getBaseUrl } from '../api/client.js';
 import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts.js';
+import { thumbnailRetryDelay } from '../utils/thumbnailRecovery.js';
 import ListActionToolbar from './ListActionToolbar.vue';
 import PmEmptyState from './PmEmptyState.vue';
 
@@ -383,6 +384,7 @@ const listContentOffsetTop = ref(0);
 let virtualWindowFrame = 0;
 let pendingVirtualWindowElement = null;
 let listResizeObserver = null;
+let thumbnailRecoveryDisposed = false;
 
 const isVirtualized = computed(() => documents.value.length > 0);
 const virtualRowHeight = computed(() =>
@@ -471,19 +473,31 @@ watch(
 );
 
 onMounted(() => {
+  thumbnailRecoveryDisposed = false;
   updateVirtualWindow();
   if (typeof ResizeObserver !== 'undefined' && listShell.value) {
     listResizeObserver = new ResizeObserver(() => updateVirtualWindow());
     listResizeObserver.observe(listShell.value);
   }
+  window.addEventListener('online', recoverErroredThumbnails);
+  document.addEventListener('visibilitychange', handleThumbnailVisibilityChange);
 });
 
 onBeforeUnmount(() => {
+  thumbnailRecoveryDisposed = true;
   if (virtualWindowFrame) cancelAnimationFrame(virtualWindowFrame);
   if (listResizeObserver) {
     listResizeObserver.disconnect();
     listResizeObserver = null;
   }
+  window.removeEventListener('online', recoverErroredThumbnails);
+  document.removeEventListener('visibilitychange', handleThumbnailVisibilityChange);
+  for (const timer of thumbnailRetryTimerByDocumentId.values()) {
+    window.clearTimeout(timer);
+  }
+  thumbnailRetryTimerByDocumentId.clear();
+  thumbnailRetryAttemptByDocumentId.clear();
+  thumbnailUrlCache.clear();
 });
 
 watch(
@@ -552,6 +566,8 @@ const isListDragOver    = ref(false);
 const listDropDragDepth = ref(0);
 const thumbnailVersionByDocumentId = ref({});
 const thumbnailSignatureByDocumentId = ref({});
+const thumbnailRetryAttemptByDocumentId = new Map();
+const thumbnailRetryTimerByDocumentId = new Map();
 
 // Treibt den Thumbnail-State-Watch unten: erkennt, wenn sich für ein Dokument
 // updated_at/status/ocr_status ändert (z. B. nach OCR), um Fehler-/Versionsstate
@@ -635,10 +651,54 @@ function retryErroredThumbnails() {
   if (erroredIds.length === 0) return;
   const nextVersions = { ...thumbnailVersionByDocumentId.value };
   for (const documentId of erroredIds) {
+    clearThumbnailRetryTimer(documentId);
     nextVersions[documentId] = Number(nextVersions[documentId] || 0) + 1;
+    thumbnailUrlCache.delete(documentId);
   }
   thumbnailErrorMap.value = {};
   thumbnailVersionByDocumentId.value = nextVersions;
+}
+
+function clearThumbnailRetryTimer(documentId) {
+  const timer = thumbnailRetryTimerByDocumentId.get(documentId);
+  if (timer !== undefined) {
+    window.clearTimeout(timer);
+    thumbnailRetryTimerByDocumentId.delete(documentId);
+  }
+}
+
+function retryThumbnail(documentId) {
+  if (!thumbnailSignatureByDocumentId.value[documentId]) return;
+  clearThumbnailRetryTimer(documentId);
+  const nextErrors = { ...thumbnailErrorMap.value };
+  delete nextErrors[documentId];
+  thumbnailErrorMap.value = nextErrors;
+  thumbnailVersionByDocumentId.value = {
+    ...thumbnailVersionByDocumentId.value,
+    [documentId]: Number(thumbnailVersionByDocumentId.value[documentId] || 0) + 1,
+  };
+  thumbnailUrlCache.delete(documentId);
+}
+
+async function runThumbnailRetry(documentId) {
+  thumbnailRetryTimerByDocumentId.delete(documentId);
+  if (thumbnailRecoveryDisposed || !thumbnailErrorMap.value[documentId]) return;
+  await authStore.refreshFileToken();
+  if (thumbnailRecoveryDisposed || !thumbnailErrorMap.value[documentId]) return;
+  retryThumbnail(documentId);
+}
+
+async function recoverErroredThumbnails() {
+  if (Object.keys(thumbnailErrorMap.value).length === 0) return;
+  await authStore.refreshFileToken();
+  if (thumbnailRecoveryDisposed) return;
+  retryErroredThumbnails();
+}
+
+function handleThumbnailVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    void recoverErroredThumbnails();
+  }
 }
 
 function hasThumbnailError(documentId) {
@@ -647,13 +707,27 @@ function hasThumbnailError(documentId) {
 
 function onThumbnailError(documentId) {
   thumbnailErrorMap.value = { ...thumbnailErrorMap.value, [documentId]: true };
+  if (thumbnailRetryTimerByDocumentId.has(documentId)) return;
+
+  const attempt = thumbnailRetryAttemptByDocumentId.get(documentId) || 0;
+  const delay = thumbnailRetryDelay(attempt, documentId);
+  if (delay === null) return;
+
+  thumbnailRetryAttemptByDocumentId.set(documentId, attempt + 1);
+  thumbnailRetryTimerByDocumentId.set(
+    documentId,
+    window.setTimeout(() => { void runThumbnailRetry(documentId); }, delay),
+  );
 }
 
 function onThumbnailLoad(documentId) {
-  if (!thumbnailErrorMap.value[documentId]) return;
-  const next = { ...thumbnailErrorMap.value };
-  delete next[documentId];
-  thumbnailErrorMap.value = next;
+  clearThumbnailRetryTimer(documentId);
+  thumbnailRetryAttemptByDocumentId.delete(documentId);
+  if (thumbnailErrorMap.value[documentId]) {
+    const next = { ...thumbnailErrorMap.value };
+    delete next[documentId];
+    thumbnailErrorMap.value = next;
+  }
 }
 
 watch(documentThumbnailSignature, () => {
@@ -672,7 +746,18 @@ watch(documentThumbnailSignature, () => {
       && thumbnailSignatureByDocumentId.value[document.id] === signature
     ) {
       nextErrors[document.id] = true;
+    } else if (thumbnailSignatureByDocumentId.value[document.id] !== signature) {
+      clearThumbnailRetryTimer(document.id);
+      thumbnailRetryAttemptByDocumentId.delete(document.id);
+      thumbnailUrlCache.delete(document.id);
     }
+  }
+
+  for (const documentId of Object.keys(thumbnailSignatureByDocumentId.value)) {
+    if (nextSignatures[documentId]) continue;
+    clearThumbnailRetryTimer(documentId);
+    thumbnailRetryAttemptByDocumentId.delete(documentId);
+    thumbnailUrlCache.delete(documentId);
   }
 
   thumbnailSignatureByDocumentId.value = nextSignatures;

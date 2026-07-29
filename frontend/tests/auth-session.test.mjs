@@ -207,3 +207,38 @@ test('API bootstrap requests abort instead of hanging forever', async () => {
     (error) => error?.code === 'REQUEST_TIMEOUT',
   );
 });
+
+test('gleichzeitige Datei-Token-Erneuerungen werden zusammengefasst', async () => {
+  setActivePinia(createPinia());
+  storage.values.clear();
+  setToken(tokenWithExpiry(3600));
+
+  let requestCount = 0;
+  let finishRequest;
+  globalThis.fetch = async (url) => {
+    if (!String(url).endsWith('/api/auth/file-token')) {
+      throw new Error(`Unexpected URL: ${url}`);
+    }
+    requestCount += 1;
+    return new Promise((resolve) => { finishRequest = resolve; });
+  };
+
+  const auth = useAuthStore();
+  auth.user = userPayload();
+  auth.status = 'authenticated';
+
+  const first = auth.refreshFileToken();
+  const second = auth.refreshFileToken();
+  const third = auth.refreshFileToken();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(requestCount, 1);
+  finishRequest(new Response(
+    JSON.stringify({ token: tokenWithExpiry(300), expires_in: 300 }),
+    { status: 200, headers: { 'content-type': 'application/json' } },
+  ));
+
+  assert.deepEqual(await Promise.all([first, second, third]), [true, true, true]);
+  assert.equal(auth.hasFileToken, true);
+  auth.clearSession();
+});

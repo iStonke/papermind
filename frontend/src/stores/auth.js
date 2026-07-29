@@ -21,6 +21,7 @@ import { setFetchUnauthorizedHandler } from '../api/fetchInterceptor.js';
 
 // Timer-Handle für die Datei-Token-Erneuerung (kein reaktiver State).
 let fileTokenTimer = null;
+let fileTokenRefreshPromise = null;
 let sessionRefreshTimer = null;
 let initializePromise = null;
 let recoveryPromise = null;
@@ -212,23 +213,33 @@ export const useAuthStore = defineStore('auth', {
 
     /** Holt ein kurzlebiges Datei-Token und plant die Erneuerung vor Ablauf. */
     async refreshFileToken() {
-      try {
-        const res = await fetchFileToken();
-        setFileToken(res.token);
-        this.fileTokenVersion = Date.now();
-        this.hasFileToken = Boolean(res.token);
-        if (fileTokenTimer) clearTimeout(fileTokenTimer);
-        const refreshInMs = Math.max(30, (res.expires_in || 300) - 30) * 1000;
-        fileTokenTimer = setTimeout(() => { this.refreshFileToken(); }, refreshInMs);
-      } catch {
-        setFileToken('');
-        this.fileTokenVersion = Date.now();
-        this.hasFileToken = false;
-        if (fileTokenTimer) clearTimeout(fileTokenTimer);
-        if (this.isAuthenticated) {
-          fileTokenTimer = setTimeout(() => { this.refreshFileToken(); }, 30_000);
+      if (fileTokenRefreshPromise) return fileTokenRefreshPromise;
+
+      fileTokenRefreshPromise = (async () => {
+        try {
+          const res = await fetchFileToken();
+          setFileToken(res.token);
+          this.fileTokenVersion = Date.now();
+          this.hasFileToken = Boolean(res.token);
+          if (fileTokenTimer) clearTimeout(fileTokenTimer);
+          const refreshInMs = Math.max(30, (res.expires_in || 300) - 30) * 1000;
+          fileTokenTimer = setTimeout(() => { this.refreshFileToken(); }, refreshInMs);
+          return true;
+        } catch {
+          setFileToken('');
+          this.fileTokenVersion = Date.now();
+          this.hasFileToken = false;
+          if (fileTokenTimer) clearTimeout(fileTokenTimer);
+          if (this.isAuthenticated) {
+            fileTokenTimer = setTimeout(() => { this.refreshFileToken(); }, 30_000);
+          }
+          return false;
+        } finally {
+          fileTokenRefreshPromise = null;
         }
-      }
+      })();
+
+      return fileTokenRefreshPromise;
     },
 
     stopFileToken() {

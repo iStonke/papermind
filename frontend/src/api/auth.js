@@ -39,7 +39,9 @@ export const renewSession = () =>
 export const fetchCurrentUser = () => apiGet('/api/auth/me');
 
 /** GET /api/auth/file-token – kurzlebiges, datei-scoped Token für Bild-/PDF-/Download-URLs. */
-export const fetchFileToken = () => apiGet('/api/auth/file-token');
+export const fetchFileToken = () => apiFetch('/api/auth/file-token', {
+  timeoutMs: AUTH_BOOTSTRAP_TIMEOUT_MS,
+});
 
 /** PATCH /api/auth/me – eigenes Profil aktualisieren (Anzeigename, E-Mail). */
 export const updateProfile = ({ display_name, email }) =>
