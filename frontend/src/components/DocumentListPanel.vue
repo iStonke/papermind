@@ -85,7 +85,18 @@
               @click="onRowClick($event, document.id)"
               @keydown="handleDocumentRowShortcut($event, document.id)"
             >
-              <div class="document-row__thumb" :class="{ 'document-row__thumb--selectable': isSelectionMode }">
+              <div
+                class="document-row__thumb"
+                :class="{
+                  'document-row__thumb--selectable': isSelectionMode,
+                  'document-row__thumb--loading': !hasThumbnailError(document.id) && !isThumbnailLoaded(document.id)
+                }"
+              >
+                <span
+                  v-if="!hasThumbnailError(document.id) && !isThumbnailLoaded(document.id)"
+                  class="document-row__thumb-shimmer"
+                  aria-hidden="true"
+                />
                 <img
                   v-if="!hasThumbnailError(document.id)"
                   :src="thumbnailUrl(document)"
@@ -562,6 +573,7 @@ const toolbarFilterToggles = computed(() => {
 
 // ── Refs ───────────────────────────────────────────────────────────────────
 const thumbnailErrorMap = ref({});
+const thumbnailLoadedByDocumentId = ref({});
 const isListDragOver    = ref(false);
 const listDropDragDepth = ref(0);
 const thumbnailVersionByDocumentId = ref({});
@@ -705,7 +717,14 @@ function hasThumbnailError(documentId) {
   return Boolean(thumbnailErrorMap.value[documentId]);
 }
 
+function isThumbnailLoaded(documentId) {
+  return Boolean(thumbnailLoadedByDocumentId.value[documentId]);
+}
+
 function onThumbnailError(documentId) {
+  const nextLoaded = { ...thumbnailLoadedByDocumentId.value };
+  delete nextLoaded[documentId];
+  thumbnailLoadedByDocumentId.value = nextLoaded;
   thumbnailErrorMap.value = { ...thumbnailErrorMap.value, [documentId]: true };
   if (thumbnailRetryTimerByDocumentId.has(documentId)) return;
 
@@ -723,6 +742,10 @@ function onThumbnailError(documentId) {
 function onThumbnailLoad(documentId) {
   clearThumbnailRetryTimer(documentId);
   thumbnailRetryAttemptByDocumentId.delete(documentId);
+  thumbnailLoadedByDocumentId.value = {
+    ...thumbnailLoadedByDocumentId.value,
+    [documentId]: true,
+  };
   if (thumbnailErrorMap.value[documentId]) {
     const next = { ...thumbnailErrorMap.value };
     delete next[documentId];
@@ -734,6 +757,7 @@ watch(documentThumbnailSignature, () => {
   const nextSignatures = {};
   const nextErrors = {};
   const nextVersions = {};
+  const nextLoaded = {};
 
   for (const document of documents.value) {
     if (!document?.id) continue;
@@ -750,6 +774,8 @@ watch(documentThumbnailSignature, () => {
       clearThumbnailRetryTimer(document.id);
       thumbnailRetryAttemptByDocumentId.delete(document.id);
       thumbnailUrlCache.delete(document.id);
+    } else if (thumbnailLoadedByDocumentId.value[document.id]) {
+      nextLoaded[document.id] = true;
     }
   }
 
@@ -763,6 +789,7 @@ watch(documentThumbnailSignature, () => {
   thumbnailSignatureByDocumentId.value = nextSignatures;
   thumbnailErrorMap.value = nextErrors;
   thumbnailVersionByDocumentId.value = nextVersions;
+  thumbnailLoadedByDocumentId.value = nextLoaded;
 });
 
 watch(
@@ -918,6 +945,45 @@ function onListDrop(event) {
 /* ── Thumbnail im Auswahlmodus ────────────────────────────────────────── */
 .document-row__thumb {
   position: relative;
+}
+
+.document-row__thumb img {
+  opacity: 1;
+  transition: opacity var(--pm-duration-fast, 140ms) ease;
+}
+
+.document-row__thumb--loading img {
+  opacity: 0;
+}
+
+.document-row__thumb-shimmer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  background: linear-gradient(
+    100deg,
+    var(--pm-thumb-bg, rgba(15, 23, 42, 0.08)) 22%,
+    color-mix(in srgb, var(--pm-thumb-line, rgba(255, 255, 255, 0.52)) 72%, transparent) 42%,
+    var(--pm-thumb-bg, rgba(15, 23, 42, 0.08)) 62%
+  );
+  background-size: 220% 100%;
+  animation: document-thumbnail-shimmer 1.35s ease-in-out infinite;
+}
+
+@keyframes document-thumbnail-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -120% 0; }
+}
+
+:global(.pm-no-animations) .document-row__thumb-shimmer {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .document-row__thumb-shimmer {
+    animation: none;
+  }
 }
 
 .document-row__thumb--selectable img,

@@ -1215,16 +1215,22 @@
                       <label class="pm-prop-key">Tags</label>
                       <div class="pm-prop-val pm-prop-val--tags">
                         <div class="pm-tags-input" :class="{ 'pm-tags-input--disabled': isRunningAiAnalysis }">
-                          <v-chip
-                            v-for="name in metadataTagNames"
-                            :key="name"
-                            size="small"
-                            closable
-                            class="pm-tags-input__chip"
-                            @click:close="removeMetadataTag(name)"
-                          >
-                            {{ name }}
-                          </v-chip>
+                          <TransitionGroup name="metadata-tag-chip" tag="div" class="pm-tags-input__chips">
+                            <span
+                              v-for="name in metadataTagNames"
+                              :key="name"
+                              class="pm-tags-input__chip-wrap"
+                            >
+                              <v-chip
+                                size="small"
+                                closable
+                                class="pm-tags-input__chip"
+                                @click:close="removeMetadataTag(name)"
+                              >
+                                {{ name }}
+                              </v-chip>
+                            </span>
+                          </TransitionGroup>
                           <v-combobox
                             ref="metadataTagsCombobox"
                             v-model="metadataTagNames"
@@ -12021,6 +12027,14 @@ onBeforeUnmount(() => {
   padding: 2px 0;
   min-height: 34px;
 }
+.pm-tags-input__chips {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
 .details-drawer__body .v-field {
   border-radius: 8px;
 }
@@ -12038,6 +12052,17 @@ onBeforeUnmount(() => {
   color: rgba(var(--v-theme-on-surface), 0.88) !important;
   font-size: 12.5px !important;
   padding-inline: 11px 7px !important;
+  transition:
+    background-color var(--pm-duration-fast, 140ms) ease,
+    border-color var(--pm-duration-fast, 140ms) ease,
+    color var(--pm-duration-fast, 140ms) ease,
+    box-shadow var(--pm-duration-fast, 140ms) ease,
+    transform var(--pm-duration-fast, 140ms) ease !important;
+}
+.pm-tags-input__chip.v-chip:hover {
+  border-color: color-mix(in srgb, var(--pm-detail-chip-close-color) 44%, transparent) !important;
+  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.1);
+  transform: translateY(-1px);
 }
 .pm-tags-input__chip .v-chip__underlay,
 .pm-tags-input__chip .v-chip__overlay {
@@ -12056,6 +12081,52 @@ onBeforeUnmount(() => {
 }
 .pm-tags-input__chip .v-chip__close:hover {
   color: rgb(var(--v-theme-on-surface)) !important;
+}
+
+.pm-tags-input__chip-wrap {
+  display: inline-flex;
+}
+.pm-tags-input__chip-wrap.metadata-tag-chip-enter-active,
+.pm-tags-input__chip-wrap.metadata-tag-chip-leave-active {
+  will-change: opacity, transform;
+}
+.pm-tags-input__chip-wrap.metadata-tag-chip-enter-active {
+  animation: metadata-tag-chip-in var(--pm-tag-chip-enter-duration, 320ms) cubic-bezier(0.22, 1.25, 0.36, 1) both;
+}
+.pm-tags-input__chip-wrap.metadata-tag-chip-leave-active {
+  animation: metadata-tag-chip-out var(--pm-tag-chip-leave-duration, 200ms) ease-in both;
+}
+.metadata-tag-chip-move {
+  transition: transform var(--pm-duration-fast, 140ms) cubic-bezier(0.22, 1, 0.36, 1);
+}
+.metadata-tag-chip-enter-from,
+.metadata-tag-chip-leave-to {
+  opacity: 0;
+  transform: translateY(4px) scale(0.84);
+}
+
+@keyframes metadata-tag-chip-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.72); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes metadata-tag-chip-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(-5px) scale(0.78); }
+}
+
+.pm-no-animations .pm-tags-input__chip-wrap.metadata-tag-chip-enter-active,
+.pm-no-animations .pm-tags-input__chip-wrap.metadata-tag-chip-leave-active {
+  --pm-tag-chip-enter-duration: 0ms;
+  --pm-tag-chip-leave-duration: 0ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pm-tags-input__chip-wrap.metadata-tag-chip-enter-active,
+  .pm-tags-input__chip-wrap.metadata-tag-chip-leave-active {
+    --pm-tag-chip-enter-duration: 0ms;
+    --pm-tag-chip-leave-duration: 0ms;
+  }
 }
 
 /* „+ Tag"-Pille: gestrichelt im Ruhezustand, solide-grün bei Fokus. Die Breite
