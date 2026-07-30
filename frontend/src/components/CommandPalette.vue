@@ -38,6 +38,8 @@
               spellcheck="false"
               role="combobox"
               aria-controls="pm-palette-list"
+              aria-expanded="true"
+              aria-autocomplete="list"
               :aria-activedescendant="activeDescendantId"
               aria-label="Aktion oder Suche"
             />
@@ -96,6 +98,7 @@ import { useTagStore } from '../stores/tags';
 import { useCategoryStore } from '../stores/categories';
 import { useCorrespondentStore } from '../stores/correspondents';
 import { buildCommands } from './commandPalette/commands';
+import { escapeHtml, parsePrefix, buildGroups } from './commandPalette/matching';
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -128,11 +131,10 @@ const GROUP_CONFIG = [
   { key: 'context', label: 'Für dieses Dokument' },
   { key: 'action', label: 'Aktionen' },
   { key: 'nav', label: 'Springe zu' },
-  { key: 'document', label: 'Dokumente' },
+  { key: 'document', label: 'Dokumente', limit: DOCUMENT_LIMIT },
   { key: 'tag', label: 'Tags' },
   { key: 'correspondent', label: 'Korrespondenten' },
   { key: 'type', label: 'Dokumenttypen' },
-  { key: 'fulltext', label: '' },
 ];
 
 const modKeyLabel = computed(() => {
@@ -142,46 +144,14 @@ const modKeyLabel = computed(() => {
   return /Mac|iPhone|iPad|iPod/i.test(platform) ? '⌘' : 'Ctrl+';
 });
 
-function escapeHtml(text) {
-  return String(text).replace(/[&<>"']/g, (c) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-  ));
-}
-
 function documentTitle(doc) {
   return String(doc?.display_name || '').trim()
     || String(doc?.original_filename || '').trim()
     || 'Unbenanntes Dokument';
 }
 
-// Subsequenz-Match aufs Label (Treffer hervorgehoben); Fallback: Keyword-Treffer.
-function matchEntry(entry, term) {
-  const label = entry.label;
-  const lc = label.toLowerCase();
-  let ti = 0;
-  let out = '';
-  for (let i = 0; i < label.length; i += 1) {
-    if (ti < term.length && lc[i] === term[ti]) {
-      out += `<mark>${escapeHtml(label[i])}</mark>`;
-      ti += 1;
-    } else {
-      out += escapeHtml(label[i]);
-    }
-  }
-  if (ti === term.length) return { ok: true, html: out };
-  if (entry.keywords?.some((k) => k.toLowerCase().includes(term))) {
-    return { ok: true, html: escapeHtml(label) };
-  }
-  return { ok: false };
-}
-
-// Präfix (>, #) vom Suchbegriff trennen.
-const parsed = computed(() => {
-  const raw = query.value;
-  const first = raw.charAt(0);
-  if (MODE_GROUP[first]) return { mode: first, term: raw.slice(1).trim() };
-  return { mode: null, term: raw.trim() };
-});
+// Präfix (>, #, @) vom Suchbegriff trennen.
+const parsed = computed(() => parsePrefix(query.value, MODE_GROUP));
 
 const modeLabel = computed(() => (parsed.value.mode ? MODE_LABEL[parsed.value.mode] : ''));
 
@@ -268,40 +238,23 @@ function dynamicEntries() {
 
 const view = computed(() => {
   const { mode, term } = parsed.value;
-  const lc = term.toLowerCase();
   const showDynamic = term.length > 0 || Boolean(mode);
 
-  const staticEntries = [...contextEntries(), ...baseCommands];
-  const entries = showDynamic ? [...staticEntries, ...dynamicEntries()] : staticEntries;
+  const entries = showDynamic
+    ? [...contextEntries(), ...baseCommands, ...dynamicEntries()]
+    : [...contextEntries(), ...baseCommands];
 
-  const byGroup = {};
-  for (const entry of entries) {
-    if (mode && entry.group !== MODE_GROUP[mode]) continue;
-    let html;
-    if (!term) {
-      html = escapeHtml(entry.label);
-    } else {
-      const m = matchEntry(entry, lc);
-      if (!m.ok) continue;
-      html = m.html;
-    }
-    (byGroup[entry.group] ||= []).push({ entry, html });
-  }
-
-  let idx = 0;
-  const groups = [];
-  for (const cfg of GROUP_CONFIG) {
-    if (cfg.key === 'fulltext') continue;
-    let items = byGroup[cfg.key];
-    if (!items?.length) continue;
-    if (cfg.key === 'document') items = items.slice(0, DOCUMENT_LIMIT);
-    groups.push({ key: cfg.key, label: cfg.label, items: items.map((it) => ({ ...it, index: idx++ })) });
-  }
+  const groups = buildGroups(entries, {
+    term,
+    restrictGroup: mode ? MODE_GROUP[mode] : null,
+    groupOrder: GROUP_CONFIG,
+  });
 
   // Volltext-Zeile: reicht den Begriff an die echte OCR-Suche des Workspace
   // weiter (Merge der Backend-Treffer in die Palette selbst ist Phase 2).
   if (term && !mode) {
     const label = `„${term}" in allen Dokumenten suchen`;
+    const index = groups.reduce((n, g) => n + g.items.length, 0);
     groups.push({
       key: 'fulltext',
       label: '',
@@ -314,7 +267,7 @@ const view = computed(() => {
           run: () => uiStore.requestWorkspace('search', term),
         },
         html: escapeHtml(label),
-        index: idx++,
+        index,
       }],
     });
   }
@@ -384,19 +337,26 @@ function onKeydown(event) {
 
 // immediate: true, damit auch das allererste Öffnen den Fokus setzt – beim
 // ersten Mount ist modelValue bereits true, ein reiner Change-Watcher würde
-// dann nicht feuern.
+// dann nicht feuern. Beim Schließen wandert der Fokus zurück zum vorher
+// fokussierten Element (Fokus-Wiederherstellung für Tastatur/Screenreader).
+let previouslyFocused = null;
 watch(
   () => props.modelValue,
   async (open) => {
-    if (!open) return;
-    query.value = '';
-    selectedIndex.value = 0;
-    // Dokumenttypen & Korrespondenten sicher vorhanden, falls die Sidebar sie
-    // noch nicht lud.
-    categoryStore.ensureLoaded?.();
-    correspondentStore.ensureLoaded?.();
-    await nextTick();
-    inputRef.value?.focus();
+    if (open) {
+      previouslyFocused = typeof document !== 'undefined' ? document.activeElement : null;
+      query.value = '';
+      selectedIndex.value = 0;
+      // Dokumenttypen & Korrespondenten sicher vorhanden, falls die Sidebar sie
+      // noch nicht lud.
+      categoryStore.ensureLoaded?.();
+      correspondentStore.ensureLoaded?.();
+      await nextTick();
+      inputRef.value?.focus();
+    } else if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+      previouslyFocused.focus();
+      previouslyFocused = null;
+    }
   },
   { immediate: true },
 );
