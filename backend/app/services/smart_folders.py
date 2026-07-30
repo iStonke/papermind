@@ -1,23 +1,31 @@
 import logging
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.errors import BadRequestError, ConflictError, NotFoundError
 from app.models.document import Document
 from app.models.smart_folder import SmartFolder
-from app.schemas.documents import DocumentListResponse, DocumentSummary
+from app.schemas.documents import DocumentListResponse, DocumentSearchScope, DocumentSummary
 from app.schemas.smart_folders import (
     SmartFolderCreateRequest,
     SmartFolderPreviewResponse,
     SmartFolderSort,
     SmartFolderUpdateRequest,
 )
+from app.services.document_search import (
+    build_scoped_search_filter,
+    build_ts_query_expr,
+    normalize_search_query,
+)
 from app.services.documents import DocumentService
 from app.services.smart_folder_query import SmartFolderQueryCompiler, build_smart_folder_sort, validate_smart_folder_query
 from app.services.utils import is_unique_violation, normalize_name
+
+settings = get_settings()
 
 logger = logging.getLogger("papermind.smart_folders")
 
@@ -139,9 +147,25 @@ class SmartFolderService:
         offset: int = 0,
         sort: SmartFolderSort = SmartFolderSort.created_desc,
         include_total: bool = True,
+        q: str | None = None,
+        search_scope: DocumentSearchScope = DocumentSearchScope.all,
     ) -> DocumentListResponse:
         folder = self.get_smart_folder_or_404(smart_folder_id)
         filter_expr = self.compiler.compile(folder.query_json)
+
+        # Freitextsuche innerhalb des Ordners: dieselbe Logik wie die
+        # Dokumentliste (FTS für „alles", sonst gezielter Feldfilter) mit dem
+        # Ordnerausdruck UND-verknüpfen.
+        normalized_q = normalize_search_query(q, max_length=settings.search_query_max_length)
+        if normalized_q:
+            if search_scope == DocumentSearchScope.all:
+                ts_query_expr = build_ts_query_expr(normalized_q, settings.fts_regconfig)
+                filter_expr = and_(filter_expr, Document.search_vector.op("@@")(ts_query_expr))
+            else:
+                scoped_filter = build_scoped_search_filter(normalized_q, search_scope)
+                if scoped_filter is not None:
+                    filter_expr = and_(filter_expr, scoped_filter)
+
         return self._list_documents(
             filter_expr,
             limit=limit,

@@ -6,6 +6,10 @@ export function buildStartViewPatch(startView) {
   return { ui: { start_view: startView } };
 }
 
+export function buildSearchScopeDefaultPatch(searchScopeDefault) {
+  return { ui: { search_scope_default: searchScopeDefault } };
+}
+
 export function buildShowFilenameSuffixPatch(enabled) {
   return { ui: { showFilenameSuffix: Boolean(enabled) } };
 }

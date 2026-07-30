@@ -9,6 +9,7 @@ import { normalizeSidebarSections } from '../utils/settingsApi.js';
 
 const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
 const START_VIEW_VALUES = new Set(['dashboard', 'all']);
+const SEARCH_SCOPE_DEFAULT_VALUES = new Set(['current', 'all']);
 const SORT_ORDER_VALUES = new Set([
   'newest',
   'oldest',
@@ -90,6 +91,7 @@ function createDefaultSettings() {
     ui: {
       theme_mode: 'system',
       start_view: 'all',
+      search_scope_default: 'current',
       showFilenameSuffix: true,
       previewDrawerGradientEnabled: true,
       drawerRememberState: true,
@@ -313,6 +315,7 @@ export const useSettingsStore = defineStore('settings', {
       isSettingSaving: {
         theme_mode: false,
         start_view: false,
+        search_scope_default: false,
         auto_ocr: false,
         auto_tagging: false,
         scan_cleanup: false,
@@ -379,6 +382,7 @@ export const useSettingsStore = defineStore('settings', {
       const defaults = createDefaultSettings();
       const rawThemeMode = String(payload?.ui?.theme_mode || '').toLowerCase();
       const rawStartView = String(payload?.ui?.start_view || '').toLowerCase();
+      const rawSearchScopeDefault = String(payload?.ui?.search_scope_default || '').toLowerCase();
       const rawSortOrder = String(payload?.documents?.sort_order || '').toLowerCase();
       const rawRecentImportWindow = Number(payload?.documents?.recent_import_window_hours);
       const rawTrashRetentionDays = Number(payload?.documents?.trash_retention_days);
@@ -405,6 +409,9 @@ export const useSettingsStore = defineStore('settings', {
         ui: {
           theme_mode: THEME_MODE_VALUES.has(rawThemeMode) ? rawThemeMode : defaults.ui.theme_mode,
           start_view: START_VIEW_VALUES.has(rawStartView) ? rawStartView : defaults.ui.start_view,
+          search_scope_default: SEARCH_SCOPE_DEFAULT_VALUES.has(rawSearchScopeDefault)
+            ? rawSearchScopeDefault
+            : defaults.ui.search_scope_default,
           showFilenameSuffix:
             typeof payload?.ui?.showFilenameSuffix === 'boolean'
               ? payload.ui.showFilenameSuffix

@@ -21,6 +21,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "ui": {
         "theme_mode": "system",
         "start_view": "all",
+        "search_scope_default": "current",
         "showFilenameSuffix": True,
         "previewDrawerGradientEnabled": True,
         "drawerRememberState": True,

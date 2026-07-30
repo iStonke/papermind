@@ -94,6 +94,14 @@ class StartView(str, Enum):
     all = "all"
 
 
+class SearchScopeDefault(str, Enum):
+    """Standard-Reichweite einer Suche, wenn ein Bereich (Ordner/Tag/Typ …)
+    aktiv ist: im aktuellen Bereich bleiben oder immer alle Dokumente."""
+
+    current = "current"
+    all = "all"
+
+
 class DocumentSortOrder(str, Enum):
     newest = "newest"
     oldest = "oldest"
@@ -153,6 +161,7 @@ def _normalize_sidebar_sections(
 class UISettingsRead(BaseModel):
     theme_mode: ThemeMode = ThemeMode.system
     start_view: StartView = StartView.all
+    search_scope_default: SearchScopeDefault = SearchScopeDefault.current
     showFilenameSuffix: bool = True
     previewDrawerGradientEnabled: bool = True
     drawerRememberState: bool = True
@@ -310,6 +319,7 @@ class AppSettingsRead(BaseModel):
 class UISettingsPatch(BaseModel):
     theme_mode: ThemeMode | None = None
     start_view: StartView | None = None
+    search_scope_default: SearchScopeDefault | None = None
     showFilenameSuffix: bool | None = None
     previewDrawerGradientEnabled: bool | None = None
     drawerRememberState: bool | None = None

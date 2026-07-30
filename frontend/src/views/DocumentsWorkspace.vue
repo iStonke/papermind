@@ -301,7 +301,18 @@
           :style="listFilterDrawerOffsetStyle"
         >
           <div class="panel-middle__header">
-            <div class="panel-middle__heading">{{ panelHeading }}</div>
+            <div class="panel-middle__title">
+              <div class="panel-middle__heading">{{ panelHeading }}</div>
+              <div v-if="showSearchScopeToggle" class="panel-middle__scope">
+                <span class="panel-middle__scope-info">{{ scopeResultLabel }}</span>
+                <button
+                  type="button"
+                  class="panel-middle__scope-switch"
+                  @click="toggleSearchScope"
+                >{{ scopeSwitchLabel }}</button>
+              </div>
+              <div v-else-if="resultCountLabel" class="panel-middle__count">{{ resultCountLabel }}</div>
+            </div>
             <div v-if="!isChatView && !isTagView && !isCategoryView && !isTrashView" class="panel-middle__actions">
               <v-badge
                 :model-value="pendingImportInboxCount > 0"
@@ -1873,6 +1884,14 @@ const documentListQuery = reactive({
   offset: 0
 });
 const documentListTotal = ref(0);
+// Reichweite der aktuellen Suche, wenn ein Bereich (Ordner/Tag/Typ …) aktiv ist:
+// 'current' = innerhalb des Bereichs, 'all' = über alle Dokumente. Startet bei
+// jeder neuen Suche aus der Einstellung ui.search_scope_default und ist pro Suche
+// direkt an den Treffern umschaltbar.
+const searchScopeMode = ref('current');
+// Trefferzahl der jeweils anderen Reichweite (für „… (128)" im Umschalter).
+// null = unbekannt/nicht geladen → Umschalter zeigt dann keine Zahl.
+const oppositeScopeCount = ref(null);
 const documentListLoadedCount = ref(0);
 const isLoadingMoreDocuments = ref(false);
 const hasMoreDocuments = computed(() =>
@@ -3054,10 +3073,11 @@ const documentListEmptyState = computed(() => {
     subtitle: 'Importiere dein erstes PDF, um loszulegen.'
   };
 });
+// Hinweis: bewusst OHNE `q` – eine Freitextsuche verlässt einen geöffneten
+// Ordner nicht mehr, sondern sucht (je nach Reichweite) in ihm oder global.
+// Andere ad-hoc-Filter (Tags, Zeitraum, Status …) lösen den Ordner weiterhin.
 const documentListSavedQueryKey = computed(() =>
   JSON.stringify({
-    q: documentListQuery.q,
-    searchScope: documentListQuery.q ? documentListQuery.searchScope : 'all',
     tagId: documentListQuery.tagId,
     tagIds: activeTagFilterIds.value,
     untagged: documentListQuery.untagged,
@@ -3290,6 +3310,170 @@ const panelHeading = computed(() => {
   };
   return labels[activeView.value] || 'Dokumente';
 });
+
+// Trefferzahl unter der Kopfzeile: nur bei aktiver Suche/Filterung und nur in
+// echten Dokumentlisten (nicht in Chat-/Tag-/Kategorie-Verwaltungsansichten).
+// „Treffer" ist im Deutschen numerusinvariant → keine Plural-Verzweigung nötig.
+const resultCountLabel = computed(() => {
+  if (isChatView.value || isTagView.value || isCategoryView.value) return '';
+  if (!hasActiveListFilter.value) return '';
+  if (isDocumentListSettling.value) return '';
+  const total = documentListTotal.value;
+  if (!Number.isFinite(total) || total < 0) return '';
+  const q = (documentListQuery.q || '').trim();
+  return q ? `${total} Treffer für „${q}"` : `${total} Treffer`;
+});
+
+// ── Such-Reichweite (Bereich ↔ alle Dokumente) ─────────────────────────────
+
+// Standard-Reichweite aus der Einstellung; jede neue Suche startet hier.
+const defaultSearchScopeMode = computed(() =>
+  settingsStore.settings?.ui?.search_scope_default === 'all' ? 'all' : 'current'
+);
+
+// Beschreibt den aktuell aktiven engeren Bereich (Ordner/Tag/Typ/…), in dem eine
+// Suche eingeschränkt werden könnte – oder null, wenn ohnehin „Alle Dokumente".
+const searchScopeContext = computed(() => {
+  if (isChatView.value || isTagView.value || isCategoryView.value || isTrashView.value) return null;
+  if (activeSavedSearchId.value) {
+    return { kind: 'folder', label: activeSavedSearchName.value || 'Ordner' };
+  }
+  const tagIds = activeTagFilterIds.value;
+  if (tagIds.length === 1) {
+    const tag = tags.value.find((t) => String(t.id) === String(tagIds[0]));
+    return { kind: 'tag', label: tag?.name || 'Tag' };
+  }
+  if (tagIds.length > 1) {
+    return { kind: 'tag', label: `${tagIds.length} Tags` };
+  }
+  if (documentListQuery.tagId) {
+    const tag = tags.value.find((t) => String(t.id) === String(documentListQuery.tagId));
+    return { kind: 'tag', label: tag?.name || 'Tag' };
+  }
+  if (activeDocumentTypeFilterName.value) {
+    return { kind: 'type', label: activeDocumentTypeFilterName.value };
+  }
+  if (documentListQuery.untagged) return { kind: 'untagged', label: 'Ohne Tags' };
+  if (isFavoritesView.value) return { kind: 'favorites', label: 'Favoriten' };
+  if (isNoTextView.value) return { kind: 'no_text', label: 'Nicht durchsuchbar' };
+  if (isImportsView.value) return { kind: 'imports', label: 'Zuletzt hinzugefügt' };
+  if (activeView.value === 'attention' && activeAttention.value) {
+    return { kind: 'attention', label: ATTENTION_LABELS[activeAttention.value] || 'Dokumente' };
+  }
+  return null;
+});
+const hasNarrowerSearchScope = computed(() => Boolean(searchScopeContext.value));
+
+// Identität des aktiven Bereichs – wechselt sie, startet die Reichweite neu.
+const searchScopeContextKey = computed(() =>
+  JSON.stringify({
+    folder: activeSavedSearchId.value || null,
+    tagId: documentListQuery.tagId || null,
+    tagIds: activeTagFilterIds.value,
+    type: activeDocumentTypeFilterName.value || null,
+    untagged: Boolean(documentListQuery.untagged),
+    view: activeView.value,
+    attention: activeView.value === 'attention' ? activeAttention.value : null
+  })
+);
+
+const hasSearchQuery = computed(() => Boolean((documentListQuery.q || '').trim()));
+
+// Wahr, wenn die aktuelle Suche den engeren Bereich verlässt und alle Dokumente
+// durchsucht. Die Bereichs-Filter werden dann nur beim Query-Bau unterdrückt –
+// documentListQuery bleibt unangetastet, damit man jederzeit zurückschalten kann.
+const globalSearchActive = computed(
+  () => searchScopeMode.value === 'all' && hasSearchQuery.value && hasNarrowerSearchScope.value
+);
+
+// Umschalter nur zeigen, wenn ein Bereich aktiv ist UND gesucht wird.
+const showSearchScopeToggle = computed(
+  () => hasNarrowerSearchScope.value && hasSearchQuery.value && !isDocumentListSettling.value
+);
+
+const scopeResultLabel = computed(() => {
+  const total = documentListTotal.value;
+  const totalPart = Number.isFinite(total) && total >= 0 ? `${total} Treffer` : '';
+  if (globalSearchActive.value) {
+    return totalPart ? `Alle Dokumente · ${totalPart}` : 'Alle Dokumente';
+  }
+  const label = searchScopeContext.value?.label || '';
+  const scopePart = label ? `In „${label}"` : '';
+  return [scopePart, totalPart].filter(Boolean).join(' · ');
+});
+
+const scopeSwitchLabel = computed(() => {
+  const label = searchScopeContext.value?.label || 'diesem Bereich';
+  const base = globalSearchActive.value ? `Nur in „${label}"` : 'Alle Dokumente durchsuchen';
+  const count = oppositeScopeCount.value;
+  return Number.isFinite(count) && count >= 0 ? `${base} (${count})` : base;
+});
+
+function setSearchScopeMode(mode) {
+  const next = mode === 'all' ? 'all' : 'current';
+  if (searchScopeMode.value === next) return;
+  searchScopeMode.value = next;
+  void fetchDocuments(selectedDocumentId.value);
+}
+
+function toggleSearchScope() {
+  setSearchScopeMode(globalSearchActive.value ? 'current' : 'all');
+}
+
+// URL für die Trefferzahl der Gegen-Reichweite (limit=1, nur Total).
+function oppositeScopeCountEndpoint() {
+  // Aktuell eingeengt → Gegenwert ist global; aktuell global → Gegenwert ist Bereich.
+  const oppositeIsGlobal = !globalSearchActive.value;
+  const opts = { limit: 1, offset: 0, includeTotal: true };
+  if (activeSavedSearchId.value && !oppositeIsGlobal) {
+    return `${apiBaseUrl}/api/smart-folders/${activeSavedSearchId.value}/documents?${buildSmartFolderDocumentsQuery(opts)}`;
+  }
+  return `${apiBaseUrl}/api/documents?${buildDocumentListQuery({ ...opts, dropScopeFilters: oppositeIsGlobal })}`;
+}
+
+let oppositeScopeCountGeneration = 0;
+async function refreshOppositeScopeCount() {
+  if (!showSearchScopeToggle.value) {
+    oppositeScopeCount.value = null;
+    return;
+  }
+  const generation = ++oppositeScopeCountGeneration;
+  try {
+    const response = await fetch(oppositeScopeCountEndpoint());
+    if (!response.ok || generation !== oppositeScopeCountGeneration) return;
+    const payload = await parseJsonResponse(response);
+    if (generation !== oppositeScopeCountGeneration) return;
+    const total = Number(payload?.total);
+    oppositeScopeCount.value = Number.isFinite(total) && total >= 0 ? total : null;
+  } catch (error) {
+    if (generation === oppositeScopeCountGeneration) oppositeScopeCount.value = null;
+    logDevError(error, 'refreshOppositeScopeCount');
+  }
+}
+
+// Jede neue Suche und jeder Bereichswechsel startet aus der Standardeinstellung.
+watch(
+  () => [hasSearchQuery.value, searchScopeContextKey.value],
+  () => {
+    searchScopeMode.value = defaultSearchScopeMode.value;
+  }
+);
+
+// Gegenbereichs-Trefferzahl (leichtgewichtig, entkoppelt von der Hauptliste).
+let oppositeScopeCountTimer = null;
+watch(
+  () => [showSearchScopeToggle.value, globalSearchActive.value, documentListQueryReloadKey.value],
+  () => {
+    if (oppositeScopeCountTimer) window.clearTimeout(oppositeScopeCountTimer);
+    if (!showSearchScopeToggle.value) {
+      oppositeScopeCount.value = null;
+      return;
+    }
+    oppositeScopeCountTimer = window.setTimeout(() => {
+      void refreshOppositeScopeCount();
+    }, 250);
+  }
+);
 
 // ── Sidebar-Counts ────────────────────────────────────────────────────────
 
@@ -5307,39 +5491,47 @@ function buildDocumentListQuery(options = {}) {
     params.set('date_to', documentListQuery.dateTo);
   }
 
-  if (documentListQuery.untagged) {
-    params.set('untagged', 'true');
-  } else if (activeTagFilterIds.value.length > 0) {
-    params.set('tag_id', activeTagFilterIds.value[0]);
-    for (const tagId of activeTagFilterIds.value) {
-      params.append('tag_ids', tagId);
+  // Globale Suche verlässt den engeren Bereich: dessen Filter werden hier
+  // unterdrückt (documentListQuery selbst bleibt unverändert). Freitext, Status
+  // und Zeitraum gelten weiter; der Papierkorb bleibt immer eingegrenzt.
+  // `dropScopeFilters` lässt sich überschreiben (z. B. für die Gegenbereichs-Zählung).
+  const dropScopeFilters = options.dropScopeFilters ?? globalSearchActive.value;
+
+  if (!dropScopeFilters) {
+    if (documentListQuery.untagged) {
+      params.set('untagged', 'true');
+    } else if (activeTagFilterIds.value.length > 0) {
+      params.set('tag_id', activeTagFilterIds.value[0]);
+      for (const tagId of activeTagFilterIds.value) {
+        params.append('tag_ids', tagId);
+      }
+    } else if (documentListQuery.tagId) {
+      params.set('tag_id', documentListQuery.tagId);
     }
-  } else if (documentListQuery.tagId) {
-    params.set('tag_id', documentListQuery.tagId);
-  }
 
-  if (documentListQuery.documentType) {
-    params.set('document_type', documentListQuery.documentType);
-  }
+    if (documentListQuery.documentType) {
+      params.set('document_type', documentListQuery.documentType);
+    }
 
-  if (isImportsView.value) {
-    params.set('recent_imports', 'true');
+    if (isImportsView.value) {
+      params.set('recent_imports', 'true');
+    }
+
+    if (isFavoritesView.value) {
+      params.set('favorites_only', 'true');
+    }
+
+    if (isNoTextView.value) {
+      params.set('without_text', 'true');
+    }
+
+    if (activeView.value === 'attention' && activeAttention.value) {
+      params.set('attention', activeAttention.value);
+    }
   }
 
   if (isTrashView.value) {
     params.set('in_trash', 'true');
-  }
-
-  if (isFavoritesView.value) {
-    params.set('favorites_only', 'true');
-  }
-
-  if (isNoTextView.value) {
-    params.set('without_text', 'true');
-  }
-
-  if (activeView.value === 'attention' && activeAttention.value) {
-    params.set('attention', activeAttention.value);
   }
 
   return params.toString();
@@ -5381,6 +5573,16 @@ function buildSmartFolderDocumentsQuery(options = {}) {
     params.set('include_total', 'false');
   }
   params.set('sort', mapDocumentSortToSmartFolderSort());
+
+  // Freitextsuche innerhalb des Ordners (nur im Bereichs-Modus relevant – bei
+  // globaler Suche wird ohnehin der reguläre /documents-Endpoint verwendet).
+  if (documentListQuery.q) {
+    params.set('q', documentListQuery.q);
+    if (documentListQuery.searchScope && documentListQuery.searchScope !== 'all') {
+      params.set('search_scope', documentListQuery.searchScope);
+    }
+  }
+
   return params.toString();
 }
 
@@ -5864,10 +6066,13 @@ function finishDocumentListSettle() {
 
 function documentListEndpoint({ offset = 0, includeTotal = true } = {}) {
   const queryOptions = { limit: documentListQuery.limit, offset, includeTotal };
-  const query = activeSavedSearchId.value
+  // Bei globaler Suche verlässt die Reichweite den Ordner: regulärer Endpoint,
+  // ohne activeSavedSearchId aufzugeben (Umschalten zurück bleibt möglich).
+  const useFolderEndpoint = Boolean(activeSavedSearchId.value) && !globalSearchActive.value;
+  const query = useFolderEndpoint
     ? buildSmartFolderDocumentsQuery(queryOptions)
     : buildDocumentListQuery(queryOptions);
-  return activeSavedSearchId.value
+  return useFolderEndpoint
     ? `${apiBaseUrl}/api/smart-folders/${activeSavedSearchId.value}/documents?${query}`
     : `${apiBaseUrl}/api/documents?${query}`;
 }
@@ -9601,6 +9806,15 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--pm-divider);
 }
 
+.panel-middle__title {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
 .panel-middle__heading {
   font-size: 0.98rem;
   font-weight: 600;
@@ -9609,6 +9823,60 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+}
+
+.panel-middle__count {
+  font-size: 0.74rem;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--pm-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.panel-middle__scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 8px;
+  row-gap: 2px;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.panel-middle__scope-info {
+  font-size: 0.74rem;
+  font-weight: 500;
+  color: var(--pm-muted);
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panel-middle__scope-switch {
+  font-size: 0.74rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: rgb(var(--v-theme-primary));
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  white-space: nowrap;
+  flex: none;
+}
+
+.panel-middle__scope-switch:hover {
+  text-decoration: underline;
+}
+
+.panel-middle__scope-switch:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 
 .panel-middle__actions {
