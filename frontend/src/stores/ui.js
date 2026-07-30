@@ -18,6 +18,14 @@ export const useUiStore = defineStore('ui', {
     // Tastenkürzel auf-/zuschaltbar. Zustand hier, damit jede Route ihn steuern
     // kann – analog zu settingsOpen/accountOpen.
     paletteOpen: false,
+    // Signale, mit denen die Palette die (lokal in DocumentsWorkspace
+    // verwalteten) Views/Aktionen anstößt – analog zu importsReloadSignal.
+    // Zähler statt reiner Wert, damit der Watcher auch feuert, wenn zweimal
+    // hintereinander dasselbe Ziel kommt.
+    pendingView: null,
+    viewRequestSignal: 0,
+    pendingAction: null,
+    actionRequestSignal: 0,
     // Wird hochgezählt, wenn der (global gemountete) SettingsDialog ein
     // reload-imports auslöst. Die DocumentsView beobachtet diesen Zähler und
     // lädt dann ihre Dokument-/Sidebar-Daten neu.
@@ -46,6 +54,14 @@ export const useUiStore = defineStore('ui', {
     },
     togglePalette() {
       this.paletteOpen = !this.paletteOpen;
+    },
+    requestView(viewKey) {
+      this.pendingView = viewKey || null;
+      this.viewRequestSignal += 1;
+    },
+    requestAction(actionKey) {
+      this.pendingAction = actionKey || null;
+      this.actionRequestSignal += 1;
     },
     signalImportsReload() {
       this.importsReloadSignal += 1;

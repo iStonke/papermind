@@ -7501,6 +7501,16 @@ function onSettingsReloadImports() {
 // als Signal über den ui-Store herein.
 watch(() => uiStore.importsReloadSignal, () => onSettingsReloadImports());
 
+// Die Command-Palette ist global gemountet, activeView/openImport leben aber
+// hier lokal. Sie stößt View-Wechsel und Aktionen daher über Signale im
+// ui-Store an (Zähler, damit auch dasselbe Ziel zweimal hintereinander feuert).
+watch(() => uiStore.viewRequestSignal, () => {
+  if (uiStore.pendingView) selectView(uiStore.pendingView);
+});
+watch(() => uiStore.actionRequestSignal, () => {
+  if (uiStore.pendingAction === 'import') openImport();
+});
+
 function onImportMinimized() {
   // Markieren, damit der Close-Watcher die Inbox-Scans NICHT verwirft (nur Tray).
   isMinimizingImport.value = true;

@@ -32,14 +32,42 @@
               :placeholder="placeholder"
               autocomplete="off"
               spellcheck="false"
+              role="combobox"
+              aria-controls="pm-palette-list"
+              :aria-activedescendant="activeDescendantId"
               aria-label="Aktion oder Suche"
             />
             <kbd class="pm-palette__kbd">{{ modKeyLabel }}K</kbd>
           </div>
 
-          <div class="pm-palette__results">
-            <p class="pm-palette__placeholder">
-              Suche, Aktionen und Sprungziele folgen in den nächsten Schritten.
+          <div
+            id="pm-palette-list"
+            ref="resultsRef"
+            class="pm-palette__results"
+            role="listbox"
+          >
+            <template v-if="flatVisible.length">
+              <div v-for="grp in groupedResults" :key="grp.group" class="pm-palette__group">
+                <div class="pm-palette__section">{{ grp.label }}</div>
+                <div
+                  v-for="item in grp.items"
+                  :id="`pm-palette-opt-${item.index}`"
+                  :key="item.cmd.id"
+                  class="pm-palette__row"
+                  :class="{ 'pm-palette__row--sel': item.index === selectedIndex }"
+                  :data-index="item.index"
+                  role="option"
+                  :aria-selected="item.index === selectedIndex"
+                  @click="runCommand(item.cmd)"
+                  @mouseenter="selectedIndex = item.index"
+                >
+                  <v-icon :icon="item.cmd.icon" size="18" class="pm-palette__row-icon" />
+                  <span class="pm-palette__row-label" v-html="item.html"></span>
+                </div>
+              </div>
+            </template>
+            <p v-else class="pm-palette__placeholder">
+              Kein Treffer für „{{ query }}"
             </p>
           </div>
 
@@ -57,15 +85,22 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue';
 import { matchesShortcut, SHORTCUT_ACTIONS } from '../keyboard/shortcuts';
+import { useUiStore } from '../stores/ui';
+import { buildCommands, GROUP_LABELS, GROUP_ORDER } from './commandPalette/commands';
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
 });
 const emit = defineEmits(['update:modelValue']);
 
+const uiStore = useUiStore();
+const allCommands = buildCommands({ uiStore });
+
 const dialogRef = ref(null);
 const inputRef = ref(null);
+const resultsRef = ref(null);
 const query = ref('');
+const selectedIndex = ref(0);
 
 const placeholder = 'Aktion oder Suche… (>, #, @)';
 
@@ -76,8 +111,85 @@ const modKeyLabel = computed(() => {
   return /Mac|iPhone|iPad|iPod/i.test(platform) ? '⌘' : 'Ctrl+';
 });
 
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+// Subsequenz-Match auf dem Label (Treffer-Buchstaben hervorgehoben). Fällt es
+// durch, greift ein einfacher Keyword-Treffer ohne Hervorhebung.
+function matchCommand(cmd, term) {
+  const label = cmd.label;
+  const lc = label.toLowerCase();
+  let ti = 0;
+  let out = '';
+  for (let i = 0; i < label.length; i += 1) {
+    if (ti < term.length && lc[i] === term[ti]) {
+      out += `<mark>${escapeHtml(label[i])}</mark>`;
+      ti += 1;
+    } else {
+      out += escapeHtml(label[i]);
+    }
+  }
+  if (ti === term.length) return { ok: true, html: out };
+  if (cmd.keywords?.some((k) => k.toLowerCase().includes(term))) {
+    return { ok: true, html: escapeHtml(label) };
+  }
+  return { ok: false };
+}
+
+const results = computed(() => {
+  const term = query.value.trim().toLowerCase();
+  const matched = [];
+  for (const cmd of allCommands) {
+    if (!term) {
+      matched.push({ cmd, html: escapeHtml(cmd.label) });
+      continue;
+    }
+    const m = matchCommand(cmd, term);
+    if (m.ok) matched.push({ cmd, html: m.html });
+  }
+  return matched;
+});
+
+// Nach Gruppen (in GROUP_ORDER) sortiert; jedem Eintrag wird ein flacher Index
+// in visueller Reihenfolge zugewiesen, an dem selectedIndex hängt.
+const groupedResults = computed(() => {
+  let i = 0;
+  const groups = [];
+  for (const group of GROUP_ORDER) {
+    const items = results.value
+      .filter((r) => r.cmd.group === group)
+      .map((r) => ({ ...r, index: i++ }));
+    if (items.length) groups.push({ group, label: GROUP_LABELS[group], items });
+  }
+  return groups;
+});
+
+const flatVisible = computed(() => groupedResults.value.flatMap((g) => g.items));
+
+const activeDescendantId = computed(() => (
+  flatVisible.value.length ? `pm-palette-opt-${selectedIndex.value}` : undefined
+));
+
+watch(query, () => { selectedIndex.value = 0; });
+
 function close() {
   emit('update:modelValue', false);
+}
+
+function runCommand(cmd) {
+  if (!cmd) return;
+  close();
+  cmd.run();
+}
+
+async function scrollSelectedIntoView() {
+  await nextTick();
+  resultsRef.value
+    ?.querySelector(`.pm-palette__row[data-index="${selectedIndex.value}"]`)
+    ?.scrollIntoView({ block: 'nearest' });
 }
 
 function onKeydown(event) {
@@ -87,9 +199,26 @@ function onKeydown(event) {
     close();
     return;
   }
-  // Fokus-Falle: im Gerüst ist das Eingabefeld das einzige fokussierbare
-  // Element – Tab hält den Fokus dort (erweitern, sobald Ergebnisse per
-  // aria-activedescendant navigierbar sind).
+  const list = flatVisible.value;
+  if (event.key === 'ArrowDown') {
+    event.preventDefault();
+    if (list.length) selectedIndex.value = (selectedIndex.value + 1) % list.length;
+    scrollSelectedIntoView();
+    return;
+  }
+  if (event.key === 'ArrowUp') {
+    event.preventDefault();
+    if (list.length) selectedIndex.value = (selectedIndex.value - 1 + list.length) % list.length;
+    scrollSelectedIntoView();
+    return;
+  }
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    runCommand(list[selectedIndex.value]?.cmd);
+    return;
+  }
+  // Fokus-Falle: das Eingabefeld ist das einzige fokussierbare Element; die
+  // Ergebnisliste wird per aria-activedescendant navigiert.
   if (event.key === 'Tab') {
     event.preventDefault();
     inputRef.value?.focus();
@@ -104,6 +233,7 @@ watch(
   async (open) => {
     if (!open) return;
     query.value = '';
+    selectedIndex.value = 0;
     await nextTick();
     inputRef.value?.focus();
   },
@@ -178,7 +308,55 @@ watch(
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 8px 6px;
+  padding: 6px;
+}
+
+.pm-palette__section {
+  padding: 11px 12px 4px;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--pm-muted);
+}
+
+.pm-palette__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background var(--pm-duration-fast, 140ms) var(--pm-easing, ease);
+}
+
+.pm-palette__row-icon {
+  color: var(--pm-muted);
+}
+
+.pm-palette__row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  color: var(--pm-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-palette__row-label :deep(mark) {
+  background: transparent;
+  color: var(--pm-accent);
+  font-weight: 500;
+}
+
+.pm-palette__row--sel {
+  background: var(--pm-selected);
+}
+
+.pm-palette__row--sel .pm-palette__row-label,
+.pm-palette__row--sel .pm-palette__row-icon,
+.pm-palette__row--sel .pm-palette__row-label :deep(mark) {
+  color: var(--pm-accent-text);
 }
 
 .pm-palette__placeholder {
