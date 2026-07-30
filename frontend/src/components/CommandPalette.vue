@@ -24,6 +24,10 @@
                 <line x1="21" y1="21" x2="16.65" y2="16.65" />
               </svg>
             </span>
+            <span v-if="contextTitle" class="pm-palette__scope" :title="contextTitle">
+              <v-icon icon="mdi-file-document-outline" size="14" aria-hidden="true" />
+              <span class="pm-palette__scope-text">{{ contextTitle }}</span>
+            </span>
             <input
               ref="inputRef"
               v-model="query"
@@ -121,6 +125,7 @@ const MODE_LABEL = { '>': 'Aktionen', '#': 'Tags', '@': 'Korrespondenten' };
 
 // Renderreihenfolge + Sektions-Überschriften. Leeres Label = ohne Überschrift.
 const GROUP_CONFIG = [
+  { key: 'context', label: 'Für dieses Dokument' },
   { key: 'action', label: 'Aktionen' },
   { key: 'nav', label: 'Springe zu' },
   { key: 'document', label: 'Dokumente' },
@@ -180,6 +185,44 @@ const parsed = computed(() => {
 
 const modeLabel = computed(() => (parsed.value.mode ? MODE_LABEL[parsed.value.mode] : ''));
 
+// Kontextbewusstsein: ist im Reader ein Dokument offen, erscheinen oben
+// Aktionen „Für dieses Dokument" (auch bei leerem Feld; beim Tippen mitgeranked).
+const contextTitle = computed(() => {
+  const doc = documentStore.selectedDocumentDetail;
+  return doc ? documentTitle(doc) : '';
+});
+
+function contextEntries() {
+  const doc = documentStore.selectedDocumentDetail;
+  if (!doc) return [];
+  return [
+    {
+      id: 'ctx-details',
+      group: 'context',
+      icon: 'mdi-information-outline',
+      label: 'Details & Metadaten öffnen',
+      keywords: ['details', 'metadaten', 'info', 'aufbewahrung', 'tags', 'korrespondent'],
+      run: () => uiStore.requestWorkspace('contextDetails'),
+    },
+    {
+      id: 'ctx-download',
+      group: 'context',
+      icon: 'mdi-download-outline',
+      label: 'Herunterladen',
+      keywords: ['download', 'herunterladen', 'speichern', 'pdf'],
+      run: () => uiStore.requestWorkspace('contextDownload'),
+    },
+    {
+      id: 'ctx-trash',
+      group: 'context',
+      icon: 'mdi-trash-can-outline',
+      label: 'In den Papierkorb',
+      keywords: ['papierkorb', 'löschen', 'trash', 'entfernen'],
+      run: () => uiStore.requestWorkspace('contextTrash'),
+    },
+  ];
+}
+
 // Dokumente, Tags und Dokumenttypen tauchen erst auf, sobald gesucht wird (oder
 // ein passender Präfix-Modus aktiv ist) – sonst bliebe die leere Palette voll.
 function dynamicEntries() {
@@ -228,7 +271,8 @@ const view = computed(() => {
   const lc = term.toLowerCase();
   const showDynamic = term.length > 0 || Boolean(mode);
 
-  const entries = showDynamic ? [...baseCommands, ...dynamicEntries()] : [...baseCommands];
+  const staticEntries = [...contextEntries(), ...baseCommands];
+  const entries = showDynamic ? [...staticEntries, ...dynamicEntries()] : staticEntries;
 
   const byGroup = {};
   for (const entry of entries) {
@@ -395,6 +439,24 @@ watch(
 .pm-palette__search-icon {
   display: flex;
   color: var(--pm-muted);
+}
+
+.pm-palette__scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 210px;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--pm-chip-text);
+  background: var(--pm-chip-bg);
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.pm-palette__scope-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pm-palette__input {

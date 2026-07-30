@@ -7557,6 +7557,9 @@ watch(() => uiStore.workspaceRequestSignal, () => {
     case 'tagFilter': applyTagFilterFromSidebar(req.payload); break;
     case 'typeFilter': applyCategoryFilterFromSidebar(req.payload); break;
     case 'correspondentFilter': applyCorrespondentFilter(req.payload); break;
+    case 'contextDownload': downloadSelectedDocument(); break;
+    case 'contextTrash': deleteSelectedDocument(); break;
+    case 'contextDetails': toggleDetailsDrawer(); break;
     default: break;
   }
 });
