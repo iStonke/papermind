@@ -66,7 +66,7 @@
                   role="option"
                   :aria-selected="item.index === selectedIndex"
                   @click="runEntry(item.entry)"
-                  @mouseenter="selectedIndex = item.index"
+                  @mouseenter="selectIndex(item.index)"
                 >
                   <v-icon :icon="item.entry.icon" size="18" class="pm-palette__row-icon" />
                   <span class="pm-palette__row-label" v-html="item.html"></span>
@@ -98,7 +98,7 @@ import { useTagStore } from '../stores/tags';
 import { useCategoryStore } from '../stores/categories';
 import { useCorrespondentStore } from '../stores/correspondents';
 import { buildCommands } from './commandPalette/commands';
-import { escapeHtml, parsePrefix, buildGroups } from './commandPalette/matching';
+import { escapeHtml, parsePrefix, buildGroups, reconcileSelection } from './commandPalette/matching';
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -118,6 +118,7 @@ const inputRef = ref(null);
 const resultsRef = ref(null);
 const query = ref('');
 const selectedIndex = ref(0);
+const selectedEntryId = ref(null);
 
 const placeholder = 'Suchen oder Aktion… (>, #, @)';
 const DOCUMENT_LIMIT = 6;
@@ -289,7 +290,26 @@ const activeDescendantId = computed(() => (
   flatVisible.value.length ? `pm-palette-opt-${selectedIndex.value}` : undefined
 ));
 
-watch(query, () => { selectedIndex.value = 0; });
+watch(query, () => {
+  selectedIndex.value = 0;
+  selectedEntryId.value = null;
+});
+
+// Tags, Korrespondenten und Dokumenttypen können eintreffen, während die
+// Palette bereits geöffnet ist. Ihre Einfügung darf eine bestehende Auswahl
+// nicht von einem Eintrag auf einen anderen verschieben.
+watch(flatVisible, (entries) => {
+  const nextIndex = reconcileSelection(entries, selectedEntryId.value, selectedIndex.value);
+  selectedIndex.value = nextIndex;
+  selectedEntryId.value = entries[nextIndex]?.id || null;
+}, { flush: 'sync' });
+
+function selectIndex(index) {
+  const entries = flatVisible.value;
+  const nextIndex = reconcileSelection(entries, null, index);
+  selectedIndex.value = nextIndex;
+  selectedEntryId.value = entries[nextIndex]?.id || null;
+}
 
 function close() {
   emit('update:modelValue', false);
@@ -301,6 +321,13 @@ function runEntry(entry) {
   entry.run();
 }
 
+function consumePaletteKey(event) {
+  event.preventDefault();
+  // Die Palette liegt als Teleport über der Anwendung. Ihre Navigation darf
+  // deshalb nicht zugleich Shortcuts oder Enter-Handler im Hintergrund lösen.
+  event.stopPropagation();
+}
+
 async function scrollSelectedIntoView() {
   await nextTick();
   resultsRef.value
@@ -310,33 +337,32 @@ async function scrollSelectedIntoView() {
 
 function onKeydown(event) {
   if (matchesShortcut(event, SHORTCUT_ACTIONS.CANCEL)) {
-    event.preventDefault();
-    event.stopPropagation();
+    consumePaletteKey(event);
     close();
     return;
   }
   const list = flatVisible.value;
   if (event.key === 'ArrowDown') {
-    event.preventDefault();
-    if (list.length) selectedIndex.value = (selectedIndex.value + 1) % list.length;
+    consumePaletteKey(event);
+    if (list.length) selectIndex((selectedIndex.value + 1) % list.length);
     scrollSelectedIntoView();
     return;
   }
   if (event.key === 'ArrowUp') {
-    event.preventDefault();
-    if (list.length) selectedIndex.value = (selectedIndex.value - 1 + list.length) % list.length;
+    consumePaletteKey(event);
+    if (list.length) selectIndex((selectedIndex.value - 1 + list.length) % list.length);
     scrollSelectedIntoView();
     return;
   }
   if (event.key === 'Enter') {
-    event.preventDefault();
+    consumePaletteKey(event);
     runEntry(list[selectedIndex.value]);
     return;
   }
   // Fokus-Falle: das Eingabefeld ist das einzige fokussierbare Element; die
   // Ergebnisliste wird per aria-activedescendant navigiert.
   if (event.key === 'Tab') {
-    event.preventDefault();
+    consumePaletteKey(event);
     inputRef.value?.focus();
   }
 }
@@ -353,6 +379,7 @@ watch(
       previouslyFocused = typeof document !== 'undefined' ? document.activeElement : null;
       query.value = '';
       selectedIndex.value = 0;
+      selectedEntryId.value = null;
       // Dokumenttypen & Korrespondenten sicher vorhanden, falls die Sidebar sie
       // noch nicht lud.
       categoryStore.ensureLoaded?.();
@@ -377,7 +404,10 @@ watch(
   align-items: flex-start;
   justify-content: center;
   padding: 12vh 16px 16px;
-  background: var(--pm-drawer-scrim, rgba(15, 23, 42, 0.32));
+  /* Die Palette ist ein fokussiertes Modal, keine Drawer-Ansicht: Der
+     Drawer-Scrim ist absichtlich transparent und würde den Hintergrund hier
+     nahezu unverändert lassen. */
+  background: rgba(15, 23, 42, 0.64);
 }
 
 .pm-palette {
@@ -526,24 +556,29 @@ watch(
   border-top: 1px solid var(--pm-divider);
 }
 
-/* Transition über die Kontur-Motion-Tokens; pm-no-animations /
-   prefers-reduced-motion setzen die Dauern auf 0ms → automatisch still. */
+/* Sanfte, zusammenhängende Öffnung ohne Überschwingen: Die Palette hebt sich
+   nur minimal aus dem abgedunkelten Hintergrund. */
 .pm-palette-enter-active,
 .pm-palette-leave-active {
-  transition: opacity var(--pm-duration-normal, 210ms) var(--pm-easing, ease);
+  transition: opacity var(--pm-duration-normal, 210ms) ease-out;
 }
-.pm-palette-enter-active .pm-palette,
+.pm-palette-enter-active .pm-palette {
+  transition: transform var(--pm-duration-normal, 210ms) cubic-bezier(0.22, 1, 0.36, 1),
+    opacity var(--pm-duration-normal, 210ms) ease-out;
+}
 .pm-palette-leave-active .pm-palette {
-  transition: transform var(--pm-duration-normal, 210ms) var(--pm-easing, ease),
-    opacity var(--pm-duration-normal, 210ms) var(--pm-easing, ease);
+  transition: transform var(--pm-duration-fast, 140ms) var(--pm-easing-accel, ease-in),
+    opacity var(--pm-duration-fast, 140ms) ease-in;
 }
 .pm-palette-enter-from,
 .pm-palette-leave-to {
   opacity: 0;
 }
-.pm-palette-enter-from .pm-palette,
 .pm-palette-leave-to .pm-palette {
-  transform: translateY(-8px) scale(0.98);
+  transform: translateY(-6px) scale(0.99);
   opacity: 0;
+}
+.pm-palette-enter-from .pm-palette {
+  transform: translateY(-10px) scale(0.985);
 }
 </style>

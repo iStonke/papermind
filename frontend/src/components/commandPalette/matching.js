@@ -91,3 +91,22 @@ export function buildGroups(entries, { term = '', restrictGroup = null, groupOrd
   }
   return groups;
 }
+
+/**
+ * Hält eine Tastaturauswahl stabil, wenn sich die Ergebnisliste asynchron
+ * erweitert oder verkürzt (z. B. nachdem Tags geladen wurden). Die sichtbare
+ * Position allein ist dafür ungeeignet: Ein neu eingefügter Treffer könnte
+ * sonst beim anschließenden Enter einen anderen Befehl ausführen.
+ */
+export function reconcileSelection(entries, selectedId, fallbackIndex = 0) {
+  const list = Array.isArray(entries) ? entries : [];
+  if (!list.length) return 0;
+
+  if (selectedId) {
+    const stableIndex = list.findIndex((entry) => entry?.id === selectedId);
+    if (stableIndex >= 0) return stableIndex;
+  }
+
+  const index = Number.isInteger(fallbackIndex) ? fallbackIndex : 0;
+  return Math.max(0, Math.min(index, list.length - 1));
+}

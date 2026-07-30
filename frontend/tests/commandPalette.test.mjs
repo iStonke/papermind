@@ -6,6 +6,7 @@ import {
   parsePrefix,
   matchEntry,
   buildGroups,
+  reconcileSelection,
 } from "../src/components/commandPalette/matching.js";
 
 const MODES = { ">": "action", "#": "tag", "@": "correspondent" };
@@ -108,4 +109,19 @@ test("buildGroups applies the per-group limit", () => {
 test("buildGroups omits empty groups", () => {
   const groups = buildGroups(ENTRIES, { term: "übersicht", groupOrder: ORDER });
   assert.deepEqual(groups.map((g) => g.key), ["nav"]);
+});
+
+test("reconcileSelection keeps the selected entry when new results appear before it", () => {
+  const initial = [{ id: "fulltext" }];
+  const updated = [{ id: "doc-1" }, { id: "fulltext" }];
+
+  assert.equal(reconcileSelection(initial, "fulltext", 0), 0);
+  assert.equal(reconcileSelection(updated, "fulltext", 0), 1);
+});
+
+test("reconcileSelection clamps a removed selection to a valid entry", () => {
+  const entries = [{ id: "action-import" }, { id: "nav-all" }];
+
+  assert.equal(reconcileSelection(entries, "removed-entry", 8), 1);
+  assert.equal(reconcileSelection([], "removed-entry", 8), 0);
 });

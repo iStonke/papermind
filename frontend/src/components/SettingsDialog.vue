@@ -3148,6 +3148,7 @@ const shortcutGroups = [
   {
     label: 'Allgemein',
     items: [
+      { action: 'command-palette',        description: 'Befehlsmenü öffnen / schließen', keys: ['⌘ K', 'Ctrl K'] },
       { action: SHORTCUT_ACTIONS.HELP,   description: 'Tastaturkürzel anzeigen', keys: keysFor(SHORTCUT_ACTIONS.HELP) },
       { action: SHORTCUT_ACTIONS.CANCEL, description: 'Dialog / Auswahl schließen', keys: keysFor(SHORTCUT_ACTIONS.CANCEL) }
     ]
