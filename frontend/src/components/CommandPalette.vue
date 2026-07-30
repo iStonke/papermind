@@ -90,6 +90,7 @@ import { useUiStore } from '../stores/ui';
 import { useDocumentStore } from '../stores/documents';
 import { useTagStore } from '../stores/tags';
 import { useCategoryStore } from '../stores/categories';
+import { useCorrespondentStore } from '../stores/correspondents';
 import { buildCommands } from './commandPalette/commands';
 
 const props = defineProps({
@@ -101,6 +102,7 @@ const uiStore = useUiStore();
 const documentStore = useDocumentStore();
 const tagStore = useTagStore();
 const categoryStore = useCategoryStore();
+const correspondentStore = useCorrespondentStore();
 
 const baseCommands = buildCommands({ uiStore });
 
@@ -110,12 +112,12 @@ const resultsRef = ref(null);
 const query = ref('');
 const selectedIndex = ref(0);
 
-const placeholder = 'Suchen oder Aktion… (>, #)';
+const placeholder = 'Suchen oder Aktion… (>, #, @)';
 const DOCUMENT_LIMIT = 6;
 
 // Präfix-Modi grenzen die Ergebnisse auf eine Gruppe ein.
-const MODE_GROUP = { '>': 'action', '#': 'tag' };
-const MODE_LABEL = { '>': 'Aktionen', '#': 'Tags' };
+const MODE_GROUP = { '>': 'action', '#': 'tag', '@': 'correspondent' };
+const MODE_LABEL = { '>': 'Aktionen', '#': 'Tags', '@': 'Korrespondenten' };
 
 // Renderreihenfolge + Sektions-Überschriften. Leeres Label = ohne Überschrift.
 const GROUP_CONFIG = [
@@ -123,6 +125,7 @@ const GROUP_CONFIG = [
   { key: 'nav', label: 'Springe zu' },
   { key: 'document', label: 'Dokumente' },
   { key: 'tag', label: 'Tags' },
+  { key: 'correspondent', label: 'Korrespondenten' },
   { key: 'type', label: 'Dokumenttypen' },
   { key: 'fulltext', label: '' },
 ];
@@ -197,6 +200,15 @@ function dynamicEntries() {
       icon: 'mdi-tag-outline',
       label: tag.name,
       run: () => uiStore.requestWorkspace('tagFilter', tag.id),
+    });
+  }
+  for (const correspondent of correspondentStore.correspondents) {
+    entries.push({
+      id: `corr-${correspondent.id}`,
+      group: 'correspondent',
+      icon: 'mdi-card-account-details-outline',
+      label: correspondent.name,
+      run: () => uiStore.requestWorkspace('correspondentFilter', correspondent.id),
     });
   }
   for (const category of categoryStore.sortedCategories) {
@@ -335,8 +347,10 @@ watch(
     if (!open) return;
     query.value = '';
     selectedIndex.value = 0;
-    // Dokumenttypen sicher vorhanden, falls die Sidebar sie noch nicht lud.
+    // Dokumenttypen & Korrespondenten sicher vorhanden, falls die Sidebar sie
+    // noch nicht lud.
     categoryStore.ensureLoaded?.();
+    correspondentStore.ensureLoaded?.();
     await nextTick();
     inputRef.value?.focus();
   },

@@ -1874,6 +1874,7 @@ const documentListQuery = reactive({
   tagId: null,
   tagIds: [],
   documentType: null,
+  correspondentId: null,
   untagged: null,
   status: normalizeDocumentStatusFilter(initialDocumentToolbarState.status),
   dateFrom: initialDateRange.dateFrom,
@@ -4916,6 +4917,18 @@ function patchDocumentListQuery(patch, options = {}) {
     }
   }
 
+  // Ein neuer Bereichsfilter (Tag/Typ/untagged) hebt einen aktiven
+  // Korrespondentenfilter auf, sofern er nicht selbst mitgesetzt wird.
+  const patchKeys = Object.keys(patch || {});
+  if (
+    patchKeys.some((k) => ['tagId', 'tagIds', 'documentType', 'untagged'].includes(k))
+    && !patchKeys.includes('correspondentId')
+    && documentListQuery.correspondentId != null
+  ) {
+    documentListQuery.correspondentId = null;
+    hasChanged = true;
+  }
+
   if (resetOffset && documentListQuery.offset !== 0) {
     documentListQuery.offset = 0;
     hasChanged = true;
@@ -5511,6 +5524,10 @@ function buildDocumentListQuery(options = {}) {
 
     if (documentListQuery.documentType) {
       params.set('document_type', documentListQuery.documentType);
+    }
+
+    if (documentListQuery.correspondentId) {
+      params.set('correspondent_id', documentListQuery.correspondentId);
     }
 
     if (isImportsView.value) {
@@ -7142,6 +7159,27 @@ function applyCategoryFilterFromSidebar(categoryName) {
   openCategoryDocuments(categoryName);
 }
 
+// Aus der Command-Palette: nach Korrespondent gefilterte Dokumentliste öffnen.
+function applyCorrespondentFilter(correspondentId) {
+  const id = String(correspondentId || '').trim();
+  if (!id) return;
+  activeView.value = 'all';
+  leaveActiveSavedSearch();
+  searchText.value = '';
+  patchDocumentListQuery({
+    q: null,
+    tagId: null,
+    tagIds: [],
+    untagged: null,
+    documentType: null,
+    correspondentId: id,
+    status: resolveToolbarStatus('all'),
+    dateFrom: null,
+    dateTo: null
+  });
+  syncSearchStateToQuery({ resetOffset: false });
+}
+
 function setCategoryUsageFilter(value) {
   categoryUsageFilter.value = CATEGORY_USAGE_FILTER_OPTIONS.some((option) => option.value === value) ? value : 'all';
   selectedCategoryIds.value = new Set();
@@ -7518,6 +7556,7 @@ watch(() => uiStore.workspaceRequestSignal, () => {
     case 'search': runSearchFromDashboard(req.payload); break;
     case 'tagFilter': applyTagFilterFromSidebar(req.payload); break;
     case 'typeFilter': applyCategoryFilterFromSidebar(req.payload); break;
+    case 'correspondentFilter': applyCorrespondentFilter(req.payload); break;
     default: break;
   }
 });

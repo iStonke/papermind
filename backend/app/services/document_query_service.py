@@ -131,6 +131,7 @@ class DocumentQueryService:
         favorites_only: bool,
         without_text: bool,
         document_type: str | None,
+        correspondent_id: uuid.UUID | None,
         attention: DocumentAttentionFilter | None,
     ):
         stmt = stmt.where(Document.is_deleted.is_(True if in_trash else False))
@@ -177,6 +178,8 @@ class DocumentQueryService:
             if not normalized_type:
                 return stmt.where(False)
             stmt = stmt.where(func.lower(Document.document_type) == normalized_type.lower())
+        if correspondent_id is not None:
+            stmt = stmt.where(Document.correspondent_id == correspondent_id)
         if recent_imports:
             runtime_settings = SettingsService(self.db).get_settings()
             threshold = datetime.now(timezone.utc) - timedelta(
@@ -253,6 +256,7 @@ class DocumentQueryService:
         document_type: str | None = None,
         search_scope: DocumentSearchScope = DocumentSearchScope.all,
         attention: DocumentAttentionFilter | None = None,
+        correspondent_id: uuid.UUID | None = None,
     ) -> DocumentListResponse:
         if date_from and date_to and date_from > date_to:
             raise BadRequestError(
@@ -264,7 +268,7 @@ class DocumentQueryService:
         filtered_stmt = self._apply_filters(
             self._scope(select(Document)), tag, tag_ids, untagged, status, date_from, date_to, recent_imports,
             in_trash=in_trash, favorites_only=favorites_only, without_text=without_text,
-            document_type=document_type, attention=attention,
+            document_type=document_type, correspondent_id=correspondent_id, attention=attention,
         )
         ts_query_expr = None
         if normalized_query:

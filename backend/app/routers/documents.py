@@ -55,6 +55,10 @@ def list_documents(
         default=None,
         description="Filter by document type / category name (exact, case-insensitive)",
     ),
+    correspondent_id: uuid.UUID | None = Query(
+        default=None,
+        description="Filter by correspondent UUID",
+    ),
     status_filter: DocumentStatus | None = Query(
         default=None,
         alias="status",
@@ -92,6 +96,7 @@ def list_documents(
         tag_ids=tag_ids,
         untagged=untagged,
         document_type=document_type,
+        correspondent_id=correspondent_id,
         status=status_filter,
         date_from=date_from,
         date_to=date_to,

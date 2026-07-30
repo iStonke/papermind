@@ -968,12 +968,14 @@ class DocumentService:
         favorites_only: bool = False,
         without_text: bool = False,
         document_type: str | None = None,
+        correspondent_id: uuid.UUID | None = None,
         search_scope: DocumentSearchScope = DocumentSearchScope.all,
         attention: DocumentAttentionFilter | None = None,
     ) -> DocumentListResponse:
         return self.query.list_documents(
             q, tag, tag_ids, untagged, status, date_from, date_to, recent_imports, sort, order, limit, offset,
             include_total, in_trash, favorites_only, without_text, document_type, search_scope, attention,
+            correspondent_id=correspondent_id,
         )
 
     def get_document_statuses(self, document_ids: list[uuid.UUID]) -> DocumentStatusListResponse:
