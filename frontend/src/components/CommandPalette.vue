@@ -37,6 +37,7 @@
               :aria-activedescendant="activeDescendantId"
               aria-label="Aktion oder Suche"
             />
+            <kbd v-if="modeLabel" class="pm-palette__kbd pm-palette__kbd--mode">{{ modeLabel }}</kbd>
             <kbd class="pm-palette__kbd">{{ modKeyLabel }}K</kbd>
           </div>
 
@@ -47,27 +48,27 @@
             role="listbox"
           >
             <template v-if="flatVisible.length">
-              <div v-for="grp in groupedResults" :key="grp.group" class="pm-palette__group">
-                <div class="pm-palette__section">{{ grp.label }}</div>
+              <div v-for="grp in groupedResults" :key="grp.key" class="pm-palette__group">
+                <div v-if="grp.label" class="pm-palette__section">{{ grp.label }}</div>
                 <div
                   v-for="item in grp.items"
                   :id="`pm-palette-opt-${item.index}`"
-                  :key="item.cmd.id"
+                  :key="item.entry.id"
                   class="pm-palette__row"
                   :class="{ 'pm-palette__row--sel': item.index === selectedIndex }"
                   :data-index="item.index"
                   role="option"
                   :aria-selected="item.index === selectedIndex"
-                  @click="runCommand(item.cmd)"
+                  @click="runEntry(item.entry)"
                   @mouseenter="selectedIndex = item.index"
                 >
-                  <v-icon :icon="item.cmd.icon" size="18" class="pm-palette__row-icon" />
+                  <v-icon :icon="item.entry.icon" size="18" class="pm-palette__row-icon" />
                   <span class="pm-palette__row-label" v-html="item.html"></span>
                 </div>
               </div>
             </template>
             <p v-else class="pm-palette__placeholder">
-              Kein Treffer für „{{ query }}"
+              Kein Treffer für „{{ parsed.term }}"
             </p>
           </div>
 
@@ -86,7 +87,10 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import { matchesShortcut, SHORTCUT_ACTIONS } from '../keyboard/shortcuts';
 import { useUiStore } from '../stores/ui';
-import { buildCommands, GROUP_LABELS, GROUP_ORDER } from './commandPalette/commands';
+import { useDocumentStore } from '../stores/documents';
+import { useTagStore } from '../stores/tags';
+import { useCategoryStore } from '../stores/categories';
+import { buildCommands } from './commandPalette/commands';
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -94,7 +98,11 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue']);
 
 const uiStore = useUiStore();
-const allCommands = buildCommands({ uiStore });
+const documentStore = useDocumentStore();
+const tagStore = useTagStore();
+const categoryStore = useCategoryStore();
+
+const baseCommands = buildCommands({ uiStore });
 
 const dialogRef = ref(null);
 const inputRef = ref(null);
@@ -102,7 +110,22 @@ const resultsRef = ref(null);
 const query = ref('');
 const selectedIndex = ref(0);
 
-const placeholder = 'Aktion oder Suche… (>, #, @)';
+const placeholder = 'Suchen oder Aktion… (>, #)';
+const DOCUMENT_LIMIT = 6;
+
+// Präfix-Modi grenzen die Ergebnisse auf eine Gruppe ein.
+const MODE_GROUP = { '>': 'action', '#': 'tag' };
+const MODE_LABEL = { '>': 'Aktionen', '#': 'Tags' };
+
+// Renderreihenfolge + Sektions-Überschriften. Leeres Label = ohne Überschrift.
+const GROUP_CONFIG = [
+  { key: 'action', label: 'Aktionen' },
+  { key: 'nav', label: 'Springe zu' },
+  { key: 'document', label: 'Dokumente' },
+  { key: 'tag', label: 'Tags' },
+  { key: 'type', label: 'Dokumenttypen' },
+  { key: 'fulltext', label: '' },
+];
 
 const modKeyLabel = computed(() => {
   const platform = typeof navigator !== 'undefined'
@@ -117,10 +140,15 @@ function escapeHtml(text) {
   ));
 }
 
-// Subsequenz-Match auf dem Label (Treffer-Buchstaben hervorgehoben). Fällt es
-// durch, greift ein einfacher Keyword-Treffer ohne Hervorhebung.
-function matchCommand(cmd, term) {
-  const label = cmd.label;
+function documentTitle(doc) {
+  return String(doc?.display_name || '').trim()
+    || String(doc?.original_filename || '').trim()
+    || 'Unbenanntes Dokument';
+}
+
+// Subsequenz-Match aufs Label (Treffer hervorgehoben); Fallback: Keyword-Treffer.
+function matchEntry(entry, term) {
+  const label = entry.label;
   const lc = label.toLowerCase();
   let ti = 0;
   let out = '';
@@ -133,41 +161,114 @@ function matchCommand(cmd, term) {
     }
   }
   if (ti === term.length) return { ok: true, html: out };
-  if (cmd.keywords?.some((k) => k.toLowerCase().includes(term))) {
+  if (entry.keywords?.some((k) => k.toLowerCase().includes(term))) {
     return { ok: true, html: escapeHtml(label) };
   }
   return { ok: false };
 }
 
-const results = computed(() => {
-  const term = query.value.trim().toLowerCase();
-  const matched = [];
-  for (const cmd of allCommands) {
+// Präfix (>, #) vom Suchbegriff trennen.
+const parsed = computed(() => {
+  const raw = query.value;
+  const first = raw.charAt(0);
+  if (MODE_GROUP[first]) return { mode: first, term: raw.slice(1).trim() };
+  return { mode: null, term: raw.trim() };
+});
+
+const modeLabel = computed(() => (parsed.value.mode ? MODE_LABEL[parsed.value.mode] : ''));
+
+// Dokumente, Tags und Dokumenttypen tauchen erst auf, sobald gesucht wird (oder
+// ein passender Präfix-Modus aktiv ist) – sonst bliebe die leere Palette voll.
+function dynamicEntries() {
+  const entries = [];
+  for (const doc of documentStore.documents) {
+    entries.push({
+      id: `doc-${doc.id}`,
+      group: 'document',
+      icon: 'mdi-file-document-outline',
+      label: documentTitle(doc),
+      run: () => uiStore.requestWorkspace('openDocument', doc.id),
+    });
+  }
+  for (const tag of tagStore.tags) {
+    entries.push({
+      id: `tag-${tag.id}`,
+      group: 'tag',
+      icon: 'mdi-tag-outline',
+      label: tag.name,
+      run: () => uiStore.requestWorkspace('tagFilter', tag.id),
+    });
+  }
+  for (const category of categoryStore.sortedCategories) {
+    entries.push({
+      id: `type-${category.id}`,
+      group: 'type',
+      icon: 'mdi-shape-outline',
+      label: category.name,
+      run: () => uiStore.requestWorkspace('typeFilter', category.name),
+    });
+  }
+  return entries;
+}
+
+const view = computed(() => {
+  const { mode, term } = parsed.value;
+  const lc = term.toLowerCase();
+  const showDynamic = term.length > 0 || Boolean(mode);
+
+  const entries = showDynamic ? [...baseCommands, ...dynamicEntries()] : [...baseCommands];
+
+  const byGroup = {};
+  for (const entry of entries) {
+    if (mode && entry.group !== MODE_GROUP[mode]) continue;
+    let html;
     if (!term) {
-      matched.push({ cmd, html: escapeHtml(cmd.label) });
-      continue;
+      html = escapeHtml(entry.label);
+    } else {
+      const m = matchEntry(entry, lc);
+      if (!m.ok) continue;
+      html = m.html;
     }
-    const m = matchCommand(cmd, term);
-    if (m.ok) matched.push({ cmd, html: m.html });
+    (byGroup[entry.group] ||= []).push({ entry, html });
   }
-  return matched;
-});
 
-// Nach Gruppen (in GROUP_ORDER) sortiert; jedem Eintrag wird ein flacher Index
-// in visueller Reihenfolge zugewiesen, an dem selectedIndex hängt.
-const groupedResults = computed(() => {
-  let i = 0;
+  let idx = 0;
   const groups = [];
-  for (const group of GROUP_ORDER) {
-    const items = results.value
-      .filter((r) => r.cmd.group === group)
-      .map((r) => ({ ...r, index: i++ }));
-    if (items.length) groups.push({ group, label: GROUP_LABELS[group], items });
+  for (const cfg of GROUP_CONFIG) {
+    if (cfg.key === 'fulltext') continue;
+    let items = byGroup[cfg.key];
+    if (!items?.length) continue;
+    if (cfg.key === 'document') items = items.slice(0, DOCUMENT_LIMIT);
+    groups.push({ key: cfg.key, label: cfg.label, items: items.map((it) => ({ ...it, index: idx++ })) });
   }
-  return groups;
+
+  // Volltext-Zeile: reicht den Begriff an die echte OCR-Suche des Workspace
+  // weiter (Merge der Backend-Treffer in die Palette selbst ist Phase 2).
+  if (term && !mode) {
+    const label = `„${term}" in allen Dokumenten suchen`;
+    groups.push({
+      key: 'fulltext',
+      label: '',
+      items: [{
+        entry: {
+          id: 'fulltext',
+          group: 'fulltext',
+          icon: 'mdi-file-search-outline',
+          label,
+          run: () => uiStore.requestWorkspace('search', term),
+        },
+        html: escapeHtml(label),
+        index: idx++,
+      }],
+    });
+  }
+
+  const flat = groups.flatMap((g) => g.items.map((it) => it.entry));
+  return { groups, flat };
 });
 
-const flatVisible = computed(() => groupedResults.value.flatMap((g) => g.items));
+const groupedResults = computed(() => view.value.groups);
+const flatVisible = computed(() => view.value.flat);
 
 const activeDescendantId = computed(() => (
   flatVisible.value.length ? `pm-palette-opt-${selectedIndex.value}` : undefined
@@ -179,10 +280,10 @@ function close() {
   emit('update:modelValue', false);
 }
 
-function runCommand(cmd) {
-  if (!cmd) return;
+function runEntry(entry) {
+  if (!entry) return;
   close();
-  cmd.run();
+  entry.run();
 }
 
 async function scrollSelectedIntoView() {
@@ -214,7 +315,7 @@ function onKeydown(event) {
   }
   if (event.key === 'Enter') {
     event.preventDefault();
-    runCommand(list[selectedIndex.value]?.cmd);
+    runEntry(list[selectedIndex.value]);
     return;
   }
   // Fokus-Falle: das Eingabefeld ist das einzige fokussierbare Element; die
@@ -234,6 +335,8 @@ watch(
     if (!open) return;
     query.value = '';
     selectedIndex.value = 0;
+    // Dokumenttypen sicher vorhanden, falls die Sidebar sie noch nicht lud.
+    categoryStore.ensureLoaded?.();
     await nextTick();
     inputRef.value?.focus();
   },
@@ -302,6 +405,11 @@ watch(
   color: var(--pm-muted);
   border: 1px solid var(--pm-divider);
   border-radius: 5px;
+}
+
+.pm-palette__kbd--mode {
+  color: var(--pm-accent-text);
+  border-color: var(--pm-accent);
 }
 
 .pm-palette__results {

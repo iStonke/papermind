@@ -26,6 +26,10 @@ export const useUiStore = defineStore('ui', {
     viewRequestSignal: 0,
     pendingAction: null,
     actionRequestSignal: 0,
+    // Generischer Workspace-Dispatch mit Payload (Dokument öffnen, Volltext-
+    // Suche, Tag-/Typ-Filter) – ebenfalls in DocumentsWorkspace verankert.
+    pendingWorkspace: null,
+    workspaceRequestSignal: 0,
     // Wird hochgezählt, wenn der (global gemountete) SettingsDialog ein
     // reload-imports auslöst. Die DocumentsView beobachtet diesen Zähler und
     // lädt dann ihre Dokument-/Sidebar-Daten neu.
@@ -62,6 +66,10 @@ export const useUiStore = defineStore('ui', {
     requestAction(actionKey) {
       this.pendingAction = actionKey || null;
       this.actionRequestSignal += 1;
+    },
+    requestWorkspace(type, payload = null) {
+      this.pendingWorkspace = type ? { type, payload } : null;
+      this.workspaceRequestSignal += 1;
     },
     signalImportsReload() {
       this.importsReloadSignal += 1;

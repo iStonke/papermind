@@ -7510,6 +7510,17 @@ watch(() => uiStore.viewRequestSignal, () => {
 watch(() => uiStore.actionRequestSignal, () => {
   if (uiStore.pendingAction === 'import') openImport();
 });
+watch(() => uiStore.workspaceRequestSignal, () => {
+  const req = uiStore.pendingWorkspace;
+  if (!req) return;
+  switch (req.type) {
+    case 'openDocument': openDocumentFromDashboard(req.payload); break;
+    case 'search': runSearchFromDashboard(req.payload); break;
+    case 'tagFilter': applyTagFilterFromSidebar(req.payload); break;
+    case 'typeFilter': applyCategoryFilterFromSidebar(req.payload); break;
+    default: break;
+  }
+});
 
 function onImportMinimized() {
   // Markieren, damit der Close-Watcher die Inbox-Scans NICHT verwirft (nur Tray).
