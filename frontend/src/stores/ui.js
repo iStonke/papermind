@@ -14,6 +14,10 @@ export const useUiStore = defineStore('ui', {
     // das Konto-Menü auf jeder Route funktioniert – analog zum Settings-Dialog.
     accountOpen: false,
     accountTab: 'profile',
+    // Command-Palette (⌘K): global gemountetes Overlay, von überall per
+    // Tastenkürzel auf-/zuschaltbar. Zustand hier, damit jede Route ihn steuern
+    // kann – analog zu settingsOpen/accountOpen.
+    paletteOpen: false,
     // Wird hochgezählt, wenn der (global gemountete) SettingsDialog ein
     // reload-imports auslöst. Die DocumentsView beobachtet diesen Zähler und
     // lädt dann ihre Dokument-/Sidebar-Daten neu.
@@ -33,6 +37,15 @@ export const useUiStore = defineStore('ui', {
     },
     closeAccount() {
       this.accountOpen = false;
+    },
+    openPalette() {
+      this.paletteOpen = true;
+    },
+    closePalette() {
+      this.paletteOpen = false;
+    },
+    togglePalette() {
+      this.paletteOpen = !this.paletteOpen;
     },
     signalImportsReload() {
       this.importsReloadSignal += 1;

@@ -23,6 +23,19 @@
       :model-value="ui.accountOpen"
       @update:model-value="ui.accountOpen = $event"
     />
+
+    <!-- Ziel für eigene Overlays INNERHALB von .papermind-app, damit die
+         --pm-*-Kontur-Tokens greifen (anders als bei nach außen teleportierten
+         v-dialogs). Die Command-Palette teleportiert hierher. -->
+    <div id="pm-overlays"></div>
+
+    <!-- Command-Palette (⌘K). Wie die anderen Overlays global + faul: erst beim
+         ersten Öffnen gemountet. -->
+    <CommandPalette
+      v-if="paletteEverOpened"
+      :model-value="ui.paletteOpen"
+      @update:model-value="ui.paletteOpen = $event"
+    />
   </v-app>
 </template>
 
@@ -35,8 +48,10 @@ import { useTheme } from 'vuetify';
 // er den Initial-Load nicht belastet.
 const AccountDialog = defineAsyncComponent(() => import('../components/AccountDialog.vue'));
 const SettingsDialog = defineAsyncComponent(() => import('../components/SettingsDialog.vue'));
+const CommandPalette = defineAsyncComponent(() => import('../components/CommandPalette.vue'));
 import { useSettingsStore } from '../stores/settings';
 import { useUiStore } from '../stores/ui';
+import { useGlobalKeyboard } from '../composables/useGlobalKeyboard';
 import { getBaseUrl } from '../api/client.js';
 
 const theme = useTheme();
@@ -48,8 +63,20 @@ const settingsDraft = settingsStore.settingsDraft;
 // Zustand behält und der zugehörige Chunk nur bei Bedarf geladen wird.
 const settingsEverOpened = ref(false);
 const accountEverOpened = ref(false);
+const paletteEverOpened = ref(false);
 watch(() => ui.settingsOpen, (open) => { if (open) settingsEverOpened.value = true; }, { immediate: true });
 watch(() => ui.accountOpen, (open) => { if (open) accountEverOpened.value = true; }, { immediate: true });
+watch(() => ui.paletteOpen, (open) => { if (open) paletteEverOpened.value = true; }, { immediate: true });
+
+// Globales ⌘K / Ctrl+K schaltet die Command-Palette um. Bewusst überall aktiv,
+// auch wenn der Fokus in einem Eingabefeld liegt (z. B. Sidebar-Suche).
+function handleGlobalShortcut(event) {
+  if ((event.metaKey || event.ctrlKey) && !event.altKey && (event.key === 'k' || event.key === 'K')) {
+    event.preventDefault();
+    ui.togglePalette();
+  }
+}
+useGlobalKeyboard(handleGlobalShortcut);
 
 function resolveThemeName(mode) {
   if (mode === 'light' || mode === 'dark') return mode;
