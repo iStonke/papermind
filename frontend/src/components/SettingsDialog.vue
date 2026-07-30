@@ -106,6 +106,31 @@
               class="pm-setting-row"
               role="button"
               tabindex="0"
+              @click="toggleSearchScopeDefaultFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleSearchScopeDefaultFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Suche immer in allen Dokumenten</div>
+                <div class="pm-setting-description">Suchbegriffe durchsuchen den gesamten Bestand statt nur den aktuellen Bereich (Ordner, Tag, Typ). Pro Suche direkt an den Treffern umschaltbar.</div>
+              </div>
+              <v-switch
+                :model-value="alwaysSearchAllEnabled"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                aria-label="Suche immer über alle Dokumente ausführen"
+                :loading="isSettingSaving.search_scope_default"
+                :disabled="isSettingSaving.search_scope_default"
+                @click.stop
+                @update:model-value="onSearchScopeDefaultToggle"
+              />
+            </div>
+
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
               @click="toggleShowFilenameSuffixFromRow"
               @keydown="handleSettingRowShortcut($event, toggleShowFilenameSuffixFromRow)"
             >
@@ -2256,6 +2281,7 @@ import {
   buildSidebarMaxCategoriesPatch,
   buildThemeModePatch,
   buildStartViewPatch,
+  buildSearchScopeDefaultPatch,
   buildTrashRetentionPatch,
   normalizeSidebarSections,
   sidebarSectionLabel
@@ -3300,6 +3326,40 @@ function onStartViewToggle(nextValue) {
 function toggleStartViewFromRow() {
   if (isSettingSaving.start_view) return;
   void onStartViewChange(dashboardStartEnabled.value ? 'all' : 'dashboard');
+}
+
+// ── Such-Reichweite ──────────────────────────────────────────────────────────
+
+const SEARCH_SCOPE_DEFAULT_VALUES = new Set(['current', 'all']);
+const currentSearchScopeDefault = computed(() =>
+  SEARCH_SCOPE_DEFAULT_VALUES.has(settingsDraft.ui.search_scope_default)
+    ? settingsDraft.ui.search_scope_default
+    : 'current'
+);
+const alwaysSearchAllEnabled = computed(() => currentSearchScopeDefault.value === 'all');
+
+async function onSearchScopeDefaultChange(nextValue) {
+  if (isSettingSaving.search_scope_default) return;
+  const nextScope = SEARCH_SCOPE_DEFAULT_VALUES.has(String(nextValue)) ? String(nextValue) : 'current';
+  if (nextScope === currentSearchScopeDefault.value) return;
+  const previousScope = currentSearchScopeDefault.value;
+  settingsStore.setDraftPatch({ ui: { search_scope_default: nextScope } });
+  await patchSettingsWithRevert({
+    patch: buildSearchScopeDefaultPatch(nextScope),
+    controlKey: 'search_scope_default',
+    revert: () => {
+      settingsStore.setDraftPatch({ ui: { search_scope_default: previousScope } });
+    }
+  });
+}
+
+function onSearchScopeDefaultToggle(nextValue) {
+  void onSearchScopeDefaultChange(Boolean(nextValue) ? 'all' : 'current');
+}
+
+function toggleSearchScopeDefaultFromRow() {
+  if (isSettingSaving.search_scope_default) return;
+  void onSearchScopeDefaultChange(alwaysSearchAllEnabled.value ? 'current' : 'all');
 }
 
 // ── Seitenleiste (Reihenfolge & Sichtbarkeit) ────────────────────────────────

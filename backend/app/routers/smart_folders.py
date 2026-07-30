@@ -7,7 +7,7 @@ from app.core.deps import get_current_user
 from app.db import get_db
 from app.models.user import User
 from app.schemas.common import ErrorResponse, OkResponse
-from app.schemas.documents import DocumentListResponse
+from app.schemas.documents import DocumentListResponse, DocumentSearchScope
 from app.schemas.smart_folders import (
     SmartFolderCreateRequest,
     SmartFolderListItem,
@@ -127,6 +127,8 @@ def list_smart_folder_documents(
     offset: int = Query(default=0, ge=0),
     sort: SmartFolderSort = Query(default=SmartFolderSort.created_desc),
     include_total: bool = Query(default=True),
+    q: str | None = Query(default=None),
+    search_scope: DocumentSearchScope = Query(default=DocumentSearchScope.all),
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ) -> DocumentListResponse:
     service = SmartFolderService(db, user.id)
@@ -136,4 +138,6 @@ def list_smart_folder_documents(
         offset=offset,
         sort=sort,
         include_total=include_total,
+        q=q,
+        search_scope=search_scope,
     )
