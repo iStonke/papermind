@@ -47,6 +47,7 @@ export function buildCommands({ uiStore }) {
     {
       id: 'nav-dashboard',
       group: 'nav',
+      primary: true,
       label: 'Übersicht',
       icon: 'mdi-view-dashboard-outline',
       keywords: ['übersicht', 'dashboard', 'start', 'home'],
@@ -55,6 +56,7 @@ export function buildCommands({ uiStore }) {
     {
       id: 'nav-all',
       group: 'nav',
+      primary: true,
       label: 'Alle Dokumente',
       icon: 'mdi-file-document-multiple-outline',
       keywords: ['alle', 'dokumente', 'bibliothek', 'library'],
@@ -63,6 +65,7 @@ export function buildCommands({ uiStore }) {
     {
       id: 'nav-imports',
       group: 'nav',
+      primary: true,
       label: 'Zuletzt hinzugefügt',
       icon: 'mdi-inbox-arrow-down-outline',
       keywords: ['zuletzt', 'neu', 'imports', 'hinzugefügt'],
@@ -119,6 +122,7 @@ export function buildCommands({ uiStore }) {
     {
       id: 'nav-chat',
       group: 'nav',
+      primary: true,
       label: 'KI-Chat',
       icon: 'mdi-robot-outline',
       keywords: ['ki-chat', 'chat', 'ki', 'ai', 'assistent'],

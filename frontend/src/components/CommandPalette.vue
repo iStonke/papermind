@@ -240,9 +240,15 @@ const view = computed(() => {
   const { mode, term } = parsed.value;
   const showDynamic = term.length > 0 || Boolean(mode);
 
-  const entries = showDynamic
+  let entries = showDynamic
     ? [...contextEntries(), ...baseCommands, ...dynamicEntries()]
     : [...contextEntries(), ...baseCommands];
+
+  // Leeres Feld: nur die häufig genutzten Sprungziele (primary) zeigen – die
+  // übrigen bleiben per Tippen auffindbar.
+  if (!showDynamic) {
+    entries = entries.filter((entry) => entry.group !== 'nav' || entry.primary);
+  }
 
   const groups = buildGroups(entries, {
     term,
