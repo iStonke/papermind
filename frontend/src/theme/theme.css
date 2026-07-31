@@ -29,6 +29,7 @@
   --pm-easing:          cubic-bezier(0.4, 0, 0.2, 1);
   --pm-easing-decel:    cubic-bezier(0, 0, 0.2, 1);
   --pm-easing-accel:    cubic-bezier(0.4, 0, 1, 1);
+  --pm-stagger-step:    45ms;   /* Versatz je Listen-Element (einkaskadieren) */
   --pm-window-radius:   24px;
 }
 
@@ -243,6 +244,7 @@
   --pm-duration-fast:   0ms;
   --pm-duration-normal: 0ms;
   --pm-duration-slow:   0ms;
+  --pm-stagger-step:    0ms;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -250,7 +252,20 @@
     --pm-duration-fast:   0ms;
     --pm-duration-normal: 0ms;
     --pm-duration-slow:   0ms;
+    --pm-stagger-step:    0ms;
   }
+}
+
+/* ── Stagger-Utility: Listen kaskadieren mit dem Motion-Token ein ──────────────
+   Element bekommt die Klasse .pm-stagger-item und --pm-i (sein Index). Bei
+   deaktivierten Animationen sind Dauer und Versatz 0ms → sofort sichtbar. */
+@keyframes pm-stagger-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+.papermind-app .pm-stagger-item {
+  animation: pm-stagger-in var(--pm-duration-normal, 210ms) var(--pm-easing-decel) both;
+  animation-delay: calc(var(--pm-i, 0) * var(--pm-stagger-step, 45ms));
 }
 
 /* Glass/Aurora-Look entfernt (Stufe 2): keine durchscheinenden Panels,

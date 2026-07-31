@@ -61,7 +61,8 @@
                   :id="`pm-palette-opt-${item.index}`"
                   :key="item.entry.id"
                   class="pm-palette__row"
-                  :class="{ 'pm-palette__row--sel': item.index === selectedIndex }"
+                  :class="{ 'pm-palette__row--sel': item.index === selectedIndex, 'pm-stagger-item': justOpened }"
+                  :style="{ '--pm-i': item.index }"
                   :data-index="item.index"
                   role="option"
                   :aria-selected="item.index === selectedIndex"
@@ -119,6 +120,9 @@ const resultsRef = ref(null);
 const query = ref('');
 const selectedIndex = ref(0);
 const selectedEntryId = ref(null);
+// Steuert die Einblende-Kaskade: nur beim Öffnen, nicht bei jeder Filterung.
+const justOpened = ref(false);
+let staggerTimer = null;
 
 const placeholder = 'Suchen oder Aktion… (>, #, @)';
 const DOCUMENT_LIMIT = 6;
@@ -293,6 +297,7 @@ const activeDescendantId = computed(() => (
 watch(query, () => {
   selectedIndex.value = 0;
   selectedEntryId.value = null;
+  justOpened.value = false; // Tippen stoppt die Einblende-Kaskade
 });
 
 // Tags, Korrespondenten und Dokumenttypen können eintreffen, während die
@@ -380,15 +385,24 @@ watch(
       query.value = '';
       selectedIndex.value = 0;
       selectedEntryId.value = null;
+      // Ergebnisse beim Öffnen einkaskadieren; nach dem Durchlauf wieder aus,
+      // damit spätere Updates (z. B. nachgeladene Tags) nicht erneut kaskadieren.
+      justOpened.value = true;
+      if (staggerTimer) clearTimeout(staggerTimer);
+      staggerTimer = setTimeout(() => { justOpened.value = false; }, 520);
       // Dokumenttypen & Korrespondenten sicher vorhanden, falls die Sidebar sie
       // noch nicht lud.
       categoryStore.ensureLoaded?.();
       correspondentStore.ensureLoaded?.();
       await nextTick();
       inputRef.value?.focus();
-    } else if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
-      previouslyFocused.focus();
-      previouslyFocused = null;
+    } else {
+      justOpened.value = false;
+      if (staggerTimer) { clearTimeout(staggerTimer); staggerTimer = null; }
+      if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+        previouslyFocused.focus();
+        previouslyFocused = null;
+      }
     }
   },
   { immediate: true },
