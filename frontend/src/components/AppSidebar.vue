@@ -789,7 +789,7 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   user-select: none;
   gap: 8px;
-  transition: background 0.12s ease, margin-bottom 0.12s ease;
+  transition: background var(--pm-duration-fast) var(--pm-easing), margin-bottom var(--pm-duration-fast) var(--pm-easing);
 }
 
 .sidebar-section-header:hover {
@@ -827,7 +827,7 @@ onBeforeUnmount(() => {
   background: transparent;
   color: var(--pm-muted);
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--pm-duration-fast) var(--pm-easing), color var(--pm-duration-fast) var(--pm-easing);
 }
 
 .sidebar-section-icon-action:hover {
@@ -857,7 +857,7 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   white-space: nowrap;
   user-select: none;
-  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+  transition: color var(--pm-duration-fast) var(--pm-easing), background var(--pm-duration-fast) var(--pm-easing), border-color var(--pm-duration-fast) var(--pm-easing);
 }
 
 .sidebar-section-header:hover .sidebar-section-count {
@@ -882,7 +882,7 @@ onBeforeUnmount(() => {
   color: var(--pm-sidebar-muted);
   opacity: 0.55;
   pointer-events: auto;
-  transition: opacity 0.15s ease, background 0.12s ease, color 0.12s ease;
+  transition: opacity var(--pm-duration-fast) var(--pm-easing), background var(--pm-duration-fast) var(--pm-easing), color var(--pm-duration-fast) var(--pm-easing);
 }
 
 .sidebar-section-header:hover .sidebar-section-toggle,
@@ -906,7 +906,7 @@ onBeforeUnmount(() => {
 /* ── Chevron rotation ─────────────────────────────────────────────────── */
 .sidebar-section-toggle-icon {
   display: block;
-  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform var(--pm-duration-normal) var(--pm-easing);
 }
 
 .sidebar-section-header--collapsed .sidebar-section-toggle-icon {
@@ -919,8 +919,8 @@ onBeforeUnmount(() => {
   overflow: hidden;
   opacity: 1;
   transition:
-    max-height 0.24s cubic-bezier(0.4, 0, 0.2, 1),
-    opacity 0.16s ease;
+    max-height var(--pm-duration-normal) var(--pm-easing),
+    opacity var(--pm-duration-fast) var(--pm-easing);
 }
 
 .sidebar-section-drawer--collapsed {
@@ -967,7 +967,7 @@ onBeforeUnmount(() => {
   font-weight: 500;
   line-height: 1.35;
   cursor: pointer;
-  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+  transition: background-color var(--pm-duration-fast) var(--pm-easing), border-color var(--pm-duration-fast) var(--pm-easing), color var(--pm-duration-fast) var(--pm-easing);
 }
 
 .sidebar-chip:hover {
@@ -1057,7 +1057,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
   text-align: left;
   font-size: 0.82rem;
-  transition: background-color 0.14s ease;
+  transition: background-color var(--pm-duration-fast) var(--pm-easing);
 }
 
 .sidebar-rail-flyout__row:hover {
