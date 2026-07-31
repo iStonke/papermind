@@ -7,6 +7,7 @@ from app.services.ocr_pipeline import (
     _normalize_tesseract_languages,
     _otsu_threshold,
     _postprocess_hyphenation,
+    _remove_dark_edge_bands,
     build_bw_pdf,
     cv2,
     np,
@@ -111,6 +112,53 @@ class ScanCleanupContrastTest(unittest.TestCase):
         right_edge = np.asarray(cleaned.convert("RGB"), dtype=np.uint8)[:, -band_width:, :]
 
         self.assertGreater(float(right_edge.mean()), 248.0)
+
+    def test_removes_inset_slanted_right_edge_wedge(self) -> None:
+        page = self._page(120)
+        draw = ImageDraw.Draw(page)
+        # Reales Fehlerbild: Der schwarze Scannerbett-Keil beginnt an der
+        # oberen Ecke, laeuft nach rund einem Drittel der Seite aus und laesst
+        # rechts einen schmalen hellen Spalt stehen.
+        draw.polygon(
+            [
+                (self.WIDTH - 13, 0),
+                (self.WIDTH - 5, 0),
+                (self.WIDTH - 5, 610),
+                (self.WIDTH - 8, 610),
+            ],
+            fill=(0, 0, 0),
+        )
+
+        cleaned = _clean_scan_image(page, "white")
+        wedge_area = np.asarray(cleaned.convert("RGB"), dtype=np.uint8)[:620, -18:, :]
+
+        self.assertGreater(float(wedge_area.mean()), 248.0)
+
+    def test_keeps_vertical_document_line_that_does_not_touch_a_corner(self) -> None:
+        page = self._page(120)
+        line_x = self.WIDTH - 10
+        ImageDraw.Draw(page).line(
+            [(line_x, 300), (line_x, 1300)],
+            fill=(0, 0, 0),
+            width=3,
+        )
+
+        source = np.asarray(page.convert("RGB"), dtype=np.float32)
+        cleaned = Image.fromarray(_remove_dark_edge_bands(source).astype(np.uint8)).convert("L")
+
+        self.assertLess(cleaned.getpixel((line_x, 800)), 32)
+
+    def test_keeps_wide_content_that_reaches_the_top_right_corner(self) -> None:
+        page = self._page(120)
+        ImageDraw.Draw(page).rectangle(
+            [self.WIDTH - 90, 0, self.WIDTH - 1, 280],
+            fill=(20, 20, 20),
+        )
+
+        source = np.asarray(page.convert("RGB"), dtype=np.float32)
+        cleaned = Image.fromarray(_remove_dark_edge_bands(source).astype(np.uint8)).convert("L")
+
+        self.assertLess(cleaned.getpixel((self.WIDTH - 10, 140)), 32)
 
     def test_white_cleanup_darkens_neutral_text_but_keeps_color(self) -> None:
         page = Image.new("RGB", (self.WIDTH, self.HEIGHT), (238, 238, 238))

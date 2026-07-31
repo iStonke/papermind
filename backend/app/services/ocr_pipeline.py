@@ -155,13 +155,18 @@ def normalize_scan_cleanup_mode(value: Any) -> str:
 
 
 def _remove_dark_edge_bands(rgb: Any) -> Any:
-    """Entfernt einen durchgehenden schwarzen Rand vom Flachbettscanner.
+    """Entfernt schwarze Randstreifen und schmale Randkeile vom Flachbettscanner.
 
     Liegt ein Blatt bündig an der Führung, kann der Scanner trotzdem einen
-    schmalen Streifen des dunklen Scannerbetts aufnehmen. Im Gegensatz zu
-    Dokumentinhalt ist dieser Streifen über nahezu die komplette Seitenhöhe
-    gleichmäßig dunkel und sitzt direkt am Bildrand. Nur dieses sehr enge
-    Muster wird auf Weiß gesetzt; reguläre Linien, Stempel und Randnotizen
+    schmalen Streifen des dunklen Scannerbetts aufnehmen. Schon eine minimale
+    Schräglage macht daraus einen Keil, der am oberen oder unteren Seitenrand
+    beginnt, nach einigen Zentimetern ausläuft und durch einen hellen Pixelspalt
+    vom äußersten Bildrand getrennt sein kann.
+
+    Zuerst wird der einfache, durchgehende Rand behandelt. Danach werden nur
+    sehr schmale dunkle Komponenten im äußersten rechten Seitenbereich entfernt,
+    die mit einer Seitenecke verbunden sind. Dunkle Flächen, Tabellenlinien und
+    Randnotizen, die weiter innen liegen oder nicht an einer Ecke beginnen,
     bleiben damit unangetastet.
     """
     if cv2 is None or np is None:
@@ -192,6 +197,61 @@ def _remove_dark_edge_bands(rgb: Any) -> Any:
         cleaned = rgb.copy()
         cleaned[:, width - band_width :, :] = 255
         logger.info("scan cleanup removed dark right edge band width=%s", band_width)
+        return cleaned
+
+    # Ein leicht schief liegendes Blatt erzeugt keinen vollhohen Streifen,
+    # sondern einen schmalen Keil von einer Seitenecke aus. Er kann wenige
+    # Pixel vor dem eigentlichen Bildrand enden; deshalb reicht die reine
+    # Rueckwaertssuche ab der letzten Spalte oben nicht aus.
+    inspection_width = max(8, int(round(width * 0.02)))
+    strip_start = width - inspection_width
+    # 160 statt nur tiefschwarz: Bei schraegem Verlauf wird der Streifen durch
+    # die Pixelrasterung an seinem duennen Ende grau antialiasiert. Die strengen
+    # Geometriekriterien unten verhindern, dass dadurch normaler Text greift.
+    dark_strip = (gray[:, strip_start:] < 160).astype(np.uint8)
+
+    # Kurze Unterbrechungen durch Scannerrauschen verbinden, ohne benachbarte
+    # Dokumentelemente horizontal zusammenzuziehen.
+    close_height = max(3, int(round(height * 0.004)))
+    if close_height % 2 == 0:
+        close_height += 1
+    connected_strip = cv2.morphologyEx(
+        dark_strip,
+        cv2.MORPH_CLOSE,
+        np.ones((close_height, 1), dtype=np.uint8),
+    )
+    component_count, labels, stats, _ = cv2.connectedComponentsWithStats(connected_strip, connectivity=8)
+
+    edge_margin = max(2, int(round(height * 0.01)))
+    trailing_gap = max(2, int(round(width * 0.005)))
+    min_component_height = max(16, int(round(height * 0.12)))
+    max_component_width = max(3, int(round(width * 0.015)))
+    artifact_mask = np.zeros_like(dark_strip, dtype=np.uint8)
+
+    for label_index in range(1, component_count):
+        x, y, component_width, component_height, component_area = stats[label_index]
+        component_right = strip_start + x + component_width
+        touches_corner = y <= edge_margin or y + component_height >= height - edge_margin
+        is_tall_and_narrow = (
+            component_height >= min_component_height
+            and component_width <= max_component_width
+            and component_area >= component_height * 0.45
+        )
+        stays_in_outer_strip = x > 0 and component_right >= width - trailing_gap
+        if touches_corner and is_tall_and_narrow and stays_in_outer_strip:
+            artifact_mask[labels == label_index] = 1
+
+    if artifact_mask.any():
+        # Auch die grauen Antialias-Pixel direkt neben dem schwarzen Kern
+        # entfernen. Der Radius bleibt deutlich unter einem Prozent der Seite.
+        grow_radius = max(1, min(5, int(round(width * 0.0015))))
+        grown_mask = cv2.dilate(
+            artifact_mask,
+            np.ones((grow_radius * 2 + 1, grow_radius * 2 + 1), dtype=np.uint8),
+        ).astype(bool)
+        cleaned = rgb.copy()
+        cleaned[:, strip_start:, :][grown_mask] = 255
+        logger.info("scan cleanup removed dark right edge wedge pixels=%s", int(grown_mask.sum()))
         return cleaned
     return rgb
 
