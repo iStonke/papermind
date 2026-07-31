@@ -653,7 +653,7 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
   background: transparent;
   color: var(--pm-muted);
   cursor: pointer;
-  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+  transition: background var(--pm-duration-fast) var(--pm-easing), color var(--pm-duration-fast) var(--pm-easing), border-color var(--pm-duration-fast) var(--pm-easing);
 }
 
 .dash-btn:hover {
@@ -697,7 +697,7 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
 
 .dash-stat--clickable {
   cursor: pointer;
-  transition: border-color 0.14s ease, background 0.14s ease;
+  transition: border-color var(--pm-duration-fast) var(--pm-easing), background var(--pm-duration-fast) var(--pm-easing);
 }
 
 .dash-stat--clickable:hover,
@@ -961,7 +961,7 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
   border: 0;
   border-radius: 4px 4px 0 0;
   background: color-mix(in srgb, var(--pm-muted) 34%, transparent);
-  transition: background 0.14s ease, transform 0.14s ease;
+  transition: background var(--pm-duration-fast) var(--pm-easing), transform var(--pm-duration-fast) var(--pm-easing);
   min-height: 2px;
   transform-origin: bottom;
   animation: dash-bar-grow 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
@@ -1106,7 +1106,7 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.14s ease, color 0.14s ease;
+  transition: background var(--pm-duration-fast) var(--pm-easing), color var(--pm-duration-fast) var(--pm-easing);
 }
 
 .dash-toggle__btn--active {
@@ -1406,7 +1406,7 @@ const thumbUrl = (id) => documentThumbnailUrl(id);
   padding: 12px;
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.14s ease;
+  transition: border-color var(--pm-duration-fast) var(--pm-easing);
   width: 100%;
   height: 100%;
   min-height: 0;
