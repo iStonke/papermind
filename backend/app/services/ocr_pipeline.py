@@ -154,6 +154,137 @@ def normalize_scan_cleanup_mode(value: Any) -> str:
     return _normalize_scan_cleanup_mode(value)
 
 
+def _estimate_scan_skew_angle(rgb: Any) -> float:
+    """Ermittelt eine kleine Seitenschieflage aus langen Horizontalstrukturen.
+
+    Randbereiche werden ignoriert, damit der Scannerbett-Keil nicht selbst den
+    Winkel vorgibt. Nur ein eng gebuendeltes, ausreichend langes Liniensignal
+    zwischen 0,1 und 1,5 Grad gilt als belastbar; Fotos, leere Seiten und bewusst
+    gedrehte Inhalte werden dadurch nicht automatisch rotiert.
+    """
+    if cv2 is None or np is None:
+        return 0.0
+
+    source = np.asarray(rgb, dtype=np.uint8)
+    height, width = source.shape[:2]
+    if height < 128 or width < 128:
+        return 0.0
+
+    max_long_edge = 1600
+    scale = min(1.0, max_long_edge / float(max(height, width)))
+    if scale < 1.0:
+        source = cv2.resize(
+            source,
+            (max(64, int(round(width * scale))), max(64, int(round(height * scale)))),
+            interpolation=cv2.INTER_AREA,
+        )
+
+    gray = cv2.cvtColor(source, cv2.COLOR_RGB2GRAY)
+    scaled_height, scaled_width = gray.shape
+    margin_x = max(4, int(round(scaled_width * 0.03)))
+    margin_y = max(4, int(round(scaled_height * 0.03)))
+    roi = gray[margin_y : scaled_height - margin_y, margin_x : scaled_width - margin_x]
+    if roi.size == 0:
+        return 0.0
+
+    edges = cv2.Canny(cv2.GaussianBlur(roi, (5, 5), 0), 50, 150)
+    min_line_length = max(30, int(round(roi.shape[1] * 0.06)))
+    lines = cv2.HoughLinesP(
+        edges,
+        1,
+        np.pi / 1800.0,
+        threshold=max(40, int(round(roi.shape[1] * 0.04))),
+        minLineLength=min_line_length,
+        maxLineGap=max(4, int(round(roi.shape[1] * 0.015))),
+    )
+    if lines is None:
+        return 0.0
+
+    line_candidates: list[tuple[float, float]] = []
+    for x1, y1, x2, y2 in lines[:, 0]:
+        delta_x = float(x2 - x1)
+        delta_y = float(y2 - y1)
+        length = float(np.hypot(delta_x, delta_y))
+        angle = (float(np.degrees(np.arctan2(delta_y, delta_x))) + 90.0) % 180.0 - 90.0
+        if length >= min_line_length and abs(angle) <= 2.0:
+            line_candidates.append((angle, length))
+
+    total_line_length = sum(length for _, length in line_candidates)
+    if len(line_candidates) < 6 or total_line_length < roi.shape[1] * 2.5:
+        return 0.0
+
+    # Textzeilen werden bei korrekter Ausrichtung in der horizontalen
+    # Projektion besonders scharf. Eine grobe und anschliessend feine Suche ist
+    # stabiler als der Median aller Hough-Linien, weil Formulare oft viele exakt
+    # horizontale Einzelkanten und einige lange, leicht geneigte Zeilen mischen.
+    ink = (roi < 200).astype(np.uint8)
+    ink_coverage = float(ink.mean())
+    if ink_coverage < 0.002 or ink_coverage > 0.35:
+        return 0.0
+
+    roi_height, roi_width = ink.shape
+    center = ((roi_width - 1) / 2.0, (roi_height - 1) / 2.0)
+
+    def projection_score(candidate_angle: float) -> float:
+        matrix = cv2.getRotationMatrix2D(center, candidate_angle, 1.0)
+        rotated = cv2.warpAffine(
+            ink,
+            matrix,
+            (roi_width, roi_height),
+            flags=cv2.INTER_NEAREST,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0,
+        )
+        horizontal = rotated.sum(axis=1).astype(np.float32)
+        return float(np.square(np.diff(horizontal)).sum())
+
+    coarse = [(projection_score(float(angle)), float(angle)) for angle in np.arange(-1.5, 1.501, 0.1)]
+    coarse_score, coarse_angle = max(coarse)
+    fine = [
+        (projection_score(float(angle)), float(angle))
+        for angle in np.arange(coarse_angle - 0.12, coarse_angle + 0.121, 0.02)
+    ]
+    best_score, angle = max(fine)
+    baseline_score = projection_score(0.0)
+
+    if (
+        coarse_score <= 0.0
+        or best_score < max(1.0, baseline_score) * 1.08
+        or abs(angle) < 0.1
+        or abs(angle) > 1.5
+    ):
+        return 0.0
+
+    supporting_lines = [
+        (line_angle, length)
+        for line_angle, length in line_candidates
+        if abs(line_angle - angle) <= 0.3
+    ]
+    supporting_length = sum(length for _, length in supporting_lines)
+    if len(supporting_lines) < 4 or supporting_length < total_line_length * 0.25:
+        return 0.0
+    return angle
+
+
+def _deskew_scan_rgb(rgb: Any) -> tuple[Any, float]:
+    angle = _estimate_scan_skew_angle(rgb)
+    if angle == 0.0:
+        return rgb, 0.0
+
+    height, width = rgb.shape[:2]
+    matrix = cv2.getRotationMatrix2D(((width - 1) / 2.0, (height - 1) / 2.0), angle, 1.0)
+    rotated = cv2.warpAffine(
+        np.asarray(rgb, dtype=np.uint8),
+        matrix,
+        (width, height),
+        flags=cv2.INTER_CUBIC,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=(255, 255, 255),
+    )
+    logger.info("scan cleanup deskewed page angle=%.3f", angle)
+    return rotated.astype(np.asarray(rgb).dtype, copy=False), angle
+
+
 def _remove_dark_edge_bands(rgb: Any) -> Any:
     """Entfernt schwarze Randstreifen und schmale Randkeile vom Flachbettscanner.
 
@@ -251,6 +382,11 @@ def _remove_dark_edge_bands(rgb: Any) -> Any:
         ).astype(bool)
         cleaned = rgb.copy()
         cleaned[:, strip_start:, :][grown_mask] = 255
+        # Der schraeg verlaufende Rand kann am gegenueberliegenden Seitenende
+        # nur noch aus wenigen grauen, vom Hauptsegment getrennten Pixeln
+        # bestehen. Sobald der Keil eindeutig erkannt ist, ist auch der sehr
+        # schmale aeussere Scanner-Gap sicher Artefaktflaeche.
+        cleaned[:, width - trailing_gap :, :] = 255
         logger.info("scan cleanup removed dark right edge wedge pixels=%s", int(grown_mask.sum()))
         return cleaned
     return rgb
@@ -271,6 +407,7 @@ def _clean_scan_image(image: Image.Image, mode: str) -> Image.Image:
         return image
 
     rgb = np.asarray(image.convert("RGB"), dtype=np.float32)
+    rgb, _ = _deskew_scan_rgb(rgb)
     rgb = _remove_dark_edge_bands(rgb)
     width = rgb.shape[1]
     sigma = max(15.0, width / 48.0)  # ~35 @1700px, ~52 @2480px
@@ -295,6 +432,14 @@ def _clean_scan_image(image: Image.Image, mode: str) -> Image.Image:
         strengthened = np.power(gray / 255.0, 2.0) * 255.0
         strengthened = np.clip((strengthened - 30.0) / 195.0 * 255.0, 0, 255)
         out[neutral_ink] = strengthened[neutral_ink, None]
+        # Der Rohscan kann rechts einen breiteren dunkelgrauen Bett-Rand haben,
+        # den die vorsichtige Erkennung oben bewusst nicht als schmalen Streifen
+        # einstuft. Die Hintergrunddivision hellt dessen Flaeche auf, laesst an
+        # der Uebergangskante aber genau den duennen schwarzen Keil zurueck, der
+        # in der Importvorschau sichtbar wird. Nach der Tonkurve ist dieses
+        # Artefakt eindeutig schmal und kann mit denselben Schutzkriterien
+        # gefahrlos in einem zweiten Durchlauf entfernt werden.
+        out = _remove_dark_edge_bands(out.astype(np.uint8))
         return Image.fromarray(out.astype(np.uint8), "RGB")
 
     # bw: Graustufen + Kontrast-Stretch → richtig weiß, sattes Schwarz.
@@ -312,6 +457,8 @@ def _clean_scan_image(image: Image.Image, mode: str) -> Image.Image:
         white_point = black_point + 60.0
 
     gray = np.clip((gray - black_point) / (white_point - black_point) * 255.0, 0, 255)
+    gray_rgb = np.repeat(gray.astype(np.uint8)[:, :, None], 3, axis=2)
+    gray = _remove_dark_edge_bands(gray_rgb)[:, :, 0]
     return Image.fromarray(gray.astype(np.uint8), "L")
 
 

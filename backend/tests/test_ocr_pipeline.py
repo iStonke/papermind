@@ -1,9 +1,12 @@
 import unittest
+from unittest.mock import patch
 
 from app.services.ocr_pipeline import (
     _binarize_pil_image,
     _build_quality_metrics,
     _clean_scan_image,
+    _deskew_scan_rgb,
+    _estimate_scan_skew_angle,
     _normalize_tesseract_languages,
     _otsu_threshold,
     _postprocess_hyphenation,
@@ -113,6 +116,42 @@ class ScanCleanupContrastTest(unittest.TestCase):
 
         self.assertGreater(float(right_edge.mean()), 248.0)
 
+    def test_conservatively_deskews_page_from_horizontal_lines(self) -> None:
+        page = Image.new("RGB", (self.WIDTH, self.HEIGHT), (245, 245, 245))
+        draw = ImageDraw.Draw(page)
+        for y in range(240, 1460, 95):
+            draw.line([(140, y), (1080, y)], fill=(40, 40, 40), width=3)
+        source = np.asarray(page, dtype=np.uint8)
+        matrix = cv2.getRotationMatrix2D(
+            ((self.WIDTH - 1) / 2.0, (self.HEIGHT - 1) / 2.0),
+            -0.7,
+            1.0,
+        )
+        skewed = cv2.warpAffine(
+            source,
+            matrix,
+            (self.WIDTH, self.HEIGHT),
+            flags=cv2.INTER_CUBIC,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=(255, 255, 255),
+        )
+
+        detected = _estimate_scan_skew_angle(skewed)
+        straightened, applied = _deskew_scan_rgb(skewed.astype(np.float32))
+        remaining = _estimate_scan_skew_angle(straightened)
+
+        self.assertAlmostEqual(detected, 0.7, delta=0.2)
+        self.assertAlmostEqual(applied, detected, places=6)
+        self.assertLess(abs(remaining), 0.1)
+
+    def test_deskew_skips_blank_page(self) -> None:
+        blank = np.full((self.HEIGHT, self.WIDTH, 3), 255, dtype=np.float32)
+
+        straightened, applied = _deskew_scan_rgb(blank)
+
+        self.assertEqual(applied, 0.0)
+        self.assertIs(straightened, blank)
+
     def test_removes_inset_slanted_right_edge_wedge(self) -> None:
         page = self._page(120)
         draw = ImageDraw.Draw(page)
@@ -133,6 +172,31 @@ class ScanCleanupContrastTest(unittest.TestCase):
         wedge_area = np.asarray(cleaned.convert("RGB"), dtype=np.uint8)[:620, -18:, :]
 
         self.assertGreater(float(wedge_area.mean()), 248.0)
+
+    def test_detected_wedge_clears_disconnected_outer_edge_remnant(self) -> None:
+        page = self._page(120)
+        draw = ImageDraw.Draw(page)
+        draw.polygon(
+            [
+                (self.WIDTH - 13, 0),
+                (self.WIDTH - 5, 0),
+                (self.WIDTH - 5, 610),
+                (self.WIDTH - 8, 610),
+            ],
+            fill=(0, 0, 0),
+        )
+        # Vom Hauptkeil getrenntes, graues Ende wie im echten 300-dpi-Scan.
+        draw.line(
+            [(self.WIDTH - 4, self.HEIGHT - 260), (self.WIDTH - 4, self.HEIGHT - 180)],
+            fill=(120, 120, 120),
+            width=2,
+        )
+
+        source = np.asarray(page.convert("RGB"), dtype=np.float32)
+        cleaned = _remove_dark_edge_bands(source)
+        outer_gap = cleaned[:, -max(2, int(round(self.WIDTH * 0.005))) :, :]
+
+        self.assertGreater(float(outer_gap.mean()), 248.0)
 
     def test_keeps_vertical_document_line_that_does_not_touch_a_corner(self) -> None:
         page = self._page(120)
@@ -159,6 +223,17 @@ class ScanCleanupContrastTest(unittest.TestCase):
         cleaned = Image.fromarray(_remove_dark_edge_bands(source).astype(np.uint8)).convert("L")
 
         self.assertLess(cleaned.getpixel((self.WIDTH - 10, 140)), 32)
+
+    def test_rechecks_edges_after_background_normalization(self) -> None:
+        page = self._page(120)
+
+        with patch(
+            "app.services.ocr_pipeline._remove_dark_edge_bands",
+            wraps=_remove_dark_edge_bands,
+        ) as remove_edges:
+            _clean_scan_image(page, "white")
+
+        self.assertEqual(remove_edges.call_count, 2)
 
     def test_white_cleanup_darkens_neutral_text_but_keeps_color(self) -> None:
         page = Image.new("RGB", (self.WIDTH, self.HEIGHT), (238, 238, 238))
