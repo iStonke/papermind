@@ -209,6 +209,8 @@ in `papermind-scan.sh` (oder als `Environment=` in der `.service`):
 | `SCANNER_USB_PRODUCT` | *(leer)*                    | Optionales USB-Produkt, z. B. `1912` fuer LiDE 400 |
 | `SCAN_RESOLUTION` | `300`                           | DPI                                          |
 | `SCAN_MODE`       | `Color`                         | `Color` \| `Gray` \| `Lineart`               |
+| `SCAN_WIDTH_MM`   | `210`                           | Aufnahmebreite; A4 verhindert den 6-mm-Überstand des LiDE 400 |
+| `SCAN_HEIGHT_MM`  | `297`                           | Aufnahmehöhe (A4)                            |
 | `IDLE_SECONDS`    | `180`                           | Ruhezeit für `finalize-idle`                 |
 
 `scan-inbox`-Stabilitätsfenster (`IMPORT_INBOX_FILE_STABLE_SECONDS`, Default 3s)

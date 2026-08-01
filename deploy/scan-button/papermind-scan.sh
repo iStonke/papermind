@@ -36,6 +36,8 @@
 #    SCAN_DEVICE      SANE-Device (leer = Default-Scanner)
 #    SCAN_RESOLUTION  DPI (Default 300)
 #    SCAN_MODE        Color | Gray | Lineart (Default Color)
+#    SCAN_WIDTH_MM    Scanbreite in mm (Default 210 = A4)
+#    SCAN_HEIGHT_MM   Scanhöhe in mm (Default 297 = A4)
 #    IDLE_SECONDS     Ruhezeit für finalize-idle (Default 180)
 # =============================================================================
 
@@ -58,6 +60,8 @@ LOCK_FILE="${LOCK_FILE:-${SCAN_INBOX_DIR}/.papermind-scan.lock}"
 SCAN_DEVICE="${SCAN_DEVICE:-}"
 SCAN_RESOLUTION="${SCAN_RESOLUTION:-300}"
 SCAN_MODE="${SCAN_MODE:-Color}"
+SCAN_WIDTH_MM="${SCAN_WIDTH_MM:-210}"
+SCAN_HEIGHT_MM="${SCAN_HEIGHT_MM:-297}"
 IDLE_SECONDS="${IDLE_SECONDS:-180}"
 # Optionale Backend-Job-ID (vom Poller bei UI-ausgelösten Scans gesetzt). Wird in
 # den PDF-Dateinamen eingebettet, damit das Backend den Lauf exakt diesem Job
@@ -118,9 +122,18 @@ _with_lock() {
 
 _scan_args() {
   # Gemeinsame scanimage-Argumente. --device nur setzen, wenn vorgegeben.
+  # Die LiDE-400-Scanfläche ist 216 mm breit. Ohne explizite Geometrie nimmt
+  # SANE daher rechts 6 mm Scannerbett neben einer A4-Seite mit auf. Das ist
+  # die Ursache des dunklen Randkeils bereits im unveränderten Original.
   local -a args=()
   [[ -n "$SCAN_DEVICE" ]] && args+=(--device-name "$SCAN_DEVICE")
-  args+=(--resolution "$SCAN_RESOLUTION" --mode "$SCAN_MODE" --format=png)
+  args+=(
+    --resolution "$SCAN_RESOLUTION"
+    --mode "$SCAN_MODE"
+    -x "$SCAN_WIDTH_MM"
+    -y "$SCAN_HEIGHT_MM"
+    --format=png
+  )
   printf '%s\n' "${args[@]}"
 }
 
@@ -171,7 +184,7 @@ _scan_live_page() {
   png_part="${tmp_dir}/page-${ts}.png.part"
   png="${tmp_dir}/page-${ts}.png"
 
-  log "Scanne Seite live (${SCAN_RESOLUTION}dpi ${SCAN_MODE})…"
+  log "Scanne Seite live (${SCAN_RESOLUTION}dpi ${SCAN_MODE}, ${SCAN_WIDTH_MM}x${SCAN_HEIGHT_MM}mm)…"
   # shellcheck disable=SC2046
   if ! _scanimage_cancellable "$png_part"; then
     rm -f "$png_part"
@@ -224,7 +237,7 @@ cmd_page() {
   local part="${BATCH_DIR}/page-${idx}.png.part"
   local final="${BATCH_DIR}/page-${idx}.png"
 
-  log "Scanne Seite ${idx} (${SCAN_RESOLUTION}dpi ${SCAN_MODE})…"
+  log "Scanne Seite ${idx} (${SCAN_RESOLUTION}dpi ${SCAN_MODE}, ${SCAN_WIDTH_MM}x${SCAN_HEIGHT_MM}mm)…"
   # shellcheck disable=SC2046
   if ! _scanimage_cancellable "$part"; then
     rm -f "$part"
