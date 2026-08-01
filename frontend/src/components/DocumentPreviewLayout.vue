@@ -193,7 +193,7 @@ const drawerStyle = computed(() => {
       rgba(var(--preview-drawer-scrim-rgb), 0.74) 46%,
       rgba(var(--preview-drawer-scrim-rgb), 0.98) 100%
     );
-  transition: opacity 180ms ease-out;
+  transition: opacity var(--pm-duration-normal) var(--pm-easing-decel);
 }
 
 .preview-layout--floating-card.preview-layout--drawer-open::after {
@@ -229,10 +229,10 @@ const drawerStyle = computed(() => {
     margin-top var(--preview-drawer-motion-duration) var(--preview-drawer-motion-easing),
     margin-bottom var(--preview-drawer-motion-duration) var(--preview-drawer-motion-easing),
     bottom var(--preview-drawer-motion-duration) var(--preview-drawer-motion-easing),
-    background-color 200ms ease-out,
-    border-color 200ms ease-out,
-    box-shadow 200ms ease-out,
-    opacity 200ms ease-out;
+    background-color var(--pm-duration-normal) var(--pm-easing-decel),
+    border-color var(--pm-duration-normal) var(--pm-easing-decel),
+    box-shadow var(--pm-duration-normal) var(--pm-easing-decel),
+    opacity var(--pm-duration-normal) var(--pm-easing-decel);
   will-change: height, margin-top, margin-bottom, bottom;
 }
 
@@ -299,7 +299,7 @@ const drawerStyle = computed(() => {
   height: 1px;
   opacity: 0;
   background: rgba(var(--v-theme-on-surface), 0.08);
-  transition: opacity 160ms ease-out;
+  transition: opacity var(--pm-duration-fast) var(--pm-easing-decel);
 }
 
 .pm-drawer-divider--visible {
@@ -311,7 +311,7 @@ const drawerStyle = computed(() => {
   min-height: 0;
   overflow: hidden;
   opacity: 0;
-  transition: opacity 160ms ease-out;
+  transition: opacity var(--pm-duration-fast) var(--pm-easing-decel);
 }
 
 .preview-layout__body--open {

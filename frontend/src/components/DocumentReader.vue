@@ -692,7 +692,7 @@ onBeforeUnmount(() => {
   background: transparent;
   color: rgb(var(--reader-muted-rgb) / 0.78);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease, transform 120ms ease;
+  transition: background var(--pm-duration-fast) var(--pm-easing), color var(--pm-duration-fast) var(--pm-easing), border-color var(--pm-duration-fast) var(--pm-easing), transform var(--pm-duration-fast) var(--pm-easing);
 }
 .doc-reader__icon-btn:hover {
   background: rgb(var(--reader-overlay-rgb) / 0.07);
@@ -772,7 +772,7 @@ onBeforeUnmount(() => {
   background: transparent;
   cursor: pointer;
   line-height: 0;
-  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  transition: background var(--pm-duration-fast) var(--pm-easing), border-color var(--pm-duration-fast) var(--pm-easing), box-shadow var(--pm-duration-fast) var(--pm-easing);
 }
 .doc-reader__thumb:hover {
   background: rgb(var(--reader-overlay-rgb) / 0.05);
@@ -794,7 +794,7 @@ onBeforeUnmount(() => {
   background: #fff;
   box-shadow: 0 4px 12px var(--reader-thumb-shadow);
   opacity: 0;
-  transition: opacity 220ms ease;
+  transition: opacity var(--pm-duration-normal) var(--pm-easing);
 }
 .doc-reader__thumb-num {
   position: absolute;
@@ -907,7 +907,7 @@ onBeforeUnmount(() => {
   background: transparent;
   color: rgb(var(--reader-muted-rgb) / 0.78);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease, transform 120ms ease;
+  transition: background var(--pm-duration-fast) var(--pm-easing), color var(--pm-duration-fast) var(--pm-easing), border-color var(--pm-duration-fast) var(--pm-easing), transform var(--pm-duration-fast) var(--pm-easing);
 }
 
 .doc-reader__tool-btn:hover {
@@ -942,7 +942,7 @@ onBeforeUnmount(() => {
   background: var(--swatch-color);
   cursor: pointer;
   padding: 0;
-  transition: transform 120ms ease, border-color 120ms ease;
+  transition: transform var(--pm-duration-fast) var(--pm-easing), border-color var(--pm-duration-fast) var(--pm-easing);
 }
 
 .doc-reader__color-btn:hover {
@@ -1033,7 +1033,7 @@ onBeforeUnmount(() => {
 /* Notizen: ein-/ausblenden + sanftes Nachrücken beim Umsortieren/Löschen. */
 .note-enter-active,
 .note-leave-active {
-  transition: opacity 220ms ease, transform 220ms ease;
+  transition: opacity var(--pm-duration-normal) var(--pm-easing), transform var(--pm-duration-normal) var(--pm-easing);
 }
 .note-enter-from,
 .note-leave-to {
@@ -1046,7 +1046,7 @@ onBeforeUnmount(() => {
   right: 10px;
 }
 .note-move {
-  transition: transform 240ms ease;
+  transition: transform var(--pm-duration-normal) var(--pm-easing);
 }
 .doc-reader__note {
   position: relative;
@@ -1055,7 +1055,7 @@ onBeforeUnmount(() => {
   border-left: 3px solid var(--note-color);
   border-radius: 8px;
   background: rgb(var(--reader-overlay-rgb) / 0.035);
-  transition: background 120ms ease, border-color 120ms ease;
+  transition: background var(--pm-duration-fast) var(--pm-easing), border-color var(--pm-duration-fast) var(--pm-easing);
 }
 .doc-reader__note:hover {
   background: rgb(var(--reader-overlay-rgb) / 0.06);
@@ -1121,7 +1121,7 @@ onBeforeUnmount(() => {
   background: rgb(24 95 165 / 0.08);
   color: rgb(24 95 165 / 0.95);
   cursor: pointer;
-  transition: background 120ms ease;
+  transition: background var(--pm-duration-fast) var(--pm-easing);
 }
 .doc-reader__note-link:hover {
   background: rgb(24 95 165 / 0.16);
@@ -1201,7 +1201,7 @@ onBeforeUnmount(() => {
   color: rgb(var(--reader-muted-rgb) / 0.55);
   cursor: pointer;
   opacity: 0;
-  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+  transition: opacity var(--pm-duration-fast) var(--pm-easing), background var(--pm-duration-fast) var(--pm-easing), color var(--pm-duration-fast) var(--pm-easing);
 }
 .doc-reader__note:hover .doc-reader__note-delete,
 .doc-reader__note-delete:focus-visible {

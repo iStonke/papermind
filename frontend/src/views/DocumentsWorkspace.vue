@@ -9961,6 +9961,29 @@ onBeforeUnmount(() => {
   border-radius: 10px;
 }
 
+.list-header-btn.v-btn {
+  transition: background-color var(--pm-duration-fast, 140ms) var(--pm-easing, ease);
+}
+
+.list-header-btn.v-btn:hover:not(.v-btn--disabled) {
+  background-color: color-mix(in srgb, currentColor 14%, var(--pm-app-surface-raised)) !important;
+}
+
+.list-header-btn.v-btn:focus-visible:not(.v-btn--disabled) {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.pm-no-animations .list-header-btn.v-btn {
+  transition-duration: 0ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .list-header-btn.v-btn {
+    transition-duration: 0ms;
+  }
+}
+
 .list-header-btn--active {
   color: rgb(var(--v-theme-primary));
 }
@@ -10998,7 +11021,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   max-width: min(150px, 42%);
   font-size: 0.68rem;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: 0;
   line-height: 1;
 }

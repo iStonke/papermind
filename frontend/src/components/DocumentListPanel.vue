@@ -28,7 +28,7 @@
       @drop="onListDrop"
     >
       <div class="document-list-content">
-        <Transition name="pm-list-state">
+        <Transition name="pm-list-state" mode="out-in">
           <div
             v-if="showDocumentListLoadingState"
             key="loading"
@@ -71,20 +71,21 @@
               :style="{ height: `${virtualTopPad}px` }"
               aria-hidden="true"
             />
-            <div
-              v-for="document in renderedDocuments"
-              :key="document.id"
-              class="document-row pm-doc-item"
-              :class="{
-                'document-row--active': !isSelectionMode && document.id === selectedDocumentId,
-                'document-row--selected': isSelectionMode && selectionIds.has(document.id),
-                'document-row--selection-mode': isSelectionMode
-              }"
-              role="button"
-              tabindex="0"
-              @click="onRowClick($event, document.id)"
-              @keydown="handleDocumentRowShortcut($event, document.id)"
-            >
+            <TransitionGroup name="document-list-item" tag="div" class="document-list__rows">
+              <div
+                v-for="document in renderedDocuments"
+                :key="document.id"
+                class="document-row pm-doc-item"
+                :class="{
+                  'document-row--active': !isSelectionMode && document.id === selectedDocumentId,
+                  'document-row--selected': isSelectionMode && selectionIds.has(document.id),
+                  'document-row--selection-mode': isSelectionMode
+                }"
+                role="button"
+                tabindex="0"
+                @click="onRowClick($event, document.id)"
+                @keydown="handleDocumentRowShortcut($event, document.id)"
+              >
               <div
                 class="document-row__thumb"
                 :class="{
@@ -101,7 +102,8 @@
                   v-if="!hasThumbnailError(document.id)"
                   :src="thumbnailUrl(document)"
                   alt="thumbnail"
-                  loading="lazy"
+                  decoding="async"
+                  :ref="(element) => handleThumbnailImageMount(document.id, element)"
                   @load="onThumbnailLoad(document.id)"
                   @error="onThumbnailError(document.id)"
                 />
@@ -237,7 +239,8 @@
                 </div>
                 <div class="document-row__date">{{ displayListDate(document) }}</div>
               </div>
-            </div>
+              </div>
+            </TransitionGroup>
             <div
               v-if="virtualBottomPad > 0"
               class="document-list__virtual-pad"
@@ -396,6 +399,8 @@ let virtualWindowFrame = 0;
 let pendingVirtualWindowElement = null;
 let listResizeObserver = null;
 let thumbnailRecoveryDisposed = false;
+let deletionVirtualWindowTimer = null;
+const deletionVirtualWindow = ref(null);
 
 const isVirtualized = computed(() => documents.value.length > 0);
 const virtualRowHeight = computed(() =>
@@ -406,19 +411,31 @@ const rowRelativeScrollTop = computed(() =>
   Math.max(0, listScrollTop.value - listContentOffsetTop.value)
 );
 
-const virtualStartIndex = computed(() => {
+const calculatedVirtualStartIndex = computed(() => {
   if (!isVirtualized.value) return 0;
   return Math.max(0, Math.floor(rowRelativeScrollTop.value / virtualRowStep.value) - ROW_OVERSCAN);
 });
 
-const virtualEndIndex = computed(() => {
-  if (!isVirtualized.value) return documents.value.length;
+const requestedVirtualEndIndex = computed(() => {
   const visibleEnd = Math.ceil((rowRelativeScrollTop.value + (listViewport.value || 0)) / virtualRowStep.value);
-  return Math.min(
-    documents.value.length,
-    Math.max(virtualStartIndex.value + 1, visibleEnd + ROW_OVERSCAN)
-  );
+  return Math.max(calculatedVirtualStartIndex.value + 1, visibleEnd + ROW_OVERSCAN);
 });
+
+const calculatedVirtualEndIndex = computed(() => {
+  if (!isVirtualized.value) return documents.value.length;
+  return Math.min(documents.value.length, requestedVirtualEndIndex.value);
+});
+
+// Beim Löschen einer sichtbaren Zeile bleibt das virtuelle Fenster für einen
+// Frame der Ausblendung konstant. Ohne diese kurze Sperre würde gleichzeitig
+// am Ende des Fensters ein neuer Eintrag nachrücken und den FLIP-Übergang
+// sichtbar stottern lassen.
+const virtualStartIndex = computed(() =>
+  deletionVirtualWindow.value?.start ?? calculatedVirtualStartIndex.value
+);
+const virtualEndIndex = computed(() =>
+  deletionVirtualWindow.value?.end ?? calculatedVirtualEndIndex.value
+);
 
 const renderedDocuments = computed(() => {
   if (!isVirtualized.value) return documents.value;
@@ -433,6 +450,32 @@ const virtualBottomPad = computed(() => {
   if (!isVirtualized.value) return 0;
   return Math.max(0, (documents.value.length - virtualEndIndex.value) * virtualRowStep.value);
 });
+
+watch(
+  () => documents.value.map((document) => document.id),
+  (nextIds, previousIds = []) => {
+    const isSingleRemoval = previousIds.length === nextIds.length + 1;
+    if (!isSingleRemoval) return;
+
+    const nextIdSet = new Set(nextIds);
+    const removedIndex = previousIds.findIndex((id) => !nextIdSet.has(id));
+    const start = calculatedVirtualStartIndex.value;
+    const visibleEndBeforeRemoval = Math.min(previousIds.length, requestedVirtualEndIndex.value);
+    const wasVisible = removedIndex >= start && removedIndex < visibleEndBeforeRemoval;
+    if (!wasVisible) return;
+
+    deletionVirtualWindow.value = {
+      start,
+      end: Math.max(start, visibleEndBeforeRemoval - 1),
+    };
+    if (deletionVirtualWindowTimer) window.clearTimeout(deletionVirtualWindowTimer);
+    deletionVirtualWindowTimer = window.setTimeout(() => {
+      deletionVirtualWindow.value = null;
+      deletionVirtualWindowTimer = null;
+    }, 260);
+  },
+  { flush: 'sync' }
+);
 
 function updateVirtualWindow(element = listShell.value) {
   if (!element) return;
@@ -497,6 +540,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   thumbnailRecoveryDisposed = true;
   if (virtualWindowFrame) cancelAnimationFrame(virtualWindowFrame);
+  if (deletionVirtualWindowTimer) window.clearTimeout(deletionVirtualWindowTimer);
   if (listResizeObserver) {
     listResizeObserver.disconnect();
     listResizeObserver = null;
@@ -721,6 +765,24 @@ function isThumbnailLoaded(documentId) {
   return Boolean(thumbnailLoadedByDocumentId.value[documentId]);
 }
 
+// Die Liste rendert nur das sichtbare Fenster plus Overscan. Browser-Lazy-
+// Loading ist an dieser Stelle daher überflüssig und kann in Scrollcontainern
+// einzelne Bilder dauerhaft im Wartestatus lassen. Bereits aus dem Cache
+// vollständige Bilder senden außerdem nicht in jedem Browser noch ein load-
+// Event; "complete" schließt diese Lücke.
+function handleThumbnailImageMount(documentId, element) {
+  if (
+    !(element instanceof HTMLImageElement)
+    || !element.complete
+    || isThumbnailLoaded(documentId)
+  ) return;
+  if (element.naturalWidth > 0) {
+    onThumbnailLoad(documentId);
+  } else {
+    onThumbnailError(documentId);
+  }
+}
+
 function onThumbnailError(documentId) {
   const nextLoaded = { ...thumbnailLoadedByDocumentId.value };
   delete nextLoaded[documentId];
@@ -740,6 +802,7 @@ function onThumbnailError(documentId) {
 }
 
 function onThumbnailLoad(documentId) {
+  if (isThumbnailLoaded(documentId) && !thumbnailErrorMap.value[documentId]) return;
   clearThumbnailRetryTimer(documentId);
   thumbnailRetryAttemptByDocumentId.delete(documentId);
   thumbnailLoadedByDocumentId.value = {
@@ -989,7 +1052,7 @@ function onListDrop(event) {
 .document-row__thumb--selectable img,
 .document-row__thumb--selectable .document-row__thumb-fallback {
   opacity: 0.55;
-  transition: opacity 0.18s ease;
+  transition: opacity var(--pm-duration-normal) var(--pm-easing);
 }
 
 /* ── Checkbox-Overlay ─────────────────────────────────────────────────── */
@@ -1002,7 +1065,7 @@ function onListDrop(event) {
   border-radius: 6px;
   border: 1.5px solid rgba(var(--v-theme-on-surface), 0.35);
   background: rgba(var(--v-theme-surface), 0.55);
-  transition: background 0.12s, border-color 0.12s;
+  transition: background var(--pm-duration-fast), border-color var(--pm-duration-fast);
 }
 
 .document-row__checkbox-overlay--checked {
@@ -1014,7 +1077,7 @@ function onListDrop(event) {
 /* Vue Transition */
 .checkbox-pop-enter-active,
 .checkbox-pop-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition: opacity var(--pm-duration-fast) var(--pm-easing), transform var(--pm-duration-fast) var(--pm-easing);
 }
 
 .checkbox-pop-enter-from,
@@ -1034,6 +1097,45 @@ function onListDrop(event) {
 .document-row-skeleton {
   border-radius: 12px;
   overflow: hidden;
+}
+
+/* Gelöschte Zeilen lösen sich kurz auf; die restliche Liste rückt dabei weich
+   nach. Der Wrapper ist nötig, damit die absolute Ausblendung im Listenfluss
+   an ihrer bisherigen Position bleibt. */
+.document-list__rows {
+  position: relative;
+}
+
+.document-list-item-leave-active {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  pointer-events: none;
+  transition:
+    opacity var(--pm-duration-normal) var(--pm-easing-accel),
+    transform 220ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1));
+}
+
+.document-list-item-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.985);
+}
+
+.document-list-item-move {
+  transition: transform 240ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1));
+}
+
+:global(.pm-no-animations) .document-list-item-leave-active,
+:global(.pm-no-animations) .document-list-item-move {
+  transition-duration: 0ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .document-list-item-leave-active,
+  .document-list-item-move {
+    transition-duration: 0ms;
+  }
 }
 
 /* ── Selektierter Zustand ─────────────────────────────────────────────── */

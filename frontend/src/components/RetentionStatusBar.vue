@@ -190,7 +190,7 @@ function onSave() {
   border: 1px solid var(--pm-detail-info-border);
   border-radius: 10px;
   cursor: pointer;
-  transition: border-color 0.16s ease, background-color 0.16s ease;
+  transition: border-color var(--pm-duration-fast) var(--pm-easing), background-color var(--pm-duration-fast) var(--pm-easing);
 }
 
 .retention-zone--open .retention-bar {
@@ -317,7 +317,7 @@ function onSave() {
 .retention-bar__chev {
   flex: none;
   color: rgba(var(--v-theme-on-surface), 0.45);
-  transition: transform 0.2s ease;
+  transition: transform var(--pm-duration-normal) var(--pm-easing);
 }
 
 .retention-bar__chev--open {
@@ -413,7 +413,7 @@ function onSave() {
   border-radius: 12px;
   background: rgba(var(--v-theme-on-surface), 0.22);
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: background-color var(--pm-duration-normal) var(--pm-easing);
 }
 
 .retention-toggle--on {
@@ -428,7 +428,7 @@ function onSave() {
   height: 19px;
   border-radius: 50%;
   background: #fff;
-  transition: transform 0.2s ease;
+  transition: transform var(--pm-duration-normal) var(--pm-easing);
 }
 
 .retention-toggle--on .retention-toggle__knob {
