@@ -390,11 +390,23 @@ const VIRTUAL_ROW_GAP = 10;
 // Der etwas grössere Puffer verhindert kurzzeitig leere Listenzeilen, bleibt
 // mit rund 50–70 Zeilen aber deutlich unter einer unvirtualisierten Liste.
 const ROW_OVERSCAN = 24;
+// Geschwindigkeitsabhängiger Overscan: Bei schnellem Fling scrollt der
+// Compositor dem rAF-getakteten Fenster-Update voraus → kurzzeitig leere
+// Zeilen. Dann puffern wir zusätzliche Zeilen IN Scroll-Richtung (dort
+// entstehen die Lücken), gedeckelt, und fallen nach dem Anhalten auf die
+// Basis zurück, damit langsames/ruhendes Scrollen ein schlankes DOM behält.
+const MAX_ROW_OVERSCAN = 140;
+const VELOCITY_OVERSCAN_FACTOR = 3;
+const OVERSCAN_SETTLE_MS = 180;
 const VIRTUAL_WINDOW_SAFETY_ROWS = 8;
 
 const listScrollTop = ref(0);
 const listViewport = ref(0);
 const listContentOffsetTop = ref(0);
+// Richtungsabhängiger Puffer (Zeilen) ober-/unterhalb des Sichtbereichs.
+const startOverscan = ref(ROW_OVERSCAN);
+const endOverscan = ref(ROW_OVERSCAN);
+let overscanResetTimer = null;
 let virtualWindowFrame = 0;
 let pendingVirtualWindowElement = null;
 let lastObservedListScrollTop = 0;
@@ -414,12 +426,12 @@ const rowRelativeScrollTop = computed(() =>
 
 const calculatedVirtualStartIndex = computed(() => {
   if (!isVirtualized.value) return 0;
-  return Math.max(0, Math.floor(rowRelativeScrollTop.value / virtualRowStep.value) - ROW_OVERSCAN);
+  return Math.max(0, Math.floor(rowRelativeScrollTop.value / virtualRowStep.value) - startOverscan.value);
 });
 
 const requestedVirtualEndIndex = computed(() => {
   const visibleEnd = Math.ceil((rowRelativeScrollTop.value + (listViewport.value || 0)) / virtualRowStep.value);
-  return Math.max(calculatedVirtualStartIndex.value + 1, visibleEnd + ROW_OVERSCAN);
+  return Math.max(calculatedVirtualStartIndex.value + 1, visibleEnd + endOverscan.value);
 });
 
 const calculatedVirtualEndIndex = computed(() => {
@@ -480,10 +492,38 @@ watch(
 
 function updateVirtualWindow(element = listShell.value) {
   if (!element) return;
-  listScrollTop.value = element.scrollTop;
-  lastObservedListScrollTop = element.scrollTop;
+  const nextScrollTop = element.scrollTop;
+  applyScrollVelocityOverscan(nextScrollTop - lastObservedListScrollTop);
+  listScrollTop.value = nextScrollTop;
+  lastObservedListScrollTop = nextScrollTop;
   listViewport.value = element.clientHeight;
   listContentOffsetTop.value = documentListRef.value?.offsetTop || 0;
+}
+
+// Puffert bei schnellem Scrollen zusätzliche Zeilen in Scroll-Richtung, damit
+// dem Compositor beim Fling nie leere Zeilen vorauseilen. `delta` ist die
+// (rAF-getaktete) Scroll-Distanz seit dem letzten Update in Pixeln.
+function applyScrollVelocityOverscan(delta) {
+  if (!delta) return;
+  const rowsPerFrame = Math.abs(delta) / virtualRowStep.value;
+  const dynamic = Math.min(
+    MAX_ROW_OVERSCAN,
+    ROW_OVERSCAN + Math.ceil(rowsPerFrame * VELOCITY_OVERSCAN_FACTOR)
+  );
+  if (delta > 0) {
+    endOverscan.value = dynamic;       // nach unten → Puffer unterhalb
+    startOverscan.value = ROW_OVERSCAN;
+  } else {
+    startOverscan.value = dynamic;     // nach oben → Puffer oberhalb
+    endOverscan.value = ROW_OVERSCAN;
+  }
+  if (overscanResetTimer) window.clearTimeout(overscanResetTimer);
+  overscanResetTimer = window.setTimeout(() => {
+    overscanResetTimer = null;
+    // Nach dem Anhalten wieder auf die Basis – schlankes DOM bei Ruhe/langsam.
+    startOverscan.value = ROW_OVERSCAN;
+    endOverscan.value = ROW_OVERSCAN;
+  }, OVERSCAN_SETTLE_MS);
 }
 
 function scheduleVirtualWindowUpdate(element = listShell.value) {
@@ -563,6 +603,7 @@ onBeforeUnmount(() => {
   thumbnailRecoveryDisposed = true;
   if (virtualWindowFrame) cancelAnimationFrame(virtualWindowFrame);
   if (deletionVirtualWindowTimer) window.clearTimeout(deletionVirtualWindowTimer);
+  if (overscanResetTimer) window.clearTimeout(overscanResetTimer);
   if (listResizeObserver) {
     listResizeObserver.disconnect();
     listResizeObserver = null;
