@@ -379,6 +379,22 @@
   padding-top: 10px;
 }
 
+.settings-onboarding-button {
+  flex: 0 0 auto;
+  min-width: 184px;
+}
+
+@media (max-width: 560px) {
+  .settings-onboarding-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .settings-onboarding-button {
+    min-width: 0;
+  }
+}
+
 .pm-settings-content > .settings-info-card + .backup-summary,
 .pm-settings-content > .settings-info-card + .shortcuts-list {
   margin-top: 10px;

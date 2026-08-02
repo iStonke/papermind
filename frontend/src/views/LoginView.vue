@@ -271,12 +271,18 @@ async function submit() {
   error.value = null;
   try {
     if (isRegisterMode.value) {
-      await authStore.register({
+      const registeredUser = await authStore.register({
         username: username.value.trim(),
         password: password.value,
         display_name: displayName.value.trim() || null,
         email: email.value.trim() || null,
       });
+      // Die App-Shell konsumiert dieses einmalige Signal und öffnet das
+      // Onboarding erst über der vollständig aufgebauten Arbeitsfläche.
+      window.sessionStorage.setItem(
+        'pm.onboarding.after-register',
+        String(registeredUser?.id || 'new-user'),
+      );
     } else {
       await authStore.login(username.value.trim(), password.value);
     }

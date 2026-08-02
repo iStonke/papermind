@@ -18,6 +18,10 @@ export const useUiStore = defineStore('ui', {
     // Tastenkürzel auf-/zuschaltbar. Zustand hier, damit jede Route ihn steuern
     // kann – analog zu settingsOpen/accountOpen.
     paletteOpen: false,
+    // Geführter Einstieg für neue Benutzer. In der Entwicklung kann das
+    // Fenster unabhängig vom Abschlussstatus jederzeit erneut geöffnet werden.
+    onboardingOpen: false,
+    onboardingSource: '',
     // Signale, mit denen die Palette die (lokal in DocumentsWorkspace
     // verwalteten) Views/Aktionen anstößt – analog zu importsReloadSignal.
     // Zähler statt reiner Wert, damit der Watcher auch feuert, wenn zweimal
@@ -58,6 +62,13 @@ export const useUiStore = defineStore('ui', {
     },
     togglePalette() {
       this.paletteOpen = !this.paletteOpen;
+    },
+    openOnboarding(source = 'manual') {
+      this.onboardingSource = source || 'manual';
+      this.onboardingOpen = true;
+    },
+    closeOnboarding() {
+      this.onboardingOpen = false;
     },
     requestView(viewKey) {
       this.pendingView = viewKey || null;

@@ -274,6 +274,24 @@
                 @update:model-value="onTagDrawerRememberStateChange"
               />
             </div>
+
+            <div class="pm-setting-row settings-onboarding-row">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Einführung</div>
+                <div class="pm-setting-description">
+                  Zeigt die animierte PaperMind-Einführung noch einmal an.
+                </div>
+              </div>
+              <v-btn
+                color="primary"
+                variant="tonal"
+                prepend-icon="mdi-play"
+                class="settings-onboarding-button"
+                @click="requestOnboarding"
+              >
+                Onboarding anzeigen
+              </v-btn>
+            </div>
           </div>
         </section>
 
@@ -2294,7 +2312,7 @@ const props = defineProps({
   initialCategory: { type: String, default: 'appearance' }
 });
 
-const emit = defineEmits(['update:modelValue', 'reload-imports']);
+const emit = defineEmits(['update:modelValue', 'reload-imports', 'show-onboarding']);
 
 const SETTINGS_ACTIVE_CATEGORY_STORAGE_KEY = 'pm.settings.activeCategory';
 
@@ -2386,6 +2404,10 @@ async function runOcrBackfillNow() {
 const isSettingsLoading = computed(() => settingsStore.isSettingsLoading);
 const animationsEnabled = computed(() => settingsStore.animationsEnabled);
 const scanLineAnimationEnabled = computed(() => settingsStore.scanLineAnimationEnabled);
+
+function requestOnboarding() {
+  emit('show-onboarding');
+}
 
 // ── Scanner-Einstellungen ───────────────────────────────────────────────────
 
