@@ -90,22 +90,17 @@
                 class="document-row__thumb"
                 :class="{
                   'document-row__thumb--selectable': isSelectionMode,
-                  'document-row__thumb--loading': !hasThumbnailError(document.id) && !isThumbnailLoaded(document.id)
+                  'document-row__thumb--error': hasThumbnailError(document.id)
                 }"
               >
-                <span
-                  v-if="!hasThumbnailError(document.id) && !isThumbnailLoaded(document.id)"
-                  class="document-row__thumb-shimmer"
-                  aria-hidden="true"
-                />
                 <img
                   v-if="!hasThumbnailError(document.id)"
                   :src="thumbnailUrl(document)"
                   alt="thumbnail"
+                  loading="lazy"
                   decoding="async"
-                  :ref="(element) => handleThumbnailImageMount(document.id, element)"
-                  @load="onThumbnailLoad(document.id)"
-                  @error="onThumbnailError(document.id)"
+                  @load="onThumbnailLoad(document.id, $event)"
+                  @error="onThumbnailError(document.id, $event)"
                 />
                 <div v-else class="document-row__thumb-fallback">
                   <v-icon size="22">mdi-file-pdf-box</v-icon>
@@ -617,7 +612,6 @@ const toolbarFilterToggles = computed(() => {
 
 // ── Refs ───────────────────────────────────────────────────────────────────
 const thumbnailErrorMap = ref({});
-const thumbnailLoadedByDocumentId = ref({});
 const isListDragOver    = ref(false);
 const listDropDragDepth = ref(0);
 const thumbnailVersionByDocumentId = ref({});
@@ -761,32 +755,8 @@ function hasThumbnailError(documentId) {
   return Boolean(thumbnailErrorMap.value[documentId]);
 }
 
-function isThumbnailLoaded(documentId) {
-  return Boolean(thumbnailLoadedByDocumentId.value[documentId]);
-}
-
-// Die Liste rendert nur das sichtbare Fenster plus Overscan. Browser-Lazy-
-// Loading ist an dieser Stelle daher überflüssig und kann in Scrollcontainern
-// einzelne Bilder dauerhaft im Wartestatus lassen. Bereits aus dem Cache
-// vollständige Bilder senden außerdem nicht in jedem Browser noch ein load-
-// Event; "complete" schließt diese Lücke.
-function handleThumbnailImageMount(documentId, element) {
-  if (
-    !(element instanceof HTMLImageElement)
-    || !element.complete
-    || isThumbnailLoaded(documentId)
-  ) return;
-  if (element.naturalWidth > 0) {
-    onThumbnailLoad(documentId);
-  } else {
-    onThumbnailError(documentId);
-  }
-}
-
-function onThumbnailError(documentId) {
-  const nextLoaded = { ...thumbnailLoadedByDocumentId.value };
-  delete nextLoaded[documentId];
-  thumbnailLoadedByDocumentId.value = nextLoaded;
+function onThumbnailError(documentId, event) {
+  event?.currentTarget?.parentElement?.classList.remove('document-row__thumb--loaded');
   thumbnailErrorMap.value = { ...thumbnailErrorMap.value, [documentId]: true };
   if (thumbnailRetryTimerByDocumentId.has(documentId)) return;
 
@@ -801,14 +771,10 @@ function onThumbnailError(documentId) {
   );
 }
 
-function onThumbnailLoad(documentId) {
-  if (isThumbnailLoaded(documentId) && !thumbnailErrorMap.value[documentId]) return;
+function onThumbnailLoad(documentId, event) {
+  event?.currentTarget?.parentElement?.classList.add('document-row__thumb--loaded');
   clearThumbnailRetryTimer(documentId);
   thumbnailRetryAttemptByDocumentId.delete(documentId);
-  thumbnailLoadedByDocumentId.value = {
-    ...thumbnailLoadedByDocumentId.value,
-    [documentId]: true,
-  };
   if (thumbnailErrorMap.value[documentId]) {
     const next = { ...thumbnailErrorMap.value };
     delete next[documentId];
@@ -820,7 +786,6 @@ watch(documentThumbnailSignature, () => {
   const nextSignatures = {};
   const nextErrors = {};
   const nextVersions = {};
-  const nextLoaded = {};
 
   for (const document of documents.value) {
     if (!document?.id) continue;
@@ -837,8 +802,6 @@ watch(documentThumbnailSignature, () => {
       clearThumbnailRetryTimer(document.id);
       thumbnailRetryAttemptByDocumentId.delete(document.id);
       thumbnailUrlCache.delete(document.id);
-    } else if (thumbnailLoadedByDocumentId.value[document.id]) {
-      nextLoaded[document.id] = true;
     }
   }
 
@@ -852,7 +815,6 @@ watch(documentThumbnailSignature, () => {
   thumbnailSignatureByDocumentId.value = nextSignatures;
   thumbnailErrorMap.value = nextErrors;
   thumbnailVersionByDocumentId.value = nextVersions;
-  thumbnailLoadedByDocumentId.value = nextLoaded;
 });
 
 watch(
@@ -1010,19 +972,11 @@ function onListDrop(event) {
   position: relative;
 }
 
-.document-row__thumb img {
-  opacity: 1;
-  transition: opacity var(--pm-duration-fast, 140ms) ease;
-}
-
-.document-row__thumb--loading img {
-  opacity: 0;
-}
-
-.document-row__thumb-shimmer {
+.document-row__thumb::before {
+  content: '';
   position: absolute;
   inset: 0;
-  z-index: 1;
+  z-index: 0;
   overflow: hidden;
   background: linear-gradient(
     100deg,
@@ -1034,17 +988,32 @@ function onListDrop(event) {
   animation: document-thumbnail-shimmer 1.35s ease-in-out infinite;
 }
 
+.document-row__thumb--error::before {
+  display: none;
+}
+
+.document-row__thumb--loaded::before {
+  animation: none;
+  opacity: 0;
+}
+
+.document-row__thumb img,
+.document-row__thumb-fallback {
+  position: relative;
+  z-index: 1;
+}
+
 @keyframes document-thumbnail-shimmer {
   from { background-position: 100% 0; }
   to { background-position: -120% 0; }
 }
 
-:global(.pm-no-animations) .document-row__thumb-shimmer {
+:global(.pm-no-animations) .document-row__thumb::before {
   animation: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .document-row__thumb-shimmer {
+  .document-row__thumb::before {
     animation: none;
   }
 }
@@ -1114,7 +1083,7 @@ function onListDrop(event) {
   pointer-events: none;
   transition:
     opacity var(--pm-duration-normal) var(--pm-easing-accel),
-    transform 220ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1));
+    transform var(--pm-duration-normal) var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1));
 }
 
 .document-list-item-leave-to {
