@@ -385,13 +385,19 @@ const effectiveBottomSpacerHeight = computed(() =>
 const VIRTUAL_ROW_HEIGHT = 112;
 const VIRTUAL_ROW_HEIGHT_WITH_SNIPPET = 152;
 const VIRTUAL_ROW_GAP = 10;
-const ROW_OVERSCAN = 12;
+// Bei schnellen Trackpad-/Mausrad-Sprüngen muss ein ganzer Sichtbereich
+// bereits im DOM liegen, bevor das nächste rAF die Fenstergrenzen nachzieht.
+// Der etwas grössere Puffer verhindert kurzzeitig leere Listenzeilen, bleibt
+// mit rund 50–70 Zeilen aber deutlich unter einer unvirtualisierten Liste.
+const ROW_OVERSCAN = 24;
+const VIRTUAL_WINDOW_SAFETY_ROWS = 8;
 
 const listScrollTop = ref(0);
 const listViewport = ref(0);
 const listContentOffsetTop = ref(0);
 let virtualWindowFrame = 0;
 let pendingVirtualWindowElement = null;
+let lastObservedListScrollTop = 0;
 let listResizeObserver = null;
 let thumbnailRecoveryDisposed = false;
 let deletionVirtualWindowTimer = null;
@@ -475,6 +481,7 @@ watch(
 function updateVirtualWindow(element = listShell.value) {
   if (!element) return;
   listScrollTop.value = element.scrollTop;
+  lastObservedListScrollTop = element.scrollTop;
   listViewport.value = element.clientHeight;
   listContentOffsetTop.value = documentListRef.value?.offsetTop || 0;
 }
@@ -500,7 +507,27 @@ function requestMoreIfNearEnd(element = listShell.value) {
 
 function handleListScroll(event) {
   const element = event.currentTarget;
-  scheduleVirtualWindowUpdate(element);
+  const nextScrollTop = element.scrollTop;
+  const scrollingDown = nextScrollTop >= lastObservedListScrollTop;
+  lastObservedListScrollTop = nextScrollTop;
+
+  const relativeScrollTop = Math.max(0, nextScrollTop - listContentOffsetTop.value);
+  const firstVisibleRow = Math.floor(relativeScrollTop / virtualRowStep.value);
+  const lastVisibleRow = Math.ceil(
+    (relativeScrollTop + (listViewport.value || element.clientHeight)) / virtualRowStep.value
+  );
+  const isApproachingWindowEdge = scrollingDown
+    ? lastVisibleRow >= virtualEndIndex.value - VIRTUAL_WINDOW_SAFETY_ROWS
+    : firstVisibleRow <= virtualStartIndex.value + VIRTUAL_WINDOW_SAFETY_ROWS;
+
+  if (isApproachingWindowEdge) {
+    // Keine rAF-Latenz, wenn das aktuelle Sichtfenster den gerenderten Puffer
+    // fast eingeholt hat. So bleibt bei schnellen Sprüngen stets eine Zeile
+    // unter dem Viewport vorhanden.
+    updateVirtualWindow(element);
+  } else {
+    scheduleVirtualWindowUpdate(element);
+  }
   requestMoreIfNearEnd(element);
 }
 
