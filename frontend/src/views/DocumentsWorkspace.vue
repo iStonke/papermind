@@ -6645,7 +6645,6 @@ function selectView(viewKey) {
 
   if (viewKey === 'all') {
     const toolbarState = resolveDocumentToolbarState('all');
-    const hadActiveSavedSearch = Boolean(activeSavedSearchId.value);
     activeView.value = 'all';
     leaveActiveSavedSearch();
     patchDocumentListQuery({
@@ -6653,6 +6652,7 @@ function selectView(viewKey) {
       tagIds: [],
       untagged: null,
       documentType: null,
+      correspondentId: null,
       status: toolbarState.status,
       dateFrom: toolbarState.dateFrom,
       dateTo: toolbarState.dateTo,
@@ -6660,9 +6660,11 @@ function selectView(viewKey) {
       order: toolbarState.order
     });
     syncSearchStateToQuery({ resetOffset: false });
-    if (hadActiveSavedSearch) {
-      void fetchDocuments(selectedDocumentId.value);
-    }
+    // Ein expliziter Wechsel zu „Alle Dokumente“ ist immer ein Wechsel auf den
+    // regulären Endpoint. Der zuvor aktive Ordner kann bereits durch einen
+    // anderen Filter- oder Navigationsschritt intern verlassen worden sein;
+    // ohne Reload blieben dessen zwischengespeicherte Treffer dann sichtbar.
+    void fetchDocuments(selectedDocumentId.value);
     return;
   }
 
