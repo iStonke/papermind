@@ -314,6 +314,32 @@
               <div v-else-if="resultCountLabel" class="panel-middle__count">{{ resultCountLabel }}</div>
             </div>
             <div v-if="!isChatView && !isTagView && !isCategoryView && !isTrashView" class="panel-middle__actions">
+              <v-menu location="bottom end">
+                <template #activator="{ props: menuProps }">
+                  <v-btn
+                    v-bind="menuProps"
+                    class="list-header-viewmode"
+                    variant="text"
+                    density="comfortable"
+                    :icon="documentViewModeIcon"
+                    aria-label="Darstellung wählen"
+                  />
+                </template>
+                <v-list class="pm-menu" density="compact" min-width="180">
+                  <v-list-item
+                    v-for="option in documentViewModeOptions"
+                    :key="option.value"
+                    :active="documentViewMode === option.value"
+                    :title="option.label"
+                    @click="setDocumentViewMode(option.value)"
+                  >
+                    <template #prepend>
+                      <v-icon size="18">{{ documentViewMode === option.value ? 'mdi-check' : option.icon }}</v-icon>
+                    </template>
+                  </v-list-item>
+                </v-list>
+              </v-menu>
+
               <v-badge
                 :model-value="pendingImportInboxCount > 0"
                 :content="pendingImportInboxBadgeLabel"
@@ -347,7 +373,30 @@
             </div>
           </div>
 
-          <Transition name="pm-panel">
+          <DocumentCalendar
+            v-if="effectiveDocViewMode === 'calendar'"
+            key="calendar"
+            class="panel-middle__view"
+            :filter-query="calendarFilterQuery"
+            @pick-day="onCalendarPickDay"
+          />
+
+          <DocumentTimeline
+            v-else-if="effectiveDocViewMode === 'timeline'"
+            key="timeline"
+            class="panel-middle__view"
+            :documents="documents"
+            :selected-id="selectedDocumentId"
+            :has-more="hasMoreDocuments"
+            :loading-more="isLoadingMoreDocuments"
+            :loading="isLoadingDocuments"
+            :show-suffix="showPdfSuffix"
+            @select="selectDocument"
+            @load-more="loadMoreDocuments"
+            @toggle-favorite="toggleDocumentFavorite"
+          />
+
+          <Transition v-else name="pm-panel">
             <AiDialog
               v-if="isChatView"
               key="chat"
@@ -1341,6 +1390,8 @@ import AppSidebar from '../components/AppSidebar.vue';
 import SidebarAccount from '../components/SidebarAccount.vue';
 import ActivityIndicator from '../components/ActivityIndicator.vue';
 import DocumentListPanel from '../components/DocumentListPanel.vue';
+import DocumentTimeline from '../components/DocumentTimeline.vue';
+import DocumentCalendar from '../components/DocumentCalendar.vue';
 import ListActionToolbar from '../components/ListActionToolbar.vue';
 import BatchActionsBar from '../components/BatchActionsBar.vue';
 import DestructiveDialog from '../components/DestructiveDialog.vue';
@@ -1500,6 +1551,7 @@ const DOCUMENT_YEAR_RANGE_RE = /^year:(\d{4})$/;
 // „bis einschließlich Jahr" (offene Untergrenze) – für den gedeckelten
 // „<jahr> und früher"-Balken im Dashboard.
 const DOCUMENT_UNTIL_RANGE_RE = /^until:(\d{4})$/;
+const DOCUMENT_DAY_RANGE_RE = /^day:(\d{4}-\d{2}-\d{2})$/;
 
 function readStoredLastSelectedDocId() {
   try { return window.localStorage.getItem(LAST_SELECTED_DOC_KEY) || null; } catch { return null; }
@@ -1553,6 +1605,10 @@ function normalizeDocumentDateRange(value) {
     const year = Number(untilMatch[1]);
     return year >= 1000 && year <= 9999 ? `until:${untilMatch[1]}` : null;
   }
+  const dayMatch = DOCUMENT_DAY_RANGE_RE.exec(key);
+  if (dayMatch) {
+    return `day:${dayMatch[1]}`;
+  }
   return DOCUMENT_DATE_RANGE_VALUES.includes(key) ? key : null;
 }
 
@@ -1585,6 +1641,10 @@ function computeDateRangeBounds(rangeKey) {
   const untilMatch = DOCUMENT_UNTIL_RANGE_RE.exec(key);
   if (untilMatch) {
     return { dateFrom: null, dateTo: `${untilMatch[1]}-12-31` };
+  }
+  const dayMatch = DOCUMENT_DAY_RANGE_RE.exec(key);
+  if (dayMatch) {
+    return { dateFrom: dayMatch[1], dateTo: dayMatch[1] };
   }
   if (key === 'last_30_days') {
     const from = new Date(today);
@@ -2614,6 +2674,82 @@ const isUntaggedView  = computed(() => activeView.value === 'untagged');
 const isFavoritesView = computed(() => activeView.value === 'favorites');
 const isNoTextView    = computed(() => activeView.value === 'no_text');
 const isTrashView     = computed(() => activeView.value === 'trash');
+
+// ── Darstellungs-Modus der Dokumentliste (Liste / Zeitleiste / Kalender) ─────
+const DOCUMENT_VIEW_MODES = ['list', 'timeline', 'calendar'];
+const DOCUMENT_VIEW_MODE_KEY = 'pm.documentViewMode';
+function loadDocumentViewMode() {
+  try {
+    const v = localStorage.getItem(DOCUMENT_VIEW_MODE_KEY);
+    return DOCUMENT_VIEW_MODES.includes(v) ? v : 'list';
+  } catch { return 'list'; }
+}
+const documentViewMode = ref(loadDocumentViewMode());
+// Umschalter nur in den echten Dokumentlisten-Kontexten (nicht Chat/Tags/Typen/Papierkorb).
+const showViewModeSwitcher = computed(() =>
+  !isChatView.value && !isTagView.value && !isCategoryView.value && !isTrashView.value
+);
+const documentViewModeOptions = [
+  { value: 'list', label: 'Liste', icon: 'mdi-view-list-outline' },
+  { value: 'timeline', label: 'Zeitleiste', icon: 'mdi-timeline-text-outline' },
+  { value: 'calendar', label: 'Kalender', icon: 'mdi-calendar-month-outline' }
+];
+const documentViewModeIcon = computed(() =>
+  documentViewModeOptions.find((o) => o.value === documentViewMode.value)?.icon || 'mdi-view-list-outline'
+);
+// Effektiver Modus: außerhalb der Dokumentlisten-Kontexte immer 'list',
+// damit Chat/Tags/Typen/Papierkorb ihre eigene Ansicht behalten.
+const effectiveDocViewMode = computed(() =>
+  showViewModeSwitcher.value && !isTrashView.value ? documentViewMode.value : 'list'
+);
+function setDocumentViewMode(mode) {
+  if (!DOCUMENT_VIEW_MODES.includes(mode) || mode === documentViewMode.value) return;
+  documentViewMode.value = mode;
+  try { localStorage.setItem(DOCUMENT_VIEW_MODE_KEY, mode); } catch { /* ignore */ }
+}
+
+// Filter-Querystring für den Kalender (dieselben Filter wie die Liste, ohne Zeitraum/Sortierung).
+const calendarFilterQuery = computed(() => {
+  const p = new URLSearchParams();
+  if (documentListQuery.q) {
+    p.set('q', documentListQuery.q);
+    if (documentListQuery.searchScope) p.set('search_scope', documentListQuery.searchScope);
+  }
+  if (documentListQuery.status) p.set('status', documentListQuery.status);
+  if (documentListQuery.untagged) {
+    p.set('untagged', 'true');
+  } else if (activeTagFilterIds.value.length > 0) {
+    p.set('tag_id', activeTagFilterIds.value[0]);
+    for (const tagId of activeTagFilterIds.value) p.append('tag_ids', tagId);
+  } else if (documentListQuery.tagId) {
+    p.set('tag_id', documentListQuery.tagId);
+  }
+  if (documentListQuery.documentType) p.set('document_type', documentListQuery.documentType);
+  if (isFavoritesView.value) p.set('favorites_only', 'true');
+  if (isNoTextView.value) p.set('without_text', 'true');
+  if (activeView.value === 'attention' && activeAttention.value) p.set('attention', activeAttention.value);
+  return p.toString();
+});
+
+// Kalender-Tag angeklickt: auf diesen Tag filtern und zur Liste wechseln.
+// Nutzt den bewährten Zeitraum-Mechanismus (day:-Token), damit Toolbar-Status
+// und Fetch konsistent bleiben.
+async function onCalendarPickDay(iso) {
+  // Filter setzen und laden, SOLANGE die Liste noch nicht gemountet ist
+  // (Kalender ist noch sichtbar). Dadurch füllt sich Store + Cache ohne dass
+  // die interne Skeleton-Transition der Liste mitten im View-Wechsel hängen
+  // bleibt. Erst danach auf die Liste umschalten – Mount trifft den Cache.
+  const normalized = `day:${iso}`;
+  updateDocumentToolbarState(activeView.value, { dateRange: normalized });
+  const { dateFrom, dateTo } = computeDateRangeBounds(normalized);
+  patchDocumentListQuery({ dateFrom, dateTo });
+  try {
+    await fetchDocuments(null, { autoSelectFirst: false });
+  } finally {
+    finishDocumentListSettle();
+    setDocumentViewMode('list');
+  }
+}
 const isAllDocumentsSelectionDisabled = computed(() => {
   return activeView.value === 'all' &&
     !isLoadingSidebarCounts.value &&
@@ -6321,7 +6457,11 @@ async function fetchDocuments(preferredDocumentId = null, options = {}) {
   } catch (error) {
     notifyError(error, 'Dokumente konnten nicht geladen werden.');
   } finally {
-    if (!silent) {
+    // Nur der jüngste (nicht überholte) Fetch darf den Lade-/Settle-Zustand
+    // auflösen. Sonst räumt eine zwischenzeitlich überholte Anfrage den Zustand
+    // ab, während der aktuelle Fetch noch läuft → kurzes Flackern (Liste zeigt
+    // leer/alt, bevor die neuen Treffer da sind) bei sehr schnellem Filterwechsel.
+    if (!silent && generation === documentListRequestGeneration) {
       isLoadingDocuments.value = false;
       finishDocumentListSettle();
     }

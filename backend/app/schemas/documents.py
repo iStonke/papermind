@@ -274,6 +274,25 @@ class DocumentStatusListResponse(BaseModel):
     items: list[DocumentStatusRead]
 
 
+class CalendarDayCount(BaseModel):
+    day: int
+    count: int
+
+
+class CalendarMonthCount(BaseModel):
+    month: int
+    count: int
+
+
+class DocumentCalendarResponse(BaseModel):
+    year: int
+    month: int
+    days: list[CalendarDayCount] = []          # nur Tage mit Treffern im Monat
+    months: list[CalendarMonthCount] = []      # 12 Monatssummen des Jahres
+    available_years: list[int] = []            # Jahre mit passenden Dokumenten
+    month_total: int = 0
+
+
 class DocumentMetadataSuggestion(BaseModel):
     """AI-derived metadata suggestions for a document's editable fields."""
 

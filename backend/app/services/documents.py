@@ -978,6 +978,9 @@ class DocumentService:
             correspondent_id=correspondent_id,
         )
 
+    def calendar_counts(self, **kwargs):
+        return self.query.calendar_counts(**kwargs)
+
     def get_document_statuses(self, document_ids: list[uuid.UUID]) -> DocumentStatusListResponse:
         return self.query.statuses(document_ids)
 

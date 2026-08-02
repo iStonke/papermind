@@ -8,6 +8,10 @@ export const listDocuments = (queryString) =>
 export const listSmartFolderDocuments = (folderId, queryString) =>
   apiGet(`/api/smart-folders/${folderId}/documents?${queryString}`);
 
+/** GET /api/documents/calendar?year&month&{queryString} */
+export const getDocumentCalendar = (queryString) =>
+  apiGet(`/api/documents/calendar?${queryString}`);
+
 /** GET /api/documents/{id} */
 export const getDocument = (id) =>
   apiGet(`/api/documents/${id}`);

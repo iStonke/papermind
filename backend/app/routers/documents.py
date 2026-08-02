@@ -12,6 +12,7 @@ from app.models.user import User
 from app.schemas.common import ErrorResponse, OkResponse
 from app.schemas.documents import (
     DocumentAttentionFilter,
+    DocumentCalendarResponse,
     DocumentCreateRequest,
     DocumentDetail,
     DocumentFileRole,
@@ -110,6 +111,49 @@ def list_documents(
         limit=limit,
         offset=offset,
         include_total=include_total,
+    )
+
+
+@router.get(
+    "/calendar",
+    response_model=DocumentCalendarResponse,
+    summary="Per-day/-month document counts for the calendar view",
+    responses={422: {"model": ErrorResponse}},
+)
+def documents_calendar(
+    year: int = Query(..., ge=1900, le=2200),
+    month: int = Query(..., ge=1, le=12),
+    q: str | None = Query(default=None),
+    search_scope: DocumentSearchScope = Query(default=DocumentSearchScope.all),
+    tag: str | None = Query(default=None),
+    tag_id: uuid.UUID | None = Query(default=None),
+    tag_ids: list[uuid.UUID] = Query(default_factory=list),
+    untagged: bool = Query(default=False),
+    document_type: str | None = Query(default=None),
+    status_filter: DocumentStatus | None = Query(default=None, alias="status"),
+    in_trash: bool = Query(default=False),
+    favorites_only: bool = Query(default=False),
+    without_text: bool = Query(default=False),
+    attention: DocumentAttentionFilter | None = Query(default=None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> DocumentCalendarResponse:
+    service = DocumentService(db, user.id)
+    effective_tag = str(tag_id) if tag_id is not None else tag
+    return service.calendar_counts(
+        year=year,
+        month=month,
+        q=q,
+        search_scope=search_scope,
+        tag=effective_tag,
+        tag_ids=tag_ids,
+        untagged=untagged,
+        document_type=document_type,
+        status=status_filter,
+        in_trash=in_trash,
+        favorites_only=favorites_only,
+        without_text=without_text,
+        attention=attention,
     )
 
 

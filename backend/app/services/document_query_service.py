@@ -16,7 +16,10 @@ from app.models.document_retention import DocumentRetention
 from app.models.document_tag import document_tags
 from app.models.tag import Tag
 from app.schemas.documents import (
+    CalendarDayCount,
+    CalendarMonthCount,
     DocumentAttentionFilter,
+    DocumentCalendarResponse,
     DocumentListResponse,
     DocumentSearchScope,
     DocumentSortField,
@@ -234,6 +237,81 @@ class DocumentQueryService:
         for item in items:
             if item.correspondent_id is not None:
                 item.correspondent_name = names.get(item.correspondent_id)
+
+    def calendar_counts(
+        self,
+        *,
+        year: int,
+        month: int,
+        q: str | None = None,
+        tag: str | None = None,
+        tag_ids: list[uuid.UUID] | None = None,
+        untagged: bool = False,
+        status: DocumentStatus | None = None,
+        in_trash: bool = False,
+        favorites_only: bool = False,
+        without_text: bool = False,
+        document_type: str | None = None,
+        correspondent_id: uuid.UUID | None = None,
+        search_scope: DocumentSearchScope = DocumentSearchScope.all,
+        attention: DocumentAttentionFilter | None = None,
+    ) -> DocumentCalendarResponse:
+        """Zählt Dokumente nach Dokumentdatum für die Kalenderansicht.
+
+        Wendet dieselben Filter/Suche wie ``list_documents`` an – nur den
+        Zeitraum steuert der Kalender selbst (kein date_from/date_to von außen).
+        """
+        base = self._apply_filters(
+            self._scope(select(Document.id, Document.document_date)),
+            tag, tag_ids, untagged, status, None, None, recent_imports=False,
+            in_trash=in_trash, favorites_only=favorites_only, without_text=without_text,
+            document_type=document_type, correspondent_id=correspondent_id, attention=attention,
+        )
+        normalized_query = normalize_search_query(q, max_length=settings.search_query_max_length)
+        if normalized_query:
+            if search_scope == DocumentSearchScope.all:
+                ts_query_expr = build_ts_query_expr(normalized_query, settings.fts_regconfig)
+                base = base.where(Document.search_vector.op("@@")(ts_query_expr))
+            else:
+                scoped_filter = build_scoped_search_filter(normalized_query, search_scope)
+                if scoped_filter is not None:
+                    base = base.where(scoped_filter)
+
+        sub = base.where(Document.document_date.is_not(None)).subquery()
+        doc_date = sub.c.document_date
+        year_expr = func.extract("year", doc_date)
+        month_expr = func.extract("month", doc_date)
+        day_expr = func.extract("day", doc_date)
+
+        available_years = [
+            int(row[0])
+            for row in self.db.execute(
+                select(year_expr).select_from(sub).distinct().order_by(year_expr)
+            ).all()
+        ]
+
+        month_map = {
+            int(m): int(c)
+            for m, c in self.db.execute(
+                select(month_expr, func.count()).select_from(sub)
+                .where(year_expr == year).group_by(month_expr)
+            ).all()
+        }
+        months = [CalendarMonthCount(month=m, count=month_map.get(m, 0)) for m in range(1, 13)]
+
+        days = [
+            CalendarDayCount(day=int(d), count=int(c))
+            for d, c in self.db.execute(
+                select(day_expr, func.count()).select_from(sub)
+                .where(year_expr == year, month_expr == month).group_by(day_expr).order_by(day_expr)
+            ).all()
+        ]
+        month_total = sum(d.count for d in days)
+
+        return DocumentCalendarResponse(
+            year=year, month=month, days=days, months=months,
+            available_years=available_years, month_total=month_total,
+        )
 
     def list_documents(
         self,
