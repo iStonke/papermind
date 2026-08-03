@@ -14,7 +14,7 @@
           <span class="onboarding-brand__mark"><v-icon size="18">mdi-brain</v-icon></span>
           <span>PaperMind</span>
         </div>
-        <span class="onboarding-step-label">{{ currentStep + 1 }} von {{ steps.length }}</span>
+        <span class="onboarding-step-label">Willkommen</span>
         <v-btn
           icon="mdi-close"
           size="small"
@@ -71,11 +71,6 @@
                 <div class="knowledge-node knowledge-node--b"><v-icon size="22">mdi-domain</v-icon></div>
                 <div class="knowledge-node knowledge-node--c"><v-icon size="22">mdi-tag-outline</v-icon></div>
                 <div class="knowledge-node knowledge-node--d"><v-icon size="22">mdi-calendar-outline</v-icon></div>
-                <div class="knowledge-search">
-                  <v-icon size="17">mdi-magnify</v-icon>
-                  <span>Welche Rechnungen sind noch offen?</span>
-                  <i />
-                </div>
               </div>
 
               <div v-else class="scene-ready">
@@ -499,8 +494,6 @@ watch(
 .knowledge-node--b { right: 10%; top: 9%; animation-delay: -0.8s; }
 .knowledge-node--c { right: 7%; bottom: 17%; animation-delay: -1.6s; }
 .knowledge-node--d { left: 12%; bottom: 13%; animation-delay: -2.4s; }
-.knowledge-search { position: absolute; left: 50%; bottom: 23px; width: min(82%, 390px); height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 17px; border: 1px solid rgba(var(--v-theme-primary), 0.3); border-radius: 16px; color: rgba(255, 255, 255, 0.82); background: rgba(20, 38, 44, 0.9); box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28); transform: translateX(-50%); font-size: 0.78rem; }
-.knowledge-search i { width: 1px; height: 17px; background: var(--ob-accent); animation: cursor-blink 0.9s steps(1) infinite; }
 
 /* Szene 4: kleine Vorschau der echten App */
 .scene-ready { position: absolute; inset: 0; display: grid; place-items: center; }
@@ -543,7 +536,6 @@ watch(
 @keyframes chip-arrive { 0%, 18% { opacity: 0; transform: translateY(8px) scale(0.94); } 34%, 82% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-4px); } }
 @keyframes line-flow { to { stroke-dashoffset: -364; } }
 @keyframes node-float { 0%, 100% { translate: 0 0; } 50% { translate: 0 -6px; } }
-@keyframes cursor-blink { 50% { opacity: 0; } }
 @keyframes mini-app-arrive { from { opacity: 0; transform: translateY(18px) scale(0.94); } }
 @keyframes drop-pulse { 50% { transform: translateY(-4px); box-shadow: 0 10px 24px rgba(var(--v-theme-primary), 0.16); } }
 @keyframes spark { 50% { opacity: 0.28; transform: scale(2); } }
