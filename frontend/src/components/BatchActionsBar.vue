@@ -39,13 +39,13 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['tag', 'favorite', 'category', 'delete', 'merge', 'action']);
+const emit = defineEmits(['tag', 'favorite', 'category', 'delete', 'merge', 'export', 'action']);
 
 const resolvedActions = computed(() => props.actions.filter((action) => action?.key && action?.label));
 
 function emitAction(key) {
   emit('action', key);
-  if (['tag', 'favorite', 'category', 'delete', 'merge'].includes(key)) {
+  if (['tag', 'favorite', 'category', 'delete', 'merge', 'export'].includes(key)) {
     emit(key);
   }
 }
@@ -58,8 +58,10 @@ function emitAction(key) {
   z-index: 4;
   display: flex;
   align-items: center;
+  /* Bei Platzmangel dürfen die Aktionen umbrechen statt abgeschnitten zu werden. */
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px 12px;
   padding: 10px 14px;
   background: rgb(var(--v-theme-surface));
   border-top: 1px solid var(--pm-divider);
@@ -76,6 +78,11 @@ function emitAction(key) {
 .batch-bar__actions {
   display: flex;
   align-items: center;
+  /* Nimmt den Restplatz ein, linksbündig (direkt hinter dem Label); einzelne
+     Buttons umbrechen bei Bedarf und bleiben dabei links ausgerichtet. */
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-start;
   gap: 8px;
 }
 

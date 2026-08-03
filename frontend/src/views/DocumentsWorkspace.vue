@@ -724,6 +724,7 @@
             @tag="openBatchTagDialog"
             @favorite="executeBatchFavorite"
             @category="openBatchCategoryDialog"
+            @export="exportSelectionAsZip"
             @delete="confirmBatchDelete"
           />
           <BatchActionsBar
@@ -973,12 +974,14 @@
                   :annotatable="true"
                   :annotations="documentAnnotations"
                   :enable-reader="true"
+                  :enable-download="true"
                   @failed="onPreviewFrameError(selectedDocumentId)"
                   @loaded="onPreviewFrameLoad(selectedDocumentId)"
                   @create-annotation="onCreateAnnotation"
                   @delete-annotation="onDeleteAnnotation"
                   @update-annotation="onUpdateAnnotation"
                   @open-reader="openReader"
+                  @download="downloadSelectedDocument('searchable')"
                   @request-link="onRequestLink"
                   @request-comment="onRequestCommentAnnotation"
                 />
@@ -1360,10 +1363,12 @@
         :title="readerTitle"
         :meta-parts="readerMetaParts"
         :edit-annotation-id="readerEditAnnotationId"
+        :enable-download="true"
         @close="closeReader"
         @create-annotation="onCreateAnnotation"
         @delete-annotation="onDeleteAnnotation"
         @update-annotation="onUpdateAnnotation"
+        @download="downloadSelectedDocument('searchable')"
         @request-link="onRequestLink"
         @open-link="onFollowLink"
       />
@@ -1439,10 +1444,13 @@ import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
 import { apiFetch, authedUrl, getBaseUrl } from '../api/client.js';
 import {
   acceptDocumentRetention,
+  documentDownloadUrl,
+  documentsExportUrl,
   getDocumentRetention,
   putDocumentRetention,
   suggestDocumentRetention
 } from '../api/documents.js';
+import { useAuthStore } from '../stores/auth';
 import { assignImportInboxItems, claimImportInboxItems, discardImportInboxItems, getImportInbox, subscribeImportInbox } from '../api/importInbox.js';
 import { cancelScan, triggerScan } from '../api/scanners.js';
 import { logSearchEvent } from '../api/searchEvents.js';
@@ -1705,6 +1713,7 @@ const showPdfSuffix = computed(() => settingsStore.settingsDraft.ui.showFilename
 
 // ── Domain Stores ────────────────────────────────────────────────────────
 const uiStore = useUiStore();
+const authStore = useAuthStore();
 const docStore     = useDocumentStore();
 const tagStore     = useTagStore();
 const categoryStore = useCategoryStore();
@@ -2249,6 +2258,31 @@ function selectAllDocuments() {
   selectionIds.value = new Set(docStore.documents.map((d) => d.id));
 }
 
+// ── Batch-Export (Auswahl als ZIP) ──────────────────────────────────────────
+const isExportingSelection = ref(false);
+
+async function exportSelectionAsZip() {
+  const ids = Array.from(selectionIds.value);
+  if (ids.length === 0 || isExportingSelection.value) return;
+  isExportingSelection.value = true;
+  try {
+    await ensureFileToken();
+    triggerBrowserDownload(documentsExportUrl(ids));
+    notify({
+      type: 'success',
+      title: 'Export',
+      message: `ZIP mit ${ids.length} ${ids.length === 1 ? 'Dokument' : 'Dokumenten'} wird erstellt…`
+    });
+    // Auswahl bleibt erhalten – Export ist nicht-destruktiv.
+  } catch (error) {
+    notifyError(error, 'Export konnte nicht gestartet werden.');
+  } finally {
+    // Kurze Sperre gegen Doppelklick; der native Download läuft danach im
+    // Browser weiter (kein JS-Abschlussereignis beim <a download>).
+    setTimeout(() => { isExportingSelection.value = false; }, 1500);
+  }
+}
+
 // ── Batch Tag-Dialog ───────────────────────────────────────────────────────
 const isBatchTagDialogOpen  = ref(false);
 const isBatchTagSaving      = ref(false);
@@ -2652,6 +2686,28 @@ const headerOcrStatus = computed(() => {
   }
   return null;
 });
+// ── Einzel-Download (Original / durchsuchbare OCR-PDF) ──────────────────────
+/** Löst einen nativen Datei-Download aus, ohne den aktuellen Tab zu verlassen. */
+function triggerBrowserDownload(url) {
+  const link = document.createElement('a');
+  link.href = url;
+  link.rel = 'noopener';
+  // Leeres download-Attribut = „herunterladen"; den finalen Dateinamen bestimmt
+  // der Content-Disposition-Header des Servers.
+  link.download = '';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+/** Stellt vor dem Bauen einer token-authentifizierten URL sicher, dass ein
+ *  gültiges (kurzlebiges) File-Token vorliegt. */
+async function ensureFileToken() {
+  if (!authStore.hasFileToken) {
+    await authStore.refreshFileToken();
+  }
+}
+
 // Sekundäre Aktionen für das Überlauf-Menü (⋮). Wächst künftig hier zentral.
 const headerMenuActions = computed(() => {
   const actions = [];
@@ -2874,10 +2930,19 @@ const documentBatchActions = computed(() => {
     disabled: isBatchFavoriteSaving.value,
     loading: isBatchFavoriteSaving.value
   };
+  const exportAction = {
+    key: 'export',
+    label: 'Als ZIP',
+    icon: 'mdi-folder-zip-outline',
+    disabled: isExportingSelection.value,
+    loading: isExportingSelection.value
+  };
   return [
-    DOCUMENT_BATCH_ACTIONS[0],
+    DOCUMENT_BATCH_ACTIONS[0],   // Tags
     favoriteAction,
-    ...DOCUMENT_BATCH_ACTIONS.slice(1)
+    DOCUMENT_BATCH_ACTIONS[1],   // Dokumenttyp
+    exportAction,
+    DOCUMENT_BATCH_ACTIONS[2]    // In Papierkorb
   ];
 });
 const selectedTags = computed(() => {
@@ -4975,14 +5040,6 @@ function tagCloudItemStyle(tag, index = 0) {
 function hasOcrFile(document) {
   return Boolean(document?.files?.some((file) => file.role === 'ocr'));
 }
-
-function resolvePreviewRole(documentId) {
-  if (selectedDocumentDetail.value?.id === documentId && hasOcrFile(selectedDocumentDetail.value)) {
-    return 'ocr';
-  }
-  return 'original';
-}
-
 
 function setDocumentUnreadState(documentId, unreadValue) {
   const listDocument = documents.value.find((item) => item.id === documentId);
@@ -7964,14 +8021,14 @@ function selectPdfFiles(files, source) {
   };
 }
 
-function downloadSelectedDocument() {
+// Einheitlicher Download: immer die durchsuchbare Fassung (OCR sonst Original),
+// serverseitig über die virtuelle Rolle 'searchable' aufgelöst – identisch für
+// Toolbar-Button, Lesemodus und Listen-Kontextmenü.
+function downloadSelectedDocument(role = 'searchable') {
   if (!selectedDocumentDetail.value) {
     return;
   }
-
-  const role = resolvePreviewRole(selectedDocumentDetail.value.id);
-  const url = authedUrl(`${apiBaseUrl}/api/documents/${selectedDocumentDetail.value.id}/file?role=${role}&download=true`);
-  window.open(url, '_blank', 'noopener');
+  triggerBrowserDownload(documentDownloadUrl(selectedDocumentDetail.value.id, role));
 }
 
 function downloadDocumentFromList(document) {
@@ -7979,12 +8036,7 @@ function downloadDocumentFromList(document) {
   if (!documentId) {
     return;
   }
-  if (selectedDocumentDetail.value?.id === documentId) {
-    downloadSelectedDocument();
-    return;
-  }
-  const url = authedUrl(`${apiBaseUrl}/api/documents/${documentId}/file?role=original&download=true`);
-  window.open(url, '_blank', 'noopener');
+  triggerBrowserDownload(documentDownloadUrl(documentId, 'searchable'));
 }
 
 async function saveMetadata(options = {}) {

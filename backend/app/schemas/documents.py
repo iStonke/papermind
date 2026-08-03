@@ -23,6 +23,9 @@ class DocumentFileRole(str, Enum):
     ocr = "ocr"
     preview_pdf = "preview_pdf"
     thumbnail = "thumbnail"
+    # Virtuelle Rolle (nicht gespeichert): liefert die durchsuchbare Fassung –
+    # OCR wenn vorhanden, sonst das Original. Einheitlich für alle Downloads.
+    searchable = "searchable"
 
 
 class DocumentTextSource(str, Enum):

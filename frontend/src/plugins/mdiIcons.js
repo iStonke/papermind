@@ -86,6 +86,7 @@ export {
   mdiFolderOutline,
   mdiFolderPlusOutline,
   mdiFolderSearchOutline,
+  mdiFolderZipOutline,
   mdiFormatColorHighlight,
   mdiFormatText,
   mdiHarddisk,

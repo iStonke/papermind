@@ -1,9 +1,11 @@
 import uuid
 from datetime import date
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 
 from app.core.config import get_settings
 from app.core.deps import get_current_user
@@ -168,6 +170,32 @@ def get_document_statuses(
     user: User = Depends(get_current_user),
 ) -> DocumentStatusListResponse:
     return DocumentService(db, user.id).get_document_statuses(document_ids)
+
+
+@router.get(
+    "/export",
+    summary="Download selected documents as a ZIP archive (searchable PDF each)",
+    responses={400: {"model": ErrorResponse}},
+)
+def export_documents(
+    ids: list[uuid.UUID] = Query(
+        default_factory=list,
+        max_length=100,
+        description="Document IDs to include in the ZIP archive (max 100)",
+    ),
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+) -> FileResponse:
+    service = DocumentService(db, user.id)
+    tmp_path, archive_name, skipped = service.build_export_archive(ids)
+    return FileResponse(
+        path=str(tmp_path),
+        media_type="application/zip",
+        filename=archive_name,
+        content_disposition_type="attachment",
+        # Temporäre ZIP-Datei nach dem Ausliefern wieder entfernen.
+        background=BackgroundTask(lambda: Path(tmp_path).unlink(missing_ok=True)),
+        headers={"X-Export-Skipped": str(skipped), "Cache-Control": "no-store"},
+    )
 
 
 @router.post(
@@ -367,7 +395,12 @@ def get_document_file(
 ) -> FileResponse:
     service = DocumentService(db, user.id)
     document, file_record, file_path = service.get_document_file_by_role(document_id, role)
-    download_name = file_record.filename or document.original_filename or "document.bin"
+    if download:
+        # Attachment: menschenlesbarer Name aus dem Dokumenttitel statt „ocr.pdf".
+        base = (document.original_filename or file_record.filename or "Dokument").strip()
+        download_name = base if base.lower().endswith(".pdf") else f"{base}.pdf"
+    else:
+        download_name = file_record.filename or document.original_filename or "document.bin"
     return FileResponse(
         path=file_path,
         media_type=file_record.mime_type,

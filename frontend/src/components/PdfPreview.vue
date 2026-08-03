@@ -49,6 +49,16 @@
           >
             <v-icon size="17">mdi-arrow-expand</v-icon>
           </button>
+          <button
+            v-if="enableDownload"
+            class="pdf-preview__tool-btn"
+            :disabled="!src || downloadDisabled"
+            aria-label="Durchsuchbares PDF herunterladen"
+            :title="downloadDisabled ? 'Kein durchsuchbares PDF – zuerst OCR ausführen' : 'Durchsuchbares PDF herunterladen'"
+            @click="emit('download')"
+          >
+            <v-icon size="17">mdi-tray-arrow-down</v-icon>
+          </button>
           <span class="pdf-preview__page-info" aria-live="polite">
             {{ currentPage }} / {{ pageInfos.length }}
           </span>
@@ -254,8 +264,12 @@ const props = defineProps({
   annotationColor: { type: String, default: '' },
   /** Zeigt den „Lesemodus"-Button in der Toolbar und aktiviert die Taste „f". */
   enableReader:  { type: Boolean, default: false },
+  /** Zeigt den Download-Button (durchsuchbares OCR-PDF) in der Toolbar. */
+  enableDownload: { type: Boolean, default: false },
+  /** Deaktiviert den Download-Button, wenn (noch) kein durchsuchbares PDF vorliegt. */
+  downloadDisabled: { type: Boolean, default: false },
 });
-const emit = defineEmits(['loaded', 'failed', 'create-annotation', 'delete-annotation', 'update-annotation', 'open-reader', 'request-link', 'request-comment']);
+const emit = defineEmits(['loaded', 'failed', 'create-annotation', 'delete-annotation', 'update-annotation', 'open-reader', 'download', 'request-link', 'request-comment']);
 const theme = useTheme();
 
 const pdfPreviewThemeStyle = computed(() => {

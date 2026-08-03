@@ -1,6 +1,8 @@
 import logging
 import re
+import tempfile
 import uuid
+import zipfile
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -51,6 +53,7 @@ from app.services.document_types import (
     load_active_document_type_vocab,
 )
 from app.services.document_storage import DocumentStorageService
+from app.services.import_title_formatting import sanitize_title
 from app.services.document_job_lifecycle import DocumentJobLifecycleService
 from app.services.document_query_service import DocumentQueryService
 from app.services.correspondent_matching import CorrespondentMatchingService
@@ -853,6 +856,16 @@ class DocumentService:
             raise StorageError("Upload failed", details=str(exc)) from exc
 
     def _get_file_record_by_role(self, document: Document, role: DocumentFileRole) -> DocumentFile:
+        # Virtuelle „searchable"-Rolle: durchsuchbare Fassung (OCR sonst Original).
+        if role == DocumentFileRole.searchable:
+            record = self._select_exportable_file(document)
+            if record is None:
+                raise NotFoundError(
+                    "Requested document file role not found",
+                    details={"document_id": str(document.id), "role": role.value},
+                )
+            return record
+
         for file_record in document.files:
             if file_record.role == role.value:
                 return file_record
@@ -908,6 +921,110 @@ class DocumentService:
             )
 
         return document, file_record, file_path
+
+    def _select_exportable_file(self, document: Document) -> DocumentFile | None:
+        """Bevorzugt die durchsuchbare OCR-Fassung, fällt sonst auf das Original
+        zurück. Gibt None zurück, wenn das Dokument keine physische Datei hat
+        (reine Metadaten-Dokumente)."""
+        for role in (DocumentFileRole.ocr, DocumentFileRole.original):
+            try:
+                return self._get_file_record_by_role(document, role)
+            except NotFoundError:
+                continue
+        return None
+
+    @staticmethod
+    def _unique_export_name(document: Document, used_names: set[str]) -> str:
+        """Baut einen menschenlesbaren, eindeutigen .pdf-Namen für das Archiv.
+        Kollisionen werden über ein Zähl-Suffix aufgelöst."""
+        base = sanitize_title(document.original_filename, fallback="Dokument")
+        stem = base[:-4] if base.lower().endswith(".pdf") else base
+        stem = stem.strip() or "Dokument"
+        candidate = f"{stem}.pdf"
+        counter = 2
+        while candidate.lower() in used_names:
+            candidate = f"{stem} ({counter}).pdf"
+            counter += 1
+        used_names.add(candidate.lower())
+        return candidate
+
+    def build_export_archive(self, document_ids: list[uuid.UUID]) -> tuple[Path, str, int]:
+        """Packt die durchsuchbaren PDF-Fassungen der gewählten Dokumente in ein
+        ZIP (OCR wenn vorhanden, sonst Original). Metadaten-only-Dokumente und
+        solche mit fehlender physischer Datei werden übersprungen.
+
+        Rückgabe: ``(tmp_zip_path, archive_name, skipped_count)``. Der Aufrufer
+        ist für das Löschen der temporären Datei verantwortlich (BackgroundTask).
+        """
+        if not document_ids:
+            raise BadRequestError("No documents selected for export")
+
+        # Reihenfolge der Auswahl beibehalten, Duplikate entfernen.
+        unique_ids: list[uuid.UUID] = []
+        seen: set[uuid.UUID] = set()
+        for doc_id in document_ids:
+            if doc_id not in seen:
+                seen.add(doc_id)
+                unique_ids.append(doc_id)
+
+        stmt = self._scope(
+            select(Document)
+            .where(Document.id.in_(unique_ids))
+            .options(
+                load_only(
+                    Document.id,
+                    Document.original_filename,
+                    Document.storage_key,
+                    Document.mime_type,
+                ),
+                selectinload(Document.files),
+                noload(Document.tags),
+                noload(Document.jobs),
+                noload(Document.chunks),
+            )
+        )
+        documents = {doc.id: doc for doc in self.db.execute(stmt).scalars().all()}
+
+        skipped = 0
+        used_names: set[str] = set()
+
+        handle = tempfile.NamedTemporaryFile(prefix="pm-export-", suffix=".zip", delete=False)
+        tmp_path = Path(handle.name)
+        handle.close()
+        try:
+            entry_count = 0
+            # PDFs sind bereits komprimiert → ZIP_STORED spart CPU auf dem Pi.
+            with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_STORED) as archive:
+                for doc_id in unique_ids:
+                    document = documents.get(doc_id)
+                    if document is None:
+                        # Nicht gefunden oder fremder Owner (RLS/_scope) → still überspringen.
+                        skipped += 1
+                        continue
+                    file_record = self._select_exportable_file(document)
+                    if file_record is None:
+                        skipped += 1
+                        continue
+                    file_path = self._resolve_storage_path(file_record.file_key)
+                    if not file_path.exists() or not file_path.is_file():
+                        logger.warning(
+                            "export skipping missing file document_id=%s file_key=%s",
+                            document.id,
+                            file_record.file_key,
+                        )
+                        skipped += 1
+                        continue
+                    archive.write(file_path, arcname=self._unique_export_name(document, used_names))
+                    entry_count += 1
+
+            if entry_count == 0:
+                raise BadRequestError("No exportable files in the selection")
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
+
+        archive_name = f"papermind-export-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.zip"
+        return tmp_path, archive_name, skipped
 
     def _apply_filters(
         self,

@@ -116,7 +116,10 @@
             :annotation-tool="showTools ? activeTool : ''"
             :annotation-color="activeColor"
             :annotations="annotations"
+            :enable-download="enableDownload"
+            :download-disabled="downloadDisabled"
             @loaded="onPreviewLoaded"
+            @download="$emit('download')"
             @create-annotation="$emit('create-annotation', $event)"
             @delete-annotation="$emit('delete-annotation', $event)"
             @update-annotation="(...args) => $emit('update-annotation', ...args)"
@@ -255,9 +258,13 @@ const props = defineProps({
   title:       { type: String, default: '' },
   metaParts:   { type: Array, default: () => [] },
   editAnnotationId: { type: [String, Number], default: null },
+  /** Zeigt den Download-Button (durchsuchbares OCR-PDF) in der Toolbar. */
+  enableDownload: { type: Boolean, default: false },
+  /** Deaktiviert den Download-Button, wenn (noch) kein durchsuchbares PDF vorliegt. */
+  downloadDisabled: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['close', 'create-annotation', 'delete-annotation', 'update-annotation', 'request-link', 'open-link']);
+const emit = defineEmits(['close', 'create-annotation', 'delete-annotation', 'update-annotation', 'download', 'request-link', 'open-link']);
 
 const previewRef = ref(null);
 const railEl = ref(null);

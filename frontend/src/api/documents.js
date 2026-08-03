@@ -86,6 +86,22 @@ export const backfillOcr = ({ dryRun = false } = {}) =>
 export const documentFileUrl = (documentId, role = 'original') =>
   authedUrl(`${getBaseUrl()}/api/documents/${documentId}/file?role=${role}`);
 
+/**
+ * Download-URL für ein einzelnes Dokument (erzwingt Attachment via download=true).
+ * `role` ist 'original' oder 'ocr'. Nur URL-Builder, kein fetch.
+ */
+export const documentDownloadUrl = (documentId, role = 'searchable') =>
+  authedUrl(`${getBaseUrl()}/api/documents/${documentId}/file?role=${role}&download=true`);
+
+/**
+ * ZIP-Export-URL für eine Auswahl von Dokumenten. Nur URL-Builder – der
+ * eigentliche Download läuft über ein natives <a download> mit File-Token.
+ */
+export const documentsExportUrl = (documentIds = []) => {
+  const query = documentIds.map((id) => `ids=${encodeURIComponent(id)}`).join('&');
+  return authedUrl(`${getBaseUrl()}/api/documents/export?${query}`);
+};
+
 /** Thumbnail-URL */
 export const documentThumbnailUrl = (documentId) =>
   authedUrl(`${getBaseUrl()}/api/documents/${documentId}/thumbnail`);
