@@ -94,6 +94,7 @@ function createDefaultSettings() {
       search_scope_default: 'current',
       showFilenameSuffix: true,
       previewDrawerGradientEnabled: true,
+      autoHideDetailsDrawer: false,
       drawerRememberState: true,
       tagDrawerRememberState: true,
       sidebar_show_recent: true,
@@ -420,6 +421,10 @@ export const useSettingsStore = defineStore('settings', {
             typeof payload?.ui?.previewDrawerGradientEnabled === 'boolean'
               ? payload.ui.previewDrawerGradientEnabled
               : defaults.ui.previewDrawerGradientEnabled,
+          autoHideDetailsDrawer:
+            typeof payload?.ui?.autoHideDetailsDrawer === 'boolean'
+              ? payload.ui.autoHideDetailsDrawer
+              : defaults.ui.autoHideDetailsDrawer,
           drawerRememberState:
             typeof payload?.ui?.drawerRememberState === 'boolean'
               ? payload.ui.drawerRememberState

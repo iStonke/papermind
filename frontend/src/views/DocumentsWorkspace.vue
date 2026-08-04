@@ -752,6 +752,7 @@
             :style="detailsDrawerCardStyle"
             :show-drawer="!isTagView && !isCategoryView && Boolean(selectedDocumentDetail)"
             :is-open="isDetailsDrawerOpen"
+            :auto-hide-drawer="autoHideDetailsDrawer"
             floating-card
             :collapsed-height="DETAILS_DRAWER_COLLAPSED_HEIGHT"
           >
@@ -2476,6 +2477,9 @@ const detailsDrawerChevronIcon = computed(() =>
 );
 const previewDrawerGradientEnabled = computed(
   () => settingsStore.settingsDraft.ui.previewDrawerGradientEnabled !== false
+);
+const autoHideDetailsDrawer = computed(
+  () => settingsStore.settingsDraft.ui.autoHideDetailsDrawer === true
 );
 const detailsDrawerCardStyle = computed(() => {
   const isDark = theme.global.name.value === 'dark';

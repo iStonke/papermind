@@ -45,6 +45,7 @@ class SettingsValidationTest(unittest.TestCase):
                 "ui": {
                     "showFilenameSuffix": False,
                     "previewDrawerGradientEnabled": False,
+                    "autoHideDetailsDrawer": True,
                     "drawerRememberState": True,
                     "tagDrawerRememberState": False,
                     "sidebar_show_favorites": False,
@@ -53,6 +54,7 @@ class SettingsValidationTest(unittest.TestCase):
         )
         self.assertIs(payload.ui.showFilenameSuffix, False)
         self.assertIs(payload.ui.previewDrawerGradientEnabled, False)
+        self.assertIs(payload.ui.autoHideDetailsDrawer, True)
         self.assertIs(payload.ui.drawerRememberState, True)
         self.assertIs(payload.ui.tagDrawerRememberState, False)
         self.assertIs(payload.ui.sidebar_show_favorites, False)
@@ -61,6 +63,7 @@ class SettingsValidationTest(unittest.TestCase):
         payload = AppSettingsRead.model_validate({})
         self.assertIs(payload.ui.showFilenameSuffix, True)
         self.assertIs(payload.ui.previewDrawerGradientEnabled, True)
+        self.assertIs(payload.ui.autoHideDetailsDrawer, False)
         self.assertIs(payload.ui.drawerRememberState, True)
         self.assertIs(payload.ui.tagDrawerRememberState, True)
         self.assertIs(payload.ui.sidebar_show_favorites, True)

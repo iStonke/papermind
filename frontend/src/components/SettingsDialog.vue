@@ -227,6 +227,32 @@
               class="pm-setting-row"
               role="button"
               tabindex="0"
+              @click="toggleAutoHideDetailsDrawerFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleAutoHideDetailsDrawerFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Dokumentdetails automatisch einblenden</div>
+                <div class="pm-setting-description">
+                  Blendet die Dokumentdetails im Vorschaubereich nur ein, solange sich der Cursor dort befindet.
+                </div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.ui.autoHideDetailsDrawer"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.auto_hide_details_drawer"
+                :disabled="isSettingSaving.auto_hide_details_drawer"
+                @click.stop
+                @update:model-value="onAutoHideDetailsDrawerChange"
+              />
+            </div>
+
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
               @click="toggleDrawerRememberStateFromRow"
               @keydown="handleSettingRowShortcut($event, toggleDrawerRememberStateFromRow)"
             >
@@ -2282,6 +2308,7 @@ import {
   buildAutoOcrPatch,
   buildAutoTaggingPatch,
   buildOcrBackfillEnabledPatch,
+  buildAutoHideDetailsDrawerPatch,
   buildDrawerRememberStatePatch,
   buildTagDrawerRememberStatePatch,
   buildSidebarShowRecentPatch,
@@ -3883,6 +3910,26 @@ async function onPreviewDrawerGradientChange(nextValue) {
 function togglePreviewDrawerGradientFromRow() {
   if (isSettingSaving.preview_drawer_gradient) return;
   void onPreviewDrawerGradientChange(!settingsDraft.ui.previewDrawerGradientEnabled);
+}
+
+// ── Dokumentdetails im Vorschaubereich automatisch einblenden ──────────────
+
+async function onAutoHideDetailsDrawerChange(nextValue) {
+  if (isSettingSaving.auto_hide_details_drawer) return;
+  const nextBool = Boolean(nextValue);
+  if (nextBool === settingsDraft.ui.autoHideDetailsDrawer) return;
+  const previous = settingsDraft.ui.autoHideDetailsDrawer;
+  settingsStore.setDraftPatch({ ui: { autoHideDetailsDrawer: nextBool } });
+  await patchSettingsWithRevert({
+    patch: buildAutoHideDetailsDrawerPatch(nextBool),
+    controlKey: 'auto_hide_details_drawer',
+    revert: () => settingsStore.setDraftPatch({ ui: { autoHideDetailsDrawer: previous } })
+  });
+}
+
+function toggleAutoHideDetailsDrawerFromRow() {
+  if (isSettingSaving.auto_hide_details_drawer) return;
+  void onAutoHideDetailsDrawerChange(!settingsDraft.ui.autoHideDetailsDrawer);
 }
 
 // ── Drawer: Zustand merken ───────────────────────────────────────────────────

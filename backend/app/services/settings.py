@@ -24,6 +24,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "search_scope_default": "current",
         "showFilenameSuffix": True,
         "previewDrawerGradientEnabled": True,
+        "autoHideDetailsDrawer": False,
         "drawerRememberState": True,
         "tagDrawerRememberState": True,
         "sidebar_show_recent": True,

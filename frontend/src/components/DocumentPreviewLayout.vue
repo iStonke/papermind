@@ -4,7 +4,8 @@
     class="preview-layout"
     :class="{
       'preview-layout--floating-card': floatingCard,
-      'preview-layout--drawer-open': showDrawer && isOpen
+      'preview-layout--drawer-open': showDrawer && isOpen,
+      'preview-layout--drawer-auto-hide': showDrawer && autoHideDrawer
     }"
   >
     <div class="preview-layout__viewer">
@@ -46,6 +47,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 const props = defineProps({
   showDrawer: { type: Boolean, default: false },
   isOpen: { type: Boolean, default: false },
+  autoHideDrawer: { type: Boolean, default: false },
   floatingCard: { type: Boolean, default: false },
   collapsedHeight: { type: Number, default: 72 },
   minViewerHeight: { type: Number, default: 140 },
@@ -234,6 +236,14 @@ const drawerStyle = computed(() => {
     box-shadow var(--pm-duration-normal) var(--pm-easing-decel),
     opacity var(--pm-duration-normal) var(--pm-easing-decel);
   will-change: height, margin-top, margin-bottom, bottom;
+}
+
+/* Der inhaltliche Zustand der Schublade bleibt erhalten; außerhalb der
+   Vorschau wird nur ihre Darstellung ausgeblendet. Fokus hält sie sichtbar,
+   damit Eingaben nicht während der Bearbeitung verschwinden. */
+.preview-layout--drawer-auto-hide:not(:hover):not(:focus-within) .preview-layout__drawer {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .preview-layout--floating-card .preview-layout__drawer {

@@ -164,6 +164,7 @@ class UISettingsRead(BaseModel):
     search_scope_default: SearchScopeDefault = SearchScopeDefault.current
     showFilenameSuffix: bool = True
     previewDrawerGradientEnabled: bool = True
+    autoHideDetailsDrawer: bool = False
     drawerRememberState: bool = True
     tagDrawerRememberState: bool = True
     sidebar_show_recent: bool = True
@@ -322,6 +323,7 @@ class UISettingsPatch(BaseModel):
     search_scope_default: SearchScopeDefault | None = None
     showFilenameSuffix: bool | None = None
     previewDrawerGradientEnabled: bool | None = None
+    autoHideDetailsDrawer: bool | None = None
     drawerRememberState: bool | None = None
     tagDrawerRememberState: bool | None = None
     sidebar_show_recent: bool | None = None
