@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import re
+import unicodedata
 import uuid
 from typing import Any, Iterable
 
@@ -12,16 +14,68 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import get_settings
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
-from app.models.wiki import WikiClaim, WikiLink, WikiPage, WikiPageRevision
+from app.models.wiki import WikiClaim, WikiPage
 from app.services.embeddings import EmbeddingService
 from app.services.wiki_trust import WikiTrustValidator, compact_text
 
 logger = logging.getLogger("papermind.wiki.search")
 settings = get_settings()
 
+_QUERY_STOP_TERMS = {
+    "alle",
+    "das",
+    "dem",
+    "den",
+    "der",
+    "die",
+    "ein",
+    "eine",
+    "fur",
+    "habe",
+    "hat",
+    "hoch",
+    "ich",
+    "ist",
+    "lautet",
+    "mir",
+    "sind",
+    "steht",
+    "und",
+    "wann",
+    "war",
+    "was",
+    "welche",
+    "welcher",
+    "welches",
+    "wie",
+    "wo",
+}
+
 
 def _vector_literal(vector: list[float]) -> str:
     return "[" + ",".join(f"{float(value):.10f}" for value in vector) + "]"
+
+
+def _term_key(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or "").lower())
+    ascii_value = "".join(char for char in normalized if not unicodedata.combining(char))
+    cleaned = re.sub(r"[^a-z0-9ß]", "", ascii_value).replace("ß", "ss")
+    for suffix in ("ungen", "ern", "en", "er", "es", "e", "n", "s"):
+        if len(cleaned) > len(suffix) + 4 and cleaned.endswith(suffix):
+            return cleaned[: -len(suffix)]
+    return cleaned
+
+
+def _meaningful_terms(value: str) -> set[str]:
+    terms = {_term_key(token) for token in re.findall(r"[\wÄÖÜäöüß-]+", str(value or ""), re.UNICODE)}
+    return {term for term in terms if len(term) >= 3 and term not in _QUERY_STOP_TERMS}
+
+
+def _text_relevance(query_terms: set[str], *values: str) -> float:
+    if not query_terms:
+        return 1.0
+    candidate_terms = _meaningful_terms(" ".join(str(value or "") for value in values))
+    return len(query_terms & candidate_terms) / len(query_terms)
 
 
 class WikiSearchService:
@@ -105,6 +159,8 @@ class WikiSearchService:
         candidate_limit = max(8, min(int(limit) * 3, 60))
         scores: dict[uuid.UUID, float] = {}
         metadata: dict[uuid.UUID, dict[str, Any]] = {}
+        fts_scores: dict[uuid.UUID, float] = {}
+        vector_scores: dict[uuid.UUID, float] = {}
 
         try:
             fts_rows = self.db.execute(
@@ -131,6 +187,7 @@ class WikiSearchService:
             page_id = row["id"]
             scores[page_id] = scores.get(page_id, 0.0) + 1.0 / (60.0 + rank)
             metadata[page_id] = dict(row)
+            fts_scores[page_id] = float(row.get("raw_score") or 0.0)
 
         if query_vector:
             try:
@@ -160,6 +217,7 @@ class WikiSearchService:
                 page_id = row["id"]
                 scores[page_id] = scores.get(page_id, 0.0) + 1.0 / (60.0 + rank)
                 metadata.setdefault(page_id, dict(row))
+                vector_scores[page_id] = float(row.get("raw_score") or 0.0)
 
         if not scores:
             pattern = f"%{normalized_query}%"
@@ -172,6 +230,7 @@ class WikiSearchService:
             ).scalars()
             for rank, page in enumerate(fallback, start=1):
                 scores[page.id] = 1.0 / (60.0 + rank)
+                fts_scores[page.id] = 0.01
                 metadata[page.id] = {
                     "id": page.id,
                     "title": page.title,
@@ -185,6 +244,8 @@ class WikiSearchService:
             {
                 **metadata[page_id],
                 "score": scores[page_id],
+                "fts_score": fts_scores.get(page_id, 0.0),
+                "vector_score": vector_scores.get(page_id, 0.0),
             }
             for page_id in ordered
         ]
@@ -199,27 +260,31 @@ class WikiSearchService:
         max_chars: int = 5000,
     ) -> dict[str, Any]:
         selected_pages = self.search_pages(query, query_vector=query_vector, limit=page_limit)
+        if selected_pages:
+            best_vector_score = max(float(row.get("vector_score") or 0.0) for row in selected_pages)
+            vector_floor = max(0.45, best_vector_score - 0.07)
+            relevant_pages = [
+                row
+                for row in selected_pages
+                if float(row.get("fts_score") or 0.0) > 0.0
+                or float(row.get("vector_score") or 0.0) >= vector_floor
+            ]
+            selected_pages = relevant_pages or selected_pages[:1]
         selected_ids = [row["id"] for row in selected_pages]
         if not selected_ids:
             return {"text": "", "pages": [], "claims": [], "evidence_chunks": []}
 
-        source_ids = list(
-            self.db.scalars(
-                select(WikiLink.from_page_id).where(
-                    WikiLink.owner_id == self.owner_id,
-                    WikiLink.to_page_id.in_(selected_ids),
-                    WikiLink.status == "active",
-                )
-            )
-        )
-        claim_page_ids = list(dict.fromkeys(selected_ids + source_ids))
+        # Do not fan a matching topic page back out to every linked source page.
+        # That former expansion made a single invoice question pull unrelated
+        # invoices into the answer context.
+        claim_page_ids = selected_ids
         claims = list(
             self.db.execute(
                 select(WikiClaim)
                 .where(
                     WikiClaim.owner_id == self.owner_id,
                     WikiClaim.page_id.in_(claim_page_ids),
-                    WikiClaim.status.in_(("active", "disputed")),
+                    WikiClaim.status == "active",
                     WikiClaim.claim_type == "fact",
                 )
                 .options(selectinload(WikiClaim.evidence))
@@ -233,6 +298,27 @@ class WikiSearchService:
                 select(WikiPage).where(WikiPage.owner_id == self.owner_id, WikiPage.id.in_(claim_page_ids))
             ).scalars()
         }
+        page_rows_by_id = {row["id"]: row for row in selected_pages}
+        best_page_vector = max(
+            (float(row.get("vector_score") or 0.0) for row in selected_pages),
+            default=0.0,
+        )
+        query_terms = _meaningful_terms(query)
+
+        def claim_rank(claim: WikiClaim) -> tuple[float, float]:
+            page = pages_by_id.get(claim.page_id)
+            relevance = _text_relevance(
+                query_terms,
+                page.title if page else "",
+                claim.text,
+                *(evidence.quote for evidence in claim.evidence if evidence.support_role == "supports"),
+            )
+            page_row = page_rows_by_id.get(claim.page_id, {})
+            page_vector = float(page_row.get("vector_score") or 0.0)
+            page_relevance = page_vector / best_page_vector if best_page_vector > 0 else 0.0
+            return relevance, page_relevance
+
+        claims.sort(key=claim_rank, reverse=True)
 
         trace_claims: list[dict[str, Any]] = []
         evidence_chunks: list[dict[str, Any]] = []
@@ -242,6 +328,9 @@ class WikiSearchService:
         seen_chunks: set[uuid.UUID] = set()
         for claim in claims:
             if claim.id in seen_claims:
+                continue
+            claim_relevance, page_relevance = claim_rank(claim)
+            if query_terms and claim_relevance <= 0.0:
                 continue
             valid_evidence: list[dict[str, Any]] = []
             for evidence in claim.evidence:
@@ -265,6 +354,7 @@ class WikiSearchService:
                 valid_evidence.append(item)
                 if chunk.id not in seen_chunks:
                     seen_chunks.add(chunk.id)
+                    evidence_score = min(0.82, 0.35 + (0.30 * claim_relevance) + (0.15 * page_relevance))
                     evidence_chunks.append(
                         {
                             "doc_id": document.id,
@@ -273,7 +363,7 @@ class WikiSearchService:
                             "page_from": chunk.page_from,
                             "page_to": chunk.page_to,
                             "chunk_type": chunk.chunk_type,
-                            "score": 1.0,
+                            "score": evidence_score,
                             "text": chunk.text,
                             "document_title": item["document_title"],
                             "wiki_claim_ids": [str(claim.id)],
@@ -286,6 +376,10 @@ class WikiSearchService:
                         None,
                     )
                     if existing_chunk is not None:
+                        existing_chunk["score"] = max(
+                            float(existing_chunk.get("score") or 0.0),
+                            min(0.82, 0.35 + (0.30 * claim_relevance) + (0.15 * page_relevance)),
+                        )
                         existing_chunk["wiki_claim_ids"] = list(
                             dict.fromkeys([*(existing_chunk.get("wiki_claim_ids") or []), str(claim.id)])
                         )

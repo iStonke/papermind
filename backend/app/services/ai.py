@@ -34,11 +34,13 @@ _TIMEOUT_MESSAGE = (
 )
 _SESSION_CONTEXT_LIMIT = 6
 _FOLLOWUP_MARKERS = re.compile(
-    r"\b(und|dann|danach|dazu|davon|das|dort|hier|wo|wann|welche|welcher)\b",
+    r"\b(und|dann|danach|dazu|davon|damit|das|dies|diese|dieser|dieses|dort|hier|ihn|ihm|ihr|"
+    r"dessen|deren)\b",
     re.IGNORECASE,
 )
 _NUMERIC_KEYWORDS = (
     "wie viel",
+    "wie hoch",
     "betrag",
     "summe",
     "€",
@@ -50,8 +52,93 @@ _NUMERIC_KEYWORDS = (
     " gesamt",
     "monate",
     "tage",
+    "kostet",
+    "kosten",
+    "iban",
+    "bic",
+    "kontonummer",
 )
 _NUMBER_PATTERN = re.compile(r"(?<![\w])\d+(?:[.,]\d+)?")
+_AMOUNT_VALUE_PATTERN = r"(?P<amount>\d{1,3}(?:[. ]\d{3})*(?:,\d{2})|\d+(?:[.,]\d{2}))"
+_DIRECT_TOTAL_PATTERNS = (
+    re.compile(rf"\bAktuelle\s+Forderung\s+von\b[^\d]{{0,20}}{_AMOUNT_VALUE_PATTERN}", re.IGNORECASE),
+    re.compile(rf"\bGesamtbetrag\b[^\d]{{0,45}}{_AMOUNT_VALUE_PATTERN}", re.IGNORECASE),
+    re.compile(rf"\b(?:Gesamtsumme|Endbetrag)\b[^\d]{{0,30}}{_AMOUNT_VALUE_PATTERN}", re.IGNORECASE),
+    re.compile(rf"\bGesamt\s*{_AMOUNT_VALUE_PATTERN}", re.IGNORECASE),
+    re.compile(rf"\bRechnungsbetrag\b[^\d]{{0,12}}{_AMOUNT_VALUE_PATTERN}", re.IGNORECASE),
+)
+_IBAN_PATTERN = re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]){11,30}\b", re.IGNORECASE)
+_AGGREGATE_MARKERS = (
+    "alle ",
+    "insgesamt",
+    "zusammen",
+    "summe aller",
+    "rechnungen",
+    "beträge",
+    "gesamt über",
+)
+_CITATION_STOP_WORDS = {
+    "aber",
+    "alle",
+    "auch",
+    "aus",
+    "das",
+    "dem",
+    "den",
+    "der",
+    "des",
+    "die",
+    "dies",
+    "diese",
+    "dieser",
+    "dieses",
+    "dokument",
+    "eine",
+    "einem",
+    "einen",
+    "einer",
+    "eines",
+    "für",
+    "hat",
+    "ist",
+    "laut",
+    "mit",
+    "oder",
+    "sich",
+    "sind",
+    "steht",
+    "und",
+    "von",
+    "was",
+    "welche",
+    "welcher",
+    "welches",
+    "wie",
+    "wird",
+    "zum",
+    "zur",
+}
+
+
+def _numeric_values(text_value: str) -> set[str]:
+    values: set[str] = set()
+    for match in _NUMBER_PATTERN.finditer(str(text_value or "")):
+        token = match.group(0).replace(" ", "").replace(",", ".")
+        try:
+            normalized = f"{float(token):.6f}".rstrip("0").rstrip(".")
+        except ValueError:
+            normalized = token
+        if normalized:
+            values.add(normalized)
+    return values
+
+
+def _citation_terms(text_value: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-zäöüß][a-z0-9äöüß_-]{2,}", str(text_value or "").lower())
+        if token not in _CITATION_STOP_WORDS
+    }
 
 
 class AIService:
@@ -90,7 +177,7 @@ class AIService:
             return ""
         if not session_messages:
             return normalized_question
-        if len(normalized_question) > 28 and not _FOLLOWUP_MARKERS.search(normalized_question):
+        if not _FOLLOWUP_MARKERS.search(normalized_question):
             return normalized_question
 
         last_user = next(
@@ -111,6 +198,11 @@ class AIService:
         if any(keyword in normalized for keyword in _NUMERIC_KEYWORDS):
             return "numeric"
         return "answer"
+
+    @staticmethod
+    def _is_aggregate_question(question: str) -> bool:
+        normalized = AIService._normalize_whitespace(question).lower()
+        return any(marker in normalized for marker in _AGGREGATE_MARKERS)
 
     @staticmethod
     def _extract_doc_titles(chunks: list[dict[str, Any]]) -> str:
@@ -167,6 +259,40 @@ class AIService:
         prompt = prompt.replace("{{doc_titles}}", doc_titles)
         prompt = prompt.replace("{{today}}", date.today().isoformat())
         return prompt
+
+    @staticmethod
+    def _build_direct_lookup_answer(question: str, chunks: list[dict[str, Any]]) -> str | None:
+        """Answer unambiguous labelled values without asking a small LLM to infer them."""
+        normalized_question = AIService._normalize_whitespace(question).lower()
+        ordered_chunks = sorted(chunks, key=lambda item: float(item.get("score") or 0.0), reverse=True)
+
+        asks_invoice_total = (
+            any(marker in normalized_question for marker in ("wie hoch", "rechnungsbetrag", "rechnungssumme", "gesamtbetrag"))
+            and "rechnung" in normalized_question
+        )
+        if asks_invoice_total:
+            for pattern in _DIRECT_TOTAL_PATTERNS:
+                for chunk in ordered_chunks:
+                    match = pattern.search(str(chunk.get("text") or ""))
+                    if match is None:
+                        continue
+                    amount = match.group("amount").replace(" ", "")
+                    return f"Der Rechnungsbetrag beträgt {amount} €."
+
+        if "iban" in normalized_question:
+            for chunk in ordered_chunks:
+                match = _IBAN_PATTERN.search(str(chunk.get("text") or ""))
+                if match:
+                    return f"Die IBAN lautet {AIService._normalize_whitespace(match.group(0))}."
+
+        if re.search(r"\bbic\b", normalized_question, re.IGNORECASE):
+            for chunk in ordered_chunks:
+                text_value = str(chunk.get("text") or "")
+                label = re.search(r"\bBIC\b[^A-Z0-9]{0,8}([A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?)", text_value, re.IGNORECASE)
+                if label:
+                    value = label.group(1)
+                    return f"Die BIC lautet {value.upper()}."
+        return None
 
     def _load_document_titles(self, doc_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
         if not doc_ids:
@@ -227,22 +353,94 @@ class AIService:
             return compact
         return f"{compact[:limit].rstrip()}..."
 
+    @classmethod
+    def _evidence_snippet(
+        cls,
+        text_value: str,
+        *,
+        answer: str = "",
+        question: str = "",
+        limit: int = 180,
+    ) -> str:
+        compact = cls._normalize_whitespace(text_value)
+        if len(compact) <= limit:
+            return compact
+
+        anchors = [match.group(0) for match in _NUMBER_PATTERN.finditer(answer)]
+        anchors.extend(sorted(_citation_terms(question), key=len, reverse=True))
+        anchors.extend(sorted(_citation_terms(answer), key=len, reverse=True))
+        compact_lower = compact.lower()
+        anchor_position = next(
+            (compact_lower.find(anchor.lower()) for anchor in anchors if compact_lower.find(anchor.lower()) >= 0),
+            -1,
+        )
+        if anchor_position < 0:
+            return cls._snippet(compact, limit=limit)
+
+        start = max(0, anchor_position - limit // 3)
+        end = min(len(compact), start + limit)
+        if end - start < limit:
+            start = max(0, end - limit)
+        excerpt = compact[start:end].strip()
+        return f"{'...' if start else ''}{excerpt}{'...' if end < len(compact) else ''}"
+
     def _aggregate_citations(
         self,
         chunks: list[dict[str, Any]],
         title_map: dict[uuid.UUID, str],
         max_docs: int = 4,
+        answer: str = "",
+        question: str = "",
     ) -> list[dict[str, Any]]:
         grouped: dict[uuid.UUID, dict[str, Any]] = defaultdict(dict)
+        answer_numbers = _numeric_values(answer)
+        answer_terms = _citation_terms(answer)
+        question_terms = _citation_terms(question)
         for chunk in chunks:
             doc_id = chunk["doc_id"]
             score = float(chunk.get("score") or 0.0)
+            chunk_text = str(chunk.get("text") or "")
+            source_terms = _citation_terms(f"{title_map.get(doc_id, '')} {chunk_text}")
+            numeric_overlap = len(answer_numbers & _numeric_values(chunk_text))
+            question_overlap = len(question_terms & source_terms)
+            answer_overlap = len(answer_terms & source_terms)
             entry = grouped.get(doc_id)
-            if entry is None or score > float(entry.get("score") or 0.0):
-                grouped[doc_id] = {"chunk": chunk, "score": score}
+            candidate_rank = (numeric_overlap, question_overlap, answer_overlap, score)
+            current_rank = (
+                int(entry.get("numeric_overlap") or 0),
+                int(entry.get("question_overlap") or 0),
+                int(entry.get("answer_overlap") or 0),
+                float(entry.get("score") or 0.0),
+            ) if entry else None
+            if entry is None or candidate_rank > current_rank:
+                grouped[doc_id] = {
+                    "chunk": chunk,
+                    "score": score,
+                    "numeric_overlap": numeric_overlap,
+                    "question_overlap": question_overlap,
+                    "answer_overlap": answer_overlap,
+                }
 
         citations: list[dict[str, Any]] = []
-        ordered = sorted(grouped.items(), key=lambda item: float(item[1]["score"]), reverse=True)
+        ordered = sorted(
+            grouped.items(),
+            key=lambda item: (
+                int(item[1].get("numeric_overlap") or 0),
+                int(item[1].get("question_overlap") or 0),
+                int(item[1].get("answer_overlap") or 0),
+                float(item[1]["score"]),
+            ),
+            reverse=True,
+        )
+        relevant = [
+            item
+            for item in ordered
+            if int(item[1].get("numeric_overlap") or 0)
+            or int(item[1].get("question_overlap") or 0)
+            or int(item[1].get("answer_overlap") or 0) >= 2
+        ]
+        if relevant:
+            ordered = relevant
         for doc_id, item in ordered[:max_docs]:
             chunk = item["chunk"]
             citations.append(
@@ -252,7 +450,12 @@ class AIService:
                     "chunk_index": chunk.get("chunk_index"),
                     "page_from": chunk.get("page_from"),
                     "page_to": chunk.get("page_to"),
-                    "snippet": self._snippet(str(chunk.get("text") or ""), limit=130),
+                    "snippet": self._evidence_snippet(
+                        str(chunk.get("text") or ""),
+                        answer=answer,
+                        question=question,
+                        limit=130,
+                    ),
                     "document_title": title_map.get(doc_id, "Dokument"),
                     "wiki_claim_ids": [
                         uuid.UUID(str(value))
@@ -322,14 +525,18 @@ class AIService:
         *,
         mode: str,
         repair_pass_used: bool,
+        context_text: str = "",
     ) -> dict[str, bool]:
         normalized = str(answer or "").strip()
         empty_answer = not normalized
-        has_numbers = bool(_NUMBER_PATTERN.search(normalized))
+        answer_numbers = _numeric_values(normalized)
+        context_numbers = _numeric_values(context_text)
+        has_numbers = bool(answer_numbers)
+        has_unsupported_numbers = bool(answer_numbers - context_numbers) if context_text else False
         has_inline_citations = self._contains_citation_markers(normalized)
         has_any_citations = has_inline_citations or bool(citations)
 
-        numbers_without_citations = has_numbers and not has_any_citations
+        numbers_without_citations = has_numbers and (not has_any_citations or has_unsupported_numbers)
         missing_citations = mode in {"answer", "numeric", "summary"} and not has_any_citations and not empty_answer
 
         return {
@@ -424,6 +631,8 @@ class AIService:
         prior_messages = chat_sessions.load_recent_messages(session_id, limit=_SESSION_CONTEXT_LIMIT)
         rewritten_query = self._rewrite_query(question, prior_messages)
         retrieval_top_k = max(1, int(max(payload.top_k, runtime_settings.rag.top_k)))
+        if runtime_settings.rag.rerank_enabled:
+            retrieval_top_k = max(retrieval_top_k, int(runtime_settings.rag.rerank_top_k))
         retrieval_top_k = min(retrieval_top_k, settings.retrieval_max_top_k)
 
         retrieval_result = self.embedding_service.retrieve(
@@ -433,12 +642,39 @@ class AIService:
         )
 
         raw_hits = list(retrieval_result.get("results") or [])
+        if runtime_settings.rag.rerank_enabled:
+            raw_hits = raw_hits[: int(runtime_settings.rag.rerank_final_k)]
+        primary_doc_id = raw_hits[0].get("doc_id") if raw_hits else None
         min_score = float(runtime_settings.rag.min_score)
-        filtered_hits = [chunk for chunk in raw_hits if float(chunk.get("score") or 0.0) >= min_score]
+        relative_score_floor = 0.0
+        if raw_hits and not self._is_aggregate_question(question):
+            relative_score_floor = float(raw_hits[0].get("score") or 0.0) * 0.72
+        effective_score_floor = max(min_score, relative_score_floor)
+        filtered_hits = [
+            chunk
+            for chunk in raw_hits
+            if float(chunk.get("score") or 0.0) >= effective_score_floor
+        ]
+        filtered_hits = self.embedding_service.expand_neighbor_chunks(
+            filtered_hits,
+            radius=1,
+            max_seed_chunks=3,
+        )
+
+        focus_single_document = (
+            mode == "numeric"
+            and primary_doc_id is not None
+            and not self._is_aggregate_question(question)
+        )
 
         wiki_context: dict[str, Any] = {"text": "", "pages": [], "claims": [], "evidence_chunks": []}
         wiki_settings = runtime_settings.wiki
-        if wiki_settings.enabled and wiki_settings.chat_retrieval and payload.doc_id is None:
+        if (
+            wiki_settings.enabled
+            and wiki_settings.chat_retrieval
+            and payload.doc_id is None
+            and not focus_single_document
+        ):
             wiki_context = WikiSearchService(self.db, self.owner_id).context_for_chat(
                 rewritten_query or question,
                 query_vector=retrieval_result.get("_query_vector"),
@@ -462,6 +698,8 @@ class AIService:
             for key in ("wiki_claim_ids", "evidence_ids"):
                 current[key] = list(dict.fromkeys([*(current.get(key) or []), *(chunk.get(key) or [])]))
         filtered_hits = list(merged_hits.values())
+        if focus_single_document:
+            filtered_hits = [chunk for chunk in filtered_hits if chunk.get("doc_id") == primary_doc_id]
         doc_ids = [chunk["doc_id"] for chunk in filtered_hits]
         title_map = self._load_document_titles(doc_ids)
         for chunk in filtered_hits:
@@ -523,10 +761,15 @@ class AIService:
         completion_tokens = 0
         llm_model_name = "none"
         repair_pass_used = False
+        direct_answer = self._build_direct_lookup_answer(question, context_chunks) if has_context else None
 
         if not has_context:
             context_hint = "Bitte OCR/Index prüfen, da keine relevanten Chunks gefunden wurden."
             answer = self._build_mode_fallback(mode, context_missing_hint=context_hint, timeout=False)
+        elif direct_answer:
+            answer = direct_answer
+            llm_model_name = "deterministic-extraction"
+            completion_tokens = self._estimate_tokens(answer)
         else:
             llm_result = self._call_chat_model(
                 model_question=rewritten_query or question,
@@ -562,6 +805,7 @@ class AIService:
                 retry_contexts = contexts_payload[: max(1, len(retry_chunks))]
                 retry_result = self._call_chat_model(
                     model_question=rewritten_query or question,
+                    chat_model=runtime_settings.ollama.chat_model,
                     system_prompt=llm_settings.system_prompt,
                     user_prompt=retry_prompt,
                     contexts=retry_contexts,
@@ -580,12 +824,19 @@ class AIService:
             if not answer:
                 answer = self._build_mode_fallback(mode, timeout=timeout_happened)
 
-        citations = self._aggregate_citations(context_chunks, title_map, max_docs=4)
+        citations = self._aggregate_citations(
+            context_chunks,
+            title_map,
+            max_docs=4,
+            answer=answer,
+            question=rewritten_query or question,
+        )
         quality_flags = self._analyze_quality_flags(
             answer,
             citations,
             mode=mode,
             repair_pass_used=repair_pass_used,
+            context_text=context_text,
         )
 
         if runtime_settings.quality.enable_answer_checks and (
@@ -635,6 +886,7 @@ class AIService:
                     citations,
                     mode=mode,
                     repair_pass_used=repair_pass_used,
+                    context_text=context_text,
                 )
 
         if not str(answer or "").strip():
@@ -644,6 +896,7 @@ class AIService:
                 citations,
                 mode=mode,
                 repair_pass_used=repair_pass_used,
+                context_text=context_text,
             )
 
         knowledge_trace = {

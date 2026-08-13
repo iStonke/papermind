@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 from pypdf import PdfReader
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, tuple_
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
@@ -45,6 +45,50 @@ _IBAN_GENERIC_PATTERN = re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b", re.IGNOR
 _BANK_LINE_PATTERN = re.compile(r"(\bIBAN\b|\bBIC\b|\bBank\b|\bBankverbindung\b|\bKontoinhaber\b|\bSEPA\b)", re.IGNORECASE)
 _TABLE_LINE_PATTERN = re.compile(r"\|")
 _TABLE_NUMERIC_PATTERN = re.compile(r"\d+[.,]?\d*")
+_QUERY_STOP_WORDS = {
+    "alle",
+    "als",
+    "am",
+    "an",
+    "auf",
+    "aus",
+    "bei",
+    "das",
+    "dem",
+    "den",
+    "der",
+    "die",
+    "ein",
+    "eine",
+    "einer",
+    "für",
+    "hat",
+    "hoch",
+    "ich",
+    "im",
+    "in",
+    "ist",
+    "lautet",
+    "mir",
+    "mit",
+    "nach",
+    "oder",
+    "sind",
+    "steht",
+    "und",
+    "vom",
+    "von",
+    "wann",
+    "war",
+    "was",
+    "welche",
+    "welcher",
+    "welches",
+    "wie",
+    "wo",
+    "zum",
+    "zur",
+}
 
 
 def _now_utc() -> datetime:
@@ -79,6 +123,35 @@ def _truncate_error(message: str, max_length: int = 3500) -> str:
     return f"{value[:max_length]}..."
 
 
+def _clip_around_match(text_value: str, pattern: re.Pattern[str], limit: int = 300) -> str:
+    """Keep the semantic marker when OCR collapses a whole page into one line."""
+    compact = str(text_value or "").strip()
+    if len(compact) <= limit:
+        return compact
+    match = pattern.search(compact)
+    if match is None:
+        return compact[:limit].rstrip()
+    start = max(0, match.start() - max(40, limit // 4))
+    end = min(len(compact), start + limit)
+    start = max(0, end - limit)
+    return compact[start:end].strip()
+
+
+def _lexical_query(value: str) -> str:
+    tokens = re.findall(r"[\wÄÖÜäöüß-]+", str(value or "").lower(), flags=re.UNICODE)
+    useful = []
+    for token in tokens:
+        cleaned = token.strip("-_")
+        if len(cleaned) < 3 or cleaned in _QUERY_STOP_WORDS or cleaned in useful:
+            continue
+        useful.append(cleaned)
+        if len(useful) >= 12:
+            break
+    # websearch_to_tsquery treats whitespace as AND. Dense retrieval remains the
+    # recall path; lexical retrieval is deliberately the high-precision signal.
+    return " ".join(useful)
+
+
 def _build_invoice_line_chunks(page_lines: list[tuple[int, list[str]]]) -> list[dict[str, Any]]:
     chunks: list[dict[str, Any]] = []
     seen_hashes: set[str] = set()
@@ -94,10 +167,9 @@ def _build_invoice_line_chunks(page_lines: list[tuple[int, list[str]]]) -> list[
             if not text_value:
                 continue
 
-            if len(text_value) > 300:
-                text_value = text_value[-300:].lstrip()
-
             chunk_type = "invoice_total" if _INVOICE_TOTAL_PATTERN.search(current_line) else "invoice_table"
+            marker_pattern = _INVOICE_TOTAL_PATTERN if chunk_type == "invoice_total" else _INVOICE_LINE_PATTERN
+            text_value = _clip_around_match(text_value, marker_pattern)
             content_hash = _sha256_text(f"{page_no}:{chunk_type}:{text_value}")
             if content_hash in seen_hashes:
                 continue
@@ -132,8 +204,10 @@ def _build_bank_pattern_chunks(page_lines: list[tuple[int, list[str]]]) -> list[
             text_value = " ".join(context_lines).strip()
             if not text_value:
                 continue
-            if len(text_value) > 300:
-                text_value = text_value[:300].rstrip()
+            text_value = _clip_around_match(
+                text_value,
+                re.compile(r"(IBAN|BIC|Bankverbindung|Kontoinhaber|SEPA)", re.IGNORECASE),
+            )
 
             content_hash = _sha256_text(f"{page_no}:bank_details:{text_value}")
             if content_hash in seen_hashes:
@@ -156,9 +230,14 @@ def _split_chunks(
     full_text: str,
     page_ranges: list[tuple[int, int, int]],
     page_lines: list[tuple[int, list[str]]],
+    *,
+    chunk_size_chars: int | None = None,
+    chunk_overlap_chars: int | None = None,
 ) -> list[dict[str, Any]]:
-    chunk_size = max(200, settings.chunk_size_chars)
-    overlap = max(0, min(settings.chunk_overlap_chars, chunk_size // 2))
+    configured_chunk_size = settings.chunk_size_chars if chunk_size_chars is None else chunk_size_chars
+    configured_overlap = settings.chunk_overlap_chars if chunk_overlap_chars is None else chunk_overlap_chars
+    chunk_size = max(200, int(configured_chunk_size))
+    overlap = max(0, min(int(configured_overlap), chunk_size // 2))
     text_len = len(full_text)
     if text_len == 0:
         return _build_invoice_line_chunks(page_lines)
@@ -365,7 +444,14 @@ class EmbeddingService:
             }
 
         chunking_start = time.perf_counter()
-        chunks = _split_chunks(full_text, page_ranges, page_lines)
+        runtime_rag = SettingsService(self.db).get_settings().rag
+        chunks = _split_chunks(
+            full_text,
+            page_ranges,
+            page_lines,
+            chunk_size_chars=int(runtime_rag.chunk_chars),
+            chunk_overlap_chars=int(runtime_rag.chunk_overlap_chars),
+        )
         chunking_ms = (time.perf_counter() - chunking_start) * 1000
         if not chunks:
             raise BadRequestError(
@@ -566,41 +652,29 @@ class EmbeddingService:
             raise BadRequestError("query must not be empty")
 
         top_k_value = max(1, min(top_k, settings.retrieval_max_top_k))
+        candidate_k = min(settings.retrieval_max_top_k, max(top_k_value, top_k_value * 4))
         embed_start = time.perf_counter()
         model_used, dim_used, vectors, _ = self._embed_text_batch([normalized_query], settings.embed_model)
         embed_ms = (time.perf_counter() - embed_start) * 1000
         query_vector = _vector_to_literal(vectors[0])
 
-        sql_parts = [
-            """
-            SELECT
-                c.doc_id,
-                c.id AS chunk_id,
-                c.chunk_index,
-                c.page_from,
-                c.page_to,
-                c.chunk_type,
-                c.text,
-                1 - (e.embedding <=> CAST(:query_vector AS vector)) AS score
-            FROM doc_embeddings e
-            JOIN doc_chunks c ON c.id = e.chunk_id
-            JOIN documents d ON d.id = c.doc_id
-            WHERE 1=1
-            """
-        ]
-        params: dict[str, Any] = {"query_vector": query_vector, "top_k": top_k_value}
+        where_parts = ["NOT d.is_deleted"]
+        params: dict[str, Any] = {
+            "query_vector": query_vector,
+            "candidate_k": candidate_k,
+        }
 
         if self.owner_id is not None:
-            sql_parts.append(" AND d.owner_id = :owner_id")
+            where_parts.append("d.owner_id = :owner_id")
             params["owner_id"] = self.owner_id
         if doc_id is not None:
-            sql_parts.append(" AND c.doc_id = :doc_id")
+            where_parts.append("c.doc_id = :doc_id")
             params["doc_id"] = doc_id
         if date_from is not None:
-            sql_parts.append(" AND d.document_date >= :date_from")
+            where_parts.append("d.document_date >= :date_from")
             params["date_from"] = date_from
         if date_to is not None:
-            sql_parts.append(" AND d.document_date <= :date_to")
+            where_parts.append("d.document_date <= :date_to")
             params["date_to"] = date_to
         if tag_ids:
             placeholders = []
@@ -608,30 +682,102 @@ class EmbeddingService:
                 key = f"tag_id_{index}"
                 placeholders.append(f"CAST(:{key} AS uuid)")
                 params[key] = tag_id
-            sql_parts.append(
-                " AND EXISTS ("
+            where_parts.append(
+                "EXISTS ("
                 "SELECT 1 FROM document_tags dt "
                 "WHERE dt.document_id = c.doc_id "
                 f"AND dt.tag_id IN ({','.join(placeholders)})"
                 ")"
             )
 
-        sql_parts.append(" ORDER BY e.embedding <=> CAST(:query_vector AS vector)")
-        sql_parts.append(" LIMIT :top_k")
-        stmt = text("".join(sql_parts))
+        where_sql = " AND ".join(where_parts)
+        dense_stmt = text(
+            f"""
+            SELECT c.doc_id, c.id AS chunk_id, c.chunk_index, c.page_from, c.page_to,
+                   c.chunk_type, c.text,
+                   1 - (e.embedding <=> CAST(:query_vector AS vector)) AS vector_score,
+                   0.0::float AS lexical_score
+            FROM doc_embeddings e
+            JOIN doc_chunks c ON c.id = e.chunk_id
+            JOIN documents d ON d.id = c.doc_id
+            WHERE {where_sql}
+            ORDER BY e.embedding <=> CAST(:query_vector AS vector)
+            LIMIT :candidate_k
+            """
+        )
 
         db_start = time.perf_counter()
         # HNSW-Suchbreite für diese Transaktion setzen (muss >= top_k sein).
-        ef_search = max(int(settings.hnsw_ef_search), top_k_value)
+        ef_search = max(int(settings.hnsw_ef_search), candidate_k)
         self.db.execute(text(f"SET LOCAL hnsw.ef_search = {ef_search}"))
-        rows = self.db.execute(stmt, params).mappings().all()
-        db_ms = (time.perf_counter() - db_start) * 1000
+        dense_rows = self.db.execute(dense_stmt, params).mappings().all()
+        vector_db_ms = (time.perf_counter() - db_start) * 1000
+
+        lexical_rows = []
+        lexical_ms = 0.0
+        lexical_query = _lexical_query(normalized_query)
+        if lexical_query:
+            lexical_params = {**params, "lexical_query": lexical_query}
+            lexical_stmt = text(
+                f"""
+                WITH q AS (SELECT websearch_to_tsquery('german', :lexical_query) AS value)
+                SELECT c.doc_id, c.id AS chunk_id, c.chunk_index, c.page_from, c.page_to,
+                       c.chunk_type, c.text, 0.0::float AS vector_score,
+                       GREATEST(
+                           COALESCE(ts_rank_cd(to_tsvector('german', c.text), q.value), 0.0),
+                           COALESCE(ts_rank_cd(d.search_vector, q.value), 0.0)
+                       ) AS lexical_score
+                FROM doc_chunks c
+                JOIN documents d ON d.id = c.doc_id
+                CROSS JOIN q
+                WHERE {where_sql}
+                  AND (to_tsvector('german', c.text) @@ q.value OR d.search_vector @@ q.value)
+                ORDER BY lexical_score DESC, c.doc_id, c.chunk_index
+                LIMIT :candidate_k
+                """
+            )
+            lexical_start = time.perf_counter()
+            lexical_rows = self.db.execute(lexical_stmt, lexical_params).mappings().all()
+            lexical_ms = (time.perf_counter() - lexical_start) * 1000
+
+        db_ms = vector_db_ms + lexical_ms
         total_ms = embed_ms + db_ms
 
+        fused: dict[Any, dict[str, Any]] = {}
+        for rank, row in enumerate(dense_rows, start=1):
+            item = dict(row)
+            item["dense_rank"] = rank
+            item["lexical_rank"] = None
+            fused[row["chunk_id"]] = item
+        for rank, row in enumerate(lexical_rows, start=1):
+            current = fused.get(row["chunk_id"])
+            if current is None:
+                current = dict(row)
+                current["dense_rank"] = None
+                fused[row["chunk_id"]] = current
+            current["lexical_rank"] = rank
+            current["lexical_score"] = float(row["lexical_score"] or 0.0)
+
+        max_rrf = 2.0 / 61.0
+        ranked_results: list[dict[str, Any]] = []
+        for item in fused.values():
+            rrf = 0.0
+            if item.get("dense_rank"):
+                rrf += 1.0 / (60.0 + int(item["dense_rank"]))
+            if item.get("lexical_rank"):
+                rrf += 1.0 / (60.0 + int(item["lexical_rank"]))
+            vector_score = max(0.0, float(item.get("vector_score") or 0.0))
+            fused_score = min(1.0, (0.75 * (rrf / max_rrf)) + (0.25 * vector_score))
+            ranked_results.append({**item, "score": fused_score})
+
+        ranked_results.sort(
+            key=lambda item: (float(item.get("score") or 0.0), float(item.get("vector_score") or 0.0)),
+            reverse=True,
+        )
         results = []
         scores: list[float] = []
-        for row in rows:
-            score = float(row["score"]) if row["score"] is not None else 0.0
+        for row in ranked_results[:top_k_value]:
+            score = float(row.get("score") or 0.0)
             scores.append(score)
             results.append(
                 {
@@ -642,6 +788,8 @@ class EmbeddingService:
                     "page_to": row["page_to"],
                     "chunk_type": row["chunk_type"],
                     "score": score,
+                    "vector_score": float(row.get("vector_score") or 0.0),
+                    "lexical_score": float(row.get("lexical_score") or 0.0),
                     "text": row["text"],
                 }
             )
@@ -649,9 +797,12 @@ class EmbeddingService:
         best_score = max(scores) if scores else None
         worst_score = min(scores) if scores else None
         logger.info(
-            "retrieval query_len=%s top_k=%s embed_ms=%.2f db_ms=%.2f total_ms=%.2f best_score=%s worst_score=%s doc_ids=%s",
+            "retrieval query_len=%s top_k=%s candidates=%s lexical=%s embed_ms=%.2f db_ms=%.2f "
+            "total_ms=%.2f best_score=%s worst_score=%s doc_ids=%s",
             len(normalized_query),
             top_k_value,
+            len(fused),
+            bool(lexical_rows),
             embed_ms,
             db_ms,
             total_ms,
@@ -673,6 +824,67 @@ class EmbeddingService:
             "timings": {
                 "embed_ms": round(embed_ms, 2),
                 "db_ms": round(db_ms, 2),
+                "vector_db_ms": round(vector_db_ms, 2),
+                "lexical_ms": round(lexical_ms, 2),
                 "total_ms": round(total_ms, 2),
             },
         }
+
+    def expand_neighbor_chunks(
+        self,
+        chunks: list[dict[str, Any]],
+        *,
+        radius: int = 1,
+        max_seed_chunks: int = 3,
+    ) -> list[dict[str, Any]]:
+        """Add nearby chunks from the best documents so split facts stay together."""
+        if not chunks or radius <= 0 or max_seed_chunks <= 0:
+            return list(chunks)
+
+        ranked = sorted(chunks, key=lambda item: float(item.get("score") or 0.0), reverse=True)
+        seeds = [item for item in ranked if isinstance(item.get("chunk_index"), int)][:max_seed_chunks]
+        desired: dict[tuple[Any, int], tuple[float, int]] = {}
+        existing = {(item.get("doc_id"), item.get("chunk_index")) for item in chunks}
+        for seed in seeds:
+            doc_key = seed.get("doc_id")
+            index = int(seed["chunk_index"])
+            for neighbor_index in range(max(0, index - radius), index + radius + 1):
+                key = (doc_key, neighbor_index)
+                if key in existing:
+                    continue
+                distance = abs(neighbor_index - index)
+                candidate = (float(seed.get("score") or 0.0), distance)
+                current = desired.get(key)
+                if current is None or candidate[0] > current[0]:
+                    desired[key] = candidate
+        if not desired:
+            return list(chunks)
+
+        pairs = list(desired)
+        stmt = select(DocumentChunk).join(Document, Document.id == DocumentChunk.doc_id).where(
+            tuple_(DocumentChunk.doc_id, DocumentChunk.chunk_index).in_(pairs),
+            Document.is_deleted.is_(False),
+        )
+        if self.owner_id is not None:
+            stmt = stmt.where(Document.owner_id == self.owner_id)
+        neighbors = list(self.db.execute(stmt).scalars())
+
+        expanded = list(chunks)
+        for chunk in neighbors:
+            seed_score, distance = desired[(chunk.doc_id, chunk.chunk_index)]
+            expanded.append(
+                {
+                    "doc_id": chunk.doc_id,
+                    "chunk_id": chunk.id,
+                    "chunk_index": chunk.chunk_index,
+                    "page_from": chunk.page_from,
+                    "page_to": chunk.page_to,
+                    "chunk_type": chunk.chunk_type,
+                    "score": max(0.0, seed_score - (0.015 * distance)),
+                    "vector_score": 0.0,
+                    "lexical_score": 0.0,
+                    "retrieval_role": "neighbor",
+                    "text": chunk.text,
+                }
+            )
+        return expanded

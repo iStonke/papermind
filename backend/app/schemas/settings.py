@@ -213,8 +213,8 @@ class RAGSettingsRead(BaseModel):
     top_k: int = Field(default=5, ge=1, le=50)
     min_score: float = Field(default=0.0, ge=0.0, le=1.0)
     max_context_chars: int = Field(default=6500, ge=4000, le=40000)
-    chunk_chars: int = Field(default=4500, ge=600, le=20000)
-    chunk_overlap_chars: int = Field(default=600, ge=0, le=10000)
+    chunk_chars: int = Field(default=1000, ge=600, le=20000)
+    chunk_overlap_chars: int = Field(default=100, ge=0, le=10000)
     rerank_enabled: bool = False
     rerank_top_k: int = Field(default=20, ge=8, le=100)
     rerank_final_k: int = Field(default=8, ge=1, le=50)

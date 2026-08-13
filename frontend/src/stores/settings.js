@@ -132,8 +132,8 @@ function createDefaultSettings() {
       top_k: 5,
       min_score: 0.0,
       max_context_chars: 6500,
-      chunk_chars: 4500,
-      chunk_overlap_chars: 600,
+      chunk_chars: 1000,
+      chunk_overlap_chars: 100,
       rerank_enabled: false,
       rerank_top_k: 20,
       rerank_final_k: 8
