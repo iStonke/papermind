@@ -269,7 +269,7 @@ const props = defineProps({
   /** Deaktiviert den Download-Button, wenn (noch) kein durchsuchbares PDF vorliegt. */
   downloadDisabled: { type: Boolean, default: false },
 });
-const emit = defineEmits(['loaded', 'failed', 'create-annotation', 'delete-annotation', 'update-annotation', 'open-reader', 'download', 'request-link', 'request-comment']);
+const emit = defineEmits(['loaded', 'first-page', 'failed', 'create-annotation', 'delete-annotation', 'update-annotation', 'open-reader', 'download', 'request-link', 'request-comment']);
 const theme = useTheme();
 
 const pdfPreviewThemeStyle = computed(() => {
@@ -2017,7 +2017,10 @@ async function renderPage(pageNum) {
     renderKonvaAnnotations(pageNum);
 
     renderedPages.add(pageNum);
-    if (!firstPageReady.value) firstPageReady.value = true;
+    if (!firstPageReady.value) {
+      firstPageReady.value = true;
+      emit('first-page');
+    }
     page.cleanup();
   } catch (_err) {
     // Einzelseite konnte nicht gerendert werden – kein Fatal-Error

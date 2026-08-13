@@ -773,7 +773,7 @@ async def _collect_service_items(db: Session, *, collected_at: datetime | None =
         await _check_http_service(
             key="ai",
             label="KI-Service",
-            description="Embedding- und Chat-Service im PaperMind-Stack.",
+            description="Embedding- und Antwort-Service im PaperMind-Stack.",
             url=f"{settings.ai_base_url.rstrip('/')}/health",
         ),
         await _check_ollama(runtime_settings),

@@ -50,6 +50,10 @@ export function buildSidebarShowChatPatch(enabled) {
   return { ui: { sidebar_show_chat: Boolean(enabled) } };
 }
 
+export function buildSidebarShowDossiersPatch(enabled) {
+  return { ui: { sidebar_show_dossiers: Boolean(enabled) } };
+}
+
 // Konfigurierbare Seitenleisten-Sektionen (Reihenfolge + harte Sichtbarkeit).
 // Reihenfolge entspricht der Standard-Anzeigereihenfolge in der Seitenleiste.
 export const SIDEBAR_SECTION_KEYS = Object.freeze(['ordner', 'tags', 'kategorien']);

@@ -307,6 +307,18 @@ class EmbeddingService:
             raise RuntimeError("Embedding API returned an invalid vector dimension")
         return model, dim, vectors, elapsed_ms
 
+    def embed_texts(
+        self,
+        texts: list[str],
+        *,
+        model_name: str | None = None,
+    ) -> tuple[str, int, list[list[float]], float]:
+        """Public embedding primitive shared by document and wiki retrieval."""
+        normalized = [str(item or "").strip() for item in texts]
+        if not normalized or any(not item for item in normalized):
+            raise BadRequestError("texts must not contain empty values")
+        return self._embed_text_batch(normalized, model_name or settings.embed_model)
+
     def get_document_for_indexing(self, document_id: uuid.UUID) -> Document:
         stmt = (
             select(Document)
@@ -654,6 +666,10 @@ class EmbeddingService:
             "dim": dim_used,
             "top_k": top_k_value,
             "results": results,
+            # Internal reuse by wiki hybrid retrieval avoids a second embedding
+            # request for the same user query. Pydantic API schemas ignore this
+            # private key when the raw retrieval endpoint serializes the result.
+            "_query_vector": vectors[0],
             "timings": {
                 "embed_ms": round(embed_ms, 2),
                 "db_ms": round(db_ms, 2),

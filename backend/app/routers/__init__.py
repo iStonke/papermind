@@ -6,6 +6,7 @@ from app.routers.categories import router as categories_router
 from app.routers.correspondents import router as correspondents_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.document_types import router as document_types_router
+from app.routers.dossiers import router as dossiers_router
 from app.routers.direct_upload import router as direct_upload_router
 from app.routers.documents import router as documents_router
 from app.routers.health import router as health_router
@@ -22,6 +23,7 @@ from app.routers.smart_folders import router as smart_folders_router
 from app.routers.system import router as system_router
 from app.routers.tags import router as tags_router
 from app.routers.users import router as users_router
+from app.routers.wiki import router as wiki_router
 
 __all__ = [
     "health_router",
@@ -36,6 +38,7 @@ __all__ = [
     "correspondents_router",
     "dashboard_router",
     "document_types_router",
+    "dossiers_router",
     "jobs_router",
     "retrieval_router",
     "retention_router",
@@ -48,4 +51,5 @@ __all__ = [
     "ai_router",
     "backup_router",
     "system_router",
+    "wiki_router",
 ]

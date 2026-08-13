@@ -31,6 +31,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "sidebar_show_untagged": True,
         "sidebar_show_favorites": True,
         "sidebar_show_chat": True,
+        "sidebar_show_dossiers": True,
         "sidebar_sections": [
             {"key": "ordner", "visible": True},
             {"key": "tags", "visible": True},
@@ -56,13 +57,15 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "numeric_prompt_template": NUMERIC_PROMPT_TEMPLATE_DEFAULT,
         "temperature": 0.15,
         "top_p": 0.9,
-        "max_output_tokens": 1200,
+        # Auf dem Pi bestimmt die Ausgabelänge die wahrgenommene Wartezeit. Die
+        # Antwortvorlagen verlangen präzise Kurzantworten, keine Aufsätze.
+        "max_output_tokens": 420,
         "embedding_model_name": "hash-384-v1",
     },
     "rag": {
-        "top_k": 8,
+        "top_k": 5,
         "min_score": 0.0,
-        "max_context_chars": 12000,
+        "max_context_chars": 6500,
         "chunk_chars": 4500,
         "chunk_overlap_chars": 600,
         "rerank_enabled": False,
@@ -85,6 +88,15 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "quality": {
         "enable_answer_checks": True,
         "enable_self_critique": False,
+    },
+    "wiki": {
+        "enabled": True,
+        "auto_compile": True,
+        "llm_claim_extraction": True,
+        "chat_retrieval": True,
+        "require_review_for_chat_capture": True,
+        "page_limit": 6,
+        "claim_limit": 24,
     },
     "retention": {
         "enabled": True,
@@ -237,6 +249,7 @@ class SettingsService:
         persisted["rag"] = normalized_known["rag"]
         persisted["ocr"] = normalized_known["ocr"]
         persisted["quality"] = normalized_known["quality"]
+        persisted["wiki"] = normalized_known["wiki"]
         persisted["retention"] = normalized_known["retention"]
         persisted_meta = dict(normalized_known.get("meta") or {})
         persisted_meta.pop("updated_at", None)

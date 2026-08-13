@@ -6,7 +6,9 @@ from app.models.correspondent import Correspondent, CorrespondentAlias, Correspo
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
 from app.models.document_file import DocumentFile
+from app.models.document_wiki_entry import DocumentWikiEntry
 from app.models.document_retention import DocumentRetention
+from app.models.dossier import Dossier, DossierGroup, DossierItem, DossierProperty
 from app.models.global_setting import GlobalSetting
 from app.models.import_inbox import ImportInboxItem
 from app.models.job import Job
@@ -18,6 +20,17 @@ from app.models.tag import Tag
 from app.models.user import User
 from app.models.user_setting import UserSetting
 from app.models.auth_session import AuthRateLimit, AuthSession
+from app.models.chat import ChatMessage, ChatSession
+from app.models.wiki import (
+    WikiBackfillRun,
+    WikiClaim,
+    WikiClaimEvidence,
+    WikiEvent,
+    WikiLink,
+    WikiPage,
+    WikiPageRevision,
+    WikiUpdateProposal,
+)
 
 __all__ = [
     "DocumentType",
@@ -30,7 +43,12 @@ __all__ = [
     "Document",
     "DocumentChunk",
     "DocumentFile",
+    "DocumentWikiEntry",
     "DocumentRetention",
+    "Dossier",
+    "DossierGroup",
+    "DossierItem",
+    "DossierProperty",
     "Tag",
     "Job",
     "SavedSearch",
@@ -46,4 +64,14 @@ __all__ = [
     "UserSetting",
     "AuthSession",
     "AuthRateLimit",
+    "ChatSession",
+    "ChatMessage",
+    "WikiPage",
+    "WikiBackfillRun",
+    "WikiPageRevision",
+    "WikiClaim",
+    "WikiClaimEvidence",
+    "WikiLink",
+    "WikiUpdateProposal",
+    "WikiEvent",
 ]

@@ -173,6 +173,7 @@ def _build_chat_messages(
     question: str,
     contexts: list["ChatContext"],
     system_prompt: str | None,
+    user_prompt: str | None,
 ) -> list[dict[str, str]]:
     system = (system_prompt or "").strip() or (
         "Du bist ein Assistent für ein Dokumentenarchiv. Beantworte die Frage "
@@ -185,7 +186,12 @@ def _build_chat_messages(
         for i, c in enumerate(contexts)
         if _normalize_text(c.text)
     ) or "(keine Kontextauszüge gefunden)"
-    user = f"Kontext:\n{context_block}\n\nFrage: {question}"
+    # Der Backend-Service rendert die konfigurierbare Vorlage bereits mit
+    # Kontext und Frage. Früher wurde sie hier verworfen und das Modell bekam
+    # stattdessen einen generischen Prompt – die wichtigsten Antwort- und
+    # Belegregeln waren damit wirkungslos. Für direkte Aufrufe ohne Vorlage
+    # bleibt der sichere, vollständige Fallback erhalten.
+    user = (user_prompt or "").strip() or f"Kontext:\n{context_block}\n\nFrage: {question}"
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
@@ -198,6 +204,7 @@ def _ollama_chat(
     *,
     model: str,
     system_prompt: str | None,
+    user_prompt: str | None,
     temperature: float,
     top_p: float,
     max_tokens: int,
@@ -209,7 +216,7 @@ def _ollama_chat(
             url,
             json={
                 "model": model,
-                "messages": _build_chat_messages(question, contexts, system_prompt),
+                "messages": _build_chat_messages(question, contexts, system_prompt, user_prompt),
                 "stream": False,
                 "options": {
                     "temperature": temperature,
@@ -605,6 +612,7 @@ def chat(payload: ChatRequest) -> Any:
             contexts,
             model=chat_model,
             system_prompt=payload.system_prompt,
+            user_prompt=payload.user_prompt,
             temperature=payload.temperature,
             top_p=payload.top_p,
             max_tokens=payload.max_tokens,

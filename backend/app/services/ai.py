@@ -1,9 +1,8 @@
 import logging
 import re
-import threading
 import time
 import uuid
-from collections import defaultdict, deque
+from collections import defaultdict
 from datetime import date
 from typing import Any
 
@@ -16,17 +15,23 @@ from app.core.errors import BadRequestError
 from app.models.document import Document
 from app.schemas.ai import AIAskRequest, AIRequestType
 from app.services.embeddings import EmbeddingService
+from app.services.chat_sessions import ChatSessionService
 from app.services.settings import SettingsService
+from app.services.wiki_search import WikiSearchService
 
 logger = logging.getLogger("papermind.ai")
 settings = get_settings()
+
+# Ein gemeinsamer Pool vermeidet für jede Chat-Anfrage einen neuen TCP-Handshake
+# zwischen Backend und KI-Service. httpx.Client ist thread-sicher; die sync
+# FastAPI-Handler dürfen ihn daher gemeinsam verwenden.
+_AI_HTTP = httpx.Client()
 
 _NO_CONTEXT_SENTINEL = "KEIN KONTEXT GEFUNDEN"
 _NO_CONTEXT_MESSAGE = "Im Dokumentenkontext nicht enthalten."
 _TIMEOUT_MESSAGE = (
     "Antwort konnte nicht erzeugt werden (Timeout). Bitte erneut versuchen oder Dokumentindex prüfen."
 )
-_SESSION_HISTORY_MAX = 24
 _SESSION_CONTEXT_LIMIT = 6
 _FOLLOWUP_MARKERS = re.compile(
     r"\b(und|dann|danach|dazu|davon|das|dort|hier|wo|wann|welche|welcher)\b",
@@ -47,8 +52,6 @@ _NUMERIC_KEYWORDS = (
     "tage",
 )
 _NUMBER_PATTERN = re.compile(r"(?<![\w])\d+(?:[.,]\d+)?")
-_SESSION_MESSAGES: dict[str, deque[dict[str, Any]]] = {}
-_SESSION_LOCK = threading.Lock()
 
 
 class AIService:
@@ -79,33 +82,6 @@ class AIService:
     @staticmethod
     def _new_session_id() -> uuid.UUID:
         return uuid.uuid4()
-
-    @classmethod
-    def _load_session_messages(cls, session_id: uuid.UUID, limit: int = _SESSION_CONTEXT_LIMIT) -> list[dict[str, Any]]:
-        key = str(session_id)
-        with _SESSION_LOCK:
-            items = list(_SESSION_MESSAGES.get(key, deque()))
-        if limit <= 0:
-            return items
-        return items[-limit:]
-
-    @classmethod
-    def _append_session_message(cls, session_id: uuid.UUID, role: str, content: str) -> None:
-        normalized = cls._normalize_whitespace(content)
-        if not normalized:
-            return
-        key = str(session_id)
-        item = {
-            "role": role,
-            "content": normalized,
-            "created_at": time.time(),
-        }
-        with _SESSION_LOCK:
-            bucket = _SESSION_MESSAGES.get(key)
-            if bucket is None:
-                bucket = deque(maxlen=_SESSION_HISTORY_MAX)
-                _SESSION_MESSAGES[key] = bucket
-            bucket.append(item)
 
     @classmethod
     def _rewrite_query(cls, question: str, session_messages: list[dict[str, Any]]) -> str:
@@ -278,6 +254,16 @@ class AIService:
                     "page_to": chunk.get("page_to"),
                     "snippet": self._snippet(str(chunk.get("text") or ""), limit=130),
                     "document_title": title_map.get(doc_id, "Dokument"),
+                    "wiki_claim_ids": [
+                        uuid.UUID(str(value))
+                        for value in chunk.get("wiki_claim_ids", [])
+                        if value
+                    ],
+                    "evidence_ids": [
+                        uuid.UUID(str(value))
+                        for value in chunk.get("evidence_ids", [])
+                        if value
+                    ],
                 }
             )
         return citations
@@ -380,7 +366,7 @@ class AIService:
 
         started = time.perf_counter()
         try:
-            response = httpx.post(
+            response = _AI_HTTP.post(
                 f"{settings.ai_base_url.rstrip('/')}/chat",
                 json=payload,
                 timeout=timeout_seconds,
@@ -431,7 +417,11 @@ class AIService:
         runtime_settings = self.settings_service.get_settings()
         mode = self._detect_mode(question, payload.request_type)
 
-        prior_messages = self._load_session_messages(session_id, limit=_SESSION_CONTEXT_LIMIT)
+        if self.owner_id is None:
+            raise BadRequestError("Wissen requires an authenticated owner")
+        chat_sessions = ChatSessionService(self.db, self.owner_id)
+        chat_sessions.ensure_session(session_id, first_question=question)
+        prior_messages = chat_sessions.load_recent_messages(session_id, limit=_SESSION_CONTEXT_LIMIT)
         rewritten_query = self._rewrite_query(question, prior_messages)
         retrieval_top_k = max(1, int(max(payload.top_k, runtime_settings.rag.top_k)))
         retrieval_top_k = min(retrieval_top_k, settings.retrieval_max_top_k)
@@ -445,16 +435,56 @@ class AIService:
         raw_hits = list(retrieval_result.get("results") or [])
         min_score = float(runtime_settings.rag.min_score)
         filtered_hits = [chunk for chunk in raw_hits if float(chunk.get("score") or 0.0) >= min_score]
+
+        wiki_context: dict[str, Any] = {"text": "", "pages": [], "claims": [], "evidence_chunks": []}
+        wiki_settings = runtime_settings.wiki
+        if wiki_settings.enabled and wiki_settings.chat_retrieval and payload.doc_id is None:
+            wiki_context = WikiSearchService(self.db, self.owner_id).context_for_chat(
+                rewritten_query or question,
+                query_vector=retrieval_result.get("_query_vector"),
+                page_limit=int(wiki_settings.page_limit),
+                claim_limit=int(wiki_settings.claim_limit),
+                max_chars=max(1800, int(runtime_settings.rag.max_context_chars // 2)),
+            )
+
+        # Wiki-selected evidence is materialized as real OCR chunks. Duplicate
+        # raw hits retain the best score and collect all claim/evidence IDs.
+        merged_hits: dict[Any, dict[str, Any]] = {}
+        for chunk in [*filtered_hits, *list(wiki_context.get("evidence_chunks") or [])]:
+            chunk_id = chunk.get("chunk_id")
+            if chunk_id is None:
+                continue
+            current = merged_hits.get(chunk_id)
+            if current is None:
+                merged_hits[chunk_id] = dict(chunk)
+                continue
+            current["score"] = max(float(current.get("score") or 0.0), float(chunk.get("score") or 0.0))
+            for key in ("wiki_claim_ids", "evidence_ids"):
+                current[key] = list(dict.fromkeys([*(current.get(key) or []), *(chunk.get(key) or [])]))
+        filtered_hits = list(merged_hits.values())
         doc_ids = [chunk["doc_id"] for chunk in filtered_hits]
         title_map = self._load_document_titles(doc_ids)
         for chunk in filtered_hits:
             chunk["document_title"] = title_map.get(chunk["doc_id"], "Dokument")
 
-        context_chunks, context_chars = self._select_context_chunks(
+        # Wiki claims are navigation/synthesis. Original excerpts remain the
+        # only evidence layer and are always included below.
+        wiki_text = str(wiki_context.get("text") or "")
+        max_context_chars = int(runtime_settings.rag.max_context_chars)
+        raw_context_budget = max(2000, max_context_chars - len(wiki_text)) if wiki_text else max_context_chars
+        context_chunks, _ = self._select_context_chunks(
             filtered_hits,
-            max_context_chars=int(runtime_settings.rag.max_context_chars),
+            max_context_chars=raw_context_budget,
         )
-        context_text, _ = self._render_context(context_chunks)
+        raw_context_text, _ = self._render_context(context_chunks)
+        if wiki_text:
+            context_text = (
+                "WIKI-CLAIMS (abgeleitet, versioniert und mit Originalbelegen verknüpft):\n"
+                f"{wiki_text}\n\nORIGINALAUSZÜGE (maßgeblich für Belege):\n{raw_context_text}"
+            )
+        else:
+            context_text = raw_context_text
+        context_chars = len(context_text)
         has_context = len(context_chunks) > 0
 
         doc_titles = self._extract_doc_titles(context_chunks)
@@ -481,6 +511,7 @@ class AIService:
                 "page_to": chunk.get("page_to"),
                 "score": float(chunk.get("score") or 0.0),
                 "text": str(chunk.get("text") or ""),
+                "wiki_claim_ids": list(chunk.get("wiki_claim_ids") or []),
             }
             for chunk in context_chunks
         ]
@@ -615,8 +646,19 @@ class AIService:
                 repair_pass_used=repair_pass_used,
             )
 
-        self._append_session_message(session_id, "user", question)
-        self._append_session_message(session_id, "assistant", answer)
+        knowledge_trace = {
+            "used": bool(wiki_context.get("claims")),
+            "pages": list(wiki_context.get("pages") or []),
+            "claims": list(wiki_context.get("claims") or []),
+        }
+        _, assistant_message = chat_sessions.append_exchange(
+            session_id,
+            question=question,
+            answer=answer,
+            citations=citations,
+            knowledge_trace=knowledge_trace,
+        )
+        self.db.commit()
 
         retrieval_timings = retrieval_result.get("timings") or {}
         scores = [round(float(chunk.get("score") or 0.0), 4) for chunk in filtered_hits]
@@ -663,6 +705,7 @@ class AIService:
         return {
             "answer": answer,
             "citations": citations,
+            "knowledge_trace": knowledge_trace,
             "meta": {
                 "request_id": request_id,
                 "session_id": str(session_id),
@@ -672,6 +715,8 @@ class AIService:
                 "db_ms": float(retrieval_timings.get("db_ms") or 0.0),
                 "llm_ms": round(llm_duration_ms, 2),
                 "total_ms": round(total_ms, 2),
+                "assistant_message_id": str(assistant_message.id),
+                "wiki_used": bool(wiki_context.get("claims")),
             },
             "debug": {
                 "mode": mode,

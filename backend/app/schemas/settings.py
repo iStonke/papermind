@@ -172,6 +172,7 @@ class UISettingsRead(BaseModel):
     sidebar_show_favorites: bool = True
     sidebar_show_no_text: bool = True
     sidebar_show_chat: bool = True
+    sidebar_show_dossiers: bool = True
     sidebar_sections: list[SidebarSectionConfig] = Field(default_factory=_default_sidebar_sections)
     # Max. Anzahl der Quicklinks pro Sektion in der Seitenleiste (0 = nur „Alle …").
     sidebar_max_tags: int = Field(default=5, ge=0, le=50)
@@ -204,14 +205,14 @@ class LLMSettingsRead(BaseModel):
     numeric_prompt_template: str = Field(default=NUMERIC_PROMPT_TEMPLATE_DEFAULT, min_length=50, max_length=24000)
     temperature: float = Field(default=0.15, ge=0.0, le=1.0)
     top_p: float = Field(default=0.9, ge=0.0, le=1.0)
-    max_output_tokens: int = Field(default=1200, ge=256, le=4096)
+    max_output_tokens: int = Field(default=420, ge=256, le=4096)
     embedding_model_name: str = Field(default="hash-384-v1", min_length=3, max_length=128)
 
 
 class RAGSettingsRead(BaseModel):
-    top_k: int = Field(default=8, ge=1, le=50)
+    top_k: int = Field(default=5, ge=1, le=50)
     min_score: float = Field(default=0.0, ge=0.0, le=1.0)
-    max_context_chars: int = Field(default=12000, ge=4000, le=40000)
+    max_context_chars: int = Field(default=6500, ge=4000, le=40000)
     chunk_chars: int = Field(default=4500, ge=600, le=20000)
     chunk_overlap_chars: int = Field(default=600, ge=0, le=10000)
     rerank_enabled: bool = False
@@ -258,6 +259,16 @@ class OCRSettingsRead(BaseModel):
 class QualitySettingsRead(BaseModel):
     enable_answer_checks: bool = True
     enable_self_critique: bool = False
+
+
+class WikiSettingsRead(BaseModel):
+    enabled: bool = True
+    auto_compile: bool = True
+    llm_claim_extraction: bool = True
+    chat_retrieval: bool = True
+    require_review_for_chat_capture: Literal[True] = True
+    page_limit: int = Field(default=6, ge=1, le=20)
+    claim_limit: int = Field(default=24, ge=4, le=100)
 
 
 class OllamaSettingsRead(BaseModel):
@@ -312,6 +323,7 @@ class AppSettingsRead(BaseModel):
     rag: RAGSettingsRead = Field(default_factory=RAGSettingsRead)
     ocr: OCRSettingsRead = Field(default_factory=OCRSettingsRead)
     quality: QualitySettingsRead = Field(default_factory=QualitySettingsRead)
+    wiki: WikiSettingsRead = Field(default_factory=WikiSettingsRead)
     ollama: OllamaSettingsRead = Field(default_factory=OllamaSettingsRead)
     retention: RetentionSettingsRead = Field(default_factory=RetentionSettingsRead)
     meta: SettingsMetaRead = Field(default_factory=SettingsMetaRead)
@@ -331,6 +343,7 @@ class UISettingsPatch(BaseModel):
     sidebar_show_favorites: bool | None = None
     sidebar_show_no_text: bool | None = None
     sidebar_show_chat: bool | None = None
+    sidebar_show_dossiers: bool | None = None
     sidebar_sections: list[SidebarSectionConfig] | None = None
     sidebar_max_tags: int | None = Field(default=None, ge=0, le=50)
     sidebar_max_categories: int | None = Field(default=None, ge=0, le=50)
@@ -407,6 +420,16 @@ class QualitySettingsPatch(BaseModel):
     enable_self_critique: bool | None = None
 
 
+class WikiSettingsPatch(BaseModel):
+    enabled: bool | None = None
+    auto_compile: bool | None = None
+    llm_claim_extraction: bool | None = None
+    chat_retrieval: bool | None = None
+    require_review_for_chat_capture: Literal[True] | None = None
+    page_limit: int | None = Field(default=None, ge=1, le=20)
+    claim_limit: int | None = Field(default=None, ge=4, le=100)
+
+
 class SettingsMetaPatch(BaseModel):
     version: int | None = Field(default=None, ge=1)
 
@@ -433,6 +456,7 @@ class AppSettingsPatch(BaseModel):
     rag: RAGSettingsPatch | None = None
     ocr: OCRSettingsPatch | None = None
     quality: QualitySettingsPatch | None = None
+    wiki: WikiSettingsPatch | None = None
     ollama: OllamaSettingsPatch | None = None
     retention: RetentionSettingsPatch | None = None
     meta: SettingsMetaPatch | None = None

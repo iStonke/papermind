@@ -123,9 +123,9 @@ export function buildCommands({ uiStore }) {
       id: 'nav-chat',
       group: 'nav',
       primary: true,
-      label: 'KI-Chat',
-      icon: 'mdi-robot-outline',
-      keywords: ['ki-chat', 'chat', 'ki', 'ai', 'assistent'],
+      label: 'Wissen',
+      icon: 'mdi-brain',
+      keywords: ['wissen', 'wissensbasis', 'chat', 'ki', 'ai', 'assistent'],
       run: () => uiStore.requestView('chat'),
     },
   ];

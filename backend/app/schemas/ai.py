@@ -1,7 +1,9 @@
 import uuid
+from datetime import datetime
+from enum import Enum
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
-from enum import Enum
 
 
 class AIRequestType(str, Enum):
@@ -26,6 +28,45 @@ class AICitation(BaseModel):
     page_to: int | None = None
     snippet: str
     document_title: str
+    wiki_claim_ids: list[uuid.UUID] = Field(default_factory=list)
+    evidence_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class AIKnowledgePageTrace(BaseModel):
+    page_id: uuid.UUID
+    title: str
+    kind: str
+    status: str
+    revision_id: uuid.UUID | None = None
+    score: float
+
+
+class AIKnowledgeEvidenceTrace(BaseModel):
+    evidence_id: uuid.UUID
+    document_id: uuid.UUID
+    document_title: str
+    chunk_id: uuid.UUID
+    chunk_index: int | None = None
+    page_from: int | None = None
+    page_to: int | None = None
+    quote: str
+    chunk_content_hash: str
+
+
+class AIKnowledgeClaimTrace(BaseModel):
+    claim_id: uuid.UUID
+    page_id: uuid.UUID
+    page_title: str
+    revision_id: uuid.UUID
+    status: str
+    text: str
+    evidence: list[AIKnowledgeEvidenceTrace] = Field(default_factory=list)
+
+
+class AIKnowledgeTrace(BaseModel):
+    used: bool = False
+    pages: list[AIKnowledgePageTrace] = Field(default_factory=list)
+    claims: list[AIKnowledgeClaimTrace] = Field(default_factory=list)
 
 
 class AIAskDebugRetrievalTimings(BaseModel):
@@ -92,10 +133,35 @@ class AIAskMeta(BaseModel):
     db_ms: float
     llm_ms: float
     total_ms: float
+    assistant_message_id: uuid.UUID | None = None
+    wiki_used: bool = False
 
 
 class AIAskResponse(BaseModel):
     answer: str
     citations: list[AICitation] = Field(default_factory=list)
+    knowledge_trace: AIKnowledgeTrace | None = None
     debug: AIAskDebug | None = None
     meta: AIAskMeta | None = None
+
+
+class AIChatMessageRead(BaseModel):
+    id: uuid.UUID
+    role: Literal["user", "assistant", "system"]
+    content: str
+    citations: list[dict[str, Any]] = Field(default_factory=list)
+    knowledge_trace: dict[str, Any] | None = None
+    created_at: datetime
+
+
+class AIChatSessionSummary(BaseModel):
+    session_id: uuid.UUID
+    title: str | None = None
+    message_count: int = 0
+    archived_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AIChatSessionRead(AIChatSessionSummary):
+    messages: list[AIChatMessageRead] = Field(default_factory=list)

@@ -24,6 +24,7 @@ from app.routers import (
     correspondents_router,
     dashboard_router,
     document_types_router,
+    dossiers_router,
     documents_router,
     health_router,
     import_router,
@@ -39,6 +40,7 @@ from app.routers import (
     system_router,
     tags_router,
     users_router,
+    wiki_router,
 )
 from app.services.users import UserService
 from app.services.settings import SettingsService
@@ -181,10 +183,12 @@ app.include_router(annotations_router)
 app.include_router(categories_router)
 app.include_router(correspondents_router)
 app.include_router(document_types_router)
+app.include_router(dossiers_router)
 app.include_router(jobs_router)
 app.include_router(retrieval_router)
 app.include_router(retention_router)
 app.include_router(ai_router)
+app.include_router(wiki_router)
 app.include_router(backup_router)
 app.include_router(saved_searches_router)
 app.include_router(scanners_router)

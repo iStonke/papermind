@@ -7,6 +7,7 @@ import {
   buildAutoTaggingPatch,
   buildRecentImportWindowPatch,
   buildSidebarShowFavoritesPatch,
+  buildSidebarShowDossiersPatch,
   buildSortOrderPatch,
   buildThemeModePatch,
   buildTrashRetentionPatch,
@@ -39,6 +40,12 @@ test("buildAutoOpenImportInboxPatch returns expected payload", () => {
 test("buildSidebarShowFavoritesPatch returns expected payload", () => {
   assert.deepEqual(buildSidebarShowFavoritesPatch(false), {
     ui: { sidebar_show_favorites: false },
+  });
+});
+
+test("buildSidebarShowDossiersPatch returns expected payload", () => {
+  assert.deepEqual(buildSidebarShowDossiersPatch(false), {
+    ui: { sidebar_show_dossiers: false },
   });
 });
 

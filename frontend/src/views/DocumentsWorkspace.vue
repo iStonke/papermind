@@ -163,6 +163,8 @@
         :class="{
           'workspace--rail': sidebarRailActive,
           'workspace--dashboard': activeView === 'dashboard',
+          'workspace--dossiers': isDossierRoute,
+          'workspace--wiki': isWikiRoute,
           'workspace--sidebar-transitioning': sidebarRailTransitioning,
           'workspace--sidebar-collapsing': sidebarRailTransitioning && sidebarCollapsed,
           'workspace--sidebar-expanding': sidebarRailTransitioning && !sidebarCollapsed
@@ -170,28 +172,31 @@
       >
         <AppSidebar
           :collapsed="sidebarContentCollapsed"
-          :chat-active="isChatView"
+          :chat-active="!isDossierRoute && (isChatView || isWikiRoute)"
+          :dossiers-active="isDossierRoute"
           :active-view="activeView"
           :active-saved-search-id="activeSavedSearchId"
           :active-tag-id="activeTagId"
           :is-tag-view="isTagView"
           :active-category-name="activeCategoryName"
           :is-category-view="isCategoryView"
-          @select-view="selectView"
-          @open-chat="openAiView"
-          @open-saved-search="openSavedSearch"
+          @select-view="handleSidebarViewSelect"
+          @open-chat="handleSidebarOpenAiView"
+          @open-dossiers="openDossiersFromSidebar"
+          @create-dossier="createDossierFromShell"
+          @open-saved-search="handleSidebarSavedSearch"
           @create-folder="openCreateSavedSearchDialog"
           @edit-folder="openEditSavedSearchDialog"
           @delete-folder="deleteSavedSearch"
           @empty-trash="emptyTrash"
-          @open-tags-view="openTagsView"
-          @apply-tag-filter="applyTagFilterFromSidebar"
-          @open-categories-view="openCategoriesView"
-          @apply-category-filter="applyCategoryFilterFromSidebar"
+          @open-tags-view="handleSidebarTagsView"
+          @apply-tag-filter="handleSidebarTagFilter"
+          @open-categories-view="handleSidebarCategoriesView"
+          @apply-category-filter="handleSidebarCategoryFilter"
         >
           <template #head>
             <div class="sidebar-head__top">
-              <button type="button" class="sidebar-brand" @click="selectView('all')">
+              <button type="button" class="sidebar-brand" @click="handleSidebarViewSelect('all')">
                 <span class="sidebar-brand__mark"><v-icon size="18">mdi-brain</v-icon></span>
                 <span class="sidebar-brand__name">PaperMind</span>
               </button>
@@ -217,7 +222,7 @@
                 variant="outlined"
                 :messages="searchHintMessages"
                 hide-details="auto"
-                @update:model-value="onAppBarSearchInput"
+                @update:model-value="handleSidebarSearchInput"
                 @keydown="handleSearchShortcut"
                 @click:clear="clearSearchFromInput"
               >
@@ -281,8 +286,20 @@
           </template>
         </AppSidebar>
 
+        <DossierWorkspace
+          v-if="isDossierRoute"
+          class="panel panel-dossiers"
+          embedded
+        />
+
+        <WikiWorkspace
+          v-if="isWikiRoute"
+          @open-document="openDocumentFromWiki"
+          @show-chat="setAiWorkspaceMode('chat')"
+        />
+
         <DashboardView
-          v-if="activeView === 'dashboard'"
+          v-if="!isDossierRoute && !isWikiRoute && activeView === 'dashboard'"
           class="panel panel-dashboard"
           @open-import="openImport"
           @open-scan="openImport"
@@ -295,7 +312,7 @@
         />
 
         <section
-          v-if="activeView !== 'dashboard'"
+          v-if="!isDossierRoute && !isWikiRoute && activeView !== 'dashboard'"
           class="panel panel-middle"
           :class="{ 'panel-middle--tag-filter-open': isListFilterDrawerOpen }"
           :style="listFilterDrawerOffsetStyle"
@@ -312,6 +329,56 @@
                 >{{ scopeSwitchLabel }}</button>
               </div>
               <div v-else-if="resultCountLabel" class="panel-middle__count">{{ resultCountLabel }}</div>
+            </div>
+            <div v-if="isChatView" class="panel-middle__actions panel-middle__actions--chat">
+              <v-menu
+                location="bottom end"
+                :close-on-content-click="true"
+                @update:model-value="onChatHistoryMenuToggle"
+              >
+                <template #activator="{ props: menuProps }">
+                  <v-btn
+                    v-bind="menuProps"
+                    class="list-header-viewmode"
+                    icon="mdi-clock-outline"
+                    density="comfortable"
+                    variant="text"
+                    :disabled="!aiDialogRef"
+                    aria-label="Gespeicherte Chats öffnen"
+                    title="Gespeicherte Chats"
+                  />
+                </template>
+                <v-list class="pm-menu ai-session-menu" density="compact" min-width="310" max-width="360">
+                  <v-list-subheader>Gespeicherte Chats</v-list-subheader>
+                  <v-list-item v-if="isAiChatSessionListLoading" title="Verlauf wird geladen…">
+                    <template #prepend><v-progress-circular size="16" width="2" indeterminate /></template>
+                  </v-list-item>
+                  <v-list-item v-else-if="!aiChatSessions.length" title="Noch kein gespeicherter Chat" />
+                  <template v-else>
+                    <v-list-item
+                      v-for="session in aiChatSessions"
+                      :key="session.session_id"
+                      :active="session.session_id === activeAiChatSessionId"
+                      :title="aiChatSessionTitle(session)"
+                      :subtitle="aiChatSessionSubtitle(session)"
+                      @click="openAiChatSession(session.session_id)"
+                    >
+                      <template #prepend><v-icon size="17">mdi-message-text-outline</v-icon></template>
+                    </v-list-item>
+                  </template>
+                </v-list>
+              </v-menu>
+              <v-btn
+                class="list-header-btn"
+                color="primary"
+                variant="tonal"
+                :disabled="!aiDialogRef || isAiChatBusy"
+                aria-label="Neuen Chat starten"
+                @click="startNewAiChat"
+              >
+                <v-icon size="18" class="mr-1">mdi-plus</v-icon>
+                Neuer Chat
+              </v-btn>
             </div>
             <div v-if="!isChatView && !isTagView && !isCategoryView && !isTrashView" class="panel-middle__actions">
               <v-menu location="bottom end">
@@ -396,16 +463,17 @@
             @toggle-favorite="toggleDocumentFavorite"
           />
 
-          <Transition v-else name="pm-panel">
-            <AiDialog
-              v-if="isChatView"
-              key="chat"
-              class="panel-middle__view ai-chat-view"
-              :api-base-url="apiBaseUrl"
-              @open-citation="openCitation"
-            />
+          <AiDialog
+            v-else-if="isChatView"
+            ref="aiDialogRef"
+            key="chat"
+            class="panel-middle__view ai-chat-view"
+            :api-base-url="apiBaseUrl"
+            @open-citation="openCitation"
+          />
 
-            <div v-else-if="isTagView" key="tags" class="panel-middle__view tags-view">
+          <Transition v-else name="pm-panel">
+            <div v-if="isTagView" key="tags" class="panel-middle__view tags-view">
               <ListActionToolbar
                 :actions="tagToolbarActions"
                 :right-actions="tagToolbarRightActions"
@@ -746,11 +814,11 @@
           />
         </section>
 
-        <section v-if="activeView !== 'dashboard'" class="panel panel-right">
+        <section v-if="!isDossierRoute && !isWikiRoute && activeView !== 'dashboard'" class="panel panel-right">
           <DocumentPreviewLayout
             class="panel-right__preview panel-right__preview--card-drawer"
             :style="detailsDrawerCardStyle"
-            :show-drawer="!isTagView && !isCategoryView && Boolean(selectedDocumentDetail)"
+            :show-drawer="!isTagView && !isCategoryView && Boolean(selectedDocumentDetail) && (!isChatView || chatPreviewVisible)"
             :is-open="isDetailsDrawerOpen"
             :auto-hide-drawer="autoHideDetailsDrawer"
             floating-card
@@ -962,9 +1030,19 @@
 
               </div>
               <div
-                v-else-if="selectedDocumentId"
+                v-else-if="selectedDocumentId && (!isChatView || chatPreviewVisible)"
                 class="preview-frame-wrap"
               >
+                <button
+                  v-if="isChatView"
+                  type="button"
+                  class="chat-preview-close"
+                  title="Vorschau schließen"
+                  @click="clearChatPreview"
+                >
+                  <v-icon size="16">mdi-close</v-icon>
+                  Schließen
+                </button>
                 <PdfPreview
                   ref="panePreviewRef"
                   :key="previewRenderKey"
@@ -986,6 +1064,67 @@
                   @request-link="onRequestLink"
                   @request-comment="onRequestCommentAnnotation"
                 />
+              </div>
+              <div v-else-if="isChatView" class="knowledge-home">
+                <KnowledgeStage
+                  v-if="hasKnowledgeSnapshot"
+                  :knows="wikiSnapshotOverview"
+                  :prompts="stagePrompts"
+                  :attention="wikiAttention"
+                  @ask="askKnowledgeExample"
+                  @open-knowledge="openKnowledgeArea"
+                  @refresh="refreshStagePrompts"
+                />
+
+                <div v-else class="knowledge-examples">
+                <div class="knowledge-examples__content">
+                  <div class="knowledge-examples__visual" aria-hidden="true">
+                    <span class="knowledge-examples__orbit knowledge-examples__orbit--outer">
+                      <i></i><i></i><i></i>
+                    </span>
+                    <span class="knowledge-examples__orbit knowledge-examples__orbit--inner"></span>
+                    <span class="knowledge-examples__core">
+                      <v-icon size="28">mdi-brain</v-icon>
+                    </span>
+                  </div>
+                  <div class="knowledge-examples__heading">
+                    <div>
+                      <div class="knowledge-examples__eyebrow">Wissen</div>
+                      <div class="knowledge-examples__title">Was möchtest du finden?</div>
+                    </div>
+                    <v-btn
+                      icon="mdi-refresh"
+                      size="small"
+                      variant="text"
+                      aria-label="Andere Beispielfragen anzeigen"
+                      title="Andere Beispiele"
+                      @click="refreshKnowledgeExamples"
+                    />
+                  </div>
+                  <div class="knowledge-examples__grid">
+                    <button
+                      v-for="(example, index) in knowledgeExampleQuestions"
+                      :key="`${knowledgeExamplesRevision}-${example.key}`"
+                      type="button"
+                      class="knowledge-examples__question"
+                      :class="`knowledge-examples__question--${example.tone}`"
+                      :style="{ '--example-index': index }"
+                      :aria-label="example.prompt"
+                      :title="example.prompt"
+                      @click="askKnowledgeExample(example.prompt)"
+                    >
+                      <span class="knowledge-examples__question-icon" aria-hidden="true">
+                        <v-icon size="22">{{ example.icon }}</v-icon>
+                      </span>
+                      <span class="knowledge-examples__question-copy">
+                        <small>{{ example.eyebrow }}</small>
+                        <strong>{{ example.label }}</strong>
+                      </span>
+                      <v-icon class="knowledge-examples__question-arrow" size="17">mdi-arrow-top-right</v-icon>
+                    </button>
+                  </div>
+                </div>
+                </div>
               </div>
               <PmEmptyState
                 v-else
@@ -1390,6 +1529,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useTheme } from 'vuetify';
 import BaseDialog from '../components/BaseDialog.vue';
 import PmEmptyState from '../components/PmEmptyState.vue';
+import KnowledgeStage from '../components/KnowledgeStage.vue';
 import DocumentPreviewLayout from '../components/DocumentPreviewLayout.vue';
 import NotificationStack from '../components/NotificationStack.vue';
 import AppSidebar from '../components/AppSidebar.vue';
@@ -1398,6 +1538,7 @@ import ActivityIndicator from '../components/ActivityIndicator.vue';
 import DocumentListPanel from '../components/DocumentListPanel.vue';
 import DocumentTimeline from '../components/DocumentTimeline.vue';
 import DocumentCalendar from '../components/DocumentCalendar.vue';
+import AiDialog from '../components/AiDialog.vue';
 import ListActionToolbar from '../components/ListActionToolbar.vue';
 import BatchActionsBar from '../components/BatchActionsBar.vue';
 import DestructiveDialog from '../components/DestructiveDialog.vue';
@@ -1415,8 +1556,9 @@ const DeleteDocumentDialog = defineAsyncComponent(() => import('../components/De
 const ImportStagingDialog = defineAsyncComponent(() => import('../components/ImportStagingDialog.vue'));
 const BatchTagDialog = defineAsyncComponent(() => import('../components/BatchTagDialog.vue'));
 const SmartFolderEditor = defineAsyncComponent(() => import('../components/SmartFolderEditor.vue'));
-const AiDialog = defineAsyncComponent(() => import('../components/AiDialog.vue'));
 const DashboardView = defineAsyncComponent(() => import('./DashboardView.vue'));
+const DossierWorkspace = defineAsyncComponent(() => import('./DossierWorkspace.vue'));
+const WikiWorkspace = defineAsyncComponent(() => import('./WikiWorkspace.vue'));
 import { mapApiError, notifyError, logDevError, useNotifications } from '../stores/notifications';
 import { useSettingsStore } from '../stores/settings';
 import { useUiStore } from '../stores/ui';
@@ -1425,6 +1567,9 @@ import { useTagStore } from '../stores/tags';
 import { useCategoryStore } from '../stores/categories';
 import { useCorrespondentStore } from '../stores/correspondents';
 import { useSidebarStore } from '../stores/sidebar';
+import { useDossierStore } from '../stores/dossiers';
+import { DEFAULT_DOSSIER_TITLE } from '../utils/dossierDraft.js';
+import { requestDossierSidebarEntryAnimation } from '../utils/dossierEntryAnimation.js';
 import { useImportStagingStore } from '../stores/importStaging';
 import { useAnnotationStore } from '../stores/annotations';
 import {
@@ -1455,6 +1600,7 @@ import { useAuthStore } from '../stores/auth';
 import { assignImportInboxItems, claimImportInboxItems, discardImportInboxItems, getImportInbox, subscribeImportInbox } from '../api/importInbox.js';
 import { cancelScan, triggerScan } from '../api/scanners.js';
 import { logSearchEvent } from '../api/searchEvents.js';
+import { getWikiOverview, listWikiPages } from '../api/wiki.js';
 
 const PdfPreview = defineAsyncComponent(() => import('../components/PdfPreview.vue'));
 const DocumentReader = defineAsyncComponent(() => import('../components/DocumentReader.vue'));
@@ -1720,6 +1866,17 @@ const tagStore     = useTagStore();
 const categoryStore = useCategoryStore();
 const correspondentStore = useCorrespondentStore();
 const sidebarStore = useSidebarStore();
+const dossierStore = useDossierStore();
+const dossierQuickColors = ['#3b8f83', '#3976a8', '#7963a7', '#ae6a43', '#9b4d64', '#65736f'];
+async function createDossierFromShell() {
+  try {
+    const color = dossierQuickColors[Math.floor(Math.random() * dossierQuickColors.length)];
+    const created = await dossierStore.add({ title: DEFAULT_DOSSIER_TITLE, state: 'active', color });
+    router.push({ name: 'dossier-board', params: { dossierId: created.id }, query: { draft: '1' } });
+  } catch (error) {
+    notifyError(error, 'Leuchttisch konnte nicht angelegt werden.');
+  }
+}
 const importStagingStore = useImportStagingStore();
 const annotationStore = useAnnotationStore();
 
@@ -1826,7 +1983,254 @@ function onUpdateAnnotation(annotationId, patch) {
 // ── Lesemodus (Vollbild-Reader) ──────────────────────────────────────────────
 const route = useRoute();
 const router = useRouter();
+const isDossierRoute = computed(() => route.name === 'dossiers' || route.name === 'dossier-board');
+const isWikiRoute = computed(() => route.name === 'wiki');
+function openDossiersFromSidebar(status) {
+  if (route.name !== 'dossiers') requestDossierSidebarEntryAnimation();
+  router.push({ name: 'dossiers', query: status && status !== 'all' ? { status } : {} });
+}
+async function setAiWorkspaceMode(mode) {
+  if (mode === 'knowledge') {
+    if (settingsStore.settings.wiki?.enabled === false || route.name === 'wiki') return;
+    await router.push({ name: 'wiki' });
+    return;
+  }
+  if (route.name === 'wiki') await router.push({ name: 'documents' });
+  selectView('chat');
+}
+async function openDocumentFromWiki(documentId) {
+  if (!documentId) return;
+  await router.push({ name: 'documents' });
+  selectView('all');
+  await selectDocument(String(documentId));
+}
 const panePreviewRef = ref(null);
+
+// Wissen blendet die Vorschau erst ein, wenn eine Quelle aus einer Antwort
+// geöffnet wird. Die persistierte Dokumentauswahl bleibt davon unberührt.
+const chatPreviewVisible = ref(false);
+const aiDialogRef = ref(null);
+const aiChatSessions = computed(() => {
+  const sessions = aiDialogRef.value?.chatSessions;
+  return Array.isArray(sessions) ? sessions : [];
+});
+const isAiChatSessionListLoading = computed(() => Boolean(aiDialogRef.value?.isLoadingSessions));
+const isAiChatBusy = computed(() => Boolean(aiDialogRef.value?.isAiAsking));
+const activeAiChatSessionId = computed(() => String(aiDialogRef.value?.aiSessionId || ''));
+
+function onChatHistoryMenuToggle(open) {
+  aiDialogRef.value?.onHistoryMenuToggle?.(open);
+}
+
+function openAiChatSession(sessionId) {
+  aiDialogRef.value?.openSavedSession?.(sessionId);
+}
+
+function startNewAiChat() {
+  aiDialogRef.value?.startNewChat?.();
+}
+
+function aiChatSessionTitle(session) {
+  return String(session?.title || '').trim() || 'Unbenannter Chat';
+}
+
+function aiChatSessionSubtitle(session) {
+  const count = Number(session?.message_count || 0);
+  const dateValue = session?.updated_at ? new Date(session.updated_at) : null;
+  const date = dateValue && Number.isFinite(dateValue.getTime())
+    ? new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'short' }).format(dateValue)
+    : '';
+  return `${count} ${count === 1 ? 'Nachricht' : 'Nachrichten'}${date ? ` · ${date}` : ''}`;
+}
+const KNOWLEDGE_EXAMPLE_COUNT = 4;
+const KNOWLEDGE_EXAMPLE_POOL = [
+  { key: 'deadlines', eyebrow: 'Zeit', label: 'Fristen & Termine', prompt: 'Welche Fristen und Termine stehen in meinen Dokumenten?', icon: 'mdi-calendar-range', tone: 'aqua' },
+  { key: 'contracts', eyebrow: 'Verträge', label: 'Laufzeiten prüfen', prompt: 'Welche Verträge laufen bald aus?', icon: 'mdi-lock-check-outline', tone: 'blue' },
+  { key: 'payments', eyebrow: 'Finanzen', label: 'Zahlungsdaten', prompt: 'Wo finde ich Bankverbindungen oder Zahlungsdaten?', icon: 'mdi-shield-lock-outline', tone: 'violet' },
+  { key: 'recent', eyebrow: 'Neu', label: 'Letzte Dokumente', prompt: 'Fasse meine zuletzt hinzugefügten Dokumente zusammen.', icon: 'mdi-folder-clock-outline', tone: 'amber' },
+  { key: 'insurance', eyebrow: 'Schutz', label: 'Versicherungen', prompt: 'Welche Versicherungen habe ich dokumentiert?', icon: 'mdi-shield-check-outline', tone: 'aqua' },
+  { key: 'amounts', eyebrow: 'Rechnungen', label: 'Beträge & Zahlungen', prompt: 'Welche Beträge und Zahlungen tauchen in meinen Rechnungen auf?', icon: 'mdi-file-document-multiple-outline', tone: 'blue' },
+  { key: 'tax', eyebrow: 'Steuern', label: 'Relevante Belege', prompt: 'Welche Dokumente sind für die nächste Steuererklärung relevant?', icon: 'mdi-calendar-outline', tone: 'violet' },
+  { key: 'conflicts', eyebrow: 'Prüfung', label: 'Widersprüche', prompt: 'Gibt es widersprüchliche Angaben zwischen meinen Dokumenten?', icon: 'mdi-alert-circle-outline', tone: 'amber' },
+  { key: 'senders', eyebrow: 'Kontakte', label: 'Häufige Absender', prompt: 'Welche Absender kommen in meinen Dokumenten besonders häufig vor?', icon: 'mdi-account-group-outline', tone: 'aqua' },
+  { key: 'privacy', eyebrow: 'Datenschutz', label: 'Vertrauliche Daten', prompt: 'Welche Dokumente enthalten personenbezogene oder vertrauliche Daten?', icon: 'mdi-shield-lock-outline', tone: 'blue' },
+  { key: 'versions', eyebrow: 'Historie', label: 'Änderungen', prompt: 'Was hat sich zwischen verschiedenen Dokumentversionen geändert?', icon: 'mdi-timeline-text-outline', tone: 'violet' },
+  { key: 'obligations', eyebrow: 'Verträge', label: 'Pflichten erkennen', prompt: 'Welche Verpflichtungen ergeben sich aus meinen Verträgen?', icon: 'mdi-check-circle-outline', tone: 'amber' },
+  { key: 'tasks', eyebrow: 'Aufgaben', label: 'Offene Punkte', prompt: 'Welche offenen Aufgaben lassen sich aus meinen Dokumenten ableiten?', icon: 'mdi-checkbox-multiple-outline', tone: 'aqua' },
+  { key: 'year', eyebrow: 'Zeitraum', label: 'Aktuelles Jahr', prompt: 'Zeige mir wichtige Belege aus dem aktuellen Jahr.', icon: 'mdi-calendar-month-outline', tone: 'blue' },
+];
+const knowledgeExampleQuestions = ref(KNOWLEDGE_EXAMPLE_POOL.slice(0, KNOWLEDGE_EXAMPLE_COUNT));
+const knowledgeExamplesRevision = ref(0);
+let previousKnowledgeExampleSignature = '';
+
+function shuffledKnowledgeExamples(values) {
+  const result = [...values];
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
+  }
+  return result;
+}
+
+function knowledgeExamplePool() {
+  const categoryQuestions = sortedCategories.value
+    .filter((category) => category?.is_active !== false && String(category?.name || '').trim())
+    .slice(0, 8)
+    .map((category, index) => {
+      const name = String(category.name).trim();
+      return {
+        key: `category:${category.id || name}`,
+        eyebrow: 'Dokumenttyp',
+        label: name,
+        prompt: `Was steht in meinen Dokumenten vom Typ „${name}“?`,
+        icon: 'mdi-shape-outline',
+        tone: ['aqua', 'blue', 'violet', 'amber'][index % 4],
+      };
+    });
+  const tagQuestions = tags.value
+    .filter((tag) => Number(tag?.usage_count || 0) > 0 && String(tag?.name || '').trim())
+    .slice(0, 8)
+    .map((tag, index) => {
+      const name = String(tag.name).trim();
+      return {
+        key: `tag:${tag.id || name}`,
+        eyebrow: 'Tag',
+        label: name,
+        prompt: `Was finde ich zum Thema „${name}“?`,
+        icon: 'mdi-tag-outline',
+        tone: ['violet', 'amber', 'aqua', 'blue'][index % 4],
+      };
+    });
+  return [...new Map(
+    [...categoryQuestions, ...tagQuestions, ...KNOWLEDGE_EXAMPLE_POOL]
+      .map((example) => [example.key, example])
+  ).values()];
+}
+
+function refreshKnowledgeExamples() {
+  const pool = shuffledKnowledgeExamples(knowledgeExamplePool());
+  const nextQuestions = pool.slice(0, KNOWLEDGE_EXAMPLE_COUNT);
+  const signature = nextQuestions.map((example) => example.key).sort().join('\n');
+  if (signature === previousKnowledgeExampleSignature && pool.length > KNOWLEDGE_EXAMPLE_COUNT) {
+    nextQuestions[nextQuestions.length - 1] = pool[KNOWLEDGE_EXAMPLE_COUNT];
+  }
+  knowledgeExampleQuestions.value = nextQuestions;
+  previousKnowledgeExampleSignature = nextQuestions.map((example) => example.key).sort().join('\n');
+  knowledgeExamplesRevision.value += 1;
+}
+
+function askKnowledgeExample(question) {
+  aiDialogRef.value?.askQuestion?.(question);
+}
+
+// ── Rechte Chat-Vorschau: kompakter Wissens-Überblick (echte Daten) ────────────
+const WIKI_KIND_META = {
+  entity: { label: 'Beteiligte', icon: 'mdi-account-outline' },
+  contract: { label: 'Vorgang', icon: 'mdi-file-sign' },
+  topic: { label: 'Thema', icon: 'mdi-tag-outline' },
+  timeline: { label: 'Zeitachse', icon: 'mdi-timeline-text-outline' },
+  comparison: { label: 'Vergleich', icon: 'mdi-source-merge' },
+  source: { label: 'Dokument', icon: 'mdi-file-document-outline' },
+  analysis: { label: 'Notiz', icon: 'mdi-robot-outline' },
+};
+function wikiKindLabel(kind) { return WIKI_KIND_META[kind]?.label || 'Wissen'; }
+function wikiKindIcon(kind) { return WIKI_KIND_META[kind]?.icon || 'mdi-note-outline'; }
+
+const wikiSnapshotOverview = ref({ active_claims: 0, source_coverage: 0, source_total: 0, pending_proposals: 0, disputed_claims: 0, stale_claims: 0 });
+const wikiSnapshotPages = ref([]);
+const wikiSnapshotLoaded = ref(false);
+let loadingWikiSnapshot = false;
+
+async function loadKnowledgeSnapshot({ force = false } = {}) {
+  if (loadingWikiSnapshot) return;
+  if (wikiSnapshotLoaded.value && !force) return;
+  loadingWikiSnapshot = true;
+  try {
+    const [overview, pages] = await Promise.all([
+      getWikiOverview(),
+      listWikiPages({ limit: 24, offset: 0 }),
+    ]);
+    wikiSnapshotOverview.value = overview || wikiSnapshotOverview.value;
+    wikiSnapshotPages.value = (pages?.items || []).filter((page) => (page.active_claim_count || 0) > 0);
+    wikiSnapshotLoaded.value = true;
+    buildStagePrompts();
+  } catch {
+    // Stiller Fallback: ohne Wissens-Daten bleibt die Beispielfragen-Bühne aktiv.
+  } finally {
+    loadingWikiSnapshot = false;
+  }
+}
+
+// Top-Seiten: Themen/Beteiligte/Vorgänge zuerst (nicht einzelne Dokumente),
+// nach Faktenzahl absteigend.
+const wikiTopPages = computed(() => {
+  const priority = { entity: 0, contract: 1, topic: 1, timeline: 2, comparison: 2, analysis: 3, source: 4 };
+  return [...wikiSnapshotPages.value]
+    .sort((a, b) => (priority[a.kind] ?? 5) - (priority[b.kind] ?? 5) || (b.active_claim_count || 0) - (a.active_claim_count || 0))
+    .slice(0, 6);
+});
+const hasKnowledgeSnapshot = computed(() => wikiTopPages.value.length > 0);
+const wikiAttention = computed(() => {
+  const data = wikiSnapshotOverview.value || {};
+  const items = [];
+  if (data.pending_proposals) items.push({ key: 'proposals', tone: 'warn', count: data.pending_proposals, label: 'Zu prüfen', hint: 'Vorschläge warten auf Bestätigung' });
+  if (data.disputed_claims) items.push({ key: 'disputed', tone: 'bad', count: data.disputed_claims, label: 'Widersprüche', hint: 'Fakten stehen im Konflikt' });
+  if (data.stale_claims) items.push({ key: 'stale', tone: 'warn', count: data.stale_claims, label: 'Veraltete Belege', hint: 'Quelle hat sich geändert' });
+  return items;
+});
+
+function wikiPagePrompt(page) {
+  return page.kind === 'topic' || page.kind === 'timeline'
+    ? `Fasse alles zusammen, was du zu „${page.title}“ weißt.`
+    : `Was weißt du über „${page.title}“?`;
+}
+function askAboutWikiPage(page) {
+  askKnowledgeExample(wikiPagePrompt(page));
+}
+
+// Prompt-Set für die animierte Wissens-Bühne: echte Top-Seiten zuerst, danach
+// kuratierte Beispiele auffüllen (max. 5).
+const STAGE_TONES = ['aqua', 'blue', 'violet', 'amber'];
+const STAGE_PAGE_PRIORITY = { entity: 0, contract: 1, topic: 1, timeline: 2, comparison: 2, analysis: 3, source: 4 };
+
+// Gesamter Pool für die Bühne: alle befüllten Wissensseiten + kuratierte/aus Tags
+// & Dokumenttypen abgeleitete Beispiele. „Andere Vorschläge" mischt daraus neu.
+function buildStagePool() {
+  const pageBased = [...wikiSnapshotPages.value]
+    .sort((a, b) => (STAGE_PAGE_PRIORITY[a.kind] ?? 5) - (STAGE_PAGE_PRIORITY[b.kind] ?? 5) || (b.active_claim_count || 0) - (a.active_claim_count || 0))
+    .map((page, index) => ({
+      key: `page:${page.id}`,
+      eyebrow: wikiKindLabel(page.kind),
+      label: page.title,
+      icon: wikiKindIcon(page.kind),
+      tone: STAGE_TONES[index % STAGE_TONES.length],
+      prompt: wikiPagePrompt(page),
+    }));
+  return [...new Map(
+    [...pageBased, ...knowledgeExamplePool()].map((prompt) => [prompt.key, prompt]),
+  ).values()];
+}
+
+const stagePrompts = ref([]);
+function buildStagePrompts({ shuffle = false } = {}) {
+  const pool = buildStagePool();
+  const ordered = shuffle ? shuffledKnowledgeExamples(pool) : pool;
+  // Töne nach Anzeigereihenfolge neu vergeben, damit die Farbwirkung stabil bleibt.
+  stagePrompts.value = ordered.slice(0, 5).map((prompt, index) => ({ ...prompt, tone: STAGE_TONES[index % STAGE_TONES.length] }));
+}
+function refreshStagePrompts() {
+  buildStagePrompts({ shuffle: true });
+}
+function openKnowledgeArea(target) {
+  router.push({ name: 'wiki', query: target === 'review' ? { tab: 'review' } : {} });
+}
+
+function clearChatPreview() {
+  previewTargetPage.value = null;
+  previewHighlightText.value = '';
+  chatPreviewVisible.value = false;
+}
+
 const isReaderOpen = ref(false);
 const readerStartPage = ref(null);
 const readerEditAnnotationId = ref(null);
@@ -2728,6 +3132,16 @@ const headerMenuActions = computed(() => {
 const isTagView       = computed(() => activeView.value === 'tags');
 const isCategoryView  = computed(() => activeView.value === 'categories');
 const isChatView      = computed(() => activeView.value === 'chat');
+
+// Beim Betreten von Wissen bleibt die rechte Seite ruhig, bis eine Quelle aus
+// einer Antwort geöffnet wird.
+watch(isChatView, (active) => {
+  if (active) {
+    chatPreviewVisible.value = false;
+    refreshKnowledgeExamples();
+    void loadKnowledgeSnapshot();
+  }
+});
 const activeCategoryName = computed(() => documentListQuery.documentType || null);
 const isImportsView   = computed(() => activeView.value === 'imports');
 const isUntaggedView  = computed(() => activeView.value === 'untagged');
@@ -3514,6 +3928,7 @@ const panelHeading = computed(() => {
   }
   const labels = {
     all: 'Alle Dokumente',
+    chat: 'Wissen',
     imports: 'Zuletzt hinzugefügt',
     untagged: 'Ohne Tags',
     favorites: 'Favoriten',
@@ -4391,6 +4806,47 @@ function openAiView() {
   selectView('chat');
 }
 
+function leaveDossierRoute() {
+  if (isDossierRoute.value || isWikiRoute.value) {
+    void router.push({ name: 'documents' });
+  }
+}
+
+function handleSidebarViewSelect(viewKey) {
+  leaveDossierRoute();
+  selectView(viewKey);
+}
+
+function handleSidebarOpenAiView() {
+  leaveDossierRoute();
+  openAiView();
+}
+
+function handleSidebarSavedSearch(savedSearchId) {
+  leaveDossierRoute();
+  void openSavedSearch(savedSearchId);
+}
+
+function handleSidebarTagsView() {
+  leaveDossierRoute();
+  openTagsView();
+}
+
+function handleSidebarTagFilter(tagId) {
+  leaveDossierRoute();
+  applyTagFilterFromSidebar(tagId);
+}
+
+function handleSidebarCategoriesView() {
+  leaveDossierRoute();
+  openCategoriesView();
+}
+
+function handleSidebarCategoryFilter(categoryName) {
+  leaveDossierRoute();
+  applyCategoryFilterFromSidebar(categoryName);
+}
+
 function openLibraryView() {
   leaveActiveSavedSearch();
   selectView('all');
@@ -4984,6 +5440,30 @@ async function openCitation(citation) {
   if (!closeDetailsDrawerWithGuard()) {
     return;
   }
+
+  const primaryPage =
+    Number(citation?.page_from) > 0
+      ? Number(citation.page_from)
+      : Number(citation?.page_to) > 0
+        ? Number(citation.page_to)
+        : null;
+  previewTargetPage.value    = primaryPage;
+  previewHighlightText.value = String(citation?.snippet || '').trim();
+
+  // In Wissen bleibt die Ansicht erhalten: Der Treffer öffnet sich rechts in
+  // der Vorschau, der Gesprächsverlauf bleibt in der mittleren Spalte stehen.
+  // Die Vorschau hängt nur an selectedDocumentId, nicht an der Dokumentenliste,
+  // daher ist kein Wechsel in die Listenansicht nötig.
+  if (isChatView.value) {
+    chatPreviewVisible.value = true;
+    try {
+      await selectDocument(documentId, { preserveTargetPage: true });
+    } catch (error) {
+      notifyError(error, 'Quelle konnte nicht geöffnet werden.', { title: 'Wissen' });
+    }
+    return;
+  }
+
   leaveActiveSavedSearch();
   activeView.value = 'all';
   searchText.value = '';
@@ -5001,20 +5481,11 @@ async function openCitation(citation) {
     offset: 0
   });
 
-  const primaryPage =
-    Number(citation?.page_from) > 0
-      ? Number(citation.page_from)
-      : Number(citation?.page_to) > 0
-        ? Number(citation.page_to)
-        : null;
-  previewTargetPage.value    = primaryPage;
-  previewHighlightText.value = String(citation?.snippet || '').trim();
-
   try {
     await fetchDocuments(null, { autoSelectFirst: false });
     await selectDocument(documentId, { preserveTargetPage: true });
   } catch (error) {
-    notifyError(error, 'Quelle konnte nicht geöffnet werden.', { title: 'KI' });
+    notifyError(error, 'Quelle konnte nicht geöffnet werden.', { title: 'Wissen' });
   }
 }
 
@@ -6978,6 +7449,27 @@ function openDocumentFromDashboard(documentId) {
   void selectDocument(documentId);
 }
 
+/** Dokument aus einem Leuchttisch direkt im bestehenden Lesemodus öffnen. */
+async function openDocumentReaderFromWorkspace(documentId) {
+  if (!documentId) return;
+  const targetId = String(documentId);
+
+  if (selectedDocumentId.value !== targetId) {
+    await selectDocument(targetId);
+  } else if (selectedDocumentDetail.value?.id !== targetId) {
+    try {
+      await fetchDocumentDetail(targetId, { forceApplyMetadata: true });
+    } catch (error) {
+      notifyError(error, 'Dokumentdetails konnten nicht geladen werden.');
+      return;
+    }
+  }
+
+  if (selectedDocumentId.value !== targetId || selectedDocumentDetail.value?.id !== targetId) return;
+  await nextTick();
+  openReader();
+}
+
 /** Suchbegriff aus dem Dashboard übernehmen: in die Liste wechseln und suchen. */
 function runSearchFromDashboard(term) {
   const value = String(term || '').trim();
@@ -7762,6 +8254,7 @@ watch(() => uiStore.workspaceRequestSignal, () => {
   if (!req) return;
   switch (req.type) {
     case 'openDocument': openDocumentFromDashboard(req.payload); break;
+    case 'openDocumentReader': void openDocumentReaderFromWorkspace(req.payload); break;
     case 'search': runSearchFromDashboard(req.payload); break;
     case 'tagFilter': applyTagFilterFromSidebar(req.payload); break;
     case 'typeFilter': applyCategoryFilterFromSidebar(req.payload); break;
@@ -8438,6 +8931,12 @@ const {
   fetchDocuments,
   resolveToolbarStatus
 });
+
+function handleSidebarSearchInput(value) {
+  leaveDossierRoute();
+  onAppBarSearchInput(value);
+}
+
 const searchScopeOptions = SEARCH_SCOPE_OPTIONS;
 const activeSearchScopeLabel = computed(
   () => searchScopeOptions.find((option) => option.value === searchScope.value)?.label || 'Alles'
@@ -9069,74 +9568,46 @@ onBeforeUnmount(() => {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto 1fr;
-  gap: 10px;
-  padding: 12px;
-  background: rgba(var(--v-theme-background), 0.98);
-}
-
-.ai-suggestions {
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
-  border-radius: 12px;
-  background: rgba(var(--v-theme-surface), 0.92);
-  padding: 12px;
-}
-
-.ai-section-title {
-  font-size: 0.76rem;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  opacity: 0.72;
-  font-weight: 700;
-  margin-bottom: 10px;
-}
-
-.ai-suggestions__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 8px;
-}
-
-.ai-suggestion-card {
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
-  border-radius: 10px;
-  background: rgba(var(--v-theme-surface), 0.7);
-  color: inherit;
-  padding: 10px 12px;
-  min-height: 56px;
-  text-align: left;
-  font-size: 0.84rem;
-  line-height: 1.35;
-  cursor: pointer;
-  transition: background-color 0.15s ease-out, border-color 0.15s ease-out;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.ai-suggestion-card:hover {
-  background: rgba(var(--v-theme-primary), 0.08);
-  border-color: rgba(var(--v-theme-primary), 0.28);
+  grid-template-rows: 1fr;
+  color: var(--pm-text);
+  background: var(--pm-content-surface);
 }
 
 .ai-chat-panel {
+  position: relative;
   min-height: 0;
   display: grid;
-  grid-template-rows: 1fr auto;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
-  border-radius: 12px;
-  background: rgba(var(--v-theme-surface), 0.92);
+  grid-template-rows: 1fr;
+  background: transparent;
   overflow: hidden;
+}
+
+.ai-chat-panel::after {
+  position: absolute;
+  z-index: 1;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 150px;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    color-mix(in srgb, var(--pm-content-surface) 16%, transparent) 18%,
+    color-mix(in srgb, var(--pm-content-surface) 42%, transparent) 38%,
+    color-mix(in srgb, var(--pm-content-surface) 74%, transparent) 64%,
+    color-mix(in srgb, var(--pm-content-surface) 92%, transparent) 100%
+  );
+  content: '';
 }
 
 .ai-chat-history {
   min-height: 0;
   overflow: auto;
-  padding: 14px;
+  padding: 18px 18px 128px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 18px;
 }
 
 .ai-chat-empty {
@@ -9148,34 +9619,96 @@ onBeforeUnmount(() => {
   justify-content: center;
   text-align: center;
   gap: 8px;
-  opacity: 0.82;
+  color: var(--pm-muted);
 }
 
 .ai-chat-empty__icon {
-  opacity: 0.66;
+  color: var(--pm-muted);
+  opacity: 0.78;
 }
 
 .ai-chat-empty__title {
   font-weight: 600;
+  color: var(--pm-text);
 }
 
 .ai-chat-empty__subtitle {
   max-width: 440px;
   font-size: 0.84rem;
   line-height: 1.45;
-  opacity: 0.76;
+  color: var(--pm-muted);
 }
 
+/* ── Nachrichten (Variante A: Rollen-Label, Assistenz-Avatar, Bubbles) ── */
 .ai-message {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  animation: pmRise 0.34s cubic-bezier(0.22, 0.7, 0.24, 1) both;
+}
+
+.ai-message__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pm-muted);
+}
+
+.ai-message__meta-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgb(var(--v-theme-primary));
+}
+
+.ai-message--user .ai-message__meta {
+  align-self: flex-end;
+}
+
+.ai-message__row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.ai-message--user .ai-message__row {
+  justify-content: flex-end;
+}
+
+.ai-avatar {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.12);
+  border: 1px solid rgba(var(--v-theme-primary), 0.32);
+}
+
+.ai-message__body {
+  min-width: 0;
   display: grid;
   gap: 8px;
 }
 
+.ai-message--user .ai-message__body {
+  justify-items: end;
+}
+
 .ai-message__bubble {
   border-radius: 12px;
-  padding: 10px 12px;
+  padding: 10px 13px;
   font-size: 0.9rem;
-  line-height: 1.45;
+  line-height: 1.55;
   white-space: pre-wrap;
 }
 
@@ -9186,96 +9719,623 @@ onBeforeUnmount(() => {
 }
 
 .ai-message--user .ai-message__bubble {
-  justify-self: end;
-  max-width: min(760px, 92%);
+  max-width: min(760px, 100%);
+  border-radius: 12px 12px 4px 12px;
   background: rgba(var(--v-theme-primary), 0.1);
-  border: 1px solid rgba(var(--v-theme-primary), 0.22);
+  border: 1px solid rgba(var(--v-theme-primary), 0.24);
 }
 
 .ai-message--assistant .ai-message__bubble {
-  justify-self: start;
-  max-width: min(900px, 96%);
-  background: rgba(var(--v-theme-surface), 0.62);
+  max-width: min(900px, 100%);
+  border-radius: 12px 12px 12px 4px;
+  background: color-mix(in srgb, var(--pm-app-surface-raised) 72%, var(--pm-viewer-surface));
   border: 1px solid var(--pm-divider);
 }
 
 .ai-sources {
   display: grid;
-  gap: 8px;
-}
-
-.ai-sources__divider {
-  height: 1px;
-  background: var(--pm-divider);
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--pm-divider);
+  border-radius: 12px;
+  background: rgba(var(--v-theme-surface), 0.55);
 }
 
 .ai-sources__label {
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
+  padding: 2px 4px 4px;
+  font-size: 0.66rem;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
-  opacity: 0.68;
+  opacity: 0.66;
   font-weight: 700;
 }
 
 .ai-citation-card {
-  border: 1px solid var(--pm-divider);
-  border-radius: 12px;
-  padding: 10px 12px;
-  background: rgba(var(--v-theme-surface-variant), 0.32);
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  padding: 7px 9px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
   display: grid;
   grid-template-columns: auto 1fr auto;
-  align-items: start;
+  align-items: center;
   gap: 10px;
+  transition: background-color 0.15s ease-out, border-color 0.15s ease-out;
 }
 
-.ai-citation-card__left {
-  width: 18px;
-  min-width: 18px;
-  opacity: 0.8;
-  padding-top: 2px;
+.ai-citation-card:hover {
+  background: rgba(var(--v-theme-primary), 0.07);
+  border-color: rgba(var(--v-theme-primary), 0.24);
+}
+
+.ai-citation-card__thumb {
+  width: 17px;
+  height: 21px;
+  border-radius: 3px;
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  border: 1px solid var(--pm-divider);
+  flex: none;
 }
 
 .ai-citation-card__content {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .ai-citation-card__title {
-  font-size: 0.83rem;
-  font-weight: 700;
+  font-size: 0.82rem;
+  font-weight: 600;
   line-height: 1.3;
+  color: rgb(var(--v-theme-primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ai-citation-card__meta {
   margin-top: 2px;
-  font-size: 0.74rem;
-  opacity: 0.72;
+  font-size: 0.72rem;
+  opacity: 0.7;
 }
 
 .ai-citation-card__snippet {
-  margin-top: 4px;
-  font-size: 0.78rem;
+  margin-top: 3px;
+  font-size: 0.76rem;
   line-height: 1.35;
-  opacity: 0.82;
+  opacity: 0.8;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .ai-citation-card__hint {
-  margin-top: 4px;
-  font-size: 0.74rem;
+  margin-top: 3px;
+  font-size: 0.72rem;
   line-height: 1.35;
-  opacity: 0.74;
+  opacity: 0.72;
 }
 
-.ai-citation-card__actions {
-  display: flex;
-  align-items: center;
+.ai-citation-card__chevron {
+  color: rgb(var(--v-theme-on-surface-variant));
+  opacity: 0.7;
 }
 
 .ai-chat-input {
-  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.1);
-  padding: 10px 12px;
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: 28px;
+  width: min(520px, calc(100% - 36px));
+  padding: 0;
+  border: 0;
+  background: transparent;
+  transform: translateX(-50%);
+}
+
+.ai-chat-input .v-field {
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--pm-app-surface-raised) 94%, transparent);
+  box-shadow:
+    0 10px 28px color-mix(in srgb, var(--pm-text) 10%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--pm-divider) 84%, transparent);
+  transition:
+    box-shadow var(--pm-duration-fast, 140ms) var(--pm-easing, ease),
+    background-color var(--pm-duration-fast, 140ms) var(--pm-easing, ease);
+}
+
+.ai-chat-input .v-field:hover {
+  background: var(--pm-app-surface-raised);
+}
+
+.ai-chat-input .v-field--focused {
+  background: var(--pm-app-surface-raised);
+  box-shadow:
+    0 12px 30px color-mix(in srgb, var(--pm-text) 12%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--pm-accent) 72%, transparent);
+}
+
+.ai-chat-input .v-field__outline__start {
+  border-radius: 18px 0 0 18px;
+}
+
+.ai-chat-input .v-field__outline__end {
+  border-radius: 0 18px 18px 0;
+}
+
+.ai-chat-input .v-btn:not(.v-btn--disabled) {
+  color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.1);
+}
+
+/* ── Wissen: dezente Nachrichteneinblendung ── */
+@keyframes pmRise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Rechte Chat-Vorschau: Wissens-Überblick ── */
+.knowledge-home {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  color: var(--pm-text);
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--pm-accent) 9%, transparent), transparent 42%),
+    var(--pm-viewer-surface);
+}
+
+.knowledge-home__body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 32px 30px 40px;
+  animation: knowledge-home-rise 0.4s cubic-bezier(0.22, 0.7, 0.24, 1) both;
+}
+
+@keyframes knowledge-home-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.knowledge-home__eyebrow {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--pm-accent);
+}
+
+.knowledge-home__knows {
+  margin-top: 7px;
+  font-size: 1.02rem;
+  line-height: 1.55;
+  color: var(--pm-muted);
+}
+
+.knowledge-home__knows strong { color: var(--pm-text); font-weight: 650; }
+
+.knowledge-home__attn {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--pm-divider);
+  border-radius: 13px;
+  overflow: hidden;
+  background: var(--pm-app-surface-raised);
+}
+
+.knowledge-home__attn-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 14px;
+  border: 0;
+  border-top: 1px solid var(--pm-divider);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.knowledge-home__attn-row:first-child { border-top: 0; }
+.knowledge-home__attn-row:hover { background: var(--pm-row-hover); }
+
+.knowledge-home__attn-pill {
+  flex: none;
+  min-width: 24px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.knowledge-home__attn-pill--warn { color: rgb(var(--v-theme-warning)); background: rgba(var(--v-theme-warning), 0.15); }
+.knowledge-home__attn-pill--bad { color: rgb(var(--v-theme-error)); background: rgba(var(--v-theme-error), 0.13); }
+
+.knowledge-home__attn-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.82rem;
+  color: var(--pm-muted);
+}
+
+.knowledge-home__attn-text strong { color: var(--pm-text); font-weight: 600; }
+.knowledge-home__attn-chev { flex: none; color: var(--pm-muted); }
+
+.knowledge-home__section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--pm-muted);
+}
+
+.knowledge-home__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 560px) {
+  .knowledge-home__grid { grid-template-columns: 1fr; }
+}
+
+.knowledge-home__tile {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 13px 13px;
+  border: 1px solid var(--pm-divider);
+  border-radius: 13px;
+  background: var(--pm-app-surface-raised);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.knowledge-home__tile:hover {
+  border-color: color-mix(in srgb, var(--pm-accent) 42%, var(--pm-divider));
+  transform: translateY(-2px);
+}
+
+.knowledge-home__tile-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 10px;
+  color: var(--pm-accent);
+  background: color-mix(in srgb, var(--pm-accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pm-accent) 24%, var(--pm-divider));
+}
+
+.knowledge-home__tile-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.knowledge-home__tile-copy small {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pm-muted);
+}
+
+.knowledge-home__tile-copy strong {
+  font-size: 0.83rem;
+  font-weight: 640;
+  color: var(--pm-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledge-home__tile-facts { font-size: 0.66rem; color: var(--pm-muted); }
+
+.knowledge-home__tile-arrow { flex: none; color: var(--pm-muted); opacity: 0.7; }
+.knowledge-home__tile:hover .knowledge-home__tile-arrow { color: var(--pm-accent); opacity: 1; }
+
+.knowledge-examples {
+  position: relative;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 28px 32px;
+  overflow: hidden;
+  color: var(--pm-text);
+  background:
+    radial-gradient(circle at 50% 28%, color-mix(in srgb, var(--pm-accent) 13%, transparent), transparent 34%),
+    radial-gradient(circle at 12% 88%, rgba(93, 116, 190, 0.1), transparent 26%),
+    var(--pm-viewer-surface);
+}
+
+.knowledge-examples::before {
+  position: absolute;
+  inset: 0;
+  content: '';
+  opacity: 0.22;
+  pointer-events: none;
+  background-image: radial-gradient(circle, var(--pm-divider) 1px, transparent 1px);
+  background-size: 24px 24px;
+  -webkit-mask-image: radial-gradient(circle at center, black, transparent 72%);
+  mask-image: radial-gradient(circle at center, black, transparent 72%);
+}
+
+.knowledge-examples__content {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 500px);
+  display: grid;
+  justify-items: center;
+  gap: 20px;
+}
+
+@keyframes knowledgeOrbit {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes knowledgeOrbitReverse {
+  to { transform: rotate(-360deg); }
+}
+
+@keyframes knowledgeCoreFloat {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-6px) scale(1.035); }
+}
+
+@keyframes knowledgeCoreGlow {
+  0%, 100% { opacity: 0.28; transform: scale(0.84); }
+  50% { opacity: 0.58; transform: scale(1.12); }
+}
+
+@keyframes knowledgeCardIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.knowledge-examples__visual {
+  position: relative;
+  width: 150px;
+  height: 150px;
+  display: grid;
+  place-items: center;
+}
+
+.knowledge-examples__visual::before {
+  position: absolute;
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  content: '';
+  background: color-mix(in srgb, var(--pm-accent) 25%, transparent);
+  filter: blur(24px);
+  animation: knowledgeCoreGlow 4.8s ease-in-out infinite;
+}
+
+.knowledge-examples__orbit {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--pm-accent) 28%, var(--pm-divider));
+}
+
+.knowledge-examples__orbit--outer {
+  inset: 4px;
+  border-style: dashed;
+  animation: knowledgeOrbit 18s linear infinite;
+}
+
+.knowledge-examples__orbit--inner {
+  inset: 24px;
+  border-color: color-mix(in srgb, var(--pm-accent) 18%, var(--pm-divider));
+  animation: knowledgeOrbitReverse 13s linear infinite;
+}
+
+.knowledge-examples__orbit i {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--pm-viewer-surface);
+  border-radius: 50%;
+  background: var(--pm-accent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--pm-accent) 70%, transparent);
+}
+
+.knowledge-examples__orbit i:nth-child(1) { top: 8px; left: 29px; }
+.knowledge-examples__orbit i:nth-child(2) { top: 62px; right: -4px; }
+.knowledge-examples__orbit i:nth-child(3) { bottom: 6px; left: 38px; }
+
+.knowledge-examples__core {
+  position: relative;
+  width: 70px;
+  height: 70px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--pm-accent) 42%, var(--pm-divider));
+  border-radius: 24px;
+  color: var(--pm-accent);
+  background: color-mix(in srgb, var(--pm-app-surface-raised) 86%, transparent);
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(10px);
+  animation: knowledgeCoreFloat 4.8s ease-in-out infinite;
+}
+
+.knowledge-examples__heading {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.knowledge-examples__eyebrow {
+  margin-bottom: 3px;
+  color: var(--pm-accent);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.knowledge-examples__title {
+  font-size: 1.18rem;
+  font-weight: 720;
+  letter-spacing: -0.02em;
+}
+
+.knowledge-examples__grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.knowledge-examples__question {
+  --example-rgb: 52, 150, 143;
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  min-height: 102px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: center;
+  align-items: center;
+  gap: 11px;
+  padding: 15px;
+  overflow: hidden;
+  border: 1px solid rgba(var(--example-rgb), 0.24);
+  border-radius: 16px;
+  color: var(--pm-text);
+  background:
+    radial-gradient(circle at 5% 10%, rgba(var(--example-rgb), 0.16), transparent 48%),
+    color-mix(in srgb, var(--pm-app-surface-raised) 90%, transparent);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.045);
+  animation: knowledgeCardIn 0.46s cubic-bezier(0.22, 0.72, 0.24, 1) both;
+  animation-delay: calc(var(--example-index) * 70ms);
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.knowledge-examples__question--blue { --example-rgb: 66, 122, 186; }
+.knowledge-examples__question--violet { --example-rgb: 125, 96, 181; }
+.knowledge-examples__question--amber { --example-rgb: 185, 125, 53; }
+
+.knowledge-examples__question:hover,
+.knowledge-examples__question:focus-visible {
+  transform: translateY(-4px) scale(1.012);
+  border-color: rgba(var(--example-rgb), 0.55);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.11);
+  outline: none;
+}
+
+.knowledge-examples__question-icon {
+  width: 43px;
+  height: 43px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  color: rgb(var(--example-rgb));
+  background: rgba(var(--example-rgb), 0.13);
+}
+
+.knowledge-examples__question-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.knowledge-examples__question-copy small {
+  color: rgb(var(--example-rgb));
+  font-size: 0.58rem;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.knowledge-examples__question-copy strong {
+  overflow: hidden;
+  font-size: 0.88rem;
+  font-weight: 680;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+}
+
+.knowledge-examples__question-arrow {
+  position: absolute;
+  top: 11px;
+  right: 11px;
+  color: rgb(var(--example-rgb));
+  opacity: 0.48;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.knowledge-examples__question:hover .knowledge-examples__question-arrow,
+.knowledge-examples__question:focus-visible .knowledge-examples__question-arrow {
+  opacity: 1;
+  transform: translate(2px, -2px);
+}
+
+.chat-preview-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--pm-divider);
+  background: color-mix(in srgb, var(--pm-app-surface-raised) 92%, transparent);
+  color: var(--pm-muted);
+  font-size: 0.76rem;
+  font-weight: 500;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: border-color 0.15s ease-out, color 0.15s ease-out;
+}
+
+.chat-preview-close:hover {
+  border-color: color-mix(in srgb, var(--pm-accent) 42%, transparent);
+  color: var(--pm-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .knowledge-examples__visual::before,
+  .knowledge-examples__orbit,
+  .knowledge-examples__core,
+  .knowledge-examples__question,
+  .ai-message {
+    animation-duration: 0.001s;
+    animation-iteration-count: 1;
+  }
+
+  .knowledge-examples__question,
+  .knowledge-examples__question-arrow {
+    transition-duration: 0ms;
+  }
 }
 
 .list-toolbar__main {
@@ -10159,6 +11219,12 @@ onBeforeUnmount(() => {
   border-radius: 10px;
 }
 
+.ai-session-menu .v-list-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .list-header-btn.v-btn {
   transition: background-color var(--pm-duration-fast, 140ms) var(--pm-easing, ease);
 }
@@ -10252,6 +11318,14 @@ onBeforeUnmount(() => {
   grid-template-columns: 64px 1fr;
 }
 
+.workspace.workspace--dossiers {
+  grid-template-columns: 288px minmax(0, 1fr);
+}
+
+.workspace.workspace--rail.workspace--dossiers {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
 .workspace.workspace--chat {
   grid-template-columns: 288px 1fr;
 }
@@ -10262,6 +11336,12 @@ onBeforeUnmount(() => {
 
 .panel-dashboard {
   overflow: hidden;
+}
+
+.panel-dossiers {
+  min-width: 0;
+  overflow: hidden;
+  border-right: 0;
 }
 
 /* Rail: das Hover-Flyout (6b) darf aus der 64px-Spalte herausragen. */
@@ -12810,8 +13890,17 @@ onBeforeUnmount(() => {
     padding: 10px;
   }
 
-  .ai-suggestions__grid {
-    grid-template-columns: 1fr;
+  .ai-chat-input {
+    bottom: 20px;
+    width: min(520px, calc(100% - 24px));
+  }
+
+  .ai-chat-history {
+    padding-bottom: 116px;
+  }
+
+  .ai-chat-panel::after {
+    height: 132px;
   }
 }
 

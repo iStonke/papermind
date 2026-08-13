@@ -1195,6 +1195,11 @@ class DocumentService:
         document = self.get_document_or_404(document_id)
         document.is_deleted = True
         document.deleted_at = datetime.now(timezone.utc)
+        from app.services.wiki import WikiService
+
+        WikiService(self.db, document.owner_id).mark_document_unavailable(
+            document.id, reason="document_trashed", commit=False
+        )
         self.db.commit()
         self.db.refresh(document)
         logger.info("document trashed id=%s", document_id)
@@ -1211,6 +1216,10 @@ class DocumentService:
             raise BadRequestError("Document is not in trash", details={"document_id": str(document_id)})
         document.is_deleted = False
         document.deleted_at = None
+        self.db.flush()
+        from app.services.wiki import WikiService
+
+        WikiService(self.db, document.owner_id).refresh_document(document.id, commit=False)
         self.db.commit()
         self.db.refresh(document)
         logger.info("document restored id=%s", document_id)
@@ -1236,6 +1245,11 @@ class DocumentService:
         if document.storage_key:
             file_keys.add(document.storage_key)
 
+        from app.services.wiki import WikiService
+
+        WikiService(self.db, document.owner_id).mark_document_unavailable(
+            document.id, reason="document_deleted", commit=False
+        )
         self.db.delete(document)
         self.db.commit()
 
@@ -1266,6 +1280,11 @@ class DocumentService:
             file_keys.update(file_record.file_key for file_record in document.files)
             if document.storage_key:
                 file_keys.add(document.storage_key)
+            from app.services.wiki import WikiService
+
+            WikiService(self.db, document.owner_id).mark_document_unavailable(
+                document.id, reason="document_deleted", commit=False
+            )
             self.db.delete(document)
 
         self.db.commit()

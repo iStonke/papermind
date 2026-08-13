@@ -30,6 +30,30 @@ const routes = [
         name: 'documents',
         component: DocumentsView,
       },
+      {
+        path: 'tische',
+        name: 'dossiers',
+        component: DocumentsView,
+      },
+      {
+        path: 'tische/:dossierId',
+        name: 'dossier-board',
+        component: DocumentsView,
+      },
+      {
+        path: 'wissen',
+        name: 'wiki',
+        component: DocumentsView,
+      },
+      // Alt-Pfade (vor der „Leuchttisch"-Umbenennung) umleiten – Query bleibt erhalten.
+      {
+        path: 'akten',
+        redirect: (to) => ({ name: 'dossiers', query: to.query }),
+      },
+      {
+        path: 'akten/:dossierId',
+        redirect: (to) => ({ name: 'dossier-board', params: { dossierId: to.params.dossierId }, query: to.query }),
+      },
     ],
   },
   // Fallback: alles Unbekannte zur Startseite.

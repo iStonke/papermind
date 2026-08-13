@@ -102,6 +102,7 @@ function createDefaultSettings() {
       sidebar_show_favorites: true,
       sidebar_show_no_text: true,
       sidebar_show_chat: true,
+      sidebar_show_dossiers: true,
       sidebar_sections: normalizeSidebarSections(null),
       sidebar_max_tags: 5,
       sidebar_max_categories: 5
@@ -124,13 +125,13 @@ function createDefaultSettings() {
       numeric_prompt_template: NUMERIC_PROMPT_TEMPLATE_DEFAULT,
       temperature: 0.15,
       top_p: 0.9,
-      max_output_tokens: 1200,
+      max_output_tokens: 420,
       embedding_model_name: EMBEDDING_MODEL_FALLBACK
     },
     rag: {
-      top_k: 8,
+      top_k: 5,
       min_score: 0.0,
-      max_context_chars: 12000,
+      max_context_chars: 6500,
       chunk_chars: 4500,
       chunk_overlap_chars: 600,
       rerank_enabled: false,
@@ -161,6 +162,15 @@ function createDefaultSettings() {
     quality: {
       enable_answer_checks: true,
       enable_self_critique: false
+    },
+    wiki: {
+      enabled: true,
+      auto_compile: true,
+      llm_claim_extraction: true,
+      chat_retrieval: true,
+      require_review_for_chat_capture: true,
+      page_limit: 6,
+      claim_limit: 24
     },
     retention: {
       enabled: true,
@@ -222,6 +232,7 @@ function cloneSettings(settingsValue) {
     rag: { ...settingsValue.rag },
     ocr: { ...settingsValue.ocr },
     quality: { ...settingsValue.quality },
+    wiki: { ...settingsValue.wiki },
     ollama: { ...settingsValue.ollama },
     retention: {
       enabled: settingsValue.retention?.enabled !== false,
@@ -242,6 +253,7 @@ function assignSettings(target, source) {
   Object.assign(target.rag, source.rag);
   Object.assign(target.ocr, source.ocr);
   Object.assign(target.quality, source.quality);
+  if (source.wiki) Object.assign(target.wiki, source.wiki);
   if (source.ollama) Object.assign(target.ollama, source.ollama);
   if (source.retention) {
     if ('enabled' in source.retention) target.retention.enabled = source.retention.enabled !== false;
@@ -367,6 +379,9 @@ export const useSettingsStore = defineStore('settings', {
       if (patch?.quality && typeof patch.quality === 'object') {
         Object.assign(this.settingsDraft.quality, patch.quality);
       }
+      if (patch?.wiki && typeof patch.wiki === 'object') {
+        Object.assign(this.settingsDraft.wiki, patch.wiki);
+      }
       if (patch?.retention && typeof patch.retention === 'object') {
         if ('enabled' in patch.retention) this.settingsDraft.retention.enabled = patch.retention.enabled !== false;
         if ('usage_mode' in patch.retention) this.settingsDraft.retention.usage_mode = patch.retention.usage_mode;
@@ -453,6 +468,10 @@ export const useSettingsStore = defineStore('settings', {
             typeof payload?.ui?.sidebar_show_chat === 'boolean'
               ? payload.ui.sidebar_show_chat
               : defaults.ui.sidebar_show_chat,
+          sidebar_show_dossiers:
+            typeof payload?.ui?.sidebar_show_dossiers === 'boolean'
+              ? payload.ui.sidebar_show_dossiers
+              : defaults.ui.sidebar_show_dossiers,
           sidebar_sections: normalizeSidebarSections(payload?.ui?.sidebar_sections),
           sidebar_max_tags: clampInt(payload?.ui?.sidebar_max_tags, 0, 50, defaults.ui.sidebar_max_tags),
           sidebar_max_categories: clampInt(payload?.ui?.sidebar_max_categories, 0, 50, defaults.ui.sidebar_max_categories)
@@ -588,6 +607,27 @@ export const useSettingsStore = defineStore('settings', {
             typeof payload?.quality?.enable_self_critique === 'boolean'
               ? payload.quality.enable_self_critique
               : defaults.quality.enable_self_critique
+        },
+        wiki: {
+          enabled: typeof payload?.wiki?.enabled === 'boolean' ? payload.wiki.enabled : defaults.wiki.enabled,
+          auto_compile:
+            typeof payload?.wiki?.auto_compile === 'boolean'
+              ? payload.wiki.auto_compile
+              : defaults.wiki.auto_compile,
+          llm_claim_extraction:
+            typeof payload?.wiki?.llm_claim_extraction === 'boolean'
+              ? payload.wiki.llm_claim_extraction
+              : defaults.wiki.llm_claim_extraction,
+          chat_retrieval:
+            typeof payload?.wiki?.chat_retrieval === 'boolean'
+              ? payload.wiki.chat_retrieval
+              : defaults.wiki.chat_retrieval,
+          require_review_for_chat_capture:
+            typeof payload?.wiki?.require_review_for_chat_capture === 'boolean'
+              ? payload.wiki.require_review_for_chat_capture
+              : defaults.wiki.require_review_for_chat_capture,
+          page_limit: clampInt(payload?.wiki?.page_limit, 1, 20, defaults.wiki.page_limit),
+          claim_limit: clampInt(payload?.wiki?.claim_limit, 4, 100, defaults.wiki.claim_limit)
         },
         retention: normalizeRetention(payload?.retention, defaults),
         meta: {

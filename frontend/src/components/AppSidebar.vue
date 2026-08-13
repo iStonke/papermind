@@ -19,16 +19,33 @@
       </SidebarItem>
 
       <SidebarItem
+        v-if="showDossiers"
+        item-class="sidebar-item--primary sidebar-item--plain-label sidebar-item--dossiers"
+        :active="dossiersActive"
+        :reserve-right="false"
+        @click="openDossiers()"
+      >
+        <template #icon>
+          <v-icon size="18">mdi-view-grid-outline</v-icon>
+        </template>
+        Leuchttische
+        <template #append>
+          <span v-if="!collapsed" class="sidebar-dossier-count">{{ dossierCount }}</span>
+        </template>
+      </SidebarItem>
+
+      <SidebarItem
         v-if="settingsStore.settings.ui.sidebar_show_chat !== false"
-        item-class="sidebar-item--secondary sidebar-item--chat"
-        :active="chatActive"
+        item-class="sidebar-item--primary sidebar-item--plain-label sidebar-item--chat"
+        :active="chatActive && !dossiersActive"
         @click="emit('open-chat')"
       >
         <template #icon>
-          <v-icon size="18">mdi-robot-outline</v-icon>
+          <v-icon size="18">mdi-brain</v-icon>
         </template>
-        KI-Chat
+        Wissen
       </SidebarItem>
+
     </v-list>
 
     <v-divider class="sidebar-section-divider sidebar-section-divider--after-uebersicht" />
@@ -197,7 +214,7 @@
             v-for="savedSearch in sortedFolderItems"
             :key="savedSearch.id"
             item-class="sidebar-item--secondary"
-            :active="activeSavedSearchId === savedSearch.id"
+            :active="!dossiersActive && !chatActive && activeSavedSearchId === savedSearch.id"
             :count="sidebarStore.savedSearchCount(savedSearch.id)"
             action-mode="hover-active"
             @click="emit('open-saved-search', savedSearch.id)"
@@ -275,7 +292,7 @@
           <SidebarItem
             v-if="collapsed"
             item-class="sidebar-item--plain-label"
-            :active="isTagView"
+            :active="!dossiersActive && !chatActive && isTagView"
             :count="totalTagsSidebarCount"
             @click="emit('open-tags-view')"
           >
@@ -291,7 +308,7 @@
               :key="tag.id"
               type="button"
               class="sidebar-chip"
-              :class="{ 'sidebar-chip--active': !isTagView && activeTagId === tag.id }"
+              :class="{ 'sidebar-chip--active': !dossiersActive && !chatActive && !isTagView && activeTagId === tag.id }"
               @click="emit('apply-tag-filter', tag.id)"
             >
               <span class="sidebar-chip__label">{{ tag.name }}</span>
@@ -336,7 +353,7 @@
           <SidebarItem
             v-if="collapsed"
             item-class="sidebar-item--plain-label"
-            :active="isCategoryView"
+            :active="!dossiersActive && !chatActive && isCategoryView"
             :count="totalCategoriesSidebarCount"
             @click="emit('open-categories-view')"
           >
@@ -352,7 +369,7 @@
               :key="category.id"
               type="button"
               class="sidebar-chip"
-              :class="{ 'sidebar-chip--active': !isCategoryView && activeCategoryName === category.name }"
+              :class="{ 'sidebar-chip--active': !dossiersActive && !chatActive && !isCategoryView && activeCategoryName === category.name }"
               @click="emit('apply-category-filter', category.name)"
             >
               <span class="sidebar-chip__label">{{ category.name }}</span>
@@ -418,6 +435,7 @@ import { useSidebarStore } from '../stores/sidebar.js';
 import { useTagStore } from '../stores/tags.js';
 import { useCategoryStore } from '../stores/categories.js';
 import { useSettingsStore } from '../stores/settings.js';
+import { useDossierStore } from '../stores/dossiers.js';
 import { normalizeSidebarSections } from '../utils/settingsApi.js';
 import SidebarItem from './SidebarItem.vue';
 
@@ -431,11 +449,14 @@ const props = defineProps({
   isCategoryView:    { type: Boolean, default: false },
   collapsed:         { type: Boolean, default: false },
   chatActive:        { type: Boolean, default: false },
+  dossiersActive:    { type: Boolean, default: false },
 });
 
 const emit = defineEmits([
   'select-view',
   'open-chat',
+  'open-dossiers',
+  'create-dossier',
   'open-saved-search',
   'create-folder',
   'edit-folder',
@@ -452,13 +473,23 @@ const sidebarStore  = useSidebarStore();
 const tagStore      = useTagStore();
 const categoryStore = useCategoryStore();
 const settingsStore = useSettingsStore();
+const dossierStore  = useDossierStore();
 
 const { sidebarCounts, savedSearches } = storeToRefs(sidebarStore);
 const { tags }                         = storeToRefs(tagStore);
 const { categories }                   = storeToRefs(categoryStore);
+const { dossiers }                     = storeToRefs(dossierStore);
+
+// ── Leuchttische: Hauptnavigation + Zähler ──────────────────────────────────
+const showDossiers = computed(() => settingsStore.settings.ui.sidebar_show_dossiers !== false);
+const dossierCount = computed(() => dossiers.value.length);
+function openDossiers() { emit('open-dossiers'); }
 
 onMounted(() => {
   void categoryStore.ensureLoaded();
+  if (showDossiers.value && !dossiers.value.length) {
+    void dossierStore.fetchList({ includeArchived: true }).catch(() => {});
+  }
 });
 
 // ── Konfigurierbare Sektionen (Reihenfolge + Sichtbarkeit) ──────────────────
@@ -536,6 +567,7 @@ function folderSidebarIcon(folder, isActive = false) {
 
 // ── Navigation helpers ─────────────────────────────────────────────────────
 function isViewActive(viewKey) {
+  if (props.dossiersActive || props.chatActive) return false;
   if (props.isTagView || props.activeSavedSearchId) return false;
   if (viewKey === 'all') {
     // Bei aktivem Tag-Filter NICHT „Alle Dokumente" markieren – der Tag bleibt aktiv.
@@ -642,9 +674,13 @@ const flyoutRows = computed(() => {
         count: null, active: isViewActive('dashboard'),
         run: () => emit('select-view', 'dashboard'),
       }];
+      if (showDossiers.value) rows.push({
+        id: 'dossiers', icon: 'mdi-view-grid-outline', label: 'Leuchttische',
+        count: dossierCount.value, active: props.dossiersActive, run: () => openDossiers(),
+      });
       if (ui.sidebar_show_chat !== false) rows.push({
-        id: 'chat', icon: 'mdi-robot-outline', label: 'KI-Chat',
-        count: null, active: props.chatActive, run: () => emit('open-chat'),
+        id: 'chat', icon: 'mdi-brain', label: 'Wissen',
+        count: null, active: props.chatActive && !props.dossiersActive, run: () => emit('open-chat'),
       });
       return rows;
     }
@@ -692,7 +728,7 @@ const flyoutRows = computed(() => {
           icon: folderSidebarIcon(folder, props.activeSavedSearchId === folder.id),
           label: folder.name,
           count: sidebarStore.savedSearchCount(folder.id),
-          active: props.activeSavedSearchId === folder.id,
+          active: !props.dossiersActive && !props.chatActive && props.activeSavedSearchId === folder.id,
           run: () => emit('open-saved-search', folder.id),
         });
       }
@@ -701,13 +737,13 @@ const flyoutRows = computed(() => {
     case 'tags':
       return [{
         id: 'all-tags', icon: 'mdi-view-grid-outline', label: 'Alle Tags',
-        count: totalTagsSidebarCount.value, active: props.isTagView,
+        count: totalTagsSidebarCount.value, active: !props.dossiersActive && !props.chatActive && props.isTagView,
         run: () => emit('open-tags-view'),
       }];
     case 'kategorien':
       return [{
         id: 'all-cats', icon: 'mdi-view-grid-outline', label: 'Alle Dokumenttypen',
-        count: totalCategoriesSidebarCount.value, active: props.isCategoryView,
+        count: totalCategoriesSidebarCount.value, active: !props.dossiersActive && !props.chatActive && props.isCategoryView,
         run: () => emit('open-categories-view'),
       }];
     default:
@@ -720,7 +756,7 @@ const flyoutChips = computed(() => {
     return topTagQuicklinks.value.map((tag) => ({
       id: tag.id, name: tag.name,
       count: sidebarStore.tagCount(tag.id, tag.usage_count ?? 0),
-      active: !props.isTagView && props.activeTagId === tag.id,
+      active: !props.dossiersActive && !props.chatActive && !props.isTagView && props.activeTagId === tag.id,
       run: () => emit('apply-tag-filter', tag.id),
     }));
   }
@@ -728,7 +764,7 @@ const flyoutChips = computed(() => {
     return topCategoryQuicklinks.value.map((category) => ({
       id: category.id, name: category.name,
       count: Number(category.usage_count || 0),
-      active: !props.isCategoryView && props.activeCategoryName === category.name,
+      active: !props.dossiersActive && !props.chatActive && !props.isCategoryView && props.activeCategoryName === category.name,
       run: () => emit('apply-category-filter', category.name),
     }));
   }
@@ -813,6 +849,15 @@ onBeforeUnmount(() => {
   gap: 5px;
   margin-inline-start: auto;
   min-width: 0;
+}
+
+.sidebar-dossier-count {
+  min-width: 2ch;
+  color: var(--pm-sidebar-muted);
+  font-size: .78rem;
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .sidebar-section-icon-action {

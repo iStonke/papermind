@@ -322,19 +322,146 @@
         </section>
 
         <section v-if="activeCategory === 'sidebar'" class="pm-settings-section">
-          <div class="pm-settings-content">
+          <div class="pm-settings-content settings-sidebar-settings">
             <SettingsInfoCard
               icon="mdi-page-layout-sidebar-left"
               title="Seitenleiste"
-              subtitle="Reihenfolge und Sichtbarkeit der Bereiche."
+              subtitle="Passe die Schnellzugriffe auf deine wichtigsten Arbeitsbereiche an."
             />
 
-            <div class="pm-setting-row pm-setting-row--column">
+            <div class="settings-sidebar-group settings-sidebar-main">
+              <div class="settings-sidebar-group-head">
+                <div class="pm-setting-label">Hauptnavigation</div>
+                <div class="pm-setting-description">Direkter Zugriff auf Startseite, Leuchttische und dokumentgestütztes Wissen.</div>
+              </div>
+              <div class="settings-sidebar-group-list">
+                <div class="pm-setting-row settings-sidebar-library-row">
+                  <div class="pm-setting-content">
+                    <div class="pm-setting-label">Übersicht</div>
+                    <div class="pm-setting-description">Startpunkt für Status, Aktivitäten und Schnellzugriffe.</div>
+                  </div>
+                  <span class="settings-sidebar-fixed">Immer sichtbar</span>
+                </div>
+
+                <div class="pm-setting-row settings-sidebar-library-row">
+                  <div class="pm-setting-content">
+                    <div class="pm-setting-label">Leuchttische</div>
+                    <div class="pm-setting-description">Visuelle Arbeitsflächen zum Sammeln, Ordnen und Verknüpfen von Dokumenten.</div>
+                  </div>
+                  <v-switch
+                    :model-value="settingsDraft.ui.sidebar_show_dossiers"
+                    color="primary"
+                    density="comfortable"
+                    hide-details
+                    inset
+                    :loading="isSettingSaving.sidebar_show_dossiers"
+                    :disabled="isSettingSaving.sidebar_show_dossiers"
+                    aria-label="Leuchttische in der Hauptnavigation anzeigen"
+                    @update:model-value="onSidebarShowDossiersChange"
+                  />
+                </div>
+
+                <div class="pm-setting-row settings-sidebar-library-row">
+                  <div class="pm-setting-content">
+                    <div class="pm-setting-label">Wissen</div>
+                    <div class="pm-setting-description">Fragen an deine Dokumente stellen und geprüfte Wissensaussagen verwalten.</div>
+                  </div>
+                  <v-switch
+                    :model-value="settingsDraft.ui.sidebar_show_chat"
+                    color="primary"
+                    density="comfortable"
+                    hide-details
+                    inset
+                    :loading="isSettingSaving.sidebar_show_chat"
+                    :disabled="isSettingSaving.sidebar_show_chat"
+                    aria-label="Wissen in der Seitenleiste anzeigen"
+                    @update:model-value="onSidebarShowChatChange"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-sidebar-group settings-sidebar-library">
+              <div class="settings-sidebar-group-head">
+                <div class="pm-setting-label">Bibliothek</div>
+                <div class="pm-setting-description">Schnellfilter für häufig benötigte Dokumentgruppen.</div>
+              </div>
+              <div class="settings-sidebar-group-list">
+                <div class="pm-setting-row settings-sidebar-library-row">
+                  <div class="pm-setting-content">
+                    <div class="pm-setting-label">Zuletzt hinzugefügt</div>
+                    <div class="pm-setting-description">Bündelt neue Dokumente aus dem festgelegten Zeitraum.</div>
+                  </div>
+                  <v-switch
+                    :model-value="settingsDraft.ui.sidebar_show_recent"
+                    color="primary"
+                    density="comfortable"
+                    hide-details
+                    inset
+                    :loading="isSettingSaving.sidebar_show_recent"
+                    :disabled="isSettingSaving.sidebar_show_recent"
+                    @update:model-value="onSidebarShowRecentChange"
+                  />
+                </div>
+
+                <div class="pm-setting-row settings-sidebar-library-row">
+                  <div class="pm-setting-content">
+                    <div class="pm-setting-label">Ohne Tags</div>
+                    <div class="pm-setting-description">Findet Dokumente, denen noch keine Tags zugeordnet sind.</div>
+                  </div>
+                  <v-switch
+                    :model-value="settingsDraft.ui.sidebar_show_untagged"
+                    color="primary"
+                    density="comfortable"
+                    hide-details
+                    inset
+                    :loading="isSettingSaving.sidebar_show_untagged"
+                    :disabled="isSettingSaving.sidebar_show_untagged"
+                    @update:model-value="onSidebarShowUntaggedChange"
+                  />
+                </div>
+
+                <div class="pm-setting-row settings-sidebar-library-row">
+                  <div class="pm-setting-content">
+                    <div class="pm-setting-label">Favoriten</div>
+                    <div class="pm-setting-description">Sammelt markierte Dokumente für besonders schnellen Zugriff.</div>
+                  </div>
+                  <v-switch
+                    :model-value="settingsDraft.ui.sidebar_show_favorites"
+                    color="primary"
+                    density="comfortable"
+                    hide-details
+                    inset
+                    :loading="isSettingSaving.sidebar_show_favorites"
+                    :disabled="isSettingSaving.sidebar_show_favorites"
+                    @update:model-value="onSidebarShowFavoritesChange"
+                  />
+                </div>
+
+                <div class="pm-setting-row settings-sidebar-library-row">
+                  <div class="pm-setting-content">
+                    <div class="pm-setting-label">Nicht durchsuchbar</div>
+                    <div class="pm-setting-description">Erfasst Dokumente ohne erkannten Text oder verwertbaren Suchindex.</div>
+                  </div>
+                  <v-switch
+                    :model-value="settingsDraft.ui.sidebar_show_no_text"
+                    color="primary"
+                    density="comfortable"
+                    hide-details
+                    inset
+                    :loading="isSettingSaving.sidebar_show_no_text"
+                    :disabled="isSettingSaving.sidebar_show_no_text"
+                    @update:model-value="onSidebarShowNoTextChange"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div class="pm-setting-row pm-setting-row--column settings-sidebar-other">
               <div class="pm-setting-content">
-                <div class="pm-setting-label">Bereiche der Seitenleiste</div>
+                <div class="pm-setting-label">Weitere Bereiche</div>
                 <div class="pm-setting-description">
-                  Sortiere die Bereiche per Pfeil und blende sie mit dem Schalter komplett ein oder aus.
-                  Der Bereich „Bibliothek“ bleibt immer oben.
+                  Ordner bündeln gespeicherte Suchen; Tags und Dokumenttypen strukturieren deine Ablage.
                 </div>
               </div>
 
@@ -414,94 +541,6 @@
                 </div>
               </div>
             </div>
-
-            <div class="settings-sidebar-library">
-              <div class="pm-setting-row settings-sidebar-library-row">
-                <div class="pm-setting-content">
-                  <div class="pm-setting-label">Zuletzt hinzugefügt</div>
-                  <div class="pm-setting-description">Bibliothek-Eintrag in der Seitenleiste anzeigen.</div>
-                </div>
-                <v-switch
-                  :model-value="settingsDraft.ui.sidebar_show_recent"
-                  color="primary"
-                  density="comfortable"
-                  hide-details
-                  inset
-                  :loading="isSettingSaving.sidebar_show_recent"
-                  :disabled="isSettingSaving.sidebar_show_recent"
-                  @update:model-value="onSidebarShowRecentChange"
-                />
-              </div>
-
-              <div class="pm-setting-row settings-sidebar-library-row">
-                <div class="pm-setting-content">
-                  <div class="pm-setting-label">Ohne Tags</div>
-                  <div class="pm-setting-description">Bibliothek-Eintrag in der Seitenleiste anzeigen.</div>
-                </div>
-                <v-switch
-                  :model-value="settingsDraft.ui.sidebar_show_untagged"
-                  color="primary"
-                  density="comfortable"
-                  hide-details
-                  inset
-                  :loading="isSettingSaving.sidebar_show_untagged"
-                  :disabled="isSettingSaving.sidebar_show_untagged"
-                  @update:model-value="onSidebarShowUntaggedChange"
-                />
-              </div>
-
-              <div class="pm-setting-row settings-sidebar-library-row">
-                <div class="pm-setting-content">
-                  <div class="pm-setting-label">Favoriten</div>
-                  <div class="pm-setting-description">Bibliothek-Eintrag in der Seitenleiste anzeigen.</div>
-                </div>
-                <v-switch
-                  :model-value="settingsDraft.ui.sidebar_show_favorites"
-                  color="primary"
-                  density="comfortable"
-                  hide-details
-                  inset
-                  :loading="isSettingSaving.sidebar_show_favorites"
-                  :disabled="isSettingSaving.sidebar_show_favorites"
-                  @update:model-value="onSidebarShowFavoritesChange"
-                />
-              </div>
-
-              <div class="pm-setting-row settings-sidebar-library-row">
-                <div class="pm-setting-content">
-                  <div class="pm-setting-label">Nicht durchsuchbar</div>
-                  <div class="pm-setting-description">Bibliothek-Eintrag in der Seitenleiste anzeigen.</div>
-                </div>
-                <v-switch
-                  :model-value="settingsDraft.ui.sidebar_show_no_text"
-                  color="primary"
-                  density="comfortable"
-                  hide-details
-                  inset
-                  :loading="isSettingSaving.sidebar_show_no_text"
-                  :disabled="isSettingSaving.sidebar_show_no_text"
-                  @update:model-value="onSidebarShowNoTextChange"
-                />
-              </div>
-
-              <div class="pm-setting-row settings-sidebar-library-row">
-                <div class="pm-setting-content">
-                  <div class="pm-setting-label">KI-Chat</div>
-                  <div class="pm-setting-description">Eintrag unter „Übersicht“ in der Seitenleiste anzeigen.</div>
-                </div>
-                <v-switch
-                  :model-value="settingsDraft.ui.sidebar_show_chat"
-                  color="primary"
-                  density="comfortable"
-                  hide-details
-                  inset
-                  :loading="isSettingSaving.sidebar_show_chat"
-                  :disabled="isSettingSaving.sidebar_show_chat"
-                  @update:model-value="onSidebarShowChatChange"
-                />
-              </div>
-            </div>
-
           </div>
         </section>
 
@@ -1096,6 +1135,92 @@
                 </div>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section v-if="activeCategory === 'wiki'" class="pm-settings-section">
+          <div class="pm-settings-content">
+            <SettingsInfoCard
+              icon="mdi-source-merge"
+              title="Wissen"
+              subtitle="Quellengenaue, versionierte Antworten auf Fragen zu deinen Dokumenten."
+            />
+
+            <div class="pm-setting-row" role="button" tabindex="0" @click="toggleWikiSetting('enabled')">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Wissensbasis aktivieren</div>
+                <div class="pm-setting-description">Blendet die Wissensbasis im Bereich „Wissen“ ein und aktiviert versionierte Aussagen.</div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.wiki.enabled"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.wiki_enabled"
+                :disabled="isSettingSaving.wiki_enabled"
+                @click.stop
+                @update:model-value="onWikiSettingChange('enabled', $event)"
+              />
+            </div>
+
+            <div class="pm-setting-row" role="button" tabindex="0" @click="toggleWikiSetting('auto_compile')">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Nach dem Indexieren aktualisieren</div>
+                <div class="pm-setting-description">Kompiliert neue und geänderte Dokumente automatisch in revisionssichere Wissensseiten.</div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.wiki.auto_compile"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.wiki_auto_compile"
+                :disabled="!settingsDraft.wiki.enabled || isSettingSaving.wiki_auto_compile"
+                @click.stop
+                @update:model-value="onWikiSettingChange('auto_compile', $event)"
+              />
+            </div>
+
+            <div class="pm-setting-row" role="button" tabindex="0" @click="toggleWikiSetting('llm_claim_extraction')">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Detaillierte LLM-Aussagen extrahieren</div>
+                <div class="pm-setting-description">Das lokale Modell schlägt atomare Fakten vor. Aktiv werden sie nur mit exaktem OCR-Zitat und aktuellem Chunk-Hash.</div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.wiki.llm_claim_extraction"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.wiki_llm_claim_extraction"
+                :disabled="!settingsDraft.wiki.enabled || isSettingSaving.wiki_llm_claim_extraction"
+                @click.stop
+                @update:model-value="onWikiSettingChange('llm_claim_extraction', $event)"
+              />
+            </div>
+
+            <div class="pm-setting-row" role="button" tabindex="0" @click="toggleWikiSetting('chat_retrieval')">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Wissensbasis für Antworten verwenden</div>
+                <div class="pm-setting-description">Sucht zuerst in kuratierten Aussagen und legt dem Modell trotzdem immer die maßgeblichen Originalauszüge vor.</div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.wiki.chat_retrieval"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.wiki_chat_retrieval"
+                :disabled="!settingsDraft.wiki.enabled || isSettingSaving.wiki_chat_retrieval"
+                @click.stop
+                @update:model-value="onWikiSettingChange('chat_retrieval', $event)"
+              />
+            </div>
+
+            <v-alert type="info" variant="tonal" density="compact">
+              Antworten werden niemals ungeprüft zu Fakten. „Ins Wissen übernehmen“ legt stets einen Vorschlag in den Prüfkorb.
+            </v-alert>
           </div>
         </section>
 
@@ -1735,10 +1860,10 @@
               </div>
             </div>
 
-            <!-- Lokale KI-Engine für Import-Analyse und Chat. -->
+            <!-- Lokale KI-Engine für Import-Analyse und Wissen. -->
             <div class="pm-setting-group">
             <div class="pm-setting-note pm-setting-note--group">
-              <strong>Lokale KI (Ollama)</strong> bestimmt, womit Import-Analyse und Dokumenten-Chat arbeiten.
+              <strong>Lokale KI (Ollama)</strong> bestimmt, womit Import-Analyse und Wissen arbeiten.
               Ob neue Importe automatisch analysiert werden, stellst du unter „Importieren" ein.
             </div>
 
@@ -1824,12 +1949,12 @@
                 />
               </div>
 
-              <!-- Chat model (quality vs. speed) -->
+              <!-- Wissensmodell (Qualität vs. Geschwindigkeit) -->
               <div class="pm-setting-row pm-setting-row--column">
                 <div class="pm-setting-content">
-                  <div class="pm-setting-label">Chat-Modell (Frage &amp; Antwort)</div>
+                  <div class="pm-setting-label">Wissensmodell (Frage &amp; Antwort)</div>
                   <div class="pm-setting-description">
-                    Modell für den Dokumenten-Chat. Kleine Modelle (z.&thinsp;B. llama3.2:3b)
+                    Modell für Antworten in Wissen. Kleine Modelle (z.&thinsp;B. llama3.2:3b)
                     antworten schneller; größere (z.&thinsp;B. qwen2.5:7b, llama3.1:8b) liefern
                     bessere Qualität, sind auf dem Pi aber deutlich langsamer.
                   </div>
@@ -2316,6 +2441,7 @@ import {
   buildSidebarShowFavoritesPatch,
   buildSidebarShowNoTextPatch,
   buildSidebarShowChatPatch,
+  buildSidebarShowDossiersPatch,
   buildOcrDocLangPatch,
   buildOcrScanCleanupPatch,
   buildPreviewDrawerGradientPatch,
@@ -2614,6 +2740,7 @@ const settingsCategories = [
   { value: 'ai', label: 'Texterkennung', icon: 'mdi-text-recognition', group: 'import', adminOnly: true },
   { value: 'categories', label: 'Dokumenttypen', icon: 'mdi-file-document-multiple-outline', group: 'documents' },
   { value: 'correspondents', label: 'Korrespondenten', icon: 'mdi-account-outline', group: 'documents' },
+  { value: 'wiki', label: 'Wissen', icon: 'mdi-source-merge', group: 'documents', adminOnly: true },
   { value: 'retention', label: 'Aufbewahrung', icon: 'mdi-folder-clock-outline', group: 'documents', adminOnly: true },
   { value: 'backup', label: 'Backup', icon: 'mdi-cloud-upload-outline', group: 'system', adminOnly: true },
   { value: 'services', label: 'Dienste', icon: 'mdi-server-network', group: 'system', adminOnly: true },
@@ -3584,6 +3711,26 @@ function toggleScanEnhancementFromRow() {
   void onScanEnhancementToggle(!scanEnhancementEnabled.value);
 }
 
+// ── LLM-Wiki ─────────────────────────────────────────────────────────────────
+
+async function onWikiSettingChange(key, nextValue) {
+  const nextBool = Boolean(nextValue);
+  if (!Object.prototype.hasOwnProperty.call(settingsDraft.wiki, key) || nextBool === settingsDraft.wiki[key]) return;
+  const previous = settingsDraft.wiki[key];
+  settingsStore.setDraftPatch({ wiki: { [key]: nextBool } });
+  await patchSettingsWithRevert({
+    patch: { wiki: { [key]: nextBool } },
+    controlKey: `wiki_${key}`,
+    revert: () => settingsStore.setDraftPatch({ wiki: { [key]: previous } })
+  });
+}
+
+function toggleWikiSetting(key) {
+  if (!settingsDraft.wiki.enabled && key !== 'enabled') return;
+  if (isSettingSaving[`wiki_${key}`]) return;
+  void onWikiSettingChange(key, !settingsDraft.wiki[key]);
+}
+
 // ── Ollama ───────────────────────────────────────────────────────────────────
 
 const showOllamaAdvanced = ref(false);
@@ -4036,6 +4183,19 @@ async function onSidebarShowChatChange(nextValue) {
     patch: buildSidebarShowChatPatch(nextBool),
     controlKey: 'sidebar_show_chat',
     revert: () => settingsStore.setDraftPatch({ ui: { sidebar_show_chat: previous } })
+  });
+}
+
+async function onSidebarShowDossiersChange(nextValue) {
+  if (isSettingSaving.sidebar_show_dossiers) return;
+  const nextBool = Boolean(nextValue);
+  if (nextBool === settingsDraft.ui.sidebar_show_dossiers) return;
+  const previous = settingsDraft.ui.sidebar_show_dossiers;
+  settingsStore.setDraftPatch({ ui: { sidebar_show_dossiers: nextBool } });
+  await patchSettingsWithRevert({
+    patch: buildSidebarShowDossiersPatch(nextBool),
+    controlKey: 'sidebar_show_dossiers',
+    revert: () => settingsStore.setDraftPatch({ ui: { sidebar_show_dossiers: previous } })
   });
 }
 

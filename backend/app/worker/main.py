@@ -29,6 +29,7 @@ from app.models.tag import Tag
 from app.models.user import User
 from app.services.deduplication import DocumentDeduplicationService
 from app.services.document_dates import apply_ocr_document_date_result, extract_document_date_candidates
+from app.services.document_wiki import DocumentWikiService
 from app.services.embeddings import EmbeddingService
 from app.services.documents import DocumentService
 from app.services.import_inbox import ImportInboxService
@@ -77,6 +78,7 @@ SCANNER_JOB_CLEANUP_INTERVAL_SECONDS = 6 * 3600
 # Leck im Dauerbetrieb sichtbar wird (unabhängig davon, ob `docker stats` RAM
 # anzeigt - das hängt am Memory-Cgroup des Hosts).
 WORKER_MEMORY_LOG_INTERVAL_SECONDS = 900
+WIKI_LINT_INTERVAL_SECONDS = 24 * 3600
 SCANNER_CONFIG_FILENAME = ".papermind-scanner-config"
 SCANNER_STATUS_FILENAME = ".papermind-scanner-status"
 SCANNER_COMMAND_FILE_PREFIX = ".papermind-scan-command-"
@@ -1261,6 +1263,19 @@ def _process_index_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
             service = EmbeddingService(db)
             stats = service.index_document(document.id)
 
+            runtime_settings = _load_runtime_settings(db)
+            wiki_settings = runtime_settings.get("wiki", {})
+            if wiki_settings.get("enabled", True) and wiki_settings.get("auto_compile", True):
+                # Die Wiki-Seite entsteht asynchron. Ein Wiki-Fehler darf den
+                # bereits erfolgreich committed Dokumentindex nicht entwerten.
+                try:
+                    refreshed_document = db.get(Document, document.id)
+                    if refreshed_document is not None:
+                        DocumentWikiService(db).refresh_document(refreshed_document)
+                except Exception:
+                    db.rollback()
+                    logger.exception("wiki compilation failed document_id=%s", document.id)
+
             refreshed_job = db.get(Job, job_id)
             if refreshed_job is None or not _still_owns_job(db, refreshed_job, lease_token):
                 db.rollback()
@@ -1271,7 +1286,6 @@ def _process_index_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
             refreshed_job.error_message = None
             refreshed_job.finished_at = _now_utc()
             _clear_job_lease(refreshed_job)
-            runtime_settings = _load_runtime_settings(db)
             auto_tagging_enabled = bool(runtime_settings.get("documents", {}).get("auto_tagging", False))
             logger.info(
                 "index completion settings document_id=%s auto_tagging=%s",
@@ -1471,6 +1485,101 @@ def _run_backup_scheduler() -> None:
         logger.info("scheduled backup due -> submitted")
 
 
+def _run_wiki_lint() -> None:
+    """Daily owner-scoped integrity sweep for stale or detached wiki facts."""
+    from app.services.wiki import WikiService
+
+    try:
+        with SessionLocal() as db:
+            runtime_settings = SettingsService(db).get_settings()
+            if not runtime_settings.wiki.enabled:
+                return
+            owner_ids = list(
+                db.scalars(select(User.id).where(User.is_active.is_(True)).order_by(User.created_at.asc()))
+            )
+            total_issues = 0
+            total_fixed = 0
+            for owner_id in owner_ids:
+                result = WikiService(db, owner_id).lint(fix=True)
+                total_issues += len(result.issues)
+                total_fixed += result.fixed_claims
+            if total_issues or total_fixed:
+                logger.warning(
+                    "wiki integrity sweep owners=%s issues=%s fixed=%s",
+                    len(owner_ids),
+                    total_issues,
+                    total_fixed,
+                )
+    except Exception as exc:  # pragma: no cover - maintenance must not stop jobs
+        logger.exception("wiki integrity sweep failed err=%s", exc)
+
+
+def _claim_next_wiki_backfill() -> tuple[uuid.UUID, uuid.UUID] | None:
+    """Claim low-priority wiki work only when no document job is waiting."""
+    from app.services.wiki_backfill import WikiBackfillService
+
+    with SessionLocal() as db:
+        return WikiBackfillService.claim_next(
+            db,
+            worker_id=WORKER_ID,
+            lease_seconds=settings.worker_job_lease_seconds,
+        )
+
+
+def _heartbeat_wiki_backfill(run_id: uuid.UUID, lease_token: uuid.UUID) -> bool:
+    from app.services.wiki_backfill import WikiBackfillService
+
+    with SessionLocal() as db:
+        return WikiBackfillService.heartbeat(
+            db,
+            run_id,
+            lease_token,
+            lease_seconds=settings.worker_job_lease_seconds,
+        )
+
+
+@contextmanager
+def _wiki_backfill_lease_heartbeat(run_id: uuid.UUID, lease_token: uuid.UUID):
+    stop = threading.Event()
+
+    def run_heartbeat() -> None:
+        interval = min(
+            settings.worker_job_heartbeat_seconds,
+            max(5, settings.worker_job_lease_seconds // 3),
+        )
+        while not stop.wait(interval):
+            try:
+                if not _heartbeat_wiki_backfill(run_id, lease_token):
+                    logger.warning("wiki backfill lease lost run_id=%s worker_id=%s", run_id, WORKER_ID)
+                    return
+            except Exception:
+                logger.exception("wiki backfill heartbeat failed run_id=%s", run_id)
+
+    thread = threading.Thread(
+        target=run_heartbeat,
+        name=f"wiki-backfill-heartbeat-{run_id}",
+        daemon=True,
+    )
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join(timeout=2)
+
+
+def _process_wiki_backfill(run_id: uuid.UUID, lease_token: uuid.UUID) -> None:
+    from app.services.wiki_backfill import WikiBackfillService
+
+    try:
+        with SessionLocal() as db:
+            WikiBackfillService.process_claimed_batch(db, run_id, lease_token)
+    except Exception as exc:  # pragma: no cover - infrastructure/runtime path
+        logger.exception("wiki backfill batch failed run_id=%s", run_id)
+        with SessionLocal() as db:
+            WikiBackfillService.mark_failed(db, run_id, lease_token, str(exc))
+
+
 def _read_process_rss_mb() -> float | None:
     """Resident-Set-Size des eigenen Prozesses in MB (Linux, /proc)."""
     try:
@@ -1551,6 +1660,7 @@ def run() -> None:
     last_trash_cleanup_at = 0.0
     last_ocr_backfill_at = 0.0
     last_backup_check_at = 0.0
+    last_wiki_lint_at = 0.0
     last_scanner_job_maintenance_at = 0.0
     last_scanner_job_cleanup_at = 0.0
     last_memory_log_at = time.monotonic()
@@ -1592,6 +1702,10 @@ def run() -> None:
             last_backup_check_at = now_monotonic
             _run_backup_scheduler()
 
+        if now_monotonic - last_wiki_lint_at >= WIKI_LINT_INTERVAL_SECONDS:
+            last_wiki_lint_at = now_monotonic
+            _run_wiki_lint()
+
         # Inbox-Ordner-Import (SMB-Scanordner): eingeworfene PDFs landen als
         # Posteingang-Einträge (Eigentümer = erster Admin, Ein-Benutzer-Betrieb).
         inbox_drop_file = _claim_next_import_inbox_pdf()
@@ -1602,6 +1716,13 @@ def run() -> None:
 
         claimed = _claim_next_job()
         if claimed is None:
+            wiki_backfill = _claim_next_wiki_backfill()
+            if wiki_backfill is not None:
+                run_id, lease_token = wiki_backfill
+                _touch_worker_health(state="wiki_backfill", job_id=run_id, force=True)
+                with _wiki_backfill_lease_heartbeat(run_id, lease_token):
+                    _process_wiki_backfill(run_id, lease_token)
+                continue
             time.sleep(settings.worker_poll_interval_seconds)
             continue
         job_id, job_type, lease_token = claimed

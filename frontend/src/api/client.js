@@ -169,11 +169,11 @@ export async function apiFetch(path, options = {}) {
 }
 
 /** GET  /api/... */
-export const apiGet = (path) => apiFetch(path);
+export const apiGet = (path, options = {}) => apiFetch(path, options);
 
 /** POST /api/... mit JSON-Body */
-export const apiPost = (path, body) =>
-  apiFetch(path, { method: 'POST', body: JSON.stringify(body) });
+export const apiPost = (path, body, options = {}) =>
+  apiFetch(path, { ...options, method: 'POST', body: JSON.stringify(body) });
 
 /** PATCH /api/... mit JSON-Body */
 export const apiPatch = (path, body) =>

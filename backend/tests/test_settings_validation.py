@@ -49,6 +49,7 @@ class SettingsValidationTest(unittest.TestCase):
                     "drawerRememberState": True,
                     "tagDrawerRememberState": False,
                     "sidebar_show_favorites": False,
+                    "sidebar_show_dossiers": False,
                 }
             }
         )
@@ -58,6 +59,7 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertIs(payload.ui.drawerRememberState, True)
         self.assertIs(payload.ui.tagDrawerRememberState, False)
         self.assertIs(payload.ui.sidebar_show_favorites, False)
+        self.assertIs(payload.ui.sidebar_show_dossiers, False)
 
     def test_ui_new_toggle_defaults_present_in_read_model(self) -> None:
         payload = AppSettingsRead.model_validate({})
@@ -67,6 +69,7 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertIs(payload.ui.drawerRememberState, True)
         self.assertIs(payload.ui.tagDrawerRememberState, True)
         self.assertIs(payload.ui.sidebar_show_favorites, True)
+        self.assertIs(payload.ui.sidebar_show_dossiers, True)
         self.assertIs(payload.documents.auto_open_import_inbox, False)
         self.assertEqual(payload.documents.recent_import_window_hours, 24)
 
@@ -87,6 +90,21 @@ class SettingsValidationTest(unittest.TestCase):
     def test_rag_context_limits_accept_valid_values(self) -> None:
         payload = AppSettingsPatch.model_validate({"rag": {"max_context_chars": 16000}})
         self.assertEqual(payload.rag.max_context_chars, 16000)
+
+    def test_wiki_trust_defaults_and_limits_are_present(self) -> None:
+        defaults = AppSettingsRead.model_validate({})
+        self.assertIs(defaults.wiki.enabled, True)
+        self.assertIs(defaults.wiki.llm_claim_extraction, True)
+        self.assertIs(defaults.wiki.require_review_for_chat_capture, True)
+
+        patch = AppSettingsPatch.model_validate({"wiki": {"page_limit": 8, "claim_limit": 40}})
+        self.assertEqual(patch.wiki.page_limit, 8)
+        self.assertEqual(patch.wiki.claim_limit, 40)
+
+        with self.assertRaises(ValidationError):
+            AppSettingsPatch.model_validate({"wiki": {"claim_limit": 2}})
+        with self.assertRaises(ValidationError):
+            AppSettingsPatch.model_validate({"wiki": {"require_review_for_chat_capture": False}})
 
     def test_rag_overlap_rejects_greater_or_equal_chunk_size(self) -> None:
         with self.assertRaises(ValidationError):

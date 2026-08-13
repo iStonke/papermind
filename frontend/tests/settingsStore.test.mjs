@@ -62,3 +62,41 @@ test("normalizeSettingsPayload preserves auto-open import inbox setting", () => 
 
   assert.equal(normalized.documents.auto_open_import_inbox, true);
 });
+
+test("normalizeSettingsPayload preserves dossier sidebar visibility", () => {
+  setActivePinia(createPinia());
+  const store = useSettingsStore();
+
+  const normalized = store.normalizeSettingsPayload({
+    ui: { sidebar_show_dossiers: false },
+  });
+
+  assert.equal(normalized.ui.sidebar_show_dossiers, false);
+});
+
+test("normalizeSettingsPayload preserves wiki trust settings", () => {
+  setActivePinia(createPinia());
+  const store = useSettingsStore();
+
+  const normalized = store.normalizeSettingsPayload({
+    wiki: {
+      enabled: true,
+      auto_compile: false,
+      llm_claim_extraction: false,
+      chat_retrieval: true,
+      require_review_for_chat_capture: true,
+      page_limit: 9,
+      claim_limit: 36,
+    },
+  });
+
+  assert.deepEqual(normalized.wiki, {
+    enabled: true,
+    auto_compile: false,
+    llm_claim_extraction: false,
+    chat_retrieval: true,
+    require_review_for_chat_capture: true,
+    page_limit: 9,
+    claim_limit: 36,
+  });
+});
