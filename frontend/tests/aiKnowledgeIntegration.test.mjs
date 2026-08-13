@@ -10,6 +10,7 @@ const routerSource = await readFile(new URL('../src/router/index.js', import.met
 const settingsSource = await readFile(new URL('../src/components/SettingsDialog.vue', import.meta.url), 'utf8');
 const commandsSource = await readFile(new URL('../src/components/commandPalette/commands.js', import.meta.url), 'utf8');
 const aiDialogSource = await readFile(new URL('../src/components/AiDialog.vue', import.meta.url), 'utf8');
+const knowledgeStageSource = await readFile(new URL('../src/components/KnowledgeStage.vue', import.meta.url), 'utf8');
 
 test('knowledge is an accessible mode of Wissen instead of a separate sidebar destination', () => {
   // Chat ↔ Wissen ist ein Moduswechsel (kein eigener Sidebar-Eintrag): Einstieg
@@ -78,13 +79,12 @@ test('assistant answers use the robot icon instead of the PM monogram', () => {
 });
 
 test('Wissen uses changing graphical examples without the old text-heavy prompt showcase', () => {
-  assert.match(workspaceSource, /Was möchtest du finden\?/);
-  assert.match(workspaceSource, /knowledge-examples__visual/);
-  assert.match(workspaceSource, /@keyframes knowledgeOrbit/);
-  assert.match(workspaceSource, /<strong>\{\{ example\.label \}\}<\/strong>/);
-  assert.match(workspaceSource, /:aria-label="example\.prompt"/);
-  assert.match(workspaceSource, /Andere Beispielfragen anzeigen/);
-  assert.match(workspaceSource, /function refreshKnowledgeExamples\(\)/);
+  // Der Chat-Leerzustand ist die grafische Wissens-Bühne (KnowledgeStage): Canvas-
+  // Konstellation + wechselnde Prompt-Karten aus Wissensseiten/Tags/Dokumenttypen.
+  assert.match(workspaceSource, /<KnowledgeStage/);
+  assert.match(knowledgeStageSource, /class="kstage__canvas"/);
+  assert.match(knowledgeStageSource, /class="kstage__prompt"/);
+  assert.match(workspaceSource, /function refreshStagePrompts\(\)/);
   assert.match(workspaceSource, /sortedCategories\.value/);
   assert.match(workspaceSource, /tags\.value/);
   assert.match(workspaceSource, /:show-drawer="[^"]*\(!isChatView \|\| chatPreviewVisible\)"/);

@@ -1067,7 +1067,6 @@
               </div>
               <div v-else-if="isChatView" class="knowledge-home">
                 <KnowledgeStage
-                  v-if="hasKnowledgeSnapshot"
                   :knows="wikiSnapshotOverview"
                   :prompts="stagePrompts"
                   :attention="wikiAttention"
@@ -1075,56 +1074,6 @@
                   @open-knowledge="openKnowledgeArea"
                   @refresh="refreshStagePrompts"
                 />
-
-                <div v-else class="knowledge-examples">
-                <div class="knowledge-examples__content">
-                  <div class="knowledge-examples__visual" aria-hidden="true">
-                    <span class="knowledge-examples__orbit knowledge-examples__orbit--outer">
-                      <i></i><i></i><i></i>
-                    </span>
-                    <span class="knowledge-examples__orbit knowledge-examples__orbit--inner"></span>
-                    <span class="knowledge-examples__core">
-                      <v-icon size="28">mdi-brain</v-icon>
-                    </span>
-                  </div>
-                  <div class="knowledge-examples__heading">
-                    <div>
-                      <div class="knowledge-examples__eyebrow">Wissen</div>
-                      <div class="knowledge-examples__title">Was möchtest du finden?</div>
-                    </div>
-                    <v-btn
-                      icon="mdi-refresh"
-                      size="small"
-                      variant="text"
-                      aria-label="Andere Beispielfragen anzeigen"
-                      title="Andere Beispiele"
-                      @click="refreshKnowledgeExamples"
-                    />
-                  </div>
-                  <div class="knowledge-examples__grid">
-                    <button
-                      v-for="(example, index) in knowledgeExampleQuestions"
-                      :key="`${knowledgeExamplesRevision}-${example.key}`"
-                      type="button"
-                      class="knowledge-examples__question"
-                      :class="`knowledge-examples__question--${example.tone}`"
-                      :style="{ '--example-index': index }"
-                      :aria-label="example.prompt"
-                      :title="example.prompt"
-                      @click="askKnowledgeExample(example.prompt)"
-                    >
-                      <span class="knowledge-examples__question-icon" aria-hidden="true">
-                        <v-icon size="22">{{ example.icon }}</v-icon>
-                      </span>
-                      <span class="knowledge-examples__question-copy">
-                        <small>{{ example.eyebrow }}</small>
-                        <strong>{{ example.label }}</strong>
-                      </span>
-                      <v-icon class="knowledge-examples__question-arrow" size="17">mdi-arrow-top-right</v-icon>
-                    </button>
-                  </div>
-                </div>
-                </div>
               </div>
               <PmEmptyState
                 v-else
@@ -3138,7 +3087,10 @@ const isChatView      = computed(() => activeView.value === 'chat');
 watch(isChatView, (active) => {
   if (active) {
     chatPreviewVisible.value = false;
-    refreshKnowledgeExamples();
+    // Sofort kuratierte Prompts, damit die Wissens-Bühne (Konstellation) nie leer
+    // ist – auch bei leerer Wissensbasis. Der Snapshot reichert danach mit echten
+    // Wissensseiten an.
+    buildStagePrompts();
     void loadKnowledgeSnapshot();
   }
 });
