@@ -26,7 +26,7 @@
         @click="openDossiers()"
       >
         <template #icon>
-          <v-icon size="18">mdi-view-grid-outline</v-icon>
+          <v-icon size="18">mdi-table-furniture</v-icon>
         </template>
         Leuchttische
         <template #append>
@@ -675,7 +675,7 @@ const flyoutRows = computed(() => {
         run: () => emit('select-view', 'dashboard'),
       }];
       if (showDossiers.value) rows.push({
-        id: 'dossiers', icon: 'mdi-view-grid-outline', label: 'Leuchttische',
+        id: 'dossiers', icon: 'mdi-table-furniture', label: 'Leuchttische',
         count: dossierCount.value, active: props.dossiersActive, run: () => openDossiers(),
       });
       if (ui.sidebar_show_chat !== false) rows.push({

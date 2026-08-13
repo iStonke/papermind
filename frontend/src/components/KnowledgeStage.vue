@@ -112,7 +112,9 @@ function resize() {
   canvas.height = Math.round(height * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   seedNodes();
-  if (reducedMotion.value) drawFrame(0);
+  // Nicht bis zum ersten requestAnimationFrame transparent bleiben: Gerade in
+  // Safari ist dieser einzelne leere Canvas-Frame beim View-Wechsel sichtbar.
+  drawFrame(window.performance?.now?.() || 0);
 }
 
 function drawFrame(time) {
@@ -264,7 +266,6 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   border: 1px solid var(--pm-divider);
   background: color-mix(in srgb, var(--pm-app-surface-raised) 82%, transparent);
-  backdrop-filter: blur(6px);
   color: var(--pm-muted);
   font: inherit;
   font-size: 0.75rem;
@@ -304,15 +305,16 @@ onBeforeUnmount(() => {
   border-radius: 15px;
   border: 1px solid var(--pm-divider);
   background: color-mix(in srgb, var(--pm-app-surface-raised) 88%, transparent);
-  backdrop-filter: blur(8px);
   color: inherit;
   text-align: left;
   cursor: pointer;
   overflow: hidden;
   box-shadow: 0 6px 20px rgba(15, 23, 42, 0.05);
   transition: transform 0.22s cubic-bezier(0.22, 0.7, 0.24, 1), border-color 0.2s ease, box-shadow 0.22s ease;
-  animation: kstage-enter 0.6s cubic-bezier(0.22, 0.9, 0.26, 1) backwards, kstage-drift 6s ease-in-out infinite;
-  animation-delay: calc(var(--i) * 90ms), calc(var(--i) * 320ms);
+  /* Beim View-Wechsel sofort vollständig zeichnen. Eine gestaffelte
+     opacity-Einblendung sah insbesondere in Safari wie ein Loader-Flash aus. */
+  animation: kstage-drift 6s ease-in-out infinite;
+  animation-delay: calc(var(--i) * 320ms);
 }
 
 .kstage__prompt:hover {
@@ -403,7 +405,6 @@ onBeforeUnmount(() => {
 
 /* ── Keyframes ── */
 @keyframes kstage-pulse { 0%, 100% { transform: scale(1); opacity: 0.6; } 50% { transform: scale(1.14); opacity: 1; } }
-@keyframes kstage-enter { from { opacity: 0; transform: translateY(14px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes kstage-drift { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
 @keyframes kstage-shine { from { left: -60%; opacity: 0; } 40% { opacity: 1; } to { left: 120%; opacity: 0; } }
 

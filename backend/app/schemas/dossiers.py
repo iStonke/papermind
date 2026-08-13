@@ -24,6 +24,7 @@ class DossierItemType(str, Enum):
     document = "document"
     note = "note"
     link = "link"
+    image = "image"
 
 
 class DossierPropertyWrite(BaseModel):
@@ -138,6 +139,7 @@ class DossierGroupSummary(BaseModel):
 
 class DossierListItem(DossierRead):
     document_count: int = 0
+    image_count: int = 0
     item_count: int = 0
     group_count: int = 0
     preview_document_ids: list[uuid.UUID] = Field(default_factory=list)
@@ -236,6 +238,8 @@ class DossierItemCreateRequest(BaseModel):
             raise ValueError("document_id is required for document items")
         if self.item_type == DossierItemType.document and self.attached_to_item_id is not None:
             raise ValueError("document items cannot be attached to another item")
+        if self.item_type == DossierItemType.image:
+            raise ValueError("image items must be created through the image upload endpoint")
         if self.item_type == DossierItemType.link:
             _validate_web_url(self.link_url)
         return self
@@ -281,6 +285,12 @@ class DossierItemRead(ORMModel):
     link_title: str | None = None
     link_url: str | None = None
     link_description: str | None = None
+    image_filename: str | None = None
+    image_content_type: str | None = None
+    image_file_key: str | None = None
+    image_size_bytes: int | None = None
+    image_width: int | None = None
+    image_height: int | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -337,6 +347,12 @@ class DossierItemRestoreWrite(BaseModel):
     link_title: str | None = Field(default=None, max_length=240)
     link_url: str | None = Field(default=None, max_length=2048)
     link_description: str | None = Field(default=None, max_length=2000)
+    image_filename: str | None = Field(default=None, max_length=512)
+    image_content_type: str | None = Field(default=None, max_length=32)
+    image_file_key: str | None = Field(default=None, max_length=2048)
+    image_size_bytes: int | None = Field(default=None, ge=1)
+    image_width: int | None = Field(default=None, ge=1)
+    image_height: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def validate_payload(self) -> "DossierItemRestoreWrite":
@@ -349,6 +365,19 @@ class DossierItemRestoreWrite(BaseModel):
             raise ValueError("document_id is only allowed for document items")
         if self.item_type == DossierItemType.link:
             _validate_web_url(self.link_url)
+        if self.item_type == DossierItemType.image:
+            required = (
+                self.image_filename,
+                self.image_content_type,
+                self.image_file_key,
+                self.image_size_bytes,
+                self.image_width,
+                self.image_height,
+            )
+            if any(value is None for value in required):
+                raise ValueError("image metadata is required for image items")
+            if self.image_content_type not in {"image/jpeg", "image/png"}:
+                raise ValueError("image_content_type must be image/jpeg or image/png")
         return self
 
 

@@ -3585,7 +3585,8 @@ const hasActiveListFilter = computed(() => {
   );
 });
 const showDocumentListLoadingState = computed(() =>
-  isDocumentListSettling.value || (documents.value.length === 0 && isLoadingDocuments.value)
+  !isChatView.value
+  && (isDocumentListSettling.value || (documents.value.length === 0 && isLoadingDocuments.value))
 );
 const showDocumentListEmptyState = computed(() =>
   !isDocumentListSettling.value && !isLoadingDocuments.value && documents.value.length === 0
@@ -8919,7 +8920,7 @@ watch(searchText, (value) => {
 });
 
 watch(documentListQueryReloadKey, () => {
-  if (isTagView.value || isCategoryView.value) {
+  if (isChatView.value || isTagView.value || isCategoryView.value) {
     return;
   }
   startDocumentListSettle();

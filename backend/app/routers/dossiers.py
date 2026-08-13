@@ -1,6 +1,7 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
@@ -238,6 +239,45 @@ def create_item(
 ) -> DossierItemRead:
     service = DossierService(db, user.id)
     return service.item_models([service.create_item(dossier_id, payload)])[0]
+
+
+@router.post(
+    "/{dossier_id}/images",
+    response_model=DossierItemRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload a JPEG or PNG image to a dossier",
+    responses={400: {"model": ErrorResponse}, 413: {"model": ErrorResponse}},
+)
+def upload_image(
+    dossier_id: uuid.UUID,
+    file: UploadFile = File(..., description="JPEG or PNG image"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> DossierItemRead:
+    service = DossierService(db, user.id)
+    return service.item_models([service.create_image_item(dossier_id, file)])[0]
+
+
+@router.get(
+    "/{dossier_id}/items/{item_id}/image",
+    response_class=FileResponse,
+    summary="Serve a dossier image",
+    responses={404: {"model": ErrorResponse}},
+)
+def get_image(
+    dossier_id: uuid.UUID,
+    item_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> FileResponse:
+    item, path = DossierService(db, user.id).get_image_file(dossier_id, item_id)
+    return FileResponse(
+        path=path,
+        media_type=item.image_content_type or "application/octet-stream",
+        filename=item.image_filename or path.name,
+        content_disposition_type="inline",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 @router.patch(

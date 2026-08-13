@@ -127,11 +127,12 @@ class DossierGroup(Base):
 class DossierItem(Base):
     __tablename__ = "dossier_items"
     __table_args__ = (
-        CheckConstraint("item_type IN ('document', 'note', 'link')", name="ck_dossier_items_type"),
+        CheckConstraint("item_type IN ('document', 'note', 'link', 'image')", name="ck_dossier_items_type"),
         CheckConstraint(
             "(item_type = 'document' AND document_id IS NOT NULL) OR "
             "(item_type = 'note' AND document_id IS NULL) OR "
-            "(item_type = 'link' AND document_id IS NULL AND link_url IS NOT NULL)",
+            "(item_type = 'link' AND document_id IS NULL AND link_url IS NOT NULL) OR "
+            "(item_type = 'image' AND document_id IS NULL AND image_file_key IS NOT NULL)",
             name="ck_dossier_items_payload",
         ),
         Index("ix_dossier_items_dossier_group_sort", "dossier_id", "group_id", "sort_order"),
@@ -169,6 +170,12 @@ class DossierItem(Base):
     link_title: Mapped[str | None] = mapped_column(Text, nullable=True)
     link_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     link_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_filename: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_content_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    image_file_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    image_width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    image_height: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()

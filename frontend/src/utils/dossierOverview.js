@@ -77,9 +77,11 @@ export function filterAndSortDossiers(entries, options = {}) {
 export function dossierElementsSummary(entry) {
   const total = Math.max(0, Number(entry?.item_count || 0));
   const documents = Math.max(0, Number(entry?.document_count || 0));
-  const other = Math.max(0, total - documents);
+  const images = Math.max(0, Number(entry?.image_count || 0));
+  const other = Math.max(0, total - documents - images);
   const parts = [];
   if (documents) parts.push(`${documents} PDF`);
+  if (images) parts.push(`${images} ${images === 1 ? 'Bild' : 'Bilder'}`);
   if (other) parts.push(`${other} Notizen/Links`);
   return parts.length ? `${total} · ${parts.join(', ')}` : '0 Elemente';
 }

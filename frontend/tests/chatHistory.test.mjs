@@ -12,6 +12,8 @@ import { setToken } from '../src/api/client.js';
 
 const dialogSource = await readFile(new URL('../src/components/AiDialog.vue', import.meta.url), 'utf8');
 const workspaceSource = await readFile(new URL('../src/views/DocumentsWorkspace.vue', import.meta.url), 'utf8');
+const searchSource = await readFile(new URL('../src/composables/useSearch.js', import.meta.url), 'utf8');
+const knowledgeStageSource = await readFile(new URL('../src/components/KnowledgeStage.vue', import.meta.url), 'utf8');
 
 test('chat history API loads, lists and archives owner-scoped sessions with authentication', async () => {
   const previousFetch = globalThis.fetch;
@@ -71,6 +73,22 @@ test('chat mounts synchronously outside the panel transition to avoid null compo
   assert.match(workspaceSource, /import AiDialog from '\.\.\/components\/AiDialog\.vue';/);
   assert.doesNotMatch(workspaceSource, /defineAsyncComponent\(\(\) => import\('\.\.\/components\/AiDialog\.vue'\)\)/);
   assert.match(workspaceSource, /<AiDialog\s+v-else-if="isChatView"[\s\S]*?\/>\s*<Transition v-else name="pm-panel">/);
+});
+
+test('empty chat stays visible while the initial history lookup is running', () => {
+  assert.match(dialogSource, /v-if="isVisibleSessionLoading"/);
+  assert.match(dialogSource, /v-else class="ai-chat-empty"/);
+  assert.match(dialogSource, /const isVisibleSessionLoading = computed\(\(\) => isLoadingSession\.value && aiMessages\.value\.length > 0\)/);
+  assert.match(dialogSource, /historyInitializationPromise && isLoadingSession\.value && aiMessages\.value\.length === 0/);
+});
+
+test('entering Wissen cannot activate an outgoing document skeleton', () => {
+  assert.match(workspaceSource, /const showDocumentListLoadingState = computed\(\(\) =>\s*!isChatView\.value/s);
+  assert.match(workspaceSource, /if \(isChatView\.value \|\| isTagView\.value \|\| isCategoryView\.value\)/);
+  assert.match(searchSource, /activeView\.value === 'chat'/);
+  assert.match(knowledgeStageSource, /drawFrame\(window\.performance\?\.now\?\.\(\) \|\| 0\)/);
+  assert.doesNotMatch(knowledgeStageSource, /kstage-enter/);
+  assert.doesNotMatch(knowledgeStageSource, /backdrop-filter:/);
 });
 
 test('chat composer is narrow and floats above a softly veiled history', () => {

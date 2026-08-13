@@ -59,18 +59,22 @@
         </div>
       </aside>
 
-      <section v-if="!dossierId" key="overview" class="dossier-overview">
-        <header class="dsr-ov__head">
+      <section
+        v-if="!dossierId"
+        key="overview"
+        class="dossier-overview"
+      >
+        <header v-if="showOverviewControls" class="dsr-ov__head">
           <div class="dsr-ov__heading">
             <h1>Leuchttische</h1>
             <p class="dsr-ov__sub">{{ overviewMeta }}</p>
           </div>
-          <button v-if="!isTrueOverviewEmpty" type="button" class="dsr-btn dsr-btn--primary" @click="quickCreateDossier">
+          <button type="button" class="dsr-btn dsr-btn--primary" @click="quickCreateDossier">
             <v-icon size="18">mdi-plus</v-icon>Neuer Leuchttisch
           </button>
         </header>
 
-        <div class="dsr-ov__filters">
+        <div v-if="showOverviewControls" class="dsr-ov__filters">
           <div class="dsr-seg" role="tablist" aria-label="Statusfilter">
             <button
               v-for="opt in overviewStateOptions"
@@ -114,7 +118,7 @@
           </label>
         </div>
 
-        <div v-if="loading" class="dsr-overview-grid dsr-overview-grid--loading" aria-label="Leuchttische werden geladen">
+        <div v-if="showOverviewSkeleton" class="dsr-overview-grid dsr-overview-grid--loading" aria-label="Leuchttische werden geladen">
           <div v-for="index in 3" :key="index" class="dsr-tile dsr-tile--skeleton" aria-hidden="true">
             <div class="dsr-tile__preview"><span class="dsr-skeleton-block"></span></div>
             <div class="dsr-tile__body"><span></span><span></span><span></span></div>
@@ -210,7 +214,7 @@
 
           </div>
         </div>
-        <div v-else class="dossier-empty dossier-empty--overview">
+        <div v-else-if="showOverviewEmpty" class="dossier-empty dossier-empty--overview">
           <div v-if="isTrueOverviewEmpty" class="dsr-board-empty__visual dsr-overview-empty__visual" aria-hidden="true">
             <span class="dsr-board-empty__sheet dsr-board-empty__sheet--note">
               <v-icon size="17">mdi-note-outline</v-icon>
@@ -287,12 +291,14 @@
               <v-list density="compact">
                 <v-list-item prepend-icon="mdi-book-open-page-variant-outline" title="Aus Bibliothek" @click="openDocumentPicker" />
                 <v-list-item prepend-icon="mdi-file-upload-outline" title="PDF hochladen" @click="uploadInput?.click()" />
+                <v-list-item prepend-icon="mdi-image-plus-outline" title="Bild/Foto" @click="imageUploadInput?.click()" />
                 <v-divider />
                 <v-list-item prepend-icon="mdi-note-plus-outline" title="Notiz" @click="openNoteDialog" />
                 <v-list-item prepend-icon="mdi-link-variant-plus" title="Link" @click="openLinkDialog" />
               </v-list>
             </v-menu>
             <input ref="uploadInput" class="d-none" type="file" accept="application/pdf" multiple @change="uploadDocuments" />
+            <input ref="imageUploadInput" class="d-none" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" multiple @change="uploadImages" />
 
             <template v-if="selectedItems.length">
               <div class="dossier-toolbar__divider"></div>
@@ -493,6 +499,7 @@
                       :selected="selectedItemIds.has(item.id)"
                       :dimmed="isDimmed(item)"
                       :thumbnail-url="documentThumbnailUrl"
+                      :image-url="dossierImageUrlForItem"
                       :group-title="groupTitle(item.group_id)"
                     />
                   </div>
@@ -518,7 +525,7 @@
                   </div>
 
                   <h2 id="dossier-empty-title">Noch ist dieser Leuchttisch leer</h2>
-                  <p>Füge ein Dokument, eine Notiz oder einen Link hinzu, um loszulegen.</p>
+                  <p>Füge ein Dokument, ein Bild, eine Notiz oder einen Link hinzu, um loszulegen.</p>
 
                   <div class="dsr-board-empty__actions" aria-label="Erstes Element hinzufügen">
                     <button type="button" class="dsr-board-empty__choice" @click="openDocumentPicker">
@@ -528,6 +535,10 @@
                     <button type="button" class="dsr-board-empty__choice" @click="uploadInput?.click()">
                       <span class="dsr-board-empty__choice-icon"><v-icon size="19">mdi-file-upload-outline</v-icon></span>
                       <span><strong>PDF hochladen</strong><small>Neue Datei ablegen</small></span>
+                    </button>
+                    <button type="button" class="dsr-board-empty__choice dsr-board-empty__choice--image" @click="imageUploadInput?.click()">
+                      <span class="dsr-board-empty__choice-icon"><v-icon size="19">mdi-image-plus-outline</v-icon></span>
+                      <span><strong>Bild/Foto</strong><small>JPEG oder PNG</small></span>
                     </button>
                     <button type="button" class="dsr-board-empty__choice" @click="openNoteDialog">
                       <span class="dsr-board-empty__choice-icon"><v-icon size="19">mdi-note-plus-outline</v-icon></span>
@@ -855,6 +866,7 @@ import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vu
 import BaseDialog from '../components/BaseDialog.vue';
 import PdfPreview from '../components/PdfPreview.vue';
 import { apiFetch } from '../api/client.js';
+import { dossierImageUrl } from '../api/dossiers.js';
 import { documentFileUrl, documentThumbnailUrl, listDocuments } from '../api/documents.js';
 import { useDossierStore } from '../stores/dossiers.js';
 import { useUiStore } from '../stores/ui.js';
@@ -882,7 +894,24 @@ const route = useRoute();
 const router = useRouter();
 const dossierStore = useDossierStore();
 const uiStore = useUiStore();
-const { dossiers, currentDossier, groups, items, documentItems, loading, saving } = storeToRefs(dossierStore);
+const { dossiers, currentDossier, groups, items, documentItems, loading, saving, listLoaded } = storeToRefs(dossierStore);
+
+// Das Skeleton erst nach einer kurzen Verzögerung zeigen. Lokale Ladevorgänge
+// sind meist in ~15 ms fertig; ohne diese Schwelle blitzt das Skeleton beim
+// Bereichswechsel für einen Frame auf, bevor Grid oder Leerzustand erscheinen.
+const SKELETON_DELAY_MS = 220;
+const skeletonDelayElapsed = ref(false);
+let skeletonDelayTimer = null;
+watch(loading, (isLoading) => {
+  if (skeletonDelayTimer) { clearTimeout(skeletonDelayTimer); skeletonDelayTimer = null; }
+  if (isLoading && !listLoaded.value) {
+    // Nur beim allerersten Laden (noch keine Daten) darf ein Skeleton erscheinen.
+    skeletonDelayElapsed.value = false;
+    skeletonDelayTimer = setTimeout(() => { skeletonDelayElapsed.value = true; }, SKELETON_DELAY_MS);
+  } else {
+    skeletonDelayElapsed.value = false;
+  }
+}, { immediate: true });
 
 const dossierId = computed(() => String(route.params.dossierId || ''));
 const sidebarSearch = ref('');
@@ -919,6 +948,7 @@ let fitTimer = null;
 let overviewStaggerTimer = null;
 const settlingTimers = new Map();
 const uploadInput = ref(null);
+const imageUploadInput = ref(null);
 const snackbar = reactive({ open: false, message: '', color: '' });
 
 const dossierDialogOpen = ref(false);
@@ -1016,7 +1046,23 @@ const overviewMeta = computed(() => {
 const isTrueOverviewEmpty = computed(() => (
   overviewState.value === 'all'
   && !overviewSearch.value.trim()
-  && !dossiers.value.some((entry) => !entry.archived_at)
+  && dossiers.value.length === 0
+));
+// Kopf/Filter erst zeigen, sobald die Liste einmal geladen ist und es echte
+// Daten gibt. An `listLoaded` (nicht am flüchtigen `loading`) verankert, damit
+// stille Hintergrund-Refreshes die Kopfzeile nicht kurz ausblenden.
+const showOverviewControls = computed(() => listLoaded.value && !isTrueOverviewEmpty.value);
+// Skeleton nur beim allerersten Laden und nur, wenn es länger als die Schwelle
+// dauert. Bei schnellen lokalen Loads bleibt der Bereich neutral leer und
+// springt direkt auf Grid bzw. Leerzustand – ohne Skeleton-Aufblitzen.
+const showOverviewSkeleton = computed(() => loading.value && !listLoaded.value && skeletonDelayElapsed.value);
+// Den (echten oder gefilterten) Leerzustand erst zeigen, wenn wir sicher sind,
+// dass wirklich nichts da ist – also nach dem ersten Laden. Vorher bleibt der
+// Bereich neutral leer statt kurz die Leerzustands-Illustration zu zeigen.
+const showOverviewEmpty = computed(() => (
+  listLoaded.value
+  && !showOverviewSkeleton.value
+  && filteredOverviewDossiers.value.length === 0
 ));
 const overviewEmptyTitle = computed(() => {
   if (overviewSearch.value.trim()) return 'Keine passenden Leuchttische';
@@ -1047,9 +1093,10 @@ const assignedDocumentIds = computed(() => new Set(documentItems.value.map((item
 const selectedItems = computed(() => items.value.filter((item) => selectedItemIds.value.has(item.id)));
 const groupMap = computed(() => new Map(groups.value.map((group) => [group.id, group])));
 function groupTitle(groupId) { return groupId ? groupMap.value.get(groupId)?.title || '' : ''; }
+function dossierImageUrlForItem(itemId) { return dossierImageUrl(dossierId.value, itemId); }
 
 // ── Freie Leuchttisch-Fläche: Kartenmaße, Raster, Positionsmodell ──────────
-const CARD = { document: { w: 184, h: 292 }, note: { w: 184, h: 124 }, link: { w: 184, h: 96 } };
+const CARD = { document: { w: 184, h: 292 }, image: { w: 236, h: 224 }, note: { w: 184, h: 124 }, link: { w: 184, h: 96 } };
 const GRID = 26;
 const SMART_GUIDE_THRESHOLD = 7;
 const sizeOf = (item) => CARD[item.item_type] || CARD.document;
@@ -1057,6 +1104,7 @@ const snap = (value) => Math.round(value / GRID) * GRID;
 
 function itemTitle(item) {
   if (item.item_type === 'document') return item.document?.title || 'Dokument';
+  if (item.item_type === 'image') return item.image_filename || 'Bild/Foto';
   if (item.item_type === 'note') return item.note_title || 'Notiz';
   return item.link_title || item.link_url || 'Link';
 }
@@ -1067,17 +1115,42 @@ function hostOf(url) {
 
 const DossierItemCard = defineComponent({
   name: 'DossierItemCard',
-  props: { item: Object, selected: Boolean, dimmed: Boolean, thumbnailUrl: Function, groupTitle: String },
+  props: { item: Object, selected: Boolean, dimmed: Boolean, thumbnailUrl: Function, imageUrl: Function, groupTitle: String },
   setup(props) {
     const VIcon = resolveComponent('VIcon');
     // Reaktiver Ladezustand: als Teil des Renders überlebt er Re-Renders (anders als
     // eine imperativ gesetzte Klasse, die beim nächsten Render verloren ginge).
     const thumbLoaded = ref(false);
     const thumbError = ref(false);
-    watch(() => props.item?.document_id, () => { thumbLoaded.value = false; thumbError.value = false; });
+    watch(() => `${props.item?.document_id || ''}:${props.item?.image_file_key || ''}`, () => { thumbLoaded.value = false; thumbError.value = false; });
     return () => {
       const it = props.item;
       const cls = ['dsr-card', `dsr-card--${it.item_type}`, { 'dsr-card--selected': props.selected, 'dsr-card--dim': props.dimmed }];
+      if (it.item_type === 'image') {
+        const title = it.image_filename || 'Bild/Foto';
+        const format = it.image_content_type === 'image/png' ? 'PNG' : 'JPG';
+        const dimensions = it.image_width && it.image_height ? `${it.image_width} × ${it.image_height}` : 'Bild/Foto';
+        return h('div', { class: cls }, [
+          h('div', { class: ['dsr-card__image', 'dsr-thumb', { 'dsr-thumb--loaded': thumbLoaded.value, 'dsr-thumb--error': thumbError.value }] }, [
+            h('img', {
+              src: props.imageUrl(it.id),
+              alt: '',
+              draggable: 'false',
+              onLoad: () => { thumbLoaded.value = true; },
+              onError: () => { thumbError.value = true; },
+            }),
+            h('span', { class: 'dsr-card__format', 'aria-hidden': 'true' }, format),
+            props.groupTitle ? h('span', { class: 'dsr-card__group', title: props.groupTitle }, props.groupTitle) : null,
+          ]),
+          h('div', { class: 'dsr-card__content dsr-card__content--image' }, [
+            h('div', { class: 'dsr-card__title dsr-card__title--image', title }, title),
+            h('div', { class: 'dsr-card__meta' }, [
+              h('span', { class: 'dsr-card__source' }, 'Bild/Foto'),
+              h('span', { class: 'dsr-card__pages' }, dimensions),
+            ]),
+          ]),
+        ]);
+      }
       if (it.item_type === 'document') {
         const title = dossierDocumentCardTitle(it.document);
         const source = it.document?.correspondent_name || it.document?.document_type || 'Dokument';
@@ -2047,7 +2120,12 @@ function toggleSelectedPdfPreview() {
   }
   showSelectedPdfPreview();
 }
-function openItem(item) { if (item.item_type === 'document') uiStore.requestWorkspace('openDocumentReader', item.document_id); else if (item.item_type === 'link') window.open(item.link_url, '_blank', 'noopener,noreferrer'); else editItem(item); }
+function openItem(item) {
+  if (item.item_type === 'document') uiStore.requestWorkspace('openDocumentReader', item.document_id);
+  else if (item.item_type === 'image') window.open(dossierImageUrlForItem(item.id), '_blank', 'noopener,noreferrer');
+  else if (item.item_type === 'link') window.open(item.link_url, '_blank', 'noopener,noreferrer');
+  else editItem(item);
+}
 function askRemoveSelectedItem() {
   const targets = [...selectedItems.value];
   if (!targets.length) return;
@@ -2058,7 +2136,7 @@ function askRemoveSelectedItem() {
     target: targets.map((item) => item.id),
     title: targets.length > 1 ? `${targets.length} Elemente entfernen?` : isSingleDocument ? 'Vom Tisch nehmen?' : 'Element löschen?',
     description: targets.length > 1
-      ? 'Die ausgewählten Dokumente werden nur vom Leuchttisch genommen. Ausgewählte Notizen und Links werden gelöscht. Diese Aktion kann direkt rückgängig gemacht werden.'
+      ? 'Die ausgewählten Dokumente werden nur vom Leuchttisch genommen. Ausgewählte Bilder, Notizen und Links werden gelöscht. Diese Aktion kann direkt rückgängig gemacht werden.'
       : isSingleDocument
       ? 'Das Dokument wird nur von diesem Leuchttisch genommen und bleibt in der Bibliothek erhalten.'
       : `„${itemTitle(targets[0])}“ wird gelöscht. Die Aktion kann direkt rückgängig gemacht werden.`,
@@ -2105,6 +2183,29 @@ function schedulePickerSearch() { clearTimeout(pickerSearchTimer); pickerSearchT
 function togglePickerDocument(id) { const next = new Set(pickerSelection.value); next.has(id) ? next.delete(id) : next.add(id); pickerSelection.value = next; }
 async function addPickedDocuments() { pickerLoading.value = true; try { const result = await dossierStore.addDocuments(dossierId.value, [...pickerSelection.value]); pickerOpen.value = false; recordCreatedItems(result.items || [], `${result.items.length} Dokumente hinzufügen`); replaceSelection((result.items || []).map((item) => item.id)); showMessage(`${result.items.length} Dokumente hinzugefügt.`); } catch (error) { showMessage(error.message, 'error'); } finally { pickerLoading.value = false; } }
 async function uploadDocuments(event) { const files = [...(event.target.files || [])]; event.target.value = ''; if (!files.length) return; try { const ids = []; for (const file of files) { const body = new FormData(); body.append('file', file); const created = await apiFetch('/api/documents/upload', { method: 'POST', body }); ids.push(created.id); } const result = await dossierStore.addDocuments(dossierId.value, ids); recordCreatedItems(result.items || [], `${result.items.length} PDFs hinzufügen`); replaceSelection((result.items || []).map((item) => item.id)); showMessage(`${ids.length} PDF${ids.length === 1 ? '' : 's'} hochgeladen und hinzugefügt.`); } catch (error) { showMessage(error.message || 'Upload fehlgeschlagen.', 'error'); } }
+async function uploadImages(event) {
+  const files = [...(event.target.files || [])];
+  event.target.value = '';
+  if (!files.length) return;
+  if (files.some((file) => !['image/jpeg', 'image/png'].includes(file.type))) {
+    showMessage('Bitte wähle ausschließlich JPEG- oder PNG-Bilder aus.', 'error');
+    return;
+  }
+  const created = [];
+  try {
+    for (const file of files) created.push(await dossierStore.addImage(dossierId.value, file));
+  } catch (error) {
+    if (created.length) {
+      recordCreatedItems(created, `${created.length} Bilder hinzufügen`);
+      replaceSelection(created.map((item) => item.id));
+    }
+    showMessage(error.message || 'Bild-Upload fehlgeschlagen.', 'error');
+    return;
+  }
+  recordCreatedItems(created, `${created.length} ${created.length === 1 ? 'Bild' : 'Bilder'} hinzufügen`);
+  replaceSelection(created.map((item) => item.id));
+  showMessage(`${created.length} ${created.length === 1 ? 'Bild wurde' : 'Bilder wurden'} hinzugefügt.`);
+}
 function openInLibrary(item) { if (!item?.document_id) return; uiStore.requestWorkspace('openDocument', item.document_id); router.push('/'); window.setTimeout(() => uiStore.requestWorkspace('openDocument', item.document_id), 350); }
 async function refreshList() { await dossierStore.fetchList({ includeArchived: true }); }
 function scheduleOverviewStaggerEnd() {
@@ -2264,6 +2365,7 @@ onBeforeUnmount(() => {
   cancelPan();
   stopViewTransition();
   if (overviewStaggerTimer) clearTimeout(overviewStaggerTimer);
+  if (skeletonDelayTimer) clearTimeout(skeletonDelayTimer);
   for (const timer of settlingTimers.values()) clearTimeout(timer);
   settlingTimers.clear();
 });
@@ -2476,6 +2578,7 @@ onBeforeUnmount(() => {
 .dsr-board-empty__choice { min-width: 0; display: flex; align-items: center; gap: 10px; padding: 10px 11px; border: 1px solid color-mix(in srgb, var(--pm-text) 16%, var(--dsr-border)); border-radius: 10px; background: color-mix(in srgb, var(--dsr-card) 96%, var(--dsr-reader)); color: var(--pm-text); box-shadow: 0 2px 8px rgba(30, 48, 54, .07); font: inherit; text-align: left; cursor: pointer; transition: border-color var(--pm-duration-fast) var(--pm-easing), box-shadow var(--pm-duration-fast) var(--pm-easing), color var(--pm-duration-fast) var(--pm-easing); }
 .dsr-board-empty__choice:hover { border-color: color-mix(in srgb, var(--pm-accent) 48%, var(--dsr-border)); color: var(--pm-accent); box-shadow: 0 7px 18px rgba(30, 48, 54, .09); }
 .dsr-board-empty__choice:focus-visible { outline: 2px solid color-mix(in srgb, var(--pm-accent) 55%, transparent); outline-offset: 2px; }
+.dsr-board-empty__choice--image { grid-column: 1 / -1; }
 .dsr-board-empty__choice-icon { width: 32px; height: 32px; flex: none; display: grid; place-items: center; border-radius: 8px; background: color-mix(in srgb, var(--pm-accent) 16%, var(--dsr-card)); color: color-mix(in srgb, var(--pm-accent) 88%, var(--pm-text)); }
 .dsr-board-empty__choice > span:last-child { min-width: 0; display: grid; gap: 2px; }
 .dsr-board-empty__choice strong { overflow: hidden; font-size: .75rem; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
@@ -2502,26 +2605,29 @@ onBeforeUnmount(() => {
 :deep(.dsr-card) { box-sizing: border-box; border: 1px solid var(--dsr-border); border-radius: 10px; background: var(--dsr-card); transition: border-color var(--pm-duration-fast) var(--pm-easing), box-shadow var(--pm-duration-fast) var(--pm-easing), opacity var(--pm-duration-fast) var(--pm-easing); }
 :deep(.dsr-card--dim) { opacity: .32; }
 :deep(.dsr-card--selected) { border-color: var(--pm-accent); box-shadow: 0 0 0 1px var(--pm-accent), 0 10px 26px rgba(27, 43, 48, .14); background: var(--dsr-card); }
-:deep(.dsr-card--document.dsr-card--selected) { background: var(--dsr-card); box-shadow: 0 0 0 1px var(--pm-accent), 0 10px 26px rgba(27, 43, 48, .14); }
+:deep(.dsr-card--document.dsr-card--selected), :deep(.dsr-card--image.dsr-card--selected) { background: var(--dsr-card); box-shadow: 0 0 0 1px var(--pm-accent), 0 10px 26px rgba(27, 43, 48, .14); }
 .dsr-node:hover :deep(.dsr-card) { border-color: color-mix(in srgb, var(--pm-text) 22%, var(--dsr-border)); }
 .dsr-node:hover :deep(.dsr-card--selected) { border-color: var(--pm-accent); }
 :deep(.dsr-card--document) { position: relative; width: 184px; height: 292px; display: grid; grid-template-rows: 198px minmax(0, 1fr); overflow: hidden; border-radius: 12px; box-shadow: 0 3px 10px rgba(27, 43, 48, .09); }
-:deep(.dsr-card__thumb) { position: relative; min-width: 0; min-height: 0; overflow: hidden; border-bottom: 1px solid var(--dsr-row-border); background-color: var(--pm-pdf-stage-bg, var(--pm-thumb-bg, #fff)); background-image: linear-gradient(90deg, var(--pm-chip-bg) 25%, color-mix(in srgb, var(--pm-chip-bg) 45%, var(--dsr-card)) 50%, var(--pm-chip-bg) 75%); background-size: 240% 100%; animation: dsr-skeleton 1.3s linear infinite; }
-:deep(.dsr-card__thumb img) { width: 100%; height: 100%; display: block; object-fit: cover; object-position: top center; opacity: 0; transition: opacity 320ms ease, transform 220ms cubic-bezier(.2, .82, .24, 1); }
-:deep(.dsr-card__thumb.dsr-thumb--loaded) { animation: none; background-image: none; }
-:deep(.dsr-card__thumb.dsr-thumb--loaded img) { opacity: 1; }
-:deep(.dsr-card__thumb.dsr-thumb--error) { animation: none; background-image: none; }
-:deep(.dsr-card__thumb.dsr-thumb--error img) { display: none; }
+:deep(.dsr-card--image) { position: relative; width: 236px; height: 224px; display: grid; grid-template-rows: 166px minmax(0, 1fr); overflow: hidden; border-radius: 12px; box-shadow: 0 3px 10px rgba(27, 43, 48, .09); }
+:deep(.dsr-card__thumb), :deep(.dsr-card__image) { position: relative; min-width: 0; min-height: 0; overflow: hidden; border-bottom: 1px solid var(--dsr-row-border); background-color: var(--pm-pdf-stage-bg, var(--pm-thumb-bg, #fff)); background-image: linear-gradient(90deg, var(--pm-chip-bg) 25%, color-mix(in srgb, var(--pm-chip-bg) 45%, var(--dsr-card)) 50%, var(--pm-chip-bg) 75%); background-size: 240% 100%; animation: dsr-skeleton 1.3s linear infinite; }
+:deep(.dsr-card__thumb img), :deep(.dsr-card__image img) { width: 100%; height: 100%; display: block; object-fit: cover; object-position: top center; opacity: 0; transition: opacity 320ms ease, transform 220ms cubic-bezier(.2, .82, .24, 1); }
+:deep(.dsr-thumb.dsr-thumb--loaded) { animation: none; background-image: none; }
+:deep(.dsr-thumb.dsr-thumb--loaded img) { opacity: 1; }
+:deep(.dsr-thumb.dsr-thumb--error) { animation: none; background-image: none; }
+:deep(.dsr-thumb.dsr-thumb--error img) { display: none; }
 :deep(.dsr-card__format) { position: absolute; left: 8px; top: 8px; z-index: 1; padding: 3px 6px; border: 1px solid rgba(255, 255, 255, .66); border-radius: 5px; background: rgba(28, 42, 47, .72); color: #fff; font-size: 8px; font-weight: 760; letter-spacing: .08em; line-height: 1; box-shadow: 0 2px 6px rgba(20, 32, 36, .12); }
 :deep(.dsr-card__group) { position: absolute; right: 8px; top: 8px; z-index: 1; max-width: 116px; overflow: hidden; padding: 3px 6px; border: 1px solid rgba(255, 255, 255, .58); border-radius: 5px; background: rgba(28, 42, 47, .72); color: #fff; font-size: 8px; font-weight: 690; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }
 :deep(.dsr-card__group--slip) { position: static; max-width: 100%; align-self: flex-start; margin: 0 0 1px; border-color: var(--dsr-border); background: var(--pm-chip-bg); color: var(--pm-chip-text); font-size: 8.5px; }
 :deep(.dsr-card__content) { min-width: 0; display: flex; flex-direction: column; gap: 7px; padding: 10px 12px 11px; background: var(--dsr-card); }
+:deep(.dsr-card__content--image) { justify-content: center; gap: 4px; padding-block: 7px; }
 :deep(.dsr-card--document .dsr-card__title) { flex: none; height: 35px; overflow: hidden; color: var(--pm-text); font-size: 13px; line-height: 1.35; font-weight: 660; letter-spacing: -.01em; overflow-wrap: break-word; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+:deep(.dsr-card__title--image) { overflow: hidden; color: var(--pm-text); font-size: 12.5px; line-height: 1.3; font-weight: 660; text-overflow: ellipsis; white-space: nowrap; }
 :deep(.dsr-card__meta) { min-width: 0; display: flex; align-items: center; gap: 7px; color: var(--pm-muted); font-size: 11.5px; line-height: 1.35; }
 :deep(.dsr-card__source) { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 :deep(.dsr-card__pages) { flex: none; padding: 2px 6px; border-radius: 5px; background: var(--pm-chip-bg); color: var(--pm-chip-text); font-size: 10.5px; font-weight: 620; white-space: nowrap; }
-.dsr-node:hover :deep(.dsr-card--document:not(.dsr-card--selected)) { box-shadow: 0 9px 24px rgba(27, 43, 48, .13); }
-.dsr-node:hover :deep(.dsr-card--document .dsr-card__thumb img) { transform: scale(1.015); }
+.dsr-node:hover :deep(.dsr-card--document:not(.dsr-card--selected)), .dsr-node:hover :deep(.dsr-card--image:not(.dsr-card--selected)) { box-shadow: 0 9px 24px rgba(27, 43, 48, .13); }
+.dsr-node:hover :deep(.dsr-card--document .dsr-card__thumb img), .dsr-node:hover :deep(.dsr-card--image .dsr-card__image img) { transform: scale(1.015); }
 :deep(.dsr-card--note), :deep(.dsr-card--link) { width: 184px; display: flex; flex-direction: column; gap: 4px; overflow: hidden; padding: 10px 11px; border-radius: 11px; box-shadow: 0 2px 8px rgba(27, 43, 48, .08); }
 :deep(.dsr-card--note) { height: 124px; }
 :deep(.dsr-card--link) { height: 96px; }

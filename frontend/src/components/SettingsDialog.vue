@@ -336,6 +336,9 @@
               </div>
               <div class="settings-sidebar-group-list">
                 <div class="pm-setting-row settings-sidebar-library-row">
+                  <span class="settings-sidebar-entry-icon" aria-hidden="true">
+                    <v-icon size="18">mdi-view-dashboard-outline</v-icon>
+                  </span>
                   <div class="pm-setting-content">
                     <div class="pm-setting-label">Übersicht</div>
                     <div class="pm-setting-description">Startpunkt für Status, Aktivitäten und Schnellzugriffe.</div>
@@ -344,6 +347,9 @@
                 </div>
 
                 <div class="pm-setting-row settings-sidebar-library-row">
+                  <span class="settings-sidebar-entry-icon" aria-hidden="true">
+                    <v-icon size="18">mdi-table-furniture</v-icon>
+                  </span>
                   <div class="pm-setting-content">
                     <div class="pm-setting-label">Leuchttische</div>
                     <div class="pm-setting-description">Visuelle Arbeitsflächen zum Sammeln, Ordnen und Verknüpfen von Dokumenten.</div>
@@ -362,6 +368,9 @@
                 </div>
 
                 <div class="pm-setting-row settings-sidebar-library-row">
+                  <span class="settings-sidebar-entry-icon" aria-hidden="true">
+                    <v-icon size="18">mdi-brain</v-icon>
+                  </span>
                   <div class="pm-setting-content">
                     <div class="pm-setting-label">Wissen</div>
                     <div class="pm-setting-description">Fragen an deine Dokumente stellen und geprüfte Wissensaussagen verwalten.</div>
@@ -388,6 +397,9 @@
               </div>
               <div class="settings-sidebar-group-list">
                 <div class="pm-setting-row settings-sidebar-library-row">
+                  <span class="settings-sidebar-entry-icon" aria-hidden="true">
+                    <v-icon size="18">mdi-tray-arrow-down</v-icon>
+                  </span>
                   <div class="pm-setting-content">
                     <div class="pm-setting-label">Zuletzt hinzugefügt</div>
                     <div class="pm-setting-description">Bündelt neue Dokumente aus dem festgelegten Zeitraum.</div>
@@ -405,6 +417,9 @@
                 </div>
 
                 <div class="pm-setting-row settings-sidebar-library-row">
+                  <span class="settings-sidebar-entry-icon" aria-hidden="true">
+                    <v-icon size="18">mdi-tag-off-outline</v-icon>
+                  </span>
                   <div class="pm-setting-content">
                     <div class="pm-setting-label">Ohne Tags</div>
                     <div class="pm-setting-description">Findet Dokumente, denen noch keine Tags zugeordnet sind.</div>
@@ -422,6 +437,9 @@
                 </div>
 
                 <div class="pm-setting-row settings-sidebar-library-row">
+                  <span class="settings-sidebar-entry-icon" aria-hidden="true">
+                    <v-icon size="18">mdi-star-outline</v-icon>
+                  </span>
                   <div class="pm-setting-content">
                     <div class="pm-setting-label">Favoriten</div>
                     <div class="pm-setting-description">Sammelt markierte Dokumente für besonders schnellen Zugriff.</div>
@@ -439,6 +457,9 @@
                 </div>
 
                 <div class="pm-setting-row settings-sidebar-library-row">
+                  <span class="settings-sidebar-entry-icon" aria-hidden="true">
+                    <v-icon size="18">mdi-text-box-remove-outline</v-icon>
+                  </span>
                   <div class="pm-setting-content">
                     <div class="pm-setting-label">Nicht durchsuchbar</div>
                     <div class="pm-setting-description">Erfasst Dokumente ohne erkannten Text oder verwertbaren Suchindex.</div>

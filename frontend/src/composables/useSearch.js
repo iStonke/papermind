@@ -261,7 +261,10 @@ export function useSearch({
       window.clearTimeout(searchDebounceTimer);
     }
     searchDebounceTimer = window.setTimeout(() => {
-      if (isTagView.value) {
+      // In Wissen und auf dem Dashboard ist keine Dokumentliste gemountet. Ein
+      // versteckter Reload würde dort nur deren Skeleton-Status anschalten und
+      // kann beim View-Wechsel noch für einen Frame sichtbar werden.
+      if (isTagView.value || activeView.value === 'chat' || activeView.value === 'dashboard') {
         return;
       }
       void fetchDocuments(selectedDocumentId.value);

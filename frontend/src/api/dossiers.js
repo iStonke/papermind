@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from './client.js';
+import { apiDelete, apiFetch, apiGet, apiPatch, apiPost, apiPut, authedUrl, getBaseUrl } from './client.js';
 
 export const listDossiers = ({ includeArchived = false, q = '' } = {}) => {
   const params = new URLSearchParams();
@@ -32,6 +32,13 @@ export const addDossierDocuments = (dossierId, documentIds, groupId = null) =>
 
 export const createDossierItem = (dossierId, body) =>
   apiPost(`/api/dossiers/${dossierId}/items`, body);
+export const uploadDossierImage = (dossierId, file) => {
+  const body = new FormData();
+  body.append('file', file);
+  return apiFetch(`/api/dossiers/${dossierId}/images`, { method: 'POST', body });
+};
+export const dossierImageUrl = (dossierId, itemId) =>
+  authedUrl(`${getBaseUrl()}/api/dossiers/${dossierId}/items/${itemId}/image`);
 export const patchDossierItem = (dossierId, itemId, body) =>
   apiPatch(`/api/dossiers/${dossierId}/items/${itemId}`, body);
 export const reorderDossierItems = (dossierId, placements) =>

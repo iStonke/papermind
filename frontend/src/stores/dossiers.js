@@ -19,6 +19,7 @@ import {
   reorderDossierGroups,
   reorderDossierItems,
   restoreDossierItems,
+  uploadDossierImage,
 } from '../api/dossiers.js';
 
 function restoreSnapshot(item) {
@@ -37,6 +38,12 @@ function restoreSnapshot(item) {
     link_title: item.link_title ?? null,
     link_url: item.link_url ?? null,
     link_description: item.link_description ?? null,
+    image_filename: item.image_filename ?? null,
+    image_content_type: item.image_content_type ?? null,
+    image_file_key: item.image_file_key ?? null,
+    image_size_bytes: item.image_size_bytes ?? null,
+    image_width: item.image_width ?? null,
+    image_height: item.image_height ?? null,
   };
 }
 
@@ -47,6 +54,10 @@ export const useDossierStore = defineStore('dossiers', () => {
   const items = ref([]);
   const loading = ref(false);
   const saving = ref(false);
+  // Wird nach dem ersten erfolgreichen Laden der Liste dauerhaft true. Erlaubt der
+  // Übersicht, echten Leerzustand vs. „noch nicht geladen" zu unterscheiden und so
+  // ein Aufblitzen von Skeleton/Leerzustand beim Bereichswechsel zu vermeiden.
+  const listLoaded = ref(false);
 
   const documentItems = computed(() => items.value.filter((item) => item.item_type === 'document'));
 
@@ -65,6 +76,7 @@ export const useDossierStore = defineStore('dossiers', () => {
     try {
       const payload = await listDossiers(options);
       dossiers.value = payload?.items || [];
+      listLoaded.value = true;
       return dossiers.value;
     } finally {
       loading.value = false;
@@ -84,6 +96,7 @@ export const useDossierStore = defineStore('dossiers', () => {
           ...dossiers.value[index],
           ...payload.dossier,
           document_count: items.value.filter((item) => item.item_type === 'document').length,
+          image_count: items.value.filter((item) => item.item_type === 'image').length,
           item_count: items.value.length,
           group_count: groups.value.length,
         };
@@ -98,7 +111,7 @@ export const useDossierStore = defineStore('dossiers', () => {
     saving.value = true;
     try {
       const created = await createDossier(payload);
-      dossiers.value.unshift({ ...created, document_count: 0, item_count: 0, group_count: 0 });
+      dossiers.value.unshift({ ...created, document_count: 0, image_count: 0, item_count: 0, group_count: 0 });
       return created;
     } finally {
       saving.value = false;
@@ -211,7 +224,15 @@ export const useDossierStore = defineStore('dossiers', () => {
     updateListCounts(dossierId, {
       item_count: 1,
       document_count: created.item_type === 'document' ? 1 : 0,
+      image_count: created.item_type === 'image' ? 1 : 0,
     });
+    return created;
+  }
+
+  async function addImage(dossierId, file) {
+    const created = await uploadDossierImage(dossierId, file);
+    items.value.push(created);
+    updateListCounts(dossierId, { item_count: 1, image_count: 1 });
     return created;
   }
 
@@ -259,6 +280,7 @@ export const useDossierStore = defineStore('dossiers', () => {
     updateListCounts(dossierId, {
       item_count: -1,
       document_count: removed?.item_type === 'document' ? -1 : 0,
+      image_count: removed?.item_type === 'image' ? -1 : 0,
     });
   }
 
@@ -276,6 +298,7 @@ export const useDossierStore = defineStore('dossiers', () => {
     updateListCounts(dossierId, {
       item_count: -removed.length,
       document_count: -removed.filter((item) => item.item_type === 'document').length,
+      image_count: -removed.filter((item) => item.item_type === 'image').length,
     });
     return removed;
   }
@@ -291,6 +314,7 @@ export const useDossierStore = defineStore('dossiers', () => {
     updateListCounts(dossierId, {
       item_count: restored.length,
       document_count: restored.filter((item) => item.item_type === 'document').length,
+      image_count: restored.filter((item) => item.item_type === 'image').length,
     });
     return restored;
   }
@@ -303,6 +327,7 @@ export const useDossierStore = defineStore('dossiers', () => {
     documentItems,
     loading,
     saving,
+    listLoaded,
     fetchList,
     fetchBoard,
     add,
@@ -316,6 +341,7 @@ export const useDossierStore = defineStore('dossiers', () => {
     removeGroup,
     addDocuments,
     addItem,
+    addImage,
     updateItem,
     setItemPlacements,
     removeItem,

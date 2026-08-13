@@ -109,6 +109,28 @@ class DossierSchemaTest(unittest.TestCase):
                 sort_order=1000,
             )
 
+    def test_restore_image_requires_complete_jpeg_or_png_metadata(self) -> None:
+        with self.assertRaises(ValidationError):
+            DossierItemRestoreWrite(
+                id=uuid.uuid4(),
+                item_type=DossierItemType.image,
+                sort_order=1000,
+                image_filename="Foto.jpg",
+            )
+
+        payload = DossierItemRestoreWrite(
+            id=uuid.uuid4(),
+            item_type=DossierItemType.image,
+            sort_order=1000,
+            image_filename="Foto.jpg",
+            image_content_type="image/jpeg",
+            image_file_key="dossier-images/user/item.jpg",
+            image_size_bytes=1234,
+            image_width=1200,
+            image_height=800,
+        )
+        self.assertEqual(payload.image_content_type, "image/jpeg")
+
     def test_note_connection_target_is_serialized_for_create_and_update(self) -> None:
         target_id = uuid.uuid4()
         created = DossierItemCreateRequest(
@@ -172,6 +194,13 @@ class DossierSchemaTest(unittest.TestCase):
         paths = {route.path: route.methods for route in router.routes}
         self.assertIn("POST", paths["/api/dossiers/{dossier_id}/items/batch-delete"])
         self.assertIn("POST", paths["/api/dossiers/{dossier_id}/items/batch-restore"])
+
+    def test_image_upload_and_file_endpoints_are_registered(self) -> None:
+        from app.routers.dossiers import router
+
+        paths = {route.path: route.methods for route in router.routes}
+        self.assertIn("POST", paths["/api/dossiers/{dossier_id}/images"])
+        self.assertIn("GET", paths["/api/dossiers/{dossier_id}/items/{item_id}/image"])
 
 
 if __name__ == "__main__":

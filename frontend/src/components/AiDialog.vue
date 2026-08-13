@@ -2,7 +2,9 @@
   <div class="ai-page">
       <section class="ai-chat-panel">
         <div ref="aiChatScrollRef" class="ai-chat-history">
-          <div v-if="isLoadingSession" class="ai-chat-loading">
+          <!-- Beim initial leeren Chat bleibt der Leerzustand stehen. Der Loader
+               ist nur beim Wechsel eines bereits sichtbaren Verlaufs sinnvoll. -->
+          <div v-if="isVisibleSessionLoading" class="ai-chat-loading">
             <v-progress-circular size="24" width="2" indeterminate color="primary" />
             <span>Chatverlauf wird geladen…</span>
           </div>
@@ -114,7 +116,7 @@
             density="comfortable"
             variant="outlined"
             hide-details
-            :disabled="isAiAsking || isLoadingSession"
+            :disabled="isAiAsking || isVisibleSessionLoading"
             @keydown="handleQuestionShortcut"
           >
             <template #append-inner>
@@ -122,7 +124,7 @@
                 icon="mdi-send-outline"
                 size="small"
                 variant="text"
-                :disabled="!aiQuestionInput.trim() || isAiAsking || isLoadingSession"
+                :disabled="!aiQuestionInput.trim() || isAiAsking || isVisibleSessionLoading"
                 @click="submitAiQuestion()"
               />
             </template>
@@ -133,7 +135,7 @@
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { notifyError } from '../stores/notifications';
 import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
 import { captureChatAnswer } from '../api/wiki.js';
@@ -173,6 +175,10 @@ const chatSessions = ref([]);
 const isLoadingSession = ref(true);
 const isLoadingSessions = ref(false);
 const historyLoadError = ref('');
+// Die initiale Wiederherstellung läuft still im Hintergrund. Erst wenn bereits
+// Nachrichten sichtbar sind (Wechsel zwischen gespeicherten Chats), ersetzt der
+// Ladezustand den Verlauf und blockiert den Composer sichtbar.
+const isVisibleSessionLoading = computed(() => isLoadingSession.value && aiMessages.value.length > 0);
 let historyInitializationPromise = null;
 let historyLoadAttempt = 0;
 let historyLoadWatchdog = null;
@@ -423,6 +429,12 @@ defineExpose({
 });
 
 async function submitAiQuestion() {
+  // Der initial leere Composer bleibt optisch stabil und benutzbar. Eine sehr
+  // frühe Eingabe wartet intern auf die Sitzungswiederherstellung, damit keine
+  // parallelen Chat-Sitzungen entstehen.
+  if (historyInitializationPromise && isLoadingSession.value && aiMessages.value.length === 0) {
+    await historyInitializationPromise;
+  }
   const question = String(aiQuestionInput.value || '').trim();
   if (!question || isAiAsking.value || isLoadingSession.value) return;
 

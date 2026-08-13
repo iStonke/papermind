@@ -61,6 +61,7 @@ _FILE_TOKEN_PATHS = (
     re.compile(r"^/api/documents/[0-9a-fA-F-]{36}/(?:file|thumbnail)$"),
     re.compile(r"^/api/documents/export$"),
     re.compile(r"^/api/import/source/[0-9a-fA-F-]{36}/preview$"),
+    re.compile(r"^/api/dossiers/[0-9a-fA-F-]{36}/items/[0-9a-fA-F-]{36}/image$"),
 )
 
 

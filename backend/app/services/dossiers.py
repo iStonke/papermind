@@ -1,6 +1,8 @@
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
+from fastapi import UploadFile
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -29,6 +31,7 @@ from app.schemas.dossiers import (
     DossierRead,
     DossierUpdateRequest,
 )
+from app.services.dossier_images import DossierImageStorage
 
 
 ORDER_STEP = 1000
@@ -45,6 +48,7 @@ class DossierService:
     def __init__(self, db: Session, owner_id: uuid.UUID | None = None):
         self.db = db
         self.owner_id = owner_id
+        self.image_storage = DossierImageStorage()
 
     def _owned_dossier_stmt(self, dossier_id: uuid.UUID):
         return (
@@ -170,6 +174,7 @@ class DossierService:
                 DossierItem.dossier_id,
                 func.count(DossierItem.id),
                 func.count(DossierItem.document_id),
+                func.count(DossierItem.id).filter(DossierItem.item_type == DossierItemType.image.value),
             )
             .where(DossierItem.dossier_id.in_(ids))
             .group_by(DossierItem.dossier_id)
@@ -179,7 +184,7 @@ class DossierService:
             .where(DossierGroup.dossier_id.in_(ids))
             .group_by(DossierGroup.dossier_id)
         ).all()
-        item_counts = {row[0]: (int(row[1]), int(row[2])) for row in item_rows}
+        item_counts = {row[0]: (int(row[1]), int(row[2]), int(row[3])) for row in item_rows}
         group_counts = {row[0]: int(row[1]) for row in group_rows}
 
         # Vorschau: erste drei Dokument-Thumbnails je Tisch (in Ablagereihenfolge).
@@ -238,8 +243,9 @@ class DossierService:
         return [
             DossierListItem(
                 **self._dossier_model(dossier).model_dump(),
-                item_count=item_counts.get(dossier.id, (0, 0))[0],
-                document_count=item_counts.get(dossier.id, (0, 0))[1],
+                item_count=item_counts.get(dossier.id, (0, 0, 0))[0],
+                document_count=item_counts.get(dossier.id, (0, 0, 0))[1],
+                image_count=item_counts.get(dossier.id, (0, 0, 0))[2],
                 group_count=group_counts.get(dossier.id, 0),
                 preview_document_ids=preview_docs.get(dossier.id, []),
                 groups=groups_by_dossier.get(dossier.id, []),
@@ -379,6 +385,12 @@ class DossierService:
                 link_title=item.link_title,
                 link_url=item.link_url,
                 link_description=item.link_description,
+                image_filename=item.image_filename,
+                image_content_type=item.image_content_type,
+                image_file_key=item.image_file_key,
+                image_size_bytes=item.image_size_bytes,
+                image_width=item.image_width,
+                image_height=item.image_height,
             )
             self.db.add(cloned_item)
             item_pairs.append((item, cloned_item))
@@ -542,6 +554,44 @@ class DossierService:
         self.db.refresh(item)
         return item
 
+    def create_image_item(self, dossier_id: uuid.UUID, file: UploadFile) -> DossierItem:
+        dossier = self.get_dossier_or_404(dossier_id)
+        if self.owner_id is None:
+            raise BadRequestError("Für Bild-Uploads ist ein Benutzer erforderlich")
+        item_id = uuid.uuid4()
+        stored = self.image_storage.store(file, owner_id=self.owner_id, item_id=item_id)
+        item = DossierItem(
+            id=item_id,
+            dossier_id=dossier_id,
+            item_type=DossierItemType.image.value,
+            sort_order=self._next_item_order(dossier_id, None),
+            image_filename=stored.filename,
+            image_content_type=stored.content_type,
+            image_file_key=stored.file_key,
+            image_size_bytes=stored.size_bytes,
+            image_width=stored.width,
+            image_height=stored.height,
+        )
+        self.db.add(item)
+        self._touch(dossier)
+        try:
+            self.db.commit()
+            self.db.refresh(item)
+        except Exception:
+            self.db.rollback()
+            self.image_storage.cleanup(stored.file_key)
+            raise
+        return item
+
+    def get_image_file(self, dossier_id: uuid.UUID, item_id: uuid.UUID) -> tuple[DossierItem, Path]:
+        item = self._require_item(dossier_id, item_id)
+        if item.item_type != DossierItemType.image.value or not item.image_file_key:
+            raise NotFoundError("Bild wurde nicht gefunden", details={"item_id": str(item_id)})
+        path = self.image_storage.resolve_path(item.image_file_key)
+        if not path.is_file():
+            raise NotFoundError("Bilddatei wurde nicht gefunden", details={"item_id": str(item_id)})
+        return item, path
+
     def update_item(
         self, dossier_id: uuid.UUID, item_id: uuid.UUID, payload: DossierItemUpdateRequest
     ) -> DossierItem:
@@ -556,6 +606,7 @@ class DossierService:
             "document": {"group_id", "pos_x", "pos_y"},
             "note": {"group_id", "attached_to_item_id", "pos_x", "pos_y", "note_title", "note_body", "note_color"},
             "link": {"group_id", "attached_to_item_id", "pos_x", "pos_y", "link_title", "link_url", "link_description"},
+            "image": {"group_id", "pos_x", "pos_y"},
         }[item.item_type]
         if set(fields) - allowed:
             raise BadRequestError("Die Felder passen nicht zum Typ des Aktenelements")
@@ -714,6 +765,12 @@ class DossierService:
                     link_title=_clean_optional(snapshot.link_title),
                     link_url=_clean_optional(snapshot.link_url),
                     link_description=_clean_optional(snapshot.link_description),
+                    image_filename=snapshot.image_filename,
+                    image_content_type=snapshot.image_content_type,
+                    image_file_key=snapshot.image_file_key,
+                    image_size_bytes=snapshot.image_size_bytes,
+                    image_width=snapshot.image_width,
+                    image_height=snapshot.image_height,
                 )
                 self.db.add(item)
                 created.append(item)
@@ -781,6 +838,12 @@ class DossierService:
                 link_title=item.link_title,
                 link_url=item.link_url,
                 link_description=item.link_description,
+                image_filename=item.image_filename,
+                image_content_type=item.image_content_type,
+                image_file_key=item.image_file_key,
+                image_size_bytes=item.image_size_bytes,
+                image_width=item.image_width,
+                image_height=item.image_height,
                 created_at=item.created_at,
                 updated_at=item.updated_at,
             )

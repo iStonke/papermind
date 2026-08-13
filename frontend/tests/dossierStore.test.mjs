@@ -80,10 +80,21 @@ test('duplicate posts to the clone endpoint and reuses source preview fields', a
 test('batch remove and restore keep stable item ids and list counts', async () => {
   setActivePinia(createPinia());
   const store = useDossierStore();
-  store.dossiers = [{ id: 'd1', item_count: 2, document_count: 1 }];
+  store.dossiers = [{ id: 'd1', item_count: 3, document_count: 1, image_count: 1 }];
   store.items = [
     { id: 'doc-item', item_type: 'document', document_id: 'doc-1', sort_order: 1000 },
     { id: 'note-item', item_type: 'note', note_title: 'Prüfen', attached_to_item_id: 'doc-item', sort_order: 2000 },
+    {
+      id: 'image-item',
+      item_type: 'image',
+      image_filename: 'werkstatt.png',
+      image_content_type: 'image/png',
+      image_file_key: 'dossier-images/user-1/image-item.png',
+      image_size_bytes: 2048,
+      image_width: 1200,
+      image_height: 800,
+      sort_order: 3000,
+    },
   ];
   const calls = [];
   const previousFetch = globalThis.fetch;
@@ -93,15 +104,28 @@ test('batch remove and restore keep stable item ids and list counts', async () =
       return jsonResponse({ items: [
         { id: 'doc-item', dossier_id: 'd1', item_type: 'document', document_id: 'doc-1', sort_order: 1000 },
         { id: 'note-item', dossier_id: 'd1', item_type: 'note', note_title: 'Prüfen', attached_to_item_id: 'doc-item', sort_order: 2000 },
+        {
+          id: 'image-item',
+          dossier_id: 'd1',
+          item_type: 'image',
+          image_filename: 'werkstatt.png',
+          image_content_type: 'image/png',
+          image_file_key: 'dossier-images/user-1/image-item.png',
+          image_size_bytes: 2048,
+          image_width: 1200,
+          image_height: 800,
+          sort_order: 3000,
+        },
       ] }, 201);
     }
     return jsonResponse({ ok: true });
   };
 
   try {
-    const snapshots = await store.removeItems('d1', ['doc-item', 'note-item']);
+    const snapshots = await store.removeItems('d1', ['doc-item', 'note-item', 'image-item']);
     assert.equal(store.items.length, 0);
     assert.equal(store.dossiers[0].item_count, 0);
+    assert.equal(store.dossiers[0].image_count, 0);
     await store.restoreItems('d1', snapshots);
   } finally {
     globalThis.fetch = previousFetch;
@@ -109,7 +133,10 @@ test('batch remove and restore keep stable item ids and list counts', async () =
 
   assert.equal(calls[0].url, '/api/dossiers/d1/items/batch-delete');
   assert.equal(calls[1].url, '/api/dossiers/d1/items/batch-restore');
-  assert.deepEqual(store.items.map((item) => item.id), ['doc-item', 'note-item']);
-  assert.equal(store.dossiers[0].item_count, 2);
+  assert.deepEqual(store.items.map((item) => item.id), ['doc-item', 'note-item', 'image-item']);
+  assert.equal(store.dossiers[0].item_count, 3);
   assert.equal(store.dossiers[0].document_count, 1);
+  assert.equal(store.dossiers[0].image_count, 1);
+  const restorePayload = JSON.parse(calls[1].options.body);
+  assert.equal(restorePayload.items[2].image_file_key, 'dossier-images/user-1/image-item.png');
 });
