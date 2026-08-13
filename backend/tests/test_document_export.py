@@ -189,8 +189,15 @@ class BuildExportArchiveIntegrationTest(unittest.TestCase):
         try:
             with app_engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
+                schema_ready = all(
+                    conn.execute(text("SELECT to_regclass(:table)"), {"table": f"public.{table}"}).scalar()
+                    is not None
+                    for table in ("users", "documents")
+                )
         except Exception as exc:  # noqa: BLE001
             raise unittest.SkipTest(f"App-DB nicht erreichbar: {exc}")
+        if not schema_ready:
+            raise unittest.SkipTest("App-DB-Schema fehlt (Migrationen nicht angewandt)")
 
         cls.storage_root = Path(get_settings().storage_path).resolve()
         cls.written_paths: list[Path] = []

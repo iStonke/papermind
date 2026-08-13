@@ -12,11 +12,15 @@ const commandsSource = await readFile(new URL('../src/components/commandPalette/
 const aiDialogSource = await readFile(new URL('../src/components/AiDialog.vue', import.meta.url), 'utf8');
 
 test('knowledge is an accessible mode of Wissen instead of a separate sidebar destination', () => {
-  assert.match(toggleSource, /role="switch"/);
-  assert.match(toggleSource, /:aria-checked="modelValue === 'knowledge'"/);
-  assert.match(workspaceSource, /<AiKnowledgeToggle/);
-  assert.match(workspaceSource, /@update:model-value="setAiWorkspaceMode"/);
+  // Chat ↔ Wissen ist ein Moduswechsel (kein eigener Sidebar-Eintrag): Einstieg
+  // ins Wissen über die Chat-Bühne (openKnowledgeArea), Rückweg über den
+  // "Zum Chat"-Link in der Wissen-Toolbar (setAiWorkspaceMode('chat')).
   assert.match(workspaceSource, /isChatView \|\| isWikiRoute/);
+  assert.match(workspaceSource, /openKnowledgeArea/);
+  assert.match(workspaceSource, /setAiWorkspaceMode/);
+  assert.match(knowledgeSource, /wiki-toolbar__back/);
+  assert.match(knowledgeSource, /show-chat/);
+  assert.doesNotMatch(workspaceSource, /<AiKnowledgeToggle/);
   assert.doesNotMatch(sidebarSource, /open-wiki|wikiActive|sidebar-item--wiki/);
 });
 
@@ -28,18 +32,17 @@ test('legacy knowledge links still open the integrated mode', () => {
 
 test('knowledge UI keeps trust controls while removing secondary dashboards and filters', () => {
   assert.match(knowledgeSource, /Revision \{\{/);
-  assert.match(knowledgeSource, /evidence\.quote/);
-  assert.match(knowledgeSource, /Aussage korrigieren/);
-  assert.match(knowledgeSource, /Aussage zurückziehen/);
-  assert.match(knowledgeSource, /Prüfkorb/);
+  assert.match(knowledgeSource, /Fakt korrigieren/);
+  assert.match(knowledgeSource, /Fakt zurückziehen/);
+  assert.match(knowledgeSource, /Zu prüfen/);
+  assert.match(knowledgeSource, /belegt/);
   assert.doesNotMatch(knowledgeSource, /wiki-metrics|wiki-filter-row|wiki-rendered|wiki-links/);
 });
 
-test('knowledge base uses the simplified PaperMind split view and progressive evidence disclosure', () => {
+test('knowledge base uses the simplified PaperMind split view with source-backed facts', () => {
   assert.match(knowledgeSource, /class="wiki-toolbar__views"/);
-  assert.match(knowledgeSource, /class="wiki-page-list__head"/);
-  assert.match(knowledgeSource, /class="wiki-evidence-disclosure"/);
-  assert.match(knowledgeSource, /Originalbeleg/);
+  assert.match(knowledgeSource, /class="wiki-nav"/);
+  assert.match(knowledgeSource, /Quelle · /);
   assert.match(knowledgeSource, /var\(--pm-content-surface\)/);
   assert.match(knowledgeSource, /var\(--pm-app-surface-raised\)/);
   assert.match(knowledgeSource, /var\(--pm-divider\)/);
