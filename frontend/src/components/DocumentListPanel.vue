@@ -399,6 +399,10 @@ const MAX_ROW_OVERSCAN = 140;
 const VELOCITY_OVERSCAN_FACTOR = 3;
 const OVERSCAN_SETTLE_MS = 180;
 const VIRTUAL_WINDOW_SAFETY_ROWS = 8;
+// Die Folgeseite wird deutlich vor dem sichtbaren Listenende angefordert. So
+// erreicht ein schneller Fling in der Regel nie den Ladeindikator.
+const LOAD_MORE_AHEAD_ROWS = 18;
+const LOAD_MORE_AHEAD_VIEWPORTS = 2;
 
 const listScrollTop = ref(0);
 const listViewport = ref(0);
@@ -409,7 +413,10 @@ const endOverscan = ref(ROW_OVERSCAN);
 let overscanResetTimer = null;
 let virtualWindowFrame = 0;
 let pendingVirtualWindowElement = null;
-let lastObservedListScrollTop = 0;
+// Getrennt vom zuletzt *gerenderten* Scrollstand (`listScrollTop`): Der Wert
+// wird schon im Scroll-Handler fortgeschrieben und dient ausschließlich dazu,
+// die Richtung aufeinanderfolgender Browser-Events zu erkennen.
+let lastHandledListScrollTop = 0;
 let listResizeObserver = null;
 let thumbnailRecoveryDisposed = false;
 let deletionVirtualWindowTimer = null;
@@ -493,9 +500,13 @@ watch(
 function updateVirtualWindow(element = listShell.value) {
   if (!element) return;
   const nextScrollTop = element.scrollTop;
-  applyScrollVelocityOverscan(nextScrollTop - lastObservedListScrollTop);
+  // listScrollTop ist der Stand, für den Vue das letzte virtuelle Fenster
+  // berechnet hat. Gegen diesen Wert muss die Distanz gemessen werden. Der
+  // Scroll-Handler kennt zwar schon die neueste Position, darf sie aber nicht
+  // vorab als Messbasis setzen – sonst wäre die Geschwindigkeit immer 0.
+  applyScrollVelocityOverscan(nextScrollTop - listScrollTop.value);
   listScrollTop.value = nextScrollTop;
-  lastObservedListScrollTop = nextScrollTop;
+  lastHandledListScrollTop = nextScrollTop;
   listViewport.value = element.clientHeight;
   listContentOffsetTop.value = documentListRef.value?.offsetTop || 0;
 }
@@ -540,7 +551,11 @@ function scheduleVirtualWindowUpdate(element = listShell.value) {
 function requestMoreIfNearEnd(element = listShell.value) {
   if (!element || !props.hasMoreDocuments || props.isLoadingMoreDocuments) return;
   const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
-  if (remaining <= 480) {
+  const loadAheadDistance = Math.max(
+    LOAD_MORE_AHEAD_ROWS * virtualRowStep.value,
+    element.clientHeight * LOAD_MORE_AHEAD_VIEWPORTS
+  );
+  if (remaining <= loadAheadDistance) {
     emit('load-more');
   }
 }
@@ -548,8 +563,8 @@ function requestMoreIfNearEnd(element = listShell.value) {
 function handleListScroll(event) {
   const element = event.currentTarget;
   const nextScrollTop = element.scrollTop;
-  const scrollingDown = nextScrollTop >= lastObservedListScrollTop;
-  lastObservedListScrollTop = nextScrollTop;
+  const scrollingDown = nextScrollTop >= lastHandledListScrollTop;
+  lastHandledListScrollTop = nextScrollTop;
 
   const relativeScrollTop = Math.max(0, nextScrollTop - listContentOffsetTop.value);
   const firstVisibleRow = Math.floor(relativeScrollTop / virtualRowStep.value);
