@@ -788,34 +788,6 @@
                 @update:model-value="onOcrDocLangChange"
               />
             </div>
-
-            <div
-              class="pm-setting-row"
-              role="button"
-              tabindex="0"
-              @click="toggleScanEnhancementFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleScanEnhancementFromRow)"
-            >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Seitenverbesserung</div>
-                <div class="pm-setting-description">
-                  Glättet Faltenschatten und ungleichmäßige Beleuchtung, damit gescannte Seiten
-                  einen richtig weißen Hintergrund bekommen; Farben bleiben dabei erhalten. Ob ein
-                  Dokument farbig oder in Graustufen importiert wird, wählst du beim Import.
-                </div>
-              </div>
-              <v-switch
-                :model-value="scanEnhancementEnabled"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :loading="isSettingSaving.scan_cleanup"
-                :disabled="isSettingSaving.scan_cleanup"
-                @click.stop
-                @update:model-value="onScanEnhancementToggle"
-              />
-            </div>
           </div>
         </section>
 
@@ -1693,7 +1665,7 @@
             <SettingsInfoCard
               icon="mdi-text-recognition"
               title="Texterkennung"
-              subtitle="OCR-Wartung, Qualität und lokale KI-Engine."
+              subtitle="OCR-Wartung und Bildqualität gescannter Seiten."
             />
 
             <!-- OCR-Lücken automatisch schließen -->
@@ -1736,14 +1708,54 @@
               </div>
             </div>
 
-            <!-- Lokale KI-Engine für Import-Analyse und Wissen. -->
-            <div class="pm-setting-group">
+            <!-- Seitenverbesserung: Hintergrund der durchsuchbaren PDF säubern -->
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleScanEnhancementFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleScanEnhancementFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Seitenverbesserung</div>
+                <div class="pm-setting-description">
+                  Glättet Faltenschatten und ungleichmäßige Beleuchtung, damit eingescannte oder
+                  abfotografierte Seiten einen sauber weißen Hintergrund bekommen; Farben bleiben
+                  dabei erhalten. Ob ein Dokument farbig oder in Graustufen verarbeitet wird,
+                  wählst du beim Import.
+                </div>
+              </div>
+              <v-switch
+                :model-value="scanEnhancementEnabled"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                :loading="isSettingSaving.scan_cleanup"
+                :disabled="isSettingSaving.scan_cleanup"
+                @click.stop
+                @update:model-value="onScanEnhancementToggle"
+              />
+            </div>
+          </div>
+        </section>
+
+        <section v-if="activeCategory === 'local_ai'" class="pm-settings-section">
+          <div class="pm-settings-content">
+            <SettingsInfoCard
+              icon="mdi-robot-outline"
+              title="Lokale KI"
+              subtitle="Sprachmodell für Import-Analyse und Wissen – läuft lokal, ohne Cloud."
+            />
+
+            <div class="pm-setting-group pm-setting-group--plain">
             <div class="pm-setting-note pm-setting-note--group">
-              <strong>Lokale KI (Ollama)</strong> bestimmt, womit Import-Analyse und Wissen arbeiten.
-              Ob neue Importe automatisch analysiert werden, stellst du unter „Importieren" ein.
+              <strong>Lokale KI (Ollama)</strong> versorgt Import-Analyse und Wissen mit einem lokal
+              laufenden Sprachmodell. Ob neue Importe automatisch analysiert werden, stellst du unter
+              „Importieren" ein.
             </div>
 
-            <!-- Ollama enable toggle -->
+            <!-- An/Aus -->
             <div
               class="pm-setting-row"
               role="button"
@@ -1752,13 +1764,12 @@
               @keydown="handleSettingRowShortcut($event, toggleOllamaEnabledFromRow)"
             >
               <div class="pm-setting-content">
-                <div class="pm-setting-label">Lokale KI (Ollama)</div>
+                <div class="pm-setting-label">Lokale KI verwenden</div>
                 <div class="pm-setting-description">
-                  Engine für die KI-Analyse – nutzt ein lokal laufendes Sprachmodell
-                  (z.&thinsp;B. llama3.2:3b). Daten verlassen das Gerät nicht.
+                  Nutzt ein lokal laufendes Sprachmodell (Ollama). Daten verlassen das Gerät nicht.
                 </div>
                 <div v-if="settingsDraft.ollama.enabled" class="pm-setting-hint">
-                  Ollama muss lokal laufen. Empfohlen: llama3.2:3b (Pi 5: ~20 s/Dokument).
+                  Ollama muss lokal laufen (Standard: http://localhost:11434).
                 </div>
               </div>
               <v-switch
@@ -1774,8 +1785,29 @@
               />
             </div>
 
-            <!-- Erweiterte Ollama-Optionen -->
             <template v-if="settingsDraft.ollama.enabled">
+              <!-- Qualität: ein Preset setzt Analyse- und Wissensmodell gemeinsam -->
+              <div class="pm-setting-row pm-setting-row--column">
+                <div class="pm-setting-content">
+                  <div class="pm-setting-label">Qualität</div>
+                  <div class="pm-setting-description">{{ ollamaQualityDescription }}</div>
+                </div>
+                <v-select
+                  :model-value="ollamaQualityPreset"
+                  :items="ollamaQualitySelectItems"
+                  item-title="label"
+                  item-value="value"
+                  density="comfortable"
+                  variant="outlined"
+                  hide-details
+                  :loading="isSettingSaving.ollama_model"
+                  :disabled="isSettingSaving.ollama_model"
+                  class="pm-setting-select"
+                  @update:model-value="onOllamaQualityChange"
+                />
+              </div>
+
+              <!-- Experte: selten gebraucht, eingeklappt -->
               <button
                 type="button"
                 class="pm-settings-disclosure"
@@ -1783,7 +1815,7 @@
                 @click="showOllamaAdvanced = !showOllamaAdvanced"
               >
                 <v-icon size="16">{{ showOllamaAdvanced ? 'mdi-chevron-down' : 'mdi-chevron-right' }}</v-icon>
-                <span>Erweitert</span>
+                <span>Experte</span>
               </button>
 
               <template v-if="showOllamaAdvanced">
@@ -2445,6 +2477,7 @@ const settingsCategories = [
   { value: 'import', label: 'Importieren', icon: 'mdi-tray-arrow-up', group: 'import', adminOnly: true },
   { value: 'scanner', label: 'Scanner', icon: 'mdi-scanner', group: 'import', adminOnly: true },
   { value: 'ai', label: 'Texterkennung', icon: 'mdi-text-recognition', group: 'import', adminOnly: true },
+  { value: 'local_ai', label: 'Lokale KI', icon: 'mdi-robot-outline', group: 'import', adminOnly: true },
   { value: 'categories', label: 'Dokumenttypen', icon: 'mdi-file-document-multiple-outline', group: 'documents' },
   { value: 'correspondents', label: 'Korrespondenten', icon: 'mdi-account-outline', group: 'documents' },
   { value: 'wiki', label: 'Wissen', icon: 'mdi-source-merge', group: 'documents', adminOnly: true },
@@ -3444,6 +3477,69 @@ const ollamaMaxCharsOptions = [
   { label: '1600 Zeichen (detaillierter)', value: 1600 },
   { label: '3200 Zeichen (langsam)', value: 3200 },
 ];
+
+// Qualitäts-Presets: ein Regler setzt Analyse- (model) und Wissensmodell
+// (chat_model) gemeinsam. Wählt jemand im „Experte"-Bereich abweichende Modelle,
+// wird „Benutzerdefiniert" angezeigt.
+const ollamaQualityPresets = [
+  {
+    value: 'fast',
+    label: 'Schnell',
+    model: 'llama3.2:1b',
+    chat_model: 'llama3.2:3b',
+    description: 'Kleinste Modelle – am schnellsten auf dem Pi, einfachere Ergebnisse.'
+  },
+  {
+    value: 'balanced',
+    label: 'Ausgewogen (empfohlen)',
+    model: 'llama3.2:3b',
+    chat_model: 'llama3.2:3b',
+    description: 'Guter Kompromiss aus Tempo und Qualität – auf dem Pi 5 rund 20 s pro Dokument.'
+  },
+  {
+    value: 'quality',
+    label: 'Beste Qualität',
+    model: 'llama3.1:8b',
+    chat_model: 'qwen2.5:7b',
+    description: 'Größere Modelle – bessere Antworten, auf dem Pi aber deutlich langsamer.'
+  }
+];
+
+const ollamaQualityPreset = computed(() => {
+  const model = settingsDraft.ollama.model;
+  const chat = settingsDraft.ollama.chat_model;
+  const match = ollamaQualityPresets.find((preset) => preset.model === model && preset.chat_model === chat);
+  return match ? match.value : 'custom';
+});
+
+const ollamaQualitySelectItems = computed(() => {
+  const items = ollamaQualityPresets.map((preset) => ({ value: preset.value, label: preset.label }));
+  if (ollamaQualityPreset.value === 'custom') {
+    items.push({ value: 'custom', label: 'Benutzerdefiniert (Experte)' });
+  }
+  return items;
+});
+
+const ollamaQualityDescription = computed(() => {
+  const preset = ollamaQualityPresets.find((entry) => entry.value === ollamaQualityPreset.value);
+  return preset
+    ? preset.description
+    : 'Eigene Modelle unter „Experte" gewählt. Wähle ein Preset, um zurückzusetzen.';
+});
+
+async function onOllamaQualityChange(nextValue) {
+  const preset = ollamaQualityPresets.find((entry) => entry.value === nextValue);
+  if (!preset) return; // „Benutzerdefiniert" ist nicht wählbar
+  if (preset.model === settingsDraft.ollama.model && preset.chat_model === settingsDraft.ollama.chat_model) return;
+  const prevModel = settingsDraft.ollama.model;
+  const prevChat = settingsDraft.ollama.chat_model;
+  settingsStore.setDraftPatch({ ollama: { model: preset.model, chat_model: preset.chat_model } });
+  await patchSettingsWithRevert({
+    patch: { ollama: { model: preset.model, chat_model: preset.chat_model } },
+    controlKey: 'ollama_model',
+    revert: () => settingsStore.setDraftPatch({ ollama: { model: prevModel, chat_model: prevChat } })
+  });
+}
 
 async function onOllamaEnabledChange(nextValue) {
   const nextBool = Boolean(nextValue);

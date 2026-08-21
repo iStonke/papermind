@@ -406,6 +406,10 @@
   margin-top: 12px;
 }
 
+.pm-settings-content > .settings-info-card + .pm-setting-group {
+  margin-top: 12px;
+}
+
 /* Unterüberschrift zur Gliederung innerhalb eines zusammengefassten Bereichs. */
 .pm-settings-subhead {
   font-size: 0.72rem;
@@ -1437,6 +1441,12 @@
   border-left: 2px solid rgba(var(--v-theme-primary), 0.3);
   padding-left: 14px;
   margin: 2px 0 4px;
+}
+
+/* Ohne vertikalen Gruppierungsstrich (z. B. „Lokale KI"). */
+.pm-setting-group--plain {
+  border-left: 0;
+  padding-left: 0;
 }
 
 .pm-setting-note--group {
