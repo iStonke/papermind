@@ -62,6 +62,12 @@
                 >
                   <span class="scanner-device-row__icon">
                     <v-icon size="24">mdi-printer-eye</v-icon>
+                    <span
+                      class="scanner-device-row__lamp"
+                      :class="`is-${scannerStatusInfo(scanner).tone}`"
+                      :title="scannerStatusInfo(scanner).label"
+                      aria-hidden="true"
+                    />
                   </span>
                   <span class="scanner-device-row__body">
                     <span class="scanner-device-row__name">{{ scannerDisplayName(scanner) }}</span>
@@ -81,6 +87,12 @@
                 <div v-else class="scanner-device-row scanner-device-row--static" role="option">
                   <span class="scanner-device-row__icon">
                     <v-icon size="24">mdi-printer-eye</v-icon>
+                    <span
+                      class="scanner-device-row__lamp"
+                      :class="`is-${scannerStatusInfo(scanner).tone}`"
+                      :title="scannerStatusInfo(scanner).label"
+                      aria-hidden="true"
+                    />
                   </span>
                   <span class="scanner-device-row__body">
                     <span class="scanner-device-row__name">{{ scannerDisplayName(scanner) }}</span>
@@ -334,6 +346,9 @@ function normalizeScanner(scanner) {
     name: String(scanner?.name || scanner?.hardware_name || scanner?.device_key || '').trim(),
     configured: scanner?.configured !== false,
     available: Boolean(scanner?.available),
+    status: ['ready', 'idle', 'offline'].includes(scanner?.status)
+      ? scanner.status
+      : (scanner?.available ? 'ready' : 'offline'),
     enabled: scanner?.enabled !== false,
     live_page_mode: scanner?.live_page_mode === true,
     last_seen_at: scanner?.last_seen_at || null,
@@ -347,6 +362,19 @@ function scannerDisplayName(scanner) {
   return scanner?.name || scanner?.hardware_name || 'Scanner';
 }
 
+// Statuslampe + Text: ready = grün (verbunden), idle = gelb (kürzlich aktiv),
+// offline = grau (nicht verbunden); deaktiviert = grau und explizit benannt.
+function scannerStatusInfo(scanner) {
+  if (scanner?.configured && !scanner?.enabled) {
+    return { tone: 'disabled', label: 'Deaktiviert' };
+  }
+  switch (scanner?.status) {
+    case 'ready': return { tone: 'ready', label: 'Bereit' };
+    case 'idle': return { tone: 'idle', label: 'Zuletzt aktiv' };
+    default: return { tone: 'offline', label: 'Nicht verbunden' };
+  }
+}
+
 function scannerSecondaryLabel(scanner) {
   if (!scanner?.configured) {
     return scanner.hardware_name && scanner.hardware_name !== scanner.name
@@ -356,10 +384,7 @@ function scannerSecondaryLabel(scanner) {
   const deviceLabel = scanner.hardware_name && scanner.hardware_name !== scanner.name
     ? scanner.hardware_name
     : '';
-  const connectionLabel = !scanner.enabled
-    ? 'Deaktiviert'
-    : scanner.available ? 'Bereit' : 'Nicht verbunden';
-  return [deviceLabel, connectionLabel].filter(Boolean).join(' · ');
+  return [deviceLabel, scannerStatusInfo(scanner).label].filter(Boolean).join(' · ');
 }
 
 function scannerLastSeenLabel(scanner) {
@@ -588,6 +613,7 @@ onBeforeUnmount(() => {
 .scanner-device-row--static:hover { background: transparent; }
 .scanner-device-row__add { flex: 0 0 auto; }
 .scanner-device-row__icon {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -596,6 +622,20 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   color: rgba(var(--v-theme-on-surface), 0.6);
 }
+.scanner-device-row__lamp {
+  position: absolute;
+  right: 0;
+  bottom: 6px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(var(--v-theme-on-surface), 0.3);
+  box-shadow: 0 0 0 2px rgb(var(--v-theme-surface));
+}
+.scanner-device-row__lamp.is-ready { background: rgb(var(--v-theme-success)); box-shadow: 0 0 0 2px rgb(var(--v-theme-surface)), 0 0 6px rgba(var(--v-theme-success), 0.7); }
+.scanner-device-row__lamp.is-idle { background: rgb(var(--v-theme-warning)); box-shadow: 0 0 0 2px rgb(var(--v-theme-surface)), 0 0 5px rgba(var(--v-theme-warning), 0.6); }
+.scanner-device-row__lamp.is-offline { background: rgba(var(--v-theme-on-surface), 0.28); }
+.scanner-device-row__lamp.is-disabled { background: transparent; box-shadow: inset 0 0 0 1.5px rgba(var(--v-theme-on-surface), 0.35); }
 .scanner-device-row__body { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
 .scanner-device-row__name { overflow: hidden; font-size: 0.9rem; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
 .scanner-device-row__meta { overflow: hidden; color: rgba(var(--v-theme-on-surface), 0.5); font-size: 0.74rem; text-overflow: ellipsis; white-space: nowrap; }

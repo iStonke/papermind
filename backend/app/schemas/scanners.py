@@ -21,6 +21,7 @@ class ScannerDeviceRead(BaseModel):
     connection_uri: str | None = None
     configured: bool = True
     available: bool = False
+    status: Literal["ready", "idle", "offline"] = "offline"
     enabled: bool
     live_page_mode: bool
     created_at: datetime

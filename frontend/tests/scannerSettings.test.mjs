@@ -77,3 +77,15 @@ test('added scanners can be removed and become available again', () => {
   assert.match(scannerApiSource, /removeScannerConfiguration/);
   assert.match(scannerApiSource, /\/configuration`/);
 });
+
+test('scanner list shows a presence status lamp', () => {
+  // Backend-Status wird übernommen (ready/idle/offline), sonst Fallback.
+  assert.match(scannerSource, /status: \['ready', 'idle', 'offline'\]\.includes\(scanner\?\.status\)/);
+  // Statuslampe je Zeile, eingefärbt nach Zustand.
+  assert.match(scannerSource, /class="scanner-device-row__lamp"/);
+  assert.match(scannerSource, /:class="`is-\$\{scannerStatusInfo\(scanner\)\.tone\}`"/);
+  assert.match(scannerSource, /function scannerStatusInfo/);
+  assert.match(scannerSource, /\.scanner-device-row__lamp\.is-ready/);
+  assert.match(scannerSource, /\.scanner-device-row__lamp\.is-idle/);
+  assert.match(scannerSource, /\.scanner-device-row__lamp\.is-offline/);
+});

@@ -25,6 +25,16 @@ from app.services.utils import is_unique_violation
 SCAN_STATUS_STALE_SECONDS = 30
 SCANNER_DISCOVERY_STALE_SECONDS = 45
 SCANNER_LEGACY_STALE_SECONDS = 24 * 60 * 60
+# Präsenz-Status („Lampe"): Ein USB-Scanner wird im Leerlauf von `scanimage -L`
+# nicht immer sauber enumeriert (USB-Stromsparen), obwohl er angeschlossen ist.
+# Deshalb zählt neben frischer Enumerierung (discovered_at) auch aktives Scannen
+# und kürzliche Scan-Aktivität (last_seen_at) als Anwesenheit, statt sofort
+# „Nicht verbunden" zu melden.
+#   ready  - gerade enumeriert/gescannt oder scannt jetzt  -> sicher verbunden
+#   idle   - zuletzt vor Kurzem gesehen                    -> vermutlich verbunden
+#   offline- lange nichts gehört                           -> nicht verbunden
+SCANNER_READY_STALE_SECONDS = 90
+SCANNER_SEEN_STALE_SECONDS = 15 * 60
 # Eingereihte Befehle, die der Worker länger nicht abholen konnte (z. B. Host-
 # Poller war aus), gelten als veraltet und werden verworfen statt verspätet zu
 # feuern - ein Scan soll nur kurz nach dem Klick passieren, nie Minuten später.
@@ -109,7 +119,34 @@ class ScannerService:
             result.setdefault(scanner_id, []).append(UserRead.model_validate(user, from_attributes=True))
         return result
 
+    def _presence_status(self, scanner: ScannerDevice) -> str:
+        """Ehrlicher Präsenz-Status (ready/idle/offline) für die Statuslampe.
+
+        Neben frischer Enumerierung (discovered_at) zählen aktives Scannen und
+        kürzliche Scan-Aktivität (last_seen_at) als Anwesenheit - ein Scanner,
+        der gerade gescannt hat, ist offensichtlich verbunden, auch wenn ihn
+        `scanimage -L` im Leerlauf nicht listet.
+        """
+        if is_scanning_active(scanner):
+            return "ready"
+        # Legacy-Geräte ohne connection_uri kennen nur last_seen_at.
+        legacy = scanner.connection_uri is None
+        if (
+            _is_recent(scanner.discovered_at, SCANNER_READY_STALE_SECONDS)
+            or _is_recent(scanner.last_seen_at, SCANNER_READY_STALE_SECONDS)
+        ):
+            return "ready"
+        if (
+            _is_recent(scanner.discovered_at, SCANNER_SEEN_STALE_SECONDS)
+            or _is_recent(scanner.last_seen_at, SCANNER_SEEN_STALE_SECONDS)
+            or (legacy and _is_recent(scanner.last_seen_at, SCANNER_LEGACY_STALE_SECONDS))
+        ):
+            return "idle"
+        return "offline"
+
     def _read(self, scanner: ScannerDevice, recipients: list[UserRead] | None = None) -> ScannerDeviceRead:
+        # „Verfügbar"-Sektion (nicht eingerichtete Geräte) bleibt streng an der
+        # frischen Enumerierung; der Status/die Lampe unten ist toleranter.
         available = _is_recent(scanner.discovered_at, SCANNER_DISCOVERY_STALE_SECONDS)
         if scanner.connection_uri is None:
             # Kompatibilität für bestehende Installationen, bis der aktualisierte
@@ -123,6 +160,7 @@ class ScannerService:
             connection_uri=scanner.connection_uri,
             configured=scanner.configured,
             available=available,
+            status=self._presence_status(scanner),
             enabled=scanner.enabled,
             live_page_mode=scanner.live_page_mode,
             created_at=scanner.created_at,
