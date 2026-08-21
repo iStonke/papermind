@@ -24,7 +24,7 @@ from app.models.document_chunk import DocumentChunk
 from app.models.document_file import DocumentFile
 from app.models.auth_session import AuthSession
 from app.models.job import Job
-from app.models.scanner import ScannerDeviceRecipient
+from app.models.scanner import ScannerDevice, ScannerDeviceRecipient, ScannerScanJob
 from app.models.tag import Tag
 from app.models.user import User
 from app.services.deduplication import DocumentDeduplicationService
@@ -80,7 +80,11 @@ SCANNER_JOB_CLEANUP_INTERVAL_SECONDS = 6 * 3600
 WORKER_MEMORY_LOG_INTERVAL_SECONDS = 900
 WIKI_LINT_INTERVAL_SECONDS = 24 * 3600
 SCANNER_CONFIG_FILENAME = ".papermind-scanner-config"
+# Pro-Gerät-Config: "Seiten sofort senden" ist pro Scanner. Der Host liest die
+# zu seinem device_key passende Datei; die legacy-Globaldatei bleibt Fallback.
+SCANNER_CONFIG_FILE_PREFIX = ".papermind-scanner-config-"
 SCANNER_STATUS_FILENAME = ".papermind-scanner-status"
+SCANNER_INVENTORY_FILENAME = ".papermind-scanner-devices"
 SCANNER_COMMAND_FILE_PREFIX = ".papermind-scan-command-"
 IMPORT_INBOX_FAST_STABLE_CHECK_SECONDS = 0.05
 IMPORT_INBOX_PREVIEW_SUFFIX = ".preview.png"
@@ -159,6 +163,7 @@ def _import_inbox_subdir(name: str) -> Path | None:
 # ein (papermind-scan.sh). Hier wird sie wieder herausgelöst, damit der Scan exakt
 # diesem Job zugeordnet werden kann - und für die Anzeige aus dem Namen entfernt.
 SCANNER_JOB_FILENAME_MARKER = re.compile(r"__pmjob-([0-9a-fA-F-]{36})")
+SCANNER_DEVICE_FILENAME_MARKER = re.compile(r"__pmdev-([0-9a-fA-F]{24})")
 
 
 def _extract_scan_job_id(filename: str) -> tuple[str, uuid.UUID | None]:
@@ -182,6 +187,18 @@ def _extract_scan_job_id(filename: str) -> tuple[str, uuid.UUID | None]:
     stem = SCANNER_JOB_FILENAME_MARKER.sub("", raw)
     cleaned = re.sub(r"[ _-]{2,}", "-", stem).strip(" _-")
     return (cleaned or "Scan.pdf"), job_id
+
+
+def _extract_scanner_device_key(filename: str) -> tuple[str, str | None]:
+    """Entfernt den vom Host eingebetteten Geräte-Hash aus einem Scannamen."""
+    raw = str(filename or "")
+    match = SCANNER_DEVICE_FILENAME_MARKER.search(raw)
+    if not match:
+        return (raw or "Scan.pdf"), None
+    device_key = f"sane-{match.group(1).lower()}"
+    stem = SCANNER_DEVICE_FILENAME_MARKER.sub("", raw)
+    cleaned = re.sub(r"[ _-]{2,}", "-", stem).strip(" _-")
+    return (cleaned or "Scan.pdf"), device_key
 
 
 def _safe_drop_filename(filename: str) -> str:
@@ -539,27 +556,111 @@ def _submit_post_ingest_work(
     _cleanup_executor.submit(_run_cleanup_stage, source_file_ids, owner_id, scanner_device_id)
 
 
-def _sync_scanner_live_mode_config() -> None:
-    """Spiegelt die globale Einstellung documents.scan_live_page_mode in eine
-    lokale Datei in scan-inbox.
+_scanner_inventory_mtime_ns: int | None = None
 
-    „Seiten sofort senden" ist bewusst global (nicht mehr pro Scanner). Die
-    Host-Skripte (papermind-scan.sh) laufen außerhalb der Container und haben
-    keine Backend-Session - sie lesen stattdessen diese Datei aus dem ohnehin
-    gemounteten scan-inbox-Verzeichnis.
+
+def _parse_scanner_inventory(content: str) -> list[tuple[str, str]]:
+    """Parst das tab-getrennte, vom Host erzeugte SANE-Geräteinventar."""
+    devices: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for raw_line in str(content or "").splitlines():
+        uri, separator, raw_name = raw_line.partition("\t")
+        uri = uri.strip()
+        name = " ".join(raw_name.split()).strip() if separator else ""
+        if (
+            not separator
+            or not uri
+            or len(uri) > 500
+            or any(char.isspace() for char in uri)
+            or uri in seen
+        ):
+            continue
+        seen.add(uri)
+        devices.append((uri, (name or uri)[:200]))
+    return devices
+
+
+def _sync_scanner_discovery() -> None:
+    """Übernimmt eine neue Geräteübersicht aus dem Host-Austauschordner."""
+    global _scanner_inventory_mtime_ns
+    root = _import_inbox_drop_root()
+    if root is None:
+        return
+    inventory_path = root / SCANNER_INVENTORY_FILENAME
+    try:
+        stat = inventory_path.stat()
+        if _scanner_inventory_mtime_ns == stat.st_mtime_ns:
+            return
+        content = inventory_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return
+    except OSError:
+        logger.warning("scanner inventory read failed path=%s", inventory_path)
+        return
+
+    devices = _parse_scanner_inventory(content)
+    with SessionLocal() as db:
+        ScannerService(db).sync_discovered_devices(
+            devices,
+            legacy_device_key=IMPORT_INBOX_SCANNER_DEVICE_KEY,
+        )
+    _scanner_inventory_mtime_ns = stat.st_mtime_ns
+
+
+def _write_scanner_config_file(path: Path, live_mode: bool) -> None:
+    content = f"LIVE_PAGE_MODE={'true' if live_mode else 'false'}\n"
+    try:
+        if not path.exists() or path.read_text() != content:
+            path.write_text(content)
+    except OSError:
+        logger.warning("scanner config sync failed path=%s", path)
+
+
+def _sync_scanner_live_mode_config() -> None:
+    """Spiegelt die pro-Scanner-Einstellung ``live_page_mode`` in lokale Dateien.
+
+    „Seiten sofort senden" ist pro Scanner konfiguriert. Die Host-Skripte
+    (papermind-scan.sh) laufen außerhalb der Container und haben keine
+    Backend-Session - sie lesen stattdessen die zu ihrem device_key passende
+    Datei ``.papermind-scanner-config-<device_key>`` aus dem gemounteten
+    scan-inbox-Verzeichnis. Die legacy-Globaldatei ``.papermind-scanner-config``
+    wird weiter geschrieben (Wert des legacy-Einzelscanners) als Fallback für
+    Hosts ohne bekannten device_key.
     """
     root = _import_inbox_drop_root()
-    if root is None or not IMPORT_INBOX_SCANNER_DEVICE_KEY:
+    if root is None:
         return
     with SessionLocal() as db:
-        live_mode = bool(SettingsService(db).get_settings().documents.scan_live_page_mode)
-    content = f"LIVE_PAGE_MODE={'true' if live_mode else 'false'}\n"
-    config_path = root / SCANNER_CONFIG_FILENAME
+        scanners = list(
+            db.scalars(
+                select(ScannerDevice)
+                .where(ScannerDevice.configured.is_(True))
+                .where(ScannerDevice.enabled.is_(True))
+            ).all()
+        )
+        modes = {scanner.device_key: bool(scanner.live_page_mode) for scanner in scanners}
+
+    expected: set[str] = set()
+    legacy_mode = False
+    for device_key, live_mode in modes.items():
+        if not device_key:
+            continue
+        filename = f"{SCANNER_CONFIG_FILE_PREFIX}{device_key}"
+        expected.add(filename)
+        _write_scanner_config_file(root / filename, live_mode)
+        if device_key == IMPORT_INBOX_SCANNER_DEVICE_KEY:
+            legacy_mode = live_mode
+
+    # Globaldatei als Fallback (legacy-Einzelscanner-Modus, sonst aus).
+    _write_scanner_config_file(root / SCANNER_CONFIG_FILENAME, legacy_mode)
+
+    # Verwaiste Pro-Gerät-Dateien entfernen (Scanner entfernt/deaktiviert).
     try:
-        if not config_path.exists() or config_path.read_text() != content:
-            config_path.write_text(content)
+        for path in root.glob(f"{SCANNER_CONFIG_FILE_PREFIX}*"):
+            if path.name not in expected:
+                path.unlink(missing_ok=True)
     except OSError:
-        logger.warning("scanner config sync failed path=%s", config_path)
+        logger.warning("scanner config cleanup failed root=%s", root)
 
 
 def _sync_scanner_scan_status() -> None:
@@ -568,13 +669,19 @@ def _sync_scanner_scan_status() -> None:
     das Importfenster anzeigen kann, dass aktuell gescannt wird.
     """
     root = _import_inbox_drop_root()
-    if root is None or not IMPORT_INBOX_SCANNER_DEVICE_KEY:
+    if root is None:
         return
     status_path = root / SCANNER_STATUS_FILENAME
     started_at = None
+    device_key = ""
+    device_uri = ""
     try:
         if status_path.exists():
             content = status_path.read_text()
+            key_match = re.search(r"^DEVICE_KEY=([^\r\n]+)$", content, re.MULTILINE)
+            uri_match = re.search(r"^DEVICE_URI=([^\r\n]+)$", content, re.MULTILINE)
+            device_key = key_match.group(1).strip() if key_match else ""
+            device_uri = uri_match.group(1).strip() if uri_match else ""
             if "SCANNING=true" in content:
                 match = re.search(r"STARTED_AT=(\d+)", content)
                 if match:
@@ -584,11 +691,18 @@ def _sync_scanner_scan_status() -> None:
         return
     with SessionLocal() as db:
         service = ScannerService(db)
-        service.get_or_create_for_worker(
-            IMPORT_INBOX_SCANNER_DEVICE_KEY,
-            name=IMPORT_INBOX_SCANNER_DEVICE_NAME,
-        )
-        service.set_scanning_state(IMPORT_INBOX_SCANNER_DEVICE_KEY, started_at)
+        scanner = service.get_by_key(device_key) if device_key else None
+        if scanner is None and device_uri:
+            scanner = service.get_by_connection_uri(device_uri)
+        if scanner is None and IMPORT_INBOX_SCANNER_DEVICE_KEY:
+            scanner = service.get_by_key(IMPORT_INBOX_SCANNER_DEVICE_KEY)
+            if scanner is None:
+                scanner = service.get_or_create_for_worker(
+                    IMPORT_INBOX_SCANNER_DEVICE_KEY,
+                    name=IMPORT_INBOX_SCANNER_DEVICE_NAME,
+                )
+        if scanner is not None:
+            service.set_scanning_state(scanner.device_key, started_at)
 
 
 def _drain_scanner_scan_commands() -> None:
@@ -600,15 +714,25 @@ def _drain_scanner_scan_commands() -> None:
     damit eine "page, page, finish"-Folge nicht überschrieben wird.
     """
     root = _import_inbox_drop_root()
-    if root is None or not IMPORT_INBOX_SCANNER_DEVICE_KEY:
+    if root is None:
         return
+    dispatches: list[tuple[str, uuid.UUID | None, str, str]] = []
     with SessionLocal() as db:
         service = ScannerService(db)
-        scanner = service.get_by_key(IMPORT_INBOX_SCANNER_DEVICE_KEY)
-        if scanner is None:
-            return
-        commands = service.claim_pending_scan_commands(scanner.id)
-    for command, scan_job_id in commands:
+        scanners = list(
+            db.scalars(
+                select(ScannerDevice)
+                .where(ScannerDevice.configured.is_(True))
+                .where(ScannerDevice.enabled.is_(True))
+                .order_by(ScannerDevice.created_at.asc())
+            ).all()
+        )
+        for scanner in scanners:
+            for command, scan_job_id in service.claim_pending_scan_commands(scanner.id):
+                dispatches.append(
+                    (command, scan_job_id, scanner.connection_uri or "", scanner.device_key)
+                )
+    for command, scan_job_id, connection_uri, device_key in dispatches:
         if command == "cancel":
             target = root / ".papermind-scan-cancel"
             temp = root / ".papermind-scan-cancel.part"
@@ -624,17 +748,17 @@ def _drain_scanner_scan_commands() -> None:
         seq = time.time_ns()
         target = root / f"{SCANNER_COMMAND_FILE_PREFIX}{seq}"
         tmp = root / f".{SCANNER_COMMAND_FILE_PREFIX}{seq}.part"
-        # Tab-getrennt: "<command>\t<job_id>". Der Host schreibt die Job-ID in den
-        # Dateinamen der erzeugten PDF zurück, sodass der Hardwarelauf exakt diesem
-        # Job zugeordnet werden kann. Job-ID ist optional (leer = keine).
+        # Tab-getrennt: command, job_id, SANE-Adresse und stabile Gerätekennung.
+        # Adresse und Kennung stammen ausschließlich aus der Host-Discovery.
         job_field = str(scan_job_id) if scan_job_id else ""
         try:
-            tmp.write_text(f"{command}\t{job_field}\n")
+            tmp.write_text(f"{command}\t{job_field}\t{connection_uri}\t{device_key}\n")
             tmp.rename(target)  # atomar: Host sieht nie eine halbfertige Datei
             logger.info(
-                "scanner scan command dispatched command=%s job_id=%s file=%s",
+                "scanner scan command dispatched command=%s job_id=%s device_key=%s file=%s",
                 command,
                 job_field or "-",
+                device_key,
                 target.name,
             )
         except OSError:
@@ -663,7 +787,24 @@ def _cleanup_old_scanner_jobs() -> None:
         logger.exception("scanner job cleanup failed err=%s", exc)
 
 
-def _scanner_device_id_for_drop(db) -> uuid.UUID | None:
+def _scanner_device_id_for_drop(
+    db,
+    *,
+    scan_job_id: uuid.UUID | None = None,
+    scanner_device_key: str | None = None,
+) -> uuid.UUID | None:
+    if scan_job_id is not None:
+        job = db.get(ScannerScanJob, scan_job_id)
+        if job is not None:
+            return job.scanner_device_id
+
+    if scanner_device_key:
+        discovered = ScannerService(db).get_by_key(scanner_device_key)
+        if discovered is not None and discovered.configured:
+            discovered.last_seen_at = datetime.now(timezone.utc)
+            db.flush()
+            return discovered.id
+
     if not IMPORT_INBOX_SCANNER_DEVICE_KEY:
         return None
 
@@ -694,9 +835,10 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str, prev
     failed_dir = _import_inbox_subdir(IMPORT_INBOX_FAILED_DIR)
     if processed_dir is None or failed_dir is None:
         return
-    # Vom Host eingebettete Job-ID herauslösen (exakte Zuordnung) und den
-    # Anzeigenamen davon bereinigen.
+    # Vom Host eingebettete Job- und Gerätekennung herauslösen (exakte
+    # Zuordnung) und den Anzeigenamen davon bereinigen.
     display_name, scan_job_id = _extract_scan_job_id(original_name)
+    display_name, scanner_device_key = _extract_scanner_device_key(display_name)
     scanner_device_id: uuid.UUID | None = None
     drop_started = now_perf()
     file_age_ms: float | None = None
@@ -706,7 +848,11 @@ def _process_import_inbox_drop_file(claimed_path: Path, original_name: str, prev
         file_age_ms = None
     try:
         with SessionLocal() as db:
-            scanner_device_id = _scanner_device_id_for_drop(db)
+            scanner_device_id = _scanner_device_id_for_drop(
+                db,
+                scan_job_id=scan_job_id,
+                scanner_device_key=scanner_device_key,
+            )
             if scanner_device_id is None:
                 owner_id = _default_owner_id(db)
                 owner_name = (
@@ -1618,6 +1764,7 @@ def _run_scanner_dispatch_loop(stop_event: threading.Event) -> None:
             stop_event.wait(SCANNER_CONFIG_SYNC_INTERVAL_SECONDS)
             continue
         try:
+            _sync_scanner_discovery()
             _sync_scanner_live_mode_config()
             _sync_scanner_scan_status()
             _drain_scanner_scan_commands()

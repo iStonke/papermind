@@ -126,10 +126,6 @@ export function buildAutoOpenImportInboxPatch(enabled) {
   return { documents: { auto_open_import_inbox: Boolean(enabled) } };
 }
 
-export function buildScanLivePageModePatch(enabled) {
-  return { documents: { scan_live_page_mode: Boolean(enabled) } };
-}
-
 export function buildSortOrderPatch(sortOrder) {
   return { documents: { sort_order: sortOrder } };
 }

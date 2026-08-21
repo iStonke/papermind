@@ -10,6 +10,7 @@ from app.schemas.common import ErrorResponse
 from app.schemas.scanners import (
     ScanCommandRequest,
     ScanCommandResponse,
+    ScannerDeviceConfigureRequest,
     ScannerDeviceCreateRequest,
     ScannerDeviceListResponse,
     ScannerDeviceRead,
@@ -53,6 +54,7 @@ def create_scanner(
     responses={
         400: {"model": ErrorResponse},
         401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
     },
 )
@@ -70,7 +72,7 @@ def trigger_scan(
     response_model=ScanCommandResponse,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Cancel active scanner work",
-    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+    responses={401: {"model": ErrorResponse}, 403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
 )
 def cancel_scan(
     scanner_id: uuid.UUID,
@@ -93,3 +95,32 @@ def update_scanner(
     db: Session = Depends(get_db),
 ) -> ScannerDeviceRead:
     return ScannerService(db).update_device(scanner_id, payload)
+
+
+@router.post(
+    "/{scanner_id}/configure",
+    response_model=ScannerDeviceRead,
+    summary="Configure a discovered scanner device (admin only)",
+    responses={401: {"model": ErrorResponse}, 403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+def configure_scanner(
+    scanner_id: uuid.UUID,
+    payload: ScannerDeviceConfigureRequest,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> ScannerDeviceRead:
+    return ScannerService(db).configure_device(scanner_id, payload)
+
+
+@router.delete(
+    "/{scanner_id}/configuration",
+    response_model=ScannerDeviceRead,
+    summary="Remove a scanner configuration (admin only)",
+    responses={401: {"model": ErrorResponse}, 403: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+def remove_scanner_configuration(
+    scanner_id: uuid.UUID,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> ScannerDeviceRead:
+    return ScannerService(db).remove_device_configuration(scanner_id)

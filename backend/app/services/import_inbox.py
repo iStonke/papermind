@@ -23,7 +23,6 @@ from app.schemas.import_staging import (
 from app.services.import_staging import ImportStagingService
 from app.services.import_timing import elapsed_ms, log_import_timing, now_perf
 from app.services.scanners import is_scanning_active
-from app.services.settings import SettingsService
 
 SCAN_JOB_VISIBLE_STALE_SECONDS = 300
 
@@ -52,6 +51,28 @@ class ImportInboxService:
             return stmt.where(ImportInboxItem.owner_id == self.owner_id)
         return stmt
 
+    def _scanner_access_condition(self):
+        """Gemeinsame Scanner sind für alle Benutzer sichtbar.
+
+        Eine leere Empfängerliste bedeutet bewusst „gemeinsamer Scan-Eingang“.
+        Sobald mindestens ein Empfänger hinterlegt ist, wird daraus eine
+        Zugriffsliste und nur diese Benutzer dürfen Gerät, Jobs und Scans sehen.
+        """
+        if self.owner_id is None:
+            return False
+        has_recipients = exists(
+            select(1)
+            .select_from(ScannerDeviceRecipient)
+            .where(ScannerDeviceRecipient.scanner_device_id == ScannerDevice.id)
+        )
+        is_recipient = exists(
+            select(1)
+            .select_from(ScannerDeviceRecipient)
+            .where(ScannerDeviceRecipient.scanner_device_id == ScannerDevice.id)
+            .where(ScannerDeviceRecipient.user_id == self.owner_id)
+        )
+        return or_(~has_recipients, is_recipient)
+
     def _visible_scanner_condition(self):
         if self.owner_id is None:
             return False
@@ -62,11 +83,11 @@ class ImportInboxService:
             ImportInboxItem.scanner_device_id.is_not(None),
             exists(
                 select(1)
-                .select_from(ScannerDeviceRecipient)
-                .join(ScannerDevice, ScannerDevice.id == ScannerDeviceRecipient.scanner_device_id)
-                .where(ScannerDeviceRecipient.scanner_device_id == ImportInboxItem.scanner_device_id)
-                .where(ScannerDeviceRecipient.user_id == self.owner_id)
+                .select_from(ScannerDevice)
+                .where(ScannerDevice.id == ImportInboxItem.scanner_device_id)
+                .where(ScannerDevice.configured.is_(True))
                 .where(ScannerDevice.enabled.is_(True))
+                .where(self._scanner_access_condition())
             ),
         )
 
@@ -93,10 +114,10 @@ class ImportInboxService:
             return False
         scanners = self.db.scalars(
             select(ScannerDevice)
-            .join(ScannerDeviceRecipient, ScannerDeviceRecipient.scanner_device_id == ScannerDevice.id)
-            .where(ScannerDeviceRecipient.user_id == self.owner_id)
+            .where(ScannerDevice.configured.is_(True))
             .where(ScannerDevice.enabled.is_(True))
             .where(ScannerDevice.scanning_since.is_not(None))
+            .where(self._scanner_access_condition())
         ).all()
         return any(is_scanning_active(scanner) for scanner in scanners)
 
@@ -110,16 +131,17 @@ class ImportInboxService:
             return None
         scanner = self.db.scalars(
             select(ScannerDevice)
-            .join(ScannerDeviceRecipient, ScannerDeviceRecipient.scanner_device_id == ScannerDevice.id)
-            .where(ScannerDeviceRecipient.user_id == self.owner_id)
+            .where(ScannerDevice.configured.is_(True))
             .where(ScannerDevice.enabled.is_(True))
+            .where(self._scanner_access_condition())
             .order_by(ScannerDevice.last_seen_at.desc().nullslast())
         ).first()
         if scanner is None:
             return None
-        # „Seiten sofort senden" ist global (nicht mehr pro Scanner); der
-        # Import-Dialog nutzt den Wert, um die Abschluss-Taste ein-/auszublenden.
-        live_page_mode = bool(SettingsService(self.db).get_settings().documents.scan_live_page_mode)
+        # „Seiten sofort senden" ist pro Scanner konfiguriert; der Import-Dialog
+        # nutzt den Wert des ausgelösten Geräts, um die Abschluss-Taste ein-/
+        # auszublenden.
+        live_page_mode = bool(scanner.live_page_mode)
         return ScannerTriggerInfo(
             id=scanner.id,
             name=scanner.name,
@@ -170,9 +192,9 @@ class ImportInboxService:
             self.db.scalars(
                 select(ScannerScanJob)
                 .join(ScannerDevice, ScannerDevice.id == ScannerScanJob.scanner_device_id)
-                .join(ScannerDeviceRecipient, ScannerDeviceRecipient.scanner_device_id == ScannerDevice.id)
-                .where(ScannerDeviceRecipient.user_id == self.owner_id)
+                .where(ScannerDevice.configured.is_(True))
                 .where(ScannerDevice.enabled.is_(True))
+                .where(self._scanner_access_condition())
                 # Aktive Jobs IMMER zeigen; Fehlerjobs nur, solange sie frisch
                 # sind, damit die UI Timeout/Datei fehlt/Scanner offline melden
                 # kann, ohne alte Fehler ewig nachzuhängen.

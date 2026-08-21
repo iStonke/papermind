@@ -112,7 +112,6 @@ function createDefaultSettings() {
       auto_tagging: false,
       ocr_backfill_enabled: true,
       auto_open_import_inbox: false,
-      scan_live_page_mode: false,
       sort_order: 'newest',
       recent_import_window_hours: 24,
       trash_retention_days: 30,
@@ -332,7 +331,6 @@ export const useSettingsStore = defineStore('settings', {
         auto_ocr: false,
         auto_tagging: false,
         scan_cleanup: false,
-        scan_live_page_mode: false,
         ocr_backfill_enabled: false,
         auto_open_import_inbox: false,
         sort_order: false,
@@ -493,10 +491,6 @@ export const useSettingsStore = defineStore('settings', {
             typeof payload?.documents?.auto_open_import_inbox === 'boolean'
               ? payload.documents.auto_open_import_inbox
               : defaults.documents.auto_open_import_inbox,
-          scan_live_page_mode:
-            typeof payload?.documents?.scan_live_page_mode === 'boolean'
-              ? payload.documents.scan_live_page_mode
-              : defaults.documents.scan_live_page_mode,
           sort_order: SORT_ORDER_VALUES.has(rawSortOrder) ? rawSortOrder : defaults.documents.sort_order,
           recent_import_window_hours:
             Number.isInteger(rawRecentImportWindow) && rawRecentImportWindow > 0

@@ -32,6 +32,7 @@
 #    ACTIVE_POLL_INTERVAL   Sekunden zwischen Abfragen kurz nach einer Taste (Default 0.35)
 #    IDLE_POLL_INTERVAL     Sekunden zwischen Abfragen in Ruhe (Default 1)
 #    ACTIVE_WINDOW_SECONDS  Wie lange nach einer Taste das schnelle Intervall gilt (Default 30)
+#    DISCOVERY_INTERVAL     Sekunden zwischen Geräte-Inventaren (Default 10)
 # =============================================================================
 
 # Bewusst KEIN `set -e`: Ein einzelner Lesefehler darf den Daemon nicht beenden.
@@ -44,6 +45,8 @@ SCAN_SCRIPT="${_SCRIPT_DIR}/papermind-scan.sh"
 # wo der Worker sie hinschreibt. Per SCAN_INBOX_DIR override-bar.
 SCAN_INBOX_DIR="${SCAN_INBOX_DIR:-${_REPO_ROOT}/scan-inbox}"
 SCAN_COMMAND_GLOB=".papermind-scan-command-*"
+SCANNER_INVENTORY_FILE="${SCAN_INBOX_DIR}/.papermind-scanner-devices"
+DISCOVERY_INTERVAL="${DISCOVERY_INTERVAL:-10}"
 ACTIVE_POLL_INTERVAL="${ACTIVE_POLL_INTERVAL:-0.35}"
 IDLE_POLL_INTERVAL="${IDLE_POLL_INTERVAL:-1}"
 ACTIVE_WINDOW_SECONDS="${ACTIVE_WINDOW_SECONDS:-30}"
@@ -51,6 +54,22 @@ ACTIVE_WINDOW_SECONDS="${ACTIVE_WINDOW_SECONDS:-30}"
 log() {
   echo "[papermind-scan-watch] $*"
   command -v logger >/dev/null 2>&1 && logger -t papermind-scan-watch -- "$*" || true
+}
+
+# Alle von SANE gemeldeten Geräte als kleine tab-getrennte Momentaufnahme
+# veröffentlichen. Der Container führt bewusst kein scanimage aus; der Worker
+# liest ausschließlich diese atomar ersetzte Datei.
+publish_scanner_inventory() {
+  local tmp="${SCANNER_INVENTORY_FILE}.part"
+  mkdir -p "$SCAN_INBOX_DIR"
+  if command -v scanimage >/dev/null 2>&1; then
+    scanimage -L 2>/dev/null \
+      | awk '/^device `/ { uri=$0; sub(/^device `/, "", uri); sub(/\047.*$/, "", uri); label=$0; sub(/^.*\047 is a /, "", label); gsub(/\t/, " ", label); print uri "\t" label }' \
+      > "$tmp"
+  else
+    : > "$tmp"
+  fi
+  mv -f "$tmp" "$SCANNER_INVENTORY_FILE"
 }
 
 # UI-ausgelöste Scan-Befehle abarbeiten. Gibt 0 zurück, wenn mindestens ein
@@ -61,31 +80,43 @@ consume_scan_commands() {
   local files=("$SCAN_INBOX_DIR"/$SCAN_COMMAND_GLOB)
   shopt -u nullglob
   # Lexikografisch = FIFO (Sequenz ist ein ns-Zeitstempel).
-  local file claimed raw line cmd jobid
+  local file claimed raw line cmd rest jobid device_uri device_key target_device
   for file in $(printf '%s\n' "${files[@]}" | sort); do
     # Atomar wegrenamen, damit ein zweiter Loop-Durchlauf denselben Befehl nicht
     # doppelt ausführt; scheitert das Rename, hat es ein anderer schon geschnappt.
     claimed="${file}.taken"
     mv -n "$file" "$claimed" 2>/dev/null || continue
     [ -f "$claimed" ] || continue
-    # Inhalt ist eine Zeile, Tab-getrennt: "<command>\t<job_id>". Die Job-ID ist
-    # optional (Altformat ohne Tab = nur das Kommando). Sie wird per Env an das
-    # Scan-Skript gereicht, das sie in den PDF-Dateinamen einbettet, damit das
-    # Backend den Hardwarelauf exakt diesem Job zuordnen kann.
+    # Inhalt ist eine Zeile mit command, job_id, SANE-Adresse und stabiler
+    # PaperMind-Gerätekennung. Alte Zweifeld-Befehle bleiben kompatibel.
     raw="$(cat "$claimed" 2>/dev/null)"
     rm -f "$claimed"
     line="${raw%%$'\n'*}"
     cmd="${line%%$'\t'*}"
+    jobid=""
+    device_uri=""
+    device_key=""
     if [ "$line" = "$cmd" ]; then
-      jobid=""   # kein Tab → keine Job-ID
+      rest=""
     else
-      jobid="${line#*$'\t'}"
+      rest="${line#*$'\t'}"
+      jobid="${rest%%$'\t'*}"
+      if [ "$rest" != "$jobid" ]; then
+        rest="${rest#*$'\t'}"
+        device_uri="${rest%%$'\t'*}"
+        if [ "$rest" != "$device_uri" ]; then
+          device_key="${rest#*$'\t'}"
+        fi
+      fi
     fi
     cmd="$(printf '%s' "$cmd" | tr -d '[:space:]')"
     jobid="$(printf '%s' "$jobid" | tr -d '[:space:]')"
+    device_uri="$(printf '%s' "$device_uri" | tr -d '[:space:]')"
+    device_key="$(printf '%s' "$device_key" | tr -d '[:space:]')"
+    target_device="${device_uri:-$DEV}"
     case "$cmd" in
-      page)   log "UI-Befehl → Seite scannen (job ${jobid:--})";   PAPERMIND_SCAN_JOB_ID="$jobid" "$SCAN_SCRIPT" page   || log "page (UI) fehlgeschlagen"; did_work=0 ;;
-      finish) log "UI-Befehl → Batch abschließen (job ${jobid:--})"; PAPERMIND_SCAN_JOB_ID="$jobid" "$SCAN_SCRIPT" finish || log "finish (UI) fehlgeschlagen"; did_work=0 ;;
+      page)   log "UI-Befehl → Seite scannen (job ${jobid:--})";   SCAN_DEVICE="$target_device" PAPERMIND_SCAN_JOB_ID="$jobid" PAPERMIND_SCANNER_DEVICE_KEY="$device_key" "$SCAN_SCRIPT" page   || log "page (UI) fehlgeschlagen"; did_work=0 ;;
+      finish) log "UI-Befehl → Batch abschließen (job ${jobid:--})"; SCAN_DEVICE="$target_device" PAPERMIND_SCAN_JOB_ID="$jobid" PAPERMIND_SCANNER_DEVICE_KEY="$device_key" "$SCAN_SCRIPT" finish || log "finish (UI) fehlgeschlagen"; did_work=0 ;;
       *)      log "Unbekannter UI-Befehl ignoriert: '${cmd}'" ;;
     esac
   done
@@ -113,6 +144,7 @@ read_buttons() {
 DEV="${SCAN_DEVICE:-}"
 [ -n "$DEV" ] || DEV="$(detect_device)"
 export SCAN_DEVICE="$DEV"
+publish_scanner_inventory
 
 log "Poller gestartet (Gerät: ${DEV:-suche…}, aktiv ${ACTIVE_POLL_INTERVAL}s / Ruhe ${IDLE_POLL_INTERVAL}s). button-1→page, button-2→finish."
 
@@ -130,7 +162,12 @@ current_interval() {
 
 last1=0
 last2=0
+last_inventory_at=$EPOCHSECONDS
 while true; do
+  if (( EPOCHSECONDS - last_inventory_at >= DISCOVERY_INTERVAL )); then
+    publish_scanner_inventory
+    last_inventory_at=$EPOCHSECONDS
+  fi
   if [ -z "$DEV" ]; then
     DEV="$(detect_device)"
     export SCAN_DEVICE="$DEV"

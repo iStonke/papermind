@@ -2,17 +2,17 @@
 
 Scannen per **Hardware-Taste** direkt in PaperMind. Der Scanner hängt per USB am
 Pi (Host), nicht im Container. Ein kleiner Poller-Dienst auf dem Host erkennt
-Tastendrücke, scannt und legt das fertige PDF in den bestehenden Drop-Ordner
-`scan-inbox` – ab da läuft alles **wie bei der SMB-Aktion**:
+Tastendrücke, veröffentlicht die angeschlossenen Geräte für den Scannerbereich
+der Einstellungen, scannt und legt das fertige PDF in den bestehenden
+Drop-Ordner `scan-inbox` – ab da läuft alles **wie bei der SMB-Aktion**:
 
 ```
 Taste → scanimage (Host) → PDF in scan-inbox/ → Worker erkennt stabile PDF
       → ImportInboxService → Import-Inbox → Badge am "Importieren"-Button
 ```
 
-Es ist **kein Backend-/Frontend-Code** nötig – der Scanner ist nur ein weiterer
-PDF-Produzent für `scan-inbox` (analog zu iOS via SMB, siehe
-[`docs/smb-scan-inbox.md`](../../docs/smb-scan-inbox.md)).
+Der Host bleibt dabei vom Backend entkoppelt: Discovery, Scanbefehle und Status
+werden ausschließlich über kleine Dateien in `scan-inbox` ausgetauscht.
 
 **Bedienung** (Flachbett = kein Einzug → ein Tastendruck = eine Seite):
 
@@ -26,12 +26,18 @@ Gerät unterschiedlich – einmal ausprobieren (siehe „Tastenzuordnung" unten)
 ausgelöst, reiht das Backend einen Befehl ein; der Worker schreibt ihn als
 Datei `.papermind-scan-command-<seq>` nach `scan-inbox`, die der Poller im
 selben Loop konsumiert (bitgleich zum Tastendruck). Der Dateiinhalt ist
-tab-getrennt: `"<command>\t<job_id>"`. Die Job-ID reicht der Poller per
-`PAPERMIND_SCAN_JOB_ID` an `papermind-scan.sh` weiter, das sie als
+tab-getrennt: `"<command>\t<job_id>\t<device_uri>\t<device_key>"`. So kann der
+Benutzer gezielt einen der eingerichteten Scanner auslösen. Die Job-ID reicht
+der Poller per `PAPERMIND_SCAN_JOB_ID` an `papermind-scan.sh` weiter, das sie als
 `__pmjob-<uuid>` in den PDF-Dateinamen einbettet. Der Worker löst den Marker
 wieder heraus (bereinigt den Anzeigenamen) und ordnet den Hardwarelauf so
 **exakt** dem auslösenden Backend-Job zu. Das Altformat ohne Tab (nur das
 Kommando) bleibt unterstützt – dann ohne Job-Zuordnung.
+
+**Geräteerkennung.** Der Poller schreibt alle von `scanimage -L` gemeldeten
+Scanner atomar nach `scan-inbox/.papermind-scanner-devices`. Der Worker übernimmt
+dieses Inventar in die Datenbank. Neue Geräte erscheinen dadurch zunächst als
+„Nicht eingerichtet“ und werden erst nach einem Klick im Scannerbereich aktiv.
 
 > Nach Änderungen an `papermind-scan.sh`/`papermind-scan-watch.sh` den
 > Host-Dienst neu starten: `sudo systemctl restart papermind-scan-watch`.
@@ -154,9 +160,9 @@ Drück die 5 Tasten durch; merk dir die zwei, die `Seite scannen` bzw.
 ## (Optional) Live-Modus: jede Seite sofort senden
 
 Standardmäßig sammelt **button-1** Seiten lokal und erst **button-2**
-schickt sie als fertige PDF ab. Alternativ kann pro Scanner in den
-**Scanner-Einstellungen** der App ("Seiten sofort senden") ein Live-Modus
-aktiviert werden: jede mit **button-1** gescannte Seite wird sofort als
+schickt sie als fertige PDF ab. Alternativ kann im **Scannerbereich** der App
+global der Modus „Seiten sofort senden“ aktiviert werden: jede mit **button-1**
+gescannte Seite wird sofort als
 eigene 1-Seiten-PDF nach `scan-inbox/` gelegt. Bei offenem Importfenster
 erscheinen die Seiten dort nacheinander als ein wachsendes Dokument -
 **button-2** wird in diesem Modus nicht mehr benötigt.
@@ -204,6 +210,7 @@ in `papermind-scan.sh` (oder als `Environment=` in der `.service`):
 | `ACTIVE_POLL_INTERVAL` | `0.35`                     | Tasten-Abfrage-Intervall kurz nach einer Aktion (schnell) |
 | `IDLE_POLL_INTERVAL`   | `1`                        | Tasten-Abfrage-Intervall in Ruhe; bewusst unter typischen USB-Autosuspend-Zeiten |
 | `ACTIVE_WINDOW_SECONDS`| `30`                       | Wie lange nach einer Taste das schnelle Intervall gilt |
+| `DISCOVERY_INTERVAL` | `10`                          | Intervall für die Liste angeschlossener Scanner |
 | `SCAN_INBOX_DIR`  | *(aus Repo-Pfad abgeleitet)*    | Drop-Ordner (= Host-Mount von `/scan-inbox`) |
 | `SCANNER_USB_VENDOR` | `04a9`                      | USB-Vendor fuer den Wachhalter (Canon)       |
 | `SCANNER_USB_PRODUCT` | *(leer)*                    | Optionales USB-Produkt, z. B. `1912` fuer LiDE 400 |

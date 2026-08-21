@@ -52,7 +52,7 @@ SCAN_INBOX_DIR="${SCAN_INBOX_DIR:-${_REPO_ROOT}/scan-inbox}"
 CANCEL_FILE="${SCAN_INBOX_DIR}/.papermind-scan-cancel"
 # Batch-Ablage als Dot-Verzeichnis IM Drop-Ordner: Der Worker ignoriert
 # Dateien/Ordner mit führendem Punkt, sieht also nur die fertige PDF.
-BATCH_DIR="${BATCH_DIR:-${SCAN_INBOX_DIR}/.papermind-batch}"
+BATCH_DIR_OVERRIDE="${BATCH_DIR:-}"
 LOCK_FILE="${LOCK_FILE:-${SCAN_INBOX_DIR}/.papermind-scan.lock}"
 
 # Gerät: SCAN_DEVICE wird vom Poller (papermind-scan-watch.sh) exportiert;
@@ -67,6 +67,20 @@ IDLE_SECONDS="${IDLE_SECONDS:-180}"
 # den PDF-Dateinamen eingebettet, damit das Backend den Lauf exakt diesem Job
 # zuordnen kann. Leer bei Hardware-Tasten / Idle-Finalisierung.
 PAPERMIND_SCAN_JOB_ID="${PAPERMIND_SCAN_JOB_ID:-}"
+PAPERMIND_SCANNER_DEVICE_KEY="${PAPERMIND_SCANNER_DEVICE_KEY:-}"
+
+_scanner_device_hash() {
+  if [[ "$PAPERMIND_SCANNER_DEVICE_KEY" =~ ^sane-([0-9a-fA-F]{24})$ ]]; then
+    printf '%s' "${BASH_REMATCH[1],,}"
+    return
+  fi
+  if [[ -n "$SCAN_DEVICE" ]] && command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$SCAN_DEVICE" | sha256sum | cut -c1-24
+  fi
+}
+
+SCANNER_DEVICE_HASH="$(_scanner_device_hash)"
+BATCH_DIR="${BATCH_DIR_OVERRIDE:-${SCAN_INBOX_DIR}/.papermind-batch-${SCANNER_DEVICE_HASH:-default}}"
 
 # Ausgabe sowohl auf stdout (manueller Aufruf) als auch nach syslog – Letzteres,
 # damit man bei tastengesteuerten Läufen (scanbd verschluckt stdout) in
@@ -87,6 +101,10 @@ _job_filename_suffix() {
   if [[ "$id" =~ ^[0-9a-fA-F-]{36}$ ]]; then
     printf '__pmjob-%s' "$id"
   fi
+}
+
+_device_filename_suffix() {
+  [[ -n "$SCANNER_DEVICE_HASH" ]] && printf '__pmdev-%s' "$SCANNER_DEVICE_HASH"
 }
 
 _write_preview_sidecar() {
@@ -138,8 +156,16 @@ _scan_args() {
 }
 
 # Vom Worker gespiegelte Einstellung lesen (kein jq nötig, einfaches key=value).
+# „Seiten sofort senden" ist pro Scanner: bevorzugt die gerätespezifische Datei
+# .papermind-scanner-config-<device_key>; fällt auf die legacy-Globaldatei
+# zurück, falls der device_key unbekannt ist oder die Datei (noch) fehlt.
 _live_page_mode_enabled() {
-  local cfg="${SCAN_INBOX_DIR}/.papermind-scanner-config"
+  local global_cfg="${SCAN_INBOX_DIR}/.papermind-scanner-config"
+  local cfg="$global_cfg"
+  if [[ -n "$SCANNER_DEVICE_HASH" ]]; then
+    local device_cfg="${SCAN_INBOX_DIR}/.papermind-scanner-config-sane-${SCANNER_DEVICE_HASH}"
+    [[ -f "$device_cfg" ]] && cfg="$device_cfg"
+  fi
   [[ -f "$cfg" ]] && grep -q '^LIVE_PAGE_MODE=true$' "$cfg" 2>/dev/null
 }
 
@@ -148,10 +174,14 @@ _live_page_mode_enabled() {
 # wird. Der Worker liest diese Datei nur, er schreibt sie nicht.
 _write_scan_status() {
   local status_file="${SCAN_INBOX_DIR}/.papermind-scanner-status"
+  local device_key=""
+  [[ -n "$SCANNER_DEVICE_HASH" ]] && device_key="sane-${SCANNER_DEVICE_HASH}"
   if [[ "$1" == "true" ]]; then
-    printf 'SCANNING=true\nSTARTED_AT=%s\n' "$(date +%s)" > "$status_file" 2>/dev/null || true
+    printf 'SCANNING=true\nSTARTED_AT=%s\nDEVICE_KEY=%s\nDEVICE_URI=%s\n' \
+      "$(date +%s)" "$device_key" "$SCAN_DEVICE" > "$status_file" 2>/dev/null || true
   else
-    printf 'SCANNING=false\n' > "$status_file" 2>/dev/null || true
+    printf 'SCANNING=false\nDEVICE_KEY=%s\nDEVICE_URI=%s\n' \
+      "$device_key" "$SCAN_DEVICE" > "$status_file" 2>/dev/null || true
   fi
 }
 
@@ -194,7 +224,7 @@ _scan_live_page() {
   mv -f "$png_part" "$png"
 
   incoming="${SCAN_INBOX_DIR}/.incoming-${ts}.pdf"
-  target="${SCAN_INBOX_DIR}/Scan-${ts}$(_job_filename_suffix).pdf"
+  target="${SCAN_INBOX_DIR}/Scan-${ts}$(_job_filename_suffix)$(_device_filename_suffix).pdf"
   preview_target="${target}.preview.png"
   if command -v img2pdf >/dev/null 2>&1; then
     img2pdf --output "$incoming" "$png"
@@ -263,7 +293,7 @@ _finalize() {
   # Erst als Dot-Tempdatei schreiben, dann atomar umbenennen, damit der Worker
   # niemals eine halbfertige PDF sieht (er wartet zusätzlich auf Datei-Ruhe).
   incoming="${SCAN_INBOX_DIR}/.incoming-${ts}.pdf"
-  target="${SCAN_INBOX_DIR}/Scan-${ts}$(_job_filename_suffix).pdf"
+  target="${SCAN_INBOX_DIR}/Scan-${ts}$(_job_filename_suffix)$(_device_filename_suffix).pdf"
   preview_target="${target}.preview.png"
 
   log "Schließe Batch mit ${#pages[@]} Seite(n) zu ${target##*/} ab…"

@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -5,13 +6,14 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.errors import BadRequestError, ConflictError, NotFoundError
+from app.core.errors import BadRequestError, ConflictError, ForbiddenError, NotFoundError
 from app.models.scanner import ScannerDevice, ScannerDeviceRecipient, ScannerScanCommand, ScannerScanJob
 from app.models.user import User
 from app.schemas.auth import UserRead
 from app.schemas.scanners import (
     ScanCommand,
     ScanCommandResponse,
+    ScannerDeviceConfigureRequest,
     ScannerDeviceCreateRequest,
     ScannerDeviceListResponse,
     ScannerDeviceRead,
@@ -21,6 +23,8 @@ from app.services.utils import is_unique_violation
 
 
 SCAN_STATUS_STALE_SECONDS = 30
+SCANNER_DISCOVERY_STALE_SECONDS = 45
+SCANNER_LEGACY_STALE_SECONDS = 24 * 60 * 60
 # Eingereihte Befehle, die der Worker länger nicht abholen konnte (z. B. Host-
 # Poller war aus), gelten als veraltet und werden verworfen statt verspätet zu
 # feuern - ein Scan soll nur kurz nach dem Klick passieren, nie Minuten später.
@@ -61,6 +65,19 @@ def normalize_scanner_device_key(raw: str | None) -> str:
     return " ".join(str(raw or "").split()).strip()
 
 
+def scanner_device_key_for_uri(connection_uri: str) -> str:
+    """Deterministische, dateinamensichere Kennung für ein SANE-Gerät."""
+    digest = hashlib.sha256(str(connection_uri).encode("utf-8")).hexdigest()[:24]
+    return f"sane-{digest}"
+
+
+def _is_recent(value: datetime | None, max_age_seconds: int) -> bool:
+    if value is None:
+        return False
+    normalized = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - normalized).total_seconds() <= max_age_seconds
+
+
 def is_scanning_active(scanner: ScannerDevice) -> bool:
     """True, wenn der Host kürzlich "scanning" gemeldet hat.
 
@@ -93,21 +110,34 @@ class ScannerService:
         return result
 
     def _read(self, scanner: ScannerDevice, recipients: list[UserRead] | None = None) -> ScannerDeviceRead:
+        available = _is_recent(scanner.discovered_at, SCANNER_DISCOVERY_STALE_SECONDS)
+        if scanner.connection_uri is None:
+            # Kompatibilität für bestehende Installationen, bis der aktualisierte
+            # Host-Poller erstmals ein Discovery-Inventar veröffentlicht hat.
+            available = _is_recent(scanner.last_seen_at, SCANNER_LEGACY_STALE_SECONDS)
         return ScannerDeviceRead(
             id=scanner.id,
             device_key=scanner.device_key,
             name=scanner.name,
+            hardware_name=scanner.hardware_name,
+            connection_uri=scanner.connection_uri,
+            configured=scanner.configured,
+            available=available,
             enabled=scanner.enabled,
             live_page_mode=scanner.live_page_mode,
             created_at=scanner.created_at,
             updated_at=scanner.updated_at,
             last_seen_at=scanner.last_seen_at,
+            discovered_at=scanner.discovered_at,
             recipients=recipients or [],
         )
 
     def list_devices(self) -> ScannerDeviceListResponse:
         scanners = list(
-            self.db.scalars(select(ScannerDevice).order_by(func.lower(ScannerDevice.name).asc())).all()
+            self.db.scalars(
+                select(ScannerDevice)
+                .order_by(ScannerDevice.configured.desc(), func.lower(ScannerDevice.name).asc())
+            ).all()
         )
         recipients = self._recipients_for([scanner.id for scanner in scanners])
         return ScannerDeviceListResponse(
@@ -119,6 +149,91 @@ class ScannerService:
         if not normalized:
             return None
         return self.db.scalar(select(ScannerDevice).where(ScannerDevice.device_key == normalized))
+
+    def get_by_connection_uri(self, connection_uri: str) -> ScannerDevice | None:
+        normalized = str(connection_uri or "").strip()
+        if not normalized:
+            return None
+        return self.db.scalar(select(ScannerDevice).where(ScannerDevice.connection_uri == normalized))
+
+    def _user_can_access_device(self, scanner_id: uuid.UUID, user_id: uuid.UUID | None) -> bool:
+        recipient_count = self.db.scalar(
+            select(func.count(ScannerDeviceRecipient.user_id)).where(
+                ScannerDeviceRecipient.scanner_device_id == scanner_id
+            )
+        )
+        if int(recipient_count or 0) == 0:
+            return True
+        if user_id is None:
+            return False
+        return bool(
+            self.db.scalar(
+                select(ScannerDeviceRecipient.user_id)
+                .where(ScannerDeviceRecipient.scanner_device_id == scanner_id)
+                .where(ScannerDeviceRecipient.user_id == user_id)
+                .limit(1)
+            )
+        )
+
+    def sync_discovered_devices(
+        self,
+        devices: list[tuple[str, str]],
+        *,
+        legacy_device_key: str | None = None,
+    ) -> int:
+        """Übernimmt das vom Scanner-Host veröffentlichte Geräteinventar.
+
+        Neue Geräte werden deaktiviert und noch nicht eingerichtet angelegt. Bei
+        einem bestehenden Single-Scanner-Setup wird genau ein erkanntes Gerät
+        einmalig mit dem alten, konfigurierten Datensatz verknüpft.
+        """
+        normalized_devices: list[tuple[str, str]] = []
+        seen_uris: set[str] = set()
+        for raw_uri, raw_name in devices:
+            uri = str(raw_uri or "").strip()
+            name = normalize_scanner_device_key(raw_name)[:200]
+            if not uri or len(uri) > 500 or any(char.isspace() for char in uri) or uri in seen_uris:
+                continue
+            seen_uris.add(uri)
+            normalized_devices.append((uri, name or uri))
+
+        now = datetime.now(timezone.utc)
+        legacy = None
+        if len(normalized_devices) == 1 and legacy_device_key:
+            legacy = self.db.scalar(
+                select(ScannerDevice)
+                .where(ScannerDevice.device_key == normalize_scanner_device_key(legacy_device_key))
+                .where(ScannerDevice.connection_uri.is_(None))
+                .where(ScannerDevice.configured.is_(True))
+            )
+
+        changed = 0
+        for uri, hardware_name in normalized_devices:
+            scanner = self.get_by_connection_uri(uri)
+            if scanner is None and legacy is not None:
+                scanner = legacy
+                legacy = None
+                scanner.connection_uri = uri
+            if scanner is None:
+                scanner = ScannerDevice(
+                    device_key=scanner_device_key_for_uri(uri),
+                    name=hardware_name,
+                    hardware_name=hardware_name,
+                    connection_uri=uri,
+                    configured=False,
+                    enabled=False,
+                    discovered_at=now,
+                )
+                self.db.add(scanner)
+            else:
+                scanner.hardware_name = hardware_name
+                scanner.discovered_at = now
+                scanner.updated_at = now
+            changed += 1
+
+        if changed:
+            self.db.commit()
+        return changed
 
     def set_scanning_state(self, device_key: str, scanning_since: datetime | None) -> None:
         scanner = self.get_by_key(device_key)
@@ -168,8 +283,12 @@ class ScannerService:
         scanner = self.db.get(ScannerDevice, scanner_id)
         if scanner is None:
             raise NotFoundError("Scanner device not found", details={"scanner_id": str(scanner_id)})
+        if not scanner.configured:
+            raise BadRequestError("Scanner is not configured", details={"scanner_id": str(scanner_id)})
         if not scanner.enabled:
             raise BadRequestError("Scanner is disabled", details={"scanner_id": str(scanner_id)})
+        if not self._user_can_access_device(scanner.id, requested_by):
+            raise ForbiddenError("Scanner access is restricted", details={"scanner_id": str(scanner_id)})
 
         job = ScannerScanJob(
             scanner_device_id=scanner.id,
@@ -195,6 +314,8 @@ class ScannerService:
         scanner = self.db.get(ScannerDevice, scanner_id)
         if scanner is None:
             raise NotFoundError("Scanner device not found", details={"scanner_id": str(scanner_id)})
+        if not self._user_can_access_device(scanner.id, requested_by):
+            raise ForbiddenError("Scanner access is restricted", details={"scanner_id": str(scanner_id)})
 
         active_jobs = list(
             self.db.scalars(
@@ -481,6 +602,7 @@ class ScannerService:
         scanner = ScannerDevice(
             device_key=normalize_scanner_device_key(payload.device_key),
             name=normalize_scanner_device_key(payload.name),
+            configured=True,
             enabled=payload.enabled,
         )
         self.db.add(scanner)
@@ -496,6 +618,52 @@ class ScannerService:
         self.db.refresh(scanner)
         recipients = self._recipients_for([scanner.id]).get(scanner.id, [])
         return self._read(scanner, recipients)
+
+    def configure_device(
+        self,
+        scanner_id: uuid.UUID,
+        payload: ScannerDeviceConfigureRequest,
+    ) -> ScannerDeviceRead:
+        scanner = self.db.get(ScannerDevice, scanner_id)
+        if scanner is None:
+            raise NotFoundError("Scanner device not found", details={"scanner_id": str(scanner_id)})
+        if (
+            scanner.connection_uri is None
+            and not scanner.configured
+            and not _is_recent(scanner.last_seen_at, SCANNER_LEGACY_STALE_SECONDS)
+        ):
+            raise BadRequestError("Scanner has not been discovered", details={"scanner_id": str(scanner_id)})
+
+        scanner.name = normalize_scanner_device_key(payload.name)
+        scanner.configured = True
+        scanner.enabled = bool(payload.enabled)
+        scanner.updated_at = datetime.now(timezone.utc)
+        self._set_recipients(scanner.id, payload.recipient_user_ids)
+        self.db.commit()
+        self.db.refresh(scanner)
+        recipients = self._recipients_for([scanner.id]).get(scanner.id, [])
+        return self._read(scanner, recipients)
+
+    def remove_device_configuration(self, scanner_id: uuid.UUID) -> ScannerDeviceRead:
+        """Entfernt nur die PaperMind-Konfiguration, nicht das erkannte Gerät.
+
+        So bleibt ein weiterhin angeschlossener Scanner in der Geräteliste und
+        kann später erneut hinzugefügt werden. Scan-Historie und bereits
+        importierte Dokumente bleiben unverändert erhalten.
+        """
+        scanner = self.db.get(ScannerDevice, scanner_id)
+        if scanner is None:
+            raise NotFoundError("Scanner device not found", details={"scanner_id": str(scanner_id)})
+
+        scanner.configured = False
+        scanner.enabled = False
+        scanner.live_page_mode = False
+        scanner.name = scanner.hardware_name or scanner.name
+        scanner.updated_at = datetime.now(timezone.utc)
+        self._set_recipients(scanner.id, [])
+        self.db.commit()
+        self.db.refresh(scanner)
+        return self._read(scanner, [])
 
     def update_device(self, scanner_id: uuid.UUID, payload: ScannerDeviceUpdateRequest) -> ScannerDeviceRead:
         scanner = self.db.get(ScannerDevice, scanner_id)

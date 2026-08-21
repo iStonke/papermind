@@ -17,6 +17,8 @@ from sqlalchemy import text
 from app.core.config import get_settings
 from app.db.session import SessionLocal, app_engine
 from app.models.document import Document
+from app.models.import_inbox import ImportInboxItem
+from app.models.scanner import ScannerDevice, ScannerDeviceRecipient
 from app.models.user import User
 
 
@@ -66,12 +68,66 @@ class RowLevelSecurityIsolationTest(unittest.TestCase):
         cls.db.commit()
         cls.doc_a = _make_doc(cls.db, cls.user_a.id)
         cls.doc_b = _make_doc(cls.db, cls.user_b.id)
+        token = uuid.uuid4().hex[:8]
+        cls.shared_scanner = ScannerDevice(
+            device_key=f"rls-shared-{token}",
+            name="RLS Shared Scanner",
+            configured=True,
+            enabled=True,
+        )
+        cls.restricted_scanner = ScannerDevice(
+            device_key=f"rls-restricted-{token}",
+            name="RLS Restricted Scanner",
+            configured=True,
+            enabled=True,
+        )
+        cls.db.add_all([cls.shared_scanner, cls.restricted_scanner])
+        cls.db.flush()
+        cls.db.add(
+            ScannerDeviceRecipient(
+                scanner_device_id=cls.restricted_scanner.id,
+                user_id=cls.user_a.id,
+            )
+        )
+        cls.shared_inbox_item = ImportInboxItem(
+            owner_id=None,
+            scanner_device_id=cls.shared_scanner.id,
+            source_file_id=uuid.uuid4(),
+            source_type="scanner",
+            original_name="RLS Shared Scan.pdf",
+            page_count=1,
+        )
+        cls.restricted_inbox_item = ImportInboxItem(
+            owner_id=None,
+            scanner_device_id=cls.restricted_scanner.id,
+            source_file_id=uuid.uuid4(),
+            source_type="scanner",
+            original_name="RLS Restricted Scan.pdf",
+            page_count=1,
+        )
+        cls.db.add_all([cls.shared_inbox_item, cls.restricted_inbox_item])
         cls.db.commit()
         cls.id_a, cls.id_b = cls.doc_a.id, cls.doc_b.id
         cls.uid_a, cls.uid_b = cls.user_a.id, cls.user_b.id
+        cls.shared_item_id = cls.shared_inbox_item.id
+        cls.restricted_item_id = cls.restricted_inbox_item.id
+        cls.shared_scanner_id = cls.shared_scanner.id
+        cls.restricted_scanner_id = cls.restricted_scanner.id
 
     @classmethod
     def tearDownClass(cls) -> None:
+        cls.db.execute(
+            text("DELETE FROM import_inbox_items WHERE id IN (:shared_id, :restricted_id)"),
+            {"shared_id": cls.shared_item_id, "restricted_id": cls.restricted_item_id},
+        )
+        cls.db.execute(
+            text("DELETE FROM scanner_device_recipients WHERE scanner_device_id = :scanner_id"),
+            {"scanner_id": cls.restricted_scanner_id},
+        )
+        cls.db.execute(
+            text("DELETE FROM scanner_devices WHERE id IN (:shared_id, :restricted_id)"),
+            {"shared_id": cls.shared_scanner_id, "restricted_id": cls.restricted_scanner_id},
+        )
         # Benutzer löschen → Dokumente fallen per ON DELETE CASCADE weg.
         for uid in (getattr(cls, "uid_a", None), getattr(cls, "uid_b", None)):
             if uid is not None:
@@ -87,6 +143,16 @@ class RowLevelSecurityIsolationTest(unittest.TestCase):
                     text("SELECT set_config('app.owner_id', :o, false)"), {"o": str(owner_id)}
                 )
             rows = conn.execute(text("SELECT id FROM documents")).scalars().all()
+        return set(rows)
+
+    def _visible_inbox_ids(self, owner_id: uuid.UUID | None) -> set[uuid.UUID]:
+        """Scanner-Inbox-Sichtbarkeit direkt über die App-Rolle prüfen."""
+        with app_engine.connect() as conn:
+            if owner_id is not None:
+                conn.execute(
+                    text("SELECT set_config('app.owner_id', :o, false)"), {"o": str(owner_id)}
+                )
+            rows = conn.execute(text("SELECT id FROM import_inbox_items")).scalars().all()
         return set(rows)
 
     def test_owner_a_sees_only_own_document(self) -> None:
@@ -108,6 +174,19 @@ class RowLevelSecurityIsolationTest(unittest.TestCase):
         rows = set(self.db.execute(text("SELECT id FROM documents")).scalars().all())
         self.assertIn(self.id_a, rows)
         self.assertIn(self.id_b, rows)
+
+    def test_shared_scanner_item_is_visible_to_both_users(self) -> None:
+        self.assertIn(self.shared_item_id, self._visible_inbox_ids(self.uid_a))
+        self.assertIn(self.shared_item_id, self._visible_inbox_ids(self.uid_b))
+
+    def test_restricted_scanner_item_is_visible_only_to_recipient(self) -> None:
+        self.assertIn(self.restricted_item_id, self._visible_inbox_ids(self.uid_a))
+        self.assertNotIn(self.restricted_item_id, self._visible_inbox_ids(self.uid_b))
+
+    def test_scanner_inbox_without_owner_context_fails_closed(self) -> None:
+        visible = self._visible_inbox_ids(None)
+        self.assertNotIn(self.shared_item_id, visible)
+        self.assertNotIn(self.restricted_item_id, visible)
 
 
 if __name__ == "__main__":

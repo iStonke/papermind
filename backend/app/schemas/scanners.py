@@ -17,11 +17,16 @@ class ScannerDeviceRead(BaseModel):
     id: uuid.UUID
     device_key: str
     name: str
+    hardware_name: str | None = None
+    connection_uri: str | None = None
+    configured: bool = True
+    available: bool = False
     enabled: bool
     live_page_mode: bool
     created_at: datetime
     updated_at: datetime
     last_seen_at: datetime | None = None
+    discovered_at: datetime | None = None
     recipients: list[UserRead] = Field(default_factory=list)
 
 
@@ -65,6 +70,20 @@ class ScannerDeviceUpdateRequest(BaseModel):
     def normalize_optional_name(cls, value: str | None) -> str | None:
         if value is None:
             return None
+        normalized = _normalize_text(value)
+        if not normalized:
+            raise ValueError("must not be empty")
+        return normalized
+
+
+class ScannerDeviceConfigureRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=150)
+    enabled: bool = True
+    recipient_user_ids: list[uuid.UUID] = Field(default_factory=list)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
         normalized = _normalize_text(value)
         if not normalized:
             raise ValueError("must not be empty")

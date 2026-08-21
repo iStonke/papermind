@@ -12,17 +12,26 @@ class ScannerDevice(Base):
     __tablename__ = "scanner_devices"
     __table_args__ = (
         UniqueConstraint("device_key", name="uq_scanner_devices_device_key"),
+        UniqueConstraint("connection_uri", name="uq_scanner_devices_connection_uri"),
         Index("ix_scanner_devices_enabled", "enabled"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     device_key: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    # Von der Host-Erkennung gelieferte SANE-Adresse. Sie wird ausschließlich
+    # vom Worker gesetzt und nie aus einem freien Browserwert übernommen.
+    connection_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
+    hardware_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Erkannte Geräte werden zunächst als noch nicht eingerichtet angelegt.
+    # Bestehende Datensätze bleiben über den DB-Default eingerichtet.
+    configured: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     live_page_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    discovered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     scanning_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 

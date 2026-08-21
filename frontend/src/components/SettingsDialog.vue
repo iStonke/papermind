@@ -669,137 +669,19 @@
           </div>
         </section>
 
+        <section v-if="activeCategory === 'scanner'" class="pm-settings-section">
+          <div class="pm-settings-content">
+            <ScannerSettingsPanel />
+          </div>
+        </section>
+
         <section v-if="activeCategory === 'import'" class="pm-settings-section">
           <div class="pm-settings-content">
             <SettingsInfoCard
               icon="mdi-tray-arrow-up"
               title="Importieren"
-              subtitle="Scanner, Scan-Eingang und automatische Schritte nach dem Import."
+              subtitle="Scan-Eingang und automatische Schritte nach dem Import."
             />
-
-            <div class="pm-settings-subhead">Scanner</div>
-
-            <div v-if="scannerSettingsLoading" class="scanner-settings-state">
-              <v-progress-circular indeterminate size="22" width="2" />
-              <span>Scanner werden geladen...</span>
-            </div>
-
-            <div v-else-if="scannerSettingsError" class="scanner-settings-state scanner-settings-state--error">
-              <v-icon size="20">mdi-alert-circle-outline</v-icon>
-              <span>{{ scannerSettingsError }}</span>
-              <v-btn variant="text" size="small" @click="loadScannerSettings">Erneut laden</v-btn>
-            </div>
-
-            <div v-else-if="scannerDrafts.length === 0" class="scanner-empty">
-              <v-icon size="28">mdi-scanner-off</v-icon>
-              <div>
-                <div class="scanner-empty__title">Noch kein Scanner erkannt</div>
-                <div class="scanner-empty__text">Der erste Scan legt den Scanner automatisch an.</div>
-              </div>
-            </div>
-
-            <div v-else class="scanner-list">
-              <div
-                v-for="scanner in scannerDrafts"
-                :key="scanner.id"
-                class="scanner-card"
-                :class="{ 'scanner-card--disabled': !scanner.enabled }"
-              >
-                <div class="scanner-card__header">
-                  <div class="scanner-card__identity">
-                    <v-icon class="scanner-card__glyph" size="26">mdi-scanner</v-icon>
-                    <div class="scanner-card__identity-text">
-                      <div class="scanner-card__device-line">
-                        <span class="scanner-card__device-key">{{ scanner.device_key }}</span>
-                        <span
-                          class="scanner-card__presence"
-                          :class="scannerIsOnline(scanner) ? 'is-online' : 'is-offline'"
-                          :title="scannerIsOnline(scanner) ? 'Bereit' : 'Längere Zeit nicht erreichbar'"
-                        />
-                      </div>
-                      <span class="scanner-card__meta">{{ scannerLastSeenLabel(scanner) }}</span>
-                    </div>
-                  </div>
-                  <div class="scanner-card__header-end">
-                    <span
-                      v-if="scannerSavingIds.has(scanner.id)"
-                      class="scanner-card__savestate"
-                    >
-                      <v-progress-circular indeterminate size="13" width="2" />
-                      Speichern…
-                    </span>
-                    <span
-                      v-else-if="scannerSavedIds.has(scanner.id)"
-                      class="scanner-card__savestate scanner-card__savestate--done"
-                    >
-                      <v-icon size="14">mdi-check</v-icon>
-                      Gespeichert
-                    </span>
-                    <v-switch
-                      v-model="scanner.enabled"
-                      color="primary"
-                      density="compact"
-                      hide-details
-                      inset
-                      @update:model-value="() => scheduleScannerSave(scanner, 200)"
-                    />
-                  </div>
-                </div>
-
-                <div class="scanner-card__grid">
-                  <v-text-field
-                    v-model="scanner.name"
-                    label="Name"
-                    density="compact"
-                    variant="outlined"
-                    hide-details
-                    @update:model-value="() => scheduleScannerSave(scanner)"
-                  />
-                  <v-autocomplete
-                    v-model="scanner.recipient_user_ids"
-                    :items="scannerUserOptions"
-                    label="Empfänger"
-                    density="compact"
-                    variant="outlined"
-                    hide-details
-                    chips
-                    closable-chips
-                    multiple
-                    :menu-props="{ attach: 'body', zIndex: 6000 }"
-                    @update:model-value="() => scheduleScannerSave(scanner, 200)"
-                  >
-                    <template #chip="{ props: chipProps, item }">
-                      <v-chip
-                        v-bind="chipProps"
-                        color="primary"
-                        variant="tonal"
-                        size="small"
-                        class="scanner-card__recipient-chip"
-                      >
-                        <template #prepend>
-                          <UserAvatar
-                            :user="item.raw.user"
-                            :size="20"
-                            class="scanner-card__recipient-avatar"
-                          />
-                        </template>
-                        {{ item.title }}
-                      </v-chip>
-                    </template>
-                    <template #item="{ props: itemProps, item }">
-                      <v-list-item v-bind="itemProps">
-                        <template #prepend>
-                          <UserAvatar :user="item.raw.user" :size="28" />
-                        </template>
-                      </v-list-item>
-                    </template>
-                  </v-autocomplete>
-                </div>
-              </div>
-            </div>
-
-            <div class="pm-settings-subhead">Import</div>
-            <div class="pm-settings-subhead-hint">Gilt für alle Scanner und Importquellen.</div>
 
             <div
               class="pm-setting-row"
@@ -824,33 +706,6 @@
                 :disabled="isSettingSaving.auto_open_import_inbox"
                 @click.stop
                 @update:model-value="onAutoOpenImportInboxChange"
-              />
-            </div>
-
-            <div
-              class="pm-setting-row"
-              role="button"
-              tabindex="0"
-              @click="toggleScanLivePageModeFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleScanLivePageModeFromRow)"
-            >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Seiten sofort senden</div>
-                <div class="pm-setting-description">
-                  Jede gescannte Seite wird sofort ins Importfenster gesendet, ohne auf die
-                  Abschluss-Taste zu warten.
-                </div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.documents.scan_live_page_mode"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :loading="isSettingSaving.scan_live_page_mode"
-                :disabled="isSettingSaving.scan_live_page_mode"
-                @click.stop
-                @update:model-value="onScanLivePageModeChange"
               />
             </div>
 
@@ -2411,15 +2266,15 @@
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, nextTick, ref, watch } from 'vue';
 import { useTheme } from 'vuetify';
 import BaseDialog from './BaseDialog.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import DestructiveDialog from './DestructiveDialog.vue';
 import SettingsInfoCard from './SettingsInfoCard.vue';
-import UserAvatar from './UserAvatar.vue';
 // Nur in den Admin-Tabs „Dienste"/„System" sichtbar → als eigene Chunks lazy
 // geladen, damit sie den Haupt-Chunk des Dialogs nicht aufblähen.
+const ScannerSettingsPanel = defineAsyncComponent(() => import('./ScannerSettingsPanel.vue'));
 const ServiceStatusPanel = defineAsyncComponent(() => import('./ServiceStatusPanel.vue'));
 const SystemStatusPanel = defineAsyncComponent(() => import('./SystemStatusPanel.vue'));
 import { getBaseUrl } from '../api/client';
@@ -2431,8 +2286,6 @@ import { notifyError, useNotifications } from '../stores/notifications';
 import { useTagStore } from '../stores/tags';
 import { cleanupUnusedTags } from '../api/tags';
 import { backfillOcr, patchDocument as apiPatchDocument } from '../api/documents';
-import { listScanners, updateScanner } from '../api/scanners';
-import { listUsers } from '../api/users';
 import {
   deleteBackupArchive,
   getBackupStatus,
@@ -2450,7 +2303,6 @@ import {
 import { SHORTCUT_ACTIONS, SHORTCUTS, handleShortcut } from '../keyboard/shortcuts';
 import {
   buildAutoOpenImportInboxPatch,
-  buildScanLivePageModePatch,
   buildAutoOcrPatch,
   buildAutoTaggingPatch,
   buildOcrBackfillEnabledPatch,
@@ -2583,173 +2435,6 @@ function requestOnboarding() {
   emit('show-onboarding');
 }
 
-// ── Scanner-Einstellungen ───────────────────────────────────────────────────
-
-const scannerDrafts = ref([]);
-const scannerUsers = ref([]);
-const scannerSettingsLoading = ref(false);
-const scannerSettingsError = ref('');
-const scannerDirtyIds = ref(new Set());
-const scannerSavingIds = ref(new Set());
-const scannerSavedIds = ref(new Set());
-// Pro Scanner laufende Debounce-/Flash-Timer für das automatische Speichern.
-const scannerSaveTimers = new Map();
-const scannerSavedTimers = new Map();
-let scannerSettingsLoaded = false;
-
-const scannerUserOptions = computed(() =>
-  scannerUsers.value
-    .filter((user) => user?.is_active !== false)
-    .map((user) => ({
-      title: user.display_name || user.username,
-      value: user.id,
-      user,
-      props: {
-        subtitle: user.email || user.username
-      }
-    }))
-);
-
-function normalizeScannerDraft(scanner) {
-  return {
-    id: String(scanner?.id || '').trim(),
-    device_key: String(scanner?.device_key || '').trim(),
-    name: String(scanner?.name || '').trim(),
-    enabled: scanner?.enabled !== false,
-    last_seen_at: scanner?.last_seen_at || null,
-    recipient_user_ids: Array.isArray(scanner?.recipients)
-      ? scanner.recipients.map((user) => String(user?.id || '').trim()).filter(Boolean)
-      : []
-  };
-}
-
-function scannerLastSeenLabel(scanner) {
-  if (!scanner?.last_seen_at) return 'noch nicht gesehen';
-  try {
-    return `zuletzt gesehen ${new Intl.DateTimeFormat('de-DE', {
-      dateStyle: 'short',
-      timeStyle: 'short'
-    }).format(new Date(scanner.last_seen_at))}`;
-  } catch {
-    return 'zuletzt gesehen';
-  }
-}
-
-// Optimistische Statusanzeige: Der Scanner gilt als in Ordnung (grün), solange
-// er sich innerhalb der letzten 24 h gemeldet hat. Grau erst bei einem echten
-// Problem – noch nie gesehen oder länger als 24 h stumm.
-const SCANNER_STALE_MS = 24 * 60 * 60 * 1000;
-
-function scannerIsOnline(scanner) {
-  if (!scanner?.last_seen_at) return false;
-  const seen = new Date(scanner.last_seen_at).getTime();
-  if (Number.isNaN(seen)) return false;
-  return Date.now() - seen <= SCANNER_STALE_MS;
-}
-
-function markScannerDirty(scannerId) {
-  const next = new Set(scannerDirtyIds.value);
-  next.add(scannerId);
-  scannerDirtyIds.value = next;
-}
-
-// Auto-Save: Jede Änderung wird automatisch gesichert. Toggles/Empfänger
-// speichern quasi sofort (kurzer Delay coalesct schnelle Mehrfachklicks),
-// das Namensfeld wird beim Tippen entprellt.
-function scheduleScannerSave(scanner, delay = 700) {
-  if (!scanner?.id) return;
-  const id = scanner.id;
-  markScannerDirty(id);
-  const existing = scannerSaveTimers.get(id);
-  if (existing) clearTimeout(existing);
-  const timer = setTimeout(() => {
-    scannerSaveTimers.delete(id);
-    // Läuft noch ein Speichervorgang, kurz später erneut versuchen.
-    if (scannerSavingIds.value.has(id)) {
-      scheduleScannerSave(scanner, 200);
-      return;
-    }
-    saveScanner(scanner);
-  }, delay);
-  scannerSaveTimers.set(id, timer);
-}
-
-function flashScannerSaved(id) {
-  const next = new Set(scannerSavedIds.value);
-  next.add(id);
-  scannerSavedIds.value = next;
-  const existing = scannerSavedTimers.get(id);
-  if (existing) clearTimeout(existing);
-  const timer = setTimeout(() => {
-    const done = new Set(scannerSavedIds.value);
-    done.delete(id);
-    scannerSavedIds.value = done;
-    scannerSavedTimers.delete(id);
-  }, 2000);
-  scannerSavedTimers.set(id, timer);
-}
-
-onBeforeUnmount(() => {
-  scannerSaveTimers.forEach((timer) => clearTimeout(timer));
-  scannerSavedTimers.forEach((timer) => clearTimeout(timer));
-  scannerSaveTimers.clear();
-  scannerSavedTimers.clear();
-});
-
-async function loadScannerSettings({ force = false } = {}) {
-  if (!auth.isAdmin) return;
-  if (scannerSettingsLoading.value) return;
-  if (scannerSettingsLoaded && !force) return;
-  scannerSettingsLoading.value = true;
-  scannerSettingsError.value = '';
-  try {
-    const [scannerPayload, userPayload] = await Promise.all([
-      listScanners(),
-      listUsers()
-    ]);
-    scannerDrafts.value = Array.isArray(scannerPayload?.items)
-      ? scannerPayload.items.map(normalizeScannerDraft).filter((scanner) => scanner.id)
-      : [];
-    scannerUsers.value = Array.isArray(userPayload?.items) ? userPayload.items : [];
-    scannerDirtyIds.value = new Set();
-    scannerSettingsLoaded = true;
-  } catch (error) {
-    scannerSettingsError.value = error?.message || 'Scanner-Einstellungen konnten nicht geladen werden.';
-    notifyError(error, 'Scanner-Einstellungen konnten nicht geladen werden.');
-  } finally {
-    scannerSettingsLoading.value = false;
-  }
-}
-
-async function saveScanner(scanner) {
-  if (!scanner?.id || scannerSavingIds.value.has(scanner.id)) return;
-  const normalizedName = String(scanner.name || '').trim();
-  // Auto-Save: bei (noch) leerem Namen nichts speichern, aber auch nicht stören.
-  if (!normalizedName) return;
-  const nextSaving = new Set(scannerSavingIds.value);
-  nextSaving.add(scanner.id);
-  scannerSavingIds.value = nextSaving;
-  try {
-    await updateScanner(scanner.id, {
-      name: normalizedName,
-      enabled: Boolean(scanner.enabled),
-      recipient_user_ids: Array.isArray(scanner.recipient_user_ids) ? scanner.recipient_user_ids : []
-    });
-    // Den Draft bewusst NICHT durch die Server-Antwort ersetzen: Sonst würde
-    // ein parallel weiter getipptes Namensfeld zurückspringen.
-    const nextDirty = new Set(scannerDirtyIds.value);
-    nextDirty.delete(scanner.id);
-    scannerDirtyIds.value = nextDirty;
-    flashScannerSaved(scanner.id);
-  } catch (error) {
-    notifyError(error, 'Scanner-Einstellungen konnten nicht gespeichert werden.');
-  } finally {
-    const doneSaving = new Set(scannerSavingIds.value);
-    doneSaving.delete(scanner.id);
-    scannerSavingIds.value = doneSaving;
-  }
-}
-
 // ── Einstellungsnavigation ───────────────────────────────────────────────────
 
 const settingsCategories = [
@@ -2758,6 +2443,7 @@ const settingsCategories = [
   { value: 'sidebar', label: 'Seitenleiste', icon: 'mdi-page-layout-sidebar-left', group: 'surface' },
   { value: 'documents', label: 'Bibliothek', icon: 'mdi-archive-outline', group: 'surface', adminOnly: true },
   { value: 'import', label: 'Importieren', icon: 'mdi-tray-arrow-up', group: 'import', adminOnly: true },
+  { value: 'scanner', label: 'Scanner', icon: 'mdi-scanner', group: 'import', adminOnly: true },
   { value: 'ai', label: 'Texterkennung', icon: 'mdi-text-recognition', group: 'import', adminOnly: true },
   { value: 'categories', label: 'Dokumenttypen', icon: 'mdi-file-document-multiple-outline', group: 'documents' },
   { value: 'correspondents', label: 'Korrespondenten', icon: 'mdi-account-outline', group: 'documents' },
@@ -3303,9 +2989,6 @@ function loadSectionData(value) {
       ensureCorrespondentsLoaded();
       ensureUnresolvedCorrespondentsLoaded();
       break;
-    case 'import':
-      void loadScannerSettings();
-      break;
     case 'backup':
       backupSetupInitialized = false; // Panel-Zustand beim Betreten neu bestimmen
       backupManagerOpen.value = false; // Backup-Liste immer eingeklappt starten
@@ -3699,24 +3382,6 @@ async function onAutoOpenImportInboxChange(nextValue) {
 function toggleAutoOpenImportInboxFromRow() {
   if (isSettingSaving.auto_open_import_inbox) return;
   void onAutoOpenImportInboxChange(!settingsDraft.documents.auto_open_import_inbox);
-}
-
-async function onScanLivePageModeChange(nextValue) {
-  if (isSettingSaving.scan_live_page_mode) return;
-  const nextBool = Boolean(nextValue);
-  if (nextBool === settingsDraft.documents.scan_live_page_mode) return;
-  const previous = settingsDraft.documents.scan_live_page_mode;
-  settingsStore.setDraftPatch({ documents: { scan_live_page_mode: nextBool } });
-  await patchSettingsWithRevert({
-    patch: buildScanLivePageModePatch(nextBool),
-    controlKey: 'scan_live_page_mode',
-    revert: () => settingsStore.setDraftPatch({ documents: { scan_live_page_mode: previous } })
-  });
-}
-
-function toggleScanLivePageModeFromRow() {
-  if (isSettingSaving.scan_live_page_mode) return;
-  void onScanLivePageModeChange(!settingsDraft.documents.scan_live_page_mode);
 }
 
 // Seitenverbesserung ein/aus: aus → scan_cleanup='off', ein → 'white' (Farbe

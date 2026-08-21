@@ -189,10 +189,6 @@ class DocumentsSettingsRead(BaseModel):
     auto_tagging: bool = False
     ocr_backfill_enabled: bool = True
     auto_open_import_inbox: bool = False
-    # „Seiten sofort senden": global (nicht mehr pro Scanner). Steuert, ob der
-    # Host-Poller jede gescannte Seite sofort ins Importfenster schickt oder auf
-    # die Abschluss-Taste wartet.
-    scan_live_page_mode: bool = False
     sort_order: DocumentSortOrder = DocumentSortOrder.newest
     recent_import_window_hours: int = Field(default=24, ge=1)
     trash_retention_days: int = Field(default=30, ge=0, le=365)
@@ -363,7 +359,6 @@ class DocumentsSettingsPatch(BaseModel):
     auto_tagging: bool | None = None
     ocr_backfill_enabled: bool | None = None
     auto_open_import_inbox: bool | None = None
-    scan_live_page_mode: bool | None = None
     sort_order: DocumentSortOrder | None = None
     recent_import_window_hours: int | None = Field(default=None, ge=1)
     trash_retention_days: int | None = Field(default=None, ge=0, le=365)

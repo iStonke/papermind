@@ -135,6 +135,7 @@ export {
   mdiPlay,
   mdiPlus,
   mdiPower,
+  mdiPrinterEye,
   mdiProgressClock,
   mdiRaspberryPi,
   mdiRectangleOutline,
