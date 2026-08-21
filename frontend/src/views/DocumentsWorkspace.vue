@@ -7275,7 +7275,7 @@ async function toggleDocumentFavorite(document) {
   }
 }
 
-function selectView(viewKey) {
+function selectView(viewKey, options = {}) {
   if ((viewKey === 'tags' || viewKey === 'categories' || viewKey === 'chat') && !closeDetailsDrawerWithGuard()) {
     return;
   }
@@ -7318,7 +7318,12 @@ function selectView(viewKey) {
     // regulären Endpoint. Der zuvor aktive Ordner kann bereits durch einen
     // anderen Filter- oder Navigationsschritt intern verlassen worden sein;
     // ohne Reload blieben dessen zwischengespeicherte Treffer dann sichtbar.
-    void fetchDocuments(selectedDocumentId.value);
+    // skipFetch: Der Aufrufer lädt gleich selbst gezielt (z. B. beim Öffnen
+    // eines bestimmten Dokuments aus der Befehlspalette) und vermeidet so einen
+    // konkurrierenden, ungezielten Reload.
+    if (!options.skipFetch) {
+      void fetchDocuments(selectedDocumentId.value);
+    }
     return;
   }
 
@@ -7425,10 +7430,22 @@ function selectView(viewKey) {
 }
 
 /** Dokument aus dem Dashboard öffnen: in die Gesamtliste wechseln und auswählen. */
-function openDocumentFromDashboard(documentId) {
+async function openDocumentFromDashboard(documentId) {
   if (!documentId) return;
-  selectView('all');
-  void selectDocument(documentId);
+  if (!canDiscardMetadataChanges()) return;
+  // In die „Alle Dokumente“-Ansicht wechseln, aber deren generischen Reload
+  // überspringen. Der frühere Ablauf feuerte diesen ungezielten Reload
+  // (selectView) parallel zu selectDocument – lag das Ziel nicht auf der ersten
+  // Ergebnisseite, verwarf die Reload-Reconciliation die eben gesetzte Auswahl
+  // wieder (bzw. behielt die alte). Deshalb sequenziell:
+  selectView('all', { skipFetch: true });
+  // 1) Zielauswahl + Detail (Vorschau) setzen. selectDocument setzt
+  //    selectedDocumentId, sodass die anschließende Reconciliation das Ziel als
+  //    aktuelle Auswahl sieht und nicht auf ein anderes Dokument zurückfällt.
+  await selectDocument(documentId);
+  // 2) 'all'-Liste laden; allowPreferredOutsideList hält das Ziel selektiert,
+  //    auch wenn es (noch) nicht auf der ersten Ergebnisseite liegt.
+  await fetchDocuments(documentId, { allowPreferredOutsideList: true });
 }
 
 /** Dokument aus einem Leuchttisch direkt im bestehenden Lesemodus öffnen. */
