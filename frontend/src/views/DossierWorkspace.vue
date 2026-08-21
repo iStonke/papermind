@@ -508,18 +508,24 @@
 
               <section v-if="!items.length" class="dsr-board-empty" aria-labelledby="dossier-empty-title">
                 <div class="dsr-board-empty__content">
-                  <div class="dsr-board-empty__visual" aria-hidden="true">
-                    <span class="dsr-board-empty__sheet dsr-board-empty__sheet--note">
-                      <v-icon size="17">mdi-note-outline</v-icon>
-                      <i></i><i></i><i></i>
+                  <div class="dsr-board-empty__visual dsr-board-empty__visual--elements" aria-hidden="true">
+                    <span class="dsr-board-empty__element dsr-board-empty__element--document">
+                      <span class="dsr-board-empty__element-kind">
+                        <v-icon size="18">mdi-file-document-outline</v-icon><b>PDF</b>
+                      </span>
+                      <span class="dsr-board-empty__element-copy"><i></i><i></i><i></i><i></i></span>
                     </span>
-                    <span class="dsr-board-empty__sheet dsr-board-empty__sheet--document">
-                      <v-icon size="18">mdi-file-document-outline</v-icon>
-                      <i></i><i></i><i></i><i></i>
+                    <span class="dsr-board-empty__element dsr-board-empty__element--image">
+                      <v-icon size="29">mdi-image-outline</v-icon><small>Bild / Foto</small>
                     </span>
-                    <span class="dsr-board-empty__sheet dsr-board-empty__sheet--link">
-                      <v-icon size="17">mdi-link-variant</v-icon>
-                      <i></i><i></i>
+                    <span class="dsr-board-empty__element dsr-board-empty__element--note">
+                      <span class="dsr-board-empty__element-kind">
+                        <v-icon size="17">mdi-note-outline</v-icon><b>Notiz</b>
+                      </span>
+                      <span class="dsr-board-empty__element-copy"><i></i><i></i><i></i></span>
+                    </span>
+                    <span class="dsr-board-empty__element dsr-board-empty__element--link">
+                      <v-icon size="19">mdi-link-variant</v-icon><small>Link</small>
                     </span>
                     <span class="dsr-board-empty__plus"><v-icon size="18">mdi-plus</v-icon></span>
                   </div>
@@ -2571,6 +2577,24 @@ onBeforeUnmount(() => {
 .dsr-board-empty__sheet--note { --empty-sheet-transform: translate3d(22px, 5px, 0) rotate(-8deg); left: 14px; height: 88px; color: color-mix(in srgb, var(--pm-accent) 78%, var(--pm-text)); background: color-mix(in srgb, var(--pm-accent) 14%, var(--pm-thumb-bg)); animation-delay: 45ms; }
 .dsr-board-empty__sheet--document { --empty-sheet-transform: translate3d(0, -9px, 0); left: 77px; z-index: 2; width: 82px; height: 112px; color: var(--pm-accent); animation-delay: 90ms; }
 .dsr-board-empty__sheet--link { --empty-sheet-transform: translate3d(-22px, 6px, 0) rotate(8deg); right: 13px; height: 84px; color: color-mix(in srgb, #3976a8 80%, var(--pm-text)); background: color-mix(in srgb, #3976a8 13%, var(--pm-thumb-bg)); animation-delay: 135ms; }
+.dsr-board-empty__visual--elements { width: 254px; }
+.dsr-board-empty__element { --empty-element-transform: translate3d(0, 0, 0); position: absolute; z-index: 1; display: flex; box-sizing: border-box; overflow: hidden; border: 1px solid color-mix(in srgb, var(--pm-text) 18%, var(--pm-thumb-line)); background: var(--dsr-card); color: color-mix(in srgb, var(--pm-accent) 88%, var(--pm-text)); box-shadow: 0 11px 25px rgba(30, 48, 54, .15); transform: var(--empty-element-transform); transform-origin: center; animation: dsr-board-empty-element 460ms cubic-bezier(.2, .82, .24, 1) both; }
+.dsr-board-empty__element-kind { display: flex; align-items: center; justify-content: space-between; gap: 6px; color: var(--pm-accent); }
+.dsr-board-empty__element-kind b { color: color-mix(in srgb, var(--pm-text) 68%, var(--pm-muted)); font-size: 7px; font-weight: 760; letter-spacing: .08em; line-height: 1; }
+.dsr-board-empty__element-copy { display: grid; gap: 5px; margin-top: 9px; }
+.dsr-board-empty__element-copy i { display: block; height: 3px; border-radius: 999px; background: color-mix(in srgb, var(--pm-text) 18%, var(--pm-thumb-line)); }
+.dsr-board-empty__element-copy i:nth-child(2) { width: 82%; }
+.dsr-board-empty__element-copy i:nth-child(3) { width: 91%; }
+.dsr-board-empty__element-copy i:nth-child(4) { width: 64%; }
+.dsr-board-empty__element small { color: color-mix(in srgb, var(--pm-text) 64%, var(--pm-muted)); font-size: 8px; font-weight: 650; line-height: 1; white-space: nowrap; }
+.dsr-board-empty__element--document { --empty-element-transform: rotate(-4deg); left: 17px; top: 15px; width: 72px; height: 99px; flex-direction: column; padding: 9px 8px; border-radius: 8px; background: var(--pm-thumb-bg); animation-delay: 35ms; }
+.dsr-board-empty__element--image { --empty-element-transform: rotate(2deg); left: 68px; bottom: 4px; z-index: 3; width: 107px; height: 72px; align-items: center; justify-content: center; flex-direction: column; gap: 6px; border-radius: 9px; background: linear-gradient(145deg, color-mix(in srgb, var(--pm-accent) 17%, var(--dsr-card)), color-mix(in srgb, var(--pm-accent) 7%, var(--pm-thumb-bg))); animation-delay: 75ms; }
+.dsr-board-empty__element--image::before { content: ''; position: absolute; inset: 7px 7px 19px; border: 1px solid color-mix(in srgb, var(--pm-accent) 23%, var(--pm-thumb-line)); border-radius: 6px; }
+.dsr-board-empty__element--image > * { position: relative; z-index: 1; }
+.dsr-board-empty__element--note { --empty-element-transform: rotate(3deg); right: 42px; top: 4px; z-index: 2; width: 79px; height: 81px; flex-direction: column; padding: 9px 9px; border-radius: 8px 8px 3px 8px; background: color-mix(in srgb, var(--pm-accent) 11%, var(--dsr-card)); animation-delay: 115ms; }
+.dsr-board-empty__element--note::after { content: ''; position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; background: linear-gradient(135deg, color-mix(in srgb, var(--pm-accent) 9%, var(--dsr-card)) 49%, color-mix(in srgb, var(--pm-accent) 28%, var(--pm-thumb-line)) 50%); }
+.dsr-board-empty__element--link { right: 0; bottom: 15px; z-index: 4; width: 94px; height: 41px; align-items: center; gap: 7px; padding: 0 12px; border-radius: 11px; background: color-mix(in srgb, var(--pm-accent) 9%, var(--dsr-card)); animation-delay: 155ms; }
+.dsr-board-empty__visual--elements .dsr-board-empty__plus { right: -1px; bottom: -2px; z-index: 6; }
 .dsr-board-empty__plus { position: absolute; right: 22px; bottom: 0; z-index: 4; width: 36px; height: 36px; display: grid; place-items: center; border: 3px solid var(--dsr-reader); border-radius: 50%; background: var(--pm-accent); color: var(--pm-content-surface); box-shadow: 0 6px 14px color-mix(in srgb, var(--pm-accent) 28%, transparent); animation: dsr-board-empty-plus 400ms 210ms cubic-bezier(.2, .82, .24, 1) both; }
 .dsr-board-empty h2 { margin: 0; font-size: 1.08rem; font-weight: 680; letter-spacing: -.018em; line-height: 1.3; }
 .dsr-board-empty p { max-width: 340px; margin: 8px 0 18px; color: color-mix(in srgb, var(--pm-text) 68%, var(--pm-muted)); font-size: .8rem; line-height: 1.55; }
@@ -2585,6 +2609,7 @@ onBeforeUnmount(() => {
 .dsr-board-empty__choice small { overflow: hidden; color: color-mix(in srgb, var(--pm-text) 62%, var(--pm-muted)); font-size: .65rem; text-overflow: ellipsis; white-space: nowrap; }
 @keyframes dsr-board-empty-enter { from { opacity: 0; transform: translateY(calc(-3vh + 10px)); } to { opacity: 1; transform: translateY(-3vh); } }
 @keyframes dsr-board-empty-sheet { from { opacity: 0; transform: translate3d(0, 18px, 0) scale(.9); } to { opacity: 1; transform: var(--empty-sheet-transform); } }
+@keyframes dsr-board-empty-element { from { opacity: 0; transform: translate3d(0, 16px, 0) scale(.9); } to { opacity: 1; transform: var(--empty-element-transform); } }
 @keyframes dsr-board-empty-plus { from { opacity: 0; transform: scale(.68) rotate(-20deg); } to { opacity: 1; transform: scale(1) rotate(0); } }
 
 /* Freischwebende Element-Knoten */
@@ -2798,7 +2823,7 @@ onBeforeUnmount(() => {
   .dsr-stack__doc { transition: none; }
   .dsr-inspector-slide-enter-active, .dsr-inspector-slide-leave-active,
   .dsr-inspector-slide-enter-active .dsr-inspector, .dsr-inspector-slide-leave-active .dsr-inspector { transition: none; }
-  .dsr-board-empty__content, .dsr-board-empty__sheet, .dsr-board-empty__plus { animation: none; }
+  .dsr-board-empty__content, .dsr-board-empty__sheet, .dsr-board-empty__element, .dsr-board-empty__plus { animation: none; }
   :deep(.dsr-card__thumb img) { transition: none; }
   .dsr-node:hover :deep(.dsr-card--document .dsr-card__thumb img) { transform: none; }
   .dsr-skeleton-block, .dsr-tile--skeleton .dsr-tile__body span { animation: none; }

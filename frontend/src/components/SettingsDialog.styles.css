@@ -442,6 +442,28 @@
   margin-top: 12px;
 }
 
+.wiki-settings-options {
+  margin-top: 10px;
+}
+
+.wiki-settings-options--disabled .pm-setting-content {
+  opacity: 0.55;
+}
+
+.wiki-settings-options--disabled .pm-setting-row {
+  cursor: default;
+}
+
+.local-ai-settings {
+  margin-top: 10px;
+}
+
+.local-ai-settings--disabled .pm-settings-disclosure {
+  opacity: 0.55;
+  cursor: default;
+  text-decoration: none;
+}
+
 /* Unterüberschrift zur Gliederung innerhalb eines zusammengefassten Bereichs. */
 .pm-settings-subhead {
   font-size: 0.72rem;

@@ -26,6 +26,7 @@ from app.schemas.documents import (
     DocumentStatusListResponse,
     DocumentTagReplaceRequest,
     DocumentUpdateRequest,
+    PageReorderRequest,
     SortOrder,
 )
 from app.schemas.retrieval import DocumentChunkListResponse, DocumentChunkDebugRead, DocumentEmbeddingStatusResponse
@@ -280,6 +281,22 @@ def queue_document_index(
 ) -> DocumentDetail:
     service = DocumentService(db, user.id)
     return service.as_detail(service.queue_index_for_document(document_id, force=force))
+
+
+@router.post(
+    "/{document_id}/pages/reorder",
+    response_model=DocumentDetail,
+    summary="Persistently reorder the pages of a document",
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+def reorder_document_pages(
+    document_id: uuid.UUID,
+    payload: PageReorderRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> DocumentDetail:
+    service = DocumentService(db, user.id)
+    return service.as_detail(service.reorder_pages(document_id, payload.order))
 
 
 @router.post(

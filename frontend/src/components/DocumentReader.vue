@@ -91,18 +91,18 @@
           aria-label="Seitenminiaturen"
         >
           <button
-            v-for="page in pageTotal"
-            :key="page"
-            :ref="el => setThumbRef(el, page)"
+            v-for="(origPage, idx) in pageOrder"
+            :key="origPage"
+            :ref="el => setThumbRef(el, origPage)"
             class="doc-reader__thumb"
-            :class="{ 'doc-reader__thumb--active': page === currentPage }"
-            :data-page="page"
-            :aria-label="`Zu Seite ${page} springen`"
-            :aria-current="page === currentPage ? 'true' : undefined"
-            @click="goToPage(page)"
+            :class="{ 'doc-reader__thumb--active': idx + 1 === currentPage }"
+            :data-page="origPage"
+            :aria-label="`Seite ${idx + 1} – ziehen zum Umsortieren, klicken zum Springen`"
+            :aria-current="idx + 1 === currentPage ? 'true' : undefined"
+            @click="goToPage(idx + 1)"
           >
-            <canvas :ref="el => setCanvasRef(el, page)" class="doc-reader__thumb-canvas" />
-            <span class="doc-reader__thumb-num">{{ page }}</span>
+            <canvas :ref="el => setCanvasRef(el, origPage)" class="doc-reader__thumb-canvas" />
+            <span class="doc-reader__thumb-num">{{ idx + 1 }}</span>
           </button>
         </aside>
 
@@ -248,6 +248,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useTheme } from 'vuetify';
+import Sortable from 'sortablejs';
 
 import PdfPreview from './PdfPreview.vue';
 
@@ -264,7 +265,7 @@ const props = defineProps({
   downloadDisabled: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['close', 'create-annotation', 'delete-annotation', 'update-annotation', 'download', 'request-link', 'open-link']);
+const emit = defineEmits(['close', 'create-annotation', 'delete-annotation', 'update-annotation', 'download', 'request-link', 'open-link', 'reorder-pages']);
 
 const previewRef = ref(null);
 const railEl = ref(null);
@@ -305,6 +306,13 @@ const initialReaderThemeOverride =
 const readerThemeOverride = ref(initialReaderThemeOverride);
 const readerTheme = computed(() => readerThemeOverride.value ?? globalThemeName.value);
 const pageTotal = ref(0);
+// Anzeigereihenfolge der Miniaturen als Liste der ORIGINALEN 1-basierten
+// Seitenzahlen. Beim Sortieren wird nur diese Liste umgestellt; die
+// gerenderten Canvases hängen über den Vue-Key an der Originalseite und wandern
+// mit, statt neu zu rendern. Nach dem (Neu-)Laden des PDFs (auch nach dem
+// Persistieren einer Umsortierung) wird wieder auf Identität [1..N] gesetzt,
+// weil die Datei dann physisch in der neuen Reihenfolge vorliegt.
+const pageOrder = ref([]);
 const leaving = ref(false); // steuert die Leave-Transition vor dem Schließen
 
 const editingId = ref(null);
@@ -338,22 +346,24 @@ const sortedNoteAnnotations = computed(() =>
 );
 
 // ── Miniaturen ────────────────────────────────────────────────────────────────
-const thumbEls = new Map();   // page → button-Element
-const canvasEls = new Map();  // page → canvas-Element
+// Alle Maps/Sets sind über die ORIGINALE Seitenzahl (Vue-Key) verschlüsselt –
+// stabil über das Umsortieren hinweg, damit Canvases nicht neu rendern.
+const thumbEls = new Map();   // origPage → button-Element
+const canvasEls = new Map();  // origPage → canvas-Element
 const renderedThumbs = new Set();
 let thumbObserver = null;
 
-function setThumbRef(el, page) {
-  if (el) thumbEls.set(page, el);
-  else thumbEls.delete(page);
+function setThumbRef(el, origPage) {
+  if (el) thumbEls.set(origPage, el);
+  else thumbEls.delete(origPage);
 }
-function setCanvasRef(el, page) {
+function setCanvasRef(el, origPage) {
   if (el) {
-    canvasEls.set(page, el);
+    canvasEls.set(origPage, el);
     return;
   }
-  canvasEls.delete(page);
-  renderedThumbs.delete(page);
+  canvasEls.delete(origPage);
+  renderedThumbs.delete(origPage);
 }
 
 function renderVisibleThumbs() {
@@ -385,32 +395,71 @@ function setupThumbObserver() {
   renderVisibleThumbs();
 }
 
-async function renderThumb(page) {
-  if (renderedThumbs.has(page)) return;
-  const canvas = canvasEls.get(page);
+async function renderThumb(origPage) {
+  if (renderedThumbs.has(origPage)) return;
+  const canvas = canvasEls.get(origPage);
   const api = previewRef.value;
   if (!canvas || !api?.renderThumbnail) return;
-  renderedThumbs.add(page);
+  renderedThumbs.add(origPage);
   try {
-    await api.renderThumbnail(page, canvas);
+    await api.renderThumbnail(origPage, canvas);
     canvas.style.opacity = '1'; // sanftes Einblenden nach dem Rendern
   } catch (error) {
-    renderedThumbs.delete(page);
+    renderedThumbs.delete(origPage);
     console.warn('Miniatur konnte nicht gerendert werden:', error);
   }
 }
 
 async function onPreviewLoaded() {
   pageTotal.value = previewRef.value?.pageCount || 0;
+  // Frisch geladenes PDF liegt physisch in seiner aktuellen Reihenfolge vor →
+  // Anzeige = Identität. Heilt auch eine optimistische Umsortierung, deren
+  // Persistieren fehlschlug (Parent lädt die Vorschau in jedem Fall neu).
+  pageOrder.value = Array.from({ length: pageTotal.value }, (_, i) => i + 1);
   renderedThumbs.clear();
   await nextTick();
   setupThumbObserver();
+  setupSortable();
 }
 
-function goToPage(page) {
-  previewRef.value?.goToPage(page);
-  // Aktive Miniatur in den sichtbaren Bereich rollen.
-  nextTick(() => thumbEls.get(page)?.scrollIntoView({ block: 'nearest' }));
+function goToPage(displayPage) {
+  previewRef.value?.goToPage(displayPage);
+  // Aktive Miniatur (an der Anzeigeposition) in den sichtbaren Bereich rollen.
+  const origPage = pageOrder.value[displayPage - 1];
+  nextTick(() => thumbEls.get(origPage)?.scrollIntoView({ block: 'nearest' }));
+}
+
+// ── Umsortieren per Drag-and-Drop (SortableJS) ──────────────────────────────
+let sortable = null;
+
+function setupSortable() {
+  if (sortable || !railEl.value) return;
+  sortable = Sortable.create(railEl.value, {
+    animation: 160,
+    draggable: '.doc-reader__thumb',
+    ghostClass: 'doc-reader__thumb--drag-ghost',
+    chosenClass: 'doc-reader__thumb--drag-chosen',
+    dragClass: 'doc-reader__thumb--dragging',
+    // Eigener Pointer-basierter Drag statt nativem HTML5-DnD: einheitlich auf
+    // Touch und Desktop, und die Ghost/Chosen-Klassen greifen zuverlässig.
+    forceFallback: true,
+    fallbackTolerance: 4,
+    onEnd: onSortEnd,
+  });
+}
+
+function onSortEnd(event) {
+  const { oldIndex, newIndex } = event;
+  if (oldIndex == null || newIndex == null || oldIndex === newIndex) return;
+  // SortableJS hat den DOM-Knoten bereits verschoben; die reaktive Liste
+  // nachziehen, damit Vue-Zustand und DOM übereinstimmen.
+  const next = pageOrder.value.slice();
+  const [moved] = next.splice(oldIndex, 1);
+  next.splice(newIndex, 0, moved);
+  pageOrder.value = next;
+  // Neue Reihenfolge (originale Seitenzahlen in neuer Abfolge) persistieren
+  // lassen. Der Parent ruft die API und lädt die Vorschau danach neu.
+  emit('reorder-pages', next.slice());
 }
 
 function toggleThumbs() {
@@ -517,6 +566,8 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   thumbObserver?.disconnect();
+  sortable?.destroy();
+  sortable = null;
   document.documentElement.style.overflow = '';
   window.removeEventListener('keydown', onKeydown);
 });
@@ -792,6 +843,25 @@ onBeforeUnmount(() => {
 .doc-reader__thumb--active:hover {
   background: rgb(var(--v-theme-primary) / 0.14);
   border-color: rgb(var(--v-theme-primary) / 0.72);
+}
+/* Drag-and-Drop: greifbar machen und Zustände visualisieren. */
+.doc-reader__thumb {
+  cursor: grab;
+  touch-action: none; /* verhindert Scroll-Konflikte beim Ziehen auf Touch */
+}
+.doc-reader__thumb--dragging {
+  cursor: grabbing;
+}
+/* Platzhalter der gezogenen Miniatur (SortableJS ghostClass). */
+.doc-reader__thumb--drag-ghost {
+  opacity: 0.4;
+  background: rgb(var(--v-theme-primary) / 0.12);
+  border-color: rgb(var(--v-theme-primary) / 0.5);
+  border-style: dashed;
+}
+/* Angehobene Miniatur unter dem Cursor (SortableJS chosenClass). */
+.doc-reader__thumb--drag-chosen {
+  box-shadow: 0 10px 26px rgb(0 0 0 / 0.35);
 }
 .doc-reader__thumb-canvas {
   display: block;

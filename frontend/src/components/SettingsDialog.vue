@@ -991,84 +991,102 @@
             <SettingsInfoCard
               icon="mdi-source-merge"
               title="Wissen"
-              subtitle="Quellengenaue, versionierte Antworten auf Fragen zu deinen Dokumenten."
-            />
+              subtitle="Geprüftes Wissen aus deinen Dokumenten."
+            >
+              <template #actions>
+                <v-switch
+                  :model-value="settingsDraft.wiki.enabled"
+                  aria-label="Wissen aktivieren"
+                  color="primary"
+                  hide-details
+                  density="compact"
+                  :loading="isSettingSaving.wiki_enabled"
+                  :disabled="isSettingSaving.wiki_enabled"
+                  @update:model-value="onWikiSettingChange('enabled', $event)"
+                />
+              </template>
+            </SettingsInfoCard>
 
-            <div class="pm-setting-row" role="button" tabindex="0" @click="toggleWikiSetting('enabled')">
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Wissensbasis aktivieren</div>
-                <div class="pm-setting-description">Blendet die Wissensbasis im Bereich „Wissen“ ein und aktiviert versionierte Aussagen.</div>
+            <div
+              class="wiki-settings-options"
+              :class="{ 'wiki-settings-options--disabled': !settingsDraft.wiki.enabled }"
+              :aria-disabled="!settingsDraft.wiki.enabled"
+            >
+              <div
+                class="pm-setting-row"
+                :class="{ 'pm-setting-row--disabled': !settingsDraft.wiki.enabled }"
+                role="button"
+                :tabindex="settingsDraft.wiki.enabled ? 0 : -1"
+                @click="toggleWikiSetting('auto_compile')"
+              >
+                <div class="pm-setting-content">
+                  <div class="pm-setting-label">Automatisch aktuell halten</div>
+                  <div class="pm-setting-description">Verarbeitet neue und geänderte Dokumente automatisch.</div>
+                </div>
+                <v-switch
+                  :model-value="settingsDraft.wiki.auto_compile"
+                  color="primary"
+                  density="comfortable"
+                  hide-details
+                  inset
+                  :loading="isSettingSaving.wiki_auto_compile"
+                  :disabled="!settingsDraft.wiki.enabled || isSettingSaving.wiki_auto_compile"
+                  @click.stop
+                  @update:model-value="onWikiSettingChange('auto_compile', $event)"
+                />
               </div>
-              <v-switch
-                :model-value="settingsDraft.wiki.enabled"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :loading="isSettingSaving.wiki_enabled"
-                :disabled="isSettingSaving.wiki_enabled"
-                @click.stop
-                @update:model-value="onWikiSettingChange('enabled', $event)"
-              />
-            </div>
 
-            <div class="pm-setting-row" role="button" tabindex="0" @click="toggleWikiSetting('auto_compile')">
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Nach dem Indexieren aktualisieren</div>
-                <div class="pm-setting-description">Kompiliert neue und geänderte Dokumente automatisch in revisionssichere Wissensseiten.</div>
+              <div
+                class="pm-setting-row"
+                :class="{ 'pm-setting-row--disabled': !settingsDraft.wiki.enabled }"
+                role="button"
+                :tabindex="settingsDraft.wiki.enabled ? 0 : -1"
+                @click="toggleWikiSetting('chat_retrieval')"
+              >
+                <div class="pm-setting-content">
+                  <div class="pm-setting-label">Bei Antworten berücksichtigen</div>
+                  <div class="pm-setting-description">Nutzt geprüfte Wissenseinträge bei Fragen zu Dokumenten.</div>
+                </div>
+                <v-switch
+                  :model-value="settingsDraft.wiki.chat_retrieval"
+                  color="primary"
+                  density="comfortable"
+                  hide-details
+                  inset
+                  :loading="isSettingSaving.wiki_chat_retrieval"
+                  :disabled="!settingsDraft.wiki.enabled || isSettingSaving.wiki_chat_retrieval"
+                  @click.stop
+                  @update:model-value="onWikiSettingChange('chat_retrieval', $event)"
+                />
               </div>
-              <v-switch
-                :model-value="settingsDraft.wiki.auto_compile"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :loading="isSettingSaving.wiki_auto_compile"
-                :disabled="!settingsDraft.wiki.enabled || isSettingSaving.wiki_auto_compile"
-                @click.stop
-                @update:model-value="onWikiSettingChange('auto_compile', $event)"
-              />
-            </div>
 
-            <div class="pm-setting-row" role="button" tabindex="0" @click="toggleWikiSetting('llm_claim_extraction')">
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Detaillierte LLM-Aussagen extrahieren</div>
-                <div class="pm-setting-description">Das lokale Modell schlägt atomare Fakten vor. Aktiv werden sie nur mit exaktem OCR-Zitat und aktuellem Chunk-Hash.</div>
+              <div
+                class="pm-setting-row"
+                :class="{
+                  'pm-setting-row--disabled': !settingsDraft.wiki.enabled || !settingsDraft.ollama.enabled
+                }"
+                role="button"
+                :tabindex="settingsDraft.wiki.enabled && settingsDraft.ollama.enabled ? 0 : -1"
+                :aria-disabled="!settingsDraft.wiki.enabled || !settingsDraft.ollama.enabled"
+                @click="toggleWikiSetting('llm_claim_extraction')"
+              >
+                <div class="pm-setting-content">
+                  <div class="pm-setting-label">Detaillierte Fakten vorschlagen</div>
+                  <div class="pm-setting-description">Das lokale Modell erkennt einzelne Aussagen zur Prüfung.</div>
+                </div>
+                <v-switch
+                  :model-value="settingsDraft.wiki.llm_claim_extraction"
+                  color="primary"
+                  density="comfortable"
+                  hide-details
+                  inset
+                  :loading="isSettingSaving.wiki_llm_claim_extraction"
+                  :disabled="!settingsDraft.wiki.enabled || !settingsDraft.ollama.enabled || isSettingSaving.wiki_llm_claim_extraction"
+                  @click.stop
+                  @update:model-value="onWikiSettingChange('llm_claim_extraction', $event)"
+                />
               </div>
-              <v-switch
-                :model-value="settingsDraft.wiki.llm_claim_extraction"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :loading="isSettingSaving.wiki_llm_claim_extraction"
-                :disabled="!settingsDraft.wiki.enabled || isSettingSaving.wiki_llm_claim_extraction"
-                @click.stop
-                @update:model-value="onWikiSettingChange('llm_claim_extraction', $event)"
-              />
             </div>
-
-            <div class="pm-setting-row" role="button" tabindex="0" @click="toggleWikiSetting('chat_retrieval')">
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Wissensbasis für Antworten verwenden</div>
-                <div class="pm-setting-description">Sucht zuerst in kuratierten Aussagen und legt dem Modell trotzdem immer die maßgeblichen Originalauszüge vor.</div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.wiki.chat_retrieval"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :loading="isSettingSaving.wiki_chat_retrieval"
-                :disabled="!settingsDraft.wiki.enabled || isSettingSaving.wiki_chat_retrieval"
-                @click.stop
-                @update:model-value="onWikiSettingChange('chat_retrieval', $event)"
-              />
-            </div>
-
-            <v-alert type="info" variant="tonal" density="compact">
-              Antworten werden niemals ungeprüft zu Fakten. „Ins Wissen übernehmen“ legt stets einen Vorschlag in den Prüfkorb.
-            </v-alert>
           </div>
         </section>
 
@@ -1702,7 +1720,11 @@
                 </div>
               </div>
               <div class="ocr-backfill-action" :aria-busy="ocrBackfillLoading">
-                <v-btn variant="tonal" :disabled="ocrBackfillLoading" @click="runOcrBackfillNow">
+                <v-btn
+                  :variant="ocrBackfillButtonVariant"
+                  :disabled="ocrBackfillLoading"
+                  @click="runOcrBackfillNow"
+                >
                   <span class="ocr-backfill-button__content">
                     <v-progress-circular
                       v-if="ocrBackfillLoading"
@@ -1711,9 +1733,7 @@
                       size="16"
                       width="2"
                     />
-                    <span>
-                      {{ ocrBackfillLoading ? 'OCR-Lücken werden geprüft …' : 'OCR-Lücken jetzt schließen' }}
-                    </span>
+                    <span>{{ ocrBackfillButtonLabel }}</span>
                   </span>
                 </v-btn>
 
@@ -1767,50 +1787,33 @@
           <div class="pm-settings-content">
             <SettingsInfoCard
               icon="mdi-robot-outline"
-              title="Lokale KI"
-              subtitle="Sprachmodell für Import-Analyse und Wissen – läuft lokal, ohne Cloud."
-            />
-
-            <div class="pm-setting-group pm-setting-group--plain">
-            <div class="pm-setting-note pm-setting-note--group">
-              <strong>Lokale KI (Ollama)</strong> versorgt Import-Analyse und Wissen mit einem lokal
-              laufenden Sprachmodell. Ob neue Importe automatisch analysiert werden, stellst du unter
-              „Importieren" ein.
-            </div>
-
-            <!-- An/Aus -->
-            <div
-              class="pm-setting-row"
-              role="button"
-              tabindex="0"
-              @click="toggleOllamaEnabledFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleOllamaEnabledFromRow)"
+              title="KI-Modell"
+              subtitle="Sprachmodell für Import-Analyse und Wissen – lokal und ohne Cloud."
             >
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Lokale KI verwenden</div>
-                <div class="pm-setting-description">
-                  Nutzt ein lokal laufendes Sprachmodell (Ollama). Daten verlassen das Gerät nicht.
-                </div>
-                <div v-if="settingsDraft.ollama.enabled" class="pm-setting-hint">
-                  Ollama muss lokal laufen (Standard: http://localhost:11434).
-                </div>
-              </div>
-              <v-switch
-                :model-value="settingsDraft.ollama.enabled"
-                color="primary"
-                density="comfortable"
-                hide-details
-                inset
-                :loading="isSettingSaving.ollama_enabled"
-                :disabled="isSettingSaving.ollama_enabled"
-                @click.stop
-                @update:model-value="onOllamaEnabledChange"
-              />
-            </div>
+              <template #actions>
+                <v-switch
+                  :model-value="settingsDraft.ollama.enabled"
+                  aria-label="KI-Modell verwenden"
+                  color="primary"
+                  hide-details
+                  density="compact"
+                  :loading="isSettingSaving.ollama_enabled"
+                  :disabled="isSettingSaving.ollama_enabled"
+                  @update:model-value="onOllamaEnabledChange"
+                />
+              </template>
+            </SettingsInfoCard>
 
-            <template v-if="settingsDraft.ollama.enabled">
+            <div
+              class="local-ai-settings"
+              :class="{ 'local-ai-settings--disabled': !settingsDraft.ollama.enabled }"
+              :aria-disabled="!settingsDraft.ollama.enabled"
+            >
               <!-- Qualität: ein Preset setzt Analyse- und Wissensmodell gemeinsam -->
-              <div class="pm-setting-row pm-setting-row--column">
+              <div
+                class="pm-setting-row pm-setting-row--column"
+                :class="{ 'pm-setting-row--disabled': !settingsDraft.ollama.enabled }"
+              >
                 <div class="pm-setting-content">
                   <div class="pm-setting-label">Qualität</div>
                   <div class="pm-setting-description">{{ ollamaQualityDescription }}</div>
@@ -1824,7 +1827,7 @@
                   variant="outlined"
                   hide-details
                   :loading="isSettingSaving.ollama_model"
-                  :disabled="isSettingSaving.ollama_model"
+                  :disabled="!settingsDraft.ollama.enabled || isSettingSaving.ollama_model"
                   class="pm-setting-select"
                   @update:model-value="onOllamaQualityChange"
                 />
@@ -1835,6 +1838,7 @@
                 type="button"
                 class="pm-settings-disclosure"
                 :aria-expanded="showOllamaAdvanced"
+                :disabled="!settingsDraft.ollama.enabled"
                 @click="showOllamaAdvanced = !showOllamaAdvanced"
               >
                 <v-icon size="16">{{ showOllamaAdvanced ? 'mdi-chevron-down' : 'mdi-chevron-right' }}</v-icon>
@@ -1843,7 +1847,10 @@
 
               <template v-if="showOllamaAdvanced">
               <!-- Base URL -->
-              <div class="pm-setting-row pm-setting-row--column">
+              <div
+                class="pm-setting-row pm-setting-row--column"
+                :class="{ 'pm-setting-row--disabled': !settingsDraft.ollama.enabled }"
+              >
                 <div class="pm-setting-content">
                   <div class="pm-setting-label">Basis-URL</div>
                   <div class="pm-setting-description">Adresse des Ollama-Servers (Standard: http://localhost:11434).</div>
@@ -1855,14 +1862,17 @@
                   hide-details
                   placeholder="http://localhost:11434"
                   :loading="isSettingSaving.ollama_base_url"
-                  :disabled="isSettingSaving.ollama_base_url"
+                  :disabled="!settingsDraft.ollama.enabled || isSettingSaving.ollama_base_url"
                   class="pm-setting-select"
                   @change="onOllamaBaseUrlChange($event.target.value)"
                 />
               </div>
 
               <!-- Model -->
-              <div class="pm-setting-row pm-setting-row--column">
+              <div
+                class="pm-setting-row pm-setting-row--column"
+                :class="{ 'pm-setting-row--disabled': !settingsDraft.ollama.enabled }"
+              >
                 <div class="pm-setting-content">
                   <div class="pm-setting-label">Modell</div>
                   <div class="pm-setting-description">Ollama-Modell für die Import-Analyse.</div>
@@ -1874,14 +1884,17 @@
                   variant="outlined"
                   hide-details
                   :loading="isSettingSaving.ollama_model"
-                  :disabled="isSettingSaving.ollama_model"
+                  :disabled="!settingsDraft.ollama.enabled || isSettingSaving.ollama_model"
                   class="pm-setting-select"
                   @update:model-value="onOllamaModelChange"
                 />
               </div>
 
               <!-- Wissensmodell (Qualität vs. Geschwindigkeit) -->
-              <div class="pm-setting-row pm-setting-row--column">
+              <div
+                class="pm-setting-row pm-setting-row--column"
+                :class="{ 'pm-setting-row--disabled': !settingsDraft.ollama.enabled }"
+              >
                 <div class="pm-setting-content">
                   <div class="pm-setting-label">Wissensmodell (Frage &amp; Antwort)</div>
                   <div class="pm-setting-description">
@@ -1897,14 +1910,17 @@
                   variant="outlined"
                   hide-details
                   :loading="isSettingSaving.ollama_chat_model"
-                  :disabled="isSettingSaving.ollama_chat_model"
+                  :disabled="!settingsDraft.ollama.enabled || isSettingSaving.ollama_chat_model"
                   class="pm-setting-select"
                   @update:model-value="onOllamaChatModelChange"
                 />
               </div>
 
               <!-- Max input chars -->
-              <div class="pm-setting-row pm-setting-row--column">
+              <div
+                class="pm-setting-row pm-setting-row--column"
+                :class="{ 'pm-setting-row--disabled': !settingsDraft.ollama.enabled }"
+              >
                 <div class="pm-setting-content">
                   <div class="pm-setting-label">Max. Textlänge (Zeichen)</div>
                   <div class="pm-setting-description">
@@ -1921,14 +1937,13 @@
                   variant="outlined"
                   hide-details
                   :loading="isSettingSaving.ollama_max_input_chars"
-                  :disabled="isSettingSaving.ollama_max_input_chars"
+                  :disabled="!settingsDraft.ollama.enabled || isSettingSaving.ollama_max_input_chars"
                   class="pm-setting-select"
                   @update:model-value="onOllamaMaxInputCharsChange"
                 />
               </div>
 
               </template>
-            </template>
             </div>
           </div>
         </section>
@@ -2462,6 +2477,15 @@ async function confirmTagCleanup() {
 // ── OCR-Lücken jetzt schließen ───────────────────────────────────────────────
 const ocrBackfillLoading = ref(false);
 const ocrBackfillFeedback = ref(null);
+const ocrBackfillButtonLabel = computed(() => {
+  if (ocrBackfillLoading.value) return 'OCR-Lücken werden geprüft …';
+  if (ocrBackfillFeedback.value?.tone === 'error') return 'Erneut versuchen';
+  if (ocrBackfillFeedback.value) return 'Erneut prüfen';
+  return 'OCR-Lücken jetzt schließen';
+});
+const ocrBackfillButtonVariant = computed(() => (
+  ocrBackfillFeedback.value?.tone === 'success' ? 'outlined' : 'tonal'
+));
 
 async function runOcrBackfillNow() {
   if (ocrBackfillLoading.value) return;
@@ -2483,7 +2507,7 @@ async function runOcrBackfillNow() {
       ocrBackfillFeedback.value = {
         tone: 'success',
         icon: 'mdi-check-circle-outline',
-        message: 'Keine OCR-Lücken gefunden.',
+        message: 'Stand gerade: Keine OCR-Lücken gefunden.',
       };
     }
   } catch (error) {
@@ -2516,10 +2540,10 @@ const settingsCategories = [
   { value: 'import', label: 'Importieren', icon: 'mdi-tray-arrow-up', group: 'import', adminOnly: true },
   { value: 'scanner', label: 'Scanner', icon: 'mdi-scanner', group: 'import', adminOnly: true },
   { value: 'ai', label: 'Texterkennung', icon: 'mdi-text-recognition', group: 'import', adminOnly: true },
-  { value: 'local_ai', label: 'Lokale KI', icon: 'mdi-robot-outline', group: 'import', adminOnly: true },
+  { value: 'local_ai', label: 'KI-Modell', icon: 'mdi-robot-outline', group: 'ai', adminOnly: true },
+  { value: 'wiki', label: 'Wissen', icon: 'mdi-source-merge', group: 'ai', adminOnly: true },
   { value: 'categories', label: 'Dokumenttypen', icon: 'mdi-file-document-multiple-outline', group: 'documents' },
   { value: 'correspondents', label: 'Korrespondenten', icon: 'mdi-account-outline', group: 'documents' },
-  { value: 'wiki', label: 'Wissen', icon: 'mdi-source-merge', group: 'documents', adminOnly: true },
   { value: 'retention', label: 'Aufbewahrung', icon: 'mdi-folder-clock-outline', group: 'documents', adminOnly: true },
   { value: 'backup', label: 'Backup', icon: 'mdi-cloud-upload-outline', group: 'system', adminOnly: true },
   { value: 'services', label: 'Dienste', icon: 'mdi-server-network', group: 'system', adminOnly: true },
@@ -2528,6 +2552,7 @@ const settingsCategories = [
 const settingsCategoryGroups = [
   { key: 'surface', label: 'Oberfläche' },
   { key: 'import', label: 'Import' },
+  { key: 'ai', label: 'KI' },
   { key: 'documents', label: 'Dokumente' },
   { key: 'system', label: 'System' }
 ];
@@ -3470,7 +3495,6 @@ function toggleScanEnhancementFromRow() {
 }
 
 // ── LLM-Wiki ─────────────────────────────────────────────────────────────────
-
 async function onWikiSettingChange(key, nextValue) {
   const nextBool = Boolean(nextValue);
   if (!Object.prototype.hasOwnProperty.call(settingsDraft.wiki, key) || nextBool === settingsDraft.wiki[key]) return;
@@ -3485,6 +3509,7 @@ async function onWikiSettingChange(key, nextValue) {
 
 function toggleWikiSetting(key) {
   if (!settingsDraft.wiki.enabled && key !== 'enabled') return;
+  if (key === 'llm_claim_extraction' && !settingsDraft.ollama.enabled) return;
   if (isSettingSaving[`wiki_${key}`]) return;
   void onWikiSettingChange(key, !settingsDraft.wiki[key]);
 }
@@ -3590,11 +3615,6 @@ async function onOllamaEnabledChange(nextValue) {
     controlKey: 'ollama_enabled',
     revert: () => settingsStore.setDraftPatch({ ollama: { enabled: previous } })
   });
-}
-
-function toggleOllamaEnabledFromRow() {
-  if (isSettingSaving.ollama_enabled) return;
-  void onOllamaEnabledChange(!settingsDraft.ollama.enabled);
 }
 
 async function onOllamaBaseUrlChange(nextValue) {

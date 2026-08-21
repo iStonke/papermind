@@ -112,6 +112,23 @@ class DocumentCreateRequest(BaseModel):
     notes: str | None = Field(default=None, max_length=10000)
 
 
+class PageReorderRequest(BaseModel):
+    """Neue Seitenreihenfolge: 1-basierte Permutation der aktuellen Seitenzahlen.
+
+    ``order[i]`` ist die aktuelle Seitenzahl, die an neuer Position ``i+1``
+    stehen soll (z. B. ``[3, 1, 2, 4]`` → neue Seite 1 = alte Seite 3).
+    """
+
+    order: list[int] = Field(min_length=1)
+
+    @field_validator("order")
+    @classmethod
+    def validate_permutation(cls, value: list[int]) -> list[int]:
+        if sorted(value) != list(range(1, len(value) + 1)):
+            raise ValueError("order must be a permutation of 1..N (each page exactly once)")
+        return value
+
+
 class DocumentUpdateRequest(BaseModel):
     document_date: date | None = Field(default=None, validation_alias=AliasChoices("document_date", "doc_date"))
     notes: str | None = Field(default=None, max_length=10000)

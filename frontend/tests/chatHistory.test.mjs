@@ -98,6 +98,8 @@ test('chat composer is narrow and floats above a softly veiled history', () => {
   assert.match(workspaceSource, /\.ai-chat-history\s*{[^}]*padding: 18px 18px 128px;/s);
   assert.match(workspaceSource, /\.ai-chat-input\s*{[^}]*position: absolute;[^}]*bottom: 28px;[^}]*width: min\(520px, calc\(100% - 36px\)\);/s);
   assert.match(workspaceSource, /\.ai-chat-input \.v-field\s*{[^}]*border-radius: 18px;/s);
+  assert.match(workspaceSource, /\.ai-chat-input \.v-field__outline\s*{[^}]*color: rgb\(var\(--v-theme-primary\)\);[^}]*--v-field-border-opacity: 1;/s);
+  assert.doesNotMatch(workspaceSource, /\.ai-chat-input \.v-field(?:--focused)?\s*{[^}]*0 0 0 [12]px/s);
   assert.doesNotMatch(workspaceSource, /\.ai-chat-input \.v-field\s*{[^}]*backdrop-filter:/s);
   assert.doesNotMatch(workspaceSource, /\.ai-chat-input\s*{[^}]*border-top:/s);
 });

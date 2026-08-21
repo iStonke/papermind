@@ -73,6 +73,14 @@ export const queueOcr = (id) =>
   apiPost(`/api/documents/${id}/ocr`, undefined);
 
 /**
+ * POST /api/documents/{id}/pages/reorder – ordnet die Seiten dauerhaft neu.
+ * `order` ist eine 1-basierte Permutation der aktuellen Seitenzahlen in ihrer
+ * neuen Reihenfolge (order[i] = alte Seite an neuer Position i+1).
+ */
+export const reorderDocumentPages = (id, order) =>
+  apiPost(`/api/documents/${id}/pages/reorder`, { order });
+
+/**
  * Stößt den OCR-Backfill an: reiht OCR-Jobs für Dokumente ohne OCR ein
  * (schließt Lücken). dryRun=true liefert nur die Vorschau (keine Jobs).
  */

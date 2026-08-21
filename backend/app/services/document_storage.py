@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pypdfium2 as pdfium
 from fastapi import UploadFile
-from pypdf import PdfReader
+from pypdf import PdfReader, PdfWriter
 
 from app.core.errors import BadRequestError, PayloadTooLargeError, StorageError
 from app.core.text import sanitize_text_for_db
@@ -103,6 +103,40 @@ class DocumentStorageService:
         except OSError as exc:
             temporary.unlink(missing_ok=True)
             raise StorageError("Failed to write PDF into storage", details=str(exc)) from exc
+
+    @staticmethod
+    def reorder_pdf_pages(path: Path, order: list[int]) -> int:
+        """Schreibt ``path`` mit den Seiten in der durch ``order`` gegebenen neuen
+        Reihenfolge neu und gibt die neue Bytegröße zurück.
+
+        ``order`` ist eine 1-basierte Permutation der Seitenzahlen: ``order[i]``
+        ist die alte Seitenzahl, die an neuer Position ``i+1`` stehen soll. Der
+        Seiteninhalt (inkl. OCR-Textlayer) wird via ``PdfWriter.add_page``
+        unverändert übernommen. Es wird atomar über eine ``.reordering``-Temp
+        geschrieben (wie ``store_pdf``), damit ein Abbruch die Datei nicht
+        beschädigt.
+        """
+        reader = PdfReader(str(path))
+        page_count = len(reader.pages)
+        if sorted(order) != list(range(1, page_count + 1)):
+            raise BadRequestError(
+                "Page order must be a permutation of the document's pages",
+                details={"page_count": page_count, "order_length": len(order)},
+            )
+
+        writer = PdfWriter()
+        for old_page in order:
+            writer.add_page(reader.pages[old_page - 1])
+
+        temporary = path.with_name(f"{path.name}.reordering")
+        try:
+            with temporary.open("wb") as handle:
+                writer.write(handle)
+            os.replace(temporary, path)
+        except OSError as exc:
+            temporary.unlink(missing_ok=True)
+            raise StorageError("Failed to write reordered PDF into storage", details=str(exc)) from exc
+        return path.stat().st_size
 
     def create_thumbnail(self, document_id: uuid.UUID, original_path: Path) -> tuple[str, int, str] | None:
         key = self.relative_file_key(document_id, "thumbnail.png")

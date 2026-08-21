@@ -21,6 +21,7 @@ from app.core.errors import (
     PayloadTooLargeError,
     StorageError,
 )
+from app.models.annotation import Annotation
 from app.models.correspondent import Correspondent
 from app.models.document import Document
 from app.models.document_file import DocumentFile
@@ -439,6 +440,100 @@ class DocumentService:
             raise
         updated = self.get_document_or_404(document_id)
         logger.info("index job queued document_id=%s", document_id)
+        return updated
+
+    def reorder_pages(self, document_id: uuid.UUID, order: list[int]) -> Document:
+        """Ordnet die Seiten eines Dokuments dauerhaft neu.
+
+        ``order`` ist eine 1-basierte Permutation der aktuellen Seitenzahlen
+        (``order[i]`` = alte Seite an neuer Position ``i+1``). Es werden alle
+        vorhandenen PDF-Rollen (``original``/``ocr``/``preview_pdf``) neu
+        geschrieben, das Thumbnail neu erzeugt, die Seitenzahlen der
+        Annotationen exakt mitgezogen und eine Neu-Indexierung angestoßen, damit
+        die Chunk-Seitenbereiche wieder stimmen.
+        """
+        document = self.get_document_or_404(document_id)
+
+        # Frühe, günstige Validierung gegen die bekannte Seitenzahl. Die genaue
+        # Prüfung gegen die tatsächliche PDF-Seitenzahl macht reorder_pdf_pages.
+        if document.page_count is not None and len(order) != document.page_count:
+            raise BadRequestError(
+                "Page order length does not match the document's page count",
+                details={"page_count": document.page_count, "order_length": len(order)},
+            )
+
+        # Identitätsreihenfolge: nichts zu tun.
+        if order == list(range(1, len(order) + 1)):
+            return document
+
+        # 1) Alle physisch vorhandenen PDF-Rollen umsortieren.
+        original_path: Path | None = None
+        for role in (DocumentFileRole.original, DocumentFileRole.ocr, DocumentFileRole.preview_pdf):
+            try:
+                file_record = self._get_file_record_by_role(document, role)
+            except NotFoundError:
+                continue
+            path = self._resolve_storage_path(file_record.file_key)
+            if not path.exists() or not path.is_file():
+                logger.warning(
+                    "reorder skipped missing file document_id=%s role=%s file_key=%s",
+                    document_id,
+                    role.value,
+                    file_record.file_key,
+                )
+                continue
+            new_size = self.storage.reorder_pdf_pages(path, order)
+            file_record.bytes = new_size
+            if role == DocumentFileRole.original:
+                original_path = path
+                document.file_size_bytes = new_size
+
+        # 2) Thumbnail aus der neuen ersten Seite neu erzeugen.
+        if original_path is not None:
+            thumbnail_result = self._create_thumbnail(document.id, original_path)
+            if thumbnail_result is not None:
+                thumbnail_key, thumbnail_size, thumbnail_mime = thumbnail_result
+                try:
+                    thumbnail_record = self._get_file_record_by_role(document, DocumentFileRole.thumbnail)
+                    thumbnail_record.file_key = thumbnail_key
+                    thumbnail_record.bytes = thumbnail_size
+                    thumbnail_record.mime_type = thumbnail_mime
+                except NotFoundError:
+                    self.db.add(
+                        DocumentFile(
+                            document_id=document.id,
+                            role=DocumentFileRole.thumbnail.value,
+                            file_key=thumbnail_key,
+                            filename="thumbnail.png",
+                            mime_type=thumbnail_mime,
+                            bytes=thumbnail_size,
+                        )
+                    )
+
+        # 3) Annotationen exakt mitziehen: alte Seite -> neue Position.
+        old_to_new = {old_page: index + 1 for index, old_page in enumerate(order)}
+        annotations = self.db.execute(
+            select(Annotation).where(Annotation.document_id == document_id)
+        ).scalars().all()
+        for annotation in annotations:
+            annotation.page = old_to_new.get(annotation.page, annotation.page)
+
+        # 4) Umsortierung zuerst dauerhaft festschreiben (die Dateien auf der
+        #    Platte sind bereits umsortiert – der DB-Stand muss dazu passen).
+        #    text_hash leeren, damit die anschließende Neu-Indexierung läuft.
+        document.text_hash = None
+        self.db.commit()
+
+        # 5) Neu indexieren, damit die Chunk-Seitenbereiche wieder stimmen.
+        #    Läuft bereits ein INDEX-Job, ist das unkritisch – er verarbeitet die
+        #    bereits umsortierte Datei; den Konflikt schlucken wir daher.
+        try:
+            self.queue_index_for_document(document_id, force=True)
+        except ConflictError:
+            pass
+
+        updated = self.get_document_or_404(document_id)
+        logger.info("document pages reordered id=%s pages=%d", document_id, len(order))
         return updated
 
     def auto_tag_document(self, document_id: uuid.UUID) -> Document:

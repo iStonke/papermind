@@ -235,12 +235,6 @@
               </div>
 
               <div class="scanner-detail__danger">
-                <div>
-                  <div class="scanner-detail__label">Scanner entfernen</div>
-                  <div class="scanner-detail__hint">
-                    Konfiguration löschen; das Gerät bleibt verfügbar und kann erneut hinzugefügt werden.
-                  </div>
-                </div>
                 <v-btn
                   variant="text"
                   color="error"
@@ -648,9 +642,8 @@ onBeforeUnmount(() => {
 .scanner-detail__danger {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
   margin-top: 3px;
+  margin-left: -8px;
 }
 .scanner-config { margin-top: 8px; padding-top: 16px; border-top: 1px solid rgba(var(--v-theme-on-surface), 0.09); }
 .scanner-config__heading {

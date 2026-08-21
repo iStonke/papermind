@@ -1460,6 +1460,7 @@
         @download="downloadSelectedDocument('searchable')"
         @request-link="onRequestLink"
         @open-link="onFollowLink"
+        @reorder-pages="onReorderPages"
       />
 
       <LinkTargetDialog
@@ -1543,6 +1544,7 @@ import {
   documentsExportUrl,
   getDocumentRetention,
   putDocumentRetention,
+  reorderDocumentPages,
   suggestDocumentRetention
 } from '../api/documents.js';
 import { useAuthStore } from '../stores/auth';
@@ -1927,6 +1929,27 @@ function onDeleteAnnotation(annotationId) {
 
 function onUpdateAnnotation(annotationId, patch) {
   annotationStore.update(annotationId, patch);
+}
+
+// Seiten des Dokuments dauerhaft umsortieren (aus dem Lesemodus, per DnD in der
+// Miniaturleiste). `order` ist eine 1-basierte Permutation der aktuellen
+// Seitenzahlen in neuer Reihenfolge. Nach dem Backend-Aufruf wird die Vorschau
+// IN JEDEM FALL neu geladen (Cache-Bust): bei Erfolg zeigt sie die neue
+// Reihenfolge, bei Fehler springt sie auf den unveränderten Stand zurück – der
+// Reader stellt seine Miniaturen dann automatisch wieder auf Identität.
+async function onReorderPages(order) {
+  const docId = selectedDocumentId.value;
+  if (!docId || !Array.isArray(order) || order.length === 0) return;
+  try {
+    await reorderDocumentPages(docId, order);
+    notify({ type: 'success', title: 'Seiten umsortiert', message: 'Die neue Reihenfolge wurde gespeichert.' });
+  } catch (error) {
+    notifyError(error, 'Seiten konnten nicht umsortiert werden.');
+  } finally {
+    // Vorschau neu laden und Markierungen (neue Seitenzahlen) auffrischen.
+    previewReloadNonce.value += 1;
+    annotationStore.load(docId);
+  }
 }
 
 // ── Lesemodus (Vollbild-Reader) ──────────────────────────────────────────────
@@ -3563,12 +3586,18 @@ const previewRole = computed(() => {
 // min) oder bei jedem OCR-Poll → die Vorschau lud sichtbar neu ("Blitz"). Der
 // einmal geladene PDF-Stream bleibt gültig; ein abgelaufenes Token beim
 // Erstaufruf fängt der Fehler-Retry (previewReloadNonce → Key-Wechsel) ab.
+// previewReloadNonce (siehe Deklaration oben) wird zusätzlich als Cache-Bust an
+// die URL gehängt: Ein bloßer Key-Remount würde dieselbe URL neu anfordern und
+// könnte den HTTP-gecachten (max-age=300) alten PDF-Inhalt liefern – nach einer
+// dauerhaften Umsortierung braucht es aber die frischen Bytes.
 const previewSrc = computed(() => {
   const id = selectedDocumentId.value;
   if (!id) {
     return '';
   }
-  return authedUrl(`${apiBaseUrl}/api/documents/${id}/file?role=${previewRole.value}`);
+  const nonce = previewReloadNonce.value;
+  const cacheBust = nonce > 0 ? `&v=${nonce}` : '';
+  return authedUrl(`${apiBaseUrl}/api/documents/${id}/file?role=${previewRole.value}${cacheBust}`);
 });
 const hasActiveListFilter = computed(() => {
   return Boolean(
@@ -9795,12 +9824,15 @@ onBeforeUnmount(() => {
 .ai-chat-input .v-field {
   border-radius: 18px;
   background: color-mix(in srgb, var(--pm-app-surface-raised) 94%, transparent);
-  box-shadow:
-    0 10px 28px color-mix(in srgb, var(--pm-text) 10%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--pm-divider) 84%, transparent);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--pm-text) 10%, transparent);
   transition:
     box-shadow var(--pm-duration-fast, 140ms) var(--pm-easing, ease),
     background-color var(--pm-duration-fast, 140ms) var(--pm-easing, ease);
+}
+
+.ai-chat-input .v-field__outline {
+  color: rgb(var(--v-theme-primary));
+  --v-field-border-opacity: 1;
 }
 
 .ai-chat-input .v-field:hover {
@@ -9809,9 +9841,7 @@ onBeforeUnmount(() => {
 
 .ai-chat-input .v-field--focused {
   background: var(--pm-app-surface-raised);
-  box-shadow:
-    0 12px 30px color-mix(in srgb, var(--pm-text) 12%, transparent),
-    0 0 0 2px color-mix(in srgb, var(--pm-accent) 72%, transparent);
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--pm-text) 12%, transparent);
 }
 
 .ai-chat-input .v-field__outline__start {
