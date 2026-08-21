@@ -1701,10 +1701,33 @@
                   Reiht sofort OCR-Jobs für alle Dokumente ohne Texterkennung ein – ohne auf den nächsten automatischen Durchlauf zu warten.
                 </div>
               </div>
-              <div>
-                <v-btn variant="tonal" :loading="ocrBackfillLoading" @click="runOcrBackfillNow">
-                  OCR-Lücken jetzt schließen
+              <div class="ocr-backfill-action" :aria-busy="ocrBackfillLoading">
+                <v-btn variant="tonal" :disabled="ocrBackfillLoading" @click="runOcrBackfillNow">
+                  <span class="ocr-backfill-button__content">
+                    <v-progress-circular
+                      v-if="ocrBackfillLoading"
+                      aria-hidden="true"
+                      indeterminate
+                      size="16"
+                      width="2"
+                    />
+                    <span>
+                      {{ ocrBackfillLoading ? 'OCR-Lücken werden geprüft …' : 'OCR-Lücken jetzt schließen' }}
+                    </span>
+                  </span>
                 </v-btn>
+
+                <div class="ocr-backfill-feedback-slot" aria-live="polite" aria-atomic="true">
+                  <div
+                    v-if="ocrBackfillFeedback"
+                    class="ocr-backfill-feedback"
+                    :class="`ocr-backfill-feedback--${ocrBackfillFeedback.tone}`"
+                    :role="ocrBackfillFeedback.tone === 'error' ? 'alert' : 'status'"
+                  >
+                    <v-icon :icon="ocrBackfillFeedback.icon" size="17" aria-hidden="true" />
+                    <span>{{ ocrBackfillFeedback.message }}</span>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -2438,21 +2461,37 @@ async function confirmTagCleanup() {
 
 // ── OCR-Lücken jetzt schließen ───────────────────────────────────────────────
 const ocrBackfillLoading = ref(false);
+const ocrBackfillFeedback = ref(null);
 
 async function runOcrBackfillNow() {
+  if (ocrBackfillLoading.value) return;
+
+  ocrBackfillFeedback.value = null;
   ocrBackfillLoading.value = true;
   try {
     const result = await backfillOcr({ dryRun: false });
     const queued = Number(result?.queued ?? 0);
     if (queued > 0) {
-      notify({
-        type: 'success',
-        message: `${queued} Dokument${queued === 1 ? '' : 'e'} zur Texterkennung eingereiht.`
-      });
+      ocrBackfillFeedback.value = {
+        tone: 'success',
+        icon: 'mdi-check-circle-outline',
+        message: queued === 1
+          ? '1 Dokument wurde zur Texterkennung eingereiht. Die Verarbeitung läuft im Hintergrund.'
+          : `${queued} Dokumente wurden zur Texterkennung eingereiht. Die Verarbeitung läuft im Hintergrund.`,
+      };
     } else {
-      notify({ type: 'info', message: 'Keine Dokumente ohne Texterkennung gefunden. 🎉' });
+      ocrBackfillFeedback.value = {
+        tone: 'success',
+        icon: 'mdi-check-circle-outline',
+        message: 'Keine OCR-Lücken gefunden.',
+      };
     }
   } catch (error) {
+    ocrBackfillFeedback.value = {
+      tone: 'error',
+      icon: 'mdi-alert-circle-outline',
+      message: 'OCR-Verarbeitung konnte nicht gestartet werden. Erneut versuchen.',
+    };
     notifyError(error, 'OCR-Lücken konnten nicht geschlossen werden.');
   } finally {
     ocrBackfillLoading.value = false;

@@ -351,6 +351,38 @@
 .backup-test-result--ok { color: rgb(var(--v-theme-success)); }
 .backup-test-result--err { color: rgb(var(--v-theme-error)); }
 
+.ocr-backfill-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.ocr-backfill-button__content,
+.ocr-backfill-feedback {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.ocr-backfill-feedback-slot:empty {
+  display: none;
+}
+
+.ocr-backfill-feedback {
+  max-width: 560px;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.ocr-backfill-feedback--success {
+  color: rgb(var(--v-theme-success));
+}
+
+.ocr-backfill-feedback--error {
+  color: rgb(var(--v-theme-error));
+}
+
 @media (max-width: 680px) {
   .backup-summary__head { flex-wrap: wrap; }
   .backup-summary__cta {
