@@ -3641,16 +3641,27 @@ const isDocumentListLoading = computed(
 // (Freitext, Datum, Typ, Status) aktiv sind, die die Counts nicht abbilden.
 // Ergebnis: null = unbekannt, sonst die erwartete Anzahl.
 const knownSectionDocumentCount = computed(() => {
+  // Freitext, Datum und Status spiegeln die vorab bekannten Zähler nicht wider.
   const q = (documentListQuery.q || '').trim();
-  if (
-    q ||
-    documentListQuery.dateFrom ||
-    documentListQuery.dateTo ||
-    documentListQuery.documentType ||
-    documentListQuery.status
-  ) {
+  if (q || documentListQuery.dateFrom || documentListQuery.dateTo || documentListQuery.status) {
     return null;
   }
+
+  const singleTagId = documentListQuery.tagId || (activeTagFilterCount.value === 1 ? activeTagFilterIds.value[0] : '');
+  const hasTagFilter = activeTagFilterCount.value > 0 || Boolean(documentListQuery.tagId);
+  const typeName = String(documentListQuery.documentType || '').trim();
+
+  // Kombinationen (Typ + Tag, oder mehrere Tags per UND) lassen sich nicht aus
+  // Einzel-Zählern ableiten → unbekannt, normales (verzögertes) Skelett.
+  if (typeName && hasTagFilter) return null;
+  if (activeTagFilterCount.value > 1) return null;
+
+  // Dokumenttyp-Bereich: Zähler aus dem geladenen Typ (usage_count).
+  if (typeName) {
+    const type = categoryStore.findByName(typeName);
+    return typeof type?.usage_count === 'number' ? type.usage_count : null;
+  }
+
   const counts = sidebarCounts.value;
   if (!counts) return null;
 
@@ -3662,9 +3673,7 @@ const knownSectionDocumentCount = computed(() => {
     return null;
   }
 
-  // Kombinierter Mehrfach-Tag-Filter lässt sich nicht aus Einzel-Counts ableiten.
-  if (activeTagFilterCount.value > 1) return null;
-  const singleTagId = documentListQuery.tagId || (activeTagFilterCount.value === 1 ? activeTagFilterIds.value[0] : '');
+  // Einzel-Tag-Bereich: owner-scoped Zähler aus den Sidebar-Counts.
   if (singleTagId) {
     const tagCount = counts.tags?.[singleTagId];
     return typeof tagCount === 'number' ? tagCount : null;
@@ -3676,7 +3685,7 @@ const knownSectionDocumentCount = computed(() => {
     case 'favorites': return counts.favorites_count;
     case 'no_text':   return counts.no_text_count;
     case 'trash':     return counts.trash_count;
-    default:          return null; // recent, imports, attention, dashboard, category …
+    default:          return null; // recent/imports, attention, dashboard …
   }
 });
 
