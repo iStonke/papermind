@@ -12124,8 +12124,7 @@ onBeforeUnmount(() => {
   border-color: color-mix(in srgb, var(--pm-appbar-bg) 48%, white 52%);
 }
 
-.papermind-app.v-theme--dark .document-row__meta,
-.papermind-app.v-theme--dark .document-row__snippet {
+.papermind-app.v-theme--dark .document-row__meta {
   opacity: 0.9;
 }
 
@@ -12347,8 +12346,8 @@ onBeforeUnmount(() => {
 .document-row__snippet {
   margin-top: 6px;
   font-size: 0.78rem;
-  line-height: 1.35;
-  opacity: 0.88;
+  line-height: 1.45;
+  color: rgba(var(--v-theme-on-surface), 0.6);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -12356,8 +12355,9 @@ onBeforeUnmount(() => {
 }
 
 .document-row__snippet mark {
-  background: rgba(var(--v-theme-primary), 0.16);
-  color: inherit;
+  background: rgba(var(--v-theme-primary), 0.13);
+  color: rgba(var(--v-theme-on-surface), 0.9);
+  font-weight: 600;
   padding: 0 2px;
   border-radius: 3px;
 }

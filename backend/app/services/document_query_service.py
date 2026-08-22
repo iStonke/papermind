@@ -380,10 +380,16 @@ class DocumentQueryService:
 
         if ts_query_expr is not None:
             rank_expr = func.ts_rank(Document.search_vector, ts_query_expr).label("search_rank")
+            # Treffertext bewusst NUR aus Notizen + Volltext, NICHT aus
+            # display_name/original_filename: Titel und Dateiname stehen bereits
+            # als Überschrift der Zeile. Nähme man sie in die Headline-Quelle,
+            # begänne der Snippet mit einer Wiederholung des Titels (".pdf …"),
+            # weil die Suchbegriffe dort gehäuft matchen. Das Ranking läuft
+            # weiter über search_vector – die Trefferliste bleibt unverändert.
             snippet_expr = func.ts_headline(
                 settings.fts_regconfig,
-                func.concat_ws(" ", func.coalesce(Document.display_name, ""), Document.original_filename,
-                               func.coalesce(Document.notes, ""), func.coalesce(Document.text_content, "")),
+                func.concat_ws(" ", func.coalesce(Document.notes, ""),
+                               func.coalesce(Document.text_content, "")),
                 ts_query_expr,
                 FTS_HEADLINE_OPTIONS,
             ).label("search_snippet")
