@@ -12487,6 +12487,55 @@ onBeforeUnmount(() => {
   opacity: 1 !important;
 }
 
+/* Favoriten-Pop: Animiert wird der Wrapper (nicht Button/Icon – auf diesen liegt
+   transform: none !important, das im Cascade über CSS-Animationen steht). Die
+   --pop-Klasse setzt DocumentListPanel nur beim aktiven Setzen per Klick. */
+.document-row__fav-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.document-row__fav-wrap--pop {
+  animation: fav-star-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.document-row__fav-wrap--pop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 2px solid var(--pm-star);
+  pointer-events: none;
+  animation: fav-star-ring 480ms ease-out forwards;
+}
+
+@keyframes fav-star-pop {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.32); }
+  60%  { transform: scale(0.94); }
+  100% { transform: scale(1); }
+}
+
+@keyframes fav-star-ring {
+  0%   { transform: scale(0.5); opacity: 0.55; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+.pm-no-animations .document-row__fav-wrap--pop,
+.pm-no-animations .document-row__fav-wrap--pop::after {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .document-row__fav-wrap--pop,
+  .document-row__fav-wrap--pop::after {
+    animation: none;
+  }
+}
+
 .document-row__chips {
   align-self: start;
   display: grid;

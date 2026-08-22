@@ -171,17 +171,22 @@
               <div class="document-row__aside">
                 <div class="document-row__actions">
                   <!-- Favoriten-Stern (nur außerhalb des Papierkorbs) -->
-                  <v-btn
+                  <span
                     v-if="!isTrashView"
-                    :icon="document.is_favorite ? 'mdi-star' : 'mdi-star-outline'"
-                    variant="text"
-                    size="small"
-                    density="comfortable"
-                    :ripple="false"
-                    :class="['document-row__fav-btn', { 'document-row__fav-btn--active': document.is_favorite }]"
-                    :aria-label="document.is_favorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'"
-                    @click.stop="emit('toggle-favorite', document)"
-                  />
+                    class="document-row__fav-wrap"
+                    :class="{ 'document-row__fav-wrap--pop': animatingFavoriteId === document.id }"
+                  >
+                    <v-btn
+                      :icon="document.is_favorite ? 'mdi-star' : 'mdi-star-outline'"
+                      variant="text"
+                      size="small"
+                      density="comfortable"
+                      :ripple="false"
+                      :class="['document-row__fav-btn', { 'document-row__fav-btn--active': document.is_favorite }]"
+                      :aria-label="document.is_favorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'"
+                      @click.stop="onToggleFavorite(document)"
+                    />
+                  </span>
 
                   <!-- Drei-Punkte-Menü -->
                   <v-menu location="bottom end">
@@ -638,6 +643,7 @@ onBeforeUnmount(() => {
   if (virtualWindowFrame) cancelAnimationFrame(virtualWindowFrame);
   if (deletionVirtualWindowTimer) window.clearTimeout(deletionVirtualWindowTimer);
   if (overscanResetTimer) window.clearTimeout(overscanResetTimer);
+  if (favoriteAnimTimer) window.clearTimeout(favoriteAnimTimer);
   if (listResizeObserver) {
     listResizeObserver.disconnect();
     listResizeObserver = null;
@@ -930,6 +936,25 @@ function handleDocumentRowShortcut(event, documentId) {
   handleShortcut(event, SHORTCUT_ACTIONS.ACTIVATE, () => emit('select-document', documentId), {
     ignoreEditable: false
   });
+}
+
+// Favoriten-Toggle. Die Pop-Animation wird bewusst hier – beim Klick – ausgelöst
+// (nicht per Klasse am is_favorite-Zustand), damit sie NUR bei der aktiven
+// Aktion läuft und nicht, wenn eine bereits favorisierte Zeile ins
+// virtualisierte Fenster scrollt. Nur beim Setzen, nicht beim Entfernen.
+const animatingFavoriteId = ref(null);
+let favoriteAnimTimer = null;
+
+function onToggleFavorite(document) {
+  if (!document?.is_favorite) {
+    animatingFavoriteId.value = document.id;
+    if (favoriteAnimTimer) window.clearTimeout(favoriteAnimTimer);
+    favoriteAnimTimer = window.setTimeout(() => {
+      animatingFavoriteId.value = null;
+      favoriteAnimTimer = null;
+    }, 480);
+  }
+  emit('toggle-favorite', document);
 }
 
 function onRowClick(event, documentId) {
