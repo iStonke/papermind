@@ -71,7 +71,17 @@
               :style="{ height: `${virtualTopPad}px` }"
               aria-hidden="true"
             />
-            <TransitionGroup name="document-list-item" tag="div" class="document-list__rows">
+            <!--
+              Bewusst KEIN <TransitionGroup>: Bei einer virtualisierten Liste
+              wandern beim Scrollen ständig Zeilen ins Fenster hinein und wieder
+              hinaus. <TransitionGroup> misst dabei über getBoundingClientRect()
+              in jedem Render die Position JEDER gerenderten Zeile (FLIP) und
+              erzwingt zusätzliche Reflows – bei bis zu MAX_ROW_OVERSCAN Zeilen
+              im DOM ist das der Hauptgrund für ruckelndes Scrollen und verzögert
+              erscheinende Einträge. Eine schlichte Liste patcht die keyed Zeilen
+              ohne Layout-Messung und scrollt dadurch flüssig.
+            -->
+            <div class="document-list__rows">
               <div
                 v-for="document in renderedDocuments"
                 :key="document.id"
@@ -235,7 +245,7 @@
                 <div class="document-row__date">{{ displayListDate(document) }}</div>
               </div>
               </div>
-            </TransitionGroup>
+            </div>
             <div
               v-if="virtualBottomPad > 0"
               class="document-list__virtual-pad"
