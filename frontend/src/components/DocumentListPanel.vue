@@ -131,11 +131,13 @@
               <div class="document-row__content">
                 <div class="document-row__kicker">
                   <span v-if="document.is_unread" class="document-row__unread-dot" aria-hidden="true" />
-                  <span class="document-row__kicker-type">{{ displayDocumentType(document) }}</span>
-                  <template v-if="displayCorrespondent(document)">
-                    <span class="document-row__kicker-dot" aria-hidden="true">·</span>
-                    <span class="document-row__kicker-corr">{{ displayCorrespondent(document) }}</span>
-                  </template>
+                  <span v-if="displayDocumentType(document)" class="document-row__kicker-type">{{ displayDocumentType(document) }}</span>
+                  <span
+                    v-if="displayDocumentType(document) && displayCorrespondent(document)"
+                    class="document-row__kicker-dot"
+                    aria-hidden="true"
+                  >·</span>
+                  <span v-if="displayCorrespondent(document)" class="document-row__kicker-corr">{{ displayCorrespondent(document) }}</span>
                 </div>
                 <div class="document-row__title">
                   <div class="document-row__name">{{ formatDocumentTitle(document) }}</div>
@@ -986,8 +988,7 @@ function displayListDate(document) {
 }
 
 function displayDocumentType(document) {
-  const documentType = String(document?.document_type || document?.category || '').trim();
-  return documentType || '—';
+  return String(document?.document_type || document?.category || '').trim();
 }
 
 function displayCorrespondent(document) {

@@ -12222,9 +12222,9 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 0 1 auto;
+  /* Gleiche Kicker-Schrift wie der Typ (uppercase, weight, letter-spacing werden
+     geerbt); nur die etwas hellere Farbe bleibt als dezente Hierarchie. */
   color: rgba(var(--v-theme-on-surface), 0.46);
-  text-transform: none;
-  letter-spacing: 0.02em;
 }
 
 /* Auf der türkisen Selektionsfläche liest sich Türkis-Text schlecht → Typ und
