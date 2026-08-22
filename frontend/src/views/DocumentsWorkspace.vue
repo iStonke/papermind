@@ -12361,7 +12361,6 @@ onBeforeUnmount(() => {
      damit die Signalfarbe im Dark Mode nicht verblasst. */
   background: #ffe59e;
   color: #2b2b28;
-  font-weight: 600;
   padding: 0 2px;
   border-radius: 3px;
 }
