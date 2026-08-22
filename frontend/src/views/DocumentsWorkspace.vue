@@ -110,6 +110,16 @@
         </div>
       </Transition>
 
+      <ImportFlightCard
+        v-if="importFlight"
+        :origin="importFlight.origin"
+        :target="importFlight.target"
+        :thumb-url="importFlight.thumbUrl"
+        :thumb-filter="importFlight.origin?.thumbFilter"
+        @approaching="onImportFlightApproaching"
+        @landed="onImportFlightLanded"
+      />
+
       <TagDialogs ref="tagDialogsRef" @tag-mutated="onTagMutated" />
       <CategoryDialogs ref="categoryDialogsRef" @category-mutated="onCategoryMutated" />
 
@@ -603,6 +613,7 @@
 
             <DocumentListPanel
               v-else
+              ref="documentListPanelRef"
               key="documents"
               class="panel-middle__view"
               :list-drop-notice="listDropNotice"
@@ -1488,6 +1499,7 @@ import AppSidebar from '../components/AppSidebar.vue';
 import SidebarAccount from '../components/SidebarAccount.vue';
 import ActivityIndicator from '../components/ActivityIndicator.vue';
 import DocumentListPanel from '../components/DocumentListPanel.vue';
+import ImportFlightCard from '../components/ImportFlightCard.vue';
 import DocumentTimeline from '../components/DocumentTimeline.vue';
 import DocumentCalendar from '../components/DocumentCalendar.vue';
 import AiDialog from '../components/AiDialog.vue';
@@ -2429,7 +2441,15 @@ const previewHighlightText = ref('');
 
 
 const importStagingDialogRef = ref(null);
+const documentListPanelRef = ref(null);
 const activityIndicatorRef = ref(null);
+
+// Import-Fluganimation: Dokumentkarte, die vom Import-Dialog in die Liste fliegt.
+const importFlight = ref(null); // { origin, target, thumbUrl } | null
+let importFlightResolver = null;
+function clearImportFlight() {
+  importFlight.value = null;
+}
 const importPdfInputRef = ref(null);
 const importInboxItems = ref([]);
 const importInboxPendingCount = ref(null);
@@ -6913,6 +6933,10 @@ async function removeDocumentsFromList(idsToRemove) {
   if (removedCount === 0) {
     return;
   }
+
+  // Erst nach erfolgreicher API-Aktion: Die sichtbaren Zeilen dezent ausblenden
+  // und zusammenklappen, bevor sie aus dem reaktiven Listenmodell verschwinden.
+  await documentListPanelRef.value?.animateDocumentRemoval?.([...removeSet]);
   documents.value = next;
   documentListLoadedCount.value = Math.max(0, documentListLoadedCount.value - removedCount);
   documentListTotal.value = Math.max(0, documentListTotal.value - removedCount);
@@ -7245,22 +7269,14 @@ async function emptyTrash() {
     body: 'Diese Aktion kann nicht rückgängig gemacht werden.',
     primaryText: 'Endgültig löschen',
     icon: 'mdi-delete-forever-outline',
-    onConfirm: () => executeEmptyTrash(count)
+    onConfirm: executeEmptyTrash
   });
 }
 
-async function executeEmptyTrash(count) {
+async function executeEmptyTrash() {
   try {
     const response = await fetch(`${apiBaseUrl}/api/documents/trash`, { method: 'DELETE' });
     if (!response.ok) throw new Error(await parseResponseError(response));
-    const payload = await response.json().catch(() => ({}));
-    const deletedCount = Number(payload?.deleted_count ?? count);
-    notify({
-      type: 'success',
-      title: 'Papierkorb',
-      message: `${deletedCount} ${deletedCount === 1 ? 'Dokument endgültig gelöscht' : 'Dokumente endgültig gelöscht'}.`,
-      critical: true
-    });
     if (isTrashView.value) {
       selectedDocumentId.value = null;
       selectedDocumentDetail.value = null;
@@ -8543,6 +8559,14 @@ async function onImportCommitted(payload) {
   if (!Array.isArray(payload?.created) || payload.created.length === 0) {
     return;
   }
+  // Choreografie in drei Schlägen, damit nie zwei Bewegungen gleichzeitig
+  // laufen: (1) das Fenster schließt sich, (2) kurzer Beat, (3) DANN reist die
+  // Karte allein in die Liste. Der Ursprung muss aber JETZT gelesen werden,
+  // solange der Dialog noch offen ist – gestartet wird der Flug erst später.
+  const arrivalId = String(payload.created[0]?.doc_id || '');
+  const origin = importStagingDialogRef.value?.getFlightOrigin?.() || null;
+  const landingPromise = scheduleImportFlightAfterClose(origin, arrivalId);
+
   // Aktivitätsindikator sofort aufwecken: nach dem Import sind OCR/INDEX/TAG-Jobs
   // frisch eingereiht und oft sehr kurz – ein sofortiger Poll-Schub stellt sicher,
   // dass das Icon/Menü dafür erscheint.
@@ -8552,6 +8576,84 @@ async function onImportCommitted(payload) {
   }
   await fetchDocuments(selectedDocumentId.value, { autoSelectFirst: false });
   scheduleSidebarCountsRefresh();
+
+  // Auf die gelandete Karte warten, dann Skelett auflösen + echte Zeile anheben.
+  await landingPromise;
+  documentListPanelRef.value?.resolveImportLanding?.(arrivalId);
+}
+
+// Hero-Übergang + Entkopplung: Die Karte wird SOFORT deckungsgleich über dem
+// Dialog-Thumbnail eingeblendet (target=null → sie hält still). Das Fenster
+// blendet dahinter weg; danach (Schließ-Animation pm-dialog ~210ms + Beat) wird
+// das Ziel gesetzt und dieselbe Karte fliegt los. So bleibt der visuelle Faden
+// „Thumbnail → fliegende Karte → neue Zeile" durchgehend, ohne zwei gleichzeitige
+// Bewegungen.
+const IMPORT_FLIGHT_START_DELAY_MS = 320;
+function scheduleImportFlightAfterClose(origin, documentId = '') {
+  const panel = documentListPanelRef.value;
+  if (!origin || !panel || typeof panel.beginImportLanding !== 'function') {
+    clearImportFlight();
+    return Promise.resolve();
+  }
+  // Ziel-Thumbnail schon vor fetchDocuments() maskieren. Sobald die neue Zeile
+  // erstmals gerendert wird, ist daher ausschließlich der weiße Platzhalter zu
+  // sehen – das echte Bild erscheint erst beim Landemoment.
+  panel.prepareImportLanding?.(documentId);
+  // (1) Karte sofort über dem Thumbnail halten – noch ohne Flugziel.
+  importFlight.value = { origin, target: null, thumbUrl: origin.thumbUrl || '' };
+
+  return new Promise((resolve) => {
+    window.setTimeout(async () => {
+      const activePanel = documentListPanelRef.value;
+      if (!activePanel || typeof activePanel.beginImportLanding !== 'function') {
+        clearImportFlight();
+        resolve();
+        return;
+      }
+      const target = await activePanel.beginImportLanding(documentId);
+      if (!target) {
+        activePanel.cancelImportLanding?.();
+        clearImportFlight();
+        resolve();
+        return;
+      }
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        importFlightResolver = null;
+        resolve();
+      };
+      importFlightResolver = done;
+      // (2) Ziel setzen → dieselbe Karte hebt ab und fliegt in die Liste.
+      importFlight.value = {
+        ...(importFlight.value || { origin, thumbUrl: origin.thumbUrl || '' }),
+        target
+      };
+      // Sicherheitsnetz: falls das 'landed'-Event ausbleibt, nicht ewig hängen.
+      window.setTimeout(() => {
+        clearImportFlight();
+        done();
+      }, 1600);
+    }, IMPORT_FLIGHT_START_DELAY_MS);
+  });
+}
+
+// Endanflug: Maske vorsichtshalber nochmals setzen. Regulär ist sie schon aktiv,
+// bevor die Zielzeile überhaupt zum ersten Mal gerendert wird.
+function onImportFlightApproaching() {
+  documentListPanelRef.value?.maskLandingThumb?.();
+}
+
+function onImportFlightLanded() {
+  // Genau im Landemoment das Fallback-Skelett einblenden (No-op, wenn die Karte
+  // ohnehin auf der echten Zeile gelandet ist) – so erscheint es erst, wenn die
+  // Karte klein in der Thumbnail-Spalte ankommt, nie unter der noch großen Karte.
+  documentListPanelRef.value?.revealImportLanding?.();
+  clearImportFlight();
+  if (importFlightResolver) {
+    importFlightResolver();
+  }
 }
 
 function isPdfCandidate(file) {
@@ -12008,7 +12110,15 @@ onBeforeUnmount(() => {
   bottom: 0;
   width: 3px;
   background: var(--pm-accent);
+  opacity: 1;
+  transition: opacity 140ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
   pointer-events: none;
+}
+
+/* Beim Import entsteht der Balken erst nach der Übergabe des fliegenden
+   Thumbnails und dem letzten Aufleuchten der neuen Zeile. */
+.document-row--unread.document-row--arrival-marker-pending::before {
+  opacity: 0;
 }
 
 .document-row--unread .document-row__kicker-type {

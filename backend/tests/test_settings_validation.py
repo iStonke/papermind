@@ -48,7 +48,6 @@ class SettingsValidationTest(unittest.TestCase):
                     "autoHideDetailsDrawer": True,
                     "drawerRememberState": True,
                     "tagDrawerRememberState": False,
-                    "sidebar_show_favorites": False,
                     "sidebar_show_dossiers": False,
                 }
             }
@@ -58,7 +57,6 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertIs(payload.ui.autoHideDetailsDrawer, True)
         self.assertIs(payload.ui.drawerRememberState, True)
         self.assertIs(payload.ui.tagDrawerRememberState, False)
-        self.assertIs(payload.ui.sidebar_show_favorites, False)
         self.assertIs(payload.ui.sidebar_show_dossiers, False)
 
     def test_ui_new_toggle_defaults_present_in_read_model(self) -> None:
@@ -68,10 +66,13 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertIs(payload.ui.autoHideDetailsDrawer, False)
         self.assertIs(payload.ui.drawerRememberState, True)
         self.assertIs(payload.ui.tagDrawerRememberState, True)
-        self.assertIs(payload.ui.sidebar_show_favorites, True)
         self.assertIs(payload.ui.sidebar_show_dossiers, True)
         self.assertIs(payload.documents.auto_open_import_inbox, False)
         self.assertEqual(payload.documents.recent_import_window_hours, 24)
+
+    def test_legacy_favorite_sidebar_visibility_is_removed(self) -> None:
+        payload = _merge_defaults({"ui": {"sidebar_show_favorites": False}})
+        self.assertNotIn("sidebar_show_favorites", payload["ui"])
 
     def test_llm_system_prompt_rejects_too_short(self) -> None:
         with self.assertRaises(ValidationError):

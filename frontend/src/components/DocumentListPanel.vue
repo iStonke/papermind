@@ -27,6 +27,32 @@
       @dragleave="onListDragLeave"
       @drop="onListDrop"
     >
+      <!--
+        Landezone der Import-Fluganimation: hervorgehobene Skelett-Zeile am
+        Listenkopf, in die die fliegende Dokumentkarte einrastet. Liegt als
+        Overlay über der (virtualisierten) Liste, ohne deren Modell zu berühren.
+      -->
+      <div
+        v-if="importLandingActive"
+        ref="importLandingRowRef"
+        class="document-row document-row--import-landing"
+        :class="{
+          'document-row--import-landing-resolving': importLandingResolving,
+          'document-row--import-landing--snippets': showSnippets,
+          'document-row--import-landing--revealed': importLandingRevealed
+        }"
+        aria-hidden="true"
+      >
+        <div class="document-row__thumb document-row--import-landing__thumb">
+          <span class="document-row--import-landing__pulse" />
+        </div>
+        <div class="document-row__content">
+          <div class="document-row--import-landing__line document-row--import-landing__line--kicker" />
+          <div class="document-row--import-landing__line document-row--import-landing__line--title" />
+          <div class="document-row--import-landing__line document-row--import-landing__line--meta" />
+        </div>
+      </div>
+
       <div class="document-list-content">
         <Transition name="pm-list-state" mode="out-in">
           <div
@@ -97,11 +123,14 @@
                 v-for="document in renderedDocuments"
                 :key="document.id"
                 class="document-row pm-doc-item"
+                :data-document-id="document.id"
                 :class="{
                   'document-row--active': !isSelectionMode && document.id === selectedDocumentId,
                   'document-row--selected': isSelectionMode && selectionIds.has(document.id),
                   'document-row--selection-mode': isSelectionMode,
-                  'document-row--unread': document.is_unread
+                  'document-row--unread': document.is_unread,
+                  'document-row--arrival-marker-pending': document.id === importArrivalMarkerPendingDocId,
+                  'document-row--just-arrived': document.id === justArrivedDocId
                 }"
                 role="button"
                 tabindex="0"
@@ -112,7 +141,9 @@
                 class="document-row__thumb"
                 :class="{
                   'document-row__thumb--selectable': isSelectionMode,
-                  'document-row__thumb--error': hasThumbnailError(document.id)
+                  'document-row__thumb--error': hasThumbnailError(document.id),
+                  'document-row__thumb--loaded': hasThumbnailLoaded(document.id),
+                  'document-row__thumb--awaiting-import': document.id === importLandingThumbDocId
                 }"
               >
                 <img
@@ -406,6 +437,262 @@ const authStore     = useAuthStore();
 const { documents, selectedDocumentId } = storeToRefs(docStore);
 const listShell = ref(null);
 const documentListRef = ref(null);
+
+// ── Import-Fluganimation: Landezone ─────────────────────────────────────────
+const importLandingActive = ref(false);
+const importLandingResolving = ref(false);
+// Skelett-Fallback bleibt während des Flugs UNSICHTBAR (nur Messung) und wird
+// erst bei der Landung eingeblendet – so liegt nie ein breites Skelett unter der
+// noch großen Flugkarte (das zerstörte die Illusion).
+const importLandingRevealed = ref(false);
+const importLandingRowRef = ref(null);
+// Das Ziel-Thumbnail ist ab dem ersten Rendern der neuen Zeile weiß. Erst die
+// landende Karte „liefert" das echte Vorschaubild ab. Die ID wird deshalb schon
+// vor dem Nachladen der Liste gesetzt, damit das korrekte Bild nie kurz aufblitzt.
+const importLandingThumbDocId = ref('');
+let pendingLandingThumbDocId = '';
+let importLandingRevealRequested = false;
+// Der Ungelesen-Balken gehört zum abgeschlossenen Ankunftszustand. Während
+// Flug und Aufleuchten bleibt er verborgen und wird erst nach dem letzten Puls
+// freigegeben.
+const importArrivalMarkerPendingDocId = ref('');
+let importArrivalMarkerTimer = 0;
+const IMPORT_ARRIVAL_MARKER_DELAY_MS = 1600;
+const IMPORT_ARRIVAL_MARKER_REDUCED_DELAY_MS = 600;
+// Frisch importierte Zeile kurz hervorheben, sobald die echten Daten stehen.
+const justArrivedDocId = ref('');
+let justArrivedTimer = 0;
+
+// Löschanimationen laufen nur auf den konkret betroffenen DOM-Zeilen. So bleibt
+// das Scrollen der virtualisierten Liste frei von permanenten FLIP-Messungen.
+const DOCUMENT_REMOVAL_DURATION_MS = 210;
+const documentRemovalWaiters = new Map();
+
+function documentListMotionDisabled() {
+  if (typeof window === 'undefined') return true;
+  if (document.querySelector('.pm-no-animations')) return true;
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || false;
+}
+
+function waitForDocumentRemoval() {
+  return new Promise((resolve) => {
+    let timer = 0;
+    const finish = () => {
+      documentRemovalWaiters.delete(timer);
+      resolve();
+    };
+    timer = window.setTimeout(finish, DOCUMENT_REMOVAL_DURATION_MS);
+    documentRemovalWaiters.set(timer, finish);
+  });
+}
+
+async function animateDocumentRemoval(documentIds = []) {
+  const ids = new Set(
+    (Array.isArray(documentIds) ? documentIds : [documentIds])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean)
+  );
+  if (ids.size === 0 || documentListMotionDisabled()) return;
+
+  const rows = Array.from(documentListRef.value?.querySelectorAll(
+    '.document-list__rows .document-row[data-document-id]'
+  ) || []).filter((row) => ids.has(String(row.dataset.documentId || '')));
+  if (rows.length === 0) return;
+
+  rows.forEach((row) => {
+    row.setAttribute('aria-hidden', 'true');
+    row.classList.add('document-row--removing');
+  });
+  await waitForDocumentRemoval();
+}
+
+function importArrivalMarkerDelay() {
+  if (typeof window === 'undefined') return 0;
+  if (document.querySelector('.pm-no-animations')) return 0;
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    ? IMPORT_ARRIVAL_MARKER_REDUCED_DELAY_MS
+    : IMPORT_ARRIVAL_MARKER_DELAY_MS;
+}
+
+// Bereitet die Zielzeile vor, bevor fetchDocuments() sie rendert. So bekommt das
+// neue Item unmittelbar den weißen Platzhalter statt zunächst das echte Bild.
+function prepareImportLanding(documentId = '') {
+  const id = String(documentId || '').trim();
+  if (importArrivalMarkerTimer) {
+    window.clearTimeout(importArrivalMarkerTimer);
+    importArrivalMarkerTimer = 0;
+  }
+  importLandingRevealRequested = false;
+  importArrivalMarkerPendingDocId.value = id;
+  pendingLandingThumbDocId = id;
+  importLandingThumbDocId.value = id;
+}
+
+function importLandingVisualMetrics(element) {
+  if (!(element instanceof HTMLElement) || typeof window === 'undefined') return {};
+  const numberValue = (value, fallback = 0) => {
+    const parsed = Number.parseFloat(String(value || ''));
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  const frameStyle = window.getComputedStyle(element);
+  const image = element.querySelector('img');
+  const imageStyle = image ? window.getComputedStyle(image) : null;
+  return {
+    borderRadius: numberValue(frameStyle.borderTopLeftRadius, 6),
+    borderWidth: numberValue(frameStyle.borderTopWidth, 1),
+    borderColor: frameStyle.borderTopColor || 'transparent',
+    backgroundColor: frameStyle.backgroundColor || '#fff',
+    boxShadow: frameStyle.boxShadow || 'none',
+    imageFit: imageStyle?.objectFit || 'cover',
+    imagePosition: imageStyle?.objectPosition || 'top center'
+  };
+}
+
+// Liefert das Flugziel: bevorzugt das THUMBNAIL der konkret importierten Zeile
+// (die durch das parallele Nachladen meist schon steht) → nahtloser Hero-Übergang,
+// die Karte legt sich passgenau auf das echte Vorschaubild. Nur wenn noch keine
+// Zeile da ist, dient ein (zunächst unsichtbares) Skelett als Landeplatz.
+async function beginImportLanding(documentId = '') {
+  importLandingResolving.value = false;
+
+  const landingId = String(documentId || pendingLandingThumbDocId || '').trim();
+  const rows = Array.from(documentListRef.value?.querySelectorAll(
+    '.document-list__rows .document-row[data-document-id]'
+  ) || []);
+  const realRow = landingId
+    ? rows.find((row) => String(row.dataset.documentId || '') === landingId)
+    : rows[0];
+  const realThumb = realRow?.querySelector('.document-row__thumb');
+  if (realThumb) {
+    const r = realThumb.getBoundingClientRect();
+    if (r.width >= 4 && r.height >= 4) {
+      importLandingActive.value = false; // kein Skelett nötig
+      pendingLandingThumbDocId = landingId || String(realRow.dataset.documentId || '');
+      importLandingThumbDocId.value = pendingLandingThumbDocId;
+      return {
+        left: r.left,
+        top: r.top,
+        width: r.width,
+        height: r.height,
+        onRealRow: true,
+        ...importLandingVisualMetrics(realThumb)
+      };
+    }
+  }
+
+  // Fallback: Skelett rendern, aber unsichtbar halten (nur zum Messen/Landen).
+  importLandingActive.value = true;
+  importLandingRevealed.value = false;
+  await nextTick();
+  const el = importLandingRowRef.value;
+  if (!el) {
+    importLandingActive.value = false;
+    return null;
+  }
+  const thumbEl = el.querySelector('.document-row--import-landing__thumb');
+  const rect = (thumbEl || el).getBoundingClientRect();
+  return {
+    left: rect.left,
+    top: rect.top,
+    width: rect.width,
+    height: rect.height,
+    onRealRow: false,
+    ...importLandingVisualMetrics(thumbEl || el)
+  };
+}
+
+// Wird im Moment der Landung aufgerufen: blendet das Fallback-Skelett ein
+// (falls verwendet), damit es genau dann erscheint, wenn die Karte klein in der
+// Thumbnail-Spalte ankommt – nie vorher.
+// Endanflug: Sicherheitsnetz für ältere/alternative Aufrufer. Im regulären
+// Ablauf ist die Maske bereits durch prepareImportLanding() aktiv.
+function maskLandingThumb() {
+  if (pendingLandingThumbDocId) {
+    importLandingThumbDocId.value = pendingLandingThumbDocId;
+  }
+}
+
+function completeImportLandingThumbReveal(documentId = '') {
+  const id = String(documentId || '').trim();
+  const targetId = String(importLandingThumbDocId.value || pendingLandingThumbDocId || '').trim();
+  if (id && targetId && id !== targetId) return;
+  importLandingThumbDocId.value = '';
+  pendingLandingThumbDocId = '';
+  importLandingRevealRequested = false;
+}
+
+function revealImportLanding() {
+  // Die Landung allein reicht nicht: Das Listenbild wird erst aufgedeckt, wenn
+  // es vollständig geladen/dekodiert ist. Bis dahin bleibt das Blatt weiß und
+  // der dunkle Standard-Shimmer kann nicht kurz sichtbar werden.
+  importLandingRevealRequested = true;
+  const id = String(importLandingThumbDocId.value || pendingLandingThumbDocId || '').trim();
+  if (!id || hasThumbnailLoaded(id) || hasThumbnailError(id)) {
+    completeImportLandingThumbReveal(id);
+  }
+  if (importLandingActive.value) {
+    importLandingRevealed.value = true;
+  }
+}
+
+// Löst die Landung auf: das Skelett (falls sichtbar) verblasst, die echte (erste)
+// Zeile leuchtet kurz auf. `documentId` markiert die anzuhebende Zeile.
+function resolveImportLanding(documentId = '') {
+  // Sicherheitsnetz für einen ausgebliebenen Landed-Callback. Die Maske wird
+  // dabei weiterhin erst gelöst, sobald das Listen-Thumbnail bereit ist.
+  revealImportLanding();
+  const id = String(documentId || '').trim();
+  if (id) {
+    importArrivalMarkerPendingDocId.value = id;
+    justArrivedDocId.value = id;
+    if (justArrivedTimer) window.clearTimeout(justArrivedTimer);
+    justArrivedTimer = window.setTimeout(() => {
+      justArrivedDocId.value = '';
+      justArrivedTimer = 0;
+    }, 1900);
+
+    if (importArrivalMarkerTimer) window.clearTimeout(importArrivalMarkerTimer);
+    // Ab dem nächsten Render-Takt laufen Zeilenpuls und Verzögerung gemeinsam.
+    // So erscheint der Balken auch bei einem längeren Anflug niemals vorzeitig.
+    nextTick(() => {
+      if (importArrivalMarkerPendingDocId.value !== id) return;
+      const delay = importArrivalMarkerDelay();
+      if (delay <= 0) {
+        importArrivalMarkerPendingDocId.value = '';
+        return;
+      }
+      importArrivalMarkerTimer = window.setTimeout(() => {
+        if (importArrivalMarkerPendingDocId.value === id) {
+          importArrivalMarkerPendingDocId.value = '';
+        }
+        importArrivalMarkerTimer = 0;
+      }, delay);
+    });
+  }
+  if (importLandingActive.value) {
+    importLandingResolving.value = true;
+    // Skelett nach kurzer Übergabe entfernen.
+    window.setTimeout(() => {
+      importLandingActive.value = false;
+      importLandingResolving.value = false;
+      importLandingRevealed.value = false;
+    }, 260);
+  }
+}
+
+function cancelImportLanding() {
+  importLandingActive.value = false;
+  importLandingResolving.value = false;
+  importLandingRevealed.value = false;
+  importLandingThumbDocId.value = '';
+  importLandingRevealRequested = false;
+  importArrivalMarkerPendingDocId.value = '';
+  pendingLandingThumbDocId = '';
+  if (importArrivalMarkerTimer) {
+    window.clearTimeout(importArrivalMarkerTimer);
+    importArrivalMarkerTimer = 0;
+  }
+}
 const showPdfSuffixComputed = computed(() => settingsStore.settingsDraft?.ui?.showFilenameSuffix ?? false);
 const DOCUMENT_LIST_BOTTOM_SPACER = 16;
 const effectiveBottomSpacerHeight = computed(() =>
@@ -649,13 +936,29 @@ onMounted(() => {
   document.addEventListener('visibilitychange', handleThumbnailVisibilityChange);
 });
 
+defineExpose({
+  animateDocumentRemoval,
+  prepareImportLanding,
+  beginImportLanding,
+  maskLandingThumb,
+  revealImportLanding,
+  resolveImportLanding,
+  cancelImportLanding
+});
+
 onBeforeUnmount(() => {
   thumbnailRecoveryDisposed = true;
+  for (const [timer, finish] of documentRemovalWaiters) {
+    window.clearTimeout(timer);
+    finish();
+  }
   if (virtualWindowFrame) cancelAnimationFrame(virtualWindowFrame);
   if (deletionVirtualWindowTimer) window.clearTimeout(deletionVirtualWindowTimer);
   if (overscanResetTimer) window.clearTimeout(overscanResetTimer);
   if (favoriteAnimTimer) window.clearTimeout(favoriteAnimTimer);
   if (skeletonRevealTimer) window.clearTimeout(skeletonRevealTimer);
+  if (justArrivedTimer) window.clearTimeout(justArrivedTimer);
+  if (importArrivalMarkerTimer) window.clearTimeout(importArrivalMarkerTimer);
   if (listResizeObserver) {
     listResizeObserver.disconnect();
     listResizeObserver = null;
@@ -732,6 +1035,7 @@ const toolbarFilterToggles = computed(() => {
 
 // ── Refs ───────────────────────────────────────────────────────────────────
 const thumbnailErrorMap = ref({});
+const thumbnailLoadedMap = ref({});
 const isListDragOver    = ref(false);
 const listDropDragDepth = ref(0);
 const thumbnailVersionByDocumentId = ref({});
@@ -820,12 +1124,15 @@ function retryErroredThumbnails() {
   const erroredIds = Object.keys(thumbnailErrorMap.value);
   if (erroredIds.length === 0) return;
   const nextVersions = { ...thumbnailVersionByDocumentId.value };
+  const nextLoaded = { ...thumbnailLoadedMap.value };
   for (const documentId of erroredIds) {
     clearThumbnailRetryTimer(documentId);
     nextVersions[documentId] = Number(nextVersions[documentId] || 0) + 1;
     thumbnailUrlCache.delete(documentId);
+    delete nextLoaded[documentId];
   }
   thumbnailErrorMap.value = {};
+  thumbnailLoadedMap.value = nextLoaded;
   thumbnailVersionByDocumentId.value = nextVersions;
 }
 
@@ -843,6 +1150,9 @@ function retryThumbnail(documentId) {
   const nextErrors = { ...thumbnailErrorMap.value };
   delete nextErrors[documentId];
   thumbnailErrorMap.value = nextErrors;
+  const nextLoaded = { ...thumbnailLoadedMap.value };
+  delete nextLoaded[documentId];
+  thumbnailLoadedMap.value = nextLoaded;
   thumbnailVersionByDocumentId.value = {
     ...thumbnailVersionByDocumentId.value,
     [documentId]: Number(thumbnailVersionByDocumentId.value[documentId] || 0) + 1,
@@ -875,9 +1185,18 @@ function hasThumbnailError(documentId) {
   return Boolean(thumbnailErrorMap.value[documentId]);
 }
 
+function hasThumbnailLoaded(documentId) {
+  return Boolean(thumbnailLoadedMap.value[documentId]);
+}
+
 function onThumbnailError(documentId, event) {
-  event?.currentTarget?.parentElement?.classList.remove('document-row__thumb--loaded');
+  const nextLoaded = { ...thumbnailLoadedMap.value };
+  delete nextLoaded[documentId];
+  thumbnailLoadedMap.value = nextLoaded;
   thumbnailErrorMap.value = { ...thumbnailErrorMap.value, [documentId]: true };
+  if (importLandingRevealRequested && String(importLandingThumbDocId.value) === String(documentId)) {
+    completeImportLandingThumbReveal(documentId);
+  }
   if (thumbnailRetryTimerByDocumentId.has(documentId)) return;
 
   const attempt = thumbnailRetryAttemptByDocumentId.get(documentId) || 0;
@@ -891,8 +1210,17 @@ function onThumbnailError(documentId, event) {
   );
 }
 
-function onThumbnailLoad(documentId, event) {
-  event?.currentTarget?.parentElement?.classList.add('document-row__thumb--loaded');
+async function onThumbnailLoad(documentId, event) {
+  const image = event?.currentTarget;
+  const loadedSrc = String(image?.currentSrc || image?.src || '');
+  try {
+    await image?.decode?.();
+  } catch {
+    // Das load-Event bestätigt bereits ein nutzbares Bild; decode() kann z. B.
+    // beim schnellen Unmounten einer virtualisierten Zeile abgewiesen werden.
+  }
+  if (image && loadedSrc && String(image.currentSrc || image.src || '') !== loadedSrc) return;
+  thumbnailLoadedMap.value = { ...thumbnailLoadedMap.value, [documentId]: true };
   clearThumbnailRetryTimer(documentId);
   thumbnailRetryAttemptByDocumentId.delete(documentId);
   if (thumbnailErrorMap.value[documentId]) {
@@ -900,11 +1228,15 @@ function onThumbnailLoad(documentId, event) {
     delete next[documentId];
     thumbnailErrorMap.value = next;
   }
+  if (importLandingRevealRequested && String(importLandingThumbDocId.value) === String(documentId)) {
+    completeImportLandingThumbReveal(documentId);
+  }
 }
 
 watch(documentThumbnailSignature, () => {
   const nextSignatures = {};
   const nextErrors = {};
+  const nextLoaded = {};
   const nextVersions = {};
 
   for (const document of documents.value) {
@@ -912,6 +1244,12 @@ watch(documentThumbnailSignature, () => {
     const signature = thumbnailStateKey(document);
     nextSignatures[document.id] = signature;
     nextVersions[document.id] = thumbnailVersionByDocumentId.value[document.id] || 0;
+    if (
+      thumbnailLoadedMap.value[document.id]
+      && thumbnailSignatureByDocumentId.value[document.id] === signature
+    ) {
+      nextLoaded[document.id] = true;
+    }
 
     if (
       thumbnailErrorMap.value[document.id]
@@ -934,6 +1272,7 @@ watch(documentThumbnailSignature, () => {
 
   thumbnailSignatureByDocumentId.value = nextSignatures;
   thumbnailErrorMap.value = nextErrors;
+  thumbnailLoadedMap.value = nextLoaded;
   thumbnailVersionByDocumentId.value = nextVersions;
 });
 
@@ -1173,9 +1512,218 @@ function onListDrop(event) {
   z-index: 1;
 }
 
+/* Wartet auf die landende Karte: leeres weißes Dokumentblatt statt Vorschau.
+   Die Karte „liefert" das echte Bild erst bei der Landung (Klasse wird entfernt,
+   Bild erscheint sofort → nahtloser Übergang). */
+.document-row__thumb--awaiting-import {
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+}
+.document-row__thumb--awaiting-import::before {
+  display: none;
+}
+.document-row__thumb--awaiting-import img,
+.document-row__thumb--awaiting-import .document-row__thumb-fallback {
+  opacity: 0;
+}
+
 @keyframes document-thumbnail-shimmer {
   from { background-position: 100% 0; }
   to { background-position: -120% 0; }
+}
+
+/* ── Import-Fluganimation: Landezeile am Listenkopf ─────────────────────── */
+.document-row--import-landing {
+  --document-row-height: 112px;
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  z-index: 3;
+  height: var(--document-row-height);
+  min-height: var(--document-row-height);
+  pointer-events: none;
+  cursor: default;
+  border-color: color-mix(in srgb, var(--pm-accent, #14b8a6) 42%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--pm-accent, #14b8a6) 30%, transparent),
+    0 14px 30px rgba(15, 23, 42, 0.16);
+  background: var(--pm-app-surface-raised);
+  /* Während des Flugs unsichtbar (nur Messung); erst bei der Landung einblenden. */
+  opacity: 0;
+  transform: translateY(6px) scale(0.985);
+  transition:
+    opacity 220ms var(--pm-easing-decel, cubic-bezier(0, 0, 0.2, 1)),
+    transform 220ms var(--pm-easing-decel, cubic-bezier(0, 0, 0.2, 1));
+}
+
+.document-row--import-landing--revealed {
+  opacity: 1;
+  transform: none;
+}
+
+.document-row--import-landing--snippets {
+  --document-row-height: 152px;
+}
+
+.document-row--import-landing__thumb {
+  overflow: hidden;
+  background: var(--pm-thumb-bg, rgba(15, 23, 42, 0.08));
+  border-radius: 8px;
+}
+
+.document-row--import-landing__pulse {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    var(--pm-thumb-bg, rgba(15, 23, 42, 0.08)) 22%,
+    color-mix(in srgb, var(--pm-accent, #14b8a6) 22%, transparent) 46%,
+    var(--pm-thumb-bg, rgba(15, 23, 42, 0.08)) 68%
+  );
+  background-size: 220% 100%;
+  animation: document-thumbnail-shimmer 1.1s ease-in-out infinite;
+}
+
+.document-row--import-landing__line {
+  border-radius: 6px;
+  background: linear-gradient(
+    100deg,
+    rgba(148, 163, 184, 0.22) 22%,
+    rgba(148, 163, 184, 0.42) 46%,
+    rgba(148, 163, 184, 0.22) 68%
+  );
+  background-size: 220% 100%;
+  animation: document-thumbnail-shimmer 1.1s ease-in-out infinite;
+}
+
+.document-row--import-landing__line--kicker {
+  width: 34%;
+  height: 10px;
+  margin-top: 4px;
+}
+
+.document-row--import-landing__line--title {
+  width: 72%;
+  height: 15px;
+  margin-top: 12px;
+}
+
+.document-row--import-landing__line--meta {
+  width: 52%;
+  height: 10px;
+  margin-top: 14px;
+}
+
+/* Übergabe an die echte Zeile: Landeskelett verblasst leicht angehoben. */
+.document-row--import-landing-resolving {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.99);
+  transition:
+    opacity 240ms var(--pm-easing-accel, cubic-bezier(0.4, 0, 1, 1)),
+    transform 240ms var(--pm-easing-accel, cubic-bezier(0.4, 0, 1, 1));
+}
+
+/* Frisch angekommene echte Zeile kräftig aufleuchten lassen. */
+.document-row--just-arrived {
+  animation: document-row-arrive 1600ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+/* Das gelandete Thumbnail ist bereits der ruhige Endzustand. Es liegt deshalb
+   über dem Zeilen-Schimmer und darf während der Ankunft keinen eigenen
+   Lade-Shimmer mehr starten. So gibt es nach der Übergabe kein zweites Blinken. */
+.document-row--just-arrived .document-row__thumb {
+  z-index: 5;
+}
+
+.document-row--just-arrived .document-row__thumb::before {
+  animation: none;
+  opacity: 0;
+}
+
+/* Über die Zeile wandernder Lichtstreifen – durch overflow:hidden der Zeile
+   beschnitten, contain:layout macht die Zeile zum Bezugsrahmen für absolute. */
+.document-row--just-arrived::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(
+    100deg,
+    transparent 34%,
+    color-mix(in srgb, var(--pm-accent, #14b8a6) 40%, transparent) 44%,
+    color-mix(in srgb, var(--pm-accent, #14b8a6) 92%, white) 50%,
+    color-mix(in srgb, var(--pm-accent, #14b8a6) 40%, transparent) 56%,
+    transparent 66%
+  );
+  background-size: 220% 100%;
+  /* Grundzustand unsichtbar: nach Ablauf der Animation (kein fill-mode) fällt
+     das ::after hierauf zurück – sonst bliebe die helle Bande als Fleck stehen,
+     bis die Klasse entfernt wird (störendes Aufblitzen rechts). */
+  opacity: 0;
+  animation: document-row-arrive-sweep 1100ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)) forwards;
+}
+
+@keyframes document-row-arrive {
+  0% {
+    box-shadow:
+      0 0 0 2.5px color-mix(in srgb, var(--pm-accent, #14b8a6) 78%, transparent),
+      0 0 22px 2px color-mix(in srgb, var(--pm-accent, #14b8a6) 45%, transparent),
+      0 16px 34px rgba(15, 23, 42, 0.22);
+    background: color-mix(in srgb, var(--pm-accent, #14b8a6) 20%, var(--pm-app-surface-raised));
+  }
+  35% {
+    box-shadow:
+      0 0 0 1.5px color-mix(in srgb, var(--pm-accent, #14b8a6) 42%, transparent),
+      0 0 12px 1px color-mix(in srgb, var(--pm-accent, #14b8a6) 22%, transparent),
+      0 10px 22px rgba(15, 23, 42, 0.14);
+    background: color-mix(in srgb, var(--pm-accent, #14b8a6) 9%, var(--pm-app-surface-raised));
+  }
+  /* zweiter, kleinerer Puls = „Schimmern“ statt einmaligem Aufblitzen */
+  58% {
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--pm-accent, #14b8a6) 60%, transparent),
+      0 0 16px 1.5px color-mix(in srgb, var(--pm-accent, #14b8a6) 34%, transparent),
+      0 12px 26px rgba(15, 23, 42, 0.16);
+    background: color-mix(in srgb, var(--pm-accent, #14b8a6) 14%, var(--pm-app-surface-raised));
+  }
+  100% {
+    box-shadow: none;
+    background: var(--pm-app-surface-raised);
+  }
+}
+
+@keyframes document-row-arrive-sweep {
+  0% {
+    background-position: 130% 0;
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    background-position: -60% 0;
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .document-row--import-landing__pulse,
+  .document-row--import-landing__line {
+    animation: none;
+  }
+  .document-row--just-arrived {
+    animation-duration: 600ms;
+  }
+  .document-row--just-arrived::after {
+    animation: none;
+    display: none;
+  }
 }
 
 :global(.pm-no-animations) .document-row__thumb::before {
@@ -1260,41 +1808,43 @@ function onListDrop(event) {
   }
 }
 
-/* Gelöschte Zeilen lösen sich kurz auf; die restliche Liste rückt dabei weich
-   nach. Der Wrapper ist nötig, damit die absolute Ausblendung im Listenfluss
-   an ihrer bisherigen Position bleibt. */
+/* Nur die tatsächlich gelöschte Zeile wird animiert. Sie verblasst und klappt
+   gleichzeitig zusammen; danach kann Vue sie ohne sichtbaren Sprung aus der
+   virtualisierten Liste entfernen. */
 .document-list__rows {
   position: relative;
 }
 
-.document-list-item-leave-active {
-  position: absolute;
-  left: 0;
-  right: 0;
-  z-index: 1;
+.document-row--removing {
   pointer-events: none;
-  transition:
-    opacity var(--pm-duration-normal) var(--pm-easing-accel),
-    transform var(--pm-duration-normal) var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1));
-}
-
-.document-list-item-leave-to {
+  height: 0;
+  min-height: 0;
+  margin-top: 0 !important;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-top-width: 0;
+  border-bottom-width: 0;
   opacity: 0;
-  transform: translateY(-6px) scale(0.985);
+  transform: translateY(-4px) scale(0.99);
+  will-change: height, opacity, transform;
+  transition:
+    height 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)),
+    min-height 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)),
+    margin-top 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)),
+    padding-top 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)),
+    padding-bottom 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)),
+    border-top-width 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)),
+    border-bottom-width 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)),
+    opacity 160ms var(--pm-easing-accel, cubic-bezier(0.4, 0, 1, 1)),
+    transform 180ms var(--pm-easing-accel, cubic-bezier(0.4, 0, 1, 1));
 }
 
-.document-list-item-move {
-  transition: transform 240ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1));
-}
-
-:global(.pm-no-animations) .document-list-item-leave-active,
-:global(.pm-no-animations) .document-list-item-move {
+:global(.pm-no-animations) .document-row--removing {
   transition-duration: 0ms;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .document-list-item-leave-active,
-  .document-list-item-move {
+  .document-row--removing {
     transition-duration: 0ms;
   }
 }

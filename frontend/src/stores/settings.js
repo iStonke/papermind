@@ -99,7 +99,6 @@ function createDefaultSettings() {
       tagDrawerRememberState: true,
       sidebar_show_recent: true,
       sidebar_show_untagged: true,
-      sidebar_show_favorites: true,
       sidebar_show_no_text: true,
       sidebar_show_chat: true,
       sidebar_show_dossiers: true,
@@ -454,10 +453,6 @@ export const useSettingsStore = defineStore('settings', {
             typeof payload?.ui?.sidebar_show_untagged === 'boolean'
               ? payload.ui.sidebar_show_untagged
               : defaults.ui.sidebar_show_untagged,
-          sidebar_show_favorites:
-            typeof payload?.ui?.sidebar_show_favorites === 'boolean'
-              ? payload.ui.sidebar_show_favorites
-              : defaults.ui.sidebar_show_favorites,
           sidebar_show_no_text:
             typeof payload?.ui?.sidebar_show_no_text === 'boolean'
               ? payload.ui.sidebar_show_no_text

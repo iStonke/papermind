@@ -52,6 +52,17 @@ test("normalizeSettingsPayload drops legacy color variants", () => {
   assert.equal("color_variant" in normalized.ui, false);
 });
 
+test("normalizeSettingsPayload drops legacy favorite sidebar visibility", () => {
+  setActivePinia(createPinia());
+  const store = useSettingsStore();
+
+  const normalized = store.normalizeSettingsPayload({
+    ui: { sidebar_show_favorites: false },
+  });
+
+  assert.equal("sidebar_show_favorites" in normalized.ui, false);
+});
+
 test("normalizeSettingsPayload preserves auto-open import inbox setting", () => {
   setActivePinia(createPinia());
   const store = useSettingsStore();

@@ -6,7 +6,6 @@ import {
   buildAutoOcrPatch,
   buildAutoTaggingPatch,
   buildRecentImportWindowPatch,
-  buildSidebarShowFavoritesPatch,
   buildSidebarShowDossiersPatch,
   buildSortOrderPatch,
   buildThemeModePatch,
@@ -34,12 +33,6 @@ test("buildAutoTaggingPatch returns expected payload", () => {
 test("buildAutoOpenImportInboxPatch returns expected payload", () => {
   assert.deepEqual(buildAutoOpenImportInboxPatch(true), {
     documents: { auto_open_import_inbox: true },
-  });
-});
-
-test("buildSidebarShowFavoritesPatch returns expected payload", () => {
-  assert.deepEqual(buildSidebarShowFavoritesPatch(false), {
-    ui: { sidebar_show_favorites: false },
   });
 });
 

@@ -6,6 +6,10 @@ const componentSource = await readFile(
   new URL('../src/components/DocumentListPanel.vue', import.meta.url),
   'utf8',
 );
+const workspaceSource = await readFile(
+  new URL('../src/views/DocumentsWorkspace.vue', import.meta.url),
+  'utf8',
+);
 
 test('velocity overscan measures against the last rendered window', () => {
   assert.match(
@@ -32,5 +36,16 @@ test('the next document page is prefetched before it enters the viewport', () =>
   assert.match(
     componentSource,
     /Math\.max\(\s*LOAD_MORE_AHEAD_ROWS \* virtualRowStep\.value,\s*element\.clientHeight \* LOAD_MORE_AHEAD_VIEWPORTS\s*\)/,
+  );
+});
+
+test('document removal animates only the affected virtual rows before mutation', () => {
+  assert.match(componentSource, /async function animateDocumentRemoval\(documentIds = \[\]\)/);
+  assert.match(componentSource, /row\.classList\.add\('document-row--removing'\)/);
+  assert.match(componentSource, /defineExpose\(\{\s*animateDocumentRemoval,/);
+  assert.doesNotMatch(componentSource, /^\s*<TransitionGroup(?:\s|>)/m);
+  assert.match(
+    workspaceSource,
+    /await documentListPanelRef\.value\?\.animateDocumentRemoval\?\.\(\[\.\.\.removeSet\]\);\s*documents\.value = next;/,
   );
 });

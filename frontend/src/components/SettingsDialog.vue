@@ -438,26 +438,6 @@
 
                 <div class="pm-setting-row settings-sidebar-library-row">
                   <span class="settings-sidebar-entry-icon" aria-hidden="true">
-                    <v-icon size="18">mdi-star-outline</v-icon>
-                  </span>
-                  <div class="pm-setting-content">
-                    <div class="pm-setting-label">Favoriten</div>
-                    <div class="pm-setting-description">Sammelt markierte Dokumente für besonders schnellen Zugriff.</div>
-                  </div>
-                  <v-switch
-                    :model-value="settingsDraft.ui.sidebar_show_favorites"
-                    color="primary"
-                    density="comfortable"
-                    hide-details
-                    inset
-                    :loading="isSettingSaving.sidebar_show_favorites"
-                    :disabled="isSettingSaving.sidebar_show_favorites"
-                    @update:model-value="onSidebarShowFavoritesChange"
-                  />
-                </div>
-
-                <div class="pm-setting-row settings-sidebar-library-row">
-                  <span class="settings-sidebar-entry-icon" aria-hidden="true">
                     <v-icon size="18">mdi-text-box-remove-outline</v-icon>
                   </span>
                   <div class="pm-setting-content">
@@ -2381,7 +2361,6 @@ import {
   buildTagDrawerRememberStatePatch,
   buildSidebarShowRecentPatch,
   buildSidebarShowUntaggedPatch,
-  buildSidebarShowFavoritesPatch,
   buildSidebarShowNoTextPatch,
   buildSidebarShowChatPatch,
   buildSidebarShowDossiersPatch,
@@ -2534,9 +2513,9 @@ function requestOnboarding() {
 
 const settingsCategories = [
   { value: 'appearance', label: 'Darstellung', icon: 'mdi-palette-outline', group: 'surface' },
-  { value: 'controls', label: 'Bedienung', icon: 'mdi-keyboard-outline', group: 'surface' },
   { value: 'sidebar', label: 'Seitenleiste', icon: 'mdi-page-layout-sidebar-left', group: 'surface' },
   { value: 'documents', label: 'Bibliothek', icon: 'mdi-archive-outline', group: 'surface', adminOnly: true },
+  { value: 'controls', label: 'Bedienung', icon: 'mdi-keyboard-outline', group: 'surface' },
   { value: 'import', label: 'Importieren', icon: 'mdi-tray-arrow-up', group: 'import', adminOnly: true },
   { value: 'scanner', label: 'Scanner', icon: 'mdi-scanner', group: 'import', adminOnly: true },
   { value: 'ai', label: 'Texterkennung', icon: 'mdi-text-recognition', group: 'import', adminOnly: true },
@@ -3985,19 +3964,6 @@ async function onSidebarShowUntaggedChange(nextValue) {
     patch: buildSidebarShowUntaggedPatch(nextBool),
     controlKey: 'sidebar_show_untagged',
     revert: () => settingsStore.setDraftPatch({ ui: { sidebar_show_untagged: previous } })
-  });
-}
-
-async function onSidebarShowFavoritesChange(nextValue) {
-  if (isSettingSaving.sidebar_show_favorites) return;
-  const nextBool = Boolean(nextValue);
-  if (nextBool === settingsDraft.ui.sidebar_show_favorites) return;
-  const previous = settingsDraft.ui.sidebar_show_favorites;
-  settingsStore.setDraftPatch({ ui: { sidebar_show_favorites: nextBool } });
-  await patchSettingsWithRevert({
-    patch: buildSidebarShowFavoritesPatch(nextBool),
-    controlKey: 'sidebar_show_favorites',
-    revert: () => settingsStore.setDraftPatch({ ui: { sidebar_show_favorites: previous } })
   });
 }
 

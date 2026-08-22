@@ -6,7 +6,7 @@
     :max-width="MODAL_WORK_WIDTH_SPLIT"
     :card-class="['isd-card', { 'isd-card--empty': isEmpty }]"
     title="Importieren"
-    header-subtitle="Gescannte Seiten als neues Dokument"
+    header-subtitle="Seiten zu einem neuen Dokument zusammenführen"
     @request-close="requestCloseImport"
   >
     <template #header-actions>
@@ -15,7 +15,7 @@
         size="small"
         variant="text"
         class="isd-minimize-btn"
-        :disabled="isCommitting"
+        :disabled="isCommitting || !hasStagedPages"
         aria-label="Import minimieren"
         @click="minimizeDialog"
       />
@@ -53,7 +53,7 @@
         />
         <div
           class="isd-grid-scroll"
-          :style="{ ...gridScrollStyle, paddingBottom: isEmpty ? '40px' : '82px' }"
+          :style="{ ...gridScrollStyle, paddingBottom: isEmpty ? undefined : '82px' }"
           @dragenter.prevent="onMiniatureDragEnter"
           @dragover.prevent="onMiniatureDragOver"
           @dragleave="onMiniatureDragLeave"
@@ -65,61 +65,133 @@
           <div
             v-if="isEmpty"
             class="isd-dropzone"
-            :class="{ 'isd-dropzone--over': isDropzoneDragOver }"
+            :class="{
+              'isd-dropzone--over': isDropzoneDragOver,
+              'isd-dropzone--scanning': props.scannerActive
+            }"
             @dragenter.prevent="onDropzoneDragEnter"
             @dragover.prevent="onDropzoneDragOver"
             @dragleave="onDropzoneDragLeave"
             @drop.prevent="onDropzoneDrop"
           >
-            <!-- Scanner-Feedback: pulsierendes Scanner-Icon -->
-            <template v-if="props.scannerActive">
-              <div class="isd-dropzone__icon isd-dropzone__icon--scanning">
-                <v-icon size="52" class="isd-dropzone__icon-svg">mdi-scanner</v-icon>
-              </div>
-              <div class="isd-dropzone__text">
-                <p class="isd-dropzone__title">{{ scannerFeedbackTitle }}</p>
-                <p class="isd-dropzone__subtitle">{{ scannerFeedbackSubtitle }}</p>
-              </div>
-            </template>
+            <!-- Im Scannerzustand bleibt nur das mittlere Blatt sichtbar. -->
+            <div
+              class="isd-dz-scene"
+              :class="{
+                'isd-dz-scene--scanning': props.scannerActive,
+                'isd-dz-scene--pending': isScannerFeedbackPending
+              }"
+              aria-hidden="true"
+            >
+              <span class="isd-dz-scene__halo" />
+              <span class="isd-dz-scene__table" />
 
-            <!-- Leerzustand: schwebender Papierstapel -->
-            <template v-else>
-              <div class="isd-dz-stack" aria-hidden="true">
-                <div class="isd-dz-stack__page isd-dz-stack__page--back-a"></div>
-                <div class="isd-dz-stack__page isd-dz-stack__page--back-b"></div>
-                <div class="isd-dz-stack__page isd-dz-stack__page--front">
-                  <span class="isd-dz-stack__line isd-dz-stack__line--accent"></span>
-                  <span class="isd-dz-stack__line" style="width: 100%"></span>
-                  <span class="isd-dz-stack__line" style="width: 88%"></span>
-                  <span class="isd-dz-stack__line" style="width: 94%"></span>
-                  <span class="isd-dz-stack__line isd-dz-stack__line--soft" style="width: 60%"></span>
+              <div class="isd-dz-sheet isd-dz-sheet--pdf">
+                <span class="isd-dz-sheet__kind">PDF</span>
+                <span class="isd-dz-sheet__copy">
+                  <i /><i /><i /><i />
+                </span>
+              </div>
+
+              <div class="isd-dz-sheet isd-dz-sheet--image">
+                <span class="isd-dz-sheet__photo">
+                  <i class="isd-dz-sheet__sun" />
+                  <i class="isd-dz-sheet__mountain isd-dz-sheet__mountain--back" />
+                  <i class="isd-dz-sheet__mountain isd-dz-sheet__mountain--front" />
+                </span>
+                <span class="isd-dz-sheet__caption" />
+              </div>
+
+              <div class="isd-dz-sheet isd-dz-sheet--front">
+                <span class="isd-dz-sheet__accent" />
+                <span class="isd-dz-sheet__headline" />
+                <span class="isd-dz-sheet__copy isd-dz-sheet__copy--front">
+                  <i /><i /><i /><i />
+                </span>
+                <span class="isd-dz-sheet__scan" />
+              </div>
+
+              <span class="isd-dz-scene__merge"><v-icon size="18">mdi-plus</v-icon></span>
+            </div>
+
+            <div class="isd-dropzone__text-shell">
+              <Transition name="isd-feedback-text">
+                <div
+                  :key="props.scannerActive ? `scanner-${props.scannerFeedbackState}` : 'dropzone-idle'"
+                  class="isd-dropzone__text"
+                  aria-live="polite"
+                >
+                  <template v-if="props.scannerActive">
+                    <p class="isd-dropzone__title">{{ scannerFeedbackTitle }}</p>
+                    <p class="isd-dropzone__subtitle">{{ scannerFeedbackSubtitle }}</p>
+                  </template>
+                  <template v-else>
+                    <p class="isd-dropzone__title">
+                      {{ isDropzoneDragOver ? 'Loslassen und Seiten hinzufügen' : 'Seiten zu einem Dokument zusammenfügen' }}
+                    </p>
+                    <p class="isd-dropzone__subtitle">{{ dropzoneSubtitle }}</p>
+                  </template>
                 </div>
+              </Transition>
+            </div>
+            <div
+              class="isd-dropzone__actions"
+              :class="{ 'isd-dropzone__actions--single': !canTriggerScan }"
+              @click.stop
+            >
+              <div
+                v-if="canTriggerScan && props.scannerActive"
+                class="isd-dropzone__action isd-dropzone__action--scanner-active"
+                :class="{ 'isd-dropzone__action--scanner-pending': isScannerFeedbackPending }"
+                role="status"
+                aria-live="polite"
+              >
+                <span class="isd-dropzone__action-icon"><v-icon size="22">mdi-scanner</v-icon></span>
+                <span class="isd-dropzone__action-copy">
+                  <strong>{{ scannerFeedbackActionTitle }}</strong>
+                  <small>{{ scannerFeedbackActionSubtitle }}</small>
+                </span>
+                <button
+                  type="button"
+                  class="isd-dropzone__scan-cancel"
+                  aria-label="Scan abbrechen"
+                  @click="emitScan('cancel')"
+                >
+                  <v-icon size="16">mdi-close</v-icon>
+                  <span>Abbrechen</span>
+                </button>
+                <span class="isd-dropzone__action-progress" />
               </div>
-              <div class="isd-dropzone__text">
-                <p class="isd-dropzone__title">Seiten hierher ziehen</p>
-                <p class="isd-dropzone__subtitle">werden zu einem neuen Dokument zusammengefügt</p>
-              </div>
-            </template>
-            <div class="isd-dropzone__actions" @click.stop>
               <button
+                v-else-if="canTriggerScan"
                 type="button"
                 class="isd-dropzone__action"
                 :disabled="isUploadingSources || isCommitting"
-                @click="openFilePicker"
-              >
-                <v-icon size="16">mdi-file-pdf-box</v-icon>
-                <span>PDF auswählen</span>
-              </button>
-              <button
-                v-if="canTriggerScan"
-                type="button"
-                class="isd-dropzone__action"
-                :disabled="props.scannerActive || isUploadingSources || isCommitting"
                 :title="props.scanner?.name || 'Scanner'"
                 @click="emitScan('page')"
               >
-                <v-icon size="16">mdi-scanner</v-icon>
-                <span>{{ props.scannerActive ? 'Scanner aktiv' : 'Scannen' }}</span>
+                <span class="isd-dropzone__action-icon"><v-icon size="22">mdi-scanner</v-icon></span>
+                <span class="isd-dropzone__action-copy">
+                  <strong>{{ scannerFeedbackActionTitle }}</strong>
+                  <small>{{ scannerFeedbackActionSubtitle }}</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                class="isd-dropzone__action"
+                :class="{ 'isd-dropzone__action--supplemental': props.scannerActive }"
+                :disabled="isUploadingSources || isCommitting"
+                @click="openFilePicker"
+              >
+                <span class="isd-dropzone__action-icon">
+                  <v-icon :size="props.scannerActive ? 18 : 22">mdi-file-pdf-box</v-icon>
+                </span>
+                <span class="isd-dropzone__action-copy">
+                  <strong>{{ props.scannerActive ? 'PDFs zusätzlich hinzufügen' : dropzonePrimaryLabel }}</strong>
+                  <small v-if="!props.scannerActive">
+                    {{ isIOSDevice ? 'Eine oder mehrere Dateien' : 'Dateien oder ganzen Ordner öffnen' }}
+                  </small>
+                </span>
               </button>
             </div>
           </div>
@@ -804,7 +876,7 @@
             :disabled="isImportActionDisabled"
             @click="commitImport"
           >
-            {{ isCommitting ? 'Verarbeitung läuft…' : `Importieren (${importCount})` }}
+            {{ isCommitting ? 'Verarbeitung läuft…' : (isEmpty ? 'Importieren' : `Importieren (${importCount})`) }}
           </v-btn>
         </div>
       </div>
@@ -880,11 +952,23 @@ const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources',
 const canTriggerScan = computed(() => Boolean(props.scanner?.id));
 const isScannerFeedbackPending = computed(() => props.scannerFeedbackState === 'pending');
 const scannerFeedbackTitle = computed(() => (
-  isScannerFeedbackPending.value ? 'Scan wird übernommen…' : 'Scanner aktiv…'
+  isScannerFeedbackPending.value ? 'Seite wird übernommen' : 'Scanner erfasst die erste Seite'
 ));
 const scannerFeedbackSubtitle = computed(() => (
-  isScannerFeedbackPending.value ? 'Die neue Seite wird vorbereitet' : 'Die erste Seite erscheint gleich hier'
+  isScannerFeedbackPending.value
+    ? 'Die Vorschau wird gerade für den Import vorbereitet'
+    : 'Die Vorschau erscheint automatisch, sobald die Seite übertragen wurde'
 ));
+const scannerFeedbackActionTitle = computed(() => {
+  if (!props.scannerActive) return 'Scannen';
+  return isScannerFeedbackPending.value ? 'Seite wird übernommen' : 'Scanner arbeitet';
+});
+const scannerFeedbackActionSubtitle = computed(() => {
+  if (!props.scannerActive) return 'Neue Seiten direkt erfassen';
+  return isScannerFeedbackPending.value
+    ? 'Übertragung aktiv · Vorschau wird vorbereitet'
+    : 'Verbindung aktiv · Seite wird erwartet';
+});
 const scannerFeedbackCardLabel = computed(() => (
   isScannerFeedbackPending.value ? 'Wird übernommen…' : 'Scanne…'
 ));
@@ -1169,7 +1253,12 @@ const discardImportConfirmDescription = computed(() => {
   return `${stagedPageCountLabel.value} ${verb} noch nicht importiert. Wenn du sie verwirfst, geht dieser Importentwurf verloren.`;
 });
 const dropzoneHeadline = computed(() => (isIOSDevice.value ? 'PDFs hier ablegen' : 'PDFs oder Ordner hier ablegen'));
-const dropzonePrimaryLabel = computed(() => (isIOSDevice.value ? 'PDF auswählen' : 'PDFs oder Ordner auswählen'));
+const dropzonePrimaryLabel = computed(() => (isIOSDevice.value ? 'PDF auswählen' : 'PDFs oder Ordner wählen'));
+const dropzoneSubtitle = computed(() => {
+  if (isDropzoneDragOver.value) return 'Die neuen Seiten werden gleich für die Vorschau vorbereitet';
+  if (canTriggerScan.value) return `${dropzoneHeadline.value} oder direkt vom Scanner übernehmen`;
+  return dropzoneHeadline.value;
+});
 
 function importTimingNow() {
   if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
@@ -2405,7 +2494,7 @@ function confirmDiscardImport() {
 }
 
 function minimizeDialog() {
-  if (isCommitting.value) {
+  if (isCommitting.value || !hasStagedPages.value) {
     return;
   }
   isMinimizingToTray = true;
@@ -5394,10 +5483,90 @@ function openDialog() {
   isOpen.value = true;
 }
 
+// Ursprung für die Import-Fluganimation: Rechteck + Thumbnail des Dokuments im
+// Commit-Moment (Dialog noch offen). Für einen pixelgenauen FLIP-Start wird der
+// sichtbare RAHMEN der Miniatur gemessen, nicht nur das darin liegende Bild.
+// Dadurch stimmen Größe, Rundung, Border und der `contain`-Bildzuschnitt beim
+// Überblenden exakt überein.
+function getFlightOrigin() {
+  if (typeof document === 'undefined') return null;
+  const isVisible = (el) => {
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return r && r.width >= 4 && r.height >= 4 ? { element: el, rect: r } : null;
+  };
+  const firstVisible = (selectors) => {
+    for (const sel of selectors) {
+      const match = isVisible(document.querySelector(sel));
+      if (match) return match;
+    }
+    return null;
+  };
+  const origin = firstVisible([
+    '.isd-page-card--selected .isd-page-thumb-wrap',
+    '.isd-page-card .isd-page-thumb-wrap',
+    '.isd-preview-image',
+    '.isd-card'
+  ]);
+  if (!origin) return null;
+
+  const { element, rect } = origin;
+  const thumbImg = element instanceof HTMLImageElement
+    ? element
+    : element.querySelector('.isd-page-thumb, img');
+
+  // Genau das Bild der gemessenen Kachel verwenden. Ein anderes (z. B. die
+  // größere Detailvorschau) kann leicht abweichend beschnitten sein und wäre
+  // beim deckungsgleichen Start als Doppelkontur sichtbar.
+  const thumbUrl = thumbImg?.currentSrc || thumbImg?.getAttribute('src') || previewImageSrc.value || '';
+
+  const numberValue = (value, fallback = 0) => {
+    const parsed = Number.parseFloat(String(value || ''));
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  const frameStyle = window.getComputedStyle(element);
+  const imageStyle = thumbImg ? window.getComputedStyle(thumbImg) : null;
+  // Der Flug verwendet einen echten DOM-Klon dieser sichtbaren Kachel. So
+  // bleiben intrinsische Bildgröße, object-fit, Drehung und Clip identisch und
+  // können nicht durch einen zweiten Renderpfad auseinanderlaufen.
+  const visualClone = element.cloneNode(true);
+
+  // Farbmodus (S/W, Graustufen, Farbe) und eventuelle Drehung liegen als CSS
+  // auf dem Bild. Auch diese Darstellungseigenschaften werden übernommen.
+  let thumbFilter = 'none';
+  if (imageStyle?.filter && imageStyle.filter !== 'none') {
+    thumbFilter = imageStyle.filter;
+  }
+
+  return {
+    left: rect.left,
+    top: rect.top,
+    width: rect.width,
+    height: rect.height,
+    thumbUrl,
+    visualClone,
+    thumbFilter,
+    thumbTransform: imageStyle?.transform || 'none',
+    imageFit: imageStyle?.objectFit || 'contain',
+    imagePosition: imageStyle?.objectPosition || 'center center',
+    borderRadius: numberValue(frameStyle.borderTopLeftRadius, 4),
+    borderWidth: numberValue(frameStyle.borderTopWidth, 0),
+    borderColor: frameStyle.borderTopColor || 'transparent',
+    borderStyle: frameStyle.borderTopStyle || 'solid',
+    backgroundColor: frameStyle.backgroundColor || '#fff',
+    boxShadow: frameStyle.boxShadow || 'none',
+    outlineWidth: numberValue(frameStyle.outlineWidth, 0),
+    outlineColor: frameStyle.outlineColor || 'transparent',
+    outlineStyle: frameStyle.outlineStyle || 'solid',
+    outlineOffset: numberValue(frameStyle.outlineOffset, 0)
+  };
+}
+
 defineExpose({
   openDialog,
   openWithFiles,
-  openWithRemoteSources
+  openWithRemoteSources,
+  getFlightOrigin
 });
 
 onBeforeUnmount(() => {
@@ -5462,6 +5631,15 @@ onBeforeUnmount(() => {
 /* Leerzustand: deutlich schmaleres Fenster (nur Dropzone). */
 .isd-card--empty.pm-dialog {
   width: 680px;
+  height: min(740px, 88vh) !important;
+  min-height: min(740px, 88vh) !important;
+  max-height: min(740px, 88vh) !important;
+}
+
+@media (max-width: 720px) {
+  .isd-card--empty.pm-dialog {
+    width: calc(100vw - 24px);
+  }
 }
 
 .pm-no-animations .isd-card.pm-dialog {
@@ -5574,18 +5752,42 @@ onBeforeUnmount(() => {
 
 
 /* ── Dropzone ── */
-@keyframes isd-bounce {
-  0%, 100% { transform: translateY(0); }
-  50%       { transform: translateY(5px); }
+@keyframes isd-dz-scene-enter {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/* Schwebende vordere Seite des Papierstapels */
-@keyframes isd-dz-float {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-7px); }
+@keyframes isd-dz-sheet-arrive {
+  from { opacity: 0; transform: var(--isd-dz-start); }
+  to { opacity: 1; transform: var(--isd-dz-transform); }
+}
+
+@keyframes isd-dz-merge-enter {
+  from { opacity: 0; transform: scale(0.62) rotate(-22deg); }
+  to { opacity: 1; transform: scale(1) rotate(0); }
+}
+
+@keyframes isd-dz-scan {
+  0% { top: 8%; opacity: 0; }
+  4% { opacity: 0.82; }
+  23% { top: 82%; opacity: 0.62; }
+  28%, 100% { top: 86%; opacity: 0; }
+}
+
+@keyframes isd-dz-scan-active {
+  0% { top: 8%; opacity: 0; }
+  16% { opacity: 0.92; }
+  78% { top: 82%; opacity: 0.68; }
+  100% { top: 86%; opacity: 0; }
+}
+
+@keyframes isd-dropzone-action-progress {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(360%); }
 }
 
 .isd-dropzone {
+  position: relative;
   width: 100%;
   height: 100%;
   display: flex;
@@ -5594,159 +5796,628 @@ onBeforeUnmount(() => {
   justify-content: center;
   gap: 0;
   padding: 30px;
+  overflow: hidden;
   text-align: center;
-  border: 1.6px dashed rgba(var(--v-theme-on-surface), 0.16);
-  border-radius: 16px;
+  border: 1px solid transparent;
+  border-radius: 18px;
   cursor: default;
   box-sizing: border-box;
-  background-color: rgba(var(--v-theme-on-surface), 0.015);
+  background-color: transparent;
   transition:
     background-color 0.18s ease,
     border-color 0.18s ease,
     box-shadow 0.18s ease;
 }
 
-.isd-dropzone--over {
-  border-color: rgba(var(--v-theme-primary), 0.55);
-  background-color: rgba(var(--v-theme-primary), 0.08);
-  box-shadow:
-    inset 0 0 0 2px rgba(var(--v-theme-primary), 0.55),
-    0 0 60px rgba(var(--v-theme-primary), 0.18);
-}
-
-/* Papierstapel-Illustration (reines CSS) */
-.isd-dz-stack {
-  position: relative;
-  width: 150px;
-  height: 150px;
-  margin-bottom: 24px;
-}
-
-.isd-dz-stack__page {
+.isd-dropzone::before {
+  content: '';
   position: absolute;
-  width: 90px;
-  height: 112px;
-  border-radius: 9px;
+  inset: 18px;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.28;
+  background:
+    linear-gradient(90deg, rgba(var(--v-theme-primary), 0.72) 0 34px, transparent 34px) left top / 58px 1px no-repeat,
+    linear-gradient(180deg, rgba(var(--v-theme-primary), 0.72) 0 34px, transparent 34px) left top / 1px 58px no-repeat,
+    linear-gradient(270deg, rgba(var(--v-theme-primary), 0.72) 0 34px, transparent 34px) right top / 58px 1px no-repeat,
+    linear-gradient(180deg, rgba(var(--v-theme-primary), 0.72) 0 34px, transparent 34px) right top / 1px 58px no-repeat,
+    linear-gradient(90deg, rgba(var(--v-theme-primary), 0.72) 0 34px, transparent 34px) left bottom / 58px 1px no-repeat,
+    linear-gradient(0deg, rgba(var(--v-theme-primary), 0.72) 0 34px, transparent 34px) left bottom / 1px 58px no-repeat,
+    linear-gradient(270deg, rgba(var(--v-theme-primary), 0.72) 0 34px, transparent 34px) right bottom / 58px 1px no-repeat,
+    linear-gradient(0deg, rgba(var(--v-theme-primary), 0.72) 0 34px, transparent 34px) right bottom / 1px 58px no-repeat;
+  transition: inset 180ms ease, opacity 180ms ease;
 }
 
-.isd-dz-stack__page--back-a {
-  left: 22px;
-  top: 44px;
-  background: rgb(var(--v-theme-surface-2));
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
-  transform: rotate(-11deg);
+.isd-dropzone > * {
+  position: relative;
+  z-index: 1;
 }
 
-.isd-dz-stack__page--back-b {
-  left: 38px;
-  top: 34px;
-  background: rgb(var(--v-theme-surface-3));
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
-  transform: rotate(6deg);
+.isd-dropzone--over {
+  border-color: rgba(var(--v-theme-primary), 0.62);
+  background-color: rgba(var(--v-theme-primary), 0.05);
+  box-shadow:
+    inset 0 0 0 1px rgba(var(--v-theme-primary), 0.42),
+    inset 0 0 72px rgba(var(--v-theme-primary), 0.06),
+    0 0 54px rgba(var(--v-theme-primary), 0.12);
 }
 
-.isd-dz-stack__page--front {
-  left: 30px;
-  top: 20px;
+.isd-dropzone--over::before {
+  inset: 13px;
+  opacity: 0.88;
+}
+
+/* Grafische Papierwerkstatt (reines CSS): drei Quellen werden zu einer Seite. */
+.isd-dz-scene {
+  position: relative;
+  width: 270px;
+  height: 194px;
+  flex: none;
+  margin-bottom: 17px;
+  animation: isd-dz-scene-enter 380ms cubic-bezier(0.2, 0.82, 0.24, 1) backwards;
+  transition: transform 180ms cubic-bezier(0.2, 0.82, 0.24, 1);
+}
+
+.isd-dz-scene__halo {
+  position: absolute;
+  inset: 4px -22px -12px;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(var(--v-theme-primary), 0.15) 0%,
+    rgba(var(--v-theme-primary), 0.06) 43%,
+    transparent 72%
+  );
+  filter: blur(1px);
+}
+
+.isd-dz-scene__table {
+  position: absolute;
+  left: 26px;
+  right: 20px;
+  bottom: 3px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.12);
+  filter: blur(14px);
+  transform: scaleY(0.48);
+}
+
+.isd-dz-sheet {
+  --isd-dz-transform: translate3d(0, 0, 0);
+  position: absolute;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
+  border-radius: 10px;
+  background: rgb(var(--v-theme-surface));
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  transform: var(--isd-dz-transform);
+  transform-origin: center bottom;
+  transition:
+    opacity 220ms ease,
+    transform 340ms cubic-bezier(0.2, 0.82, 0.24, 1),
+    box-shadow 220ms ease;
+  animation: isd-dz-sheet-arrive 560ms cubic-bezier(0.2, 0.82, 0.24, 1) backwards;
+}
+
+.isd-dz-sheet--pdf {
+  --isd-dz-transform: rotate(-12deg);
+  --isd-dz-start: translate3d(-78px, 30px, 0) rotate(-27deg) scale(0.86);
+  left: 23px;
+  top: 48px;
+  z-index: 1;
+  width: 105px;
+  height: 132px;
+  padding: 14px 12px;
+  color: rgba(var(--v-theme-on-surface), 0.66);
+  background: color-mix(in srgb, rgb(var(--v-theme-surface-2)) 78%, rgb(var(--v-theme-surface)));
+  animation-delay: 40ms;
+  transition-duration: 260ms, 440ms, 220ms;
+  transition-delay: 0ms, 25ms, 0ms;
+}
+
+.isd-dz-sheet--image {
+  --isd-dz-transform: rotate(11deg);
+  --isd-dz-start: translate3d(78px, 24px, 0) rotate(25deg) scale(0.86);
+  right: 20px;
+  top: 39px;
+  z-index: 2;
+  width: 112px;
+  height: 132px;
+  padding: 10px;
+  background: color-mix(in srgb, rgb(var(--v-theme-primary)) 6%, rgb(var(--v-theme-surface)));
+  animation-delay: 90ms;
+  transition-duration: 280ms, 460ms, 220ms;
+  transition-delay: 35ms, 70ms, 0ms;
+}
+
+.isd-dz-sheet--front {
+  --isd-dz-transform: translate3d(0, 0, 0);
+  --isd-dz-start: translate3d(0, 58px, 0) scale(0.86);
+  left: 78px;
+  top: 18px;
+  z-index: 3;
+  width: 118px;
+  height: 152px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 16px 14px;
-  background: linear-gradient(160deg, var(--pm-thumb-bg), var(--pm-chip-bg));
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.4);
-  animation: isd-dz-float 4s ease-in-out infinite;
+  gap: 10px;
+  padding: 17px 15px;
+  background: linear-gradient(155deg, rgb(var(--v-theme-surface)), rgb(var(--v-theme-surface-2)));
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.19);
+  animation-delay: 150ms;
 }
 
-.isd-dz-stack__line {
-  height: 5px;
-  border-radius: 3px;
-  background: var(--pm-thumb-line);
+.isd-dz-sheet__kind {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  min-height: 19px;
+  padding: 0 7px;
+  border-radius: 5px;
+  color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.12);
+  font-size: 8px;
+  font-weight: 780;
+  letter-spacing: 0.08em;
 }
 
-.isd-dz-stack__line--accent {
-  height: 6px;
-  width: 70%;
+.isd-dz-sheet__copy {
+  display: grid;
+  gap: 7px;
+  margin-top: 13px;
+}
+
+.isd-dz-sheet__copy i,
+.isd-dz-sheet__headline,
+.isd-dz-sheet__caption {
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(var(--v-theme-on-surface), 0.15);
+}
+
+.isd-dz-sheet__copy i:nth-child(2) { width: 82%; }
+.isd-dz-sheet__copy i:nth-child(3) { width: 92%; }
+.isd-dz-sheet__copy i:nth-child(4) { width: 58%; }
+
+.isd-dz-sheet__photo {
+  position: relative;
+  display: block;
+  height: 76px;
+  overflow: hidden;
+  border-radius: 7px;
+  background: linear-gradient(155deg, rgba(var(--v-theme-primary), 0.18), rgba(var(--v-theme-primary), 0.05));
+}
+
+.isd-dz-sheet__sun {
+  position: absolute;
+  top: 13px;
+  right: 14px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: rgba(var(--v-theme-primary), 0.6);
+}
+
+.isd-dz-sheet__mountain {
+  position: absolute;
+  right: -3px;
+  bottom: 0;
+  left: -3px;
+  height: 48px;
+  clip-path: polygon(0 100%, 0 76%, 26% 39%, 44% 63%, 68% 18%, 100% 67%, 100% 100%);
+  background: rgba(var(--v-theme-primary), 0.22);
+}
+
+.isd-dz-sheet__mountain--front {
+  height: 38px;
+  clip-path: polygon(0 100%, 0 78%, 23% 40%, 39% 70%, 58% 28%, 78% 69%, 100% 48%, 100% 100%);
+  background: rgba(var(--v-theme-on-surface), 0.15);
+}
+
+.isd-dz-sheet__caption {
+  width: 62%;
+  margin-top: 11px;
+}
+
+.isd-dz-sheet__accent {
+  display: block;
+  width: 61%;
+  height: 7px;
+  flex: none;
+  border-radius: 999px;
   background: rgb(var(--v-theme-primary));
 }
 
-.isd-dz-stack__line--soft {
-  background: color-mix(in srgb, var(--pm-thumb-line) 60%, transparent);
+.isd-dz-sheet__headline {
+  width: 86%;
+  height: 7px;
+  margin-top: 2px;
+  background: rgba(var(--v-theme-on-surface), 0.26);
 }
 
-/* Scanner-Feedback-Icon (Scanner aktiv) */
-.isd-dropzone__icon {
-  color: rgb(var(--v-theme-primary));
-  margin-bottom: 18px;
+.isd-dz-sheet__copy--front {
+  gap: 8px;
+  margin-top: 1px;
 }
 
-.isd-dropzone__icon-svg {
-  animation: isd-bounce 2.2s ease-in-out infinite;
+.isd-dz-sheet__scan {
+  position: absolute;
+  top: 8%;
+  right: 7px;
+  left: 7px;
+  height: 32px;
+  pointer-events: none;
+  opacity: 0;
+  border-top: 1px solid rgba(var(--v-theme-primary), 0.86);
+  background: linear-gradient(to bottom, rgba(var(--v-theme-primary), 0.24), transparent);
+  filter: drop-shadow(0 -2px 5px rgba(var(--v-theme-primary), 0.35));
+  animation: isd-dz-scan 6.2s 720ms ease-in-out infinite;
+}
+
+.isd-dz-scene__merge {
+  position: absolute;
+  right: 25px;
+  bottom: 2px;
+  z-index: 5;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 4px solid rgb(var(--v-theme-surface));
+  border-radius: 50%;
+  color: rgb(var(--v-theme-on-primary));
+  background: rgb(var(--v-theme-primary));
+  box-shadow: 0 7px 18px rgba(var(--v-theme-primary), 0.32);
+  animation: isd-dz-merge-enter 420ms 430ms cubic-bezier(0.2, 0.82, 0.24, 1) backwards;
+  transition:
+    opacity 160ms ease,
+    transform 180ms cubic-bezier(0.2, 0.82, 0.24, 1),
+    box-shadow 180ms ease;
+}
+
+.isd-dropzone--over .isd-dz-scene {
+  transform: translateY(-2px) scale(1.035);
+}
+
+.isd-dropzone--over .isd-dz-sheet--pdf {
+  transform: translate3d(-15px, -7px, 0) rotate(-17deg);
+}
+
+.isd-dropzone--over .isd-dz-sheet--image {
+  transform: translate3d(15px, -9px, 0) rotate(16deg);
+}
+
+.isd-dropzone--over .isd-dz-sheet--front {
+  transform: translate3d(0, -9px, 0) scale(1.025);
+  box-shadow: 0 23px 46px rgba(15, 23, 42, 0.22);
+}
+
+.isd-dropzone--over .isd-dz-sheet__scan {
+  animation: isd-dz-scan-active 1.15s ease-in-out infinite;
+}
+
+.isd-dropzone--over .isd-dz-scene__merge {
+  transform: scale(1.1) rotate(8deg);
+  box-shadow: 0 9px 24px rgba(var(--v-theme-primary), 0.44);
+}
+
+.isd-dropzone--scanning::before {
+  opacity: 0.5;
+}
+
+.isd-dz-scene--scanning .isd-dz-scene__halo {
+  background: radial-gradient(
+    ellipse at center,
+    rgba(var(--v-theme-primary), 0.2) 0%,
+    rgba(var(--v-theme-primary), 0.08) 45%,
+    transparent 72%
+  );
+}
+
+.isd-dz-scene--scanning .isd-dz-sheet--pdf {
+  opacity: 0;
+  transform: translate3d(55px, -18px, 0) rotate(-2deg) scale(0.84);
+}
+
+.isd-dz-scene--scanning .isd-dz-sheet--image {
+  opacity: 0;
+  transform: translate3d(-60px, -12px, 0) rotate(2deg) scale(0.84);
+}
+
+.isd-dz-scene--scanning .isd-dz-sheet--front {
+  box-shadow: 0 18px 34px rgba(15, 23, 42, 0.16);
+}
+
+.isd-dz-scene--scanning .isd-dz-sheet__scan {
+  animation: isd-dz-scan-active 1.5s 320ms ease-in-out infinite;
+}
+
+.isd-dz-scene--scanning .isd-dz-scene__merge {
+  opacity: 0;
+  transform: scale(0.72) rotate(18deg);
+}
+
+.isd-feedback-text-enter-active,
+.isd-feedback-text-leave-active {
+  transition: opacity 150ms ease, transform 180ms cubic-bezier(0.2, 0.82, 0.24, 1);
+}
+
+.isd-feedback-text-enter-from {
+  opacity: 0;
+  transform: translateY(5px);
+}
+
+.isd-feedback-text-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+.isd-dropzone__text-shell {
+  width: 100%;
+  min-height: 58px;
+  display: grid;
+  place-items: center;
 }
 
 .isd-dropzone__text {
+  grid-area: 1 / 1;
+  width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  align-items: center;
+  gap: 8px;
 }
 
 .isd-dropzone__title {
   margin: 0;
-  font-size: 19px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 680;
   line-height: 1.3;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.018em;
   color: rgb(var(--v-theme-on-surface));
 }
 
 .isd-dropzone__subtitle {
+  max-width: 440px;
   margin: 0;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.55;
   color: rgb(var(--v-theme-text-muted));
 }
 
 .isd-dropzone__actions {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  width: 260px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  width: 400px;
   max-width: 100%;
-  margin-top: 28px;
+  margin-top: 25px;
+}
+
+.isd-dropzone__actions--single {
+  width: 400px;
 }
 
 .isd-dropzone__action {
-  display: inline-flex;
+  position: relative;
+  display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 9px;
+  justify-content: flex-start;
+  gap: 12px;
   width: 100%;
-  min-height: 44px;
-  padding: 13px 20px;
+  min-width: 0;
+  min-height: 68px;
+  padding: 11px 13px;
+  overflow: hidden;
   border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
-  border-radius: 11px;
-  background: rgba(var(--v-theme-on-surface), 0.03);
+  border-radius: 12px;
+  background: color-mix(
+    in srgb,
+    rgb(var(--v-theme-surface-2)) 48%,
+    rgb(var(--v-theme-surface))
+  );
   color: rgba(var(--v-theme-on-surface), 0.82);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.055);
   font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0;
+  text-align: left;
   cursor: pointer;
   transition:
+    transform 160ms cubic-bezier(0.2, 0.82, 0.24, 1),
+    box-shadow 160ms ease,
     background-color 0.15s ease,
     border-color 0.15s ease,
     color 0.15s ease;
 }
 
-.isd-dropzone__action:hover:not(:disabled),
-.isd-dropzone__action:focus-visible {
+.isd-dropzone__action-icon {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.11);
+}
+
+.isd-dropzone__action-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.isd-dropzone__action-copy strong {
+  font-size: 13.5px;
+  font-weight: 680;
+  line-height: 1.25;
+}
+
+.isd-dropzone__action-copy small {
+  overflow: hidden;
+  color: rgba(var(--v-theme-on-surface), 0.54);
+  font-size: 10.5px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.isd-dropzone__action:hover:not(:disabled),
+button.isd-dropzone__action:focus-visible {
   border-color: rgba(var(--v-theme-primary), 0.4);
+  background: color-mix(
+    in srgb,
+    rgb(var(--v-theme-primary)) 5%,
+    rgb(var(--v-theme-surface))
+  );
   color: rgb(var(--v-theme-on-surface));
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.1);
+  transform: translateY(-1px);
   outline: none;
+}
+
+button.isd-dropzone__action:focus-visible {
+  outline: 2px solid rgba(var(--v-theme-primary), 0.48);
+  outline-offset: 3px;
+}
+
+button.isd-dropzone__action:active:not(:disabled) {
+  transform: translateY(0) scale(0.99);
+  box-shadow: 0 2px 7px rgba(15, 23, 42, 0.08);
 }
 
 .isd-dropzone__action:disabled {
   cursor: default;
   opacity: 0.48;
+  transform: none;
+}
+
+button.isd-dropzone__action--supplemental {
+  width: auto;
+  min-height: 40px;
+  justify-self: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border-color: transparent;
+  border-radius: 9px;
+  color: rgba(var(--v-theme-on-surface), 0.62);
+  background: transparent;
+  box-shadow: none;
+}
+
+.isd-dropzone__action--supplemental .isd-dropzone__action-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 0;
+  background: transparent;
+}
+
+.isd-dropzone__action--supplemental .isd-dropzone__action-copy strong {
+  font-size: 12.5px;
+  font-weight: 640;
+}
+
+button.isd-dropzone__action--supplemental:hover:not(:disabled),
+button.isd-dropzone__action--supplemental:focus-visible {
+  border-color: rgba(var(--v-theme-on-surface), 0.1);
+  color: rgba(var(--v-theme-on-surface), 0.82);
+  background: rgba(var(--v-theme-on-surface), 0.035);
+  box-shadow: none;
+  transform: none;
+}
+
+.isd-dropzone__action--scanner-active {
+  border-color: rgba(var(--v-theme-primary), 0.34);
+  opacity: 1;
+  background: color-mix(
+    in srgb,
+    rgb(var(--v-theme-primary)) 7%,
+    rgb(var(--v-theme-surface))
+  );
+  color: rgb(var(--v-theme-on-surface));
+  cursor: default;
+  box-shadow:
+    0 0 0 1px rgba(var(--v-theme-primary), 0.08),
+    0 5px 14px rgba(15, 23, 42, 0.07);
+}
+
+.isd-dropzone__action--scanner-active .isd-dropzone__action-icon {
+  background: rgba(var(--v-theme-primary), 0.17);
+}
+
+.isd-dropzone__action--scanner-active .isd-dropzone__action-copy {
+  flex: 1 1 auto;
+}
+
+.isd-dropzone__action--scanner-pending {
+  border-color: rgba(var(--v-theme-primary), 0.46);
+  background: color-mix(
+    in srgb,
+    rgb(var(--v-theme-primary)) 10%,
+    rgb(var(--v-theme-surface))
+  );
+}
+
+.isd-dropzone__scan-cancel {
+  min-height: 30px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.13);
+  border-radius: 8px;
+  color: rgba(var(--v-theme-on-surface), 0.66);
+  background: rgba(var(--v-theme-surface), 0.64);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+
+.isd-dropzone__scan-cancel:hover {
+  border-color: rgba(var(--v-theme-on-surface), 0.26);
+  color: rgb(var(--v-theme-on-surface));
+  background: rgb(var(--v-theme-surface));
+}
+
+.isd-dropzone__scan-cancel:focus-visible {
+  outline: 2px solid rgba(var(--v-theme-primary), 0.48);
+  outline-offset: 2px;
+}
+
+.isd-dropzone__scan-cancel:active {
+  transform: scale(0.97);
+}
+
+.isd-dropzone__action-progress {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  overflow: hidden;
+  background: rgba(var(--v-theme-primary), 0.1);
+}
+
+.isd-dropzone__action-progress::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 30%;
+  border-radius: 999px;
+  background: rgb(var(--v-theme-primary));
+  box-shadow: 0 0 8px rgba(var(--v-theme-primary), 0.48);
+  animation: isd-dropzone-action-progress 1.4s ease-in-out infinite;
+}
+
+.isd-dropzone__action--scanner-pending .isd-dropzone__action-progress::after {
+  width: 42%;
+  animation-duration: 0.9s;
 }
 
 /* ── Page grid ── */
@@ -6038,16 +6709,6 @@ onBeforeUnmount(() => {
   }
 }
 
-.isd-dropzone__icon--scanning .isd-dropzone__icon-svg {
-  color: rgb(var(--v-theme-primary));
-  animation: isd-scanning-icon-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes isd-scanning-icon-pulse {
-  0%, 100% { opacity: 0.55; }
-  50% { opacity: 1; }
-}
-
 .isd-toolbar {
   position: absolute;
   bottom: 0;
@@ -6276,9 +6937,6 @@ onBeforeUnmount(() => {
   }
 }
 
-/* Container: spannt die volle Breite des Hauptbereichs und endet exakt an der
-   Toolbar-Oberkante; overflow clippt die wandernde Bande, damit sie nicht in die
-   untenliegende Toolbar läuft. */
 .isd-ai-scan-line {
   position: absolute;
   z-index: 3;
@@ -6290,7 +6948,6 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-/* Wandernde Scan-Bande (volle Breite), animiert per top innerhalb des Containers. */
 .isd-ai-scan-line::before {
   content: '';
   position: absolute;
@@ -6724,5 +7381,113 @@ onBeforeUnmount(() => {
 .isd-import-btn:not(.v-btn--disabled) {
   font-weight: 700;
   box-shadow: 0 2px 12px rgba(var(--v-theme-primary), 0.42) !important;
+}
+
+@media (max-height: 760px) and (min-width: 601px) {
+  .isd-grid-scroll {
+    padding: 24px;
+  }
+
+  .isd-dropzone {
+    height: auto;
+    min-height: 430px;
+    padding: 22px;
+    overflow: visible;
+  }
+
+  .isd-dz-scene {
+    width: 270px;
+    height: 160px;
+    margin: -12px 0 4px;
+    transform: scale(0.84);
+  }
+
+  .isd-dropzone--over .isd-dz-scene {
+    transform: translateY(-2px) scale(0.88);
+  }
+
+  .isd-dropzone__actions {
+    margin-top: 14px;
+  }
+}
+
+@media (max-width: 600px) {
+  .isd-grid-scroll {
+    padding: 16px;
+  }
+
+  .isd-dropzone {
+    height: auto;
+    min-height: 100%;
+    padding: 24px 18px;
+    overflow: visible;
+  }
+
+  .isd-dropzone::before {
+    inset: 11px;
+  }
+
+  .isd-dz-scene {
+    width: 270px;
+    height: 174px;
+    margin: -9px 0 9px;
+    transform: scale(0.84);
+  }
+
+  .isd-dropzone--over .isd-dz-scene {
+    transform: translateY(-2px) scale(0.88);
+  }
+
+  .isd-dropzone__title {
+    font-size: 18px;
+  }
+
+  .isd-dropzone__actions,
+  .isd-dropzone__actions--single {
+    width: min(320px, 100%);
+    grid-template-columns: minmax(0, 1fr);
+    margin-top: 20px;
+  }
+
+  .isd-dropzone__action {
+    min-height: 62px;
+  }
+
+  .isd-dropzone__action--supplemental {
+    min-height: 40px;
+  }
+
+  .isd-footer-status {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .isd-dz-scene,
+  .isd-dz-sheet,
+  .isd-dz-scene__merge,
+  .isd-dz-sheet__scan,
+  .isd-dropzone__action-progress::after {
+    animation: none;
+  }
+
+  .isd-dz-scene,
+  .isd-dz-sheet,
+  .isd-dz-scene__merge,
+  .isd-dropzone,
+  .isd-dropzone::before,
+  .isd-dropzone__action,
+  .isd-feedback-text-enter-active,
+  .isd-feedback-text-leave-active {
+    transition: none;
+  }
+}
+
+:global(.pm-no-animations) .isd-dz-scene,
+:global(.pm-no-animations) .isd-dz-sheet,
+:global(.pm-no-animations) .isd-dz-scene__merge,
+:global(.pm-no-animations) .isd-dz-sheet__scan,
+:global(.pm-no-animations) .isd-dropzone__action-progress::after {
+  animation: none;
 }
 </style>

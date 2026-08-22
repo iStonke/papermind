@@ -29,7 +29,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "tagDrawerRememberState": True,
         "sidebar_show_recent": True,
         "sidebar_show_untagged": True,
-        "sidebar_show_favorites": True,
         "sidebar_show_chat": True,
         "sidebar_show_dossiers": True,
         "sidebar_sections": [
@@ -170,6 +169,7 @@ def _merge_defaults(raw_settings: dict[str, Any] | None) -> dict[str, Any]:
     ui_settings = base.get("ui")
     if isinstance(ui_settings, dict):
         ui_settings.pop("color_variant", None)
+        ui_settings.pop("sidebar_show_favorites", None)
     return _deep_merge_dict(DEFAULT_SETTINGS, base)
 
 
@@ -191,9 +191,11 @@ class SettingsService:
         if not isinstance(ui, dict):
             return {}
         clean_ui = dict(ui)
-        had_legacy_color_variant = "color_variant" in clean_ui
+        legacy_keys = {"color_variant", "sidebar_show_favorites"}
+        had_legacy_ui_setting = any(key in clean_ui for key in legacy_keys)
         clean_ui.pop("color_variant", None)
-        if had_legacy_color_variant:
+        clean_ui.pop("sidebar_show_favorites", None)
+        if had_legacy_ui_setting:
             current = dict(row.settings_json)
             current["ui"] = clean_ui
             row.settings_json = current

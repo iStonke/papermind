@@ -16,7 +16,7 @@ test('sidebar setting sublines describe their areas instead of repeating visibil
   const descriptions = [...sidebarSection.matchAll(/class="pm-setting-description">([\s\S]*?)<\/div>/g)]
     .map((match) => plainText(match[1]));
 
-  assert.equal(descriptions.length, 10);
+  assert.equal(descriptions.length, 9);
   for (const description of descriptions) {
     assert.doesNotMatch(description, /\banzeigen\b|Eintrag in der Seitenleiste/i);
     assert.ok(description.length >= 35, `Description is too short: ${description}`);
@@ -33,7 +33,6 @@ test('sidebar settings mirror the navigation icons beside their entries', () => 
     'mdi-brain',
     'mdi-tray-arrow-down',
     'mdi-tag-off-outline',
-    'mdi-star-outline',
     'mdi-text-box-remove-outline',
   ]) {
     assert.match(sidebarSection, new RegExp(`<v-icon size="18">${icon}<\\/v-icon>`));
