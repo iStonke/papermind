@@ -3632,13 +3632,74 @@ const hasActiveListFilter = computed(() => {
       documentListQuery.dateTo
   );
 });
+const isDocumentListLoading = computed(
+  () => isDocumentListSettling.value || isLoadingDocuments.value
+);
+
+// Bekannter Item-Zähler des Zielbereichs aus den Sidebar-Counts – sofern der
+// aktuelle Bereich einem Count eindeutig entspricht und KEINE Zusatzfilter
+// (Freitext, Datum, Typ, Status) aktiv sind, die die Counts nicht abbilden.
+// Ergebnis: null = unbekannt, sonst die erwartete Anzahl.
+const knownSectionDocumentCount = computed(() => {
+  const q = (documentListQuery.q || '').trim();
+  if (
+    q ||
+    documentListQuery.dateFrom ||
+    documentListQuery.dateTo ||
+    documentListQuery.documentType ||
+    documentListQuery.status
+  ) {
+    return null;
+  }
+  const counts = sidebarCounts.value;
+  if (!counts) return null;
+
+  if (activeSavedSearchId.value) {
+    const folder = counts.smart_folders?.[activeSavedSearchId.value];
+    const saved = counts.saved_searches?.[activeSavedSearchId.value];
+    if (typeof folder === 'number') return folder;
+    if (typeof saved === 'number') return saved;
+    return null;
+  }
+
+  // Kombinierter Mehrfach-Tag-Filter lässt sich nicht aus Einzel-Counts ableiten.
+  if (activeTagFilterCount.value > 1) return null;
+  const singleTagId = documentListQuery.tagId || (activeTagFilterCount.value === 1 ? activeTagFilterIds.value[0] : '');
+  if (singleTagId) {
+    const tagCount = counts.tags?.[singleTagId];
+    return typeof tagCount === 'number' ? tagCount : null;
+  }
+
+  switch (activeView.value) {
+    case 'all':       return documentListQuery.untagged ? null : counts.all_documents;
+    case 'untagged':  return counts.untagged;
+    case 'favorites': return counts.favorites_count;
+    case 'no_text':   return counts.no_text_count;
+    case 'trash':     return counts.trash_count;
+    default:          return null; // recent, imports, attention, dashboard, category …
+  }
+});
+
+// Vorab bekannt, dass der Bereich leer ist → Platzhalter sofort zeigen, ohne den
+// Umweg über das Skelett (auf langsameren Backends wie dem Pi lief sonst der
+// Skelett-Flash, weil der Fetch länger als die Verzögerung dauert).
+const knownEmptyTarget = computed(() => knownSectionDocumentCount.value === 0);
+
 const showDocumentListLoadingState = computed(() =>
   !isChatView.value
+  && !knownEmptyTarget.value
   && (isDocumentListSettling.value || (documents.value.length === 0 && isLoadingDocuments.value))
 );
-const showDocumentListEmptyState = computed(() =>
-  !isDocumentListSettling.value && !isLoadingDocuments.value && documents.value.length === 0
-);
+const showDocumentListEmptyState = computed(() => {
+  // Während des Ladens ist der noch sichtbare Bestand der ALTE Bereich – daher
+  // nur die Vorhersage nutzen: bei vorab bekanntem Leer-Ziel sofort Platzhalter
+  // (kein Skelett), sonst übernimmt der Lade-/Skelett-Zweig.
+  if (isDocumentListLoading.value) {
+    return knownEmptyTarget.value;
+  }
+  // Nach dem Laden entscheidet der tatsächliche Bestand.
+  return documents.value.length === 0;
+});
 const recentImportWindowLabel = computed(() => {
   const parsedHours = Number(appSettings.value?.documents?.recent_import_window_hours || 24);
   const hours = Number.isFinite(parsedHours) && parsedHours > 0 ? Math.round(parsedHours) : 24;
