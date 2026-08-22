@@ -12355,8 +12355,12 @@ onBeforeUnmount(() => {
 }
 
 .document-row__snippet mark {
-  background: rgba(var(--v-theme-primary), 0.13);
-  color: rgba(var(--v-theme-on-surface), 0.9);
+  /* Textmarker-Gelb mit festem dunklem Text: hebt sich auf hellen wie auf
+     selektierten (teal getönten) Zeilen klar ab und bleibt in beiden Themes
+     lesbar – wie eine klassische Fund-Markierung. Bewusst kein Theme-Token,
+     damit die Signalfarbe im Dark Mode nicht verblasst. */
+  background: #ffdb66;
+  color: #2b2b28;
   font-weight: 600;
   padding: 0 2px;
   border-radius: 3px;

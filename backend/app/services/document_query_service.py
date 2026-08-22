@@ -40,7 +40,7 @@ from app.services.settings import SettingsService
 settings = get_settings()
 FTS_HEADLINE_OPTIONS = (
     "StartSel=<mark>,StopSel=</mark>,MaxFragments=2,MinWords=6,"
-    "MaxWords=16,ShortWord=2,FragmentDelimiter= … "
+    "MaxWords=24,ShortWord=2,FragmentDelimiter= … "
 )
 
 
