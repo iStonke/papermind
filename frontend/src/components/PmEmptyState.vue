@@ -39,7 +39,7 @@ defineProps({
   padding: 24px;
   width: 100%;
   height: 100%;
-  animation: pm-empty-state-enter var(--pm-duration-normal, 210ms) var(--pm-easing-decel, ease-out) both;
+  animation: pm-empty-state-fade 300ms var(--pm-easing, ease) both;
 }
 
 .pm-empty-state__illustration {
@@ -48,7 +48,8 @@ defineProps({
   place-items: center;
   width: 88px;
   height: 88px;
-  animation: pm-empty-state-illustration-enter 320ms var(--pm-easing-decel, ease-out) 70ms both;
+  /* Feder-Pop mit Overshoot und kleinem Dreh-Wackler beim Erscheinen. */
+  animation: pm-empty-state-pop 640ms cubic-bezier(0.34, 1.56, 0.64, 1) 80ms both;
 }
 
 .pm-empty-state__halo {
@@ -59,10 +60,22 @@ defineProps({
   background: color-mix(in srgb, var(--pm-accent, currentColor) 7%, transparent);
 }
 
+/* Ein Akzent-Ring pulsiert einmalig aus dem Halo heraus. */
+.pm-empty-state__halo::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--pm-accent, currentColor) 48%, transparent);
+  animation: pm-empty-state-halo-pulse 900ms var(--pm-easing-decel, ease-out) 260ms both;
+}
+
 .pm-empty-state__icon {
   opacity: 0.38;
   flex-shrink: 0;
   z-index: 1;
+  /* Sanftes Dauer-Schweben nach dem Einfliegen – gibt dem Platzhalter Leben. */
+  animation: pm-empty-state-float 4.5s ease-in-out 760ms infinite;
 }
 
 .pm-empty-state__body {
@@ -78,6 +91,7 @@ defineProps({
   font-weight: 600;
   line-height: 1.3;
   color: rgb(var(--v-theme-on-surface));
+  animation: pm-empty-state-rise 440ms var(--pm-easing-decel, ease-out) 240ms both;
 }
 
 .pm-empty-state--md .pm-empty-state__title { font-size: 0.94rem; }
@@ -88,30 +102,59 @@ defineProps({
   font-size: 0.82rem;
   line-height: 1.5;
   color: rgb(var(--v-theme-on-surface) / 0.55);
+  animation: pm-empty-state-rise 440ms var(--pm-easing-decel, ease-out) 320ms both;
 }
 
 .pm-empty-state__action {
   margin-top: 8px;
+  animation: pm-empty-state-rise 440ms var(--pm-easing-decel, ease-out) 400ms both;
 }
 
-@keyframes pm-empty-state-enter {
-  from { opacity: 0; transform: translateY(6px); }
+@keyframes pm-empty-state-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes pm-empty-state-pop {
+  0%   { opacity: 0; transform: scale(0.4) rotate(-9deg); }
+  55%  { opacity: 1; transform: scale(1.1) rotate(4deg); }
+  75%  { transform: scale(0.96) rotate(-2deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0); }
+}
+
+@keyframes pm-empty-state-halo-pulse {
+  0%   { opacity: 0.75; transform: scale(0.72); }
+  100% { opacity: 0; transform: scale(1.95); }
+}
+
+@keyframes pm-empty-state-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-3px); }
+}
+
+@keyframes pm-empty-state-rise {
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes pm-empty-state-illustration-enter {
-  from { opacity: 0; transform: translateY(4px) scale(0.96); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
 :global(.pm-no-animations) .pm-empty-state,
-:global(.pm-no-animations) .pm-empty-state__illustration {
+:global(.pm-no-animations) .pm-empty-state__illustration,
+:global(.pm-no-animations) .pm-empty-state__halo::after,
+:global(.pm-no-animations) .pm-empty-state__icon,
+:global(.pm-no-animations) .pm-empty-state__title,
+:global(.pm-no-animations) .pm-empty-state__subtitle,
+:global(.pm-no-animations) .pm-empty-state__action {
   animation: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .pm-empty-state,
-  .pm-empty-state__illustration {
+  .pm-empty-state__illustration,
+  .pm-empty-state__halo::after,
+  .pm-empty-state__icon,
+  .pm-empty-state__title,
+  .pm-empty-state__subtitle,
+  .pm-empty-state__action {
     animation: none;
   }
 }
