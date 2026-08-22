@@ -12152,9 +12152,13 @@ onBeforeUnmount(() => {
 }
 
 .document-row__thumb {
-  width: 48px;
-  align-self: stretch;
-  min-height: 62px;
+  width: 54px;
+  /* Feste Kachel im echten Seitenverhältnis (Thumbnail-Bild ~247×320) statt auf
+     die volle Zeilenhöhe gestreckt. Sonst wäre die Box ~1:2,3 und cover würde die
+     Seite seitlich beschneiden → langgezogener Mittelstreifen. */
+  aspect-ratio: 247 / 320;
+  align-self: center;
+  min-height: 0;
   border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 6px;
   overflow: hidden;
@@ -12169,6 +12173,8 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  /* Bei minimalem Rest-Crop zuerst den Briefkopf zeigen, nicht die Blattmitte. */
+  object-position: top center;
 }
 
 .document-row__thumb-fallback {
