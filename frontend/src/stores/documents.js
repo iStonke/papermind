@@ -16,6 +16,7 @@ import {
   listDocuments,
   listSmartFolderDocuments,
   markDocumentViewed,
+  markDocumentUnread,
   patchDocument as apiPatchDocument,
   queueOcr,
   runAutoTags,
@@ -93,6 +94,26 @@ export const useDocumentStore = defineStore('documents', () => {
     }
   }
 
+  /** Markiert ein Dokument als ungelesen (optimistisch). */
+  async function markUnread(documentId) {
+    const listDoc   = documents.value.find((d) => d.id === documentId);
+    const detailDoc = selectedDocumentDetail.value?.id === documentId ? selectedDocumentDetail.value : null;
+    const wasUnread = Boolean(listDoc?.is_unread ?? detailDoc?.is_unread);
+    if (wasUnread) return;
+
+    // Optimistisch in Liste + Detail aktualisieren
+    if (listDoc)   patchDocumentInList({ id: documentId, is_unread: true });
+    if (detailDoc) selectedDocumentDetail.value = { ...detailDoc, is_unread: true };
+
+    try {
+      await markDocumentUnread(documentId);
+    } catch {
+      // Rollback
+      if (listDoc)   patchDocumentInList({ id: documentId, is_unread: false });
+      if (detailDoc) selectedDocumentDetail.value = { ...detailDoc, is_unread: false };
+    }
+  }
+
   /** PATCH /api/documents/{id} */
   async function patchDocument(id, body) {
     const updated = await apiPatchDocument(id, body);
@@ -149,6 +170,7 @@ export const useDocumentStore = defineStore('documents', () => {
     fetchDocuments,
     fetchDocumentDetail,
     markViewed,
+    markUnread,
     patchDocument,
     deleteDocument,
     syncTags,

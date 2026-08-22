@@ -1285,6 +1285,16 @@ class DocumentService:
         logger.info("document marked viewed id=%s", document_id)
         return True
 
+    def mark_document_unread(self, document_id: uuid.UUID) -> bool:
+        document = self.get_document_or_404(document_id)
+        if document.is_unread:
+            return False
+
+        document.is_unread = True
+        self.db.commit()
+        logger.info("document marked unread id=%s", document_id)
+        return True
+
     def trash_document(self, document_id: uuid.UUID) -> Document:
         """Soft-Delete: Dokument in den Papierkorb verschieben."""
         document = self.get_document_or_404(document_id)

@@ -60,6 +60,10 @@ export const toggleFavoriteApi = (id) =>
 export const markDocumentViewed = (id) =>
   apiPost(`/api/documents/${id}/mark-viewed`, undefined);
 
+/** POST /api/documents/{id}/mark-unread */
+export const markDocumentUnread = (id) =>
+  apiPost(`/api/documents/${id}/mark-unread`, undefined);
+
 /** POST /api/documents/{id}/tags  – ersetzt alle Tags */
 export const setDocumentTags = (id, tagIds) =>
   apiPost(`/api/documents/${id}/tags`, { tag_ids: tagIds });

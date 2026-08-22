@@ -630,6 +630,7 @@
               @download="downloadDocumentFromList"
               @rename="(doc) => renameDocumentDialogRef?.open(doc)"
               @manage-tags="openTagManagerFromList"
+              @mark-unread="markDocumentUnreadFromList"
               @delete="openDeleteDocumentDialog"
               @restore="restoreDocumentFromTrash"
               @delete-permanent="openPermanentDeleteDialog"
@@ -8550,6 +8551,14 @@ function downloadDocumentFromList(document) {
     return;
   }
   triggerBrowserDownload(documentDownloadUrl(documentId, 'searchable'));
+}
+
+function markDocumentUnreadFromList(document) {
+  const documentId = String(document?.id || '').trim();
+  if (!documentId) {
+    return;
+  }
+  void docStore.markUnread(documentId);
 }
 
 async function saveMetadata(options = {}) {

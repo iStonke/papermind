@@ -399,6 +399,18 @@ def mark_document_viewed(document_id: uuid.UUID, db: Session = Depends(get_db), 
     return OkResponse(ok=True)
 
 
+@router.post(
+    "/{document_id}/mark-unread",
+    response_model=OkResponse,
+    summary="Mark document as unread",
+    responses={404: {"model": ErrorResponse}},
+)
+def mark_document_unread(document_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> OkResponse:
+    service = DocumentService(db, user.id)
+    service.mark_document_unread(document_id)
+    return OkResponse(ok=True)
+
+
 @router.get(
     "/{document_id}/file",
     summary="Download/stream document file by role",
