@@ -3570,26 +3570,25 @@ const previewRenderKey = computed(() => {
   return `${selectedDocumentId.value}:${previewReloadNonce.value}`;
 });
 
-// Vorschau-Rolle (original vs. ocr) als eigener, stabiler String. Ändert sich
-// nur, wenn OCR fertig wird – nicht bei jedem Detail-Refresh des OCR-Pollings.
-const previewRole = computed(() => {
-  const id = selectedDocumentId.value;
-  if (id && selectedDocumentDetail.value?.id === id && hasOcrFile(selectedDocumentDetail.value)) {
-    return 'ocr';
-  }
-  return 'original';
-});
-
-// Stabile Vorschau-URL. Hängt bewusst NUR an Dokument-ID + Rolle, NICHT am
-// rotierenden Datei-Token (authedUrl liest es nicht-reaktiv) und nicht an
-// sonstigen Re-Renders. Sonst wechselte :src bei jeder Token-Erneuerung (~4,5
-// min) oder bei jedem OCR-Poll → die Vorschau lud sichtbar neu ("Blitz"). Der
-// einmal geladene PDF-Stream bleibt gültig; ein abgelaufenes Token beim
-// Erstaufruf fängt der Fehler-Retry (previewReloadNonce → Key-Wechsel) ab.
-// previewReloadNonce (siehe Deklaration oben) wird zusätzlich als Cache-Bust an
-// die URL gehängt: Ein bloßer Key-Remount würde dieselbe URL neu anfordern und
-// könnte den HTTP-gecachten (max-age=300) alten PDF-Inhalt liefern – nach einer
-// dauerhaften Umsortierung braucht es aber die frischen Bytes.
+// Stabile Vorschau-URL. Hängt bewusst NUR an Dokument-ID (+ Cache-Bust-Nonce),
+// NICHT am rotierenden Datei-Token (authedUrl liest es nicht-reaktiv) und nicht
+// an sonstigen Re-Renders. Sonst wechselte :src bei jeder Token-Erneuerung
+// (~4,5 min) oder bei jedem OCR-Poll → die Vorschau lud sichtbar neu ("Blitz").
+//
+// Rolle = `searchable`: Der Server liefert die durchsuchbare OCR-Fassung, sofern
+// vorhanden, sonst das Original (siehe _select_exportable_file im Backend). So
+// steht die Vorschau-URL SOFORT bei der Auswahl fest – ohne auf das Dokument-
+// Detail zu warten, das erst verrät, ob eine OCR-Datei existiert. Früher wurde
+// erst mit role=original geladen und nach Eintreffen des Details erneut mit
+// role=ocr → jedes OCR-Dokument wurde beim Öffnen ZWEIMAL vollständig geladen.
+// Der Server-Fallback vermeidet zugleich einen 404, falls ocr_status zwar
+// "done" ist, die OCR-Datei aber fehlt.
+//
+// previewReloadNonce (siehe Deklaration oben) wird als Cache-Bust an die URL
+// gehängt: Ein bloßer Key-Remount würde dieselbe URL neu anfordern und könnte
+// den HTTP-gecachten (max-age=300) alten Inhalt liefern – nach einer Umsortierung
+// oder wenn OCR erst NACH dem Öffnen fertig wird (Watcher unten) braucht es aber
+// die frischen Bytes.
 const previewSrc = computed(() => {
   const id = selectedDocumentId.value;
   if (!id) {
@@ -3597,8 +3596,26 @@ const previewSrc = computed(() => {
   }
   const nonce = previewReloadNonce.value;
   const cacheBust = nonce > 0 ? `&v=${nonce}` : '';
-  return authedUrl(`${apiBaseUrl}/api/documents/${id}/file?role=${previewRole.value}${cacheBust}`);
+  return authedUrl(`${apiBaseUrl}/api/documents/${id}/file?role=searchable${cacheBust}`);
 });
+
+// Wird die durchsuchbare (OCR-)Fassung erst NACH dem Öffnen fertig, liefert die
+// stabile searchable-URL weiterhin das zuvor geladene Original. Genau diesen
+// einen Übergang (noch keine OCR-Datei → OCR-Datei vorhanden) quittieren wir mit
+// einem Cache-Bust, damit die Vorschau die durchsuchbare Fassung inkl. Textebene
+// nachlädt. Der strikte `false`-Check (nicht `null`) verhindert einen unnötigen
+// Reload direkt nach dem Öffnen eines bereits OCR'ten Dokuments.
+watch(
+  () =>
+    selectedDocumentDetail.value?.id === selectedDocumentId.value
+      ? hasOcrFile(selectedDocumentDetail.value)
+      : null,
+  (nowHasOcr, hadOcr) => {
+    if (nowHasOcr === true && hadOcr === false) {
+      previewReloadNonce.value += 1;
+    }
+  }
+);
 const hasActiveListFilter = computed(() => {
   return Boolean(
     activeSavedSearchId.value ||
