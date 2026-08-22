@@ -11879,7 +11879,7 @@ onBeforeUnmount(() => {
   contain: layout paint style;
   overflow-anchor: none;
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) auto;
+  grid-template-columns: 60px minmax(0, 1fr) auto;
   gap: 15px;
   align-items: stretch;
   border: 1px solid rgba(15, 23, 42, 0.06);
@@ -12152,7 +12152,7 @@ onBeforeUnmount(() => {
 }
 
 .document-row__thumb {
-  width: 54px;
+  width: 60px;
   /* Feste Kachel im echten Seitenverhältnis (Thumbnail-Bild ~247×320) statt auf
      die volle Zeilenhöhe gestreckt. Sonst wäre die Box ~1:2,3 und cover würde die
      Seite seitlich beschneiden → langgezogener Mittelstreifen. */
