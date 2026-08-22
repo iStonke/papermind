@@ -34,12 +34,23 @@
             key="loading"
             class="document-list document-list-state document-list--skeleton"
           >
-            <v-skeleton-loader
-              v-for="n in 6"
-              :key="`skel-${n}`"
-              type="list-item-avatar-two-line"
-              class="document-row-skeleton"
-            />
+            <!--
+              Skelett-Zeilen erst nach kurzer Verzögerung zeigen. Der Loading-
+              Zweig ist sofort aktiv (verdeckt alten Inhalt), bleibt aber in den
+              ersten Millisekunden leer. Löst der Fetch schnell auf – etwa bei
+              einem leeren Bereich – erscheint das Skelett nie und es geht ruhig
+              direkt zum Platzhalter, statt kurz aufzublitzen.
+            -->
+            <Transition name="pm-skeleton-fade">
+              <div v-if="skeletonRowsVisible" class="document-list__skeleton-rows">
+                <v-skeleton-loader
+                  v-for="n in 6"
+                  :key="`skel-${n}`"
+                  type="list-item-avatar-two-line"
+                  class="document-row-skeleton"
+                />
+              </div>
+            </Transition>
           </div>
 
           <div
@@ -644,6 +655,7 @@ onBeforeUnmount(() => {
   if (deletionVirtualWindowTimer) window.clearTimeout(deletionVirtualWindowTimer);
   if (overscanResetTimer) window.clearTimeout(overscanResetTimer);
   if (favoriteAnimTimer) window.clearTimeout(favoriteAnimTimer);
+  if (skeletonRevealTimer) window.clearTimeout(skeletonRevealTimer);
   if (listResizeObserver) {
     listResizeObserver.disconnect();
     listResizeObserver = null;
@@ -938,6 +950,32 @@ function handleDocumentRowShortcut(event, documentId) {
   });
 }
 
+// Skelett-Zeilen erst nach kurzer Verzögerung einblenden, damit schnelle
+// (z. B. leere) Ladevorgänge kein kurz aufblitzendes Skelett zeigen, bevor der
+// Platzhalter erscheint. Der Loading-Zweig selbst bleibt sofort aktiv.
+const SKELETON_REVEAL_DELAY_MS = 220;
+const skeletonRowsVisible = ref(false);
+let skeletonRevealTimer = null;
+
+watch(
+  () => props.showDocumentListLoadingState,
+  (loading) => {
+    if (loading) {
+      if (skeletonRevealTimer || skeletonRowsVisible.value) return;
+      skeletonRevealTimer = window.setTimeout(() => {
+        skeletonRevealTimer = null;
+        skeletonRowsVisible.value = true;
+      }, SKELETON_REVEAL_DELAY_MS);
+    } else {
+      if (skeletonRevealTimer) {
+        window.clearTimeout(skeletonRevealTimer);
+        skeletonRevealTimer = null;
+      }
+      skeletonRowsVisible.value = false;
+    }
+  }
+);
+
 // Favoriten-Toggle. Die Pop-Animation wird bewusst hier – beim Klick – ausgelöst
 // (nicht per Klasse am is_favorite-Zustand), damit sie NUR bei der aktiven
 // Aktion läuft und nicht, wenn eine bereits favorisierte Zeile ins
@@ -1189,9 +1227,31 @@ function onListDrop(event) {
   gap: 10px;
 }
 
+.document-list__skeleton-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .document-row-skeleton {
   border-radius: 12px;
   overflow: hidden;
+}
+
+/* Sanftes Einblenden der (verzögerten) Skelett-Zeilen bei längeren Ladezeiten. */
+.pm-skeleton-fade-enter-active {
+  transition: opacity var(--pm-duration-normal, 220ms) var(--pm-easing, ease);
+}
+.pm-skeleton-fade-enter-from {
+  opacity: 0;
+}
+:global(.pm-no-animations) .pm-skeleton-fade-enter-active {
+  transition-duration: 0ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pm-skeleton-fade-enter-active {
+    transition-duration: 0ms;
+  }
 }
 
 /* Gelöschte Zeilen lösen sich kurz auf; die restliche Liste rückt dabei weich
