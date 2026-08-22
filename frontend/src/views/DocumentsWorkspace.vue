@@ -11948,13 +11948,6 @@ onBeforeUnmount(() => {
   color: color-mix(in srgb, var(--pm-accent) 72%, transparent);
 }
 
-.document-row--unread .document-row__unread-dot {
-  width: 8px;
-  height: 8px;
-  flex-basis: 8px;
-  background: var(--pm-accent);
-}
-
 .papermind-app.v-theme--light .panel-middle,
 .papermind-app.v-theme--light .document-list-shell,
 .papermind-app.v-theme--light .document-list-body,
@@ -12285,18 +12278,6 @@ onBeforeUnmount(() => {
   min-width: 0;
   gap: 7px;
   margin-top: 3px;
-}
-
-.document-row__unread-dot {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 7px;
-  border-radius: 999px;
-  background: rgba(var(--v-theme-primary), 0.96);
-}
-
-.papermind-app.v-theme--dark .document-row__unread-dot {
-  background: color-mix(in srgb, var(--pm-accent) 90%, transparent);
 }
 
 .document-row__name {

@@ -131,7 +131,6 @@
 
               <div class="document-row__content">
                 <div class="document-row__kicker">
-                  <span v-if="document.is_unread" class="document-row__unread-dot" aria-hidden="true" />
                   <span v-if="displayDocumentType(document)" class="document-row__kicker-type">{{ displayDocumentType(document) }}</span>
                   <span
                     v-if="displayDocumentType(document) && displayCorrespondent(document)"
