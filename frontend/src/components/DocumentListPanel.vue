@@ -953,7 +953,7 @@ function handleDocumentRowShortcut(event, documentId) {
 // Skelett-Zeilen erst nach kurzer Verzögerung einblenden, damit schnelle
 // (z. B. leere) Ladevorgänge kein kurz aufblitzendes Skelett zeigen, bevor der
 // Platzhalter erscheint. Der Loading-Zweig selbst bleibt sofort aktiv.
-const SKELETON_REVEAL_DELAY_MS = 220;
+const SKELETON_REVEAL_DELAY_MS = 300;
 const skeletonRowsVisible = ref(false);
 let skeletonRevealTimer = null;
 
