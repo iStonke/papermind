@@ -233,6 +233,11 @@
 // Netzwerk bereitstehen.
 const PDF_BYTE_CACHE_MAX_ENTRIES = 6;
 const pdfByteCache = new Map();
+// Chunk-Größe für das HTTP-Range-Laden. pdfjs holt damit zunächst nur Trailer +
+// Objekte der ersten Seite und rendert diese, bevor der Rest im Hintergrund
+// nachgeladen ist. 256 KiB balanciert Anzahl der Requests (Pi/Latenz) gegen die
+// Zeit bis zur ersten Seite.
+const PDF_RANGE_CHUNK_SIZE = 262144;
 </script>
 
 <script setup>
@@ -785,6 +790,75 @@ async function fetchPdfBytes(src, epoch) {
 
   rememberPdfBytes(cacheKey, bytes.buffer);
   return bytes.buffer;
+}
+
+// Öffnet das PDF bevorzugt per HTTP-Range/Streaming: pdfjs holt Trailer und die
+// Objekte der ersten Seite gezielt vorab und rendert sie, statt auf den
+// vollständigen Download zu warten (der Server beantwortet Range-Anfragen mit
+// 206). Bereits geöffnete Dokumente kommen weiterhin sofort aus dem Byte-Cache;
+// nach einem erfolgreichen Range-Load wird der Cache im Hintergrund über
+// getData() nachgefüllt, damit erneutes Öffnen instant bleibt. Schlägt der
+// Range-Weg fehl (kein 206, Token-Ablauf, Netzfehler), wird auf den bisherigen
+// Voll-Download zurückgefallen.
+async function openPdfDocument(src, epoch) {
+  const cacheKey = pdfCacheKey(src);
+  const cached = pdfByteCache.get(cacheKey);
+  if (cached?.byteLength) {
+    loadIndeterminate.value = false;
+    loadProgress.value = 100;
+    activeLoadTask = getDocument({ data: new Uint8Array(cached.slice(0)) });
+    return activeLoadTask.promise;
+  }
+
+  loadIndeterminate.value = true;
+  loadProgress.value = 0;
+
+  try {
+    const task = getDocument({
+      url: src,
+      rangeChunkSize: PDF_RANGE_CHUNK_SIZE,
+      // Erste Seite sofort aus Teil-Bytes; den Rest lädt pdfjs im Hintergrund per
+      // Range nach (nicht deaktiviert), damit spätere Seiten sowie getData() für
+      // die Cache-Befüllung vollständig verfügbar bleiben.
+      disableAutoFetch: false,
+      disableStream: false,
+    });
+    task.onProgress = ({ loaded, total }) => {
+      if (epoch !== loadEpoch) return;
+      if (total > 0) {
+        loadIndeterminate.value = false;
+        loadProgress.value = Math.min(92, Math.round((loaded / total) * 92));
+      }
+    };
+    activeLoadTask = task;
+    const doc = await task.promise;
+    if (epoch === loadEpoch) schedulePdfCachePopulation(doc, cacheKey, epoch);
+    return doc;
+  } catch (err) {
+    if (epoch !== loadEpoch) throw err;
+    // Range-Weg fehlgeschlagen → klassischer Voll-Download als Fallback.
+    console.warn('PdfPreview range load failed, falling back to full download', err);
+    if (activeLoadTask) { try { activeLoadTask.destroy(); } catch (_) {} activeLoadTask = null; }
+    const bytes = await fetchPdfBytes(src, epoch);
+    if (epoch !== loadEpoch) throw new Error('PDF load cancelled');
+    activeLoadTask = getDocument({ data: new Uint8Array(bytes.slice(0)) });
+    return activeLoadTask.promise;
+  }
+}
+
+// Füllt den Byte-Cache im Hintergrund, sobald pdfjs alle Bytes hat. Blockiert
+// weder das erste Rendern noch die Seitennavigation; bleibt der Prefetch
+// unvollständig (z. B. Token-Ablauf bei sehr großen Dateien), wird nichts
+// gecacht und die stille Ausnahme geschluckt.
+function schedulePdfCachePopulation(doc, cacheKey, epoch) {
+  if (!doc || !cacheKey) return;
+  Promise.resolve()
+    .then(() => doc.getData())
+    .then((data) => {
+      if (epoch !== loadEpoch || !data?.byteLength) return;
+      rememberPdfBytes(cacheKey, data.slice(0).buffer);
+    })
+    .catch(() => {});
 }
 
 async function readPageInfo(doc, pageNum) {
@@ -2156,11 +2230,7 @@ async function loadPdf(src) {
   isLoading.value = true;
 
   try {
-    const bytes = await fetchPdfBytes(src, epoch);
-    if (epoch !== loadEpoch) return;
-
-    activeLoadTask = getDocument({ data: new Uint8Array(bytes.slice(0)) });
-    const doc = await activeLoadTask.promise;
+    const doc = await openPdfDocument(src, epoch);
     if (epoch !== loadEpoch) return;
 
     pdfDoc = doc;
