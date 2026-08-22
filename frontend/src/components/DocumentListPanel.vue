@@ -953,7 +953,13 @@ function handleDocumentRowShortcut(event, documentId) {
 // Skelett-Zeilen erst nach kurzer Verzögerung einblenden, damit schnelle
 // (z. B. leere) Ladevorgänge kein kurz aufblitzendes Skelett zeigen, bevor der
 // Platzhalter erscheint. Der Loading-Zweig selbst bleibt sofort aktiv.
-const SKELETON_REVEAL_DELAY_MS = 300;
+// Bewusst großzügig: Auf langsameren Backends (Pi) sollen leere Bereiche gar
+// nicht erst das Skelett zeigen, bevor der Platzhalter kommt. Bekannte leere
+// Bereiche werden ohnehin sofort über die Sidebar-Counts abgefangen
+// (knownEmptyTarget); dieser Wert ist die Absicherung für nicht abgedeckte
+// Ansichten (z. B. „Zuletzt hinzugefügt") und die Phase, bevor die Counts da
+// sind. Das Skelett erscheint dadurch nur bei wirklich langen Ladezeiten.
+const SKELETON_REVEAL_DELAY_MS = 800;
 const skeletonRowsVisible = ref(false);
 let skeletonRevealTimer = null;
 
