@@ -1082,6 +1082,7 @@
                 title="Kein Dokument ausgewählt"
                 subtitle="Wähle ein Dokument aus der Liste, um die Vorschau zu öffnen."
                 size="md"
+                :animated="false"
               />
             </template>
 

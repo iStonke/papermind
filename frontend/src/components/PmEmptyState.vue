@@ -1,5 +1,5 @@
 <template>
-  <div class="pm-empty-state" :class="`pm-empty-state--${size}`">
+  <div class="pm-empty-state" :class="[`pm-empty-state--${size}`, { 'pm-empty-state--static': !animated }]">
     <div class="pm-empty-state__illustration" aria-hidden="true">
       <span class="pm-empty-state__halo" />
       <v-icon
@@ -25,6 +25,9 @@ defineProps({
   subtitle: { type: String, default: '' },
   /** 'md' für Dokumentenliste, 'lg' für Vorschaubereich */
   size:     { type: String, default: 'md' },
+  /** Auftritts-Animation. Ausschalten, wenn parallel ein anderer Platzhalter
+   *  animiert (z. B. Vorschau-Platzhalter neben leerer Dokumentenliste). */
+  animated: { type: Boolean, default: true },
 });
 </script>
 
@@ -135,6 +138,18 @@ defineProps({
 @keyframes pm-empty-state-rise {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* Auftritts-Animation komplett aus (animated=false) – z. B. Vorschau-Platzhalter,
+   damit neben der leeren Dokumentenliste nur EIN Platzhalter animiert. */
+.pm-empty-state--static,
+.pm-empty-state--static .pm-empty-state__illustration,
+.pm-empty-state--static .pm-empty-state__halo::after,
+.pm-empty-state--static .pm-empty-state__icon,
+.pm-empty-state--static .pm-empty-state__title,
+.pm-empty-state--static .pm-empty-state__subtitle,
+.pm-empty-state--static .pm-empty-state__action {
+  animation: none;
 }
 
 :global(.pm-no-animations) .pm-empty-state,
