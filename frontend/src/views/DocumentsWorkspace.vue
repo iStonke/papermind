@@ -12359,7 +12359,7 @@ onBeforeUnmount(() => {
      selektierten (teal getönten) Zeilen klar ab und bleibt in beiden Themes
      lesbar – wie eine klassische Fund-Markierung. Bewusst kein Theme-Token,
      damit die Signalfarbe im Dark Mode nicht verblasst. */
-  background: #ffdb66;
+  background: #ffe59e;
   color: #2b2b28;
   font-weight: 600;
   padding: 0 2px;
