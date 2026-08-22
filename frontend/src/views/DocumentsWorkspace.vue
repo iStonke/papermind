@@ -11922,6 +11922,39 @@ onBeforeUnmount(() => {
   border-color: color-mix(in srgb, var(--pm-accent) 38%, transparent);
 }
 
+/* Ungelesene Zeilen deutlich hervorheben (Variante A): linker Akzentbalken,
+   kräftigerer Punkt und Kicker in Akzentfarbe. Der Balken wird durch das
+   contain/overflow der Zeile an den abgerundeten Ecken sauber beschnitten. */
+.document-row--unread {
+  position: relative;
+}
+
+.document-row--unread::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--pm-accent);
+  pointer-events: none;
+}
+
+.document-row--unread .document-row__kicker-type {
+  color: var(--pm-accent);
+}
+
+.document-row--unread .document-row__kicker-corr {
+  color: color-mix(in srgb, var(--pm-accent) 72%, transparent);
+}
+
+.document-row--unread .document-row__unread-dot {
+  width: 8px;
+  height: 8px;
+  flex-basis: 8px;
+  background: var(--pm-accent);
+}
+
 .papermind-app.v-theme--light .panel-middle,
 .papermind-app.v-theme--light .document-list-shell,
 .papermind-app.v-theme--light .document-list-body,

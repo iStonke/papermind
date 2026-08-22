@@ -89,7 +89,8 @@
                 :class="{
                   'document-row--active': !isSelectionMode && document.id === selectedDocumentId,
                   'document-row--selected': isSelectionMode && selectionIds.has(document.id),
-                  'document-row--selection-mode': isSelectionMode
+                  'document-row--selection-mode': isSelectionMode,
+                  'document-row--unread': document.is_unread
                 }"
                 role="button"
                 tabindex="0"
