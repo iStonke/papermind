@@ -221,9 +221,9 @@
                       </v-list-item>
                       <v-list-item v-if="!document.is_unread" @click="emit('mark-unread', document)">
                         <template #prepend>
-                          <v-icon size="16">mdi-eye-off</v-icon>
+                          <v-icon size="16">mdi-circle-outline</v-icon>
                         </template>
-                        <v-list-item-title>Ungelesen</v-list-item-title>
+                        <v-list-item-title>Ungelesen markieren</v-list-item-title>
                       </v-list-item>
                       <v-list-item class="menu-item--danger" @click="emit('delete', document)">
                         <template #prepend>
