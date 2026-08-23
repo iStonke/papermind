@@ -1,7 +1,8 @@
 <template>
   <v-list-item
+    ref="rootRef"
     class="sidebar-item pm-nav-item"
-    :class="itemClass"
+    :class="[itemClass, { 'sidebar-item--pulse': isPulseActive }]"
     :active="active"
     @click="$emit('click', $event)"
     @mouseenter="isHovered = true"
@@ -34,7 +35,7 @@
 </template>
 
 <script setup>
-import { computed, ref, useSlots } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, useSlots, watch } from 'vue';
 
 const props = defineProps({
   active: {
@@ -64,14 +65,77 @@ const props = defineProps({
   actionMode: {
     type: String,
     default: 'never'
+  },
+  pulseKey: {
+    type: Number,
+    default: 0
   }
 });
 
 defineEmits(['click']);
 
 const slots = useSlots();
+const rootRef = ref(null);
 const isHovered = ref(false);
 const hasFocusWithin = ref(false);
+const isPulseActive = ref(false);
+let pulseTimer = null;
+let pulseGeneration = 0;
+
+watch(
+  () => props.pulseKey,
+  (nextKey, previousKey) => {
+    if (nextKey === previousKey || nextKey <= 0) return;
+    const generation = ++pulseGeneration;
+    if (pulseTimer) window.clearTimeout(pulseTimer);
+    isPulseActive.value = false;
+    void nextTick(() => {
+      if (generation !== pulseGeneration) return;
+      // Layout einmal lesen, damit auch zwei kurz aufeinanderfolgende Impulse
+      // zuverlässig als neue CSS-Animation starten.
+      void resolveRootElement()?.offsetWidth;
+      isPulseActive.value = true;
+      pulseTimer = window.setTimeout(() => {
+        if (generation === pulseGeneration) isPulseActive.value = false;
+        pulseTimer = null;
+      }, 760);
+    });
+  }
+);
+
+onBeforeUnmount(() => {
+  pulseGeneration += 1;
+  if (pulseTimer) window.clearTimeout(pulseTimer);
+});
+
+function resolveRootElement() {
+  const candidate = rootRef.value;
+  return candidate?.$el instanceof HTMLElement ? candidate.$el : candidate;
+}
+
+// Flugziel für globale Übergänge: Die Miniatur verschwindet optisch im Icon,
+// nicht irgendwo in der gesamten Zeilenfläche. Das funktioniert ebenso im Rail.
+function getFlightTarget() {
+  const root = resolveRootElement();
+  if (!(root instanceof HTMLElement)) return null;
+  const iconSlot = root.querySelector('.v-list-item__prepend');
+  const destination = iconSlot instanceof HTMLElement ? iconSlot : root;
+  const rect = destination.getBoundingClientRect();
+  if (rect.width < 2 || rect.height < 2) return null;
+  const style = window.getComputedStyle(destination);
+  const borderRadius = Number.parseFloat(style.borderTopLeftRadius || '0');
+  return {
+    left: rect.left,
+    top: rect.top,
+    width: rect.width,
+    height: rect.height,
+    borderRadius: Number.isFinite(borderRadius) ? borderRadius : 0,
+    borderWidth: 0,
+    vanish: true
+  };
+}
+
+defineExpose({ getFlightTarget });
 
 const hasAction = computed(() => Boolean(slots.action));
 const showCount = computed(() => props.count !== null && props.count !== undefined && props.count !== '');
@@ -155,5 +219,47 @@ const isActionVisible = computed(() => {
 /* Aktiver Eintrag: fett */
 .sidebar-item.v-list-item--active :deep(.v-list-item-title) {
   font-weight: 600;
+}
+
+.sidebar-item--pulse::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border: 1px solid color-mix(in srgb, var(--pm-accent) 55%, transparent);
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--pm-accent) 14%, transparent);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--pm-accent) 28%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  animation: sidebar-item-import-pulse 720ms cubic-bezier(0.22, 0.72, 0.24, 1) both;
+}
+
+.sidebar-item--pulse :deep(.v-icon) {
+  animation: sidebar-item-import-icon-pulse 720ms cubic-bezier(0.22, 0.72, 0.24, 1) both;
+}
+
+@keyframes sidebar-item-import-pulse {
+  0%   { opacity: 0; transform: scale(0.96); }
+  28%  { opacity: 1; transform: scale(1); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pm-accent) 13%, transparent); }
+  62%  { opacity: 0.52; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.015); box-shadow: 0 0 0 7px transparent; }
+}
+
+@keyframes sidebar-item-import-icon-pulse {
+  0%, 100% { transform: scale(1); }
+  34%      { transform: scale(1.16); }
+}
+
+:global(.pm-no-animations) .sidebar-item--pulse::after,
+:global(.pm-no-animations) .sidebar-item--pulse :deep(.v-icon) {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-item--pulse::after,
+  .sidebar-item--pulse :deep(.v-icon) {
+    animation: none;
+  }
 }
 </style>

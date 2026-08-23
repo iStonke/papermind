@@ -181,10 +181,12 @@
         }"
       >
         <AppSidebar
+          ref="appSidebarRef"
           :collapsed="sidebarContentCollapsed"
           :chat-active="!isDossierRoute && (isChatView || isWikiRoute)"
           :dossiers-active="isDossierRoute"
           :active-view="activeView"
+          :all-documents-pulse-key="allDocumentsPulseKey"
           :active-saved-search-id="activeSavedSearchId"
           :active-tag-id="activeTagId"
           :is-tag-view="isTagView"
@@ -2442,11 +2444,14 @@ const previewHighlightText = ref('');
 
 const importStagingDialogRef = ref(null);
 const documentListPanelRef = ref(null);
+const appSidebarRef = ref(null);
 const activityIndicatorRef = ref(null);
+const allDocumentsPulseKey = ref(0);
 
 // Import-Fluganimation: Dokumentkarte, die vom Import-Dialog in die Liste fliegt.
 const importFlight = ref(null); // { origin, target, thumbUrl } | null
 let importFlightResolver = null;
+let allDocumentsPulseTimer = null;
 function clearImportFlight() {
   importFlight.value = null;
 }
@@ -8589,31 +8594,56 @@ async function onImportCommitted(payload) {
 // „Thumbnail → fliegende Karte → neue Zeile" durchgehend, ohne zwei gleichzeitige
 // Bewegungen.
 const IMPORT_FLIGHT_START_DELAY_MS = 320;
+function scheduleAllDocumentsImportPulse() {
+  if (allDocumentsPulseTimer) {
+    window.clearTimeout(allDocumentsPulseTimer);
+  }
+  // Erst nach dem Schließen des Dialogs aufleuchten lassen. So ist der Impuls
+  // sichtbar und konkurriert nicht mit der Dialogbewegung im Vordergrund.
+  allDocumentsPulseTimer = window.setTimeout(() => {
+    allDocumentsPulseKey.value += 1;
+    allDocumentsPulseTimer = null;
+  }, IMPORT_FLIGHT_START_DELAY_MS);
+}
+
 function scheduleImportFlightAfterClose(origin, documentId = '') {
   const panel = documentListPanelRef.value;
-  if (!origin || !panel || typeof panel.beginImportLanding !== 'function') {
+  const hasListTarget = Boolean(panel && typeof panel.beginImportLanding === 'function');
+  if (!origin) {
     clearImportFlight();
+    if (!hasListTarget) scheduleAllDocumentsImportPulse();
     return Promise.resolve();
   }
-  // Ziel-Thumbnail schon vor fetchDocuments() maskieren. Sobald die neue Zeile
-  // erstmals gerendert wird, ist daher ausschließlich der weiße Platzhalter zu
-  // sehen – das echte Bild erscheint erst beim Landemoment.
-  panel.prepareImportLanding?.(documentId);
+
+  let destination = hasListTarget ? 'list' : 'all-documents';
+  if (destination === 'list') {
+    // Ziel-Thumbnail schon vor fetchDocuments() maskieren. Sobald die neue Zeile
+    // erstmals gerendert wird, ist daher ausschließlich der weiße Platzhalter zu
+    // sehen – das echte Bild erscheint erst beim Landemoment.
+    panel.prepareImportLanding?.(documentId);
+  }
   // (1) Karte sofort über dem Thumbnail halten – noch ohne Flugziel.
-  importFlight.value = { origin, target: null, thumbUrl: origin.thumbUrl || '' };
+  importFlight.value = { origin, target: null, thumbUrl: origin.thumbUrl || '', destination };
 
   return new Promise((resolve) => {
     window.setTimeout(async () => {
+      let target = null;
       const activePanel = documentListPanelRef.value;
-      if (!activePanel || typeof activePanel.beginImportLanding !== 'function') {
-        clearImportFlight();
-        resolve();
-        return;
+      if (destination === 'list' && activePanel && typeof activePanel.beginImportLanding === 'function') {
+        target = await activePanel.beginImportLanding(documentId);
+        if (!target) activePanel.cancelImportLanding?.();
       }
-      const target = await activePanel.beginImportLanding(documentId);
+
+      // War beim Commit keine Dokumentenliste sichtbar (z. B. Übersicht), oder
+      // ist sie während der Schließanimation verschwunden, fliegt dieselbe
+      // Miniatur stattdessen direkt in „Alle Dokumente" und schrumpft dort weg.
       if (!target) {
-        activePanel.cancelImportLanding?.();
+        destination = 'all-documents';
+        target = appSidebarRef.value?.getAllDocumentsFlightTarget?.() || null;
+      }
+      if (!target) {
         clearImportFlight();
+        allDocumentsPulseKey.value += 1;
         resolve();
         return;
       }
@@ -8622,13 +8652,17 @@ function scheduleImportFlightAfterClose(origin, documentId = '') {
         if (settled) return;
         settled = true;
         importFlightResolver = null;
+        if (destination === 'all-documents') {
+          allDocumentsPulseKey.value += 1;
+        }
         resolve();
       };
       importFlightResolver = done;
       // (2) Ziel setzen → dieselbe Karte hebt ab und fliegt in die Liste.
       importFlight.value = {
         ...(importFlight.value || { origin, thumbUrl: origin.thumbUrl || '' }),
-        target
+        target,
+        destination
       };
       // Sicherheitsnetz: falls das 'landed'-Event ausbleibt, nicht ewig hängen.
       window.setTimeout(() => {
@@ -8642,14 +8676,18 @@ function scheduleImportFlightAfterClose(origin, documentId = '') {
 // Endanflug: Maske vorsichtshalber nochmals setzen. Regulär ist sie schon aktiv,
 // bevor die Zielzeile überhaupt zum ersten Mal gerendert wird.
 function onImportFlightApproaching() {
-  documentListPanelRef.value?.maskLandingThumb?.();
+  if (importFlight.value?.destination === 'list') {
+    documentListPanelRef.value?.maskLandingThumb?.();
+  }
 }
 
 function onImportFlightLanded() {
   // Genau im Landemoment das Fallback-Skelett einblenden (No-op, wenn die Karte
   // ohnehin auf der echten Zeile gelandet ist) – so erscheint es erst, wenn die
   // Karte klein in der Thumbnail-Spalte ankommt, nie unter der noch großen Karte.
-  documentListPanelRef.value?.revealImportLanding?.();
+  if (importFlight.value?.destination === 'list') {
+    documentListPanelRef.value?.revealImportLanding?.();
+  }
   clearImportFlight();
   if (importFlightResolver) {
     importFlightResolver();
@@ -9293,6 +9331,10 @@ onBeforeUnmount(() => {
   }
   if (importInboxPollTimer) {
     window.clearTimeout(importInboxPollTimer);
+  }
+  if (allDocumentsPulseTimer) {
+    window.clearTimeout(allDocumentsPulseTimer);
+    allDocumentsPulseTimer = null;
   }
   if (importInboxDiscardSuppressionTimer) {
     window.clearTimeout(importInboxDiscardSuppressionTimer);

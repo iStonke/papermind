@@ -59,9 +59,11 @@
       <div class="sidebar-section-drawer">
         <div class="sidebar-section-content">
           <SidebarItem
+            ref="allDocumentsItemRef"
             item-class="sidebar-item--primary sidebar-item--plain-label"
             :active="isViewActive('all')"
             :count="allDocumentsSidebarCount"
+            :pulse-key="allDocumentsPulseKey"
             @click="emit('select-view', 'all')"
           >
             <template #icon>
@@ -450,6 +452,7 @@ const props = defineProps({
   collapsed:         { type: Boolean, default: false },
   chatActive:        { type: Boolean, default: false },
   dossiersActive:    { type: Boolean, default: false },
+  allDocumentsPulseKey: { type: Number, default: 0 },
 });
 
 const emit = defineEmits([
@@ -653,6 +656,7 @@ const totalCategoriesSidebarCount = computed(() => {
 
 // ── Rail-Flyout (Vorlage 6b) ────────────────────────────────────────────────
 const rootRef = ref(null);
+const allDocumentsItemRef = ref(null);
 const railFlyoutSection = ref(null);
 const railFlyoutTop = ref(0);
 let flyoutCloseTimer = null;
@@ -799,6 +803,12 @@ function runFlyout(item) {
   railFlyoutSection.value = null;
   if (flyoutCloseTimer) { clearTimeout(flyoutCloseTimer); flyoutCloseTimer = null; }
 }
+
+function getAllDocumentsFlightTarget() {
+  return allDocumentsItemRef.value?.getFlightTarget?.() || null;
+}
+
+defineExpose({ getAllDocumentsFlightTarget });
 
 onBeforeUnmount(() => {
   if (flyoutCloseTimer) clearTimeout(flyoutCloseTimer);

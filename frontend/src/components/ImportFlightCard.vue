@@ -31,7 +31,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 const props = defineProps({
   // Ursprungs-Rechteck (Dialog-Thumbnail), in Viewport-Koordinaten.
   origin: { type: Object, required: true }, // { left, top, width, height }
-  // Ziel-Rechteck (Landezeile in der Liste), in Viewport-Koordinaten.
+  // Ziel-Rechteck (Landezeile oder Sidebar-Ziel), in Viewport-Koordinaten.
+  // `vanish: true` schrumpft die Karte am Ziel vollständig in den Zielpunkt.
   // Darf zunächst null sein: dann HÄLT die Karte deckungsgleich über dem
   // Dialog-Thumbnail (Hero-Übergang), bis das Ziel gesetzt wird und sie fliegt.
   target: { type: Object, default: null },
@@ -152,6 +153,7 @@ function step(ts) {
   const p1 = centerOf(props.target);
   const start = originFrame.value;
   const end = frame(props.target, start);
+  const vanishAtTarget = Boolean(props.target?.vanish);
 
   // Bogen: Kontrollpunkt hoch über der Verbindungslinie – bewusst großzügig,
   // damit der Weg zelebriert wird (Safari-Dock-Anmutung, nur weiter geschwungen).
@@ -168,8 +170,14 @@ function step(ts) {
   // Breite und Höhe separat morphen. Damit liegen sowohl der 3:4-Rahmen im
   // Importdialog als auch das leicht andere Listenformat an den Endpunkten
   // pixelgenau – ohne den bisherigen Höhenfehler durch eine Einheits-Skalierung.
-  const width = start.width + (end.width - start.width) * t;
-  const height = start.height + (end.height - start.height) * t;
+  // Beim Sidebar-Ziel separat und gleichmäßig skalieren: Durch die langsam
+  // auslaufende Bahnkurve bleibt die Seite so bis direkt vor dem Icon erkennbar,
+  // statt schon weit vorher winzig zu werden. Am Ziel erreicht sie exakt 0 px.
+  const sizeT = vanishAtTarget ? raw : t;
+  const targetWidth = vanishAtTarget ? 0 : end.width;
+  const targetHeight = vanishAtTarget ? 0 : end.height;
+  const width = start.width + (targetWidth - start.width) * sizeT;
+  const height = start.height + (targetHeight - start.height) * sizeT;
 
   // Sanftes „Abheben“ zu Beginn: kurzer Skalier-Impuls in den ersten ~22%.
   const lift = 1 + 0.1 * Math.sin(Math.min(raw / 0.22, 1) * Math.PI);
@@ -179,10 +187,12 @@ function step(ts) {
   const glow = Math.sin(raw * Math.PI);
 
   if (cardEl.value) {
-    const visualRadius = start.borderRadius + (end.borderRadius - start.borderRadius) * t;
+    const targetRadius = vanishAtTarget ? 0 : end.borderRadius;
+    const targetBorder = vanishAtTarget ? 0 : end.borderWidth;
+    const visualRadius = start.borderRadius + (targetRadius - start.borderRadius) * sizeT;
     const visualBorder = hasVisualClone.value
       ? 0
-      : start.borderWidth + (end.borderWidth - start.borderWidth) * t;
+      : start.borderWidth + (targetBorder - start.borderWidth) * sizeT;
     const originShadow = props.origin?.boxShadow && props.origin.boxShadow !== 'none'
       ? `${props.origin.boxShadow}, `
       : '';
@@ -193,6 +203,10 @@ function step(ts) {
     cardEl.value.style.borderWidth = `${(visualBorder / lift).toFixed(2)}px`;
     cardEl.value.style.setProperty('--flight-border-width', `${(visualBorder / lift).toFixed(2)}px`);
     cardEl.value.style.setProperty('--flight-border-double', `${(visualBorder * 2 / lift).toFixed(2)}px`);
+    // Erst ganz am Ende zusätzlich ausblenden. Primär verschwindet die Karte
+    // durch das Schrumpfen; das kurze Fade verhindert einen letzten 1px-Blitz.
+    const fadeOut = vanishAtTarget ? Math.max((raw - 0.9) / 0.1, 0) : 0;
+    cardEl.value.style.opacity = String(1 - fadeOut);
     cardEl.value.style.boxShadow =
       `${originShadow}0 ${(8 + 22 * glow).toFixed(1)}px ${(18 + 46 * glow).toFixed(1)}px rgba(15, 23, 42, ${(0.28 * glow).toFixed(3)}),` +
       ` 0 0 ${(10 + 38 * glow).toFixed(1)}px color-mix(in srgb, var(--pm-accent, #14b8a6) ${(34 * glow).toFixed(0)}%, transparent)`;
@@ -279,7 +293,7 @@ onBeforeUnmount(() => {
   transform-origin: center center;
   box-sizing: border-box;
   contain: layout style;
-  will-change: transform, width, height;
+  will-change: transform, width, height, opacity;
   overflow: hidden;
   transition: outline-color 140ms ease;
 }

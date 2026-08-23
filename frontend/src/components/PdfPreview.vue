@@ -19,16 +19,28 @@
       />
     </div>
 
-    <!-- Erstes Laden: Fortschrittsbalken -->
+    <!-- Erstes Laden: Dokumentinhalt baut sich weich auf statt Fortschrittsbalken -->
     <div v-else-if="isLoading" class="pdf-preview__state pdf-preview__state--loading">
-      <div class="pdf-preview__progress-wrap" role="progressbar" :aria-valuenow="loadIndeterminate ? undefined : loadProgress" aria-valuemin="0" aria-valuemax="100">
-        <div
-          class="pdf-preview__progress-bar"
-          :class="{ 'pdf-preview__progress-bar--indeterminate': loadIndeterminate }"
-          :style="loadIndeterminate ? {} : { width: `${loadProgress}%` }"
-        />
+      <div
+        class="pdf-preview__loading-visual"
+        role="progressbar"
+        aria-label="PDF-Vorschau wird geladen"
+        :aria-valuenow="loadIndeterminate ? undefined : loadProgress"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        :aria-valuetext="loadIndeterminate ? 'Vorschau wird geladen' : `${loadProgress} Prozent geladen`"
+      >
+        <span class="pdf-preview__loading-glow" aria-hidden="true" />
+        <span class="pdf-preview__loading-sheet pdf-preview__loading-sheet--back" aria-hidden="true" />
+        <span class="pdf-preview__loading-sheet pdf-preview__loading-sheet--front" aria-hidden="true">
+          <span class="pdf-preview__loading-heading" />
+          <span class="pdf-preview__loading-line pdf-preview__loading-line--wide" />
+          <span class="pdf-preview__loading-line" />
+          <span class="pdf-preview__loading-line pdf-preview__loading-line--short" />
+          <span class="pdf-preview__loading-line pdf-preview__loading-line--wide" />
+        </span>
       </div>
-      <span>Vorschau wird geladen…</span>
+      <span class="pdf-preview__loading-label">Vorschau wird geladen…</span>
     </div>
 
     <div
@@ -2432,6 +2444,10 @@ onBeforeUnmount(() => {
   --pdf-toolbar-stepper-bg: rgb(255 255 255 / 0.07);
   --pdf-toolbar-divider: rgb(255 255 255 / 0.12);
   --pdf-toolbar-group-gap: 8px;
+  --pdf-loader-page-bg: rgb(48 60 64 / 0.96);
+  --pdf-loader-page-border: rgb(226 232 240 / 0.16);
+  --pdf-loader-line: rgb(226 232 240 / 0.2);
+  --pdf-loader-shadow: 0 16px 38px rgb(0 0 0 / 0.24);
   width: 100%;
   height: 100%;
   display: flex;
@@ -2457,6 +2473,10 @@ onBeforeUnmount(() => {
   --pdf-toolbar-hover-bg: rgb(15 23 42 / 0.07);
   --pdf-toolbar-stepper-bg: rgb(241 245 249 / 0.96);
   --pdf-toolbar-divider: rgb(148 163 184 / 0.24);
+  --pdf-loader-page-bg: rgb(255 255 255 / 0.98);
+  --pdf-loader-page-border: rgb(148 163 184 / 0.34);
+  --pdf-loader-line: rgb(71 85 105 / 0.2);
+  --pdf-loader-shadow: 0 16px 38px rgb(15 23 42 / 0.14);
 }
 
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
@@ -3154,7 +3174,7 @@ onBeforeUnmount(() => {
   color: var(--pm-sel-menu-icon-hover);
 }
 
-/* ── Ladefortschritt ────────────────────────────────────────────────────── */
+/* ── Vorschau laden: Dokumentinhalt wird nach und nach sichtbar ────────── */
 .pdf-preview__state {
   flex: 1;
   display: flex;
@@ -3168,7 +3188,7 @@ onBeforeUnmount(() => {
 }
 
 .pdf-preview__state--loading {
-  gap: 10px;
+  gap: 18px;
   opacity: 0;
   animation: pm-loading-appear 0s 600ms forwards;
 }
@@ -3177,31 +3197,166 @@ onBeforeUnmount(() => {
   to { opacity: 1; }
 }
 
-.pdf-preview__progress-wrap {
-  width: 160px;
-  height: 3px;
-  background: rgb(var(--v-theme-on-surface) / 0.12);
-  border-radius: 2px;
+.pdf-preview__loading-visual {
+  position: relative;
+  width: 112px;
+  height: 142px;
+  isolation: isolate;
+}
+
+.pdf-preview__loading-glow {
+  position: absolute;
+  z-index: -1;
+  left: 50%;
+  top: 52%;
+  width: 152px;
+  height: 112px;
+  border-radius: 999px;
+  background: radial-gradient(
+    ellipse,
+    color-mix(in srgb, var(--pm-accent) 18%, transparent) 0%,
+    transparent 70%
+  );
+  transform: translate(-50%, -50%);
+  animation: pdf-loading-glow 2.4s ease-in-out infinite;
+}
+
+.pdf-preview__loading-sheet {
+  position: absolute;
+  display: block;
+  width: 92px;
+  height: 126px;
+  border: 1px solid var(--pdf-loader-page-border);
+  border-radius: 7px;
+  background: var(--pdf-loader-page-bg);
+  box-shadow: var(--pdf-loader-shadow);
+  box-sizing: border-box;
+}
+
+.pdf-preview__loading-sheet--back {
+  left: 8px;
+  top: 10px;
+  opacity: 0.42;
+  transform: rotate(-5deg);
+}
+
+.pdf-preview__loading-sheet--front {
+  left: 14px;
+  top: 4px;
   overflow: hidden;
+  animation: pdf-loading-page-float 2.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
-.pdf-preview__progress-bar {
-  height: 100%;
-  background: rgb(var(--v-theme-primary));
-  border-radius: 2px;
-  transition: width 120ms ease;
-  will-change: width, transform;
+.pdf-preview__loading-heading,
+.pdf-preview__loading-line {
+  position: absolute;
+  left: 14px;
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--pdf-loader-line);
+  opacity: 0.2;
+  filter: blur(1.4px);
+  transform: scaleX(0.42);
+  transform-origin: left center;
+  animation: pdf-loading-content-resolve 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
-.pdf-preview__progress-bar--indeterminate {
-  width: 40% !important;
-  transition: none;
-  animation: pdf-progress-slide 1.2s ease-in-out infinite;
+.pdf-preview__loading-heading {
+  top: 18px;
+  width: 38px;
+  height: 6px;
+  background: color-mix(in srgb, var(--pm-accent) 60%, var(--pdf-loader-line));
+  animation-delay: 0ms;
 }
 
-@keyframes pdf-progress-slide {
-  0%   { transform: translateX(-250%); }
-  100% { transform: translateX(450%); }
+.pdf-preview__loading-line {
+  top: 42px;
+  width: 52px;
+}
+
+.pdf-preview__loading-line:nth-of-type(3) { top: 56px; width: 61px; }
+.pdf-preview__loading-line:nth-of-type(4) { top: 70px; }
+.pdf-preview__loading-line:nth-of-type(5) { top: 84px; }
+.pdf-preview__loading-line:nth-of-type(2) { animation-delay: 100ms; }
+.pdf-preview__loading-line:nth-of-type(3) { animation-delay: 200ms; }
+.pdf-preview__loading-line:nth-of-type(4) { animation-delay: 300ms; }
+.pdf-preview__loading-line:nth-of-type(5) { animation-delay: 400ms; }
+.pdf-preview__loading-line--wide { width: 64px; }
+.pdf-preview__loading-line--short { width: 42px; }
+
+.pdf-preview__loading-label {
+  color: rgb(var(--v-theme-on-surface) / 0.62);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+@keyframes pdf-loading-page-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-3px); }
+}
+
+@keyframes pdf-loading-content-resolve {
+  0%, 12% {
+    opacity: 0.16;
+    filter: blur(1.4px);
+    transform: scaleX(0.42);
+  }
+  42%, 72% {
+    opacity: 0.78;
+    filter: blur(0);
+    transform: scaleX(1);
+  }
+  100% {
+    opacity: 0.2;
+    filter: blur(1px);
+    transform: scaleX(0.58);
+  }
+}
+
+@keyframes pdf-loading-glow {
+  0%, 100% { opacity: 0.48; transform: translate(-50%, -50%) scale(0.94); }
+  50%      { opacity: 0.8; transform: translate(-50%, -50%) scale(1.04); }
+}
+
+:global(.pm-no-animations) .pdf-preview__state--loading {
+  opacity: 1;
+  animation: none;
+}
+
+:global(.pm-no-animations) .pdf-preview__loading-sheet--front,
+:global(.pm-no-animations) .pdf-preview__loading-glow,
+:global(.pm-no-animations) .pdf-preview__loading-heading,
+:global(.pm-no-animations) .pdf-preview__loading-line {
+  animation: none;
+}
+
+:global(.pm-no-animations) .pdf-preview__loading-heading,
+:global(.pm-no-animations) .pdf-preview__loading-line {
+  opacity: 0.58;
+  filter: none;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pdf-preview__state--loading {
+    opacity: 1;
+    animation: none;
+  }
+
+  .pdf-preview__loading-sheet--front,
+  .pdf-preview__loading-glow,
+  .pdf-preview__loading-heading,
+  .pdf-preview__loading-line {
+    animation: none;
+  }
+
+  .pdf-preview__loading-heading,
+  .pdf-preview__loading-line {
+    opacity: 0.58;
+    filter: none;
+    transform: none;
+  }
 }
 
 /* Fehlerzustand nutzt die Standard-Placeholder-Komponente (PmEmptyState). */
