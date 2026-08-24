@@ -6,6 +6,10 @@ export function buildStartViewPatch(startView) {
   return { ui: { start_view: startView } };
 }
 
+export function buildNotesPreferencesPatch(preferences) {
+  return { ui: { ...(preferences || {}) } };
+}
+
 export function buildSearchScopeDefaultPatch(searchScopeDefault) {
   return { ui: { search_scope_default: searchScopeDefault } };
 }

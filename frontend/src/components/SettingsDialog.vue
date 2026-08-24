@@ -649,6 +649,146 @@
           </div>
         </section>
 
+        <section v-if="activeCategory === 'notes'" class="pm-settings-section">
+          <div class="pm-settings-content">
+            <SettingsInfoCard
+              icon="mdi-note-outline"
+              title="Notizen"
+              subtitle="Globale Vorgaben für Notizenliste und Editor."
+            />
+
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Standardansicht</div>
+                <div class="pm-setting-description">Bestimmt, ob die Notizenliste beim Öffnen sichtbar ist.</div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.ui.notes_default_view"
+                :items="notesDefaultViewOptions"
+                item-title="label"
+                item-value="value"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Beim Öffnen"
+                :loading="isSettingSaving.notes_default_view"
+                :disabled="isSettingSaving.notes_default_view"
+                @update:model-value="onNotesDefaultViewChange"
+              />
+            </div>
+
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Standardsortierung</div>
+                <div class="pm-setting-description">Legt die anfängliche Reihenfolge der Notizenliste fest.</div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.ui.notes_sort_order"
+                :items="notesSortOrderOptions"
+                item-title="label"
+                item-value="value"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Sortieren nach"
+                :loading="isSettingSaving.notes_sort_order"
+                :disabled="isSettingSaving.notes_sort_order"
+                @update:model-value="onNotesSortOrderChange"
+              />
+            </div>
+
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Schreibbreite</div>
+                <div class="pm-setting-description">Begrenzt die Zeilenlänge im Editor für angenehmes Lesen und Schreiben.</div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.ui.notes_writing_width"
+                :items="notesWritingWidthOptions"
+                item-title="label"
+                item-value="value"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Textbreite"
+                :loading="isSettingSaving.notes_writing_width"
+                :disabled="isSettingSaving.notes_writing_width"
+                @update:model-value="onNotesWritingWidthChange"
+              />
+            </div>
+
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Absatzabstand</div>
+                <div class="pm-setting-description">Bestimmt den vertikalen Abstand zwischen Textabsätzen.</div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.ui.notes_paragraph_spacing"
+                :items="notesParagraphSpacingOptions"
+                item-title="label"
+                item-value="value"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Abstand"
+                :loading="isSettingSaving.notes_paragraph_spacing"
+                :disabled="isSettingSaving.notes_paragraph_spacing"
+                @update:model-value="onNotesParagraphSpacingChange"
+              />
+            </div>
+
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Schriftart</div>
+                <div class="pm-setting-description">Verwendet dieselbe Schrift für Fließtext und Überschriften.</div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.ui.notes_font_family"
+                :items="notesFontFamilyOptions"
+                item-title="label"
+                item-value="value"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Text und Überschriften"
+                :loading="isSettingSaving.notes_font_family"
+                :disabled="isSettingSaving.notes_font_family"
+                @update:model-value="onNotesFontFamilyChange"
+              />
+            </div>
+
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleNotesSpellcheckFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleNotesSpellcheckFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Rechtschreibprüfung</div>
+                <div class="pm-setting-description">Markiert mögliche Rechtschreibfehler während des Schreibens.</div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.ui.notes_spellcheck_enabled"
+                color="primary"
+                density="comfortable"
+                hide-details
+                inset
+                aria-label="Rechtschreibprüfung für Notizen aktivieren"
+                :loading="isSettingSaving.notes_spellcheck_enabled"
+                :disabled="isSettingSaving.notes_spellcheck_enabled"
+                @click.stop
+                @update:model-value="onNotesSpellcheckChange"
+              />
+            </div>
+          </div>
+        </section>
+
         <section v-if="activeCategory === 'scanner'" class="pm-settings-section">
           <div class="pm-settings-content">
             <ScannerSettingsPanel />
@@ -1067,6 +1207,7 @@
                 />
               </div>
             </div>
+
           </div>
         </section>
 
@@ -1767,35 +1908,63 @@
           <div class="pm-settings-content">
             <SettingsInfoCard
               icon="mdi-robot-outline"
-              title="KI-Modell"
-              subtitle="Sprachmodell für Import-Analyse und Wissen – lokal und ohne Cloud."
+              title="KI-Anbieter & Modelle"
+              subtitle="Dokumentenwissen bleibt lokal; für das Schreiben in Notizen sind lokale und Cloud-Modelle möglich."
+            />
+
+            <div class="pm-settings-subhead">Dokumentenwissen</div>
+            <div class="pm-setting-row">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Dokumenten-Wissensdatenbank</div>
+                <div class="pm-setting-description">
+                  Fragen, Zusammenfassungen und Belegsuche verwenden ausschließlich das lokale Ollama-Modell.
+                  Eine Weitergabe von Bibliotheksinhalten an OpenAI oder Anthropic ist technisch gesperrt.
+                </div>
+              </div>
+              <v-chip size="small" color="primary" variant="tonal" prepend-icon="mdi-shield-lock-outline">
+                Nur lokal
+              </v-chip>
+            </div>
+
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleOllamaFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleOllamaFromRow)"
             >
-              <template #actions>
-                <v-switch
-                  :model-value="settingsDraft.ollama.enabled"
-                  aria-label="KI-Modell verwenden"
-                  color="primary"
-                  hide-details
-                  density="compact"
-                  :loading="isSettingSaving.ollama_enabled"
-                  :disabled="isSettingSaving.ollama_enabled"
-                  @update:model-value="onOllamaEnabledChange"
-                />
-              </template>
-            </SettingsInfoCard>
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Ollama verwenden</div>
+                <div class="pm-setting-description">
+                  Erforderlich für Dokumentenwissen und optional für lokale Textgenerierung.
+                </div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.ollama.enabled"
+                aria-label="Lokales KI-Modell verwenden"
+                color="primary"
+                hide-details
+                density="comfortable"
+                inset
+                :loading="isSettingSaving.ollama_enabled"
+                :disabled="isSettingSaving.ollama_enabled"
+                @click.stop
+                @update:model-value="onOllamaEnabledChange"
+              />
+            </div>
 
             <div
               class="local-ai-settings"
               :class="{ 'local-ai-settings--disabled': !settingsDraft.ollama.enabled }"
               :aria-disabled="!settingsDraft.ollama.enabled"
             >
-              <!-- Qualität: ein Preset setzt Analyse- und Wissensmodell gemeinsam -->
+              <!-- Dokumentenwissen: ein Preset setzt Analyse- und Wissensmodell gemeinsam -->
               <div
                 class="pm-setting-row pm-setting-row--column"
                 :class="{ 'pm-setting-row--disabled': !settingsDraft.ollama.enabled }"
               >
                 <div class="pm-setting-content">
-                  <div class="pm-setting-label">Qualität</div>
+                  <div class="pm-setting-label">Qualität des Dokumentenwissens</div>
                   <div class="pm-setting-description">{{ ollamaQualityDescription }}</div>
                 </div>
                 <v-select
@@ -1876,9 +2045,9 @@
                 :class="{ 'pm-setting-row--disabled': !settingsDraft.ollama.enabled }"
               >
                 <div class="pm-setting-content">
-                  <div class="pm-setting-label">Wissensmodell (Frage &amp; Antwort)</div>
+                  <div class="pm-setting-label">Lokales Wissensmodell (Frage &amp; Antwort)</div>
                   <div class="pm-setting-description">
-                    Modell für Antworten in Wissen. Kleine Modelle (z.&thinsp;B. llama3.2:3b)
+                    Festes lokales Modell für die Dokumenten-Wissensdatenbank. Kleine Modelle (z.&thinsp;B. llama3.2:3b)
                     antworten schneller; größere (z.&thinsp;B. qwen2.5:7b, llama3.1:8b) liefern
                     bessere Qualität, sind auf dem Pi aber deutlich langsamer.
                   </div>
@@ -1924,6 +2093,177 @@
               </div>
 
               </template>
+            </div>
+
+            <div class="pm-settings-subhead pm-settings-subhead--separated">Textgenerierung in Notizen</div>
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleTextGenerationFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleTextGenerationFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Mit KI schreiben</div>
+                <div class="pm-setting-description">Aktiviert den kompakten Schreibassistenten im Aktionsmenü des Editors.</div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.text_generation.enabled"
+                color="primary"
+                hide-details
+                density="comfortable"
+                inset
+                :loading="isSettingSaving.text_generation_enabled"
+                :disabled="isSettingSaving.text_generation_enabled"
+                @click.stop
+                @update:model-value="onTextGenerationEnabledChange"
+              />
+            </div>
+
+            <div
+              class="pm-setting-row pm-setting-row--column"
+              :class="{ 'pm-setting-row--disabled': !settingsDraft.text_generation.enabled }"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Anbieter für Notiztext</div>
+                <div class="pm-setting-description">
+                  Cloud-Anbieter erhalten nur den Notizkontext. Sobald Dokumentwissen beteiligt ist, wechselt PaperMind zwingend auf lokal.
+                </div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.text_generation.provider"
+                :items="textGenerationProviderOptions"
+                item-title="title"
+                item-value="value"
+                density="comfortable"
+                variant="outlined"
+                hide-details
+                :disabled="!settingsDraft.text_generation.enabled"
+                :loading="isSettingSaving.text_generation_provider"
+                class="pm-setting-select"
+                @update:model-value="onTextGenerationProviderChange"
+              />
+            </div>
+
+            <div
+              class="pm-setting-row pm-setting-row--column"
+              :class="{ 'pm-setting-row--disabled': !settingsDraft.text_generation.enabled }"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Textmodell</div>
+                <div class="pm-setting-description">Modell für frei formulierte Texte im Notizeditor.</div>
+              </div>
+              <v-combobox
+                :model-value="activeTextGenerationModel"
+                :items="activeTextGenerationModelPresets"
+                density="comfortable"
+                variant="outlined"
+                hide-details
+                :disabled="!settingsDraft.text_generation.enabled"
+                :loading="isSettingSaving.text_generation_model"
+                class="pm-setting-select"
+                @update:model-value="onTextGenerationModelChange"
+              />
+            </div>
+
+            <div
+              v-if="settingsDraft.text_generation.provider !== 'ollama'"
+              class="pm-setting-row pm-setting-row--column"
+              :class="{ 'pm-setting-row--disabled': !settingsDraft.text_generation.enabled }"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">{{ activeCloudProviderLabel }} API-Schlüssel</div>
+                <div class="pm-setting-description">
+                  <template v-if="activeCredentialStatus.configured">
+                    Zugang eingerichtet · {{ activeCredentialStatus.source === 'environment' ? 'Umgebungsvariable' : 'verschlüsselt gespeichert' }}.
+                  </template>
+                  <template v-else>Für diesen Anbieter ist noch kein Zugang eingerichtet.</template>
+                </div>
+              </div>
+              <div class="ai-credential-row">
+                <v-text-field
+                  v-model="activeCredentialDraft"
+                  type="password"
+                  autocomplete="new-password"
+                  density="comfortable"
+                  variant="outlined"
+                  hide-details
+                  :placeholder="activeCredentialStatus.configured
+                    ? (activeCredentialStatus.masked || '••••••••••••')
+                    : 'API-Schlüssel'"
+                  :disabled="!settingsDraft.text_generation.enabled || aiCredentialsSaving"
+                  class="pm-setting-select ai-credential-row__field"
+                  @keydown.enter.prevent="saveActiveAICredential"
+                />
+                <v-btn
+                  color="primary"
+                  variant="tonal"
+                  :loading="aiCredentialsSaving"
+                  :disabled="!activeCredentialDraft.trim() || aiCredentialsSaving"
+                  @click="saveActiveAICredential"
+                >Speichern</v-btn>
+                <v-btn
+                  v-if="activeCredentialStatus.source === 'stored'"
+                  icon="mdi-delete-outline"
+                  variant="text"
+                  size="small"
+                  aria-label="Gespeicherten API-Schlüssel entfernen"
+                  :disabled="aiCredentialsSaving"
+                  @click="removeActiveAICredential"
+                />
+              </div>
+            </div>
+
+            <button
+              type="button"
+              class="pm-settings-disclosure"
+              :aria-expanded="showTextGenerationAdvanced"
+              :disabled="!settingsDraft.text_generation.enabled"
+              @click="showTextGenerationAdvanced = !showTextGenerationAdvanced"
+            >
+              <v-icon size="16">{{ showTextGenerationAdvanced ? 'mdi-chevron-down' : 'mdi-chevron-right' }}</v-icon>
+              <span>Experte</span>
+            </button>
+
+            <div
+              v-if="showTextGenerationAdvanced"
+              class="pm-setting-row pm-setting-row--column note-system-prompt"
+              :class="{ 'pm-setting-row--disabled': !settingsDraft.text_generation.enabled }"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Interner Prompt für Notizen</div>
+                <div class="pm-setting-description">
+                  Systemanweisung für die Textgenerierung im Notizeditor. Sie gilt für lokale sowie Cloud-Modelle,
+                  verändert aber nicht das Dokumentenwissen.
+                </div>
+              </div>
+              <v-textarea
+                v-model="noteSystemPromptDraft"
+                aria-label="Interner Prompt für Notizen"
+                density="comfortable"
+                variant="outlined"
+                rows="10"
+                auto-grow
+                :max-rows="18"
+                :maxlength="12000"
+                :disabled="!settingsDraft.text_generation.enabled || isSettingSaving.text_generation_system_prompt"
+                :error-messages="noteSystemPromptError"
+                class="pm-setting-select note-system-prompt__field"
+              />
+              <div class="note-system-prompt__actions">
+                <v-btn
+                  variant="text"
+                  :disabled="noteSystemPromptDraft === NOTE_WRITING_SYSTEM_PROMPT_DEFAULT || isSettingSaving.text_generation_system_prompt"
+                  @click="resetNoteSystemPromptDraft"
+                >Standard wiederherstellen</v-btn>
+                <v-btn
+                  color="primary"
+                  variant="tonal"
+                  :loading="isSettingSaving.text_generation_system_prompt"
+                  :disabled="!noteSystemPromptCanSave"
+                  @click="saveNoteSystemPrompt"
+                >Speichern</v-btn>
+              </div>
             </div>
           </div>
         </section>
@@ -2337,6 +2677,11 @@ import { useTagStore } from '../stores/tags';
 import { cleanupUnusedTags } from '../api/tags';
 import { backfillOcr, patchDocument as apiPatchDocument } from '../api/documents';
 import {
+  deleteAICredential,
+  getAICredentialStatus,
+  saveAICredential,
+} from '../api/aiCredentials';
+import {
   deleteBackupArchive,
   getBackupStatus,
   getRestoreStatus,
@@ -2351,6 +2696,7 @@ import {
   listUnresolvedCorrespondents as apiListUnresolvedCorrespondents
 } from '../api/correspondents';
 import { SHORTCUT_ACTIONS, SHORTCUTS, handleShortcut } from '../keyboard/shortcuts';
+import { NOTE_WRITING_SYSTEM_PROMPT_DEFAULT } from '../constants/promptDefaults.js';
 import {
   buildAutoOpenImportInboxPatch,
   buildAutoOcrPatch,
@@ -2374,6 +2720,7 @@ import {
   buildSidebarMaxCategoriesPatch,
   buildThemeModePatch,
   buildStartViewPatch,
+  buildNotesPreferencesPatch,
   buildSearchScopeDefaultPatch,
   buildTrashRetentionPatch,
   normalizeSidebarSections,
@@ -2515,11 +2862,12 @@ const settingsCategories = [
   { value: 'appearance', label: 'Darstellung', icon: 'mdi-palette-outline', group: 'surface' },
   { value: 'sidebar', label: 'Seitenleiste', icon: 'mdi-page-layout-sidebar-left', group: 'surface' },
   { value: 'documents', label: 'Bibliothek', icon: 'mdi-archive-outline', group: 'surface', adminOnly: true },
+  { value: 'notes', label: 'Notizen', icon: 'mdi-note-outline', group: 'documents' },
   { value: 'controls', label: 'Bedienung', icon: 'mdi-keyboard-outline', group: 'surface' },
   { value: 'import', label: 'Importieren', icon: 'mdi-tray-arrow-up', group: 'import', adminOnly: true },
   { value: 'scanner', label: 'Scanner', icon: 'mdi-scanner', group: 'import', adminOnly: true },
   { value: 'ai', label: 'Texterkennung', icon: 'mdi-text-recognition', group: 'import', adminOnly: true },
-  { value: 'local_ai', label: 'KI-Modell', icon: 'mdi-robot-outline', group: 'ai', adminOnly: true },
+  { value: 'local_ai', label: 'KI-Anbieter', icon: 'mdi-robot-outline', group: 'ai', adminOnly: true },
   { value: 'wiki', label: 'Wissen', icon: 'mdi-source-merge', group: 'ai', adminOnly: true },
   { value: 'categories', label: 'Dokumenttypen', icon: 'mdi-file-document-multiple-outline', group: 'documents' },
   { value: 'correspondents', label: 'Korrespondenten', icon: 'mdi-account-outline', group: 'documents' },
@@ -3070,6 +3418,9 @@ function loadSectionData(value) {
       backupManagerOpen.value = false; // Backup-Liste immer eingeklappt starten
       loadBackup();
       break;
+    case 'local_ai':
+      loadAICredentials();
+      break;
   }
 }
 
@@ -3285,6 +3636,96 @@ function toggleStartViewFromRow() {
   void onStartViewChange(dashboardStartEnabled.value ? 'all' : 'dashboard');
 }
 
+// ── Notizen ─────────────────────────────────────────────────────────────────
+
+const notesDefaultViewOptions = [
+  { value: 'list', label: 'Notizenliste anzeigen' },
+  { value: 'focus', label: 'Fokusmodus' },
+  { value: 'remember', label: 'Letzten Zustand merken' },
+];
+const notesSortOrderOptions = [
+  { value: 'updated', label: 'Zuletzt bearbeitet' },
+  { value: 'created', label: 'Erstellungsdatum' },
+  { value: 'title', label: 'Titel (A–Z)' },
+];
+const notesWritingWidthOptions = [
+  { value: 'compact', label: 'Kompakt' },
+  { value: 'comfortable', label: 'Komfortabel' },
+  { value: 'wide', label: 'Breit' },
+];
+const notesParagraphSpacingOptions = [
+  { value: 'compact', label: 'Kompakt' },
+  { value: 'comfortable', label: 'Komfortabel' },
+  { value: 'spacious', label: 'Großzügig' },
+];
+const notesFontFamilyOptions = [
+  { value: 'sans', label: 'System Sans' },
+  { value: 'serif', label: 'Serif' },
+  { value: 'mono', label: 'Monospace' },
+];
+
+const NOTES_DEFAULT_VIEW_VALUES = new Set(notesDefaultViewOptions.map((option) => option.value));
+const NOTES_SORT_ORDER_VALUES = new Set(notesSortOrderOptions.map((option) => option.value));
+const NOTES_WRITING_WIDTH_VALUES = new Set(notesWritingWidthOptions.map((option) => option.value));
+const NOTES_PARAGRAPH_SPACING_VALUES = new Set(notesParagraphSpacingOptions.map((option) => option.value));
+const NOTES_FONT_FAMILY_VALUES = new Set(notesFontFamilyOptions.map((option) => option.value));
+
+async function onNotesPreferenceChange(key, nextValue, allowedValues, fallback) {
+  if (isSettingSaving[key]) return;
+  const normalized = allowedValues.has(String(nextValue)) ? String(nextValue) : fallback;
+  const previous = settingsDraft.ui[key];
+  if (normalized === previous) return;
+  settingsStore.setDraftPatch({ ui: { [key]: normalized } });
+  await patchSettingsWithRevert({
+    patch: buildNotesPreferencesPatch({ [key]: normalized }),
+    controlKey: key,
+    revert: () => settingsStore.setDraftPatch({ ui: { [key]: previous } }),
+  });
+}
+
+function onNotesDefaultViewChange(nextValue) {
+  return onNotesPreferenceChange('notes_default_view', nextValue, NOTES_DEFAULT_VIEW_VALUES, 'remember');
+}
+
+function onNotesSortOrderChange(nextValue) {
+  return onNotesPreferenceChange('notes_sort_order', nextValue, NOTES_SORT_ORDER_VALUES, 'updated');
+}
+
+function onNotesWritingWidthChange(nextValue) {
+  return onNotesPreferenceChange('notes_writing_width', nextValue, NOTES_WRITING_WIDTH_VALUES, 'comfortable');
+}
+
+function onNotesParagraphSpacingChange(nextValue) {
+  return onNotesPreferenceChange(
+    'notes_paragraph_spacing',
+    nextValue,
+    NOTES_PARAGRAPH_SPACING_VALUES,
+    'comfortable',
+  );
+}
+
+function onNotesFontFamilyChange(nextValue) {
+  return onNotesPreferenceChange('notes_font_family', nextValue, NOTES_FONT_FAMILY_VALUES, 'sans');
+}
+
+async function onNotesSpellcheckChange(nextValue) {
+  if (isSettingSaving.notes_spellcheck_enabled) return;
+  const normalized = Boolean(nextValue);
+  const previous = Boolean(settingsDraft.ui.notes_spellcheck_enabled);
+  if (normalized === previous) return;
+  settingsStore.setDraftPatch({ ui: { notes_spellcheck_enabled: normalized } });
+  await patchSettingsWithRevert({
+    patch: buildNotesPreferencesPatch({ notes_spellcheck_enabled: normalized }),
+    controlKey: 'notes_spellcheck_enabled',
+    revert: () => settingsStore.setDraftPatch({ ui: { notes_spellcheck_enabled: previous } }),
+  });
+}
+
+function toggleNotesSpellcheckFromRow() {
+  if (isSettingSaving.notes_spellcheck_enabled) return;
+  void onNotesSpellcheckChange(!settingsDraft.ui.notes_spellcheck_enabled);
+}
+
 // ── Such-Reichweite ──────────────────────────────────────────────────────────
 
 const SEARCH_SCOPE_DEFAULT_VALUES = new Set(['current', 'all']);
@@ -3496,6 +3937,174 @@ function toggleWikiSetting(key) {
 // ── Ollama ───────────────────────────────────────────────────────────────────
 
 const showOllamaAdvanced = ref(false);
+const showTextGenerationAdvanced = ref(false);
+const noteSystemPromptDraft = ref(NOTE_WRITING_SYSTEM_PROMPT_DEFAULT);
+
+watch(
+  () => settingsDraft.text_generation.system_prompt,
+  (value) => {
+    noteSystemPromptDraft.value = String(value || NOTE_WRITING_SYSTEM_PROMPT_DEFAULT);
+  },
+  { immediate: true },
+);
+
+const normalizedNoteSystemPromptDraft = computed(() => noteSystemPromptDraft.value.trim());
+const noteSystemPromptHasChanges = computed(() => (
+  normalizedNoteSystemPromptDraft.value
+    !== String(settingsDraft.text_generation.system_prompt || NOTE_WRITING_SYSTEM_PROMPT_DEFAULT).trim()
+));
+const noteSystemPromptError = computed(() => {
+  if (!normalizedNoteSystemPromptDraft.value) return 'Der Prompt darf nicht leer sein.';
+  if (normalizedNoteSystemPromptDraft.value.length < 50) return 'Der Prompt muss mindestens 50 Zeichen enthalten.';
+  return '';
+});
+const noteSystemPromptCanSave = computed(() => (
+  settingsDraft.text_generation.enabled
+  && noteSystemPromptHasChanges.value
+  && !noteSystemPromptError.value
+  && !isSettingSaving.text_generation_system_prompt
+));
+
+const textGenerationProviderOptions = [
+  { title: 'Lokal (Ollama)', value: 'ollama' },
+  { title: 'OpenAI API', value: 'openai' },
+  { title: 'Anthropic API (Claude)', value: 'anthropic' },
+];
+const textGenerationModelPresets = {
+  ollama: ['llama3.2:3b', 'qwen2.5:3b', 'qwen2.5:7b', 'llama3.1:8b'],
+  openai: ['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol'],
+  anthropic: ['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5'],
+};
+const textGenerationModelKeys = {
+  ollama: 'ollama_model',
+  openai: 'openai_model',
+  anthropic: 'anthropic_model',
+};
+const aiCredentials = ref({
+  encryption_configured: false,
+  openai: { configured: false, source: 'none', masked: '' },
+  anthropic: { configured: false, source: 'none', masked: '' },
+});
+const aiCredentialDrafts = ref({ openai: '', anthropic: '' });
+const aiCredentialsLoading = ref(false);
+const aiCredentialsSaving = ref(false);
+
+const activeTextGenerationProvider = computed(() => settingsDraft.text_generation.provider || 'ollama');
+const activeTextGenerationModelKey = computed(() =>
+  textGenerationModelKeys[activeTextGenerationProvider.value] || 'ollama_model'
+);
+const activeTextGenerationModel = computed(() =>
+  settingsDraft.text_generation[activeTextGenerationModelKey.value] || ''
+);
+const activeTextGenerationModelPresets = computed(() =>
+  textGenerationModelPresets[activeTextGenerationProvider.value] || []
+);
+const activeCloudProviderLabel = computed(() =>
+  activeTextGenerationProvider.value === 'openai' ? 'OpenAI' : 'Anthropic'
+);
+const activeCredentialStatus = computed(() =>
+  aiCredentials.value[activeTextGenerationProvider.value]
+    || { configured: false, source: 'none', masked: '' }
+);
+const activeCredentialDraft = computed({
+  get: () => aiCredentialDrafts.value[activeTextGenerationProvider.value] || '',
+  set: (value) => {
+    const provider = activeTextGenerationProvider.value;
+    if (provider === 'openai' || provider === 'anthropic') {
+      aiCredentialDrafts.value[provider] = String(value || '');
+    }
+  },
+});
+
+async function loadAICredentials() {
+  if (aiCredentialsLoading.value) return;
+  aiCredentialsLoading.value = true;
+  try {
+    aiCredentials.value = await getAICredentialStatus();
+  } catch (error) {
+    notifyError(error, 'KI-Zugangsdaten konnten nicht geladen werden.');
+  } finally {
+    aiCredentialsLoading.value = false;
+  }
+}
+
+async function saveActiveAICredential() {
+  const provider = activeTextGenerationProvider.value;
+  const apiKey = activeCredentialDraft.value.trim();
+  if (!['openai', 'anthropic'].includes(provider) || !apiKey || aiCredentialsSaving.value) return;
+  aiCredentialsSaving.value = true;
+  try {
+    aiCredentials.value = await saveAICredential(provider, apiKey);
+    aiCredentialDrafts.value[provider] = '';
+    window.dispatchEvent(new CustomEvent('papermind:ai-configuration-changed'));
+    notify({ type: 'success', title: 'KI-Anbieter', message: 'API-Schlüssel sicher gespeichert.', critical: true });
+  } catch (error) {
+    notifyError(error, 'API-Schlüssel konnte nicht gespeichert werden.');
+  } finally {
+    aiCredentialsSaving.value = false;
+  }
+}
+
+async function removeActiveAICredential() {
+  const provider = activeTextGenerationProvider.value;
+  if (!['openai', 'anthropic'].includes(provider) || aiCredentialsSaving.value) return;
+  aiCredentialsSaving.value = true;
+  try {
+    aiCredentials.value = await deleteAICredential(provider);
+    aiCredentialDrafts.value[provider] = '';
+    window.dispatchEvent(new CustomEvent('papermind:ai-configuration-changed'));
+  } catch (error) {
+    notifyError(error, 'API-Schlüssel konnte nicht entfernt werden.');
+  } finally {
+    aiCredentialsSaving.value = false;
+  }
+}
+
+async function saveTextGenerationPatch(nextPatch, controlKey) {
+  const previous = { ...settingsDraft.text_generation };
+  settingsStore.setDraftPatch({ text_generation: nextPatch });
+  await patchSettingsWithRevert({
+    patch: { text_generation: nextPatch },
+    controlKey,
+    revert: () => settingsStore.setDraftPatch({ text_generation: previous }),
+  });
+}
+
+async function onTextGenerationEnabledChange(value) {
+  const enabled = value !== false;
+  if (enabled === settingsDraft.text_generation.enabled) return;
+  await saveTextGenerationPatch({ enabled }, 'text_generation_enabled');
+}
+
+function toggleTextGenerationFromRow() {
+  if (isSettingSaving.text_generation_enabled) return;
+  void onTextGenerationEnabledChange(!settingsDraft.text_generation.enabled);
+}
+
+async function onTextGenerationProviderChange(provider) {
+  if (!textGenerationProviderOptions.some((entry) => entry.value === provider)) return;
+  if (provider === settingsDraft.text_generation.provider) return;
+  await saveTextGenerationPatch({ provider }, 'text_generation_provider');
+}
+
+async function onTextGenerationModelChange(value) {
+  const model = String(value || '').trim();
+  const key = activeTextGenerationModelKey.value;
+  if (!model || model === settingsDraft.text_generation[key]) return;
+  await saveTextGenerationPatch({ [key]: model }, 'text_generation_model');
+}
+
+function resetNoteSystemPromptDraft() {
+  noteSystemPromptDraft.value = NOTE_WRITING_SYSTEM_PROMPT_DEFAULT;
+}
+
+async function saveNoteSystemPrompt() {
+  if (!noteSystemPromptCanSave.value) return;
+  await saveTextGenerationPatch(
+    { system_prompt: normalizedNoteSystemPromptDraft.value },
+    'text_generation_system_prompt',
+  );
+}
 
 const ollamaModelPresets = [
   'llama3.2:1b',
@@ -3594,6 +4203,11 @@ async function onOllamaEnabledChange(nextValue) {
     controlKey: 'ollama_enabled',
     revert: () => settingsStore.setDraftPatch({ ollama: { enabled: previous } })
   });
+}
+
+function toggleOllamaFromRow() {
+  if (isSettingSaving.ollama_enabled) return;
+  void onOllamaEnabledChange(!settingsDraft.ollama.enabled);
 }
 
 async function onOllamaBaseUrlChange(nextValue) {

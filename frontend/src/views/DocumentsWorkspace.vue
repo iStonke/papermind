@@ -173,6 +173,7 @@
         :class="{
           'workspace--rail': sidebarRailActive,
           'workspace--dashboard': activeView === 'dashboard',
+          'workspace--notes': activeView === 'notes',
           'workspace--dossiers': isDossierRoute,
           'workspace--wiki': isWikiRoute,
           'workspace--sidebar-transitioning': sidebarRailTransitioning,
@@ -244,7 +245,7 @@
                       <v-btn
                         v-bind="menuProps"
                         class="sidebar-search__scope-btn"
-                        :class="{ 'sidebar-search__scope-btn--active': searchScope !== 'all' }"
+                        :class="{ 'sidebar-search__scope-btn--active': effectiveSearchScope !== 'all' }"
                         icon="mdi-filter-outline"
                         variant="text"
                         size="small"
@@ -257,7 +258,7 @@
                       <v-list-item
                         v-for="option in searchScopeOptions"
                         :key="option.value"
-                        :active="searchScope === option.value"
+                        :active="effectiveSearchScope === option.value"
                         :title="option.label"
                         @click="selectSearchScope(option.value)"
                       >
@@ -323,8 +324,16 @@
           @year-select="showDocumentsFromDashboardYear"
         />
 
+        <NotesWorkspace
+          v-if="!isDossierRoute && !isWikiRoute && activeView === 'notes'"
+          class="panel panel-notes"
+          :search-query="parsedSearch.q"
+          :search-scope="noteSearchScope"
+          @trash-changed="scheduleSidebarCountsRefresh"
+        />
+
         <section
-          v-if="!isDossierRoute && !isWikiRoute && activeView !== 'dashboard'"
+          v-if="!isDossierRoute && !isWikiRoute && activeView !== 'dashboard' && activeView !== 'notes'"
           class="panel panel-middle"
           :class="{ 'panel-middle--tag-filter-open': isListFilterDrawerOpen }"
           :style="listFilterDrawerOffsetStyle"
@@ -440,7 +449,7 @@
 
             <div v-if="isTrashView" class="panel-middle__actions">
               <v-btn
-                class="list-header-btn"
+                class="list-header-btn list-header-btn--secondary-danger"
                 color="error"
                 variant="tonal"
                 :disabled="!sidebarCounts.trash_count"
@@ -639,6 +648,8 @@
               :has-more-documents="hasMoreDocuments"
               :is-loading-more-documents="isLoadingMoreDocuments"
               :loaded-document-count="documentListLoadedCount"
+              :trash-notes="visibleTrashedNotes"
+              :selected-trash-note-id="selectedTrashNoteId"
               @select-document="selectDocument"
               @download="downloadDocumentFromList"
               @rename="(doc) => renameDocumentDialogRef?.open(doc)"
@@ -647,6 +658,9 @@
               @delete="openDeleteDocumentDialog"
               @restore="restoreDocumentFromTrash"
               @delete-permanent="openPermanentDeleteDialog"
+              @select-note="selectTrashNote"
+              @restore-note="restoreNoteFromTrash"
+              @delete-note-permanent="openPermanentDeleteNoteDialog"
               @toggle-favorite="toggleDocumentFavorite"
               @files-dropped="onDroppedFiles"
               @toggle-selection-mode="toggleSelectionMode"
@@ -828,7 +842,7 @@
           />
         </section>
 
-        <section v-if="!isDossierRoute && !isWikiRoute && activeView !== 'dashboard'" class="panel panel-right">
+        <section v-if="!isDossierRoute && !isWikiRoute && activeView !== 'dashboard' && activeView !== 'notes'" class="panel panel-right">
           <DocumentPreviewLayout
             class="panel-right__preview panel-right__preview--card-drawer"
             :style="detailsDrawerCardStyle"
@@ -1044,6 +1058,12 @@
 
               </div>
               <div
+                v-else-if="isTrashView && selectedTrashNoteId"
+                class="preview-frame-wrap note-trash-preview"
+              >
+                <NotePreview :note-id="selectedTrashNoteId" />
+              </div>
+              <div
                 v-else-if="selectedDocumentId && (!isChatView || chatPreviewVisible)"
                 class="preview-frame-wrap"
               >
@@ -1077,6 +1097,7 @@
                   @download="downloadSelectedDocument('searchable')"
                   @request-link="onRequestLink"
                   @request-comment="onRequestCommentAnnotation"
+                  @create-note-quote="createNoteQuoteFromSelection"
                 />
               </div>
               <div v-else-if="isChatView" class="knowledge-home">
@@ -1447,6 +1468,15 @@
                     </div>
                   </div>
 
+                  <DocumentNotesSection
+                    class="details-drawer__notes"
+                    :document-id="selectedDocumentId ? String(selectedDocumentId) : null"
+                    :creating="isCreatingLinkedNote"
+                    :reload-key="linkedNotesReloadKey"
+                    @open-note="openLinkedNoteInWorkspace"
+                    @new-note="createLinkedNoteForSelectedDocument"
+                  />
+
                 </div>
               </div>
               <div v-else class="panel-empty details-drawer__empty">
@@ -1514,6 +1544,7 @@ import TagDialogs from '../components/TagDialogs.vue';
 import CategoryDialogs from '../components/CategoryDialogs.vue';
 import RenameDocumentDialog from '../components/RenameDocumentDialog.vue';
 import RetentionStatusBar from '../components/RetentionStatusBar.vue';
+import DocumentNotesSection from '../components/notes/DocumentNotesSection.vue';
 
 // Boolean-gesteuerte Dialoge (öffnen über v-model). Erst bei Bedarf gebraucht
 // und teils sehr groß (ImportStagingDialog/SmartFolderEditor) → eigene Chunks,
@@ -1525,6 +1556,9 @@ const SmartFolderEditor = defineAsyncComponent(() => import('../components/Smart
 const DashboardView = defineAsyncComponent(() => import('./DashboardView.vue'));
 const DossierWorkspace = defineAsyncComponent(() => import('./DossierWorkspace.vue'));
 const WikiWorkspace = defineAsyncComponent(() => import('./WikiWorkspace.vue'));
+const NotesWorkspace = defineAsyncComponent(() => import('./NotesWorkspace.vue'));
+const NotePreview = defineAsyncComponent(() => import('../components/notes/NotePreview.vue'));
+import { useNotesStore } from '../stores/notes.js';
 import { mapApiError, notifyError, logDevError, useNotifications } from '../stores/notifications';
 import { useSettingsStore } from '../stores/settings';
 import { useUiStore } from '../stores/ui';
@@ -1545,8 +1579,14 @@ import {
   buildRecentImportWindowPatch,
   buildShowFilenameSuffixPatch,
   buildSortOrderPatch,
-  buildThemeModePatch
+  buildThemeModePatch,
+  normalizeSidebarSections
 } from '../utils/settingsApi';
+import {
+  consumeSidebarStartAfterLogin,
+  persistSidebarSelection,
+  readSidebarSelection,
+} from '../utils/sidebarSelection.js';
 import { formatDateTime, formatDocumentDateInputFromIso, parseDocumentDateInput } from '../utils/dates';
 import { buildDocumentMetadataPatch } from '../utils/documentMetadata.js';
 import { useOcrPolling } from '../composables/useOcrPolling';
@@ -1554,6 +1594,12 @@ import { useGlobalKeyboard } from '../composables/useGlobalKeyboard';
 import { useSearch } from '../composables/useSearch';
 import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
 import { apiFetch, authedUrl, getBaseUrl } from '../api/client.js';
+import {
+  deleteNote as deleteNotePermanently,
+  emptyNotesTrash,
+  listNotes,
+  restoreNote,
+} from '../api/notes.js';
 import {
   acceptDocumentRetention,
   documentDownloadUrl,
@@ -1623,6 +1669,11 @@ const SEARCH_SCOPE_OPTIONS = Object.freeze([
   { value: 'correspondent', label: 'Korrespondent', icon: 'mdi-account-outline' },
   { value: 'tags', label: 'Tags', icon: 'mdi-tag-outline' },
   { value: 'year', label: 'Jahr', icon: 'mdi-calendar-outline' }
+]);
+const NOTE_SEARCH_SCOPE_OPTIONS = Object.freeze([
+  { value: 'all', label: 'Alles', icon: 'mdi-file-search-outline' },
+  { value: 'title', label: 'Titel', icon: 'mdi-file-document-outline' },
+  { value: 'ocr_text', label: 'Inhalt', icon: 'mdi-note-outline' }
 ]);
 const DOCUMENT_BATCH_ACTIONS = Object.freeze([
   { key: 'tag', label: 'Tags', icon: 'mdi-tag-multiple-outline' },
@@ -1907,6 +1958,10 @@ async function confirmDestructiveAction() {
 }
 
 const { documents, selectedDocumentId, selectedDocumentDetail, isLoadingDocuments } = storeToRefs(docStore);
+const trashedNotes = ref([]);
+const isLoadingTrashedNotes = ref(false);
+const selectedTrashNoteId = ref(null);
+let trashNotesRequestRevision = 0;
 const { tags, isTagMutationRunning } = storeToRefs(tagStore);
 const { categoryNames, categories, sortedCategories } = storeToRefs(categoryStore);
 const {
@@ -1992,6 +2047,96 @@ async function openDocumentFromWiki(documentId) {
   selectView('all');
   await selectDocument(String(documentId));
 }
+
+// Klick auf einen Beleg-Chip / [[…]]-Dokumentverweis in einer Notiz öffnet das
+// echte Dokument (M4). Die Note-Nodes dispatchen dafür window 'pm-note:navigate'.
+function handleNoteNavigate(event) {
+  const detail = event?.detail;
+  if (!detail?.id) return;
+  const id = String(detail.id);
+  if (detail.type === 'document') void openDocumentFromWiki(id);
+  else if (detail.type === 'correspondent') applyCorrespondentFilter(id);
+  else if (detail.type === 'dossier') router.push({ name: 'dossier-board', params: { dossierId: id } });
+  else if (detail.type === 'note') openLinkedNoteInWorkspace(id);
+}
+onMounted(() => window.addEventListener('pm-note:navigate', handleNoteNavigate));
+onBeforeUnmount(() => window.removeEventListener('pm-note:navigate', handleNoteNavigate));
+
+// ── Verknüpfte Notizen im Dokument-Detailbereich (M4) ────────────────────────
+const isCreatingLinkedNote = ref(false);
+const linkedNotesReloadKey = ref(0);
+
+function openLinkedNoteInWorkspace(noteId) {
+  if (!noteId) return;
+  notesStore.requestOpen(noteId);
+  selectView('notes');
+}
+
+// linkedDocument-Attribut für das gewählte Dokument (Shape wie NoteWorkspaceEditor).
+function selectedDocumentLinkTarget() {
+  const docId = selectedDocumentId.value;
+  if (!docId) return null;
+  const detail = selectedDocumentDetail.value || {};
+  return {
+    id: String(docId),
+    title: detail.display_name || detail.original_filename || 'Dokument',
+    pageCount: detail.page_count || null,
+    correspondent: detail.correspondent_name || '',
+    documentDate: detail.document_date || '',
+  };
+}
+
+async function createLinkedNoteForSelectedDocument() {
+  const linkedDocument = selectedDocumentLinkTarget();
+  if (!linkedDocument || isCreatingLinkedNote.value) return;
+  isCreatingLinkedNote.value = true;
+  try {
+    const note = await notesStore.create({
+      body_json: { type: 'doc', attrs: { linkedDocument }, content: [{ type: 'paragraph' }] },
+    });
+    linkedNotesReloadKey.value += 1;
+    openLinkedNoteInWorkspace(note.id);
+  } catch (error) {
+    notifyError(error, 'Notiz konnte nicht angelegt werden.');
+  } finally {
+    isCreatingLinkedNote.value = false;
+  }
+}
+
+// „Als Notiz-Zitat übernehmen" aus der PDF-Textauswahl → neue verknüpfte Notiz
+// mit ocrQuote (Text + Seite), dann öffnen.
+async function createNoteQuoteFromSelection({ page, quote } = {}) {
+  const text = String(quote || '').trim();
+  const linkedDocument = selectedDocumentLinkTarget();
+  if (!linkedDocument || !text) return;
+  try {
+    const note = await notesStore.create({
+      body_json: {
+        type: 'doc',
+        attrs: { linkedDocument },
+        content: [
+          {
+            type: 'ocrQuote',
+            attrs: {
+              text,
+              docId: linkedDocument.id,
+              docTitle: linkedDocument.title,
+              page: page || null,
+              bbox: null,
+            },
+          },
+          { type: 'paragraph' },
+        ],
+      },
+    });
+    linkedNotesReloadKey.value += 1;
+    openLinkedNoteInWorkspace(note.id);
+    notify({ type: 'success', title: 'Notiz', message: 'Zitat als Notiz übernommen.' });
+  } catch (error) {
+    notifyError(error, 'Notiz-Zitat konnte nicht angelegt werden.');
+  }
+}
+
 const panePreviewRef = ref(null);
 
 // Wissen blendet die Vorschau erst ein, wenn eine Quelle aus einer Antwort
@@ -2329,6 +2474,14 @@ watch(activeView, (nextView, previousView) => {
   exitSelectionMode();
   exitTagSelectionMode();
   closeBatchTagMergeDialog();
+  if (nextView === 'trash') {
+    void fetchTrashedNotes();
+  } else {
+    trashNotesRequestRevision += 1;
+    trashedNotes.value = [];
+    isLoadingTrashedNotes.value = false;
+    selectedTrashNoteId.value = null;
+  }
 });
 const activeSavedSearchId = ref(null);
 const activeSavedSearchQuery = ref(null);
@@ -3151,6 +3304,38 @@ const isFavoritesView = computed(() => activeView.value === 'favorites');
 const isNoTextView    = computed(() => activeView.value === 'no_text');
 const isTrashView     = computed(() => activeView.value === 'trash');
 
+const currentSidebarSelection = computed(() => {
+  if (isDossierRoute.value) return { kind: 'route', value: 'dossiers' };
+  if (isWikiRoute.value) return { kind: 'route', value: 'wiki' };
+  if (activeView.value === 'all' && activeSavedSearchId.value) {
+    return { kind: 'saved-search', value: activeSavedSearchId.value };
+  }
+  if (activeView.value === 'all' && activeTagId.value) return { kind: 'tag', value: activeTagId.value };
+  if (activeView.value === 'all' && activeCategoryName.value) {
+    return { kind: 'category', value: activeCategoryName.value };
+  }
+  return { kind: 'view', value: activeView.value === 'attention' ? 'all' : activeView.value };
+});
+
+let sidebarSelectionPersistenceReady = false;
+let sidebarSelectionRestorePending = false;
+let sidebarSelectionChangedWhileLoading = false;
+watch(currentSidebarSelection, (selection) => {
+  if (sidebarSelectionPersistenceReady) {
+    persistSidebarSelection(selection);
+  } else if (sidebarSelectionRestorePending) {
+    sidebarSelectionChangedWhileLoading = true;
+  }
+});
+
+const visibleTrashedNotes = computed(() => {
+  const query = String(documentListQuery.q || '').trim().toLocaleLowerCase('de-DE');
+  if (!query) return trashedNotes.value;
+  return trashedNotes.value.filter((note) =>
+    `${note.title || ''} ${note.preview || ''}`.toLocaleLowerCase('de-DE').includes(query)
+  );
+});
+
 // ── Darstellungs-Modus der Dokumentliste (Liste / Zeitleiste / Kalender) ─────
 const DOCUMENT_VIEW_MODES = ['list', 'timeline', 'calendar'];
 const DOCUMENT_VIEW_MODE_KEY = 'pm.documentViewMode';
@@ -3722,7 +3907,11 @@ const knownEmptyTarget = computed(() => knownSectionDocumentCount.value === 0);
 const showDocumentListLoadingState = computed(() =>
   !isChatView.value
   && !knownEmptyTarget.value
-  && (isDocumentListSettling.value || (documents.value.length === 0 && isLoadingDocuments.value))
+  && (
+    isDocumentListSettling.value
+    || (documents.value.length === 0 && isLoadingDocuments.value)
+    || (isTrashView.value && documents.value.length === 0 && isLoadingTrashedNotes.value)
+  )
 );
 const showDocumentListEmptyState = computed(() => {
   // Während des Ladens ist der noch sichtbare Bestand der ALTE Bereich – daher
@@ -3732,7 +3921,8 @@ const showDocumentListEmptyState = computed(() => {
     return knownEmptyTarget.value;
   }
   // Nach dem Laden entscheidet der tatsächliche Bestand.
-  return documents.value.length === 0;
+  return documents.value.length === 0
+    && (!isTrashView.value || visibleTrashedNotes.value.length === 0);
 });
 const recentImportWindowLabel = computed(() => {
   const parsedHours = Number(appSettings.value?.documents?.recent_import_window_hours || 24);
@@ -3772,7 +3962,7 @@ const documentListEmptyState = computed(() => {
     return {
       icon: 'mdi-trash-can-outline',
       title: 'Papierkorb ist leer',
-      subtitle: 'Gelöschte Dokumente erscheinen hier.'
+      subtitle: 'Gelöschte Dokumente und Notizen erscheinen hier.'
     };
   }
   if (activeView.value === 'attention' && activeAttention.value === 'without_document_type') {
@@ -4941,6 +5131,80 @@ function handleSidebarCategoriesView() {
 function handleSidebarCategoryFilter(categoryName) {
   leaveDossierRoute();
   applyCategoryFilterFromSidebar(categoryName);
+}
+
+function configuredStartSidebarSelection() {
+  return {
+    kind: 'view',
+    value: settingsStore.settings.ui.start_view === 'dashboard' ? 'dashboard' : 'all',
+  };
+}
+
+function isSidebarSectionVisible(sectionKey) {
+  return normalizeSidebarSections(settingsStore.settings.ui.sidebar_sections)
+    .some((section) => section.key === sectionKey && section.visible !== false);
+}
+
+function canRestoreSidebarView(viewKey) {
+  if (viewKey === 'chat') return settingsStore.settings.ui.sidebar_show_chat !== false;
+  if (viewKey === 'imports') return settingsStore.settings.ui.sidebar_show_recent !== false;
+  if (viewKey === 'untagged') {
+    return settingsStore.settings.ui.sidebar_show_untagged !== false
+      && Number(sidebarCounts.value.untagged || 0) > 0;
+  }
+  if (viewKey === 'favorites') return Number(sidebarCounts.value.favorites_count || 0) > 0;
+  if (viewKey === 'no_text') return settingsStore.settings.ui.sidebar_show_no_text !== false;
+  if (viewKey === 'tags') return isSidebarSectionVisible('tags');
+  if (viewKey === 'categories') return isSidebarSectionVisible('kategorien');
+  return ['dashboard', 'all', 'notes', 'trash'].includes(viewKey);
+}
+
+async function restoreSidebarSelection(selection) {
+  if (!selection) return false;
+
+  if (selection.kind === 'route') {
+    if (selection.value === 'dossiers' && settingsStore.settings.ui.sidebar_show_dossiers !== false) {
+      await router.replace({ name: 'dossiers' });
+      return true;
+    }
+    if (selection.value === 'wiki' && settingsStore.settings.ui.sidebar_show_chat !== false) {
+      await router.replace({ name: 'wiki' });
+      return true;
+    }
+    return false;
+  }
+
+  if (selection.kind === 'view') {
+    if (!canRestoreSidebarView(selection.value)) return false;
+    selectView(selection.value, { skipFetch: selection.value === 'all' });
+    return true;
+  }
+
+  if (selection.kind === 'saved-search') {
+    if (!isSidebarSectionVisible('ordner')) return false;
+    const exists = savedSearches.value.some((item) => String(item.id) === selection.value);
+    if (!exists) return false;
+    await openSavedSearch(selection.value, { skipFetch: true });
+    return true;
+  }
+
+  if (selection.kind === 'tag') {
+    if (!isSidebarSectionVisible('tags')) return false;
+    const exists = tags.value.some((tag) => String(tag.id) === selection.value);
+    if (!exists) return false;
+    applyTagFilterFromSidebar(selection.value);
+    return true;
+  }
+
+  if (selection.kind === 'category') {
+    if (!isSidebarSectionVisible('kategorien')) return false;
+    const category = categories.value.find((item) => item.name === selection.value);
+    if (!category) return false;
+    applyCategoryFilterFromSidebar(category.name);
+    return true;
+  }
+
+  return false;
 }
 
 function openLibraryView() {
@@ -6682,7 +6946,7 @@ async function executeDeleteSavedSearch(savedSearch) {
   }
 }
 
-async function openSavedSearch(savedSearchId) {
+async function openSavedSearch(savedSearchId, options = {}) {
   if (!closeDetailsDrawerWithGuard()) {
     return;
   }
@@ -6714,7 +6978,9 @@ async function openSavedSearch(savedSearchId) {
     window.setTimeout(() => {
       isApplyingSavedSearchQuery = false;
     }, 0);
-    await fetchDocuments(selectedDocumentId.value);
+    if (options.skipFetch !== true) {
+      await fetchDocuments(selectedDocumentId.value);
+    }
   } catch (error) {
     notifyError(error, 'Ordner konnte nicht geöffnet werden.');
     isApplyingSavedSearchQuery = false;
@@ -7101,6 +7367,8 @@ async function fetchDocuments(preferredDocumentId = null, options = {}) {
 }
 
 async function selectDocument(documentId, options = {}) {
+  // Ein Dokument auswählen hebt die (read-only) Notiz-Vorschau im Papierkorb auf.
+  selectedTrashNoteId.value = null;
   if (documentId === selectedDocumentId.value) {
     return;
   }
@@ -7262,6 +7530,65 @@ async function restoreDocumentFromTrash(document) {
   }
 }
 
+async function fetchTrashedNotes() {
+  const revision = ++trashNotesRequestRevision;
+  isLoadingTrashedNotes.value = true;
+  try {
+    const payload = await listNotes({ inTrash: true });
+    if (revision !== trashNotesRequestRevision || !isTrashView.value) return;
+    trashedNotes.value = payload?.items || [];
+  } catch (error) {
+    if (revision !== trashNotesRequestRevision || !isTrashView.value) return;
+    trashedNotes.value = [];
+    notifyError(error, 'Gelöschte Notizen konnten nicht geladen werden.');
+  } finally {
+    if (revision === trashNotesRequestRevision) isLoadingTrashedNotes.value = false;
+  }
+}
+
+async function removeTrashedNoteFromList(noteId) {
+  await documentListPanelRef.value?.animateTrashNoteRemoval?.([noteId]);
+  trashedNotes.value = trashedNotes.value.filter((note) => note.id !== noteId);
+  if (selectedTrashNoteId.value === noteId) selectedTrashNoteId.value = null;
+}
+
+// Read-only Vorschau einer gelöschten Notiz im rechten Panel.
+function selectTrashNote(note) {
+  if (!note?.id) return;
+  selectedTrashNoteId.value = note.id;
+}
+
+async function restoreNoteFromTrash(note) {
+  if (!note?.id) return;
+  try {
+    await restoreNote(note.id);
+    await removeTrashedNoteFromList(note.id);
+    await notesStore.fetchNotes();
+    scheduleSidebarCountsRefresh();
+    notify({ type: 'success', title: 'Notiz', message: 'Notiz wiederhergestellt.' });
+  } catch (error) {
+    notifyError(error, 'Notiz konnte nicht wiederhergestellt werden.');
+  }
+}
+
+function openPermanentDeleteNoteDialog(note) {
+  if (!note?.id) return;
+  const label = note.title?.trim() || 'Ohne Titel';
+  openDestructiveConfirm({
+    title: 'Notiz endgültig löschen?',
+    headerSubtitle: 'Diese Aktion kann nicht rückgängig gemacht werden.',
+    body: `„${label}“ wird dauerhaft entfernt.`,
+    primaryText: 'Endgültig löschen',
+    icon: 'mdi-delete-forever-outline',
+    onConfirm: async () => {
+      await deleteNotePermanently(note.id);
+      await removeTrashedNoteFromList(note.id);
+      scheduleSidebarCountsRefresh();
+      notify({ type: 'success', title: 'Notiz', message: 'Notiz endgültig gelöscht.', critical: true });
+    },
+  });
+}
+
 async function emptyTrash() {
   const count = Number(sidebarCounts.value.trash_count || 0);
   if (count <= 0) {
@@ -7270,7 +7597,7 @@ async function emptyTrash() {
   }
   openDestructiveConfirm({
     title: 'Papierkorb leeren?',
-    headerSubtitle: `${count} ${count === 1 ? 'Dokument wird' : 'Dokumente werden'} endgültig gelöscht.`,
+    headerSubtitle: `${count} ${count === 1 ? 'Element wird' : 'Elemente werden'} endgültig gelöscht.`,
     body: 'Diese Aktion kann nicht rückgängig gemacht werden.',
     primaryText: 'Endgültig löschen',
     icon: 'mdi-delete-forever-outline',
@@ -7280,8 +7607,14 @@ async function emptyTrash() {
 
 async function executeEmptyTrash() {
   try {
-    const response = await fetch(`${apiBaseUrl}/api/documents/trash`, { method: 'DELETE' });
+    const [response] = await Promise.all([
+      fetch(`${apiBaseUrl}/api/documents/trash`, { method: 'DELETE' }),
+      emptyNotesTrash(),
+    ]);
     if (!response.ok) throw new Error(await parseResponseError(response));
+    await documentListPanelRef.value?.animateTrashEmpty?.();
+    trashedNotes.value = [];
+    selectedTrashNoteId.value = null;
     if (isTrashView.value) {
       selectedDocumentId.value = null;
       selectedDocumentDetail.value = null;
@@ -7403,6 +7736,12 @@ function selectView(viewKey, options = {}) {
 
   if (viewKey === 'chat') {
     activeView.value = 'chat';
+    leaveActiveSavedSearch();
+    return;
+  }
+
+  if (viewKey === 'notes') {
+    activeView.value = 'notes';
     leaveActiveSavedSearch();
     return;
   }
@@ -8534,6 +8873,9 @@ async function openImport() {
   isUploadDialogOpen.value = true;
 }
 
+// Notizen-Store: hält die Sidebar-Zähler aktuell (z. B. nach Import/Änderungen).
+const notesStore = useNotesStore();
+
 async function onImportPdfInputChange(event) {
   const selection = selectPdfFiles(event.target?.files || [], 'file');
   event.target.value = '';
@@ -9173,13 +9515,25 @@ function handleSidebarSearchInput(value) {
   onAppBarSearchInput(value);
 }
 
-const searchScopeOptions = SEARCH_SCOPE_OPTIONS;
+const noteSearchScope = computed(() => {
+  if (searchScope.value === 'title') return 'title';
+  if (searchScope.value === 'ocr_text') return 'body';
+  return 'all';
+});
+const effectiveSearchScope = computed(() => (
+  activeView.value === 'notes'
+    ? (['all', 'title', 'ocr_text'].includes(searchScope.value) ? searchScope.value : 'all')
+    : searchScope.value
+));
+const searchScopeOptions = computed(() => (
+  activeView.value === 'notes' ? NOTE_SEARCH_SCOPE_OPTIONS : SEARCH_SCOPE_OPTIONS
+));
 const activeSearchScopeLabel = computed(
-  () => searchScopeOptions.find((option) => option.value === searchScope.value)?.label || 'Alles'
+  () => searchScopeOptions.value.find((option) => option.value === effectiveSearchScope.value)?.label || 'Alles'
 );
 
 function selectSearchScope(scope) {
-  searchScope.value = searchScopeOptions.some((option) => option.value === scope) ? scope : 'all';
+  searchScope.value = searchScopeOptions.value.some((option) => option.value === scope) ? scope : 'all';
   nextTick(() => {
     focusSearchFieldInput();
   });
@@ -9203,7 +9557,7 @@ watch(searchText, (value) => {
 });
 
 watch(documentListQueryReloadKey, () => {
-  if (isChatView.value || isTagView.value || isCategoryView.value) {
+  if (isChatView.value || isTagView.value || isCategoryView.value || activeView.value === 'notes') {
     return;
   }
   startDocumentListSettle();
@@ -9252,18 +9606,19 @@ onMounted(async () => {
   mediaQuery.addEventListener('change', handleSystemThemeChange);
   await fetchAppSettings();
 
-  // Startseite gemäß Einstellung (nur beim ersten Laden, wenn keine Suche/kein
-  // Ordner/Tag aktiv ist – z.B. über einen geteilten Link).
-  if (
-    settingsStore.settings.ui.start_view === 'dashboard' &&
-    activeView.value === 'all' &&
-    !activeSavedSearchId.value &&
-    !activeTagId.value &&
-    !activeDocumentTypeFilterName.value &&
-    !parsedSearch.value.q
-  ) {
-    activeView.value = 'dashboard';
+  // Ein expliziter Login priorisiert genau einmal die konfigurierte Startseite.
+  // Ein gewöhnlicher Reload stellt dagegen die zuletzt gewählte Sidebar-Auswahl
+  // wieder her. Ohne gespeicherten Zustand bleibt die Startseite der Fallback.
+  const useConfiguredStart = consumeSidebarStartAfterLogin();
+  const storedSidebarSelection = useConfiguredStart
+    ? configuredStartSidebarSelection()
+    : readSidebarSelection();
+
+  if (useConfiguredStart && route.name !== 'documents') {
+    await router.replace({ name: 'documents' });
   }
+
+  sidebarSelectionRestorePending = true;
 
   isTagFilterDrawerOpen.value = settingsStore.settings.ui.tagDrawerRememberState
     ? settingsStore.readStoredTagDrawerExpanded()
@@ -9271,6 +9626,20 @@ onMounted(async () => {
 
   await Promise.all([fetchTags(), fetchSavedSearches(), fetchSidebarCounts(), categoryStore.ensureLoaded()]);
   ensureActiveDocumentTypeFilterIsValid();
+
+  sidebarSelectionRestorePending = false;
+  const routeAlreadySelectsSidebarArea = !useConfiguredStart && (isDossierRoute.value || isWikiRoute.value);
+  let sidebarSelectionRestored = sidebarSelectionChangedWhileLoading || routeAlreadySelectsSidebarArea;
+  if (!sidebarSelectionRestored && route.name === 'documents') {
+    sidebarSelectionRestored = await restoreSidebarSelection(storedSidebarSelection);
+  }
+  if (!sidebarSelectionRestored) {
+    if (route.name !== 'documents') await router.replace({ name: 'documents' });
+    await restoreSidebarSelection(configuredStartSidebarSelection());
+  }
+  sidebarSelectionPersistenceReady = true;
+  persistSidebarSelection(currentSidebarSelection.value);
+
   await nextTick();
   isTagFilterDrawerAnimationReady.value = true;
   const restoredDocId = readStoredLastSelectedDocId();
@@ -11474,6 +11843,17 @@ onBeforeUnmount(() => {
   background-color: color-mix(in srgb, currentColor 14%, var(--pm-app-surface-raised)) !important;
 }
 
+/* Behält die Geometrie des Standard-Titelzeilenbuttons, nimmt der dauerhaft
+   destruktiven Aktion im Ruhezustand aber visuelles Gewicht. */
+.list-header-btn--secondary-danger.v-btn {
+  --v-activated-opacity: 0.055;
+  color: var(--pm-error) !important;
+}
+
+.list-header-btn--secondary-danger.v-btn:hover:not(.v-btn--disabled) {
+  background-color: color-mix(in srgb, var(--pm-error) 7%, var(--pm-app-surface-raised)) !important;
+}
+
 .list-header-btn.v-btn:focus-visible:not(.v-btn--disabled) {
   outline: 2px solid currentColor;
   outline-offset: 2px;
@@ -11557,6 +11937,19 @@ onBeforeUnmount(() => {
 
 .workspace.workspace--rail.workspace--dashboard {
   grid-template-columns: 64px 1fr;
+}
+
+.workspace.workspace--notes {
+  grid-template-columns: 288px 1fr;
+}
+.workspace.workspace--rail.workspace--notes {
+  grid-template-columns: 64px 1fr;
+}
+
+.panel-notes {
+  min-width: 0;
+  overflow: hidden;
+  border-right: 0;
 }
 
 .workspace.workspace--dossiers {
@@ -14105,6 +14498,14 @@ onBeforeUnmount(() => {
     grid-template-columns: 260px 1fr;
   }
 
+  .workspace.workspace--notes {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+
+  .workspace.workspace--rail.workspace--notes {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
   .panel-right {
     grid-column: 1 / -1;
     height: min(68vh, 620px);
@@ -14124,6 +14525,11 @@ onBeforeUnmount(() => {
   .workspace {
     grid-template-columns: 1fr;
     height: auto;
+  }
+
+  .workspace.workspace--notes,
+  .workspace.workspace--rail.workspace--notes {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .panel {

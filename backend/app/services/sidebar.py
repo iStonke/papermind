@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.models.document import Document
 from app.models.document_tag import document_tags
 from app.models.import_inbox import ImportInboxItem
+from app.models.note import Note
 from app.models.saved_search import SavedSearch
 from app.models.scanner import ScannerDevice, ScannerDeviceRecipient
 from app.models.smart_folder import SmartFolder
@@ -183,12 +184,20 @@ class SidebarService:
             unread_total = 0
             favorites_count = 0
 
-        trash_count = int(
+        document_trash_count = int(
             self.db.scalar(
                 select(func.count(Document.id)).where(and_(Document.is_deleted.is_(True), owner_cond))
             )
             or 0
         )
+        note_owner_cond = (Note.owner_id == self.owner_id) if self.owner_id is not None else true()
+        note_trash_count = int(
+            self.db.scalar(
+                select(func.count(Note.id)).where(and_(Note.is_deleted.is_(True), note_owner_cond))
+            )
+            or 0
+        )
+        trash_count = document_trash_count + note_trash_count
         if self.owner_id is None:
             import_inbox_visibility_cond = true()
         else:

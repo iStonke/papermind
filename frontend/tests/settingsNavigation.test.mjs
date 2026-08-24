@@ -17,3 +17,25 @@ test('controls is the final category in the surface settings group', () => {
 
   assert.deepEqual(surfaceCategories, ['appearance', 'sidebar', 'documents', 'controls']);
 });
+
+test('notes has a dedicated settings area in the documents group', () => {
+  assert.match(
+    navigation,
+    /value: 'notes', label: 'Notizen', icon: 'mdi-note-outline', group: 'documents'/,
+  );
+  assert.match(source, /<section v-if="activeCategory === 'notes'"/);
+  assert.match(source, /subtitle="Globale Vorgaben für Notizenliste und Editor\."/);
+  assert.match(source, />Standardansicht</);
+  assert.match(source, />Standardsortierung</);
+  assert.match(source, />Schreibbreite</);
+  assert.match(source, />Absatzabstand</);
+  assert.match(source, />Schriftart</);
+  assert.match(source, />Rechtschreibprüfung</);
+  assert.match(source, /notesDefaultViewOptions/);
+  assert.match(source, /notesSortOrderOptions/);
+  assert.match(source, /notesWritingWidthOptions/);
+  assert.match(source, /notesParagraphSpacingOptions/);
+  assert.match(source, /notesFontFamilyOptions/);
+  assert.match(source, /notes_spellcheck_enabled/);
+  assert.doesNotMatch(source, /Notiz-Einstellungen werden vorbereitet/);
+});

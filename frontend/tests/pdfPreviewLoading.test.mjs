@@ -17,3 +17,8 @@ test('PDF preview loading remains accessible and respects reduced motion', () =>
   assert.match(previewSource, /prefers-reduced-motion: reduce/);
   assert.match(previewSource, /pm-no-animations/);
 });
+
+test('PDF preview loading uses an explicit light illustration in light mode', () => {
+  assert.match(previewSource, /'--pdf-loader-page-bg': 'rgb\(255 255 255 \/ 0\.98\)'/);
+  assert.match(previewSource, /'--pdf-loader-line': 'rgb\(71 85 105 \/ 0\.2\)'/);
+});

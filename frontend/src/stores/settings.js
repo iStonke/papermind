@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import {
   ANSWER_PROMPT_TEMPLATE_DEFAULT,
+  NOTE_WRITING_SYSTEM_PROMPT_DEFAULT,
   NUMERIC_PROMPT_TEMPLATE_DEFAULT,
   SUMMARY_PROMPT_TEMPLATE_DEFAULT,
   SYSTEM_PROMPT_DEFAULT
@@ -10,6 +11,12 @@ import { normalizeSidebarSections } from '../utils/settingsApi.js';
 const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
 const START_VIEW_VALUES = new Set(['dashboard', 'all']);
 const SEARCH_SCOPE_DEFAULT_VALUES = new Set(['current', 'all']);
+const NOTES_DEFAULT_VIEW_VALUES = new Set(['list', 'focus', 'remember']);
+const NOTES_SORT_ORDER_VALUES = new Set(['updated', 'created', 'title']);
+const NOTES_WRITING_WIDTH_VALUES = new Set(['compact', 'comfortable', 'wide']);
+const NOTES_PARAGRAPH_SPACING_VALUES = new Set(['compact', 'comfortable', 'spacious']);
+const NOTES_FONT_FAMILY_VALUES = new Set(['sans', 'serif', 'mono']);
+const TEXT_GENERATION_PROVIDER_VALUES = new Set(['ollama', 'openai', 'anthropic']);
 const SORT_ORDER_VALUES = new Set([
   'newest',
   'oldest',
@@ -104,7 +111,13 @@ function createDefaultSettings() {
       sidebar_show_dossiers: true,
       sidebar_sections: normalizeSidebarSections(null),
       sidebar_max_tags: 5,
-      sidebar_max_categories: 5
+      sidebar_max_categories: 5,
+      notes_default_view: 'remember',
+      notes_sort_order: 'updated',
+      notes_writing_width: 'comfortable',
+      notes_paragraph_spacing: 'comfortable',
+      notes_font_family: 'sans',
+      notes_spellcheck_enabled: true
     },
     documents: {
       auto_ocr: true,
@@ -156,6 +169,17 @@ function createDefaultSettings() {
       chat_model: 'llama3.2:3b',
       timeout_seconds: 90,
       max_input_chars: 1500
+    },
+    text_generation: {
+      enabled: true,
+      provider: 'ollama',
+      ollama_model: 'llama3.2:3b',
+      openai_model: 'gpt-5.6-luna',
+      anthropic_model: 'claude-haiku-4-5',
+      system_prompt: NOTE_WRITING_SYSTEM_PROMPT_DEFAULT,
+      note_context_chars: 6000,
+      max_output_tokens: 900,
+      temperature: 0.35
     },
     quality: {
       enable_answer_checks: true,
@@ -232,6 +256,7 @@ function cloneSettings(settingsValue) {
     quality: { ...settingsValue.quality },
     wiki: { ...settingsValue.wiki },
     ollama: { ...settingsValue.ollama },
+    text_generation: { ...settingsValue.text_generation },
     retention: {
       enabled: settingsValue.retention?.enabled !== false,
       usage_mode: settingsValue.retention?.usage_mode || 'business',
@@ -253,6 +278,7 @@ function assignSettings(target, source) {
   Object.assign(target.quality, source.quality);
   if (source.wiki) Object.assign(target.wiki, source.wiki);
   if (source.ollama) Object.assign(target.ollama, source.ollama);
+  if (source.text_generation) Object.assign(target.text_generation, source.text_generation);
   if (source.retention) {
     if ('enabled' in source.retention) target.retention.enabled = source.retention.enabled !== false;
     if ('usage_mode' in source.retention) target.retention.usage_mode = source.retention.usage_mode;
@@ -342,6 +368,13 @@ export const useSettingsStore = defineStore('settings', {
         sidebar_sections: false,
         sidebar_max_tags: false,
         sidebar_max_categories: false,
+        notes_default_view: false,
+        notes_sort_order: false,
+        notes_writing_width: false,
+        notes_paragraph_spacing: false,
+        notes_font_family: false,
+        notes_spellcheck_enabled: false,
+        text_generation_system_prompt: false,
         prompts: false,
         reset_prompts: false
       },
@@ -373,6 +406,9 @@ export const useSettingsStore = defineStore('settings', {
       if (patch?.ollama && typeof patch.ollama === 'object') {
         Object.assign(this.settingsDraft.ollama, patch.ollama);
       }
+      if (patch?.text_generation && typeof patch.text_generation === 'object') {
+        Object.assign(this.settingsDraft.text_generation, patch.text_generation);
+      }
       if (patch?.quality && typeof patch.quality === 'object') {
         Object.assign(this.settingsDraft.quality, patch.quality);
       }
@@ -396,11 +432,17 @@ export const useSettingsStore = defineStore('settings', {
       const rawThemeMode = String(payload?.ui?.theme_mode || '').toLowerCase();
       const rawStartView = String(payload?.ui?.start_view || '').toLowerCase();
       const rawSearchScopeDefault = String(payload?.ui?.search_scope_default || '').toLowerCase();
+      const rawNotesDefaultView = String(payload?.ui?.notes_default_view || '').toLowerCase();
+      const rawNotesSortOrder = String(payload?.ui?.notes_sort_order || '').toLowerCase();
+      const rawNotesWritingWidth = String(payload?.ui?.notes_writing_width || '').toLowerCase();
+      const rawNotesParagraphSpacing = String(payload?.ui?.notes_paragraph_spacing || '').toLowerCase();
+      const rawNotesFontFamily = String(payload?.ui?.notes_font_family || '').toLowerCase();
       const rawSortOrder = String(payload?.documents?.sort_order || '').toLowerCase();
       const rawRecentImportWindow = Number(payload?.documents?.recent_import_window_hours);
       const rawTrashRetentionDays = Number(payload?.documents?.trash_retention_days);
       const rawOcrEngine = String(payload?.ocr?.engine || '').toLowerCase();
       const rawOcrDocLang = String(payload?.documents?.ocr_doc_lang || '').toLowerCase();
+      const rawTextGenerationProvider = String(payload?.text_generation?.provider || '').toLowerCase();
 
       const chunkChars = clampInt(payload?.rag?.chunk_chars, 600, 20000, defaults.rag.chunk_chars);
       const overlapRaw = clampInt(
@@ -467,7 +509,26 @@ export const useSettingsStore = defineStore('settings', {
               : defaults.ui.sidebar_show_dossiers,
           sidebar_sections: normalizeSidebarSections(payload?.ui?.sidebar_sections),
           sidebar_max_tags: clampInt(payload?.ui?.sidebar_max_tags, 0, 50, defaults.ui.sidebar_max_tags),
-          sidebar_max_categories: clampInt(payload?.ui?.sidebar_max_categories, 0, 50, defaults.ui.sidebar_max_categories)
+          sidebar_max_categories: clampInt(payload?.ui?.sidebar_max_categories, 0, 50, defaults.ui.sidebar_max_categories),
+          notes_default_view: NOTES_DEFAULT_VIEW_VALUES.has(rawNotesDefaultView)
+            ? rawNotesDefaultView
+            : defaults.ui.notes_default_view,
+          notes_sort_order: NOTES_SORT_ORDER_VALUES.has(rawNotesSortOrder)
+            ? rawNotesSortOrder
+            : defaults.ui.notes_sort_order,
+          notes_writing_width: NOTES_WRITING_WIDTH_VALUES.has(rawNotesWritingWidth)
+            ? rawNotesWritingWidth
+            : defaults.ui.notes_writing_width,
+          notes_paragraph_spacing: NOTES_PARAGRAPH_SPACING_VALUES.has(rawNotesParagraphSpacing)
+            ? rawNotesParagraphSpacing
+            : defaults.ui.notes_paragraph_spacing,
+          notes_font_family: NOTES_FONT_FAMILY_VALUES.has(rawNotesFontFamily)
+            ? rawNotesFontFamily
+            : defaults.ui.notes_font_family,
+          notes_spellcheck_enabled:
+            typeof payload?.ui?.notes_spellcheck_enabled === 'boolean'
+              ? payload.ui.notes_spellcheck_enabled
+              : defaults.ui.notes_spellcheck_enabled
         },
         documents: {
           auto_ocr:
@@ -586,6 +647,49 @@ export const useSettingsStore = defineStore('settings', {
             : defaults.ollama.chat_model,
           timeout_seconds: typeof payload?.ollama?.timeout_seconds === 'number' ? payload.ollama.timeout_seconds : defaults.ollama.timeout_seconds,
           max_input_chars: typeof payload?.ollama?.max_input_chars === 'number' ? payload.ollama.max_input_chars : defaults.ollama.max_input_chars
+        },
+        text_generation: {
+          enabled:
+            typeof payload?.text_generation?.enabled === 'boolean'
+              ? payload.text_generation.enabled
+              : defaults.text_generation.enabled,
+          provider: TEXT_GENERATION_PROVIDER_VALUES.has(rawTextGenerationProvider)
+            ? rawTextGenerationProvider
+            : defaults.text_generation.provider,
+          ollama_model: normalizeString(
+            payload?.text_generation?.ollama_model,
+            defaults.text_generation.ollama_model
+          ),
+          openai_model: normalizeString(
+            payload?.text_generation?.openai_model,
+            defaults.text_generation.openai_model
+          ),
+          anthropic_model: normalizeString(
+            payload?.text_generation?.anthropic_model,
+            defaults.text_generation.anthropic_model
+          ),
+          system_prompt: normalizePrompt(
+            payload?.text_generation?.system_prompt,
+            defaults.text_generation.system_prompt
+          ),
+          note_context_chars: clampInt(
+            payload?.text_generation?.note_context_chars,
+            500,
+            12000,
+            defaults.text_generation.note_context_chars
+          ),
+          max_output_tokens: clampInt(
+            payload?.text_generation?.max_output_tokens,
+            64,
+            4096,
+            defaults.text_generation.max_output_tokens
+          ),
+          temperature: clamp(
+            payload?.text_generation?.temperature,
+            0,
+            1,
+            defaults.text_generation.temperature
+          )
         },
         quality: {
           enable_answer_checks:

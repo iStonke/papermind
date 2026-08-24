@@ -12,6 +12,7 @@ from app.models.dossier import Dossier, DossierGroup, DossierItem, DossierProper
 from app.models.global_setting import GlobalSetting
 from app.models.import_inbox import ImportInboxItem
 from app.models.job import Job
+from app.models.note import Note, NoteLink
 from app.models.saved_search import SavedSearch
 from app.models.search_event import SearchEvent
 from app.models.scanner import ScannerDevice, ScannerDeviceRecipient, ScannerScanCommand, ScannerScanJob
@@ -51,6 +52,8 @@ __all__ = [
     "DossierProperty",
     "Tag",
     "Job",
+    "Note",
+    "NoteLink",
     "SavedSearch",
     "SearchEvent",
     "ScannerDevice",

@@ -80,6 +80,27 @@ REGEL:
 Wenn du keinen passenden Zahlenwert findest: "Im Dokumentenkontext nicht enthalten." + was gesucht wurde.
 """.strip()
 
+NOTE_WRITING_SYSTEM_PROMPT_DEFAULT = """
+Du bist die Schreibassistenz im PaperMind-Notizeditor.
+
+Erzeuge Text, der direkt an der aktuellen Cursorposition eingefügt werden kann.
+Befolge die Anweisung des Nutzers und orientiere dich an Sprache, Stil und
+Detailgrad der vorhandenen Notiz.
+
+Gib ausschließlich den einzufügenden Text aus – ohne Begrüßung, Erklärung,
+Anführungszeichen oder Markdown-Codeblock.
+
+Wenn der Nutzer eine Aufzählung verlangt, verwende gültiges Markdown: Jeder
+ungeordnete Listenpunkt beginnt in einer eigenen Zeile mit „- “, nummerierte
+Listen verwenden „1. “, „2. “ usw.
+
+Nutze ausschließlich die bereitgestellten Informationen. Erfinde keine Fakten.
+Wenn Informationen fehlen oder unsicher sind, formuliere das ausdrücklich.
+
+Wenn Dokumentquellen bereitgestellt wurden, nenne relevante Belege mit
+Dokumenttitel und – falls vorhanden – Seitenzahl.
+""".strip()
+
 
 class ThemeMode(str, Enum):
     light = "light"
@@ -100,6 +121,36 @@ class SearchScopeDefault(str, Enum):
 
     current = "current"
     all = "all"
+
+
+class NotesDefaultView(str, Enum):
+    list = "list"
+    focus = "focus"
+    remember = "remember"
+
+
+class NotesSortOrder(str, Enum):
+    updated = "updated"
+    created = "created"
+    title = "title"
+
+
+class NotesWritingWidth(str, Enum):
+    compact = "compact"
+    comfortable = "comfortable"
+    wide = "wide"
+
+
+class NotesParagraphSpacing(str, Enum):
+    compact = "compact"
+    comfortable = "comfortable"
+    spacious = "spacious"
+
+
+class NotesFontFamily(str, Enum):
+    sans = "sans"
+    serif = "serif"
+    mono = "mono"
 
 
 class DocumentSortOrder(str, Enum):
@@ -176,6 +227,12 @@ class UISettingsRead(BaseModel):
     # Max. Anzahl der Quicklinks pro Sektion in der Seitenleiste (0 = nur „Alle …").
     sidebar_max_tags: int = Field(default=5, ge=0, le=50)
     sidebar_max_categories: int = Field(default=5, ge=0, le=50)
+    notes_default_view: NotesDefaultView = NotesDefaultView.remember
+    notes_sort_order: NotesSortOrder = NotesSortOrder.updated
+    notes_writing_width: NotesWritingWidth = NotesWritingWidth.comfortable
+    notes_paragraph_spacing: NotesParagraphSpacing = NotesParagraphSpacing.comfortable
+    notes_font_family: NotesFontFamily = NotesFontFamily.sans
+    notes_spellcheck_enabled: bool = True
 
     @model_validator(mode="after")
     def normalize_sidebar_sections(self) -> "UISettingsRead":
@@ -277,6 +334,28 @@ class OllamaSettingsRead(BaseModel):
     max_input_chars: int = Field(default=800, ge=200, le=4000)
 
 
+TextGenerationProvider = Literal["ollama", "openai", "anthropic"]
+
+
+class TextGenerationSettingsRead(BaseModel):
+    """Provider routing used only for free-form text in the note editor.
+
+    Document knowledge/RAG deliberately does not read this section. It remains
+    pinned to ``ollama.chat_model`` so library contents cannot be routed to a
+    cloud provider through a settings change.
+    """
+
+    enabled: bool = True
+    provider: TextGenerationProvider = "ollama"
+    ollama_model: str = Field(default="llama3.2:3b", min_length=1, max_length=128)
+    openai_model: str = Field(default="gpt-5.6-luna", min_length=1, max_length=128)
+    anthropic_model: str = Field(default="claude-haiku-4-5", min_length=1, max_length=128)
+    system_prompt: str = Field(default=NOTE_WRITING_SYSTEM_PROMPT_DEFAULT, min_length=50, max_length=12000)
+    note_context_chars: int = Field(default=6000, ge=500, le=12000)
+    max_output_tokens: int = Field(default=900, ge=64, le=4096)
+    temperature: float = Field(default=0.35, ge=0.0, le=1.0)
+
+
 RetentionUsageMode = Literal["private", "business"]
 
 
@@ -320,6 +399,7 @@ class AppSettingsRead(BaseModel):
     quality: QualitySettingsRead = Field(default_factory=QualitySettingsRead)
     wiki: WikiSettingsRead = Field(default_factory=WikiSettingsRead)
     ollama: OllamaSettingsRead = Field(default_factory=OllamaSettingsRead)
+    text_generation: TextGenerationSettingsRead = Field(default_factory=TextGenerationSettingsRead)
     retention: RetentionSettingsRead = Field(default_factory=RetentionSettingsRead)
     meta: SettingsMetaRead = Field(default_factory=SettingsMetaRead)
 
@@ -341,6 +421,12 @@ class UISettingsPatch(BaseModel):
     sidebar_sections: list[SidebarSectionConfig] | None = None
     sidebar_max_tags: int | None = Field(default=None, ge=0, le=50)
     sidebar_max_categories: int | None = Field(default=None, ge=0, le=50)
+    notes_default_view: NotesDefaultView | None = None
+    notes_sort_order: NotesSortOrder | None = None
+    notes_writing_width: NotesWritingWidth | None = None
+    notes_paragraph_spacing: NotesParagraphSpacing | None = None
+    notes_font_family: NotesFontFamily | None = None
+    notes_spellcheck_enabled: bool | None = None
 
     @field_validator("sidebar_sections")
     @classmethod
@@ -436,6 +522,18 @@ class OllamaSettingsPatch(BaseModel):
     max_input_chars: int | None = Field(default=None, ge=200, le=4000)
 
 
+class TextGenerationSettingsPatch(BaseModel):
+    enabled: bool | None = None
+    provider: TextGenerationProvider | None = None
+    ollama_model: str | None = Field(default=None, min_length=1, max_length=128)
+    openai_model: str | None = Field(default=None, min_length=1, max_length=128)
+    anthropic_model: str | None = Field(default=None, min_length=1, max_length=128)
+    system_prompt: str | None = Field(default=None, min_length=50, max_length=12000)
+    note_context_chars: int | None = Field(default=None, ge=500, le=12000)
+    max_output_tokens: int | None = Field(default=None, ge=64, le=4096)
+    temperature: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
 class RetentionSettingsPatch(BaseModel):
     enabled: bool | None = None
     usage_mode: RetentionUsageMode | None = None
@@ -451,5 +549,6 @@ class AppSettingsPatch(BaseModel):
     quality: QualitySettingsPatch | None = None
     wiki: WikiSettingsPatch | None = None
     ollama: OllamaSettingsPatch | None = None
+    text_generation: TextGenerationSettingsPatch | None = None
     retention: RetentionSettingsPatch | None = None
     meta: SettingsMetaPatch | None = None

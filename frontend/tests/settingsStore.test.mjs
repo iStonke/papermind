@@ -85,6 +85,75 @@ test("normalizeSettingsPayload preserves dossier sidebar visibility", () => {
   assert.equal(normalized.ui.sidebar_show_dossiers, false);
 });
 
+test("normalizeSettingsPayload preserves note preferences", () => {
+  setActivePinia(createPinia());
+  const store = useSettingsStore();
+
+  const normalized = store.normalizeSettingsPayload({
+    ui: {
+      notes_default_view: "focus",
+      notes_sort_order: "created",
+      notes_writing_width: "wide",
+      notes_paragraph_spacing: "spacious",
+      notes_font_family: "serif",
+      notes_spellcheck_enabled: false,
+    },
+  });
+
+  assert.equal(normalized.ui.notes_default_view, "focus");
+  assert.equal(normalized.ui.notes_sort_order, "created");
+  assert.equal(normalized.ui.notes_writing_width, "wide");
+  assert.equal(normalized.ui.notes_paragraph_spacing, "spacious");
+  assert.equal(normalized.ui.notes_font_family, "serif");
+  assert.equal(normalized.ui.notes_spellcheck_enabled, false);
+});
+
+test("normalizeSettingsPayload falls back for invalid note preferences", () => {
+  setActivePinia(createPinia());
+  const store = useSettingsStore();
+
+  const normalized = store.normalizeSettingsPayload({
+    ui: {
+      notes_default_view: "unknown",
+      notes_sort_order: "random",
+      notes_writing_width: "unlimited",
+      notes_paragraph_spacing: "huge",
+      notes_font_family: "comic",
+    },
+  });
+
+  assert.equal(normalized.ui.notes_default_view, "remember");
+  assert.equal(normalized.ui.notes_sort_order, "updated");
+  assert.equal(normalized.ui.notes_writing_width, "comfortable");
+  assert.equal(normalized.ui.notes_paragraph_spacing, "comfortable");
+  assert.equal(normalized.ui.notes_font_family, "sans");
+  assert.equal(normalized.ui.notes_spellcheck_enabled, true);
+});
+
+test("normalizeSettingsPayload keeps note text generation separate from local knowledge", () => {
+  setActivePinia(createPinia());
+  const store = useSettingsStore();
+
+  const normalized = store.normalizeSettingsPayload({
+    ollama: { chat_model: "local-knowledge" },
+    text_generation: {
+      enabled: true,
+      provider: "anthropic",
+      anthropic_model: "claude-test",
+      system_prompt: "Eigene interne Schreibanweisung für den Notizeditor mit ausreichender Länge.",
+      note_context_chars: 7000,
+      max_output_tokens: 1200,
+      temperature: 0.4,
+    },
+  });
+
+  assert.equal(normalized.ollama.chat_model, "local-knowledge");
+  assert.equal(normalized.text_generation.provider, "anthropic");
+  assert.equal(normalized.text_generation.anthropic_model, "claude-test");
+  assert.match(normalized.text_generation.system_prompt, /Eigene interne Schreibanweisung/);
+  assert.equal(normalized.text_generation.note_context_chars, 7000);
+});
+
 test("normalizeSettingsPayload preserves wiki trust settings", () => {
   setActivePinia(createPinia());
   const store = useSettingsStore();

@@ -12,6 +12,7 @@ from app.routers.documents import router as documents_router
 from app.routers.health import router as health_router
 from app.routers.imports import router as import_router
 from app.routers.jobs import router as jobs_router
+from app.routers.notes import router as notes_router
 from app.routers.retrieval import router as retrieval_router
 from app.routers.retention import router as retention_router
 from app.routers.saved_searches import router as saved_searches_router
@@ -40,6 +41,7 @@ __all__ = [
     "document_types_router",
     "dossiers_router",
     "jobs_router",
+    "notes_router",
     "retrieval_router",
     "retention_router",
     "saved_searches_router",

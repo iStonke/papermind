@@ -73,6 +73,18 @@
           </SidebarItem>
 
           <SidebarItem
+            item-class="sidebar-item--secondary"
+            :active="isViewActive('notes')"
+            :count="notesSidebarCount"
+            @click="emit('select-view', 'notes')"
+          >
+            <template #icon>
+              <v-icon size="18">mdi-note-outline</v-icon>
+            </template>
+            Notizen
+          </SidebarItem>
+
+          <SidebarItem
             v-if="settingsStore.settings.ui.sidebar_show_recent !== false"
             item-class="sidebar-item--secondary sidebar-item--imports"
             :active="isViewActive('imports')"
@@ -439,6 +451,7 @@ import { useCategoryStore } from '../stores/categories.js';
 import { useSettingsStore } from '../stores/settings.js';
 import { useDossierStore } from '../stores/dossiers.js';
 import { normalizeSidebarSections } from '../utils/settingsApi.js';
+import { useNotesStore } from '../stores/notes.js';
 import SidebarItem from './SidebarItem.vue';
 
 // ── Props & Emits ──────────────────────────────────────────────────────────
@@ -593,6 +606,10 @@ const untaggedSidebarCount  = computed(() => Number(sidebarCounts.value.untagged
 const favoritesSidebarCount = computed(() => Number(sidebarCounts.value.favorites_count || 0));
 const noTextSidebarCount    = computed(() => Number(sidebarCounts.value.no_text_count   || 0));
 const trashSidebarCount     = computed(() => Number(sidebarCounts.value.trash_count     || 0));
+// Notizen aus dem Store (Backend). Beim ersten Mount laden, damit der Zähler stimmt.
+const notesStore = useNotesStore();
+onMounted(() => notesStore.ensureLoaded());
+const notesSidebarCount = computed(() => notesStore.notes.length);
 
 const sortedTagsByName = computed(() =>
   [...tags.value].sort((l, r) =>
@@ -694,6 +711,11 @@ const flyoutRows = computed(() => {
         count: allDocumentsSidebarCount.value, active: isViewActive('all'),
         run: () => emit('select-view', 'all'),
       }];
+      rows.push({
+        id: 'notes', icon: 'mdi-note-outline', label: 'Notizen',
+        count: notesSidebarCount.value, active: isViewActive('notes'),
+        run: () => emit('select-view', 'notes'),
+      });
       if (ui.sidebar_show_recent !== false) rows.push({
         id: 'imports', icon: 'mdi-tray-arrow-down', label: 'Zuletzt hinzugefügt',
         count: importsSidebarCount.value, active: isViewActive('imports'),

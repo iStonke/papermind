@@ -231,6 +231,9 @@
         <button class="pm-sel-menu__btn" aria-label="Auswahl kopieren" title="Kopieren" @click="copySelection">
           <v-icon size="16">mdi-content-copy</v-icon>
         </button>
+        <button class="pm-sel-menu__btn" aria-label="Als Notiz-Zitat übernehmen" title="Als Notiz-Zitat" @click="requestNoteQuoteFromSelection">
+          <v-icon size="16">mdi-note-plus-outline</v-icon>
+        </button>
       </div>
     </div>
 
@@ -286,7 +289,7 @@ const props = defineProps({
   /** Deaktiviert den Download-Button, wenn (noch) kein durchsuchbares PDF vorliegt. */
   downloadDisabled: { type: Boolean, default: false },
 });
-const emit = defineEmits(['loaded', 'first-page', 'failed', 'create-annotation', 'delete-annotation', 'update-annotation', 'open-reader', 'download', 'request-link', 'request-comment']);
+const emit = defineEmits(['loaded', 'first-page', 'failed', 'create-annotation', 'delete-annotation', 'update-annotation', 'open-reader', 'download', 'request-link', 'request-comment', 'create-note-quote']);
 const theme = useTheme();
 
 const pdfPreviewThemeStyle = computed(() => {
@@ -300,7 +303,11 @@ const pdfPreviewThemeStyle = computed(() => {
       '--pdf-toolbar-icon': 'rgb(226 232 240 / 0.72)',
       '--pdf-toolbar-hover-bg': 'rgb(255 255 255 / 0.1)',
       '--pdf-toolbar-stepper-bg': 'rgb(255 255 255 / 0.07)',
-      '--pdf-toolbar-divider': 'rgb(255 255 255 / 0.12)'
+      '--pdf-toolbar-divider': 'rgb(255 255 255 / 0.12)',
+      '--pdf-loader-page-bg': 'rgb(48 60 64 / 0.96)',
+      '--pdf-loader-page-border': 'rgb(226 232 240 / 0.16)',
+      '--pdf-loader-line': 'rgb(226 232 240 / 0.2)',
+      '--pdf-loader-shadow': '0 16px 38px rgb(0 0 0 / 0.24)'
     };
   }
   return {
@@ -312,7 +319,11 @@ const pdfPreviewThemeStyle = computed(() => {
     '--pdf-toolbar-icon': 'rgb(71 85 105 / 0.76)',
     '--pdf-toolbar-hover-bg': 'rgb(15 23 42 / 0.07)',
     '--pdf-toolbar-stepper-bg': 'rgb(241 245 249 / 0.96)',
-    '--pdf-toolbar-divider': 'rgb(148 163 184 / 0.24)'
+    '--pdf-toolbar-divider': 'rgb(148 163 184 / 0.24)',
+    '--pdf-loader-page-bg': 'rgb(255 255 255 / 0.98)',
+    '--pdf-loader-page-border': 'rgb(148 163 184 / 0.34)',
+    '--pdf-loader-line': 'rgb(71 85 105 / 0.2)',
+    '--pdf-loader-shadow': '0 16px 38px rgb(15 23 42 / 0.14)'
   };
 });
 
@@ -2008,6 +2019,20 @@ function requestCommentFromSelection() {
     rects: selectionDraft.rects,
     quote: selectionDraft.quote,
     color: COMMENT_ANNOTATION_COLOR,
+  });
+  window.getSelection()?.removeAllRanges();
+  hideSelectionMenu();
+}
+
+// „Als Notiz-Zitat übernehmen": markierten Text (aus der PDF-Textschicht) an den
+// Parent geben, der daraus eine neue, mit dem Dokument verknüpfte Notiz mit
+// ocrQuote anlegt. Reader-seitiges Gegenstück zu /zitat (M4).
+function requestNoteQuoteFromSelection() {
+  if (!selectionDraft) return;
+  emit('create-note-quote', {
+    page: selectionDraft.page,
+    quote: selectionDraft.quote,
+    rects: selectionDraft.rects,
   });
   window.getSelection()?.removeAllRanges();
   hideSelectionMenu();

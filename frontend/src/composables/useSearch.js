@@ -180,6 +180,11 @@ export function useSearch({
 
   const searchPlaceholder = computed(() => {
     if (activeView.value === 'tags') return 'Tags suchen…';
+    if (activeView.value === 'notes') {
+      if (searchScope.value === 'title') return 'Notiztitel suchen…';
+      if (searchScope.value === 'ocr_text') return 'Notizinhalt suchen…';
+      return 'Notizen durchsuchen…';
+    }
     return SEARCH_SCOPE_PLACEHOLDERS[searchScope.value] || SEARCH_SCOPE_PLACEHOLDERS.all;
   });
 
@@ -213,7 +218,12 @@ export function useSearch({
       window.clearTimeout(searchDebounceTimer);
       searchDebounceTimer = null;
     }
-    void fetchDocuments(selectedDocumentId.value);
+    if (
+      !isTagView.value
+      && !['chat', 'dashboard', 'notes'].includes(activeView.value)
+    ) {
+      void fetchDocuments(selectedDocumentId.value);
+    }
   }
 
   function onAppBarSearchInput(value) {
@@ -264,7 +274,12 @@ export function useSearch({
       // In Wissen und auf dem Dashboard ist keine Dokumentliste gemountet. Ein
       // versteckter Reload würde dort nur deren Skeleton-Status anschalten und
       // kann beim View-Wechsel noch für einen Frame sichtbar werden.
-      if (isTagView.value || activeView.value === 'chat' || activeView.value === 'dashboard') {
+      if (
+        isTagView.value
+        || activeView.value === 'chat'
+        || activeView.value === 'dashboard'
+        || activeView.value === 'notes'
+      ) {
         return;
       }
       void fetchDocuments(selectedDocumentId.value);

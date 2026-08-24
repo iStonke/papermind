@@ -54,6 +54,19 @@
       </div>
 
       <div class="document-list-content">
+        <!-- Papierkorb: Dokumente als eigene Gruppe mit Anzahl (analog Notizen).
+             Bewusst AUSSERHALB des virtualisierten .document-list, damit dessen
+             offsetTop (= listContentOffsetTop) den Kopf mitzählt und die
+             Zeilen-Virtualisierung korrekt bleibt. -->
+        <div
+          v-if="isTrashView && documents.length"
+          class="trash-notes__heading trash-docs-heading"
+        >
+          <v-icon size="16">mdi-file-document-outline</v-icon>
+          <span>Dokumente</span>
+          <span>{{ documents.length }}</span>
+        </div>
+
         <Transition name="pm-list-state" mode="out-in">
           <div
             v-if="showDocumentListLoadingState"
@@ -307,6 +320,87 @@
               :style="{ height: `${virtualBottomPad}px` }"
               aria-hidden="true"
             />
+
+            <section
+              v-if="isTrashView && trashNotes.length"
+              class="trash-notes"
+              :class="{ 'trash-notes--only': documents.length === 0 }"
+              aria-label="Gelöschte Notizen"
+            >
+              <div class="trash-notes__heading">
+                <v-icon size="16">mdi-note-outline</v-icon>
+                <span>Notizen</span>
+                <span>{{ trashNotes.length }}</span>
+              </div>
+
+              <div ref="trashNoteListRef" class="document-list__rows trash-notes__rows">
+                <div
+                  v-for="note in trashNotes"
+                  :key="`trash-note-${note.id}`"
+                  class="document-row pm-trash-note"
+                  :class="{ 'is-active': note.id === selectedTrashNoteId }"
+                  :data-trash-note-id="note.id"
+                  role="button"
+                  tabindex="0"
+                  :aria-current="note.id === selectedTrashNoteId ? 'true' : undefined"
+                  @click="emit('select-note', note)"
+                  @keydown.enter="emit('select-note', note)"
+                >
+                  <div class="document-row__thumb pm-trash-note__thumb" aria-hidden="true">
+                    <v-icon size="24">mdi-note-outline</v-icon>
+                  </div>
+
+                  <div class="document-row__content">
+                    <div class="document-row__kicker">
+                      <span class="document-row__kicker-type">Notiz</span>
+                    </div>
+                    <div class="document-row__title">
+                      <div class="document-row__name" :class="{ 'pm-trash-note__title--empty': !note.title?.trim() }">
+                        {{ note.title?.trim() || 'Ohne Titel' }}
+                      </div>
+                    </div>
+                    <div v-if="note.preview" class="document-row__snippet pm-trash-note__snippet">
+                      {{ note.preview }}
+                    </div>
+                  </div>
+
+                  <div class="document-row__aside">
+                    <div class="document-row__actions" @click.stop>
+                      <v-menu location="bottom end">
+                        <template #activator="{ props: menuProps }">
+                          <v-btn
+                            v-bind="menuProps"
+                            icon="mdi-dots-vertical"
+                            size="small"
+                            density="comfortable"
+                            variant="text"
+                            :ripple="false"
+                            class="document-row__menu-btn"
+                            aria-label="Aktionen"
+                          />
+                        </template>
+                        <v-list density="compact">
+                          <v-list-item @click="emit('restore-note', note)">
+                            <template #prepend>
+                              <v-icon size="16">mdi-restore</v-icon>
+                            </template>
+                            <v-list-item-title>Wiederherstellen</v-list-item-title>
+                          </v-list-item>
+                          <v-list-item class="menu-item--danger" @click="emit('delete-note-permanent', note)">
+                            <template #prepend>
+                              <v-icon size="16">mdi-delete-forever-outline</v-icon>
+                            </template>
+                            <v-list-item-title>Endgültig löschen…</v-list-item-title>
+                          </v-list-item>
+                        </v-list>
+                      </v-menu>
+                    </div>
+                    <div class="document-row__date">{{ formatDate(note.deleted_at || note.updated_at) }}</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
             <div
               v-if="effectiveBottomSpacerHeight > 0"
               class="document-list__bottom-spacer"
@@ -406,6 +500,8 @@ const props = defineProps({
   hasMoreDocuments:           { type: Boolean, default: false },
   isLoadingMoreDocuments:     { type: Boolean, default: false },
   loadedDocumentCount:        { type: Number,  default: 0 },
+  trashNotes:                 { type: Array,   default: () => [] },
+  selectedTrashNoteId:        { type: String,  default: null },
 });
 
 const emit = defineEmits([
@@ -417,6 +513,9 @@ const emit = defineEmits([
   'delete',
   'restore',
   'delete-permanent',
+  'select-note',
+  'restore-note',
+  'delete-note-permanent',
   'toggle-favorite',
   'files-dropped',
   'toggle-selection-mode',
@@ -437,6 +536,7 @@ const authStore     = useAuthStore();
 const { documents, selectedDocumentId } = storeToRefs(docStore);
 const listShell = ref(null);
 const documentListRef = ref(null);
+const trashNoteListRef = ref(null);
 
 // ── Import-Fluganimation: Landezone ─────────────────────────────────────────
 const importLandingActive = ref(false);
@@ -466,6 +566,8 @@ let justArrivedTimer = 0;
 // Löschanimationen laufen nur auf den konkret betroffenen DOM-Zeilen. So bleibt
 // das Scrollen der virtualisierten Liste frei von permanenten FLIP-Messungen.
 const DOCUMENT_REMOVAL_DURATION_MS = 210;
+const TRASH_EMPTY_STAGGER_MS = 12;
+const TRASH_EMPTY_MAX_STAGGER_MS = 120;
 const documentRemovalWaiters = new Map();
 
 function documentListMotionDisabled() {
@@ -474,14 +576,17 @@ function documentListMotionDisabled() {
   return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || false;
 }
 
-function waitForDocumentRemoval() {
+function waitForDocumentRemoval(additionalDelayMs = 0) {
   return new Promise((resolve) => {
     let timer = 0;
     const finish = () => {
       documentRemovalWaiters.delete(timer);
       resolve();
     };
-    timer = window.setTimeout(finish, DOCUMENT_REMOVAL_DURATION_MS);
+    timer = window.setTimeout(
+      finish,
+      DOCUMENT_REMOVAL_DURATION_MS + Math.max(0, Number(additionalDelayMs) || 0)
+    );
     documentRemovalWaiters.set(timer, finish);
   });
 }
@@ -504,6 +609,47 @@ async function animateDocumentRemoval(documentIds = []) {
     row.classList.add('document-row--removing');
   });
   await waitForDocumentRemoval();
+}
+
+async function animateTrashNoteRemoval(noteIds = []) {
+  const ids = new Set(
+    (Array.isArray(noteIds) ? noteIds : [noteIds])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean)
+  );
+  if (ids.size === 0 || documentListMotionDisabled()) return;
+
+  const rows = Array.from(trashNoteListRef.value?.querySelectorAll(
+    '.pm-trash-note[data-trash-note-id]'
+  ) || []).filter((row) => ids.has(String(row.dataset.trashNoteId || '')));
+  if (rows.length === 0) return;
+
+  rows.forEach((row) => {
+    row.setAttribute('aria-hidden', 'true');
+    row.classList.add('document-row--removing');
+  });
+  await waitForDocumentRemoval();
+}
+
+async function animateTrashEmpty() {
+  if (documentListMotionDisabled()) return;
+
+  // Die Dokumentliste ist virtualisiert: Animiert werden deshalb bewusst alle
+  // aktuell gerenderten Dokument- und Notizzeilen in ihrer sichtbaren Reihenfolge.
+  const rows = Array.from(documentListRef.value?.querySelectorAll(
+    '.document-row[data-document-id], .pm-trash-note[data-trash-note-id]'
+  ) || []);
+  if (rows.length === 0) return;
+
+  let lastDelayMs = 0;
+  rows.forEach((row, index) => {
+    const delayMs = Math.min(index * TRASH_EMPTY_STAGGER_MS, TRASH_EMPTY_MAX_STAGGER_MS);
+    lastDelayMs = Math.max(lastDelayMs, delayMs);
+    row.style.setProperty('--pm-removal-delay', `${delayMs}ms`);
+    row.setAttribute('aria-hidden', 'true');
+    row.classList.add('document-row--removing');
+  });
+  await waitForDocumentRemoval(lastDelayMs);
 }
 
 function importArrivalMarkerDelay() {
@@ -938,6 +1084,8 @@ onMounted(() => {
 
 defineExpose({
   animateDocumentRemoval,
+  animateTrashNoteRemoval,
+  animateTrashEmpty,
   prepareImportLanding,
   beginImportLanding,
   maskLandingThumb,
@@ -1808,7 +1956,7 @@ function onListDrop(event) {
   }
 }
 
-/* Nur die tatsächlich gelöschte Zeile wird animiert. Sie verblasst und klappt
+/* Nur tatsächlich gelöschte Zeilen werden animiert. Sie verblassen und klappen
    gleichzeitig zusammen; danach kann Vue sie ohne sichtbaren Sprung aus der
    virtualisierten Liste entfernen. */
 .document-list__rows {
@@ -1828,15 +1976,92 @@ function onListDrop(event) {
   transform: translateY(-4px) scale(0.99);
   will-change: height, opacity, transform;
   transition:
-    height 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)),
-    min-height 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)),
-    margin-top 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)),
-    padding-top 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)),
-    padding-bottom 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)),
-    border-top-width 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)),
-    border-bottom-width 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)),
-    opacity 160ms var(--pm-easing-accel, cubic-bezier(0.4, 0, 1, 1)),
-    transform 180ms var(--pm-easing-accel, cubic-bezier(0.4, 0, 1, 1));
+    height 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)) var(--pm-removal-delay, 0ms),
+    min-height 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)) var(--pm-removal-delay, 0ms),
+    margin-top 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)) var(--pm-removal-delay, 0ms),
+    padding-top 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)) var(--pm-removal-delay, 0ms),
+    padding-bottom 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)) var(--pm-removal-delay, 0ms),
+    border-top-width 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)) var(--pm-removal-delay, 0ms),
+    border-bottom-width 210ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)) var(--pm-removal-delay, 0ms),
+    opacity 160ms var(--pm-easing-accel, cubic-bezier(0.4, 0, 1, 1)) var(--pm-removal-delay, 0ms),
+    transform 180ms var(--pm-easing-accel, cubic-bezier(0.4, 0, 1, 1)) var(--pm-removal-delay, 0ms);
+}
+
+.trash-notes {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--pm-divider, rgba(127, 127, 127, 0.2));
+}
+
+/* Dokument-Gruppenkopf im Papierkorb (erste Gruppe, daher ohne Trennlinie).
+   Horizontal-Einzug (16px) exakt auf den Notizen-Kopf ausgerichtet: dieser sitzt
+   im virtualisierten .document-list (Container-Einzug 12px) + eigenem 4px-Margin;
+   der Dokument-Kopf ist direktes Kind von .document-list-content, deshalb hier
+   die Summe (16px) direkt als Margin. */
+.trash-notes__heading.trash-docs-heading {
+  margin: 12px 16px 9px;
+}
+
+.trash-notes--only {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.trash-notes__heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 4px 9px;
+  color: var(--pm-muted, #748084);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.trash-notes__heading > span:last-child {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.pm-trash-note {
+  cursor: pointer;
+}
+
+.pm-trash-note.is-active {
+  background: var(--pm-row-active, rgba(0, 107, 117, 0.08));
+  box-shadow: inset 2px 0 0 var(--pm-accent, #006b75);
+}
+
+.pm-trash-note:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--pm-accent, #006b75) 55%, transparent);
+  outline-offset: -2px;
+}
+
+.pm-trash-note__thumb {
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--pm-divider, rgba(127, 127, 127, 0.2));
+  border-radius: 9px;
+  background: var(--pm-viewer-surface, rgba(127, 127, 127, 0.08));
+  color: var(--pm-muted, #748084);
+}
+
+.pm-trash-note__thumb::before {
+  display: none;
+}
+
+.pm-trash-note__title--empty {
+  color: var(--pm-muted, #748084);
+  font-style: italic;
+}
+
+.pm-trash-note__snippet {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 :global(.pm-no-animations) .document-row--removing {

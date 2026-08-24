@@ -1,0 +1,84 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import test from 'node:test';
+
+import {
+  noteMarkdownToSafeHtml,
+  noteMarkdownToTipTap,
+  parseNoteMarkdown,
+} from '../src/utils/noteMarkdown.js';
+import { noteToMarkdown, noteToPrintableHtml } from '../src/utils/noteExport.js';
+
+const editorSource = fs.readFileSync(
+  new URL('../src/components/notes/NoteEditor.vue', import.meta.url),
+  'utf8',
+);
+const previewSource = fs.readFileSync(
+  new URL('../src/components/notes/NotePreview.vue', import.meta.url),
+  'utf8',
+);
+const packageJson = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+
+const tableBody = {
+  type: 'doc',
+  content: [{
+    type: 'table',
+    content: [
+      {
+        type: 'tableRow',
+        content: [
+          { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Dokument' }] }] },
+          { type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Status' }] }] },
+        ],
+      },
+      {
+        type: 'tableRow',
+        content: [
+          { type: 'tableCell', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Angebot | 2026' }] }] },
+          { type: 'tableCell', attrs: { colspan: 1, rowspan: 1 }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Geprüft', marks: [{ type: 'bold' }] }] }] },
+        ],
+      },
+    ],
+  }],
+};
+
+test('tables are available in the editor toolbar, slash menu, and read-only preview', () => {
+  assert.equal(packageJson.dependencies['@tiptap/extension-table'], '3.30.2');
+  assert.match(editorSource, /import \{ TableKit \} from '@tiptap\/extension-table'/);
+  assert.match(editorSource, /TableKit\.configure\(\{[\s\S]*?resizable:\s*true/);
+  assert.match(previewSource, /TableKit\.configure\(\{ table: \{ resizable: false, renderWrapper: true \} \}\)/);
+  assert.match(editorSource, /aria-label="Tabelle einfügen oder bearbeiten"/);
+  assert.match(editorSource, /key: 'table'[\s\S]*?label: 'Tabelle'[\s\S]*?kind: 'table-menu'/);
+  assert.match(editorSource, /insertTable\(\{[\s\S]*?withHeaderRow: tableMenu\.withHeaderRow/);
+  assert.match(editorSource, /addRowAfter:[\s\S]*?addColumnAfter:[\s\S]*?toggleHeaderRow:[\s\S]*?deleteTable:/);
+  assert.match(editorSource, /\.selectedCell::after/);
+});
+
+test('AI markdown tables become structured editable TipTap tables', () => {
+  const markdown = '| Dokument | Status |\n| --- | --- |\n| Angebot | **Geprüft** |';
+  const blocks = parseNoteMarkdown(markdown);
+  const content = noteMarkdownToTipTap(markdown);
+  const html = noteMarkdownToSafeHtml(markdown);
+
+  assert.equal(blocks[0].type, 'table');
+  assert.equal(blocks[0].header.length, 2);
+  assert.equal(content[0].type, 'table');
+  assert.equal(content[0].content[0].content[0].type, 'tableHeader');
+  assert.equal(content[0].content[1].content[1].type, 'tableCell');
+  assert.deepEqual(content[0].content[1].content[1].content[0].content[0].marks, [{ type: 'bold' }]);
+  assert.match(html, /<table><thead><tr><th>Dokument<\/th><th>Status<\/th><\/tr><\/thead>/);
+  assert.match(html, /<td><strong>Geprüft<\/strong><\/td>/);
+});
+
+test('note exports preserve tables in Markdown and printable HTML', () => {
+  const markdown = noteToMarkdown({ title: 'Prüfung', body: tableBody });
+  const html = noteToPrintableHtml({ title: 'Prüfung', body: tableBody });
+
+  assert.match(markdown, /\| Dokument \| Status \|/);
+  assert.match(markdown, /\| --- \| --- \|/);
+  assert.match(markdown, /\| Angebot \\\| 2026 \| \*\*Geprüft\*\* \|/);
+  assert.match(html, /<div class="table-wrap"><table><thead>/);
+  assert.match(html, /<th>\s*<p>Dokument<\/p>\s*<\/th>/);
+  assert.match(html, /<td>\s*<p><strong>Geprüft<\/strong><\/p>\s*<\/td>/);
+  assert.match(html, /table \{ width: 100%; border-collapse: collapse;/);
+});

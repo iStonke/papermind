@@ -70,6 +70,43 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertIs(payload.documents.auto_open_import_inbox, False)
         self.assertEqual(payload.documents.recent_import_window_hours, 24)
 
+    def test_notes_preferences_accept_supported_values(self) -> None:
+        payload = AppSettingsPatch.model_validate(
+            {
+                "ui": {
+                    "notes_default_view": "focus",
+                    "notes_sort_order": "created",
+                    "notes_writing_width": "wide",
+                    "notes_paragraph_spacing": "spacious",
+                    "notes_font_family": "serif",
+                    "notes_spellcheck_enabled": False,
+                }
+            }
+        )
+        self.assertEqual(payload.ui.notes_default_view.value, "focus")
+        self.assertEqual(payload.ui.notes_sort_order.value, "created")
+        self.assertEqual(payload.ui.notes_writing_width.value, "wide")
+        self.assertEqual(payload.ui.notes_paragraph_spacing.value, "spacious")
+        self.assertEqual(payload.ui.notes_font_family.value, "serif")
+        self.assertIs(payload.ui.notes_spellcheck_enabled, False)
+
+    def test_notes_preferences_reject_unknown_values(self) -> None:
+        with self.assertRaises(ValidationError):
+            AppSettingsPatch.model_validate({"ui": {"notes_writing_width": "unlimited"}})
+        with self.assertRaises(ValidationError):
+            AppSettingsPatch.model_validate({"ui": {"notes_paragraph_spacing": "huge"}})
+        with self.assertRaises(ValidationError):
+            AppSettingsPatch.model_validate({"ui": {"notes_font_family": "comic"}})
+
+    def test_notes_preference_defaults_are_present(self) -> None:
+        payload = AppSettingsRead.model_validate({})
+        self.assertEqual(payload.ui.notes_default_view.value, "remember")
+        self.assertEqual(payload.ui.notes_sort_order.value, "updated")
+        self.assertEqual(payload.ui.notes_writing_width.value, "comfortable")
+        self.assertEqual(payload.ui.notes_paragraph_spacing.value, "comfortable")
+        self.assertEqual(payload.ui.notes_font_family.value, "sans")
+        self.assertIs(payload.ui.notes_spellcheck_enabled, True)
+
     def test_legacy_favorite_sidebar_visibility_is_removed(self) -> None:
         payload = _merge_defaults({"ui": {"sidebar_show_favorites": False}})
         self.assertNotIn("sidebar_show_favorites", payload["ui"])
@@ -87,6 +124,31 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertEqual(payload.llm.temperature, 0.15)
         self.assertEqual(payload.ocr.language, "deu+eng")
         self.assertIs(payload.ocr.use_unpaper, True)
+
+    def test_note_text_generation_has_independent_provider_routing(self) -> None:
+        defaults = AppSettingsRead.model_validate({})
+        self.assertEqual(defaults.text_generation.provider, "ollama")
+        self.assertEqual(defaults.ollama.chat_model, "llama3.2:3b")
+        self.assertGreaterEqual(len(defaults.text_generation.system_prompt), 50)
+        self.assertNotIn("ai_credentials", defaults.model_dump())
+
+        patch = AppSettingsPatch.model_validate(
+            {
+                "text_generation": {
+                    "provider": "openai",
+                    "openai_model": "gpt-test",
+                    "system_prompt": "Eigene interne Schreibanweisung mit mindestens fünfzig Zeichen Länge.",
+                }
+            }
+        )
+        self.assertEqual(patch.text_generation.provider, "openai")
+        self.assertEqual(patch.text_generation.openai_model, "gpt-test")
+        self.assertIn("Schreibanweisung", patch.text_generation.system_prompt)
+
+        with self.assertRaises(ValidationError):
+            AppSettingsPatch.model_validate({"text_generation": {"provider": "cloud-auto"}})
+        with self.assertRaises(ValidationError):
+            AppSettingsPatch.model_validate({"text_generation": {"system_prompt": "zu kurz"}})
 
     def test_rag_context_limits_accept_valid_values(self) -> None:
         payload = AppSettingsPatch.model_validate({"rag": {"max_context_chars": 16000}})

@@ -58,7 +58,7 @@
       </template>
     </div>
 
-    <div class="list-action-toolbar__right">
+    <div v-if="rightActions.length || showSelection" class="list-action-toolbar__right">
       <button
         v-for="action in rightActions"
         :key="action.key"
@@ -79,6 +79,7 @@
       </button>
 
       <button
+        v-if="showSelection"
         type="button"
         class="list-action-toolbar__select-btn"
         :class="{ 'list-action-toolbar__select-btn--cancel': selectionMode }"
@@ -98,7 +99,8 @@ defineProps({
   rightActions: { type: Array, default: () => [] },
   selectionMode: { type: Boolean, default: false },
   selectionCount: { type: Number, default: 0 },
-  selectionDisabled: { type: Boolean, default: false }
+  selectionDisabled: { type: Boolean, default: false },
+  showSelection: { type: Boolean, default: true }
 });
 
 const emit = defineEmits(['action-select', 'filter-toggle', 'right-action', 'toggle-selection', 'select-all']);

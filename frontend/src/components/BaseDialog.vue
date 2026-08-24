@@ -302,7 +302,8 @@ onBeforeUnmount(() => {
      Dialog sich klar vom getönten App-Hintergrund abhebt. surface-2 wird – anders
      als die --pm-* Variablen – auch im teleportierten Overlay korrekt aufgelöst. */
   background: rgb(var(--v-theme-surface-2, var(--v-theme-surface)));
-  border: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+  color: rgb(var(--v-theme-on-surface));
   outline: none;
   box-shadow:
     0 22px 60px rgba(0, 0, 0, 0.20),
@@ -315,7 +316,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 16px;
   padding: 22px 24px 20px;
-  border-bottom: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.1);
 }
 
 .pm-dialog__title-wrap {
@@ -350,6 +351,7 @@ onBeforeUnmount(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: rgb(var(--v-theme-on-surface));
 }
 
 .pm-dialog__subtitle {
@@ -413,7 +415,7 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
   gap: 12px;
   padding: 18px 24px;
-  border-top: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.08));
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.1);
 }
 
 .pm-dialog__btn {

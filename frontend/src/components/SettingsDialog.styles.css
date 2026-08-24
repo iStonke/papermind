@@ -464,6 +464,37 @@
   text-decoration: none;
 }
 
+.ai-credential-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.ai-credential-row__field {
+  flex: 1;
+  min-width: 0;
+}
+
+.note-system-prompt__field {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.note-system-prompt__actions {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .ai-credential-row { align-items: stretch; flex-wrap: wrap; }
+  .ai-credential-row__field { flex-basis: 100%; }
+}
+
 /* Unterüberschrift zur Gliederung innerhalb eines zusammengefassten Bereichs. */
 .pm-settings-subhead {
   font-size: 0.72rem;
@@ -476,6 +507,12 @@
 
 .pm-settings-content > .settings-info-card + .pm-settings-subhead {
   margin-top: 12px;
+}
+
+.pm-settings-subhead--separated {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 78%, transparent);
 }
 
 .pm-settings-subhead-hint {

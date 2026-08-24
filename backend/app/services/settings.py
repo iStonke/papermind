@@ -13,6 +13,7 @@ from app.schemas.settings import (
     AppSettingsPatch,
     AppSettingsRead,
     NUMERIC_PROMPT_TEMPLATE_DEFAULT,
+    NOTE_WRITING_SYSTEM_PROMPT_DEFAULT,
     SUMMARY_PROMPT_TEMPLATE_DEFAULT,
     SYSTEM_PROMPT_DEFAULT,
 )
@@ -38,6 +39,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         ],
         "sidebar_max_tags": 5,
         "sidebar_max_categories": 5,
+        "notes_default_view": "remember",
+        "notes_sort_order": "updated",
+        "notes_writing_width": "comfortable",
+        "notes_paragraph_spacing": "comfortable",
+        "notes_font_family": "sans",
+        "notes_spellcheck_enabled": True,
     },
     "documents": {
         "auto_ocr": True,
@@ -124,6 +131,19 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "chat_model": "llama3.2:3b",
         "timeout_seconds": 90.0,
         "max_input_chars": 1500,
+    },
+    # Ausschließlich freie Textgenerierung im Notizeditor. Dokumentenwissen
+    # bleibt unabhängig davon fest an ollama.chat_model gebunden.
+    "text_generation": {
+        "enabled": True,
+        "provider": "ollama",
+        "ollama_model": "llama3.2:3b",
+        "openai_model": "gpt-5.6-luna",
+        "anthropic_model": "claude-haiku-4-5",
+        "system_prompt": NOTE_WRITING_SYSTEM_PROMPT_DEFAULT,
+        "note_context_chars": 6000,
+        "max_output_tokens": 900,
+        "temperature": 0.35,
     },
     # Eigener Abschnitt – bewusst NICHT Teil von AppSettingsRead/Patch, damit das
     # NAS-Passwort nicht über die generische Settings-API ausgeliefert wird. Wird
@@ -252,6 +272,8 @@ class SettingsService:
         persisted["quality"] = normalized_known["quality"]
         persisted["wiki"] = normalized_known["wiki"]
         persisted["retention"] = normalized_known["retention"]
+        persisted["ollama"] = normalized_known["ollama"]
+        persisted["text_generation"] = normalized_known["text_generation"]
         persisted_meta = dict(normalized_known.get("meta") or {})
         persisted_meta.pop("updated_at", None)
         persisted_meta["version"] = self._normalize_version(persisted_meta.get("version"))

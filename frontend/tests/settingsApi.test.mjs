@@ -6,6 +6,7 @@ import {
   buildAutoOcrPatch,
   buildAutoTaggingPatch,
   buildRecentImportWindowPatch,
+  buildNotesPreferencesPatch,
   buildSidebarShowDossiersPatch,
   buildSortOrderPatch,
   buildThemeModePatch,
@@ -21,6 +22,12 @@ test("buildThemeModePatch returns expected payload", () => {
 test("buildAutoOcrPatch returns expected payload", () => {
   assert.deepEqual(buildAutoOcrPatch(false), {
     documents: { auto_ocr: false },
+  });
+});
+
+test("buildNotesPreferencesPatch returns a per-user UI patch", () => {
+  assert.deepEqual(buildNotesPreferencesPatch({ notes_writing_width: "wide" }), {
+    ui: { notes_writing_width: "wide" },
   });
 });
 

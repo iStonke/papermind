@@ -32,6 +32,9 @@ defineProps({
 
 <style scoped>
 .settings-info-card {
+  --settings-info-card-surface: rgb(var(--v-theme-surface-2, var(--v-theme-surface)));
+  --settings-info-card-gutter: 24px;
+
   /* Bleibt beim Scrollen oben kleben; der Inhalt läuft darunter durch. */
   position: sticky;
   top: 0;
@@ -44,11 +47,25 @@ defineProps({
   margin: 0 0 12px;
   padding-bottom: 14px;
   /* Muss zur angehobenen Dialogfläche passen (BaseDialog nutzt surface-2). */
-  background: rgb(var(--v-theme-surface-2, var(--v-theme-surface)));
+  background: var(--settings-info-card-surface);
   border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.1);
   /* Deckt den Panel-Innenabstand oberhalb der Karte ab, damit beim Scrollen
      kein Inhalt darüber durchscheint. */
-  box-shadow: 0 -16px 0 rgb(var(--v-theme-surface-2, var(--v-theme-surface)));
+  box-shadow: 0 -16px 0 var(--settings-info-card-surface);
+}
+
+/* Deckt auch den rechten Panel-Innenabstand ab. Vuetify-Steuerelemente ragen
+   optisch leicht über die Inhaltskante und dürfen dort beim Scrollen nicht
+   neben der klebenden Karte hervorblitzen. */
+.settings-info-card::after {
+  position: absolute;
+  top: -16px;
+  right: calc(-1 * var(--settings-info-card-gutter));
+  bottom: 0;
+  width: var(--settings-info-card-gutter);
+  background: var(--settings-info-card-surface);
+  content: '';
+  pointer-events: none;
 }
 .settings-info-card__badge {
   width: 48px;
@@ -78,5 +95,11 @@ defineProps({
 }
 .settings-info-card__actions {
   flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .settings-info-card {
+    --settings-info-card-gutter: 16px;
+  }
 }
 </style>

@@ -137,6 +137,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { useAuthStore } from '../stores/auth.js';
+import { markSidebarStartAfterLogin } from '../utils/sidebarSelection.js';
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -286,6 +287,7 @@ async function submit() {
     } else {
       await authStore.login(username.value.trim(), password.value);
     }
+    markSidebarStartAfterLogin();
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/';
     router.push(redirect);
   } catch (err) {

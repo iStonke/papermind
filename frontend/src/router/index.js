@@ -10,6 +10,10 @@ import AppLayout from '../views/AppLayout.vue';
 // Komponenten-Ebene (defineAsyncComponent für die schweren Dialoge), was den
 // Navigations-Guard nicht blockiert.
 import DocumentsView from '../views/DocumentsView.vue';
+// DEV-only Editor-Prüfstand (M0). Statisch importiert wie die übrigen Routen
+// (dynamische Route-Imports haben den Startup-Guard blockiert); der Prod-Build
+// entfernt Route UND Import als Dead Code, da import.meta.env.DEV dort false ist.
+import NotesDevHarness from '../views/NotesDevHarness.vue';
 
 const routes = [
   {
@@ -18,6 +22,17 @@ const routes = [
     component: LoginView,
     meta: { public: true },
   },
+  // DEV-only Prüfstand für den Notizen-Editor (M0). Öffentlich & ohne Auth,
+  // damit die Schreibfläche isoliert auf 127.0.0.1:5179 geprüft werden kann.
+  // Wird im Prod-Build nicht registriert.
+  ...(import.meta.env.DEV
+    ? [{
+        path: '/dev/notes',
+        name: 'dev-notes',
+        component: NotesDevHarness,
+        meta: { public: true },
+      }]
+    : []),
   {
     // Authentifizierter Bereich: gemeinsame Shell (v-app + globaler
     // SettingsDialog + Theme-Bootstrap) bleibt über alle Kind-Routen gemountet.
