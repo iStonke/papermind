@@ -34,6 +34,8 @@ function createEmptyOverview() {
     top_searches: [],
     attention: { unread: 0, untagged: 0, retention_due: 0, to_review: 0, unclassified: 0, ocr_issues: 0, without_document_type: 0 },
     recent: [],
+    open_tasks: [],
+    open_tasks_total: 0,
   };
 }
 

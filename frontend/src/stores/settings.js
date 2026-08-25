@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import {
   ANSWER_PROMPT_TEMPLATE_DEFAULT,
+  NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT,
   NOTE_WRITING_SYSTEM_PROMPT_DEFAULT,
   NUMERIC_PROMPT_TEMPLATE_DEFAULT,
   SUMMARY_PROMPT_TEMPLATE_DEFAULT,
@@ -87,6 +88,15 @@ function normalizeString(rawValue, fallback, minLength = 1) {
     return fallback;
   }
   return normalized;
+}
+
+function normalizeNotePromptSuggestions(rawValue, fallback) {
+  if (!Array.isArray(rawValue)) return [...fallback];
+  return rawValue
+    .filter((value) => typeof value === 'string')
+    .map((value) => value.replace(/\s+/g, ' ').trim())
+    .filter((value) => value.length > 0 && value.length <= 160)
+    .slice(0, 6);
 }
 
 function normalizeApiBaseUrl(apiBaseUrl) {
@@ -177,6 +187,7 @@ function createDefaultSettings() {
       openai_model: 'gpt-5.6-luna',
       anthropic_model: 'claude-haiku-4-5',
       system_prompt: NOTE_WRITING_SYSTEM_PROMPT_DEFAULT,
+      prompt_suggestions: [...NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT],
       note_context_chars: 6000,
       max_output_tokens: 900,
       temperature: 0.35
@@ -256,7 +267,12 @@ function cloneSettings(settingsValue) {
     quality: { ...settingsValue.quality },
     wiki: { ...settingsValue.wiki },
     ollama: { ...settingsValue.ollama },
-    text_generation: { ...settingsValue.text_generation },
+    text_generation: {
+      ...settingsValue.text_generation,
+      prompt_suggestions: Array.isArray(settingsValue.text_generation?.prompt_suggestions)
+        ? [...settingsValue.text_generation.prompt_suggestions]
+        : [...NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT]
+    },
     retention: {
       enabled: settingsValue.retention?.enabled !== false,
       usage_mode: settingsValue.retention?.usage_mode || 'business',
@@ -278,7 +294,14 @@ function assignSettings(target, source) {
   Object.assign(target.quality, source.quality);
   if (source.wiki) Object.assign(target.wiki, source.wiki);
   if (source.ollama) Object.assign(target.ollama, source.ollama);
-  if (source.text_generation) Object.assign(target.text_generation, source.text_generation);
+  if (source.text_generation) {
+    Object.assign(target.text_generation, source.text_generation);
+    if ('prompt_suggestions' in source.text_generation) {
+      target.text_generation.prompt_suggestions = Array.isArray(source.text_generation.prompt_suggestions)
+        ? [...source.text_generation.prompt_suggestions]
+        : [];
+    }
+  }
   if (source.retention) {
     if ('enabled' in source.retention) target.retention.enabled = source.retention.enabled !== false;
     if ('usage_mode' in source.retention) target.retention.usage_mode = source.retention.usage_mode;
@@ -374,6 +397,7 @@ export const useSettingsStore = defineStore('settings', {
         notes_paragraph_spacing: false,
         notes_font_family: false,
         notes_spellcheck_enabled: false,
+        text_generation_prompt_suggestions: false,
         text_generation_system_prompt: false,
         prompts: false,
         reset_prompts: false
@@ -671,6 +695,10 @@ export const useSettingsStore = defineStore('settings', {
           system_prompt: normalizePrompt(
             payload?.text_generation?.system_prompt,
             defaults.text_generation.system_prompt
+          ),
+          prompt_suggestions: normalizeNotePromptSuggestions(
+            payload?.text_generation?.prompt_suggestions,
+            defaults.text_generation.prompt_suggestions
           ),
           note_context_chars: clampInt(
             payload?.text_generation?.note_context_chars,

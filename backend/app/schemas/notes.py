@@ -10,6 +10,27 @@ from app.schemas.common import ORMModel
 NoteSearchScope = Literal["all", "title", "body"]
 
 
+class NoteTagRef(ORMModel):
+    """Tag-Referenz (aus der gemeinsamen ``tags``-Tabelle) an einer Notiz."""
+
+    id: uuid.UUID
+    name: str
+
+
+class NoteTagsUpdateRequest(BaseModel):
+    """Setzt die Tags einer Notiz.
+
+    ``tag_ids`` verknüpft bestehende Tags (Editor-Picker liefert IDs), ``tags``
+    erlaubt zusätzlich Namen (unbekannte werden angelegt – für Bulk/KI). Beide
+    werden vereinigt; die Notiz trägt danach genau diese Tags.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    tag_ids: list[uuid.UUID] = Field(default_factory=list, max_length=50)
+    tags: list[str] = Field(default_factory=list, max_length=50)
+
+
 class NoteCreateRequest(BaseModel):
     """Neue Notiz. Beides optional → leere Notiz (Sofort-Anlegen)."""
 
@@ -17,6 +38,36 @@ class NoteCreateRequest(BaseModel):
 
     title: str = Field(default="", max_length=500)
     body_json: dict[str, Any] | None = None
+    is_template: bool = False
+
+
+NoteBulkAction = Literal["trash", "restore", "delete", "template"]
+
+
+class NoteBulkRequest(BaseModel):
+    """Sammelaktion des Verwaltungsrasters über mehrere Notizen.
+
+    ``template`` leitet aus jeder ausgewählten Notiz eine neue Vorlage ab
+    (Originale bleiben bestehen), ``delete`` löscht endgültig.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: NoteBulkAction
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+
+
+class NoteBulkResult(BaseModel):
+    ok: bool = True
+    affected: int = 0
+
+
+class SaveAsTemplateRequest(BaseModel):
+    """Aus einer bestehenden Notiz eine (neue) Vorlage ableiten."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(default="", max_length=500)
 
 
 class NoteUpdateRequest(BaseModel):
@@ -29,13 +80,21 @@ class NoteUpdateRequest(BaseModel):
 
 
 class NoteListItem(ORMModel):
-    """Schlanker Listeneintrag – ohne body_json, mit Vorschautext."""
+    """Schlanker Listeneintrag – ohne body_json, mit Vorschautext.
+
+    ``link_count`` summiert aus- und eingehende Verweise (note_link) und speist
+    im Verwaltungsraster die Facette „Verwaist" (link_count == 0) sowie den
+    Verknüpfungs-Chip. Vorlagen erzeugen keine Verweise, hier bleibt der Wert 0.
+    """
 
     id: uuid.UUID
     title: str
     preview: str
+    is_template: bool = False
     is_deleted: bool = False
     deleted_at: datetime | None = None
+    link_count: int = 0
+    tags: list[NoteTagRef] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -50,8 +109,10 @@ class NoteRead(ORMModel):
     id: uuid.UUID
     title: str
     body_json: dict[str, Any]
+    is_template: bool = False
     is_deleted: bool = False
     deleted_at: datetime | None = None
+    tags: list[NoteTagRef] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

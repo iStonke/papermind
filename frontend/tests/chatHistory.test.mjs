@@ -60,9 +60,10 @@ test('chat UI restores the selected session and starts new chats without deletin
 test('chat controls live in the primary header without a separate save-state toolbar', () => {
   assert.doesNotMatch(dialogSource, /<Teleport|chat-header-controls/);
   assert.match(workspaceSource, /<div v-if="isChatView" class="panel-middle__actions panel-middle__actions--chat">/);
-  assert.match(workspaceSource, /class="list-header-viewmode"\s+icon="mdi-clock-outline"\s+density="comfortable"/);
-  assert.match(workspaceSource, /class="list-header-btn"\s+color="primary"\s+variant="tonal"/);
-  assert.match(workspaceSource, /<v-icon size="18" class="mr-1">mdi-plus<\/v-icon>/);
+  assert.equal((workspaceSource.match(/class="[^"]*knowledge-header-btn[^"]*"/g) || []).length, 2);
+  assert.match(workspaceSource, /class="list-header-viewmode knowledge-header-btn pm-header-icon-btn"\s+color="primary"\s+variant="tonal"/);
+  assert.match(workspaceSource, /<v-icon size="20">mdi-clock-outline<\/v-icon>/);
+  assert.match(workspaceSource, /<v-icon size="20">mdi-plus<\/v-icon>/);
   assert.doesNotMatch(workspaceSource, /ai-chat-header-btn|chat-header-controls/);
   assert.doesNotMatch(dialogSource, /Verlauf gespeichert/);
   assert.doesNotMatch(dialogSource, /ai-chat-save-state/);

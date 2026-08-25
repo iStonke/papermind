@@ -101,6 +101,29 @@ Wenn Dokumentquellen bereitgestellt wurden, nenne relevante Belege mit
 Dokumenttitel und – falls vorhanden – Seitenzahl.
 """.strip()
 
+NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT: tuple[str, ...] = (
+    "Schreibe weiter",
+    "Fasse kurz zusammen",
+    "Formuliere sachlicher",
+    "Ergänze offene Fragen",
+)
+
+
+def _normalize_note_prompt_suggestions(value):
+    if value is None or not isinstance(value, list):
+        return value
+    normalized: list[str] = []
+    for suggestion in value:
+        if not isinstance(suggestion, str):
+            raise ValueError("Jeder Beispielprompt muss Text sein.")
+        clean = " ".join(suggestion.split())
+        if not clean:
+            raise ValueError("Beispielprompts dürfen nicht leer sein.")
+        if len(clean) > 160:
+            raise ValueError("Beispielprompts dürfen höchstens 160 Zeichen lang sein.")
+        normalized.append(clean)
+    return normalized
+
 
 class ThemeMode(str, Enum):
     light = "light"
@@ -351,9 +374,17 @@ class TextGenerationSettingsRead(BaseModel):
     openai_model: str = Field(default="gpt-5.6-luna", min_length=1, max_length=128)
     anthropic_model: str = Field(default="claude-haiku-4-5", min_length=1, max_length=128)
     system_prompt: str = Field(default=NOTE_WRITING_SYSTEM_PROMPT_DEFAULT, min_length=50, max_length=12000)
+    prompt_suggestions: list[str] = Field(
+        default_factory=lambda: list(NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT),
+        max_length=6,
+    )
     note_context_chars: int = Field(default=6000, ge=500, le=12000)
     max_output_tokens: int = Field(default=900, ge=64, le=4096)
     temperature: float = Field(default=0.35, ge=0.0, le=1.0)
+
+    _normalize_prompt_suggestions = field_validator("prompt_suggestions", mode="before")(
+        _normalize_note_prompt_suggestions
+    )
 
 
 RetentionUsageMode = Literal["private", "business"]
@@ -529,9 +560,14 @@ class TextGenerationSettingsPatch(BaseModel):
     openai_model: str | None = Field(default=None, min_length=1, max_length=128)
     anthropic_model: str | None = Field(default=None, min_length=1, max_length=128)
     system_prompt: str | None = Field(default=None, min_length=50, max_length=12000)
+    prompt_suggestions: list[str] | None = Field(default=None, max_length=6)
     note_context_chars: int | None = Field(default=None, ge=500, le=12000)
     max_output_tokens: int | None = Field(default=None, ge=64, le=4096)
     temperature: float | None = Field(default=None, ge=0.0, le=1.0)
+
+    _normalize_prompt_suggestions = field_validator("prompt_suggestions", mode="before")(
+        _normalize_note_prompt_suggestions
+    )
 
 
 class RetentionSettingsPatch(BaseModel):

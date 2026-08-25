@@ -141,6 +141,15 @@ test("normalizeSettingsPayload keeps note text generation separate from local kn
       provider: "anthropic",
       anthropic_model: "claude-test",
       system_prompt: "Eigene interne Schreibanweisung für den Notizeditor mit ausreichender Länge.",
+      prompt_suggestions: [
+        "  Schreibe weiter  ",
+        "Fasse zusammen",
+        "Formuliere sachlich",
+        "Nenne offene Fragen",
+        "Erstelle nächste Schritte",
+        "Finde Widersprüche",
+        "Dieser siebte Eintrag wird verworfen",
+      ],
       note_context_chars: 7000,
       max_output_tokens: 1200,
       temperature: 0.4,
@@ -151,7 +160,26 @@ test("normalizeSettingsPayload keeps note text generation separate from local kn
   assert.equal(normalized.text_generation.provider, "anthropic");
   assert.equal(normalized.text_generation.anthropic_model, "claude-test");
   assert.match(normalized.text_generation.system_prompt, /Eigene interne Schreibanweisung/);
+  assert.deepEqual(normalized.text_generation.prompt_suggestions, [
+    "Schreibe weiter",
+    "Fasse zusammen",
+    "Formuliere sachlich",
+    "Nenne offene Fragen",
+    "Erstelle nächste Schritte",
+    "Finde Widersprüche",
+  ]);
   assert.equal(normalized.text_generation.note_context_chars, 7000);
+});
+
+test("normalizeSettingsPayload allows hiding all note prompt suggestions", () => {
+  setActivePinia(createPinia());
+  const store = useSettingsStore();
+
+  const normalized = store.normalizeSettingsPayload({
+    text_generation: { prompt_suggestions: [] },
+  });
+
+  assert.deepEqual(normalized.text_generation.prompt_suggestions, []);
 });
 
 test("normalizeSettingsPayload preserves wiki trust settings", () => {

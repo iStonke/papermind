@@ -178,8 +178,24 @@
       ref="surfaceEl"
       class="note-editor__surface"
       @pointerdown="focusEditorEndFromWhitespace"
+      @pointermove.passive="trackTableHandle"
+      @pointerleave="clearHoveredTable"
     >
       <editor-content :editor="editor" />
+
+      <button
+        v-if="editor && tableHandle.visible"
+        type="button"
+        class="pm-table-handle"
+        :class="{ 'is-open': tableMenu.open && tableMenu.mode === 'edit' }"
+        :style="tableHandle.style"
+        aria-label="Tabellenaktionen öffnen"
+        title="Tabellenaktionen"
+        @pointermove.stop
+        @mousedown.stop.prevent="openTableMenuFromHandle"
+      >
+        <v-icon size="18">mdi-dots-vertical</v-icon>
+      </button>
 
       <!-- Auswahl-Formatierung -->
       <div
@@ -194,7 +210,7 @@
           :key="b.key"
           type="button"
           class="pm-bubble__btn"
-          :class="{ 'is-active': b.active() }"
+          :class="{ 'is-active': b.active(), 'is-ai': b.ai }"
           :title="b.label"
           :aria-label="b.label"
           @mousedown.prevent="b.run()"
@@ -318,17 +334,30 @@
               @mousedown.prevent="insertTable(cell.row, cell.col)"
             ></button>
           </div>
-          <button
-            type="button"
-            class="pm-table-menu__header-toggle"
-            :class="{ 'is-active': tableMenu.withHeaderRow }"
-            :aria-pressed="tableMenu.withHeaderRow"
-            @mousedown.prevent="tableMenu.withHeaderRow = !tableMenu.withHeaderRow"
-          >
-            <v-icon size="17">mdi-table-headers-eye</v-icon>
-            Erste Zeile als Kopfzeile
-          </button>
-          <div class="pm-table-menu__hint">Pfeiltasten wählen · Enter fügt ein</div>
+          <div class="pm-table-menu__header-options" role="radiogroup" aria-label="Tabellenkopf wählen">
+            <button
+              type="button"
+              class="pm-table-menu__header-toggle"
+              :class="{ 'is-active': tableMenu.withHeaderRow }"
+              role="radio"
+              :aria-checked="tableMenu.withHeaderRow"
+              @mousedown.prevent="selectTableHeaderMode('row')"
+            >
+              <v-icon size="17">mdi-table-headers-eye</v-icon>
+              Erste Zeile als Kopfzeile
+            </button>
+            <button
+              type="button"
+              class="pm-table-menu__header-toggle"
+              :class="{ 'is-active': tableMenu.withHeaderColumn }"
+              role="radio"
+              :aria-checked="tableMenu.withHeaderColumn"
+              @mousedown.prevent="selectTableHeaderMode('column')"
+            >
+              <v-icon size="17">mdi-table-column</v-icon>
+              Erste Spalte als Kopfspalte
+            </button>
+          </div>
         </template>
 
         <template v-else>
@@ -344,6 +373,9 @@
             </button>
             <button type="button" @mousedown.prevent="runTableCommand('toggleHeaderRow')">
               <v-icon size="18">mdi-table-headers-eye</v-icon><span>Kopfzeile umschalten</span>
+            </button>
+            <button type="button" @mousedown.prevent="runTableCommand('toggleHeaderColumn')">
+              <v-icon size="18">mdi-table-column</v-icon><span>Kopfspalte umschalten</span>
             </button>
             <button type="button" @mousedown.prevent="runTableCommand('deleteRow')">
               <v-icon size="18">mdi-table-row-remove</v-icon><span>Zeile löschen</span>
@@ -402,12 +434,19 @@
         class="pm-float pm-ai-prompt"
         :class="{ 'is-generating': aiPrompt.loading }"
         :style="aiPrompt.style"
-        aria-label="Mit KI schreiben"
+        :aria-label="aiPrompt.mode === 'selection' ? 'Auswahl mit KI bearbeiten' : 'Mit KI schreiben'"
         @submit.prevent="generateAIText"
       >
         <div class="pm-ai-prompt__head">
-          <span><span aria-hidden="true">✦</span> Mit KI schreiben</span>
+          <span>
+            <v-icon class="pm-ai-prompt__icon" size="17" aria-hidden="true">mdi-auto-fix</v-icon>
+            {{ aiPrompt.mode === 'selection' ? 'Auswahl mit KI bearbeiten' : 'Mit KI schreiben' }}
+          </span>
           <button type="button" class="pm-ai-prompt__close" aria-label="Schließen" @click="closeAIPrompt">×</button>
+        </div>
+        <div class="pm-ai-prompt__context" :class="{ 'is-selection': aiPrompt.mode === 'selection' }">
+          <span aria-hidden="true"></span>
+          {{ aiContextLabel }}
         </div>
         <div class="pm-ai-prompt__input-row">
           <input
@@ -416,14 +455,14 @@
             type="text"
             maxlength="2000"
             autocomplete="off"
-            placeholder="Was soll PaperMind schreiben?"
+            :placeholder="aiPrompt.mode === 'selection' ? 'Was soll PaperMind mit der Auswahl tun?' : 'Was soll PaperMind schreiben?'"
             :disabled="aiPrompt.loading"
             @keydown.esc.prevent="closeAIPrompt"
           />
           <button
             type="submit"
             class="pm-ai-prompt__submit"
-            :disabled="aiPrompt.loading || !aiPrompt.instruction.trim()"
+            :disabled="aiPrompt.loading || !aiPrompt.instruction.trim() || aiSelectionTooLong"
             :aria-label="aiPrompt.loading ? 'Text wird generiert' : 'Text generieren'"
           >
             <span v-if="aiPrompt.loading" class="pm-ai-prompt__spinner" aria-hidden="true"></span>
@@ -433,9 +472,12 @@
         <div v-if="aiPrompt.loading" class="pm-ai-prompt__progress" aria-hidden="true">
           <span></span>
         </div>
-        <div v-if="!aiPrompt.loading && !aiPrompt.preview" class="pm-ai-prompt__suggestions">
+        <div
+          v-if="!aiPrompt.loading && !aiPrompt.preview && visibleAIPromptSuggestions.length"
+          class="pm-ai-prompt__suggestions"
+        >
           <button
-            v-for="suggestion in AI_PROMPT_SUGGESTIONS"
+            v-for="suggestion in visibleAIPromptSuggestions"
             :key="suggestion"
             type="button"
             @click="applyAIPromptSuggestion(suggestion)"
@@ -446,6 +488,17 @@
         </div>
         <div v-if="aiPrompt.loading" class="pm-ai-prompt__status" aria-live="polite">
           {{ aiPrompt.provider ? `${providerLabel(aiPrompt.provider)} · ${aiPrompt.model}` : 'Modell wird gestartet …' }}
+        </div>
+        <div
+          v-if="aiPrompt.mode === 'selection' && aiPrompt.preview && !aiPrompt.loading && !aiPrompt.error"
+          class="pm-ai-prompt__result-actions"
+        >
+          <button type="button" class="is-primary" @click="applySelectionAIResult('replace')">
+            Auswahl ersetzen
+          </button>
+          <button type="button" @click="applySelectionAIResult('insert')">
+            Danach einfügen
+          </button>
         </div>
         <div v-if="aiPrompt.error" class="pm-ai-prompt__error" role="alert">{{ aiPrompt.error }}</div>
       </form>
@@ -469,7 +522,7 @@ import Document from '@tiptap/extension-document';
 import Placeholder from '@tiptap/extension-placeholder';
 import Typography from '@tiptap/extension-typography';
 import TaskList from '@tiptap/extension-task-list';
-import TaskItem from '@tiptap/extension-task-item';
+import { PaperMindTaskItem } from './nodes/taskItemDue.js';
 import { TableKit } from '@tiptap/extension-table';
 import { isHistoryTransaction } from '@tiptap/pm/history';
 import { DocumentChip } from './nodes/documentChip.js';
@@ -487,6 +540,7 @@ import { MOCK_DOCUMENTS, mockLinkTargets, targetGlyph } from './mockData.js';
 import { NOTE_CALLOUT_OPTIONS } from '../../utils/noteCallouts.js';
 import { normalizeNoteHref, noteHrefLabel } from '../../utils/noteLinks.js';
 import { streamNoteText } from '../../api/notes.js';
+import { NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT } from '../../constants/promptDefaults.js';
 
 const PaperMindDocument = Document.extend({
   addAttributes() {
@@ -519,6 +573,11 @@ const props = defineProps({
   spellcheckEnabled: { type: Boolean, default: true },
   /** Nur bei vollständig nutzbarer Modell-/Zugangskonfiguration anzeigen. */
   aiAvailable: { type: Boolean, default: false },
+  /** Konfigurierbare Schnellprompts im Fenster „Mit KI schreiben“ (maximal 6). */
+  aiPromptSuggestions: {
+    type: Array,
+    default: () => [...NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT],
+  },
   /** Echte Dokumente für /beleg (und /verweis-Ziele, falls keine linkTargets).
    *  Form: { id, label, type:'document', hint }. null → Mock-Daten (Prüfstand). */
   documentItems: { type: Array, default: null },
@@ -572,9 +631,16 @@ const tableMenu = reactive({
   rows: 3,
   cols: 3,
   withHeaderRow: true,
+  withHeaderColumn: false,
   anchorPos: null,
   style: {},
 });
+const tableHandle = reactive({
+  visible: false,
+  style: {},
+});
+let hoveredTableWrapper = null;
+let activeTableWrapper = null;
 const linkEditor = reactive({
   open: false,
   href: '',
@@ -605,7 +671,7 @@ const editor = useEditor({
     Placeholder.configure({ placeholder: props.placeholder }),
     Typography,
     TaskList,
-    TaskItem.configure({ nested: true }),
+    PaperMindTaskItem.configure({ nested: true }),
     TableKit.configure({
       table: {
         resizable: true,
@@ -641,13 +707,17 @@ const editor = useEditor({
     refreshBubble();
     refreshWikiLink();
     refreshSlash();
+    nextTick(refreshTableHandle);
   },
   onTransaction: ({ editor: ed, transaction }) => {
     if (!transaction.docChanged || !isHistoryTransaction(transaction)) return;
     const range = historyChangedRange(transaction.before, transaction.doc);
     if (range) scheduleHistoryFlash(ed, range);
   },
-  onCreate: ({ editor: ed }) => { updateWordCount(ed); },
+  onCreate: ({ editor: ed }) => {
+    updateWordCount(ed);
+    nextTick(refreshTableHandle);
+  },
 });
 
 onMounted(() => {
@@ -745,6 +815,7 @@ watch(() => props.modelValue, (next) => {
   closeLinkEditor();
   ed.commands.setContent(next || '', { emitUpdate: false });
   updateWordCount(ed);
+  nextTick(refreshTableHandle);
 });
 
 function updateWordCount(ed) {
@@ -975,6 +1046,80 @@ function positionTableMenu() {
   };
 }
 
+function tableWrapperAtSelection() {
+  const ed = editor.value;
+  if (!ed?.isActive('table')) return null;
+  const domAtSelection = ed.view.domAtPos(ed.state.selection.from)?.node;
+  const element = domAtSelection instanceof Element
+    ? domAtSelection
+    : domAtSelection?.parentElement;
+  return element?.closest('.tableWrapper') || null;
+}
+
+function positionTableHandle(wrapper) {
+  const surface = surfaceEl.value;
+  if (!surface || !(wrapper instanceof Element)) return;
+  const surfaceRect = surface.getBoundingClientRect();
+  const tableRect = wrapper.getBoundingClientRect();
+  const outsideLeft = tableRect.left - surfaceRect.left - 30;
+  tableHandle.style = {
+    left: `${outsideLeft >= 2 ? outsideLeft : tableRect.left - surfaceRect.left + 6}px`,
+    top: `${tableRect.top - surfaceRect.top + 7}px`,
+  };
+  tableHandle.visible = true;
+  activeTableWrapper = wrapper;
+}
+
+function refreshTableHandle() {
+  const wrapper = hoveredTableWrapper || tableWrapperAtSelection();
+  if (!wrapper || !surfaceEl.value?.contains(wrapper)) {
+    tableHandle.visible = false;
+    activeTableWrapper = null;
+    return;
+  }
+  positionTableHandle(wrapper);
+}
+
+function trackTableHandle(event) {
+  const target = event.target;
+  if (!(target instanceof Element) || target.closest('.pm-table-handle, .pm-table-menu')) return;
+  hoveredTableWrapper = target.closest('.tableWrapper');
+  refreshTableHandle();
+}
+
+function clearHoveredTable() {
+  hoveredTableWrapper = null;
+  refreshTableHandle();
+}
+
+function openTableMenuFromHandle() {
+  const ed = editor.value;
+  const surface = surfaceEl.value;
+  const wrapper = activeTableWrapper;
+  if (!ed || !surface || !(wrapper instanceof Element)) return;
+
+  const cellContent = wrapper.querySelector('th p, td p, th, td');
+  if (cellContent) {
+    const pos = ed.view.posAtDOM(cellContent, 0);
+    ed.chain().focus().setTextSelection(pos).run();
+  }
+
+  const surfaceRect = surface.getBoundingClientRect();
+  const tableRect = wrapper.getBoundingClientRect();
+  tableMenu.mode = 'edit';
+  tableMenu.anchorPos = ed.state.selection.from;
+  tableMenu.style = {
+    left: `${clampMenuLeft(tableRect.left - surfaceRect.left + 4, surfaceRect.width, 286)}px`,
+    top: `${tableRect.top - surfaceRect.top + 36}px`,
+  };
+  tableMenu.open = true;
+  slash.open = false;
+  picker.open = false;
+  bubble.show = false;
+  closeLinkEditor();
+  closeAIPrompt();
+}
+
 function openTableMenu(requestedMode = null) {
   const ed = editor.value;
   if (!ed) return;
@@ -983,6 +1128,7 @@ function openTableMenu(requestedMode = null) {
   tableMenu.rows = 3;
   tableMenu.cols = 3;
   tableMenu.withHeaderRow = true;
+  tableMenu.withHeaderColumn = false;
   tableMenu.anchorPos = ed.state.selection.from;
   positionTableMenu();
   tableMenu.open = true;
@@ -998,21 +1144,26 @@ function selectTableSize(rows, cols) {
   tableMenu.cols = Math.min(TABLE_PICKER_SIZE, Math.max(1, Number(cols) || 1));
 }
 
+function selectTableHeaderMode(mode) {
+  tableMenu.withHeaderRow = mode !== 'column';
+  tableMenu.withHeaderColumn = mode === 'column';
+}
+
 function insertTable(rows = tableMenu.rows, cols = tableMenu.cols) {
   const ed = editor.value;
   if (!ed) return;
   const anchorPos = Math.min(tableMenu.anchorPos ?? ed.state.selection.from, ed.state.doc.content.size);
   tableMenu.open = false;
-  ed.chain()
+  const chain = ed.chain()
     .focus()
     .setTextSelection(anchorPos)
     .insertTable({
       rows: Math.max(1, Number(rows) || 1),
       cols: Math.max(1, Number(cols) || 1),
       withHeaderRow: tableMenu.withHeaderRow,
-    })
-    .scrollIntoView()
-    .run();
+    });
+  if (tableMenu.withHeaderColumn) chain.toggleHeaderColumn();
+  chain.scrollIntoView().run();
 }
 
 function runTableCommand(action) {
@@ -1023,6 +1174,7 @@ function runTableCommand(action) {
     addRowAfter: () => chain.addRowAfter(),
     addColumnAfter: () => chain.addColumnAfter(),
     toggleHeaderRow: () => chain.toggleHeaderRow(),
+    toggleHeaderColumn: () => chain.toggleHeaderColumn(),
     deleteRow: () => chain.deleteRow(),
     deleteColumn: () => chain.deleteColumn(),
     deleteTable: () => chain.deleteTable(),
@@ -1064,6 +1216,14 @@ const bubbleButtons = computed(() => {
     mk('h3', 'Überschrift 3', 'H3', e => e.isActive('heading', { level: 3 }), c => c.toggleHeading({ level: 3 })),
     mk('h4', 'Überschrift 4', 'H4', e => e.isActive('heading', { level: 4 }), c => c.toggleHeading({ level: 4 })),
     mk('quote', 'Zitat', '&#10077;', e => e.isActive('blockquote'), c => c.toggleBlockquote()),
+    ...(props.aiAvailable ? [{
+      key: 'ai-selection',
+      label: 'Auswahl mit KI bearbeiten',
+      glyph: '&#10022;',
+      ai: true,
+      active: () => false,
+      run: () => openAIPrompt(),
+    }] : []),
   ];
 });
 
@@ -1262,24 +1422,40 @@ function linkTargetItems() {
 
 /* ── KI-Schreibassistenz ─────────────────────────────────────────────────── */
 const AI_PROMPT_WIDTH = 390;
-const AI_PROMPT_SUGGESTIONS = Object.freeze([
-  'Schreibe weiter',
-  'Fasse kurz zusammen',
-  'Formuliere sachlicher',
-  'Ergänze offene Fragen',
-]);
+const visibleAIPromptSuggestions = computed(() => (
+  Array.isArray(props.aiPromptSuggestions)
+    ? props.aiPromptSuggestions
+      .filter((suggestion) => typeof suggestion === 'string')
+      .map((suggestion) => suggestion.replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .slice(0, 6)
+    : [...NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT]
+));
 const aiPrompt = reactive({
   open: false,
+  mode: 'context',
   instruction: '',
+  generatedInstruction: '',
   preview: '',
   error: '',
   loading: false,
   provider: '',
   model: '',
   anchorPos: null,
+  selectionFrom: null,
+  selectionTo: null,
+  selectedText: '',
   style: {},
   anchorStyle: {},
 });
+const aiSelectionTooLong = computed(() => (
+  aiPrompt.mode === 'selection' && aiPrompt.selectedText.length > 8000
+));
+const aiContextLabel = computed(() => (
+  aiPrompt.mode === 'selection'
+    ? `Kontext: nur Auswahl · ${aiPrompt.selectedText.length.toLocaleString('de-DE')} Zeichen`
+    : 'Kontext: Notiztext bis zum Cursor'
+));
 
 function providerLabel(provider) {
   return { ollama: 'Lokal', openai: 'OpenAI', anthropic: 'Claude' }[provider] || 'KI';
@@ -1305,10 +1481,19 @@ function positionAIPrompt() {
 function openAIPrompt() {
   const ed = editor.value;
   if (!ed) return;
-  aiPrompt.anchorPos = ed.state.selection.from;
+  const { from, to, empty } = ed.state.selection;
+  const selectedText = empty ? '' : ed.state.doc.textBetween(from, to, '\n', '\n').trim();
+  aiPrompt.mode = selectedText ? 'selection' : 'context';
+  aiPrompt.anchorPos = selectedText ? to : from;
+  aiPrompt.selectionFrom = selectedText ? from : null;
+  aiPrompt.selectionTo = selectedText ? to : null;
+  aiPrompt.selectedText = selectedText;
   aiPrompt.instruction = '';
+  aiPrompt.generatedInstruction = '';
   aiPrompt.preview = '';
-  aiPrompt.error = '';
+  aiPrompt.error = selectedText.length > 8000
+    ? 'Die Auswahl ist zu lang. Bitte höchstens 8.000 Zeichen markieren.'
+    : '';
   aiPrompt.provider = '';
   aiPrompt.model = '';
   aiPrompt.open = true;
@@ -1327,6 +1512,10 @@ function closeAIPrompt() {
   aiPrompt.loading = false;
   aiPrompt.preview = '';
   aiPrompt.error = '';
+  aiPrompt.generatedInstruction = '';
+  aiPrompt.selectedText = '';
+  aiPrompt.selectionFrom = null;
+  aiPrompt.selectionTo = null;
 }
 
 function applyAIPromptSuggestion(suggestion) {
@@ -1339,12 +1528,54 @@ function noteContextBeforeAnchor(ed) {
   return ed.state.doc.textBetween(0, to, '\n', '\n').slice(-12000);
 }
 
+function aiBlockAttrs() {
+  return {
+    text: aiPrompt.preview.trim(),
+    prompt: aiPrompt.generatedInstruction || aiPrompt.instruction.trim(),
+    provider: aiPrompt.provider,
+    model: aiPrompt.model,
+    generatedAt: new Date().toISOString(),
+    sources: [],
+    stale: false,
+  };
+}
+
+function selectionSnapshotIsCurrent(ed) {
+  const { selectionFrom: from, selectionTo: to, selectedText } = aiPrompt;
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from >= to || to > ed.state.doc.content.size) {
+    return false;
+  }
+  return ed.state.doc.textBetween(from, to, '\n', '\n').trim() === selectedText;
+}
+
+function applySelectionAIResult(action) {
+  const ed = editor.value;
+  if (!ed || aiPrompt.mode !== 'selection' || !aiPrompt.preview.trim()) return;
+  if (!selectionSnapshotIsCurrent(ed)) {
+    aiPrompt.error = 'Die Textauswahl hat sich geändert. Bitte schließen und erneut auswählen.';
+    return;
+  }
+
+  const from = aiPrompt.selectionFrom;
+  const to = aiPrompt.selectionTo;
+  const attrs = aiBlockAttrs();
+  const chain = ed.chain().focus();
+  if (action === 'replace') {
+    chain.insertContentAt({ from, to }, { type: 'aiBlock', attrs });
+  } else {
+    chain.setTextSelection(to).insertAiBlock(attrs);
+  }
+  chain.scrollIntoView().run();
+  closeAIPrompt();
+}
+
 async function generateAIText() {
   const ed = editor.value;
   const instruction = aiPrompt.instruction.trim();
-  if (!ed || !instruction || aiPrompt.loading) return;
+  if (!ed || !instruction || aiPrompt.loading || aiSelectionTooLong.value) return;
 
   aiPrompt.loading = true;
+  aiPrompt.generatedInstruction = instruction;
   aiPrompt.preview = '';
   aiPrompt.error = '';
   aiPrompt.provider = '';
@@ -1354,8 +1585,8 @@ async function generateAIText() {
   try {
     await streamNoteText({
       instruction,
-      note_context: noteContextBeforeAnchor(ed),
-      selected_text: '',
+      note_context: aiPrompt.mode === 'selection' ? '' : noteContextBeforeAnchor(ed),
+      selected_text: aiPrompt.mode === 'selection' ? aiPrompt.selectedText : '',
       document_context: '',
     }, {
       signal: aiGenerationController.signal,
@@ -1371,19 +1602,17 @@ async function generateAIText() {
 
     const text = aiPrompt.preview.trim();
     if (!text) throw new Error('Das Modell hat keinen Text erzeugt.');
+    if (aiPrompt.mode === 'selection') {
+      if (!selectionSnapshotIsCurrent(ed)) {
+        throw new Error('Die Textauswahl hat sich geändert. Bitte schließen und erneut auswählen.');
+      }
+      return;
+    }
     const insertionPos = Math.min(aiPrompt.anchorPos ?? ed.state.selection.from, ed.state.doc.content.size);
     ed.chain()
       .focus()
       .setTextSelection(insertionPos)
-      .insertAiBlock({
-        text,
-        prompt: instruction,
-        provider: aiPrompt.provider,
-        model: aiPrompt.model,
-        generatedAt: new Date().toISOString(),
-        sources: [],
-        stale: false,
-      })
+      .insertAiBlock({ ...aiBlockAttrs() })
       .run();
     aiPrompt.open = false;
   } catch (error) {
@@ -1901,6 +2130,40 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   content: '';
   pointer-events: none;
 }
+
+.pm-table-handle {
+  position: absolute;
+  z-index: 9;
+  display: grid;
+  width: 26px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 88%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--pm-app-surface-raised, #fff) 94%, transparent);
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--pm-text, #0e181b) 9%, transparent);
+  color: var(--pm-muted, #535e62);
+  cursor: pointer;
+  opacity: 0.82;
+  transform-origin: center;
+  animation: pm-table-handle-in 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transition: opacity 130ms ease, color 130ms ease, background-color 130ms ease, transform 130ms ease;
+}
+
+.pm-table-handle:hover,
+.pm-table-handle:focus-visible,
+.pm-table-handle.is-open {
+  outline: none;
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 10%, var(--pm-app-surface-raised, #fff));
+  color: var(--pm-accent-strong, #00555f);
+  opacity: 1;
+  transform: scale(1.04);
+}
+
+@keyframes pm-table-handle-in {
+  from { opacity: 0; transform: translateX(4px) scale(0.9); }
+}
 .note-editor :deep(.pm-content .column-resize-handle) {
   position: absolute;
   z-index: 3;
@@ -1939,6 +2202,13 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 .pm-bubble__btn:hover { background: rgba(var(--v-theme-primary, 0 107 117), 0.1); }
 .pm-bubble__btn.is-active { background: var(--pm-accent, #006b75); color: var(--pm-accent-contrast, #fff); }
+.pm-bubble__btn.is-ai {
+  width: 36px;
+  margin-left: 3px;
+  border-left: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 0 8px 8px 0;
+  color: var(--pm-accent-strong, #00555f);
+}
 .pm-bubble__glyph code { font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; }
 
 .pm-link-editor {
@@ -2107,12 +2377,18 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 .pm-table-menu__cell:hover,
 .pm-table-menu__cell:focus-visible { transform: scale(1.06); }
 
+.pm-table-menu__header-options {
+  display: grid;
+  gap: 3px;
+  margin-top: 9px;
+}
+
 .pm-table-menu__header-toggle {
   display: flex;
   width: 100%;
   align-items: center;
   gap: 8px;
-  margin-top: 9px;
+  margin: 0;
   padding: 7px 8px;
   border: 0;
   border-radius: 7px;
@@ -2128,12 +2404,6 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 .pm-table-menu__header-toggle.is-active {
   background: color-mix(in srgb, var(--pm-accent, #006b75) 10%, transparent);
   color: var(--pm-accent-strong, #00555f);
-}
-
-.pm-table-menu__hint {
-  padding: 7px 3px 0;
-  color: var(--pm-muted, #535e62);
-  font-size: 0.64rem;
 }
 
 .pm-table-menu__actions {
@@ -2170,6 +2440,12 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 .pm-table-menu__actions button.is-danger:focus-visible {
   background: color-mix(in srgb, var(--pm-danger, #c84c4c) 10%, transparent);
   color: var(--pm-danger, #c84c4c);
+}
+
+.pm-table-menu__actions button.is-danger {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  box-shadow: inset 0 1px 0 var(--pm-divider, #d8dfe1);
 }
 
 .pm-slash {
@@ -2288,13 +2564,31 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   font-size: 0.68rem; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
 }
 .pm-ai-prompt__head > span { display: inline-flex; align-items: center; gap: 6px; }
-.pm-ai-prompt__head > span > span { color: var(--pm-accent, #006b75); }
+.pm-ai-prompt__icon { color: var(--pm-accent, #006b75); }
 .pm-ai-prompt__close {
   width: 24px; height: 24px; display: grid; place-items: center;
   border: 0; border-radius: 6px; background: transparent;
   color: var(--pm-muted, #535e62); cursor: pointer; font-size: 1.05rem;
 }
 .pm-ai-prompt__close:hover { background: color-mix(in srgb, var(--pm-divider, #d8dfe1) 45%, transparent); }
+.pm-ai-prompt__context {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -2px 0 8px;
+  color: var(--pm-muted, #535e62);
+  font-size: 0.66rem;
+  line-height: 1.25;
+}
+.pm-ai-prompt__context > span {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+}
+.pm-ai-prompt__context.is-selection { color: var(--pm-accent-strong, #00555f); }
 .pm-ai-prompt__input-row { display: flex; align-items: center; gap: 7px; }
 .pm-ai-prompt__input-row input {
   min-width: 0; height: 38px; flex: 1;
@@ -2354,6 +2648,36 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   animation: pm-ai-stream-caret 720ms ease-in-out infinite;
 }
 .pm-ai-prompt__status { margin-top: 7px; color: var(--pm-muted, #535e62); font-size: 0.7rem; }
+.pm-ai-prompt__result-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid var(--pm-divider, #d8dfe1);
+}
+.pm-ai-prompt__result-actions button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--pm-text, #0e181b);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+.pm-ai-prompt__result-actions button:hover {
+  border-color: var(--pm-accent, #006b75);
+  color: var(--pm-accent-strong, #00555f);
+}
+.pm-ai-prompt__result-actions button.is-primary {
+  border-color: var(--pm-accent, #006b75);
+  background: var(--pm-accent, #006b75);
+  color: var(--pm-accent-contrast, #fff);
+}
+.pm-ai-prompt__result-actions button.is-primary:hover { filter: brightness(1.07); }
 .pm-ai-prompt__error { margin-top: 8px; color: var(--pm-danger, #b42318); font-size: 0.76rem; line-height: 1.35; }
 .pm-ai-prompt__spinner {
   width: 15px; height: 15px; border: 2px solid currentColor; border-right-color: transparent;
@@ -2433,10 +2757,12 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   .pm-ai-prompt__stream-caret,
   .pm-ai-anchor__core,
   .pm-ai-anchor__glow,
-  .pm-slash--commands { animation: none; }
+  .pm-slash--commands,
+  .pm-table-handle { animation: none; }
 
   .pm-slash__selection,
-  .pm-slash__chip { transition: none; }
+  .pm-slash__chip,
+  .pm-table-handle { transition: none; }
 
   .note-editor :deep(.pm-history-flash),
   .note-editor :deep(.pm-history-flash-caret) { animation: none; }
@@ -2456,6 +2782,11 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 
 :global(.pm-no-animations) .pm-slash--commands {
   animation: none;
+}
+
+:global(.pm-no-animations) .pm-table-handle {
+  animation: none;
+  transition: none;
 }
 
 :global(.pm-no-animations) .pm-slash__selection {

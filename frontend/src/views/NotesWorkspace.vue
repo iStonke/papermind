@@ -4,34 +4,76 @@
   rechts bleibt der Platz für den späteren Inline-Editor reserviert.
 -->
 <template>
-  <section class="notes-ws" :class="{ 'is-list-collapsed': isListPanelCollapsed }">
+  <section class="notes-ws" :class="{ 'is-list-collapsed': isListPanelCollapsed && !isManageMode, 'is-manage': isManageMode }">
     <aside
       class="notes-ws__list-panel"
       aria-label="Notizenliste"
-      :aria-hidden="isListPanelCollapsed ? 'true' : undefined"
-      :inert="isListPanelCollapsed"
+      :aria-hidden="panelInert ? 'true' : undefined"
+      :inert="panelInert"
     >
       <header class="notes-ws__header">
         <div class="notes-ws__title">
           <div class="notes-ws__heading">Notizen</div>
-          <div class="notes-ws__count">{{ resultCountLabel }}</div>
+          <div class="notes-ws__count">{{ headerCountLabel }}</div>
+        </div>
+
+        <div
+          v-if="isManageMode"
+          class="notes-ws__manage-switch"
+          :class="{ 'is-templates': manageFacet === 'templates' }"
+          role="tablist"
+          aria-label="Notizen oder Vorlagen anzeigen"
+        >
+          <span class="notes-ws__manage-switch-indicator" aria-hidden="true" />
+          <button
+            type="button"
+            role="tab"
+            class="notes-ws__manage-switch-option"
+            :class="{ 'is-active': manageFacet === 'notes' }"
+            :aria-selected="manageFacet === 'notes' ? 'true' : 'false'"
+            @click="manageFacet = 'notes'"
+          >
+            <span>Notizen</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="notes-ws__manage-switch-option"
+            :class="{ 'is-active': manageFacet === 'templates' }"
+            :aria-selected="manageFacet === 'templates' ? 'true' : 'false'"
+            @click="manageFacet = 'templates'"
+          >
+            <span>Vorlagen</span>
+          </button>
         </div>
 
         <div class="notes-ws__header-actions">
           <v-btn
-            class="list-header-btn"
+            class="notes-ws__manage-toggle pm-header-icon-btn"
             color="primary"
             variant="tonal"
-            :loading="creating"
-            @click="createNote"
+            icon
+            :aria-pressed="String(isManageMode)"
+            :aria-label="isManageMode ? 'Verwaltung schließen' : 'Notizen verwalten'"
+            :title="isManageMode ? 'Verwaltung schließen' : 'Notizen verwalten'"
+            @click="toggleManageMode"
           >
-            <v-icon size="18" class="mr-1">mdi-plus</v-icon>
-            Neue Notiz
+            <v-icon size="20">{{ isManageMode ? 'mdi-view-agenda-outline' : 'mdi-view-grid-outline' }}</v-icon>
           </v-btn>
         </div>
       </header>
 
-      <div class="notes-ws__list-shell">
+      <NotesManageGrid
+        v-if="isManageMode"
+        class="notes-ws__manage"
+        :facet="manageFacet"
+        :search-query="searchQuery"
+        :search-scope="searchScope"
+        @open-note="openNoteFromManage"
+        @changed="onManageChanged"
+      />
+
+      <div v-else class="notes-ws__list-shell">
         <ListActionToolbar
           :actions="toolbarActions"
           :show-selection="false"
@@ -132,6 +174,54 @@
 
         </div>
       </div>
+
+      <!-- Primäraktion als schwebender Button unten rechts (entlastet die Kopfzeile). -->
+      <div
+        v-if="!isManageMode"
+        class="notes-ws__fab"
+        :class="{ 'has-templates': notesStore.templates.length > 0 }"
+      >
+        <v-btn
+          class="notes-ws__fab-main"
+          color="primary"
+          :loading="creating"
+          @click="createNote"
+        >
+          <v-icon size="20" class="mr-1">mdi-plus</v-icon>
+          Neue Notiz
+        </v-btn>
+        <v-menu
+          v-if="notesStore.templates.length"
+          location="top end"
+          :offset="10"
+          transition="scale-transition"
+        >
+          <template #activator="{ props }">
+            <v-btn
+              class="notes-ws__fab-caret"
+              color="primary"
+              aria-label="Aus Vorlage anlegen"
+              :disabled="creating"
+              v-bind="props"
+            >
+              <v-icon size="18">mdi-chevron-up</v-icon>
+            </v-btn>
+          </template>
+          <div class="notes-ws__template-pop">
+            <div class="notes-ws__template-pop-title">Aus Vorlage</div>
+            <button
+              v-for="template in notesStore.templates"
+              :key="template.id"
+              type="button"
+              class="notes-ws__template-pop-item"
+              @click="createNoteFromTemplate(template.id)"
+            >
+              <v-icon size="16">mdi-file-document-outline</v-icon>
+              <span>{{ template.title?.trim() || 'Unbenannte Vorlage' }}</span>
+            </button>
+          </div>
+        </v-menu>
+      </div>
     </aside>
 
     <section class="notes-ws__editor-slot" aria-label="Notizbereich">
@@ -154,13 +244,8 @@
         @click="toggleNotesList"
       />
 
-      <PmEmptyState
+      <NotesEditorIllustration
         v-if="!activeNote"
-        icon="mdi-note-outline"
-        title="Keine Notiz ausgewählt"
-        subtitle="Wähle eine Notiz aus der Liste, um den Editor zu öffnen."
-        size="md"
-        :animated="false"
       />
     </section>
 
@@ -188,6 +273,8 @@ import DestructiveDialog from '../components/DestructiveDialog.vue';
 import ListActionToolbar from '../components/ListActionToolbar.vue';
 import PmEmptyState from '../components/PmEmptyState.vue';
 import NoteWorkspaceEditor from '../components/notes/NoteWorkspaceEditor.vue';
+import NotesEditorIllustration from '../components/notes/NotesEditorIllustration.vue';
+import NotesManageGrid from '../components/notes/NotesManageGrid.vue';
 import { isNoteEmpty, useNotesStore } from '../stores/notes.js';
 import { useSettingsStore } from '../stores/settings.js';
 import { groupNotesByCreationDay } from '../utils/noteDateGroups.js';
@@ -218,6 +305,8 @@ const notesStore = useNotesStore();
 const settingsStore = useSettingsStore();
 const activeNoteId = ref(null);
 const isListCollapsed = ref(resolveInitialListCollapsed());
+const isManageMode = ref(false);
+const manageFacet = ref('notes');
 const isCompactLayout = ref(false);
 const sortMode = ref(normalizeSortMode(settingsStore.settingsDraft.ui.notes_sort_order));
 const dateRange = ref('');
@@ -245,6 +334,8 @@ const NOTE_REMOVAL_DURATION_MS = 210;
 const NOTE_SEARCH_DEBOUNCE_MS = 220;
 
 const isListPanelCollapsed = computed(() => isListCollapsed.value && !isCompactLayout.value);
+// Im Verwaltungsmodus füllt das Panel die volle Breite und bleibt bedienbar.
+const panelInert = computed(() => isListPanelCollapsed.value && !isManageMode.value);
 const normalizedSearchQuery = computed(() => String(props.searchQuery || '').trim().slice(0, 256));
 const normalizedSearchScope = computed(() => (
   ['all', 'title', 'body'].includes(props.searchScope) ? props.searchScope : 'all'
@@ -289,6 +380,14 @@ const resultCountLabel = computed(() => {
     return `${visibleNotes.value.length} von ${total} Notizen`;
   }
   return total === 1 ? '1 Notiz' : `${total} Notizen`;
+});
+
+const headerCountLabel = computed(() => {
+  if (isManageMode.value && manageFacet.value === 'templates') {
+    const total = notesStore.templates.length;
+    return total === 1 ? '1 Vorlage' : `${total} Vorlagen`;
+  }
+  return resultCountLabel.value;
 });
 
 const sortLabel = computed(() =>
@@ -459,6 +558,8 @@ async function loadNotes() {
   } finally {
     isLoading.value = false;
   }
+  // Vorlagen still im Hintergrund laden (füttern das „Neue Notiz"-Menü).
+  notesStore.ensureTemplatesLoaded().catch(() => {});
 }
 
 // Von außen angeforderte Notiz öffnen (z. B. aus dem Dokument-Detailbereich).
@@ -541,8 +642,37 @@ function toggleNotesList() {
   }
 }
 
+function toggleManageMode() {
+  isManageMode.value = !isManageMode.value;
+}
+
+// Aus der Verwaltungsfläche eine Notiz im Editor öffnen: Modus verlassen und
+// die Notiz aktivieren (nach dem Bulk-Refresh liegt sie sicher in der Liste).
+async function openNoteFromManage(noteId) {
+  isManageMode.value = false;
+  await notesStore.ensureLoaded();
+  if (!notesStore.notes.some((note) => note.id === noteId)) await notesStore.fetchNotes();
+  dateRange.value = '';
+  await selectNote(noteId);
+}
+
+// Kartenaktion hat Papierkorb/Vorlagen/Notizen verändert → Umgebung informieren.
+function onManageChanged() {
+  emit('trash-changed');
+}
+
 function updateCompactLayout(event) {
   isCompactLayout.value = Boolean(event?.matches);
+}
+
+// Frisch angelegte Notiz auswählen und die Anlege-Animation auslösen.
+function revealNewNote(note) {
+  activeNoteId.value = note.id;
+  newlyCreatedNoteId.value = note.id;
+  if (newNoteAnimationTimer) window.clearTimeout(newNoteAnimationTimer);
+  // Fallback, falls Animationen deaktiviert sind und deshalb kein
+  // animationend-Ereignis ausgelöst wird.
+  newNoteAnimationTimer = window.setTimeout(() => finishNewNoteAnimation(note.id), 700);
 }
 
 async function createNote() {
@@ -550,15 +680,22 @@ async function createNote() {
   creating.value = true;
   loadError.value = '';
   try {
-    const note = await notesStore.create();
-    activeNoteId.value = note.id;
-    newlyCreatedNoteId.value = note.id;
-    if (newNoteAnimationTimer) window.clearTimeout(newNoteAnimationTimer);
-    // Fallback, falls Animationen deaktiviert sind und deshalb kein
-    // animationend-Ereignis ausgelöst wird.
-    newNoteAnimationTimer = window.setTimeout(() => finishNewNoteAnimation(note.id), 700);
+    revealNewNote(await notesStore.create());
   } catch {
     loadError.value = 'Die Notiz konnte nicht angelegt werden.';
+  } finally {
+    creating.value = false;
+  }
+}
+
+async function createNoteFromTemplate(templateId) {
+  if (!templateId || creating.value) return;
+  creating.value = true;
+  loadError.value = '';
+  try {
+    revealNewNote(await notesStore.createFromTemplate(templateId));
+  } catch {
+    loadError.value = 'Die Notiz konnte aus der Vorlage nicht angelegt werden.';
   } finally {
     creating.value = false;
   }
@@ -727,6 +864,7 @@ function formatDate(value) {
 }
 
 .notes-ws__list-panel {
+  position: relative;
   display: flex;
   width: var(--notes-list-width);
   flex: 0 0 var(--notes-list-width);
@@ -736,11 +874,13 @@ function formatDate(value) {
   opacity: 1;
   transform: translateX(0);
   visibility: visible;
-  will-change: margin-left, opacity, transform;
+  will-change: margin-left, opacity, transform, flex-basis;
   transition:
     margin-left 260ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)),
     opacity 180ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
     transform 260ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)),
+    width 300ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)),
+    flex-basis 300ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)),
     visibility 0ms linear;
 }
 
@@ -750,10 +890,33 @@ function formatDate(value) {
   pointer-events: none;
   transform: translateX(-18px);
   visibility: hidden;
-  transition-delay: 0ms, 0ms, 0ms, 260ms;
+  transition-delay: 0ms, 0ms, 0ms, 0ms, 0ms, 260ms;
+}
+
+/* Verwaltungsmodus: Liste entfaltet sich auf volle Breite, Editor klappt weg. */
+.notes-ws.is-manage {
+  --notes-list-width: 100%;
+}
+
+.notes-ws.is-manage .notes-ws__list-panel {
+  border-right: 0;
+}
+
+.notes-ws.is-manage .notes-ws__editor-slot {
+  flex: 0 0 0;
+  width: 0;
+  min-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition:
+    flex-basis 300ms var(--pm-easing-accel, cubic-bezier(0.4, 0, 0.2, 1)),
+    width 300ms var(--pm-easing-accel, cubic-bezier(0.4, 0, 0.2, 1)),
+    opacity 160ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .notes-ws__header {
+  position: relative;
   flex: none;
   display: flex;
   min-height: var(--notes-header-height);
@@ -804,10 +967,168 @@ function formatDate(value) {
   gap: 8px;
 }
 
+.notes-ws__manage-switch {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  width: min(250px, 38vw);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 80%, transparent);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--pm-viewer-surface, #eef2f4) 78%, transparent);
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.06);
+  transform: translate(-50%, -50%);
+}
+
+.notes-ws__manage-switch-indicator {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / 2);
+  border-radius: 9px;
+  background: var(--pm-app-surface-raised, #fff);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.14), 0 1px 1px rgba(15, 23, 42, 0.06);
+  transition: transform 180ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1));
+}
+
+.notes-ws__manage-switch.is-templates .notes-ws__manage-switch-indicator {
+  transform: translateX(100%);
+}
+
+.notes-ws__manage-switch-option {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  min-width: 0;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--pm-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.81rem;
+  font-weight: 560;
+  transition: color 140ms ease;
+}
+
+.notes-ws__manage-switch-option:hover,
+.notes-ws__manage-switch-option.is-active {
+  color: var(--pm-text);
+}
+
+.notes-ws__manage-switch-option.is-active {
+  font-weight: 650;
+}
+
+.notes-ws__manage-switch-option:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--pm-accent, #006b75) 58%, transparent);
+  outline-offset: -2px;
+}
+
 .notes-ws__header .v-btn {
   border-radius: 10px;
   text-transform: none;
   letter-spacing: 0;
+}
+
+/* Split-Button „Neue Notiz" + Vorlagen-Menü. */
+/* Schwebende Primäraktion („Neue Notiz") unten rechts über der Liste. */
+.notes-ws__fab {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 16px;
+  z-index: 5;
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  border-radius: 999px;
+  box-shadow: 0 6px 20px -6px rgba(0, 0, 0, 0.32), 0 2px 6px -2px rgba(0, 0, 0, 0.18);
+}
+.notes-ws__fab .v-btn {
+  text-transform: none;
+  letter-spacing: 0;
+  transition:
+    background-color var(--pm-duration-fast, 140ms) var(--pm-easing, ease),
+    box-shadow var(--pm-duration-fast, 140ms) var(--pm-easing, ease);
+}
+.notes-ws__fab .v-btn:hover:not(.v-btn--disabled) {
+  background-color: color-mix(
+    in srgb,
+    rgb(var(--v-theme-primary)) 88%,
+    rgb(var(--v-theme-on-surface)) 12%
+  ) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, rgb(var(--v-theme-on-primary)) 18%, transparent);
+}
+.notes-ws__fab-main.v-btn {
+  height: 44px;
+  padding-inline: 20px 18px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: 999px;
+}
+.notes-ws__fab.has-templates .notes-ws__fab-main.v-btn {
+  border-radius: 999px 0 0 999px;
+}
+.notes-ws__fab-caret.v-btn {
+  height: 44px;
+  min-width: 38px;
+  padding-inline: 0;
+  border-radius: 0 999px 999px 0;
+  border-left: 1px solid color-mix(in srgb, var(--pm-app-surface, #fff) 22%, transparent);
+}
+/* „Aus Vorlage"-Popover am FAB. Teleportiert aus .papermind-app → nur
+   --v-theme-*-Variablen greifen zuverlässig (kein --pm-*). */
+.notes-ws__template-pop {
+  min-width: 240px;
+  max-width: 288px;
+  padding: 6px;
+  border-radius: 16px;
+  background: rgb(var(--v-theme-surface));
+  color: rgb(var(--v-theme-on-surface));
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+  box-shadow: 0 12px 32px -10px rgba(0, 0, 0, 0.4), 0 4px 12px -4px rgba(0, 0, 0, 0.22);
+}
+.notes-ws__template-pop-title {
+  padding: 8px 12px 6px;
+  color: rgba(var(--v-theme-on-surface), 0.55);
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.notes-ws__template-pop-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: rgb(var(--v-theme-on-surface));
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.notes-ws__template-pop-item .v-icon { color: rgba(var(--v-theme-on-surface), 0.5); transition: color 120ms ease; }
+.notes-ws__template-pop-item:hover {
+  background: rgba(var(--v-theme-primary), 0.12);
+  color: rgb(var(--v-theme-primary));
+}
+.notes-ws__template-pop-item:hover .v-icon { color: rgb(var(--v-theme-primary)); }
+@media (prefers-reduced-motion: reduce) {
+  .notes-ws__template-pop-item { transition: none; }
 }
 
 .list-header-btn.v-btn {
@@ -843,7 +1164,8 @@ function formatDate(value) {
 
 .notes-ws__groups {
   margin: 0;
-  padding: 0 10px 14px;
+  /* Unten Platz lassen, damit der schwebende FAB die letzte Notiz nicht verdeckt. */
+  padding: 0 10px 76px;
 }
 
 .notes-ws__group + .notes-ws__group {
@@ -891,9 +1213,10 @@ function formatDate(value) {
   height: 112px;
   min-height: 112px;
   overflow: hidden;
-  border: 1px solid rgba(15, 23, 42, 0.06);
+  border: 1px solid var(--pm-document-row-border, rgba(15, 23, 42, 0.06));
   border-radius: 14px;
-  background: var(--pm-app-surface-raised, #fff);
+  background: var(--pm-document-row-bg, var(--pm-app-surface-raised, #fff));
+  box-shadow: var(--pm-document-row-shadow, 0 2px 8px rgba(15, 23, 42, 0.08));
   transition:
     background-color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
     border-color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
@@ -904,14 +1227,18 @@ function formatDate(value) {
 }
 
 .notes-ws__item:hover {
-  border-color: color-mix(in srgb, var(--pm-accent) 16%, transparent);
+  border-color: var(--pm-document-row-hover-border, color-mix(in srgb, var(--pm-accent) 16%, transparent));
   background: var(--pm-row-hover);
 }
 
-.notes-ws__item.is-active,
+.notes-ws__item.is-active {
+  border-color: var(--pm-document-row-active-border, color-mix(in srgb, var(--pm-accent) 30%, transparent));
+  background: var(--pm-document-row-active-bg, var(--pm-row-active));
+}
+
 .notes-ws__item.is-active:hover {
-  border-color: color-mix(in srgb, var(--pm-accent) 30%, transparent);
-  background: var(--pm-row-active);
+  border-color: var(--pm-document-row-active-hover-border, color-mix(in srgb, var(--pm-accent) 38%, transparent));
+  background: var(--pm-document-row-active-bg, var(--pm-row-active));
 }
 
 .notes-ws__item.is-new {
@@ -1156,6 +1483,7 @@ function formatDate(value) {
 
 @media (prefers-reduced-motion: reduce) {
   .list-header-btn.v-btn,
+  .notes-ws__manage-switch-indicator,
   .notes-ws__list-panel,
   .notes-ws__item.is-new,
   .notes-ws__item.is-removing {
@@ -1176,6 +1504,10 @@ function formatDate(value) {
 }
 
 :global(.pm-no-animations) .notes-ws__list-panel {
+  transition-duration: 0ms;
+}
+
+:global(.pm-no-animations) .notes-ws__manage-switch-indicator {
   transition-duration: 0ms;
 }
 </style>

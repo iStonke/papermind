@@ -24,7 +24,44 @@
         <span class="note-workspace-editor__word-count">
           {{ wordCount }} {{ wordCount === 1 ? 'Wort' : 'Wörter' }}
         </span>
-        <span class="note-workspace-editor__actions-divider" aria-hidden="true" />
+
+        <v-menu
+          v-if="hasLoadedContent"
+          v-model="tagEditorOpen"
+          location="bottom end"
+          :close-on-content-click="false"
+          offset="8"
+          @update:model-value="onTagEditorToggle"
+        >
+          <template #activator="{ props: tagMenuProps }">
+            <v-btn
+              v-bind="tagMenuProps"
+              class="note-workspace-editor__tag-btn"
+              :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet']"
+              variant="text"
+              icon
+              :aria-label="noteTagIds.length ? `Tags bearbeiten, ${noteTagIds.length} zugewiesen` : 'Tags bearbeiten'"
+              title="Tags bearbeiten"
+            >
+              <v-icon size="20">mdi-tag-outline</v-icon>
+              <span v-if="noteTagIds.length" class="note-workspace-editor__tag-count">
+                {{ noteTagIds.length > 9 ? '9+' : noteTagIds.length }}
+              </span>
+            </v-btn>
+          </template>
+
+          <v-card class="note-workspace-editor__tag-popover" min-width="320" max-width="380">
+            <div class="note-workspace-editor__tag-popover-title">Tags</div>
+            <NoteTagBar
+              compact
+              :tag-ids="noteTagIds"
+              :all-tags="noteAllTags"
+              :create-tag-by-name="tagStore.ensureTagIdByName"
+              :load-tags="tagStore.fetchTags"
+              @update:tag-ids="applyNoteTagIds"
+            />
+          </v-card>
+        </v-menu>
 
         <v-menu
           v-if="linkedDocument"
@@ -33,20 +70,20 @@
           :close-on-content-click="true"
         >
           <template #activator="{ props: menuProps }">
-            <button
+            <v-btn
               v-bind="menuProps"
-              type="button"
-              class="note-workspace-editor__document-chip"
-              :class="{
+              class="note-workspace-editor__document-btn"
+              :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet', {
                 'is-activating': documentLinkActionActive,
                 'is-arriving': documentChipArriving,
-              }"
+              }]"
+              variant="text"
+              icon
+              :aria-label="`Verknüpftes Dokument: ${linkedDocumentDisplayTitle}`"
               :title="linkedDocumentDisplayTitle"
             >
-              <v-icon size="17">mdi-file-pdf-box</v-icon>
-              <span class="note-workspace-editor__document-chip-label">{{ linkedDocumentDisplayTitle }}</span>
-              <v-icon size="15">mdi-chevron-down</v-icon>
-            </button>
+              <v-icon size="20">mdi-file-pdf-box</v-icon>
+            </v-btn>
           </template>
 
           <v-card class="note-workspace-editor__document-popover" min-width="300" max-width="360">
@@ -69,55 +106,68 @@
         <v-btn
           v-else
           class="note-workspace-editor__document-btn"
-          :class="{ 'is-activating': documentLinkActionActive }"
-          icon="mdi-link-variant"
-          size="small"
+          :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet', { 'is-activating': documentLinkActionActive }]"
           variant="text"
+          icon
           aria-label="Dokument aus der Bibliothek zuordnen"
           title="Dokument zuordnen"
           @click="openDocumentPicker"
-        />
+        >
+          <PmActionIcon name="link-plus" />
+        </v-btn>
 
         <v-menu location="bottom end">
-          <template #activator="{ props: exportMenuProps }">
+          <template #activator="{ props: moreMenuProps }">
             <v-btn
-              v-bind="exportMenuProps"
-              class="note-workspace-editor__export-btn"
-              icon="mdi-download-outline"
-              size="small"
+              v-bind="moreMenuProps"
+              class="note-workspace-editor__more-btn"
+              :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet']"
               variant="text"
-              aria-label="Notiz mit Quellen exportieren"
-              title="Notiz exportieren"
-              :disabled="!hasLoadedContent && (loading || loadError)"
-            />
+              icon
+              aria-label="Weitere Aktionen"
+              title="Weitere Aktionen"
+              :disabled="!hasLoadedContent"
+            >
+              <v-icon size="20">mdi-dots-vertical</v-icon>
+            </v-btn>
           </template>
 
-          <v-list class="note-workspace-editor__export-menu" density="compact" min-width="220">
+          <v-list class="note-workspace-editor__more-menu" density="compact" min-width="228">
+            <v-list-item
+              prepend-icon="mdi-file-document-plus-outline"
+              title="Als Vorlage speichern"
+              :disabled="savingTemplate"
+              @click="saveCurrentNoteAsTemplate"
+            />
+            <v-divider class="note-workspace-editor__more-divider" />
+            <v-list-subheader class="note-workspace-editor__more-subheader">Exportieren</v-list-subheader>
             <v-list-item
               prepend-icon="mdi-file-document-outline"
               title="Markdown"
-              subtitle="Als .md-Datei herunterladen"
               @click="exportNoteAsMarkdown"
             />
             <v-list-item
               prepend-icon="mdi-file-pdf-box"
               title="PDF"
-              subtitle="Druckansicht als PDF speichern"
               @click="exportNoteAsPdf"
             />
           </v-list>
         </v-menu>
 
+        <span class="note-workspace-editor__view-divider" aria-hidden="true" />
+
         <v-btn
           class="note-workspace-editor__list-toggle"
-          :icon="listVisible ? 'mdi-arrow-expand' : 'mdi-arrow-collapse'"
-          size="small"
+          :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet']"
           :variant="listVisible ? 'text' : 'tonal'"
+          icon
           :aria-label="listVisible ? 'Editor im Vollbild anzeigen' : 'Vollbildansicht verlassen'"
           :title="listVisible ? 'Editor im Vollbild anzeigen' : 'Vollbildansicht verlassen'"
           :aria-pressed="listVisible ? 'false' : 'true'"
           @click="emit('toggle-list')"
-        />
+        >
+          <PmActionIcon :name="listVisible ? 'fullscreen' : 'fullscreen-exit'" />
+        </v-btn>
       </div>
     </header>
 
@@ -151,6 +201,7 @@
         :font-family="notesFontFamily"
         :spellcheck-enabled="notesSpellcheckEnabled"
         :ai-available="aiAvailable"
+        :ai-prompt-suggestions="aiPromptSuggestions"
         @word-count="updateWordCount"
         @change="scheduleSave"
       />
@@ -178,6 +229,32 @@
         </ul>
       </section>
     </div>
+
+    <BaseDialog
+      v-model="templateTitleDialogOpen"
+      title="Vorlage benennen"
+      description="Diese Notiz hat noch keinen Titel. Vergib einen Titel für die neue Vorlage."
+      primary-text="Vorlage speichern"
+      secondary-text="Abbrechen"
+      :primary-disabled="!templateTitleInput.trim()"
+      :loading="savingTemplate"
+      :persistent="savingTemplate"
+      max-width="460"
+      @primary="confirmTemplateTitle"
+      @close="closeTemplateTitleDialog"
+    >
+      <v-text-field
+        v-model="templateTitleInput"
+        label="Titel der Vorlage"
+        prepend-inner-icon="mdi-file-document-plus-outline"
+        maxlength="500"
+        density="comfortable"
+        variant="outlined"
+        hide-details
+        autocomplete="off"
+        @keydown.enter.prevent="confirmTemplateTitle"
+      />
+    </BaseDialog>
 
     <BaseDialog
       v-model="documentPickerOpen"
@@ -253,7 +330,9 @@ import { isNoteEmpty, useNotesStore } from '../../stores/notes.js';
 import { getNoteBacklinks } from '../../api/notes.js';
 import { useCorrespondentStore } from '../../stores/correspondents.js';
 import { useDossierStore } from '../../stores/dossiers.js';
-import { notifyError } from '../../stores/notifications.js';
+import { useTagStore } from '../../stores/tags.js';
+import { notifyError, useNotifications } from '../../stores/notifications.js';
+import { NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT } from '../../constants/promptDefaults.js';
 import {
   noteExportFilename,
   notePrintTitle,
@@ -261,7 +340,9 @@ import {
   noteToPrintableHtml,
 } from '../../utils/noteExport.js';
 import BaseDialog from '../BaseDialog.vue';
+import PmActionIcon from '../PmActionIcon.vue';
 import NoteEditor from './NoteEditor.vue';
+import NoteTagBar from './NoteTagBar.vue';
 
 const EMPTY_DOC = { type: 'doc', content: [{ type: 'paragraph' }] };
 
@@ -273,10 +354,31 @@ const props = defineProps({
 const emit = defineEmits(['toggle-list']);
 
 const notesStore = useNotesStore();
+const { notify } = useNotifications();
 const settingsStore = useSettingsStore();
 const uiStore = useUiStore();
+const savingTemplate = ref(false);
+const templateTitleDialogOpen = ref(false);
+const templateTitleInput = ref('');
 const correspondentStore = useCorrespondentStore();
 const dossierStore = useDossierStore();
+const tagStore = useTagStore();
+const tagEditorOpen = ref(false);
+// Tags der geladenen Notiz (gemeinsames PaperMind-Vokabular).
+const noteTagIds = ref([]);
+const noteTagSeed = ref([]);
+const noteAllTags = computed(() => {
+  const map = new Map();
+  for (const t of tagStore.tags || []) {
+    const id = String(t?.id || '').trim();
+    if (id) map.set(id, { id, name: String(t?.name || '').trim() });
+  }
+  for (const t of noteTagSeed.value || []) {
+    const id = String(t?.id || '').trim();
+    if (id && !map.has(id)) map.set(id, { id, name: String(t?.name || '').trim() });
+  }
+  return [...map.values()];
+});
 const noteEditorRef = ref(null);
 const scrollContainerRef = ref(null);
 const titleInputRef = ref(null);
@@ -370,6 +472,17 @@ const aiAvailable = computed(() => {
   if (provider === 'ollama') return settingsStore.settingsDraft?.ollama?.enabled === true;
   return aiCredentialStatus.value?.[provider]?.configured === true;
 });
+const aiPromptSuggestions = computed(() => {
+  const configured = settingsStore.settingsDraft?.text_generation?.prompt_suggestions;
+  const source = Array.isArray(configured)
+    ? configured
+    : NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT;
+  return source
+    .filter((suggestion) => typeof suggestion === 'string')
+    .map((suggestion) => suggestion.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(0, 6);
+});
 const linkedDocumentDisplayTitle = computed(() =>
   formatDocumentFilename(linkedDocument.value?.title || 'Dokument')
 );
@@ -442,8 +555,11 @@ async function loadNote(noteId = props.noteId) {
 
 function applyLoadedNote(note, noteId) {
   loadingContent = true;
+  tagEditorOpen.value = false;
   title.value = note?.title || '';
   body.value = normalizeBody(note?.body_json);
+  noteTagSeed.value = Array.isArray(note?.tags) ? note.tags : [];
+  noteTagIds.value = noteTagSeed.value.map((t) => t.id);
   loadedNoteId.value = noteId;
   hasLoadedContent.value = true;
   status.value = 'saved';
@@ -451,6 +567,28 @@ function applyLoadedNote(note, noteId) {
     loadingContent = false;
     if (loadedNoteId.value === noteId) restoreScrollPosition(noteId);
   });
+}
+
+async function applyNoteTagIds(ids) {
+  const noteId = loadedNoteId.value;
+  if (!noteId) return;
+  const previous = noteTagIds.value;
+  noteTagIds.value = ids; // optimistisch
+  try {
+    const updated = await notesStore.setTags(noteId, { tagIds: ids });
+    if (loadedNoteId.value === noteId) {
+      noteTagSeed.value = updated.tags || [];
+      noteTagIds.value = (updated.tags || []).map((t) => t.id);
+    }
+  } catch (error) {
+    if (loadedNoteId.value === noteId) noteTagIds.value = previous;
+    notifyError(error, 'Tags konnten nicht gespeichert werden.');
+  }
+}
+
+function onTagEditorToggle(open) {
+  if (!open) return;
+  void tagStore.fetchTags().catch(() => {});
 }
 
 function loadStoredScrollPositions() {
@@ -544,6 +682,53 @@ async function persist() {
     }
   } catch {
     if (noteId === loadedNoteId.value && revision === saveRevision) status.value = 'error';
+  }
+}
+
+async function saveCurrentNoteAsTemplate() {
+  const currentTitle = String(title.value || '').trim();
+  if (!currentTitle) {
+    templateTitleInput.value = '';
+    templateTitleDialogOpen.value = true;
+    return;
+  }
+  await persistCurrentNoteAsTemplate(currentTitle);
+}
+
+async function confirmTemplateTitle() {
+  const requestedTitle = String(templateTitleInput.value || '').trim();
+  if (!requestedTitle || savingTemplate.value) return;
+  await persistCurrentNoteAsTemplate(requestedTitle);
+}
+
+function closeTemplateTitleDialog() {
+  if (savingTemplate.value) return;
+  templateTitleInput.value = '';
+}
+
+async function persistCurrentNoteAsTemplate(templateTitle) {
+  const noteId = loadedNoteId.value;
+  if (!noteId || savingTemplate.value) return;
+  savingTemplate.value = true;
+  try {
+    // Ausstehende Änderungen zuerst persistieren, damit die Vorlage den
+    // aktuellen Stand kopiert (save_as_template liest den Serverzustand).
+    clearSaveTimer();
+    await persist();
+    const template = await notesStore.saveAsTemplate(noteId, { title: templateTitle });
+    const savedTitle = template.title?.trim() || templateTitle;
+    templateTitleDialogOpen.value = false;
+    templateTitleInput.value = '';
+    notify({
+      type: 'success',
+      title: 'Vorlage gespeichert',
+      message: `„${savedTitle}" wurde zu deinen Vorlagen hinzugefügt.`,
+      critical: true,
+    });
+  } catch (error) {
+    notifyError(error, 'Vorlage konnte nicht gespeichert werden.');
+  } finally {
+    savingTemplate.value = false;
   }
 }
 
@@ -859,7 +1044,7 @@ onBeforeUnmount(() => {
   background: transparent;
   color: var(--pm-text, #0e181b);
   font: inherit;
-  font-size: 1rem;
+  font-size: 1.125rem;
   font-weight: 680;
   line-height: 1.25;
   padding: 8px 9px;
@@ -887,15 +1072,19 @@ onBeforeUnmount(() => {
 .note-workspace-editor__actions {
   display: flex;
   min-width: 0;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 4px;
 }
 
 .note-workspace-editor__word-count {
   flex: none;
+  /* Ruhiger Status statt gleichwertiger „Button": etwas kleiner, klar gedämpft
+     und mit eigenem Abstand zu den Icon-Aktionen (der Trenner entfällt). */
+  margin-right: 10px;
   color: var(--pm-muted, #535e62);
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -904,32 +1093,62 @@ onBeforeUnmount(() => {
   width: 1px;
   height: 20px;
   flex: none;
-  margin: 0 4px;
+  /* Der Iconbutton hat innerhalb seiner 36 px noch 8 px bis zum 20-px-Icon.
+     Der asymmetrische Rand gleicht deshalb die sichtbaren Abstände aus. */
+  margin: 0 0 0 8px;
   background: var(--pm-divider, #d8dfe1);
 }
 
-.note-workspace-editor__document-btn.v-btn,
-.note-workspace-editor__export-btn.v-btn,
-.note-workspace-editor__list-toggle.v-btn {
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
-  flex: none;
-  border-radius: 9px;
+.note-workspace-editor__tag-btn.v-btn {
+  position: relative;
+}
+
+.note-workspace-editor__tag-count {
+  position: absolute;
+  top: 2px;
+  right: 1px;
+  display: inline-flex;
+  min-width: 15px;
+  height: 15px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border: 1px solid var(--pm-content-surface, #fff);
+  border-radius: 999px;
+  background: var(--pm-muted, #64748b);
+  color: var(--pm-app-surface, #fff);
+  font-size: 0.58rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.note-workspace-editor__tag-popover.v-card {
+  overflow: visible;
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 14px;
+  background: rgb(var(--v-theme-surface));
+  color: rgb(var(--v-theme-on-surface));
+  box-shadow: var(--pm-shadow, 0 12px 30px rgba(15, 23, 42, 0.16));
+  padding: 13px 14px 14px;
+}
+
+.note-workspace-editor__tag-popover-title {
+  margin-bottom: 9px;
   color: var(--pm-muted, #535e62);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-.note-workspace-editor__document-btn.v-btn :deep(.v-icon),
-.note-workspace-editor__export-btn.v-btn :deep(.v-icon),
-.note-workspace-editor__list-toggle.v-btn :deep(.v-icon) {
-  font-size: 20px;
-}
-
-.note-workspace-editor__document-btn.v-btn:hover,
-.note-workspace-editor__export-btn.v-btn:hover,
-.note-workspace-editor__list-toggle.v-btn:hover {
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 8%, transparent);
-  color: var(--pm-accent, #006b75);
+.note-workspace-editor__view-divider {
+  width: 1px;
+  height: 20px;
+  flex: none;
+  margin: 0 4px 0 6px;
+  background: var(--pm-divider, #d8dfe1);
 }
 
 .note-workspace-editor__document-btn.v-btn.is-activating {
@@ -937,7 +1156,7 @@ onBeforeUnmount(() => {
   animation: pm-document-action-pulse 560ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-.note-workspace-editor__document-btn.v-btn.is-activating :deep(.v-icon),
+.note-workspace-editor__document-btn.v-btn.is-activating :deep(.pm-action-icon),
 .note-workspace-editor__document-chip.is-activating > .v-icon:first-child {
   animation: pm-document-link-icon 560ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
@@ -945,10 +1164,6 @@ onBeforeUnmount(() => {
 .note-workspace-editor__export-menu {
   border: 1px solid var(--pm-divider, #d8dfe1);
   border-radius: 10px;
-}
-
-.note-workspace-editor__list-toggle.v-btn[aria-pressed="true"] {
-  color: var(--pm-accent, #006b75);
 }
 
 .note-workspace-editor__document-chip {
@@ -1151,7 +1366,7 @@ onBeforeUnmount(() => {
 @media (prefers-reduced-motion: reduce) {
   .note-workspace-editor__backlink { transition: none; }
   .note-workspace-editor__document-btn.v-btn.is-activating,
-  .note-workspace-editor__document-btn.v-btn.is-activating :deep(.v-icon),
+  .note-workspace-editor__document-btn.v-btn.is-activating :deep(.pm-action-icon),
   .note-workspace-editor__document-chip.is-activating,
   .note-workspace-editor__document-chip.is-activating > .v-icon:first-child,
   .note-workspace-editor__document-chip.is-arriving,
@@ -1162,7 +1377,7 @@ onBeforeUnmount(() => {
 }
 
 :global(.pm-no-animations) .note-workspace-editor__document-btn.v-btn.is-activating,
-:global(.pm-no-animations) .note-workspace-editor__document-btn.v-btn.is-activating :deep(.v-icon),
+:global(.pm-no-animations) .note-workspace-editor__document-btn.v-btn.is-activating :deep(.pm-action-icon),
 :global(.pm-no-animations) .note-workspace-editor__document-chip.is-activating,
 :global(.pm-no-animations) .note-workspace-editor__document-chip.is-activating > .v-icon:first-child,
 :global(.pm-no-animations) .note-workspace-editor__document-chip.is-arriving,

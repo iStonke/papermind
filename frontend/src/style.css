@@ -129,6 +129,70 @@ body.pm-modal-open .papermind-app.v-theme--dark {
   --pm-stage-header-inner-shadow: inset 0 -1px 0 rgba(15, 23, 42, 0.06);
 }
 
+/* Kompakte Kontextaktion in Bereichskopfzeilen.
+   Standard: color="primary" + variant="tonal" + icon. Dichte Aktionsgruppen
+   ergänzen pm-header-icon-btn--quiet und variant="text". In beiden Fällen
+   wird ein explizites 20-px-Icon verwendet. Die verbindliche UI-Regel steht
+   in docs/design/README.md unter „Kompakte Kopfzeilenaktionen“. */
+.pm-header-icon-btn.v-btn {
+  flex: none;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 10px;
+  text-transform: none;
+  letter-spacing: 0;
+  transition: background-color var(--pm-duration-fast, 140ms) var(--pm-easing, ease);
+}
+
+.pm-header-icon-btn.v-btn:hover:not(.v-btn--disabled) {
+  background-color: color-mix(
+    in srgb,
+    currentColor 14%,
+    var(--pm-app-surface-raised, rgb(var(--v-theme-surface)))
+  ) !important;
+}
+
+.pm-header-icon-btn.v-btn:focus-visible:not(.v-btn--disabled) {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* Ruhige Variante für dichte Aktionsgruppen: gleiche Geometrie, aber keine
+   dauerhafte Akzentfläche. Tonal wird nur bei Hover oder aktivem Toggle. */
+.pm-header-icon-btn--quiet.v-btn {
+  color: var(--pm-muted, rgba(var(--v-theme-on-surface), 0.64));
+  background-color: transparent;
+  transition:
+    background-color var(--pm-duration-fast, 140ms) var(--pm-easing, ease),
+    color var(--pm-duration-fast, 140ms) var(--pm-easing, ease);
+}
+
+.pm-header-icon-btn--quiet.v-btn:hover:not(.v-btn--disabled) {
+  color: rgb(var(--v-theme-primary));
+  background-color: color-mix(in srgb, rgb(var(--v-theme-primary)) 8%, transparent) !important;
+}
+
+.pm-header-icon-btn--quiet.v-btn:focus-visible:not(.v-btn--disabled) {
+  outline-color: rgb(var(--v-theme-primary));
+}
+
+.pm-header-icon-btn--quiet.v-btn[aria-pressed="true"] {
+  color: rgb(var(--v-theme-primary));
+  background-color: color-mix(in srgb, rgb(var(--v-theme-primary)) 11%, transparent) !important;
+}
+
+.pm-no-animations .pm-header-icon-btn.v-btn {
+  transition-duration: 0ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pm-header-icon-btn.v-btn {
+    transition-duration: 0ms;
+  }
+}
+
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .v-theme--dark .v-overlay.v-dialog > .v-overlay__scrim {
     background: rgba(0, 0, 0, 0.92) !important;

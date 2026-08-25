@@ -2214,6 +2214,70 @@
               </div>
             </div>
 
+            <div
+              class="pm-setting-row pm-setting-row--column note-prompt-suggestions"
+              :class="{ 'pm-setting-row--disabled': !settingsDraft.text_generation.enabled }"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Beispielprompts</div>
+                <div class="pm-setting-description">
+                  Vorschläge im Fenster „Mit KI schreiben“. Reihenfolge und Anzahl werden im Editor übernommen (maximal 6).
+                </div>
+              </div>
+              <div class="note-prompt-suggestions__list">
+                <div
+                  v-for="(_suggestion, index) in notePromptSuggestionsDraft"
+                  :key="index"
+                  class="note-prompt-suggestions__item"
+                >
+                  <v-text-field
+                    v-model="notePromptSuggestionsDraft[index]"
+                    :aria-label="`Beispielprompt ${index + 1}`"
+                    density="comfortable"
+                    variant="outlined"
+                    :maxlength="160"
+                    hide-details="auto"
+                    :disabled="!settingsDraft.text_generation.enabled || isSettingSaving.text_generation_prompt_suggestions"
+                    :error-messages="notePromptSuggestionErrors[index] || ''"
+                    class="pm-setting-select note-prompt-suggestions__field"
+                    @keydown.enter.prevent
+                  />
+                  <v-btn
+                    icon="mdi-delete-outline"
+                    variant="text"
+                    size="small"
+                    class="note-prompt-suggestions__delete"
+                    :aria-label="`Beispielprompt ${index + 1} entfernen`"
+                    :disabled="!settingsDraft.text_generation.enabled || isSettingSaving.text_generation_prompt_suggestions"
+                    @click="removeNotePromptSuggestion(index)"
+                  />
+                </div>
+                <div v-if="!notePromptSuggestionsDraft.length" class="note-prompt-suggestions__empty">
+                  Es werden keine Beispielchips angezeigt.
+                </div>
+              </div>
+              <div class="note-prompt-suggestions__actions">
+                <span class="note-prompt-suggestions__count">{{ notePromptSuggestionsDraft.length }}/6</span>
+                <v-btn
+                  variant="text"
+                  :disabled="!settingsDraft.text_generation.enabled || notePromptSuggestionsAreDefault || isSettingSaving.text_generation_prompt_suggestions"
+                  @click="resetNotePromptSuggestionsDraft"
+                >Standard wiederherstellen</v-btn>
+                <v-btn
+                  variant="text"
+                  :disabled="!settingsDraft.text_generation.enabled || notePromptSuggestionsDraft.length >= 6 || isSettingSaving.text_generation_prompt_suggestions"
+                  @click="addNotePromptSuggestion"
+                >Prompt hinzufügen</v-btn>
+                <v-btn
+                  color="primary"
+                  variant="tonal"
+                  :loading="isSettingSaving.text_generation_prompt_suggestions"
+                  :disabled="!notePromptSuggestionsCanSave"
+                  @click="saveNotePromptSuggestions"
+                >Speichern</v-btn>
+              </div>
+            </div>
+
             <button
               type="button"
               class="pm-settings-disclosure"
@@ -2696,7 +2760,10 @@ import {
   listUnresolvedCorrespondents as apiListUnresolvedCorrespondents
 } from '../api/correspondents';
 import { SHORTCUT_ACTIONS, SHORTCUTS, handleShortcut } from '../keyboard/shortcuts';
-import { NOTE_WRITING_SYSTEM_PROMPT_DEFAULT } from '../constants/promptDefaults.js';
+import {
+  NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT,
+  NOTE_WRITING_SYSTEM_PROMPT_DEFAULT,
+} from '../constants/promptDefaults.js';
 import {
   buildAutoOpenImportInboxPatch,
   buildAutoOcrPatch,
@@ -3939,6 +4006,49 @@ function toggleWikiSetting(key) {
 const showOllamaAdvanced = ref(false);
 const showTextGenerationAdvanced = ref(false);
 const noteSystemPromptDraft = ref(NOTE_WRITING_SYSTEM_PROMPT_DEFAULT);
+const notePromptSuggestionsDraft = ref([]);
+
+function normalizeNotePromptSuggestions(values) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((value) => String(value || '').replace(/\s+/g, ' ').trim())
+    .slice(0, 6);
+}
+
+watch(
+  () => settingsDraft.text_generation.prompt_suggestions,
+  (value) => {
+    notePromptSuggestionsDraft.value = Array.isArray(value)
+      ? value.slice(0, 6).map((suggestion) => String(suggestion))
+      : [...NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT];
+  },
+  { immediate: true, deep: true },
+);
+
+const normalizedNotePromptSuggestionsDraft = computed(() => (
+  normalizeNotePromptSuggestions(notePromptSuggestionsDraft.value)
+));
+const notePromptSuggestionErrors = computed(() => notePromptSuggestionsDraft.value.map((suggestion) => {
+  const normalized = String(suggestion || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return 'Der Prompt darf nicht leer sein.';
+  if (normalized.length > 160) return 'Maximal 160 Zeichen.';
+  return '';
+}));
+const notePromptSuggestionsHaveChanges = computed(() => (
+  JSON.stringify(normalizedNotePromptSuggestionsDraft.value)
+    !== JSON.stringify(normalizeNotePromptSuggestions(settingsDraft.text_generation.prompt_suggestions))
+));
+const notePromptSuggestionsAreDefault = computed(() => (
+  JSON.stringify(normalizedNotePromptSuggestionsDraft.value)
+    === JSON.stringify(NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT)
+));
+const notePromptSuggestionsCanSave = computed(() => (
+  settingsDraft.text_generation.enabled
+  && notePromptSuggestionsHaveChanges.value
+  && notePromptSuggestionsDraft.value.length <= 6
+  && notePromptSuggestionErrors.value.every((error) => !error)
+  && !isSettingSaving.text_generation_prompt_suggestions
+));
 
 watch(
   () => settingsDraft.text_generation.system_prompt,
@@ -4096,6 +4206,28 @@ async function onTextGenerationModelChange(value) {
 
 function resetNoteSystemPromptDraft() {
   noteSystemPromptDraft.value = NOTE_WRITING_SYSTEM_PROMPT_DEFAULT;
+}
+
+function addNotePromptSuggestion() {
+  if (notePromptSuggestionsDraft.value.length >= 6) return;
+  notePromptSuggestionsDraft.value.push('');
+}
+
+function removeNotePromptSuggestion(index) {
+  if (index < 0 || index >= notePromptSuggestionsDraft.value.length) return;
+  notePromptSuggestionsDraft.value.splice(index, 1);
+}
+
+function resetNotePromptSuggestionsDraft() {
+  notePromptSuggestionsDraft.value = [...NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT];
+}
+
+async function saveNotePromptSuggestions() {
+  if (!notePromptSuggestionsCanSave.value) return;
+  await saveTextGenerationPatch(
+    { prompt_suggestions: normalizedNotePromptSuggestionsDraft.value },
+    'text_generation_prompt_suggestions',
+  );
 }
 
 async function saveNoteSystemPrompt() {

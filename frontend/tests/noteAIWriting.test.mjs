@@ -29,7 +29,7 @@ test('slash menu opens a compact natural-language AI writing prompt', () => {
   assert.match(editorSource, /kind: 'generate-ai'/);
   assert.match(editorSource, /terms: \['ki', 'ai', 'prompt'/);
   assert.match(editorSource, /Was soll PaperMind schreiben\?/);
-  assert.match(editorSource, /AI_PROMPT_SUGGESTIONS/);
+  assert.match(editorSource, /visibleAIPromptSuggestions/);
   assert.match(editorSource, /streamNoteText/);
 });
 
@@ -57,6 +57,22 @@ test('generated text is inserted as a permanently attributed AI block', () => {
   assert.match(aiViewSource, /Übernehmen/);
   assert.match(aiViewSource, /noteMarkdownToTipTap/);
   assert.match(aiViewSource, /block\.type === 'bulletList'/);
+});
+
+test('selected note text opens a dedicated selection-only AI workflow', () => {
+  assert.match(editorSource, /label: 'Auswahl mit KI bearbeiten'/);
+  assert.match(editorSource, /aiPrompt\.mode = selectedText \? 'selection' : 'context'/);
+  assert.match(editorSource, /Kontext: nur Auswahl/);
+  assert.match(editorSource, /Kontext: Notiztext bis zum Cursor/);
+  assert.match(editorSource, /note_context: aiPrompt\.mode === 'selection' \? '' : noteContextBeforeAnchor\(ed\)/);
+  assert.match(editorSource, /selected_text: aiPrompt\.mode === 'selection' \? aiPrompt\.selectedText : ''/);
+});
+
+test('selection AI result requires an explicit replace or insert action', () => {
+  assert.match(editorSource, /Auswahl ersetzen/);
+  assert.match(editorSource, /Danach einfügen/);
+  assert.match(editorSource, /selectionSnapshotIsCurrent\(ed\)/);
+  assert.match(editorSource, /insertContentAt\(\{ from, to \}, \{ type: 'aiBlock', attrs \}\)/);
 });
 
 test('AI writing has state-driven, reduced-motion-safe generation feedback', () => {
@@ -91,4 +107,14 @@ test('AI writing controls only appear for a usable provider and model', () => {
   assert.match(workspaceEditorSource, /:ai-available="aiAvailable"/);
   assert.match(workspaceEditorSource, /aiCredentialStatus\.value\?\.\[provider\]\?\.configured === true/);
   assert.match(workspaceEditorSource, /String\(config\[modelKey\] \|\| ''\)\.trim\(\)/);
+});
+
+test('AI prompt suggestion chips are globally configurable and capped at six', () => {
+  assert.match(settingsSource, /Beispielprompts/);
+  assert.match(settingsSource, /v-model="notePromptSuggestionsDraft\[index\]"/);
+  assert.match(settingsSource, /notePromptSuggestionsDraft\.length >= 6/);
+  assert.match(settingsSource, /prompt_suggestions: normalizedNotePromptSuggestionsDraft\.value/);
+  assert.match(workspaceEditorSource, /:ai-prompt-suggestions="aiPromptSuggestions"/);
+  assert.match(editorSource, /props\.aiPromptSuggestions/);
+  assert.match(editorSource, /\.slice\(0, 6\)/);
 });

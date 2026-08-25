@@ -17,6 +17,12 @@ class CapturingSession:
         self.statements.append(statement)
         return SimpleNamespace(all=lambda: list(self.notes))
 
+    def execute(self, statement):
+        # Verweiszählung (link_count) läuft über execute(); im Unit-Test ohne
+        # echte note_link-Zeilen genügt ein leeres Aggregat.
+        self.statements.append(statement)
+        return SimpleNamespace(all=lambda: [])
+
 
 def note_row(*, body_text: str = "Ein kurzer Notiztext"):
     now = datetime.now(timezone.utc)

@@ -1,12 +1,13 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
+from app.models.note_tag import note_tags
 
 
 class Note(Base):
@@ -30,6 +31,7 @@ class Note(Base):
     body_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default="{}")
     body_text: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     search_vector: Mapped[str | None] = mapped_column(TSVECTOR, nullable=True)
+    is_template: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -37,6 +39,11 @@ class Note(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    # Gemeinsames Tag-Vokabular mit Dokumenten (dieselbe ``tags``-Tabelle).
+    tags: Mapped[list["Tag"]] = relationship(  # noqa: F821
+        "Tag", secondary=note_tags, lazy="selectin"
     )
 
 
@@ -58,6 +65,31 @@ class NoteLink(Base):
     )
     target_type: Mapped[str] = mapped_column(String(16), nullable=False)  # document|correspondent|dossier|note
     target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class NoteTask(Base):
+    """Denormalisierte Aufgabe (taskItem) einer Notiz.
+
+    Beim Speichern aus `Note.body_json` neu berechnet (Service). Ermöglicht die
+    Abfrage offener/fälliger Aufgaben über alle Notizen (Dashboard-Kachel).
+    """
+
+    __tablename__ = "note_task"
+    __table_args__ = (
+        Index("ix_note_task_open_due", "due_date", postgresql_where="NOT done"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    note_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("note.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    text: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    done: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

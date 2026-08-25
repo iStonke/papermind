@@ -9,12 +9,16 @@ from app.db import get_db
 from app.models.user import User
 from app.schemas.common import ErrorResponse, OkResponse
 from app.schemas.notes import (
+    NoteBulkRequest,
+    NoteBulkResult,
     NoteCreateRequest,
     NoteListResponse,
     NoteRead,
     NoteSearchScope,
+    NoteTagsUpdateRequest,
     NoteTextGenerationRequest,
     NoteUpdateRequest,
+    SaveAsTemplateRequest,
 )
 from app.services.note_service import NoteService
 from app.services.note_ai import NoteAIService
@@ -51,6 +55,9 @@ def generate_note_text(
 def list_notes(
     in_trash: bool = Query(default=False, description="Show notes in trash"),
     document_id: uuid.UUID | None = Query(default=None, description="Only notes linked to this document"),
+    dossier_id: uuid.UUID | None = Query(default=None, description="Only notes referencing this dossier"),
+    tag_id: uuid.UUID | None = Query(default=None, description="Only notes carrying this tag"),
+    templates: bool = Query(default=False, description="List templates instead of regular notes"),
     q: str | None = Query(default=None, max_length=256, description="Search note title and body"),
     search_scope: NoteSearchScope = Query(default="all", description="Search title, body, or both"),
     db: Session = Depends(get_db),
@@ -60,6 +67,9 @@ def list_notes(
         items=NoteService(db, user.id).list_notes(
             in_trash=in_trash,
             document_id=document_id,
+            dossier_id=dossier_id,
+            tag_id=tag_id,
+            templates=templates,
             q=q,
             search_scope=search_scope,
         )
@@ -79,6 +89,69 @@ def create_note(
     user: User = Depends(get_current_user),
 ) -> NoteRead:
     return NoteRead.model_validate(NoteService(db, user.id).create_note(payload))
+
+
+@router.post(
+    "/bulk",
+    response_model=NoteBulkResult,
+    summary="Run a bulk action over several notes",
+)
+def bulk_notes(
+    payload: NoteBulkRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NoteBulkResult:
+    affected = NoteService(db, user.id).bulk_action(payload.action, payload.ids)
+    return NoteBulkResult(ok=True, affected=affected)
+
+
+@router.get(
+    "/templates",
+    response_model=NoteListResponse,
+    summary="List note templates",
+)
+def list_templates(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NoteListResponse:
+    return NoteListResponse(items=NoteService(db, user.id).list_templates())
+
+
+@router.post(
+    "/from-template/{template_id}",
+    response_model=NoteRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a note from a template",
+    responses={404: {"model": ErrorResponse}},
+)
+def create_note_from_template(
+    template_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NoteRead:
+    note = NoteService(db, user.id).create_from_template(template_id)
+    if note is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vorlage nicht gefunden")
+    return NoteRead.model_validate(note)
+
+
+@router.post(
+    "/{note_id}/save-as-template",
+    response_model=NoteRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Save an existing note as a template",
+    responses={404: {"model": ErrorResponse}},
+)
+def save_note_as_template(
+    note_id: uuid.UUID,
+    payload: SaveAsTemplateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NoteRead:
+    template = NoteService(db, user.id).save_as_template(note_id, payload.title)
+    if template is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notiz nicht gefunden")
+    return NoteRead.model_validate(template)
 
 
 @router.get(
@@ -109,6 +182,24 @@ def note_backlinks(
     user: User = Depends(get_current_user),
 ) -> NoteListResponse:
     return NoteListResponse(items=NoteService(db, user.id).list_references("note", note_id))
+
+
+@router.put(
+    "/{note_id}/tags",
+    response_model=NoteRead,
+    summary="Set the tags of a note (by name; unknown tags are created)",
+    responses={404: {"model": ErrorResponse}},
+)
+def set_note_tags(
+    note_id: uuid.UUID,
+    payload: NoteTagsUpdateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NoteRead:
+    note = NoteService(db, user.id).set_tags(note_id, tag_ids=payload.tag_ids, names=payload.tags)
+    if note is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notiz nicht gefunden")
+    return NoteRead.model_validate(note)
 
 
 @router.post(

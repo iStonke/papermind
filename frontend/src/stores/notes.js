@@ -44,6 +44,10 @@ export const useNotesStore = defineStore('notes', () => {
   // Listeneinträge: { id, title, preview, created_at, updated_at }
   const notes = ref([]);
   const loaded = ref(false);
+  // Vorlagen (M6): eigene, benutzereigene Notiz-Gerüste. Getrennt von `notes`,
+  // damit sie nicht im normalen Notizzähler/der Liste auftauchen.
+  const templates = ref([]);
+  const templatesLoaded = ref(false);
   // Signal: eine bestimmte Notiz im NotesWorkspace öffnen (z. B. aus dem
   // Dokument-Detailbereich „Notizen"). NotesWorkspace konsumiert es beim Mount/Watch.
   const pendingOpenId = ref(null);
@@ -91,6 +95,44 @@ export const useNotesStore = defineStore('notes', () => {
       updated_at: note.updated_at,
     });
     return note;
+  }
+
+  // --- Vorlagen (M6) ---------------------------------------------------------
+  async function fetchTemplates() {
+    const res = await api.listNoteTemplates();
+    templates.value = res.items || [];
+    templatesLoaded.value = true;
+  }
+
+  function ensureTemplatesLoaded() {
+    if (templatesLoaded.value) return Promise.resolve();
+    return fetchTemplates();
+  }
+
+  /** Legt aus einer Vorlage eine neue, reguläre Notiz an und gibt sie zurück. */
+  async function createFromTemplate(templateId) {
+    const note = cacheDetail(await api.createNoteFromTemplate(templateId));
+    notes.value.unshift({
+      id: note.id,
+      title: note.title,
+      preview: notePreview(note.body_json),
+      created_at: note.created_at,
+      updated_at: note.updated_at,
+    });
+    return note;
+  }
+
+  /** Speichert eine bestehende Notiz als (neue) Vorlage. */
+  async function saveAsTemplate(id, { title = '' } = {}) {
+    const template = await api.saveNoteAsTemplate(id, { title });
+    templates.value.unshift({
+      id: template.id,
+      title: template.title,
+      preview: notePreview(template.body_json),
+      created_at: template.created_at,
+      updated_at: template.updated_at,
+    });
+    return template;
   }
 
   function requestOpen(id) { pendingOpenId.value = id || null; }
@@ -146,6 +188,14 @@ export const useNotesStore = defineStore('notes', () => {
     return updated;
   }
 
+  /** Setzt die Tags einer Notiz und aktualisiert Detail-Cache + Listeneintrag. */
+  async function setTags(id, { tagIds = [], tags = [] } = {}) {
+    const updated = cacheDetail(await api.setNoteTags(id, { tagIds, tags }));
+    const item = notes.value.find((n) => n.id === id);
+    if (item) item.tags = updated.tags || [];
+    return updated;
+  }
+
   async function trash(id) {
     return api.trashNote(id);
   }
@@ -168,21 +218,44 @@ export const useNotesStore = defineStore('notes', () => {
     removeFromList(id);
   }
 
+  /**
+   * Sammelaktion der Verwaltungsfläche. Der Aufrufer entscheidet, welche
+   * Listen danach neu geladen werden – hier bleibt nur die Detail-Cache-Pflege.
+   */
+  async function bulk(action, ids) {
+    const result = await api.bulkNotes({ action, ids });
+    if (action === 'delete') {
+      for (const id of ids) {
+        noteDetails.delete(id);
+        detailRequests.delete(id);
+      }
+    }
+    return result?.affected ?? 0;
+  }
+
   return {
     notes,
     loaded,
+    templates,
+    templatesLoaded,
     pendingOpenId,
     fetchNotes,
     searchNotes,
     ensureLoaded,
+    fetchTemplates,
+    ensureTemplatesLoaded,
+    createFromTemplate,
+    saveAsTemplate,
     create,
     peek,
     get,
     update,
+    setTags,
     trash,
     deletePermanently,
     removeFromList,
     remove,
+    bulk,
     requestOpen,
     consumeOpen,
   };

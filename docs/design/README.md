@@ -16,6 +16,65 @@ Die beigelegten HTML-Dateien (`*.dc.html`) sind **Design-Referenzen**, keine Pro
 4. **Ein Chip-Ton für alle.** Tags und Dokumenttypen bekommen einen einzigen ruhigen Chip-Ton (`--pm-chip-bg` / `--pm-chip-text`) statt automatisch generierter bunter Farben. In der dunklen Seitenleiste gilt die Sidebar-Variante der Chip-Tokens.
 5. **Text steht auf klarem Kontrast.** Fließtext `--pm-text`, Sekundärtext `--pm-text-muted`. Keine weiteren Grautöne dazwischen erfinden.
 
+## Kompakte Kopfzeilenaktionen (verbindlich)
+
+Für einzelne kontextuelle Aktionen in einer Bereichskopfzeile – etwa
+Darstellung wählen, Notizen verwalten, Chatverlauf oder neuer Chat – gilt der
+gemeinsame Tonal-Iconbutton:
+
+```vue
+<v-btn
+  class="pm-header-icon-btn"
+  color="primary"
+  variant="tonal"
+  icon
+  aria-label="Aktion verständlich benennen"
+  title="Kurzer Tooltip"
+>
+  <v-icon size="20">mdi-passendes-icon</v-icon>
+</v-btn>
+```
+
+In einer dichten Aktionsgruppe, zum Beispiel rechts im Notizen-Editor, bleibt
+die Geometrie gleich. Dort ergänzt `pm-header-icon-btn--quiet` den transparenten
+Ruhezustand; nur Hover und aktive Toggles erhalten die Tonalfläche:
+
+```vue
+<v-btn
+  class="pm-header-icon-btn pm-header-icon-btn--quiet"
+  variant="text"
+  icon
+  aria-label="Aktion verständlich benennen"
+  title="Kurzer Tooltip"
+>
+  <v-icon size="20">mdi-passendes-icon</v-icon>
+</v-btn>
+```
+
+- Feste Geometrie: 36 × 36 px, Radius 10 px, Icon 20 px. Ein Zustandswechsel
+  darf nur das Icon ändern und die Kopfzeile nicht verschieben.
+- Hover und Fokus ändern nur Farbe bzw. Hintergrund; kein Verschieben,
+  Skalieren oder Nachfedern. Der Fokusring bleibt sichtbar.
+- In einer dichten Gruppe sind die ruhigen Buttons transparent. Ein aktiver
+  Toggle wird über `aria-pressed="true"` primär-tonal hervorgehoben.
+- Icon-only-Aktionen benötigen immer ein eindeutiges `aria-label` und `title`.
+  Bei Toggles kommt `aria-pressed` hinzu.
+- Icons in waagerechten Aktionsgruppen bleiben möglichst reduziert und folgen
+  geläufigen Konventionen: horizontale Punkte für „Mehr", das klassische
+  Vollbild-/Vollbild-verlassen-Paar und klare Aktionszusätze wie ein Plus.
+- Die Aktionsgruppe im Notizen-Editor verwendet `PmActionIcon`: 24er
+  Zeichenfläche, 20 px Ausgabegröße, 1,85 Einheiten Strichstärke sowie runde
+  Linienenden und Ecken. So bleiben die Symbole optisch gleich groß und schwer.
+- Ein Überlaufmenü wird erst ab mindestens zwei Aktionen verwendet. Eine
+  einzelne Aktion bleibt als direkter Iconbutton sichtbar und erhält ein
+  eindeutiges funktionsbezogenes Symbol.
+- Die Klasse ist für kompakte Kontextaktionen gedacht. Zentrale Primäraktionen
+  mit erklärungsbedürftigem Verb (zum Beispiel „Importieren“) behalten Text;
+  destruktive Aktionen verwenden nicht unbesehen diesen Akzentstil.
+- Technische Quelle der Wahrheit ist `.pm-header-icon-btn` in
+  `frontend/src/style.css`. Referenzen sind die Kopfzeilen von Dokumente,
+  Notizen und Wissen sowie die Aktionsgruppe im Notizen-Editor.
+
 ## Tokens
 Vollständig in `tokens.css` (Custom Properties, Hell im `:root`, Dunkel unter `:root[data-theme="dark"]` bzw. `.dark`). Kernwerte:
 

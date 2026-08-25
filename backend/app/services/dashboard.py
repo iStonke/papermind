@@ -10,6 +10,7 @@ from app.models.document import Document
 from app.models.document_retention import DocumentRetention
 from app.models.document_tag import document_tags
 from app.models.document_type import DocumentType
+from app.models.note import Note, NoteTask
 from app.models.tag import Tag
 from app.models.search_event import SearchEvent
 from app.schemas.dashboard import (
@@ -22,6 +23,7 @@ from app.schemas.dashboard import (
     DashboardStats,
     DashboardStoragePoint,
     DashboardTagShare,
+    DashboardTaskItem,
     DashboardTypeShare,
     DashboardYearPoint,
 )
@@ -75,6 +77,7 @@ class DashboardService:
         top_searches = self._top_searches()
         attention = self._attention(today, active)
         recent = self._recent(active)
+        open_tasks, open_tasks_total = self._open_tasks(today)
 
         return DashboardOverviewResponse(
             stats=stats,
@@ -90,6 +93,8 @@ class DashboardService:
             top_searches=top_searches,
             attention=attention,
             recent=recent,
+            open_tasks=open_tasks,
+            open_tasks_total=open_tasks_total,
         )
 
     # ── Kennzahlen ──────────────────────────────────────────────────────────
@@ -437,3 +442,47 @@ class DashboardService:
                 )
             )
         return items
+
+    # ── Offene Aufgaben aus Notizen (M6 Teil B) ─────────────────────────────
+    def _open_tasks(self, today: date, limit: int = 8):
+        """Offene Aufgaben des Owners über alle (aktiven) Notizen.
+
+        Sortierung: fällige/datierte zuerst (Fälligkeit aufsteigend), undatierte
+        danach nach Notiz-Aktualität. Vorlagen und Papierkorb bleiben außen vor.
+        """
+        note_owner = (Note.owner_id == self.owner_id) if self.owner_id is not None else true()
+        base = (
+            select(NoteTask, Note.id.label("note_id"), Note.title.label("note_title"))
+            .join(Note, Note.id == NoteTask.note_id)
+            .where(
+                note_owner,
+                Note.is_deleted.is_(False),
+                Note.is_template.is_(False),
+                NoteTask.done.is_(False),
+            )
+        )
+        total = int(
+            self.db.scalar(select(func.count()).select_from(base.subquery())) or 0
+        )
+        # NULLS LAST für undatierte Aufgaben; sonst nach Fälligkeit, dann Notiz.
+        rows = self.db.execute(
+            base.order_by(
+                NoteTask.due_date.asc().nulls_last(),
+                Note.updated_at.desc(),
+                NoteTask.position.asc(),
+            ).limit(limit)
+        ).all()
+
+        items: list[DashboardTaskItem] = []
+        for task, note_id, note_title in rows:
+            text = (task.text or "").strip()
+            items.append(
+                DashboardTaskItem(
+                    note_id=str(note_id),
+                    note_title=(note_title or "").strip() or "Ohne Titel",
+                    text=text or "Aufgabe ohne Text",
+                    due_date=task.due_date.isoformat() if task.due_date else None,
+                    overdue=bool(task.due_date and task.due_date < today),
+                )
+            )
+        return items, total

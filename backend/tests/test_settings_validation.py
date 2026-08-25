@@ -130,6 +130,7 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertEqual(defaults.text_generation.provider, "ollama")
         self.assertEqual(defaults.ollama.chat_model, "llama3.2:3b")
         self.assertGreaterEqual(len(defaults.text_generation.system_prompt), 50)
+        self.assertEqual(len(defaults.text_generation.prompt_suggestions), 4)
         self.assertNotIn("ai_credentials", defaults.model_dump())
 
         patch = AppSettingsPatch.model_validate(
@@ -138,17 +139,31 @@ class SettingsValidationTest(unittest.TestCase):
                     "provider": "openai",
                     "openai_model": "gpt-test",
                     "system_prompt": "Eigene interne Schreibanweisung mit mindestens fünfzig Zeichen Länge.",
+                    "prompt_suggestions": ["  Schreibe eine Zusammenfassung  ", "Nenne die nächsten Schritte"],
                 }
             }
         )
         self.assertEqual(patch.text_generation.provider, "openai")
         self.assertEqual(patch.text_generation.openai_model, "gpt-test")
         self.assertIn("Schreibanweisung", patch.text_generation.system_prompt)
+        self.assertEqual(
+            patch.text_generation.prompt_suggestions,
+            ["Schreibe eine Zusammenfassung", "Nenne die nächsten Schritte"],
+        )
 
         with self.assertRaises(ValidationError):
             AppSettingsPatch.model_validate({"text_generation": {"provider": "cloud-auto"}})
         with self.assertRaises(ValidationError):
             AppSettingsPatch.model_validate({"text_generation": {"system_prompt": "zu kurz"}})
+        with self.assertRaises(ValidationError):
+            AppSettingsPatch.model_validate(
+                {"text_generation": {"prompt_suggestions": [f"Prompt {index}" for index in range(7)]}}
+            )
+        with self.assertRaises(ValidationError):
+            AppSettingsPatch.model_validate({"text_generation": {"prompt_suggestions": ["   "]}})
+
+        empty = AppSettingsPatch.model_validate({"text_generation": {"prompt_suggestions": []}})
+        self.assertEqual(empty.text_generation.prompt_suggestions, [])
 
     def test_rag_context_limits_accept_valid_values(self) -> None:
         payload = AppSettingsPatch.model_validate({"rag": {"max_context_chars": 16000}})

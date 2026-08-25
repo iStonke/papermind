@@ -651,6 +651,15 @@
                         <p v-else class="dsr-inspector__empty">Noch keine freien Eigenschaften. Zum Beispiel Kennzeichen, Vertragsnummer oder Ablageort.</p>
                       </div>
 
+                      <DossierNotesSection
+                        v-else-if="inspectorTab === 'notizen'"
+                        :dossier-id="dossierId || null"
+                        :creating="isCreatingDossierNote"
+                        :reload-key="dossierNotesReloadKey"
+                        @open-note="openDossierNoteInWorkspace"
+                        @new-note="createNoteForDossier"
+                      />
+
                       <p v-else class="dsr-inspector__empty">Es wird noch kein Verlauf aufgezeichnet.</p>
                     </div>
 
@@ -871,11 +880,13 @@ import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vu
 
 import BaseDialog from '../components/BaseDialog.vue';
 import PdfPreview from '../components/PdfPreview.vue';
+import DossierNotesSection from '../components/notes/DossierNotesSection.vue';
 import { apiFetch } from '../api/client.js';
 import { dossierImageUrl } from '../api/dossiers.js';
 import { documentFileUrl, documentThumbnailUrl, listDocuments } from '../api/documents.js';
 import { useDossierStore } from '../stores/dossiers.js';
 import { useUiStore } from '../stores/ui.js';
+import { useNotesStore } from '../stores/notes.js';
 import { useCommandHistory } from '../composables/useCommandHistory.js';
 import {
   DOSSIER_OVERVIEW_SORTS,
@@ -900,6 +911,7 @@ const route = useRoute();
 const router = useRouter();
 const dossierStore = useDossierStore();
 const uiStore = useUiStore();
+const notesStore = useNotesStore();
 const { dossiers, currentDossier, groups, items, documentItems, loading, saving, listLoaded } = storeToRefs(dossierStore);
 
 // Das Skeleton erst nach einer kurzen Verzögerung zeigen. Lokale Ladevorgänge
@@ -1024,6 +1036,7 @@ const densityLabel = computed(() => densityOptions.find((option) => option.value
 const inspectorTabs = [
   { label: 'Stammdaten', value: 'stamm' },
   { label: 'Eigenschaften', value: 'eigen' },
+  { label: 'Notizen', value: 'notizen' },
   { label: 'Verlauf', value: 'verlauf' },
 ];
 
@@ -1873,6 +1886,51 @@ async function createGroupFromSelection() {
   }
 }
 function showMessage(message, color = '') { snackbar.message = message; snackbar.color = color; snackbar.open = true; }
+
+// --- First-class-Notizen zum Leuchttisch (Inspektor-Tab „Notizen") ----------
+const isCreatingDossierNote = ref(false);
+const dossierNotesReloadKey = ref(0);
+
+// Öffnet eine Notiz im Notizbereich: in die Dokumente-Route wechseln, dort auf
+// den „Notizen"-View umschalten und die Ziel-Notiz vormerken.
+function openDossierNoteInWorkspace(noteId) {
+  if (!noteId) return;
+  notesStore.requestOpen(noteId);
+  uiStore.requestView('notes');
+  router.push({ name: 'documents' });
+}
+
+// Legt eine neue Notiz an, die bereits auf dieses Dossier verweist (wikiLink im
+// Textkörper → note_link target_type='dossier'), und öffnet sie.
+async function createNoteForDossier() {
+  const boardId = dossierId.value;
+  if (!boardId || isCreatingDossierNote.value) return;
+  isCreatingDossierNote.value = true;
+  try {
+    const label = currentDossier.value?.title?.trim() || 'Leuchttisch';
+    const note = await notesStore.create({
+      body_json: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'wikiLink', attrs: { targetType: 'dossier', targetId: boardId, label } },
+              { type: 'text', text: ' ' },
+            ],
+          },
+        ],
+      },
+    });
+    dossierNotesReloadKey.value += 1;
+    openDossierNoteInWorkspace(note.id);
+  } catch (error) {
+    showMessage(error.message || 'Notiz konnte nicht angelegt werden.', 'error');
+  } finally {
+    isCreatingDossierNote.value = false;
+  }
+}
+
 function goToDossiers() { router.push({ name: 'dossiers' }); }
 function openDossier(id, { draft = false } = {}) {
   router.push({

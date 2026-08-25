@@ -174,6 +174,7 @@
           'workspace--rail': sidebarRailActive,
           'workspace--dashboard': activeView === 'dashboard',
           'workspace--notes': activeView === 'notes',
+          'workspace--tag': activeView === 'tag',
           'workspace--dossiers': isDossierRoute,
           'workspace--wiki': isWikiRoute,
           'workspace--sidebar-transitioning': sidebarRailTransitioning,
@@ -189,7 +190,7 @@
           :active-view="activeView"
           :all-documents-pulse-key="allDocumentsPulseKey"
           :active-saved-search-id="activeSavedSearchId"
-          :active-tag-id="activeTagId"
+          :active-tag-id="activeView === 'tag' ? tagViewTagId : activeTagId"
           :is-tag-view="isTagView"
           :active-category-name="activeCategoryName"
           :is-category-view="isCategoryView"
@@ -332,8 +333,17 @@
           @trash-changed="scheduleSidebarCountsRefresh"
         />
 
+        <TagResultsView
+          v-if="!isDossierRoute && !isWikiRoute && activeView === 'tag'"
+          class="panel panel-tag"
+          :tag-id="tagViewTagId"
+          :tag-name="tagViewTagName"
+          @open-document="openDocumentFromDashboard"
+          @open-note="openLinkedNoteInWorkspace"
+        />
+
         <section
-          v-if="!isDossierRoute && !isWikiRoute && activeView !== 'dashboard' && activeView !== 'notes'"
+          v-if="!isDossierRoute && !isWikiRoute && activeView !== 'dashboard' && activeView !== 'notes' && activeView !== 'tag'"
           class="panel panel-middle"
           :class="{ 'panel-middle--tag-filter-open': isListFilterDrawerOpen }"
           :style="listFilterDrawerOffsetStyle"
@@ -360,14 +370,16 @@
                 <template #activator="{ props: menuProps }">
                   <v-btn
                     v-bind="menuProps"
-                    class="list-header-viewmode"
-                    icon="mdi-clock-outline"
-                    density="comfortable"
-                    variant="text"
+                    class="list-header-viewmode knowledge-header-btn pm-header-icon-btn"
+                    color="primary"
+                    variant="tonal"
+                    icon
                     :disabled="!aiDialogRef"
                     aria-label="Gespeicherte Chats öffnen"
                     title="Gespeicherte Chats"
-                  />
+                  >
+                    <v-icon size="20">mdi-clock-outline</v-icon>
+                  </v-btn>
                 </template>
                 <v-list class="pm-menu ai-session-menu" density="compact" min-width="310" max-width="360">
                   <v-list-subheader>Gespeicherte Chats</v-list-subheader>
@@ -390,39 +402,61 @@
                 </v-list>
               </v-menu>
               <v-btn
-                class="list-header-btn"
+                class="knowledge-header-btn pm-header-icon-btn"
                 color="primary"
                 variant="tonal"
+                icon
                 :disabled="!aiDialogRef || isAiChatBusy"
                 aria-label="Neuen Chat starten"
+                title="Neuer Chat"
                 @click="startNewAiChat"
               >
-                <v-icon size="18" class="mr-1">mdi-plus</v-icon>
-                Neuer Chat
+                <v-icon size="20">mdi-plus</v-icon>
               </v-btn>
             </div>
             <div v-if="!isChatView && !isTagView && !isCategoryView && !isTrashView" class="panel-middle__actions">
-              <v-menu location="bottom end">
+              <v-menu location="bottom end" :offset="8" transition="fade-transition">
                 <template #activator="{ props: menuProps }">
                   <v-btn
                     v-bind="menuProps"
-                    class="list-header-viewmode"
-                    variant="text"
-                    density="comfortable"
-                    :icon="documentViewModeIcon"
-                    aria-label="Darstellung wählen"
-                  />
+                    class="list-header-viewmode list-header-viewmode--documents pm-header-icon-btn"
+                    color="primary"
+                    variant="tonal"
+                    icon
+                    :aria-label="`Darstellung: ${documentViewModeLabel}. Ändern`"
+                    :title="`Darstellung: ${documentViewModeLabel}`"
+                  >
+                    <v-icon size="20">{{ documentViewModeIcon }}</v-icon>
+                  </v-btn>
                 </template>
-                <v-list class="pm-menu" density="compact" min-width="180">
+                <v-list
+                  class="pm-menu document-viewmode-menu"
+                  density="compact"
+                  min-width="196"
+                  role="menu"
+                  aria-label="Darstellung"
+                >
+                  <div class="document-viewmode-menu__label">Darstellung</div>
                   <v-list-item
                     v-for="option in documentViewModeOptions"
                     :key="option.value"
-                    :active="documentViewMode === option.value"
-                    :title="option.label"
+                    class="document-viewmode-menu__item"
+                    :class="{ 'document-viewmode-menu__item--active': documentViewMode === option.value }"
+                    :ripple="false"
+                    role="menuitemradio"
+                    :aria-checked="documentViewMode === option.value ? 'true' : 'false'"
                     @click="setDocumentViewMode(option.value)"
                   >
                     <template #prepend>
-                      <v-icon size="18">{{ documentViewMode === option.value ? 'mdi-check' : option.icon }}</v-icon>
+                      <span class="document-viewmode-menu__icon" aria-hidden="true">
+                        <v-icon size="17">{{ option.icon }}</v-icon>
+                      </span>
+                    </template>
+                    <v-list-item-title>{{ option.label }}</v-list-item-title>
+                    <template #append>
+                      <span class="document-viewmode-menu__check" aria-hidden="true">
+                        <v-icon v-if="documentViewMode === option.value" size="15">mdi-check</v-icon>
+                      </span>
                     </template>
                   </v-list-item>
                 </v-list>
@@ -842,7 +876,7 @@
           />
         </section>
 
-        <section v-if="!isDossierRoute && !isWikiRoute && activeView !== 'dashboard' && activeView !== 'notes'" class="panel panel-right">
+        <section v-if="!isDossierRoute && !isWikiRoute && activeView !== 'dashboard' && activeView !== 'notes' && activeView !== 'tag'" class="panel panel-right">
           <DocumentPreviewLayout
             class="panel-right__preview panel-right__preview--card-drawer"
             :style="detailsDrawerCardStyle"
@@ -1110,13 +1144,8 @@
                   @refresh="refreshStagePrompts"
                 />
               </div>
-              <PmEmptyState
+              <DocumentPreviewIllustration
                 v-else
-                icon="mdi-file-document-outline"
-                title="Kein Dokument ausgewählt"
-                subtitle="Wähle ein Dokument aus der Liste, um die Vorschau zu öffnen."
-                size="md"
-                :animated="false"
               />
             </template>
 
@@ -1391,58 +1420,19 @@
                     <div class="pm-prop-row pm-prop-row--top pm-prop-row--tags">
                       <label class="pm-prop-key">Tags</label>
                       <div class="pm-prop-val pm-prop-val--tags">
-                        <div class="pm-tags-input" :class="{ 'pm-tags-input--disabled': isRunningAiAnalysis }">
-                          <TransitionGroup name="metadata-tag-chip" tag="div" class="pm-tags-input__chips">
-                            <span
-                              v-for="name in metadataTagNames"
-                              :key="name"
-                              class="pm-tags-input__chip-wrap"
-                            >
-                              <v-chip
-                                size="small"
-                                closable
-                                class="pm-tags-input__chip"
-                                @click:close="removeMetadataTag(name)"
-                              >
-                                {{ name }}
-                              </v-chip>
-                            </span>
-                          </TransitionGroup>
-                          <v-combobox
-                            ref="metadataTagsCombobox"
-                            v-model="metadataTagNames"
-                            v-model:search="metadataTagSearch"
-                            :items="metadataTagComboboxItems"
-                            multiple
-                            hide-selected
-                            no-filter
-                            :clearable="false"
-                            density="compact"
-                            variant="plain"
-                            hide-details
-                            class="pm-tags-input__field"
-                            menu-icon=""
-                            :loading="isSavingTags || isResolvingTagNames"
-                            :disabled="isRunningAiAnalysis"
-                            :menu-props="detailsTagsMenuProps"
-                            @update:model-value="onMetadataTagNamesChange"
-                            @keydown.capture="handleMetadataTagShortcut"
-                          >
-                            <template #selection></template>
-                            <template #item="{ props, item }">
-                              <v-list-item
-                                v-bind="props"
-                                :class="{ 'pm-tags-input__menu-item--active': isMetadataTagSuggestionActive(item) }"
-                              />
-                            </template>
-                            <template #prepend-inner>
-                              <span class="pm-tags-input__add">
-                                <v-icon size="14" class="pm-tags-input__plus">mdi-plus</v-icon>
-                                <span class="pm-tags-input__add-label">Tag</span>
-                              </span>
-                            </template>
-                          </v-combobox>
-                        </div>
+                        <TagInlineEditor
+                          ref="metadataTagsCombobox"
+                          v-model="metadataTagNames"
+                          v-model:search="metadataTagSearch"
+                          :items="metadataTagComboboxItems"
+                          :loading="isSavingTags || isResolvingTagNames"
+                          :disabled="isRunningAiAnalysis"
+                          :menu-props="detailsTagsMenuProps"
+                          :is-item-active="isMetadataTagSuggestionActive"
+                          @remove="removeMetadataTag"
+                          @update:model-value="onMetadataTagNamesChange"
+                          @keydown="handleMetadataTagShortcut"
+                        />
                       </div>
                     </div>
 
@@ -1526,6 +1516,7 @@ import BaseDialog from '../components/BaseDialog.vue';
 import PmEmptyState from '../components/PmEmptyState.vue';
 import KnowledgeStage from '../components/KnowledgeStage.vue';
 import DocumentPreviewLayout from '../components/DocumentPreviewLayout.vue';
+import DocumentPreviewIllustration from '../components/DocumentPreviewIllustration.vue';
 import NotificationStack from '../components/NotificationStack.vue';
 import AppSidebar from '../components/AppSidebar.vue';
 import SidebarAccount from '../components/SidebarAccount.vue';
@@ -1538,6 +1529,7 @@ import AiDialog from '../components/AiDialog.vue';
 import ListActionToolbar from '../components/ListActionToolbar.vue';
 import BatchActionsBar from '../components/BatchActionsBar.vue';
 import DestructiveDialog from '../components/DestructiveDialog.vue';
+import TagInlineEditor from '../components/TagInlineEditor.vue';
 // Ref-basiert geöffnet (ref.open()) → müssen synchron als Instanz verfügbar
 // sein, daher eager.
 import TagDialogs from '../components/TagDialogs.vue';
@@ -1557,6 +1549,7 @@ const DashboardView = defineAsyncComponent(() => import('./DashboardView.vue'));
 const DossierWorkspace = defineAsyncComponent(() => import('./DossierWorkspace.vue'));
 const WikiWorkspace = defineAsyncComponent(() => import('./WikiWorkspace.vue'));
 const NotesWorkspace = defineAsyncComponent(() => import('./NotesWorkspace.vue'));
+const TagResultsView = defineAsyncComponent(() => import('./TagResultsView.vue'));
 const NotePreview = defineAsyncComponent(() => import('../components/notes/NotePreview.vue'));
 import { useNotesStore } from '../stores/notes.js';
 import { mapApiError, notifyError, logDevError, useNotifications } from '../stores/notifications';
@@ -2458,6 +2451,11 @@ function onFollowLink(annotation) {
 const { sidebarCounts, isLoadingSidebarCounts, savedSearches, isLoadingSavedSearches } = storeToRefs(sidebarStore);
 
 const activeView = ref('all');
+// Tag-Trefferseite (T3): kombinierte Ansicht Dokumente + Notizen für ein Tag.
+const tagViewTagId = ref(null);
+const tagViewTagName = computed(
+  () => tags.value.find((t) => String(t.id) === String(tagViewTagId.value))?.name || '',
+);
 // Welche Dashboard-Aufmerksamkeits-Kachel gerade als gefilterte Liste offen ist.
 const activeAttention = ref(null);
 const ATTENTION_LABELS = Object.freeze({
@@ -3351,12 +3349,15 @@ const showViewModeSwitcher = computed(() =>
   !isChatView.value && !isTagView.value && !isCategoryView.value && !isTrashView.value
 );
 const documentViewModeOptions = [
-  { value: 'list', label: 'Liste', icon: 'mdi-view-list-outline' },
+  { value: 'list', label: 'Liste', icon: 'mdi-format-list-bulleted' },
   { value: 'timeline', label: 'Zeitleiste', icon: 'mdi-timeline-text-outline' },
   { value: 'calendar', label: 'Kalender', icon: 'mdi-calendar-month-outline' }
 ];
 const documentViewModeIcon = computed(() =>
-  documentViewModeOptions.find((o) => o.value === documentViewMode.value)?.icon || 'mdi-view-list-outline'
+  documentViewModeOptions.find((o) => o.value === documentViewMode.value)?.icon || 'mdi-format-list-bulleted'
+);
+const documentViewModeLabel = computed(() =>
+  documentViewModeOptions.find((o) => o.value === documentViewMode.value)?.label || 'Liste'
 );
 // Effektiver Modus: außerhalb der Dokumentlisten-Kontexte immer 'list',
 // damit Chat/Tags/Typen/Papierkorb ihre eigene Ansicht behalten.
@@ -5120,7 +5121,17 @@ function handleSidebarTagsView() {
 
 function handleSidebarTagFilter(tagId) {
   leaveDossierRoute();
-  applyTagFilterFromSidebar(tagId);
+  openTagView(tagId);
+}
+
+// Öffnet die kombinierte Tag-Trefferseite (Dokumente + Notizen, T3).
+function openTagView(tagId) {
+  if (!tagId) return;
+  leaveActiveSavedSearch();
+  searchText.value = '';
+  activeAttention.value = null;
+  tagViewTagId.value = String(tagId);
+  activeView.value = 'tag';
 }
 
 function handleSidebarCategoriesView() {
@@ -11946,7 +11957,15 @@ onBeforeUnmount(() => {
   grid-template-columns: 64px 1fr;
 }
 
-.panel-notes {
+.workspace.workspace--tag {
+  grid-template-columns: 288px 1fr;
+}
+.workspace.workspace--rail.workspace--tag {
+  grid-template-columns: 64px 1fr;
+}
+
+.panel-notes,
+.panel-tag {
   min-width: 0;
   overflow: hidden;
   border-right: 0;
@@ -12499,7 +12518,7 @@ onBeforeUnmount(() => {
   grid-template-columns: 60px minmax(0, 1fr) auto;
   gap: 15px;
   align-items: stretch;
-  border: 1px solid rgba(15, 23, 42, 0.06);
+  border: 1px solid var(--pm-document-row-border, rgba(15, 23, 42, 0.06));
   border-radius: 14px;
   padding: 15px 17px;
   background: var(--pm-app-surface-raised);
@@ -12517,17 +12536,17 @@ onBeforeUnmount(() => {
 
 .document-row:hover {
   background: var(--pm-row-hover);
-  border-color: color-mix(in srgb, var(--pm-accent) 16%, transparent);
+  border-color: var(--pm-document-row-hover-border, color-mix(in srgb, var(--pm-accent) 16%, transparent));
 }
 
 .document-row--active {
   background: var(--pm-row-active);
-  border-color: color-mix(in srgb, var(--pm-accent) 30%, transparent);
+  border-color: var(--pm-document-row-active-border, color-mix(in srgb, var(--pm-accent) 30%, transparent));
 }
 
 .document-row--active:hover {
   background: var(--pm-row-active);
-  border-color: color-mix(in srgb, var(--pm-accent) 38%, transparent);
+  border-color: var(--pm-document-row-active-hover-border, color-mix(in srgb, var(--pm-accent) 38%, transparent));
 }
 
 /* Ungelesene Zeilen deutlich hervorheben (Variante A): linker Akzentbalken,
@@ -12594,7 +12613,7 @@ onBeforeUnmount(() => {
 }
 
 .papermind-app.v-theme--light .document-row {
-  border-color: var(--pm-row-border);
+  border-color: var(--pm-document-row-border, var(--pm-row-border));
   box-shadow: var(--pm-document-row-shadow);
 }
 
@@ -12617,8 +12636,8 @@ onBeforeUnmount(() => {
 
 .papermind-app.v-theme--dark .document-row {
   background: var(--pm-document-row-bg, var(--pm-app-surface-raised));
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--pm-document-row-border, rgba(255, 255, 255, 0.05));
+  box-shadow: var(--pm-document-row-shadow, 0 3px 12px rgba(0, 0, 0, 0.22));
 }
 
 .papermind-app.v-theme--dark .document-list {
@@ -12781,18 +12800,18 @@ onBeforeUnmount(() => {
 
 .papermind-app.v-theme--dark .document-row:hover {
   background: var(--pm-row-hover);
-  border-color: rgba(var(--v-theme-primary), 0.28);
+  border-color: var(--pm-document-row-hover-border, rgba(var(--v-theme-primary), 0.28));
 }
 
 .papermind-app.v-theme--dark .document-row--active {
   background: var(--pm-document-row-active-bg, var(--pm-row-active));
-  border-color: rgba(var(--v-theme-primary), 0.42);
-  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.22);
+  border-color: var(--pm-document-row-active-border, rgba(var(--v-theme-primary), 0.42));
+  box-shadow: var(--pm-document-row-shadow, 0 3px 12px rgba(0, 0, 0, 0.22));
 }
 
 .papermind-app.v-theme--dark .document-row--active:hover {
   background: var(--pm-document-row-active-bg, var(--pm-row-active));
-  border-color: rgba(var(--v-theme-primary), 0.5);
+  border-color: var(--pm-document-row-active-hover-border, rgba(var(--v-theme-primary), 0.5));
 }
 
 /* Blauer Aurora-Schleier entfernt (Kontur: neutrale, klar gestufte Flächen). */
@@ -14300,6 +14319,91 @@ onBeforeUnmount(() => {
 
 .pm-menu .v-list-item-title {
   font-size: 0.8rem;
+}
+
+/* Der kleine Ansichtsumschalter in der Listenkopfzeile folgt bewusst der
+   ruhigen Karten- und Akzentsprache der umgebenden PaperMind-Oberfläche. */
+.document-viewmode-menu.pm-menu {
+  padding: 6px;
+  border-color: color-mix(in srgb, var(--pm-divider) 86%, transparent);
+  border-radius: 14px;
+  background: var(--pm-app-surface-raised);
+  box-shadow: var(--pm-shadow);
+}
+
+.document-viewmode-menu__label {
+  padding: 4px 9px 6px;
+  color: var(--pm-muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.document-viewmode-menu.pm-menu .document-viewmode-menu__item {
+  min-height: 38px;
+  margin: 1px 0;
+  padding-inline: 7px 8px !important;
+  border-radius: 9px;
+  color: color-mix(in srgb, var(--pm-text) 84%, var(--pm-muted));
+  transition: none;
+}
+
+.document-viewmode-menu__item .v-list-item__overlay {
+  transition: none !important;
+}
+
+.document-viewmode-menu__item .v-list-item__prepend > .v-list-item__spacer {
+  width: 8px;
+}
+
+.document-viewmode-menu__item .v-list-item__append > .v-list-item__spacer {
+  width: 6px;
+}
+
+.document-viewmode-menu__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  color: var(--pm-muted);
+  background: color-mix(in srgb, var(--pm-divider) 34%, transparent);
+  transition: none;
+}
+
+.document-viewmode-menu__check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: rgb(var(--v-theme-primary));
+}
+
+.document-viewmode-menu.pm-menu .document-viewmode-menu__item:hover {
+  color: var(--pm-text);
+  background: color-mix(in srgb, var(--pm-accent) 6%, transparent);
+}
+
+.document-viewmode-menu.pm-menu .document-viewmode-menu__item--active {
+  color: rgb(var(--v-theme-primary));
+  background: color-mix(in srgb, rgb(var(--v-theme-primary)) 10%, transparent);
+}
+
+.document-viewmode-menu__item--active .v-list-item-title {
+  font-weight: 650;
+}
+
+.document-viewmode-menu__item--active .document-viewmode-menu__icon {
+  color: rgb(var(--v-theme-primary));
+  background: color-mix(in srgb, rgb(var(--v-theme-primary)) 12%, transparent);
+}
+
+.document-viewmode-menu.pm-menu .document-viewmode-menu__item--active:hover {
+  background: color-mix(in srgb, rgb(var(--v-theme-primary)) 14%, transparent);
 }
 
 /* Korrespondenten-Dropdown: jede Option rendert eine feste Icon-Spalte im

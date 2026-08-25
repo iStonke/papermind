@@ -71,6 +71,16 @@ class DashboardRecentItem(BaseModel):
     date: str | None = None  # ISO date/datetime
 
 
+class DashboardTaskItem(BaseModel):
+    """Offene Aufgabe (taskItem) aus einer Notiz, für die Dashboard-Kachel."""
+
+    note_id: str
+    note_title: str
+    text: str
+    due_date: str | None = None  # ISO date
+    overdue: bool = False
+
+
 class DashboardOverviewResponse(BaseModel):
     stats: DashboardStats = Field(default_factory=DashboardStats)
     documents_per_month: list[DashboardMonthPoint] = Field(default_factory=list)
@@ -85,3 +95,5 @@ class DashboardOverviewResponse(BaseModel):
     top_searches: list[DashboardSearchTerm] = Field(default_factory=list)
     attention: DashboardAttention = Field(default_factory=DashboardAttention)
     recent: list[DashboardRecentItem] = Field(default_factory=list)
+    open_tasks: list[DashboardTaskItem] = Field(default_factory=list)
+    open_tasks_total: int = 0

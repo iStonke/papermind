@@ -50,7 +50,18 @@ test('tables are available in the editor toolbar, slash menu, and read-only prev
   assert.match(editorSource, /aria-label="Tabelle einfügen oder bearbeiten"/);
   assert.match(editorSource, /key: 'table'[\s\S]*?label: 'Tabelle'[\s\S]*?kind: 'table-menu'/);
   assert.match(editorSource, /insertTable\(\{[\s\S]*?withHeaderRow: tableMenu\.withHeaderRow/);
-  assert.match(editorSource, /addRowAfter:[\s\S]*?addColumnAfter:[\s\S]*?toggleHeaderRow:[\s\S]*?deleteTable:/);
+  assert.match(editorSource, /withHeaderColumn:[\s\S]*?false/);
+  assert.match(editorSource, /if \(tableMenu\.withHeaderColumn\) chain\.toggleHeaderColumn\(\)/);
+  assert.match(editorSource, /Erste Spalte als Kopfspalte/);
+  assert.match(editorSource, /role="radiogroup" aria-label="Tabellenkopf wählen"/);
+  assert.match(editorSource, /function selectTableHeaderMode\(mode\) \{[\s\S]*?withHeaderRow = mode !== 'column';[\s\S]*?withHeaderColumn = mode === 'column';/);
+  assert.match(editorSource, /addRowAfter:[\s\S]*?addColumnAfter:[\s\S]*?toggleHeaderRow:[\s\S]*?toggleHeaderColumn:[\s\S]*?deleteTable:/);
+  assert.match(editorSource, /aria-label="Tabellenaktionen öffnen"/);
+  assert.match(editorSource, /function openTableMenuFromHandle\(\)/);
+  assert.match(editorSource, /target\.closest\('\.tableWrapper'\)/);
+  assert.match(editorSource, /\.pm-table-handle/);
+  assert.match(editorSource, /prefers-reduced-motion: reduce[\s\S]*?\.pm-table-handle/);
+  assert.match(editorSource, /\.pm-table-menu__actions button\.is-danger \{[\s\S]*?grid-column: 1 \/ -1/);
   assert.match(editorSource, /\.selectedCell::after/);
 });
 

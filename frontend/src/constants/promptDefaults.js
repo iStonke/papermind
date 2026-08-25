@@ -83,4 +83,11 @@ Wenn Informationen fehlen oder unsicher sind, formuliere das ausdrücklich.
 Wenn Dokumentquellen bereitgestellt wurden, nenne relevante Belege mit
 Dokumenttitel und – falls vorhanden – Seitenzahl.`;
 
+export const NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT = Object.freeze([
+  'Schreibe weiter',
+  'Fasse kurz zusammen',
+  'Formuliere sachlicher',
+  'Ergänze offene Fragen',
+]);
+
 export const AVAILABLE_PROMPT_PLACEHOLDERS = ['{{context}}', '{{question}}', '{{doc_titles}}', '{{today}}'];

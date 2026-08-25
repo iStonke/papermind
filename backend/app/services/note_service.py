@@ -1,14 +1,18 @@
+import copy
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.note import Note, NoteLink
-from app.schemas.notes import NoteCreateRequest, NoteListItem, NoteSearchScope, NoteUpdateRequest
+from app.models.note import Note, NoteLink, NoteTask
+from app.models.note_tag import note_tags
+from app.models.tag import Tag
+from app.schemas.notes import NoteCreateRequest, NoteListItem, NoteSearchScope, NoteTagRef, NoteUpdateRequest
 from app.services.document_search import build_ts_query_expr, normalize_search_query
 
 # Leeres ProseMirror-Dokument (ein Absatz) als Default für neue/kaputte Bodies.
@@ -126,6 +130,49 @@ def extract_note_links(body_json: Any) -> set[tuple[str, uuid.UUID]]:
     return links
 
 
+def _parse_date(value: Any) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except (ValueError, TypeError):
+        return None
+
+
+def _tag_refs(note: Note) -> list[NoteTagRef]:
+    """Tags einer Notiz als schlanke Referenzen (id, name), alphabetisch."""
+    tags = getattr(note, "tags", None) or []
+    return [NoteTagRef(id=t.id, name=t.name) for t in sorted(tags, key=lambda t: t.name.lower())]
+
+
+def extract_note_tasks(body_json: Any) -> list[dict[str, Any]]:
+    """Sammelt Aufgaben (taskItem) einer Notiz in Dokumentreihenfolge.
+
+    Liefert je Aufgabe {text, done, due_date, position}. ``text`` ist der
+    sichtbare Aufgabentext, ``due_date`` das optionale Fälligkeitsdatum aus dem
+    ``dueDate``-Attribut (M6 Teil B).
+    """
+    tasks: list[dict[str, Any]] = []
+
+    def walk(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+        if node.get("type") == "taskItem":
+            attrs = node.get("attrs") or {}
+            text = _WS.sub(" ", prosemirror_to_text(node)).strip()
+            tasks.append({
+                "text": text[:2000],
+                "done": bool(attrs.get("checked")),
+                "due_date": _parse_date(attrs.get("dueDate")),
+                "position": len(tasks),
+            })
+        for child in node.get("content") or []:
+            walk(child)
+
+    walk(body_json)
+    return tasks
+
+
 class NoteService:
     """CRUD für owner-scoped Notizen. body_text wird serverseitig abgeleitet."""
 
@@ -139,18 +186,67 @@ class NoteService:
             stmt = stmt.where(Note.is_deleted.is_(False))
         return self.db.scalar(stmt)
 
+    def _link_counts(self, note_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
+        """Aus- und eingehende Verweise je Notiz (für Facette/Chip „Verwaist").
+
+        Eingehende Verweise zählen nur, wenn die verweisende Notiz demselben
+        Eigentümer gehört und nicht im Papierkorb liegt (Daten-Isolation).
+        """
+        counts: dict[uuid.UUID, int] = {nid: 0 for nid in note_ids}
+        if not note_ids:
+            return counts
+        outgoing = self.db.execute(
+            select(NoteLink.note_id, func.count())
+            .where(NoteLink.note_id.in_(note_ids))
+            .group_by(NoteLink.note_id)
+        ).all()
+        for nid, cnt in outgoing:
+            counts[nid] = counts.get(nid, 0) + cnt
+        incoming = self.db.execute(
+            select(NoteLink.target_id, func.count())
+            .join(Note, Note.id == NoteLink.note_id)
+            .where(
+                NoteLink.target_type == "note",
+                NoteLink.target_id.in_(note_ids),
+                Note.owner_id == self.owner_id,
+                Note.is_deleted.is_(False),
+            )
+            .group_by(NoteLink.target_id)
+        ).all()
+        for tid, cnt in incoming:
+            counts[tid] = counts.get(tid, 0) + cnt
+        return counts
+
     def list_notes(
         self,
         *,
         in_trash: bool = False,
         document_id: uuid.UUID | None = None,
+        dossier_id: uuid.UUID | None = None,
+        tag_id: uuid.UUID | None = None,
+        templates: bool = False,
         q: str | None = None,
         search_scope: NoteSearchScope = "all",
     ) -> list[NoteListItem]:
+        if dossier_id is not None:
+            # Dossiers werden ausschließlich über Wiki-Verweise (wikiLink) im
+            # Notiztext referenziert; diese liegen denormalisiert in note_link.
+            return self.list_references("dossier", dossier_id)
+
         stmt = (
             select(Note)
-            .where(Note.owner_id == self.owner_id, Note.is_deleted.is_(in_trash))
+            .where(
+                Note.owner_id == self.owner_id,
+                Note.is_deleted.is_(in_trash),
+                Note.is_template.is_(templates),
+            )
         )
+        if tag_id is not None:
+            stmt = stmt.where(
+                select(note_tags.c.note_id)
+                .where(note_tags.c.note_id == Note.id, note_tags.c.tag_id == tag_id)
+                .exists()
+            )
         if document_id is not None:
             # Notizen, die im ProseMirror-Wurzel-Attribut mit diesem Dokument
             # verknüpft sind (body_json.attrs.linkedDocument.id).
@@ -173,13 +269,17 @@ class NoteService:
 
         stmt = stmt.order_by((Note.deleted_at if in_trash else Note.updated_at).desc())
         rows = self.db.scalars(stmt).all()
+        link_counts = self._link_counts([n.id for n in rows])
         return [
             NoteListItem(
                 id=n.id,
                 title=n.title,
                 preview=_search_preview(n.body_text or "", normalized_query),
+                is_template=n.is_template,
                 is_deleted=n.is_deleted,
                 deleted_at=n.deleted_at,
+                link_count=link_counts.get(n.id, 0),
+                tags=_tag_refs(n),
                 created_at=n.created_at,
                 updated_at=n.updated_at,
             )
@@ -199,6 +299,12 @@ class NoteService:
                 continue
             self.db.add(NoteLink(note_id=note.id, target_type=target_type, target_id=target_id))
 
+    def _sync_tasks(self, note: Note) -> None:
+        """Aufgaben der Notiz (note_task) aus body_json neu berechnen."""
+        self.db.query(NoteTask).filter(NoteTask.note_id == note.id).delete(synchronize_session=False)
+        for task in extract_note_tasks(note.body_json):
+            self.db.add(NoteTask(note_id=note.id, **task))
+
     def create_note(self, payload: NoteCreateRequest) -> Note:
         body_json = payload.body_json or EMPTY_DOC
         note = Note(
@@ -206,13 +312,92 @@ class NoteService:
             title=payload.title or "",
             body_json=body_json,
             body_text=derive_body_text(body_json),
+            is_template=payload.is_template,
         )
         self.db.add(note)
-        self.db.flush()  # note.id für note_link verfügbar machen
-        self._sync_links(note)
+        self.db.flush()  # note.id für note_link/note_task verfügbar machen
+        # Vorlagen sind inerte Gerüste – sie erzeugen keine Verweise/Aufgaben.
+        if not note.is_template:
+            self._sync_links(note)
+            self._sync_tasks(note)
         self.db.commit()
         self.db.refresh(note)
         return note
+
+    # --- Vorlagen (M6) -------------------------------------------------------
+    def list_templates(self) -> list[NoteListItem]:
+        """Alle Vorlagen des Eigentümers (nicht gelöscht), neueste zuerst."""
+        rows = self.db.scalars(
+            select(Note)
+            .where(
+                Note.owner_id == self.owner_id,
+                Note.is_deleted.is_(False),
+                Note.is_template.is_(True),
+            )
+            .order_by(Note.updated_at.desc())
+        ).all()
+        return [
+            NoteListItem(
+                id=n.id,
+                title=n.title,
+                preview=_search_preview(n.body_text or "", None),
+                is_template=True,
+                is_deleted=n.is_deleted,
+                deleted_at=n.deleted_at,
+                tags=_tag_refs(n),
+                created_at=n.created_at,
+                updated_at=n.updated_at,
+            )
+            for n in rows
+        ]
+
+    def create_from_template(self, template_id: uuid.UUID) -> Note | None:
+        """Neue reguläre Notiz aus einer Vorlage (body_json kopiert)."""
+        template = self._get(template_id)
+        if template is None or not template.is_template:
+            return None
+        body_json = copy.deepcopy(template.body_json) or EMPTY_DOC
+        note = Note(
+            owner_id=self.owner_id,
+            title=template.title or "",
+            body_json=body_json,
+            body_text=derive_body_text(body_json),
+            is_template=False,
+        )
+        self.db.add(note)
+        self.db.flush()
+        self._sync_links(note)
+        self._sync_tasks(note)
+        self.db.commit()
+        self.db.refresh(note)
+        return note
+
+    def save_as_template(self, note_id: uuid.UUID, title: str = "") -> Note | None:
+        """Aus einer bestehenden Notiz eine neue Vorlage ableiten.
+
+        Die Bindung an ein konkretes Dokument (Wurzel-Attribut ``linkedDocument``)
+        wird entfernt, damit die Vorlage dokument-unabhängig ist.
+        """
+        source = self._get(note_id)
+        if source is None:
+            return None
+        body_json = copy.deepcopy(source.body_json) or EMPTY_DOC
+        attrs = body_json.get("attrs")
+        if isinstance(attrs, dict):
+            attrs.pop("linkedDocument", None)
+        template = Note(
+            owner_id=self.owner_id,
+            title=(title or source.title or "").strip(),
+            body_json=body_json,
+            body_text=derive_body_text(body_json),
+            is_template=True,
+        )
+        self.db.add(template)
+        self.db.flush()
+        # Vorlage erzeugt bewusst keine note_link-Zeilen.
+        self.db.commit()
+        self.db.refresh(template)
+        return template
 
     def update_note(self, note_id: uuid.UUID, payload: NoteUpdateRequest) -> Note | None:
         note = self._get(note_id)
@@ -223,7 +408,73 @@ class NoteService:
         if payload.body_json is not None:
             note.body_json = payload.body_json
             note.body_text = derive_body_text(payload.body_json)
-            self._sync_links(note)
+            if not note.is_template:
+                self._sync_links(note)
+                self._sync_tasks(note)
+        self.db.commit()
+        self.db.refresh(note)
+        return note
+
+    # --- Tags (gemeinsames Vokabular mit Dokumenten) -------------------------
+    def _get_or_create_tag(self, name: str) -> Tag | None:
+        """Owner-scoped, case-insensitive: vorhandenes Tag finden oder anlegen."""
+        normalized = " ".join(str(name or "").split()).strip()
+        if not normalized:
+            return None
+
+        def _lookup() -> Tag | None:
+            stmt = select(Tag).where(
+                func.lower(Tag.name) == normalized.lower(), Tag.owner_id == self.owner_id
+            )
+            return self.db.execute(stmt).scalar_one_or_none()
+
+        existing = _lookup()
+        if existing is not None:
+            return existing
+        try:
+            with self.db.begin_nested():
+                self.db.add(Tag(owner_id=self.owner_id, name=normalized))
+                self.db.flush()
+        except IntegrityError:
+            pass
+        return _lookup()
+
+    def set_tags(
+        self,
+        note_id: uuid.UUID,
+        *,
+        tag_ids: list[uuid.UUID] | None = None,
+        names: list[str] | None = None,
+    ) -> Note | None:
+        """Setzt die Tags einer Notiz.
+
+        ``tag_ids`` verknüpft bestehende (owner-eigene) Tags, ``names`` legt
+        unbekannte an. Beide werden vereinigt und dedupliziert.
+        """
+        note = self._get(note_id)
+        if note is None:
+            return None
+        resolved: list[Tag] = []
+        seen: set[uuid.UUID] = set()
+
+        if tag_ids:
+            owned = self.db.scalars(
+                select(Tag).where(Tag.owner_id == self.owner_id, Tag.id.in_(list(tag_ids)))
+            ).all()
+            by_id = {t.id: t for t in owned}
+            for tid in tag_ids:  # Eingabereihenfolge erhalten
+                tag = by_id.get(tid)
+                if tag is not None and tag.id not in seen:
+                    seen.add(tag.id)
+                    resolved.append(tag)
+
+        for name in names or []:
+            tag = self._get_or_create_tag(name)
+            if tag is not None and tag.id not in seen:
+                seen.add(tag.id)
+                resolved.append(tag)
+
+        note.tags = resolved
         self.db.commit()
         self.db.refresh(note)
         return note
@@ -236,6 +487,7 @@ class NoteService:
             .where(
                 Note.owner_id == self.owner_id,
                 Note.is_deleted.is_(False),
+                Note.is_template.is_(False),
                 NoteLink.target_type == target_type,
                 NoteLink.target_id == target_id,
             )
@@ -248,6 +500,7 @@ class NoteService:
                 preview=(n.body_text or "")[:_PREVIEW_LEN],
                 is_deleted=n.is_deleted,
                 deleted_at=n.deleted_at,
+                tags=_tag_refs(n),
                 created_at=n.created_at,
                 updated_at=n.updated_at,
             )
@@ -281,6 +534,25 @@ class NoteService:
         self.db.delete(note)
         self.db.commit()
         return True
+
+    def bulk_action(self, action: str, ids: list[uuid.UUID]) -> int:
+        """Sammelaktion des Verwaltungsrasters. Gibt die Zahl betroffener
+        Notizen zurück; ungültige/fremde IDs werden still übersprungen."""
+        affected = 0
+        for note_id in ids:
+            if action == "trash":
+                done = self.trash_note(note_id) is not None
+            elif action == "restore":
+                done = self.restore_note(note_id) is not None
+            elif action == "delete":
+                done = self.delete_note(note_id)
+            elif action == "template":
+                done = self.save_as_template(note_id) is not None
+            else:
+                done = False
+            if done:
+                affected += 1
+        return affected
 
     def empty_trash(self) -> int:
         notes = list(

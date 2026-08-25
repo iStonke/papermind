@@ -5,7 +5,7 @@
       <v-icon
         class="pm-empty-state__icon"
         :icon="icon"
-        :size="size === 'lg' ? 72 : 56"
+        :size="size === 'lg' ? 72 : size === 'sm' ? 40 : 56"
       />
     </div>
     <div class="pm-empty-state__body">
@@ -23,7 +23,8 @@ defineProps({
   icon:     { type: String, required: true },
   title:    { type: String, required: true },
   subtitle: { type: String, default: '' },
-  /** 'md' für Dokumentenliste, 'lg' für Vorschaubereich */
+  /** 'sm' für kompakte Verwaltungsflächen, 'md' für Dokumentenliste,
+   *  'lg' für Vorschaubereich. */
   size:     { type: String, default: 'md' },
   /** Auftritts-Animation. Ausschalten, wenn parallel ein anderer Platzhalter
    *  animiert (z. B. Vorschau-Platzhalter neben leerer Dokumentenliste). */
@@ -53,6 +54,11 @@ defineProps({
   height: 88px;
   /* Feder-Pop mit Overshoot und kleinem Dreh-Wackler beim Erscheinen. */
   animation: pm-empty-state-pop 640ms cubic-bezier(0.34, 1.56, 0.64, 1) 80ms both;
+}
+
+.pm-empty-state--sm .pm-empty-state__illustration {
+  width: 76px;
+  height: 76px;
 }
 
 .pm-empty-state__halo {
@@ -97,6 +103,7 @@ defineProps({
   animation: pm-empty-state-rise 440ms var(--pm-easing-decel, ease-out) 240ms both;
 }
 
+.pm-empty-state--sm .pm-empty-state__title,
 .pm-empty-state--md .pm-empty-state__title { font-size: 0.94rem; }
 .pm-empty-state--lg .pm-empty-state__title { font-size: 1.0rem; }
 
