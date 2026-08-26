@@ -118,12 +118,9 @@ const resolvedMenuProps = computed(() => ({
 }
 
 .pm-tags-input__chips {
-  display: flex;
-  min-width: 0;
-  flex: 0 1 auto;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 7px;
+  /* Die TransitionGroup darf keine eigene Flex-Zeile belegen. So fließen
+     bestehende Chips und „+ Tag“ gemeinsam durch dieselben Kartenzeilen. */
+  display: contents;
 }
 
 .pm-tags-input--disabled {
@@ -140,18 +137,6 @@ const resolvedMenuProps = computed(() => ({
   color: rgba(var(--v-theme-on-surface), 0.88) !important;
   font-size: 12.5px !important;
   padding-inline: 11px 7px !important;
-  transition:
-    background-color var(--pm-duration-fast, 140ms) ease,
-    border-color var(--pm-duration-fast, 140ms) ease,
-    color var(--pm-duration-fast, 140ms) ease,
-    box-shadow var(--pm-duration-fast, 140ms) ease,
-    transform var(--pm-duration-fast, 140ms) ease !important;
-}
-
-.pm-tags-input__chip.v-chip:hover {
-  border-color: color-mix(in srgb, var(--pm-detail-chip-close-color) 44%, transparent) !important;
-  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.1);
-  transform: translateY(-1px);
 }
 
 .pm-tags-input__chip :deep(.v-chip__underlay),

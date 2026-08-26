@@ -195,8 +195,8 @@ function createNote() {
   notes.value.unshift(note);
   persist();
   openNote(note.id);
-  // Sofort in den Titel springen (Sofort-Anlegen ohne Formular).
-  nextTick(() => editorRef.value?.focusTitle?.());
+  // Sofort in die eigentliche Schreibfläche springen.
+  nextTick(() => editorRef.value?.focusBody?.('start'));
 }
 
 function deleteNote(id) {

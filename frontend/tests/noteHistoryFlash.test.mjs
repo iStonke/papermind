@@ -30,12 +30,18 @@ test('undo and redo highlight exactly the changed range', () => {
   assert.equal(historyChangedRange(mockDoc(), after), null);
 });
 
-test('removed content falls back to a caret marker at the edit position', () => {
+test('removed content does not inject a second caret-like marker', () => {
   const before = mockDoc({ start: 7, end: { a: 12, b: 7 } });
   const after = mockDoc({ size: 14 });
   assert.deepEqual(historyChangedRange(before, after), { from: 7, to: 7 });
-  assert.match(extensionSource, /Decoration\.widget\(from/);
-  assert.match(extensionSource, /pm-history-flash-caret/);
+  assert.doesNotMatch(extensionSource, /Decoration\.widget/);
+  assert.doesNotMatch(extensionSource, /pm-history-flash-point/);
+  assert.doesNotMatch(extensionSource, /pm-history-flash-caret/);
+});
+
+test('the editor disables ProseMirror’s synthetic gap cursor', () => {
+  assert.match(editorSource, /StarterKit\.configure\(\{[\s\S]*?gapcursor:\s*false/);
+  assert.doesNotMatch(editorSource, /ProseMirror-gapcursor/);
 });
 
 test('history feedback follows ProseMirror history transactions without changing note content', () => {
@@ -43,6 +49,7 @@ test('history feedback follows ProseMirror history transactions without changing
   assert.match(editorSource, /historyChangedRange\(transaction\.before, transaction\.doc\)/);
   assert.match(editorSource, /showHistoryFlash\(ed, range\)/);
   assert.match(editorSource, /clearHistoryFlash\(ed\)/);
+  assert.match(editorSource, /transaction\.docChanged \|\| transaction\.selectionSet\)[\s\S]*?dismissHistoryFlash\(ed\)/);
   assert.match(extensionSource, /setMeta\('addToHistory', false\)/);
   assert.match(editorSource, /@keyframes pm-history-change-flash/);
   assert.match(editorSource, /prefers-reduced-motion: reduce[\s\S]*?pm-history-flash/);

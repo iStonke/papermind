@@ -19,12 +19,10 @@ function decorationsForRange(doc, range) {
     })];
   }
 
-  return [Decoration.widget(from, () => {
-    const marker = document.createElement('span');
-    marker.className = 'pm-history-flash-caret';
-    marker.setAttribute('aria-hidden', 'true');
-    return marker;
-  }, { side: 1 })];
+  // Gelöschter Text besitzt danach keinen sichtbaren Bereich mehr. Hier keine
+  // Ersatzmarke einsetzen: Neben dem echten Browser-Caret wirkte sie wie eine
+  // zweite Schreibmarke und war dadurch missverständlich.
+  return [];
 }
 
 export const HistoryFlash = Extension.create({

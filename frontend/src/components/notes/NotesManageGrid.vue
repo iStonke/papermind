@@ -552,7 +552,7 @@ async function createNoteFromTemplate(template) {
   try {
     const note = await notesStore.createFromTemplate(template.id);
     emit('changed');
-    emit('open-note', note.id);
+    emit('open-note', note.id, { cursorPosition: 'end' });
   } catch (error) {
     notifyError(error, 'Aus der Vorlage konnte keine Notiz erstellt werden.');
   } finally {

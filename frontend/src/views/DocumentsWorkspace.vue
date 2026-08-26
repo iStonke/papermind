@@ -2059,9 +2059,9 @@ onBeforeUnmount(() => window.removeEventListener('pm-note:navigate', handleNoteN
 const isCreatingLinkedNote = ref(false);
 const linkedNotesReloadKey = ref(0);
 
-function openLinkedNoteInWorkspace(noteId) {
+function openLinkedNoteInWorkspace(noteId, options = undefined) {
   if (!noteId) return;
-  notesStore.requestOpen(noteId);
+  notesStore.requestOpen(noteId, options);
   selectView('notes');
 }
 
@@ -2088,7 +2088,7 @@ async function createLinkedNoteForSelectedDocument() {
       body_json: { type: 'doc', attrs: { linkedDocument }, content: [{ type: 'paragraph' }] },
     });
     linkedNotesReloadKey.value += 1;
-    openLinkedNoteInWorkspace(note.id);
+    openLinkedNoteInWorkspace(note.id, { cursorPosition: 'end' });
   } catch (error) {
     notifyError(error, 'Notiz konnte nicht angelegt werden.');
   } finally {
@@ -2123,7 +2123,7 @@ async function createNoteQuoteFromSelection({ page, quote } = {}) {
       },
     });
     linkedNotesReloadKey.value += 1;
-    openLinkedNoteInWorkspace(note.id);
+    openLinkedNoteInWorkspace(note.id, { cursorPosition: 'end' });
     notify({ type: 'success', title: 'Notiz', message: 'Zitat als Notiz übernommen.' });
   } catch (error) {
     notifyError(error, 'Notiz-Zitat konnte nicht angelegt werden.');
@@ -14086,17 +14086,6 @@ onBeforeUnmount(() => {
   color: rgba(var(--v-theme-on-surface), 0.88) !important;
   font-size: 12.5px !important;
   padding-inline: 11px 7px !important;
-  transition:
-    background-color var(--pm-duration-fast, 140ms) ease,
-    border-color var(--pm-duration-fast, 140ms) ease,
-    color var(--pm-duration-fast, 140ms) ease,
-    box-shadow var(--pm-duration-fast, 140ms) ease,
-    transform var(--pm-duration-fast, 140ms) ease !important;
-}
-.pm-tags-input__chip.v-chip:hover {
-  border-color: color-mix(in srgb, var(--pm-detail-chip-close-color) 44%, transparent) !important;
-  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.1);
-  transform: translateY(-1px);
 }
 .pm-tags-input__chip .v-chip__underlay,
 .pm-tags-input__chip .v-chip__overlay {

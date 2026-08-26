@@ -1893,9 +1893,9 @@ const dossierNotesReloadKey = ref(0);
 
 // Öffnet eine Notiz im Notizbereich: in die Dokumente-Route wechseln, dort auf
 // den „Notizen"-View umschalten und die Ziel-Notiz vormerken.
-function openDossierNoteInWorkspace(noteId) {
+function openDossierNoteInWorkspace(noteId, options = undefined) {
   if (!noteId) return;
-  notesStore.requestOpen(noteId);
+  notesStore.requestOpen(noteId, options);
   uiStore.requestView('notes');
   router.push({ name: 'documents' });
 }
@@ -1923,7 +1923,7 @@ async function createNoteForDossier() {
       },
     });
     dossierNotesReloadKey.value += 1;
-    openDossierNoteInWorkspace(note.id);
+    openDossierNoteInWorkspace(note.id, { cursorPosition: 'end' });
   } catch (error) {
     showMessage(error.message || 'Notiz konnte nicht angelegt werden.', 'error');
   } finally {

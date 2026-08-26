@@ -51,6 +51,7 @@ export const useNotesStore = defineStore('notes', () => {
   // Signal: eine bestimmte Notiz im NotesWorkspace öffnen (z. B. aus dem
   // Dokument-Detailbereich „Notizen"). NotesWorkspace konsumiert es beim Mount/Watch.
   const pendingOpenId = ref(null);
+  const pendingOpenCursorPosition = ref(null);
   let loadingPromise = null;
   const noteDetails = new Map();
   const detailRequests = new Map();
@@ -135,10 +136,16 @@ export const useNotesStore = defineStore('notes', () => {
     return template;
   }
 
-  function requestOpen(id) { pendingOpenId.value = id || null; }
+  function requestOpen(id, { cursorPosition = null } = {}) {
+    pendingOpenId.value = id || null;
+    pendingOpenCursorPosition.value = ['start', 'end'].includes(cursorPosition)
+      ? cursorPosition
+      : null;
+  }
   function consumeOpen() {
     const id = pendingOpenId.value;
     pendingOpenId.value = null;
+    pendingOpenCursorPosition.value = null;
     return id;
   }
 
@@ -239,6 +246,7 @@ export const useNotesStore = defineStore('notes', () => {
     templates,
     templatesLoaded,
     pendingOpenId,
+    pendingOpenCursorPosition,
     fetchNotes,
     searchNotes,
     ensureLoaded,

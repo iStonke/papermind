@@ -10,6 +10,18 @@ const documentsWorkspaceSource = await readFile(
   new URL('../src/views/DocumentsWorkspace.vue', import.meta.url),
   'utf8',
 );
+const dossierWorkspaceSource = await readFile(
+  new URL('../src/views/DossierWorkspace.vue', import.meta.url),
+  'utf8',
+);
+const notesDevHarnessSource = await readFile(
+  new URL('../src/views/NotesDevHarness.vue', import.meta.url),
+  'utf8',
+);
+const notesManageGridSource = await readFile(
+  new URL('../src/components/notes/NotesManageGrid.vue', import.meta.url),
+  'utf8',
+);
 const workspaceEditorSource = await readFile(
   new URL('../src/components/notes/NoteWorkspaceEditor.vue', import.meta.url),
   'utf8',
@@ -28,6 +40,10 @@ const baseDialogSource = await readFile(
 );
 const documentListPanelSource = await readFile(
   new URL('../src/components/DocumentListPanel.vue', import.meta.url),
+  'utf8',
+);
+const listActionToolbarSource = await readFile(
+  new URL('../src/components/ListActionToolbar.vue', import.meta.url),
   'utf8',
 );
 const notesApiSource = await readFile(
@@ -140,13 +156,14 @@ test('global note preferences control list mode, typography, and spellcheck', ()
 test('new-note action exists only inside the notes workspace', () => {
   assert.match(templateSource, /Neue Notiz/);
   assert.match(templateSource, /class="notes-ws__fab-main"[\s\S]*?color="primary"/);
-  assert.match(templateSource, /<v-icon size="20" class="mr-1">mdi-plus<\/v-icon>/);
+  assert.match(templateSource, /<v-icon size="20" class="mr-1">mdi-square-edit-outline<\/v-icon>/);
   assert.match(templateSource, /:class="\{ 'has-templates': notesStore\.templates\.length > 0 \}"/);
   assert.match(templateSource, /<v-menu[\s\S]*?v-if="notesStore\.templates\.length"[\s\S]*?class="notes-ws__fab-caret"/);
   assert.doesNotMatch(templateSource, /notes-ws__template-pop-empty|Noch keine Vorlagen/);
   assert.match(workspaceSource, /\.notes-ws__fab-main\.v-btn\s*\{[\s\S]*?border-radius:\s*999px;/);
   assert.match(workspaceSource, /\.notes-ws__fab\.has-templates \.notes-ws__fab-main\.v-btn\s*\{[\s\S]*?border-radius:\s*999px 0 0 999px;/);
   assert.match(workspaceSource, /\.notes-ws__fab \.v-btn:hover:not\(\.v-btn--disabled\)\s*\{[\s\S]*?background-color:\s*color-mix/);
+  assert.match(workspaceSource, /\.notes-ws__fab:has\(\.v-btn:hover:not\(\.v-btn--disabled\)\)\s*\{[\s\S]*?box-shadow:/);
   assert.doesNotMatch(workspaceSource, /\.notes-ws__fab \.v-btn:hover:not\(\.v-btn--disabled\)\s*\{[^}]*transform:/);
   assert.doesNotMatch(templateSource, /density="comfortable"/);
   assert.doesNotMatch(documentsWorkspaceSource, /aria-label="Neue Notiz erstellen"/);
@@ -159,6 +176,20 @@ test('new notes enter the list with a dedicated reduced-motion-safe animation', 
   assert.match(workspaceSource, /finishNewNoteAnimation\(note\.id\)/);
   assert.match(workspaceSource, /pm-no-animations[\s\S]*notes-ws__item\.is-new/);
   assert.match(workspaceSource, /prefers-reduced-motion:\s*reduce[\s\S]*notes-ws__item\.is-new/);
+});
+
+test('new notes put the caret directly into the writable editor body', () => {
+  assert.match(workspaceSource, /async function revealNewNote\(note, cursorPosition = 'start'\)/);
+  assert.match(workspaceSource, /async function focusRequestedEditorBody\(cursorPosition\)[\s\S]*?await nextTick\(\)[\s\S]*?focusEditorBody\?\.\(cursorPosition\)/);
+  assert.match(workspaceSource, /revealNewNote\(await notesStore\.createFromTemplate\(templateId\), 'end'\)/);
+  assert.match(notesStoreSource, /pendingOpenCursorPosition/);
+  assert.match(documentsWorkspaceSource, /openLinkedNoteInWorkspace\(note\.id, \{ cursorPosition: 'end' \}\)/);
+  assert.match(dossierWorkspaceSource, /openDossierNoteInWorkspace\(note\.id, \{ cursorPosition: 'end' \}\)/);
+  assert.match(notesManageGridSource, /emit\('open-note', note\.id, \{ cursorPosition: 'end' \}\)/);
+  assert.match(notesDevHarnessSource, /focusBody\?\.\('start'\)/);
+  assert.match(workspaceEditorSource, /async function focusEditorBody\(position\)[\s\S]*?await nextTick\(\)[\s\S]*?focusBody\?\.\(position\)/);
+  assert.match(workspaceEditorSource, /defineExpose\(\{[\s\S]*?focusEditorBody/);
+  assert.match(noteEditorSource, /position === 'start' \|\| position === 'end'[\s\S]*?focus\(position\)\.run\(\)/);
 });
 
 test('removing a note reuses the document collapse timing before updating the list', () => {
@@ -205,7 +236,7 @@ test('workspace editor edits the title in its action bar without a save status',
   assert.match(workspaceEditorSource, /v-model="title"/);
   assert.match(workspaceEditorSource, /@keydown\.enter\.prevent="focusEditorBody"/);
   assert.match(workspaceEditorSource, /Dokument zuordnen/);
-  assert.match(workspaceEditorSource, /v-else[\s\S]*?class="note-workspace-editor__document-btn"[\s\S]*?<PmActionIcon name="link-plus" \/>/);
+  assert.match(workspaceEditorSource, /v-else[\s\S]*?class="note-workspace-editor__doc-chip note-workspace-editor__doc-chip--empty"[\s\S]*?mdi-link-variant-plus/);
   assert.doesNotMatch(workspaceEditorSource, /saveLabel|note-workspace-editor__save/);
   assert.doesNotMatch(workspaceEditorSource, /v-model:title="title"/);
   assert.match(noteEditorSource, /v-if="!workspace"[\s\S]*?class="note-editor__title"/);
@@ -255,8 +286,17 @@ test('the complete editor whitespace focuses the caret at the end of the note', 
 });
 
 test('linked documents use a compact header chip and the library picker pattern', () => {
-  assert.match(workspaceEditorSource, /v-if="linkedDocument"[\s\S]*?class="note-workspace-editor__document-chip"/);
-  assert.match(workspaceEditorSource, /note-workspace-editor__document-chip-label/);
+  assert.match(workspaceEditorSource, /<\/div>\s*<span class="note-workspace-editor__meta-sep" aria-hidden="true" \/>\s*<v-menu\s*v-if="linkedDocument"/);
+  assert.doesNotMatch(workspaceEditorSource, /v-if="linkedDocument" class="note-workspace-editor__meta-sep"/);
+  assert.match(workspaceEditorSource, /--pm-note-placeholder-chip-border:\s*color-mix/);
+  assert.match(workspaceEditorSource, /--pm-note-placeholder-chip-font-size:\s*12\.5px/);
+  assert.match(workspaceEditorSource, /--pm-note-placeholder-chip-font-weight:\s*400/);
+  assert.match(workspaceEditorSource, /--pm-note-placeholder-chip-letter-spacing:\s*0\.012em/);
+  assert.match(workspaceEditorSource, /\.note-workspace-editor__meta-tags :deep\(\.pm-tags-input\)\s*\{[\s\S]*?--pm-detail-chip-add-border:\s*var\(--pm-note-placeholder-chip-border\)/);
+  assert.match(workspaceEditorSource, /\.note-workspace-editor__meta-tags :deep\(\.pm-tags-input__add-label\)\s*\{[\s\S]*?font-size:\s*var\(--pm-note-placeholder-chip-font-size\);[\s\S]*?font-weight:\s*var\(--pm-note-placeholder-chip-font-weight\)/);
+  assert.match(workspaceEditorSource, /\.note-workspace-editor__doc-chip--empty\s*\{[\s\S]*?height:\s*26px;[\s\S]*?border:\s*1px dashed var\(--pm-note-placeholder-chip-border\);[\s\S]*?font-size:\s*var\(--pm-note-placeholder-chip-font-size\);[\s\S]*?font-weight:\s*var\(--pm-note-placeholder-chip-font-weight\)/);
+  assert.match(workspaceEditorSource, /v-if="linkedDocument"[\s\S]*?class="note-workspace-editor__doc-chip"/);
+  assert.match(workspaceEditorSource, /note-workspace-editor__doc-chip-label/);
   assert.match(workspaceEditorSource, /title="Dokument öffnen"[\s\S]*?title="Dokument wechseln"[\s\S]*?title="Verknüpfung lösen"/);
   assert.match(workspaceEditorSource, /<BaseDialog[\s\S]*?title="Dokument zuordnen"[\s\S]*?PaperMind-Bibliothek[\s\S]*?max-width="780"[\s\S]*?scrollable/);
   assert.match(workspaceEditorSource, /placeholder="Dokumente suchen"/);
@@ -265,26 +305,18 @@ test('linked documents use a compact header chip and the library picker pattern'
   assert.match(workspaceEditorSource, /useSettingsStore/);
   assert.match(workspaceEditorSource, /showFilenameSuffix/);
   assert.match(workspaceEditorSource, /formatDocumentFilename[\s\S]*?replace\(\/\\\.\[A-Za-z\]/);
-  assert.match(workspaceEditorSource, /\.note-workspace-editor__document-chip-label\s*\{[\s\S]*?font-weight:\s*400/);
+  assert.match(workspaceEditorSource, /\.note-workspace-editor__doc-chip-label\s*\{[\s\S]*?text-overflow:\s*ellipsis/);
   assert.doesNotMatch(workspaceEditorSource, /note-workspace-editor__document-card/);
 });
 
-test('document assignment gives the action and resulting chip reduced-motion-safe feedback', () => {
-  assert.match(
-    workspaceEditorSource,
-    /class="note-workspace-editor__document-btn"[\s\S]*?'is-activating': documentLinkActionActive/,
-  );
-  assert.match(workspaceEditorSource, /async function openDocumentPicker\(\) \{[\s\S]*?triggerDocumentLinkAction\(\)/);
-  assert.match(workspaceEditorSource, /function assignDocument\(document\)[\s\S]*?triggerDocumentChipArrival\(\)/);
-  assert.match(workspaceEditorSource, /@keyframes pm-document-action-pulse/);
-  assert.match(workspaceEditorSource, /@keyframes pm-document-link-icon/);
-  assert.match(workspaceEditorSource, /@keyframes pm-document-chip-arrive/);
-  assert.match(workspaceEditorSource, /@keyframes pm-document-chip-sheen/);
-  assert.match(
-    workspaceEditorSource,
-    /prefers-reduced-motion:\s*reduce[\s\S]*?document-btn\.v-btn\.is-activating[\s\S]*?document-chip\.is-arriving/,
-  );
-  assert.match(workspaceEditorSource, /pm-no-animations[\s\S]*?document-chip\.is-arriving/);
+test('document assignment uses a compact stable chip without layout animation', () => {
+  assert.match(workspaceEditorSource, /class="note-workspace-editor__doc-chip note-workspace-editor__doc-chip--empty"/);
+  assert.match(workspaceEditorSource, /async function openDocumentPicker\(\)[\s\S]*?documentPickerOpen\.value = true/);
+  assert.match(workspaceEditorSource, /function assignPickedDocument\(\)[\s\S]*?assignDocument\(documentPickerSelection\.value\)/);
+  assert.match(workspaceEditorSource, /function assignDocument\(document\)[\s\S]*?patchBodyAttributes/);
+  assert.match(workspaceEditorSource, /\.note-workspace-editor__doc-chip:hover\s*\{[\s\S]*?background:/);
+  assert.match(workspaceEditorSource, /prefers-reduced-motion:\s*reduce[\s\S]*?\.note-workspace-editor__doc-chip \{ transition: none; \}/);
+  assert.doesNotMatch(workspaceEditorSource, /pm-document-(?:action|link|chip)/);
 });
 
 test('document picker and its base dialog keep readable contrast in dark mode overlays', () => {
@@ -300,19 +332,17 @@ test('document picker and its base dialog keep readable contrast in dark mode ov
   assert.doesNotMatch(pickerStyles, /var\(--pm-(?:text|muted|divider|row-hover|chip-bg)/);
 });
 
-test('note export and direct template action sit between document linking and fullscreen', () => {
-  const documentAction = workspaceEditorSource.indexOf('class="note-workspace-editor__document-btn"');
-  const exportAction = workspaceEditorSource.indexOf('class="note-workspace-editor__export-btn"');
-  const templateAction = workspaceEditorSource.indexOf('class="note-workspace-editor__template-btn"');
+test('note export and template actions live in the compact overflow menu', () => {
+  const moreAction = workspaceEditorSource.indexOf('class="note-workspace-editor__more-btn"');
   const viewDivider = workspaceEditorSource.indexOf('class="note-workspace-editor__view-divider"');
   const fullscreenAction = workspaceEditorSource.indexOf('class="note-workspace-editor__list-toggle"');
-  assert.ok(documentAction >= 0 && documentAction < exportAction);
-  assert.ok(exportAction < templateAction && templateAction < viewDivider && viewDivider < fullscreenAction);
-  assert.match(workspaceEditorSource, /<PmActionIcon name="download" \/>/);
+  assert.ok(moreAction >= 0 && moreAction < viewDivider && viewDivider < fullscreenAction);
+  assert.match(workspaceEditorSource, /class="note-workspace-editor__more-menu"/);
+  assert.match(workspaceEditorSource, /title="Als Vorlage speichern"[\s\S]*?@click="saveCurrentNoteAsTemplate"/);
+  assert.match(workspaceEditorSource, /class="note-workspace-editor__more-subheader">Exportieren/);
   assert.match(workspaceEditorSource, /title="Markdown"[\s\S]*?@click="exportNoteAsMarkdown"/);
   assert.match(workspaceEditorSource, /title="PDF"[\s\S]*?@click="exportNoteAsPdf"/);
-  assert.match(workspaceEditorSource, /class="note-workspace-editor__template-btn"[\s\S]*?:loading="savingTemplate"[\s\S]*?@click="saveCurrentNoteAsTemplate"[\s\S]*?<PmActionIcon name="file-plus" \/>/);
-  assert.doesNotMatch(workspaceEditorSource, /moreMenuProps|note-workspace-editor__more-btn|mdi-dots-horizontal/);
+  assert.match(workspaceEditorSource, /moreMenuProps[\s\S]*?note-workspace-editor__more-btn[\s\S]*?mdi-dots-vertical/);
   assert.match(workspaceEditorSource, /v-model="templateTitleDialogOpen"[\s\S]*?title="Vorlage benennen"[\s\S]*?:primary-disabled="!templateTitleInput\.trim\(\)"/);
   assert.match(workspaceEditorSource, /v-model="templateTitleInput"[\s\S]*?label="Titel der Vorlage"[\s\S]*?@keydown\.enter\.prevent="confirmTemplateTitle"/);
   assert.match(workspaceEditorSource, /async function saveCurrentNoteAsTemplate\(\)[\s\S]*?if \(!currentTitle\)[\s\S]*?templateTitleDialogOpen\.value = true/);
@@ -322,26 +352,23 @@ test('note export and direct template action sit between document linking and fu
 });
 
 test('workspace utility buttons share one quiet visual treatment', () => {
-  assert.match(workspaceEditorSource, /class="note-workspace-editor__document-btn"[\s\S]*?variant="text"/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__actions\s*\{[\s\S]*?gap:\s*4px/);
-  assert.equal((workspaceEditorSource.match(/'pm-header-icon-btn--quiet'/g) || []).length, 5);
-  assert.equal((workspaceEditorSource.match(/<PmActionIcon/g) || []).length, 4);
-  assert.match(workspaceEditorSource, /<PmActionIcon name="link-plus" \/>/);
+  assert.equal((workspaceEditorSource.match(/'pm-header-icon-btn--quiet'/g) || []).length, 2);
+  assert.equal((workspaceEditorSource.match(/<PmActionIcon/g) || []).length, 1);
+  assert.match(workspaceEditorSource, /class="note-workspace-editor__more-btn"[\s\S]*?variant="text"/);
   assert.match(workspaceEditorSource, /<PmActionIcon :name="listVisible \? 'fullscreen' : 'fullscreen-exit'" \/>/);
-  assert.match(workspaceEditorSource, /\.note-workspace-editor__actions-divider\s*\{[\s\S]*?margin:\s*0 0 0 8px/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__view-divider\s*\{[\s\S]*?height:\s*20px/);
   assert.match(workspaceEditorSource, /:variant="listVisible \? 'text' : 'tonal'"/);
 });
 
-test('workspace tags open from the header instead of occupying a separate editor bar', () => {
+test('workspace tags sit in the compact metadata row instead of a separate editor bar', () => {
   assert.doesNotMatch(workspaceEditorSource, /class="note-workspace-editor__tags"/);
   assert.doesNotMatch(workspaceEditorSource, /\.note-workspace-editor__tags\s*\{/);
-  assert.match(workspaceEditorSource, /v-model="tagEditorOpen"[\s\S]*?title="Tags bearbeiten"/);
-  assert.match(workspaceEditorSource, /class="note-workspace-editor__tag-count"[\s\S]*?noteTagIds\.length/);
-  assert.match(workspaceEditorSource, /class="note-workspace-editor__tag-popover"[\s\S]*?<NoteTagBar[\s\S]*?compact/);
-  assert.match(workspaceEditorSource, /function onTagEditorToggle\(open\)[\s\S]*?tagStore\.fetchTags\(\)/);
+  assert.match(workspaceEditorSource, /class="note-workspace-editor__meta"[\s\S]*?class="note-workspace-editor__meta-tags"[\s\S]*?<NoteTagBar[\s\S]*?compact/);
+  assert.match(workspaceEditorSource, /:tag-ids="noteTagIds"[\s\S]*?:load-tags="tagStore\.fetchTags"/);
+  assert.match(workspaceEditorSource, /@update:tag-ids="applyNoteTagIds"/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__actions\s*\{[\s\S]*?flex:\s*0 0 auto;/);
-  assert.match(workspaceEditorSource, /\.note-workspace-editor__tag-popover\.v-card\s*\{[\s\S]*?background:\s*rgb\(var\(--v-theme-surface\)\)/);
+  assert.match(workspaceEditorSource, /\.note-workspace-editor__meta-tags\s*\{[\s\S]*?overflow:\s*hidden/);
 });
 
 test('linked document thumbnails have a subtle theme-aware frame', () => {
@@ -356,17 +383,27 @@ test('linked document thumbnails have a subtle theme-aware frame', () => {
 });
 
 test('workspace title is prominent while keeping the compact left inset', () => {
-  assert.match(workspaceEditorSource, /\.note-workspace-editor__bar\s*\{[\s\S]*?padding:\s*9px 16px 9px 7px/);
+  assert.match(workspaceEditorSource, /\.note-workspace-editor__bar\s*\{[\s\S]*?align-items:\s*center;[\s\S]*?padding:\s*7px 16px 7px 7px/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__title\s*\{[\s\S]*?font-size:\s*1\.125rem;[\s\S]*?padding:\s*8px 9px/);
+  assert.match(workspaceEditorSource, /\.note-workspace-editor__meta\s*\{[\s\S]*?padding:\s*0 16px/);
+  assert.match(workspaceEditorSource, /\.note-workspace-editor__meta-tags :deep\(\.pm-tags-input\)\s*\{[\s\S]*?gap:\s*0/);
+  assert.match(workspaceEditorSource, /\.note-workspace-editor__meta-tags :deep\(\.pm-tags-input__chips:not\(:empty\)\)\s*\{[\s\S]*?margin-right:\s*7px/);
+  assert.match(workspaceEditorSource, /\.note-workspace-editor__meta-main,\s*\n\.note-workspace-editor__word-count\s*\{[\s\S]*?top:\s*-4px/);
 });
 
 test('list and editor headers share one separator height', () => {
-  assert.match(workspaceSource, /--notes-header-height:\s*60px/);
-  assert.match(workspaceSource, /\.notes-ws__header\s*\{[\s\S]*?min-height:\s*var\(--notes-header-height\)/);
+  assert.match(workspaceSource, /--notes-header-height:\s*54px/);
+  assert.match(workspaceSource, /--notes-meta-row-height:\s*36px/);
+  assert.match(workspaceSource, /\.notes-ws__header\s*\{[\s\S]*?box-sizing:\s*border-box;[\s\S]*?height:\s*var\(--notes-header-height\);[\s\S]*?min-height:\s*var\(--notes-header-height\)/);
   assert.match(
     workspaceEditorSource,
-    /\.note-workspace-editor__bar\s*\{[\s\S]*?min-height:\s*var\(--notes-header-height, 60px\)/,
+    /\.note-workspace-editor__bar\s*\{[\s\S]*?box-sizing:\s*border-box;[\s\S]*?height:\s*var\(--notes-header-height, 54px\);[\s\S]*?min-height:\s*var\(--notes-header-height, 54px\)/,
   );
+  assert.match(listActionToolbarSource, /box-sizing:\s*border-box;[\s\S]*?height:\s*var\(--notes-meta-row-height, 36px\)/);
+  assert.match(workspaceEditorSource, /\.note-workspace-editor__meta\s*\{[\s\S]*?box-sizing:\s*border-box;[\s\S]*?height:\s*var\(--notes-meta-row-height, 36px\)/);
+  assert.match(workspaceEditorSource, /\.note-workspace-editor__meta-main\s*\{[\s\S]*?flex-wrap:\s*nowrap/);
+  assert.match(workspaceEditorSource, /\.note-workspace-editor__meta-tags :deep\(\.pm-tags-input\)\s*\{[\s\S]*?flex-wrap:\s*nowrap/);
+  assert.match(workspaceEditorSource, /\.note-workspace-editor__meta-tags :deep\(\.pm-tags-input__chips\)\s*\{[\s\S]*?flex-wrap:\s*nowrap;[\s\S]*?overflow-x:\s*auto/);
 });
 
 test('workspace editor omits the last-edited metadata area completely', () => {
@@ -384,13 +421,27 @@ test('embedded note editor has a persistent formatting toolbar', () => {
   assert.match(noteEditorSource, /\.note-editor--workspace \.note-editor__surface\s*\{[\s\S]*?padding:\s*24px clamp\(28px, 5vw, 58px\) 88px/);
 });
 
+test('empty workspace notes use a calm two-level writing invitation', () => {
+  assert.match(noteEditorSource, /placeholder:\s*\{ type: String, default: 'Einfach losschreiben …' \}/);
+  assert.match(noteEditorSource, /v-if="workspace && editorEmpty"[\s\S]*?class="note-editor__empty-hint"/);
+  assert.match(noteEditorSource, /<kbd>\/<\/kbd>[\s\S]*?für Überschriften, Listen und weitere Bausteine/);
+  assert.match(noteEditorSource, /editorEmpty\.value = Boolean\(ed\?\.isEmpty\)/);
+  assert.match(noteEditorSource, /const firstParagraph = writing\?\.querySelector\('\.pm-content > p:first-child'\)/);
+  assert.match(noteEditorSource, /top: `\$\{paragraphRect\.top - writingRect\.top\}px`/);
+  assert.match(noteEditorSource, /\.note-editor__empty-hint\.is-positioned\s*\{[\s\S]*?note-editor-empty-hint-in/);
+  assert.match(noteEditorSource, /\.note-editor__empty-hint-detail kbd\s*\{[\s\S]*?border-radius:\s*6px/);
+  assert.match(noteEditorSource, /\.note-editor--workspace :deep\(\.pm-content p\.is-editor-empty:first-child::before\)\s*\{[\s\S]*?content:\s*none/);
+});
+
 test('word count is metadata in the header instead of a formatting control', () => {
-  assert.match(workspaceEditorSource, /class="note-workspace-editor__word-count"[\s\S]*?wordCount === 1 \? 'Wort' : 'Wörter'/);
+  assert.match(workspaceEditorSource, /class="note-workspace-editor__meta"[\s\S]*?class="note-workspace-editor__word-count"[\s\S]*?wordCount === 1 \? 'Wort' : 'Wörter'/);
   assert.match(workspaceEditorSource, /@word-count="updateWordCount"/);
   assert.match(noteEditorSource, /emit\('word-count', words\.value\)/);
   assert.doesNotMatch(noteEditorSource, /note-editor__toolbar-count/);
-  assert.match(workspaceEditorSource, /\.note-workspace-editor__word-count\s*\{[\s\S]*?font-variant-numeric:\s*tabular-nums/);
-  assert.match(workspaceEditorSource, /\.note-workspace-editor__actions-divider\s*\{[\s\S]*?height:\s*20px/);
+  assert.doesNotMatch(workspaceEditorSource, /note-workspace-editor__footer/);
+  assert.match(workspaceEditorSource, /\.note-workspace-editor__word-count\s*\{[\s\S]*?align-self:\s*center;[\s\S]*?margin-left:\s*auto;[\s\S]*?font-variant-numeric:\s*tabular-nums/);
+  assert.match(workspaceEditorSource, /\.note-workspace-editor__meta-main\s*\{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?flex-wrap:\s*nowrap/);
+  assert.match(workspaceEditorSource, /\.note-workspace-editor__list-toggle\s*\{[\s\S]*?margin-right:\s*-8px/);
 });
 
 test('first heading starts at the same content inset as body text', () => {
@@ -425,7 +476,7 @@ test('formatting palette quiets its chrome without moving or fading its controls
   assert.match(noteEditorSource, /TOOLBAR_DUCK_SCROLL_THRESHOLD\s*=\s*24/);
   assert.match(noteEditorSource, /TOOLBAR_REVEAL_DELAY_MS\s*=\s*400/);
   assert.match(noteEditorSource, /Math\.abs\(scrollTop - toolbarScrollAnchor\)/);
-  assert.match(duckedStyle, /background:\s*color-mix\([^\n]*52%/);
+  assert.match(duckedStyle, /background:\s*var\(--pm-app-surface-raised, #fff\)/);
   assert.match(duckedStyle, /border-color:\s*color-mix\([^\n]*18%/);
   assert.match(duckedStyle, /box-shadow:\s*0 1px 4px/);
   assert.doesNotMatch(duckedStyle, /opacity|transform/);
@@ -433,9 +484,19 @@ test('formatting palette quiets its chrome without moving or fading its controls
   assert.match(noteEditorSource, /prefers-reduced-motion:\s*reduce[\s\S]*?\.note-editor__toolbar\s*\{[\s\S]*?transition:\s*none/);
 });
 
-test('slash and picker menus anchor to the editor surface with a compact gap', () => {
+test('slash menu stays in the visible editor viewport without moving the writing position', () => {
   assert.match(noteEditorSource, /ref="surfaceEl"[\s\S]*?class="note-editor__surface"/);
-  assert.match(noteEditorSource, /const box = surface\.getBoundingClientRect\(\)/);
+  assert.match(noteEditorSource, /toolbarScrollContainer\?\.getBoundingClientRect\(\)/);
+  assert.match(noteEditorSource, /Math\.min\(window\.innerHeight, scrollRect\?\.bottom/);
+  assert.match(noteEditorSource, /spaceBelow < MENU_MIN_OPEN_HEIGHT && spaceAbove > spaceBelow/);
+  assert.match(noteEditorSource, /maxHeight: `\$\{Math\.floor\(maxHeight\)\}px`/);
+  assert.match(noteEditorSource, /const scrollTopBeforeOpen = opening && toolbarScrollContainer/);
+  assert.match(noteEditorSource, /nextTick\(\(\) => restoreWorkspaceScroll\(scrollTopBeforeOpen\)\)/);
+  assert.match(noteEditorSource, /\.pm-slash--commands\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?overflow-anchor:\s*none;/);
+});
+
+test('picker menus remain anchored to the editor surface with a compact gap', () => {
+  assert.match(noteEditorSource, /function positionPicker\(\)[\s\S]*?const box = surface\.getBoundingClientRect\(\)/);
   assert.match(noteEditorSource, /rect\.bottom - box\.top \+ 4/);
   assert.doesNotMatch(noteEditorSource, /root\.getBoundingClientRect\(\)/);
 });

@@ -21,101 +21,6 @@
       />
 
       <div class="note-workspace-editor__actions">
-        <span class="note-workspace-editor__word-count">
-          {{ wordCount }} {{ wordCount === 1 ? 'Wort' : 'Wörter' }}
-        </span>
-
-        <v-menu
-          v-if="hasLoadedContent"
-          v-model="tagEditorOpen"
-          location="bottom end"
-          :close-on-content-click="false"
-          offset="8"
-          @update:model-value="onTagEditorToggle"
-        >
-          <template #activator="{ props: tagMenuProps }">
-            <v-btn
-              v-bind="tagMenuProps"
-              class="note-workspace-editor__tag-btn"
-              :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet']"
-              variant="text"
-              icon
-              :aria-label="noteTagIds.length ? `Tags bearbeiten, ${noteTagIds.length} zugewiesen` : 'Tags bearbeiten'"
-              title="Tags bearbeiten"
-            >
-              <v-icon size="20">mdi-tag-outline</v-icon>
-              <span v-if="noteTagIds.length" class="note-workspace-editor__tag-count">
-                {{ noteTagIds.length > 9 ? '9+' : noteTagIds.length }}
-              </span>
-            </v-btn>
-          </template>
-
-          <v-card class="note-workspace-editor__tag-popover" min-width="320" max-width="380">
-            <div class="note-workspace-editor__tag-popover-title">Tags</div>
-            <NoteTagBar
-              compact
-              :tag-ids="noteTagIds"
-              :all-tags="noteAllTags"
-              :create-tag-by-name="tagStore.ensureTagIdByName"
-              :load-tags="tagStore.fetchTags"
-              @update:tag-ids="applyNoteTagIds"
-            />
-          </v-card>
-        </v-menu>
-
-        <v-menu
-          v-if="linkedDocument"
-          v-model="documentDetailsOpen"
-          location="bottom end"
-          :close-on-content-click="true"
-        >
-          <template #activator="{ props: menuProps }">
-            <v-btn
-              v-bind="menuProps"
-              class="note-workspace-editor__document-btn"
-              :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet', {
-                'is-activating': documentLinkActionActive,
-                'is-arriving': documentChipArriving,
-              }]"
-              variant="text"
-              icon
-              :aria-label="`Verknüpftes Dokument: ${linkedDocumentDisplayTitle}`"
-              :title="linkedDocumentDisplayTitle"
-            >
-              <v-icon size="20">mdi-file-pdf-box</v-icon>
-            </v-btn>
-          </template>
-
-          <v-card class="note-workspace-editor__document-popover" min-width="300" max-width="360">
-            <div class="note-workspace-editor__document-popover-summary">
-              <img :src="documentThumbnailUrl(linkedDocument.id)" alt="" loading="lazy" />
-              <span>
-                <strong>{{ linkedDocumentDisplayTitle }}</strong>
-                <small>{{ linkedDocumentMeta }}</small>
-              </span>
-            </div>
-            <v-divider />
-            <v-list density="compact">
-              <v-list-item prepend-icon="mdi-open-in-new" title="Dokument öffnen" @click="openLinkedDocument" />
-              <v-list-item prepend-icon="mdi-swap-horizontal" title="Dokument wechseln" @click="openDocumentPicker" />
-              <v-list-item prepend-icon="mdi-link-off" title="Verknüpfung lösen" @click="unlinkDocument" />
-            </v-list>
-          </v-card>
-        </v-menu>
-
-        <v-btn
-          v-else
-          class="note-workspace-editor__document-btn"
-          :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet', { 'is-activating': documentLinkActionActive }]"
-          variant="text"
-          icon
-          aria-label="Dokument aus der Bibliothek zuordnen"
-          title="Dokument zuordnen"
-          @click="openDocumentPicker"
-        >
-          <PmActionIcon name="link-plus" />
-        </v-btn>
-
         <v-menu location="bottom end">
           <template #activator="{ props: moreMenuProps }">
             <v-btn
@@ -170,6 +75,74 @@
         </v-btn>
       </div>
     </header>
+
+    <div v-if="hasLoadedContent" class="note-workspace-editor__meta" :class="{ 'is-centered': !listVisible }">
+      <div class="note-workspace-editor__meta-main">
+        <div class="note-workspace-editor__meta-tags">
+          <NoteTagBar
+            compact
+            :tag-ids="noteTagIds"
+            :all-tags="noteAllTags"
+            :create-tag-by-name="tagStore.ensureTagIdByName"
+            :load-tags="tagStore.fetchTags"
+            @update:tag-ids="applyNoteTagIds"
+          />
+        </div>
+
+        <span class="note-workspace-editor__meta-sep" aria-hidden="true" />
+
+        <v-menu
+          v-if="linkedDocument"
+          v-model="documentDetailsOpen"
+          location="bottom start"
+          :close-on-content-click="true"
+        >
+          <template #activator="{ props: docMenuProps }">
+            <button
+              v-bind="docMenuProps"
+              type="button"
+              class="note-workspace-editor__doc-chip"
+              :title="linkedDocumentDisplayTitle"
+            >
+              <v-icon size="14">mdi-file-document-outline</v-icon>
+              <span class="note-workspace-editor__doc-chip-label">{{ linkedDocumentDisplayTitle }}</span>
+              <v-icon size="13">mdi-chevron-down</v-icon>
+            </button>
+          </template>
+
+          <v-card class="note-workspace-editor__document-popover" min-width="300" max-width="360">
+            <div class="note-workspace-editor__document-popover-summary">
+              <img :src="documentThumbnailUrl(linkedDocument.id)" alt="" loading="lazy" />
+              <span>
+                <strong>{{ linkedDocumentDisplayTitle }}</strong>
+                <small>{{ linkedDocumentMeta }}</small>
+              </span>
+            </div>
+            <v-divider />
+            <v-list density="compact">
+              <v-list-item prepend-icon="mdi-open-in-new" title="Dokument öffnen" @click="openLinkedDocument" />
+              <v-list-item prepend-icon="mdi-swap-horizontal" title="Dokument wechseln" @click="openDocumentPicker" />
+              <v-list-item prepend-icon="mdi-link-off" title="Verknüpfung lösen" @click="unlinkDocument" />
+            </v-list>
+          </v-card>
+        </v-menu>
+
+        <button
+          v-else
+          type="button"
+          class="note-workspace-editor__doc-chip note-workspace-editor__doc-chip--empty"
+          title="Dokument zuordnen"
+          @click="openDocumentPicker"
+        >
+          <v-icon size="14">mdi-link-variant-plus</v-icon>
+          <span>Dokument</span>
+        </button>
+      </div>
+
+      <span class="note-workspace-editor__word-count">
+        {{ wordCount }} {{ wordCount === 1 ? 'Wort' : 'Wörter' }}
+      </span>
+    </div>
 
     <div v-if="loading && !hasLoadedContent" class="note-workspace-editor__state" aria-live="polite">
       <v-progress-circular indeterminate color="primary" size="28" width="2" />
@@ -363,7 +336,6 @@ const templateTitleInput = ref('');
 const correspondentStore = useCorrespondentStore();
 const dossierStore = useDossierStore();
 const tagStore = useTagStore();
-const tagEditorOpen = ref(false);
 // Tags der geladenen Notiz (gemeinsames PaperMind-Vokabular).
 const noteTagIds = ref([]);
 const noteTagSeed = ref([]);
@@ -398,8 +370,6 @@ const documentPickerSearch = ref('');
 const documentPickerDocuments = ref([]);
 const documentPickerSelection = ref(null);
 const documentPickerError = ref('');
-const documentLinkActionActive = ref(false);
-const documentChipArriving = ref(false);
 const aiCredentialStatus = ref({
   openai: { configured: false },
   anthropic: { configured: false },
@@ -431,8 +401,6 @@ let saveTimer = null;
 let scrollPositionSaveTimer = null;
 let documentPickerSearchTimer = null;
 let documentPickerRevision = 0;
-let documentLinkActionTimer = null;
-let documentChipArrivalTimer = null;
 let loadRevision = 0;
 let saveRevision = 0;
 let discardPendingSave = false;
@@ -555,7 +523,6 @@ async function loadNote(noteId = props.noteId) {
 
 function applyLoadedNote(note, noteId) {
   loadingContent = true;
-  tagEditorOpen.value = false;
   title.value = note?.title || '';
   body.value = normalizeBody(note?.body_json);
   noteTagSeed.value = Array.isArray(note?.tags) ? note.tags : [];
@@ -584,11 +551,6 @@ async function applyNoteTagIds(ids) {
     if (loadedNoteId.value === noteId) noteTagIds.value = previous;
     notifyError(error, 'Tags konnten nicht gespeichert werden.');
   }
-}
-
-function onTagEditorToggle(open) {
-  if (!open) return;
-  void tagStore.fetchTags().catch(() => {});
 }
 
 function loadStoredScrollPositions() {
@@ -741,7 +703,6 @@ function patchBodyAttributes(patch) {
 }
 
 async function openDocumentPicker() {
-  triggerDocumentLinkAction();
   documentDetailsOpen.value = false;
   documentPickerSearch.value = '';
   documentPickerSelection.value = null;
@@ -848,31 +809,6 @@ function assignDocument(document) {
       documentDate: document.document_date || '',
     },
   });
-  triggerDocumentChipArrival();
-}
-
-function triggerDocumentLinkAction() {
-  documentLinkActionActive.value = false;
-  if (documentLinkActionTimer) window.clearTimeout(documentLinkActionTimer);
-  nextTick(() => {
-    documentLinkActionActive.value = true;
-    documentLinkActionTimer = window.setTimeout(() => {
-      documentLinkActionActive.value = false;
-      documentLinkActionTimer = null;
-    }, 560);
-  });
-}
-
-function triggerDocumentChipArrival() {
-  documentChipArriving.value = false;
-  if (documentChipArrivalTimer) window.clearTimeout(documentChipArrivalTimer);
-  nextTick(() => {
-    documentChipArriving.value = true;
-    documentChipArrivalTimer = window.setTimeout(() => {
-      documentChipArriving.value = false;
-      documentChipArrivalTimer = null;
-    }, 760);
-  });
 }
 
 function unlinkDocument() {
@@ -886,8 +822,12 @@ function openLinkedDocument() {
   uiStore.requestWorkspace('openDocumentReader', linkedDocument.value.id);
 }
 
-function focusEditorBody() {
-  noteEditorRef.value?.focusBody?.();
+async function focusEditorBody(position) {
+  // Beim Anlegen kann der Editor im selben Render-Zyklus noch seinen neuen
+  // Inhalt übernehmen. Ein weiterer Tick verhindert, dass der Fokus dabei
+  // wieder verloren geht.
+  await nextTick();
+  noteEditorRef.value?.focusBody?.(position);
 }
 
 function focusTitle() {
@@ -997,14 +937,12 @@ function flushSave() {
   return Promise.resolve();
 }
 
-defineExpose({ cancelPendingSave, resumePendingSave, flushSave, focusTitle, isEmpty });
+defineExpose({ cancelPendingSave, resumePendingSave, flushSave, focusEditorBody, focusTitle, isEmpty });
 
 onBeforeUnmount(() => {
   rememberScrollPosition();
   persistScrollPositions();
   if (documentPickerSearchTimer) window.clearTimeout(documentPickerSearchTimer);
-  if (documentLinkActionTimer) window.clearTimeout(documentLinkActionTimer);
-  if (documentChipArrivalTimer) window.clearTimeout(documentChipArrivalTimer);
   window.removeEventListener('papermind:ai-configuration-changed', loadAICredentialStatus);
   flushSave();
 });
@@ -1023,13 +961,17 @@ onBeforeUnmount(() => {
 
 .note-workspace-editor__bar {
   display: flex;
-  min-height: var(--notes-header-height, 60px);
+  box-sizing: border-box;
+  height: var(--notes-header-height, 54px);
+  min-height: var(--notes-header-height, 54px);
   flex: none;
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  padding: 9px 16px 9px 7px;
-  border-bottom: 1px solid var(--pm-divider, #d8dfe1);
+  padding: 7px 16px 7px 7px;
+  /* Keine eigene Linie mehr – Titel + Tags bilden EINEN Kopfblock; die einzige
+     Trennlinie sitzt unter den Tags (Metazeile) und fluchtet mit dem unteren
+     Trenner der linken Filterleiste. */
   background: rgba(var(--v-theme-surface), 0.68);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -1073,6 +1015,7 @@ onBeforeUnmount(() => {
   display: flex;
   min-width: 0;
   flex: 0 0 auto;
+  align-self: center;
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
@@ -1080,67 +1023,165 @@ onBeforeUnmount(() => {
 
 .note-workspace-editor__word-count {
   flex: none;
-  /* Ruhiger Status statt gleichwertiger „Button": etwas kleiner, klar gedämpft
-     und mit eigenem Abstand zu den Icon-Aktionen (der Trenner entfällt). */
-  margin-right: 10px;
+  align-self: center;
+  margin-left: auto;
+  padding-left: 8px;
   color: var(--pm-muted, #535e62);
   font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.note-workspace-editor__actions-divider {
-  width: 1px;
-  height: 20px;
+/* Metadaten-Zeile unter dem Titel: Tags und Dokument links, Wortanzahl rechts.
+   Ihre untere Trennlinie fluchtet mit der linken Filterleiste. */
+.note-workspace-editor__meta {
+  --pm-note-placeholder-chip-border: color-mix(in srgb, var(--pm-muted, #64748b) 55%, transparent);
+  --pm-note-placeholder-chip-color: rgba(var(--v-theme-on-surface), 0.6);
+  --pm-note-placeholder-chip-font-size: 12.5px;
+  --pm-note-placeholder-chip-font-weight: 400;
+  --pm-note-placeholder-chip-letter-spacing: 0.012em;
   flex: none;
-  /* Der Iconbutton hat innerhalb seiner 36 px noch 8 px bis zum 20-px-Icon.
-     Der asymmetrische Rand gleicht deshalb die sichtbaren Abstände aus. */
-  margin: 0 0 0 8px;
-  background: var(--pm-divider, #d8dfe1);
-}
-
-.note-workspace-editor__tag-btn.v-btn {
-  position: relative;
-}
-
-.note-workspace-editor__tag-count {
-  position: absolute;
-  top: 2px;
-  right: 1px;
-  display: inline-flex;
-  min-width: 15px;
-  height: 15px;
+  display: flex;
+  box-sizing: border-box;
+  height: var(--notes-meta-row-height, 36px);
+  min-height: var(--notes-meta-row-height, 36px);
+  flex-wrap: nowrap;
   align-items: center;
-  justify-content: center;
-  padding: 0 4px;
-  border: 1px solid var(--pm-content-surface, #fff);
+  gap: 8px;
+  overflow: hidden;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--pm-divider, #d8dfe1);
+}
+.note-workspace-editor__meta-main {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+.note-workspace-editor__meta-main,
+.note-workspace-editor__word-count {
+  position: relative;
+  top: -4px;
+}
+.note-workspace-editor__meta.is-centered {
+  width: 100%;
+  max-width: 820px;
+  margin-inline: auto;
+}
+.note-workspace-editor__meta-tags {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  /* Keine „Pop"-Animation der Tag-Chips beim Öffnen einer Notiz (nur im
+     Editor; TagInlineEditor ist geteilt). Dauer 0 = sofort sichtbar. */
+  --pm-tag-chip-enter-duration: 0ms;
+  --pm-tag-chip-leave-duration: 0ms;
+}
+.note-workspace-editor__meta-tags :deep(.pm-tags-input) {
+  --pm-detail-chip-add-border: var(--pm-note-placeholder-chip-border);
+  width: auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  gap: 0;
+  overflow: hidden;
+}
+.note-workspace-editor__meta-tags :deep(.pm-tags-input__chips) {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  gap: 7px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.note-workspace-editor__meta-tags :deep(.pm-tags-input__chips:not(:empty)) {
+  margin-right: 7px;
+}
+.note-workspace-editor__meta-tags :deep(.pm-tags-input__add-label) {
+  color: var(--pm-note-placeholder-chip-color);
+  font-family: inherit;
+  font-size: var(--pm-note-placeholder-chip-font-size);
+  font-weight: var(--pm-note-placeholder-chip-font-weight);
+  letter-spacing: var(--pm-note-placeholder-chip-letter-spacing);
+  line-height: normal;
+}
+.note-workspace-editor__meta-tags :deep(.pm-tags-input__chips::-webkit-scrollbar) {
+  display: none;
+}
+.note-workspace-editor__meta-tags :deep(.pm-tags-input__chip-wrap),
+.note-workspace-editor__meta-tags :deep(.pm-tags-input__field) {
+  flex: none;
+}
+/* Beim Notizwechsel soll die Tag-Leiste NICHT aufblitzen: jegliche Transition/
+   Animation innerhalb der Leiste abschalten (Chip-Enter/Leave/Move, Feld-Breite,
+   gestrichelter Rahmen …). Nur im Editor – das teleportierte Dropdown-Menü und
+   die Dokumentenschublade behalten ihre Animationen. */
+.note-workspace-editor__meta-tags :deep(*) {
+  animation: none !important;
+  transition: none !important;
+}
+/* Ausscheidende Chips sofort aus dem Layout nehmen – sonst verbreitern sie beim
+   Wechsel für einen Frame die Leiste (das sichtbare „Aufblitzen"). */
+.note-workspace-editor__meta-tags :deep(.metadata-tag-chip-leave-active) {
+  display: none !important;
+}
+.note-workspace-editor__meta-sep {
+  width: 1px;
+  height: 18px;
+  flex: none;
+  background: var(--pm-divider, #d8dfe1);
+  margin: 0 2px;
+}
+
+/* Verknüpftes Dokument als ruhiger Chip (Popover: öffnen/wechseln/lösen). */
+.note-workspace-editor__doc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 260px;
+  padding: 3px 9px 3px 8px;
   border-radius: 999px;
-  background: var(--pm-muted, #64748b);
-  color: var(--pm-app-surface, #fff);
-  font-size: 0.58rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-  pointer-events: none;
-}
-
-.note-workspace-editor__tag-popover.v-card {
-  overflow: visible;
   border: 1px solid var(--pm-divider, #d8dfe1);
-  border-radius: 14px;
-  background: rgb(var(--v-theme-surface));
-  color: rgb(var(--v-theme-on-surface));
-  box-shadow: var(--pm-shadow, 0 12px 30px rgba(15, 23, 42, 0.16));
-  padding: 13px 14px 14px;
+  background: transparent;
+  color: var(--pm-text, #0e181b);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.note-workspace-editor__doc-chip:hover {
+  background: var(--pm-row-hover, rgba(0, 107, 117, 0.05));
+  border-color: color-mix(in srgb, var(--pm-accent, #006b75) 40%, transparent);
+}
+.note-workspace-editor__doc-chip > .v-icon:first-child { color: var(--pm-muted, #64748b); flex: none; }
+.note-workspace-editor__doc-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.note-workspace-editor__doc-chip--empty {
+  box-sizing: border-box;
+  height: 26px;
+  border: 1px dashed var(--pm-note-placeholder-chip-border);
+  border-radius: 15px;
+  color: var(--pm-note-placeholder-chip-color);
+  font-family: inherit;
+  font-size: var(--pm-note-placeholder-chip-font-size);
+  font-weight: var(--pm-note-placeholder-chip-font-weight);
+  letter-spacing: var(--pm-note-placeholder-chip-letter-spacing);
+  line-height: normal;
+}
+.note-workspace-editor__doc-chip--empty:hover {
+  border-color: var(--pm-note-placeholder-chip-border);
+  color: var(--pm-accent-strong, #00555f);
 }
 
-.note-workspace-editor__tag-popover-title {
-  margin-bottom: 9px;
-  color: var(--pm-muted, #535e62);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+@media (prefers-reduced-motion: reduce) {
+  .note-workspace-editor__doc-chip { transition: none; }
 }
 
 .note-workspace-editor__view-divider {
@@ -1151,138 +1192,10 @@ onBeforeUnmount(() => {
   background: var(--pm-divider, #d8dfe1);
 }
 
-.note-workspace-editor__document-btn.v-btn.is-activating {
-  color: var(--pm-accent, #006b75);
-  animation: pm-document-action-pulse 560ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.note-workspace-editor__document-btn.v-btn.is-activating :deep(.pm-action-icon),
-.note-workspace-editor__document-chip.is-activating > .v-icon:first-child {
-  animation: pm-document-link-icon 560ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.note-workspace-editor__export-menu {
-  border: 1px solid var(--pm-divider, #d8dfe1);
-  border-radius: 10px;
-}
-
-.note-workspace-editor__document-chip {
-  display: flex;
-  width: auto;
-  max-width: min(220px, 24vw);
-  height: 36px;
-  min-width: 0;
-  flex: none;
-  align-items: center;
-  gap: 7px;
-  padding: 0 9px;
-  border: 1px solid color-mix(in srgb, var(--pm-accent, #006b75) 24%, var(--pm-divider, #d8dfe1));
-  border-radius: 9px;
-  outline: none;
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 8%, transparent);
-  color: var(--pm-text, #0e181b);
-  cursor: pointer;
-  font: inherit;
-  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
-}
-
-.note-workspace-editor__document-chip:hover {
-  border-color: color-mix(in srgb, var(--pm-accent, #006b75) 42%, var(--pm-divider, #d8dfe1));
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent);
-}
-
-.note-workspace-editor__document-chip.is-activating {
-  animation: pm-document-chip-pulse 560ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.note-workspace-editor__document-chip.is-arriving {
-  position: relative;
-  overflow: hidden;
-  transform-origin: right center;
-  animation: pm-document-chip-arrive 760ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.note-workspace-editor__document-chip.is-arriving::after {
-  position: absolute;
-  inset: -35% auto -35% -28%;
-  width: 32%;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in srgb, var(--pm-accent-contrast, #fff) 68%, transparent),
-    transparent
-  );
-  content: '';
-  opacity: 0.72;
-  pointer-events: none;
-  transform: skewX(-18deg);
-  animation: pm-document-chip-sheen 690ms 70ms ease-out both;
-}
-
-.note-workspace-editor__document-chip.is-arriving > .v-icon:first-child {
-  animation: pm-document-chip-icon-arrive 660ms 45ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-@keyframes pm-document-action-pulse {
-  0% { background: transparent; box-shadow: 0 0 0 0 color-mix(in srgb, var(--pm-accent, #006b75) 30%, transparent); }
-  38% {
-    background: color-mix(in srgb, var(--pm-accent, #006b75) 13%, transparent);
-    box-shadow:
-      0 0 0 4px color-mix(in srgb, var(--pm-accent, #006b75) 14%, transparent),
-      0 0 18px color-mix(in srgb, var(--pm-accent, #006b75) 18%, transparent);
-  }
-  100% { background: transparent; box-shadow: 0 0 0 10px transparent; }
-}
-
-@keyframes pm-document-link-icon {
-  0% { transform: rotate(-12deg) scale(0.82); }
-  42% { filter: drop-shadow(0 0 5px color-mix(in srgb, var(--pm-accent, #006b75) 55%, transparent)); transform: rotate(7deg) scale(1.16); }
-  72% { transform: rotate(-3deg) scale(0.97); }
-  100% { filter: none; transform: rotate(0) scale(1); }
-}
-
-@keyframes pm-document-chip-pulse {
-  0% { box-shadow: 0 0 0 0 transparent; }
-  42% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--pm-accent, #006b75) 13%, transparent); }
-  100% { box-shadow: 0 0 0 8px transparent; }
-}
-
-@keyframes pm-document-chip-arrive {
-  0% { opacity: 0; transform: translateX(8px) scale(0.88); }
-  48% { opacity: 1; transform: translateX(-2px) scale(1.035); }
-  72% { transform: translateX(1px) scale(0.99); }
-  100% { opacity: 1; transform: translateX(0) scale(1); }
-}
-
-@keyframes pm-document-chip-sheen {
-  0% { left: -28%; opacity: 0; }
-  18% { opacity: 0.72; }
-  100% { left: 112%; opacity: 0; }
-}
-
-@keyframes pm-document-chip-icon-arrive {
-  0% { opacity: 0; transform: rotate(-18deg) scale(0.55); }
-  55% { opacity: 1; transform: rotate(7deg) scale(1.22); }
-  100% { opacity: 1; transform: rotate(0) scale(1); }
-}
-
-.note-workspace-editor__document-chip:focus-visible {
-  outline: 2px solid var(--pm-accent, #006b75);
-  outline-offset: 2px;
-}
-
-.note-workspace-editor__document-chip > .v-icon {
-  flex: none;
-  color: var(--pm-accent, #006b75);
-}
-
-.note-workspace-editor__document-chip-label {
-  min-width: 0;
-  overflow: hidden;
-  font-size: 0.8rem;
-  font-weight: 400;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+/* Der 20-px-Glyph sitzt im 36-px-Button jeweils 8 px eingerückt. Der negative
+   Außenabstand richtet seine sichtbare rechte Kante an der Wortanzahl aus. */
+.note-workspace-editor__list-toggle {
+  margin-right: -8px;
 }
 
 .note-workspace-editor__scroll {
@@ -1365,25 +1278,6 @@ onBeforeUnmount(() => {
 }
 @media (prefers-reduced-motion: reduce) {
   .note-workspace-editor__backlink { transition: none; }
-  .note-workspace-editor__document-btn.v-btn.is-activating,
-  .note-workspace-editor__document-btn.v-btn.is-activating :deep(.pm-action-icon),
-  .note-workspace-editor__document-chip.is-activating,
-  .note-workspace-editor__document-chip.is-activating > .v-icon:first-child,
-  .note-workspace-editor__document-chip.is-arriving,
-  .note-workspace-editor__document-chip.is-arriving::after,
-  .note-workspace-editor__document-chip.is-arriving > .v-icon:first-child {
-    animation: none;
-  }
-}
-
-:global(.pm-no-animations) .note-workspace-editor__document-btn.v-btn.is-activating,
-:global(.pm-no-animations) .note-workspace-editor__document-btn.v-btn.is-activating :deep(.pm-action-icon),
-:global(.pm-no-animations) .note-workspace-editor__document-chip.is-activating,
-:global(.pm-no-animations) .note-workspace-editor__document-chip.is-activating > .v-icon:first-child,
-:global(.pm-no-animations) .note-workspace-editor__document-chip.is-arriving,
-:global(.pm-no-animations) .note-workspace-editor__document-chip.is-arriving::after,
-:global(.pm-no-animations) .note-workspace-editor__document-chip.is-arriving > .v-icon:first-child {
-  animation: none;
 }
 
 .note-workspace-editor__body.is-centered :deep(.pm-content) {
@@ -1568,20 +1462,5 @@ onBeforeUnmount(() => {
     padding-left: 7px;
   }
 
-  .note-workspace-editor__word-count,
-  .note-workspace-editor__actions-divider {
-    display: none;
-  }
-
-  .note-workspace-editor__document-chip {
-    width: 36px;
-    padding: 0;
-    justify-content: center;
-  }
-
-  .note-workspace-editor__document-chip-label,
-  .note-workspace-editor__document-chip > .v-icon:last-child {
-    display: none;
-  }
 }
 </style>

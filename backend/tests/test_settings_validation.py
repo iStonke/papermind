@@ -130,7 +130,9 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertEqual(defaults.text_generation.provider, "ollama")
         self.assertEqual(defaults.ollama.chat_model, "llama3.2:3b")
         self.assertGreaterEqual(len(defaults.text_generation.system_prompt), 50)
-        self.assertEqual(len(defaults.text_generation.prompt_suggestions), 4)
+        self.assertEqual(len(defaults.text_generation.prompt_suggestions), 5)
+        self.assertIn("Als Tabelle strukturieren", defaults.text_generation.prompt_suggestions)
+        self.assertIn("gültige Markdown-Tabelle", defaults.text_generation.system_prompt)
         self.assertNotIn("ai_credentials", defaults.model_dump())
 
         patch = AppSettingsPatch.model_validate(

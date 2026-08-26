@@ -23,6 +23,10 @@ const workspaceEditorSource = await readFile(
   new URL('../src/components/notes/NoteWorkspaceEditor.vue', import.meta.url),
   'utf8',
 );
+const promptDefaultsSource = await readFile(
+  new URL('../src/constants/promptDefaults.js', import.meta.url),
+  'utf8',
+);
 
 test('slash menu opens a compact natural-language AI writing prompt', () => {
   assert.match(editorSource, /label: 'Mit KI schreiben'/);
@@ -75,11 +79,13 @@ test('selection AI result requires an explicit replace or insert action', () => 
   assert.match(editorSource, /insertContentAt\(\{ from, to \}, \{ type: 'aiBlock', attrs \}\)/);
 });
 
-test('AI writing has state-driven, reduced-motion-safe generation feedback', () => {
-  assert.match(editorSource, /aiPrompt\.open && aiPrompt\.loading/);
-  assert.match(editorSource, /class="pm-ai-anchor"/);
+test('AI writing has generation feedback without additional caret-like markers', () => {
+  assert.match(editorSource, /'is-generating': aiPrompt\.loading/);
+  assert.match(editorSource, /v-if="aiPrompt\.loading" class="pm-ai-prompt__progress"/);
   assert.match(editorSource, /class="pm-ai-prompt__progress"/);
-  assert.match(editorSource, /class="pm-ai-prompt__stream-caret"/);
+  assert.doesNotMatch(editorSource, /pm-ai-anchor/);
+  assert.doesNotMatch(editorSource, /pm-ai-prompt__stream-caret/);
+  assert.match(editorSource, /insertAiBlock\([\s\S]*?focus\('end'\)[\s\S]*?scrollIntoView\(\)/);
   assert.match(editorSource, /prefers-reduced-motion: reduce/);
   assert.match(aiViewSource, /'is-arriving': isArriving/);
   assert.match(aiViewSource, /Math\.abs\(Date\.now\(\) - generatedAt\) > 4000/);
@@ -117,4 +123,9 @@ test('AI prompt suggestion chips are globally configurable and capped at six', (
   assert.match(workspaceEditorSource, /:ai-prompt-suggestions="aiPromptSuggestions"/);
   assert.match(editorSource, /props\.aiPromptSuggestions/);
   assert.match(editorSource, /\.slice\(0, 6\)/);
+});
+
+test('AI writing offers a table prompt backed by valid Markdown guidance', () => {
+  assert.match(promptDefaultsSource, /Als Tabelle strukturieren/);
+  assert.match(promptDefaultsSource, /gültige Markdown-Tabelle/);
 });

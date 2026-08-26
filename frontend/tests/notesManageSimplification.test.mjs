@@ -93,11 +93,15 @@ test('note cards and the document detail drawer share the same inline tag editor
   assert.match(inlineTagEditorSource, /<v-chip[\s\S]*?closable[\s\S]*?class="pm-tags-input__chip"/);
   assert.match(inlineTagEditorSource, /<v-combobox[\s\S]*?multiple[\s\S]*?hide-selected[\s\S]*?no-filter/);
   assert.match(inlineTagEditorSource, /class="pm-tags-input__add"[\s\S]*?mdi-plus[\s\S]*?>Tag</);
+  assert.match(inlineTagEditorSource, /\.pm-tags-input__chips\s*\{[\s\S]*?display:\s*contents;/);
   assert.match(inlineTagEditorSource, /\.pm-tags-input__field\.v-input--focused[\s\S]*?width:\s*104px;/);
+  assert.doesNotMatch(inlineTagEditorSource, /\.pm-tags-input__chip\.v-chip:hover/);
+  assert.doesNotMatch(inlineTagEditorSource, /transform:\s*translateY\(-1px\)/);
+  assert.doesNotMatch(documentsWorkspaceSource, /\.pm-tags-input__chip\.v-chip:hover/);
 });
 
 test('each card owns its actions and the management grid has no multi-selection', () => {
-  assert.match(gridSource, /v-for="note in visibleItems"[\s\S]*?<v-menu location="bottom end"/);
+  assert.match(gridSource, /v-for="note in group\.notes"[\s\S]*?<v-menu location="bottom end"/);
   assert.match(gridSource, /icon="mdi-dots-vertical"/);
   assert.match(gridSource, /title="Umbenennen"/);
   assert.match(gridSource, /title="Als Vorlage speichern"/);

@@ -181,7 +181,23 @@
       @pointermove.passive="trackTableHandle"
       @pointerleave="clearHoveredTable"
     >
-      <editor-content :editor="editor" />
+      <div ref="writingEl" class="note-editor__writing">
+        <editor-content :editor="editor" />
+
+        <div
+          v-if="workspace && editorEmpty"
+          class="note-editor__empty-hint"
+          :class="{ 'is-positioned': emptyHintPositioned }"
+          :style="emptyHintStyle"
+          aria-hidden="true"
+        >
+          <span class="note-editor__empty-hint-title">{{ placeholder }}</span>
+          <span class="note-editor__empty-hint-detail">
+            <kbd>/</kbd>
+            <span>für Überschriften, Listen und weitere Bausteine</span>
+          </span>
+        </div>
+      </div>
 
       <button
         v-if="editor && tableHandle.visible"
@@ -420,15 +436,6 @@
 
       <!-- Schlanker Prompt direkt an der Einfügeposition. Nur Notiztext wird
            übertragen; Dokumentkontext ist ein separater, lokal erzwungener Pfad. -->
-      <div
-        v-if="editor && aiPrompt.open && aiPrompt.loading"
-        class="pm-ai-anchor"
-        :style="aiPrompt.anchorStyle"
-        aria-hidden="true"
-      >
-        <span class="pm-ai-anchor__core"></span>
-        <span class="pm-ai-anchor__glow"></span>
-      </div>
       <form
         v-if="editor && aiPrompt.open"
         class="pm-float pm-ai-prompt"
@@ -484,7 +491,7 @@
           >{{ suggestion }}</button>
         </div>
         <div v-if="aiPrompt.preview" class="pm-ai-prompt__preview" aria-live="polite">
-          <span>{{ aiPrompt.preview }}</span><span v-if="aiPrompt.loading" class="pm-ai-prompt__stream-caret" aria-hidden="true"></span>
+          <span>{{ aiPrompt.preview }}</span>
         </div>
         <div v-if="aiPrompt.loading" class="pm-ai-prompt__status" aria-live="polite">
           {{ aiPrompt.provider ? `${providerLabel(aiPrompt.provider)} · ${aiPrompt.model}` : 'Modell wird gestartet …' }}
@@ -556,7 +563,7 @@ const props = defineProps({
   modelValue: { type: Object, default: null },
   title: { type: String, default: '' },
   titlePlaceholder: { type: String, default: 'Titel der Notiz' },
-  placeholder: { type: String, default: 'Schreiben, oder „/" für Bausteine …' },
+  placeholder: { type: String, default: 'Einfach losschreiben …' },
   /** 'idle' | 'saving' | 'saved' — nur Anzeige, Speichern macht der Aufrufer. */
   status: { type: String, default: 'idle' },
   /** Beim Mounten den Titel fokussieren (z. B. neue Notiz im Dialog). */
@@ -588,11 +595,15 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'update:title', 'change', 'word-count']);
 
 const surfaceEl = ref(null);
+const writingEl = ref(null);
 const titleEl = ref(null);
 const aiPromptInputEl = ref(null);
 const linkInputEl = ref(null);
 const slashMenuEl = ref(null);
 const words = ref(0);
+const editorEmpty = ref(true);
+const emptyHintPositioned = ref(false);
+const emptyHintStyle = ref({ top: '0px', left: '0px' });
 const toolbarDucked = ref(false);
 const normalizedWritingWidth = computed(() =>
   ['compact', 'comfortable', 'wide'].includes(props.writingWidth)
@@ -615,6 +626,8 @@ let restoringWorkspaceScroll = false;
 let aiGenerationController = null;
 let historyFlashTimer = null;
 let linkCopiedTimer = null;
+let emptyHintPositionFrame = null;
+let emptyHintResizeObserver = null;
 
 const TOOLBAR_DUCK_SCROLL_THRESHOLD = 24;
 const TOOLBAR_REVEAL_DELAY_MS = 400;
@@ -657,6 +670,9 @@ const editor = useEditor({
   extensions: [
     StarterKit.configure({
       document: false,
+      // Keine künstliche, blinkende Auswahl zwischen Blockelementen anzeigen.
+      // Die normale Browser-Schreibmarke bleibt die einzige Cursoranzeige.
+      gapcursor: false,
       // H1 bleibt für bestehende Notizen lesbar, wird aber nicht mehr als
       // Formatierungsaktion angeboten. Der Notiztitel übernimmt diese Ebene.
       heading: { levels: [1, 2, 3, 4] },
@@ -710,7 +726,11 @@ const editor = useEditor({
     nextTick(refreshTableHandle);
   },
   onTransaction: ({ editor: ed, transaction }) => {
-    if (!transaction.docChanged || !isHistoryTransaction(transaction)) return;
+    if (!isHistoryTransaction(transaction)) {
+      if (transaction.docChanged || transaction.selectionSet) dismissHistoryFlash(ed);
+      return;
+    }
+    if (!transaction.docChanged) return;
     const range = historyChangedRange(transaction.before, transaction.doc);
     if (range) scheduleHistoryFlash(ed, range);
   },
@@ -724,6 +744,13 @@ onMounted(() => {
   if (props.autofocus) nextTick(() => titleEl.value?.focus());
   if (props.workspace) nextTick(() => bindFormattingToolbarScroll());
   nextTick(() => applySpellcheck(props.spellcheckEnabled));
+  nextTick(() => {
+    if (props.workspace && writingEl.value && typeof ResizeObserver !== 'undefined') {
+      emptyHintResizeObserver = new ResizeObserver(scheduleEmptyHintPosition);
+      emptyHintResizeObserver.observe(writingEl.value);
+    }
+    scheduleEmptyHintPosition();
+  });
 });
 
 watch(() => props.spellcheckEnabled, (enabled) => applySpellcheck(enabled));
@@ -736,6 +763,8 @@ onBeforeUnmount(() => {
   if (toolbarScrollRestoreFrame) window.cancelAnimationFrame(toolbarScrollRestoreFrame);
   if (historyFlashTimer) window.clearTimeout(historyFlashTimer);
   if (linkCopiedTimer) window.clearTimeout(linkCopiedTimer);
+  if (emptyHintPositionFrame) window.cancelAnimationFrame(emptyHintPositionFrame);
+  emptyHintResizeObserver?.disconnect();
 });
 
 function scheduleHistoryFlash(ed, range) {
@@ -750,6 +779,13 @@ function scheduleHistoryFlash(ed, range) {
   });
 }
 
+function dismissHistoryFlash(ed) {
+  if (!historyFlashTimer) return;
+  window.clearTimeout(historyFlashTimer);
+  historyFlashTimer = null;
+  clearHistoryFlash(ed);
+}
+
 function bindFormattingToolbarScroll() {
   toolbarScrollContainer = surfaceEl.value?.closest('.note-workspace-editor__scroll') || null;
   toolbarScrollAnchor = toolbarScrollContainer?.scrollTop || 0;
@@ -762,6 +798,7 @@ function applySpellcheck(enabled) {
 
 function onEditorScroll() {
   const scrollTop = toolbarScrollContainer?.scrollTop || 0;
+  if (slash.open) refreshSlash();
   if (restoringWorkspaceScroll) {
     toolbarScrollAnchor = scrollTop;
     return;
@@ -791,12 +828,17 @@ function restoreWorkspaceScroll(top) {
   const scrollElement = toolbarScrollContainer
     || surfaceEl.value?.closest('.note-workspace-editor__scroll');
   if (!scrollElement) return;
+  const targetTop = Math.max(0, Number(top) || 0);
   restoringWorkspaceScroll = true;
   toolbarDucked.value = false;
-  scrollElement.scrollTop = Math.max(0, Number(top) || 0);
+  scrollElement.scrollTop = targetTop;
   toolbarScrollAnchor = scrollElement.scrollTop;
   if (toolbarScrollRestoreFrame) window.cancelAnimationFrame(toolbarScrollRestoreFrame);
   toolbarScrollRestoreFrame = window.requestAnimationFrame(() => {
+    // Chromium kann die Auswahl beim Einblenden eines Overlays erst im
+    // nächsten Frame nachführen. Ein zweites Setzen hält dabei die zuvor
+    // gewählte Schreibposition stabil.
+    scrollElement.scrollTop = targetTop;
     toolbarScrollAnchor = scrollElement.scrollTop;
     restoringWorkspaceScroll = false;
     toolbarScrollRestoreFrame = null;
@@ -814,13 +856,63 @@ watch(() => props.modelValue, (next) => {
   if (aiPrompt.open) closeAIPrompt();
   closeLinkEditor();
   ed.commands.setContent(next || '', { emitUpdate: false });
+  resetSelectionAfterExternalContent(ed);
   updateWordCount(ed);
   nextTick(refreshTableHandle);
 });
 
+// Beim Notizwechsel (externe modelValue-Änderung) sauber aufräumen. Zwei
+// Chromium/ProseMirror-Fallen verursachen sonst die gemeldeten Schreibmarken-
+// Probleme:
+//   1. setContent bildet in TipTap v3 die bisherige Auswahl auf das NEUE Dokument
+//      ab → die Schreibmarke landet an einer willkürlichen Position.
+//   2. setTextSelection schreibt die DOM-Auswahl NUR, wenn der Editor gerade
+//      fokussiert ist. Beim Wechsel bleibt sonst eine veraltete DOM-Auswahl der
+//      vorigen Notiz stehen. Die zugehörige native Schreibmarke wird gezeichnet
+//      und beim nächsten Repaint nicht sauber gelöscht → „Geister"-Schreibmarken
+//      und Marken, die mitten im Leerraum stehen.
+// Deshalb: PM-Auswahl deterministisch an den Anfang, veraltete DOM-Auswahl
+// verwerfen und den Editor defokussieren. Explizite Fokus-Pfade (Verwaltungs-
+// raster/neue Notiz rufen focusBody nach nextTick) setzen den Fokus danach
+// gezielt neu.
+function resetSelectionAfterExternalContent(ed) {
+  ed.commands.setTextSelection(0);
+  if (typeof window !== 'undefined') {
+    const domSel = window.getSelection?.();
+    if (domSel?.rangeCount && ed.view?.dom?.contains(domSel.anchorNode)) {
+      domSel.removeAllRanges();
+    }
+  }
+  ed.commands.blur();
+}
+
 function updateWordCount(ed) {
+  editorEmpty.value = Boolean(ed?.isEmpty);
+  if (editorEmpty.value) scheduleEmptyHintPosition();
+  else emptyHintPositioned.value = false;
   words.value = countWords(ed?.getText());
   emit('word-count', words.value);
+}
+
+function scheduleEmptyHintPosition() {
+  if (!props.workspace || !editorEmpty.value) return;
+  nextTick(() => {
+    if (emptyHintPositionFrame) window.cancelAnimationFrame(emptyHintPositionFrame);
+    emptyHintPositionFrame = window.requestAnimationFrame(() => {
+      emptyHintPositionFrame = null;
+      const writing = writingEl.value;
+      const firstParagraph = writing?.querySelector('.pm-content > p:first-child');
+      if (!writing || !firstParagraph || !editorEmpty.value) return;
+
+      const writingRect = writing.getBoundingClientRect();
+      const paragraphRect = firstParagraph.getBoundingClientRect();
+      emptyHintStyle.value = {
+        top: `${paragraphRect.top - writingRect.top}px`,
+        left: `${paragraphRect.left - writingRect.left}px`,
+      };
+      emptyHintPositioned.value = true;
+    });
+  });
 }
 
 function countWords(text) {
@@ -828,8 +920,14 @@ function countWords(text) {
   return t ? t.split(/\s+/).length : 0;
 }
 
-function focusBody() {
-  editor.value?.chain().focus().run();
+function focusBody(position) {
+  const ed = editor.value;
+  if (!ed) return;
+  if (position === 'start' || position === 'end') {
+    ed.chain().focus(position).run();
+    return;
+  }
+  ed.chain().focus().run();
 }
 
 function focusEditorEndFromWhitespace(event) {
@@ -1340,8 +1438,38 @@ const slashMenuEntries = computed(() =>
 // der Schreibfläche, damit es am rechten Rand nicht abgeschnitten wird.
 const MENU_WIDTH = 268;
 const MENU_MARGIN = 8;
+const MENU_GAP = 4;
+const MENU_MAX_HEIGHT = 420;
+const MENU_MIN_OPEN_HEIGHT = 180;
+const MENU_VIEWPORT_MARGIN = 12;
 function clampMenuLeft(rawLeft, boxWidth, menuWidth = MENU_WIDTH) {
   return Math.max(MENU_MARGIN, Math.min(rawLeft, boxWidth - menuWidth - MENU_MARGIN));
+}
+
+function clampViewportMenuLeft(rawLeft, surfaceRect, menuWidth = MENU_WIDTH) {
+  const minLeft = Math.max(MENU_MARGIN, surfaceRect.left + MENU_MARGIN);
+  const visibleRight = Math.min(window.innerWidth - MENU_MARGIN, surfaceRect.right - MENU_MARGIN);
+  const maxLeft = Math.max(minLeft, visibleRight - menuWidth);
+  return Math.max(minLeft, Math.min(rawLeft, maxLeft));
+}
+
+function slashMenuPlacement(rect, surfaceRect) {
+  const scrollRect = toolbarScrollContainer?.getBoundingClientRect();
+  const visibleTop = Math.max(0, scrollRect?.top ?? 0) + MENU_VIEWPORT_MARGIN;
+  const visibleBottom = Math.min(window.innerHeight, scrollRect?.bottom ?? window.innerHeight)
+    - MENU_VIEWPORT_MARGIN;
+  const spaceBelow = Math.max(0, visibleBottom - rect.bottom - MENU_GAP);
+  const spaceAbove = Math.max(0, rect.top - visibleTop - MENU_GAP);
+  const opensAbove = spaceBelow < MENU_MIN_OPEN_HEIGHT && spaceAbove > spaceBelow;
+  const maxHeight = Math.min(MENU_MAX_HEIGHT, opensAbove ? spaceAbove : spaceBelow);
+
+  return {
+    left: `${clampViewportMenuLeft(rect.left, surfaceRect)}px`,
+    top: opensAbove ? 'auto' : `${rect.bottom + MENU_GAP}px`,
+    bottom: opensAbove ? `${window.innerHeight - rect.top + MENU_GAP}px` : 'auto',
+    maxHeight: `${Math.floor(maxHeight)}px`,
+    transformOrigin: opensAbove ? '18px calc(100% + 5px)' : '18px -5px',
+  };
 }
 
 function refreshSlash() {
@@ -1362,7 +1490,11 @@ function refreshSlash() {
   const slashLen = match[1].length + 1;
   slash.from = state.selection.from - slashLen;
   slash.query = match[1];
-  if (!slash.open) {
+  const opening = !slash.open;
+  const scrollTopBeforeOpen = opening && toolbarScrollContainer
+    ? toolbarScrollContainer.scrollTop
+    : null;
+  if (opening) {
     slash.index = 0;
     slash.selectionVisible = false;
   }
@@ -1370,10 +1502,10 @@ function refreshSlash() {
 
   const rect = posToDOMRect(view, state.selection.from, state.selection.from);
   const box = surface.getBoundingClientRect();
-  slash.style = {
-    left: `${clampMenuLeft(rect.left - box.left, box.width)}px`,
-    top: `${rect.bottom - box.top + 4}px`,
-  };
+  slash.style = slashMenuPlacement(rect, box);
+  if (scrollTopBeforeOpen != null) {
+    nextTick(() => restoreWorkspaceScroll(scrollTopBeforeOpen));
+  }
   nextTick(updateSlashSelection);
 }
 
@@ -1446,7 +1578,6 @@ const aiPrompt = reactive({
   selectionTo: null,
   selectedText: '',
   style: {},
-  anchorStyle: {},
 });
 const aiSelectionTooLong = computed(() => (
   aiPrompt.mode === 'selection' && aiPrompt.selectedText.length > 8000
@@ -1470,11 +1601,6 @@ function positionAIPrompt() {
   aiPrompt.style = {
     left: `${clampMenuLeft(rect.left - box.left, box.width, AI_PROMPT_WIDTH)}px`,
     top: `${rect.bottom - box.top + 4}px`,
-  };
-  aiPrompt.anchorStyle = {
-    left: `${rect.left - box.left - 3}px`,
-    top: `${rect.top - box.top}px`,
-    height: `${Math.max(18, rect.height)}px`,
   };
 }
 
@@ -1565,7 +1691,7 @@ function applySelectionAIResult(action) {
   } else {
     chain.setTextSelection(to).insertAiBlock(attrs);
   }
-  chain.scrollIntoView().run();
+  chain.focus('end').scrollIntoView().run();
   closeAIPrompt();
 }
 
@@ -1613,6 +1739,8 @@ async function generateAIText() {
       .focus()
       .setTextSelection(insertionPos)
       .insertAiBlock({ ...aiBlockAttrs() })
+      .focus('end')
+      .scrollIntoView()
       .run();
     aiPrompt.open = false;
   } catch (error) {
@@ -1872,12 +2000,14 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   overflow-y: hidden;
   border: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 88%, transparent);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--pm-app-surface-raised, #fff) 94%, transparent);
+  /* Deckende Fläche statt backdrop-filter: Ein sticky-Element mit
+     backdrop-filter über dem scrollenden Editor löst in Chromium
+     Schreibmarken-Geister aus (die echte Caret-Fläche wird beim Scrollen
+     nicht invalidiert, es bleiben eingefrorene Caret-Kopien stehen). */
+  background: var(--pm-app-surface-raised, #fff);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
   scrollbar-color: color-mix(in srgb, var(--pm-muted, #535e62) 35%, transparent) transparent;
   scrollbar-width: thin;
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
   transition:
     background-color 220ms ease,
     border-color 220ms ease,
@@ -1886,14 +2016,16 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 
 .note-editor__toolbar.is-ducked {
   border-color: color-mix(in srgb, var(--pm-divider, #d8dfe1) 18%, transparent);
-  background: color-mix(in srgb, var(--pm-app-surface-raised, #fff) 52%, transparent);
+  /* Weiterhin deckend (siehe oben) – das „Ducken“ liest sich nun über
+     Rahmen und Schatten, nicht mehr über Transparenz + Blur. */
+  background: var(--pm-app-surface-raised, #fff);
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.015);
 }
 
 .note-editor__toolbar.is-ducked:hover,
 .note-editor__toolbar.is-ducked:focus-within {
   border-color: color-mix(in srgb, var(--pm-divider, #d8dfe1) 88%, transparent);
-  background: color-mix(in srgb, var(--pm-app-surface-raised, #fff) 94%, transparent);
+  background: var(--pm-app-surface-raised, #fff);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
 }
 
@@ -1964,11 +2096,105 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   padding: 24px clamp(28px, 5vw, 58px) 88px;
 }
 
+.note-editor__writing {
+  position: relative;
+}
+
+.note-editor--workspace .note-editor__writing {
+  width: 100%;
+  max-width: 76ch;
+  font-family: var(--note-editor-font-family);
+  font-size: clamp(1rem, 1.5vw, 1.13rem);
+}
+
+.note-editor--workspace.note-editor--width-compact .note-editor__writing {
+  max-width: 58ch;
+}
+
+.note-editor--workspace.note-editor--width-wide .note-editor__writing {
+  max-width: 92ch;
+}
+
+.note-editor--workspace.is-centered .note-editor__writing {
+  margin-inline: auto;
+}
+
+.note-editor__empty-hint {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  display: grid;
+  gap: 8px;
+  max-width: min(100%, 520px);
+  color: var(--pm-muted, #748084);
+  opacity: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+.note-editor__empty-hint.is-positioned {
+  opacity: 1;
+  animation: note-editor-empty-hint-in 180ms var(--pm-easing, ease-out) both;
+}
+
+.note-editor__empty-hint-title {
+  font-size: clamp(0.94rem, 1.25vw, 1.02rem);
+  font-weight: 520;
+  line-height: 1.4;
+  letter-spacing: -0.005em;
+}
+
+.note-editor__empty-hint-detail {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: color-mix(in srgb, var(--pm-muted, #748084) 76%, transparent);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.note-editor__empty-hint-detail kbd {
+  display: inline-grid;
+  min-width: 22px;
+  height: 22px;
+  padding-inline: 6px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--pm-muted, #748084) 28%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--pm-content-surface, #fff) 94%, var(--pm-muted, #748084) 6%);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--pm-muted, #748084) 20%, transparent);
+  color: var(--pm-muted, #657176);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.76rem;
+  font-weight: 650;
+  line-height: 1;
+}
+
+@keyframes note-editor-empty-hint-in {
+  from { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .note-editor__empty-hint {
+    animation: none;
+  }
+}
+
+:global(.pm-no-animations) .note-editor__empty-hint {
+  animation: none;
+}
+
 .note-editor--workspace :deep(.pm-content) {
   max-width: 76ch;
   min-height: 340px;
   font-size: clamp(1rem, 1.5vw, 1.13rem);
-  line-height: 1.68;
+  /* Ausgewogene Zeilenhöhe: Der Browser leitet die Höhe der Schreibmarke aus
+     der line-height ab (es gibt kein separates caret-height). Bei 1.68/1.7 wirkte
+     die Caret deutlich zu hoch. Chromium zeichnet die Caret am Ende des letzten
+     Blocks in Schrifthöhe, sonst in Zeilenhöhe – der sichtbare Unterschied ist das
+     Leading (line-height − Schrifthöhe). 1.35 hält es klein (~3px) und lesbar. */
+  line-height: 1.35;
 }
 
 /* ── Fließtext (ProseMirror) ─────────────────────────────────────────────── */
@@ -1977,7 +2203,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   color: var(--pm-text, #0e181b);
   font-family: var(--note-editor-font-family);
   font-size: 1.0625rem;
-  line-height: 1.7;
+  line-height: 1.35;
   max-width: 68ch;
   caret-color: var(--pm-accent, #006b75);
 }
@@ -2044,30 +2270,12 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   animation: pm-history-change-flash 720ms ease-out both;
 }
 
-.note-editor :deep(.pm-history-flash-caret) {
-  display: inline-block;
-  width: 3px;
-  height: 1.2em;
-  margin: 0 -1.5px;
-  border-radius: 3px;
-  background: var(--pm-accent, #006b75);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent);
-  vertical-align: -0.18em;
-  pointer-events: none;
-  animation: pm-history-caret-flash 720ms ease-out both;
-}
-
 @keyframes pm-history-change-flash {
   0% {
     background: color-mix(in srgb, var(--pm-accent, #006b75) 22%, transparent);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--pm-accent, #006b75) 7%, transparent);
   }
   100% { background: transparent; box-shadow: 0 0 0 0 transparent; }
-}
-
-@keyframes pm-history-caret-flash {
-  0% { opacity: 1; transform: scaleY(1); }
-  100% { opacity: 0; transform: scaleY(0.72); }
 }
 
 /* Task-Listen */
@@ -2181,6 +2389,10 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   content: attr(data-placeholder);
   float: left; height: 0; pointer-events: none;
   color: var(--pm-muted, #8a969b); opacity: 0.6;
+}
+
+.note-editor--workspace :deep(.pm-content p.is-editor-empty:first-child::before) {
+  content: none;
 }
 
 /* ── Schwebende Menüs ────────────────────────────────────────────────────── */
@@ -2453,6 +2665,8 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   display: flex; flex-direction: column; gap: 1px;
 }
 .pm-slash--commands {
+  position: fixed;
+  overflow-anchor: none;
   transform-origin: 18px -5px;
   animation: pm-slash-open 235ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
@@ -2637,16 +2851,6 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   background: color-mix(in srgb, var(--pm-accent, #006b75) 6%, transparent);
   color: var(--pm-text, #0e181b); white-space: pre-wrap; font-size: 0.82rem; line-height: 1.5;
 }
-.pm-ai-prompt__stream-caret {
-  display: inline-block;
-  width: 2px;
-  height: 1.05em;
-  margin-left: 3px;
-  border-radius: 2px;
-  background: var(--pm-accent, #006b75);
-  vertical-align: -0.12em;
-  animation: pm-ai-stream-caret 720ms ease-in-out infinite;
-}
 .pm-ai-prompt__status { margin-top: 7px; color: var(--pm-muted, #535e62); font-size: 0.7rem; }
 .pm-ai-prompt__result-actions {
   display: flex;
@@ -2683,50 +2887,10 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   width: 15px; height: 15px; border: 2px solid currentColor; border-right-color: transparent;
   border-radius: 50%; animation: pm-ai-spin 700ms linear infinite;
 }
-.pm-ai-anchor {
-  position: absolute;
-  z-index: 29;
-  width: 6px;
-  min-height: 18px;
-  pointer-events: none;
-}
-.pm-ai-anchor__core {
-  position: absolute;
-  inset: 0 auto 0 2px;
-  width: 2px;
-  border-radius: 999px;
-  background: var(--pm-accent, #006b75);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--pm-accent, #006b75) 58%, transparent);
-  animation: pm-ai-anchor-pulse 1.15s ease-in-out infinite;
-}
-.pm-ai-anchor__glow {
-  position: absolute;
-  top: 50%;
-  left: 3px;
-  width: 54px;
-  height: 18px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--pm-accent, #006b75) 19%, transparent), transparent);
-  filter: blur(5px);
-  transform: translateY(-50%);
-  animation: pm-ai-anchor-breathe 1.15s ease-in-out infinite;
-}
 @keyframes pm-ai-spin { to { transform: rotate(360deg); } }
 @keyframes pm-ai-progress {
   from { transform: translateX(-120%); }
   to { transform: translateX(340%); }
-}
-@keyframes pm-ai-stream-caret {
-  0%, 100% { opacity: 0.28; }
-  50% { opacity: 1; }
-}
-@keyframes pm-ai-anchor-pulse {
-  0%, 100% { opacity: 0.62; transform: scaleY(0.72); }
-  50% { opacity: 1; transform: scaleY(1); }
-}
-@keyframes pm-ai-anchor-breathe {
-  0%, 100% { opacity: 0.28; transform: translateY(-50%) scaleX(0.72); transform-origin: left; }
-  50% { opacity: 0.7; transform: translateY(-50%) scaleX(1); transform-origin: left; }
 }
 
 /* ── Statuszeile ─────────────────────────────────────────────────────────── */
@@ -2754,9 +2918,6 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 
   .pm-ai-prompt__spinner,
   .pm-ai-prompt__progress > span,
-  .pm-ai-prompt__stream-caret,
-  .pm-ai-anchor__core,
-  .pm-ai-anchor__glow,
   .pm-slash--commands,
   .pm-table-handle { animation: none; }
 
@@ -2764,8 +2925,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   .pm-slash__chip,
   .pm-table-handle { transition: none; }
 
-  .note-editor :deep(.pm-history-flash),
-  .note-editor :deep(.pm-history-flash-caret) { animation: none; }
+  .note-editor :deep(.pm-history-flash) { animation: none; }
 }
 
 :global(.pm-no-animations) .note-editor__toolbar {
@@ -2773,10 +2933,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 
 :global(.pm-no-animations) .pm-ai-prompt__spinner,
-:global(.pm-no-animations) .pm-ai-prompt__progress > span,
-:global(.pm-no-animations) .pm-ai-prompt__stream-caret,
-:global(.pm-no-animations) .pm-ai-anchor__core,
-:global(.pm-no-animations) .pm-ai-anchor__glow {
+:global(.pm-no-animations) .pm-ai-prompt__progress > span {
   animation: none;
 }
 
@@ -2797,8 +2954,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   transition: none;
 }
 
-:global(.pm-no-animations) .note-editor :deep(.pm-history-flash),
-:global(.pm-no-animations) .note-editor :deep(.pm-history-flash-caret) {
+:global(.pm-no-animations) .note-editor :deep(.pm-history-flash) {
   animation: none;
 }
 

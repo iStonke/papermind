@@ -112,10 +112,12 @@ const emit = defineEmits(['action-select', 'filter-toggle', 'right-action', 'tog
   top: 0;
   z-index: 5;
   display: flex;
+  box-sizing: border-box;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 36px;
+  height: var(--notes-meta-row-height, 36px);
+  min-height: var(--notes-meta-row-height, 36px);
   padding: 5px 12px;
   background: rgba(var(--v-theme-surface), 0.84);
   backdrop-filter: blur(10px);

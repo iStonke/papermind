@@ -94,6 +94,9 @@ Wenn der Nutzer eine Aufzählung verlangt, verwende gültiges Markdown: Jeder
 ungeordnete Listenpunkt beginnt in einer eigenen Zeile mit „- “, nummerierte
 Listen verwenden „1. “, „2. “ usw.
 
+Wenn der Nutzer eine Tabelle verlangt, verwende eine gültige Markdown-Tabelle
+mit Kopfzeile und Trennzeile – ohne Markdown-Codeblock.
+
 Nutze ausschließlich die bereitgestellten Informationen. Erfinde keine Fakten.
 Wenn Informationen fehlen oder unsicher sind, formuliere das ausdrücklich.
 
@@ -106,6 +109,7 @@ NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT: tuple[str, ...] = (
     "Fasse kurz zusammen",
     "Formuliere sachlicher",
     "Ergänze offene Fragen",
+    "Als Tabelle strukturieren",
 )
 
 

@@ -187,7 +187,7 @@
           :loading="creating"
           @click="createNote"
         >
-          <v-icon size="20" class="mr-1">mdi-plus</v-icon>
+          <v-icon size="20" class="mr-1">mdi-square-edit-outline</v-icon>
           Neue Notiz
         </v-btn>
         <v-menu
@@ -566,6 +566,7 @@ async function loadNotes() {
 // Zeitraumfilter zurücksetzen, damit die Ziel-Notiz garantiert sichtbar ist.
 async function applyPendingOpen() {
   const id = notesStore.pendingOpenId;
+  const cursorPosition = notesStore.pendingOpenCursorPosition;
   if (!id) return;
   await notesStore.ensureLoaded();
   if (!notesStore.notes.some((note) => note.id === id)) {
@@ -574,7 +575,10 @@ async function applyPendingOpen() {
   }
   if (notesStore.notes.some((note) => note.id === id)) {
     dateRange.value = '';
-    if (await selectNote(id)) notesStore.consumeOpen();
+    if (await selectNote(id) && notesStore.pendingOpenId === id) {
+      notesStore.consumeOpen();
+      await focusRequestedEditorBody(cursorPosition);
+    }
   }
 }
 
@@ -648,12 +652,12 @@ function toggleManageMode() {
 
 // Aus der Verwaltungsfläche eine Notiz im Editor öffnen: Modus verlassen und
 // die Notiz aktivieren (nach dem Bulk-Refresh liegt sie sicher in der Liste).
-async function openNoteFromManage(noteId) {
+async function openNoteFromManage(noteId, { cursorPosition = null } = {}) {
   isManageMode.value = false;
   await notesStore.ensureLoaded();
   if (!notesStore.notes.some((note) => note.id === noteId)) await notesStore.fetchNotes();
   dateRange.value = '';
-  await selectNote(noteId);
+  if (await selectNote(noteId)) await focusRequestedEditorBody(cursorPosition);
 }
 
 // Kartenaktion hat Papierkorb/Vorlagen/Notizen verändert → Umgebung informieren.
@@ -665,14 +669,22 @@ function updateCompactLayout(event) {
   isCompactLayout.value = Boolean(event?.matches);
 }
 
-// Frisch angelegte Notiz auswählen und die Anlege-Animation auslösen.
-function revealNewNote(note) {
+// Frisch angelegte Notiz auswählen, die Anlege-Animation auslösen und den
+// Cursor erst nach dem Rendern direkt in die Schreibfläche setzen.
+async function revealNewNote(note, cursorPosition = 'start') {
   activeNoteId.value = note.id;
   newlyCreatedNoteId.value = note.id;
   if (newNoteAnimationTimer) window.clearTimeout(newNoteAnimationTimer);
   // Fallback, falls Animationen deaktiviert sind und deshalb kein
   // animationend-Ereignis ausgelöst wird.
   newNoteAnimationTimer = window.setTimeout(() => finishNewNoteAnimation(note.id), 700);
+  await focusRequestedEditorBody(cursorPosition);
+}
+
+async function focusRequestedEditorBody(cursorPosition) {
+  if (!['start', 'end'].includes(cursorPosition)) return;
+  await nextTick();
+  await editorPanelRef.value?.focusEditorBody?.(cursorPosition);
 }
 
 async function createNote() {
@@ -680,7 +692,7 @@ async function createNote() {
   creating.value = true;
   loadError.value = '';
   try {
-    revealNewNote(await notesStore.create());
+    await revealNewNote(await notesStore.create());
   } catch {
     loadError.value = 'Die Notiz konnte nicht angelegt werden.';
   } finally {
@@ -693,7 +705,7 @@ async function createNoteFromTemplate(templateId) {
   creating.value = true;
   loadError.value = '';
   try {
-    revealNewNote(await notesStore.createFromTemplate(templateId));
+    await revealNewNote(await notesStore.createFromTemplate(templateId), 'end');
   } catch {
     loadError.value = 'Die Notiz konnte aus der Vorlage nicht angelegt werden.';
   } finally {
@@ -847,7 +859,8 @@ function formatDate(value) {
 <style scoped>
 .notes-ws {
   --notes-list-width: clamp(300px, 31vw, 380px);
-  --notes-header-height: 60px;
+  --notes-header-height: 54px;
+  --notes-meta-row-height: 36px;
 
   display: flex;
   min-width: 0;
@@ -919,11 +932,13 @@ function formatDate(value) {
   position: relative;
   flex: none;
   display: flex;
+  box-sizing: border-box;
+  height: var(--notes-header-height);
   min-height: var(--notes-header-height);
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 14px;
+  padding: 8px 14px;
   background: rgba(var(--v-theme-surface), 0.68);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -1052,21 +1067,30 @@ function formatDate(value) {
   gap: 1px;
   border-radius: 999px;
   box-shadow: 0 6px 20px -6px rgba(0, 0, 0, 0.32), 0 2px 6px -2px rgba(0, 0, 0, 0.18);
+  transition: box-shadow 180ms var(--pm-easing, cubic-bezier(0.2, 0, 0, 1));
 }
 .notes-ws__fab .v-btn {
   text-transform: none;
   letter-spacing: 0;
   transition:
-    background-color var(--pm-duration-fast, 140ms) var(--pm-easing, ease),
-    box-shadow var(--pm-duration-fast, 140ms) var(--pm-easing, ease);
+    background-color 180ms var(--pm-easing, cubic-bezier(0.2, 0, 0, 1)),
+    box-shadow 180ms var(--pm-easing, cubic-bezier(0.2, 0, 0, 1));
 }
 .notes-ws__fab .v-btn:hover:not(.v-btn--disabled) {
   background-color: color-mix(
     in srgb,
-    rgb(var(--v-theme-primary)) 88%,
-    rgb(var(--v-theme-on-surface)) 12%
+    rgb(var(--v-theme-primary)) 91%,
+    rgb(var(--v-theme-on-primary)) 9%
   ) !important;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, rgb(var(--v-theme-on-primary)) 18%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, rgb(var(--v-theme-on-primary)) 28%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, rgb(var(--v-theme-on-primary)) 14%, transparent);
+}
+.notes-ws__fab:has(.v-btn:hover:not(.v-btn--disabled)) {
+  box-shadow:
+    0 10px 28px -10px color-mix(in srgb, rgb(var(--v-theme-primary)) 56%, transparent),
+    0 4px 10px -5px rgba(0, 0, 0, 0.3),
+    0 0 0 3px color-mix(in srgb, rgb(var(--v-theme-primary)) 13%, transparent);
 }
 .notes-ws__fab-main.v-btn {
   height: 44px;
@@ -1482,6 +1506,8 @@ function formatDate(value) {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .notes-ws__fab,
+  .notes-ws__fab .v-btn,
   .list-header-btn.v-btn,
   .notes-ws__manage-switch-indicator,
   .notes-ws__list-panel,
@@ -1493,6 +1519,11 @@ function formatDate(value) {
   .notes-ws__item.is-new {
     animation: none;
   }
+}
+
+:global(.pm-no-animations) .notes-ws__fab,
+:global(.pm-no-animations) .notes-ws__fab .v-btn {
+  transition-duration: 0ms;
 }
 
 :global(.pm-no-animations) .notes-ws__item.is-new {
