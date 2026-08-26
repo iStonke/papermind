@@ -406,6 +406,21 @@ test('list and editor headers share one separator height', () => {
   assert.match(workspaceEditorSource, /\.note-workspace-editor__meta-tags :deep\(\.pm-tags-input__chips\)\s*\{[\s\S]*?flex-wrap:\s*nowrap;[\s\S]*?overflow-x:\s*auto/);
 });
 
+test('editor metadata actions use exactly the same surface as the title row', () => {
+  assert.match(
+    workspaceEditorSource,
+    /\.note-workspace-editor\s*\{[\s\S]*?--pm-note-editor-header-bg:\s*rgba\(var\(--v-theme-surface\), 0\.68\)/,
+  );
+  assert.match(
+    workspaceEditorSource,
+    /\.note-workspace-editor__bar\s*\{[\s\S]*?background:\s*var\(--pm-note-editor-header-bg\)/,
+  );
+  assert.match(
+    workspaceEditorSource,
+    /\.note-workspace-editor__meta\s*\{[\s\S]*?background:\s*var\(--pm-note-editor-header-bg\)/,
+  );
+});
+
 test('workspace editor omits the last-edited metadata area completely', () => {
   assert.doesNotMatch(workspaceEditorSource, /Zuletzt|lastEdited|formatRelativeDate/);
   assert.doesNotMatch(workspaceEditorSource, /note-workspace-editor__meta-(line|divider|chip)/);

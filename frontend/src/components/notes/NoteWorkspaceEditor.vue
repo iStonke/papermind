@@ -950,6 +950,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .note-workspace-editor {
+  --pm-note-editor-header-bg: rgba(var(--v-theme-surface), 0.68);
   display: flex;
   width: 100%;
   height: 100%;
@@ -972,7 +973,7 @@ onBeforeUnmount(() => {
   /* Keine eigene Linie mehr – Titel + Tags bilden EINEN Kopfblock; die einzige
      Trennlinie sitzt unter den Tags (Metazeile) und fluchtet mit dem unteren
      Trenner der linken Filterleiste. */
-  background: rgba(var(--v-theme-surface), 0.68);
+  background: var(--pm-note-editor-header-bg);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
@@ -1051,6 +1052,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   padding: 0 16px;
   border-bottom: 1px solid var(--pm-divider, #d8dfe1);
+  background: var(--pm-note-editor-header-bg);
 }
 .note-workspace-editor__meta-main {
   display: flex;
