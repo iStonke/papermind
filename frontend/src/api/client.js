@@ -81,18 +81,25 @@ export function authedUrl(url) {
  * Liest die Fehlermeldung aus einer nicht-ok Response.
  * Versucht JSON zu parsen, fällt auf Status-Text zurück.
  */
-async function readErrorMessage(response) {
+async function readErrorPayload(response) {
   try {
     const payload = await response.json();
-    return payload?.error?.message || `Request failed (${response.status})`;
+    return {
+      message: payload?.error?.message || `Request failed (${response.status})`,
+      code: payload?.error?.code || '',
+      details: payload?.error?.details ?? null,
+    };
   } catch {
-    return `Request failed (${response.status})`;
+    return { message: `Request failed (${response.status})`, code: '', details: null };
   }
 }
 
 async function responseError(response) {
-  const error = new Error(await readErrorMessage(response));
+  const payload = await readErrorPayload(response);
+  const error = new Error(payload.message);
   error.status = response.status;
+  error.code = payload.code;
+  error.details = payload.details;
   return error;
 }
 

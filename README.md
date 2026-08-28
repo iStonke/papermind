@@ -1,7 +1,8 @@
 # PaperMind (AP9)
 
 Monorepo mit Docker-Compose-Laufzeit:
-- Frontend: Vue 3 + Vuetify, statisch gebaut und über Nginx ausgeliefert
+- Frontend: Vue 3 + Vuetify; lokal als Vite-Dev-Server mit Live-Quellen,
+  in Produktion statisch gebaut und über Nginx ausgeliefert
 - Backend: FastAPI + SQLAlchemy + Alembic
 - DB: PostgreSQL 17 + pgvector
 - AI-Service: Embedding-API (lokales Modell)
@@ -59,6 +60,11 @@ docker compose up -d --build worker
 docker compose stop
 docker compose start
 ```
+
+Der lokale Frontend-Container verwendet Vite und bind-mountet `frontend/`.
+Quellcodeänderungen sind daher sofort sichtbar und bleiben auch nach
+`docker compose restart frontend` aktuell. Nur Änderungen an Dockerfile oder
+Runtime-Version erfordern `docker compose build frontend`.
 
 Aufräumen:
 ```bash

@@ -1,7 +1,7 @@
 import copy
 import re
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import func, select
@@ -9,10 +9,20 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.note import Note, NoteLink, NoteTask
+from app.core.errors import ConflictError, NotFoundError
+from app.models.note import Note, NoteLink, NoteRevision, NoteTask
 from app.models.note_tag import note_tags
 from app.models.tag import Tag
-from app.schemas.notes import NoteCreateRequest, NoteListItem, NoteSearchScope, NoteTagRef, NoteUpdateRequest
+from app.schemas.notes import (
+    NoteCreateRequest,
+    NoteHistoryReason,
+    NoteListItem,
+    NoteRevisionListItem,
+    NoteRevisionListResponse,
+    NoteSearchScope,
+    NoteTagRef,
+    NoteUpdateRequest,
+)
 from app.services.document_search import build_ts_query_expr, normalize_search_query
 
 # Leeres ProseMirror-Dokument (ein Absatz) als Default für neue/kaputte Bodies.
@@ -29,6 +39,8 @@ _NODE_TEXT_ATTRS: dict[str, tuple[str, ...]] = {
 
 _WS = re.compile(r"\s+")
 _PREVIEW_LEN = 200
+_NOTE_HISTORY_LIMIT = 100
+_AUTOSAVE_HISTORY_WINDOW = timedelta(minutes=5)
 
 
 def _search_preview(body_text: str, query: str | None) -> str:
@@ -180,10 +192,18 @@ class NoteService:
         self.db = db
         self.owner_id = owner_id
 
-    def _get(self, note_id: uuid.UUID, *, include_deleted: bool = False) -> Note | None:
+    def _get(
+        self,
+        note_id: uuid.UUID,
+        *,
+        include_deleted: bool = False,
+        for_update: bool = False,
+    ) -> Note | None:
         stmt = select(Note).where(Note.id == note_id, Note.owner_id == self.owner_id)
         if not include_deleted:
             stmt = stmt.where(Note.is_deleted.is_(False))
+        if for_update:
+            stmt = stmt.with_for_update()
         return self.db.scalar(stmt)
 
     def _link_counts(self, note_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
@@ -305,6 +325,74 @@ class NoteService:
         for task in extract_note_tasks(note.body_json):
             self.db.add(NoteTask(note_id=note.id, **task))
 
+    def _latest_revision(self, note_id: uuid.UUID, *, for_update: bool = False) -> NoteRevision | None:
+        stmt = (
+            select(NoteRevision)
+            .where(NoteRevision.note_id == note_id, NoteRevision.owner_id == self.owner_id)
+            .order_by(NoteRevision.updated_at.desc(), NoteRevision.created_at.desc())
+            .limit(1)
+        )
+        if for_update:
+            stmt = stmt.with_for_update()
+        return self.db.scalar(stmt)
+
+    @staticmethod
+    def _revision_matches_note(revision: NoteRevision, note: Note) -> bool:
+        return revision.title == (note.title or "") and revision.body_json == (note.body_json or EMPTY_DOC)
+
+    def _record_revision(
+        self,
+        note: Note,
+        *,
+        reason: NoteHistoryReason = "autosave",
+        force_new: bool = False,
+    ) -> NoteRevision:
+        """Aktuellen Stand ablegen; eng aufeinanderfolgende Autosaves bündeln."""
+        now = datetime.now(timezone.utc)
+        latest = self._latest_revision(note.id, for_update=True)
+        latest_updated_at = latest.updated_at if latest else None
+        if latest_updated_at is not None and latest_updated_at.tzinfo is None:
+            latest_updated_at = latest_updated_at.replace(tzinfo=timezone.utc)
+        can_group = (
+            not force_new
+            and reason == "autosave"
+            and latest is not None
+            and latest.reason == "autosave"
+            and latest_updated_at is not None
+            and latest_updated_at >= now - _AUTOSAVE_HISTORY_WINDOW
+        )
+        if can_group:
+            latest.note_revision = int(note.revision or 1)
+            latest.title = note.title or ""
+            latest.body_json = copy.deepcopy(note.body_json) or EMPTY_DOC
+            latest.body_text = note.body_text or ""
+            latest.updated_at = now
+            return latest
+
+        revision = NoteRevision(
+            note_id=note.id,
+            owner_id=self.owner_id,
+            note_revision=int(note.revision or 1),
+            reason=reason,
+            title=note.title or "",
+            body_json=copy.deepcopy(note.body_json) or EMPTY_DOC,
+            body_text=note.body_text or "",
+            created_at=now,
+            updated_at=now,
+        )
+        self.db.add(revision)
+        return revision
+
+    def _checkpoint_revision(self, note: Note, reason: NoteHistoryReason) -> NoteRevision:
+        """Autosave-Gruppe abschließen, ohne identische Doppelstände anzulegen."""
+        latest = self._latest_revision(note.id, for_update=True)
+        if latest is not None and self._revision_matches_note(latest, note):
+            if latest.reason == "autosave":
+                latest.reason = reason
+                latest.updated_at = datetime.now(timezone.utc)
+            return latest
+        return self._record_revision(note, reason=reason, force_new=True)
+
     def create_note(self, payload: NoteCreateRequest) -> Note:
         body_json = payload.body_json or EMPTY_DOC
         note = Note(
@@ -320,6 +408,7 @@ class NoteService:
         if not note.is_template:
             self._sync_links(note)
             self._sync_tasks(note)
+            self._record_revision(note, reason="created", force_new=True)
         self.db.commit()
         self.db.refresh(note)
         return note
@@ -368,6 +457,7 @@ class NoteService:
         self.db.flush()
         self._sync_links(note)
         self._sync_tasks(note)
+        self._record_revision(note, reason="created", force_new=True)
         self.db.commit()
         self.db.refresh(note)
         return note
@@ -400,9 +490,18 @@ class NoteService:
         return template
 
     def update_note(self, note_id: uuid.UUID, payload: NoteUpdateRequest) -> Note | None:
-        note = self._get(note_id)
+        # Die Zeilensperre macht Prüfung und Revisionsfortschritt atomar. Zwei
+        # gleichzeitige PATCHes können dadurch nicht beide dieselbe Revision
+        # erfolgreich überschreiben.
+        note = self._get(note_id, for_update=True)
         if note is None:
             return None
+        current_revision = int(note.revision or 1)
+        if payload.base_revision is not None and payload.base_revision != current_revision:
+            raise ConflictError(
+                "Die Notiz wurde inzwischen an anderer Stelle geändert.",
+                details={"current_revision": current_revision},
+            )
         if payload.title is not None:
             note.title = payload.title
         if payload.body_json is not None:
@@ -411,6 +510,103 @@ class NoteService:
             if not note.is_template:
                 self._sync_links(note)
                 self._sync_tasks(note)
+        if payload.title is not None or payload.body_json is not None:
+            note.revision = current_revision + 1
+            if not note.is_template:
+                self._record_revision(note, reason=payload.history_reason)
+        self.db.commit()
+        self.db.refresh(note)
+        return note
+
+    # --- Versionsverlauf ----------------------------------------------------
+    def list_revisions(self, note_id: uuid.UUID, *, limit: int = 50) -> NoteRevisionListResponse:
+        note = self._get(note_id, include_deleted=True)
+        if note is None:
+            raise NotFoundError("Notiz nicht gefunden", details={"note_id": str(note_id)})
+        bounded_limit = max(1, min(int(limit), _NOTE_HISTORY_LIMIT))
+        rows = self.db.scalars(
+            select(NoteRevision)
+            .where(NoteRevision.note_id == note_id, NoteRevision.owner_id == self.owner_id)
+            .order_by(NoteRevision.updated_at.desc(), NoteRevision.created_at.desc())
+            .limit(bounded_limit)
+        ).all()
+        total = int(
+            self.db.scalar(
+                select(func.count())
+                .select_from(NoteRevision)
+                .where(NoteRevision.note_id == note_id, NoteRevision.owner_id == self.owner_id)
+            )
+            or 0
+        )
+        return NoteRevisionListResponse(
+            items=[
+                NoteRevisionListItem(
+                    id=row.id,
+                    note_id=row.note_id,
+                    note_revision=row.note_revision,
+                    reason=row.reason,
+                    title=row.title,
+                    preview=_search_preview(row.body_text or "", None),
+                    created_at=row.created_at,
+                    updated_at=row.updated_at,
+                )
+                for row in rows
+            ],
+            total=total,
+        )
+
+    def get_revision(self, note_id: uuid.UUID, revision_id: uuid.UUID) -> NoteRevision:
+        revision = self.db.scalar(
+            select(NoteRevision).where(
+                NoteRevision.id == revision_id,
+                NoteRevision.note_id == note_id,
+                NoteRevision.owner_id == self.owner_id,
+            )
+        )
+        if revision is None:
+            raise NotFoundError("Version nicht gefunden", details={"revision_id": str(revision_id)})
+        return revision
+
+    def checkpoint_revision(self, note_id: uuid.UUID, reason: NoteHistoryReason) -> NoteRevision:
+        note = self._get(note_id, for_update=True)
+        if note is None:
+            raise NotFoundError("Notiz nicht gefunden", details={"note_id": str(note_id)})
+        revision = self._checkpoint_revision(note, reason)
+        self.db.commit()
+        self.db.refresh(revision)
+        return revision
+
+    def restore_revision(
+        self,
+        note_id: uuid.UUID,
+        revision_id: uuid.UUID,
+        *,
+        base_revision: int,
+    ) -> Note:
+        note = self._get(note_id, for_update=True)
+        if note is None:
+            raise NotFoundError("Notiz nicht gefunden", details={"note_id": str(note_id)})
+        current_revision = int(note.revision or 1)
+        if base_revision != current_revision:
+            raise ConflictError(
+                "Die Notiz wurde inzwischen an anderer Stelle geändert.",
+                details={"current_revision": current_revision},
+            )
+        selected = self.get_revision(note_id, revision_id)
+        if self._revision_matches_note(selected, note):
+            self.db.commit()
+            self.db.refresh(note)
+            return note
+
+        self._checkpoint_revision(note, "before_restore")
+        note.title = selected.title or ""
+        note.body_json = copy.deepcopy(selected.body_json) or EMPTY_DOC
+        note.body_text = derive_body_text(note.body_json)
+        note.revision = current_revision + 1
+        if not note.is_template:
+            self._sync_links(note)
+            self._sync_tasks(note)
+            self._record_revision(note, reason="restore", force_new=True)
         self.db.commit()
         self.db.refresh(note)
         return note

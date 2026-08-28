@@ -87,7 +87,7 @@ test('slash commands are grouped without breaking their flat keyboard index', ()
   assert.match(editorSource, /v-for="group in slashGroups"/);
   assert.match(editorSource, /entry\.index === slash\.index/);
   assert.match(editorSource, /runSlash\(entry\.command\)/);
-  assert.match(editorSource, /runSlash\(entries\[slash\.index\]\.command\)/);
+  assert.match(editorSource, /const entry = entries\[slash\.index\] \|\| entries\[0\];[\s\S]*?runSlash\(entry\.command\)/);
   assert.match(editorSource, /\.pm-slash__group \+ \.pm-slash__group/);
   assert.match(
     editorSource,

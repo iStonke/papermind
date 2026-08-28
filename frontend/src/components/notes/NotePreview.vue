@@ -130,7 +130,7 @@ watch(() => props.noteId, load, { immediate: true });
   overflow-y: auto;
   justify-content: center;
   --note-preview-font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --note-preview-paragraph-gap: 0.7em;
+  --note-preview-paragraph-gap: 0.25em;
 }
 
 .note-preview--font-serif {
@@ -142,11 +142,11 @@ watch(() => props.noteId, load, { immediate: true });
 }
 
 .note-preview--spacing-compact {
-  --note-preview-paragraph-gap: 0.45em;
+  --note-preview-paragraph-gap: 0;
 }
 
 .note-preview--spacing-spacious {
-  --note-preview-paragraph-gap: 1.05em;
+  --note-preview-paragraph-gap: 0.5em;
 }
 
 .note-preview__state {
@@ -195,6 +195,7 @@ watch(() => props.noteId, load, { immediate: true });
   font-size: 1.0625rem;
   line-height: 1.7;
 }
+.note-preview :deep(.pm-content > *) { margin-block: 0; }
 .note-preview :deep(.pm-content > * + *) { margin-top: var(--note-preview-paragraph-gap); }
 .note-preview :deep(.pm-content h1) {
   font-family: inherit; font-weight: 600;

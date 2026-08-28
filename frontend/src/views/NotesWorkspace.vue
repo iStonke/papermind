@@ -86,10 +86,23 @@
             <span>Notizen werden geladen …</span>
           </div>
 
-          <div v-else-if="loadError" class="notes-ws__state notes-ws__state--error" role="alert">
-            <v-icon size="24">mdi-alert-circle-outline</v-icon>
-            <span>{{ loadError }}</span>
-            <button type="button" class="notes-ws__retry" @click="loadNotes">Erneut versuchen</button>
+          <div
+            v-else-if="loadError"
+            class="notes-ws__empty-state-wrap notes-ws__empty-state-wrap--error"
+            role="alert"
+          >
+            <PmEmptyState
+              icon="mdi-alert-circle-outline"
+              :title="loadError"
+              subtitle="Prüfe deine Verbindung und versuche es erneut."
+              size="md"
+              :animated="false"
+            >
+              <button type="button" class="notes-ws__retry" @click="loadNotes">
+                <v-icon size="16">mdi-refresh</v-icon>
+                <span>Erneut versuchen</span>
+              </button>
+            </PmEmptyState>
           </div>
 
           <div v-else-if="!visibleNotes.length" class="notes-ws__empty-state-wrap">
@@ -177,7 +190,7 @@
 
       <!-- Primäraktion als schwebender Button unten rechts (entlastet die Kopfzeile). -->
       <div
-        v-if="!isManageMode"
+        v-if="!isManageMode && !loadError"
         class="notes-ws__fab"
         :class="{ 'has-templates': notesStore.templates.length > 0 }"
       >
@@ -751,6 +764,7 @@ async function discardEmptyNote(note) {
   try {
     if (isActive) editorPanelRef.value?.cancelPendingSave?.();
     await notesStore.deletePermanently(note.id);
+    if (isActive) await editorPanelRef.value?.discardPendingDraft?.();
     await animateNoteRemoval(note.id);
     notesStore.removeFromList(note.id);
     emit('trash-changed');
@@ -777,6 +791,7 @@ async function confirmDeleteNote() {
   try {
     if (isActive) editorPanelRef.value?.cancelPendingSave?.();
     await notesStore.trash(note.id);
+    if (isActive) await editorPanelRef.value?.discardPendingDraft?.();
     isDeleteNoteDialogOpen.value = false;
     deleteNoteTarget.value = null;
     await animateNoteRemoval(note.id);
@@ -1421,21 +1436,34 @@ function formatDate(value) {
   text-align: center;
 }
 
-.notes-ws__state--error {
-  flex-direction: column;
-}
-
-.notes-ws__state--error {
-  color: var(--pm-danger, #c84c4c);
-}
-
 .notes-ws__retry {
-  border: 0;
-  background: transparent;
-  color: var(--pm-accent);
+  display: inline-flex;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 13px;
+  border: 1px solid color-mix(in srgb, var(--pm-accent) 24%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pm-accent) 7%, transparent);
+  color: var(--pm-accent-strong, var(--pm-accent));
   cursor: pointer;
   font: inherit;
-  font-weight: 600;
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.notes-ws__retry:hover,
+.notes-ws__retry:focus-visible {
+  border-color: color-mix(in srgb, var(--pm-accent) 42%, transparent);
+  background: color-mix(in srgb, var(--pm-accent) 12%, transparent);
+}
+
+.notes-ws__retry:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--pm-accent) 42%, transparent);
+  outline-offset: 2px;
 }
 
 .notes-ws__delete-dialog-name {
@@ -1453,6 +1481,20 @@ function formatDate(value) {
   min-height: 260px;
   align-items: center;
   justify-content: center;
+}
+
+.notes-ws__empty-state-wrap--error :deep(.pm-empty-state__halo) {
+  border-color: color-mix(in srgb, var(--pm-danger, #c84c4c) 28%, transparent);
+  background: color-mix(in srgb, var(--pm-danger, #c84c4c) 7%, transparent);
+}
+
+.notes-ws__empty-state-wrap--error :deep(.pm-empty-state__halo::after) {
+  border-color: color-mix(in srgb, var(--pm-danger, #c84c4c) 48%, transparent);
+}
+
+.notes-ws__empty-state-wrap--error :deep(.pm-empty-state__icon) {
+  color: var(--pm-danger, #c84c4c);
+  opacity: 0.46;
 }
 
 .notes-ws__editor-slot {

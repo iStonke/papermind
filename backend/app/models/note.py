@@ -2,7 +2,19 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -31,6 +43,10 @@ class Note(Base):
     body_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default="{}")
     body_text: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     search_vector: Mapped[str | None] = mapped_column(TSVECTOR, nullable=True)
+    # Monotone Inhaltsrevision für optimistisches Sperren im Notizeditor.
+    # Tags/Papierkorbstatus zählen bewusst nicht dazu: geschützt werden die
+    # gemeinsam per Autosave geschriebenen Felder Titel + body_json.
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     is_template: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -44,6 +60,42 @@ class Note(Base):
     # Gemeinsames Tag-Vokabular mit Dokumenten (dieselbe ``tags``-Tabelle).
     tags: Mapped[list["Tag"]] = relationship(  # noqa: F821
         "Tag", secondary=note_tags, lazy="selectin"
+    )
+
+
+class NoteRevision(Base):
+    """Zeitlich gebündelter, wiederherstellbarer Inhaltsstand einer Notiz."""
+
+    __tablename__ = "note_revision"
+    __table_args__ = (
+        CheckConstraint("note_revision > 0", name="ck_note_revision_number"),
+        CheckConstraint(
+            "reason IN ('created', 'autosave', 'navigation', 'export', 'ai', "
+            "'before_restore', 'restore', 'manual')",
+            name="ck_note_revision_reason",
+        ),
+        UniqueConstraint("note_id", "note_revision", name="uq_note_revision_note_number"),
+        Index("ix_note_revision_note_updated", "note_id", "updated_at"),
+        Index("ix_note_revision_owner_updated", "owner_id", "updated_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    note_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("note.id", ondelete="CASCADE"), nullable=False
+    )
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    note_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(String(24), nullable=False, server_default="autosave")
+    title: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    body_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default="{}")
+    body_text: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
 

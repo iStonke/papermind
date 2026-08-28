@@ -51,6 +51,12 @@ test('slash menu unfolds at the cursor and glides its active selection', () => {
   assert.match(editorSource, /prefers-reduced-motion: reduce[\s\S]*?\.pm-slash--commands/);
 });
 
+test('slash menu applies its keyboard selection atomically on Enter', () => {
+  assert.match(editorSource, /if \(event\.key === 'Enter' \|\| event\.key === 'Tab'\) \{[\s\S]*?event\.preventDefault\(\);[\s\S]*?event\.stopPropagation\(\);[\s\S]*?runSlash\(entry\.command\);/);
+  assert.match(editorSource, /cmd\.action\(ed\.chain\(\)\.focus\(\)\.deleteRange\(range\)\)\.run\(\)/);
+  assert.doesNotMatch(editorSource, /deleteRange\(\{ from: slash\.from, to \}\)\.run\(\);[\s\S]*?cmd\.action\(ed\.chain\(\)\.focus\(\)\)\.run\(\)/);
+});
+
 test('generated text is inserted as a permanently attributed AI block', () => {
   assert.match(editorSource, /\.insertAiBlock\(\{/);
   assert.match(editorSource, /provider: aiPrompt\.provider/);
@@ -61,6 +67,8 @@ test('generated text is inserted as a permanently attributed AI block', () => {
   assert.match(aiViewSource, /Übernehmen/);
   assert.match(aiViewSource, /noteMarkdownToTipTap/);
   assert.match(aiViewSource, /block\.type === 'bulletList'/);
+  assert.match(editorSource, /emit\('history-checkpoint', 'ai'\)/);
+  assert.match(workspaceEditorSource, /@history-checkpoint="markHistoryCheckpoint"/);
 });
 
 test('selected note text opens a dedicated selection-only AI workflow', () => {

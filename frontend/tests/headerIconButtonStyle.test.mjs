@@ -25,14 +25,14 @@ test('compact header actions share one fixed tonal icon-button geometry', () => 
 
 test('dense editor action groups use the quiet variant without changing geometry', () => {
   assert.match(globalStyleSource, /\.pm-header-icon-btn--quiet\.v-btn\s*\{/);
-  assert.equal((noteEditorSource.match(/'pm-header-icon-btn--quiet'/g) || []).length, 2);
+  assert.equal((noteEditorSource.match(/'pm-header-icon-btn--quiet'/g) || []).length, 3);
   assert.equal((noteEditorSource.match(/<PmActionIcon/g) || []).length, 1);
   assert.match(noteEditorSource, /class="note-workspace-editor__more-btn"[\s\S]*?mdi-dots-vertical/);
   assert.match(actionIconSource, /viewBox="0 0 24 24"/);
   assert.match(actionIconSource, /stroke-width="1\.85"/);
   assert.match(actionIconSource, /stroke-linecap="round"/);
   assert.match(actionIconSource, /size: \{ type: \[Number, String\], default: 20 \}/);
-  assert.match(noteEditorSource, /class="note-workspace-editor__view-divider"/);
+  assert.doesNotMatch(noteEditorSource, /note-workspace-editor__view-divider/);
   assert.match(noteEditorSource, /:aria-pressed="listVisible \? 'false' : 'true'"/);
 });
 

@@ -208,6 +208,28 @@ test('API bootstrap requests abort instead of hanging forever', async () => {
   );
 });
 
+test('API errors expose structured conflict details', async () => {
+  globalThis.fetch = async () => new Response(
+    JSON.stringify({
+      error: {
+        code: 'CONFLICT',
+        message: 'Die Notiz wurde zwischenzeitlich geändert.',
+        details: { current_revision: 8 },
+      },
+    }),
+    { status: 409, headers: { 'content-type': 'application/json' } },
+  );
+
+  await assert.rejects(
+    apiFetch('/api/notes/note-1', { handleUnauthorized: false }),
+    (error) => (
+      error?.status === 409
+      && error?.code === 'CONFLICT'
+      && error?.details?.current_revision === 8
+    ),
+  );
+});
+
 test('gleichzeitige Datei-Token-Erneuerungen werden zusammengefasst', async () => {
   setActivePinia(createPinia());
   storage.values.clear();

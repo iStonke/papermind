@@ -19,6 +19,13 @@ export const listNoteTemplates = () => apiGet('/api/notes/templates');
 export const createNoteFromTemplate = (templateId) => apiPost(`/api/notes/from-template/${templateId}`, undefined);
 export const saveNoteAsTemplate = (id, body = {}) => apiPost(`/api/notes/${id}/save-as-template`, body);
 export const patchNote = (id, body) => apiPatch(`/api/notes/${id}`, body);
+export const listNoteRevisions = (id, { limit = 50 } = {}) =>
+  apiGet(`/api/notes/${id}/revisions?limit=${Math.max(1, Math.min(Number(limit) || 50, 100))}`);
+export const getNoteRevision = (id, revisionId) => apiGet(`/api/notes/${id}/revisions/${revisionId}`);
+export const checkpointNoteRevision = (id, reason) =>
+  apiPost(`/api/notes/${id}/revisions/checkpoint`, { reason });
+export const restoreNoteRevision = (id, revisionId, baseRevision) =>
+  apiPost(`/api/notes/${id}/revisions/${revisionId}/restore`, { base_revision: baseRevision });
 export const setNoteTags = (id, { tagIds = [], tags = [] } = {}) =>
   apiPut(`/api/notes/${id}/tags`, { tag_ids: tagIds, tags });
 export const trashNote = (id) => apiPost(`/api/notes/${id}/trash`, undefined);

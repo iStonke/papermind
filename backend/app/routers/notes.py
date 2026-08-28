@@ -14,6 +14,10 @@ from app.schemas.notes import (
     NoteCreateRequest,
     NoteListResponse,
     NoteRead,
+    NoteRevisionCheckpointRequest,
+    NoteRevisionListResponse,
+    NoteRevisionRead,
+    NoteRevisionRestoreRequest,
     NoteSearchScope,
     NoteTagsUpdateRequest,
     NoteTextGenerationRequest,
@@ -152,6 +156,73 @@ def save_note_as_template(
     if template is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notiz nicht gefunden")
     return NoteRead.model_validate(template)
+
+
+@router.get(
+    "/{note_id}/revisions",
+    response_model=NoteRevisionListResponse,
+    summary="List bundled note revisions",
+    responses={404: {"model": ErrorResponse}},
+)
+def list_note_revisions(
+    note_id: uuid.UUID,
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NoteRevisionListResponse:
+    return NoteService(db, user.id).list_revisions(note_id, limit=limit)
+
+
+@router.get(
+    "/{note_id}/revisions/{revision_id}",
+    response_model=NoteRevisionRead,
+    summary="Get one note revision",
+    responses={404: {"model": ErrorResponse}},
+)
+def get_note_revision(
+    note_id: uuid.UUID,
+    revision_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NoteRevisionRead:
+    return NoteRevisionRead.model_validate(NoteService(db, user.id).get_revision(note_id, revision_id))
+
+
+@router.post(
+    "/{note_id}/revisions/checkpoint",
+    response_model=NoteRevisionRead,
+    summary="Close the current bundled note revision",
+    responses={404: {"model": ErrorResponse}},
+)
+def checkpoint_note_revision(
+    note_id: uuid.UUID,
+    payload: NoteRevisionCheckpointRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NoteRevisionRead:
+    revision = NoteService(db, user.id).checkpoint_revision(note_id, payload.reason)
+    return NoteRevisionRead.model_validate(revision)
+
+
+@router.post(
+    "/{note_id}/revisions/{revision_id}/restore",
+    response_model=NoteRead,
+    summary="Restore one note revision",
+    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+)
+def restore_note_revision(
+    note_id: uuid.UUID,
+    revision_id: uuid.UUID,
+    payload: NoteRevisionRestoreRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NoteRead:
+    note = NoteService(db, user.id).restore_revision(
+        note_id,
+        revision_id,
+        base_revision=payload.base_revision,
+    )
+    return NoteRead.model_validate(note)
 
 
 @router.get(

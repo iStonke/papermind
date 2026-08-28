@@ -8,6 +8,16 @@ from app.schemas.common import ORMModel
 
 
 NoteSearchScope = Literal["all", "title", "body"]
+NoteHistoryReason = Literal[
+    "created",
+    "autosave",
+    "navigation",
+    "export",
+    "ai",
+    "before_restore",
+    "restore",
+    "manual",
+]
 
 
 class NoteTagRef(ORMModel):
@@ -77,6 +87,52 @@ class NoteUpdateRequest(BaseModel):
 
     title: str | None = Field(default=None, max_length=500)
     body_json: dict[str, Any] | None = None
+    # Ist die Serverrevision inzwischen weiter, darf ein älterer Browserstand
+    # nicht still darübergeschrieben werden. Optional für ältere API-Clients.
+    base_revision: int | None = Field(default=None, ge=1)
+    # Autosaves werden zeitlich gebündelt; bewusste KI-Übernahmen bilden einen
+    # eigenen, beschrifteten Wiederherstellungspunkt.
+    history_reason: Literal["autosave", "ai", "manual"] = "autosave"
+
+
+class NoteRevisionCheckpointRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Literal["navigation", "export", "manual"]
+
+
+class NoteRevisionRestoreRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    base_revision: int = Field(ge=1)
+
+
+class NoteRevisionListItem(ORMModel):
+    id: uuid.UUID
+    note_id: uuid.UUID
+    note_revision: int
+    reason: NoteHistoryReason
+    title: str
+    preview: str = ""
+    created_at: datetime
+    updated_at: datetime
+
+
+class NoteRevisionRead(ORMModel):
+    id: uuid.UUID
+    note_id: uuid.UUID
+    note_revision: int
+    reason: NoteHistoryReason
+    title: str
+    body_json: dict[str, Any]
+    body_text: str = ""
+    created_at: datetime
+    updated_at: datetime
+
+
+class NoteRevisionListResponse(BaseModel):
+    items: list[NoteRevisionListItem]
+    total: int = 0
 
 
 class NoteListItem(ORMModel):
@@ -109,6 +165,7 @@ class NoteRead(ORMModel):
     id: uuid.UUID
     title: str
     body_json: dict[str, Any]
+    revision: int = 1
     is_template: bool = False
     is_deleted: bool = False
     deleted_at: datetime | None = None

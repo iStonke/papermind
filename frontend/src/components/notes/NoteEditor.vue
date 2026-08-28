@@ -35,6 +35,8 @@
       :class="{ 'is-ducked': toolbarDucked }"
       role="toolbar"
       aria-label="Text formatieren"
+      :aria-disabled="readonly ? 'true' : undefined"
+      :inert="readonly ? '' : undefined"
       @pointerenter="revealFormattingToolbar"
       @focusin="revealFormattingToolbar"
     >
@@ -216,6 +218,7 @@
       <!-- Auswahl-Formatierung -->
       <div
         v-if="editor && bubble.show"
+        ref="bubbleEl"
         class="pm-float pm-bubble"
         :style="bubble.style"
         role="toolbar"
@@ -543,6 +546,11 @@ import {
   historyChangedRange,
   showHistoryFlash,
 } from './extensions/historyFlash.js';
+import {
+  NoteSearch,
+  getNoteSearchState,
+  setNoteSearch,
+} from './extensions/noteSearch.js';
 import { MOCK_DOCUMENTS, mockLinkTargets, targetGlyph } from './mockData.js';
 import { NOTE_CALLOUT_OPTIONS } from '../../utils/noteCallouts.js';
 import { normalizeNoteHref, noteHrefLabel } from '../../utils/noteLinks.js';
@@ -578,6 +586,8 @@ const props = defineProps({
   fontFamily: { type: String, default: 'sans' },
   /** Native Rechtschreibprüfung für Titel und Editorinhalt. */
   spellcheckEnabled: { type: Boolean, default: true },
+  /** Inhalt anzeigen und auswählen, aber nicht verändern. */
+  readonly: { type: Boolean, default: false },
   /** Nur bei vollständig nutzbarer Modell-/Zugangskonfiguration anzeigen. */
   aiAvailable: { type: Boolean, default: false },
   /** Konfigurierbare Schnellprompts im Fenster „Mit KI schreiben“ (maximal 6). */
@@ -592,7 +602,14 @@ const props = defineProps({
   linkTargets: { type: Array, default: null },
 });
 
-const emit = defineEmits(['update:modelValue', 'update:title', 'change', 'word-count']);
+const emit = defineEmits([
+  'update:modelValue',
+  'update:title',
+  'change',
+  'word-count',
+  'history-checkpoint',
+  'note-search-state',
+]);
 
 const surfaceEl = ref(null);
 const writingEl = ref(null);
@@ -600,6 +617,7 @@ const titleEl = ref(null);
 const aiPromptInputEl = ref(null);
 const linkInputEl = ref(null);
 const slashMenuEl = ref(null);
+const bubbleEl = ref(null);
 const words = ref(0);
 const editorEmpty = ref(true);
 const emptyHintPositioned = ref(false);
@@ -667,6 +685,7 @@ const linkEditor = reactive({
 /* ── Editor ──────────────────────────────────────────────────────────────── */
 const editor = useEditor({
   content: props.modelValue || '',
+  editable: !props.readonly,
   extensions: [
     StarterKit.configure({
       document: false,
@@ -703,6 +722,7 @@ const editor = useEditor({
     WikiLink,
     Callout,
     HistoryFlash,
+    NoteSearch,
   ],
   editorProps: {
     attributes: { class: 'pm-content', spellcheck: props.spellcheckEnabled ? 'true' : 'false' },
@@ -716,6 +736,7 @@ const editor = useEditor({
     emit('change', { json: ed.getJSON(), text: ed.getText(), words: words.value });
     refreshWikiLink();
     refreshSlash();
+    emitNoteSearchState(ed);
   },
   onSelectionUpdate: () => {
     tableMenu.open = false;
@@ -743,6 +764,7 @@ const editor = useEditor({
 onMounted(() => {
   if (props.autofocus) nextTick(() => titleEl.value?.focus());
   if (props.workspace) nextTick(() => bindFormattingToolbarScroll());
+  window.addEventListener('resize', refreshBubble);
   nextTick(() => applySpellcheck(props.spellcheckEnabled));
   nextTick(() => {
     if (props.workspace && writingEl.value && typeof ResizeObserver !== 'undefined') {
@@ -754,11 +776,13 @@ onMounted(() => {
 });
 
 watch(() => props.spellcheckEnabled, (enabled) => applySpellcheck(enabled));
+watch(() => props.readonly, (readonly) => editor.value?.setEditable(!readonly));
 
 onBeforeUnmount(() => {
   aiGenerationController?.abort();
   editor.value?.destroy();
   toolbarScrollContainer?.removeEventListener('scroll', onEditorScroll);
+  window.removeEventListener('resize', refreshBubble);
   if (toolbarRevealTimer) window.clearTimeout(toolbarRevealTimer);
   if (toolbarScrollRestoreFrame) window.cancelAnimationFrame(toolbarScrollRestoreFrame);
   if (historyFlashTimer) window.clearTimeout(historyFlashTimer);
@@ -799,6 +823,7 @@ function applySpellcheck(enabled) {
 function onEditorScroll() {
   const scrollTop = toolbarScrollContainer?.scrollTop || 0;
   if (slash.open) refreshSlash();
+  if (bubble.show) refreshBubble();
   if (restoringWorkspaceScroll) {
     toolbarScrollAnchor = scrollTop;
     return;
@@ -858,6 +883,7 @@ watch(() => props.modelValue, (next) => {
   ed.commands.setContent(next || '', { emitUpdate: false });
   resetSelectionAfterExternalContent(ed);
   updateWordCount(ed);
+  emitNoteSearchState(ed);
   nextTick(refreshTableHandle);
 });
 
@@ -886,8 +912,20 @@ function resetSelectionAfterExternalContent(ed) {
   ed.commands.blur();
 }
 
+function isPristineEmptyDocument(ed) {
+  const doc = ed?.state?.doc;
+  const firstBlock = doc?.firstChild;
+  return Boolean(
+    doc?.childCount === 1
+    && firstBlock?.type?.name === 'paragraph'
+    && firstBlock.content.size === 0
+  );
+}
+
 function updateWordCount(ed) {
-  editorEmpty.value = Boolean(ed?.isEmpty);
+  // TipTap betrachtet auch mehrere leere Absätze als `isEmpty`. Der visuelle
+  // Schreibhilfe-Zustand gilt jedoch nur für das unberührte Startdokument.
+  editorEmpty.value = isPristineEmptyDocument(ed);
   if (editorEmpty.value) scheduleEmptyHintPosition();
   else emptyHintPositioned.value = false;
   words.value = countWords(ed?.getText());
@@ -951,7 +989,71 @@ function focusTitle() {
   titleEl.value?.focus();
 }
 
-defineExpose({ focusTitle, focusBody, restoreWorkspaceScroll });
+function emitNoteSearchState(ed = editor.value) {
+  const state = getNoteSearchState(ed);
+  emit('note-search-state', {
+    query: state.query,
+    count: state.ranges.length,
+    activeIndex: state.activeIndex,
+  });
+  return state;
+}
+
+function scrollToDocumentPosition(position, { focus = false, behavior = 'smooth' } = {}) {
+  const ed = editor.value;
+  if (!ed || ed.isDestroyed) return false;
+  const maxPosition = Math.max(0, ed.state.doc.content.size);
+  const targetPosition = Math.min(maxPosition, Math.max(0, Number(position) || 0));
+  const scrollElement = toolbarScrollContainer
+    || surfaceEl.value?.closest('.note-workspace-editor__scroll');
+  if (!scrollElement) return false;
+
+  if (focus) {
+    ed.chain().focus().setTextSelection(Math.min(maxPosition, targetPosition + 1)).run();
+  }
+  window.requestAnimationFrame(() => {
+    if (ed.isDestroyed) return;
+    const nodeDom = ed.view.nodeDOM(targetPosition);
+    const targetRect = nodeDom instanceof Element
+      ? nodeDom.getBoundingClientRect()
+      : ed.view.coordsAtPos(Math.min(maxPosition, targetPosition + 1));
+    const scrollRect = scrollElement.getBoundingClientRect();
+    const toolbarOffset = props.workspace ? 62 : 18;
+    scrollElement.scrollTo({
+      top: Math.max(0, scrollElement.scrollTop + targetRect.top - scrollRect.top - toolbarOffset),
+      behavior,
+    });
+  });
+  return true;
+}
+
+function searchInNote(query, activeIndex = 0) {
+  const state = setNoteSearch(editor.value, query, activeIndex);
+  emitNoteSearchState();
+  const activeRange = state.ranges[state.activeIndex];
+  if (activeRange) scrollToDocumentPosition(activeRange.from, { behavior: 'smooth' });
+  return { count: state.ranges.length, activeIndex: state.activeIndex };
+}
+
+function selectNoteSearchResult(activeIndex) {
+  const current = getNoteSearchState(editor.value);
+  return searchInNote(current.query, activeIndex);
+}
+
+function clearNoteSearch() {
+  setNoteSearch(editor.value, '', -1);
+  emitNoteSearchState();
+}
+
+defineExpose({
+  clearNoteSearch,
+  focusTitle,
+  focusBody,
+  restoreWorkspaceScroll,
+  scrollToDocumentPosition,
+  searchInNote,
+  selectNoteSearchResult,
+});
 
 function onTitleInput(e) {
   emit('update:title', e.target.value);
@@ -1288,6 +1390,11 @@ const saveLabel = computed(() => (
 
 /* ── Bubble-Menü (Auswahl-Formatierung) ─────────────────────────────────────── */
 const bubble = reactive({ show: false, style: {} });
+const BUBBLE_VIEWPORT_MARGIN = 8;
+const BUBBLE_BUTTON_WIDTH = 32;
+const BUBBLE_AI_BUTTON_WIDTH = 36;
+const BUBBLE_GAP = 2;
+const BUBBLE_SHELL_WIDTH = 10;
 
 const bubbleButtons = computed(() => {
   const ed = editor.value;
@@ -1339,15 +1446,37 @@ function refreshBubble() {
   }
 
   const rect = posToDOMRect(view, from, to);
-  const box = surface.getBoundingClientRect();
-  const left = rect.left - box.left + rect.width / 2;
-  const top = rect.top - box.top;
+  const estimatedWidth = bubbleButtons.value.reduce(
+    (width, button) => width + (button.ai ? BUBBLE_AI_BUTTON_WIDTH + 3 : BUBBLE_BUTTON_WIDTH),
+    BUBBLE_SHELL_WIDTH + Math.max(0, bubbleButtons.value.length - 1) * BUBBLE_GAP,
+  );
+  const clampCenterToViewport = (width) => {
+    const availableWidth = Math.max(0, window.innerWidth - BUBBLE_VIEWPORT_MARGIN * 2);
+    const halfWidth = Math.min(width, availableWidth) / 2;
+    const minCenter = BUBBLE_VIEWPORT_MARGIN + halfWidth;
+    const maxCenter = Math.max(
+      minCenter,
+      window.innerWidth - BUBBLE_VIEWPORT_MARGIN - halfWidth,
+    );
+    return Math.max(
+      minCenter,
+      Math.min(rect.left + rect.width / 2, maxCenter),
+    );
+  };
   bubble.style = {
-    left: `${Math.max(4, left)}px`,
-    top: `${top}px`,
+    left: `${clampCenterToViewport(estimatedWidth)}px`,
+    top: `${rect.top}px`,
     transform: 'translate(-50%, calc(-100% - 8px))',
   };
   bubble.show = true;
+  nextTick(() => {
+    const measuredWidth = bubbleEl.value?.offsetWidth;
+    if (!bubble.show || !measuredWidth) return;
+    bubble.style = {
+      ...bubble.style,
+      left: `${clampCenterToViewport(measuredWidth)}px`,
+    };
+  });
 }
 
 /* ── Slash-Menü ──────────────────────────────────────────────────────────── */
@@ -1513,12 +1642,22 @@ function runSlash(cmd) {
   const ed = editor.value;
   if (!ed || slash.from == null) return;
   const to = ed.state.selection.from;
-  // Erst den „/query"-Text entfernen, dann den Baustein einfügen/Picker öffnen.
-  ed.chain().focus().deleteRange({ from: slash.from, to }).run();
+  const range = { from: slash.from, to };
   slash.open = false;
 
   const kind = cmd.kind || 'block';
-  if (kind === 'block') { cmd.action(ed.chain().focus()).run(); return; }
+  // Text entfernen und Block in EINER Transaktion ausführen. Zwischen zwei
+  // separaten `run()`-Aufrufen kann das Workspace-v-model den Editorinhalt
+  // spiegeln und dabei die Auswahl zurücksetzen; der zweite Befehl würde dann
+  // nicht mehr an der Slash-Position ausgeführt.
+  if (kind === 'block') {
+    cmd.action(ed.chain().focus().deleteRange(range)).run();
+    return;
+  }
+
+  // Picker und Dialoge brauchen den bereits bereinigten Editor als Ausgangs-
+  // zustand, werden aber erst nach der Transaktion geöffnet.
+  ed.chain().focus().deleteRange(range).run();
   if (kind === 'table-menu') { openTableMenu(ed.isActive('table') ? 'edit' : 'insert'); return; }
   if (kind === 'link-editor') { openLinkEditor(); return; }
   if (kind === 'generate-ai') { openAIPrompt(); return; }
@@ -1692,6 +1831,7 @@ function applySelectionAIResult(action) {
     chain.setTextSelection(to).insertAiBlock(attrs);
   }
   chain.focus('end').scrollIntoView().run();
+  emit('history-checkpoint', 'ai');
   closeAIPrompt();
 }
 
@@ -1742,6 +1882,7 @@ async function generateAIText() {
       .focus('end')
       .scrollIntoView()
       .run();
+    emit('history-checkpoint', 'ai');
     aiPrompt.open = false;
   } catch (error) {
     if (error?.name !== 'AbortError' && aiPrompt.open) {
@@ -1867,10 +2008,31 @@ function onEditorKeyDown(event) {
   if (!slash.open || !slashMenuEntries.value.length) return false;
   const entries = slashMenuEntries.value;
   const n = entries.length;
-  if (event.key === 'ArrowDown') { moveSlashSelection(1, n); return true; }
-  if (event.key === 'ArrowUp') { moveSlashSelection(-1, n); return true; }
-  if (event.key === 'Enter' || event.key === 'Tab') { runSlash(entries[slash.index].command); return true; }
-  if (event.key === 'Escape') { slash.open = false; return true; }
+  if (event.key === 'ArrowDown') {
+    event.preventDefault();
+    event.stopPropagation();
+    moveSlashSelection(1, n);
+    return true;
+  }
+  if (event.key === 'ArrowUp') {
+    event.preventDefault();
+    event.stopPropagation();
+    moveSlashSelection(-1, n);
+    return true;
+  }
+  if (event.key === 'Enter' || event.key === 'Tab') {
+    event.preventDefault();
+    event.stopPropagation();
+    const entry = entries[slash.index] || entries[0];
+    runSlash(entry.command);
+    return true;
+  }
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    event.stopPropagation();
+    slash.open = false;
+    return true;
+  }
   return false;
 }
 
@@ -1934,7 +2096,14 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   flex-direction: column;
   min-height: 0;
   --note-editor-font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --note-editor-paragraph-gap: 0.7em;
+  /* Differenzierter vertikaler Rhythmus:
+     - paragraph-gap: Abstand zwischen aufeinanderfolgenden Absätzen. Bewusst
+       moderat, damit EIN Enter als eine klare Absatztrennung liest (nicht als
+       Doppelumbruch; Browser-Standardmargen sind über margin-block:0 neutral).
+     - block-gap: mehr Luft vor/nach Strukturelementen (Listen, Zitate, Codeblock),
+       damit diese sich sichtbar vom Fließtext absetzen. */
+  --note-editor-paragraph-gap: 0.5em;
+  --note-editor-block-gap: 0.95em;
 }
 
 .note-editor--font-serif {
@@ -1946,11 +2115,13 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 
 .note-editor--spacing-compact {
-  --note-editor-paragraph-gap: 0.45em;
+  --note-editor-paragraph-gap: 0.3em;
+  --note-editor-block-gap: 0.6em;
 }
 
 .note-editor--spacing-spacious {
-  --note-editor-paragraph-gap: 1.05em;
+  --note-editor-paragraph-gap: 0.75em;
+  --note-editor-block-gap: 1.3em;
 }
 
 .note-editor__title {
@@ -2219,7 +2390,20 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 .note-editor--workspace.note-editor--width-wide :deep(.pm-content) {
   max-width: 92ch;
 }
+.note-editor :deep(.pm-content > *) {
+  /* Browser-Margen würden zusätzlich zum konfigurierten Abstand wirken und
+     einen einzelnen neuen Absatz wie zwei Zeilenumbrüche erscheinen lassen. */
+  margin-block: 0;
+}
 .note-editor :deep(.pm-content > * + *) { margin-top: var(--note-editor-paragraph-gap); }
+/* Strukturelemente heben sich stärker vom Fließtext ab: mehr Luft davor … */
+.note-editor :deep(.pm-content > * + :is(ul, ol, blockquote, pre)) {
+  margin-top: var(--note-editor-block-gap);
+}
+/* … und danach. */
+.note-editor :deep(.pm-content > :is(ul, ol, blockquote, pre) + *) {
+  margin-top: var(--note-editor-block-gap);
+}
 .note-editor :deep(.pm-content h1) {
   font-family: inherit; font-weight: 600;
   font-size: 1.55rem; line-height: 1.2; letter-spacing: -0.01em; margin-top: 1.4em;
@@ -2404,7 +2588,14 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   box-shadow: var(--pm-shadow, 0 10px 30px rgba(15, 23, 42, 0.14));
 }
 
-.pm-bubble { display: flex; padding: 4px; gap: 2px; }
+.pm-bubble {
+  position: fixed;
+  z-index: 80;
+  display: flex;
+  max-width: calc(100vw - 16px);
+  padding: 4px;
+  gap: 2px;
+}
 .pm-bubble__btn {
   border: 0; background: transparent; cursor: pointer;
   width: 32px; height: 32px; border-radius: 8px;
@@ -2891,6 +3082,19 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 @keyframes pm-ai-progress {
   from { transform: translateX(-120%); }
   to { transform: translateX(340%); }
+}
+
+/* Treffer der notizinternen Suche bleiben reine ProseMirror-Dekorationen und
+   verändern weder Auswahl noch gespeicherten Dokumentinhalt. */
+.note-editor :deep(.pm-note-search-match) {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--pm-warning, #d97706) 24%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--pm-warning, #d97706) 18%, transparent);
+}
+
+.note-editor :deep(.pm-note-search-match--active) {
+  background: color-mix(in srgb, var(--pm-warning, #d97706) 48%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pm-warning, #d97706) 38%, transparent);
 }
 
 /* ── Statuszeile ─────────────────────────────────────────────────────────── */

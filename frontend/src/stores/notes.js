@@ -172,7 +172,12 @@ export const useNotesStore = defineStore('notes', () => {
     // Das Detail sofort aktualisieren: Wechselt man während des Requests weg
     // und direkt zurück, darf nicht kurz die ältere Serverfassung erscheinen.
     const previousDetail = noteDetails.get(id) || null;
-    const optimisticDetail = previousDetail ? { ...previousDetail, ...patch } : null;
+    // base_revision ist ausschließlich eine Schreibvorbedingung und darf nicht
+    // als scheinbares Notizfeld in den Detail-Cache gelangen.
+    const optimisticPatch = { ...patch };
+    delete optimisticPatch.base_revision;
+    delete optimisticPatch.history_reason;
+    const optimisticDetail = previousDetail ? { ...previousDetail, ...optimisticPatch } : null;
     if (optimisticDetail) cacheDetail(optimisticDetail);
 
     let updated;
@@ -193,6 +198,20 @@ export const useNotesStore = defineStore('notes', () => {
     }
     sortInPlace();
     return updated;
+  }
+
+  /** Stellt einen historischen Stand wieder her und ersetzt alle lokalen
+   *  Detail-/Listencaches durch die vom Server bestätigte neue Revision. */
+  async function restoreRevision(id, revisionId, baseRevision) {
+    const restored = cacheDetail(await api.restoreNoteRevision(id, revisionId, baseRevision));
+    const item = notes.value.find((note) => note.id === id);
+    if (item) {
+      item.title = restored.title;
+      item.preview = notePreview(restored.body_json);
+      item.updated_at = restored.updated_at;
+    }
+    sortInPlace();
+    return restored;
   }
 
   /** Setzt die Tags einer Notiz und aktualisiert Detail-Cache + Listeneintrag. */
@@ -258,6 +277,7 @@ export const useNotesStore = defineStore('notes', () => {
     peek,
     get,
     update,
+    restoreRevision,
     setTags,
     trash,
     deletePermanently,

@@ -5,7 +5,11 @@
   ProseMirror-Wurzeldokuments und werden zusammen mit body_json persistiert.
 -->
 <template>
-  <section class="note-workspace-editor" :aria-busy="loading || switching ? 'true' : undefined">
+  <section
+    class="note-workspace-editor"
+    :aria-busy="loading || switching ? 'true' : undefined"
+    @keydown.capture="handleWorkspaceKeydown"
+  >
     <header class="note-workspace-editor__bar">
       <input
         ref="titleInputRef"
@@ -16,12 +20,39 @@
         aria-label="Titel der Notiz"
         :spellcheck="notesSpellcheckEnabled"
         :disabled="!hasLoadedContent && (loading || loadError)"
-        :readonly="switching"
+        :readonly="switching || status === 'conflict'"
         @keydown.enter.prevent="focusEditorBody"
       />
 
       <div class="note-workspace-editor__actions">
-        <v-menu location="bottom end">
+        <v-btn
+          class="note-workspace-editor__navigation-toggle"
+          :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet']"
+          :variant="navigationOpen ? 'tonal' : 'text'"
+          icon
+          aria-label="Gliederung und Suche öffnen"
+          title="Gliederung und Suche (⌘/Strg+F für Suche)"
+          :aria-pressed="navigationOpen"
+          :disabled="!hasLoadedContent"
+          @click="toggleNoteNavigation"
+        >
+          <v-icon size="20">mdi-magnify</v-icon>
+        </v-btn>
+
+        <v-btn
+          class="note-workspace-editor__list-toggle"
+          :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet']"
+          :variant="listVisible ? 'text' : 'tonal'"
+          icon
+          :aria-label="listVisible ? 'Editor im Vollbild anzeigen' : 'Vollbildansicht verlassen'"
+          :title="listVisible ? 'Editor im Vollbild anzeigen' : 'Vollbildansicht verlassen'"
+          :aria-pressed="listVisible ? 'false' : 'true'"
+          @click="emit('toggle-list')"
+        >
+          <PmActionIcon :name="listVisible ? 'fullscreen' : 'fullscreen-exit'" />
+        </v-btn>
+
+        <v-menu location="bottom end" :offset="8" transition="fade-transition">
           <template #activator="{ props: moreMenuProps }">
             <v-btn
               v-bind="moreMenuProps"
@@ -37,46 +68,75 @@
             </v-btn>
           </template>
 
-          <v-list class="note-workspace-editor__more-menu" density="compact" min-width="228">
+          <v-list
+            class="note-workspace-editor__more-menu"
+            density="compact"
+            min-width="228"
+            role="menu"
+            aria-label="Notizaktionen"
+          >
+            <div class="note-workspace-editor__more-label">Aktionen</div>
             <v-list-item
-              prepend-icon="mdi-file-document-plus-outline"
+              class="note-workspace-editor__more-item"
               title="Als Vorlage speichern"
               :disabled="savingTemplate"
+              :ripple="false"
+              role="menuitem"
               @click="saveCurrentNoteAsTemplate"
-            />
-            <v-divider class="note-workspace-editor__more-divider" />
-            <v-list-subheader class="note-workspace-editor__more-subheader">Exportieren</v-list-subheader>
+            >
+              <template #prepend>
+                <span class="note-workspace-editor__more-icon" aria-hidden="true">
+                  <v-icon size="17">mdi-file-document-plus-outline</v-icon>
+                </span>
+              </template>
+            </v-list-item>
             <v-list-item
-              prepend-icon="mdi-file-document-outline"
+              class="note-workspace-editor__more-item"
+              title="Versionsverlauf"
+              :ripple="false"
+              role="menuitem"
+              @click="openVersionHistory"
+            >
+              <template #prepend>
+                <span class="note-workspace-editor__more-icon" aria-hidden="true">
+                  <v-icon size="17">mdi-history</v-icon>
+                </span>
+              </template>
+            </v-list-item>
+
+            <div class="note-workspace-editor__more-group-label">Exportieren</div>
+            <v-list-item
+              class="note-workspace-editor__more-item"
               title="Markdown"
+              :ripple="false"
+              role="menuitem"
               @click="exportNoteAsMarkdown"
-            />
+            >
+              <template #prepend>
+                <span class="note-workspace-editor__more-icon" aria-hidden="true">
+                  <v-icon size="17">mdi-file-document-outline</v-icon>
+                </span>
+              </template>
+            </v-list-item>
             <v-list-item
-              prepend-icon="mdi-file-pdf-box"
+              class="note-workspace-editor__more-item"
               title="PDF"
+              :ripple="false"
+              role="menuitem"
               @click="exportNoteAsPdf"
-            />
+            >
+              <template #prepend>
+                <span class="note-workspace-editor__more-icon" aria-hidden="true">
+                  <v-icon size="17">mdi-file-pdf-box</v-icon>
+                </span>
+              </template>
+            </v-list-item>
           </v-list>
         </v-menu>
-
-        <span class="note-workspace-editor__view-divider" aria-hidden="true" />
-
-        <v-btn
-          class="note-workspace-editor__list-toggle"
-          :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet']"
-          :variant="listVisible ? 'text' : 'tonal'"
-          icon
-          :aria-label="listVisible ? 'Editor im Vollbild anzeigen' : 'Vollbildansicht verlassen'"
-          :title="listVisible ? 'Editor im Vollbild anzeigen' : 'Vollbildansicht verlassen'"
-          :aria-pressed="listVisible ? 'false' : 'true'"
-          @click="emit('toggle-list')"
-        >
-          <PmActionIcon :name="listVisible ? 'fullscreen' : 'fullscreen-exit'" />
-        </v-btn>
       </div>
     </header>
 
-    <div v-if="hasLoadedContent" class="note-workspace-editor__meta" :class="{ 'is-centered': !listVisible }">
+    <div v-if="hasLoadedContent" class="note-workspace-editor__meta">
       <div class="note-workspace-editor__meta-main">
         <div class="note-workspace-editor__meta-tags">
           <NoteTagBar
@@ -139,6 +199,22 @@
         </button>
       </div>
 
+      <div
+        v-if="syncIssueVisible"
+        class="note-workspace-editor__sync"
+        :class="`is-${status}`"
+        role="status"
+        aria-live="polite"
+      >
+        <v-icon size="14">{{ syncStatusIcon }}</v-icon>
+        <span class="note-workspace-editor__sync-label">{{ syncStatusLabel }}</span>
+        <template v-if="status === 'conflict'">
+          <button type="button" @click="useLocalConflictDraft">Entwurf verwenden</button>
+          <button type="button" @click="keepServerVersion">Serverstand</button>
+        </template>
+        <button v-else-if="status === 'error'" type="button" @click="retrySave">Erneut versuchen</button>
+      </div>
+
       <span class="note-workspace-editor__word-count">
         {{ wordCount }} {{ wordCount === 1 ? 'Wort' : 'Wörter' }}
       </span>
@@ -155,53 +231,186 @@
       <button type="button" @click="loadNote">Erneut versuchen</button>
     </div>
 
-    <div
-      v-else
-      ref="scrollContainerRef"
-      class="note-workspace-editor__scroll"
-      @scroll.passive="rememberScrollPosition()"
-    >
-      <NoteEditor
-        ref="noteEditorRef"
-        class="note-workspace-editor__body"
-        :class="{ 'is-centered': !listVisible }"
-        v-model="body"
-        workspace
-        :document-items="slashDocuments"
-        :link-targets="linkTargets"
-        :writing-width="notesWritingWidth"
-        :paragraph-spacing="notesParagraphSpacing"
-        :font-family="notesFontFamily"
-        :spellcheck-enabled="notesSpellcheckEnabled"
-        :ai-available="aiAvailable"
-        :ai-prompt-suggestions="aiPromptSuggestions"
-        @word-count="updateWordCount"
-        @change="scheduleSave"
-      />
-
-      <section
-        v-if="backlinks.length"
-        class="note-workspace-editor__backlinks"
-        :class="{ 'is-centered': !listVisible }"
-        aria-label="Rückverweise"
+    <div v-else class="note-workspace-editor__main">
+      <div
+        ref="scrollContainerRef"
+        class="note-workspace-editor__scroll"
+        @scroll.passive="rememberScrollPosition()"
       >
-        <div class="note-workspace-editor__backlinks-heading">
-          <v-icon size="15">mdi-link-variant</v-icon>
-          <span>Rückverweise</span>
-          <span class="note-workspace-editor__backlinks-count">{{ backlinks.length }}</span>
+        <NoteEditor
+          ref="noteEditorRef"
+          class="note-workspace-editor__body"
+          :class="{ 'is-centered': !listVisible }"
+          v-model="body"
+          workspace
+          :document-items="slashDocuments"
+          :link-targets="linkTargets"
+          :writing-width="notesWritingWidth"
+          :paragraph-spacing="notesParagraphSpacing"
+          :font-family="notesFontFamily"
+          :spellcheck-enabled="notesSpellcheckEnabled"
+          :readonly="status === 'conflict'"
+          :ai-available="aiAvailable"
+          :ai-prompt-suggestions="aiPromptSuggestions"
+          @word-count="updateWordCount"
+          @change="scheduleSave"
+          @history-checkpoint="markHistoryCheckpoint"
+          @note-search-state="applyNoteSearchState"
+        />
+
+        <section
+          v-if="backlinks.length"
+          class="note-workspace-editor__backlinks"
+          :class="{ 'is-centered': !listVisible }"
+          aria-label="Rückverweise"
+        >
+          <div class="note-workspace-editor__backlinks-heading">
+            <v-icon size="15">mdi-link-variant</v-icon>
+            <span>Rückverweise</span>
+            <span class="note-workspace-editor__backlinks-count">{{ backlinks.length }}</span>
+          </div>
+          <ul class="note-workspace-editor__backlinks-list">
+            <li v-for="bl in backlinks" :key="bl.id">
+              <button type="button" class="note-workspace-editor__backlink" @click="openBacklink(bl.id)">
+                <span class="note-workspace-editor__backlink-title" :class="{ 'is-untitled': !bl.title?.trim() }">
+                  {{ bl.title?.trim() || 'Ohne Titel' }}
+                </span>
+                <span v-if="bl.preview?.trim()" class="note-workspace-editor__backlink-snippet">{{ bl.preview }}</span>
+              </button>
+            </li>
+          </ul>
+        </section>
+      </div>
+
+      <aside
+        v-if="navigationOpen"
+        class="note-workspace-editor__navigator"
+        aria-label="Navigation in dieser Notiz"
+      >
+        <header class="note-workspace-editor__navigator-header">
+          <div class="note-workspace-editor__navigator-tabs" role="tablist" aria-label="Notiznavigation">
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="navigationMode === 'outline'"
+              :class="{ 'is-active': navigationMode === 'outline' }"
+              @click="setNoteNavigationMode('outline')"
+            >Gliederung</button>
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="navigationMode === 'search'"
+              :class="{ 'is-active': navigationMode === 'search' }"
+              @click="setNoteNavigationMode('search')"
+            >Suchen</button>
+          </div>
+          <button
+            type="button"
+            class="note-workspace-editor__navigator-close"
+            aria-label="Notiznavigation schließen"
+            title="Schließen"
+            @click="closeNoteNavigation"
+          ><v-icon size="18">mdi-close</v-icon></button>
+        </header>
+
+        <div
+          v-if="navigationMode === 'outline'"
+          class="note-workspace-editor__outline"
+          role="tabpanel"
+          aria-label="Gliederung"
+        >
+          <button
+            type="button"
+            class="note-workspace-editor__outline-item is-title"
+            :class="{ 'is-active': activeOutlinePosition === -1 }"
+            @click="jumpToNoteTitle"
+          >
+            <span class="note-workspace-editor__outline-level">Titel</span>
+            <span>{{ title.trim() || 'Ohne Titel' }}</span>
+          </button>
+          <button
+            v-for="item in noteOutline"
+            :key="item.key"
+            type="button"
+            class="note-workspace-editor__outline-item"
+            :class="[`is-level-${item.level}`, { 'is-active': activeOutlinePosition === item.position }]"
+            @click="jumpToOutlineItem(item)"
+          >
+            <span class="note-workspace-editor__outline-level">H{{ item.level }}</span>
+            <span>{{ item.text }}</span>
+          </button>
+          <div v-if="!noteOutline.length" class="note-workspace-editor__navigator-empty">
+            <v-icon size="22">mdi-format-header-pound</v-icon>
+            <strong>Noch keine Abschnitte</strong>
+            <span>Formatiere Zeilen als H2, H3 oder H4. Sie erscheinen dann automatisch hier.</span>
+          </div>
         </div>
-        <ul class="note-workspace-editor__backlinks-list">
-          <li v-for="bl in backlinks" :key="bl.id">
-            <button type="button" class="note-workspace-editor__backlink" @click="openBacklink(bl.id)">
-              <span class="note-workspace-editor__backlink-title" :class="{ 'is-untitled': !bl.title?.trim() }">
-                {{ bl.title?.trim() || 'Ohne Titel' }}
-              </span>
-              <span v-if="bl.preview?.trim()" class="note-workspace-editor__backlink-snippet">{{ bl.preview }}</span>
-            </button>
-          </li>
-        </ul>
-      </section>
+
+        <div
+          v-else
+          class="note-workspace-editor__note-search"
+          role="tabpanel"
+          aria-label="In dieser Notiz suchen"
+        >
+          <label class="note-workspace-editor__note-search-field">
+            <v-icon size="18">mdi-magnify</v-icon>
+            <input
+              ref="noteSearchInputRef"
+              v-model="noteSearchQuery"
+              type="search"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Suchbegriff"
+              aria-label="Suchbegriff in dieser Notiz"
+              @keydown.enter.prevent="moveNoteSearch($event.shiftKey ? -1 : 1)"
+              @keydown.esc.prevent="closeNoteNavigation"
+            />
+            <button
+              v-if="noteSearchQuery"
+              type="button"
+              aria-label="Suchbegriff löschen"
+              @click="clearNoteSearchQuery"
+            ><v-icon size="16">mdi-close-circle</v-icon></button>
+          </label>
+
+          <div class="note-workspace-editor__note-search-status" aria-live="polite">
+            <span v-if="!noteSearchQuery">Suchbegriff eingeben</span>
+            <span v-else-if="noteSearchCount">
+              {{ noteSearchActiveIndex + 1 }} von {{ noteSearchCount }} Treffern
+            </span>
+            <span v-else>Keine Treffer</span>
+            <div class="note-workspace-editor__note-search-actions">
+              <button
+                type="button"
+                aria-label="Vorheriger Treffer"
+                title="Vorheriger Treffer (Shift+Enter)"
+                :disabled="!noteSearchCount"
+                @click="moveNoteSearch(-1)"
+              ><v-icon size="19">mdi-chevron-up</v-icon></button>
+              <button
+                type="button"
+                aria-label="Nächster Treffer"
+                title="Nächster Treffer (Enter)"
+                :disabled="!noteSearchCount"
+                @click="moveNoteSearch(1)"
+              ><v-icon size="19">mdi-chevron-down</v-icon></button>
+            </div>
+          </div>
+          <p class="note-workspace-editor__note-search-hint">
+            Alle Treffer werden in der Notiz markiert. Enter springt vorwärts, Shift+Enter zurück.
+          </p>
+        </div>
+      </aside>
     </div>
+
+    <NoteVersionHistoryDialog
+      v-if="loadedNoteId"
+      v-model="historyOpen"
+      :note-id="loadedNoteId"
+      :current-revision="serverRevision"
+      :restoring="historyRestoring"
+      @restore="restoreHistoryRevision"
+    />
 
     <BaseDialog
       v-model="templateTitleDialogOpen"
@@ -300,24 +509,34 @@ import { getAICredentialStatus } from '../../api/aiCredentials.js';
 import { useSettingsStore } from '../../stores/settings.js';
 import { useUiStore } from '../../stores/ui.js';
 import { isNoteEmpty, useNotesStore } from '../../stores/notes.js';
-import { getNoteBacklinks } from '../../api/notes.js';
+import { checkpointNoteRevision, getNoteBacklinks } from '../../api/notes.js';
 import { useCorrespondentStore } from '../../stores/correspondents.js';
 import { useDossierStore } from '../../stores/dossiers.js';
 import { useTagStore } from '../../stores/tags.js';
 import { notifyError, useNotifications } from '../../stores/notifications.js';
 import { NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT } from '../../constants/promptDefaults.js';
 import {
+  createNoteDraftVersion,
+  deleteNoteDraft,
+  getNoteDraft,
+  noteDraftMatchesServer,
+  putNoteDraft,
+} from '../../utils/noteDraftStorage.js';
+import {
   noteExportFilename,
   notePrintTitle,
   noteToMarkdown,
   noteToPrintableHtml,
 } from '../../utils/noteExport.js';
+import { extractNoteOutline, nextWrappedIndex } from '../../utils/noteNavigation.js';
 import BaseDialog from '../BaseDialog.vue';
 import PmActionIcon from '../PmActionIcon.vue';
 import NoteEditor from './NoteEditor.vue';
 import NoteTagBar from './NoteTagBar.vue';
+import NoteVersionHistoryDialog from './NoteVersionHistoryDialog.vue';
 
 const EMPTY_DOC = { type: 'doc', content: [{ type: 'paragraph' }] };
+const NOTE_NAVIGATION_MODE_STORAGE_KEY = 'pm-note-navigation-mode-v1';
 
 const props = defineProps({
   noteId: { type: String, required: true },
@@ -333,6 +552,8 @@ const uiStore = useUiStore();
 const savingTemplate = ref(false);
 const templateTitleDialogOpen = ref(false);
 const templateTitleInput = ref('');
+const historyOpen = ref(false);
+const historyRestoring = ref(false);
 const correspondentStore = useCorrespondentStore();
 const dossierStore = useDossierStore();
 const tagStore = useTagStore();
@@ -354,10 +575,25 @@ const noteAllTags = computed(() => {
 const noteEditorRef = ref(null);
 const scrollContainerRef = ref(null);
 const titleInputRef = ref(null);
+const noteSearchInputRef = ref(null);
 const title = ref('');
 const body = ref(EMPTY_DOC);
 const wordCount = ref(0);
+const navigationOpen = ref(false);
+const navigationMode = ref(loadNoteNavigationMode());
+const activeOutlinePosition = ref(null);
+const noteSearchQuery = ref('');
+const noteSearchCount = ref(0);
+const noteSearchActiveIndex = ref(-1);
 const status = ref('idle');
+const serverRevision = ref(1);
+const currentDraftVersion = ref(null);
+const hasUnsyncedChanges = ref(false);
+const localDraftSaved = ref(false);
+const conflictingDraft = ref(null);
+const conflictServerNote = ref(null);
+const lastSaveError = ref(null);
+const isOnline = ref(navigatorOnline());
 const loading = ref(true);
 const switching = ref(false);
 const hasLoadedContent = ref(false);
@@ -398,18 +634,20 @@ const linkTargets = computed(() => ([
 
 let loadingContent = false;
 let saveTimer = null;
+let currentSnapshot = null;
 let scrollPositionSaveTimer = null;
 let documentPickerSearchTimer = null;
 let documentPickerRevision = 0;
 let loadRevision = 0;
-let saveRevision = 0;
 let discardPendingSave = false;
+const savePipelines = new Map();
 
 const NOTE_SCROLL_POSITIONS_STORAGE_KEY = 'pm-note-scroll-positions-v1';
 const NOTE_SCROLL_POSITIONS_LIMIT = 100;
 const noteScrollPositions = loadStoredScrollPositions();
 
 const noteAttributes = computed(() => body.value?.attrs || {});
+const noteOutline = computed(() => extractNoteOutline(body.value));
 const linkedDocument = computed(() => noteAttributes.value.linkedDocument || null);
 const showFilenameSuffix = computed(() => settingsStore.settingsDraft?.ui?.showFilenameSuffix ?? false);
 const notesWritingWidth = computed(() => {
@@ -427,6 +665,21 @@ const notesFontFamily = computed(() => {
 const notesSpellcheckEnabled = computed(
   () => settingsStore.settingsDraft?.ui?.notes_spellcheck_enabled !== false
 );
+const syncIssueVisible = computed(() => ['error', 'conflict', 'local'].includes(status.value));
+const syncStatusIcon = computed(() => ({
+  conflict: 'mdi-alert-outline',
+  error: isOnline.value ? 'mdi-cloud-sync-outline' : 'mdi-cloud-outline',
+  local: 'mdi-content-save-outline',
+}[status.value] || 'mdi-cloud-outline'));
+const syncStatusLabel = computed(() => {
+  if (status.value === 'conflict') return 'Lokaler Entwurf und Serverstand unterscheiden sich';
+  if (status.value === 'local') return 'Lokaler Entwurf wiederhergestellt';
+  if (status.value === 'error') {
+    if (!isOnline.value) return localDraftSaved.value ? 'Offline · lokal gesichert' : 'Offline · nicht gesichert';
+    return localDraftSaved.value ? 'Nicht synchronisiert · lokal gesichert' : 'Nicht synchronisiert';
+  }
+  return '';
+});
 const aiAvailable = computed(() => {
   const config = settingsStore.settingsDraft?.text_generation;
   if (!config?.enabled) return false;
@@ -465,7 +718,10 @@ const linkedDocumentMeta = computed(() => {
   ].filter(Boolean).join(' · ');
 });
 
-watch(() => props.noteId, (noteId) => loadNote(noteId), { immediate: true });
+watch(() => props.noteId, (noteId) => {
+  resetNoteNavigationForNote();
+  loadNote(noteId);
+}, { immediate: true });
 
 // Rückverweise: Notizen, die auf DIESE Notiz verweisen ([[Notiz]]).
 const backlinks = ref([]);
@@ -487,17 +743,147 @@ function openBacklink(noteId) {
 }
 watch(title, () => scheduleSave());
 
+watch(noteSearchQuery, (query) => {
+  if (!navigationOpen.value || navigationMode.value !== 'search') return;
+  runNoteSearch(query, 0);
+});
+
+function handleWorkspaceKeydown(event) {
+  if (
+    event.key?.toLocaleLowerCase() !== 'f'
+    || (!event.metaKey && !event.ctrlKey)
+    || event.altKey
+    || !hasLoadedContent.value
+  ) return;
+  event.preventDefault();
+  event.stopPropagation();
+  setNoteNavigationMode('search', { selectQuery: true });
+}
+
+function toggleNoteNavigation() {
+  if (navigationOpen.value) {
+    closeNoteNavigation();
+    return;
+  }
+  setNoteNavigationMode(navigationMode.value, {
+    selectQuery: navigationMode.value === 'search',
+  });
+}
+
+function setNoteNavigationMode(mode, { selectQuery = false } = {}) {
+  const normalizedMode = mode === 'search' ? 'search' : 'outline';
+  navigationOpen.value = true;
+  navigationMode.value = normalizedMode;
+  persistNoteNavigationMode(normalizedMode);
+  if (normalizedMode === 'outline') {
+    noteEditorRef.value?.clearNoteSearch?.();
+    return;
+  }
+  nextTick(() => {
+    runNoteSearch(noteSearchQuery.value, Math.max(0, noteSearchActiveIndex.value));
+    noteSearchInputRef.value?.focus();
+    if (selectQuery) noteSearchInputRef.value?.select();
+  });
+}
+
+function loadNoteNavigationMode() {
+  if (typeof window === 'undefined') return 'outline';
+  try {
+    return window.localStorage.getItem(NOTE_NAVIGATION_MODE_STORAGE_KEY) === 'search'
+      ? 'search'
+      : 'outline';
+  } catch {
+    return 'outline';
+  }
+}
+
+function persistNoteNavigationMode(mode) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(NOTE_NAVIGATION_MODE_STORAGE_KEY, mode);
+  } catch {
+    // Die Navigation bleibt auch ohne verfügbaren Local Storage nutzbar.
+  }
+}
+
+function closeNoteNavigation() {
+  navigationOpen.value = false;
+  noteSearchQuery.value = '';
+  noteSearchCount.value = 0;
+  noteSearchActiveIndex.value = -1;
+  noteEditorRef.value?.clearNoteSearch?.();
+}
+
+function resetNoteNavigationForNote() {
+  activeOutlinePosition.value = null;
+  noteSearchQuery.value = '';
+  noteSearchCount.value = 0;
+  noteSearchActiveIndex.value = -1;
+  noteEditorRef.value?.clearNoteSearch?.();
+}
+
+function jumpToNoteTitle() {
+  activeOutlinePosition.value = -1;
+  scrollContainerRef.value?.scrollTo({ top: 0, behavior: 'smooth' });
+  titleInputRef.value?.focus({ preventScroll: true });
+}
+
+function jumpToOutlineItem(item) {
+  activeOutlinePosition.value = item.position;
+  noteEditorRef.value?.scrollToDocumentPosition?.(item.position, { focus: true });
+}
+
+function runNoteSearch(query, activeIndex = 0) {
+  const result = noteEditorRef.value?.searchInNote?.(query, activeIndex);
+  if (!result) {
+    noteSearchCount.value = 0;
+    noteSearchActiveIndex.value = -1;
+    return;
+  }
+  noteSearchCount.value = result.count;
+  noteSearchActiveIndex.value = result.activeIndex;
+}
+
+function applyNoteSearchState(state) {
+  if (String(state?.query || '') !== noteSearchQuery.value.trim()) return;
+  noteSearchCount.value = Math.max(0, Number(state?.count) || 0);
+  noteSearchActiveIndex.value = noteSearchCount.value
+    ? Math.max(0, Number(state?.activeIndex) || 0)
+    : -1;
+}
+
+function moveNoteSearch(direction) {
+  if (!noteSearchQuery.value.trim() || !noteSearchCount.value) return;
+  const nextIndex = nextWrappedIndex(
+    noteSearchActiveIndex.value,
+    noteSearchCount.value,
+    direction,
+  );
+  const result = noteEditorRef.value?.selectNoteSearchResult?.(nextIndex);
+  if (result) {
+    noteSearchCount.value = result.count;
+    noteSearchActiveIndex.value = result.activeIndex;
+  }
+}
+
+function clearNoteSearchQuery() {
+  noteSearchQuery.value = '';
+  nextTick(() => noteSearchInputRef.value?.focus());
+}
+
 async function loadNote(noteId = props.noteId) {
   const revision = ++loadRevision;
   if (loadedNoteId.value && loadedNoteId.value !== noteId) {
-    rememberScrollPosition(loadedNoteId.value);
-    flushSave();
+    const previousNoteId = loadedNoteId.value;
+    rememberScrollPosition(previousNoteId);
+    void finalizeHistory(previousNoteId, 'navigation');
   }
   discardPendingSave = false;
   loadError.value = false;
   const cachedNote = notesStore.peek(noteId);
   if (cachedNote) {
-    applyLoadedNote(cachedNote, noteId);
+    await applyLoadedNote(cachedNote, noteId);
+    if (revision !== loadRevision) return;
     loading.value = false;
     switching.value = false;
     return;
@@ -508,7 +894,7 @@ async function loadNote(noteId = props.noteId) {
   try {
     const note = await notesStore.get(noteId);
     if (revision !== loadRevision) return;
-    applyLoadedNote(note, noteId);
+    await applyLoadedNote(note, noteId);
   } catch {
     if (revision !== loadRevision) return;
     loadError.value = true;
@@ -521,18 +907,46 @@ async function loadNote(noteId = props.noteId) {
   }
 }
 
-function applyLoadedNote(note, noteId) {
+async function applyLoadedNote(note, noteId) {
+  const loadedRevision = Math.max(1, Number(note?.revision) || 1);
+  let localDraft = null;
+  try {
+    localDraft = await getNoteDraft(noteId);
+  } catch {
+    // Der Serverstand bleibt auch ohne verfügbare IndexedDB vollständig nutzbar.
+  }
+  if (noteId !== props.noteId) return;
+
+  const pendingPipeline = savePipelines.get(noteId);
+  if (localDraft && noteDraftMatchesServer(localDraft, note) && !pendingPipeline?.running) {
+    void deleteNoteDraft(noteId, localDraft.clientVersion).catch(() => {});
+    localDraft = null;
+  }
+
+  const canRestoreDraft = localDraft
+    && Number(localDraft.baseRevision) === loadedRevision;
+  const hasDraftConflict = localDraft && !canRestoreDraft;
   loadingContent = true;
-  title.value = note?.title || '';
-  body.value = normalizeBody(note?.body_json);
+  title.value = canRestoreDraft ? String(localDraft.title || '') : (note?.title || '');
+  body.value = normalizeBody(canRestoreDraft ? localDraft.bodyJson : note?.body_json);
   noteTagSeed.value = Array.isArray(note?.tags) ? note.tags : [];
   noteTagIds.value = noteTagSeed.value.map((t) => t.id);
   loadedNoteId.value = noteId;
+  serverRevision.value = loadedRevision;
+  currentDraftVersion.value = canRestoreDraft ? localDraft.clientVersion : null;
+  currentSnapshot = canRestoreDraft ? localDraft : null;
+  hasUnsyncedChanges.value = Boolean(canRestoreDraft);
+  localDraftSaved.value = Boolean(localDraft);
+  conflictingDraft.value = hasDraftConflict ? localDraft : null;
+  conflictServerNote.value = hasDraftConflict ? note : null;
+  lastSaveError.value = null;
   hasLoadedContent.value = true;
-  status.value = 'saved';
+  status.value = hasDraftConflict ? 'conflict' : (canRestoreDraft ? 'local' : 'saved');
   nextTick(() => {
     loadingContent = false;
-    if (loadedNoteId.value === noteId) restoreScrollPosition(noteId);
+    if (loadedNoteId.value !== noteId) return;
+    restoreScrollPosition(noteId);
+    if (canRestoreDraft) scheduleRecoveredDraftSave();
   });
 }
 
@@ -613,8 +1027,70 @@ function clearSaveTimer() {
   saveTimer = null;
 }
 
+function navigatorOnline() {
+  return typeof navigator === 'undefined' || navigator.onLine !== false;
+}
+
+function cloneBodyForSave(value) {
+  const normalized = normalizeBody(value);
+  // body.value ist ein reaktives Vue-Objekt (ref). structuredClone kann Vue-
+  // Proxys nicht klonen und wirft sonst bei JEDER Bearbeitung einen
+  // DataCloneError (der lokale Entwurfs-Autosave schlägt dann fehl). Der Body
+  // ist reines ProseMirror-JSON – ein JSON-Roundtrip liefert eine klonbare,
+  // reaktivitätsfreie Momentaufnahme.
+  return JSON.parse(JSON.stringify(normalized));
+}
+
+function createCurrentSnapshot({ clientVersion = createNoteDraftVersion() } = {}) {
+  const noteId = loadedNoteId.value;
+  if (!noteId) return null;
+  return {
+    noteId,
+    title: title.value,
+    bodyJson: cloneBodyForSave(body.value),
+    baseRevision: serverRevision.value,
+    clientVersion,
+    savedAt: Date.now(),
+    historyReason: 'autosave',
+  };
+}
+
+function stageLocalDraft() {
+  const snapshot = createCurrentSnapshot();
+  if (!snapshot) return null;
+  currentSnapshot = snapshot;
+  currentDraftVersion.value = snapshot.clientVersion;
+  hasUnsyncedChanges.value = true;
+  localDraftSaved.value = false;
+  conflictingDraft.value = null;
+  conflictServerNote.value = null;
+  lastSaveError.value = null;
+  snapshot.localWritePromise = putNoteDraft(snapshot)
+    .then(() => {
+      if (loadedNoteId.value === snapshot.noteId && currentDraftVersion.value === snapshot.clientVersion) {
+        localDraftSaved.value = true;
+      }
+      return true;
+    })
+    .catch(() => {
+      if (loadedNoteId.value === snapshot.noteId && currentDraftVersion.value === snapshot.clientVersion) {
+        localDraftSaved.value = false;
+      }
+      return false;
+    });
+  return snapshot;
+}
+
 function scheduleSave() {
-  if (loadingContent || switching.value || loading.value || loadError.value || discardPendingSave) return;
+  if (
+    loadingContent
+    || switching.value
+    || loading.value
+    || loadError.value
+    || discardPendingSave
+    || status.value === 'conflict'
+  ) return;
+  stageLocalDraft();
   status.value = 'saving';
   clearSaveTimer();
   saveTimer = window.setTimeout(() => {
@@ -623,27 +1099,258 @@ function scheduleSave() {
   }, 650);
 }
 
+function scheduleRecoveredDraftSave() {
+  if (!currentSnapshot || discardPendingSave) return;
+  currentSnapshot.localWritePromise = Promise.resolve(true);
+  clearSaveTimer();
+  saveTimer = window.setTimeout(() => {
+    saveTimer = null;
+    void persist();
+  }, 450);
+}
+
 function updateWordCount(value) {
   wordCount.value = Number.isFinite(value) ? value : 0;
 }
 
-async function persist() {
-  if (loadingContent || discardPendingSave || !loadedNoteId.value) return;
-  const noteId = loadedNoteId.value;
-  const savedTitle = title.value;
-  const savedBody = body.value;
-  const revision = ++saveRevision;
-  status.value = 'saving';
-  try {
-    await notesStore.update(noteId, {
-      title: savedTitle,
-      body_json: savedBody,
-    });
-    if (noteId === loadedNoteId.value && revision === saveRevision) {
-      status.value = 'saved';
+function pipelineFor(snapshot) {
+  let pipeline = savePipelines.get(snapshot.noteId);
+  if (!pipeline) {
+    pipeline = {
+      noteId: snapshot.noteId,
+      serverRevision: Math.max(1, Number(snapshot.baseRevision) || 1),
+      latest: null,
+      currentVersion: null,
+      running: false,
+      promise: Promise.resolve(),
+    };
+    savePipelines.set(snapshot.noteId, pipeline);
+  }
+  return pipeline;
+}
+
+function enqueueSnapshot(snapshot) {
+  if (!snapshot) return Promise.resolve();
+  const pipeline = pipelineFor(snapshot);
+  if (
+    pipeline.currentVersion === snapshot.clientVersion
+    || pipeline.latest?.clientVersion === snapshot.clientVersion
+  ) return pipeline.promise;
+  pipeline.latest = snapshot;
+  if (pipeline.running) return pipeline.promise;
+  pipeline.running = true;
+  pipeline.promise = drainSavePipeline(pipeline).finally(() => {
+    pipeline.running = false;
+    savePipelines.delete(pipeline.noteId);
+  });
+  return pipeline.promise;
+}
+
+async function drainSavePipeline(pipeline) {
+  while (pipeline.latest) {
+    const snapshot = pipeline.latest;
+    pipeline.latest = null;
+    pipeline.currentVersion = snapshot.clientVersion;
+    await (snapshot.localWritePromise || Promise.resolve());
+    try {
+      const updated = await notesStore.update(snapshot.noteId, {
+        title: snapshot.title,
+        body_json: snapshot.bodyJson,
+        base_revision: pipeline.serverRevision,
+        history_reason: snapshot.historyReason || 'autosave',
+      });
+      pipeline.serverRevision = Math.max(
+        pipeline.serverRevision + 1,
+        Number(updated?.revision) || 1,
+      );
+      await deleteNoteDraft(snapshot.noteId, snapshot.clientVersion).catch(() => false);
+
+      if (snapshot.noteId === loadedNoteId.value) {
+        serverRevision.value = pipeline.serverRevision;
+        if (currentDraftVersion.value === snapshot.clientVersion) {
+          currentSnapshot = null;
+          currentDraftVersion.value = null;
+          hasUnsyncedChanges.value = false;
+          localDraftSaved.value = false;
+          lastSaveError.value = null;
+          status.value = 'saved';
+        }
+      }
+    } catch (error) {
+      pipeline.latest = null;
+      if (snapshot.noteId === loadedNoteId.value) {
+        lastSaveError.value = error;
+        hasUnsyncedChanges.value = true;
+        if (error?.status === 409) {
+          serverRevision.value = Math.max(
+            1,
+            Number(error?.details?.current_revision) || pipeline.serverRevision,
+          );
+          conflictingDraft.value = snapshot;
+          try {
+            conflictServerNote.value = await notesStore.get(snapshot.noteId, { refresh: true });
+            serverRevision.value = Math.max(
+              serverRevision.value,
+              Number(conflictServerNote.value?.revision) || 1,
+            );
+            // Die vorige PATCH-Antwort kann auf dem Rückweg verloren gegangen
+            // sein. Stimmt der Serverinhalt bereits exakt mit dem Entwurf
+            // überein, ist das kein echter Konflikt.
+            if (noteDraftMatchesServer(snapshot, conflictServerNote.value)) {
+              await deleteNoteDraft(snapshot.noteId, snapshot.clientVersion).catch(() => false);
+              currentSnapshot = null;
+              currentDraftVersion.value = null;
+              hasUnsyncedChanges.value = false;
+              localDraftSaved.value = false;
+              conflictingDraft.value = null;
+              conflictServerNote.value = null;
+              lastSaveError.value = null;
+              status.value = 'saved';
+              break;
+            }
+          } catch {
+            conflictServerNote.value = null;
+          }
+          status.value = 'conflict';
+        } else {
+          status.value = 'error';
+        }
+      }
+      break;
+    } finally {
+      pipeline.currentVersion = null;
     }
+  }
+}
+
+function persist() {
+  if (loadingContent || discardPendingSave || !loadedNoteId.value) return Promise.resolve();
+  const snapshot = currentSnapshot || stageLocalDraft();
+  if (!snapshot) return Promise.resolve();
+  status.value = 'saving';
+  return enqueueSnapshot(snapshot);
+}
+
+function retrySave() {
+  if (!hasUnsyncedChanges.value || status.value === 'conflict') return;
+  clearSaveTimer();
+  void persist();
+}
+
+async function useLocalConflictDraft() {
+  const draft = conflictingDraft.value;
+  if (!draft || !loadedNoteId.value) return;
+  loadingContent = true;
+  title.value = String(draft.title || '');
+  body.value = normalizeBody(draft.bodyJson);
+  await nextTick();
+  loadingContent = false;
+  conflictingDraft.value = null;
+  conflictServerNote.value = null;
+  const snapshot = stageLocalDraft();
+  status.value = 'local';
+  if (snapshot) {
+    clearSaveTimer();
+    saveTimer = window.setTimeout(() => {
+      saveTimer = null;
+      void persist();
+    }, 120);
+  }
+}
+
+async function keepServerVersion() {
+  const noteId = loadedNoteId.value;
+  if (!noteId) return;
+  let serverNote = conflictServerNote.value;
+  if (!serverNote) {
+    try {
+      serverNote = await notesStore.get(noteId, { refresh: true });
+    } catch (error) {
+      lastSaveError.value = error;
+      status.value = 'error';
+      return;
+    }
+  }
+  loadingContent = true;
+  title.value = serverNote.title || '';
+  body.value = normalizeBody(serverNote.body_json);
+  serverRevision.value = Math.max(1, Number(serverNote.revision) || 1);
+  await nextTick();
+  loadingContent = false;
+  const draftVersion = conflictingDraft.value?.clientVersion || currentDraftVersion.value;
+  await deleteNoteDraft(noteId, draftVersion).catch(() => false);
+  currentSnapshot = null;
+  currentDraftVersion.value = null;
+  hasUnsyncedChanges.value = false;
+  localDraftSaved.value = false;
+  conflictingDraft.value = null;
+  conflictServerNote.value = null;
+  lastSaveError.value = null;
+  status.value = 'saved';
+}
+
+function markHistoryCheckpoint(reason = 'manual') {
+  if (!['ai', 'manual'].includes(reason) || status.value === 'conflict') return;
+  const snapshot = currentSnapshot || stageLocalDraft();
+  if (!snapshot) return;
+  snapshot.historyReason = reason;
+  clearSaveTimer();
+  saveTimer = window.setTimeout(() => {
+    saveTimer = null;
+    void persist();
+  }, 80);
+}
+
+async function finalizeHistory(noteId, reason) {
+  if (!noteId) return;
+  try {
+    await flushSave();
+    await checkpointNoteRevision(noteId, reason);
   } catch {
-    if (noteId === loadedNoteId.value && revision === saveRevision) status.value = 'error';
+    // Verlaufspunkte sind Best Effort. Ein nicht synchronisierter Inhalt bleibt
+    // weiterhin durch den lokalen Entwurf und die Autosave-Fehleranzeige sicher.
+  }
+}
+
+async function openVersionHistory() {
+  const noteId = loadedNoteId.value;
+  if (!noteId || historyOpen.value) return;
+  await finalizeHistory(noteId, 'manual');
+  if (loadedNoteId.value === noteId) historyOpen.value = true;
+}
+
+async function restoreHistoryRevision(revision) {
+  const noteId = loadedNoteId.value;
+  if (!noteId || !revision?.id || historyRestoring.value) return;
+  historyRestoring.value = true;
+  try {
+    await flushSave();
+    if (status.value === 'error' || status.value === 'conflict') {
+      throw lastSaveError.value || new Error('Die Notiz ist noch nicht synchronisiert.');
+    }
+    const restored = await notesStore.restoreRevision(noteId, revision.id, serverRevision.value);
+    await deleteNoteDraft(noteId).catch(() => false);
+    await applyLoadedNote(restored, noteId);
+    historyOpen.value = false;
+    notify({
+      type: 'success',
+      title: 'Stand wiederhergestellt',
+      message: `Version vom ${new Intl.DateTimeFormat('de-DE', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      }).format(new Date(revision.updated_at))} ist wieder aktiv.`,
+      critical: true,
+    });
+  } catch (error) {
+    if (error?.status === 409) {
+      serverRevision.value = Math.max(
+        serverRevision.value,
+        Number(error?.details?.current_revision) || 1,
+      );
+    }
+    notifyError(error, 'Der ausgewählte Stand konnte nicht wiederhergestellt werden.');
+  } finally {
+    historyRestoring.value = false;
   }
 }
 
@@ -677,6 +1384,9 @@ async function persistCurrentNoteAsTemplate(templateTitle) {
     // aktuellen Stand kopiert (save_as_template liest den Serverzustand).
     clearSaveTimer();
     await persist();
+    if (status.value === 'error' || status.value === 'conflict') {
+      throw lastSaveError.value || new Error('Die Notiz ist noch nicht synchronisiert.');
+    }
     const template = await notesStore.saveAsTemplate(noteId, { title: templateTitle });
     const savedTitle = template.title?.trim() || templateTitle;
     templateTitleDialogOpen.value = false;
@@ -765,9 +1475,30 @@ onMounted(() => {
   loadSlashDocuments();
   loadAICredentialStatus();
   window.addEventListener('papermind:ai-configuration-changed', loadAICredentialStatus);
+  window.addEventListener('online', onNetworkOnline);
+  window.addEventListener('offline', onNetworkOffline);
+  window.addEventListener('beforeunload', onBeforePageUnload);
   correspondentStore.ensureLoaded?.();
   dossierStore.fetchList?.();
 });
+
+function onNetworkOnline() {
+  isOnline.value = true;
+  if (status.value === 'error' && hasUnsyncedChanges.value) retrySave();
+}
+
+function onNetworkOffline() {
+  isOnline.value = false;
+  if (hasUnsyncedChanges.value && status.value !== 'conflict') status.value = 'error';
+}
+
+function onBeforePageUnload(event) {
+  // Eine Serverbestätigung ODER die bestätigte IndexedDB-Kopie genügt. Nur
+  // wenn beides fehlt, warnt der Browser vor möglichem Datenverlust.
+  if (!hasUnsyncedChanges.value || localDraftSaved.value) return;
+  event.preventDefault();
+  event.returnValue = '';
+}
 
 async function loadAICredentialStatus() {
   try {
@@ -835,6 +1566,7 @@ function focusTitle() {
 }
 
 function exportNoteAsMarkdown() {
+  void finalizeHistory(loadedNoteId.value, 'export');
   try {
     const markdown = noteToMarkdown({ title: title.value, body: body.value });
     const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
@@ -853,6 +1585,7 @@ function exportNoteAsMarkdown() {
 }
 
 function exportNoteAsPdf() {
+  void finalizeHistory(loadedNoteId.value, 'export');
   let printWindow = null;
   try {
     const html = noteToPrintableHtml({
@@ -925,32 +1658,53 @@ function resumePendingSave() {
   scheduleSave();
 }
 
+async function discardPendingDraft() {
+  discardPendingSave = true;
+  clearSaveTimer();
+  const noteId = loadedNoteId.value;
+  const draftVersion = currentDraftVersion.value || conflictingDraft.value?.clientVersion;
+  await (currentSnapshot?.localWritePromise || Promise.resolve());
+  if (noteId) await deleteNoteDraft(noteId, draftVersion).catch(() => false);
+  currentSnapshot = null;
+  currentDraftVersion.value = null;
+  hasUnsyncedChanges.value = false;
+  localDraftSaved.value = false;
+  conflictingDraft.value = null;
+  conflictServerNote.value = null;
+}
+
 function isEmpty() {
   if (loading.value || loadError.value) return null;
   return isNoteEmpty({ title: title.value, body_json: body.value });
 }
 
 function flushSave() {
-  const pending = Boolean(saveTimer);
   clearSaveTimer();
-  if (pending && !discardPendingSave) return persist();
+  if (status.value === 'conflict') return Promise.resolve();
+  if (hasUnsyncedChanges.value && !discardPendingSave) return persist();
+  const activePipeline = loadedNoteId.value ? savePipelines.get(loadedNoteId.value) : null;
+  if (activePipeline?.running) return activePipeline.promise;
   return Promise.resolve();
 }
 
-defineExpose({ cancelPendingSave, resumePendingSave, flushSave, focusEditorBody, focusTitle, isEmpty });
+defineExpose({ cancelPendingSave, discardPendingDraft, resumePendingSave, flushSave, focusEditorBody, focusTitle, isEmpty });
 
 onBeforeUnmount(() => {
   rememberScrollPosition();
   persistScrollPositions();
   if (documentPickerSearchTimer) window.clearTimeout(documentPickerSearchTimer);
   window.removeEventListener('papermind:ai-configuration-changed', loadAICredentialStatus);
-  flushSave();
+  window.removeEventListener('online', onNetworkOnline);
+  window.removeEventListener('offline', onNetworkOffline);
+  window.removeEventListener('beforeunload', onBeforePageUnload);
+  void finalizeHistory(loadedNoteId.value, 'navigation');
 });
 </script>
 
 <style scoped>
 .note-workspace-editor {
   --pm-note-editor-header-bg: rgba(var(--v-theme-surface), 0.68);
+  position: relative;
   display: flex;
   width: 100%;
   height: 100%;
@@ -1022,6 +1776,78 @@ onBeforeUnmount(() => {
   gap: 4px;
 }
 
+/* Das Aktionsmenü verwendet dieselbe kompakte Karten-, Zeilen- und
+   Icon-Sprache wie der Darstellungsumschalter in „Alle Dokumente“. */
+.note-workspace-editor__more-menu {
+  overflow: hidden;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--pm-divider) 86%, transparent);
+  border-radius: 14px;
+  background: var(--pm-app-surface-raised);
+  box-shadow: var(--pm-shadow);
+  color: var(--pm-text);
+  opacity: 1 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.note-workspace-editor__more-label,
+.note-workspace-editor__more-group-label {
+  padding: 4px 9px 6px;
+  color: var(--pm-muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.note-workspace-editor__more-group-label {
+  margin-top: 5px;
+  padding-top: 9px;
+  border-top: 1px solid color-mix(in srgb, var(--pm-divider) 72%, transparent);
+}
+
+.note-workspace-editor__more-item {
+  min-height: 38px;
+  margin: 1px 0;
+  padding-inline: 7px 8px !important;
+  border-radius: 9px;
+  color: color-mix(in srgb, var(--pm-text) 84%, var(--pm-muted));
+  transition: none;
+}
+
+.note-workspace-editor__more-item :deep(.v-list-item__overlay) {
+  transition: none !important;
+}
+
+.note-workspace-editor__more-item :deep(.v-list-item__prepend > .v-list-item__spacer) {
+  width: 8px;
+}
+
+.note-workspace-editor__more-icon {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--pm-divider) 34%, transparent);
+  color: var(--pm-muted);
+  transition: none;
+}
+
+.note-workspace-editor__more-item:hover,
+.note-workspace-editor__more-item:focus-visible {
+  background: color-mix(in srgb, var(--pm-accent) 6%, transparent);
+  color: var(--pm-text);
+}
+
+.note-workspace-editor__more-item:hover .note-workspace-editor__more-icon,
+.note-workspace-editor__more-item:focus-visible .note-workspace-editor__more-icon {
+  color: var(--pm-accent-strong, var(--pm-accent));
+}
+
 .note-workspace-editor__word-count {
   flex: none;
   align-self: center;
@@ -1031,6 +1857,60 @@ onBeforeUnmount(() => {
   font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.note-workspace-editor__sync {
+  display: inline-flex;
+  min-width: 0;
+  max-width: min(520px, 48vw);
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--pm-warning, #b45309) 34%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pm-warning, #b45309) 8%, transparent);
+  color: var(--pm-warning, #9a5b05);
+  font-size: 0.7rem;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.note-workspace-editor__sync.is-error {
+  border-color: color-mix(in srgb, var(--pm-danger, #c2453b) 34%, transparent);
+  background: color-mix(in srgb, var(--pm-danger, #c2453b) 8%, transparent);
+  color: var(--pm-danger, #a7372f);
+}
+
+.note-workspace-editor__sync.is-local {
+  border-color: color-mix(in srgb, var(--pm-accent, #006b75) 30%, transparent);
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 7%, transparent);
+  color: var(--pm-accent-strong, #00555f);
+}
+
+.note-workspace-editor__sync-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note-workspace-editor__sync button {
+  flex: none;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: currentColor;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.note-workspace-editor__sync button:hover,
+.note-workspace-editor__sync button:focus-visible {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  outline: none;
 }
 
 /* Metadaten-Zeile unter dem Titel: Tags und Dokument links, Wortanzahl rechts.
@@ -1064,14 +1944,19 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 .note-workspace-editor__meta-main,
+.note-workspace-editor__sync,
 .note-workspace-editor__word-count {
   position: relative;
   top: -4px;
 }
-.note-workspace-editor__meta.is-centered {
-  width: 100%;
-  max-width: 820px;
-  margin-inline: auto;
+
+@media (max-width: 860px) {
+  .note-workspace-editor__sync {
+    max-width: 42vw;
+  }
+  .note-workspace-editor__sync.is-conflict {
+    border-radius: 8px;
+  }
 }
 .note-workspace-editor__meta-tags {
   min-width: 0;
@@ -1186,25 +2071,283 @@ onBeforeUnmount(() => {
   .note-workspace-editor__doc-chip { transition: none; }
 }
 
-.note-workspace-editor__view-divider {
-  width: 1px;
-  height: 20px;
-  flex: none;
-  margin: 0 4px 0 6px;
-  background: var(--pm-divider, #d8dfe1);
+/* Der 20-px-Glyph sitzt im 36-px-Button jeweils 8 px eingerückt. Der negative
+   Außenabstand richtet die sichtbare Kante des rechten Menübuttons an der
+   Wortanzahl aus. */
+.note-workspace-editor__more-btn {
+  margin-right: -8px;
 }
 
-/* Der 20-px-Glyph sitzt im 36-px-Button jeweils 8 px eingerückt. Der negative
-   Außenabstand richtet seine sichtbare rechte Kante an der Wortanzahl aus. */
-.note-workspace-editor__list-toggle {
-  margin-right: -8px;
+.note-workspace-editor__main {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
 .note-workspace-editor__scroll {
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+.note-workspace-editor__navigator {
+  display: flex;
+  width: clamp(270px, 27vw, 320px);
+  min-width: 270px;
+  min-height: 0;
+  flex: 0 0 auto;
+  flex-direction: column;
+  border-left: 1px solid var(--pm-divider, #d8dfe1);
+  background: color-mix(in srgb, var(--pm-app-surface, #fff) 96%, var(--pm-accent, #006b75));
+  box-shadow: -10px 0 28px color-mix(in srgb, var(--pm-text, #0e181b) 7%, transparent);
+}
+
+.note-workspace-editor__navigator-header {
+  display: flex;
+  min-height: 49px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px 7px 12px;
+  border-bottom: 1px solid var(--pm-divider, #d8dfe1);
+}
+
+.note-workspace-editor__navigator-tabs {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--pm-divider, #d8dfe1) 44%, transparent);
+}
+
+.note-workspace-editor__navigator-tabs button,
+.note-workspace-editor__navigator-close,
+.note-workspace-editor__outline-item,
+.note-workspace-editor__note-search-field button,
+.note-workspace-editor__note-search-actions button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.note-workspace-editor__navigator-tabs button {
+  min-width: 0;
+  flex: 1 1 0;
+  padding: 6px 8px;
+  border-radius: 7px;
+  color: var(--pm-muted, #535e62);
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+
+.note-workspace-editor__navigator-tabs button.is-active {
+  background: var(--pm-app-surface-raised, #fff);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--pm-text, #0e181b) 10%, transparent);
+  color: var(--pm-text, #0e181b);
+}
+
+.note-workspace-editor__navigator-close {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--pm-muted, #535e62);
+}
+
+.note-workspace-editor__navigator-close:hover,
+.note-workspace-editor__navigator-close:focus-visible {
+  background: color-mix(in srgb, var(--pm-divider, #d8dfe1) 52%, transparent);
+  color: var(--pm-text, #0e181b);
+  outline: none;
+}
+
+.note-workspace-editor__outline {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 10px 8px 18px;
+}
+
+.note-workspace-editor__outline-item {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 6px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  color: color-mix(in srgb, var(--pm-text, #0e181b) 86%, var(--pm-muted, #535e62));
+  font-size: 0.8rem;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.note-workspace-editor__outline-item > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-workspace-editor__outline-item.is-title {
+  margin-bottom: 7px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 8px 8px 2px 2px;
+  color: var(--pm-text, #0e181b);
+  font-weight: 680;
+}
+
+.note-workspace-editor__outline-item.is-level-3 { padding-left: 20px; }
+.note-workspace-editor__outline-item.is-level-4 { padding-left: 32px; }
+
+.note-workspace-editor__outline-item:hover,
+.note-workspace-editor__outline-item:focus-visible {
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 7%, transparent);
+  color: var(--pm-text, #0e181b);
+  outline: none;
+}
+
+.note-workspace-editor__outline-item.is-active {
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 10%, transparent);
+  color: var(--pm-accent-strong, #00555f);
+}
+
+.note-workspace-editor__outline-level {
+  color: var(--pm-muted, #748084);
+  font-size: 0.62rem;
+  font-weight: 720;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.note-workspace-editor__navigator-empty {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 5px;
+  padding: 30px 18px;
+  color: var(--pm-muted, #535e62);
+  font-size: 0.76rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.note-workspace-editor__navigator-empty strong {
+  color: var(--pm-text, #0e181b);
+  font-size: 0.8rem;
+}
+
+.note-workspace-editor__note-search {
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: 14px 12px;
+}
+
+.note-workspace-editor__note-search-field {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 9px;
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 9px;
+  background: var(--pm-app-surface-raised, #fff);
+  color: var(--pm-muted, #535e62);
+}
+
+.note-workspace-editor__note-search-field:focus-within {
+  border-color: color-mix(in srgb, var(--pm-accent, #006b75) 65%, var(--pm-divider, #d8dfe1));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent);
+}
+
+.note-workspace-editor__note-search-field input {
+  min-width: 0;
+  flex: 1 1 auto;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--pm-text, #0e181b);
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.note-workspace-editor__note-search-field input::-webkit-search-cancel-button { display: none; }
+
+.note-workspace-editor__note-search-field button {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--pm-muted, #535e62);
+}
+
+.note-workspace-editor__note-search-status {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--pm-muted, #535e62);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.note-workspace-editor__note-search-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.note-workspace-editor__note-search-actions button {
+  display: inline-flex;
+  width: 29px;
+  height: 29px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  color: var(--pm-muted, #535e62);
+}
+
+.note-workspace-editor__note-search-actions button:hover:not(:disabled),
+.note-workspace-editor__note-search-actions button:focus-visible:not(:disabled) {
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 8%, transparent);
+  color: var(--pm-accent-strong, #00555f);
+  outline: none;
+}
+
+.note-workspace-editor__note-search-actions button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.note-workspace-editor__note-search-hint {
+  margin: 8px 2px 0;
+  color: var(--pm-muted, #535e62);
+  font-size: 0.69rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 900px) {
+  .note-workspace-editor__navigator {
+    position: absolute;
+    z-index: 8;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(88%, 320px);
+  }
 }
 
 /* Rückverweise: Notizen, die auf diese Notiz verweisen */
