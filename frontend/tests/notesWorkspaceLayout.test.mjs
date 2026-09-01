@@ -42,6 +42,10 @@ const noteVersionHistorySource = await readFile(
   new URL('../src/components/notes/NoteVersionHistoryDialog.vue', import.meta.url),
   'utf8',
 );
+const templateBoxViewSource = await readFile(
+  new URL('../src/components/notes/nodes/TemplateBoxView.vue', import.meta.url),
+  'utf8',
+);
 const baseDialogSource = await readFile(
   new URL('../src/components/BaseDialog.vue', import.meta.url),
   'utf8',
@@ -77,7 +81,7 @@ test('notes workspace reserves a compact list and a separate editor area', () =>
 test('notes list slides in and out while the editor keeps the toggle accessible', () => {
   assert.match(templateSource, /'is-list-collapsed': isListPanelCollapsed/);
   assert.match(templateSource, /:inert="panelInert"/);
-  assert.match(workspaceSource, /panelInert = computed\(\(\) => isListPanelCollapsed\.value && !isManageMode\.value\)/);
+  assert.match(workspaceSource, /panelInert = computed\(\(\) => isListPanelCollapsed\.value \|\| isManageMode\.value\)/);
   assert.match(templateSource, /@toggle-list="toggleNotesList"/);
   assert.match(templateSource, /<NoteWorkspaceEditor[\s\S]*?v-if="activeNote"/);
   assert.match(templateSource, /v-if="!activeNote && isListPanelCollapsed"[\s\S]*?mdi-arrow-collapse/);
@@ -92,6 +96,37 @@ test('notes list slides in and out while the editor keeps the toggle accessible'
   assert.match(workspaceSource, /localStorage\.setItem\('pm-notes-list-collapsed'/);
   assert.match(workspaceSource, /prefers-reduced-motion:\s*reduce[\s\S]*notes-ws__list-panel/);
   assert.match(workspaceSource, /pm-no-animations[\s\S]*notes-ws__list-panel/);
+});
+
+test('manage mode uses the vertical reader transition without resizing its content', () => {
+  assert.match(templateSource, /<Transition name="notes-ws-manage" appear>[\s\S]*?v-if="isManageMode"[\s\S]*?class="notes-ws__manage-panel"/);
+  assert.match(templateSource, /class="notes-ws__manage-panel"[\s\S]*?<NotesManageGrid/);
+  assert.match(templateSource, /aria-label="Verwaltung schließen"[\s\S]*?<v-icon size="20">mdi-close<\/v-icon>/);
+  assert.match(templateSource, /class="notes-ws__editor-slot"[\s\S]*?:inert="isManageMode"/);
+  assert.match(workspaceSource, /\.notes-ws__manage-panel\s*{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0;[\s\S]*?overflow:\s*hidden/);
+  assert.match(workspaceSource, /\.notes-ws__manage-panel\s*{[\s\S]*?z-index:\s*100/);
+  assert.match(noteEditorSource, /\.note-editor__toolbar\s*{[\s\S]*?z-index:\s*12/);
+  assert.match(workspaceSource, /\.notes-ws-manage-enter-active\s*{[\s\S]*?transition:\s*transform 460ms cubic-bezier\(0\.22, 1, 0\.36, 1\)/);
+  assert.match(workspaceSource, /\.notes-ws-manage-leave-active\s*{[\s\S]*?transition:\s*transform 620ms cubic-bezier\(0\.22, 1, 0\.36, 1\)/);
+  assert.match(workspaceSource, /\.notes-ws-manage-enter-from,[\s\S]*?\.notes-ws-manage-leave-to\s*{[\s\S]*?transform:\s*translateY\(100%\)/);
+  assert.match(workspaceSource, /\.notes-ws-manage-enter-to,[\s\S]*?\.notes-ws-manage-leave-from\s*{[\s\S]*?transform:\s*translateY\(0\)/);
+  assert.doesNotMatch(workspaceSource, /\.notes-ws\.is-manage\s*{[\s\S]*?--notes-list-width:\s*100%/);
+  assert.doesNotMatch(workspaceSource, /--notes-manage-content-width|ResizeObserver|MANAGE_TRANSITION_DURATION_MS|notes-ws-manage-slide/);
+});
+
+test('notes management remembers the selected facet across closing and reloads', () => {
+  assert.match(workspaceSource, /NOTES_MANAGE_FACET_STORAGE_KEY = 'pm-notes-manage-facet-v1'/);
+  assert.match(workspaceSource, /const manageFacet = ref\(loadManageFacet\(\)\)/);
+  assert.match(
+    workspaceSource,
+    /function loadManageFacet\(\)[\s\S]*?localStorage\.getItem\(NOTES_MANAGE_FACET_STORAGE_KEY\)[\s\S]*?return 'notes'/,
+  );
+  assert.match(
+    workspaceSource,
+    /function persistManageFacet\(value\)[\s\S]*?localStorage\.setItem\(NOTES_MANAGE_FACET_STORAGE_KEY, normalizeManageFacet\(value\)\)/,
+  );
+  assert.match(workspaceSource, /watch\(manageFacet, persistManageFacet\)/);
+  assert.match(workspaceSource, /value === 'templates' \? 'templates' : 'notes'/);
 });
 
 test('notes list follows the shared title, toolbar, and row hierarchy', () => {
@@ -186,7 +221,7 @@ test('a plain Enter advances by one controlled paragraph step', () => {
 
 test('new-note action exists only inside the notes workspace', () => {
   assert.match(templateSource, /Neue Notiz/);
-  assert.match(templateSource, /v-if="!isManageMode && !loadError"[\s\S]*?class="notes-ws__fab"/);
+  assert.match(templateSource, /v-if="!loadError"[\s\S]*?class="notes-ws__fab"/);
   assert.match(templateSource, /class="notes-ws__fab-main"[\s\S]*?color="primary"/);
   assert.match(templateSource, /<v-icon size="20" class="mr-1">mdi-square-edit-outline<\/v-icon>/);
   assert.match(templateSource, /:class="\{ 'has-templates': notesStore\.templates\.length > 0 \}"/);
@@ -219,9 +254,85 @@ test('new notes put the caret directly into the writable editor body', () => {
   assert.match(dossierWorkspaceSource, /openDossierNoteInWorkspace\(note\.id, \{ cursorPosition: 'end' \}\)/);
   assert.match(notesManageGridSource, /emit\('open-note', note\.id, \{ cursorPosition: 'end' \}\)/);
   assert.match(notesDevHarnessSource, /focusBody\?\.\('start'\)/);
-  assert.match(workspaceEditorSource, /async function focusEditorBody\(position\)[\s\S]*?await nextTick\(\)[\s\S]*?focusBody\?\.\(position\)/);
+  assert.match(workspaceEditorSource, /pendingEditorFocusRequest = \{[\s\S]*?noteId: props\.noteId,[\s\S]*?position: normalizedPosition/);
+  assert.match(workspaceEditorSource, /nextTick\(\(\) => flushPendingEditorFocus\(noteId\)\)/);
+  assert.match(workspaceEditorSource, /function flushPendingEditorFocus\(noteId = loadedNoteId\.value\)[\s\S]*?focusBody\?\.\(request\.position\) === true/);
   assert.match(workspaceEditorSource, /defineExpose\(\{[\s\S]*?focusEditorBody/);
-  assert.match(noteEditorSource, /position === 'start' \|\| position === 'end'[\s\S]*?focus\(position\)\.run\(\)/);
+  assert.match(noteEditorSource, /position === 'start' \|\| position === 'end'[\s\S]*?focus\(position\)\.run\(\)[\s\S]*?return true/);
+});
+
+test('note navigation panel stays flat in light and dark mode', () => {
+  const navigatorStyle = workspaceEditorSource.match(
+    /\.note-workspace-editor__navigator\s*\{([\s\S]*?)\n\}/,
+  )?.[1] || '';
+  assert.doesNotMatch(navigatorStyle, /box-shadow/);
+  assert.doesNotMatch(
+    workspaceEditorSource,
+    /v-theme--dark \.note-workspace-editor__navigator[\s\S]*?box-shadow/,
+  );
+});
+
+test('outline labels leave clear space before note headings', () => {
+  const outlineItemStyle = workspaceEditorSource.match(
+    /\.note-workspace-editor__outline-item\s*\{([\s\S]*?)\n\}/,
+  )?.[1] || '';
+  assert.match(outlineItemStyle, /grid-template-columns:\s*32px minmax\(0, 1fr\)/);
+  assert.match(outlineItemStyle, /gap:\s*8px/);
+});
+
+test('outline title row is vertically centered without button decoration', () => {
+  const titleRowStyle = workspaceEditorSource.match(
+    /\.note-workspace-editor__outline-item\.is-title\s*\{([\s\S]*?)\n\}/,
+  )?.[1] || '';
+  assert.match(titleRowStyle, /min-height:\s*46px/);
+  assert.match(titleRowStyle, /align-items:\s*center/);
+  assert.match(titleRowStyle, /padding-top:\s*10px/);
+  assert.match(titleRowStyle, /padding-bottom:\s*10px/);
+  assert.match(titleRowStyle, /border-radius:\s*0/);
+  assert.match(titleRowStyle, /box-shadow:\s*none/);
+  assert.doesNotMatch(titleRowStyle, /border-bottom/);
+  assert.match(
+    workspaceEditorSource,
+    /\.note-workspace-editor__outline-item\.is-title\.is-active\s*\{[\s\S]*?background:\s*transparent/,
+  );
+});
+
+test('empty outline uses a centered plain icon without animation or halo', () => {
+  assert.match(
+    workspaceEditorSource,
+    /class="note-workspace-editor__navigator-empty-icon"[\s\S]*?mdi-format-header-pound/,
+  );
+  assert.doesNotMatch(workspaceEditorSource, /import PmEmptyState/);
+  const outlineStyle = workspaceEditorSource.match(
+    /\.note-workspace-editor__outline\s*\{([\s\S]*?)\n\}/,
+  )?.[1] || '';
+  assert.match(outlineStyle, /display:\s*flex/);
+  assert.match(outlineStyle, /flex-direction:\s*column/);
+  const emptyStyle = workspaceEditorSource.match(
+    /\.note-workspace-editor__navigator-empty\s*\{([\s\S]*?)\n\}/,
+  )?.[1] || '';
+  assert.match(emptyStyle, /flex:\s*1 1 auto/);
+  assert.match(emptyStyle, /align-items:\s*center/);
+  assert.match(emptyStyle, /justify-content:\s*center/);
+  assert.match(emptyStyle, /gap:\s*2px/);
+  assert.doesNotMatch(emptyStyle, /animation|border-radius|box-shadow/);
+});
+
+test('empty note search mirrors the centered plain outline placeholder', () => {
+  assert.match(
+    workspaceEditorSource,
+    /v-else-if="!hasNoteSearchQuery"[\s\S]*?note-workspace-editor__note-search-empty[\s\S]*?mdi-magnify[\s\S]*?Notiz durchsuchen[\s\S]*?Gib oben einen Suchbegriff ein/,
+  );
+  assert.match(
+    workspaceEditorSource,
+    /note-workspace-editor__note-search-empty[\s\S]*?role="status"[\s\S]*?mdi-text-search[\s\S]*?Keine Treffer[\s\S]*?Probiere einen anderen Suchbegriff/,
+  );
+  assert.match(workspaceEditorSource, /const hasNoteSearchQuery = computed\(\(\) => Boolean\(noteSearchQuery\.value\.trim\(\)\)\)/);
+  const searchStyle = workspaceEditorSource.match(
+    /\.note-workspace-editor__note-search\s*\{([\s\S]*?)\n\}/,
+  )?.[1] || '';
+  assert.match(searchStyle, /display:\s*flex/);
+  assert.match(searchStyle, /flex-direction:\s*column/);
 });
 
 test('removing a note reuses the document collapse timing before updating the list', () => {
@@ -403,6 +514,12 @@ test('note export and template actions live in the compact overflow menu', () =>
   assert.match(workspaceEditorSource, /saveAsTemplate\(noteId, \{ title: templateTitle \}\)[\s\S]*?title: 'Vorlage gespeichert'[\s\S]*?critical: true/);
   assert.match(workspaceEditorSource, /noteToMarkdown\(\{ title: title\.value, body: body\.value \}\)/);
   assert.match(workspaceEditorSource, /noteToPrintableHtml\(\{/);
+});
+
+test('template boxes use a compact accessible save icon button', () => {
+  assert.match(templateBoxViewSource, /class="pm-template__save"[\s\S]*?aria-label="Als Baustein speichern"[\s\S]*?<v-icon size="16">mdi-content-save-outline<\/v-icon>/);
+  assert.doesNotMatch(templateBoxViewSource, />Als Baustein speichern<\/button>/);
+  assert.match(templateBoxViewSource, /\.pm-template__save\s*{[\s\S]*?width:\s*28px;[\s\S]*?height:\s*28px;[\s\S]*?place-items:\s*center/);
 });
 
 test('note history lists bundled checkpoints and restores a selected server revision', () => {

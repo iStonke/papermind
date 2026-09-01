@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.errors import ConflictError, NotFoundError
 from app.models.note import Note, NoteLink, NoteRevision, NoteTask
+from app.models.note_image import NoteImage
 from app.models.note_tag import note_tags
 from app.models.tag import Tag
 from app.schemas.notes import (
@@ -24,6 +25,7 @@ from app.schemas.notes import (
     NoteUpdateRequest,
 )
 from app.services.document_search import build_ts_query_expr, normalize_search_query
+from app.services.note_images import NoteImageService, NoteImageStorage
 
 # Leeres ProseMirror-Dokument (ein Absatz) als Default für neue/kaputte Bodies.
 EMPTY_DOC: dict[str, Any] = {"type": "doc", "content": [{"type": "paragraph"}]}
@@ -35,6 +37,7 @@ _NODE_TEXT_ATTRS: dict[str, tuple[str, ...]] = {
     "wikiLink": ("label",),
     "ocrQuote": ("text",),
     "aiBlock": ("text",),
+    "image": ("caption", "alt", "title"),
 }
 
 _WS = re.compile(r"\s+")
@@ -455,10 +458,24 @@ class NoteService:
         )
         self.db.add(note)
         self.db.flush()
+        image_service = NoteImageService(self.db, self.owner_id)
+        body_json, cloned_file_keys = image_service.clone_body_images(
+            body_json,
+            source_note_id=template.id,
+            target_note_id=note.id,
+        )
+        note.body_json = body_json
+        note.body_text = derive_body_text(body_json)
         self._sync_links(note)
         self._sync_tasks(note)
         self._record_revision(note, reason="created", force_new=True)
-        self.db.commit()
+        try:
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            for file_key in cloned_file_keys:
+                image_service.storage.cleanup(file_key)
+            raise
         self.db.refresh(note)
         return note
 
@@ -484,8 +501,22 @@ class NoteService:
         )
         self.db.add(template)
         self.db.flush()
+        image_service = NoteImageService(self.db, self.owner_id)
+        body_json, cloned_file_keys = image_service.clone_body_images(
+            body_json,
+            source_note_id=source.id,
+            target_note_id=template.id,
+        )
+        template.body_json = body_json
+        template.body_text = derive_body_text(body_json)
         # Vorlage erzeugt bewusst keine note_link-Zeilen.
-        self.db.commit()
+        try:
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            for file_key in cloned_file_keys:
+                image_service.storage.cleanup(file_key)
+            raise
         self.db.refresh(template)
         return template
 
@@ -727,8 +758,22 @@ class NoteService:
         note = self._get(note_id, include_deleted=True)
         if note is None:
             return False
+        file_keys = [
+            key
+            for key in self.db.scalars(
+                select(NoteImage.file_key).where(
+                    NoteImage.note_id == note.id,
+                    NoteImage.owner_id == self.owner_id,
+                )
+            ).all()
+            if isinstance(key, str) and key
+        ]
         self.db.delete(note)
         self.db.commit()
+        if file_keys:
+            storage = NoteImageStorage()
+            for file_key in file_keys:
+                storage.cleanup(file_key)
         return True
 
     def bulk_action(self, action: str, ids: list[uuid.UUID]) -> int:
@@ -756,8 +801,27 @@ class NoteService:
                 select(Note).where(Note.owner_id == self.owner_id, Note.is_deleted.is_(True))
             ).all()
         )
+        note_ids = [note.id for note in notes]
+        file_keys = [
+            key
+            for key in (
+                self.db.scalars(
+                    select(NoteImage.file_key).where(
+                        NoteImage.note_id.in_(note_ids),
+                        NoteImage.owner_id == self.owner_id,
+                    )
+                ).all()
+                if note_ids
+                else []
+            )
+            if isinstance(key, str) and key
+        ]
         for note in notes:
             self.db.delete(note)
         if notes:
             self.db.commit()
+        if file_keys:
+            storage = NoteImageStorage()
+            for file_key in file_keys:
+                storage.cleanup(file_key)
         return len(notes)

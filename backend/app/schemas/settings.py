@@ -251,7 +251,8 @@ class UISettingsRead(BaseModel):
     sidebar_show_chat: bool = True
     sidebar_show_dossiers: bool = True
     sidebar_sections: list[SidebarSectionConfig] = Field(default_factory=_default_sidebar_sections)
-    # Max. Anzahl der Quicklinks pro Sektion in der Seitenleiste (0 = nur „Alle …").
+    # Max. Anzahl der Quicklinks pro Sektion in der Seitenleiste (0 = nur die Kopfaktion).
+    sidebar_max_folders: int = Field(default=5, ge=0, le=50)
     sidebar_max_tags: int = Field(default=5, ge=0, le=50)
     sidebar_max_categories: int = Field(default=5, ge=0, le=50)
     notes_default_view: NotesDefaultView = NotesDefaultView.remember
@@ -454,6 +455,7 @@ class UISettingsPatch(BaseModel):
     sidebar_show_chat: bool | None = None
     sidebar_show_dossiers: bool | None = None
     sidebar_sections: list[SidebarSectionConfig] | None = None
+    sidebar_max_folders: int | None = Field(default=None, ge=0, le=50)
     sidebar_max_tags: int | None = Field(default=None, ge=0, le=50)
     sidebar_max_categories: int | None = Field(default=None, ge=0, le=50)
     notes_default_view: NotesDefaultView | None = None

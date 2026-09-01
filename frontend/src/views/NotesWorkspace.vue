@@ -4,7 +4,10 @@
   rechts bleibt der Platz für den späteren Inline-Editor reserviert.
 -->
 <template>
-  <section class="notes-ws" :class="{ 'is-list-collapsed': isListPanelCollapsed && !isManageMode, 'is-manage': isManageMode }">
+  <section
+    class="notes-ws"
+    :class="{ 'is-list-collapsed': isListPanelCollapsed }"
+  >
     <aside
       class="notes-ws__list-panel"
       aria-label="Notizenliste"
@@ -14,37 +17,7 @@
       <header class="notes-ws__header">
         <div class="notes-ws__title">
           <div class="notes-ws__heading">Notizen</div>
-          <div class="notes-ws__count">{{ headerCountLabel }}</div>
-        </div>
-
-        <div
-          v-if="isManageMode"
-          class="notes-ws__manage-switch"
-          :class="{ 'is-templates': manageFacet === 'templates' }"
-          role="tablist"
-          aria-label="Notizen oder Vorlagen anzeigen"
-        >
-          <span class="notes-ws__manage-switch-indicator" aria-hidden="true" />
-          <button
-            type="button"
-            role="tab"
-            class="notes-ws__manage-switch-option"
-            :class="{ 'is-active': manageFacet === 'notes' }"
-            :aria-selected="manageFacet === 'notes' ? 'true' : 'false'"
-            @click="manageFacet = 'notes'"
-          >
-            <span>Notizen</span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            class="notes-ws__manage-switch-option"
-            :class="{ 'is-active': manageFacet === 'templates' }"
-            :aria-selected="manageFacet === 'templates' ? 'true' : 'false'"
-            @click="manageFacet = 'templates'"
-          >
-            <span>Vorlagen</span>
-          </button>
+          <div class="notes-ws__count">{{ resultCountLabel }}</div>
         </div>
 
         <div class="notes-ws__header-actions">
@@ -53,27 +26,17 @@
             color="primary"
             variant="tonal"
             icon
-            :aria-pressed="String(isManageMode)"
-            :aria-label="isManageMode ? 'Verwaltung schließen' : 'Notizen verwalten'"
-            :title="isManageMode ? 'Verwaltung schließen' : 'Notizen verwalten'"
+            aria-pressed="false"
+            aria-label="Notizen verwalten"
+            title="Notizen verwalten"
             @click="toggleManageMode"
           >
-            <v-icon size="20">{{ isManageMode ? 'mdi-view-agenda-outline' : 'mdi-view-grid-outline' }}</v-icon>
+            <v-icon size="20">mdi-view-grid-outline</v-icon>
           </v-btn>
         </div>
       </header>
 
-      <NotesManageGrid
-        v-if="isManageMode"
-        class="notes-ws__manage"
-        :facet="manageFacet"
-        :search-query="searchQuery"
-        :search-scope="searchScope"
-        @open-note="openNoteFromManage"
-        @changed="onManageChanged"
-      />
-
-      <div v-else class="notes-ws__list-shell">
+      <div class="notes-ws__list-shell">
         <ListActionToolbar
           :actions="toolbarActions"
           :show-selection="false"
@@ -190,7 +153,7 @@
 
       <!-- Primäraktion als schwebender Button unten rechts (entlastet die Kopfzeile). -->
       <div
-        v-if="!isManageMode && !loadError"
+        v-if="!loadError"
         class="notes-ws__fab"
         :class="{ 'has-templates': notesStore.templates.length > 0 }"
       >
@@ -237,7 +200,12 @@
       </div>
     </aside>
 
-    <section class="notes-ws__editor-slot" aria-label="Notizbereich">
+    <section
+      class="notes-ws__editor-slot"
+      aria-label="Notizbereich"
+      :aria-hidden="isManageMode ? 'true' : undefined"
+      :inert="isManageMode"
+    >
       <NoteWorkspaceEditor
         v-if="activeNote"
         ref="editorPanelRef"
@@ -261,6 +229,75 @@
         v-if="!activeNote"
       />
     </section>
+
+    <Transition name="notes-ws-manage" appear>
+      <aside
+        v-if="isManageMode"
+        class="notes-ws__manage-panel"
+        aria-label="Notizen verwalten"
+      >
+        <header class="notes-ws__header">
+          <div class="notes-ws__title">
+            <div class="notes-ws__heading">{{ manageFacet === 'templates' ? 'Vorlagen' : 'Notizen' }}</div>
+            <div class="notes-ws__count">{{ manageCountLabel }}</div>
+          </div>
+
+          <div
+            class="notes-ws__manage-switch"
+            :class="{ 'is-templates': manageFacet === 'templates' }"
+            role="tablist"
+            aria-label="Notizen oder Vorlagen anzeigen"
+          >
+            <span class="notes-ws__manage-switch-indicator" aria-hidden="true" />
+            <button
+              type="button"
+              role="tab"
+              class="notes-ws__manage-switch-option"
+              :class="{ 'is-active': manageFacet === 'notes' }"
+              :aria-selected="manageFacet === 'notes' ? 'true' : 'false'"
+              @click="manageFacet = 'notes'"
+            >
+              <span>Notizen</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="notes-ws__manage-switch-option"
+              :class="{ 'is-active': manageFacet === 'templates' }"
+              :aria-selected="manageFacet === 'templates' ? 'true' : 'false'"
+              @click="manageFacet = 'templates'"
+            >
+              <span>Vorlagen</span>
+            </button>
+          </div>
+
+          <div class="notes-ws__header-actions">
+            <v-btn
+              class="notes-ws__manage-toggle pm-header-icon-btn"
+              color="primary"
+              variant="tonal"
+              icon
+              aria-pressed="true"
+              aria-label="Verwaltung schließen"
+              title="Verwaltung schließen"
+              @click="toggleManageMode"
+            >
+              <v-icon size="20">mdi-close</v-icon>
+            </v-btn>
+          </div>
+        </header>
+
+        <NotesManageGrid
+          class="notes-ws__manage"
+          :facet="manageFacet"
+          :search-query="searchQuery"
+          :search-scope="searchScope"
+          @open-note="openNoteFromManage"
+          @changed="onManageChanged"
+          @create-note="createNoteFromManage"
+        />
+      </aside>
+    </Transition>
 
     <DestructiveDialog
       v-model="isDeleteNoteDialogOpen"
@@ -313,13 +350,14 @@ const NOTE_DATE_RANGE_OPTIONS = [
   { value: 'last_7_days', label: 'Letzte 7 Tage' },
   { value: 'last_30_days', label: 'Letzte 30 Tage' },
 ];
+const NOTES_MANAGE_FACET_STORAGE_KEY = 'pm-notes-manage-facet-v1';
 
 const notesStore = useNotesStore();
 const settingsStore = useSettingsStore();
 const activeNoteId = ref(null);
 const isListCollapsed = ref(resolveInitialListCollapsed());
 const isManageMode = ref(false);
-const manageFacet = ref('notes');
+const manageFacet = ref(loadManageFacet());
 const isCompactLayout = ref(false);
 const sortMode = ref(normalizeSortMode(settingsStore.settingsDraft.ui.notes_sort_order));
 const dateRange = ref('');
@@ -347,8 +385,7 @@ const NOTE_REMOVAL_DURATION_MS = 210;
 const NOTE_SEARCH_DEBOUNCE_MS = 220;
 
 const isListPanelCollapsed = computed(() => isListCollapsed.value && !isCompactLayout.value);
-// Im Verwaltungsmodus füllt das Panel die volle Breite und bleibt bedienbar.
-const panelInert = computed(() => isListPanelCollapsed.value && !isManageMode.value);
+const panelInert = computed(() => isListPanelCollapsed.value || isManageMode.value);
 const normalizedSearchQuery = computed(() => String(props.searchQuery || '').trim().slice(0, 256));
 const normalizedSearchScope = computed(() => (
   ['all', 'title', 'body'].includes(props.searchScope) ? props.searchScope : 'all'
@@ -395,9 +432,10 @@ const resultCountLabel = computed(() => {
   return total === 1 ? '1 Notiz' : `${total} Notizen`;
 });
 
-const headerCountLabel = computed(() => {
-  if (isManageMode.value && manageFacet.value === 'templates') {
-    const total = notesStore.templates.length;
+const manageCountLabel = computed(() => {
+  if (manageFacet.value === 'templates') {
+    // Der Vorlagen-Bereich umfasst Schnellblöcke UND Startnotizen.
+    const total = notesStore.blockTemplates.length + notesStore.templates.length;
     return total === 1 ? '1 Vorlage' : `${total} Vorlagen`;
   }
   return resultCountLabel.value;
@@ -663,6 +701,30 @@ function toggleManageMode() {
   isManageMode.value = !isManageMode.value;
 }
 
+function normalizeManageFacet(value) {
+  return value === 'templates' ? 'templates' : 'notes';
+}
+
+function loadManageFacet() {
+  if (typeof window === 'undefined') return 'notes';
+  try {
+    return normalizeManageFacet(window.localStorage.getItem(NOTES_MANAGE_FACET_STORAGE_KEY));
+  } catch {
+    return 'notes';
+  }
+}
+
+function persistManageFacet(value) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(NOTES_MANAGE_FACET_STORAGE_KEY, normalizeManageFacet(value));
+  } catch {
+    // Die Verwaltung bleibt auch ohne verfügbaren Local Storage bedienbar.
+  }
+}
+
+watch(manageFacet, persistManageFacet);
+
 // Aus der Verwaltungsfläche eine Notiz im Editor öffnen: Modus verlassen und
 // die Notiz aktivieren (nach dem Bulk-Refresh liegt sie sicher in der Liste).
 async function openNoteFromManage(noteId, { cursorPosition = null } = {}) {
@@ -706,6 +768,22 @@ async function createNote() {
   loadError.value = '';
   try {
     await revealNewNote(await notesStore.create());
+  } catch {
+    loadError.value = 'Die Notiz konnte nicht angelegt werden.';
+  } finally {
+    creating.value = false;
+  }
+}
+
+// Anlegen aus der Verwaltungsfläche: neue Notiz erzeugen, Panel schließen, öffnen.
+async function createNoteFromManage() {
+  if (creating.value) return;
+  creating.value = true;
+  loadError.value = '';
+  try {
+    const note = await notesStore.create();
+    isManageMode.value = false;
+    await revealNewNote(note);
   } catch {
     loadError.value = 'Die Notiz konnte nicht angelegt werden.';
   } finally {
@@ -877,6 +955,7 @@ function formatDate(value) {
   --notes-header-height: 54px;
   --notes-meta-row-height: 36px;
 
+  position: relative;
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -886,7 +965,8 @@ function formatDate(value) {
 }
 
 .notes-ws__list-panel,
-.notes-ws__editor-slot {
+.notes-ws__editor-slot,
+.notes-ws__manage-panel {
   min-width: 0;
   min-height: 0;
 }
@@ -897,6 +977,7 @@ function formatDate(value) {
   width: var(--notes-list-width);
   flex: 0 0 var(--notes-list-width);
   flex-direction: column;
+  overflow: hidden;
   background: var(--pm-content-surface, #fff);
   border-right: 1px solid var(--pm-divider, #d8dfe1);
   opacity: 1;
@@ -921,26 +1002,39 @@ function formatDate(value) {
   transition-delay: 0ms, 0ms, 0ms, 0ms, 0ms, 260ms;
 }
 
-/* Verwaltungsmodus: Liste entfaltet sich auf volle Breite, Editor klappt weg. */
-.notes-ws.is-manage {
-  --notes-list-width: 100%;
-}
-
-.notes-ws.is-manage .notes-ws__list-panel {
-  border-right: 0;
-}
-
-.notes-ws.is-manage .notes-ws__editor-slot {
-  flex: 0 0 0;
-  width: 0;
-  min-width: 0;
-  opacity: 0;
+.notes-ws__manage-panel {
+  position: absolute;
+  /* Über der Formatierungsleiste und den schwebenden Editor-Menüs (bis z-index 80). */
+  z-index: 100;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  pointer-events: none;
-  transition:
-    flex-basis 300ms var(--pm-easing-accel, cubic-bezier(0.4, 0, 0.2, 1)),
-    width 300ms var(--pm-easing-accel, cubic-bezier(0.4, 0, 0.2, 1)),
-    opacity 160ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+  margin-left: 0;
+  background: var(--pm-content-surface, #fff);
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* Identische Schubladenbewegung wie beim Dokument-Lesemodus. */
+.notes-ws-manage-enter-active {
+  transition: transform 460ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.notes-ws-manage-leave-active {
+  transition: transform 620ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.notes-ws-manage-enter-from,
+.notes-ws-manage-leave-to {
+  transform: translateY(100%);
+}
+
+.notes-ws-manage-enter-to,
+.notes-ws-manage-leave-from {
+  transform: translateY(0);
 }
 
 .notes-ws__header {
@@ -1553,6 +1647,8 @@ function formatDate(value) {
   .list-header-btn.v-btn,
   .notes-ws__manage-switch-indicator,
   .notes-ws__list-panel,
+  .notes-ws-manage-enter-active,
+  .notes-ws-manage-leave-active,
   .notes-ws__item.is-new,
   .notes-ws__item.is-removing {
     transition-duration: 0ms;
@@ -1576,7 +1672,12 @@ function formatDate(value) {
   transition-duration: 0ms;
 }
 
-:global(.pm-no-animations) .notes-ws__list-panel {
+:global(.pm-no-animations .notes-ws__list-panel) {
+  transition-duration: 0ms;
+}
+
+:global(.pm-no-animations .notes-ws-manage-enter-active),
+:global(.pm-no-animations .notes-ws-manage-leave-active) {
   transition-duration: 0ms;
 }
 

@@ -10,6 +10,10 @@ const productionCompose = await readFile(
   new URL('../../docker-compose.prod.yml', import.meta.url),
   'utf8',
 );
+const viteConfig = await readFile(
+  new URL('../vite.config.js', import.meta.url),
+  'utf8',
+);
 
 function frontendService(compose) {
   const match = compose.match(/^  frontend:\n([\s\S]*?)^  backend:/m);
@@ -27,6 +31,9 @@ test('local frontend restarts from live Vite sources instead of a static build',
   assert.match(service, /- "\$\{FRONTEND_PORT\}:5173"/);
   assert.match(service, /- \.\/frontend:\/app/);
   assert.match(service, /- frontend_node_modules:\/app\/node_modules/);
+  assert.match(service, /API_PROXY_TARGET: http:\/\/backend:\$\{BACKEND_PORT\}/);
+  assert.doesNotMatch(service, /VITE_API_BASE_URL: http:\/\/backend/);
+  assert.match(viteConfig, /env\.API_PROXY_TARGET\s*\|\|\s*env\.VITE_API_BASE_URL/);
 });
 
 test('production frontend remains a static nginx build', () => {

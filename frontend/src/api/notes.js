@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPatch, apiPost, apiPut, authHeaders, getBaseUrl } from './client.js';
+import { apiDelete, apiFetch, apiGet, apiPatch, apiPost, apiPut, authHeaders, getBaseUrl } from './client.js';
 
 export const listNotes = ({ inTrash = false, documentId = null, dossierId = null, tagId = null, templates = false, q = '', searchScope = 'all' } = {}) => {
   const params = new URLSearchParams();
@@ -18,6 +18,12 @@ export const createNote = (body = {}) => apiPost('/api/notes', body);
 export const listNoteTemplates = () => apiGet('/api/notes/templates');
 export const createNoteFromTemplate = (templateId) => apiPost(`/api/notes/from-template/${templateId}`, undefined);
 export const saveNoteAsTemplate = (id, body = {}) => apiPost(`/api/notes/${id}/save-as-template`, body);
+
+// Baustein-Vorlagen (Feldblöcke) – getrennt von den Ganz-Notiz-Vorlagen.
+export const listBlockTemplates = () => apiGet('/api/notes/block-templates');
+export const createBlockTemplate = (body = {}) => apiPost('/api/notes/block-templates', body);
+export const updateBlockTemplate = (id, body = {}) => apiPatch(`/api/notes/block-templates/${id}`, body);
+export const deleteBlockTemplate = (id) => apiDelete(`/api/notes/block-templates/${id}`);
 export const patchNote = (id, body) => apiPatch(`/api/notes/${id}`, body);
 export const listNoteRevisions = (id, { limit = 50 } = {}) =>
   apiGet(`/api/notes/${id}/revisions?limit=${Math.max(1, Math.min(Number(limit) || 50, 100))}`);
@@ -32,6 +38,11 @@ export const trashNote = (id) => apiPost(`/api/notes/${id}/trash`, undefined);
 export const restoreNote = (id) => apiPost(`/api/notes/${id}/restore`, undefined);
 export const emptyNotesTrash = () => apiDelete('/api/notes/trash');
 export const deleteNote = (id) => apiDelete(`/api/notes/${id}`);
+export const uploadNoteImage = (id, file) => {
+  const body = new FormData();
+  body.append('file', file);
+  return apiFetch(`/api/notes/${id}/images`, { method: 'POST', body });
+};
 
 /**
  * Sammelaktion über mehrere Notizen aus der Verwaltungsfläche.

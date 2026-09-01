@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@mdi/js": "^7.4.47",
+    "@tiptap/extension-file-handler": "^3.30.2",
+    "@tiptap/extension-image": "^3.30.2",
     "@tiptap/extension-placeholder": "^3.30.2",
     "@tiptap/extension-table": "3.30.2",
     "@tiptap/extension-task-item": "^3.30.2",

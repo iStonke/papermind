@@ -38,6 +38,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             {"key": "tags", "visible": True},
             {"key": "kategorien", "visible": True},
         ],
+        "sidebar_max_folders": 5,
         "sidebar_max_tags": 5,
         "sidebar_max_categories": 5,
         "notes_default_view": "remember",

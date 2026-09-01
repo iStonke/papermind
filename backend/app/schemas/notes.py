@@ -80,6 +80,50 @@ class SaveAsTemplateRequest(BaseModel):
     title: str = Field(default="", max_length=500)
 
 
+# --- Baustein-Vorlagen (Feldblöcke) ------------------------------------------
+class NoteBlockTemplateField(BaseModel):
+    """Eine Feldzeile einer Baustein-Vorlage."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    label: str = Field(default="", max_length=200)
+    hint: str = Field(default="", max_length=200)
+
+
+class NoteBlockTemplateCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(default="", max_length=200)
+    title: str = Field(default="", max_length=200)
+    color: str = Field(default="teal", max_length=32)
+    fields: list[NoteBlockTemplateField] = Field(default_factory=list)
+
+
+class NoteBlockTemplateUpdateRequest(BaseModel):
+    """Teilaktualisierung. Nur gesetzte Felder werden geschrieben."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, max_length=200)
+    title: str | None = Field(default=None, max_length=200)
+    color: str | None = Field(default=None, max_length=32)
+    fields: list[NoteBlockTemplateField] | None = None
+
+
+class NoteBlockTemplateRead(ORMModel):
+    id: uuid.UUID
+    name: str
+    title: str
+    color: str
+    fields: list[NoteBlockTemplateField]
+    created_at: datetime
+    updated_at: datetime
+
+
+class NoteBlockTemplateListResponse(BaseModel):
+    items: list[NoteBlockTemplateRead]
+
+
 class NoteUpdateRequest(BaseModel):
     """Teilaktualisierung (Autosave). Nur gesetzte Felder werden geschrieben."""
 
@@ -172,6 +216,19 @@ class NoteRead(ORMModel):
     tags: list[NoteTagRef] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+
+class NoteImageRead(ORMModel):
+    """Metadata returned after a successful note-image upload."""
+
+    id: uuid.UUID
+    note_id: uuid.UUID
+    filename: str
+    content_type: str
+    size_bytes: int
+    width: int
+    height: int
+    src: str
 
 
 class NoteTextGenerationRequest(BaseModel):

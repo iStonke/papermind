@@ -18,7 +18,9 @@ services:
       FRONTEND_PORT: 5173
       # Der Vite-Proxy läuft im Container; localhost wäre hier der
       # Frontend-Container selbst, daher das Compose-Serviceziel verwenden.
-      VITE_API_BASE_URL: http://backend:${BACKEND_PORT}
+      # Bewusst KEIN VITE_*-Präfix: Solche Variablen werden in den Browser-Build
+      # exportiert, wo der interne Docker-Hostname "backend" nicht auflösbar ist.
+      API_PROXY_TARGET: http://backend:${BACKEND_PORT}
     ports:
       - "${FRONTEND_PORT}:5173"
     volumes:

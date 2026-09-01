@@ -190,7 +190,40 @@
         @click="toggleSection('ordner')"
       >
         <div class="sidebar-section-label">Ordner</div>
-        <div class="sidebar-section-header-actions">
+        <div class="sidebar-section-header-actions sidebar-section-header-actions--folders">
+          <v-menu location="bottom end" :offset="6">
+            <template #activator="{ props: menuProps }">
+              <button
+                v-bind="menuProps"
+                type="button"
+                class="sidebar-section-icon-action"
+                aria-label="Alle Ordner anzeigen"
+                title="Alle Ordner"
+                @click.stop
+              >
+                <v-icon size="15">mdi-view-grid-outline</v-icon>
+              </button>
+            </template>
+            <v-list class="pm-menu sidebar-all-folders-menu" density="compact" min-width="250" max-width="340">
+              <v-list-subheader>Alle Ordner</v-list-subheader>
+              <v-list-item v-if="!sortedFolderItems.length" title="Noch keine Ordner" />
+              <v-list-item
+                v-for="savedSearch in sortedFolderItems"
+                v-else
+                :key="`all-folder-${savedSearch.id}`"
+                :active="!dossiersActive && !chatActive && activeSavedSearchId === savedSearch.id"
+                :title="savedSearch.name"
+                @click="emit('open-saved-search', savedSearch.id)"
+              >
+                <template #prepend>
+                  <v-icon size="17">{{ folderSidebarIcon(savedSearch, activeSavedSearchId === savedSearch.id) }}</v-icon>
+                </template>
+                <template #append>
+                  <span class="sidebar-rail-flyout__count">{{ sidebarStore.savedSearchCount(savedSearch.id) }}</span>
+                </template>
+              </v-list-item>
+            </v-list>
+          </v-menu>
           <button
             type="button"
             class="sidebar-section-icon-action"
@@ -225,7 +258,7 @@
           </SidebarItem>
 
           <SidebarItem
-            v-for="savedSearch in sortedFolderItems"
+            v-for="savedSearch in visibleFolderItems"
             :key="savedSearch.id"
             item-class="sidebar-item--secondary"
             :active="!dossiersActive && !chatActive && activeSavedSearchId === savedSearch.id"
@@ -522,6 +555,7 @@ function clampSidebarMax(value, fallback = 5) {
 
 const maxSidebarTags = computed(() => clampSidebarMax(settingsStore.settings.ui.sidebar_max_tags));
 const maxSidebarCategories = computed(() => clampSidebarMax(settingsStore.settings.ui.sidebar_max_categories));
+const maxSidebarFolders = computed(() => clampSidebarMax(settingsStore.settings.ui.sidebar_max_folders));
 
 // ── Collapsible sections ───────────────────────────────────────────────────
 function loadCollapsed(key) {
@@ -646,6 +680,10 @@ const sortedFolderItems = computed(() =>
     if (lw !== rw) return lw - rw;
     return tagNameCollator.compare(normalizeTagInput(l?.name || ''), normalizeTagInput(r?.name || ''));
   })
+);
+
+const visibleFolderItems = computed(() =>
+  sortedFolderItems.value.slice(0, maxSidebarFolders.value)
 );
 
 // ── Kategorien (Dokumenttypen) ──────────────────────────────────────────────
@@ -881,6 +919,15 @@ onBeforeUnmount(() => {
   gap: 5px;
   margin-inline-start: auto;
   min-width: 0;
+}
+
+.sidebar-section-header-actions--folders {
+  flex-basis: 74px;
+}
+
+.sidebar-all-folders-menu {
+  max-height: min(60vh, 440px);
+  overflow-y: auto;
 }
 
 .sidebar-dossier-count {

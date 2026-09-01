@@ -11,6 +11,7 @@ const NODE_TEXT_ATTRS = {
   wikiLink: ['label'],
   ocrQuote: ['text'],
   aiBlock: ['text'],
+  image: ['caption', 'alt', 'title'],
 };
 
 function pmText(node) {
@@ -48,6 +49,10 @@ export const useNotesStore = defineStore('notes', () => {
   // damit sie nicht im normalen Notizzähler/der Liste auftauchen.
   const templates = ref([]);
   const templatesLoaded = ref(false);
+  // Bausteine: benutzereigene Feldblock-Vorlagen (templateBox). Eigenständiges
+  // Konzept neben den Ganz-Notiz-Vorlagen.
+  const blockTemplates = ref([]);
+  const blockTemplatesLoaded = ref(false);
   // Signal: eine bestimmte Notiz im NotesWorkspace öffnen (z. B. aus dem
   // Dokument-Detailbereich „Notizen"). NotesWorkspace konsumiert es beim Mount/Watch.
   const pendingOpenId = ref(null);
@@ -134,6 +139,37 @@ export const useNotesStore = defineStore('notes', () => {
       updated_at: template.updated_at,
     });
     return template;
+  }
+
+  // --- Bausteine (Feldblock-Vorlagen) ----------------------------------------
+  async function fetchBlockTemplates() {
+    const res = await api.listBlockTemplates();
+    blockTemplates.value = res.items || [];
+    blockTemplatesLoaded.value = true;
+    return blockTemplates.value;
+  }
+
+  function ensureBlockTemplatesLoaded() {
+    if (blockTemplatesLoaded.value) return Promise.resolve(blockTemplates.value);
+    return fetchBlockTemplates();
+  }
+
+  async function createBlockTemplate(payload = {}) {
+    const tpl = await api.createBlockTemplate(payload);
+    blockTemplates.value.unshift(tpl);
+    return tpl;
+  }
+
+  async function updateBlockTemplate(id, payload = {}) {
+    const tpl = await api.updateBlockTemplate(id, payload);
+    const idx = blockTemplates.value.findIndex((t) => t.id === id);
+    if (idx !== -1) blockTemplates.value.splice(idx, 1, tpl);
+    return tpl;
+  }
+
+  async function deleteBlockTemplate(id) {
+    await api.deleteBlockTemplate(id);
+    blockTemplates.value = blockTemplates.value.filter((t) => t.id !== id);
   }
 
   function requestOpen(id, { cursorPosition = null } = {}) {
@@ -273,6 +309,13 @@ export const useNotesStore = defineStore('notes', () => {
     ensureTemplatesLoaded,
     createFromTemplate,
     saveAsTemplate,
+    blockTemplates,
+    blockTemplatesLoaded,
+    fetchBlockTemplates,
+    ensureBlockTemplatesLoaded,
+    createBlockTemplate,
+    updateBlockTemplate,
+    deleteBlockTemplate,
     create,
     peek,
     get,

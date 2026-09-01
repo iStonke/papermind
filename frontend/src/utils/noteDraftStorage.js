@@ -51,10 +51,32 @@ export function createNoteDraftVersion() {
   return `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, canonicalJson(value[key])]),
+  );
+}
+
+export function noteBodiesEqual(left, right) {
+  return JSON.stringify(canonicalJson(left || null))
+    === JSON.stringify(canonicalJson(right || null));
+}
+
 export function noteDraftMatchesServer(draft, note) {
   if (!draft || !note) return false;
   return String(draft.title || '') === String(note.title || '')
-    && JSON.stringify(draft.bodyJson || null) === JSON.stringify(note.body_json || null);
+    && noteBodiesEqual(draft.bodyJson, note.body_json);
+}
+
+export function latestKnownNoteRevision(...values) {
+  return values.reduce(
+    (latest, value) => Math.max(latest, Math.max(1, Number(value) || 1)),
+    1,
+  );
 }
 
 export function normalizeNoteDraftForStorage(draft) {

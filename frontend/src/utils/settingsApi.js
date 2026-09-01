@@ -106,6 +106,10 @@ export function buildSidebarMaxTagsPatch(count) {
   return { ui: { sidebar_max_tags: clampSidebarMax(count) } };
 }
 
+export function buildSidebarMaxFoldersPatch(count) {
+  return { ui: { sidebar_max_folders: clampSidebarMax(count) } };
+}
+
 export function buildSidebarMaxCategoriesPatch(count) {
   return { ui: { sidebar_max_categories: clampSidebarMax(count) } };
 }

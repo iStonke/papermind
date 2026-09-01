@@ -7,6 +7,7 @@ import {
   buildAutoTaggingPatch,
   buildRecentImportWindowPatch,
   buildNotesPreferencesPatch,
+  buildSidebarMaxFoldersPatch,
   buildSidebarShowDossiersPatch,
   buildSortOrderPatch,
   buildThemeModePatch,
@@ -46,6 +47,15 @@ test("buildAutoOpenImportInboxPatch returns expected payload", () => {
 test("buildSidebarShowDossiersPatch returns expected payload", () => {
   assert.deepEqual(buildSidebarShowDossiersPatch(false), {
     ui: { sidebar_show_dossiers: false },
+  });
+});
+
+test("buildSidebarMaxFoldersPatch clamps the visible folder count", () => {
+  assert.deepEqual(buildSidebarMaxFoldersPatch(8), {
+    ui: { sidebar_max_folders: 8 },
+  });
+  assert.deepEqual(buildSidebarMaxFoldersPatch(99), {
+    ui: { sidebar_max_folders: 50 },
   });
 });
 

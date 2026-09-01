@@ -9,6 +9,7 @@
 -->
 <template>
   <div
+    ref="rootEl"
     class="note-editor"
     :class="[
       { 'note-editor--workspace': workspace },
@@ -31,8 +32,9 @@
 
     <div
       v-if="workspace"
+      ref="toolbarEl"
       class="note-editor__toolbar"
-      :class="{ 'is-ducked': toolbarDucked }"
+      :class="{ 'is-ducked': toolbarDucked, 'is-compact': toolbarCompact }"
       role="toolbar"
       aria-label="Text formatieren"
       :aria-disabled="readonly ? 'true' : undefined"
@@ -40,35 +42,30 @@
       @pointerenter="revealFormattingToolbar"
       @focusin="revealFormattingToolbar"
     >
-      <div class="note-editor__toolbar-group">
+      <div class="note-editor__toolbar-menu">
         <button
           type="button"
-          class="note-editor__toolbar-btn note-editor__toolbar-btn--text"
-          :class="{ 'is-active': toolbarActive('heading', { level: 2 }) }"
-          title="Überschrift 2"
-          @click.prevent="runToolbar('h2')"
-        >H2</button>
-        <button
-          type="button"
-          class="note-editor__toolbar-btn note-editor__toolbar-btn--text"
-          :class="{ 'is-active': toolbarActive('heading', { level: 3 }) }"
-          title="Überschrift 3"
-          @click.prevent="runToolbar('h3')"
-        >H3</button>
-        <button
-          type="button"
-          class="note-editor__toolbar-btn note-editor__toolbar-btn--text"
-          :class="{ 'is-active': toolbarActive('heading', { level: 4 }) }"
-          title="Überschrift 4"
-          @click.prevent="runToolbar('h4')"
-        >H4</button>
-        <button
-          type="button"
-          class="note-editor__toolbar-btn note-editor__toolbar-btn--wide"
-          :class="{ 'is-active': toolbarActive('paragraph') }"
-          title="Fließtext"
-          @click.prevent="runToolbar('paragraph')"
-        >Text</button>
+          class="note-editor__toolbar-btn note-editor__toolbar-btn--group"
+          :class="{ 'is-open': openMenu === 'block' }"
+          :aria-expanded="openMenu === 'block' ? 'true' : 'false'"
+          title="Absatzstil"
+          @mousedown.prevent
+          @click.prevent="toggleMenu('block')"
+        >
+          <span class="note-editor__toolbar-btn-label">{{ currentBlockShort() }}</span>
+          <v-icon size="15">mdi-chevron-down</v-icon>
+        </button>
+        <div v-if="openMenu === 'block'" class="note-editor__toolbar-dropdown">
+          <button
+            v-for="item in blockStyleItems"
+            :key="item.key"
+            type="button"
+            class="note-editor__toolbar-dropitem note-editor__toolbar-dropitem--block"
+            :class="[`is-${item.key}`, { 'is-active': isBlockActive(item.key) }]"
+            @mousedown.prevent
+            @click.prevent="runBlockStyle(item.key)"
+          >{{ item.label }}</button>
+        </div>
       </div>
 
       <span class="note-editor__toolbar-divider" aria-hidden="true" />
@@ -99,6 +96,7 @@
           @click.prevent="runToolbar('underline')"
         ><u>U</u></button>
         <button
+          v-if="!toolbarCompact"
           type="button"
           class="note-editor__toolbar-btn"
           :class="{ 'is-active': toolbarActive('code') }"
@@ -107,6 +105,7 @@
           @click.prevent="runToolbar('code')"
         ><span class="note-editor__toolbar-code">A</span></button>
         <button
+          v-if="!toolbarCompact"
           type="button"
           class="note-editor__toolbar-btn"
           :class="{ 'is-active': toolbarActive('link') }"
@@ -118,47 +117,42 @@
 
       <span class="note-editor__toolbar-divider" aria-hidden="true" />
 
-      <div class="note-editor__toolbar-group">
+      <div class="note-editor__toolbar-menu">
         <button
           type="button"
-          class="note-editor__toolbar-btn"
-          :class="{ 'is-active': toolbarActive('bulletList') }"
-          title="Aufzählung"
-          aria-label="Aufzählung"
-          @click.prevent="runToolbar('bulletList')"
-        ><v-icon size="18">mdi-format-list-bulleted</v-icon></button>
-        <button
-          type="button"
-          class="note-editor__toolbar-btn"
-          :class="{ 'is-active': toolbarActive('orderedList') }"
-          title="Nummerierte Liste"
-          aria-label="Nummerierte Liste"
-          @click.prevent="runToolbar('orderedList')"
-        ><v-icon size="18">mdi-format-list-numbered</v-icon></button>
-        <button
-          type="button"
-          class="note-editor__toolbar-btn"
-          :class="{ 'is-active': toolbarActive('blockquote') }"
-          title="Zitat"
-          aria-label="Zitat"
-          @click.prevent="runToolbar('blockquote')"
-        ><v-icon size="18">mdi-format-quote-close</v-icon></button>
-        <button
-          type="button"
-          class="note-editor__toolbar-btn"
-          :class="{ 'is-active': toolbarActive('codeBlock') }"
-          title="Codeblock"
-          aria-label="Codeblock"
-          @click.prevent="runToolbar('codeBlock')"
-        ><span class="note-editor__toolbar-braces">{ }</span></button>
-        <button
-          type="button"
-          class="note-editor__toolbar-btn"
-          :class="{ 'is-active': toolbarActive('table') }"
-          title="Tabelle"
-          aria-label="Tabelle einfügen oder bearbeiten"
-          @click.prevent="openTableMenu"
-        ><v-icon size="18">mdi-table</v-icon></button>
+          class="note-editor__toolbar-btn note-editor__toolbar-btn--group"
+          :class="{ 'is-open': openMenu === 'insert' }"
+          :aria-expanded="openMenu === 'insert' ? 'true' : 'false'"
+          :title="toolbarCompact ? 'Weitere Werkzeuge' : 'Einfügen'"
+          :aria-label="toolbarCompact ? 'Weitere Werkzeuge' : 'Einfügen'"
+          @mousedown.prevent
+          @click.prevent="toggleMenu('insert')"
+        >
+          <v-icon v-if="toolbarCompact" size="18">mdi-dots-horizontal</v-icon>
+          <template v-else>
+            <v-icon size="16">mdi-plus</v-icon>
+            <span class="note-editor__toolbar-btn-label">Einfügen</span>
+            <v-icon size="15">mdi-chevron-down</v-icon>
+          </template>
+        </button>
+        <div v-if="openMenu === 'insert'" class="note-editor__toolbar-dropdown note-editor__toolbar-dropdown--end">
+          <button
+            v-for="item in overflowItems"
+            :key="item.key"
+            type="button"
+            class="note-editor__toolbar-dropitem"
+            :class="{ 'is-active': item.name ? toolbarActive(item.name) : false }"
+            :disabled="item.key === 'image' && imageUploadCount > 0"
+            @mousedown.prevent
+            @click.prevent="runMenuItem(item)"
+          >
+            <span class="note-editor__toolbar-dropitem-glyph">
+              <v-icon v-if="item.icon" size="17">{{ item.icon }}</v-icon>
+              <span v-else class="note-editor__toolbar-dropitem-text">{{ item.glyph }}</span>
+            </span>
+            <span>{{ item.label }}</span>
+          </button>
+        </div>
       </div>
 
       <template v-if="aiAvailable">
@@ -176,6 +170,17 @@
 
     </div>
 
+    <input
+      ref="imageInputEl"
+      class="note-editor__image-input"
+      type="file"
+      accept="image/jpeg,image/png,image/webp"
+      multiple
+      tabindex="-1"
+      aria-hidden="true"
+      @change="onImageInput"
+    />
+
     <div
       ref="surfaceEl"
       class="note-editor__surface"
@@ -183,6 +188,18 @@
       @pointermove.passive="trackTableHandle"
       @pointerleave="clearHoveredTable"
     >
+      <div
+        v-if="imageUploadCount > 0 || imageUploadMessage"
+        class="note-editor__image-status"
+        :class="{ 'is-error': imageUploadError }"
+        role="status"
+        aria-live="polite"
+      >
+        <span v-if="imageUploadCount > 0" class="note-editor__image-spinner" aria-hidden="true"></span>
+        <v-icon v-else size="17">mdi-alert-circle-outline</v-icon>
+        <span>{{ imageUploadCount > 0 ? imageUploadLabel : imageUploadMessage }}</span>
+      </div>
+
       <div ref="writingEl" class="note-editor__writing">
         <editor-content :editor="editor" />
 
@@ -196,7 +213,7 @@
           <span class="note-editor__empty-hint-title">{{ placeholder }}</span>
           <span class="note-editor__empty-hint-detail">
             <kbd>/</kbd>
-            <span>für Überschriften, Listen und weitere Bausteine</span>
+            <span>für Überschriften, Listen und weitere Blöcke</span>
           </span>
         </div>
       </div>
@@ -303,6 +320,7 @@
           v-for="group in slashGroups"
           :key="group.key"
           class="pm-slash__group"
+          :class="{ 'is-frequent': group.key === 'frequent' }"
           :aria-label="group.label"
         >
           <div class="pm-slash__group-label">{{ group.label }}</div>
@@ -497,7 +515,9 @@
           <span>{{ aiPrompt.preview }}</span>
         </div>
         <div v-if="aiPrompt.loading" class="pm-ai-prompt__status" aria-live="polite">
-          {{ aiPrompt.provider ? `${providerLabel(aiPrompt.provider)} · ${aiPrompt.model}` : 'Modell wird gestartet …' }}
+          {{ aiPrompt.provider
+            ? `${aiPrompt.fallbackFrom ? 'Lokaler Fallback' : providerLabel(aiPrompt.provider)} · ${aiPrompt.model}`
+            : 'Modell wird gestartet …' }}
         </div>
         <div
           v-if="aiPrompt.mode === 'selection' && aiPrompt.preview && !aiPrompt.loading && !aiPrompt.error"
@@ -528,6 +548,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { EditorContent, useEditor, posToDOMRect } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
+import FileHandler from '@tiptap/extension-file-handler';
 import Document from '@tiptap/extension-document';
 import Placeholder from '@tiptap/extension-placeholder';
 import Typography from '@tiptap/extension-typography';
@@ -540,6 +561,8 @@ import { OcrQuote } from './nodes/ocrQuote.js';
 import { AiBlock } from './nodes/aiBlock.js';
 import { WikiLink } from './nodes/wikiLink.js';
 import { Callout } from './nodes/callout.js';
+import { TemplateBox, TemplateField } from './nodes/templateBox.js';
+import { NoteImage } from './nodes/noteImage.js';
 import {
   HistoryFlash,
   clearHistoryFlash,
@@ -553,8 +576,15 @@ import {
 } from './extensions/noteSearch.js';
 import { MOCK_DOCUMENTS, mockLinkTargets, targetGlyph } from './mockData.js';
 import { NOTE_CALLOUT_OPTIONS } from '../../utils/noteCallouts.js';
+import { NOTE_TEMPLATE_PRESETS } from './nodes/noteTemplates.js';
 import { normalizeNoteHref, noteHrefLabel } from '../../utils/noteLinks.js';
-import { streamNoteText } from '../../api/notes.js';
+import {
+  NOTE_SLASH_USAGE_STORAGE_KEY,
+  incrementNoteSlashUsage,
+  mostUsedSlashCommands,
+  parseNoteSlashUsage,
+} from '../../utils/noteSlashUsage.js';
+import { streamNoteText, uploadNoteImage } from '../../api/notes.js';
 import { NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT } from '../../constants/promptDefaults.js';
 
 const PaperMindDocument = Document.extend({
@@ -569,6 +599,8 @@ const PaperMindDocument = Document.extend({
 const props = defineProps({
   /** Body als ProseMirror-JSON-Dokument (oder null für leer). */
   modelValue: { type: Object, default: null },
+  /** Persistierte Notiz-ID für owner-scoped Bild-Uploads. */
+  noteId: { type: String, default: null },
   title: { type: String, default: '' },
   titlePlaceholder: { type: String, default: 'Titel der Notiz' },
   placeholder: { type: String, default: 'Einfach losschreiben …' },
@@ -600,6 +632,8 @@ const props = defineProps({
   documentItems: { type: Array, default: null },
   /** Echte Verweis-Ziele für /verweis und [[…]]. null → aus documentItems bzw. Mock. */
   linkTargets: { type: Array, default: null },
+  /** Benutzereigene Baustein-Vorlagen (Feldblöcke) fürs Slash-Menü. */
+  blockTemplates: { type: Array, default: () => [] },
 });
 
 const emit = defineEmits([
@@ -609,6 +643,8 @@ const emit = defineEmits([
   'word-count',
   'history-checkpoint',
   'note-search-state',
+  'save-block-template',
+  'image-upload-error',
 ]);
 
 const surfaceEl = ref(null);
@@ -616,6 +652,7 @@ const writingEl = ref(null);
 const titleEl = ref(null);
 const aiPromptInputEl = ref(null);
 const linkInputEl = ref(null);
+const imageInputEl = ref(null);
 const slashMenuEl = ref(null);
 const bubbleEl = ref(null);
 const words = ref(0);
@@ -646,6 +683,18 @@ let historyFlashTimer = null;
 let linkCopiedTimer = null;
 let emptyHintPositionFrame = null;
 let emptyHintResizeObserver = null;
+let imageUploadMessageTimer = null;
+
+const NOTE_IMAGE_MIME_TYPES = Object.freeze(['image/jpeg', 'image/png', 'image/webp']);
+const NOTE_IMAGE_UPLOAD_LIMIT = 8;
+const imageUploadCount = ref(0);
+const imageUploadMessage = ref('');
+const imageUploadError = ref(false);
+const imageUploadLabel = computed(() => (
+  imageUploadCount.value === 1
+    ? 'Bild wird eingefügt …'
+    : `${imageUploadCount.value} Bilder werden eingefügt …`
+));
 
 const TOOLBAR_DUCK_SCROLL_THRESHOLD = 24;
 const TOOLBAR_REVEAL_DELAY_MS = 400;
@@ -721,6 +770,18 @@ const editor = useEditor({
     AiBlock,
     WikiLink,
     Callout,
+    TemplateBox.configure({
+      // Nur im echten Workspace anbieten (der DevHarness hat keinen Baustein-Speicher).
+      onSaveAsTemplate: props.workspace ? (data) => emit('save-block-template', data) : null,
+    }),
+    TemplateField,
+    NoteImage,
+    FileHandler.configure({
+      allowedMimeTypes: NOTE_IMAGE_MIME_TYPES,
+      consumePasteEvent: true,
+      onPaste: (_ed, files) => { void uploadImageFiles(files); },
+      onDrop: (_ed, files, pos) => { void uploadImageFiles(files, { position: pos }); },
+    }),
     HistoryFlash,
     NoteSearch,
   ],
@@ -787,6 +848,7 @@ onBeforeUnmount(() => {
   if (toolbarScrollRestoreFrame) window.cancelAnimationFrame(toolbarScrollRestoreFrame);
   if (historyFlashTimer) window.clearTimeout(historyFlashTimer);
   if (linkCopiedTimer) window.clearTimeout(linkCopiedTimer);
+  if (imageUploadMessageTimer) window.clearTimeout(imageUploadMessageTimer);
   if (emptyHintPositionFrame) window.cancelAnimationFrame(emptyHintPositionFrame);
   emptyHintResizeObserver?.disconnect();
 });
@@ -960,12 +1022,13 @@ function countWords(text) {
 
 function focusBody(position) {
   const ed = editor.value;
-  if (!ed) return;
+  if (!ed?.isEditable) return false;
   if (position === 'start' || position === 'end') {
     ed.chain().focus(position).run();
-    return;
+    return true;
   }
   ed.chain().focus().run();
+  return true;
 }
 
 function focusEditorEndFromWhitespace(event) {
@@ -1086,6 +1149,96 @@ function runToolbar(action) {
   commands[action]?.().run();
 }
 
+/* ── Formatierungsleiste: Menü-Gruppen + responsive Verdichtung ──────────────
+   Zusammengehörige Werkzeuge werden in „Text ▾" (Absatzstil) und „Einfügen ▾"
+   gebündelt; bei zu wenig Breite (ResizeObserver auf der Editor-Wurzel) wandern
+   Code/Link zusätzlich in ein „⋯"-Überlaufmenü. B/I/U bleiben immer direkt. */
+const rootEl = ref(null);
+const toolbarEl = ref(null);
+const openMenu = ref(null); // 'block' | 'insert' | null
+const toolbarCompact = ref(false);
+const TOOLBAR_COMPACT_WIDTH = 520;
+
+const blockStyleItems = [
+  { key: 'h2', short: 'H2', label: 'Überschrift 2' },
+  { key: 'h3', short: 'H3', label: 'Überschrift 3' },
+  { key: 'h4', short: 'H4', label: 'Überschrift 4' },
+  { key: 'paragraph', short: 'Text', label: 'Fließtext' },
+];
+
+const insertItems = [
+  { key: 'bulletList', name: 'bulletList', icon: 'mdi-format-list-bulleted', label: 'Aufzählung' },
+  { key: 'orderedList', name: 'orderedList', icon: 'mdi-format-list-numbered', label: 'Nummerierte Liste' },
+  { key: 'blockquote', name: 'blockquote', icon: 'mdi-format-quote-close', label: 'Zitat' },
+  { key: 'codeBlock', name: 'codeBlock', glyph: '{ }', label: 'Codeblock' },
+  { key: 'table', name: 'table', icon: 'mdi-table', label: 'Tabelle', action: 'table' },
+  { key: 'image', icon: 'mdi-image-plus-outline', label: 'Bild einfügen', action: 'image', requiresNote: true },
+];
+
+const overflowItems = computed(() => {
+  const items = [];
+  if (toolbarCompact.value) {
+    items.push({ key: 'code', name: 'code', glyph: 'A', label: 'Code' });
+    items.push({ key: 'link', name: 'link', icon: 'mdi-link-variant', label: 'Hyperlink', action: 'link' });
+  }
+  for (const item of insertItems) {
+    if (item.requiresNote && !props.noteId) continue;
+    items.push(item);
+  }
+  return items;
+});
+
+function currentBlockShort() {
+  if (toolbarActive('heading', { level: 2 })) return 'H2';
+  if (toolbarActive('heading', { level: 3 })) return 'H3';
+  if (toolbarActive('heading', { level: 4 })) return 'H4';
+  return 'Text';
+}
+function isBlockActive(key) {
+  if (key === 'paragraph') return Boolean(toolbarActive('paragraph'));
+  const level = { h2: 2, h3: 3, h4: 4 }[key];
+  return Boolean(toolbarActive('heading', { level }));
+}
+
+function toggleMenu(which) {
+  openMenu.value = openMenu.value === which ? null : which;
+  if (openMenu.value) revealFormattingToolbar();
+}
+function runBlockStyle(key) {
+  openMenu.value = null;
+  runToolbar(key);
+}
+function runMenuItem(item) {
+  openMenu.value = null;
+  if (item.action === 'table') { openTableMenu(); return; }
+  if (item.action === 'link') { openLinkEditor(); return; }
+  if (item.action === 'image') { openImagePicker(); return; }
+  runToolbar(item.key);
+}
+
+function onToolbarOutsidePointer(event) {
+  if (openMenu.value && toolbarEl.value && !toolbarEl.value.contains(event.target)) {
+    openMenu.value = null;
+  }
+}
+
+let toolbarResizeObserver = null;
+onMounted(() => {
+  document.addEventListener('pointerdown', onToolbarOutsidePointer, true);
+  if (rootEl.value && typeof ResizeObserver !== 'undefined') {
+    toolbarResizeObserver = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect?.width || 0;
+      if (width > 0) toolbarCompact.value = width < TOOLBAR_COMPACT_WIDTH;
+    });
+    toolbarResizeObserver.observe(rootEl.value);
+  }
+});
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onToolbarOutsidePointer, true);
+  toolbarResizeObserver?.disconnect();
+  toolbarResizeObserver = null;
+});
+
 function positionLinkEditor() {
   const ed = editor.value;
   const surface = surfaceEl.value;
@@ -1201,6 +1354,109 @@ async function copyLinkTarget() {
     }, 1400);
   } catch {
     linkEditor.error = 'Der Link konnte nicht kopiert werden.';
+  }
+}
+
+function setImageUploadMessage(message, { error = false } = {}) {
+  imageUploadMessage.value = String(message || '');
+  imageUploadError.value = Boolean(error);
+  if (imageUploadMessageTimer) window.clearTimeout(imageUploadMessageTimer);
+  imageUploadMessageTimer = window.setTimeout(() => {
+    imageUploadMessage.value = '';
+    imageUploadError.value = false;
+    imageUploadMessageTimer = null;
+  }, error ? 5200 : 2400);
+}
+
+function openImagePicker() {
+  if (!props.noteId || props.readonly || imageUploadCount.value > 0) return;
+  slash.open = false;
+  picker.open = false;
+  tableMenu.open = false;
+  closeLinkEditor();
+  if (imageInputEl.value) {
+    imageInputEl.value.value = '';
+    imageInputEl.value.click();
+  }
+}
+
+function onImageInput(event) {
+  const files = Array.from(event.target?.files || []);
+  if (event.target) event.target.value = '';
+  void uploadImageFiles(files);
+}
+
+async function uploadImageFiles(inputFiles, { position = null } = {}) {
+  const ed = editor.value;
+  const noteId = props.noteId;
+  if (!ed?.isEditable || !noteId) {
+    setImageUploadMessage('Bilder können erst in einer gespeicherten Notiz eingefügt werden.', { error: true });
+    return;
+  }
+
+  const incoming = Array.from(inputFiles || []);
+  const supported = incoming.filter((file) => NOTE_IMAGE_MIME_TYPES.includes(file.type));
+  if (!supported.length) {
+    const message = 'Bitte ein JPEG-, PNG- oder WebP-Bild auswählen.';
+    setImageUploadMessage(message, { error: true });
+    emit('image-upload-error', message);
+    return;
+  }
+  const files = supported.slice(0, NOTE_IMAGE_UPLOAD_LIMIT);
+  if (incoming.length > NOTE_IMAGE_UPLOAD_LIMIT) {
+    setImageUploadMessage(`Pro Vorgang können höchstens ${NOTE_IMAGE_UPLOAD_LIMIT} Bilder eingefügt werden.`, { error: true });
+  }
+
+  imageUploadCount.value += files.length;
+  imageUploadMessage.value = '';
+  imageUploadError.value = false;
+  const results = await Promise.allSettled(files.map((file) => uploadNoteImage(noteId, file)));
+  imageUploadCount.value = Math.max(0, imageUploadCount.value - files.length);
+
+  const images = results
+    .filter((result) => result.status === 'fulfilled')
+    .map((result) => result.value);
+  const failures = results.filter((result) => result.status === 'rejected');
+
+  // A slow upload must never land in a note selected in the meantime.
+  if (props.noteId !== noteId || editor.value !== ed || ed.isDestroyed) return;
+
+  if (images.length) {
+    const content = images.map((image) => ({
+      type: 'image',
+      attrs: {
+        src: image.src,
+        imageId: image.id,
+        noteId: image.note_id,
+        title: image.filename,
+        alt: image.filename,
+        caption: '',
+        width: image.width,
+        height: image.height,
+        displayWidth: 100,
+      },
+    }));
+    content.push({ type: 'paragraph' });
+    const chain = ed.chain().focus();
+    if (Number.isInteger(position)) {
+      chain.insertContentAt(Math.max(0, Math.min(position, ed.state.doc.content.size)), content, {
+        updateSelection: true,
+      });
+    } else {
+      chain.insertContent(content);
+    }
+    chain.scrollIntoView().run();
+  }
+
+  if (failures.length) {
+    const first = failures[0].reason?.message || 'Mindestens ein Bild konnte nicht eingefügt werden.';
+    const message = failures.length === 1
+      ? first
+      : `${failures.length} Bilder konnten nicht eingefügt werden. ${first}`;
+    setImageUploadMessage(message, { error: true });
+    emit('image-upload-error', message);
+  } else if (images.length > 1) {
+    setImageUploadMessage(`${images.length} Bilder wurden eingefügt.`);
   }
 }
 
@@ -1481,6 +1737,16 @@ function refreshBubble() {
 
 /* ── Slash-Menü ──────────────────────────────────────────────────────────── */
 const SLASH_COMMANDS = [
+  // Vorlagen — gefärbte Feld-Blöcke mit Platzhaltern.
+  ...NOTE_TEMPLATE_PRESETS.map((preset) => ({
+    key: `template-${preset.key}`,
+    group: 'templates',
+    chip: preset.chip || '▤',
+    label: preset.label,
+    desc: preset.desc,
+    terms: preset.terms || [],
+    action: (chain) => chain.insertTemplateBox(preset),
+  })),
   // PaperMind-eigene Bausteine.
   { key: 'beleg', group: 'papermind', chip: '▢', label: 'Beleg verknüpfen', desc: 'Dokument-Chip einfügen', terms: ['beleg', 'dokument', 'chip', 'verknüpfen'], kind: 'pick-doc-chip' },
   { key: 'zitat', group: 'papermind', chip: '❝', label: 'Beleg-Zitat', desc: 'OCR-Passage übernehmen', terms: ['zitat', 'beleg', 'ocr', 'markierung'], kind: 'pick-doc-quote' },
@@ -1503,18 +1769,22 @@ const SLASH_COMMANDS = [
   { key: 'ol', group: 'blocks', chip: '1.', label: 'Nummerierte Liste', desc: 'Geordnete Liste', terms: ['liste', 'nummer', 'ordered'], action: c => c.toggleOrderedList() },
   { key: 'task', group: 'blocks', chip: '☑', label: 'Aufgabenliste', desc: 'Checkboxen', terms: ['aufgabe', 'todo', 'task', 'checkbox'], action: c => c.toggleTaskList() },
   { key: 'table', group: 'blocks', chip: '▦', label: 'Tabelle', desc: 'Zeilen und Spalten', terms: ['tabelle', 'table', 'raster', 'zeile', 'spalte'], kind: 'table-menu' },
+  { key: 'image', group: 'blocks', chip: '▧', label: 'Bild', desc: 'Foto oder Grafik einfügen', terms: ['bild', 'foto', 'grafik', 'image', 'upload'], kind: 'image-upload' },
   { key: 'quote', group: 'blocks', chip: '❝', label: 'Zitat', desc: 'Zitatblock', terms: ['zitat', 'quote'], action: c => c.toggleBlockquote() },
   { key: 'code', group: 'blocks', chip: '</>', label: 'Code-Block', desc: 'Monospace', terms: ['code', 'block'], action: c => c.toggleCodeBlock() },
   { key: 'hr', group: 'blocks', chip: '―', label: 'Trennlinie', desc: 'Horizontale Linie', terms: ['trennlinie', 'linie', 'rule'], action: c => c.setHorizontalRule() },
 ];
 
 const SLASH_GROUPS = [
+  { key: 'templates', label: 'Schnellblöcke' },
   { key: 'callouts', label: 'Hinweisblöcke' },
   { key: 'headings', label: 'Überschriften' },
   { key: 'inline', label: 'Text & Links' },
   { key: 'blocks', label: 'Listen & Blöcke' },
   { key: 'papermind', label: 'PaperMind' },
 ];
+
+const slashCommandUsage = ref(loadSlashCommandUsage());
 
 const slash = reactive({
   open: false,
@@ -1529,10 +1799,36 @@ const slash = reactive({
 // „Real-Modus": echte Datenquelle vorhanden (Workspace) → Mock-only-Befehle
 // ausblenden. Die echte Textgenerierung bleibt in beiden Varianten verfügbar.
 const realMode = computed(() => Array.isArray(props.documentItems));
+
+// Benutzereigene Bausteine als Slash-Befehle (Gruppe „Bausteine", neben dem
+// mitgelieferten Preset). Einfügen läuft über dasselbe insertTemplateBox.
+const blockTemplateCommands = computed(() =>
+  (props.blockTemplates || []).map((tpl) => {
+    const fields = Array.isArray(tpl.fields) ? tpl.fields : [];
+    const labels = fields.map((f) => f.label).filter(Boolean).join(' · ');
+    return {
+      key: `blocktpl-${tpl.id}`,
+      group: 'templates',
+      chip: '▤',
+      label: tpl.name || tpl.title || 'Schnellblock',
+      desc: labels || 'Eigener Baustein',
+      terms: [tpl.name, tpl.title, 'schnellblock', 'baustein', 'vorlage']
+        .filter(Boolean)
+        .map((t) => String(t).toLowerCase()),
+      action: (chain) => chain.insertTemplateBox({
+        title: tpl.title || '',
+        color: tpl.color || 'teal',
+        fields,
+      }),
+    };
+  })
+);
+
 const availableSlashCommands = computed(() =>
-  SLASH_COMMANDS.filter((command) => {
+  [...SLASH_COMMANDS, ...blockTemplateCommands.value].filter((command) => {
     if (realMode.value && command.kind === 'pick-doc-quote') return false;
     if (!props.aiAvailable && command.kind === 'generate-ai') return false;
+    if (!props.noteId && command.kind === 'image-upload') return false;
     return true;
   })
 );
@@ -1546,14 +1842,31 @@ const slashResults = computed(() => {
   );
 });
 
+const frequentSlashCommands = computed(() => (
+  mostUsedSlashCommands(availableSlashCommands.value, slashCommandUsage.value)
+));
+
 const slashGroups = computed(() => {
   let flatIndex = 0;
-  return SLASH_GROUPS.map((group) => {
-    const items = slashResults.value
-      .filter((command) => command.group === group.key)
-      .map((command) => ({ command, index: flatIndex++ }));
-    return { ...group, items };
-  }).filter((group) => group.items.length);
+  const matchingCommandKeys = new Set(slashResults.value.map((command) => command.key));
+  const indexCommands = (commands) => (
+    commands.map((command) => ({ command, index: flatIndex++ }))
+  );
+  return [
+    {
+      key: 'frequent',
+      label: 'Häufig benutzt',
+      items: indexCommands(
+        frequentSlashCommands.value.filter((command) => matchingCommandKeys.has(command.key)),
+      ),
+    },
+    ...SLASH_GROUPS.map((group) => ({
+      ...group,
+      items: indexCommands(
+        slashResults.value.filter((command) => command.group === group.key),
+      ),
+    })),
+  ].filter((group) => group.items.length);
 });
 
 // Die Tastaturauswahl muss exakt derselben, gruppierten Reihenfolge folgen wie
@@ -1644,6 +1957,7 @@ function runSlash(cmd) {
   const to = ed.state.selection.from;
   const range = { from: slash.from, to };
   slash.open = false;
+  recordSlashCommandUsage(cmd.key);
 
   const kind = cmd.kind || 'block';
   // Text entfernen und Block in EINER Transaktion ausführen. Zwischen zwei
@@ -1659,6 +1973,7 @@ function runSlash(cmd) {
   // zustand, werden aber erst nach der Transaktion geöffnet.
   ed.chain().focus().deleteRange(range).run();
   if (kind === 'table-menu') { openTableMenu(ed.isActive('table') ? 'edit' : 'insert'); return; }
+  if (kind === 'image-upload') { openImagePicker(); return; }
   if (kind === 'link-editor') { openLinkEditor(); return; }
   if (kind === 'generate-ai') { openAIPrompt(); return; }
   if (kind === 'pick-doc-chip') {
@@ -1676,6 +1991,28 @@ function runSlash(cmd) {
   if (kind === 'pick-target') {
     openPicker('target', linkTargetItems(), (item) =>
       ed.chain().focus().insertWikiLink({ targetType: item.type, targetId: item.id, label: item.label }).run());
+  }
+}
+
+function loadSlashCommandUsage() {
+  if (typeof window === 'undefined') return {};
+  try {
+    return parseNoteSlashUsage(window.localStorage.getItem(NOTE_SLASH_USAGE_STORAGE_KEY));
+  } catch {
+    return {};
+  }
+}
+
+function recordSlashCommandUsage(commandKey) {
+  slashCommandUsage.value = incrementNoteSlashUsage(slashCommandUsage.value, commandKey);
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(
+      NOTE_SLASH_USAGE_STORAGE_KEY,
+      JSON.stringify(slashCommandUsage.value),
+    );
+  } catch {
+    // Befehle bleiben auch ohne verfügbaren Local Storage vollständig nutzbar.
   }
 }
 
@@ -1712,6 +2049,7 @@ const aiPrompt = reactive({
   loading: false,
   provider: '',
   model: '',
+  fallbackFrom: '',
   anchorPos: null,
   selectionFrom: null,
   selectionTo: null,
@@ -1761,6 +2099,7 @@ function openAIPrompt() {
     : '';
   aiPrompt.provider = '';
   aiPrompt.model = '';
+  aiPrompt.fallbackFrom = '';
   aiPrompt.open = true;
   positionAIPrompt();
   tableMenu.open = false;
@@ -1846,6 +2185,7 @@ async function generateAIText() {
   aiPrompt.error = '';
   aiPrompt.provider = '';
   aiPrompt.model = '';
+  aiPrompt.fallbackFrom = '';
   aiGenerationController = new AbortController();
 
   try {
@@ -1860,6 +2200,7 @@ async function generateAIText() {
         if (event.type === 'meta') {
           aiPrompt.provider = event.provider || '';
           aiPrompt.model = event.model || '';
+          aiPrompt.fallbackFrom = event.fallback_from || '';
         } else if (event.type === 'delta') {
           aiPrompt.preview += event.text || '';
         }
@@ -2167,8 +2508,10 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   gap: 6px;
   margin: 12px auto 0;
   padding: 5px 7px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  /* overflow:visible, damit die Menü-Dropdowns unter der Leiste nicht
+     abgeschnitten werden. Horizontales Scrollen ist dank Gruppen-Menüs +
+     Compact-Modus nicht mehr nötig. */
+  overflow: visible;
   border: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 88%, transparent);
   border-radius: 12px;
   /* Deckende Fläche statt backdrop-filter: Ein sticky-Element mit
@@ -2251,6 +2594,11 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   color: var(--pm-accent-strong, #00555f);
 }
 
+.note-editor__toolbar-btn:disabled {
+  opacity: 0.42;
+  cursor: wait;
+}
+
 .note-editor__toolbar-code {
   color: var(--pm-warning, #c88819);
   font-weight: 700;
@@ -2262,9 +2610,137 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   letter-spacing: -0.08em;
 }
 
+/* Menü-Gruppen (Text ▾ / Einfügen ▾ / ⋯) + Dropdowns */
+.note-editor__toolbar-menu { position: relative; display: flex; }
+
+.note-editor__toolbar-btn--group {
+  width: auto;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 6px 0 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--pm-text, #0e181b);
+  font-weight: 570;
+}
+.note-editor__toolbar-btn-label { font-size: 0.84rem; white-space: nowrap; }
+.note-editor__toolbar-btn--group.is-open {
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent);
+  color: var(--pm-accent-strong, #00555f);
+}
+.note-editor__toolbar.is-compact .note-editor__toolbar-btn--group {
+  width: 32px;
+  padding: 0;
+  justify-content: center;
+}
+
+.note-editor__toolbar-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  min-width: 200px;
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-radius: 11px;
+  background: var(--pm-content-surface, #fff);
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
+}
+.note-editor__toolbar-dropdown--end { left: auto; right: 0; }
+
+.note-editor__toolbar-dropitem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--pm-text, #0e181b);
+  font: inherit;
+  font-size: 0.86rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.note-editor__toolbar-dropitem:hover { background: color-mix(in srgb, var(--pm-accent, #006b75) 9%, transparent); }
+.note-editor__toolbar-dropitem.is-active { color: var(--pm-accent-strong, #00555f); background: color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent); }
+.note-editor__toolbar-dropitem:disabled { opacity: 0.42; cursor: default; }
+.note-editor__toolbar-dropitem-glyph {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  color: var(--pm-muted, #535e62);
+}
+.note-editor__toolbar-dropitem.is-active .note-editor__toolbar-dropitem-glyph { color: var(--pm-accent, #006b75); }
+.note-editor__toolbar-dropitem-text {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.72rem;
+  letter-spacing: -0.06em;
+  font-weight: 680;
+}
+
+/* Absatzstil-Menü: Einträge in ihrer jeweiligen Überschriftsgröße */
+.note-editor__toolbar-dropitem--block { font-weight: 560; }
+.note-editor__toolbar-dropitem--block.is-h2 { font-size: 1.02rem; font-weight: 680; }
+.note-editor__toolbar-dropitem--block.is-h3 { font-size: 0.96rem; font-weight: 650; }
+.note-editor__toolbar-dropitem--block.is-h4 { font-size: 0.9rem; font-weight: 620; }
+
 .note-editor--workspace .note-editor__surface {
   min-height: 420px;
   padding: 24px clamp(28px, 5vw, 58px) 88px;
+}
+
+.note-editor__image-input {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.note-editor__image-status {
+  position: absolute;
+  z-index: 8;
+  top: 14px;
+  right: clamp(18px, 3vw, 34px);
+  display: inline-flex;
+  max-width: min(360px, calc(100% - 36px));
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border: 1px solid color-mix(in srgb, var(--pm-accent, #006b75) 24%, var(--pm-divider, #d8dfe1));
+  border-radius: 9px;
+  background: var(--pm-app-surface-raised, #fff);
+  box-shadow: 0 5px 18px rgba(16, 38, 42, 0.11);
+  color: var(--pm-accent-strong, #00555f);
+  font-size: 0.78rem;
+  line-height: 1.3;
+  pointer-events: none;
+}
+
+.note-editor__image-status.is-error {
+  border-color: color-mix(in srgb, #b93e3e 34%, var(--pm-divider, #d8dfe1));
+  color: #9c3030;
+}
+
+.note-editor__image-spinner {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: pm-ai-spin 700ms linear infinite;
 }
 
 .note-editor__writing {
@@ -2899,6 +3375,12 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+.pm-slash__group.is-frequent {
+  --pm-frequent-accent: color-mix(in srgb, #8b5fbf 78%, var(--pm-text, #0e181b));
+}
+.pm-slash__group.is-frequent .pm-slash__group-label {
+  color: var(--pm-frequent-accent);
+}
 .pm-slash__item {
   border: 0; background: transparent; cursor: pointer; text-align: left;
   display: flex; align-items: center; gap: 10px;
@@ -2924,6 +3406,28 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   border-color: color-mix(in srgb, var(--pm-accent, #006b75) 38%, var(--pm-divider, #d8dfe1));
   background: color-mix(in srgb, var(--pm-accent, #006b75) 11%, var(--pm-viewer-surface, #eef2f4));
   box-shadow: 0 3px 10px color-mix(in srgb, var(--pm-accent, #006b75) 13%, transparent);
+}
+.pm-slash__group.is-frequent .pm-slash__item {
+  transition: color 120ms ease, background-color 140ms ease;
+}
+.pm-slash__group.is-frequent .pm-slash__chip {
+  color: var(--pm-frequent-accent);
+  border-color: color-mix(in srgb, var(--pm-frequent-accent) 30%, var(--pm-divider, #d8dfe1));
+  background: color-mix(in srgb, var(--pm-frequent-accent) 8%, var(--pm-viewer-surface, #eef2f4));
+}
+.pm-slash__group.is-frequent .pm-slash__item:hover,
+.pm-slash__group.is-frequent .pm-slash__item.is-active {
+  color: var(--pm-frequent-accent);
+  background: color-mix(in srgb, var(--pm-frequent-accent) 11%, transparent);
+}
+.pm-slash__group.is-frequent .pm-slash__item:hover .pm-slash__label,
+.pm-slash__group.is-frequent .pm-slash__item.is-active .pm-slash__label {
+  color: var(--pm-frequent-accent);
+}
+.pm-slash__group.is-frequent .pm-slash__item.is-active .pm-slash__chip {
+  border-color: color-mix(in srgb, var(--pm-frequent-accent) 48%, var(--pm-divider, #d8dfe1));
+  background: color-mix(in srgb, var(--pm-frequent-accent) 16%, var(--pm-viewer-surface, #eef2f4));
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--pm-frequent-accent) 18%, transparent);
 }
 .pm-slash__text { display: flex; flex-direction: column; line-height: 1.2; }
 .pm-slash__label { font-size: 0.9rem; color: var(--pm-text, #0e181b); }
@@ -3121,6 +3625,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   }
 
   .pm-ai-prompt__spinner,
+  .note-editor__image-spinner,
   .pm-ai-prompt__progress > span,
   .pm-slash--commands,
   .pm-table-handle { animation: none; }

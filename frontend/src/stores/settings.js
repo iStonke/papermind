@@ -120,6 +120,7 @@ function createDefaultSettings() {
       sidebar_show_chat: true,
       sidebar_show_dossiers: true,
       sidebar_sections: normalizeSidebarSections(null),
+      sidebar_max_folders: 5,
       sidebar_max_tags: 5,
       sidebar_max_categories: 5,
       notes_default_view: 'remember',
@@ -389,6 +390,7 @@ export const useSettingsStore = defineStore('settings', {
         drawer_remember_state: false,
         tag_drawer_remember_state: false,
         sidebar_sections: false,
+        sidebar_max_folders: false,
         sidebar_max_tags: false,
         sidebar_max_categories: false,
         notes_default_view: false,
@@ -532,6 +534,7 @@ export const useSettingsStore = defineStore('settings', {
               ? payload.ui.sidebar_show_dossiers
               : defaults.ui.sidebar_show_dossiers,
           sidebar_sections: normalizeSidebarSections(payload?.ui?.sidebar_sections),
+          sidebar_max_folders: clampInt(payload?.ui?.sidebar_max_folders, 0, 50, defaults.ui.sidebar_max_folders),
           sidebar_max_tags: clampInt(payload?.ui?.sidebar_max_tags, 0, 50, defaults.ui.sidebar_max_tags),
           sidebar_max_categories: clampInt(payload?.ui?.sidebar_max_categories, 0, 50, defaults.ui.sidebar_max_categories),
           notes_default_view: NOTES_DEFAULT_VIEW_VALUES.has(rawNotesDefaultView)

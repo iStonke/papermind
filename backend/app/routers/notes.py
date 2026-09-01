@@ -1,7 +1,7 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
@@ -9,9 +9,14 @@ from app.db import get_db
 from app.models.user import User
 from app.schemas.common import ErrorResponse, OkResponse
 from app.schemas.notes import (
+    NoteBlockTemplateCreateRequest,
+    NoteBlockTemplateListResponse,
+    NoteBlockTemplateRead,
+    NoteBlockTemplateUpdateRequest,
     NoteBulkRequest,
     NoteBulkResult,
     NoteCreateRequest,
+    NoteImageRead,
     NoteListResponse,
     NoteRead,
     NoteRevisionCheckpointRequest,
@@ -25,7 +30,9 @@ from app.schemas.notes import (
     SaveAsTemplateRequest,
 )
 from app.services.note_service import NoteService
+from app.services.note_block_template_service import NoteBlockTemplateService
 from app.services.note_ai import NoteAIService
+from app.services.note_images import NoteImageService
 
 
 router = APIRouter(prefix="/api/notes", tags=["Notes"])
@@ -119,6 +126,70 @@ def list_templates(
     user: User = Depends(get_current_user),
 ) -> NoteListResponse:
     return NoteListResponse(items=NoteService(db, user.id).list_templates())
+
+
+# --- Baustein-Vorlagen (Feldblöcke) ------------------------------------------
+# Bewusst VOR den ``/{note_id}``-Routen definiert, damit „block-templates" nicht
+# als Notiz-ID interpretiert wird.
+@router.get(
+    "/block-templates",
+    response_model=NoteBlockTemplateListResponse,
+    summary="List block templates (field-box presets)",
+)
+def list_block_templates(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NoteBlockTemplateListResponse:
+    return NoteBlockTemplateListResponse(
+        items=NoteBlockTemplateService(db, user.id).list()
+    )
+
+
+@router.post(
+    "/block-templates",
+    response_model=NoteBlockTemplateRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a block template",
+)
+def create_block_template(
+    payload: NoteBlockTemplateCreateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NoteBlockTemplateRead:
+    template = NoteBlockTemplateService(db, user.id).create(payload)
+    return NoteBlockTemplateRead.model_validate(template)
+
+
+@router.patch(
+    "/block-templates/{template_id}",
+    response_model=NoteBlockTemplateRead,
+    summary="Update a block template",
+)
+def update_block_template(
+    template_id: uuid.UUID,
+    payload: NoteBlockTemplateUpdateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NoteBlockTemplateRead:
+    template = NoteBlockTemplateService(db, user.id).update(template_id, payload)
+    if template is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Block template not found")
+    return NoteBlockTemplateRead.model_validate(template)
+
+
+@router.delete(
+    "/block-templates/{template_id}",
+    response_model=OkResponse,
+    summary="Delete a block template",
+)
+def delete_block_template(
+    template_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> OkResponse:
+    if not NoteBlockTemplateService(db, user.id).delete(template_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Block template not found")
+    return OkResponse()
 
 
 @router.post(
@@ -223,6 +294,58 @@ def restore_note_revision(
         base_revision=payload.base_revision,
     )
     return NoteRead.model_validate(note)
+
+
+@router.post(
+    "/{note_id}/images",
+    response_model=NoteImageRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload an image for a note",
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 413: {"model": ErrorResponse}},
+)
+def upload_note_image(
+    note_id: uuid.UUID,
+    file: UploadFile = File(..., description="JPEG, PNG or WebP image"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NoteImageRead:
+    service = NoteImageService(db, user.id)
+    image = service.upload(note_id, file)
+    return NoteImageRead(
+        id=image.id,
+        note_id=image.note_id,
+        filename=image.filename,
+        content_type=image.content_type,
+        size_bytes=image.size_bytes,
+        width=image.width,
+        height=image.height,
+        src=service.image_src(image.note_id, image.id),
+    )
+
+
+@router.get(
+    "/{note_id}/images/{image_id}/file",
+    response_class=FileResponse,
+    summary="Serve a note image",
+    responses={404: {"model": ErrorResponse}},
+)
+def get_note_image(
+    note_id: uuid.UUID,
+    image_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> FileResponse:
+    image, path = NoteImageService(db, user.id).get_file(note_id, image_id)
+    return FileResponse(
+        path=path,
+        media_type=image.content_type,
+        filename=image.filename,
+        content_disposition_type="inline",
+        headers={
+            "Cache-Control": "private, max-age=3600",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get(

@@ -157,6 +157,14 @@ function renderNode(node, context) {
     }
     case 'table':
       return renderMarkdownTable(node, context);
+    case 'image': {
+      const attrs = node.attrs || {};
+      const alt = escapeMarkdown(attrs.alt || attrs.caption || attrs.title || 'Bild');
+      const src = String(attrs.src || '').trim();
+      if (!src) return '';
+      const image = `![${alt}](${src})`;
+      return attrs.caption ? `${image}\n\n_${escapeMarkdown(attrs.caption)}_` : image;
+    }
     case 'documentChip': {
       const attrs = node.attrs || {};
       addDocumentSource(context, attrs);
@@ -189,6 +197,17 @@ function renderNode(node, context) {
         .map((line) => `> ${line}`.trimEnd())
         .join('\n');
       return `> **${meta.glyph} ${meta.label}**\n>\n${content}`;
+    }
+    case 'templateBox': {
+      const title = String(node.attrs?.title || '').trim();
+      const rows = (node.content || []).map((field) => renderNode(field, context)).filter(Boolean).join('\n');
+      return title ? `**${escapeMarkdown(title)}**\n${rows}` : rows;
+    }
+    case 'templateField': {
+      const label = String(node.attrs?.label || '').trim();
+      const value = renderChildren(node, context).trim();
+      const labelMd = label ? `**${escapeMarkdown(label)}:** ` : '';
+      return `- ${labelMd}${value}`.trimEnd();
     }
     default:
       return renderChildren(node, context);
@@ -256,6 +275,18 @@ function renderHtmlNode(node, context) {
       return `<pre><code>${escapeHtml((node.content || []).map((child) => child.text || '').join(''))}</code></pre>`;
     case 'table':
       return renderHtmlTable(node, context);
+    case 'image': {
+      const attrs = node.attrs || {};
+      const rawSrc = String(attrs.src || '').trim();
+      if (!rawSrc) return '';
+      const src = typeof context.imageUrl === 'function' ? context.imageUrl(rawSrc) : rawSrc;
+      const alt = attrs.alt || attrs.caption || attrs.title || '';
+      const width = Math.min(100, Math.max(30, Number(attrs.displayWidth) || 100));
+      const caption = attrs.caption
+        ? `<figcaption>${escapeHtml(attrs.caption)}</figcaption>`
+        : '';
+      return `<figure class="note-image" style="width:${width}%"><img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}">${caption}</figure>`;
+    }
     case 'documentChip': {
       const attrs = node.attrs || {};
       addDocumentSource(context, attrs);
@@ -280,6 +311,16 @@ function renderHtmlNode(node, context) {
       const meta = noteCalloutMeta(node.attrs?.kind);
       return `<aside class="callout callout-${meta.value}"><strong>${escapeHtml(meta.glyph)} ${escapeHtml(meta.label)}</strong><div>${renderHtmlChildren(node, context)}</div></aside>`;
     }
+    case 'templateBox': {
+      const title = String(node.attrs?.title || '').trim();
+      const rows = (node.content || []).map((field) => renderHtmlNode(field, context)).filter(Boolean).join('');
+      const head = title ? `<strong class="template-box__title">${escapeHtml(title)}</strong>` : '';
+      return `<section class="template-box">${head}<dl class="template-box__fields">${rows}</dl></section>`;
+    }
+    case 'templateField': {
+      const label = String(node.attrs?.label || '').trim();
+      return `<div class="template-field"><dt>${escapeHtml(label)}</dt><dd>${renderHtmlChildren(node, context)}</dd></div>`;
+    }
     default:
       return renderHtmlChildren(node, context);
   }
@@ -300,7 +341,7 @@ function renderSources(context) {
 }
 
 export function noteToMarkdown({ title, body } = {}) {
-  const context = { sources: new Map() };
+  const context = { sources: new Map(), imageUrl: (src) => src };
   if (body?.attrs?.linkedDocument) addDocumentSource(context, body.attrs.linkedDocument);
   const content = renderNode(body, context).trim();
   const sources = renderSources(context);
@@ -329,8 +370,9 @@ export function noteToPrintableHtml({
   body,
   fontFamily = 'sans',
   paragraphSpacing = 'comfortable',
+  imageUrl = (src) => src,
 } = {}) {
-  const context = { sources: new Map() };
+  const context = { sources: new Map(), imageUrl };
   if (body?.attrs?.linkedDocument) addDocumentSource(context, body.attrs.linkedDocument);
   const content = renderHtmlNode(body, context);
   const sources = [...context.sources.values()]
@@ -388,6 +430,9 @@ export function noteToPrintableHtml({
     th, td { padding: 2.5mm 3mm; border: 1px solid #cbd4d7; vertical-align: top; overflow-wrap: anywhere; }
     th { background: #eaf4f4; color: #174f55; font-weight: 650; text-align: left; }
     th p, td p { margin: 0; }
+    .note-image { max-width: 100%; margin: 5mm auto; break-inside: avoid; text-align: center; }
+    .note-image img { display: block; width: 100%; height: auto; max-height: 225mm; object-fit: contain; border-radius: 2mm; }
+    .note-image figcaption { margin-top: 2mm; color: #667377; font-size: 8.5pt; }
     .sources { margin-top: 14mm; padding-top: 6mm; border-top: 1px solid #d8dfe1; break-before: auto; }
     .sources h2 { font-size: 14pt; }
     footer { position: fixed; right: 0; bottom: -12mm; color: #718086; font-size: 8pt; }

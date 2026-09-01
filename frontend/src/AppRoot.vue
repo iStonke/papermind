@@ -52,7 +52,11 @@ onBeforeUnmount(() => {
 watch(
   () => [authStore.status, authStore.isAuthenticated],
   ([status, isAuth]) => {
-    if (status !== 'unknown' && !isAuth && router.currentRoute.value.name !== 'login') {
+    if (
+      status !== 'unknown'
+      && !isAuth
+      && router.currentRoute.value.meta.requiresAuth
+    ) {
       router.push({ name: 'login' });
     }
   }

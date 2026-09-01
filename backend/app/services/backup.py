@@ -797,16 +797,18 @@ class BackupService:
 
     @staticmethod
     def _snapshot_storage_keys(connection) -> list[str]:
+        queries = ["SELECT storage_key AS file_key FROM documents WHERE storage_key IS NOT NULL"]
         document_files_exists = connection.execute(
             "SELECT to_regclass('public.document_files')"
         ).fetchone()[0]
         if document_files_exists:
-            query = (
-                "SELECT storage_key FROM documents WHERE storage_key IS NOT NULL "
-                "UNION SELECT file_key FROM document_files WHERE file_key IS NOT NULL ORDER BY 1"
-            )
-        else:
-            query = "SELECT storage_key FROM documents WHERE storage_key IS NOT NULL ORDER BY 1"
+            queries.append("SELECT file_key FROM document_files WHERE file_key IS NOT NULL")
+        note_images_exists = connection.execute(
+            "SELECT to_regclass('public.note_image')"
+        ).fetchone()[0]
+        if note_images_exists:
+            queries.append("SELECT file_key FROM note_image WHERE file_key IS NOT NULL")
+        query = " UNION ".join(queries) + " ORDER BY 1"
         return [str(row[0]) for row in connection.execute(query).fetchall()]
 
     @staticmethod
@@ -822,6 +824,9 @@ class BackupService:
             "correspondent_matchers",
             "document_types",
             "document_retention",
+            "note",
+            "note_revision",
+            "note_image",
             "users",
         ):
             exists = connection.execute("SELECT to_regclass(%s)", (f"public.{table_name}",)).fetchone()[0]

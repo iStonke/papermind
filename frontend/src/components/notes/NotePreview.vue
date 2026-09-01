@@ -42,6 +42,8 @@ import { OcrQuote } from './nodes/ocrQuote.js';
 import { AiBlock } from './nodes/aiBlock.js';
 import { WikiLink } from './nodes/wikiLink.js';
 import { Callout } from './nodes/callout.js';
+import { TemplateBox, TemplateField } from './nodes/templateBox.js';
+import { NoteImage } from './nodes/noteImage.js';
 import { useNotesStore } from '../../stores/notes.js';
 import { useSettingsStore } from '../../stores/settings.js';
 
@@ -85,6 +87,9 @@ const editor = useEditor({
     AiBlock,
     WikiLink,
     Callout,
+    TemplateBox,
+    TemplateField,
+    NoteImage,
   ],
   editorProps: { attributes: { class: 'pm-content pm-content--readonly' } },
 });

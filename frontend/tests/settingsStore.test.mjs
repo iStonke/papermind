@@ -85,6 +85,19 @@ test("normalizeSettingsPayload preserves dossier sidebar visibility", () => {
   assert.equal(normalized.ui.sidebar_show_dossiers, false);
 });
 
+test("normalizeSettingsPayload preserves valid folder limits and rejects invalid ones", () => {
+  setActivePinia(createPinia());
+  const store = useSettingsStore();
+
+  assert.equal(store.normalizeSettingsPayload({
+    ui: { sidebar_max_folders: 8 },
+  }).ui.sidebar_max_folders, 8);
+  assert.equal(store.normalizeSettingsPayload({
+    ui: { sidebar_max_folders: 99 },
+  }).ui.sidebar_max_folders, 5);
+  assert.equal(store.normalizeSettingsPayload({ ui: {} }).ui.sidebar_max_folders, 5);
+});
+
 test("normalizeSettingsPayload preserves note preferences", () => {
   setActivePinia(createPinia());
   const store = useSettingsStore();

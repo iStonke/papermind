@@ -67,8 +67,16 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertIs(payload.ui.drawerRememberState, True)
         self.assertIs(payload.ui.tagDrawerRememberState, True)
         self.assertIs(payload.ui.sidebar_show_dossiers, True)
+        self.assertEqual(payload.ui.sidebar_max_folders, 5)
         self.assertIs(payload.documents.auto_open_import_inbox, False)
         self.assertEqual(payload.documents.recent_import_window_hours, 24)
+
+    def test_sidebar_folder_limit_accepts_bounded_values(self) -> None:
+        payload = AppSettingsPatch.model_validate({"ui": {"sidebar_max_folders": 8}})
+        self.assertEqual(payload.ui.sidebar_max_folders, 8)
+
+        with self.assertRaises(ValidationError):
+            AppSettingsPatch.model_validate({"ui": {"sidebar_max_folders": 51}})
 
     def test_notes_preferences_accept_supported_values(self) -> None:
         payload = AppSettingsPatch.model_validate(

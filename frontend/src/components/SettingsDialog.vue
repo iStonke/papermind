@@ -497,7 +497,23 @@
                   </div>
                   <div class="settings-sidebar-section-name">{{ sidebarSectionLabel(section.key) }}</div>
                   <v-select
-                    v-if="section.key === 'tags'"
+                    v-if="section.key === 'ordner'"
+                    :model-value="settingsDraft.ui.sidebar_max_folders"
+                    :items="sidebarMaxOptions"
+                    item-title="label"
+                    item-value="value"
+                    density="comfortable"
+                    hide-details
+                    variant="outlined"
+                    class="settings-theme-select settings-sidebar-max-select"
+                    aria-label="Maximale Ordner in der Seitenleiste"
+                    :loading="isSettingSaving.sidebar_max_folders"
+                    :disabled="isSettingSaving.sidebar_max_folders"
+                    @click.stop
+                    @update:model-value="onSidebarMaxFoldersChange"
+                  />
+                  <v-select
+                    v-else-if="section.key === 'tags'"
                     :model-value="settingsDraft.ui.sidebar_max_tags"
                     :items="sidebarMaxOptions"
                     item-title="label"
@@ -2783,6 +2799,7 @@ import {
   buildRecentImportWindowPatch,
   buildShowFilenameSuffixPatch,
   buildSidebarSectionsPatch,
+  buildSidebarMaxFoldersPatch,
   buildSidebarMaxTagsPatch,
   buildSidebarMaxCategoriesPatch,
   buildThemeModePatch,
@@ -3899,6 +3916,19 @@ async function onSidebarMaxTagsChange(nextValue) {
     patch: buildSidebarMaxTagsPatch(next),
     controlKey: 'sidebar_max_tags',
     revert: () => settingsStore.setDraftPatch({ ui: { sidebar_max_tags: previous } })
+  });
+}
+
+async function onSidebarMaxFoldersChange(nextValue) {
+  if (isSettingSaving.sidebar_max_folders) return;
+  const next = clampSidebarMaxCount(nextValue);
+  const previous = settingsDraft.ui.sidebar_max_folders;
+  if (next === previous) return;
+  settingsStore.setDraftPatch({ ui: { sidebar_max_folders: next } });
+  await patchSettingsWithRevert({
+    patch: buildSidebarMaxFoldersPatch(next),
+    controlKey: 'sidebar_max_folders',
+    revert: () => settingsStore.setDraftPatch({ ui: { sidebar_max_folders: previous } })
   });
 }
 

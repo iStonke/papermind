@@ -8,7 +8,15 @@ export default defineConfig(({ mode }) => {
   const frontendEnv = loadEnv(mode, process.cwd(), '');
   const env = { ...rootEnv, ...frontendEnv };
   const frontendPort = Number(env.FRONTEND_PORT || 5173);
-  const apiTarget = String(env.VITE_API_BASE_URL || `http://localhost:${env.BACKEND_PORT || 8040}`).replace(/\/$/, '');
+  // API_PROXY_TARGET ist nur für den serverseitigen Vite-Proxy bestimmt und
+  // wird im Gegensatz zu VITE_API_BASE_URL nicht in den Browser exportiert.
+  // So kann Compose intern "backend:8040" verwenden, während der Browser
+  // weiterhin same-origin gegen /api anfragt.
+  const apiTarget = String(
+    env.API_PROXY_TARGET
+      || env.VITE_API_BASE_URL
+      || `http://localhost:${env.BACKEND_PORT || 8040}`
+  ).replace(/\/$/, '');
 
   // HMR nur explizit konfigurieren, wenn per Env vorgegeben (z. B. Zugriff über
   // einen Hostnamen/Reverse-Proxy). Ohne Vorgabe leitet Vite den HMR-Kanal aus

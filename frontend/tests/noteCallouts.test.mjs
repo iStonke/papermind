@@ -77,6 +77,9 @@ test('callouts are available through slash commands and in read-only previews', 
 });
 
 test('slash commands are grouped without breaking their flat keyboard index', () => {
+  assert.match(editorSource, /key: 'frequent',[\s\S]*?label: 'Häufig benutzt'/);
+  assert.match(editorSource, /frequentSlashCommands\.value\.filter/);
+  assert.match(editorSource, /recordSlashCommandUsage\(cmd\.key\)/);
   assert.match(editorSource, /label: 'PaperMind'/);
   assert.match(editorSource, /label: 'Hinweisblöcke'/);
   assert.match(editorSource, /label: 'Überschriften'/);
@@ -89,6 +92,9 @@ test('slash commands are grouped without breaking their flat keyboard index', ()
   assert.match(editorSource, /runSlash\(entry\.command\)/);
   assert.match(editorSource, /const entry = entries\[slash\.index\] \|\| entries\[0\];[\s\S]*?runSlash\(entry\.command\)/);
   assert.match(editorSource, /\.pm-slash__group \+ \.pm-slash__group/);
+  assert.match(editorSource, /'is-frequent': group\.key === 'frequent'/);
+  assert.match(editorSource, /\.pm-slash__group\.is-frequent \.pm-slash__chip/);
+  assert.match(editorSource, /--pm-frequent-accent/);
   assert.match(
     editorSource,
     /label: 'Hinweisblöcke'[\s\S]*label: 'Überschriften'[\s\S]*label: 'Listen & Blöcke'[\s\S]*label: 'PaperMind'/,
