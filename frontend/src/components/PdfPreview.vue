@@ -49,7 +49,11 @@
       :class="{ 'pdf-preview__viewer--ready': firstPageReady }"
     >
       <!-- Toolbar: Seite + Zoom + Treffer -->
-      <div class="pdf-preview__toolbar" aria-label="PDF-Steuerung">
+      <div
+        class="pdf-preview__toolbar"
+        :class="{ 'pdf-preview__toolbar--search-open': searchOpen }"
+        aria-label="PDF-Steuerung"
+      >
         <div class="pdf-preview__left-controls">
           <button
             v-if="enableReader"
@@ -70,6 +74,17 @@
             @click="emit('download')"
           >
             <v-icon size="17">mdi-tray-arrow-down</v-icon>
+          </button>
+          <button
+            class="pdf-preview__tool-btn"
+            :class="{ 'pdf-preview__tool-btn--active': searchOpen }"
+            :disabled="!src"
+            :aria-pressed="searchOpen"
+            aria-label="Im Dokument suchen"
+            title="Im Dokument suchen (⌘F)"
+            @click="toggleSearch"
+          >
+            <v-icon size="17">mdi-text-search</v-icon>
           </button>
           <span class="pdf-preview__page-info" aria-live="polite">
             {{ currentPage }} / {{ pageInfos.length }}
@@ -98,15 +113,67 @@
         </div>
 
         <Transition name="pdf-preview-match">
-          <!-- Treffer-Navigation (nur wenn Suche aktiv) -->
+          <!-- In-Dokument-Suche: Eingabefeld + Treffer-Navigation -->
           <div
-            v-if="highlightText"
+            v-if="searchOpen"
+            class="pdf-preview__search"
+            role="search"
+            aria-label="Im Dokument suchen"
+          >
+            <v-icon class="pdf-preview__search-icon" size="15" aria-hidden="true">mdi-text-search</v-icon>
+            <input
+              ref="searchInputEl"
+              v-model="searchQuery"
+              type="text"
+              class="pdf-preview__search-input"
+              placeholder="Im Dokument suchen…"
+              aria-label="Suchbegriff"
+              spellcheck="false"
+              autocomplete="off"
+              @keydown="onSearchKeydown"
+            />
+            <span
+              class="pdf-preview__match-badge"
+              :class="{ 'pdf-preview__match-badge--zero': highlightCount === 0 && !!searchQuery.trim() }"
+              aria-live="polite"
+            >{{ searchQuery.trim() ? matchBadgeLabel : '' }}</span>
+            <button
+              class="pdf-preview__match-nav-btn"
+              :disabled="!hasMatches"
+              aria-label="Vorheriger Treffer"
+              title="Vorheriger Treffer (⇧⏎)"
+              @click="navigateHighlight(-1)"
+            >
+              <v-icon size="16">mdi-chevron-left</v-icon>
+            </button>
+            <button
+              class="pdf-preview__match-nav-btn"
+              :disabled="!hasMatches"
+              aria-label="Nächster Treffer"
+              title="Nächster Treffer (⏎)"
+              @click="navigateHighlight(1)"
+            >
+              <v-icon size="16">mdi-chevron-right</v-icon>
+            </button>
+            <button
+              class="pdf-preview__match-nav-btn pdf-preview__search-close"
+              aria-label="Suche schließen"
+              title="Suche schließen (Esc)"
+              @click="closeSearch"
+            >
+              <v-icon size="15">mdi-close</v-icon>
+            </button>
+          </div>
+
+          <!-- Treffer-Navigation für Zitate der globalen Suche (ohne Eingabefeld) -->
+          <div
+            v-else-if="highlightText"
             class="pdf-preview__match-controls"
             aria-label="PDF-Treffer"
           >
             <button
               class="pdf-preview__match-nav-btn"
-              :disabled="highlightCount === 0"
+              :disabled="!hasMatches"
               aria-label="Vorheriger Treffer"
               @click="navigateHighlight(-1)"
             >
@@ -117,11 +184,11 @@
               :class="{ 'pdf-preview__match-badge--zero': highlightCount === 0 }"
               aria-live="polite"
             >
-              {{ highlightCount === 0 ? 'Kein Treffer' : `${highlightCount} Treffer` }}
+              {{ matchBadgeLabel }}
             </span>
             <button
               class="pdf-preview__match-nav-btn"
-              :disabled="highlightCount === 0"
+              :disabled="!hasMatches"
               aria-label="Nächster Treffer"
               @click="navigateHighlight(1)"
             >
@@ -394,9 +461,8 @@ function commitZoomRender() {
   renderGeneration++;
   renderedPages.clear();
   renderQueue.clear();
-  highlightTargets = [];
-  highlightCount.value = 0;
-  activeHighlightIndex.value = -1;
+  // globalMatches (dokumentweite Zählung) bleibt bestehen; die Markierungen
+  // werden beim erneuten Rendern der Seiten automatisch wieder gesetzt.
   void setupObservers();
 }
 
@@ -667,9 +733,41 @@ const renderedPages = new Set();
 /** Aktuell sichtbare Seite (für Seitenanzeige) */
 const currentPage = ref(1);
 
-/** Gesamtanzahl Treffer über alle gerenderten Seiten */
-const highlightCount = ref(0);
-const activeHighlightIndex = ref(-1);
+// ─── In-Dokument-Suche + Treffer ───────────────────────────────────────────────
+// Der zu markierende Text kommt entweder aus der internen Suche (searchQuery,
+// nur wenn die Suchleiste offen ist) ODER aus der Prop highlightText (Zitat der
+// globalen Suche). Beide speisen denselben Highlight-/Navigations-Motor.
+const searchOpen  = ref(false);
+const searchQuery = ref('');
+const searchInputEl = ref(null);
+
+const effectiveHighlightText = computed(() => {
+  const q = searchQuery.value.trim();
+  if (searchOpen.value && q) return q;
+  return props.highlightText || '';
+});
+
+/**
+ * Alle Treffer über das GESAMTE Dokument (nicht nur gerenderte Seiten),
+ * ermittelt aus dem Seiten-Textindex. Reihenfolge = Dokumentreihenfolge.
+ * Jeder Eintrag: { page, rank } (rank = 0-basierter Index des Treffers auf der Seite).
+ */
+const globalMatches = ref([]); // [{ page, rank }]
+const activeMatchIndex = ref(-1);
+const indexBuilding = ref(false);
+
+/** Gesamtanzahl Treffer über das ganze Dokument. */
+const highlightCount = computed(() => globalMatches.value.length);
+const hasMatches = computed(() => globalMatches.value.length > 0);
+
+/** Beschriftung der Treffer-Anzeige: „…“ / „Kein Treffer“ / „k/n“ / „n Treffer“. */
+const matchBadgeLabel = computed(() => {
+  if (indexBuilding.value && effectiveHighlightText.value) return '…';
+  const total = highlightCount.value;
+  if (total === 0) return 'Kein Treffer';
+  if (activeMatchIndex.value >= 0) return `${activeMatchIndex.value + 1}/${total}`;
+  return `${total} Treffer`;
+});
 
 // ─── Interne Handles ──────────────────────────────────────────────────────────
 
@@ -685,7 +783,13 @@ let highlightIdSeq = 0;
 let highlightFlashTimer = 0;
 let renderGeneration = 0;
 const renderQueue  = new Set();
-let highlightTargets = [];
+
+// Seiten-Textindex für die dokumentweite Trefferzählung: docTextIndex[i] = der
+// (kleingeschriebene) Text der Seite i+1, EINMAL via getTextContent() gewonnen.
+// Wird pro geladenem Dokument (loadEpoch) neu aufgebaut.
+let docTextIndex = [];
+let docTextIndexEpoch = -1;
+let matchRecomputeTimer = 0;
 
 /** Imperative Refs: pageNum → inneres HTMLElement */
 const pageInnerRefs = new Map();
@@ -923,7 +1027,7 @@ function nextHighlightId() {
  * Duplikate werden entfernt.
  */
 function extractTerms() {
-  const raw = (props.highlightText || '').trim();
+  const raw = effectiveHighlightText.value.trim();
   if (!raw) return [];
 
   const terms = new Set();
@@ -967,21 +1071,10 @@ function applyHighlights(textLayerDiv) {
   }
   const fullText = nodes.map(nd => nd.textContent).join('').toLowerCase();
 
-  // Treffer finden (keine Überlappungen)
-  const matches = [];
-  const covered = new Uint8Array(fullText.length);
-  for (const term of terms) {
-    let idx = 0;
-    while (idx < fullText.length) {
-      const found = fullText.indexOf(term, idx);
-      if (found === -1) break;
-      if (!covered.slice(found, found + term.length).some(Boolean)) {
-        matches.push({ start: found, end: found + term.length });
-        covered.fill(1, found, found + term.length);
-      }
-      idx = found + 1;
-    }
-  }
+  // Treffer finden – exakt dieselbe Logik wie der Dokument-Index (findMatches),
+  // damit die pro-Seite gezählten DOM-Markierungen mit der Index-Zählung
+  // übereinstimmen.
+  const matches = findMatches(fullText, terms);
   if (!matches.length) return 0;
 
   // Rückwärts anwenden (DOM-Offsets bleiben stabil)
@@ -1035,76 +1128,177 @@ function applyHighlights(textLayerDiv) {
   return count;
 }
 
-function rebuildHighlightTargets() {
-  const root = pagesEl.value;
-  const activeId = highlightTargets[activeHighlightIndex.value]?.id || '';
-  if (!root) {
-    highlightTargets = [];
-    highlightCount.value = 0;
-    activeHighlightIndex.value = -1;
-    return;
-  }
-
-  const groups = new Map();
-  root.querySelectorAll('.textLayer .pm-highlight[data-pm-highlight-id]').forEach((element) => {
-    const id = element.dataset.pmHighlightId;
-    if (!id) return;
-    if (!groups.has(id)) {
-      groups.set(id, {
-        id,
-        page: Number(element.closest('.pdf-preview__page')?.dataset.page || 0),
-        elements: [],
-      });
+/**
+ * Findet nicht-überlappende Treffer aller Terme in einem (bereits klein-
+ * geschriebenen) Fließtext. Gemeinsame Logik von applyHighlights (DOM-Ebene)
+ * und dem Dokument-Index (Zählung) → identische Trefferzahl pro Seite.
+ * Ergebnis aufsteigend nach Startposition sortiert.
+ */
+function findMatches(fullTextLower, terms) {
+  if (!fullTextLower || !terms.length) return [];
+  const matches = [];
+  const covered = new Uint8Array(fullTextLower.length);
+  for (const term of terms) {
+    let idx = 0;
+    while (idx < fullTextLower.length) {
+      const found = fullTextLower.indexOf(term, idx);
+      if (found === -1) break;
+      if (!covered.slice(found, found + term.length).some(Boolean)) {
+        matches.push({ start: found, end: found + term.length });
+        covered.fill(1, found, found + term.length);
+      }
+      idx = found + 1;
     }
-    groups.get(id).elements.push(element);
-  });
+  }
+  matches.sort((a, b) => a.start - b.start);
+  return matches;
+}
 
-  highlightTargets = [...groups.values()];
-  highlightCount.value = highlightTargets.length;
+// ─── Dokument-Textindex (für dokumentweite Zählung) ─────────────────────────────
 
-  if (!highlightTargets.length) {
-    activeHighlightIndex.value = -1;
-    applyActiveHighlightClasses();
+let docTextIndexPromise = null;
+
+async function buildDocTextIndex() {
+  const epoch = loadEpoch;
+  const doc = pdfDoc;
+  if (!doc) return [];
+  indexBuilding.value = true;
+  const total = doc.numPages;
+  const index = new Array(total).fill('');
+  try {
+    for (let p = 1; p <= total; p++) {
+      if (epoch !== loadEpoch) return [];
+      const page = await doc.getPage(p);
+      const tc = await page.getTextContent();
+      index[p - 1] = tc.items
+        .map((it) => (it && typeof it.str === 'string' ? it.str : ''))
+        .join('')
+        .toLowerCase();
+    }
+  } catch (_) {
+    /* Teilindex ist brauchbar */
+  } finally {
+    docTextIndexPromise = null;
+    if (epoch === loadEpoch) indexBuilding.value = false;
+  }
+  if (epoch !== loadEpoch) return [];
+  docTextIndex = index;
+  docTextIndexEpoch = epoch;
+  return index;
+}
+
+/** Baut den Textindex einmal pro Dokument (parallele Aufrufe teilen sich den Bau). */
+function ensureDocTextIndex() {
+  if (docTextIndexEpoch === loadEpoch) return Promise.resolve(docTextIndex);
+  if (!docTextIndexPromise) docTextIndexPromise = buildDocTextIndex();
+  return docTextIndexPromise;
+}
+
+let matchComputeSeq = 0;
+
+/** Ermittelt alle Treffer über das ganze Dokument aus dem Textindex. */
+async function recomputeMatches() {
+  const seq = ++matchComputeSeq;
+  const epoch = loadEpoch;
+  const terms = extractTerms();
+  if (!terms.length) {
+    globalMatches.value = [];
     return;
   }
-
-  const previousIndex = highlightTargets.findIndex((target) => target.id === activeId);
-  activeHighlightIndex.value = previousIndex >= 0 ? previousIndex : Math.min(activeHighlightIndex.value, highlightTargets.length - 1);
-  applyActiveHighlightClasses();
+  const index = await ensureDocTextIndex();
+  if (epoch !== loadEpoch || seq !== matchComputeSeq) return; // veraltet
+  const list = [];
+  for (let i = 0; i < index.length; i++) {
+    const matches = findMatches(index[i], terms);
+    for (let r = 0; r < matches.length; r++) list.push({ page: i + 1, rank: r });
+  }
+  if (seq !== matchComputeSeq) return;
+  globalMatches.value = list;
+  if (activeMatchIndex.value >= list.length) activeMatchIndex.value = -1;
 }
 
-function applyActiveHighlightClasses() {
+function scheduleRecomputeMatches() {
+  if (matchRecomputeTimer) window.clearTimeout(matchRecomputeTimer);
+  matchRecomputeTimer = window.setTimeout(() => {
+    matchRecomputeTimer = 0;
+    void recomputeMatches();
+  }, 120);
+}
+
+// ─── Treffer-Navigation über das ganze Dokument ─────────────────────────────────
+
+/** Gruppiert die DOM-Markierungen EINER Seite nach Highlight-ID (Dokumentreihenfolge). */
+function domHighlightGroupsForPage(page) {
   const root = pagesEl.value;
-  if (!root) return;
-  root.querySelectorAll('.pm-highlight--active, .pm-highlight--flash').forEach((element) => {
-    element.classList.remove('pm-highlight--active', 'pm-highlight--flash');
+  if (!root) return [];
+  const pageEl = root.querySelector(`.pdf-preview__page[data-page="${page}"]`);
+  if (!pageEl) return [];
+  const groups = new Map();
+  pageEl.querySelectorAll('.textLayer .pm-highlight[data-pm-highlight-id]').forEach((el) => {
+    const id = el.dataset.pmHighlightId;
+    if (!id) return;
+    if (!groups.has(id)) groups.set(id, []);
+    groups.get(id).push(el);
   });
-  const target = highlightTargets[activeHighlightIndex.value];
-  if (!target) return;
-  target.elements.forEach((element) => element.classList.add('pm-highlight--active'));
+  return [...groups.values()];
 }
 
-function flashActiveHighlight() {
-  const target = highlightTargets[activeHighlightIndex.value];
-  if (!target) return;
+function clearAllActiveClasses() {
+  pagesEl.value
+    ?.querySelectorAll('.pm-highlight--active, .pm-highlight--flash')
+    .forEach((el) => el.classList.remove('pm-highlight--active', 'pm-highlight--flash'));
+}
+
+/** Reaktiviert die Markierung, wenn die aktive Fundstelle auf dieser (neu gerenderten) Seite liegt. */
+function applyActiveClassOnPage(page) {
+  const m = globalMatches.value[activeMatchIndex.value];
+  if (!m || m.page !== page) return;
+  const group = domHighlightGroupsForPage(page)[m.rank];
+  group?.forEach((el) => el.classList.add('pm-highlight--active'));
+}
+
+/** Wartet, bis die Zielseite gerendert ist und ihre Markierungen im DOM stehen. */
+async function waitForPageHighlights(page, minRank) {
+  for (let i = 0; i < 80; i++) {
+    if (renderedPages.has(page)) {
+      const groups = domHighlightGroupsForPage(page);
+      if (groups.length > minRank) return groups;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  }
+  return domHighlightGroupsForPage(page);
+}
+
+let navSeq = 0;
+
+/** Springt zur aktiven Fundstelle – rendert bei Bedarf zuerst deren Seite. */
+async function focusActiveMatch() {
+  const seq = ++navSeq;
+  const m = globalMatches.value[activeMatchIndex.value];
+  if (!m) return;
+  currentPage.value = m.page;
+  clearAllActiveClasses();
+  scrollToPage(m.page); // bringt (auch entfernte) Seiten in den Render-Bereich
+  const groups = await waitForPageHighlights(m.page, m.rank);
+  if (seq !== navSeq) return; // eine neuere Navigation hat übernommen
+  const group = groups[m.rank];
+  if (!group || !group.length) return;
+  group.forEach((el) => el.classList.add('pm-highlight--active'));
+  group[0]?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
   if (highlightFlashTimer) window.clearTimeout(highlightFlashTimer);
-  target.elements.forEach((element) => element.classList.add('pm-highlight--flash'));
+  group.forEach((el) => el.classList.add('pm-highlight--flash'));
   highlightFlashTimer = window.setTimeout(() => {
-    target.elements.forEach((element) => element.classList.remove('pm-highlight--flash'));
+    group.forEach((el) => el.classList.remove('pm-highlight--flash'));
     highlightFlashTimer = 0;
   }, 650);
 }
 
 function navigateHighlight(delta) {
-  if (!highlightTargets.length) return;
-  const current = activeHighlightIndex.value >= 0 ? activeHighlightIndex.value : (delta < 0 ? 0 : -1);
-  activeHighlightIndex.value = (current + delta + highlightTargets.length) % highlightTargets.length;
-  applyActiveHighlightClasses();
-  const target = highlightTargets[activeHighlightIndex.value];
-  const element = target?.elements?.[0];
-  if (target?.page) currentPage.value = target.page;
-  element?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-  flashActiveHighlight();
+  const list = globalMatches.value;
+  if (!list.length) return;
+  const current = activeMatchIndex.value >= 0 ? activeMatchIndex.value : (delta < 0 ? 0 : -1);
+  activeMatchIndex.value = (current + delta + list.length) % list.length;
+  void focusActiveMatch();
 }
 
 /** Entfernt alle Markierungen (mark-Elemente und pm-highlight-Klassen). */
@@ -1124,13 +1318,9 @@ function clearHighlights(el) {
   });
 }
 
-/**
- * Wird aufgerufen wenn sich highlightText ändert ohne neues PDF-Loading.
- * Entfernt alte <mark>-Elemente und markiert neu.
- */
-watch(() => props.highlightText, () => {
+/** Löscht Markierungen auf allen gerenderten Seiten und trägt sie neu ein. */
+function refreshHighlightsOnRenderedPages() {
   highlightIdSeq = 0;
-  activeHighlightIndex.value = -1;
   for (const [pageNum, el] of pageInnerRefs.entries()) {
     clearHighlights(el);
     if (renderedPages.has(pageNum)) {
@@ -1138,7 +1328,50 @@ watch(() => props.highlightText, () => {
       if (tl) applyHighlights(tl);
     }
   }
-  rebuildHighlightTargets();
+  applyActiveClassOnPage(currentPage.value);
+}
+
+// ─── In-Dokument-Suche: öffnen/schließen ────────────────────────────────────────
+
+function openSearch() {
+  searchOpen.value = true;
+  void ensureDocTextIndex(); // Index im Hintergrund vorbauen
+  nextTick(() => {
+    const input = searchInputEl.value;
+    if (input) { input.focus(); input.select?.(); }
+  });
+}
+
+function closeSearch() {
+  searchOpen.value = false;
+  searchQuery.value = '';
+}
+
+function toggleSearch() {
+  if (searchOpen.value) closeSearch();
+  else openSearch();
+}
+
+function onSearchKeydown(event) {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    navigateHighlight(event.shiftKey ? -1 : 1);
+  } else if (event.key === 'Escape') {
+    event.preventDefault();
+    closeSearch();
+  }
+}
+
+/**
+ * Reagiert auf jede Änderung des tatsächlich zu markierenden Textes – egal ob
+ * aus der internen Suche (searchQuery) oder aus der Zitat-Prop (highlightText).
+ * Markiert im DOM sofort neu; die dokumentweite Zählung folgt (leicht entprellt).
+ */
+watch(effectiveHighlightText, () => {
+  clearAllActiveClasses();
+  activeMatchIndex.value = -1;
+  refreshHighlightsOnRenderedPages();
+  scheduleRecomputeMatches();
 });
 
 // ─── Markierungsebene (Annotations) ─────────────────────────────────────────
@@ -1267,17 +1500,47 @@ function cancelKonvaDraft() {
 }
 
 /**
+ * Ist DIESE Vorschau aktuell die vorderste (nicht von einem Overlay wie dem
+ * Lesemodus verdeckt)? Wird per Treffer-Test im eigenen Mittelpunkt bestimmt.
+ * Verhindert, dass ⌘F/Esc gleichzeitig in der Panel-Vorschau UND im darüber
+ * liegenden Lesemodus greifen (beide Instanzen lauschen auf window).
+ */
+function isForeground() {
+  const el = rootEl.value;
+  if (!el) return false;
+  const r = el.getBoundingClientRect();
+  if (r.width < 2 || r.height < 2) return false;
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+  const top = document.elementFromPoint(cx, cy);
+  return !!top && el.contains(top);
+}
+
+/**
  * Bricht einen laufenden Rechteck-/Stift-/Text-Entwurf per Esc ab, BEVOR das
  * Ereignis den Lesemodus (DocumentReader) erreicht — sonst schließt Esc dort
  * versehentlich den ganzen Lesemodus statt nur den Entwurf zu verwerfen.
- * Capture-Phase, damit es unabhängig von der Mount-Reihenfolge zuerst greift.
+ * Übernimmt außerdem ⌘F/Strg+F (In-Dokument-Suche öffnen) und Esc zum Schließen
+ * der Suche. Capture-Phase, damit es unabhängig von der Mount-Reihenfolge zuerst
+ * greift.
  */
 function onWindowKeydownCapture(event) {
+  // ⌘F / Strg+F → In-Dokument-Suche der vordersten Vorschau öffnen/fokussieren.
+  if ((event.key === 'f' || event.key === 'F') && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey) {
+    if (!isForeground()) return;
+    openSearch();
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return;
+  }
+
   if (event.key !== 'Escape') return;
   if (konvaDraft) {
     cancelKonvaDraft();
   } else if (textDraft) {
     removeTextDraft();
+  } else if (searchOpen.value && isForeground()) {
+    closeSearch();
   } else {
     return;
   }
@@ -2122,7 +2385,9 @@ async function renderPage(pageNum) {
 
     // Highlights anwenden (nach DOM-Einhängen, damit normalize() korrekt arbeitet)
     applyHighlights(textLayerDiv);
-    rebuildHighlightTargets();
+    // Aktive Fundstelle wieder markieren, falls sie auf dieser Seite liegt
+    // (z. B. nach LRU-Eviction + erneutem Rendern beim Zurückscrollen).
+    applyActiveClassOnPage(pageNum);
     applyAnnotationsToPage(innerEl, pageNum);
     ensureKonvaStage(pageNum, innerEl, viewport.width, viewport.height);
     renderKonvaAnnotations(pageNum);
@@ -2254,10 +2519,19 @@ async function loadPdf(src) {
   errorMessage.value = '';
   loadProgress.value = 0;
   loadIndeterminate.value = false;
-  highlightCount.value = 0;
-  activeHighlightIndex.value = -1;
-  highlightTargets = [];
+  // Treffer- und Suchzustand für das neue Dokument zurücksetzen
+  globalMatches.value = [];
+  activeMatchIndex.value = -1;
   highlightIdSeq = 0;
+  docTextIndex = [];
+  docTextIndexEpoch = -1;
+  docTextIndexPromise = null;
+  indexBuilding.value = false;
+  if (matchRecomputeTimer) { window.clearTimeout(matchRecomputeTimer); matchRecomputeTimer = 0; }
+  // Frisches Dokument beginnt mit geschlossener In-Dokument-Suche (Zitate der
+  // globalen Suche greifen dann wieder über die Prop highlightText).
+  searchOpen.value = false;
+  searchQuery.value = '';
 
   if (activeLoadTask) { try { activeLoadTask.destroy(); } catch (_) {} activeLoadTask = null; }
   if (pdfDoc)         { try { pdfDoc.destroy(); }         catch (_) {} pdfDoc = null; }
@@ -2291,6 +2565,8 @@ async function loadPdf(src) {
 
     await nextTick();
     scrollToPage(props.targetPage);
+    // Liegt bereits ein Zitat (highlightText) vor, dokumentweite Zählung starten.
+    if (effectiveHighlightText.value) void recomputeMatches();
     void hydrateRemainingPageInfos(doc, epoch).then(() => {
       if (epoch !== loadEpoch) return;
       void setupObservers();
@@ -2349,7 +2625,7 @@ async function renderThumbnail(pageNum, canvas, cssWidth = 116) {
   }
 }
 
-defineExpose({ goToPage, currentPage, pageCount, renderThumbnail });
+defineExpose({ goToPage, currentPage, pageCount, renderThumbnail, openSearch, closeSearch });
 
 // ─── Tastenkürzel ─────────────────────────────────────────────────────────────
 // Aktiv, sobald der Viewer (oder ein Kind) den Fokus hat – stört also keine
@@ -2382,13 +2658,13 @@ function onKeydown(event) {
       event.preventDefault();
       break;
     case 'n':
-      if (props.highlightText) { navigateHighlight(1); event.preventDefault(); }
+      if (hasMatches.value) { navigateHighlight(1); event.preventDefault(); }
       break;
     case 'N':
-      if (props.highlightText) { navigateHighlight(-1); event.preventDefault(); }
+      if (hasMatches.value) { navigateHighlight(-1); event.preventDefault(); }
       break;
     case 'Enter':
-      if (props.highlightText) { navigateHighlight(event.shiftKey ? -1 : 1); event.preventDefault(); }
+      if (hasMatches.value) { navigateHighlight(event.shiftKey ? -1 : 1); event.preventDefault(); }
       break;
     case 'f':
     case 'F':
@@ -2423,9 +2699,8 @@ function onResize() {
     renderGeneration++;
     renderedPages.clear();
     renderQueue.clear();
-    highlightTargets = [];
-    highlightCount.value = 0;
-    activeHighlightIndex.value = -1;
+    // Die dokumentweite Zählung (globalMatches) bleibt bestehen; Markierungen
+    // werden beim erneuten Rendern der Seiten automatisch wieder gesetzt.
     setupObservers();
   });
 }
@@ -2451,6 +2726,7 @@ onBeforeUnmount(() => {
   if (resizeRaf)      cancelAnimationFrame(resizeRaf);
   if (scrollRafId)    cancelAnimationFrame(scrollRafId);
   if (highlightFlashTimer) window.clearTimeout(highlightFlashTimer);
+  if (matchRecomputeTimer) window.clearTimeout(matchRecomputeTimer);
   if (zoomRenderTimer) window.clearTimeout(zoomRenderTimer);
   if (activeLoadTask) try { activeLoadTask.destroy(); } catch (_) {}
   if (pdfDoc)         try { pdfDoc.destroy(); }         catch (_) {}
@@ -2539,9 +2815,43 @@ onBeforeUnmount(() => {
 
 .pdf-preview__viewer:has(.pdf-preview__page:hover) .pdf-preview__toolbar,
 .pdf-preview__toolbar:hover,
-.pdf-preview__toolbar:focus-within {
+.pdf-preview__toolbar:focus-within,
+.pdf-preview__toolbar--search-open {
   opacity: 1;
   pointer-events: auto;
+}
+
+/* Suchmodus: die übrigen Steuergruppen sanft ausblenden und einklappen, damit
+   das Eingabefeld Platz bekommt und die Leiste kaum breiter wird. */
+.pdf-preview__left-controls,
+.pdf-preview__rotate-controls,
+.pdf-preview__zoom-controls {
+  max-width: 420px;
+  transition:
+    max-width 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 150ms ease;
+}
+
+.pdf-preview__toolbar--search-open {
+  gap: 0;
+}
+
+.pdf-preview__toolbar--search-open .pdf-preview__left-controls,
+.pdf-preview__toolbar--search-open .pdf-preview__rotate-controls,
+.pdf-preview__toolbar--search-open .pdf-preview__zoom-controls {
+  max-width: 0;
+  padding: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pdf-preview__left-controls,
+  .pdf-preview__rotate-controls,
+  .pdf-preview__zoom-controls {
+    transition: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2588,7 +2898,7 @@ onBeforeUnmount(() => {
 
 .pdf-preview-match-enter-active,
 .pdf-preview-match-leave-active {
-  max-width: 220px;
+  max-width: 360px;
   opacity: 1;
   transition:
     max-width 190ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -2605,9 +2915,57 @@ onBeforeUnmount(() => {
 
 .pdf-preview-match-enter-to,
 .pdf-preview-match-leave-from {
-  max-width: 220px;
+  max-width: 360px;
   opacity: 1;
   transform: scaleX(1);
+}
+
+/* ── In-Dokument-Suche ──────────────────────────────────────────────────────── */
+.pdf-preview__search {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  height: 28px;
+  padding: 1px 3px 1px 8px;
+  border-radius: 999px;
+  background: var(--pdf-toolbar-stepper-bg);
+}
+
+.pdf-preview__search-icon {
+  color: var(--pdf-toolbar-icon);
+  flex: 0 0 auto;
+}
+
+.pdf-preview__search-input {
+  flex: 1 1 auto;
+  min-width: 120px;
+  width: 180px;
+  max-width: 260px;
+  height: 100%;
+  margin: 0 2px;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--pdf-toolbar-text);
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.pdf-preview__search-input::placeholder {
+  color: var(--pdf-toolbar-text-muted);
+}
+
+.pdf-preview__search-close {
+  color: var(--pdf-toolbar-text-muted);
+}
+
+.pdf-preview__search-close:hover:not(:disabled) {
+  color: var(--pdf-toolbar-text);
 }
 
 .pdf-preview__match-nav-btn {

@@ -196,6 +196,7 @@ export {
   mdiTableRowRemove,
   mdiTextBoxRemoveOutline,
   mdiTextRecognition,
+  mdiTextSearch,
   mdiThermometer,
   mdiTimelineTextOutline,
   mdiToolboxOutline,
