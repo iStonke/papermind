@@ -2509,14 +2509,20 @@ function positionAIPrompt() {
 function prepareAIPromptTarget(presentation = 'toolbar', { resetInstruction = false } = {}) {
   const ed = editor.value;
   if (!ed || aiPrompt.loading) return;
+  // "Schreibmarke" = ein Cursor im Editor. Wird der Toolbar-Prompt geöffnet, ohne
+  // dass der Editor den Fokus hat, gibt es keine Schreibmarke – der Text kommt dann
+  // ans Notizende statt an die vom Editor gehaltene Standard-(Start-)Position.
+  const hasCaret = presentation !== 'toolbar' || ed.view.hasFocus();
   const selection = ed.state.selection;
   const { from, to, empty } = selection;
-  const directTarget = directAITargetForSelection(ed, selection);
-  const selectedText = empty || directTarget?.nodeSelected
+  const directTarget = hasCaret ? directAITargetForSelection(ed, selection) : null;
+  const selectedText = !hasCaret || empty || directTarget?.nodeSelected
     ? ''
     : ed.state.doc.textBetween(from, to, '\n', '\n').trim();
   aiPrompt.mode = selectedText ? 'selection' : 'context';
-  aiPrompt.anchorPos = directTarget?.anchorPos ?? (selectedText ? to : from);
+  aiPrompt.anchorPos = hasCaret
+    ? (directTarget?.anchorPos ?? (selectedText ? to : from))
+    : ed.state.doc.content.size;
   aiPrompt.selectionFrom = selectedText ? from : null;
   aiPrompt.selectionTo = selectedText ? to : null;
   aiPrompt.selectedText = selectedText;

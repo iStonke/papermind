@@ -44,9 +44,25 @@ test('toolbar shows the quiet natural-language AI prompt without an extra click'
 test('toolbar AI prompt snapshots the current editor target before input focus', () => {
   assert.match(editorSource, /function prepareAIPromptTarget\(presentation = 'toolbar'/);
   assert.match(editorSource, /const selection = ed\.state\.selection/);
-  assert.match(editorSource, /aiPrompt\.anchorPos = directTarget\?\.anchorPos \?\? \(selectedText \? to : from\)/);
+  assert.match(editorSource, /aiPrompt\.anchorPos = hasCaret[\s\S]*?directTarget\?\.anchorPos \?\? \(selectedText \? to : from\)/);
   assert.match(editorSource, /function ensureToolbarAIPromptTarget\(\)[\s\S]*?prepareToolbarAIPromptTarget\(\)/);
   assert.doesNotMatch(editorSource, /AIPromptAnchor|aiPromptMountEl|pm-ai-inline-anchor/);
+});
+
+test('toolbar AI prompt inserts at the caret, or at the note end when there is none', () => {
+  // Ohne Editor-Fokus (keine Schreibmarke) hängt der Toolbar-Prompt den Text ans Ende.
+  assert.match(editorSource, /const hasCaret = presentation !== 'toolbar' \|\| ed\.view\.hasFocus\(\)/);
+  assert.match(
+    editorSource,
+    /aiPrompt\.anchorPos = hasCaret\s*\?\s*\(directTarget\?\.anchorPos \?\? \(selectedText \? to : from\)\)\s*:\s*ed\.state\.doc\.content\.size/,
+  );
+  // Ein Direkt-Container (Callout/Tabelle/Zitat) wird nur bei vorhandener Schreibmarke gesucht.
+  assert.match(editorSource, /const directTarget = hasCaret \? directAITargetForSelection\(ed, selection\) : null/);
+  // Der Einfügepunkt der Generierung folgt der Schreibmarke bzw. dem Notizende.
+  assert.match(
+    editorSource,
+    /const insertionPos = Math\.min\(\s*aiPrompt\.anchorPos \?\? ed\.state\.selection\.from,\s*ed\.state\.doc\.content\.size,\s*\)/,
+  );
 });
 
 test('slash and bubble AI actions open the complete prompt dialog', () => {
