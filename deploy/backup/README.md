@@ -4,6 +4,8 @@ Neue Sicherungen bestehen aus einem Datenbank-Dump, dem Dokumentenspeicher und
 einem signierten Manifest mit Version, Tabellenzählern, Metadaten-Fingerprint
 und SHA-256-Prüfsummen. Die Artefakte werden mit AES-256-GCM verschlüsselt und
 erst nach erfolgreicher Gegenprüfung auf dem NAS atomar veröffentlicht.
+Der Manifest-Fingerprint umfasst neben Dokumenten auch Notizinhalt,
+Versionsstände, Tags, Verweise, Aufgaben, Bilder und Bausteinvorlagen.
 
 ## Verschlüsselungsschlüssel
 
@@ -37,7 +39,10 @@ zurückgespielt.
 ## Automatischer Restore-Drill
 
 Der Timer stellt am ersten Sonntag jedes Monats das neueste vollständige Backup
-in isolierten Docker-Ressourcen wieder her. Produktive Daten werden nur gelesen.
+in isolierten Docker-Ressourcen wieder her. Dabei werden Dokumente und Notizen
+über die API gelesen, Notizrevisionen und Bausteinvorlagen geprüft sowie
+referenzierte Dokument- und Notizbilddateien geöffnet. Produktive Daten werden
+nur gelesen.
 
 Installation auf dem Pi:
 

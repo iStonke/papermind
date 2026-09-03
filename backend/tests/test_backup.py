@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 from app.schemas.backup import BackupRestoreRequest
 from app.services.backup import (
+    _DATABASE_COUNT_TABLES,
+    _NOTE_FINGERPRINT_QUERIES,
     BackupService,
     backup_source_is_dirty,
     is_backup_due,
@@ -207,6 +209,53 @@ class RestoreCommandTest(unittest.TestCase):
                     Path(directory),
                     manifest,
                 )
+
+
+class NoteBackupCoverageTest(unittest.TestCase):
+    def test_manifest_covers_all_note_tables_and_note_content(self) -> None:
+        expected_tables = {
+            "note",
+            "note_revision",
+            "note_tags",
+            "note_link",
+            "note_task",
+            "note_image",
+            "note_block_template",
+        }
+        self.assertTrue(expected_tables.issubset(set(_DATABASE_COUNT_TABLES)))
+        self.assertEqual(set(_NOTE_FINGERPRINT_QUERIES), expected_tables)
+        self.assertIn("body_json::text", _NOTE_FINGERPRINT_QUERIES["note"])
+        self.assertIn("body_json::text", _NOTE_FINGERPRINT_QUERIES["note_revision"])
+
+    def test_note_fingerprint_mismatch_blocks_restore(self) -> None:
+        actual = {
+            "counts": {"note": 1},
+            "document_metadata_sha256": "documents",
+            "note_metadata_sha256": "changed-notes",
+            "storage_keys_sha256": "files",
+        }
+        expected = {
+            "counts": {"note": 1},
+            "document_metadata_sha256": "documents",
+            "note_metadata_sha256": "original-notes",
+            "storage_keys_sha256": "files",
+        }
+        with self.assertRaisesRegex(RuntimeError, "Notizmetadaten"):
+            BackupService._verify_database_metadata(actual, expected)
+
+    def test_legacy_v2_manifest_accepts_additional_note_tables(self) -> None:
+        actual = {
+            "counts": {"note": 2, "note_link": 3, "note_task": 1},
+            "document_metadata_sha256": "documents",
+            "note_metadata_sha256": "notes",
+            "storage_keys_sha256": "files",
+        }
+        legacy_expected = {
+            "counts": {"note": 2},
+            "document_metadata_sha256": "documents",
+            "storage_keys_sha256": "files",
+        }
+        BackupService._verify_database_metadata(actual, legacy_expected)
 
 
 class MaintenanceLeaseTest(unittest.TestCase):

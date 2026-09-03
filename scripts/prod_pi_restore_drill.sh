@@ -190,23 +190,25 @@ for child in source.iterdir():
         shutil.copy2(child, target)
 '
 
-echo "[5/7] Verifying restored document files against database storage keys ..."
-docker exec -e PGPASSWORD="${db_password}" "${db_container}" \
-  psql -At -U restore_user -d papermind_restore -c \
-  'SELECT storage_key FROM documents WHERE storage_key IS NOT NULL UNION SELECT file_key FROM document_files WHERE file_key IS NOT NULL ORDER BY 1' \
-  | docker run --rm -i -v "${storage_volume}:/restore:ro" --entrypoint python "${backend_image}" -c '
-import sys
+echo "[5/7] Verifying all restored document and note-image files against database storage keys ..."
+docker run --rm --network "${network_name}" \
+  -e DATABASE_URL="postgresql://restore_user:${db_password}@papermind-restore-db:5432/papermind_restore" \
+  -v "${storage_volume}:/restore:ro" \
+  --entrypoint python "${backend_image}" -c '
+import os
+import psycopg
 from pathlib import Path
+from app.services.backup import BackupService
 
 root = Path("/restore/storage")
-keys = [line.strip() for line in sys.stdin if line.strip()]
-missing = [key for key in keys if not (root / key).is_file()]
-assert not missing, f"Missing restored document files: {missing[:5]}"
+with psycopg.connect(os.environ["DATABASE_URL"]) as connection:
+    keys = BackupService._snapshot_storage_keys(connection)
+BackupService._verify_snapshot_storage(root, keys)
 print(f"verified storage keys: {len(keys)}")
 '
 
 if [[ -s "${drill_dir}/input/manifest.json" ]]; then
-  echo "[5b/7] Verifying table counts and document metadata fingerprint ..."
+  echo "[5b/7] Verifying table counts and document/note metadata fingerprints ..."
   docker run --rm --network "${network_name}" \
     -e DATABASE_URL="postgresql://restore_user:${db_password}@papermind-restore-db:5432/papermind_restore" \
     -v "${drill_dir}/input:/input:ro" \
@@ -220,10 +222,8 @@ manifest = json.load(open("/input/manifest.json", encoding="utf-8"))
 with psycopg.connect(os.environ["DATABASE_URL"]) as connection:
     actual = BackupService._snapshot_database_metadata(connection)
 expected = manifest["database"]
-assert actual["counts"] == expected["counts"], "restored table counts differ from manifest"
-assert actual["document_metadata_sha256"] == expected["document_metadata_sha256"], "metadata fingerprint differs"
-assert actual["storage_keys_sha256"] == expected["storage_keys_sha256"], "storage-key fingerprint differs"
-print("metadata fingerprint verified")
+BackupService._verify_database_metadata(actual, expected)
+print("document and note metadata fingerprints verified")
 '
 fi
 
@@ -243,7 +243,7 @@ docker run -d --rm --name "${app_container}" --network "${network_name}" \
 wait_for "isolated backend readiness" docker exec "${app_container}" python -c \
   'import urllib.request; assert urllib.request.urlopen("http://127.0.0.1:8040/health/ready", timeout=3).status == 200'
 
-echo "[7/7] Reading restored application data and a restored document file ..."
+echo "[7/7] Reading restored documents, notes, revisions, templates, and files ..."
 docker exec "${app_container}" python -c \
   'import urllib.request; assert urllib.request.urlopen("http://127.0.0.1:8040/api/documents?limit=1", timeout=5).status == 200'
 document_id="$(docker exec -e PGPASSWORD="${db_password}" "${db_container}" \
@@ -254,9 +254,63 @@ if [[ -n "${document_id}" ]]; then
     "import urllib.request; assert urllib.request.urlopen('http://127.0.0.1:8040/api/documents/${document_id}/file', timeout=10).status == 200"
 fi
 
+docker exec "${app_container}" python -c '
+import json
+import os
+import urllib.request
+
+import psycopg
+
+base = "http://127.0.0.1:8040"
+
+def read_json(path):
+    with urllib.request.urlopen(base + path, timeout=10) as response:
+        assert response.status == 200
+        return json.load(response)
+
+notes_by_id = {}
+for path in ("/api/notes", "/api/notes?in_trash=true", "/api/notes/templates"):
+    for item in read_json(path).get("items", []):
+        notes_by_id[item["id"]] = item
+
+block_templates = read_json("/api/notes/block-templates")
+template_items = block_templates.get("items", [])
+assert isinstance(template_items, list)
+
+if notes_by_id:
+    note_id = next(iter(notes_by_id))
+    detail = read_json(f"/api/notes/{note_id}")
+    assert detail["id"] == note_id and isinstance(detail.get("body_json"), dict)
+    revisions = read_json(f"/api/notes/{note_id}/revisions")
+    assert isinstance(revisions.get("items", []), list)
+
+    note_ids = list(notes_by_id)
+    with psycopg.connect(os.environ["DATABASE_URL"]) as connection:
+        image = connection.execute(
+            "SELECT note_id::text, id::text FROM note_image "
+            "WHERE note_id::text = ANY(%s) ORDER BY created_at LIMIT 1",
+            (note_ids,),
+        ).fetchone()
+    if image:
+        with urllib.request.urlopen(
+            f"{base}/api/notes/{image[0]}/images/{image[1]}/file", timeout=10
+        ) as response:
+            assert response.status == 200 and response.read(1)
+
+print(
+    f"verified notes: {len(notes_by_id)}; "
+    f"block templates: {len(template_items)}"
+)
+'
+
+note_count="$(docker exec -e PGPASSWORD="${db_password}" "${db_container}" \
+  psql -At -U restore_user -d papermind_restore -c 'SELECT count(*) FROM note')"
+[[ "${note_count}" =~ ^[0-9]+$ ]] || fail "Restored notes table is not readable."
+
 "${compose[@]}" exec -T \
   -e PM_RESTORE_ARCHIVE="${archive_name}" \
   -e PM_RESTORE_DOCUMENTS="${document_count}" \
+  -e PM_RESTORE_NOTES="${note_count}" \
   backend python -c '
 import os
 from datetime import datetime, timezone
@@ -265,8 +319,9 @@ write_restore_drill_status({
     "status": "success",
     "archive": os.environ["PM_RESTORE_ARCHIVE"],
     "documents": int(os.environ["PM_RESTORE_DOCUMENTS"]),
+    "notes": int(os.environ["PM_RESTORE_NOTES"]),
     "verified_at": datetime.now(timezone.utc).isoformat(),
 })
 '
 
-echo "PASS: restore drill succeeded for ${archive_name} (revision ${revision}, documents ${document_count})."
+echo "PASS: restore drill succeeded for ${archive_name} (revision ${revision}, documents ${document_count}, notes ${note_count})."

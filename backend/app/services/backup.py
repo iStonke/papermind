@@ -1,8 +1,9 @@
 """Backup auf ein SMB-Netzlaufwerk (NAS).
 
-Sichert die Datenbank (pg_dump) und den PDF-Speicher als Archiv in einen
-zeitgestempelten Ordner auf einer SMB-Freigabe, hält die letzten N Backups vor
-und protokolliert jeden Lauf in ``backup_runs``.
+Sichert die Datenbank (pg_dump) und den gemeinsamen Datei-Speicher für
+Dokumente und Notizbilder als Archiv in einen zeitgestempelten Ordner auf einer
+SMB-Freigabe, hält die letzten N Backups vor und protokolliert jeden Lauf in
+``backup_runs``.
 
 Die reine Zeitplan-/Aufbewahrungslogik ist als Modulfunktionen ausgelagert und
 ohne NAS/DB testbar.
@@ -67,6 +68,85 @@ _SNAPSHOT_DIR_NAME = ".papermind-backup-snapshots"
 _RESERVED_STORAGE_NAMES = {
     ".papermind-system",
     _SNAPSHOT_DIR_NAME,
+}
+
+_DATABASE_COUNT_TABLES = (
+    "documents",
+    "document_files",
+    "tags",
+    "document_tags",
+    "correspondents",
+    "correspondent_aliases",
+    "correspondent_matchers",
+    "document_types",
+    "document_retention",
+    "note",
+    "note_revision",
+    "note_tags",
+    "note_link",
+    "note_task",
+    "note_image",
+    "note_block_template",
+    "users",
+)
+
+_DOCUMENT_FINGERPRINT_QUERIES = {
+    "documents": (
+        "SELECT id::text, COALESCE(display_name, ''), COALESCE(document_date::text, ''), "
+        "COALESCE(document_type, ''), COALESCE(correspondent_id::text, ''), COALESCE(notes, ''), "
+        "COALESCE(is_favorite::text, ''), COALESCE(is_deleted::text, '') FROM documents ORDER BY id"
+    ),
+    "tags": "SELECT id::text, owner_id::text, name FROM tags ORDER BY id",
+    "document_tags": (
+        "SELECT document_id::text, tag_id::text FROM document_tags ORDER BY document_id, tag_id"
+    ),
+    "correspondents": (
+        "SELECT id::text, owner_id::text, name, COALESCE(short_name, ''), COALESCE(notes, ''), "
+        "COALESCE(kind, ''), COALESCE(parent_id::text, '') FROM correspondents ORDER BY id"
+    ),
+    "correspondent_aliases": (
+        "SELECT id::text, correspondent_id::text, alias FROM correspondent_aliases ORDER BY id"
+    ),
+    "correspondent_matchers": (
+        "SELECT id::text, correspondent_id::text, kind, pattern, scope, priority::text "
+        "FROM correspondent_matchers ORDER BY id"
+    ),
+    "document_retention": (
+        "SELECT document_id::text, status, COALESCE(period_years::text, ''), "
+        "COALESCE(retain_until::text, ''), paper_original, COALESCE(reason, '') "
+        "FROM document_retention ORDER BY document_id"
+    ),
+}
+
+_NOTE_FINGERPRINT_QUERIES = {
+    "note": (
+        "SELECT id::text, owner_id::text, title, body_json::text, body_text, revision::text, "
+        "is_template::text, is_deleted::text, COALESCE(deleted_at::text, ''), created_at::text, "
+        "updated_at::text FROM note ORDER BY id"
+    ),
+    "note_revision": (
+        "SELECT id::text, note_id::text, owner_id::text, note_revision::text, reason, title, "
+        "body_json::text, body_text, created_at::text, updated_at::text FROM note_revision ORDER BY id"
+    ),
+    "note_tags": (
+        "SELECT note_id::text, tag_id::text, created_at::text FROM note_tags ORDER BY note_id, tag_id"
+    ),
+    "note_link": (
+        "SELECT id::text, note_id::text, target_type, target_id::text, created_at::text "
+        "FROM note_link ORDER BY id"
+    ),
+    "note_task": (
+        "SELECT id::text, note_id::text, text, done::text, COALESCE(due_date::text, ''), "
+        "position::text, created_at::text FROM note_task ORDER BY id"
+    ),
+    "note_image": (
+        "SELECT id::text, note_id::text, owner_id::text, filename, content_type, file_key, "
+        "size_bytes::text, width::text, height::text, created_at::text FROM note_image ORDER BY id"
+    ),
+    "note_block_template": (
+        "SELECT id::text, owner_id::text, name, title, color, fields::text, created_at::text, "
+        "updated_at::text FROM note_block_template ORDER BY id"
+    ),
 }
 
 
@@ -812,60 +892,9 @@ class BackupService:
         return [str(row[0]) for row in connection.execute(query).fetchall()]
 
     @staticmethod
-    def _snapshot_database_metadata(connection) -> dict:
-        counts: dict[str, int] = {}
-        for table_name in (
-            "documents",
-            "document_files",
-            "tags",
-            "document_tags",
-            "correspondents",
-            "correspondent_aliases",
-            "correspondent_matchers",
-            "document_types",
-            "document_retention",
-            "note",
-            "note_revision",
-            "note_image",
-            "users",
-        ):
-            exists = connection.execute("SELECT to_regclass(%s)", (f"public.{table_name}",)).fetchone()[0]
-            if exists:
-                counts[table_name] = int(
-                    connection.execute(sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(table_name))).fetchone()[0]
-                )
-
-        revision_row = connection.execute(
-            "SELECT version_num FROM alembic_version ORDER BY version_num DESC LIMIT 1"
-        ).fetchone()
-        storage_keys = BackupService._snapshot_storage_keys(connection)
+    def _fingerprint_tables(connection, counts: dict[str, int], queries: dict[str, str]) -> str:
         fingerprint = hashlib.sha256()
-        fingerprint_queries = {
-            "documents": (
-                "SELECT id::text, COALESCE(display_name, ''), COALESCE(document_date::text, ''), "
-                "COALESCE(document_type, ''), COALESCE(correspondent_id::text, ''), COALESCE(notes, ''), "
-                "COALESCE(is_favorite::text, ''), COALESCE(is_deleted::text, '') FROM documents ORDER BY id"
-            ),
-            "tags": "SELECT id::text, owner_id::text, name FROM tags ORDER BY id",
-            "document_tags": "SELECT document_id::text, tag_id::text FROM document_tags ORDER BY document_id, tag_id",
-            "correspondents": (
-                "SELECT id::text, owner_id::text, name, COALESCE(short_name, ''), COALESCE(notes, ''), "
-                "COALESCE(kind, ''), COALESCE(parent_id::text, '') FROM correspondents ORDER BY id"
-            ),
-            "correspondent_aliases": (
-                "SELECT id::text, correspondent_id::text, alias FROM correspondent_aliases ORDER BY id"
-            ),
-            "correspondent_matchers": (
-                "SELECT id::text, correspondent_id::text, kind, pattern, scope, priority::text "
-                "FROM correspondent_matchers ORDER BY id"
-            ),
-            "document_retention": (
-                "SELECT document_id::text, status, COALESCE(period_years::text, ''), "
-                "COALESCE(retain_until::text, ''), paper_original, COALESCE(reason, '') "
-                "FROM document_retention ORDER BY document_id"
-            ),
-        }
-        for table_name, query in fingerprint_queries.items():
+        for table_name, query in queries.items():
             if table_name not in counts:
                 continue
             fingerprint.update(table_name.encode("utf-8"))
@@ -876,15 +905,63 @@ class BackupService:
                     break
                 for row in rows:
                     fingerprint.update(canonical_json_bytes({"row": list(row)}))
+        return fingerprint.hexdigest()
 
+    @staticmethod
+    def _snapshot_database_metadata(connection) -> dict:
+        counts: dict[str, int] = {}
+        for table_name in _DATABASE_COUNT_TABLES:
+            exists = connection.execute(
+                "SELECT to_regclass(%s)", (f"public.{table_name}",)
+            ).fetchone()[0]
+            if exists:
+                counts[table_name] = int(
+                    connection.execute(
+                        sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(table_name))
+                    ).fetchone()[0]
+                )
+
+        revision_row = connection.execute(
+            "SELECT version_num FROM alembic_version ORDER BY version_num DESC LIMIT 1"
+        ).fetchone()
+        storage_keys = BackupService._snapshot_storage_keys(connection)
         keys_digest = hashlib.sha256("\n".join(storage_keys).encode("utf-8")).hexdigest()
         return {
             "alembic_revision": revision_row[0] if revision_row else None,
             "counts": counts,
-            "document_metadata_sha256": fingerprint.hexdigest(),
+            "document_metadata_sha256": BackupService._fingerprint_tables(
+                connection, counts, _DOCUMENT_FINGERPRINT_QUERIES
+            ),
+            "note_metadata_sha256": BackupService._fingerprint_tables(
+                connection, counts, _NOTE_FINGERPRINT_QUERIES
+            ),
             "storage_keys_sha256": keys_digest,
             "storage_keys": storage_keys,
         }
+
+    @staticmethod
+    def _verify_database_metadata(actual: dict, expected: dict) -> None:
+        """Verify every field known by the manifest while accepting older v2 manifests."""
+        actual_counts = actual.get("counts") or {}
+        expected_counts = expected.get("counts") or {}
+        mismatched_counts = {
+            table_name: {"expected": expected_count, "actual": actual_counts.get(table_name)}
+            for table_name, expected_count in expected_counts.items()
+            if actual_counts.get(table_name) != expected_count
+        }
+        if mismatched_counts:
+            raise RuntimeError(
+                f"Tabellenzähler stimmen nicht mit dem Backupmanifest überein: {mismatched_counts}"
+            )
+
+        for field, message in (
+            ("document_metadata_sha256", "Dokumentmetadaten stimmen nicht mit dem Backupmanifest überein."),
+            ("note_metadata_sha256", "Notizmetadaten stimmen nicht mit dem Backupmanifest überein."),
+            ("storage_keys_sha256", "Dateireferenzen stimmen nicht mit dem Backupmanifest überein."),
+        ):
+            expected_value = expected.get(field)
+            if expected_value and actual.get(field) != expected_value:
+                raise RuntimeError(message)
 
     @staticmethod
     def _verify_snapshot_storage(snapshot_root: Path, storage_keys: list[str]) -> None:
@@ -896,7 +973,7 @@ class BackupService:
                 if len(missing) >= 10:
                     break
         if missing:
-            raise RuntimeError(f"Snapshot enthält nicht alle referenzierten Dokumentdateien: {missing}")
+            raise RuntimeError(f"Snapshot enthält nicht alle referenzierten Dateien: {missing}")
 
     def _build_artifacts(self, tmp_dir: Path, stamp: str) -> tuple[list[Path], dict]:
         storage_root = Path(settings.storage_path)
@@ -965,6 +1042,7 @@ class BackupService:
                 "alembic_revision": metadata.get("alembic_revision"),
                 "counts": metadata.get("counts", {}),
                 "document_metadata_sha256": metadata.get("document_metadata_sha256"),
+                "note_metadata_sha256": metadata.get("note_metadata_sha256"),
                 "storage_keys_sha256": metadata.get("storage_keys_sha256"),
                 "storage_key_count": len(metadata.get("storage_keys", [])),
             },
@@ -1433,12 +1511,7 @@ class BackupService:
                     actual = self._snapshot_database_metadata(connection)
                     self._verify_snapshot_storage(extracted, actual["storage_keys"])
                     expected = manifest.get("database") or {}
-                    if actual["counts"] != expected.get("counts", {}):
-                        raise RuntimeError("Tabellenzähler stimmen nicht mit dem Backupmanifest überein.")
-                    if actual["document_metadata_sha256"] != expected.get("document_metadata_sha256"):
-                        raise RuntimeError("Dokumentmetadaten stimmen nicht mit dem Backupmanifest überein.")
-                    if actual["storage_keys_sha256"] != expected.get("storage_keys_sha256"):
-                        raise RuntimeError("Dateireferenzen stimmen nicht mit dem Backupmanifest überein.")
+                    self._verify_database_metadata(actual, expected)
                 else:
                     self._verify_snapshot_storage(extracted, self._snapshot_storage_keys(connection))
         finally:
@@ -1450,8 +1523,8 @@ class BackupService:
         with psycopg.connect(self._database_url()) as connection:
             actual = self._snapshot_database_metadata(connection)
         expected = manifest.get("database") or {}
-        if actual["document_metadata_sha256"] != expected.get("document_metadata_sha256"):
-            raise RuntimeError("Produktive Metadatenprüfung nach Restore fehlgeschlagen.")
+        self._verify_database_metadata(actual, expected)
+        self._verify_snapshot_storage(Path(settings.storage_path), actual["storage_keys"])
 
     @classmethod
     def _finalize_restored_runtime_state(cls) -> None:
