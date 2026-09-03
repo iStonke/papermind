@@ -47,7 +47,7 @@ test('tables are available in the editor toolbar, slash menu, and read-only prev
   assert.match(editorSource, /import \{ TableKit \} from '@tiptap\/extension-table'/);
   assert.match(editorSource, /TableKit\.configure\(\{[\s\S]*?resizable:\s*true/);
   assert.match(previewSource, /TableKit\.configure\(\{ table: \{ resizable: false, renderWrapper: true \} \}\)/);
-  assert.match(editorSource, /aria-label="Tabelle einfügen oder bearbeiten"/);
+  assert.match(editorSource, /const insertItems = \[[\s\S]*?key: 'table'[\s\S]*?label: 'Tabelle'[\s\S]*?action: 'table'/);
   assert.match(editorSource, /key: 'table'[\s\S]*?label: 'Tabelle'[\s\S]*?kind: 'table-menu'/);
   assert.match(editorSource, /insertTable\(\{[\s\S]*?withHeaderRow: tableMenu\.withHeaderRow/);
   assert.match(editorSource, /withHeaderColumn:[\s\S]*?false/);

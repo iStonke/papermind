@@ -76,62 +76,56 @@ test('note search matches case-insensitively and wraps result navigation', () =>
   assert.equal(nextWrappedIndex(0, 0, 1), -1);
 });
 
-test('workspace exposes outline, in-note search, keyboard access, and highlighted results', () => {
-  assert.doesNotMatch(workspaceSource, /aria-label="Gliederung öffnen"/);
-  assert.equal((workspaceSource.match(/class="note-workspace-editor__navigation-toggle"/g) || []).length, 1);
-  assert.match(workspaceSource, /aria-label="Gliederung und Suche öffnen"/);
-  assert.match(workspaceSource, /@click="toggleNoteNavigation"/);
-  assert.match(workspaceSource, /NOTE_NAVIGATION_MODE_STORAGE_KEY = 'pm-note-navigation-mode-v1'/);
-  assert.match(workspaceSource, /localStorage\.setItem\(NOTE_NAVIGATION_MODE_STORAGE_KEY, mode\)/);
-  assert.match(workspaceSource, /NOTE_NAVIGATION_OPEN_STORAGE_KEY = 'pm-note-navigation-open-v1'/);
-  assert.match(workspaceSource, /navigationOpen = ref\(loadNoteNavigationOpen\(\)\)/);
-  assert.match(workspaceSource, /localStorage\.getItem\(NOTE_NAVIGATION_OPEN_STORAGE_KEY\) === 'true'/);
-  assert.match(workspaceSource, /localStorage\.setItem\(NOTE_NAVIGATION_OPEN_STORAGE_KEY, String\(Boolean\(open\)\)\)/);
-  assert.match(workspaceSource, /navigationOpen\.value = true;[\s\S]*?persistNoteNavigationOpen\(true\)/);
-  assert.match(workspaceSource, /navigationOpen\.value = false;[\s\S]*?persistNoteNavigationOpen\(false\)/);
-  assert.match(workspaceSource, /event\.metaKey && !event\.ctrlKey/);
-  assert.match(workspaceSource, /@keydown\.enter\.prevent="moveNoteSearch/);
+test('workspace exposes an inline find-and-replace bar with highlighted results', () => {
+  // Die rechte Navigator-Seitenleiste (Gliederung + Suche) ist entfallen.
+  assert.doesNotMatch(workspaceSource, /note-workspace-editor__navigator\b/);
+  assert.doesNotMatch(workspaceSource, /note-navigator/);
+  // Schwebende Suchen-&-Ersetzen-Leiste ersetzt sie:
+  assert.match(workspaceSource, /class="note-workspace-editor__find"/);
+  assert.match(workspaceSource, /v-if="findBarOpen"/);
+  assert.match(workspaceSource, /v-model="noteSearchQuery"/);
+  assert.match(workspaceSource, /@keydown\.enter\.prevent="moveNoteSearch\(\$event\.shiftKey \? -1 : 1\)"/);
   assert.match(workspaceSource, /Shift\+Enter/);
-  assert.match(workspaceSource, /jumpToOutlineItem\(item\)/);
+  // Ersetzen:
+  assert.match(workspaceSource, /v-model="replaceValue"/);
+  assert.match(workspaceSource, /placeholder="Ersetzen durch"/);
+  assert.match(workspaceSource, /@click="doReplaceActive"/);
+  assert.match(workspaceSource, /@click="doReplaceAll"/);
+  // Toggle-Button + Tastatur (Cmd/Ctrl+F):
+  assert.match(workspaceSource, /aria-label="Suchen und ersetzen"/);
+  assert.match(workspaceSource, /@click="toggleFindBar"/);
+  assert.match(workspaceSource, /event\.metaKey && !event\.ctrlKey/);
+  assert.match(workspaceSource, /openFindBar\(\)/);
+  // Editor-Engine: Suche, Ersetzen, Treffer-Hervorhebung.
   assert.match(editorSource, /NoteSearch,/);
   assert.match(editorSource, /pm-note-search-match--active/);
-  assert.match(editorSource, /scrollToDocumentPosition/);
+  assert.match(editorSource, /replaceActiveNoteSearch/);
+  assert.match(editorSource, /replaceAllNoteSearch/);
 });
 
-test('dark mode keeps the navigator divider without a bright edge shadow', () => {
+test('find-and-replace bar enters and leaves with subtle reduced-motion-safe animation', () => {
   assert.match(
     workspaceSource,
-    /:global\(\.v-theme--dark\s+\.note-workspace-editor__navigator\)\s*{\s*box-shadow:\s*none;/,
-  );
-});
-
-test('the right note navigator animates its width and slide transition', () => {
-  assert.match(
-    workspaceSource,
-    /<Transition name="note-navigator">[\s\S]*?<aside[\s\S]*?v-if="navigationOpen"[\s\S]*?note-workspace-editor__navigator-content[\s\S]*?<\/aside>[\s\S]*?<\/Transition>/,
+    /<Transition name="note-find">[\s\S]*?v-if="findBarOpen"[\s\S]*?<\/Transition>/,
   );
   assert.match(
     workspaceSource,
-    /\.note-navigator-enter-active,[\s\S]*?\.note-navigator-leave-active\s*{[\s\S]*?width 260ms[\s\S]*?min-width 260ms[\s\S]*?opacity 180ms[\s\S]*?transform 260ms/,
+    /\.note-find-enter-active\s*{[\s\S]*?opacity 160ms[\s\S]*?transform 180ms/,
   );
   assert.match(
     workspaceSource,
-    /\.note-navigator-enter-from,[\s\S]*?\.note-navigator-leave-to\s*{[\s\S]*?width:\s*0;[\s\S]*?min-width:\s*0;[\s\S]*?opacity:\s*0;[\s\S]*?translateX\(18px\)/,
+    /\.note-find-leave-active\s*{[\s\S]*?opacity 120ms[\s\S]*?transform 140ms/,
   );
   assert.match(
     workspaceSource,
-    /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.note-navigator-enter-active,[\s\S]*?\.note-navigator-leave-active\s*{\s*transition:\s*none;/,
+    /\.note-find-enter-from,[\s\S]*?\.note-find-leave-to\s*{[\s\S]*?opacity:\s*0;[\s\S]*?translateY\(-5px\) scale\(0\.985\)/,
   );
   assert.match(
     workspaceSource,
-    /:global\(\.pm-no-animations\s+\.note-navigator-enter-active\),[\s\S]*?:global\(\.pm-no-animations\s+\.note-navigator-leave-active\)\s*{\s*transition:\s*none;/,
+    /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.note-find-enter-active,[\s\S]*?\.note-find-leave-active\s*{\s*transition:\s*none;/,
   );
   assert.match(
     workspaceSource,
-    /\.note-workspace-editor__navigator\s*{[\s\S]*?--pm-note-navigator-width:\s*clamp\(270px, 27vw, 320px\);[\s\S]*?width:\s*var\(--pm-note-navigator-width\);[\s\S]*?overflow:\s*hidden;/,
-  );
-  assert.match(
-    workspaceSource,
-    /\.note-workspace-editor__navigator-content\s*{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0 0 0 auto;[\s\S]*?width:\s*var\(--pm-note-navigator-width\);[\s\S]*?min-width:\s*var\(--pm-note-navigator-width\);/,
+    /:global\(\.pm-no-animations \.note-find-enter-active\),[\s\S]*?:global\(\.pm-no-animations \.note-find-leave-active\)\s*{\s*transition:\s*none;/,
   );
 });

@@ -272,69 +272,6 @@ test('note navigation panel stays flat in light and dark mode', () => {
   );
 });
 
-test('outline labels leave clear space before note headings', () => {
-  const outlineItemStyle = workspaceEditorSource.match(
-    /\.note-workspace-editor__outline-item\s*\{([\s\S]*?)\n\}/,
-  )?.[1] || '';
-  assert.match(outlineItemStyle, /grid-template-columns:\s*32px minmax\(0, 1fr\)/);
-  assert.match(outlineItemStyle, /gap:\s*8px/);
-});
-
-test('outline title row is vertically centered without button decoration', () => {
-  const titleRowStyle = workspaceEditorSource.match(
-    /\.note-workspace-editor__outline-item\.is-title\s*\{([\s\S]*?)\n\}/,
-  )?.[1] || '';
-  assert.match(titleRowStyle, /min-height:\s*46px/);
-  assert.match(titleRowStyle, /align-items:\s*center/);
-  assert.match(titleRowStyle, /padding-top:\s*10px/);
-  assert.match(titleRowStyle, /padding-bottom:\s*10px/);
-  assert.match(titleRowStyle, /border-radius:\s*0/);
-  assert.match(titleRowStyle, /box-shadow:\s*none/);
-  assert.doesNotMatch(titleRowStyle, /border-bottom/);
-  assert.match(
-    workspaceEditorSource,
-    /\.note-workspace-editor__outline-item\.is-title\.is-active\s*\{[\s\S]*?background:\s*transparent/,
-  );
-});
-
-test('empty outline uses a centered plain icon without animation or halo', () => {
-  assert.match(
-    workspaceEditorSource,
-    /class="note-workspace-editor__navigator-empty-icon"[\s\S]*?mdi-format-header-pound/,
-  );
-  assert.doesNotMatch(workspaceEditorSource, /import PmEmptyState/);
-  const outlineStyle = workspaceEditorSource.match(
-    /\.note-workspace-editor__outline\s*\{([\s\S]*?)\n\}/,
-  )?.[1] || '';
-  assert.match(outlineStyle, /display:\s*flex/);
-  assert.match(outlineStyle, /flex-direction:\s*column/);
-  const emptyStyle = workspaceEditorSource.match(
-    /\.note-workspace-editor__navigator-empty\s*\{([\s\S]*?)\n\}/,
-  )?.[1] || '';
-  assert.match(emptyStyle, /flex:\s*1 1 auto/);
-  assert.match(emptyStyle, /align-items:\s*center/);
-  assert.match(emptyStyle, /justify-content:\s*center/);
-  assert.match(emptyStyle, /gap:\s*2px/);
-  assert.doesNotMatch(emptyStyle, /animation|border-radius|box-shadow/);
-});
-
-test('empty note search mirrors the centered plain outline placeholder', () => {
-  assert.match(
-    workspaceEditorSource,
-    /v-else-if="!hasNoteSearchQuery"[\s\S]*?note-workspace-editor__note-search-empty[\s\S]*?mdi-magnify[\s\S]*?Notiz durchsuchen[\s\S]*?Gib oben einen Suchbegriff ein/,
-  );
-  assert.match(
-    workspaceEditorSource,
-    /note-workspace-editor__note-search-empty[\s\S]*?role="status"[\s\S]*?mdi-text-search[\s\S]*?Keine Treffer[\s\S]*?Probiere einen anderen Suchbegriff/,
-  );
-  assert.match(workspaceEditorSource, /const hasNoteSearchQuery = computed\(\(\) => Boolean\(noteSearchQuery\.value\.trim\(\)\)\)/);
-  const searchStyle = workspaceEditorSource.match(
-    /\.note-workspace-editor__note-search\s*\{([\s\S]*?)\n\}/,
-  )?.[1] || '';
-  assert.match(searchStyle, /display:\s*flex/);
-  assert.match(searchStyle, /flex-direction:\s*column/);
-});
-
 test('removing a note reuses the document collapse timing before updating the list', () => {
   assert.match(workspaceSource, /NOTE_REMOVAL_DURATION_MS\s*=\s*210/);
   assert.match(workspaceSource, /notesStore\.trash\(note\.id\)[\s\S]*animateNoteRemoval\(note\.id\)[\s\S]*notesStore\.removeFromList\(note\.id\)/);
@@ -663,40 +600,42 @@ test('first heading starts at the same content inset as body text', () => {
   );
 });
 
-test('workspace formatting controls render as an inset sticky palette', () => {
+test('workspace formatting controls render as a flat inset sticky palette', () => {
   const toolbarStyle = noteEditorSource.match(/\.note-editor__toolbar\s*\{([\s\S]*?)\n\}/)?.[1] || '';
+  // Der Guard liefert die deckende, sticky Fläche hinter der Leiste.
   assert.match(noteEditorSource, /class="note-editor__toolbar-guard"[\s\S]*?class="note-editor__toolbar"/);
   assert.match(noteEditorSource, /\.note-editor__toolbar-guard\s*\{[\s\S]*?position:\s*sticky;[\s\S]*?top:\s*0;[\s\S]*?width:\s*100%;[\s\S]*?background:\s*var\(--pm-content-surface, #fff\)/);
   assert.match(noteEditorSource, /\.note-editor__toolbar-guard::after\s*\{[\s\S]*?top:\s*100%;[\s\S]*?height:\s*20px;[\s\S]*?pointer-events:\s*none;[\s\S]*?linear-gradient/);
-  assert.match(noteEditorSource, /\.note-editor__toolbar\s*\{[\s\S]*?position:\s*relative/);
-  assert.match(noteEditorSource, /width:\s*max-content/);
-  assert.match(noteEditorSource, /align-self:\s*flex-start/);
-  assert.match(noteEditorSource, /margin:\s*8px 0 0 8px/);
-  assert.match(noteEditorSource, /padding:\s*5px 7px 5px 0/);
-  assert.match(noteEditorSource, /border-radius:\s*12px/);
-  assert.match(noteEditorSource, /box-shadow:\s*0 8px 24px/);
+  // Die Leiste selbst: volle Breite, linksbündig, flach (kein eigener Hintergrund).
+  assert.match(toolbarStyle, /position:\s*relative/);
+  assert.match(toolbarStyle, /width:\s*calc\(100% - 16px\)/);
+  assert.match(toolbarStyle, /align-self:\s*flex-start/);
+  assert.match(toolbarStyle, /margin:\s*8px 0 0 8px/);
+  assert.match(toolbarStyle, /padding:\s*5px 7px 5px 0/);
+  assert.match(toolbarStyle, /border-radius:\s*12px/);
+  assert.match(toolbarStyle, /background:\s*transparent/);
+  assert.match(toolbarStyle, /box-shadow:\s*none/);
   assert.doesNotMatch(toolbarStyle, /border-(top|bottom):/);
 });
 
-test('workspace editor centers its writing column in fullscreen mode', () => {
+test('workspace editor uses the full width with equal small gutters in fullscreen mode', () => {
   assert.match(workspaceEditorSource, /class="note-workspace-editor__body"/);
-  assert.match(workspaceEditorSource, /'is-centered': !listVisible/);
-  assert.match(workspaceEditorSource, /\.note-workspace-editor__body\.is-centered\s+:deep\(\.pm-content\)[\s\S]*?width:\s*100%[\s\S]*?margin-inline:\s*auto/);
+  assert.match(workspaceEditorSource, /'is-fullscreen': !listVisible/);
+  assert.doesNotMatch(workspaceEditorSource, /'is-centered': !listVisible/);
+  assert.match(noteEditorSource, /\.note-editor--workspace\.is-fullscreen \.note-editor__surface\s*{[\s\S]*?padding-inline:\s*28px/);
+  assert.match(noteEditorSource, /\.note-editor--workspace\.is-fullscreen \.note-editor__writing\s*{[\s\S]*?max-width:\s*none;[\s\S]*?margin-inline:\s*0/);
+  assert.match(noteEditorSource, /\.note-editor--workspace\.is-fullscreen\s+:deep\(\.pm-content\)\s*{[\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*none/);
 });
 
-test('formatting palette quiets its chrome without moving or fading its controls', () => {
-  const duckedStyle = noteEditorSource.match(/\.note-editor__toolbar\.is-ducked\s*\{([\s\S]*?)\n\}/)?.[1] || '';
-  assert.match(noteEditorSource, /'is-ducked': toolbarDucked/);
-  assert.match(noteEditorSource, /addEventListener\('scroll', onEditorScroll, \{ passive: true \}\)/);
-  assert.match(noteEditorSource, /TOOLBAR_DUCK_SCROLL_THRESHOLD\s*=\s*24/);
-  assert.match(noteEditorSource, /TOOLBAR_REVEAL_DELAY_MS\s*=\s*400/);
-  assert.match(noteEditorSource, /Math\.abs\(scrollTop - toolbarScrollAnchor\)/);
-  assert.match(duckedStyle, /background:\s*var\(--pm-app-surface-raised, #fff\)/);
-  assert.match(duckedStyle, /border-color:\s*color-mix\([^\n]*18%/);
-  assert.match(duckedStyle, /box-shadow:\s*0 1px 4px/);
-  assert.doesNotMatch(duckedStyle, /opacity|transform/);
-  assert.match(noteEditorSource, /is-ducked:hover[\s\S]*?is-ducked:focus-within/);
-  assert.match(noteEditorSource, /prefers-reduced-motion:\s*reduce[\s\S]*?\.note-editor__toolbar\s*\{[\s\S]*?transition:\s*none/);
+test('formatting palette stays flat with no background or scroll-duck', () => {
+  const toolbarStyle = noteEditorSource.match(/\.note-editor__toolbar\s*\{([\s\S]*?)\n\}/)?.[1] || '';
+  // Immer flach: kein Hintergrund, kein Schatten – auch nicht bei offenem Menü.
+  assert.match(toolbarStyle, /background:\s*transparent/);
+  assert.match(toolbarStyle, /box-shadow:\s*none/);
+  // Die frühere Scroll-Duck-Mechanik ist vollständig entfernt.
+  assert.doesNotMatch(noteEditorSource, /is-ducked/);
+  assert.doesNotMatch(noteEditorSource, /toolbarDucked/);
+  assert.doesNotMatch(noteEditorSource, /TOOLBAR_DUCK_SCROLL_THRESHOLD/);
 });
 
 test('selection formatting stays above the notes list instead of being clipped by the editor scroller', () => {

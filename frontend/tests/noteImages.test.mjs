@@ -42,7 +42,7 @@ test('note editor supports validated image upload through all intended entry poi
   assert.match(editorSource, /import FileHandler from '@tiptap\/extension-file-handler'/);
   assert.match(editorSource, /NoteImage,/);
   assert.match(editorSource, /FileHandler\.configure\(\{[\s\S]*?onPaste:[\s\S]*?onDrop:/);
-  assert.match(editorSource, /aria-label="Bild einfügen"/);
+  assert.match(editorSource, /const insertItems = \[[\s\S]*?key: 'image'[\s\S]*?label: 'Bild einfügen'[\s\S]*?action: 'image'/);
   assert.match(editorSource, /key: 'image'[\s\S]*?kind: 'image-upload'/);
   assert.match(editorSource, /accept="image\/jpeg,image\/png,image\/webp"/);
   assert.match(apiSource, /export const uploadNoteImage/);

@@ -30,11 +30,15 @@
       @keydown.enter.prevent="focusBody"
     />
 
-    <div v-if="workspace" class="note-editor__toolbar-guard">
+    <div
+      v-if="workspace"
+      class="note-editor__toolbar-guard"
+      :class="{ 'is-scrolled': toolbarScrolled }"
+    >
       <div
         ref="toolbarEl"
         class="note-editor__toolbar"
-        :class="{ 'is-active': openMenu, 'is-compact': toolbarCompact }"
+        :class="{ 'is-compact': toolbarCompact }"
         role="toolbar"
         aria-label="Text formatieren"
         :aria-disabled="readonly ? 'true' : undefined"
@@ -151,17 +155,17 @@
           @mousedown.prevent
           @click.prevent="toggleMenu('insert')"
         >
-          <v-icon size="18">mdi-plus</v-icon>
+          <v-icon size="18">mdi-text-box-plus-outline</v-icon>
           <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
         </button>
-        <div v-if="openMenu === 'insert'" class="note-editor__toolbar-dropdown note-editor__toolbar-dropdown--end">
+        <div v-if="openMenu === 'insert'" class="note-editor__toolbar-dropdown note-editor__insert-menu">
           <button
             v-for="item in overflowItems"
             :key="item.key"
             type="button"
             class="note-editor__toolbar-dropitem"
             :class="{ 'is-active': item.name ? toolbarActive(item.name) : false }"
-            :disabled="item.key === 'image' && imageUploadCount > 0"
+            :disabled="insertItemDisabled(item)"
             @mousedown.prevent
             @click.prevent="runMenuItem(item)"
           >
@@ -171,6 +175,59 @@
             </span>
             <span>{{ item.label }}</span>
           </button>
+        </div>
+      </div>
+
+      <div class="note-editor__toolbar-menu">
+        <button
+          type="button"
+          class="note-editor__toolbar-btn note-editor__toolbar-btn--group"
+          :class="{
+            'is-open': openMenu === 'blocks',
+            'is-active': toolbarActive('callout') || toolbarActive('templateBox'),
+          }"
+          :aria-expanded="openMenu === 'blocks' ? 'true' : 'false'"
+          title="Blöcke"
+          aria-label="Blöcke"
+          @mousedown.prevent
+          @click.prevent="toggleMenu('blocks')"
+        >
+          <v-icon size="18">mdi-text-box-outline</v-icon>
+          <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
+        </button>
+        <div v-if="openMenu === 'blocks'" class="note-editor__toolbar-dropdown note-editor__blocks-menu">
+          <div class="note-editor__blocks-menu-heading">Hinweisblöcke</div>
+          <button
+            v-for="option in toolbarCalloutOptions"
+            :key="option.value"
+            type="button"
+            class="note-editor__toolbar-dropitem"
+            :class="{ 'is-active': toolbarActive('callout', { kind: option.value }) }"
+            @mousedown.prevent
+            @click.prevent="runCalloutKind(option.value)"
+          >
+            <span class="note-editor__toolbar-dropitem-glyph">
+              <span class="note-editor__callout-glyph">{{ option.glyph }}</span>
+            </span>
+            <span>{{ option.label }}</span>
+          </button>
+          <template v-if="quickBlockItems.length">
+            <div class="note-editor__blocks-menu-divider" aria-hidden="true"></div>
+            <div class="note-editor__blocks-menu-heading">Schnellblöcke</div>
+            <button
+              v-for="item in quickBlockItems"
+              :key="item.key"
+              type="button"
+              class="note-editor__toolbar-dropitem"
+              @mousedown.prevent
+              @click.prevent="runQuickBlock(item)"
+            >
+              <span class="note-editor__toolbar-dropitem-glyph">
+                <span class="note-editor__quick-block-glyph">{{ item.glyph }}</span>
+              </span>
+              <span>{{ item.label }}</span>
+            </button>
+          </template>
         </div>
       </div>
 
@@ -537,6 +594,7 @@
 
       <!-- Vollständiger Dialog für explizite KI-Aufrufe am Text. Die dauerhaft
            sichtbare Toolbar-Zeile bleibt davon unabhängig kompakt. -->
+      <Transition name="pm-ai-prompt">
       <form
         v-if="editor && aiPrompt.open && aiPrompt.presentation === 'dialog'"
         class="pm-float pm-ai-prompt pm-ai-prompt--writing"
@@ -628,9 +686,11 @@
         </div>
         <div v-if="aiPrompt.error" class="pm-ai-prompt__error" role="alert">{{ aiPrompt.error }}</div>
       </form>
+      </Transition>
 
       <!-- Aufräumen (sinnwahrend): Vorschau der geglätteten Fließtext-Absätze mit
            Übernehmen/Verwerfen. Strukturierte Blöcke bleiben unangetastet. -->
+      <Transition name="pm-ai-prompt">
       <div
         v-if="editor && cleanup.open"
         class="pm-float pm-ai-prompt pm-cleanup"
@@ -670,6 +730,7 @@
         </div>
         <div v-if="cleanup.error" class="pm-ai-prompt__error" role="alert">{{ cleanup.error }}</div>
       </div>
+      </Transition>
     </div>
 
     <div v-if="!workspace" class="note-editor__status">
@@ -801,6 +862,7 @@ const slashMenuEl = ref(null);
 const bubbleEl = ref(null);
 const words = ref(0);
 const editorEmpty = ref(true);
+const toolbarScrolled = ref(false);
 const emptyHintPositioned = ref(false);
 const emptyHintStyle = ref({ top: '0px', left: '0px' });
 const normalizedWritingWidth = computed(() =>
@@ -1016,16 +1078,18 @@ function dismissHistoryFlash(ed) {
 function bindFormattingToolbarScroll() {
   toolbarScrollContainer = surfaceEl.value?.closest('.note-workspace-editor__scroll') || null;
   toolbarScrollContainer?.addEventListener('scroll', onEditorScroll, { passive: true });
+  onEditorScroll();
 }
 
 function applySpellcheck(enabled) {
   editor.value?.view?.dom?.setAttribute('spellcheck', enabled ? 'true' : 'false');
 }
 
-// Beim Scrollen die offenen Overlays (Slash-/Bubble-Menü) neu positionieren.
-// Die Leiste selbst ist sticky und braucht kein Ducking mehr – ihr Ruhezustand
-// ist ohnehin dauerhaft gedämpft.
+// Beim Scrollen wird der Guard leicht durchscheinend und offene Overlays werden
+// an der neuen Textposition ausgerichtet. Am Seitenanfang bleibt die Fläche
+// deckend, damit der Übergang zur Metazeile ruhig wirkt.
 function onEditorScroll() {
+  toolbarScrolled.value = Boolean(toolbarScrollContainer?.scrollTop > 2);
   if (slash.open) refreshSlash();
   if (bubble.show) refreshBubble();
   if (aiPrompt.open && aiPrompt.presentation === 'dialog') positionAIPrompt();
@@ -1037,6 +1101,7 @@ function restoreWorkspaceScroll(top) {
   if (!scrollElement) return;
   const targetTop = Math.max(0, Number(top) || 0);
   scrollElement.scrollTop = targetTop;
+  toolbarScrolled.value = targetTop > 2;
   if (toolbarScrollRestoreFrame) window.cancelAnimationFrame(toolbarScrollRestoreFrame);
   toolbarScrollRestoreFrame = window.requestAnimationFrame(() => {
     // Chromium kann die Auswahl beim Einblenden eines Overlays erst im
@@ -1219,6 +1284,34 @@ function selectNoteSearchResult(activeIndex) {
   return searchInNote(current.query, activeIndex);
 }
 
+// Ersetzt den aktuell hervorgehobenen Treffer und rückt automatisch auf den
+// nächsten vor (der Index bleibt stehen, der ersetzte Treffer fällt weg).
+function replaceActiveNoteSearch(replaceText) {
+  const ed = editor.value;
+  if (!ed || ed.isDestroyed) return { count: 0, activeIndex: -1 };
+  const { ranges, activeIndex, query } = getNoteSearchState(ed);
+  const range = ranges[activeIndex];
+  if (!range) return { count: ranges.length, activeIndex };
+  ed.view.dispatch(ed.state.tr.insertText(String(replaceText ?? ''), range.from, range.to));
+  return searchInNote(query, activeIndex);
+}
+
+// Ersetzt alle Treffer in EINER Transaktion (ein Undo-Schritt). Von hinten nach
+// vorn, damit die vorderen Positionen gültig bleiben.
+function replaceAllNoteSearch(replaceText) {
+  const ed = editor.value;
+  if (!ed || ed.isDestroyed) return { count: 0, activeIndex: -1 };
+  const { ranges, query } = getNoteSearchState(ed);
+  if (!ranges.length) return { count: 0, activeIndex: -1 };
+  const text = String(replaceText ?? '');
+  const tr = ed.state.tr;
+  for (let i = ranges.length - 1; i >= 0; i -= 1) {
+    tr.insertText(text, ranges[i].from, ranges[i].to);
+  }
+  ed.view.dispatch(tr);
+  return searchInNote(query, 0);
+}
+
 function clearNoteSearch() {
   setNoteSearch(editor.value, '', -1);
   emitNoteSearchState();
@@ -1228,6 +1321,8 @@ defineExpose({
   clearNoteSearch,
   focusTitle,
   focusBody,
+  replaceActiveNoteSearch,
+  replaceAllNoteSearch,
   restoreWorkspaceScroll,
   scrollToDocumentPosition,
   searchInNote,
@@ -1262,17 +1357,18 @@ function runToolbar(action) {
     taskList: () => chain.toggleTaskList(),
     blockquote: () => chain.toggleBlockquote(),
     codeBlock: () => chain.toggleCodeBlock(),
+    horizontalRule: () => chain.setHorizontalRule(),
   };
   commands[action]?.().run();
 }
 
 /* ── Formatierungsleiste: Menü-Gruppen + responsive Verdichtung ──────────────
    Textstil, Layout und Einfügen bleiben als kompakte Icon-Menüs sichtbar. Bei
-   wenig Breite wandern Code/Link zusätzlich ins Einfügen-Menü; B/I/U bleiben
+   wenig Breite wandert Inline-Code zusätzlich ins Einfügen-Menü; B/I/U bleiben
    immer direkt erreichbar. */
 const rootEl = ref(null);
 const toolbarEl = ref(null);
-const openMenu = ref(null); // 'block' | 'layout' | 'highlight' | 'insert' | null
+const openMenu = ref(null); // 'block' | 'layout' | 'highlight' | 'insert' | 'blocks' | null
 const toolbarCompact = ref(false);
 const TOOLBAR_COMPACT_WIDTH = 520;
 
@@ -1289,7 +1385,27 @@ const pageLayoutItems = NOTE_PAGE_LAYOUT_COLUMNS.map((columns) => ({
   label: `${columns} ${columns === 1 ? 'Spalte' : 'Spalten'}`,
 }));
 
+const toolbarCalloutOptions = NOTE_CALLOUT_OPTIONS.filter(
+  (option) => !['deadline', 'source'].includes(option.value),
+);
+
+const quickBlockItems = computed(() => ([
+  ...(props.blockTemplates || []).map((template) => ({
+    key: `saved-${template.id}`,
+    label: template.name || template.title || 'Schnellblock',
+    glyph: '▤',
+    preset: {
+      title: template.title || '',
+      color: template.color || 'teal',
+      fields: Array.isArray(template.fields) ? template.fields : [],
+    },
+  })),
+]));
+
 const insertItems = [
+  { key: 'link', name: 'link', icon: 'mdi-link-variant', label: 'Hyperlink', action: 'link' },
+  { key: 'wikiLink', glyph: '[[', label: 'Verweis', action: 'target' },
+  { key: 'documentChip', icon: 'mdi-file-document-outline', label: 'Beleg verknüpfen', action: 'document' },
   { key: 'bulletList', name: 'bulletList', icon: 'mdi-format-list-bulleted', label: 'Aufzählung' },
   { key: 'orderedList', name: 'orderedList', icon: 'mdi-format-list-numbered', label: 'Nummerierte Liste' },
   { key: 'taskList', name: 'taskList', icon: 'mdi-checkbox-blank-circle-outline', label: 'Aufgaben' },
@@ -1297,13 +1413,13 @@ const insertItems = [
   { key: 'codeBlock', name: 'codeBlock', glyph: '{ }', label: 'Codeblock' },
   { key: 'table', name: 'table', icon: 'mdi-table', label: 'Tabelle', action: 'table' },
   { key: 'image', icon: 'mdi-image-plus-outline', label: 'Bild einfügen', action: 'image', requiresNote: true },
+  { key: 'horizontalRule', glyph: '―', label: 'Trennlinie' },
 ];
 
 const overflowItems = computed(() => {
   const items = [];
   if (toolbarCompact.value) {
     items.push({ key: 'code', name: 'code', glyph: 'A', label: 'Code' });
-    items.push({ key: 'link', name: 'link', icon: 'mdi-link-variant', label: 'Hyperlink', action: 'link' });
   }
   for (const item of insertItems) {
     if (item.requiresNote && !props.noteId) continue;
@@ -1311,6 +1427,13 @@ const overflowItems = computed(() => {
   }
   return items;
 });
+
+function insertItemDisabled(item) {
+  if (item.key === 'image') return imageUploadCount.value > 0;
+  if (item.action === 'document') return !docPickerItems().length;
+  if (item.action === 'target') return !linkTargetItems().length;
+  return false;
+}
 
 function isBlockActive(key) {
   if (key === 'paragraph') return Boolean(toolbarActive('paragraph'));
@@ -1370,7 +1493,25 @@ function runMenuItem(item) {
   if (item.action === 'table') { openTableMenu(); return; }
   if (item.action === 'link') { openLinkEditor(); return; }
   if (item.action === 'image') { openImagePicker(); return; }
+  if (item.action === 'document') { openDocumentChipPicker(); return; }
+  if (item.action === 'target') { openLinkTargetPicker(); return; }
   runToolbar(item.key);
+}
+
+function runCalloutKind(kind) {
+  openMenu.value = null;
+  const ed = editor.value;
+  if (!ed) return;
+  const chain = ed.chain().focus();
+  if (ed.isActive('callout')) chain.setCalloutKind(kind).run();
+  else chain.insertCallout(kind).run();
+}
+
+function runQuickBlock(item) {
+  openMenu.value = null;
+  const ed = editor.value;
+  if (!ed || !item?.preset) return;
+  ed.chain().focus().insertTemplateBox(item.preset).run();
 }
 
 function onToolbarOutsidePointer(event) {
@@ -2169,8 +2310,7 @@ function runSlash(cmd) {
   if (kind === 'generate-ai') { openAIPrompt(); return; }
   if (kind === 'cleanup') { startCleanup(); return; }
   if (kind === 'pick-doc-chip') {
-    openPicker('document', docPickerItems(), (item) =>
-      ed.chain().focus().insertDocumentChip({ docId: item.id, title: item.label }).run());
+    openDocumentChipPicker();
     return;
   }
   if (kind === 'pick-doc-quote') {
@@ -2181,8 +2321,7 @@ function runSlash(cmd) {
     return;
   }
   if (kind === 'pick-target') {
-    openPicker('target', linkTargetItems(), (item) =>
-      ed.chain().focus().insertWikiLink({ targetType: item.type, targetId: item.id, label: item.label }).run());
+    openLinkTargetPicker();
   }
 }
 
@@ -2218,6 +2357,24 @@ function linkTargetItems() {
   if (Array.isArray(props.linkTargets)) return props.linkTargets;
   if (Array.isArray(props.documentItems)) return props.documentItems; // Dokumente als Ziele
   return mockLinkTargets();
+}
+
+function openDocumentChipPicker() {
+  const ed = editor.value;
+  if (!ed) return;
+  openPicker('document', docPickerItems(), (item) =>
+    ed.chain().focus().insertDocumentChip({ docId: item.id, title: item.label }).run());
+}
+
+function openLinkTargetPicker() {
+  const ed = editor.value;
+  if (!ed) return;
+  openPicker('target', linkTargetItems(), (item) =>
+    ed.chain().focus().insertWikiLink({
+      targetType: item.type,
+      targetId: item.id,
+      label: item.label,
+    }).run());
 }
 
 /* ── KI-Schreibassistenz ─────────────────────────────────────────────────── */
@@ -3066,6 +3223,13 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   overflow: visible;
   background: var(--pm-content-surface, #fff);
   isolation: isolate;
+  transition: background-color 180ms ease;
+}
+
+.note-editor__toolbar-guard.is-scrolled {
+  background: color-mix(in srgb, var(--pm-content-surface, #fff) 88%, transparent);
+  -webkit-backdrop-filter: blur(9px) saturate(1.06);
+  backdrop-filter: blur(9px) saturate(1.06);
 }
 
 .note-editor__toolbar-guard::after {
@@ -3082,6 +3246,15 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
     var(--pm-content-surface, #fff) 0%,
     var(--pm-content-surface, #fff) 24%,
     color-mix(in srgb, var(--pm-content-surface, #fff) 72%, transparent) 68%,
+    transparent 100%
+  );
+}
+
+.note-editor__toolbar-guard.is-scrolled::after {
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--pm-content-surface, #fff) 88%, transparent) 0%,
+    color-mix(in srgb, var(--pm-content-surface, #fff) 78%, transparent) 42%,
     transparent 100%
   );
 }
@@ -3107,17 +3280,13 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
      abgeschnitten werden. Horizontales Scrollen ist dank Gruppen-Menüs +
      Compact-Modus nicht mehr nötig. */
   overflow: visible;
-  /* Ruhezustand gedämpft (B+C): flach, ohne Schatten und ohne sichtbaren
-     Rahmen – aber immer sichtbar. Volle Chrome erst bei Hover/Fokus/offenem
-     Menü (siehe .is-active weiter unten). Die Fläche bleibt deckend, damit die
-     sticky-Leiste beim Scrollen keinen Text durchscheinen lässt. */
+  /* Flach, ohne Schatten und ohne sichtbaren Rahmen. Die dezente Transparenz
+     beim Scrollen kommt vom übergeordneten sticky Guard. */
   border: 1px solid transparent;
   border-radius: 12px;
-  /* Deckende Fläche statt backdrop-filter: Ein sticky-Element mit
-     backdrop-filter über dem scrollenden Editor löst in Chromium
-     Schreibmarken-Geister aus (die echte Caret-Fläche wird beim Scrollen
-     nicht invalidiert, es bleiben eingefrorene Caret-Kopien stehen). */
-  background: var(--pm-app-surface-raised, #fff);
+  /* Ohne eigene Fläche: die Leiste übernimmt die ruhige, im gescrollten Zustand
+     leicht transparente Canvas-Fläche des Guards. */
+  background: transparent;
   box-shadow: none;
   scrollbar-color: color-mix(in srgb, var(--pm-muted, #535e62) 35%, transparent) transparent;
   scrollbar-width: thin;
@@ -3127,15 +3296,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
     box-shadow 220ms ease;
 }
 
-/* Volle Chrome (Rahmen + Schatten) nur bei aktiver Nutzung: Tastaturfokus oder
-   offenes Menü (Menü-Trigger nutzen mousedown.prevent, greifen also nicht in
-   :focus-within – daher die .is-active-Klasse bei geöffnetem Dropdown). Kein
-   Hover-Effekt: die Leiste bleibt beim bloßen Überfahren ruhig. */
-.note-editor__toolbar:has(.note-editor__toolbar-btn:focus-visible),
-.note-editor__toolbar.is-active {
-  border-color: color-mix(in srgb, var(--pm-divider, #d8dfe1) 88%, transparent);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
-}
+/* Die Leiste bleibt flach; geöffnete Dropdowns tragen ihre eigene Chrome. */
 
 .note-editor__toolbar-group {
   display: inline-flex;
@@ -3314,7 +3475,12 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   border: 1px solid var(--pm-divider, #d8dfe1);
   box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
 }
-.note-editor__toolbar-dropdown--end { left: auto; right: 0; }
+
+.note-editor__insert-menu {
+  max-height: min(420px, calc(100vh - 160px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 
 .note-editor__toolbar-dropitem {
   display: flex;
@@ -3349,6 +3515,47 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   font-size: 0.72rem;
   letter-spacing: -0.06em;
   font-weight: 680;
+}
+
+.note-editor__blocks-menu {
+  min-width: 210px;
+  max-height: min(460px, calc(100vh - 160px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.note-editor__blocks-menu-heading {
+  padding: 6px 10px 4px;
+  color: var(--pm-muted, #748084);
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.note-editor__blocks-menu-divider {
+  height: 1px;
+  margin: 6px 7px 3px;
+  background: var(--pm-divider, #d8dfe1);
+}
+.note-editor__callout-glyph {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.note-editor__quick-block-glyph {
+  color: var(--pm-accent-strong, #00555f);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .note-editor__layout-menu { min-width: 190px; }
@@ -3399,6 +3606,13 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 .note-editor--workspace .note-editor__surface {
   min-height: 420px;
   padding: 24px clamp(28px, 5vw, 58px) 88px;
+}
+
+/* Im Vollbild nutzt die Schreibfläche den zusätzlichen Platz. Der feste,
+   beidseitig gleiche Gutter hält Text, Listen und breite Blöcke nah an der
+   Editor-Kante, ohne die kompakteren Split-View-Breiten zu verändern. */
+.note-editor--workspace.is-fullscreen .note-editor__surface {
+  padding-inline: 28px;
 }
 
 .note-editor__image-input {
@@ -3465,8 +3679,9 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   max-width: 92ch;
 }
 
-.note-editor--workspace.is-centered .note-editor__writing {
-  margin-inline: auto;
+.note-editor--workspace.is-fullscreen .note-editor__writing {
+  max-width: none;
+  margin-inline: 0;
 }
 
 .note-editor__empty-hint {
@@ -3568,6 +3783,12 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 
 .note-editor--workspace.note-editor--width-wide :deep(.pm-content) {
   max-width: 92ch;
+}
+
+.note-editor--workspace.is-fullscreen :deep(.pm-content) {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
 }
 .note-editor :deep(.pm-content > *) {
   /* Browser-Margen würden zusätzlich zum konfigurierten Abstand wirken und
@@ -4271,6 +4492,29 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 
 /* ── Vollständiger KI-Dialog und Aufräumen-Dialog ───────────────────────── */
+/* Dezentes Ein-/Ausblenden der schwebenden KI-Fenster (Schreiben + Aufräumen). */
+.pm-ai-prompt-enter-active {
+  transition: opacity 160ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.pm-ai-prompt-leave-active {
+  transition: opacity 120ms ease, transform 140ms ease;
+}
+.pm-ai-prompt-enter-from,
+.pm-ai-prompt-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.985);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pm-ai-prompt-enter-active,
+  .pm-ai-prompt-leave-active {
+    transition: none;
+  }
+}
+:global(.pm-no-animations .pm-ai-prompt-enter-active),
+:global(.pm-no-animations .pm-ai-prompt-leave-active) {
+  transition: none;
+}
+
 .pm-ai-prompt {
   width: 390px;
   max-width: calc(100% - 16px);
@@ -4280,7 +4524,6 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 .pm-ai-prompt--writing {
   transform-origin: top left;
-  animation: pm-ai-prompt-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 .pm-ai-prompt.is-generating {
   border-color: color-mix(in srgb, var(--pm-accent, #006b75) 48%, var(--pm-divider, #d8dfe1));
@@ -4292,8 +4535,8 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 1px 2px 8px;
   color: var(--pm-muted, #535e62);
-  font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 0.68rem;
+  font-family: inherit;
+  font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: normal;
   word-spacing: normal;
@@ -4476,16 +4719,6 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   animation: pm-ai-spin 700ms linear infinite;
 }
 @keyframes pm-ai-spin { to { transform: rotate(360deg); } }
-@keyframes pm-ai-prompt-in {
-  from {
-    opacity: 0;
-    transform: translateY(-5px) scale(0.985);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
 @keyframes pm-ai-progress {
   from { transform: translateX(-120%); }
   to { transform: translateX(340%); }
@@ -4527,8 +4760,11 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
     transition: none;
   }
 
+  .note-editor__toolbar-guard {
+    transition: none;
+  }
+
   .note-editor__toolbar-ai-spinner,
-  .pm-ai-prompt--writing,
   .pm-ai-prompt__spinner,
   .note-editor__image-spinner,
   .pm-ai-prompt__progress > span,
@@ -4546,8 +4782,11 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   transition: none;
 }
 
+:global(.pm-no-animations) .note-editor__toolbar-guard {
+  transition: none;
+}
+
 :global(.pm-no-animations) .note-editor__toolbar-ai-spinner,
-:global(.pm-no-animations) .pm-ai-prompt--writing,
 :global(.pm-no-animations) .pm-ai-prompt__spinner,
 :global(.pm-no-animations) .pm-ai-prompt__progress > span {
   animation: none;

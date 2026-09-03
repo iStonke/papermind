@@ -28,13 +28,13 @@
         <v-btn
           class="note-workspace-editor__navigation-toggle"
           :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet']"
-          :variant="navigationOpen ? 'tonal' : 'text'"
+          :variant="findBarOpen ? 'tonal' : 'text'"
           icon
-          aria-label="Gliederung und Suche öffnen"
-          title="Gliederung und Suche (⌘/Strg+F für Suche)"
-          :aria-pressed="navigationOpen"
+          aria-label="Suchen und ersetzen"
+          title="Suchen und ersetzen (⌘/Strg+F)"
+          :aria-pressed="findBarOpen"
           :disabled="!hasLoadedContent"
-          @click="toggleNoteNavigation"
+          @click="toggleFindBar"
         >
           <v-icon size="20">mdi-magnify</v-icon>
         </v-btn>
@@ -240,7 +240,7 @@
         <NoteEditor
           ref="noteEditorRef"
           class="note-workspace-editor__body"
-          :class="{ 'is-centered': !listVisible }"
+          :class="{ 'is-fullscreen': !listVisible }"
           v-model="body"
           workspace
           :note-id="loadedNoteId"
@@ -265,7 +265,6 @@
         <section
           v-if="backlinks.length"
           class="note-workspace-editor__backlinks"
-          :class="{ 'is-centered': !listVisible }"
           aria-label="Rückverweise"
         >
           <div class="note-workspace-editor__backlinks-heading">
@@ -286,160 +285,94 @@
         </section>
       </div>
 
-      <Transition name="note-navigator">
-        <aside
-          v-if="navigationOpen"
-          class="note-workspace-editor__navigator"
-          aria-label="Navigation in dieser Notiz"
+      <!-- Schwebende Suchen-&-Ersetzen-Leiste (oben rechts, ueberlagert den
+           Editor). Nutzt dieselbe noteSearch-Engine wie zuvor die Seitenleiste;
+           die rechte Navigator-Leiste (Gliederung + Suche) ist entfallen. -->
+      <Transition name="note-find">
+        <div
+          v-if="findBarOpen"
+          class="note-workspace-editor__find"
+          role="search"
+          aria-label="In dieser Notiz suchen und ersetzen"
         >
-          <div class="note-workspace-editor__navigator-content">
-            <header class="note-workspace-editor__navigator-header">
-              <div class="note-workspace-editor__navigator-tabs" role="tablist" aria-label="Notiznavigation">
-                <button
-                  type="button"
-                  role="tab"
-                  :aria-selected="navigationMode === 'outline'"
-                  :class="{ 'is-active': navigationMode === 'outline' }"
-                  @click="setNoteNavigationMode('outline')"
-                >Gliederung</button>
-                <button
-                  type="button"
-                  role="tab"
-                  :aria-selected="navigationMode === 'search'"
-                  :class="{ 'is-active': navigationMode === 'search' }"
-                  @click="setNoteNavigationMode('search')"
-                >Suchen</button>
-              </div>
-              <button
-                type="button"
-                class="note-workspace-editor__navigator-close"
-                aria-label="Notiznavigation schließen"
-                title="Schließen"
-                @click="closeNoteNavigation"
-              ><v-icon size="18">mdi-close</v-icon></button>
-            </header>
-
-            <div
-              v-if="navigationMode === 'outline'"
-              class="note-workspace-editor__outline"
-              role="tabpanel"
-              aria-label="Gliederung"
-            >
-              <button
-                type="button"
-                class="note-workspace-editor__outline-head"
-                :class="{ 'is-active': activeOutlinePosition === -1 }"
-                @click="jumpToNoteTitle"
-              >
-                <span class="note-workspace-editor__outline-eyebrow">Titel</span>
-                <span class="note-workspace-editor__outline-title">{{ title.trim() || 'Ohne Titel' }}</span>
-              </button>
-              <button
-                v-for="item in noteOutline"
-                :key="item.key"
-                type="button"
-                class="note-workspace-editor__outline-item"
-                :class="[`is-level-${item.level}`, { 'is-active': activeOutlinePosition === item.position }]"
-                :style="{ '--depth': Math.max(0, item.level - 2) }"
-                @click="jumpToOutlineItem(item)"
-              >
-                <span
-                  v-for="g in Math.max(0, item.level - 2)"
-                  :key="g"
-                  class="note-workspace-editor__outline-guide"
-                  :style="{ left: `${16 + (g - 1) * 15}px` }"
-                  aria-hidden="true"
-                ></span>
-                <span class="note-workspace-editor__outline-node" aria-hidden="true"></span>
-                <span class="note-workspace-editor__outline-text">{{ item.text }}</span>
-                <span class="note-workspace-editor__outline-tag">H{{ item.level }}</span>
-              </button>
-              <div v-if="!noteOutline.length" class="note-workspace-editor__navigator-empty">
-                <v-icon class="note-workspace-editor__navigator-empty-icon" size="28">
-                  mdi-format-header-pound
-                </v-icon>
-                <strong>Noch keine Abschnitte</strong>
-                <span>Formatiere Zeilen als H2, H3 oder H4. Sie erscheinen dann automatisch hier.</span>
-              </div>
-            </div>
-
-            <div
-              v-else
-              class="note-workspace-editor__note-search"
-              role="tabpanel"
-              aria-label="In dieser Notiz suchen"
-            >
-              <label class="note-workspace-editor__note-search-field">
-                <v-icon size="18">mdi-magnify</v-icon>
-                <input
-                  ref="noteSearchInputRef"
-                  v-model="noteSearchQuery"
-                  type="search"
-                  autocomplete="off"
-                  spellcheck="false"
-                  placeholder="Suchbegriff"
-                  aria-label="Suchbegriff in dieser Notiz"
-                  @keydown.enter.prevent="moveNoteSearch($event.shiftKey ? -1 : 1)"
-                  @keydown.esc.prevent="closeNoteNavigation"
-                />
-                <button
-                  v-if="noteSearchQuery"
-                  type="button"
-                  aria-label="Suchbegriff löschen"
-                  @click="clearNoteSearchQuery"
-                ><v-icon size="16">mdi-close-circle</v-icon></button>
-              </label>
-
-              <div
-                v-if="hasNoteSearchQuery && noteSearchCount"
-                class="note-workspace-editor__note-search-status"
-                aria-live="polite"
-              >
-                <span>{{ noteSearchActiveIndex + 1 }} von {{ noteSearchCount }} Treffern</span>
-                <div class="note-workspace-editor__note-search-actions">
-                  <button
-                    type="button"
-                    aria-label="Vorheriger Treffer"
-                    title="Vorheriger Treffer (Shift+Enter)"
-                    :disabled="!noteSearchCount"
-                    @click="moveNoteSearch(-1)"
-                  ><v-icon size="19">mdi-chevron-up</v-icon></button>
-                  <button
-                    type="button"
-                    aria-label="Nächster Treffer"
-                    title="Nächster Treffer (Enter)"
-                    :disabled="!noteSearchCount"
-                    @click="moveNoteSearch(1)"
-                  ><v-icon size="19">mdi-chevron-down</v-icon></button>
-                </div>
-              </div>
-
-              <div
-                v-else-if="!hasNoteSearchQuery"
-                class="note-workspace-editor__navigator-empty note-workspace-editor__note-search-empty"
-              >
-                <v-icon class="note-workspace-editor__navigator-empty-icon" size="28">mdi-magnify</v-icon>
-                <strong>Notiz durchsuchen</strong>
-                <span>Gib oben einen Suchbegriff ein.</span>
-              </div>
-
-              <div
-                v-else
-                class="note-workspace-editor__navigator-empty note-workspace-editor__note-search-empty"
-                role="status"
-                aria-live="polite"
-              >
-                <v-icon class="note-workspace-editor__navigator-empty-icon" size="28">mdi-text-search</v-icon>
-                <strong>Keine Treffer</strong>
-                <span>Probiere einen anderen Suchbegriff.</span>
-              </div>
-
-              <p v-if="hasNoteSearchQuery && noteSearchCount" class="note-workspace-editor__note-search-hint">
-                Alle Treffer werden in der Notiz markiert. Enter springt vorwärts, Shift+Enter zurück.
-              </p>
-            </div>
+          <div class="note-workspace-editor__find-row">
+            <button
+              type="button"
+              class="note-workspace-editor__find-expand"
+              :class="{ 'is-open': replaceExpanded }"
+              :aria-expanded="replaceExpanded"
+              aria-label="Ersetzen ein- oder ausklappen"
+              title="Ersetzen ein-/ausklappen"
+              @click="toggleReplaceRow"
+            ><v-icon size="16">{{ replaceExpanded ? 'mdi-chevron-down' : 'mdi-chevron-right' }}</v-icon></button>
+            <label class="note-workspace-editor__find-field">
+              <v-icon size="15" aria-hidden="true">mdi-magnify</v-icon>
+              <input
+                ref="noteSearchInputRef"
+                v-model="noteSearchQuery"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="Suchen"
+                aria-label="Suchbegriff in dieser Notiz"
+                @keydown.enter.prevent="moveNoteSearch($event.shiftKey ? -1 : 1)"
+                @keydown.esc.prevent="closeFindBar"
+              />
+            </label>
+            <span class="note-workspace-editor__find-count" aria-live="polite">{{ findCountLabel }}</span>
+            <button
+              type="button"
+              class="note-workspace-editor__find-nav"
+              aria-label="Vorheriger Treffer"
+              title="Vorheriger Treffer (Shift+Enter)"
+              :disabled="!noteSearchCount"
+              @click="moveNoteSearch(-1)"
+            ><v-icon size="18">mdi-chevron-up</v-icon></button>
+            <button
+              type="button"
+              class="note-workspace-editor__find-nav"
+              aria-label="Naechster Treffer"
+              title="Naechster Treffer (Enter)"
+              :disabled="!noteSearchCount"
+              @click="moveNoteSearch(1)"
+            ><v-icon size="18">mdi-chevron-down</v-icon></button>
+            <span class="note-workspace-editor__find-sep" aria-hidden="true"></span>
+            <button
+              type="button"
+              class="note-workspace-editor__find-nav"
+              aria-label="Suche schliessen"
+              title="Schliessen (Esc)"
+              @click="closeFindBar"
+            ><v-icon size="18">mdi-close</v-icon></button>
           </div>
-        </aside>
+          <div v-if="replaceExpanded" class="note-workspace-editor__find-row note-workspace-editor__find-row--replace">
+            <label class="note-workspace-editor__find-field">
+              <input
+                ref="replaceInputRef"
+                v-model="replaceValue"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="Ersetzen durch"
+                aria-label="Ersatztext"
+                @keydown.enter.prevent="doReplaceActive"
+                @keydown.esc.prevent="closeFindBar"
+              />
+            </label>
+            <button
+              type="button"
+              class="note-workspace-editor__find-replace"
+              :disabled="!noteSearchCount"
+              @click="doReplaceActive"
+            >Ersetzen</button>
+            <button
+              type="button"
+              class="note-workspace-editor__find-replace is-primary"
+              :disabled="!noteSearchCount"
+              @click="doReplaceAll"
+            >Alle</button>
+          </div>
+        </div>
       </Transition>
     </div>
 
@@ -570,7 +503,7 @@ import {
   noteToMarkdown,
   noteToPrintableHtml,
 } from '../../utils/noteExport.js';
-import { extractNoteOutline, nextWrappedIndex } from '../../utils/noteNavigation.js';
+import { nextWrappedIndex } from '../../utils/noteNavigation.js';
 import BaseDialog from '../BaseDialog.vue';
 import PmActionIcon from '../PmActionIcon.vue';
 import NoteEditor from './NoteEditor.vue';
@@ -578,8 +511,6 @@ import NoteTagBar from './NoteTagBar.vue';
 import NoteVersionHistoryDialog from './NoteVersionHistoryDialog.vue';
 
 const EMPTY_DOC = { type: 'doc', content: [{ type: 'paragraph' }] };
-const NOTE_NAVIGATION_MODE_STORAGE_KEY = 'pm-note-navigation-mode-v1';
-const NOTE_NAVIGATION_OPEN_STORAGE_KEY = 'pm-note-navigation-open-v1';
 
 const props = defineProps({
   noteId: { type: String, required: true },
@@ -619,16 +550,22 @@ const noteEditorRef = ref(null);
 const scrollContainerRef = ref(null);
 const titleInputRef = ref(null);
 const noteSearchInputRef = ref(null);
+const replaceInputRef = ref(null);
 const title = ref('');
 const body = ref(EMPTY_DOC);
 const wordCount = ref(0);
-const navigationOpen = ref(loadNoteNavigationOpen());
-const navigationMode = ref(loadNoteNavigationMode());
-const activeOutlinePosition = ref(null);
+const findBarOpen = ref(false);
+const replaceExpanded = ref(false);
+const replaceValue = ref('');
 const noteSearchQuery = ref('');
 const noteSearchCount = ref(0);
 const noteSearchActiveIndex = ref(-1);
 const hasNoteSearchQuery = computed(() => Boolean(noteSearchQuery.value.trim()));
+const findCountLabel = computed(() => (
+  hasNoteSearchQuery.value
+    ? `${noteSearchCount.value ? noteSearchActiveIndex.value + 1 : 0}/${noteSearchCount.value}`
+    : ''
+));
 const status = ref('idle');
 const serverRevision = ref(1);
 const currentDraftVersion = ref(null);
@@ -692,7 +629,6 @@ const NOTE_SCROLL_POSITIONS_LIMIT = 100;
 const noteScrollPositions = loadStoredScrollPositions();
 
 const noteAttributes = computed(() => body.value?.attrs || {});
-const noteOutline = computed(() => extractNoteOutline(body.value));
 const linkedDocument = computed(() => noteAttributes.value.linkedDocument || null);
 const showFilenameSuffix = computed(() => settingsStore.settingsDraft?.ui?.showFilenameSuffix ?? false);
 const notesWritingWidth = computed(() => {
@@ -790,7 +726,7 @@ function openBacklink(noteId) {
 watch(title, () => scheduleSave());
 
 watch(noteSearchQuery, (query) => {
-  if (!navigationOpen.value || navigationMode.value !== 'search') return;
+  if (!findBarOpen.value) return;
   runNoteSearch(query, 0);
 });
 
@@ -803,100 +739,65 @@ function handleWorkspaceKeydown(event) {
   ) return;
   event.preventDefault();
   event.stopPropagation();
-  setNoteNavigationMode('search', { selectQuery: true });
+  openFindBar();
 }
 
-function toggleNoteNavigation() {
-  if (navigationOpen.value) {
-    closeNoteNavigation();
-    return;
-  }
-  setNoteNavigationMode(navigationMode.value, {
-    selectQuery: navigationMode.value === 'search',
-  });
-}
-
-function setNoteNavigationMode(mode, { selectQuery = false } = {}) {
-  const normalizedMode = mode === 'search' ? 'search' : 'outline';
-  navigationOpen.value = true;
-  persistNoteNavigationOpen(true);
-  navigationMode.value = normalizedMode;
-  persistNoteNavigationMode(normalizedMode);
-  if (normalizedMode === 'outline') {
-    noteEditorRef.value?.clearNoteSearch?.();
-    return;
-  }
+function openFindBar({ replace = false } = {}) {
+  findBarOpen.value = true;
+  if (replace) replaceExpanded.value = true;
   nextTick(() => {
-    runNoteSearch(noteSearchQuery.value, Math.max(0, noteSearchActiveIndex.value));
+    if (noteSearchQuery.value.trim()) {
+      runNoteSearch(noteSearchQuery.value, Math.max(0, noteSearchActiveIndex.value));
+    }
     noteSearchInputRef.value?.focus();
-    if (selectQuery) noteSearchInputRef.value?.select();
+    noteSearchInputRef.value?.select();
   });
 }
 
-function loadNoteNavigationMode() {
-  if (typeof window === 'undefined') return 'outline';
-  try {
-    return window.localStorage.getItem(NOTE_NAVIGATION_MODE_STORAGE_KEY) === 'search'
-      ? 'search'
-      : 'outline';
-  } catch {
-    return 'outline';
-  }
-}
-
-function persistNoteNavigationMode(mode) {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(NOTE_NAVIGATION_MODE_STORAGE_KEY, mode);
-  } catch {
-    // Die Navigation bleibt auch ohne verfügbaren Local Storage nutzbar.
-  }
-}
-
-function loadNoteNavigationOpen() {
-  if (typeof window === 'undefined') return false;
-  try {
-    return window.localStorage.getItem(NOTE_NAVIGATION_OPEN_STORAGE_KEY) === 'true';
-  } catch {
-    return false;
-  }
-}
-
-function persistNoteNavigationOpen(open) {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(NOTE_NAVIGATION_OPEN_STORAGE_KEY, String(Boolean(open)));
-  } catch {
-    // Die Navigation bleibt auch ohne verfügbaren Local Storage nutzbar.
-  }
-}
-
-function closeNoteNavigation() {
-  navigationOpen.value = false;
-  persistNoteNavigationOpen(false);
-  noteSearchQuery.value = '';
+function closeFindBar() {
+  findBarOpen.value = false;
+  replaceExpanded.value = false;
   noteSearchCount.value = 0;
   noteSearchActiveIndex.value = -1;
   noteEditorRef.value?.clearNoteSearch?.();
+}
+
+function toggleFindBar() {
+  if (findBarOpen.value) closeFindBar();
+  else openFindBar();
+}
+
+function toggleReplaceRow() {
+  replaceExpanded.value = !replaceExpanded.value;
+  if (replaceExpanded.value) nextTick(() => replaceInputRef.value?.focus());
+}
+
+function doReplaceActive() {
+  if (!noteSearchCount.value) return;
+  const result = noteEditorRef.value?.replaceActiveNoteSearch?.(replaceValue.value);
+  if (result) {
+    noteSearchCount.value = result.count;
+    noteSearchActiveIndex.value = result.activeIndex;
+  }
+}
+
+function doReplaceAll() {
+  if (!noteSearchCount.value) return;
+  const result = noteEditorRef.value?.replaceAllNoteSearch?.(replaceValue.value);
+  if (result) {
+    noteSearchCount.value = result.count;
+    noteSearchActiveIndex.value = result.activeIndex;
+  }
 }
 
 function resetNoteNavigationForNote() {
-  activeOutlinePosition.value = null;
+  findBarOpen.value = false;
+  replaceExpanded.value = false;
   noteSearchQuery.value = '';
+  replaceValue.value = '';
   noteSearchCount.value = 0;
   noteSearchActiveIndex.value = -1;
   noteEditorRef.value?.clearNoteSearch?.();
-}
-
-function jumpToNoteTitle() {
-  activeOutlinePosition.value = -1;
-  scrollContainerRef.value?.scrollTo({ top: 0, behavior: 'smooth' });
-  titleInputRef.value?.focus({ preventScroll: true });
-}
-
-function jumpToOutlineItem(item) {
-  activeOutlinePosition.value = item.position;
-  noteEditorRef.value?.scrollToDocumentPosition?.(item.position, { focus: true });
 }
 
 function runNoteSearch(query, activeIndex = 0) {
@@ -930,11 +831,6 @@ function moveNoteSearch(direction) {
     noteSearchCount.value = result.count;
     noteSearchActiveIndex.value = result.activeIndex;
   }
-}
-
-function clearNoteSearchQuery() {
-  noteSearchQuery.value = '';
-  nextTick(() => noteSearchInputRef.value?.focus());
 }
 
 async function loadNote(noteId = props.noteId) {
@@ -2241,408 +2137,164 @@ onBeforeUnmount(() => {
   overflow-y: auto;
 }
 
-.note-workspace-editor__navigator {
-  --pm-note-navigator-width: clamp(270px, 27vw, 320px);
-  position: relative;
-  display: flex;
-  width: var(--pm-note-navigator-width);
-  min-width: var(--pm-note-navigator-width);
-  min-height: 0;
-  flex: 0 0 auto;
-  flex-direction: column;
-  overflow: hidden;
-  border-left: 1px solid var(--pm-divider, #d8dfe1);
-  background: color-mix(in srgb, var(--pm-app-surface, #fff) 96%, var(--pm-accent, #006b75));
-}
-
-.note-workspace-editor__navigator-content {
+/* Schwebende Suchen-&-Ersetzen-Leiste – ueberlagert oben rechts den Editor,
+   unterhalb der Formatierungsleiste. Ersetzt die fruehere rechte Navigator-
+   Seitenleiste (Gliederung + Suche). */
+.note-workspace-editor__find {
   position: absolute;
-  inset: 0 0 0 auto;
+  top: 60px;
+  right: clamp(12px, 4vw, 40px);
+  z-index: 15;
   display: flex;
-  width: var(--pm-note-navigator-width);
-  min-width: var(--pm-note-navigator-width);
-  min-height: 0;
   flex-direction: column;
-}
-
-.note-navigator-enter-active,
-.note-navigator-leave-active {
-  overflow: hidden;
-  will-change: width, min-width, opacity, transform;
-  transition:
-    width 260ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)),
-    min-width 260ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1)),
-    opacity 180ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
-    transform 260ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1));
-}
-
-.note-navigator-enter-from,
-.note-navigator-leave-to {
-  width: 0;
-  min-width: 0;
-  opacity: 0;
-  transform: translateX(18px);
-}
-
-:global(.pm-no-animations .note-navigator-enter-active),
-:global(.pm-no-animations .note-navigator-leave-active) {
-  transition: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .note-navigator-enter-active,
-  .note-navigator-leave-active {
-    transition: none;
-  }
-}
-
-.note-workspace-editor__navigator-header {
-  display: flex;
-  min-height: 49px;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 8px 7px 12px;
-  border-bottom: 1px solid var(--pm-divider, #d8dfe1);
-}
-
-.note-workspace-editor__navigator-tabs {
-  display: flex;
-  min-width: 0;
-  flex: 1 1 auto;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--pm-divider, #d8dfe1) 44%, transparent);
-}
-
-.note-workspace-editor__navigator-tabs button,
-.note-workspace-editor__navigator-close,
-.note-workspace-editor__outline-item,
-.note-workspace-editor__note-search-field button,
-.note-workspace-editor__note-search-actions button {
-  border: 0;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
-}
-
-.note-workspace-editor__navigator-tabs button {
-  min-width: 0;
-  flex: 1 1 0;
-  padding: 6px 8px;
-  border-radius: 7px;
-  color: var(--pm-muted, #535e62);
-  font-size: 0.74rem;
-  font-weight: 650;
-}
-
-.note-workspace-editor__navigator-tabs button.is-active {
+  gap: 4px;
+  width: min(360px, calc(100% - 24px));
+  padding: 6px;
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 10px;
   background: var(--pm-app-surface-raised, #fff);
-  box-shadow: 0 1px 3px color-mix(in srgb, var(--pm-text, #0e181b) 10%, transparent);
-  color: var(--pm-text, #0e181b);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  transform-origin: top right;
 }
-
-.note-workspace-editor__navigator-close {
-  display: inline-flex;
-  width: 30px;
-  height: 30px;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  color: var(--pm-muted, #535e62);
+.note-find-enter-active {
+  will-change: opacity, transform;
+  transition:
+    opacity 160ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    transform 180ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1));
 }
-
-.note-workspace-editor__navigator-close:hover,
-.note-workspace-editor__navigator-close:focus-visible {
-  background: color-mix(in srgb, var(--pm-divider, #d8dfe1) 52%, transparent);
-  color: var(--pm-text, #0e181b);
-  outline: none;
-}
-
-.note-workspace-editor__outline {
-  display: flex;
-  min-height: 0;
-  flex: 1 1 auto;
-  flex-direction: column;
-  overflow-y: auto;
-  padding: 10px 8px 18px;
-}
-
-/* Titel-Kopf: geerdeter Block mit Eyebrow + Trennlinie (früher schwebende Zeile) */
-.note-workspace-editor__outline-head {
-  display: block;
-  width: 100%;
-  text-align: left;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-  font: inherit;
-  padding: 6px 10px 12px;
-  margin-bottom: 8px;
-  border-bottom: 1px solid var(--pm-divider, #d8dfe1);
-}
-
-.note-workspace-editor__outline-eyebrow {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--pm-muted, #748084);
-  font-size: 0.6rem;
-  font-weight: 720;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.note-workspace-editor__outline-title {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--pm-text, #0e181b);
-  font-size: 0.92rem;
-  font-weight: 680;
-  line-height: 1.3;
-}
-
-.note-workspace-editor__outline-head:hover .note-workspace-editor__outline-title,
-.note-workspace-editor__outline-head:focus-visible .note-workspace-editor__outline-title,
-.note-workspace-editor__outline-head.is-active .note-workspace-editor__outline-title {
-  color: var(--pm-accent-strong, #00555f);
-}
-
-/* Baumzeilen: Einrückung nach Ebene + durchgehende Einrück-Rails + Knoten */
-.note-workspace-editor__outline-item {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  min-height: 30px;
-  padding: 3px 10px 3px calc(13px + var(--depth, 0) * 15px);
-  border-radius: 7px;
-  text-align: left;
-  color: color-mix(in srgb, var(--pm-text, #0e181b) 82%, var(--pm-muted, #535e62));
-  font-size: 0.82rem;
-  line-height: 1.3;
-}
-
-.note-workspace-editor__outline-guide {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: color-mix(in srgb, var(--pm-divider, #d8dfe1) 88%, transparent);
+.note-find-leave-active {
   pointer-events: none;
+  will-change: opacity, transform;
+  transition:
+    opacity 120ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    transform 140ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
 }
-
-.note-workspace-editor__outline-node {
+.note-find-enter-from,
+.note-find-leave-to {
+  opacity: 0;
+  transform: translateY(-5px) scale(0.985);
+}
+.note-workspace-editor__find-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.note-workspace-editor__find-row--replace { padding-left: 28px; }
+.note-workspace-editor__find-expand {
   flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--pm-muted, #535e62) 62%, transparent);
-}
-.note-workspace-editor__outline-item.is-level-2 .note-workspace-editor__outline-node {
-  width: 8px;
-  height: 8px;
-  background: color-mix(in srgb, var(--pm-text, #0e181b) 42%, var(--pm-muted, #535e62));
-}
-.note-workspace-editor__outline-item.is-level-4 .note-workspace-editor__outline-node {
-  width: 6px;
-  height: 6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
   background: transparent;
-  border: 1.5px solid color-mix(in srgb, var(--pm-muted, #535e62) 50%, transparent);
+  color: var(--pm-muted, #535e62);
+  cursor: pointer;
 }
-
-.note-workspace-editor__outline-text {
+.note-workspace-editor__find-expand:hover {
+  background: color-mix(in srgb, var(--pm-divider, #d8dfe1) 45%, transparent);
+}
+.note-workspace-editor__find-field {
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.note-workspace-editor__outline-item.is-level-2 .note-workspace-editor__outline-text {
-  color: var(--pm-text, #0e181b);
-  font-size: 0.86rem;
-  font-weight: 630;
-}
-.note-workspace-editor__outline-item.is-level-4 .note-workspace-editor__outline-text {
-  color: var(--pm-muted, #6b767a);
-  font-size: 0.79rem;
-}
-
-/* Ebenen-Kürzel (H2/H3/H4): dezent, nur bei Hover/Fokus */
-.note-workspace-editor__outline-tag {
-  flex: none;
-  color: var(--pm-muted, #748084);
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.58rem;
-  font-weight: 700;
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-.note-workspace-editor__outline-item:hover .note-workspace-editor__outline-tag,
-.note-workspace-editor__outline-item:focus-visible .note-workspace-editor__outline-tag {
-  opacity: 0.5;
-}
-
-.note-workspace-editor__outline-item:hover,
-.note-workspace-editor__outline-item:focus-visible {
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 6%, transparent);
-  color: var(--pm-text, #0e181b);
-  outline: none;
-}
-
-.note-workspace-editor__outline-item.is-active {
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 11%, transparent);
-  color: var(--pm-accent-strong, #00555f);
-}
-.note-workspace-editor__outline-item.is-active .note-workspace-editor__outline-text {
-  color: var(--pm-accent-strong, #00555f);
-}
-.note-workspace-editor__outline-item.is-active .note-workspace-editor__outline-node {
-  background: var(--pm-accent, #006b75);
-  border-color: var(--pm-accent, #006b75);
-}
-
-.note-workspace-editor__navigator-empty {
   display: flex;
-  min-height: 0;
-  flex: 1 1 auto;
   align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  gap: 2px;
-  padding: 24px 12px;
-  color: var(--pm-muted, #535e62);
-  font-size: 0.76rem;
-  line-height: 1.45;
-  text-align: center;
-}
-
-.note-workspace-editor__navigator-empty-icon {
-  margin-bottom: 7px;
-  opacity: 0.52;
-}
-
-.note-workspace-editor__navigator-empty strong {
-  color: var(--pm-text, #0e181b);
-  font-size: 0.8rem;
-}
-
-.note-workspace-editor__note-search {
-  display: flex;
-  min-height: 0;
-  flex: 1 1 auto;
-  flex-direction: column;
-  padding: 14px 12px;
-}
-
-.note-workspace-editor__note-search-field {
-  display: flex;
-  min-height: 38px;
-  align-items: center;
-  gap: 8px;
+  gap: 6px;
+  height: 30px;
   padding: 0 9px;
   border: 1px solid var(--pm-divider, #d8dfe1);
-  border-radius: 9px;
-  background: var(--pm-app-surface-raised, #fff);
+  border-radius: 7px;
+  background: var(--pm-content-surface, #fff);
   color: var(--pm-muted, #535e62);
 }
-
-.note-workspace-editor__note-search-field:focus-within {
-  border-color: color-mix(in srgb, var(--pm-accent, #006b75) 65%, var(--pm-divider, #d8dfe1));
+.note-workspace-editor__find-field:focus-within {
+  border-color: var(--pm-accent, #006b75);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent);
 }
-
-.note-workspace-editor__note-search-field input {
-  min-width: 0;
+.note-workspace-editor__find-field input {
   flex: 1 1 auto;
+  min-width: 0;
   border: 0;
-  outline: 0;
+  outline: none;
   background: transparent;
   color: var(--pm-text, #0e181b);
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.86rem;
 }
-
-.note-workspace-editor__note-search-field input::-webkit-search-cancel-button { display: none; }
-
-.note-workspace-editor__note-search-field button {
-  display: inline-flex;
-  width: 24px;
-  height: 24px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  color: var(--pm-muted, #535e62);
-}
-
-.note-workspace-editor__note-search-status {
-  display: flex;
-  min-height: 38px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+.note-workspace-editor__find-count {
+  flex: none;
+  min-width: 34px;
+  text-align: center;
   color: var(--pm-muted, #535e62);
   font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
 }
-
-.note-workspace-editor__note-search-actions {
-  display: flex;
-  gap: 2px;
-}
-
-.note-workspace-editor__note-search-actions button {
-  display: inline-flex;
-  width: 29px;
-  height: 29px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 7px;
+.note-workspace-editor__find-nav {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
   color: var(--pm-muted, #535e62);
+  cursor: pointer;
+}
+.note-workspace-editor__find-nav:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--pm-divider, #d8dfe1) 45%, transparent);
+  color: var(--pm-text, #0e181b);
+}
+.note-workspace-editor__find-nav:disabled { opacity: 0.4; cursor: default; }
+.note-workspace-editor__find-sep {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  background: var(--pm-divider, #d8dfe1);
+}
+.note-workspace-editor__find-replace {
+  flex: none;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--pm-text, #0e181b);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.note-workspace-editor__find-replace:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--pm-divider, #d8dfe1) 40%, transparent);
+}
+.note-workspace-editor__find-replace:disabled { opacity: 0.45; cursor: default; }
+.note-workspace-editor__find-replace.is-primary {
+  border-color: transparent;
+  background: var(--pm-accent, #006b75);
+  color: var(--pm-accent-contrast, #fff);
+}
+.note-workspace-editor__find-replace.is-primary:hover:not(:disabled) { filter: brightness(1.07); }
+
+@media (max-width: 760px) {
+  .note-workspace-editor__find { right: 12px; left: 12px; width: auto; }
 }
 
-.note-workspace-editor__note-search-actions button:hover:not(:disabled),
-.note-workspace-editor__note-search-actions button:focus-visible:not(:disabled) {
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 8%, transparent);
-  color: var(--pm-accent-strong, #00555f);
-  outline: none;
+:global(.pm-no-animations .note-find-enter-active),
+:global(.pm-no-animations .note-find-leave-active) {
+  transition: none;
 }
 
-.note-workspace-editor__note-search-actions button:disabled {
-  cursor: default;
-  opacity: 0.35;
-}
-
-.note-workspace-editor__note-search-hint {
-  margin: 8px 2px 0;
-  color: var(--pm-muted, #535e62);
-  font-size: 0.69rem;
-  line-height: 1.45;
-}
-
-@media (max-width: 900px) {
-  .note-workspace-editor__navigator {
-    --pm-note-navigator-width: clamp(270px, 88vw, 320px);
-    position: absolute;
-    z-index: 8;
-    top: 0;
-    right: 0;
-    bottom: 0;
+@media (prefers-reduced-motion: reduce) {
+  .note-find-enter-active,
+  .note-find-leave-active {
+    transition: none;
   }
 }
 
 /* Rückverweise: Notizen, die auf diese Notiz verweisen */
 .note-workspace-editor__backlinks {
   padding: 14px clamp(20px, 5vw, 56px) 48px;
-}
-.note-workspace-editor__backlinks.is-centered {
-  max-width: 820px;
-  margin-inline: auto;
 }
 .note-workspace-editor__backlinks-heading {
   display: flex;
@@ -2709,12 +2361,6 @@ onBeforeUnmount(() => {
 }
 @media (prefers-reduced-motion: reduce) {
   .note-workspace-editor__backlink { transition: none; }
-}
-
-.note-workspace-editor__body.is-centered :deep(.pm-content) {
-  box-sizing: border-box;
-  width: 100%;
-  margin-inline: auto;
 }
 
 .note-workspace-editor__document-popover {

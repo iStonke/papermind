@@ -96,6 +96,23 @@ test('callouts are available through slash commands and in read-only previews', 
   assert.match(viewSource, /is-prompt/);
 });
 
+test('callouts share the blocks toolbar menu directly after the insert menu', () => {
+  const insertMenu = editorSource.indexOf("@click.prevent=\"toggleMenu('insert')\"");
+  const blocksMenu = editorSource.indexOf("@click.prevent=\"toggleMenu('blocks')\"");
+  const aiPrompt = editorSource.indexOf('<template v-if="aiAvailable">');
+  assert.ok(insertMenu >= 0);
+  assert.ok(blocksMenu > insertMenu);
+  assert.ok(aiPrompt > blocksMenu);
+  assert.match(editorSource, /title="Blöcke"\s+aria-label="Blöcke"/);
+  assert.match(editorSource, /v-if="openMenu === 'blocks'"/);
+  assert.match(editorSource, /note-editor__blocks-menu-heading">Hinweisblöcke/);
+  assert.match(editorSource, /v-for="option in toolbarCalloutOptions"/);
+  assert.match(editorSource, /const toolbarCalloutOptions = NOTE_CALLOUT_OPTIONS\.filter\([\s\S]*?!\['deadline', 'source'\]\.includes\(option\.value\)/);
+  assert.match(editorSource, /toolbarActive\('callout', \{ kind: option\.value \}\)/);
+  assert.match(editorSource, /runCalloutKind\(option\.value\)/);
+  assert.match(editorSource, /if \(ed\.isActive\('callout'\)\) chain\.setCalloutKind\(kind\)\.run\(\);[\s\S]*?else chain\.insertCallout\(kind\)\.run\(\);/);
+});
+
 test('slash commands are grouped without breaking their flat keyboard index', () => {
   assert.match(editorSource, /key: 'frequent',[\s\S]*?label: 'Häufig benutzt'/);
   assert.match(editorSource, /frequentSlashCommands\.value\.filter/);

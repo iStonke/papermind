@@ -30,7 +30,6 @@ test('note hyperlinks normalize common input and reject unsafe protocols', () =>
 });
 
 test('hyperlinks are available from toolbar, selection bubble, shortcut, slash menu, and URL paste', () => {
-  assert.match(editorSource, /aria-label="Hyperlink einfügen oder bearbeiten"/);
   assert.match(editorSource, /key: 'link',[\s\S]*?label: 'Hyperlink',[\s\S]*?run: \(\) => openLinkEditor\(\)/);
   assert.match(editorSource, /key: 'link', group: 'inline',[\s\S]*?kind: 'link-editor'/);
   assert.match(editorSource, /key\.toLowerCase\(\) === 'k'[\s\S]*?event\.preventDefault\(\)[\s\S]*?openLinkEditor\(\)/);
@@ -39,6 +38,8 @@ test('hyperlinks are available from toolbar, selection bubble, shortcut, slash m
   assert.match(editorSource, />Öffnen</);
   assert.match(editorSource, />Entfernen</);
   assert.match(editorSource, /key: 'verweis',[\s\S]*?kind: 'pick-target'/);
+  assert.match(editorSource, /const insertItems = \[[\s\S]*?label: 'Hyperlink',[\s\S]*?action: 'link'/);
+  assert.match(editorSource, /label: 'Verweis',[\s\S]*?action: 'target'/);
   assert.match(iconsSource, /mdiLinkVariant/);
   assert.match(iconsSource, /mdiLinkOff/);
   assert.match(iconsSource, /mdiOpenInNew/);

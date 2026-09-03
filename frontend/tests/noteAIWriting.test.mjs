@@ -58,13 +58,38 @@ test('slash and bubble AI actions open the complete prompt dialog', () => {
   assert.match(editorSource, /positionAIPrompt\(\)/);
 });
 
-test('complete AI dialog enters quietly and uses normal title spacing', () => {
-  assert.match(editorSource, /class="pm-float pm-ai-prompt pm-ai-prompt--writing"/);
-  assert.match(editorSource, /\.pm-ai-prompt--writing\s*\{[\s\S]*?animation:\s*pm-ai-prompt-in 180ms/);
-  assert.match(editorSource, /@keyframes pm-ai-prompt-in\s*\{[\s\S]*?opacity:\s*0;[\s\S]*?translateY\(-5px\) scale\(0\.985\)[\s\S]*?opacity:\s*1;/);
-  assert.match(editorSource, /\.pm-ai-prompt__head\s*\{[\s\S]*?letter-spacing:\s*normal;[\s\S]*?word-spacing:\s*normal;/);
-  assert.match(editorSource, /prefers-reduced-motion:\s*reduce[\s\S]*?\.pm-ai-prompt--writing,[\s\S]*?animation:\s*none;/);
-  assert.match(editorSource, /:global\(\.pm-no-animations\) \.pm-ai-prompt--writing/);
+test('AI writing and cleanup windows open and close with a subtle, reduced-motion-safe transition', () => {
+  // Beide schwebenden KI-Fenster (Schreiben + Aufräumen) teilen sich denselben Übergang.
+  assert.equal((editorSource.match(/<Transition name="pm-ai-prompt">/g) || []).length, 2);
+  assert.match(
+    editorSource,
+    /<Transition name="pm-ai-prompt">[\s\S]*?aiPrompt\.presentation === 'dialog'[\s\S]*?<\/Transition>/,
+  );
+  assert.match(
+    editorSource,
+    /<Transition name="pm-ai-prompt">[\s\S]*?v-if="editor && cleanup\.open"[\s\S]*?<\/Transition>/,
+  );
+  assert.match(editorSource, /\.pm-ai-prompt-enter-active\s*\{[\s\S]*?opacity 160ms[\s\S]*?transform 180ms/);
+  assert.match(editorSource, /\.pm-ai-prompt-leave-active\s*\{[\s\S]*?opacity 120ms[\s\S]*?transform 140ms/);
+  assert.match(
+    editorSource,
+    /\.pm-ai-prompt-enter-from,[\s\S]*?\.pm-ai-prompt-leave-to\s*\{[\s\S]*?opacity:\s*0;[\s\S]*?translateY\(-6px\) scale\(0\.985\)/,
+  );
+  assert.match(
+    editorSource,
+    /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.pm-ai-prompt-enter-active,[\s\S]*?\.pm-ai-prompt-leave-active\s*\{\s*transition:\s*none;/,
+  );
+  assert.match(
+    editorSource,
+    /:global\(\.pm-no-animations \.pm-ai-prompt-enter-active\),[\s\S]*?:global\(\.pm-no-animations \.pm-ai-prompt-leave-active\)\s*\{\s*transition:\s*none;/,
+  );
+  // Der Fenstertitel nutzt die Standard-UI-Schrift statt Monospace bei normalem Abstand.
+  assert.match(
+    editorSource,
+    /\.pm-ai-prompt__head\s*\{[\s\S]*?font-family:\s*inherit;[\s\S]*?letter-spacing:\s*normal;[\s\S]*?word-spacing:\s*normal;/,
+  );
+  assert.doesNotMatch(editorSource, /@keyframes pm-ai-prompt-in/);
+  assert.doesNotMatch(editorSource, /animation:\s*pm-ai-prompt-in/);
 });
 
 test('slash menu unfolds at the cursor and glides its active selection', () => {
