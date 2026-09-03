@@ -99,3 +99,44 @@ test('callouts keep their PaperMind meaning in Markdown and PDF exports', () => 
   assert.match(html, /✓ Entscheidung/);
   assert.match(html, /Variante B verwenden\./);
 });
+
+test('AI prompt callouts preserve pasted multi-paragraph prompts in exports', () => {
+  const body = {
+    type: 'doc',
+    content: [
+      {
+        type: 'callout',
+        attrs: { kind: 'prompt' },
+        content: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'Fasse den folgenden Text zusammen.' }] },
+          { type: 'paragraph', content: [{ type: 'text', text: 'Nutze höchstens drei Stichpunkte.' }] },
+        ],
+      },
+    ],
+  };
+
+  const markdown = noteToMarkdown({ title: 'Prompts', body });
+  const html = noteToPrintableHtml({ title: 'Prompts', body });
+  assert.match(markdown, /> \*\*✦ KI-Prompt\*\*/);
+  assert.match(markdown, /> Fasse den folgenden Text zusammen\./);
+  assert.match(markdown, /> Nutze höchstens drei Stichpunkte\./);
+  assert.match(html, /class="callout callout-prompt"/);
+  assert.match(html, /✦ KI-Prompt/);
+});
+
+test('information callouts retain their blue export treatment', () => {
+  const body = {
+    type: 'doc',
+    content: [{
+      type: 'callout',
+      attrs: { kind: 'info' },
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Zusätzlicher Kontext.' }] }],
+    }],
+  };
+
+  const markdown = noteToMarkdown({ title: 'Information', body });
+  const html = noteToPrintableHtml({ title: 'Information', body });
+  assert.match(markdown, /> \*\*i Information\*\*/);
+  assert.match(html, /class="callout callout-info"/);
+  assert.match(html, /\.callout-info \{ border-left-color: #2878b5; background: #f1f7fd; \}/);
+});

@@ -1,10 +1,17 @@
 export const NOTE_CALLOUT_OPTIONS = Object.freeze([
   {
+    value: 'info',
+    label: 'Information',
+    glyph: 'i',
+    description: 'Ergänzende Information hervorheben',
+    terms: ['information', 'info', 'hinweis', 'wissen'],
+  },
+  {
     value: 'important',
     label: 'Wichtig',
     glyph: '!',
     description: 'Zentrale Information hervorheben',
-    terms: ['wichtig', 'hinweis', 'achtung', 'info'],
+    terms: ['wichtig', 'hinweis', 'achtung'],
   },
   {
     value: 'question',
@@ -33,6 +40,13 @@ export const NOTE_CALLOUT_OPTIONS = Object.freeze([
     glyph: '⌖',
     description: 'Beleg oder Fundstelle hervorheben',
     terms: ['fundstelle', 'quelle', 'beleg', 'dokument'],
+  },
+  {
+    value: 'prompt',
+    label: 'KI-Prompt',
+    glyph: '✦',
+    description: 'Prompt für die Schreibassistenz festhalten',
+    terms: ['ki', 'ai', 'prompt', 'anweisung', 'schreibauftrag'],
   },
 ]);
 

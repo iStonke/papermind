@@ -25,20 +25,26 @@ const previewSource = await readFile(
   'utf8',
 );
 
-test('PaperMind exposes the five structured callout kinds', () => {
+test('PaperMind exposes the seven structured callout kinds', () => {
   assert.deepEqual(
     NOTE_CALLOUT_OPTIONS.map(({ value, label }) => ({ value, label })),
     [
+      { value: 'info', label: 'Information' },
       { value: 'important', label: 'Wichtig' },
       { value: 'question', label: 'Frage' },
       { value: 'decision', label: 'Entscheidung' },
       { value: 'deadline', label: 'Frist' },
       { value: 'source', label: 'Fundstelle' },
+      { value: 'prompt', label: 'KI-Prompt' },
     ],
   );
+  assert.equal(normalizeNoteCalloutKind('info'), 'info');
   assert.equal(normalizeNoteCalloutKind('decision'), 'decision');
+  assert.equal(normalizeNoteCalloutKind('prompt'), 'prompt');
   assert.equal(normalizeNoteCalloutKind('unknown'), 'important');
   assert.equal(noteCalloutMeta('source').label, 'Fundstelle');
+  assert.deepEqual(noteCalloutMeta('info').terms, ['information', 'info', 'hinweis', 'wissen']);
+  assert.doesNotMatch(noteCalloutMeta('important').terms.join(' '), /\binfo\b/);
 });
 
 test('callouts remain editable structured nodes and can change kind', () => {
@@ -65,15 +71,29 @@ test('new callouts stage their accent line, glyph and content without replaying 
   assert.match(viewSource, /pm-no-animations/);
 });
 
+test('line-start shortcuts turn a paragraph into the matching callout while typing', () => {
+  // Kollisionsfreie Kürzel für das Mitschreiben: ? Frage, ! Wichtig, = Entscheidung.
+  assert.match(nodeSource, /CALLOUT_INPUT_SHORTCUTS/);
+  assert.match(nodeSource, /find: \/\^\\\?\\s\$\/, kind: 'question'/);
+  assert.match(nodeSource, /find: \/\^!\\s\$\/, kind: 'important'/);
+  assert.match(nodeSource, /find: \/\^=\\s\$\/, kind: 'decision'/);
+  assert.match(nodeSource, /addInputRules\(\)/);
+  assert.match(nodeSource, /wrappingInputRule\(/);
+  // Kürzel-Callouts sollen dieselbe Ankunftsanimation erhalten wie Slash-Einfügungen.
+  assert.match(nodeSource, /getAttributes: \(\) => \(\{[\s\S]*insertedAt: new Date\(\)\.toISOString\(\)/);
+});
+
 test('callouts are available through slash commands and in read-only previews', () => {
   assert.match(editorSource, /NOTE_CALLOUT_OPTIONS\.map/);
   assert.match(editorSource, /chain\.insertCallout\(option\.value\)/);
   assert.match(editorSource, /Callout,/);
   assert.match(previewSource, /Callout,/);
+  assert.match(viewSource, /is-info/);
   assert.match(viewSource, /is-question/);
   assert.match(viewSource, /is-decision/);
   assert.match(viewSource, /is-deadline/);
   assert.match(viewSource, /is-source/);
+  assert.match(viewSource, /is-prompt/);
 });
 
 test('slash commands are grouped without breaking their flat keyboard index', () => {
@@ -113,7 +133,9 @@ test('heading actions use the note title as H1 and expose H2 through H4', () => 
   assert.doesNotMatch(editorSource, /key: 'h1', group: 'headings'/);
   assert.doesNotMatch(editorSource, /mk\('h1'/);
   assert.match(editorSource, /key: 'h4', group: 'headings'/);
-  assert.match(editorSource, /runToolbar\('h4'\)/);
+  // H4 wird über das Absatzstil-Menü (blockStyleItems → runBlockStyle) gesetzt.
+  assert.match(editorSource, /\{ key: 'h4', label: 'Überschrift 4' \}/);
+  assert.match(editorSource, /runBlockStyle\(item\.key\)/);
   assert.match(editorSource, /toggleHeading\(\{ level: 4 \}\)/);
   assert.match(editorSource, /heading: \{ levels: \[1, 2, 3, 4\] \}/);
   assert.match(previewSource, /heading: \{ levels: \[1, 2, 3, 4\] \}/);

@@ -105,9 +105,11 @@ function changeKind(event) {
 }
 
 .pm-callout.is-question { --pm-callout-color: var(--pm-accent, #006b75); }
+.pm-callout.is-info { --pm-callout-color: #2878b5; }
 .pm-callout.is-decision { --pm-callout-color: #2f855a; }
 .pm-callout.is-deadline { --pm-callout-color: var(--pm-danger, #c84c4c); }
 .pm-callout.is-source { --pm-callout-color: #5b6fb8; }
+.pm-callout.is-prompt { --pm-callout-color: #7c5aa6; }
 
 .pm-callout.is-selected {
   outline: 2px solid color-mix(in srgb, var(--pm-callout-color) 42%, transparent);

@@ -1,6 +1,18 @@
-import { Node, mergeAttributes, VueNodeViewRenderer } from '@tiptap/vue-3';
+import { Node, mergeAttributes, VueNodeViewRenderer, wrappingInputRule } from '@tiptap/vue-3';
 import { normalizeNoteCalloutKind } from '../../../utils/noteCallouts.js';
 import CalloutView from './CalloutView.vue';
+
+/**
+ * Zeilenanfang-Kürzel für das Mitschreiben im Meetingtempo: ein Zeichen plus
+ * Leerzeichen wandelt den aktuellen Absatz sofort in den passenden Hinweisblock
+ * um – ganz ohne Slash-Menü. Die Zeichen sind bewusst kollisionsfrei zu den
+ * Markdown-Regeln von StarterKit (`#`, `-`, `>`, `1.` …) gewählt.
+ */
+export const CALLOUT_INPUT_SHORTCUTS = Object.freeze([
+  { find: /^\?\s$/, kind: 'question' },
+  { find: /^!\s$/, kind: 'important' },
+  { find: /^=\s$/, kind: 'decision' },
+]);
 
 /**
  * Strukturierter PaperMind-Hinweisblock. Der Typ bleibt als Attribut im
@@ -56,6 +68,21 @@ export const Callout = Node.create({
         { kind: normalizeNoteCalloutKind(kind) },
       ),
     };
+  },
+
+  addInputRules() {
+    return CALLOUT_INPUT_SHORTCUTS.map(({ find, kind }) =>
+      wrappingInputRule({
+        find,
+        type: this.type,
+        // Frischer Zeitstempel ⇒ identische „Ankunfts"-Animation wie beim
+        // Einfügen über das Slash-Menü (CalloutView liest attrs.insertedAt).
+        getAttributes: () => ({
+          kind: normalizeNoteCalloutKind(kind),
+          insertedAt: new Date().toISOString(),
+        }),
+      }),
+    );
   },
 });
 

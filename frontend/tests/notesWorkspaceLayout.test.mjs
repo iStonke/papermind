@@ -105,7 +105,7 @@ test('manage mode uses the vertical reader transition without resizing its conte
   assert.match(templateSource, /class="notes-ws__editor-slot"[\s\S]*?:inert="isManageMode"/);
   assert.match(workspaceSource, /\.notes-ws__manage-panel\s*{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0;[\s\S]*?overflow:\s*hidden/);
   assert.match(workspaceSource, /\.notes-ws__manage-panel\s*{[\s\S]*?z-index:\s*100/);
-  assert.match(noteEditorSource, /\.note-editor__toolbar\s*{[\s\S]*?z-index:\s*12/);
+  assert.match(noteEditorSource, /\.note-editor__toolbar-guard\s*{[\s\S]*?z-index:\s*12/);
   assert.match(workspaceSource, /\.notes-ws-manage-enter-active\s*{[\s\S]*?transition:\s*transform 460ms cubic-bezier\(0\.22, 1, 0\.36, 1\)/);
   assert.match(workspaceSource, /\.notes-ws-manage-leave-active\s*{[\s\S]*?transition:\s*transform 620ms cubic-bezier\(0\.22, 1, 0\.36, 1\)/);
   assert.match(workspaceSource, /\.notes-ws-manage-enter-from,[\s\S]*?\.notes-ws-manage-leave-to\s*{[\s\S]*?transform:\s*translateY\(100%\)/);
@@ -665,11 +665,14 @@ test('first heading starts at the same content inset as body text', () => {
 
 test('workspace formatting controls render as an inset sticky palette', () => {
   const toolbarStyle = noteEditorSource.match(/\.note-editor__toolbar\s*\{([\s\S]*?)\n\}/)?.[1] || '';
-  assert.match(noteEditorSource, /\.note-editor__toolbar\s*\{[\s\S]*?position:\s*sticky/);
-  assert.match(noteEditorSource, /top:\s*12px/);
+  assert.match(noteEditorSource, /class="note-editor__toolbar-guard"[\s\S]*?class="note-editor__toolbar"/);
+  assert.match(noteEditorSource, /\.note-editor__toolbar-guard\s*\{[\s\S]*?position:\s*sticky;[\s\S]*?top:\s*0;[\s\S]*?width:\s*100%;[\s\S]*?background:\s*var\(--pm-content-surface, #fff\)/);
+  assert.match(noteEditorSource, /\.note-editor__toolbar-guard::after\s*\{[\s\S]*?top:\s*100%;[\s\S]*?height:\s*20px;[\s\S]*?pointer-events:\s*none;[\s\S]*?linear-gradient/);
+  assert.match(noteEditorSource, /\.note-editor__toolbar\s*\{[\s\S]*?position:\s*relative/);
   assert.match(noteEditorSource, /width:\s*max-content/);
-  assert.match(noteEditorSource, /align-self:\s*center/);
-  assert.match(noteEditorSource, /margin:\s*12px auto 0/);
+  assert.match(noteEditorSource, /align-self:\s*flex-start/);
+  assert.match(noteEditorSource, /margin:\s*8px 0 0 8px/);
+  assert.match(noteEditorSource, /padding:\s*5px 7px 5px 0/);
   assert.match(noteEditorSource, /border-radius:\s*12px/);
   assert.match(noteEditorSource, /box-shadow:\s*0 8px 24px/);
   assert.doesNotMatch(toolbarStyle, /border-(top|bottom):/);

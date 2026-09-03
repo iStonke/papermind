@@ -197,6 +197,12 @@ export function noteMarkdownToTipTap(value) {
   });
 }
 
+export function noteAITextForCodeBlock(value) {
+  const text = String(value || '').replace(/\r\n?/g, '\n').trim();
+  const fenced = /^(`{3,}|~{3,})[^\n]*\n([\s\S]*?)\n\1$/.exec(text);
+  return fenced ? fenced[2] : text;
+}
+
 function escapeHtml(value) {
   return String(value || '')
     .replace(/&/g, '&amp;')

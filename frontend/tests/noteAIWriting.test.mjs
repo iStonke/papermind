@@ -28,13 +28,43 @@ const promptDefaultsSource = await readFile(
   'utf8',
 );
 
-test('slash menu opens a compact natural-language AI writing prompt', () => {
+test('toolbar shows the quiet natural-language AI prompt without an extra click', () => {
   assert.match(editorSource, /label: 'Mit KI schreiben'/);
   assert.match(editorSource, /kind: 'generate-ai'/);
   assert.match(editorSource, /terms: \['ki', 'ai', 'prompt'/);
-  assert.match(editorSource, /Was soll PaperMind schreiben\?/);
-  assert.match(editorSource, /visibleAIPromptSuggestions/);
+  assert.match(editorSource, /<template v-if="aiAvailable">[\s\S]*?class="note-editor__toolbar-ai"/);
+  assert.match(editorSource, /placeholder="Einfach losschreiben …"/);
+  assert.match(editorSource, /@submit\.prevent="generateAIText"/);
+  assert.match(editorSource, /@pointerdown\.stop="prepareToolbarAIPromptTarget"/);
+  assert.doesNotMatch(editorSource, /<Teleport[\s\S]*?aiPrompt/);
+  assert.doesNotMatch(editorSource, /note-editor__toolbar-btn--ai/);
   assert.match(editorSource, /streamNoteText/);
+});
+
+test('toolbar AI prompt snapshots the current editor target before input focus', () => {
+  assert.match(editorSource, /function prepareAIPromptTarget\(presentation = 'toolbar'/);
+  assert.match(editorSource, /const selection = ed\.state\.selection/);
+  assert.match(editorSource, /aiPrompt\.anchorPos = directTarget\?\.anchorPos \?\? \(selectedText \? to : from\)/);
+  assert.match(editorSource, /function ensureToolbarAIPromptTarget\(\)[\s\S]*?prepareToolbarAIPromptTarget\(\)/);
+  assert.doesNotMatch(editorSource, /AIPromptAnchor|aiPromptMountEl|pm-ai-inline-anchor/);
+});
+
+test('slash and bubble AI actions open the complete prompt dialog', () => {
+  assert.match(editorSource, /run: \(\) => openAIPrompt\(\)/);
+  assert.match(editorSource, /if \(kind === 'generate-ai'\) \{ openAIPrompt\(\); return; \}/);
+  assert.match(editorSource, /function openAIPrompt\(\) \{[\s\S]*?prepareAIPromptTarget\('dialog'/);
+  assert.match(editorSource, /aiPrompt\.presentation === 'dialog'/);
+  assert.match(editorSource, /class="pm-float pm-ai-prompt pm-ai-prompt--writing"/);
+  assert.match(editorSource, /positionAIPrompt\(\)/);
+});
+
+test('complete AI dialog enters quietly and uses normal title spacing', () => {
+  assert.match(editorSource, /class="pm-float pm-ai-prompt pm-ai-prompt--writing"/);
+  assert.match(editorSource, /\.pm-ai-prompt--writing\s*\{[\s\S]*?animation:\s*pm-ai-prompt-in 180ms/);
+  assert.match(editorSource, /@keyframes pm-ai-prompt-in\s*\{[\s\S]*?opacity:\s*0;[\s\S]*?translateY\(-5px\) scale\(0\.985\)[\s\S]*?opacity:\s*1;/);
+  assert.match(editorSource, /\.pm-ai-prompt__head\s*\{[\s\S]*?letter-spacing:\s*normal;[\s\S]*?word-spacing:\s*normal;/);
+  assert.match(editorSource, /prefers-reduced-motion:\s*reduce[\s\S]*?\.pm-ai-prompt--writing,[\s\S]*?animation:\s*none;/);
+  assert.match(editorSource, /:global\(\.pm-no-animations\) \.pm-ai-prompt--writing/);
 });
 
 test('slash menu unfolds at the cursor and glides its active selection', () => {
@@ -57,7 +87,7 @@ test('slash menu applies its keyboard selection atomically on Enter', () => {
   assert.doesNotMatch(editorSource, /deleteRange\(\{ from: slash\.from, to \}\)\.run\(\);[\s\S]*?cmd\.action\(ed\.chain\(\)\.focus\(\)\)\.run\(\)/);
 });
 
-test('generated text is inserted as a permanently attributed AI block', () => {
+test('generated text outside a direct-editing container is inserted as a permanently attributed AI block', () => {
   assert.match(editorSource, /\.insertAiBlock\(\{/);
   assert.match(editorSource, /provider: aiPrompt\.provider/);
   assert.match(editorSource, /model: aiPrompt\.model/);
@@ -72,25 +102,53 @@ test('generated text is inserted as a permanently attributed AI block', () => {
 });
 
 test('selected note text opens a dedicated selection-only AI workflow', () => {
-  assert.match(editorSource, /label: 'Auswahl mit KI bearbeiten'/);
   assert.match(editorSource, /aiPrompt\.mode = selectedText \? 'selection' : 'context'/);
-  assert.match(editorSource, /Kontext: nur Auswahl/);
-  assert.match(editorSource, /Kontext: Notiztext bis zum Cursor/);
   assert.match(editorSource, /note_context: aiPrompt\.mode === 'selection' \? '' : noteContextBeforeAnchor\(ed\)/);
   assert.match(editorSource, /selected_text: aiPrompt\.mode === 'selection' \? aiPrompt\.selectedText : ''/);
 });
 
-test('selection AI result requires an explicit replace or insert action', () => {
+test('toolbar selection generation replaces in place while dialog offers both result actions', () => {
+  assert.match(editorSource, /selectionSnapshotIsCurrent\(ed\)/);
+  assert.match(editorSource, /if \(aiPrompt\.presentation === 'dialog'\) return;/);
+  assert.match(editorSource, /applySelectionAIResult\('replace'\)/);
+  assert.match(editorSource, /insertContentAt\(\{ from, to \}, \{ type: 'aiBlock', attrs \}\)/);
   assert.match(editorSource, /Auswahl ersetzen/);
   assert.match(editorSource, /Danach einfügen/);
-  assert.match(editorSource, /selectionSnapshotIsCurrent\(ed\)/);
-  assert.match(editorSource, /insertContentAt\(\{ from, to \}, \{ type: 'aiBlock', attrs \}\)/);
+});
+
+test('AI started inside a callout inserts normal editable content directly into that callout', () => {
+  assert.match(editorSource, /function directAITargetForSelection\(ed, selection\)/);
+  assert.match(editorSource, /function insertDirectAIResult\(ed,/);
+  assert.match(editorSource, /noteMarkdownToTipTap\(aiPrompt\.preview\.trim\(\)\)/);
+  assert.match(editorSource, /targetReplaceFrom/);
+  assert.match(editorSource, /insertDirectAIResult\(ed, replaceEmptyParagraph/);
+  assert.match(editorSource, /Number\.isInteger\(aiPrompt\.targetContainerFrom\)/);
+
+  const directInsertion = editorSource.slice(
+    editorSource.indexOf('function insertDirectAIResult'),
+    editorSource.indexOf('function applySelectionAIResult'),
+  );
+  assert.match(directInsertion, /insertContent(?:At)?\(/);
+  assert.doesNotMatch(directInsertion, /insertAiBlock|type: 'aiBlock'/);
+});
+
+test('AI started inside a table cell uses the same direct editable insertion path', () => {
+  assert.match(editorSource, /'tableCell',[\s\S]*?'tableHeader'/);
+  assert.match(editorSource, /end\.type !== start\.type \|\| end\.from !== start\.from/);
+  assert.match(editorSource, /node\?\.type\.name === type && from \+ node\.nodeSize === to/);
+});
+
+test('AI started inside a quote or code block is inserted directly without an AI block', () => {
+  assert.match(editorSource, /'blockquote',[\s\S]*?'codeBlock'/);
+  assert.match(editorSource, /noteAITextForCodeBlock\(aiPrompt\.preview\)/);
+  assert.match(editorSource, /slash\.codeOnly[\s\S]*?command\.kind === 'generate-ai'/);
+  assert.match(editorSource, /slash\.codeOnly = \$from\.parent\.type\.name === 'codeBlock'/);
 });
 
 test('AI writing has generation feedback without additional caret-like markers', () => {
   assert.match(editorSource, /'is-generating': aiPrompt\.loading/);
-  assert.match(editorSource, /v-if="aiPrompt\.loading" class="pm-ai-prompt__progress"/);
-  assert.match(editorSource, /class="pm-ai-prompt__progress"/);
+  assert.match(editorSource, /v-if="aiPrompt\.presentation === 'toolbar' && aiPrompt\.loading"[\s\S]*?class="note-editor__toolbar-ai-spinner"/);
+  assert.match(editorSource, /v-if="aiPrompt\.loading" class="pm-ai-prompt__spinner"/);
   assert.doesNotMatch(editorSource, /pm-ai-anchor/);
   assert.doesNotMatch(editorSource, /pm-ai-prompt__stream-caret/);
   assert.match(editorSource, /insertAiBlock\([\s\S]*?focus\('end'\)[\s\S]*?scrollIntoView\(\)/);
@@ -116,24 +174,37 @@ test('cloud credentials can be saved without exposing infrastructure setup', () 
 
 test('AI writing controls only appear for a usable provider and model', () => {
   assert.match(editorSource, /v-if="aiAvailable"/);
-  assert.match(editorSource, /!props\.aiAvailable && command\.kind === 'generate-ai'/);
+  assert.match(editorSource, /!props\.aiAvailable && \(command\.kind === 'generate-ai' \|\| command\.kind === 'cleanup'\)/);
   assert.match(editorSource, /mdi-auto-fix/);
   assert.match(workspaceEditorSource, /:ai-available="aiAvailable"/);
   assert.match(workspaceEditorSource, /aiCredentialStatus\.value\?\.\[provider\]\?\.configured === true/);
   assert.match(workspaceEditorSource, /String\(config\[modelKey\] \|\| ''\)\.trim\(\)/);
 });
 
-test('AI prompt suggestion chips are globally configurable and capped at six', () => {
+test('complete AI dialog renders configured suggestion chips without adding them to the toolbar field', () => {
   assert.match(settingsSource, /Beispielprompts/);
   assert.match(settingsSource, /v-model="notePromptSuggestionsDraft\[index\]"/);
   assert.match(settingsSource, /notePromptSuggestionsDraft\.length >= 6/);
   assert.match(settingsSource, /prompt_suggestions: normalizedNotePromptSuggestionsDraft\.value/);
   assert.match(workspaceEditorSource, /:ai-prompt-suggestions="aiPromptSuggestions"/);
   assert.match(editorSource, /props\.aiPromptSuggestions/);
-  assert.match(editorSource, /\.slice\(0, 6\)/);
+  assert.match(editorSource, /class="pm-ai-prompt__suggestions"/);
 });
 
 test('AI writing offers a table prompt backed by valid Markdown guidance', () => {
   assert.match(promptDefaultsSource, /Als Tabelle strukturieren/);
   assert.match(promptDefaultsSource, /gültige Markdown-Tabelle/);
+});
+
+test('complete AI dialog controls output length while the toolbar prompt stays neutral', () => {
+  assert.match(editorSource, /aiPrompt\.lengthLevel/);
+  assert.match(editorSource, /class="pm-ai-prompt__length"/);
+  assert.match(editorSource, /type="range"/);
+  assert.match(editorSource, /\{ label: 'Automatisch', lineHint: 'nach Prompt', instruction: '' \}/);
+  assert.match(editorSource, /\{ label: 'Kurz', lineHint: 'ca\. 1–3 Zeilen'/);
+  assert.match(editorSource, /\{ label: 'Mittel', lineHint: 'ca\. 4–8 Zeilen'/);
+  assert.match(editorSource, /\{ label: 'Lang', lineHint: 'ca\. 9–16 Zeilen'/);
+  assert.match(editorSource, /lengthLevel: 0/);
+  assert.match(editorSource, /activeAILengthOption\.label \}\} · \{\{ activeAILengthOption\.lineHint/);
+  assert.match(editorSource, /length_instruction: aiPrompt\.presentation === 'dialog'[\s\S]*?activeAILengthOption\.value\.instruction[\s\S]*?: ''/);
 });

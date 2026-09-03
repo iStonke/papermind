@@ -1,4 +1,9 @@
 import { noteCalloutMeta } from './noteCallouts.js';
+import {
+  normalizeNoteHighlightColor,
+  noteHighlightInlineStyle,
+} from './noteHighlights.js';
+import { normalizeNotePageLayoutColumns } from './noteLayouts.js';
 import { normalizeNoteHref } from './noteLinks.js';
 import { noteMarkdownToSafeHtml } from './noteMarkdown.js';
 
@@ -49,6 +54,9 @@ function renderText(node) {
       value = `~~${value}~~`;
     } else if (mark.type === 'underline') {
       value = `<u>${value}</u>`;
+    } else if (mark.type === 'highlight') {
+      const color = normalizeNoteHighlightColor(mark.attrs?.color);
+      value = `<mark data-highlight="${color}" style="${noteHighlightInlineStyle(color)}">${value}</mark>`;
     } else if (mark.type === 'link' && mark.attrs?.href) {
       const href = normalizeNoteHref(mark.attrs.href);
       if (href) value = `[${value}](${href})`;
@@ -66,7 +74,10 @@ function renderHtmlText(node) {
     else if (mark.type === 'italic') value = `<em>${value}</em>`;
     else if (mark.type === 'strike') value = `<s>${value}</s>`;
     else if (mark.type === 'underline') value = `<u>${value}</u>`;
-    else if (mark.type === 'link' && mark.attrs?.href) {
+    else if (mark.type === 'highlight') {
+      const color = normalizeNoteHighlightColor(mark.attrs?.color);
+      value = `<mark data-highlight="${color}" style="${noteHighlightInlineStyle(color)}">${value}</mark>`;
+    } else if (mark.type === 'link' && mark.attrs?.href) {
       const href = normalizeNoteHref(mark.attrs.href);
       if (href) {
         value = `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${value}</a>`;
@@ -117,6 +128,13 @@ function renderNode(node, context) {
 
   switch (node.type) {
     case 'doc':
+      return renderChildren(node, context, '\n\n');
+    case 'pageLayout':
+      return (node.content || [])
+        .map((column) => renderNode(column, context).trim())
+        .filter(Boolean)
+        .join('\n\n');
+    case 'layoutColumn':
       return renderChildren(node, context, '\n\n');
     case 'text':
       return renderText(node);
@@ -243,6 +261,12 @@ function renderHtmlNode(node, context) {
   switch (node.type) {
     case 'doc':
       return renderHtmlChildren(node, context);
+    case 'pageLayout': {
+      const columns = normalizeNotePageLayoutColumns(node.attrs?.columns, 2);
+      return `<div class="page-layout page-layout-${columns}">${renderHtmlChildren(node, context)}</div>`;
+    }
+    case 'layoutColumn':
+      return `<section class="layout-column">${renderHtmlChildren(node, context)}</section>`;
     case 'text':
       return renderHtmlText(node);
     case 'paragraph':
@@ -407,6 +431,17 @@ export function noteToPrintableHtml({
     .eyebrow { color: #527078; font: 8pt ui-monospace, monospace; letter-spacing: .12em; text-transform: uppercase; }
     h1.title { margin: 2mm 0 0; font: 650 24pt/1.15 ${fontStack}; }
     main > * + * { margin-top: ${paragraphGap}; }
+    .page-layout { display: grid; align-items: start; width: 100%; }
+    .page-layout-1 { grid-template-columns: minmax(0, 1fr); }
+    .page-layout-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .page-layout-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .page-layout-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .page-layout-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .layout-column { min-width: 0; padding: 0 3mm; overflow-wrap: anywhere; }
+    .layout-column + .layout-column { border-left: 1px solid #d8dfe1; }
+    .layout-column:first-child { padding-left: 0; }
+    .layout-column:last-child { padding-right: 0; }
+    .layout-column > *:first-child { margin-top: 0; }
     h1, h2, h3, h4 { break-after: avoid; font-family: ${fontStack}; line-height: 1.25; }
     h1 { font-size: 19pt; } h2 { font-size: 15pt; } h3 { font-size: 12.5pt; } h4 { font-size: 11pt; }
     p { margin-bottom: 0; } ul, ol { padding-left: 1.5em; }
@@ -414,10 +449,12 @@ export function noteToPrintableHtml({
     .ocr-quote, .ai-block { padding: 4mm; border-radius: 2mm; background: #f1f5f6; break-inside: avoid; }
     .callout { margin: 4mm 0; padding: 3.5mm 4mm; border: 1px solid #d8dfe1; border-left: 3px solid #b7791f; border-radius: 2mm; background: #fff9ed; break-inside: avoid; }
     .callout > strong { display: block; margin-bottom: 1.5mm; color: #8a5a12; font-size: 9pt; letter-spacing: .05em; text-transform: uppercase; }
+    .callout-info { border-left-color: #2878b5; background: #f1f7fd; } .callout-info > strong { color: #21699f; }
     .callout-question { border-left-color: #006b75; background: #eefafa; } .callout-question > strong { color: #006b75; }
     .callout-decision { border-left-color: #2f855a; background: #f0faf4; } .callout-decision > strong { color: #2f855a; }
     .callout-deadline { border-left-color: #c84c4c; background: #fff4f4; } .callout-deadline > strong { color: #a53b3b; }
     .callout-source { border-left-color: #5b6fb8; background: #f4f6ff; } .callout-source > strong { color: #485c9f; }
+    .callout-prompt { border-left-color: #7c5aa6; background: #f8f4fc; } .callout-prompt > strong { color: #68488f; }
     .callout p:first-child, .callout p:last-child { margin-top: 0; margin-bottom: 0; }
     .ocr-quote cite { font-size: 8.5pt; font-style: normal; }
     pre { padding: 4mm; overflow-wrap: anywhere; border: 1px solid #d8dfe1; background: #f1f5f6; white-space: pre-wrap; }

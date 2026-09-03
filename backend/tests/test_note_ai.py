@@ -39,7 +39,13 @@ class NoteAIServiceTest(unittest.TestCase):
     @patch("app.services.note_ai.SettingsService.get_settings", return_value=runtime_settings())
     def test_plain_note_text_may_use_configured_cloud_provider(self, _settings, _key) -> None:
         service = NoteAIService(db=object(), owner_id=None)
-        plan = service.prepare(NoteTextGenerationRequest(instruction="Schreibe weiter", note_context="Notiz"))
+        plan = service.prepare(
+            NoteTextGenerationRequest(
+                instruction="Schreibe weiter",
+                length_instruction="1–2 Sätze",
+                note_context="Notiz",
+            )
+        )
 
         self.assertEqual(plan.provider, "openai")
         self.assertEqual(plan.model, "openai-writer")
@@ -49,6 +55,8 @@ class NoteAIServiceTest(unittest.TestCase):
         )
         self.assertFalse(plan.local_only)
         self.assertEqual(plan.fallback_model, "local-writer")
+        self.assertIn("VERBINDLICHE LÄNGENVORGABE:\n1–2 Sätze", plan.user_prompt)
+        self.assertIn("keinen zusätzlichen Vor- oder Nachsatz", plan.user_prompt)
 
     @patch("app.services.note_ai.AICredentialService.get_key")
     @patch("app.services.note_ai.SettingsService.get_settings", return_value=runtime_settings(provider="anthropic"))

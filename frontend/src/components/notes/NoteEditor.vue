@@ -3,9 +3,9 @@
   TipTap/ProseMirror. Persistenz-agnostisch: gibt Titel + Body-JSON nach außen,
   das Speichern (localStorage in M0, Backend ab M2) übernimmt der Aufrufer.
 
-  Bewusst OHNE tippy/Teleport: Bubble- und Slash-Menü sind selbst positionierte
-  Elemente INNERHALB von .papermind-app, damit die --pm-*-Kontur-Tokens greifen
-  (vgl. Vuetify-Teleport-Token-Falle). Positionierung über posToDOMRect.
+  Bewusst OHNE tippy: Bubble- und Slash-Menü sind selbst positionierte Elemente
+  INNERHALB von .papermind-app, damit die --pm-*-Kontur-Tokens greifen. Die
+  schlanke KI-Eingabe sitzt dauerhaft und ohne eigene Chrome in der Werkzeugleiste.
 -->
 <template>
   <div
@@ -30,30 +30,29 @@
       @keydown.enter.prevent="focusBody"
     />
 
-    <div
-      v-if="workspace"
-      ref="toolbarEl"
-      class="note-editor__toolbar"
-      :class="{ 'is-ducked': toolbarDucked, 'is-compact': toolbarCompact }"
-      role="toolbar"
-      aria-label="Text formatieren"
-      :aria-disabled="readonly ? 'true' : undefined"
-      :inert="readonly ? '' : undefined"
-      @pointerenter="revealFormattingToolbar"
-      @focusin="revealFormattingToolbar"
-    >
+    <div v-if="workspace" class="note-editor__toolbar-guard">
+      <div
+        ref="toolbarEl"
+        class="note-editor__toolbar"
+        :class="{ 'is-active': openMenu, 'is-compact': toolbarCompact }"
+        role="toolbar"
+        aria-label="Text formatieren"
+        :aria-disabled="readonly ? 'true' : undefined"
+        :inert="readonly ? '' : undefined"
+      >
       <div class="note-editor__toolbar-menu">
         <button
           type="button"
           class="note-editor__toolbar-btn note-editor__toolbar-btn--group"
           :class="{ 'is-open': openMenu === 'block' }"
           :aria-expanded="openMenu === 'block' ? 'true' : 'false'"
-          title="Absatzstil"
+          title="Text"
+          aria-label="Text"
           @mousedown.prevent
           @click.prevent="toggleMenu('block')"
         >
-          <span class="note-editor__toolbar-btn-label">{{ currentBlockShort() }}</span>
-          <v-icon size="15">mdi-chevron-down</v-icon>
+          <v-icon size="18">mdi-format-text</v-icon>
+          <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
         </button>
         <div v-if="openMenu === 'block'" class="note-editor__toolbar-dropdown">
           <button
@@ -68,51 +67,75 @@
         </div>
       </div>
 
-      <span class="note-editor__toolbar-divider" aria-hidden="true" />
-
-      <div class="note-editor__toolbar-group">
+      <div class="note-editor__toolbar-menu">
         <button
           type="button"
-          class="note-editor__toolbar-btn"
-          :class="{ 'is-active': toolbarActive('bold') }"
-          title="Fett"
-          aria-label="Fett"
-          @click.prevent="runToolbar('bold')"
-        ><strong>B</strong></button>
-        <button
-          type="button"
-          class="note-editor__toolbar-btn"
-          :class="{ 'is-active': toolbarActive('italic') }"
-          title="Kursiv"
-          aria-label="Kursiv"
-          @click.prevent="runToolbar('italic')"
-        ><em>I</em></button>
-        <button
-          type="button"
-          class="note-editor__toolbar-btn"
-          :class="{ 'is-active': toolbarActive('underline') }"
-          title="Unterstrichen"
-          aria-label="Unterstrichen"
-          @click.prevent="runToolbar('underline')"
-        ><u>U</u></button>
-        <button
-          v-if="!toolbarCompact"
-          type="button"
-          class="note-editor__toolbar-btn"
-          :class="{ 'is-active': toolbarActive('code') }"
-          title="Code"
-          aria-label="Code"
-          @click.prevent="runToolbar('code')"
-        ><span class="note-editor__toolbar-code">A</span></button>
-        <button
-          v-if="!toolbarCompact"
-          type="button"
-          class="note-editor__toolbar-btn"
-          :class="{ 'is-active': toolbarActive('link') }"
-          title="Hyperlink (⌘/Strg+K)"
-          aria-label="Hyperlink einfügen oder bearbeiten"
-          @click.prevent="openLinkEditor"
-        ><v-icon size="18">mdi-link-variant</v-icon></button>
+          class="note-editor__toolbar-btn note-editor__toolbar-btn--group"
+          :class="{ 'is-open': openMenu === 'layout' }"
+          :aria-expanded="openMenu === 'layout' ? 'true' : 'false'"
+          title="Layout"
+          aria-label="Layout"
+          @mousedown.prevent
+          @click.prevent="toggleMenu('layout')"
+        >
+          <v-icon size="17">mdi-view-column-outline</v-icon>
+          <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
+        </button>
+        <div v-if="openMenu === 'layout'" class="note-editor__toolbar-dropdown note-editor__layout-menu">
+          <div class="note-editor__layout-menu-label">
+            {{ currentPageLayoutColumns() ? 'Aktuelles Layout' : 'Layout einfügen' }}
+          </div>
+          <button
+            v-for="item in pageLayoutItems"
+            :key="item.columns"
+            type="button"
+            class="note-editor__toolbar-dropitem"
+            :class="{ 'is-active': currentPageLayoutColumns() === item.columns }"
+            :aria-pressed="currentPageLayoutColumns() === item.columns ? 'true' : 'false'"
+            @mousedown.prevent
+            @click.prevent="runPageLayout(item.columns)"
+          >
+            <span
+              class="note-editor__layout-preview"
+              :style="{ '--pm-layout-preview-columns': item.columns }"
+              aria-hidden="true"
+            >
+              <span v-for="column in item.columns" :key="column"></span>
+            </span>
+            <span>{{ item.label }}</span>
+          </button>
+          <template v-if="currentPageLayoutColumns()">
+            <div class="note-editor__layout-menu-divider" aria-hidden="true"></div>
+            <div class="note-editor__layout-menu-label">Neues Layout</div>
+            <button
+              type="button"
+              class="note-editor__toolbar-dropitem"
+              @mousedown.prevent
+              @click.prevent="insertAdjacentPageLayout('before')"
+            >
+              <span class="note-editor__toolbar-dropitem-glyph"><v-icon size="17">mdi-arrow-up</v-icon></span>
+              <span>Darüber einfügen</span>
+            </button>
+            <button
+              type="button"
+              class="note-editor__toolbar-dropitem"
+              @mousedown.prevent
+              @click.prevent="insertAdjacentPageLayout('after')"
+            >
+              <span class="note-editor__toolbar-dropitem-glyph"><v-icon size="17">mdi-arrow-down</v-icon></span>
+              <span>Darunter einfügen</span>
+            </button>
+            <button
+              type="button"
+              class="note-editor__toolbar-dropitem note-editor__layout-remove"
+              @mousedown.prevent
+              @click.prevent="removeCurrentPageLayout"
+            >
+              <span class="note-editor__toolbar-dropitem-glyph"><v-icon size="17">mdi-view-agenda-outline</v-icon></span>
+              <span>Layout auflösen</span>
+            </button>
+          </template>
+        </div>
       </div>
 
       <span class="note-editor__toolbar-divider" aria-hidden="true" />
@@ -123,17 +146,13 @@
           class="note-editor__toolbar-btn note-editor__toolbar-btn--group"
           :class="{ 'is-open': openMenu === 'insert' }"
           :aria-expanded="openMenu === 'insert' ? 'true' : 'false'"
-          :title="toolbarCompact ? 'Weitere Werkzeuge' : 'Einfügen'"
-          :aria-label="toolbarCompact ? 'Weitere Werkzeuge' : 'Einfügen'"
+          title="Einfügen"
+          aria-label="Einfügen"
           @mousedown.prevent
           @click.prevent="toggleMenu('insert')"
         >
-          <v-icon v-if="toolbarCompact" size="18">mdi-dots-horizontal</v-icon>
-          <template v-else>
-            <v-icon size="16">mdi-plus</v-icon>
-            <span class="note-editor__toolbar-btn-label">Einfügen</span>
-            <v-icon size="15">mdi-chevron-down</v-icon>
-          </template>
+          <v-icon size="18">mdi-plus</v-icon>
+          <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
         </button>
         <div v-if="openMenu === 'insert'" class="note-editor__toolbar-dropdown note-editor__toolbar-dropdown--end">
           <button
@@ -157,17 +176,48 @@
 
       <template v-if="aiAvailable">
         <span class="note-editor__toolbar-divider" aria-hidden="true" />
-        <div class="note-editor__toolbar-group">
-          <button
-            type="button"
-            class="note-editor__toolbar-btn"
-            title="Mit KI schreiben"
-            aria-label="Mit KI schreiben"
-            @click.prevent="openAIPrompt"
-          ><v-icon size="18">mdi-auto-fix</v-icon></button>
-        </div>
+        <form
+          class="note-editor__toolbar-ai"
+          :class="{
+            'has-prompt': Boolean(aiPrompt.instruction.trim()),
+            'is-generating': aiPrompt.presentation === 'toolbar' && aiPrompt.loading,
+            'has-error': aiPrompt.presentation === 'toolbar' && aiPrompt.error,
+          }"
+          aria-label="Mit KI schreiben"
+          @submit.prevent="generateAIText"
+          @pointerdown.stop="prepareToolbarAIPromptTarget"
+        >
+          <span class="note-editor__toolbar-ai-icon" aria-hidden="true" @click="focusToolbarAIPrompt">
+            <span
+              v-if="aiPrompt.presentation === 'toolbar' && aiPrompt.loading"
+              class="note-editor__toolbar-ai-spinner"
+            ></span>
+            <v-icon v-else size="18">mdi-auto-fix</v-icon>
+          </span>
+          <input
+            ref="aiToolbarInputEl"
+            v-model="aiPrompt.instruction"
+            type="text"
+            maxlength="2000"
+            autocomplete="off"
+            placeholder="Einfach losschreiben …"
+            aria-label="Anweisung an die KI"
+            :disabled="aiPrompt.loading"
+            :aria-invalid="aiPrompt.error ? 'true' : undefined"
+            :aria-describedby="aiPrompt.error ? 'note-editor-ai-error' : undefined"
+            @focus="ensureToolbarAIPromptTarget"
+            @keydown.esc.prevent="closeAIPrompt"
+          />
+          <span
+            v-if="aiPrompt.presentation === 'toolbar' && aiPrompt.error"
+            id="note-editor-ai-error"
+            class="note-editor__toolbar-ai-error"
+            role="alert"
+          >{{ aiPrompt.error }}</span>
+        </form>
       </template>
 
+      </div>
     </div>
 
     <input
@@ -241,18 +291,48 @@
         role="toolbar"
         aria-label="Formatierung"
       >
-        <button
-          v-for="b in bubbleButtons"
-          :key="b.key"
-          type="button"
-          class="pm-bubble__btn"
-          :class="{ 'is-active': b.active(), 'is-ai': b.ai }"
-          :title="b.label"
-          :aria-label="b.label"
-          @mousedown.prevent="b.run()"
+        <div class="pm-bubble__row">
+          <button
+            v-for="b in bubbleButtons"
+            :key="b.key"
+            type="button"
+            class="pm-bubble__btn"
+            :class="{ 'is-active': b.active(), 'is-ai': b.ai }"
+            :title="b.label"
+            :aria-label="b.label"
+            @mousedown.prevent="b.run()"
+          >
+            <v-icon size="17">{{ b.icon }}</v-icon>
+          </button>
+        </div>
+        <div
+          v-if="bubbleHighlight.open"
+          class="pm-bubble__swatches"
+          role="menu"
+          aria-label="Textmarkerfarbe"
         >
-          <span class="pm-bubble__glyph" v-html="b.glyph"></span>
-        </button>
+          <button
+            v-for="color in NOTE_HIGHLIGHT_COLORS"
+            :key="color.value"
+            type="button"
+            class="pm-bubble__swatch"
+            :class="{ 'is-active': isTextHighlightActive(color.value) }"
+            :style="{ '--pm-swatch': color.background }"
+            :title="color.label"
+            :aria-label="`Textmarker ${color.label}`"
+            role="menuitemradio"
+            :aria-checked="isTextHighlightActive(color.value) ? 'true' : 'false'"
+            @mousedown.prevent="applyBubbleHighlight(color.value)"
+          ></button>
+          <button
+            type="button"
+            class="pm-bubble__swatch pm-bubble__swatch--remove"
+            :disabled="!toolbarActive('highlight')"
+            title="Markierung entfernen"
+            aria-label="Markierung entfernen"
+            @mousedown.prevent="removeBubbleHighlight()"
+          ><v-icon size="14">mdi-eraser</v-icon></button>
+        </div>
       </div>
 
       <!-- Klassischer externer Hyperlink. Interne PaperMind-Ziele bleiben
@@ -455,11 +535,11 @@
         </button>
       </div>
 
-      <!-- Schlanker Prompt direkt an der Einfügeposition. Nur Notiztext wird
-           übertragen; Dokumentkontext ist ein separater, lokal erzwungener Pfad. -->
+      <!-- Vollständiger Dialog für explizite KI-Aufrufe am Text. Die dauerhaft
+           sichtbare Toolbar-Zeile bleibt davon unabhängig kompakt. -->
       <form
-        v-if="editor && aiPrompt.open"
-        class="pm-float pm-ai-prompt"
+        v-if="editor && aiPrompt.open && aiPrompt.presentation === 'dialog'"
+        class="pm-float pm-ai-prompt pm-ai-prompt--writing"
         :class="{ 'is-generating': aiPrompt.loading }"
         :style="aiPrompt.style"
         :aria-label="aiPrompt.mode === 'selection' ? 'Auswahl mit KI bearbeiten' : 'Mit KI schreiben'"
@@ -497,6 +577,22 @@
             <span v-else aria-hidden="true">→</span>
           </button>
         </div>
+        <fieldset class="pm-ai-prompt__length" :disabled="aiPrompt.loading">
+          <legend>Antwortlänge</legend>
+          <output>{{ activeAILengthOption.label }} · {{ activeAILengthOption.lineHint }}</output>
+          <input
+            v-model.number="aiPrompt.lengthLevel"
+            type="range"
+            min="0"
+            :max="AI_LENGTH_OPTIONS.length - 1"
+            step="1"
+            aria-label="Antwortlänge"
+            :aria-valuetext="`${activeAILengthOption.label}, ${activeAILengthOption.lineHint}`"
+          />
+          <div aria-hidden="true">
+            <span v-for="option in AI_LENGTH_OPTIONS" :key="option.label">{{ option.label }}</span>
+          </div>
+        </fieldset>
         <div v-if="aiPrompt.loading" class="pm-ai-prompt__progress" aria-hidden="true">
           <span></span>
         </div>
@@ -532,6 +628,48 @@
         </div>
         <div v-if="aiPrompt.error" class="pm-ai-prompt__error" role="alert">{{ aiPrompt.error }}</div>
       </form>
+
+      <!-- Aufräumen (sinnwahrend): Vorschau der geglätteten Fließtext-Absätze mit
+           Übernehmen/Verwerfen. Strukturierte Blöcke bleiben unangetastet. -->
+      <div
+        v-if="editor && cleanup.open"
+        class="pm-float pm-ai-prompt pm-cleanup"
+        :class="{ 'is-generating': cleanup.loading }"
+        :style="cleanup.style"
+        role="dialog"
+        aria-label="Aufräumen"
+      >
+        <div class="pm-ai-prompt__head">
+          <span>
+            <v-icon class="pm-ai-prompt__icon" size="17" aria-hidden="true">mdi-broom</v-icon>
+            Aufräumen · sinnwahrend
+          </span>
+          <button type="button" class="pm-ai-prompt__close" aria-label="Schließen" @click="closeCleanup">×</button>
+        </div>
+        <div class="pm-ai-prompt__context">
+          <span aria-hidden="true"></span>
+          {{ cleanupScopeLabel }}
+        </div>
+        <div v-if="cleanup.loading" class="pm-ai-prompt__progress" aria-hidden="true">
+          <span></span>
+        </div>
+        <div v-if="cleanupPreviewText" class="pm-ai-prompt__preview" aria-live="polite">
+          <span>{{ cleanupPreviewText }}</span>
+        </div>
+        <div v-if="cleanup.loading" class="pm-ai-prompt__status" aria-live="polite">
+          {{ cleanup.provider
+            ? `${cleanup.fallbackFrom ? 'Lokaler Fallback' : providerLabel(cleanup.provider)} · ${cleanup.model}`
+            : 'Modell wird gestartet …' }}
+        </div>
+        <div
+          v-if="cleanupPreviewText && !cleanup.loading && !cleanup.error"
+          class="pm-ai-prompt__result-actions"
+        >
+          <button type="button" class="is-primary" @click="applyCleanup">Übernehmen</button>
+          <button type="button" @click="closeCleanup">Verwerfen</button>
+        </div>
+        <div v-if="cleanup.error" class="pm-ai-prompt__error" role="alert">{{ cleanup.error }}</div>
+      </div>
     </div>
 
     <div v-if="!workspace" class="note-editor__status">
@@ -549,7 +687,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { EditorContent, useEditor, posToDOMRect } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
 import FileHandler from '@tiptap/extension-file-handler';
-import Document from '@tiptap/extension-document';
 import Placeholder from '@tiptap/extension-placeholder';
 import Typography from '@tiptap/extension-typography';
 import TaskList from '@tiptap/extension-task-list';
@@ -561,6 +698,9 @@ import { OcrQuote } from './nodes/ocrQuote.js';
 import { AiBlock } from './nodes/aiBlock.js';
 import { WikiLink } from './nodes/wikiLink.js';
 import { Callout } from './nodes/callout.js';
+import { LayoutColumn, PageLayout, pageLayoutAtSelection } from './nodes/pageLayout.js';
+import { NoteHighlight } from './nodes/noteHighlight.js';
+import { PaperMindDocument } from './nodes/noteDocument.js';
 import { TemplateBox, TemplateField } from './nodes/templateBox.js';
 import { NoteImage } from './nodes/noteImage.js';
 import {
@@ -576,6 +716,7 @@ import {
 } from './extensions/noteSearch.js';
 import { MOCK_DOCUMENTS, mockLinkTargets, targetGlyph } from './mockData.js';
 import { NOTE_CALLOUT_OPTIONS } from '../../utils/noteCallouts.js';
+import { NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT } from '../../constants/promptDefaults.js';
 import { NOTE_TEMPLATE_PRESETS } from './nodes/noteTemplates.js';
 import { normalizeNoteHref, noteHrefLabel } from '../../utils/noteLinks.js';
 import {
@@ -585,16 +726,18 @@ import {
   parseNoteSlashUsage,
 } from '../../utils/noteSlashUsage.js';
 import { streamNoteText, uploadNoteImage } from '../../api/notes.js';
-import { NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT } from '../../constants/promptDefaults.js';
-
-const PaperMindDocument = Document.extend({
-  addAttributes() {
-    return {
-      favorite: { default: false },
-      linkedDocument: { default: null },
-    };
-  },
-});
+import { noteAITextForCodeBlock, noteMarkdownToTipTap } from '../../utils/noteMarkdown.js';
+import {
+  CLEANUP_INPUT_LIMIT,
+  CLEANUP_INSTRUCTION,
+  formatCleanupInput,
+  parseCleanupOutput,
+  stripCleanupMarks,
+} from '../../utils/noteCleanup.js';
+import {
+  NOTE_PAGE_LAYOUT_COLUMNS,
+} from '../../utils/noteLayouts.js';
+import { NOTE_HIGHLIGHT_COLORS } from '../../utils/noteHighlights.js';
 
 const props = defineProps({
   /** Body als ProseMirror-JSON-Dokument (oder null für leer). */
@@ -622,7 +765,7 @@ const props = defineProps({
   readonly: { type: Boolean, default: false },
   /** Nur bei vollständig nutzbarer Modell-/Zugangskonfiguration anzeigen. */
   aiAvailable: { type: Boolean, default: false },
-  /** Konfigurierbare Schnellprompts im Fenster „Mit KI schreiben“ (maximal 6). */
+  /** Konfigurierbare Schnellprompts im vollständigen KI-Dialog (maximal 6). */
   aiPromptSuggestions: {
     type: Array,
     default: () => [...NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT],
@@ -650,6 +793,7 @@ const emit = defineEmits([
 const surfaceEl = ref(null);
 const writingEl = ref(null);
 const titleEl = ref(null);
+const aiToolbarInputEl = ref(null);
 const aiPromptInputEl = ref(null);
 const linkInputEl = ref(null);
 const imageInputEl = ref(null);
@@ -659,7 +803,6 @@ const words = ref(0);
 const editorEmpty = ref(true);
 const emptyHintPositioned = ref(false);
 const emptyHintStyle = ref({ top: '0px', left: '0px' });
-const toolbarDucked = ref(false);
 const normalizedWritingWidth = computed(() =>
   ['compact', 'comfortable', 'wide'].includes(props.writingWidth)
     ? props.writingWidth
@@ -674,11 +817,9 @@ const normalizedFontFamily = computed(() =>
   ['sans', 'serif', 'mono'].includes(props.fontFamily) ? props.fontFamily : 'sans'
 );
 let toolbarScrollContainer = null;
-let toolbarRevealTimer = null;
-let toolbarScrollAnchor = 0;
 let toolbarScrollRestoreFrame = null;
-let restoringWorkspaceScroll = false;
 let aiGenerationController = null;
+let cleanupController = null;
 let historyFlashTimer = null;
 let linkCopiedTimer = null;
 let emptyHintPositionFrame = null;
@@ -696,8 +837,6 @@ const imageUploadLabel = computed(() => (
     : `${imageUploadCount.value} Bilder werden eingefügt …`
 ));
 
-const TOOLBAR_DUCK_SCROLL_THRESHOLD = 24;
-const TOOLBAR_REVEAL_DELAY_MS = 400;
 const TABLE_PICKER_SIZE = 5;
 const TABLE_PICKER_CELLS = Object.freeze(
   Array.from({ length: TABLE_PICKER_SIZE ** 2 }, (_, index) => ({
@@ -751,6 +890,9 @@ const editor = useEditor({
         HTMLAttributes: { target: '_blank', rel: 'noopener noreferrer' },
       },
     }),
+    PageLayout,
+    LayoutColumn,
+    NoteHighlight,
     PaperMindDocument,
     Placeholder.configure({ placeholder: props.placeholder }),
     Typography,
@@ -844,7 +986,6 @@ onBeforeUnmount(() => {
   editor.value?.destroy();
   toolbarScrollContainer?.removeEventListener('scroll', onEditorScroll);
   window.removeEventListener('resize', refreshBubble);
-  if (toolbarRevealTimer) window.clearTimeout(toolbarRevealTimer);
   if (toolbarScrollRestoreFrame) window.cancelAnimationFrame(toolbarScrollRestoreFrame);
   if (historyFlashTimer) window.clearTimeout(historyFlashTimer);
   if (linkCopiedTimer) window.clearTimeout(linkCopiedTimer);
@@ -874,7 +1015,6 @@ function dismissHistoryFlash(ed) {
 
 function bindFormattingToolbarScroll() {
   toolbarScrollContainer = surfaceEl.value?.closest('.note-workspace-editor__scroll') || null;
-  toolbarScrollAnchor = toolbarScrollContainer?.scrollTop || 0;
   toolbarScrollContainer?.addEventListener('scroll', onEditorScroll, { passive: true });
 }
 
@@ -882,33 +1022,13 @@ function applySpellcheck(enabled) {
   editor.value?.view?.dom?.setAttribute('spellcheck', enabled ? 'true' : 'false');
 }
 
+// Beim Scrollen die offenen Overlays (Slash-/Bubble-Menü) neu positionieren.
+// Die Leiste selbst ist sticky und braucht kein Ducking mehr – ihr Ruhezustand
+// ist ohnehin dauerhaft gedämpft.
 function onEditorScroll() {
-  const scrollTop = toolbarScrollContainer?.scrollTop || 0;
   if (slash.open) refreshSlash();
   if (bubble.show) refreshBubble();
-  if (restoringWorkspaceScroll) {
-    toolbarScrollAnchor = scrollTop;
-    return;
-  }
-  if (
-    !toolbarDucked.value
-    && Math.abs(scrollTop - toolbarScrollAnchor) < TOOLBAR_DUCK_SCROLL_THRESHOLD
-  ) return;
-
-  toolbarDucked.value = true;
-  if (toolbarRevealTimer) window.clearTimeout(toolbarRevealTimer);
-  toolbarRevealTimer = window.setTimeout(() => {
-    toolbarDucked.value = false;
-    toolbarScrollAnchor = toolbarScrollContainer?.scrollTop || 0;
-    toolbarRevealTimer = null;
-  }, TOOLBAR_REVEAL_DELAY_MS);
-}
-
-function revealFormattingToolbar() {
-  toolbarDucked.value = false;
-  toolbarScrollAnchor = toolbarScrollContainer?.scrollTop || 0;
-  if (toolbarRevealTimer) window.clearTimeout(toolbarRevealTimer);
-  toolbarRevealTimer = null;
+  if (aiPrompt.open && aiPrompt.presentation === 'dialog') positionAIPrompt();
 }
 
 function restoreWorkspaceScroll(top) {
@@ -916,18 +1036,13 @@ function restoreWorkspaceScroll(top) {
     || surfaceEl.value?.closest('.note-workspace-editor__scroll');
   if (!scrollElement) return;
   const targetTop = Math.max(0, Number(top) || 0);
-  restoringWorkspaceScroll = true;
-  toolbarDucked.value = false;
   scrollElement.scrollTop = targetTop;
-  toolbarScrollAnchor = scrollElement.scrollTop;
   if (toolbarScrollRestoreFrame) window.cancelAnimationFrame(toolbarScrollRestoreFrame);
   toolbarScrollRestoreFrame = window.requestAnimationFrame(() => {
     // Chromium kann die Auswahl beim Einblenden eines Overlays erst im
     // nächsten Frame nachführen. Ein zweites Setzen hält dabei die zuvor
     // gewählte Schreibposition stabil.
     scrollElement.scrollTop = targetTop;
-    toolbarScrollAnchor = scrollElement.scrollTop;
-    restoringWorkspaceScroll = false;
     toolbarScrollRestoreFrame = null;
   });
 }
@@ -941,6 +1056,7 @@ watch(() => props.modelValue, (next) => {
   // Ein verzögertes KI-Ergebnis darf niemals in eine inzwischen ausgewählte
   // andere Notiz geschrieben werden.
   if (aiPrompt.open) closeAIPrompt();
+  if (cleanup.open) closeCleanup();
   closeLinkEditor();
   ed.commands.setContent(next || '', { emitUpdate: false });
   resetSelectionAfterExternalContent(ed);
@@ -1143,6 +1259,7 @@ function runToolbar(action) {
     code: () => chain.toggleCode(),
     bulletList: () => chain.toggleBulletList(),
     orderedList: () => chain.toggleOrderedList(),
+    taskList: () => chain.toggleTaskList(),
     blockquote: () => chain.toggleBlockquote(),
     codeBlock: () => chain.toggleCodeBlock(),
   };
@@ -1150,25 +1267,32 @@ function runToolbar(action) {
 }
 
 /* ── Formatierungsleiste: Menü-Gruppen + responsive Verdichtung ──────────────
-   Zusammengehörige Werkzeuge werden in „Text ▾" (Absatzstil) und „Einfügen ▾"
-   gebündelt; bei zu wenig Breite (ResizeObserver auf der Editor-Wurzel) wandern
-   Code/Link zusätzlich in ein „⋯"-Überlaufmenü. B/I/U bleiben immer direkt. */
+   Textstil, Layout und Einfügen bleiben als kompakte Icon-Menüs sichtbar. Bei
+   wenig Breite wandern Code/Link zusätzlich ins Einfügen-Menü; B/I/U bleiben
+   immer direkt erreichbar. */
 const rootEl = ref(null);
 const toolbarEl = ref(null);
-const openMenu = ref(null); // 'block' | 'insert' | null
+const openMenu = ref(null); // 'block' | 'layout' | 'highlight' | 'insert' | null
 const toolbarCompact = ref(false);
 const TOOLBAR_COMPACT_WIDTH = 520;
 
 const blockStyleItems = [
-  { key: 'h2', short: 'H2', label: 'Überschrift 2' },
-  { key: 'h3', short: 'H3', label: 'Überschrift 3' },
-  { key: 'h4', short: 'H4', label: 'Überschrift 4' },
-  { key: 'paragraph', short: 'Text', label: 'Fließtext' },
+  { key: 'h2', label: 'Überschrift 2' },
+  { key: 'h3', label: 'Überschrift 3' },
+  { key: 'h4', label: 'Überschrift 4' },
+  { key: 'paragraph', label: 'Fließtext' },
+  { key: 'blockquote', label: 'Zitat' },
 ];
+
+const pageLayoutItems = NOTE_PAGE_LAYOUT_COLUMNS.map((columns) => ({
+  columns,
+  label: `${columns} ${columns === 1 ? 'Spalte' : 'Spalten'}`,
+}));
 
 const insertItems = [
   { key: 'bulletList', name: 'bulletList', icon: 'mdi-format-list-bulleted', label: 'Aufzählung' },
   { key: 'orderedList', name: 'orderedList', icon: 'mdi-format-list-numbered', label: 'Nummerierte Liste' },
+  { key: 'taskList', name: 'taskList', icon: 'mdi-checkbox-blank-circle-outline', label: 'Aufgaben' },
   { key: 'blockquote', name: 'blockquote', icon: 'mdi-format-quote-close', label: 'Zitat' },
   { key: 'codeBlock', name: 'codeBlock', glyph: '{ }', label: 'Codeblock' },
   { key: 'table', name: 'table', icon: 'mdi-table', label: 'Tabelle', action: 'table' },
@@ -1188,25 +1312,58 @@ const overflowItems = computed(() => {
   return items;
 });
 
-function currentBlockShort() {
-  if (toolbarActive('heading', { level: 2 })) return 'H2';
-  if (toolbarActive('heading', { level: 3 })) return 'H3';
-  if (toolbarActive('heading', { level: 4 })) return 'H4';
-  return 'Text';
-}
 function isBlockActive(key) {
   if (key === 'paragraph') return Boolean(toolbarActive('paragraph'));
+  if (key === 'blockquote') return Boolean(toolbarActive('blockquote'));
   const level = { h2: 2, h3: 3, h4: 4 }[key];
   return Boolean(toolbarActive('heading', { level }));
 }
 
 function toggleMenu(which) {
   openMenu.value = openMenu.value === which ? null : which;
-  if (openMenu.value) revealFormattingToolbar();
 }
 function runBlockStyle(key) {
   openMenu.value = null;
   runToolbar(key);
+}
+function currentPageLayoutColumns() {
+  const ed = editor.value;
+  return ed ? pageLayoutAtSelection(ed.state)?.node.childCount || null : null;
+}
+function runPageLayout(columns) {
+  openMenu.value = null;
+  tableMenu.open = false;
+  closeLinkEditor();
+  const ed = editor.value;
+  if (!ed) return;
+  if (pageLayoutAtSelection(ed.state)) ed.commands.setPageLayoutColumns(columns);
+  else ed.commands.insertPageLayout(columns);
+  ed.commands.focus();
+}
+function insertAdjacentPageLayout(placement) {
+  openMenu.value = null;
+  const ed = editor.value;
+  if (!ed) return;
+  ed.commands.insertPageLayoutAdjacent(placement);
+  ed.commands.focus();
+}
+function removeCurrentPageLayout() {
+  openMenu.value = null;
+  const ed = editor.value;
+  if (!ed) return;
+  ed.commands.unsetPageLayout();
+  ed.commands.focus();
+}
+function isTextHighlightActive(color) {
+  return Boolean(editor.value?.isActive('highlight', { color }));
+}
+function applyTextHighlight(color) {
+  openMenu.value = null;
+  editor.value?.chain().focus().setNoteHighlight(color).run();
+}
+function removeTextHighlight() {
+  openMenu.value = null;
+  editor.value?.chain().focus().unsetNoteHighlight().run();
 }
 function runMenuItem(item) {
   openMenu.value = null;
@@ -1646,6 +1803,22 @@ const saveLabel = computed(() => (
 
 /* ── Bubble-Menü (Auswahl-Formatierung) ─────────────────────────────────────── */
 const bubble = reactive({ show: false, style: {} });
+// Textmarker in der Auswahl-Bubble: klappt eine kompakte Farbreihe auf und nutzt
+// dieselbe Highlight-Logik wie zuvor die obere Leiste (setNoteHighlight …).
+const bubbleHighlight = reactive({ open: false });
+function toggleBubbleHighlight() {
+  bubbleHighlight.open = !bubbleHighlight.open;
+}
+function applyBubbleHighlight(color) {
+  applyTextHighlight(color);
+  bubbleHighlight.open = false;
+  refreshBubble();
+}
+function removeBubbleHighlight() {
+  removeTextHighlight();
+  bubbleHighlight.open = false;
+  refreshBubble();
+}
 const BUBBLE_VIEWPORT_MARGIN = 8;
 const BUBBLE_BUTTON_WIDTH = 32;
 const BUBBLE_AI_BUTTON_WIDTH = 36;
@@ -1655,40 +1828,52 @@ const BUBBLE_SHELL_WIDTH = 10;
 const bubbleButtons = computed(() => {
   const ed = editor.value;
   if (!ed) return [];
-  const mk = (key, label, glyph, isActive, run) => ({
-    key, label, glyph,
+  const mk = (key, label, icon, isActive, run) => ({
+    key, label, icon,
     active: () => isActive(ed),
     run: () => { run(ed.chain().focus()).run(); refreshBubble(); },
   });
   return [
-    mk('bold', 'Fett', '<b>B</b>', e => e.isActive('bold'), c => c.toggleBold()),
-    mk('italic', 'Kursiv', '<i>I</i>', e => e.isActive('italic'), c => c.toggleItalic()),
-    mk('underline', 'Unterstrichen', '<u>U</u>', e => e.isActive('underline'), c => c.toggleUnderline()),
-    mk('strike', 'Durchgestrichen', '<s>S</s>', e => e.isActive('strike'), c => c.toggleStrike()),
-    mk('code', 'Code', '<code>&lt;&gt;</code>', e => e.isActive('code'), c => c.toggleCode()),
+    mk('bold', 'Fett', 'mdi-format-bold', e => e.isActive('bold'), c => c.toggleBold()),
+    mk('italic', 'Kursiv', 'mdi-format-italic', e => e.isActive('italic'), c => c.toggleItalic()),
+    mk('underline', 'Unterstrichen', 'mdi-format-underline', e => e.isActive('underline'), c => c.toggleUnderline()),
+    mk('strike', 'Durchgestrichen', 'mdi-format-strikethrough-variant', e => e.isActive('strike'), c => c.toggleStrike()),
+    mk('code', 'Code', 'mdi-code-tags', e => e.isActive('code'), c => c.toggleCode()),
     {
       key: 'link',
       label: 'Hyperlink',
-      glyph: '&#8599;',
+      icon: 'mdi-link-variant',
       active: () => ed.isActive('link'),
       run: () => openLinkEditor(),
     },
-    mk('h2', 'Überschrift 2', 'H2', e => e.isActive('heading', { level: 2 }), c => c.toggleHeading({ level: 2 })),
-    mk('h3', 'Überschrift 3', 'H3', e => e.isActive('heading', { level: 3 }), c => c.toggleHeading({ level: 3 })),
-    mk('h4', 'Überschrift 4', 'H4', e => e.isActive('heading', { level: 4 }), c => c.toggleHeading({ level: 4 })),
-    mk('quote', 'Zitat', '&#10077;', e => e.isActive('blockquote'), c => c.toggleBlockquote()),
+    {
+      key: 'highlight',
+      label: 'Textmarker',
+      icon: 'mdi-format-color-highlight',
+      active: () => toolbarActive('highlight') || bubbleHighlight.open,
+      run: () => toggleBubbleHighlight(),
+    },
     ...(props.aiAvailable ? [{
       key: 'ai-selection',
-      label: 'Auswahl mit KI bearbeiten',
-      glyph: '&#10022;',
+      label: 'Umschreiben',
+      icon: 'mdi-auto-fix',
       ai: true,
       active: () => false,
       run: () => openAIPrompt(),
+    }, {
+      key: 'ai-cleanup',
+      label: 'Aufräumen (sinnwahrend)',
+      icon: 'mdi-broom',
+      ai: true,
+      active: () => false,
+      run: () => startCleanup(),
     }] : []),
   ];
 });
 
 function refreshBubble() {
+  // Bei jeder Auswahländerung die Farbreihe wieder einklappen.
+  bubbleHighlight.open = false;
   const ed = editor.value;
   const surface = surfaceEl.value;
   if (!ed || !surface) { bubble.show = false; return; }
@@ -1751,6 +1936,7 @@ const SLASH_COMMANDS = [
   { key: 'beleg', group: 'papermind', chip: '▢', label: 'Beleg verknüpfen', desc: 'Dokument-Chip einfügen', terms: ['beleg', 'dokument', 'chip', 'verknüpfen'], kind: 'pick-doc-chip' },
   { key: 'zitat', group: 'papermind', chip: '❝', label: 'Beleg-Zitat', desc: 'OCR-Passage übernehmen', terms: ['zitat', 'beleg', 'ocr', 'markierung'], kind: 'pick-doc-quote' },
   { key: 'ki-schreiben', group: 'papermind', chip: '✦', label: 'Mit KI schreiben', desc: 'Text generieren und einfügen', terms: ['ki', 'ai', 'prompt', 'schreiben', 'text', 'generieren'], kind: 'generate-ai' },
+  { key: 'ki-aufraeumen', group: 'papermind', chip: '⌁', label: 'Aufräumen (sinnwahrend)', desc: 'Fragmente zu lesbaren Sätzen glätten', terms: ['aufräumen', 'aufraeumen', 'glätten', 'glaetten', 'ausformulieren', 'sätze', 'lesbar', 'sinnwahrend', 'cleanup', 'ki', 'ai'], kind: 'cleanup' },
   { key: 'verweis', group: 'papermind', chip: '[[', label: 'Verweis', desc: 'Notiz / Beleg / Person', terms: ['verweis', 'link', 'wiki', 'verknüpfung'], kind: 'pick-target' },
   ...NOTE_CALLOUT_OPTIONS.map((option) => ({
     key: `callout-${option.value}`,
@@ -1791,6 +1977,7 @@ const slash = reactive({
   query: '',
   from: null,
   index: 0,
+  codeOnly: false,
   style: {},
   selectionStyle: {},
   selectionVisible: false,
@@ -1827,14 +2014,16 @@ const blockTemplateCommands = computed(() =>
 const availableSlashCommands = computed(() =>
   [...SLASH_COMMANDS, ...blockTemplateCommands.value].filter((command) => {
     if (realMode.value && command.kind === 'pick-doc-quote') return false;
-    if (!props.aiAvailable && command.kind === 'generate-ai') return false;
+    if (!props.aiAvailable && (command.kind === 'generate-ai' || command.kind === 'cleanup')) return false;
     if (!props.noteId && command.kind === 'image-upload') return false;
     return true;
   })
 );
 
 const slashResults = computed(() => {
-  const base = availableSlashCommands.value;
+  const base = slash.codeOnly
+    ? availableSlashCommands.value.filter((command) => command.kind === 'generate-ai')
+    : availableSlashCommands.value;
   const q = slash.query.trim().toLowerCase();
   if (!q) return base;
   return base.filter(c =>
@@ -1922,8 +2111,10 @@ function refreshSlash() {
   const { $from, empty } = state.selection;
   if (!empty) { slash.open = false; return; }
 
-  // Nur in Text-Blöcken, nicht in Code-Blöcken.
-  if (!$from.parent.isTextblock || $from.parent.type.name === 'codeBlock') { slash.open = false; return; }
+  // Im Codeblock ist ausschließlich „Mit KI schreiben“ verfügbar. Andere
+  // Blockbefehle könnten die umgebende Codestruktur ungültig machen.
+  if (!$from.parent.isTextblock) { slash.open = false; return; }
+  slash.codeOnly = $from.parent.type.name === 'codeBlock';
 
   const before = $from.parent.textBetween(0, $from.parentOffset, '￼', '￼');
   const match = /(?:^|\s)\/([\p{L}0-9]*)$/u.exec(before);
@@ -1976,6 +2167,7 @@ function runSlash(cmd) {
   if (kind === 'image-upload') { openImagePicker(); return; }
   if (kind === 'link-editor') { openLinkEditor(); return; }
   if (kind === 'generate-ai') { openAIPrompt(); return; }
+  if (kind === 'cleanup') { startCleanup(); return; }
   if (kind === 'pick-doc-chip') {
     openPicker('document', docPickerItems(), (item) =>
       ed.chain().focus().insertDocumentChip({ docId: item.id, title: item.label }).run());
@@ -2030,6 +2222,13 @@ function linkTargetItems() {
 
 /* ── KI-Schreibassistenz ─────────────────────────────────────────────────── */
 const AI_PROMPT_WIDTH = 390;
+const CLEANUP_PROMPT_WIDTH = 390;
+const AI_LENGTH_OPTIONS = Object.freeze([
+  { label: 'Automatisch', lineHint: 'nach Prompt', instruction: '' },
+  { label: 'Kurz', lineHint: 'ca. 1–3 Zeilen', instruction: 'Kurz antworten: ungefähr 1–3 Zeilen.' },
+  { label: 'Mittel', lineHint: 'ca. 4–8 Zeilen', instruction: 'In mittlerer Länge antworten: ungefähr 4–8 Zeilen.' },
+  { label: 'Lang', lineHint: 'ca. 9–16 Zeilen', instruction: 'Lang antworten: ungefähr 9–16 Zeilen mit allen relevanten Details.' },
+]);
 const visibleAIPromptSuggestions = computed(() => (
   Array.isArray(props.aiPromptSuggestions)
     ? props.aiPromptSuggestions
@@ -2041,8 +2240,10 @@ const visibleAIPromptSuggestions = computed(() => (
 ));
 const aiPrompt = reactive({
   open: false,
+  presentation: 'toolbar',
   mode: 'context',
   instruction: '',
+  lengthLevel: 0,
   generatedInstruction: '',
   preview: '',
   error: '',
@@ -2054,10 +2255,18 @@ const aiPrompt = reactive({
   selectionFrom: null,
   selectionTo: null,
   selectedText: '',
+  targetContainerType: '',
+  targetContainerFrom: null,
+  targetContainerTo: null,
+  targetReplaceFrom: null,
+  targetReplaceTo: null,
   style: {},
 });
 const aiSelectionTooLong = computed(() => (
   aiPrompt.mode === 'selection' && aiPrompt.selectedText.length > 8000
+));
+const activeAILengthOption = computed(() => (
+  AI_LENGTH_OPTIONS[aiPrompt.lengthLevel] || AI_LENGTH_OPTIONS[0]
 ));
 const aiContextLabel = computed(() => (
   aiPrompt.mode === 'selection'
@@ -2069,11 +2278,70 @@ function providerLabel(provider) {
   return { ollama: 'Lokal', openai: 'OpenAI', anthropic: 'Claude' }[provider] || 'KI';
 }
 
+const DIRECT_AI_CONTAINER_TYPES = new Set([
+  'callout',
+  'tableCell',
+  'tableHeader',
+  'blockquote',
+  'codeBlock',
+]);
+
+function directAIContainerAtPosition(ed, position) {
+  const safePosition = Math.max(0, Math.min(position, ed.state.doc.content.size));
+  const $position = ed.state.doc.resolve(safePosition);
+  for (let depth = $position.depth; depth > 0; depth -= 1) {
+    const type = $position.node(depth).type.name;
+    if (!DIRECT_AI_CONTAINER_TYPES.has(type)) continue;
+    return {
+      type,
+      from: $position.before(depth),
+      to: $position.after(depth),
+    };
+  }
+  return null;
+}
+
+function directAITargetForSelection(ed, selection) {
+  const selectedNodeType = selection.node?.type.name;
+  if (DIRECT_AI_CONTAINER_TYPES.has(selectedNodeType)) {
+    return {
+      type: selectedNodeType,
+      from: selection.from,
+      to: selection.from + selection.node.nodeSize,
+      anchorPos: selection.from + selection.node.nodeSize - 1,
+      nodeSelected: true,
+    };
+  }
+  const start = directAIContainerAtPosition(ed, selection.from);
+  if (!start) return null;
+  const end = directAIContainerAtPosition(
+    ed,
+    selection.empty ? selection.from : Math.max(selection.from, selection.to - 1),
+  );
+  if (!end || end.type !== start.type || end.from !== start.from) return null;
+  return { ...start, anchorPos: selection.to, nodeSelected: false };
+}
+
+function emptyParagraphRangeAtPosition(ed, position) {
+  const safePosition = Math.max(0, Math.min(position, ed.state.doc.content.size));
+  const $position = ed.state.doc.resolve(safePosition);
+  if (
+    $position.depth < 1
+    || $position.parent.type.name !== 'paragraph'
+    || $position.parent.content.size > 0
+  ) return null;
+  return {
+    from: $position.before($position.depth),
+    to: $position.after($position.depth),
+  };
+}
+
 function positionAIPrompt() {
-  const ed = editor.value, surface = surfaceEl.value;
+  const ed = editor.value;
+  const surface = surfaceEl.value;
   if (!ed || !surface) return;
-  const pos = Math.min(aiPrompt.anchorPos ?? ed.state.selection.from, ed.state.doc.content.size);
-  const rect = posToDOMRect(ed.view, pos, pos);
+  const position = Math.min(aiPrompt.anchorPos ?? ed.state.selection.from, ed.state.doc.content.size);
+  const rect = posToDOMRect(ed.view, position, position);
   const box = surface.getBoundingClientRect();
   aiPrompt.style = {
     left: `${clampMenuLeft(rect.left - box.left, box.width, AI_PROMPT_WIDTH)}px`,
@@ -2081,17 +2349,30 @@ function positionAIPrompt() {
   };
 }
 
-function openAIPrompt() {
+function prepareAIPromptTarget(presentation = 'toolbar', { resetInstruction = false } = {}) {
   const ed = editor.value;
-  if (!ed) return;
-  const { from, to, empty } = ed.state.selection;
-  const selectedText = empty ? '' : ed.state.doc.textBetween(from, to, '\n', '\n').trim();
+  if (!ed || aiPrompt.loading) return;
+  const selection = ed.state.selection;
+  const { from, to, empty } = selection;
+  const directTarget = directAITargetForSelection(ed, selection);
+  const selectedText = empty || directTarget?.nodeSelected
+    ? ''
+    : ed.state.doc.textBetween(from, to, '\n', '\n').trim();
   aiPrompt.mode = selectedText ? 'selection' : 'context';
-  aiPrompt.anchorPos = selectedText ? to : from;
+  aiPrompt.anchorPos = directTarget?.anchorPos ?? (selectedText ? to : from);
   aiPrompt.selectionFrom = selectedText ? from : null;
   aiPrompt.selectionTo = selectedText ? to : null;
   aiPrompt.selectedText = selectedText;
-  aiPrompt.instruction = '';
+  aiPrompt.targetContainerType = directTarget?.type ?? '';
+  aiPrompt.targetContainerFrom = directTarget?.from ?? null;
+  aiPrompt.targetContainerTo = directTarget?.to ?? null;
+  const emptyTargetRange = directTarget && !selectedText && !directTarget.nodeSelected
+    ? emptyParagraphRangeAtPosition(ed, aiPrompt.anchorPos)
+    : null;
+  aiPrompt.targetReplaceFrom = emptyTargetRange?.from ?? null;
+  aiPrompt.targetReplaceTo = emptyTargetRange?.to ?? null;
+  aiPrompt.presentation = presentation;
+  if (resetInstruction) aiPrompt.instruction = '';
   aiPrompt.generatedInstruction = '';
   aiPrompt.preview = '';
   aiPrompt.error = selectedText.length > 8000
@@ -2101,11 +2382,29 @@ function openAIPrompt() {
   aiPrompt.model = '';
   aiPrompt.fallbackFrom = '';
   aiPrompt.open = true;
-  positionAIPrompt();
   tableMenu.open = false;
   picker.open = false;
   bubble.show = false;
   closeLinkEditor();
+  closeCleanup();
+}
+
+function prepareToolbarAIPromptTarget() {
+  prepareAIPromptTarget('toolbar');
+}
+
+function ensureToolbarAIPromptTarget() {
+  if (!aiPrompt.open || aiPrompt.presentation !== 'toolbar') prepareToolbarAIPromptTarget();
+}
+
+function focusToolbarAIPrompt() {
+  ensureToolbarAIPromptTarget();
+  nextTick(() => aiToolbarInputEl.value?.focus());
+}
+
+function openAIPrompt() {
+  prepareAIPromptTarget('dialog', { resetInstruction: true });
+  positionAIPrompt();
   nextTick(() => aiPromptInputEl.value?.focus());
 }
 
@@ -2113,18 +2412,196 @@ function closeAIPrompt() {
   aiGenerationController?.abort();
   aiGenerationController = null;
   aiPrompt.open = false;
+  aiPrompt.presentation = 'toolbar';
   aiPrompt.loading = false;
+  aiPrompt.instruction = '';
   aiPrompt.preview = '';
   aiPrompt.error = '';
   aiPrompt.generatedInstruction = '';
+  aiPrompt.anchorPos = null;
   aiPrompt.selectedText = '';
   aiPrompt.selectionFrom = null;
   aiPrompt.selectionTo = null;
+  aiPrompt.targetContainerType = '';
+  aiPrompt.targetContainerFrom = null;
+  aiPrompt.targetContainerTo = null;
+  aiPrompt.targetReplaceFrom = null;
+  aiPrompt.targetReplaceTo = null;
+  aiPrompt.style = {};
 }
 
 function applyAIPromptSuggestion(suggestion) {
   aiPrompt.instruction = suggestion;
   nextTick(() => aiPromptInputEl.value?.focus());
+}
+
+/* ── Aufräumen (sinnwahrend) ────────────────────────────────────────────────
+   Ein-Klick-Glättung des rohen Mitschriebs: sammelt die Fließtext-Absätze
+   (oben liegend, ohne strukturierte Blöcke), schickt sie nummeriert über den
+   Notiz-KI-Stream und ersetzt sie – nach Vorschau und Bestätigung – blockweise.
+   Strukturierte Blöcke (Callouts, Aufgaben, Tabellen …) bleiben unberührt. */
+const cleanup = reactive({
+  open: false,
+  loading: false,
+  scope: 'note',
+  targets: [],
+  preview: '',
+  error: '',
+  provider: '',
+  model: '',
+  fallbackFrom: '',
+  anchorPos: null,
+  style: {},
+});
+
+const cleanupScopeLabel = computed(() => {
+  const count = cleanup.targets.length;
+  const blocks = `${count} ${count === 1 ? 'Absatz' : 'Absätze'}`;
+  return cleanup.scope === 'selection' ? `Auswahl · ${blocks}` : `Ganze Notiz · ${blocks}`;
+});
+const cleanupPreviewText = computed(() => stripCleanupMarks(cleanup.preview));
+
+// Oberste-Ebene-Absätze mit Text sammeln; bei aktiver Auswahl nur die davon
+// berührten. Alles andere (Callouts, Listen, Tabellen, Überschriften …) wird
+// übersprungen und bleibt dadurch unverändert.
+function collectCleanupTargets(ed) {
+  const { from, to, empty } = ed.state.selection;
+  const scoped = !empty;
+  const targets = [];
+  ed.state.doc.descendants((node, pos, parent) => {
+    if (parent && parent.type.name === 'doc' && node.type.name === 'paragraph') {
+      const text = node.textContent.trim();
+      const nodeTo = pos + node.nodeSize;
+      if (text && (!scoped || !(nodeTo <= from || pos >= to))) {
+        targets.push({ from: pos, to: nodeTo, text });
+      }
+    }
+    return false; // nie in Kinder absteigen – nur die oberste Ebene betrachten
+  });
+  return { targets, scope: scoped ? 'selection' : 'note' };
+}
+
+function positionCleanup() {
+  const ed = editor.value, surface = surfaceEl.value;
+  if (!ed || !surface) return;
+  const pos = Math.min(cleanup.anchorPos ?? ed.state.selection.from, ed.state.doc.content.size);
+  const rect = posToDOMRect(ed.view, pos, pos);
+  const box = surface.getBoundingClientRect();
+  cleanup.style = {
+    left: `${clampMenuLeft(rect.left - box.left, box.width, CLEANUP_PROMPT_WIDTH)}px`,
+    top: `${rect.bottom - box.top + 4}px`,
+  };
+}
+
+function closeCleanup() {
+  cleanupController?.abort();
+  cleanupController = null;
+  cleanup.open = false;
+  cleanup.loading = false;
+  cleanup.preview = '';
+  cleanup.error = '';
+  cleanup.targets = [];
+}
+
+async function startCleanup() {
+  const ed = editor.value;
+  if (!ed || !props.aiAvailable || cleanup.loading) return;
+  const { targets, scope } = collectCleanupTargets(ed);
+
+  slash.open = false;
+  bubble.show = false;
+  tableMenu.open = false;
+  picker.open = false;
+  closeLinkEditor();
+  closeAIPrompt();
+
+  cleanup.open = true;
+  cleanup.scope = scope;
+  cleanup.targets = targets;
+  cleanup.preview = '';
+  cleanup.error = '';
+  cleanup.provider = '';
+  cleanup.model = '';
+  cleanup.fallbackFrom = '';
+  cleanup.anchorPos = Math.min(ed.state.selection.from, ed.state.doc.content.size);
+  positionCleanup();
+
+  if (!targets.length) {
+    cleanup.error = 'Kein Fließtext-Absatz gefunden. Aufräumen glättet nur lockeren Text; strukturierte Blöcke bleiben unberührt.';
+    return;
+  }
+  const payload = formatCleanupInput(targets.map((target) => target.text));
+  if (payload.length > CLEANUP_INPUT_LIMIT) {
+    cleanup.error = 'Der Text ist für das Aufräumen in einem Schritt zu lang. Bitte einen Abschnitt markieren und erneut aufräumen.';
+    return;
+  }
+
+  cleanup.loading = true;
+  cleanupController = new AbortController();
+  try {
+    await streamNoteText({
+      instruction: CLEANUP_INSTRUCTION,
+      length_instruction: '',
+      note_context: '',
+      selected_text: payload,
+      document_context: '',
+    }, {
+      signal: cleanupController.signal,
+      onEvent: (event) => {
+        if (event.type === 'meta') {
+          cleanup.provider = event.provider || '';
+          cleanup.model = event.model || '';
+          cleanup.fallbackFrom = event.fallback_from || '';
+        } else if (event.type === 'delta') {
+          cleanup.preview += event.text || '';
+        }
+      },
+    });
+    if (!stripCleanupMarks(cleanup.preview)) {
+      cleanup.error = 'Das Modell hat keinen Text erzeugt.';
+    }
+  } catch (error) {
+    if (error?.name !== 'AbortError' && cleanup.open) {
+      cleanup.error = error?.message || 'Aufräumen fehlgeschlagen.';
+    }
+  } finally {
+    cleanup.loading = false;
+    cleanupController = null;
+  }
+}
+
+function applyCleanup() {
+  const ed = editor.value;
+  if (!ed || cleanup.loading || !cleanup.targets.length) return;
+  const { ok, blocks } = parseCleanupOutput(cleanup.preview, cleanup.targets.length);
+  if (!ok) {
+    cleanup.error = 'Das Ergebnis ließ sich nicht sicher zuordnen (Blockanzahl weicht ab). Bitte erneut aufräumen oder einen kleineren Abschnitt markieren.';
+    return;
+  }
+  // Haben sich die Zielabsätze seit dem Sammeln verschoben, lieber abbrechen als
+  // an falscher Stelle ersetzen.
+  const stillValid = cleanup.targets.every((target) => {
+    const node = ed.state.doc.nodeAt(target.from);
+    return node?.type.name === 'paragraph' && target.from + node.nodeSize === target.to;
+  });
+  if (!stillValid) {
+    cleanup.error = 'Die Notiz hat sich geändert. Bitte das Aufräumen erneut starten.';
+    return;
+  }
+  // Von hinten nach vorn ersetzen, damit die früheren Positionen gültig bleiben.
+  const ordered = cleanup.targets
+    .map((target, index) => ({ ...target, cleaned: blocks[index] }))
+    .sort((a, b) => b.from - a.from);
+  const chain = ed.chain().focus();
+  ordered.forEach((target) => {
+    chain.insertContentAt({ from: target.from, to: target.to }, {
+      type: 'paragraph',
+      content: [{ type: 'text', text: target.cleaned }],
+    });
+  });
+  chain.scrollIntoView().run();
+  emit('history-checkpoint', 'ai');
+  closeCleanup();
 }
 
 function noteContextBeforeAnchor(ed) {
@@ -2133,9 +2610,10 @@ function noteContextBeforeAnchor(ed) {
 }
 
 function aiBlockAttrs() {
+  const prompt = aiPrompt.generatedInstruction || aiPrompt.instruction.trim();
   return {
     text: aiPrompt.preview.trim(),
-    prompt: aiPrompt.generatedInstruction || aiPrompt.instruction.trim(),
+    prompt,
     provider: aiPrompt.provider,
     model: aiPrompt.model,
     generatedAt: new Date().toISOString(),
@@ -2152,6 +2630,58 @@ function selectionSnapshotIsCurrent(ed) {
   return ed.state.doc.textBetween(from, to, '\n', '\n').trim() === selectedText;
 }
 
+function directAITargetIsCurrent(ed) {
+  const {
+    targetContainerType: type,
+    targetContainerFrom: from,
+    targetContainerTo: to,
+  } = aiPrompt;
+  if (!DIRECT_AI_CONTAINER_TYPES.has(type) || !Number.isInteger(from) || !Number.isInteger(to)) {
+    return false;
+  }
+  const node = ed.state.doc.nodeAt(from);
+  return node?.type.name === type && from + node.nodeSize === to;
+}
+
+function directAIContent() {
+  if (aiPrompt.targetContainerType === 'codeBlock') {
+    const text = noteAITextForCodeBlock(aiPrompt.preview);
+    return text ? [{ type: 'text', text }] : [];
+  }
+  return noteMarkdownToTipTap(aiPrompt.preview.trim());
+}
+
+function insertDirectAIResult(ed, { from = null, to = null } = {}) {
+  if (!directAITargetIsCurrent(ed)) {
+    const targetLabel = {
+      callout: 'Der Hinweisblock',
+      tableCell: 'Die Tabellenzelle',
+      tableHeader: 'Die Tabellenzelle',
+      blockquote: 'Das Zitat',
+      codeBlock: 'Der Codeblock',
+    }[aiPrompt.targetContainerType] || 'Der Zielbereich';
+    aiPrompt.error = `${targetLabel} hat sich geändert. Bitte den KI-Prompt erneut starten.`;
+    return false;
+  }
+  const content = directAIContent();
+  if (!content.length) {
+    aiPrompt.error = 'Das Modell hat keinen einfügbaren Text erzeugt.';
+    return false;
+  }
+
+  const chain = ed.chain().focus();
+  if (Number.isInteger(from) && Number.isInteger(to)) {
+    chain.insertContentAt({ from, to }, content, { updateSelection: true });
+  } else {
+    const insertionPos = Math.min(aiPrompt.anchorPos, ed.state.doc.content.size);
+    chain.setTextSelection(insertionPos).insertContent(content);
+  }
+  chain.scrollIntoView().run();
+  emit('history-checkpoint', 'ai');
+  closeAIPrompt();
+  return true;
+}
+
 function applySelectionAIResult(action) {
   const ed = editor.value;
   if (!ed || aiPrompt.mode !== 'selection' || !aiPrompt.preview.trim()) return;
@@ -2162,6 +2692,10 @@ function applySelectionAIResult(action) {
 
   const from = aiPrompt.selectionFrom;
   const to = aiPrompt.selectionTo;
+  if (Number.isInteger(aiPrompt.targetContainerFrom)) {
+    insertDirectAIResult(ed, action === 'replace' ? { from, to } : { from: to, to });
+    return;
+  }
   const attrs = aiBlockAttrs();
   const chain = ed.chain().focus();
   if (action === 'replace') {
@@ -2176,6 +2710,7 @@ function applySelectionAIResult(action) {
 
 async function generateAIText() {
   const ed = editor.value;
+  if (!aiPrompt.open) prepareToolbarAIPromptTarget();
   const instruction = aiPrompt.instruction.trim();
   if (!ed || !instruction || aiPrompt.loading || aiSelectionTooLong.value) return;
 
@@ -2191,6 +2726,9 @@ async function generateAIText() {
   try {
     await streamNoteText({
       instruction,
+      length_instruction: aiPrompt.presentation === 'dialog'
+        ? activeAILengthOption.value.instruction
+        : '',
       note_context: aiPrompt.mode === 'selection' ? '' : noteContextBeforeAnchor(ed),
       selected_text: aiPrompt.mode === 'selection' ? aiPrompt.selectedText : '',
       document_context: '',
@@ -2213,9 +2751,26 @@ async function generateAIText() {
       if (!selectionSnapshotIsCurrent(ed)) {
         throw new Error('Die Textauswahl hat sich geändert. Bitte schließen und erneut auswählen.');
       }
+      if (aiPrompt.presentation === 'dialog') return;
+      applySelectionAIResult('replace');
       return;
     }
-    const insertionPos = Math.min(aiPrompt.anchorPos ?? ed.state.selection.from, ed.state.doc.content.size);
+    if (Number.isInteger(aiPrompt.targetContainerFrom)) {
+      const replaceEmptyParagraph = (
+        Number.isInteger(aiPrompt.targetReplaceFrom)
+        && Number.isInteger(aiPrompt.targetReplaceTo)
+        && ed.state.doc.nodeAt(aiPrompt.targetReplaceFrom)?.type.name === 'paragraph'
+        && ed.state.doc.nodeAt(aiPrompt.targetReplaceFrom)?.content.size === 0
+      );
+      insertDirectAIResult(ed, replaceEmptyParagraph
+        ? { from: aiPrompt.targetReplaceFrom, to: aiPrompt.targetReplaceTo }
+        : {});
+      return;
+    }
+    const insertionPos = Math.min(
+      aiPrompt.anchorPos ?? ed.state.selection.from,
+      ed.state.doc.content.size,
+    );
     ed.chain()
       .focus()
       .setTextSelection(insertionPos)
@@ -2224,7 +2779,7 @@ async function generateAIText() {
       .scrollIntoView()
       .run();
     emit('history-checkpoint', 'ai');
-    aiPrompt.open = false;
+    closeAIPrompt();
   } catch (error) {
     if (error?.name !== 'AbortError' && aiPrompt.open) {
       aiPrompt.error = error?.message || 'Text konnte nicht generiert werden.';
@@ -2318,6 +2873,12 @@ function onEditorKeyDown(event) {
   ) {
     event.preventDefault();
     openLinkEditor();
+    return true;
+  }
+
+  if (cleanup.open && event.key === 'Escape') {
+    event.preventDefault();
+    closeCleanup();
     return true;
   }
 
@@ -2493,33 +3054,71 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   background: var(--pm-content-surface, #fff);
 }
 
-.note-editor__toolbar {
+.note-editor__toolbar-guard {
   position: sticky;
-  top: 12px;
+  top: 0;
   z-index: 12;
   display: flex;
+  width: 100%;
+  min-height: 52px;
+  flex: none;
+  align-self: stretch;
+  overflow: visible;
+  background: var(--pm-content-surface, #fff);
+  isolation: isolate;
+}
+
+.note-editor__toolbar-guard::after {
+  position: absolute;
+  z-index: 0;
+  top: 100%;
+  right: 0;
+  left: 0;
+  height: 20px;
+  pointer-events: none;
+  content: '';
+  background: linear-gradient(
+    to bottom,
+    var(--pm-content-surface, #fff) 0%,
+    var(--pm-content-surface, #fff) 24%,
+    color-mix(in srgb, var(--pm-content-surface, #fff) 72%, transparent) 68%,
+    transparent 100%
+  );
+}
+
+.note-editor__toolbar {
+  position: relative;
+  z-index: 1;
+  display: flex;
   box-sizing: border-box;
-  width: max-content;
-  max-width: calc(100% - 32px);
+  width: calc(100% - 16px);
+  max-width: calc(100% - 16px);
   min-height: 44px;
   flex: none;
-  align-self: center;
+  align-self: flex-start;
   align-items: center;
   gap: 6px;
-  margin: 12px auto 0;
-  padding: 5px 7px;
+  /* Das sichtbare erste Glyph beginnt bei x=16px wie der Tag-Chip darüber:
+     8px Außenabstand + 1px Rahmen + die Zentrierung im 42px-Gruppenbutton.
+     Links braucht die ruhige, rahmenlose Leiste daher kein Innenpadding. */
+  margin: 8px 0 0 8px;
+  padding: 5px 7px 5px 0;
   /* overflow:visible, damit die Menü-Dropdowns unter der Leiste nicht
      abgeschnitten werden. Horizontales Scrollen ist dank Gruppen-Menüs +
      Compact-Modus nicht mehr nötig. */
   overflow: visible;
-  border: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 88%, transparent);
+  /* Ruhezustand gedämpft (B+C): flach, ohne Schatten und ohne sichtbaren
+     Rahmen – aber immer sichtbar. Volle Chrome erst bei Hover/Fokus/offenem
+     Menü (siehe .is-active weiter unten). Die Fläche bleibt deckend, damit die
+     sticky-Leiste beim Scrollen keinen Text durchscheinen lässt. */
+  border: 1px solid transparent;
   border-radius: 12px;
   /* Deckende Fläche statt backdrop-filter: Ein sticky-Element mit
      backdrop-filter über dem scrollenden Editor löst in Chromium
      Schreibmarken-Geister aus (die echte Caret-Fläche wird beim Scrollen
      nicht invalidiert, es bleiben eingefrorene Caret-Kopien stehen). */
   background: var(--pm-app-surface-raised, #fff);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  box-shadow: none;
   scrollbar-color: color-mix(in srgb, var(--pm-muted, #535e62) 35%, transparent) transparent;
   scrollbar-width: thin;
   transition:
@@ -2528,18 +3127,13 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
     box-shadow 220ms ease;
 }
 
-.note-editor__toolbar.is-ducked {
-  border-color: color-mix(in srgb, var(--pm-divider, #d8dfe1) 18%, transparent);
-  /* Weiterhin deckend (siehe oben) – das „Ducken“ liest sich nun über
-     Rahmen und Schatten, nicht mehr über Transparenz + Blur. */
-  background: var(--pm-app-surface-raised, #fff);
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.015);
-}
-
-.note-editor__toolbar.is-ducked:hover,
-.note-editor__toolbar.is-ducked:focus-within {
+/* Volle Chrome (Rahmen + Schatten) nur bei aktiver Nutzung: Tastaturfokus oder
+   offenes Menü (Menü-Trigger nutzen mousedown.prevent, greifen also nicht in
+   :focus-within – daher die .is-active-Klasse bei geöffnetem Dropdown). Kein
+   Hover-Effekt: die Leiste bleibt beim bloßen Überfahren ruhig. */
+.note-editor__toolbar:has(.note-editor__toolbar-btn:focus-visible),
+.note-editor__toolbar.is-active {
   border-color: color-mix(in srgb, var(--pm-divider, #d8dfe1) 88%, transparent);
-  background: var(--pm-app-surface-raised, #fff);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
 }
 
@@ -2610,29 +3204,99 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   letter-spacing: -0.08em;
 }
 
-/* Menü-Gruppen (Text ▾ / Einfügen ▾ / ⋯) + Dropdowns */
+/* Menü-Gruppen (Text / Layout / Einfügen) + Dropdowns */
 .note-editor__toolbar-menu { position: relative; display: flex; }
 
 .note-editor__toolbar-btn--group {
-  width: auto;
-  min-width: 32px;
+  width: 42px;
   height: 32px;
-  padding: 0 6px 0 9px;
+  padding: 0 4px;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  justify-content: center;
+  gap: 0;
   color: var(--pm-text, #0e181b);
-  font-weight: 570;
 }
-.note-editor__toolbar-btn-label { font-size: 0.84rem; white-space: nowrap; }
+.note-editor__toolbar-menu-chevron {
+  margin-left: -1px;
+  opacity: 0.68;
+}
 .note-editor__toolbar-btn--group.is-open {
   background: color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent);
   color: var(--pm-accent-strong, #00555f);
 }
 .note-editor__toolbar.is-compact .note-editor__toolbar-btn--group {
-  width: 32px;
+  width: 42px;
+}
+
+/* Dauerhaft sichtbarer KI-Prompt nach dem Muster einer ruhigen Suchzeile: Das
+   Icon ist bewusst neutral, das Feld hat weder Rahmen noch eigene Fläche. */
+.note-editor__toolbar-ai {
+  position: relative;
+  display: flex;
+  width: auto;
+  min-width: 0;
+  height: 32px;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  color: var(--pm-muted, #535e62);
+}
+.note-editor__toolbar-ai-icon {
+  display: grid;
+  width: 22px;
+  height: 32px;
+  flex: none;
+  place-items: center;
+  color: var(--pm-muted, #748084);
+  cursor: text;
+  opacity: 0.74;
+  transition: color 140ms ease, opacity 140ms ease;
+}
+.note-editor__toolbar-ai.has-prompt .note-editor__toolbar-ai-icon {
+  color: var(--pm-accent, #006b75);
+  opacity: 1;
+}
+.note-editor__toolbar-ai input {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
   padding: 0;
-  justify-content: center;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--pm-text, #0e181b);
+  font: inherit;
+  font-size: 0.9rem;
+}
+.note-editor__toolbar-ai input::placeholder {
+  color: var(--pm-muted, #748084);
+  opacity: 0.72;
+}
+.note-editor__toolbar-ai input:disabled { cursor: wait; }
+.note-editor__toolbar-ai-spinner {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: pm-ai-spin 700ms linear infinite;
+}
+.note-editor__toolbar-ai-error {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 30px;
+  z-index: 22;
+  width: max-content;
+  max-width: min(360px, calc(100vw - 48px));
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--pm-danger, #b42318) 28%, var(--pm-divider, #d8dfe1));
+  border-radius: 7px;
+  background: var(--pm-content-surface, #fff);
+  color: var(--pm-danger, #b42318);
+  box-shadow: 0 5px 14px rgba(15, 23, 42, 0.1);
+  font-size: 0.7rem;
+  line-height: 1.3;
 }
 
 .note-editor__toolbar-dropdown {
@@ -2687,8 +3351,47 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   font-weight: 680;
 }
 
+.note-editor__layout-menu { min-width: 190px; }
+.note-editor__layout-menu-label {
+  padding: 5px 10px 3px;
+  color: var(--pm-muted, #748084);
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.note-editor__layout-menu-divider {
+  height: 1px;
+  margin: 5px 7px;
+  background: var(--pm-divider, #d8dfe1);
+}
+.note-editor__layout-remove { color: var(--pm-danger, #c84c4c); }
+.note-editor__layout-remove .note-editor__toolbar-dropitem-glyph { color: currentColor; }
+.note-editor__layout-preview {
+  display: grid;
+  grid-template-columns: repeat(var(--pm-layout-preview-columns), minmax(0, 1fr));
+  gap: 2px;
+  width: 24px;
+  height: 17px;
+  padding: 2px;
+  flex: none;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  color: var(--pm-muted, #748084);
+}
+.note-editor__layout-preview > span {
+  min-width: 0;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.48;
+}
+.note-editor__toolbar-dropitem.is-active .note-editor__layout-preview {
+  color: var(--pm-accent, #006b75);
+}
+
 /* Absatzstil-Menü: Einträge in ihrer jeweiligen Überschriftsgröße */
-.note-editor__toolbar-dropitem--block { font-weight: 560; }
+.note-editor__toolbar-dropitem--block { font-weight: 400; }
 .note-editor__toolbar-dropitem--block.is-h2 { font-size: 1.02rem; font-weight: 680; }
 .note-editor__toolbar-dropitem--block.is-h3 { font-size: 0.96rem; font-weight: 650; }
 .note-editor__toolbar-dropitem--block.is-h4 { font-size: 0.9rem; font-weight: 620; }
@@ -2873,12 +3576,65 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 .note-editor :deep(.pm-content > * + *) { margin-top: var(--note-editor-paragraph-gap); }
 /* Strukturelemente heben sich stärker vom Fließtext ab: mehr Luft davor … */
-.note-editor :deep(.pm-content > * + :is(ul, ol, blockquote, pre)) {
+.note-editor :deep(.pm-content > * + :is(ul, ol, blockquote, pre, [data-page-layout])) {
   margin-top: var(--note-editor-block-gap);
 }
 /* … und danach. */
-.note-editor :deep(.pm-content > :is(ul, ol, blockquote, pre) + *) {
+.note-editor :deep(.pm-content > :is(ul, ol, blockquote, pre, [data-page-layout]) + *) {
   margin-top: var(--note-editor-block-gap);
+}
+
+/* Frei platzierbare Spaltenblöcke. Ihre Höhe entsteht ausschließlich aus dem
+   Inhalt; ober- und unterhalb bleiben normale Editorblöcke möglich. */
+.note-editor :deep([data-page-layout]) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  width: 100%;
+}
+.note-editor :deep([data-page-layout][data-columns="1"]) { grid-template-columns: minmax(0, 1fr); }
+.note-editor :deep([data-page-layout][data-columns="2"]) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.note-editor :deep([data-page-layout][data-columns="3"]) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.note-editor :deep([data-page-layout][data-columns="4"]) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.note-editor :deep([data-page-layout][data-columns="5"]) { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.note-editor :deep([data-layout-column]) {
+  min-width: 0;
+  padding: 2px clamp(10px, 1.5vw, 22px);
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+.note-editor :deep([data-layout-column] + [data-layout-column]) {
+  border-left: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 82%, transparent);
+}
+.note-editor :deep([data-layout-column]:first-child) { padding-left: 0; }
+.note-editor :deep([data-layout-column]:last-child) { padding-right: 0; }
+.note-editor :deep([data-layout-column] > *) { margin-block: 0; }
+.note-editor :deep([data-layout-column] > * + *) { margin-top: var(--note-editor-paragraph-gap); }
+.note-editor :deep([data-layout-column] > p:only-child:has(> br.ProseMirror-trailingBreak)::before) {
+  content: 'In dieser Spalte schreiben …';
+  float: left;
+  height: 0;
+  color: var(--pm-muted, #8a969b);
+  opacity: 0.52;
+  pointer-events: none;
+}
+.note-editor :deep(mark.pm-text-highlight) {
+  padding-inline: 0.06em;
+  border-radius: 0.16em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+@media (max-width: 760px) {
+  .note-editor :deep([data-page-layout]) { grid-template-columns: 1fr !important; }
+  .note-editor :deep([data-layout-column]) {
+    padding: 18px 0;
+  }
+  .note-editor :deep([data-layout-column]:first-child) { padding-top: 0; }
+  .note-editor :deep([data-layout-column] + [data-layout-column]) {
+    border-top: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 82%, transparent);
+    border-left: 0;
+  }
 }
 .note-editor :deep(.pm-content h1) {
   font-family: inherit; font-weight: 600;
@@ -2941,8 +3697,38 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 /* Task-Listen */
 .note-editor :deep(.pm-content ul[data-type="taskList"]) { list-style: none; padding-left: 0.2em; }
 .note-editor :deep(.pm-content ul[data-type="taskList"] li) { display: flex; gap: 0.55em; align-items: flex-start; }
-.note-editor :deep(.pm-content ul[data-type="taskList"] li > label) { margin-top: 0.28em; }
-.note-editor :deep(.pm-content ul[data-type="taskList"] input) { accent-color: var(--pm-accent, #006b75); }
+.note-editor :deep(.pm-content ul[data-type="taskList"] li > label) {
+  display: grid;
+  place-items: center;
+  height: 1.35em;
+  margin: 0;
+}
+.note-editor :deep(.pm-content ul[data-type="taskList"] input[type="checkbox"]) {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1.05rem;
+  height: 1.05rem;
+  margin: 0;
+  border: 1.5px solid color-mix(in srgb, var(--pm-muted, #748084) 72%, transparent);
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.note-editor :deep(.pm-content ul[data-type="taskList"] input[type="checkbox"]:hover) {
+  border-color: var(--pm-accent, #006b75);
+}
+.note-editor :deep(.pm-content ul[data-type="taskList"] input[type="checkbox"]:checked) {
+  border-color: var(--pm-accent, #006b75);
+  background: var(--pm-accent, #006b75);
+}
+.note-editor :deep(.pm-content ul[data-type="taskList"] input[type="checkbox"]:focus-visible) {
+  outline: 2px solid color-mix(in srgb, var(--pm-accent, #006b75) 35%, transparent);
+  outline-offset: 2px;
+}
+.note-editor :deep(.pm-content ul[data-type="taskList"] input[type="checkbox"]:disabled) {
+  cursor: default;
+}
 
 /* Strukturierte Tabellen: horizontal scrollbar, in der Breite ruhig und im
    Darkmode vollständig über die PaperMind-Tokens eingefärbt. */
@@ -3064,31 +3850,64 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   box-shadow: var(--pm-shadow, 0 10px 30px rgba(15, 23, 42, 0.14));
 }
 
-.pm-bubble {
+/* Auswahl-Bubble: bewusst dunkel & kompakt – hebt sich klar von der hellen,
+   persistenten Formatierungsleiste ab (kontextuell statt Chrome). Der dunkle
+   Look bleibt in beiden Themes gleich; Rahmen + Schatten trennen ihn vom Grund. */
+.pm-float.pm-bubble {
   position: fixed;
   z-index: 80;
   display: flex;
+  flex-direction: column;
+  align-items: stretch;
   max-width: calc(100vw - 16px);
-  padding: 4px;
-  gap: 2px;
+  padding: 3px;
+  gap: 3px;
+  background: #23241f;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.30);
 }
+.pm-bubble__row { display: flex; align-items: center; gap: 1px; }
 .pm-bubble__btn {
   border: 0; background: transparent; cursor: pointer;
-  width: 32px; height: 32px; border-radius: 8px;
+  min-width: 28px; height: 26px; padding: 0 6px; border-radius: 6px;
   display: grid; place-items: center;
-  color: var(--pm-text, #0e181b); font-size: 0.95rem;
+  color: #e4e2da; font-size: 0.9rem;
   transition: background 120ms ease, color 120ms ease;
 }
-.pm-bubble__btn:hover { background: rgba(var(--v-theme-primary, 0 107 117), 0.1); }
-.pm-bubble__btn.is-active { background: var(--pm-accent, #006b75); color: var(--pm-accent-contrast, #fff); }
-.pm-bubble__btn.is-ai {
-  width: 36px;
+.pm-bubble__btn:hover { background: rgba(255, 255, 255, 0.10); color: #fff; }
+.pm-bubble__btn.is-active { background: rgba(255, 255, 255, 0.17); color: #fff; }
+.pm-bubble__btn.is-ai { color: #7fe0c1; }
+.pm-bubble__btn:not(.is-ai) + .pm-bubble__btn.is-ai {
   margin-left: 3px;
-  border-left: 1px solid var(--pm-divider, #d8dfe1);
-  border-radius: 0 8px 8px 0;
-  color: var(--pm-accent-strong, #00555f);
+  padding-left: 9px;
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 0 6px 6px 0;
 }
-.pm-bubble__glyph code { font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; }
+.pm-bubble__btn.is-ai:hover { background: rgba(127, 224, 193, 0.15); color: #9fe9d4; }
+.pm-bubble__swatches {
+  display: flex; align-items: center; gap: 5px;
+  padding: 4px 4px 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+.pm-bubble__swatch {
+  width: 18px; height: 18px; padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 5px;
+  background: var(--pm-swatch, #fde68a);
+  cursor: pointer;
+  display: grid; place-items: center;
+  transition: transform 100ms ease, box-shadow 100ms ease;
+}
+.pm-bubble__swatch:hover { transform: scale(1.12); }
+.pm-bubble__swatch.is-active { box-shadow: 0 0 0 2px #23241f, 0 0 0 3px #fff; }
+.pm-bubble__swatch--remove {
+  background: transparent; color: #e4e2da;
+  border-color: rgba(255, 255, 255, 0.22);
+  margin-left: 2px;
+}
+.pm-bubble__swatch--remove:hover { background: rgba(255, 255, 255, 0.10); color: #fff; transform: none; }
+.pm-bubble__swatch--remove:disabled { opacity: 0.4; cursor: default; }
 
 .pm-link-editor {
   box-sizing: border-box;
@@ -3451,13 +4270,17 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   }
 }
 
-/* ── KI-Schreibprompt ───────────────────────────────────────────────────── */
+/* ── Vollständiger KI-Dialog und Aufräumen-Dialog ───────────────────────── */
 .pm-ai-prompt {
   width: 390px;
   max-width: calc(100% - 16px);
   padding: 10px;
   overflow: hidden;
   transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+.pm-ai-prompt--writing {
+  transform-origin: top left;
+  animation: pm-ai-prompt-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 .pm-ai-prompt.is-generating {
   border-color: color-mix(in srgb, var(--pm-accent, #006b75) 48%, var(--pm-divider, #d8dfe1));
@@ -3470,7 +4293,11 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   padding: 1px 2px 8px;
   color: var(--pm-muted, #535e62);
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 0.68rem; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-transform: uppercase;
 }
 .pm-ai-prompt__head > span { display: inline-flex; align-items: center; gap: 6px; }
 .pm-ai-prompt__icon { color: var(--pm-accent, #006b75); }
@@ -3500,18 +4327,73 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 .pm-ai-prompt__context.is-selection { color: var(--pm-accent-strong, #00555f); }
 .pm-ai-prompt__input-row { display: flex; align-items: center; gap: 7px; }
 .pm-ai-prompt__input-row input {
-  min-width: 0; height: 38px; flex: 1;
-  border: 1px solid var(--pm-divider, #d8dfe1); border-radius: 8px;
-  background: var(--pm-content-surface, #fff); color: var(--pm-text, #0e181b);
-  outline: none; padding: 0 11px; font: inherit; font-size: 0.88rem;
+  min-width: 0;
+  height: 38px;
+  flex: 1;
+  padding: 0 11px;
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 8px;
+  outline: none;
+  background: var(--pm-content-surface, #fff);
+  color: var(--pm-text, #0e181b);
+  font: inherit;
+  font-size: 0.88rem;
 }
-.pm-ai-prompt__input-row input:focus { border-color: var(--pm-accent, #006b75); box-shadow: 0 0 0 2px color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent); }
+.pm-ai-prompt__input-row input:focus {
+  border-color: var(--pm-accent, #006b75);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent);
+}
 .pm-ai-prompt__submit {
-  width: 38px; height: 38px; flex: none; display: grid; place-items: center;
-  border: 0; border-radius: 8px; background: var(--pm-accent, #006b75);
-  color: var(--pm-accent-contrast, #fff); cursor: pointer; font-size: 1.05rem;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: var(--pm-accent, #006b75);
+  color: var(--pm-accent-contrast, #fff);
+  cursor: pointer;
+  font-size: 1.05rem;
 }
 .pm-ai-prompt__submit:disabled { cursor: default; opacity: 0.45; }
+.pm-ai-prompt__length {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+  margin: 9px 2px 0;
+  padding: 0;
+  border: 0;
+  color: var(--pm-muted, #535e62);
+}
+.pm-ai-prompt__length legend {
+  float: left;
+  padding: 0;
+  font-size: 0.69rem;
+  font-weight: 650;
+}
+.pm-ai-prompt__length output {
+  justify-self: end;
+  font-size: 0.67rem;
+}
+.pm-ai-prompt__length > input {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--pm-accent, #006b75);
+  cursor: pointer;
+}
+.pm-ai-prompt__length > div {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: space-between;
+  color: color-mix(in srgb, var(--pm-muted, #535e62) 82%, transparent);
+  font-size: 0.61rem;
+}
+.pm-ai-prompt__length:disabled { opacity: 0.58; }
 .pm-ai-prompt__progress {
   position: relative;
   height: 2px;
@@ -3535,11 +4417,18 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 .pm-ai-prompt__suggestions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .pm-ai-prompt__suggestions button {
+  padding: 4px 8px;
   border: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 90%, transparent);
-  border-radius: 999px; background: transparent; color: var(--pm-muted, #535e62);
-  padding: 4px 8px; cursor: pointer; font-size: 0.69rem;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--pm-muted, #535e62);
+  cursor: pointer;
+  font-size: 0.69rem;
 }
-.pm-ai-prompt__suggestions button:hover { border-color: var(--pm-accent, #006b75); color: var(--pm-accent-strong, #00555f); }
+.pm-ai-prompt__suggestions button:hover {
+  border-color: var(--pm-accent, #006b75);
+  color: var(--pm-accent-strong, #00555f);
+}
 .pm-ai-prompt__preview {
   max-height: 170px; overflow-y: auto; margin-top: 9px; padding: 9px 10px;
   border-left: 2px solid var(--pm-accent, #006b75);
@@ -3579,10 +4468,24 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 .pm-ai-prompt__result-actions button.is-primary:hover { filter: brightness(1.07); }
 .pm-ai-prompt__error { margin-top: 8px; color: var(--pm-danger, #b42318); font-size: 0.76rem; line-height: 1.35; }
 .pm-ai-prompt__spinner {
-  width: 15px; height: 15px; border: 2px solid currentColor; border-right-color: transparent;
-  border-radius: 50%; animation: pm-ai-spin 700ms linear infinite;
+  width: 15px;
+  height: 15px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: pm-ai-spin 700ms linear infinite;
 }
 @keyframes pm-ai-spin { to { transform: rotate(360deg); } }
+@keyframes pm-ai-prompt-in {
+  from {
+    opacity: 0;
+    transform: translateY(-5px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
 @keyframes pm-ai-progress {
   from { transform: translateX(-120%); }
   to { transform: translateX(340%); }
@@ -3624,6 +4527,8 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
     transition: none;
   }
 
+  .note-editor__toolbar-ai-spinner,
+  .pm-ai-prompt--writing,
   .pm-ai-prompt__spinner,
   .note-editor__image-spinner,
   .pm-ai-prompt__progress > span,
@@ -3641,6 +4546,8 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   transition: none;
 }
 
+:global(.pm-no-animations) .note-editor__toolbar-ai-spinner,
+:global(.pm-no-animations) .pm-ai-prompt--writing,
 :global(.pm-no-animations) .pm-ai-prompt__spinner,
 :global(.pm-no-animations) .pm-ai-prompt__progress > span {
   animation: none;
@@ -3670,9 +4577,11 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 @media (max-width: 1050px) {
   .note-editor__toolbar {
     gap: 4px;
-    max-width: calc(100% - 24px);
-    margin-inline: auto;
-    padding-inline: 5px;
+    max-width: calc(100% - 16px);
+    margin-right: 0;
+    margin-left: 8px;
+    padding-right: 5px;
+    padding-left: 0;
   }
 
   .note-editor__toolbar-divider {

@@ -2,10 +2,19 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  noteAITextForCodeBlock,
   noteMarkdownToSafeHtml,
   noteMarkdownToTipTap,
   parseNoteMarkdown,
 } from '../src/utils/noteMarkdown.js';
+
+test('AI code output drops an outer Markdown fence but preserves the code itself', () => {
+  assert.equal(
+    noteAITextForCodeBlock('```js\nconst answer = 42;\n```'),
+    'const answer = 42;',
+  );
+  assert.equal(noteAITextForCodeBlock('return value < limit;'), 'return value < limit;');
+});
 
 test('AI markdown bullet output becomes a structured list', () => {
   const markdown = '- Erster Punkt\n- **Wichtiger** Punkt\n- Dritter Punkt';

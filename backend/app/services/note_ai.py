@@ -47,6 +47,13 @@ def _ndjson(payload: dict) -> str:
 def _user_prompt(payload: NoteTextGenerationRequest, context_limit: int) -> str:
     note_context = payload.note_context[-context_limit:].strip()
     sections = [f"NUTZERANWEISUNG:\n{payload.instruction.strip()}"]
+    length_instruction = " ".join(payload.length_instruction.split())
+    if length_instruction:
+        sections.append(
+            "VERBINDLICHE LÄNGENVORGABE:\n"
+            f"{length_instruction}\n"
+            "Halte diese Länge ein und gib keinen zusätzlichen Vor- oder Nachsatz aus."
+        )
     if note_context:
         sections.append(f"TEXT VOR DEM CURSOR:\n{note_context}")
     if payload.selected_text.strip():

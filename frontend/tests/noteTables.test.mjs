@@ -81,6 +81,13 @@ test('AI markdown tables become structured editable TipTap tables', () => {
   assert.match(html, /<td><strong>Geprüft<\/strong><\/td>/);
 });
 
+test('AI text generated from a slash command stays inside the active table cell', () => {
+  assert.match(editorSource, /DIRECT_AI_CONTAINER_TYPES = new Set\(\[[\s\S]*?'tableCell',[\s\S]*?'tableHeader'/);
+  assert.match(editorSource, /aiPrompt\.targetContainerType = directTarget\?\.type \?\? ''/);
+  assert.match(editorSource, /Number\.isInteger\(aiPrompt\.targetContainerFrom\)/);
+  assert.match(editorSource, /insertDirectAIResult\(ed, replaceEmptyParagraph/);
+});
+
 test('note exports preserve tables in Markdown and printable HTML', () => {
   const markdown = noteToMarkdown({ title: 'Prüfung', body: tableBody });
   const html = noteToPrintableHtml({ title: 'Prüfung', body: tableBody });
