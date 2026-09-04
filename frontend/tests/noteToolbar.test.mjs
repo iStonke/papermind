@@ -12,10 +12,10 @@ const iconSource = await readFile(
 );
 
 test('toolbar menus use accessible icon-only buttons', () => {
-  assert.match(editorSource, /title="Text"\s+aria-label="Text"[\s\S]*?mdi-format-text/);
-  assert.match(editorSource, /title="Layout"\s+aria-label="Layout"[\s\S]*?mdi-view-column-outline/);
-  assert.match(editorSource, /title="Einfügen"\s+aria-label="Einfügen"[\s\S]*?mdi-text-box-plus-outline/);
-  assert.match(editorSource, /title="Blöcke"\s+aria-label="Blöcke"[\s\S]*?mdi-text-box-outline/);
+  assert.match(editorSource, /title="Text"\s+aria-label="Text"[\s\S]*?<v-icon class="note-editor__toolbar-menu-icon" size="19">mdi-format-text/);
+  assert.match(editorSource, /title="Layout"\s+aria-label="Layout"[\s\S]*?<v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-view-column-outline/);
+  assert.match(editorSource, /title="Einfügen"\s+aria-label="Einfügen"[\s\S]*?<v-icon class="note-editor__toolbar-menu-icon" size="19">mdi-plus-box-outline/);
+  assert.match(editorSource, /title="Blöcke"\s+aria-label="Blöcke"[\s\S]*?<v-icon class="note-editor__toolbar-menu-icon" size="19">mdi-text-box-outline/);
   assert.doesNotMatch(editorSource, /note-editor__toolbar-btn-label/);
   assert.equal(editorSource.match(/class="note-editor__toolbar-menu-chevron"/g)?.length, 4);
   assert.doesNotMatch(editorSource, /mdi-dots-horizontal/);
@@ -23,7 +23,7 @@ test('toolbar menus use accessible icon-only buttons', () => {
   assert.match(iconSource, /mdiArrowUp/);
   assert.match(iconSource, /mdiArrowDown/);
   assert.match(iconSource, /mdiTextBoxOutline/);
-  assert.match(iconSource, /mdiTextBoxPlusOutline/);
+  assert.match(iconSource, /mdiPlusBoxOutline/);
   assert.match(editorSource, /\.note-editor__toolbar-dropitem--block \{ font-weight: 400; \}/);
 });
 

@@ -55,7 +55,7 @@
           @mousedown.prevent
           @click.prevent="toggleMenu('block')"
         >
-          <v-icon size="18">mdi-format-text</v-icon>
+          <v-icon class="note-editor__toolbar-menu-icon" size="23">mdi-format-text</v-icon>
           <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
         </button>
         <div v-if="openMenu === 'block'" class="note-editor__toolbar-dropdown">
@@ -82,7 +82,7 @@
           @mousedown.prevent
           @click.prevent="toggleMenu('layout')"
         >
-          <v-icon size="17">mdi-view-column-outline</v-icon>
+          <v-icon class="note-editor__toolbar-menu-icon" size="26">mdi-view-column-outline</v-icon>
           <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
         </button>
         <div v-if="openMenu === 'layout'" class="note-editor__toolbar-dropdown note-editor__layout-menu">
@@ -155,7 +155,7 @@
           @mousedown.prevent
           @click.prevent="toggleMenu('insert')"
         >
-          <v-icon size="18">mdi-text-box-plus-outline</v-icon>
+          <v-icon class="note-editor__toolbar-menu-icon" size="19">mdi-plus-box-outline</v-icon>
           <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
         </button>
         <div v-if="openMenu === 'insert'" class="note-editor__toolbar-dropdown note-editor__insert-menu">
@@ -192,7 +192,7 @@
           @mousedown.prevent
           @click.prevent="toggleMenu('blocks')"
         >
-          <v-icon size="18">mdi-text-box-outline</v-icon>
+          <v-icon class="note-editor__toolbar-menu-icon" size="19">mdi-text-box-outline</v-icon>
           <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
         </button>
         <div v-if="openMenu === 'blocks'" class="note-editor__toolbar-dropdown note-editor__blocks-menu">
@@ -754,6 +754,7 @@ import TaskList from '@tiptap/extension-task-list';
 import { PaperMindTaskItem } from './nodes/taskItemDue.js';
 import { TableKit } from '@tiptap/extension-table';
 import { isHistoryTransaction } from '@tiptap/pm/history';
+import { TextSelection } from '@tiptap/pm/state';
 import { DocumentChip } from './nodes/documentChip.js';
 import { OcrQuote } from './nodes/ocrQuote.js';
 import { AiBlock } from './nodes/aiBlock.js';
@@ -2020,8 +2021,7 @@ function refreshBubble() {
   if (!ed || !surface) { bubble.show = false; return; }
   const { state, view } = ed;
   const { from, to, empty } = state.selection;
-  const isText = state.selection.constructor?.name === 'TextSelection'
-    || Object.prototype.hasOwnProperty.call(state.selection, '$cursor');
+  const isText = state.selection instanceof TextSelection;
   if (empty || !isText || !ed.isEditable || slash.open || picker.open || tableMenu.open || linkEditor.open) {
     bubble.show = false;
     return;

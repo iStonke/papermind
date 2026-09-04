@@ -641,6 +641,10 @@ test('formatting palette stays flat with no background or scroll-duck', () => {
 test('selection formatting stays above the notes list instead of being clipped by the editor scroller', () => {
   assert.match(noteEditorSource, /ref="bubbleEl"[\s\S]*?class="pm-float pm-bubble"/);
   assert.match(noteEditorSource, /const bubbleEl = ref\(null\)/);
+  assert.match(noteEditorSource, /import \{ TextSelection \} from '@tiptap\/pm\/state'/);
+  assert.match(noteEditorSource, /state\.selection instanceof TextSelection/);
+  assert.doesNotMatch(noteEditorSource, /selection\.constructor\?\.name === 'TextSelection'/);
+  assert.doesNotMatch(noteEditorSource, /hasOwnProperty\.call\(state\.selection, '\$cursor'\)/);
   assert.match(noteEditorSource, /rect\.left \+ rect\.width \/ 2/);
   assert.match(noteEditorSource, /bubbleEl\.value\?\.offsetWidth/);
   assert.match(noteEditorSource, /window\.innerWidth - BUBBLE_VIEWPORT_MARGIN/);
