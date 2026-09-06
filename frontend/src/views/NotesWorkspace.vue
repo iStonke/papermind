@@ -19,7 +19,6 @@
           <div class="notes-ws__heading" :title="activeNotebookHeading || undefined">
             <span>Notizen</span>
             <template v-if="activeNotebookHeading">
-              <span class="notes-ws__heading-separator" aria-hidden="true">·</span>
               <span class="notes-ws__heading-context">{{ activeNotebookHeading }}</span>
             </template>
           </div>
@@ -285,7 +284,6 @@
               </v-menu>
 
               <template v-if="manageFacet === 'notes' && manageNotebookHeading">
-                <span class="notes-ws__heading-separator" aria-hidden="true">·</span>
                 <span class="notes-ws__heading-context">{{ manageNotebookHeading }}</span>
               </template>
             </div>
@@ -1328,12 +1326,6 @@ function formatDate(value) {
   font-weight: 600;
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-
-.notes-ws__heading-separator {
-  flex: none;
-  color: var(--pm-muted);
-  font-weight: 500;
 }
 
 .notes-ws__heading-context {

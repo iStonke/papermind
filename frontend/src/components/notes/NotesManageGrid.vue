@@ -125,7 +125,7 @@
           class="nmg__ghost-empty"
         >
           <div class="nmg__grid nmg__ghosts">
-            <div v-for="i in 7" :key="i" class="nmg-ghost" aria-hidden="true">
+            <div v-for="i in 3" :key="i" class="nmg-ghost" aria-hidden="true">
               <div class="nmg-ghost__preview">
                 <span class="nmg-ghost__line" style="width: 88%" />
                 <span class="nmg-ghost__line" style="width: 66%" />
