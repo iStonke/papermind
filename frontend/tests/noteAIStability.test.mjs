@@ -1,13 +1,11 @@
+import { readNoteEditorSource } from './helpers/noteEditorSource.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { streamNoteText } from '../src/api/notes.js';
 
-const editorSource = await readFile(
-  new URL('../src/components/notes/NoteEditor.vue', import.meta.url),
-  'utf8',
-);
+const editorSource = await readNoteEditorSource();
 
 test('note AI consumes streamed metadata and text deltas', async () => {
   const previousFetch = globalThis.fetch;

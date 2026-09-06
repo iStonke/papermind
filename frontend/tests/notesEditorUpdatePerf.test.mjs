@@ -1,11 +1,9 @@
+import { readNoteEditorSource } from './helpers/noteEditorSource.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const editorSource = await readFile(
-  new URL('../src/components/notes/NoteEditor.vue', import.meta.url),
-  'utf8',
-);
+const editorSource = await readNoteEditorSource();
 
 // Der onUpdate-Block: von `onUpdate:` bis zum nächsten Handler `onSelectionUpdate:`.
 const onUpdate = editorSource.match(/onUpdate:\s*\(\{ editor: ed \}\) => \{([\s\S]*?)\n {2}\},\n {2}onSelectionUpdate:/)?.[1] || '';

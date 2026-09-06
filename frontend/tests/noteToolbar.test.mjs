@@ -1,11 +1,9 @@
+import { readNoteEditorSource } from './helpers/noteEditorSource.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const editorSource = await readFile(
-  new URL('../src/components/notes/NoteEditor.vue', import.meta.url),
-  'utf8',
-);
+const editorSource = await readNoteEditorSource();
 const iconSource = await readFile(
   new URL('../src/plugins/mdiIcons.js', import.meta.url),
   'utf8',
@@ -81,8 +79,8 @@ test('insert menu contains only links, evidence, and inserted objects', () => {
   assert.match(editorSource, /key: 'documentChip'[\s\S]*?action: 'document'/);
   assert.match(insertItemsSource, /key: 'horizontalRule'/);
   assert.match(editorSource, /horizontalRule: \(\) => chain\.setHorizontalRule\(\)/);
-  assert.match(editorSource, /item\.action === 'document'[\s\S]*?openDocumentChipPicker\(\)/);
-  assert.match(editorSource, /item\.action === 'target'[\s\S]*?openLinkTargetPicker\(\)/);
+  assert.match(editorSource, /document: openDocumentChipPicker/);
+  assert.match(editorSource, /target: openLinkTargetPicker/);
   assert.match(editorSource, /\.note-editor__insert-menu\s*{[\s\S]*?max-height:[\s\S]*?overflow-y:\s*auto/);
 });
 

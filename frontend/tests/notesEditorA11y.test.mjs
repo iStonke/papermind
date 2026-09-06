@@ -1,3 +1,4 @@
+import { readNoteEditorSource } from './helpers/noteEditorSource.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -5,7 +6,7 @@ import test from 'node:test';
 const read = (rel) => readFile(new URL(rel, import.meta.url), 'utf8');
 
 const rovingSource = await read('../src/composables/useToolbarRoving.js');
-const editorSource = await read('../src/components/notes/NoteEditor.vue');
+const editorSource = await readNoteEditorSource();
 const wikiSource = await read('../src/components/notes/nodes/WikiLinkView.vue');
 
 test('toolbar roving composable bundles the buttons into one arrow-navigated tab stop', () => {
@@ -26,7 +27,7 @@ test('toolbar roving composable bundles the buttons into one arrow-navigated tab
 });
 
 test('note editor wires the roving toolbar to its toolbar ref', () => {
-  assert.match(editorSource, /import \{ useToolbarRoving \} from '\.\.\/\.\.\/composables\/useToolbarRoving\.js'/);
+  assert.match(editorSource, /import \{ useToolbarRoving \} from '[^']+useToolbarRoving\.js'/);
   assert.match(editorSource, /useToolbarRoving\(toolbarEl\)/);
 });
 

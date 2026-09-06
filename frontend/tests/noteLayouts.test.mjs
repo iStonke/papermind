@@ -1,3 +1,4 @@
+import { readNoteEditorSource } from './helpers/noteEditorSource.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -16,10 +17,7 @@ import {
   resizeNotePageLayout,
 } from '../src/utils/noteLayouts.js';
 
-const editorSource = await readFile(
-  new URL('../src/components/notes/NoteEditor.vue', import.meta.url),
-  'utf8',
-);
+const editorSource = await readNoteEditorSource();
 const previewSource = await readFile(
   new URL('../src/components/notes/NotePreview.vue', import.meta.url),
   'utf8',

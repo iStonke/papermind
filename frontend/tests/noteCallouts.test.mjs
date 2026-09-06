@@ -1,3 +1,4 @@
+import { readNoteEditorSource } from './helpers/noteEditorSource.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -16,10 +17,7 @@ const viewSource = await readFile(
   new URL('../src/components/notes/nodes/CalloutView.vue', import.meta.url),
   'utf8',
 );
-const editorSource = await readFile(
-  new URL('../src/components/notes/NoteEditor.vue', import.meta.url),
-  'utf8',
-);
+const editorSource = await readNoteEditorSource();
 const previewSource = await readFile(
   new URL('../src/components/notes/NotePreview.vue', import.meta.url),
   'utf8',
@@ -99,10 +97,10 @@ test('callouts are available through slash commands and in read-only previews', 
 test('callouts share the blocks toolbar menu directly after the insert menu', () => {
   const insertMenu = editorSource.indexOf("@click.prevent=\"toggleMenu('insert')\"");
   const blocksMenu = editorSource.indexOf("@click.prevent=\"toggleMenu('blocks')\"");
-  const aiPrompt = editorSource.indexOf('<template v-if="aiAvailable">');
+  const aiSlot = editorSource.indexOf('<slot />', blocksMenu);
   assert.ok(insertMenu >= 0);
   assert.ok(blocksMenu > insertMenu);
-  assert.ok(aiPrompt > blocksMenu);
+  assert.ok(aiSlot > blocksMenu);
   assert.match(editorSource, /title="Blöcke"\s+aria-label="Blöcke"/);
   assert.match(editorSource, /v-if="openMenu === 'blocks'"/);
   assert.match(editorSource, /note-editor__blocks-menu-heading">Hinweisblöcke/);

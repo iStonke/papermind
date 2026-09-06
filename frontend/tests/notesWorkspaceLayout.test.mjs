@@ -1,3 +1,4 @@
+import { readNoteEditorSource } from './helpers/noteEditorSource.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -30,10 +31,7 @@ const editorIllustrationSource = await readFile(
   new URL('../src/components/notes/NotesEditorIllustration.vue', import.meta.url),
   'utf8',
 );
-const noteEditorSource = await readFile(
-  new URL('../src/components/notes/NoteEditor.vue', import.meta.url),
-  'utf8',
-);
+const noteEditorSource = await readNoteEditorSource();
 const notePreviewSource = await readFile(
   new URL('../src/components/notes/NotePreview.vue', import.meta.url),
   'utf8',

@@ -1,3 +1,4 @@
+import { readNoteEditorSource } from './helpers/noteEditorSource.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -12,10 +13,7 @@ import {
 } from '../src/utils/noteHighlights.js';
 import { noteToMarkdown, noteToPrintableHtml } from '../src/utils/noteExport.js';
 
-const editorSource = await readFile(
-  new URL('../src/components/notes/NoteEditor.vue', import.meta.url),
-  'utf8',
-);
+const editorSource = await readNoteEditorSource();
 const previewSource = await readFile(
   new URL('../src/components/notes/NotePreview.vue', import.meta.url),
   'utf8',

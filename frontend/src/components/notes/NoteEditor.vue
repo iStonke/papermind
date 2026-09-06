@@ -30,249 +30,12 @@
       @keydown.enter.prevent="focusBody"
     />
 
-    <div
+    <NoteEditorToolbar
       v-if="workspace"
-      class="note-editor__toolbar-guard"
-      :class="{ 'is-scrolled': toolbarScrolled }"
+      :controller="toolbar"
+      :readonly="readonly"
+      :toolbar-scrolled="toolbarScrolled"
     >
-      <div
-        ref="toolbarEl"
-        class="note-editor__toolbar"
-        :class="{ 'is-compact': toolbarCompact }"
-        role="toolbar"
-        aria-label="Text formatieren"
-        :aria-disabled="readonly ? 'true' : undefined"
-        :inert="readonly ? '' : undefined"
-      >
-      <div class="note-editor__toolbar-menu">
-        <button
-          type="button"
-          class="note-editor__toolbar-btn note-editor__toolbar-btn--group"
-          :class="{ 'is-open': openMenu === 'block' }"
-          :aria-expanded="openMenu === 'block' ? 'true' : 'false'"
-          aria-haspopup="menu"
-          aria-controls="note-editor-menu-text"
-          title="Text"
-          aria-label="Text"
-          @mousedown.prevent
-          @click.prevent="toggleMenu('block')"
-          @keydown.down.prevent="openMenuFocus('block', 'first')"
-          @keydown.up.prevent="openMenuFocus('block', 'last')"
-        >
-          <v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-text-box-outline</v-icon>
-          <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
-        </button>
-        <div v-if="openMenu === 'block'" id="note-editor-menu-text" role="menu" aria-label="Text" class="note-editor__toolbar-dropdown note-editor__text-menu" @keydown="onMenuKeydown">
-          <div class="note-editor__text-menu-heading">Textart</div>
-          <button
-            v-for="item in blockStyleItems"
-            :key="item.key"
-            type="button"
-            role="menuitem"
-            class="note-editor__toolbar-dropitem note-editor__toolbar-dropitem--block"
-            :class="[`is-${item.key}`, { 'is-active': isBlockActive(item.key) }]"
-            @mousedown.prevent
-            @click.prevent="runBlockStyle(item.key)"
-          >{{ item.label }}</button>
-          <div class="note-editor__text-menu-divider" aria-hidden="true"></div>
-          <div class="note-editor__text-menu-heading">Listen</div>
-          <button
-            v-for="item in listStyleItems"
-            :key="item.key"
-            type="button"
-            role="menuitem"
-            class="note-editor__toolbar-dropitem"
-            :class="{ 'is-active': isBlockActive(item.key) }"
-            @mousedown.prevent
-            @click.prevent="runBlockStyle(item.key)"
-          >
-            <span class="note-editor__toolbar-dropitem-glyph">
-              <v-icon size="17">{{ item.icon }}</v-icon>
-            </span>
-            <span>{{ item.label }}</span>
-          </button>
-        </div>
-      </div>
-
-      <div class="note-editor__toolbar-menu">
-        <button
-          type="button"
-          class="note-editor__toolbar-btn note-editor__toolbar-btn--group"
-          :class="{ 'is-open': openMenu === 'layout' }"
-          :aria-expanded="openMenu === 'layout' ? 'true' : 'false'"
-          aria-haspopup="menu"
-          aria-controls="note-editor-menu-layout"
-          title="Layout"
-          aria-label="Layout"
-          @mousedown.prevent
-          @click.prevent="toggleMenu('layout')"
-          @keydown.down.prevent="openMenuFocus('layout', 'first')"
-          @keydown.up.prevent="openMenuFocus('layout', 'last')"
-        >
-          <v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-format-columns</v-icon>
-          <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
-        </button>
-        <div v-if="openMenu === 'layout'" id="note-editor-menu-layout" role="menu" aria-label="Layout" class="note-editor__toolbar-dropdown note-editor__layout-menu" @keydown="onMenuKeydown">
-          <div class="note-editor__layout-menu-label">
-            {{ currentPageLayoutColumns() ? 'Aktuelles Layout' : 'Layout einfügen' }}
-          </div>
-          <button
-            v-for="item in pageLayoutItems"
-            :key="item.columns"
-            type="button"
-            role="menuitemradio"
-            class="note-editor__toolbar-dropitem"
-            :class="{ 'is-active': currentPageLayoutColumns() === item.columns }"
-            :aria-checked="currentPageLayoutColumns() === item.columns ? 'true' : 'false'"
-            @mousedown.prevent
-            @click.prevent="runPageLayout(item.columns)"
-          >
-            <span
-              class="note-editor__layout-preview"
-              :style="{ '--pm-layout-preview-columns': item.columns }"
-              aria-hidden="true"
-            >
-              <span v-for="column in item.columns" :key="column"></span>
-            </span>
-            <span>{{ item.label }}</span>
-          </button>
-          <template v-if="currentPageLayoutColumns()">
-            <div class="note-editor__layout-menu-divider" aria-hidden="true"></div>
-            <div class="note-editor__layout-menu-label">Neues Layout</div>
-            <button
-              type="button"
-              role="menuitem"
-              class="note-editor__toolbar-dropitem"
-              @mousedown.prevent
-              @click.prevent="insertAdjacentPageLayout('before')"
-            >
-              <span class="note-editor__toolbar-dropitem-glyph"><v-icon size="17">mdi-arrow-up</v-icon></span>
-              <span>Darüber einfügen</span>
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              class="note-editor__toolbar-dropitem"
-              @mousedown.prevent
-              @click.prevent="insertAdjacentPageLayout('after')"
-            >
-              <span class="note-editor__toolbar-dropitem-glyph"><v-icon size="17">mdi-arrow-down</v-icon></span>
-              <span>Darunter einfügen</span>
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              class="note-editor__toolbar-dropitem note-editor__layout-remove"
-              @mousedown.prevent
-              @click.prevent="removeCurrentPageLayout"
-            >
-              <span class="note-editor__toolbar-dropitem-glyph"><v-icon size="17">mdi-view-agenda-outline</v-icon></span>
-              <span>Layout auflösen</span>
-            </button>
-          </template>
-        </div>
-      </div>
-
-      <span class="note-editor__toolbar-divider" aria-hidden="true" />
-
-      <div class="note-editor__toolbar-menu">
-        <button
-          type="button"
-          class="note-editor__toolbar-btn note-editor__toolbar-btn--group"
-          :class="{ 'is-open': openMenu === 'insert' }"
-          :aria-expanded="openMenu === 'insert' ? 'true' : 'false'"
-          aria-haspopup="menu"
-          aria-controls="note-editor-menu-insert"
-          title="Einfügen"
-          aria-label="Einfügen"
-          @mousedown.prevent
-          @click.prevent="toggleMenu('insert')"
-          @keydown.down.prevent="openMenuFocus('insert', 'first')"
-          @keydown.up.prevent="openMenuFocus('insert', 'last')"
-        >
-          <v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-plus-box-outline</v-icon>
-          <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
-        </button>
-        <div v-if="openMenu === 'insert'" id="note-editor-menu-insert" role="menu" aria-label="Einfügen" class="note-editor__toolbar-dropdown note-editor__insert-menu" @keydown="onMenuKeydown">
-          <button
-            v-for="item in overflowItems"
-            :key="item.key"
-            type="button"
-            role="menuitem"
-            class="note-editor__toolbar-dropitem"
-            :class="{ 'is-active': item.name ? toolbarActive(item.name) : false }"
-            :disabled="insertItemDisabled(item)"
-            @mousedown.prevent
-            @click.prevent="runMenuItem(item)"
-          >
-            <span class="note-editor__toolbar-dropitem-glyph">
-              <v-icon v-if="item.icon" size="17">{{ item.icon }}</v-icon>
-              <span v-else class="note-editor__toolbar-dropitem-text">{{ item.glyph }}</span>
-            </span>
-            <span>{{ item.label }}</span>
-          </button>
-        </div>
-      </div>
-
-      <div class="note-editor__toolbar-menu">
-        <button
-          type="button"
-          class="note-editor__toolbar-btn note-editor__toolbar-btn--group"
-          :class="{
-            'is-open': openMenu === 'blocks',
-            'is-active': toolbarActive('callout') || toolbarActive('templateBox'),
-          }"
-          :aria-expanded="openMenu === 'blocks' ? 'true' : 'false'"
-          aria-haspopup="menu"
-          aria-controls="note-editor-menu-blocks"
-          title="Blöcke"
-          aria-label="Blöcke"
-          @mousedown.prevent
-          @click.prevent="toggleMenu('blocks')"
-          @keydown.down.prevent="openMenuFocus('blocks', 'first')"
-          @keydown.up.prevent="openMenuFocus('blocks', 'last')"
-        >
-          <v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-view-agenda-outline</v-icon>
-          <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
-        </button>
-        <div v-if="openMenu === 'blocks'" id="note-editor-menu-blocks" role="menu" aria-label="Blöcke" class="note-editor__toolbar-dropdown note-editor__blocks-menu" @keydown="onMenuKeydown">
-          <div class="note-editor__blocks-menu-heading">Hinweisblöcke</div>
-          <button
-            v-for="option in toolbarCalloutOptions"
-            :key="option.value"
-            type="button"
-            role="menuitem"
-            class="note-editor__toolbar-dropitem"
-            :class="{ 'is-active': toolbarActive('callout', { kind: option.value }) }"
-            @mousedown.prevent
-            @click.prevent="runCalloutKind(option.value)"
-          >
-            <span class="note-editor__toolbar-dropitem-glyph">
-              <span class="note-editor__callout-glyph">{{ option.glyph }}</span>
-            </span>
-            <span>{{ option.label }}</span>
-          </button>
-          <template v-if="quickBlockItems.length">
-            <div class="note-editor__blocks-menu-divider" aria-hidden="true"></div>
-            <div class="note-editor__blocks-menu-heading">Schnellblöcke</div>
-            <button
-              v-for="item in quickBlockItems"
-              :key="item.key"
-              type="button"
-              role="menuitem"
-              class="note-editor__toolbar-dropitem"
-              @mousedown.prevent
-              @click.prevent="runQuickBlock(item)"
-            >
-              <span class="note-editor__toolbar-dropitem-glyph">
-                <span class="note-editor__quick-block-glyph">{{ item.glyph }}</span>
-              </span>
-              <span>{{ item.label }}</span>
-            </button>
-          </template>
-        </div>
-      </div>
-
       <template v-if="aiAvailable">
         <span class="note-editor__toolbar-divider" aria-hidden="true" />
         <form
@@ -344,9 +107,7 @@
           </Transition>
         </form>
       </template>
-
-      </div>
-    </div>
+    </NoteEditorToolbar>
 
     <input
       ref="imageInputEl"
@@ -882,51 +643,15 @@
       <span class="note-editor__count">{{ words }} {{ words === 1 ? 'Wort' : 'Wörter' }}</span>
     </div>
 
-    <Teleport to="body">
-      <div
-        v-if="shortcutsOpen"
-        class="pm-shortcuts-overlay"
-        @click.self="closeShortcuts"
-        @keydown.esc.prevent="closeShortcuts"
-      >
-          <div
-            class="pm-shortcuts"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="pm-shortcuts-title"
-          >
-            <div class="pm-shortcuts__head">
-              <h2 id="pm-shortcuts-title" class="pm-shortcuts__title">Tastenkürzel</h2>
-              <button
-                ref="shortcutsCloseEl"
-                type="button"
-                class="pm-shortcuts__close"
-                aria-label="Schließen"
-                @click="closeShortcuts"
-              >
-                <v-icon size="18">mdi-close</v-icon>
-              </button>
-            </div>
-            <div class="pm-shortcuts__grid">
-              <section v-for="group in shortcutGroups" :key="group.title" class="pm-shortcuts__group">
-                <h3 class="pm-shortcuts__group-title">{{ group.title }}</h3>
-                <ul class="pm-shortcuts__list">
-                  <li v-for="row in group.items" :key="row.label" class="pm-shortcuts__row">
-                    <span class="pm-shortcuts__label">{{ row.label }}</span>
-                    <span class="pm-shortcuts__keys">
-                      <kbd v-for="(key, i) in row.keys" :key="i">{{ key }}</kbd>
-                    </span>
-                  </li>
-                </ul>
-              </section>
-            </div>
-          </div>
-      </div>
-    </Teleport>
+
+    <NoteShortcutsDialog ref="shortcutsDialogRef" @close="editor?.commands.focus()" />
   </div>
 </template>
 
 <script setup>
+import NoteShortcutsDialog from './NoteShortcutsDialog.vue';
+import NoteEditorToolbar from './NoteEditorToolbar.vue';
+import { useNoteToolbar } from './composables/useNoteToolbar.js';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, toRaw, watch } from 'vue';
 import { EditorContent, useEditor, posToDOMRect } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
@@ -943,7 +668,7 @@ import { OcrQuote } from './nodes/ocrQuote.js';
 import { AiBlock } from './nodes/aiBlock.js';
 import { WikiLink } from './nodes/wikiLink.js';
 import { Callout } from './nodes/callout.js';
-import { LayoutColumn, PageLayout, pageLayoutAtSelection } from './nodes/pageLayout.js';
+import { LayoutColumn, PageLayout } from './nodes/pageLayout.js';
 import { NoteHighlight } from './nodes/noteHighlight.js';
 import { PaperMindDocument } from './nodes/noteDocument.js';
 import { TemplateBox, TemplateField } from './nodes/templateBox.js';
@@ -976,8 +701,6 @@ import {
   parseNoteSlashUsage,
 } from '../../utils/noteSlashUsage.js';
 import { streamNoteText, uploadNoteImage } from '../../api/notes.js';
-import { menuItemsOf, nextMenuItem } from '../../utils/noteMenuNavigation.js';
-import { useToolbarRoving } from '../../composables/useToolbarRoving.js';
 import { noteAITextForCodeBlock, noteMarkdownToTipTap } from '../../utils/noteMarkdown.js';
 import {
   CLEANUP_INPUT_LIMIT,
@@ -987,9 +710,6 @@ import {
   parseCleanupOutput,
   stripCleanupMarks,
 } from '../../utils/noteCleanup.js';
-import {
-  NOTE_PAGE_LAYOUT_COLUMNS,
-} from '../../utils/noteLayouts.js';
 import { NOTE_HIGHLIGHT_COLORS } from '../../utils/noteHighlights.js';
 
 const props = defineProps({
@@ -1046,6 +766,11 @@ const emit = defineEmits([
 const surfaceEl = ref(null);
 const writingEl = ref(null);
 const titleEl = ref(null);
+const shortcutsDialogRef = ref(null);
+function openShortcuts() {
+  openMenu.value = null;
+  shortcutsDialogRef.value?.open();
+}
 const aiToolbarInputEl = ref(null);
 const aiPromptInputEl = ref(null);
 const aiOptionsButtonEl = ref(null);
@@ -1602,293 +1327,24 @@ function runToolbar(action) {
 
 /* ── Formatierungsleiste: Menü-Gruppen + responsive Verdichtung ──────────────
    Textstil, Layout und Einfügen bleiben als kompakte Icon-Menüs sichtbar. */
+
 const rootEl = ref(null);
-const toolbarEl = ref(null);
-// Pfeiltasten-Navigation innerhalb der Formatierungsleiste (ARIA Toolbar Pattern):
-// die Menü-Buttons werden zu einem einzigen Tab-Stopp gebündelt.
-useToolbarRoving(toolbarEl);
-const openMenu = ref(null); // 'block' | 'layout' | 'highlight' | 'insert' | 'blocks' | null
-const toolbarCompact = ref(false);
-const TOOLBAR_COMPACT_WIDTH = 520;
-
-const blockStyleItems = [
-  { key: 'paragraph', label: 'Fließtext' },
-  { key: 'h2', label: 'Überschrift 2' },
-  { key: 'h3', label: 'Überschrift 3' },
-  { key: 'h4', label: 'Überschrift 4' },
-  { key: 'blockquote', label: 'Zitat' },
-  { key: 'codeBlock', label: 'Codeblock' },
-];
-
-const listStyleItems = [
-  { key: 'bulletList', icon: 'mdi-format-list-bulleted', label: 'Aufzählung' },
-  { key: 'orderedList', icon: 'mdi-format-list-numbered', label: 'Nummerierte Liste' },
-  { key: 'taskList', icon: 'mdi-checkbox-blank-circle-outline', label: 'Aufgaben' },
-];
-
-const pageLayoutItems = NOTE_PAGE_LAYOUT_COLUMNS.map((columns) => ({
-  columns,
-  label: `${columns} ${columns === 1 ? 'Spalte' : 'Spalten'}`,
-}));
-
-const toolbarCalloutOptions = NOTE_CALLOUT_OPTIONS.filter(
-  (option) => !['deadline', 'source'].includes(option.value),
-);
-
-const quickBlockItems = computed(() => ([
-  ...(props.blockTemplates || []).map((template) => ({
-    key: `saved-${template.id}`,
-    label: template.name || template.title || 'Schnellblock',
-    glyph: '▤',
-    preset: {
-      title: template.title || '',
-      color: template.color || 'teal',
-      fields: Array.isArray(template.fields) ? template.fields : [],
-    },
-  })),
-]));
-
-const insertItems = [
-  { key: 'link', name: 'link', icon: 'mdi-link-variant', label: 'Hyperlink', action: 'link' },
-  { key: 'wikiLink', glyph: '[[', label: 'Verweis', action: 'target' },
-  { key: 'documentChip', icon: 'mdi-file-document-outline', label: 'Beleg verknüpfen', action: 'document' },
-  { key: 'table', name: 'table', icon: 'mdi-table', label: 'Tabelle', action: 'table' },
-  { key: 'image', icon: 'mdi-image-plus-outline', label: 'Bild einfügen', action: 'image', requiresNote: true },
-  { key: 'horizontalRule', glyph: '―', label: 'Trennlinie' },
-];
-
-const overflowItems = computed(() => {
-  const items = [];
-  for (const item of insertItems) {
-    if (item.requiresNote && !props.noteId) continue;
-    items.push(item);
-  }
-  return items;
+const toolbar = useNoteToolbar({
+  editor, rootEl, props, runToolbar, closeLinkEditor,
+  closeTableMenu: () => { tableMenu.open = false; },
+  beforeOpen: () => { aiOptionsOpen.value = false; },
+  onOutsidePointer: (event) => {
+    if (!event.target.closest?.('.note-editor__toolbar-ai')) aiOptionsOpen.value = false;
+  },
+  documentsAvailable: () => docPickerItems().length > 0,
+  targetsAvailable: () => linkTargetItems().length > 0,
+  imageUploading: () => imageUploadCount.value > 0,
+  onInsert: (action) => {
+    const actions = { table: openTableMenu, link: openLinkEditor, image: openImagePicker, document: openDocumentChipPicker, target: openLinkTargetPicker };
+    actions[action]?.();
+  },
 });
-
-function insertItemDisabled(item) {
-  if (item.key === 'image') return imageUploadCount.value > 0;
-  if (item.action === 'document') return !docPickerItems().length;
-  if (item.action === 'target') return !linkTargetItems().length;
-  return false;
-}
-
-function isBlockActive(key) {
-  if (key === 'paragraph') return Boolean(toolbarActive('paragraph'));
-  if (['blockquote', 'codeBlock', 'bulletList', 'orderedList', 'taskList'].includes(key)) {
-    return Boolean(toolbarActive(key));
-  }
-  const level = { h2: 2, h3: 3, h4: 4 }[key];
-  return Boolean(toolbarActive('heading', { level }));
-}
-
-function toggleMenu(which) {
-  aiOptionsOpen.value = false;
-  openMenu.value = openMenu.value === which ? null : which;
-}
-
-// ── Tastatur-Semantik der Menü-Buttons (ARIA Menu Button Pattern) ──────────────
-// Jeder Gruppen-Button ist ein Menü-Trigger; das zugehörige Dropdown hat role="menu".
-const MENU_DROPDOWN_IDS = {
-  block: 'note-editor-menu-text',
-  layout: 'note-editor-menu-layout',
-  insert: 'note-editor-menu-insert',
-  blocks: 'note-editor-menu-blocks',
-};
-
-// Pfeil-runter/-hoch auf dem Button öffnet das Menü und setzt den Fokus auf den
-// ersten bzw. letzten Eintrag.
-function openMenuFocus(which, position = 'first') {
-  openMenu.value = which;
-  nextTick(() => {
-    const items = menuItemsOf(document.getElementById(MENU_DROPDOWN_IDS[which]));
-    if (!items.length) return;
-    (position === 'last' ? items[items.length - 1] : items[0]).focus();
-  });
-}
-
-// Tastatur INNERHALB eines offenen Menüs: Pfeile/Pos1/Ende rollen die Einträge,
-// Escape schließt und gibt den Fokus an den Trigger zurück, Tab schließt nur.
-function onMenuKeydown(event) {
-  const dropdown = event.currentTarget;
-  if (event.key === 'Escape') {
-    event.preventDefault();
-    const trigger = dropdown.previousElementSibling;
-    openMenu.value = null;
-    nextTick(() => trigger?.focus?.());
-    return;
-  }
-  if (event.key === 'Tab') {
-    openMenu.value = null;
-    return;
-  }
-  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-  const items = menuItemsOf(dropdown);
-  if (!items.length) return;
-  const next = nextMenuItem(items, document.activeElement, event.key);
-  if (!next) return;
-  event.preventDefault();
-  next.focus();
-}
-
-// ── Tastenkürzel-Übersicht ─────────────────────────────────────────────────────
-const shortcutsOpen = ref(false);
-const isMacKeyboard = typeof navigator !== 'undefined'
-  && /Mac|iP(hone|ad|od)/.test(navigator.platform || navigator.userAgent || '');
-const modKeyLabel = isMacKeyboard ? '⌘' : 'Strg';
-const altKeyLabel = isMacKeyboard ? '⌥' : 'Alt';
-const shiftKeyLabel = isMacKeyboard ? '⇧' : 'Umschalt';
-const shortcutGroups = computed(() => [
-  {
-    title: 'Text',
-    items: [
-      { label: 'Fett', keys: [modKeyLabel, 'B'] },
-      { label: 'Kursiv', keys: [modKeyLabel, 'I'] },
-      { label: 'Durchgestrichen', keys: [modKeyLabel, shiftKeyLabel, 'S'] },
-      { label: 'Markieren', keys: [modKeyLabel, shiftKeyLabel, 'H'] },
-      { label: 'Inline-Code', keys: [modKeyLabel, 'E'] },
-    ],
-  },
-  {
-    title: 'Absätze',
-    items: [
-      { label: 'Überschrift 2/3/4', keys: [modKeyLabel, altKeyLabel, '2 / 3 / 4'] },
-      { label: 'Fließtext', keys: [modKeyLabel, altKeyLabel, '0'] },
-      { label: 'Zitat', keys: [modKeyLabel, shiftKeyLabel, 'B'] },
-      { label: 'Codeblock', keys: [modKeyLabel, altKeyLabel, 'C'] },
-    ],
-  },
-  {
-    title: 'Listen',
-    items: [
-      { label: 'Aufzählung', keys: [modKeyLabel, shiftKeyLabel, '8'] },
-      { label: 'Nummerierte Liste', keys: [modKeyLabel, shiftKeyLabel, '7'] },
-    ],
-  },
-  {
-    // Zeilenanfang-Kürzel (InputRules aus callout.js): Zeichen + Leertaste.
-    title: 'Hinweisblöcke',
-    items: [
-      { label: 'Wichtig', keys: ['!', '␣'] },
-      { label: 'Frage', keys: ['?', '␣'] },
-      { label: 'Entscheidung', keys: ['=', '␣'] },
-    ],
-  },
-  {
-    title: 'Einfügen & Aktionen',
-    items: [
-      { label: 'Hyperlink', keys: [modKeyLabel, 'K'] },
-      { label: 'Befehlsmenü', keys: ['/'] },
-      { label: 'Suchen & Ersetzen', keys: [modKeyLabel, 'F'] },
-      { label: 'Rückgängig', keys: [modKeyLabel, 'Z'] },
-      { label: 'Wiederherstellen', keys: [modKeyLabel, shiftKeyLabel, 'Z'] },
-      { label: 'Diese Übersicht', keys: [modKeyLabel, '/'] },
-    ],
-  },
-]);
-function openShortcuts() {
-  openMenu.value = null;
-  shortcutsOpen.value = true;
-  nextTick(() => shortcutsCloseEl.value?.focus?.());
-}
-function closeShortcuts() {
-  shortcutsOpen.value = false;
-  nextTick(() => editor.value?.commands.focus());
-}
-const shortcutsCloseEl = ref(null);
-
-function runBlockStyle(key) {
-  openMenu.value = null;
-  runToolbar(key);
-}
-function currentPageLayoutColumns() {
-  const ed = editor.value;
-  return ed ? pageLayoutAtSelection(ed.state)?.node.childCount || null : null;
-}
-function runPageLayout(columns) {
-  openMenu.value = null;
-  tableMenu.open = false;
-  closeLinkEditor();
-  const ed = editor.value;
-  if (!ed) return;
-  if (pageLayoutAtSelection(ed.state)) ed.commands.setPageLayoutColumns(columns);
-  else ed.commands.insertPageLayout(columns);
-  ed.commands.focus();
-}
-function insertAdjacentPageLayout(placement) {
-  openMenu.value = null;
-  const ed = editor.value;
-  if (!ed) return;
-  ed.commands.insertPageLayoutAdjacent(placement);
-  ed.commands.focus();
-}
-function removeCurrentPageLayout() {
-  openMenu.value = null;
-  const ed = editor.value;
-  if (!ed) return;
-  ed.commands.unsetPageLayout();
-  ed.commands.focus();
-}
-function isTextHighlightActive(color) {
-  return Boolean(editor.value?.isActive('highlight', { color }));
-}
-function applyTextHighlight(color) {
-  openMenu.value = null;
-  editor.value?.chain().focus().setNoteHighlight(color).run();
-}
-function removeTextHighlight() {
-  openMenu.value = null;
-  editor.value?.chain().focus().unsetNoteHighlight().run();
-}
-function runMenuItem(item) {
-  openMenu.value = null;
-  if (item.action === 'table') { openTableMenu(); return; }
-  if (item.action === 'link') { openLinkEditor(); return; }
-  if (item.action === 'image') { openImagePicker(); return; }
-  if (item.action === 'document') { openDocumentChipPicker(); return; }
-  if (item.action === 'target') { openLinkTargetPicker(); return; }
-  runToolbar(item.key);
-}
-
-function runCalloutKind(kind) {
-  openMenu.value = null;
-  const ed = editor.value;
-  if (!ed) return;
-  const chain = ed.chain().focus();
-  if (ed.isActive('callout')) chain.setCalloutKind(kind).run();
-  else chain.insertCallout(kind).run();
-}
-
-function runQuickBlock(item) {
-  openMenu.value = null;
-  const ed = editor.value;
-  if (!ed || !item?.preset) return;
-  ed.chain().focus().insertTemplateBox(item.preset).run();
-}
-
-function onToolbarOutsidePointer(event) {
-  if (!event.target.closest?.('.note-editor__toolbar-ai')) aiOptionsOpen.value = false;
-  if (openMenu.value && toolbarEl.value && !toolbarEl.value.contains(event.target)) {
-    openMenu.value = null;
-  }
-}
-
-let toolbarResizeObserver = null;
-onMounted(() => {
-  document.addEventListener('pointerdown', onToolbarOutsidePointer, true);
-  if (rootEl.value && typeof ResizeObserver !== 'undefined') {
-    toolbarResizeObserver = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect?.width || 0;
-      if (width > 0) toolbarCompact.value = width < TOOLBAR_COMPACT_WIDTH;
-    });
-    toolbarResizeObserver.observe(rootEl.value);
-  }
-});
-onBeforeUnmount(() => {
-  document.removeEventListener('pointerdown', onToolbarOutsidePointer, true);
-  toolbarResizeObserver?.disconnect();
-  toolbarResizeObserver = null;
-});
+const { openMenu, isTextHighlightActive, applyTextHighlight, removeTextHighlight } = toolbar;
 
 function positionLinkEditor() {
   const ed = editor.value;
@@ -3686,6 +3142,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   color: var(--pm-text, #0e181b);
   padding: 4px 0 10px;
 }
+
 .note-editor__title::placeholder { color: var(--pm-muted, #8a969b); opacity: 0.55; }
 
 .note-editor__surface {
@@ -3696,192 +3153,19 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 
 /* ── Eingebettete Workspace-Variante ────────────────────────────────────── */
+
 .note-editor--workspace {
   min-height: 100%;
   background: var(--pm-content-surface, #fff);
 }
 
-.note-editor__toolbar-guard {
-  position: sticky;
-  top: 0;
-  z-index: 12;
-  display: flex;
-  width: 100%;
-  min-height: 52px;
-  flex: none;
-  align-self: stretch;
-  overflow: visible;
-  background: var(--pm-content-surface, #fff);
-  isolation: isolate;
-  transition: background-color 180ms ease;
-}
-
-.note-editor__toolbar-guard.is-scrolled {
-  background: color-mix(in srgb, var(--pm-content-surface, #fff) 88%, transparent);
-  -webkit-backdrop-filter: blur(9px) saturate(1.06);
-  backdrop-filter: blur(9px) saturate(1.06);
-}
-
-.note-editor__toolbar-guard::after {
-  position: absolute;
-  z-index: 0;
-  top: 100%;
-  right: 0;
-  left: 0;
-  height: 20px;
-  pointer-events: none;
-  content: '';
-  background: linear-gradient(
-    to bottom,
-    var(--pm-content-surface, #fff) 0%,
-    var(--pm-content-surface, #fff) 24%,
-    color-mix(in srgb, var(--pm-content-surface, #fff) 72%, transparent) 68%,
-    transparent 100%
-  );
-}
-
-.note-editor__toolbar-guard.is-scrolled::after {
-  background: linear-gradient(
-    to bottom,
-    color-mix(in srgb, var(--pm-content-surface, #fff) 88%, transparent) 0%,
-    color-mix(in srgb, var(--pm-content-surface, #fff) 78%, transparent) 42%,
-    transparent 100%
-  );
-}
-
-.note-editor__toolbar {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  box-sizing: border-box;
-  width: calc(100% - 16px);
-  max-width: calc(100% - 16px);
-  min-height: 44px;
-  flex: none;
-  align-self: flex-start;
-  align-items: center;
-  gap: 6px;
-  /* Das sichtbare erste Glyph beginnt bei x=16px wie der Tag-Chip darüber:
-     8px Außenabstand + 1px Rahmen + die Zentrierung im 42px-Gruppenbutton.
-     Links braucht die ruhige, rahmenlose Leiste daher kein Innenpadding. */
-  margin: 8px 0 0 8px;
-  padding: 5px 7px 5px 0;
-  /* overflow:visible, damit die Menü-Dropdowns unter der Leiste nicht
-     abgeschnitten werden. Horizontales Scrollen ist dank Gruppen-Menüs +
-     Compact-Modus nicht mehr nötig. */
-  overflow: visible;
-  /* Flach, ohne Schatten und ohne sichtbaren Rahmen. Die dezente Transparenz
-     beim Scrollen kommt vom übergeordneten sticky Guard. */
-  border: 1px solid transparent;
-  border-radius: 12px;
-  /* Ohne eigene Fläche: die Leiste übernimmt die ruhige, im gescrollten Zustand
-     leicht transparente Canvas-Fläche des Guards. */
-  background: transparent;
-  box-shadow: none;
-  scrollbar-color: color-mix(in srgb, var(--pm-muted, #535e62) 35%, transparent) transparent;
-  scrollbar-width: thin;
-  transition:
-    background-color 220ms ease,
-    border-color 220ms ease,
-    box-shadow 220ms ease;
-}
-
 /* Die Leiste bleibt flach; geöffnete Dropdowns tragen ihre eigene Chrome. */
 
-.note-editor__toolbar-group {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 2px;
-}
-
-.note-editor__toolbar-divider {
-  width: 1px;
-  height: 24px;
-  flex: none;
-  margin: 0 2px;
-  background: var(--pm-divider, #d8dfe1);
-}
-
-.note-editor__toolbar-btn {
-  display: inline-grid;
-  width: 32px;
-  height: 32px;
-  flex: none;
-  place-items: center;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--pm-muted, #535e62);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.88rem;
-  transition: background-color 120ms ease, color 120ms ease;
-}
-
-.note-editor__toolbar-btn--text {
-  width: 40px;
-  font-weight: 680;
-}
-
-.note-editor__toolbar-btn--wide {
-  width: 48px;
-  font-weight: 570;
-}
-
-.note-editor__toolbar-btn:hover {
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 9%, transparent);
-  color: var(--pm-text, #0e181b);
-}
-
-.note-editor__toolbar-btn.is-active {
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 14%, transparent);
-  color: var(--pm-accent-strong, #00555f);
-}
-
-.note-editor__toolbar-btn:disabled {
-  opacity: 0.42;
-  cursor: wait;
-}
-
-.note-editor__toolbar-code {
-  color: var(--pm-warning, #c88819);
-  font-weight: 700;
-}
-
-.note-editor__toolbar-braces {
-  font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 0.72rem;
-  letter-spacing: -0.08em;
-}
-
 /* Menü-Gruppen (Text / Layout / Einfügen) + Dropdowns */
-.note-editor__toolbar-menu { position: relative; display: flex; }
-
-.note-editor__toolbar-btn--group {
-  width: 42px;
-  height: 32px;
-  padding: 0 4px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0;
-  color: var(--pm-text, #0e181b);
-}
-.note-editor__toolbar-menu-chevron {
-  margin-left: -1px;
-  opacity: 0.68;
-}
-.note-editor__toolbar-btn--group.is-open {
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent);
-  color: var(--pm-accent-strong, #00555f);
-}
-.note-editor__toolbar.is-compact .note-editor__toolbar-btn--group {
-  width: 42px;
-}
 
 /* Dauerhaft sichtbarer KI-Prompt nach dem Muster einer ruhigen Suchzeile: Das
    Icon ist bewusst neutral, das Feld hat weder Rahmen noch eigene Fläche. */
+
 .note-editor__toolbar-ai {
   position: relative;
   display: flex;
@@ -3893,6 +3177,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   gap: 8px;
   color: var(--pm-muted, #535e62);
 }
+
 .note-editor__toolbar-ai-icon {
   display: grid;
   width: 22px;
@@ -3908,10 +3193,12 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   opacity: 0.74;
   transition: color 140ms ease, opacity 140ms ease;
 }
+
 .note-editor__toolbar-ai-icon.is-open,
 .note-editor__toolbar-ai-icon:hover {
   background: color-mix(in srgb, var(--pm-muted, #748084) 12%, transparent);
 }
+
 .note-editor__ai-options {
   position: absolute;
   top: calc(100% + 10px);
@@ -3926,20 +3213,28 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   color: var(--pm-text, #0e181b);
   font-size: 0.8rem;
 }
+
 .note-editor__ai-options fieldset { padding: 0; margin: 0 0 14px; border: 0; min-width: 0; }
+
 .note-editor__ai-options legend { margin-bottom: 7px; font-weight: 600; }
+
 .note-editor__ai-lengths { display: flex; gap: 3px; flex-wrap: wrap; }
+
 .note-editor__ai-lengths button {
   border: 0; border-radius: 6px; padding: 6px 8px; font: inherit;
   background: transparent; color: inherit; cursor: pointer;
 }
+
 .note-editor__ai-lengths button[aria-pressed="true"] {
   background: color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent);
   color: var(--pm-accent-strong, #00555f);
 }
+
 .note-editor__ai-options output,
 .note-editor__ai-options small { display: block; margin-top: 7px; color: var(--pm-muted, #535e62); font-size: 0.72rem; }
+
 .note-editor__ai-options label { display: grid; gap: 7px; font-weight: 600; }
+
 .note-editor__ai-options select {
   appearance: none;
   width: 100%; padding: 8px 36px 8px 10px; border: 1px solid var(--pm-divider, #d8dfe1); border-radius: 7px;
@@ -3947,25 +3242,32 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   cursor: pointer;
   transition: border-color 140ms ease, background-color 140ms ease;
 }
+
 .note-editor__ai-context-select { position: relative; display: block; }
+
 .note-editor__ai-context-select > .v-icon {
   position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
   color: var(--pm-muted, #535e62); pointer-events: none;
 }
+
 .note-editor__ai-options select:hover:not(:disabled) {
   border-color: var(--pm-accent, #006b75);
   background: color-mix(in srgb, var(--pm-accent, #006b75) 4%, var(--pm-content-surface, #fff));
 }
+
 .note-editor__ai-options select:focus-visible {
   outline: 2px solid var(--pm-accent, #006b75); outline-offset: 2px;
 }
+
 .note-editor__ai-options select:disabled {
   cursor: default; opacity: 0.5;
 }
+
 .note-editor__toolbar-ai.has-prompt .note-editor__toolbar-ai-icon {
   color: var(--pm-accent, #006b75);
   opacity: 1;
 }
+
 .note-editor__toolbar-ai input {
   width: 100%;
   min-width: 0;
@@ -3978,11 +3280,14 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   font: inherit;
   font-size: 0.9rem;
 }
+
 .note-editor__toolbar-ai input::placeholder {
   color: var(--pm-muted, #748084);
   opacity: 0.72;
 }
+
 .note-editor__toolbar-ai input:disabled { cursor: wait; }
+
 .note-editor__toolbar-ai-spinner {
   width: 14px;
   height: 14px;
@@ -3991,6 +3296,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   border-radius: 50%;
   animation: pm-ai-spin 700ms linear infinite;
 }
+
 .note-editor__toolbar-ai-error {
   position: absolute;
   top: calc(100% + 5px);
@@ -4008,166 +3314,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   line-height: 1.3;
 }
 
-.note-editor__toolbar-dropdown {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 20;
-  min-width: 200px;
-  padding: 5px;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  border-radius: 11px;
-  background: var(--pm-content-surface, #fff);
-  border: 1px solid var(--pm-divider, #d8dfe1);
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
-}
-
-.note-editor__insert-menu {
-  max-height: min(420px, calc(100vh - 160px));
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.note-editor__text-menu {
-  min-width: 218px;
-}
-.note-editor__text-menu-heading {
-  padding: 6px 10px 4px;
-  color: var(--pm-muted, #748084);
-  font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 0.62rem;
-  font-weight: 650;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-.note-editor__text-menu-divider {
-  height: 1px;
-  margin: 6px 7px 3px;
-  background: var(--pm-divider, #d8dfe1);
-}
-
-.note-editor__toolbar-dropitem {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 7px 10px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--pm-text, #0e181b);
-  font: inherit;
-  font-size: 0.86rem;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease;
-}
-.note-editor__toolbar-dropitem:hover { background: color-mix(in srgb, var(--pm-accent, #006b75) 9%, transparent); }
-.note-editor__toolbar-dropitem.is-active { color: var(--pm-accent-strong, #00555f); background: color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent); }
-.note-editor__toolbar-dropitem:disabled { opacity: 0.42; cursor: default; }
-.note-editor__toolbar-dropitem-glyph {
-  display: inline-grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  flex: none;
-  color: var(--pm-muted, #535e62);
-}
-.note-editor__toolbar-dropitem.is-active .note-editor__toolbar-dropitem-glyph { color: var(--pm-accent, #006b75); }
-.note-editor__toolbar-dropitem-text {
-  font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 0.72rem;
-  letter-spacing: -0.06em;
-  font-weight: 680;
-}
-
-.note-editor__blocks-menu {
-  min-width: 210px;
-  max-height: min(460px, calc(100vh - 160px));
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-.note-editor__blocks-menu-heading {
-  padding: 6px 10px 4px;
-  color: var(--pm-muted, #748084);
-  font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 0.62rem;
-  font-weight: 650;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-.note-editor__blocks-menu-divider {
-  height: 1px;
-  margin: 6px 7px 3px;
-  background: var(--pm-divider, #d8dfe1);
-}
-.note-editor__callout-glyph {
-  display: inline-grid;
-  width: 18px;
-  height: 18px;
-  place-items: center;
-  border: 1px solid currentColor;
-  border-radius: 5px;
-  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.note-editor__quick-block-glyph {
-  color: var(--pm-accent-strong, #00555f);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
-  font-size: 15px;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.note-editor__layout-menu { min-width: 190px; }
-.note-editor__layout-menu-label {
-  padding: 5px 10px 3px;
-  color: var(--pm-muted, #748084);
-  font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 0.62rem;
-  font-weight: 650;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-.note-editor__layout-menu-divider {
-  height: 1px;
-  margin: 5px 7px;
-  background: var(--pm-divider, #d8dfe1);
-}
-.note-editor__layout-remove { color: var(--pm-danger, #c84c4c); }
-.note-editor__layout-remove .note-editor__toolbar-dropitem-glyph { color: currentColor; }
-.note-editor__layout-preview {
-  display: grid;
-  grid-template-columns: repeat(var(--pm-layout-preview-columns), minmax(0, 1fr));
-  gap: 2px;
-  width: 24px;
-  height: 17px;
-  padding: 2px;
-  flex: none;
-  border: 1px solid currentColor;
-  border-radius: 3px;
-  color: var(--pm-muted, #748084);
-}
-.note-editor__layout-preview > span {
-  min-width: 0;
-  border-radius: 1px;
-  background: currentColor;
-  opacity: 0.48;
-}
-.note-editor__toolbar-dropitem.is-active .note-editor__layout-preview {
-  color: var(--pm-accent, #006b75);
-}
-
 /* Absatzstil-Menü: Einträge in ihrer jeweiligen Überschriftsgröße */
-.note-editor__toolbar-dropitem--block { font-weight: 400; }
-.note-editor__toolbar-dropitem--block.is-h2 { font-size: 1.02rem; font-weight: 680; }
-.note-editor__toolbar-dropitem--block.is-h3 { font-size: 0.96rem; font-weight: 650; }
-.note-editor__toolbar-dropitem--block.is-h4 { font-size: 0.9rem; font-weight: 620; }
 
 .note-editor--workspace .note-editor__surface {
   min-height: 420px;
@@ -4177,6 +3324,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 /* Im Vollbild nutzt die Schreibfläche den zusätzlichen Platz. Der feste,
    beidseitig gleiche Gutter hält Text, Listen und breite Blöcke nah an der
    Editor-Kante, ohne die kompakteren Split-View-Breiten zu verändern. */
+
 .note-editor--workspace.is-fullscreen .note-editor__surface {
   padding-inline: 28px;
 }
@@ -4329,6 +3477,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 
 /* ── Fließtext (ProseMirror) ─────────────────────────────────────────────── */
+
 .note-editor :deep(.pm-content) {
   outline: none;
   color: var(--pm-text, #0e181b);
@@ -4356,39 +3505,54 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   width: 100%;
   max-width: none;
 }
+
 .note-editor :deep(.pm-content > *) {
   /* Browser-Margen würden zusätzlich zum konfigurierten Abstand wirken und
      einen einzelnen neuen Absatz wie zwei Zeilenumbrüche erscheinen lassen. */
   margin-block: 0;
 }
+
 .note-editor :deep(.pm-content > * + *) { margin-top: var(--note-editor-paragraph-gap); }
 
 /* Frei platzierbare Spaltenblöcke. Ihre Höhe entsteht ausschließlich aus dem
    Inhalt; ober- und unterhalb bleiben normale Editorblöcke möglich. */
+
 .note-editor :deep([data-page-layout]) {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: stretch;
   width: 100%;
 }
+
 .note-editor :deep([data-page-layout][data-columns="1"]) { grid-template-columns: minmax(0, 1fr); }
+
 .note-editor :deep([data-page-layout][data-columns="2"]) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
 .note-editor :deep([data-page-layout][data-columns="3"]) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
 .note-editor :deep([data-page-layout][data-columns="4"]) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
 .note-editor :deep([data-page-layout][data-columns="5"]) { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+
 .note-editor :deep([data-layout-column]) {
   min-width: 0;
   padding: 2px clamp(10px, 1.5vw, 22px);
   overflow-wrap: anywhere;
   cursor: text;
 }
+
 .note-editor :deep([data-layout-column] + [data-layout-column]) {
   border-left: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 82%, transparent);
 }
+
 .note-editor :deep([data-layout-column]:first-child) { padding-left: 0; }
+
 .note-editor :deep([data-layout-column]:last-child) { padding-right: 0; }
+
 .note-editor :deep([data-layout-column] > *) { margin-block: 0; }
+
 .note-editor :deep([data-layout-column] > * + *) { margin-top: var(--note-editor-paragraph-gap); }
+
 .note-editor :deep([data-layout-column] > p:only-child:has(> br.ProseMirror-trailingBreak)::before) {
   content: 'In dieser Spalte schreiben …';
   float: left;
@@ -4397,6 +3561,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   opacity: 0.52;
   pointer-events: none;
 }
+
 .note-editor :deep(mark.pm-text-highlight) {
   padding-inline: 0.06em;
   border-radius: 0.16em;
@@ -4415,61 +3580,75 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
     border-left: 0;
   }
 }
+
 .note-editor :deep(.pm-content h1) {
   font-family: inherit; font-weight: 600;
   font-size: 1.55rem; line-height: 1.2; letter-spacing: -0.01em;
 }
+
 .note-editor :deep(.pm-content h2) {
   font-family: inherit; font-weight: 600;
   font-size: 1.28rem; line-height: 1.25;
 }
+
 .note-editor :deep(.pm-content h3) { font-weight: 600; font-size: 1.08rem; }
+
 .note-editor :deep(.pm-content h4) { font-weight: 600; font-size: 1rem; }
+
 /* Einheitliche Block-Rhythmik: Sobald mindestens eine Seite der Trennung kein
    normaler Absatz ist, gilt der großzügigere Strukturabstand. Damit werden
    auch NodeViews wie Tabellen, Bilder, Layouts, Hinweis-, KI- und Schnellblöcke
    automatisch erfasst, ohne eine fragile Liste von Knotentypen zu pflegen. */
+
 .note-editor :deep(.pm-content > * + :not(p)),
 .note-editor :deep(.pm-content > :not(p) + *) {
   margin-top: var(--note-editor-block-gap);
 }
+
 .note-editor :deep([data-layout-column] > * + :not(p)),
 .note-editor :deep([data-layout-column] > :not(p) + *) {
   margin-top: var(--note-editor-block-gap);
 }
+
 /* Überschriften bilden bewusst eine ruhigere Ausnahme von der Block-Rhythmik:
    unabhängig von Ebene und Nachbar bleibt ihr Abstand auf beiden Seiten gleich. */
-.note-editor :deep(.pm-content > * + :is(h1, h2, h3, h4, h5, h6)),
-.note-editor :deep(.pm-content > :is(h1, h2, h3, h4, h5, h6) + *),
-.note-editor :deep([data-layout-column] > * + :is(h1, h2, h3, h4, h5, h6)),
-.note-editor :deep([data-layout-column] > :is(h1, h2, h3, h4, h5, h6) + *) {
+
+.note-editor :deep(.pm-content > * + :is(h1, h2, h3, h4, h5, h6)), .note-editor :deep(.pm-content > :is(h1, h2, h3, h4, h5, h6) + *), .note-editor :deep([data-layout-column] > * + :is(h1, h2, h3, h4, h5, h6)), .note-editor :deep([data-layout-column] > :is(h1, h2, h3, h4, h5, h6) + *) {
   margin-top: var(--note-editor-heading-gap);
 }
-.note-editor :deep(.pm-content > :is(h1, h2, h3, h4, h5, h6):first-child),
-.note-editor :deep([data-layout-column] > :is(h1, h2, h3, h4, h5, h6):first-child) {
+
+.note-editor :deep(.pm-content > :is(h1, h2, h3, h4, h5, h6):first-child), .note-editor :deep([data-layout-column] > :is(h1, h2, h3, h4, h5, h6):first-child) {
   margin-top: 0;
 }
+
 .note-editor :deep(.pm-content ul),
 .note-editor :deep(.pm-content ol) { padding-left: 1.4em; }
+
 .note-editor :deep(.pm-content li) { margin: 0.2em 0; }
+
 .note-editor :deep(.pm-content blockquote) {
   border-left: 2.5px solid var(--pm-accent, #006b75);
   padding-left: 0.9em; margin-left: 0; color: var(--pm-muted, #535e62); font-style: italic;
 }
+
 .note-editor :deep(.pm-content code) {
   font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.86em;
   background: rgba(var(--v-theme-primary, 0 107 117), 0.1);
   color: var(--pm-accent-strong, #00555f); padding: 1px 5px; border-radius: 5px;
 }
+
 .note-editor :deep(.pm-content pre) {
   background: var(--pm-viewer-surface, #eef2f4);
   border: 1px solid var(--pm-divider, #d8dfe1);
   border-radius: 10px; padding: 12px 14px; overflow-x: auto;
 }
+
 .note-editor :deep(.pm-content pre code) { background: none; color: inherit; padding: 0; }
+
 .note-editor :deep(.pm-content hr) {
   border: 0; height: 1px; background: var(--pm-divider, #d8dfe1); margin-inline: 0;
 }
+
 .note-editor :deep(.pm-content a) {
   color: var(--pm-accent-strong, #00555f);
   cursor: pointer;
@@ -4479,6 +3658,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 
 /* Rückgängig/Wiederholen: markiert nur die tatsächlich geänderte Stelle. */
+
 .note-editor :deep(.pm-history-flash) {
   border-radius: 3px;
   animation: pm-history-change-flash 720ms ease-out both;
@@ -4493,14 +3673,18 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 
 /* Task-Listen */
+
 .note-editor :deep(.pm-content ul[data-type="taskList"]) { list-style: none; padding-left: 0.2em; }
+
 .note-editor :deep(.pm-content ul[data-type="taskList"] li) { display: flex; gap: 0.55em; align-items: flex-start; }
+
 .note-editor :deep(.pm-content ul[data-type="taskList"] li > label) {
   display: grid;
   place-items: center;
   height: 1.35em;
   margin: 0;
 }
+
 .note-editor :deep(.pm-content ul[data-type="taskList"] input[type="checkbox"]) {
   appearance: none;
   -webkit-appearance: none;
@@ -4513,23 +3697,28 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
 }
+
 .note-editor :deep(.pm-content ul[data-type="taskList"] input[type="checkbox"]:hover) {
   border-color: var(--pm-accent, #006b75);
 }
+
 .note-editor :deep(.pm-content ul[data-type="taskList"] input[type="checkbox"]:checked) {
   border-color: var(--pm-accent, #006b75);
   background: var(--pm-accent, #006b75);
 }
+
 .note-editor :deep(.pm-content ul[data-type="taskList"] input[type="checkbox"]:focus-visible) {
   outline: 2px solid color-mix(in srgb, var(--pm-accent, #006b75) 35%, transparent);
   outline-offset: 2px;
 }
+
 .note-editor :deep(.pm-content ul[data-type="taskList"] input[type="checkbox"]:disabled) {
   cursor: default;
 }
 
 /* Strukturierte Tabellen: horizontal scrollbar, in der Breite ruhig und im
    Darkmode vollständig über die PaperMind-Tokens eingefärbt. */
+
 .note-editor :deep(.pm-content .tableWrapper) {
   max-width: 100%;
   overflow-x: auto;
@@ -4562,18 +3751,23 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 
 .note-editor :deep(.pm-content th:last-child),
 .note-editor :deep(.pm-content td:last-child) { border-right: 0; }
+
 .note-editor :deep(.pm-content tr:last-child > *) { border-bottom: 0; }
+
 .note-editor :deep(.pm-content th) {
   background: color-mix(in srgb, var(--pm-accent, #006b75) 9%, var(--pm-app-surface, #fff));
   color: var(--pm-text, #0e181b);
   font-weight: 680;
   text-align: left;
 }
+
 .note-editor :deep(.pm-content td) {
   background: color-mix(in srgb, var(--pm-content-surface, #fff) 96%, transparent);
 }
+
 .note-editor :deep(.pm-content th > p),
 .note-editor :deep(.pm-content td > p) { margin: 0; }
+
 .note-editor :deep(.pm-content .selectedCell::after) {
   position: absolute;
   z-index: 2;
@@ -4616,6 +3810,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 @keyframes pm-table-handle-in {
   from { opacity: 0; transform: translateX(4px) scale(0.9); }
 }
+
 .note-editor :deep(.pm-content .column-resize-handle) {
   position: absolute;
   z-index: 3;
@@ -4626,9 +3821,11 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   background: var(--pm-accent, #006b75);
   pointer-events: none;
 }
+
 .note-editor :deep(.pm-content.resize-cursor) { cursor: col-resize; }
 
 /* Placeholder */
+
 .note-editor :deep(.pm-content p.is-editor-empty:first-child::before) {
   content: attr(data-placeholder);
   float: left; height: 0; pointer-events: none;
@@ -4640,6 +3837,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 
 /* ── Schwebende Menüs ────────────────────────────────────────────────────── */
+
 .pm-float {
   position: absolute; z-index: 30;
   background: var(--pm-app-surface-raised, #fff);
@@ -4651,6 +3849,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 /* Auswahl-Bubble: bewusst dunkel & kompakt – hebt sich klar von der hellen,
    persistenten Formatierungsleiste ab (kontextuell statt Chrome). Der dunkle
    Look bleibt in beiden Themes gleich; Rahmen + Schatten trennen ihn vom Grund. */
+
 .pm-float.pm-bubble {
   position: fixed;
   z-index: 80;
@@ -4665,7 +3864,9 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   border-radius: 9px;
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.30);
 }
+
 .pm-bubble__row { display: flex; align-items: center; gap: 1px; }
+
 .pm-bubble__btn {
   border: 0; background: transparent; cursor: pointer;
   min-width: 28px; height: 26px; padding: 0 6px; border-radius: 6px;
@@ -4673,25 +3874,33 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   color: #e4e2da; font-size: 0.9rem;
   transition: background 120ms ease, color 120ms ease;
 }
+
 .pm-bubble__btn:hover { background: rgba(255, 255, 255, 0.10); color: #fff; }
+
 .pm-bubble__btn.is-active { background: rgba(255, 255, 255, 0.17); color: #fff; }
+
 .pm-bubble__btn:focus-visible {
   outline: 2px solid rgba(255, 255, 255, 0.6);
   outline-offset: -2px;
 }
+
 .pm-bubble__btn.is-ai { color: #7fe0c1; }
+
 .pm-bubble__btn:not(.is-ai) + .pm-bubble__btn.is-ai {
   margin-left: 3px;
   padding-left: 9px;
   border-left: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 0 6px 6px 0;
 }
+
 .pm-bubble__btn.is-ai:hover { background: rgba(127, 224, 193, 0.15); color: #9fe9d4; }
+
 .pm-bubble__swatches {
   display: flex; align-items: center; gap: 5px;
   padding: 4px 4px 2px;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
+
 .pm-bubble__swatch {
   width: 18px; height: 18px; padding: 0;
   border: 1px solid rgba(255, 255, 255, 0.28);
@@ -4701,18 +3910,24 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   display: grid; place-items: center;
   transition: transform 100ms ease, box-shadow 100ms ease;
 }
+
 .pm-bubble__swatch:hover { transform: scale(1.12); }
+
 .pm-bubble__swatch.is-active { box-shadow: 0 0 0 2px #23241f, 0 0 0 3px #fff; }
+
 .pm-bubble__swatch:focus-visible {
   outline: 2px solid rgba(255, 255, 255, 0.85);
   outline-offset: 2px;
 }
+
 .pm-bubble__swatch--remove {
   background: transparent; color: #e4e2da;
   border-color: rgba(255, 255, 255, 0.22);
   margin-left: 2px;
 }
+
 .pm-bubble__swatch--remove:hover { background: rgba(255, 255, 255, 0.10); color: #fff; transform: none; }
+
 .pm-bubble__swatch--remove:disabled { opacity: 0.4; cursor: default; }
 
 .pm-link-editor {
@@ -4774,10 +3989,12 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 
 .pm-link-editor__input-row input::placeholder { color: var(--pm-muted, #8a969b); opacity: 0.72; }
+
 .pm-link-editor__input-row input:focus {
   border-color: var(--pm-accent, #006b75);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--pm-accent, #006b75) 13%, transparent);
 }
+
 .pm-link-editor__input-row input[aria-invalid="true"] { border-color: var(--pm-danger, #b42318); }
 
 .pm-link-editor__save {
@@ -4794,10 +4011,12 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 
 .pm-link-editor__save:hover { filter: brightness(1.07); }
+
 .pm-link-editor__save:focus-visible {
   outline: 2px solid var(--pm-accent-strong, #00555f);
   outline-offset: 2px;
 }
+
 .pm-link-editor__error {
   padding: 7px 2px 0;
   color: var(--pm-danger, #b42318);
@@ -4965,12 +4184,14 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   width: 268px; padding: 6px; max-height: min(420px, calc(100vh - 140px)); overflow-y: auto;
   display: flex; flex-direction: column; gap: 1px;
 }
+
 .pm-slash--commands {
   position: fixed;
   overflow-anchor: none;
   transform-origin: 18px -5px;
   animation: pm-slash-open 235ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
+
 .pm-slash__selection {
   position: absolute;
   z-index: 0;
@@ -4987,19 +4208,24 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
     height 140ms ease,
     opacity 90ms ease;
 }
+
 .pm-slash__selection.is-visible { opacity: 1; }
+
 .pm-slash__hint,
 .pm-slash__group { position: relative; z-index: 1; }
+
 .pm-slash__hint {
   font-family: 'IBM Plex Mono', monospace; font-size: 10px;
   letter-spacing: 0.09em; text-transform: uppercase;
   color: var(--pm-muted, #535e62); padding: 6px 8px 4px;
 }
+
 .pm-slash__group + .pm-slash__group {
   margin-top: 5px;
   padding-top: 5px;
   border-top: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 72%, transparent);
 }
+
 .pm-slash__group-label {
   padding: 4px 8px 3px;
   color: var(--pm-muted, #535e62);
@@ -5009,19 +4235,24 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+
 .pm-slash__group.is-frequent {
   --pm-frequent-accent: color-mix(in srgb, #8b5fbf 78%, var(--pm-text, #0e181b));
 }
+
 .pm-slash__group.is-frequent .pm-slash__group-label {
   color: var(--pm-frequent-accent);
 }
+
 .pm-slash__item {
   border: 0; background: transparent; cursor: pointer; text-align: left;
   display: flex; align-items: center; gap: 10px;
   padding: 7px 8px; border-radius: 8px; width: 100%;
   transition: color 120ms ease;
 }
+
 .pm-slash__item.is-active { color: var(--pm-accent-strong, #00555f); }
+
 .pm-slash__chip {
   flex: none; width: 30px; height: 30px; border-radius: 7px;
   display: grid; place-items: center;
@@ -5035,36 +4266,45 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
     background-color 140ms ease,
     box-shadow 140ms ease;
 }
+
 .pm-slash__item.is-active .pm-slash__chip {
   transform: scale(1.07);
   border-color: color-mix(in srgb, var(--pm-accent, #006b75) 38%, var(--pm-divider, #d8dfe1));
   background: color-mix(in srgb, var(--pm-accent, #006b75) 11%, var(--pm-viewer-surface, #eef2f4));
   box-shadow: 0 3px 10px color-mix(in srgb, var(--pm-accent, #006b75) 13%, transparent);
 }
+
 .pm-slash__group.is-frequent .pm-slash__item {
   transition: color 120ms ease, background-color 140ms ease;
 }
+
 .pm-slash__group.is-frequent .pm-slash__chip {
   color: var(--pm-frequent-accent);
   border-color: color-mix(in srgb, var(--pm-frequent-accent) 30%, var(--pm-divider, #d8dfe1));
   background: color-mix(in srgb, var(--pm-frequent-accent) 8%, var(--pm-viewer-surface, #eef2f4));
 }
+
 .pm-slash__group.is-frequent .pm-slash__item:hover,
 .pm-slash__group.is-frequent .pm-slash__item.is-active {
   color: var(--pm-frequent-accent);
   background: color-mix(in srgb, var(--pm-frequent-accent) 11%, transparent);
 }
+
 .pm-slash__group.is-frequent .pm-slash__item:hover .pm-slash__label,
 .pm-slash__group.is-frequent .pm-slash__item.is-active .pm-slash__label {
   color: var(--pm-frequent-accent);
 }
+
 .pm-slash__group.is-frequent .pm-slash__item.is-active .pm-slash__chip {
   border-color: color-mix(in srgb, var(--pm-frequent-accent) 48%, var(--pm-divider, #d8dfe1));
   background: color-mix(in srgb, var(--pm-frequent-accent) 16%, var(--pm-viewer-surface, #eef2f4));
   box-shadow: 0 3px 10px color-mix(in srgb, var(--pm-frequent-accent) 18%, transparent);
 }
+
 .pm-slash__text { display: flex; flex-direction: column; line-height: 1.2; }
+
 .pm-slash__label { font-size: 0.9rem; color: var(--pm-text, #0e181b); }
+
 .pm-slash__desc { font-size: 0.74rem; color: var(--pm-muted, #535e62); }
 
 @keyframes pm-slash-open {
@@ -5086,24 +4326,30 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 
 /* ── Vollständiger KI-Dialog und Aufräumen-Dialog ───────────────────────── */
+
 /* Dezentes Ein-/Ausblenden der schwebenden KI-Fenster (Schreiben + Aufräumen). */
+
 .pm-ai-prompt-enter-active {
   transition: opacity 160ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+
 .pm-ai-prompt-leave-active {
   transition: opacity 120ms ease, transform 140ms ease;
 }
+
 .pm-ai-prompt-enter-from,
 .pm-ai-prompt-leave-to {
   opacity: 0;
   transform: translateY(-6px) scale(0.985);
 }
+
 @media (prefers-reduced-motion: reduce) {
   .pm-ai-prompt-enter-active,
   .pm-ai-prompt-leave-active {
     transition: none;
   }
 }
+
 :global(.pm-no-animations .pm-ai-prompt-enter-active),
 :global(.pm-no-animations .pm-ai-prompt-leave-active) {
   transition: none;
@@ -5116,15 +4362,18 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   overflow: hidden;
   transition: border-color 180ms ease, box-shadow 180ms ease;
 }
+
 .pm-ai-prompt--writing {
   transform-origin: top left;
 }
+
 .pm-ai-prompt.is-generating {
   border-color: color-mix(in srgb, var(--pm-accent, #006b75) 48%, var(--pm-divider, #d8dfe1));
   box-shadow:
     var(--pm-shadow, 0 10px 30px rgba(15, 23, 42, 0.14)),
     0 0 0 1px color-mix(in srgb, var(--pm-accent, #006b75) 8%, transparent);
 }
+
 .pm-ai-prompt__head {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 1px 2px 8px;
@@ -5136,14 +4385,19 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   word-spacing: normal;
   text-transform: uppercase;
 }
+
 .pm-ai-prompt__head > span { display: inline-flex; align-items: center; gap: 6px; }
+
 .pm-ai-prompt__icon { color: var(--pm-accent, #006b75); }
+
 .pm-ai-prompt__close {
   width: 24px; height: 24px; display: grid; place-items: center;
   border: 0; border-radius: 6px; background: transparent;
   color: var(--pm-muted, #535e62); cursor: pointer; font-size: 1.05rem;
 }
+
 .pm-ai-prompt__close:hover { background: color-mix(in srgb, var(--pm-divider, #d8dfe1) 45%, transparent); }
+
 .pm-ai-prompt__context {
   display: flex;
   align-items: center;
@@ -5153,6 +4407,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   font-size: 0.66rem;
   line-height: 1.25;
 }
+
 .pm-ai-prompt__context > span {
   width: 5px;
   height: 5px;
@@ -5161,8 +4416,11 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   background: currentColor;
   opacity: 0.55;
 }
+
 .pm-ai-prompt__context.is-selection { color: var(--pm-accent-strong, #00555f); }
+
 .pm-ai-prompt__input-row { display: flex; align-items: center; gap: 7px; }
+
 .pm-ai-prompt__input-row input {
   min-width: 0;
   height: 38px;
@@ -5176,10 +4434,12 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   font: inherit;
   font-size: 0.88rem;
 }
+
 .pm-ai-prompt__input-row input:focus {
   border-color: var(--pm-accent, #006b75);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent);
 }
+
 .pm-ai-prompt__submit {
   display: grid;
   width: 38px;
@@ -5193,7 +4453,9 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   cursor: pointer;
   font-size: 1.05rem;
 }
+
 .pm-ai-prompt__submit:disabled { cursor: default; opacity: 0.45; }
+
 .pm-ai-prompt__length {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -5205,16 +4467,19 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   border: 0;
   color: var(--pm-muted, #535e62);
 }
+
 .pm-ai-prompt__length legend {
   float: left;
   padding: 0;
   font-size: 0.69rem;
   font-weight: 650;
 }
+
 .pm-ai-prompt__length output {
   justify-self: end;
   font-size: 0.67rem;
 }
+
 .pm-ai-prompt__length > input {
   grid-column: 1 / -1;
   width: 100%;
@@ -5223,6 +4488,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   accent-color: var(--pm-accent, #006b75);
   cursor: pointer;
 }
+
 .pm-ai-prompt__length > div {
   display: flex;
   grid-column: 1 / -1;
@@ -5230,7 +4496,9 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   color: color-mix(in srgb, var(--pm-muted, #535e62) 82%, transparent);
   font-size: 0.61rem;
 }
+
 .pm-ai-prompt__length:disabled { opacity: 0.58; }
+
 .pm-ai-prompt__progress {
   position: relative;
   height: 2px;
@@ -5239,6 +4507,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   border-radius: 999px;
   background: color-mix(in srgb, var(--pm-accent, #006b75) 9%, transparent);
 }
+
 .pm-ai-prompt__progress > span {
   position: absolute;
   inset: 0;
@@ -5252,7 +4521,9 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   );
   animation: pm-ai-progress 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
+
 .pm-ai-prompt__suggestions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+
 .pm-ai-prompt__suggestions button {
   padding: 4px 8px;
   border: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 90%, transparent);
@@ -5262,17 +4533,21 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   cursor: pointer;
   font-size: 0.69rem;
 }
+
 .pm-ai-prompt__suggestions button:hover {
   border-color: var(--pm-accent, #006b75);
   color: var(--pm-accent-strong, #00555f);
 }
+
 .pm-ai-prompt__preview {
   max-height: 170px; overflow-y: auto; margin-top: 9px; padding: 9px 10px;
   border-left: 2px solid var(--pm-accent, #006b75);
   background: color-mix(in srgb, var(--pm-accent, #006b75) 6%, transparent);
   color: var(--pm-text, #0e181b); white-space: pre-wrap; font-size: 0.82rem; line-height: 1.5;
 }
+
 .pm-ai-prompt__status { margin-top: 7px; color: var(--pm-muted, #535e62); font-size: 0.7rem; }
+
 .pm-ai-prompt__result-actions {
   display: flex;
   justify-content: flex-end;
@@ -5281,6 +4556,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   padding-top: 9px;
   border-top: 1px solid var(--pm-divider, #d8dfe1);
 }
+
 .pm-ai-prompt__result-actions button {
   min-height: 30px;
   padding: 0 10px;
@@ -5293,17 +4569,22 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   font-size: 0.7rem;
   font-weight: 650;
 }
+
 .pm-ai-prompt__result-actions button:hover {
   border-color: var(--pm-accent, #006b75);
   color: var(--pm-accent-strong, #00555f);
 }
+
 .pm-ai-prompt__result-actions button.is-primary {
   border-color: var(--pm-accent, #006b75);
   background: var(--pm-accent, #006b75);
   color: var(--pm-accent-contrast, #fff);
 }
+
 .pm-ai-prompt__result-actions button.is-primary:hover { filter: brightness(1.07); }
+
 .pm-ai-prompt__error { margin-top: 8px; color: var(--pm-danger, #b42318); font-size: 0.76rem; line-height: 1.35; }
+
 .pm-ai-prompt__spinner {
   width: 15px;
   height: 15px;
@@ -5312,13 +4593,16 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   border-radius: 50%;
   animation: pm-ai-spin 700ms linear infinite;
 }
+
 @keyframes pm-ai-spin { to { transform: rotate(360deg); } }
+
 @keyframes pm-ai-progress {
   from { transform: translateX(-120%); }
   to { transform: translateX(340%); }
 }
 
 /* ── Inline-Prüfung für „Aufräumen“ ─────────────────────────────────────── */
+
 .note-editor :deep(.pm-cleanup-review-anchor) {
   display: block;
   width: 100%;
@@ -5337,9 +4621,11 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   font-size: 0.92rem;
   line-height: 1.55;
 }
+
 .pm-cleanup-review.is-generating {
   border-left-color: color-mix(in srgb, var(--pm-accent, #006b75) 88%, transparent);
 }
+
 .pm-cleanup-review__head {
   display: flex;
   align-items: center;
@@ -5347,6 +4633,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   gap: 14px;
   margin-bottom: 12px;
 }
+
 .pm-cleanup-review__title {
   display: inline-flex;
   align-items: center;
@@ -5355,11 +4642,13 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   font-size: 0.82rem;
   font-weight: 650;
 }
+
 .pm-cleanup-review__views {
   display: flex;
   align-items: center;
   gap: 2px;
 }
+
 .pm-cleanup-review__views button {
   min-height: 30px;
   padding: 0 10px;
@@ -5371,11 +4660,14 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   font: inherit;
   font-size: 0.76rem;
 }
+
 .pm-cleanup-review__views button.is-active {
   background: color-mix(in srgb, var(--pm-accent, #006b75) 10%, transparent);
   color: var(--pm-accent-strong, #00555f);
 }
+
 .pm-cleanup-review__views button:disabled { cursor: default; opacity: 0.45; }
+
 .pm-cleanup-review__loading {
   display: grid;
   gap: 8px;
@@ -5383,30 +4675,36 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   color: var(--pm-muted, #535e62);
   font-size: 0.74rem;
 }
+
 .pm-cleanup-review__content {
   min-height: 64px;
   padding: 2px 0 12px;
 }
+
 .pm-cleanup-review__text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
 .pm-cleanup-review__text del {
   border-radius: 2px;
   background: color-mix(in srgb, var(--pm-danger, #b42318) 11%, transparent);
   color: color-mix(in srgb, var(--pm-danger, #b42318) 72%, var(--pm-text, #0e181b));
   text-decoration-thickness: 1px;
 }
+
 .pm-cleanup-review__text ins {
   border-radius: 2px;
   background: color-mix(in srgb, var(--pm-accent, #006b75) 11%, transparent);
   color: inherit;
   text-decoration: none;
 }
+
 .pm-cleanup-review__editors {
   display: grid;
   gap: 8px;
 }
+
 .pm-cleanup-review__editors textarea {
   width: 100%;
   min-height: 72px;
@@ -5421,16 +4719,19 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   font: inherit;
   line-height: inherit;
 }
+
 .pm-cleanup-review__editors textarea:focus,
 .pm-cleanup-review__instruction input:focus {
   border-color: var(--pm-accent, #006b75);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent);
 }
+
 .pm-cleanup-review__instruction {
   display: flex;
   gap: 7px;
   margin: 0 0 10px;
 }
+
 .pm-cleanup-review__instruction input {
   min-width: 0;
   min-height: 34px;
@@ -5444,6 +4745,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   font: inherit;
   font-size: 0.78rem;
 }
+
 .pm-cleanup-review__instruction button,
 .pm-cleanup-review__actions button {
   display: inline-flex;
@@ -5461,13 +4763,16 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   font-size: 0.74rem;
   font-weight: 600;
 }
+
 .pm-cleanup-review__instruction button:disabled,
 .pm-cleanup-review__actions button:disabled { cursor: default; opacity: 0.45; }
+
 .pm-cleanup-review__error {
   margin: 0 0 10px;
   color: var(--pm-danger, #b42318);
   font-size: 0.76rem;
 }
+
 .pm-cleanup-review__actions {
   display: flex;
   align-items: center;
@@ -5476,21 +4781,25 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   padding-top: 10px;
   border-top: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 78%, transparent);
 }
+
 .pm-cleanup-review__actions > div {
   display: flex;
   align-items: center;
   gap: 6px;
 }
+
 .pm-cleanup-review__actions button.is-quiet {
   border-color: transparent;
   background: transparent;
   color: var(--pm-muted, #535e62);
 }
+
 .pm-cleanup-review__actions button.is-primary {
   border-color: var(--pm-accent, #006b75);
   background: var(--pm-accent, #006b75);
   color: var(--pm-accent-contrast, #fff);
 }
+
 .pm-cleanup-restore {
   display: flex;
   align-items: center;
@@ -5503,6 +4812,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   color: var(--pm-muted, #535e62);
   font-size: 0.76rem;
 }
+
 .pm-cleanup-restore button {
   display: inline-flex;
   align-items: center;
@@ -5514,18 +4824,22 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   font: inherit;
   font-weight: 650;
 }
+
 .pm-cleanup-review-enter-active {
   /* Keyframes starten auch beim erstmaligen Mount im ProseMirror-Anker,
      ohne auf einen bereits gezeichneten Ausgangszustand angewiesen zu sein. */
   animation: pm-cleanup-review-appear 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
+
 .pm-cleanup-review-leave-active {
   transition: opacity 150ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+
 .pm-cleanup-review-leave-to {
   opacity: 0;
   transform: translateY(-5px);
 }
+
 @keyframes pm-cleanup-review-appear {
   from { opacity: 0; transform: translateY(-6px); }
   to { opacity: 1; transform: translateY(0); }
@@ -5542,11 +4856,13 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   .pm-cleanup-review-enter-active,
   .pm-cleanup-review-leave-active { animation: none; transition: none; }
 }
+
 :global(.pm-no-animations .pm-cleanup-review-enter-active),
 :global(.pm-no-animations .pm-cleanup-review-leave-active) { animation: none; transition: none; }
 
 /* Treffer der notizinternen Suche bleiben reine ProseMirror-Dekorationen und
    verändern weder Auswahl noch gespeicherten Dokumentinhalt. */
+
 .note-editor :deep(.pm-note-search-match) {
   border-radius: 3px;
   background: color-mix(in srgb, var(--pm-warning, #d97706) 24%, transparent);
@@ -5559,31 +4875,29 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 
 /* ── Statuszeile ─────────────────────────────────────────────────────────── */
+
 .note-editor__status {
   display: flex; justify-content: space-between; align-items: center;
   margin-top: 18px; padding-top: 12px;
   border-top: 1px solid var(--pm-divider, #d8dfe1);
   font-size: 0.78rem; color: var(--pm-muted, #535e62);
 }
+
 .note-editor__save { display: inline-flex; align-items: center; gap: 7px; }
+
 .note-editor__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pm-muted, #9aa5aa); }
+
 .note-editor__save.is-saving .note-editor__dot { background: var(--pm-accent, #006b75); animation: pm-pulse 1s ease-in-out infinite; }
+
 .note-editor__save.is-saved .note-editor__dot { background: var(--pm-accent, #006b75); }
+
 .note-editor__count { font-variant-numeric: tabular-nums; }
 
 @keyframes pm-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+
 @media (prefers-reduced-motion: reduce) {
   .note-editor__save.is-saving .note-editor__dot { animation: none; }
-  .pm-bubble__btn,
-  .note-editor__toolbar-btn { transition: none; }
-
-  .note-editor__toolbar {
-    transition: none;
-  }
-
-  .note-editor__toolbar-guard {
-    transition: none;
-  }
+  .pm-bubble__btn { transition: none; }
 
   .note-editor__toolbar-ai-spinner,
   .pm-ai-prompt__spinner,
@@ -5597,14 +4911,6 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   .pm-table-handle { transition: none; }
 
   .note-editor :deep(.pm-history-flash) { animation: none; }
-}
-
-:global(.pm-no-animations) .note-editor__toolbar {
-  transition: none;
-}
-
-:global(.pm-no-animations) .note-editor__toolbar-guard {
-  transition: none;
 }
 
 :global(.pm-no-animations) .note-editor__toolbar-ai-spinner,
@@ -5634,132 +4940,5 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   animation: none;
 }
 
-@media (max-width: 1050px) {
-  .note-editor__toolbar {
-    gap: 4px;
-    max-width: calc(100% - 16px);
-    margin-right: 0;
-    margin-left: 8px;
-    padding-right: 5px;
-    padding-left: 0;
-  }
-
-  .note-editor__toolbar-divider {
-    margin-inline: 0;
-  }
-
-  .note-editor__toolbar-btn {
-    width: 29px;
-  }
-
-  .note-editor__toolbar-btn--text { width: 35px; }
-  .note-editor__toolbar-btn--wide { width: 42px; }
-}
-
-/* ── Tastenkürzel-Übersicht ─────────────────────────────────────────────────── */
-.pm-shortcuts-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2400;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: color-mix(in srgb, var(--pm-text, #0e181b) 34%, transparent);
-  backdrop-filter: blur(2px);
-}
-.pm-shortcuts {
-  width: min(900px, 100%);
-  max-height: min(80vh, 640px);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--pm-content-surface, #fff);
-  border: 1px solid var(--pm-divider, #d8dfe1);
-  border-radius: 14px;
-  box-shadow: 0 24px 60px color-mix(in srgb, var(--pm-text, #0e181b) 30%, transparent);
-}
-.pm-shortcuts__head {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 18px 22px 13px;
-  border-bottom: 1px solid var(--pm-divider, #d8dfe1);
-}
-.pm-shortcuts__title {
-  margin: 0;
-  font-size: 1.05rem;
-  font-weight: 680;
-  color: var(--pm-text, #0e181b);
-}
-.pm-shortcuts__close {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--pm-muted, #535e62);
-  cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease;
-}
-.pm-shortcuts__close:hover { background: color-mix(in srgb, var(--pm-text, #0e181b) 8%, transparent); color: var(--pm-text, #0e181b); }
-.pm-shortcuts__close:focus-visible { outline: 2px solid var(--pm-accent, #006b75); outline-offset: 2px; }
-.pm-shortcuts__grid {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 16px 22px 20px;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 10px 32px;
-  align-content: start;
-}
-.pm-shortcuts__group-title {
-  margin: 4px 0 6px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--pm-muted, #535e62);
-}
-.pm-shortcuts__list { list-style: none; margin: 0; padding: 0; }
-.pm-shortcuts__row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 5px 0;
-}
-.pm-shortcuts__label { font-size: 0.9rem; color: var(--pm-text, #0e181b); }
-.pm-shortcuts__keys { display: inline-flex; gap: 4px; flex: none; }
-.pm-shortcuts__keys kbd {
-  min-width: 22px;
-  padding: 2px 6px;
-  border-radius: 6px;
-  border: 1px solid var(--pm-divider, #d8dfe1);
-  border-bottom-width: 2px;
-  background: color-mix(in srgb, var(--pm-text, #0e181b) 4%, var(--pm-content-surface, #fff));
-  font: 500 0.78rem/1.4 'IBM Plex Mono', ui-monospace, monospace;
-  color: var(--pm-text, #0e181b);
-  text-align: center;
-}
-@media (max-width: 560px) {
-  .pm-shortcuts__grid { grid-template-columns: 1fr; }
-}
-/* Eintritts-Animation per CSS-Keyframes (nicht Vue-Transition-verwaltet), damit
-   das teleportierte Overlay nicht in einem Leave-Zustand hängen bleiben kann. */
-.pm-shortcuts-overlay { animation: pm-shortcuts-fade 140ms ease both; }
-.pm-shortcuts-overlay .pm-shortcuts { animation: pm-shortcuts-pop 170ms cubic-bezier(0.16, 1, 0.3, 1) both; }
-@keyframes pm-shortcuts-fade { from { opacity: 0; } to { opacity: 1; } }
-@keyframes pm-shortcuts-pop {
-  from { transform: translateY(8px) scale(0.98); opacity: 0; }
-  to { transform: none; opacity: 1; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .pm-shortcuts-overlay,
-  .pm-shortcuts-overlay .pm-shortcuts { animation: none; }
-}
+.note-editor__toolbar-divider { width: 1px; height: 24px; flex: none; margin: 0 2px; background: var(--pm-divider, #d8dfe1); }
 </style>

@@ -1,3 +1,4 @@
+import { readNoteEditorSource } from './helpers/noteEditorSource.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -9,10 +10,7 @@ const workspaceSource = await readFile(
   new URL('../src/components/notes/NoteWorkspaceEditor.vue', import.meta.url),
   'utf8',
 );
-const editorSource = await readFile(
-  new URL('../src/components/notes/NoteEditor.vue', import.meta.url),
-  'utf8',
-);
+const editorSource = await readNoteEditorSource();
 
 test('outline extracts H2 through H4 with ProseMirror document positions', () => {
   const body = {

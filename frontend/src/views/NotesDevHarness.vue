@@ -66,6 +66,7 @@
           <div v-if="activeNote" class="dev-harness__sheet">
             <NoteEditor
               ref="editorRef"
+              :workspace="workspaceMode"
               :key="activeId"
               v-model="body"
               v-model:title="title"
@@ -89,6 +90,9 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import NoteEditor from '../components/notes/NoteEditor.vue';
+
+// Exercise the real toolbar without an authenticated backend.
+const workspaceMode = new URLSearchParams(window.location.search).has('workspace');
 
 const STORAGE_KEY = 'pm.dev.notes.v2';
 
