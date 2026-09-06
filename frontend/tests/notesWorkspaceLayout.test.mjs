@@ -383,7 +383,7 @@ test('editor scroll position is restored per note across switches and reloads', 
   assert.match(workspaceEditorSource, /window\.localStorage\.setItem\([\s\S]*?NOTE_SCROLL_POSITIONS_STORAGE_KEY/);
   assert.match(noteEditorSource, /function restoreWorkspaceScroll\(top\)/);
   assert.match(noteEditorSource, /defineExpose\(\{[\s\S]*?restoreWorkspaceScroll,[\s\S]*?scrollToDocumentPosition,/);
-  assert.match(noteEditorSource, /if \(restoringWorkspaceScroll\)[\s\S]*?toolbarScrollAnchor = scrollTop/);
+  assert.match(noteEditorSource, /window\.requestAnimationFrame\([\s\S]*?scrollElement\.scrollTop = targetTop/);
 });
 
 test('the complete editor whitespace refocuses without moving the caret or scrolling', () => {
@@ -476,7 +476,7 @@ test('note export and template actions live in the compact overflow menu', () =>
 });
 
 test('template boxes use a compact accessible save icon button', () => {
-  assert.match(templateBoxViewSource, /class="pm-template__save"[\s\S]*?aria-label="Als Baustein speichern"[\s\S]*?<v-icon size="16">mdi-content-save-outline<\/v-icon>/);
+  assert.match(templateBoxViewSource, /class="pm-template__save"[\s\S]*?aria-label="Als Schnellblock speichern"[\s\S]*?<v-icon size="16">mdi-content-save-outline<\/v-icon>/);
   assert.doesNotMatch(templateBoxViewSource, />Als Baustein speichern<\/button>/);
   assert.match(templateBoxViewSource, /\.pm-template__save\s*{[\s\S]*?width:\s*28px;[\s\S]*?height:\s*28px;[\s\S]*?place-items:\s*center/);
 });
@@ -582,17 +582,17 @@ test('workspace editor omits the last-edited metadata area completely', () => {
 
 test('embedded note editor has a persistent formatting toolbar', () => {
   assert.match(noteEditorSource, /note-editor__toolbar/);
-  assert.match(noteEditorSource, /runToolbar\('h2'\)/);
-  assert.match(noteEditorSource, /runToolbar\('h4'\)/);
-  assert.match(noteEditorSource, /runToolbar\('bold'\)/);
-  assert.match(noteEditorSource, /runToolbar\('bulletList'\)/);
+  assert.match(noteEditorSource, /key: 'h2', label: 'Überschrift 2'/);
+  assert.match(noteEditorSource, /key: 'h4', label: 'Überschrift 4'/);
+  assert.match(noteEditorSource, /bold: \(\) => chain\.toggleBold\(\)/);
+  assert.match(noteEditorSource, /key: 'bulletList',[^\n]+label: 'Aufzählung'/);
   assert.match(noteEditorSource, /\.note-editor--workspace \.note-editor__surface\s*\{[\s\S]*?padding:\s*24px clamp\(28px, 5vw, 58px\) 88px/);
 });
 
 test('empty workspace notes use a calm two-level writing invitation', () => {
   assert.match(noteEditorSource, /placeholder:\s*\{ type: String, default: 'Einfach losschreiben …' \}/);
   assert.match(noteEditorSource, /v-if="workspace && editorEmpty"[\s\S]*?class="note-editor__empty-hint"/);
-  assert.match(noteEditorSource, /<kbd>\/<\/kbd>[\s\S]*?für Überschriften, Listen und weitere Bausteine/);
+  assert.match(noteEditorSource, /<kbd>\/<\/kbd>[\s\S]*?für Überschriften, Listen und weitere Blöcke/);
   assert.match(noteEditorSource, /function isPristineEmptyDocument\(ed\)/);
   assert.match(noteEditorSource, /doc\?\.childCount === 1[\s\S]*?firstBlock\?\.type\?\.name === 'paragraph'[\s\S]*?firstBlock\.content\.size === 0/);
   assert.match(noteEditorSource, /editorEmpty\.value = isPristineEmptyDocument\(ed\)/);
@@ -618,7 +618,7 @@ test('word count is metadata in the header instead of a formatting control', () 
 test('first heading starts at the same content inset as body text', () => {
   assert.match(
     noteEditorSource,
-    /\.pm-content > h2:first-child\)[\s\S]*?\.pm-content > h3:first-child\)[\s\S]*?\.pm-content > h4:first-child\)[\s\S]*?margin-top:\s*0/,
+    /\.pm-content > :is\(h1, h2, h3, h4, h5, h6\):first-child\)[\s\S]*?margin-top:\s*0/,
   );
 });
 

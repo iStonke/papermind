@@ -15,11 +15,11 @@ const previewSource = await readFile(
   'utf8',
 );
 
-test('tasks are available from the insert menu and slash menu', () => {
+test('tasks are available from the text menu and slash menu', () => {
   assert.match(editorSource, /taskList: \(\) => chain\.toggleTaskList\(\)/);
   assert.match(
     editorSource,
-    /key: 'taskList', name: 'taskList',[^\n]+label: 'Aufgaben'/,
+    /key: 'taskList', icon:[^\n]+label: 'Aufgaben'/,
   );
   assert.match(
     editorSource,

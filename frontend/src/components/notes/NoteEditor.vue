@@ -976,6 +976,7 @@ import {
   parseNoteSlashUsage,
 } from '../../utils/noteSlashUsage.js';
 import { streamNoteText, uploadNoteImage } from '../../api/notes.js';
+import { menuItemsOf, nextMenuItem } from '../../utils/noteMenuNavigation.js';
 import { useToolbarRoving } from '../../composables/useToolbarRoving.js';
 import { noteAITextForCodeBlock, noteMarkdownToTipTap } from '../../utils/noteMarkdown.js';
 import {
@@ -1695,12 +1696,6 @@ const MENU_DROPDOWN_IDS = {
   blocks: 'note-editor-menu-blocks',
 };
 
-function menuItemsOf(dropdown) {
-  return dropdown
-    ? Array.from(dropdown.querySelectorAll('[role="menuitem"]:not([disabled])'))
-    : [];
-}
-
 // Pfeil-runter/-hoch auf dem Button öffnet das Menü und setzt den Fokus auf den
 // ersten bzw. letzten Eintrag.
 function openMenuFocus(which, position = 'first') {
@@ -1730,14 +1725,10 @@ function onMenuKeydown(event) {
   if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
   const items = menuItemsOf(dropdown);
   if (!items.length) return;
-  const current = items.indexOf(document.activeElement);
-  let next;
-  if (event.key === 'Home') next = 0;
-  else if (event.key === 'End') next = items.length - 1;
-  else if (event.key === 'ArrowDown') next = current < 0 ? 0 : (current + 1) % items.length;
-  else next = current < 0 ? items.length - 1 : (current - 1 + items.length) % items.length;
+  const next = nextMenuItem(items, document.activeElement, event.key);
+  if (!next) return;
   event.preventDefault();
-  items[next].focus();
+  next.focus();
 }
 
 // ── Tastenkürzel-Übersicht ─────────────────────────────────────────────────────

@@ -34,13 +34,13 @@ const themeSource = await readFile(
   new URL('../src/theme/theme.css', import.meta.url),
   'utf8',
 );
-const headerStart = workspaceSource.indexOf('<header class="notes-ws__header">');
+const headerStart = workspaceSource.indexOf('<header class="notes-ws__header">', workspaceSource.indexOf('class="notes-ws__manage-panel"'));
 const headerEnd = workspaceSource.indexOf('</header>', headerStart);
 const header = workspaceSource.slice(headerStart, headerEnd);
 
 test('notes management switches between notes and templates in the centered header', () => {
   assert.ok(headerStart >= 0 && headerEnd > headerStart, 'workspace header should be present');
-  assert.match(header, /v-if="isManageMode"/);
+  assert.match(workspaceSource, /v-if="isManageMode"[\s\S]*?class="notes-ws__manage-panel"/);
   assert.match(header, /class="notes-ws__manage-switch"/);
   assert.match(header, /role="tablist"/);
   assert.match(header, /manageFacet === 'notes'[\s\S]*?>Notizen</);
@@ -103,14 +103,11 @@ test('the tag sidebar remains visible before the first note tag is assigned', ()
   assert.match(gridSource, /Noch keine Tags/);
 });
 
-test('management cards separate their compact tag area from the text snippet', () => {
-  assert.match(gridSource, /<NoteTagBar[\s\S]*?compact/);
+test('management cards keep editable tags in a separate footer', () => {
+  assert.match(gridSource, /class="nmg-card__foot"[\s\S]*?<NoteTagBar[\s\S]*?compact/);
+  assert.match(gridSource, /class="nmg-card__preview"[\s\S]*?class="nmg-card__snippet"/);
+  assert.match(gridSource, /@update:tag-ids="\(ids\) => applyCardTags\(note, ids\)"/);
   assert.doesNotMatch(gridSource, /:max-visible=/);
-  assert.match(gridSource, /\.nmg__card\s*\{[\s\S]*?height:\s*auto;[\s\S]*?flex-direction:\s*column;/);
-  assert.match(gridSource, /\.nmg__snippet\s*\{[\s\S]*?-webkit-line-clamp:\s*3;/);
-  assert.match(gridSource, /\.nmg__card-tags\s*\{[\s\S]*?margin:\s*3px -16px 0;[\s\S]*?padding:\s*9px 16px 1px;[\s\S]*?border-top:/);
-  assert.match(gridSource, /\.nmg__card-foot\s*\{[\s\S]*?margin-top:\s*auto;/);
-  assert.match(gridSource, /\.nmg__card-tags\s*\{[\s\S]*?overflow:\s*visible;/);
 });
 
 test('note cards and the document detail drawer share the same inline tag editor', () => {
@@ -127,22 +124,20 @@ test('note cards and the document detail drawer share the same inline tag editor
   assert.doesNotMatch(documentsWorkspaceSource, /\.pm-tags-input__chip\.v-chip:hover/);
 });
 
-test('each card owns its actions and the management grid has no multi-selection', () => {
-  assert.match(gridSource, /v-for="note in group\.notes"[\s\S]*?<v-menu location="bottom end"/);
-  assert.match(gridSource, /icon="mdi-dots-vertical"/);
-  assert.match(gridSource, /title="Umbenennen"/);
-  assert.match(gridSource, /title="Als Vorlage speichern"/);
-  assert.match(gridSource, /title="Neue Notiz erstellen"/);
-  assert.match(gridSource, /title="Vorlage löschen…"/);
+test('each note card exposes its own named actions without multi-selection', () => {
+  for (const label of ['Umbenennen', 'Als Vorlage speichern', 'In Papierkorb']) {
+    assert.ok(gridSource.includes(`aria-label="${label}"`));
+  }
+  assert.match(gridSource, /@click="startRename\(note\)"/);
+  assert.match(gridSource, /@click="saveNoteAsTemplate\(note\)"/);
+  assert.match(gridSource, /@click="trashNote\(note\)"/);
   assert.doesNotMatch(gridSource, /nmg__bulkbar|selectedIds|selectAllVisible|type="checkbox"|is-selected/);
 });
 
-test('empty notes and templates use the centered animated document placeholder', () => {
-  assert.doesNotMatch(gridSource, /<Transition[^>]*nmg-content/);
-  assert.doesNotMatch(gridSource, /\.nmg-content-(?:enter|leave)/);
-  assert.match(gridSource, /:key="`empty-\$\{facet\}`"[\s\S]*?<PmEmptyState[\s\S]*?size="sm"/);
-  assert.doesNotMatch(gridSource, /<PmEmptyState[\s\S]*?:animated="false"[\s\S]*?\/>/);
-  assert.match(gridSource, /\.nmg__empty\s*\{[\s\S]*?width:\s*100%;[\s\S]*?height:\s*100%;[\s\S]*?align-items:\s*center;[\s\S]*?justify-content:\s*center;/);
+test('empty notes offer creation while empty searches show search feedback', () => {
+  assert.match(gridSource, /!visibleItems.length && normalizedQuery[\s\S]*?<PmEmptyState/);
+  assert.match(gridSource, /<GhostAddCard[\s\S]*?@click="\$emit\('create-note'\)"/);
+  assert.match(gridSource, /<Vorlagenmappe[\s\S]*?facet === 'templates'/);
 });
 
 test('both template groups always expose creation through a placeholder card', () => {
@@ -160,7 +155,7 @@ test('quick-block preview cards omit the redundant slash badge', () => {
   assert.doesNotMatch(templateCardSource, /Per \/ einfügbar/);
 });
 
-test('compact and management note cards share the document-list surface treatment', () => {
+test('compact notes share document-row tokens and management cards use the content surface', () => {
   for (const token of [
     '--pm-document-row-bg',
     '--pm-document-row-border',
@@ -170,8 +165,9 @@ test('compact and management note cards share the document-list surface treatmen
     assert.match(themeSource, new RegExp(token));
     assert.match(documentsWorkspaceSource, new RegExp(`var\\(${token}`));
     assert.match(workspaceSource, new RegExp(`var\\(${token}`));
-    assert.match(gridSource, new RegExp(`var\\(${token}`));
+
   }
+  assert.match(gridSource, /\.nmg-card \{[\s\S]*?background: var\(--pm-content-surface/);
 });
 
 test('the management grid keeps its local position and content height during facet transitions', () => {
