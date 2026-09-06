@@ -35,6 +35,7 @@ import { EditorContent, useEditor } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
 import Typography from '@tiptap/extension-typography';
 import TaskList from '@tiptap/extension-task-list';
+import { NoteAIGeneration } from './extensions/aiGeneration.js';
 import TaskItem from '@tiptap/extension-task-item';
 import { TableKit } from '@tiptap/extension-table';
 import { DocumentChip } from './nodes/documentChip.js';
@@ -88,6 +89,7 @@ const editor = useEditor({
     PaperMindDocument,
     Typography,
     TaskList,
+    NoteAIGeneration,
     TaskItem.configure({ nested: true }),
     TableKit.configure({ table: { resizable: false, renderWrapper: true } }),
     DocumentChip,
@@ -297,6 +299,10 @@ watch(() => props.noteId, load, { immediate: true });
 .note-preview :deep(.pm-content ul[data-type="taskList"] input[type="checkbox"]:checked) {
   border-color: var(--pm-accent, #006b75);
   background: var(--pm-accent, #006b75);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m4 8 2.5 2.5L12 5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: center;
+  background-size: 0.85rem 0.85rem;
+  background-repeat: no-repeat;
 }
 .note-preview :deep(.pm-content .tableWrapper) {
   max-width: 100%;

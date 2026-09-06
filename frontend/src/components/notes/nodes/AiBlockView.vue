@@ -36,39 +36,12 @@
     <div v-if="showPrompt" class="pm-aiblock__prompt">{{ node.attrs.prompt }}</div>
 
     <div class="pm-aiblock__body">
-      <template v-for="(block, blockIndex) in markdownBlocks" :key="blockIndex">
-        <p v-if="block.type === 'paragraph'" :style="arrivalDelay(blockIndex)">
-          <AiMarkdownInline :segments="block.segments" />
-        </p>
-        <ul v-else-if="block.type === 'bulletList'" :style="arrivalDelay(blockIndex)">
-          <li v-for="(segments, itemIndex) in block.items" :key="itemIndex">
-            <AiMarkdownInline :segments="segments" />
-          </li>
-        </ul>
-        <ol v-else-if="block.type === 'orderedList'" :start="block.start" :style="arrivalDelay(blockIndex)">
-          <li v-for="(segments, itemIndex) in block.items" :key="itemIndex">
-            <AiMarkdownInline :segments="segments" />
-          </li>
-        </ol>
-        <div v-else-if="block.type === 'table'" class="pm-aiblock__table-wrap" :style="arrivalDelay(blockIndex)">
-          <table>
-            <thead>
-              <tr>
-                <th v-for="(segments, cellIndex) in block.header" :key="cellIndex">
-                  <AiMarkdownInline :segments="segments" />
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(row, rowIndex) in block.rows" :key="rowIndex">
-                <td v-for="(segments, cellIndex) in row" :key="cellIndex">
-                  <AiMarkdownInline :segments="segments" />
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </template>
+      <div
+        v-for="(block, blockIndex) in markdownBlocks"
+        :key="blockIndex"
+        :style="arrivalDelay(blockIndex)"
+        v-html="noteMarkdownBlockToSafeHtml(block)"
+      ></div>
     </div>
 
     <div v-if="sources.length" class="pm-aiblock__sources">
@@ -89,8 +62,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3';
-import { noteMarkdownToTipTap, parseNoteMarkdown } from '../../../utils/noteMarkdown.js';
-import AiMarkdownInline from './AiMarkdownInline.vue';
+import { noteMarkdownToTipTap, parseNoteMarkdown, noteMarkdownBlockToSafeHtml } from '../../../utils/noteMarkdown.js';
 
 const props = defineProps(nodeViewProps);
 const sources = computed(() => props.node.attrs.sources || []);
@@ -207,19 +179,20 @@ function convertToText() {
   color: var(--pm-muted, #535e62); font-size: 0.75rem; line-height: 1.4;
 }
 .pm-aiblock__body { color: var(--pm-text, #0e181b); line-height: 1.6; }
-.pm-aiblock__body p { margin: 0; }
-.pm-aiblock__body p + p { margin-top: 0.65em; }
-.pm-aiblock__body ul,
-.pm-aiblock__body ol { margin: 0.2em 0 0.15em; padding-left: 1.35em; }
-.pm-aiblock__body li { padding-left: 0.12em; }
-.pm-aiblock__body li + li { margin-top: 0.2em; }
-.pm-aiblock__table-wrap {
+.pm-aiblock__body :deep(p) { margin: 0; }
+.pm-aiblock__body > div + div,
+.pm-aiblock__body :deep(p + p) { margin-top: 0.65em; }
+.pm-aiblock__body :deep(ul),
+.pm-aiblock__body :deep(ol) { margin: 0.2em 0 0.15em; padding-left: 1.35em; }
+.pm-aiblock__body :deep(li) { padding-left: 0.12em; }
+.pm-aiblock__body :deep(li + li) { margin-top: 0.2em; }
+.pm-aiblock__body :deep(.table-wrap) {
   max-width: 100%;
   margin-top: 0.35em;
   overflow-x: auto;
   border-radius: 7px;
 }
-.pm-aiblock__table-wrap table {
+.pm-aiblock__body :deep(.table-wrap table) {
   width: 100%;
   min-width: 320px;
   border: 1px solid color-mix(in srgb, var(--pm-ai) 28%, var(--pm-divider, #d8dfe1));
@@ -228,18 +201,18 @@ function convertToText() {
   border-radius: 7px;
   font-size: 0.82rem;
 }
-.pm-aiblock__table-wrap th,
-.pm-aiblock__table-wrap td {
+.pm-aiblock__body :deep(.table-wrap th),
+.pm-aiblock__body :deep(.table-wrap td) {
   padding: 6px 8px;
   border-right: 1px solid var(--pm-divider, #d8dfe1);
   border-bottom: 1px solid var(--pm-divider, #d8dfe1);
   text-align: left;
   vertical-align: top;
 }
-.pm-aiblock__table-wrap th:last-child,
-.pm-aiblock__table-wrap td:last-child { border-right: 0; }
-.pm-aiblock__table-wrap tbody tr:last-child td { border-bottom: 0; }
-.pm-aiblock__table-wrap th {
+.pm-aiblock__body :deep(.table-wrap th:last-child),
+.pm-aiblock__body :deep(.table-wrap td:last-child) { border-right: 0; }
+.pm-aiblock__body :deep(.table-wrap tbody tr:last-child td) { border-bottom: 0; }
+.pm-aiblock__body :deep(.table-wrap th) {
   background: color-mix(in srgb, var(--pm-ai) 10%, transparent);
   color: var(--pm-text, #0e181b);
   font-weight: 650;

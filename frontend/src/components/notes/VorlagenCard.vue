@@ -94,12 +94,15 @@ const pageLines = ['88%', '96%', '70%'];
   background: var(--pm-content-surface, #fff);
   overflow: hidden;
   cursor: pointer;
-  transition: transform 130ms cubic-bezier(0.2, 0, 0, 1), box-shadow 130ms ease, border-color 130ms ease;
+  /* Weicher, neutraler Ruheschatten wie die Leuchttisch-Karten. */
+  box-shadow: 0 3px 10px rgba(27, 43, 48, 0.09);
+  transition: box-shadow 130ms ease, border-color 130ms ease;
 }
 .vk:hover {
-  transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--vk-accent) 40%, var(--pm-divider, #d8dfe1));
-  box-shadow: 0 8px 22px color-mix(in srgb, var(--vk-accent) 22%, transparent);
+  /* Dezente, neutrale Rahmen-Abdunklung wie beim Leuchttisch – kein Anheben,
+     kein Akzentschimmer. */
+  border-color: color-mix(in srgb, var(--pm-text, #1b2b30) 22%, var(--pm-divider, #d8dfe1));
+  box-shadow: 0 4px 14px rgba(27, 43, 48, 0.12);
 }
 .vk:focus-visible {
   outline: none;

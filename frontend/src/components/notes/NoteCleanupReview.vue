@@ -35,9 +35,7 @@
         </div>
 
         <div v-else-if="cleanup.draftBlocks.length" class="pm-cleanup-review__content">
-          <div v-if="cleanup.view === 'original'" class="pm-cleanup-review__text">
-            {{ cleanupOriginalText }}
-          </div>
+          <div v-if="cleanup.view === 'original'" class="pm-cleanup-review__formatted" v-html="cleanupOriginalHtml"></div>
           <div v-else-if="cleanup.view === 'diff'" class="pm-cleanup-review__text" aria-label="Vergleich">
             <template v-for="(part, index) in cleanupDiffParts" :key="index">
               <del v-if="part.type === 'removed'">{{ part.text }}</del>
@@ -45,15 +43,19 @@
               <span v-else>{{ part.text }}</span>
             </template>
           </div>
-          <div v-else class="pm-cleanup-review__editors">
-            <textarea
-              v-for="(_block, index) in cleanup.draftBlocks"
-              :key="index"
-              v-model="cleanup.draftBlocks[index]"
-              rows="2"
-              :aria-label="cleanup.draftBlocks.length === 1 ? 'Vorschlag bearbeiten' : `Vorschlag für Absatz ${index + 1} bearbeiten`"
-              @input="cleanup.error = ''"
-            ></textarea>
+          <div v-else>
+            <div class="pm-cleanup-review__formatted" v-html="cleanupDraftHtml"></div>
+            <details class="pm-cleanup-review__editors">
+              <summary>Text bearbeiten</summary>
+              <textarea
+                v-for="(_block, index) in cleanup.draftBlocks"
+                :key="index"
+                v-model="cleanup.draftBlocks[index]"
+                rows="3"
+                :aria-label="cleanup.draftBlocks.length === 1 ? 'Vorschlag bearbeiten' : `Vorschlag für Absatz ${index + 1} bearbeiten`"
+                @input="cleanup.error = ''"
+              ></textarea>
+            </details>
           </div>
         </div>
 
@@ -69,7 +71,7 @@
           <button type="button" :disabled="cleanup.loading" @click="regenerateCleanup">Anwenden</button>
         </div>
 
-        <div v-if="cleanup.error" class="pm-cleanup-review__error" role="alert">{{ cleanup.error }}</div>
+        <div v-if="cleanup.error || cleanupValidation.error" class="pm-cleanup-review__error" role="alert">{{ cleanup.error || cleanupValidation.error }}</div>
 
         <div class="pm-cleanup-review__actions">
           <div>
@@ -120,7 +122,9 @@ const {
   cleanupRestore,
   cleanupAnchorEl,
   cleanupViews,
-  cleanupOriginalText,
+  cleanupOriginalHtml,
+  cleanupDraftHtml,
+  cleanupValidation,
   cleanupDiffParts,
   cleanupCanApply,
   regenerateCleanup,

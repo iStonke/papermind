@@ -684,6 +684,9 @@
               :loaded-document-count="documentListLoadedCount"
               :trash-notes="visibleTrashedNotes"
               :selected-trash-note-id="selectedTrashNoteId"
+              :is-favorites-view="isFavoritesView"
+              :favorite-notes="visibleFavoriteNotes"
+              :selected-favorite-note-id="selectedFavoriteNoteId"
               @select-document="selectDocument"
               @download="downloadDocumentFromList"
               @rename="(doc) => renameDocumentDialogRef?.open(doc)"
@@ -692,7 +695,8 @@
               @delete="openDeleteDocumentDialog"
               @restore="restoreDocumentFromTrash"
               @delete-permanent="openPermanentDeleteDialog"
-              @select-note="selectTrashNote"
+              @select-note="isTrashView ? selectTrashNote($event) : selectFavoriteNote($event)"
+              @unfavorite-note="unfavoriteNote"
               @restore-note="restoreNoteFromTrash"
               @delete-note-permanent="openPermanentDeleteNoteDialog"
               @toggle-favorite="toggleDocumentFavorite"
@@ -880,7 +884,7 @@
           <DocumentPreviewLayout
             class="panel-right__preview panel-right__preview--card-drawer"
             :style="detailsDrawerCardStyle"
-            :show-drawer="!isTagView && !isCategoryView && Boolean(selectedDocumentDetail) && (!isChatView || chatPreviewVisible)"
+            :show-drawer="!selectedFavoriteNoteId && !selectedTrashNoteId && !isTagView && !isCategoryView && Boolean(selectedDocumentDetail) && (!isChatView || chatPreviewVisible)"
             :is-open="isDetailsDrawerOpen"
             :auto-hide-drawer="autoHideDetailsDrawer"
             floating-card
@@ -1092,10 +1096,10 @@
 
               </div>
               <div
-                v-else-if="isTrashView && selectedTrashNoteId"
+                v-else-if="(isTrashView && selectedTrashNoteId) || (isFavoritesView && selectedFavoriteNoteId)"
                 class="preview-frame-wrap note-trash-preview"
               >
-                <NotePreview :note-id="selectedTrashNoteId" />
+                <NotePreview :note-id="isTrashView ? selectedTrashNoteId : selectedFavoriteNoteId" />
               </div>
               <div
                 v-else-if="selectedDocumentId && (!isChatView || chatPreviewVisible)"
@@ -1953,7 +1957,10 @@ async function confirmDestructiveAction() {
 const { documents, selectedDocumentId, selectedDocumentDetail, isLoadingDocuments } = storeToRefs(docStore);
 const trashedNotes = ref([]);
 const isLoadingTrashedNotes = ref(false);
+const notesStore = useNotesStore();
 const selectedTrashNoteId = ref(null);
+const selectedFavoriteNoteId = ref(null);
+const isLoadingFavoriteNotes = ref(false);
 let trashNotesRequestRevision = 0;
 const { tags, isTagMutationRunning } = storeToRefs(tagStore);
 const { categoryNames, categories, sortedCategories } = storeToRefs(categoryStore);
@@ -3299,6 +3306,15 @@ const activeCategoryName = computed(() => documentListQuery.documentType || null
 const isImportsView   = computed(() => activeView.value === 'imports');
 const isUntaggedView  = computed(() => activeView.value === 'untagged');
 const isFavoritesView = computed(() => activeView.value === 'favorites');
+watch(isFavoritesView, async (active) => {
+  selectedFavoriteNoteId.value = null;
+  if (!active) return;
+  isLoadingFavoriteNotes.value = true;
+  try { await notesStore.fetchFavorites(); }
+  catch (error) { notifyError(error, 'Favorisierte Notizen konnten nicht geladen werden.'); }
+  finally { isLoadingFavoriteNotes.value = false; }
+}, { immediate: true });
+
 const isNoTextView    = computed(() => activeView.value === 'no_text');
 const isTrashView     = computed(() => activeView.value === 'trash');
 
@@ -3334,6 +3350,21 @@ const visibleTrashedNotes = computed(() => {
   );
 });
 
+const visibleFavoriteNotes = computed(() => {
+  const query = String(documentListQuery.q || '').trim().toLocaleLowerCase('de-DE');
+  return notesStore.favoriteNotes.filter((note) => {
+    if (query && !`${note.title || ''} ${note.preview || ''}`.toLocaleLowerCase('de-DE').includes(query)) return false;
+    const date = String(note.created_at || '').slice(0, 10);
+    return (!documentListQuery.dateFrom || date >= documentListQuery.dateFrom)
+      && (!documentListQuery.dateTo || date <= documentListQuery.dateTo);
+  }).sort((a, b) => currentSort.value === 'name_asc'
+    ? (a.title || '').localeCompare(b.title || '', 'de')
+    : (new Date(a.created_at) - new Date(b.created_at)) * (currentSort.value === 'oldest' ? 1 : -1));
+});
+watch(visibleFavoriteNotes, (notes) => {
+  if (selectedFavoriteNoteId.value && !notes.some((note) => note.id === selectedFavoriteNoteId.value)) selectedFavoriteNoteId.value = null;
+});
+
 // ── Darstellungs-Modus der Dokumentliste (Liste / Zeitleiste / Kalender) ─────
 const DOCUMENT_VIEW_MODES = ['list', 'timeline', 'calendar'];
 const DOCUMENT_VIEW_MODE_KEY = 'pm.documentViewMode';
@@ -3346,7 +3377,7 @@ function loadDocumentViewMode() {
 const documentViewMode = ref(loadDocumentViewMode());
 // Umschalter nur in den echten Dokumentlisten-Kontexten (nicht Chat/Tags/Typen/Papierkorb).
 const showViewModeSwitcher = computed(() =>
-  !isChatView.value && !isTagView.value && !isCategoryView.value && !isTrashView.value
+  !isChatView.value && !isTagView.value && !isCategoryView.value && !isTrashView.value && !isFavoritesView.value
 );
 const documentViewModeOptions = [
   { value: 'list', label: 'Liste', icon: 'mdi-format-list-bulleted' },
@@ -3915,6 +3946,7 @@ const showDocumentListLoadingState = computed(() =>
   )
 );
 const showDocumentListEmptyState = computed(() => {
+  if (isFavoritesView.value && (isLoadingFavoriteNotes.value || visibleFavoriteNotes.value.length)) return false;
   // Während des Ladens ist der noch sichtbare Bestand der ALTE Bereich – daher
   // nur die Vorhersage nutzen: bei vorab bekanntem Leer-Ziel sofort Platzhalter
   // (kein Skelett), sonst übernimmt der Lade-/Skelett-Zweig.
@@ -3949,7 +3981,7 @@ const documentListEmptyState = computed(() => {
     return {
       icon: 'mdi-star-outline',
       title: 'Noch keine Favoriten',
-      subtitle: 'Klicke den Stern neben einem Dokument, um es als Favorit zu markieren.'
+      subtitle: 'Markiere Dokumente oder Notizen mit dem Stern als Favoriten.'
     };
   }
   if (isNoTextView.value) {
@@ -7378,6 +7410,7 @@ async function fetchDocuments(preferredDocumentId = null, options = {}) {
 }
 
 async function selectDocument(documentId, options = {}) {
+  selectedFavoriteNoteId.value = null;
   // Ein Dokument auswählen hebt die (read-only) Notiz-Vorschau im Papierkorb auf.
   selectedTrashNoteId.value = null;
   if (documentId === selectedDocumentId.value) {
@@ -7561,6 +7594,16 @@ async function removeTrashedNoteFromList(noteId) {
   await documentListPanelRef.value?.animateTrashNoteRemoval?.([noteId]);
   trashedNotes.value = trashedNotes.value.filter((note) => note.id !== noteId);
   if (selectedTrashNoteId.value === noteId) selectedTrashNoteId.value = null;
+}
+
+function selectFavoriteNote(note) {
+  if (!note?.id || !canDiscardMetadataChanges()) return;
+  selectedFavoriteNoteId.value = note.id;
+}
+
+async function unfavoriteNote(note) {
+  try { await notesStore.setFavorite(note.id, false); }
+  catch (error) { notifyError(error, 'Die Notiz konnte nicht aus den Favoriten entfernt werden.'); }
 }
 
 // Read-only Vorschau einer gelöschten Notiz im rechten Panel.
@@ -8884,8 +8927,6 @@ async function openImport() {
   isUploadDialogOpen.value = true;
 }
 
-// Notizen-Store: hält die Sidebar-Zähler aktuell (z. B. nach Import/Änderungen).
-const notesStore = useNotesStore();
 
 async function onImportPdfInputChange(event) {
   const selection = selectPdfFiles(event.target?.files || [], 'file');

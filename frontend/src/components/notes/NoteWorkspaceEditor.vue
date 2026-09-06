@@ -137,6 +137,7 @@
             <v-list-item
               class="note-workspace-editor__more-item"
               title="PDF"
+              :disabled="exportingPdf"
               :ripple="false"
               role="menuitem"
               @click="exportNoteAsPdf"
@@ -492,6 +493,7 @@
 </template>
 
 <script setup>
+import { downloadNotePdf } from '../../utils/notePdfDownload.js';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue';
 import { documentThumbnailUrl, listDocuments } from '../../api/documents.js';
 import { authedUrl, getBaseUrl } from '../../api/client.js';
@@ -515,7 +517,6 @@ import {
 } from '../../utils/noteDraftStorage.js';
 import {
   noteExportFilename,
-  notePrintTitle,
   noteToMarkdown,
   noteToPrintableHtml,
 } from '../../utils/noteExport.js';
@@ -1645,9 +1646,12 @@ function exportNoteAsMarkdown() {
   }
 }
 
-function exportNoteAsPdf() {
+const exportingPdf = ref(false);
+
+async function exportNoteAsPdf() {
+  if (exportingPdf.value) return;
+  exportingPdf.value = true;
   void finalizeHistory(loadedNoteId.value, 'export');
-  let printWindow = null;
   try {
     const html = noteToPrintableHtml({
       title: title.value,
@@ -1664,23 +1668,11 @@ function exportNoteAsPdf() {
         return authedUrl(absolute);
       },
     });
-    printWindow = window.open('', '_blank', 'width=900,height=720');
-    if (!printWindow) throw new Error('Popup für PDF-Export wurde blockiert.');
-    printWindow.opener = null;
-    printWindow.document.open();
-    printWindow.document.write(html);
-    printWindow.document.close();
-    printWindow.document.title = notePrintTitle(title.value);
-    printWindow.addEventListener('load', () => {
-      printWindow.setTimeout(() => {
-        printWindow.focus();
-        printWindow.print();
-      }, 80);
-    }, { once: true });
-    printWindow.addEventListener('afterprint', () => printWindow.close(), { once: true });
+    await downloadNotePdf(html, title.value);
   } catch (error) {
-    printWindow?.close();
-    notifyError(error, 'PDF-Export konnte nicht geöffnet werden.');
+    notifyError(error, 'PDF konnte nicht heruntergeladen werden.');
+  } finally {
+    exportingPdf.value = false;
   }
 }
 

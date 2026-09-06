@@ -30,8 +30,11 @@ def note_row(*, body_text: str = "Ein kurzer Notiztext"):
         id=uuid4(),
         title="Recherche",
         body_text=body_text,
+        is_template=False,
         is_deleted=False,
         deleted_at=None,
+        notebook_id=None,
+        is_favorite=False,
         created_at=now,
         updated_at=now,
     )
@@ -51,6 +54,17 @@ class NoteSearchTest(unittest.TestCase):
         sql = compiled_sql(db.statements[0])
         self.assertIn("note.search_vector @@", sql)
         self.assertTrue("to_tsquery" in sql or "websearch_to_tsquery" in sql)
+
+    def test_global_note_search_also_matches_tags_and_notebook_names(self):
+        db = CapturingSession([note_row()])
+
+        NoteService(db, uuid4()).list_notes(q="Steuern")
+
+        sql = compiled_sql(db.statements[0])
+        self.assertIn("note_tags", sql)
+        self.assertIn("tags", sql)
+        self.assertIn("note_notebook", sql)
+        self.assertIn("ILIKE", sql)
 
     def test_note_search_can_be_limited_to_title_or_body(self):
         title_db = CapturingSession()

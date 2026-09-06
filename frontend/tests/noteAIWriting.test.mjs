@@ -146,8 +146,9 @@ test('slash menu applies its keyboard selection atomically on Enter', () => {
   assert.doesNotMatch(editorSource, /deleteRange\(\{ from: slash\.from, to \}\)\.run\(\);[\s\S]*?cmd\.action\(ed\.chain\(\)\.focus\(\)\)\.run\(\)/);
 });
 
-test('generated text outside a direct-editing container is inserted as a permanently attributed AI block', () => {
-  assert.match(editorSource, /\.insertAiBlock\(\{/);
+test('generated text uses editable blocks while legacy AI cards retain their conversion action', () => {
+  assert.match(editorSource, /insertContentAt\(insertionRange, content, \{ updateSelection: true \}\)/);
+  assert.match(editorSource, /NoteAIGeneration/);
   assert.match(editorSource, /provider: aiPrompt\.provider/);
   assert.match(editorSource, /model: aiPrompt\.model/);
   assert.match(aiNodeSource, /provider: \{ default: '' \}/);
@@ -155,7 +156,7 @@ test('generated text outside a direct-editing container is inserted as a permane
   assert.match(aiViewSource, /KI-generiert/);
   assert.match(aiViewSource, /Übernehmen/);
   assert.match(aiViewSource, /noteMarkdownToTipTap/);
-  assert.match(aiViewSource, /block\.type === 'bulletList'/);
+  assert.match(aiViewSource, /noteMarkdownBlockToSafeHtml/);
   assert.match(editorSource, /onCheckpoint\('ai'\)/);
   assert.match(workspaceEditorSource, /@history-checkpoint="markHistoryCheckpoint"/);
 });
@@ -170,7 +171,7 @@ test('toolbar selection generation replaces in place while dialog offers both re
   assert.match(editorSource, /selectionSnapshotIsCurrent\(ed\)/);
   assert.match(editorSource, /if \(aiPrompt\.presentation === 'dialog'\) return;/);
   assert.match(editorSource, /applySelectionAIResult\('replace'\)/);
-  assert.match(editorSource, /insertContentAt\(\{ from, to \}, \{ type: 'aiBlock', attrs \}\)/);
+  assert.match(editorSource, /insertContentAt\(\{ from, to \}, content, \{ updateSelection: true \}\)/);
   assert.match(editorSource, /Auswahl ersetzen/);
   assert.match(editorSource, /Danach einfügen/);
 });
@@ -178,7 +179,7 @@ test('toolbar selection generation replaces in place while dialog offers both re
 test('AI started inside a callout inserts normal editable content directly into that callout', () => {
   assert.match(editorSource, /function directAITargetForSelection\(ed, selection\)/);
   assert.match(editorSource, /function insertDirectAIResult\(ed,/);
-  assert.match(editorSource, /noteMarkdownToTipTap\(aiPrompt\.preview\.trim\(\)\)/);
+  assert.match(editorSource, /noteAIContent\(aiPrompt\.preview\.trim\(\),/);
   assert.match(editorSource, /targetReplaceFrom/);
   assert.match(editorSource, /insertDirectAIResult\(ed, replaceEmptyParagraph/);
   assert.match(editorSource, /Number\.isInteger\(aiPrompt\.targetContainerFrom\)/);
@@ -210,7 +211,7 @@ test('AI writing has generation feedback without additional caret-like markers',
   assert.match(editorSource, /v-if="aiPrompt\.loading" class="pm-ai-prompt__spinner"/);
   assert.doesNotMatch(editorSource, /pm-ai-anchor/);
   assert.doesNotMatch(editorSource, /pm-ai-prompt__stream-caret/);
-  assert.match(editorSource, /insertAiBlock\([\s\S]*?focus\('end'\)[\s\S]*?scrollIntoView\(\)/);
+  assert.match(editorSource, /insertContentAt\(insertionRange, content,[\s\S]*?scrollIntoView\(\)/);
   assert.match(editorSource, /prefers-reduced-motion: reduce/);
   assert.match(aiViewSource, /'is-arriving': isArriving/);
   assert.match(aiViewSource, /Math\.abs\(Date\.now\(\) - generatedAt\) > 4000/);

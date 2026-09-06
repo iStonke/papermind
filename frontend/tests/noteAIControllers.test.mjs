@@ -47,7 +47,7 @@ test('note switch cancels old writing; late deltas and finally cannot change a n
   unmount();
 });
 
-test('generated writing preserves attribution and is one undoable edit', async () => {
+test('generated writing uses editable paragraphs, preserves attribution, and is one undoable edit', async () => {
   const { controller: c, editor, checkpoints, unmount } = setup(useNoteWriting, async (_payload, { onEvent }) => {
     onEvent({ type: 'meta', provider: 'ollama', model: 'test-model' });
     onEvent({ type: 'delta', text: 'Zusammenfassung' });
@@ -55,14 +55,84 @@ test('generated writing preserves attribution and is one undoable edit', async (
   prepareWriting(c);
   await c.generateAIText();
   let block;
-  editor.value.state.doc.descendants((node) => { if (node.type.name === 'aiBlock') block = node; });
-  assert.equal(block.attrs.text, 'Zusammenfassung');
-  assert.equal(block.attrs.provider, 'ollama');
-  assert.equal(block.attrs.model, 'test-model');
+  editor.value.state.doc.descendants((node) => { if (node.attrs.aiGeneration) block = node; });
+  assert.equal(block.type.name, 'paragraph');
+  assert.equal(block.textContent, 'Zusammenfassung');
+  assert.equal(block.attrs.aiGeneration.provider, 'ollama');
+  assert.equal(block.attrs.aiGeneration.model, 'test-model');
   assert.deepEqual(checkpoints, ['ai']);
   editor.value.commands.undo();
   assert.equal(editor.value.getText(), 'Original text');
   assert.equal(editor.value.state.doc.childCount, 1);
+  unmount();
+});
+
+test('streamed shopping list replaces the captured selection with native tasks in one undo step', async () => {
+  const { controller: c, editor, checkpoints, unmount } = setup(useNoteWriting, async (_payload, { onEvent }) => {
+    onEvent({ type: 'delta', text: '- [ ] Rote ' });
+    onEvent({ type: 'delta', text: 'Äpfel\n- [ ] Frische Birnen' });
+  });
+  const original = editor.value.state.doc.toJSON();
+  editor.value.commands.setTextSelection({ from: 1, to: 14 });
+  prepareWriting(c);
+  c.aiPrompt.instruction = 'Erstelle eine Einkaufsliste';
+  await c.generateAIText();
+  let tasks;
+  editor.value.state.doc.descendants((node) => { if (node.type.name === 'taskList') tasks = node; });
+  assert.equal(tasks.childCount, 2);
+  assert.equal(tasks.firstChild.textContent, 'Rote Äpfel');
+  assert.equal(tasks.lastChild.attrs.checked, false);
+  assert.equal(editor.value.getText().includes('Original text'), false);
+  assert.deepEqual(checkpoints, ['ai']);
+  editor.value.commands.undo();
+  assert.deepEqual(editor.value.state.doc.toJSON(), original);
+  unmount();
+});
+
+test('generation without a body cursor replaces an empty final paragraph rather than adding a blank line', async () => {
+  const { controller: c, editor, unmount } = setup(useNoteWriting, async (_payload, { onEvent }) => {
+    onEvent({ type: 'delta', text: '- [ ] Kiwi' });
+  });
+  editor.value = createTestEditor('');
+  editor.value.view.hasFocus = () => false;
+  prepareWriting(c);
+  c.aiPrompt.instruction = 'Einkaufsliste';
+  await c.generateAIText();
+  assert.equal(editor.value.state.doc.childCount, 1);
+  assert.equal(editor.value.state.doc.firstChild.type.name, 'taskList');
+  unmount();
+});
+
+test('selection review inserts native structure only after the requested action', async () => {
+  const { controller: c, editor, unmount } = setup(useNoteWriting, async (_payload, { onEvent }) => {
+    onEvent({ type: 'delta', text: '## Neuer Titel\n\n- [ ] Prüfen' });
+  });
+  editor.value.commands.setTextSelection({ from: 1, to: 14 });
+  c.openAIPrompt();
+  c.aiPrompt.instruction = 'Als Überschrift und Aufgabe strukturieren';
+  await c.generateAIText();
+  assert.equal(editor.value.getText(), 'Original text');
+  c.applySelectionAIResult('insert');
+  assert.equal(editor.value.getText().includes('Original text'), true);
+  const types = [];
+  editor.value.state.doc.forEach((node) => types.push(node.type.name));
+  assert.ok(types.includes('heading'));
+  assert.ok(types.includes('taskList'));
+  assert.equal(c.aiPrompt.open, false);
+  unmount();
+});
+
+test('a malformed checklist response cannot overwrite existing text with a run-on paragraph', async () => {
+  const { controller: c, editor, unmount } = setup(useNoteWriting, async (_payload, { onEvent }) => {
+    onEvent({ type: 'delta', text: 'Mandarine Zitrone Banane Kiwi' });
+  });
+  editor.value.commands.setTextSelection({ from: 1, to: 14 });
+  prepareWriting(c);
+  c.aiPrompt.instruction = 'Erstelle eine Einkaufsliste';
+  await c.generateAIText();
+  assert.equal(editor.value.getText(), 'Original text');
+  assert.match(c.aiPrompt.error, /keine Aufgabenliste/);
+  assert.equal(c.aiPrompt.loading, false);
   unmount();
 });
 

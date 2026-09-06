@@ -23,7 +23,7 @@ const previewSource = await readFile(
   'utf8',
 );
 
-test('PaperMind exposes the seven structured callout kinds', () => {
+test('PaperMind exposes the five structured callout kinds', () => {
   assert.deepEqual(
     NOTE_CALLOUT_OPTIONS.map(({ value, label }) => ({ value, label })),
     [
@@ -31,8 +31,6 @@ test('PaperMind exposes the seven structured callout kinds', () => {
       { value: 'important', label: 'Wichtig' },
       { value: 'question', label: 'Frage' },
       { value: 'decision', label: 'Entscheidung' },
-      { value: 'deadline', label: 'Frist' },
-      { value: 'source', label: 'Fundstelle' },
       { value: 'prompt', label: 'KI-Prompt' },
     ],
   );
@@ -40,7 +38,9 @@ test('PaperMind exposes the seven structured callout kinds', () => {
   assert.equal(normalizeNoteCalloutKind('decision'), 'decision');
   assert.equal(normalizeNoteCalloutKind('prompt'), 'prompt');
   assert.equal(normalizeNoteCalloutKind('unknown'), 'important');
-  assert.equal(noteCalloutMeta('source').label, 'Fundstelle');
+  assert.equal(noteCalloutMeta('source').label, 'Information');
+  assert.equal(normalizeNoteCalloutKind('deadline'), 'info');
+  assert.equal(noteCalloutMeta('prompt').glyph, '✦');
   assert.deepEqual(noteCalloutMeta('info').terms, ['information', 'info', 'hinweis', 'wissen']);
   assert.doesNotMatch(noteCalloutMeta('important').terms.join(' '), /\binfo\b/);
 });
@@ -89,8 +89,6 @@ test('callouts are available through slash commands and in read-only previews', 
   assert.match(viewSource, /is-info/);
   assert.match(viewSource, /is-question/);
   assert.match(viewSource, /is-decision/);
-  assert.match(viewSource, /is-deadline/);
-  assert.match(viewSource, /is-source/);
   assert.match(viewSource, /is-prompt/);
 });
 
@@ -105,7 +103,7 @@ test('callouts share the blocks toolbar menu directly after the insert menu', ()
   assert.match(editorSource, /v-if="openMenu === 'blocks'"/);
   assert.match(editorSource, /note-editor__blocks-menu-heading">Hinweisblöcke/);
   assert.match(editorSource, /v-for="option in toolbarCalloutOptions"/);
-  assert.match(editorSource, /const toolbarCalloutOptions = NOTE_CALLOUT_OPTIONS\.filter\([\s\S]*?!\['deadline', 'source'\]\.includes\(option\.value\)/);
+  assert.match(editorSource, /const toolbarCalloutOptions = NOTE_CALLOUT_OPTIONS;/);
   assert.match(editorSource, /toolbarActive\('callout', \{ kind: option\.value \}\)/);
   assert.match(editorSource, /runCalloutKind\(option\.value\)/);
   assert.match(editorSource, /if \(ed\.isActive\('callout'\)\) chain\.setCalloutKind\(kind\)\.run\(\);[\s\S]*?else chain\.insertCallout\(kind\)\.run\(\);/);

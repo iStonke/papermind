@@ -11,9 +11,9 @@ import {
   stripCleanupMarks,
 } from '../src/utils/noteCleanup.js';
 
-test('input formatting numbers each block and flattens stray whitespace', () => {
+test('input formatting numbers each block and preserves line structure', () => {
   const input = formatCleanupInput(['budget q3 noch offen', 'launch\n  verschoben']);
-  assert.equal(input, '⟦1⟧ budget q3 noch offen\n\n⟦2⟧ launch verschoben');
+  assert.equal(input, '⟦1⟧ budget q3 noch offen\n\n⟦2⟧ launch\n  verschoben');
   assert.equal(cleanupMarker(3), '⟦3⟧');
 });
 
@@ -23,7 +23,9 @@ test('the cleanup instruction carries the meaning-preserving guardrails', () => 
   assert.match(CLEANUP_INSTRUCTION, /Reihenfolge/);
   assert.match(CLEANUP_INSTRUCTION, /⟦n⟧/);
   // Muss unter das 2000-Zeichen-Limit des Backend-Anweisungsfelds passen.
-  assert.ok(CLEANUP_INSTRUCTION.length < 2000);
+  assert.ok(CLEANUP_INSTRUCTION.length + '\n\nZusätzliche Anweisung des Nutzers: '.length + 600 <= 2000);
+  assert.match(CLEANUP_INSTRUCTION, /behutsam formatieren/);
+  assert.match(CLEANUP_INSTRUCTION, /Gut strukturierter/);
   assert.ok(CLEANUP_INPUT_LIMIT < 8000);
 });
 
@@ -51,6 +53,16 @@ test('a mismatched block count fails safe so nothing gets garbled', () => {
   assert.equal(parseCleanupOutput('Ein Fließtext ohne Marker.', 1).ok, false);
   // Leerer Block wird verworfen.
   assert.equal(parseCleanupOutput('⟦1⟧   \n⟦2⟧ Text', 2).ok, false);
+  assert.equal(parseCleanupOutput('⟦1⟧ Eins\n⟦2⟧ Nicht angefordert', 1).ok, false);
+  assert.equal(parseCleanupOutput('⟦1⟧ Eins\n⟦1⟧ Doppelt', 1).ok, false);
+  assert.equal(parseCleanupOutput('⟦2⟧ Zwei\n⟦1⟧ Eins', 2).ok, false);
+});
+
+test('cleanup proposals retain Markdown block boundaries and nested list indentation', () => {
+  const markdown = '### Vorbereitung\n\n- [ ] Unterlagen prüfen\n  - [ ] Vertrag lesen\n- [ ] Rückfragen klären';
+  assert.deepEqual(parseCleanupOutput(`⟦1⟧\n${markdown}\n⟦2⟧ **Frist:** Freitag.`, 2), {
+    ok: true, blocks: [markdown, '**Frist:** Freitag.'],
+  });
 });
 
 test('preview stripping removes markers and collapses blank runs', () => {

@@ -59,7 +59,7 @@
              offsetTop (= listContentOffsetTop) den Kopf mitzählt und die
              Zeilen-Virtualisierung korrekt bleibt. -->
         <div
-          v-if="isTrashView && documents.length"
+          v-if="(isTrashView || isFavoritesView) && documents.length"
           class="trash-notes__heading trash-docs-heading"
         >
           <v-icon size="16">mdi-file-document-outline</v-icon>
@@ -138,7 +138,7 @@
                 class="document-row pm-doc-item"
                 :data-document-id="document.id"
                 :class="{
-                  'document-row--active': !isSelectionMode && document.id === selectedDocumentId,
+                  'document-row--active': !selectedFavoriteNoteId && !isSelectionMode && document.id === selectedDocumentId,
                   'document-row--selected': isSelectionMode && selectionIds.has(document.id),
                   'document-row--selection-mode': isSelectionMode,
                   'document-row--unread': document.is_unread,
@@ -322,29 +322,30 @@
             />
 
             <section
-              v-if="isTrashView && trashNotes.length"
+              v-if="listedNotes.length"
               class="trash-notes"
               :class="{ 'trash-notes--only': documents.length === 0 }"
-              aria-label="Gelöschte Notizen"
+              :aria-label="isTrashView ? 'Gelöschte Notizen' : 'Favorisierte Notizen'"
             >
               <div class="trash-notes__heading">
                 <v-icon size="16">mdi-note-outline</v-icon>
                 <span>Notizen</span>
-                <span>{{ trashNotes.length }}</span>
+                <span>{{ listedNotes.length }}</span>
               </div>
 
               <div ref="trashNoteListRef" class="document-list__rows trash-notes__rows">
                 <div
-                  v-for="note in trashNotes"
-                  :key="`trash-note-${note.id}`"
+                  v-for="note in listedNotes"
+                  :key="`note-${note.id}`"
                   class="document-row pm-trash-note"
-                  :class="{ 'is-active': note.id === selectedTrashNoteId }"
-                  :data-trash-note-id="note.id"
+                  :class="{ 'document-row--active': note.id === selectedNoteId }"
+                  :data-trash-note-id="isTrashView ? note.id : undefined"
                   role="button"
                   tabindex="0"
-                  :aria-current="note.id === selectedTrashNoteId ? 'true' : undefined"
+                  :aria-current="note.id === selectedNoteId ? 'true' : undefined"
                   @click="emit('select-note', note)"
-                  @keydown.enter="emit('select-note', note)"
+                  @keydown.enter.self.prevent="emit('select-note', note)"
+                  @keydown.space.self.prevent="emit('select-note', note)"
                 >
                   <div class="document-row__thumb pm-trash-note__thumb" aria-hidden="true">
                     <v-icon size="24">mdi-note-outline</v-icon>
@@ -359,14 +360,25 @@
                         {{ note.title?.trim() || 'Ohne Titel' }}
                       </div>
                     </div>
-                    <div v-if="note.preview" class="document-row__snippet pm-trash-note__snippet">
+                    <div v-if="note.preview && (isTrashView || showSnippets)" class="document-row__snippet pm-trash-note__snippet">
                       {{ note.preview }}
                     </div>
                   </div>
 
                   <div class="document-row__aside">
-                    <div class="document-row__actions" @click.stop>
-                      <v-menu location="bottom end">
+                    <div class="document-row__actions" @click.stop @keydown.stop>
+                      <v-btn
+                        v-if="isFavoritesView"
+                        icon="mdi-star"
+                        size="small"
+                        density="comfortable"
+                        variant="text"
+                        class="document-row__fav-btn document-row__fav-btn--active"
+                        :aria-label="`„${note.title?.trim() || 'Ohne Titel'}“ aus Favoriten entfernen`"
+                        title="Aus Favoriten entfernen"
+                        @click="emit('unfavorite-note', note)"
+                      />
+                      <v-menu v-if="isTrashView" location="bottom end">
                         <template #activator="{ props: menuProps }">
                           <v-btn
                             v-bind="menuProps"
@@ -450,6 +462,9 @@
 <script setup>
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue';
 
+const listedNotes = computed(() => props.isTrashView ? props.trashNotes : props.isFavoritesView ? props.favoriteNotes : []);
+const selectedNoteId = computed(() => props.isTrashView ? props.selectedTrashNoteId : props.selectedFavoriteNoteId);
+
 const SORT_OPTIONS = [
   { value: 'newest',      label: 'Neueste zuerst' },
   { value: 'oldest',      label: 'Älteste zuerst' },
@@ -500,6 +515,9 @@ const props = defineProps({
   hasMoreDocuments:           { type: Boolean, default: false },
   isLoadingMoreDocuments:     { type: Boolean, default: false },
   loadedDocumentCount:        { type: Number,  default: 0 },
+  isFavoritesView: { type: Boolean, default: false },
+  favoriteNotes: { type: Array, default: () => [] },
+  selectedFavoriteNoteId: { type: String, default: null },
   trashNotes:                 { type: Array,   default: () => [] },
   selectedTrashNoteId:        { type: String,  default: null },
 });
@@ -514,6 +532,7 @@ const emit = defineEmits([
   'restore',
   'delete-permanent',
   'select-note',
+  'unfavorite-note',
   'restore-note',
   'delete-note-permanent',
   'toggle-favorite',

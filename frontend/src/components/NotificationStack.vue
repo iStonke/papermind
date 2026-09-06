@@ -6,14 +6,27 @@
         :key="notification.id"
         class="notification-card"
         :class="`notification-card--${notification.type}`"
-        @mouseenter="pauseNotificationTimer(notification.id)"
-        @mouseleave="resumeNotificationTimer(notification.id)"
+        @mouseenter="pauseNotificationTimer(notification.id, 'hover')"
+        @mouseleave="resumeNotificationTimer(notification.id, 'hover')"
+        @focusin="pauseNotificationTimer(notification.id, 'focus')"
+        @focusout="onFocusOut($event, notification.id)"
       >
         <div class="notification-card__accent" aria-hidden="true" />
-        <v-icon :icon="typeIcon(notification.type)" size="18" class="notification-card__icon" />
+        <v-icon :icon="notification.icon || typeIcon(notification.type)" size="18" class="notification-card__icon" aria-hidden="true" />
         <div class="notification-card__content">
           <div v-if="notification.title" class="notification-card__title">{{ notification.title }}</div>
           <div class="notification-card__message">{{ notification.message }}</div>
+          <v-btn
+            v-if="notification.action"
+            class="notification-card__action"
+            size="small"
+            variant="text"
+            color="primary"
+            :prepend-icon="notification.action.icon"
+            :loading="notification.actionRunning"
+            :disabled="notification.actionRunning"
+            @click="executeNotificationAction(notification.id)"
+          >{{ notification.action.label }}</v-btn>
         </div>
         <v-btn
           icon="mdi-close"
@@ -32,7 +45,11 @@
 <script setup>
 import { useNotifications } from '../stores/notifications';
 
-const { visibleNotifications, dismissNotification, pauseNotificationTimer, resumeNotificationTimer } = useNotifications();
+const { visibleNotifications, executeNotificationAction, dismissNotification, pauseNotificationTimer, resumeNotificationTimer } = useNotifications();
+
+function onFocusOut(event, id) {
+  if (!event.currentTarget.contains(event.relatedTarget)) resumeNotificationTimer(id, 'focus');
+}
 
 function typeIcon(type) {
   switch (type) {
@@ -104,6 +121,11 @@ function typeIcon(type) {
   font-size: 0.84rem;
   line-height: 1.35;
   word-break: break-word;
+}
+
+.notification-card__action {
+  margin-top: 4px;
+  margin-left: -8px;
 }
 
 .notification-card__close {

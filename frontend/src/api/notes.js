@@ -1,17 +1,31 @@
 import { apiDelete, apiFetch, apiGet, apiPatch, apiPost, apiPut, authHeaders, getBaseUrl } from './client.js';
 
-export const listNotes = ({ inTrash = false, documentId = null, dossierId = null, tagId = null, templates = false, q = '', searchScope = 'all' } = {}) => {
+export const listNotes = ({ inTrash = false, documentId = null, dossierId = null, tagId = null, notebookId = null, noNotebook = false, favoritesOnly = false, templates = false, q = '', searchScope = 'all' } = {}) => {
   const params = new URLSearchParams();
   if (inTrash) params.set('in_trash', 'true');
   if (documentId) params.set('document_id', documentId);
   if (dossierId) params.set('dossier_id', dossierId);
   if (tagId) params.set('tag_id', tagId);
+  if (notebookId) params.set('notebook_id', notebookId);
+  if (noNotebook) params.set('no_notebook', 'true');
+  if (favoritesOnly) params.set('favorites_only', 'true');
   if (templates) params.set('templates', 'true');
   if (String(q || '').trim()) params.set('q', String(q).trim());
   if (searchScope && searchScope !== 'all') params.set('search_scope', searchScope);
   const suffix = params.toString();
   return apiGet(`/api/notes${suffix ? `?${suffix}` : ''}`);
 };
+
+// --- Notizbücher (flache Ablageebene) --------------------------------------
+export const listNotebooks = () => apiGet('/api/notes/notebooks');
+export const createNotebook = (body = {}) => apiPost('/api/notes/notebooks', body);
+export const updateNotebook = (id, body = {}) => apiPatch(`/api/notes/notebooks/${id}`, body);
+export const deleteNotebook = (id) => apiDelete(`/api/notes/notebooks/${id}`);
+/** Verschiebt Notizen in ein Notizbuch (notebookId=null → aus Notizbuch nehmen). */
+export const moveNotesToNotebook = ({ ids, notebookId = null }) =>
+  apiPost('/api/notes/notebooks/move', { ids, notebook_id: notebookId });
+/** Setzt die Reihenfolge der Notizbücher (IDs in Zielreihenfolge). */
+export const reorderNotebooks = (ids) => apiPost('/api/notes/notebooks/reorder', { ids });
 export const getNote = (id) => apiGet(`/api/notes/${id}`);
 export const getNoteBacklinks = (id) => apiGet(`/api/notes/${id}/backlinks`);
 export const createNote = (body = {}) => apiPost('/api/notes', body);

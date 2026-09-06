@@ -26,7 +26,7 @@ export function useNoteToolbar({
   useToolbarRoving(toolbarEl);
   const openMenu = ref(null); // 'block' | 'layout' | 'highlight' | 'insert' | 'blocks' | null
   const toolbarCompact = ref(false);
-  const TOOLBAR_COMPACT_WIDTH = 520;
+  const TOOLBAR_COMPACT_WIDTH = 580;
 
   const blockStyleItems = [
     { key: 'paragraph', label: 'Fließtext' },
@@ -48,9 +48,7 @@ export function useNoteToolbar({
     label: `${columns} ${columns === 1 ? 'Spalte' : 'Spalten'}`,
   }));
 
-  const toolbarCalloutOptions = NOTE_CALLOUT_OPTIONS.filter(
-    (option) => !['deadline', 'source'].includes(option.value),
-  );
+  const toolbarCalloutOptions = NOTE_CALLOUT_OPTIONS;
 
   const quickBlockItems = computed(() => ([
     ...(props.blockTemplates || []).map((template) => ({

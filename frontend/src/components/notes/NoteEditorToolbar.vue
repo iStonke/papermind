@@ -27,7 +27,8 @@
           @keydown.down.prevent="openMenuFocus('block', 'first')"
           @keydown.up.prevent="openMenuFocus('block', 'last')"
         >
-          <v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-text-box-outline</v-icon>
+          <span class="note-editor__toolbar-type-icon" aria-hidden="true">Aa</span>
+          <span class="note-editor__toolbar-btn-label">Text</span>
           <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
         </button>
         <div v-if="openMenu === 'block'" id="note-editor-menu-text" role="menu" aria-label="Text" class="note-editor__toolbar-dropdown note-editor__text-menu" @keydown="onMenuKeydown">
@@ -77,7 +78,8 @@
           @keydown.down.prevent="openMenuFocus('layout', 'first')"
           @keydown.up.prevent="openMenuFocus('layout', 'last')"
         >
-          <v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-format-columns</v-icon>
+          <PmActionIcon name="columns" :size="18" />
+          <span class="note-editor__toolbar-btn-label">Layout</span>
           <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
         </button>
         <div v-if="openMenu === 'layout'" id="note-editor-menu-layout" role="menu" aria-label="Layout" class="note-editor__toolbar-dropdown note-editor__layout-menu" @keydown="onMenuKeydown">
@@ -141,8 +143,6 @@
         </div>
       </div>
 
-      <span class="note-editor__toolbar-divider" aria-hidden="true" />
-
       <div class="note-editor__toolbar-menu">
         <button
           type="button"
@@ -158,7 +158,8 @@
           @keydown.down.prevent="openMenuFocus('insert', 'first')"
           @keydown.up.prevent="openMenuFocus('insert', 'last')"
         >
-          <v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-plus-box-outline</v-icon>
+          <PmActionIcon name="plus" :size="18" />
+          <span class="note-editor__toolbar-btn-label">Einfügen</span>
           <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
         </button>
         <div v-if="openMenu === 'insert'" id="note-editor-menu-insert" role="menu" aria-label="Einfügen" class="note-editor__toolbar-dropdown note-editor__insert-menu" @keydown="onMenuKeydown">
@@ -200,7 +201,8 @@
           @keydown.down.prevent="openMenuFocus('blocks', 'first')"
           @keydown.up.prevent="openMenuFocus('blocks', 'last')"
         >
-          <v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-view-agenda-outline</v-icon>
+          <PmActionIcon name="layers" :size="18" />
+          <span class="note-editor__toolbar-btn-label">Blöcke</span>
           <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
         </button>
         <div v-if="openMenu === 'blocks'" id="note-editor-menu-blocks" role="menu" aria-label="Blöcke" class="note-editor__toolbar-dropdown note-editor__blocks-menu" @keydown="onMenuKeydown">
@@ -216,7 +218,7 @@
             @click.prevent="runCalloutKind(option.value)"
           >
             <span class="note-editor__toolbar-dropitem-glyph">
-              <span class="note-editor__callout-glyph">{{ option.glyph }}</span>
+              <PmActionIcon :name="option.icon" :size="18" />
             </span>
             <span>{{ option.label }}</span>
           </button>
@@ -248,6 +250,7 @@
 </template>
 
 <script setup>
+import PmActionIcon from '../PmActionIcon.vue';
 const props = defineProps({
   controller: { type: Object, required: true },
   readonly: Boolean,
@@ -343,9 +346,7 @@ const {
   align-self: flex-start;
   align-items: center;
   gap: 6px;
-  /* Das sichtbare erste Glyph beginnt bei x=16px wie der Tag-Chip darüber:
-     8px Außenabstand + 1px Rahmen + die Zentrierung im 42px-Gruppenbutton.
-     Links braucht die ruhige, rahmenlose Leiste daher kein Innenpadding. */
+  /* Außenabstand und Button-Padding richten die Symbole an den Tags aus. */
   margin: 8px 0 0 8px;
   padding: 5px 7px 5px 0;
   /* overflow:visible, damit die Menü-Dropdowns unter der Leiste nicht
@@ -438,18 +439,21 @@ const {
 .note-editor__toolbar-menu { position: relative; display: flex; }
 
 .note-editor__toolbar-btn--group {
-  width: 42px;
-  height: 32px;
-  padding: 0 4px;
+  width: auto;
+  min-width: 42px;
+  height: 36px;
+  padding: 0 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0;
-  color: var(--pm-text, #0e181b);
+  gap: 6px;
+  color: var(--pm-muted, #535e62);
+  font-size: 0.8rem;
+  font-weight: 400;
 }
 
 .note-editor__toolbar-menu-chevron {
-  margin-left: -1px;
+  margin-left: 0;
   opacity: 0.68;
 }
 
@@ -458,8 +462,31 @@ const {
   color: var(--pm-accent-strong, #00555f);
 }
 
+.note-editor__toolbar-type-icon {
+  width: 18px;
+  flex: none;
+  font-family: Georgia, serif;
+  font-size: 16px;
+  line-height: 1;
+  letter-spacing: -1px;
+}
+
+.note-editor__toolbar-btn-label { white-space: nowrap; }
+
+.note-editor__toolbar.is-compact .note-editor__toolbar-btn-label { display: none; }
+
 .note-editor__toolbar.is-compact .note-editor__toolbar-btn--group {
   width: 42px;
+  padding-inline: 4px;
+  gap: 3px;
+}
+
+.note-editor__toolbar.is-compact .note-editor__blocks-menu {
+  left: -100px;
+}
+
+@media (pointer: coarse) {
+  .note-editor__toolbar-btn--group { min-width: 44px; min-height: 44px; }
 }
 
 .note-editor__toolbar-dropdown {
@@ -568,19 +595,6 @@ const {
   background: var(--pm-divider, #d8dfe1);
 }
 
-.note-editor__callout-glyph {
-  display: inline-grid;
-  width: 18px;
-  height: 18px;
-  place-items: center;
-  border: 1px solid currentColor;
-  border-radius: 5px;
-  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-}
-
 .note-editor__quick-block-glyph {
   color: var(--pm-accent-strong, #00555f);
   font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
@@ -677,7 +691,7 @@ const {
     margin-inline: 0;
   }
 
-  .note-editor__toolbar-btn {
+  .note-editor__toolbar-btn:not(.note-editor__toolbar-btn--group) {
     width: 29px;
   }
 

@@ -53,7 +53,7 @@ function findVisibleById(id) {
 function scheduleDismiss(id) {
   const timerState = timerById.get(id);
   const notification = findVisibleById(id);
-  if (!timerState || !notification) {
+  if (!timerState || !notification || timerState.pauseReasons.size) {
     return;
   }
   clearTimer(id);
@@ -75,7 +75,8 @@ function activateFromQueue() {
     timerById.set(notification.id, {
       remainingMs: notification.timeoutMs,
       startedAt: 0,
-      timerHandle: null
+      timerHandle: null,
+      pauseReasons: new Set()
     });
     scheduleDismiss(notification.id);
   }
@@ -93,7 +94,7 @@ function isDuplicate(type, message) {
   return false;
 }
 
-function notify({ type = 'info', title = '', message = '', timeoutMs, critical = false } = {}) {
+function notify({ type = 'info', title = '', message = '', timeoutMs, critical = false, action = null, icon = null } = {}) {
   const normalizedMessage = String(message || '').trim();
   if (!normalizedMessage) {
     return null;
@@ -103,7 +104,8 @@ function notify({ type = 'info', title = '', message = '', timeoutMs, critical =
   if ((normalizedType === 'success' || normalizedType === 'info') && !critical) {
     return null;
   }
-  if (isDuplicate(normalizedType, normalizedMessage)) {
+  const normalizedAction = action?.label && typeof action.onClick === 'function' ? action : null;
+  if (!normalizedAction && isDuplicate(normalizedType, normalizedMessage)) {
     return null;
   }
 
@@ -112,8 +114,11 @@ function notify({ type = 'info', title = '', message = '', timeoutMs, critical =
     type: normalizedType,
     title: String(title || '').trim() || null,
     message: normalizedMessage,
+    icon,
     timeoutMs: Number(timeoutMs || defaultTimeoutForType(normalizedType)),
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    action: normalizedAction,
+    actionRunning: false
   };
 
   if (state.visible.length < MAX_VISIBLE_NOTIFICATIONS) {
@@ -121,7 +126,8 @@ function notify({ type = 'info', title = '', message = '', timeoutMs, critical =
     timerById.set(notification.id, {
       remainingMs: notification.timeoutMs,
       startedAt: 0,
-      timerHandle: null
+      timerHandle: null,
+      pauseReasons: new Set()
     });
     scheduleDismiss(notification.id);
   } else {
@@ -160,22 +166,41 @@ function clearAll() {
   state.queue.splice(0, state.queue.length);
 }
 
-function pause(id) {
+function pause(id, reason = 'manual') {
   const timerState = timerById.get(id);
-  if (!timerState?.timerHandle) {
-    return;
-  }
+  if (!timerState) return;
+  timerState.pauseReasons.add(reason);
+  if (!timerState.timerHandle) return;
   const elapsed = Date.now() - timerState.startedAt;
   timerState.remainingMs = Math.max(0, timerState.remainingMs - elapsed);
   clearTimer(id);
 }
 
-function resume(id) {
+function resume(id, reason = 'manual') {
   const timerState = timerById.get(id);
   if (!timerState) {
     return;
   }
-  scheduleDismiss(id);
+  timerState.pauseReasons.delete(reason);
+  if (!timerState.timerHandle) scheduleDismiss(id);
+}
+
+async function executeAction(id) {
+  const notification = findVisibleById(id);
+  if (!notification?.action || notification.actionRunning) return;
+  notification.actionRunning = true;
+  pause(id, 'action');
+  try {
+    await notification.action.onClick();
+    dismiss(id);
+  } catch (error) {
+    notifyError(error, notification.action.errorMessage || 'Aktion fehlgeschlagen.');
+    const timerState = timerById.get(id);
+    if (timerState) timerState.remainingMs = notification.timeoutMs;
+  } finally {
+    notification.actionRunning = false;
+    resume(id, 'action');
+  }
 }
 
 export function mapApiError(error, fallbackMessage = 'Aktion fehlgeschlagen.') {
@@ -226,7 +251,7 @@ export function mapApiError(error, fallbackMessage = 'Aktion fehlgeschlagen.') {
  * Kein UI-Feedback — für bewusst stille Fehler gedacht.
  */
 export function logDevError(error, context = '') {
-  if (import.meta.env.DEV) {
+  if (import.meta.env?.DEV) {
     const prefix = context ? `[PaperMind:${context}]` : '[PaperMind]';
     console.error(prefix, error);
   }
@@ -258,6 +283,7 @@ export function useNotifications() {
     notifyError,
     logDevError,
     dismissNotification: dismiss,
+    executeNotificationAction: executeAction,
     clearAllNotifications: clearAll,
     pauseNotificationTimer: pause,
     resumeNotificationTimer: resume

@@ -16,7 +16,13 @@
     >
       <header class="notes-ws__header">
         <div class="notes-ws__title">
-          <div class="notes-ws__heading">Notizen</div>
+          <div class="notes-ws__heading" :title="activeNotebookHeading || undefined">
+            <span>Notizen</span>
+            <template v-if="activeNotebookHeading">
+              <span class="notes-ws__heading-separator" aria-hidden="true">·</span>
+              <span class="notes-ws__heading-context">{{ activeNotebookHeading }}</span>
+            </template>
+          </div>
           <div class="notes-ws__count">{{ resultCountLabel }}</div>
         </div>
 
@@ -238,40 +244,86 @@
       >
         <header class="notes-ws__header">
           <div class="notes-ws__title">
-            <div class="notes-ws__heading">{{ manageFacet === 'templates' ? 'Vorlagen' : 'Notizen' }}</div>
+            <div class="notes-ws__heading" :title="manageNotebookHeading || undefined">
+              <v-menu location="bottom start" :offset="6" transition="fade-transition">
+                <template #activator="{ props: viewMenuProps }">
+                  <button
+                    v-bind="viewMenuProps"
+                    type="button"
+                    class="notes-ws__manage-view-trigger"
+                    aria-label="Ansicht wechseln"
+                  >
+                    <span>{{ manageFacet === 'templates' ? 'Vorlagen' : 'Notizen' }}</span>
+                    <v-icon class="notes-ws__manage-view-chevron" size="15" aria-hidden="true">mdi-chevron-down</v-icon>
+                  </button>
+                </template>
+
+                <div class="notes-ws__manage-view-menu" role="menu" aria-label="Ansicht auswählen">
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    :aria-checked="manageFacet === 'notes' ? 'true' : 'false'"
+                    :class="{ 'is-active': manageFacet === 'notes' }"
+                    @click="manageFacet = 'notes'"
+                  >
+                    <v-icon size="18">mdi-note-outline</v-icon>
+                    <span>Notizen</span>
+                    <v-icon v-if="manageFacet === 'notes'" class="notes-ws__manage-view-check" size="16">mdi-check</v-icon>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    :aria-checked="manageFacet === 'templates' ? 'true' : 'false'"
+                    :class="{ 'is-active': manageFacet === 'templates' }"
+                    @click="manageFacet = 'templates'"
+                  >
+                    <v-icon size="18">mdi-file-document-multiple-outline</v-icon>
+                    <span>Vorlagen</span>
+                    <v-icon v-if="manageFacet === 'templates'" class="notes-ws__manage-view-check" size="16">mdi-check</v-icon>
+                  </button>
+                </div>
+              </v-menu>
+
+              <template v-if="manageFacet === 'notes' && manageNotebookHeading">
+                <span class="notes-ws__heading-separator" aria-hidden="true">·</span>
+                <span class="notes-ws__heading-context">{{ manageNotebookHeading }}</span>
+              </template>
+            </div>
             <div class="notes-ws__count">{{ manageCountLabel }}</div>
           </div>
 
           <div
-            class="notes-ws__manage-switch"
-            :class="{ 'is-templates': manageFacet === 'templates' }"
-            role="tablist"
-            aria-label="Notizen oder Vorlagen anzeigen"
+            class="notes-ws__manage-search"
+            :class="{ 'is-open': manageSearchExpanded || normalizedManageSearchQuery }"
+            role="search"
+            @click="focusManageSearch"
           >
-            <span class="notes-ws__manage-switch-indicator" aria-hidden="true" />
+            <v-icon size="18" aria-hidden="true">mdi-magnify</v-icon>
+            <input
+              ref="manageSearchInputRef"
+              v-model="manageSearchQuery"
+              type="search"
+              autocomplete="off"
+              spellcheck="false"
+              aria-label="Notizen und Notizbücher durchsuchen"
+              placeholder="Notizen durchsuchen …"
+              @focus="manageSearchExpanded = true"
+              @blur="manageSearchExpanded = Boolean(normalizedManageSearchQuery)"
+              @keydown="handleManageSearchKeydown"
+            />
             <button
+              v-if="manageSearchQuery"
               type="button"
-              role="tab"
-              class="notes-ws__manage-switch-option"
-              :class="{ 'is-active': manageFacet === 'notes' }"
-              :aria-selected="manageFacet === 'notes' ? 'true' : 'false'"
-              @click="manageFacet = 'notes'"
+              class="notes-ws__manage-search-clear"
+              aria-label="Suche leeren"
+              title="Suche leeren"
+              @click.stop="clearManageSearch"
             >
-              <span>Notizen</span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              class="notes-ws__manage-switch-option"
-              :class="{ 'is-active': manageFacet === 'templates' }"
-              :aria-selected="manageFacet === 'templates' ? 'true' : 'false'"
-              @click="manageFacet = 'templates'"
-            >
-              <span>Vorlagen</span>
+              <v-icon size="15">mdi-close</v-icon>
             </button>
           </div>
 
-          <div class="notes-ws__header-actions">
+          <div class="notes-ws__header-actions notes-ws__manage-header-actions">
             <v-btn
               class="notes-ws__manage-toggle pm-header-icon-btn"
               color="primary"
@@ -288,13 +340,21 @@
         </header>
 
         <NotesManageGrid
+          ref="manageGridRef"
           class="notes-ws__manage"
           :facet="manageFacet"
           :search-query="searchQuery"
           :search-scope="searchScope"
+          :global-search-query="normalizedManageSearchQuery"
+          :global-search-notes="manageSearchNotes"
+          :global-search-notebooks="matchingManageNotebooks"
+          :global-search-loading="manageSearchLoading"
           @open-note="openNoteFromManage"
+          @open-search-note="openManageNoteResult"
+          @select-search-notebook="openManageNotebookResult"
           @changed="onManageChanged"
           @create-note="createNoteFromManage"
+          @notebook-selection-change="manageNotebookHeading = $event"
         />
       </aside>
     </Transition>
@@ -327,6 +387,7 @@ import NotesEditorIllustration from '../components/notes/NotesEditorIllustration
 import NotesManageGrid from '../components/notes/NotesManageGrid.vue';
 import { isNoteEmpty, useNotesStore } from '../stores/notes.js';
 import { useSettingsStore } from '../stores/settings.js';
+import { notifyNoteDeleted } from '../utils/noteDeletionFeedback.js';
 import { groupNotesByCreationDay } from '../utils/noteDateGroups.js';
 
 const props = defineProps({
@@ -361,6 +422,16 @@ const manageFacet = ref(loadManageFacet());
 const isCompactLayout = ref(false);
 const sortMode = ref(normalizeSortMode(settingsStore.settingsDraft.ui.notes_sort_order));
 const dateRange = ref('');
+// Notizbuch-Filter der kompakten Liste: '' = alle, 'none' = ohne Notizbuch,
+// sonst die Notizbuch-ID. Rein clientseitig über note.notebook_id.
+const notebookFilter = ref('');
+const manageNotebookHeading = ref('');
+const manageGridRef = ref(null);
+const manageSearchInputRef = ref(null);
+const manageSearchQuery = ref('');
+const manageSearchExpanded = ref(false);
+const manageSearchNotes = ref([]);
+const manageSearchLoading = ref(false);
 const isLoading = ref(false);
 const creating = ref(false);
 const loadError = ref('');
@@ -378,11 +449,14 @@ let newNoteAnimationTimer = null;
 let noteRemovalTimer = null;
 let noteSearchTimer = null;
 let noteSearchRevision = 0;
+let manageSearchTimer = null;
+let manageSearchRevision = 0;
 let compactLayoutQuery = null;
 let noteSelectionRevision = 0;
 
 const NOTE_REMOVAL_DURATION_MS = 210;
 const NOTE_SEARCH_DEBOUNCE_MS = 220;
+const MANAGE_SEARCH_DEBOUNCE_MS = 180;
 
 const isListPanelCollapsed = computed(() => isListCollapsed.value && !isCompactLayout.value);
 const panelInert = computed(() => isListPanelCollapsed.value || isManageMode.value);
@@ -395,6 +469,19 @@ const activeSearchKey = computed(() => (
     ? `${normalizedSearchScope.value}:${normalizedSearchQuery.value.toLocaleLowerCase('de-DE')}`
     : ''
 ));
+const normalizedManageSearchQuery = computed(() => (
+  String(manageSearchQuery.value || '').trim().slice(0, 256)
+));
+const manageSearchTerms = computed(() => (
+  normalizedManageSearchQuery.value.toLocaleLowerCase('de-DE').split(/\s+/).filter(Boolean)
+));
+const matchingManageNotebooks = computed(() => {
+  if (!manageSearchTerms.value.length) return [];
+  return notesStore.notebooks.filter((notebook) => {
+    const name = String(notebook.name || '').toLocaleLowerCase('de-DE');
+    return manageSearchTerms.value.every((term) => name.includes(term));
+  });
+});
 const searchSourceNotes = computed(() => {
   if (!activeSearchKey.value) return notesStore.notes;
   if (resolvedSearchKey.value === activeSearchKey.value) return searchedNotes.value;
@@ -403,9 +490,16 @@ const searchSourceNotes = computed(() => {
   return notesStore.notes;
 });
 
+function matchesNotebookFilter(note) {
+  if (!notebookFilter.value) return true;
+  if (notebookFilter.value === 'none') return !note.notebook_id;
+  return note.notebook_id === notebookFilter.value;
+}
+
 const visibleNotes = computed(() => {
   const notes = searchSourceNotes.value
     .filter((note) => isWithinDateRange(note.updated_at, dateRange.value))
+    .filter(matchesNotebookFilter)
     .slice();
 
   if (sortMode.value === 'created') {
@@ -426,7 +520,7 @@ const groupedNotes = computed(() => groupNotesByCreationDay(visibleNotes.value))
 const resultCountLabel = computed(() => {
   const total = notesStore.notes.length;
   if (isSearchingNotes.value && resolvedSearchKey.value !== activeSearchKey.value) return 'Suche …';
-  if ((activeSearchKey.value || dateRange.value) && visibleNotes.value.length !== total) {
+  if ((activeSearchKey.value || dateRange.value || notebookFilter.value) && visibleNotes.value.length !== total) {
     return `${visibleNotes.value.length} von ${total} Notizen`;
   }
   return total === 1 ? '1 Notiz' : `${total} Notizen`;
@@ -449,37 +543,91 @@ const dateRangeLabel = computed(() =>
   NOTE_DATE_RANGE_OPTIONS.find((option) => option.value === dateRange.value)?.label || 'Zeitraum'
 );
 
-const toolbarActions = computed(() => [
-  {
-    key: 'sort',
-    icon: 'mdi-sort',
-    label: sortLabel.value,
-    value: sortMode.value,
-    options: NOTE_SORT_OPTIONS,
-    minWidth: 190,
-  },
-  {
+// Notizbuch-Dropdown: Alle · je Notizbuch · Ohne Notizbuch.
+const notebookFilterOptions = computed(() => [
+  { value: '', label: 'Alle Notizbücher' },
+  ...notesStore.notebooks.map((nb) => ({ value: nb.id, label: nb.name })),
+  { value: 'none', label: 'Ohne Notizbuch' },
+]);
+
+const notebookFilterLabel = computed(() =>
+  notebookFilterOptions.value.find((option) => option.value === notebookFilter.value)?.label
+    || 'Notizbuch'
+);
+
+const activeNotebookHeading = computed(() => (
+  notebookFilter.value ? notebookFilterLabel.value : ''
+));
+
+const toolbarActions = computed(() => {
+  const actions = [
+    {
+      key: 'sort',
+      icon: 'mdi-sort',
+      label: sortLabel.value,
+      value: sortMode.value,
+      options: NOTE_SORT_OPTIONS,
+      minWidth: 190,
+    },
+  ];
+  // Notizbuch-Filter nur anbieten, wenn es überhaupt Notizbücher gibt.
+  if (notesStore.notebooks.length) {
+    actions.push({
+      key: 'notebook',
+      icon: 'mdi-notebook-outline',
+      label: notebookFilterLabel.value,
+      value: notebookFilter.value,
+      active: Boolean(notebookFilter.value),
+      // Im Standard („Alle Notizbücher") nur das Icon zeigen – spart Platz in der
+      // schmalen Liste; aktiv zeigt es das gewählte Notizbuch.
+      iconOnly: !notebookFilter.value,
+      options: notebookFilterOptions.value,
+      minWidth: 200,
+    });
+  }
+  actions.push({
     key: 'dateRange',
     icon: 'mdi-calendar-range',
     label: dateRangeLabel.value,
     value: dateRange.value,
     active: Boolean(dateRange.value),
+    iconOnly: !dateRange.value,
     options: NOTE_DATE_RANGE_OPTIONS,
     minWidth: 180,
-  },
-]);
+  });
+  return actions;
+});
 
 const emptyTitle = computed(() => {
   if (activeSearchKey.value) return 'Keine passenden Notizen';
-  return notesStore.notes.length ? 'Keine Notizen in diesem Zeitraum' : 'Noch keine Notizen';
+  if (!notesStore.notes.length) return 'Noch keine Notizen';
+  if (notebookFilter.value === 'none') return 'Keine Notizen ohne Notizbuch';
+  if (notebookFilter.value) return 'Dieses Notizbuch ist leer';
+  return 'Keine Notizen in diesem Zeitraum';
 });
 
 const emptyCopy = computed(() => {
   if (activeSearchKey.value) return 'Passe den Suchbegriff an oder leere die globale Suche.';
-  return notesStore.notes.length
-    ? 'Wähle oben einen anderen Zeitraum aus.'
-    : 'Halte Gedanken und Fundstellen an einem Ort fest.';
+  if (!notesStore.notes.length) return 'Halte Gedanken und Fundstellen an einem Ort fest.';
+  if (notebookFilter.value) return 'Verschiebe Notizen hierher oder wähle ein anderes Notizbuch.';
+  return 'Wähle oben einen anderen Zeitraum aus.';
 });
+
+// Wurde das gefilterte Notizbuch (z. B. im Verwaltungsraster) gelöscht, fällt der
+// Filter auf „Alle" zurück, statt eine dauerhaft leere Liste zu zeigen.
+watch(
+  () => notesStore.notebooks,
+  (list) => {
+    if (
+      notebookFilter.value
+      && notebookFilter.value !== 'none'
+      && !list.some((nb) => nb.id === notebookFilter.value)
+    ) {
+      notebookFilter.value = '';
+    }
+  },
+  { deep: true },
+);
 
 watch(
   visibleNotes,
@@ -508,6 +656,7 @@ watch(
 );
 
 watch(activeSearchKey, () => scheduleNoteSearch(), { immediate: true });
+watch(normalizedManageSearchQuery, scheduleManageSearch);
 
 // Nach Autosave, Anlegen oder Löschen die aktive Suche neu bewerten. Der
 // Signatur-Watch beobachtet bewusst nur die schlanken Listendaten.
@@ -533,7 +682,9 @@ onBeforeUnmount(() => {
   if (newNoteAnimationTimer) window.clearTimeout(newNoteAnimationTimer);
   if (noteRemovalTimer) window.clearTimeout(noteRemovalTimer);
   if (noteSearchTimer) window.clearTimeout(noteSearchTimer);
+  if (manageSearchTimer) window.clearTimeout(manageSearchTimer);
   noteSearchRevision += 1;
+  manageSearchRevision += 1;
   compactLayoutQuery?.removeEventListener?.('change', updateCompactLayout);
 });
 
@@ -547,10 +698,10 @@ function localNoteSearch(notes, query, scope) {
   });
 }
 
-function searchHighlightParts(value) {
+function highlightParts(value, query) {
   const text = String(value || '');
   const terms = [...new Set(
-    normalizedSearchQuery.value.split(/\s+/).map((term) => term.trim()).filter(Boolean),
+    String(query || '').split(/\s+/).map((term) => term.trim()).filter(Boolean),
   )].sort((a, b) => b.length - a.length);
   if (!terms.length) return [{ text, match: false }];
   const escapedTerms = terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
@@ -560,6 +711,87 @@ function searchHighlightParts(value) {
     text: part,
     match: normalizedTerms.has(part.toLocaleLowerCase('de-DE')),
   }));
+}
+
+function searchHighlightParts(value) {
+  return highlightParts(value, normalizedSearchQuery.value);
+}
+
+function notebookNameForSearchResult(note) {
+  if (!note?.notebook_id) return '';
+  return notesStore.notebooks.find((notebook) => notebook.id === note.notebook_id)?.name || '';
+}
+
+function localManageNoteSearch(query) {
+  const terms = String(query || '').toLocaleLowerCase('de-DE').split(/\s+/).filter(Boolean);
+  return notesStore.notes.filter((note) => {
+    const tags = (note.tags || []).map((tag) => tag.name || '').join(' ');
+    const notebook = notebookNameForSearchResult(note);
+    const haystack = `${note.title || ''} ${note.preview || ''} ${tags} ${notebook}`.toLocaleLowerCase('de-DE');
+    return terms.every((term) => haystack.includes(term));
+  });
+}
+
+function scheduleManageSearch() {
+  const query = normalizedManageSearchQuery.value;
+  const revision = ++manageSearchRevision;
+  if (manageSearchTimer) window.clearTimeout(manageSearchTimer);
+  manageSearchTimer = null;
+  if (!query) {
+    manageSearchNotes.value = [];
+    manageSearchLoading.value = false;
+    return;
+  }
+
+  manageSearchNotes.value = localManageNoteSearch(query);
+  manageSearchLoading.value = true;
+  manageSearchTimer = window.setTimeout(async () => {
+    manageSearchTimer = null;
+    try {
+      const remoteResults = await notesStore.searchNotes(query, { scope: 'all' });
+      if (revision !== manageSearchRevision || query !== normalizedManageSearchQuery.value) return;
+      const merged = new Map(remoteResults.map((note) => [note.id, note]));
+      for (const note of localManageNoteSearch(query)) merged.set(note.id, note);
+      manageSearchNotes.value = [...merged.values()];
+    } catch {
+      if (revision !== manageSearchRevision || query !== normalizedManageSearchQuery.value) return;
+      manageSearchNotes.value = localManageNoteSearch(query);
+    } finally {
+      if (revision === manageSearchRevision && query === normalizedManageSearchQuery.value) {
+        manageSearchLoading.value = false;
+      }
+    }
+  }, MANAGE_SEARCH_DEBOUNCE_MS);
+}
+
+function focusManageSearch() {
+  manageSearchExpanded.value = true;
+  nextTick(() => manageSearchInputRef.value?.focus());
+}
+
+function clearManageSearch() {
+  manageSearchQuery.value = '';
+  manageSearchNotes.value = [];
+  focusManageSearch();
+}
+
+function openManageNotebookResult(notebook) {
+  manageSearchQuery.value = '';
+  nextTick(() => manageGridRef.value?.selectNotebook?.(notebook.id));
+}
+
+async function openManageNoteResult(note) {
+  manageSearchQuery.value = '';
+  await openNoteFromManage(note.id);
+}
+
+function handleManageSearchKeydown(event) {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    manageSearchQuery.value = '';
+    manageSearchExpanded.value = false;
+    manageSearchInputRef.value?.blur();
+  }
 }
 
 function scheduleNoteSearch(delay = NOTE_SEARCH_DEBOUNCE_MS) {
@@ -611,6 +843,8 @@ async function loadNotes() {
   }
   // Vorlagen still im Hintergrund laden (füttern das „Neue Notiz"-Menü).
   notesStore.ensureTemplatesLoaded().catch(() => {});
+  // Notizbücher still im Hintergrund laden (speisen den Notizbuch-Filter).
+  notesStore.ensureNotebooksLoaded().catch(() => {});
 }
 
 // Von außen angeforderte Notiz öffnen (z. B. aus dem Dokument-Detailbereich).
@@ -626,6 +860,7 @@ async function applyPendingOpen() {
   }
   if (notesStore.notes.some((note) => note.id === id)) {
     dateRange.value = '';
+    notebookFilter.value = '';
     if (await selectNote(id) && notesStore.pendingOpenId === id) {
       notesStore.consumeOpen();
       await focusRequestedEditorBody(cursorPosition);
@@ -642,6 +877,7 @@ watch(
 function handleToolbarAction({ action, value }) {
   if (action === 'sort') sortMode.value = value;
   if (action === 'dateRange') dateRange.value = value;
+  if (action === 'notebook') notebookFilter.value = value;
 }
 
 function prefetchNote(noteId) {
@@ -699,6 +935,10 @@ function toggleNotesList() {
 
 function toggleManageMode() {
   isManageMode.value = !isManageMode.value;
+  if (!isManageMode.value) {
+    manageSearchQuery.value = '';
+    manageSearchExpanded.value = false;
+  }
 }
 
 function normalizeManageFacet(value) {
@@ -762,12 +1002,21 @@ async function focusRequestedEditorBody(cursorPosition) {
   await editorPanelRef.value?.focusEditorBody?.(cursorPosition);
 }
 
+// Ist gerade ein bestimmtes Notizbuch gefiltert, entsteht die neue Notiz direkt
+// darin – so bleibt sie in der gefilterten Liste sichtbar und landet dort, wo der
+// Nutzer gerade arbeitet. „Ohne Notizbuch"/„Alle" erzeugen wie gehabt ohne Buch.
+function newNoteInitial() {
+  return notebookFilter.value && notebookFilter.value !== 'none'
+    ? { notebook_id: notebookFilter.value }
+    : {};
+}
+
 async function createNote() {
   if (creating.value) return;
   creating.value = true;
   loadError.value = '';
   try {
-    await revealNewNote(await notesStore.create());
+    await revealNewNote(await notesStore.create(newNoteInitial()));
   } catch {
     loadError.value = 'Die Notiz konnte nicht angelegt werden.';
   } finally {
@@ -781,7 +1030,7 @@ async function createNoteFromManage() {
   creating.value = true;
   loadError.value = '';
   try {
-    const note = await notesStore.create();
+    const note = await notesStore.create(newNoteInitial());
     isManageMode.value = false;
     await revealNewNote(note);
   } catch {
@@ -796,6 +1045,9 @@ async function createNoteFromTemplate(templateId) {
   creating.value = true;
   loadError.value = '';
   try {
+    // Vorlagen-Notizen entstehen ohne Notizbuch; damit die neue Notiz sichtbar
+    // bleibt, den Notizbuch-Filter dafür lösen.
+    notebookFilter.value = '';
     await revealNewNote(await notesStore.createFromTemplate(templateId), 'end');
   } catch {
     loadError.value = 'Die Notiz konnte aus der Vorlage nicht angelegt werden.';
@@ -841,11 +1093,12 @@ async function discardEmptyNote(note) {
   isDeletingNote.value = true;
   try {
     if (isActive) editorPanelRef.value?.cancelPendingSave?.();
-    await notesStore.deletePermanently(note.id);
+    await notesStore.trash(note.id);
     if (isActive) await editorPanelRef.value?.discardPendingDraft?.();
     await animateNoteRemoval(note.id);
     notesStore.removeFromList(note.id);
     emit('trash-changed');
+    notifyNoteDeleted(note, { restore: notesStore.restore, onRestored: () => emit('trash-changed') });
   } catch {
     if (isActive) editorPanelRef.value?.resumePendingSave?.();
     loadError.value = 'Die leere Notiz konnte nicht entfernt werden.';
@@ -875,6 +1128,7 @@ async function confirmDeleteNote() {
     await animateNoteRemoval(note.id);
     notesStore.removeFromList(note.id);
     emit('trash-changed');
+    notifyNoteDeleted(note, { restore: notesStore.restore, onRestored: () => emit('trash-changed') });
   } catch {
     if (isActive) editorPanelRef.value?.resumePendingSave?.();
     loadError.value = 'Die Notiz konnte nicht in den Papierkorb verschoben werden.';
@@ -1064,12 +1318,29 @@ function formatDate(value) {
 }
 
 .notes-ws__heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.32em;
   min-width: 0;
   overflow: hidden;
   color: var(--pm-text);
   font-size: 0.98rem;
   font-weight: 600;
   white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.notes-ws__heading-separator {
+  flex: none;
+  color: var(--pm-muted);
+  font-weight: 500;
+}
+
+.notes-ws__heading-context {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--pm-muted);
+  font-weight: 500;
   text-overflow: ellipsis;
 }
 
@@ -1091,70 +1362,166 @@ function formatDate(value) {
   gap: 8px;
 }
 
-.notes-ws__manage-switch {
+.notes-ws__manage-header-actions {
+  position: relative;
+  z-index: 3;
+  margin-inline-start: auto;
+}
+
+.notes-ws__manage-search {
   position: absolute;
+  z-index: 4;
   top: 50%;
   left: 50%;
-  display: grid;
-  width: min(250px, 38vw);
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  padding: 3px;
-  border: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 80%, transparent);
-  border-radius: 13px;
-  background: color-mix(in srgb, var(--pm-viewer-surface, #eef2f4) 78%, transparent);
-  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.06);
-  transform: translate(-50%, -50%);
-}
-
-.notes-ws__manage-switch-indicator {
-  position: absolute;
-  top: 3px;
-  bottom: 3px;
-  left: 3px;
-  width: calc((100% - 6px) / 2);
-  border-radius: 9px;
-  background: var(--pm-app-surface-raised, #fff);
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.14), 0 1px 1px rgba(15, 23, 42, 0.06);
-  transition: transform 180ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1));
-}
-
-.notes-ws__manage-switch.is-templates .notes-ws__manage-switch-indicator {
-  transform: translateX(100%);
-}
-
-.notes-ws__manage-switch-option {
-  position: relative;
-  z-index: 1;
-  display: inline-flex;
+  display: flex;
+  box-sizing: border-box;
+  width: clamp(300px, 34vw, 520px);
+  height: 38px;
   min-width: 0;
-  min-height: 30px;
   align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 5px 11px;
+  gap: 8px;
+  padding: 0 9px 0 11px;
+  border: 1px solid color-mix(in srgb, var(--pm-muted) 38%, var(--pm-divider, #d8dfe1));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--pm-app-surface-raised, #fff) 96%, var(--pm-viewer-surface, #eef2f4));
+  color: var(--pm-muted);
+  cursor: text;
+  box-shadow: 0 2px 7px -3px rgba(15, 23, 42, 0.3), 0 1px 2px rgba(15, 23, 42, 0.08);
+  transform: translate(-50%, -50%);
+  transition: border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.notes-ws__manage-search:hover,
+.notes-ws__manage-search:focus-within {
+  border-color: color-mix(in srgb, var(--pm-accent, #006b75) 38%, var(--pm-divider, #d8dfe1));
+  background: var(--pm-app-surface-raised, #fff);
+}
+
+.notes-ws__manage-search:focus-within {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pm-accent, #006b75) 15%, transparent),
+    0 3px 9px -3px rgba(15, 23, 42, 0.28);
+}
+
+.notes-ws__manage-search > .v-icon {
+  flex: none;
+  color: color-mix(in srgb, var(--pm-accent, #006b75) 78%, var(--pm-muted));
+}
+
+.notes-ws__manage-search input {
+  width: 0;
+  min-width: 0;
+  flex: 1 1 auto;
   border: 0;
-  border-radius: 9px;
+  outline: 0;
+  background: transparent;
+  color: var(--pm-text);
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.notes-ws__manage-search input::placeholder {
+  color: var(--pm-muted);
+  opacity: 0.92;
+}
+
+.notes-ws__manage-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.notes-ws__manage-search-clear {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
   background: transparent;
   color: var(--pm-muted);
   cursor: pointer;
-  font: inherit;
-  font-size: 0.81rem;
-  font-weight: 560;
-  transition: color 140ms ease;
 }
 
-.notes-ws__manage-switch-option:hover,
-.notes-ws__manage-switch-option.is-active {
+.notes-ws__manage-search-clear:hover,
+.notes-ws__manage-search-clear:focus-visible {
+  background: color-mix(in srgb, var(--pm-divider, #d8dfe1) 56%, transparent);
   color: var(--pm-text);
+  outline: none;
 }
 
-.notes-ws__manage-switch-option.is-active {
+.notes-ws__manage-view-trigger {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  margin: -4px 0 -4px -6px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.notes-ws__manage-view-trigger:hover,
+.notes-ws__manage-view-trigger:focus-visible,
+.notes-ws__manage-view-trigger[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--pm-divider, #d8dfe1) 48%, transparent);
+  outline: none;
+}
+
+.notes-ws__manage-view-chevron {
+  color: var(--pm-muted);
+  transition: transform 160ms ease;
+}
+
+.notes-ws__manage-view-trigger[aria-expanded="true"] .notes-ws__manage-view-chevron {
+  transform: rotate(180deg);
+}
+
+.notes-ws__manage-view-menu {
+  width: 190px;
+  padding: 6px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+  border-radius: 12px;
+  background: rgb(var(--v-theme-surface));
+  color: rgb(var(--v-theme-on-surface));
+  box-shadow: 0 12px 32px -14px rgba(0, 0, 0, 0.38), 0 4px 12px -8px rgba(0, 0, 0, 0.24);
+}
+
+.notes-ws__manage-view-menu button {
+  display: grid;
+  width: 100%;
+  min-height: 38px;
+  grid-template-columns: 22px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pm-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+}
+
+.notes-ws__manage-view-menu button:hover,
+.notes-ws__manage-view-menu button:focus-visible {
+  background: color-mix(in srgb, var(--pm-divider, #d8dfe1) 50%, transparent);
+  outline: none;
+}
+
+.notes-ws__manage-view-menu button.is-active {
+  color: var(--pm-accent, #006b75);
   font-weight: 650;
 }
 
-.notes-ws__manage-switch-option:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--pm-accent, #006b75) 58%, transparent);
-  outline-offset: -2px;
+.notes-ws__manage-view-check {
+  grid-column: 3;
 }
 
 .notes-ws__header .v-btn {
@@ -1431,7 +1798,7 @@ function formatDate(value) {
   min-height: 110px;
   flex-direction: column;
   gap: 9px;
-  padding: 15px 42px 15px 17px;
+  padding: 15px 17px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -1474,6 +1841,7 @@ function formatDate(value) {
 
 .notes-ws__item-snippet {
   display: -webkit-box;
+  margin-right: 25px;
   overflow: hidden;
   color: var(--pm-muted);
   font-size: 0.82rem;
@@ -1611,6 +1979,36 @@ function formatDate(value) {
   .notes-ws {
     --notes-list-width: clamp(280px, 42%, 380px);
   }
+
+  .notes-ws__manage-search {
+    left: auto;
+    right: 60px;
+    width: 38px;
+    justify-content: center;
+    padding-inline: 0;
+    transform: translateY(-50%);
+  }
+
+  .notes-ws__manage-search input,
+  .notes-ws__manage-search-clear {
+    display: none;
+  }
+
+  .notes-ws__manage-search.is-open {
+    right: 60px;
+    width: min(300px, calc(100vw - 116px));
+    justify-content: flex-start;
+    padding: 0 9px 0 11px;
+  }
+
+  .notes-ws__manage-search.is-open input,
+  .notes-ws__manage-search.is-open .notes-ws__manage-search-clear {
+    display: block;
+  }
+
+  .notes-ws__header > .notes-ws__title {
+    max-width: 150px;
+  }
 }
 
 @media (max-width: 700px) {
@@ -1645,7 +2043,8 @@ function formatDate(value) {
   .notes-ws__fab,
   .notes-ws__fab .v-btn,
   .list-header-btn.v-btn,
-  .notes-ws__manage-switch-indicator,
+  .notes-ws__manage-view-chevron,
+  .notes-ws__manage-search,
   .notes-ws__list-panel,
   .notes-ws-manage-enter-active,
   .notes-ws-manage-leave-active,
@@ -1681,7 +2080,7 @@ function formatDate(value) {
   transition-duration: 0ms;
 }
 
-:global(.pm-no-animations) .notes-ws__manage-switch-indicator {
+:global(.pm-no-animations) .notes-ws__manage-view-chevron {
   transition-duration: 0ms;
 }
 </style>

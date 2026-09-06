@@ -364,6 +364,11 @@ function renderSources(context) {
   return `## Quellen\n\n${lines.join('\n')}`;
 }
 
+/** Editor fragment without a generated document title or source appendix. */
+export function noteContentToMarkdown(body) {
+  return renderNode(body, { sources: new Map(), imageUrl: (src) => src }).trim();
+}
+
 export function noteToMarkdown({ title, body } = {}) {
   const context = { sources: new Map(), imageUrl: (src) => src };
   if (body?.attrs?.linkedDocument) addDocumentSource(context, body.attrs.linkedDocument);
@@ -452,8 +457,6 @@ export function noteToPrintableHtml({
     .callout-info { border-left-color: #2878b5; background: #f1f7fd; } .callout-info > strong { color: #21699f; }
     .callout-question { border-left-color: #006b75; background: #eefafa; } .callout-question > strong { color: #006b75; }
     .callout-decision { border-left-color: #2f855a; background: #f0faf4; } .callout-decision > strong { color: #2f855a; }
-    .callout-deadline { border-left-color: #c84c4c; background: #fff4f4; } .callout-deadline > strong { color: #a53b3b; }
-    .callout-source { border-left-color: #5b6fb8; background: #f4f6ff; } .callout-source > strong { color: #485c9f; }
     .callout-prompt { border-left-color: #7c5aa6; background: #f8f4fc; } .callout-prompt > strong { color: #68488f; }
     .callout p:first-child, .callout p:last-child { margin-top: 0; margin-bottom: 0; }
     .ocr-quote cite { font-size: 8.5pt; font-style: normal; }

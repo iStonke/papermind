@@ -49,6 +49,7 @@ class NoteCreateRequest(BaseModel):
     title: str = Field(default="", max_length=500)
     body_json: dict[str, Any] | None = None
     is_template: bool = False
+    notebook_id: uuid.UUID | None = None
 
 
 NoteBulkAction = Literal["trash", "restore", "delete", "template"]
@@ -70,6 +71,57 @@ class NoteBulkRequest(BaseModel):
 class NoteBulkResult(BaseModel):
     ok: bool = True
     affected: int = 0
+
+
+class NotebookCreateRequest(BaseModel):
+    """Neues Notizbuch (flache Ablageebene, genau eine Ebene)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    color: str | None = Field(default=None, max_length=32)
+
+
+class NotebookUpdateRequest(BaseModel):
+    """Umbenennen/Umfärben. Nur gesetzte Felder werden geschrieben."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    color: str | None = Field(default=None, max_length=32)
+
+
+class NotebookRead(ORMModel):
+    """Notizbuch inkl. Anzahl enthaltener (nicht gelöschter) Notizen."""
+
+    id: uuid.UUID
+    name: str
+    color: str | None = None
+    position: int = 0
+    note_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+
+class NotebookListResponse(BaseModel):
+    items: list[NotebookRead]
+
+
+class NotebookMoveRequest(BaseModel):
+    """Verschiebt mehrere Notizen in ein Notizbuch (oder ``None`` = heraus)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    notebook_id: uuid.UUID | None = None
+
+
+class NotebookReorderRequest(BaseModel):
+    """Setzt die Anzeige-Reihenfolge der Notizbücher (IDs in Zielreihenfolge)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
 
 
 class SaveAsTemplateRequest(BaseModel):
@@ -131,6 +183,11 @@ class NoteUpdateRequest(BaseModel):
 
     title: str | None = Field(default=None, max_length=500)
     body_json: dict[str, Any] | None = None
+    # Notizbuch verschieben; ``None`` mit gesetztem Feld = aus Notizbuch nehmen.
+    # „Feld gesetzt" wird über ``model_fields_set`` unterschieden.
+    notebook_id: uuid.UUID | None = None
+    # Anheften umschalten (Metadaten, kein Fortschritt der Inhaltsrevision).
+    is_favorite: bool | None = None
     # Ist die Serverrevision inzwischen weiter, darf ein älterer Browserstand
     # nicht still darübergeschrieben werden. Optional für ältere API-Clients.
     base_revision: int | None = Field(default=None, ge=1)
@@ -194,6 +251,8 @@ class NoteListItem(ORMModel):
     is_deleted: bool = False
     deleted_at: datetime | None = None
     link_count: int = 0
+    notebook_id: uuid.UUID | None = None
+    is_favorite: bool = False
     tags: list[NoteTagRef] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
@@ -213,6 +272,8 @@ class NoteRead(ORMModel):
     is_template: bool = False
     is_deleted: bool = False
     deleted_at: datetime | None = None
+    notebook_id: uuid.UUID | None = None
+    is_favorite: bool = False
     tags: list[NoteTagRef] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime

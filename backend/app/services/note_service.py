@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.core.errors import ConflictError, NotFoundError
 from app.models.note import Note, NoteLink, NoteRevision, NoteTask
 from app.models.note_image import NoteImage
+from app.models.note_notebook import NoteNotebook
 from app.models.note_tag import note_tags
 from app.models.tag import Tag
 from app.schemas.notes import (
@@ -247,6 +248,9 @@ class NoteService:
         document_id: uuid.UUID | None = None,
         dossier_id: uuid.UUID | None = None,
         tag_id: uuid.UUID | None = None,
+        notebook_id: uuid.UUID | None = None,
+        no_notebook: bool = False,
+        favorites_only: bool = False,
         templates: bool = False,
         q: str | None = None,
         search_scope: NoteSearchScope = "all",
@@ -270,6 +274,15 @@ class NoteService:
                 .where(note_tags.c.note_id == Note.id, note_tags.c.tag_id == tag_id)
                 .exists()
             )
+        # Notizbuch-Facette: konkretes Buch oder „Ohne Notizbuch" (no_notebook).
+        # ``notebook_id`` hat Vorrang; beide zusammen sind widersprüchlich, dann
+        # gewinnt das konkrete Buch.
+        if notebook_id is not None:
+            stmt = stmt.where(Note.notebook_id == notebook_id)
+        elif no_notebook:
+            stmt = stmt.where(Note.notebook_id.is_(None))
+        if favorites_only:
+            stmt = stmt.where(Note.is_favorite.is_(True))
         if document_id is not None:
             # Notizen, die im ProseMirror-Wurzel-Attribut mit diesem Dokument
             # verknüpft sind (body_json.attrs.linkedDocument.id).
@@ -288,7 +301,27 @@ class NoteService:
                 stmt = stmt.where(func.coalesce(Note.body_text, "").ilike(f"%{escaped}%", escape="\\"))
             else:
                 ts_query = build_ts_query_expr(normalized_query, settings.fts_regconfig)
-                stmt = stmt.where(Note.search_vector.op("@@")(ts_query))
+                escaped = normalized_query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                tag_match = (
+                    select(note_tags.c.note_id)
+                    .join(Tag, Tag.id == note_tags.c.tag_id)
+                    .where(
+                        note_tags.c.note_id == Note.id,
+                        Tag.owner_id == self.owner_id,
+                        Tag.name.ilike(f"%{escaped}%", escape="\\"),
+                    )
+                    .exists()
+                )
+                notebook_match = (
+                    select(NoteNotebook.id)
+                    .where(
+                        NoteNotebook.id == Note.notebook_id,
+                        NoteNotebook.owner_id == self.owner_id,
+                        NoteNotebook.name.ilike(f"%{escaped}%", escape="\\"),
+                    )
+                    .exists()
+                )
+                stmt = stmt.where(or_(Note.search_vector.op("@@")(ts_query), tag_match, notebook_match))
 
         stmt = stmt.order_by((Note.deleted_at if in_trash else Note.updated_at).desc())
         rows = self.db.scalars(stmt).all()
@@ -302,6 +335,8 @@ class NoteService:
                 is_deleted=n.is_deleted,
                 deleted_at=n.deleted_at,
                 link_count=link_counts.get(n.id, 0),
+                notebook_id=n.notebook_id,
+                is_favorite=n.is_favorite,
                 tags=_tag_refs(n),
                 created_at=n.created_at,
                 updated_at=n.updated_at,
@@ -396,6 +431,23 @@ class NoteService:
             return latest
         return self._record_revision(note, reason=reason, force_new=True)
 
+    def _resolve_notebook_id(self, notebook_id: uuid.UUID | None) -> uuid.UUID | None:
+        """Validiert, dass das Notizbuch dem Eigentümer gehört.
+
+        ``None`` bleibt ``None`` (Ohne Notizbuch). Ein fremdes/unbekanntes Buch
+        führt zu ``NotFoundError`` statt eines FK-Fehlers auf Commit-Ebene.
+        """
+        if notebook_id is None:
+            return None
+        exists = self.db.scalar(
+            select(NoteNotebook.id).where(
+                NoteNotebook.id == notebook_id, NoteNotebook.owner_id == self.owner_id
+            )
+        )
+        if exists is None:
+            raise NotFoundError("Notizbuch nicht gefunden", details={"notebook_id": str(notebook_id)})
+        return notebook_id
+
     def create_note(self, payload: NoteCreateRequest) -> Note:
         body_json = payload.body_json or EMPTY_DOC
         note = Note(
@@ -404,6 +456,8 @@ class NoteService:
             body_json=body_json,
             body_text=derive_body_text(body_json),
             is_template=payload.is_template,
+            # Vorlagen liegen bewusst in keinem Notizbuch.
+            notebook_id=None if payload.is_template else self._resolve_notebook_id(payload.notebook_id),
         )
         self.db.add(note)
         self.db.flush()  # note.id für note_link/note_task verfügbar machen
@@ -545,6 +599,14 @@ class NoteService:
             note.revision = current_revision + 1
             if not note.is_template:
                 self._record_revision(note, reason=payload.history_reason)
+        # Notizbuch-Wechsel ist Metadaten (wie Tags/Papierkorb): kein Fortschritt
+        # der Inhaltsrevision, kein Wiederherstellungspunkt. Nur wirksam, wenn das
+        # Feld tatsächlich gesendet wurde (``None`` = aus Notizbuch nehmen).
+        if "notebook_id" in payload.model_fields_set:
+            note.notebook_id = self._resolve_notebook_id(payload.notebook_id)
+        # Anheften ist ebenfalls Metadaten (kein Revisions-Bump).
+        if "is_favorite" in payload.model_fields_set and payload.is_favorite is not None:
+            note.is_favorite = bool(payload.is_favorite)
         self.db.commit()
         self.db.refresh(note)
         return note

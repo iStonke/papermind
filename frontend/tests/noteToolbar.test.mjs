@@ -1,28 +1,15 @@
 import { readNoteEditorSource } from './helpers/noteEditorSource.mjs';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const editorSource = await readNoteEditorSource();
-const iconSource = await readFile(
-  new URL('../src/plugins/mdiIcons.js', import.meta.url),
-  'utf8',
-);
-
-test('toolbar menus use accessible icon-only buttons', () => {
-  assert.match(editorSource, /title="Text"\s+aria-label="Text"[\s\S]*?<v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-text-box-outline/);
-  assert.match(editorSource, /title="Layout"\s+aria-label="Layout"[\s\S]*?<v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-format-columns/);
-  assert.match(editorSource, /title="Einfügen"\s+aria-label="Einfügen"[\s\S]*?<v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-plus-box-outline/);
-  assert.match(editorSource, /title="Blöcke"\s+aria-label="Blöcke"[\s\S]*?<v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-view-agenda-outline/);
-  assert.doesNotMatch(editorSource, /note-editor__toolbar-btn-label/);
+test('toolbar menus retain accessible dropdowns with visible labels', () => {
+  for (const label of ['Text', 'Layout', 'Einfügen', 'Blöcke']) {
+    assert.ok(editorSource.includes(`aria-label="${label}"`));
+    assert.ok(editorSource.includes(`class="note-editor__toolbar-btn-label">${label}</span>`));
+  }
   assert.equal(editorSource.match(/class="note-editor__toolbar-menu-chevron"/g)?.length, 4);
-  assert.doesNotMatch(editorSource, /mdi-dots-horizontal/);
-  assert.match(iconSource, /mdiFormatColumns/);
-  assert.match(iconSource, /mdiViewAgendaOutline/);
-  assert.match(iconSource, /mdiArrowUp/);
-  assert.match(iconSource, /mdiArrowDown/);
-  assert.match(iconSource, /mdiTextBoxOutline/);
-  assert.match(iconSource, /mdiPlusBoxOutline/);
+  assert.match(editorSource, /is-compact \.note-editor__toolbar-btn-label \{ display: none; \}/);
   assert.match(editorSource, /\.note-editor__toolbar-dropitem--block \{ font-weight: 400; \}/);
 });
 
@@ -97,7 +84,7 @@ test('sticky toolbar becomes subtly translucent after the editor is scrolled', (
   assert.match(editorSource, /\.note-editor__toolbar-guard\.is-scrolled::after \{[\s\S]*?78%, transparent/);
 });
 
-test('AI prompt colors the otherwise desaturated wand only after text was entered', () => {
+test('AI prompt colors the otherwise desaturated sparkle only after text was entered', () => {
   assert.match(editorSource, /<NoteWritingToolbar v-if="aiAvailable"[\s\S]*?class="note-editor__toolbar-ai"[\s\S]*?placeholder="Einfach losschreiben …"/);
   assert.match(editorSource, /'has-prompt': Boolean\(aiPrompt\.instruction\.trim\(\)\)/);
   assert.match(editorSource, /\.note-editor__toolbar-ai-icon \{[\s\S]*?color: var\(--pm-muted,[\s\S]*?opacity: 0\.74;/);

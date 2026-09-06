@@ -1,5 +1,4 @@
 <template>
-  <span class="note-editor__toolbar-divider" aria-hidden="true" />
   <form
     class="note-editor__toolbar-ai"
     :class="{
@@ -19,7 +18,7 @@
         v-if="aiPrompt.presentation === 'toolbar' && aiPrompt.loading"
         class="note-editor__toolbar-ai-spinner"
       ></span>
-      <v-icon v-else size="18">mdi-auto-fix</v-icon>
+      <PmActionIcon v-else name="sparkles" :size="18" />
     </button>
     <input
       ref="aiToolbarInputEl"
@@ -71,6 +70,7 @@
 </template>
 
 <script setup>
+import PmActionIcon from '../PmActionIcon.vue';
 const props = defineProps({ controller: { type: Object, required: true } });
 const {
   editor,

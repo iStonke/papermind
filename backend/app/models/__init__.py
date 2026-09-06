@@ -15,6 +15,7 @@ from app.models.job import Job
 from app.models.note import Note, NoteLink, NoteRevision, NoteTask
 from app.models.note_block_template import NoteBlockTemplate
 from app.models.note_image import NoteImage
+from app.models.note_notebook import NoteNotebook
 from app.models.note_tag import note_tags
 from app.models.saved_search import SavedSearch
 from app.models.search_event import SearchEvent
@@ -58,6 +59,7 @@ __all__ = [
     "Note",
     "NoteBlockTemplate",
     "NoteImage",
+    "NoteNotebook",
     "NoteLink",
     "NoteRevision",
     "NoteTask",

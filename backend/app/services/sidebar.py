@@ -198,6 +198,22 @@ class SidebarService:
             or 0
         )
         trash_count = document_trash_count + note_trash_count
+        # Favorisierte Notizen zählen zum globalen Favoriten-Bereich (eigener
+        # Abschnitt), damit der Sidebar-Eintrag auch ohne Favoriten-Dokumente erscheint.
+        note_favorites_count = int(
+            self.db.scalar(
+                select(func.count(Note.id)).where(
+                    and_(
+                        Note.is_favorite.is_(True),
+                        Note.is_deleted.is_(False),
+                        Note.is_template.is_(False),
+                        note_owner_cond,
+                    )
+                )
+            )
+            or 0
+        )
+        favorites_count += note_favorites_count
         if self.owner_id is None:
             import_inbox_visibility_cond = true()
         else:

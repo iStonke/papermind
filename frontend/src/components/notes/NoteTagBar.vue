@@ -13,6 +13,7 @@
     :items="compactTagItems"
     :loading="isLoadingTags || isCreatingTag"
     :disabled="disabled"
+    :single-line="singleLine"
     @update:model-value="onCompactTagNamesChange"
     @update:search="searchValue = $event"
     @remove="removeCompactTag"
@@ -96,6 +97,7 @@ const props = defineProps({
   allTags: { type: Array, default: () => [] },
   disabled: { type: Boolean, default: false },
   compact: { type: Boolean, default: false },
+  singleLine: { type: Boolean, default: false },
   maxVisible: { type: Number, default: 0 },
   createTagByName: { type: Function, default: null },
   loadTags: { type: Function, default: null },

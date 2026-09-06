@@ -1,6 +1,7 @@
 import { Node, mergeAttributes, VueNodeViewRenderer, wrappingInputRule } from '@tiptap/vue-3';
 import { normalizeNoteCalloutKind } from '../../../utils/noteCallouts.js';
 import CalloutView from './CalloutView.vue';
+import { replaceSelectionWithCallout } from './calloutSelection.js';
 
 /**
  * Zeilenanfang-Kürzel für das Mitschreiben im Meetingtempo: ein Zeichen plus
@@ -55,14 +56,24 @@ export const Callout = Node.create({
 
   addCommands() {
     return {
-      insertCallout: (kind = 'important') => ({ commands }) => commands.insertContent({
-        type: this.name,
-        attrs: {
+      insertCallout: (kind = 'important') => ({ commands, tr, dispatch }) => {
+        const attrs = {
           kind: normalizeNoteCalloutKind(kind),
           insertedAt: new Date().toISOString(),
-        },
-        content: [{ type: 'paragraph' }],
-      }),
+        };
+        if (!tr.selection.empty) {
+          // Read the current chain transaction so focus and preceding commands
+          // cannot leave us using an outdated editor selection.
+          const content = tr.selection.content().content;
+          if (!this.type.validContent(content)) return false;
+          return dispatch ? replaceSelectionWithCallout(tr, this.type, attrs) : true;
+        }
+        return commands.insertContent({
+          type: this.name,
+          attrs,
+          content: [{ type: 'paragraph' }],
+        });
+      },
       setCalloutKind: (kind) => ({ commands }) => commands.updateAttributes(
         this.name,
         { kind: normalizeNoteCalloutKind(kind) },

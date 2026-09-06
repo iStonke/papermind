@@ -127,15 +127,28 @@ test('notes management remembers the selected facet across closing and reloads',
   assert.match(workspaceSource, /value === 'templates' \? 'templates' : 'notes'/);
 });
 
+test('the notes heading shows the notebook selected in either notes view', () => {
+  assert.match(templateSource, /<span>Notizen<\/span>[\s\S]*?v-if="activeNotebookHeading"[\s\S]*?>·<\/span>/);
+  assert.match(templateSource, /manageFacet === 'notes' && manageNotebookHeading[\s\S]*?>·<\/span>[\s\S]*?\{\{ manageNotebookHeading \}\}/);
+  assert.match(templateSource, /@notebook-selection-change="manageNotebookHeading = \$event"/);
+  assert.match(notesManageGridSource, /'notebook-selection-change'/);
+  assert.match(notesManageGridSource, /const activeNotebookLabel = computed\(\(\) => \{[\s\S]*?activeNotebookId\.value === 'none'[\s\S]*?'Ohne Notizbuch'[\s\S]*?\.name \|\| ''/);
+  assert.match(notesManageGridSource, /watch\([\s\S]*?activeNotebookLabel,[\s\S]*?emit\('notebook-selection-change', label\)[\s\S]*?immediate: true/);
+});
+
 test('notes list follows the shared title, toolbar, and row hierarchy', () => {
-  assert.match(templateSource, />\s*Notizen\s*</);
+  assert.match(templateSource, /<span>Notizen<\/span>/);
+  assert.match(templateSource, /v-if="activeNotebookHeading"[\s\S]*?notes-ws__heading-separator[\s\S]*?>·<\/span>[\s\S]*?\{\{ activeNotebookHeading \}\}/);
+  assert.match(workspaceSource, /const activeNotebookHeading = computed\(\(\) => \([\s\S]*?notebookFilter\.value \? notebookFilterLabel\.value : ''/);
+  assert.match(workspaceSource, /\.notes-ws__heading-context\s*\{[\s\S]*?text-overflow:\s*ellipsis/);
   assert.match(templateSource, /Neue Notiz/);
   assert.match(templateSource, /<ListActionToolbar/);
   assert.match(templateSource, /:actions="toolbarActions"/);
   assert.match(templateSource, /:show-selection="false"/);
   assert.match(templateSource, /notes-ws__item-snippet/);
   assert.match(workspaceSource, /notes-ws__item\.is-active/);
-  assert.doesNotMatch(templateSource, /<v-text-field|type="search"|notes-ws__toggle/);
+  const compactListTemplate = templateSource.slice(0, templateSource.indexOf('<Transition name="notes-ws-manage"'));
+  assert.doesNotMatch(compactListTemplate, /<v-text-field|type="search"|notes-ws__toggle/);
 });
 
 test('notes list is grouped by creation day with compact sticky headers', () => {
@@ -296,11 +309,11 @@ test('removing a note reuses the document collapse timing before updating the li
   assert.match(workspaceSource, /pm-no-animations[\s\S]*notes-ws__item\.is-removing/);
 });
 
-test('empty notes are permanently removed instead of entering the trash', () => {
+test('empty notes skip confirmation but enter the trash for undo', () => {
   assert.match(workspaceSource, /noteIsEmptyForDeletion\(note\)[\s\S]*discardEmptyNote\(note\)/);
   assert.match(
     workspaceSource,
-    /notesStore\.deletePermanently\(note\.id\)[\s\S]*animateNoteRemoval\(note\.id\)[\s\S]*notesStore\.removeFromList\(note\.id\)/,
+    /notesStore\.trash\(note\.id\)[\s\S]*animateNoteRemoval\(note\.id\)[\s\S]*notesStore\.removeFromList\(note\.id\)/,
   );
   assert.match(workspaceEditorSource, /isNoteEmpty\(\{ title: title\.value, body_json: body\.value \}\)/);
   assert.match(workspaceEditorSource, /defineExpose\([\s\S]*isEmpty/);
@@ -321,7 +334,7 @@ test('notes use soft-delete endpoints and appear in the shared trash', () => {
   assert.match(notesApiSource, /api\/notes\/\$\{id\}\/restore/);
   assert.match(notesApiSource, /apiDelete\('\/api\/notes\/trash'\)/);
   assert.match(notesStoreSource, /await trash\(id\)/);
-  assert.match(documentListPanelSource, /aria-label="Gelöschte Notizen"/);
+  assert.match(documentListPanelSource, /isTrashView \? 'Gelöschte Notizen' : 'Favorisierte Notizen'/);
   assert.match(documentListPanelSource, /emit\('restore-note', note\)/);
   assert.match(documentsWorkspaceSource, /:trash-notes="visibleTrashedNotes"/);
   assert.match(documentsWorkspaceSource, /emptyNotesTrash\(\)/);
@@ -667,6 +680,11 @@ test('selection formatting stays above the notes list instead of being clipped b
   assert.doesNotMatch(noteEditorSource, /hasOwnProperty\.call\(state\.selection, '\$cursor'\)/);
   assert.match(noteEditorSource, /rect\.left \+ rect\.width \/ 2/);
   assert.match(noteEditorSource, /bubbleEl\.value\?\.offsetWidth/);
+  assert.match(noteEditorSource, /bubbleEl\.value\?\.offsetHeight/);
+  assert.match(noteEditorSource, /querySelector\('\.note-editor__toolbar-guard'\)/);
+  assert.match(noteEditorSource, /toolbarRect\?\.bottom/);
+  assert.match(noteEditorSource, /placeSelectionBubble/);
+  assert.match(noteEditorSource, /transform: 'translateX\(-50%\)'/);
   assert.match(noteEditorSource, /window\.innerWidth - BUBBLE_VIEWPORT_MARGIN/);
   assert.match(noteEditorSource, /if \(bubble\.show\) refreshBubble\(\)/);
   assert.match(noteEditorSource, /window\.addEventListener\('resize', refreshBubble\)/);
@@ -689,4 +707,36 @@ test('picker menus remain anchored to the editor surface with a compact gap', ()
   assert.match(noteEditorSource, /function positionPicker\(\)[\s\S]*?const box = surface\.getBoundingClientRect\(\)/);
   assert.match(noteEditorSource, /rect\.bottom - box\.top \+ 4/);
   assert.doesNotMatch(noteEditorSource, /root\.getBoundingClientRect\(\)/);
+});
+
+test('the compact notes list offers a notebook filter in its toolbar', () => {
+  // Eigener State + reiner Client-Filter über note.notebook_id.
+  assert.match(workspaceSource, /const notebookFilter = ref\(''\)/);
+  assert.match(
+    workspaceSource,
+    /function matchesNotebookFilter\(note\)[\s\S]*?notebookFilter\.value === 'none'[\s\S]*?return !note\.notebook_id[\s\S]*?return note\.notebook_id === notebookFilter\.value/,
+  );
+  assert.match(workspaceSource, /\.filter\(matchesNotebookFilter\)/);
+  // Als datengetriebene Toolbar-Aktion, nur wenn es Notizbücher gibt.
+  assert.match(workspaceSource, /if \(notesStore\.notebooks\.length\)[\s\S]*?key: 'notebook'/);
+  assert.match(workspaceSource, /if \(action === 'notebook'\) notebookFilter\.value = value/);
+  assert.match(workspaceSource, /notesStore\.ensureNotebooksLoaded\(\)/);
+});
+
+test('creating a note inside a filtered notebook keeps it in that notebook', () => {
+  assert.match(
+    workspaceSource,
+    /function newNoteInitial\(\)[\s\S]*?notebookFilter\.value !== 'none'[\s\S]*?\{ notebook_id: notebookFilter\.value \}/,
+  );
+  assert.match(workspaceSource, /notesStore\.create\(newNoteInitial\(\)\)/);
+});
+
+test('compact list filters collapse to icons when inactive so the toolbar never overflows', () => {
+  // Inaktive Filter (Standardwert) zeigen nur ihr Icon; aktiv zeigen sie den Wert.
+  assert.match(workspaceSource, /iconOnly: !notebookFilter\.value/);
+  assert.match(workspaceSource, /iconOnly: !dateRange\.value/);
+  // Der Toolbar-Baustein unterstützt iconOnly + kürzt lange Labels per Ellipsis.
+  assert.match(listActionToolbarSource, /list-action-toolbar__action-btn--icon-only/);
+  assert.match(listActionToolbarSource, /class="list-action-toolbar__action-label"/);
+  assert.match(listActionToolbarSource, /\.list-action-toolbar__action-label\s*\{[\s\S]*?text-overflow:\s*ellipsis/);
 });

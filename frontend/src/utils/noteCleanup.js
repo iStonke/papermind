@@ -1,9 +1,7 @@
 /*
  * „Aufräumen (sinnwahrend)" — Hilfslogik für die KI-gestützte Glättung eines
- * rohen Mitschriebs. Der Editor sammelt die Fließtext-Absätze, nummeriert sie
- * hier als Blöcke ⟦n⟧, schickt sie über denselben Notiz-KI-Stream und ordnet
- * die Antwort blockweise wieder zu. Strukturierte Blöcke (Callouts, Aufgaben,
- * Tabellen …) werden bewusst NICHT übergeben und bleiben unverändert.
+ * rohen Mitschriebs. Ausgewählte Textbereiche werden als Blöcke ⟦n⟧ nummeriert;
+ * die Antwort darf innerhalb dieser Grenzen behutsam formatiert werden.
  *
  * Diese Datei ist absichtlich frei von TipTap/DOM, damit die riskante String-
  * Logik (Format + Parser) isoliert testbar bleibt.
@@ -20,29 +18,33 @@ export function cleanupMarker(n) {
   return `⟦${n}⟧`;
 }
 
-/** Absätze zu einem nummerierten Blocktext bündeln (ein Block = eine Zeile). */
+/** Die Zeilenstruktur der ausgewählten Inhalte bleibt für die KI sichtbar. */
 export function formatCleanupInput(texts) {
   return (texts || [])
-    .map((text, index) => `${cleanupMarker(index + 1)} ${String(text ?? '').replace(/\s+/g, ' ').trim()}`)
+    .map((text, index) => `${cleanupMarker(index + 1)} ${String(text ?? '').replace(/\r\n?/g, '\n').trim()}`)
     .join('\n\n');
 }
 
 export const CLEANUP_INSTRUCTION = [
-  'Du räumst einen rohen, während eines Meetings schnell getippten Mitschrieb auf.',
-  'Der AUSGEWÄHLTE TEXT besteht aus nummerierten Blöcken im Format ⟦n⟧.',
-  'Formuliere den Inhalt JEDES Blocks in vollständige, gut lesbare Sätze um.',
+  'Räume den Mitschrieb auf: Sprache verbessern und behutsam formatieren.',
+  'Der AUSGEWÄHLTE TEXT besteht aus Blöcken mit Markern ⟦n⟧.',
+  'Bewahre Sinn, Fakten, Namen, Zahlen, Fachbegriffe und Reihenfolge. Erfinde NICHTS.',
+  'Unklare Stellen mit [unklar] kennzeichnen, nicht raten. Blöcke nicht vermischen.',
   '',
-  'Strikte Regeln:',
-  '- Bewahre Sinn, Aussage und Reihenfolge exakt. Erfinde NICHTS: keine neuen',
-  '  Fakten, Namen, Zahlen, Begründungen oder Schlussfolgerungen.',
-  '- Verknüpfe Blöcke nicht inhaltlich; jeder Block bleibt für sich.',
-  '- Ist ein Fragment wirklich unklar, kennzeichne die Stelle mit [unklar],',
-  '  statt zu raten.',
-  '- Behalte Fachbegriffe, Eigennamen und Abkürzungen bei.',
+  'Formatierung nur, wenn sie hilft:',
+  '- Normale Absätze bleiben der Standard. Kurze Listen für gleichartige Punkte;',
+  '  - [ ] nur für echte Erledigungen. Bestehende Aufgabenzustände erhalten.',
+  '- Höchstens eine kurze Zwischenüberschrift (###) pro Abschnitt, falls hilfreich.',
+  '- Nur einzelne Schlüsselwörter **fett** oder *kursiv*, keine ganzen Absätze.',
+  '- Keine neuen Tabellen, Hinweisblöcke, Codeblöcke oder dekorativen Elemente.',
+  '- Bestehende Struktur, Links und Hervorhebungen erhalten. Gut strukturierter',
+  '  Text braucht keine zusätzliche Formatierung.',
+  '- Bei „Nur Inline“: nur Text glätten und sparsam hervorheben, keine neuen',
+  '  Absätze, Überschriften oder Listen. „Nur Inline“ nicht in der Ausgabe wiederholen.',
   '',
-  'Ausgabe: GENAU dieselbe Anzahl Blöcke, in derselben Reihenfolge, jeder Block',
-  'eingeleitet mit ⟦n⟧ und danach der ausformulierte Text in EINER Zeile.',
-  'Keine Einleitung, keine Aufzählungszeichen, kein Codeblock.',
+  'Ausgabe: GENAU dieselbe Anzahl Blöcke, in derselben Reihenfolge mit ⟦n⟧.',
+  'Innerhalb eines Blocks sind Markdown und Zeilenumbrüche erlaubt.',
+  'Keine Einleitung und keine äußere Codeblock-Hülle.',
 ].join('\n');
 
 /**
@@ -55,6 +57,10 @@ export function parseCleanupOutput(raw, expectedCount) {
   const count = Number(expectedCount) || 0;
   if (count < 1) return { ok: false, blocks: [] };
 
+  const markers = [...text.matchAll(/⟦(\d+)⟧/g)];
+  if (markers.length !== count || markers.some((marker, index) => Number(marker[1]) !== index + 1)) {
+    return { ok: false, blocks: [] };
+  }
   const blocks = [];
   let cursor = 0;
   for (let i = 1; i <= count; i += 1) {
@@ -68,7 +74,7 @@ export function parseCleanupOutput(raw, expectedCount) {
       contentEnd = next;
       cursor = next;
     }
-    const block = text.slice(contentStart, contentEnd).replace(/\s+/g, ' ').trim();
+    const block = text.slice(contentStart, contentEnd).replace(/\r\n?/g, '\n').trim();
     if (!block) return { ok: false, blocks: [] };
     blocks.push(block);
   }

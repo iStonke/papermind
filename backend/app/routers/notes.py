@@ -13,6 +13,12 @@ from app.schemas.notes import (
     NoteBlockTemplateListResponse,
     NoteBlockTemplateRead,
     NoteBlockTemplateUpdateRequest,
+    NotebookCreateRequest,
+    NotebookListResponse,
+    NotebookMoveRequest,
+    NotebookReorderRequest,
+    NotebookRead,
+    NotebookUpdateRequest,
     NoteBulkRequest,
     NoteBulkResult,
     NoteCreateRequest,
@@ -30,6 +36,7 @@ from app.schemas.notes import (
     SaveAsTemplateRequest,
 )
 from app.services.note_service import NoteService
+from app.services.note_notebook_service import NoteNotebookService
 from app.services.note_block_template_service import NoteBlockTemplateService
 from app.services.note_ai import NoteAIService
 from app.services.note_images import NoteImageService
@@ -68,6 +75,9 @@ def list_notes(
     document_id: uuid.UUID | None = Query(default=None, description="Only notes linked to this document"),
     dossier_id: uuid.UUID | None = Query(default=None, description="Only notes referencing this dossier"),
     tag_id: uuid.UUID | None = Query(default=None, description="Only notes carrying this tag"),
+    notebook_id: uuid.UUID | None = Query(default=None, description="Only notes in this notebook"),
+    no_notebook: bool = Query(default=False, description="Only notes without a notebook"),
+    favorites_only: bool = Query(default=False, description="Only favorite notes"),
     templates: bool = Query(default=False, description="List templates instead of regular notes"),
     q: str | None = Query(default=None, max_length=256, description="Search note title and body"),
     search_scope: NoteSearchScope = Query(default="all", description="Search title, body, or both"),
@@ -80,6 +90,9 @@ def list_notes(
             document_id=document_id,
             dossier_id=dossier_id,
             tag_id=tag_id,
+            notebook_id=notebook_id,
+            no_notebook=no_notebook,
+            favorites_only=favorites_only,
             templates=templates,
             q=q,
             search_scope=search_scope,
@@ -114,6 +127,89 @@ def bulk_notes(
 ) -> NoteBulkResult:
     affected = NoteService(db, user.id).bulk_action(payload.action, payload.ids)
     return NoteBulkResult(ok=True, affected=affected)
+
+
+# --- Notizbücher (flache Ablageebene) ---------------------------------------
+# Bewusst VOR den ``/{note_id}``-Routen deklariert, damit ``/notebooks`` nicht
+# als Notiz-ID gedeutet wird.
+@router.get("/notebooks", response_model=NotebookListResponse, summary="List notebooks")
+def list_notebooks(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NotebookListResponse:
+    return NotebookListResponse(items=NoteNotebookService(db, user.id).list_notebooks())
+
+
+@router.post(
+    "/notebooks",
+    response_model=NotebookRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a notebook",
+    responses={409: {"model": ErrorResponse}},
+)
+def create_notebook(
+    payload: NotebookCreateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NotebookRead:
+    return NoteNotebookService(db, user.id).create_notebook(payload)
+
+
+@router.post(
+    "/notebooks/move",
+    response_model=NoteBulkResult,
+    summary="Move notes into a notebook (or out with notebook_id=null)",
+)
+def move_notes_to_notebook(
+    payload: NotebookMoveRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NoteBulkResult:
+    affected = NoteNotebookService(db, user.id).move_notes(payload.ids, payload.notebook_id)
+    return NoteBulkResult(ok=True, affected=affected)
+
+
+@router.post(
+    "/notebooks/reorder",
+    response_model=NotebookListResponse,
+    summary="Set the display order of notebooks",
+)
+def reorder_notebooks(
+    payload: NotebookReorderRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NotebookListResponse:
+    return NotebookListResponse(items=NoteNotebookService(db, user.id).reorder_notebooks(payload.ids))
+
+
+@router.patch(
+    "/notebooks/{notebook_id}",
+    response_model=NotebookRead,
+    summary="Rename or recolor a notebook",
+    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+)
+def update_notebook(
+    notebook_id: uuid.UUID,
+    payload: NotebookUpdateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NotebookRead:
+    return NoteNotebookService(db, user.id).update_notebook(notebook_id, payload)
+
+
+@router.delete(
+    "/notebooks/{notebook_id}",
+    response_model=OkResponse,
+    summary="Delete a notebook (contained notes are kept, moved to no notebook)",
+    responses={404: {"model": ErrorResponse}},
+)
+def delete_notebook(
+    notebook_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> OkResponse:
+    NoteNotebookService(db, user.id).delete_notebook(notebook_id)
+    return OkResponse(ok=True)
 
 
 @router.get(

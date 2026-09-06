@@ -3,6 +3,9 @@ import { createNoteAIRequest } from './noteAIRequest.js';
 import { streamNoteText } from '../../../api/notes.js';
 import { hideCleanupReviewAnchor, showCleanupReviewAnchor } from '../extensions/cleanupReviewAnchor.js';
 import { CLEANUP_INPUT_LIMIT, CLEANUP_INSTRUCTION, diffCleanupText, formatCleanupInput, parseCleanupOutput, stripCleanupMarks } from '../../../utils/noteCleanup.js';
+import { cleanupReplacement, cleanupSource } from '../../../utils/noteCleanupContent.js';
+import { noteMarkdownToSafeHtml } from '../../../utils/noteMarkdown.js';
+import { closeHistory } from '@tiptap/pm/history';
 
 export function useNoteCleanup({
   editor,
@@ -38,25 +41,47 @@ export function useNoteCleanup({
   });
   const cleanupRestore = reactive({ open: false });
 
-  const cleanupOriginalText = computed(() => cleanup.targets.map((target) => target.text).join('\n\n'));
+  const cleanupOriginalText = computed(() => cleanup.targets.map((target) => target.source).join('\n\n'));
   const cleanupDraftText = computed(() => cleanup.draftBlocks.join('\n\n'));
   const cleanupDiffParts = computed(() => diffCleanupText(cleanupOriginalText.value, cleanupDraftText.value));
-  const cleanupCanApply = computed(() => (
-    cleanup.draftBlocks.length === cleanup.targets.length
-    && cleanup.draftBlocks.every((block) => String(block || '').trim())
-  ));
+  const cleanupOriginalHtml = computed(() => noteMarkdownToSafeHtml(cleanupOriginalText.value));
+  const cleanupDraftHtml = computed(() => noteMarkdownToSafeHtml(cleanupDraftText.value));
+  const cleanupValidation = computed(() => {
+    if (!cleanup.targets.length || cleanup.draftBlocks.length !== cleanup.targets.length) return { replacements: [], error: '' };
+    try {
+      return { replacements: cleanup.targets.map((target, index) => cleanupReplacement(target, cleanup.draftBlocks[index])), error: '' };
+    } catch (error) {
+      return { replacements: [], error: error.message };
+    }
+  });
+  const cleanupCanApply = computed(() => cleanupValidation.value.replacements.length > 0);
 
-  // Bei einer Auswahl werden alle berührten Textblöcke separat erfasst. Dadurch
-  // bleiben Überschriften, Listen, Aufgaben, Zitate, Hinweisblöcke und Tabellen-
-  // zellen strukturell unverändert; ersetzt wird ausschließlich ihr Textinhalt.
-  // Codeblöcke werden bewusst ausgelassen, weil sprachliches Glätten dort Code
-  // beschädigen könnte. Ohne Auswahl gilt der Befehl weiterhin nur für lose
-  // Fließtext-Absätze der Notiz.
+  // Neue Blockstruktur nur für vollständig ausgewählte, lose Absätze. Teil-
+  // auswahl, Überschriften und bestehende Listen behalten ihre äußere Struktur.
+  // Inline-Atome und Code werden nicht an die sprachliche Bereinigung gegeben.
   function collectCleanupTargets(ed) {
     const selection = ed.state.selection;
     const { from, to, empty } = selection;
     const scoped = !empty;
     const targets = [];
+    function addTarget(node, pos, parent, targetFrom, targetTo) {
+      const slice = ed.state.doc.slice(targetFrom, targetTo);
+      let hasAtom = false;
+      slice.content.descendants((child) => { if (child.isLeaf && !child.isText && child.type.name !== 'hardBreak') hasAtom = true; });
+      if (hasAtom) return;
+      const text = ed.state.doc.textBetween(targetFrom, targetTo, '\n', '\n');
+      if (!text.trim()) return;
+      const originalContent = slice.content.toJSON();
+      const source = cleanupSource(originalContent);
+      targets.push({
+        from: targetFrom, to: targetTo, text, source, originalContent,
+        snapshot: JSON.stringify(node.toJSON()),
+        blockFrom: pos, blockTo: pos + node.nodeSize,
+        allowBlocks: node.type.name === 'paragraph'
+          && targetFrom === pos + 1 && targetTo === pos + node.nodeSize - 1
+          && ['doc', 'layoutColumn', 'callout', 'blockquote', 'tableCell', 'tableHeader'].includes(parent?.type.name),
+      });
+    }
     ed.state.doc.descendants((node, pos, parent) => {
       if (scoped && node.isTextblock) {
         if (node.type.name === 'codeBlock') return false;
@@ -65,19 +90,12 @@ export function useNoteCleanup({
         const targetFrom = Math.max(from, contentFrom);
         const targetTo = Math.min(to, contentTo);
         if (targetTo > targetFrom) {
-          const text = ed.state.doc.textBetween(targetFrom, targetTo, '\n', '\n');
-          if (text.trim()) targets.push({ from: targetFrom, to: targetTo, text, kind: 'range' });
+          addTarget(node, pos, parent, targetFrom, targetTo);
         }
         return false;
       }
       if (!scoped && parent?.type.name === 'doc' && node.type.name === 'paragraph') {
-        const text = node.textContent.trim();
-        if (text) targets.push({
-          from: pos + 1,
-          to: pos + node.nodeSize - 1,
-          text,
-          kind: 'range',
-        });
+        addTarget(node, pos, parent, pos + 1, pos + node.nodeSize - 1);
         return false;
       }
       return undefined;
@@ -88,6 +106,12 @@ export function useNoteCleanup({
       selectionFrom: scoped ? from : null,
       selectionTo: scoped ? to : null,
     };
+  }
+
+  function cleanupInput() {
+    return formatCleanupInput(cleanup.targets.map((target) => (
+      `${target.allowBlocks ? '' : 'Nur Inline:\n'}${target.source}`
+    )));
   }
 
   function cleanupReviewPosition(ed, targets, selectionTo) {
@@ -157,7 +181,7 @@ export function useNoteCleanup({
       cleanup.error = 'Kein bereinigbarer Text gefunden. Codeblöcke bleiben zum Schutz ihres Inhalts unverändert.';
       return;
     }
-    const payload = formatCleanupInput(targets.map((target) => target.text));
+    const payload = cleanupInput();
     if (payload.length > CLEANUP_INPUT_LIMIT) {
       cleanup.error = 'Der Text ist für das Aufräumen in einem Schritt zu lang. Bitte einen Abschnitt markieren und erneut aufräumen.';
       return;
@@ -168,7 +192,7 @@ export function useNoteCleanup({
 
   async function requestCleanup() {
     if (!cleanup.open || !cleanup.targets.length || cleanup.loading) return;
-    const payload = formatCleanupInput(cleanup.targets.map((target) => target.text));
+    const payload = cleanupInput();
     const extraInstruction = cleanup.instruction.trim();
     const instruction = extraInstruction
       ? `${CLEANUP_INSTRUCTION}\n\nZusätzliche Anweisung des Nutzers: ${extraInstruction}`
@@ -242,21 +266,20 @@ export function useNoteCleanup({
     // einer falschen Stelle zu ersetzen.
     const stillValid = cleanup.targets.every((target) => {
       return target.to <= ed.state.doc.content.size
-        && ed.state.doc.textBetween(target.from, target.to, '\n', '\n') === target.text;
+        && JSON.stringify(ed.state.doc.nodeAt(target.blockFrom)?.toJSON()) === target.snapshot;
     });
     if (!stillValid) {
       cleanup.error = 'Die Notiz hat sich geändert. Bitte das Aufräumen erneut starten.';
       return;
     }
     // Von hinten nach vorn ersetzen, damit die früheren Positionen gültig bleiben.
-    const ordered = cleanup.targets
-      .map((target, index) => ({ ...target, cleaned: cleanup.draftBlocks[index].trim() }))
+    const ordered = [...cleanupValidation.value.replacements]
       .sort((a, b) => b.from - a.from);
-    const chain = ed.chain().focus();
+    const chain = ed.chain().focus().command(({ tr }) => { closeHistory(tr); return true; });
     ordered.forEach((target) => {
       chain.insertContentAt(
         { from: target.from, to: target.to },
-        { type: 'text', text: target.cleaned },
+        target.content,
       );
     });
     chain.scrollIntoView().run();
@@ -284,6 +307,9 @@ export function useNoteCleanup({
     cleanupAnchorEl,
     cleanupViews,
     cleanupOriginalText,
+    cleanupOriginalHtml,
+    cleanupDraftHtml,
+    cleanupValidation,
     cleanupDraftText,
     cleanupDiffParts,
     cleanupCanApply,

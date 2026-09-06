@@ -48,6 +48,14 @@ class Note(Base):
     # gemeinsam per Autosave geschriebenen Felder Titel + body_json.
     revision: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     is_template: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # Favorit: erscheint oben im Verwaltungsraster UND im globalen Favoriten-
+    # Bereich. Eigene Spalte (wie document.is_favorite), nicht als body_json-
+    # Attribut – so im Listeneintrag verfügbar und serverseitig sortierbar.
+    is_favorite: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # Optionales Notizbuch (flache Ablageebene); NULL = „Ohne Notizbuch".
+    notebook_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("note_notebook.id", ondelete="SET NULL"), nullable=True
+    )
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

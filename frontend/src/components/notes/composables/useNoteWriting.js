@@ -3,7 +3,8 @@ import { createNoteAIRequest } from './noteAIRequest.js';
 import { streamNoteText } from '../../../api/notes.js';
 import { posToDOMRect } from '@tiptap/vue-3';
 import { NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT } from '../../../constants/promptDefaults.js';
-import { noteAITextForCodeBlock, noteMarkdownToTipTap } from '../../../utils/noteMarkdown.js';
+import { noteAITextForCodeBlock } from '../../../utils/noteMarkdown.js';
+import { noteAIContent } from '../../../utils/noteAIContent.js';
 
 export function useNoteWriting({
   editor,
@@ -120,6 +121,13 @@ export function useNoteWriting({
   function emptyParagraphRangeAtPosition(ed, position) {
     const safePosition = Math.max(0, Math.min(position, ed.state.doc.content.size));
     const $position = ed.state.doc.resolve(safePosition);
+    if ($position.depth === 0) {
+      const atEnd = safePosition === ed.state.doc.content.size;
+      const adjacent = atEnd ? ed.state.doc.lastChild : (safePosition === 0 ? ed.state.doc.firstChild : null);
+      if (adjacent?.type.name !== 'paragraph' || adjacent.content.size) return null;
+      const from = atEnd ? safePosition - adjacent.nodeSize : 0;
+      return { from, to: from + adjacent.nodeSize };
+    }
     if (
       $position.depth < 1
       || $position.parent.type.name !== 'paragraph'
@@ -250,17 +258,22 @@ export function useNoteWriting({
     return ed.state.doc.textBetween(0, to, '\n', '\n').slice(-12000);
   }
 
-  function aiBlockAttrs() {
+  function generatedContent() {
     const prompt = aiPrompt.generatedInstruction || aiPrompt.instruction.trim();
-    return {
-      text: aiPrompt.preview.trim(),
-      prompt,
-      provider: aiPrompt.provider,
-      model: aiPrompt.model,
-      generatedAt: new Date().toISOString(),
-      sources: [],
-      stale: false,
-    };
+    try {
+      return noteAIContent(aiPrompt.preview.trim(), {
+        instruction: prompt,
+        attribution: {
+          prompt,
+          provider: aiPrompt.provider,
+          model: aiPrompt.model,
+          generatedAt: new Date().toISOString(),
+        },
+      });
+    } catch (error) {
+      aiPrompt.error = error.message;
+      return [];
+    }
   }
 
   function selectionSnapshotIsCurrent(ed) {
@@ -289,7 +302,7 @@ export function useNoteWriting({
       const text = noteAITextForCodeBlock(aiPrompt.preview);
       return text ? [{ type: 'text', text }] : [];
     }
-    return noteMarkdownToTipTap(aiPrompt.preview.trim());
+    return generatedContent();
   }
 
   function insertDirectAIResult(ed, { from = null, to = null } = {}) {
@@ -306,7 +319,7 @@ export function useNoteWriting({
     }
     const content = directAIContent();
     if (!content.length) {
-      aiPrompt.error = 'Das Modell hat keinen einfügbaren Text erzeugt.';
+      aiPrompt.error ||= 'Das Modell hat keinen einfügbaren Text erzeugt.';
       return false;
     }
 
@@ -337,14 +350,15 @@ export function useNoteWriting({
       insertDirectAIResult(ed, action === 'replace' ? { from, to } : { from: to, to });
       return;
     }
-    const attrs = aiBlockAttrs();
+    const content = generatedContent();
+    if (!content.length) return;
     const chain = ed.chain().focus();
     if (action === 'replace') {
-      chain.insertContentAt({ from, to }, { type: 'aiBlock', attrs });
+      chain.insertContentAt({ from, to }, content, { updateSelection: true });
     } else {
-      chain.setTextSelection(to).insertAiBlock(attrs);
+      chain.insertContentAt(to, content, { updateSelection: true });
     }
-    chain.focus('end').scrollIntoView().run();
+    chain.scrollIntoView().run();
     onCheckpoint('ai');
     closeAIPrompt();
   }
@@ -424,11 +438,12 @@ export function useNoteWriting({
         aiPrompt.anchorPos ?? ed.state.selection.from,
         ed.state.doc.content.size,
       );
+      const content = generatedContent();
+      if (!content.length) throw new Error(aiPrompt.error || 'Das Modell hat keinen einfügbaren Text erzeugt.');
+      const insertionRange = emptyParagraphRangeAtPosition(ed, insertionPos) || insertionPos;
       ed.chain()
         .focus()
-        .setTextSelection(insertionPos)
-        .insertAiBlock({ ...aiBlockAttrs() })
-        .focus('end')
+        .insertContentAt(insertionRange, content, { updateSelection: true })
         .scrollIntoView()
         .run();
       onCheckpoint('ai');

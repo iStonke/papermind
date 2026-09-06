@@ -6,7 +6,9 @@
     :data-callout="kind"
   >
     <header class="pm-callout__head" contenteditable="false">
-      <span class="pm-callout__glyph" aria-hidden="true">{{ meta.glyph }}</span>
+      <span class="pm-callout__glyph" aria-hidden="true">
+        <PmActionIcon :name="meta.icon" :size="18" />
+      </span>
       <select
         v-if="editor.isEditable"
         class="pm-callout__kind"
@@ -27,6 +29,7 @@
 </template>
 
 <script setup>
+import PmActionIcon from '../../PmActionIcon.vue';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { NodeViewContent, NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3';
 import {
@@ -96,10 +99,6 @@ function changeKind(event) {
   animation: pm-callout-glyph-arrive 280ms cubic-bezier(0.16, 1, 0.3, 1) 105ms both;
 }
 
-.pm-callout.is-arriving .pm-callout__kind {
-  animation: pm-callout-content-arrive 280ms ease-out 145ms both;
-}
-
 .pm-callout.is-arriving .pm-callout__content {
   animation: pm-callout-content-arrive 320ms ease-out 195ms both;
 }
@@ -107,8 +106,6 @@ function changeKind(event) {
 .pm-callout.is-question { --pm-callout-color: var(--pm-accent, #006b75); }
 .pm-callout.is-info { --pm-callout-color: #2878b5; }
 .pm-callout.is-decision { --pm-callout-color: #2f855a; }
-.pm-callout.is-deadline { --pm-callout-color: var(--pm-danger, #c84c4c); }
-.pm-callout.is-source { --pm-callout-color: #5b6fb8; }
 .pm-callout.is-prompt { --pm-callout-color: #7c5aa6; }
 
 .pm-callout.is-selected {
@@ -130,11 +127,6 @@ function changeKind(event) {
   height: 18px;
   flex: none;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--pm-callout-color) 42%, transparent);
-  border-radius: 5px;
-  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
-  font-size: 11px;
-  font-weight: 700;
 }
 
 .pm-callout__kind {
@@ -182,13 +174,11 @@ function changeKind(event) {
 @media (prefers-reduced-motion: reduce) {
   .pm-callout.is-arriving::before,
   .pm-callout.is-arriving .pm-callout__glyph,
-  .pm-callout.is-arriving .pm-callout__kind,
   .pm-callout.is-arriving .pm-callout__content { animation: none; }
 }
 
 :global(.pm-no-animations) .pm-callout.is-arriving::before,
 :global(.pm-no-animations) .pm-callout.is-arriving .pm-callout__glyph,
-:global(.pm-no-animations) .pm-callout.is-arriving .pm-callout__kind,
 :global(.pm-no-animations) .pm-callout.is-arriving .pm-callout__content {
   animation: none;
 }

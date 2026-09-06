@@ -88,11 +88,16 @@ Befolge die Anweisung des Nutzers und orientiere dich an Sprache, Stil und
 Detailgrad der vorhandenen Notiz.
 
 Gib ausschließlich den einzufügenden Text aus – ohne Begrüßung, Erklärung,
-Anführungszeichen oder Markdown-Codeblock.
+Anführungszeichen oder äußere Markdown-Codeblock-Hülle.
 
 Wenn der Nutzer eine Aufzählung verlangt, verwende gültiges Markdown: Jeder
 ungeordnete Listenpunkt beginnt in einer eigenen Zeile mit „- “, nummerierte
 Listen verwenden „1. “, „2. “ usw.
+
+Einkaufslisten, Packlisten und Checklisten werden als Aufgaben formatiert:
+Jede Aufgabe steht in einer eigenen Zeile mit „- [ ] “. Halte die verlangte
+Anzahl von Einträgen genau ein. Überschriften, Zitate, Hinweisblöcke und Code
+verwenden die passenden Markdown-Strukturen des Editors.
 
 Wenn der Nutzer eine Tabelle verlangt, verwende eine gültige Markdown-Tabelle
 mit Kopfzeile und Trennzeile – ohne Markdown-Codeblock.

@@ -98,12 +98,19 @@ import { NOTE_AI_STREAM } from '../components/notes/composables/noteAIRequest.js
 const testOptions = new URLSearchParams(window.location.search);
 const workspaceMode = testOptions.has('workspace');
 const mockAI = testOptions.get('ai') === 'mock';
+const formatFixtures = {
+  tasks: ['Mandarine', 'Zitrone', 'Banane', 'Kiwi', 'Erdbeere', 'Himbeere', 'Brombeere', 'Blaubeere', 'Pfirsich', 'Kirsche']
+    .map((name) => `- [ ] ${name}`).join('\n'),
+  mixed: '## Wochenplan\n\n### Vorbereitung\n\n- [ ] Einkauf erledigen\n\n> [!IMPORTANT]\n> Frische Zutaten verwenden.\n\n| Obst | Menge |\n| --- | --- |\n| Kiwi | 3 |\n\n```js\nconst menge = 3;\n```',
+};
 if (mockAI) provide(NOTE_AI_STREAM, async (payload, { signal, onEvent }) => {
   if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
   onEvent({ type: 'meta', provider: 'ollama', model: 'Lokaler Prüfstand' });
   const text = payload.selected_text.startsWith('⟦1⟧')
-    ? payload.selected_text.replace(/(⟦\d+⟧ [^\n]+)/g, '$1.')
-    : 'Prüfantwort für den lokalen Editor.';
+    ? (testOptions.get('format') === 'cleanup'
+      ? '⟦1⟧\n- [ ] Milch kaufen\n- [ ] Brot holen'
+      : payload.selected_text.replace(/Nur Inline:\n/g, '').replace(/(⟦\d+⟧ [^\n]+)/g, '$1.'))
+    : (formatFixtures[testOptions.get('format')] || 'Prüfantwort für den lokalen Editor.');
   onEvent({ type: 'delta', text });
 });
 

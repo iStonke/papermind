@@ -15,6 +15,7 @@ from app.schemas.notes import NoteTextGenerationRequest
 from app.schemas.settings import NOTE_WRITING_SYSTEM_PROMPT_DEFAULT
 from app.services.ai_credentials import AICredentialService
 from app.services.settings import SettingsService
+from app.services.note_editor_format import NOTE_EDITOR_FORMAT
 
 
 Provider = Literal["ollama", "openai", "anthropic"]
@@ -100,7 +101,10 @@ class NoteAIService:
         return GenerationPlan(
             provider=provider,
             model=model,
-            system_prompt=str(cfg.system_prompt or NOTE_WRITING_SYSTEM_PROMPT_DEFAULT).strip(),
+            system_prompt=(
+                str(cfg.system_prompt or NOTE_WRITING_SYSTEM_PROMPT_DEFAULT).strip()
+                + "\n\n" + NOTE_EDITOR_FORMAT
+            ),
             user_prompt=_user_prompt(payload, int(cfg.note_context_chars)),
             api_key=api_key,
             base_url=str(runtime.ollama.base_url).rstrip("/"),

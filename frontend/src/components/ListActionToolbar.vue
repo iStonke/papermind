@@ -21,11 +21,16 @@
             <button
               type="button"
               class="list-action-toolbar__action-btn list-action-toolbar__action-btn--icon"
-              :class="{ 'list-action-toolbar__action-btn--active': action.active }"
+              :class="{
+                'list-action-toolbar__action-btn--active': action.active,
+                'list-action-toolbar__action-btn--icon-only': action.iconOnly,
+              }"
+              :aria-label="action.iconOnly ? action.label : undefined"
+              :title="action.iconOnly ? action.label : undefined"
               v-bind="menuProps"
             >
               <v-icon v-if="action.icon" size="14">{{ action.icon }}</v-icon>
-              {{ action.label }}
+              <span v-if="!action.iconOnly" class="list-action-toolbar__action-label">{{ action.label }}</span>
             </button>
           </template>
           <v-list density="compact" :min-width="action.minWidth || 170" class="list-action-toolbar-menu__list">
@@ -177,6 +182,23 @@ const emit = defineEmits(['action-select', 'filter-toggle', 'right-action', 'tog
 .list-action-toolbar__action-btn--active {
   color: rgb(var(--v-theme-primary));
   background: rgba(var(--v-theme-primary), 0.08);
+}
+
+/* Inaktive Filter kollabieren zum Icon, damit die Leiste in schmalen Spalten
+   nicht überläuft; aktive zeigen ihren Wert. Lange Werte werden gekürzt. */
+.list-action-toolbar__action-btn--icon-only {
+  width: 26px;
+  height: 26px;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+}
+
+.list-action-toolbar__action-label {
+  overflow: hidden;
+  max-width: 15ch;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .list-action-toolbar__select-btn {

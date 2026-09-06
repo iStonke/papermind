@@ -57,10 +57,12 @@ class NoteAIServiceTest(unittest.TestCase):
 
         self.assertEqual(plan.provider, "openai")
         self.assertEqual(plan.model, "openai-writer")
-        self.assertEqual(
-            plan.system_prompt,
-            "Eigene interne Schreibanweisung für Notizen mit deutlich mehr als fünfzig Zeichen.",
-        )
+        self.assertTrue(plan.system_prompt.startswith(
+            "Eigene interne Schreibanweisung für Notizen mit deutlich mehr als fünfzig Zeichen.\n\n"
+        ))
+        self.assertIn("EDITOR-FORMAT:", plan.system_prompt)
+        self.assertIn("genau 10 solche Zeilen", plan.system_prompt)
+        self.assertIn("- [ ] Text", plan.system_prompt)
         self.assertFalse(plan.local_only)
         self.assertEqual(plan.fallback_model, "local-writer")
         self.assertIn("VERBINDLICHE LÄNGENVORGABE:\n1–2 Sätze", plan.user_prompt)

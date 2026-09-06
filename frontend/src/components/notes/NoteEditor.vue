@@ -232,6 +232,7 @@ import { useNoteCleanup } from './composables/useNoteCleanup.js';
 import { createNoteOverlayCoordinator } from './composables/noteOverlayCoordinator.js';
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, toRaw, watch } from 'vue';
 import { NOTE_AI_STREAM } from './composables/noteAIRequest.js';
+import { NoteAIGeneration } from './extensions/aiGeneration.js';
 import { EditorContent, useEditor, posToDOMRect } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
 import FileHandler from '@tiptap/extension-file-handler';
@@ -279,6 +280,7 @@ import {
 } from '../../utils/noteSlashUsage.js';
 import { uploadNoteImage } from '../../api/notes.js';
 import { NOTE_HIGHLIGHT_COLORS } from '../../utils/noteHighlights.js';
+import { placeSelectionBubble } from '../../utils/noteBubblePosition.js';
 
 const props = defineProps({
   /** Body als ProseMirror-JSON-Dokument (oder null für leer). */
@@ -411,6 +413,7 @@ const editor = useEditor({
     Placeholder.configure({ placeholder: props.placeholder }),
     Typography,
     TaskList,
+    NoteAIGeneration,
     PaperMindTaskItem.configure({ nested: true }),
     TableKit.configure({
       table: {
@@ -1013,6 +1016,9 @@ const BUBBLE_BUTTON_WIDTH = 32;
 const BUBBLE_AI_BUTTON_WIDTH = 36;
 const BUBBLE_GAP = 2;
 const BUBBLE_SHELL_WIDTH = 10;
+const BUBBLE_ESTIMATED_HEIGHT = 40;
+const BUBBLE_SELECTION_GAP = 8;
+let bubblePositionRevision = 0;
 
 const bubbleButtons = computed(() => {
   const ed = editor.value;
@@ -1061,6 +1067,7 @@ const bubbleButtons = computed(() => {
 });
 
 function refreshBubble() {
+  const revision = ++bubblePositionRevision;
   // Bei jeder Auswahländerung die Farbreihe wieder einklappen.
   bubbleHighlight.open = false;
   const ed = editor.value;
@@ -1075,6 +1082,19 @@ function refreshBubble() {
   }
 
   const rect = posToDOMRect(view, from, to);
+  const scrollRect = toolbarScrollContainer?.getBoundingClientRect();
+  const toolbarRect = rootEl.value
+    ?.querySelector('.note-editor__toolbar-guard')
+    ?.getBoundingClientRect();
+  const viewportTop = Math.max(
+    BUBBLE_VIEWPORT_MARGIN,
+    scrollRect?.top ?? BUBBLE_VIEWPORT_MARGIN,
+    toolbarRect?.bottom ?? BUBBLE_VIEWPORT_MARGIN,
+  );
+  const viewportBottom = Math.min(
+    window.innerHeight - BUBBLE_VIEWPORT_MARGIN,
+    scrollRect?.bottom ?? window.innerHeight - BUBBLE_VIEWPORT_MARGIN,
+  );
   const estimatedWidth = bubbleButtons.value.reduce(
     (width, button) => width + (button.ai ? BUBBLE_AI_BUTTON_WIDTH + 3 : BUBBLE_BUTTON_WIDTH),
     BUBBLE_SHELL_WIDTH + Math.max(0, bubbleButtons.value.length - 1) * BUBBLE_GAP,
@@ -1092,18 +1112,37 @@ function refreshBubble() {
       Math.min(rect.left + rect.width / 2, maxCenter),
     );
   };
+  const positionBubble = (height) => placeSelectionBubble({
+    selectionRect: rect,
+    viewportTop,
+    viewportBottom,
+    bubbleHeight: height,
+    gap: BUBBLE_SELECTION_GAP,
+  });
+  const estimatedPosition = positionBubble(BUBBLE_ESTIMATED_HEIGHT);
+  if (!estimatedPosition) {
+    bubble.show = false;
+    return;
+  }
   bubble.style = {
     left: `${clampCenterToViewport(estimatedWidth)}px`,
-    top: `${rect.top}px`,
-    transform: 'translate(-50%, calc(-100% - 8px))',
+    top: `${estimatedPosition.top}px`,
+    transform: 'translateX(-50%)',
   };
   bubble.show = true;
   nextTick(() => {
     const measuredWidth = bubbleEl.value?.offsetWidth;
-    if (!bubble.show || !measuredWidth) return;
+    const measuredHeight = bubbleEl.value?.offsetHeight;
+    if (revision !== bubblePositionRevision || !bubble.show || !measuredWidth || !measuredHeight) return;
+    const measuredPosition = positionBubble(measuredHeight);
+    if (!measuredPosition) {
+      bubble.show = false;
+      return;
+    }
     bubble.style = {
       ...bubble.style,
       left: `${clampCenterToViewport(measuredWidth)}px`,
+      top: `${measuredPosition.top}px`,
     };
   });
 }
@@ -1994,6 +2033,10 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
 .note-editor :deep(.pm-content ul[data-type="taskList"] input[type="checkbox"]:checked) {
   border-color: var(--pm-accent, #006b75);
   background: var(--pm-accent, #006b75);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m4 8 2.5 2.5L12 5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: center;
+  background-size: 0.85rem 0.85rem;
+  background-repeat: no-repeat;
 }
 
 .note-editor :deep(.pm-content ul[data-type="taskList"] input[type="checkbox"]:focus-visible) {

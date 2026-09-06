@@ -3,6 +3,7 @@ export const NOTE_CALLOUT_OPTIONS = Object.freeze([
     value: 'info',
     label: 'Information',
     glyph: 'i',
+    icon: 'callout-info',
     description: 'Ergänzende Information hervorheben',
     terms: ['information', 'info', 'hinweis', 'wissen'],
   },
@@ -10,6 +11,7 @@ export const NOTE_CALLOUT_OPTIONS = Object.freeze([
     value: 'important',
     label: 'Wichtig',
     glyph: '!',
+    icon: 'callout-important',
     description: 'Zentrale Information hervorheben',
     terms: ['wichtig', 'hinweis', 'achtung'],
   },
@@ -17,6 +19,7 @@ export const NOTE_CALLOUT_OPTIONS = Object.freeze([
     value: 'question',
     label: 'Frage',
     glyph: '?',
+    icon: 'callout-question',
     description: 'Offene Frage festhalten',
     terms: ['frage', 'offen', 'prüfen', 'unklar'],
   },
@@ -24,27 +27,15 @@ export const NOTE_CALLOUT_OPTIONS = Object.freeze([
     value: 'decision',
     label: 'Entscheidung',
     glyph: '✓',
+    icon: 'callout-decision',
     description: 'Entscheidung dokumentieren',
     terms: ['entscheidung', 'beschluss', 'ergebnis'],
-  },
-  {
-    value: 'deadline',
-    label: 'Frist',
-    glyph: '◷',
-    description: 'Termin oder Frist markieren',
-    terms: ['frist', 'termin', 'datum', 'deadline'],
-  },
-  {
-    value: 'source',
-    label: 'Fundstelle',
-    glyph: '⌖',
-    description: 'Beleg oder Fundstelle hervorheben',
-    terms: ['fundstelle', 'quelle', 'beleg', 'dokument'],
   },
   {
     value: 'prompt',
     label: 'KI-Prompt',
     glyph: '✦',
+    icon: 'callout-prompt',
     description: 'Prompt für die Schreibassistenz festhalten',
     terms: ['ki', 'ai', 'prompt', 'anweisung', 'schreibauftrag'],
   },
@@ -52,6 +43,8 @@ export const NOTE_CALLOUT_OPTIONS = Object.freeze([
 
 export function normalizeNoteCalloutKind(value) {
   const normalized = String(value || '').toLowerCase();
+  // Retired kinds retain their content as ordinary information blocks.
+  if (['deadline', 'source'].includes(normalized)) return 'info';
   return NOTE_CALLOUT_OPTIONS.some((option) => option.value === normalized)
     ? normalized
     : 'important';

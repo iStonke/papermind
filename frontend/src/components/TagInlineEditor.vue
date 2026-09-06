@@ -1,5 +1,11 @@
 <template>
-  <div class="pm-tags-input" :class="{ 'pm-tags-input--disabled': disabled }">
+  <div
+    class="pm-tags-input"
+    :class="{
+      'pm-tags-input--disabled': disabled,
+      'pm-tags-input--single-line': singleLine,
+    }"
+  >
     <TransitionGroup name="metadata-tag-chip" tag="div" class="pm-tags-input__chips">
       <span
         v-for="name in normalizedNames"
@@ -64,6 +70,7 @@ const props = defineProps({
   items: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
+  singleLine: { type: Boolean, default: false },
   menuProps: { type: Object, default: () => ({}) },
   isItemActive: { type: Function, default: null },
 });
@@ -121,6 +128,38 @@ const resolvedMenuProps = computed(() => ({
   /* Die TransitionGroup darf keine eigene Flex-Zeile belegen. So fließen
      bestehende Chips und „+ Tag“ gemeinsam durch dieselben Kartenzeilen. */
   display: contents;
+}
+
+.pm-tags-input--single-line {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 30px;
+  height: 30px;
+  flex-flow: row nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 2px;
+  scrollbar-width: none;
+}
+
+.pm-tags-input--single-line::-webkit-scrollbar { display: none; }
+
+.pm-tags-input--single-line .pm-tags-input__chip-wrap,
+.pm-tags-input--single-line .pm-tags-input__field { flex: none; }
+
+/* „+ Tag" bleibt rechts fixiert und damit immer vollständig sichtbar; die Chips
+   scrollen sauber dahinter durch (mit weichem Farbverlauf-Rand als Maske).
+   `.v-input` für höhere Spezifität als die spätere position:relative-Regel. */
+.pm-tags-input--single-line .pm-tags-input__field.v-input {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  /* Eckiger, deckender Hintergrund maskiert dahinter scrollende Chips restlos
+     (die gerundeten Ecken würden sonst einen Chip durchscheinen lassen); die
+     gestrichelte Pille bleibt über ::before/::after gerundet. */
+  border-radius: 0;
+  background: var(--pm-content-surface, #fff);
+  box-shadow: -10px 0 8px -6px var(--pm-content-surface, #fff);
 }
 
 .pm-tags-input--disabled {
@@ -207,7 +246,9 @@ const resolvedMenuProps = computed(() => ({
 .pm-tags-input__field.v-input::after {
   position: absolute;
   inset: 0;
-  border-radius: inherit;
+  /* Explizit (nicht inherit): so bleibt die gestrichelte „+ Tag"-Pille gerundet,
+     auch wenn der maskierende Feld-Hintergrund im single-line-Modus eckig ist. */
+  border-radius: 15px;
   pointer-events: none;
   content: '';
   transition: opacity 0.18s ease, border-color 0.12s ease;
