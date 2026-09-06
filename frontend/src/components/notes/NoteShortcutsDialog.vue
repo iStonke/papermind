@@ -1,45 +1,45 @@
 <template>
-    <Teleport to="body">
+  <Teleport to="body">
+    <div
+      v-if="shortcutsOpen"
+      class="pm-shortcuts-overlay"
+      @click.self="closeShortcuts"
+      @keydown.esc.prevent="closeShortcuts"
+    >
       <div
-        v-if="shortcutsOpen"
-        class="pm-shortcuts-overlay"
-        @click.self="closeShortcuts"
-        @keydown.esc.prevent="closeShortcuts"
+        class="pm-shortcuts"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pm-shortcuts-title"
       >
-          <div
-            class="pm-shortcuts"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="pm-shortcuts-title"
+        <div class="pm-shortcuts__head">
+          <h2 id="pm-shortcuts-title" class="pm-shortcuts__title">Tastenkürzel</h2>
+          <button
+            ref="shortcutsCloseEl"
+            type="button"
+            class="pm-shortcuts__close"
+            aria-label="Schließen"
+            @click="closeShortcuts"
           >
-            <div class="pm-shortcuts__head">
-              <h2 id="pm-shortcuts-title" class="pm-shortcuts__title">Tastenkürzel</h2>
-              <button
-                ref="shortcutsCloseEl"
-                type="button"
-                class="pm-shortcuts__close"
-                aria-label="Schließen"
-                @click="closeShortcuts"
-              >
-                <v-icon size="18">mdi-close</v-icon>
-              </button>
-            </div>
-            <div class="pm-shortcuts__grid">
-              <section v-for="group in shortcutGroups" :key="group.title" class="pm-shortcuts__group">
-                <h3 class="pm-shortcuts__group-title">{{ group.title }}</h3>
-                <ul class="pm-shortcuts__list">
-                  <li v-for="row in group.items" :key="row.label" class="pm-shortcuts__row">
-                    <span class="pm-shortcuts__label">{{ row.label }}</span>
-                    <span class="pm-shortcuts__keys">
-                      <kbd v-for="(key, i) in row.keys" :key="i">{{ key }}</kbd>
-                    </span>
-                  </li>
-                </ul>
-              </section>
-            </div>
+            <v-icon size="18">mdi-close</v-icon>
+          </button>
+        </div>
+          <div class="pm-shortcuts__grid">
+            <section v-for="group in shortcutGroups" :key="group.title" class="pm-shortcuts__group">
+              <h3 class="pm-shortcuts__group-title">{{ group.title }}</h3>
+              <ul class="pm-shortcuts__list">
+                <li v-for="row in group.items" :key="row.label" class="pm-shortcuts__row">
+                  <span class="pm-shortcuts__label">{{ row.label }}</span>
+                  <span class="pm-shortcuts__keys">
+                    <kbd v-for="(key, i) in row.keys" :key="i">{{ key }}</kbd>
+                  </span>
+                </li>
+              </ul>
+            </section>
           </div>
-      </div>
-    </Teleport>
+        </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup>

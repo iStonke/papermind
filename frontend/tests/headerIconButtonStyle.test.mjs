@@ -20,7 +20,7 @@ test('compact header actions share one fixed tonal icon-button geometry', () => 
   assert.equal((documentsSource.match(/knowledge-header-btn[^"\n]*pm-header-icon-btn/g) || []).length, 2);
   assert.match(notesSource, /notes-ws__manage-toggle pm-header-icon-btn/);
   assert.match(documentsSource, /<v-icon size="20">mdi-clock-outline<\/v-icon>/);
-  assert.match(notesSource, /<v-icon size="20">\{\{ isManageMode/);
+  assert.match(notesSource, /<v-icon size="20">mdi-view-grid-outline<\/v-icon>/);
 });
 
 test('dense editor action groups use the quiet variant without changing geometry', () => {

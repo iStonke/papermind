@@ -1,17 +1,17 @@
 <template>
+  <div
+    class="note-editor__toolbar-guard"
+    :class="{ 'is-scrolled': toolbarScrolled }"
+  >
     <div
-      class="note-editor__toolbar-guard"
-      :class="{ 'is-scrolled': toolbarScrolled }"
+      ref="toolbarEl"
+      class="note-editor__toolbar"
+      :class="{ 'is-compact': toolbarCompact }"
+      role="toolbar"
+      aria-label="Text formatieren"
+      :aria-disabled="readonly ? 'true' : undefined"
+      :inert="readonly ? '' : undefined"
     >
-      <div
-        ref="toolbarEl"
-        class="note-editor__toolbar"
-        :class="{ 'is-compact': toolbarCompact }"
-        role="toolbar"
-        aria-label="Text formatieren"
-        :aria-disabled="readonly ? 'true' : undefined"
-        :inert="readonly ? '' : undefined"
-      >
       <div class="note-editor__toolbar-menu">
         <button
           type="button"
@@ -243,9 +243,8 @@
 
       <slot />
 
-      </div>
     </div>
-
+  </div>
 </template>
 
 <script setup>
@@ -254,7 +253,31 @@ const props = defineProps({
   readonly: Boolean,
   toolbarScrolled: Boolean,
 });
-const { toolbarEl, openMenu, toolbarCompact, blockStyleItems, listStyleItems, pageLayoutItems, toolbarCalloutOptions, quickBlockItems, overflowItems, insertItemDisabled, isBlockActive, toggleMenu, openMenuFocus, onMenuKeydown, runBlockStyle, currentPageLayoutColumns, runPageLayout, insertAdjacentPageLayout, removeCurrentPageLayout, isTextHighlightActive, applyTextHighlight, removeTextHighlight, runMenuItem, runCalloutKind, runQuickBlock, toolbarActive } = props.controller;
+const {
+  toolbarEl,
+  openMenu,
+  toolbarCompact,
+  blockStyleItems,
+  listStyleItems,
+  pageLayoutItems,
+  toolbarCalloutOptions,
+  quickBlockItems,
+  overflowItems,
+  insertItemDisabled,
+  isBlockActive,
+  toggleMenu,
+  openMenuFocus,
+  onMenuKeydown,
+  runBlockStyle,
+  currentPageLayoutColumns,
+  runPageLayout,
+  insertAdjacentPageLayout,
+  removeCurrentPageLayout,
+  runMenuItem,
+  runCalloutKind,
+  runQuickBlock,
+  toolbarActive,
+} = props.controller;
 </script>
 
 <style scoped>

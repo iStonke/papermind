@@ -1,0 +1,164 @@
+.pm-table-handle {
+  position: absolute;
+  z-index: 9;
+  display: grid;
+  width: 26px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 88%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--pm-app-surface-raised, #fff) 94%, transparent);
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--pm-text, #0e181b) 9%, transparent);
+  color: var(--pm-muted, #535e62);
+  cursor: pointer;
+  opacity: 0.82;
+  transform-origin: center;
+  animation: pm-table-handle-in 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transition: opacity 130ms ease, color 130ms ease, background-color 130ms ease, transform 130ms ease;
+}
+
+.pm-table-handle:hover,
+.pm-table-handle:focus-visible,
+.pm-table-handle.is-open {
+  outline: none;
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 10%, var(--pm-app-surface-raised, #fff));
+  color: var(--pm-accent-strong, #00555f);
+  opacity: 1;
+  transform: scale(1.04);
+}
+
+@keyframes pm-table-handle-in {
+  from { opacity: 0; transform: translateX(4px) scale(0.9); }
+}
+
+.pm-table-menu {
+  width: 286px;
+  padding: 10px;
+}
+
+.pm-table-menu__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 3px 9px;
+  color: var(--pm-text, #0e181b);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.pm-table-menu__head strong {
+  color: var(--pm-accent-strong, #00555f);
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.72rem;
+}
+
+.pm-table-menu__grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
+}
+
+.pm-table-menu__cell {
+  aspect-ratio: 1.25;
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 5px;
+  outline: none;
+  background: var(--pm-viewer-surface, #eef2f4);
+  cursor: pointer;
+  transition: background-color 100ms ease, border-color 100ms ease, transform 100ms ease;
+}
+
+.pm-table-menu__cell.is-selected {
+  border-color: color-mix(in srgb, var(--pm-accent, #006b75) 56%, var(--pm-divider, #d8dfe1));
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 18%, var(--pm-viewer-surface, #eef2f4));
+}
+
+.pm-table-menu__cell:hover,
+.pm-table-menu__cell:focus-visible { transform: scale(1.06); }
+
+.pm-table-menu__header-options {
+  display: grid;
+  gap: 3px;
+  margin-top: 9px;
+}
+
+.pm-table-menu__header-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--pm-muted, #535e62);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.73rem;
+  text-align: left;
+}
+
+.pm-table-menu__header-toggle:hover,
+.pm-table-menu__header-toggle:focus-visible,
+.pm-table-menu__header-toggle.is-active {
+  outline: none;
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 10%, transparent);
+  color: var(--pm-accent-strong, #00555f);
+}
+
+.pm-table-menu__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.pm-table-menu__actions button {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--pm-text, #0e181b);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.7rem;
+  text-align: left;
+}
+
+.pm-table-menu__actions button:hover,
+.pm-table-menu__actions button:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 9%, transparent);
+  color: var(--pm-accent-strong, #00555f);
+}
+
+.pm-table-menu__actions button.is-danger:hover,
+.pm-table-menu__actions button.is-danger:focus-visible {
+  background: color-mix(in srgb, var(--pm-danger, #c84c4c) 10%, transparent);
+  color: var(--pm-danger, #c84c4c);
+}
+
+.pm-table-menu__actions button.is-danger {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  box-shadow: inset 0 1px 0 var(--pm-divider, #d8dfe1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .pm-table-handle { animation: none; }
+
+  .pm-table-handle { transition: none; }
+}
+
+:global(.pm-no-animations) .pm-table-handle {
+  animation: none;
+  transition: none;
+}

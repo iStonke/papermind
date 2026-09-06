@@ -27,7 +27,7 @@ test('toolbar menus use accessible icon-only buttons', () => {
 });
 
 test('callouts and template-backed quick blocks share one conditionally grouped toolbar menu', () => {
-  const quickBlockItemsSource = editorSource.match(/const quickBlockItems = computed\(\(\) => \(\[([\s\S]*?)\n\]\)\);/)?.[1] || '';
+  const quickBlockItemsSource = editorSource.match(/const quickBlockItems = computed\(\(\) => \(\[([\s\S]*?)\n\s*\]\)\);/)?.[1] || '';
   assert.match(editorSource, /v-if="openMenu === 'blocks'"/);
   assert.match(editorSource, /note-editor__blocks-menu-heading">Hinweisblöcke/);
   assert.match(editorSource, /<template v-if="quickBlockItems\.length">[\s\S]*?note-editor__blocks-menu-heading">Schnellblöcke/);
@@ -41,9 +41,9 @@ test('callouts and template-backed quick blocks share one conditionally grouped 
 });
 
 test('text menu groups paragraph styles and lists without duplicating them in insert', () => {
-  const insertItemsSource = editorSource.match(/const insertItems = \[([\s\S]*?)\n\];/)?.[1] || '';
-  const blockStyleItemsSource = editorSource.match(/const blockStyleItems = \[([\s\S]*?)\n\];/)?.[1] || '';
-  const listStyleItemsSource = editorSource.match(/const listStyleItems = \[([\s\S]*?)\n\];/)?.[1] || '';
+  const insertItemsSource = editorSource.match(/const insertItems = \[([\s\S]*?)\n\s*\];/)?.[1] || '';
+  const blockStyleItemsSource = editorSource.match(/const blockStyleItems = \[([\s\S]*?)\n\s*\];/)?.[1] || '';
+  const listStyleItemsSource = editorSource.match(/const listStyleItems = \[([\s\S]*?)\n\s*\];/)?.[1] || '';
   assert.match(editorSource, /note-editor__text-menu-heading">Textart/);
   assert.match(editorSource, /note-editor__text-menu-heading">Listen/);
   for (const label of ['Fließtext', 'Überschrift 2', 'Überschrift 3', 'Überschrift 4', 'Zitat', 'Codeblock']) {
@@ -58,7 +58,7 @@ test('text menu groups paragraph styles and lists without duplicating them in in
 });
 
 test('insert menu contains only links, evidence, and inserted objects', () => {
-  const insertItemsSource = editorSource.match(/const insertItems = \[([\s\S]*?)\n\];/)?.[1] || '';
+  const insertItemsSource = editorSource.match(/const insertItems = \[([\s\S]*?)\n\s*\];/)?.[1] || '';
   for (const label of [
     'Hyperlink',
     'Verweis',

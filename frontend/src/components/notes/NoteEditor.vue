@@ -1,11 +1,8 @@
 <!--
-  NoteEditor — M0 (editor-first): eine ruhige, papierartige Schreibfläche auf
-  TipTap/ProseMirror. Persistenz-agnostisch: gibt Titel + Body-JSON nach außen,
-  das Speichern (localStorage in M0, Backend ab M2) übernimmt der Aufrufer.
-
-  Bewusst OHNE tippy: Bubble- und Slash-Menü sind selbst positionierte Elemente
-  INNERHALB von .papermind-app, damit die --pm-*-Kontur-Tokens greifen. Die
-  schlanke KI-Eingabe sitzt dauerhaft und ohne eigene Chrome in der Werkzeugleiste.
+  NoteEditor besitzt die gemeinsame TipTap-Instanz, synchronisiert Titel und
+  Body-JSON und stellt Suche, Verlauf und Fokus für den Aufrufer bereit.
+  Werkzeugleiste, KI-Funktionen und Einfügemenüs besitzen jeweils eigene
+  Controller und Ansichten. Das Speichern übernimmt weiterhin der Aufrufer.
 -->
 <template>
   <div
@@ -88,19 +85,7 @@
         </div>
       </div>
 
-      <button
-        v-if="editor && tableHandle.visible"
-        type="button"
-        class="pm-table-handle"
-        :class="{ 'is-open': tableMenu.open && tableMenu.mode === 'edit' }"
-        :style="tableHandle.style"
-        aria-label="Tabellenaktionen öffnen"
-        title="Tabellenaktionen"
-        @pointermove.stop
-        @mousedown.stop.prevent="openTableMenuFromHandle"
-      >
-        <v-icon size="18">mdi-dots-vertical</v-icon>
-      </button>
+      <NoteTableMenu :controller="tables" />
 
       <!-- Auswahl-Formatierung -->
       <div
@@ -157,50 +142,8 @@
 
       <!-- Klassischer externer Hyperlink. Interne PaperMind-Ziele bleiben
            bewusst dem [[Verweis]]-Element vorbehalten. -->
-      <form
-        v-if="editor && linkEditor.open"
-        class="pm-float pm-link-editor"
-        :style="linkEditor.style"
-        aria-label="Hyperlink bearbeiten"
-        @submit.prevent="applyLink"
-        @mousedown.stop
-      >
-        <div class="pm-link-editor__head">
-          <span><v-icon size="17">mdi-link-variant</v-icon> Hyperlink</span>
-          <kbd>⌘K</kbd>
-        </div>
-        <div class="pm-link-editor__input-row">
-          <input
-            ref="linkInputEl"
-            v-model="linkEditor.href"
-            type="text"
-            inputmode="url"
-            autocomplete="url"
-            spellcheck="false"
-            placeholder="https://… oder name@domain.de"
-            :aria-invalid="linkEditor.error ? 'true' : undefined"
-            @input="linkEditor.error = ''; linkEditor.copied = false"
-            @keydown.esc.prevent="closeLinkEditor(true)"
-          />
-          <button type="submit" class="pm-link-editor__save" aria-label="Hyperlink übernehmen">
-            <v-icon size="18">mdi-check</v-icon>
-          </button>
-        </div>
-        <div v-if="linkEditor.error" class="pm-link-editor__error" role="alert">{{ linkEditor.error }}</div>
-        <div v-if="linkEditor.existing" class="pm-link-editor__actions">
-          <button type="button" @click="openLinkTarget">
-            <v-icon size="17">mdi-open-in-new</v-icon><span>Öffnen</span>
-          </button>
-          <button type="button" @click="copyLinkTarget">
-            <v-icon size="17">mdi-content-copy</v-icon><span>{{ linkEditor.copied ? 'Kopiert' : 'Kopieren' }}</span>
-          </button>
-          <button type="button" class="is-danger" @click="removeLink">
-            <v-icon size="17">mdi-link-off</v-icon><span>Entfernen</span>
-          </button>
-        </div>
-      </form>
+      <NoteLinkMenu :controller="links" />
 
-      <!-- Slash-Menü -->
       <div
         v-if="editor && slash.open && slashResults.length"
         ref="slashMenuEl"
@@ -245,115 +188,7 @@
         </div>
       </div>
 
-      <!-- Tabellenwahl und kompakte Werkzeuge für die aktive Tabellenzelle. -->
-      <div
-        v-if="editor && tableMenu.open"
-        class="pm-float pm-table-menu"
-        :style="tableMenu.style"
-        :aria-label="tableMenu.mode === 'insert' ? 'Tabelle einfügen' : 'Tabelle bearbeiten'"
-        @mousedown.stop
-      >
-        <template v-if="tableMenu.mode === 'insert'">
-          <div class="pm-table-menu__head">
-            <span>Tabelle einfügen</span>
-            <strong>{{ tableMenu.rows }} × {{ tableMenu.cols }}</strong>
-          </div>
-          <div class="pm-table-menu__grid" role="grid" aria-label="Tabellengröße wählen">
-            <button
-              v-for="cell in TABLE_PICKER_CELLS"
-              :key="`${cell.row}:${cell.col}`"
-              type="button"
-              class="pm-table-menu__cell"
-              :class="{ 'is-selected': cell.row <= tableMenu.rows && cell.col <= tableMenu.cols }"
-              :aria-label="`${cell.row} Zeilen und ${cell.col} Spalten`"
-              @mouseenter="selectTableSize(cell.row, cell.col)"
-              @focus="selectTableSize(cell.row, cell.col)"
-              @mousedown.prevent="insertTable(cell.row, cell.col)"
-            ></button>
-          </div>
-          <div class="pm-table-menu__header-options" role="radiogroup" aria-label="Tabellenkopf wählen">
-            <button
-              type="button"
-              class="pm-table-menu__header-toggle"
-              :class="{ 'is-active': tableMenu.withHeaderRow }"
-              role="radio"
-              :aria-checked="tableMenu.withHeaderRow"
-              @mousedown.prevent="selectTableHeaderMode('row')"
-            >
-              <v-icon size="17">mdi-table-headers-eye</v-icon>
-              Erste Zeile als Kopfzeile
-            </button>
-            <button
-              type="button"
-              class="pm-table-menu__header-toggle"
-              :class="{ 'is-active': tableMenu.withHeaderColumn }"
-              role="radio"
-              :aria-checked="tableMenu.withHeaderColumn"
-              @mousedown.prevent="selectTableHeaderMode('column')"
-            >
-              <v-icon size="17">mdi-table-column</v-icon>
-              Erste Spalte als Kopfspalte
-            </button>
-          </div>
-        </template>
-
-        <template v-else>
-          <div class="pm-table-menu__head">
-            <span>Tabelle bearbeiten</span>
-          </div>
-          <div class="pm-table-menu__actions">
-            <button type="button" @mousedown.prevent="runTableCommand('addRowAfter')">
-              <v-icon size="17">mdi-table-row-plus-after</v-icon><span>Zeile darunter</span>
-            </button>
-            <button type="button" @mousedown.prevent="runTableCommand('addColumnAfter')">
-              <v-icon size="17">mdi-table-column-plus-after</v-icon><span>Spalte rechts</span>
-            </button>
-            <button type="button" @mousedown.prevent="runTableCommand('toggleHeaderRow')">
-              <v-icon size="17">mdi-table-headers-eye</v-icon><span>Kopfzeile umschalten</span>
-            </button>
-            <button type="button" @mousedown.prevent="runTableCommand('toggleHeaderColumn')">
-              <v-icon size="17">mdi-table-column</v-icon><span>Kopfspalte umschalten</span>
-            </button>
-            <button type="button" @mousedown.prevent="runTableCommand('deleteRow')">
-              <v-icon size="17">mdi-table-row-remove</v-icon><span>Zeile löschen</span>
-            </button>
-            <button type="button" @mousedown.prevent="runTableCommand('deleteColumn')">
-              <v-icon size="17">mdi-table-column-remove</v-icon><span>Spalte löschen</span>
-            </button>
-            <button type="button" class="is-danger" @mousedown.prevent="runTableCommand('deleteTable')">
-              <v-icon size="17">mdi-table-remove</v-icon><span>Tabelle löschen</span>
-            </button>
-          </div>
-        </template>
-      </div>
-
-      <!-- Beleg-/Ziel-Picker (aus /beleg, /zitat, /verweis oder [[) -->
-      <div
-        v-if="editor && picker.open && filteredPicker.length"
-        class="pm-float pm-slash pm-picker"
-        :style="picker.style"
-        role="listbox"
-        :aria-label="pickerHint()"
-      >
-        <div class="pm-slash__hint">{{ pickerHint() }}</div>
-        <button
-          v-for="(it, i) in filteredPicker"
-          :key="it.type + ':' + it.id"
-          type="button"
-          class="pm-slash__item"
-          :class="{ 'is-active': i === picker.index }"
-          role="option"
-          :aria-selected="i === picker.index"
-          @mousemove="picker.index = i"
-          @mousedown.prevent="pickItem(it)"
-        >
-          <span class="pm-slash__chip">{{ pickerChip(it) }}</span>
-          <span class="pm-slash__text">
-            <span class="pm-slash__label">{{ it.label }}</span>
-            <span class="pm-slash__desc">{{ it.hint }}</span>
-          </span>
-        </button>
-      </div>
+      <NoteReferencePicker :controller="references" />
 
       <!-- Vollständiger Dialog für explizite KI-Aufrufe am Text. Die dauerhaft
            sichtbare Toolbar-Zeile bleibt davon unabhängig kompakt. -->
@@ -383,6 +218,12 @@
 import NoteShortcutsDialog from './NoteShortcutsDialog.vue';
 import NoteEditorToolbar from './NoteEditorToolbar.vue';
 import { useNoteToolbar } from './composables/useNoteToolbar.js';
+import NoteLinkMenu from './NoteLinkMenu.vue';
+import NoteTableMenu from './NoteTableMenu.vue';
+import NoteReferencePicker from './NoteReferencePicker.vue';
+import { useNoteLinks } from './composables/useNoteLinks.js';
+import { useNoteTables } from './composables/useNoteTables.js';
+import { useNoteReferences } from './composables/useNoteReferences.js';
 import NoteWritingToolbar from './NoteWritingToolbar.vue';
 import NoteWritingPrompt from './NoteWritingPrompt.vue';
 import NoteCleanupReview from './NoteCleanupReview.vue';
@@ -426,11 +267,10 @@ import {
   CleanupReviewAnchor,
   hideCleanupReviewAnchor,
 } from './extensions/cleanupReviewAnchor.js';
-import { MOCK_DOCUMENTS, mockLinkTargets, targetGlyph } from './mockData.js';
+import { MOCK_DOCUMENTS, mockLinkTargets } from './mockData.js';
 import { NOTE_CALLOUT_OPTIONS } from '../../utils/noteCallouts.js';
 import { NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT } from '../../constants/promptDefaults.js';
 import { NOTE_TEMPLATE_PRESETS } from './nodes/noteTemplates.js';
-import { normalizeNoteHref, noteHrefLabel } from '../../utils/noteLinks.js';
 import {
   NOTE_SLASH_USAGE_STORAGE_KEY,
   incrementNoteSlashUsage,
@@ -500,7 +340,6 @@ function openShortcuts() {
   openMenu.value = null;
   shortcutsDialogRef.value?.open();
 }
-const linkInputEl = ref(null);
 const imageInputEl = ref(null);
 const slashMenuEl = ref(null);
 const bubbleEl = ref(null);
@@ -525,7 +364,6 @@ const normalizedFontFamily = computed(() =>
 let toolbarScrollContainer = null;
 let toolbarScrollRestoreFrame = null;
 let historyFlashTimer = null;
-let linkCopiedTimer = null;
 let emptyHintPositionFrame = null;
 let emptyHintResizeObserver = null;
 let imageUploadMessageTimer = null;
@@ -540,39 +378,6 @@ const imageUploadLabel = computed(() => (
     ? 'Bild wird eingefügt …'
     : `${imageUploadCount.value} Bilder werden eingefügt …`
 ));
-
-const TABLE_PICKER_SIZE = 5;
-const TABLE_PICKER_CELLS = Object.freeze(
-  Array.from({ length: TABLE_PICKER_SIZE ** 2 }, (_, index) => ({
-    row: Math.floor(index / TABLE_PICKER_SIZE) + 1,
-    col: (index % TABLE_PICKER_SIZE) + 1,
-  })),
-);
-const tableMenu = reactive({
-  open: false,
-  mode: 'insert',
-  rows: 3,
-  cols: 3,
-  withHeaderRow: true,
-  withHeaderColumn: false,
-  anchorPos: null,
-  style: {},
-});
-const tableHandle = reactive({
-  visible: false,
-  style: {},
-});
-let hoveredTableWrapper = null;
-let activeTableWrapper = null;
-const linkEditor = reactive({
-  open: false,
-  href: '',
-  existing: false,
-  copied: false,
-  error: '',
-  range: { from: 0, to: 0 },
-  style: {},
-});
 
 /* ── Editor ──────────────────────────────────────────────────────────────── */
 // Referenz auf das zuletzt selbst emittierte modelValue-JSON. Damit erkennt der
@@ -711,7 +516,6 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', refreshBubble);
   if (toolbarScrollRestoreFrame) window.cancelAnimationFrame(toolbarScrollRestoreFrame);
   if (historyFlashTimer) window.clearTimeout(historyFlashTimer);
-  if (linkCopiedTimer) window.clearTimeout(linkCopiedTimer);
   if (imageUploadMessageTimer) window.clearTimeout(imageUploadMessageTimer);
   if (emptyHintPositionFrame) window.cancelAnimationFrame(emptyHintPositionFrame);
   emptyHintResizeObserver?.disconnect();
@@ -789,9 +593,7 @@ watch(() => props.modelValue, (next) => {
   if (JSON.stringify(next || '') === current) return;
   // Ein verzögertes KI-Ergebnis darf niemals in eine inzwischen ausgewählte
   // andere Notiz geschrieben werden.
-  if (aiPrompt.open) closeAIPrompt();
-  if (cleanup.open || cleanupRestore.open) closeCleanup();
-  closeLinkEditor();
+  overlays.closeAll();
   ed.commands.setContent(next || '', { emitUpdate: false });
   resetSelectionAfterExternalContent(ed);
   updateWordCount(ed);
@@ -1044,18 +846,23 @@ function runToolbar(action) {
   commands[action]?.().run();
 }
 
-/* ── Formatierungsleiste: Menü-Gruppen + responsive Verdichtung ──────────────
-   Textstil, Layout und Einfügen bleiben als kompakte Icon-Menüs sichtbar. */
+/* ── Feature-Controller teilen die bestehende Editor-Instanz ─────────────── */
 
+const links = useNoteLinks({ editor, surfaceEl, props, overlays, clampMenuLeft });
+const tables = useNoteTables({ editor, surfaceEl, props, overlays, clampMenuLeft });
+const references = useNoteReferences({ editor, surfaceEl, props, overlays, clampMenuLeft, getTargets: linkTargetItems });
+const { linkEditor, openLinkEditor, closeLinkEditor, handleEditorPaste, handleEditorLinkClick } = links;
+const { tableMenu, openTableMenu, closeTableMenu, refreshTableHandle, trackTableHandle, clearHoveredTable, handleTableKeydown } = tables;
+const { picker, openPicker, refreshWikiLink, handlePickerKeydown } = references;
 const stream = inject(NOTE_AI_STREAM, undefined);
 const writing = useNoteWriting({ editor, surfaceEl, props, overlays, clampMenuLeft, stream, onCheckpoint: (reason) => emit('history-checkpoint', reason) });
 const cleaning = useNoteCleanup({ editor, props, overlays, stream, onCheckpoint: (reason) => emit('history-checkpoint', reason) });
-const { aiPrompt, aiOptionsOpen, openAIPrompt, closeAIPrompt, positionAIPrompt } = writing;
-const { cleanup, cleanupRestore, cleanupAnchorEl, startCleanup, closeCleanup, discardCleanup } = cleaning;
+const { aiPrompt, aiOptionsOpen, openAIPrompt, positionAIPrompt } = writing;
+const { cleanup, cleanupRestore, cleanupAnchorEl, startCleanup, discardCleanup } = cleaning;
 const rootEl = ref(null);
 const toolbar = useNoteToolbar({
   editor, rootEl, props, runToolbar, closeLinkEditor,
-  closeTableMenu: () => { tableMenu.open = false; },
+  closeTableMenu,
   beforeOpen: () => overlays.open('toolbar'),
   onOutsidePointer: (event) => {
     if (!event.target.closest?.('.note-editor__toolbar-ai')) aiOptionsOpen.value = false;
@@ -1070,129 +877,10 @@ const toolbar = useNoteToolbar({
 });
 const { openMenu, isTextHighlightActive, applyTextHighlight, removeTextHighlight } = toolbar;
 overlays.register('toolbar', () => { openMenu.value = null; });
-overlays.register('link', closeLinkEditor);
-overlays.register('table', () => { tableMenu.open = false; });
 overlays.register('slash', () => { slash.open = false; });
-overlays.register('picker', () => { picker.open = false; });
 overlays.register('bubble', () => { bubble.show = false; });
-
-function positionLinkEditor() {
-  const ed = editor.value;
-  const surface = surfaceEl.value;
-  if (!ed || !surface) return;
-  const from = Math.min(linkEditor.range.from, ed.state.doc.content.size);
-  const to = Math.min(Math.max(from, linkEditor.range.to), ed.state.doc.content.size);
-  const rect = posToDOMRect(ed.view, from, to);
-  const box = surface.getBoundingClientRect();
-  linkEditor.style = {
-    left: `${clampMenuLeft(rect.left - box.left, box.width, 360)}px`,
-    top: `${rect.bottom - box.top + 4}px`,
-  };
-}
-
-function openLinkEditor(options = null) {
-  const ed = editor.value;
-  if (!ed) return;
-  const explicitRange = Number.isInteger(options?.from) && Number.isInteger(options?.to);
-  if (!explicitRange && ed.isActive('link') && ed.state.selection.empty) {
-    ed.chain().focus().extendMarkRange('link').run();
-  }
-  const selection = explicitRange
-    ? { from: options.from, to: options.to }
-    : { from: ed.state.selection.from, to: ed.state.selection.to };
-  const href = String(options?.href || ed.getAttributes('link').href || '');
-
-  linkEditor.range = selection;
-  linkEditor.href = href;
-  linkEditor.existing = Boolean(href);
-  linkEditor.copied = false;
-  linkEditor.error = '';
-  positionLinkEditor();
-  linkEditor.open = true;
-  tableMenu.open = false;
-  slash.open = false;
-  picker.open = false;
-  bubble.show = false;
-  closeAIPrompt();
-  nextTick(() => {
-    linkInputEl.value?.focus();
-    linkInputEl.value?.select();
-  });
-}
-
-function closeLinkEditor(restoreFocus = false) {
-  linkEditor.open = false;
-  linkEditor.error = '';
-  linkEditor.copied = false;
-  if (restoreFocus) nextTick(() => editor.value?.chain().focus().run());
-}
-
-function applyLink() {
-  const ed = editor.value;
-  const normalizedHref = normalizeNoteHref(linkEditor.href);
-  if (!ed || !normalizedHref) {
-    linkEditor.error = 'Bitte eine gültige Web- oder E-Mail-Adresse eingeben.';
-    return;
-  }
-  const from = Math.min(linkEditor.range.from, ed.state.doc.content.size);
-  const to = Math.min(Math.max(from, linkEditor.range.to), ed.state.doc.content.size);
-  const attrs = { href: normalizedHref, target: '_blank', rel: 'noopener noreferrer' };
-  linkEditor.open = false;
-
-  if (from === to) {
-    const label = noteHrefLabel(linkEditor.href, normalizedHref);
-    ed.chain()
-      .focus()
-      .setTextSelection(from)
-      // Ein unformatiertes Leerzeichen beendet den Link sauber. Dadurch wird
-      // nach dem Einfügen nicht versehentlich im Link weitergeschrieben.
-      .insertContent([
-        { type: 'text', text: label, marks: [{ type: 'link', attrs }] },
-        { type: 'text', text: ' ' },
-      ])
-      .run();
-    return;
-  }
-  ed.chain().focus().setTextSelection({ from, to }).setLink(attrs).run();
-}
-
-function removeLink() {
-  const ed = editor.value;
-  if (!ed) return;
-  const from = Math.min(linkEditor.range.from, ed.state.doc.content.size);
-  const to = Math.min(Math.max(from, linkEditor.range.to), ed.state.doc.content.size);
-  linkEditor.open = false;
-  ed.chain().focus().setTextSelection({ from, to }).unsetLink().run();
-}
-
-function openLinkTarget() {
-  const href = normalizeNoteHref(linkEditor.href);
-  if (!href) {
-    linkEditor.error = 'Dieser Link ist nicht gültig.';
-    return;
-  }
-  if (href.startsWith('mailto:')) window.location.href = href;
-  else window.open(href, '_blank', 'noopener,noreferrer');
-}
-
-async function copyLinkTarget() {
-  const href = normalizeNoteHref(linkEditor.href);
-  if (!href) {
-    linkEditor.error = 'Dieser Link ist nicht gültig.';
-    return;
-  }
-  try {
-    await navigator.clipboard.writeText(href);
-    linkEditor.copied = true;
-    if (linkCopiedTimer) window.clearTimeout(linkCopiedTimer);
-    linkCopiedTimer = window.setTimeout(() => {
-      linkEditor.copied = false;
-      linkCopiedTimer = null;
-    }, 1400);
-  } catch {
-    linkEditor.error = 'Der Link konnte nicht kopiert werden.';
-  }
-}
+// Auch Notizen mit identischem Inhalt dürfen keine alten Menüzustände behalten.
+watch(() => props.noteId, () => overlays.closeAll());
 
 function setImageUploadMessage(message, { error = false } = {}) {
   imageUploadMessage.value = String(message || '');
@@ -1295,185 +983,6 @@ async function uploadImageFiles(inputFiles, { position = null } = {}) {
   } else if (images.length > 1) {
     setImageUploadMessage(`${images.length} Bilder wurden eingefügt.`);
   }
-}
-
-function handleEditorPaste(event) {
-  const ed = editor.value;
-  if (!ed || ed.state.selection.empty) return false;
-  const raw = event.clipboardData?.getData('text/plain')?.trim() || '';
-  const href = normalizeNoteHref(raw);
-  if (!href) return false;
-  event.preventDefault();
-  ed.chain()
-    .focus()
-    .setLink({ href, target: '_blank', rel: 'noopener noreferrer' })
-    .run();
-  return true;
-}
-
-function handleEditorLinkClick(view, event) {
-  const target = event.target instanceof Element ? event.target.closest('a[href]') : null;
-  if (!target) return false;
-  event.preventDefault();
-  try {
-    const from = view.posAtDOM(target, 0);
-    const to = view.posAtDOM(target, target.childNodes.length);
-    editor.value?.commands.setTextSelection({ from, to });
-    nextTick(() => openLinkEditor({ from, to, href: target.getAttribute('href') || '' }));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function positionTableMenu() {
-  const ed = editor.value;
-  const surface = surfaceEl.value;
-  if (!ed || !surface) return;
-  const pos = Math.min(tableMenu.anchorPos ?? ed.state.selection.from, ed.state.doc.content.size);
-  const rect = posToDOMRect(ed.view, pos, pos);
-  const box = surface.getBoundingClientRect();
-  tableMenu.style = {
-    left: `${clampMenuLeft(rect.left - box.left, box.width, 286)}px`,
-    top: `${rect.bottom - box.top + 4}px`,
-  };
-}
-
-function tableWrapperAtSelection() {
-  const ed = editor.value;
-  if (!ed?.isActive('table')) return null;
-  const domAtSelection = ed.view.domAtPos(ed.state.selection.from)?.node;
-  const element = domAtSelection instanceof Element
-    ? domAtSelection
-    : domAtSelection?.parentElement;
-  return element?.closest('.tableWrapper') || null;
-}
-
-function positionTableHandle(wrapper) {
-  const surface = surfaceEl.value;
-  if (!surface || !(wrapper instanceof Element)) return;
-  const surfaceRect = surface.getBoundingClientRect();
-  const tableRect = wrapper.getBoundingClientRect();
-  const outsideLeft = tableRect.left - surfaceRect.left - 30;
-  tableHandle.style = {
-    left: `${outsideLeft >= 2 ? outsideLeft : tableRect.left - surfaceRect.left + 6}px`,
-    top: `${tableRect.top - surfaceRect.top + 7}px`,
-  };
-  tableHandle.visible = true;
-  activeTableWrapper = wrapper;
-}
-
-function refreshTableHandle() {
-  const wrapper = hoveredTableWrapper || tableWrapperAtSelection();
-  if (!wrapper || !surfaceEl.value?.contains(wrapper)) {
-    tableHandle.visible = false;
-    activeTableWrapper = null;
-    return;
-  }
-  positionTableHandle(wrapper);
-}
-
-function trackTableHandle(event) {
-  const target = event.target;
-  if (!(target instanceof Element) || target.closest('.pm-table-handle, .pm-table-menu')) return;
-  hoveredTableWrapper = target.closest('.tableWrapper');
-  refreshTableHandle();
-}
-
-function clearHoveredTable() {
-  hoveredTableWrapper = null;
-  refreshTableHandle();
-}
-
-function openTableMenuFromHandle() {
-  const ed = editor.value;
-  const surface = surfaceEl.value;
-  const wrapper = activeTableWrapper;
-  if (!ed || !surface || !(wrapper instanceof Element)) return;
-
-  const cellContent = wrapper.querySelector('th p, td p, th, td');
-  if (cellContent) {
-    const pos = ed.view.posAtDOM(cellContent, 0);
-    ed.chain().focus().setTextSelection(pos).run();
-  }
-
-  const surfaceRect = surface.getBoundingClientRect();
-  const tableRect = wrapper.getBoundingClientRect();
-  tableMenu.mode = 'edit';
-  tableMenu.anchorPos = ed.state.selection.from;
-  tableMenu.style = {
-    left: `${clampMenuLeft(tableRect.left - surfaceRect.left + 4, surfaceRect.width, 286)}px`,
-    top: `${tableRect.top - surfaceRect.top + 36}px`,
-  };
-  tableMenu.open = true;
-  slash.open = false;
-  picker.open = false;
-  bubble.show = false;
-  closeLinkEditor();
-  closeAIPrompt();
-}
-
-function openTableMenu(requestedMode = null) {
-  const ed = editor.value;
-  if (!ed) return;
-  const explicitMode = requestedMode === 'insert' || requestedMode === 'edit' ? requestedMode : null;
-  tableMenu.mode = explicitMode || (ed.isActive('table') ? 'edit' : 'insert');
-  tableMenu.rows = 3;
-  tableMenu.cols = 3;
-  tableMenu.withHeaderRow = true;
-  tableMenu.withHeaderColumn = false;
-  tableMenu.anchorPos = ed.state.selection.from;
-  positionTableMenu();
-  tableMenu.open = true;
-  slash.open = false;
-  picker.open = false;
-  bubble.show = false;
-  closeLinkEditor();
-  closeAIPrompt();
-}
-
-function selectTableSize(rows, cols) {
-  tableMenu.rows = Math.min(TABLE_PICKER_SIZE, Math.max(1, Number(rows) || 1));
-  tableMenu.cols = Math.min(TABLE_PICKER_SIZE, Math.max(1, Number(cols) || 1));
-}
-
-function selectTableHeaderMode(mode) {
-  tableMenu.withHeaderRow = mode !== 'column';
-  tableMenu.withHeaderColumn = mode === 'column';
-}
-
-function insertTable(rows = tableMenu.rows, cols = tableMenu.cols) {
-  const ed = editor.value;
-  if (!ed) return;
-  const anchorPos = Math.min(tableMenu.anchorPos ?? ed.state.selection.from, ed.state.doc.content.size);
-  tableMenu.open = false;
-  const chain = ed.chain()
-    .focus()
-    .setTextSelection(anchorPos)
-    .insertTable({
-      rows: Math.max(1, Number(rows) || 1),
-      cols: Math.max(1, Number(cols) || 1),
-      withHeaderRow: tableMenu.withHeaderRow,
-    });
-  if (tableMenu.withHeaderColumn) chain.toggleHeaderColumn();
-  chain.scrollIntoView().run();
-}
-
-function runTableCommand(action) {
-  const ed = editor.value;
-  if (!ed || !ed.isActive('table')) return;
-  const chain = ed.chain().focus();
-  const commands = {
-    addRowAfter: () => chain.addRowAfter(),
-    addColumnAfter: () => chain.addColumnAfter(),
-    toggleHeaderRow: () => chain.toggleHeaderRow(),
-    toggleHeaderColumn: () => chain.toggleHeaderColumn(),
-    deleteRow: () => chain.deleteRow(),
-    deleteColumn: () => chain.deleteColumn(),
-    deleteTable: () => chain.deleteTable(),
-  };
-  tableMenu.open = false;
-  commands[action]?.().run();
 }
 
 /* ── Status-Anzeige ──────────────────────────────────────────────────────── */
@@ -1915,85 +1424,7 @@ function openLinkTargetPicker() {
     }).run());
 }
 
-/* ── KI-Schreibassistenz ─────────────────────────────────────────────────── */
-/* ── Aufräumen (sinnwahrend) ────────────────────────────────────────────────
-   Der Besen öffnet sofort eine Prüfung im Textfluss. Bei einer kompakten
-   Textauswahl wird exakt diese Auswahl bearbeitet; ohne Auswahl weiterhin die
-   losen Fließtext-Absätze der Notiz. Erst „Übernehmen“ verändert das Dokument. */
-/* ── Ziel-/Beleg-Picker (für /beleg, /zitat, /verweis und den [[-Trigger) ───── */
-const picker = reactive({ open: false, mode: 'document', items: [], index: 0, style: {}, live: false, from: null, query: '', onPick: null });
-
-const filteredPicker = computed(() => {
-  const q = picker.query.trim().toLowerCase();
-  if (!q) return picker.items;
-  return picker.items.filter(it =>
-    it.label.toLowerCase().includes(q) || (it.hint || '').toLowerCase().includes(q));
-});
-
-function pickerHint() { return picker.mode === 'target' ? 'Verweisen auf' : 'Beleg wählen'; }
-function pickerChip(it) { return targetGlyph(it.type); }
-
-function positionPicker() {
-  const ed = editor.value, surface = surfaceEl.value;
-  if (!ed || !surface) return;
-  const pos = ed.state.selection.from;
-  const rect = posToDOMRect(ed.view, pos, pos);
-  const box = surface.getBoundingClientRect();
-  picker.style = {
-    left: `${clampMenuLeft(rect.left - box.left, box.width)}px`,
-    top: `${rect.bottom - box.top + 4}px`,
-  };
-}
-
-function openPicker(mode, items, onPick) {
-  picker.mode = mode; picker.items = items; picker.onPick = onPick;
-  picker.live = false; picker.from = null; picker.query = ''; picker.index = 0;
-  positionPicker(); picker.open = true;
-  slash.open = false; tableMenu.open = false; bubble.show = false;
-  closeLinkEditor();
-}
-
-function pickItem(item) {
-  if (!item) return;
-  const ed = editor.value;
-  const onPick = picker.onPick;
-  // Live-Picker ([[): den getippten „[[query"-Text vor dem Einfügen entfernen.
-  if (picker.live && picker.from != null && ed) {
-    const to = ed.state.selection.from;
-    ed.chain().focus().deleteRange({ from: picker.from, to }).run();
-  }
-  picker.open = false;
-  onPick?.(item);
-}
-
-// [[-Trigger: erkennt „[[query" am Cursor und öffnet den Ziel-Picker live.
-function refreshWikiLink() {
-  const ed = editor.value, surface = surfaceEl.value;
-  if (!ed || !surface) return;
-  const { $from, empty } = ed.state.selection;
-  const closeLive = () => { if (picker.live) picker.open = false; };
-  if (!empty) { closeLive(); return; }
-  if (!$from.parent.isTextblock || $from.parent.type.name === 'codeBlock') { closeLive(); return; }
-
-  const before = $from.parent.textBetween(0, $from.parentOffset, '￼', '￼');
-  const m = /\[\[([^[\]]*)$/.exec(before);
-  if (!m) { closeLive(); return; }
-
-  const query = m[1];
-  picker.mode = 'target';
-  picker.items = linkTargetItems();
-  picker.live = true;
-  picker.from = ed.state.selection.from - (query.length + 2);
-  picker.query = query;
-  picker.onPick = (item) =>
-    ed.chain().focus().insertWikiLink({ targetType: item.type, targetId: item.id, label: item.label }).run();
-  if (!picker.open) picker.index = 0;
-  positionPicker();
-  picker.open = true;
-  slash.open = false;
-  closeLinkEditor();
-}
-
+/* ── Gemeinsame Editor-Tastatursteuerung ────────────────────────────────── */
 function onEditorKeyDown(event) {
   if (
     (event.metaKey || event.ctrlKey)
@@ -2019,30 +1450,10 @@ function onEditorKeyDown(event) {
     return true;
   }
 
-  if (tableMenu.open) {
-    if (event.key === 'Escape') { tableMenu.open = false; return true; }
-    if (tableMenu.mode === 'insert') {
-      if (event.key === 'ArrowRight') { selectTableSize(tableMenu.rows, tableMenu.cols + 1); return true; }
-      if (event.key === 'ArrowLeft') { selectTableSize(tableMenu.rows, tableMenu.cols - 1); return true; }
-      if (event.key === 'ArrowDown') { selectTableSize(tableMenu.rows + 1, tableMenu.cols); return true; }
-      if (event.key === 'ArrowUp') { selectTableSize(tableMenu.rows - 1, tableMenu.cols); return true; }
-      if (event.key === 'Enter') { insertTable(); return true; }
-    }
-  }
+  if (tableMenu.open && handleTableKeydown(event)) return true;
 
   // Picker (Beleg-/Ziel-Auswahl) hat Vorrang.
-  if (picker.open) {
-    const items = filteredPicker.value;
-    if (items.length) {
-      const n = items.length;
-      if (event.key === 'ArrowDown') { picker.index = (picker.index + 1) % n; return true; }
-      if (event.key === 'ArrowUp') { picker.index = (picker.index - 1 + n) % n; return true; }
-      if (event.key === 'Enter' || event.key === 'Tab') { pickItem(items[picker.index]); return true; }
-    }
-    if (event.key === 'Escape') { picker.open = false; return true; }
-    // Live-Picker: Tippen/Backspace fließt in den [[…]]-Text (Query wächst/schrumpft).
-    return false;
-  }
+  if (picker.open) return handlePickerKeydown(event);
 
   if (!slash.open || !slashMenuEntries.value.length) return false;
   const entries = slashMenuEntries.value;
@@ -2126,7 +1537,6 @@ watch(slashResults, (r) => {
   nextTick(updateSlashSelection);
 });
 watch(() => slash.index, () => nextTick(updateSlashSelection));
-watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; });
 </script>
 
 <style scoped>
@@ -2194,15 +1604,6 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   min-height: 100%;
   background: var(--pm-content-surface, #fff);
 }
-
-/* Die Leiste bleibt flach; geöffnete Dropdowns tragen ihre eigene Chrome. */
-
-/* Menü-Gruppen (Text / Layout / Einfügen) + Dropdowns */
-
-/* Dauerhaft sichtbarer KI-Prompt nach dem Muster einer ruhigen Suchzeile: Das
-   Icon ist bewusst neutral, das Feld hat weder Rahmen noch eigene Fläche. */
-
-/* Absatzstil-Menü: Einträge in ihrer jeweiligen Überschriftsgröße */
 
 .note-editor--workspace .note-editor__surface {
   min-height: 420px;
@@ -2665,40 +2066,6 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   pointer-events: none;
 }
 
-.pm-table-handle {
-  position: absolute;
-  z-index: 9;
-  display: grid;
-  width: 26px;
-  height: 30px;
-  place-items: center;
-  padding: 0;
-  border: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 88%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--pm-app-surface-raised, #fff) 94%, transparent);
-  box-shadow: 0 5px 14px color-mix(in srgb, var(--pm-text, #0e181b) 9%, transparent);
-  color: var(--pm-muted, #535e62);
-  cursor: pointer;
-  opacity: 0.82;
-  transform-origin: center;
-  animation: pm-table-handle-in 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  transition: opacity 130ms ease, color 130ms ease, background-color 130ms ease, transform 130ms ease;
-}
-
-.pm-table-handle:hover,
-.pm-table-handle:focus-visible,
-.pm-table-handle.is-open {
-  outline: none;
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 10%, var(--pm-app-surface-raised, #fff));
-  color: var(--pm-accent-strong, #00555f);
-  opacity: 1;
-  transform: scale(1.04);
-}
-
-@keyframes pm-table-handle-in {
-  from { opacity: 0; transform: translateX(4px) scale(0.9); }
-}
-
 .note-editor :deep(.pm-content .column-resize-handle) {
   position: absolute;
   z-index: 3;
@@ -2795,407 +2162,6 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 
 .pm-bubble__swatch--remove:disabled { opacity: 0.4; cursor: default; }
 
-.pm-link-editor {
-  box-sizing: border-box;
-  width: 360px;
-  max-width: calc(100% - 16px);
-  padding: 10px;
-  color: var(--pm-text, #0e181b);
-}
-
-.pm-link-editor__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 1px 2px 8px;
-  color: var(--pm-muted, #535e62);
-  font-size: 0.76rem;
-  font-weight: 650;
-  letter-spacing: 0.02em;
-}
-
-.pm-link-editor__head > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.pm-link-editor__head kbd {
-  border: 1px solid var(--pm-divider, #d8dfe1);
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--pm-viewer-surface, #eef2f4) 72%, transparent);
-  padding: 1px 5px;
-  color: var(--pm-muted, #535e62);
-  font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 0.66rem;
-  font-weight: 500;
-}
-
-.pm-link-editor__input-row {
-  display: flex;
-  align-items: stretch;
-  gap: 6px;
-}
-
-.pm-link-editor__input-row input {
-  min-width: 0;
-  height: 38px;
-  flex: 1 1 auto;
-  border: 1px solid var(--pm-divider, #d8dfe1);
-  border-radius: 8px;
-  outline: none;
-  background: var(--pm-content-surface, #fff);
-  padding: 0 10px;
-  color: var(--pm-text, #0e181b);
-  font: inherit;
-  font-size: 0.86rem;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
-}
-
-.pm-link-editor__input-row input::placeholder { color: var(--pm-muted, #8a969b); opacity: 0.72; }
-
-.pm-link-editor__input-row input:focus {
-  border-color: var(--pm-accent, #006b75);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pm-accent, #006b75) 13%, transparent);
-}
-
-.pm-link-editor__input-row input[aria-invalid="true"] { border-color: var(--pm-danger, #b42318); }
-
-.pm-link-editor__save {
-  width: 38px;
-  height: 38px;
-  flex: 0 0 38px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--pm-accent, #006b75);
-  color: var(--pm-accent-contrast, #fff);
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-}
-
-.pm-link-editor__save:hover { filter: brightness(1.07); }
-
-.pm-link-editor__save:focus-visible {
-  outline: 2px solid var(--pm-accent-strong, #00555f);
-  outline-offset: 2px;
-}
-
-.pm-link-editor__error {
-  padding: 7px 2px 0;
-  color: var(--pm-danger, #b42318);
-  font-size: 0.74rem;
-}
-
-.pm-link-editor__actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--pm-divider, #d8dfe1);
-}
-
-.pm-link-editor__actions button {
-  min-width: 0;
-  height: 32px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--pm-muted, #535e62);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  font: inherit;
-  font-size: 0.73rem;
-}
-
-.pm-link-editor__actions button:hover,
-.pm-link-editor__actions button:focus-visible {
-  outline: none;
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 9%, transparent);
-  color: var(--pm-accent-strong, #00555f);
-}
-
-.pm-link-editor__actions button.is-danger:hover,
-.pm-link-editor__actions button.is-danger:focus-visible {
-  background: color-mix(in srgb, var(--pm-danger, #b42318) 9%, transparent);
-  color: var(--pm-danger, #b42318);
-}
-
-.pm-table-menu {
-  width: 286px;
-  padding: 10px;
-}
-
-.pm-table-menu__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 2px 3px 9px;
-  color: var(--pm-text, #0e181b);
-  font-size: 0.78rem;
-  font-weight: 650;
-}
-
-.pm-table-menu__head strong {
-  color: var(--pm-accent-strong, #00555f);
-  font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 0.72rem;
-}
-
-.pm-table-menu__grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 5px;
-}
-
-.pm-table-menu__cell {
-  aspect-ratio: 1.25;
-  border: 1px solid var(--pm-divider, #d8dfe1);
-  border-radius: 5px;
-  outline: none;
-  background: var(--pm-viewer-surface, #eef2f4);
-  cursor: pointer;
-  transition: background-color 100ms ease, border-color 100ms ease, transform 100ms ease;
-}
-
-.pm-table-menu__cell.is-selected {
-  border-color: color-mix(in srgb, var(--pm-accent, #006b75) 56%, var(--pm-divider, #d8dfe1));
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 18%, var(--pm-viewer-surface, #eef2f4));
-}
-
-.pm-table-menu__cell:hover,
-.pm-table-menu__cell:focus-visible { transform: scale(1.06); }
-
-.pm-table-menu__header-options {
-  display: grid;
-  gap: 3px;
-  margin-top: 9px;
-}
-
-.pm-table-menu__header-toggle {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  padding: 7px 8px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--pm-muted, #535e62);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.73rem;
-  text-align: left;
-}
-
-.pm-table-menu__header-toggle:hover,
-.pm-table-menu__header-toggle:focus-visible,
-.pm-table-menu__header-toggle.is-active {
-  outline: none;
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 10%, transparent);
-  color: var(--pm-accent-strong, #00555f);
-}
-
-.pm-table-menu__actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-}
-
-.pm-table-menu__actions button {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: 22px minmax(0, 1fr);
-  align-items: center;
-  gap: 6px;
-  padding: 8px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--pm-text, #0e181b);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.7rem;
-  text-align: left;
-}
-
-.pm-table-menu__actions button:hover,
-.pm-table-menu__actions button:focus-visible {
-  outline: none;
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 9%, transparent);
-  color: var(--pm-accent-strong, #00555f);
-}
-
-.pm-table-menu__actions button.is-danger:hover,
-.pm-table-menu__actions button.is-danger:focus-visible {
-  background: color-mix(in srgb, var(--pm-danger, #c84c4c) 10%, transparent);
-  color: var(--pm-danger, #c84c4c);
-}
-
-.pm-table-menu__actions button.is-danger {
-  grid-column: 1 / -1;
-  margin-top: 2px;
-  box-shadow: inset 0 1px 0 var(--pm-divider, #d8dfe1);
-}
-
-.pm-slash {
-  width: 268px; padding: 6px; max-height: min(420px, calc(100vh - 140px)); overflow-y: auto;
-  display: flex; flex-direction: column; gap: 1px;
-}
-
-.pm-slash--commands {
-  position: fixed;
-  overflow-anchor: none;
-  transform-origin: 18px -5px;
-  animation: pm-slash-open 235ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.pm-slash__selection {
-  position: absolute;
-  z-index: 0;
-  top: 0;
-  left: 6px;
-  right: 6px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 15%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pm-accent, #006b75) 7%, transparent);
-  opacity: 0;
-  pointer-events: none;
-  transition:
-    transform 165ms cubic-bezier(0.22, 1, 0.36, 1),
-    height 140ms ease,
-    opacity 90ms ease;
-}
-
-.pm-slash__selection.is-visible { opacity: 1; }
-
-.pm-slash__hint,
-.pm-slash__group { position: relative; z-index: 1; }
-
-.pm-slash__hint {
-  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
-  letter-spacing: 0.09em; text-transform: uppercase;
-  color: var(--pm-muted, #535e62); padding: 6px 8px 4px;
-}
-
-.pm-slash__group + .pm-slash__group {
-  margin-top: 5px;
-  padding-top: 5px;
-  border-top: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 72%, transparent);
-}
-
-.pm-slash__group-label {
-  padding: 4px 8px 3px;
-  color: var(--pm-muted, #535e62);
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.pm-slash__group.is-frequent {
-  --pm-frequent-accent: color-mix(in srgb, #8b5fbf 78%, var(--pm-text, #0e181b));
-}
-
-.pm-slash__group.is-frequent .pm-slash__group-label {
-  color: var(--pm-frequent-accent);
-}
-
-.pm-slash__item {
-  border: 0; background: transparent; cursor: pointer; text-align: left;
-  display: flex; align-items: center; gap: 10px;
-  padding: 7px 8px; border-radius: 8px; width: 100%;
-  transition: color 120ms ease;
-}
-
-.pm-slash__item.is-active { color: var(--pm-accent-strong, #00555f); }
-
-.pm-slash__chip {
-  flex: none; width: 30px; height: 30px; border-radius: 7px;
-  display: grid; place-items: center;
-  background: var(--pm-viewer-surface, #eef2f4);
-  border: 1px solid var(--pm-divider, #d8dfe1);
-  font-family: 'IBM Plex Mono', monospace; font-size: 12px;
-  color: var(--pm-accent-strong, #00555f);
-  transition:
-    transform 165ms cubic-bezier(0.22, 1, 0.36, 1),
-    border-color 140ms ease,
-    background-color 140ms ease,
-    box-shadow 140ms ease;
-}
-
-.pm-slash__item.is-active .pm-slash__chip {
-  transform: scale(1.07);
-  border-color: color-mix(in srgb, var(--pm-accent, #006b75) 38%, var(--pm-divider, #d8dfe1));
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 11%, var(--pm-viewer-surface, #eef2f4));
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--pm-accent, #006b75) 13%, transparent);
-}
-
-.pm-slash__group.is-frequent .pm-slash__item {
-  transition: color 120ms ease, background-color 140ms ease;
-}
-
-.pm-slash__group.is-frequent .pm-slash__chip {
-  color: var(--pm-frequent-accent);
-  border-color: color-mix(in srgb, var(--pm-frequent-accent) 30%, var(--pm-divider, #d8dfe1));
-  background: color-mix(in srgb, var(--pm-frequent-accent) 8%, var(--pm-viewer-surface, #eef2f4));
-}
-
-.pm-slash__group.is-frequent .pm-slash__item:hover,
-.pm-slash__group.is-frequent .pm-slash__item.is-active {
-  color: var(--pm-frequent-accent);
-  background: color-mix(in srgb, var(--pm-frequent-accent) 11%, transparent);
-}
-
-.pm-slash__group.is-frequent .pm-slash__item:hover .pm-slash__label,
-.pm-slash__group.is-frequent .pm-slash__item.is-active .pm-slash__label {
-  color: var(--pm-frequent-accent);
-}
-
-.pm-slash__group.is-frequent .pm-slash__item.is-active .pm-slash__chip {
-  border-color: color-mix(in srgb, var(--pm-frequent-accent) 48%, var(--pm-divider, #d8dfe1));
-  background: color-mix(in srgb, var(--pm-frequent-accent) 16%, var(--pm-viewer-surface, #eef2f4));
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--pm-frequent-accent) 18%, transparent);
-}
-
-.pm-slash__text { display: flex; flex-direction: column; line-height: 1.2; }
-
-.pm-slash__label { font-size: 0.9rem; color: var(--pm-text, #0e181b); }
-
-.pm-slash__desc { font-size: 0.74rem; color: var(--pm-muted, #535e62); }
-
-@keyframes pm-slash-open {
-  0% {
-    opacity: 0;
-    transform: translateY(-10px) scale(0.925);
-    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.05);
-  }
-  72% {
-    opacity: 1;
-    transform: translateY(1px) scale(1.012);
-    box-shadow: 0 16px 38px rgba(15, 23, 42, 0.17);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-    box-shadow: var(--pm-shadow, 0 10px 30px rgba(15, 23, 42, 0.14));
-  }
-}
-
-/* ── Vollständiger KI-Dialog und Aufräumen-Dialog ───────────────────────── */
-
-/* Dezentes Ein-/Ausblenden der schwebenden KI-Fenster (Schreiben + Aufräumen). */
-
-/* ── Inline-Prüfung für „Aufräumen“ ─────────────────────────────────────── */
-
 /* Treffer der notizinternen Suche bleiben reine ProseMirror-Dekorationen und
    verändern weder Auswahl noch gespeicherten Dokumentinhalt. */
 
@@ -3235,32 +2201,9 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   .note-editor__save.is-saving .note-editor__dot { animation: none; }
   .pm-bubble__btn { transition: none; }
 
-  .note-editor__image-spinner,
-  .pm-slash--commands,
-  .pm-table-handle { animation: none; }
-
-  .pm-slash__selection,
-  .pm-slash__chip,
-  .pm-table-handle { transition: none; }
+  .note-editor__image-spinner { animation: none; }
 
   .note-editor :deep(.pm-history-flash) { animation: none; }
-}
-
-:global(.pm-no-animations) .pm-slash--commands {
-  animation: none;
-}
-
-:global(.pm-no-animations) .pm-table-handle {
-  animation: none;
-  transition: none;
-}
-
-:global(.pm-no-animations) .pm-slash__selection {
-  transition: none;
-}
-
-:global(.pm-no-animations) .pm-slash__chip {
-  transition: none;
 }
 
 :global(.pm-no-animations) .note-editor :deep(.pm-history-flash) {
@@ -3270,3 +2213,4 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 
 <style scoped src="./styles/progress.css"></style>
 <style scoped src="./styles/floating.css"></style>
+<style scoped src="./styles/slashMenu.css"></style>
