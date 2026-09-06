@@ -1,0 +1,22 @@
+.pm-float {
+  position: absolute; z-index: 30;
+  background: var(--pm-app-surface-raised, #fff);
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 12px;
+  box-shadow: var(--pm-shadow, 0 10px 30px rgba(15, 23, 42, 0.14));
+}
+
+.pm-float.pm-bubble {
+  position: fixed;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  max-width: calc(100vw - 16px);
+  padding: 3px;
+  gap: 3px;
+  background: #23241f;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.30);
+}

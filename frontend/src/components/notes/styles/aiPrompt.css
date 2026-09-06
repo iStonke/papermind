@@ -1,0 +1,250 @@
+.pm-ai-prompt-enter-active {
+  transition: opacity 160ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.pm-ai-prompt-leave-active {
+  transition: opacity 120ms ease, transform 140ms ease;
+}
+
+.pm-ai-prompt-enter-from,
+.pm-ai-prompt-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.985);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pm-ai-prompt-enter-active,
+  .pm-ai-prompt-leave-active {
+    transition: none;
+  }
+}
+
+:global(.pm-no-animations .pm-ai-prompt-enter-active),
+:global(.pm-no-animations .pm-ai-prompt-leave-active) {
+  transition: none;
+}
+
+.pm-ai-prompt {
+  width: 390px;
+  max-width: calc(100% - 16px);
+  padding: 10px;
+  overflow: hidden;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.pm-ai-prompt--writing {
+  transform-origin: top left;
+}
+
+.pm-ai-prompt.is-generating {
+  border-color: color-mix(in srgb, var(--pm-accent, #006b75) 48%, var(--pm-divider, #d8dfe1));
+  box-shadow:
+    var(--pm-shadow, 0 10px 30px rgba(15, 23, 42, 0.14)),
+    0 0 0 1px color-mix(in srgb, var(--pm-accent, #006b75) 8%, transparent);
+}
+
+.pm-ai-prompt__head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 1px 2px 8px;
+  color: var(--pm-muted, #535e62);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-transform: uppercase;
+}
+
+.pm-ai-prompt__head > span { display: inline-flex; align-items: center; gap: 6px; }
+
+.pm-ai-prompt__icon { color: var(--pm-accent, #006b75); }
+
+.pm-ai-prompt__close {
+  width: 24px; height: 24px; display: grid; place-items: center;
+  border: 0; border-radius: 6px; background: transparent;
+  color: var(--pm-muted, #535e62); cursor: pointer; font-size: 1.05rem;
+}
+
+.pm-ai-prompt__close:hover { background: color-mix(in srgb, var(--pm-divider, #d8dfe1) 45%, transparent); }
+
+.pm-ai-prompt__context {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -2px 0 8px;
+  color: var(--pm-muted, #535e62);
+  font-size: 0.66rem;
+  line-height: 1.25;
+}
+
+.pm-ai-prompt__context > span {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+.pm-ai-prompt__context.is-selection { color: var(--pm-accent-strong, #00555f); }
+
+.pm-ai-prompt__input-row { display: flex; align-items: center; gap: 7px; }
+
+.pm-ai-prompt__input-row input {
+  min-width: 0;
+  height: 38px;
+  flex: 1;
+  padding: 0 11px;
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 8px;
+  outline: none;
+  background: var(--pm-content-surface, #fff);
+  color: var(--pm-text, #0e181b);
+  font: inherit;
+  font-size: 0.88rem;
+}
+
+.pm-ai-prompt__input-row input:focus {
+  border-color: var(--pm-accent, #006b75);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent);
+}
+
+.pm-ai-prompt__submit {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: var(--pm-accent, #006b75);
+  color: var(--pm-accent-contrast, #fff);
+  cursor: pointer;
+  font-size: 1.05rem;
+}
+
+.pm-ai-prompt__submit:disabled { cursor: default; opacity: 0.45; }
+
+.pm-ai-prompt__length {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+  margin: 9px 2px 0;
+  padding: 0;
+  border: 0;
+  color: var(--pm-muted, #535e62);
+}
+
+.pm-ai-prompt__length legend {
+  float: left;
+  padding: 0;
+  font-size: 0.69rem;
+  font-weight: 650;
+}
+
+.pm-ai-prompt__length output {
+  justify-self: end;
+  font-size: 0.67rem;
+}
+
+.pm-ai-prompt__length > input {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--pm-accent, #006b75);
+  cursor: pointer;
+}
+
+.pm-ai-prompt__length > div {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: space-between;
+  color: color-mix(in srgb, var(--pm-muted, #535e62) 82%, transparent);
+  font-size: 0.61rem;
+}
+
+.pm-ai-prompt__length:disabled { opacity: 0.58; }
+
+.pm-ai-prompt__suggestions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+
+.pm-ai-prompt__suggestions button {
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 90%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--pm-muted, #535e62);
+  cursor: pointer;
+  font-size: 0.69rem;
+}
+
+.pm-ai-prompt__suggestions button:hover {
+  border-color: var(--pm-accent, #006b75);
+  color: var(--pm-accent-strong, #00555f);
+}
+
+.pm-ai-prompt__preview {
+  max-height: 170px; overflow-y: auto; margin-top: 9px; padding: 9px 10px;
+  border-left: 2px solid var(--pm-accent, #006b75);
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 6%, transparent);
+  color: var(--pm-text, #0e181b); white-space: pre-wrap; font-size: 0.82rem; line-height: 1.5;
+}
+
+.pm-ai-prompt__status { margin-top: 7px; color: var(--pm-muted, #535e62); font-size: 0.7rem; }
+
+.pm-ai-prompt__result-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid var(--pm-divider, #d8dfe1);
+}
+
+.pm-ai-prompt__result-actions button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--pm-text, #0e181b);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+.pm-ai-prompt__result-actions button:hover {
+  border-color: var(--pm-accent, #006b75);
+  color: var(--pm-accent-strong, #00555f);
+}
+
+.pm-ai-prompt__result-actions button.is-primary {
+  border-color: var(--pm-accent, #006b75);
+  background: var(--pm-accent, #006b75);
+  color: var(--pm-accent-contrast, #fff);
+}
+
+.pm-ai-prompt__result-actions button.is-primary:hover { filter: brightness(1.07); }
+
+.pm-ai-prompt__error { margin-top: 8px; color: var(--pm-danger, #b42318); font-size: 0.76rem; line-height: 1.35; }
+
+.pm-ai-prompt__spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: pm-ai-spin 700ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .pm-ai-prompt__spinner { animation: none; }
+}
+
+:global(.pm-no-animations) .pm-ai-prompt__spinner {
+  animation: none;
+}

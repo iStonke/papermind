@@ -1,0 +1,256 @@
+.note-editor :deep(.pm-cleanup-review-anchor) {
+  display: block;
+  width: 100%;
+  margin: var(--pm-block-gap) 0;
+  white-space: normal;
+}
+
+.pm-cleanup-review {
+  width: 100%;
+  padding: 14px 16px 12px;
+  border-left: 3px solid color-mix(in srgb, var(--pm-accent, #006b75) 68%, transparent);
+  border-radius: 0 12px 12px 0;
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 6%, var(--pm-content-surface, #fff));
+  color: var(--pm-text, #0e181b);
+  font-family: inherit;
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.pm-cleanup-review.is-generating {
+  border-left-color: color-mix(in srgb, var(--pm-accent, #006b75) 88%, transparent);
+}
+
+.pm-cleanup-review__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.pm-cleanup-review__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--pm-accent-strong, #00555f);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.pm-cleanup-review__views {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pm-cleanup-review__views button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pm-muted, #535e62);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.76rem;
+}
+
+.pm-cleanup-review__views button.is-active {
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 10%, transparent);
+  color: var(--pm-accent-strong, #00555f);
+}
+
+.pm-cleanup-review__views button:disabled { cursor: default; opacity: 0.45; }
+
+.pm-cleanup-review__loading {
+  display: grid;
+  gap: 8px;
+  padding: 6px 0 9px;
+  color: var(--pm-muted, #535e62);
+  font-size: 0.74rem;
+}
+
+.pm-cleanup-review__content {
+  min-height: 64px;
+  padding: 2px 0 12px;
+}
+
+.pm-cleanup-review__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pm-cleanup-review__text del {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--pm-danger, #b42318) 11%, transparent);
+  color: color-mix(in srgb, var(--pm-danger, #b42318) 72%, var(--pm-text, #0e181b));
+  text-decoration-thickness: 1px;
+}
+
+.pm-cleanup-review__text ins {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 11%, transparent);
+  color: inherit;
+  text-decoration: none;
+}
+
+.pm-cleanup-review__editors {
+  display: grid;
+  gap: 8px;
+}
+
+.pm-cleanup-review__editors textarea {
+  width: 100%;
+  min-height: 72px;
+  field-sizing: content;
+  resize: vertical;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 88%, transparent);
+  border-radius: 8px;
+  outline: none;
+  background: color-mix(in srgb, var(--pm-content-surface, #fff) 84%, transparent);
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+}
+
+.pm-cleanup-review__editors textarea:focus,
+.pm-cleanup-review__instruction input:focus {
+  border-color: var(--pm-accent, #006b75);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent);
+}
+
+.pm-cleanup-review__instruction {
+  display: flex;
+  gap: 7px;
+  margin: 0 0 10px;
+}
+
+.pm-cleanup-review__instruction input {
+  min-width: 0;
+  min-height: 34px;
+  flex: 1;
+  padding: 0 10px;
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 7px;
+  outline: none;
+  background: var(--pm-content-surface, #fff);
+  color: inherit;
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.pm-cleanup-review__instruction button,
+.pm-cleanup-review__actions button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 8px;
+  background: var(--pm-content-surface, #fff);
+  color: var(--pm-text, #0e181b);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.pm-cleanup-review__instruction button:disabled,
+.pm-cleanup-review__actions button:disabled { cursor: default; opacity: 0.45; }
+
+.pm-cleanup-review__error {
+  margin: 0 0 10px;
+  color: var(--pm-danger, #b42318);
+  font-size: 0.76rem;
+}
+
+.pm-cleanup-review__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 78%, transparent);
+}
+
+.pm-cleanup-review__actions > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pm-cleanup-review__actions button.is-quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--pm-muted, #535e62);
+}
+
+.pm-cleanup-review__actions button.is-primary {
+  border-color: var(--pm-accent, #006b75);
+  background: var(--pm-accent, #006b75);
+  color: var(--pm-accent-contrast, #fff);
+}
+
+.pm-cleanup-restore {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 13px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 7%, var(--pm-content-surface, #fff));
+  color: var(--pm-muted, #535e62);
+  font-size: 0.76rem;
+}
+
+.pm-cleanup-restore button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--pm-accent-strong, #00555f);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+}
+
+.pm-cleanup-review-enter-active {
+  /* Keyframes starten auch beim erstmaligen Mount im ProseMirror-Anker,
+     ohne auf einen bereits gezeichneten Ausgangszustand angewiesen zu sein. */
+  animation: pm-cleanup-review-appear 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.pm-cleanup-review-leave-active {
+  transition: opacity 150ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.pm-cleanup-review-leave-to {
+  opacity: 0;
+  transform: translateY(-5px);
+}
+
+@keyframes pm-cleanup-review-appear {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 680px) {
+  .pm-cleanup-review__head,
+  .pm-cleanup-review__actions { align-items: flex-start; flex-direction: column; }
+  .pm-cleanup-review__actions > div { flex-wrap: wrap; }
+  .pm-cleanup-review__actions > div:last-child { align-self: stretch; justify-content: flex-end; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pm-cleanup-review-enter-active,
+  .pm-cleanup-review-leave-active { animation: none; transition: none; }
+}
+
+:global(.pm-no-animations .pm-cleanup-review-enter-active),
+:global(.pm-no-animations .pm-cleanup-review-leave-active) { animation: none; transition: none; }

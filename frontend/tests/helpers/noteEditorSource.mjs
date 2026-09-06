@@ -8,7 +8,7 @@ export async function readNoteEditorSource() {
     if (visited.has(url.href)) return '';
     visited.add(url.href);
     const source = await readFile(url, 'utf8');
-    const dependencies = [...source.matchAll(/from ['"]([^'"]+)['"]/g)]
+    const dependencies = [...source.matchAll(/from ['"]([^'"]+)['"]/g), ...source.matchAll(/<style[^>]*src=['"]([^'"]+)['"]/g)]
       .map((match) => match[1])
       .filter((path) => path.startsWith('./') && !path.startsWith('./nodes/') && !path.startsWith('./extensions/'));
     const children = [];

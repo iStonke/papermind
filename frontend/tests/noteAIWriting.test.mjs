@@ -30,7 +30,7 @@ test('toolbar shows the quiet natural-language AI prompt without an extra click'
   assert.match(editorSource, /label: 'Mit KI schreiben'/);
   assert.match(editorSource, /kind: 'generate-ai'/);
   assert.match(editorSource, /terms: \['ki', 'ai', 'prompt'/);
-  assert.match(editorSource, /<template v-if="aiAvailable">[\s\S]*?class="note-editor__toolbar-ai"/);
+  assert.match(editorSource, /<NoteWritingToolbar v-if="aiAvailable"[\s\S]*?class="note-editor__toolbar-ai"/);
   assert.match(editorSource, /placeholder="Einfach losschreiben …"/);
   assert.match(editorSource, /@submit\.prevent="generateAIText"/);
   assert.match(editorSource, /@pointerdown\.stop="prepareToolbarAIPromptTarget"/);
@@ -156,7 +156,7 @@ test('generated text outside a direct-editing container is inserted as a permane
   assert.match(aiViewSource, /Übernehmen/);
   assert.match(aiViewSource, /noteMarkdownToTipTap/);
   assert.match(aiViewSource, /block\.type === 'bulletList'/);
-  assert.match(editorSource, /emit\('history-checkpoint', 'ai'\)/);
+  assert.match(editorSource, /onCheckpoint\('ai'\)/);
   assert.match(workspaceEditorSource, /@history-checkpoint="markHistoryCheckpoint"/);
 });
 

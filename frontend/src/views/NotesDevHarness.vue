@@ -15,6 +15,7 @@
           <div>
             <div class="dev-harness__title">Notizen-Editor · Prüfstand</div>
             <div class="dev-harness__sub">{{ notes.length }} {{ notes.length === 1 ? 'Notiz' : 'Notizen' }} · localStorage · kein Backend</div>
+            <div v-if="mockAI" class="dev-harness__sub">KI-Prüfmodus · keine Modellanfragen</div>
           </div>
         </div>
         <div class="dev-harness__actions">
@@ -67,6 +68,7 @@
             <NoteEditor
               ref="editorRef"
               :workspace="workspaceMode"
+              :ai-available="mockAI"
               :key="activeId"
               v-model="body"
               v-model:title="title"
@@ -88,13 +90,24 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, provide, ref, watch } from 'vue';
 import NoteEditor from '../components/notes/NoteEditor.vue';
+import { NOTE_AI_STREAM } from '../components/notes/composables/noteAIRequest.js';
 
 // Exercise the real toolbar without an authenticated backend.
-const workspaceMode = new URLSearchParams(window.location.search).has('workspace');
+const testOptions = new URLSearchParams(window.location.search);
+const workspaceMode = testOptions.has('workspace');
+const mockAI = testOptions.get('ai') === 'mock';
+if (mockAI) provide(NOTE_AI_STREAM, async (payload, { signal, onEvent }) => {
+  if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+  onEvent({ type: 'meta', provider: 'ollama', model: 'Lokaler Prüfstand' });
+  const text = payload.selected_text.startsWith('⟦1⟧')
+    ? payload.selected_text.replace(/(⟦\d+⟧ [^\n]+)/g, '$1.')
+    : 'Prüfantwort für den lokalen Editor.';
+  onEvent({ type: 'delta', text });
+});
 
-const STORAGE_KEY = 'pm.dev.notes.v2';
+const STORAGE_KEY = testOptions.has('test') ? 'pm.dev.notes.refactor.v1' : 'pm.dev.notes.v2';
 
 const notes = ref([]);
 const activeId = ref(null);
