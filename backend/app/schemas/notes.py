@@ -244,6 +244,7 @@ class NoteTextGenerationRequest(BaseModel):
     instruction: str = Field(min_length=1, max_length=2000)
     length_instruction: str = Field(default="", max_length=120)
     note_context: str = Field(default="", max_length=12000)
+    context_scope: Literal["before", "note"] = "before"
     selected_text: str = Field(default="", max_length=8000)
     document_context: str = Field(default="", max_length=16000)
 

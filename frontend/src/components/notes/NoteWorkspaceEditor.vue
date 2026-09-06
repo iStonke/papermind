@@ -103,6 +103,22 @@
                 </span>
               </template>
             </v-list-item>
+            <v-list-item
+              class="note-workspace-editor__more-item"
+              title="Tastenkürzel"
+              :ripple="false"
+              role="menuitem"
+              @click="openNoteShortcuts"
+            >
+              <template #prepend>
+                <span class="note-workspace-editor__more-icon" aria-hidden="true">
+                  <v-icon size="17">mdi-keyboard-outline</v-icon>
+                </span>
+              </template>
+              <template #append>
+                <span class="note-workspace-editor__more-hint">{{ shortcutsHint }}</span>
+              </template>
+            </v-list-item>
 
             <div class="note-workspace-editor__more-group-label">Exportieren</div>
             <v-list-item
@@ -476,7 +492,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue';
 import { documentThumbnailUrl, listDocuments } from '../../api/documents.js';
 import { authedUrl, getBaseUrl } from '../../api/client.js';
 import { getAICredentialStatus } from '../../api/aiCredentials.js';
@@ -548,6 +564,15 @@ const noteAllTags = computed(() => {
 });
 const noteEditorRef = ref(null);
 const scrollContainerRef = ref(null);
+
+// Kürzel-Hinweis im ⋮-Menü: plattformgerecht (⌘ auf Mac, sonst Strg).
+const shortcutsHint = (typeof navigator !== 'undefined'
+  && /Mac|iP(hone|ad|od)/.test(navigator.platform || navigator.userAgent || ''))
+  ? '⌘ /'
+  : 'Strg /';
+function openNoteShortcuts() {
+  noteEditorRef.value?.openShortcuts?.();
+}
 const titleInputRef = ref(null);
 const noteSearchInputRef = ref(null);
 const replaceInputRef = ref(null);
@@ -999,12 +1024,14 @@ function navigatorOnline() {
 
 function cloneBodyForSave(value) {
   const normalized = normalizeBody(value);
-  // body.value ist ein reaktives Vue-Objekt (ref). structuredClone kann Vue-
-  // Proxys nicht klonen und wirft sonst bei JEDER Bearbeitung einen
-  // DataCloneError (der lokale Entwurfs-Autosave schlägt dann fehl). Der Body
-  // ist reines ProseMirror-JSON – ein JSON-Roundtrip liefert eine klonbare,
-  // reaktivitätsfreie Momentaufnahme.
-  return JSON.parse(JSON.stringify(normalized));
+  // body.value ist ein reaktives Vue-Objekt. `toRaw` entpackt den Proxy VOR der
+  // Serialisierung: sonst löst JSON.stringify pro Anschlag das Deep-Proxying des
+  // gesamten Dokumentbaums aus (jede verschachtelte Node wird beim Zugriff in
+  // einen reaktiven Proxy gehüllt) – teuer bei langen Notizen. Auf dem rohen
+  // POJO ist es eine reine Plain-Traversierung. Der JSON-Roundtrip bleibt, weil
+  // er eine klonbare, reaktivitätsfreie Momentaufnahme liefert (structuredClone
+  // würde an übrig gebliebenen Proxys scheitern).
+  return JSON.parse(JSON.stringify(toRaw(normalized)));
 }
 
 function createCurrentSnapshot({ clientVersion = createNoteDraftVersion() } = {}) {
@@ -1878,6 +1905,13 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--pm-divider) 34%, transparent);
   color: var(--pm-muted);
   transition: none;
+}
+
+.note-workspace-editor__more-hint {
+  font: 500 0.72rem/1.4 'IBM Plex Mono', ui-monospace, monospace;
+  color: var(--pm-muted);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 .note-workspace-editor__more-item:hover,

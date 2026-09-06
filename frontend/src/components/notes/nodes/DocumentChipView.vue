@@ -4,8 +4,13 @@
     class="pm-docchip"
     :class="{ 'is-selected': selected, 'is-arriving': isArriving }"
     contenteditable="false"
+    role="button"
+    tabindex="0"
+    :aria-label="`Beleg öffnen: ${node.attrs.title || 'Beleg'}`"
     :title="`Beleg öffnen: ${node.attrs.title}`"
     @click="open"
+    @keydown.enter.prevent="open"
+    @keydown.space.prevent="open"
   >
     <span class="pm-docchip__ic" aria-hidden="true">▢</span>
     <span class="pm-docchip__label">{{ node.attrs.title || 'Beleg' }}</span>
@@ -82,6 +87,10 @@ function open() {
 .pm-docchip.is-selected {
   outline: 2px solid rgba(var(--v-theme-primary, 0 107 117), 0.55);
   outline-offset: 1px;
+}
+.pm-docchip:focus-visible {
+  outline: 2px solid var(--pm-accent, #006b75);
+  outline-offset: 2px;
 }
 .pm-docchip__ic { font-size: 0.85em; }
 

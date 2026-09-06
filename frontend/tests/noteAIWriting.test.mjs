@@ -36,7 +36,7 @@ test('toolbar shows the quiet natural-language AI prompt without an extra click'
   assert.match(editorSource, /placeholder="Einfach losschreiben …"/);
   assert.match(editorSource, /@submit\.prevent="generateAIText"/);
   assert.match(editorSource, /@pointerdown\.stop="prepareToolbarAIPromptTarget"/);
-  assert.doesNotMatch(editorSource, /<Teleport[\s\S]*?aiPrompt/);
+  assert.doesNotMatch(editorSource, /<Teleport[^>]*>\s*<Transition name="pm-ai-prompt"/);
   assert.doesNotMatch(editorSource, /note-editor__toolbar-btn--ai/);
   assert.match(editorSource, /streamNoteText/);
 });
@@ -74,17 +74,17 @@ test('slash and bubble AI actions open the complete prompt dialog', () => {
   assert.match(editorSource, /positionAIPrompt\(\)/);
 });
 
-test('AI writing and cleanup windows open and close with a subtle, reduced-motion-safe transition', () => {
-  // Beide schwebenden KI-Fenster (Schreiben + Aufräumen) teilen sich denselben Übergang.
+test('AI writing and inline cleanup review open and close with subtle, reduced-motion-safe transitions', () => {
+  // Nur der vollständige Prompt bleibt schwebend; Aufräumen sitzt im Textfluss.
   assert.equal((editorSource.match(/<Transition name="pm-ai-prompt">/g) || []).length, 2);
   assert.match(
     editorSource,
     /<Transition name="pm-ai-prompt">[\s\S]*?aiPrompt\.presentation === 'dialog'[\s\S]*?<\/Transition>/,
   );
-  assert.match(
-    editorSource,
-    /<Transition name="pm-ai-prompt">[\s\S]*?v-if="editor && cleanup\.open"[\s\S]*?<\/Transition>/,
-  );
+  assert.match(editorSource, /<Teleport v-if="editor && cleanupAnchorEl" :to="cleanupAnchorEl">/);
+  assert.match(editorSource, /<Transition name="pm-cleanup-review" appear>/);
+  assert.match(editorSource, /class="pm-cleanup-review"/);
+  assert.doesNotMatch(editorSource, /class="pm-float pm-ai-prompt pm-cleanup"/);
   assert.match(editorSource, /\.pm-ai-prompt-enter-active\s*\{[\s\S]*?opacity 160ms[\s\S]*?transform 180ms/);
   assert.match(editorSource, /\.pm-ai-prompt-leave-active\s*\{[\s\S]*?opacity 120ms[\s\S]*?transform 140ms/);
   assert.match(
@@ -106,6 +106,26 @@ test('AI writing and cleanup windows open and close with a subtle, reduced-motio
   );
   assert.doesNotMatch(editorSource, /@keyframes pm-ai-prompt-in/);
   assert.doesNotMatch(editorSource, /animation:\s*pm-ai-prompt-in/);
+  assert.match(editorSource, /\.pm-cleanup-review-enter-active\s*\{[\s\S]*?animation: pm-cleanup-review-appear 240ms/);
+  assert.match(editorSource, /prefers-reduced-motion: reduce[\s\S]*?\.pm-cleanup-review-enter-active/);
+});
+
+test('the bubble broom immediately opens a controllable cleanup proposal in the text flow', () => {
+  assert.match(editorSource, /key: 'ai-cleanup',[\s\S]*?label: 'Aufräumen \(sinnwahrend\)'[\s\S]*?icon: 'mdi-broom'[\s\S]*?run: \(\) => startCleanup\(\)/);
+  assert.match(editorSource, /cleanup\.open = true;[\s\S]*?showCleanupReviewAnchor\(ed, cleanup\.anchorPos\);[\s\S]*?await requestCleanup\(\)/);
+  assert.match(editorSource, /Vorschlag · noch nicht übernommen/);
+  assert.match(editorSource, /Original[\s\S]*?Vergleich[\s\S]*?Bereinigt/);
+  assert.match(editorSource, /v-model="cleanup\.draftBlocks\[index\]"/);
+  assert.match(editorSource, /Ursprung wiederherstellen/);
+});
+
+test('cleanup accepts selected headings and list text without painting the review with the native selection', () => {
+  assert.match(editorSource, /scoped && node\.isTextblock/);
+  assert.match(editorSource, /node\.type\.name === 'codeBlock'/);
+  assert.match(editorSource, /const contentFrom = pos \+ 1/);
+  assert.match(editorSource, /const targetFrom = Math\.max\(from, contentFrom\)/);
+  assert.match(editorSource, /showCleanupReviewAnchor\(ed, cleanup\.anchorPos\);[\s\S]*?ed\.commands\.setTextSelection\(selectionTo\)/);
+  assert.match(editorSource, /Kein bereinigbarer Text gefunden\. Codeblöcke bleiben zum Schutz ihres Inhalts unverändert\./);
 });
 
 test('slash menu unfolds at the cursor and glides its active selection', () => {
@@ -144,7 +164,7 @@ test('generated text outside a direct-editing container is inserted as a permane
 
 test('selected note text opens a dedicated selection-only AI workflow', () => {
   assert.match(editorSource, /aiPrompt\.mode = selectedText \? 'selection' : 'context'/);
-  assert.match(editorSource, /note_context: aiPrompt\.mode === 'selection' \? '' : noteContextBeforeAnchor\(ed\)/);
+  assert.match(editorSource, /aiPrompt\.mode === 'selection' \? '' : noteContextBeforeAnchor\(ed\)/);
   assert.match(editorSource, /selected_text: aiPrompt\.mode === 'selection' \? aiPrompt\.selectedText : ''/);
 });
 
@@ -237,7 +257,7 @@ test('AI writing offers a table prompt backed by valid Markdown guidance', () =>
   assert.match(promptDefaultsSource, /gültige Markdown-Tabelle/);
 });
 
-test('complete AI dialog controls output length while the toolbar prompt stays neutral', () => {
+test('AI dialog and toolbar options control output length', () => {
   assert.match(editorSource, /aiPrompt\.lengthLevel/);
   assert.match(editorSource, /class="pm-ai-prompt__length"/);
   assert.match(editorSource, /type="range"/);
@@ -247,5 +267,5 @@ test('complete AI dialog controls output length while the toolbar prompt stays n
   assert.match(editorSource, /\{ label: 'Lang', lineHint: 'ca\. 9–16 Zeilen'/);
   assert.match(editorSource, /lengthLevel: 0/);
   assert.match(editorSource, /activeAILengthOption\.label \}\} · \{\{ activeAILengthOption\.lineHint/);
-  assert.match(editorSource, /length_instruction: aiPrompt\.presentation === 'dialog'[\s\S]*?activeAILengthOption\.value\.instruction[\s\S]*?: ''/);
+  assert.match(editorSource, /length_instruction: activeAILengthOption\.value\.instruction/);
 });

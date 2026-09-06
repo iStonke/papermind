@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from app.schemas.notes import NoteTextGenerationRequest
 from app.schemas.settings import NOTE_WRITING_SYSTEM_PROMPT_DEFAULT
-from app.services.note_ai import GenerationPlan, NoteAIProviderError, NoteAIService
+from app.services.note_ai import GenerationPlan, NoteAIProviderError, NoteAIService, _user_prompt
 
 
 def runtime_settings(*, provider: str = "openai") -> SimpleNamespace:
@@ -32,6 +32,14 @@ def runtime_settings(*, provider: str = "openai") -> SimpleNamespace:
 
 
 class NoteAIServiceTest(unittest.TestCase):
+    def test_whole_note_context_keeps_beginning_despite_cursor_context_limit(self) -> None:
+        text = 'Anfang der Notiz. ' + 'Text ' * 1500 + 'Ende.'
+        payload = NoteTextGenerationRequest(instruction='Zusammenfassen', note_context=text, context_scope='note')
+        prompt = _user_prompt(payload, 6000)
+        self.assertIn('GANZE NOTIZ:\n' + text, prompt)
+        payload.context_scope = 'before'
+        self.assertNotIn('Anfang der Notiz.', _user_prompt(payload, 6000))
+
     def test_writing_prompt_requests_valid_markdown_lists(self) -> None:
         self.assertIn('Listenpunkt beginnt in einer eigenen Zeile mit „- “', NOTE_WRITING_SYSTEM_PROMPT_DEFAULT)
 

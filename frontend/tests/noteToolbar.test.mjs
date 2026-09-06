@@ -12,14 +12,15 @@ const iconSource = await readFile(
 );
 
 test('toolbar menus use accessible icon-only buttons', () => {
-  assert.match(editorSource, /title="Text"\s+aria-label="Text"[\s\S]*?<v-icon class="note-editor__toolbar-menu-icon" size="19">mdi-format-text/);
-  assert.match(editorSource, /title="Layout"\s+aria-label="Layout"[\s\S]*?<v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-view-column-outline/);
-  assert.match(editorSource, /title="Einfügen"\s+aria-label="Einfügen"[\s\S]*?<v-icon class="note-editor__toolbar-menu-icon" size="19">mdi-plus-box-outline/);
-  assert.match(editorSource, /title="Blöcke"\s+aria-label="Blöcke"[\s\S]*?<v-icon class="note-editor__toolbar-menu-icon" size="19">mdi-text-box-outline/);
+  assert.match(editorSource, /title="Text"\s+aria-label="Text"[\s\S]*?<v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-text-box-outline/);
+  assert.match(editorSource, /title="Layout"\s+aria-label="Layout"[\s\S]*?<v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-format-columns/);
+  assert.match(editorSource, /title="Einfügen"\s+aria-label="Einfügen"[\s\S]*?<v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-plus-box-outline/);
+  assert.match(editorSource, /title="Blöcke"\s+aria-label="Blöcke"[\s\S]*?<v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-view-agenda-outline/);
   assert.doesNotMatch(editorSource, /note-editor__toolbar-btn-label/);
   assert.equal(editorSource.match(/class="note-editor__toolbar-menu-chevron"/g)?.length, 4);
   assert.doesNotMatch(editorSource, /mdi-dots-horizontal/);
-  assert.match(iconSource, /mdiViewColumnOutline/);
+  assert.match(iconSource, /mdiFormatColumns/);
+  assert.match(iconSource, /mdiViewAgendaOutline/);
   assert.match(iconSource, /mdiArrowUp/);
   assert.match(iconSource, /mdiArrowDown/);
   assert.match(iconSource, /mdiTextBoxOutline/);
@@ -41,23 +42,40 @@ test('callouts and template-backed quick blocks share one conditionally grouped 
   assert.doesNotMatch(editorSource, /openMenu === 'callout'/);
 });
 
-test('insert menu completes the remaining insertable slash-menu elements', () => {
+test('text menu groups paragraph styles and lists without duplicating them in insert', () => {
+  const insertItemsSource = editorSource.match(/const insertItems = \[([\s\S]*?)\n\];/)?.[1] || '';
+  const blockStyleItemsSource = editorSource.match(/const blockStyleItems = \[([\s\S]*?)\n\];/)?.[1] || '';
+  const listStyleItemsSource = editorSource.match(/const listStyleItems = \[([\s\S]*?)\n\];/)?.[1] || '';
+  assert.match(editorSource, /note-editor__text-menu-heading">Textart/);
+  assert.match(editorSource, /note-editor__text-menu-heading">Listen/);
+  for (const label of ['Fließtext', 'Überschrift 2', 'Überschrift 3', 'Überschrift 4', 'Zitat', 'Codeblock']) {
+    assert.ok(blockStyleItemsSource.includes(`label: '${label}'`), `${label} fehlt unter Textart`);
+    assert.ok(!insertItemsSource.includes(`label: '${label}'`), `${label} ist im Einfügen-Menü doppelt`);
+  }
+  for (const label of ['Aufzählung', 'Nummerierte Liste', 'Aufgaben']) {
+    assert.ok(listStyleItemsSource.includes(`label: '${label}'`), `${label} fehlt unter Listen`);
+    assert.ok(!insertItemsSource.includes(`label: '${label}'`), `${label} ist im Einfügen-Menü doppelt`);
+  }
+  assert.match(editorSource, /\['blockquote', 'codeBlock', 'bulletList', 'orderedList', 'taskList'\]\.includes\(key\)/);
+});
+
+test('insert menu contains only links, evidence, and inserted objects', () => {
   const insertItemsSource = editorSource.match(/const insertItems = \[([\s\S]*?)\n\];/)?.[1] || '';
   for (const label of [
     'Hyperlink',
     'Verweis',
     'Beleg verknüpfen',
-    'Aufzählung',
-    'Nummerierte Liste',
-    'Aufgaben',
-    'Zitat',
-    'Codeblock',
     'Tabelle',
     'Bild einfügen',
     'Trennlinie',
   ]) {
     assert.ok(insertItemsSource.includes(`label: '${label}'`), `${label} fehlt im Einfügen-Menü`);
   }
+  for (const label of ['Zitat', 'Codeblock', 'Aufzählung', 'Nummerierte Liste', 'Aufgaben']) {
+    assert.ok(!insertItemsSource.includes(`label: '${label}'`), `${label} gehört nicht ins Einfügen-Menü`);
+  }
+  assert.match(editorSource, /const blockStyleItems = \[[\s\S]*?key: 'blockquote', label: 'Zitat'/);
+  assert.match(editorSource, /key: 'quote'[\s\S]*?label: 'Zitat'[\s\S]*?toggleBlockquote/);
   assert.match(editorSource, /key: 'link'[\s\S]*?action: 'link'/);
   assert.match(editorSource, /key: 'wikiLink'[\s\S]*?action: 'target'/);
   assert.match(editorSource, /key: 'documentChip'[\s\S]*?action: 'document'/);

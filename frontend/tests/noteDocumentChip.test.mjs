@@ -26,3 +26,12 @@ test('document chip arrival feedback respects reduced-motion settings', () => {
   assert.match(viewSource, /prefers-reduced-motion: reduce[\s\S]*?pm-docchip\.is-arriving/);
   assert.match(viewSource, /pm-no-animations[\s\S]*?pm-docchip\.is-arriving/);
 });
+
+test('document chip is keyboard operable and announced as a button', () => {
+  assert.match(viewSource, /role="button"/);
+  assert.match(viewSource, /tabindex="0"/);
+  assert.match(viewSource, /:aria-label="`Beleg öffnen: \$\{node\.attrs\.title \|\| 'Beleg'\}`"/);
+  assert.match(viewSource, /@keydown\.enter\.prevent="open"/);
+  assert.match(viewSource, /@keydown\.space\.prevent="open"/);
+  assert.match(viewSource, /\.pm-docchip:focus-visible \{/);
+});

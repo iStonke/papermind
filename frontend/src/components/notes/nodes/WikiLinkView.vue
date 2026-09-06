@@ -4,8 +4,13 @@
     class="pm-wikilink"
     :class="{ 'is-selected': selected }"
     contenteditable="false"
+    role="button"
+    tabindex="0"
+    :aria-label="`Verweis öffnen: ${node.attrs.label}`"
     :title="`Öffnen: ${node.attrs.label}`"
     @click="open"
+    @keydown.enter.prevent="open"
+    @keydown.space.prevent="open"
   >
     <span class="pm-wikilink__ic" aria-hidden="true">{{ glyph }}</span>
     <span class="pm-wikilink__label">{{ node.attrs.label }}</span>
@@ -40,5 +45,6 @@ function open() {
 }
 .pm-wikilink:hover { border-bottom-color: var(--pm-accent, #006b75); background: rgba(var(--v-theme-primary, 0 107 117), 0.08); }
 .pm-wikilink.is-selected { outline: 2px solid rgba(var(--v-theme-primary, 0 107 117), 0.45); outline-offset: 1px; border-radius: 3px; }
+.pm-wikilink:focus-visible { outline: 2px solid var(--pm-accent, #006b75); outline-offset: 2px; border-radius: 3px; }
 .pm-wikilink__ic { font-size: 0.8em; opacity: 0.75; }
 </style>

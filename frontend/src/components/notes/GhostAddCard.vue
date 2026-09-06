@@ -1,5 +1,5 @@
 <!--
-  GhostAddCard — anklickbare „Anlegen"-Ghost-Karte für Leerzustände. Sieht aus wie
+  GhostAddCard — anklickbare „Anlegen"-Ghost-Karte für Raster. Sieht aus wie
   eine Geisterkarte (gestrichelt, gleiche Höhe), ist aber leicht teal getönt und
   trägt ein Plus-Icon + Hinweistext, um zum Anlegen einzuladen. Root = <button>,
   d. h. der Elternteil hört per @click.
@@ -36,13 +36,19 @@ defineProps({
   text-align: center;
   transition: background 130ms ease, border-color 130ms ease, transform 130ms ease, box-shadow 130ms ease;
 }
-.gac:hover {
+.gac:hover:not(:disabled) {
   background: color-mix(in srgb, var(--pm-accent, #006b75) 9%, transparent);
   border-color: var(--pm-accent, #006b75);
   transform: translateY(-2px);
   box-shadow: 0 8px 22px color-mix(in srgb, var(--pm-accent, #006b75) 20%, transparent);
 }
-.gac:active { transform: translateY(0); }
+.gac:active:not(:disabled) { transform: translateY(0); }
+.gac:disabled {
+  cursor: default;
+  opacity: 0.55;
+  transform: none;
+  box-shadow: none;
+}
 .gac:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px var(--pm-content-surface, #fff), 0 0 0 4px color-mix(in srgb, var(--pm-accent, #006b75) 55%, transparent);
@@ -62,6 +68,6 @@ defineProps({
 
 @media (prefers-reduced-motion: reduce) {
   .gac { transition: none; }
-  .gac:hover { transform: none; }
+  .gac:hover:not(:disabled) { transform: none; }
 }
 </style>

@@ -12,16 +12,13 @@
       <section class="vm__section">
         <header class="vm__sechead">
           <div class="vm__sectitle">
-            <span class="vm__secicon vm__secicon--block" aria-hidden="true"><v-icon size="17">mdi-shape-outline</v-icon></span>
+            <span class="vm__secicon vm__secicon--block" aria-hidden="true"><v-icon size="17">mdi-view-agenda-outline</v-icon></span>
             <h3 class="vm__secname">Schnellblöcke</h3>
             <span v-if="blockTemplates.length" class="vm__count">{{ blockTemplates.length }}</span>
           </div>
-          <button v-if="blockTemplates.length" type="button" class="vm__new" @click="openCreateBlock">
-            <v-icon size="16">mdi-plus</v-icon> Neuer Schnellblock
-          </button>
         </header>
 
-        <div v-if="blockTemplates.length" class="vm__grid">
+        <div class="vm__grid" :class="{ 'vm__grid--ghost': !blockTemplates.length }">
           <VorlagenCard
             v-for="tpl in blockTemplates"
             :key="tpl.id"
@@ -32,9 +29,7 @@
             @edit="openEditBlock(tpl)"
             @delete="confirmDeleteBlock(tpl)"
           />
-        </div>
-        <template v-else>
-          <div class="vm__grid vm__grid--ghost">
+          <template v-if="!blockTemplates.length">
             <div v-for="i in 3" :key="i" class="vg vg--block" :style="{ '--vg-accent': ghostBlockAccents[(i - 1) % ghostBlockAccents.length] }" aria-hidden="true">
               <div class="vg__preview">
                 <span class="vg__row"><span class="vg__pill" /><span class="vg__line" /></span>
@@ -42,13 +37,13 @@
               </div>
               <div class="vg__meta"><span class="vg__chip" /><span class="vg__name" /></div>
             </div>
-            <GhostAddCard
-              title="Noch kein Schnellblock"
-              subtitle="Neuen Schnellblock anlegen"
-              @click="openCreateBlock"
-            />
-          </div>
-        </template>
+          </template>
+          <GhostAddCard
+            :title="blockTemplates.length ? 'Neuer Schnellblock' : 'Noch kein Schnellblock'"
+            subtitle="Neuen Schnellblock anlegen"
+            @click="openCreateBlock"
+          />
+        </div>
       </section>
 
       <!-- Startnotizen -->
@@ -59,12 +54,9 @@
             <h3 class="vm__secname">Startnotizen</h3>
             <span v-if="startnotizen.length" class="vm__count">{{ startnotizen.length }}</span>
           </div>
-          <button v-if="startnotizen.length" type="button" class="vm__new" :disabled="busy" @click="createStartnotiz">
-            <v-icon size="16">mdi-plus</v-icon> Neue Startnotiz
-          </button>
         </header>
 
-        <div v-if="startnotizen.length" class="vm__grid">
+        <div class="vm__grid" :class="{ 'vm__grid--ghost': !startnotizen.length }">
           <VorlagenCard
             v-for="tpl in startnotizen"
             :key="tpl.id"
@@ -75,9 +67,7 @@
             @edit="editStartnotiz(tpl)"
             @delete="confirmDeleteStart(tpl)"
           />
-        </div>
-        <template v-else>
-          <div class="vm__grid vm__grid--ghost">
+          <template v-if="!startnotizen.length">
             <div v-for="i in 3" :key="i" class="vg vg--start" aria-hidden="true">
               <div class="vg__preview vg__preview--page">
                 <span class="vg__pline" style="width: 84%" />
@@ -86,20 +76,21 @@
               </div>
               <div class="vg__meta"><span class="vg__chip" /><span class="vg__name" /></div>
             </div>
-            <GhostAddCard
-              title="Noch keine Startnotiz"
-              subtitle="Neue Startnotiz anlegen"
-              @click="createStartnotiz"
-            />
-          </div>
-        </template>
+          </template>
+          <GhostAddCard
+            :title="startnotizen.length ? 'Neue Startnotiz' : 'Noch keine Startnotiz'"
+            subtitle="Neue Startnotiz anlegen"
+            :disabled="busy"
+            @click="createStartnotiz"
+          />
+        </div>
       </section>
     </div>
 
     <div v-if="editorOpen" class="vm-modal" @mousedown.self="closeEditor">
       <div class="vm-modal__card" role="dialog" aria-modal="true">
         <div class="vm-modal__title">
-          <v-icon size="18">mdi-shape-outline</v-icon>
+          <v-icon size="18">mdi-view-agenda-outline</v-icon>
           {{ editingId ? 'Schnellblock bearbeiten' : 'Neuer Schnellblock' }}
         </div>
         <div class="vm-modal__two">
@@ -367,7 +358,6 @@ async function doDeleteStart(tpl) {
 .vm__sechead {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 20px;
   margin-bottom: 14px;
 }
@@ -393,24 +383,6 @@ async function doDeleteStart(tpl) {
   color: var(--pm-muted, #535e62);
   background: color-mix(in srgb, var(--pm-text, #0e181b) 7%, transparent);
 }
-.vm__new {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 0;
-  background: transparent;
-  padding: 4px 2px;
-  font: inherit;
-  font-size: 0.85rem;
-  font-weight: 620;
-  color: var(--pm-accent-strong, #00555f);
-  cursor: pointer;
-  transition: color 120ms ease;
-}
-.vm__new:hover { color: var(--pm-accent, #006b75); }
-.vm__new:disabled { opacity: 0.55; cursor: default; }
-
 .vm__grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

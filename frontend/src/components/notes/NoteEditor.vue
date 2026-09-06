@@ -50,24 +50,47 @@
           class="note-editor__toolbar-btn note-editor__toolbar-btn--group"
           :class="{ 'is-open': openMenu === 'block' }"
           :aria-expanded="openMenu === 'block' ? 'true' : 'false'"
+          aria-haspopup="menu"
+          aria-controls="note-editor-menu-text"
           title="Text"
           aria-label="Text"
           @mousedown.prevent
           @click.prevent="toggleMenu('block')"
+          @keydown.down.prevent="openMenuFocus('block', 'first')"
+          @keydown.up.prevent="openMenuFocus('block', 'last')"
         >
-          <v-icon class="note-editor__toolbar-menu-icon" size="23">mdi-format-text</v-icon>
+          <v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-text-box-outline</v-icon>
           <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
         </button>
-        <div v-if="openMenu === 'block'" class="note-editor__toolbar-dropdown">
+        <div v-if="openMenu === 'block'" id="note-editor-menu-text" role="menu" aria-label="Text" class="note-editor__toolbar-dropdown note-editor__text-menu" @keydown="onMenuKeydown">
+          <div class="note-editor__text-menu-heading">Textart</div>
           <button
             v-for="item in blockStyleItems"
             :key="item.key"
             type="button"
+            role="menuitem"
             class="note-editor__toolbar-dropitem note-editor__toolbar-dropitem--block"
             :class="[`is-${item.key}`, { 'is-active': isBlockActive(item.key) }]"
             @mousedown.prevent
             @click.prevent="runBlockStyle(item.key)"
           >{{ item.label }}</button>
+          <div class="note-editor__text-menu-divider" aria-hidden="true"></div>
+          <div class="note-editor__text-menu-heading">Listen</div>
+          <button
+            v-for="item in listStyleItems"
+            :key="item.key"
+            type="button"
+            role="menuitem"
+            class="note-editor__toolbar-dropitem"
+            :class="{ 'is-active': isBlockActive(item.key) }"
+            @mousedown.prevent
+            @click.prevent="runBlockStyle(item.key)"
+          >
+            <span class="note-editor__toolbar-dropitem-glyph">
+              <v-icon size="17">{{ item.icon }}</v-icon>
+            </span>
+            <span>{{ item.label }}</span>
+          </button>
         </div>
       </div>
 
@@ -77,15 +100,19 @@
           class="note-editor__toolbar-btn note-editor__toolbar-btn--group"
           :class="{ 'is-open': openMenu === 'layout' }"
           :aria-expanded="openMenu === 'layout' ? 'true' : 'false'"
+          aria-haspopup="menu"
+          aria-controls="note-editor-menu-layout"
           title="Layout"
           aria-label="Layout"
           @mousedown.prevent
           @click.prevent="toggleMenu('layout')"
+          @keydown.down.prevent="openMenuFocus('layout', 'first')"
+          @keydown.up.prevent="openMenuFocus('layout', 'last')"
         >
-          <v-icon class="note-editor__toolbar-menu-icon" size="26">mdi-view-column-outline</v-icon>
+          <v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-format-columns</v-icon>
           <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
         </button>
-        <div v-if="openMenu === 'layout'" class="note-editor__toolbar-dropdown note-editor__layout-menu">
+        <div v-if="openMenu === 'layout'" id="note-editor-menu-layout" role="menu" aria-label="Layout" class="note-editor__toolbar-dropdown note-editor__layout-menu" @keydown="onMenuKeydown">
           <div class="note-editor__layout-menu-label">
             {{ currentPageLayoutColumns() ? 'Aktuelles Layout' : 'Layout einfügen' }}
           </div>
@@ -93,9 +120,10 @@
             v-for="item in pageLayoutItems"
             :key="item.columns"
             type="button"
+            role="menuitemradio"
             class="note-editor__toolbar-dropitem"
             :class="{ 'is-active': currentPageLayoutColumns() === item.columns }"
-            :aria-pressed="currentPageLayoutColumns() === item.columns ? 'true' : 'false'"
+            :aria-checked="currentPageLayoutColumns() === item.columns ? 'true' : 'false'"
             @mousedown.prevent
             @click.prevent="runPageLayout(item.columns)"
           >
@@ -113,6 +141,7 @@
             <div class="note-editor__layout-menu-label">Neues Layout</div>
             <button
               type="button"
+              role="menuitem"
               class="note-editor__toolbar-dropitem"
               @mousedown.prevent
               @click.prevent="insertAdjacentPageLayout('before')"
@@ -122,6 +151,7 @@
             </button>
             <button
               type="button"
+              role="menuitem"
               class="note-editor__toolbar-dropitem"
               @mousedown.prevent
               @click.prevent="insertAdjacentPageLayout('after')"
@@ -131,6 +161,7 @@
             </button>
             <button
               type="button"
+              role="menuitem"
               class="note-editor__toolbar-dropitem note-editor__layout-remove"
               @mousedown.prevent
               @click.prevent="removeCurrentPageLayout"
@@ -150,19 +181,24 @@
           class="note-editor__toolbar-btn note-editor__toolbar-btn--group"
           :class="{ 'is-open': openMenu === 'insert' }"
           :aria-expanded="openMenu === 'insert' ? 'true' : 'false'"
+          aria-haspopup="menu"
+          aria-controls="note-editor-menu-insert"
           title="Einfügen"
           aria-label="Einfügen"
           @mousedown.prevent
           @click.prevent="toggleMenu('insert')"
+          @keydown.down.prevent="openMenuFocus('insert', 'first')"
+          @keydown.up.prevent="openMenuFocus('insert', 'last')"
         >
-          <v-icon class="note-editor__toolbar-menu-icon" size="19">mdi-plus-box-outline</v-icon>
+          <v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-plus-box-outline</v-icon>
           <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
         </button>
-        <div v-if="openMenu === 'insert'" class="note-editor__toolbar-dropdown note-editor__insert-menu">
+        <div v-if="openMenu === 'insert'" id="note-editor-menu-insert" role="menu" aria-label="Einfügen" class="note-editor__toolbar-dropdown note-editor__insert-menu" @keydown="onMenuKeydown">
           <button
             v-for="item in overflowItems"
             :key="item.key"
             type="button"
+            role="menuitem"
             class="note-editor__toolbar-dropitem"
             :class="{ 'is-active': item.name ? toolbarActive(item.name) : false }"
             :disabled="insertItemDisabled(item)"
@@ -187,20 +223,25 @@
             'is-active': toolbarActive('callout') || toolbarActive('templateBox'),
           }"
           :aria-expanded="openMenu === 'blocks' ? 'true' : 'false'"
+          aria-haspopup="menu"
+          aria-controls="note-editor-menu-blocks"
           title="Blöcke"
           aria-label="Blöcke"
           @mousedown.prevent
           @click.prevent="toggleMenu('blocks')"
+          @keydown.down.prevent="openMenuFocus('blocks', 'first')"
+          @keydown.up.prevent="openMenuFocus('blocks', 'last')"
         >
-          <v-icon class="note-editor__toolbar-menu-icon" size="19">mdi-text-box-outline</v-icon>
+          <v-icon class="note-editor__toolbar-menu-icon" size="20">mdi-view-agenda-outline</v-icon>
           <v-icon class="note-editor__toolbar-menu-chevron" size="12">mdi-chevron-down</v-icon>
         </button>
-        <div v-if="openMenu === 'blocks'" class="note-editor__toolbar-dropdown note-editor__blocks-menu">
+        <div v-if="openMenu === 'blocks'" id="note-editor-menu-blocks" role="menu" aria-label="Blöcke" class="note-editor__toolbar-dropdown note-editor__blocks-menu" @keydown="onMenuKeydown">
           <div class="note-editor__blocks-menu-heading">Hinweisblöcke</div>
           <button
             v-for="option in toolbarCalloutOptions"
             :key="option.value"
             type="button"
+            role="menuitem"
             class="note-editor__toolbar-dropitem"
             :class="{ 'is-active': toolbarActive('callout', { kind: option.value }) }"
             @mousedown.prevent
@@ -218,6 +259,7 @@
               v-for="item in quickBlockItems"
               :key="item.key"
               type="button"
+              role="menuitem"
               class="note-editor__toolbar-dropitem"
               @mousedown.prevent
               @click.prevent="runQuickBlock(item)"
@@ -244,13 +286,16 @@
           @submit.prevent="generateAIText"
           @pointerdown.stop="prepareToolbarAIPromptTarget"
         >
-          <span class="note-editor__toolbar-ai-icon" aria-hidden="true" @click="focusToolbarAIPrompt">
+          <button type="button" ref="aiOptionsButtonEl" class="note-editor__toolbar-ai-icon"
+            :class="{ 'is-open': aiOptionsOpen }" title="KI-Schreiboptionen" aria-label="KI-Schreiboptionen"
+            :aria-expanded="aiOptionsOpen" aria-controls="note-ai-options" :disabled="aiPrompt.loading"
+            @click="toggleAIOptions">
             <span
               v-if="aiPrompt.presentation === 'toolbar' && aiPrompt.loading"
               class="note-editor__toolbar-ai-spinner"
             ></span>
             <v-icon v-else size="18">mdi-auto-fix</v-icon>
-          </span>
+          </button>
           <input
             ref="aiToolbarInputEl"
             v-model="aiPrompt.instruction"
@@ -271,6 +316,32 @@
             class="note-editor__toolbar-ai-error"
             role="alert"
           >{{ aiPrompt.error }}</span>
+          <Transition name="pm-ai-prompt">
+            <div v-if="aiOptionsOpen" id="note-ai-options" class="note-editor__ai-options"
+              :style="{ left: `${aiOptionsLeft}px` }"
+              role="group" aria-label="KI-Schreiboptionen" @pointerdown.stop
+              @keydown.esc.stop.prevent="closeAIOptions">
+              <fieldset :disabled="aiPrompt.loading">
+                <legend>Antwortlänge</legend>
+                <div class="note-editor__ai-lengths">
+                  <button v-for="(option, index) in AI_LENGTH_OPTIONS" :key="option.label" type="button"
+                    :aria-pressed="aiPrompt.lengthLevel === index" @click="aiPrompt.lengthLevel = index">{{ option.label }}</button>
+                </div>
+                <output>{{ activeAILengthOption.label }} · {{ activeAILengthOption.lineHint }}</output>
+              </fieldset>
+              <label>Kontext
+                <span class="note-editor__ai-context-select">
+                  <select v-model="aiPrompt.contextScope" :disabled="aiPrompt.loading">
+                    <option value="selection" :disabled="!aiPrompt.selectedText">Auswahl</option>
+                    <option value="before">Text bis zum Cursor</option>
+                    <option value="note">Ganze Notiz</option>
+                  </select>
+                  <v-icon size="18" aria-hidden="true">mdi-chevron-down</v-icon>
+                </span>
+              </label>
+              <small v-if="aiPrompt.mode === 'selection'">Das Ergebnis ersetzt die markierte Auswahl.</small>
+            </div>
+          </Transition>
         </form>
       </template>
 
@@ -291,7 +362,7 @@
     <div
       ref="surfaceEl"
       class="note-editor__surface"
-      @pointerdown="focusEditorEndFromWhitespace"
+      @pointerdown="refocusEditorFromWhitespace"
       @pointermove.passive="trackTableHandle"
       @pointerleave="clearHoveredTable"
     >
@@ -426,13 +497,13 @@
         <div v-if="linkEditor.error" class="pm-link-editor__error" role="alert">{{ linkEditor.error }}</div>
         <div v-if="linkEditor.existing" class="pm-link-editor__actions">
           <button type="button" @click="openLinkTarget">
-            <v-icon size="16">mdi-open-in-new</v-icon><span>Öffnen</span>
+            <v-icon size="17">mdi-open-in-new</v-icon><span>Öffnen</span>
           </button>
           <button type="button" @click="copyLinkTarget">
-            <v-icon size="16">mdi-content-copy</v-icon><span>{{ linkEditor.copied ? 'Kopiert' : 'Kopieren' }}</span>
+            <v-icon size="17">mdi-content-copy</v-icon><span>{{ linkEditor.copied ? 'Kopiert' : 'Kopieren' }}</span>
           </button>
           <button type="button" class="is-danger" @click="removeLink">
-            <v-icon size="16">mdi-link-off</v-icon><span>Entfernen</span>
+            <v-icon size="17">mdi-link-off</v-icon><span>Entfernen</span>
           </button>
         </div>
       </form>
@@ -540,25 +611,25 @@
           </div>
           <div class="pm-table-menu__actions">
             <button type="button" @mousedown.prevent="runTableCommand('addRowAfter')">
-              <v-icon size="18">mdi-table-row-plus-after</v-icon><span>Zeile darunter</span>
+              <v-icon size="17">mdi-table-row-plus-after</v-icon><span>Zeile darunter</span>
             </button>
             <button type="button" @mousedown.prevent="runTableCommand('addColumnAfter')">
-              <v-icon size="18">mdi-table-column-plus-after</v-icon><span>Spalte rechts</span>
+              <v-icon size="17">mdi-table-column-plus-after</v-icon><span>Spalte rechts</span>
             </button>
             <button type="button" @mousedown.prevent="runTableCommand('toggleHeaderRow')">
-              <v-icon size="18">mdi-table-headers-eye</v-icon><span>Kopfzeile umschalten</span>
+              <v-icon size="17">mdi-table-headers-eye</v-icon><span>Kopfzeile umschalten</span>
             </button>
             <button type="button" @mousedown.prevent="runTableCommand('toggleHeaderColumn')">
-              <v-icon size="18">mdi-table-column</v-icon><span>Kopfspalte umschalten</span>
+              <v-icon size="17">mdi-table-column</v-icon><span>Kopfspalte umschalten</span>
             </button>
             <button type="button" @mousedown.prevent="runTableCommand('deleteRow')">
-              <v-icon size="18">mdi-table-row-remove</v-icon><span>Zeile löschen</span>
+              <v-icon size="17">mdi-table-row-remove</v-icon><span>Zeile löschen</span>
             </button>
             <button type="button" @mousedown.prevent="runTableCommand('deleteColumn')">
-              <v-icon size="18">mdi-table-column-remove</v-icon><span>Spalte löschen</span>
+              <v-icon size="17">mdi-table-column-remove</v-icon><span>Spalte löschen</span>
             </button>
             <button type="button" class="is-danger" @mousedown.prevent="runTableCommand('deleteTable')">
-              <v-icon size="18">mdi-table-remove</v-icon><span>Tabelle löschen</span>
+              <v-icon size="17">mdi-table-remove</v-icon><span>Tabelle löschen</span>
             </button>
           </div>
         </template>
@@ -688,49 +759,119 @@
       </form>
       </Transition>
 
-      <!-- Aufräumen (sinnwahrend): Vorschau der geglätteten Fließtext-Absätze mit
-           Übernehmen/Verwerfen. Strukturierte Blöcke bleiben unangetastet. -->
-      <Transition name="pm-ai-prompt">
-      <div
-        v-if="editor && cleanup.open"
-        class="pm-float pm-ai-prompt pm-cleanup"
-        :class="{ 'is-generating': cleanup.loading }"
-        :style="cleanup.style"
-        role="dialog"
-        aria-label="Aufräumen"
-      >
-        <div class="pm-ai-prompt__head">
-          <span>
-            <v-icon class="pm-ai-prompt__icon" size="17" aria-hidden="true">mdi-broom</v-icon>
-            Aufräumen · sinnwahrend
-          </span>
-          <button type="button" class="pm-ai-prompt__close" aria-label="Schließen" @click="closeCleanup">×</button>
-        </div>
-        <div class="pm-ai-prompt__context">
-          <span aria-hidden="true"></span>
-          {{ cleanupScopeLabel }}
-        </div>
-        <div v-if="cleanup.loading" class="pm-ai-prompt__progress" aria-hidden="true">
-          <span></span>
-        </div>
-        <div v-if="cleanupPreviewText" class="pm-ai-prompt__preview" aria-live="polite">
-          <span>{{ cleanupPreviewText }}</span>
-        </div>
-        <div v-if="cleanup.loading" class="pm-ai-prompt__status" aria-live="polite">
-          {{ cleanup.provider
-            ? `${cleanup.fallbackFrom ? 'Lokaler Fallback' : providerLabel(cleanup.provider)} · ${cleanup.model}`
-            : 'Modell wird gestartet …' }}
-        </div>
-        <div
-          v-if="cleanupPreviewText && !cleanup.loading && !cleanup.error"
-          class="pm-ai-prompt__result-actions"
-        >
-          <button type="button" class="is-primary" @click="applyCleanup">Übernehmen</button>
-          <button type="button" @click="closeCleanup">Verwerfen</button>
-        </div>
-        <div v-if="cleanup.error" class="pm-ai-prompt__error" role="alert">{{ cleanup.error }}</div>
-      </div>
-      </Transition>
+      <!-- Der Besen öffnet die Prüfung direkt im Textfluss. Die Dekoration setzt
+           nur einen temporären Anker; Vorschlag und Original werden nie vor der
+           ausdrücklichen Übernahme in den Dokumentinhalt geschrieben. -->
+      <Teleport v-if="editor && cleanupAnchorEl" :to="cleanupAnchorEl">
+        <Transition name="pm-cleanup-review" appear>
+          <section
+            v-if="cleanup.open"
+            class="pm-cleanup-review"
+            :class="{ 'is-generating': cleanup.loading }"
+            role="dialog"
+            aria-label="Vorschlag · noch nicht übernommen"
+            @mousedown.stop
+          >
+            <div class="pm-cleanup-review__head">
+              <span class="pm-cleanup-review__title">
+                <v-icon size="19" aria-hidden="true">mdi-auto-fix</v-icon>
+                Vorschlag · noch nicht übernommen
+              </span>
+              <div class="pm-cleanup-review__views" role="group" aria-label="Ansicht">
+                <button
+                  v-for="view in cleanupViews"
+                  :key="view.value"
+                  type="button"
+                  :class="{ 'is-active': cleanup.view === view.value }"
+                  :aria-pressed="cleanup.view === view.value ? 'true' : 'false'"
+                  :disabled="cleanup.loading || !cleanup.draftBlocks.length"
+                  @click="cleanup.view = view.value"
+                >{{ view.label }}</button>
+              </div>
+            </div>
+
+            <div v-if="cleanup.loading" class="pm-cleanup-review__loading" aria-live="polite">
+              <div class="pm-ai-prompt__progress" aria-hidden="true"><span></span></div>
+              <span>{{ cleanup.provider
+                ? `${cleanup.fallbackFrom ? 'Lokaler Fallback' : providerLabel(cleanup.provider)} · ${cleanup.model}`
+                : 'Vorschlag wird erstellt …' }}</span>
+            </div>
+
+            <div v-else-if="cleanup.draftBlocks.length" class="pm-cleanup-review__content">
+              <div v-if="cleanup.view === 'original'" class="pm-cleanup-review__text">
+                {{ cleanupOriginalText }}
+              </div>
+              <div v-else-if="cleanup.view === 'diff'" class="pm-cleanup-review__text" aria-label="Vergleich">
+                <template v-for="(part, index) in cleanupDiffParts" :key="index">
+                  <del v-if="part.type === 'removed'">{{ part.text }}</del>
+                  <ins v-else-if="part.type === 'added'">{{ part.text }}</ins>
+                  <span v-else>{{ part.text }}</span>
+                </template>
+              </div>
+              <div v-else class="pm-cleanup-review__editors">
+                <textarea
+                  v-for="(_block, index) in cleanup.draftBlocks"
+                  :key="index"
+                  v-model="cleanup.draftBlocks[index]"
+                  rows="2"
+                  :aria-label="cleanup.draftBlocks.length === 1 ? 'Vorschlag bearbeiten' : `Vorschlag für Absatz ${index + 1} bearbeiten`"
+                  @input="cleanup.error = ''"
+                ></textarea>
+              </div>
+            </div>
+
+            <div v-if="cleanup.instructionOpen" class="pm-cleanup-review__instruction">
+              <input
+                v-model="cleanup.instruction"
+                type="text"
+                maxlength="600"
+                placeholder="Zusätzliche Anweisung …"
+                aria-label="Zusätzliche Anweisung"
+                @keydown.enter.prevent="regenerateCleanup"
+              />
+              <button type="button" :disabled="cleanup.loading" @click="regenerateCleanup">Anwenden</button>
+            </div>
+
+            <div v-if="cleanup.error" class="pm-cleanup-review__error" role="alert">{{ cleanup.error }}</div>
+
+            <div class="pm-cleanup-review__actions">
+              <div>
+                <button
+                  v-if="cleanup.draftBlocks.length"
+                  type="button"
+                  class="is-quiet"
+                  :disabled="cleanup.loading"
+                  @click="regenerateCleanup"
+                ><v-icon size="17">mdi-refresh</v-icon> Neu erzeugen</button>
+                <button
+                  v-if="cleanup.draftBlocks.length"
+                  type="button"
+                  class="is-quiet"
+                  @click="cleanup.instructionOpen = !cleanup.instructionOpen"
+                ><v-icon size="17">mdi-message-text-outline</v-icon> Anweisung ergänzen</button>
+              </div>
+              <div>
+                <button type="button" @click="discardCleanup">Verwerfen</button>
+                <button
+                  type="button"
+                  class="is-primary"
+                  :disabled="cleanup.loading || !cleanupCanApply"
+                  @click="applyCleanup"
+                ><v-icon size="17">mdi-check</v-icon> Übernehmen</button>
+              </div>
+            </div>
+          </section>
+        </Transition>
+
+        <Transition name="pm-cleanup-review">
+          <div v-if="cleanupRestore.open" class="pm-cleanup-restore" role="status" aria-live="polite">
+            <span>Bereinigte Fassung übernommen.</span>
+            <button type="button" @click="restoreCleanupOriginal">
+              <v-icon size="17">mdi-undo</v-icon> Ursprung wiederherstellen
+            </button>
+          </div>
+        </Transition>
+      </Teleport>
     </div>
 
     <div v-if="!workspace" class="note-editor__status">
@@ -740,11 +881,53 @@
       </span>
       <span class="note-editor__count">{{ words }} {{ words === 1 ? 'Wort' : 'Wörter' }}</span>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="shortcutsOpen"
+        class="pm-shortcuts-overlay"
+        @click.self="closeShortcuts"
+        @keydown.esc.prevent="closeShortcuts"
+      >
+          <div
+            class="pm-shortcuts"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pm-shortcuts-title"
+          >
+            <div class="pm-shortcuts__head">
+              <h2 id="pm-shortcuts-title" class="pm-shortcuts__title">Tastenkürzel</h2>
+              <button
+                ref="shortcutsCloseEl"
+                type="button"
+                class="pm-shortcuts__close"
+                aria-label="Schließen"
+                @click="closeShortcuts"
+              >
+                <v-icon size="18">mdi-close</v-icon>
+              </button>
+            </div>
+            <div class="pm-shortcuts__grid">
+              <section v-for="group in shortcutGroups" :key="group.title" class="pm-shortcuts__group">
+                <h3 class="pm-shortcuts__group-title">{{ group.title }}</h3>
+                <ul class="pm-shortcuts__list">
+                  <li v-for="row in group.items" :key="row.label" class="pm-shortcuts__row">
+                    <span class="pm-shortcuts__label">{{ row.label }}</span>
+                    <span class="pm-shortcuts__keys">
+                      <kbd v-for="(key, i) in row.keys" :key="i">{{ key }}</kbd>
+                    </span>
+                  </li>
+                </ul>
+              </section>
+            </div>
+          </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, toRaw, watch } from 'vue';
 import { EditorContent, useEditor, posToDOMRect } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
 import FileHandler from '@tiptap/extension-file-handler';
@@ -776,6 +959,11 @@ import {
   getNoteSearchState,
   setNoteSearch,
 } from './extensions/noteSearch.js';
+import {
+  CleanupReviewAnchor,
+  hideCleanupReviewAnchor,
+  showCleanupReviewAnchor,
+} from './extensions/cleanupReviewAnchor.js';
 import { MOCK_DOCUMENTS, mockLinkTargets, targetGlyph } from './mockData.js';
 import { NOTE_CALLOUT_OPTIONS } from '../../utils/noteCallouts.js';
 import { NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT } from '../../constants/promptDefaults.js';
@@ -788,10 +976,12 @@ import {
   parseNoteSlashUsage,
 } from '../../utils/noteSlashUsage.js';
 import { streamNoteText, uploadNoteImage } from '../../api/notes.js';
+import { useToolbarRoving } from '../../composables/useToolbarRoving.js';
 import { noteAITextForCodeBlock, noteMarkdownToTipTap } from '../../utils/noteMarkdown.js';
 import {
   CLEANUP_INPUT_LIMIT,
   CLEANUP_INSTRUCTION,
+  diffCleanupText,
   formatCleanupInput,
   parseCleanupOutput,
   stripCleanupMarks,
@@ -857,10 +1047,14 @@ const writingEl = ref(null);
 const titleEl = ref(null);
 const aiToolbarInputEl = ref(null);
 const aiPromptInputEl = ref(null);
+const aiOptionsButtonEl = ref(null);
+const aiOptionsOpen = ref(false);
+const aiOptionsLeft = ref(0);
 const linkInputEl = ref(null);
 const imageInputEl = ref(null);
 const slashMenuEl = ref(null);
 const bubbleEl = ref(null);
+const cleanupAnchorEl = shallowRef(null);
 const words = ref(0);
 const editorEmpty = ref(true);
 const toolbarScrolled = ref(false);
@@ -934,6 +1128,11 @@ const linkEditor = reactive({
 });
 
 /* ── Editor ──────────────────────────────────────────────────────────────── */
+// Referenz auf das zuletzt selbst emittierte modelValue-JSON. Damit erkennt der
+// modelValue-Watcher eine vom Editor SELBST ausgelöste Änderung an einem billigen
+// Referenzvergleich, statt bei jedem Anschlag zweimal das komplette Dokument zu
+// serialisieren (und dabei das reaktive Body-Objekt tief zu proxen).
+let lastEmittedModelValue = null;
 const editor = useEditor({
   content: props.modelValue || '',
   editable: !props.readonly,
@@ -989,6 +1188,12 @@ const editor = useEditor({
     }),
     HistoryFlash,
     NoteSearch,
+    CleanupReviewAnchor.configure({
+      onMount: (element) => { cleanupAnchorEl.value = element; },
+      onDestroy: (element) => {
+        if (cleanupAnchorEl.value === element) cleanupAnchorEl.value = null;
+      },
+    }),
   ],
   editorProps: {
     attributes: { class: 'pm-content', spellcheck: props.spellcheckEnabled ? 'true' : 'false' },
@@ -997,9 +1202,14 @@ const editor = useEditor({
     handleClick: (view, _pos, event) => handleEditorLinkClick(view, event),
   },
   onUpdate: ({ editor: ed }) => {
-    updateWordCount(ed);
-    emit('update:modelValue', ed.getJSON());
-    emit('change', { json: ed.getJSON(), text: ed.getText(), words: words.value });
+    // Dokument nur EINMAL pro Anschlag serialisieren und für beide Emits sowie
+    // die Wortzählung wiederverwenden (statt getJSON×2 + getText×2).
+    const json = ed.getJSON();
+    const text = ed.getText();
+    lastEmittedModelValue = json;
+    updateWordCount(ed, text);
+    emit('update:modelValue', json);
+    emit('change', { json, text, words: words.value });
     refreshWikiLink();
     refreshSlash();
     emitNoteSearchState(ed);
@@ -1013,6 +1223,10 @@ const editor = useEditor({
     nextTick(refreshTableHandle);
   },
   onTransaction: ({ editor: ed, transaction }) => {
+    if (cleanupRestore.open && transaction.docChanged) {
+      cleanupRestore.open = false;
+      nextTick(() => hideCleanupReviewAnchor(ed));
+    }
     if (!isHistoryTransaction(transaction)) {
       if (transaction.docChanged || transaction.selectionSet) dismissHistoryFlash(ed);
       return;
@@ -1046,6 +1260,7 @@ watch(() => props.readonly, (readonly) => editor.value?.setEditable(!readonly));
 
 onBeforeUnmount(() => {
   aiGenerationController?.abort();
+  cleanupController?.abort();
   editor.value?.destroy();
   toolbarScrollContainer?.removeEventListener('scroll', onEditorScroll);
   window.removeEventListener('resize', refreshBubble);
@@ -1117,12 +1332,20 @@ function restoreWorkspaceScroll(top) {
 watch(() => props.modelValue, (next) => {
   const ed = editor.value;
   if (!ed) return;
+  // Häufigster Fall: die Änderung stammt vom Editor selbst (onUpdate → emit →
+  // Parent-Body → zurück als prop). Der Parent hält den Body in einem ref, daher
+  // kommt er als reaktiver Proxy zurück – `toRaw` vergleicht die zugrunde
+  // liegende Objektreferenz und bricht ab, BEVOR das ganze Dokument zweimal
+  // serialisiert wird (was zusätzlich Deep-Proxying auslösen würde).
+  if (toRaw(next) === lastEmittedModelValue) return;
+  // Nur bei echten externen Änderungen (Notizwechsel, KI-Ergebnis, Entwurfs-
+  // wiederherstellung) den teuren Strukturvergleich durchführen.
   const current = JSON.stringify(ed.getJSON());
   if (JSON.stringify(next || '') === current) return;
   // Ein verzögertes KI-Ergebnis darf niemals in eine inzwischen ausgewählte
   // andere Notiz geschrieben werden.
   if (aiPrompt.open) closeAIPrompt();
-  if (cleanup.open) closeCleanup();
+  if (cleanup.open || cleanupRestore.open) closeCleanup();
   closeLinkEditor();
   ed.commands.setContent(next || '', { emitUpdate: false });
   resetSelectionAfterExternalContent(ed);
@@ -1166,13 +1389,15 @@ function isPristineEmptyDocument(ed) {
   );
 }
 
-function updateWordCount(ed) {
+function updateWordCount(ed, text) {
   // TipTap betrachtet auch mehrere leere Absätze als `isEmpty`. Der visuelle
   // Schreibhilfe-Zustand gilt jedoch nur für das unberührte Startdokument.
   editorEmpty.value = isPristineEmptyDocument(ed);
   if (editorEmpty.value) scheduleEmptyHintPosition();
   else emptyHintPositioned.value = false;
-  words.value = countWords(ed?.getText());
+  // Text wird vom Aufrufer durchgereicht, wenn er ihn ohnehin schon ermittelt hat
+  // (onUpdate) – sonst hier einmal holen.
+  words.value = countWords(text ?? ed?.getText());
   emit('word-count', words.value);
 }
 
@@ -1213,7 +1438,7 @@ function focusBody(position) {
   return true;
 }
 
-function focusEditorEndFromWhitespace(event) {
+function refocusEditorFromWhitespace(event) {
   const ed = editor.value;
   const surface = surfaceEl.value;
   const target = event.target;
@@ -1227,7 +1452,17 @@ function focusEditorEndFromWhitespace(event) {
   if (!content || (content.contains(target) && target !== content)) return;
 
   event.preventDefault();
-  ed.chain().focus('end').run();
+  const { selection } = ed.state;
+  const chain = ed.chain();
+
+  // Ein Klick auf die große Editorfläche ist ein neutraler Refokus: Eine
+  // bestehende Textauswahl wird am aktiven Ende eingeklappt, eine vorhandene
+  // Schreibmarke bleibt dagegen unverändert. Weder Auswahl noch Scrollposition
+  // springen dadurch pauschal ans Dokumentende.
+  if (selection instanceof TextSelection && !selection.empty) {
+    chain.setTextSelection(selection.head);
+  }
+  chain.focus(undefined, { scrollIntoView: false }).run();
 }
 
 function focusTitle() {
@@ -1322,6 +1557,7 @@ defineExpose({
   clearNoteSearch,
   focusTitle,
   focusBody,
+  openShortcuts,
   replaceActiveNoteSearch,
   replaceAllNoteSearch,
   restoreWorkspaceScroll,
@@ -1364,21 +1600,29 @@ function runToolbar(action) {
 }
 
 /* ── Formatierungsleiste: Menü-Gruppen + responsive Verdichtung ──────────────
-   Textstil, Layout und Einfügen bleiben als kompakte Icon-Menüs sichtbar. Bei
-   wenig Breite wandert Inline-Code zusätzlich ins Einfügen-Menü; B/I/U bleiben
-   immer direkt erreichbar. */
+   Textstil, Layout und Einfügen bleiben als kompakte Icon-Menüs sichtbar. */
 const rootEl = ref(null);
 const toolbarEl = ref(null);
+// Pfeiltasten-Navigation innerhalb der Formatierungsleiste (ARIA Toolbar Pattern):
+// die Menü-Buttons werden zu einem einzigen Tab-Stopp gebündelt.
+useToolbarRoving(toolbarEl);
 const openMenu = ref(null); // 'block' | 'layout' | 'highlight' | 'insert' | 'blocks' | null
 const toolbarCompact = ref(false);
 const TOOLBAR_COMPACT_WIDTH = 520;
 
 const blockStyleItems = [
+  { key: 'paragraph', label: 'Fließtext' },
   { key: 'h2', label: 'Überschrift 2' },
   { key: 'h3', label: 'Überschrift 3' },
   { key: 'h4', label: 'Überschrift 4' },
-  { key: 'paragraph', label: 'Fließtext' },
   { key: 'blockquote', label: 'Zitat' },
+  { key: 'codeBlock', label: 'Codeblock' },
+];
+
+const listStyleItems = [
+  { key: 'bulletList', icon: 'mdi-format-list-bulleted', label: 'Aufzählung' },
+  { key: 'orderedList', icon: 'mdi-format-list-numbered', label: 'Nummerierte Liste' },
+  { key: 'taskList', icon: 'mdi-checkbox-blank-circle-outline', label: 'Aufgaben' },
 ];
 
 const pageLayoutItems = NOTE_PAGE_LAYOUT_COLUMNS.map((columns) => ({
@@ -1407,11 +1651,6 @@ const insertItems = [
   { key: 'link', name: 'link', icon: 'mdi-link-variant', label: 'Hyperlink', action: 'link' },
   { key: 'wikiLink', glyph: '[[', label: 'Verweis', action: 'target' },
   { key: 'documentChip', icon: 'mdi-file-document-outline', label: 'Beleg verknüpfen', action: 'document' },
-  { key: 'bulletList', name: 'bulletList', icon: 'mdi-format-list-bulleted', label: 'Aufzählung' },
-  { key: 'orderedList', name: 'orderedList', icon: 'mdi-format-list-numbered', label: 'Nummerierte Liste' },
-  { key: 'taskList', name: 'taskList', icon: 'mdi-checkbox-blank-circle-outline', label: 'Aufgaben' },
-  { key: 'blockquote', name: 'blockquote', icon: 'mdi-format-quote-close', label: 'Zitat' },
-  { key: 'codeBlock', name: 'codeBlock', glyph: '{ }', label: 'Codeblock' },
   { key: 'table', name: 'table', icon: 'mdi-table', label: 'Tabelle', action: 'table' },
   { key: 'image', icon: 'mdi-image-plus-outline', label: 'Bild einfügen', action: 'image', requiresNote: true },
   { key: 'horizontalRule', glyph: '―', label: 'Trennlinie' },
@@ -1419,9 +1658,6 @@ const insertItems = [
 
 const overflowItems = computed(() => {
   const items = [];
-  if (toolbarCompact.value) {
-    items.push({ key: 'code', name: 'code', glyph: 'A', label: 'Code' });
-  }
   for (const item of insertItems) {
     if (item.requiresNote && !props.noteId) continue;
     items.push(item);
@@ -1438,14 +1674,138 @@ function insertItemDisabled(item) {
 
 function isBlockActive(key) {
   if (key === 'paragraph') return Boolean(toolbarActive('paragraph'));
-  if (key === 'blockquote') return Boolean(toolbarActive('blockquote'));
+  if (['blockquote', 'codeBlock', 'bulletList', 'orderedList', 'taskList'].includes(key)) {
+    return Boolean(toolbarActive(key));
+  }
   const level = { h2: 2, h3: 3, h4: 4 }[key];
   return Boolean(toolbarActive('heading', { level }));
 }
 
 function toggleMenu(which) {
+  aiOptionsOpen.value = false;
   openMenu.value = openMenu.value === which ? null : which;
 }
+
+// ── Tastatur-Semantik der Menü-Buttons (ARIA Menu Button Pattern) ──────────────
+// Jeder Gruppen-Button ist ein Menü-Trigger; das zugehörige Dropdown hat role="menu".
+const MENU_DROPDOWN_IDS = {
+  block: 'note-editor-menu-text',
+  layout: 'note-editor-menu-layout',
+  insert: 'note-editor-menu-insert',
+  blocks: 'note-editor-menu-blocks',
+};
+
+function menuItemsOf(dropdown) {
+  return dropdown
+    ? Array.from(dropdown.querySelectorAll('[role="menuitem"]:not([disabled])'))
+    : [];
+}
+
+// Pfeil-runter/-hoch auf dem Button öffnet das Menü und setzt den Fokus auf den
+// ersten bzw. letzten Eintrag.
+function openMenuFocus(which, position = 'first') {
+  openMenu.value = which;
+  nextTick(() => {
+    const items = menuItemsOf(document.getElementById(MENU_DROPDOWN_IDS[which]));
+    if (!items.length) return;
+    (position === 'last' ? items[items.length - 1] : items[0]).focus();
+  });
+}
+
+// Tastatur INNERHALB eines offenen Menüs: Pfeile/Pos1/Ende rollen die Einträge,
+// Escape schließt und gibt den Fokus an den Trigger zurück, Tab schließt nur.
+function onMenuKeydown(event) {
+  const dropdown = event.currentTarget;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    const trigger = dropdown.previousElementSibling;
+    openMenu.value = null;
+    nextTick(() => trigger?.focus?.());
+    return;
+  }
+  if (event.key === 'Tab') {
+    openMenu.value = null;
+    return;
+  }
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+  const items = menuItemsOf(dropdown);
+  if (!items.length) return;
+  const current = items.indexOf(document.activeElement);
+  let next;
+  if (event.key === 'Home') next = 0;
+  else if (event.key === 'End') next = items.length - 1;
+  else if (event.key === 'ArrowDown') next = current < 0 ? 0 : (current + 1) % items.length;
+  else next = current < 0 ? items.length - 1 : (current - 1 + items.length) % items.length;
+  event.preventDefault();
+  items[next].focus();
+}
+
+// ── Tastenkürzel-Übersicht ─────────────────────────────────────────────────────
+const shortcutsOpen = ref(false);
+const isMacKeyboard = typeof navigator !== 'undefined'
+  && /Mac|iP(hone|ad|od)/.test(navigator.platform || navigator.userAgent || '');
+const modKeyLabel = isMacKeyboard ? '⌘' : 'Strg';
+const altKeyLabel = isMacKeyboard ? '⌥' : 'Alt';
+const shiftKeyLabel = isMacKeyboard ? '⇧' : 'Umschalt';
+const shortcutGroups = computed(() => [
+  {
+    title: 'Text',
+    items: [
+      { label: 'Fett', keys: [modKeyLabel, 'B'] },
+      { label: 'Kursiv', keys: [modKeyLabel, 'I'] },
+      { label: 'Durchgestrichen', keys: [modKeyLabel, shiftKeyLabel, 'S'] },
+      { label: 'Markieren', keys: [modKeyLabel, shiftKeyLabel, 'H'] },
+      { label: 'Inline-Code', keys: [modKeyLabel, 'E'] },
+    ],
+  },
+  {
+    title: 'Absätze',
+    items: [
+      { label: 'Überschrift 2/3/4', keys: [modKeyLabel, altKeyLabel, '2 / 3 / 4'] },
+      { label: 'Fließtext', keys: [modKeyLabel, altKeyLabel, '0'] },
+      { label: 'Zitat', keys: [modKeyLabel, shiftKeyLabel, 'B'] },
+      { label: 'Codeblock', keys: [modKeyLabel, altKeyLabel, 'C'] },
+    ],
+  },
+  {
+    title: 'Listen',
+    items: [
+      { label: 'Aufzählung', keys: [modKeyLabel, shiftKeyLabel, '8'] },
+      { label: 'Nummerierte Liste', keys: [modKeyLabel, shiftKeyLabel, '7'] },
+    ],
+  },
+  {
+    // Zeilenanfang-Kürzel (InputRules aus callout.js): Zeichen + Leertaste.
+    title: 'Hinweisblöcke',
+    items: [
+      { label: 'Wichtig', keys: ['!', '␣'] },
+      { label: 'Frage', keys: ['?', '␣'] },
+      { label: 'Entscheidung', keys: ['=', '␣'] },
+    ],
+  },
+  {
+    title: 'Einfügen & Aktionen',
+    items: [
+      { label: 'Hyperlink', keys: [modKeyLabel, 'K'] },
+      { label: 'Befehlsmenü', keys: ['/'] },
+      { label: 'Suchen & Ersetzen', keys: [modKeyLabel, 'F'] },
+      { label: 'Rückgängig', keys: [modKeyLabel, 'Z'] },
+      { label: 'Wiederherstellen', keys: [modKeyLabel, shiftKeyLabel, 'Z'] },
+      { label: 'Diese Übersicht', keys: [modKeyLabel, '/'] },
+    ],
+  },
+]);
+function openShortcuts() {
+  openMenu.value = null;
+  shortcutsOpen.value = true;
+  nextTick(() => shortcutsCloseEl.value?.focus?.());
+}
+function closeShortcuts() {
+  shortcutsOpen.value = false;
+  nextTick(() => editor.value?.commands.focus());
+}
+const shortcutsCloseEl = ref(null);
+
 function runBlockStyle(key) {
   openMenu.value = null;
   runToolbar(key);
@@ -1516,6 +1876,7 @@ function runQuickBlock(item) {
 }
 
 function onToolbarOutsidePointer(event) {
+  if (!event.target.closest?.('.note-editor__toolbar-ai')) aiOptionsOpen.value = false;
   if (openMenu.value && toolbarEl.value && !toolbarEl.value.contains(event.target)) {
     openMenu.value = null;
   }
@@ -2379,7 +2740,6 @@ function openLinkTargetPicker() {
 
 /* ── KI-Schreibassistenz ─────────────────────────────────────────────────── */
 const AI_PROMPT_WIDTH = 390;
-const CLEANUP_PROMPT_WIDTH = 390;
 const AI_LENGTH_OPTIONS = Object.freeze([
   { label: 'Automatisch', lineHint: 'nach Prompt', instruction: '' },
   { label: 'Kurz', lineHint: 'ca. 1–3 Zeilen', instruction: 'Kurz antworten: ungefähr 1–3 Zeilen.' },
@@ -2401,6 +2761,7 @@ const aiPrompt = reactive({
   mode: 'context',
   instruction: '',
   lengthLevel: 0,
+  contextScope: 'before',
   generatedInstruction: '',
   preview: '',
   error: '',
@@ -2526,6 +2887,7 @@ function prepareAIPromptTarget(presentation = 'toolbar', { resetInstruction = fa
   aiPrompt.selectionFrom = selectedText ? from : null;
   aiPrompt.selectionTo = selectedText ? to : null;
   aiPrompt.selectedText = selectedText;
+  if (presentation === 'toolbar') aiPrompt.contextScope = selectedText ? 'selection' : 'before';
   aiPrompt.targetContainerType = directTarget?.type ?? '';
   aiPrompt.targetContainerFrom = directTarget?.from ?? null;
   aiPrompt.targetContainerTo = directTarget?.to ?? null;
@@ -2553,6 +2915,8 @@ function prepareAIPromptTarget(presentation = 'toolbar', { resetInstruction = fa
 }
 
 function prepareToolbarAIPromptTarget() {
+  // Preserve the captured cursor/selection while moving between prompt and options.
+  if (aiPrompt.open && aiPrompt.presentation === 'toolbar' && !editor.value?.view.hasFocus()) return;
   prepareAIPromptTarget('toolbar');
 }
 
@@ -2560,18 +2924,29 @@ function ensureToolbarAIPromptTarget() {
   if (!aiPrompt.open || aiPrompt.presentation !== 'toolbar') prepareToolbarAIPromptTarget();
 }
 
-function focusToolbarAIPrompt() {
+function toggleAIOptions() {
   ensureToolbarAIPromptTarget();
-  nextTick(() => aiToolbarInputEl.value?.focus());
+  openMenu.value = null;
+  const left = aiOptionsButtonEl.value?.getBoundingClientRect().left || 0;
+  const width = Math.min(310, window.innerWidth - 40);
+  aiOptionsLeft.value = Math.max(20 - left, Math.min(0, window.innerWidth - 20 - left - width));
+  aiOptionsOpen.value = !aiOptionsOpen.value;
+}
+
+function closeAIOptions() {
+  aiOptionsOpen.value = false;
+  nextTick(() => aiOptionsButtonEl.value?.focus());
 }
 
 function openAIPrompt() {
+  aiOptionsOpen.value = false;
   prepareAIPromptTarget('dialog', { resetInstruction: true });
   positionAIPrompt();
   nextTick(() => aiPromptInputEl.value?.focus());
 }
 
 function closeAIPrompt() {
+  aiOptionsOpen.value = false;
   aiGenerationController?.abort();
   aiGenerationController = null;
   aiPrompt.open = false;
@@ -2599,77 +2974,123 @@ function applyAIPromptSuggestion(suggestion) {
 }
 
 /* ── Aufräumen (sinnwahrend) ────────────────────────────────────────────────
-   Ein-Klick-Glättung des rohen Mitschriebs: sammelt die Fließtext-Absätze
-   (oben liegend, ohne strukturierte Blöcke), schickt sie nummeriert über den
-   Notiz-KI-Stream und ersetzt sie – nach Vorschau und Bestätigung – blockweise.
-   Strukturierte Blöcke (Callouts, Aufgaben, Tabellen …) bleiben unberührt. */
+   Der Besen öffnet sofort eine Prüfung im Textfluss. Bei einer kompakten
+   Textauswahl wird exakt diese Auswahl bearbeitet; ohne Auswahl weiterhin die
+   losen Fließtext-Absätze der Notiz. Erst „Übernehmen“ verändert das Dokument. */
+const cleanupViews = Object.freeze([
+  { value: 'original', label: 'Original' },
+  { value: 'diff', label: 'Vergleich' },
+  { value: 'clean', label: 'Bereinigt' },
+]);
 const cleanup = reactive({
   open: false,
   loading: false,
   scope: 'note',
   targets: [],
   preview: '',
+  draftBlocks: [],
+  view: 'diff',
+  instructionOpen: false,
+  instruction: '',
+  selectionFrom: null,
+  selectionTo: null,
   error: '',
   provider: '',
   model: '',
   fallbackFrom: '',
   anchorPos: null,
-  style: {},
 });
+const cleanupRestore = reactive({ open: false });
 
-const cleanupScopeLabel = computed(() => {
-  const count = cleanup.targets.length;
-  const blocks = `${count} ${count === 1 ? 'Absatz' : 'Absätze'}`;
-  return cleanup.scope === 'selection' ? `Auswahl · ${blocks}` : `Ganze Notiz · ${blocks}`;
-});
-const cleanupPreviewText = computed(() => stripCleanupMarks(cleanup.preview));
+const cleanupOriginalText = computed(() => cleanup.targets.map((target) => target.text).join('\n\n'));
+const cleanupDraftText = computed(() => cleanup.draftBlocks.join('\n\n'));
+const cleanupDiffParts = computed(() => diffCleanupText(cleanupOriginalText.value, cleanupDraftText.value));
+const cleanupCanApply = computed(() => (
+  cleanup.draftBlocks.length === cleanup.targets.length
+  && cleanup.draftBlocks.every((block) => String(block || '').trim())
+));
 
-// Oberste-Ebene-Absätze mit Text sammeln; bei aktiver Auswahl nur die davon
-// berührten. Alles andere (Callouts, Listen, Tabellen, Überschriften …) wird
-// übersprungen und bleibt dadurch unverändert.
+// Bei einer Auswahl werden alle berührten Textblöcke separat erfasst. Dadurch
+// bleiben Überschriften, Listen, Aufgaben, Zitate, Hinweisblöcke und Tabellen-
+// zellen strukturell unverändert; ersetzt wird ausschließlich ihr Textinhalt.
+// Codeblöcke werden bewusst ausgelassen, weil sprachliches Glätten dort Code
+// beschädigen könnte. Ohne Auswahl gilt der Befehl weiterhin nur für lose
+// Fließtext-Absätze der Notiz.
 function collectCleanupTargets(ed) {
-  const { from, to, empty } = ed.state.selection;
+  const selection = ed.state.selection;
+  const { from, to, empty } = selection;
   const scoped = !empty;
   const targets = [];
   ed.state.doc.descendants((node, pos, parent) => {
-    if (parent && parent.type.name === 'doc' && node.type.name === 'paragraph') {
-      const text = node.textContent.trim();
-      const nodeTo = pos + node.nodeSize;
-      if (text && (!scoped || !(nodeTo <= from || pos >= to))) {
-        targets.push({ from: pos, to: nodeTo, text });
+    if (scoped && node.isTextblock) {
+      if (node.type.name === 'codeBlock') return false;
+      const contentFrom = pos + 1;
+      const contentTo = pos + node.nodeSize - 1;
+      const targetFrom = Math.max(from, contentFrom);
+      const targetTo = Math.min(to, contentTo);
+      if (targetTo > targetFrom) {
+        const text = ed.state.doc.textBetween(targetFrom, targetTo, '\n', '\n');
+        if (text.trim()) targets.push({ from: targetFrom, to: targetTo, text, kind: 'range' });
       }
+      return false;
     }
-    return false; // nie in Kinder absteigen – nur die oberste Ebene betrachten
+    if (!scoped && parent?.type.name === 'doc' && node.type.name === 'paragraph') {
+      const text = node.textContent.trim();
+      if (text) targets.push({
+        from: pos + 1,
+        to: pos + node.nodeSize - 1,
+        text,
+        kind: 'range',
+      });
+      return false;
+    }
+    return undefined;
   });
-  return { targets, scope: scoped ? 'selection' : 'note' };
-}
-
-function positionCleanup() {
-  const ed = editor.value, surface = surfaceEl.value;
-  if (!ed || !surface) return;
-  const pos = Math.min(cleanup.anchorPos ?? ed.state.selection.from, ed.state.doc.content.size);
-  const rect = posToDOMRect(ed.view, pos, pos);
-  const box = surface.getBoundingClientRect();
-  cleanup.style = {
-    left: `${clampMenuLeft(rect.left - box.left, box.width, CLEANUP_PROMPT_WIDTH)}px`,
-    top: `${rect.bottom - box.top + 4}px`,
+  return {
+    targets,
+    scope: scoped ? 'selection' : 'note',
+    selectionFrom: scoped ? from : null,
+    selectionTo: scoped ? to : null,
   };
 }
 
-function closeCleanup() {
+function cleanupReviewPosition(ed, targets, selectionTo) {
+  const position = Math.min(
+    selectionTo ?? targets.at(-1)?.to ?? ed.state.selection.to,
+    ed.state.doc.content.size,
+  );
+  const $position = ed.state.doc.resolve(position);
+  return $position.depth > 0 ? $position.after(1) : position;
+}
+
+function resetCleanupState() {
   cleanupController?.abort();
   cleanupController = null;
   cleanup.open = false;
   cleanup.loading = false;
   cleanup.preview = '';
+  cleanup.draftBlocks = [];
+  cleanup.view = 'diff';
+  cleanup.instructionOpen = false;
+  cleanup.instruction = '';
+  cleanup.selectionFrom = null;
+  cleanup.selectionTo = null;
   cleanup.error = '';
   cleanup.targets = [];
+  cleanup.anchorPos = null;
+}
+
+function closeCleanup() {
+  const ed = editor.value;
+  cleanupRestore.open = false;
+  resetCleanupState();
+  if (ed) hideCleanupReviewAnchor(ed);
 }
 
 async function startCleanup() {
   const ed = editor.value;
   if (!ed || !props.aiAvailable || cleanup.loading) return;
-  const { targets, scope } = collectCleanupTargets(ed);
+  const { targets, scope, selectionFrom, selectionTo } = collectCleanupTargets(ed);
 
   slash.open = false;
   bubble.show = false;
@@ -2682,15 +3103,28 @@ async function startCleanup() {
   cleanup.scope = scope;
   cleanup.targets = targets;
   cleanup.preview = '';
+  cleanup.draftBlocks = [];
+  cleanup.view = 'diff';
+  cleanup.instructionOpen = false;
+  cleanup.instruction = '';
+  cleanup.selectionFrom = selectionFrom;
+  cleanup.selectionTo = selectionTo;
   cleanup.error = '';
   cleanup.provider = '';
   cleanup.model = '';
   cleanup.fallbackFrom = '';
-  cleanup.anchorPos = Math.min(ed.state.selection.from, ed.state.doc.content.size);
-  positionCleanup();
+  cleanup.anchorPos = cleanupReviewPosition(ed, targets, selectionTo);
+  cleanupRestore.open = false;
+  showCleanupReviewAnchor(ed, cleanup.anchorPos);
+  // Die ursprüngliche Browser-Auswahl würde auch den eingefügten Prüfbereich
+  // blau übermalen. Der exakte Bereich ist oben bereits sicher gespeichert;
+  // visuell wird die Auswahl deshalb auf ihr Ende eingeklappt.
+  if (scope === 'selection' && Number.isInteger(selectionTo)) {
+    ed.commands.setTextSelection(selectionTo);
+  }
 
   if (!targets.length) {
-    cleanup.error = 'Kein Fließtext-Absatz gefunden. Aufräumen glättet nur lockeren Text; strukturierte Blöcke bleiben unberührt.';
+    cleanup.error = 'Kein bereinigbarer Text gefunden. Codeblöcke bleiben zum Schutz ihres Inhalts unverändert.';
     return;
   }
   const payload = formatCleanupInput(targets.map((target) => target.text));
@@ -2699,11 +3133,27 @@ async function startCleanup() {
     return;
   }
 
+  await requestCleanup();
+}
+
+async function requestCleanup() {
+  if (!cleanup.open || !cleanup.targets.length || cleanup.loading) return;
+  const payload = formatCleanupInput(cleanup.targets.map((target) => target.text));
+  const extraInstruction = cleanup.instruction.trim();
+  const instruction = extraInstruction
+    ? `${CLEANUP_INSTRUCTION}\n\nZusätzliche Anweisung des Nutzers: ${extraInstruction}`
+    : CLEANUP_INSTRUCTION;
+  cleanup.preview = '';
+  cleanup.draftBlocks = [];
+  cleanup.error = '';
+  cleanup.provider = '';
+  cleanup.model = '';
+  cleanup.fallbackFrom = '';
   cleanup.loading = true;
   cleanupController = new AbortController();
   try {
     await streamNoteText({
-      instruction: CLEANUP_INSTRUCTION,
+      instruction,
       length_instruction: '',
       note_context: '',
       selected_text: payload,
@@ -2720,8 +3170,12 @@ async function startCleanup() {
         }
       },
     });
-    if (!stripCleanupMarks(cleanup.preview)) {
-      cleanup.error = 'Das Modell hat keinen Text erzeugt.';
+    const { ok, blocks } = parseCleanupOutput(cleanup.preview, cleanup.targets.length);
+    if (!ok || !stripCleanupMarks(cleanup.preview)) {
+      cleanup.error = 'Das Ergebnis ließ sich nicht sicher zuordnen. Bitte erneut aufräumen oder einen kleineren Abschnitt markieren.';
+    } else {
+      cleanup.draftBlocks = blocks;
+      cleanup.view = 'diff';
     }
   } catch (error) {
     if (error?.name !== 'AbortError' && cleanup.open) {
@@ -2733,19 +3187,30 @@ async function startCleanup() {
   }
 }
 
+function regenerateCleanup() {
+  if (cleanup.loading) return;
+  cleanup.instructionOpen = false;
+  void requestCleanup();
+}
+
+function discardCleanup() {
+  const ed = editor.value;
+  const from = cleanup.selectionFrom;
+  const to = cleanup.selectionTo;
+  closeCleanup();
+  if (ed && Number.isInteger(from) && Number.isInteger(to) && from < to) {
+    ed.chain().focus().setTextSelection({ from, to }).run();
+  }
+}
+
 function applyCleanup() {
   const ed = editor.value;
-  if (!ed || cleanup.loading || !cleanup.targets.length) return;
-  const { ok, blocks } = parseCleanupOutput(cleanup.preview, cleanup.targets.length);
-  if (!ok) {
-    cleanup.error = 'Das Ergebnis ließ sich nicht sicher zuordnen (Blockanzahl weicht ab). Bitte erneut aufräumen oder einen kleineren Abschnitt markieren.';
-    return;
-  }
-  // Haben sich die Zielabsätze seit dem Sammeln verschoben, lieber abbrechen als
-  // an falscher Stelle ersetzen.
+  if (!ed || cleanup.loading || !cleanup.targets.length || !cleanupCanApply.value) return;
+  // Haben sich die Ziele seit dem Sammeln verschoben, lieber abbrechen als an
+  // einer falschen Stelle zu ersetzen.
   const stillValid = cleanup.targets.every((target) => {
-    const node = ed.state.doc.nodeAt(target.from);
-    return node?.type.name === 'paragraph' && target.from + node.nodeSize === target.to;
+    return target.to <= ed.state.doc.content.size
+      && ed.state.doc.textBetween(target.from, target.to, '\n', '\n') === target.text;
   });
   if (!stillValid) {
     cleanup.error = 'Die Notiz hat sich geändert. Bitte das Aufräumen erneut starten.';
@@ -2753,18 +3218,28 @@ function applyCleanup() {
   }
   // Von hinten nach vorn ersetzen, damit die früheren Positionen gültig bleiben.
   const ordered = cleanup.targets
-    .map((target, index) => ({ ...target, cleaned: blocks[index] }))
+    .map((target, index) => ({ ...target, cleaned: cleanup.draftBlocks[index].trim() }))
     .sort((a, b) => b.from - a.from);
   const chain = ed.chain().focus();
   ordered.forEach((target) => {
-    chain.insertContentAt({ from: target.from, to: target.to }, {
-      type: 'paragraph',
-      content: [{ type: 'text', text: target.cleaned }],
-    });
+    chain.insertContentAt(
+      { from: target.from, to: target.to },
+      { type: 'text', text: target.cleaned },
+    );
   });
   chain.scrollIntoView().run();
   emit('history-checkpoint', 'ai');
-  closeCleanup();
+  cleanup.open = false;
+  cleanupRestore.open = true;
+}
+
+function restoreCleanupOriginal() {
+  const ed = editor.value;
+  if (!ed) return;
+  ed.commands.undo();
+  cleanupRestore.open = false;
+  resetCleanupState();
+  hideCleanupReviewAnchor(ed);
 }
 
 function noteContextBeforeAnchor(ed) {
@@ -2877,6 +3352,14 @@ async function generateAIText() {
   const instruction = aiPrompt.instruction.trim();
   if (!ed || !instruction || aiPrompt.loading || aiSelectionTooLong.value) return;
 
+  const wholeNote = aiPrompt.presentation === 'toolbar' && aiPrompt.contextScope === 'note';
+  const contextText = wholeNote ? ed.getText() : noteContextBeforeAnchor(ed);
+  if (wholeNote && contextText.length > 12000) {
+    aiPrompt.error = 'Die ganze Notiz ist zu lang (max. 12.000 Zeichen). Bitte einen kleineren Kontext wählen.';
+    return;
+  }
+  aiOptionsOpen.value = false;
+
   aiPrompt.loading = true;
   aiPrompt.generatedInstruction = instruction;
   aiPrompt.preview = '';
@@ -2889,10 +3372,11 @@ async function generateAIText() {
   try {
     await streamNoteText({
       instruction,
-      length_instruction: aiPrompt.presentation === 'dialog'
-        ? activeAILengthOption.value.instruction
-        : '',
-      note_context: aiPrompt.mode === 'selection' ? '' : noteContextBeforeAnchor(ed),
+      length_instruction: activeAILengthOption.value.instruction,
+      note_context: aiPrompt.presentation === 'toolbar'
+        ? (aiPrompt.contextScope === 'selection' ? '' : contextText)
+        : (aiPrompt.mode === 'selection' ? '' : noteContextBeforeAnchor(ed)),
+      context_scope: wholeNote ? 'note' : 'before',
       selected_text: aiPrompt.mode === 'selection' ? aiPrompt.selectedText : '',
       document_context: '',
     }, {
@@ -3039,9 +3523,16 @@ function onEditorKeyDown(event) {
     return true;
   }
 
+  // Cmd/Ctrl + / öffnet die Tastenkürzel-Übersicht.
+  if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key === '/') {
+    event.preventDefault();
+    openShortcuts();
+    return true;
+  }
+
   if (cleanup.open && event.key === 'Escape') {
     event.preventDefault();
-    closeCleanup();
+    discardCleanup();
     return true;
   }
 
@@ -3165,10 +3656,12 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
      - paragraph-gap: Abstand zwischen aufeinanderfolgenden Absätzen. Bewusst
        moderat, damit EIN Enter als eine klare Absatztrennung liest (nicht als
        Doppelumbruch; Browser-Standardmargen sind über margin-block:0 neutral).
-     - block-gap: mehr Luft vor/nach Strukturelementen (Listen, Zitate, Codeblock),
-       damit diese sich sichtbar vom Fließtext absetzen. */
+     - block-gap: ein gemeinsamer Außenabstand für alle Strukturelemente –
+       unabhängig davon, ob es sich um Überschrift, Liste, Tabelle, Bild,
+       Layout, Hinweis- oder Schnellblock handelt. */
   --note-editor-paragraph-gap: 0.5em;
-  --note-editor-block-gap: 0.95em;
+  --note-editor-block-gap: 1.75rem;
+  --note-editor-heading-gap: 0.75rem;
 }
 
 .note-editor--font-serif {
@@ -3181,12 +3674,12 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 
 .note-editor--spacing-compact {
   --note-editor-paragraph-gap: 0.3em;
-  --note-editor-block-gap: 0.6em;
+  --note-editor-block-gap: 1.25rem;
 }
 
 .note-editor--spacing-spacious {
   --note-editor-paragraph-gap: 0.75em;
-  --note-editor-block-gap: 1.3em;
+  --note-editor-block-gap: 2.1rem;
 }
 
 .note-editor__title {
@@ -3416,9 +3909,67 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   flex: none;
   place-items: center;
   color: var(--pm-muted, #748084);
-  cursor: text;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
   opacity: 0.74;
   transition: color 140ms ease, opacity 140ms ease;
+}
+.note-editor__toolbar-ai-icon.is-open,
+.note-editor__toolbar-ai-icon:hover {
+  background: color-mix(in srgb, var(--pm-muted, #748084) 12%, transparent);
+}
+.note-editor__ai-options {
+  position: absolute;
+  top: calc(100% + 10px);
+  z-index: 25;
+  width: 310px;
+  max-width: calc(100vw - 40px);
+  padding: 15px;
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 12px;
+  background: var(--pm-content-surface, #fff);
+  box-shadow: var(--pm-shadow, 0 10px 30px rgba(15, 23, 42, 0.14));
+  color: var(--pm-text, #0e181b);
+  font-size: 0.8rem;
+}
+.note-editor__ai-options fieldset { padding: 0; margin: 0 0 14px; border: 0; min-width: 0; }
+.note-editor__ai-options legend { margin-bottom: 7px; font-weight: 600; }
+.note-editor__ai-lengths { display: flex; gap: 3px; flex-wrap: wrap; }
+.note-editor__ai-lengths button {
+  border: 0; border-radius: 6px; padding: 6px 8px; font: inherit;
+  background: transparent; color: inherit; cursor: pointer;
+}
+.note-editor__ai-lengths button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent);
+  color: var(--pm-accent-strong, #00555f);
+}
+.note-editor__ai-options output,
+.note-editor__ai-options small { display: block; margin-top: 7px; color: var(--pm-muted, #535e62); font-size: 0.72rem; }
+.note-editor__ai-options label { display: grid; gap: 7px; font-weight: 600; }
+.note-editor__ai-options select {
+  appearance: none;
+  width: 100%; padding: 8px 36px 8px 10px; border: 1px solid var(--pm-divider, #d8dfe1); border-radius: 7px;
+  background: var(--pm-content-surface, #fff); color: inherit; font: inherit; font-weight: 400;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+.note-editor__ai-context-select { position: relative; display: block; }
+.note-editor__ai-context-select > .v-icon {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  color: var(--pm-muted, #535e62); pointer-events: none;
+}
+.note-editor__ai-options select:hover:not(:disabled) {
+  border-color: var(--pm-accent, #006b75);
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 4%, var(--pm-content-surface, #fff));
+}
+.note-editor__ai-options select:focus-visible {
+  outline: 2px solid var(--pm-accent, #006b75); outline-offset: 2px;
+}
+.note-editor__ai-options select:disabled {
+  cursor: default; opacity: 0.5;
 }
 .note-editor__toolbar-ai.has-prompt .note-editor__toolbar-ai-icon {
   color: var(--pm-accent, #006b75);
@@ -3486,6 +4037,24 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   max-height: min(420px, calc(100vh - 160px));
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+.note-editor__text-menu {
+  min-width: 218px;
+}
+.note-editor__text-menu-heading {
+  padding: 6px 10px 4px;
+  color: var(--pm-muted, #748084);
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.note-editor__text-menu-divider {
+  height: 1px;
+  margin: 6px 7px 3px;
+  background: var(--pm-divider, #d8dfe1);
 }
 
 .note-editor__toolbar-dropitem {
@@ -3802,14 +4371,6 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   margin-block: 0;
 }
 .note-editor :deep(.pm-content > * + *) { margin-top: var(--note-editor-paragraph-gap); }
-/* Strukturelemente heben sich stärker vom Fließtext ab: mehr Luft davor … */
-.note-editor :deep(.pm-content > * + :is(ul, ol, blockquote, pre, [data-page-layout])) {
-  margin-top: var(--note-editor-block-gap);
-}
-/* … und danach. */
-.note-editor :deep(.pm-content > :is(ul, ol, blockquote, pre, [data-page-layout]) + *) {
-  margin-top: var(--note-editor-block-gap);
-}
 
 /* Frei platzierbare Spaltenblöcke. Ihre Höhe entsteht ausschließlich aus dem
    Inhalt; ober- und unterhalb bleiben normale Editorblöcke möglich. */
@@ -3865,17 +4426,36 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 .note-editor :deep(.pm-content h1) {
   font-family: inherit; font-weight: 600;
-  font-size: 1.55rem; line-height: 1.2; letter-spacing: -0.01em; margin-top: 1.4em;
+  font-size: 1.55rem; line-height: 1.2; letter-spacing: -0.01em;
 }
 .note-editor :deep(.pm-content h2) {
   font-family: inherit; font-weight: 600;
-  font-size: 1.28rem; line-height: 1.25; margin-top: 1.3em;
+  font-size: 1.28rem; line-height: 1.25;
 }
-.note-editor :deep(.pm-content h3) { font-weight: 600; font-size: 1.08rem; margin-top: 1.2em; }
-.note-editor :deep(.pm-content h4) { font-weight: 600; font-size: 1rem; margin-top: 1.1em; }
-.note-editor :deep(.pm-content > h2:first-child),
-.note-editor :deep(.pm-content > h3:first-child),
-.note-editor :deep(.pm-content > h4:first-child) {
+.note-editor :deep(.pm-content h3) { font-weight: 600; font-size: 1.08rem; }
+.note-editor :deep(.pm-content h4) { font-weight: 600; font-size: 1rem; }
+/* Einheitliche Block-Rhythmik: Sobald mindestens eine Seite der Trennung kein
+   normaler Absatz ist, gilt der großzügigere Strukturabstand. Damit werden
+   auch NodeViews wie Tabellen, Bilder, Layouts, Hinweis-, KI- und Schnellblöcke
+   automatisch erfasst, ohne eine fragile Liste von Knotentypen zu pflegen. */
+.note-editor :deep(.pm-content > * + :not(p)),
+.note-editor :deep(.pm-content > :not(p) + *) {
+  margin-top: var(--note-editor-block-gap);
+}
+.note-editor :deep([data-layout-column] > * + :not(p)),
+.note-editor :deep([data-layout-column] > :not(p) + *) {
+  margin-top: var(--note-editor-block-gap);
+}
+/* Überschriften bilden bewusst eine ruhigere Ausnahme von der Block-Rhythmik:
+   unabhängig von Ebene und Nachbar bleibt ihr Abstand auf beiden Seiten gleich. */
+.note-editor :deep(.pm-content > * + :is(h1, h2, h3, h4, h5, h6)),
+.note-editor :deep(.pm-content > :is(h1, h2, h3, h4, h5, h6) + *),
+.note-editor :deep([data-layout-column] > * + :is(h1, h2, h3, h4, h5, h6)),
+.note-editor :deep([data-layout-column] > :is(h1, h2, h3, h4, h5, h6) + *) {
+  margin-top: var(--note-editor-heading-gap);
+}
+.note-editor :deep(.pm-content > :is(h1, h2, h3, h4, h5, h6):first-child),
+.note-editor :deep([data-layout-column] > :is(h1, h2, h3, h4, h5, h6):first-child) {
   margin-top: 0;
 }
 .note-editor :deep(.pm-content ul),
@@ -3897,7 +4477,7 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 .note-editor :deep(.pm-content pre code) { background: none; color: inherit; padding: 0; }
 .note-editor :deep(.pm-content hr) {
-  border: 0; height: 1px; background: var(--pm-divider, #d8dfe1); margin: 1.4em 0;
+  border: 0; height: 1px; background: var(--pm-divider, #d8dfe1); margin-inline: 0;
 }
 .note-editor :deep(.pm-content a) {
   color: var(--pm-accent-strong, #00555f);
@@ -4104,6 +4684,10 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 .pm-bubble__btn:hover { background: rgba(255, 255, 255, 0.10); color: #fff; }
 .pm-bubble__btn.is-active { background: rgba(255, 255, 255, 0.17); color: #fff; }
+.pm-bubble__btn:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.6);
+  outline-offset: -2px;
+}
 .pm-bubble__btn.is-ai { color: #7fe0c1; }
 .pm-bubble__btn:not(.is-ai) + .pm-bubble__btn.is-ai {
   margin-left: 3px;
@@ -4128,6 +4712,10 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 .pm-bubble__swatch:hover { transform: scale(1.12); }
 .pm-bubble__swatch.is-active { box-shadow: 0 0 0 2px #23241f, 0 0 0 3px #fff; }
+.pm-bubble__swatch:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.85);
+  outline-offset: 2px;
+}
 .pm-bubble__swatch--remove {
   background: transparent; color: #e4e2da;
   border-color: rgba(255, 255, 255, 0.22);
@@ -4215,6 +4803,10 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 
 .pm-link-editor__save:hover { filter: brightness(1.07); }
+.pm-link-editor__save:focus-visible {
+  outline: 2px solid var(--pm-accent-strong, #00555f);
+  outline-offset: 2px;
+}
 .pm-link-editor__error {
   padding: 7px 2px 0;
   color: var(--pm-danger, #b42318);
@@ -4246,12 +4838,15 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   font-size: 0.73rem;
 }
 
-.pm-link-editor__actions button:hover {
+.pm-link-editor__actions button:hover,
+.pm-link-editor__actions button:focus-visible {
+  outline: none;
   background: color-mix(in srgb, var(--pm-accent, #006b75) 9%, transparent);
   color: var(--pm-accent-strong, #00555f);
 }
 
-.pm-link-editor__actions button.is-danger:hover {
+.pm-link-editor__actions button.is-danger:hover,
+.pm-link-editor__actions button.is-danger:focus-visible {
   background: color-mix(in srgb, var(--pm-danger, #b42318) 9%, transparent);
   color: var(--pm-danger, #b42318);
 }
@@ -4326,7 +4921,9 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 }
 
 .pm-table-menu__header-toggle:hover,
+.pm-table-menu__header-toggle:focus-visible,
 .pm-table-menu__header-toggle.is-active {
+  outline: none;
   background: color-mix(in srgb, var(--pm-accent, #006b75) 10%, transparent);
   color: var(--pm-accent-strong, #00555f);
 }
@@ -4730,6 +5327,233 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
   to { transform: translateX(340%); }
 }
 
+/* ── Inline-Prüfung für „Aufräumen“ ─────────────────────────────────────── */
+.note-editor :deep(.pm-cleanup-review-anchor) {
+  display: block;
+  width: 100%;
+  margin: var(--pm-block-gap) 0;
+  white-space: normal;
+}
+
+.pm-cleanup-review {
+  width: 100%;
+  padding: 14px 16px 12px;
+  border-left: 3px solid color-mix(in srgb, var(--pm-accent, #006b75) 68%, transparent);
+  border-radius: 0 12px 12px 0;
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 6%, var(--pm-content-surface, #fff));
+  color: var(--pm-text, #0e181b);
+  font-family: inherit;
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+.pm-cleanup-review.is-generating {
+  border-left-color: color-mix(in srgb, var(--pm-accent, #006b75) 88%, transparent);
+}
+.pm-cleanup-review__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.pm-cleanup-review__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--pm-accent-strong, #00555f);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+.pm-cleanup-review__views {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.pm-cleanup-review__views button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pm-muted, #535e62);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.76rem;
+}
+.pm-cleanup-review__views button.is-active {
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 10%, transparent);
+  color: var(--pm-accent-strong, #00555f);
+}
+.pm-cleanup-review__views button:disabled { cursor: default; opacity: 0.45; }
+.pm-cleanup-review__loading {
+  display: grid;
+  gap: 8px;
+  padding: 6px 0 9px;
+  color: var(--pm-muted, #535e62);
+  font-size: 0.74rem;
+}
+.pm-cleanup-review__content {
+  min-height: 64px;
+  padding: 2px 0 12px;
+}
+.pm-cleanup-review__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.pm-cleanup-review__text del {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--pm-danger, #b42318) 11%, transparent);
+  color: color-mix(in srgb, var(--pm-danger, #b42318) 72%, var(--pm-text, #0e181b));
+  text-decoration-thickness: 1px;
+}
+.pm-cleanup-review__text ins {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 11%, transparent);
+  color: inherit;
+  text-decoration: none;
+}
+.pm-cleanup-review__editors {
+  display: grid;
+  gap: 8px;
+}
+.pm-cleanup-review__editors textarea {
+  width: 100%;
+  min-height: 72px;
+  field-sizing: content;
+  resize: vertical;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 88%, transparent);
+  border-radius: 8px;
+  outline: none;
+  background: color-mix(in srgb, var(--pm-content-surface, #fff) 84%, transparent);
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+}
+.pm-cleanup-review__editors textarea:focus,
+.pm-cleanup-review__instruction input:focus {
+  border-color: var(--pm-accent, #006b75);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent);
+}
+.pm-cleanup-review__instruction {
+  display: flex;
+  gap: 7px;
+  margin: 0 0 10px;
+}
+.pm-cleanup-review__instruction input {
+  min-width: 0;
+  min-height: 34px;
+  flex: 1;
+  padding: 0 10px;
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 7px;
+  outline: none;
+  background: var(--pm-content-surface, #fff);
+  color: inherit;
+  font: inherit;
+  font-size: 0.78rem;
+}
+.pm-cleanup-review__instruction button,
+.pm-cleanup-review__actions button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 8px;
+  background: var(--pm-content-surface, #fff);
+  color: var(--pm-text, #0e181b);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+.pm-cleanup-review__instruction button:disabled,
+.pm-cleanup-review__actions button:disabled { cursor: default; opacity: 0.45; }
+.pm-cleanup-review__error {
+  margin: 0 0 10px;
+  color: var(--pm-danger, #b42318);
+  font-size: 0.76rem;
+}
+.pm-cleanup-review__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 78%, transparent);
+}
+.pm-cleanup-review__actions > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pm-cleanup-review__actions button.is-quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--pm-muted, #535e62);
+}
+.pm-cleanup-review__actions button.is-primary {
+  border-color: var(--pm-accent, #006b75);
+  background: var(--pm-accent, #006b75);
+  color: var(--pm-accent-contrast, #fff);
+}
+.pm-cleanup-restore {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 13px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 7%, var(--pm-content-surface, #fff));
+  color: var(--pm-muted, #535e62);
+  font-size: 0.76rem;
+}
+.pm-cleanup-restore button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--pm-accent-strong, #00555f);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+}
+.pm-cleanup-review-enter-active {
+  /* Keyframes starten auch beim erstmaligen Mount im ProseMirror-Anker,
+     ohne auf einen bereits gezeichneten Ausgangszustand angewiesen zu sein. */
+  animation: pm-cleanup-review-appear 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.pm-cleanup-review-leave-active {
+  transition: opacity 150ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.pm-cleanup-review-leave-to {
+  opacity: 0;
+  transform: translateY(-5px);
+}
+@keyframes pm-cleanup-review-appear {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 680px) {
+  .pm-cleanup-review__head,
+  .pm-cleanup-review__actions { align-items: flex-start; flex-direction: column; }
+  .pm-cleanup-review__actions > div { flex-wrap: wrap; }
+  .pm-cleanup-review__actions > div:last-child { align-self: stretch; justify-content: flex-end; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pm-cleanup-review-enter-active,
+  .pm-cleanup-review-leave-active { animation: none; transition: none; }
+}
+:global(.pm-no-animations .pm-cleanup-review-enter-active),
+:global(.pm-no-animations .pm-cleanup-review-leave-active) { animation: none; transition: none; }
+
 /* Treffer der notizinternen Suche bleiben reine ProseMirror-Dekorationen und
    verändern weder Auswahl noch gespeicherten Dokumentinhalt. */
 .note-editor :deep(.pm-note-search-match) {
@@ -4839,5 +5663,112 @@ watch(filteredPicker, (r) => { if (picker.index >= r.length) picker.index = 0; }
 
   .note-editor__toolbar-btn--text { width: 35px; }
   .note-editor__toolbar-btn--wide { width: 42px; }
+}
+
+/* ── Tastenkürzel-Übersicht ─────────────────────────────────────────────────── */
+.pm-shortcuts-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--pm-text, #0e181b) 34%, transparent);
+  backdrop-filter: blur(2px);
+}
+.pm-shortcuts {
+  width: min(900px, 100%);
+  max-height: min(80vh, 640px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--pm-content-surface, #fff);
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px color-mix(in srgb, var(--pm-text, #0e181b) 30%, transparent);
+}
+.pm-shortcuts__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px 13px;
+  border-bottom: 1px solid var(--pm-divider, #d8dfe1);
+}
+.pm-shortcuts__title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 680;
+  color: var(--pm-text, #0e181b);
+}
+.pm-shortcuts__close {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pm-muted, #535e62);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.pm-shortcuts__close:hover { background: color-mix(in srgb, var(--pm-text, #0e181b) 8%, transparent); color: var(--pm-text, #0e181b); }
+.pm-shortcuts__close:focus-visible { outline: 2px solid var(--pm-accent, #006b75); outline-offset: 2px; }
+.pm-shortcuts__grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 22px 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px 32px;
+  align-content: start;
+}
+.pm-shortcuts__group-title {
+  margin: 4px 0 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pm-muted, #535e62);
+}
+.pm-shortcuts__list { list-style: none; margin: 0; padding: 0; }
+.pm-shortcuts__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+}
+.pm-shortcuts__label { font-size: 0.9rem; color: var(--pm-text, #0e181b); }
+.pm-shortcuts__keys { display: inline-flex; gap: 4px; flex: none; }
+.pm-shortcuts__keys kbd {
+  min-width: 22px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-bottom-width: 2px;
+  background: color-mix(in srgb, var(--pm-text, #0e181b) 4%, var(--pm-content-surface, #fff));
+  font: 500 0.78rem/1.4 'IBM Plex Mono', ui-monospace, monospace;
+  color: var(--pm-text, #0e181b);
+  text-align: center;
+}
+@media (max-width: 560px) {
+  .pm-shortcuts__grid { grid-template-columns: 1fr; }
+}
+/* Eintritts-Animation per CSS-Keyframes (nicht Vue-Transition-verwaltet), damit
+   das teleportierte Overlay nicht in einem Leave-Zustand hängen bleiben kann. */
+.pm-shortcuts-overlay { animation: pm-shortcuts-fade 140ms ease both; }
+.pm-shortcuts-overlay .pm-shortcuts { animation: pm-shortcuts-pop 170ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes pm-shortcuts-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pm-shortcuts-pop {
+  from { transform: translateY(8px) scale(0.98); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pm-shortcuts-overlay,
+  .pm-shortcuts-overlay .pm-shortcuts { animation: none; }
 }
 </style>

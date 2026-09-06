@@ -5,6 +5,7 @@ import {
   CLEANUP_INSTRUCTION,
   CLEANUP_INPUT_LIMIT,
   cleanupMarker,
+  diffCleanupText,
   formatCleanupInput,
   parseCleanupOutput,
   stripCleanupMarks,
@@ -55,4 +56,17 @@ test('a mismatched block count fails safe so nothing gets garbled', () => {
 test('preview stripping removes markers and collapses blank runs', () => {
   const preview = stripCleanupMarks('⟦1⟧ Erster Satz.\n\n\n⟦2⟧ Zweiter Satz.');
   assert.equal(preview, 'Erster Satz.\n\nZweiter Satz.');
+});
+
+test('cleanup comparison exposes unchanged, removed and added text without HTML', () => {
+  const parts = diffCleanupText(
+    'Die Anforderung ist fertig.',
+    'Die Anforderung ist umgesetzt.',
+  );
+  assert.deepEqual(parts, [
+    { type: 'equal', text: 'Die Anforderung ist ' },
+    { type: 'removed', text: 'fertig' },
+    { type: 'added', text: 'umgesetzt' },
+    { type: 'equal', text: '.' },
+  ]);
 });

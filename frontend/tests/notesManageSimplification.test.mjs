@@ -6,6 +6,14 @@ const gridSource = await readFile(
   new URL('../src/components/notes/NotesManageGrid.vue', import.meta.url),
   'utf8',
 );
+const templatesFolderSource = await readFile(
+  new URL('../src/components/notes/Vorlagenmappe.vue', import.meta.url),
+  'utf8',
+);
+const templateCardSource = await readFile(
+  new URL('../src/components/notes/VorlagenCard.vue', import.meta.url),
+  'utf8',
+);
 const tagBarSource = await readFile(
   new URL('../src/components/notes/NoteTagBar.vue', import.meta.url),
   'utf8',
@@ -135,6 +143,21 @@ test('empty notes and templates use the centered animated document placeholder',
   assert.match(gridSource, /:key="`empty-\$\{facet\}`"[\s\S]*?<PmEmptyState[\s\S]*?size="sm"/);
   assert.doesNotMatch(gridSource, /<PmEmptyState[\s\S]*?:animated="false"[\s\S]*?\/>/);
   assert.match(gridSource, /\.nmg__empty\s*\{[\s\S]*?width:\s*100%;[\s\S]*?height:\s*100%;[\s\S]*?align-items:\s*center;[\s\S]*?justify-content:\s*center;/);
+});
+
+test('both template groups always expose creation through a placeholder card', () => {
+  assert.doesNotMatch(templatesFolderSource, /class="vm__new"/);
+  assert.doesNotMatch(templatesFolderSource, /\.vm__new\s*\{/);
+  assert.match(templatesFolderSource, /:class="\{ 'vm__grid--ghost': !blockTemplates\.length \}"[\s\S]*?<VorlagenCard[\s\S]*?<GhostAddCard[\s\S]*?@click="openCreateBlock"/);
+  assert.match(templatesFolderSource, /:class="\{ 'vm__grid--ghost': !startnotizen\.length \}"[\s\S]*?<VorlagenCard[\s\S]*?<GhostAddCard[\s\S]*?@click="createStartnotiz"/);
+  assert.match(templatesFolderSource, /:title="blockTemplates\.length \? 'Neuer Schnellblock' : 'Noch kein Schnellblock'"/);
+  assert.match(templatesFolderSource, /:title="startnotizen\.length \? 'Neue Startnotiz' : 'Noch keine Startnotiz'"/);
+});
+
+test('quick-block preview cards omit the redundant slash badge', () => {
+  assert.doesNotMatch(templateCardSource, /class="vk__slash"/);
+  assert.doesNotMatch(templateCardSource, /\.vk__slash\s*\{/);
+  assert.doesNotMatch(templateCardSource, /Per \/ einfügbar/);
 });
 
 test('compact and management note cards share the document-list surface treatment', () => {

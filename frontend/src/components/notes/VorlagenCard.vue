@@ -31,8 +31,6 @@
         <span v-for="(w, i) in pageLines" :key="i" class="vk-page__line" :style="{ width: w }" />
       </div>
 
-      <span v-if="variant === 'schnellblock'" class="vk__slash" title="Per / einfügbar" aria-hidden="true">/</span>
-
       <div class="vk__actions">
         <button
           v-if="variant === 'startnotiz'"
@@ -53,7 +51,7 @@
 
     <div class="vk__meta">
       <span class="vk__chip" aria-hidden="true">
-        <v-icon size="16">{{ variant === 'startnotiz' ? 'mdi-note-outline' : 'mdi-shape-outline' }}</v-icon>
+        <v-icon size="16">{{ variant === 'startnotiz' ? 'mdi-note-outline' : 'mdi-view-agenda-outline' }}</v-icon>
       </span>
       <span class="vk__title">{{ title || 'Ohne Titel' }}</span>
     </div>
@@ -148,25 +146,6 @@ const pageLines = ['88%', '96%', '70%'];
 .vk-page__line { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--pm-text, #0e181b) 12%, transparent); }
 .vk-page__line:last-child { opacity: 0.6; }
 
-/* „/"-Badge (Einfüge-Hinweis, Schnellblock) */
-.vk__slash {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
-  font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: color-mix(in srgb, var(--vk-accent) 72%, var(--pm-text, #0e181b));
-  background: color-mix(in srgb, var(--vk-accent) 15%, var(--pm-content-surface, #fff));
-  transition: opacity 120ms ease;
-}
-.vk:hover .vk__slash { opacity: 0; }
-
 /* Hover-Aktionen (Icon-Buttons) */
 .vk__actions {
   position: absolute;
@@ -234,7 +213,7 @@ const pageLines = ['88%', '96%', '70%'];
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .vk, .vk__actions, .vk__slash { transition: none; }
+  .vk, .vk__actions { transition: none; }
   .vk:hover { transform: none; }
 }
 </style>

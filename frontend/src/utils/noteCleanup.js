@@ -82,3 +82,66 @@ export function stripCleanupMarks(raw) {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
+
+function cleanupDiffTokens(value) {
+  return String(value ?? '').match(/\s+|[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu) || [];
+}
+
+function mergeCleanupDiffParts(parts) {
+  return parts.reduce((merged, part) => {
+    const previous = merged.at(-1);
+    if (previous?.type === part.type) previous.text += part.text;
+    else merged.push({ ...part });
+    return merged;
+  }, []);
+}
+
+/**
+ * Wortgenauer, rein textueller Vergleich für die Aufräumen-Vorschau. Für sehr
+ * große Bereiche wird bewusst auf zwei vollständige Blöcke zurückgefallen,
+ * damit die UI nicht durch eine quadratische Diff-Matrix blockiert.
+ */
+export function diffCleanupText(original, cleaned) {
+  const before = cleanupDiffTokens(original);
+  const after = cleanupDiffTokens(cleaned);
+  if (!before.length && !after.length) return [];
+  if (before.join('') === after.join('')) return [{ type: 'equal', text: before.join('') }];
+  if (before.length * after.length > 160000) {
+    return [
+      { type: 'removed', text: before.join('') },
+      { type: 'added', text: after.join('') },
+    ];
+  }
+
+  const rows = Array.from(
+    { length: before.length + 1 },
+    () => new Uint16Array(after.length + 1),
+  );
+  for (let i = before.length - 1; i >= 0; i -= 1) {
+    for (let j = after.length - 1; j >= 0; j -= 1) {
+      rows[i][j] = before[i] === after[j]
+        ? rows[i + 1][j + 1] + 1
+        : Math.max(rows[i + 1][j], rows[i][j + 1]);
+    }
+  }
+
+  const parts = [];
+  let i = 0;
+  let j = 0;
+  while (i < before.length && j < after.length) {
+    if (before[i] === after[j]) {
+      parts.push({ type: 'equal', text: before[i] });
+      i += 1;
+      j += 1;
+    } else if (rows[i + 1][j] >= rows[i][j + 1]) {
+      parts.push({ type: 'removed', text: before[i] });
+      i += 1;
+    } else {
+      parts.push({ type: 'added', text: after[j] });
+      j += 1;
+    }
+  }
+  while (i < before.length) parts.push({ type: 'removed', text: before[i++] });
+  while (j < after.length) parts.push({ type: 'added', text: after[j++] });
+  return mergeCleanupDiffParts(parts);
+}
