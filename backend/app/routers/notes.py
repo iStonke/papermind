@@ -9,6 +9,12 @@ from app.db import get_db
 from app.models.user import User
 from app.schemas.common import ErrorResponse, OkResponse
 from app.schemas.notes import (
+    CollectionCreateRequest,
+    CollectionListResponse,
+    CollectionMoveRequest,
+    CollectionRead,
+    CollectionReorderRequest,
+    CollectionUpdateRequest,
     NoteBlockTemplateCreateRequest,
     NoteBlockTemplateListResponse,
     NoteBlockTemplateRead,
@@ -36,6 +42,7 @@ from app.schemas.notes import (
     SaveAsTemplateRequest,
 )
 from app.services.note_service import NoteService
+from app.services.note_collection_service import NoteCollectionService
 from app.services.note_notebook_service import NoteNotebookService
 from app.services.note_block_template_service import NoteBlockTemplateService
 from app.services.note_ai import NoteAIService
@@ -75,6 +82,9 @@ def list_notes(
     document_id: uuid.UUID | None = Query(default=None, description="Only notes linked to this document"),
     dossier_id: uuid.UUID | None = Query(default=None, description="Only notes referencing this dossier"),
     tag_id: uuid.UUID | None = Query(default=None, description="Only notes carrying this tag"),
+    collection_id: uuid.UUID | None = Query(
+        default=None, description="Only notes in this collection (ignored for templates)"
+    ),
     notebook_id: uuid.UUID | None = Query(default=None, description="Only notes in this notebook"),
     no_notebook: bool = Query(default=False, description="Only notes without a notebook"),
     favorites_only: bool = Query(default=False, description="Only favorite notes"),
@@ -90,6 +100,7 @@ def list_notes(
             document_id=document_id,
             dossier_id=dossier_id,
             tag_id=tag_id,
+            collection_id=collection_id,
             notebook_id=notebook_id,
             no_notebook=no_notebook,
             favorites_only=favorites_only,
@@ -129,15 +140,103 @@ def bulk_notes(
     return NoteBulkResult(ok=True, affected=affected)
 
 
+# --- Sammlungen (oberste Ebene, harte Partition) ----------------------------
+# Bewusst VOR den ``/{note_id}``-Routen deklariert (wie Notizbücher).
+@router.get("/collections", response_model=CollectionListResponse, summary="List collections")
+def list_collections(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> CollectionListResponse:
+    return CollectionListResponse(items=NoteCollectionService(db, user.id).list_collections())
+
+
+@router.post(
+    "/collections",
+    response_model=CollectionRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a collection",
+    responses={409: {"model": ErrorResponse}},
+)
+def create_collection(
+    payload: CollectionCreateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> CollectionRead:
+    return NoteCollectionService(db, user.id).create_collection(payload)
+
+
+@router.post(
+    "/collections/move",
+    response_model=NoteBulkResult,
+    summary="Move notes into another collection (detaches their notebook)",
+)
+def move_notes_to_collection(
+    payload: CollectionMoveRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NoteBulkResult:
+    affected = NoteCollectionService(db, user.id).move_notes(payload.ids, payload.collection_id)
+    return NoteBulkResult(ok=True, affected=affected)
+
+
+@router.post(
+    "/collections/reorder",
+    response_model=CollectionListResponse,
+    summary="Set the display order of collections",
+)
+def reorder_collections(
+    payload: CollectionReorderRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> CollectionListResponse:
+    return CollectionListResponse(items=NoteCollectionService(db, user.id).reorder_collections(payload.ids))
+
+
+@router.patch(
+    "/collections/{collection_id}",
+    response_model=CollectionRead,
+    summary="Rename or recolor a collection",
+    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+)
+def update_collection(
+    collection_id: uuid.UUID,
+    payload: CollectionUpdateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> CollectionRead:
+    return NoteCollectionService(db, user.id).update_collection(collection_id, payload)
+
+
+@router.delete(
+    "/collections/{collection_id}",
+    response_model=OkResponse,
+    summary="Delete a collection (non-empty needs reassign_to; last one is protected)",
+    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+)
+def delete_collection(
+    collection_id: uuid.UUID,
+    reassign_to: uuid.UUID | None = Query(
+        default=None, description="Target collection for notes/notebooks of a non-empty collection"
+    ),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> OkResponse:
+    NoteCollectionService(db, user.id).delete_collection(collection_id, reassign_to)
+    return OkResponse(ok=True)
+
+
 # --- Notizbücher (flache Ablageebene) ---------------------------------------
 # Bewusst VOR den ``/{note_id}``-Routen deklariert, damit ``/notebooks`` nicht
 # als Notiz-ID gedeutet wird.
 @router.get("/notebooks", response_model=NotebookListResponse, summary="List notebooks")
 def list_notebooks(
+    collection_id: uuid.UUID | None = Query(
+        default=None, description="Only notebooks in this collection"
+    ),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> NotebookListResponse:
-    return NotebookListResponse(items=NoteNotebookService(db, user.id).list_notebooks())
+    return NotebookListResponse(items=NoteNotebookService(db, user.id).list_notebooks(collection_id))
 
 
 @router.post(

@@ -10,7 +10,7 @@
         :aria-label="currentId ? `Notizbuch: ${label}. Zuordnung ändern` : label"
         :disabled="disabled || saving"
       >
-        <v-icon size="14" :style="currentNotebook?.color ? { color: currentNotebook.color } : undefined">mdi-notebook-outline</v-icon>
+        <v-icon size="14" :style="currentNotebook ? { color: currentCollectionColor || 'var(--pm-accent, #006b75)' } : undefined">mdi-notebook-outline</v-icon>
         <span>{{ label }}</span>
         <v-icon size="13">mdi-chevron-down</v-icon>
       </button>
@@ -29,7 +29,7 @@
         :disabled="saving"
         @click="assign(notebook.id)"
       >
-        <template #prepend><v-icon size="18">mdi-notebook-outline</v-icon></template>
+        <template #prepend><v-icon size="18" :style="{ color: noteCollectionColor(notebook, store.collections) || 'var(--pm-accent, #006b75)' }">mdi-notebook-outline</v-icon></template>
         <template #append><v-icon v-if="currentId === notebook.id" size="16">mdi-check</v-icon></template>
       </v-list-item>
       <v-list-item v-if="loadError" title="Notizbücher erneut laden" subtitle="Laden fehlgeschlagen" @click="loadNotebooks" />
@@ -42,6 +42,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import { useNotesStore } from '../../stores/notes.js';
+import { noteCollectionColor } from '../../utils/noteCollectionColor.js';
 import { notifyError } from '../../stores/notifications.js';
 
 const props = defineProps({
@@ -59,6 +60,7 @@ const currentId = computed(() => {
   return note ? note.notebook_id ?? null : fallbackId.value;
 });
 const currentNotebook = computed(() => store.notebooks.find(book => book.id === currentId.value));
+const currentCollectionColor = computed(() => noteCollectionColor(currentNotebook.value, store.collections));
 const label = computed(() => currentId.value
   ? currentNotebook.value?.name || 'Notizbuch'
   : 'Notizbuch zuordnen');
@@ -68,7 +70,10 @@ onMounted(loadNotebooks);
 
 async function loadNotebooks() {
   loadError.value = false;
-  try { await store.ensureNotebooksLoaded(); }
+  try {
+    await store.ensureCollectionsLoaded();
+    await store.ensureNotebooksLoaded();
+  }
   catch { loadError.value = true; }
 }
 

@@ -50,6 +50,10 @@ class NoteCreateRequest(BaseModel):
     body_json: dict[str, Any] | None = None
     is_template: bool = False
     notebook_id: uuid.UUID | None = None
+    # Zielsammlung (oberste Ebene). Für echte Notizen die aktive Sammlung des
+    # Clients; fehlt sie, fällt der Service auf die Standardsammlung zurück.
+    # Bei Vorlagen ignoriert (Vorlagen sind sammlungsübergreifend).
+    collection_id: uuid.UUID | None = None
 
 
 NoteBulkAction = Literal["trash", "restore", "delete", "template"]
@@ -80,6 +84,9 @@ class NotebookCreateRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=120)
     color: str | None = Field(default=None, max_length=32)
+    # Sammlung, in der das Notizbuch entsteht. Fehlt sie, legt der Service es in
+    # der Standardsammlung an.
+    collection_id: uuid.UUID | None = None
 
 
 class NotebookUpdateRequest(BaseModel):
@@ -99,12 +106,69 @@ class NotebookRead(ORMModel):
     color: str | None = None
     position: int = 0
     note_count: int = 0
+    collection_id: uuid.UUID
     created_at: datetime
     updated_at: datetime
 
 
 class NotebookListResponse(BaseModel):
     items: list[NotebookRead]
+
+
+# --- Sammlungen (oberste Ebene, harte Partition) -----------------------------
+class CollectionCreateRequest(BaseModel):
+    """Neue Sammlung – oberster Arbeitsbereich der Notizenverwaltung."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    color: str | None = Field(default=None, max_length=32)
+
+
+class CollectionUpdateRequest(BaseModel):
+    """Umbenennen/Umfärben. Nur gesetzte Felder werden geschrieben."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    color: str | None = Field(default=None, max_length=32)
+
+
+class CollectionRead(ORMModel):
+    """Sammlung inkl. Anzahl enthaltener (nicht gelöschter, nicht-Vorlage) Notizen."""
+
+    id: uuid.UUID
+    name: str
+    color: str | None = None
+    position: int = 0
+    note_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+
+class CollectionListResponse(BaseModel):
+    items: list[CollectionRead]
+
+
+class CollectionMoveRequest(BaseModel):
+    """Verschiebt mehrere Notizen in eine andere Sammlung.
+
+    Das bisherige Notizbuch wird dabei abgekoppelt (es gehört zur alten
+    Sammlung); die Notizen liegen danach notizbuchlos in der Zielsammlung.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    collection_id: uuid.UUID
+
+
+class CollectionReorderRequest(BaseModel):
+    """Setzt die Anzeige-Reihenfolge der Sammlungen (IDs in Zielreihenfolge)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
 
 
 class NotebookMoveRequest(BaseModel):
@@ -252,6 +316,7 @@ class NoteListItem(ORMModel):
     deleted_at: datetime | None = None
     link_count: int = 0
     notebook_id: uuid.UUID | None = None
+    collection_id: uuid.UUID | None = None
     is_favorite: bool = False
     tags: list[NoteTagRef] = Field(default_factory=list)
     created_at: datetime
@@ -273,6 +338,7 @@ class NoteRead(ORMModel):
     is_deleted: bool = False
     deleted_at: datetime | None = None
     notebook_id: uuid.UUID | None = None
+    collection_id: uuid.UUID | None = None
     is_favorite: bool = False
     tags: list[NoteTagRef] = Field(default_factory=list)
     created_at: datetime

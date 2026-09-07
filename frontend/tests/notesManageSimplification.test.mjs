@@ -74,7 +74,7 @@ test('notes management exposes a global notes and notebooks search in its header
   assert.match(workspaceSource, /notesStore\.searchNotes\(query, \{ scope: 'all' \}\)/);
   assert.match(workspaceSource, /localManageNoteSearch[\s\S]*?note\.tags[\s\S]*?notebookNameForSearchResult/);
   assert.match(workspaceSource, /manageGridRef\.value\?\.selectNotebook\?\.\(notebook\.id\)/);
-  assert.match(gridSource, /defineExpose\(\{ selectNotebook \}\)/);
+  assert.match(gridSource, /defineExpose\(\{ selectNotebook(?:, openFilterSidebar)? \}\)/);
   assert.match(workspaceSource, /\.notes-ws__manage-search\s*\{[\s\S]*?left:\s*50%[\s\S]*?width:\s*clamp\(300px, 34vw, 520px\)/);
   assert.match(workspaceSource, /\.notes-ws__manage-search\s*\{[\s\S]*?height:\s*38px[\s\S]*?box-shadow:/);
   assert.match(workspaceSource, /\.notes-ws__manage-search\s*>\s*\.v-icon\s*\{[\s\S]*?var\(--pm-accent/);
@@ -178,7 +178,7 @@ test('each note card exposes its own named actions without multi-selection', () 
 });
 
 test('empty notes offer creation while empty searches show search feedback', () => {
-  assert.match(gridSource, /!visibleItems.length && normalizedQuery[\s\S]*?<PmEmptyState/);
+  assert.match(gridSource, /!visibleItems.length && \(normalizedQuery \|\| dateRange\)[\s\S]*?<PmEmptyState/);
   assert.match(gridSource, /<GhostAddCard[\s\S]*?@click="\$emit\('create-note'\)"/);
   assert.match(gridSource, /<Vorlagenmappe[\s\S]*?facet === 'templates'/);
 });
@@ -254,7 +254,7 @@ test('notebooks add a flat filing facet to the manage sidebar', () => {
 test('management sorting lives in the right filter sidebar instead of above the cards', () => {
   assert.match(
     gridSource,
-    /class="nmg__tag-sidebar"[\s\S]*?aria-label="Sortierung"[\s\S]*?class="nmg__sort-btn"[\s\S]*?\{\{ sortLabel \}\}/,
+    /class="nmg__tag-sidebar"[\s\S]*?aria-label="Ansicht"[\s\S]*?class="nmg__sort-btn"[\s\S]*?\{\{ sortLabel \}\}/,
   );
   assert.doesNotMatch(gridSource, /class="nmg__toolbar"/);
   assert.match(gridSource, /\.nmg__sort-btn\s*\{[\s\S]*?width:\s*100%;/);
@@ -287,15 +287,16 @@ test('the card title is editable with a direct click, like tags', () => {
   assert.match(gridSource, /\.nmg-card__title:hover\s*\{/);
 });
 
-test('notebook membership shows as a colored left accent, not a title-row chip', () => {
+test('collection color supplies card accents without a notebook color picker', () => {
   // Kein Chip mehr in der Titelzeile – entlastet Titel und Tags.
   assert.doesNotMatch(gridSource, /class="nmg-card__notebook"/);
-  // Farbiger Rand-Akzent an der Kachel (Notizbuch-Farbe oder Standard-Akzent).
-  assert.match(gridSource, /'is-in-notebook': !!note\.notebook_id/);
-  assert.match(gridSource, /:style="notebookAccentStyle\(note\)"/);
+  // Die Sammlung liefert den Akzent, auch für Notizen ohne Notizbuch.
+  assert.match(gridSource, /'is-in-collection': !!note\.collection_id/);
+  assert.match(gridSource, /:style="collectionAccentStyle\(note\)"/);
   assert.match(gridSource, /:title="notebookFor\(note\) \? `Notizbuch: \$\{notebookFor\(note\)\.name\}` : undefined"/);
-  assert.match(gridSource, /function notebookAccentStyle\(note\)[\s\S]*?'--nmg-nb-accent': nb\.color \|\| 'var\(--pm-accent/);
-  assert.match(gridSource, /\.nmg-card\.is-in-notebook::before\s*\{[\s\S]*?background: var\(--nmg-nb-accent/);
+  assert.match(gridSource, /function collectionAccentStyle\(note\)[\s\S]*?'--nmg-collection-accent': noteCollectionColor\(note, collections\.value\) \|\| 'var\(--pm-accent/);
+  assert.match(gridSource, /\.nmg-card\.is-in-collection::before\s*\{[\s\S]*?background: var\(--nmg-collection-accent/);
+  assert.doesNotMatch(gridSource, /setNotebookColor|nb\.color/);
   // Auflösung Notiz→Notizbuch über eine Map (nicht linear je Karte).
   assert.match(gridSource, /const notebooksById = computed/);
   assert.match(gridSource, /function notebookFor\(note\)/);

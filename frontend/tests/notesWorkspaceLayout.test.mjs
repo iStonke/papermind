@@ -127,20 +127,12 @@ test('notes management remembers the selected facet across closing and reloads',
   assert.match(workspaceSource, /value === 'templates' \? 'templates' : 'notes'/);
 });
 
-test('the notes heading shows the notebook selected in either notes view', () => {
-  assert.match(templateSource, /<span>Notizen<\/span>[\s\S]*?v-if="activeNotebookHeading"[\s\S]*?notes-ws__heading-context/);
-  assert.match(templateSource, /manageFacet === 'notes' && manageNotebookHeading[\s\S]*?notes-ws__heading-context[\s\S]*?\{\{ manageNotebookHeading \}\}/);
-  assert.match(templateSource, /@notebook-selection-change="manageNotebookHeading = \$event"/);
-  assert.match(notesManageGridSource, /'notebook-selection-change'/);
-  assert.match(notesManageGridSource, /const activeNotebookLabel = computed\(\(\) => \{[\s\S]*?activeNotebookId\.value === 'none'[\s\S]*?'Ohne Notizbuch'[\s\S]*?\.name \|\| ''/);
-  assert.match(notesManageGridSource, /watch\([\s\S]*?activeNotebookLabel,[\s\S]*?emit\('notebook-selection-change', label\)[\s\S]*?immediate: true/);
+test('notes headings omit notebook names in both views', () => {
+  assert.doesNotMatch(templateSource, /notes-ws__heading-context|activeNotebookHeading|manageNotebookHeading/);
 });
 
 test('notes list follows the shared title, toolbar, and row hierarchy', () => {
   assert.match(templateSource, /<span>Notizen<\/span>/);
-  assert.match(templateSource, /v-if="activeNotebookHeading"[\s\S]*?notes-ws__heading-context[\s\S]*?\{\{ activeNotebookHeading \}\}/);
-  assert.match(workspaceSource, /const activeNotebookHeading = computed\(\(\) => \([\s\S]*?notebookFilter\.value \? notebookFilterLabel\.value : ''/);
-  assert.match(workspaceSource, /\.notes-ws__heading-context\s*\{[\s\S]*?text-overflow:\s*ellipsis/);
   assert.match(templateSource, /Neue Notiz/);
   assert.match(templateSource, /<ListActionToolbar/);
   assert.match(templateSource, /:actions="toolbarActions"/);

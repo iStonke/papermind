@@ -8,29 +8,28 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base
 
 
-class NoteNotebook(Base):
-    """Leichtes, owner-scoped Notizbuch – genau eine flache Ablageebene.
+class NoteCollection(Base):
+    """Sammlung – oberste, owner-scoped Ebene der Notizenverwaltung.
 
-    Bewusst ohne ``parent_id``/Hierarchie: Notizbücher sind stabile Heimathäfen,
-    die eigentliche Skalierung für viele Notizen leisten Tags, Verweise und
-    gespeicherte Ansichten. Eine Notiz gehört zu höchstens einem Notizbuch
-    (``note.notebook_id``); ``NULL`` heißt „Ohne Notizbuch".
+    Anders als das Notizbuch (Ablage) oder Tags (Querachse) ist die Sammlung
+    eine **harte Partition**: wenige, grobe Arbeitsbereiche (z. B. „Studium",
+    „Arbeit"), zwischen denen der Nutzer wie zwischen getrennten Räumen wechselt.
+    Modell ``Sammlung → Notizbuch → Notiz``: ``note.collection_id`` ist die
+    Wahrheitsquelle, ``note_notebook.collection_id`` spiegelt sie.
+
+    Vorlagen sind bewusst sammlungsübergreifend (``note.collection_id = NULL``);
+    ein partieller CHECK erzwingt die Zugehörigkeit nur für Nicht-Vorlagen.
     """
 
-    __tablename__ = "note_notebook"
+    __tablename__ = "note_collection"
     __table_args__ = (
-        UniqueConstraint("owner_id", "collection_id", "name", name="uq_note_notebook_owner_collection_name"),
-        Index("ix_note_notebook_owner", "owner_id", "position", "name"),
+        UniqueConstraint("owner_id", "name", name="uq_note_collection_owner_name"),
+        Index("ix_note_collection_owner", "owner_id", "position", "name"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     owner_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    # Sammlung, zu der das Notizbuch gehört (oberste Ebene). Ein Notizbuch lebt
-    # in genau einer Sammlung; enthaltene Notizen erben diese Sammlung.
-    collection_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("note_collection.id", ondelete="RESTRICT"), nullable=False
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     color: Mapped[str | None] = mapped_column(String(32), nullable=True)

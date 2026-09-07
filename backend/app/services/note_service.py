@@ -26,6 +26,7 @@ from app.schemas.notes import (
     NoteUpdateRequest,
 )
 from app.services.document_search import build_ts_query_expr, normalize_search_query
+from app.services.note_collection_service import NoteCollectionService
 from app.services.note_images import NoteImageService, NoteImageStorage
 
 # Leeres ProseMirror-Dokument (ein Absatz) als Default für neue/kaputte Bodies.
@@ -248,6 +249,7 @@ class NoteService:
         document_id: uuid.UUID | None = None,
         dossier_id: uuid.UUID | None = None,
         tag_id: uuid.UUID | None = None,
+        collection_id: uuid.UUID | None = None,
         notebook_id: uuid.UUID | None = None,
         no_notebook: bool = False,
         favorites_only: bool = False,
@@ -274,6 +276,12 @@ class NoteService:
                 .where(note_tags.c.note_id == Note.id, note_tags.c.tag_id == tag_id)
                 .exists()
             )
+        # Sammlung (oberste Partition): scopt alle Facetten außer Vorlagen (die
+        # sind sammlungsübergreifend und tragen collection_id NULL). Reine
+        # optionale Filter – der Client entscheidet, wann er scoped (Verwaltung/
+        # kompakte Liste) und wann nicht (Vorlagen, dokumentbezogene Referenzen).
+        if collection_id is not None and not templates:
+            stmt = stmt.where(Note.collection_id == collection_id)
         # Notizbuch-Facette: konkretes Buch oder „Ohne Notizbuch" (no_notebook).
         # ``notebook_id`` hat Vorrang; beide zusammen sind widersprüchlich, dann
         # gewinnt das konkrete Buch.
@@ -336,6 +344,7 @@ class NoteService:
                 deleted_at=n.deleted_at,
                 link_count=link_counts.get(n.id, 0),
                 notebook_id=n.notebook_id,
+                collection_id=n.collection_id,
                 is_favorite=n.is_favorite,
                 tags=_tag_refs(n),
                 created_at=n.created_at,
@@ -431,33 +440,43 @@ class NoteService:
             return latest
         return self._record_revision(note, reason=reason, force_new=True)
 
-    def _resolve_notebook_id(self, notebook_id: uuid.UUID | None) -> uuid.UUID | None:
-        """Validiert, dass das Notizbuch dem Eigentümer gehört.
-
-        ``None`` bleibt ``None`` (Ohne Notizbuch). Ein fremdes/unbekanntes Buch
-        führt zu ``NotFoundError`` statt eines FK-Fehlers auf Commit-Ebene.
-        """
-        if notebook_id is None:
-            return None
-        exists = self.db.scalar(
-            select(NoteNotebook.id).where(
+    def _get_notebook(self, notebook_id: uuid.UUID) -> NoteNotebook:
+        """Lädt ein eigenes Notizbuch oder wirft ``NotFoundError`` (statt eines
+        FK-Fehlers erst auf Commit-Ebene)."""
+        nb = self.db.scalar(
+            select(NoteNotebook).where(
                 NoteNotebook.id == notebook_id, NoteNotebook.owner_id == self.owner_id
             )
         )
-        if exists is None:
+        if nb is None:
             raise NotFoundError("Notizbuch nicht gefunden", details={"notebook_id": str(notebook_id)})
-        return notebook_id
+        return nb
 
     def create_note(self, payload: NoteCreateRequest) -> Note:
         body_json = payload.body_json or EMPTY_DOC
+        # Sammlung/Notizbuch bestimmen. Vorlagen sind sammlungsübergreifend
+        # (collection_id NULL) und liegen bewusst in keinem Notizbuch. Für echte
+        # Notizen gilt: ein gewähltes Notizbuch bestimmt die Sammlung (Invariante
+        # note.collection_id == notebook.collection_id); ohne Notizbuch die
+        # mitgeschickte bzw. die Standardsammlung.
+        if payload.is_template:
+            notebook_id = None
+            collection_id = None
+        elif payload.notebook_id is not None:
+            nb = self._get_notebook(payload.notebook_id)
+            notebook_id = nb.id
+            collection_id = nb.collection_id
+        else:
+            notebook_id = None
+            collection_id = NoteCollectionService(self.db, self.owner_id).resolve_id(payload.collection_id)
         note = Note(
             owner_id=self.owner_id,
             title=payload.title or "",
             body_json=body_json,
             body_text=derive_body_text(body_json),
             is_template=payload.is_template,
-            # Vorlagen liegen bewusst in keinem Notizbuch.
-            notebook_id=None if payload.is_template else self._resolve_notebook_id(payload.notebook_id),
+            notebook_id=notebook_id,
+            collection_id=collection_id,
         )
         self.db.add(note)
         self.db.flush()  # note.id für note_link/note_task verfügbar machen
@@ -601,9 +620,15 @@ class NoteService:
                 self._record_revision(note, reason=payload.history_reason)
         # Notizbuch-Wechsel ist Metadaten (wie Tags/Papierkorb): kein Fortschritt
         # der Inhaltsrevision, kein Wiederherstellungspunkt. Nur wirksam, wenn das
-        # Feld tatsächlich gesendet wurde (``None`` = aus Notizbuch nehmen).
+        # Feld tatsächlich gesendet wurde (``None`` = aus Notizbuch nehmen). Wird
+        # ein Notizbuch gesetzt, erbt die Notiz dessen Sammlung (Invariante).
         if "notebook_id" in payload.model_fields_set:
-            note.notebook_id = self._resolve_notebook_id(payload.notebook_id)
+            if payload.notebook_id is None:
+                note.notebook_id = None
+            else:
+                nb = self._get_notebook(payload.notebook_id)
+                note.notebook_id = nb.id
+                note.collection_id = nb.collection_id
         # Anheften ist ebenfalls Metadaten (kein Revisions-Bump).
         if "is_favorite" in payload.model_fields_set and payload.is_favorite is not None:
             note.is_favorite = bool(payload.is_favorite)

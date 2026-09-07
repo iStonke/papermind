@@ -52,7 +52,16 @@ class Note(Base):
     # Bereich. Eigene Spalte (wie document.is_favorite), nicht als body_json-
     # Attribut – so im Listeneintrag verfügbar und serverseitig sortierbar.
     is_favorite: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # Sammlung (oberste Ebene, harte Partition). Wahrheitsquelle der Zugehörigkeit;
+    # echte Notizen liegen in genau einer Sammlung, Vorlagen bewusst in keiner
+    # (NULL = global). Erzwungen über den partiellen CHECK
+    # ``ck_note_collection_required_unless_template``.
+    collection_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("note_collection.id", ondelete="RESTRICT"), nullable=True
+    )
     # Optionales Notizbuch (flache Ablageebene); NULL = „Ohne Notizbuch".
+    # Wenn gesetzt, muss ``collection_id`` mit der Sammlung des Notizbuchs
+    # übereinstimmen (Invariante im Service erzwungen).
     notebook_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("note_notebook.id", ondelete="SET NULL"), nullable=True
     )

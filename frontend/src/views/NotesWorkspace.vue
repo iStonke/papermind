@@ -16,11 +16,40 @@
     >
       <header class="notes-ws__header">
         <div class="notes-ws__title">
-          <div class="notes-ws__heading" :title="activeNotebookHeading || undefined">
-            <span>Notizen</span>
-            <template v-if="activeNotebookHeading">
-              <span class="notes-ws__heading-context">{{ activeNotebookHeading }}</span>
+          <v-menu location="bottom start" :offset="6">
+            <template #activator="{ props: pillProps }">
+              <button
+                type="button"
+                class="notes-ws__collection-pill"
+                v-bind="pillProps"
+                :title="`Sammlung: ${activeCollectionName}`"
+                aria-label="Sammlung wechseln"
+              >
+                <span class="notes-ws__collection-dot" :style="collectionDotStyle(activeCollection)"></span>
+                <span class="notes-ws__collection-name">{{ activeCollectionName }}</span>
+                <v-icon size="15">mdi-chevron-down</v-icon>
+              </button>
             </template>
+            <v-list density="compact" min-width="220" class="notes-ws__collection-menu">
+              <v-list-subheader>Sammlung</v-list-subheader>
+              <v-list-item
+                v-for="c in collections"
+                :key="c.id"
+                :title="c.name"
+                :active="c.id === activeCollectionId"
+                @click="switchCollection(c.id)"
+              >
+                <template #prepend><span class="notes-ws__collection-dot" :style="collectionDotStyle(c)"></span></template>
+                <template #append><span class="notes-ws__collection-count">{{ c.note_count }}</span></template>
+              </v-list-item>
+              <v-divider class="notes-ws__collection-divider" />
+              <v-list-item title="Sammlungen verwalten …" @click="openCollectionManagement">
+                <template #prepend><v-icon size="16">mdi-cog-outline</v-icon></template>
+              </v-list-item>
+            </v-list>
+          </v-menu>
+          <div class="notes-ws__heading">
+            <span>Notizen</span>
           </div>
           <div class="notes-ws__count">{{ resultCountLabel }}</div>
         </div>
@@ -243,7 +272,39 @@
       >
         <header class="notes-ws__header">
           <div class="notes-ws__title">
-            <div class="notes-ws__heading" :title="manageNotebookHeading || undefined">
+            <v-menu location="bottom start" :offset="6">
+              <template #activator="{ props: pillProps }">
+                <button
+                  type="button"
+                  class="notes-ws__collection-pill"
+                  v-bind="pillProps"
+                  :title="`Sammlung: ${activeCollectionName}`"
+                  aria-label="Sammlung wechseln"
+                >
+                  <span class="notes-ws__collection-dot" :style="collectionDotStyle(activeCollection)"></span>
+                  <span class="notes-ws__collection-name">{{ activeCollectionName }}</span>
+                  <v-icon size="15">mdi-chevron-down</v-icon>
+                </button>
+              </template>
+              <v-list density="compact" min-width="220" class="notes-ws__collection-menu">
+                <v-list-subheader>Sammlung</v-list-subheader>
+                <v-list-item
+                  v-for="c in collections"
+                  :key="c.id"
+                  :title="c.name"
+                  :active="c.id === activeCollectionId"
+                  @click="switchCollection(c.id)"
+                >
+                  <template #prepend><span class="notes-ws__collection-dot" :style="collectionDotStyle(c)"></span></template>
+                  <template #append><span class="notes-ws__collection-count">{{ c.note_count }}</span></template>
+                </v-list-item>
+                <v-divider class="notes-ws__collection-divider" />
+                <v-list-item title="Sammlungen verwalten …" @click="openCollectionManagement">
+                  <template #prepend><v-icon size="16">mdi-cog-outline</v-icon></template>
+                </v-list-item>
+              </v-list>
+            </v-menu>
+            <div class="notes-ws__heading">
               <v-menu location="bottom start" :offset="6" transition="fade-transition">
                 <template #activator="{ props: viewMenuProps }">
                   <button
@@ -282,10 +343,6 @@
                   </button>
                 </div>
               </v-menu>
-
-              <template v-if="manageFacet === 'notes' && manageNotebookHeading">
-                <span class="notes-ws__heading-context">{{ manageNotebookHeading }}</span>
-              </template>
             </div>
             <div class="notes-ws__count">{{ manageCountLabel }}</div>
           </div>
@@ -352,7 +409,6 @@
           @select-search-notebook="openManageNotebookResult"
           @changed="onManageChanged"
           @create-note="createNoteFromManage"
-          @notebook-selection-change="manageNotebookHeading = $event"
         />
       </aside>
     </Transition>
@@ -424,7 +480,28 @@ const { sortMode, dateRange, notebookFilter } = useNoteListPreferences(
 );
 // Notizbuch-Filter der kompakten Liste: '' = alle, 'none' = ohne Notizbuch,
 // sonst die Notizbuch-ID. Rein clientseitig über note.notebook_id.
-const manageNotebookHeading = ref('');
+// Sammlungen (oberste Ebene): Spiegel-Pille im Header, geteilter aktiver Zustand
+// mit dem Verwaltungsraster (persistiert im Store).
+const collections = computed(() => notesStore.collections);
+const activeCollectionId = computed(() => notesStore.activeCollectionId);
+const activeCollection = computed(
+  () => collections.value.find((c) => c.id === activeCollectionId.value) || null,
+);
+const activeCollectionName = computed(() => activeCollection.value?.name || 'Sammlung');
+function collectionDotStyle(c) {
+  return { '--pm-coll-dot': c?.color || 'var(--pm-accent, #006b75)' };
+}
+async function switchCollection(id) {
+  if (!id || id === activeCollectionId.value) return;
+  notebookFilter.value = ''; // Notizbuch-Filter gehört zur alten Sammlung.
+  try {
+    await notesStore.setActiveCollection(id);
+  } catch { /* Ladefehler werden über die Notizen-Ladeanzeige sichtbar. */ }
+}
+function openCollectionManagement() {
+  if (!isManageMode.value) toggleManageMode();
+  nextTick(() => manageGridRef.value?.openFilterSidebar?.());
+}
 const manageGridRef = ref(null);
 const manageSearchInputRef = ref(null);
 const manageSearchQuery = ref('');
@@ -554,10 +631,6 @@ const notebookFilterLabel = computed(() =>
     || 'Notizbuch'
 );
 
-const activeNotebookHeading = computed(() => (
-  notebookFilter.value ? notebookFilterLabel.value : ''
-));
-
 const toolbarActions = computed(() => {
   const actions = [
     {
@@ -668,6 +741,8 @@ onMounted(() => {
     updateCompactLayout(compactLayoutQuery);
     compactLayoutQuery.addEventListener?.('change', updateCompactLayout);
   }
+  // Sammlungen früh laden, damit die Spiegel-Pille sofort befüllt ist.
+  notesStore.ensureCollectionsLoaded().catch(() => {});
   loadNotes();
 });
 
@@ -848,8 +923,18 @@ async function applyPendingOpen() {
   if (!id) return;
   await notesStore.ensureLoaded();
   if (!notesStore.notes.some((note) => note.id === id)) {
-    // Neu/verknüpft, aber noch nicht in der Liste: frisch laden.
-    await notesStore.fetchNotes();
+    // Nicht in der aktiven Sammlung sichtbar? Detail laden, ggf. in die
+    // Sammlung der Notiz wechseln (Space-Wechsel), dann frisch laden.
+    try {
+      const detail = await notesStore.get(id);
+      if (detail?.collection_id && detail.collection_id !== notesStore.activeCollectionId) {
+        await notesStore.setActiveCollection(detail.collection_id);
+      }
+    } catch { /* Fällt unten auf einen erneuten Listenabruf zurück. */ }
+    if (!notesStore.notes.some((note) => note.id === id)) {
+      // Neu/verknüpft, aber noch nicht in der Liste: frisch laden.
+      await notesStore.fetchNotes();
+    }
   }
   if (notesStore.notes.some((note) => note.id === id)) {
     dateRange.value = '';
@@ -1319,14 +1404,6 @@ function formatDate(value) {
   text-overflow: ellipsis;
 }
 
-.notes-ws__heading-context {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--pm-muted);
-  font-weight: 500;
-  text-overflow: ellipsis;
-}
-
 .notes-ws__count {
   min-width: 0;
   overflow: hidden;
@@ -1336,6 +1413,50 @@ function formatDate(value) {
   line-height: 1.2;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* --- Sammlungs-Spiegel-Pille (oberster Space-Wechsel) -------------------- */
+.notes-ws__collection-pill {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  margin-bottom: 3px;
+  padding: 3px 9px 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--pm-accent, #006b75) 26%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 10%, transparent);
+  color: var(--pm-text);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+.notes-ws__collection-pill:hover,
+.notes-ws__collection-pill:focus-visible {
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 18%, transparent);
+  border-color: color-mix(in srgb, var(--pm-accent, #006b75) 42%, transparent);
+}
+.notes-ws__collection-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--pm-coll-dot, var(--pm-accent, #006b75));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #000 14%, transparent);
+}
+.notes-ws__collection-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.notes-ws__collection-count {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--pm-muted);
 }
 
 .notes-ws__header-actions {

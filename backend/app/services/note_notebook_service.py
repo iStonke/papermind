@@ -12,6 +12,7 @@ from app.schemas.notes import (
     NotebookRead,
     NotebookUpdateRequest,
 )
+from app.services.note_collection_service import NoteCollectionService
 
 
 class NoteNotebookService:
@@ -36,11 +37,12 @@ class NoteNotebookService:
         ).all()
         return {row[0]: int(row[1]) for row in rows}
 
-    def list_notebooks(self) -> list[NotebookRead]:
+    def list_notebooks(self, collection_id: uuid.UUID | None = None) -> list[NotebookRead]:
+        stmt = select(NoteNotebook).where(NoteNotebook.owner_id == self.owner_id)
+        if collection_id is not None:
+            stmt = stmt.where(NoteNotebook.collection_id == collection_id)
         rows = self.db.scalars(
-            select(NoteNotebook)
-            .where(NoteNotebook.owner_id == self.owner_id)
-            .order_by(NoteNotebook.position, func.lower(NoteNotebook.name))
+            stmt.order_by(NoteNotebook.position, func.lower(NoteNotebook.name))
         ).all()
         counts = self._note_counts()
         return [
@@ -50,6 +52,7 @@ class NoteNotebookService:
                 color=nb.color,
                 position=nb.position,
                 note_count=counts.get(nb.id, 0),
+                collection_id=nb.collection_id,
                 created_at=nb.created_at,
                 updated_at=nb.updated_at,
             )
@@ -71,6 +74,8 @@ class NoteNotebookService:
         name = payload.name.strip()
         if not name:
             raise ConflictError("Der Name des Notizbuchs darf nicht leer sein.")
+        # Zielsammlung: mitgeschickte (validiert) oder die Standardsammlung.
+        collection_id = NoteCollectionService(self.db, self.owner_id).resolve_id(payload.collection_id)
         # Neues Buch ans Ende (höchste Position + 1).
         max_pos = self.db.scalar(
             select(func.coalesce(func.max(NoteNotebook.position), -1)).where(
@@ -79,6 +84,7 @@ class NoteNotebookService:
         )
         nb = NoteNotebook(
             owner_id=self.owner_id,
+            collection_id=collection_id,
             name=name,
             color=(payload.color or None),
             position=int(max_pos) + 1,
@@ -89,7 +95,7 @@ class NoteNotebookService:
         except IntegrityError as exc:
             self.db.rollback()
             raise ConflictError(
-                "Ein Notizbuch mit diesem Namen existiert bereits.",
+                "In dieser Sammlung existiert bereits ein Notizbuch mit diesem Namen.",
                 details={"name": name},
             ) from exc
         self.db.refresh(nb)
@@ -99,6 +105,7 @@ class NoteNotebookService:
             color=nb.color,
             position=nb.position,
             note_count=0,
+            collection_id=nb.collection_id,
             created_at=nb.created_at,
             updated_at=nb.updated_at,
         )
@@ -117,7 +124,7 @@ class NoteNotebookService:
         except IntegrityError as exc:
             self.db.rollback()
             raise ConflictError(
-                "Ein Notizbuch mit diesem Namen existiert bereits.",
+                "In dieser Sammlung existiert bereits ein Notizbuch mit diesem Namen.",
                 details={"name": nb.name},
             ) from exc
         self.db.refresh(nb)
@@ -128,6 +135,7 @@ class NoteNotebookService:
             color=nb.color,
             position=nb.position,
             note_count=counts.get(nb.id, 0),
+            collection_id=nb.collection_id,
             created_at=nb.created_at,
             updated_at=nb.updated_at,
         )

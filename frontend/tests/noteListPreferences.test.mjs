@@ -81,3 +81,31 @@ test('management sort persists independently of compact list filters and late de
   restored.unmount();
   restoredList.unmount();
 });
+
+test('reverse sort survives a remount and older saved preferences default to normal order', () => {
+  const saved = storage('{"sortMode":"title"}');
+  const mount = () => mountController(() => useNoteListPreferences(() => 'updated', () => saved));
+  const first = mount();
+  assert.equal(first.controller.reverseSort.value, false);
+  first.controller.reverseSort.value = true;
+  first.unmount();
+  const second = mount();
+  assert.equal(second.controller.sortMode.value, 'title');
+  assert.equal(second.controller.reverseSort.value, true);
+  second.unmount();
+});
+
+test('grouping and period persist together with sorting', () => {
+  const saved = storage();
+  const mount = () => mountController(() => useNoteListPreferences(() => 'updated', () => saved));
+  const first = mount();
+  first.controller.grouping.value = 'notebook';
+  first.controller.dateRange.value = 'last_30_days';
+  first.controller.reverseSort.value = true;
+  first.unmount();
+  const restored = mount();
+  assert.equal(restored.controller.grouping.value, 'notebook');
+  assert.equal(restored.controller.dateRange.value, 'last_30_days');
+  assert.equal(restored.controller.reverseSort.value, true);
+  restored.unmount();
+});

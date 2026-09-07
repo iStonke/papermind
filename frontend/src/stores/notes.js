@@ -56,6 +56,22 @@ export const useNotesStore = defineStore('notes', () => {
   // Konzept neben den Ganz-Notiz-Vorlagen.
   const blockTemplates = ref([]);
   const blockTemplatesLoaded = ref(false);
+  // Sammlungen (oberste Ebene, harte Partition): { id, name, color, position, note_count }.
+  // Genau eine ist aktiv; sie scopt Notizen + Notizbücher. Die aktive Sammlung
+  // wird pro Browser persistiert, damit man im letzten „Raum" landet.
+  const collections = ref([]);
+  const collectionsLoaded = ref(false);
+  const ACTIVE_COLLECTION_KEY = 'pm-notes-active-collection-v1';
+  function loadActiveCollection() {
+    try { return window.localStorage.getItem(ACTIVE_COLLECTION_KEY) || null; } catch { return null; }
+  }
+  function persistActiveCollection(id) {
+    try {
+      if (id) window.localStorage.setItem(ACTIVE_COLLECTION_KEY, id);
+      else window.localStorage.removeItem(ACTIVE_COLLECTION_KEY);
+    } catch { /* Storage ist optional. */ }
+  }
+  const activeCollectionId = ref(loadActiveCollection());
   // Notizbücher (flache Ablageebene): { id, name, color, position, note_count }.
   const notebooks = ref([]);
   const notebooksLoaded = ref(false);
@@ -77,7 +93,9 @@ export const useNotesStore = defineStore('notes', () => {
   }
 
   async function fetchNotes() {
-    const res = await api.listNotes();
+    // Auf die aktive Sammlung gescopt (harte Partition). Ist noch keine gesetzt,
+    // liefert der Server ungescopt – ``ensureLoaded`` lädt darum Sammlungen zuerst.
+    const res = await api.listNotes({ collectionId: activeCollectionId.value });
     notes.value = res.items || [];
     loaded.value = true;
   }
@@ -91,19 +109,116 @@ export const useNotesStore = defineStore('notes', () => {
 
   function ensureLoaded() {
     if (loaded.value) return Promise.resolve();
-    if (!loadingPromise) loadingPromise = fetchNotes().finally(() => { loadingPromise = null; });
+    // Sammlungen zuerst: sie setzen die aktive Sammlung, nach der Notizen scopen.
+    if (!loadingPromise) {
+      loadingPromise = ensureCollectionsLoaded()
+        .then(fetchNotes)
+        .finally(() => { loadingPromise = null; });
+    }
     return loadingPromise;
+  }
+
+  // --- Sammlungen (oberste Ebene, harte Partition) ---------------------------
+  async function fetchCollections() {
+    const res = await api.listCollections();
+    collections.value = res.items || [];
+    // Aktive Sammlung validieren: gespeicherte behalten, sonst die erste nehmen.
+    const ids = new Set(collections.value.map((c) => c.id));
+    if (!activeCollectionId.value || !ids.has(activeCollectionId.value)) {
+      activeCollectionId.value = collections.value[0]?.id || null;
+    }
+    persistActiveCollection(activeCollectionId.value);
+    collectionsLoaded.value = true;
+    return collections.value;
+  }
+
+  function ensureCollectionsLoaded() {
+    if (collectionsLoaded.value) return Promise.resolve(collections.value);
+    return fetchCollections();
+  }
+
+  /** Wechselt die aktive Sammlung und lädt Notizen + Notizbücher neu (Space-Wechsel). */
+  async function setActiveCollection(id) {
+    if (!id || id === activeCollectionId.value) return;
+    if (!collections.value.some((c) => c.id === id)) return;
+    activeCollectionId.value = id;
+    persistActiveCollection(id);
+    await Promise.all([fetchNotes(), fetchNotebooks()]);
+  }
+
+  async function createCollection(payload = {}) {
+    const c = await api.createCollection(payload);
+    collections.value.push(c);
+    return c;
+  }
+
+  async function updateCollection(id, payload = {}) {
+    const c = await api.updateCollection(id, payload);
+    const idx = collections.value.findIndex((x) => x.id === id);
+    if (idx !== -1) collections.value.splice(idx, 1, c);
+    return c;
+  }
+
+  /** Löscht eine Sammlung; nicht-leere hängen ihre Inhalte nach ``reassignTo`` um. */
+  async function deleteCollection(id, { reassignTo = null } = {}) {
+    await api.deleteCollection(id, { reassignTo });
+    const wasActive = activeCollectionId.value === id;
+    collections.value = collections.value.filter((c) => c.id !== id);
+    if (wasActive) {
+      activeCollectionId.value = collections.value[0]?.id || null;
+      persistActiveCollection(activeCollectionId.value);
+    }
+    await fetchCollections();
+    if (wasActive || reassignTo === activeCollectionId.value) {
+      await Promise.all([fetchNotes(), fetchNotebooks()]);
+    }
+  }
+
+  /** Reihenfolge der Sammlungen (optimistisch, dann serverbestätigt). */
+  async function reorderCollections(ids) {
+    const byId = new Map(collections.value.map((c) => [c.id, c]));
+    const next = ids.map((id) => byId.get(id)).filter(Boolean);
+    for (const c of collections.value) if (!ids.includes(c.id)) next.push(c);
+    collections.value = next;
+    const res = await api.reorderCollections(ids);
+    collections.value = res.items || collections.value;
+    return collections.value;
+  }
+
+  /** Verschiebt Notizen in eine andere Sammlung (koppelt ihr Notizbuch ab). */
+  async function moveToCollection(ids, collectionId) {
+    const result = await api.moveNotesToCollection({ ids, collectionId });
+    if (collectionId !== activeCollectionId.value) {
+      // Verschobene Notizen verlassen die aktive (gescopte) Liste.
+      const idSet = new Set(ids);
+      notes.value = notes.value.filter((n) => !idSet.has(n.id));
+      for (const id of ids) {
+        const detail = noteDetails.get(id);
+        if (detail) { detail.collection_id = collectionId; detail.notebook_id = null; }
+      }
+    }
+    // Zähler der Sammlungen und Notizbücher (abgekoppelt) auffrischen.
+    fetchCollections().catch(() => {});
+    fetchNotebooks().catch(() => {});
+    return result?.affected ?? 0;
   }
 
   /** Legt eine Notiz an (optional vorbelegt, z. B. mit verknüpftem Dokument)
    *  und gibt das volle Objekt (inkl. body_json) zurück. */
   async function create(initial = {}) {
-    const note = cacheDetail(await api.createNote(initial));
+    // Neue echte Notiz landet in der aktiven Sammlung, sofern nicht anders
+    // vorbelegt (ein gewähltes Notizbuch bestimmt die Sammlung serverseitig).
+    const payload = { ...initial };
+    if (!payload.is_template && !payload.notebook_id && payload.collection_id == null && activeCollectionId.value) {
+      payload.collection_id = activeCollectionId.value;
+    }
+    const note = cacheDetail(await api.createNote(payload));
     notes.value.unshift({
       id: note.id,
       title: note.title,
       preview: notePreview(note.body_json),
       notebook_id: note.notebook_id ?? null,
+      collection_id: note.collection_id ?? null,
       is_favorite: note.is_favorite ?? false,
       created_at: note.created_at,
       updated_at: note.updated_at,
@@ -189,7 +304,8 @@ export const useNotesStore = defineStore('notes', () => {
   }
 
   async function fetchNotebooks() {
-    const res = await api.listNotebooks();
+    // Notizbücher der aktiven Sammlung (harte Partition).
+    const res = await api.listNotebooks(activeCollectionId.value);
     notebooks.value = res.items || [];
     notebooksLoaded.value = true;
     return notebooks.value;
@@ -197,7 +313,7 @@ export const useNotesStore = defineStore('notes', () => {
 
   function ensureNotebooksLoaded() {
     if (notebooksLoaded.value) return Promise.resolve(notebooks.value);
-    return fetchNotebooks();
+    return ensureCollectionsLoaded().then(fetchNotebooks);
   }
 
   async function createNotebook(payload = {}) {
@@ -445,6 +561,17 @@ export const useNotesStore = defineStore('notes', () => {
     createBlockTemplate,
     updateBlockTemplate,
     deleteBlockTemplate,
+    collections,
+    collectionsLoaded,
+    activeCollectionId,
+    fetchCollections,
+    ensureCollectionsLoaded,
+    setActiveCollection,
+    createCollection,
+    updateCollection,
+    deleteCollection,
+    reorderCollections,
+    moveToCollection,
     notebooks,
     notebooksLoaded,
     fetchNotebooks,

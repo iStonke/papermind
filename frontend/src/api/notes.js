@@ -1,11 +1,13 @@
 import { apiDelete, apiFetch, apiGet, apiPatch, apiPost, apiPut, authHeaders, getBaseUrl } from './client.js';
 
-export const listNotes = ({ inTrash = false, documentId = null, dossierId = null, tagId = null, notebookId = null, noNotebook = false, favoritesOnly = false, templates = false, q = '', searchScope = 'all' } = {}) => {
+export const listNotes = ({ inTrash = false, documentId = null, dossierId = null, tagId = null, collectionId = null, notebookId = null, noNotebook = false, favoritesOnly = false, templates = false, q = '', searchScope = 'all' } = {}) => {
   const params = new URLSearchParams();
   if (inTrash) params.set('in_trash', 'true');
   if (documentId) params.set('document_id', documentId);
   if (dossierId) params.set('dossier_id', dossierId);
   if (tagId) params.set('tag_id', tagId);
+  // Sammlung scopt die Liste (außer bei Vorlagen – dort ignoriert der Server sie).
+  if (collectionId) params.set('collection_id', collectionId);
   if (notebookId) params.set('notebook_id', notebookId);
   if (noNotebook) params.set('no_notebook', 'true');
   if (favoritesOnly) params.set('favorites_only', 'true');
@@ -16,8 +18,22 @@ export const listNotes = ({ inTrash = false, documentId = null, dossierId = null
   return apiGet(`/api/notes${suffix ? `?${suffix}` : ''}`);
 };
 
+// --- Sammlungen (oberste Ebene, harte Partition) ---------------------------
+export const listCollections = () => apiGet('/api/notes/collections');
+export const createCollection = (body = {}) => apiPost('/api/notes/collections', body);
+export const updateCollection = (id, body = {}) => apiPatch(`/api/notes/collections/${id}`, body);
+/** Löscht eine Sammlung; nicht-leere brauchen ein Ziel zum Umhängen. */
+export const deleteCollection = (id, { reassignTo = null } = {}) =>
+  apiDelete(`/api/notes/collections/${id}${reassignTo ? `?reassign_to=${reassignTo}` : ''}`);
+/** Verschiebt Notizen in eine andere Sammlung (koppelt ihr Notizbuch ab). */
+export const moveNotesToCollection = ({ ids, collectionId }) =>
+  apiPost('/api/notes/collections/move', { ids, collection_id: collectionId });
+/** Setzt die Reihenfolge der Sammlungen (IDs in Zielreihenfolge). */
+export const reorderCollections = (ids) => apiPost('/api/notes/collections/reorder', { ids });
+
 // --- Notizbücher (flache Ablageebene) --------------------------------------
-export const listNotebooks = () => apiGet('/api/notes/notebooks');
+export const listNotebooks = (collectionId = null) =>
+  apiGet(`/api/notes/notebooks${collectionId ? `?collection_id=${collectionId}` : ''}`);
 export const createNotebook = (body = {}) => apiPost('/api/notes/notebooks', body);
 export const updateNotebook = (id, body = {}) => apiPatch(`/api/notes/notebooks/${id}`, body);
 export const deleteNotebook = (id) => apiDelete(`/api/notes/notebooks/${id}`);

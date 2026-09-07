@@ -107,7 +107,7 @@
         />
 
         <div
-          v-else-if="facet === 'notes' && !visibleItems.length && normalizedQuery"
+          v-else-if="facet === 'notes' && !visibleItems.length && (normalizedQuery || dateRange)"
           key="empty-search"
           class="nmg__empty"
         >
@@ -143,14 +143,14 @@
 
         <div v-else-if="facet === 'notes'" key="items" class="nmg__groups">
           <section v-for="group in groupedItems" :key="group.key" class="nmg__group">
-            <h3 class="nmg__group-heading">{{ group.label }}</h3>
+            <h3 v-if="group.label" class="nmg__group-heading">{{ group.label }}</h3>
             <ul class="nmg__grid">
               <li
                 v-for="note in group.notes"
                 :key="note.id"
                 class="nmg-card"
-                :class="{ 'is-editing': editingId === note.id, 'is-dragging': draggingNoteId === note.id, 'is-in-notebook': !!note.notebook_id }"
-                :style="notebookAccentStyle(note)"
+                :class="{ 'is-editing': editingId === note.id, 'is-dragging': draggingNoteId === note.id, 'is-in-collection': !!note.collection_id }"
+                :style="collectionAccentStyle(note)"
                 :title="notebookFor(note) ? `Notizbuch: ${notebookFor(note).name}` : undefined"
                 role="button"
                 tabindex="0"
@@ -214,6 +214,21 @@
                         <v-list-item v-if="!notebooks.length" title="Neues Notizbuch anlegen …" @click="openSidebarAndCreateNotebook">
                           <template #prepend><v-icon size="16">mdi-plus</v-icon></template>
                         </v-list-item>
+                        <template v-if="collections.length > 1">
+                          <v-divider class="nmg__move-divider" />
+                          <v-list-subheader>In Sammlung verschieben</v-list-subheader>
+                          <v-list-item
+                            v-for="c in collections"
+                            :key="`coll-${c.id}`"
+                            :title="c.name"
+                            :active="note.collection_id === c.id"
+                            :disabled="note.collection_id === c.id"
+                            @click="moveNoteToCollection(note, c.id)"
+                          >
+                            <template #prepend><span class="nmg__coll-dot" :style="collectionDotStyle(c)"></span></template>
+                            <template v-if="note.collection_id === c.id" #append><v-icon size="15">mdi-check</v-icon></template>
+                          </v-list-item>
+                        </template>
                       </v-list>
                     </v-menu>
                     <button type="button" class="nmg-card__act" title="Als Vorlage speichern" aria-label="Als Vorlage speichern" @click="saveNoteAsTemplate(note)">
@@ -318,32 +333,122 @@
           </div>
         </div>
 
-        <div class="nmg__filter-section" role="group" aria-label="Sortierung">
+        <!-- Sammlung: oberste Schale (harter Space-Wechsel). Kein „Alle" – genau
+             eine ist aktiv und scopt Notizbücher + Notizen darunter. -->
+        <div class="nmg__filter-section nmg__collections" role="group" aria-label="Sammlung">
           <div class="nmg__filter-section-head">
-            <span class="nmg__filter-section-title">Sortierung</span>
+            <span class="nmg__filter-section-title">Sammlung</span>
+            <button
+              type="button"
+              class="nmg__filter-section-add"
+              aria-label="Neue Sammlung"
+              title="Neue Sammlung"
+              @click="startCreateCollection"
+            >
+              <v-icon size="16">mdi-plus</v-icon>
+            </button>
           </div>
-          <v-menu location="bottom start" :offset="4">
-            <template #activator="{ props: sortProps }">
-              <button type="button" class="nmg__sort-btn" v-bind="sortProps" :disabled="busy">
-                <v-icon size="15">mdi-sort</v-icon>
-                <span class="nmg__sort-label">{{ sortLabel }}</span>
-                <v-icon size="15">mdi-chevron-down</v-icon>
-              </button>
-            </template>
-            <v-list density="compact" min-width="212" class="nmg__sort-list">
-              <v-list-item
-                v-for="opt in NOTE_SORT_OPTIONS"
-                :key="opt.value"
-                :title="opt.label"
-                :active="sortMode === opt.value"
-                @click="sortMode = opt.value"
-              >
-                <template v-if="sortMode === opt.value" #append>
-                  <v-icon size="16">mdi-check</v-icon>
-                </template>
-              </v-list-item>
-            </v-list>
-          </v-menu>
+
+          <div class="nmg__coll-list">
+            <div
+              v-for="c in collections"
+              :key="c.id"
+              class="nmg__coll-row"
+              :class="{ 'is-active': c.id === activeCollectionId }"
+            >
+              <div v-if="editingCollectionId === c.id" class="nmg__coll-editing">
+                <span class="nmg__coll-dot" :style="collectionDotStyle(c)"></span>
+                <input
+                  ref="collectionInputRef"
+                  v-model="editingCollectionName"
+                  class="nmg__nb-name-input"
+                  type="text"
+                  maxlength="120"
+                  placeholder="Name …"
+                  @keydown.enter.prevent.stop="commitRenameCollection(c)"
+                  @keydown.esc.prevent.stop="cancelRenameCollection"
+                  @blur="commitRenameCollection(c)"
+                />
+              </div>
+
+              <template v-else>
+                <button
+                  type="button"
+                  class="nmg__coll-chip"
+                  :class="{ 'is-active': c.id === activeCollectionId }"
+                  :aria-pressed="String(c.id === activeCollectionId)"
+                  @click="chooseCollection(c.id)"
+                >
+                  <span class="nmg__coll-dot" :style="collectionDotStyle(c)"></span>
+                  <span class="nmg__coll-name">{{ c.name }}</span>
+                  <span class="nmg__coll-count">{{ c.note_count }}</span>
+                </button>
+                <v-menu location="bottom end" :offset="4">
+                  <template #activator="{ props: menuProps }">
+                    <button
+                      type="button"
+                      class="nmg__nb-kebab"
+                      v-bind="menuProps"
+                      aria-label="Sammlungs-Aktionen"
+                      title="Aktionen"
+                      @click.stop
+                    >
+                      <v-icon size="16">mdi-dots-horizontal</v-icon>
+                    </button>
+                  </template>
+                  <v-list density="compact" min-width="184">
+                    <v-list-item title="Umbenennen" @click="startRenameCollection(c)">
+                      <template #prepend><v-icon size="16">mdi-pencil-outline</v-icon></template>
+                    </v-list-item>
+                    <div class="nmg__nb-colors" role="group" aria-label="Farbe">
+                      <button
+                        type="button"
+                        class="nmg__nb-color nmg__nb-color--none"
+                        :class="{ 'is-active': !c.color }"
+                        title="Keine Farbe"
+                        aria-label="Keine Farbe"
+                        @click.stop="setCollectionColor(c, null)"
+                      ><v-icon size="13">mdi-close</v-icon></button>
+                      <button
+                        v-for="color in COLLECTION_COLORS"
+                        :key="color"
+                        type="button"
+                        class="nmg__nb-color"
+                        :class="{ 'is-active': c.color === color }"
+                        :style="{ '--nb-swatch': color }"
+                        :title="`Farbe ${color}`"
+                        :aria-label="`Farbe ${color}`"
+                        @click.stop="setCollectionColor(c, color)"
+                      />
+                    </div>
+                    <v-list-item
+                      title="Löschen"
+                      class="nmg__nb-menu-danger"
+                      :disabled="collections.length <= 1"
+                      @click="requestCollectionDeletion(c)"
+                    >
+                      <template #prepend><v-icon size="16">mdi-trash-can-outline</v-icon></template>
+                    </v-list-item>
+                  </v-list>
+                </v-menu>
+              </template>
+            </div>
+
+            <div v-if="creatingCollection" class="nmg__coll-create">
+              <span class="nmg__coll-dot nmg__coll-dot--ghost"></span>
+              <input
+                ref="createCollectionInputRef"
+                v-model="newCollectionName"
+                class="nmg__nb-name-input"
+                type="text"
+                maxlength="120"
+                placeholder="Neue Sammlung …"
+                @keydown.enter.prevent.stop="commitCreateCollection"
+                @keydown.esc.prevent.stop="cancelCreateCollection"
+                @blur="commitCreateCollection"
+              />
+            </div>
+          </div>
         </div>
 
         <!-- Notizbücher: flache Ablageebene. Genau eines aktiv (all | id | none). -->
@@ -409,7 +514,7 @@
                   @drop="onDropOnNotebook($event, nb.id)"
                 >
                   <span class="nmg__tag-cloud-name">
-                    <v-icon size="15" class="nmg__nb-glyph" :style="nb.color ? { color: nb.color, opacity: 1 } : undefined">mdi-notebook-outline</v-icon>
+                    <v-icon size="15" class="nmg__nb-glyph">mdi-notebook-outline</v-icon>
                     <span class="nmg__nb-name-text">{{ nb.name }}</span>
                   </span>
                   <span class="nmg__tag-cloud-count">{{ nb.note_count }}</span>
@@ -431,27 +536,6 @@
                     <v-list-item title="Umbenennen" @click="startRenameNotebook(nb)">
                       <template #prepend><v-icon size="16">mdi-pencil-outline</v-icon></template>
                     </v-list-item>
-                    <div class="nmg__nb-colors" role="group" aria-label="Farbe">
-                      <button
-                        type="button"
-                        class="nmg__nb-color nmg__nb-color--none"
-                        :class="{ 'is-active': !nb.color }"
-                        title="Keine Farbe"
-                        aria-label="Keine Farbe"
-                        @click.stop="setNotebookColor(nb, null)"
-                      ><v-icon size="13">mdi-close</v-icon></button>
-                      <button
-                        v-for="color in NOTEBOOK_COLORS"
-                        :key="color"
-                        type="button"
-                        class="nmg__nb-color"
-                        :class="{ 'is-active': nb.color === color }"
-                        :style="{ '--nb-swatch': color }"
-                        :title="`Farbe ${color}`"
-                        :aria-label="`Farbe ${color}`"
-                        @click.stop="setNotebookColor(nb, color)"
-                      />
-                    </div>
                     <v-list-item title="Löschen" class="nmg__nb-menu-danger" @click="requestNotebookDeletion(nb)">
                       <template #prepend><v-icon size="16">mdi-trash-can-outline</v-icon></template>
                     </v-list-item>
@@ -526,6 +610,65 @@
             <p class="nmg__tag-cloud-empty-text">Weise einer Notiz ein Tag zu, dann kannst du hier danach filtern.</p>
           </div>
         </div>
+
+        <div class="nmg__filter-section" role="group" aria-label="Ansicht">
+          <div class="nmg__filter-section-head">
+            <span class="nmg__filter-section-title">Ansicht</span>
+          </div>
+          <v-menu location="bottom start" :offset="4" :max-height="520" :close-on-content-click="false">
+            <template #activator="{ props: sortProps }">
+              <button type="button" class="nmg__sort-btn" aria-label="Sortierung" :title="sortLabel" v-bind="sortProps" :disabled="busy">
+                <v-icon size="15">mdi-sort</v-icon>
+                <span class="nmg__sort-label">{{ sortLabel }}</span>
+                <v-icon size="15">mdi-chevron-down</v-icon>
+              </button>
+            </template>
+            <v-list density="comfortable" class="nmg__sort-list">
+              <v-list-subheader>Sortieren nach</v-list-subheader>
+              <v-list-item
+                v-for="opt in NOTE_SORT_OPTIONS"
+                :key="opt.value"
+                :title="opt.label"
+                :active="sortMode === opt.value"
+                @click="sortMode = opt.value"
+              >
+                <template v-if="sortMode === opt.value" #append>
+                  <v-icon size="16">mdi-check</v-icon>
+                </template>
+              </v-list-item>
+              <v-divider />
+              <v-list-subheader>Reihenfolge</v-list-subheader>
+              <v-list-item
+                v-for="direction in sortDirectionOptions"
+                :key="String(direction.value)"
+                :title="direction.label"
+                :active="reverseSort === direction.value"
+                @click="reverseSort = direction.value"
+              >
+                <template v-if="reverseSort === direction.value" #append>
+                  <v-icon size="16">mdi-check</v-icon>
+                </template>
+              </v-list-item>
+            </v-list>
+          </v-menu>
+          <v-menu v-for="menu in extraListMenus" :key="menu.key" location="bottom start" :offset="4" :max-height="520">
+            <template #activator="{ props: menuProps }">
+              <button type="button" class="nmg__sort-btn" v-bind="menuProps" :disabled="busy" :aria-label="menu.label" :title="menu.label">
+                <v-icon size="15">{{ menu.key === 'grouping' ? 'mdi-view-agenda-outline' : 'mdi-calendar-range' }}</v-icon>
+                <span class="nmg__sort-label">{{ menu.options.find(option => option.value === menu.value)?.label }}</span>
+                <v-icon size="15">mdi-chevron-down</v-icon>
+              </button>
+            </template>
+            <v-list density="comfortable" class="nmg__sort-list">
+              <v-list-subheader>{{ menu.label }}</v-list-subheader>
+              <v-list-item v-for="option in menu.options" :key="option.value" :title="option.label" :active="option.value === menu.value" @click="selectListOption(menu.key, option.value)">
+                <template v-if="option.value === menu.value" #append><v-icon size="16">mdi-check</v-icon></template>
+              </v-list-item>
+              <div v-if="menu.key === 'dateRange'" class="nmg__period-hint">Nach letzter Bearbeitung</div>
+            </v-list>
+          </v-menu>
+        </div>
+
       </aside>
     </div>
 
@@ -542,11 +685,42 @@
       @primary="confirm.onPrimary"
       @close="closeConfirm"
     />
+
+    <DestructiveDialog
+      v-model="collectionDelete.open"
+      title="Sammlung löschen"
+      :header-subtitle="`„${collectionDelete.collection?.name || ''}“ wird gelöscht. Enthaltene Notizen und Notizbücher werden in eine andere Sammlung verschoben.`"
+      primary-text="Sammlung löschen"
+      secondary-text="Zurück"
+      icon="mdi-trash-can-outline"
+      :max-width="480"
+      :loading="busy"
+      :persistent="busy"
+      @primary="confirmDeleteCollection"
+      @close="closeCollectionDelete"
+    >
+      <div class="nmg__coll-reassign">
+        <label class="nmg__coll-reassign-label">Inhalte verschieben nach</label>
+        <v-select
+          v-model="collectionDelete.reassignTo"
+          :items="collectionDeleteTargets"
+          item-title="name"
+          item-value="id"
+          density="compact"
+          variant="outlined"
+          hide-details
+          :disabled="busy"
+        />
+      </div>
+    </DestructiveDialog>
   </div>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { noteCollectionColor } from '../../utils/noteCollectionColor.js';
+import { noteMatchesDateRange } from '../../utils/noteDateFilter.js';
+import { sortNoteItems } from '../../utils/noteSort.js';
 import { useNoteListPreferences } from './composables/useNoteListPreferences.js';
 import Sortable from 'sortablejs';
 import DestructiveDialog from '../DestructiveDialog.vue';
@@ -598,6 +772,23 @@ const notebookInputRef = ref(null);
 const creatingNotebook = ref(false);
 const newNotebookName = ref('');
 const createNotebookInputRef = ref(null);
+
+// --- Sammlungen (oberste Ebene, harter Space-Wechsel) ----------------------
+const collections = computed(() => notesStore.collections);
+const activeCollectionId = computed(() => notesStore.activeCollectionId);
+const creatingCollection = ref(false);
+const newCollectionName = ref('');
+const createCollectionInputRef = ref(null);
+const editingCollectionId = ref(null);
+const editingCollectionName = ref('');
+const collectionInputRef = ref(null);
+const collectionDelete = ref({ open: false, collection: null, reassignTo: null });
+const collectionDeleteTargets = computed(() =>
+  collections.value.filter((c) => c.id !== collectionDelete.value.collection?.id),
+);
+function collectionDotStyle(c) {
+  return { '--nmg-coll-dot': c?.color || 'var(--pm-accent, #006b75)' };
+}
 
 const notebooks = computed(() => notesStore.notebooks);
 const notesWithoutNotebookCount = computed(
@@ -664,12 +855,9 @@ const notebooksById = computed(() => {
 function notebookFor(note) {
   return note.notebook_id ? notebooksById.value.get(note.notebook_id) || null : null;
 }
-// Notizbuch als farbiger Rand-Akzent: dessen Farbe (oder der Standard-Akzent,
-// wenn keine gesetzt ist) als CSS-Variable an die Kachel geben.
-function notebookAccentStyle(note) {
-  const nb = notebookFor(note);
-  if (!nb) return undefined;
-  return { '--nmg-nb-accent': nb.color || 'var(--pm-accent, #006b75)' };
+// Die Sammlung bestimmt die Farbe aller enthaltenen Notizen und Notizbücher.
+function collectionAccentStyle(note) {
+  return { '--nmg-collection-accent': noteCollectionColor(note, collections.value) || 'var(--pm-accent, #006b75)' };
 }
 
 function selectNotebook(notebookId) {
@@ -678,35 +866,53 @@ function selectNotebook(notebookId) {
   tagSidebarOpen.value = true;
 }
 
-defineExpose({ selectNotebook });
+function openFilterSidebar() {
+  tagSidebarOpen.value = true;
+}
+
+defineExpose({ selectNotebook, openFilterSidebar });
 
 // Gleiche Sortieroptionen wie in der Liste, unabhängig davon gespeichert.
 const NOTE_SORT_OPTIONS = [
   { value: 'updated', label: 'Zuletzt bearbeitet' },
   { value: 'created', label: 'Erstellungsdatum' },
-  { value: 'title', label: 'Titel (A–Z)' },
+  { value: 'title', label: 'Titel' },
 ];
-const { sortMode } = useNoteListPreferences(
+const { sortMode, reverseSort, grouping, dateRange } = useNoteListPreferences(
   () => settingsStore.settingsDraft.ui.notes_sort_order,
   undefined,
   'pm-notes-manage-preferences-v1',
 );
-const sortLabel = computed(
-  () => NOTE_SORT_OPTIONS.find((o) => o.value === sortMode.value)?.label || 'Sortierung',
-);
-function sortTimestamp(value) {
-  const t = value ? new Date(value).getTime() : 0;
-  return Number.isFinite(t) ? t : 0;
+const GROUPING_OPTIONS = [
+  { value: 'auto', label: 'Automatisch' },
+  { value: 'date', label: 'Nach Datum' },
+  { value: 'notebook', label: 'Nach Notizbuch' },
+  { value: 'none', label: 'Ohne Gruppen' },
+];
+const DATE_RANGE_OPTIONS = [
+  { value: '', label: 'Alle Zeiträume' },
+  { value: 'today', label: 'Heute' },
+  { value: 'last_7_days', label: 'Letzte 7 Tage' },
+  { value: 'last_30_days', label: 'Letzte 30 Tage' },
+];
+const extraListMenus = computed(() => [
+  { key: 'grouping', label: 'Gruppierung', value: grouping.value, options: GROUPING_OPTIONS },
+  { key: 'dateRange', label: 'Zeitraum', value: dateRange.value, options: DATE_RANGE_OPTIONS },
+]);
+function selectListOption(key, value) {
+  if (key === 'grouping') grouping.value = value;
+  if (key === 'dateRange') dateRange.value = value;
 }
+const sortDirectionOptions = computed(() => sortMode.value === 'title'
+  ? [{ value: false, label: 'A–Z' }, { value: true, label: 'Z–A' }]
+  : [{ value: false, label: 'Neueste zuerst' }, { value: true, label: 'Älteste zuerst' }]);
+const sortLabel = computed(() => {
+  const label = NOTE_SORT_OPTIONS.find(option => option.value === sortMode.value)?.label || 'Sortierung';
+  const direction = sortDirectionOptions.value.find(option => option.value === reverseSort.value).label;
+  return `${label} · ${direction}`;
+});
 function sortItems(items) {
-  const copy = [...items];
-  if (sortMode.value === 'title') {
-    return copy.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'de-DE'));
-  }
-  if (sortMode.value === 'created') {
-    return copy.sort((a, b) => sortTimestamp(b.created_at || b.updated_at) - sortTimestamp(a.created_at || a.updated_at));
-  }
-  return copy.sort((a, b) => sortTimestamp(b.updated_at) - sortTimestamp(a.updated_at));
+  return sortNoteItems(items, sortMode.value, reverseSort.value);
 }
 
 const editingId = ref(null);
@@ -748,7 +954,7 @@ const filteredGlobalSearchNotes = computed(() => {
   if (activeTagId.value) {
     items = items.filter((note) => (note.tags || []).some((tag) => tag.id === activeTagId.value));
   }
-  return sortItems(items);
+  return sortItems(items.filter(note => noteMatchesDateRange(note, dateRange.value)));
 });
 
 const globalSearchResultLabel = computed(() => {
@@ -797,15 +1003,17 @@ const visibleItems = computed(() => {
       return terms.every((t) => hay.includes(t));
     });
   }
-  return sortItems(items);
+  return sortItems(facet.value === 'notes'
+    ? items.filter(note => noteMatchesDateRange(note, dateRange.value))
+    : items);
 });
 
-// Zeitraum-Gruppierung (immer aktiv). Buckets in fester chronologischer
-// Reihenfolge; die Sortierung wirkt innerhalb jeder Gruppe. Das Datumsfeld
-// folgt der Sortierung (Erstellungsdatum bzw. sonst Bearbeitungsdatum).
+// Datumsgruppen folgen der Sortierrichtung. Titel werden ohne Datumsgruppen
+// alphabetisch sortiert; Favoriten bleiben als eigene Gruppe oben.
 const GROUP_ORDER = ['favorites', 'today', 'yesterday', 'week', 'month', 'older'];
 const GROUP_LABELS = {
   favorites: 'Favoriten',
+  notes: 'Notizen',
   today: 'Heute',
   yesterday: 'Gestern',
   week: 'Diese Woche',
@@ -820,6 +1028,7 @@ function startOfDay(value) {
 function groupBucket(note) {
   // Favorisierte Notizen stehen – unabhängig vom Datum – oben in einer eigenen Gruppe.
   if (note.is_favorite) return 'favorites';
+  if (grouping.value === 'auto' && sortMode.value === 'title') return 'notes';
   const raw = (sortMode.value === 'created' ? note.created_at : note.updated_at) || note.updated_at;
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) return 'older';
@@ -832,13 +1041,27 @@ function groupBucket(note) {
   return 'older';
 }
 const groupedItems = computed(() => {
+  if (grouping.value === 'none') return [{ key: 'all', label: '', notes: visibleItems.value }];
+  if (grouping.value === 'notebook') {
+    const groups = new Map();
+    for (const note of visibleItems.value) {
+      const key = note.notebook_id || 'none';
+      if (!groups.has(key)) groups.set(key, { key, label: notebooksById.value.get(key)?.name || 'Ohne Notizbuch', notes: [] });
+      groups.get(key).notes.push(note);
+    }
+    return [...groups.values()].sort((a, b) => a.key === 'none' ? 1 : b.key === 'none' ? -1 : a.label.localeCompare(b.label, 'de-DE'));
+  }
   const buckets = new Map();
   for (const note of visibleItems.value) {
     const key = groupBucket(note);
     if (!buckets.has(key)) buckets.set(key, []);
     buckets.get(key).push(note);
   }
-  return GROUP_ORDER
+  const dates = GROUP_ORDER.filter(key => key !== 'favorites');
+  const order = grouping.value === 'auto' && sortMode.value === 'title'
+    ? ['favorites', 'notes']
+    : ['favorites', ...(reverseSort.value ? dates.reverse() : dates)];
+  return order
     .filter((key) => buckets.has(key))
     .map((key) => ({ key, label: GROUP_LABELS[key], notes: buckets.get(key) }));
 });
@@ -890,6 +1113,9 @@ async function applyCardTags(note, tagIds) {
 const isLoading = computed(() => facet.value === 'templates' && loadingTemplates.value);
 
 const emptyState = computed(() => {
+  if (dateRange.value && !normalizedQuery.value) {
+    return { title: 'Keine Notizen in diesem Zeitraum', subtitle: 'Wähle einen anderen Zeitraum oder alle Zeiträume.' };
+  }
   if (normalizedQuery.value) {
     return { icon: 'mdi-note-search-outline', title: 'Keine Treffer', subtitle: 'Passe den Suchbegriff an oder leere die globale Suche.' };
   }
@@ -901,6 +1127,7 @@ const emptyState = computed(() => {
 
 onMounted(async () => {
   tagStore.fetchTags().catch(() => {});
+  notesStore.ensureCollectionsLoaded().catch(() => {});
   notesStore.ensureNotebooksLoaded().catch(() => {});
   nextTick(setupNotebookSortable);
   if (notesStore.templatesLoaded) return;
@@ -1161,6 +1388,22 @@ async function moveNoteToNotebook(note, notebookId) {
   }
 }
 
+async function moveNoteToCollection(note, collectionId) {
+  if (!note?.id || note.collection_id === collectionId) return;
+  try {
+    await notesStore.moveToCollection([note.id], collectionId);
+    const target = collections.value.find((c) => c.id === collectionId)?.name;
+    notify({
+      type: 'success',
+      title: 'In Sammlung verschoben',
+      message: `Notiz nach „${target}“ verschoben (Notizbuch entfernt).`,
+    });
+    emit('changed');
+  } catch (error) {
+    notifyError(error, 'Die Notiz konnte nicht in die Sammlung verschoben werden.');
+  }
+}
+
 function focusInput(refValue) {
   nextTick(() => {
     const el = Array.isArray(refValue.value) ? refValue.value[0] : refValue.value;
@@ -1225,17 +1468,8 @@ async function commitRenameNotebook(nb) {
   }
 }
 
-// Kompakte, in beiden Themes tragfähige Notizbuch-Farben (Chip + Icon-Tönung).
-const NOTEBOOK_COLORS = ['#0d9488', '#2563eb', '#7c3aed', '#db2777', '#c2410c', '#ca8a04', '#4b5563'];
-
-async function setNotebookColor(nb, color) {
-  const next = nb.color === color ? null : color; // erneute Wahl derselben Farbe = zurücksetzen
-  try {
-    await notesStore.updateNotebook(nb.id, { color: next });
-  } catch (error) {
-    notifyError(error, 'Die Farbe konnte nicht gespeichert werden.');
-  }
-}
+// Kompakte, in beiden Themes tragfähige Sammlungsfarben.
+const COLLECTION_COLORS = ['#0d9488', '#2563eb', '#7c3aed', '#db2777', '#c2410c', '#ca8a04', '#4b5563'];
 
 function requestNotebookDeletion(nb) {
   if (busy.value || !nb?.id) return;
@@ -1257,6 +1491,104 @@ async function deleteNotebook(nb) {
     emit('changed');
   } catch (error) {
     notifyError(error, 'Das Notizbuch konnte nicht gelöscht werden.');
+  } finally {
+    busy.value = false;
+  }
+}
+
+// --- Sammlungen: Wechsel + CRUD --------------------------------------------
+async function chooseCollection(id) {
+  if (busy.value || id === activeCollectionId.value) return;
+  activeNotebookId.value = 'all'; // Notizbuch-Facette gehört zur alten Sammlung.
+  try {
+    await notesStore.setActiveCollection(id);
+    emit('changed');
+  } catch (error) {
+    notifyError(error, 'Die Sammlung konnte nicht gewechselt werden.');
+  }
+}
+
+function startCreateCollection() {
+  cancelRenameCollection();
+  tagSidebarOpen.value = true;
+  creatingCollection.value = true;
+  newCollectionName.value = '';
+  focusInput(createCollectionInputRef);
+}
+
+function cancelCreateCollection() {
+  creatingCollection.value = false;
+  newCollectionName.value = '';
+}
+
+async function commitCreateCollection() {
+  if (!creatingCollection.value) return;
+  const name = newCollectionName.value.trim();
+  creatingCollection.value = false;
+  newCollectionName.value = '';
+  if (!name) return;
+  try {
+    const c = await notesStore.createCollection({ name });
+    await chooseCollection(c.id);
+  } catch (error) {
+    notifyError(error, 'Die Sammlung konnte nicht angelegt werden.');
+  }
+}
+
+function startRenameCollection(c) {
+  cancelCreateCollection();
+  editingCollectionId.value = c.id;
+  editingCollectionName.value = c.name;
+  focusInput(collectionInputRef);
+}
+
+function cancelRenameCollection() {
+  editingCollectionId.value = null;
+  editingCollectionName.value = '';
+}
+
+async function commitRenameCollection(c) {
+  if (editingCollectionId.value !== c.id) return;
+  const name = editingCollectionName.value.trim().slice(0, 120);
+  editingCollectionId.value = null;
+  if (!name || name === c.name) return;
+  try {
+    await notesStore.updateCollection(c.id, { name });
+  } catch (error) {
+    notifyError(error, 'Die Sammlung konnte nicht umbenannt werden.');
+  }
+}
+
+async function setCollectionColor(c, color) {
+  const next = c.color === color ? null : color; // erneute Wahl = zurücksetzen
+  try {
+    await notesStore.updateCollection(c.id, { color: next });
+  } catch (error) {
+    notifyError(error, 'Die Farbe konnte nicht gespeichert werden.');
+  }
+}
+
+function requestCollectionDeletion(c) {
+  if (busy.value || !c?.id || collections.value.length <= 1) return;
+  const target = collections.value.find((x) => x.id !== c.id) || null;
+  collectionDelete.value = { open: true, collection: c, reassignTo: target?.id || null };
+}
+
+function closeCollectionDelete() {
+  collectionDelete.value = { ...collectionDelete.value, open: false };
+}
+
+async function confirmDeleteCollection() {
+  const target = collectionDelete.value;
+  if (busy.value || !target.collection?.id) return;
+  busy.value = true;
+  try {
+    await notesStore.deleteCollection(target.collection.id, { reassignTo: target.reassignTo });
+    activeNotebookId.value = 'all';
+    collectionDelete.value = { open: false, collection: null, reassignTo: null };
+    emit('changed');
+  } catch (error) {
+    notifyError(error, 'Die Sammlung konnte nicht gelöscht werden.');
   } finally {
     busy.value = false;
   }
@@ -1311,7 +1643,8 @@ function formatDate(value) {
   min-height: 0;
   flex: none;
   flex-direction: column;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   border-left: 1px solid var(--pm-divider, #d8dfe1);
   background: color-mix(in srgb, var(--pm-app-surface, #fff) 96%, var(--pm-accent, #006b75));
 }
@@ -1390,7 +1723,7 @@ function formatDate(value) {
   gap: 7px;
 }
 .nmg__tag-cloud-items--tags {
-  --pm-detail-chip-border: color-mix(in srgb, var(--pm-text, #0f172a) 22%, transparent);
+  --pm-detail-chip-border: var(--pm-divider, #d8dfe1);
 }
 
 .nmg__tag-cloud-chip {
@@ -1486,6 +1819,8 @@ function formatDate(value) {
 .nmg__tag-sidebar-head + .nmg__filter-section {
   padding-top: 16px;
 }
+.nmg__period-hint { padding: 4px 16px 8px; color: var(--pm-muted); font-size: 0.7rem; }
+
 .nmg__filter-section-head {
   display: flex;
   align-items: center;
@@ -1498,6 +1833,93 @@ function formatDate(value) {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--pm-muted, #64748b);
+}
+
+/* --- Sammlungs-Switcher (oberste Schale) --------------------------------- */
+.nmg__coll-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.nmg__coll-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.nmg__coll-chip {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--pm-text, #0f172a);
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+.nmg__coll-chip:hover,
+.nmg__coll-chip:focus-visible {
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 8%, transparent);
+}
+.nmg__coll-chip.is-active {
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 14%, transparent);
+  border-color: color-mix(in srgb, var(--pm-accent, #006b75) 32%, transparent);
+}
+.nmg__coll-dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--nmg-coll-dot, var(--pm-accent, #006b75));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #000 12%, transparent);
+}
+.nmg__coll-dot--ghost {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--pm-muted, #64748b) 55%, transparent);
+}
+.nmg__coll-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nmg__coll-count {
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--pm-muted, #64748b);
+}
+.nmg__coll-chip.is-active .nmg__coll-count {
+  color: var(--pm-accent, #006b75);
+}
+.nmg__coll-editing,
+.nmg__coll-create {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 3px 10px;
+}
+.nmg__coll-reassign {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.nmg__coll-reassign-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--pm-muted, #64748b);
+}
+.nmg__move-divider {
+  margin: 4px 0;
 }
 .nmg__filter-section-add {
   display: inline-flex;
@@ -1998,11 +2420,17 @@ function formatDate(value) {
   white-space: nowrap;
 }
 .nmg__sort-list {
-  padding: 5px;
+  width: min(320px, calc(100vw - 32px));
+  padding: 8px;
   border: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 76%, transparent);
   border-radius: 12px;
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.14);
 }
+.nmg__sort-list :deep(.v-list-item) {
+  min-height: 44px;
+  padding-inline: 14px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .nmg__sort-btn { transition: none; }
 }
@@ -2248,14 +2676,14 @@ function formatDate(value) {
 /* Notizbuch-Zugehörigkeit: klickbarer Chip (filtert das Raster auf das Buch). */
 /* Notizbuch-Zugehörigkeit: farbiger Rand-Akzent links (statt Chip in der
    Titelzeile). Folgt der Kachelrundung dank overflow:hidden am Card-Element. */
-.nmg-card.is-in-notebook::before {
+.nmg-card.is-in-collection::before {
   content: '';
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
   width: 4px;
-  background: var(--nmg-nb-accent, var(--pm-accent, #006b75));
+  background: var(--nmg-collection-accent, var(--pm-accent, #006b75));
   z-index: 1;
 }
 .nmg-card__title-input {
