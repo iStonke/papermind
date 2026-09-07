@@ -3,6 +3,7 @@
     <div
       v-if="shortcutsOpen"
       class="pm-shortcuts-overlay"
+      :class="theme.themeClasses.value"
       @click.self="closeShortcuts"
       @keydown.esc.prevent="closeShortcuts"
     >
@@ -44,6 +45,8 @@
 
 <script setup>
 import { computed, nextTick, ref } from 'vue';
+import { useTheme } from 'vuetify';
+const theme = useTheme();
 const emit = defineEmits(['close']);
 const shortcutsOpen = ref(false);
 const isMacKeyboard = typeof navigator !== 'undefined'
@@ -122,7 +125,7 @@ defineExpose({ open: openShortcuts, close: closeShortcuts });
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: color-mix(in srgb, var(--pm-text, #0e181b) 34%, transparent);
+  background: rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(2px);
 }
 .pm-shortcuts {
@@ -134,7 +137,7 @@ defineExpose({ open: openShortcuts, close: closeShortcuts });
   background: var(--pm-content-surface, #fff);
   border: 1px solid var(--pm-divider, #d8dfe1);
   border-radius: 14px;
-  box-shadow: 0 24px 60px color-mix(in srgb, var(--pm-text, #0e181b) 30%, transparent);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.3);
 }
 .pm-shortcuts__head {
   flex: none;

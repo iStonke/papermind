@@ -224,6 +224,7 @@ export const useNotesStore = defineStore('notes', () => {
       updated_at: note.updated_at,
     });
     if (note.notebook_id) bumpNotebookCount(note.notebook_id, 1);
+    if (note.collection_id) bumpCollectionCount(note.collection_id, 1);
     return note;
   }
 
@@ -246,9 +247,14 @@ export const useNotesStore = defineStore('notes', () => {
       id: note.id,
       title: note.title,
       preview: notePreview(note.body_json),
+      notebook_id: note.notebook_id ?? null,
+      collection_id: note.collection_id ?? null,
+      is_favorite: note.is_favorite ?? false,
       created_at: note.created_at,
       updated_at: note.updated_at,
     });
+    if (note.notebook_id) bumpNotebookCount(note.notebook_id, 1);
+    if (note.collection_id) bumpCollectionCount(note.collection_id, 1);
     return note;
   }
 
@@ -301,6 +307,14 @@ export const useNotesStore = defineStore('notes', () => {
     if (!notebookId) return;
     const nb = notebooks.value.find((n) => n.id === notebookId);
     if (nb) nb.note_count = Math.max(0, (nb.note_count || 0) + delta);
+  }
+
+  // Sammlungs-Zähler lokal pflegen (analog Notizbuch), damit er ohne Neuladen
+  // sofort stimmt – Anlegen/Papierkorb/Wiederherstellen ändern ihn.
+  function bumpCollectionCount(collectionId, delta) {
+    if (!collectionId) return;
+    const c = collections.value.find((x) => x.id === collectionId);
+    if (c) c.note_count = Math.max(0, (c.note_count || 0) + delta);
   }
 
   async function fetchNotebooks() {
@@ -491,7 +505,12 @@ export const useNotesStore = defineStore('notes', () => {
   }
 
   async function trash(id) {
-    return api.trashNote(id);
+    // Sammlung der Notiz vor dem Verschieben ermitteln (Zähler pflegen).
+    const collectionId = notes.value.find((n) => n.id === id)?.collection_id
+      ?? noteDetails.get(id)?.collection_id ?? null;
+    const result = await api.trashNote(id);
+    if (collectionId) bumpCollectionCount(collectionId, -1);
+    return result;
   }
 
   async function restore(id) {
@@ -500,6 +519,7 @@ export const useNotesStore = defineStore('notes', () => {
     const index = notes.value.findIndex((entry) => entry.id === note.id);
     if (index >= 0) notes.value.splice(index, 1, item);
     else notes.value.push(item);
+    if (note.collection_id) bumpCollectionCount(note.collection_id, 1);
     sortInPlace();
     return note;
   }
@@ -533,6 +553,11 @@ export const useNotesStore = defineStore('notes', () => {
         noteDetails.delete(id);
         detailRequests.delete(id);
       }
+    }
+    // Papierkorb/Wiederherstellen ändern die Sammlungs-Zähler; serverseitig
+    // resynchronisieren (Vorlagen-Ableitung lässt Originale in ihrer Sammlung).
+    if (action === 'trash' || action === 'restore') {
+      fetchCollections().catch(() => {});
     }
     return result?.affected ?? 0;
   }

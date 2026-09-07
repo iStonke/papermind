@@ -396,7 +396,7 @@
                       <v-icon size="16">mdi-dots-horizontal</v-icon>
                     </button>
                   </template>
-                  <v-list density="compact" min-width="184">
+                  <v-list density="compact" min-width="164" class="nmg__action-menu">
                     <v-list-item title="Umbenennen" @click="startRenameCollection(c)">
                       <template #prepend><v-icon size="16">mdi-pencil-outline</v-icon></template>
                     </v-list-item>
@@ -532,7 +532,7 @@
                       <v-icon size="16">mdi-dots-horizontal</v-icon>
                     </button>
                   </template>
-                  <v-list density="compact" min-width="184">
+                  <v-list density="compact" min-width="164" class="nmg__action-menu">
                     <v-list-item title="Umbenennen" @click="startRenameNotebook(nb)">
                       <template #prepend><v-icon size="16">mdi-pencil-outline</v-icon></template>
                     </v-list-item>
@@ -623,7 +623,7 @@
                 <v-icon size="15">mdi-chevron-down</v-icon>
               </button>
             </template>
-            <v-list density="comfortable" class="nmg__sort-list">
+            <v-list density="compact" class="nmg__sort-list nmg__action-menu">
               <v-list-subheader>Sortieren nach</v-list-subheader>
               <v-list-item
                 v-for="opt in NOTE_SORT_OPTIONS"
@@ -659,7 +659,7 @@
                 <v-icon size="15">mdi-chevron-down</v-icon>
               </button>
             </template>
-            <v-list density="comfortable" class="nmg__sort-list">
+            <v-list density="compact" class="nmg__sort-list nmg__action-menu">
               <v-list-subheader>{{ menu.label }}</v-list-subheader>
               <v-list-item v-for="option in menu.options" :key="option.value" :title="option.label" :active="option.value === menu.value" @click="selectListOption(menu.key, option.value)">
                 <template v-if="option.value === menu.value" #append><v-icon size="16">mdi-check</v-icon></template>
@@ -1899,13 +1899,27 @@ function formatDate(value) {
 .nmg__coll-chip.is-active .nmg__coll-count {
   color: var(--pm-accent, #006b75);
 }
+/* Umbenennen/Anlegen einer Sammlung: identisches gerahmtes Feld wie bei
+   Notizbüchern (nmg__nb-editing / nmg__nb-create) – solider Rahmen beim
+   Umbenennen, gestrichelter beim Anlegen. */
 .nmg__coll-editing,
 .nmg__coll-create {
-  flex: 1 1 auto;
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 3px 10px;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 15px;
+}
+.nmg__coll-editing {
+  border: 1px solid var(--pm-accent, #006b75);
+  background: var(--pm-app-surface, #fff);
+  color: var(--pm-text, #0f172a);
+}
+.nmg__coll-create {
+  border: 1px dashed color-mix(in srgb, var(--pm-accent, #006b75) 40%, transparent);
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 5%, transparent);
 }
 .nmg__coll-reassign {
   display: flex;
@@ -2060,12 +2074,40 @@ function formatDate(value) {
 .nmg__nb-menu-danger :deep(.v-list-item-title) { color: var(--pm-danger, #c62828); }
 
 /* Notizbuch-Farbauswahl im Kebab-Menü */
+/* Kompakte, elegante Kebab-Aktionsmenüs (Sammlung + Notizbuch): Vuetifys
+   großzügige Zeilenhöhe, Icon-Abstand und Schrift zähmen. */
+.nmg__action-menu {
+  padding: 4px;
+}
+.nmg__action-menu :deep(.v-list-item) {
+  min-height: 0;
+  padding-block: 6px;
+  padding-inline: 10px;
+  border-radius: 8px;
+}
+.nmg__action-menu :deep(.v-list-item__spacer) {
+  width: 9px;
+}
+.nmg__action-menu :deep(.v-list-item__prepend > .v-icon) {
+  opacity: 0.62;
+}
+.nmg__action-menu :deep(.v-list-item-title) {
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: 0.005em;
+}
 .nmg__nb-colors {
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  padding: 8px 14px 6px;
+  gap: 5px;
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  padding: 6px 10px 5px;
+}
+.nmg__action-menu .nmg__nb-color {
+  width: 16px;
+  height: 16px;
 }
 .nmg__nb-color {
   width: 18px;
@@ -2420,15 +2462,27 @@ function formatDate(value) {
   white-space: nowrap;
 }
 .nmg__sort-list {
-  width: min(320px, calc(100vw - 32px));
-  padding: 8px;
+  width: min(272px, calc(100vw - 32px));
+  padding: 5px;
   border: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 76%, transparent);
   border-radius: 12px;
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.14);
 }
 .nmg__sort-list :deep(.v-list-item) {
-  min-height: 44px;
-  padding-inline: 14px;
+  min-height: 0;
+  padding-block: 6px;
+  padding-inline: 10px;
+}
+/* Kompakte Zwischenüberschriften in den Ansicht-Menüs. */
+.nmg__action-menu :deep(.v-list-subheader) {
+  min-height: 0;
+  padding-block: 5px 3px;
+  padding-inline: 10px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.9;
 }
 
 @media (prefers-reduced-motion: reduce) {
