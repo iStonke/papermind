@@ -123,10 +123,9 @@ test('tag sidebar mirrors the notes outline and search panel design', () => {
   assert.match(gridSource, /\.nmg__tag-sidebar\s*\{[\s\S]*?background:\s*color-mix\(in srgb, var\(--pm-app-surface, #fff\) 96%, var\(--pm-accent, #006b75\)\)/);
   assert.match(gridSource, /\.nmg__tag-sidebar-head\s*\{[\s\S]*?min-height:\s*49px[\s\S]*?padding:\s*7px 8px 7px 12px/);
   assert.doesNotMatch(gridSource, /\.nmg__tag-sidebar-head\s*\{[^}]*border-bottom:/);
-  // Die Seitenleiste ist jetzt ein „Filter"-Panel mit zwei Sektionen
-  // (Notizbücher + Tags); der frühere reine „Tags"-Titel entfällt.
-  assert.match(gridSource, /<h2 class="nmg__tag-sidebar-title">Filter<\/h2>/);
-  assert.match(gridSource, /\.nmg__tag-sidebar-title\s*\{[\s\S]*?margin:\s*0[\s\S]*?font-size:\s*0\.82rem[\s\S]*?text-align:\s*left/);
+  // Die Sektionen stehen ohne zusätzliche Filter-Überschrift mit Standardabstand.
+  assert.doesNotMatch(gridSource, /<h2 class="nmg__tag-sidebar-title">/);
+  assert.match(gridSource, /\.nmg__tag-sidebar-head \+ \.nmg__filter-section\s*\{[^}]*padding-top:\s*16px/);
   assert.doesNotMatch(gridSource, /nmg__tag-sidebar-title-label/);
   assert.match(gridSource, /\.nmg__tag-cloud\s*\{[\s\S]*?flex:\s*1 1 auto[\s\S]*?padding:\s*4px 16px 18px/);
   assert.doesNotMatch(gridSource, /Nach Tag filtern|nmg__tag-cloud-label|nmg__tag-cloud-all/);
