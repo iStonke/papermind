@@ -4,9 +4,9 @@ const STORAGE_KEY = 'pm-notes-list-preferences-v1';
 const SORT_MODES = ['updated', 'created', 'title'];
 const DATE_RANGES = ['', 'today', 'last_7_days', 'last_30_days'];
 
-export function useNoteListPreferences(defaultSort, getStorage = () => window.localStorage) {
+export function useNoteListPreferences(defaultSort, getStorage = () => window.localStorage, storageKey = STORAGE_KEY) {
   let saved = {};
-  try { saved = JSON.parse(getStorage().getItem(STORAGE_KEY)) || {}; } catch { /* Storage is optional. */ }
+  try { saved = JSON.parse(getStorage().getItem(storageKey)) || {}; } catch { /* Storage is optional. */ }
   let hasSavedSort = SORT_MODES.includes(saved.sortMode);
   const normalizeSort = value => SORT_MODES.includes(value) ? value : 'updated';
   const sortMode = ref(hasSavedSort ? saved.sortMode : normalizeSort(defaultSort()));
@@ -20,7 +20,7 @@ export function useNoteListPreferences(defaultSort, getStorage = () => window.lo
   watch([sortMode, dateRange, notebookFilter], () => {
     hasSavedSort = true;
     try {
-      getStorage().setItem(STORAGE_KEY, JSON.stringify({
+      getStorage().setItem(storageKey, JSON.stringify({
         sortMode: sortMode.value, dateRange: dateRange.value, notebookFilter: notebookFilter.value,
       }));
     } catch { /* Keep the list usable when storage is unavailable. */ }

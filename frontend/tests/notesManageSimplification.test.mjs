@@ -96,12 +96,16 @@ test('the card grid starts without its own navigation bar', () => {
   assert.match(gridSource, /facet: \{ type: String, default: 'notes' \}/);
 });
 
-test('note cards keep a fixed height and scroll excess tags in the compact editor', () => {
+test('note cards keep a fixed height with a calm tag counter (editing in a popover)', () => {
   assert.match(gridSource, /\.nmg__grid\s*\{[\s\S]*?align-items:\s*start;/);
   assert.match(gridSource, /\.nmg-card\s*\{[\s\S]*?height:\s*207px;/);
-  assert.match(gridSource, /<NoteTagBar[\s\S]*?compact[\s\S]*?single-line/);
   assert.match(gridSource, /\.nmg-card__foot\s*\{[\s\S]*?height:\s*49px;/);
-  assert.match(inlineTagEditorSource, /\.pm-tags-input--single-line\s*\{[\s\S]*?flex-flow:\s*row nowrap;[\s\S]*?overflow-x:\s*auto;/);
+  // Tags erscheinen NICHT mehr als scrollende Chip-Zeile, sondern als ruhiger
+  // Zähler-Button; der Editor öffnet als Popover.
+  assert.match(gridSource, /class="nmg-card__tag-btn"/);
+  assert.match(gridSource, /\(note\.tags && note\.tags\.length\) \? 'mdi-tag' : 'mdi-tag-outline'/);
+  assert.match(gridSource, /class="nmg-card__tag-pop"[\s\S]*?<NoteTagBar[\s\S]*?compact/);
+  assert.doesNotMatch(gridSource, /<NoteTagBar[\s\S]*?single-line/);
 });
 
 test('used note tags filter the grid from a dedicated right sidebar', () => {
@@ -284,14 +288,26 @@ test('the card title is editable with a direct click, like tags', () => {
   assert.match(gridSource, /\.nmg-card__title:hover\s*\{/);
 });
 
-test('each card shows its notebook membership as a filter chip', () => {
-  assert.match(gridSource, /v-if="notebookFor\(note\)"[\s\S]*?class="nmg-card__notebook"/);
-  assert.match(gridSource, /notebookFor\(note\)\.name/);
-  assert.match(gridSource, /@click\.stop="filterByNotebook\(note\.notebook_id\)"/);
+test('notebook membership shows as a colored left accent, not a title-row chip', () => {
+  // Kein Chip mehr in der Titelzeile – entlastet Titel und Tags.
+  assert.doesNotMatch(gridSource, /class="nmg-card__notebook"/);
+  // Farbiger Rand-Akzent an der Kachel (Notizbuch-Farbe oder Standard-Akzent).
+  assert.match(gridSource, /'is-in-notebook': !!note\.notebook_id/);
+  assert.match(gridSource, /:style="notebookAccentStyle\(note\)"/);
+  assert.match(gridSource, /:title="notebookFor\(note\) \? `Notizbuch: \$\{notebookFor\(note\)\.name\}` : undefined"/);
+  assert.match(gridSource, /function notebookAccentStyle\(note\)[\s\S]*?'--nmg-nb-accent': nb\.color \|\| 'var\(--pm-accent/);
+  assert.match(gridSource, /\.nmg-card\.is-in-notebook::before\s*\{[\s\S]*?background: var\(--nmg-nb-accent/);
   // Auflösung Notiz→Notizbuch über eine Map (nicht linear je Karte).
   assert.match(gridSource, /const notebooksById = computed/);
   assert.match(gridSource, /function notebookFor\(note\)/);
-  assert.match(gridSource, /function filterByNotebook\(notebookId\)[\s\S]*?activeNotebookId\.value = notebookId/);
+});
+
+test('the title row is title-only; date and tag counter share the footer', () => {
+  // Titelzeile schließt direkt nach dem Titel – kein Datum mehr darin.
+  assert.match(gridSource, /nmg-card__title"[\s\S]*?<\/span>\s*<\/div>/);
+  // Fußzeile: Tag-Zähler-Button links, Datum rechts.
+  assert.match(gridSource, /class="nmg-card__foot"[\s\S]*?nmg-card__tag-btn[\s\S]*?<span class="nmg-card__date">\{\{ formatDate\(note\.updated_at\) \}\}<\/span>[\s\S]*?<\/div>/);
+  assert.match(gridSource, /\.nmg-card__foot\s*\{[\s\S]*?justify-content:\s*space-between/);
 });
 
 test('renaming a notebook uses a standalone input, not one nested in a button', () => {
@@ -331,4 +347,39 @@ test('favorite notes use the document list and open a read-only preview', () => 
   assert.match(documentsWorkspaceSource, /@select-note="isTrashView \? selectTrashNote\(\$event\) : selectFavoriteNote\(\$event\)"/);
   assert.match(documentsWorkspaceSource, /<NotePreview :note-id="isTrashView \? selectedTrashNoteId : selectedFavoriteNoteId"/);
   assert.match(documentsWorkspaceSource, /async function selectDocument[^]*?selectedFavoriteNoteId.value = null/);
+});
+
+test('notebooks can be reordered by dragging (SortableJS)', () => {
+  assert.match(gridSource, /import Sortable from 'sortablejs'/);
+  assert.match(gridSource, /ref="notebookListRef"/);
+  assert.match(gridSource, /:data-nb-id="nb\.id"/);
+  assert.match(gridSource, /Sortable\.create\(notebookListRef\.value,\s*\{[\s\S]*?draggable: '\.nmg__nb-row'[\s\S]*?handle: '\.nmg__nb-chip'[\s\S]*?forceFallback: true/);
+  assert.match(gridSource, /await notesStore\.reorderNotebooks\(ids\)/);
+  assert.match(gridSource, /onBeforeUnmount\(teardownNotebookSortable\)/);
+});
+
+test('a card can be dragged onto a notebook to move it (native DnD)', () => {
+  assert.match(gridSource, /class="nmg-card"[\s\S]*?draggable="true"[\s\S]*?@dragstart="onCardDragStart\(\$event, note\)"/);
+  // Aus interaktiven Bereichen startet kein Karten-Drag.
+  assert.match(gridSource, /event\.target\?\.closest\?\.\('input, button, a, \.nmg-card__foot, \.nmg-card__actions'\)/);
+  // Notizbuch-Zeilen und „Ohne Notizbuch" sind Ablageziele.
+  assert.match(gridSource, /@drop="onDropOnNotebook\(\$event, nb\.id\)"/);
+  assert.match(gridSource, /@drop="onDropOnNotebook\(\$event, 'none'\)"/);
+  assert.match(gridSource, /const notebookId = targetId === 'none' \? null : targetId;[\s\S]*?await moveNoteToNotebook\(note, notebookId\)/);
+  // Drop-Ziel wird hervorgehoben.
+  assert.match(gridSource, /\.nmg__tag-cloud-chip\.is-drop-target\s*\{/);
+});
+
+test('the tag footer stays at the same height across cards without a stretched preview', () => {
+  // Titel darf zweizeilig werden …
+  assert.match(gridSource, /\.nmg-card__title\s*\{[\s\S]*?-webkit-line-clamp:\s*2/);
+  // … das Metaband wächst mit (keine feste Höhe) …
+  assert.doesNotMatch(gridSource, /\.nmg-card__meta\s*\{[^}]*height:\s*\d/);
+  // … die Vorschau umschließt ihren Inhalt (kein Dehnen → keine getönte Leere) …
+  assert.match(gridSource, /\.nmg-card__preview\s*\{[^}]*flex:\s*none/);
+  assert.doesNotMatch(gridSource, /\.nmg-card__preview\s*\{[^}]*flex:\s*1 1 auto/);
+  // … und die Fußzeile wird an den Kachelboden geschoben (fluchtende Tags).
+  assert.match(gridSource, /\.nmg-card__foot\s*\{[\s\S]*?margin-top:\s*auto/);
+  assert.match(gridSource, /\.nmg-card\s*\{[\s\S]*?height:\s*207px/);
+  assert.match(gridSource, /\.nmg-card__foot\s*\{[\s\S]*?height:\s*49px/);
 });

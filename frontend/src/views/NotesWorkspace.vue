@@ -1369,9 +1369,9 @@ function formatDate(value) {
   background: color-mix(in srgb, var(--pm-app-surface-raised, #fff) 96%, var(--pm-viewer-surface, #eef2f4));
   color: var(--pm-muted);
   cursor: text;
-  box-shadow: 0 2px 7px -3px rgba(15, 23, 42, 0.3), 0 1px 2px rgba(15, 23, 42, 0.08);
+  box-shadow: none;
   transform: translate(-50%, -50%);
-  transition: border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+  transition: border-color 140ms ease, background-color 140ms ease;
 }
 
 .notes-ws__manage-search:hover,
@@ -1381,8 +1381,7 @@ function formatDate(value) {
 }
 
 .notes-ws__manage-search:focus-within {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pm-accent, #006b75) 15%, transparent),
-    0 3px 9px -3px rgba(15, 23, 42, 0.28);
+  border-color: var(--pm-accent, #006b75);
 }
 
 .notes-ws__manage-search > .v-icon {

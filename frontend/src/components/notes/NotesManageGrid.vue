@@ -149,11 +149,16 @@
                 v-for="note in group.notes"
                 :key="note.id"
                 class="nmg-card"
-                :class="{ 'is-editing': editingId === note.id }"
+                :class="{ 'is-editing': editingId === note.id, 'is-dragging': draggingNoteId === note.id, 'is-in-notebook': !!note.notebook_id }"
+                :style="notebookAccentStyle(note)"
+                :title="notebookFor(note) ? `Notizbuch: ${notebookFor(note).name}` : undefined"
                 role="button"
                 tabindex="0"
+                draggable="true"
                 @click="onCardClick(note)"
                 @keydown.enter="onCardClick(note)"
+                @dragstart="onCardDragStart($event, note)"
+                @dragend="onCardDragEnd"
               >
                 <div class="nmg-card__preview">
                   <p class="nmg-card__snippet">{{ snippet(note) }}</p>
@@ -221,7 +226,6 @@
                 </div>
 
                 <div class="nmg-card__meta">
-                  <span class="nmg-card__chip" aria-hidden="true"><v-icon size="16">mdi-note-outline</v-icon></span>
                   <input
                     v-if="editingId === note.id"
                     ref="titleInputRef"
@@ -245,31 +249,37 @@
                     @click.stop="startRename(note)"
                     @keydown.enter.stop.prevent="startRename(note)"
                   >{{ note.title?.trim() || 'Ohne Titel' }}</span>
-
-                  <button
-                    v-if="notebookFor(note)"
-                    type="button"
-                    class="nmg-card__notebook"
-                    :title="`Nach Notizbuch „${notebookFor(note).name}“ filtern`"
-                    :style="notebookChipStyle(notebookFor(note))"
-                    @click.stop="filterByNotebook(note.notebook_id)"
-                  >
-                    <v-icon size="13">mdi-notebook-outline</v-icon>
-                    <span class="nmg-card__notebook-name">{{ notebookFor(note).name }}</span>
-                  </button>
                 </div>
 
                 <div class="nmg-card__foot" @click.stop>
-                  <NoteTagBar
-                    class="nmg-card__tags"
-                    :tag-ids="(note.tags || []).map((t) => t.id)"
-                    :all-tags="allTagsForCard(note)"
-                    compact
-                    single-line
-                    :create-tag-by-name="tagStore.ensureTagIdByName"
-                    :load-tags="tagStore.fetchTags"
-                    @update:tag-ids="(ids) => applyCardTags(note, ids)"
-                  />
+                  <!-- Tags nur als ruhiger Zähler; Bearbeiten im Popover. -->
+                  <v-menu :close-on-content-click="false" location="top start" :offset="6">
+                    <template #activator="{ props: tagProps }">
+                      <button
+                        type="button"
+                        class="nmg-card__tag-btn"
+                        :class="{ 'is-empty': !(note.tags && note.tags.length) }"
+                        v-bind="tagProps"
+                        :aria-label="(note.tags && note.tags.length) ? `${note.tags.length} Tag${note.tags.length === 1 ? '' : 's'} bearbeiten` : 'Tags hinzufügen'"
+                        :title="(note.tags || []).map((t) => t.name).join(', ') || 'Tags hinzufügen'"
+                        @click.stop
+                      >
+                        <v-icon size="14">{{ (note.tags && note.tags.length) ? 'mdi-tag' : 'mdi-tag-outline' }}</v-icon>
+                        <span class="nmg-card__tag-count">{{ (note.tags && note.tags.length) || 'Tag' }}</span>
+                      </button>
+                    </template>
+                    <div class="nmg-card__tag-pop" @click.stop>
+                      <NoteTagBar
+                        :tag-ids="(note.tags || []).map((t) => t.id)"
+                        :all-tags="allTagsForCard(note)"
+                        compact
+                        :create-tag-by-name="tagStore.ensureTagIdByName"
+                        :load-tags="tagStore.fetchTags"
+                        @update:tag-ids="(ids) => applyCardTags(note, ids)"
+                      />
+                    </div>
+                  </v-menu>
+
                   <span class="nmg-card__date">{{ formatDate(note.updated_at) }}</span>
                 </div>
               </li>
@@ -296,7 +306,6 @@
         aria-label="Notizen filtern"
       >
         <div class="nmg__tag-sidebar-head">
-          <h2 class="nmg__tag-sidebar-title">Filter</h2>
           <div class="nmg__tag-sidebar-actions">
             <button
               type="button"
@@ -392,9 +401,12 @@
                 <button
                   type="button"
                   class="nmg__tag-cloud-chip nmg__nb-chip"
-                  :class="{ 'is-active': activeNotebookId === nb.id }"
+                  :class="{ 'is-active': activeNotebookId === nb.id, 'is-drop-target': dropTargetId === nb.id }"
                   :aria-pressed="String(activeNotebookId === nb.id)"
                   @click="activeNotebookId = nb.id"
+                  @dragover="onNotebookDragOver($event, nb.id)"
+                  @dragleave="onNotebookDragLeave(nb.id)"
+                  @drop="onDropOnNotebook($event, nb.id)"
                 >
                   <span class="nmg__tag-cloud-name">
                     <v-icon size="15" class="nmg__nb-glyph" :style="nb.color ? { color: nb.color, opacity: 1 } : undefined">mdi-notebook-outline</v-icon>
@@ -451,9 +463,12 @@
             <button
               type="button"
               class="nmg__tag-cloud-chip"
-              :class="{ 'is-active': activeNotebookId === 'none' }"
+              :class="{ 'is-active': activeNotebookId === 'none', 'is-drop-target': dropTargetId === 'none' }"
               :aria-pressed="String(activeNotebookId === 'none')"
               @click="activeNotebookId = 'none'"
+              @dragover="onNotebookDragOver($event, 'none')"
+              @dragleave="onNotebookDragLeave('none')"
+              @drop="onDropOnNotebook($event, 'none')"
             >
               <span class="nmg__tag-cloud-name"><v-icon size="15" class="nmg__nb-glyph">mdi-inbox-outline</v-icon>Ohne Notizbuch</span>
               <span class="nmg__tag-cloud-count">{{ notesWithoutNotebookCount }}</span>
@@ -480,7 +495,7 @@
           <div class="nmg__filter-section-head">
             <span class="nmg__filter-section-title">Tags</span>
           </div>
-          <div class="nmg__tag-cloud-items">
+          <div class="nmg__tag-cloud-items nmg__tag-cloud-items--tags">
             <button
               type="button"
               class="nmg__tag-cloud-chip"
@@ -532,6 +547,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useNoteListPreferences } from './composables/useNoteListPreferences.js';
 import Sortable from 'sortablejs';
 import DestructiveDialog from '../DestructiveDialog.vue';
 import PmEmptyState from '../PmEmptyState.vue';
@@ -648,20 +664,12 @@ const notebooksById = computed(() => {
 function notebookFor(note) {
   return note.notebook_id ? notebooksById.value.get(note.notebook_id) || null : null;
 }
-// Optionale Notizbuch-Farbe dezent auf den Chip legen (sonst neutrale Tönung).
-function notebookChipStyle(nb) {
-  if (!nb?.color) return {};
-  return {
-    '--nmg-nb-color': nb.color,
-    borderColor: `color-mix(in srgb, ${nb.color} 40%, transparent)`,
-    background: `color-mix(in srgb, ${nb.color} 12%, transparent)`,
-    color: `color-mix(in srgb, ${nb.color} 72%, var(--pm-text, #0f172a))`,
-  };
-}
-function filterByNotebook(notebookId) {
-  if (!notebookId) return;
-  activeNotebookId.value = notebookId;
-  tagSidebarOpen.value = true;
+// Notizbuch als farbiger Rand-Akzent: dessen Farbe (oder der Standard-Akzent,
+// wenn keine gesetzt ist) als CSS-Variable an die Kachel geben.
+function notebookAccentStyle(note) {
+  const nb = notebookFor(note);
+  if (!nb) return undefined;
+  return { '--nmg-nb-accent': nb.color || 'var(--pm-accent, #006b75)' };
 }
 
 function selectNotebook(notebookId) {
@@ -672,20 +680,16 @@ function selectNotebook(notebookId) {
 
 defineExpose({ selectNotebook });
 
-// Sortierung – identisch zur Listenansicht (gleiche Optionen, gleicher
-// Default aus ui.notes_sort_order); sitzungslokal wie dort.
+// Gleiche Sortieroptionen wie in der Liste, unabhängig davon gespeichert.
 const NOTE_SORT_OPTIONS = [
   { value: 'updated', label: 'Zuletzt bearbeitet' },
   { value: 'created', label: 'Erstellungsdatum' },
   { value: 'title', label: 'Titel (A–Z)' },
 ];
-function normalizeSortMode(value) {
-  return NOTE_SORT_OPTIONS.some((o) => o.value === value) ? value : 'updated';
-}
-const sortMode = ref(normalizeSortMode(settingsStore.settingsDraft.ui.notes_sort_order));
-watch(
+const { sortMode } = useNoteListPreferences(
   () => settingsStore.settingsDraft.ui.notes_sort_order,
-  (order) => { sortMode.value = normalizeSortMode(order); },
+  undefined,
+  'pm-notes-manage-preferences-v1',
 );
 const sortLabel = computed(
   () => NOTE_SORT_OPTIONS.find((o) => o.value === sortMode.value)?.label || 'Sortierung',
@@ -1091,6 +1095,54 @@ function closeConfirm() {
 }
 
 // --- Notizbücher -----------------------------------------------------------
+// --- Karte per Drag in ein Notizbuch ziehen (natives HTML5-DnD) -----------
+// Kollidiert nicht mit dem forceFallback-Sortable der Notizbuchliste (das nutzt
+// Pointer-Events, kein natives DnD).
+const draggingNoteId = ref(null);
+const dropTargetId = ref(null);
+let draggedNote = null;
+
+function onCardDragStart(event, note) {
+  // Aus interaktiven Bereichen (Titel-Edit, Tags, Aktionsbuttons) KEINE
+  // Karten-Verschiebung starten – dort will man tippen/klicken, nicht ziehen.
+  if (event.target?.closest?.('input, button, a, .nmg-card__foot, .nmg-card__actions')) {
+    event.preventDefault();
+    return;
+  }
+  draggedNote = note;
+  draggingNoteId.value = note.id;
+  try {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', note.id);
+  } catch { /* dataTransfer kann in manchen Umgebungen fehlen */ }
+}
+
+function onCardDragEnd() {
+  draggingNoteId.value = null;
+  dropTargetId.value = null;
+  draggedNote = null;
+}
+
+function onNotebookDragOver(event, targetId) {
+  if (!draggingNoteId.value) return; // nur bei laufendem Karten-Drag
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'move';
+  dropTargetId.value = targetId;
+}
+
+function onNotebookDragLeave(targetId) {
+  if (dropTargetId.value === targetId) dropTargetId.value = null;
+}
+
+async function onDropOnNotebook(event, targetId) {
+  if (!draggingNoteId.value) return;
+  event.preventDefault();
+  const note = draggedNote;
+  dropTargetId.value = null;
+  const notebookId = targetId === 'none' ? null : targetId;
+  await moveNoteToNotebook(note, notebookId);
+}
+
 async function moveNoteToNotebook(note, notebookId) {
   if (!note?.id || note.notebook_id === notebookId) return;
   try {
@@ -1265,29 +1317,18 @@ function formatDate(value) {
 }
 
 .nmg__tag-sidebar-head,
-.nmg__tag-sidebar-title,
 .nmg__tag-sidebar-actions {
   display: flex;
   align-items: center;
 }
 
 .nmg__tag-sidebar-head {
+  display: none;
+  justify-content: flex-end;
   min-height: 49px;
   flex: 0 0 auto;
   gap: 8px;
   padding: 7px 8px 7px 12px;
-}
-
-.nmg__tag-sidebar-title {
-  margin: 0;
-  min-width: 0;
-  flex: 1 1 auto;
-  padding: 0 4px;
-  color: var(--pm-text, #0f172a);
-  font-size: 0.82rem;
-  font-weight: 680;
-  line-height: 1.3;
-  text-align: left;
 }
 
 .nmg__tag-sidebar-actions {
@@ -1348,6 +1389,10 @@ function formatDate(value) {
   align-items: center;
   gap: 7px;
 }
+.nmg__tag-cloud-items--tags {
+  --pm-detail-chip-border: color-mix(in srgb, var(--pm-text, #0f172a) 22%, transparent);
+}
+
 .nmg__tag-cloud-chip {
   display: inline-flex;
   height: 26px;
@@ -1438,6 +1483,9 @@ function formatDate(value) {
   border-top: 1px solid color-mix(in srgb, var(--pm-text, #0f172a) 8%, transparent);
   padding-top: 14px;
 }
+.nmg__tag-sidebar-head + .nmg__filter-section {
+  padding-top: 16px;
+}
 .nmg__filter-section-head {
   display: flex;
   align-items: center;
@@ -1501,6 +1549,23 @@ function formatDate(value) {
   gap: 2px;
   border-radius: 15px;
 }
+/* Drag-Reorder (SortableJS): der Griff ist der Chip. */
+.nmg__nb-chip { cursor: grab; }
+.nmg__nb-row--drag-chosen .nmg__nb-chip { cursor: grabbing; }
+
+/* Karte auf ein Notizbuch ziehen (#5): Drop-Ziel deutlich hervorheben. */
+.nmg__tag-cloud-chip.is-drop-target {
+  border-color: var(--pm-accent, #006b75);
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 16%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pm-accent, #006b75) 45%, transparent);
+}
+.nmg-card.is-dragging { opacity: 0.5; }
+.nmg__nb-row--drag-ghost {
+  opacity: 0.4;
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent);
+  border-radius: 15px;
+}
+.nmg__nb-row--drag-chosen { z-index: 2; }
 .nmg__nb-chip {
   flex: 1 1 auto;
   min-width: 0;
@@ -2025,7 +2090,10 @@ function formatDate(value) {
 .nmg-card__preview {
   position: relative;
   box-sizing: border-box;
-  height: 112px;
+  /* Vorschaubox umschließt ihren Inhalt (kein Dehnen) – so bleibt darunter keine
+     getönte Leere. Der überschüssige Platz landet als ungetönter Kartenhintergrund
+     zwischen Titel und Fußzeile; die Fußzeile wird per margin-top:auto an den
+     Kachelboden geschoben, damit die Tags kartenübergreifend fluchten. */
   flex: none;
   padding: 13px 15px;
   overflow: hidden;
@@ -2130,31 +2198,28 @@ function formatDate(value) {
 .nmg-card__meta {
   display: flex;
   box-sizing: border-box;
-  height: 44px;
   flex: none;
-  align-items: center;
+  /* Höhe wächst mit dem Titel (1 vs. 2 Zeilen); die Vorschau darüber gleicht das
+     aus, die Kachel bleibt gleich hoch. Oben ausgerichtet, damit das Datum auf
+     Höhe der ersten Titelzeile sitzt. */
+  align-items: flex-start;
   gap: 9px;
-  padding: 11px 13px 5px;
-}
-.nmg-card__chip {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  flex: none;
-  border-radius: 8px;
-  color: var(--nmg-accent);
-  background: color-mix(in srgb, var(--nmg-accent) 13%, transparent);
+  padding: 9px 13px 3px;
 }
 .nmg-card__title {
   min-width: 0;
   flex: 1 1 auto;
   font-size: 0.9rem;
   font-weight: 600;
+  line-height: 1.3;
   color: var(--pm-text, #0e181b);
-  white-space: nowrap;
+  /* Bis zu zwei Zeilen (statt harter Kürzung) – gibt langen Titeln mehr Platz,
+     ohne Datum oder Tags zu verdrängen. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
   /* Direkt per Klick editierbar (wie die Tags) – Hover signalisiert das. */
   padding: 2px 6px;
   margin: -2px -6px;
@@ -2181,32 +2246,17 @@ function formatDate(value) {
 .nmg-card__title.is-untitled { color: var(--pm-muted, #8a969b); font-style: italic; font-weight: 500; }
 
 /* Notizbuch-Zugehörigkeit: klickbarer Chip (filtert das Raster auf das Buch). */
-.nmg-card__notebook {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex: none;
-  max-width: 46%;
-  height: 22px;
-  padding: 0 8px 0 6px;
-  border: 1px solid color-mix(in srgb, var(--nmg-accent) 26%, transparent);
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--nmg-accent) 10%, transparent);
-  color: color-mix(in srgb, var(--nmg-accent) 72%, var(--pm-text, #0f172a));
-  font-size: 0.72rem;
-  font-weight: 600;
-  line-height: 1;
-  cursor: pointer;
-  transition: filter 120ms ease, border-color 120ms ease;
-}
-.nmg-card__notebook:hover {
-  filter: brightness(0.97);
-  border-color: color-mix(in srgb, var(--nmg-accent) 44%, transparent);
-}
-.nmg-card__notebook-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* Notizbuch-Zugehörigkeit: farbiger Rand-Akzent links (statt Chip in der
+   Titelzeile). Folgt der Kachelrundung dank overflow:hidden am Card-Element. */
+.nmg-card.is-in-notebook::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--nmg-nb-accent, var(--pm-accent, #006b75));
+  z-index: 1;
 }
 .nmg-card__title-input {
   min-width: 0;
@@ -2227,14 +2277,53 @@ function formatDate(value) {
   box-sizing: border-box;
   height: 49px;
   flex: none;
+  /* An den Kachelboden schieben: der überschüssige Platz sammelt sich darüber,
+     die Fußzeile (Tags) fluchtet bei allen Kacheln auf gleicher Höhe. */
+  margin-top: auto;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
   padding: 4px 13px 11px;
 }
-.nmg-card__tags {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
+
+/* Ruhiger Tag-Zähler auf der Karte; Bearbeiten öffnet ein Popover. */
+.nmg-card__tag-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  height: 26px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--pm-detail-chip-border, color-mix(in srgb, var(--pm-text, #0f172a) 14%, transparent));
+  border-radius: 13px;
+  background: var(--pm-chip-bg, rgba(var(--v-theme-on-surface), 0.06));
+  color: rgba(var(--v-theme-on-surface), 0.82);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+.nmg-card__tag-btn:hover {
+  border-color: color-mix(in srgb, var(--pm-accent, #006b75) 34%, transparent);
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 8%, var(--pm-chip-bg, #e7eef0));
+  color: var(--pm-accent-strong, #00555f);
+}
+/* Ohne Tags: dezente, gestrichelte „Tag hinzufügen"-Andeutung. */
+.nmg-card__tag-btn.is-empty {
+  border-style: dashed;
+  background: transparent;
+  color: var(--pm-muted, #64748b);
+  font-weight: 500;
+}
+.nmg-card__tag-count { line-height: 1; }
+.nmg-card__tag-pop {
+  min-width: 260px;
+  max-width: 320px;
+  padding: 10px 12px;
+  background: var(--pm-content-surface, #fff);
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16);
 }
 
 .nmg-card__date {
@@ -2242,6 +2331,7 @@ function formatDate(value) {
   font-size: 0.72rem;
   color: var(--pm-muted, #8a969b);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2311,6 +2401,10 @@ function formatDate(value) {
 
   .nmg__tag-sidebar.is-open {
     transform: translateX(0);
+  }
+
+  .nmg__tag-sidebar-head {
+    display: flex;
   }
 
   .nmg__tag-sidebar-close {

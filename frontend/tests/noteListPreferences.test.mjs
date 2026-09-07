@@ -58,3 +58,26 @@ test('blocked storage does not prevent filter changes', () => {
   assert.equal(mounted.controller.notebookFilter.value, 'none');
   mounted.unmount();
 });
+
+test('management sort persists independently of compact list filters and late defaults', async () => {
+  const values = new Map();
+  const saved = { getItem: key => values.get(key), setItem: (key, value) => values.set(key, value) };
+  const defaultSort = ref('updated');
+  const mount = key => mountController(() => useNoteListPreferences(() => defaultSort.value, () => saved, key));
+  const list = mount(undefined);
+  list.controller.sortMode.value = 'created';
+  list.controller.dateRange.value = 'today';
+  const management = mount('pm-notes-manage-preferences-v1');
+  management.controller.sortMode.value = 'title';
+  management.unmount();
+  list.unmount();
+  const restored = mount('pm-notes-manage-preferences-v1');
+  defaultSort.value = 'created';
+  await nextTick();
+  assert.equal(restored.controller.sortMode.value, 'title');
+  const restoredList = mount(undefined);
+  assert.equal(restoredList.controller.sortMode.value, 'created');
+  assert.equal(restoredList.controller.dateRange.value, 'today');
+  restored.unmount();
+  restoredList.unmount();
+});
