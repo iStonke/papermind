@@ -96,10 +96,14 @@ export function useNoteTables({
     const wrapper = activeTableWrapper;
     if (!ed || !surface || !(wrapper instanceof Element)) return;
 
-    const cellContent = wrapper.querySelector('th p, td p, th, td');
-    if (cellContent) {
-      const pos = ed.view.posAtDOM(cellContent, 0);
-      ed.chain().focus().setTextSelection(pos).run();
+    // Keep the chosen cell (or cell range) when opening its own table menu.
+    // Only a handle belonging to another table needs a new selection.
+    if (tableWrapperAtSelection() !== wrapper) {
+      const cellContent = wrapper.querySelector('th p, td p, th, td');
+      if (cellContent) {
+        const pos = ed.view.posAtDOM(cellContent, 0);
+        ed.chain().focus().setTextSelection(pos).run();
+      }
     }
 
     const surfaceRect = surface.getBoundingClientRect();
