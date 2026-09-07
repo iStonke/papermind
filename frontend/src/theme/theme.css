@@ -38,12 +38,12 @@
    ════════════════════════════════════════════════════════════════════════════ */
 
 /* ── Gemeinsame Light-Semantik ─────────────────────────────────────────────── */
-/* Auch auf die nackte Vuetify-Theme-Klasse anwenden: teleportierte Overlays
-   (v-menu/v-dialog) hängen in .v-overlay-container außerhalb von .papermind-app,
-   tragen aber v-theme--light/--dark. So erben sie die --pm-*-Tokens und werden
-   im Darkmode korrekt dunkel dargestellt (statt auf die hellen Fallbacks zu fallen). */
+/* Theme-Tokens nur an App- und Overlay-Wurzeln setzen. Vuetify versieht auch
+   Listen/Felder mit Theme-Klassen; dort müssen lokale Tokens (z. B. die immer
+   dunkle Seitenleiste) geerbt und dürfen nicht wieder überschrieben werden. */
 .papermind-app.v-theme--light,
-.v-theme--light {
+.v-overlay-container > .v-overlay.v-theme--light,
+.pm-shortcuts-overlay.v-theme--light {
   /* Text */
   --pm-text:  #0e181b;
   --pm-muted: #535e62;
@@ -144,10 +144,10 @@
    ════════════════════════════════════════════════════════════════════════════ */
 
 /* ── Gemeinsame Dark-Semantik ──────────────────────────────────────────────── */
-/* Siehe Light-Block: auch auf die nackte Theme-Klasse, damit teleportierte
-   Overlays die --pm-*-Tokens erben. */
+/* Siehe Light-Block: teleportierte Overlays erhalten eine eigene Theme-Wurzel. */
 .papermind-app.v-theme--dark,
-.v-theme--dark {
+.v-overlay-container > .v-overlay.v-theme--dark,
+.pm-shortcuts-overlay.v-theme--dark {
   --v-theme-overlay-multiplier: 0;
 
   /* Text */

@@ -15,7 +15,7 @@
         <v-icon size="13">mdi-chevron-down</v-icon>
       </button>
     </template>
-    <v-list density="compact" min-width="240" aria-label="Notizbuch auswählen">
+    <v-list class="pm-menu note-notebook-menu" density="compact" min-width="240" aria-label="Notizbuch auswählen">
       <v-list-subheader>Notizbuch zuordnen</v-list-subheader>
       <v-list-item title="Ohne Notizbuch" :active="!currentId" :disabled="saving" @click="assign(null)">
         <template #prepend><v-icon size="18">mdi-inbox-outline</v-icon></template>
@@ -91,6 +91,17 @@ async function assign(notebookId) {
 </script>
 
 <style scoped>
+.note-notebook-menu :deep(.v-list-item:not(.v-list-item--disabled):hover),
+.note-notebook-menu :deep(.v-list-item:not(.v-list-item--disabled):focus-visible) {
+  background: var(--pm-row-hover, rgba(var(--v-theme-on-surface), 0.1));
+}
+.note-notebook-menu :deep(.v-list-item--active) {
+  background: var(--pm-selected, rgba(var(--v-theme-primary), 0.16));
+}
+.note-notebook-menu :deep(.v-list-item--active:not(.v-list-item--disabled):hover),
+.note-notebook-menu :deep(.v-list-item--active:not(.v-list-item--disabled):focus-visible) {
+  background: color-mix(in srgb, var(--pm-selected, rgb(var(--v-theme-primary))) 85%, var(--pm-text, rgb(var(--v-theme-on-surface))));
+}
 .note-notebook-chip {
   display: inline-flex;
   align-items: center;
@@ -109,8 +120,7 @@ async function assign(notebookId) {
 }
 .note-notebook-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .note-notebook-chip .v-icon { flex: none; color: var(--pm-muted, #64748b); }
-.note-notebook-chip.is-empty { border-style: dashed; color: var(--pm-muted, #64748b); }
 .note-notebook-chip:hover:not(:disabled) { background: var(--pm-row-hover); }
 .note-notebook-chip:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 2px; }
-.note-notebook-chip:disabled { opacity: 0.5; cursor: default; }
+.note-notebook-chip:disabled { cursor: default; }
 </style>

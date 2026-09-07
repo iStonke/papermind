@@ -2046,6 +2046,7 @@ onBeforeUnmount(() => {
 }
 .note-workspace-editor__meta-tags :deep(.pm-tags-input) {
   --pm-detail-chip-add-border: var(--pm-note-placeholder-chip-border);
+  --pm-detail-field-hover-border: var(--pm-note-placeholder-chip-border);
   width: auto;
   min-width: 0;
   flex-wrap: nowrap;
@@ -2080,13 +2081,27 @@ onBeforeUnmount(() => {
 .note-workspace-editor__meta-tags :deep(.pm-tags-input__field) {
   flex: none;
 }
-/* Beim Notizwechsel soll die Tag-Leiste NICHT aufblitzen: jegliche Transition/
-   Animation innerhalb der Leiste abschalten (Chip-Enter/Leave/Move, Feld-Breite,
-   gestrichelter Rahmen …). Nur im Editor – das teleportierte Dropdown-Menü und
-   die Dokumentenschublade behalten ihre Animationen. */
-.note-workspace-editor__meta-tags :deep(*) {
+/* Vorhandene Tags beim Notizwechsel sofort austauschen. Das Eingabefeld
+   behält seine Animation beim bewussten Auf- und Zuklappen. */
+.note-workspace-editor__meta-tags :deep(.pm-tags-input__chips),
+.note-workspace-editor__meta-tags :deep(.pm-tags-input__chips *) {
   animation: none !important;
   transition: none !important;
+}
+.note-workspace-editor__meta-tags :deep(.pm-tags-input__field) {
+  transition: background 120ms ease;
+}
+.note-workspace-editor__meta-tags :deep(.pm-tags-input__field:hover:not(.v-input--disabled)) {
+  background: var(--pm-row-hover, rgba(0, 107, 117, 0.05));
+}
+.note-workspace-editor__meta-tags :deep(.pm-tags-input__field:hover:not(.v-input--disabled) .pm-tags-input__add),
+.note-workspace-editor__meta-tags :deep(.pm-tags-input__field:hover:not(.v-input--disabled) .pm-tags-input__add-label) {
+  color: var(--pm-accent-strong, #00555f);
+}
+@media (prefers-reduced-motion: reduce) {
+  .note-workspace-editor__meta-tags :deep(*) {
+    transition: none !important;
+  }
 }
 /* Ausscheidende Chips sofort aus dem Layout nehmen – sonst verbreitern sie beim
    Wechsel für einen Frame die Leiste (das sichtbare „Aufblitzen"). */
@@ -2127,7 +2142,8 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.note-workspace-editor__doc-chip--empty {
+.note-workspace-editor__doc-chip--empty,
+.note-workspace-editor__meta :deep(.note-notebook-chip.is-empty) {
   box-sizing: border-box;
   height: 26px;
   border: 1px dashed var(--pm-note-placeholder-chip-border);
@@ -2139,8 +2155,13 @@ onBeforeUnmount(() => {
   letter-spacing: var(--pm-note-placeholder-chip-letter-spacing);
   line-height: normal;
 }
-.note-workspace-editor__doc-chip--empty:hover {
+.note-workspace-editor__doc-chip--empty:hover,
+.note-workspace-editor__meta :deep(.note-notebook-chip.is-empty:hover:not(:disabled)) {
   border-color: var(--pm-note-placeholder-chip-border);
+  color: var(--pm-accent-strong, #00555f);
+}
+.note-workspace-editor__doc-chip--empty:hover > .v-icon,
+.note-workspace-editor__meta :deep(.note-notebook-chip.is-empty:hover:not(:disabled) .v-icon) {
   color: var(--pm-accent-strong, #00555f);
 }
 

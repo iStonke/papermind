@@ -410,7 +410,7 @@ test('linked documents use a compact header chip and the library picker pattern'
   assert.match(workspaceEditorSource, /--pm-note-placeholder-chip-letter-spacing:\s*0\.012em/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__meta-tags :deep\(\.pm-tags-input\)\s*\{[\s\S]*?--pm-detail-chip-add-border:\s*var\(--pm-note-placeholder-chip-border\)/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__meta-tags :deep\(\.pm-tags-input__add-label\)\s*\{[\s\S]*?font-size:\s*var\(--pm-note-placeholder-chip-font-size\);[\s\S]*?font-weight:\s*var\(--pm-note-placeholder-chip-font-weight\)/);
-  assert.match(workspaceEditorSource, /\.note-workspace-editor__doc-chip--empty\s*\{[\s\S]*?height:\s*26px;[\s\S]*?border:\s*1px dashed var\(--pm-note-placeholder-chip-border\);[\s\S]*?font-size:\s*var\(--pm-note-placeholder-chip-font-size\);[\s\S]*?font-weight:\s*var\(--pm-note-placeholder-chip-font-weight\)/);
+  assert.match(workspaceEditorSource, /\.note-workspace-editor__doc-chip--empty,\s*\.note-workspace-editor__meta :deep\(\.note-notebook-chip\.is-empty\)\s*\{[\s\S]*?height:\s*26px;[\s\S]*?border:\s*1px dashed var\(--pm-note-placeholder-chip-border\);[\s\S]*?font-size:\s*var\(--pm-note-placeholder-chip-font-size\);[\s\S]*?font-weight:\s*var\(--pm-note-placeholder-chip-font-weight\)/);
   assert.match(workspaceEditorSource, /v-if="linkedDocument"[\s\S]*?class="note-workspace-editor__doc-chip"/);
   assert.match(workspaceEditorSource, /note-workspace-editor__doc-chip-label/);
   assert.match(workspaceEditorSource, /title="Dokument öffnen"[\s\S]*?title="Dokument wechseln"[\s\S]*?title="Verknüpfung lösen"/);
