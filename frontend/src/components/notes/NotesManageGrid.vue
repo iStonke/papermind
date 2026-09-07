@@ -192,7 +192,7 @@
                           <v-icon size="15">mdi-notebook-outline</v-icon>
                         </button>
                       </template>
-                      <v-list density="compact" min-width="200" max-height="320" class="nmg__move-list">
+                      <v-list density="compact" min-width="200" max-height="320" class="nmg__move-list nmg__action-menu">
                         <v-list-subheader>In Notizbuch verschieben</v-list-subheader>
                         <v-list-item
                           v-for="nb in notebooks"
@@ -1934,6 +1934,15 @@ function formatDate(value) {
 }
 .nmg__move-divider {
   margin: 4px 0;
+}
+.nmg__move-list :deep(.v-list-item__prepend) {
+  display: flex;
+  justify-content: center;
+  width: 16px;
+  margin-inline-end: 9px;
+}
+.nmg__move-list :deep(.v-list-item__prepend .v-list-item__spacer) {
+  display: none;
 }
 .nmg__filter-section-add {
   display: inline-flex;
