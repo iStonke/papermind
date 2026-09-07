@@ -1,0 +1,60 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { ref, nextTick } from 'vue';
+import { mountController } from './helpers/noteEditorHarness.mjs';
+import { useNoteListPreferences } from '../src/components/notes/composables/useNoteListPreferences.js';
+
+function storage(initial = null) {
+  let value = initial;
+  return { getItem: () => value, setItem: (_, next) => { value = next; } };
+}
+
+test('sort, period and notebook survive remount and late account settings', async () => {
+  const saved = storage();
+  const defaultSort = ref('updated');
+  const mount = () => mountController(() => useNoteListPreferences(() => defaultSort.value, () => saved));
+  const first = mount();
+  first.controller.sortMode.value = 'created';
+  first.controller.dateRange.value = 'last_7_days';
+  first.controller.notebookFilter.value = 'notebook-123';
+  first.unmount();
+  const second = mount();
+  defaultSort.value = 'title';
+  await nextTick();
+  assert.equal(second.controller.sortMode.value, 'created');
+  assert.equal(second.controller.dateRange.value, 'last_7_days');
+  assert.equal(second.controller.notebookFilter.value, 'notebook-123');
+  second.controller.dateRange.value = '';
+  second.controller.notebookFilter.value = '';
+  second.unmount();
+  const third = mount();
+  assert.equal(third.controller.dateRange.value, '');
+  assert.equal(third.controller.notebookFilter.value, '');
+  third.unmount();
+});
+
+test('missing preferences follow asynchronously loaded default sort', async () => {
+  const defaultSort = ref('updated');
+  const mounted = mountController(() => useNoteListPreferences(() => defaultSort.value, () => storage()));
+  defaultSort.value = 'title';
+  await nextTick();
+  assert.equal(mounted.controller.sortMode.value, 'title');
+  mounted.unmount();
+});
+
+for (const raw of ['{bad', 'null', '{"sortMode":"wrong","dateRange":"wrong","notebookFilter":12}']) {
+  test(`invalid stored preferences fall back safely: ${raw}`, () => {
+    const mounted = mountController(() => useNoteListPreferences(() => 'created', () => storage(raw)));
+    assert.equal(mounted.controller.sortMode.value, 'created');
+    assert.equal(mounted.controller.dateRange.value, '');
+    assert.equal(mounted.controller.notebookFilter.value, '');
+    mounted.unmount();
+  });
+}
+
+test('blocked storage does not prevent filter changes', () => {
+  const mounted = mountController(() => useNoteListPreferences(() => 'updated', () => { throw new Error('blocked'); }));
+  mounted.controller.notebookFilter.value = 'none';
+  assert.equal(mounted.controller.notebookFilter.value, 'none');
+  mounted.unmount();
+});

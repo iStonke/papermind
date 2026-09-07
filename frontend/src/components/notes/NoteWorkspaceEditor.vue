@@ -214,6 +214,11 @@
           <v-icon size="14">mdi-link-variant-plus</v-icon>
           <span>Dokument</span>
         </button>
+        <NoteNotebookChip
+          :note-id="noteId"
+          :notebook-id="noteNotebookId"
+          :disabled="!hasLoadedContent || loading || switching || loadedNoteId !== noteId"
+        />
       </div>
 
       <div
@@ -525,6 +530,7 @@ import BaseDialog from '../BaseDialog.vue';
 import PmActionIcon from '../PmActionIcon.vue';
 import NoteEditor from './NoteEditor.vue';
 import NoteTagBar from './NoteTagBar.vue';
+import NoteNotebookChip from './NoteNotebookChip.vue';
 import NoteVersionHistoryDialog from './NoteVersionHistoryDialog.vue';
 
 const EMPTY_DOC = { type: 'doc', content: [{ type: 'paragraph' }] };
@@ -550,6 +556,7 @@ const dossierStore = useDossierStore();
 const tagStore = useTagStore();
 // Tags der geladenen Notiz (gemeinsames PaperMind-Vokabular).
 const noteTagIds = ref([]);
+const noteNotebookId = ref(null);
 const noteTagSeed = ref([]);
 const noteAllTags = computed(() => {
   const map = new Map();
@@ -919,6 +926,7 @@ async function applyLoadedNote(note, noteId) {
   body.value = normalizeBody(canRestoreDraft ? localDraft.bodyJson : note?.body_json);
   noteTagSeed.value = Array.isArray(note?.tags) ? note.tags : [];
   noteTagIds.value = noteTagSeed.value.map((t) => t.id);
+  noteNotebookId.value = note?.notebook_id ?? null;
   loadedNoteId.value = noteId;
   serverRevision.value = loadedRevision;
   currentDraftVersion.value = canRestoreDraft ? localDraft.clientVersion : null;

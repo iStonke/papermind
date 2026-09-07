@@ -128,8 +128,8 @@ test('notes management remembers the selected facet across closing and reloads',
 });
 
 test('the notes heading shows the notebook selected in either notes view', () => {
-  assert.match(templateSource, /<span>Notizen<\/span>[\s\S]*?v-if="activeNotebookHeading"[\s\S]*?>·<\/span>/);
-  assert.match(templateSource, /manageFacet === 'notes' && manageNotebookHeading[\s\S]*?>·<\/span>[\s\S]*?\{\{ manageNotebookHeading \}\}/);
+  assert.match(templateSource, /<span>Notizen<\/span>[\s\S]*?v-if="activeNotebookHeading"[\s\S]*?notes-ws__heading-context/);
+  assert.match(templateSource, /manageFacet === 'notes' && manageNotebookHeading[\s\S]*?notes-ws__heading-context[\s\S]*?\{\{ manageNotebookHeading \}\}/);
   assert.match(templateSource, /@notebook-selection-change="manageNotebookHeading = \$event"/);
   assert.match(notesManageGridSource, /'notebook-selection-change'/);
   assert.match(notesManageGridSource, /const activeNotebookLabel = computed\(\(\) => \{[\s\S]*?activeNotebookId\.value === 'none'[\s\S]*?'Ohne Notizbuch'[\s\S]*?\.name \|\| ''/);
@@ -138,7 +138,7 @@ test('the notes heading shows the notebook selected in either notes view', () =>
 
 test('notes list follows the shared title, toolbar, and row hierarchy', () => {
   assert.match(templateSource, /<span>Notizen<\/span>/);
-  assert.match(templateSource, /v-if="activeNotebookHeading"[\s\S]*?notes-ws__heading-separator[\s\S]*?>·<\/span>[\s\S]*?\{\{ activeNotebookHeading \}\}/);
+  assert.match(templateSource, /v-if="activeNotebookHeading"[\s\S]*?notes-ws__heading-context[\s\S]*?\{\{ activeNotebookHeading \}\}/);
   assert.match(workspaceSource, /const activeNotebookHeading = computed\(\(\) => \([\s\S]*?notebookFilter\.value \? notebookFilterLabel\.value : ''/);
   assert.match(workspaceSource, /\.notes-ws__heading-context\s*\{[\s\S]*?text-overflow:\s*ellipsis/);
   assert.match(templateSource, /Neue Notiz/);
@@ -711,7 +711,7 @@ test('picker menus remain anchored to the editor surface with a compact gap', ()
 
 test('the compact notes list offers a notebook filter in its toolbar', () => {
   // Eigener State + reiner Client-Filter über note.notebook_id.
-  assert.match(workspaceSource, /const notebookFilter = ref\(''\)/);
+  assert.match(workspaceSource, /const \{ sortMode, dateRange, notebookFilter \} = useNoteListPreferences\(/);
   assert.match(
     workspaceSource,
     /function matchesNotebookFilter\(note\)[\s\S]*?notebookFilter\.value === 'none'[\s\S]*?return !note\.notebook_id[\s\S]*?return note\.notebook_id === notebookFilter\.value/,

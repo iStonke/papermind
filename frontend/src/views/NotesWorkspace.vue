@@ -383,6 +383,7 @@ import PmEmptyState from '../components/PmEmptyState.vue';
 import NoteWorkspaceEditor from '../components/notes/NoteWorkspaceEditor.vue';
 import NotesEditorIllustration from '../components/notes/NotesEditorIllustration.vue';
 import NotesManageGrid from '../components/notes/NotesManageGrid.vue';
+import { useNoteListPreferences } from '../components/notes/composables/useNoteListPreferences.js';
 import { isNoteEmpty, useNotesStore } from '../stores/notes.js';
 import { useSettingsStore } from '../stores/settings.js';
 import { notifyNoteDeleted } from '../utils/noteDeletionFeedback.js';
@@ -418,11 +419,11 @@ const isListCollapsed = ref(resolveInitialListCollapsed());
 const isManageMode = ref(false);
 const manageFacet = ref(loadManageFacet());
 const isCompactLayout = ref(false);
-const sortMode = ref(normalizeSortMode(settingsStore.settingsDraft.ui.notes_sort_order));
-const dateRange = ref('');
+const { sortMode, dateRange, notebookFilter } = useNoteListPreferences(
+  () => settingsStore.settingsDraft.ui.notes_sort_order,
+);
 // Notizbuch-Filter der kompakten Liste: '' = alle, 'none' = ohne Notizbuch,
 // sonst die Notizbuch-ID. Rein clientseitig über note.notebook_id.
-const notebookFilter = ref('');
 const manageNotebookHeading = ref('');
 const manageGridRef = ref(null);
 const manageSearchInputRef = ref(null);
@@ -614,17 +615,18 @@ const emptyCopy = computed(() => {
 // Wurde das gefilterte Notizbuch (z. B. im Verwaltungsraster) gelöscht, fällt der
 // Filter auf „Alle" zurück, statt eine dauerhaft leere Liste zu zeigen.
 watch(
-  () => notesStore.notebooks,
-  (list) => {
+  () => [notesStore.notebooks, notesStore.notebooksLoaded],
+  ([list]) => {
     if (
-      notebookFilter.value
+      notesStore.notebooksLoaded
+      && notebookFilter.value
       && notebookFilter.value !== 'none'
       && !list.some((nb) => nb.id === notebookFilter.value)
     ) {
       notebookFilter.value = '';
     }
   },
-  { deep: true },
+  { deep: true, immediate: true },
 );
 
 watch(
@@ -643,13 +645,6 @@ watch(
   () => settingsStore.settingsDraft.ui.notes_default_view,
   (mode) => {
     isListCollapsed.value = resolveListCollapsed(mode);
-  },
-);
-
-watch(
-  () => settingsStore.settingsDraft.ui.notes_sort_order,
-  (sortOrder) => {
-    sortMode.value = normalizeSortMode(sortOrder);
   },
 );
 
@@ -916,10 +911,6 @@ function resolveListCollapsed(mode) {
 
 function resolveInitialListCollapsed() {
   return resolveListCollapsed(settingsStore.settingsDraft.ui.notes_default_view);
-}
-
-function normalizeSortMode(value) {
-  return NOTE_SORT_OPTIONS.some((option) => option.value === value) ? value : 'updated';
 }
 
 function toggleNotesList() {
