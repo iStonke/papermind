@@ -241,6 +241,35 @@ def _normalize_sidebar_sections(
     return result
 
 
+class DashboardWidgetLayout(BaseModel):
+    """Position/Größe eines Übersicht-Widgets im gridstack-Board (12 Spalten).
+
+    ``id`` ist der Widget-Key aus der Frontend-Registry; bewusst als freier
+    String gehalten, damit neue Widgets keine Backend-Änderung erzwingen (das
+    Frontend verwirft unbekannte Ids beim Laden)."""
+
+    id: str = Field(min_length=1, max_length=64)
+    x: int = Field(default=0, ge=0, le=100)
+    y: int = Field(default=0, ge=0, le=1000)
+    w: int = Field(default=1, ge=1, le=12)
+    h: int = Field(default=1, ge=1, le=100)
+
+
+def _normalize_dashboard_layout(
+    layout: list[DashboardWidgetLayout] | None,
+) -> list[DashboardWidgetLayout]:
+    """Dedupliziert nach Widget-Id (erstes Vorkommen gewinnt). Eine leere Liste
+    bedeutet „kein eigenes Layout" – das Frontend nutzt dann sein Standard-Layout."""
+    result: list[DashboardWidgetLayout] = []
+    seen: set[str] = set()
+    for item in layout or []:
+        if item.id in seen:
+            continue
+        seen.add(item.id)
+        result.append(item)
+    return result
+
+
 class UISettingsRead(BaseModel):
     theme_mode: ThemeMode = ThemeMode.system
     start_view: StartView = StartView.all
@@ -256,6 +285,8 @@ class UISettingsRead(BaseModel):
     sidebar_show_chat: bool = True
     sidebar_show_dossiers: bool = True
     sidebar_sections: list[SidebarSectionConfig] = Field(default_factory=_default_sidebar_sections)
+    # Übersicht-Board-Layout (leer = Frontend-Standard).
+    dashboard_layout: list[DashboardWidgetLayout] = Field(default_factory=list)
     # Max. Anzahl der Quicklinks pro Sektion in der Seitenleiste (0 = nur die Kopfaktion).
     sidebar_max_folders: int = Field(default=5, ge=0, le=50)
     sidebar_max_tags: int = Field(default=5, ge=0, le=50)
@@ -270,6 +301,7 @@ class UISettingsRead(BaseModel):
     @model_validator(mode="after")
     def normalize_sidebar_sections(self) -> "UISettingsRead":
         self.sidebar_sections = _normalize_sidebar_sections(self.sidebar_sections)
+        self.dashboard_layout = _normalize_dashboard_layout(self.dashboard_layout)
         return self
 
 
@@ -460,6 +492,7 @@ class UISettingsPatch(BaseModel):
     sidebar_show_chat: bool | None = None
     sidebar_show_dossiers: bool | None = None
     sidebar_sections: list[SidebarSectionConfig] | None = None
+    dashboard_layout: list[DashboardWidgetLayout] | None = None
     sidebar_max_folders: int | None = Field(default=None, ge=0, le=50)
     sidebar_max_tags: int | None = Field(default=None, ge=0, le=50)
     sidebar_max_categories: int | None = Field(default=None, ge=0, le=50)
@@ -478,6 +511,15 @@ class UISettingsPatch(BaseModel):
         if value is None:
             return None
         return _normalize_sidebar_sections(value)
+
+    @field_validator("dashboard_layout")
+    @classmethod
+    def normalize_dashboard_layout(
+        cls, value: list[DashboardWidgetLayout] | None
+    ) -> list[DashboardWidgetLayout] | None:
+        if value is None:
+            return None
+        return _normalize_dashboard_layout(value)
 
 
 class DocumentsSettingsPatch(BaseModel):

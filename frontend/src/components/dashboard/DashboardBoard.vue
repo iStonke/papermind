@@ -86,19 +86,27 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch 
 import { GridStack } from 'gridstack';
 import 'gridstack/dist/gridstack.min.css';
 import { DASHBOARD_WIDGETS, DEFAULT_LAYOUT, DEFAULT_WIDGET_ORDER } from './widgetRegistry.js';
+import { useSettingsStore } from '../../stores/settings.js';
+import { getBaseUrl } from '../../api/client.js';
+import { buildDashboardLayoutPatch } from '../../utils/settingsApi.js';
 
 const props = defineProps({
   // Der Anpassen-Modus wird vom Host (DashboardView-Kopfzeile) gesteuert.
   editing: { type: Boolean, default: false },
 });
 
-const STORAGE_KEY = 'pm.dashboard.layout.v1';
 const GRID_COLUMN = 12;
 const CELL_HEIGHT = 74;
+const PERSIST_DEBOUNCE_MS = 600;
 
+const settingsStore = useSettingsStore();
 const widgets = DASHBOARD_WIDGETS;
 const gridEl = ref(null);
 let grid = null;
+// Unterdrückt das Speichern während programmatischer Umbauten (Reset), damit die
+// dabei ausgelösten gridstack-Events nicht das gewünschte Ergebnis überschreiben.
+let suppressPersist = false;
+let persistTimer = null;
 
 // Ziehen/Skalieren an den Anpassen-Modus koppeln. nextTick, damit die reaktiv
 // ein-/ausgeblendeten Griffe (Drag-Handles) im DOM stehen, bevor gridstack sie
@@ -133,28 +141,36 @@ function defaultItems() {
 }
 
 function buildInitialItems() {
-  const saved = loadLayout();
-  if (!saved?.length) return defaultItems();
-  // Nur bekannte Widgets übernehmen; unbekannte (z. B. entfernte) ignorieren.
-  const known = saved.filter((it) => it.id && widgets[it.id]);
+  // Server-Layout (pro Benutzer) hat Vorrang; unbekannte/entfernte Widgets werden
+  // ignoriert. Leeres Layout ⇒ durchdachtes Standard-Layout.
+  const saved = Array.isArray(settingsStore.settings?.ui?.dashboard_layout)
+    ? settingsStore.settings.ui.dashboard_layout
+    : [];
+  const known = saved.filter((it) => it?.id && widgets[it.id]);
   return known.length ? known.map((it) => ({ ...it })) : defaultItems();
 }
 
-function loadLayout() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
+// ── Persistenz (Server-Setting ui.dashboard_layout, debounced) ────────────────
+function collectNodes() {
+  // grid.save(false) liefert u. a. id/x/y/w/h (+ min-Attribute); nur die Lage merken.
+  return grid ? grid.save(false).map((n) => ({ id: n.id, x: n.x, y: n.y, w: n.w, h: n.h })) : [];
 }
 
-function persist() {
-  if (!grid) return;
-  try {
-    const nodes = grid.save(false); // [{id,x,y,w,h}, …]
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(nodes));
-  } catch { /* Speicher nicht verfügbar – Layout bleibt nur zur Laufzeit */ }
+function writeLayout(nodes) {
+  return settingsStore
+    .patchSettings(getBaseUrl(), buildDashboardLayoutPatch(nodes))
+    .catch((err) => {
+      console.warn('Dashboard-Layout konnte nicht gespeichert werden:', err);
+    });
+}
+
+function schedulePersist() {
+  if (!grid || suppressPersist) return;
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    if (grid) writeLayout(collectNodes());
+  }, PERSIST_DEBOUNCE_MS);
 }
 
 async function addWidget(key) {
@@ -165,7 +181,7 @@ async function addWidget(key) {
   const el = gridEl.value?.querySelector(`.grid-stack-item[gs-id="${key}"]`);
   if (el && grid) {
     grid.makeWidget(el);
-    persist();
+    schedulePersist();
   }
 }
 
@@ -173,22 +189,26 @@ function removeWidget(key) {
   const el = gridEl.value?.querySelector(`.grid-stack-item[gs-id="${key}"]`);
   if (el && grid) grid.removeWidget(el, false); // DOM behält Vue, gridstack vergisst
   items.value = items.value.filter((i) => i.id !== key);
-  persist();
+  schedulePersist();
 }
 
 function resetLayout() {
-  try { localStorage.removeItem(STORAGE_KEY); } catch { /* egal */ }
-  // Neu aufbauen: gridstack leeren, Vue-Liste ersetzen, neu adoptieren.
+  // Programmatische Events während des Umbaus nicht speichern.
+  suppressPersist = true;
   grid?.removeAll(false);
   items.value = defaultItems();
   nextTick(() => {
-    if (!grid) return;
-    grid.batchUpdate();
-    for (const el of gridEl.value?.querySelectorAll('.grid-stack-item') || []) {
-      grid.makeWidget(el);
+    if (grid) {
+      grid.batchUpdate();
+      for (const el of gridEl.value?.querySelectorAll('.grid-stack-item') || []) {
+        grid.makeWidget(el);
+      }
+      grid.batchUpdate(false);
     }
-    grid.batchUpdate(false);
-    persist();
+    suppressPersist = false;
+    if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
+    // Leeres Layout auf dem Server = „nutze Standard".
+    writeLayout([]);
   });
 }
 
@@ -205,15 +225,21 @@ onMounted(() => {
     },
     gridEl.value
   );
-  grid.on('change', persist);
-  grid.on('added', persist);
-  grid.on('removed', persist);
+  grid.on('change', schedulePersist);
+  grid.on('added', schedulePersist);
+  grid.on('removed', schedulePersist);
   // Falls die Komponente bereits im Anpassen-Modus montiert wird (z. B. erneut
   // gezeigt), den Zustand direkt anwenden.
   if (props.editing) applyEditable(true);
 });
 
 onBeforeUnmount(() => {
+  // Ausstehende Speicherung vor dem Zerstören noch abschließen.
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+    if (grid) writeLayout(collectNodes());
+  }
   grid?.off('change');
   grid?.off('added');
   grid?.off('removed');

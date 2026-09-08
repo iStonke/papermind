@@ -7,7 +7,7 @@ import {
   SUMMARY_PROMPT_TEMPLATE_DEFAULT,
   SYSTEM_PROMPT_DEFAULT
 } from '../constants/promptDefaults.js';
-import { normalizeSidebarSections } from '../utils/settingsApi.js';
+import { normalizeDashboardLayout, normalizeSidebarSections } from '../utils/settingsApi.js';
 
 const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
 const START_VIEW_VALUES = new Set(['dashboard', 'all']);
@@ -120,6 +120,7 @@ function createDefaultSettings() {
       sidebar_show_chat: true,
       sidebar_show_dossiers: true,
       sidebar_sections: normalizeSidebarSections(null),
+      dashboard_layout: normalizeDashboardLayout(null),
       sidebar_max_folders: 5,
       sidebar_max_tags: 5,
       sidebar_max_categories: 5,
@@ -254,7 +255,8 @@ function normalizeRetention(rawRetention, defaults) {
 function cloneUi(uiValue) {
   return {
     ...uiValue,
-    sidebar_sections: normalizeSidebarSections(uiValue?.sidebar_sections)
+    sidebar_sections: normalizeSidebarSections(uiValue?.sidebar_sections),
+    dashboard_layout: normalizeDashboardLayout(uiValue?.dashboard_layout)
   };
 }
 
@@ -287,6 +289,9 @@ function assignSettings(target, source) {
   Object.assign(target.ui, source.ui);
   if (source.ui && 'sidebar_sections' in source.ui) {
     target.ui.sidebar_sections = normalizeSidebarSections(source.ui.sidebar_sections);
+  }
+  if (source.ui && 'dashboard_layout' in source.ui) {
+    target.ui.dashboard_layout = normalizeDashboardLayout(source.ui.dashboard_layout);
   }
   Object.assign(target.documents, source.documents);
   Object.assign(target.llm, source.llm);
@@ -534,6 +539,7 @@ export const useSettingsStore = defineStore('settings', {
               ? payload.ui.sidebar_show_dossiers
               : defaults.ui.sidebar_show_dossiers,
           sidebar_sections: normalizeSidebarSections(payload?.ui?.sidebar_sections),
+          dashboard_layout: normalizeDashboardLayout(payload?.ui?.dashboard_layout),
           sidebar_max_folders: clampInt(payload?.ui?.sidebar_max_folders, 0, 50, defaults.ui.sidebar_max_folders),
           sidebar_max_tags: clampInt(payload?.ui?.sidebar_max_tags, 0, 50, defaults.ui.sidebar_max_tags),
           sidebar_max_categories: clampInt(payload?.ui?.sidebar_max_categories, 0, 50, defaults.ui.sidebar_max_categories),

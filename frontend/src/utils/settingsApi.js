@@ -96,6 +96,39 @@ export function buildSidebarSectionsPatch(sections) {
   return { ui: { sidebar_sections: normalizeSidebarSections(sections) } };
 }
 
+/**
+ * Normalisiert das Übersicht-Board-Layout: verwirft ungültige Einträge,
+ * dedupliziert nach Widget-Id (erstes Vorkommen gewinnt) und klemmt die
+ * Rasterwerte. Eine leere Liste bedeutet „kein eigenes Layout" (Standard).
+ * Spiegelt die Backend-Normalisierung (_normalize_dashboard_layout).
+ */
+export function normalizeDashboardLayout(layout) {
+  const result = [];
+  const seen = new Set();
+  const clampInt = (v, min, max, fallback) => {
+    const n = Math.round(Number(v));
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+  };
+  for (const item of Array.isArray(layout) ? layout : []) {
+    const id = String(item?.id || '');
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    result.push({
+      id,
+      x: clampInt(item?.x, 0, 100, 0),
+      y: clampInt(item?.y, 0, 1000, 0),
+      w: clampInt(item?.w, 1, 12, 1),
+      h: clampInt(item?.h, 1, 100, 1)
+    });
+  }
+  return result;
+}
+
+export function buildDashboardLayoutPatch(layout) {
+  return { ui: { dashboard_layout: normalizeDashboardLayout(layout) } };
+}
+
 function clampSidebarMax(value) {
   const parsed = Math.round(Number(value));
   if (!Number.isFinite(parsed)) return 5;
