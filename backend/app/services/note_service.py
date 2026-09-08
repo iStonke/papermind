@@ -190,6 +190,40 @@ def extract_note_tasks(body_json: Any) -> list[dict[str, Any]]:
     return tasks
 
 
+def set_taskitem_checked(body_json: Any, position: int, checked: bool) -> bool:
+    """Setzt am `position`-ten Aufgaben-Knoten (taskItem, Dokumentreihenfolge –
+    dieselbe Zählung wie ``extract_note_tasks``) das ``checked``-Attribut.
+
+    Verändert ``body_json`` in-place; gibt True zurück, wenn die Position
+    gefunden wurde. So bleibt die Notiz die einzige Wahrheit: der abgehakte
+    Status landet direkt im ProseMirror-JSON (und über _sync_tasks in note_task).
+    """
+    counter = 0
+    found = False
+
+    def walk(node: Any) -> None:
+        nonlocal counter, found
+        if found or not isinstance(node, dict):
+            return
+        if node.get("type") == "taskItem":
+            if counter == position:
+                attrs = node.get("attrs")
+                if not isinstance(attrs, dict):
+                    attrs = {}
+                    node["attrs"] = attrs
+                attrs["checked"] = bool(checked)
+                found = True
+                return
+            counter += 1
+        for child in node.get("content") or []:
+            walk(child)
+            if found:
+                return
+
+    walk(body_json)
+    return found
+
+
 class NoteService:
     """CRUD für owner-scoped Notizen. body_text wird serverseitig abgeleitet."""
 
@@ -632,6 +666,33 @@ class NoteService:
         # Anheften ist ebenfalls Metadaten (kein Revisions-Bump).
         if "is_favorite" in payload.model_fields_set and payload.is_favorite is not None:
             note.is_favorite = bool(payload.is_favorite)
+        self.db.commit()
+        self.db.refresh(note)
+        return note
+
+    def set_task_checked(
+        self, note_id: uuid.UUID, position: int, checked: bool
+    ) -> Note | None:
+        """Hakt die `position`-te Aufgabe einer Notiz ab (oder wieder auf) und
+        schreibt den Status direkt in die Notiz (body_json). Ableitungen
+        (body_text, note_link, note_task) werden neu synchronisiert; es entsteht
+        ein Revisionspunkt wie bei jeder Inhaltsänderung.
+
+        Rückgabe: die Notiz, oder None, wenn Notiz/Position nicht existieren
+        (bzw. Vorlage/Papierkorb – dort gibt es keine offenen Aufgaben)."""
+        note = self._get(note_id, for_update=True)
+        if note is None or note.is_template:
+            return None
+        body = copy.deepcopy(note.body_json) or EMPTY_DOC
+        if not set_taskitem_checked(body, position, checked):
+            return None
+        note.body_json = body
+        note.body_text = derive_body_text(body)
+        self._sync_links(note)
+        self._sync_tasks(note)
+        note.revision = int(note.revision or 1) + 1
+        # Inhaltsänderung wie beim Editor-Autosave (erlaubter Revisionsgrund).
+        self._record_revision(note, reason="autosave")
         self.db.commit()
         self.db.refresh(note)
         return note

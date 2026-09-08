@@ -44,6 +44,9 @@ export const moveNotesToNotebook = ({ ids, notebookId = null }) =>
 export const reorderNotebooks = (ids) => apiPost('/api/notes/notebooks/reorder', { ids });
 export const getNote = (id) => apiGet(`/api/notes/${id}`);
 export const getNoteBacklinks = (id) => apiGet(`/api/notes/${id}/backlinks`);
+// Hakt eine einzelne Aufgabe (taskItem an `position`) direkt in der Notiz ab.
+export const toggleNoteTask = (id, position, done = true) =>
+  apiPost(`/api/notes/${id}/tasks/toggle`, { position, done });
 export const createNote = (body = {}) => apiPost('/api/notes', body);
 export const listNoteTemplates = () => apiGet('/api/notes/templates');
 export const createNoteFromTemplate = (templateId) => apiPost(`/api/notes/from-template/${templateId}`, undefined);

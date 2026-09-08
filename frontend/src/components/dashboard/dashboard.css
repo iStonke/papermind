@@ -277,47 +277,67 @@
   flex-direction: column;
   gap: 2px;
 }
+/* Zeile: links die abhakbare Checkbox, rechts der klickbare Textbereich (springt
+   zur Notiz). Bewusst getrennte Interaktionsflächen. */
 .dash-tasks__row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   width: 100%;
-  padding: 9px 10px;
-  border: none;
+  padding: 8px 10px;
   border-radius: 9px;
-  background: transparent;
-  cursor: pointer;
-  text-align: left;
-  font: inherit;
   transition: background 120ms ease;
 }
 .dash-tasks__row:hover {
   background: var(--pm-row-hover, rgba(0, 107, 117, 0.05));
 }
 .dash-tasks__check {
-  color: var(--pm-muted);
   flex: none;
+  margin-top: 2px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--pm-accent);
+  cursor: pointer;
 }
-.dash-tasks__row.is-overdue .dash-tasks__check {
-  color: var(--pm-danger, #c2453b);
+.dash-tasks__check:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
-.dash-tasks__text {
+/* Textbereich: Aufgabentext (Zeile 1), Notiztitel + Fälligkeit (Zeile 2). */
+.dash-tasks__open {
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.dash-tasks__text {
+  max-width: 100%;
   color: var(--pm-text);
   font-size: 13.5px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.dash-tasks__open:hover .dash-tasks__text {
+  color: var(--pm-accent);
+}
 .dash-tasks__aside {
-  flex: none;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
 }
 .dash-tasks__note {
-  max-width: 160px;
+  max-width: 100%;
   color: var(--pm-muted);
   font-size: 12px;
   white-space: nowrap;
@@ -1513,29 +1533,3 @@
 .dash-board .dash-donut__hole { inset: 22%; }
 .dash-board .dash-donut__value { font-size: 24px; }
 .dash-board .dash-donut__label { font-size: 11px; }
-
-/* Offene Aufgaben: Aufgabentext bekommt Vorrang und die volle Zeilenbreite;
-   Notiztitel + Fälligkeit rücken darunter (behebt das Kollabieren des Textes
-   zu „Ei…/Q…“, als der Notiztitel fix 160 px hielt). */
-.dash-board .dash-tasks__row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-areas:
-    'check text'
-    'check aside';
-  column-gap: 10px;
-  row-gap: 2px;
-  align-items: start;
-}
-.dash-board .dash-tasks__check {
-  grid-area: check;
-  align-self: start;
-  margin-top: 2px;
-}
-.dash-board .dash-tasks__text { grid-area: text; }
-.dash-board .dash-tasks__aside {
-  grid-area: aside;
-  gap: 8px;
-  min-width: 0;
-}
-.dash-board .dash-tasks__note { max-width: 100%; }

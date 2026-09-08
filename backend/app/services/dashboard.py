@@ -479,6 +479,7 @@ class DashboardService:
             items.append(
                 DashboardTaskItem(
                     note_id=str(note_id),
+                    position=int(task.position or 0),
                     note_title=(note_title or "").strip() or "Ohne Titel",
                     text=text or "Aufgabe ohne Text",
                     due_date=task.due_date.isoformat() if task.due_date else None,

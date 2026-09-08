@@ -75,6 +75,9 @@ class DashboardTaskItem(BaseModel):
     """Offene Aufgabe (taskItem) aus einer Notiz, für die Dashboard-Kachel."""
 
     note_id: str
+    # 0-basierter Index des taskItem in der Notiz (Dokumentreihenfolge) – nötig,
+    # um genau diese Aufgabe beim Abhaken in der Notiz zu treffen.
+    position: int = 0
     note_title: str
     text: str
     due_date: str | None = None  # ISO date

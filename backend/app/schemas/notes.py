@@ -56,6 +56,18 @@ class NoteCreateRequest(BaseModel):
     collection_id: uuid.UUID | None = None
 
 
+class NoteTaskToggleRequest(BaseModel):
+    """Hakt eine einzelne Aufgabe einer Notiz ab (oder wieder auf).
+
+    ``position`` ist der 0-basierte Index des Aufgaben-Knotens (taskItem) in
+    Dokumentreihenfolge – dieselbe Zählung wie in der Dashboard-Kachel."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    position: int = Field(ge=0, le=100000)
+    done: bool = True
+
+
 NoteBulkAction = Literal["trash", "restore", "delete", "template"]
 
 

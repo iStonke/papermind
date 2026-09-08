@@ -37,6 +37,7 @@ from app.schemas.notes import (
     NoteRevisionRestoreRequest,
     NoteSearchScope,
     NoteTagsUpdateRequest,
+    NoteTaskToggleRequest,
     NoteTextGenerationRequest,
     NoteUpdateRequest,
     SaveAsTemplateRequest,
@@ -641,6 +642,26 @@ def update_note(
     if note is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notiz nicht gefunden")
     return NoteRead.model_validate(note)
+
+
+@router.post(
+    "/{note_id}/tasks/toggle",
+    response_model=OkResponse,
+    summary="Toggle a note task's done state",
+    responses={404: {"model": ErrorResponse}},
+)
+def toggle_note_task(
+    note_id: uuid.UUID,
+    payload: NoteTaskToggleRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> OkResponse:
+    note = NoteService(db, user.id).set_task_checked(note_id, payload.position, payload.done)
+    if note is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Notiz oder Aufgabe nicht gefunden"
+        )
+    return OkResponse(ok=True)
 
 
 @router.delete(
