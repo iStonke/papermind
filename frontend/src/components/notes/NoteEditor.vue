@@ -240,6 +240,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import Typography from '@tiptap/extension-typography';
 import TaskList from '@tiptap/extension-task-list';
 import { PaperMindTaskItem } from './nodes/taskItemDue.js';
+import { CheckList, CheckListItem } from './nodes/checkList.js';
 import { TableKit } from '@tiptap/extension-table';
 import { isHistoryTransaction } from '@tiptap/pm/history';
 import { TextSelection } from '@tiptap/pm/state';
@@ -415,6 +416,8 @@ const editor = useEditor({
     TaskList,
     NoteAIGeneration,
     PaperMindTaskItem.configure({ nested: true }),
+    CheckList,
+    CheckListItem.configure({ nested: true }),
     TableKit.configure({
       table: {
         resizable: true,
@@ -842,6 +845,7 @@ function runToolbar(action) {
     bulletList: () => chain.toggleBulletList(),
     orderedList: () => chain.toggleOrderedList(),
     taskList: () => chain.toggleTaskList(),
+    checkList: () => chain.toggleCheckList(),
     blockquote: () => chain.toggleBlockquote(),
     codeBlock: () => chain.toggleCodeBlock(),
     horizontalRule: () => chain.setHorizontalRule(),
@@ -1180,7 +1184,8 @@ const SLASH_COMMANDS = [
   { key: 'link', group: 'inline', chip: '↗', label: 'Hyperlink', desc: 'Webseite oder E-Mail verlinken', terms: ['link', 'hyperlink', 'url', 'webseite', 'website', 'e-mail', 'email'], kind: 'link-editor' },
   { key: 'ul', group: 'blocks', chip: '•', label: 'Aufzählung', desc: 'Ungeordnete Liste', terms: ['liste', 'aufzählung', 'bullet'], action: c => c.toggleBulletList() },
   { key: 'ol', group: 'blocks', chip: '1.', label: 'Nummerierte Liste', desc: 'Geordnete Liste', terms: ['liste', 'nummer', 'ordered'], action: c => c.toggleOrderedList() },
-  { key: 'task', group: 'blocks', chip: '☑', label: 'Aufgabenliste', desc: 'Checkboxen', terms: ['aufgabe', 'todo', 'task', 'checkbox'], action: c => c.toggleTaskList() },
+  { key: 'task', group: 'blocks', chip: '☑', label: 'Aufgabenliste', desc: 'Checkboxen mit Aufgaben-Charakter', terms: ['aufgabe', 'todo', 'task', 'checkbox'], action: c => c.toggleTaskList() },
+  { key: 'checklist', group: 'blocks', chip: '▣', label: 'Checkliste', desc: 'Neutrale Häkchen (keine Aufgaben)', terms: ['checkliste', 'checklist', 'liste', 'häkchen', 'haken', 'kriterien'], action: c => c.toggleCheckList() },
   { key: 'table', group: 'blocks', chip: '▦', label: 'Tabelle', desc: 'Zeilen und Spalten', terms: ['tabelle', 'table', 'raster', 'zeile', 'spalte'], kind: 'table-menu' },
   { key: 'image', group: 'blocks', chip: '▧', label: 'Bild', desc: 'Foto oder Grafik einfügen', terms: ['bild', 'foto', 'grafik', 'image', 'upload'], kind: 'image-upload' },
   { key: 'quote', group: 'blocks', chip: '❝', label: 'Zitat', desc: 'Zitatblock', terms: ['zitat', 'quote'], action: c => c.toggleBlockquote() },
@@ -2045,6 +2050,55 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
 }
 
 .note-editor :deep(.pm-content ul[data-type="taskList"] input[type="checkbox"]:disabled) {
+  cursor: default;
+}
+
+/* Neutrale Checklisten: gleiche Anordnung wie Aufgaben, aber ECKIGE Checkbox,
+   damit sie auf den ersten Blick von einer Aufgabe (rund) zu unterscheiden ist. */
+
+.note-editor :deep(.pm-content ul[data-type="checkList"]) { list-style: none; padding-left: 0.2em; }
+
+.note-editor :deep(.pm-content ul[data-type="checkList"] li) { display: flex; gap: 0.55em; align-items: flex-start; }
+
+.note-editor :deep(.pm-content ul[data-type="checkList"] li > label) {
+  display: grid;
+  place-items: center;
+  height: 1.35em;
+  margin: 0;
+}
+
+.note-editor :deep(.pm-content ul[data-type="checkList"] input[type="checkbox"]) {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1.05rem;
+  height: 1.05rem;
+  margin: 0;
+  border: 1.5px solid color-mix(in srgb, var(--pm-muted, #748084) 72%, transparent);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.note-editor :deep(.pm-content ul[data-type="checkList"] input[type="checkbox"]:hover) {
+  border-color: var(--pm-accent, #006b75);
+}
+
+.note-editor :deep(.pm-content ul[data-type="checkList"] input[type="checkbox"]:checked) {
+  border-color: var(--pm-accent, #006b75);
+  background: var(--pm-accent, #006b75);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m4 8 2.5 2.5L12 5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: center;
+  background-size: 0.85rem 0.85rem;
+  background-repeat: no-repeat;
+}
+
+.note-editor :deep(.pm-content ul[data-type="checkList"] input[type="checkbox"]:focus-visible) {
+  outline: 2px solid color-mix(in srgb, var(--pm-accent, #006b75) 35%, transparent);
+  outline-offset: 2px;
+}
+
+.note-editor :deep(.pm-content ul[data-type="checkList"] input[type="checkbox"]:disabled) {
   cursor: default;
 }
 

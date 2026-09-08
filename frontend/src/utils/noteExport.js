@@ -162,12 +162,14 @@ function renderNode(node, context) {
         .join('\n');
     }
     case 'taskList':
+    case 'checkList':
       return (node.content || []).map((item) => {
         const marker = item.attrs?.checked ? '- [x] ' : '- [ ] ';
         return renderListItem(item, context, marker);
       }).join('\n');
     case 'listItem':
     case 'taskItem':
+    case 'checkListItem':
       return renderChildren(node, context, '\n\n');
     case 'codeBlock': {
       const language = node.attrs?.language || '';
@@ -289,9 +291,12 @@ function renderHtmlNode(node, context) {
     }
     case 'taskList':
       return `<ul class="task-list">${renderHtmlChildren(node, context)}</ul>`;
+    case 'checkList':
+      return `<ul class="check-list">${renderHtmlChildren(node, context)}</ul>`;
     case 'listItem':
       return `<li>${renderHtmlChildren(node, context)}</li>`;
-    case 'taskItem': {
+    case 'taskItem':
+    case 'checkListItem': {
       const checked = node.attrs?.checked ? ' checked' : '';
       return `<li><input type="checkbox" disabled${checked}>${renderHtmlChildren(node, context)}</li>`;
     }

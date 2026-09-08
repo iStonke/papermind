@@ -37,11 +37,11 @@ test('text menu groups paragraph styles and lists without duplicating them in in
     assert.ok(blockStyleItemsSource.includes(`label: '${label}'`), `${label} fehlt unter Textart`);
     assert.ok(!insertItemsSource.includes(`label: '${label}'`), `${label} ist im Einfügen-Menü doppelt`);
   }
-  for (const label of ['Aufzählung', 'Nummerierte Liste', 'Aufgaben']) {
+  for (const label of ['Aufzählung', 'Nummerierte Liste', 'Aufgaben', 'Checkliste']) {
     assert.ok(listStyleItemsSource.includes(`label: '${label}'`), `${label} fehlt unter Listen`);
     assert.ok(!insertItemsSource.includes(`label: '${label}'`), `${label} ist im Einfügen-Menü doppelt`);
   }
-  assert.match(editorSource, /\['blockquote', 'codeBlock', 'bulletList', 'orderedList', 'taskList'\]\.includes\(key\)/);
+  assert.match(editorSource, /\['blockquote', 'codeBlock', 'bulletList', 'orderedList', 'taskList', 'checkList'\]\.includes\(key\)/);
 });
 
 test('insert menu contains only links, evidence, and inserted objects', () => {
@@ -56,7 +56,7 @@ test('insert menu contains only links, evidence, and inserted objects', () => {
   ]) {
     assert.ok(insertItemsSource.includes(`label: '${label}'`), `${label} fehlt im Einfügen-Menü`);
   }
-  for (const label of ['Zitat', 'Codeblock', 'Aufzählung', 'Nummerierte Liste', 'Aufgaben']) {
+  for (const label of ['Zitat', 'Codeblock', 'Aufzählung', 'Nummerierte Liste', 'Aufgaben', 'Checkliste']) {
     assert.ok(!insertItemsSource.includes(`label: '${label}'`), `${label} gehört nicht ins Einfügen-Menü`);
   }
   assert.match(editorSource, /const blockStyleItems = \[[\s\S]*?key: 'blockquote', label: 'Zitat'/);

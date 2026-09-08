@@ -41,6 +41,7 @@ export function useNoteToolbar({
     { key: 'bulletList', icon: 'mdi-format-list-bulleted', label: 'Aufzählung' },
     { key: 'orderedList', icon: 'mdi-format-list-numbered', label: 'Nummerierte Liste' },
     { key: 'taskList', icon: 'mdi-checkbox-blank-circle-outline', label: 'Aufgaben' },
+    { key: 'checkList', icon: 'mdi-format-list-checks', label: 'Checkliste' },
   ];
 
   const pageLayoutItems = NOTE_PAGE_LAYOUT_COLUMNS.map((columns) => ({
@@ -90,7 +91,7 @@ export function useNoteToolbar({
 
   function isBlockActive(key) {
     if (key === 'paragraph') return Boolean(toolbarActive('paragraph'));
-    if (['blockquote', 'codeBlock', 'bulletList', 'orderedList', 'taskList'].includes(key)) {
+    if (['blockquote', 'codeBlock', 'bulletList', 'orderedList', 'taskList', 'checkList'].includes(key)) {
       return Boolean(toolbarActive(key));
     }
     const level = { h2: 2, h3: 3, h4: 4 }[key];
