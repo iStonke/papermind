@@ -17,31 +17,8 @@
 -->
 <template>
   <div class="dash-board" :class="{ 'is-editing': editing }">
-    <!-- Bearbeiten-Leiste nur im Anpassen-Modus; der Umschalter selbst sitzt in
-         der Seitenkopf-Buttonzeile (DashboardView). -->
-    <div v-if="editing" class="dash-board__bar">
-      <div v-if="addableWidgets.length" class="dash-board__add">
-        <span class="dash-board__add-label">Hinzufügen:</span>
-        <button
-          v-for="w in addableWidgets"
-          :key="w.key"
-          type="button"
-          class="dash-board__chip"
-          @click="addWidget(w.key)"
-        >
-          <v-icon size="14">{{ w.icon }}</v-icon>
-          {{ w.label }}
-        </button>
-      </div>
-      <div class="dash-board__spacer" />
-      <button type="button" class="dash-board__btn dash-board__btn--ghost" @click="resetLayout">
-        <v-icon size="15">mdi-restore</v-icon>
-        Zurücksetzen
-      </button>
-    </div>
-
     <div class="dash-board__scroll">
-      <div ref="gridEl" class="grid-stack">
+      <div ref="gridEl" class="grid-stack" :key="gridKey">
         <div
           v-for="item in items"
           :key="item.id"
@@ -61,15 +38,6 @@
             <div class="dash-board__grip" title="Zum Verschieben ziehen">
               <v-icon size="16">mdi-drag</v-icon>
               <span class="dash-board__grip-label">{{ widgets[item.id]?.label }}</span>
-              <button
-                type="button"
-                class="dash-board__remove"
-                title="Widget entfernen"
-                @pointerdown.stop
-                @click.stop="removeWidget(item.id)"
-              >
-                <v-icon size="16">mdi-close</v-icon>
-              </button>
             </div>
             <div class="dash-board__widget">
               <component :is="widgets[item.id].component" />
@@ -77,6 +45,42 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Verwaltungsfenster: öffnet mit „Anpassen". Schwebend (nicht modal), damit
+         das Board gleichzeitig umsortiert werden kann. Hier werden Widgets an-/
+         abgewählt und das Layout zurückgesetzt. -->
+    <div v-if="editing" class="dash-board__manager" role="dialog" aria-label="Widgets verwalten">
+      <div class="dash-board__manager-head">
+        <span class="dash-board__manager-title">Widgets verwalten</span>
+        <button
+          type="button"
+          class="dash-board__manager-close"
+          title="Fertig"
+          @click="emit('update:editing', false)"
+        >
+          <v-icon size="18">mdi-close</v-icon>
+        </button>
+      </div>
+      <p class="dash-board__manager-hint">Wähle die Widgets und ordne sie per Ziehen an.</p>
+      <ul class="dash-board__manager-list">
+        <li v-for="key in allWidgetKeys" :key="key" class="dash-board__manager-item">
+          <label class="dash-board__manager-label">
+            <input
+              type="checkbox"
+              class="dash-board__manager-check"
+              :checked="placedIds.has(key)"
+              @change="toggleWidget(key, $event.target.checked)"
+            />
+            <v-icon size="16" class="dash-board__manager-icon">{{ widgets[key].icon }}</v-icon>
+            <span class="dash-board__manager-name">{{ widgets[key].label }}</span>
+          </label>
+        </li>
+      </ul>
+      <button type="button" class="dash-board__manager-reset" @click="resetLayout">
+        <v-icon size="15">mdi-restore</v-icon>
+        Auf Standard zurücksetzen
+      </button>
     </div>
   </div>
 </template>
@@ -94,6 +98,7 @@ const props = defineProps({
   // Der Anpassen-Modus wird vom Host (DashboardView-Kopfzeile) gesteuert.
   editing: { type: Boolean, default: false },
 });
+const emit = defineEmits(['update:editing']);
 
 const GRID_COLUMN = 12;
 const CELL_HEIGHT = 74;
@@ -102,6 +107,8 @@ const PERSIST_DEBOUNCE_MS = 600;
 const settingsStore = useSettingsStore();
 const widgets = DASHBOARD_WIDGETS;
 const gridEl = ref(null);
+// Wird beim Reset erhöht, um den Grid-Teilbaum frisch neu zu rendern (siehe resetLayout).
+const gridKey = ref(0);
 let grid = null;
 // Unterdrückt das Speichern während programmatischer Umbauten (Reset), damit die
 // dabei ausgelösten gridstack-Events nicht das gewünschte Ergebnis überschreiben.
@@ -131,9 +138,13 @@ watch(
 const items = shallowRef(buildInitialItems());
 
 const placedIds = computed(() => new Set(items.value.map((i) => i.id)));
-const addableWidgets = computed(() =>
-  DEFAULT_WIDGET_ORDER.filter((key) => !placedIds.value.has(key)).map((key) => widgets[key])
-);
+// Alle bekannten Widgets in Standardreihenfolge – Grundlage der Auswahlliste.
+const allWidgetKeys = DEFAULT_WIDGET_ORDER;
+
+function toggleWidget(key, on) {
+  if (on) addWidget(key);
+  else removeWidget(key);
+}
 
 function defaultItems() {
   // Explizites Default-Layout (durchdachte Anordnung) statt Auto-Flow.
@@ -195,16 +206,15 @@ function removeWidget(key) {
 function resetLayout() {
   // Programmatische Events während des Umbaus nicht speichern.
   suppressPersist = true;
-  grid?.removeAll(false);
+  // Altes Grid verwerfen und den Teilbaum per key-Wechsel FRISCH rendern: so
+  // entstehen saubere DOM-Elemente ohne gridstack-Rückstände (Inline-Styles,
+  // verstellte gs-*-Attribute). Danach adoptiert initGrid die Standard-Items
+  // zuverlässig über deren gs-*-Attribute.
+  destroyGrid();
   items.value = defaultItems();
+  gridKey.value += 1;
   nextTick(() => {
-    if (grid) {
-      grid.batchUpdate();
-      for (const el of gridEl.value?.querySelectorAll('.grid-stack-item') || []) {
-        grid.makeWidget(el);
-      }
-      grid.batchUpdate(false);
-    }
+    initGrid();
     suppressPersist = false;
     if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
     // Leeres Layout auf dem Server = „nutze Standard".
@@ -212,7 +222,7 @@ function resetLayout() {
   });
 }
 
-onMounted(() => {
+function initGrid() {
   grid = GridStack.init(
     {
       column: GRID_COLUMN,
@@ -228,10 +238,20 @@ onMounted(() => {
   grid.on('change', schedulePersist);
   grid.on('added', schedulePersist);
   grid.on('removed', schedulePersist);
-  // Falls die Komponente bereits im Anpassen-Modus montiert wird (z. B. erneut
-  // gezeigt), den Zustand direkt anwenden.
+  // Falls im Anpassen-Modus (Mount während editing, oder Reset), Zustand anwenden.
   if (props.editing) applyEditable(true);
-});
+}
+
+function destroyGrid() {
+  if (!grid) return;
+  grid.off('change');
+  grid.off('added');
+  grid.off('removed');
+  grid.destroy(false); // DOM behalten (Vue besitzt es)
+  grid = null;
+}
+
+onMounted(initGrid);
 
 onBeforeUnmount(() => {
   // Ausstehende Speicherung vor dem Zerstören noch abschließen.
@@ -240,11 +260,7 @@ onBeforeUnmount(() => {
     persistTimer = null;
     if (grid) writeLayout(collectNodes());
   }
-  grid?.off('change');
-  grid?.off('added');
-  grid?.off('removed');
-  grid?.destroy(false);
-  grid = null;
+  destroyGrid();
 });
 </script>
 
@@ -254,72 +270,6 @@ onBeforeUnmount(() => {
   flex-direction: column;
   min-height: 0;
   flex: 1 1 auto;
-}
-
-.dash-board__bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
-  flex: none;
-}
-
-.dash-board__spacer { flex: 1 1 auto; }
-
-.dash-board__btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 12px;
-  font-size: 12.5px;
-  font-weight: 600;
-  border-radius: 8px;
-  border: 1px solid var(--pm-divider);
-  background: transparent;
-  color: var(--pm-muted);
-  cursor: pointer;
-  transition: background var(--pm-duration-fast, 140ms) var(--pm-easing, ease), color var(--pm-duration-fast, 140ms) var(--pm-easing, ease), border-color var(--pm-duration-fast, 140ms) var(--pm-easing, ease);
-}
-.dash-board__btn:hover {
-  color: var(--pm-text);
-  border-color: color-mix(in srgb, var(--pm-text) 22%, transparent);
-}
-.dash-board__btn.is-active {
-  color: var(--pm-accent);
-  background: color-mix(in srgb, var(--pm-accent) 13%, transparent);
-  border-color: color-mix(in srgb, var(--pm-accent) 32%, transparent);
-}
-.dash-board__btn--ghost { font-weight: 500; }
-
-.dash-board__add {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.dash-board__add-label {
-  font-size: 12px;
-  color: var(--pm-muted);
-}
-.dash-board__chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 28px;
-  padding: 0 10px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 100px;
-  border: 1px dashed color-mix(in srgb, var(--pm-accent) 40%, var(--pm-divider));
-  background: transparent;
-  color: var(--pm-text);
-  cursor: pointer;
-}
-.dash-board__chip:hover {
-  border-style: solid;
-  background: color-mix(in srgb, var(--pm-accent) 8%, transparent);
 }
 
 .dash-board__scroll {
@@ -382,27 +332,127 @@ onBeforeUnmount(() => {
   white-space: nowrap;
   flex: 1 1 auto;
 }
-.dash-board__remove {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--pm-muted);
-  cursor: pointer;
-}
-.dash-board__remove:hover {
-  color: var(--pm-danger, #c2453b);
-  background: color-mix(in srgb, var(--pm-danger, #c2453b) 12%, transparent);
-}
-
 /* Im Bearbeiten-Modus die Karten leicht „anfassbar“ rahmen. */
 .dash-board.is-editing :deep(.grid-stack-item-content) {
   outline: 1px dashed color-mix(in srgb, var(--pm-accent) 30%, transparent);
   outline-offset: -1px;
   border-radius: 16px;
+}
+
+/* ── Verwaltungsfenster (schwebend, nicht modal) ──────────────────────────── */
+.dash-board__manager {
+  position: fixed;
+  top: 84px;
+  right: 24px;
+  z-index: 40;
+  width: 264px;
+  max-height: calc(100vh - 108px);
+  display: flex;
+  flex-direction: column;
+  background: var(--pm-v-card, var(--pm-app-surface-raised));
+  border: 1px solid var(--pm-divider);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  padding: 14px 14px 12px;
+  animation: dash-manager-in 0.18s ease-out both;
+}
+@keyframes dash-manager-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dash-board__manager { animation: none; }
+}
+.dash-board__manager-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dash-board__manager-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--pm-text);
+}
+.dash-board__manager-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--pm-muted);
+  cursor: pointer;
+}
+.dash-board__manager-close:hover {
+  color: var(--pm-text);
+  background: rgba(var(--v-theme-on-surface), 0.06);
+}
+.dash-board__manager-hint {
+  margin: 4px 0 10px;
+  font-size: 11.5px;
+  color: var(--pm-muted);
+  line-height: 1.35;
+}
+.dash-board__manager-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.dash-board__manager-label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--pm-text);
+}
+.dash-board__manager-label:hover {
+  background: rgba(var(--v-theme-on-surface), 0.05);
+}
+.dash-board__manager-check {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--pm-accent);
+  cursor: pointer;
+  flex: none;
+}
+.dash-board__manager-icon {
+  color: var(--pm-muted) !important;
+  flex: none;
+}
+.dash-board__manager-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dash-board__manager-reset {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  border: 1px solid var(--pm-divider);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--pm-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  flex: none;
+  transition: color 140ms ease, border-color 140ms ease;
+}
+.dash-board__manager-reset:hover {
+  color: var(--pm-text);
+  border-color: color-mix(in srgb, var(--pm-text) 22%, transparent);
 }
 </style>

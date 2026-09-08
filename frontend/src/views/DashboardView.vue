@@ -45,7 +45,7 @@
         gespeist aus der Registry) liegen in einem gridstack-Raster, das sich im
         „Anpassen“-Modus verschieben/skalieren lässt; Layout wird gemerkt.
       -->
-      <DashboardBoard v-else :editing="editing" />
+      <DashboardBoard v-else v-model:editing="editing" />
     </div>
   </section>
 </template>
