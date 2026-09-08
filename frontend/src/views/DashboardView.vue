@@ -31,36 +31,11 @@
       </div>
 
       <!--
-        Phase 1: Die Übersicht besteht aus eigenständigen Widget-Komponenten
-        (siehe components/dashboard/). Sie werden hier vorerst im bestehenden
-        festen Raster platziert – gleiche Wrapper, gleiche Klassen, gleiche
-        Reihenfolge wie zuvor, damit sich optisch nichts ändert. Phase 2 ersetzt
-        dieses Raster durch ein konfigurierbares Board aus derselben Registry.
+        Phase 2: Konfigurierbares Board. Die Widgets (components/dashboard/,
+        gespeist aus der Registry) liegen in einem gridstack-Raster, das sich im
+        „Anpassen“-Modus verschieben/skalieren lässt; Layout wird gemerkt.
       -->
-      <template v-else>
-        <!-- 2) Kennzahlen-Band -->
-        <component :is="widgets.stats.component" />
-
-        <!-- 3) Visualisierungen -->
-        <div class="dash-viz">
-          <component :is="widgets.documentsPerYear.component" />
-          <div class="dash-viz__side">
-            <component :is="widgets.topCorrespondents.component" />
-          </div>
-        </div>
-
-        <!-- 4) Untere Inhalte -->
-        <div class="dash-lower">
-          <div class="dash-lower__main">
-            <component :is="widgets.recentImports.component" />
-            <component :is="widgets.openTasks.component" />
-            <component :is="widgets.topSearches.component" />
-          </div>
-          <div class="dash-lower__side">
-            <component :is="widgets.distribution.component" />
-          </div>
-        </div>
-      </template>
+      <DashboardBoard v-else />
     </div>
   </section>
 </template>
@@ -71,7 +46,7 @@ import { storeToRefs } from 'pinia';
 import { useAuthStore } from '../stores/auth.js';
 import { useDashboardStore } from '../stores/dashboard.js';
 import { DASHBOARD_ACTIONS } from '../components/dashboard/dashboardShared.js';
-import { DASHBOARD_WIDGETS } from '../components/dashboard/widgetRegistry.js';
+import DashboardBoard from '../components/dashboard/DashboardBoard.vue';
 import '../components/dashboard/dashboard.css';
 
 const emit = defineEmits([
@@ -87,8 +62,6 @@ const emit = defineEmits([
 const dashboardStore = useDashboardStore();
 const auth = useAuthStore();
 const { overview, hasLoadedOnce } = storeToRefs(dashboardStore);
-
-const widgets = DASHBOARD_WIDGETS;
 
 // Host-Aktionen: die Widgets lesen ihre Daten selbst aus dem Store und melden
 // Interaktionen über diesen provide/inject-Kanal zurück, der sie auf die

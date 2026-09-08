@@ -83,5 +83,21 @@ export const DASHBOARD_WIDGETS = {
   },
 };
 
-/** Standardreihenfolge der Widgets (Keys) – Grundlage des späteren Default-Layouts. */
+/** Standardreihenfolge der Widgets (Keys). */
 export const DEFAULT_WIDGET_ORDER = Object.keys(DASHBOARD_WIDGETS);
+
+/**
+ * Explizites Default-Layout (12-Spalten-Raster). Bewusst gesetzt statt Auto-Flow,
+ * damit das Board frisch/zurückgesetzt eine durchdachte Anordnung zeigt:
+ * Kennzahlen-Band oben, darunter Diagramm + Rangliste, dann Belege + Aufgaben,
+ * unten Verteilung + Suchbegriffe.
+ */
+export const DEFAULT_LAYOUT = [
+  { id: 'stats', x: 0, y: 0, w: 12, h: 2 },
+  { id: 'documentsPerYear', x: 0, y: 2, w: 8, h: 5 },
+  { id: 'topCorrespondents', x: 8, y: 2, w: 4, h: 5 },
+  { id: 'recentImports', x: 0, y: 7, w: 8, h: 4 },
+  { id: 'openTasks', x: 8, y: 7, w: 4, h: 4 },
+  { id: 'distribution', x: 0, y: 11, w: 4, h: 5 },
+  { id: 'topSearches', x: 4, y: 11, w: 8, h: 4 },
+];
