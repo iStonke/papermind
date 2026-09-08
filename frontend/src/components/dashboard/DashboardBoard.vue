@@ -17,32 +17,27 @@
 -->
 <template>
   <div class="dash-board" :class="{ 'is-editing': editing }">
-    <div class="dash-board__bar">
-      <button type="button" class="dash-board__btn" :class="{ 'is-active': editing }" @click="toggleEdit">
-        <v-icon size="15">{{ editing ? 'mdi-check' : 'mdi-view-dashboard-edit-outline' }}</v-icon>
-        {{ editing ? 'Fertig' : 'Anpassen' }}
-      </button>
-
-      <template v-if="editing">
-        <div class="dash-board__spacer" />
-        <div v-if="addableWidgets.length" class="dash-board__add">
-          <span class="dash-board__add-label">Hinzufügen:</span>
-          <button
-            v-for="w in addableWidgets"
-            :key="w.key"
-            type="button"
-            class="dash-board__chip"
-            @click="addWidget(w.key)"
-          >
-            <v-icon size="14">{{ w.icon }}</v-icon>
-            {{ w.label }}
-          </button>
-        </div>
-        <button type="button" class="dash-board__btn dash-board__btn--ghost" @click="resetLayout">
-          <v-icon size="15">mdi-restore</v-icon>
-          Zurücksetzen
+    <!-- Bearbeiten-Leiste nur im Anpassen-Modus; der Umschalter selbst sitzt in
+         der Seitenkopf-Buttonzeile (DashboardView). -->
+    <div v-if="editing" class="dash-board__bar">
+      <div v-if="addableWidgets.length" class="dash-board__add">
+        <span class="dash-board__add-label">Hinzufügen:</span>
+        <button
+          v-for="w in addableWidgets"
+          :key="w.key"
+          type="button"
+          class="dash-board__chip"
+          @click="addWidget(w.key)"
+        >
+          <v-icon size="14">{{ w.icon }}</v-icon>
+          {{ w.label }}
         </button>
-      </template>
+      </div>
+      <div class="dash-board__spacer" />
+      <button type="button" class="dash-board__btn dash-board__btn--ghost" @click="resetLayout">
+        <v-icon size="15">mdi-restore</v-icon>
+        Zurücksetzen
+      </button>
     </div>
 
     <div class="dash-board__scroll">
@@ -87,10 +82,15 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { GridStack } from 'gridstack';
 import 'gridstack/dist/gridstack.min.css';
 import { DASHBOARD_WIDGETS, DEFAULT_LAYOUT, DEFAULT_WIDGET_ORDER } from './widgetRegistry.js';
+
+const props = defineProps({
+  // Der Anpassen-Modus wird vom Host (DashboardView-Kopfzeile) gesteuert.
+  editing: { type: Boolean, default: false },
+});
 
 const STORAGE_KEY = 'pm.dashboard.layout.v1';
 const GRID_COLUMN = 12;
@@ -98,8 +98,24 @@ const CELL_HEIGHT = 74;
 
 const widgets = DASHBOARD_WIDGETS;
 const gridEl = ref(null);
-const editing = ref(false);
 let grid = null;
+
+// Ziehen/Skalieren an den Anpassen-Modus koppeln. nextTick, damit die reaktiv
+// ein-/ausgeblendeten Griffe (Drag-Handles) im DOM stehen, bevor gridstack sie
+// aktiviert (siehe Handle-Hinweis unten).
+function applyEditable(val) {
+  if (!grid) return;
+  grid.setStatic(!val);
+  grid.enableMove(val);
+  grid.enableResize(val);
+}
+watch(
+  () => props.editing,
+  async (val) => {
+    await nextTick();
+    applyEditable(val);
+  }
+);
 
 // `items` = Renderliste der Zellen. Nur bei Add/Remove verändert; Position/Größe
 // besitzt nach der Initialisierung gridstack. shallowRef, weil die Item-Objekte
@@ -139,18 +155,6 @@ function persist() {
     const nodes = grid.save(false); // [{id,x,y,w,h}, …]
     localStorage.setItem(STORAGE_KEY, JSON.stringify(nodes));
   } catch { /* Speicher nicht verfügbar – Layout bleibt nur zur Laufzeit */ }
-}
-
-async function toggleEdit() {
-  editing.value = !editing.value;
-  // Erst rendern lassen: der Drag-Handle (.dash-board__grip) entsteht reaktiv
-  // mit dem Bearbeiten-Modus. Würde setStatic(false) davor laufen, fände
-  // gridstack den Handle nicht und ließe die Karten nicht ziehen.
-  await nextTick();
-  if (!grid) return;
-  grid.setStatic(!editing.value);
-  grid.enableMove(editing.value);
-  grid.enableResize(editing.value);
 }
 
 async function addWidget(key) {
@@ -204,6 +208,9 @@ onMounted(() => {
   grid.on('change', persist);
   grid.on('added', persist);
   grid.on('removed', persist);
+  // Falls die Komponente bereits im Anpassen-Modus montiert wird (z. B. erneut
+  // gezeigt), den Zustand direkt anwenden.
+  if (props.editing) applyEditable(true);
 });
 
 onBeforeUnmount(() => {
@@ -296,12 +303,20 @@ onBeforeUnmount(() => {
   overflow-x: hidden;
 }
 
-/* gridstack-Zellinhalt trägt das jeweilige Widget randlos und füllend. */
+/* gridstack-Zellinhalt trägt das jeweilige Widget füllend. WICHTIG: kein
+   inset:0 – gridstack setzt top/right/bottom/left = --gs-item-margin-* und
+   erzeugt daraus die Abstände zwischen den Karten. */
 .dash-board :deep(.grid-stack-item-content) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  inset: 0;
+}
+
+/* Rasterinhalt bündig zum Seitenkopf: gridstack rückt die Karten um den
+   Margin (7px) ein; der negative Rand zieht die Außenkanten wieder an die
+   Kopfzeile heran (rechts vom Scrollcontainer beschnitten). */
+.dash-board :deep(.grid-stack) {
+  margin: -7px -7px 0;
 }
 
 .dash-board__widget {

@@ -16,6 +16,16 @@
             <v-icon size="15">mdi-creation</v-icon>
             KI fragen
           </button>
+          <button
+            v-if="!isEmpty"
+            type="button"
+            class="dash-btn"
+            :class="{ 'dash-btn--primary': editing }"
+            @click="editing = !editing"
+          >
+            <v-icon size="15">{{ editing ? 'mdi-check' : 'mdi-view-dashboard-edit-outline' }}</v-icon>
+            {{ editing ? 'Fertig' : 'Anpassen' }}
+          </button>
         </div>
       </header>
 
@@ -35,13 +45,13 @@
         gespeist aus der Registry) liegen in einem gridstack-Raster, das sich im
         „Anpassen“-Modus verschieben/skalieren lässt; Layout wird gemerkt.
       -->
-      <DashboardBoard v-else />
+      <DashboardBoard v-else :editing="editing" />
     </div>
   </section>
 </template>
 
 <script setup>
-import { computed, onMounted, provide } from 'vue';
+import { computed, onMounted, provide, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAuthStore } from '../stores/auth.js';
 import { useDashboardStore } from '../stores/dashboard.js';
@@ -62,6 +72,9 @@ const emit = defineEmits([
 const dashboardStore = useDashboardStore();
 const auth = useAuthStore();
 const { overview, hasLoadedOnce } = storeToRefs(dashboardStore);
+
+// Anpassen-Modus des Boards (Umschalter sitzt in der Kopfzeile).
+const editing = ref(false);
 
 // Host-Aktionen: die Widgets lesen ihre Daten selbst aus dem Store und melden
 // Interaktionen über diesen provide/inject-Kanal zurück, der sie auf die

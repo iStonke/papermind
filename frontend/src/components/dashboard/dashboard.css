@@ -1470,3 +1470,72 @@
     grid-template-rows: none;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Board-Kontext (Phase 2): Anpassungen, die NUR im gridstack-Board gelten.
+   Die Widgets füllen ihre Zelle randlos; Elemente, die früher aus dem festen
+   Raster ihre Größe bezogen (v. a. der Donut), werden hier zellabhängig gemacht.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Kennzahlen-Band als eigene Zelle: kein Außenabstand, Karten füllen die Höhe. */
+.dash-board .dash-stats {
+  height: 100%;
+  margin-bottom: 0;
+  align-content: stretch;
+}
+.dash-board .dash-stats .dash-stat {
+  height: 100%;
+  justify-content: center;
+}
+
+/* Diagramm/Rangliste/Suchen füllen ihre Zelle bereits über ihr Flex-Layout;
+   hier nur sicherstellen, dass keine erzwungene Mindesthöhe die Zelle sprengt. */
+.dash-board .dash-searches { min-height: 0; }
+.dash-board .dash-rank { flex: 1 1 auto; }
+
+/* Verteilung: Donut skaliert mit der Zelle statt fixer 96 px. */
+.dash-board .dash-donut-card {
+  display: flex;
+  flex-direction: column;
+}
+.dash-board .dash-donut-card__body {
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  overflow: hidden;
+}
+.dash-board .dash-donut {
+  width: min(190px, 58%);
+  height: auto;
+  aspect-ratio: 1 / 1;
+}
+.dash-board .dash-donut__hole { inset: 22%; }
+.dash-board .dash-donut__value { font-size: 24px; }
+.dash-board .dash-donut__label { font-size: 11px; }
+
+/* Offene Aufgaben: Aufgabentext bekommt Vorrang und die volle Zeilenbreite;
+   Notiztitel + Fälligkeit rücken darunter (behebt das Kollabieren des Textes
+   zu „Ei…/Q…“, als der Notiztitel fix 160 px hielt). */
+.dash-board .dash-tasks__row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    'check text'
+    'check aside';
+  column-gap: 10px;
+  row-gap: 2px;
+  align-items: start;
+}
+.dash-board .dash-tasks__check {
+  grid-area: check;
+  align-self: start;
+  margin-top: 2px;
+}
+.dash-board .dash-tasks__text { grid-area: text; }
+.dash-board .dash-tasks__aside {
+  grid-area: aside;
+  gap: 8px;
+  min-width: 0;
+}
+.dash-board .dash-tasks__note { max-width: 100%; }
