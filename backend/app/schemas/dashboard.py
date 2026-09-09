@@ -82,6 +82,7 @@ class DashboardTaskItem(BaseModel):
     text: str
     due_date: str | None = None  # ISO date
     overdue: bool = False
+    done: bool = False  # erledigte Aufgaben bleiben (durchgestrichen, oben) bestehen
 
 
 class DashboardOverviewResponse(BaseModel):

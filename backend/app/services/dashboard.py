@@ -444,46 +444,59 @@ class DashboardService:
         return items
 
     # ── Offene Aufgaben aus Notizen (M6 Teil B) ─────────────────────────────
-    def _open_tasks(self, today: date, limit: int = 8):
-        """Offene Aufgaben des Owners über alle (aktiven) Notizen.
+    def _open_tasks(self, today: date, open_limit: int = 8, done_limit: int = 5):
+        """Aufgaben des Owners über alle (aktiven) Notizen für die Kachel.
 
-        Sortierung: fällige/datierte zuerst (Fälligkeit aufsteigend), undatierte
-        danach nach Notiz-Aktualität. Vorlagen und Papierkorb bleiben außen vor.
+        Liefert die offenen Aufgaben (fällige/datierte zuerst, dann nach Notiz-
+        Aktualität) UND die zuletzt erledigten (max. ``done_limit``, nach Notiz-
+        Aktualität). Erledigte stehen vorn (oben in der Kachel, durchgestrichen)
+        und bleiben so bestehen; ältere fallen aus der Kappung. Der Zähler zählt
+        weiterhin nur die OFFENEN Aufgaben. Vorlagen/Papierkorb bleiben außen vor.
         """
         note_owner = (Note.owner_id == self.owner_id) if self.owner_id is not None else true()
-        base = (
-            select(NoteTask, Note.id.label("note_id"), Note.title.label("note_title"))
-            .join(Note, Note.id == NoteTask.note_id)
-            .where(
-                note_owner,
-                Note.is_deleted.is_(False),
-                Note.is_template.is_(False),
-                NoteTask.done.is_(False),
+
+        def base(done_value: bool):
+            return (
+                select(NoteTask, Note.id.label("note_id"), Note.title.label("note_title"))
+                .join(Note, Note.id == NoteTask.note_id)
+                .where(
+                    note_owner,
+                    Note.is_deleted.is_(False),
+                    Note.is_template.is_(False),
+                    NoteTask.done.is_(done_value),
+                )
             )
-        )
-        total = int(
-            self.db.scalar(select(func.count()).select_from(base.subquery())) or 0
+
+        open_base = base(False)
+        open_total = int(
+            self.db.scalar(select(func.count()).select_from(open_base.subquery())) or 0
         )
         # NULLS LAST für undatierte Aufgaben; sonst nach Fälligkeit, dann Notiz.
-        rows = self.db.execute(
-            base.order_by(
+        open_rows = self.db.execute(
+            open_base.order_by(
                 NoteTask.due_date.asc().nulls_last(),
                 Note.updated_at.desc(),
                 NoteTask.position.asc(),
-            ).limit(limit)
+            ).limit(open_limit)
+        ).all()
+        # Zuletzt erledigte (nach Notiz-Aktualität = grob „zuletzt abgehakt").
+        done_rows = self.db.execute(
+            base(True).order_by(Note.updated_at.desc(), NoteTask.position.asc()).limit(done_limit)
         ).all()
 
-        items: list[DashboardTaskItem] = []
-        for task, note_id, note_title in rows:
+        def build(row, done: bool) -> DashboardTaskItem:
+            task, note_id, note_title = row
             text = (task.text or "").strip()
-            items.append(
-                DashboardTaskItem(
-                    note_id=str(note_id),
-                    position=int(task.position or 0),
-                    note_title=(note_title or "").strip() or "Ohne Titel",
-                    text=text or "Aufgabe ohne Text",
-                    due_date=task.due_date.isoformat() if task.due_date else None,
-                    overdue=bool(task.due_date and task.due_date < today),
-                )
+            return DashboardTaskItem(
+                note_id=str(note_id),
+                position=int(task.position or 0),
+                note_title=(note_title or "").strip() or "Ohne Titel",
+                text=text or "Aufgabe ohne Text",
+                due_date=task.due_date.isoformat() if task.due_date else None,
+                overdue=bool((not done) and task.due_date and task.due_date < today),
+                done=done,
             )
-        return items, total
+
+        # Erledigte zuerst (oben), dann offene.
+        items = [build(r, True) for r in done_rows] + [build(r, False) for r in open_rows]
+        return items, open_total

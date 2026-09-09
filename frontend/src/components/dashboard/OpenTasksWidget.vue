@@ -1,12 +1,13 @@
 <!--
-  OpenTasksWidget — offene Aufgaben (taskItem) über alle Notizen.
+  OpenTasksWidget — Aufgaben (taskItem) über alle Notizen.
 
-  - Die Checkbox hakt die Aufgabe DIREKT in der Notiz ab (POST …/tasks/toggle):
-    der erledigt-Status landet im ProseMirror-JSON, die Notiz zeigt denselben
-    Zustand. Erledigte Aufgaben verschwinden danach aus dieser Liste.
-  - Ein Klick auf den Aufgabentext springt zur Notiz (pm-note:navigate, auf das
-    DocumentsWorkspace hört). Das Abhaken allein springt NICHT (getrennte
-    Interaktionsflächen: Checkbox vs. Textbereich).
+  - Die Checkbox hakt die Aufgabe DIREKT in der Notiz ab/auf (POST …/tasks/toggle):
+    der Status landet im ProseMirror-JSON, die Notiz zeigt denselben Zustand.
+  - Erledigte Aufgaben verschwinden NICHT, sondern bleiben durchgestrichen und
+    wandern (animiert) nach oben. Es bleiben höchstens 5 erledigte bestehen
+    (ältere fallen weg); der Server liefert sie entsprechend gekappt.
+  - Ein Klick auf den Aufgabentext springt zur Notiz (pm-note:navigate). Das
+    Abhaken allein springt NICHT (getrennte Flächen: Checkbox vs. Textbereich).
 
   Neutrale Checklisten (checkListItem) erscheinen hier bewusst NICHT –
   siehe note_task/extract_note_tasks.
@@ -15,17 +16,23 @@
   <article class="dash-card dash-tasks">
     <div class="dash-tasks__head">
       <h2 class="dash-card__title">Offene Aufgaben</h2>
-      <span v-if="openCount" class="dash-tasks__count">{{ formatInt(openCount) }}</span>
+      <span v-if="overview.open_tasks_total" class="dash-tasks__count">{{ formatInt(overview.open_tasks_total) }}</span>
     </div>
-    <ul v-if="visibleTasks.length" class="dash-tasks__list">
-      <li v-for="task in visibleTasks" :key="taskKey(task)">
-        <div class="dash-tasks__row" :class="{ 'is-overdue': task.overdue }">
+    <TransitionGroup
+      v-if="displayTasks.length"
+      tag="ul"
+      name="dashtask"
+      class="dash-tasks__list"
+    >
+      <li v-for="task in displayTasks" :key="taskKey(task)">
+        <div class="dash-tasks__row" :class="{ 'is-overdue': task.overdue, 'is-done': task.done }">
           <input
             type="checkbox"
             class="dash-tasks__check"
-            :aria-label="`Aufgabe „${task.text}“ als erledigt markieren`"
+            :checked="task.done"
+            :aria-label="task.done ? `Aufgabe „${task.text}“ wieder offen setzen` : `Aufgabe „${task.text}“ als erledigt markieren`"
             :disabled="pending.has(taskKey(task))"
-            @change="markDone(task)"
+            @change="toggle(task)"
           />
           <button type="button" class="dash-tasks__open" @click="openTaskNote(task.note_id)">
             <span class="dash-tasks__text">{{ task.text }}</span>
@@ -43,7 +50,7 @@
           </button>
         </div>
       </li>
-    </ul>
+    </TransitionGroup>
     <p v-else class="dash-card__empty">Keine offenen Aufgaben in deinen Notizen.</p>
   </article>
 </template>
@@ -56,22 +63,33 @@ import { toggleNoteTask } from '../../api/notes.js';
 import { formatDate, formatInt } from './dashboardShared.js';
 import './dashboard.css';
 
+const MAX_DONE = 5;
+
 const dashboardStore = useDashboardStore();
 const { overview } = storeToRefs(dashboardStore);
 
-// Optimistisch abgehakte Aufgaben, die noch aus der Liste laufen sollen, bevor
-// die Übersicht neu geladen ist. `pending` sperrt zusätzlich die Checkbox.
-const removed = reactive(new Set());
+// Läuft gerade ein Toggle-Request (sperrt die Checkbox); merkt sich zusätzlich
+// die Reihenfolge des Abhakens (höher = zuletzt), damit die zuletzt erledigte
+// Aufgabe ganz oben landet, auch vor dem Neuladen der Übersicht.
 const pending = reactive(new Set());
+const doneSeq = reactive(new Map());
+let seqCounter = 0;
 
 const taskKey = (task) => `${task.note_id}:${task.position}`;
 
-const visibleTasks = computed(() =>
-  (overview.value.open_tasks || []).filter((t) => !removed.has(taskKey(t)))
-);
-const openCount = computed(() =>
-  Math.max(0, Number(overview.value.open_tasks_total || 0) - removed.size)
-);
+// Anzeige: erledigte oben (zuletzt abgehakt zuerst, dann Serverreihenfolge),
+// gekappt auf MAX_DONE; darunter die offenen in Serverreihenfolge.
+const displayTasks = computed(() => {
+  const list = (overview.value.open_tasks || []).map((t, i) => ({ t, i }));
+  const done = list.filter((x) => x.t.done);
+  const open = list.filter((x) => !x.t.done);
+  done.sort((a, b) => {
+    const sa = doneSeq.get(taskKey(a.t)) ?? -1;
+    const sb = doneSeq.get(taskKey(b.t)) ?? -1;
+    return sb - sa || a.i - b.i;
+  });
+  return [...done.slice(0, MAX_DONE), ...open].map((x) => x.t);
+});
 
 // Öffnet die zur Aufgabe gehörende Notiz im Notizbereich (bestehender Kanal,
 // den auch Notiz-Chips/Rückverweise nutzen; DocumentsWorkspace hört darauf).
@@ -80,20 +98,24 @@ function openTaskNote(noteId) {
   window.dispatchEvent(new CustomEvent('pm-note:navigate', { detail: { type: 'note', id: noteId } }));
 }
 
-async function markDone(task) {
+async function toggle(task) {
   const key = taskKey(task);
   if (pending.has(key)) return;
+  const newDone = !task.done;
   pending.add(key);
-  removed.add(key); // optimistisch ausblenden
+  // Optimistisch: Status am Store-Item setzen (löst die Umsortierung + Animation
+  // aus). Beim Abhaken die Sequenz-Nr. erhöhen → wandert an die Spitze.
+  task.done = newDone;
+  if (newDone) doneSeq.set(key, ++seqCounter);
+  else doneSeq.delete(key);
   try {
-    await toggleNoteTask(task.note_id, task.position, true);
-    // Übersicht neu laden, damit note_task/Zähler serverseitig stimmen; die
-    // erledigte Aufgabe fällt dabei ohnehin aus open_tasks heraus.
+    await toggleNoteTask(task.note_id, task.position, newDone);
+    // Serverstand nachziehen (Zähler, gekappte Erledigten-Liste, Wahrheit = Notiz).
     await dashboardStore.fetchOverview();
-    removed.delete(key); // Serverstand ist jetzt maßgeblich
   } catch (err) {
-    removed.delete(key); // Fehlschlag: Aufgabe wieder einblenden
-    console.warn('Aufgabe konnte nicht abgehakt werden:', err);
+    task.done = !newDone; // Fehlschlag: zurücksetzen
+    if (newDone) doneSeq.delete(key);
+    console.warn('Aufgabe konnte nicht umgeschaltet werden:', err);
   } finally {
     pending.delete(key);
   }

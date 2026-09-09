@@ -363,8 +363,23 @@
   color: var(--pm-danger, #c2453b);
   font-weight: 600;
 }
+
+/* Erledigte Aufgaben: durchgestrichen und gedämpft (bleiben oben bestehen). */
+.dash-tasks__row.is-done .dash-tasks__text {
+  text-decoration: line-through;
+  color: var(--pm-muted);
+}
+
+/* Umsortier-Animation (TransitionGroup „dashtask"): abgehakte Aufgabe gleitet
+   nach oben. Bewusst nur die Move-Transition – austretende Zeilen (gekappte
+   6. Erledigte) verschwinden ohne Übergang, um den FLIP-Absolut-Sprung zu
+   vermeiden. */
+.dashtask-move {
+  transition: transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
 @media (prefers-reduced-motion: reduce) {
   .dash-tasks__row { transition: none; }
+  .dashtask-move { transition: none; }
 }
 
 /* Balkendiagramm */
