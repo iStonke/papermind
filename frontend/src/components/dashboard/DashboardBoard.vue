@@ -276,6 +276,11 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  /* Rinne für die (auf macOS überlagernde) Scrollbar reservieren, damit sie
+     nicht über der rechten Kachelkante schwebt. scrollbar-gutter deckt klassische
+     Scrollbars ab, das padding die Overlay-Variante. */
+  scrollbar-gutter: stable;
+  padding-right: 12px;
 }
 
 /* gridstack-Zellinhalt trägt das jeweilige Widget füllend. WICHTIG: kein
