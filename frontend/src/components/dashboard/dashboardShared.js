@@ -17,7 +17,6 @@ const NOOP = () => {};
 
 const FALLBACK_ACTIONS = {
   openImport: NOOP,
-  openAi: NOOP,
   openDocument: NOOP,
   attentionSelect: NOOP,
   showAllRecent: NOOP,

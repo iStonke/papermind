@@ -12,10 +12,6 @@
             <v-icon size="15">mdi-tray-arrow-up</v-icon>
             Importieren
           </button>
-          <button type="button" class="dash-btn" @click="emit('open-ai')">
-            <v-icon size="15">mdi-creation</v-icon>
-            KI fragen
-          </button>
           <button
             v-if="!isEmpty"
             type="button"
@@ -61,7 +57,6 @@ import '../components/dashboard/dashboard.css';
 
 const emit = defineEmits([
   'open-import',
-  'open-ai',
   'open-document',
   'attention-select',
   'show-all-recent',
@@ -81,7 +76,6 @@ const editing = ref(false);
 // bestehenden Component-Events des Elternteils (DocumentsWorkspace) abbildet.
 provide(DASHBOARD_ACTIONS, {
   openImport: () => emit('open-import'),
-  openAi: () => emit('open-ai'),
   openDocument: (id) => emit('open-document', id),
   attentionSelect: (key) => emit('attention-select', key),
   showAllRecent: () => emit('show-all-recent'),
