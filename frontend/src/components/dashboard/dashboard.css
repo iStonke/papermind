@@ -322,9 +322,10 @@
   max-width: 100%;
   color: var(--pm-text);
   font-size: 13.5px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* Lange Aufgaben brechen in die nächste Zeile um (statt Ellipsis); sehr lange
+     Wörter/URLs werden notfalls hart getrennt, damit nichts überläuft. */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .dash-tasks__open:hover .dash-tasks__text {
   color: var(--pm-accent);
