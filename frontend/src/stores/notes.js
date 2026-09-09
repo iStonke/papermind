@@ -213,16 +213,21 @@ export const useNotesStore = defineStore('notes', () => {
       payload.collection_id = activeCollectionId.value;
     }
     const note = cacheDetail(await api.createNote(payload));
-    notes.value.unshift({
-      id: note.id,
-      title: note.title,
-      preview: notePreview(note.body_json),
-      notebook_id: note.notebook_id ?? null,
-      collection_id: note.collection_id ?? null,
-      is_favorite: note.is_favorite ?? false,
-      created_at: note.created_at,
-      updated_at: note.updated_at,
-    });
+    // Eine Dashboard-Schnellnotiz kann gezielt in einer anderen Sammlung
+    // entstehen. Eine bereits geladene, sammlungsbezogene Liste darf sie dann
+    // nicht vorübergehend im falschen Bereich anzeigen.
+    if (!loaded.value || note.collection_id === activeCollectionId.value) {
+      notes.value.unshift({
+        id: note.id,
+        title: note.title,
+        preview: notePreview(note.body_json),
+        notebook_id: note.notebook_id ?? null,
+        collection_id: note.collection_id ?? null,
+        is_favorite: note.is_favorite ?? false,
+        created_at: note.created_at,
+        updated_at: note.updated_at,
+      });
+    }
     if (note.notebook_id) bumpNotebookCount(note.notebook_id, 1);
     if (note.collection_id) bumpCollectionCount(note.collection_id, 1);
     return note;

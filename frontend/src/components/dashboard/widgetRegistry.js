@@ -9,6 +9,7 @@
  */
 import { markRaw } from 'vue';
 import StatsWidget from './StatsWidget.vue';
+import QuickNoteWidget from './QuickNoteWidget.vue';
 import DocumentsPerYearWidget from './DocumentsPerYearWidget.vue';
 import TopCorrespondentsWidget from './TopCorrespondentsWidget.vue';
 import RecentImportsWidget from './RecentImportsWidget.vue';
@@ -27,6 +28,16 @@ export const DASHBOARD_WIDGETS = {
     defaultSize: { w: 12, h: 2 },
     minW: 6,
     minH: 2,
+  },
+  quickNote: {
+    key: 'quickNote',
+    label: 'Schnelle Notiz',
+    description: 'Gedanken direkt auf der Übersicht festhalten',
+    icon: 'mdi-note-plus-outline',
+    component: markRaw(QuickNoteWidget),
+    defaultSize: { w: 4, h: 3 },
+    minW: 3,
+    minH: 3,
   },
   documentsPerYear: {
     key: 'documentsPerYear',
@@ -104,7 +115,8 @@ export const DEFAULT_LAYOUT = [
   { id: 'documentsPerYear', x: 0, y: 2, w: 8, h: 5 },
   { id: 'topCorrespondents', x: 8, y: 2, w: 4, h: 5 },
   { id: 'recentImports', x: 0, y: 7, w: 8, h: 4 },
-  { id: 'openTasks', x: 8, y: 7, w: 4, h: 4 },
+  { id: 'quickNote', x: 8, y: 7, w: 4, h: 3 },
+  { id: 'openTasks', x: 8, y: 10, w: 4, h: 5 },
   { id: 'distribution', x: 0, y: 11, w: 4, h: 5 },
-  { id: 'topSearches', x: 4, y: 11, w: 8, h: 4 },
+  { id: 'topSearches', x: 4, y: 11, w: 4, h: 4 },
 ];

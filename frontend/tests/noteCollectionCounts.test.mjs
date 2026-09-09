@@ -48,3 +48,26 @@ test('failed creation leaves the collection count unchanged', async (t) => {
   assert.equal(store.collections[1].note_count, 1);
   assert.equal(store.notes.length, 1);
 });
+
+test('creation in another collection does not leak into the loaded active list', async (t) => {
+  const store = setup();
+  store.loaded = true;
+  const note = {
+    id: 'work-note',
+    collection_id: 'arbeit',
+    notebook_id: null,
+    title: 'Arbeit',
+    body_json: { type: 'doc', content: [{ type: 'paragraph' }] },
+  };
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(String(url).endsWith('/api/notes'), true);
+    assert.equal(JSON.parse(options.body).collection_id, 'arbeit');
+    return new Response(JSON.stringify(note), { headers: { 'Content-Type': 'application/json' } });
+  });
+
+  await store.create({ collection_id: 'arbeit' });
+
+  assert.deepEqual(store.notes.map((item) => item.id), ['first']);
+  assert.equal(store.collections[0].note_count, 4);
+  assert.equal(store.collections[1].note_count, 1);
+});
