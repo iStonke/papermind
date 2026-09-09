@@ -35,9 +35,8 @@
             <!-- Griff IMMER im DOM (nur per CSS ein-/ausgeblendet): gridstack bindet
                  das Drag-Handle beim Init/makeWidget; ein erst reaktiv erzeugter
                  Handle würde sonst nicht als ziehbar erkannt. -->
-            <div class="dash-board__grip" title="Zum Verschieben ziehen">
-              <v-icon size="16">mdi-drag</v-icon>
-              <span class="dash-board__grip-label">{{ widgets[item.id]?.label }}</span>
+            <div class="dash-board__grip" title="Zum Verschieben ziehen" aria-label="Widget verschieben">
+              <v-icon size="15">mdi-drag</v-icon>
             </div>
             <div class="dash-board__widget">
               <component :is="widgets[item.id].component" />
@@ -308,35 +307,43 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
-/* Verschiebe-Griff + Entfernen: immer im DOM, aber nur im Bearbeiten-Modus
-   sichtbar (siehe Kommentar im Template). */
+/* Verschiebe-Griff: nur im Bearbeiten-Modus sichtbar. Als kleine, ÜBERLAGERNDE
+   Drag-Pille oben-mittig – so nimmt sie keine Höhe weg (keine abgeschnittenen
+   Kacheln), dupliziert keinen Titel und sitzt über dem meist leeren Zentrum
+   (verdeckt weder Titel links noch „Alle anzeigen" rechts). */
 .dash-board__grip { display: none; }
 .dash-board.is-editing .dash-board__grip {
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 6px 0 4px;
-  flex: none;
-  color: var(--pm-muted);
+  justify-content: center;
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  height: 18px;
+  padding: 0 10px;
+  border-radius: 100px;
+  color: var(--pm-accent);
+  background: color-mix(in srgb, var(--pm-accent) 15%, var(--pm-v-card, var(--pm-app-surface-raised)));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
   cursor: grab;
-  border-bottom: 1px dashed var(--pm-divider);
-  background: color-mix(in srgb, var(--pm-accent) 5%, transparent);
 }
-.dash-board__grip:active { cursor: grabbing; }
-.dash-board__grip-label {
-  font-size: 11.5px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1 1 auto;
-}
+.dash-board.is-editing .dash-board__grip:active { cursor: grabbing; }
+
 /* Im Bearbeiten-Modus die Karten leicht „anfassbar“ rahmen. */
 .dash-board.is-editing :deep(.grid-stack-item-content) {
   outline: 1px dashed color-mix(in srgb, var(--pm-accent) 30%, transparent);
   outline-offset: -1px;
   border-radius: 16px;
+}
+
+/* Rechts Platz für das Verwaltungsfenster reservieren, damit keine Kachel (und
+   damit kein Resize-Anfasser) darunter liegt. Die %-basierten gridstack-Items
+   stauchen sich automatisch mit der schmaleren Fläche. */
+.dash-board.is-editing .dash-board__scroll {
+  padding-right: 280px; /* ≈ Fensterbreite (264) + rechter Versatz (24) minus dem
+                           bereits vorhandenen Seiten-Innenabstand */
 }
 
 /* ── Verwaltungsfenster (schwebend, nicht modal) ──────────────────────────── */
