@@ -5,6 +5,8 @@
     :width="width"
     :persistent="persistent"
     :scrollable="scrollable"
+    :scrim="scrim"
+    :content-class="contentClass"
     transition="pm-dialog"
     @update:model-value="onModelUpdate"
   >
@@ -119,6 +121,8 @@ const props = defineProps({
   dangerRequireConfirmText: { type: String, default: '' },
   guardClose: { type: Boolean, default: false },
   scrollable: { type: Boolean, default: false },
+  scrim: { type: [Boolean, String], default: true },
+  contentClass: { type: [String, Array, Object], default: '' },
   cardClass: { type: [String, Array, Object], default: '' },
   headerClass: { type: [String, Array, Object], default: '' },
   bodyClass: { type: [String, Array, Object], default: '' },

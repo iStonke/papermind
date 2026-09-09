@@ -13,6 +13,15 @@
             Importieren
           </button>
           <button
+            v-if="editing"
+            type="button"
+            class="dash-btn"
+            @click="openWidgetManager"
+          >
+            <v-icon size="15">mdi-view-dashboard-edit-outline</v-icon>
+            Widgets
+          </button>
+          <button
             v-if="!isEmpty"
             type="button"
             class="dash-btn"
@@ -41,7 +50,7 @@
         gespeist aus der Registry) liegen in einem gridstack-Raster, das sich im
         „Anpassen“-Modus verschieben/skalieren lässt; Layout wird gemerkt.
       -->
-      <DashboardBoard v-else v-model:editing="editing" />
+      <DashboardBoard ref="dashboardBoard" v-else v-model:editing="editing" />
     </div>
   </section>
 </template>
@@ -70,6 +79,11 @@ const { overview, hasLoadedOnce } = storeToRefs(dashboardStore);
 
 // Anpassen-Modus des Boards (Umschalter sitzt in der Kopfzeile).
 const editing = ref(false);
+const dashboardBoard = ref(null);
+
+function openWidgetManager() {
+  dashboardBoard.value?.openManager();
+}
 
 // Host-Aktionen: die Widgets lesen ihre Daten selbst aus dem Store und melden
 // Interaktionen über diesen provide/inject-Kanal zurück, der sie auf die

@@ -21,6 +21,7 @@ export const DASHBOARD_WIDGETS = {
   stats: {
     key: 'stats',
     label: 'Kennzahlen',
+    description: 'Dokumentbestand und Entwicklung auf einen Blick',
     icon: 'mdi-numeric',
     component: markRaw(StatsWidget),
     defaultSize: { w: 12, h: 2 },
@@ -30,6 +31,7 @@ export const DASHBOARD_WIDGETS = {
   documentsPerYear: {
     key: 'documentsPerYear',
     label: 'Dokumente pro Jahr',
+    description: 'Jahresverlauf und kumulierte Entwicklung',
     icon: 'mdi-chart-timeline-variant',
     component: markRaw(DocumentsPerYearWidget),
     defaultSize: { w: 7, h: 5 },
@@ -39,6 +41,7 @@ export const DASHBOARD_WIDGETS = {
   topCorrespondents: {
     key: 'topCorrespondents',
     label: 'Top-Korrespondenten',
+    description: 'Deine wichtigsten Absender und Kontakte',
     icon: 'mdi-account-group-outline',
     component: markRaw(TopCorrespondentsWidget),
     defaultSize: { w: 5, h: 5 },
@@ -48,6 +51,7 @@ export const DASHBOARD_WIDGETS = {
   recentImports: {
     key: 'recentImports',
     label: 'Zuletzt importiert',
+    description: 'Die neuesten Dokumente in deiner Bibliothek',
     icon: 'mdi-tray-arrow-down',
     component: markRaw(RecentImportsWidget),
     defaultSize: { w: 7, h: 5 },
@@ -57,6 +61,7 @@ export const DASHBOARD_WIDGETS = {
   openTasks: {
     key: 'openTasks',
     label: 'Offene Aufgaben',
+    description: 'Aufgaben aus deinen Notizen im Überblick',
     icon: 'mdi-checkbox-marked-circle-outline',
     component: markRaw(OpenTasksWidget),
     defaultSize: { w: 5, h: 4 },
@@ -66,6 +71,7 @@ export const DASHBOARD_WIDGETS = {
   topSearches: {
     key: 'topSearches',
     label: 'Häufig gesucht',
+    description: 'Deine meistverwendeten Suchbegriffe',
     icon: 'mdi-magnify',
     component: markRaw(TopSearchesWidget),
     defaultSize: { w: 4, h: 4 },
@@ -75,6 +81,7 @@ export const DASHBOARD_WIDGETS = {
   distribution: {
     key: 'distribution',
     label: 'Verteilung',
+    description: 'Dokumenttypen und ihre Anteile',
     icon: 'mdi-chart-donut',
     component: markRaw(DistributionWidget),
     defaultSize: { w: 5, h: 5 },

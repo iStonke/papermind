@@ -1512,6 +1512,7 @@
 </template>
 
 <script setup>
+import { rememberBootTheme } from '../utils/bootTheme.js';
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRoute, useRouter } from 'vue-router';
@@ -4167,6 +4168,7 @@ function resolveThemeName(mode) {
 }
 
 function applyThemeFromSettings() {
+  rememberBootTheme(appSettings.value.ui.theme_mode);
   const themeName = resolveThemeName(appSettings.value.ui.theme_mode);
   theme.global.name.value = themeName;
   document.documentElement.dataset.theme = themeName;

@@ -27,8 +27,12 @@
       <li v-for="(task, index) in displayTasks" :key="taskKey(task)">
         <div
           class="dash-tasks__row"
-          :class="{ 'is-overdue': task.overdue, 'is-done': task.done }"
-          :style="{ animationDelay: `${index * 50}ms` }"
+          :class="{
+            'is-overdue': task.overdue,
+            'is-done': task.done,
+            'is-intro': introActive,
+          }"
+          :style="introActive ? { animationDelay: `${index * 50}ms` } : undefined"
         >
           <input
             type="checkbox"
@@ -60,7 +64,7 @@
 </template>
 
 <script setup>
-import { computed, reactive } from 'vue';
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useDashboardStore } from '../../stores/dashboard.js';
 import { toggleNoteTask } from '../../api/notes.js';
@@ -78,6 +82,9 @@ const { overview } = storeToRefs(dashboardStore);
 const pending = reactive(new Set());
 const doneSeq = reactive(new Map());
 let seqCounter = 0;
+const introActive = ref(false);
+let introStarted = false;
+let introTimer = null;
 
 const taskKey = (task) => `${task.note_id}:${task.position}`;
 
@@ -93,6 +100,26 @@ const displayTasks = computed(() => {
     return sb - sa || a.i - b.i;
   });
   return [...open, ...done.slice(0, MAX_DONE)].map((x) => x.t);
+});
+
+// Pro Mount genau einmal starten. So wird die Staffelung beim Öffnen der
+// Übersicht abgespielt, aber nicht bei späteren Store-Updates oder beim Abhaken.
+watch(
+  () => displayTasks.value.length,
+  (count) => {
+    if (!count || introStarted) return;
+    introStarted = true;
+    introActive.value = true;
+    introTimer = window.setTimeout(() => {
+      introActive.value = false;
+      introTimer = null;
+    }, 340 + Math.max(0, count - 1) * 50);
+  },
+  { immediate: true },
+);
+
+onBeforeUnmount(() => {
+  if (introTimer !== null) window.clearTimeout(introTimer);
 });
 
 // Öffnet die zur Aufgabe gehörende Notiz im Notizbereich (bestehender Kanal,
