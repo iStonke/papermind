@@ -252,12 +252,14 @@
   padding: 16px 18px 14px;
   display: flex;
   flex-direction: column;
+  min-height: 0; /* erlaubt der Liste, innerhalb der Zelle zu scrollen */
 }
 .dash-tasks__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex: none; /* Kopf bleibt stehen, nur die Liste scrollt */
 }
 .dash-tasks__count {
   min-width: 22px;
@@ -276,6 +278,9 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto; /* längere Liste scrollt innerhalb der Kachel statt abzuschneiden */
 }
 /* Zeile: links die abhakbare Checkbox, rechts der klickbare Textbereich (springt
    zur Notiz). Bewusst getrennte Interaktionsflächen. */
