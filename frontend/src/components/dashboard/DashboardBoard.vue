@@ -269,6 +269,10 @@ onBeforeUnmount(() => {
   flex-direction: column;
   min-height: 0;
   flex: 1 1 auto;
+  /* Bis an die Fensterkante ausdehnen (über den horizontalen Seitenabstand des
+     Elternteils hinaus), damit die Scrollbar rechts NEBEN dem ausgerichteten
+     Inhalt schwebt statt über den Kacheln. */
+  margin-right: calc(-1 * var(--dash-pad-x, 30px));
 }
 
 .dash-board__scroll {
@@ -276,11 +280,10 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  /* Rinne für die (auf macOS überlagernde) Scrollbar reservieren, damit sie
-     nicht über der rechten Kachelkante schwebt. scrollbar-gutter deckt klassische
-     Scrollbars ab, das padding die Overlay-Variante. */
-  scrollbar-gutter: stable;
-  padding-right: 12px;
+  /* Kacheln enden exakt beim Seitenabstand (bündig zum Kopf); die restliche
+     Breite bis zur Fensterkante ist die Scrollbar-Rinne. Minus 7px, weil die
+     gridstack-Karten ihrerseits um den Margin (7px) eingerückt sind. */
+  padding-right: calc(var(--dash-pad-x, 30px) - 7px);
 }
 
 /* gridstack-Zellinhalt trägt das jeweilige Widget füllend. WICHTIG: kein
@@ -348,8 +351,9 @@ onBeforeUnmount(() => {
    damit kein Resize-Anfasser) darunter liegt. Die %-basierten gridstack-Items
    stauchen sich automatisch mit der schmaleren Fläche. */
 .dash-board.is-editing .dash-board__scroll {
-  padding-right: 280px; /* ≈ Fensterbreite (264) + rechter Versatz (24) minus dem
-                           bereits vorhandenen Seiten-Innenabstand */
+  /* Das Board reicht bis zur Fensterkante; hier von dort aus so viel reservieren,
+     dass keine Kachel unter dem Fenster (rechts:24 + Breite:264 = 288) liegt. */
+  padding-right: 300px;
 }
 
 /* ── Verwaltungsfenster (schwebend, nicht modal) ──────────────────────────── */

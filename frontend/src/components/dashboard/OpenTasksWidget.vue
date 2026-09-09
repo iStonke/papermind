@@ -24,8 +24,12 @@
       name="dashtask"
       class="dash-tasks__list"
     >
-      <li v-for="task in displayTasks" :key="taskKey(task)">
-        <div class="dash-tasks__row" :class="{ 'is-overdue': task.overdue, 'is-done': task.done }">
+      <li v-for="(task, index) in displayTasks" :key="taskKey(task)">
+        <div
+          class="dash-tasks__row"
+          :class="{ 'is-overdue': task.overdue, 'is-done': task.done }"
+          :style="{ animationDelay: `${index * 50}ms` }"
+        >
           <input
             type="checkbox"
             class="dash-tasks__check"
