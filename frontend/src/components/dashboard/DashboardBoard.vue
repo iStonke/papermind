@@ -287,11 +287,12 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-/* Rasterinhalt bündig zum Seitenkopf: gridstack rückt die Karten um den
-   Margin (7px) ein; der negative Rand zieht die Außenkanten wieder an die
-   Kopfzeile heran (rechts vom Scrollcontainer beschnitten). */
+/* Rasterinhalt bündig zum Seitenkopf: gridstack rückt die Karten um den Margin
+   (7px) ein; der negative Rand zieht die linke (und obere) Außenkante an die
+   Kopfzeile heran. RECHTS bewusst 0 – ein negativer rechter Rand schöbe die
+   Karten in die Scrollbar-Rinne, sodass die Scrollbar hinter den Kacheln läge. */
 .dash-board :deep(.grid-stack) {
-  margin: -7px -7px 0;
+  margin: -7px 0 0 -7px;
 }
 
 .dash-board__widget {
