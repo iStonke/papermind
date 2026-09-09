@@ -411,6 +411,7 @@ import { isNoteEmpty, useNotesStore } from '../stores/notes.js';
 import { useSettingsStore } from '../stores/settings.js';
 import { notifyNoteDeleted } from '../utils/noteDeletionFeedback.js';
 import { groupNotesByCreationDay } from '../utils/noteDateGroups.js';
+import { normalizeCollectionColor } from '../utils/noteCollectionColor.js';
 
 const props = defineProps({
   /** Suchtext aus der globalen PaperMind-Seitenleiste. */
@@ -456,7 +457,7 @@ const activeCollection = computed(
 );
 const activeCollectionName = computed(() => activeCollection.value?.name || 'Sammlung');
 function collectionDotStyle(c) {
-  return { '--pm-coll-dot': c?.color || 'var(--pm-accent, #006b75)' };
+  return { '--pm-coll-dot': normalizeCollectionColor(c?.color) || 'var(--pm-accent, #006b75)' };
 }
 async function switchCollection(id) {
   if (!id || id === activeCollectionId.value) return;

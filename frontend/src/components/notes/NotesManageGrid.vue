@@ -414,7 +414,7 @@
                         :key="color"
                         type="button"
                         class="nmg__nb-color"
-                        :class="{ 'is-active': c.color === color }"
+                        :class="{ 'is-active': normalizeCollectionColor(c.color) === color }"
                         :style="{ '--nb-swatch': color }"
                         :title="`Farbe ${color}`"
                         :aria-label="`Farbe ${color}`"
@@ -718,7 +718,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { noteCollectionColor } from '../../utils/noteCollectionColor.js';
+import { COLLECTION_RED, normalizeCollectionColor, noteCollectionColor } from '../../utils/noteCollectionColor.js';
 import { noteMatchesDateRange } from '../../utils/noteDateFilter.js';
 import { sortNoteItems } from '../../utils/noteSort.js';
 import { useNoteListPreferences } from './composables/useNoteListPreferences.js';
@@ -787,7 +787,7 @@ const collectionDeleteTargets = computed(() =>
   collections.value.filter((c) => c.id !== collectionDelete.value.collection?.id),
 );
 function collectionDotStyle(c) {
-  return { '--nmg-coll-dot': c?.color || 'var(--pm-accent, #006b75)' };
+  return { '--nmg-coll-dot': normalizeCollectionColor(c?.color) || 'var(--pm-accent, #006b75)' };
 }
 
 const notebooks = computed(() => notesStore.notebooks);
@@ -1469,7 +1469,19 @@ async function commitRenameNotebook(nb) {
 }
 
 // Kompakte, in beiden Themes tragfähige Sammlungsfarben.
-const COLLECTION_COLORS = ['#0d9488', '#2563eb', '#7c3aed', '#db2777', '#c2410c', '#ca8a04', '#4b5563'];
+const COLLECTION_COLORS = [
+  '#16a34a',
+  '#65a30d',
+  '#0d9488',
+  '#0891b2',
+  '#2563eb',
+  '#4f46e5',
+  '#7c3aed',
+  COLLECTION_RED,
+  '#c2410c',
+  '#ca8a04',
+  '#4b5563',
+];
 
 function requestNotebookDeletion(nb) {
   if (busy.value || !nb?.id) return;
@@ -1560,7 +1572,7 @@ async function commitRenameCollection(c) {
 }
 
 async function setCollectionColor(c, color) {
-  const next = c.color === color ? null : color; // erneute Wahl = zurücksetzen
+  const next = normalizeCollectionColor(c.color) === color ? null : color; // erneute Wahl = zurücksetzen
   try {
     await notesStore.updateCollection(c.id, { color: next });
   } catch (error) {
@@ -2107,12 +2119,12 @@ function formatDate(value) {
   letter-spacing: 0.005em;
 }
 .nmg__nb-colors {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(6, 16px);
   align-items: center;
-  gap: 5px;
-  flex-wrap: nowrap;
+  gap: 10px 8px;
   justify-content: space-between;
-  padding: 6px 10px 5px;
+  padding: 8px 10px;
 }
 .nmg__action-menu .nmg__nb-color {
   width: 16px;
