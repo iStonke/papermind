@@ -449,7 +449,7 @@ class DashboardService:
 
         Liefert die offenen Aufgaben (fällige/datierte zuerst, dann nach Notiz-
         Aktualität) UND die zuletzt erledigten (max. ``done_limit``, nach Notiz-
-        Aktualität). Erledigte stehen vorn (oben in der Kachel, durchgestrichen)
+        Aktualität). Erledigte stehen hinten (unten in der Kachel, durchgestrichen)
         und bleiben so bestehen; ältere fallen aus der Kappung. Der Zähler zählt
         weiterhin nur die OFFENEN Aufgaben. Vorlagen/Papierkorb bleiben außen vor.
         """
@@ -497,6 +497,6 @@ class DashboardService:
                 done=done,
             )
 
-        # Erledigte zuerst (oben), dann offene.
-        items = [build(r, True) for r in done_rows] + [build(r, False) for r in open_rows]
+        # Offene zuerst (oben), dann erledigte (unten in der Kachel).
+        items = [build(r, False) for r in open_rows] + [build(r, True) for r in done_rows]
         return items, open_total

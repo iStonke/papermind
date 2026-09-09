@@ -4,7 +4,7 @@
   - Die Checkbox hakt die Aufgabe DIREKT in der Notiz ab/auf (POST …/tasks/toggle):
     der Status landet im ProseMirror-JSON, die Notiz zeigt denselben Zustand.
   - Erledigte Aufgaben verschwinden NICHT, sondern bleiben durchgestrichen und
-    wandern (animiert) nach oben. Es bleiben höchstens 5 erledigte bestehen
+    wandern (animiert) nach unten. Es bleiben höchstens 5 erledigte bestehen
     (ältere fallen weg); der Server liefert sie entsprechend gekappt.
   - Ein Klick auf den Aufgabentext springt zur Notiz (pm-note:navigate). Das
     Abhaken allein springt NICHT (getrennte Flächen: Checkbox vs. Textbereich).
@@ -77,18 +77,18 @@ let seqCounter = 0;
 
 const taskKey = (task) => `${task.note_id}:${task.position}`;
 
-// Anzeige: erledigte oben (zuletzt abgehakt zuerst, dann Serverreihenfolge),
-// gekappt auf MAX_DONE; darunter die offenen in Serverreihenfolge.
+// Anzeige: offene oben (Serverreihenfolge); darunter die erledigten (zuletzt
+// abgehakt zuerst, dann Serverreihenfolge), gekappt auf MAX_DONE.
 const displayTasks = computed(() => {
   const list = (overview.value.open_tasks || []).map((t, i) => ({ t, i }));
-  const done = list.filter((x) => x.t.done);
   const open = list.filter((x) => !x.t.done);
+  const done = list.filter((x) => x.t.done);
   done.sort((a, b) => {
     const sa = doneSeq.get(taskKey(a.t)) ?? -1;
     const sb = doneSeq.get(taskKey(b.t)) ?? -1;
     return sb - sa || a.i - b.i;
   });
-  return [...done.slice(0, MAX_DONE), ...open].map((x) => x.t);
+  return [...open, ...done.slice(0, MAX_DONE)].map((x) => x.t);
 });
 
 // Öffnet die zur Aufgabe gehörende Notiz im Notizbereich (bestehender Kanal,
@@ -104,7 +104,8 @@ async function toggle(task) {
   const newDone = !task.done;
   pending.add(key);
   // Optimistisch: Status am Store-Item setzen (löst die Umsortierung + Animation
-  // aus). Beim Abhaken die Sequenz-Nr. erhöhen → wandert an die Spitze.
+  // aus). Beim Abhaken die Sequenz-Nr. erhöhen → oberste der Erledigten (direkt
+  // unter den offenen Aufgaben).
   task.done = newDone;
   if (newDone) doneSeq.set(key, ++seqCounter);
   else doneSeq.delete(key);
