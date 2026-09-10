@@ -153,6 +153,7 @@ export {
   mdiNotebookMultiple,
   mdiNotebookOutline,
   mdiNotebookPlusOutline,
+  mdiNoteMultipleOutline,
   mdiNoteOutline,
   mdiNotePlusOutline,
   mdiNoteSearchOutline,

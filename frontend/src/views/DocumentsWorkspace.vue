@@ -315,8 +315,6 @@
         <DashboardView
           v-if="!isDossierRoute && !isWikiRoute && activeView === 'dashboard'"
           class="panel panel-dashboard"
-          @open-import="openImport"
-          @open-scan="openImport"
           @open-ai="openAiView"
           @open-document="openDocumentFromDashboard"
           @attention-select="handleDashboardAttention"
@@ -13688,10 +13686,9 @@ onBeforeUnmount(() => {
 
 .pm-prop-row {
   --pm-prop-label-w: clamp(116px, 15vw, 140px);
-  --pm-prop-value-w: 330px;
   position: relative;
   display: grid;
-  grid-template-columns: var(--pm-prop-label-w) minmax(0, min(var(--pm-prop-value-w), calc(100% - var(--pm-prop-label-w) - 10px)));
+  grid-template-columns: var(--pm-prop-label-w) minmax(0, 1fr);
   align-items: center;
   gap: 10px;
 }
@@ -13709,22 +13706,6 @@ onBeforeUnmount(() => {
 
 .pm-prop-row--top {
   align-items: start;
-}
-
-.pm-prop-row--text {
-  --pm-prop-value-w: 330px;
-}
-
-.pm-prop-row--medium {
-  --pm-prop-value-w: 330px;
-}
-
-.pm-prop-row--date {
-  --pm-prop-value-w: 330px;
-}
-
-.pm-prop-row--tags {
-  --pm-prop-value-w: 330px;
 }
 
 .pm-prop-key {

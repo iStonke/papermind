@@ -8,9 +8,11 @@
   <section class="doc-notes" aria-label="Notizen zu diesem Dokument">
     <header class="doc-notes__header">
       <div class="doc-notes__heading">
-        <v-icon size="16">mdi-note-outline</v-icon>
+        <span class="doc-notes__heading-icon" aria-hidden="true">
+          <v-icon size="17">mdi-note-multiple-outline</v-icon>
+        </span>
         <span>Verknüpfte Notizen</span>
-        <span v-if="notes.length" class="doc-notes__count">{{ notes.length }}</span>
+        <span class="doc-notes__count">{{ notes.length }}</span>
       </div>
       <v-btn
         class="doc-notes__new"
@@ -21,7 +23,7 @@
         @click="emit('new-note')"
       >
         <v-icon size="16" class="mr-1">mdi-plus</v-icon>
-        Neue Notiz
+        Notiz hinzufügen
       </v-btn>
     </header>
 
@@ -30,17 +32,29 @@
     </div>
 
     <div v-else-if="!notes.length" class="doc-notes__empty">
-      Noch keine Notizen zu diesem Dokument.
+      <span class="doc-notes__empty-icon" aria-hidden="true">
+        <v-icon size="22">mdi-note-plus-outline</v-icon>
+      </span>
+      <strong>Noch keine verknüpften Notizen</strong>
+      <span>Erstelle eine Notiz direkt zu diesem Dokument.</span>
     </div>
 
     <ul v-else class="doc-notes__list">
       <li v-for="note in notes" :key="note.id">
         <button type="button" class="doc-notes__item" @click="emit('open-note', note.id)">
-          <span class="doc-notes__item-title" :class="{ 'is-untitled': !note.title?.trim() }">
-            {{ note.title?.trim() || 'Ohne Titel' }}
+          <span class="doc-notes__item-icon" aria-hidden="true">
+            <v-icon size="17">mdi-note-text-outline</v-icon>
           </span>
-          <span v-if="note.preview?.trim()" class="doc-notes__item-snippet">{{ note.preview }}</span>
-          <span class="doc-notes__item-date">{{ formatDate(note.updated_at) }}</span>
+          <span class="doc-notes__item-copy">
+            <span class="doc-notes__item-title" :class="{ 'is-untitled': !note.title?.trim() }">
+              {{ note.title?.trim() || 'Ohne Titel' }}
+            </span>
+            <span v-if="note.preview?.trim()" class="doc-notes__item-snippet">{{ note.preview }}</span>
+          </span>
+          <span class="doc-notes__item-end">
+            <span class="doc-notes__item-date">{{ formatDate(note.updated_at) }}</span>
+            <v-icon size="16">mdi-chevron-right</v-icon>
+          </span>
         </button>
       </li>
     </ul>
@@ -103,7 +117,12 @@ function formatDate(value) {
 .doc-notes {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--pm-chip-bg, #eef2f4) 62%, transparent);
 }
 
 .doc-notes__header {
@@ -116,27 +135,43 @@ function formatDate(value) {
 .doc-notes__heading {
   display: flex;
   align-items: center;
-  gap: 7px;
-  color: var(--pm-muted, #748084);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  gap: 8px;
+  min-width: 0;
+  color: var(--pm-text, #0e181b);
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.doc-notes__heading-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent);
+  color: var(--pm-accent, #006b75);
 }
 
 .doc-notes__count {
-  min-width: 18px;
+  min-width: 20px;
+  height: 20px;
   padding: 0 6px;
   border-radius: 100px;
-  background: var(--pm-viewer-surface, #eef2f4);
+  background: color-mix(in srgb, var(--pm-muted, #535e62) 12%, transparent);
   color: var(--pm-muted, #535e62);
-  font-size: 0.7rem;
+  font-size: 0.68rem;
+  line-height: 20px;
   text-align: center;
 }
 
 .doc-notes__new.v-btn {
   text-transform: none;
   letter-spacing: 0;
+  min-height: 30px;
+  padding-inline: 9px;
+  font-weight: 600;
 }
 
 .doc-notes__state {
@@ -146,38 +181,81 @@ function formatDate(value) {
 }
 
 .doc-notes__empty {
-  padding: 4px 2px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 12px 16px;
   color: var(--pm-muted, #748084);
-  font-size: 0.82rem;
+  text-align: center;
+  font-size: 0.76rem;
+}
+
+.doc-notes__empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 3px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 10%, transparent);
+  color: color-mix(in srgb, var(--pm-accent, #006b75) 78%, var(--pm-muted, #748084));
+}
+
+.doc-notes__empty strong {
+  color: var(--pm-text, #0e181b);
+  font-size: 0.84rem;
+  font-weight: 600;
 }
 
 .doc-notes__list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .doc-notes__item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
   width: 100%;
-  padding: 8px 10px;
+  padding: 9px 10px;
   border: 1px solid var(--pm-divider, #d8dfe1);
   border-radius: 10px;
-  background: var(--pm-app-surface, #fff);
+  background: var(--pm-app-surface-raised, #fff);
   cursor: pointer;
   text-align: left;
   font: inherit;
-  transition: border-color 120ms ease, background 120ms ease;
+  transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
 }
 
 .doc-notes__item:hover {
   border-color: color-mix(in srgb, var(--pm-accent, #006b75) 40%, transparent);
   background: var(--pm-row-hover, rgba(0, 107, 117, 0.04));
+  transform: translateY(-1px);
+}
+
+.doc-notes__item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 10%, transparent);
+  color: var(--pm-accent, #006b75);
+}
+
+.doc-notes__item-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .doc-notes__item-title {
@@ -202,9 +280,18 @@ function formatDate(value) {
   color: var(--pm-muted, #535e62);
   font-size: 0.7rem;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  white-space: nowrap;
+}
+
+.doc-notes__item-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--pm-muted, #535e62);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .doc-notes__item { transition: none; }
+  .doc-notes__item:hover { transform: none; }
 }
 </style>

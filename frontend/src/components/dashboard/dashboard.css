@@ -81,15 +81,15 @@
 }
 
 .dash-btn--primary {
-  color: var(--pm-accent);
-  background: color-mix(in srgb, var(--pm-accent) 13%, transparent);
-  border-color: color-mix(in srgb, var(--pm-accent) 32%, transparent);
+  color: var(--pm-on-accent);
+  background: var(--pm-accent);
+  border-color: var(--pm-accent);
 }
 
 .dash-btn--primary:hover {
-  color: var(--pm-accent);
-  background: color-mix(in srgb, var(--pm-accent) 20%, transparent);
-  border-color: color-mix(in srgb, var(--pm-accent) 45%, transparent);
+  color: var(--pm-on-accent);
+  background: color-mix(in srgb, var(--pm-accent) 88%, #000);
+  border-color: color-mix(in srgb, var(--pm-accent) 88%, #000);
 }
 
 /* ── Karten-Basis ─────────────────────────────────────────────────────── */
@@ -1058,10 +1058,9 @@
 .dash-empty__text {
   font-size: 13.5px;
   max-width: 360px;
-  margin: 0 0 18px;
+  margin: 0;
 }
 
-.dash-empty__cta { height: 40px; }
 
 /* ── Skeleton ─────────────────────────────────────────────────────────── */
 .dash-stats.is-loading .dash-stat__value,

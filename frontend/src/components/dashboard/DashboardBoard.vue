@@ -59,12 +59,12 @@
       </div>
     </div>
 
-    <!-- Die Auswahl ist ein eigener Schritt: Der Dialog verschwindet vor dem
-         Verschieben/Skalieren und kann im Bearbeitungsmodus erneut geöffnet werden. -->
+    <!-- Die Auswahl öffnet unabhängig vom Layoutmodus. Erst „Anordnen“ oder
+         ein erfolgreicher Drop schaltet das Dashboard bearbeitbar. -->
     <BaseDialog
       v-model="managerOpen"
-      title="Dashboard anpassen"
-      header-subtitle="Klicke zum Ein- oder Ausblenden – oder ziehe eine Kachel direkt ins Dashboard."
+      title="Widgets"
+      header-subtitle="Wähle Widgets aus oder ziehe sie direkt an die gewünschte Stelle."
       icon="mdi-view-dashboard-edit-outline"
       :show-footer="true"
       :show-secondary="false"
@@ -105,8 +105,14 @@
           Standard wiederherstellen
         </v-btn>
         <v-spacer />
-        <v-btn color="primary" variant="tonal" class="dash-widget-picker__continue" @click="managerOpen = false">
-          Layout bearbeiten
+        <v-btn
+          color="primary"
+          variant="tonal"
+          class="dash-widget-picker__continue"
+          prepend-icon="mdi-drag"
+          @click="startArranging"
+        >
+          Anordnen
         </v-btn>
       </template>
     </BaseDialog>
@@ -138,7 +144,7 @@ import { buildDashboardLayoutPatch } from '../../utils/settingsApi.js';
 import BaseDialog from '../BaseDialog.vue';
 
 const props = defineProps({
-  // Der Anpassen-Modus wird vom Host (DashboardView-Kopfzeile) gesteuert.
+  // Der Bearbeitungsmodus wird vom Host (DashboardView-Kopfzeile) gesteuert.
   editing: { type: Boolean, default: false },
 });
 const emit = defineEmits(['update:editing']);
@@ -166,7 +172,7 @@ let grid = null;
 let suppressPersist = false;
 let persistTimer = null;
 
-// Ziehen/Skalieren an den Anpassen-Modus koppeln. nextTick, damit die reaktiv
+// Ziehen/Skalieren an den Bearbeitungsmodus koppeln. nextTick, damit die reaktiv
 // ein-/ausgeblendeten Griffe (Drag-Handles) im DOM stehen, bevor gridstack sie
 // aktiviert (siehe Handle-Hinweis unten).
 function applyEditable(val) {
@@ -178,14 +184,18 @@ function applyEditable(val) {
 watch(
   () => props.editing,
   async (val) => {
-    managerOpen.value = val;
     await nextTick();
     applyEditable(val);
   }
 );
 
 function openManager() {
-  if (props.editing) managerOpen.value = true;
+  managerOpen.value = true;
+}
+
+function startArranging() {
+  managerOpen.value = false;
+  emit('update:editing', true);
 }
 
 defineExpose({ openManager });
@@ -381,7 +391,7 @@ function onPalettePointerUp(event) {
     window.setTimeout(() => { suppressTileClick = false; }, 0);
   }
   if (position) {
-    managerOpen.value = false;
+    startArranging();
     void placeDraggedWidget(key, position);
   }
 }
@@ -431,7 +441,7 @@ function initGrid() {
       cellHeight: CELL_HEIGHT,
       margin: 7,
       float: false,
-      staticGrid: true, // Ansichtsmodus: kein Ziehen/Skalieren bis „Anpassen“.
+      staticGrid: true, // Ansichtsmodus: kein Ziehen/Skalieren bis „Widgets“.
       handle: '.dash-board__grip',
       animate: true,
     },
@@ -440,7 +450,7 @@ function initGrid() {
   grid.on('change', schedulePersist);
   grid.on('added', schedulePersist);
   grid.on('removed', schedulePersist);
-  // Falls im Anpassen-Modus (Mount während editing, oder Reset), Zustand anwenden.
+  // Falls im Bearbeitungsmodus (Mount während editing, oder Reset), Zustand anwenden.
   if (props.editing) applyEditable(true);
 }
 

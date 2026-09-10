@@ -34,6 +34,7 @@ defineProps({
 .settings-info-card {
   --settings-info-card-surface: rgb(var(--v-theme-surface-2, var(--v-theme-surface)));
   --settings-info-card-gutter: 24px;
+  --settings-info-card-action-clearance: 12px;
 
   /* Bleibt beim Scrollen oben kleben; der Inhalt läuft darunter durch. */
   position: sticky;
@@ -45,7 +46,7 @@ defineProps({
   /* Gleicher Ruhe-Abstand oben/unten: oben = Panel-Top-Padding (12px,
      Badge sitzt am Kartenrand), unten = margin-bottom (12px). */
   margin: 0 0 12px;
-  padding-bottom: 14px;
+  padding: 0 var(--settings-info-card-action-clearance) 14px 0;
   /* Muss zur angehobenen Dialogfläche passen (BaseDialog nutzt surface-2). */
   background: var(--settings-info-card-surface);
   border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.1);
@@ -94,12 +95,18 @@ defineProps({
   opacity: 0.7;
 }
 .settings-info-card__actions {
-  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  overflow: visible;
 }
 
 @media (max-width: 640px) {
   .settings-info-card {
     --settings-info-card-gutter: 16px;
+    --settings-info-card-action-clearance: 10px;
   }
 }
 </style>

@@ -8,25 +8,12 @@
           <p class="dash-head__meta">{{ headMeta }}</p>
         </div>
         <div class="dash-head__actions">
-          <button type="button" class="dash-btn dash-btn--primary" @click="emit('open-import')">
-            <v-icon size="15">mdi-tray-arrow-up</v-icon>
-            Importieren
-          </button>
-          <button
-            v-if="editing"
-            type="button"
-            class="dash-btn"
-            @click="openWidgetManager"
-          >
-            <v-icon size="15">mdi-view-dashboard-edit-outline</v-icon>
-            Widgets
-          </button>
           <button
             v-if="!isEmpty"
             type="button"
             class="dash-btn"
             :class="{ 'dash-btn--primary': editing }"
-            @click="editing = !editing"
+            @click="onWidgetAction"
           >
             <v-icon size="15">{{ editing ? 'mdi-check' : 'mdi-view-dashboard-edit-outline' }}</v-icon>
             {{ editing ? 'Fertig' : 'Anpassen' }}
@@ -39,16 +26,12 @@
         <div class="dash-empty__icon"><v-icon size="34">mdi-view-dashboard-outline</v-icon></div>
         <h2 class="dash-empty__title">Noch keine Dokumente</h2>
         <p class="dash-empty__text">Sobald du dein erstes Dokument ablegst, erscheinen hier Kennzahlen und Auswertungen.</p>
-        <button type="button" class="dash-btn dash-btn--primary dash-empty__cta" @click="emit('open-import')">
-          <v-icon size="16">mdi-tray-arrow-up</v-icon>
-          Erstes Dokument importieren
-        </button>
       </div>
 
       <!--
         Phase 2: Konfigurierbares Board. Die Widgets (components/dashboard/,
         gespeist aus der Registry) liegen in einem gridstack-Raster, das sich im
-        „Anpassen“-Modus verschieben/skalieren lässt; Layout wird gemerkt.
+        Bearbeitungsmodus verschieben/skalieren lässt; Layout wird gemerkt.
       -->
       <DashboardBoard ref="dashboardBoard" v-else v-model:editing="editing" />
     </div>
@@ -65,7 +48,6 @@ import DashboardBoard from '../components/dashboard/DashboardBoard.vue';
 import '../components/dashboard/dashboard.css';
 
 const emit = defineEmits([
-  'open-import',
   'open-document',
   'attention-select',
   'show-all-recent',
@@ -77,7 +59,7 @@ const dashboardStore = useDashboardStore();
 const auth = useAuthStore();
 const { overview, hasLoadedOnce } = storeToRefs(dashboardStore);
 
-// Anpassen-Modus des Boards (Umschalter sitzt in der Kopfzeile).
+// Bearbeitungsmodus des Boards (Umschalter sitzt in der Kopfzeile).
 const editing = ref(false);
 const dashboardBoard = ref(null);
 
@@ -85,11 +67,18 @@ function openWidgetManager() {
   dashboardBoard.value?.openManager();
 }
 
+function onWidgetAction() {
+  if (editing.value) {
+    editing.value = false;
+    return;
+  }
+  openWidgetManager();
+}
+
 // Host-Aktionen: die Widgets lesen ihre Daten selbst aus dem Store und melden
 // Interaktionen über diesen provide/inject-Kanal zurück, der sie auf die
 // bestehenden Component-Events des Elternteils (DocumentsWorkspace) abbildet.
 provide(DASHBOARD_ACTIONS, {
-  openImport: () => emit('open-import'),
   openDocument: (id) => emit('open-document', id),
   attentionSelect: (key) => emit('attention-select', key),
   showAllRecent: () => emit('show-all-recent'),
