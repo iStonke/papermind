@@ -288,6 +288,49 @@ class ScanAutoCropTest(unittest.TestCase):
         self.assertFalse(result["applied"])
         self.assertEqual(cropped.size, page.size)
 
+    def _with_scanner_shadow(self, page):
+        rgb = np.asarray(page.convert("RGB"), dtype=np.float32)
+        x = np.linspace(0, 1, page.width)
+        # Breiter grauer Schatten bis in die leere untere A4-Haelfte.
+        illumination = 0.92 - 0.18 * np.exp(-((x - 0.10) / 0.13) ** 2)
+        return Image.fromarray((rgb * illumination[None, :, None]).astype(np.uint8))
+
+    def test_crops_card_despite_shadow_on_empty_scanner_bed(self) -> None:
+        page = self._with_scanner_shadow(self._a4_page_with_a6_card())
+        original_pixels = page.tobytes()
+
+        cropped, result = _auto_crop_scanned_page(page)
+
+        self.assertTrue(result["applied"])
+        self.assertEqual(result["format"], "A6 quer")
+        self.assertEqual(page.tobytes(), original_pixels)
+        # Die Erkennung darf die Ausgabe weder aufhellen noch verschieben.
+        self.assertEqual(cropped.tobytes(), page.crop(tuple(result["crop_box_pixels"])).tobytes())
+
+    def test_shadow_correction_preserves_content_outside_card(self) -> None:
+        page = self._a4_page_with_a6_card()
+        draw = ImageDraw.Draw(page)
+        for y in range(700, 850, 30):
+            draw.rectangle([100, y, 520, y + 5], fill=(50, 50, 50))
+        page = self._with_scanner_shadow(page)
+
+        cropped, result = _auto_crop_scanned_page(page)
+
+        self.assertFalse(result["applied"])
+        self.assertEqual(cropped.size, page.size)
+
+    def test_shadow_alone_does_not_supply_card_boundaries(self) -> None:
+        page = Image.new("RGB", (self.WIDTH, self.HEIGHT), "white")
+        draw = ImageDraw.Draw(page)
+        for y in range(70, 320, 42):
+            draw.rectangle([70, y, 530, y + 5], fill=(45, 45, 45))
+        page = self._with_scanner_shadow(page)
+
+        cropped, result = _auto_crop_scanned_page(page)
+
+        self.assertFalse(result["applied"])
+        self.assertEqual(cropped.size, page.size)
+
     def test_cleaned_pdf_uses_cropped_physical_page_size(self) -> None:
         import tempfile
         from pathlib import Path

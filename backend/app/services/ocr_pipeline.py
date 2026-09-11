@@ -209,9 +209,14 @@ def _auto_crop_scanned_page(image: Image.Image) -> tuple[Image.Image, dict[str, 
 
     work_height, work_width = working.shape[:2]
     gray = cv2.cvtColor(working, cv2.COLOR_RGB2GRAY)
-    # Scannerpapier ist fast weiss. Eine feste, bewusst niedrige Schwelle blendet
-    # Beleuchtungsverlaeufe aus, erhaelt aber Druck, Handschrift und Kartenkanten.
-    ink = (gray < 225).astype(np.uint8)
+    # Auch die leere Scannerflaeche kann durch Deckel-/Faltenschatten unter 225
+    # liegen. Vor der Inhaltspruefung deshalb langsame Helligkeitsverlaeufe
+    # herausrechnen. Nur die Erkennungsmaske wird normalisiert: keine Drehung
+    # oder Bildaenderung, damit die Crop-Koordinaten auch zum Rohscan passen.
+    gray_float = gray.astype(np.float32)
+    background = cv2.GaussianBlur(gray_float, (0, 0), max(15.0, work_width / 48.0))
+    normalized_gray = gray_float / np.maximum(background, 1.0) * 255.0
+    ink = (normalized_gray < 225).astype(np.uint8)
 
     # Den aeussersten Scanrand nicht als Kartenbegrenzung missverstehen.
     border_x = max(2, int(round(work_width * 0.018)))
