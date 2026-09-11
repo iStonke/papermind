@@ -15,8 +15,10 @@ test('minimizing an import requires at least one staged page', () => {
   );
 });
 
-test('marks pages that were automatically cropped by scan cleanup', () => {
-  assert.match(dialogSource, /v-if="autoCropForPage\(page\)\?\.applied"/);
-  assert.match(dialogSource, /class="isd-page-crop-badge"/);
-  assert.match(dialogSource, /Number\(result\?\.page_index\) === pageIndex/);
+test('shows an automatically cropped page in its actual thumbnail format', () => {
+  assert.match(dialogSource, /:style="pageThumbnailFormatStyle\(page\)"/);
+  assert.match(dialogSource, /crop\?\.cropped_size_pixels/);
+  assert.match(dialogSource, /return \{ paddingTop: `\$\{\(height \/ width\) \* 100\}%` \}/);
+  assert.doesNotMatch(dialogSource, /isd-page-crop-badge/);
+  assert.doesNotMatch(dialogSource, /isd-crop-feedback/);
 });

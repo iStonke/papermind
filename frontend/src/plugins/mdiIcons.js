@@ -78,7 +78,6 @@ export {
   mdiContrastBox,
   mdiCpu64Bit,
   mdiCreation,
-  mdiCrop,
   mdiDatabaseOutline,
   mdiDatabaseSyncOutline,
   mdiDeleteForever,

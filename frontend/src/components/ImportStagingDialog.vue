@@ -229,7 +229,7 @@
               @dragover.prevent="onPageDragOver($event, doc.id, page.id, pageIndexInDoc)"
               @drop.prevent="onPageDrop($event, doc.id, pageIndexInDoc)"
             >
-              <div class="isd-page-thumb-wrap">
+              <div class="isd-page-thumb-wrap" :style="pageThumbnailFormatStyle(page)">
                 <div class="isd-page-thumb-inner">
                   <img
                     v-if="page.thumbUrl"
@@ -247,14 +247,6 @@
                     alt=""
                   />
                   <v-icon v-else size="32" class="isd-page-thumb-placeholder-icon">mdi-file-document-outline</v-icon>
-                </div>
-                <div
-                  v-if="autoCropForPage(page)?.applied"
-                  class="isd-page-crop-badge"
-                  :title="`Automatisch auf ${autoCropForPage(page)?.format || 'Vorlage'} zugeschnitten`"
-                >
-                  <v-icon size="11">mdi-crop</v-icon>
-                  Zugeschnitten
                 </div>
                 <!-- Select-Mode Checkbox-Indikator -->
                 <div
@@ -1606,6 +1598,22 @@ function autoCropForPage(page) {
     return null;
   }
   return pages.find(result => Number(result?.page_index) === pageIndex) || null;
+}
+function pageThumbnailFormatStyle(page) {
+  const crop = autoCropForPage(page);
+  const size = crop?.cropped_size_pixels;
+  if (!crop?.applied || !Array.isArray(size) || size.length !== 2) {
+    return undefined;
+  }
+  let width = Number(size[0]);
+  let height = Number(size[1]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return undefined;
+  }
+  if ([90, 270].includes(Number(page?.rotation || 0))) {
+    [width, height] = [height, width];
+  }
+  return { paddingTop: `${(height / width) * 100}%` };
 }
 const gridScrollStyle = computed(() => ({
   '--pm-grid-min': ['100px', '140px', '185px', '240px'][gridZoomIndex.value] || '140px'
@@ -6511,7 +6519,9 @@ button.isd-dropzone__action--supplemental:focus-visible {
   border-radius: 4px;
   overflow: hidden;
   border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
-  transition: border-color 0.12s;
+  transition:
+    padding-top 240ms cubic-bezier(0.2, 0.82, 0.24, 1),
+    border-color 0.12s;
 }
 
 .isd-page-thumb-inner {
@@ -6824,25 +6834,6 @@ button.isd-dropzone__action--supplemental:focus-visible {
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: 0.02em;
-}
-
-.isd-page-crop-badge {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  z-index: 2;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 3px 5px;
-  border-radius: 5px;
-  background: rgba(var(--v-theme-primary), 0.9);
-  color: rgb(var(--v-theme-on-primary));
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: 0.01em;
 }
 
 /* Aktiver Farbmodus deutlich hervorheben: getönte Fläche + Akzent-Icon.
@@ -7513,6 +7504,7 @@ button.isd-dropzone__action--supplemental:focus-visible {
   .isd-dropzone,
   .isd-dropzone::before,
   .isd-dropzone__action,
+  .isd-page-thumb-wrap,
   .isd-feedback-text-enter-active,
   .isd-feedback-text-leave-active {
     transition: none;
@@ -7525,5 +7517,9 @@ button.isd-dropzone__action--supplemental:focus-visible {
 :global(.pm-no-animations) .isd-dz-sheet__scan,
 :global(.pm-no-animations) .isd-dropzone__action-progress::after {
   animation: none;
+}
+
+:global(.pm-no-animations) .isd-page-thumb-wrap {
+  transition: none;
 }
 </style>
