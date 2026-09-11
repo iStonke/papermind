@@ -400,7 +400,7 @@ class ImportStagingService:
             "mode": str(payload.get("mode") or "").strip(),
             "updated_at": str(payload.get("updated_at") or "").strip(),
         }
-        for key in ("started_at", "completed_at", "duration_ms", "revision", "message"):
+        for key in ("started_at", "completed_at", "duration_ms", "revision", "message", "auto_crop"):
             value = payload.get(key)
             if value not in (None, ""):
                 response[key] = value
@@ -728,12 +728,14 @@ class ImportStagingService:
         )
         candidate_path = source_path.with_name(f"{source_path.stem}.scan-cleanup.{uuid.uuid4().hex}.tmp.pdf")
         produced_path: Path | None = None
+        crop_results: list[dict[str, object]] = []
         try:
             produced_path = build_cleaned_scan_pdf(
                 source_path,
                 candidate_path,
                 mode=mode,
                 dpi_target=dpi_target,
+                crop_results=crop_results,
             )
             if produced_path is None or not produced_path.exists():
                 return self._write_source_scan_cleanup(
@@ -783,6 +785,10 @@ class ImportStagingService:
                 duration_ms=elapsed_ms(cleanup_started),
                 revision=revision,
                 source_signature=final_signature,
+                auto_crop={
+                    "applied": any(bool(page.get("applied")) for page in crop_results),
+                    "pages": crop_results,
+                },
             )
             logger.info(
                 "import source scan cleanup applied source_file_id=%s mode=%s dpi=%s duration_ms=%s",
@@ -2120,6 +2126,77 @@ class ImportStagingService:
         _, dpi_target = self._scan_cleanup_settings()
         return dpi_target
 
+    def _apply_auto_crop_to_pdf_page(self, source_file_id: str, page_index: int, pdf_page) -> bool:
+        """Uebertraegt den erkannten Bildausschnitt auch auf das farbige Roh-PDF.
+
+        Die bereinigte Staging-Datei ist bereits physisch zugeschnitten. Waehlt
+        der Nutzer spaeter bewusst „Original“, kommt die Seite jedoch aus der
+        erhaltenen Rohdatei. Durch identische Media-/CropBoxen bleibt auch dann
+        nur die Karte im endgueltigen Dokument, waehrend das A4-Rohbild bis zum
+        Abschluss des Imports als reversible Quelle erhalten bleibt.
+        """
+        cleanup = self._read_source_scan_cleanup(source_file_id)
+        auto_crop = cleanup.get("auto_crop") if isinstance(cleanup, dict) else None
+        pages = auto_crop.get("pages") if isinstance(auto_crop, dict) else None
+        if not isinstance(pages, list):
+            return False
+        crop = None
+        for entry in pages:
+            if not isinstance(entry, dict) or not bool(entry.get("applied")):
+                continue
+            try:
+                matches_page = int(entry.get("page_index", -1)) == int(page_index)
+            except (TypeError, ValueError):
+                matches_page = False
+            if matches_page:
+                crop = entry
+                break
+        if not isinstance(crop, dict):
+            return False
+        original_size = crop.get("original_size_pixels")
+        crop_box = crop.get("crop_box_pixels")
+        if (
+            not isinstance(original_size, list)
+            or len(original_size) != 2
+            or not isinstance(crop_box, list)
+            or len(crop_box) != 4
+        ):
+            return False
+        try:
+            original_width, original_height = (float(value) for value in original_size)
+            crop_left, crop_top, crop_right, crop_bottom = (float(value) for value in crop_box)
+        except (TypeError, ValueError):
+            return False
+        if (
+            original_width <= 0
+            or original_height <= 0
+            or crop_left < 0
+            or crop_top < 0
+            or crop_right <= crop_left
+            or crop_bottom <= crop_top
+            or crop_right > original_width
+            or crop_bottom > original_height
+        ):
+            return False
+
+        media_box = pdf_page.mediabox
+        page_left = float(media_box.left)
+        page_bottom = float(media_box.bottom)
+        page_right = float(media_box.right)
+        page_top = float(media_box.top)
+        page_width = page_right - page_left
+        page_height = page_top - page_bottom
+        target_left = page_left + page_width * crop_left / original_width
+        target_right = page_left + page_width * crop_right / original_width
+        # Bildkoordinaten beginnen oben, PDF-Koordinaten unten.
+        target_top = page_top - page_height * crop_top / original_height
+        target_bottom = page_top - page_height * crop_bottom / original_height
+        pdf_page.mediabox.lower_left = (target_left, target_bottom)
+        pdf_page.mediabox.upper_right = (target_right, target_top)
+        pdf_page.cropbox.lower_left = (target_left, target_bottom)
+        pdf_page.cropbox.upper_right = (target_right, target_top)
+        return True
+
     def _append_page_with_color_mode(self, writer: PdfWriter, page, reader_cache: dict[str, PdfReader]) -> None:
         color_mode = str(page.color_mode or "auto")
         source_path = self._source_path_for_color_mode(page.source_file_id, color_mode)
@@ -2139,6 +2216,12 @@ class ImportStagingService:
 
         if color_mode in {"auto", "color"}:
             writer.add_page(reader.pages[page.page_index])
+            if color_mode == "color":
+                self._apply_auto_crop_to_pdf_page(
+                    page.source_file_id,
+                    page.page_index,
+                    writer.pages[-1],
+                )
         else:
             staging_root = self._staging_root()
             source_page_path = staging_root / f"color-source-{uuid.uuid4()}.pdf"

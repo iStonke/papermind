@@ -31,6 +31,7 @@ class ImportStagingScanCleanupTest(unittest.TestCase):
             mode="bw",
             revision="123",
             duration_ms=42.5,
+            auto_crop={"applied": True, "pages": [{"page_index": 0, "applied": True, "format": "A6 quer"}]},
         )
 
         response = self.service.get_source_scan_cleanup_response(source_file_id)
@@ -39,6 +40,8 @@ class ImportStagingScanCleanupTest(unittest.TestCase):
         self.assertEqual(response["mode"], "bw")
         self.assertEqual(response["revision"], "123")
         self.assertEqual(response["duration_ms"], 42.5)
+        self.assertTrue(response["auto_crop"]["applied"])
+        self.assertEqual(response["auto_crop"]["pages"][0]["format"], "A6 quer")
 
     def test_committed_pages_mode_requires_all_sources_ready(self) -> None:
         first_source_id = str(uuid.uuid4())
@@ -68,6 +71,42 @@ class ImportStagingScanCleanupTest(unittest.TestCase):
 
         self.assertEqual(self.service._source_path_for_color_mode(source_file_id, "color"), raw_path)
         self.assertEqual(self.service._source_path_for_color_mode(source_file_id, "bw"), source_path)
+
+    def test_explicit_color_keeps_detected_card_crop_in_committed_pdf(self) -> None:
+        source_file_id = str(uuid.uuid4())
+        source_path = self.service._source_pdf_path(source_file_id)
+        raw_path = self.service._source_raw_pdf_path(source_file_id)
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        # Bereinigte Quelle und farbiges Rohbild; das Rohbild bleibt A4.
+        Image.new("RGB", (592, 420), "white").save(source_path, format="PDF", resolution=101.6)
+        Image.new("RGB", (840, 1188), (230, 210, 190)).save(raw_path, format="PDF", resolution=101.6)
+        self.service._write_source_scan_cleanup(
+            source_file_id,
+            status="ready",
+            mode="bw",
+            auto_crop={
+                "applied": True,
+                "pages": [{
+                    "page_index": 0,
+                    "applied": True,
+                    "format": "A6 quer",
+                    "original_size_pixels": [840, 1188],
+                    "cropped_size_pixels": [592, 420],
+                    "crop_box_pixels": [0, 0, 592, 420],
+                }],
+            },
+        )
+        page = ImportCommitPageInput(source_file_id=source_file_id, page_index=0, color_mode="color")
+
+        assembled_path, page_count = self.service._build_document_pdf("Karte", [page], {})
+        self.addCleanup(assembled_path.unlink, missing_ok=True)
+
+        from pypdf import PdfReader
+
+        media_box = PdfReader(str(assembled_path)).pages[0].mediabox
+        self.assertEqual(page_count, 1)
+        self.assertAlmostEqual(float(media_box.width) / 72.0 * 25.4, 148.0, delta=1.0)
+        self.assertAlmostEqual(float(media_box.height) / 72.0 * 25.4, 105.0, delta=1.0)
 
     def test_grayscale_mode_is_written_into_committed_pdf(self) -> None:
         source_file_id = str(uuid.uuid4())
@@ -118,6 +157,36 @@ class ImportStagingScanCleanupTest(unittest.TestCase):
         self.service._scan_cleanup_settings = lambda: (None, 300)
         self.assertFalse(self.service.mark_scan_cleanup_pending([disabled_id]))
         self.assertIsNone(self.service.get_source_scan_cleanup_response(disabled_id))
+
+    def test_enhance_scanner_source_persists_auto_crop_result(self) -> None:
+        source_file_id = str(uuid.uuid4())
+        source_path = self.service._source_pdf_path(source_file_id)
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        page = Image.new("RGB", (840, 1188), "white")
+        from PIL import ImageDraw
+
+        draw = ImageDraw.Draw(page)
+        card_right = 582
+        card_bottom = 410
+        draw.rectangle([24, 24, card_right, card_bottom], outline=(60, 60, 60), width=3)
+        draw.line([(300, 24), (300, card_bottom)], fill=(70, 70, 70), width=2)
+        for y in range(55, 385, 32):
+            draw.rectangle([45, y, 265, y + 5], fill=(45, 45, 45))
+            draw.rectangle([325, y, card_right - 20, y + 5], fill=(65, 65, 65))
+        page.save(source_path, format="PDF", resolution=101.6)
+        self.service._scan_cleanup_settings = lambda: ("bw", 100)
+
+        result = self.service.enhance_source_scan(source_file_id)
+
+        self.assertEqual(result["status"], "ready")
+        self.assertTrue(result["auto_crop"]["applied"])
+        self.assertEqual(result["auto_crop"]["pages"][0]["format"], "A6 quer")
+        self.assertTrue(self.service._source_raw_pdf_path(source_file_id).exists())
+        from pypdf import PdfReader
+
+        media_box = PdfReader(str(source_path)).pages[0].mediabox
+        self.assertAlmostEqual(float(media_box.width) / 72.0 * 25.4, 148.0, delta=1.0)
+        self.assertAlmostEqual(float(media_box.height) / 72.0 * 25.4, 105.0, delta=1.0)
 
     def test_regenerate_source_preview_writes_png(self) -> None:
         source_file_id = str(uuid.uuid4())

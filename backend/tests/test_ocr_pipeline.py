@@ -2,7 +2,9 @@ import unittest
 from unittest.mock import patch
 
 from app.services.ocr_pipeline import (
+    _auto_crop_scanned_page,
     _binarize_pil_image,
+    _build_cleaned_input_pdf,
     _build_quality_metrics,
     _clean_scan_image,
     _deskew_scan_rgb,
@@ -247,6 +249,74 @@ class ScanCleanupContrastTest(unittest.TestCase):
 
         self.assertLess(text_pixel[0], 110)
         self.assertGreater(logo_pixel[2] - logo_pixel[0], 70)
+
+
+@unittest.skipIf(cv2 is None or np is None or Image is None, "automatic crop requires opencv/numpy")
+class ScanAutoCropTest(unittest.TestCase):
+    WIDTH = 840
+    HEIGHT = 1188
+
+    def _a4_page_with_a6_card(self):
+        page = Image.new("RGB", (self.WIDTH, self.HEIGHT), (252, 252, 252))
+        draw = ImageDraw.Draw(page)
+        card_right = round(self.WIDTH * 148 / 210) - 10
+        card_bottom = round(self.HEIGHT * 105 / 297) - 10
+        draw.rectangle([24, 24, card_right, card_bottom], outline=(70, 70, 70), width=3)
+        draw.line([(310, 24), (310, card_bottom)], fill=(90, 90, 90), width=2)
+        for y in range(55, card_bottom - 18, 32):
+            draw.rectangle([45, y, 270, y + 5], fill=(55, 55, 55))
+            draw.rectangle([335, y, card_right - 22, y + 5], fill=(75, 75, 75))
+        return page
+
+    def test_crops_confident_a6_card_from_a4_canvas(self) -> None:
+        page = self._a4_page_with_a6_card()
+
+        cropped, result = _auto_crop_scanned_page(page)
+
+        self.assertTrue(result["applied"])
+        self.assertEqual(result["format"], "A6 quer")
+        self.assertEqual(cropped.size, (round(self.WIDTH * 148 / 210), round(self.HEIGHT * 105 / 297)))
+
+    def test_keeps_sparse_a4_page_without_card_boundaries(self) -> None:
+        page = Image.new("RGB", (self.WIDTH, self.HEIGHT), "white")
+        draw = ImageDraw.Draw(page)
+        for y in range(70, 320, 42):
+            draw.rectangle([70, y, 530, y + 5], fill=(45, 45, 45))
+
+        cropped, result = _auto_crop_scanned_page(page)
+
+        self.assertFalse(result["applied"])
+        self.assertEqual(cropped.size, page.size)
+
+    def test_cleaned_pdf_uses_cropped_physical_page_size(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source.pdf"
+            output = Path(tmp) / "output.pdf"
+            # 840 px bei 101,6 dpi entsprechen exakt 210 mm A4-Breite.
+            self._a4_page_with_a6_card().save(source, format="PDF", resolution=101.6)
+            crop_results = []
+
+            result = _build_cleaned_input_pdf(
+                source,
+                output,
+                mode="bw",
+                dpi_target=100,
+                auto_crop=True,
+                crop_results=crop_results,
+            )
+
+            self.assertEqual(result, output)
+            self.assertTrue(crop_results[0]["applied"])
+            from pypdf import PdfReader
+
+            media_box = PdfReader(str(output)).pages[0].mediabox
+            width_mm = float(media_box.width) / 72.0 * 25.4
+            height_mm = float(media_box.height) / 72.0 * 25.4
+            self.assertAlmostEqual(width_mm, 148.0, delta=1.0)
+            self.assertAlmostEqual(height_mm, 105.0, delta=1.0)
 
 
 @unittest.skipIf(Image is None, "PIL erforderlich")

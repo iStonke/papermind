@@ -14,3 +14,9 @@ test('minimizing an import requires at least one staged page', () => {
     /function minimizeDialog\(\) \{\s*if \(isCommitting\.value \|\| !hasStagedPages\.value\) \{\s*return;/,
   );
 });
+
+test('marks pages that were automatically cropped by scan cleanup', () => {
+  assert.match(dialogSource, /v-if="autoCropForPage\(page\)\?\.applied"/);
+  assert.match(dialogSource, /class="isd-page-crop-badge"/);
+  assert.match(dialogSource, /Number\(result\?\.page_index\) === pageIndex/);
+});

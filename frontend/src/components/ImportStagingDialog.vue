@@ -248,6 +248,14 @@
                   />
                   <v-icon v-else size="32" class="isd-page-thumb-placeholder-icon">mdi-file-document-outline</v-icon>
                 </div>
+                <div
+                  v-if="autoCropForPage(page)?.applied"
+                  class="isd-page-crop-badge"
+                  :title="`Automatisch auf ${autoCropForPage(page)?.format || 'Vorlage'} zugeschnitten`"
+                >
+                  <v-icon size="11">mdi-crop</v-icon>
+                  Zugeschnitten
+                </div>
                 <!-- Select-Mode Checkbox-Indikator -->
                 <div
                   v-if="isSelectMode"
@@ -1589,6 +1597,15 @@ const hasAnySelectedPage = computed(() => Boolean(selected.value?.pageId));
 const selectedPageColorChoice = computed(() => String(selectedPageEntry.value?.colorMode || 'grayscale'));
 function pageColorModeLabel(mode) {
   return ({ color: 'Original', grayscale: 'Grau', auto: 'Farbe', bw: 'S/W' })[String(mode || '')] || 'Farbe';
+}
+function autoCropForPage(page) {
+  const sourceFileId = String(page?.sourceFileId || '').trim();
+  const pageIndex = Number(page?.pageIndex);
+  const pages = stagingStore.sourceMetaById?.get?.(sourceFileId)?.scanCleanup?.auto_crop?.pages;
+  if (!Array.isArray(pages) || !Number.isInteger(pageIndex)) {
+    return null;
+  }
+  return pages.find(result => Number(result?.page_index) === pageIndex) || null;
 }
 const gridScrollStyle = computed(() => ({
   '--pm-grid-min': ['100px', '140px', '185px', '240px'][gridZoomIndex.value] || '140px'
@@ -6807,6 +6824,25 @@ button.isd-dropzone__action--supplemental:focus-visible {
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: 0.02em;
+}
+
+.isd-page-crop-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 5px;
+  border-radius: 5px;
+  background: rgba(var(--v-theme-primary), 0.9);
+  color: rgb(var(--v-theme-on-primary));
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
 }
 
 /* Aktiver Farbmodus deutlich hervorheben: getönte Fläche + Akzent-Icon.

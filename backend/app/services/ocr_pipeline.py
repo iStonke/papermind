@@ -144,6 +144,16 @@ def _run_ocrmypdf(
 
 SCAN_CLEANUP_MODES = ("off", "white", "bw")
 
+# Kleine Vorlagen, die typischerweise auf dem A4-Flachbett liegen. Der
+# automatische Zuschnitt wird nur angewendet, wenn Inhalt und zwei lange
+# Begrenzungslinien sehr deutlich zu einem dieser Formate passen. So bleibt eine
+# normale, nur teilweise bedruckte A4-Seite unangetastet.
+_AUTO_CROP_FORMATS_MM = (
+    ("Visitenkarte", 85.6, 54.0),
+    ("A7 quer", 105.0, 74.0),
+    ("A6 quer", 148.0, 105.0),
+)
+
 
 def _normalize_scan_cleanup_mode(value: Any) -> str:
     mode = str(value or "off").strip().lower()
@@ -152,6 +162,162 @@ def _normalize_scan_cleanup_mode(value: Any) -> str:
 
 def normalize_scan_cleanup_mode(value: Any) -> str:
     return _normalize_scan_cleanup_mode(value)
+
+
+def _auto_crop_scanned_page(image: Image.Image) -> tuple[Image.Image, dict[str, object]]:
+    """Erkennt eine kleine, oben links angelegte Vorlage auf einem A4-Scan.
+
+    Ein reiner Inhaltsrahmen waere zu riskant: Auch ein kurzer Brief kann nur im
+    oberen Seitenviertel bedruckt sein. Darum muss der Inhalt nahezu vollstaendig
+    in ein bekanntes Kartenformat passen *und* nahe dessen rechter und unterer
+    Kante jeweils eine lange Linie sichtbar sein. Das trifft sowohl gedruckte
+    Kartenrahmen als auch die physische Kante einer Vorlage, ohne gewoehnliche
+    A4-Seiten anhand ihres Textes zu beschneiden.
+    """
+    fallback: dict[str, object] = {
+        "applied": False,
+        "reason": "no_confident_match",
+    }
+    if cv2 is None or np is None:
+        fallback["reason"] = "opencv_unavailable"
+        return image, fallback
+
+    rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
+    height, width = rgb.shape[:2]
+    if height < 300 or width < 200:
+        fallback["reason"] = "page_too_small"
+        return image, fallback
+
+    a4_aspect = 210.0 / 297.0
+    # Vorschaugeneratoren runden und beschneiden den aeussersten Scanner-Rand
+    # teilweise. Rund sieben Prozent Toleranz halten solche A4-Scans im Korridor,
+    # schliessen US-Letter und deutlich andere Quellformate aber weiterhin aus.
+    if abs((width / float(height)) - a4_aspect) > 0.05:
+        fallback["reason"] = "not_a4_portrait"
+        return image, fallback
+
+    max_long_edge = 1800
+    scale = min(1.0, max_long_edge / float(max(width, height)))
+    if scale < 1.0:
+        working = cv2.resize(
+            rgb,
+            (max(1, int(round(width * scale))), max(1, int(round(height * scale)))),
+            interpolation=cv2.INTER_AREA,
+        )
+    else:
+        working = rgb
+
+    work_height, work_width = working.shape[:2]
+    gray = cv2.cvtColor(working, cv2.COLOR_RGB2GRAY)
+    # Scannerpapier ist fast weiss. Eine feste, bewusst niedrige Schwelle blendet
+    # Beleuchtungsverlaeufe aus, erhaelt aber Druck, Handschrift und Kartenkanten.
+    ink = (gray < 225).astype(np.uint8)
+
+    # Den aeussersten Scanrand nicht als Kartenbegrenzung missverstehen.
+    border_x = max(2, int(round(work_width * 0.018)))
+    border_y = max(2, int(round(work_height * 0.018)))
+    ink[:border_y, :] = 0
+    ink[-border_y:, :] = 0
+    ink[:, :border_x] = 0
+    ink[:, -border_x:] = 0
+
+    component_count, labels, stats, _ = cv2.connectedComponentsWithStats(ink, connectivity=8)
+    min_component_area = max(3, int(round(work_width * work_height * 0.000002)))
+    significant = np.zeros_like(ink, dtype=np.uint8)
+    for label_index in range(1, component_count):
+        component_x = int(stats[label_index, cv2.CC_STAT_LEFT])
+        component_y = int(stats[label_index, cv2.CC_STAT_TOP])
+        component_width = int(stats[label_index, cv2.CC_STAT_WIDTH])
+        component_height = int(stats[label_index, cv2.CC_STAT_HEIGHT])
+        component_area = int(stats[label_index, cv2.CC_STAT_AREA])
+        hugs_page_frame = (
+            (component_x <= border_x * 2 or component_x + component_width >= work_width - border_x * 2)
+            and (component_y <= border_y * 2 or component_y + component_height >= work_height - border_y * 2)
+            and (component_width >= work_width * 0.5 or component_height >= work_height * 0.5)
+        )
+        if component_area >= min_component_area and not hugs_page_frame:
+            significant[labels == label_index] = 1
+
+    points = cv2.findNonZero(significant)
+    if points is None:
+        fallback["reason"] = "no_ink"
+        return image, fallback
+    content_x, content_y, content_width, content_height = cv2.boundingRect(points)
+    content_right = content_x + content_width
+    content_bottom = content_y + content_height
+    total_ink = int(significant.sum())
+
+    candidates: list[tuple[float, str, int, int, float, float]] = []
+    for format_name, format_width_mm, format_height_mm in _AUTO_CROP_FORMATS_MM:
+        crop_width = int(round(work_width * format_width_mm / 210.0))
+        crop_height = int(round(work_height * format_height_mm / 297.0))
+        if crop_width >= work_width * 0.9 or crop_height >= work_height * 0.9:
+            continue
+
+        inside = significant[:crop_height, :crop_width]
+        inside_ink = int(inside.sum())
+        outside_ink = total_ink - inside_ink
+        if inside_ink <= 0 or outside_ink > max(8, int(round(total_ink * 0.003))):
+            continue
+
+        # Der bedruckte Bereich muss das erwartete Kartenformat tatsaechlich
+        # ausnutzen. Damit wird etwa eine kurze Anschrift oben auf A4 nicht als
+        # Visitenkarte eingestuft.
+        if (
+            content_x > crop_width * 0.25
+            or content_y > crop_height * 0.25
+            or content_right < crop_width * 0.72
+            or content_bottom < crop_height * 0.72
+            or content_right > crop_width
+            or content_bottom > crop_height
+        ):
+            continue
+
+        ink_coverage = inside_ink / float(max(1, crop_width * crop_height))
+        if ink_coverage < 0.004 or ink_coverage > 0.35:
+            continue
+
+        # Lange Linien nahe rechter und unterer Kartenkante liefern die noetige
+        # Sicherheit fuer den automatischen Eingriff. Linien duerfen einige mm
+        # innerhalb liegen, wie bei vorgedruckten Formularen ueblich.
+        right_start = max(0, int(round(crop_width * 0.82)))
+        bottom_start = max(0, int(round(crop_height * 0.82)))
+        right_support = float(significant[:crop_height, right_start:crop_width].sum(axis=0).max()) / crop_height
+        bottom_support = float(significant[bottom_start:crop_height, :crop_width].sum(axis=1).max()) / crop_width
+        if right_support < 0.10 or bottom_support < 0.10 or right_support + bottom_support < 0.35:
+            continue
+
+        extent_score = min(content_right / crop_width, 1.0) + min(content_bottom / crop_height, 1.0)
+        line_score = min(right_support, 1.0) + min(bottom_support, 1.0)
+        score = extent_score + line_score
+        candidates.append((score, format_name, crop_width, crop_height, right_support, bottom_support))
+
+    if not candidates:
+        return image, fallback
+
+    score, format_name, crop_width, crop_height, right_support, bottom_support = max(candidates)
+    original_crop_width = max(1, min(width, int(round(crop_width / scale))))
+    original_crop_height = max(1, min(height, int(round(crop_height / scale))))
+    cropped = image.crop((0, 0, original_crop_width, original_crop_height))
+    confidence = min(0.99, 0.78 + min(right_support, 0.5) * 0.18 + min(bottom_support, 0.5) * 0.18)
+    logger.info(
+        "scan auto crop applied format=%s original=%sx%s cropped=%sx%s confidence=%.3f score=%.3f",
+        format_name,
+        width,
+        height,
+        original_crop_width,
+        original_crop_height,
+        confidence,
+        score,
+    )
+    return cropped, {
+        "applied": True,
+        "format": format_name,
+        "confidence": round(float(confidence), 3),
+        "original_size_pixels": [width, height],
+        "cropped_size_pixels": [original_crop_width, original_crop_height],
+        "crop_box_pixels": [0, 0, original_crop_width, original_crop_height],
+    }
 
 
 def _estimate_scan_skew_angle(rgb: Any) -> float:
@@ -468,6 +634,8 @@ def _build_cleaned_input_pdf(
     *,
     mode: str,
     dpi_target: int,
+    auto_crop: bool = False,
+    crop_results: list[dict[str, object]] | None = None,
 ) -> Path | None:
     """Rendert jede Seite, bereinigt sie (siehe _clean_scan_image) und schreibt
     ein neues, reines Bild-PDF. Rückgabe ist der Ausgabepfad oder None, wenn die
@@ -499,6 +667,10 @@ def _build_cleaned_input_pdf(
                 page = pdf_doc[index]
                 bitmap = page.render(scale=scale)
                 image = bitmap.to_pil()
+                if auto_crop:
+                    image, crop_result = _auto_crop_scanned_page(image)
+                    if crop_results is not None:
+                        crop_results.append({"page_index": index, **crop_result})
                 cleaned = _clean_scan_image(image, mode)
                 cleaned = cleaned.convert("L" if mode == "bw" else "RGB")
                 page_pdf = Path(temp_dir) / f"page-{index}.pdf"
@@ -523,12 +695,15 @@ def build_cleaned_scan_pdf(
     *,
     mode: str,
     dpi_target: int,
+    crop_results: list[dict[str, object]] | None = None,
 ) -> Path | None:
     return _build_cleaned_input_pdf(
         original_path,
         output_path,
         mode=mode,
         dpi_target=dpi_target,
+        auto_crop=True,
+        crop_results=crop_results,
     )
 
 
