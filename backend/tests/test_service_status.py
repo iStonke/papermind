@@ -55,9 +55,10 @@ class ServiceStatusTest(unittest.TestCase):
         self.assertEqual(host.hostname, "papermind-pi")
         self.assertEqual(host.os, "Pi OS")
 
+    @patch("app.services.system_status._note_file_footprint_bytes", return_value=0)
     @patch("app.services.system_status._storage_footprint_bytes", return_value=200_000)
     @patch("app.services.system_status.os.statvfs")
-    def test_disk_separates_document_and_system_usage(self, statvfs, _footprint) -> None:
+    def test_disk_separates_document_and_system_usage(self, statvfs, _footprint, _notes) -> None:
         statvfs.return_value = SimpleNamespace(
             f_blocks=1_000,
             f_bfree=250,
@@ -69,11 +70,32 @@ class ServiceStatusTest(unittest.TestCase):
 
         self.assertIsNotNone(disk)
         self.assertEqual(disk.document_bytes, 200_000)
+        self.assertEqual(disk.note_bytes, 0)
         self.assertEqual(disk.system_bytes, 568_000)
 
+    @patch("app.services.system_status._note_file_footprint_bytes", return_value=40_000)
+    @patch("app.services.system_status._storage_footprint_bytes", return_value=200_000)
+    @patch("app.services.system_status.os.statvfs")
+    def test_disk_separates_notes_from_documents_and_system(self, statvfs, _storage, _notes) -> None:
+        statvfs.return_value = SimpleNamespace(
+            f_blocks=1_000,
+            f_bfree=250,
+            f_bavail=250,
+            f_frsize=1_024,
+        )
+
+        disk = system_status._disk_for("Dokumente", "/data/storage", note_database_bytes=20_000)
+
+        self.assertIsNotNone(disk)
+        self.assertEqual(disk.document_bytes, 160_000)
+        self.assertEqual(disk.note_bytes, 60_000)
+        self.assertEqual(disk.system_bytes, 548_000)
+        self.assertEqual(disk.document_bytes + disk.note_bytes + disk.system_bytes, disk.used_bytes)
+
+    @patch("app.services.system_status._note_file_footprint_bytes", return_value=0)
     @patch("app.services.system_status._storage_footprint_bytes", return_value=900_000)
     @patch("app.services.system_status.os.statvfs")
-    def test_disk_footprint_is_capped_to_used_space(self, statvfs, _footprint) -> None:
+    def test_disk_footprint_is_capped_to_used_space(self, statvfs, _footprint, _notes) -> None:
         statvfs.return_value = SimpleNamespace(
             f_blocks=1_000,
             f_bfree=250,
@@ -85,6 +107,7 @@ class ServiceStatusTest(unittest.TestCase):
 
         self.assertIsNotNone(disk)
         self.assertEqual(disk.document_bytes, 768_000)
+        self.assertEqual(disk.note_bytes, 0)
         self.assertEqual(disk.system_bytes, 0)
 
 

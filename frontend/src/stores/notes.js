@@ -88,6 +88,26 @@ export const useNotesStore = defineStore('notes', () => {
     return note;
   }
 
+  /** Übernimmt eine vollständige, serverbestätigte Notiz in Detail und Liste.
+   *  Wird auch für punktuelle Inhaltsaktionen außerhalb des Editors verwendet,
+   *  damit beim späteren Öffnen keine veraltete body_json-Fassung erscheint. */
+  function syncServerNote(note) {
+    if (!note?.id) return note;
+    cacheDetail(note);
+    const item = notes.value.find((entry) => entry.id === note.id);
+    if (item) {
+      item.title = note.title;
+      item.updated_at = note.updated_at;
+      item.preview = notePreview(note.body_json);
+      item.is_favorite = note.is_favorite;
+      item.notebook_id = note.notebook_id;
+      item.collection_id = note.collection_id;
+      item.tags = note.tags;
+      sortInPlace();
+    }
+    return note;
+  }
+
   function sortInPlace() {
     notes.value.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
   }
@@ -454,6 +474,12 @@ export const useNotesStore = defineStore('notes', () => {
     return request;
   }
 
+  /** Setzt den Status einer Dashboard-Aufgabe direkt in der kanonischen Notiz
+   *  und ersetzt anschließend den lokalen Detail-Cache mit der Serverfassung. */
+  async function toggleTask(id, position, done = true) {
+    return syncServerNote(await api.toggleNoteTask(id, position, done));
+  }
+
   /** Teilaktualisierung (Autosave). Aktualisiert den Listeneintrag lokal. */
   async function update(id, patch) {
     // Das Detail sofort aktualisieren: Wechselt man während des Requests weg
@@ -484,6 +510,14 @@ export const useNotesStore = defineStore('notes', () => {
       if (patch.body_json !== undefined) item.preview = notePreview(updated.body_json);
     }
     sortInPlace();
+    if (patch.body_json !== undefined && typeof window !== 'undefined') {
+      // Der letzte Autosave kann beim Wechsel zur Übersicht noch laufen. Das
+      // Dashboard hört auf dieses serverbestätigte Signal und zieht seine aus
+      // note_task abgeleitete Aufgabenliste danach nochmals frisch.
+      window.dispatchEvent(new CustomEvent('papermind:note-content-saved', {
+        detail: { noteId: id },
+      }));
+    }
     return updated;
   }
 
@@ -615,6 +649,7 @@ export const useNotesStore = defineStore('notes', () => {
     create,
     peek,
     get,
+    toggleTask,
     update,
     restoreRevision,
     setTags,

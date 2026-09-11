@@ -66,6 +66,28 @@ _SERVICE_LABELS = {
 # Dateisystem-Durchlauf für jede Aktualisierung wäre bei größeren Archiven
 # unnötig teuer.
 _storage_footprint_cache: dict[str, tuple[float, int | None]] = {}
+_note_database_footprint_cache: tuple[float, int | None] | None = None
+
+_NOTE_DATABASE_FOOTPRINT_SQL = text(
+    """
+    SELECT COALESCE(SUM(pg_total_relation_size(c.oid)), 0)
+    FROM pg_class AS c
+    JOIN pg_namespace AS n ON n.oid = c.relnamespace
+    WHERE n.nspname = ANY(current_schemas(false))
+      AND c.relkind IN ('r', 'p')
+      AND c.relname IN (
+        'note',
+        'note_revision',
+        'note_link',
+        'note_task',
+        'note_image',
+        'note_collection',
+        'note_notebook',
+        'note_block_template',
+        'note_tags'
+      )
+    """
+)
 
 
 def _read_text(path: str | Path) -> str | None:
@@ -212,7 +234,34 @@ def _storage_footprint_bytes(path: str) -> int | None:
     return total
 
 
-def _disk_for(label: str, path: str) -> DiskStatus | None:
+def _note_file_footprint_bytes(storage_path: str) -> int | None:
+    """Ermittelt den belegten Platz der in Notizen eingebetteten Bilder."""
+    note_image_path = os.path.join(storage_path, "note-images")
+    if not os.path.exists(note_image_path):
+        return 0
+    return _storage_footprint_bytes(note_image_path)
+
+
+def _note_database_footprint_bytes(db: Session) -> int | None:
+    """Ermittelt den physischen Platz aller Notiztabellen und ihrer Indizes."""
+    global _note_database_footprint_cache
+
+    now = time.monotonic()
+    cached = _note_database_footprint_cache
+    if cached and now - cached[0] < _STORAGE_FOOTPRINT_CACHE_SECONDS:
+        return cached[1]
+
+    try:
+        value = db.execute(_NOTE_DATABASE_FOOTPRINT_SQL).scalar_one_or_none()
+        footprint = max(0, int(value or 0))
+    except Exception:  # noqa: BLE001 - Systemstatus bleibt bei Lesefehlern verfügbar.
+        footprint = None
+
+    _note_database_footprint_cache = (now, footprint)
+    return footprint
+
+
+def _disk_for(label: str, path: str, *, note_database_bytes: int | None = None) -> DiskStatus | None:
     try:
         st = os.statvfs(path)
     except OSError:
@@ -220,13 +269,21 @@ def _disk_for(label: str, path: str) -> DiskStatus | None:
     total = st.f_blocks * st.f_frsize
     free = st.f_bavail * st.f_frsize
     used = total - st.f_bfree * st.f_frsize
-    document_bytes = _storage_footprint_bytes(path)
+    storage_bytes = _storage_footprint_bytes(path)
+    note_file_bytes = _note_file_footprint_bytes(path)
     # Das Dokument-Volume liegt auf derselben Platte wie die Systemdaten. Die
     # Differenz bildet deshalb Betriebssystem, Docker und weitere Host-Daten ab.
-    # Metadaten des Dateisystems können den Volume-Fußabdruck geringfügig
-    # verändern; die Werte werden für eine konsistente Balkendarstellung gedeckelt.
-    if document_bytes is not None:
-        document_bytes = min(document_bytes, used)
+    # Notizbilder gehören zum Volume-Fußabdruck, die Notiztabellen zur Datenbank.
+    # Alle Werte werden für eine lückenlose Balkendarstellung auf den tatsächlich
+    # belegten Platz gedeckelt.
+    document_bytes: int | None = None
+    note_bytes: int | None = None
+    system_bytes: int | None = None
+    if storage_bytes is not None and note_file_bytes is not None:
+        note_file_bytes = min(max(0, note_file_bytes), storage_bytes)
+        note_bytes = min(note_file_bytes + max(0, note_database_bytes or 0), used)
+        document_bytes = min(max(0, storage_bytes - note_file_bytes), used - note_bytes)
+        system_bytes = used - document_bytes - note_bytes
 
     status = DiskStatus(
         label=label,
@@ -235,19 +292,20 @@ def _disk_for(label: str, path: str) -> DiskStatus | None:
         free_bytes=free,
         used_bytes=used,
         document_bytes=document_bytes,
-        system_bytes=used - document_bytes if document_bytes is not None else None,
+        note_bytes=note_bytes,
+        system_bytes=system_bytes,
     )
     if total > 0:
         status.used_percent = round(used / total * 100.0, 1)
     return status
 
 
-def _collect_disks() -> list[DiskStatus]:
+def _collect_disks(note_database_bytes: int | None = None) -> list[DiskStatus]:
     disks: list[DiskStatus] = []
     # Das Dokument-Volume liegt im Produktivbetrieb auf dem relevanten
     # Datenlaufwerk. Ein Mount von / nur für dessen statvfs-Werte würde dem
     # Backend unnötig Einblick in das komplette Host-Dateisystem geben.
-    storage = _disk_for("Dokumente", settings.storage_path)
+    storage = _disk_for("Dokumente", settings.storage_path, note_database_bytes=note_database_bytes)
     if storage:
         disks.append(storage)
     return disks
@@ -409,7 +467,7 @@ def request_power_action(action: str) -> tuple[bool, str]:
 
 # ── Aggregation ──────────────────────────────────────────────────────────────
 
-async def collect_status() -> SystemStatus:
+async def collect_status(db: Session) -> SystemStatus:
     cpu = await _collect_cpu()
     return SystemStatus(
         host=_collect_host(),
@@ -417,7 +475,7 @@ async def collect_status() -> SystemStatus:
         memory=_collect_memory(),
         temperature=_collect_temperature(),
         fan=_collect_fan(),
-        disks=_collect_disks(),
+        disks=_collect_disks(_note_database_footprint_bytes(db)),
         power=_collect_power(),
         collected_at=datetime.now(timezone.utc),
     )

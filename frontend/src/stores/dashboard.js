@@ -44,20 +44,27 @@ export const useDashboardStore = defineStore('dashboard', () => {
   const isLoading = ref(false);
   const hasLoadedOnce = ref(false);
   const error = ref(null);
+  let requestRevision = 0;
 
   /** GET /api/dashboard/overview */
   async function fetchOverview() {
+    const revision = ++requestRevision;
     isLoading.value = true;
     error.value = null;
     try {
       const payload = await getDashboardOverview();
+      // Ein nach einem Notiz-Autosave gestarteter Abruf ist neuer als der
+      // initiale Mount-Abruf und darf nicht von dessen späterer Antwort ersetzt
+      // werden.
+      if (revision !== requestRevision) return;
       overview.value = { ...createEmptyOverview(), ...payload };
       hasLoadedOnce.value = true;
     } catch (err) {
+      if (revision !== requestRevision) return;
       error.value = err;
       console.warn('Dashboard-Daten konnten nicht geladen werden:', err);
     } finally {
-      isLoading.value = false;
+      if (revision === requestRevision) isLoading.value = false;
     }
   }
 

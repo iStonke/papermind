@@ -646,7 +646,7 @@ def update_note(
 
 @router.post(
     "/{note_id}/tasks/toggle",
-    response_model=OkResponse,
+    response_model=NoteRead,
     summary="Toggle a note task's done state",
     responses={404: {"model": ErrorResponse}},
 )
@@ -655,13 +655,16 @@ def toggle_note_task(
     payload: NoteTaskToggleRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> OkResponse:
+) -> NoteRead:
     note = NoteService(db, user.id).set_task_checked(note_id, payload.position, payload.done)
     if note is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Notiz oder Aufgabe nicht gefunden"
         )
-    return OkResponse(ok=True)
+    # Der Client ersetzt damit seinen vollständigen Notiz-Cache. Eine reine
+    # OK-Antwort ließ den Editor sonst anschließend die ältere body_json-
+    # Fassung öffnen und den gerade gesetzten Aufgabenstatus wieder verlieren.
+    return NoteRead.model_validate(note)
 
 
 @router.delete(

@@ -130,6 +130,10 @@
               Dokumente {{ formatBytes(disk.document_bytes) }}
             </span>
             <span class="sys-disk__legend-item">
+              <i class="sys-disk__swatch sys-disk__swatch--notes" />
+              Notizen {{ formatBytes(disk.note_bytes) }}
+            </span>
+            <span class="sys-disk__legend-item">
               <i class="sys-disk__swatch sys-disk__swatch--system" />
               System {{ formatBytes(disk.system_bytes) }}
             </span>
@@ -137,6 +141,11 @@
           <div class="sys-disk__bar">
             <template v-if="hasDiskBreakdown(disk)">
               <div class="sys-disk__segment sys-disk__segment--documents" :style="{ width: `${diskPercent(disk, disk.document_bytes)}%` }" />
+              <div
+                class="sys-disk__segment sys-disk__segment--notes"
+                :class="{ 'is-present': disk.note_bytes > 0 }"
+                :style="{ width: `${diskPercent(disk, disk.note_bytes)}%` }"
+              />
               <div class="sys-disk__segment sys-disk__segment--system" :style="{ width: `${diskPercent(disk, disk.system_bytes)}%` }" />
             </template>
             <div
@@ -327,7 +336,7 @@ function formatBytes(bytes) {
 }
 
 function hasDiskBreakdown(disk) {
-  return disk?.document_bytes != null && disk?.system_bytes != null;
+  return disk?.document_bytes != null && disk?.note_bytes != null && disk?.system_bytes != null;
 }
 
 function diskPercent(disk, bytes) {
@@ -568,6 +577,9 @@ const uptimeLabel = computed(() => {
 }
 .sys-disk__swatch--documents,
 .sys-disk__segment--documents { background: #3fae6a; }
+.sys-disk__swatch--notes,
+.sys-disk__segment--notes { background: #d65a91; }
+.sys-disk__segment--notes.is-present { min-width: 3px; }
 .sys-disk__swatch--system,
 .sys-disk__segment--system { background: #8373d1; }
 .sys-disk__bar {

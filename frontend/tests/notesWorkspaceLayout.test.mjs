@@ -389,15 +389,21 @@ test('editor scroll position is restored per note across switches and reloads', 
   assert.match(noteEditorSource, /window\.requestAnimationFrame\([\s\S]*?scrollElement\.scrollTop = targetTop/);
 });
 
-test('the complete editor whitespace refocuses without moving the caret or scrolling', () => {
+test('editor whitespace below the final block creates a writable caret position', () => {
   assert.match(noteEditorSource, /@pointerdown="refocusEditorFromWhitespace"/);
   assert.match(noteEditorSource, /function refocusEditorFromWhitespace\(event\)/);
   assert.match(noteEditorSource, /target\.closest\('\.pm-float, button, input, select, textarea, a'\)/);
   assert.match(noteEditorSource, /content\.contains\(target\) && target !== content/);
+  assert.match(noteEditorSource, /event\.clientY > lastBlock\.getBoundingClientRect\(\)\.bottom/);
+  assert.match(noteEditorSource, /if \(!doc\.lastChild\?\.isTextblock\)/);
+  assert.match(noteEditorSource, /chain\.insertContentAt\(doc\.content\.size, \{ type: 'paragraph' \}\)/);
+  assert.match(noteEditorSource, /chain\.focus\('end', \{ scrollIntoView: false \}\)\.run\(\)/);
+});
+
+test('editor whitespace beside existing content preserves the caret and scroll position', () => {
   assert.match(noteEditorSource, /selection instanceof TextSelection && !selection\.empty/);
   assert.match(noteEditorSource, /chain\.setTextSelection\(selection\.head\)/);
   assert.match(noteEditorSource, /chain\.focus\(undefined, \{ scrollIntoView: false \}\)\.run\(\)/);
-  assert.doesNotMatch(noteEditorSource, /ed\.chain\(\)\.focus\('end'\)\.run\(\)/);
   assert.match(noteEditorSource, /\.note-editor__surface\s*\{[\s\S]*?cursor:\s*text/);
 });
 

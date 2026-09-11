@@ -691,6 +691,19 @@ function focusBody(position) {
   return true;
 }
 
+function focusBelowLastBlock(ed) {
+  const { doc } = ed.state;
+  const chain = ed.chain();
+
+  // Atomare bzw. verschachtelte Abschlussblöcke (Schnellblock, Tabelle,
+  // Spaltenlayout …) besitzen außerhalb keinen Textcursor. Ein normaler Absatz
+  // schafft dort den erwarteten Schreibbereich direkt unter dem Block.
+  if (!doc.lastChild?.isTextblock) {
+    chain.insertContentAt(doc.content.size, { type: 'paragraph' });
+  }
+  chain.focus('end', { scrollIntoView: false }).run();
+}
+
 function refocusEditorFromWhitespace(event) {
   const ed = editor.value;
   const surface = surfaceEl.value;
@@ -705,6 +718,12 @@ function refocusEditorFromWhitespace(event) {
   if (!content || (content.contains(target) && target !== content)) return;
 
   event.preventDefault();
+  const lastBlock = content.lastElementChild;
+  if (lastBlock && event.clientY > lastBlock.getBoundingClientRect().bottom) {
+    focusBelowLastBlock(ed);
+    return;
+  }
+
   const { selection } = ed.state;
   const chain = ed.chain();
 

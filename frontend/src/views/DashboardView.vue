@@ -39,7 +39,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, provide, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, provide, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAuthStore } from '../stores/auth.js';
 import { useDashboardStore } from '../stores/dashboard.js';
@@ -86,8 +86,17 @@ provide(DASHBOARD_ACTIONS, {
   yearSelect: (payload) => emit('year-select', payload),
 });
 
-onMounted(() => {
+function refreshAfterNoteSave() {
   void dashboardStore.fetchOverview();
+}
+
+onMounted(() => {
+  window.addEventListener('papermind:note-content-saved', refreshAfterNoteSave);
+  void dashboardStore.fetchOverview();
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('papermind:note-content-saved', refreshAfterNoteSave);
 });
 
 const isEmpty = computed(() => hasLoadedOnce.value && overview.value.stats.documents_total === 0);

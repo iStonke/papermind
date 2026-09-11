@@ -6,7 +6,30 @@ import pytest
 
 from app.core.errors import ConflictError
 from app.schemas.notes import NoteUpdateRequest
-from app.services.note_service import NoteService
+from app.services.note_service import NoteService, extract_note_tasks
+
+
+def _task_doc(*, checked: bool) -> dict:
+    return {
+        "type": "doc",
+        "content": [
+            {
+                "type": "taskList",
+                "content": [
+                    {
+                        "type": "taskItem",
+                        "attrs": {"checked": checked},
+                        "content": [
+                            {
+                                "type": "paragraph",
+                                "content": [{"type": "text", "text": "Bericht prüfen"}],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
 
 
 class FakeSession:
@@ -57,6 +80,60 @@ def test_note_update_advances_matching_revision():
     assert recorded == [(note, {"reason": "autosave"})]
     assert db.commits == 1
     assert db.refreshed == [note]
+
+
+def test_editor_task_change_updates_dashboard_task_projection():
+    note = SimpleNamespace(
+        title="Aufgaben",
+        body_json=_task_doc(checked=False),
+        body_text="Bericht prüfen",
+        is_template=False,
+        revision=2,
+    )
+    db = FakeSession()
+    service = NoteService(db, uuid4())
+    service._get = lambda _note_id, **_kwargs: note
+    service._sync_links = lambda _note: None
+    projected = []
+    service._sync_tasks = lambda current: projected.extend(extract_note_tasks(current.body_json))
+    service._record_revision = lambda *_args, **_kwargs: None
+
+    service.update_note(
+        uuid4(),
+        NoteUpdateRequest(body_json=_task_doc(checked=True), base_revision=2),
+    )
+
+    assert projected == [{
+        "text": "Bericht prüfen",
+        "done": True,
+        "due_date": None,
+        "position": 0,
+    }]
+
+
+def test_dashboard_task_change_updates_canonical_note_body():
+    note = SimpleNamespace(
+        title="Aufgaben",
+        body_json=_task_doc(checked=False),
+        body_text="Bericht prüfen",
+        is_template=False,
+        revision=2,
+    )
+    db = FakeSession()
+    service = NoteService(db, uuid4())
+    service._get = lambda _note_id, **_kwargs: note
+    service._sync_links = lambda _note: None
+    projected = []
+    service._sync_tasks = lambda current: projected.extend(extract_note_tasks(current.body_json))
+    service._record_revision = lambda *_args, **_kwargs: None
+
+    result = service.set_task_checked(uuid4(), 0, True)
+
+    assert result is note
+    assert note.body_json["content"][0]["content"][0]["attrs"]["checked"] is True
+    assert projected[0]["done"] is True
+    assert note.revision == 3
+    assert db.commits == 1
 
 
 def test_note_update_rejects_stale_revision_without_writing():

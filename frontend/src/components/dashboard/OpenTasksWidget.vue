@@ -67,13 +67,14 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useDashboardStore } from '../../stores/dashboard.js';
-import { toggleNoteTask } from '../../api/notes.js';
+import { useNotesStore } from '../../stores/notes.js';
 import { formatDate, formatInt } from './dashboardShared.js';
 import './dashboard.css';
 
 const MAX_DONE = 5;
 
 const dashboardStore = useDashboardStore();
+const notesStore = useNotesStore();
 const { overview } = storeToRefs(dashboardStore);
 
 // Läuft gerade ein Toggle-Request (sperrt die Checkbox); merkt sich zusätzlich
@@ -141,7 +142,9 @@ async function toggle(task) {
   if (newDone) doneSeq.set(key, ++seqCounter);
   else doneSeq.delete(key);
   try {
-    await toggleNoteTask(task.note_id, task.position, newDone);
+    // Der Notes-Store übernimmt die vollständige Serverantwort. Damit sieht
+    // der Editor beim anschließenden Öffnen sofort denselben Aufgabenstatus.
+    await notesStore.toggleTask(task.note_id, task.position, newDone);
     // Serverstand nachziehen (Zähler, gekappte Erledigten-Liste, Wahrheit = Notiz).
     await dashboardStore.fetchOverview();
   } catch (err) {

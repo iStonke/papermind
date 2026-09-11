@@ -29,6 +29,7 @@ class DiskStatus(BaseModel):
     free_bytes: int | None = None
     used_percent: float | None = None
     document_bytes: int | None = None
+    note_bytes: int | None = None
     system_bytes: int | None = None
 
 

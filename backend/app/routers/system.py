@@ -23,8 +23,8 @@ router = APIRouter(prefix="/api/system", tags=["System"], dependencies=[Depends(
     response_model=SystemStatus,
     summary="Hardware-/Systemstatus des Hosts (Raspberry Pi)",
 )
-async def get_system_status() -> SystemStatus:
-    return await service.collect_status()
+async def get_system_status(db: Session = Depends(get_db)) -> SystemStatus:
+    return await service.collect_status(db)
 
 
 @router.get(
