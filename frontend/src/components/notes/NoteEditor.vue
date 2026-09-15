@@ -1962,8 +1962,8 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
   margin-top: var(--note-editor-block-gap);
 }
 
-/* Überschriften bilden bewusst eine ruhigere Ausnahme von der Block-Rhythmik:
-   unabhängig von Ebene und Nachbar bleibt ihr Abstand auf beiden Seiten gleich. */
+/* Überschriften haben einen kompakteren Abstand. Direkt an Trennlinien gilt
+   stattdessen der weiter unten definierte, größere Trennlinienabstand. */
 
 .note-editor :deep(.pm-content > * + :is(h1, h2, h3, h4, h5, h6)), .note-editor :deep(.pm-content > :is(h1, h2, h3, h4, h5, h6) + *), .note-editor :deep([data-layout-column] > * + :is(h1, h2, h3, h4, h5, h6)), .note-editor :deep([data-layout-column] > :is(h1, h2, h3, h4, h5, h6) + *) {
   margin-top: var(--note-editor-heading-gap);
@@ -1999,6 +1999,13 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
 
 .note-editor :deep(.pm-content hr) {
   border: 0; height: 1px; background: var(--pm-divider, #d8dfe1); margin-inline: 0;
+}
+
+.note-editor :deep(.pm-content > * + hr),
+.note-editor :deep(.pm-content > hr + *),
+.note-editor :deep([data-layout-column] > * + hr),
+.note-editor :deep([data-layout-column] > hr + *) {
+  margin-top: calc(var(--note-editor-block-gap) + 0.75rem);
 }
 
 .note-editor :deep(.pm-content a) {
@@ -2172,6 +2179,13 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
 
 .note-editor :deep(.pm-content th > p),
 .note-editor :deep(.pm-content td > p) { margin: 0; }
+
+/* Give editable text its own paint layer so positioned cell backgrounds
+   cannot cover WebKit's caret. Keep resize handles and selection overlays intact. */
+.note-editor :deep(.pm-content th :is(p, h1, h2, h3, h4, h5, h6)),
+.note-editor :deep(.pm-content td :is(p, h1, h2, h3, h4, h5, h6)) {
+  position: relative;
+}
 
 .note-editor :deep(.pm-content .selectedCell::after) {
   position: absolute;

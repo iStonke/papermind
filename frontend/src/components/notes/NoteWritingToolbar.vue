@@ -2,7 +2,7 @@
   <form
     class="note-editor__toolbar-ai"
     :class="{
-      'has-prompt': Boolean(aiPrompt.instruction.trim()),
+      'has-prompt': Boolean(toolbarInstruction.trim()),
       'is-generating': aiPrompt.presentation === 'toolbar' && aiPrompt.loading,
       'has-error': aiPrompt.presentation === 'toolbar' && aiPrompt.error,
     }"
@@ -22,7 +22,7 @@
     </button>
     <input
       ref="aiToolbarInputEl"
-      v-model="aiPrompt.instruction"
+      v-model="toolbarInstruction"
       type="text"
       maxlength="2000"
       autocomplete="off"
@@ -70,6 +70,7 @@
 </template>
 
 <script setup>
+import { computed } from 'vue';
 import PmActionIcon from '../PmActionIcon.vue';
 const props = defineProps({ controller: { type: Object, required: true } });
 const {
@@ -88,6 +89,16 @@ const {
   closeAIPrompt,
   generateAIText,
 } = props.controller;
+
+// The floating dialog owns its instruction while it is open. Do not display
+// that instruction in the toolbar or carry it over when the toolbar is focused.
+const toolbarInstruction = computed({
+  get: () => aiPrompt.presentation === 'toolbar' ? aiPrompt.instruction : '',
+  set: (value) => {
+    ensureToolbarAIPromptTarget();
+    aiPrompt.instruction = value;
+  },
+});
 </script>
 
 <style scoped src="./styles/aiToolbar.css"></style>

@@ -198,7 +198,7 @@ export function useNoteWriting({
   function prepareToolbarAIPromptTarget() {
     // Preserve the captured cursor/selection while moving between prompt and options.
     if (aiPrompt.open && aiPrompt.presentation === 'toolbar' && !editor.value?.view.hasFocus()) return;
-    prepareAIPromptTarget('toolbar');
+    prepareAIPromptTarget('toolbar', { resetInstruction: aiPrompt.presentation !== 'toolbar' });
   }
 
   function ensureToolbarAIPromptTarget() {

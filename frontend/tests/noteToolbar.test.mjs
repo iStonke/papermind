@@ -86,7 +86,7 @@ test('sticky toolbar becomes subtly translucent after the editor is scrolled', (
 
 test('AI prompt colors the otherwise desaturated sparkle only after text was entered', () => {
   assert.match(editorSource, /<NoteWritingToolbar v-if="aiAvailable"[\s\S]*?class="note-editor__toolbar-ai"[\s\S]*?placeholder="Einfach losschreiben …"/);
-  assert.match(editorSource, /'has-prompt': Boolean\(aiPrompt\.instruction\.trim\(\)\)/);
+  assert.match(editorSource, /'has-prompt': Boolean\(toolbarInstruction\.trim\(\)\)/);
   assert.match(editorSource, /\.note-editor__toolbar-ai-icon \{[\s\S]*?color: var\(--pm-muted,[\s\S]*?opacity: 0\.74;/);
   assert.match(editorSource, /\.note-editor__toolbar-ai\.has-prompt \.note-editor__toolbar-ai-icon \{[\s\S]*?color: var\(--pm-accent,[\s\S]*?opacity: 1;/);
   assert.match(editorSource, /\.note-editor__toolbar-ai input \{[\s\S]*?border: 0;[\s\S]*?background: transparent;/);
