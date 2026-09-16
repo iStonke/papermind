@@ -43,6 +43,7 @@ import { OcrQuote } from './nodes/ocrQuote.js';
 import { AiBlock } from './nodes/aiBlock.js';
 import { WikiLink } from './nodes/wikiLink.js';
 import { Callout } from './nodes/callout.js';
+import { CollapsibleSection } from './nodes/collapsibleSection.js';
 import { PaperMindDocument } from './nodes/noteDocument.js';
 import { LayoutColumn, PageLayout } from './nodes/pageLayout.js';
 import { NoteHighlight } from './nodes/noteHighlight.js';
@@ -97,6 +98,7 @@ const editor = useEditor({
     AiBlock,
     WikiLink,
     Callout,
+    CollapsibleSection,
     TemplateBox,
     TemplateField,
     NoteImage,

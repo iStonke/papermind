@@ -1,0 +1,33 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: papermind_test
+      POSTGRES_USER: papermind
+      POSTGRES_PASSWORD: test-only-password
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U papermind -d papermind_test"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+  tests:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.test
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://papermind:test-only-password@db:5432/papermind_test
+      APP_DATABASE_URL: postgresql://papermind_app:test-app-password@db:5432/papermind_test
+      WORKER_DATABASE_URL: postgresql://papermind_worker:test-worker-password@db:5432/papermind_test
+      INITIAL_ADMIN_PASSWORD: test-bootstrap-password
+      PAPERMIND_REQUIRE_ALL_TESTS: "1"
+      STORAGE_PATH: /tmp/papermind-storage
+      EMBED_DIM: "1024"
+      EMBED_MODEL: bge-m3
+networks:
+  default:
+    internal: true

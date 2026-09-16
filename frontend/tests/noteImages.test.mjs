@@ -35,8 +35,8 @@ const imageBody = {
 };
 
 test('note editor supports validated image upload through all intended entry points', () => {
-  assert.equal(packageJson.dependencies['@tiptap/extension-image'], '^3.30.2');
-  assert.equal(packageJson.dependencies['@tiptap/extension-file-handler'], '^3.30.2');
+  assert.equal(packageJson.dependencies['@tiptap/extension-image'], packageJson.dependencies['@tiptap/core']);
+  assert.equal(packageJson.dependencies['@tiptap/extension-file-handler'], packageJson.dependencies['@tiptap/core']);
   assert.match(editorSource, /import FileHandler from '@tiptap\/extension-file-handler'/);
   assert.match(editorSource, /NoteImage,/);
   assert.match(editorSource, /FileHandler\.configure\(\{[\s\S]*?onPaste:[\s\S]*?onDrop:/);

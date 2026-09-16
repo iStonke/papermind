@@ -87,6 +87,7 @@ export {
   mdiDotsHorizontal,
   mdiDotsVertical,
   mdiDownloadOutline,
+  mdiUploadOutline,
   mdiDrag,
   mdiEmailOutline,
   mdiEraser,

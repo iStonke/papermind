@@ -34,20 +34,20 @@ export default defineConfig(({ mode }) => {
       vuetify({ autoImport: true })
     ],
     build: {
-      rollupOptions: {
+      manifest: true,
+      rolldownOptions: {
         output: {
-          // Schwere, selten geänderte Vendor-Libs in eigene Chunks → besseres
-          // Browser-Caching + paralleles Laden. pdfjs bleibt im lazy PdfPreview-Chunk.
-          manualChunks(id) {
-            if (id.includes('node_modules/vuetify')) return 'vuetify';
-            if (/node_modules\/(@vue|vue|vue-router|pinia)\//.test(id)) return 'vue-core';
-            // pdfjs wird von mehreren lazy Chunks (PdfPreview, ImportStaging)
-            // genutzt → eigener gemeinsamer Chunk statt Duplizierung.
-            if (id.includes('node_modules/pdfjs-dist')) return 'pdfjs';
-            return undefined;
-          }
-        }
-      }
+          codeSplitting: {
+            groups: [
+              // Keep Vite's shared preload helper out of the lazy PDF graph.
+              { name: 'preload', test: /vite\/preload-helper/, priority: 30 },
+              { name: 'vue-core', test: /node_modules\/(@vue|vue|vue-router|pinia)\//, priority: 20 },
+              { name: 'vuetify', test: /node_modules\/vuetify/, priority: 10 },
+              { name: 'pdfjs', test: /node_modules\/pdfjs-dist/, priority: 10, entriesAware: true },
+            ],
+          },
+        },
+      },
     },
     server: {
       host: '0.0.0.0',

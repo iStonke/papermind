@@ -53,6 +53,40 @@ from app.services.note_images import NoteImageService
 router = APIRouter(prefix="/api/notes", tags=["Notes"])
 
 
+@router.post("/import", response_model=NoteRead, status_code=201)
+def import_note_archive(file: UploadFile = File(...), db: Session = Depends(get_db),
+                        user: User = Depends(get_current_user)):
+    from pydantic import ValidationError
+    from app.core.errors import BadRequestError, PayloadTooLargeError
+    from app.services.note_archive import NoteArchive, NoteArchiveService, MAX_ARCHIVE_BYTES
+    raw = file.file.read(MAX_ARCHIVE_BYTES + 1)
+    if len(raw) > MAX_ARCHIVE_BYTES:
+        raise PayloadTooLargeError("Das Notizarchiv darf höchstens 100 MB groß sein")
+    try:
+        archive = NoteArchive.model_validate_json(raw)
+    except (ValidationError, ValueError) as exc:
+        raise BadRequestError("Keine gültige PaperMind-Notizdatei oder unbekannte Formatversion") from exc
+    try:
+        return NoteArchiveService(db, user.id).import_archive(archive)
+    except (TypeError, ValueError, AttributeError, RecursionError) as exc:
+        raise BadRequestError("Ungültiger Inhalt in der Notizdatei") from exc
+
+
+@router.get("/{note_id}/export")
+def export_note_archive(note_id: uuid.UUID, db: Session = Depends(get_db),
+                        user: User = Depends(get_current_user)):
+    from fastapi import Response
+    from app.core.errors import PayloadTooLargeError
+    from app.services.note_archive import NoteArchiveService, MAX_ARCHIVE_BYTES
+    raw = NoteArchiveService(db, user.id).export(note_id).model_dump_json().encode('utf-8')
+    if len(raw) > MAX_ARCHIVE_BYTES:
+        raise PayloadTooLargeError("Das Notizarchiv darf höchstens 100 MB groß sein")
+    return Response(raw, media_type="application/json", headers={
+        "Content-Disposition": 'attachment; filename="note.papermind.json"',
+        "Cache-Control": "no-store",
+    })
+
+
 @router.post(
     "/ai/generate",
     summary="Generate text for the note editor",

@@ -120,10 +120,20 @@
               </template>
             </v-list-item>
 
-            <div class="note-workspace-editor__more-group-label">Exportieren</div>
+            <div class="note-workspace-editor__more-group-label">Import &amp; Export</div>
+            <v-list-item class="note-workspace-editor__more-item" title="Notiz exportieren"
+              :ripple="false" role="menuitem"
+              :disabled="archiveBusy" @click="exportFullNote">
+              <template #prepend><span class="note-workspace-editor__more-icon" aria-hidden="true"><v-icon size="17">mdi-download-outline</v-icon></span></template>
+            </v-list-item>
+            <v-list-item class="note-workspace-editor__more-item" title="Notiz importieren"
+              :ripple="false" role="menuitem"
+              :disabled="archiveBusy" @click="archiveInput?.click()">
+              <template #prepend><span class="note-workspace-editor__more-icon" aria-hidden="true"><v-icon size="17">mdi-upload-outline</v-icon></span></template>
+            </v-list-item>
             <v-list-item
               class="note-workspace-editor__more-item"
-              title="Markdown"
+              title="Als Markdown speichern"
               :ripple="false"
               role="menuitem"
               @click="exportNoteAsMarkdown"
@@ -136,7 +146,7 @@
             </v-list-item>
             <v-list-item
               class="note-workspace-editor__more-item"
-              title="PDF"
+              title="Als PDF speichern"
               :disabled="exportingPdf"
               :ripple="false"
               role="menuitem"
@@ -152,6 +162,7 @@
         </v-menu>
       </div>
     </header>
+    <input ref="archiveInput" type="file" accept=".papermind.json,application/json" hidden @change="importFullNote" />
 
     <div v-if="hasLoadedContent" class="note-workspace-editor__meta">
       <div class="note-workspace-editor__meta-main">
@@ -506,7 +517,7 @@ import { getAICredentialStatus } from '../../api/aiCredentials.js';
 import { useSettingsStore } from '../../stores/settings.js';
 import { useUiStore } from '../../stores/ui.js';
 import { isNoteEmpty, useNotesStore } from '../../stores/notes.js';
-import { checkpointNoteRevision, getNoteBacklinks } from '../../api/notes.js';
+import { checkpointNoteRevision, getNoteBacklinks, exportNoteArchive, importNoteArchive } from '../../api/notes.js';
 import { useCorrespondentStore } from '../../stores/correspondents.js';
 import { useDossierStore } from '../../stores/dossiers.js';
 import { useTagStore } from '../../stores/tags.js';
@@ -540,7 +551,7 @@ const props = defineProps({
   listVisible: { type: Boolean, default: true },
 });
 
-const emit = defineEmits(['toggle-list']);
+const emit = defineEmits(['toggle-list', 'imported']);
 
 const notesStore = useNotesStore();
 const { notify } = useNotifications();
@@ -1633,6 +1644,52 @@ function onImageUploadError(message) {
     type: 'error',
     message: String(message || 'Bild konnte nicht eingefügt werden.'),
   });
+}
+
+const archiveInput = ref(null);
+const archiveBusy = ref(false);
+
+async function exportFullNote() {
+  if (archiveBusy.value) return;
+  archiveBusy.value = true;
+  const noteId = loadedNoteId.value;
+  try {
+    await flushSave();
+    if (noteId !== loadedNoteId.value || hasUnsyncedChanges.value || status.value === 'conflict') {
+      throw new Error('Bitte die Notiz zuerst erfolgreich speichern.');
+    }
+    await checkpointNoteRevision(noteId, 'export');
+    const archive = await exportNoteArchive(noteId);
+    const url = URL.createObjectURL(new Blob([JSON.stringify(archive)], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = noteExportFilename(archive.title).replace(/\.md$/, '') + '.papermind.json';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) {
+    notifyError(error, 'Notiz konnte nicht exportiert werden.');
+  } finally {
+    archiveBusy.value = false;
+  }
+}
+
+async function importFullNote(event) {
+  const file = event.target.files?.[0];
+  event.target.value = '';
+  if (!file || archiveBusy.value) return;
+  archiveBusy.value = true;
+  try {
+    if (file.size > 100 * 1024 * 1024) throw new Error('Die Notizdatei darf höchstens 100 MB groß sein.');
+    const note = await importNoteArchive(file);
+    emit('imported', note);
+    notify({ message: 'Notiz vollständig importiert.', type: 'success' });
+  } catch (error) {
+    notifyError(error, 'Notiz konnte nicht importiert werden.');
+  } finally {
+    archiveBusy.value = false;
+  }
 }
 
 function exportNoteAsMarkdown() {

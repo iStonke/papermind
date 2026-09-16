@@ -26,6 +26,11 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgresql://papermind:papermind@127.0.0.1:5432/papermind_test
+      APP_DATABASE_URL: postgresql://papermind_app:papermind_app@127.0.0.1:5432/papermind_test
+      WORKER_DATABASE_URL: postgresql://papermind_worker:papermind_worker@127.0.0.1:5432/papermind_test
+      PAPERMIND_REQUIRE_ALL_TESTS: "1"
+      EMBED_DIM: "1024"
+      EMBED_MODEL: bge-m3
       AI_BASE_URL: http://127.0.0.1:11439
       STORAGE_PATH: /tmp/papermind-storage
       CORS_ALLOW_ORIGINS: http://localhost:5179
@@ -45,9 +50,6 @@ jobs:
       - name: Install backend dependencies
         run: python -m pip install -r backend/requirements-dev.txt
 
-      - name: Run backend unit tests
-        run: PYTHONPATH=backend python -m pytest backend/tests
-
       - name: Run Alembic migrations
         working-directory: backend
         env:
@@ -56,6 +58,9 @@ jobs:
           APP_DATABASE_URL: postgresql://papermind_app:papermind_app@127.0.0.1:5432/papermind_test
           WORKER_DATABASE_URL: postgresql://papermind_worker:papermind_worker@127.0.0.1:5432/papermind_test
         run: alembic upgrade head
+
+      - name: Run backend unit and integration tests (including RLS and OCR)
+        run: PYTHONPATH=backend python -m pytest backend/tests
 
   frontend:
     name: Frontend
@@ -82,3 +87,17 @@ jobs:
 
       - name: Build frontend
         run: npm run build
+
+      - name: Install browser runtime
+        run: npx playwright install --with-deps chromium
+
+      - name: Test login, import and autosave in the browser
+        run: npm run test:browser
+
+      - name: Upload browser diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-test-results
+          path: frontend/test-results/
+          retention-days: 7

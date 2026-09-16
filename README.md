@@ -73,25 +73,37 @@ docker compose down
 
 ## Tests / CI
 
-Lokale Basisprüfung:
+Lokale Gesamtprüfung (Docker und Node.js erforderlich):
 ```bash
+npm --prefix frontend ci
+cd frontend && npx playwright install chromium && cd ..
 ./scripts/test.sh
 ```
 
-Backend-Dev-Abhängigkeiten installieren:
-```bash
-python3 -m pip install -r backend/requirements-dev.txt
-```
+Die Backend-Prüfung startet eine eigene PostgreSQL/pgvector-Datenbank ohne
+veröffentlichte Ports, migriert sie und entfernt die Testcontainer anschließend.
+Die laufenden Entwicklungsdienste und deren Daten werden nicht verwendet.
+Übersprungene Backend-Tests lassen diese Prüfung fehlschlagen.
 
 Einzelne Prüfungen:
 ```bash
-PYTHONPATH=backend python3 -m pytest backend/tests
+bash scripts/test_backend.sh
 npm --prefix frontend test
 npm --prefix frontend run build
+npm --prefix frontend run test:browser
 ```
 
-Die GitHub-Actions-CI führt Backend-Tests, Alembic-Migrationen gegen
-PostgreSQL/pgvector, Frontend-Tests und den Frontend-Produktionsbuild aus.
+Die Browsertests verwenden Vite unter `http://127.0.0.1:5179` und simulierte
+API-Antworten. Ein vorhandener lokaler Vite-Server wird weiterverwendet.
+Alternativ zum Playwright-Chromium lässt sich installiertes Chrome mit
+`PLAYWRIGHT_CHANNEL=chrome npm --prefix frontend run test:browser` nutzen.
+
+Die GitHub-Actions-CI führt zuerst Alembic-Migrationen und danach Backend-Tests
+einschließlich RLS und OCR aus. Im Frontend prüft sie Unit-Tests, den
+Produktionsbuild mit Budget für initiales JavaScript sowie die Browserabläufe
+Login, PDF-Import, Metadaten-Autosave und Notizbearbeitung.
+
+Details zur Optimierung und zum Rollout: [Performance und Stabilität](docs/performance-stability-2026-09.md).
 
 ## Raspberry Deployment Update
 

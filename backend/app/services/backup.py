@@ -688,11 +688,15 @@ class BackupService:
             return {"ok": False, "message": f"Verbindung fehlgeschlagen: {exc}"}
 
     # ── Backup ausführen ─────────────────────────────────────────────────────
-    def _source_state(self, *, for_update: bool = False) -> BackupSourceState:
-        statement = select(BackupSourceState).where(BackupSourceState.id == 1)
-        if for_update:
-            statement = statement.with_for_update()
-        state = self.db.execute(statement).scalar_one_or_none()
+    def _source_state(self):
+        # One MVCC snapshot sees both the compacted counter and pending changes.
+        # Transaction IDs are deliberately counted, not compared by magnitude:
+        # a transaction with a smaller ID can commit after a backup completes.
+        state = self.db.execute(text("""
+            SELECT generation + (SELECT count(*) FROM backup_source_changes) AS generation,
+                   backed_up_generation
+            FROM backup_source_state WHERE id = 1
+        """)).one_or_none()
         if state is None:
             raise RuntimeError("Backup-Änderungszustand fehlt; Datenbankmigration ist erforderlich.")
         return state
@@ -703,9 +707,20 @@ class BackupService:
         Änderungen während der Sicherung bleiben absichtlich als ausstehend markiert,
         damit der nächste geplante Lauf noch einmal vollständig sichert.
         """
-        state = self._source_state(for_update=True)
-        if int(state.generation) == int(generation):
-            state.backed_up_generation = int(generation)
+        self.db.execute(select(BackupSourceState.id).where(BackupSourceState.id == 1).with_for_update())
+        self.db.execute(text("""
+            WITH visible AS MATERIALIZED (
+                SELECT transaction_id FROM backup_source_changes
+            ), confirmed AS (
+                UPDATE backup_source_state
+                SET generation = :generation, backed_up_generation = :generation
+                WHERE id = 1 AND generation + (SELECT count(*) FROM visible) = :generation
+                RETURNING id
+            )
+            DELETE FROM backup_source_changes
+            WHERE transaction_id IN (SELECT transaction_id FROM visible)
+              AND EXISTS (SELECT 1 FROM confirmed)
+        """), {"generation": int(generation)})
 
     def _record_skipped_backup(self, *, kind: str) -> BackupRun:
         now = datetime.now().astimezone()

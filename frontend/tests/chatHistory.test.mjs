@@ -11,7 +11,8 @@ import {
 import { setToken } from '../src/api/client.js';
 
 const dialogSource = await readFile(new URL('../src/components/AiDialog.vue', import.meta.url), 'utf8');
-const workspaceSource = await readFile(new URL('../src/views/DocumentsWorkspace.vue', import.meta.url), 'utf8');
+const workspaceSource = await readFile(new URL('../src/views/DocumentsWorkspace.vue', import.meta.url), 'utf8')
+  + await readFile(new URL('../src/workspaces/documents/workspace.css', import.meta.url), 'utf8');
 const searchSource = await readFile(new URL('../src/composables/useSearch.js', import.meta.url), 'utf8');
 const knowledgeStageSource = await readFile(new URL('../src/components/KnowledgeStage.vue', import.meta.url), 'utf8');
 

@@ -29,7 +29,7 @@ const workspaceSource = await readFile(
 const documentsWorkspaceSource = await readFile(
   new URL('../src/views/DocumentsWorkspace.vue', import.meta.url),
   'utf8',
-);
+) + await readFile(new URL('../src/workspaces/documents/workspace.css', import.meta.url), 'utf8');
 const themeSource = await readFile(
   new URL('../src/theme/theme.css', import.meta.url),
   'utf8',

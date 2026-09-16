@@ -245,6 +245,7 @@
         :note-id="activeNote.id"
         :list-visible="!isListPanelCollapsed"
         @toggle-list="toggleNotesList"
+        @imported="onNoteImported"
       />
 
       <v-btn
@@ -409,6 +410,7 @@ import NotesManageGrid from '../components/notes/NotesManageGrid.vue';
 import { useNoteListPreferences } from '../components/notes/composables/useNoteListPreferences.js';
 import { isNoteEmpty, useNotesStore } from '../stores/notes.js';
 import { useSettingsStore } from '../stores/settings.js';
+import { notifyError } from '../stores/notifications.js';
 import { notifyNoteDeleted } from '../utils/noteDeletionFeedback.js';
 import { groupNotesByCreationDay } from '../utils/noteDateGroups.js';
 import { normalizeCollectionColor } from '../utils/noteCollectionColor.js';
@@ -1024,6 +1026,25 @@ function updateCompactLayout(event) {
 
 // Frisch angelegte Notiz auswählen, die Anlege-Animation auslösen und den
 // Cursor erst nach dem Rendern direkt in die Schreibfläche setzen.
+async function onNoteImported(note) {
+  try {
+    await notesStore.fetchCollections();
+    if (note.collection_id) await notesStore.setActiveCollection(note.collection_id);
+    await Promise.all([notesStore.fetchNotes(), notesStore.fetchNotebooks(), notesStore.fetchTemplates()]);
+    notebookFilter.value = '';
+    dateRange.value = '';
+    if (note.is_template) {
+      manageFacet.value = 'templates';
+      isManageMode.value = true;
+    } else {
+      if (activeSearchKey.value) searchedNotes.value = [note, ...searchedNotes.value];
+      await selectNote(note.id);
+    }
+  } catch (error) {
+    notifyError(error, 'Notiz wurde importiert. Bitte die Ansicht neu laden.');
+  }
+}
+
 async function revealNewNote(note, cursorPosition = 'start') {
   activeNoteId.value = note.id;
   newlyCreatedNoteId.value = note.id;

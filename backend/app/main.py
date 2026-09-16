@@ -6,7 +6,6 @@ import os
 import httpx
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.core.config import get_settings
@@ -45,7 +44,7 @@ from app.routers import (
 )
 from app.services.users import UserService
 from app.services.settings import SettingsService
-from app.services.maintenance import is_maintenance_active
+from app.core.write_barrier import WriteBarrierMiddleware
 
 settings = get_settings()
 
@@ -143,25 +142,6 @@ app = FastAPI(
 app.middleware("http")(request_metrics_middleware)
 
 
-@app.middleware("http")
-async def maintenance_write_guard(request, call_next):
-    """Während Backup/Restore nur lesende Requests zulassen."""
-    if (
-        is_maintenance_active()
-        and request.method.upper() not in {"GET", "HEAD", "OPTIONS"}
-    ):
-        return JSONResponse(
-            status_code=503,
-            content={
-                "error": {
-                    "message": "PaperMind erstellt oder prüft gerade eine Sicherung. Bitte gleich erneut versuchen.",
-                    "code": "maintenance_active",
-                }
-            },
-            headers={"Retry-After": "5"},
-        )
-    return await call_next(request)
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -169,6 +149,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_middleware(WriteBarrierMiddleware)
 
 install_exception_handlers(app)
 app.include_router(health_router)

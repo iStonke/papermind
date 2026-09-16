@@ -77,6 +77,14 @@
               </div>
             </div>
 
+            <div v-if="settingsDraft.ui.theme_mode === 'light'" class="pm-setting-row">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Helle Seitenleiste</div>
+                <div class="pm-setting-description">Im Hellmodus eine helle Leiste verwenden. Ausschalten stellt die bisherige dunkle Leiste wieder her. Gilt für diesen Browser.</div>
+              </div>
+              <v-switch :model-value="lightSidebar" aria-label="Helle Seitenleiste" color="primary" hide-details @update:model-value="setLightSidebar" />
+            </div>
+
             <div
               class="pm-setting-row"
               role="button"
@@ -93,7 +101,6 @@
                 color="primary"
                 density="comfortable"
                 hide-details
-                inset
                 aria-label="Übersicht als Startseite verwenden"
                 :loading="isSettingSaving.start_view"
                 :disabled="isSettingSaving.start_view"
@@ -118,7 +125,6 @@
                 color="primary"
                 density="comfortable"
                 hide-details
-                inset
                 aria-label="Suche immer über alle Dokumente ausführen"
                 :loading="isSettingSaving.search_scope_default"
                 :disabled="isSettingSaving.search_scope_default"
@@ -143,7 +149,6 @@
                 color="primary"
                 density="comfortable"
                 hide-details
-                inset
                 :loading="isSettingSaving.show_filename_suffix"
                 :disabled="isSettingSaving.show_filename_suffix"
                 @click.stop
@@ -167,7 +172,6 @@
                 color="primary"
                 density="comfortable"
                 hide-details
-                inset
                 @click.stop
                 @update:model-value="onAnimationsEnabledChange"
               />
@@ -191,7 +195,6 @@
                 color="primary"
                 density="comfortable"
                 hide-details
-                inset
                 @click.stop
                 @update:model-value="onScanLineAnimationEnabledChange"
               />
@@ -215,7 +218,6 @@
                 color="primary"
                 density="comfortable"
                 hide-details
-                inset
                 :loading="isSettingSaving.preview_drawer_gradient"
                 :disabled="isSettingSaving.preview_drawer_gradient"
                 @click.stop
@@ -241,7 +243,6 @@
                 color="primary"
                 density="comfortable"
                 hide-details
-                inset
                 :loading="isSettingSaving.auto_hide_details_drawer"
                 :disabled="isSettingSaving.auto_hide_details_drawer"
                 @click.stop
@@ -267,7 +268,6 @@
                 color="primary"
                 density="comfortable"
                 hide-details
-                inset
                 :loading="isSettingSaving.drawer_remember_state"
                 :disabled="isSettingSaving.drawer_remember_state"
                 @click.stop
@@ -293,7 +293,6 @@
                 color="primary"
                 density="comfortable"
                 hide-details
-                inset
                 :loading="isSettingSaving.tag_drawer_remember_state"
                 :disabled="isSettingSaving.tag_drawer_remember_state"
                 @click.stop
@@ -359,7 +358,6 @@
                     color="primary"
                     density="comfortable"
                     hide-details
-                    inset
                     :loading="isSettingSaving.sidebar_show_dossiers"
                     :disabled="isSettingSaving.sidebar_show_dossiers"
                     aria-label="Leuchttische in der Hauptnavigation anzeigen"
@@ -380,7 +378,6 @@
                     color="primary"
                     density="comfortable"
                     hide-details
-                    inset
                     :loading="isSettingSaving.sidebar_show_chat"
                     :disabled="isSettingSaving.sidebar_show_chat"
                     aria-label="Wissen in der Seitenleiste anzeigen"
@@ -409,7 +406,6 @@
                     color="primary"
                     density="comfortable"
                     hide-details
-                    inset
                     :loading="isSettingSaving.sidebar_show_recent"
                     :disabled="isSettingSaving.sidebar_show_recent"
                     @update:model-value="onSidebarShowRecentChange"
@@ -429,7 +425,6 @@
                     color="primary"
                     density="comfortable"
                     hide-details
-                    inset
                     :loading="isSettingSaving.sidebar_show_untagged"
                     :disabled="isSettingSaving.sidebar_show_untagged"
                     @update:model-value="onSidebarShowUntaggedChange"
@@ -449,7 +444,6 @@
                     color="primary"
                     density="comfortable"
                     hide-details
-                    inset
                     :loading="isSettingSaving.sidebar_show_no_text"
                     :disabled="isSettingSaving.sidebar_show_no_text"
                     @update:model-value="onSidebarShowNoTextChange"
@@ -549,7 +543,6 @@
                     color="primary"
                     density="comfortable"
                     hide-details
-                    inset
                     :aria-label="`${sidebarSectionLabel(section.key)} ein-/ausblenden`"
                     :loading="isSettingSaving.sidebar_sections"
                     :disabled="isSettingSaving.sidebar_sections"
@@ -794,7 +787,6 @@
                 color="primary"
                 density="comfortable"
                 hide-details
-                inset
                 aria-label="Rechtschreibprüfung für Notizen aktivieren"
                 :loading="isSettingSaving.notes_spellcheck_enabled"
                 :disabled="isSettingSaving.notes_spellcheck_enabled"
@@ -837,7 +829,6 @@
                 color="primary"
                 density="comfortable"
                 hide-details
-                inset
                 :loading="isSettingSaving.auto_open_import_inbox"
                 :disabled="isSettingSaving.auto_open_import_inbox"
                 @click.stop
@@ -863,7 +854,6 @@
                 color="primary"
                 density="comfortable"
                 hide-details
-                inset
                 :loading="isSettingSaving.auto_ocr"
                 :disabled="isSettingSaving.auto_ocr"
                 @click.stop
@@ -896,7 +886,6 @@
                 color="primary"
                 density="comfortable"
                 hide-details
-                inset
                 :loading="isSettingSaving.auto_tagging"
                 :disabled="isSettingSaving.auto_tagging || !settingsDraft.documents.auto_ocr"
                 @click.stop
@@ -1164,7 +1153,6 @@
                   color="primary"
                   density="comfortable"
                   hide-details
-                  inset
                   :loading="isSettingSaving.wiki_auto_compile"
                   :disabled="!settingsDraft.wiki.enabled || isSettingSaving.wiki_auto_compile"
                   @click.stop
@@ -1188,7 +1176,6 @@
                   color="primary"
                   density="comfortable"
                   hide-details
-                  inset
                   :loading="isSettingSaving.wiki_chat_retrieval"
                   :disabled="!settingsDraft.wiki.enabled || isSettingSaving.wiki_chat_retrieval"
                   @click.stop
@@ -1215,7 +1202,6 @@
                   color="primary"
                   density="comfortable"
                   hide-details
-                  inset
                   :loading="isSettingSaving.wiki_llm_claim_extraction"
                   :disabled="!settingsDraft.wiki.enabled || !settingsDraft.ollama.enabled || isSettingSaving.wiki_llm_claim_extraction"
                   @click.stop
@@ -1840,7 +1826,6 @@
                 color="primary"
                 density="comfortable"
                 hide-details
-                inset
                 :loading="isSettingSaving.ocr_backfill_enabled"
                 :disabled="isSettingSaving.ocr_backfill_enabled"
                 @click.stop
@@ -1910,7 +1895,6 @@
                 color="primary"
                 density="comfortable"
                 hide-details
-                inset
                 :loading="isSettingSaving.scan_cleanup"
                 :disabled="isSettingSaving.scan_cleanup"
                 @click.stop
@@ -1961,7 +1945,6 @@
                 color="primary"
                 hide-details
                 density="comfortable"
-                inset
                 :loading="isSettingSaving.ollama_enabled"
                 :disabled="isSettingSaving.ollama_enabled"
                 @click.stop
@@ -2128,7 +2111,6 @@
                 color="primary"
                 hide-details
                 density="comfortable"
-                inset
                 :loading="isSettingSaving.text_generation_enabled"
                 :disabled="isSettingSaving.text_generation_enabled"
                 @click.stop
@@ -2736,6 +2718,8 @@
 </template>
 
 <script setup>
+import { useSidebarAppearance } from '../composables/useSidebarAppearance.js';
+const { lightSidebar, setLightSidebar } = useSidebarAppearance();
 import { computed, defineAsyncComponent, nextTick, ref, watch } from 'vue';
 import { useTheme } from 'vuetify';
 import BaseDialog from './BaseDialog.vue';

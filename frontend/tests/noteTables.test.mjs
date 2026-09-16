@@ -41,7 +41,7 @@ const tableBody = {
 };
 
 test('tables are available in the editor toolbar, slash menu, and read-only preview', () => {
-  assert.equal(packageJson.dependencies['@tiptap/extension-table'], '3.30.2');
+  assert.equal(packageJson.dependencies['@tiptap/extension-table'], packageJson.dependencies['@tiptap/core']);
   assert.match(editorSource, /import \{ TableKit \} from '@tiptap\/extension-table'/);
   assert.match(editorSource, /TableKit\.configure\(\{[\s\S]*?resizable:\s*true/);
   assert.match(previewSource, /TableKit\.configure\(\{ table: \{ resizable: false, renderWrapper: true \} \}\)/);

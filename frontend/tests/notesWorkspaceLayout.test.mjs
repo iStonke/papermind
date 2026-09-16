@@ -465,11 +465,11 @@ test('note export and template actions live in the compact overflow menu', () =>
   assert.match(workspaceEditorSource, /title="Als Vorlage speichern"[\s\S]*?@click="saveCurrentNoteAsTemplate"/);
   assert.match(workspaceEditorSource, /title="Versionsverlauf"[\s\S]*?@click="openVersionHistory"/);
   assert.match(workspaceEditorSource, /title="Tastenkürzel"[\s\S]*?@click="openNoteShortcuts"/);
-  assert.match(workspaceEditorSource, /class="note-workspace-editor__more-group-label">Exportieren/);
-  assert.match(workspaceEditorSource, /title="Markdown"[\s\S]*?@click="exportNoteAsMarkdown"/);
-  assert.match(workspaceEditorSource, /title="PDF"[\s\S]*?@click="exportNoteAsPdf"/);
-  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-item"/g) || []).length, 5);
-  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-icon"/g) || []).length, 5);
+  assert.match(workspaceEditorSource, /class="note-workspace-editor__more-group-label">Import &amp; Export/);
+  assert.match(workspaceEditorSource, /title="Als Markdown speichern"[\s\S]*?@click="exportNoteAsMarkdown"/);
+  assert.match(workspaceEditorSource, /title="Als PDF speichern"[\s\S]*?@click="exportNoteAsPdf"/);
+  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-item"/g) || []).length, 7);
+  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-icon"/g) || []).length, 7);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-menu\s*\{[\s\S]*?padding:\s*6px[\s\S]*?border-radius:\s*14px[\s\S]*?background:\s*var\(--pm-app-surface-raised\)[\s\S]*?box-shadow:\s*var\(--pm-shadow\)/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-item\s*\{[\s\S]*?min-height:\s*38px[\s\S]*?border-radius:\s*9px[\s\S]*?transition:\s*none/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-icon\s*\{[\s\S]*?width:\s*26px[\s\S]*?height:\s*26px[\s\S]*?border-radius:\s*8px/);

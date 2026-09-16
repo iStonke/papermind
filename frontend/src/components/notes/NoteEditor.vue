@@ -249,6 +249,7 @@ import { OcrQuote } from './nodes/ocrQuote.js';
 import { AiBlock } from './nodes/aiBlock.js';
 import { WikiLink } from './nodes/wikiLink.js';
 import { Callout } from './nodes/callout.js';
+import { CollapsibleSection } from './nodes/collapsibleSection.js';
 import { LayoutColumn, PageLayout } from './nodes/pageLayout.js';
 import { NoteHighlight } from './nodes/noteHighlight.js';
 import { PaperMindDocument } from './nodes/noteDocument.js';
@@ -432,6 +433,7 @@ const editor = useEditor({
     AiBlock,
     WikiLink,
     Callout,
+    CollapsibleSection,
     TemplateBox.configure({
       // Nur im echten Workspace anbieten (der DevHarness hat keinen Baustein-Speicher).
       onSaveAsTemplate: props.workspace ? (data) => emit('save-block-template', data) : null,
@@ -868,6 +870,7 @@ function runToolbar(action) {
     blockquote: () => chain.toggleBlockquote(),
     codeBlock: () => chain.toggleCodeBlock(),
     horizontalRule: () => chain.setHorizontalRule(),
+    collapsibleSection: () => chain.insertCollapsibleSection(),
   };
   commands[action]?.().run();
 }
@@ -1209,6 +1212,7 @@ const SLASH_COMMANDS = [
   { key: 'image', group: 'blocks', chip: '▧', label: 'Bild', desc: 'Foto oder Grafik einfügen', terms: ['bild', 'foto', 'grafik', 'image', 'upload'], kind: 'image-upload' },
   { key: 'quote', group: 'blocks', chip: '❝', label: 'Zitat', desc: 'Zitatblock', terms: ['zitat', 'quote'], action: c => c.toggleBlockquote() },
   { key: 'code', group: 'blocks', chip: '</>', label: 'Code-Block', desc: 'Monospace', terms: ['code', 'block'], action: c => c.toggleCodeBlock() },
+  { key: 'section', group: 'blocks', chip: '▸', label: 'Abschnitte', desc: 'Überschrift mit aufklappbarem Inhalt', terms: ['abschnitt', 'einklappen', 'ausklappen', 'details'], action: c => c.insertCollapsibleSection() },
   { key: 'hr', group: 'blocks', chip: '―', label: 'Trennlinie', desc: 'Horizontale Linie', terms: ['trennlinie', 'linie', 'rule'], action: c => c.setHorizontalRule() },
 ];
 

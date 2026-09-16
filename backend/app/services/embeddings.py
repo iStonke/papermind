@@ -6,7 +6,7 @@ import time
 import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 from pypdf import PdfReader
@@ -14,7 +14,7 @@ from sqlalchemy import func, select, text, tuple_
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
-from app.core.errors import BadRequestError, NotFoundError, StorageError
+from app.core.errors import BadRequestError, ConflictError, NotFoundError, StorageError
 from app.core.text import sanitize_text_for_db
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
@@ -411,11 +411,19 @@ class EmbeddingService:
             raise NotFoundError("Document not found", details={"document_id": str(document_id)})
         return document
 
-    def index_document(self, document_id: uuid.UUID, *, force: bool = False) -> dict[str, Any]:
+    def index_document(
+        self, document_id: uuid.UUID, *, force: bool = False,
+        publish_guard: Callable[[], None] | None = None,
+    ) -> dict[str, Any]:
         document = self.get_document_for_indexing(document_id)
         dedupe_service = DocumentDeduplicationService(self.db)
         source_file = self._select_source_file(document)
         source_path = self._resolve_storage_path(source_file.file_key)
+        source_role = source_file.role
+        source_key = source_file.file_key
+        document_version = document.updated_at
+        source_stat = source_path.stat()
+        source_version = (source_stat.st_ino, source_stat.st_mtime_ns, source_stat.st_size)
 
         extraction_start = time.perf_counter()
         full_text, page_ranges, page_refs_present, page_lines = self._extract_page_texts(source_path)
@@ -459,19 +467,9 @@ class EmbeddingService:
                 details={"document_id": str(document_id)},
             )
 
-        delete_start = time.perf_counter()
-        self.db.execute(
-            text(
-                """
-                DELETE FROM doc_embeddings
-                WHERE chunk_id IN (SELECT id FROM doc_chunks WHERE doc_id = :doc_id)
-                """
-            ),
-            {"doc_id": document_id},
-        )
-        self.db.execute(text("DELETE FROM doc_chunks WHERE doc_id = :doc_id"), {"doc_id": document_id})
-        self.db.flush()
-        delete_ms = (time.perf_counter() - delete_start) * 1000
+        # Release the read transaction before external calls. Prepared chunks
+        # remain detached until the short, version-checked publish transaction.
+        self.db.rollback()
 
         chunk_rows: list[DocumentChunk] = []
         for chunk in chunks:
@@ -480,6 +478,7 @@ class EmbeddingService:
                 continue
             chunk_rows.append(
                 DocumentChunk(
+                    id=uuid.uuid4(),
                     doc_id=document_id,
                     chunk_index=len(chunk_rows),
                     page_from=chunk["page_from"],
@@ -496,8 +495,6 @@ class EmbeddingService:
                 "Chunking produced no chunks",
                 details={"document_id": str(document_id)},
             )
-        self.db.add_all(chunk_rows)
-        self.db.flush()
 
         model_name = settings.embed_model
         embed_batch_size = max(1, settings.embed_batch_size)
@@ -539,6 +536,30 @@ class EmbeddingService:
                     }
                 )
 
+        if publish_guard is not None:
+            publish_guard()
+        document = self.db.execute(
+            select(Document).where(Document.id == document_id)
+            .with_for_update().execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if document is None or document.is_deleted or document.updated_at != document_version:
+            self.db.rollback()
+            raise ConflictError("Document changed during indexing; retry indexing")
+        stat = source_path.stat()
+        current_file = self.db.scalar(select(DocumentFile).where(
+            DocumentFile.document_id == document_id, DocumentFile.role == source_role,
+        ))
+        if (stat.st_ino, stat.st_mtime_ns, stat.st_size) != source_version or (
+            current_file is not None and current_file.file_key != source_key
+        ):
+            self.db.rollback()
+            raise ConflictError("Source PDF changed during indexing; retry indexing")
+
+        delete_start = time.perf_counter()
+        self.db.execute(text("DELETE FROM doc_chunks WHERE doc_id = :doc_id"), {"doc_id": document_id})
+        self.db.add_all(chunk_rows)
+        self.db.flush()
+        delete_ms = (time.perf_counter() - delete_start) * 1000
         upsert_start = time.perf_counter()
         if embedding_rows:
             self.db.execute(_EMBED_INSERT_SQL, embedding_rows)
@@ -556,7 +577,7 @@ class EmbeddingService:
         except Exception as exc:  # pragma: no cover - best effort dedupe
             logger.warning("duplicate_text_check_failed document_id=%s error=%s", document_id, exc)
 
-        if source_file.role == "ocr":
+        if source_role == "ocr":
             document.text_source = "ocr"
         elif document.text_source == "none":
             document.text_source = "embedded"

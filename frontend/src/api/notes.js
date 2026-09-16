@@ -128,3 +128,10 @@ export async function streamNoteText(payload, { onEvent, signal } = {}) {
   }
   if (buffer.trim()) consumeLine(buffer);
 }
+
+export const exportNoteArchive = (id) => apiGet(`/api/notes/${id}/export`);
+export const importNoteArchive = (file) => {
+  const body = new FormData();
+  body.append('file', file);
+  return apiFetch('/api/notes/import', { method: 'POST', body });
+};

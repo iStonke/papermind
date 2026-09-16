@@ -143,7 +143,6 @@
                   color="primary"
                   density="compact"
                   hide-details
-                  inset
                   aria-label="Scanner verwenden"
                   @update:model-value="onScannerDraftChanged(200)"
                 />
@@ -161,7 +160,6 @@
                   color="primary"
                   density="compact"
                   hide-details
-                  inset
                   :disabled="savingIds.has(selectedScanner.id)"
                   aria-label="Seiten sofort senden"
                   @update:model-value="onScannerDraftChanged(200)"
@@ -189,7 +187,6 @@
                     color="primary"
                     density="compact"
                     hide-details
-                    inset
                     :disabled="savingIds.has(selectedScanner.id)"
                     aria-label="Zugriff einschränken"
                     @update:model-value="setAccessRestricted"

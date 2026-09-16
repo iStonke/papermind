@@ -3,7 +3,9 @@ import logging
 import os
 import re
 import socket
+import shutil
 import subprocess
+import tempfile
 import threading
 import time
 import uuid
@@ -11,6 +13,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
@@ -45,6 +48,8 @@ from app.services.document_types import (
 )
 from app.services.ocr_pipeline import run_ocr_pipeline
 from app.services.settings import SettingsService
+from app.services.maintenance import write_activity
+from app.worker.document_dispatch import DocumentJobDispatcher
 from app.services.tag_suggestions import (
     fallback_tag_candidates,
     is_blocked_tag_candidate,
@@ -373,6 +378,7 @@ def _scanner_analysis_owner_id(db, scanner_device_id: uuid.UUID | None) -> uuid.
     ).scalar()
 
 
+@write_activity()
 def _preanalyze_import_sources(source_file_ids: list[str], owner_id: uuid.UUID | None) -> None:
     if not source_file_ids:
         return
@@ -405,6 +411,7 @@ def _preanalyze_import_sources(source_file_ids: list[str], owner_id: uuid.UUID |
         )
 
 
+@write_activity()
 def _enhance_scanner_import_sources(source_file_ids: list[str], owner_id: uuid.UUID | None) -> None:
     if not source_file_ids:
         return
@@ -510,6 +517,7 @@ def _queue_preanalysis(source_file_ids: list[str], owner_id: uuid.UUID | None) -
     executor.submit(_preanalyze_import_sources, source_file_ids, owner_id)
 
 
+@write_activity()
 def _run_cleanup_stage(
     source_file_ids: list[str],
     owner_id: uuid.UUID | None,
@@ -523,6 +531,7 @@ def _run_cleanup_stage(
     _queue_preanalysis(source_file_ids, owner_id)
 
 
+@write_activity()
 def _run_post_ingest_work(
     source_file_ids: list[str],
     owner_id: uuid.UUID | None,
@@ -1059,8 +1068,21 @@ def _clear_job_lease(job: Job) -> None:
 
 
 def _still_owns_job(db, job: Job, lease_token: uuid.UUID) -> bool:
-    db.refresh(job, attribute_names=["status", "lease_token"])
-    return job.status == "running" and job.lease_token == lease_token
+    # Hold the row lock through publication/commit, fencing a concurrent reclaimer.
+    return db.scalar(
+        select(Job.id).where(
+            Job.id == job.id, Job.status == "running", Job.lease_token == lease_token,
+            Job.lease_expires_at > func.clock_timestamp(),
+        ).with_for_update()
+    ) is not None
+
+
+def _require_job_lease(db, job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
+    if db.scalar(select(Job.id).where(
+        Job.id == job_id, Job.status == "running", Job.lease_token == lease_token,
+        Job.lease_expires_at > func.clock_timestamp(),
+    ).with_for_update()) is None:
+        raise RuntimeError("Job lease lost; result was not published")
 
 
 def _heartbeat_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> bool:
@@ -1119,7 +1141,7 @@ def _mark_job_failed(job_id: uuid.UUID, reason: str, lease_token: uuid.UUID | No
         stmt = select(Job).where(Job.id == job_id)
         if lease_token is not None:
             stmt = stmt.where(Job.status == "running", Job.lease_token == lease_token)
-        job = db.execute(stmt).scalar_one_or_none()
+        job = db.execute(stmt.with_for_update()).scalar_one_or_none()
         if job is None:
             return
 
@@ -1155,11 +1177,11 @@ def _mark_job_failed(job_id: uuid.UUID, reason: str, lease_token: uuid.UUID | No
 
 
 
-def _claim_next_job() -> tuple[uuid.UUID, str, uuid.UUID] | None:
+def _claim_next_job(job_types=("OCR", "INDEX", "TAG")) -> tuple[uuid.UUID, str, uuid.UUID] | None:
     with SessionLocal() as db:
         stmt = (
             select(Job)
-            .where(Job.type.in_(("OCR", "INDEX", "TAG")), Job.status == "queued")
+            .where(Job.type.in_(job_types), Job.status == "queued")
             .order_by(Job.created_at.asc())
             .with_for_update(skip_locked=True)
             .limit(1)
@@ -1199,6 +1221,7 @@ def _claim_next_job() -> tuple[uuid.UUID, str, uuid.UUID] | None:
 
 
 def _process_ocr_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
+    attempt_dir = None
     try:
         with SessionLocal() as db:
             job = db.execute(
@@ -1231,8 +1254,18 @@ def _process_ocr_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
             if not original_path.exists() or not original_path.is_file():
                 raise RuntimeError("Original PDF file is missing in storage")
 
-            ocr_key = f"{document.id}/ocr.pdf"
-            ocr_path = _resolve_storage_path(ocr_key)
+            document_id = document.id
+            document_version = document.updated_at
+            source_stat = original_path.stat()
+            source_version = (source_stat.st_ino, source_stat.st_mtime_ns, source_stat.st_size)
+            # A committed DB reference selects this immutable attempt. A failed
+            # commit can leave an orphan, but cannot overwrite the previous PDF.
+            ocr_key = f"{document.id}/ocr-{lease_token.hex}.pdf"
+            published_path = _resolve_storage_path(ocr_key)
+            attempt_dir = tempfile.mkdtemp(prefix=".ocr-attempt-", dir=published_path.parent)
+            ocr_path = Path(attempt_dir) / "ocr.pdf"
+            classification = SimpleNamespace(id=document.id, flags=dict(document.flags or {}))
+            doc_type_vocab = load_active_document_type_vocab(db)
             runtime_settings = _load_runtime_settings(db)
             scan_cleanup_flags = dict((document.flags or {}).get("scan_cleanup") or {})
             if scan_cleanup_flags.get("applied"):
@@ -1257,17 +1290,11 @@ def _process_ocr_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
                 runtime_settings,
                 timeout_seconds=settings.worker_ocr_timeout_seconds,
             )
-            if not _still_owns_job(db, job, lease_token):
-                db.rollback()
-                return
             quality_payload = dict(ocr_result.get("quality") or {})
             quality_status = str(quality_payload.get("status") or ocr_result.get("quality_status") or "").strip() or None
             confidence_score = quality_payload.get("confidence_score", ocr_result.get("confidence_score"))
             quality_message = str(quality_payload.get("message") or "").strip() or None
             processing_seconds = ocr_result.get("processing_time_seconds")
-
-            job.progress = 70
-            db.commit()
 
             extracted_text = str(ocr_result.get("text") or "")
             pages_payload = list(ocr_result.get("pages") or [])
@@ -1277,6 +1304,33 @@ def _process_ocr_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
                 if str(item.get("text") or "").strip()
             ]
             ocr_size = ocr_path.stat().st_size
+            classification_warning = apply_ollama_classification(
+                classification,
+                extracted_text=extracted_text,
+                quality_status=quality_status,
+                confidence_score=confidence_score,
+                allowed_document_types=document_type_names(doc_type_vocab),
+                document_type_hints=document_type_hint_map(doc_type_vocab),
+                timeout_seconds=settings.ai_classification_timeout_seconds,
+            )
+            _require_job_lease(db, job_id, lease_token)
+            document = db.execute(
+                select(Document).where(Document.id == document_id)
+                .with_for_update().execution_options(populate_existing=True)
+                .options(selectinload(Document.files))
+            ).scalar_one()
+            stat = original_path.stat()
+            if document.is_deleted or document.updated_at != document_version or (
+                stat.st_ino, stat.st_mtime_ns, stat.st_size
+            ) != source_version:
+                raise RuntimeError("Document changed during OCR; retry OCR")
+            for field, value in vars(classification).items():
+                if field.startswith("ai_"):
+                    setattr(document, field, value)
+            flags = dict(document.flags or {})
+            if "ai_classification" in classification.flags:
+                flags["ai_classification"] = classification.flags["ai_classification"]
+            document.flags = flags
             dedupe_service = DocumentDeduplicationService(db)
             logger.info(
                 "ocr completion settings document_id=%s auto_ocr=%s auto_tagging=%s",
@@ -1342,16 +1396,6 @@ def _process_ocr_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
                 dedupe_service.evaluate_document_text_duplicate(document, extracted_text)
             except Exception as exc:  # pragma: no cover - best effort dedupe
                 logger.warning("duplicate_text_check_failed document_id=%s error=%s", document.id, exc)
-            doc_type_vocab = load_active_document_type_vocab(db)
-            classification_warning = apply_ollama_classification(
-                document,
-                extracted_text=extracted_text,
-                quality_status=quality_status,
-                confidence_score=confidence_score,
-                allowed_document_types=document_type_names(doc_type_vocab),
-                document_type_hints=document_type_hint_map(doc_type_vocab),
-                timeout_seconds=settings.ai_classification_timeout_seconds,
-            )
             document.status = "ready"
             document.ocr_status = "done"
             if settings.index_auto_on_ready:
@@ -1364,6 +1408,8 @@ def _process_ocr_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
             job.finished_at = _now_utc()
             _clear_job_lease(job)
 
+            db.flush()
+            os.replace(ocr_path, published_path)
             db.commit()
             logger.info(
                 "ocr job completed job_id=%s document_id=%s text_bytes=%s engine=%s quality_status=%s confidence=%s quality=%s",
@@ -1392,6 +1438,10 @@ def _process_ocr_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
     except Exception as exc:  # pragma: no cover - infrastructure/runtime path
         _mark_job_failed(job_id, str(exc), lease_token)
 
+    finally:
+        if attempt_dir is not None:
+            shutil.rmtree(attempt_dir, ignore_errors=True)
+
 
 def _process_index_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
     try:
@@ -1407,7 +1457,9 @@ def _process_index_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
                 raise RuntimeError("Document not found")
 
             service = EmbeddingService(db)
-            stats = service.index_document(document.id)
+            stats = service.index_document(
+                document.id, publish_guard=lambda: _require_job_lease(db, job_id, lease_token),
+            )
 
             runtime_settings = _load_runtime_settings(db)
             wiki_settings = runtime_settings.get("wiki", {})
@@ -1483,6 +1535,7 @@ def _process_tag_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
             )
 
             if not auto_tagging_enabled:
+                _require_job_lease(db, job_id, lease_token)
                 job.status = "done"
                 job.progress = 100
                 job.error_message = None
@@ -1493,6 +1546,7 @@ def _process_tag_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
 
             text_value = " ".join(str(document.text_content or "").split()).strip()
             if not text_value:
+                _require_job_lease(db, job_id, lease_token)
                 job.status = "done"
                 job.progress = 100
                 job.error_message = None
@@ -1525,6 +1579,7 @@ def _process_tag_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
         _mark_job_failed(job_id, str(exc), lease_token)
 
 
+@write_activity()
 def _reclaim_orphaned_jobs() -> None:
     """Jobs mit abgelaufener oder alter, lease-loser Ausführung zurückstellen.
 
@@ -1764,13 +1819,28 @@ def _run_scanner_dispatch_loop(stop_event: threading.Event) -> None:
             stop_event.wait(SCANNER_CONFIG_SYNC_INTERVAL_SECONDS)
             continue
         try:
-            _sync_scanner_discovery()
-            _sync_scanner_live_mode_config()
-            _sync_scanner_scan_status()
-            _drain_scanner_scan_commands()
+            with write_activity():
+                _sync_scanner_discovery()
+                _sync_scanner_live_mode_config()
+                _sync_scanner_scan_status()
+                _drain_scanner_scan_commands()
         except Exception:  # noqa: BLE001 - ein transienter Fehler darf den Thread nicht beenden
             logger.exception("scanner dispatch loop iteration failed")
         stop_event.wait(SCANNER_CONFIG_SYNC_INTERVAL_SECONDS)
+
+
+def _process_claimed_document_job(claimed) -> None:
+    job_id, job_type, lease_token = claimed
+    _touch_worker_health(state=job_type.lower(), job_id=job_id, force=True)
+    with _job_lease_heartbeat(job_id, lease_token):
+        if job_type == "OCR":
+            _process_ocr_job(job_id, lease_token)
+        elif job_type == "INDEX":
+            _process_index_job(job_id, lease_token)
+        elif job_type == "TAG":
+            _process_tag_job(job_id, lease_token)
+        else:
+            _mark_job_failed(job_id, f"Unsupported job type {job_type}", lease_token)
 
 
 def run() -> None:
@@ -1804,6 +1874,7 @@ def run() -> None:
         daemon=True,
     )
     scanner_dispatch_thread.start()
+    document_dispatch = DocumentJobDispatcher(_claim_next_job, _process_claimed_document_job)
     last_trash_cleanup_at = 0.0
     last_ocr_backfill_at = 0.0
     last_backup_check_at = 0.0
@@ -1819,70 +1890,59 @@ def run() -> None:
             _touch_worker_health(state="maintenance")
             time.sleep(settings.worker_poll_interval_seconds)
             continue
-        now_monotonic = time.monotonic()
-        _touch_worker_health(state="idle")
-        if now_monotonic - last_job_reclaim_at >= JOB_RECLAIM_INTERVAL_SECONDS:
-            last_job_reclaim_at = now_monotonic
-            _reclaim_orphaned_jobs()
+        with write_activity():
+            document_dispatch.dispatch()
+            now_monotonic = time.monotonic()
+            _touch_worker_health(state="idle")
+            if now_monotonic - last_job_reclaim_at >= JOB_RECLAIM_INTERVAL_SECONDS:
+                last_job_reclaim_at = now_monotonic
+                _reclaim_orphaned_jobs()
 
-        if now_monotonic - last_memory_log_at >= WORKER_MEMORY_LOG_INTERVAL_SECONDS:
-            last_memory_log_at = now_monotonic
-            _log_worker_memory()
+            if now_monotonic - last_memory_log_at >= WORKER_MEMORY_LOG_INTERVAL_SECONDS:
+                last_memory_log_at = now_monotonic
+                _log_worker_memory()
 
-        if now_monotonic - last_scanner_job_maintenance_at >= SCANNER_JOB_MAINTENANCE_INTERVAL_SECONDS:
-            last_scanner_job_maintenance_at = now_monotonic
-            _expire_stale_scanner_jobs()
+            if now_monotonic - last_scanner_job_maintenance_at >= SCANNER_JOB_MAINTENANCE_INTERVAL_SECONDS:
+                last_scanner_job_maintenance_at = now_monotonic
+                _expire_stale_scanner_jobs()
 
-        if now_monotonic - last_scanner_job_cleanup_at >= SCANNER_JOB_CLEANUP_INTERVAL_SECONDS:
-            last_scanner_job_cleanup_at = now_monotonic
-            _cleanup_old_scanner_jobs()
+            if now_monotonic - last_scanner_job_cleanup_at >= SCANNER_JOB_CLEANUP_INTERVAL_SECONDS:
+                last_scanner_job_cleanup_at = now_monotonic
+                _cleanup_old_scanner_jobs()
 
-        if now_monotonic - last_trash_cleanup_at >= TRASH_CLEANUP_INTERVAL_SECONDS:
-            last_trash_cleanup_at = now_monotonic
-            _cleanup_expired_trash()
+            if now_monotonic - last_trash_cleanup_at >= TRASH_CLEANUP_INTERVAL_SECONDS:
+                last_trash_cleanup_at = now_monotonic
+                _cleanup_expired_trash()
 
-        if now_monotonic - last_ocr_backfill_at >= settings.ocr_backfill_interval_seconds:
-            last_ocr_backfill_at = now_monotonic
-            _run_ocr_backfill()
+            if now_monotonic - last_ocr_backfill_at >= settings.ocr_backfill_interval_seconds:
+                last_ocr_backfill_at = now_monotonic
+                _run_ocr_backfill()
 
-        if now_monotonic - last_backup_check_at >= BACKUP_CHECK_INTERVAL_SECONDS:
-            last_backup_check_at = now_monotonic
-            _run_backup_scheduler()
+            if now_monotonic - last_backup_check_at >= BACKUP_CHECK_INTERVAL_SECONDS:
+                last_backup_check_at = now_monotonic
+                _run_backup_scheduler()
 
-        if now_monotonic - last_wiki_lint_at >= WIKI_LINT_INTERVAL_SECONDS:
-            last_wiki_lint_at = now_monotonic
-            _run_wiki_lint()
+            if now_monotonic - last_wiki_lint_at >= WIKI_LINT_INTERVAL_SECONDS:
+                last_wiki_lint_at = now_monotonic
+                _run_wiki_lint()
 
-        # Inbox-Ordner-Import (SMB-Scanordner): eingeworfene PDFs landen als
-        # Posteingang-Einträge (Eigentümer = erster Admin, Ein-Benutzer-Betrieb).
-        inbox_drop_file = _claim_next_import_inbox_pdf()
-        if inbox_drop_file is not None:
-            claimed_path, original_name, preview_path = inbox_drop_file
-            _process_import_inbox_drop_file(claimed_path, original_name, preview_path)
-            continue
-
-        claimed = _claim_next_job()
-        if claimed is None:
-            wiki_backfill = _claim_next_wiki_backfill()
-            if wiki_backfill is not None:
-                run_id, lease_token = wiki_backfill
-                _touch_worker_health(state="wiki_backfill", job_id=run_id, force=True)
-                with _wiki_backfill_lease_heartbeat(run_id, lease_token):
-                    _process_wiki_backfill(run_id, lease_token)
+            # Inbox-Ordner-Import (SMB-Scanordner): eingeworfene PDFs landen als
+            # Posteingang-Einträge (Eigentümer = erster Admin, Ein-Benutzer-Betrieb).
+            inbox_drop_file = _claim_next_import_inbox_pdf()
+            if inbox_drop_file is not None:
+                claimed_path, original_name, preview_path = inbox_drop_file
+                _process_import_inbox_drop_file(claimed_path, original_name, preview_path)
                 continue
+
+            if not document_dispatch.busy:
+                wiki_backfill = _claim_next_wiki_backfill()
+                if wiki_backfill is not None:
+                    run_id, lease_token = wiki_backfill
+                    _touch_worker_health(state="wiki_backfill", job_id=run_id, force=True)
+                    with _wiki_backfill_lease_heartbeat(run_id, lease_token):
+                        _process_wiki_backfill(run_id, lease_token)
+                    continue
             time.sleep(settings.worker_poll_interval_seconds)
-            continue
-        job_id, job_type, lease_token = claimed
-        _touch_worker_health(state=job_type.lower(), job_id=job_id, force=True)
-        with _job_lease_heartbeat(job_id, lease_token):
-            if job_type == "OCR":
-                _process_ocr_job(job_id, lease_token)
-            elif job_type == "INDEX":
-                _process_index_job(job_id, lease_token)
-            elif job_type == "TAG":
-                _process_tag_job(job_id, lease_token)
-            else:
-                _mark_job_failed(job_id, f"Unsupported job type {job_type}", lease_token)
 
 
 if __name__ == "__main__":

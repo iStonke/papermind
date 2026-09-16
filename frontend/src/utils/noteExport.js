@@ -210,6 +210,8 @@ function renderNode(node, context) {
       const answer = String(node.attrs?.text || '').split('\n').map((line) => `> ${line}`).join('\n');
       return `> **PaperMind-KI**\n>\n${answer}`;
     }
+    case 'collapsibleSection':
+      return `<details data-note-section${node.attrs?.open ? ' open' : ''}><summary>${escapeHtml(node.attrs?.title || 'Abschnitt')}</summary><div data-section-content>${renderHtmlChildren(node, context)}</div></details>`;
     case 'callout': {
       const meta = noteCalloutMeta(node.attrs?.kind);
       const content = renderChildren(node, context, '\n\n')
@@ -336,6 +338,9 @@ function renderHtmlNode(node, context) {
       for (const source of node.attrs?.sources || []) addDocumentSource(context, source);
       return `<aside class="ai-block"><strong>PaperMind-KI</strong><div>${noteMarkdownToSafeHtml(node.attrs?.text || '')}</div></aside>`;
     }
+    case 'collapsibleSection':
+      // Printable exports always include hidden content.
+      return `<section><h3>${escapeHtml(node.attrs?.title || 'Abschnitt')}</h3>${renderHtmlChildren(node, context)}</section>`;
     case 'callout': {
       const meta = noteCalloutMeta(node.attrs?.kind);
       return `<aside class="callout callout-${meta.value}"><strong>${escapeHtml(meta.glyph)} ${escapeHtml(meta.label)}</strong><div>${renderHtmlChildren(node, context)}</div></aside>`;

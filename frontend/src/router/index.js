@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import { defineAsyncComponent } from 'vue';
 
 import { getToken } from '../api/client.js';
 import { useAuthStore } from '../stores/auth.js';
@@ -10,10 +11,11 @@ import AppLayout from '../views/AppLayout.vue';
 // Komponenten-Ebene (defineAsyncComponent für die schweren Dialoge), was den
 // Navigations-Guard nicht blockiert.
 import DocumentsView from '../views/DocumentsView.vue';
-// DEV-only Editor-Prüfstand (M0). Statisch importiert wie die übrigen Routen
-// (dynamische Route-Imports haben den Startup-Guard blockiert); der Prod-Build
-// entfernt Route UND Import als Dead Code, da import.meta.env.DEV dort false ist.
-import NotesDevHarness from '../views/NotesDevHarness.vue';
+// A static import retains editor module side effects even when the route is
+// removed. Keep the complete harness graph behind the compile-time DEV gate.
+const NotesDevHarness = import.meta.env.DEV
+  ? defineAsyncComponent(() => import('../views/NotesDevHarness.vue'))
+  : null;
 
 const routes = [
   {

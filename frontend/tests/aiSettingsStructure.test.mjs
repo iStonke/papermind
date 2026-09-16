@@ -36,14 +36,14 @@ test('AI provider settings keep local knowledge visibly separated from note text
   assert.match(source, /title: 'Anthropic API \(Claude\)', value: 'anthropic'/);
 });
 
-test('AI toggles use the standard inset setting-row control', () => {
+test('AI toggles use the standard setting-row control', () => {
   assert.match(
     localAiSection,
-    /@click="toggleOllamaFromRow"[\s\S]*?>Ollama verwenden<[\s\S]*?density="comfortable"[\s\S]*?\binset\b[\s\S]*?@click\.stop/,
+    /@click="toggleOllamaFromRow"[\s\S]*?>Ollama verwenden<[\s\S]*?density="comfortable"[\s\S]*?@click\.stop/,
   );
   assert.match(
     localAiSection,
-    /@click="toggleTextGenerationFromRow"[\s\S]*?>Mit KI schreiben<[\s\S]*?density="comfortable"[\s\S]*?\binset\b[\s\S]*?@click\.stop/,
+    /@click="toggleTextGenerationFromRow"[\s\S]*?>Mit KI schreiben<[\s\S]*?density="comfortable"[\s\S]*?@click\.stop/,
   );
 });
 

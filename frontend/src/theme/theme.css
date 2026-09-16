@@ -292,3 +292,39 @@
   border-radius: var(--pm-window-radius, 24px);
   overflow: hidden;
 }
+
+/* Optional light navigation. The original ink palette remains available. */
+.papermind-app.v-theme--light.pm-light-sidebar {
+  --pm-field-bg: #ffffff;
+  --pm-field-border: #c6d5d2;
+  --pm-sidebar-surface: #f1f5f4;
+  --pm-sidebar-text: #293f43;
+  --pm-sidebar-muted: #586e72;
+  --pm-sidebar-border: #d5e0de;
+  --pm-sidebar-hover: rgba(0, 107, 117, 0.06);
+  --pm-sidebar-selected: #d9eeeb;
+  --pm-sidebar-selected-text: #005b63;
+  --pm-sidebar-accent: #006b75;
+  --pm-sidebar-chip-bg: #e3ebe9;
+  --pm-sidebar-chip-text: #344e52;
+  --pm-sidebar-chip-count: #586e72;
+}
+.papermind-app.v-theme--light.pm-light-sidebar .sidebar-search__field input::placeholder {
+  color: var(--pm-sidebar-muted);
+  opacity: 1;
+}
+.papermind-app.v-theme--light.pm-light-sidebar .sidebar-brand__mark {
+  background: var(--pm-sidebar-accent);
+  color: #ffffff;
+}
+.papermind-app.v-theme--light.pm-light-sidebar .sidebar-brand__mark .v-icon {
+  font-size: 22px !important;
+  color: inherit;
+  opacity: 1;
+}
+.papermind-app.v-theme--light.pm-light-sidebar .panel-left .sidebar-head,
+.papermind-app.v-theme--light.pm-light-sidebar .panel-left .sidebar-scroll,
+.papermind-app.v-theme--light.pm-light-sidebar .panel-left .sidebar-foot {
+  --v-theme-on-surface: 41, 63, 67;
+  --v-theme-primary: 0, 107, 117;
+}
