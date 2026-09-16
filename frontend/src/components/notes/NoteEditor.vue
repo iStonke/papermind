@@ -1977,6 +1977,13 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
   margin-top: 0;
 }
 
+/* Eine Liste setzt ihren einleitenden Absatz unmittelbar fort. Der größere
+   Strukturabstand bleibt für eigenständige Blöcke und nach Listen erhalten. */
+.note-editor :deep(.pm-content > :is(p, h1, h2, h3, h4, h5, h6) + :is(ul, ol)),
+.note-editor :deep([data-layout-column] > :is(p, h1, h2, h3, h4, h5, h6) + :is(ul, ol)) {
+  margin-top: var(--note-editor-paragraph-gap);
+}
+
 .note-editor :deep(.pm-content ul),
 .note-editor :deep(.pm-content ol) { padding-left: 1.4em; }
 
