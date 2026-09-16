@@ -25,6 +25,17 @@ export function useNoteToolbar({
   // die Menü-Buttons werden zu einem einzigen Tab-Stopp gebündelt.
   useToolbarRoving(toolbarEl);
   const openMenu = ref(null); // 'block' | 'layout' | 'highlight' | 'insert' | 'blocks' | null
+  const canUndo = computed(() => !props.readonly && Boolean(editor.value?.isEditable && editor.value.can().undo()));
+  const canRedo = computed(() => !props.readonly && Boolean(editor.value?.isEditable && editor.value.can().redo()));
+  function runHistory(action) {
+    if (action !== 'undo' && action !== 'redo') return;
+    if (!(action === 'undo' ? canUndo.value : canRedo.value)) return;
+    beforeOpen();
+    openMenu.value = null;
+    closeTableMenu();
+    closeLinkEditor();
+    editor.value.chain().focus()[action]().run();
+  }
   const toolbarCompact = ref(false);
   const TOOLBAR_COMPACT_WIDTH = 580;
 
@@ -240,6 +251,9 @@ export function useNoteToolbar({
   });
 
   return {
+    canUndo,
+    canRedo,
+    runHistory,
     toolbarEl,
     openMenu,
     toolbarCompact,

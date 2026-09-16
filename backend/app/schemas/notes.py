@@ -388,6 +388,40 @@ class NoteTextGenerationRequest(BaseModel):
     document_context: str = Field(default="", max_length=16000)
 
 
+class NoteReviewStructureNode(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: str = Field(max_length=50)
+    level: int | None = Field(default=None, ge=1, le=6)
+    kind: str | None = Field(default=None, max_length=30)
+    marks: list[str] = Field(default_factory=list, max_length=10)
+
+
+class NoteReviewBlock(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(pattern=r"^b[1-9]\d*$", max_length=12)
+    type: str = Field(max_length=50)
+    text: str = Field(max_length=12000)
+    structure: list[NoteReviewStructureNode] = Field(default_factory=list, max_length=80)
+    convertible: bool = False
+
+
+class NoteReviewRequest(BaseModel):
+    """Whole-note (or selection) review request returning a structured change list.
+
+    Unlike :class:`NoteTextGenerationRequest`, this path pins the review system
+    prompt and a low temperature and expects strict JSON back, so the model can
+    propose individually reviewable fix/format/add changes instead of free text.
+    ``extra_instruction`` carries an optional user refinement (e.g. "kürzer").
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    note_text: str = Field(min_length=1, max_length=12000)
+    extra_instruction: str = Field(default="", max_length=600)
+    retry: bool = False
+    note_structure: list[NoteReviewBlock] = Field(default_factory=list, max_length=1000)
+
+
 class AIProviderCredentialUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

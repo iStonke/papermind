@@ -84,11 +84,11 @@ export const uploadNoteImage = (id, file) => {
 export const bulkNotes = ({ action, ids }) => apiPost('/api/notes/bulk', { action, ids });
 
 /**
- * Streamt NDJSON-Ereignisse der Notiz-Schreibassistenz. Der Callback erhält
- * Meta-, Delta- und Done-Ereignisse; API-Schlüssel bleiben vollständig im Backend.
+ * Gemeinsamer NDJSON-Streamer der Notiz-KI-Endpunkte. Der Callback erhält Meta-,
+ * Delta- und Done-Ereignisse; API-Schlüssel bleiben vollständig im Backend.
  */
-export async function streamNoteText(payload, { onEvent, signal } = {}) {
-  const response = await fetch(`${getBaseUrl()}/api/notes/ai/generate`, {
+async function streamNoteNdjson(path, payload, { onEvent, signal } = {}) {
+  const response = await fetch(`${getBaseUrl()}${path}`, {
     method: 'POST',
     credentials: 'include',
     cache: 'no-store',
@@ -114,7 +114,11 @@ export async function streamNoteText(payload, { onEvent, signal } = {}) {
   const consumeLine = (line) => {
     if (!line.trim()) return;
     const event = JSON.parse(line);
-    if (event.type === 'error') throw new Error(event.message || 'Textgenerierung fehlgeschlagen.');
+    if (event.type === 'error') {
+      const error = new Error(event.message || 'Textgenerierung fehlgeschlagen.');
+      error.code = event.code;
+      throw error;
+    }
     if (typeof onEvent === 'function') onEvent(event);
   };
 
@@ -127,6 +131,20 @@ export async function streamNoteText(payload, { onEvent, signal } = {}) {
     if (done) break;
   }
   if (buffer.trim()) consumeLine(buffer);
+}
+
+/** Freie Schreibassistenz (generiert Notiz-Markdown). */
+export function streamNoteText(payload, options = {}) {
+  return streamNoteNdjson('/api/notes/ai/generate', payload, options);
+}
+
+/**
+ * KI-Überarbeitung: schickt die ganze (oder ausgewählte) Notiz und streamt eine
+ * strukturierte JSON-Änderungsliste (fix/format/add). Das JSON wird vom Aufrufer
+ * aus den zusammengesetzten Delta-Ereignissen geparst.
+ */
+export function streamNoteReview(payload, options = {}) {
+  return streamNoteNdjson('/api/notes/ai/review', payload, options);
 }
 
 export const exportNoteArchive = (id) => apiGet(`/api/notes/${id}/export`);

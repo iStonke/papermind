@@ -205,6 +205,12 @@ onBeforeUnmount(() => {
   letter-spacing: 0.02em;
 }
 
+@media (hover: hover) and (pointer: fine) {
+  .onboarding-dev-launcher:hover:not(:focus-visible) {
+    opacity: 0;
+  }
+}
+
 @media (max-width: 720px) {
   .onboarding-dev-launcher {
     right: 12px;

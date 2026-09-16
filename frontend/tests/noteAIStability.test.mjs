@@ -51,3 +51,15 @@ test('note AI surfaces an NDJSON stream error instead of reporting empty text', 
     globalThis.fetch = previousFetch;
   }
 });
+
+test('review truncation code survives the NDJSON transport for the compact retry', async () => {
+  const { streamNoteReview } = await import('../src/api/notes.js');
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(
+    '{"type":"error","code":"review_incomplete","message":"Abgeschnitten"}\n',
+    { status: 200, headers: { 'content-type': 'application/x-ndjson' } },
+  );
+  try {
+    await assert.rejects(streamNoteReview({ note_text: 'Text' }), error => error.code === 'review_incomplete');
+  } finally { globalThis.fetch = previousFetch; }
+});

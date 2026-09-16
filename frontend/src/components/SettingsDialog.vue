@@ -77,12 +77,12 @@
               </div>
             </div>
 
-            <div v-if="settingsDraft.ui.theme_mode === 'light'" class="pm-setting-row">
+            <div class="pm-setting-row" :class="{ 'pm-setting-row--sidebar-disabled': settingsDraft.ui.theme_mode === 'dark' }">
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Helle Seitenleiste</div>
                 <div class="pm-setting-description">Im Hellmodus eine helle Leiste verwenden. Ausschalten stellt die bisherige dunkle Leiste wieder her. Gilt für diesen Browser.</div>
               </div>
-              <v-switch :model-value="lightSidebar" aria-label="Helle Seitenleiste" color="primary" hide-details @update:model-value="setLightSidebar" />
+              <v-switch :model-value="lightSidebar" :disabled="settingsDraft.ui.theme_mode === 'dark'" aria-label="Helle Seitenleiste" color="primary" hide-details @update:model-value="setLightSidebar" />
             </div>
 
             <div

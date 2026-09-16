@@ -76,6 +76,15 @@
   --pm-accent-text: var(--pm-accent-strong);
   --pm-on-accent:   var(--pm-accent-contrast);
 
+  /* KI-Überarbeitung: Kategoriefarben (nie Akzent/Türkis – der bleibt Auswahl).
+     Glyphe trägt die Kategorie zusätzlich, nie Farbe allein. */
+  --pm-rev-fix:        #2f6f52;
+  --pm-rev-fix-soft:   #e9f2ec;
+  --pm-rev-format:     #3b5a97;
+  --pm-rev-format-soft:#eaeff8;
+  --pm-rev-add:        #8d5406;
+  --pm-rev-add-soft:   #f8f0e0;
+
   /* Flächen – weißer Inhalt, leicht getönter Leser, dunkle Tinten-Seitenleiste */
   --pm-app-surface:          #ffffff;
   --pm-content-surface:      #ffffff;
@@ -178,6 +187,14 @@
 
   --pm-accent-text: var(--pm-accent-strong);
   --pm-on-accent:   var(--pm-accent-contrast);
+
+  /* KI-Überarbeitung: hellere Kategoriefarben für dunklen Grund */
+  --pm-rev-fix:        #7fc09c;
+  --pm-rev-fix-soft:   rgba(127, 192, 156, 0.16);
+  --pm-rev-format:     #9db6e6;
+  --pm-rev-format-soft:rgba(157, 182, 230, 0.16);
+  --pm-rev-add:        #dfae6b;
+  --pm-rev-add-soft:   rgba(223, 174, 107, 0.16);
 
   /* Flächen – vier klar gestufte Ebenen (Seitenleiste am tiefsten → Liste →
      Karten am hellsten; Leser bewusst zurückgesetzt) */

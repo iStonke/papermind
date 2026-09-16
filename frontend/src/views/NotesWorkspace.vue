@@ -244,6 +244,9 @@
         ref="editorPanelRef"
         :note-id="activeNote.id"
         :list-visible="!isListPanelCollapsed"
+        :creating="creating"
+        :created-note-id="createdPageNoteId"
+        @create-note="createNote"
         @toggle-list="toggleNotesList"
         @imported="onNoteImported"
       />
@@ -479,6 +482,7 @@ const creating = ref(false);
 const loadError = ref('');
 const editorPanelRef = ref(null);
 const newlyCreatedNoteId = ref(null);
+const createdPageNoteId = ref(null);
 const removingNoteId = ref(null);
 const isDeleteNoteDialogOpen = ref(false);
 const isDeletingNote = ref(false);
@@ -946,11 +950,11 @@ async function selectNote(noteId) {
 }
 
 function loadNotesListCollapsed() {
-  if (typeof window === 'undefined') return false;
+  if (typeof window === 'undefined') return true;
   try {
-    return window.localStorage.getItem('pm-notes-list-collapsed') === 'true';
+    return window.localStorage.getItem('pm-notes-list-collapsed') !== 'false';
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -1046,6 +1050,7 @@ async function onNoteImported(note) {
 }
 
 async function revealNewNote(note, cursorPosition = 'start') {
+  createdPageNoteId.value = note.id;
   activeNoteId.value = note.id;
   newlyCreatedNoteId.value = note.id;
   if (newNoteAnimationTimer) window.clearTimeout(newNoteAnimationTimer);

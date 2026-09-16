@@ -25,6 +25,46 @@
       />
 
       <div class="note-workspace-editor__actions">
+        <div v-if="!listVisible" class="note-workspace-editor__action-group" role="group" aria-label="Notiz erstellen">
+          <v-btn
+            class="note-workspace-editor__create-btn"
+            variant="flat"
+            title="Neue Notiz"
+            :loading="creating"
+            :disabled="creating || switching || status === 'conflict'"
+            @click="emit('create-note')"
+          >
+            <v-icon size="18">mdi-square-edit-outline</v-icon>
+            <span>Neue Notiz</span>
+          </v-btn>
+        </div>
+        <div class="note-workspace-editor__action-group" role="group" aria-label="Rückgängig und Wiederholen">
+          <v-btn
+            :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet']"
+            variant="text"
+            icon
+            aria-label="Rückgängig"
+            title="Rückgängig"
+            :disabled="!hasLoadedContent || switching || !noteEditorRef?.canUndo"
+            @mousedown.prevent
+            @click="noteEditorRef?.undo()"
+          >
+            <v-icon size="18">mdi-undo</v-icon>
+          </v-btn>
+          <v-btn
+            :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet']"
+            variant="text"
+            icon
+            aria-label="Wiederholen"
+            title="Wiederholen"
+            :disabled="!hasLoadedContent || switching || !noteEditorRef?.canRedo"
+            @mousedown.prevent
+            @click="noteEditorRef?.redo()"
+          >
+            <v-icon size="18">mdi-redo</v-icon>
+          </v-btn>
+        </div>
+        <div class="note-workspace-editor__action-group" role="group" aria-label="Bearbeiten">
         <v-btn
           class="note-workspace-editor__navigation-toggle"
           :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet']"
@@ -33,23 +73,40 @@
           aria-label="Suchen und ersetzen"
           title="Suchen und ersetzen (⌘/Strg+F)"
           :aria-pressed="findBarOpen"
-          :disabled="!hasLoadedContent"
+          :disabled="!canFindText"
           @click="toggleFindBar"
         >
-          <v-icon size="20">mdi-magnify</v-icon>
+          <v-icon size="18">mdi-magnify</v-icon>
         </v-btn>
 
         <v-btn
+          v-if="aiAvailable"
+          class="note-workspace-editor__review-toggle"
+          :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet']"
+          :variant="reviewActive ? 'tonal' : 'text'"
+          icon
+          :aria-label="reviewActive ? 'Verbesserungen ausblenden' : 'Verbesserungen anzeigen'"
+          :title="reviewActive ? 'Verbesserungen ausblenden' : 'Verbesserungen anzeigen'"
+          :aria-pressed="reviewActive"
+          :disabled="!hasLoadedContent || status === 'conflict'"
+          @click="toggleReview"
+        >
+          <PmActionIcon name="text-check" :size="18" />
+        </v-btn>
+
+        </div>
+        <div class="note-workspace-editor__action-group" role="group" aria-label="Ansicht und weitere Aktionen">
+        <v-btn
           class="note-workspace-editor__list-toggle"
           :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet']"
-          :variant="listVisible ? 'text' : 'tonal'"
+          :variant="listVisible ? 'tonal' : 'text'"
           icon
-          :aria-label="listVisible ? 'Editor im Vollbild anzeigen' : 'Vollbildansicht verlassen'"
-          :title="listVisible ? 'Editor im Vollbild anzeigen' : 'Vollbildansicht verlassen'"
-          :aria-pressed="listVisible ? 'false' : 'true'"
+          :aria-label="listVisible ? 'Notizenliste ausblenden' : 'Notizenliste einblenden'"
+          :title="listVisible ? 'Notizenliste ausblenden' : 'Notizenliste einblenden'"
+          :aria-pressed="listVisible"
           @click="emit('toggle-list')"
         >
-          <PmActionIcon :name="listVisible ? 'fullscreen' : 'fullscreen-exit'" />
+          <PmActionIcon name="list" :size="18" />
         </v-btn>
 
         <v-menu location="bottom end" :offset="8" transition="fade-transition">
@@ -64,7 +121,7 @@
               title="Weitere Aktionen"
               :disabled="!hasLoadedContent"
             >
-              <v-icon size="20">mdi-dots-vertical</v-icon>
+              <v-icon size="18">mdi-dots-vertical</v-icon>
             </v-btn>
           </template>
 
@@ -160,6 +217,7 @@
             </v-list-item>
           </v-list>
         </v-menu>
+        </div>
       </div>
     </header>
     <input ref="archiveInput" type="file" accept=".papermind.json,application/json" hidden @change="importFullNote" />
@@ -249,7 +307,7 @@
       </div>
 
       <span class="note-workspace-editor__word-count">
-        {{ wordCount }} {{ wordCount === 1 ? 'Wort' : 'Wörter' }}
+        {{ wordCountLabel(wordCount, selectionWordCount) }}
       </span>
     </div>
 
@@ -268,6 +326,8 @@
       <div
         ref="scrollContainerRef"
         class="note-workspace-editor__scroll"
+        :class="{ 'is-new-page': newPageEntering }"
+        @animationend.self="finishNewPageAnimation"
         @scroll.passive="rememberScrollPosition()"
       >
         <NoteEditor
@@ -317,6 +377,19 @@
           </ul>
         </section>
       </div>
+
+      <!-- KI-Überarbeitung: das Vorschlags-Panel schiebt sich als eigene Spalte
+           rechts herein (kein Overlay), unabhängig von der Notizenliste. -->
+      <Transition name="note-review-dock">
+        <aside
+          v-if="reviewActive && reviewController"
+          class="note-workspace-editor__review-dock"
+        >
+          <div class="note-workspace-editor__review-dock-inner">
+            <NoteReviewPanel :controller="reviewController" />
+          </div>
+        </aside>
+      </Transition>
 
       <!-- Schwebende Suchen-&-Ersetzen-Leiste (oben rechts, ueberlagert den
            Editor). Nutzt dieselbe noteSearch-Engine wie zuvor die Seitenleiste;
@@ -509,6 +582,7 @@
 </template>
 
 <script setup>
+import { wordCountLabel } from '../../utils/noteWordCount.js';
 import { downloadNotePdf } from '../../utils/notePdfDownload.js';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue';
 import { documentThumbnailUrl, listDocuments } from '../../api/documents.js';
@@ -540,6 +614,7 @@ import { nextWrappedIndex } from '../../utils/noteNavigation.js';
 import BaseDialog from '../BaseDialog.vue';
 import PmActionIcon from '../PmActionIcon.vue';
 import NoteEditor from './NoteEditor.vue';
+import NoteReviewPanel from './NoteReviewPanel.vue';
 import NoteTagBar from './NoteTagBar.vue';
 import NoteNotebookChip from './NoteNotebookChip.vue';
 import NoteVersionHistoryDialog from './NoteVersionHistoryDialog.vue';
@@ -548,10 +623,12 @@ const EMPTY_DOC = { type: 'doc', content: [{ type: 'paragraph' }] };
 
 const props = defineProps({
   noteId: { type: String, required: true },
-  listVisible: { type: Boolean, default: true },
+  listVisible: { type: Boolean, default: false },
+  creating: { type: Boolean, default: false },
+  createdNoteId: { type: String, default: null },
 });
 
-const emit = defineEmits(['toggle-list', 'imported']);
+const emit = defineEmits(['create-note', 'toggle-list', 'imported']);
 
 const notesStore = useNotesStore();
 const { notify } = useNotifications();
@@ -592,12 +669,22 @@ const shortcutsHint = (typeof navigator !== 'undefined'
 function openNoteShortcuts() {
   noteEditorRef.value?.openShortcuts?.();
 }
+
+// KI-Überarbeitung wird im NoteEditor gesteuert; die Kopfleiste spiegelt nur
+// den Zustand und schaltet den Modus um. Das Detail-Panel dockt hier über den
+// exponierten Controller an.
+const reviewActive = computed(() => Boolean(noteEditorRef.value?.reviewState?.open));
+const reviewController = computed(() => noteEditorRef.value?.reviewController || null);
+function toggleReview() {
+  noteEditorRef.value?.toggleReview?.();
+}
 const titleInputRef = ref(null);
 const noteSearchInputRef = ref(null);
 const replaceInputRef = ref(null);
 const title = ref('');
 const body = ref(EMPTY_DOC);
 const wordCount = ref(0);
+const selectionWordCount = ref(null);
 const findBarOpen = ref(false);
 const replaceExpanded = ref(false);
 const replaceValue = ref('');
@@ -622,6 +709,7 @@ const isOnline = ref(navigatorOnline());
 const loading = ref(true);
 const switching = ref(false);
 const hasLoadedContent = ref(false);
+const canFindText = computed(() => hasLoadedContent.value && wordCount.value > 0);
 const loadedNoteId = ref(null);
 const loadError = ref(false);
 const documentDetailsOpen = ref(false);
@@ -743,7 +831,27 @@ const linkedDocumentMeta = computed(() => {
   ].filter(Boolean).join(' · ');
 });
 
+const newPageEntering = ref(false);
+let animatedPageNoteId = null;
+let newPageAnimationTimer = null;
+
+function finishNewPageAnimation() {
+  newPageEntering.value = false;
+  if (newPageAnimationTimer) window.clearTimeout(newPageAnimationTimer);
+  newPageAnimationTimer = null;
+}
+
+function animateNewPage(noteId) {
+  if (noteId !== props.noteId || noteId !== props.createdNoteId || animatedPageNoteId === noteId) return;
+  animatedPageNoteId = noteId;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || document.querySelector('.pm-no-animations')) return;
+  finishNewPageAnimation();
+  newPageEntering.value = true;
+  newPageAnimationTimer = window.setTimeout(finishNewPageAnimation, 700);
+}
+
 watch(() => props.noteId, (noteId) => {
+  finishNewPageAnimation();
   if (pendingEditorFocusRequest?.noteId !== noteId) pendingEditorFocusRequest = null;
   resetNoteNavigationForNote();
   loadNote(noteId);
@@ -769,6 +877,10 @@ function openBacklink(noteId) {
 }
 watch(title, () => scheduleSave());
 
+watch(canFindText, (available) => {
+  if (!available && findBarOpen.value) closeFindBar();
+});
+
 watch(noteSearchQuery, (query) => {
   if (!findBarOpen.value) return;
   runNoteSearch(query, 0);
@@ -787,6 +899,7 @@ function handleWorkspaceKeydown(event) {
 }
 
 function openFindBar({ replace = false } = {}) {
+  if (!canFindText.value) return;
   findBarOpen.value = true;
   if (replace) replaceExpanded.value = true;
   nextTick(() => {
@@ -957,7 +1070,10 @@ async function applyLoadedNote(note, noteId) {
     // NoteEditor übernimmt den neuen modelValue-Inhalt in einem eigenen
     // Watcher und verwirft dabei absichtlich die alte DOM-Auswahl. Erst im
     // darauffolgenden Tick darf eine angeforderte Schreibmarke gesetzt werden.
-    void nextTick(() => flushPendingEditorFocus(noteId));
+    void nextTick(() => {
+      animateNewPage(noteId);
+      flushPendingEditorFocus(noteId);
+    });
   });
 }
 
@@ -1127,8 +1243,9 @@ function scheduleRecoveredDraftSave() {
   }, 450);
 }
 
-function updateWordCount(value) {
+function updateWordCount(value, selected = null) {
   wordCount.value = Number.isFinite(value) ? value : 0;
+  selectionWordCount.value = Number.isFinite(selected) ? selected : null;
 }
 
 function pipelineFor(snapshot) {
@@ -1817,6 +1934,7 @@ function flushSave() {
 defineExpose({ cancelPendingSave, discardPendingDraft, resumePendingSave, flushSave, focusEditorBody, focusTitle, isEmpty });
 
 onBeforeUnmount(() => {
+  finishNewPageAnimation();
   rememberScrollPosition();
   persistScrollPositions();
   if (documentPickerSearchTimer) window.clearTimeout(documentPickerSearchTimer);
@@ -1901,6 +2019,45 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
+}
+
+.note-workspace-editor__create-btn {
+  height: 32px;
+  min-width: 0;
+  padding-inline: 10px;
+  border: 1px solid color-mix(in srgb, var(--pm-accent) 28%, var(--pm-divider));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--pm-accent) 8%, var(--pm-content-surface));
+  color: var(--pm-accent-text, var(--pm-accent));
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.note-workspace-editor__create-btn :deep(.v-btn__content) {
+  gap: 5px;
+}
+.note-workspace-editor__create-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--pm-accent) 14%, var(--pm-content-surface));
+}
+.note-workspace-editor__create-btn:focus-visible {
+  outline: 2px solid var(--pm-accent);
+  outline-offset: 2px;
+}
+
+.note-workspace-editor__action-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.note-workspace-editor__action-group + .note-workspace-editor__action-group::before {
+  content: '';
+  width: 1px;
+  height: 18px;
+  flex: 0 0 1px;
+  margin-inline: 4px;
+  background: var(--pm-divider, #d8dfe1);
 }
 
 /* Das Aktionsmenü verwendet dieselbe kompakte Karten-, Zeilen- und
@@ -2247,6 +2404,65 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+/* Eine neue Seite landet sanft auf der Schreibfläche. Der echte Editor bleibt
+   montiert und bedienbar; nur die geladene neue Notiz wird animiert. */
+.note-workspace-editor__scroll.is-new-page {
+  background: var(--pm-content-surface, #fff);
+  transform-origin: 50% 0;
+  animation: note-page-arrive 580ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes note-page-arrive {
+  0% {
+    opacity: 0;
+    transform: translateY(28px) scale(0.975);
+    border-radius: 16px;
+    box-shadow: 0 -8px 30px color-mix(in srgb, var(--pm-text) 12%, transparent);
+  }
+  45% {
+    opacity: 1;
+    box-shadow: 0 -3px 18px color-mix(in srgb, var(--pm-text) 7%, transparent);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+    border-radius: 0;
+    box-shadow: 0 0 0 transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .note-workspace-editor__scroll.is-new-page { animation: none; }
+}
+:global(.pm-no-animations .note-workspace-editor__scroll.is-new-page) { animation: none; }
+
+/* Angedocktes KI-Vorschlagspanel: eigene Spalte rechts, die sich einschiebt
+   (kein Overlay). Der Editor daneben wird schmaler; die Breite bleibt am
+   inneren, fest breiten Wrapper hängen, damit der Inhalt beim Slide nicht
+   umbricht. */
+.note-workspace-editor__review-dock {
+  flex: 0 0 auto;
+  width: var(--pm-review-dock-width, 380px);
+  min-width: 0;
+  overflow: hidden;
+  background: var(--pm-content-surface, #fff);
+}
+.note-workspace-editor__review-dock-inner {
+  width: var(--pm-review-dock-width, 380px);
+  height: 100%;
+}
+@media (max-width: 900px) {
+  .note-workspace-editor__review-dock,
+  .note-workspace-editor__review-dock-inner { --pm-review-dock-width: 320px; }
+}
+
+.note-review-dock-enter-active,
+.note-review-dock-leave-active {
+  transition: width 0.28s ease;
+}
+.note-review-dock-enter-from,
+.note-review-dock-leave-to {
+  width: 0;
 }
 
 /* Schwebende Suchen-&-Ersetzen-Leiste – ueberlagert oben rechts den Editor,

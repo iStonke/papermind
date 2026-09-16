@@ -3,15 +3,16 @@ import test from 'node:test';
 import { nextTick, reactive, shallowRef } from 'vue';
 import { useNoteWriting } from '../src/components/notes/composables/useNoteWriting.js';
 import { useNoteCleanup } from '../src/components/notes/composables/useNoteCleanup.js';
+import { useNoteReview } from '../src/components/notes/composables/useNoteReview.js';
 import { createNoteOverlayCoordinator } from '../src/components/notes/composables/noteOverlayCoordinator.js';
 import { mountController, createTestEditor } from './helpers/noteEditorHarness.mjs';
 
-function setup(factory, stream) {
+function setup(factory, stream, options = {}) {
   const editor = shallowRef(createTestEditor());
   const props = reactive({ noteId: 'one', aiAvailable: true, aiPromptSuggestions: [] });
   const checkpoints = [];
   const overlays = createNoteOverlayCoordinator();
-  const mounted = mountController(() => factory({ editor, props, overlays, stream, surfaceEl: shallowRef(null), clampMenuLeft: (left) => left, onCheckpoint: (reason) => checkpoints.push(reason) }));
+  const mounted = mountController(() => factory({ ...options, editor, props, overlays, stream, surfaceEl: shallowRef(null), clampMenuLeft: (left) => left, onCheckpoint: (reason) => checkpoints.push(reason) }));
   return { ...mounted, editor, props, checkpoints, overlays };
 }
 
@@ -195,4 +196,279 @@ test('opening another feature cancels writing and unmount aborts active cleanup'
   const cleanup = c.controller.startCleanup(); c.unmount();
   assert.equal(cleanupStream.calls[0].signal.aborted, true);
   cleanupStream.calls[0].resolve(); await cleanup;
+});
+
+// Alle Microtasks des (nicht awaiteten) stillen Retrys abarbeiten.
+async function flushReview() {
+  for (let i = 0; i < 12; i += 1) await Promise.resolve();
+  await nextTick();
+}
+
+test('review retries once on unparseable JSON and never leaves loading stuck', async () => {
+  let calls = 0;
+  const stream = async (_payload, { onEvent }) => {
+    calls += 1;
+    onEvent({ type: 'meta', provider: 'anthropic', model: 'x' });
+    onEvent({ type: 'delta', text: 'das ist kein json' });
+  };
+  const { controller: c, unmount } = setup(useNoteReview, stream);
+  await c.startReview();
+  await flushReview();
+  assert.equal(calls, 2, 'genau ein stiller Neuversuch');
+  assert.equal(c.review.loading, false, 'Ladezustand darf nicht hängenbleiben');
+  assert.ok(c.review.error, 'nach dem Fehlversuch wird ein Fehler gezeigt');
+  unmount();
+});
+
+test('review recovers on a valid second response after one bad JSON', async () => {
+  let calls = 0;
+  const stream = async (_payload, { onEvent }) => {
+    calls += 1;
+    onEvent({ type: 'meta', provider: 'anthropic', model: 'x' });
+    onEvent({ type: 'delta', text: calls === 1
+      ? 'kaputt'
+      : JSON.stringify({ changes: [{ id: 1, cat: 'fix', anchor: 'Original', revised: 'Ursprung', reason: 'r' }] }) });
+  };
+  const { controller: c, unmount } = setup(useNoteReview, stream);
+  await c.startReview();
+  await flushReview();
+  assert.equal(calls, 2);
+  assert.equal(c.review.loading, false);
+  assert.equal(c.review.error, '');
+  assert.equal(c.review.changes.length, 1);
+  assert.equal(c.review.changes[0].number, 1);
+  unmount();
+});
+
+function validReviewStream(counter) {
+  return async (_payload, { onEvent }) => {
+    counter.calls += 1;
+    onEvent({ type: 'meta', provider: 'anthropic', model: 'x' });
+    onEvent({ type: 'delta', text: JSON.stringify({ changes: [
+      { id: 1, cat: 'fix', anchor: 'Original', revised: 'Ursprung', reason: 'r' },
+    ] }) });
+  };
+}
+
+test('hiding the panel keeps suggestions and decisions when the text is unchanged', async () => {
+  const counter = { calls: 0 };
+  const { controller: c, unmount } = setup(useNoteReview, validReviewStream(counter));
+  await c.startReview();
+  await flushReview();
+  assert.equal(counter.calls, 1);
+  assert.equal(c.review.changes.length, 1);
+  c.rejectChange(1);       // Entscheidung des Nutzers: ablehnen
+  c.toggleReview();        // Panel ausblenden (Kopf-Button)
+  assert.equal(c.review.open, false);
+  await c.startReview();   // wieder einblenden
+  await flushReview();
+  assert.equal(counter.calls, 1, 'kein erneuter KI-Aufruf bei unverändertem Text');
+  assert.equal(c.review.changes.length, 1);
+  assert.equal(c.review.status[1], 'rejected', 'frühere Entscheidung bleibt erhalten');
+  unmount();
+});
+
+test('editing the note after hiding drops the cache and re-runs the review', async () => {
+  const counter = { calls: 0 };
+  const { controller: c, editor, unmount } = setup(useNoteReview, validReviewStream(counter));
+  await c.startReview();
+  await flushReview();
+  assert.equal(counter.calls, 1);
+  c.toggleReview(); // ausblenden (Cache gesichert)
+  editor.value.chain().insertContentAt(1, { type: 'text', text: 'X' }).run(); // Text ändern
+  await c.startReview();
+  await flushReview();
+  assert.equal(counter.calls, 2, 'nach Textänderung wird neu geprüft');
+  unmount();
+});
+
+test('Verwerfen discards the cache so re-opening runs a fresh review', async () => {
+  const counter = { calls: 0 };
+  const { controller: c, unmount } = setup(useNoteReview, validReviewStream(counter));
+  await c.startReview();
+  await flushReview();
+  c.discardReview(); // Verwerfen
+  await c.startReview();
+  await flushReview();
+  assert.equal(counter.calls, 2, 'Verwerfen behält keine Vorschläge');
+  unmount();
+});
+
+test('accepting a suggestion applies it immediately and removes the card', async () => {
+  const counter = { calls: 0 };
+  const { controller: c, editor, checkpoints, unmount } = setup(useNoteReview, validReviewStream(counter));
+  await c.startReview();
+  await flushReview();
+  assert.equal(c.review.changes.length, 1);
+  c.acceptChange(1);
+  assert.equal(editor.value.getText().includes('Ursprung'), true, 'Verbesserung direkt umgesetzt');
+  assert.equal(editor.value.getText().includes('Original'), false);
+  assert.equal(c.review.changes.length, 0, 'angenommene Karte verschwindet');
+  assert.deepEqual(checkpoints, ['ai']);
+  unmount();
+});
+
+test('rejecting moves a suggestion to the rejected filter and keeps it', async () => {
+  const counter = { calls: 0 };
+  const { controller: c, unmount } = setup(useNoteReview, validReviewStream(counter));
+  await c.startReview();
+  await flushReview();
+  c.rejectChange(1);
+  assert.equal(c.review.status[1], 'rejected');
+  assert.equal(c.openCount.value, 0);
+  assert.equal(c.rejectedCount.value, 1);
+  // Standardfilter 'open' zeigt die abgelehnte nicht; Filter 'rejected' schon.
+  assert.equal(c.reviewCards.value.length, 0);
+  c.setFilter('rejected');
+  assert.equal(c.reviewCards.value.length, 1);
+  c.reopenChange(1);
+  assert.equal(c.review.status[1], 'open');
+  unmount();
+});
+
+for (const dismiss of ['close', 'overlay']) {
+  test(`${dismiss} preserves suggestions through repeated dismissal and restores the view`, async () => {
+    const counter = { calls: 0 };
+    const { controller: c, overlays, unmount } = setup(useNoteReview, validReviewStream(counter));
+    await c.startReview();
+    c.rejectChange(1);
+    c.setFilter('rejected');
+    c.review.instruction = 'Bitte kurz halten';
+    if (dismiss === 'close') c.closeReview();
+    else overlays.open('writing');
+    assert.equal(c.review.open, false);
+    overlays.closeAll();
+    await c.startReview();
+    assert.equal(counter.calls, 1);
+    assert.equal(c.reviewCards.value.length, 1);
+    assert.equal(c.review.status[1], 'rejected');
+    assert.equal(c.review.filter, 'rejected');
+    assert.equal(c.review.instruction, 'Bitte kurz halten');
+    assert.equal(c.review.model, 'x');
+    unmount();
+  });
+}
+
+test('switching notes clears hidden suggestions even with identical text', async () => {
+  const counter = { calls: 0 };
+  const { controller: c, props, unmount } = setup(useNoteReview, validReviewStream(counter));
+  await c.startReview();
+  c.closeReview();
+  props.noteId = 'two';
+  await nextTick();
+  await c.startReview();
+  assert.equal(counter.calls, 2);
+  unmount();
+});
+
+test('a selected suggestion can be deselected by clicking again or explicitly clearing focus', async () => {
+  const { controller: c, unmount } = setup(useNoteReview, validReviewStream({ calls: 0 }));
+  await c.startReview();
+  c.revealChange(1);
+  assert.equal(c.effectiveFocusId.value, 1);
+  c.revealChange(1);
+  assert.equal(c.effectiveFocusId.value, null);
+  c.revealChange(1);
+  c.clearFocus();
+  assert.equal(c.effectiveFocusId.value, null);
+  assert.equal(c.focusChange.value, null);
+  assert.equal(c.review.changes.length, 1);
+  assert.equal(c.review.status[1], 'open');
+  unmount();
+});
+
+test('review view preferences survive dismissal, note switches, and remounting', async () => {
+  const values = new Map();
+  const getStorage = () => ({ getItem: key => values.get(key), setItem: (key, value) => values.set(key, value) });
+  const stream = validReviewStream({ calls: 0 });
+  const first = setup(useNoteReview, stream, { getStorage });
+  const c = first.controller;
+  await c.startReview();
+  c.setSort('type');
+  c.setFilter('rejected');
+  c.discardReview();
+  first.props.noteId = 'two';
+  await nextTick();
+  await c.startReview();
+  assert.equal(c.review.sort, 'type');
+  assert.equal(c.review.filter, 'rejected');
+  c.acceptChange(1);
+  assert.equal(c.review.filter, 'rejected', 'an empty filter must not replace the preference');
+  first.unmount();
+  const second = setup(useNoteReview, stream, { getStorage });
+  assert.equal(second.controller.review.sort, 'type');
+  assert.equal(second.controller.review.filter, 'rejected');
+  second.unmount();
+});
+
+test('review view preferences tolerate invalid or unavailable storage', () => {
+  for (const raw of ['null', '{', '{"sort":"bad","filter":"bad"}']) {
+    const { controller: c, unmount } = setup(useNoteReview, validReviewStream({ calls: 0 }), {
+      getStorage: () => ({ getItem: () => raw, setItem: () => { throw new Error('blocked'); } }),
+    });
+    assert.equal(c.review.sort, 'order');
+    assert.equal(c.review.filter, 'open');
+    assert.doesNotThrow(() => { c.setSort('type'); c.setFilter('all'); });
+    c.setSort('invalid');
+    c.setFilter('invalid');
+    assert.equal(c.review.sort, 'type');
+    assert.equal(c.review.filter, 'all');
+    unmount();
+  }
+});
+
+test('an incomplete review retries once with a compact request and never applies partial output', async () => {
+  const payloads = [];
+  const { controller: c, editor, unmount } = setup(useNoteReview, async (payload, { onEvent }) => {
+    payloads.push(payload);
+    if (!payload.retry) {
+      onEvent({ type: 'delta', text: '{"changes":[' });
+      throw Object.assign(new Error('Abgeschnitten'), { code: 'review_incomplete' });
+    }
+    await validReviewStream({ calls: 0 })(payload, { onEvent });
+  });
+  await c.startReview();
+  await flushReview();
+  assert.deepEqual(payloads.map(p => p.retry), [false, true]);
+  assert.equal(c.review.loading, false);
+  assert.equal(c.review.error, '');
+  assert.equal(c.review.changes.length, 1);
+  assert.equal(editor.value.getText(), 'Original text');
+  unmount();
+});
+
+test('repeated incomplete review ends with an error after the single retry', async () => {
+  let calls = 0;
+  const { controller: c, unmount } = setup(useNoteReview, async () => {
+    calls += 1;
+    throw Object.assign(new Error('Abgeschnitten'), { code: 'review_incomplete' });
+  });
+  await c.startReview();
+  await flushReview();
+  assert.equal(calls, 2);
+  assert.equal(c.review.loading, false);
+  assert.equal(c.review.error, 'Abgeschnitten');
+  unmount();
+});
+
+test('closing during the compact retry ignores late results', async () => {
+  const pending = deferredStream();
+  let calls = 0;
+  const { controller: c, unmount } = setup(useNoteReview, (payload, options) => {
+    calls += 1;
+    if (calls === 1) return Promise.reject(Object.assign(new Error('Abgeschnitten'), { code: 'review_incomplete' }));
+    return pending.stream(payload, options);
+  });
+  await c.startReview();
+  assert.equal(calls, 2);
+  c.closeReview();
+  assert.equal(pending.calls[0].signal.aborted, true);
+  pending.calls[0].onEvent({ type: 'delta', text: '{"changes":[]}' });
+  pending.calls[0].resolve();
+  await flushReview();
+  assert.equal(c.review.open, false);
+  assert.equal(c.review.loading, false);
+  assert.equal(c.review.preview, '');
+  assert.deepEqual(c.review.changes, []);
+  unmount();
 });

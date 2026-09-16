@@ -1796,3 +1796,7 @@
   font-size: 0.98rem;
   line-height: 1.48;
 }
+
+.pm-setting-row--sidebar-disabled .pm-setting-content {
+  opacity: 0.5;
+}

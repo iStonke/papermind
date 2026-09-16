@@ -28,6 +28,16 @@
         <path d="m3 12 9 5 9-5M3 16l9 5 9-5" />
       </template>
 
+      <template v-else-if="name === 'list'">
+        <path d="M8 6h13M8 12h13M8 18h13" />
+        <path d="M3 6h.01M3 12h.01M3 18h.01" />
+      </template>
+
+      <template v-else-if="name === 'text-check'">
+        <path d="M4 5.5h16M4 11.5h10M4 17.5h6" />
+        <path d="m14 17 2.5 2.5 4.5-5" />
+      </template>
+
       <template v-else-if="name === 'sparkles'">
         <path d="m10 3 2.5 6.5L19 12l-6.5 2.5L10 21l-2.5-6.5L1 12l6.5-2.5L10 3Z" />
         <path d="M20 2v6M17 5h6" />
@@ -102,7 +112,7 @@ defineProps({
     type: String,
     required: true,
     validator: (value) => [
-      'columns', 'plus', 'layers', 'sparkles',
+      'columns', 'plus', 'layers', 'sparkles', 'text-check', 'list',
       'callout-info', 'callout-important', 'callout-question', 'callout-decision', 'callout-prompt',
       'link-plus', 'download', 'file-plus', 'fullscreen', 'fullscreen-exit',
     ].includes(value),

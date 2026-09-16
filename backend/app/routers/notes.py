@@ -35,6 +35,7 @@ from app.schemas.notes import (
     NoteRevisionListResponse,
     NoteRevisionRead,
     NoteRevisionRestoreRequest,
+    NoteReviewRequest,
     NoteSearchScope,
     NoteTagsUpdateRequest,
     NoteTaskToggleRequest,
@@ -100,6 +101,30 @@ def generate_note_text(
     service = NoteAIService(db, user.id)
     try:
         plan = service.prepare(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return StreamingResponse(
+        service.stream(plan),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post(
+    "/ai/review",
+    summary="Suggest a structured list of reviewable note changes",
+    responses={400: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+)
+def review_note_text(
+    payload: NoteReviewRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    service = NoteAIService(db, user.id)
+    try:
+        plan = service.prepare_review(payload)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:

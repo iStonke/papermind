@@ -85,8 +85,8 @@ test('notes list slides in and out while the editor keeps the toggle accessible'
   assert.match(templateSource, /v-if="!activeNote && isListPanelCollapsed"[\s\S]*?mdi-arrow-collapse/);
   assert.match(templateSource, /<NotesEditorIllustration[\s\S]*?v-if="!activeNote"/);
   assert.match(workspaceEditorSource, /class="note-workspace-editor__list-toggle"/);
-  assert.match(workspaceEditorSource, /listVisible \? 'fullscreen' : 'fullscreen-exit'/);
-  assert.match(workspaceEditorSource, /listVisible \? 'Editor im Vollbild anzeigen' : 'Vollbildansicht verlassen'/);
+  assert.match(workspaceEditorSource, /<PmActionIcon name="list"/);
+  assert.match(workspaceEditorSource, /listVisible \? 'Notizenliste ausblenden' : 'Notizenliste einblenden'/);
   assert.match(workspaceEditorSource, /class="note-workspace-editor__list-toggle"[\s\S]*?<v-menu/);
   assert.match(workspaceEditorSource, /emit\('toggle-list'\)/);
   assert.match(workspaceSource, /margin-left:\s*calc\(-1 \* var\(--notes-list-width\)\)/);
@@ -276,7 +276,7 @@ test('new notes put the caret directly into the writable editor body', () => {
   assert.match(notesManageGridSource, /emit\('open-note', note\.id, \{ cursorPosition: 'end' \}\)/);
   assert.match(notesDevHarnessSource, /focusBody\?\.\('start'\)/);
   assert.match(workspaceEditorSource, /pendingEditorFocusRequest = \{[\s\S]*?noteId: props\.noteId,[\s\S]*?position: normalizedPosition/);
-  assert.match(workspaceEditorSource, /nextTick\(\(\) => flushPendingEditorFocus\(noteId\)\)/);
+  assert.match(workspaceEditorSource, /nextTick\(\(\) => \{\s*animateNewPage\(noteId\);\s*flushPendingEditorFocus\(noteId\);/);
   assert.match(workspaceEditorSource, /function flushPendingEditorFocus\(noteId = loadedNoteId\.value\)[\s\S]*?focusBody\?\.\(request\.position\) === true/);
   assert.match(workspaceEditorSource, /defineExpose\(\{[\s\S]*?focusEditorBody/);
   assert.match(noteEditorSource, /position === 'start' \|\| position === 'end'[\s\S]*?focus\(position\)\.run\(\)[\s\S]*?return true/);
@@ -507,13 +507,14 @@ test('note history lists bundled checkpoints and restores a selected server revi
 
 test('workspace utility buttons share one quiet visual treatment', () => {
   assert.match(workspaceEditorSource, /\.note-workspace-editor__actions\s*\{[\s\S]*?gap:\s*4px/);
-  assert.equal((workspaceEditorSource.match(/'pm-header-icon-btn--quiet'/g) || []).length, 3);
-  assert.equal((workspaceEditorSource.match(/<PmActionIcon/g) || []).length, 1);
+  // Suche, KI, Undo/Redo, Vollbild und Weiteres teilen die stille Variante.
+  assert.equal((workspaceEditorSource.match(/'pm-header-icon-btn--quiet'/g) || []).length, 6);
+  assert.equal((workspaceEditorSource.match(/<PmActionIcon/g) || []).length, 2);
   assert.match(workspaceEditorSource, /class="note-workspace-editor__more-btn"[\s\S]*?variant="text"/);
-  assert.match(workspaceEditorSource, /<PmActionIcon :name="listVisible \? 'fullscreen' : 'fullscreen-exit'" \/>/);
+  assert.match(workspaceEditorSource, /<PmActionIcon name="list" :size="18" \/>/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-btn\s*\{[\s\S]*?margin-right:\s*-8px/);
   assert.doesNotMatch(workspaceEditorSource, /\.note-workspace-editor__view-divider\s*\{/);
-  assert.match(workspaceEditorSource, /:variant="listVisible \? 'text' : 'tonal'"/);
+  assert.match(workspaceEditorSource, /:variant="listVisible \? 'tonal' : 'text'"/);
 });
 
 test('workspace tags sit in the compact metadata row instead of a separate editor bar', () => {
@@ -595,7 +596,7 @@ test('embedded note editor has a persistent formatting toolbar', () => {
   assert.match(noteEditorSource, /key: 'h4', label: 'Überschrift 4'/);
   assert.match(noteEditorSource, /bold: \(\) => chain\.toggleBold\(\)/);
   assert.match(noteEditorSource, /key: 'bulletList',[^\n]+label: 'Aufzählung'/);
-  assert.match(noteEditorSource, /\.note-editor--workspace \.note-editor__surface\s*\{[\s\S]*?padding:\s*24px clamp\(28px, 5vw, 58px\) 88px/);
+  assert.match(noteEditorSource, /\.note-editor--workspace \.note-editor__surface\s*\{[\s\S]*?padding:\s*24px clamp\(20px, calc\(10cqw - 40px\), 96px\) 88px/);
 });
 
 test('empty workspace notes use a calm two-level writing invitation', () => {
@@ -614,9 +615,9 @@ test('empty workspace notes use a calm two-level writing invitation', () => {
 });
 
 test('word count is metadata in the header instead of a formatting control', () => {
-  assert.match(workspaceEditorSource, /class="note-workspace-editor__meta"[\s\S]*?class="note-workspace-editor__word-count"[\s\S]*?wordCount === 1 \? 'Wort' : 'Wörter'/);
+  assert.match(workspaceEditorSource, /class="note-workspace-editor__meta"[\s\S]*?class="note-workspace-editor__word-count"[\s\S]*?wordCountLabel\(wordCount, selectionWordCount\)/);
   assert.match(workspaceEditorSource, /@word-count="updateWordCount"/);
-  assert.match(noteEditorSource, /emit\('word-count', words\.value\)/);
+  assert.match(noteEditorSource, /emit\('word-count', words\.value, selectionWords\.value\)/);
   assert.doesNotMatch(noteEditorSource, /note-editor__toolbar-count/);
   assert.doesNotMatch(workspaceEditorSource, /note-workspace-editor__footer/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__word-count\s*\{[\s\S]*?align-self:\s*center;[\s\S]*?margin-left:\s*auto;[\s\S]*?font-variant-numeric:\s*tabular-nums/);
@@ -649,11 +650,11 @@ test('workspace formatting controls render as a flat inset sticky palette', () =
   assert.doesNotMatch(toolbarStyle, /border-(top|bottom):/);
 });
 
-test('workspace editor uses the full width with equal small gutters in fullscreen mode', () => {
+test('workspace editor uses full width and container-relative gutters in fullscreen mode', () => {
   assert.match(workspaceEditorSource, /class="note-workspace-editor__body"/);
   assert.match(workspaceEditorSource, /'is-fullscreen': !listVisible/);
   assert.doesNotMatch(workspaceEditorSource, /'is-centered': !listVisible/);
-  assert.match(noteEditorSource, /\.note-editor--workspace\.is-fullscreen \.note-editor__surface\s*{[\s\S]*?padding-inline:\s*28px/);
+  assert.match(noteEditorSource, /\.note-editor--workspace\s*{\s*container-type:\s*inline-size/);
   assert.match(noteEditorSource, /\.note-editor--workspace\.is-fullscreen \.note-editor__writing\s*{[\s\S]*?max-width:\s*none;[\s\S]*?margin-inline:\s*0/);
   assert.match(noteEditorSource, /\.note-editor--workspace\.is-fullscreen\s+:deep\(\.pm-content\)\s*{[\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*none/);
 });

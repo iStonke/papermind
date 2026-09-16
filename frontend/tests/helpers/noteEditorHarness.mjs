@@ -25,6 +25,11 @@ const schema = new Schema({ nodes: {
   bulletList: { content: 'listItem+', group: 'block', attrs: { aiGeneration: { default: null } } },
   orderedList: { content: 'listItem+', group: 'block', attrs: { start: { default: 1 }, aiGeneration: { default: null } } },
   listItem: { content: 'paragraph block*' },
+  callout: { group: 'block', content: 'block+', attrs: { kind: { default: 'info' } } },
+  table: { group: 'block', content: 'tableRow+' },
+  tableRow: { content: '(tableHeader|tableCell)+' },
+  tableHeader: { content: 'block+' },
+  tableCell: { content: 'block+' },
   text: { group: 'inline' },
   aiBlock: { group: 'block', atom: true, attrs: {
     text: { default: '' }, prompt: { default: '' }, provider: { default: '' },

@@ -9,7 +9,11 @@
     ref="rootEl"
     class="note-editor"
     :class="[
-      { 'note-editor--workspace': workspace },
+      {
+        'note-editor--workspace': workspace,
+        'note-editor--review-active': review.open,
+        'note-editor--review-dim': review.open && review.showMarks && reviewFocusId != null,
+      },
       `note-editor--width-${normalizedWritingWidth}`,
       `note-editor--spacing-${normalizedParagraphSpacing}`,
       `note-editor--font-${normalizedFontFamily}`,
@@ -107,7 +111,8 @@
             :aria-label="b.label"
             @mousedown.prevent="b.run()"
           >
-            <v-icon size="17">{{ b.icon }}</v-icon>
+            <PmActionIcon v-if="b.actionIcon" :name="b.actionIcon" :size="17" />
+            <v-icon v-else size="17" :class="{ 'pm-bubble__marker-icon': b.key === 'highlight' }">{{ b.icon }}</v-icon>
           </button>
         </div>
         <div
@@ -206,7 +211,7 @@
         <span class="note-editor__dot"></span>
         {{ saveLabel }}
       </span>
-      <span class="note-editor__count">{{ words }} {{ words === 1 ? 'Wort' : 'Wörter' }}</span>
+      <span class="note-editor__count">{{ wordCountLabel(words, selectionWords) }}</span>
     </div>
 
 
@@ -216,6 +221,8 @@
 
 <script setup>
 import NoteShortcutsDialog from './NoteShortcutsDialog.vue';
+import { selectedWordCount, wordCountLabel } from '../../utils/noteWordCount.js';
+import PmActionIcon from '../PmActionIcon.vue';
 import NoteEditorToolbar from './NoteEditorToolbar.vue';
 import { useNoteToolbar } from './composables/useNoteToolbar.js';
 import NoteLinkMenu from './NoteLinkMenu.vue';
@@ -229,9 +236,11 @@ import NoteWritingPrompt from './NoteWritingPrompt.vue';
 import NoteCleanupReview from './NoteCleanupReview.vue';
 import { useNoteWriting } from './composables/useNoteWriting.js';
 import { useNoteCleanup } from './composables/useNoteCleanup.js';
+import { useNoteReview } from './composables/useNoteReview.js';
 import { createNoteOverlayCoordinator } from './composables/noteOverlayCoordinator.js';
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, toRaw, watch } from 'vue';
-import { NOTE_AI_STREAM } from './composables/noteAIRequest.js';
+import { NOTE_AI_STREAM, NOTE_AI_REVIEW_STREAM } from './composables/noteAIRequest.js';
+import { NoteReviewDecorations } from './extensions/reviewDecorations.js';
 import { NoteAIGeneration } from './extensions/aiGeneration.js';
 import { EditorContent, useEditor, posToDOMRect } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
@@ -348,6 +357,7 @@ const imageInputEl = ref(null);
 const slashMenuEl = ref(null);
 const bubbleEl = ref(null);
 const words = ref(0);
+const selectionWords = ref(null);
 const editorEmpty = ref(true);
 const toolbarScrolled = ref(false);
 const emptyHintPositioned = ref(false);
@@ -454,6 +464,7 @@ const editor = useEditor({
         if (cleanupAnchorEl.value === element) cleanupAnchorEl.value = null;
       },
     }),
+    NoteReviewDecorations,
   ],
   editorProps: {
     attributes: { class: 'pm-content', spellcheck: props.spellcheckEnabled ? 'true' : 'false' },
@@ -474,7 +485,8 @@ const editor = useEditor({
     refreshSlash();
     emitNoteSearchState(ed);
   },
-  onSelectionUpdate: () => {
+  onSelectionUpdate: ({ editor: ed }) => {
+    updateSelectionWordCount(ed);
     tableMenu.open = false;
     linkEditor.open = false;
     refreshBubble();
@@ -653,7 +665,12 @@ function updateWordCount(ed, text) {
   // Text wird vom Aufrufer durchgereicht, wenn er ihn ohnehin schon ermittelt hat
   // (onUpdate) – sonst hier einmal holen.
   words.value = countWords(text ?? ed?.getText());
-  emit('word-count', words.value);
+  updateSelectionWordCount(ed);
+}
+
+function updateSelectionWordCount(ed) {
+  selectionWords.value = selectedWordCount(ed?.state);
+  emit('word-count', words.value, selectionWords.value);
 }
 
 function scheduleEmptyHintPosition() {
@@ -719,6 +736,7 @@ function refocusEditorFromWhitespace(event) {
   const content = surface.querySelector('.pm-content');
   if (!content || (content.contains(target) && target !== content)) return;
 
+  reviewing.clearFocus();
   event.preventDefault();
   const lastBlock = content.lastElementChild;
   if (lastBlock && event.clientY > lastBlock.getBoundingClientRect().bottom) {
@@ -827,18 +845,7 @@ function clearNoteSearch() {
   emitNoteSearchState();
 }
 
-defineExpose({
-  clearNoteSearch,
-  focusTitle,
-  focusBody,
-  openShortcuts,
-  replaceActiveNoteSearch,
-  replaceAllNoteSearch,
-  restoreWorkspaceScroll,
-  scrollToDocumentPosition,
-  searchInNote,
-  selectNoteSearchResult,
-});
+
 
 function onTitleInput(e) {
   emit('update:title', e.target.value);
@@ -886,6 +893,36 @@ const { picker, openPicker, refreshWikiLink, handlePickerKeydown } = references;
 const stream = inject(NOTE_AI_STREAM, undefined);
 const writing = useNoteWriting({ editor, surfaceEl, props, overlays, clampMenuLeft, stream, onCheckpoint: (reason) => emit('history-checkpoint', reason) });
 const cleaning = useNoteCleanup({ editor, props, overlays, stream, onCheckpoint: (reason) => emit('history-checkpoint', reason) });
+const reviewStream = inject(NOTE_AI_REVIEW_STREAM, undefined);
+const reviewing = useNoteReview({
+  editor,
+  props,
+  overlays,
+  onCheckpoint: (reason) => emit('history-checkpoint', reason),
+  ...(reviewStream ? { stream: reviewStream } : {}),
+});
+const { review, startReview, toggleReview, effectiveFocusId: reviewFocusId } = reviewing;
+
+defineExpose({
+  get canUndo() { return toolbar.canUndo.value; },
+  get canRedo() { return toolbar.canRedo.value; },
+  undo: () => toolbar.runHistory('undo'),
+  redo: () => toolbar.runHistory('redo'),
+  clearNoteSearch,
+  focusTitle,
+  focusBody,
+  openShortcuts,
+  replaceActiveNoteSearch,
+  replaceAllNoteSearch,
+  restoreWorkspaceScroll,
+  scrollToDocumentPosition,
+  searchInNote,
+  selectNoteSearchResult,
+  startReview,
+  toggleReview,
+  reviewState: review,
+  reviewController: reviewing,
+});
 const { aiPrompt, aiOptionsOpen, openAIPrompt, positionAIPrompt } = writing;
 const { cleanup, cleanupRestore, cleanupAnchorEl, startCleanup, discardCleanup } = cleaning;
 const rootEl = ref(null);
@@ -1077,7 +1114,7 @@ const bubbleButtons = computed(() => {
     ...(props.aiAvailable ? [{
       key: 'ai-selection',
       label: 'Umschreiben',
-      icon: 'mdi-auto-fix',
+      actionIcon: 'sparkles',
       ai: true,
       active: () => false,
       run: () => openAIPrompt(),
@@ -1668,21 +1705,15 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
 /* ── Eingebettete Workspace-Variante ────────────────────────────────────── */
 
 .note-editor--workspace {
+  container-type: inline-size;
   min-height: 100%;
   background: var(--pm-content-surface, #fff);
 }
 
 .note-editor--workspace .note-editor__surface {
   min-height: 420px;
-  padding: 24px clamp(28px, 5vw, 58px) 88px;
-}
-
-/* Im Vollbild nutzt die Schreibfläche den zusätzlichen Platz. Der feste,
-   beidseitig gleiche Gutter hält Text, Listen und breite Blöcke nah an der
-   Editor-Kante, ohne die kompakteren Split-View-Breiten zu verändern. */
-
-.note-editor--workspace.is-fullscreen .note-editor__surface {
-  padding-inline: 28px;
+  /* cqw bezieht sich auf den Editor, nach Abzug beider Seitenleisten. */
+  padding: 24px clamp(20px, calc(10cqw - 40px), 96px) 88px;
 }
 
 .note-editor__image-input {
@@ -1753,6 +1784,59 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
   max-width: none;
   margin-inline: 0;
 }
+
+/* ── KI-Überarbeitung: Layout + Unterstreichungen ─────────────────────────── */
+
+/* 2B kennt keinen Randstreifen mehr – die Zuordnung läuft über Ziffer + Text-
+   Fokus. Satzbreite bleibt ruhig begrenzt. */
+.note-editor--review-active.note-editor--workspace .note-editor__writing {
+  padding-right: 16px;
+  max-width: min(84ch, 100%);
+}
+
+/* Die Dekorationen dämpfen fremde Blöcke und Textstücke direkt. So werden
+   auch eigene Textfarben, Tabellen, Bilder und NodeViews erfasst, ohne den
+   fokussierten Anker über die Opazität seiner Eltern mitzudämpfen. */
+.note-editor--review-active.note-editor--review-dim :deep(.pm-content .pm-review-muted) {
+  opacity: 0.28;
+}
+.note-editor--review-active.note-editor--review-dim :deep(.pm-content .pm-review-num:not(.is-focus)) {
+  opacity: 0.35;
+}
+.note-editor--review-active.note-editor--review-dim :deep(.pm-content .pm-review-underline.is-focus),
+.note-editor--review-active.note-editor--review-dim :deep(.pm-content .pm-review-num.is-focus) {
+  opacity: 1;
+}
+
+/* Anker (Variante 2B): dezente Unterstreichung je Kategorie – nie durchstreichen,
+   nie den Text überdecken. Fokus legt einen Softton mit optischer Innenluft
+   darüber; abgelehnte Vorschläge werden nur gedämpft. */
+.note-editor :deep(.pm-review-underline) {
+  border-radius: 2px;
+  transition: background 0.18s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.18s cubic-bezier(0.2, 0, 0, 1);
+}
+.note-editor :deep(.pm-review-underline--fix)    { border-bottom: 1.5px solid var(--pm-rev-fix, #2f6f52); }
+.note-editor :deep(.pm-review-underline--format) { border-bottom: 1.5px solid var(--pm-rev-format, #3b5a97); }
+.note-editor :deep(.pm-review-underline--add)    { border-bottom: 1.5px dashed var(--pm-rev-add, #8d5406); }
+.note-editor :deep(.pm-review-underline.is-rejected) { opacity: 0.6; }
+.note-editor :deep(.pm-review-underline--fix.is-focus)    { background: var(--pm-rev-fix-soft, #e9f2ec);    box-shadow: 0 0 0 2px var(--pm-rev-fix-soft, #e9f2ec); }
+.note-editor :deep(.pm-review-underline--format.is-focus) { background: var(--pm-rev-format-soft, #eaeff8); box-shadow: 0 0 0 2px var(--pm-rev-format-soft, #eaeff8); }
+.note-editor :deep(.pm-review-underline--add.is-focus)    { background: var(--pm-rev-add-soft, #f8f0e0);    box-shadow: 0 0 0 2px var(--pm-rev-add-soft, #f8f0e0); }
+
+/* Hochgestellte Ziffer unmittelbar hinter dem Anker (= Nummer im Panel-Badge). */
+.note-editor :deep(.pm-review-num) {
+  font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+  font-size: 9px;
+  font-weight: 620;
+  line-height: 0;
+  vertical-align: super;
+  margin-left: 1px;
+  user-select: none;
+}
+.note-editor :deep(.pm-review-num--fix)    { color: var(--pm-rev-fix, #2f6f52); }
+.note-editor :deep(.pm-review-num--format) { color: var(--pm-rev-format, #3b5a97); }
+.note-editor :deep(.pm-review-num--add)    { color: var(--pm-rev-add, #8d5406); }
+.note-editor :deep(.pm-review-num.is-rejected) { opacity: 0.7; }
 
 .note-editor__empty-hint {
   position: absolute;
@@ -2142,8 +2226,17 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
 /* Strukturierte Tabellen: horizontal scrollbar, in der Breite ruhig und im
    Darkmode vollständig über die PaperMind-Tokens eingefärbt. */
 
+/* Gemeinsame Lesebreite für kastenartige Inhalte, auch im Vollbild.
+   Tabellen und Code behalten ihren eigenen horizontalen Scrollbereich. */
+.note-editor :deep(.pm-content :is(.pm-callout, .pm-template, .pm-aiblock, .pm-ocrquote, .pm-section, blockquote, pre, .tableWrapper)) {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: min(100%, 80ch);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .note-editor :deep(.pm-content .tableWrapper) {
-  max-width: 100%;
   overflow-x: auto;
   border-radius: 10px;
   scrollbar-color: color-mix(in srgb, var(--pm-muted, #535e62) 32%, transparent) transparent;
@@ -2247,6 +2340,9 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
   color: #e4e2da; font-size: 0.9rem;
   transition: background 120ms ease, color 120ms ease;
 }
+
+/* Die diagonale Marker-Glyphe sitzt optisch etwas über der Icon-Mitte. */
+.pm-bubble__marker-icon { transform: translateY(1px); }
 
 .pm-bubble__btn:hover { background: rgba(255, 255, 255, 0.10); color: #fff; }
 
