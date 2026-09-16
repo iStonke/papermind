@@ -247,20 +247,24 @@
         :creating="creating"
         :created-note-id="createdPageNoteId"
         @create-note="createNote"
-        @toggle-list="toggleNotesList"
         @imported="onNoteImported"
       />
 
-      <v-btn
-        v-if="!activeNote && isListPanelCollapsed"
-        class="notes-ws__list-reveal"
-        icon="mdi-arrow-collapse"
-        size="small"
-        variant="tonal"
-        aria-label="Vollbildansicht verlassen und Notizenliste einblenden"
-        title="Vollbildansicht verlassen"
+      <!-- Ein-/Ausblenden-Griff direkt an der Nahtstelle zur Notizenliste:
+           sitzt immer an der linken Editorkante (Grenze zur Liste), damit die
+           Steuerung unmittelbar am gesteuerten Panel liegt. -->
+      <button
+        v-if="!isCompactLayout"
+        type="button"
+        class="notes-ws__list-handle"
+        :class="{ 'is-collapsed': isListPanelCollapsed }"
+        :aria-label="isListPanelCollapsed ? 'Notizenliste einblenden' : 'Notizenliste ausblenden'"
+        :title="isListPanelCollapsed ? 'Notizenliste einblenden' : 'Notizenliste ausblenden'"
+        :aria-pressed="!isListPanelCollapsed"
         @click="toggleNotesList"
-      />
+      >
+        <v-icon size="18" aria-hidden="true">{{ isListPanelCollapsed ? 'mdi-chevron-right' : 'mdi-chevron-left' }}</v-icon>
+      </button>
 
       <NotesEditorIllustration
         v-if="!activeNote"
@@ -2071,12 +2075,50 @@ function formatDate(value) {
   background: var(--pm-viewer-surface, #eef2f4);
 }
 
-.notes-ws__list-reveal.v-btn {
+/* Nahtstellen-Griff: hängt an der linken Editorkante (Grenze zur Liste) und
+   ist vertikal zentriert. Halbrund zur Liste hin geöffnet, damit klar wird,
+   dass er das links liegende Panel auf-/zuklappt. */
+.notes-ws__list-handle {
   position: absolute;
-  z-index: 3;
-  top: 12px;
-  left: 12px;
-  border-radius: 9px;
+  z-index: 6;
+  top: 50%;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 52px;
+  padding: 0;
+  transform: translate(-1px, -50%);
+  color: var(--pm-text-muted, #5b6b70);
+  background: var(--pm-content-surface, #fff);
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-left: 0;
+  border-radius: 0 11px 11px 0;
+  box-shadow: 2px 0 10px -6px rgba(15, 23, 25, 0.28);
+  cursor: pointer;
+  opacity: 0.85;
+  transition:
+    color 160ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    background-color 160ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    opacity 160ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    box-shadow 160ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.notes-ws__list-handle:hover {
+  color: var(--pm-text, #1f2b2e);
+  opacity: 1;
+  box-shadow: 3px 0 14px -6px rgba(15, 23, 25, 0.34);
+}
+
+.notes-ws__list-handle:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: 2px;
+  opacity: 1;
+}
+
+.notes-ws__list-handle .v-icon {
+  transition: transform 220ms var(--pm-easing-decel, cubic-bezier(0.16, 1, 0.3, 1));
 }
 
 @media (max-width: 920px) {

@@ -95,20 +95,7 @@
         </v-btn>
 
         </div>
-        <div class="note-workspace-editor__action-group" role="group" aria-label="Ansicht und weitere Aktionen">
-        <v-btn
-          class="note-workspace-editor__list-toggle"
-          :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet']"
-          :variant="listVisible ? 'tonal' : 'text'"
-          icon
-          :aria-label="listVisible ? 'Notizenliste ausblenden' : 'Notizenliste einblenden'"
-          :title="listVisible ? 'Notizenliste ausblenden' : 'Notizenliste einblenden'"
-          :aria-pressed="listVisible"
-          @click="emit('toggle-list')"
-        >
-          <PmActionIcon name="list" :size="18" />
-        </v-btn>
-
+        <div class="note-workspace-editor__action-group" role="group" aria-label="Weitere Aktionen">
         <v-menu location="bottom end" :offset="8" transition="fade-transition">
           <template #activator="{ props: moreMenuProps }">
             <v-btn
@@ -628,7 +615,7 @@ const props = defineProps({
   createdNoteId: { type: String, default: null },
 });
 
-const emit = defineEmits(['create-note', 'toggle-list', 'imported']);
+const emit = defineEmits(['create-note', 'imported']);
 
 const notesStore = useNotesStore();
 const { notify } = useNotifications();
