@@ -5,7 +5,9 @@
       label="Aktuelles Passwort"
       type="password"
       variant="outlined"
-      density="comfortable"
+      color="primary"
+      density="compact"
+      rounded="lg"
       autocomplete="current-password"
       hide-details="auto"
     />
@@ -16,7 +18,9 @@
         label="Neues Passwort"
         type="password"
         variant="outlined"
-        density="comfortable"
+        color="primary"
+        density="compact"
+        rounded="lg"
         autocomplete="new-password"
         :hint="`mind. ${MIN_LENGTH} Zeichen`"
         persistent-hint
@@ -39,7 +43,9 @@
       label="Neues Passwort wiederholen"
       type="password"
       variant="outlined"
-      density="comfortable"
+      color="primary"
+      density="compact"
+      rounded="lg"
       autocomplete="new-password"
       :error="!!repeatPassword && !passwordsMatch"
       :error-messages="!!repeatPassword && !passwordsMatch ? 'Passwörter stimmen nicht überein.' : []"
@@ -131,9 +137,9 @@ defineExpose({ canSubmit, saving: savingPassword, submit });
 .pw {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  max-width: 520px;
-  margin-inline: auto;
+  gap: 16px;
+  max-width: 460px;
+  margin-inline: 0;
 }
 .pw__field {
   display: flex;
@@ -165,5 +171,11 @@ defineExpose({ canSubmit, saving: savingPassword, submit });
 .pw__actions {
   display: flex;
   justify-content: flex-end;
+}
+.pw__actions :deep(.v-btn) {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 600;
+  border-radius: 10px;
 }
 </style>

@@ -62,6 +62,8 @@
         />
       </BaseDialog>
 
+      <ShortcutsHelpDialog v-model="uiStore.shortcutsOpen" />
+
       <ImportStagingDialog
         ref="importStagingDialogRef"
         v-model="isUploadDialogOpen"
@@ -278,6 +280,15 @@
 
           <template #foot>
             <v-btn
+              icon="mdi-help-circle-outline"
+              variant="text"
+              size="small"
+              class="sidebar-foot__rail-help"
+              aria-label="Hilfe und Tastaturkürzel"
+              title="Hilfe und Tastaturkürzel"
+              @click="openShortcutsHelp"
+            />
+            <v-btn
               icon="mdi-cog-outline"
               variant="text"
               size="small"
@@ -287,6 +298,15 @@
             />
             <SidebarAccount />
             <div class="sidebar-foot__actions">
+              <v-btn
+                icon="mdi-help-circle-outline"
+                variant="text"
+                size="small"
+                class="sidebar-foot__btn"
+                aria-label="Hilfe und Tastaturkürzel"
+                title="Hilfe und Tastaturkürzel"
+                @click="openShortcutsHelp"
+              />
               <v-btn
                 icon="mdi-cog-outline"
                 variant="text"
@@ -1535,6 +1555,7 @@ import { storeToRefs } from 'pinia';
 import { useRoute, useRouter } from 'vue-router';
 import { useTheme } from 'vuetify';
 import BaseDialog from '../components/BaseDialog.vue';
+import ShortcutsHelpDialog from '../components/ShortcutsHelpDialog.vue';
 import PmEmptyState from '../components/PmEmptyState.vue';
 import KnowledgeStage from '../components/KnowledgeStage.vue';
 import DocumentPreviewLayout from '../components/DocumentPreviewLayout.vue';
@@ -5692,9 +5713,8 @@ async function fetchAppSettings(options = {}) {
 }
 
 
-async function openShortcutsHelp() {
-  await fetchAppSettings();
-  uiStore.openSettings('controls');
+function openShortcutsHelp() {
+  uiStore.openShortcuts();
 }
 
 async function openBackupSettings() {

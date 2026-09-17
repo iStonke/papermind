@@ -90,6 +90,20 @@
         <button type="button" @click="applySelectionAIResult('insert')">
           Danach einfügen
         </button>
+        <button type="button" @click="closeAIPrompt">
+          Verwerfen
+        </button>
+      </div>
+      <div
+        v-else-if="aiPrompt.mode === 'context' && aiPrompt.preview && !aiPrompt.loading && !aiPrompt.error"
+        class="pm-ai-prompt__result-actions"
+      >
+        <button type="button" class="is-primary" @click="applyContextAIResult">
+          Einfügen
+        </button>
+        <button type="button" @click="closeAIPrompt">
+          Verwerfen
+        </button>
       </div>
       <div v-if="aiPrompt.error" class="pm-ai-prompt__error" role="alert">{{ aiPrompt.error }}</div>
     </form>
@@ -115,6 +129,7 @@ const {
   closeAIPrompt,
   applyAIPromptSuggestion,
   applySelectionAIResult,
+  applyContextAIResult,
   generateAIText,
 } = props.controller;
 

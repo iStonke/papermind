@@ -1,10 +1,25 @@
 <template>
   <div class="pe">
     <v-text-field
+      v-model="username"
+      label="Benutzername"
+      variant="outlined"
+      color="primary"
+      density="compact"
+      rounded="lg"
+      autocomplete="username"
+      :error="!!username && !usernameValid"
+      :error-messages="!!username && !usernameValid ? 'Benutzername darf nicht leer sein.' : []"
+      hide-details="auto"
+    />
+
+    <v-text-field
       v-model="displayName"
       label="Anzeigename"
       variant="outlined"
-      density="comfortable"
+      color="primary"
+      density="compact"
+      rounded="lg"
       hide-details="auto"
     />
 
@@ -13,16 +28,14 @@
       label="E-Mail-Adresse"
       type="email"
       variant="outlined"
-      density="comfortable"
+      color="primary"
+      density="compact"
+      rounded="lg"
       autocomplete="email"
       :error="!!email && !emailValid"
       :error-messages="!!email && !emailValid ? 'Bitte eine gültige E-Mail-Adresse eingeben.' : []"
       hide-details="auto"
     />
-
-    <p class="pe__hint">
-      Änderungen an Anzeigename und E-Mail-Adresse gelten sofort nach dem Speichern.
-    </p>
   </div>
 </template>
 
@@ -41,31 +54,36 @@ const emit = defineEmits(['done']);
 const auth = useAuthStore();
 const { notify } = useNotifications();
 
+const username = ref('');
 const displayName = ref('');
 const email = ref('');
 const saving = ref(false);
 
 function syncFromUser() {
+  username.value = auth.user?.username || '';
   displayName.value = auth.user?.display_name || '';
   email.value = auth.user?.email || '';
 }
 watch(() => auth.user, syncFromUser, { immediate: true });
 
+const usernameValid = computed(() => username.value.trim().length > 0);
 const emailValid = computed(() => !email.value || EMAIL_RE.test(email.value.trim()));
 
 const dirty = computed(
   () =>
+    username.value.trim() !== (auth.user?.username || '') ||
     displayName.value !== (auth.user?.display_name || '') ||
     email.value !== (auth.user?.email || '')
 );
 
-const canSubmit = computed(() => dirty.value && emailValid.value);
+const canSubmit = computed(() => dirty.value && usernameValid.value && emailValid.value);
 
 async function submit() {
   if (!canSubmit.value) return;
   saving.value = true;
   try {
     const updated = await updateProfile({
+      username: username.value.trim(),
       display_name: displayName.value.trim(),
       email: email.value.trim(),
     });
@@ -86,14 +104,8 @@ defineExpose({ canSubmit, saving, submit });
 .pe {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  max-width: 420px;
-  margin-inline: auto;
-}
-.pe__hint {
-  margin: 0;
-  font-size: 0.82rem;
-  line-height: 1.45;
-  color: rgba(var(--v-theme-on-surface), 0.6);
+  gap: 16px;
+  max-width: 460px;
+  margin-inline: 0;
 }
 </style>

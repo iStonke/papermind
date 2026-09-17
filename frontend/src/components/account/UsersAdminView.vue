@@ -12,78 +12,71 @@
       {{ error }}
     </v-alert>
 
-    <section class="users__card">
-      <v-progress-linear v-if="loading" indeterminate />
-      <v-table density="comfortable">
-        <thead>
-          <tr>
-            <th>Benutzer</th>
-            <th>Rolle</th>
-            <th>Status</th>
-            <th>Anmeldung</th>
-            <th class="text-right"></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="u in users" :key="u.id" :class="{ 'users__row--inactive': !u.is_active }">
-            <td>
-              <div class="users__name">
-                <UserAvatar :user="u" :size="36" />
-                <div class="users__name-block">
-                  <div class="users__name-main">
-                    {{ u.display_name || u.username }}
-                    <span v-if="u.id === auth.user?.id" class="users__you">(du)</span>
-                  </div>
-                  <div class="users__name-sub">{{ u.email || u.username }}</div>
-                </div>
-              </div>
-            </td>
-            <td>
-              <v-chip size="small" :color="u.is_admin ? 'primary' : undefined" variant="tonal">
-                {{ u.is_admin ? 'Administrator' : 'Benutzer' }}
-              </v-chip>
-            </td>
-            <td>
-              <span class="users__status">
-                <span
-                  class="users__dot"
-                  :style="{ background: u.is_active ? 'rgb(var(--v-theme-success))' : 'rgba(var(--v-theme-on-surface), 0.35)' }"
-                />
-                {{ u.is_active ? 'Aktiv' : 'Deaktiviert' }}
-              </span>
-            </td>
-            <td class="users__muted">{{ formatDateTime(u.last_login_at) || '—' }}</td>
-            <td class="text-right">
-              <v-menu location="bottom end">
-                <template #activator="{ props }">
-                  <v-btn icon variant="text" density="comfortable" v-bind="props">
-                    <v-icon>mdi-dots-vertical</v-icon>
-                  </v-btn>
-                </template>
-                <v-list density="compact">
-                  <v-list-item
-                    :title="u.is_admin ? 'Adminrechte entziehen' : 'Zum Admin machen'"
-                    @click="patch(u, { is_admin: !u.is_admin })"
-                  />
-                  <v-list-item
-                    :title="u.is_active ? 'Deaktivieren' : 'Aktivieren'"
-                    @click="patch(u, { is_active: !u.is_active })"
-                  />
-                  <v-list-item title="Passwort zurücksetzen…" @click="openReset(u)" />
-                  <template v-if="u.id !== auth.user?.id">
-                    <v-divider />
-                    <v-list-item title="Löschen" class="text-error" @click="openDelete(u)" />
-                  </template>
-                </v-list>
-              </v-menu>
-            </td>
-          </tr>
-          <tr v-if="!loading && users.length === 0">
-            <td colspan="5" class="users__empty">Noch keine Benutzer.</td>
-          </tr>
-        </tbody>
-      </v-table>
-    </section>
+    <div class="users__list">
+      <v-progress-linear v-if="loading" indeterminate class="users__loading" />
+
+      <div
+        v-for="u in users"
+        :key="u.id"
+        class="users__row"
+        :class="{ 'users__row--inactive': !u.is_active }"
+      >
+        <UserAvatar :user="u" :size="38" class="users__avatar" />
+        <div class="users__ident">
+          <div class="users__name-main">
+            {{ u.display_name || u.username }}
+            <span v-if="u.id === auth.user?.id" class="users__you">(du)</span>
+          </div>
+          <div class="users__name-sub">{{ u.email || u.username }}</div>
+          <div class="users__name-meta">
+            {{ u.last_login_at ? `zuletzt aktiv ${formatDateTime(u.last_login_at)}` : 'noch nie angemeldet' }}
+          </div>
+        </div>
+
+        <span class="users__role" :class="{ 'users__role--admin': u.is_admin }">
+          <v-icon size="12">{{ u.is_admin ? 'mdi-shield-account-outline' : 'mdi-account-outline' }}</v-icon>
+          {{ u.is_admin ? 'Administrator' : 'Benutzer' }}
+        </span>
+
+        <span class="users__status">
+          <span
+            class="users__dot"
+            :style="{ background: u.is_active ? 'rgb(var(--v-theme-success))' : 'rgba(var(--v-theme-on-surface), 0.35)' }"
+          />
+          <span class="users__status-label">{{ u.is_active ? 'Aktiv' : 'Deaktiviert' }}</span>
+        </span>
+
+        <v-menu location="bottom end">
+          <template #activator="{ props }">
+            <v-btn
+              icon="mdi-dots-vertical"
+              variant="text"
+              size="small"
+              class="users__menu-btn"
+              aria-label="Aktionen"
+              v-bind="props"
+            />
+          </template>
+          <v-list density="compact">
+            <v-list-item
+              :title="u.is_admin ? 'Adminrechte entziehen' : 'Zum Admin machen'"
+              @click="patch(u, { is_admin: !u.is_admin })"
+            />
+            <v-list-item
+              :title="u.is_active ? 'Deaktivieren' : 'Aktivieren'"
+              @click="patch(u, { is_active: !u.is_active })"
+            />
+            <v-list-item title="Passwort zurücksetzen…" @click="openReset(u)" />
+            <template v-if="u.id !== auth.user?.id">
+              <v-divider />
+              <v-list-item title="Löschen" class="text-error" @click="openDelete(u)" />
+            </template>
+          </v-list>
+        </v-menu>
+      </div>
+
+      <div v-if="!loading && users.length === 0" class="users__empty">Noch keine Benutzer.</div>
+    </div>
 
     <BaseDialog
       v-model="createOpen"
@@ -275,37 +268,95 @@ async function confirmDelete() {
   flex-direction: column;
   gap: 18px;
 }
-.users__card {
-  border-radius: 16px;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
-  background: rgba(var(--v-theme-on-surface), 0.02);
+
+/* Responsive Zeilen-Liste statt starrer Tabelle (kein Horizontal-Scroll). */
+.users__list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+  border-radius: 14px;
   overflow: hidden;
 }
-.users__name {
+.users__loading {
+  margin-bottom: -4px;
+}
+.users__row {
   display: flex;
   align-items: center;
   gap: 12px;
+  padding: 10px 14px;
 }
-.users__name-block {
+.users__row + .users__row {
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+}
+.users__row--inactive {
+  opacity: 0.55;
+}
+.users__avatar {
+  flex: 0 0 auto;
+}
+.users__ident {
+  flex: 1 1 auto;
   min-width: 0;
 }
 .users__name-main {
   font-weight: 600;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .users__you {
   font-weight: 400;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: rgba(var(--v-theme-on-surface), 0.5);
 }
 .users__name-sub {
-  font-size: 0.8rem;
-  opacity: 0.6;
+  font-size: 0.78rem;
+  color: rgba(var(--v-theme-on-surface), 0.62);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+.users__name-meta {
+  font-size: 0.72rem;
+  color: rgba(var(--v-theme-on-surface), 0.45);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Rollen-Pille im gleichen Stil wie Kopf/Menü (Türkis nur als Glyphe). */
+.users__role {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  padding: 2px 9px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 999px;
+  color: rgba(var(--v-theme-on-surface), 0.75);
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
+}
+.users__role .v-icon {
+  color: rgba(var(--v-theme-on-surface), 0.5);
+}
+.users__role--admin {
+  color: rgb(var(--v-theme-on-surface));
+}
+.users__role--admin .v-icon {
+  color: rgb(var(--v-theme-primary));
+}
+
 .users__status {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 0.88rem;
+  gap: 7px;
+  flex: 0 0 auto;
+  font-size: 0.8rem;
+  color: rgba(var(--v-theme-on-surface), 0.7);
 }
 .users__dot {
   width: 8px;
@@ -313,17 +364,20 @@ async function confirmDelete() {
   border-radius: 50%;
   flex: 0 0 auto;
 }
-.users__row--inactive {
-  opacity: 0.55;
-}
-.users__muted {
-  opacity: 0.7;
-  font-size: 0.85rem;
+.users__menu-btn {
+  flex: 0 0 auto;
 }
 .users__empty {
   text-align: center;
   padding: 28px 0;
   opacity: 0.6;
+}
+
+/* Auf schmalen Breiten Status-Text ausblenden (Punkt bleibt), damit nichts abschneidet. */
+@media (max-width: 560px) {
+  .users__status-label {
+    display: none;
+  }
 }
 .users-dialog-fields {
   display: grid;

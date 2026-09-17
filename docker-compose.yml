@@ -38,7 +38,10 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT} --reload --reload-dir /app/app --no-access-log"
+    # Offene SSE-Verbindungen dürfen den Dev-Autoreload nicht dauerhaft in
+    # "Waiting for connections to close" festhalten. Nach drei Sekunden
+    # beendet Uvicorn sie kontrolliert und startet mit dem neuen Code weiter.
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT} --reload --reload-dir /app/app --timeout-graceful-shutdown 3 --no-access-log"
     restart: unless-stopped
     environment:
       BACKEND_PORT: ${BACKEND_PORT}

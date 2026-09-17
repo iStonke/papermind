@@ -18,6 +18,10 @@ export const useUiStore = defineStore('ui', {
     // Tastenkürzel auf-/zuschaltbar. Zustand hier, damit jede Route ihn steuern
     // kann – analog zu settingsOpen/accountOpen.
     paletteOpen: false,
+    // Globaler Tastenkürzel-Dialog: von überall auf-/zuschaltbar (Sidebar-Hilfe,
+    // „?"-Taste, ⌘/ im Notiz-Editor), damit sämtliche Kürzel – inkl. der Notiz-
+    // Kürzel – an einer Stelle gebündelt sind.
+    shortcutsOpen: false,
     // Geführter Einstieg für neue Benutzer. In der Entwicklung kann das
     // Fenster unabhängig vom Abschlussstatus jederzeit erneut geöffnet werden.
     onboardingOpen: false,
@@ -62,6 +66,15 @@ export const useUiStore = defineStore('ui', {
     },
     togglePalette() {
       this.paletteOpen = !this.paletteOpen;
+    },
+    openShortcuts() {
+      this.shortcutsOpen = true;
+    },
+    closeShortcuts() {
+      this.shortcutsOpen = false;
+    },
+    toggleShortcuts() {
+      this.shortcutsOpen = !this.shortcutsOpen;
     },
     openOnboarding(source = 'manual') {
       this.onboardingSource = source || 'manual';

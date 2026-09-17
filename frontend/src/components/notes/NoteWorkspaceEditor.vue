@@ -147,22 +147,6 @@
                 </span>
               </template>
             </v-list-item>
-            <v-list-item
-              class="note-workspace-editor__more-item"
-              title="Tastenkürzel"
-              :ripple="false"
-              role="menuitem"
-              @click="openNoteShortcuts"
-            >
-              <template #prepend>
-                <span class="note-workspace-editor__more-icon" aria-hidden="true">
-                  <v-icon size="17">mdi-keyboard-outline</v-icon>
-                </span>
-              </template>
-              <template #append>
-                <span class="note-workspace-editor__more-hint">{{ shortcutsHint }}</span>
-              </template>
-            </v-list-item>
 
             <div class="note-workspace-editor__more-group-label">Import &amp; Export</div>
             <v-list-item class="note-workspace-editor__more-item" title="Notiz exportieren"
@@ -330,6 +314,10 @@
           :writing-width="notesWritingWidth"
           :paragraph-spacing="notesParagraphSpacing"
           :font-family="notesFontFamily"
+          :font-size="notesFontSize"
+          :line-spacing="notesLineSpacing"
+          :heading-spacing="notesHeadingSpacing"
+          :block-spacing="notesBlockSpacing"
           :spellcheck-enabled="notesSpellcheckEnabled"
           :readonly="status === 'conflict'"
           :ai-available="aiAvailable"
@@ -648,15 +636,6 @@ const noteAllTags = computed(() => {
 const noteEditorRef = ref(null);
 const scrollContainerRef = ref(null);
 
-// Kürzel-Hinweis im ⋮-Menü: plattformgerecht (⌘ auf Mac, sonst Strg).
-const shortcutsHint = (typeof navigator !== 'undefined'
-  && /Mac|iP(hone|ad|od)/.test(navigator.platform || navigator.userAgent || ''))
-  ? '⌘ /'
-  : 'Strg /';
-function openNoteShortcuts() {
-  noteEditorRef.value?.openShortcuts?.();
-}
-
 // KI-Überarbeitung wird im NoteEditor gesteuert; die Kopfleiste spiegelt nur
 // den Zustand und schaltet den Modus um. Das Detail-Panel dockt hier über den
 // exponierten Controller an.
@@ -762,6 +741,14 @@ const notesFontFamily = computed(() => {
   const value = settingsStore.settingsDraft?.ui?.notes_font_family;
   return ['sans', 'serif', 'mono'].includes(value) ? value : 'sans';
 });
+const noteSetting = (key, allowed, fallback) => computed(() => {
+  const value = settingsStore.settingsDraft?.ui?.[key];
+  return allowed.includes(value) ? value : fallback;
+});
+const notesFontSize = noteSetting('notes_font_size', ['small', 'medium', 'large'], 'medium');
+const notesLineSpacing = noteSetting('notes_line_spacing', ['compact', 'comfortable', 'spacious'], 'comfortable');
+const notesHeadingSpacing = noteSetting('notes_heading_spacing', ['compact', 'comfortable', 'spacious'], 'comfortable');
+const notesBlockSpacing = noteSetting('notes_block_spacing', ['compact', 'comfortable', 'spacious'], 'comfortable');
 const notesSpellcheckEnabled = computed(
   () => settingsStore.settingsDraft?.ui?.notes_spellcheck_enabled !== false
 );
@@ -1827,6 +1814,10 @@ async function exportNoteAsPdf() {
       body: body.value,
       fontFamily: notesFontFamily.value,
       paragraphSpacing: notesParagraphSpacing.value,
+      fontSize: notesFontSize.value,
+      lineSpacing: notesLineSpacing.value,
+      headingSpacing: notesHeadingSpacing.value,
+      blockSpacing: notesBlockSpacing.value,
       imageUrl: (src) => {
         const raw = String(src || '').trim();
         if (!raw) return '';
@@ -2106,13 +2097,6 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--pm-divider) 34%, transparent);
   color: var(--pm-muted);
   transition: none;
-}
-
-.note-workspace-editor__more-hint {
-  font: 500 0.72rem/1.4 'IBM Plex Mono', ui-monospace, monospace;
-  color: var(--pm-muted);
-  letter-spacing: 0.02em;
-  white-space: nowrap;
 }
 
 .note-workspace-editor__more-item:hover,

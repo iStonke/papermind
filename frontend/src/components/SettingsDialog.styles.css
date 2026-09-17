@@ -427,8 +427,7 @@
   }
 }
 
-.pm-settings-content > .settings-info-card + .backup-summary,
-.pm-settings-content > .settings-info-card + .shortcuts-list {
+.pm-settings-content > .settings-info-card + .backup-summary {
   margin-top: 10px;
 }
 
@@ -576,6 +575,48 @@
   font-size: 0.78rem;
   color: rgba(var(--v-theme-on-surface), 0.55);
   margin: -2px 0 8px;
+}
+
+.notes-settings-preview {
+  margin: 12px 0 4px;
+  padding: 18px 20px;
+  border: 1px solid color-mix(in srgb, var(--pm-divider, #d8dfe1) 86%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, rgb(var(--v-theme-surface)) 94%, rgb(var(--v-theme-primary)) 6%);
+  color: var(--pm-text, rgb(var(--v-theme-on-surface)));
+  overflow: hidden;
+}
+
+.notes-settings-preview__eyebrow {
+  margin-bottom: 10px;
+  color: rgba(var(--v-theme-on-surface), 0.52);
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.notes-settings-preview h3,
+.notes-settings-preview p {
+  max-width: var(--notes-preview-max-width);
+  margin-block: 0;
+  font-family: var(--notes-preview-font-family);
+}
+
+.notes-settings-preview h3 {
+  margin-bottom: 0.6em;
+  font-size: calc(var(--notes-preview-font-size) * 1.22);
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.notes-settings-preview p {
+  font-size: var(--notes-preview-font-size);
+  line-height: var(--notes-preview-line-height);
+}
+
+.notes-settings-preview p + p {
+  margin-top: var(--notes-preview-paragraph-gap);
 }
 
 .pm-setting-row--nested {
@@ -1702,69 +1743,6 @@
 
 .pm-setting-row--disabled .pm-setting-hint {
   opacity: 1;
-}
-
-/* Tastaturkürzel-Liste (Bereich „Bedienung") */
-.shortcuts-list {
-  display: grid;
-  gap: 20px;
-  width: 100%;
-}
-
-.shortcuts-list__group-label {
-  margin: 0 0 8px;
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: rgba(var(--v-theme-on-surface), 0.45);
-}
-
-.shortcuts-list__rows {
-  display: grid;
-  gap: 2px;
-}
-
-.shortcuts-list__row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--pm-divider-soft, rgba(15, 23, 42, 0.06));
-}
-
-.shortcuts-list__row:last-child {
-  border-bottom: none;
-}
-
-.shortcuts-list__desc {
-  font-size: 0.88rem;
-  color: rgba(var(--v-theme-on-surface), 0.82);
-}
-
-.shortcuts-list__keys {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.shortcuts-list__kbd {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 28px;
-  padding: 2px 7px;
-  font-family: inherit;
-  font-size: 0.78rem;
-  font-weight: 500;
-  line-height: 1.4;
-  border-radius: 5px;
-  background: rgba(var(--v-theme-on-surface), 0.06);
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
-  color: rgba(var(--v-theme-on-surface), 0.72);
-  white-space: nowrap;
 }
 
 .pm-tag-cleanup {

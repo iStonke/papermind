@@ -382,6 +382,44 @@ export function useNoteWriting({
     closeAIPrompt();
   }
 
+  function applyContextAIResult() {
+    const ed = editor.value;
+    if (!ed || aiPrompt.mode !== 'context' || !aiPrompt.preview.trim()) return;
+
+    if (Number.isInteger(aiPrompt.targetContainerFrom)) {
+      const replaceEmptyParagraph = (
+        Number.isInteger(aiPrompt.targetReplaceFrom)
+        && Number.isInteger(aiPrompt.targetReplaceTo)
+        && ed.state.doc.nodeAt(aiPrompt.targetReplaceFrom)?.type.name === 'paragraph'
+        && ed.state.doc.nodeAt(aiPrompt.targetReplaceFrom)?.content.size === 0
+      );
+      insertDirectAIResult(ed, replaceEmptyParagraph
+        ? { from: aiPrompt.targetReplaceFrom, to: aiPrompt.targetReplaceTo }
+        : {});
+      return;
+    }
+
+    const insertionPos = Math.min(
+      aiPrompt.anchorPos ?? ed.state.selection.from,
+      ed.state.doc.content.size,
+    );
+    const content = generatedContent();
+    if (!content.length) return;
+    const insertionRange = emptyParagraphRangeAtPosition(ed, insertionPos) || insertionPos;
+    ed.chain()
+      .focus()
+      .insertContentAt(insertionRange, content, { updateSelection: true })
+      .scrollIntoView()
+      .run();
+    onCheckpoint('ai');
+    closeAIPrompt();
+  }
+
+  function showAIResultForDecision() {
+    aiPrompt.presentation = 'dialog';
+    nextTick(() => positionAIPrompt());
+  }
+
   async function generateAIText() {
     const ed = editor.value;
     if (!aiPrompt.open) prepareToolbarAIPromptTarget();
@@ -437,36 +475,25 @@ export function useNoteWriting({
         if (!selectionSnapshotIsCurrent(ed)) {
           throw new Error('Die Textauswahl hat sich geändert. Bitte schließen und erneut auswählen.');
         }
-        if (aiPrompt.presentation === 'dialog') return;
-        applySelectionAIResult('replace');
+        if (!generatedContent().length) {
+          throw new Error(aiPrompt.error || 'Das Modell hat keinen einfügbaren Text erzeugt.');
+        }
+        showAIResultForDecision();
         return;
       }
       if (Number.isInteger(aiPrompt.targetContainerFrom)) {
-        const replaceEmptyParagraph = (
-          Number.isInteger(aiPrompt.targetReplaceFrom)
-          && Number.isInteger(aiPrompt.targetReplaceTo)
-          && ed.state.doc.nodeAt(aiPrompt.targetReplaceFrom)?.type.name === 'paragraph'
-          && ed.state.doc.nodeAt(aiPrompt.targetReplaceFrom)?.content.size === 0
-        );
-        insertDirectAIResult(ed, replaceEmptyParagraph
-          ? { from: aiPrompt.targetReplaceFrom, to: aiPrompt.targetReplaceTo }
-          : {});
+        if (!directAITargetIsCurrent(ed)) {
+          throw new Error('Der Zielbereich hat sich geändert. Bitte den KI-Prompt erneut starten.');
+        }
+        if (!directAIContent().length) {
+          throw new Error(aiPrompt.error || 'Das Modell hat keinen einfügbaren Text erzeugt.');
+        }
+        showAIResultForDecision();
         return;
       }
-      const insertionPos = Math.min(
-        aiPrompt.anchorPos ?? ed.state.selection.from,
-        ed.state.doc.content.size,
-      );
       const content = generatedContent();
       if (!content.length) throw new Error(aiPrompt.error || 'Das Modell hat keinen einfügbaren Text erzeugt.');
-      const insertionRange = emptyParagraphRangeAtPosition(ed, insertionPos) || insertionPos;
-      ed.chain()
-        .focus()
-        .insertContentAt(insertionRange, content, { updateSelection: true })
-        .scrollIntoView()
-        .run();
-      onCheckpoint('ai');
-      closeAIPrompt();
+      showAIResultForDecision();
     } catch (error) {
       if (request.isCurrent() && error?.name !== 'AbortError' && aiPrompt.open) {
         aiPrompt.error = error?.message || 'Text konnte nicht generiert werden.';
@@ -502,6 +529,7 @@ export function useNoteWriting({
     closeAIPrompt,
     applyAIPromptSuggestion,
     applySelectionAIResult,
+    applyContextAIResult,
     generateAIText,
     positionAIPrompt,
   };

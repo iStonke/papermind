@@ -57,6 +57,7 @@ _UPLOAD_PREFIXES = (
 
 _FILE_TOKEN_PATHS = (
     re.compile(r"^/api/auth/me/avatar$"),
+    re.compile(r"^/api/auth/me/export$"),
     re.compile(r"^/api/users/[0-9a-fA-F-]{36}/avatar$"),
     re.compile(r"^/api/documents/[0-9a-fA-F-]{36}/(?:file|thumbnail)$"),
     re.compile(r"^/api/documents/export$"),

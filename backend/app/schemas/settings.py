@@ -185,6 +185,18 @@ class NotesFontFamily(str, Enum):
     mono = "mono"
 
 
+class NotesFontSize(str, Enum):
+    small = "small"
+    medium = "medium"
+    large = "large"
+
+
+class NotesSpacing(str, Enum):
+    compact = "compact"
+    comfortable = "comfortable"
+    spacious = "spacious"
+
+
 class DocumentSortOrder(str, Enum):
     newest = "newest"
     oldest = "oldest"
@@ -296,6 +308,10 @@ class UISettingsRead(BaseModel):
     notes_writing_width: NotesWritingWidth = NotesWritingWidth.comfortable
     notes_paragraph_spacing: NotesParagraphSpacing = NotesParagraphSpacing.comfortable
     notes_font_family: NotesFontFamily = NotesFontFamily.sans
+    notes_font_size: NotesFontSize = NotesFontSize.medium
+    notes_line_spacing: NotesSpacing = NotesSpacing.comfortable
+    notes_heading_spacing: NotesSpacing = NotesSpacing.comfortable
+    notes_block_spacing: NotesSpacing = NotesSpacing.comfortable
     notes_spellcheck_enabled: bool = True
 
     @model_validator(mode="after")
@@ -501,6 +517,10 @@ class UISettingsPatch(BaseModel):
     notes_writing_width: NotesWritingWidth | None = None
     notes_paragraph_spacing: NotesParagraphSpacing | None = None
     notes_font_family: NotesFontFamily | None = None
+    notes_font_size: NotesFontSize | None = None
+    notes_line_spacing: NotesSpacing | None = None
+    notes_heading_spacing: NotesSpacing | None = None
+    notes_block_spacing: NotesSpacing | None = None
     notes_spellcheck_enabled: bool | None = None
 
     @field_validator("sidebar_sections")

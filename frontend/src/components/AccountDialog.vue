@@ -1,7 +1,7 @@
 <template>
   <BaseDialog
     :model-value="modelValue"
-    max-width="900"
+    max-width="760"
     scrollable
     card-class="pm-account-card"
     body-class="pm-account-body"
@@ -34,43 +34,55 @@
       <div class="pm-settings-panel">
         <section v-show="view === 'profile'" class="pm-settings-section">
           <div class="pm-settings-content pm-account-content">
-            <div class="pm-account-id">
+            <div class="pm-account-head">
               <button
                 type="button"
                 class="pm-account-avatar"
                 aria-label="Profilbild ändern"
                 @click="avatarOpen = true"
               >
-                <UserAvatar :user="auth.user" current :size="96" />
+                <UserAvatar :user="auth.user" current :size="72" />
                 <span class="pm-account-avatar__badge">
-                  <v-icon size="16">mdi-camera-outline</v-icon>
+                  <v-icon size="15">mdi-camera-outline</v-icon>
                 </span>
               </button>
-              <div class="pm-account-id__name">
-                {{ auth.user?.display_name || auth.username }}
+              <div class="pm-account-head__main">
+                <div class="pm-account-head__title">
+                  <span class="pm-account-head__name">
+                    {{ auth.user?.display_name || auth.username }}
+                  </span>
+                  <span class="pm-account-head__role">
+                    <v-icon size="13">
+                      {{ auth.isAdmin ? 'mdi-shield-account-outline' : 'mdi-account-outline' }}
+                    </v-icon>
+                    {{ auth.isAdmin ? 'Administrator' : 'Benutzer' }}
+                  </span>
+                </div>
+                <div v-if="auth.user?.email" class="pm-account-head__email">
+                  {{ auth.user.email }}
+                </div>
+                <div class="pm-account-head__meta">
+                  Mitglied seit {{ formatDateTime(auth.user?.created_at) || '–' }}
+                  · zuletzt aktiv {{ formatDateTime(auth.user?.last_login_at) || 'unbekannt' }}
+                </div>
               </div>
-              <div v-if="auth.user?.email" class="pm-account-id__email">
-                {{ auth.user.email }}
-              </div>
-              <v-chip
-                size="small"
-                :color="auth.isAdmin ? 'primary' : undefined"
-                variant="tonal"
-                class="pm-account-id__role"
-              >
-                {{ auth.isAdmin ? 'Administrator' : 'Benutzer' }}
-              </v-chip>
             </div>
+
+            <v-divider class="pm-account-head-sep" />
 
             <ProfileEditView
               v-if="modelValue"
               ref="profileRef"
             />
-            <div class="pm-account-profile-actions">
+
+            <div class="pm-account-actionbar">
+              <span class="pm-account-actionbar__hint">
+                Änderungen gelten sofort nach dem Speichern.
+              </span>
               <v-btn
-                variant="tonal"
                 color="primary"
-                class="pm-dialog__btn"
+                variant="flat"
+                class="pm-account-actionbar__btn"
                 :loading="profileRef?.saving"
                 :disabled="!profileRef?.canSubmit"
                 @click="profileRef?.submit()"
@@ -79,55 +91,87 @@
               </v-btn>
             </div>
 
-            <dl class="pm-account-facts">
-              <div class="pm-account-facts__item">
-                <dt class="pm-account-facts__label">Mitglied seit</dt>
-                <dd class="pm-account-facts__value">
-                  {{ formatDateTime(auth.user?.created_at) || '–' }}
-                </dd>
-              </div>
-              <div class="pm-account-facts__item">
-                <dt class="pm-account-facts__label">Letzte Anmeldung</dt>
-                <dd class="pm-account-facts__value">
-                  {{ formatDateTime(auth.user?.last_login_at) || 'unbekannt' }}
-                </dd>
-              </div>
-            </dl>
+            <v-divider class="pm-account-divider" />
+            <div class="pm-account-subhead">Konto löschen</div>
+            <AccountDeleteView v-if="modelValue" />
           </div>
         </section>
 
-        <section v-show="view === 'security'" class="pm-settings-section">
+        <section v-show="view === 'password'" class="pm-settings-section">
           <div class="pm-settings-content pm-account-content">
-            <SettingsInfoCard
-              icon="mdi-lock-outline"
-              title="Passwort ändern"
-              subtitle="Das aktuelle Passwort bestätigen und ein neues vergeben."
-            />
+            <div class="pm-account-sectionhead">
+              <div class="pm-account-sectionhead__text">
+                <div class="pm-account-sectionhead__title">Passwort ändern</div>
+                <div class="pm-account-sectionhead__sub">
+                  Aktuelles Passwort bestätigen und ein neues vergeben.
+                </div>
+              </div>
+            </div>
+            <v-divider class="pm-account-head-sep" />
+
             <PasswordChangeView v-if="modelValue" />
+          </div>
+        </section>
+
+        <section v-show="view === 'session'" class="pm-settings-section">
+          <div class="pm-settings-content pm-account-content">
+            <div class="pm-account-sectionhead">
+              <div class="pm-account-sectionhead__text">
+                <div class="pm-account-sectionhead__title">Sitzungen &amp; Geräte</div>
+                <div class="pm-account-sectionhead__sub">
+                  Aktive Sitzungen und automatische Abmeldung verwalten.
+                </div>
+              </div>
+            </div>
+            <v-divider class="pm-account-head-sep" />
+
+            <div class="pm-account-subhead">Aktive Sitzungen</div>
+            <ActiveSessionsView v-if="modelValue" />
+
             <v-divider class="pm-account-divider" />
+            <div class="pm-account-subhead">Automatische Abmeldung</div>
             <SessionSecurityView v-if="modelValue" />
+          </div>
+        </section>
+
+        <section v-show="view === 'data'" class="pm-settings-section">
+          <div class="pm-settings-content pm-account-content">
+            <div class="pm-account-sectionhead">
+              <div class="pm-account-sectionhead__text">
+                <div class="pm-account-sectionhead__title">Datenschutz &amp; Daten</div>
+                <div class="pm-account-sectionhead__sub">
+                  Speicherplatz und persönlicher Datenexport.
+                </div>
+              </div>
+            </div>
+            <v-divider class="pm-account-head-sep" />
+            <AccountDataView v-if="modelValue" />
           </div>
         </section>
 
         <section v-if="auth.isAdmin" v-show="view === 'users'" class="pm-settings-section">
           <div class="pm-settings-content pm-account-content">
-            <SettingsInfoCard
-              icon="mdi-account-group-outline"
-              title="Benutzer"
-              subtitle="Rollen, Status und Zugänge verwalten."
-            >
-              <template #actions>
+            <div class="pm-account-sectionhead">
+              <div class="pm-account-sectionhead__text">
+                <div class="pm-account-sectionhead__title">Benutzer</div>
+                <div class="pm-account-sectionhead__sub">
+                  Rollen, Status und Zugänge verwalten.
+                </div>
+              </div>
+              <div class="pm-account-sectionhead__actions">
                 <v-btn
                   color="primary"
-                  variant="outlined"
+                  variant="flat"
                   size="small"
                   prepend-icon="mdi-account-plus"
+                  class="pm-account-actionbar__btn"
                   @click="usersRef?.openCreate()"
                 >
                   Benutzer anlegen
                 </v-btn>
-              </template>
-            </SettingsInfoCard>
+              </div>
+            </div>
+            <v-divider class="pm-account-head-sep" />
             <UsersAdminView
               v-if="modelValue"
               ref="usersRef"
@@ -168,8 +212,10 @@
 import { computed, ref, watch } from 'vue';
 
 import BaseDialog from './BaseDialog.vue';
-import SettingsInfoCard from './SettingsInfoCard.vue';
 import UserAvatar from './UserAvatar.vue';
+import AccountDataView from './account/AccountDataView.vue';
+import AccountDeleteView from './account/AccountDeleteView.vue';
+import ActiveSessionsView from './account/ActiveSessionsView.vue';
 import AvatarEditorView from './account/AvatarEditorView.vue';
 import PasswordChangeView from './account/PasswordChangeView.vue';
 import ProfileEditView from './account/ProfileEditView.vue';
@@ -194,7 +240,9 @@ const usersRef = ref(null);
 
 const accountCategories = [
   { value: 'profile', label: 'Profil', icon: 'mdi-card-account-details-outline' },
-  { value: 'security', label: 'Sicherheit', icon: 'mdi-shield-lock-outline' },
+  { value: 'password', label: 'Passwort', icon: 'mdi-lock-outline' },
+  { value: 'session', label: 'Sitzung', icon: 'mdi-shield-lock-outline' },
+  { value: 'data', label: 'Daten', icon: 'mdi-database-outline' },
   { value: 'users', label: 'Benutzer', icon: 'mdi-account-group-outline', adminOnly: true },
 ];
 const visibleCategories = computed(() =>
@@ -221,7 +269,7 @@ watch(
 /* Wie bei den globalen Einstellungen bleibt die Dialoghöhe beim Wechsel
    zwischen den Bereichen stabil; nur der Hauptbereich scrollt. */
 .pm-dialog.pm-account-card .pm-dialog__content-wrap {
-  height: min(62vh, 600px);
+  height: min(60vh, 540px);
   overflow: hidden;
 }
 
@@ -238,51 +286,132 @@ watch(
   padding-top: 20px;
 }
 
-.pm-account-content > .settings-info-card {
-  margin-bottom: 18px;
+/* Flacher Section-Kopf (Sicherheit/Benutzer) – gleiche Sprache wie der Profil-Kopf. */
+.pm-account-sectionhead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+}
+.pm-account-sectionhead__text {
+  min-width: 0;
+}
+.pm-account-sectionhead__title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+.pm-account-sectionhead__sub {
+  font-size: 0.82rem;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+.pm-account-sectionhead__actions {
+  flex: 0 0 auto;
 }
 
-/* Trennlinie zwischen Passwort- und Abmelde-Abschnitt auf der Sicherheits-Seite. */
+/* Zwischenüberschrift (z. B. „Sitzung & Sicherheit"). */
+.pm-account-subhead {
+  font-size: 0.92rem;
+  font-weight: 600;
+  margin: 0 0 14px;
+}
+
+/* Trennlinie zwischen Passwort- und Sitzungs-Abschnitt. */
 .pm-account-divider {
-  margin: 28px auto;
+  margin: 24px 0;
+  width: 100%;
+  max-width: 460px;
+  border-color: rgba(var(--v-theme-on-surface), 0.1) !important;
+}
+
+/* Identität als horizontaler Kopf (Avatar links, Name/Rolle/E-Mail/Meta rechts). */
+.pm-account-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
   width: 100%;
   max-width: 520px;
 }
-
-/* Profil: zentrierter Identitäts-Stack (Avatar + Name + E-Mail + Rolle). */
-.pm-account-id {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 24px;
+.pm-account-head__main {
+  min-width: 0;
 }
-.pm-account-id__name {
+.pm-account-head__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.pm-account-head__name {
   font-size: 1.25rem;
   font-weight: 700;
   line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+.pm-account-head__role {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.5;
+  border-radius: 999px;
+  color: rgb(var(--v-theme-on-surface));
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.16);
+}
+.pm-account-head__role .v-icon {
+  color: rgb(var(--v-theme-primary));
+}
+.pm-account-head__email {
+  font-size: 0.9rem;
+  color: rgba(var(--v-theme-on-surface), 0.62);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pm-account-head__meta {
+  font-size: 0.78rem;
+  color: rgba(var(--v-theme-on-surface), 0.5);
   margin-top: 6px;
 }
-.pm-account-id__email {
-  font-size: 0.88rem;
-  color: rgba(var(--v-theme-on-surface), 0.62);
-}
-.pm-account-id__role {
-  margin-top: 4px;
+.pm-account-head-sep {
+  width: 100%;
+  margin: 18px 0;
+  border-color: rgba(var(--v-theme-on-surface), 0.1) !important;
 }
 
-.pm-account-profile-actions {
+/* Feste Aktionsleiste: Hinweis links, klarer Speichern-Button rechts. */
+.pm-account-actionbar {
+  flex: 0 0 auto;
   display: flex;
-  justify-content: flex-end;
-  width: 100%;
-  max-width: 420px;
-  margin: 12px auto 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+}
+.pm-account-actionbar__hint {
+  font-size: 0.82rem;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+.pm-account-actionbar__btn {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 600;
+  border-radius: 10px;
 }
 
 /* Avatar als Editier-Trigger mit Kamera-Badge. */
 .pm-account-avatar {
   position: relative;
   display: inline-flex;
+  flex: none;
   border: none;
   background: transparent;
   padding: 0;
@@ -303,46 +432,17 @@ watch(
 }
 .pm-account-avatar__badge {
   position: absolute;
-  right: 0;
-  bottom: 0;
+  right: -2px;
+  bottom: -2px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   color: rgb(var(--v-theme-on-primary));
   background: rgb(var(--v-theme-primary));
   border: 3px solid rgb(var(--v-theme-surface));
-}
-
-/* Ruhige, randlose Konto-Fakten als zwei Zeilen mit feiner Trennlinie. */
-.pm-account-facts {
-  max-width: 420px;
-  width: 100%;
-  margin: 24px auto 0;
-  padding-top: 16px;
-  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.08);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.pm-account-facts__item {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-}
-.pm-account-facts__label {
-  font-size: 0.85rem;
-  color: rgba(var(--v-theme-on-surface), 0.55);
-}
-.pm-account-facts__value {
-  margin: 0;
-  font-size: 0.88rem;
-  font-weight: 500;
-  color: rgba(var(--v-theme-on-surface), 0.85);
-  text-align: right;
 }
 
 .pm-account-footer-row {

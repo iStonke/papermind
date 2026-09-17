@@ -17,6 +17,10 @@
       `note-editor--width-${normalizedWritingWidth}`,
       `note-editor--spacing-${normalizedParagraphSpacing}`,
       `note-editor--font-${normalizedFontFamily}`,
+      `note-editor--font-size-${normalizedFontSize}`,
+      `note-editor--line-spacing-${normalizedLineSpacing}`,
+      `note-editor--heading-spacing-${normalizedHeadingSpacing}`,
+      `note-editor--block-spacing-${normalizedBlockSpacing}`,
     ]"
   >
     <input
@@ -213,14 +217,10 @@
       </span>
       <span class="note-editor__count">{{ wordCountLabel(words, selectionWords) }}</span>
     </div>
-
-
-    <NoteShortcutsDialog ref="shortcutsDialogRef" @close="editor?.commands.focus()" />
   </div>
 </template>
 
 <script setup>
-import NoteShortcutsDialog from './NoteShortcutsDialog.vue';
 import { selectedWordCount, wordCountLabel } from '../../utils/noteWordCount.js';
 import PmActionIcon from '../PmActionIcon.vue';
 import NoteEditorToolbar from './NoteEditorToolbar.vue';
@@ -292,6 +292,9 @@ import {
 import { uploadNoteImage } from '../../api/notes.js';
 import { NOTE_HIGHLIGHT_COLORS } from '../../utils/noteHighlights.js';
 import { placeSelectionBubble } from '../../utils/noteBubblePosition.js';
+import { useUiStore } from '../../stores/ui';
+
+const uiStore = useUiStore();
 
 const props = defineProps({
   /** Body als ProseMirror-JSON-Dokument (oder null für leer). */
@@ -313,6 +316,14 @@ const props = defineProps({
   paragraphSpacing: { type: String, default: 'comfortable' },
   /** Einheitliche Schriftfamilie für Fließtext und Überschriften. */
   fontFamily: { type: String, default: 'sans' },
+  /** Größe des Fließtexts. */
+  fontSize: { type: String, default: 'medium' },
+  /** Zeilenhöhe innerhalb eines Textblocks. */
+  lineSpacing: { type: String, default: 'comfortable' },
+  /** Abstand vor Überschriften, ausgenommen direkt nach Trennlinien. */
+  headingSpacing: { type: String, default: 'comfortable' },
+  /** Abstand zwischen strukturellen Inhaltsblöcken. */
+  blockSpacing: { type: String, default: 'comfortable' },
   /** Native Rechtschreibprüfung für Titel und Editorinhalt. */
   spellcheckEnabled: { type: Boolean, default: true },
   /** Inhalt anzeigen und auswählen, aber nicht verändern. */
@@ -348,10 +359,10 @@ const overlays = createNoteOverlayCoordinator();
 const surfaceEl = ref(null);
 const writingEl = ref(null);
 const titleEl = ref(null);
-const shortcutsDialogRef = ref(null);
 function openShortcuts() {
   openMenu.value = null;
-  shortcutsDialogRef.value?.open();
+  // Notiz-Kürzel leben jetzt im globalen Tastenkürzel-Dialog (uiStore).
+  uiStore.openShortcuts();
 }
 const imageInputEl = ref(null);
 const slashMenuEl = ref(null);
@@ -374,6 +385,18 @@ const normalizedParagraphSpacing = computed(() =>
 );
 const normalizedFontFamily = computed(() =>
   ['sans', 'serif', 'mono'].includes(props.fontFamily) ? props.fontFamily : 'sans'
+);
+const normalizedFontSize = computed(() =>
+  ['small', 'medium', 'large'].includes(props.fontSize) ? props.fontSize : 'medium'
+);
+const normalizedLineSpacing = computed(() =>
+  ['compact', 'comfortable', 'spacious'].includes(props.lineSpacing) ? props.lineSpacing : 'comfortable'
+);
+const normalizedHeadingSpacing = computed(() =>
+  ['compact', 'comfortable', 'spacious'].includes(props.headingSpacing) ? props.headingSpacing : 'comfortable'
+);
+const normalizedBlockSpacing = computed(() =>
+  ['compact', 'comfortable', 'spacious'].includes(props.blockSpacing) ? props.blockSpacing : 'comfortable'
 );
 let toolbarScrollContainer = null;
 let toolbarScrollRestoreFrame = null;
@@ -1649,6 +1672,8 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
   flex-direction: column;
   min-height: 0;
   --note-editor-font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --note-editor-font-size: 1.0625rem;
+  --note-editor-line-height: 1.55;
   /* Differenzierter vertikaler Rhythmus:
      - paragraph-gap: Abstand zwischen aufeinanderfolgenden Absätzen. Bewusst
        moderat, damit EIN Enter als eine klare Absatztrennung liest (nicht als
@@ -1658,6 +1683,7 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
        Layout, Hinweis- oder Schnellblock handelt. */
   --note-editor-paragraph-gap: 0.5em;
   --note-editor-block-gap: 1.75rem;
+  --note-editor-heading-before-gap: 1.75rem;
   --note-editor-heading-gap: 0.75rem;
 }
 
@@ -1671,13 +1697,20 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
 
 .note-editor--spacing-compact {
   --note-editor-paragraph-gap: 0.3em;
-  --note-editor-block-gap: 1.25rem;
 }
 
 .note-editor--spacing-spacious {
-  --note-editor-paragraph-gap: 0.75em;
-  --note-editor-block-gap: 2.1rem;
+  --note-editor-paragraph-gap: 1em;
 }
+
+.note-editor--font-size-small { --note-editor-font-size: 0.9375rem; }
+.note-editor--font-size-large { --note-editor-font-size: 1.1875rem; }
+.note-editor--line-spacing-compact { --note-editor-line-height: 1.35; }
+.note-editor--line-spacing-spacious { --note-editor-line-height: 1.75; }
+.note-editor--heading-spacing-compact { --note-editor-heading-before-gap: 1.25rem; }
+.note-editor--heading-spacing-spacious { --note-editor-heading-before-gap: 2.25rem; }
+.note-editor--block-spacing-compact { --note-editor-block-gap: 1.25rem; }
+.note-editor--block-spacing-spacious { --note-editor-block-gap: 2.25rem; }
 
 .note-editor__title {
   border: 0;
@@ -1922,8 +1955,8 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
   outline: none;
   color: var(--pm-text, #0e181b);
   font-family: var(--note-editor-font-family);
-  font-size: 1.0625rem;
-  line-height: 1.35;
+  font-size: var(--note-editor-font-size);
+  line-height: var(--note-editor-line-height);
   max-width: 68ch;
   caret-color: var(--pm-accent, #006b75);
 }
@@ -2050,10 +2083,18 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
   margin-top: var(--note-editor-block-gap);
 }
 
-/* Überschriften haben einen kompakteren Abstand. Direkt an Trennlinien gilt
-   stattdessen der weiter unten definierte, größere Trennlinienabstand. */
+/* Vor Überschriften trennt ein klarer Abstand den neuen Abschnitt vom
+   vorherigen Textblock. Nach einer Überschrift bleibt der Rhythmus kompakt.
+   Direkt nach einer Trennlinie übernimmt ausschließlich die weiter unten
+   definierte Trennlinienregel den Abstand. */
 
-.note-editor :deep(.pm-content > * + :is(h1, h2, h3, h4, h5, h6)), .note-editor :deep(.pm-content > :is(h1, h2, h3, h4, h5, h6) + *), .note-editor :deep([data-layout-column] > * + :is(h1, h2, h3, h4, h5, h6)), .note-editor :deep([data-layout-column] > :is(h1, h2, h3, h4, h5, h6) + *) {
+.note-editor :deep(.pm-content > :not(hr) + :is(h1, h2, h3, h4, h5, h6)),
+.note-editor :deep([data-layout-column] > :not(hr) + :is(h1, h2, h3, h4, h5, h6)) {
+  margin-top: var(--note-editor-heading-before-gap);
+}
+
+.note-editor :deep(.pm-content > :is(h1, h2, h3, h4, h5, h6) + *),
+.note-editor :deep([data-layout-column] > :is(h1, h2, h3, h4, h5, h6) + *) {
   margin-top: var(--note-editor-heading-gap);
 }
 

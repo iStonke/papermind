@@ -17,6 +17,8 @@ const NOTES_SORT_ORDER_VALUES = new Set(['updated', 'created', 'title']);
 const NOTES_WRITING_WIDTH_VALUES = new Set(['compact', 'comfortable', 'wide']);
 const NOTES_PARAGRAPH_SPACING_VALUES = new Set(['compact', 'comfortable', 'spacious']);
 const NOTES_FONT_FAMILY_VALUES = new Set(['sans', 'serif', 'mono']);
+const NOTES_FONT_SIZE_VALUES = new Set(['small', 'medium', 'large']);
+const NOTES_SPACING_VALUES = new Set(['compact', 'comfortable', 'spacious']);
 const TEXT_GENERATION_PROVIDER_VALUES = new Set(['ollama', 'openai', 'anthropic']);
 const SORT_ORDER_VALUES = new Set([
   'newest',
@@ -129,6 +131,10 @@ function createDefaultSettings() {
       notes_writing_width: 'comfortable',
       notes_paragraph_spacing: 'comfortable',
       notes_font_family: 'sans',
+      notes_font_size: 'medium',
+      notes_line_spacing: 'comfortable',
+      notes_heading_spacing: 'comfortable',
+      notes_block_spacing: 'comfortable',
       notes_spellcheck_enabled: true
     },
     documents: {
@@ -403,6 +409,10 @@ export const useSettingsStore = defineStore('settings', {
         notes_writing_width: false,
         notes_paragraph_spacing: false,
         notes_font_family: false,
+        notes_font_size: false,
+        notes_line_spacing: false,
+        notes_heading_spacing: false,
+        notes_block_spacing: false,
         notes_spellcheck_enabled: false,
         text_generation_prompt_suggestions: false,
         text_generation_system_prompt: false,
@@ -468,6 +478,10 @@ export const useSettingsStore = defineStore('settings', {
       const rawNotesWritingWidth = String(payload?.ui?.notes_writing_width || '').toLowerCase();
       const rawNotesParagraphSpacing = String(payload?.ui?.notes_paragraph_spacing || '').toLowerCase();
       const rawNotesFontFamily = String(payload?.ui?.notes_font_family || '').toLowerCase();
+      const rawNotesFontSize = String(payload?.ui?.notes_font_size || '').toLowerCase();
+      const rawNotesLineSpacing = String(payload?.ui?.notes_line_spacing || '').toLowerCase();
+      const rawNotesHeadingSpacing = String(payload?.ui?.notes_heading_spacing || '').toLowerCase();
+      const rawNotesBlockSpacing = String(payload?.ui?.notes_block_spacing || '').toLowerCase();
       const rawSortOrder = String(payload?.documents?.sort_order || '').toLowerCase();
       const rawRecentImportWindow = Number(payload?.documents?.recent_import_window_hours);
       const rawTrashRetentionDays = Number(payload?.documents?.trash_retention_days);
@@ -558,6 +572,18 @@ export const useSettingsStore = defineStore('settings', {
           notes_font_family: NOTES_FONT_FAMILY_VALUES.has(rawNotesFontFamily)
             ? rawNotesFontFamily
             : defaults.ui.notes_font_family,
+          notes_font_size: NOTES_FONT_SIZE_VALUES.has(rawNotesFontSize)
+            ? rawNotesFontSize
+            : defaults.ui.notes_font_size,
+          notes_line_spacing: NOTES_SPACING_VALUES.has(rawNotesLineSpacing)
+            ? rawNotesLineSpacing
+            : defaults.ui.notes_line_spacing,
+          notes_heading_spacing: NOTES_SPACING_VALUES.has(rawNotesHeadingSpacing)
+            ? rawNotesHeadingSpacing
+            : defaults.ui.notes_heading_spacing,
+          notes_block_spacing: NOTES_SPACING_VALUES.has(rawNotesBlockSpacing)
+            ? rawNotesBlockSpacing
+            : defaults.ui.notes_block_spacing,
           notes_spellcheck_enabled:
             typeof payload?.ui?.notes_spellcheck_enabled === 'boolean'
               ? payload.ui.notes_spellcheck_enabled

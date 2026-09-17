@@ -1,6 +1,7 @@
 import io
 import unittest
-from unittest.mock import MagicMock
+import uuid
+from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
@@ -104,6 +105,68 @@ class UpdateProfileTest(unittest.TestCase):
         user = self._user()
         with self.assertRaises(ConflictError):
             service.update_profile(user, ProfileUpdateRequest(email="taken@example.com"))
+
+    def test_updates_and_normalizes_username(self) -> None:
+        service = UserService(MagicMock())
+        service._email_in_use = lambda email, **kw: False
+        user = self._user()
+        service.update_profile(user, ProfileUpdateRequest(username="  new  name "))
+        self.assertEqual(user.username, "new name")
+
+    def test_duplicate_username_raises_conflict(self) -> None:
+        from sqlalchemy.exc import IntegrityError
+
+        db = MagicMock()
+        db.commit.side_effect = IntegrityError("stmt", {}, Exception("unique"))
+        service = UserService(db)
+        user = self._user()
+        with patch("app.services.users.is_unique_violation", return_value=True):
+            with self.assertRaises(ConflictError):
+                service.update_profile(user, ProfileUpdateRequest(username="taken"))
+        db.rollback.assert_called_once()
+
+
+class RevokeOtherSessionsTest(unittest.TestCase):
+    def test_revokes_all_but_the_kept_session(self) -> None:
+        from app.services.auth_sessions import AuthSessionService
+
+        keep_id = uuid.uuid4()
+        keep = MagicMock(id=keep_id, revoked_at=None)
+        other_a = MagicMock(id=uuid.uuid4(), revoked_at=None)
+        other_b = MagicMock(id=uuid.uuid4(), revoked_at=None)
+        service = AuthSessionService(MagicMock())
+        with patch.object(service, "list_active", return_value=[keep, other_a, other_b]):
+            revoked = service.revoke_others(MagicMock(), keep_id)
+        self.assertEqual(revoked, 2)
+        self.assertIsNone(keep.revoked_at)
+        self.assertIsNotNone(other_a.revoked_at)
+        self.assertIsNotNone(other_b.revoked_at)
+
+
+class DeleteSelfTest(unittest.TestCase):
+    def _user(self, *, is_admin: bool) -> User:
+        return User(username="dave", password_hash="x", is_admin=is_admin, is_active=True)
+
+    def test_admin_cannot_delete_self(self) -> None:
+        from app.core.errors import ForbiddenError
+
+        service = UserService(MagicMock())
+        with self.assertRaises(ForbiddenError):
+            service.delete_self(self._user(is_admin=True), "pw")
+
+    def test_wrong_password_rejected(self) -> None:
+        service = UserService(MagicMock())
+        with patch("app.services.users.verify_password", return_value=False):
+            with self.assertRaises(BadRequestError):
+                service.delete_self(self._user(is_admin=False), "wrong")
+
+    def test_valid_password_purges_user(self) -> None:
+        service = UserService(MagicMock())
+        service._purge_user = MagicMock()
+        user = self._user(is_admin=False)
+        with patch("app.services.users.verify_password", return_value=True):
+            service.delete_self(user, "correct")
+        service._purge_user.assert_called_once_with(user)
 
 
 class AuthenticateLastLoginTest(unittest.TestCase):

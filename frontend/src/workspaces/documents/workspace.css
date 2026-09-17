@@ -183,7 +183,8 @@
     color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
-.sidebar-foot__rail-settings {
+.sidebar-foot__rail-settings,
+.sidebar-foot__rail-help {
   display: none !important;
   color: var(--pm-muted) !important;
   transition:
@@ -193,6 +194,8 @@
 
 .sidebar-foot__btn:hover,
 .sidebar-foot__btn:focus-visible,
+.sidebar-foot__rail-help:hover,
+.sidebar-foot__rail-help:focus-visible,
 .sidebar-foot__rail-settings:hover,
 .sidebar-foot__rail-settings:focus-visible {
   background: var(--pm-sidebar-hover) !important;
@@ -2473,7 +2476,8 @@
   padding-inline: 0;
 }
 
-.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-foot__rail-settings {
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-foot__rail-settings,
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-foot__rail-help {
   display: inline-flex !important;
   width: 38px;
   height: 38px;

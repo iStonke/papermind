@@ -204,7 +204,7 @@ test('global note preferences control list mode, typography, and spellcheck', ()
   assert.match(noteEditorSource, /note-editor--width-comfortable[\s\S]*?max-width:\s*76ch/);
   assert.match(noteEditorSource, /note-editor--width-wide[\s\S]*?max-width:\s*92ch/);
   assert.match(noteEditorSource, /note-editor--spacing-compact[\s\S]*?--note-editor-paragraph-gap:\s*0\.3em/);
-  assert.match(noteEditorSource, /note-editor--spacing-spacious[\s\S]*?--note-editor-paragraph-gap:\s*0\.75em/);
+  assert.match(noteEditorSource, /note-editor--spacing-spacious[\s\S]*?--note-editor-paragraph-gap:\s*1em/);
   assert.match(noteEditorSource, /note-editor--font-serif[\s\S]*?--note-editor-font-family:\s*Georgia/);
   assert.match(noteEditorSource, /note-editor--font-mono[\s\S]*?--note-editor-font-family:\s*ui-monospace/);
   assert.match(noteEditorSource, /\.pm-content h[12]\)[\s\S]*?font-family:\s*inherit/);
@@ -222,19 +222,24 @@ test('a plain Enter advances by one controlled paragraph step', () => {
 
 test('all structural editor elements share a generous vertical rhythm', () => {
   assert.match(noteEditorSource, /--note-editor-block-gap:\s*1\.75rem/);
-  assert.match(noteEditorSource, /note-editor--spacing-compact[\s\S]*?--note-editor-block-gap:\s*1\.25rem/);
-  assert.match(noteEditorSource, /note-editor--spacing-spacious[\s\S]*?--note-editor-block-gap:\s*2\.1rem/);
+  assert.match(noteEditorSource, /note-editor--block-spacing-compact[^}]*--note-editor-block-gap:\s*1\.25rem/);
+  assert.match(noteEditorSource, /note-editor--block-spacing-spacious[^}]*--note-editor-block-gap:\s*2\.25rem/);
+  assert.doesNotMatch(noteEditorSource, /note-editor--spacing-(?:compact|spacious)[^}]*--note-editor-block-gap/);
   assert.match(noteEditorSource, /\.pm-content > \* \+ :not\(p\)\)[\s\S]*?\.pm-content > :not\(p\) \+ \*\)[\s\S]*?margin-top:\s*var\(--note-editor-block-gap\)/);
   assert.match(noteEditorSource, /\[data-layout-column\] > \* \+ :not\(p\)\)[\s\S]*?\[data-layout-column\] > :not\(p\) \+ \*\)[\s\S]*?margin-top:\s*var\(--note-editor-block-gap\)/);
   assert.match(noteEditorSource, /\.pm-content hr\)[\s\S]*?margin-inline:\s*0/);
   assert.doesNotMatch(noteEditorSource, /\.pm-content hr\)[\s\S]*?margin:\s*1\.4em 0/);
 });
 
-test('all heading levels use the same restrained spacing beside any element', () => {
+test('headings have stronger leading space except directly after a divider', () => {
+  assert.match(noteEditorSource, /--note-editor-heading-before-gap:\s*1\.75rem/);
   assert.match(noteEditorSource, /--note-editor-heading-gap:\s*0\.75rem/);
-  assert.match(noteEditorSource, /\.pm-content > \* \+ :is\(h1, h2, h3, h4, h5, h6\)\)[\s\S]*?\.pm-content > :is\(h1, h2, h3, h4, h5, h6\) \+ \*[\s\S]*?margin-top:\s*var\(--note-editor-heading-gap\)/);
-  assert.match(noteEditorSource, /\[data-layout-column\] > \* \+ :is\(h1, h2, h3, h4, h5, h6\)\)[\s\S]*?\[data-layout-column\] > :is\(h1, h2, h3, h4, h5, h6\) \+ \*[\s\S]*?margin-top:\s*var\(--note-editor-heading-gap\)/);
+  assert.match(noteEditorSource, /\.pm-content > :not\(hr\) \+ :is\(h1, h2, h3, h4, h5, h6\)\)[\s\S]*?margin-top:\s*var\(--note-editor-heading-before-gap\)/);
+  assert.match(noteEditorSource, /\[data-layout-column\] > :not\(hr\) \+ :is\(h1, h2, h3, h4, h5, h6\)\)[\s\S]*?margin-top:\s*var\(--note-editor-heading-before-gap\)/);
+  assert.match(noteEditorSource, /\.pm-content > :is\(h1, h2, h3, h4, h5, h6\) \+ \*[\s\S]*?margin-top:\s*var\(--note-editor-heading-gap\)/);
   assert.match(noteEditorSource, /\.pm-content > :is\(h1, h2, h3, h4, h5, h6\):first-child[\s\S]*?margin-top:\s*0/);
+  assert.doesNotMatch(noteEditorSource, /> hr \+ :is\(h1, h2, h3, h4, h5, h6\)/);
+  assert.match(notePreviewSource, /\.pm-content > :not\(hr\) \+ :is\(h1, h2, h3, h4, h5, h6\)\)[\s\S]*?--note-preview-heading-before-gap/);
   assert.doesNotMatch(noteEditorSource, /\.pm-content h[1-6]\)[^}]*margin-top:/);
 });
 
@@ -474,12 +479,11 @@ test('note export and template actions live in the compact overflow menu', () =>
   assert.match(workspaceEditorSource, /class="note-workspace-editor__more-label">Aktionen/);
   assert.match(workspaceEditorSource, /title="Als Vorlage speichern"[\s\S]*?@click="saveCurrentNoteAsTemplate"/);
   assert.match(workspaceEditorSource, /title="Versionsverlauf"[\s\S]*?@click="openVersionHistory"/);
-  assert.match(workspaceEditorSource, /title="Tastenkürzel"[\s\S]*?@click="openNoteShortcuts"/);
   assert.match(workspaceEditorSource, /class="note-workspace-editor__more-group-label">Import &amp; Export/);
   assert.match(workspaceEditorSource, /title="Als Markdown speichern"[\s\S]*?@click="exportNoteAsMarkdown"/);
   assert.match(workspaceEditorSource, /title="Als PDF speichern"[\s\S]*?@click="exportNoteAsPdf"/);
-  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-item"/g) || []).length, 7);
-  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-icon"/g) || []).length, 7);
+  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-item"/g) || []).length, 6);
+  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-icon"/g) || []).length, 6);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-menu\s*\{[\s\S]*?padding:\s*6px[\s\S]*?border-radius:\s*14px[\s\S]*?background:\s*var\(--pm-app-surface-raised\)[\s\S]*?box-shadow:\s*var\(--pm-shadow\)/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-item\s*\{[\s\S]*?min-height:\s*38px[\s\S]*?border-radius:\s*9px[\s\S]*?transition:\s*none/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-icon\s*\{[\s\S]*?width:\s*26px[\s\S]*?height:\s*26px[\s\S]*?border-radius:\s*8px/);

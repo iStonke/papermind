@@ -7,7 +7,9 @@
       item-value="value"
       label="Automatische Abmeldung"
       variant="outlined"
-      density="comfortable"
+      color="primary"
+      density="compact"
+      rounded="lg"
       hide-details="auto"
       @update:model-value="onAutoLogoutChange"
     />
@@ -39,7 +41,7 @@ function onAutoLogoutChange(value) {
   flex-direction: column;
   gap: 20px;
   width: 100%;
-  max-width: 520px;
-  margin-inline: auto;
+  max-width: 460px;
+  margin-inline: 0;
 }
 </style>

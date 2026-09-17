@@ -48,13 +48,18 @@ test('note switch cancels old writing; late deltas and finally cannot change a n
   unmount();
 });
 
-test('generated writing uses editable paragraphs, preserves attribution, and is one undoable edit', async () => {
+test('generated writing waits for confirmation, then uses editable paragraphs with attribution in one undoable edit', async () => {
   const { controller: c, editor, checkpoints, unmount } = setup(useNoteWriting, async (_payload, { onEvent }) => {
     onEvent({ type: 'meta', provider: 'ollama', model: 'test-model' });
     onEvent({ type: 'delta', text: 'Zusammenfassung' });
   });
   prepareWriting(c);
   await c.generateAIText();
+  assert.equal(editor.value.getText(), 'Original text');
+  assert.equal(c.aiPrompt.presentation, 'dialog');
+  assert.equal(c.aiPrompt.preview, 'Zusammenfassung');
+  assert.deepEqual(checkpoints, []);
+  c.applyContextAIResult();
   let block;
   editor.value.state.doc.descendants((node) => { if (node.attrs.aiGeneration) block = node; });
   assert.equal(block.type.name, 'paragraph');
@@ -78,6 +83,8 @@ test('streamed shopping list replaces the captured selection with native tasks i
   prepareWriting(c);
   c.aiPrompt.instruction = 'Erstelle eine Einkaufsliste';
   await c.generateAIText();
+  assert.equal(editor.value.getText(), 'Original text');
+  c.applySelectionAIResult('replace');
   let tasks;
   editor.value.state.doc.descendants((node) => { if (node.type.name === 'taskList') tasks = node; });
   assert.equal(tasks.childCount, 2);
@@ -99,6 +106,8 @@ test('generation without a body cursor replaces an empty final paragraph rather 
   prepareWriting(c);
   c.aiPrompt.instruction = 'Einkaufsliste';
   await c.generateAIText();
+  assert.equal(editor.value.getText(), '');
+  c.applyContextAIResult();
   assert.equal(editor.value.state.doc.childCount, 1);
   assert.equal(editor.value.state.doc.firstChild.type.name, 'taskList');
   unmount();
@@ -120,6 +129,19 @@ test('selection review inserts native structure only after the requested action'
   assert.ok(types.includes('heading'));
   assert.ok(types.includes('taskList'));
   assert.equal(c.aiPrompt.open, false);
+  unmount();
+});
+
+test('discarding a generated toolbar result leaves the note unchanged', async () => {
+  const { controller: c, editor, checkpoints, unmount } = setup(useNoteWriting, async (_payload, { onEvent }) => {
+    onEvent({ type: 'delta', text: 'Nicht übernehmen' });
+  });
+  const original = editor.value.state.doc.toJSON();
+  prepareWriting(c);
+  await c.generateAIText();
+  c.closeAIPrompt();
+  assert.deepEqual(editor.value.state.doc.toJSON(), original);
+  assert.deepEqual(checkpoints, []);
   unmount();
 });
 

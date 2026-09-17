@@ -83,6 +83,21 @@ test('failed login stays usable, successful login opens workspace', async ({ pag
   expect(errors).toEqual([]);
 });
 
+test('note settings use the standard PaperMind header and grouped live preview', async ({ page }) => {
+  await mockApi(page);
+  await login(page);
+  await page.getByRole('button', { name: 'Einstellungen', exact: true }).first().click();
+  await page.getByRole('tab', { name: 'Notizen', exact: true }).click();
+  await expect(page.getByText('Schreiben, Darstellung und Gliederung nach deinen Gewohnheiten.')).toBeVisible();
+  await expect(page.getByText('Allgemein', { exact: true })).toBeVisible();
+  await expect(page.getByText('Schreiben', { exact: true })).toBeVisible();
+  await expect(page.getByText('Textdarstellung', { exact: true })).toBeVisible();
+  await expect(page.getByText('Abstände und Gliederung', { exact: true })).toBeVisible();
+  await expect(page.locator('.notes-settings-preview')).toContainText('Eine klare Überschrift');
+  await expect(page.getByText('Abstand vor Überschriften', { exact: true })).toBeVisible();
+  await expect(page.getByText('Abstand bei Inhaltsblöcken', { exact: true })).toBeVisible();
+});
+
 test('document edits autosave and remain after reload', async ({ page }, testInfo) => {
   const { patches } = await mockApi(page);
   await login(page);

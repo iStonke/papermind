@@ -47,6 +47,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "notes_writing_width": "comfortable",
         "notes_paragraph_spacing": "comfortable",
         "notes_font_family": "sans",
+        "notes_font_size": "medium",
+        "notes_line_spacing": "comfortable",
+        "notes_heading_spacing": "comfortable",
+        "notes_block_spacing": "comfortable",
         "notes_spellcheck_enabled": True,
     },
     "documents": {

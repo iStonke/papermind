@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 import tempfile
@@ -7,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, load_only, noload, selectinload
 
@@ -1119,6 +1120,132 @@ class DocumentService:
             raise
 
         archive_name = f"papermind-export-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.zip"
+        return tmp_path, archive_name, skipped
+
+    def storage_usage(self) -> dict:
+        """Owner-scoped Speicherbelegung: Gesamtsumme und Aufschlüsselung nach
+        Datei-Rolle (Original/OCR/Vorschau/Thumbnail) plus Dokumentanzahl.
+
+        Grundlage sind die tatsächlich abgelegten ``document_files.bytes``.
+        """
+        role_stmt = (
+            select(
+                DocumentFile.role,
+                func.coalesce(func.sum(DocumentFile.bytes), 0),
+                func.count(DocumentFile.id),
+            )
+            .join(Document, Document.id == DocumentFile.document_id)
+        )
+        if self.owner_id is not None:
+            role_stmt = role_stmt.where(Document.owner_id == self.owner_id)
+        role_stmt = role_stmt.group_by(DocumentFile.role)
+
+        by_role: dict[str, dict[str, int]] = {}
+        total_bytes = 0
+        for role, size, files in self.db.execute(role_stmt).all():
+            size_int = int(size or 0)
+            by_role[role] = {"bytes": size_int, "files": int(files or 0)}
+            total_bytes += size_int
+
+        count_stmt = select(func.count(Document.id))
+        if self.owner_id is not None:
+            count_stmt = count_stmt.where(Document.owner_id == self.owner_id)
+        document_count = int(self.db.execute(count_stmt).scalar_one())
+
+        return {
+            "total_bytes": total_bytes,
+            "document_count": document_count,
+            "by_role": by_role,
+        }
+
+    def build_personal_export(self) -> tuple[Path, str, int]:
+        """Persönlicher Komplett-Export (DSGVO-Auskunft): packt die durchsuchbare
+        PDF-Fassung ALLER eigenen Dokumente plus eine ``metadaten.json`` mit den
+        zugehörigen Metadaten in ein ZIP.
+
+        Rückgabe: ``(tmp_zip_path, archive_name, skipped_count)``. Der Aufrufer
+        löscht die temporäre Datei (BackgroundTask).
+        """
+        stmt = self._scope(
+            select(Document)
+            .options(
+                selectinload(Document.files),
+                selectinload(Document.tags),
+                noload(Document.jobs),
+                noload(Document.chunks),
+                noload(Document.annotations),
+            )
+            .order_by(Document.created_at.asc())
+        )
+        documents = list(self.db.execute(stmt).scalars().all())
+
+        # Korrespondenten-Namen owner-scoped einsammeln (keine Relationship am Modell).
+        corr_stmt = select(Correspondent.id, Correspondent.name)
+        if self.owner_id is not None:
+            corr_stmt = corr_stmt.where(Correspondent.owner_id == self.owner_id)
+        corr_names = {cid: name for cid, name in self.db.execute(corr_stmt).all()}
+
+        skipped = 0
+        used_names: set[str] = set()
+        meta_documents: list[dict] = []
+
+        handle = tempfile.NamedTemporaryFile(prefix="pm-me-export-", suffix=".zip", delete=False)
+        tmp_path = Path(handle.name)
+        handle.close()
+        try:
+            with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_STORED) as archive:
+                for document in documents:
+                    export_name = None
+                    file_record = self._select_exportable_file(document)
+                    if file_record is not None:
+                        file_path = self._resolve_storage_path(file_record.file_key)
+                        if file_path.exists() and file_path.is_file():
+                            export_name = self._unique_export_name(document, used_names)
+                            archive.write(file_path, arcname=f"dokumente/{export_name}")
+                        else:
+                            skipped += 1
+                    else:
+                        # Reines Metadaten-Dokument (ohne physische Datei) – zählt nicht als Fehler.
+                        skipped += 1
+
+                    meta_documents.append(
+                        {
+                            "id": str(document.id),
+                            "titel": document.display_name or document.original_filename,
+                            "dateiname": document.original_filename,
+                            "export_datei": f"dokumente/{export_name}" if export_name else None,
+                            "erstellt_am": document.created_at.isoformat() if document.created_at else None,
+                            "dokumentdatum": document.document_date.isoformat() if document.document_date else None,
+                            "typ": document.document_type,
+                            "korrespondent": corr_names.get(document.correspondent_id),
+                            "tags": sorted(tag.name for tag in document.tags),
+                            "seiten": document.page_count,
+                            "groesse_bytes": document.file_size_bytes,
+                            "status": document.status,
+                            "notizen": document.notes,
+                        }
+                    )
+
+                metadata = {
+                    "export": {
+                        "erstellt_am": datetime.now(timezone.utc).isoformat(),
+                        "dokumentanzahl": len(documents),
+                        "hinweis": (
+                            "Persönlicher PaperMind-Datenexport. 'dokumente/' enthält die "
+                            "durchsuchbaren PDF-Fassungen, 'metadaten.json' die zugehörigen Angaben."
+                        ),
+                    },
+                    "dokumente": meta_documents,
+                }
+                archive.writestr(
+                    "metadaten.json",
+                    json.dumps(metadata, ensure_ascii=False, indent=2),
+                )
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
+
+        archive_name = f"papermind-meine-daten-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.zip"
         return tmp_path, archive_name, skipped
 
     def _apply_filters(

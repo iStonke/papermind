@@ -166,13 +166,16 @@ test('selected note text opens a dedicated selection-only AI workflow', () => {
   assert.match(editorSource, /selected_text: aiPrompt\.mode === 'selection' \? aiPrompt\.selectedText : ''/);
 });
 
-test('toolbar selection generation replaces in place while dialog offers both result actions', () => {
+test('toolbar and dialog generation wait for an explicit result action', () => {
   assert.match(editorSource, /selectionSnapshotIsCurrent\(ed\)/);
-  assert.match(editorSource, /if \(aiPrompt\.presentation === 'dialog'\) return;/);
-  assert.match(editorSource, /applySelectionAIResult\('replace'\)/);
+  assert.match(editorSource, /showAIResultForDecision\(\)/);
+  assert.doesNotMatch(editorSource, /applySelectionAIResult\('replace'\);\s*return;/);
   assert.match(editorSource, /insertContentAt\(\{ from, to \}, content, \{ updateSelection: true \}\)/);
   assert.match(editorSource, /Auswahl ersetzen/);
   assert.match(editorSource, /Danach einfügen/);
+  assert.match(editorSource, /applyContextAIResult/);
+  assert.match(editorSource, />\s*Einfügen\s*</);
+  assert.match(editorSource, />\s*Verwerfen\s*</);
 });
 
 test('AI started inside a callout inserts normal editable content directly into that callout', () => {

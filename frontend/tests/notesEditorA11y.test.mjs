@@ -8,6 +8,7 @@ const read = (rel) => readFile(new URL(rel, import.meta.url), 'utf8');
 const rovingSource = await read('../src/composables/useToolbarRoving.js');
 const editorSource = await readNoteEditorSource();
 const wikiSource = await read('../src/components/notes/nodes/WikiLinkView.vue');
+const shortcutsSource = await read('../src/components/ShortcutsHelpDialog.vue');
 
 test('toolbar roving composable bundles the buttons into one arrow-navigated tab stop', () => {
   // Genau ein Button tabbable, Rest per tabindex=-1 ausgeblendet.
@@ -61,21 +62,20 @@ test('toolbar menu buttons follow the ARIA menu-button pattern', () => {
 test('keyboard shortcuts overview opens via Mod+/ and is a robust modal', () => {
   assert.match(editorSource, /\(event\.metaKey \|\| event\.ctrlKey\) && !event\.altKey && event\.key === '\/'/);
   assert.match(editorSource, /openShortcuts\(\)/);
-  assert.match(editorSource, /role="dialog"\s+aria-modal="true"\s+aria-labelledby="pm-shortcuts-title"/);
-  assert.match(editorSource, /<Teleport to="body">/);
-  assert.match(editorSource, /@click\.self="closeShortcuts"/);
-  assert.match(editorSource, /@keydown\.esc\.prevent="closeShortcuts"/);
-  // Regressionsschutz: KEINE <Transition> um das teleportierte Overlay (bleibt
-  // sonst in einem Leave-Zustand hängen und blockiert unsichtbar die ganze App).
-  assert.doesNotMatch(editorSource, /<Transition name="pm-shortcuts">/);
-  assert.match(editorSource, /@keyframes pm-shortcuts-pop/);
+  assert.match(editorSource, /uiStore\.openShortcuts\(\)/);
+  assert.match(shortcutsSource, /role="dialog"\s+aria-modal="true"\s+aria-labelledby="pm-keys-title"/);
+  assert.match(shortcutsSource, /<Teleport to="body">/);
+  assert.match(shortcutsSource, /@click\.self="close"/);
+  assert.match(shortcutsSource, /@keydown\.esc\.prevent\.stop="close"/);
+  assert.match(shortcutsSource, /@keyframes pm-keys-pop/);
   // Enthält u.a. die Hinweisblock-Zeilenanfang-Kürzel (?, !, = + Leertaste).
-  assert.match(editorSource, /title: 'Hinweisblöcke'[\s\S]*?label: 'Frage', keys: \['\?', '␣'\]/);
+  assert.match(shortcutsSource, /title: 'Hinweisblöcke'[\s\S]*?label: 'Frage', combos: \[\['\?', '␣'\]\]/);
   // Breiteres Fenster + fixierte, nicht mitscrollende Titelzeile: Kopf ist
   // flex:none, nur das Grid scrollt.
-  assert.match(editorSource, /\.pm-shortcuts \{[\s\S]*?width: min\(900px, 100%\)[\s\S]*?display: flex[\s\S]*?flex-direction: column[\s\S]*?overflow: hidden/);
-  assert.match(editorSource, /\.pm-shortcuts__head \{[\s\S]*?flex: none[\s\S]*?border-bottom:/);
-  assert.match(editorSource, /\.pm-shortcuts__grid \{[\s\S]*?overflow-y: auto[\s\S]*?grid-template-columns: repeat\(auto-fit/);
+  assert.match(shortcutsSource, /\.pm-keys \{[\s\S]*?width: min\(1040px, 100%\)[\s\S]*?display: flex[\s\S]*?flex-direction: column[\s\S]*?overflow: hidden/);
+  assert.match(shortcutsSource, /\.pm-keys__head \{[\s\S]*?flex: none/);
+  assert.match(shortcutsSource, /\.pm-keys__body \{[\s\S]*?overflow-y: auto/);
+  assert.match(shortcutsSource, /\.pm-keys__grid \{[\s\S]*?grid-template-columns: repeat\(auto-fill/);
 });
 
 test('secondary menus share one icon size and expose focus-visible states', () => {
@@ -98,14 +98,11 @@ test('secondary menus share one icon size and expose focus-visible states', () =
   assert.match(editorSource, /\.pm-table-menu__header-toggle:focus-visible/);
 });
 
-test('shortcuts overview is reachable from the header ⋮ menu', async () => {
+test('shortcuts overview is delegated to the global help dialog', async () => {
   const workspaceSource = await read('../src/components/notes/NoteWorkspaceEditor.vue');
-  // NoteEditor stellt openShortcuts bereit …
+  // NoteEditor stellt openShortcuts weiterhin für programmatische Aufrufe bereit …
   assert.match(editorSource, /defineExpose\(\{[\s\S]*?openShortcuts[\s\S]*?\}\)/);
-  // … der Parent ruft es über die Child-Ref auf …
-  assert.match(workspaceSource, /function openNoteShortcuts\(\)\s*\{[\s\S]*?noteEditorRef\.value\?\.openShortcuts\?\.\(\)/);
-  // … und bietet einen ⋮-Menüeintrag mit plattformgerechtem Kürzel-Hinweis.
-  assert.match(workspaceSource, /title="Tastenkürzel"[\s\S]*?@click="openNoteShortcuts"/);
-  assert.match(workspaceSource, /note-workspace-editor__more-hint">\{\{ shortcutsHint \}\}/);
-  assert.match(workspaceSource, /shortcutsHint =[\s\S]*?'⌘ \/'[\s\S]*?'Strg \/'/);
+  // … öffnet aber den einmal global montierten Dialog statt eines lokalen Duplikats.
+  assert.match(editorSource, /function openShortcuts\(\)[\s\S]*?uiStore\.openShortcuts\(\)/);
+  assert.doesNotMatch(workspaceSource, /title="Tastenkürzel"/);
 });

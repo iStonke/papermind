@@ -21,6 +21,12 @@ function frontendService(compose) {
   return match[1];
 }
 
+function backendService(compose) {
+  const match = compose.match(/^  backend:\n([\s\S]*?)^  db:/m);
+  assert.ok(match, 'backend service must be defined before db');
+  return match[1];
+}
+
 test('local frontend restarts from live Vite sources instead of a static build', () => {
   const service = frontendService(localCompose);
 
@@ -38,4 +44,11 @@ test('local frontend restarts from live Vite sources instead of a static build',
 
 test('production frontend remains a static nginx build', () => {
   assert.match(frontendService(productionCompose), /dockerfile: Dockerfile\.prod/);
+});
+
+test('local backend reloads cannot hang indefinitely on open event streams', () => {
+  const service = backendService(localCompose);
+
+  assert.match(service, /--reload-dir \/app\/app/);
+  assert.match(service, /--timeout-graceful-shutdown 3/);
 });

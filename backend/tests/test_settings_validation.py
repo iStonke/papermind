@@ -87,6 +87,10 @@ class SettingsValidationTest(unittest.TestCase):
                     "notes_writing_width": "wide",
                     "notes_paragraph_spacing": "spacious",
                     "notes_font_family": "serif",
+                    "notes_font_size": "large",
+                    "notes_line_spacing": "spacious",
+                    "notes_heading_spacing": "compact",
+                    "notes_block_spacing": "spacious",
                     "notes_spellcheck_enabled": False,
                 }
             }
@@ -96,6 +100,10 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertEqual(payload.ui.notes_writing_width.value, "wide")
         self.assertEqual(payload.ui.notes_paragraph_spacing.value, "spacious")
         self.assertEqual(payload.ui.notes_font_family.value, "serif")
+        self.assertEqual(payload.ui.notes_font_size.value, "large")
+        self.assertEqual(payload.ui.notes_line_spacing.value, "spacious")
+        self.assertEqual(payload.ui.notes_heading_spacing.value, "compact")
+        self.assertEqual(payload.ui.notes_block_spacing.value, "spacious")
         self.assertIs(payload.ui.notes_spellcheck_enabled, False)
 
     def test_notes_preferences_reject_unknown_values(self) -> None:
@@ -105,6 +113,10 @@ class SettingsValidationTest(unittest.TestCase):
             AppSettingsPatch.model_validate({"ui": {"notes_paragraph_spacing": "huge"}})
         with self.assertRaises(ValidationError):
             AppSettingsPatch.model_validate({"ui": {"notes_font_family": "comic"}})
+        with self.assertRaises(ValidationError):
+            AppSettingsPatch.model_validate({"ui": {"notes_font_size": "huge"}})
+        with self.assertRaises(ValidationError):
+            AppSettingsPatch.model_validate({"ui": {"notes_line_spacing": "double"}})
 
     def test_notes_preference_defaults_are_present(self) -> None:
         payload = AppSettingsRead.model_validate({})
@@ -113,6 +125,10 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertEqual(payload.ui.notes_writing_width.value, "comfortable")
         self.assertEqual(payload.ui.notes_paragraph_spacing.value, "comfortable")
         self.assertEqual(payload.ui.notes_font_family.value, "sans")
+        self.assertEqual(payload.ui.notes_font_size.value, "medium")
+        self.assertEqual(payload.ui.notes_line_spacing.value, "comfortable")
+        self.assertEqual(payload.ui.notes_heading_spacing.value, "comfortable")
+        self.assertEqual(payload.ui.notes_block_spacing.value, "comfortable")
         self.assertIs(payload.ui.notes_spellcheck_enabled, True)
 
     def test_legacy_favorite_sidebar_visibility_is_removed(self) -> None:

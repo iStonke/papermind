@@ -658,14 +658,15 @@
           </div>
         </section>
 
-        <section v-if="activeCategory === 'notes'" class="pm-settings-section">
+        <section v-if="activeCategory.startsWith('notes_')" class="pm-settings-section">
           <div class="pm-settings-content">
             <SettingsInfoCard
-              icon="mdi-note-outline"
-              title="Notizen"
-              subtitle="Globale Vorgaben für Notizenliste und Editor."
+              :icon="activeNotesSettingsMeta.icon"
+              :title="activeNotesSettingsMeta.title"
+              :subtitle="activeNotesSettingsMeta.subtitle"
             />
 
+            <template v-if="activeCategory === 'notes_general'">
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Standardansicht</div>
@@ -708,6 +709,32 @@
               />
             </div>
 
+            <div
+              class="pm-setting-row"
+              role="button"
+              tabindex="0"
+              @click="toggleNotesSpellcheckFromRow"
+              @keydown="handleSettingRowShortcut($event, toggleNotesSpellcheckFromRow)"
+            >
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Rechtschreibprüfung</div>
+                <div class="pm-setting-description">Markiert mögliche Rechtschreibfehler während des Schreibens.</div>
+              </div>
+              <v-switch
+                :model-value="settingsDraft.ui.notes_spellcheck_enabled"
+                color="primary"
+                density="comfortable"
+                hide-details
+                aria-label="Rechtschreibprüfung für Notizen aktivieren"
+                :loading="isSettingSaving.notes_spellcheck_enabled"
+                :disabled="isSettingSaving.notes_spellcheck_enabled"
+                @click.stop
+                @update:model-value="onNotesSpellcheckChange"
+              />
+            </div>
+            </template>
+
+            <template v-if="activeCategory === 'notes_text'">
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Schreibbreite</div>
@@ -726,27 +753,6 @@
                 :loading="isSettingSaving.notes_writing_width"
                 :disabled="isSettingSaving.notes_writing_width"
                 @update:model-value="onNotesWritingWidthChange"
-              />
-            </div>
-
-            <div class="pm-setting-row pm-setting-row--column">
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Absatzabstand</div>
-                <div class="pm-setting-description">Bestimmt den vertikalen Abstand zwischen Textabsätzen.</div>
-              </div>
-              <v-select
-                :model-value="settingsDraft.ui.notes_paragraph_spacing"
-                :items="notesParagraphSpacingOptions"
-                item-title="label"
-                item-value="value"
-                density="comfortable"
-                hide-details
-                variant="outlined"
-                class="settings-theme-select pm-setting-select"
-                label="Abstand"
-                :loading="isSettingSaving.notes_paragraph_spacing"
-                :disabled="isSettingSaving.notes_paragraph_spacing"
-                @update:model-value="onNotesParagraphSpacingChange"
               />
             </div>
 
@@ -771,29 +777,120 @@
               />
             </div>
 
-            <div
-              class="pm-setting-row"
-              role="button"
-              tabindex="0"
-              @click="toggleNotesSpellcheckFromRow"
-              @keydown="handleSettingRowShortcut($event, toggleNotesSpellcheckFromRow)"
-            >
+            <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
-                <div class="pm-setting-label">Rechtschreibprüfung</div>
-                <div class="pm-setting-description">Markiert mögliche Rechtschreibfehler während des Schreibens.</div>
+                <div class="pm-setting-label">Textgröße</div>
+                <div class="pm-setting-description">Passt die Schriftgröße im Editor, in Vorschauen und im PDF-Export an.</div>
               </div>
-              <v-switch
-                :model-value="settingsDraft.ui.notes_spellcheck_enabled"
-                color="primary"
+              <v-select
+                :model-value="settingsDraft.ui.notes_font_size"
+                :items="notesFontSizeOptions"
+                item-title="label"
+                item-value="value"
                 density="comfortable"
                 hide-details
-                aria-label="Rechtschreibprüfung für Notizen aktivieren"
-                :loading="isSettingSaving.notes_spellcheck_enabled"
-                :disabled="isSettingSaving.notes_spellcheck_enabled"
-                @click.stop
-                @update:model-value="onNotesSpellcheckChange"
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Größe"
+                :loading="isSettingSaving.notes_font_size"
+                :disabled="isSettingSaving.notes_font_size"
+                @update:model-value="onNotesFontSizeChange"
               />
             </div>
+
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Zeilenabstand</div>
+                <div class="pm-setting-description">Bestimmt den Abstand zwischen den Zeilen innerhalb eines Absatzes.</div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.ui.notes_line_spacing"
+                :items="notesSpacingOptions"
+                item-title="label"
+                item-value="value"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Zeilen"
+                :loading="isSettingSaving.notes_line_spacing"
+                :disabled="isSettingSaving.notes_line_spacing"
+                @update:model-value="onNotesLineSpacingChange"
+              />
+            </div>
+
+            <div class="notes-settings-preview" :style="notesSettingsPreviewStyle" aria-label="Vorschau der Notizdarstellung">
+              <div class="notes-settings-preview__eyebrow">Live-Vorschau</div>
+              <h3>Eine klare Überschrift</h3>
+              <p>So wirken Schriftgröße, Zeilenabstand und Schreibbreite in deinen Notizen.</p>
+              <p>Ein zweiter Absatz macht den gewählten Abstand direkt sichtbar.</p>
+            </div>
+            </template>
+
+            <template v-if="activeCategory === 'notes_spacing'">
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Absatzabstand</div>
+                <div class="pm-setting-description">Bestimmt ausschließlich den Abstand zwischen Textabsätzen.</div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.ui.notes_paragraph_spacing"
+                :items="notesParagraphSpacingOptions"
+                item-title="label"
+                item-value="value"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Absätze"
+                :loading="isSettingSaving.notes_paragraph_spacing"
+                :disabled="isSettingSaving.notes_paragraph_spacing"
+                @update:model-value="onNotesParagraphSpacingChange"
+              />
+            </div>
+
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Abstand vor Überschriften</div>
+                <div class="pm-setting-description">Trennt neue Abschnitte vom vorherigen Inhalt. Nach einem Trennstrich gilt weiterhin dessen eigener Abstand.</div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.ui.notes_heading_spacing"
+                :items="notesSpacingOptions"
+                item-title="label"
+                item-value="value"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Überschriften"
+                :loading="isSettingSaving.notes_heading_spacing"
+                :disabled="isSettingSaving.notes_heading_spacing"
+                @update:model-value="onNotesHeadingSpacingChange"
+              />
+            </div>
+
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Abstand bei Inhaltsblöcken</div>
+                <div class="pm-setting-description">Steuert den Abstand um Listen, Tabellen, Bilder, Zitate und Hinweisblöcke.</div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.ui.notes_block_spacing"
+                :items="notesSpacingOptions"
+                item-title="label"
+                item-value="value"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Inhaltsblöcke"
+                :loading="isSettingSaving.notes_block_spacing"
+                :disabled="isSettingSaving.notes_block_spacing"
+                @update:model-value="onNotesBlockSpacingChange"
+              />
+            </div>
+            </template>
           </div>
         </section>
 
@@ -2648,58 +2745,6 @@
           </div>
         </section>
 
-        <section v-if="activeCategory === 'controls'" class="pm-settings-section">
-          <div class="pm-settings-content">
-            <SettingsInfoCard
-              icon="mdi-keyboard-outline"
-              title="Tastaturkürzel"
-              subtitle="Verfügbare Tastenkürzel und Mausgesten in PaperMind."
-            />
-
-            <div class="shortcuts-list">
-                <div
-                  v-for="group in shortcutGroups"
-                  :key="group.label"
-                  class="shortcuts-list__group"
-                >
-                  <div class="shortcuts-list__group-label">{{ group.label }}</div>
-                  <div class="shortcuts-list__rows">
-                    <div
-                      v-for="item in group.items"
-                      :key="item.action"
-                      class="shortcuts-list__row"
-                    >
-                      <span class="shortcuts-list__desc">{{ item.description }}</span>
-                      <span class="shortcuts-list__keys">
-                        <kbd
-                          v-for="key in item.keys"
-                          :key="key"
-                          class="shortcuts-list__kbd"
-                        >{{ formatKey(key) }}</kbd>
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="shortcuts-list__group">
-                  <div class="shortcuts-list__group-label">Mausgesten</div>
-                  <div class="shortcuts-list__rows">
-                    <div
-                      v-for="item in mouseGestures"
-                      :key="item.description"
-                      class="shortcuts-list__row"
-                    >
-                      <span class="shortcuts-list__desc">{{ item.description }}</span>
-                      <span class="shortcuts-list__keys">
-                        <kbd class="shortcuts-list__kbd">{{ item.gesture }}</kbd>
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-          </div>
-        </section>
-
         <section v-if="activeCategory === 'system'" class="pm-settings-section">
           <div class="pm-settings-content">
             <SystemStatusPanel :active="activeCategory === 'system'" />
@@ -2759,7 +2804,7 @@ import {
   ignoreUnresolvedCorrespondent as apiIgnoreUnresolvedCorrespondent,
   listUnresolvedCorrespondents as apiListUnresolvedCorrespondents
 } from '../api/correspondents';
-import { SHORTCUT_ACTIONS, SHORTCUTS, handleShortcut } from '../keyboard/shortcuts';
+import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts';
 import {
   NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT,
   NOTE_WRITING_SYSTEM_PROMPT_DEFAULT,
@@ -2930,8 +2975,9 @@ const settingsCategories = [
   { value: 'appearance', label: 'Darstellung', icon: 'mdi-palette-outline', group: 'surface' },
   { value: 'sidebar', label: 'Seitenleiste', icon: 'mdi-page-layout-sidebar-left', group: 'surface' },
   { value: 'documents', label: 'Bibliothek', icon: 'mdi-archive-outline', group: 'surface', adminOnly: true },
-  { value: 'notes', label: 'Notizen', icon: 'mdi-note-outline', group: 'documents' },
-  { value: 'controls', label: 'Bedienung', icon: 'mdi-keyboard-outline', group: 'surface' },
+  { value: 'notes_general', label: 'Allgemein', icon: 'mdi-tune-variant', group: 'notes' },
+  { value: 'notes_text', label: 'Textdarstellung', icon: 'mdi-format-font', group: 'notes' },
+  { value: 'notes_spacing', label: 'Abstände und Gliederung', icon: 'mdi-format-line-spacing', group: 'notes' },
   { value: 'import', label: 'Importieren', icon: 'mdi-tray-arrow-up', group: 'import', adminOnly: true },
   { value: 'scanner', label: 'Scanner', icon: 'mdi-scanner', group: 'import', adminOnly: true },
   { value: 'ai', label: 'Texterkennung', icon: 'mdi-text-recognition', group: 'import', adminOnly: true },
@@ -2946,14 +2992,14 @@ const settingsCategories = [
 ];
 const settingsCategoryGroups = [
   { key: 'surface', label: 'Oberfläche' },
+  { key: 'notes', label: 'Notizen' },
+  { key: 'documents', label: 'Dokumente' },
   { key: 'import', label: 'Import' },
   { key: 'ai', label: 'KI' },
-  { key: 'documents', label: 'Dokumente' },
   { key: 'system', label: 'System' }
 ];
 // Systemkonfigurations-Tabs nur für Admins; persönliche Darstellung sowie die
-// Pro-Benutzer-Daten (Dokumenttypen/Korrespondenten) und die Kürzel-Referenz
-// bleiben für alle sichtbar.
+// Pro-Benutzer-Daten (Dokumenttypen/Korrespondenten) bleiben für alle sichtbar.
 const visibleCategories = computed(() =>
   settingsCategories.filter((cat) => !cat.adminOnly || auth.isAdmin)
 );
@@ -2968,14 +3014,40 @@ const visibleCategoryGroups = computed(() =>
 
 const activeCategory = ref('appearance');
 
+const notesSettingsMeta = {
+  notes_general: {
+    icon: 'mdi-tune-variant',
+    title: 'Allgemein',
+    subtitle: 'Standardansicht und Sortierung deiner Notizen.'
+  },
+  notes_text: {
+    icon: 'mdi-format-font',
+    title: 'Textdarstellung',
+    subtitle: 'Schreibbreite, Schrift und Lesekomfort anpassen.'
+  },
+  notes_spacing: {
+    icon: 'mdi-format-line-spacing',
+    title: 'Abstände und Gliederung',
+    subtitle: 'Abstände zwischen Absätzen, Überschriften und Inhaltsblöcken festlegen.'
+  }
+};
+const activeNotesSettingsMeta = computed(
+  () => notesSettingsMeta[activeCategory.value] || notesSettingsMeta.notes_general
+);
+
 function isVisibleCategory(categoryValue) {
   return visibleCategories.value.some((cat) => cat.value === categoryValue);
+}
+
+function normalizeSettingsCategory(categoryValue) {
+  return ['notes', 'notes_writing'].includes(categoryValue) ? 'notes_general' : categoryValue;
 }
 
 function readStoredSettingsCategory() {
   try {
     const stored = window.localStorage.getItem(SETTINGS_ACTIVE_CATEGORY_STORAGE_KEY);
-    return isVisibleCategory(stored) ? stored : null;
+    const normalized = normalizeSettingsCategory(stored);
+    return isVisibleCategory(normalized) ? normalized : null;
   } catch {
     return null;
   }
@@ -2995,8 +3067,9 @@ function fallbackSettingsCategory() {
 }
 
 function resolveInitialSettingsCategory(categoryValue) {
-  if (categoryValue && isVisibleCategory(categoryValue)) {
-    return categoryValue;
+  const normalized = normalizeSettingsCategory(categoryValue);
+  if (normalized && isVisibleCategory(normalized)) {
+    return normalized;
   }
   return fallbackSettingsCategory();
 }
@@ -3497,67 +3570,6 @@ watch(activeCategory, (value) => {
   loadSectionData(value);
 });
 
-// ── Tastaturkürzel (Bereich „Bedienung") ─────────────────────────────────────
-
-const KEY_LABELS = {
-  'Enter': '↵ Enter',
-  ' ': 'Leertaste',
-  'Escape': 'Esc',
-  'Backspace': '⌫ Backspace',
-  'ArrowLeft': '←',
-  'ArrowRight': '→',
-  'ArrowUp': '↑',
-  'ArrowDown': '↓',
-  '?': '?'
-};
-
-function formatKey(key) {
-  return KEY_LABELS[key] ?? key;
-}
-
-function keysFor(action) {
-  return SHORTCUTS[action]?.keys ?? [];
-}
-
-const shortcutGroups = [
-  {
-    label: 'Allgemein',
-    items: [
-      { action: 'command-palette',        description: 'Befehlsmenü öffnen / schließen', keys: ['⌘ K', 'Ctrl K'] },
-      { action: SHORTCUT_ACTIONS.HELP,   description: 'Tastaturkürzel anzeigen', keys: keysFor(SHORTCUT_ACTIONS.HELP) },
-      { action: SHORTCUT_ACTIONS.CANCEL, description: 'Dialog / Auswahl schließen', keys: keysFor(SHORTCUT_ACTIONS.CANCEL) }
-    ]
-  },
-  {
-    label: 'Suche',
-    items: [
-      { action: SHORTCUT_ACTIONS.SEARCH_SUBMIT, description: 'Suche bestätigen', keys: keysFor(SHORTCUT_ACTIONS.SEARCH_SUBMIT) },
-      { action: SHORTCUT_ACTIONS.SEARCH_CANCEL, description: 'Suche abbrechen',  keys: keysFor(SHORTCUT_ACTIONS.SEARCH_CANCEL) }
-    ]
-  },
-  {
-    label: 'Navigation',
-    items: [
-      { action: SHORTCUT_ACTIONS.MOVE_PREVIOUS, description: 'Vorheriges Element', keys: keysFor(SHORTCUT_ACTIONS.MOVE_PREVIOUS) },
-      { action: SHORTCUT_ACTIONS.MOVE_NEXT,     description: 'Nächstes Element',   keys: keysFor(SHORTCUT_ACTIONS.MOVE_NEXT) },
-      { action: SHORTCUT_ACTIONS.STEP_PREVIOUS, description: 'Schritt zurück',     keys: keysFor(SHORTCUT_ACTIONS.STEP_PREVIOUS) },
-      { action: SHORTCUT_ACTIONS.STEP_NEXT,     description: 'Schritt vor',        keys: keysFor(SHORTCUT_ACTIONS.STEP_NEXT) }
-    ]
-  },
-  {
-    label: 'Aktionen',
-    items: [
-      { action: SHORTCUT_ACTIONS.TRASH,    description: 'Selektiertes Dokument in den Papierkorb', keys: keysFor(SHORTCUT_ACTIONS.TRASH) },
-      { action: SHORTCUT_ACTIONS.ACTIVATE, description: 'Element aktivieren / auswählen',           keys: keysFor(SHORTCUT_ACTIONS.ACTIVATE) },
-      { action: SHORTCUT_ACTIONS.PRIMARY,  description: 'Primäre Aktion bestätigen',                keys: keysFor(SHORTCUT_ACTIONS.PRIMARY) }
-    ]
-  }
-];
-
-const mouseGestures = [
-  { description: 'Auswahlmodus aktivieren & Dokument selektieren', gesture: '⌘ Cmd + Klick' }
-];
-
 // ── Konstanten ───────────────────────────────────────────────────────────────
 
 const themeModeOptions = [
@@ -3731,12 +3743,43 @@ const notesFontFamilyOptions = [
   { value: 'serif', label: 'Serif' },
   { value: 'mono', label: 'Monospace' },
 ];
+const notesFontSizeOptions = [
+  { value: 'small', label: 'Klein' },
+  { value: 'medium', label: 'Standard' },
+  { value: 'large', label: 'Groß' },
+];
+const notesSpacingOptions = [
+  { value: 'compact', label: 'Kompakt' },
+  { value: 'comfortable', label: 'Komfortabel' },
+  { value: 'spacious', label: 'Großzügig' },
+];
 
 const NOTES_DEFAULT_VIEW_VALUES = new Set(notesDefaultViewOptions.map((option) => option.value));
 const NOTES_SORT_ORDER_VALUES = new Set(notesSortOrderOptions.map((option) => option.value));
 const NOTES_WRITING_WIDTH_VALUES = new Set(notesWritingWidthOptions.map((option) => option.value));
 const NOTES_PARAGRAPH_SPACING_VALUES = new Set(notesParagraphSpacingOptions.map((option) => option.value));
 const NOTES_FONT_FAMILY_VALUES = new Set(notesFontFamilyOptions.map((option) => option.value));
+const NOTES_FONT_SIZE_VALUES = new Set(notesFontSizeOptions.map((option) => option.value));
+const NOTES_SPACING_VALUES = new Set(notesSpacingOptions.map((option) => option.value));
+
+const notesSettingsPreviewStyle = computed(() => {
+  const fontFamily = {
+    serif: 'Georgia, "Times New Roman", serif',
+    mono: 'ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace',
+    sans: '"Helvetica Neue", Helvetica, Arial, sans-serif',
+  }[settingsDraft.ui.notes_font_family] || '"Helvetica Neue", Helvetica, Arial, sans-serif';
+  const fontSize = { small: '15px', medium: '17px', large: '19px' }[settingsDraft.ui.notes_font_size] || '17px';
+  const lineHeight = { compact: 1.35, comfortable: 1.55, spacious: 1.75 }[settingsDraft.ui.notes_line_spacing] || 1.55;
+  const paragraphGap = { compact: '0.3em', comfortable: '0.5em', spacious: '1em' }[settingsDraft.ui.notes_paragraph_spacing] || '0.5em';
+  const maxWidth = { compact: '42ch', comfortable: '54ch', wide: '68ch' }[settingsDraft.ui.notes_writing_width] || '54ch';
+  return {
+    '--notes-preview-font-family': fontFamily,
+    '--notes-preview-font-size': fontSize,
+    '--notes-preview-line-height': lineHeight,
+    '--notes-preview-paragraph-gap': paragraphGap,
+    '--notes-preview-max-width': maxWidth,
+  };
+});
 
 async function onNotesPreferenceChange(key, nextValue, allowedValues, fallback) {
   if (isSettingSaving[key]) return;
@@ -3774,6 +3817,22 @@ function onNotesParagraphSpacingChange(nextValue) {
 
 function onNotesFontFamilyChange(nextValue) {
   return onNotesPreferenceChange('notes_font_family', nextValue, NOTES_FONT_FAMILY_VALUES, 'sans');
+}
+
+function onNotesFontSizeChange(nextValue) {
+  return onNotesPreferenceChange('notes_font_size', nextValue, NOTES_FONT_SIZE_VALUES, 'medium');
+}
+
+function onNotesLineSpacingChange(nextValue) {
+  return onNotesPreferenceChange('notes_line_spacing', nextValue, NOTES_SPACING_VALUES, 'comfortable');
+}
+
+function onNotesHeadingSpacingChange(nextValue) {
+  return onNotesPreferenceChange('notes_heading_spacing', nextValue, NOTES_SPACING_VALUES, 'comfortable');
+}
+
+function onNotesBlockSpacingChange(nextValue) {
+  return onNotesPreferenceChange('notes_block_spacing', nextValue, NOTES_SPACING_VALUES, 'comfortable');
 }
 
 async function onNotesSpellcheckChange(nextValue) {

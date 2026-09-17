@@ -6,6 +6,7 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -108,6 +109,50 @@ class AuthSessionService:
             return
         session.revoked_at = datetime.now(timezone.utc)
         self.db.commit()
+
+    def list_active(self, user: User) -> list[AuthSession]:
+        """Active (non-revoked, unexpired, current-version) sessions of ``user``,
+        most recently used first."""
+        now = datetime.now(timezone.utc)
+        stmt = (
+            select(AuthSession)
+            .where(
+                AuthSession.user_id == user.id,
+                AuthSession.revoked_at.is_(None),
+                AuthSession.expires_at > now,
+                AuthSession.session_version == user.session_version,
+            )
+            .order_by(AuthSession.last_used_at.desc())
+        )
+        return list(self.db.execute(stmt).scalars().all())
+
+    def revoke_for_user(self, user: User, session_id: uuid.UUID) -> bool:
+        """Revoke a single session that belongs to ``user``. Returns True if a
+        matching, still-active session was revoked."""
+        session = self.db.get(AuthSession, session_id)
+        if (
+            session is None
+            or session.user_id != user.id
+            or session.revoked_at is not None
+        ):
+            return False
+        session.revoked_at = datetime.now(timezone.utc)
+        self.db.commit()
+        return True
+
+    def revoke_others(self, user: User, keep_session_id: uuid.UUID | None) -> int:
+        """Revoke every active session of ``user`` except ``keep_session_id``.
+        Returns the number of sessions revoked."""
+        now = datetime.now(timezone.utc)
+        revoked = 0
+        for session in self.list_active(user):
+            if keep_session_id is not None and session.id == keep_session_id:
+                continue
+            session.revoked_at = now
+            revoked += 1
+        if revoked:
+            self.db.commit()
+        return revoked
 
 
 def is_session_active(db: Session, session_id: uuid.UUID, user: User) -> bool:

@@ -409,6 +409,10 @@ export function noteToPrintableHtml({
   body,
   fontFamily = 'sans',
   paragraphSpacing = 'comfortable',
+  fontSize = 'medium',
+  lineSpacing = 'comfortable',
+  headingSpacing = 'comfortable',
+  blockSpacing = 'comfortable',
   imageUrl = (src) => src,
 } = {}) {
   const context = { sources: new Map(), imageUrl };
@@ -430,7 +434,11 @@ export function noteToPrintableHtml({
     mono: 'ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace',
     sans: '"Helvetica Neue", Helvetica, Arial, sans-serif',
   }[fontFamily] || '"Helvetica Neue", Helvetica, Arial, sans-serif';
-  const paragraphGap = { compact: '0.45em', spacious: '1.05em', comfortable: '0.7em' }[paragraphSpacing] || '0.7em';
+  const paragraphGap = { compact: '0.45em', spacious: '1.4em', comfortable: '0.7em' }[paragraphSpacing] || '0.7em';
+  const textSize = { small: '10pt', large: '12pt', medium: '11pt' }[fontSize] || '11pt';
+  const lineHeight = { compact: '1.42', spacious: '1.78', comfortable: '1.62' }[lineSpacing] || '1.62';
+  const headingGap = { compact: '1.25em', spacious: '2.25em', comfortable: '1.75em' }[headingSpacing] || '1.75em';
+  const blockGap = { compact: '1.25em', spacious: '2.25em', comfortable: '1.75em' }[blockSpacing] || '1.75em';
   const safeTitle = escapeHtml(String(title || '').trim() || 'Ohne Titel');
 
   return `<!doctype html>
@@ -441,11 +449,13 @@ export function noteToPrintableHtml({
   <style>
     @page { size: A4; margin: 20mm 22mm; }
     * { box-sizing: border-box; }
-    body { margin: 0; color: #172126; font-family: ${fontStack}; font-size: 11pt; line-height: 1.62; }
+    body { margin: 0; color: #172126; font-family: ${fontStack}; font-size: ${textSize}; line-height: ${lineHeight}; }
     header { margin-bottom: 12mm; padding-bottom: 5mm; border-bottom: 1px solid #d8dfe1; }
     .eyebrow { color: #527078; font: 8pt ui-monospace, monospace; letter-spacing: .12em; text-transform: uppercase; }
     h1.title { margin: 2mm 0 0; font: 650 24pt/1.15 ${fontStack}; }
     main > * + * { margin-top: ${paragraphGap}; }
+    main > * + :not(p) { margin-top: ${blockGap}; }
+    main > :not(p) + * { margin-top: ${blockGap}; }
     .page-layout { display: grid; align-items: start; width: 100%; }
     .page-layout-1 { grid-template-columns: minmax(0, 1fr); }
     .page-layout-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -458,6 +468,7 @@ export function noteToPrintableHtml({
     .layout-column:last-child { padding-right: 0; }
     .layout-column > *:first-child { margin-top: 0; }
     h1, h2, h3, h4 { break-after: avoid; font-family: ${fontStack}; line-height: 1.25; }
+    main > :not(hr) + :is(h1, h2, h3, h4) { margin-top: ${headingGap}; }
     h1 { font-size: 19pt; } h2 { font-size: 15pt; } h3 { font-size: 12.5pt; } h4 { font-size: 11pt; }
     p { margin-bottom: 0; } ul, ol { padding-left: 1.5em; }
     blockquote { margin-left: 0; padding-left: 4mm; border-left: 2px solid #3e9ca4; color: #4f5f64; }

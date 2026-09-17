@@ -14,6 +14,7 @@ from app.core.config import get_settings
 from app.core.errors import (
     BadRequestError,
     ConflictError,
+    ForbiddenError,
     NotFoundError,
     PayloadTooLargeError,
 )
@@ -195,6 +196,11 @@ class UserService:
 
     def update_profile(self, user: User, payload: ProfileUpdateRequest) -> User:
         """Self-service update of the current user's own profile fields."""
+        if payload.username is not None:
+            username = _normalize_username(payload.username)
+            if not username:
+                raise BadRequestError("Username must not be empty")
+            user.username = username
         if payload.display_name is not None:
             user.display_name = _normalize_optional(payload.display_name)
         if payload.email is not None:
@@ -202,7 +208,15 @@ class UserService:
             if email is not None and self._email_in_use(email, exclude_id=user.id):
                 raise ConflictError("E-mail already in use", details={"email": email})
             user.email = email
-        self.db.commit()
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            if is_unique_violation(exc):
+                raise ConflictError(
+                    "Username already exists", details={"username": user.username}
+                ) from exc
+            raise
         self.db.refresh(user)
         logger.info("profile updated for user id=%s", user.id)
         return user
@@ -282,7 +296,22 @@ class UserService:
         user = self.get_or_404(user_id)
         if user.is_admin and user.is_active:
             self._guard_last_admin(user, will_be_admin=False, will_be_active=False)
+        self._purge_user(user)
 
+    def delete_self(self, user: User, password: str) -> None:
+        """Self-service account deletion. Administrators are intentionally barred
+        from deleting their own account here (an admin lockout / handover must be
+        done by another administrator). Requires the current password."""
+        if user.is_admin:
+            raise ForbiddenError(
+                "Administrators cannot delete their own account. Ask another administrator."
+            )
+        if not verify_password(password, user.password_hash):
+            raise BadRequestError("Current password is incorrect")
+        self._purge_user(user)
+
+    def _purge_user(self, user: User) -> None:
+        user_id = user.id
         # Datei-Keys aller Dokumente des Benutzers VOR dem Löschen einsammeln.
         # Über eine System-Verbindung (umgeht RLS), da der löschende Admin die
         # Daten des Zielbenutzers per RLS sonst nicht sähe. Die DB-Zeilen werden

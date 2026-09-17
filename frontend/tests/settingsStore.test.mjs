@@ -109,6 +109,10 @@ test("normalizeSettingsPayload preserves note preferences", () => {
       notes_writing_width: "wide",
       notes_paragraph_spacing: "spacious",
       notes_font_family: "serif",
+      notes_font_size: "large",
+      notes_line_spacing: "spacious",
+      notes_heading_spacing: "compact",
+      notes_block_spacing: "spacious",
       notes_spellcheck_enabled: false,
     },
   });
@@ -118,6 +122,10 @@ test("normalizeSettingsPayload preserves note preferences", () => {
   assert.equal(normalized.ui.notes_writing_width, "wide");
   assert.equal(normalized.ui.notes_paragraph_spacing, "spacious");
   assert.equal(normalized.ui.notes_font_family, "serif");
+  assert.equal(normalized.ui.notes_font_size, "large");
+  assert.equal(normalized.ui.notes_line_spacing, "spacious");
+  assert.equal(normalized.ui.notes_heading_spacing, "compact");
+  assert.equal(normalized.ui.notes_block_spacing, "spacious");
   assert.equal(normalized.ui.notes_spellcheck_enabled, false);
 });
 
@@ -132,6 +140,10 @@ test("normalizeSettingsPayload falls back for invalid note preferences", () => {
       notes_writing_width: "unlimited",
       notes_paragraph_spacing: "huge",
       notes_font_family: "comic",
+      notes_font_size: "huge",
+      notes_line_spacing: "double",
+      notes_heading_spacing: "none",
+      notes_block_spacing: "massive",
     },
   });
 
@@ -140,6 +152,10 @@ test("normalizeSettingsPayload falls back for invalid note preferences", () => {
   assert.equal(normalized.ui.notes_writing_width, "comfortable");
   assert.equal(normalized.ui.notes_paragraph_spacing, "comfortable");
   assert.equal(normalized.ui.notes_font_family, "sans");
+  assert.equal(normalized.ui.notes_font_size, "medium");
+  assert.equal(normalized.ui.notes_line_spacing, "comfortable");
+  assert.equal(normalized.ui.notes_heading_spacing, "comfortable");
+  assert.equal(normalized.ui.notes_block_spacing, "comfortable");
   assert.equal(normalized.ui.notes_spellcheck_enabled, true);
 });
 

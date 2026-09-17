@@ -1,28 +1,34 @@
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 
 from app.core.auth import create_access_token, decode_access_token
 from app.core.config import get_settings
 from app.core.deps import get_current_user, token_secret
-from app.core.errors import UnauthorizedError
+from app.core.errors import NotFoundError, UnauthorizedError
 from app.core.security import _client_identity, enforce_persistent_rate_limit
 from app.db import get_db
 from app.models.user import User
 from app.schemas.auth import (
     ChangePasswordRequest,
+    DeleteAccountRequest,
     FileTokenResponse,
     LoginRequest,
     ProfileUpdateRequest,
     RegisterRequest,
     RefreshTokenRequest,
+    SessionRead,
+    StorageUsageResponse,
     TokenResponse,
     UserRead,
 )
 from app.schemas.common import ErrorResponse, OkResponse
 from app.schemas.users import UserCreateRequest
+from app.services.documents import DocumentService
 from app.services.users import UserService
 from app.services.auth_sessions import AuthSessionService
 from app.models.auth_session import AuthSession
@@ -320,6 +326,132 @@ def change_password(
 ) -> OkResponse:
     service = UserService(db)
     service.change_password(user, payload.current_password, payload.new_password)
+    return OkResponse(ok=True)
+
+
+@router.get(
+    "/me/storage",
+    response_model=StorageUsageResponse,
+    summary="Owner-scoped storage footprint of the current user",
+    responses={401: {"model": ErrorResponse}},
+)
+def my_storage(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> StorageUsageResponse:
+    usage = DocumentService(db, user.id).storage_usage()
+    return StorageUsageResponse.model_validate(usage)
+
+
+@router.get(
+    "/me/export",
+    summary="Download a personal export (all own documents + metadata) as ZIP",
+    responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
+)
+def my_export(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    tmp_path, archive_name, skipped = DocumentService(db, user.id).build_personal_export()
+    return FileResponse(
+        path=str(tmp_path),
+        media_type="application/zip",
+        filename=archive_name,
+        content_disposition_type="attachment",
+        background=BackgroundTask(lambda: Path(tmp_path).unlink(missing_ok=True)),
+        headers={"X-Export-Skipped": str(skipped), "Cache-Control": "no-store"},
+    )
+
+
+@router.delete(
+    "/me",
+    response_model=OkResponse,
+    summary="Delete the current user's own account (non-admins only)",
+    responses={
+        400: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+    },
+)
+def delete_me(
+    payload: DeleteAccountRequest,
+    response: Response,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> OkResponse:
+    UserService(db).delete_self(user, payload.password)
+    _clear_refresh_cookie(response)
+    return OkResponse(ok=True)
+
+
+def _current_session_id(request: Request) -> uuid.UUID | None:
+    """Session id (``sid``) of the request's own access token, if present."""
+    authorization = request.headers.get("authorization", "")
+    scheme, _, access_token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not access_token.strip():
+        return None
+    payload = decode_access_token(access_token.strip(), token_secret())
+    try:
+        return uuid.UUID(str(payload.get("sid"))) if payload else None
+    except (TypeError, ValueError):
+        return None
+
+
+@router.get(
+    "/sessions",
+    response_model=list[SessionRead],
+    summary="List the current user's active browser/device sessions",
+    responses={401: {"model": ErrorResponse}},
+)
+def list_sessions(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[SessionRead]:
+    current_id = _current_session_id(request)
+    sessions = AuthSessionService(db).list_active(user)
+    return [
+        SessionRead(
+            id=session.id,
+            user_agent=session.user_agent,
+            client_ip=session.client_ip,
+            created_at=session.created_at,
+            last_used_at=session.last_used_at,
+            current=session.id == current_id,
+        )
+        for session in sessions
+    ]
+
+
+@router.delete(
+    "/sessions/{session_id}",
+    response_model=OkResponse,
+    summary="Revoke one of the current user's sessions",
+    responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+def revoke_session(
+    session_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> OkResponse:
+    revoked = AuthSessionService(db).revoke_for_user(user, session_id)
+    if not revoked:
+        raise NotFoundError("Session not found", details={"session_id": str(session_id)})
+    return OkResponse(ok=True)
+
+
+@router.post(
+    "/sessions/revoke-others",
+    response_model=OkResponse,
+    summary="Revoke all of the current user's sessions except this one",
+    responses={401: {"model": ErrorResponse}},
+)
+def revoke_other_sessions(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> OkResponse:
+    AuthSessionService(db).revoke_others(user, _current_session_id(request))
     return OkResponse(ok=True)
 
 

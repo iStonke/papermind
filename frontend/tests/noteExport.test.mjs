@@ -60,6 +60,10 @@ test('printable note export renders a styled PDF source document', () => {
     title: 'PDF-Test',
     fontFamily: 'serif',
     paragraphSpacing: 'spacious',
+    fontSize: 'large',
+    lineSpacing: 'spacious',
+    headingSpacing: 'compact',
+    blockSpacing: 'spacious',
     body: {
       type: 'doc',
       attrs: { linkedDocument: { id: 'doc-1', title: 'Quelle.pdf' } },
@@ -72,7 +76,10 @@ test('printable note export renders a styled PDF source document', () => {
 
   assert.match(html, /<title>PDF-Test<\/title>/);
   assert.match(html, /font-family: Georgia/);
-  assert.match(html, /margin-top: 1\.05em/);
+  assert.match(html, /font-size: 12pt; line-height: 1\.78/);
+  assert.match(html, /margin-top: 1\.4em/);
+  assert.match(html, /main > \* \+ :not\(p\) \{ margin-top: 2\.25em/);
+  assert.match(html, /main > :not\(hr\) \+ :is\(h1, h2, h3, h4\) \{ margin-top: 1\.25em/);
   assert.match(html, /<h2>Abschnitt<\/h2>/);
   assert.match(html, /&lt;sicher&gt;/);
   assert.match(html, /<h2>Quellen<\/h2>/);

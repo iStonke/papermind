@@ -10,6 +10,10 @@
     :class="[
       `note-preview--spacing-${notesParagraphSpacing}`,
       `note-preview--font-${notesFontFamily}`,
+      `note-preview--font-size-${notesFontSize}`,
+      `note-preview--line-spacing-${notesLineSpacing}`,
+      `note-preview--heading-spacing-${notesHeadingSpacing}`,
+      `note-preview--block-spacing-${notesBlockSpacing}`,
     ]"
   >
     <div v-if="loading" class="note-preview__state" aria-live="polite">
@@ -71,6 +75,14 @@ const notesFontFamily = computed(() => {
   const value = settingsStore.settingsDraft?.ui?.notes_font_family;
   return ['sans', 'serif', 'mono'].includes(value) ? value : 'sans';
 });
+const noteSetting = (key, allowed, fallback) => computed(() => {
+  const value = settingsStore.settingsDraft?.ui?.[key];
+  return allowed.includes(value) ? value : fallback;
+});
+const notesFontSize = noteSetting('notes_font_size', ['small', 'medium', 'large'], 'medium');
+const notesLineSpacing = noteSetting('notes_line_spacing', ['compact', 'comfortable', 'spacious'], 'comfortable');
+const notesHeadingSpacing = noteSetting('notes_heading_spacing', ['compact', 'comfortable', 'spacious'], 'comfortable');
+const notesBlockSpacing = noteSetting('notes_block_spacing', ['compact', 'comfortable', 'spacious'], 'comfortable');
 
 const editor = useEditor({
   editable: false,
@@ -147,7 +159,11 @@ watch(() => props.noteId, load, { immediate: true });
   overflow-y: auto;
   justify-content: center;
   --note-preview-font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --note-preview-font-size: 1.0625rem;
+  --note-preview-line-height: 1.55;
   --note-preview-paragraph-gap: 0.25em;
+  --note-preview-heading-before-gap: 1.75rem;
+  --note-preview-block-gap: 1.75rem;
 }
 
 .note-preview--font-serif {
@@ -163,8 +179,17 @@ watch(() => props.noteId, load, { immediate: true });
 }
 
 .note-preview--spacing-spacious {
-  --note-preview-paragraph-gap: 0.5em;
+  --note-preview-paragraph-gap: 0.75em;
 }
+
+.note-preview--font-size-small { --note-preview-font-size: 0.9375rem; }
+.note-preview--font-size-large { --note-preview-font-size: 1.1875rem; }
+.note-preview--line-spacing-compact { --note-preview-line-height: 1.35; }
+.note-preview--line-spacing-spacious { --note-preview-line-height: 1.75; }
+.note-preview--heading-spacing-compact { --note-preview-heading-before-gap: 1.25rem; }
+.note-preview--heading-spacing-spacious { --note-preview-heading-before-gap: 2.25rem; }
+.note-preview--block-spacing-compact { --note-preview-block-gap: 1.25rem; }
+.note-preview--block-spacing-spacious { --note-preview-block-gap: 2.25rem; }
 
 .note-preview__state {
   display: flex;
@@ -209,11 +234,15 @@ watch(() => props.noteId, load, { immediate: true });
   outline: none;
   color: var(--pm-text, #0e181b);
   font-family: var(--note-preview-font-family);
-  font-size: 1.0625rem;
-  line-height: 1.7;
+  font-size: var(--note-preview-font-size);
+  line-height: var(--note-preview-line-height);
 }
 .note-preview :deep(.pm-content > *) { margin-block: 0; }
 .note-preview :deep(.pm-content > * + *) { margin-top: var(--note-preview-paragraph-gap); }
+.note-preview :deep(.pm-content > * + :not(p)),
+.note-preview :deep(.pm-content > :not(p) + *) {
+  margin-top: var(--note-preview-block-gap);
+}
 .note-preview :deep([data-page-layout]) {
   display: grid;
   align-items: stretch;
@@ -236,6 +265,10 @@ watch(() => props.noteId, load, { immediate: true });
 .note-preview :deep([data-layout-column]:last-child) { padding-right: 0; }
 .note-preview :deep([data-layout-column] > *) { margin-block: 0; }
 .note-preview :deep([data-layout-column] > * + *) { margin-top: var(--note-preview-paragraph-gap); }
+.note-preview :deep([data-layout-column] > * + :not(p)),
+.note-preview :deep([data-layout-column] > :not(p) + *) {
+  margin-top: var(--note-preview-block-gap);
+}
 .note-preview :deep(mark.pm-text-highlight) {
   padding-inline: 0.06em;
   border-radius: 0.16em;
@@ -252,6 +285,10 @@ watch(() => props.noteId, load, { immediate: true });
 }
 .note-preview :deep(.pm-content h3) { font-weight: 600; font-size: 1.06rem; margin-top: 1.1em; }
 .note-preview :deep(.pm-content h4) { font-weight: 600; font-size: 0.98rem; margin-top: 1em; }
+.note-preview :deep(.pm-content > :not(hr) + :is(h1, h2, h3, h4, h5, h6)),
+.note-preview :deep([data-layout-column] > :not(hr) + :is(h1, h2, h3, h4, h5, h6)) {
+  margin-top: var(--note-preview-heading-before-gap);
+}
 .note-preview :deep(.pm-content ul),
 .note-preview :deep(.pm-content ol) { padding-left: 1.4em; }
 .note-preview :deep(.pm-content li) { margin: 0.2em 0; }

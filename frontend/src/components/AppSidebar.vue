@@ -185,49 +185,47 @@
     <!-- Ordner -->
     <v-list v-if="section.key === 'ordner'" nav density="compact" class="views-list" @mouseenter="onRailSectionEnter('ordner', $event)">
       <div
-        class="sidebar-section-header"
+        class="sidebar-section-header sidebar-section-header--title-action"
         :class="{ 'sidebar-section-header--collapsed': ordnerCollapsed }"
-        @click="toggleSection('ordner')"
       >
-        <div class="sidebar-section-label">Ordner</div>
+        <v-menu location="bottom start" :offset="6">
+          <template #activator="{ props: menuProps }">
+            <button
+              v-bind="menuProps"
+              type="button"
+              class="sidebar-section-label sidebar-section-label--action"
+              aria-label="Alle Ordner anzeigen"
+              title="Alle Ordner anzeigen"
+            >
+              Ordner
+            </button>
+          </template>
+          <v-list class="pm-menu sidebar-all-folders-menu" density="compact" min-width="250" max-width="340">
+            <v-list-subheader>Alle Ordner</v-list-subheader>
+            <v-list-item v-if="!sortedFolderItems.length" title="Noch keine Ordner" />
+            <v-list-item
+              v-for="savedSearch in sortedFolderItems"
+              v-else
+              :key="`all-folder-${savedSearch.id}`"
+              :active="!dossiersActive && !chatActive && activeSavedSearchId === savedSearch.id"
+              :title="savedSearch.name"
+              @click="emit('open-saved-search', savedSearch.id)"
+            >
+              <template #prepend>
+                <v-icon size="17">{{ folderSidebarIcon(savedSearch, activeSavedSearchId === savedSearch.id) }}</v-icon>
+              </template>
+              <template #append>
+                <span class="sidebar-rail-flyout__count">{{ sidebarStore.savedSearchCount(savedSearch.id) }}</span>
+              </template>
+            </v-list-item>
+          </v-list>
+        </v-menu>
         <div class="sidebar-section-header-actions sidebar-section-header-actions--folders">
-          <v-menu location="bottom end" :offset="6">
-            <template #activator="{ props: menuProps }">
-              <button
-                v-bind="menuProps"
-                type="button"
-                class="sidebar-section-icon-action"
-                aria-label="Alle Ordner anzeigen"
-                title="Alle Ordner"
-                @click.stop
-              >
-                <v-icon size="15">mdi-view-grid-outline</v-icon>
-              </button>
-            </template>
-            <v-list class="pm-menu sidebar-all-folders-menu" density="compact" min-width="250" max-width="340">
-              <v-list-subheader>Alle Ordner</v-list-subheader>
-              <v-list-item v-if="!sortedFolderItems.length" title="Noch keine Ordner" />
-              <v-list-item
-                v-for="savedSearch in sortedFolderItems"
-                v-else
-                :key="`all-folder-${savedSearch.id}`"
-                :active="!dossiersActive && !chatActive && activeSavedSearchId === savedSearch.id"
-                :title="savedSearch.name"
-                @click="emit('open-saved-search', savedSearch.id)"
-              >
-                <template #prepend>
-                  <v-icon size="17">{{ folderSidebarIcon(savedSearch, activeSavedSearchId === savedSearch.id) }}</v-icon>
-                </template>
-                <template #append>
-                  <span class="sidebar-rail-flyout__count">{{ sidebarStore.savedSearchCount(savedSearch.id) }}</span>
-                </template>
-              </v-list-item>
-            </v-list>
-          </v-menu>
           <button
             type="button"
-            class="sidebar-section-icon-action"
+            class="sidebar-section-icon-action sidebar-section-create-action"
             aria-label="Ordner erstellen"
+            title="Ordner erstellen"
             @click.stop="emit('create-folder')"
           >
             <v-icon size="15">mdi-folder-plus-outline</v-icon>
@@ -308,20 +306,19 @@
     <!-- Tags -->
     <v-list v-else-if="section.key === 'tags'" nav density="compact" class="views-list" @mouseenter="onRailSectionEnter('tags', $event)">
       <div
-        class="sidebar-section-header"
+        class="sidebar-section-header sidebar-section-header--title-action"
         :class="{ 'sidebar-section-header--collapsed': tagsCollapsed }"
-        @click="toggleSection('tags')"
       >
-        <div class="sidebar-section-label">Tags</div>
+        <button
+          type="button"
+          class="sidebar-section-label sidebar-section-label--action"
+          aria-label="Alle Tags anzeigen"
+          title="Alle Tags anzeigen"
+          @click="emit('open-tags-view')"
+        >
+          Tags
+        </button>
         <div class="sidebar-section-header-actions">
-          <button
-            type="button"
-            class="sidebar-section-icon-action"
-            aria-label="Alle Tags anzeigen"
-            @click.stop="emit('open-tags-view')"
-          >
-            <v-icon size="15">mdi-view-grid-outline</v-icon>
-          </button>
           <button
             type="button"
             class="sidebar-section-toggle"
@@ -902,6 +899,10 @@ onBeforeUnmount(() => {
   background: var(--pm-sidebar-hover);
 }
 
+.sidebar-section-header--title-action {
+  cursor: default;
+}
+
 /* Bibliothek: statischer Kopf, nicht einklappbar (Kern-Navigation). */
 .sidebar-section-header--static {
   cursor: default;
@@ -915,14 +916,48 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  flex: 0 0 70px;
+  flex: 0 0 auto;
   gap: 5px;
   margin-inline-start: auto;
   min-width: 0;
+  opacity: 0;
+  transform: translateX(3px);
+  pointer-events: none;
+  transition:
+    opacity var(--pm-duration-fast) var(--pm-easing),
+    transform var(--pm-duration-fast) var(--pm-easing);
+}
+
+.sidebar-section-header:hover .sidebar-section-header-actions,
+.sidebar-section-header:focus-within .sidebar-section-header-actions {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
 }
 
 .sidebar-section-header-actions--folders {
-  flex-basis: 74px;
+  flex-basis: auto;
+}
+
+.sidebar-section-label--action {
+  padding: 3px 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: color var(--pm-duration-fast) var(--pm-easing), opacity var(--pm-duration-fast) var(--pm-easing);
+}
+
+.sidebar-section-label--action:hover,
+.sidebar-section-label--action:focus-visible {
+  color: var(--pm-sidebar-text);
+  opacity: 0.9;
+}
+
+.sidebar-section-label--action:focus-visible {
+  outline: 2px solid rgba(var(--v-theme-primary), 0.7);
+  outline-offset: 2px;
 }
 
 .sidebar-all-folders-menu {
@@ -962,6 +997,36 @@ onBeforeUnmount(() => {
 .sidebar-section-icon-action:focus-visible {
   outline: 2px solid rgba(var(--v-theme-primary), 0.7);
   outline-offset: 1px;
+}
+
+.sidebar-section-create-action {
+  opacity: 0;
+  transform: translateX(3px);
+  transition:
+    opacity var(--pm-duration-fast) var(--pm-easing),
+    transform var(--pm-duration-fast) var(--pm-easing),
+    background var(--pm-duration-fast) var(--pm-easing),
+    color var(--pm-duration-fast) var(--pm-easing);
+}
+
+.sidebar-section-header:hover .sidebar-section-create-action,
+.sidebar-section-header:focus-within .sidebar-section-create-action,
+.sidebar-section-create-action:focus-visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+@media (hover: none) {
+  .sidebar-section-header-actions {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+
+  .sidebar-section-create-action {
+    opacity: 0.72;
+    transform: none;
+  }
 }
 
 /* ── Zähler-Chip (nur im eingeklappten Zustand) ───────────────────────── */

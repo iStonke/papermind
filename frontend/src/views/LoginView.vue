@@ -23,12 +23,12 @@
               label="Benutzername oder E-Mail"
               prepend-inner-icon="mdi-account-outline"
               variant="outlined"
-              density="comfortable"
+              density="compact"
               autocomplete="username"
               autofocus
               :disabled="loading"
               hide-details="auto"
-              class="mb-4 login-rise login-rise--4"
+              class="mb-3 login-field login-rise login-rise--4"
             />
             <v-expand-transition>
               <div v-if="isRegisterMode">
@@ -37,22 +37,22 @@
                   label="Anzeigename"
                   prepend-inner-icon="mdi-card-account-details-outline"
                   variant="outlined"
-                  density="comfortable"
+                  density="compact"
                   autocomplete="name"
                   :disabled="loading"
                   hide-details="auto"
-                  class="mb-4 login-rise login-rise--4"
+                  class="mb-3 login-field login-rise login-rise--4"
                 />
                 <v-text-field
                   v-model="email"
                   label="E-Mail (optional)"
                   prepend-inner-icon="mdi-email-outline"
                   variant="outlined"
-                  density="comfortable"
+                  density="compact"
                   autocomplete="email"
                   :disabled="loading"
                   hide-details="auto"
-                  class="mb-4 login-rise login-rise--4"
+                  class="mb-3 login-field login-rise login-rise--4"
                 />
               </div>
             </v-expand-transition>
@@ -64,11 +64,11 @@
               :type="showPassword ? 'text' : 'password'"
               :append-inner-icon="showPassword ? 'mdi-eye-off' : 'mdi-eye'"
               variant="outlined"
-              density="comfortable"
+              density="compact"
               :autocomplete="isRegisterMode ? 'new-password' : 'current-password'"
               :disabled="loading"
               hide-details="auto"
-              :class="isRegisterMode ? 'mb-4 login-rise login-rise--5' : 'mb-2 login-rise login-rise--5'"
+              :class="isRegisterMode ? 'mb-3 login-field login-rise login-rise--5' : 'mb-2 login-field login-rise login-rise--5'"
               @click:append-inner="showPassword = !showPassword"
             />
             <v-expand-transition>
@@ -79,27 +79,32 @@
                 prepend-inner-icon="mdi-lock-check-outline"
                 :type="showPassword ? 'text' : 'password'"
                 variant="outlined"
-                density="comfortable"
+                density="compact"
                 autocomplete="new-password"
                 :disabled="loading"
                 hide-details="auto"
-                class="mb-2 login-rise login-rise--5"
+                class="mb-2 login-field login-rise login-rise--5"
               />
             </v-expand-transition>
 
             <v-expand-transition>
-              <v-alert
+              <div
                 v-if="error"
-                type="error"
-                variant="tonal"
-                density="compact"
-                icon="mdi-alert-circle-outline"
-                :title="error.title"
-                :text="error.text"
                 class="mb-3 login-alert"
                 role="alert"
                 aria-live="assertive"
-              />
+              >
+                <v-icon
+                  icon="mdi-alert-circle-outline"
+                  size="19"
+                  class="login-alert__icon"
+                  aria-hidden="true"
+                />
+                <div class="login-alert__content">
+                  <div class="login-alert__title">{{ error.title }}</div>
+                  <div class="login-alert__text">{{ error.text }}</div>
+                </div>
+              </div>
             </v-expand-transition>
 
             <v-btn
@@ -565,6 +570,90 @@ async function submit() {
   text-align: center;
   color: rgba(231, 237, 246, 0.6);
   margin-bottom: 26px;
+}
+
+/* Kompakte Felder und ein ruhiges Autofill statt der gelben Browser-Flächen. */
+.login-field {
+  --login-field-fill: #082a36;
+}
+
+.login-field :deep(.v-field) {
+  background: var(--login-field-fill);
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.login-field :deep(.v-field__input) {
+  min-height: 40px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  font-size: 0.94rem;
+}
+
+.login-field :deep(.v-field__prepend-inner),
+.login-field :deep(.v-field__append-inner) {
+  min-height: 40px;
+  padding-top: 8px;
+}
+
+.login-field :deep(input:-webkit-autofill),
+.login-field :deep(input:-webkit-autofill:hover),
+.login-field :deep(input:-webkit-autofill:focus),
+.login-field :deep(input:autofill) {
+  -webkit-text-fill-color: rgba(245, 248, 252, 0.94) !important;
+  caret-color: rgba(245, 248, 252, 0.94);
+  box-shadow: inset 0 0 0 1000px var(--login-field-fill) !important;
+  -webkit-box-shadow: inset 0 0 0 1000px var(--login-field-fill) !important;
+  border-radius: 0;
+}
+
+/* Passwortmanager setzen Werte teils ohne Input-Event. Das Label trotzdem wie
+   bei einem regulär gefüllten Vuetify-Feld an die Outline heben. */
+.login-field :deep(.v-field:has(input:-webkit-autofill) .v-field-label:not(.v-field-label--floating)),
+.login-field :deep(.v-field:has(input:autofill) .v-field-label:not(.v-field-label--floating)) {
+  visibility: hidden;
+}
+
+.login-field :deep(.v-field:has(input:-webkit-autofill) .v-field-label--floating),
+.login-field :deep(.v-field:has(input:autofill) .v-field-label--floating) {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* Fehler bleiben eindeutig, ordnen sich dem Anmeldeformular aber visuell unter. */
+.login-alert {
+  display: grid;
+  grid-template-columns: 19px minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  padding: 9px 11px;
+  color: rgba(254, 205, 211, 0.9);
+  background: rgba(225, 29, 72, 0.075);
+  border: 1px solid rgba(251, 113, 133, 0.2);
+  border-radius: 10px;
+}
+
+.login-alert__icon {
+  margin-top: 1px;
+  color: rgba(251, 113, 133, 0.82);
+}
+
+.login-alert__content {
+  min-width: 0;
+}
+
+.login-alert__title {
+  font-size: 0.84rem;
+  font-weight: 620;
+  line-height: 1.35;
+}
+
+.login-alert__text {
+  margin-top: 2px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: rgba(231, 237, 246, 0.68);
 }
 
 /* Bewegungsempfindliche Nutzer/Systeme: alle Dauer-Animationen still, Inhalte

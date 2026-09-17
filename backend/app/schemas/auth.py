@@ -59,7 +59,42 @@ class ChangePasswordRequest(BaseModel):
 
 
 class ProfileUpdateRequest(BaseModel):
-    """Self-service profile update. Field absent = unchanged; "" = cleared."""
+    """Self-service profile update. Field absent = unchanged; "" = cleared.
 
+    ``username`` is the login name: absent = unchanged, and (unlike the optional
+    free-text fields) it may not be cleared to empty.
+    """
+
+    username: str | None = Field(default=None, min_length=1, max_length=150)
     display_name: str | None = Field(default=None, max_length=150)
     email: str | None = Field(default=None, max_length=320)
+
+
+class StorageRoleUsage(BaseModel):
+    bytes: int
+    files: int
+
+
+class StorageUsageResponse(BaseModel):
+    """Owner-scoped storage footprint for the account data overview."""
+
+    total_bytes: int
+    document_count: int
+    by_role: dict[str, StorageRoleUsage]
+
+
+class DeleteAccountRequest(BaseModel):
+    """Self-service account deletion: the current password re-confirms intent."""
+
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class SessionRead(ORMModel):
+    """One active browser/device session of the current user."""
+
+    id: uuid.UUID
+    user_agent: str | None = None
+    client_ip: str | None = None
+    created_at: datetime
+    last_used_at: datetime
+    current: bool = False
