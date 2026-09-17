@@ -34,7 +34,6 @@ test('toolbar shows the quiet natural-language AI prompt without an extra click'
   assert.match(editorSource, /placeholder="Einfach losschreiben …"/);
   assert.match(editorSource, /@submit\.prevent="generateAIText"/);
   assert.match(editorSource, /@pointerdown\.stop="prepareToolbarAIPromptTarget"/);
-  assert.doesNotMatch(editorSource, /<Teleport[^>]*>\s*<Transition name="pm-ai-prompt"/);
   assert.doesNotMatch(editorSource, /note-editor__toolbar-btn--ai/);
   assert.match(editorSource, /streamNoteText/);
 });

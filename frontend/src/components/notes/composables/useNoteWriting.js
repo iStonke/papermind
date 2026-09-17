@@ -18,6 +18,9 @@ export function useNoteWriting({
   const requests = createNoteAIRequest();
   const aiToolbarInputEl = ref(null);
   const aiPromptInputEl = ref(null);
+  const aiPromptEl = ref(null);
+  // Escape the editor's clipping container while retaining the app's theme.
+  const aiPromptTeleportTarget = computed(() => surfaceEl.value?.closest('.papermind-app') || 'body');
   const aiOptionsButtonEl = ref(null);
   const aiOptionsOpen = ref(false);
   const aiOptionsLeft = ref(0);
@@ -146,9 +149,22 @@ export function useNoteWriting({
     const position = Math.min(aiPrompt.anchorPos ?? ed.state.selection.from, ed.state.doc.content.size);
     const rect = posToDOMRect(ed.view, position, position);
     const box = surface.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const visibleTop = (viewport?.offsetTop ?? 0) + 8;
+    const visibleLeft = (viewport?.offsetLeft ?? 0) + 8;
+    const visibleBottom = visibleTop + (viewport?.height ?? window.innerHeight) - 16;
+    const visibleRight = visibleLeft + (viewport?.width ?? window.innerWidth) - 16;
+    const maxHeight = Math.max(0, visibleBottom - visibleTop);
+    const width = Math.min(AI_PROMPT_WIDTH, visibleRight - visibleLeft);
+    const height = Math.min(aiPromptEl.value?.offsetHeight ?? 300, maxHeight);
+    const below = rect.bottom + 4;
+    const preferredTop = below + height <= visibleBottom ? below : rect.top - height - 4;
     aiPrompt.style = {
-      left: `${clampMenuLeft(rect.left - box.left, box.width, AI_PROMPT_WIDTH)}px`,
-      top: `${rect.bottom - box.top + 4}px`,
+      position: 'fixed',
+      left: `${Math.max(visibleLeft, Math.min(box.left + clampMenuLeft(rect.left - box.left, box.width, width), visibleRight - width))}px`,
+      top: `${Math.max(visibleTop, Math.min(preferredTop, visibleBottom - height))}px`,
+      width: `${width}px`,
+      maxHeight: `${maxHeight}px`,
     };
   }
 
@@ -223,7 +239,10 @@ export function useNoteWriting({
     aiOptionsOpen.value = false;
     prepareAIPromptTarget('dialog', { resetInstruction: true });
     positionAIPrompt();
-    nextTick(() => aiPromptInputEl.value?.focus());
+    nextTick(() => {
+      positionAIPrompt();
+      aiPromptInputEl.value?.focus({ preventScroll: true });
+    });
   }
 
   function closeAIPrompt() {
@@ -464,6 +483,8 @@ export function useNoteWriting({
     editor,
     aiToolbarInputEl,
     aiPromptInputEl,
+    aiPromptEl,
+    aiPromptTeleportTarget,
     aiOptionsButtonEl,
     aiOptionsOpen,
     aiOptionsLeft,

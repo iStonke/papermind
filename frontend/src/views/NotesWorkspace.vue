@@ -76,7 +76,18 @@
           @action-select="handleToolbarAction"
         />
 
-        <div class="notes-ws__list-scroll" :aria-busy="isSearchingNotes ? 'true' : undefined">
+        <div
+          class="notes-ws__list-dropzone"
+          :class="{ 'is-drag-over': isNoteImportDragOver }"
+          @dragenter="onNoteImportDragEnter"
+          @dragover="onNoteImportDragOver"
+          @dragleave="onNoteImportDragLeave"
+          @drop="onNoteImportDrop"
+        >
+        <div
+          class="notes-ws__list-scroll"
+          :aria-busy="isSearchingNotes || noteImportBusy ? 'true' : undefined"
+        >
           <div v-if="isLoading" class="notes-ws__state" aria-live="polite">
             <v-progress-circular indeterminate color="primary" size="24" width="2" />
             <span>Notizen werden geladen …</span>
@@ -182,6 +193,17 @@
           </div>
 
         </div>
+          <div
+            v-if="isNoteImportDragOver"
+            class="notes-ws__drop-overlay"
+            aria-hidden="true"
+          >
+            <div class="notes-ws__drop-overlay-inner">
+              <v-icon size="20">mdi-note-plus-outline</v-icon>
+              <span>Notizarchive hier ablegen</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Primäraktion als schwebender Button unten rechts (entlastet die Kopfzeile). -->
@@ -192,9 +214,11 @@
       >
         <v-btn
           class="notes-ws__fab-main"
+          :class="{ 'is-click-animated': fabClickAnimating }"
           color="primary"
           :loading="creating"
-          @click="createNote"
+          @click="createNoteFromFab"
+          @animationend.self="fabClickAnimating = false"
         >
           <v-icon size="20" class="mr-1">mdi-square-edit-outline</v-icon>
           Neue Notiz
@@ -415,9 +439,11 @@ import NoteWorkspaceEditor from '../components/notes/NoteWorkspaceEditor.vue';
 import NotesEditorIllustration from '../components/notes/NotesEditorIllustration.vue';
 import NotesManageGrid from '../components/notes/NotesManageGrid.vue';
 import { useNoteListPreferences } from '../components/notes/composables/useNoteListPreferences.js';
+import { importNoteArchive } from '../api/notes.js';
 import { isNoteEmpty, useNotesStore } from '../stores/notes.js';
 import { useSettingsStore } from '../stores/settings.js';
-import { notifyError } from '../stores/notifications.js';
+import { notifyError, useNotifications } from '../stores/notifications.js';
+import { MAX_NOTE_ARCHIVE_BYTES, selectNoteArchiveFiles } from '../utils/noteArchiveDrop.js';
 import { notifyNoteDeleted } from '../utils/noteDeletionFeedback.js';
 import { groupNotesByCreationDay } from '../utils/noteDateGroups.js';
 import { normalizeCollectionColor } from '../utils/noteCollectionColor.js';
@@ -447,6 +473,7 @@ const NOTES_MANAGE_FACET_STORAGE_KEY = 'pm-notes-manage-facet-v1';
 
 const notesStore = useNotesStore();
 const settingsStore = useSettingsStore();
+const { notify } = useNotifications();
 const activeNoteId = ref(null);
 const isListCollapsed = ref(resolveInitialListCollapsed());
 const isManageMode = ref(false);
@@ -483,6 +510,7 @@ const manageSearchNotes = ref([]);
 const manageSearchLoading = ref(false);
 const isLoading = ref(false);
 const creating = ref(false);
+const fabClickAnimating = ref(false);
 const loadError = ref('');
 const editorPanelRef = ref(null);
 const newlyCreatedNoteId = ref(null);
@@ -494,6 +522,9 @@ const deleteNoteTarget = ref(null);
 const searchedNotes = ref([]);
 const resolvedSearchKey = ref('');
 const isSearchingNotes = ref(false);
+const isNoteImportDragOver = ref(false);
+const noteImportBusy = ref(false);
+const noteImportDragDepth = ref(0);
 
 let newNoteAnimationTimer = null;
 let noteRemovalTimer = null;
@@ -1053,6 +1084,87 @@ async function onNoteImported(note) {
   }
 }
 
+function hasNoteFileDragPayload(event) {
+  return Array.from(event?.dataTransfer?.types || []).includes('Files');
+}
+
+function onNoteImportDragEnter(event) {
+  if (!hasNoteFileDragPayload(event)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  noteImportDragDepth.value += 1;
+  if (!noteImportBusy.value) isNoteImportDragOver.value = true;
+}
+
+function onNoteImportDragOver(event) {
+  if (!hasNoteFileDragPayload(event)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+  if (!noteImportBusy.value) isNoteImportDragOver.value = true;
+}
+
+function onNoteImportDragLeave(event) {
+  if (!hasNoteFileDragPayload(event)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  noteImportDragDepth.value = Math.max(0, noteImportDragDepth.value - 1);
+  if (noteImportDragDepth.value === 0) isNoteImportDragOver.value = false;
+}
+
+async function onNoteImportDrop(event) {
+  if (!hasNoteFileDragPayload(event)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  isNoteImportDragOver.value = false;
+  noteImportDragDepth.value = 0;
+  if (noteImportBusy.value) return;
+
+  const droppedFiles = Array.from(event.dataTransfer?.files || []);
+  const archiveFiles = selectNoteArchiveFiles(droppedFiles);
+  if (!archiveFiles.length) {
+    notify({
+      type: 'warning',
+      message: 'Bitte eine exportierte PaperMind-Notiz im JSON-Format ablegen.'
+    });
+    return;
+  }
+
+  noteImportBusy.value = true;
+  const importedNotes = [];
+  let firstError = null;
+  try {
+    for (const file of archiveFiles) {
+      if (file.size > MAX_NOTE_ARCHIVE_BYTES) {
+        firstError ||= new Error(`„${file.name}“ ist größer als 100 MB.`);
+        continue;
+      }
+      try {
+        importedNotes.push(await importNoteArchive(file));
+      } catch (error) {
+        firstError ||= error;
+      }
+    }
+
+    const lastImportedNote = importedNotes.at(-1);
+    if (lastImportedNote) {
+      await onNoteImported(lastImportedNote);
+      notify({
+        type: 'success',
+        critical: true,
+        message: importedNotes.length === 1
+          ? 'Notiz vollständig importiert.'
+          : `${importedNotes.length} Notizen vollständig importiert.`
+      });
+    }
+    if (firstError) {
+      notifyError(firstError, 'Mindestens eine Notiz konnte nicht importiert werden.');
+    }
+  } finally {
+    noteImportBusy.value = false;
+  }
+}
+
 async function revealNewNote(note, cursorPosition = 'start') {
   createdPageNoteId.value = note.id;
   activeNoteId.value = note.id;
@@ -1090,6 +1202,16 @@ async function createNote() {
   } finally {
     creating.value = false;
   }
+}
+
+function createNoteFromFab() {
+  if (creating.value) return;
+  // Die Klickbewegung startet sofort; das Anlegen läuft ohne künstliche Pause weiter.
+  fabClickAnimating.value = false;
+  window.requestAnimationFrame(() => {
+    fabClickAnimating.value = true;
+  });
+  createNote();
 }
 
 // Anlegen aus der Verwaltungsfläche: neue Notiz erzeugen, Panel schließen, öffnen.
@@ -1646,12 +1768,30 @@ function formatDate(value) {
   transform: translateX(-50%);
   bottom: 16px;
   z-index: 5;
+  isolation: isolate;
   display: flex;
   align-items: stretch;
   gap: 1px;
   border-radius: 999px;
   box-shadow: 0 6px 20px -6px rgba(0, 0, 0, 0.32), 0 2px 6px -2px rgba(0, 0, 0, 0.18);
   transition: box-shadow 180ms var(--pm-easing, cubic-bezier(0.2, 0, 0, 1));
+}
+.notes-ws__fab::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -16px;
+  z-index: -1;
+  width: 100vw;
+  height: 76px;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    color-mix(in srgb, var(--pm-content-surface, #fff) 78%, transparent) 34%,
+    var(--pm-content-surface, #fff) 100%
+  );
+  transform: translateX(-50%);
 }
 .notes-ws__fab .v-btn {
   text-transform: none;
@@ -1682,6 +1822,17 @@ function formatDate(value) {
   font-size: 0.9rem;
   font-weight: 600;
   border-radius: 999px;
+}
+.notes-ws__fab-main.v-btn.is-click-animated {
+  transform-origin: 50% 65%;
+  animation: notes-ws-fab-press 480ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes notes-ws-fab-press {
+  0% { transform: translateY(0) scale(1); }
+  18% { transform: translateY(2px) scale(0.94); }
+  48% { transform: translateY(-3px) scale(1.045); }
+  72% { transform: translateY(1px) scale(0.985); }
+  100% { transform: translateY(0) scale(1); }
 }
 .notes-ws__fab.has-templates .notes-ws__fab-main.v-btn {
   border-radius: 999px 0 0 999px;
@@ -1763,11 +1914,88 @@ function formatDate(value) {
   flex-direction: column;
 }
 
+.notes-ws__list-dropzone {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.notes-ws__list-dropzone.is-drag-over .notes-ws__item {
+  pointer-events: none;
+}
+
 .notes-ws__list-scroll {
   flex: 1 1 auto;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+.notes-ws__drop-overlay {
+  position: absolute;
+  inset: 2px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  border: 1.5px dashed rgba(var(--v-theme-primary), 0.58);
+  border-radius: 14px;
+  background: radial-gradient(
+    circle at center,
+    rgba(var(--v-theme-primary), 0.055) 0%,
+    rgba(var(--v-theme-primary), 0.12) 100%
+  );
+  animation: notes-ws-drop-overlay-in 160ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)) both;
+}
+
+.notes-ws__drop-overlay-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 32px);
+  padding: 9px 14px;
+  border: 1px solid var(--pm-accent-strong, #00555f);
+  border-radius: 999px;
+  background: var(--pm-accent, #006b75);
+  color: var(--pm-on-accent, #fff);
+  box-shadow:
+    0 0 0 3px rgba(var(--v-theme-surface), 0.92),
+    0 10px 26px color-mix(in srgb, var(--pm-text, #0e181b) 28%, transparent);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-align: center;
+  animation: notes-ws-drop-chip-in 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.notes-ws__drop-overlay-inner .v-icon {
+  flex: 0 0 auto;
+  color: var(--pm-on-accent, #fff);
+  animation: notes-ws-drop-icon-cue 520ms 140ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes notes-ws-drop-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes notes-ws-drop-chip-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes notes-ws-drop-icon-cue {
+  0%, 100% { transform: translateY(0); }
+  46% { transform: translateY(-3px); }
 }
 
 .notes-ws__groups {
@@ -1851,7 +2079,7 @@ function formatDate(value) {
 
 .notes-ws__item.is-new {
   transform-origin: 50% 0;
-  animation: notes-ws-note-created var(--pm-duration-slow, 340ms) var(--pm-easing-decel, cubic-bezier(0, 0, 0.2, 1)) both;
+  animation: notes-ws-note-created 560ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 /* Identischer Ausblend-/Zusammenklapp-Ablauf wie bei Dokumentzeilen. */
@@ -1881,15 +2109,24 @@ function formatDate(value) {
     min-height: 0;
     max-height: 0;
     opacity: 0;
-    transform: translateY(-10px) scale(0.975);
+    transform: translateY(18px) scale(0.92);
     box-shadow: 0 0 0 0 color-mix(in srgb, var(--pm-accent) 0%, transparent);
   }
-  68% {
+  56% {
     min-height: 112px;
     max-height: 140px;
     opacity: 1;
-    transform: translateY(1px) scale(1.006);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--pm-accent) 14%, transparent);
+    transform: translateY(-4px) scale(1.025);
+    box-shadow:
+      0 14px 32px -16px color-mix(in srgb, var(--pm-accent) 70%, transparent),
+      0 0 0 4px color-mix(in srgb, var(--pm-accent) 18%, transparent);
+  }
+  78% {
+    min-height: 112px;
+    max-height: 140px;
+    opacity: 1;
+    transform: translateY(2px) scale(0.992);
+    box-shadow: 0 4px 14px -10px color-mix(in srgb, var(--pm-accent) 36%, transparent);
   }
   100% {
     min-height: 112px;
@@ -2192,6 +2429,9 @@ function formatDate(value) {
   .notes-ws__manage-view-chevron,
   .notes-ws__manage-search,
   .notes-ws__list-panel,
+  .notes-ws__drop-overlay,
+  .notes-ws__drop-overlay-inner,
+  .notes-ws__drop-overlay-inner .v-icon,
   .notes-ws-manage-enter-active,
   .notes-ws-manage-leave-active,
   .notes-ws__item.is-new,
@@ -2202,6 +2442,16 @@ function formatDate(value) {
   .notes-ws__item.is-new {
     animation: none;
   }
+
+  .notes-ws__drop-overlay,
+  .notes-ws__drop-overlay-inner,
+  .notes-ws__drop-overlay-inner .v-icon {
+    animation: none;
+  }
+
+  .notes-ws__fab-main.v-btn.is-click-animated {
+    animation: none;
+  }
 }
 
 :global(.pm-no-animations) .notes-ws__fab,
@@ -2210,6 +2460,16 @@ function formatDate(value) {
 }
 
 :global(.pm-no-animations) .notes-ws__item.is-new {
+  animation: none;
+}
+
+:global(.pm-no-animations) .notes-ws__drop-overlay,
+:global(.pm-no-animations) .notes-ws__drop-overlay-inner,
+:global(.pm-no-animations) .notes-ws__drop-overlay-inner .v-icon {
+  animation: none;
+}
+
+:global(.pm-no-animations) .notes-ws__fab-main.v-btn.is-click-animated {
   animation: none;
 }
 

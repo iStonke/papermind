@@ -62,7 +62,7 @@ test('autosave preserves a newer draft while an older request finishes', async (
   const controller = createMetadataAutosave({ state, apiBaseUrl: '', actions: {
     getDocumentNameDraft: (doc) => doc.display_name,
     applyKnownFavoriteState: (doc) => doc,
-    applyMetadataFromDetail: (doc) => { draft.value = doc.display_name; },
+    applySavedMetadataFromDetail: (doc) => { draft.value = doc.display_name; },
     parseResponseError: async () => 'error', fetchDocumentDetail() {}, fetchDocuments() {}, loadRetention() {},
   } });
   const saving = controller.saveMetadata({ skipDocumentReload: true, silentSuccess: true });

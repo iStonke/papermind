@@ -76,19 +76,17 @@ test('notes workspace reserves a compact list and a separate editor area', () =>
   assert.match(workspaceSource, /\.notes-ws\s*\{[\s\S]*?display:\s*flex/);
 });
 
-test('notes list slides in and out while the editor keeps the toggle accessible', () => {
+test('notes list slides in and out while the workspace seam keeps the toggle accessible', () => {
   assert.match(templateSource, /'is-list-collapsed': isListPanelCollapsed/);
   assert.match(templateSource, /:inert="panelInert"/);
   assert.match(workspaceSource, /panelInert = computed\(\(\) => isListPanelCollapsed\.value \|\| isManageMode\.value\)/);
-  assert.match(templateSource, /@toggle-list="toggleNotesList"/);
   assert.match(templateSource, /<NoteWorkspaceEditor[\s\S]*?v-if="activeNote"/);
-  assert.match(templateSource, /v-if="!activeNote && isListPanelCollapsed"[\s\S]*?mdi-arrow-collapse/);
   assert.match(templateSource, /<NotesEditorIllustration[\s\S]*?v-if="!activeNote"/);
-  assert.match(workspaceEditorSource, /class="note-workspace-editor__list-toggle"/);
-  assert.match(workspaceEditorSource, /<PmActionIcon name="list"/);
-  assert.match(workspaceEditorSource, /listVisible \? 'Notizenliste ausblenden' : 'Notizenliste einblenden'/);
-  assert.match(workspaceEditorSource, /class="note-workspace-editor__list-toggle"[\s\S]*?<v-menu/);
-  assert.match(workspaceEditorSource, /emit\('toggle-list'\)/);
+  assert.match(templateSource, /class="notes-ws__list-handle"/);
+  assert.match(templateSource, /isListPanelCollapsed \? 'Notizenliste einblenden' : 'Notizenliste ausblenden'/);
+  assert.match(templateSource, /class="notes-ws__list-handle"[\s\S]*?@click="toggleNotesList"/);
+  assert.doesNotMatch(workspaceEditorSource, /note-workspace-editor__list-toggle/);
+  assert.doesNotMatch(workspaceEditorSource, /emit\('toggle-list'\)/);
   assert.match(workspaceSource, /margin-left:\s*calc\(-1 \* var\(--notes-list-width\)\)/);
   assert.match(workspaceSource, /transform:\s*translateX\(-18px\)/);
   assert.match(workspaceSource, /localStorage\.setItem\('pm-notes-list-collapsed'/);
@@ -264,6 +262,18 @@ test('new notes enter the list with a dedicated reduced-motion-safe animation', 
   assert.match(workspaceSource, /finishNewNoteAnimation\(note\.id\)/);
   assert.match(workspaceSource, /pm-no-animations[\s\S]*notes-ws__item\.is-new/);
   assert.match(workspaceSource, /prefers-reduced-motion:\s*reduce[\s\S]*notes-ws__item\.is-new/);
+});
+
+test('new-note button has a spring click followed by a stronger card entrance without a pulse ring', () => {
+  assert.match(templateSource, /'is-click-animated': fabClickAnimating/);
+  assert.match(templateSource, /@click="createNoteFromFab"/);
+  assert.match(workspaceSource, /@keyframes notes-ws-fab-press/);
+  assert.match(workspaceSource, /translateY\(2px\) scale\(0\.94\)/);
+  assert.match(workspaceSource, /notes-ws-note-created 560ms/);
+  assert.match(workspaceSource, /translateY\(-4px\) scale\(1\.025\)/);
+  assert.doesNotMatch(workspaceSource, /notes-ws-fab-(?:ring|pulse)/);
+  assert.match(workspaceSource, /prefers-reduced-motion:\s*reduce[\s\S]*notes-ws__fab-main\.v-btn\.is-click-animated[\s\S]*animation:\s*none/);
+  assert.match(workspaceSource, /pm-no-animations[\s\S]*notes-ws__fab-main\.v-btn\.is-click-animated[\s\S]*animation:\s*none/);
 });
 
 test('new notes put the caret directly into the writable editor body', () => {
@@ -456,8 +466,8 @@ test('document picker and its base dialog keep readable contrast in dark mode ov
 
 test('note export and template actions live in the compact overflow menu', () => {
   const moreAction = workspaceEditorSource.indexOf('class="note-workspace-editor__more-btn"');
-  const fullscreenAction = workspaceEditorSource.indexOf('class="note-workspace-editor__list-toggle"');
-  assert.ok(fullscreenAction >= 0 && fullscreenAction < moreAction);
+  assert.ok(moreAction >= 0);
+  assert.doesNotMatch(workspaceEditorSource, /note-workspace-editor__list-toggle/);
   assert.doesNotMatch(workspaceEditorSource, /note-workspace-editor__view-divider/);
   assert.match(workspaceEditorSource, /class="note-workspace-editor__more-menu"/);
   assert.match(workspaceEditorSource, /location="bottom end" :offset="8" transition="fade-transition"/);
@@ -507,14 +517,13 @@ test('note history lists bundled checkpoints and restores a selected server revi
 
 test('workspace utility buttons share one quiet visual treatment', () => {
   assert.match(workspaceEditorSource, /\.note-workspace-editor__actions\s*\{[\s\S]*?gap:\s*4px/);
-  // Suche, KI, Undo/Redo, Vollbild und Weiteres teilen die stille Variante.
-  assert.equal((workspaceEditorSource.match(/'pm-header-icon-btn--quiet'/g) || []).length, 6);
-  assert.equal((workspaceEditorSource.match(/<PmActionIcon/g) || []).length, 2);
+  // Suche, KI, Undo/Redo und Weiteres teilen die stille Variante.
+  assert.equal((workspaceEditorSource.match(/'pm-header-icon-btn--quiet'/g) || []).length, 5);
+  assert.equal((workspaceEditorSource.match(/<PmActionIcon/g) || []).length, 1);
   assert.match(workspaceEditorSource, /class="note-workspace-editor__more-btn"[\s\S]*?variant="text"/);
-  assert.match(workspaceEditorSource, /<PmActionIcon name="list" :size="18" \/>/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-btn\s*\{[\s\S]*?margin-right:\s*-8px/);
   assert.doesNotMatch(workspaceEditorSource, /\.note-workspace-editor__view-divider\s*\{/);
-  assert.match(workspaceEditorSource, /:variant="listVisible \? 'tonal' : 'text'"/);
+  assert.doesNotMatch(workspaceEditorSource, /:variant="listVisible \? 'tonal' : 'text'"/);
 });
 
 test('workspace tags sit in the compact metadata row instead of a separate editor bar', () => {

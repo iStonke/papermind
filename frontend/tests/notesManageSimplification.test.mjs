@@ -160,6 +160,12 @@ test('note cards and the document detail drawer share the same inline tag editor
   assert.match(inlineTagEditorSource, /class="pm-tags-input__add"[\s\S]*?mdi-plus[\s\S]*?>Tag</);
   assert.match(inlineTagEditorSource, /\.pm-tags-input__chips\s*\{[\s\S]*?display:\s*contents;/);
   assert.match(inlineTagEditorSource, /\.pm-tags-input__field\.v-input--focused[\s\S]*?width:\s*104px;/);
+  assert.match(inlineTagEditorSource, /\.pm-tags-input__field\.v-input\s*\{[\s\S]*?max-width:\s*min\(180px, 100%\)/);
+  assert.match(inlineTagEditorSource, /\.pm-tags-input__field :deep\(input\)[\s\S]*?height:\s*26px !important[\s\S]*?line-height:\s*26px !important/);
+  assert.match(inlineTagEditorSource, /<v-list-item[\s\S]*?density="compact"/);
+  assert.match(documentsWorkspaceSource, /const detailsTagsMenuProps[\s\S]*?location:\s*'bottom start'[\s\S]*?minWidth:\s*260[\s\S]*?maxWidth:\s*360/);
+  assert.match(inlineTagEditorSource, /props\.menuProps\?\.contentClass[\s\S]*?\.filter\(Boolean\)\.join\(' '\)/);
+  assert.match(inlineTagEditorSource, /\.pm-tag-inline-menu\.pm-menu--details-tags[\s\S]*?width:\s*min\(320px, calc\(100vw - 24px\)\)/);
   assert.doesNotMatch(inlineTagEditorSource, /\.pm-tags-input__chip\.v-chip:hover/);
   assert.doesNotMatch(inlineTagEditorSource, /transform:\s*translateY\(-1px\)/);
   assert.doesNotMatch(documentsWorkspaceSource, /\.pm-tags-input__chip\.v-chip:hover/);

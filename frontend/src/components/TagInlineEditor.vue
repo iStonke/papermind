@@ -48,6 +48,7 @@
       <template #item="{ props: itemProps, item }">
         <v-list-item
           v-bind="itemProps"
+          density="compact"
           :class="{ 'pm-tags-input__menu-item--active': isItemActive?.(item) }"
         />
       </template>
@@ -103,8 +104,13 @@ const resolvedMenuProps = computed(() => ({
   offset: 10,
   maxHeight: 180,
   closeOnContentClick: false,
-  contentClass: 'pm-menu pm-menu--tags pm-tag-inline-menu',
   ...props.menuProps,
+  // Aufrufer dürfen das Menü ergänzen, ohne dabei die für Geometrie und
+  // Darstellung nötige Basisklasse des Inline-Editors zu entfernen.
+  contentClass: [
+    'pm-menu pm-menu--tags pm-tag-inline-menu',
+    props.menuProps?.contentClass,
+  ].filter(Boolean).join(' '),
 }));
 </script>
 
@@ -233,6 +239,8 @@ const resolvedMenuProps = computed(() => ({
 .pm-tags-input__field.v-input {
   position: relative;
   width: auto;
+  min-width: 0;
+  max-width: min(180px, 100%);
   min-height: 26px !important;
   height: 26px !important;
   flex: 0 0 auto;
@@ -306,6 +314,20 @@ const resolvedMenuProps = computed(() => ({
   transition: width 0.18s ease;
 }
 
+/* Der Dokument-Drawer gibt normalen Formular-Inputs 34px Mindesthöhe. Das
+   eigentliche Texteingabefeld der 26px-Tag-Pille muss diese Vorgabe gezielt
+   zurücknehmen, sonst wird seine Grundlinie unten abgeschnitten dargestellt. */
+.pm-tags-input__field :deep(input) {
+  display: block !important;
+  align-self: center;
+  box-sizing: border-box;
+  height: 26px !important;
+  min-height: 26px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  line-height: 26px !important;
+}
+
 .pm-tags-input__field.v-input--focused :deep(.v-field__input) {
   width: 104px;
 }
@@ -364,9 +386,20 @@ const resolvedMenuProps = computed(() => ({
 }
 
 :global(.pm-tag-inline-menu .v-list-item) {
-  min-height: 32px;
+  --v-list-item-min-height: 34px;
+  height: 34px;
+  min-height: 34px !important;
   margin: 1px 0;
+  padding-block: 0 !important;
+  padding-inline: 10px !important;
   border-radius: 10px;
+}
+
+:global(.pm-tag-inline-menu.pm-menu--details-tags) {
+  box-sizing: border-box;
+  width: min(320px, calc(100vw - 24px)) !important;
+  min-width: 0 !important;
+  max-width: min(360px, calc(100vw - 24px)) !important;
 }
 
 :global(.pm-tag-inline-menu .v-list-item-title) {

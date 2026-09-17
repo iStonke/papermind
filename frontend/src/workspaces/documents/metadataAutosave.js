@@ -3,7 +3,7 @@ import { notifyError, logDevError } from '../../stores/notifications.js';
 
 export function createMetadataAutosave({ state, actions, apiBaseUrl }) {
   const { selectedDocumentDetail, isSavingMetadata, isMetadataDirty, metadataDraftRevision, metadataDocName, metadataDocDate, metadataNotes, metadataDocDateHasError, metadataSuccessMessage, metadataErrorMessage, documents, selectedDocumentId, documentListQuery, isRetentionFeatureEnabled } = state;
-  const { getDocumentNameDraft, parseResponseError, applyKnownFavoriteState, applyMetadataFromDetail, fetchDocumentDetail, fetchDocuments, loadRetention } = actions;
+  const { getDocumentNameDraft, parseResponseError, applyKnownFavoriteState, applySavedMetadataFromDetail, fetchDocumentDetail, fetchDocuments, loadRetention } = actions;
   let metadataAutosaveDebounceTimer = null;
   let shouldRunMetadataAutosaveAfterSave = false;
   let disposed = false;
@@ -117,7 +117,7 @@ export function createMetadataAutosave({ state, actions, apiBaseUrl }) {
           && metadataDraftRevision.value === saveRevision
           && parsedDocumentDate.ok
         ) {
-          applyMetadataFromDetail(updatedDetail);
+          applySavedMetadataFromDetail(updatedDetail);
         }
       } else {
         const localPatch = { ...patchBody };
@@ -142,7 +142,7 @@ export function createMetadataAutosave({ state, actions, apiBaseUrl }) {
         }
         if (selectedDocumentDetail.value?.id === documentId) {
           if (metadataDraftRevision.value === saveRevision && parsedDocumentDate.ok) {
-            applyMetadataFromDetail(selectedDocumentDetail.value);
+            applySavedMetadataFromDetail(selectedDocumentDetail.value);
           }
         }
         if (!skipDocumentReload) {

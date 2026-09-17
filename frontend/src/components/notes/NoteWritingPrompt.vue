@@ -1,6 +1,8 @@
 <template>
+  <Teleport :to="aiPromptTeleportTarget">
   <Transition name="pm-ai-prompt">
     <form
+      ref="aiPromptEl"
       v-if="editor && aiPrompt.open && aiPrompt.presentation === 'dialog'"
       class="pm-float pm-ai-prompt pm-ai-prompt--writing"
       :class="{ 'is-generating': aiPrompt.loading }"
@@ -92,14 +94,18 @@
       <div v-if="aiPrompt.error" class="pm-ai-prompt__error" role="alert">{{ aiPrompt.error }}</div>
     </form>
   </Transition>
+  </Teleport>
 </template>
 
 <script setup>
+import { watch } from 'vue';
 import { providerLabel } from './composables/noteAILabels.js';
 const props = defineProps({ controller: { type: Object, required: true } });
 const {
   editor,
   aiPromptInputEl,
+  aiPromptEl,
+  aiPromptTeleportTarget,
   AI_LENGTH_OPTIONS,
   aiPrompt,
   aiSelectionTooLong,
@@ -111,7 +117,35 @@ const {
   applySelectionAIResult,
   generateAIText,
 } = props.controller;
+
+// Re-measure after suggestions, errors or streamed results change the height.
+watch(aiPromptEl, (element, _previous, onCleanup) => {
+  if (!element) return;
+  const reposition = () => props.controller.positionAIPrompt();
+  const observer = new ResizeObserver(reposition);
+  observer.observe(element);
+  window.addEventListener('resize', reposition);
+  window.addEventListener('scroll', reposition, true);
+  window.visualViewport?.addEventListener('resize', reposition);
+  window.visualViewport?.addEventListener('scroll', reposition);
+  onCleanup(() => {
+    observer.disconnect();
+    window.removeEventListener('resize', reposition);
+    window.removeEventListener('scroll', reposition, true);
+    window.visualViewport?.removeEventListener('resize', reposition);
+    window.visualViewport?.removeEventListener('scroll', reposition);
+  });
+}, { flush: 'post' });
 </script>
+
+<style scoped>
+.pm-float.pm-ai-prompt--writing {
+  box-sizing: border-box;
+  z-index: 80;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+</style>
 
 <style scoped src="./styles/aiPrompt.css"></style>
 <style scoped src="./styles/progress.css"></style>

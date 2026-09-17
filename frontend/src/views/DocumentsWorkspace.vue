@@ -1178,8 +1178,27 @@
                                 aria-hidden="true"
                               />
                             </template>
+                            <v-tooltip
+                              v-if="headerOcrStatus?.tone === 'failed'"
+                              text="OCR erneut durchführen"
+                              location="bottom"
+                            >
+                              <template #activator="{ props: retryTooltipProps }">
+                                <button
+                                  v-bind="retryTooltipProps"
+                                  type="button"
+                                  class="details-ocr-status details-ocr-status--failed details-ocr-status--action"
+                                  :disabled="isQueueingHeaderOcr"
+                                  aria-label="OCR erneut durchführen"
+                                  @click.stop="queueOcrFromHeader"
+                                >
+                                  <v-icon size="13">{{ headerOcrStatus.icon }}</v-icon>
+                                  {{ headerOcrStatus.text }}
+                                </button>
+                              </template>
+                            </v-tooltip>
                             <span
-                              v-if="headerOcrStatus"
+                              v-else-if="headerOcrStatus"
                               class="details-ocr-status"
                               :class="`details-ocr-status--${headerOcrStatus.tone}`"
                             >
@@ -1586,6 +1605,8 @@ import {
 import { formatDateTime, formatDocumentDateInputFromIso, parseDocumentDateInput } from '../utils/dates';
 import { buildDocumentMetadataPatch } from '../utils/documentMetadata.js';
 import { createMetadataAutosave } from '../workspaces/documents/metadataAutosave.js';
+import { resolveOcrHeaderPresentation } from '../workspaces/documents/ocrHeaderState.js';
+import { shouldPreserveMetadataDraft, tagQueryIsEmpty } from '../workspaces/documents/metadataRefreshGuard.js';
 import { createImportInboxSync } from '../workspaces/documents/importInboxSync.js';
 import { selectPdfFiles } from '../workspaces/documents/pdfSelection.js';
 import { useOcrPolling } from '../composables/useOcrPolling';
@@ -1707,9 +1728,17 @@ const detailsCorrespondentMenuProps = Object.freeze({
 });
 const detailsTagsMenuProps = Object.freeze({
   ...DETAILS_MENU_BASE_PROPS,
+  // Unterhalb öffnen; Vuetifys connected strategy klappt bei fehlendem Platz
+  // automatisch nach oben. Eine feste, kompakte Breite verhindert, dass ein
+  // einzelner Treffer als schmales schwebendes Kästchen über der Zeile steht.
+  location: 'bottom start',
+  origin: 'top start',
+  offset: 6,
+  minWidth: 260,
+  maxWidth: 360,
   maxHeight: 180,
   closeOnContentClick: false,
-  contentClass: 'pm-menu pm-menu--tags'
+  contentClass: 'pm-menu--details-tags'
 });
 const DETAILS_DRAWER_COLLAPSED_HEIGHT = 72;
 const LAST_SELECTED_DOC_KEY = 'pm.lastSelectedDocumentId';
@@ -3228,30 +3257,18 @@ const showGreenOcrChip = computed(() => {
   // "OCR durchführen"-Button (showHeaderOcrActionButton = !showGreenOcrChip).
   return hasCompletedOcr.value;
 });
-const showHeaderOcrActionButton = computed(() => {
-  return Boolean(selectedDocumentDetail.value) && !showGreenOcrChip.value;
-});
-// OCR-Status für die Meta-Zeile (Status, keine Aktion): fertig/unsicher/fehler oder laufend.
-// Wenn OCR noch aussteht, liefert dies null – die Aktion liegt dann im Überlauf-Menü.
-const headerOcrStatus = computed(() => {
-  if (!selectedDocumentDetail.value) {
-    return null;
-  }
-  if (isOcrInProgress.value) {
-    return { tone: 'progress', text: 'OCR läuft…', icon: '' };
-  }
-  if (showGreenOcrChip.value) {
-    const status = String(selectedDocumentDetail.value?.ocr_quality_status || '').toLowerCase();
-    if (status === 'error') {
-      return { tone: 'error', text: 'OCR prüfen', icon: 'mdi-alert-circle-outline' };
-    }
-    if (status === 'warning') {
-      return { tone: 'warning', text: 'OCR unsicher', icon: 'mdi-alert-circle-outline' };
-    }
-    return { tone: 'done', text: 'OCR', icon: 'mdi-check-circle-outline' };
-  }
-  return null;
-});
+const headerOcrPresentation = computed(() => resolveOcrHeaderPresentation({
+  hasDocument: Boolean(selectedDocumentDetail.value),
+  ocrStatus: ocrStatusValue.value,
+  inProgress: isOcrInProgress.value,
+  hasCompletedOcr: showGreenOcrChip.value,
+  qualityStatus: selectedDocumentDetail.value?.ocr_quality_status
+}));
+const showHeaderOcrActionButton = computed(() => headerOcrPresentation.value.showMenuAction);
+// Ein fehlgeschlagener Lauf wird an derselben Stelle wie der Erfolgsstatus als
+// gestrichelte Wiederholungsaktion gezeigt. Nur ein noch nie gestarteter Lauf
+// bleibt als sekundäre Aktion im Überlauf-Menü.
+const headerOcrStatus = computed(() => headerOcrPresentation.value.status);
 // ── Einzel-Download (Original / durchsuchbare OCR-PDF) ──────────────────────
 /** Löst einen nativen Datei-Download aus, ohne den aktuellen Tab zu verlassen. */
 function triggerBrowserDownload(url) {
@@ -5969,6 +5986,20 @@ function applyMetadataFromDetail(detail) {
   }, 0);
 }
 
+// Antwort eines Text-Metadaten-Autosaves zurückspiegeln, ohne parallel bereits
+// bearbeitete Kategorie-, Korrespondenten- oder Tag-Felder zurückzusetzen.
+function applySavedTextMetadataFromDetail(detail) {
+  shouldSkipMetadataAutosave = true;
+  metadataDraftDocumentId.value = detail?.id || null;
+  metadataDocName.value = getDocumentNameDraft(detail);
+  metadataDocDate.value = formatDocumentDateInputFromIso(detail?.document_date);
+  metadataDocDateHasError.value = false;
+  metadataNotes.value = detail?.notes || '';
+  window.setTimeout(() => {
+    shouldSkipMetadataAutosave = false;
+  }, 0);
+}
+
 function syncTagSelectionLocal(tagIds) {
   shouldSkipTagAutosave = true;
   const sanitizedIds = sanitizeSelectedTagIds(tagIds);
@@ -6047,10 +6078,12 @@ async function persistDocumentTags(documentId, tagIds, draftRevision) {
           && isSameTagSelection(metadataTagIds.value, nextTagIds)
         ) {
           syncTagSelectionLocal(nextTagIds);
-          shouldPreserveMetadataTagQuery.value = false;
-          metadataTagQuery.value = '';
-          metadataTagSearch.value = '';
-          metadataTagActiveSuggestionIndex.value = -1;
+          if (tagQueryIsEmpty(metadataTagQuery.value, metadataTagSearch.value)) {
+            shouldPreserveMetadataTagQuery.value = false;
+            metadataTagQuery.value = '';
+            metadataTagSearch.value = '';
+            metadataTagActiveSuggestionIndex.value = -1;
+          }
           metadataTagErrorMessage.value = '';
         }
       }
@@ -6309,10 +6342,20 @@ function handleDetailsEditorFocusIn() {
 }
 
 function handleDetailsEditorFocusOut(event) {
-  if (event.currentTarget?.contains(event.relatedTarget)) {
-    return;
-  }
-  detailsEditorHasFocus.value = false;
+  const drawer = event.currentTarget;
+  // Vuetify teleportiert Select-/Autocomplete-Menüs an <body>. Beim Öffnen ist
+  // relatedTarget je nach Browser kurz null; erst im nächsten Task steht das
+  // tatsächliche Fokusziel fest. Bis dahin bleibt der Entwurf geschützt.
+  window.setTimeout(() => {
+    const activeElement = document.activeElement;
+    if (
+      drawer?.contains(activeElement)
+      || activeElement?.closest?.('.pm-menu')
+    ) {
+      return;
+    }
+    detailsEditorHasFocus.value = false;
+  }, 0);
 }
 
 function resetDetailsSectionState() {
@@ -6928,17 +6971,37 @@ async function fetchDocumentDetail(documentId, options = {}) {
   if (selectedDocumentId.value !== documentId) {
     return detail;
   }
-  const hasLocalDraft =
-    !forceApplyMetadata
-    &&
-    metadataDraftDocumentId.value === documentId
-    && (
-      detailsEditorHasFocus.value
-      || isMetadataDirty.value
-      || isTagSelectionDirty.value
-      || isSavingMetadata.value
-      || isSavingTags.value
-    );
+  const detailCategory = String(
+    selectedDocumentDetail.value?.document_type
+    || selectedDocumentDetail.value?.category
+    || ''
+  ).trim();
+  const draftCategory = String(metadataDocCategory.value || '').trim();
+  const detailCorrespondent = String(selectedDocumentDetail.value?.correspondent_id || '').trim();
+  const draftCorrespondent = normalizeCorrespondentInput(metadataCorrespondentDraft.value);
+  const hasPendingMutation = (
+    isSavingMetadata.value
+    || isSavingTags.value
+    || isSavingCategory.value
+    || isSavingCorrespondent.value
+    || isResolvingTagNames.value
+    || tagReplaceDebounceTimers.has(documentId)
+    || queuedDocumentTagSaves.has(documentId)
+    || queuedCategorySaves.has(documentId)
+    || queuedCorrespondentSaves.has(documentId)
+  );
+  const hasLocalDraft = !forceApplyMetadata && shouldPreserveMetadataDraft({
+    documentId,
+    draftDocumentId: metadataDraftDocumentId.value,
+    editorHasFocus: detailsEditorHasFocus.value,
+    metadataDirty: isMetadataDirty.value,
+    tagSelectionDirty: isTagSelectionDirty.value,
+    tagQuery: metadataTagQuery.value,
+    tagSearch: metadataTagSearch.value,
+    categoryDirty: draftCategory !== detailCategory,
+    correspondentDirty: draftCorrespondent !== detailCorrespondent,
+    hasPendingMutation,
+  });
   selectedDocumentDetail.value = detail;
   const ocrDone =
     detail?.ocr_status === 'done' ||
@@ -8995,7 +9058,7 @@ const {
 } = createMetadataAutosave({
   apiBaseUrl,
   state: { selectedDocumentDetail, isSavingMetadata, isMetadataDirty, metadataDraftRevision, metadataDocName, metadataDocDate, metadataNotes, metadataDocDateHasError, metadataSuccessMessage, metadataErrorMessage, documents, selectedDocumentId, documentListQuery, isRetentionFeatureEnabled },
-  actions: { getDocumentNameDraft, parseResponseError, applyKnownFavoriteState, applyMetadataFromDetail, fetchDocumentDetail, fetchDocuments, loadRetention },
+  actions: { getDocumentNameDraft, parseResponseError, applyKnownFavoriteState, applySavedMetadataFromDetail: applySavedTextMetadataFromDetail, fetchDocumentDetail, fetchDocuments, loadRetention },
 });
 
 async function deleteSelectedDocument() {
