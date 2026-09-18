@@ -68,19 +68,20 @@ class NoteArchive(ArchiveModel):
     images: list[Asset]
 
 
-def rewrite_body(body, source_id, target_id, images):
+def rewrite_body(body, source_id, target_id, images, *, drop_missing_images=False):
     if body.get('type') != 'doc':
         raise BadRequestError('Die Notizstruktur muss ein Dokument sein')
     result = copy.deepcopy(body)
-    pending = [result]
-    while pending:
-        node = pending.pop()
+
+    def rewrite_node(node):
         if not isinstance(node, dict):
             raise BadRequestError('Ungültige Notizstruktur')
         attrs = node.get('attrs') or {}
         if node.get('type') == 'image' and attrs.get('imageId'):
             image_id = images.get(str(attrs['imageId']))
             if image_id is None:
+                if drop_missing_images:
+                    return None
                 raise BadRequestError('Das Archiv enthält nicht alle Bilder')
             attrs.update(imageId=str(image_id), noteId=str(target_id),
                          src=NoteImageService.image_src(target_id, image_id))
@@ -91,8 +92,18 @@ def rewrite_body(body, source_id, target_id, images):
             mark_attrs = mark.get('attrs') or {}
             if mark_attrs.get('href') == f'papermind://note/{source_id}':
                 mark_attrs['href'] = f'papermind://note/{target_id}'
-        pending.extend(node.get('content') or [])
-    return result
+        content = node.get('content')
+        if content is not None:
+            if not isinstance(content, list):
+                raise BadRequestError('Ungültige Notizstruktur')
+            node['content'] = [
+                rewritten
+                for child in content
+                if (rewritten := rewrite_node(child)) is not None
+            ]
+        return node
+
+    return rewrite_node(result)
 
 
 class NoteArchiveService:
@@ -137,7 +148,15 @@ class NoteArchiveService:
             images=images)
         mapping = {str(row.id): row.id for row in rows}
         for body in [archive.body_json, *(v.body_json for v in archive.history)]:
-            rewrite_body(body, note.id, note.id, mapping)
+            rewritten = rewrite_body(
+                body,
+                note.id,
+                note.id,
+                mapping,
+                drop_missing_images=True,
+            )
+            body.clear()
+            body.update(rewritten)
         return archive
 
     def import_archive(self, archive):

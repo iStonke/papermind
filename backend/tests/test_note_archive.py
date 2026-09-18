@@ -5,9 +5,10 @@ import uuid
 import pytest
 from fastapi import UploadFile
 from PIL import Image
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.db.session import SessionLocal
+from app.models.note import NoteRevision
 from app.models.user import User
 from app.schemas.notes import NoteCreateRequest, NoteUpdateRequest
 from app.services.note_service import NoteService
@@ -81,6 +82,39 @@ def test_invalid_archive_does_not_create_a_note(archive_service):
     with pytest.raises(BadRequestError):
         svc.import_archive(archive)
     assert len(svc.notes.list_notes()) == 1
+
+
+def test_export_drops_missing_images_from_history_when_current_note_has_none(archive_service):
+    svc = archive_service
+    note = svc.notes.create_note(NoteCreateRequest(
+        title='Aktuell ohne Bild',
+        body_json={'type': 'doc', 'content': [
+            {'type': 'paragraph', 'content': [{'type': 'text', 'text': 'Aktueller Text'}]},
+        ]},
+    ))
+    revision = svc.db.scalar(select(NoteRevision).where(NoteRevision.note_id == note.id))
+    revision.body_json = {'type': 'doc', 'content': [
+        {'type': 'paragraph', 'content': [{'type': 'text', 'text': 'Alter Text'}]},
+        {'type': 'image', 'attrs': {
+            'imageId': str(uuid.uuid4()),
+            'noteId': str(note.id),
+            'src': '/api/notes/missing/images/missing/file',
+        }},
+    ]}
+    svc.db.commit()
+
+    archive = svc.export(note.id)
+
+    assert archive.images == []
+    assert archive.body_json == note.body_json
+    assert archive.history[0].body_json == {
+        'type': 'doc',
+        'content': [
+            {'type': 'paragraph', 'content': [{'type': 'text', 'text': 'Alter Text'}]},
+        ],
+    }
+    imported = svc.import_archive(NoteArchive.model_validate_json(archive.model_dump_json()))
+    assert imported.body_json == note.body_json
 
 
 def test_export_is_owner_scoped(archive_service):
