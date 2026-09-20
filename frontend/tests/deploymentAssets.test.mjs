@@ -18,6 +18,11 @@ test('production image preserves old hashed assets across deployments', () => {
   assert.doesNotMatch(entrypoint, /rm\s+-rf.*assets/);
 });
 
+test('production dependency installation tolerates an unreliable registry connection', () => {
+  assert.match(dockerfile, /COPY package\*\.json \.npmrc \.\//);
+  assert.match(dockerfile, /--mount=type=cache,target=\/root\/\.npm/);
+});
+
 test('stale client recovery performs a guarded cache-busted navigation', () => {
   assert.match(recoveryModule, /pm-recover/);
   assert.match(recoveryModule, /sessionStorage/);
