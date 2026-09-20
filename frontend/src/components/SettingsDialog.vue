@@ -1,7 +1,8 @@
 <template>
   <BaseDialog
     :model-value="modelValue"
-    max-width="820"
+    :max-width="settingsDialogMaxWidth"
+    content-class="pm-settings-overlay"
     card-class="pm-settings-card"
     body-class="pm-settings-body"
     title="Einstellungen"
@@ -16,7 +17,7 @@
       <span>Einstellungen werden geladen...</span>
     </div>
     <template v-else>
-      <div class="pm-settings-layout">
+      <div class="pm-settings-layout" :class="{ 'pm-settings-layout--with-rail': isNotesPreviewCategory }">
         <nav class="pm-settings-nav" role="tablist" aria-label="Einstellungskategorien">
           <div
             v-for="group in visibleCategoryGroups"
@@ -798,6 +799,9 @@
               />
             </div>
 
+            </template>
+
+            <template v-if="activeCategory === 'notes_spacing'">
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Zeilenabstand</div>
@@ -819,15 +823,6 @@
               />
             </div>
 
-            <div class="notes-settings-preview" :style="notesSettingsPreviewStyle" aria-label="Vorschau der Notizdarstellung">
-              <div class="notes-settings-preview__eyebrow">Live-Vorschau</div>
-              <h3>Eine klare Überschrift</h3>
-              <p>So wirken Schriftgröße, Zeilenabstand und Schreibbreite in deinen Notizen.</p>
-              <p>Ein zweiter Absatz macht den gewählten Abstand direkt sichtbar.</p>
-            </div>
-            </template>
-
-            <template v-if="activeCategory === 'notes_spacing'">
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Absatzabstand</div>
@@ -890,6 +885,98 @@
                 @update:model-value="onNotesBlockSpacingChange"
               />
             </div>
+            </template>
+
+            <template v-if="activeCategory === 'notes_replacements'">
+              <div class="pm-setting-note settings-text-replacements__intro">
+                Tippe ein Kürzel am Ende eines Textabschnitts und drücke Enter. Die Ersetzung unterscheidet Groß- und Kleinschreibung.
+              </div>
+
+              <div v-if="textReplacementRows.length" class="settings-text-replacements">
+                <div
+                  v-for="(item, index) in textReplacementRows"
+                  :key="index"
+                  class="settings-text-replacement"
+                >
+                  <v-text-field
+                    v-model="item.shortcut"
+                    label="Kürzel"
+                    placeholder="MFG"
+                    maxlength="40"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    @update:model-value="markTextReplacementsDirty"
+                  />
+                  <v-text-field
+                    v-model="item.replacement"
+                    label="Ersetzung"
+                    placeholder="Mit freundlichen Grüßen"
+                    maxlength="500"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    @update:model-value="markTextReplacementsDirty"
+                  />
+                  <div class="settings-text-replacement__controls">
+                    <v-switch
+                      v-model="item.enabled"
+                      class="settings-text-replacement__toggle"
+                      color="primary"
+                      density="compact"
+                      hide-details
+                      :aria-label="`${item.shortcut || 'Kürzel'} aktivieren`"
+                      @update:model-value="markTextReplacementsDirty"
+                    />
+                    <v-btn
+                      icon="mdi-delete-outline"
+                      variant="text"
+                      size="small"
+                      :aria-label="`${item.shortcut || 'Kürzel'} löschen`"
+                      @click="removeTextReplacement(index)"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div v-else class="settings-text-replacements__empty">
+                <div class="settings-text-replacements__empty-icon" aria-hidden="true">
+                  <v-icon size="24">mdi-text-box-outline</v-icon>
+                </div>
+                <div class="settings-text-replacements__empty-copy">
+                  <strong>Noch keine Textersetzungen</strong>
+                  <span>Lege ein Kürzel an, das beim Drücken von Enter automatisch ausgeschrieben wird.</span>
+                  <span class="settings-text-replacements__example" aria-label="Beispiel: MFG wird zu Mit freundlichen Grüßen">
+                    <kbd>MFG</kbd>
+                    <v-icon size="15" aria-hidden="true">mdi-arrow-right</v-icon>
+                    <span>Mit freundlichen Grüßen</span>
+                  </span>
+                </div>
+              </div>
+
+              <div v-if="textReplacementError" class="settings-text-replacements__error" role="alert">
+                {{ textReplacementError }}
+              </div>
+
+              <div class="settings-text-replacements__actions">
+                <v-btn
+                  prepend-icon="mdi-plus"
+                  variant="tonal"
+                  :disabled="textReplacementRows.length >= 100"
+                  @click="addTextReplacement"
+                >
+                  Textersetzung hinzufügen
+                </v-btn>
+                <v-btn
+                  v-if="textReplacementRows.length || textReplacementsDirty"
+                  color="primary"
+                  variant="flat"
+                  :loading="isSettingSaving.notes_text_replacements"
+                  :disabled="!textReplacementsDirty || Boolean(textReplacementError)"
+                  @click="saveTextReplacements"
+                >
+                  Änderungen speichern
+                </v-btn>
+              </div>
             </template>
           </div>
         </section>
@@ -2757,6 +2844,29 @@
           </div>
         </section>
         </div>
+
+        <Transition name="pm-preview-rail">
+          <aside
+            v-if="isNotesPreviewCategory"
+            class="pm-settings-preview-rail"
+            aria-label="Live-Vorschau der Notizdarstellung"
+          >
+            <div class="notes-settings-preview notes-settings-preview--rail" :style="notesSettingsPreviewStyle">
+              <div class="notes-settings-preview__eyebrow">Live-Vorschau</div>
+              <div class="notes-settings-preview__body">
+                <h3>Eine klare Überschrift</h3>
+                <p>So wirken Schrift, Zeilen- und Absatzabstand in deinen Notizen.</p>
+                <p>Ein zweiter Absatz macht den gewählten Abstand direkt sichtbar.</p>
+                <h4>Nächster Abschnitt</h4>
+                <ul>
+                  <li>Ein Listenpunkt zeigt den Abstand um Inhaltsblöcke.</li>
+                  <li>Und noch ein zweiter zum Vergleich.</li>
+                </ul>
+                <blockquote>Ein Zitat rundet die Vorschau ab.</blockquote>
+              </div>
+            </div>
+          </aside>
+        </Transition>
       </div>
     </template>
   </BaseDialog>
@@ -2837,6 +2947,7 @@ import {
   buildSearchScopeDefaultPatch,
   buildTrashRetentionPatch,
   normalizeSidebarSections,
+  normalizeNoteTextReplacements,
   sidebarSectionLabel
 } from '../utils/settingsApi';
 
@@ -2977,7 +3088,8 @@ const settingsCategories = [
   { value: 'documents', label: 'Bibliothek', icon: 'mdi-archive-outline', group: 'surface', adminOnly: true },
   { value: 'notes_general', label: 'Allgemein', icon: 'mdi-tune-variant', group: 'notes' },
   { value: 'notes_text', label: 'Textdarstellung', icon: 'mdi-format-font', group: 'notes' },
-  { value: 'notes_spacing', label: 'Abstände und Gliederung', icon: 'mdi-format-line-spacing', group: 'notes' },
+  { value: 'notes_spacing', label: 'Abstände', icon: 'mdi-format-line-spacing', group: 'notes' },
+  { value: 'notes_replacements', label: 'Textersetzung', icon: 'mdi-text-box-outline', group: 'notes' },
   { value: 'import', label: 'Importieren', icon: 'mdi-tray-arrow-up', group: 'import', adminOnly: true },
   { value: 'scanner', label: 'Scanner', icon: 'mdi-scanner', group: 'import', adminOnly: true },
   { value: 'ai', label: 'Texterkennung', icon: 'mdi-text-recognition', group: 'import', adminOnly: true },
@@ -3029,6 +3141,11 @@ const notesSettingsMeta = {
     icon: 'mdi-format-line-spacing',
     title: 'Abstände und Gliederung',
     subtitle: 'Abstände zwischen Absätzen, Überschriften und Inhaltsblöcken festlegen.'
+  },
+  notes_replacements: {
+    icon: 'mdi-text-box-outline',
+    title: 'Textersetzung',
+    subtitle: 'Eigene Kürzel beim Schreiben automatisch ausschreiben.'
   }
 };
 const activeNotesSettingsMeta = computed(
@@ -3740,7 +3857,11 @@ const notesParagraphSpacingOptions = [
 ];
 const notesFontFamilyOptions = [
   { value: 'sans', label: 'System Sans' },
-  { value: 'serif', label: 'Serif' },
+  { value: 'inter', label: 'Inter' },
+  { value: 'source-sans', label: 'Source Sans 3' },
+  { value: 'atkinson', label: 'Atkinson Hyperlegible' },
+  { value: 'serif', label: 'Klassische Serif' },
+  { value: 'source-serif', label: 'Source Serif 4' },
   { value: 'mono', label: 'Monospace' },
 ];
 const notesFontSizeOptions = [
@@ -3762,21 +3883,100 @@ const NOTES_FONT_FAMILY_VALUES = new Set(notesFontFamilyOptions.map((option) => 
 const NOTES_FONT_SIZE_VALUES = new Set(notesFontSizeOptions.map((option) => option.value));
 const NOTES_SPACING_VALUES = new Set(notesSpacingOptions.map((option) => option.value));
 
+const textReplacementRows = ref([]);
+const textReplacementsDirty = ref(false);
+
+watch(
+  () => settingsDraft.ui.notes_text_replacements,
+  (value) => {
+    if (textReplacementsDirty.value) return;
+    textReplacementRows.value = normalizeNoteTextReplacements(value).map((item) => ({ ...item }));
+  },
+  { immediate: true, deep: true },
+);
+
+const textReplacementError = computed(() => {
+  const seen = new Set();
+  for (const item of textReplacementRows.value) {
+    const shortcut = String(item?.shortcut || '').trim();
+    const replacement = String(item?.replacement || '').trim();
+    if (shortcut.length < 2) return 'Kürzel müssen mindestens zwei Zeichen lang sein.';
+    if (shortcut.length > 40 || /\s/.test(shortcut)) return 'Kürzel dürfen höchstens 40 Zeichen und keine Leerzeichen enthalten.';
+    if (!replacement) return 'Die Ersetzung darf nicht leer sein.';
+    if (replacement.length > 500) return 'Die Ersetzung darf höchstens 500 Zeichen lang sein.';
+    if (/[\r\n]/.test(replacement)) return 'Mehrzeilige Ersetzungen werden noch nicht unterstützt.';
+    if (seen.has(shortcut)) return `Das Kürzel „${shortcut}“ ist doppelt vorhanden.`;
+    seen.add(shortcut);
+  }
+  return '';
+});
+
+function markTextReplacementsDirty() {
+  textReplacementsDirty.value = true;
+}
+
+function addTextReplacement() {
+  if (textReplacementRows.value.length >= 100) return;
+  textReplacementRows.value.push({ shortcut: '', replacement: '', enabled: true });
+  markTextReplacementsDirty();
+}
+
+function removeTextReplacement(index) {
+  textReplacementRows.value.splice(index, 1);
+  markTextReplacementsDirty();
+}
+
+async function saveTextReplacements() {
+  if (!textReplacementsDirty.value || textReplacementError.value) return;
+  const previous = normalizeNoteTextReplacements(settingsDraft.ui.notes_text_replacements);
+  const next = textReplacementRows.value.map((item) => ({
+    shortcut: String(item.shortcut).trim(),
+    replacement: String(item.replacement).trim(),
+    enabled: item.enabled !== false,
+  }));
+  settingsStore.setDraftPatch({ ui: { notes_text_replacements: next } });
+  const saved = await patchSettingsWithRevert({
+    patch: buildNotesPreferencesPatch({ notes_text_replacements: next }),
+    controlKey: 'notes_text_replacements',
+    revert: () => settingsStore.setDraftPatch({ ui: { notes_text_replacements: previous } }),
+  });
+  if (saved) {
+    textReplacementRows.value = next.map((item) => ({ ...item }));
+    textReplacementsDirty.value = false;
+  }
+}
+
+const isNotesPreviewCategory = computed(
+  () => activeCategory.value === 'notes_text' || activeCategory.value === 'notes_spacing',
+);
+
+// Locked control-panel width (598) + nav (220) + rail (340) + 2px border = 1160.
+// Growing the dialog by exactly the rail width keeps nav + panel unchanged.
+const settingsDialogMaxWidth = computed(() => (isNotesPreviewCategory.value ? 1160 : 820));
+
 const notesSettingsPreviewStyle = computed(() => {
   const fontFamily = {
+    inter: '"Inter Variable", "Helvetica Neue", Arial, sans-serif',
+    'source-sans': '"Source Sans 3 Variable", "Helvetica Neue", Arial, sans-serif',
+    atkinson: '"Atkinson Hyperlegible Next Variable", "Helvetica Neue", Arial, sans-serif',
     serif: 'Georgia, "Times New Roman", serif',
+    'source-serif': '"Source Serif 4 Variable", Georgia, "Times New Roman", serif',
     mono: 'ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace',
     sans: '"Helvetica Neue", Helvetica, Arial, sans-serif',
   }[settingsDraft.ui.notes_font_family] || '"Helvetica Neue", Helvetica, Arial, sans-serif';
   const fontSize = { small: '15px', medium: '17px', large: '19px' }[settingsDraft.ui.notes_font_size] || '17px';
   const lineHeight = { compact: 1.35, comfortable: 1.55, spacious: 1.75 }[settingsDraft.ui.notes_line_spacing] || 1.55;
   const paragraphGap = { compact: '0.3em', comfortable: '0.5em', spacious: '1em' }[settingsDraft.ui.notes_paragraph_spacing] || '0.5em';
+  const headingGap = { compact: '0.85em', comfortable: '1.5em', spacious: '2.3em' }[settingsDraft.ui.notes_heading_spacing] || '1.5em';
+  const blockGap = { compact: '0.5em', comfortable: '0.9em', spacious: '1.5em' }[settingsDraft.ui.notes_block_spacing] || '0.9em';
   const maxWidth = { compact: '42ch', comfortable: '54ch', wide: '68ch' }[settingsDraft.ui.notes_writing_width] || '54ch';
   return {
     '--notes-preview-font-family': fontFamily,
     '--notes-preview-font-size': fontSize,
     '--notes-preview-line-height': lineHeight,
     '--notes-preview-paragraph-gap': paragraphGap,
+    '--notes-preview-heading-gap': headingGap,
+    '--notes-preview-block-gap': blockGap,
     '--notes-preview-max-width': maxWidth,
   };
 });

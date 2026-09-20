@@ -319,6 +319,7 @@
           :heading-spacing="notesHeadingSpacing"
           :block-spacing="notesBlockSpacing"
           :spellcheck-enabled="notesSpellcheckEnabled"
+          :text-replacements="notesTextReplacements"
           :readonly="status === 'conflict'"
           :ai-available="aiAvailable"
           :ai-prompt-suggestions="aiPromptSuggestions"
@@ -739,7 +740,9 @@ const notesParagraphSpacing = computed(() => {
 });
 const notesFontFamily = computed(() => {
   const value = settingsStore.settingsDraft?.ui?.notes_font_family;
-  return ['sans', 'serif', 'mono'].includes(value) ? value : 'sans';
+  return ['sans', 'inter', 'source-sans', 'atkinson', 'serif', 'source-serif', 'mono'].includes(value)
+    ? value
+    : 'sans';
 });
 const noteSetting = (key, allowed, fallback) => computed(() => {
   const value = settingsStore.settingsDraft?.ui?.[key];
@@ -751,6 +754,9 @@ const notesHeadingSpacing = noteSetting('notes_heading_spacing', ['compact', 'co
 const notesBlockSpacing = noteSetting('notes_block_spacing', ['compact', 'comfortable', 'spacious'], 'comfortable');
 const notesSpellcheckEnabled = computed(
   () => settingsStore.settingsDraft?.ui?.notes_spellcheck_enabled !== false
+);
+const notesTextReplacements = computed(
+  () => settingsStore.settingsDraft?.ui?.notes_text_replacements || []
 );
 const syncIssueVisible = computed(() => ['error', 'conflict', 'local'].includes(status.value));
 const syncStatusIcon = computed(() => ({

@@ -206,6 +206,10 @@ test('global note preferences control list mode, typography, and spellcheck', ()
   assert.match(noteEditorSource, /note-editor--spacing-compact[\s\S]*?--note-editor-paragraph-gap:\s*0\.3em/);
   assert.match(noteEditorSource, /note-editor--spacing-spacious[\s\S]*?--note-editor-paragraph-gap:\s*1em/);
   assert.match(noteEditorSource, /note-editor--font-serif[\s\S]*?--note-editor-font-family:\s*Georgia/);
+  assert.match(noteEditorSource, /note-editor--font-inter[\s\S]*?Inter Variable/);
+  assert.match(noteEditorSource, /note-editor--font-source-sans[\s\S]*?Source Sans 3 Variable/);
+  assert.match(noteEditorSource, /note-editor--font-atkinson[\s\S]*?Atkinson Hyperlegible Next Variable/);
+  assert.match(noteEditorSource, /note-editor--font-source-serif[\s\S]*?Source Serif 4 Variable/);
   assert.match(noteEditorSource, /note-editor--font-mono[\s\S]*?--note-editor-font-family:\s*ui-monospace/);
   assert.match(noteEditorSource, /\.pm-content h[12]\)[\s\S]*?font-family:\s*inherit/);
   assert.match(noteEditorSource, /setAttribute\('spellcheck', enabled \? 'true' : 'false'\)/);

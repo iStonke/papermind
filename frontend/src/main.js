@@ -4,6 +4,14 @@ import AppRoot from './AppRoot.vue';
 import router from './router';
 import vuetify from './plugins/vuetify';
 import { installFetchInterceptor } from './api/fetchInterceptor.js';
+import '@fontsource-variable/inter/wght.css';
+import '@fontsource-variable/inter/wght-italic.css';
+import '@fontsource-variable/source-sans-3/wght.css';
+import '@fontsource-variable/source-sans-3/wght-italic.css';
+import '@fontsource-variable/atkinson-hyperlegible-next/wght.css';
+import '@fontsource-variable/atkinson-hyperlegible-next/wght-italic.css';
+import '@fontsource-variable/source-serif-4/wght.css';
+import '@fontsource-variable/source-serif-4/wght-italic.css';
 import './style.css';
 import './theme/theme.css';
 

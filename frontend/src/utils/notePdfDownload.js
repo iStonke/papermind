@@ -3,6 +3,22 @@ import { noteExportFilename } from './noteExport.js';
 /** Render the existing print layout locally, then download actual PDF bytes. */
 export async function downloadNotePdf(html, title) {
   const { default: html2pdf } = await import('html2pdf.js');
+  // html2canvas snapshots a temporary node. Explicitly request the selected local
+  // font first so a very quick export cannot capture its fallback font.
+  const bundledFamily = [
+    'Inter Variable',
+    'Source Sans 3 Variable',
+    'Atkinson Hyperlegible Next Variable',
+    'Source Serif 4 Variable',
+  ].find((family) => html.includes(`"${family}"`));
+  if (bundledFamily && document.fonts?.load) {
+    await Promise.all([
+      document.fonts.load(`400 16px "${bundledFamily}"`),
+      document.fonts.load(`italic 400 16px "${bundledFamily}"`),
+      document.fonts.load(`700 16px "${bundledFamily}"`),
+    ]);
+  }
+  await document.fonts?.ready;
   const parsed = new DOMParser().parseFromString(html, 'text/html');
   const sheet = new CSSStyleSheet();
   sheet.replaceSync(parsed.querySelector('style')?.textContent || '');

@@ -181,7 +181,11 @@ class NotesParagraphSpacing(str, Enum):
 
 class NotesFontFamily(str, Enum):
     sans = "sans"
+    inter = "inter"
+    source_sans = "source-sans"
+    atkinson = "atkinson"
     serif = "serif"
+    source_serif = "source-serif"
     mono = "mono"
 
 
@@ -227,6 +231,39 @@ SIDEBAR_SECTION_KEYS: tuple[str, ...] = ("ordner", "tags", "kategorien")
 class SidebarSectionConfig(BaseModel):
     key: SidebarSectionKey
     visible: bool = True
+
+
+class NoteTextReplacement(BaseModel):
+    """Persoenliches Kuerzel fuer die Textersetzung im Notizeditor."""
+
+    shortcut: str = Field(min_length=2, max_length=40, pattern=r"^\S+$")
+    replacement: str = Field(min_length=1, max_length=500)
+    enabled: bool = True
+
+    @field_validator("shortcut", "replacement", mode="before")
+    @classmethod
+    def strip_text(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("replacement")
+    @classmethod
+    def require_single_line(cls, value: str) -> str:
+        if "\n" in value or "\r" in value:
+            raise ValueError("Textersetzungen muessen einzeilig sein.")
+        return value
+
+
+def _normalize_note_text_replacements(
+    replacements: list[NoteTextReplacement] | None,
+) -> list[NoteTextReplacement]:
+    result: list[NoteTextReplacement] = []
+    seen: set[str] = set()
+    for replacement in replacements or []:
+        if replacement.shortcut in seen:
+            raise ValueError("Jedes Textersetzungs-Kuerzel darf nur einmal vorkommen.")
+        seen.add(replacement.shortcut)
+        result.append(replacement)
+    return result
 
 
 def _default_sidebar_sections() -> list[SidebarSectionConfig]:
@@ -313,11 +350,13 @@ class UISettingsRead(BaseModel):
     notes_heading_spacing: NotesSpacing = NotesSpacing.comfortable
     notes_block_spacing: NotesSpacing = NotesSpacing.comfortable
     notes_spellcheck_enabled: bool = True
+    notes_text_replacements: list[NoteTextReplacement] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="after")
     def normalize_sidebar_sections(self) -> "UISettingsRead":
         self.sidebar_sections = _normalize_sidebar_sections(self.sidebar_sections)
         self.dashboard_layout = _normalize_dashboard_layout(self.dashboard_layout)
+        self.notes_text_replacements = _normalize_note_text_replacements(self.notes_text_replacements)
         return self
 
 
@@ -522,6 +561,7 @@ class UISettingsPatch(BaseModel):
     notes_heading_spacing: NotesSpacing | None = None
     notes_block_spacing: NotesSpacing | None = None
     notes_spellcheck_enabled: bool | None = None
+    notes_text_replacements: list[NoteTextReplacement] | None = Field(default=None, max_length=100)
 
     @field_validator("sidebar_sections")
     @classmethod
@@ -540,6 +580,15 @@ class UISettingsPatch(BaseModel):
         if value is None:
             return None
         return _normalize_dashboard_layout(value)
+
+    @field_validator("notes_text_replacements")
+    @classmethod
+    def normalize_note_text_replacements(
+        cls, value: list[NoteTextReplacement] | None
+    ) -> list[NoteTextReplacement] | None:
+        if value is None:
+            return None
+        return _normalize_note_text_replacements(value)
 
 
 class DocumentsSettingsPatch(BaseModel):

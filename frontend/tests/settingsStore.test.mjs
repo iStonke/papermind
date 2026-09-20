@@ -114,6 +114,9 @@ test("normalizeSettingsPayload preserves note preferences", () => {
       notes_heading_spacing: "compact",
       notes_block_spacing: "spacious",
       notes_spellcheck_enabled: false,
+      notes_text_replacements: [
+        { shortcut: "MFG", replacement: "Mit freundlichen Grüßen", enabled: true },
+      ],
     },
   });
 
@@ -127,6 +130,9 @@ test("normalizeSettingsPayload preserves note preferences", () => {
   assert.equal(normalized.ui.notes_heading_spacing, "compact");
   assert.equal(normalized.ui.notes_block_spacing, "spacious");
   assert.equal(normalized.ui.notes_spellcheck_enabled, false);
+  assert.deepEqual(normalized.ui.notes_text_replacements, [
+    { shortcut: "MFG", replacement: "Mit freundlichen Grüßen", enabled: true },
+  ]);
 });
 
 test("normalizeSettingsPayload falls back for invalid note preferences", () => {
@@ -157,6 +163,18 @@ test("normalizeSettingsPayload falls back for invalid note preferences", () => {
   assert.equal(normalized.ui.notes_heading_spacing, "comfortable");
   assert.equal(normalized.ui.notes_block_spacing, "comfortable");
   assert.equal(normalized.ui.notes_spellcheck_enabled, true);
+});
+
+test("normalizeSettingsPayload preserves every bundled note font", () => {
+  setActivePinia(createPinia());
+  const store = useSettingsStore();
+
+  for (const fontFamily of ["inter", "source-sans", "atkinson", "source-serif"]) {
+    const normalized = store.normalizeSettingsPayload({
+      ui: { notes_font_family: fontFamily },
+    });
+    assert.equal(normalized.ui.notes_font_family, fontFamily);
+  }
 });
 
 test("normalizeSettingsPayload keeps note text generation separate from local knowledge", () => {

@@ -7,7 +7,11 @@ import {
   SUMMARY_PROMPT_TEMPLATE_DEFAULT,
   SYSTEM_PROMPT_DEFAULT
 } from '../constants/promptDefaults.js';
-import { normalizeDashboardLayout, normalizeSidebarSections } from '../utils/settingsApi.js';
+import {
+  normalizeDashboardLayout,
+  normalizeNoteTextReplacements,
+  normalizeSidebarSections,
+} from '../utils/settingsApi.js';
 
 const THEME_MODE_VALUES = new Set(['light', 'dark', 'system']);
 const START_VIEW_VALUES = new Set(['dashboard', 'all']);
@@ -16,7 +20,15 @@ const NOTES_DEFAULT_VIEW_VALUES = new Set(['list', 'focus', 'remember']);
 const NOTES_SORT_ORDER_VALUES = new Set(['updated', 'created', 'title']);
 const NOTES_WRITING_WIDTH_VALUES = new Set(['compact', 'comfortable', 'wide']);
 const NOTES_PARAGRAPH_SPACING_VALUES = new Set(['compact', 'comfortable', 'spacious']);
-const NOTES_FONT_FAMILY_VALUES = new Set(['sans', 'serif', 'mono']);
+const NOTES_FONT_FAMILY_VALUES = new Set([
+  'sans',
+  'inter',
+  'source-sans',
+  'atkinson',
+  'serif',
+  'source-serif',
+  'mono',
+]);
 const NOTES_FONT_SIZE_VALUES = new Set(['small', 'medium', 'large']);
 const NOTES_SPACING_VALUES = new Set(['compact', 'comfortable', 'spacious']);
 const TEXT_GENERATION_PROVIDER_VALUES = new Set(['ollama', 'openai', 'anthropic']);
@@ -135,7 +147,8 @@ function createDefaultSettings() {
       notes_line_spacing: 'comfortable',
       notes_heading_spacing: 'comfortable',
       notes_block_spacing: 'comfortable',
-      notes_spellcheck_enabled: true
+      notes_spellcheck_enabled: true,
+      notes_text_replacements: []
     },
     documents: {
       auto_ocr: true,
@@ -262,7 +275,8 @@ function cloneUi(uiValue) {
   return {
     ...uiValue,
     sidebar_sections: normalizeSidebarSections(uiValue?.sidebar_sections),
-    dashboard_layout: normalizeDashboardLayout(uiValue?.dashboard_layout)
+    dashboard_layout: normalizeDashboardLayout(uiValue?.dashboard_layout),
+    notes_text_replacements: normalizeNoteTextReplacements(uiValue?.notes_text_replacements),
   };
 }
 
@@ -298,6 +312,9 @@ function assignSettings(target, source) {
   }
   if (source.ui && 'dashboard_layout' in source.ui) {
     target.ui.dashboard_layout = normalizeDashboardLayout(source.ui.dashboard_layout);
+  }
+  if (source.ui && 'notes_text_replacements' in source.ui) {
+    target.ui.notes_text_replacements = normalizeNoteTextReplacements(source.ui.notes_text_replacements);
   }
   Object.assign(target.documents, source.documents);
   Object.assign(target.llm, source.llm);
@@ -414,6 +431,7 @@ export const useSettingsStore = defineStore('settings', {
         notes_heading_spacing: false,
         notes_block_spacing: false,
         notes_spellcheck_enabled: false,
+        notes_text_replacements: false,
         text_generation_prompt_suggestions: false,
         text_generation_system_prompt: false,
         prompts: false,
@@ -587,7 +605,8 @@ export const useSettingsStore = defineStore('settings', {
           notes_spellcheck_enabled:
             typeof payload?.ui?.notes_spellcheck_enabled === 'boolean'
               ? payload.ui.notes_spellcheck_enabled
-              : defaults.ui.notes_spellcheck_enabled
+              : defaults.ui.notes_spellcheck_enabled,
+          notes_text_replacements: normalizeNoteTextReplacements(payload?.ui?.notes_text_replacements)
         },
         documents: {
           auto_ocr:

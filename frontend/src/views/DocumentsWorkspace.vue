@@ -280,12 +280,12 @@
 
           <template #foot>
             <v-btn
-              icon="mdi-help-circle-outline"
+              icon="mdi-keyboard-outline"
               variant="text"
               size="small"
               class="sidebar-foot__rail-help"
-              aria-label="Hilfe und Tastaturkürzel"
-              title="Hilfe und Tastaturkürzel"
+              aria-label="Tastenkürzel"
+              title="Tastenkürzel"
               @click="openShortcutsHelp"
             />
             <v-btn
@@ -299,12 +299,12 @@
             <SidebarAccount />
             <div class="sidebar-foot__actions">
               <v-btn
-                icon="mdi-help-circle-outline"
+                icon="mdi-keyboard-outline"
                 variant="text"
                 size="small"
                 class="sidebar-foot__btn"
-                aria-label="Hilfe und Tastaturkürzel"
-                title="Hilfe und Tastaturkürzel"
+                aria-label="Tastenkürzel"
+                title="Tastenkürzel"
                 @click="openShortcutsHelp"
               />
               <v-btn

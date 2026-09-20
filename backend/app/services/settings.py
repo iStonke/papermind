@@ -52,6 +52,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "notes_heading_spacing": "comfortable",
         "notes_block_spacing": "comfortable",
         "notes_spellcheck_enabled": True,
+        "notes_text_replacements": [],
     },
     "documents": {
         "auto_ocr": True,

@@ -92,6 +92,9 @@ class SettingsValidationTest(unittest.TestCase):
                     "notes_heading_spacing": "compact",
                     "notes_block_spacing": "spacious",
                     "notes_spellcheck_enabled": False,
+                    "notes_text_replacements": [
+                        {"shortcut": "MFG", "replacement": "Mit freundlichen Gruessen", "enabled": True}
+                    ],
                 }
             }
         )
@@ -105,6 +108,7 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertEqual(payload.ui.notes_heading_spacing.value, "compact")
         self.assertEqual(payload.ui.notes_block_spacing.value, "spacious")
         self.assertIs(payload.ui.notes_spellcheck_enabled, False)
+        self.assertEqual(payload.ui.notes_text_replacements[0].shortcut, "MFG")
 
     def test_notes_preferences_reject_unknown_values(self) -> None:
         with self.assertRaises(ValidationError):
@@ -118,6 +122,13 @@ class SettingsValidationTest(unittest.TestCase):
         with self.assertRaises(ValidationError):
             AppSettingsPatch.model_validate({"ui": {"notes_line_spacing": "double"}})
 
+    def test_notes_preferences_accept_bundled_font_families(self) -> None:
+        for font_family in ("inter", "source-sans", "atkinson", "source-serif"):
+            payload = AppSettingsPatch.model_validate(
+                {"ui": {"notes_font_family": font_family}}
+            )
+            self.assertEqual(payload.ui.notes_font_family.value, font_family)
+
     def test_notes_preference_defaults_are_present(self) -> None:
         payload = AppSettingsRead.model_validate({})
         self.assertEqual(payload.ui.notes_default_view.value, "remember")
@@ -130,6 +141,28 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertEqual(payload.ui.notes_heading_spacing.value, "comfortable")
         self.assertEqual(payload.ui.notes_block_spacing.value, "comfortable")
         self.assertIs(payload.ui.notes_spellcheck_enabled, True)
+        self.assertEqual(payload.ui.notes_text_replacements, [])
+
+    def test_note_text_replacements_are_validated(self) -> None:
+        with self.assertRaises(ValidationError):
+            AppSettingsPatch.model_validate(
+                {"ui": {"notes_text_replacements": [{"shortcut": "M F G", "replacement": "Text"}]}}
+            )
+        with self.assertRaises(ValidationError):
+            AppSettingsPatch.model_validate(
+                {"ui": {"notes_text_replacements": [{"shortcut": "MFG", "replacement": "Zeile 1\nZeile 2"}]}}
+            )
+        with self.assertRaises(ValidationError):
+            AppSettingsPatch.model_validate(
+                {
+                    "ui": {
+                        "notes_text_replacements": [
+                            {"shortcut": "MFG", "replacement": "Erste Fassung"},
+                            {"shortcut": "MFG", "replacement": "Zweite Fassung"},
+                        ]
+                    }
+                }
+            )
 
     def test_legacy_favorite_sidebar_visibility_is_removed(self) -> None:
         payload = _merge_defaults({"ui": {"sidebar_show_favorites": False}})

@@ -430,7 +430,11 @@ export function noteToPrintableHtml({
     })
     .join('');
   const fontStack = {
+    inter: '"Inter Variable", "Helvetica Neue", Arial, sans-serif',
+    'source-sans': '"Source Sans 3 Variable", "Helvetica Neue", Arial, sans-serif',
+    atkinson: '"Atkinson Hyperlegible Next Variable", "Helvetica Neue", Arial, sans-serif',
     serif: 'Georgia, "Times New Roman", serif',
+    'source-serif': '"Source Serif 4 Variable", Georgia, "Times New Roman", serif',
     mono: 'ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace',
     sans: '"Helvetica Neue", Helvetica, Arial, sans-serif',
   }[fontFamily] || '"Helvetica Neue", Helvetica, Arial, sans-serif';

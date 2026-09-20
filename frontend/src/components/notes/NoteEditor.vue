@@ -242,6 +242,7 @@ import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, 
 import { NOTE_AI_STREAM, NOTE_AI_REVIEW_STREAM } from './composables/noteAIRequest.js';
 import { NoteReviewDecorations } from './extensions/reviewDecorations.js';
 import { NoteAIGeneration } from './extensions/aiGeneration.js';
+import { NoteTextReplacement } from './extensions/textReplacement.js';
 import { EditorContent, useEditor, posToDOMRect } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
 import FileHandler from '@tiptap/extension-file-handler';
@@ -326,6 +327,8 @@ const props = defineProps({
   blockSpacing: { type: String, default: 'comfortable' },
   /** Native Rechtschreibprüfung für Titel und Editorinhalt. */
   spellcheckEnabled: { type: Boolean, default: true },
+  /** Persoenliche, exakt passende Kuerzel fuer Enter-Textersetzungen. */
+  textReplacements: { type: Array, default: () => [] },
   /** Inhalt anzeigen und auswählen, aber nicht verändern. */
   readonly: { type: Boolean, default: false },
   /** Nur bei vollständig nutzbarer Modell-/Zugangskonfiguration anzeigen. */
@@ -384,7 +387,9 @@ const normalizedParagraphSpacing = computed(() =>
     : 'comfortable'
 );
 const normalizedFontFamily = computed(() =>
-  ['sans', 'serif', 'mono'].includes(props.fontFamily) ? props.fontFamily : 'sans'
+  ['sans', 'inter', 'source-sans', 'atkinson', 'serif', 'source-serif', 'mono'].includes(props.fontFamily)
+    ? props.fontFamily
+    : 'sans'
 );
 const normalizedFontSize = computed(() =>
   ['small', 'medium', 'large'].includes(props.fontSize) ? props.fontSize : 'medium'
@@ -449,6 +454,9 @@ const editor = useEditor({
     Typography,
     TaskList,
     NoteAIGeneration,
+    NoteTextReplacement.configure({
+      getReplacements: () => props.textReplacements,
+    }),
     PaperMindTaskItem.configure({ nested: true }),
     CheckList,
     CheckListItem.configure({ nested: true }),
@@ -1691,6 +1699,22 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
   --note-editor-font-family: Georgia, "Times New Roman", serif;
 }
 
+.note-editor--font-inter {
+  --note-editor-font-family: "Inter Variable", "Helvetica Neue", Arial, sans-serif;
+}
+
+.note-editor--font-source-sans {
+  --note-editor-font-family: "Source Sans 3 Variable", "Helvetica Neue", Arial, sans-serif;
+}
+
+.note-editor--font-atkinson {
+  --note-editor-font-family: "Atkinson Hyperlegible Next Variable", "Helvetica Neue", Arial, sans-serif;
+}
+
+.note-editor--font-source-serif {
+  --note-editor-font-family: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
+}
+
 .note-editor--font-mono {
   --note-editor-font-family: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
 }
@@ -2454,6 +2478,57 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--pm-warning, #d97706) 38%, transparent);
 }
 
+/* Aktive Textersetzungen sind reine Editor-Dekorationen. Sie werden weder
+   serialisiert noch vom Autosave in den Notizinhalt übernommen. */
+.note-editor :deep(.pm-text-replacement-trigger) {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 11%, transparent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--pm-accent, #006b75) 72%, transparent);
+  text-decoration-style: dotted;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+}
+
+.note-editor :deep(.pm-text-replacement-hint) {
+  display: inline-block;
+  max-width: min(28rem, 52vw);
+  margin-left: 7px;
+  padding: 2px 7px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--pm-accent, #006b75) 18%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 8%, var(--pm-content-surface, #fff));
+  color: color-mix(in srgb, var(--pm-accent-strong, #00555f) 82%, var(--pm-text, #0e181b));
+  font-family: var(--pm-font-sans, inherit);
+  font-size: 0.72em;
+  font-weight: 600;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  vertical-align: 0.08em;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+  transform-origin: left center;
+  animation: pm-text-replacement-bubble-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: opacity, transform;
+}
+
+@keyframes pm-text-replacement-bubble-in {
+  0% {
+    opacity: 0;
+    transform: translateX(-4px) scale(0.82);
+  }
+  68% {
+    opacity: 1;
+    transform: translateX(0) scale(1.035);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
 /* ── Statuszeile ─────────────────────────────────────────────────────────── */
 
 .note-editor__status {
@@ -2482,9 +2557,14 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
   .note-editor__image-spinner { animation: none; }
 
   .note-editor :deep(.pm-history-flash) { animation: none; }
+  .note-editor :deep(.pm-text-replacement-hint) { animation: none; }
 }
 
 :global(.pm-no-animations) .note-editor :deep(.pm-history-flash) {
+  animation: none;
+}
+
+:global(.pm-no-animations) .note-editor :deep(.pm-text-replacement-hint) {
   animation: none;
 }
 </style>

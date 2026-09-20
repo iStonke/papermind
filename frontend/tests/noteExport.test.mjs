@@ -86,6 +86,20 @@ test('printable note export renders a styled PDF source document', () => {
   assert.match(html, /papermind:\/\/document\/doc-1/);
 });
 
+test('printable note export uses bundled note font families', () => {
+  const expectedFamilies = new Map([
+    ['inter', 'Inter Variable'],
+    ['source-sans', 'Source Sans 3 Variable'],
+    ['atkinson', 'Atkinson Hyperlegible Next Variable'],
+    ['source-serif', 'Source Serif 4 Variable'],
+  ]);
+
+  for (const [fontFamily, cssFamily] of expectedFamilies) {
+    const html = noteToPrintableHtml({ fontFamily });
+    assert.match(html, new RegExp(`font-family: "${cssFamily}"`));
+  }
+});
+
 test('callouts keep their PaperMind meaning in Markdown and PDF exports', () => {
   const body = {
     type: 'doc',

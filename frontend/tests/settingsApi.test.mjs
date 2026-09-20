@@ -12,6 +12,7 @@ import {
   buildSortOrderPatch,
   buildThemeModePatch,
   buildTrashRetentionPatch,
+  normalizeNoteTextReplacements,
 } from "../src/utils/settingsApi.js";
 
 test("buildThemeModePatch returns expected payload", () => {
@@ -30,6 +31,16 @@ test("buildNotesPreferencesPatch returns a per-user UI patch", () => {
   assert.deepEqual(buildNotesPreferencesPatch({ notes_writing_width: "wide" }), {
     ui: { notes_writing_width: "wide" },
   });
+});
+
+test("normalizeNoteTextReplacements validates and deduplicates shortcuts", () => {
+  assert.deepEqual(normalizeNoteTextReplacements([
+    { shortcut: " MFG ", replacement: " Mit freundlichen Grüßen " },
+    { shortcut: "MFG", replacement: "Duplikat" },
+    { shortcut: "zu kurz mit leerzeichen", replacement: "Ungültig" },
+  ]), [
+    { shortcut: "MFG", replacement: "Mit freundlichen Grüßen", enabled: true },
+  ]);
 });
 
 test("buildAutoTaggingPatch returns expected payload", () => {

@@ -1,3 +1,9 @@
+/* Lock the control panel to its normal (rail-less) width so it never reflows
+   while the rail slides in — only the added right-hand column animates. */
+.pm-settings-layout--with-rail .pm-settings-panel {
+  flex: 0 0 598px;
+}
+
 /* ── Backup ── */
 /* Status-Karte: fasst Zustand, Verschlüsselung und Aktionen ruhig zusammen. */
 .backup-summary {
@@ -411,6 +417,10 @@
   padding-top: 10px;
 }
 
+.pm-settings-content > .settings-info-card + .settings-text-replacements__intro {
+  padding-top: 10px;
+}
+
 .settings-onboarding-button {
   flex: 0 0 auto;
   min-width: 184px;
@@ -587,6 +597,40 @@
   overflow: hidden;
 }
 
+/* Right-hand preview rail: its own column that slides in only for the notes
+   panels, so the live preview gets real width without crowding the controls. */
+.pm-settings-preview-rail {
+  flex: 0 0 340px;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 16px 20px 20px;
+  border-left: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+  background: rgba(var(--v-theme-on-surface), 0.02);
+}
+
+.notes-settings-preview--rail {
+  position: sticky;
+  top: 0;
+  margin: 0;
+  padding: 16px 18px;
+}
+
+/* Slide-in / out animation for the rail column. Duration + easing match the
+   dialog's max-width transition so the added width and the rail grow in sync. */
+.pm-preview-rail-enter-active,
+.pm-preview-rail-leave-active {
+  transition: flex-basis 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.26s ease, transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
+}
+
+.pm-preview-rail-enter-from,
+.pm-preview-rail-leave-to {
+  flex-basis: 0;
+  opacity: 0;
+  transform: translateX(12px);
+}
+
 .notes-settings-preview__eyebrow {
   margin-bottom: 10px;
   color: rgba(var(--v-theme-on-surface), 0.52);
@@ -597,7 +641,10 @@
 }
 
 .notes-settings-preview h3,
-.notes-settings-preview p {
+.notes-settings-preview h4,
+.notes-settings-preview p,
+.notes-settings-preview ul,
+.notes-settings-preview blockquote {
   max-width: var(--notes-preview-max-width);
   margin-block: 0;
   font-family: var(--notes-preview-font-family);
@@ -610,6 +657,14 @@
   line-height: 1.25;
 }
 
+.notes-settings-preview h4 {
+  margin-top: var(--notes-preview-heading-gap);
+  margin-bottom: 0.4em;
+  font-size: calc(var(--notes-preview-font-size) * 1.05);
+  font-weight: 650;
+  line-height: 1.3;
+}
+
 .notes-settings-preview p {
   font-size: var(--notes-preview-font-size);
   line-height: var(--notes-preview-line-height);
@@ -617,6 +672,27 @@
 
 .notes-settings-preview p + p {
   margin-top: var(--notes-preview-paragraph-gap);
+}
+
+.notes-settings-preview ul {
+  margin-top: var(--notes-preview-block-gap);
+  padding-left: 1.3em;
+  font-size: var(--notes-preview-font-size);
+  line-height: var(--notes-preview-line-height);
+}
+
+.notes-settings-preview li + li {
+  margin-top: 0.2em;
+}
+
+.notes-settings-preview blockquote {
+  margin-top: var(--notes-preview-block-gap);
+  padding-left: 0.9em;
+  border-left: 3px solid rgba(var(--v-theme-primary), 0.45);
+  color: rgba(var(--v-theme-on-surface), 0.78);
+  font-size: var(--notes-preview-font-size);
+  font-style: italic;
+  line-height: var(--notes-preview-line-height);
 }
 
 .pm-setting-row--nested {
@@ -1704,6 +1780,124 @@
   color: rgba(var(--v-theme-on-surface), 0.6);
   font-size: 0.84rem;
   padding: 10px 2px;
+}
+
+.settings-text-replacements {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-text-replacements__intro {
+  margin-bottom: 18px;
+  padding-bottom: 0;
+}
+
+.settings-text-replacement {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.65fr) minmax(220px, 2fr) auto;
+  gap: 16px;
+  align-items: center;
+}
+
+.settings-text-replacement__controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 48px;
+}
+
+.settings-text-replacement__toggle {
+  flex: 0 0 auto;
+}
+
+.settings-text-replacements__empty {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  border: 1px dashed rgba(var(--v-theme-primary), 0.3);
+  border-radius: 12px;
+  background: rgba(var(--v-theme-primary), 0.035);
+}
+
+.settings-text-replacements__empty-icon {
+  display: grid;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 12px;
+  background: rgba(var(--v-theme-primary), 0.12);
+  color: rgb(var(--v-theme-primary));
+}
+
+.settings-text-replacements__empty-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  color: rgba(var(--v-theme-on-surface), 0.62);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.settings-text-replacements__empty-copy strong {
+  color: rgba(var(--v-theme-on-surface), 0.9);
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.settings-text-replacements__example {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  color: rgba(var(--v-theme-on-surface), 0.72);
+}
+
+.settings-text-replacements__example kbd {
+  padding: 1px 6px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.15);
+  border-radius: 5px;
+  background: rgba(var(--v-theme-on-surface), 0.06);
+  color: rgba(var(--v-theme-on-surface), 0.86);
+  font: 650 0.76rem/1.5 ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+}
+
+.settings-text-replacements__error {
+  color: rgb(var(--v-theme-error));
+  font-size: 0.84rem;
+}
+
+.settings-text-replacements__actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+@media (max-width: 760px) {
+  .settings-text-replacement {
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+  }
+
+  .settings-text-replacement > :nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .settings-text-replacements__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-text-replacements__empty {
+    align-items: flex-start;
+    padding: 14px;
+  }
 }
 
 .settings-retention-add {

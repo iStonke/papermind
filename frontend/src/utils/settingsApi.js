@@ -10,6 +10,30 @@ export function buildNotesPreferencesPatch(preferences) {
   return { ui: { ...(preferences || {}) } };
 }
 
+export function normalizeNoteTextReplacements(replacements) {
+  const result = [];
+  const seen = new Set();
+  for (const item of Array.isArray(replacements) ? replacements : []) {
+    const shortcut = String(item?.shortcut || '').trim();
+    const replacement = String(item?.replacement || '').trim();
+    if (
+      shortcut.length < 2
+      || shortcut.length > 40
+      || /\s/.test(shortcut)
+      || !replacement
+      || replacement.length > 500
+      || /[\r\n]/.test(replacement)
+      || seen.has(shortcut)
+    ) {
+      continue;
+    }
+    seen.add(shortcut);
+    result.push({ shortcut, replacement, enabled: item?.enabled !== false });
+    if (result.length >= 100) break;
+  }
+  return result;
+}
+
 export function buildSearchScopeDefaultPatch(searchScopeDefault) {
   return { ui: { search_scope_default: searchScopeDefault } };
 }

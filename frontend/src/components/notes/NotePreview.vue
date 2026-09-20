@@ -73,7 +73,9 @@ const notesParagraphSpacing = computed(() => {
 });
 const notesFontFamily = computed(() => {
   const value = settingsStore.settingsDraft?.ui?.notes_font_family;
-  return ['sans', 'serif', 'mono'].includes(value) ? value : 'sans';
+  return ['sans', 'inter', 'source-sans', 'atkinson', 'serif', 'source-serif', 'mono'].includes(value)
+    ? value
+    : 'sans';
 });
 const noteSetting = (key, allowed, fallback) => computed(() => {
   const value = settingsStore.settingsDraft?.ui?.[key];
@@ -168,6 +170,22 @@ watch(() => props.noteId, load, { immediate: true });
 
 .note-preview--font-serif {
   --note-preview-font-family: Georgia, "Times New Roman", serif;
+}
+
+.note-preview--font-inter {
+  --note-preview-font-family: "Inter Variable", "Helvetica Neue", Arial, sans-serif;
+}
+
+.note-preview--font-source-sans {
+  --note-preview-font-family: "Source Sans 3 Variable", "Helvetica Neue", Arial, sans-serif;
+}
+
+.note-preview--font-atkinson {
+  --note-preview-font-family: "Atkinson Hyperlegible Next Variable", "Helvetica Neue", Arial, sans-serif;
+}
+
+.note-preview--font-source-serif {
+  --note-preview-font-family: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
 }
 
 .note-preview--font-mono {
