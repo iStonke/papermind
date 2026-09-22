@@ -122,8 +122,8 @@ export const useNotesStore = defineStore('notes', () => {
 
   /** Servergestützte Volltextsuche, ohne die kanonische Notizenliste zu
    *  ersetzen. So bleiben Zähler, Autosave und das Leeren der Suche stabil. */
-  async function searchNotes(query, { scope = 'all' } = {}) {
-    const res = await api.listNotes({ q: query, searchScope: scope });
+  async function searchNotes(query, { scope = 'all', collectionId = null } = {}) {
+    const res = await api.listNotes({ q: query, searchScope: scope, collectionId });
     return res.items || [];
   }
 

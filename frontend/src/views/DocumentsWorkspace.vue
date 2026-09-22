@@ -176,6 +176,7 @@
           'workspace--rail': sidebarRailActive,
           'workspace--dashboard': activeView === 'dashboard',
           'workspace--notes': activeView === 'notes',
+          'workspace--search': activeView === 'search',
           'workspace--tag': activeView === 'tag',
           'workspace--dossiers': isDossierRoute,
           'workspace--wiki': isWikiRoute,
@@ -204,7 +205,6 @@
           @create-folder="openCreateSavedSearchDialog"
           @edit-folder="openEditSavedSearchDialog"
           @delete-folder="deleteSavedSearch"
-          @empty-trash="emptyTrash"
           @open-tags-view="handleSidebarTagsView"
           @apply-tag-filter="handleSidebarTagFilter"
           @open-categories-view="handleSidebarCategoriesView"
@@ -227,54 +227,21 @@
             </div>
             <div class="sidebar-search">
               <v-text-field
-                ref="appBarSearchRef"
-                v-model="searchText"
+                :model-value="globalSearchText"
                 class="sidebar-search__field"
                 prepend-inner-icon="mdi-magnify"
                 clearable
                 clear-icon="mdi-close"
-                :placeholder="searchPlaceholder"
+                placeholder="Überall suchen …"
+                aria-label="Dokumente, Notizen, Tags und Dokumenttypen durchsuchen"
                 density="compact"
                 variant="outlined"
-                :messages="searchHintMessages"
-                hide-details="auto"
-                @update:model-value="handleSidebarSearchInput"
-                @keydown="handleSearchShortcut"
-                @click:clear="clearSearchFromInput"
-              >
-                <template #append-inner>
-                  <v-menu location="bottom end" :close-on-content-click="true">
-                    <template #activator="{ props: menuProps }">
-                      <v-btn
-                        v-bind="menuProps"
-                        class="sidebar-search__scope-btn"
-                        :class="{ 'sidebar-search__scope-btn--active': effectiveSearchScope !== 'all' }"
-                        icon="mdi-filter-outline"
-                        variant="text"
-                        size="small"
-                        density="comfortable"
-                        :aria-label="`Suchbereich: ${activeSearchScopeLabel}`"
-                        @click.stop
-                      />
-                    </template>
-                    <v-list class="pm-menu sidebar-search-menu" density="compact" min-width="190">
-                      <v-list-item
-                        v-for="option in searchScopeOptions"
-                        :key="option.value"
-                        :active="effectiveSearchScope === option.value"
-                        :title="option.label"
-                        @click="selectSearchScope(option.value)"
-                      >
-                        <template #prepend>
-                          <v-icon size="18">
-                            {{ searchScope === option.value ? 'mdi-check' : option.icon }}
-                          </v-icon>
-                        </template>
-                      </v-list-item>
-                    </v-list>
-                  </v-menu>
-                </template>
-              </v-text-field>
+                hide-details
+                @update:model-value="handleGlobalSearchInput"
+                @keydown.enter="submitGlobalSearch"
+                @keydown.esc.stop="clearGlobalSearch"
+                @click:clear="clearGlobalSearch"
+              />
             </div>
           </template>
 
@@ -288,6 +255,19 @@
               title="Tastenkürzel"
               @click="openShortcutsHelp"
             />
+            <v-btn
+              icon
+              variant="text"
+              size="small"
+              class="sidebar-foot__rail-trash"
+              :class="{ 'sidebar-foot__btn--active': isTrashView }"
+              :aria-label="trashFootLabel"
+              :title="trashFootLabel"
+              @click="handleSidebarViewSelect('trash')"
+            >
+              <v-icon size="20">mdi-trash-can-outline</v-icon>
+              <span v-if="sidebarCounts.trash_count > 0" class="sidebar-foot__dot" aria-hidden="true" />
+            </v-btn>
             <v-btn
               icon="mdi-cog-outline"
               variant="text"
@@ -307,6 +287,19 @@
                 title="Tastenkürzel"
                 @click="openShortcutsHelp"
               />
+              <v-btn
+                icon
+                variant="text"
+                size="small"
+                class="sidebar-foot__btn"
+                :class="{ 'sidebar-foot__btn--active': isTrashView }"
+                :aria-label="trashFootLabel"
+                :title="trashFootLabel"
+                @click="handleSidebarViewSelect('trash')"
+              >
+                <v-icon size="20">mdi-trash-can-outline</v-icon>
+                <span v-if="sidebarCounts.trash_count > 0" class="sidebar-foot__dot" aria-hidden="true" />
+              </v-btn>
               <v-btn
                 icon="mdi-cog-outline"
                 variant="text"
@@ -343,11 +336,56 @@
           @year-select="showDocumentsFromDashboardYear"
         />
 
+        <GlobalSearchResults
+          v-if="!isDossierRoute && !isWikiRoute && activeView === 'search'"
+          :query="globalSearchText"
+          :tags="tags"
+          :categories="categories"
+          :selected-result="selectedGlobalResult"
+          @select-result="selectedGlobalResult = $event"
+        />
+
+        <section
+          v-if="!isDossierRoute && !isWikiRoute && activeView === 'search'"
+          class="panel panel-right global-search-preview"
+          aria-label="Suchtreffer-Vorschau"
+        >
+          <template v-if="selectedGlobalResult">
+            <div class="global-search-preview__content">
+              <PdfPreview
+                v-if="selectedGlobalResult.type === 'document'"
+                :key="selectedGlobalResult.item.id"
+                :src="globalPreviewDocumentSrc"
+                :highlight-text="globalSearchText.trim()"
+              />
+              <NotePreview
+                v-else-if="selectedGlobalResult.type === 'note'"
+                :key="selectedGlobalResult.item.id"
+                :note-id="selectedGlobalResult.item.id"
+              />
+              <div v-else class="global-search-preview__summary">
+                <v-icon size="32">{{ selectedGlobalResult.type === 'tag' ? 'mdi-tag-outline' : 'mdi-shape-outline' }}</v-icon>
+                <h2>{{ globalPreviewTitle }}</h2>
+                <p>{{ globalPreviewTypeLabel }}</p>
+                <p v-if="selectedGlobalResult.item.usage_count != null">{{ selectedGlobalResult.item.usage_count }} Verwendungen</p>
+              </div>
+            </div>
+          </template>
+          <div v-else class="global-search-preview__empty">
+            <PmEmptyState
+              icon="mdi-file-search-outline"
+              title="Vorschau"
+              subtitle="Wähle links einen Suchtreffer aus."
+              size="md"
+            />
+          </div>
+        </section>
+
         <NotesWorkspace
           v-if="!isDossierRoute && !isWikiRoute && activeView === 'notes'"
           class="panel panel-notes"
-          :search-query="parsedSearch.q"
-          :search-scope="noteSearchScope"
+          v-model:search-query="noteListSearchText"
+          v-model:search-scope="noteListSearchScope"
           @trash-changed="scheduleSidebarCountsRefresh"
         />
 
@@ -361,12 +399,15 @@
         />
 
         <section
-          v-if="!isDossierRoute && !isWikiRoute && activeView !== 'dashboard' && activeView !== 'notes' && activeView !== 'tag'"
+          v-if="!isDossierRoute && !isWikiRoute && activeView !== 'dashboard' && activeView !== 'notes' && activeView !== 'tag' && activeView !== 'search'"
           class="panel panel-middle"
           :class="{ 'panel-middle--tag-filter-open': isListFilterDrawerOpen }"
           :style="listFilterDrawerOffsetStyle"
         >
-          <div class="panel-middle__header">
+          <div
+            class="panel-middle__header"
+            :class="{ 'panel-middle__header--search-focused': isHeaderSearchFocused }"
+          >
             <div class="panel-middle__title">
               <div class="panel-middle__heading">{{ panelHeading }}</div>
               <div v-if="showSearchScopeToggle" class="panel-middle__scope">
@@ -378,6 +419,100 @@
                 >{{ scopeSwitchLabel }}</button>
               </div>
               <div v-else-if="resultCountLabel" class="panel-middle__count">{{ resultCountLabel }}</div>
+            </div>
+            <div
+              v-if="!isChatView && !isTagView && !isCategoryView"
+              class="pm-searchbar pm-searchbar--header"
+              :class="{ 'pm-searchbar--filled': !!searchText, 'pm-searchbar--scoped': searchScope !== 'all' }"
+              role="search"
+              @focusin="onHeaderSearchFocusIn"
+              @focusout="onHeaderSearchFocusOut"
+            >
+              <v-text-field
+                ref="appBarSearchRef"
+                v-model="searchText"
+                class="pm-searchbar__field"
+                prepend-inner-icon="mdi-magnify"
+                clearable
+                :placeholder="documentSearchPlaceholder"
+                aria-label="Diese Dokumentliste durchsuchen"
+                density="compact"
+                variant="plain"
+                hide-details
+                @keydown="handleSearchShortcut"
+                @click:clear="clearSearchFromInput"
+              />
+              <span class="pm-searchbar__divider" aria-hidden="true" />
+              <v-menu v-model="isSearchScopeMenuOpen" location="bottom end" offset="6">
+                <template #activator="{ props: menuProps }">
+                  <button
+                    v-bind="menuProps"
+                    type="button"
+                    class="pm-searchbar__scope"
+                    :aria-label="`Suchfeld: ${activeSearchScopeLabel}`"
+                    :title="`Suchen in: ${activeSearchScopeLabel}`"
+                  >
+                    <v-icon size="15" class="pm-searchbar__scope-icon">{{ activeSearchScopeIcon }}</v-icon>
+                    <span class="pm-searchbar__scope-label">{{ activeSearchScopeLabel }}</span>
+                    <v-icon size="14" class="pm-searchbar__scope-chevron">mdi-chevron-down</v-icon>
+                  </button>
+                </template>
+                <v-list class="pm-menu pm-searchbar__menu" density="compact">
+                  <v-list-subheader>Suchen in</v-list-subheader>
+                  <v-list-item
+                    v-for="option in SEARCH_SCOPE_OPTIONS"
+                    :key="option.value"
+                    :title="option.label"
+                    :prepend-icon="option.icon"
+                    :active="searchScope === option.value"
+                    @click="selectSearchScope(option.value)"
+                  >
+                    <template v-if="searchScope === option.value" #append>
+                      <v-icon size="16">mdi-check</v-icon>
+                    </template>
+                  </v-list-item>
+                </v-list>
+              </v-menu>
+            </div>
+            <div
+              v-else-if="isTagView"
+              class="pm-searchbar pm-searchbar--header"
+              :class="{ 'pm-searchbar--filled': !!tagSearchText }"
+              role="search"
+              @focusin="onHeaderSearchFocusIn"
+              @focusout="onHeaderSearchFocusOut"
+            >
+              <v-text-field
+                v-model="tagSearchText"
+                class="pm-searchbar__field"
+                prepend-inner-icon="mdi-magnify"
+                clearable
+                placeholder="Suchen …"
+                aria-label="Tagliste durchsuchen"
+                density="compact"
+                variant="plain"
+                hide-details
+              />
+            </div>
+            <div
+              v-else-if="isCategoryView"
+              class="pm-searchbar pm-searchbar--header"
+              :class="{ 'pm-searchbar--filled': !!categorySearchText }"
+              role="search"
+              @focusin="onHeaderSearchFocusIn"
+              @focusout="onHeaderSearchFocusOut"
+            >
+              <v-text-field
+                v-model="categorySearchText"
+                class="pm-searchbar__field"
+                prepend-inner-icon="mdi-magnify"
+                clearable
+                placeholder="Suchen …"
+                aria-label="Dokumenttypenliste durchsuchen"
+                density="compact"
+                variant="plain"
+                hide-details
+              />
             </div>
             <div v-if="isChatView" class="panel-middle__actions panel-middle__actions--chat">
               <v-menu
@@ -517,13 +652,15 @@
                 offset-y="6"
               >
                 <v-btn
-                  class="list-header-btn"
+                  class="list-header-btn pm-header-icon-btn"
                   color="primary"
                   variant="tonal"
+                  icon
+                  aria-label="Importieren"
+                  title="Importieren"
                   @click="openImport"
                 >
-                  <v-icon size="18" class="mr-1">mdi-tray-arrow-up</v-icon>
-                  Importieren
+                  <v-icon size="20">mdi-tray-arrow-up</v-icon>
                 </v-btn>
               </v-badge>
             </div>
@@ -540,6 +677,10 @@
                 Endgültig löschen
               </v-btn>
             </div>
+          </div>
+          <div v-if="!isChatView && !isTagView && !isCategoryView && searchHintMessages.length" class="document-list-search-hint" role="status">
+            <v-icon size="14">mdi-information-outline</v-icon>
+            {{ searchHintMessages[0] }}
           </div>
 
           <DocumentCalendar
@@ -927,7 +1068,7 @@
           />
         </section>
 
-        <section v-if="!isDossierRoute && !isWikiRoute && activeView !== 'dashboard' && activeView !== 'notes' && activeView !== 'tag'" class="panel panel-right">
+        <section v-if="!isDossierRoute && !isWikiRoute && activeView !== 'dashboard' && activeView !== 'notes' && activeView !== 'tag' && activeView !== 'search'" class="panel panel-right">
           <DocumentPreviewLayout
             class="panel-right__preview panel-right__preview--card-drawer"
             :style="detailsDrawerCardStyle"
@@ -1621,6 +1762,7 @@ const DashboardView = defineAsyncComponent(() => import('./DashboardView.vue'));
 const DossierWorkspace = defineAsyncComponent(() => import('./DossierWorkspace.vue'));
 const WikiWorkspace = defineAsyncComponent(() => import('./WikiWorkspace.vue'));
 const NotesWorkspace = defineAsyncComponent(() => import('./NotesWorkspace.vue'));
+const GlobalSearchResults = defineAsyncComponent(() => import('./GlobalSearchResults.vue'));
 const TagResultsView = defineAsyncComponent(() => import('./TagResultsView.vue'));
 const NotePreview = defineAsyncComponent(() => import('../components/notes/NotePreview.vue'));
 import { useNotesStore } from '../stores/notes.js';
@@ -1672,6 +1814,7 @@ import {
 } from '../api/notes.js';
 import {
   acceptDocumentRetention,
+  documentFileUrl,
   documentDownloadUrl,
   documentsExportUrl,
   getDocumentRetention,
@@ -1739,11 +1882,6 @@ const SEARCH_SCOPE_OPTIONS = Object.freeze([
   { value: 'correspondent', label: 'Korrespondent', icon: 'mdi-account-outline' },
   { value: 'tags', label: 'Tags', icon: 'mdi-tag-outline' },
   { value: 'year', label: 'Jahr', icon: 'mdi-calendar-outline' }
-]);
-const NOTE_SEARCH_SCOPE_OPTIONS = Object.freeze([
-  { value: 'all', label: 'Alles', icon: 'mdi-file-search-outline' },
-  { value: 'title', label: 'Titel', icon: 'mdi-file-document-outline' },
-  { value: 'ocr_text', label: 'Inhalt', icon: 'mdi-note-outline' }
 ]);
 const DOCUMENT_BATCH_ACTIONS = Object.freeze([
   { key: 'tag', label: 'Tags', icon: 'mdi-tag-multiple-outline' },
@@ -2536,6 +2674,10 @@ function onFollowLink(annotation) {
   selectDocument(targetId);
 }
 const { sidebarCounts, isLoadingSidebarCounts, savedSearches, isLoadingSavedSearches } = storeToRefs(sidebarStore);
+const trashFootLabel = computed(() => {
+  const count = Number(sidebarCounts.value.trash_count || 0);
+  return count > 0 ? `Papierkorb (${count})` : 'Papierkorb (leer)';
+});
 
 const activeView = ref('all');
 // Tag-Trefferseite (T3): kombinierte Ansicht Dokumente + Notizen für ein Tag.
@@ -4308,7 +4450,7 @@ const panelHeading = computed(() => {
     return ATTENTION_LABELS[activeAttention.value] || 'Dokumente';
   }
   const labels = {
-    all: 'Alle Dokumente',
+    all: 'Dokumente',
     chat: 'Wissen',
     imports: 'Zuletzt hinzugefügt',
     untagged: 'Ohne Tags',
@@ -4371,6 +4513,11 @@ const searchScopeContext = computed(() => {
   return null;
 });
 const hasNarrowerSearchScope = computed(() => Boolean(searchScopeContext.value));
+const documentSearchPlaceholder = computed(() => {
+  if (!searchScopeContext.value) return 'Suchen …';
+  const mode = hasSearchQuery.value ? searchScopeMode.value : defaultSearchScopeMode.value;
+  return mode === 'all' ? 'Im Bestand suchen …' : 'Hier suchen …';
+});
 
 // Identität des aktiven Bereichs – wechselt sie, startet die Reichweite neu.
 const searchScopeContextKey = computed(() =>
@@ -7930,6 +8077,11 @@ async function openDocumentFromDashboard(documentId) {
   // Ergebnisseite, verwarf die Reload-Reconciliation die eben gesetzte Auswahl
   // wieder (bzw. behielt die alte). Deshalb sequenziell:
   selectView('all', { skipFetch: true });
+  // Der Ansichtswechsel plant sonst über documentViewContextKey eine Auswahl
+  // des ersten Listeneintrags ein. Sie würde das explizit gewählte Suchergebnis
+  // überschreiben, sobald die Dokumentenliste geladen wird.
+  await nextTick();
+  pendingSelectFirstDocument = false;
   // 1) Zielauswahl + Detail (Vorschau) setzen. selectDocument setzt
   //    selectedDocumentId, sodass die anschließende Reconciliation das Ziel als
   //    aktuelle Auswahl sieht und nicht auf ein anderes Dokument zurückfällt.
@@ -9337,11 +9489,9 @@ const {
   parsedSearch,
   searchHintMessages,
   showSnippets,
-  searchPlaceholder,
   syncSearchStateToQuery,
   triggerSearchNow,
   focusSearchFieldInput,
-  onAppBarSearchInput,
   clearSearchFromInput,
   handleSearchEscape
 } = useSearch({
@@ -9359,30 +9509,102 @@ const {
   resolveToolbarStatus
 });
 
-function handleSidebarSearchInput(value) {
+const globalSearchText = ref('');
+const selectedGlobalResult = ref(null);
+const noteListSearchText = ref('');
+const noteListSearchScope = ref('all');
+const globalPreviewTypeLabel = computed(() => ({
+  document: 'Dokument',
+  note: 'Notiz',
+  tag: 'Tag',
+  category: 'Dokumenttyp'
+})[selectedGlobalResult.value?.type] || 'Treffer');
+const globalPreviewTitle = computed(() => {
+  const item = selectedGlobalResult.value?.item;
+  if (!item) return '';
+  return item.display_name || item.original_filename || item.title || item.name || 'Ohne Titel';
+});
+const globalPreviewDocumentSrc = computed(() => {
+  const selection = selectedGlobalResult.value;
+  return selection?.type === 'document' ? documentFileUrl(selection.item.id, 'searchable') : '';
+});
+
+function handleGlobalSearchInput(value) {
   leaveDossierRoute();
-  onAppBarSearchInput(value);
+  const next = value ?? '';
+  const hadQuery = Boolean(globalSearchText.value.trim());
+  if (!globalSearchText.value.trim() && String(next).trim()) selectedGlobalResult.value = null;
+  globalSearchText.value = next;
+  if (String(next).trim()) {
+    activeView.value = 'search';
+  } else if (hadQuery && activeView.value === 'search') {
+    leaveGlobalSearchForSelection(selectedGlobalResult.value);
+  }
 }
 
-const noteSearchScope = computed(() => {
-  if (searchScope.value === 'title') return 'title';
-  if (searchScope.value === 'ocr_text') return 'body';
-  return 'all';
+function submitGlobalSearch() {
+  if (!globalSearchText.value.trim()) return;
+  activeView.value = 'search';
+  logSearchEvent(globalSearchText.value);
+}
+
+function clearGlobalSearch() {
+  handleGlobalSearchInput('');
+}
+
+function leaveGlobalSearchForSelection(selection) {
+  if (!selection) {
+    selectView('all');
+    return;
+  }
+  const { type, item } = selection;
+  if (type === 'document') {
+    searchText.value = '';
+    void openDocumentFromDashboard(item.id);
+  } else if (type === 'note') {
+    noteListSearchText.value = '';
+    openLinkedNoteInWorkspace(item.id);
+  } else if (type === 'tag') {
+    tagSearchText.value = item.name;
+    openTagsView();
+  } else if (type === 'category') {
+    categorySearchText.value = item.name;
+    openCategoriesView();
+  } else {
+    selectView('all');
+  }
+}
+
+watch(activeView, (view) => {
+  if (view !== 'search') {
+    globalSearchText.value = '';
+    selectedGlobalResult.value = null;
+  }
 });
-const effectiveSearchScope = computed(() => (
-  activeView.value === 'notes'
-    ? (['all', 'title', 'ocr_text'].includes(searchScope.value) ? searchScope.value : 'all')
-    : searchScope.value
-));
-const searchScopeOptions = computed(() => (
-  activeView.value === 'notes' ? NOTE_SEARCH_SCOPE_OPTIONS : SEARCH_SCOPE_OPTIONS
-));
-const activeSearchScopeLabel = computed(
-  () => searchScopeOptions.value.find((option) => option.value === effectiveSearchScope.value)?.label || 'Alles'
+
+const activeSearchScopeOption = computed(
+  () => SEARCH_SCOPE_OPTIONS.find((option) => option.value === searchScope.value) || SEARCH_SCOPE_OPTIONS[0]
 );
+const activeSearchScopeLabel = computed(() => activeSearchScopeOption.value.label);
+const activeSearchScopeIcon = computed(() => activeSearchScopeOption.value.icon);
+
+// Kopfzeilen-Suche: Solange sie den Fokus hat (oder ihr Bereichsmenü offen
+// ist), weicht der Titel und das Feld nutzt die volle Kopfbreite.
+const isHeaderSearchFocusWithin = ref(false);
+const isSearchScopeMenuOpen = ref(false);
+const isHeaderSearchFocused = computed(() => isHeaderSearchFocusWithin.value || isSearchScopeMenuOpen.value);
+
+function onHeaderSearchFocusIn() {
+  isHeaderSearchFocusWithin.value = true;
+}
+
+function onHeaderSearchFocusOut(event) {
+  if (event.currentTarget?.contains(event.relatedTarget)) return;
+  isHeaderSearchFocusWithin.value = false;
+}
 
 function selectSearchScope(scope) {
-  searchScope.value = searchScopeOptions.value.some((option) => option.value === scope) ? scope : 'all';
+  searchScope.value = SEARCH_SCOPE_OPTIONS.some((option) => option.value === scope) ? scope : 'all';
   nextTick(() => {
     focusSearchFieldInput();
   });
@@ -9396,17 +9618,8 @@ watch(
   }
 );
 
-// Wird in der Dashboard-Ansicht etwas in die Suchleiste eingegeben, in die
-// Dokumentenliste wechseln, damit die Treffer sichtbar werden. Der aktuelle
-// Suchzustand bleibt erhalten (selectView('all') synchronisiert ihn in die Query).
-watch(searchText, (value) => {
-  if (activeView.value === 'dashboard' && String(value || '').trim()) {
-    selectView('all');
-  }
-});
-
 watch(documentListQueryReloadKey, () => {
-  if (isChatView.value || isTagView.value || isCategoryView.value || activeView.value === 'notes') {
+  if (isChatView.value || isTagView.value || isCategoryView.value || activeView.value === 'notes' || activeView.value === 'search') {
     return;
   }
   startDocumentListSettle();
@@ -9426,7 +9639,7 @@ const documentViewContextKey = computed(() =>
 let pendingSelectFirstDocument = false;
 
 watch(documentViewContextKey, () => {
-  if (isTagView.value || isCategoryView.value) return;
+  if (isTagView.value || isCategoryView.value || activeView.value === 'search') return;
   pendingSelectFirstDocument = true;
 });
 

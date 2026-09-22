@@ -83,6 +83,123 @@ test('failed login stays usable, successful login opens workspace', async ({ pag
   expect(errors).toEqual([]);
 });
 
+test('global search opens the selected result in its list when cleared', async ({ page }, testInfo) => {
+  await mockApi(page);
+  const selectedDocId = '10000000-0000-4000-8000-000000000002';
+  const listDocuments = [
+    { id: docId, original_filename: 'Prüfbeleg.pdf', display_name: 'Prüfbeleg' },
+    { id: selectedDocId, original_filename: 'Prüfbericht.pdf', display_name: 'Prüfbericht', snippet: 'Prüf-<mark>bericht</mark> bestätigt' },
+  ].map((doc) => ({
+    ...doc, notes: '', document_date: null, status: 'ready', ocr_status: 'not_started',
+    text_source: 'none', embedding_status: 'not_started', is_deleted: false,
+    is_unread: false, tags: [], files: [], jobs: [], flags: {}, page_count: 0,
+    created_at: '2026-09-01T10:00:00Z', updated_at: '2026-09-01T10:00:00Z',
+  }));
+  await page.route(/^.*\/api\/documents(?:\?.*)?$/, async (route) => {
+    await route.fulfill({ json: { items: listDocuments, total: listDocuments.length, limit: 100, offset: 0 } });
+  });
+  await page.route(`**/api/documents/${selectedDocId}`, async (route) => {
+    await route.fulfill({ json: listDocuments[1] });
+  });
+  await page.route(/^.*\/api\/notes(?:\?.*)?$/, async (route) => {
+    await route.fulfill({ json: { items: [{
+      id: '30000000-0000-4000-8000-000000000001', title: 'Prüfnotiz', preview: 'Prüfbeleg erklärt',
+      created_at: '2026-09-01T10:00:00Z', updated_at: '2026-09-01T10:00:00Z',
+    }] } });
+  });
+  await page.route('**/api/notes/30000000-0000-4000-8000-000000000001', async (route) => {
+    await route.fulfill({ json: {
+      id: '30000000-0000-4000-8000-000000000001', title: 'Prüfnotiz',
+      body_json: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Prüfbeleg erklärt' }] }] },
+      created_at: '2026-09-01T10:00:00Z', updated_at: '2026-09-01T10:00:00Z',
+    } });
+  });
+  await login(page);
+
+  await page.getByPlaceholder('Überall suchen …').fill('Prüf');
+  await expect(page.getByRole('heading', { name: 'Suchergebnisse' })).toBeVisible();
+  const resultsHeader = page.locator('.global-results__header');
+  await expect(resultsHeader.locator('.panel-middle__heading')).toHaveText('Suchergebnisse');
+  await expect(resultsHeader.locator('.panel-middle__count')).toContainText('Treffer');
+  await expect(resultsHeader.locator('input')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: /Dokumente/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Notizen/ })).toBeVisible();
+  await expect(page.getByText('Prüfnotiz')).toBeVisible();
+  const selectedSnippet = page.getByRole('region', { name: 'Globale Suchergebnisse' }).locator('.global-results__snippet').filter({ hasText: 'Prüf-bericht bestätigt' });
+  await expect(selectedSnippet.locator('mark')).toHaveText('bericht');
+  await expect(selectedSnippet).not.toContainText('<mark>');
+  await page.getByRole('button', { name: 'Standard', exact: true }).click();
+  await page.getByText('Name Z–A', { exact: true }).click();
+  await expect(page.locator('.global-results__group').first().locator('li').first()).toContainText('Prüfbericht');
+  await page.getByRole('button', { name: 'Alle Treffer', exact: true }).click();
+  await page.getByText('Notizen', { exact: true }).last().click();
+  await expect(page.getByRole('heading', { name: /Dokumente/ })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: /Notizen/ })).toBeVisible();
+  await expect(page.locator('.global-results__header .panel-middle__count')).toContainText('1 Treffer');
+  await page.getByRole('button', { name: 'Notizen', exact: true }).click();
+  await page.getByText('Alle Treffer', { exact: true }).last().click();
+  await page.getByRole('button', { name: /Prüfbericht Dokument/ }).click();
+  const preview = page.getByRole('region', { name: 'Suchtreffer-Vorschau' });
+  await expect(preview).toBeVisible();
+  await expect(preview.getByRole('region', { name: 'PDF Vorschau' })).toBeVisible();
+  await expect(preview.getByRole('button', { name: 'Öffnen', exact: true })).toHaveCount(0);
+  await expect(page.locator('.global-results__open')).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('global-search-split.png') });
+  await page.getByPlaceholder('Überall suchen …').fill('');
+  await expect(page.getByLabel('Diese Dokumentliste durchsuchen')).toBeVisible();
+  await expect(page.getByPlaceholder('Überall suchen …')).toHaveValue('');
+  await expect(page.getByRole('heading', { name: 'Suchergebnisse' })).toHaveCount(0);
+  await expect(page.locator(`.document-row--active[data-document-id="${selectedDocId}"]`)).toBeVisible();
+  await expect(page.getByPlaceholder('Dokumentname…')).toHaveValue('Prüfbericht');
+  await expect(page.getByRole('region', { name: 'PDF Vorschau' })).toBeVisible();
+
+  await page.getByText('Alle Notizen', { exact: true }).click();
+  const showNotesList = page.getByRole('button', { name: 'Notizenliste einblenden' });
+  await expect(showNotesList).toBeVisible();
+  await showNotesList.click();
+  await page.getByLabel('Notizen durchsuchen', { exact: true }).fill('Prüf');
+  await expect(page.getByText('Prüfnotiz')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Suchergebnisse' })).toHaveCount(0);
+
+  await page.getByPlaceholder('Überall suchen …').fill('Prüf');
+  await page.getByRole('button', { name: /Prüfnotiz Notiz/ }).click();
+  await expect(preview.getByText('Notiz · Nur-Lese-Vorschau')).toBeVisible();
+  await expect(preview).toContainText('Prüfbeleg erklärt');
+  await page.screenshot({ path: testInfo.outputPath('global-search-note-preview.png') });
+  await page.locator('.sidebar-search__field .v-field__clearable').click();
+  await expect(page.getByRole('heading', { name: 'Suchergebnisse' })).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Titel der Notiz' })).toHaveValue('Prüfnotiz');
+  await expect(page.getByRole('region', { name: 'Notizbereich' })).toContainText('Prüfbeleg erklärt');
+  await expect(page.locator('.notes-ws__item.is-active[data-note-id="30000000-0000-4000-8000-000000000001"]')).toBeVisible();
+});
+
+test('global tag and document type results lead to their filtered lists', async ({ page }) => {
+  await mockApi(page);
+  await page.route(/^.*\/api\/tags(?:\?.*)?$/, async (route) => {
+    await route.fulfill({ json: { items: [{ id: 'tag-1', name: 'Rechnung', usage_count: 1 }] } });
+  });
+  await page.route(/^.*\/api\/document-types(?:\?.*)?$/, async (route) => {
+    await route.fulfill({ json: { items: [{ id: 'type-1', name: 'Rechnungstyp', usage_count: 1 }] } });
+  });
+  await login(page);
+
+  await page.getByPlaceholder('Überall suchen …').fill('Rechnung');
+  await expect(page.getByRole('heading', { name: 'Suchergebnisse' })).toBeVisible();
+  await page.getByRole('button', { name: 'Rechnung', exact: true }).click();
+  await page.getByPlaceholder('Überall suchen …').fill('');
+  await expect(page.getByLabel('Tagliste durchsuchen')).toHaveValue('Rechnung');
+  await expect(page.locator('.tag-row').filter({ hasText: 'Rechnung' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Suchergebnisse' })).toHaveCount(0);
+
+  await page.getByPlaceholder('Überall suchen …').fill('Rechnungstyp');
+  await expect(page.getByRole('heading', { name: 'Suchergebnisse' })).toBeVisible();
+  await page.getByRole('button', { name: 'Rechnungstyp', exact: true }).click();
+  await page.getByPlaceholder('Überall suchen …').fill('');
+  await expect(page.getByLabel('Dokumenttypenliste durchsuchen')).toHaveValue('Rechnungstyp');
+  await expect(page.locator('.tag-row').filter({ hasText: 'Rechnungstyp' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Suchergebnisse' })).toHaveCount(0);
+});
+
 test('note settings use the standard PaperMind header and grouped live preview', async ({ page }) => {
   await mockApi(page);
   await login(page);

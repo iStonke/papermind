@@ -10,6 +10,7 @@
         </span>
       </template>
       <template v-else>
+        <slot name="leading" />
         <v-menu
           v-for="action in actions"
           :key="action.key"

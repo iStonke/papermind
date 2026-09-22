@@ -138,7 +138,8 @@ test('notes list follows the shared title, toolbar, and row hierarchy', () => {
   assert.match(templateSource, /notes-ws__item-snippet/);
   assert.match(workspaceSource, /notes-ws__item\.is-active/);
   const compactListTemplate = templateSource.slice(0, templateSource.indexOf('<Transition name="notes-ws-manage"'));
-  assert.doesNotMatch(compactListTemplate, /<v-text-field|type="search"|notes-ws__toggle/);
+  assert.match(compactListTemplate, /aria-label="Notizen durchsuchen"/);
+  assert.doesNotMatch(compactListTemplate, /notes-ws__toggle/);
 });
 
 test('notes list is grouped by creation day with compact sticky headers', () => {

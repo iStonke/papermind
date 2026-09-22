@@ -5,7 +5,6 @@
         <UserAvatar :user="auth.user" current :size="30" />
         <div class="sidebar-account__info">
           <div class="sidebar-account__name">{{ auth.user?.display_name || auth.username }}</div>
-          <div class="sidebar-account__role">{{ auth.isAdmin ? 'Administrator' : 'Benutzer' }}</div>
         </div>
         <v-icon size="16" class="sidebar-account__chev">mdi-chevron-up</v-icon>
       </button>
@@ -123,11 +122,6 @@ async function onLogout() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.sidebar-account__role {
-  font-size: 0.7rem;
-  color: var(--pm-muted);
 }
 
 .sidebar-account__chev {

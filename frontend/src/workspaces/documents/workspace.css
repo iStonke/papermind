@@ -173,6 +173,16 @@
   color: var(--pm-accent);
 }
 
+.document-list-search-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  font-size: 0.75rem;
+  color: var(--pm-muted);
+  border-bottom: 1px solid var(--pm-divider);
+}
+
 /* ── Sidebar-Fuß (Konto + Einstellungen + Aktivität) ───────────────────────── */
 .sidebar-foot {
   display: flex;
@@ -191,7 +201,8 @@
 }
 
 .sidebar-foot__rail-settings,
-.sidebar-foot__rail-help {
+.sidebar-foot__rail-help,
+.sidebar-foot__rail-trash {
   display: none !important;
   color: var(--pm-muted) !important;
   transition:
@@ -204,9 +215,30 @@
 .sidebar-foot__rail-help:hover,
 .sidebar-foot__rail-help:focus-visible,
 .sidebar-foot__rail-settings:hover,
-.sidebar-foot__rail-settings:focus-visible {
+.sidebar-foot__rail-settings:focus-visible,
+.sidebar-foot__rail-trash:hover,
+.sidebar-foot__rail-trash:focus-visible {
   background: var(--pm-sidebar-hover) !important;
   color: var(--pm-accent) !important;
+}
+
+/* Papierkorb in der Fußleiste: aktiv markiert, wenn geöffnet; ein kleiner
+   Punkt statt Zahl zeigt, dass etwas darin liegt (Anzahl im Tooltip). */
+.sidebar-foot__btn--active {
+  background: var(--pm-sidebar-hover) !important;
+  color: var(--pm-accent) !important;
+}
+
+.sidebar-foot__dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pm-muted);
+  box-shadow: 0 0 0 2px var(--pm-sidebar-surface);
+  pointer-events: none;
 }
 
 .appbar-search__field .v-field--focused .v-field__outline {
@@ -2063,6 +2095,12 @@
   padding-top: 12px;
 }
 
+/* Zähler von Ansichten leiser als die Bestandszahlen. */
+.panel-left .sidebar-item-count.sidebar-item-count--quiet {
+  font-weight: 500;
+  opacity: 0.5;
+}
+
 /* Kopfbereich und Profilbereich bleiben außerhalb des Scrollbereichs. */
 .panel-left > .sidebar-head,
 .panel-left > .sidebar-foot {
@@ -2089,6 +2127,35 @@
   gap: 1px;
   min-width: 0;
   flex: 1 1 auto;
+}
+
+/* Mit Suchfeld in der Kopfzeile: Titel nimmt nur, was er braucht (max. 40 %),
+   das Feld den Rest. Beim Fokus weicht der Titel ganz. */
+.panel-middle__header:has(.pm-searchbar--header) .panel-middle__title {
+  flex: 0 1 auto;
+  max-width: 40%;
+  margin-right: 14px;
+  transition:
+    max-width var(--pm-duration-base, 220ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    opacity var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    margin var(--pm-duration-base, 220ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.panel-middle__header.panel-middle__header--search-focused .panel-middle__title {
+  max-width: 0 !important;
+  opacity: 0;
+  margin-right: -12px;
+  pointer-events: none;
+}
+
+.pm-no-animations .panel-middle__title {
+  transition-duration: 0ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-middle__title {
+    transition-duration: 0ms !important;
+  }
 }
 
 .panel-middle__heading {
@@ -2281,6 +2348,13 @@
   gap: 2px;
 }
 
+/* Drei Fuß-Aktionen (Tastenkürzel, Papierkorb, Einstellungen): kompakt,
+   damit der Kontoname daneben nicht abgeschnitten wird. */
+.sidebar-foot__actions > .sidebar-foot__btn.v-btn {
+  width: 32px;
+  height: 32px;
+}
+
 .panel-left .v-list-item-title,
 .panel-left .v-list-item__content,
 .panel-left .v-list-item__append,
@@ -2316,6 +2390,46 @@
 .workspace.workspace--rail.workspace--notes {
   grid-template-columns: 64px 1fr;
 }
+
+.workspace.workspace--search {
+  grid-template-columns: 288px minmax(0, 1fr) minmax(360px, 43%);
+}
+.workspace.workspace--rail.workspace--search {
+  grid-template-columns: 64px minmax(0, 1fr) minmax(360px, 43%);
+}
+
+.global-search-preview {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.global-search-preview__content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.global-search-preview__empty {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+}
+
+.global-search-preview__summary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--pm-muted);
+}
+
+.global-search-preview__summary h2 { margin: 0; color: var(--pm-text); }
+.global-search-preview__summary p { margin: 0; }
 
 .workspace.workspace--tag {
   grid-template-columns: 288px 1fr;
@@ -2524,7 +2638,8 @@
 }
 
 .workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-foot__rail-settings,
-.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-foot__rail-help {
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-foot__rail-help,
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-foot__rail-trash {
   display: inline-flex !important;
   width: 38px;
   height: 38px;
@@ -4969,6 +5084,20 @@
     grid-template-columns: 260px 1fr;
   }
 
+  .workspace.workspace--search {
+    grid-template-columns: 260px minmax(280px, 1fr) minmax(320px, 42%);
+  }
+
+  .workspace.workspace--rail.workspace--search {
+    grid-template-columns: 64px minmax(280px, 1fr) minmax(320px, 42%);
+  }
+
+  .workspace.workspace--search .panel-right {
+    grid-column: auto;
+    height: auto;
+    border-top: 0;
+  }
+
   .workspace.workspace--notes {
     grid-template-columns: 260px minmax(0, 1fr);
   }
@@ -5001,6 +5130,18 @@
   .workspace.workspace--notes,
   .workspace.workspace--rail.workspace--notes {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace.workspace--search,
+  .workspace.workspace--rail.workspace--search {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .global-results { min-height: 45vh; }
+
+  .workspace.workspace--search .panel-right {
+    height: min(64vh, 520px);
+    border-top: 1px solid var(--pm-divider);
   }
 
   .panel {

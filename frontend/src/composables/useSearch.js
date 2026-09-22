@@ -3,15 +3,6 @@ import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue';
 const SEARCH_DEBOUNCE_MS = 300;
 const SEARCHABLE_STATUSES = new Set(['imported', 'processing', 'ready', 'failed']);
 const SEARCH_SCOPES = new Set(['all', 'title', 'ocr_text', 'document_type', 'correspondent', 'tags', 'year']);
-const SEARCH_SCOPE_PLACEHOLDERS = Object.freeze({
-  all: 'Suchen…',
-  title: 'Titel oder Dateiname suchen…',
-  ocr_text: 'OCR-Text suchen…',
-  document_type: 'Dokumenttyp suchen…',
-  correspondent: 'Korrespondent suchen…',
-  tags: 'Tags suchen…',
-  year: 'Jahr suchen…'
-});
 
 function isValidYear(value) {
   if (!/^\d{4}$/.test(value)) {
@@ -131,7 +122,6 @@ function statusFromView(_viewKey) {
  * Kapselt den gesamten Suchzustand der App:
  *   - Suchtext und AppBar-Ref
  *   - Geparste Suche (Freitext, Status, Datum)
- *   - Kontextsensitiver Placeholder
  *   - Debounced Dokumenten-Reload
  *   - Synchronisation der Suche in die documentListQuery
  *
@@ -178,16 +168,6 @@ export function useSearch({
 
   const showSnippets = computed(() => Boolean(parsedSearch.value.q));
 
-  const searchPlaceholder = computed(() => {
-    if (activeView.value === 'tags') return 'Tags suchen…';
-    if (activeView.value === 'notes') {
-      if (searchScope.value === 'title') return 'Notiztitel suchen…';
-      if (searchScope.value === 'ocr_text') return 'Notizinhalt suchen…';
-      return 'Notizen durchsuchen…';
-    }
-    return SEARCH_SCOPE_PLACEHOLDERS[searchScope.value] || SEARCH_SCOPE_PLACEHOLDERS.all;
-  });
-
   // ── Funktionen ──────────────────────────────────────────────────────────────
 
   function syncSearchStateToQuery(options = {}) {
@@ -220,14 +200,10 @@ export function useSearch({
     }
     if (
       !isTagView.value
-      && !['chat', 'dashboard', 'notes'].includes(activeView.value)
+      && !['chat', 'dashboard', 'notes', 'search'].includes(activeView.value)
     ) {
       void fetchDocuments(selectedDocumentId.value);
     }
-  }
-
-  function onAppBarSearchInput(value) {
-    searchText.value = value ?? '';
   }
 
   function clearSearchFromInput() {
@@ -279,6 +255,7 @@ export function useSearch({
         || activeView.value === 'chat'
         || activeView.value === 'dashboard'
         || activeView.value === 'notes'
+        || activeView.value === 'search'
       ) {
         return;
       }
@@ -301,11 +278,9 @@ export function useSearch({
     parsedSearch,
     searchHintMessages,
     showSnippets,
-    searchPlaceholder,
     syncSearchStateToQuery,
     triggerSearchNow,
     focusSearchFieldInput,
-    onAppBarSearchInput,
     clearSearchFromInput,
     handleSearchEscape
   };

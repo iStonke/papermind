@@ -14,7 +14,10 @@
       :aria-hidden="panelInert ? 'true' : undefined"
       :inert="panelInert"
     >
-      <header class="notes-ws__header">
+      <header
+        class="notes-ws__header"
+        :class="{ 'notes-ws__header--search-focused': isHeaderSearchFocused }"
+      >
         <div class="notes-ws__title">
           <div class="notes-ws__heading">
             <span>Notizen</span>
@@ -22,36 +25,51 @@
           <div class="notes-ws__count">{{ resultCountLabel }}</div>
         </div>
 
-        <!-- Sammlungs-Chip: horizontal in der Titelleiste zentriert (absolut,
-             wie die Verwaltungs-Suchleiste), unabhängig von Titel-/Button-Breite. -->
-        <v-menu location="bottom center" :offset="6">
-          <template #activator="{ props: pillProps }">
-            <button
-              type="button"
-              class="notes-ws__collection-pill notes-ws__collection-pill--centered"
-              v-bind="pillProps"
-              :title="`Sammlung: ${activeCollectionName}`"
-              aria-label="Sammlung wechseln"
-            >
-              <span class="notes-ws__collection-dot" :style="collectionDotStyle(activeCollection)"></span>
-              <span class="notes-ws__collection-name">{{ activeCollectionName }}</span>
-              <v-icon size="15">mdi-chevron-down</v-icon>
-            </button>
-          </template>
-          <v-list density="compact" min-width="220" class="notes-ws__collection-menu">
-            <v-list-subheader>Sammlung</v-list-subheader>
-            <v-list-item
-              v-for="c in collections"
-              :key="c.id"
-              :title="c.name"
-              :active="c.id === activeCollectionId"
-              @click="switchCollection(c.id)"
-            >
-              <template #prepend><span class="notes-ws__collection-dot" :style="collectionDotStyle(c)"></span></template>
-              <template #append><span class="notes-ws__collection-count">{{ c.note_count }}</span></template>
-            </v-list-item>
-          </v-list>
-        </v-menu>
+        <div
+          class="pm-searchbar pm-searchbar--header"
+          :class="{ 'pm-searchbar--filled': !!listSearchQuery, 'pm-searchbar--scoped': listSearchScope !== 'all' }"
+          role="search"
+          @focusin="onHeaderSearchFocusIn"
+          @focusout="onHeaderSearchFocusOut"
+        >
+          <v-text-field
+            v-model="listSearchQuery"
+            class="pm-searchbar__field"
+            prepend-inner-icon="mdi-magnify"
+            clearable
+            placeholder="Suchen …"
+            aria-label="Notizen durchsuchen"
+            density="compact"
+            variant="plain"
+            hide-details
+          />
+          <span class="pm-searchbar__divider" aria-hidden="true" />
+          <v-menu v-model="isListSearchScopeMenuOpen" location="bottom end" offset="6">
+            <template #activator="{ props: menuProps }">
+              <button v-bind="menuProps" type="button" class="pm-searchbar__scope" :aria-label="`Suchfeld: ${listSearchScopeLabel}`" :title="`Suchen in: ${listSearchScopeLabel}`">
+                <v-icon size="15" class="pm-searchbar__scope-icon">{{ listSearchScopeIcon }}</v-icon>
+                <span class="pm-searchbar__scope-label">{{ listSearchScopeLabel }}</span>
+                <v-icon size="14" class="pm-searchbar__scope-chevron">mdi-chevron-down</v-icon>
+              </button>
+            </template>
+            <v-list class="pm-menu pm-searchbar__menu" density="compact">
+              <v-list-subheader>Suchen in</v-list-subheader>
+              <v-list-item
+                v-for="option in listSearchScopeOptions"
+                :key="option.value"
+                :title="option.label"
+                :prepend-icon="option.icon"
+                :active="listSearchScope === option.value"
+                @click="listSearchScope = option.value"
+              >
+                <template v-if="listSearchScope === option.value" #append>
+                  <v-icon size="16">mdi-check</v-icon>
+                </template>
+              </v-list-item>
+            </v-list>
+          </v-menu>
+        </div>
+
 
         <div class="notes-ws__header-actions">
           <v-btn
@@ -74,7 +92,40 @@
           :actions="toolbarActions"
           :show-selection="false"
           @action-select="handleToolbarAction"
-        />
+        >
+          <template #leading>
+            <!-- Sammlung: oberster Space-Wechsel, dezent vorn in der Filterzeile. -->
+            <v-menu location="bottom start" :offset="4">
+              <template #activator="{ props: collectionMenuProps }">
+                <button
+                  type="button"
+                  class="notes-ws__collection-switch"
+                  v-bind="collectionMenuProps"
+                  :title="`Sammlung: ${activeCollectionName}`"
+                  aria-label="Sammlung wechseln"
+                >
+                  <span class="notes-ws__collection-dot" :style="collectionDotStyle(activeCollection)"></span>
+                  <span class="notes-ws__collection-name">{{ activeCollectionName }}</span>
+                  <v-icon size="13" class="notes-ws__collection-chevron">mdi-chevron-down</v-icon>
+                </button>
+              </template>
+              <v-list density="compact" min-width="220" class="notes-ws__collection-menu">
+                <v-list-subheader>Sammlung</v-list-subheader>
+                <v-list-item
+                  v-for="c in collections"
+                  :key="c.id"
+                  :title="c.name"
+                  :active="c.id === activeCollectionId"
+                  @click="switchCollection(c.id)"
+                >
+                  <template #prepend><span class="notes-ws__collection-dot" :style="collectionDotStyle(c)"></span></template>
+                  <template #append><span class="notes-ws__collection-count">{{ c.note_count }}</span></template>
+                </v-list-item>
+              </v-list>
+            </v-menu>
+            <span class="notes-ws__toolbar-divider" aria-hidden="true"></span>
+          </template>
+        </ListActionToolbar>
 
         <div
           class="notes-ws__list-dropzone"
@@ -397,8 +448,8 @@
           ref="manageGridRef"
           class="notes-ws__manage"
           :facet="manageFacet"
-          :search-query="searchQuery"
-          :search-scope="searchScope"
+          :search-query="normalizedSearchQuery"
+          :search-scope="normalizedSearchScope"
           :global-search-query="normalizedManageSearchQuery"
           :global-search-notes="manageSearchNotes"
           :global-search-notebooks="matchingManageNotebooks"
@@ -449,13 +500,41 @@ import { groupNotesByCreationDay } from '../utils/noteDateGroups.js';
 import { normalizeCollectionColor } from '../utils/noteCollectionColor.js';
 
 const props = defineProps({
-  /** Suchtext aus der globalen PaperMind-Seitenleiste. */
   searchQuery: { type: String, default: '' },
-  /** Im Notizenbereich: all | title | body. */
   searchScope: { type: String, default: 'all' },
 });
+const emit = defineEmits(['trash-changed', 'update:searchQuery', 'update:searchScope']);
+const listSearchQuery = computed({
+  get: () => props.searchQuery,
+  set: (value) => emit('update:searchQuery', value ?? ''),
+});
+const listSearchScope = computed({
+  get: () => props.searchScope,
+  set: (value) => emit('update:searchScope', value),
+});
+const listSearchScopeOptions = [
+  { value: 'all', label: 'Alles', icon: 'mdi-file-search-outline' },
+  { value: 'title', label: 'Titel', icon: 'mdi-format-title' },
+  { value: 'body', label: 'Inhalt', icon: 'mdi-text' },
+];
+const listSearchScopeOption = computed(() => listSearchScopeOptions.find((option) => option.value === listSearchScope.value) || listSearchScopeOptions[0]);
+const listSearchScopeLabel = computed(() => listSearchScopeOption.value.label);
+const listSearchScopeIcon = computed(() => listSearchScopeOption.value.icon);
 
-const emit = defineEmits(['trash-changed']);
+// Kopfzeilen-Suche wie in der Dokumentliste: Bei Fokus (oder offenem
+// Bereichsmenü) weicht der Titel und das Feld nutzt die volle Breite.
+const isHeaderSearchFocusWithin = ref(false);
+const isListSearchScopeMenuOpen = ref(false);
+const isHeaderSearchFocused = computed(() => isHeaderSearchFocusWithin.value || isListSearchScopeMenuOpen.value);
+
+function onHeaderSearchFocusIn() {
+  isHeaderSearchFocusWithin.value = true;
+}
+
+function onHeaderSearchFocusOut(event) {
+  if (event.currentTarget?.contains(event.relatedTarget)) return;
+  isHeaderSearchFocusWithin.value = false;
+}
 
 const NOTE_SORT_OPTIONS = [
   { value: 'updated', label: 'Zuletzt bearbeitet' },
@@ -541,13 +620,13 @@ const MANAGE_SEARCH_DEBOUNCE_MS = 180;
 
 const isListPanelCollapsed = computed(() => isListCollapsed.value && !isCompactLayout.value);
 const panelInert = computed(() => isListPanelCollapsed.value || isManageMode.value);
-const normalizedSearchQuery = computed(() => String(props.searchQuery || '').trim().slice(0, 256));
+const normalizedSearchQuery = computed(() => String(listSearchQuery.value || '').trim().slice(0, 256));
 const normalizedSearchScope = computed(() => (
-  ['all', 'title', 'body'].includes(props.searchScope) ? props.searchScope : 'all'
+  ['all', 'title', 'body'].includes(listSearchScope.value) ? listSearchScope.value : 'all'
 ));
 const activeSearchKey = computed(() => (
   normalizedSearchQuery.value
-    ? `${normalizedSearchScope.value}:${normalizedSearchQuery.value.toLocaleLowerCase('de-DE')}`
+    ? `${activeCollectionId.value || 'all'}:${normalizedSearchScope.value}:${normalizedSearchQuery.value.toLocaleLowerCase('de-DE')}`
     : ''
 ));
 const normalizedManageSearchQuery = computed(() => (
@@ -684,7 +763,7 @@ const emptyTitle = computed(() => {
 });
 
 const emptyCopy = computed(() => {
-  if (activeSearchKey.value) return 'Passe den Suchbegriff an oder leere die globale Suche.';
+  if (activeSearchKey.value) return 'Passe den Suchbegriff an oder leere die Notizensuche.';
   if (!notesStore.notes.length) return 'Halte Gedanken und Fundstellen an einem Ort fest.';
   if (notebookFilter.value) return 'Verschiebe Notizen hierher oder wähle ein anderes Notizbuch.';
   return 'Wähle oben einen anderen Zeitraum aus.';
@@ -886,7 +965,7 @@ function scheduleNoteSearch(delay = NOTE_SEARCH_DEBOUNCE_MS) {
   noteSearchTimer = window.setTimeout(async () => {
     noteSearchTimer = null;
     try {
-      const results = await notesStore.searchNotes(query, { scope });
+      const results = await notesStore.searchNotes(query, { scope, collectionId: activeCollectionId.value });
       if (revision !== noteSearchRevision || key !== activeSearchKey.value) return;
       searchedNotes.value = results;
     } catch {
@@ -926,6 +1005,9 @@ async function applyPendingOpen() {
   const id = notesStore.pendingOpenId;
   const cursorPosition = notesStore.pendingOpenCursorPosition;
   if (!id) return;
+  // Ein Treffer aus der globalen Suche muss unabhängig von der lokalen
+  // Notizensuche sichtbar sein.
+  listSearchQuery.value = '';
   await notesStore.ensureLoaded();
   if (!notesStore.notes.some((note) => note.id === id)) {
     // Nicht in der aktiven Sammlung sichtbar? Detail laden, ggf. in die
@@ -1507,6 +1589,23 @@ function formatDate(value) {
   gap: 1px;
 }
 
+.notes-ws__header:has(.pm-searchbar--header) > .notes-ws__title {
+  flex: 0 1 auto;
+  max-width: 40%;
+  margin-right: 14px;
+  transition:
+    max-width var(--pm-duration-base, 220ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    opacity var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    margin var(--pm-duration-base, 220ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.notes-ws__header.notes-ws__header--search-focused > .notes-ws__title {
+  max-width: 0 !important;
+  opacity: 0;
+  margin-right: -12px;
+  pointer-events: none;
+}
+
 .notes-ws__heading {
   display: flex;
   align-items: baseline;
@@ -1531,41 +1630,50 @@ function formatDate(value) {
   text-overflow: ellipsis;
 }
 
-/* --- Sammlungs-Spiegel-Pille (oberster Space-Wechsel) -------------------- */
-.notes-ws__collection-pill {
+/* --- Sammlungs-Wechsel (dezent vorn in der Filterzeile) ------------------ */
+.notes-ws__collection-switch {
   display: inline-flex;
   align-items: center;
-  align-self: center;
-  gap: 7px;
-  max-width: 168px;
-  padding: 5px 9px;
-  border: 1px solid color-mix(in srgb, var(--pm-text, #0f172a) 9%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--pm-text, #0f172a) 4%, transparent);
+  gap: 6px;
+  max-width: 150px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
   color: var(--pm-muted);
+  font: inherit;
   font-size: 0.78rem;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
-  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+  transition:
+    background-color var(--pm-duration-fast, 140ms) var(--pm-easing, ease),
+    color var(--pm-duration-fast, 140ms) var(--pm-easing, ease);
 }
-.notes-ws__collection-pill:hover,
-.notes-ws__collection-pill:focus-visible {
-  background: color-mix(in srgb, var(--pm-text, #0f172a) 8%, transparent);
-  border-color: color-mix(in srgb, var(--pm-text, #0f172a) 16%, transparent);
+.notes-ws__collection-switch:hover,
+.notes-ws__collection-switch:focus-visible,
+.notes-ws__collection-switch[aria-expanded='true'] {
+  background: rgba(var(--v-theme-on-surface), 0.06);
   color: var(--pm-text);
 }
-/* Horizontal in der Titelleiste zentriert (unabhängig von Titel-/Button-Breite). */
-.notes-ws__collection-pill--centered {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 2;
+.notes-ws__collection-switch:focus-visible {
+  outline: 2px solid var(--pm-accent);
+  outline-offset: -2px;
+}
+.notes-ws__collection-chevron {
+  opacity: 0.6;
+}
+.notes-ws__toolbar-divider {
+  flex: none;
+  width: 1px;
+  height: 14px;
+  margin: 0 4px;
+  background: rgba(var(--v-theme-on-surface), 0.12);
 }
 .notes-ws__collection-dot {
   flex: 0 0 auto;
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--pm-coll-dot, var(--pm-accent, #006b75));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, #000 14%, transparent);
@@ -1913,6 +2021,7 @@ function formatDate(value) {
   min-height: 0;
   flex-direction: column;
 }
+
 
 .notes-ws__list-dropzone {
   position: relative;

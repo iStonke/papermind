@@ -5,8 +5,8 @@
     </div>
 
     <div class="sidebar-scroll" @mouseleave="scheduleFlyoutClose">
-    <!-- Übersicht (eigenständig, über der Bibliothek) -->
-    <v-list nav density="compact" class="views-list views-list--standalone" @mouseenter="onRailSectionEnter('uebersicht', $event)">
+    <!-- Übersicht: Startseite, steht allein über allen Rubriken -->
+    <v-list nav density="compact" class="views-list views-list--standalone" @mouseenter="onRailSectionEnter(null, $event)">
       <SidebarItem
         item-class="sidebar-item--primary sidebar-item--plain-label"
         :active="isViewActive('dashboard')"
@@ -17,21 +17,26 @@
         </template>
         Übersicht
       </SidebarItem>
+    </v-list>
+
+    <v-divider class="sidebar-section-divider" />
+
+    <!-- Arbeitsbereiche: quellenübergreifende Orte, keine Datenquellen -->
+    <v-list nav density="compact" class="views-list" @mouseenter="onRailSectionEnter('arbeitsbereiche', $event)">
+      <div class="sidebar-section-header sidebar-section-header--static">
+        <div class="sidebar-section-label">Arbeitsbereiche</div>
+      </div>
 
       <SidebarItem
         v-if="showDossiers"
         item-class="sidebar-item--primary sidebar-item--plain-label sidebar-item--dossiers"
         :active="dossiersActive"
-        :reserve-right="false"
         @click="openDossiers()"
       >
         <template #icon>
           <v-icon size="18">mdi-table-furniture</v-icon>
         </template>
         Leuchttische
-        <template #append>
-          <span v-if="!collapsed" class="sidebar-dossier-count">{{ dossierCount }}</span>
-        </template>
       </SidebarItem>
 
       <SidebarItem
@@ -50,140 +55,145 @@
 
     <v-divider class="sidebar-section-divider sidebar-section-divider--after-uebersicht" />
 
-    <!-- Bibliothek -->
-    <v-list nav density="compact" class="views-list" @mouseenter="onRailSectionEnter('bibliothek', $event)">
-      <div class="sidebar-section-header sidebar-section-header--static">
-        <div class="sidebar-section-label">Bibliothek</div>
+    <template v-for="(section, idx) in sidebarLayout" :key="section.key">
+      <v-divider v-if="idx > 0" class="sidebar-section-divider" />
+
+    <!-- Dokumente: Rubrik mit Bestand + Filteransichten -->
+    <v-list v-if="section.key === 'dokumente'" nav density="compact" class="views-list" @mouseenter="onRailSectionEnter('dokumente', $event)">
+      <div
+        class="sidebar-section-header"
+        :class="{ 'sidebar-section-header--collapsed': dokumenteCollapsed }"
+        @click="toggleSection('dokumente')"
+      >
+        <div class="sidebar-section-label">Dokumente</div>
+        <div class="sidebar-section-header-actions">
+          <button
+            type="button"
+            class="sidebar-section-toggle"
+            :aria-label="dokumenteCollapsed ? 'Bereich einblenden' : 'Bereich ausblenden'"
+            tabindex="-1"
+            @click.stop="toggleSection('dokumente')"
+          >
+            <v-icon size="13" class="sidebar-section-toggle-icon">mdi-chevron-down</v-icon>
+          </button>
+        </div>
       </div>
 
-      <div class="sidebar-section-drawer">
+      <div class="sidebar-section-drawer" :class="{ 'sidebar-section-drawer--collapsed': dokumenteCollapsed }">
         <div class="sidebar-section-content">
-          <SidebarItem
-            ref="allDocumentsItemRef"
-            item-class="sidebar-item--primary sidebar-item--plain-label"
-            :active="isViewActive('all')"
-            :count="allDocumentsSidebarCount"
-            :pulse-key="allDocumentsPulseKey"
-            @click="emit('select-view', 'all')"
-          >
-            <template #icon>
-              <v-icon size="18">mdi-book-open-page-variant-outline</v-icon>
-            </template>
-            Alle Dokumente
-          </SidebarItem>
+            <SidebarItem
+              ref="allDocumentsItemRef"
+              item-class="sidebar-item--primary sidebar-item--plain-label"
+              :active="isViewActive('all')"
+              :count="allDocumentsSidebarCount"
+              :pulse-key="allDocumentsPulseKey"
+              @click="emit('select-view', 'all')"
+            >
+              <template #icon>
+                <v-icon size="18">mdi-book-open-page-variant-outline</v-icon>
+              </template>
+              Alle Dokumente
+            </SidebarItem>
 
-          <SidebarItem
-            item-class="sidebar-item--secondary"
-            :active="isViewActive('notes')"
-            :count="notesSidebarCount"
-            @click="emit('select-view', 'notes')"
-          >
-            <template #icon>
-              <v-icon size="18">mdi-note-outline</v-icon>
-            </template>
-            Notizen
-          </SidebarItem>
+            <SidebarItem
+              v-if="settingsStore.settings.ui.sidebar_show_recent !== false"
+              item-class="sidebar-item--secondary sidebar-item--imports"
+              :active="isViewActive('imports')"
+              count-class="sidebar-item-count--quiet"
+              :count="importsSidebarCount"
+              @click="emit('select-view', 'imports')"
+            >
+              <template #icon>
+                <v-icon size="18">mdi-tray-arrow-down</v-icon>
+              </template>
+              Zuletzt hinzugefügt
+            </SidebarItem>
 
-          <SidebarItem
-            v-if="settingsStore.settings.ui.sidebar_show_recent !== false"
-            item-class="sidebar-item--secondary sidebar-item--imports"
-            :active="isViewActive('imports')"
-            :count="importsSidebarCount"
-            @click="emit('select-view', 'imports')"
-          >
-            <template #icon>
-              <v-icon size="18">mdi-tray-arrow-down</v-icon>
-            </template>
-            Zuletzt hinzugefügt
-          </SidebarItem>
+            <SidebarItem
+              v-if="favoritesSidebarCount > 0"
+              item-class="sidebar-item--secondary sidebar-item--favorites"
+              :active="isViewActive('favorites')"
+              count-class="sidebar-item-count--quiet"
+              :count="favoritesSidebarCount"
+              @click="emit('select-view', 'favorites')"
+            >
+              <template #icon>
+                <v-icon size="18">mdi-star-outline</v-icon>
+              </template>
+              Favoriten
+            </SidebarItem>
 
-          <SidebarItem
-            v-if="settingsStore.settings.ui.sidebar_show_untagged !== false && untaggedSidebarCount > 0"
-            item-class="sidebar-item--secondary"
-            :active="isViewActive('untagged')"
-            :count="untaggedSidebarCount"
-            @click="emit('select-view', 'untagged')"
-          >
-            <template #icon>
-              <v-icon size="18">mdi-tag-off-outline</v-icon>
-            </template>
-            Ohne Tags
-          </SidebarItem>
+            <SidebarItem
+              v-if="settingsStore.settings.ui.sidebar_show_untagged !== false && untaggedSidebarCount > 0"
+              item-class="sidebar-item--secondary"
+              :active="isViewActive('untagged')"
+              count-class="sidebar-item-count--quiet"
+              :count="untaggedSidebarCount"
+              @click="emit('select-view', 'untagged')"
+            >
+              <template #icon>
+                <v-icon size="18">mdi-tag-off-outline</v-icon>
+              </template>
+              Ohne Tags
+            </SidebarItem>
 
-          <SidebarItem
-            v-if="favoritesSidebarCount > 0"
-            item-class="sidebar-item--secondary sidebar-item--favorites"
-            :active="isViewActive('favorites')"
-            :count="favoritesSidebarCount"
-            @click="emit('select-view', 'favorites')"
-          >
-            <template #icon>
-              <v-icon size="18">mdi-star-outline</v-icon>
-            </template>
-            Favoriten
-          </SidebarItem>
-
-          <SidebarItem
-            v-if="settingsStore.settings.ui.sidebar_show_no_text !== false"
-            item-class="sidebar-item--secondary"
-            :active="isViewActive('no_text')"
-            :count="noTextSidebarCount"
-            @click="emit('select-view', 'no_text')"
-          >
-            <template #icon>
-              <v-icon size="18">mdi-text-box-remove-outline</v-icon>
-            </template>
-            Nicht durchsuchbar
-          </SidebarItem>
-
-          <SidebarItem
-            item-class="sidebar-item--secondary sidebar-item--trash"
-            :active="isViewActive('trash')"
-            :count="trashSidebarCount"
-            :action-mode="trashSidebarCount > 0 ? 'hover-active' : 'never'"
-            @click="emit('select-view', 'trash')"
-          >
-            <template #icon>
-              <v-icon size="18">mdi-trash-can-outline</v-icon>
-            </template>
-            Papierkorb
-            <template #action>
-              <v-menu location="bottom end">
-                <template #activator="{ props }">
-                  <v-btn
-                    class="sidebar-folder-menu-btn"
-                    icon="mdi-dots-horizontal"
-                    size="small"
-                    density="comfortable"
-                    variant="text"
-                    v-bind="props"
-                    aria-label="Papierkorb-Menü"
-                    @click.stop
-                  />
-                </template>
-                <v-list density="compact">
-                  <v-list-item class="menu-item--danger" @click.stop="emit('empty-trash')">
-                    <template #prepend>
-                      <v-icon size="16">mdi-delete-forever-outline</v-icon>
-                    </template>
-                    <v-list-item-title>Alle endgültig löschen…</v-list-item-title>
-                  </v-list-item>
-                </v-list>
-              </v-menu>
-            </template>
-          </SidebarItem>
-
+            <SidebarItem
+              v-if="settingsStore.settings.ui.sidebar_show_no_text !== false"
+              item-class="sidebar-item--secondary"
+              :active="isViewActive('no_text')"
+              count-class="sidebar-item-count--quiet"
+              :count="noTextSidebarCount"
+              @click="emit('select-view', 'no_text')"
+            >
+              <template #icon>
+                <v-icon size="18">mdi-text-box-remove-outline</v-icon>
+              </template>
+              Nicht durchsuchbar
+            </SidebarItem>
         </div>
       </div>
     </v-list>
 
-    <v-divider class="sidebar-section-divider sidebar-section-divider--after-library" />
+    <!-- Notizen -->
+    <v-list v-else-if="section.key === 'notizen'" nav density="compact" class="views-list" @mouseenter="onRailSectionEnter('notizen', $event)">
+      <div
+        class="sidebar-section-header"
+        :class="{ 'sidebar-section-header--collapsed': notizenCollapsed }"
+        @click="toggleSection('notizen')"
+      >
+        <div class="sidebar-section-label">Notizen</div>
+        <div class="sidebar-section-header-actions">
+          <button
+            type="button"
+            class="sidebar-section-toggle"
+            :aria-label="notizenCollapsed ? 'Bereich einblenden' : 'Bereich ausblenden'"
+            tabindex="-1"
+            @click.stop="toggleSection('notizen')"
+          >
+            <v-icon size="13" class="sidebar-section-toggle-icon">mdi-chevron-down</v-icon>
+          </button>
+        </div>
+      </div>
 
-    <template v-for="(section, idx) in orderedSidebarSections" :key="section.key">
-      <v-divider v-if="idx > 0" class="sidebar-section-divider" />
+      <div class="sidebar-section-drawer" :class="{ 'sidebar-section-drawer--collapsed': notizenCollapsed }">
+        <div class="sidebar-section-content">
+            <SidebarItem
+              item-class="sidebar-item--primary sidebar-item--plain-label"
+              :active="isViewActive('notes')"
+              :count="notesSidebarCount"
+              @click="emit('select-view', 'notes')"
+            >
+              <template #icon>
+                <v-icon size="18">mdi-note-outline</v-icon>
+              </template>
+              Alle Notizen
+            </SidebarItem>
+        </div>
+      </div>
+    </v-list>
 
     <!-- Ordner -->
-    <v-list v-if="section.key === 'ordner'" nav density="compact" class="views-list" @mouseenter="onRailSectionEnter('ordner', $event)">
+    <v-list v-else-if="section.key === 'ordner'" nav density="compact" class="views-list" @mouseenter="onRailSectionEnter('ordner', $event)">
       <div
         class="sidebar-section-header sidebar-section-header--title-action"
         :class="{ 'sidebar-section-header--collapsed': ordnerCollapsed }"
@@ -424,6 +434,7 @@
       </div>
     </v-list>
     </template>
+
     </div>
 
     <!-- Rail-Flyout (Vorlage 6b): Sektion öffnet sich beim Hover -->
@@ -507,7 +518,6 @@ const emit = defineEmits([
   'create-folder',
   'edit-folder',
   'delete-folder',
-  'empty-trash',
   'open-tags-view',
   'apply-tag-filter',
   'open-categories-view',
@@ -526,9 +536,8 @@ const { tags }                         = storeToRefs(tagStore);
 const { categories }                   = storeToRefs(categoryStore);
 const { dossiers }                     = storeToRefs(dossierStore);
 
-// ── Leuchttische: Hauptnavigation + Zähler ──────────────────────────────────
+// ── Leuchttische: Hauptnavigation ─────────────────────────────────────────
 const showDossiers = computed(() => settingsStore.settings.ui.sidebar_show_dossiers !== false);
-const dossierCount = computed(() => dossiers.value.length);
 function openDossiers() { emit('open-dossiers'); }
 
 onMounted(() => {
@@ -543,6 +552,14 @@ const orderedSidebarSections = computed(() =>
   normalizeSidebarSections(settingsStore.settings.ui.sidebar_sections)
     .filter((section) => section.visible !== false)
 );
+
+// Gliederung nach Datenquellen: erst die Quellen (Notizen, Dokumente), danach
+// die konfigurierbaren Sektionen (Ordner, Tags, Dokumenttypen) in eigener Ebene.
+const sidebarLayout = computed(() => [
+  { key: 'notizen' },
+  { key: 'dokumente' },
+  ...orderedSidebarSections.value.map((section) => ({ key: section.key })),
+]);
 
 function clampSidebarMax(value, fallback = 5) {
   const parsed = Math.round(Number(value));
@@ -563,13 +580,15 @@ function saveCollapsed(key, value) {
   try { localStorage.setItem(`pm-sidebar-collapsed-${key}`, String(value)); } catch { /* ignore */ }
 }
 
-const bibliothekCollapsed = ref(loadCollapsed('bibliothek'));
+const notizenCollapsed    = ref(loadCollapsed('notizen'));
+const dokumenteCollapsed  = ref(loadCollapsed('dokumente'));
 const ordnerCollapsed     = ref(loadCollapsed('ordner'));
 const tagsCollapsed       = ref(loadCollapsed('tags'));
 const kategorienCollapsed = ref(loadCollapsed('kategorien'));
 
 const sectionStates = {
-  bibliothek: bibliothekCollapsed,
+  notizen:    notizenCollapsed,
+  dokumente:  dokumenteCollapsed,
   ordner:     ordnerCollapsed,
   tags:       tagsCollapsed,
   kategorien: kategorienCollapsed,
@@ -636,7 +655,6 @@ const importsSidebarCount = computed(
 const untaggedSidebarCount  = computed(() => Number(sidebarCounts.value.untagged       || 0));
 const favoritesSidebarCount = computed(() => Number(sidebarCounts.value.favorites_count || 0));
 const noTextSidebarCount    = computed(() => Number(sidebarCounts.value.no_text_count   || 0));
-const trashSidebarCount     = computed(() => Number(sidebarCounts.value.trash_count     || 0));
 // Notizen aus dem Store (Backend). Beim ersten Mount laden, damit der Zähler stimmt.
 const notesStore = useNotesStore();
 onMounted(() => notesStore.ensureLoaded());
@@ -714,8 +732,9 @@ const railFlyoutTop = ref(0);
 let flyoutCloseTimer = null;
 
 const flyoutTitle = computed(() => ({
-  uebersicht: 'Übersicht',
-  bibliothek: 'Bibliothek',
+  arbeitsbereiche: 'Arbeitsbereiche',
+  dokumente: 'Dokumente',
+  notizen: 'Notizen',
   ordner: 'Ordner',
   tags: 'Tags',
   kategorien: 'Dokumenttypen',
@@ -724,15 +743,11 @@ const flyoutTitle = computed(() => ({
 const flyoutRows = computed(() => {
   const ui = settingsStore.settings.ui;
   switch (railFlyoutSection.value) {
-    case 'uebersicht': {
-      const rows = [{
-        id: 'dashboard', icon: 'mdi-view-dashboard-outline', label: 'Übersicht',
-        count: null, active: isViewActive('dashboard'),
-        run: () => emit('select-view', 'dashboard'),
-      }];
+    case 'arbeitsbereiche': {
+      const rows = [];
       if (showDossiers.value) rows.push({
         id: 'dossiers', icon: 'mdi-table-furniture', label: 'Leuchttische',
-        count: dossierCount.value, active: props.dossiersActive, run: () => openDossiers(),
+        count: null, active: props.dossiersActive, run: () => openDossiers(),
       });
       if (ui.sidebar_show_chat !== false) rows.push({
         id: 'chat', icon: 'mdi-brain', label: 'Wissen',
@@ -740,44 +755,40 @@ const flyoutRows = computed(() => {
       });
       return rows;
     }
-    case 'bibliothek': {
+    case 'dokumente': {
       const rows = [{
         id: 'all', icon: 'mdi-book-open-page-variant-outline', label: 'Alle Dokumente',
         count: allDocumentsSidebarCount.value, active: isViewActive('all'),
         run: () => emit('select-view', 'all'),
       }];
-      rows.push({
-        id: 'notes', icon: 'mdi-note-outline', label: 'Notizen',
-        count: notesSidebarCount.value, active: isViewActive('notes'),
-        run: () => emit('select-view', 'notes'),
-      });
       if (ui.sidebar_show_recent !== false) rows.push({
         id: 'imports', icon: 'mdi-tray-arrow-down', label: 'Zuletzt hinzugefügt',
         count: importsSidebarCount.value, active: isViewActive('imports'),
         run: () => emit('select-view', 'imports'),
-      });
-      if (ui.sidebar_show_untagged !== false && untaggedSidebarCount.value > 0) rows.push({
-        id: 'untagged', icon: 'mdi-tag-off-outline', label: 'Ohne Tags',
-        count: untaggedSidebarCount.value, active: isViewActive('untagged'),
-        run: () => emit('select-view', 'untagged'),
       });
       if (favoritesSidebarCount.value > 0) rows.push({
         id: 'favorites', icon: 'mdi-star-outline', label: 'Favoriten',
         count: favoritesSidebarCount.value, active: isViewActive('favorites'),
         run: () => emit('select-view', 'favorites'),
       });
+      if (ui.sidebar_show_untagged !== false && untaggedSidebarCount.value > 0) rows.push({
+        id: 'untagged', icon: 'mdi-tag-off-outline', label: 'Ohne Tags',
+        count: untaggedSidebarCount.value, active: isViewActive('untagged'),
+        run: () => emit('select-view', 'untagged'),
+      });
       if (ui.sidebar_show_no_text !== false) rows.push({
         id: 'no_text', icon: 'mdi-text-box-remove-outline', label: 'Nicht durchsuchbar',
         count: noTextSidebarCount.value, active: isViewActive('no_text'),
         run: () => emit('select-view', 'no_text'),
       });
-      rows.push({
-        id: 'trash', icon: 'mdi-trash-can-outline', label: 'Papierkorb',
-        count: trashSidebarCount.value, active: isViewActive('trash'),
-        run: () => emit('select-view', 'trash'),
-      });
       return rows;
     }
+    case 'notizen':
+      return [{
+        id: 'notes', icon: 'mdi-note-outline', label: 'Alle Notizen',
+        count: notesSidebarCount.value, active: isViewActive('notes'),
+        run: () => emit('select-view', 'notes'),
+      }];
     case 'ordner': {
       const rows = [{
         id: 'create', icon: 'mdi-folder-plus-outline', label: 'Ordner erstellen',
@@ -903,7 +914,7 @@ onBeforeUnmount(() => {
   cursor: default;
 }
 
-/* Bibliothek: statischer Kopf, nicht einklappbar (Kern-Navigation). */
+/* Statischer Kopf, nicht einklappbar (z. B. Arbeitsbereiche). */
 .sidebar-section-header--static {
   cursor: default;
 }
@@ -963,15 +974,6 @@ onBeforeUnmount(() => {
 .sidebar-all-folders-menu {
   max-height: min(60vh, 440px);
   overflow-y: auto;
-}
-
-.sidebar-dossier-count {
-  min-width: 2ch;
-  color: var(--pm-sidebar-muted);
-  font-size: .78rem;
-  font-weight: 600;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
 }
 
 .sidebar-section-icon-action {

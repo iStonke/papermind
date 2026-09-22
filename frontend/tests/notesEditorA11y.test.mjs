@@ -63,19 +63,18 @@ test('keyboard shortcuts overview opens via Mod+/ and is a robust modal', () => 
   assert.match(editorSource, /\(event\.metaKey \|\| event\.ctrlKey\) && !event\.altKey && event\.key === '\/'/);
   assert.match(editorSource, /openShortcuts\(\)/);
   assert.match(editorSource, /uiStore\.openShortcuts\(\)/);
-  assert.match(shortcutsSource, /role="dialog"\s+aria-modal="true"\s+aria-labelledby="pm-keys-title"/);
-  assert.match(shortcutsSource, /<Teleport to="body">/);
-  assert.match(shortcutsSource, /@click\.self="close"/);
-  assert.match(shortcutsSource, /@keydown\.esc\.prevent\.stop="close"/);
-  assert.match(shortcutsSource, /@keyframes pm-keys-pop/);
+  assert.match(shortcutsSource, /<BaseDialog[\s\S]*?title="Tastenkürzel"/);
+  assert.match(shortcutsSource, /header-subtitle="Alle Tastaturkürzel und Mausgesten in PaperMind\."/);
+  assert.match(shortcutsSource, /@update:model-value="emit\('update:modelValue', \$event\)"/);
+  assert.match(shortcutsSource, /@keyframes pm-keys-frost-in/);
   // Enthält u.a. die Hinweisblock-Zeilenanfang-Kürzel (?, !, = + Leertaste).
   assert.match(shortcutsSource, /title: 'Hinweisblöcke'[\s\S]*?label: 'Frage', combos: \[\['\?', '␣'\]\]/);
   // Breiteres Fenster + fixierte, nicht mitscrollende Titelzeile: Kopf ist
   // flex:none, nur das Grid scrollt.
-  assert.match(shortcutsSource, /\.pm-keys \{[\s\S]*?width: min\(1040px, 100%\)[\s\S]*?display: flex[\s\S]*?flex-direction: column[\s\S]*?overflow: hidden/);
-  assert.match(shortcutsSource, /\.pm-keys__head \{[\s\S]*?flex: none/);
-  assert.match(shortcutsSource, /\.pm-keys__body \{[\s\S]*?overflow-y: auto/);
-  assert.match(shortcutsSource, /\.pm-keys__grid \{[\s\S]*?grid-template-columns: repeat\(auto-fill/);
+  assert.match(shortcutsSource, /:max-width="1040"/);
+  assert.match(shortcutsSource, /class="pm-keys__tabs" role="tablist"/);
+  assert.match(shortcutsSource, /class="pm-keys__body" :style="bodyStyle"/);
+  assert.match(shortcutsSource, /class="pm-keys__grid"/);
 });
 
 test('secondary menus share one icon size and expose focus-visible states', () => {

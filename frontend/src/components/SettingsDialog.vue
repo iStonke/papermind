@@ -95,7 +95,7 @@
             >
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Startseite</div>
-                <div class="pm-setting-description">Nach dem Login die Übersicht statt „Alle Dokumente“ anzeigen.</div>
+                <div class="pm-setting-description">Nach dem Login die Übersicht statt „Dokumente“ anzeigen.</div>
               </div>
               <v-switch
                 :model-value="dashboardStartEnabled"
@@ -568,7 +568,7 @@
                 <div class="pm-setting-label">„Zuletzt hinzugefügt" anzeigen für</div>
                 <div class="pm-setting-description">
                   Bestimmt, wie lange neue Dokumente in der Seitenleiste unter „Zuletzt hinzugefügt" auftauchen.
-                  In „Alle Dokumente" bleiben sie dauerhaft sichtbar.
+                  In „Dokumente" bleiben sie dauerhaft sichtbar.
                 </div>
               </div>
               <v-select

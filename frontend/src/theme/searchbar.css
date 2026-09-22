@@ -1,0 +1,165 @@
+/* Gemeinsame Listen-Suchleiste (Dokumente, Tags, Typen, Notizen).
+   Global, weil die Bereichs-Menüs per Teleport außerhalb der Views landen. */
+
+.pm-searchbar {
+  --pm-searchbar-h: 38px;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: var(--pm-searchbar-h);
+  border-radius: 11px;
+  background: rgba(var(--v-theme-on-surface), 0.045);
+  box-shadow: inset 0 0 0 1px rgba(var(--v-theme-on-surface), 0.08);
+  transition:
+    background-color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    box-shadow var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.pm-searchbar:hover {
+  background: rgba(var(--v-theme-on-surface), 0.065);
+  box-shadow: inset 0 0 0 1px rgba(var(--v-theme-on-surface), 0.13);
+}
+
+.pm-searchbar:focus-within {
+  background: rgb(var(--v-theme-surface));
+  box-shadow:
+    inset 0 0 0 1px var(--pm-accent),
+    0 0 0 3px color-mix(in srgb, var(--pm-accent) 18%, transparent);
+}
+
+.pm-searchbar__field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pm-searchbar__field .v-field {
+  --v-field-padding-start: 0;
+  --v-field-padding-end: 4px;
+  --v-field-input-padding-top: 0;
+  --v-field-input-padding-bottom: 0;
+  min-height: var(--pm-searchbar-h);
+  padding-inline: 10px 6px;
+  align-items: center;
+}
+
+.pm-searchbar__field .v-field__input {
+  min-height: var(--pm-searchbar-h);
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 0.875rem;
+  color: var(--pm-text);
+}
+
+.pm-searchbar__field input::placeholder {
+  color: var(--pm-muted);
+  opacity: 1;
+}
+
+/* Vuetify setzt für plain/compact ein padding-top auf Icon-Slots – das drückt
+   die Icons nach unten. Doppelte Klasse schlägt dessen Spezifität. */
+.pm-searchbar .pm-searchbar__field .v-field__prepend-inner,
+.pm-searchbar .pm-searchbar__field .v-field__clearable,
+.pm-searchbar .pm-searchbar__field .v-field__append-inner {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.pm-searchbar .pm-searchbar__field .v-field__prepend-inner {
+  margin-right: 8px;
+}
+
+.pm-searchbar__field .v-field__prepend-inner .v-icon {
+  font-size: 18px;
+  color: var(--pm-muted);
+  opacity: 1;
+  transition: color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.pm-searchbar:focus-within .v-field__prepend-inner .v-icon,
+.pm-searchbar--filled .v-field__prepend-inner .v-icon {
+  color: var(--pm-accent);
+}
+
+.pm-searchbar__field .v-field__clearable .v-icon {
+  font-size: 16px;
+}
+
+.pm-searchbar__divider {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 18px;
+  background: rgba(var(--v-theme-on-surface), 0.12);
+}
+
+.pm-searchbar__scope {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: calc(var(--pm-searchbar-h) - 8px);
+  margin: 0 4px 0 4px;
+  padding: 0 8px 0 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pm-muted);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.pm-searchbar__scope:hover,
+.pm-searchbar__scope[aria-expanded='true'] {
+  background: rgba(var(--v-theme-on-surface), 0.07);
+  color: var(--pm-text);
+}
+
+.pm-searchbar__scope:focus-visible {
+  outline: 2px solid var(--pm-accent);
+  outline-offset: -2px;
+}
+
+.pm-searchbar--scoped .pm-searchbar__scope {
+  background: color-mix(in srgb, var(--pm-accent) 14%, transparent);
+  color: var(--pm-accent);
+}
+
+.pm-searchbar--scoped .pm-searchbar__scope:hover {
+  background: color-mix(in srgb, var(--pm-accent) 22%, transparent);
+}
+
+.pm-searchbar__scope-chevron {
+  opacity: 0.7;
+  transition: transform var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+.pm-searchbar__scope[aria-expanded='true'] .pm-searchbar__scope-chevron {
+  transform: rotate(180deg);
+}
+
+.pm-searchbar__menu {
+  min-width: 190px;
+}
+
+.pm-searchbar__menu .v-list-item__prepend > .v-icon {
+  font-size: 17px;
+}
+
+.pm-searchbar__menu .v-list-item__spacer {
+  width: 12px !important;
+}
+
+/* Variante in einer Listen-Kopfzeile neben Titel und Aktionen. */
+.pm-searchbar.pm-searchbar--header {
+  --pm-searchbar-h: 36px;
+  flex: 1 1 auto;
+  min-width: 120px;
+}

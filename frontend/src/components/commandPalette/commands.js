@@ -57,7 +57,7 @@ export function buildCommands({ uiStore }) {
       id: 'nav-all',
       group: 'nav',
       primary: true,
-      label: 'Alle Dokumente',
+      label: 'Dokumente',
       icon: 'mdi-file-document-multiple-outline',
       keywords: ['alle', 'dokumente', 'bibliothek', 'library'],
       run: () => uiStore.requestView('all'),

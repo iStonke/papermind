@@ -219,7 +219,7 @@
                 <div
                   v-if="showSnippets && document.snippet"
                   class="document-row__snippet"
-                  v-html="formatSnippet(document.snippet)"
+                  v-html="formatSearchSnippet(document.snippet)"
                 />
               </div>
 
@@ -461,6 +461,7 @@
 
 <script setup>
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue';
+import { formatSearchSnippet } from '../utils/searchSnippet.js';
 
 const listedNotes = computed(() => props.isTrashView ? props.trashNotes : props.isFavoritesView ? props.favoriteNotes : []);
 const selectedNoteId = computed(() => props.isTrashView ? props.selectedTrashNoteId : props.selectedFavoriteNoteId);
@@ -1583,23 +1584,6 @@ function displayCorrespondent(document) {
     correspondent?.title ||
     ''
   ).trim();
-}
-
-function escapeHtml(value) {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
-function formatSnippet(value) {
-  const snippet = String(value || '').replace(/\s+/g, ' ').trim();
-  const escaped = escapeHtml(snippet);
-  return escaped
-    .replace(/&lt;mark&gt;/g, '<mark>')
-    .replace(/&lt;\/mark&gt;/g, '</mark>');
 }
 
 // ── Drag & Drop ────────────────────────────────────────────────────────────
