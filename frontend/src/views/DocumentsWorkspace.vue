@@ -214,7 +214,7 @@
             <div class="sidebar-head__top">
               <button type="button" class="sidebar-brand" @click="handleSidebarViewSelect('all')">
                 <span class="sidebar-brand__mark"><v-icon size="18">mdi-brain</v-icon></span>
-                <span class="sidebar-brand__name">PaperMind</span>
+                <span class="sidebar-brand__name">Paper<span class="sidebar-brand__accent">Mind</span></span>
               </button>
               <button
                 type="button"

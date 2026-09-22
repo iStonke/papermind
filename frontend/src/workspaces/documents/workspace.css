@@ -119,6 +119,13 @@
 
 .sidebar-brand__name {
   line-height: 1;
+  color: var(--pm-sidebar-text);
+}
+
+/* Zweifarbige Wortmarke: „Mind" im Sidebar-Türkis (pro Theme getunt, funktioniert
+   in Hell-, Dunkel- und Hell-Leisten-Modus). */
+.sidebar-brand__accent {
+  color: var(--pm-sidebar-accent);
 }
 
 .sidebar-search {

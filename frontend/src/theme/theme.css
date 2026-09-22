@@ -339,6 +339,11 @@
   color: inherit;
   opacity: 1;
 }
+/* Zweifarbige Wortmarke auf heller Leiste: „Paper" als tiefes Türkis statt hartem
+   Slate/Schwarz – bleibt in derselben Farbfamilie wie das türkise „Mind". */
+.papermind-app.v-theme--light.pm-light-sidebar .sidebar-brand__name {
+  color: #0a4a52;
+}
 .papermind-app.v-theme--light.pm-light-sidebar .panel-left .sidebar-head,
 .papermind-app.v-theme--light.pm-light-sidebar .panel-left .sidebar-scroll,
 .papermind-app.v-theme--light.pm-light-sidebar .panel-left .sidebar-foot {
