@@ -111,6 +111,7 @@ export {
   mdiFilterVariant,
   mdiFolder,
   mdiFolderClockOutline,
+  mdiFolderEditOutline,
   mdiFolderMoveOutline,
   mdiFolderOutline,
   mdiFolderPlusOutline,

@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const [sidebarSource, settingsSource] = await Promise.all([
+const [sidebarSource, settingsSource, workspaceSource] = await Promise.all([
   readFile(new URL('../src/components/AppSidebar.vue', import.meta.url), 'utf8'),
   readFile(new URL('../src/components/SettingsDialog.vue', import.meta.url), 'utf8'),
+  readFile(new URL('../src/views/DocumentsWorkspace.vue', import.meta.url), 'utf8'),
 ]);
 
 test('folder sidebar entries honor the configured maximum', () => {
@@ -20,6 +21,14 @@ test('the full folder list remains available from the section header', () => {
   assert.match(sidebarSource, /<v-list-subheader>Alle Ordner<\/v-list-subheader>/);
   assert.match(sidebarSource, /v-for="savedSearch in sortedFolderItems"/);
   assert.match(sidebarSource, /emit\('open-saved-search', savedSearch\.id\)/);
+});
+
+test('the active folder can be edited from the document header', () => {
+  assert.match(workspaceSource, /v-menu v-if="activeSavedSearch"/);
+  assert.match(workspaceSource, /class="[^"]*panel-middle__folder-menu-btn/);
+  assert.match(workspaceSource, /mdi-folder-edit-outline/);
+  assert.match(workspaceSource, /openEditSavedSearchDialog\(activeSavedSearch\)/);
+  assert.match(workspaceSource, /deleteSavedSearch\(activeSavedSearch\)/);
 });
 
 test('folder and tag section headers use calm text navigation with a dedicated disclosure button', () => {

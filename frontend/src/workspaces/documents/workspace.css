@@ -2101,6 +2101,38 @@
   min-width: 0;
 }
 
+.panel-middle__folder-menu-btn.v-btn {
+  color: #66758a;
+  background: #eef1f5;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease,
+    transform 140ms ease;
+}
+
+.panel-middle__folder-menu-btn.v-btn:hover,
+.panel-middle__folder-menu-btn.v-btn:focus-visible,
+.panel-middle__folder-menu-btn.v-btn[aria-expanded='true'] {
+  color: #52647d;
+  background: #e1e6ed;
+}
+
+.panel-middle__folder-menu-btn.v-btn:active {
+  transform: scale(0.94);
+}
+
+.v-theme--dark .panel-middle__folder-menu-btn.v-btn {
+  color: #aebbd0;
+  background: color-mix(in srgb, #8ea0ba 15%, transparent);
+}
+
+.v-theme--dark .panel-middle__folder-menu-btn.v-btn:hover,
+.v-theme--dark .panel-middle__folder-menu-btn.v-btn:focus-visible,
+.v-theme--dark .panel-middle__folder-menu-btn.v-btn[aria-expanded='true'] {
+  color: #c5d0e0;
+  background: color-mix(in srgb, #8ea0ba 23%, transparent);
+}
+
 .panel-middle__count {
   font-size: 0.74rem;
   font-weight: 500;

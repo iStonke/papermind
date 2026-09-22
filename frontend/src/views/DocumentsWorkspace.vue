@@ -433,6 +433,35 @@
               </v-btn>
             </div>
             <div v-if="!isChatView && !isTagView && !isCategoryView && !isTrashView" class="panel-middle__actions">
+              <v-menu v-if="activeSavedSearch" location="bottom end" :offset="8" transition="fade-transition">
+                <template #activator="{ props: menuProps }">
+                  <v-btn
+                    v-bind="menuProps"
+                    class="list-header-viewmode pm-header-icon-btn panel-middle__folder-menu-btn"
+                    variant="flat"
+                    icon
+                    :aria-label="`Ordner ${activeSavedSearchName} bearbeiten`"
+                    title="Ordner bearbeiten"
+                  >
+                    <v-icon size="20">mdi-folder-edit-outline</v-icon>
+                  </v-btn>
+                </template>
+                <v-list class="pm-menu" density="compact" min-width="180">
+                  <v-list-item @click="openEditSavedSearchDialog(activeSavedSearch)">
+                    <template #prepend>
+                      <v-icon size="16">mdi-pencil-outline</v-icon>
+                    </template>
+                    <v-list-item-title>Bearbeiten</v-list-item-title>
+                  </v-list-item>
+                  <v-list-item class="menu-item--danger" @click="deleteSavedSearch(activeSavedSearch)">
+                    <template #prepend>
+                      <v-icon size="16">mdi-trash-can-outline</v-icon>
+                    </template>
+                    <v-list-item-title>Löschen…</v-list-item-title>
+                  </v-list-item>
+                </v-list>
+              </v-menu>
+
               <v-menu location="bottom end" :offset="8" transition="fade-transition">
                 <template #activator="{ props: menuProps }">
                   <v-btn
