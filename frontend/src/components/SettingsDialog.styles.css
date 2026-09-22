@@ -925,11 +925,15 @@
   flex-direction: column;
 }
 
+/* Reihenfolge wie in der Seitenleiste: Übersicht & Arbeitsbereiche → Notizen
+   → Dokumente → weitere Bereiche. */
 .settings-sidebar-main { order: 1; }
-.settings-sidebar-library { order: 2; }
-.settings-sidebar-other { order: 3; }
+.settings-sidebar-notes { order: 2; }
+.settings-sidebar-library { order: 3; }
+.settings-sidebar-other { order: 4; }
 
-.settings-sidebar-main + .settings-sidebar-library,
+.settings-sidebar-main + .settings-sidebar-notes,
+.settings-sidebar-notes + .settings-sidebar-library,
 .settings-sidebar-library + .settings-sidebar-other {
   margin-top: 20px;
   padding-top: 20px;

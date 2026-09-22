@@ -326,13 +326,13 @@
             <SettingsInfoCard
               icon="mdi-page-layout-sidebar-left"
               title="Seitenleiste"
-              subtitle="Passe die Schnellzugriffe auf deine wichtigsten Arbeitsbereiche an."
+              subtitle="Lege fest, was die Seitenleiste zeigt – gegliedert wie die Leiste selbst."
             />
 
             <div class="settings-sidebar-group settings-sidebar-main">
               <div class="settings-sidebar-group-head">
-                <div class="pm-setting-label">Hauptnavigation</div>
-                <div class="pm-setting-description">Direkter Zugriff auf Startseite, Leuchttische und dokumentgestütztes Wissen.</div>
+                <div class="pm-setting-label">Übersicht &amp; Arbeitsbereiche</div>
+                <div class="pm-setting-description">Die Übersicht steht als Startseite ganz oben; darunter die Arbeitsbereiche, die quer über Notizen und Dokumente arbeiten.</div>
               </div>
               <div class="settings-sidebar-group-list">
                 <div class="pm-setting-row settings-sidebar-library-row">
@@ -388,12 +388,42 @@
               </div>
             </div>
 
-            <div class="settings-sidebar-group settings-sidebar-library">
+            <div class="settings-sidebar-group settings-sidebar-notes">
               <div class="settings-sidebar-group-head">
-                <div class="pm-setting-label">Bibliothek</div>
-                <div class="pm-setting-description">Schnellfilter für häufig benötigte Dokumentgruppen.</div>
+                <div class="pm-setting-label">Notizen</div>
+                <div class="pm-setting-description">Deine Notizen als eigene Rubrik über den Dokumenten.</div>
               </div>
               <div class="settings-sidebar-group-list">
+                <div class="pm-setting-row settings-sidebar-library-row">
+                  <span class="settings-sidebar-entry-icon" aria-hidden="true">
+                    <v-icon size="18">mdi-note-outline</v-icon>
+                  </span>
+                  <div class="pm-setting-content">
+                    <div class="pm-setting-label">Alle Notizen</div>
+                    <div class="pm-setting-description">Alle Notizen der aktiven Sammlung – Einstieg in Liste und Editor.</div>
+                  </div>
+                  <span class="settings-sidebar-fixed">Immer sichtbar</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-sidebar-group settings-sidebar-library">
+              <div class="settings-sidebar-group-head">
+                <div class="pm-setting-label">Dokumente</div>
+                <div class="pm-setting-description">Der Dokumentbestand mit Schnellfiltern für häufig benötigte Gruppen.</div>
+              </div>
+              <div class="settings-sidebar-group-list">
+                <div class="pm-setting-row settings-sidebar-library-row">
+                  <span class="settings-sidebar-entry-icon" aria-hidden="true">
+                    <v-icon size="18">mdi-book-open-page-variant-outline</v-icon>
+                  </span>
+                  <div class="pm-setting-content">
+                    <div class="pm-setting-label">Alle Dokumente</div>
+                    <div class="pm-setting-description">Der komplette Dokumentbestand – Einstieg in Liste, Vorschau und Suche.</div>
+                  </div>
+                  <span class="settings-sidebar-fixed">Immer sichtbar</span>
+                </div>
+
                 <div class="pm-setting-row settings-sidebar-library-row">
                   <span class="settings-sidebar-entry-icon" aria-hidden="true">
                     <v-icon size="18">mdi-tray-arrow-down</v-icon>
@@ -415,11 +445,22 @@
 
                 <div class="pm-setting-row settings-sidebar-library-row">
                   <span class="settings-sidebar-entry-icon" aria-hidden="true">
+                    <v-icon size="18">mdi-star-outline</v-icon>
+                  </span>
+                  <div class="pm-setting-content">
+                    <div class="pm-setting-label">Favoriten</div>
+                    <div class="pm-setting-description">Erscheint automatisch, sobald du Dokumente als Favorit markierst.</div>
+                  </div>
+                  <span class="settings-sidebar-fixed">Automatisch</span>
+                </div>
+
+                <div class="pm-setting-row settings-sidebar-library-row">
+                  <span class="settings-sidebar-entry-icon" aria-hidden="true">
                     <v-icon size="18">mdi-tag-off-outline</v-icon>
                   </span>
                   <div class="pm-setting-content">
                     <div class="pm-setting-label">Ohne Tags</div>
-                    <div class="pm-setting-description">Findet Dokumente, denen noch keine Tags zugeordnet sind.</div>
+                    <div class="pm-setting-description">Dokumente, denen noch keine Tags zugeordnet sind. Erscheint nur, wenn es solche gibt.</div>
                   </div>
                   <v-switch
                     :model-value="settingsDraft.ui.sidebar_show_untagged"
@@ -450,6 +491,17 @@
                     @update:model-value="onSidebarShowNoTextChange"
                   />
                 </div>
+
+                <div class="pm-setting-row settings-sidebar-library-row">
+                  <span class="settings-sidebar-entry-icon" aria-hidden="true">
+                    <v-icon size="18">mdi-trash-can-outline</v-icon>
+                  </span>
+                  <div class="pm-setting-content">
+                    <div class="pm-setting-label">Papierkorb</div>
+                    <div class="pm-setting-description">Gelöschte Dokumente; erreichbar über das Symbol in der Fußleiste.</div>
+                  </div>
+                  <span class="settings-sidebar-fixed">In der Fußleiste</span>
+                </div>
               </div>
             </div>
 
@@ -457,7 +509,8 @@
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Weitere Bereiche</div>
                 <div class="pm-setting-description">
-                  Ordner bündeln gespeicherte Suchen; Tags und Dokumenttypen strukturieren deine Ablage.
+                  Folgen unter den Dokumenten. Ordner bündeln gespeicherte Suchen, Dokumenttypen ordnen Dokumente,
+                  Tags gelten für Dokumente und Notizen. Reihenfolge, Anzahl und Sichtbarkeit lassen sich anpassen.
                 </div>
               </div>
 
@@ -5024,6 +5077,7 @@ async function onSidebarShowDossiersChange(nextValue) {
     revert: () => settingsStore.setDraftPatch({ ui: { sidebar_show_dossiers: previous } })
   });
 }
+
 
 // ── Animationen ──────────────────────────────────────────────────────────────
 

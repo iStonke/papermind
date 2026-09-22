@@ -16,7 +16,7 @@ test('sidebar setting sublines describe their areas instead of repeating visibil
   const descriptions = [...sidebarSection.matchAll(/class="pm-setting-description">([\s\S]*?)<\/div>/g)]
     .map((match) => plainText(match[1]));
 
-  assert.equal(descriptions.length, 9);
+  assert.equal(descriptions.length, 14);
   for (const description of descriptions) {
     assert.doesNotMatch(description, /\banzeigen\b|Eintrag in der Seitenleiste/i);
     assert.ok(description.length >= 35, `Description is too short: ${description}`);
@@ -34,11 +34,23 @@ test('sidebar settings mirror the navigation icons beside their entries', () => 
     'mdi-tray-arrow-down',
     'mdi-tag-off-outline',
     'mdi-text-box-remove-outline',
+    'mdi-note-outline',
+    'mdi-book-open-page-variant-outline',
+    'mdi-star-outline',
+    'mdi-trash-can-outline',
   ]) {
     assert.match(sidebarSection, new RegExp(`<v-icon size="18">${icon}<\\/v-icon>`));
   }
 });
 
 test('sidebar setting groups use spaced separators between the main areas', () => {
-  assert.match(settingsStyles, /\.settings-sidebar-main \+ \.settings-sidebar-library,[\s\S]*?\.settings-sidebar-library \+ \.settings-sidebar-other\s*{[^}]*margin-top: 20px;[^}]*padding-top: 20px;[^}]*border-top:/);
+  assert.match(settingsStyles, /\.settings-sidebar-main \+ \.settings-sidebar-notes,[\s\S]*?\.settings-sidebar-notes \+ \.settings-sidebar-library,[\s\S]*?\.settings-sidebar-library \+ \.settings-sidebar-other\s*{[^}]*margin-top: 20px;[^}]*padding-top: 20px;[^}]*border-top:/);
+});
+
+test('sidebar settings follow the sidebar hierarchy: workspaces, notes, documents, further sections', () => {
+  const order = ['Übersicht &amp; Arbeitsbereiche', '>Notizen<', '>Dokumente<', 'Weitere Bereiche']
+    .map((label) => sidebarSection.indexOf(label));
+  assert.ok(order.every((index) => index >= 0), `missing group: ${order}`);
+  assert.deepEqual([...order].sort((a, b) => a - b), order);
+  assert.doesNotMatch(sidebarSection, />Bibliothek<|>Hauptnavigation</);
 });
