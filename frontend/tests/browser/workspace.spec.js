@@ -124,7 +124,7 @@ test('global search opens the selected result in its list when cleared', async (
   await expect(resultsHeader.locator('input')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: /Dokumente/ })).toBeVisible();
   await expect(page.getByRole('heading', { name: /Notizen/ })).toBeVisible();
-  await expect(page.getByText('Prüfnotiz')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Globale Suchergebnisse' }).getByText('Prüfnotiz')).toBeVisible();
   const selectedSnippet = page.getByRole('region', { name: 'Globale Suchergebnisse' }).locator('.global-results__snippet').filter({ hasText: 'Prüf-bericht bestätigt' });
   await expect(selectedSnippet.locator('mark')).toHaveText('bericht');
   await expect(selectedSnippet).not.toContainText('<mark>');
@@ -138,11 +138,11 @@ test('global search opens the selected result in its list when cleared', async (
   await expect(page.locator('.global-results__header .panel-middle__count')).toContainText('1 Treffer');
   await page.getByRole('button', { name: 'Notizen', exact: true }).click();
   await page.getByText('Alle Treffer', { exact: true }).last().click();
-  await page.getByRole('button', { name: /Prüfbericht Dokument/ }).click();
-  const preview = page.getByRole('region', { name: 'Suchtreffer-Vorschau' });
-  await expect(preview).toBeVisible();
-  await expect(preview.getByRole('region', { name: 'PDF Vorschau' })).toBeVisible();
-  await expect(preview.getByRole('button', { name: 'Öffnen', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: /^Prüfbericht/ }).click();
+  // Dokumenttreffer nutzen das reguläre Vorschau-Panel inkl. Detailschublade.
+  await expect(page.getByRole('region', { name: 'Suchtreffer-Vorschau' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'PDF Vorschau' })).toBeVisible();
+  await expect(page.getByPlaceholder('Dokumentname…')).toHaveValue('Prüfbericht');
   await expect(page.locator('.global-results__open')).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath('global-search-split.png') });
   await page.getByPlaceholder('Überall suchen …').fill('');
@@ -162,7 +162,8 @@ test('global search opens the selected result in its list when cleared', async (
   await expect(page.getByRole('heading', { name: 'Suchergebnisse' })).toHaveCount(0);
 
   await page.getByPlaceholder('Überall suchen …').fill('Prüf');
-  await page.getByRole('button', { name: /Prüfnotiz Notiz/ }).click();
+  await page.getByRole('region', { name: 'Globale Suchergebnisse' }).getByRole('button', { name: /^Prüfnotiz/ }).click();
+  const preview = page.getByRole('region', { name: 'Suchtreffer-Vorschau' });
   await expect(preview.getByText('Notiz · Nur-Lese-Vorschau')).toBeVisible();
   await expect(preview).toContainText('Prüfbeleg erklärt');
   await page.screenshot({ path: testInfo.outputPath('global-search-note-preview.png') });
@@ -185,7 +186,7 @@ test('global tag and document type results lead to their filtered lists', async 
 
   await page.getByPlaceholder('Überall suchen …').fill('Rechnung');
   await expect(page.getByRole('heading', { name: 'Suchergebnisse' })).toBeVisible();
-  await page.getByRole('button', { name: 'Rechnung', exact: true }).click();
+  await page.locator('.global-results__chip', { has: page.locator('.global-results__chip-label', { hasText: /^Rechnung$/ }) }).click();
   await page.getByPlaceholder('Überall suchen …').fill('');
   await expect(page.getByLabel('Tagliste durchsuchen')).toHaveValue('Rechnung');
   await expect(page.locator('.tag-row').filter({ hasText: 'Rechnung' })).toBeVisible();
@@ -193,7 +194,7 @@ test('global tag and document type results lead to their filtered lists', async 
 
   await page.getByPlaceholder('Überall suchen …').fill('Rechnungstyp');
   await expect(page.getByRole('heading', { name: 'Suchergebnisse' })).toBeVisible();
-  await page.getByRole('button', { name: 'Rechnungstyp', exact: true }).click();
+  await page.locator('.global-results__chip', { has: page.locator('.global-results__chip-label', { hasText: /^Rechnungstyp$/ }) }).click();
   await page.getByPlaceholder('Überall suchen …').fill('');
   await expect(page.getByLabel('Dokumenttypenliste durchsuchen')).toHaveValue('Rechnungstyp');
   await expect(page.locator('.tag-row').filter({ hasText: 'Rechnungstyp' })).toBeVisible();

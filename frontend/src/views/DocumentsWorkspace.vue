@@ -343,23 +343,19 @@
           :categories="categories"
           :selected-result="selectedGlobalResult"
           @select-result="selectedGlobalResult = $event"
+          @save-as-folder="openSaveGlobalSearchAsFolder"
+          @close="clearGlobalSearch"
         />
 
         <section
-          v-if="!isDossierRoute && !isWikiRoute && activeView === 'search'"
+          v-if="!isDossierRoute && !isWikiRoute && activeView === 'search' && !isSearchDocumentPreview"
           class="panel panel-right global-search-preview"
           aria-label="Suchtreffer-Vorschau"
         >
           <template v-if="selectedGlobalResult">
             <div class="global-search-preview__content">
-              <PdfPreview
-                v-if="selectedGlobalResult.type === 'document'"
-                :key="selectedGlobalResult.item.id"
-                :src="globalPreviewDocumentSrc"
-                :highlight-text="globalSearchText.trim()"
-              />
               <NotePreview
-                v-else-if="selectedGlobalResult.type === 'note'"
+                v-if="selectedGlobalResult.type === 'note'"
                 :key="selectedGlobalResult.item.id"
                 :note-id="selectedGlobalResult.item.id"
               />
@@ -1068,7 +1064,9 @@
           />
         </section>
 
-        <section v-if="!isDossierRoute && !isWikiRoute && activeView !== 'dashboard' && activeView !== 'notes' && activeView !== 'tag' && activeView !== 'search'" class="panel panel-right">
+        <!-- Auch Dokumenttreffer der globalen Suche nutzen dieses Panel, damit
+             Vorschau und Detailschublade identisch zur Dokumentliste sind. -->
+        <section v-if="!isDossierRoute && !isWikiRoute && ((activeView !== 'dashboard' && activeView !== 'notes' && activeView !== 'tag' && activeView !== 'search') || isSearchDocumentPreview)" class="panel panel-right">
           <DocumentPreviewLayout
             class="panel-right__preview panel-right__preview--card-drawer"
             :style="detailsDrawerCardStyle"
@@ -1814,7 +1812,6 @@ import {
 } from '../api/notes.js';
 import {
   acceptDocumentRetention,
-  documentFileUrl,
   documentDownloadUrl,
   documentsExportUrl,
   getDocumentRetention,
@@ -6973,6 +6970,30 @@ function openCreateSavedSearchDialog() {
   isSmartFolderEditorOpen.value = true;
 }
 
+// Globale Suche als Ordner: Ordner sind gespeicherte Dokumentsuchen, daher
+// übernimmt die Vorlage die Dokumenttreffer so, wie die globale Suche sie
+// findet – Titel ODER OCR-Text enthält den Begriff. Name = Suchbegriff.
+function openSaveGlobalSearchAsFolder(query) {
+  const term = String(query || '').trim();
+  if (!term) return;
+  void correspondentStore.ensureLoaded();
+  smartFolderEditorMode.value = 'create';
+  smartFolderEditorTarget.value = {
+    name: term,
+    query_json: {
+      version: 1,
+      group: {
+        op: 'OR',
+        rules: [
+          { field: 'title', op: 'contains', value: term },
+          { field: 'ocr_text', op: 'contains', value: term }
+        ]
+      }
+    }
+  };
+  isSmartFolderEditorOpen.value = true;
+}
+
 async function openEditSavedSearchDialog(savedSearch) {
   if (!savedSearch?.id) {
     return;
@@ -9511,6 +9532,22 @@ const {
 
 const globalSearchText = ref('');
 const selectedGlobalResult = ref(null);
+// Dokumenttreffer der globalen Suche laufen über die reguläre Auswahl
+// (selectDocument) → gleiche Vorschau inkl. Detailschublade wie in der Liste.
+const isSearchDocumentPreview = computed(() => (
+  activeView.value === 'search' && selectedGlobalResult.value?.type === 'document'
+));
+watch(
+  () => (isSearchDocumentPreview.value ? selectedGlobalResult.value.item?.id : null),
+  async (documentId) => {
+    if (!documentId) return;
+    await selectDocument(documentId);
+    // selectDocument übernimmt den Listen-Suchbegriff; hier gilt der globale.
+    if (selectedDocumentId.value === documentId) {
+      previewHighlightText.value = globalSearchText.value.trim();
+    }
+  }
+);
 const noteListSearchText = ref('');
 const noteListSearchScope = ref('all');
 const globalPreviewTypeLabel = computed(() => ({
@@ -9524,11 +9561,6 @@ const globalPreviewTitle = computed(() => {
   if (!item) return '';
   return item.display_name || item.original_filename || item.title || item.name || 'Ohne Titel';
 });
-const globalPreviewDocumentSrc = computed(() => {
-  const selection = selectedGlobalResult.value;
-  return selection?.type === 'document' ? documentFileUrl(selection.item.id, 'searchable') : '';
-});
-
 function handleGlobalSearchInput(value) {
   leaveDossierRoute();
   const next = value ?? '';

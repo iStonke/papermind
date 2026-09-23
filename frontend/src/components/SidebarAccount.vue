@@ -91,7 +91,8 @@ async function onLogout() {
 
 <style scoped>
 .sidebar-account {
-  flex: 1 1 auto;
+  /* So breit wie der Inhalt: Pfeil sitzt direkt hinter dem Namen. */
+  flex: 0 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -110,7 +111,7 @@ async function onLogout() {
 }
 
 .sidebar-account__info {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   line-height: 1.2;
 }

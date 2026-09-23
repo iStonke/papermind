@@ -2346,6 +2346,8 @@
   display: flex;
   align-items: center;
   gap: 2px;
+  /* Kontobutton ist nur inhaltsbreit → Aktionen an den rechten Rand. */
+  margin-left: auto;
 }
 
 /* Drei Fuß-Aktionen (Tastenkürzel, Papierkorb, Einstellungen): kompakt,

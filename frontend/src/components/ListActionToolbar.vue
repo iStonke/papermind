@@ -25,9 +25,10 @@
               :class="{
                 'list-action-toolbar__action-btn--active': action.active,
                 'list-action-toolbar__action-btn--icon-only': action.iconOnly,
+                'list-action-toolbar__action-btn--collapsible': action.collapsible,
               }"
-              :aria-label="action.iconOnly ? action.label : undefined"
-              :title="action.iconOnly ? action.label : undefined"
+              :aria-label="action.iconOnly || action.collapsible ? action.label : undefined"
+              :title="action.iconOnly || action.collapsible ? action.label : undefined"
               v-bind="menuProps"
             >
               <v-icon v-if="action.icon" size="14">{{ action.icon }}</v-icon>
@@ -51,7 +52,10 @@
           :key="toggle.key"
           type="button"
           class="list-action-toolbar__action-btn list-action-toolbar__action-btn--icon"
-          :class="{ 'list-action-toolbar__action-btn--active': toggle.active }"
+          :class="{
+            'list-action-toolbar__action-btn--active': toggle.active,
+            'list-action-toolbar__action-btn--collapsible': toggle.collapsible,
+          }"
           :disabled="toggle.disabled"
           :aria-label="toggle.ariaLabel || toggle.label"
           :aria-pressed="toggle.active == null ? undefined : String(Boolean(toggle.active))"
@@ -59,7 +63,7 @@
           @click="emit('filter-toggle', toggle.key)"
         >
           <v-icon v-if="toggle.icon" size="14">{{ toggle.icon }}</v-icon>
-          {{ toggle.label }}
+          <span class="list-action-toolbar__action-label">{{ toggle.label }}</span>
         </button>
       </template>
     </div>
@@ -114,6 +118,8 @@ const emit = defineEmits(['action-select', 'filter-toggle', 'right-action', 'tog
 
 <style scoped>
 .list-action-toolbar {
+  /* Eigene Breite als Maßstab für einklappbare Filter (siehe @container). */
+  container: list-action-toolbar / inline-size;
   position: sticky;
   top: 0;
   z-index: 5;
@@ -163,6 +169,7 @@ const emit = defineEmits(['action-select', 'filter-toggle', 'right-action', 'tog
 }
 
 .list-action-toolbar__action-btn {
+  flex-shrink: 0;
   color: rgba(var(--v-theme-on-surface), 0.62);
 }
 
@@ -200,6 +207,23 @@ const emit = defineEmits(['action-select', 'filter-toggle', 'right-action', 'tog
   max-width: 15ch;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Einklappbare Filter (`collapsible`): beschriftet, solange die Filterzeile
+   breit genug ist; in schmalen Listen nur das Symbol (Name im Tooltip). Die
+   Regel hängt an der Zeilenbreite und gilt damit für alle Listen gleich. */
+@container list-action-toolbar (max-width: 480px) {
+  .list-action-toolbar__action-btn--collapsible {
+    width: 26px;
+    height: 26px;
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+  }
+
+  .list-action-toolbar__action-btn--collapsible .list-action-toolbar__action-label {
+    display: none;
+  }
 }
 
 .list-action-toolbar__select-btn {

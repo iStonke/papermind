@@ -5,8 +5,33 @@
         <div class="panel-middle__title">
           <h1 class="panel-middle__heading global-results__heading">Suchergebnisse</h1>
           <div class="panel-middle__count">
-            {{ normalizedQuery ? `Überall für „${normalizedQuery}“${loading ? ' · Suche läuft …' : ` · ${visibleResultCount} Treffer`}` : 'Dokumente, Notizen, Tags und Dokumenttypen' }}
+            {{ resultCountLine }}
           </div>
+        </div>
+        <div class="panel-middle__actions">
+          <v-btn
+            class="pm-header-icon-btn"
+            color="primary"
+            variant="tonal"
+            icon
+            :disabled="!normalizedQuery"
+            aria-label="Als Ordner speichern (nur Dokumenttreffer)"
+            title="Als Ordner speichern – übernimmt die Dokumenttreffer (Titel oder OCR-Text)"
+            @click="emit('save-as-folder', normalizedQuery)"
+          >
+            <v-icon size="20">mdi-folder-plus-outline</v-icon>
+          </v-btn>
+          <v-btn
+            class="pm-header-icon-btn"
+            color="primary"
+            variant="tonal"
+            icon
+            aria-label="Suche beenden"
+            title="Suche beenden"
+            @click="emit('close')"
+          >
+            <v-icon size="20">mdi-close</v-icon>
+          </v-btn>
         </div>
       </div>
       <ListActionToolbar
@@ -30,69 +55,151 @@
       <div v-else-if="normalizedQuery" class="global-results__body">
         <p v-if="error" class="global-results__state" role="alert">{{ error }}</p>
 
-      <section v-if="visibleDocuments.length" class="global-results__group">
-        <h2>Dokumente <span>{{ documentTotal }}</span></h2>
-        <ul>
-          <li v-for="document in visibleDocuments" :key="document.id">
-            <button type="button" :class="{ 'is-selected': isSelected('document', document.id) }" :aria-pressed="isSelected('document', document.id)" @click="selectResult('document', document)">
-              <v-icon size="19">mdi-file-document-outline</v-icon>
-              <span class="global-results__item-body">
-                <strong>{{ document.display_name || document.original_filename }}</strong>
-                <small>{{ document.document_type || 'Dokument' }}<template v-if="document.document_date"> · {{ document.document_date }}</template></small>
-                <span v-if="document.snippet" class="global-results__snippet" v-html="formatSearchSnippet(document.snippet)" />
-              </span>
-            </button>
-          </li>
-        </ul>
-        <button v-if="documents.length < documentTotal" type="button" class="global-results__more" :disabled="loadingMore" @click="loadMoreDocuments">
-          {{ loadingMore ? 'Lade …' : 'Weitere Dokumente anzeigen' }}
-        </button>
-      </section>
+        <section v-if="visibleDocuments.length" class="global-results__group" aria-label="Dokumente">
+          <h2 class="global-results__group-heading">Dokumente <span>{{ documentTotal }}</span></h2>
+          <ul class="global-results__cards">
+            <li v-for="document in visibleDocuments" :key="document.id">
+              <button
+                type="button"
+                class="global-results__card"
+                :class="{ 'is-selected': isSelected('document', document.id) }"
+                :aria-pressed="isSelected('document', document.id)"
+                @click="selectResult('document', document)"
+              >
+                <span class="global-results__thumb" aria-hidden="true">
+                  <img
+                    v-if="!thumbnailErrors[document.id]"
+                    :src="thumbnailUrl(document)"
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    @error="thumbnailErrors[document.id] = true"
+                  />
+                  <v-icon v-else size="20">mdi-file-document-outline</v-icon>
+                </span>
+                <span class="global-results__card-body">
+                  <span class="global-results__title">
+                    <span
+                      v-for="(part, index) in highlight(documentTitle(document))"
+                      :key="`t-${index}`"
+                      :class="{ 'global-results__mark': part.match }"
+                    >{{ part.text }}</span>
+                  </span>
+                  <span v-if="documentMeta(document)" class="global-results__meta">{{ documentMeta(document) }}</span>
+                  <span
+                    v-if="document.snippet"
+                    class="global-results__snippet"
+                    v-html="formatSearchSnippet(document.snippet)"
+                  />
+                </span>
+              </button>
+            </li>
+          </ul>
+          <button v-if="documents.length < documentTotal" type="button" class="global-results__more" :disabled="loadingMore" @click="loadMoreDocuments">
+            {{ loadingMore ? 'Lade …' : `Weitere ${documentTotal - documents.length} Dokumente anzeigen` }}
+          </button>
+        </section>
 
-      <section v-if="visibleNotes.length" class="global-results__group">
-        <h2>Notizen <span>{{ visibleNotes.length }}</span></h2>
-        <ul>
-          <li v-for="note in visibleNotes" :key="note.id">
-            <button type="button" :class="{ 'is-selected': isSelected('note', note.id) }" :aria-pressed="isSelected('note', note.id)" @click="selectResult('note', note)">
-              <v-icon size="19">mdi-note-outline</v-icon>
-              <span class="global-results__item-body">
-                <strong>{{ note.title || 'Ohne Titel' }}</strong>
-                <small>Notiz</small>
-                <span v-if="note.preview" class="global-results__snippet">{{ note.preview }}</span>
-              </span>
-            </button>
-          </li>
-        </ul>
-      </section>
+        <section v-if="visibleNotes.length" class="global-results__group" aria-label="Notizen">
+          <h2 class="global-results__group-heading">Notizen <span>{{ visibleNotes.length }}</span></h2>
+          <ul class="global-results__cards">
+            <li v-for="note in visibleNotes" :key="note.id">
+              <button
+                type="button"
+                class="global-results__card"
+                :class="{ 'is-selected': isSelected('note', note.id) }"
+                :aria-pressed="isSelected('note', note.id)"
+                @click="selectResult('note', note)"
+              >
+                <span class="global-results__thumb global-results__thumb--note" aria-hidden="true">
+                  <v-icon size="20">mdi-note-outline</v-icon>
+                </span>
+                <span class="global-results__card-body">
+                  <span class="global-results__title">
+                    <span
+                      v-for="(part, index) in highlight(note.title?.trim() || 'Ohne Titel')"
+                      :key="`t-${index}`"
+                      :class="{ 'global-results__mark': part.match }"
+                    >{{ part.text }}</span>
+                  </span>
+                  <span v-if="noteMeta(note)" class="global-results__meta">{{ noteMeta(note) }}</span>
+                  <span v-if="note.preview" class="global-results__snippet">
+                    <span
+                      v-for="(part, index) in highlight(centerOnMatch(note.preview, normalizedQuery))"
+                      :key="`s-${index}`"
+                      :class="{ 'global-results__mark': part.match }"
+                    >{{ part.text }}</span>
+                  </span>
+                </span>
+              </button>
+            </li>
+          </ul>
+        </section>
 
-      <section v-if="visibleTags.length" class="global-results__group">
-        <h2>Tags <span>{{ visibleTags.length }}</span></h2>
-        <ul>
-          <li v-for="tag in visibleTags" :key="tag.id">
-            <button type="button" :class="{ 'is-selected': isSelected('tag', tag.id) }" :aria-pressed="isSelected('tag', tag.id)" @click="selectResult('tag', tag)"><v-icon size="19">mdi-tag-outline</v-icon><strong>{{ tag.name }}</strong></button>
-          </li>
-        </ul>
-      </section>
+        <div v-if="visibleTags.length || visibleCategories.length" class="global-results__chip-groups">
+          <section v-if="visibleTags.length" class="global-results__group" aria-label="Tags">
+            <h2 class="global-results__group-heading">Tags <span>{{ visibleTags.length }}</span></h2>
+            <div class="global-results__chips">
+              <button
+                v-for="tag in visibleTags"
+                :key="tag.id"
+                type="button"
+                class="global-results__chip"
+                :class="{ 'is-selected': isSelected('tag', tag.id) }"
+                :aria-pressed="isSelected('tag', tag.id)"
+                @click="selectResult('tag', tag)"
+              >
+                <span class="global-results__chip-label">
+                  <span
+                    v-for="(part, index) in highlight(tag.name)"
+                    :key="`g-${index}`"
+                    :class="{ 'global-results__mark': part.match }"
+                  >{{ part.text }}</span>
+                </span>
+                <span v-if="tag.usage_count != null" class="global-results__chip-count">{{ tag.usage_count }}</span>
+              </button>
+            </div>
+          </section>
 
-      <section v-if="visibleCategories.length" class="global-results__group">
-        <h2>Dokumenttypen <span>{{ visibleCategories.length }}</span></h2>
-        <ul>
-          <li v-for="category in visibleCategories" :key="category.name">
-            <button type="button" :class="{ 'is-selected': isSelected('category', category.name) }" :aria-pressed="isSelected('category', category.name)" @click="selectResult('category', category)"><v-icon size="19">mdi-shape-outline</v-icon><strong>{{ category.name }}</strong></button>
-          </li>
-        </ul>
-      </section>
+          <section v-if="visibleCategories.length" class="global-results__group" aria-label="Dokumenttypen">
+            <h2 class="global-results__group-heading">Dokumenttypen <span>{{ visibleCategories.length }}</span></h2>
+            <div class="global-results__chips">
+              <button
+                v-for="category in visibleCategories"
+                :key="category.name"
+                type="button"
+                class="global-results__chip"
+                :class="{ 'is-selected': isSelected('category', category.name) }"
+                :aria-pressed="isSelected('category', category.name)"
+                @click="selectResult('category', category)"
+              >
+                <span class="global-results__chip-label">
+                  <span
+                    v-for="(part, index) in highlight(category.name)"
+                    :key="`c-${index}`"
+                    :class="{ 'global-results__mark': part.match }"
+                  >{{ part.text }}</span>
+                </span>
+                <span v-if="category.usage_count != null" class="global-results__chip-count">{{ category.usage_count }}</span>
+              </button>
+            </div>
+          </section>
+        </div>
       </div>
     </div>
   </section>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { listDocuments } from '../api/documents.js';
 import { listNotes } from '../api/notes.js';
 import ListActionToolbar from '../components/ListActionToolbar.vue';
 import { formatSearchSnippet } from '../utils/searchSnippet.js';
+import { centerOnMatch, highlightParts } from '../utils/searchHighlight.js';
+import { authedUrl, getBaseUrl } from '../api/client.js';
+import { useNotesStore } from '../stores/notes.js';
+import { useSettingsStore } from '../stores/settings.js';
 
 const props = defineProps({
   query: { type: String, default: '' },
@@ -100,7 +207,7 @@ const props = defineProps({
   categories: { type: Array, default: () => [] },
   selectedResult: { type: Object, default: null },
 });
-const emit = defineEmits(['select-result']);
+const emit = defineEmits(['select-result', 'save-as-folder', 'close']);
 const normalizedQuery = computed(() => String(props.query || '').trim().slice(0, 256));
 const documents = ref([]);
 const documentTotal = ref(0);
@@ -131,6 +238,67 @@ const toolbarActions = computed(() => [
   { key: 'sort', icon: 'mdi-sort', label: SORT_OPTIONS.find((option) => option.value === sortMode.value)?.label || 'Standard', value: sortMode.value, options: SORT_OPTIONS },
   { key: 'type', icon: 'mdi-filter-variant', label: TYPE_OPTIONS.find((option) => option.value === typeFilter.value)?.label || 'Alle Treffer', value: typeFilter.value, active: typeFilter.value !== 'all', options: TYPE_OPTIONS },
 ]);
+// Subline wie in den übrigen Listen: nur die Anzahl. Der Suchbegriff steht
+// bereits im Suchfeld der Seitenleiste und wird hier nicht wiederholt.
+const resultCountLine = computed(() => {
+  if (!normalizedQuery.value) return 'Dokumente, Notizen, Tags und Dokumenttypen';
+  if (loading.value) return 'Suche läuft …';
+  return `${visibleResultCount.value} Treffer`;
+});
+// ── Darstellung der Treffer (Titel, Metazeile, Vorschaubild) ────────────────
+const notesStore = useNotesStore();
+const settingsStore = useSettingsStore();
+const thumbnailErrors = reactive({});
+const highlight = (value) => highlightParts(value, normalizedQuery.value);
+const shortDate = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+function parseDate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  const date = dateOnly ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3])) : new Date(raw);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function documentTitle(document) {
+  const displayName = String(document?.display_name || '').trim();
+  if (displayName) return displayName;
+  const filename = String(document?.original_filename || '').trim();
+  if (settingsStore.settings.ui.showFilenameSuffix !== false) return filename;
+  return filename.replace(/\.[A-Za-z][A-Za-z0-9]{0,7}$/, '');
+}
+
+function documentMeta(document) {
+  const correspondent = String(
+    document?.correspondent_name || document?.correspondent_short_name
+      || document?.correspondent?.short_name || document?.correspondent?.name || '',
+  ).trim();
+  const type = String(document?.document_type || document?.category || '').trim();
+  const date = parseDate(document?.document_date);
+  return [correspondent, type, date && shortDate.format(date)].filter(Boolean).join(' · ');
+}
+
+function noteMeta(note) {
+  const notebook = note?.notebook_id
+    ? notesStore.notebooks.find((entry) => entry.id === note.notebook_id)?.name
+    : '';
+  const collection = !notebook && note?.collection_id
+    ? notesStore.collections.find((entry) => entry.id === note.collection_id)?.name
+    : '';
+  const updated = parseDate(note?.updated_at);
+  let edited = '';
+  if (updated) {
+    edited = `bearbeitet ${shortDate.format(updated)}`;
+  }
+  return [notebook || collection, edited].filter(Boolean).join(' · ');
+}
+
+const thumbnailUrl = (document) => {
+  const base = authedUrl(`${getBaseUrl()}/api/documents/${document.id}/thumbnail`);
+  const version = encodeURIComponent(document.updated_at || '');
+  return `${base}${base.includes('?') ? '&' : '?'}thumb_v=${version}`;
+};
+
 const includesType = (type) => typeFilter.value === 'all' || typeFilter.value === type;
 const nameOf = (item) => item.display_name || item.original_filename || item.title || item.name || '';
 const byName = new Intl.Collator('de-DE', { numeric: true, sensitivity: 'base' });
@@ -261,23 +429,131 @@ onBeforeUnmount(() => {
 .global-results { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; color: var(--pm-text); background: var(--pm-content-surface); border-right: 1px solid var(--pm-divider); }
 .global-results__header { flex: none; }
 .global-results__heading { margin: 0; }
-.global-results__content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px clamp(14px, 2vw, 28px) 22px; }
+.global-results__content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 14px 22px; }
 .global-results__body { max-width: 850px; margin: 0 auto; }
-.global-results__group h2 span { color: var(--pm-muted); }
-.global-results__group { margin: 22px 0 30px; }
-.global-results__group h2 { display: flex; gap: 8px; align-items: baseline; font-size: 1rem; margin: 0 0 9px; }
-.global-results__group h2 span { font-size: .82rem; font-weight: 400; }
-.global-results__group ul { list-style: none; padding: 0; margin: 0; border: 1px solid var(--pm-divider); border-radius: 12px; overflow: hidden; }
-.global-results__group li + li { border-top: 1px solid var(--pm-divider); }
-.global-results__group li button { display: flex; align-items: flex-start; gap: 12px; width: 100%; min-width: 0; padding: 13px 15px; text-align: left; color: var(--pm-text); background: transparent; }
-.global-results__group li button:hover, .global-results__group li button:focus-visible { background: var(--pm-field-bg); }
-.global-results__group li button.is-selected { background: color-mix(in srgb, var(--pm-accent) 12%, var(--pm-content-surface)); box-shadow: inset 3px 0 var(--pm-accent); }
-.global-results__item-body { display: flex; flex-direction: column; min-width: 0; }
-.global-results__item-body strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.global-results__item-body small, .global-results__snippet { color: var(--pm-muted); }
-.global-results__snippet { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-.global-results__snippet :deep(mark) { color: inherit; background: color-mix(in srgb, var(--pm-accent) 26%, transparent); border-radius: 2px; padding: 0 1px; }
+.global-results__group { margin: 0 0 14px; }
+
+/* Gruppenkopf wie die Tagesüberschriften der Notizliste: klein, Versalien, klebend. */
+.global-results__group-heading {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  margin: 0;
+  padding: 12px 4px 7px;
+  background: var(--pm-content-surface);
+  color: var(--pm-muted);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.075em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+.global-results__group-heading span { font-weight: 500; opacity: 0.75; }
+
+/* Trefferkarten mit denselben Tokens wie Dokument- und Notizkarten. */
+.global-results__cards { list-style: none; padding: 0; margin: 0; }
+.global-results__cards li + li { margin-top: 8px; }
+.global-results__card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 11px 13px;
+  text-align: left;
+  color: var(--pm-text);
+  border: 1px solid var(--pm-document-row-border, rgba(15, 23, 42, 0.06));
+  border-radius: 14px;
+  background: var(--pm-document-row-bg, var(--pm-app-surface-raised));
+  box-shadow: var(--pm-document-row-shadow, 0 2px 8px rgba(15, 23, 42, 0.08));
+  transition:
+    background-color var(--pm-duration-fast, 140ms) var(--pm-easing, ease),
+    border-color var(--pm-duration-fast, 140ms) var(--pm-easing, ease);
+}
+.global-results__card:hover {
+  border-color: var(--pm-document-row-hover-border, color-mix(in srgb, var(--pm-accent) 16%, transparent));
+  background: var(--pm-row-hover);
+}
+.global-results__card:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 2px; }
+.global-results__card.is-selected {
+  border-color: var(--pm-document-row-active-border, color-mix(in srgb, var(--pm-accent) 30%, transparent));
+  background: var(--pm-document-row-active-bg, var(--pm-row-active));
+}
+
+.global-results__thumb {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 50px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--pm-thumb-bg, rgba(15, 23, 42, 0.08));
+  box-shadow: inset 0 0 0 1px rgba(var(--v-theme-on-surface), 0.08);
+  color: var(--pm-muted);
+}
+.global-results__thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top; background: #fff; }
+.global-results__thumb--note { height: 38px; border-radius: 10px; }
+
+.global-results__card-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.global-results__title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.global-results__meta { color: var(--pm-muted); font-size: 0.75rem; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.global-results__snippet {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin-top: 3px;
+  color: var(--pm-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+/* Treffer-Markierung wie in der Notizliste. */
+.global-results__mark,
+.global-results__snippet :deep(mark) {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--pm-accent) 22%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--pm-accent) 8%, transparent);
+  color: inherit;
+  padding: 0 0.08em;
+}
+
+/* Tags und Dokumenttypen als Chips; bei genug Breite nebeneinander. */
+.global-results__chip-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); column-gap: 20px; }
+.global-results__chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 2px 0; }
+.global-results__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(var(--v-theme-on-surface), 0.06);
+  color: var(--pm-text);
+  font-size: 0.8rem;
+  transition: background-color var(--pm-duration-fast, 140ms) var(--pm-easing, ease);
+}
+.global-results__chip:hover { background: rgba(var(--v-theme-on-surface), 0.1); }
+.global-results__chip:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 2px; }
+.global-results__chip.is-selected { background: color-mix(in srgb, var(--pm-accent) 20%, transparent); color: var(--pm-accent); }
+.global-results__chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.global-results__chip-count { color: var(--pm-muted); font-size: 0.72rem; font-variant-numeric: tabular-nums; }
+
 .global-results__state { max-width: 850px; margin: 30px auto; display: flex; gap: 12px; align-items: center; color: var(--pm-muted); }
 .global-results__state button, .global-results__more { color: var(--pm-accent); text-decoration: underline; }
-.global-results__more { margin-top: 13px; }
+.global-results__more { margin: 10px 4px 0; font-size: 0.82rem; }
 </style>

@@ -22,7 +22,6 @@
           <div class="notes-ws__heading">
             <span>Notizen</span>
           </div>
-          <div class="notes-ws__count">{{ resultCountLabel }}</div>
         </div>
 
         <div
@@ -726,28 +725,27 @@ const toolbarActions = computed(() => {
       minWidth: 190,
     },
   ];
-  // Notizbuch-Filter nur anbieten, wenn es überhaupt Notizbücher gibt.
-  if (notesStore.notebooks.length) {
-    actions.push({
-      key: 'notebook',
-      icon: 'mdi-notebook-outline',
-      label: notebookFilterLabel.value,
-      value: notebookFilter.value,
-      active: Boolean(notebookFilter.value),
-      // Im Standard („Alle Notizbücher") nur das Icon zeigen – spart Platz in der
-      // schmalen Liste; aktiv zeigt es das gewählte Notizbuch.
-      iconOnly: !notebookFilter.value,
-      options: notebookFilterOptions.value,
-      minWidth: 200,
-    });
-  }
+  // Notizbuch-Filter immer anbieten, damit die Filterzeile in jeder Sammlung
+  // gleich aussieht (ohne Notizbücher: „Alle" / „Ohne Notizbuch").
+  actions.push({
+    key: 'notebook',
+    icon: 'mdi-notebook-outline',
+    label: notebookFilterLabel.value,
+    value: notebookFilter.value,
+    active: Boolean(notebookFilter.value),
+    // Beschriftet, wenn Platz ist; in schmaler Liste nur das Symbol.
+    // Ein aktiver Filter bleibt immer beschriftet (zeigt das Notizbuch).
+    collapsible: !notebookFilter.value,
+    options: notebookFilterOptions.value,
+    minWidth: 200,
+  });
   actions.push({
     key: 'dateRange',
     icon: 'mdi-calendar-range',
     label: dateRangeLabel.value,
     value: dateRange.value,
     active: Boolean(dateRange.value),
-    iconOnly: !dateRange.value,
+    collapsible: !dateRange.value,
     options: NOTE_DATE_RANGE_OPTIONS,
     minWidth: 180,
   });
@@ -1467,18 +1465,16 @@ function formatDate(value) {
   if (date.toDateString() === now.toDateString()) return `heute ${time}`;
   if (date.toDateString() === yesterday.toDateString()) return `gestern ${time}`;
 
-  return date.toLocaleDateString('de-DE', {
-    day: 'numeric',
-    month: 'short',
-    ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
-  });
+  // Gleiches Format wie die Dokumentliste (TT.MM.JJJJ).
+  return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 </script>
 
 <style scoped>
 .notes-ws {
   --notes-list-width: clamp(300px, 31vw, 380px);
-  --notes-header-height: 54px;
+  /* Gleiche Kopfhöhe wie die Dokumentliste (10 + 36 + 10 + 1 px). */
+  --notes-header-height: 57px;
   --notes-meta-row-height: 36px;
 
   position: relative;
@@ -1573,7 +1569,7 @@ function formatDate(value) {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 14px;
+  padding: 10px 14px;
   background: rgba(var(--v-theme-surface), 0.68);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -1632,6 +1628,9 @@ function formatDate(value) {
 
 /* --- Sammlungs-Wechsel (dezent vorn in der Filterzeile) ------------------ */
 .notes-ws__collection-switch {
+  /* Lange Sammlungsnamen kürzen sich, statt die Filter-Icons zu verdrängen. */
+  flex: 0 1 auto;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 6px;

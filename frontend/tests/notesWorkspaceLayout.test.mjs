@@ -573,12 +573,12 @@ test('fullscreen metadata row grows to the same width as the title row', () => {
 });
 
 test('list and editor headers share one separator height', () => {
-  assert.match(workspaceSource, /--notes-header-height:\s*54px/);
+  assert.match(workspaceSource, /--notes-header-height:\s*57px/);
   assert.match(workspaceSource, /--notes-meta-row-height:\s*36px/);
   assert.match(workspaceSource, /\.notes-ws__header\s*\{[\s\S]*?box-sizing:\s*border-box;[\s\S]*?height:\s*var\(--notes-header-height\);[\s\S]*?min-height:\s*var\(--notes-header-height\)/);
   assert.match(
     workspaceEditorSource,
-    /\.note-workspace-editor__bar\s*\{[\s\S]*?box-sizing:\s*border-box;[\s\S]*?height:\s*var\(--notes-header-height, 54px\);[\s\S]*?min-height:\s*var\(--notes-header-height, 54px\)/,
+    /\.note-workspace-editor__bar\s*\{[\s\S]*?box-sizing:\s*border-box;[\s\S]*?height:\s*var\(--notes-header-height, 57px\);[\s\S]*?min-height:\s*var\(--notes-header-height, 57px\)/,
   );
   assert.match(listActionToolbarSource, /box-sizing:\s*border-box;[\s\S]*?height:\s*var\(--notes-meta-row-height, 36px\)/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__meta\s*\{[\s\S]*?box-sizing:\s*border-box;[\s\S]*?height:\s*var\(--notes-meta-row-height, 36px\)/);
@@ -734,8 +734,10 @@ test('the compact notes list offers a notebook filter in its toolbar', () => {
     /function matchesNotebookFilter\(note\)[\s\S]*?notebookFilter\.value === 'none'[\s\S]*?return !note\.notebook_id[\s\S]*?return note\.notebook_id === notebookFilter\.value/,
   );
   assert.match(workspaceSource, /\.filter\(matchesNotebookFilter\)/);
-  // Als datengetriebene Toolbar-Aktion, nur wenn es Notizbücher gibt.
-  assert.match(workspaceSource, /if \(notesStore\.notebooks\.length\)[\s\S]*?key: 'notebook'/);
+  // Als datengetriebene Toolbar-Aktion – immer vorhanden, damit die Filterzeile
+  // in jeder Sammlung gleich aussieht (auch ohne Notizbücher).
+  assert.doesNotMatch(workspaceSource, /if \(notesStore\.notebooks\.length\)[\s\S]{0,40}key: 'notebook'/);
+  assert.match(workspaceSource, /actions\.push\(\{\s*key: 'notebook'/);
   assert.match(workspaceSource, /if \(action === 'notebook'\) notebookFilter\.value = value/);
   assert.match(workspaceSource, /notesStore\.ensureNotebooksLoaded\(\)/);
 });
@@ -749,10 +751,13 @@ test('creating a note inside a filtered notebook keeps it in that notebook', () 
 });
 
 test('compact list filters collapse to icons when inactive so the toolbar never overflows', () => {
-  // Inaktive Filter (Standardwert) zeigen nur ihr Icon; aktiv zeigen sie den Wert.
-  assert.match(workspaceSource, /iconOnly: !notebookFilter\.value/);
-  assert.match(workspaceSource, /iconOnly: !dateRange\.value/);
-  // Der Toolbar-Baustein unterstützt iconOnly + kürzt lange Labels per Ellipsis.
+  // Inaktive Filter sind einklappbar: beschriftet bei genug Breite, sonst nur Icon;
+  // aktiv zeigen sie immer ihren Wert.
+  assert.match(workspaceSource, /collapsible: !notebookFilter\.value/);
+  assert.match(workspaceSource, /collapsible: !dateRange\.value/);
+  // Die Regel hängt an der Breite der Filterzeile (Container Query) – gilt für alle Listen.
+  assert.match(listActionToolbarSource, /container: list-action-toolbar \/ inline-size/);
+  assert.match(listActionToolbarSource, /@container list-action-toolbar \(max-width: 480px\)[\s\S]*?--collapsible \.list-action-toolbar__action-label[\s\S]*?display: none/);
   assert.match(listActionToolbarSource, /list-action-toolbar__action-btn--icon-only/);
   assert.match(listActionToolbarSource, /class="list-action-toolbar__action-label"/);
   assert.match(listActionToolbarSource, /\.list-action-toolbar__action-label\s*\{[\s\S]*?text-overflow:\s*ellipsis/);

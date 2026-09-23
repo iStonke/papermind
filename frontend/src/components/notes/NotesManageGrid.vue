@@ -1620,11 +1620,8 @@ function formatDate(value) {
   const time = date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
   if (date.toDateString() === now.toDateString()) return `heute ${time}`;
   if (date.toDateString() === yesterday.toDateString()) return `gestern ${time}`;
-  return date.toLocaleDateString('de-DE', {
-    day: 'numeric',
-    month: 'short',
-    ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
-  });
+  // Gleiches Format wie Notiz- und Dokumentliste (TT.MM.JJJJ).
+  return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 </script>
 

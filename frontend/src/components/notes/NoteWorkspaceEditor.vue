@@ -1946,8 +1946,8 @@ onBeforeUnmount(() => {
 .note-workspace-editor__bar {
   display: flex;
   box-sizing: border-box;
-  height: var(--notes-header-height, 54px);
-  min-height: var(--notes-header-height, 54px);
+  height: var(--notes-header-height, 57px);
+  min-height: var(--notes-header-height, 57px);
   flex: none;
   align-items: center;
   justify-content: space-between;

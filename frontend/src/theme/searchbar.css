@@ -3,6 +3,9 @@
 
 .pm-searchbar {
   --pm-searchbar-h: 38px;
+  /* Eigene Breite als Maßstab: bei schmalen Leisten wird der Bereichs-Filter
+     auf sein Symbol reduziert (siehe @container unten). */
+  container: pm-searchbar / inline-size;
   display: flex;
   align-items: center;
   min-width: 0;
@@ -162,4 +165,18 @@
   --pm-searchbar-h: 36px;
   flex: 1 1 auto;
   min-width: 120px;
+}
+
+/* Schmale Leiste (z. B. Notizliste): Bereichs-Filter nur als Symbol + Pfeil.
+   Der Name steht im Tooltip/Menü; ein gewählter Bereich bleibt über die
+   türkise Einfärbung (--scoped) erkennbar. */
+@container pm-searchbar (max-width: 300px) {
+  .pm-searchbar__scope-label {
+    display: none;
+  }
+
+  .pm-searchbar__scope {
+    gap: 2px;
+    padding: 0 5px 0 7px;
+  }
 }

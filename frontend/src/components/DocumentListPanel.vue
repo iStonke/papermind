@@ -1172,6 +1172,8 @@ const toolbarActions = computed(() => [
     label: dateRangeLabel.value,
     value: props.currentDateRange,
     active: Boolean(props.currentDateRange),
+    // Gleiche Regel wie in der Notizliste: bei schmaler Filterzeile nur Symbol.
+    collapsible: !props.currentDateRange,
     options: DATE_RANGE_OPTIONS,
     minWidth: 180
   }
@@ -1183,6 +1185,7 @@ const toolbarFilterToggles = computed(() => {
       key: 'documentTypeFilter',
       icon: 'mdi-file-document-outline',
       label: 'Typen',
+      collapsible: true,
       ariaLabel: props.documentTypeFilterDrawerOpen
         ? 'Dokumenttyp-Filter ausblenden'
         : 'Dokumenttyp-Filter einblenden',
@@ -1194,6 +1197,7 @@ const toolbarFilterToggles = computed(() => {
       key: 'tagFilter',
       icon: 'mdi-tag-multiple-outline',
       label: 'Tags',
+      collapsible: true,
       ariaLabel: props.tagFilterDrawerOpen ? 'Tag-Filter ausblenden' : 'Tag-Filter einblenden',
       active: props.tagFilterDrawerOpen
     });
