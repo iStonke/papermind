@@ -7,6 +7,10 @@ const workspaceSource = await readFile(
   new URL('../src/views/NotesWorkspace.vue', import.meta.url),
   'utf8',
 );
+const appSidebarSource = await readFile(
+  new URL('../src/components/AppSidebar.vue', import.meta.url),
+  'utf8',
+);
 const documentsWorkspaceSource = await readFile(
   new URL('../src/views/DocumentsWorkspace.vue', import.meta.url),
   'utf8',
@@ -74,6 +78,15 @@ test('notes workspace reserves a compact list and a separate editor area', () =>
   assert.match(templateSource, /<NoteWorkspaceEditor/);
   assert.match(workspaceSource, /--notes-list-width:\s*clamp\(300px, 31vw, 380px\)/);
   assert.match(workspaceSource, /\.notes-ws\s*\{[\s\S]*?display:\s*flex/);
+});
+
+test('notes sidebar exposes recent and pinned views with real list filters', () => {
+  assert.match(appSidebarSource, />\s*Zuletzt bearbeitet\s*<\/SidebarItem>/);
+  assert.match(appSidebarSource, />\s*Angepinnt\s*<\/SidebarItem>/);
+  assert.match(documentsWorkspaceSource, /:view-mode="activeNoteView"/);
+  assert.match(workspaceSource, /props\.viewMode === 'recent'[\s\S]*?\.slice\(0, 10\)/);
+  assert.match(workspaceSource, /props\.viewMode === 'pinned'[\s\S]*?note\.is_favorite/);
+  assert.match(templateSource, /class="notes-ws__item-pin"[\s\S]*?@click="togglePinned\(note\)"/);
 });
 
 test('notes list slides in and out while the workspace seam keeps the toggle accessible', () => {

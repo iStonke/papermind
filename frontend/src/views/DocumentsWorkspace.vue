@@ -191,6 +191,7 @@
           :chat-active="!isDossierRoute && (isChatView || isWikiRoute)"
           :dossiers-active="isDossierRoute"
           :active-view="activeView"
+          :active-note-view="activeNoteView"
           :all-documents-pulse-key="allDocumentsPulseKey"
           :active-saved-search-id="activeSavedSearchId"
           :active-tag-id="activeView === 'tag' ? tagViewTagId : activeTagId"
@@ -380,6 +381,7 @@
         <NotesWorkspace
           v-if="!isDossierRoute && !isWikiRoute && activeView === 'notes'"
           class="panel panel-notes"
+          :view-mode="activeNoteView"
           v-model:search-query="noteListSearchText"
           v-model:search-scope="noteListSearchScope"
           @trash-changed="scheduleSidebarCountsRefresh"
@@ -2677,6 +2679,7 @@ const trashFootLabel = computed(() => {
 });
 
 const activeView = ref('all');
+const activeNoteView = ref('all');
 // Tag-Trefferseite (T3): kombinierte Ansicht Dokumente + Notizen für ein Tag.
 const tagViewTagId = ref(null);
 const tagViewTagName = computed(
@@ -7951,6 +7954,14 @@ function selectView(viewKey, options = {}) {
   }
 
   if (viewKey === 'notes') {
+    activeNoteView.value = 'all';
+    activeView.value = 'notes';
+    leaveActiveSavedSearch();
+    return;
+  }
+
+  if (viewKey === 'notes_recent' || viewKey === 'notes_pinned') {
+    activeNoteView.value = viewKey === 'notes_recent' ? 'recent' : 'pinned';
     activeView.value = 'notes';
     leaveActiveSavedSearch();
     return;

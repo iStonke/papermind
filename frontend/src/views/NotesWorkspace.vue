@@ -20,7 +20,7 @@
       >
         <div class="notes-ws__title">
           <div class="notes-ws__heading">
-            <span>Notizen</span>
+            <span>{{ viewHeading }}</span>
           </div>
         </div>
 
@@ -226,6 +226,18 @@
                         {{ part.text }}
                       </span>
                     </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    class="notes-ws__item-pin"
+                    :class="{ 'is-active': note.is_favorite }"
+                    :aria-label="note.is_favorite ? 'Notiz lösen' : 'Notiz anpinnen'"
+                    :title="note.is_favorite ? 'Nicht mehr anpinnen' : 'Anpinnen'"
+                    :aria-pressed="String(!!note.is_favorite)"
+                    @click="togglePinned(note)"
+                  >
+                    <v-icon size="16">{{ note.is_favorite ? 'mdi-pin' : 'mdi-pin-outline' }}</v-icon>
                   </button>
 
                   <button
@@ -501,6 +513,11 @@ import { normalizeCollectionColor } from '../utils/noteCollectionColor.js';
 const props = defineProps({
   searchQuery: { type: String, default: '' },
   searchScope: { type: String, default: 'all' },
+  viewMode: {
+    type: String,
+    default: 'all',
+    validator: (value) => ['all', 'recent', 'pinned'].includes(value),
+  },
 });
 const emit = defineEmits(['trash-changed', 'update:searchQuery', 'update:searchScope']);
 const listSearchQuery = computed({
@@ -525,6 +542,10 @@ const listSearchScopeIcon = computed(() => listSearchScopeOption.value.icon);
 const isHeaderSearchFocusWithin = ref(false);
 const isListSearchScopeMenuOpen = ref(false);
 const isHeaderSearchFocused = computed(() => isHeaderSearchFocusWithin.value || isListSearchScopeMenuOpen.value);
+const viewHeading = computed(() => ({
+  recent: 'Zuletzt bearbeitet',
+  pinned: 'Angepinnt',
+}[props.viewMode] || 'Notizen'));
 
 function onHeaderSearchFocusIn() {
   isHeaderSearchFocusWithin.value = true;
@@ -649,6 +670,20 @@ const searchSourceNotes = computed(() => {
   return notesStore.notes;
 });
 
+const scopedCanonicalNotes = computed(() => {
+  if (props.viewMode === 'pinned') {
+    return notesStore.notes.filter((note) => note.is_favorite);
+  }
+  if (props.viewMode === 'recent') {
+    return [...notesStore.notes]
+      .sort((a, b) => timestamp(b.updated_at) - timestamp(a.updated_at))
+      .slice(0, 10);
+  }
+  return notesStore.notes;
+});
+
+const scopedNoteIds = computed(() => new Set(scopedCanonicalNotes.value.map((note) => note.id)));
+
 function matchesNotebookFilter(note) {
   if (!notebookFilter.value) return true;
   if (notebookFilter.value === 'none') return !note.notebook_id;
@@ -657,6 +692,7 @@ function matchesNotebookFilter(note) {
 
 const visibleNotes = computed(() => {
   const notes = searchSourceNotes.value
+    .filter((note) => scopedNoteIds.value.has(note.id))
     .filter((note) => isWithinDateRange(note.updated_at, dateRange.value))
     .filter(matchesNotebookFilter)
     .slice();
@@ -677,7 +713,7 @@ const activeNote = computed(() =>
 const groupedNotes = computed(() => groupNotesByCreationDay(visibleNotes.value));
 
 const resultCountLabel = computed(() => {
-  const total = notesStore.notes.length;
+  const total = scopedCanonicalNotes.value.length;
   if (isSearchingNotes.value && resolvedSearchKey.value !== activeSearchKey.value) return 'Suche …';
   if ((activeSearchKey.value || dateRange.value || notebookFilter.value) && visibleNotes.value.length !== total) {
     return `${visibleNotes.value.length} von ${total} Notizen`;
@@ -754,6 +790,8 @@ const toolbarActions = computed(() => {
 
 const emptyTitle = computed(() => {
   if (activeSearchKey.value) return 'Keine passenden Notizen';
+  if (props.viewMode === 'pinned') return 'Noch keine angepinnten Notizen';
+  if (props.viewMode === 'recent') return 'Noch keine bearbeiteten Notizen';
   if (!notesStore.notes.length) return 'Noch keine Notizen';
   if (notebookFilter.value === 'none') return 'Keine Notizen ohne Notizbuch';
   if (notebookFilter.value) return 'Dieses Notizbuch ist leer';
@@ -762,6 +800,8 @@ const emptyTitle = computed(() => {
 
 const emptyCopy = computed(() => {
   if (activeSearchKey.value) return 'Passe den Suchbegriff an oder leere die Notizensuche.';
+  if (props.viewMode === 'pinned') return 'Pinne wichtige Notizen an, damit sie hier schnell erreichbar sind.';
+  if (props.viewMode === 'recent') return 'Sobald du Notizen bearbeitest, erscheinen sie hier.';
   if (!notesStore.notes.length) return 'Halte Gedanken und Fundstellen an einem Ort fest.';
   if (notebookFilter.value) return 'Verschiebe Notizen hierher oder wähle ein anderes Notizbuch.';
   return 'Wähle oben einen anderen Zeitraum aus.';
@@ -1246,6 +1286,9 @@ async function onNoteImportDrop(event) {
 }
 
 async function revealNewNote(note, cursorPosition = 'start') {
+  if (props.viewMode === 'pinned' && !note.is_favorite) {
+    note = await notesStore.setFavorite(note.id, true);
+  }
   createdPageNoteId.value = note.id;
   activeNoteId.value = note.id;
   newlyCreatedNoteId.value = note.id;
@@ -1355,6 +1398,15 @@ function noteDeleteAriaLabel(note) {
   return isNoteEmpty(note)
     ? 'Leere Notiz entfernen'
     : `${note?.title?.trim() || 'Notiz'} in den Papierkorb verschieben`;
+}
+
+async function togglePinned(note) {
+  if (!note?.id) return;
+  try {
+    await notesStore.setFavorite(note.id, !note.is_favorite);
+  } catch (error) {
+    notifyError(error, 'Der Pin-Status konnte nicht gespeichert werden.');
+  }
 }
 
 async function discardEmptyNote(note) {
@@ -2312,7 +2364,8 @@ function formatDate(value) {
   padding: 0 0.08em;
 }
 
-.notes-ws__item-delete {
+.notes-ws__item-delete,
+.notes-ws__item-pin {
   position: absolute;
   right: 10px;
   bottom: 10px;
@@ -2329,9 +2382,25 @@ function formatDate(value) {
   transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
 }
 
+.notes-ws__item-pin {
+  right: 42px;
+}
+
 .notes-ws__item:hover .notes-ws__item-delete,
-.notes-ws__item-delete:focus-visible {
+.notes-ws__item:hover .notes-ws__item-pin,
+.notes-ws__item-delete:focus-visible,
+.notes-ws__item-pin:focus-visible,
+.notes-ws__item-pin.is-active {
   opacity: 1;
+}
+
+.notes-ws__item-pin.is-active {
+  color: var(--pm-accent, #006b75);
+}
+
+.notes-ws__item-pin:hover {
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent);
+  color: var(--pm-accent, #006b75);
 }
 
 .notes-ws__item-delete:hover {
@@ -2525,7 +2594,8 @@ function formatDate(value) {
 }
 
 @media (hover: none) {
-  .notes-ws__item-delete {
+  .notes-ws__item-delete,
+  .notes-ws__item-pin {
     opacity: 0.72;
   }
 }

@@ -80,6 +80,12 @@ test('failed login stays usable, successful login opens workspace', async ({ pag
   await expect(page.getByRole('alert')).toBeVisible();
   await login(page);
   await expect(page.getByText('Prüfbeleg', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Zuletzt bearbeitet', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Angepinnt', { exact: true }).first()).toBeVisible();
+  await page.getByText('Zuletzt bearbeitet', { exact: true }).first().click();
+  await expect(page.locator('.notes-ws__heading')).toHaveText('Zuletzt bearbeitet');
+  await page.getByText('Angepinnt', { exact: true }).first().click();
+  await expect(page.locator('.notes-ws__heading')).toHaveText('Angepinnt');
   expect(errors).toEqual([]);
 });
 

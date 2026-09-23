@@ -179,7 +179,7 @@
         <div class="sidebar-section-content">
             <SidebarItem
               item-class="sidebar-item--primary sidebar-item--plain-label"
-              :active="isViewActive('notes')"
+              :active="isNoteViewActive('all')"
               :count="notesSidebarCount"
               @click="emit('select-view', 'notes')"
             >
@@ -187,6 +187,32 @@
                 <v-icon size="18">mdi-note-outline</v-icon>
               </template>
               Alle Notizen
+            </SidebarItem>
+
+            <SidebarItem
+              item-class="sidebar-item--secondary"
+              :active="isNoteViewActive('recent')"
+              count-class="sidebar-item-count--quiet"
+              :count="recentNotesSidebarCount"
+              @click="emit('select-view', 'notes_recent')"
+            >
+              <template #icon>
+                <v-icon size="18">mdi-clock-edit-outline</v-icon>
+              </template>
+              Zuletzt bearbeitet
+            </SidebarItem>
+
+            <SidebarItem
+              item-class="sidebar-item--secondary"
+              :active="isNoteViewActive('pinned')"
+              count-class="sidebar-item-count--quiet"
+              :count="pinnedNotesSidebarCount"
+              @click="emit('select-view', 'notes_pinned')"
+            >
+              <template #icon>
+                <v-icon size="18">mdi-pin-outline</v-icon>
+              </template>
+              Angepinnt
             </SidebarItem>
         </div>
       </div>
@@ -498,6 +524,7 @@ import SidebarItem from './SidebarItem.vue';
 // ── Props & Emits ──────────────────────────────────────────────────────────
 const props = defineProps({
   activeView:        { type: String,  default: 'all' },
+  activeNoteView:    { type: String,  default: 'all' },
   activeSavedSearchId: { type: String,  default: null },
   activeTagId:       { type: String,  default: null },
   isTagView:         { type: Boolean, default: false },
@@ -647,6 +674,10 @@ function isViewActive(viewKey) {
   return props.activeView === viewKey;
 }
 
+function isNoteViewActive(viewKey) {
+  return isViewActive('notes') && props.activeNoteView === viewKey;
+}
+
 // ── Computed counts ────────────────────────────────────────────────────────
 const allDocumentsSidebarCount = computed(() => Number(sidebarCounts.value.all_documents || 0));
 const importsSidebarCount = computed(
@@ -659,6 +690,10 @@ const noTextSidebarCount    = computed(() => Number(sidebarCounts.value.no_text_
 const notesStore = useNotesStore();
 onMounted(() => notesStore.ensureLoaded());
 const notesSidebarCount = computed(() => notesStore.notes.length);
+const recentNotesSidebarCount = computed(() => Math.min(notesSidebarCount.value, 10));
+const pinnedNotesSidebarCount = computed(
+  () => notesStore.notes.filter((note) => note.is_favorite).length
+);
 
 const sortedTagsByName = computed(() =>
   [...tags.value].sort((l, r) =>
@@ -784,11 +819,23 @@ const flyoutRows = computed(() => {
       return rows;
     }
     case 'notizen':
-      return [{
-        id: 'notes', icon: 'mdi-note-outline', label: 'Alle Notizen',
-        count: notesSidebarCount.value, active: isViewActive('notes'),
-        run: () => emit('select-view', 'notes'),
-      }];
+      return [
+        {
+          id: 'notes', icon: 'mdi-note-outline', label: 'Alle Notizen',
+          count: notesSidebarCount.value, active: isNoteViewActive('all'),
+          run: () => emit('select-view', 'notes'),
+        },
+        {
+          id: 'notes_recent', icon: 'mdi-clock-edit-outline', label: 'Zuletzt bearbeitet',
+          count: recentNotesSidebarCount.value, active: isNoteViewActive('recent'),
+          run: () => emit('select-view', 'notes_recent'),
+        },
+        {
+          id: 'notes_pinned', icon: 'mdi-pin-outline', label: 'Angepinnt',
+          count: pinnedNotesSidebarCount.value, active: isNoteViewActive('pinned'),
+          run: () => emit('select-view', 'notes_pinned'),
+        },
+      ];
     case 'ordner': {
       const rows = [{
         id: 'create', icon: 'mdi-folder-plus-outline', label: 'Ordner erstellen',

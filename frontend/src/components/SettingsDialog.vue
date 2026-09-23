@@ -404,6 +404,26 @@
                   </div>
                   <span class="settings-sidebar-fixed">Immer sichtbar</span>
                 </div>
+                <div class="pm-setting-row settings-sidebar-library-row">
+                  <span class="settings-sidebar-entry-icon" aria-hidden="true">
+                    <v-icon size="18">mdi-clock-edit-outline</v-icon>
+                  </span>
+                  <div class="pm-setting-content">
+                    <div class="pm-setting-label">Zuletzt bearbeitet</div>
+                    <div class="pm-setting-description">Die zehn zuletzt geänderten Notizen für den schnellen Wiedereinstieg.</div>
+                  </div>
+                  <span class="settings-sidebar-fixed">Immer sichtbar</span>
+                </div>
+                <div class="pm-setting-row settings-sidebar-library-row">
+                  <span class="settings-sidebar-entry-icon" aria-hidden="true">
+                    <v-icon size="18">mdi-pin-outline</v-icon>
+                  </span>
+                  <div class="pm-setting-content">
+                    <div class="pm-setting-label">Angepinnt</div>
+                    <div class="pm-setting-description">Dauerhaft wichtige Notizen, die du direkt in der Liste anpinnen kannst.</div>
+                  </div>
+                  <span class="settings-sidebar-fixed">Immer sichtbar</span>
+                </div>
               </div>
             </div>
 
