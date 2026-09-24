@@ -176,9 +176,10 @@
               v-for="group in groupedNotes"
               :key="group.key"
               class="notes-ws__group"
-              :aria-labelledby="`notes-ws-group-${group.key}`"
+              :class="{ 'notes-ws__group--flat': !group.label }"
+              :aria-labelledby="group.label ? `notes-ws-group-${group.key}` : undefined"
             >
-              <h2 :id="`notes-ws-group-${group.key}`" class="notes-ws__group-heading">
+              <h2 v-if="group.label" :id="`notes-ws-group-${group.key}`" class="notes-ws__group-heading">
                 <span>{{ group.label }}</span>
               </h2>
 
@@ -230,6 +231,16 @@
 
                   <button
                     type="button"
+                    class="notes-ws__item-delete"
+                    :aria-label="noteDeleteAriaLabel(note)"
+                    :title="isNoteEmpty(note) ? 'Entfernen' : 'In Papierkorb'"
+                    @click="openDeleteNoteDialog(note)"
+                  >
+                    <v-icon size="16">mdi-trash-can-outline</v-icon>
+                  </button>
+
+                  <button
+                    type="button"
                     class="notes-ws__item-pin"
                     :class="{ 'is-active': note.is_favorite }"
                     :aria-label="note.is_favorite ? 'Notiz lösen' : 'Notiz anpinnen'"
@@ -238,16 +249,6 @@
                     @click="togglePinned(note)"
                   >
                     <v-icon size="16">{{ note.is_favorite ? 'mdi-pin' : 'mdi-pin-outline' }}</v-icon>
-                  </button>
-
-                  <button
-                    type="button"
-                    class="notes-ws__item-delete"
-                    :aria-label="noteDeleteAriaLabel(note)"
-                    :title="isNoteEmpty(note) ? 'Entfernen' : 'In Papierkorb'"
-                    @click="openDeleteNoteDialog(note)"
-                  >
-                    <v-icon size="16">mdi-trash-can-outline</v-icon>
                   </button>
                 </li>
               </ul>
@@ -507,7 +508,7 @@ import { useSettingsStore } from '../stores/settings.js';
 import { notifyError, useNotifications } from '../stores/notifications.js';
 import { MAX_NOTE_ARCHIVE_BYTES, selectNoteArchiveFiles } from '../utils/noteArchiveDrop.js';
 import { notifyNoteDeleted } from '../utils/noteDeletionFeedback.js';
-import { groupNotesByCreationDay } from '../utils/noteDateGroups.js';
+import { groupNotesByCreationDay, groupNotesByDay } from '../utils/noteDateGroups.js';
 import { normalizeCollectionColor } from '../utils/noteCollectionColor.js';
 
 const props = defineProps({
@@ -559,7 +560,15 @@ function onHeaderSearchFocusOut(event) {
 const NOTE_SORT_OPTIONS = [
   { value: 'updated', label: 'Zuletzt bearbeitet' },
   { value: 'created', label: 'Erstellungsdatum' },
+  { value: 'opened', label: 'Zuletzt geöffnet' },
   { value: 'title', label: 'Titel (A–Z)' },
+];
+
+const NOTE_GROUPING_OPTIONS = [
+  { value: 'auto', label: 'Automatisch' },
+  { value: 'notebook', label: 'Nach Notizbuch' },
+  { value: 'favorites', label: 'Angepinnte + weitere Notizen' },
+  { value: 'none', label: 'Ohne Gruppen' },
 ];
 
 const NOTE_DATE_RANGE_OPTIONS = [
@@ -578,7 +587,7 @@ const isListCollapsed = ref(resolveInitialListCollapsed());
 const isManageMode = ref(false);
 const manageFacet = ref(loadManageFacet());
 const isCompactLayout = ref(false);
-const { sortMode, dateRange, notebookFilter } = useNoteListPreferences(
+const { sortMode, grouping, dateRange, notebookFilter } = useNoteListPreferences(
   () => settingsStore.settingsDraft.ui.notes_sort_order,
 );
 // Notizbuch-Filter der kompakten Liste: '' = alle, 'none' = ohne Notizbuch,
@@ -700,6 +709,12 @@ const visibleNotes = computed(() => {
   if (sortMode.value === 'created') {
     return notes.sort((a, b) => timestamp(b.created_at || b.updated_at) - timestamp(a.created_at || a.updated_at));
   }
+  if (sortMode.value === 'opened') {
+    return notes.sort((a, b) => (
+      timestamp(b.last_opened_at) - timestamp(a.last_opened_at)
+      || timestamp(b.updated_at) - timestamp(a.updated_at)
+    ));
+  }
   if (sortMode.value === 'title') {
     return notes.sort((a, b) => noteTitle(a).localeCompare(noteTitle(b), 'de', { sensitivity: 'base' }));
   }
@@ -710,7 +725,49 @@ const activeNote = computed(() =>
   visibleNotes.value.find((note) => note.id === activeNoteId.value) || null
 );
 
-const groupedNotes = computed(() => groupNotesByCreationDay(visibleNotes.value));
+const groupedNotes = computed(() => {
+  if (grouping.value === 'none') {
+    return [{ key: 'all', label: '', notes: visibleNotes.value }];
+  }
+  if (grouping.value === 'notebook') {
+    const groups = new Map();
+    for (const note of visibleNotes.value) {
+      const key = note.notebook_id || 'none';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(note);
+    }
+    const ordered = notesStore.notebooks
+      .filter((notebook) => groups.has(notebook.id))
+      .map((notebook) => ({ key: notebook.id, label: notebook.name, notes: groups.get(notebook.id) }));
+    if (groups.has('none')) {
+      ordered.push({ key: 'none', label: 'Ohne Notizbuch', notes: groups.get('none') });
+    }
+    return ordered;
+  }
+  if (grouping.value === 'favorites') {
+    const pinned = visibleNotes.value.filter((note) => note.is_favorite);
+    const remaining = visibleNotes.value.filter((note) => !note.is_favorite);
+    return [
+      pinned.length ? { key: 'pinned', label: 'Angepinnt', notes: pinned } : null,
+      remaining.length ? { key: 'remaining', label: 'Weitere Notizen', notes: remaining } : null,
+    ].filter(Boolean);
+  }
+  // Eine alphabetische Sortierung muss über die gesamte Ergebnisliste gelten.
+  // Datumsgruppen würden die Titel nur innerhalb einzelner Tage sortieren und
+  // damit die gewählte A–Z-Reihenfolge optisch wie semantisch wieder aufheben.
+  if (sortMode.value === 'title') {
+    return [{ key: 'alphabetical', label: '', notes: visibleNotes.value }];
+  }
+  if (sortMode.value === 'opened') {
+    return groupNotesByDay(
+      visibleNotes.value,
+      (note) => note.last_opened_at,
+      new Date(),
+      'Noch nicht geöffnet',
+    );
+  }
+  return groupNotesByCreationDay(visibleNotes.value);
+});
 
 const resultCountLabel = computed(() => {
   const total = scopedCanonicalNotes.value.length;
@@ -732,6 +789,10 @@ const manageCountLabel = computed(() => {
 
 const sortLabel = computed(() =>
   NOTE_SORT_OPTIONS.find((option) => option.value === sortMode.value)?.label || 'Sortierung'
+);
+
+const groupingLabel = computed(() =>
+  NOTE_GROUPING_OPTIONS.find((option) => option.value === grouping.value)?.label || 'Gruppierung'
 );
 
 const dateRangeLabel = computed(() =>
@@ -759,6 +820,16 @@ const toolbarActions = computed(() => {
       value: sortMode.value,
       options: NOTE_SORT_OPTIONS,
       minWidth: 190,
+    },
+    {
+      key: 'grouping',
+      icon: 'mdi-view-agenda-outline',
+      label: groupingLabel.value,
+      value: grouping.value,
+      active: grouping.value !== 'auto',
+      collapsible: grouping.value === 'auto',
+      options: NOTE_GROUPING_OPTIONS,
+      minWidth: 230,
     },
   ];
   // Notizbuch-Filter immer anbieten, damit die Filterzeile in jeder Sammlung
@@ -1079,6 +1150,7 @@ watch(
 
 function handleToolbarAction({ action, value }) {
   if (action === 'sort') sortMode.value = value;
+  if (action === 'grouping') grouping.value = value;
   if (action === 'dateRange') dateRange.value = value;
   if (action === 'notebook') notebookFilter.value = value;
 }
@@ -1101,6 +1173,7 @@ async function selectNote(noteId) {
   }
   if (revision !== noteSelectionRevision) return false;
   activeNoteId.value = noteId;
+  void notesStore.markOpened(noteId);
   return true;
 }
 
@@ -1420,7 +1493,7 @@ async function discardEmptyNote(note) {
     await animateNoteRemoval(note.id);
     notesStore.removeFromList(note.id);
     emit('trash-changed');
-    notifyNoteDeleted(note, { restore: notesStore.restore, onRestored: () => emit('trash-changed') });
+    // Leere Notiz: still entfernen – keine Benachrichtigung, nichts zu retten.
   } catch {
     if (isActive) editorPanelRef.value?.resumePendingSave?.();
     loadError.value = 'Die leere Notiz konnte nicht entfernt werden.';
@@ -2161,11 +2234,15 @@ function formatDate(value) {
 .notes-ws__groups {
   margin: 0;
   /* Unten Platz lassen, damit der schwebende FAB die letzte Notiz nicht verdeckt. */
-  padding: 0 10px 76px;
+  padding: 0 6px 76px;
 }
 
 .notes-ws__group + .notes-ws__group {
   margin-top: 14px;
+}
+
+.notes-ws__group--flat {
+  padding-top: 6px;
 }
 
 .notes-ws__group-heading {
@@ -2203,38 +2280,40 @@ function formatDate(value) {
   overflow-anchor: none;
 }
 
+/* Kompakte Zeile (Listen-Sprache, Variante A): keine Karte, feine
+   Trennlinien; Hover = leichte Tönung, Auswahl = Akzentbalken + Tönung.
+   Farben/Typo aus den gemeinsamen --pm-list-*-Tokens (theme/lists.css). */
+.notes-ws__list {
+  --notes-row-height: 86px;
+}
+
 .notes-ws__item {
   position: relative;
   box-sizing: border-box;
-  height: 112px;
-  min-height: 112px;
+  height: var(--notes-row-height);
+  min-height: var(--notes-row-height);
   overflow: hidden;
-  border: 1px solid var(--pm-document-row-border, rgba(15, 23, 42, 0.06));
-  border-radius: 14px;
-  background: var(--pm-document-row-bg, var(--pm-app-surface-raised, #fff));
-  box-shadow: var(--pm-document-row-shadow, 0 2px 8px rgba(15, 23, 42, 0.08));
+  border: 0;
+  border-bottom: 1px solid var(--pm-list-divider);
+  border-radius: 0;
+  background: transparent;
   transition:
     background-color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
-    border-color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+    box-shadow var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
-.notes-ws__item + .notes-ws__item {
-  margin-top: 10px;
+.notes-ws__item:last-child {
+  border-bottom-color: transparent;
 }
 
 .notes-ws__item:hover {
-  border-color: var(--pm-document-row-hover-border, color-mix(in srgb, var(--pm-accent) 16%, transparent));
-  background: var(--pm-row-hover);
+  background: var(--pm-list-hover);
 }
 
-.notes-ws__item.is-active {
-  border-color: var(--pm-document-row-active-border, color-mix(in srgb, var(--pm-accent) 30%, transparent));
-  background: var(--pm-document-row-active-bg, var(--pm-row-active));
-}
-
+.notes-ws__item.is-active,
 .notes-ws__item.is-active:hover {
-  border-color: var(--pm-document-row-active-hover-border, color-mix(in srgb, var(--pm-accent) 38%, transparent));
-  background: var(--pm-document-row-active-bg, var(--pm-row-active));
+  background: var(--pm-list-selected);
+  box-shadow: inset 3px 0 0 var(--pm-list-accent);
 }
 
 .notes-ws__item.is-new {
@@ -2273,8 +2352,8 @@ function formatDate(value) {
     box-shadow: 0 0 0 0 color-mix(in srgb, var(--pm-accent) 0%, transparent);
   }
   56% {
-    min-height: 112px;
-    max-height: 140px;
+    min-height: var(--notes-row-height);
+    max-height: calc(var(--notes-row-height) + 28px);
     opacity: 1;
     transform: translateY(-4px) scale(1.025);
     box-shadow:
@@ -2282,15 +2361,15 @@ function formatDate(value) {
       0 0 0 4px color-mix(in srgb, var(--pm-accent) 18%, transparent);
   }
   78% {
-    min-height: 112px;
-    max-height: 140px;
+    min-height: var(--notes-row-height);
+    max-height: calc(var(--notes-row-height) + 28px);
     opacity: 1;
     transform: translateY(2px) scale(0.992);
     box-shadow: 0 4px 14px -10px color-mix(in srgb, var(--pm-accent) 36%, transparent);
   }
   100% {
-    min-height: 112px;
-    max-height: 140px;
+    min-height: var(--notes-row-height);
+    max-height: calc(var(--notes-row-height) + 28px);
     opacity: 1;
     transform: none;
     box-shadow: 0 0 0 0 color-mix(in srgb, var(--pm-accent) 0%, transparent);
@@ -2300,10 +2379,10 @@ function formatDate(value) {
 .notes-ws__item-select {
   display: flex;
   width: 100%;
-  min-height: 110px;
+  height: 100%;
   flex-direction: column;
-  gap: 9px;
-  padding: 15px 17px;
+  gap: 4px;
+  padding: 11px 14px 11px 15px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -2323,34 +2402,35 @@ function formatDate(value) {
 .notes-ws__item-title {
   min-width: 0;
   overflow: hidden;
-  color: var(--pm-text);
+  color: var(--pm-list-title);
   font-size: 0.94rem;
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1.3;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
 .notes-ws__item-title.is-untitled {
-  color: var(--pm-muted);
+  color: var(--pm-list-meta-soft);
   font-style: italic;
-  font-weight: 560;
+  font-weight: 500;
 }
 
 .notes-ws__item-date {
   flex: none;
-  color: var(--pm-muted);
-  font-size: 0.73rem;
+  color: var(--pm-list-date);
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .notes-ws__item-snippet {
   display: -webkit-box;
-  margin-right: 25px;
+  margin-right: 60px;
   overflow: hidden;
-  color: var(--pm-muted);
-  font-size: 0.82rem;
-  line-height: 1.46;
+  color: var(--pm-list-meta);
+  font-size: 0.8rem;
+  line-height: 1.42;
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -2367,8 +2447,8 @@ function formatDate(value) {
 .notes-ws__item-delete,
 .notes-ws__item-pin {
   position: absolute;
-  right: 10px;
-  bottom: 10px;
+  right: 8px;
+  bottom: 8px;
   display: grid;
   width: 28px;
   height: 28px;
@@ -2382,8 +2462,10 @@ function formatDate(value) {
   transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
 }
 
-.notes-ws__item-pin {
-  right: 42px;
+/* Pinnadel ganz außen (bleibt bei angepinnten Notizen sichtbar),
+   Mülleimer links daneben. */
+.notes-ws__item-delete {
+  right: 40px;
 }
 
 .notes-ws__item:hover .notes-ws__item-delete,

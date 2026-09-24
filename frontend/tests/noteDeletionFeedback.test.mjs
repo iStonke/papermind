@@ -101,3 +101,13 @@ test('undo restores the complete note, preview and metadata without duplicate li
   await store.restore('saved');
   assert.equal(store.notes.length, 1);
 });
+
+test('empty notes are removed silently without a deletion notification', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const workspace = await readFile(new URL('../src/views/NotesWorkspace.vue', import.meta.url), 'utf8');
+  const grid = await readFile(new URL('../src/components/notes/NotesManageGrid.vue', import.meta.url), 'utf8');
+  const discard = workspace.match(/async function discardEmptyNote[\s\S]*?\n\}/)?.[0] || '';
+  assert.ok(discard, 'discardEmptyNote exists');
+  assert.doesNotMatch(discard, /notifyNoteDeleted/);
+  assert.match(grid, /if \(!isNoteEmpty\(note\)\) \{\s*notifyNoteDeleted\(/);
+});

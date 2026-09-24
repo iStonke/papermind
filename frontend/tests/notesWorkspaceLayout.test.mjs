@@ -155,10 +155,12 @@ test('notes list follows the shared title, toolbar, and row hierarchy', () => {
   assert.doesNotMatch(compactListTemplate, /notes-ws__toggle/);
 });
 
-test('notes list is grouped by creation day with compact sticky headers', () => {
+test('notes list groups time sorts by day but keeps title sorting ungrouped', () => {
   assert.match(templateSource, /v-for="group in groupedNotes"/);
+  assert.match(templateSource, /<h2 v-if="group\.label"/);
   assert.match(templateSource, /class="notes-ws__group-heading"/);
   assert.match(templateSource, /v-for="note in group\.notes"/);
+  assert.match(workspaceSource, /sortMode\.value === 'title'[\s\S]*?key: 'alphabetical', label: '', notes: visibleNotes\.value/);
   assert.match(workspaceSource, /groupNotesByCreationDay\(visibleNotes\.value\)/);
   assert.match(workspaceSource, /\.notes-ws__group-heading\s*\{[\s\S]*?position:\s*sticky[\s\S]*?top:\s*0/);
   assert.doesNotMatch(templateSource, /notes-ws__group-count/);
@@ -169,8 +171,15 @@ test('notes toolbar offers the standard sort and date-range menus', () => {
   assert.match(workspaceSource, /key:\s*'dateRange'/);
   assert.match(workspaceSource, /mdi-sort/);
   assert.match(workspaceSource, /mdi-calendar-range/);
-  assert.match(workspaceSource, /value:\s*'updated'[\s\S]*?value:\s*'created'[\s\S]*?value:\s*'title'/);
+  assert.match(workspaceSource, /value:\s*'updated'[\s\S]*?value:\s*'created'[\s\S]*?value:\s*'opened'[\s\S]*?value:\s*'title'/);
   assert.match(workspaceSource, /created_at \|\| b\.updated_at/);
+});
+
+test('notes list offers notebook and pinned grouping plus recently-opened sorting', () => {
+  assert.match(workspaceSource, /value: 'opened', label: 'Zuletzt geöffnet'/);
+  assert.match(workspaceSource, /value: 'notebook', label: 'Nach Notizbuch'/);
+  assert.match(workspaceSource, /value: 'favorites', label: 'Angepinnte \+ weitere Notizen'/);
+  assert.match(workspaceSource, /notesStore\.markOpened\(noteId\)/);
 });
 
 test('empty notes reuse the shared animated placeholder without a second create action', () => {
@@ -741,7 +750,7 @@ test('picker menus remain anchored to the editor surface with a compact gap', ()
 
 test('the compact notes list offers a notebook filter in its toolbar', () => {
   // Eigener State + reiner Client-Filter über note.notebook_id.
-  assert.match(workspaceSource, /const \{ sortMode, dateRange, notebookFilter \} = useNoteListPreferences\(/);
+  assert.match(workspaceSource, /const \{ sortMode, grouping, dateRange, notebookFilter \} = useNoteListPreferences\(/);
   assert.match(
     workspaceSource,
     /function matchesNotebookFilter\(note\)[\s\S]*?notebookFilter\.value === 'none'[\s\S]*?return !note\.notebook_id[\s\S]*?return note\.notebook_id === notebookFilter\.value/,

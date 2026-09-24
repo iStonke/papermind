@@ -83,7 +83,7 @@ class SettingsValidationTest(unittest.TestCase):
             {
                 "ui": {
                     "notes_default_view": "focus",
-                    "notes_sort_order": "created",
+                    "notes_sort_order": "opened",
                     "notes_writing_width": "wide",
                     "notes_paragraph_spacing": "spacious",
                     "notes_font_family": "serif",
@@ -99,7 +99,7 @@ class SettingsValidationTest(unittest.TestCase):
             }
         )
         self.assertEqual(payload.ui.notes_default_view.value, "focus")
-        self.assertEqual(payload.ui.notes_sort_order.value, "created")
+        self.assertEqual(payload.ui.notes_sort_order.value, "opened")
         self.assertEqual(payload.ui.notes_writing_width.value, "wide")
         self.assertEqual(payload.ui.notes_paragraph_spacing.value, "spacious")
         self.assertEqual(payload.ui.notes_font_family.value, "serif")

@@ -1,0 +1,29 @@
+/* Gemeinsame Listen-Sprache für Dokumente (Karten) und Notizen (Zeilen).
+   Beide Listen lesen ausschließlich diese Tokens für Titel, Metazeile, Datum,
+   Tags, Hover und Auswahl – nur die Form (Karte vs. Zeile) unterscheidet sich.
+   Alles aus bestehenden Theme-Tokens abgeleitet → hell/dunkel automatisch. */
+.papermind-app {
+  --pm-list-title: var(--pm-text);
+  --pm-list-meta: color-mix(in srgb, var(--pm-text) 70%, transparent);
+  --pm-list-meta-soft: color-mix(in srgb, var(--pm-text) 54%, transparent);
+  --pm-list-date: color-mix(in srgb, var(--pm-text) 60%, transparent);
+  --pm-list-accent: var(--pm-accent);
+  --pm-list-hover: color-mix(in srgb, var(--pm-text) 4.5%, transparent);
+  --pm-list-selected: color-mix(in srgb, var(--pm-accent) 10%, transparent);
+  --pm-list-hover-ring: color-mix(in srgb, var(--pm-text) 12%, transparent);
+  --pm-list-chip-bg: color-mix(in srgb, var(--pm-text) 7%, transparent);
+  --pm-list-chip-text: color-mix(in srgb, var(--pm-text) 80%, transparent);
+  --pm-list-divider: color-mix(in srgb, var(--pm-divider) 85%, transparent);
+  /* Kartenliste: getönte Fläche, darauf randlose Karten mit hauchfeinem
+     Schatten (klare Kante ohne Rahmen). */
+  --pm-list-canvas: color-mix(in srgb, var(--pm-text) 6.5%, var(--pm-content-surface));
+  --pm-list-card: var(--pm-document-row-bg, var(--pm-app-surface-raised));
+  --pm-list-card-shadow: 0 1px 2px rgba(15, 23, 42, 0.07), 0 0 1px rgba(15, 23, 42, 0.08);
+}
+
+/* Dunkel ist der Kontrast Karte ↔ Fläche schon gegeben: Fläche nur minimal
+   tönen, Schatten dunkler (auf dunklem Grund wirkt helles Grau nicht). */
+.papermind-app.v-theme--dark {
+  --pm-list-canvas: color-mix(in srgb, var(--pm-text) 2.5%, var(--pm-content-surface));
+  --pm-list-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.28), 0 0 1px rgba(0, 0, 0, 0.3);
+}

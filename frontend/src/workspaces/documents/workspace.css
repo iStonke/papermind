@@ -241,6 +241,50 @@
   pointer-events: none;
 }
 
+.sidebar-foot__more-badge .v-badge__badge {
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 15px;
+  box-shadow: 0 0 0 2px var(--pm-sidebar-surface);
+}
+
+/* Das Menü wird von Vuetify an den Overlay-Container teleportiert. */
+.sidebar-foot__more-menu {
+  padding: 6px !important;
+  border: 1px solid var(--pm-divider);
+  border-radius: 12px !important;
+  background: var(--pm-app-surface-raised) !important;
+  box-shadow: var(--pm-shadow) !important;
+}
+
+.sidebar-foot__more-menu .v-list-item {
+  min-height: 44px;
+  border-radius: 8px;
+}
+
+.sidebar-foot__more-menu .v-list-item__spacer {
+  width: 12px;
+}
+
+.sidebar-foot__menu-count {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--pm-muted);
+  background: var(--pm-sidebar-hover);
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 .appbar-search__field .v-field--focused .v-field__outline {
   color: rgba(255, 255, 255, 0.92);
 }
@@ -2350,8 +2394,9 @@
   margin-left: auto;
 }
 
-/* Drei Fuß-Aktionen (Tastenkürzel, Papierkorb, Einstellungen): kompakt,
-   damit der Kontoname daneben nicht abgeschnitten wird. */
+/* Drei feste Fuß-Aktionen (Tastenkürzel, Einstellungen, Mehr): kompakt,
+   damit der Kontoname daneben nicht abgeschnitten wird. Weitere Aktionen
+   liegen im Überlaufmenü und können die Zeile nicht mehr verbreitern. */
 .sidebar-foot__actions > .sidebar-foot__btn.v-btn {
   width: 32px;
   height: 32px;
@@ -2996,35 +3041,36 @@
   grid-template-columns: 60px minmax(0, 1fr) auto;
   gap: 15px;
   align-items: stretch;
-  border: 1px solid var(--pm-document-row-border, rgba(15, 23, 42, 0.06));
-  border-radius: 14px;
+  /* Weiche Karte (Listen-Sprache, Variante B): randlos und ohne Schatten auf
+     getönter Fläche; Hover = feiner Ring, Auswahl = Akzent-Ring + Tönung. */
+  border: 1px solid transparent;
+  border-radius: 12px;
   padding: 15px 17px;
-  background: var(--pm-app-surface-raised);
+  background: var(--pm-list-card);
+  box-shadow: var(--pm-list-card-shadow);
   text-align: left;
   margin-bottom: 0;
   cursor: pointer;
   transition:
     background-color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
-    border-color     var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+    box-shadow       var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .document-row + .document-row {
   margin-top: var(--document-row-gap);
 }
 
+/* Hover-/Auswahl-Ringe als inset-Schatten (kein Layout-Sprung), jeweils
+   zusätzlich zum feinen Kartenschatten der Listen-Sprache. */
 .document-row:hover {
-  background: var(--pm-row-hover);
-  border-color: var(--pm-document-row-hover-border, color-mix(in srgb, var(--pm-accent) 16%, transparent));
+  background: var(--pm-list-card);
+  box-shadow: var(--pm-list-card-shadow), inset 0 0 0 1px var(--pm-list-hover-ring);
 }
 
-.document-row--active {
-  background: var(--pm-row-active);
-  border-color: var(--pm-document-row-active-border, color-mix(in srgb, var(--pm-accent) 30%, transparent));
-}
-
+.document-row--active,
 .document-row--active:hover {
-  background: var(--pm-row-active);
-  border-color: var(--pm-document-row-active-hover-border, color-mix(in srgb, var(--pm-accent) 38%, transparent));
+  background: linear-gradient(var(--pm-list-selected), var(--pm-list-selected)), var(--pm-list-card);
+  box-shadow: var(--pm-list-card-shadow), inset 0 0 0 2px var(--pm-list-accent);
 }
 
 /* Ungelesene Zeilen deutlich hervorheben (Variante A): linker Akzentbalken,
@@ -3034,22 +3080,22 @@
   position: relative;
 }
 
-.document-row--unread::before {
+/* Ungelesen = Akzentpunkt vor der Metazeile (wie in Mail-Programmen). Der
+   Akzentbalken links bleibt in der Listen-Sprache der Auswahl vorbehalten. */
+.document-row--unread .document-row__kicker::before {
   content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: var(--pm-accent);
-  opacity: 1;
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-right: -2px;
+  border-radius: 50%;
+  background: var(--pm-list-accent);
   transition: opacity 140ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
-  pointer-events: none;
 }
 
-/* Beim Import entsteht der Balken erst nach der Übergabe des fliegenden
+/* Beim Import erscheint der Punkt erst nach der Übergabe des fliegenden
    Thumbnails und dem letzten Aufleuchten der neuen Zeile. */
-.document-row--unread.document-row--arrival-marker-pending::before {
+.document-row--unread.document-row--arrival-marker-pending .document-row__kicker::before {
   opacity: 0;
 }
 
@@ -3087,12 +3133,7 @@
 
 .papermind-app.v-theme--light .document-list {
   padding: 12px;
-  background: var(--pm-content-surface);
-}
-
-.papermind-app.v-theme--light .document-row {
-  border-color: var(--pm-document-row-border, var(--pm-row-border));
-  box-shadow: var(--pm-document-row-shadow);
+  background: var(--pm-list-canvas);
 }
 
 .papermind-app.v-theme--light .sidebar-item {
@@ -3112,15 +3153,9 @@
   content: none;
 }
 
-.papermind-app.v-theme--dark .document-row {
-  background: var(--pm-document-row-bg, var(--pm-app-surface-raised));
-  border: 1px solid var(--pm-document-row-border, rgba(255, 255, 255, 0.05));
-  box-shadow: var(--pm-document-row-shadow, 0 3px 12px rgba(0, 0, 0, 0.22));
-}
-
 .papermind-app.v-theme--dark .document-list {
   padding: 12px;
-  background: var(--pm-content-surface);
+  background: var(--pm-list-canvas);
 }
 
 .papermind-app.v-theme--dark .app-main,
@@ -3276,21 +3311,6 @@
   opacity: 0.9;
 }
 
-.papermind-app.v-theme--dark .document-row:hover {
-  background: var(--pm-row-hover);
-  border-color: var(--pm-document-row-hover-border, rgba(var(--v-theme-primary), 0.28));
-}
-
-.papermind-app.v-theme--dark .document-row--active {
-  background: var(--pm-document-row-active-bg, var(--pm-row-active));
-  border-color: var(--pm-document-row-active-border, rgba(var(--v-theme-primary), 0.42));
-  box-shadow: var(--pm-document-row-shadow, 0 3px 12px rgba(0, 0, 0, 0.22));
-}
-
-.papermind-app.v-theme--dark .document-row--active:hover {
-  background: var(--pm-document-row-active-bg, var(--pm-row-active));
-  border-color: var(--pm-document-row-active-hover-border, rgba(var(--v-theme-primary), 0.5));
-}
 
 /* Blauer Aurora-Schleier entfernt (Kontur: neutrale, klar gestufte Flächen). */
 .papermind-app.v-theme--dark .panel-left::before,
@@ -3306,11 +3326,10 @@
   aspect-ratio: 247 / 320;
   align-self: center;
   min-height: 0;
-  border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 6px;
   overflow: hidden;
   background: #f5f3ef;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.12);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3344,11 +3363,11 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  font-size: 0.66rem;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: rgba(var(--v-theme-on-surface), 0.58);
+  /* Normale Schreibweise statt Versalien (Listen-Sprache). */
+  font-size: 0.76rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--pm-list-meta);
 }
 
 .document-row__kicker-type {
@@ -3370,19 +3389,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 0 1 auto;
-  /* Gleiche Kicker-Schrift wie der Typ (uppercase, weight, letter-spacing werden
-     geerbt); nur die etwas hellere Farbe bleibt als dezente Hierarchie. */
-  color: rgba(var(--v-theme-on-surface), 0.46);
-}
-
-/* Auf der türkisen Selektionsfläche liest sich Türkis-Text schlecht → Typ und
-   Korrespondent bleiben im neutralen Textton (etwas kräftiger als im Ruhezustand). */
-.document-row--active .document-row__kicker {
-  color: rgba(var(--v-theme-on-surface), 0.72);
-}
-
-.document-row--active .document-row__kicker-corr {
-  color: rgba(var(--v-theme-on-surface), 0.55);
+  /* Gleiche Schrift wie der Typ; nur etwas heller als dezente Hierarchie. */
+  color: var(--pm-list-meta-soft);
 }
 
 .document-row__title {
@@ -3394,8 +3402,9 @@
 }
 
 .document-row__name {
+  color: var(--pm-list-title);
   font-weight: 600;
-  font-size: 1.02rem;
+  font-size: 1rem;
   line-height: 1.25;
   letter-spacing: 0;
   display: block;
@@ -3444,22 +3453,22 @@
 }
 
 .document-row__tag-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  /* Block statt Flex: nur so greift text-overflow: ellipsis – lange Tags
+     enden mit „…" statt beidseitig abgeschnitten zu werden. */
+  display: inline-block;
   flex: 0 1 auto;
   height: 20px;
-  border: 1px solid color-mix(in srgb, var(--pm-chip-text) 16%, transparent);
+  line-height: 20px;
+  border: 0;
   border-radius: 999px;
-  padding: 0 7px;
-  background: var(--pm-chip-bg);
-  color: var(--pm-chip-text);
+  padding: 0 8px;
+  background: var(--pm-list-chip-bg);
+  color: var(--pm-list-chip-text);
   min-width: 0;
-  max-width: min(150px, 42%);
-  font-size: 0.68rem;
+  max-width: min(128px, 40%);
+  font-size: 0.7rem;
   font-weight: 400;
   letter-spacing: 0;
-  line-height: 1;
 }
 
 .document-row__tag-chip,
@@ -3473,9 +3482,9 @@
 .document-row__tag-chip--more {
   flex: 0 0 auto;
   max-width: none;
+  padding: 0 2px;
   background: transparent;
-  border-color: color-mix(in srgb, var(--pm-chip-text) 20%, transparent);
-  color: var(--pm-chip-count);
+  color: var(--pm-list-meta-soft);
   font-variant-numeric: tabular-nums;
 }
 
@@ -3527,16 +3536,36 @@
 }
 
 .document-row__date {
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   line-height: 1;
-  color: rgba(var(--v-theme-on-surface), 0.58);
-  padding-right: 4px;
+  color: var(--pm-list-date);
+  padding: 2px 4px 0 0;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
-.document-row--active .document-row__date {
-  color: rgba(var(--v-theme-primary), 0.7);
+/* Aktionen treten zurück: Menü und leerer Stern erst bei Hover/Fokus/Auswahl;
+   ein gesetzter Favorit bleibt immer sichtbar. */
+.document-row__menu-btn,
+.document-row__fav-btn:not(.document-row__fav-btn--active) {
+  opacity: 0;
+}
+
+.document-row:hover .document-row__menu-btn,
+.document-row:hover .document-row__fav-btn,
+.document-row:focus-within .document-row__menu-btn,
+.document-row:focus-within .document-row__fav-btn,
+.document-row--active .document-row__menu-btn,
+.document-row--active .document-row__fav-btn,
+.document-row__menu-btn[aria-expanded='true'] {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .document-row__menu-btn,
+  .document-row__fav-btn:not(.document-row__fav-btn--active) {
+    opacity: 1;
+  }
 }
 
 .document-row__fav-btn,
@@ -5259,4 +5288,16 @@
   .pm-prop-val {
     padding: 6px 0 12px;
   }
+}
+
+/* Kartenliste: die getönte Fläche liegt auf dem Scroll-Container selbst,
+   damit sie bis ganz unten reicht (auch hinter Abstandshalter/Nachladen am
+   Listenende und unterhalb weniger Karten) – kein weißer Streifen. */
+.papermind-app.v-theme--light .panel-middle .document-list-shell,
+.papermind-app.v-theme--light .panel-middle .document-list-body,
+.papermind-app.v-theme--light .panel-middle .document-list-content,
+.papermind-app.v-theme--dark .panel-middle .document-list-shell,
+.papermind-app.v-theme--dark .panel-middle .document-list-body,
+.papermind-app.v-theme--dark .panel-middle .document-list-content {
+  background: var(--pm-list-canvas);
 }

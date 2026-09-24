@@ -202,18 +202,19 @@
                   class="document-row__tags"
                 >
                   <span
-                    v-for="tag in document.tags.slice(0, 3)"
+                    v-for="tag in document.tags.slice(0, 2)"
                     :key="`doc-${document.id}-tag-${tag.id}`"
                     class="document-row__tag-chip"
+                    :title="tag.name"
                   >
                     {{ tag.name }}
                   </span>
                   <span
-                    v-if="document.tags.length > 3"
+                    v-if="document.tags.length > 2"
                     key="more"
                     class="document-row__tag-chip document-row__tag-chip--more"
                   >
-                    +{{ document.tags.length - 3 }}
+                    +{{ document.tags.length - 2 }}
                   </span>
                 </div>
                 <div
@@ -224,6 +225,8 @@
               </div>
 
               <div class="document-row__aside">
+                <!-- Datum oben (Höhe der Metazeile), Aktionen unten – Listen-Sprache. -->
+                <div class="document-row__date">{{ displayListDate(document) }}</div>
                 <div class="document-row__actions">
                   <!-- Favoriten-Stern (nur außerhalb des Papierkorbs) -->
                   <span
@@ -310,7 +313,6 @@
                     </v-list>
                   </v-menu>
                 </div>
-                <div class="document-row__date">{{ displayListDate(document) }}</div>
               </div>
               </div>
             </div>
@@ -366,6 +368,7 @@
                   </div>
 
                   <div class="document-row__aside">
+                    <div class="document-row__date">{{ formatDate(note.deleted_at || note.updated_at) }}</div>
                     <div class="document-row__actions" @click.stop @keydown.stop>
                       <v-btn
                         v-if="isFavoritesView"
@@ -407,7 +410,6 @@
                         </v-list>
                       </v-menu>
                     </div>
-                    <div class="document-row__date">{{ formatDate(note.deleted_at || note.updated_at) }}</div>
                   </div>
                 </div>
               </div>
@@ -2082,17 +2084,15 @@ function onListDrop(event) {
 }
 
 /* ── Selektierter Zustand ─────────────────────────────────────────────── */
-.document-row--selected {
-  background: rgba(var(--v-theme-primary), 0.07);
-}
-
+.document-row--selected,
 .document-row--selected:hover {
-  background: rgba(var(--v-theme-primary), 0.07);
+  background: linear-gradient(var(--pm-list-selected), var(--pm-list-selected)), var(--pm-list-card);
+  box-shadow: var(--pm-list-card-shadow), inset 0 0 0 2px var(--pm-list-accent);
 }
 
 .document-row__tag-chip {
   min-width: 0;
-  max-width: min(150px, 42%);
+  max-width: min(128px, 40%);
 }
 
 .document-row__tag-chip :deep(.v-chip__content) {

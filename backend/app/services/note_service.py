@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -383,6 +383,7 @@ class NoteService:
                 tags=_tag_refs(n),
                 created_at=n.created_at,
                 updated_at=n.updated_at,
+                last_opened_at=n.last_opened_at,
             )
             for n in rows
         ]
@@ -390,6 +391,25 @@ class NoteService:
     def get_note(self, note_id: uuid.UUID) -> Note | None:
         # Auch gelöschte Notizen liefern – für die read-only Papierkorb-Vorschau.
         return self._get(note_id, include_deleted=True)
+
+    def mark_opened(self, note_id: uuid.UUID) -> Note:
+        """Merkt einen echten Editor-Aufruf, ohne ``updated_at`` zu verändern."""
+        note = self._get(note_id, include_deleted=False)
+        if note is None:
+            raise NotFoundError("Notiz nicht gefunden")
+        opened_at = datetime.now(timezone.utc)
+        # ``Note.updated_at`` besitzt ein SQLAlchemy-``onupdate``. Deshalb das
+        # Feld im Core-UPDATE explizit auf sich selbst setzen: Lesen ist keine
+        # inhaltliche Bearbeitung und darf die Bearbeitungsreihenfolge nicht
+        # verändern.
+        self.db.execute(
+            update(Note)
+            .where(Note.id == note.id)
+            .values(last_opened_at=opened_at, updated_at=Note.updated_at)
+        )
+        self.db.commit()
+        self.db.refresh(note)
+        return note
 
     def _sync_links(self, note: Note) -> None:
         """Verweise der Notiz (note_link) aus body_json neu berechnen."""

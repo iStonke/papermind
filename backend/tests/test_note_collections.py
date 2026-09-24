@@ -136,6 +136,18 @@ class NoteCollectionServiceTest(unittest.TestCase):
         self.assertEqual(moved.collection_id, arb.id)
         self.assertEqual(moved.notebook_id, nb.id)
 
+    def test_mark_opened_tracks_access_without_changing_updated_at(self) -> None:
+        note = self.notes.create_note(NoteCreateRequest(title="Zuletzt geöffnet"))
+        updated_at = note.updated_at
+        self.assertIsNone(note.last_opened_at)
+
+        opened = self.notes.mark_opened(note.id)
+
+        self.assertIsNotNone(opened.last_opened_at)
+        self.assertEqual(opened.updated_at, updated_at)
+        listed = next(item for item in self.notes.list_notes() if item.id == note.id)
+        self.assertEqual(listed.last_opened_at, opened.last_opened_at)
+
     def test_move_notes_detaches_notebook(self) -> None:
         default_id = self.collections.ensure_default_id()
         arb = self._collection("Arbeit")

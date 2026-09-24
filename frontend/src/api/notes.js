@@ -43,6 +43,7 @@ export const moveNotesToNotebook = ({ ids, notebookId = null }) =>
 /** Setzt die Reihenfolge der Notizbücher (IDs in Zielreihenfolge). */
 export const reorderNotebooks = (ids) => apiPost('/api/notes/notebooks/reorder', { ids });
 export const getNote = (id) => apiGet(`/api/notes/${id}`);
+export const markNoteOpened = (id) => apiPost(`/api/notes/${id}/opened`, undefined);
 export const getNoteBacklinks = (id) => apiGet(`/api/notes/${id}/backlinks`);
 // Hakt eine einzelne Aufgabe (taskItem an `position`) direkt in der Notiz ab.
 export const toggleNoteTask = (id, position, done = true) =>

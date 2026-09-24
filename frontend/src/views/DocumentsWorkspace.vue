@@ -289,19 +289,6 @@
                 @click="openShortcutsHelp"
               />
               <v-btn
-                icon
-                variant="text"
-                size="small"
-                class="sidebar-foot__btn"
-                :class="{ 'sidebar-foot__btn--active': isTrashView }"
-                :aria-label="trashFootLabel"
-                :title="trashFootLabel"
-                @click="handleSidebarViewSelect('trash')"
-              >
-                <v-icon size="20">mdi-trash-can-outline</v-icon>
-                <span v-if="sidebarCounts.trash_count > 0" class="sidebar-foot__dot" aria-hidden="true" />
-              </v-btn>
-              <v-btn
                 icon="mdi-cog-outline"
                 variant="text"
                 size="small"
@@ -309,7 +296,61 @@
                 aria-label="Einstellungen"
                 @click="uiStore.openSettings()"
               />
-              <ActivityIndicator ref="activityIndicatorRef" @open-backup="openBackupSettings" />
+              <v-menu
+                v-model="sidebarMoreMenuOpen"
+                location="top end"
+                :offset="8"
+                :close-on-content-click="false"
+                eager
+              >
+                <template #activator="{ props: menuProps }">
+                  <v-btn
+                    v-bind="menuProps"
+                    icon
+                    variant="text"
+                    size="small"
+                    class="sidebar-foot__btn sidebar-foot__more-btn"
+                    :class="{ 'sidebar-foot__btn--active': isTrashView }"
+                    :aria-label="sidebarMoreLabel"
+                    :title="sidebarMoreLabel"
+                  >
+                    <v-badge
+                      :model-value="sidebarActivitySummary.hasActivity"
+                      :content="sidebarActivitySummary.badgeCount || undefined"
+                      :dot="sidebarActivitySummary.badgeCount === 0"
+                      :color="sidebarActivitySummary.badgeColor"
+                      max="9"
+                      offset-x="0"
+                      offset-y="0"
+                      class="sidebar-foot__more-badge"
+                    >
+                      <v-icon size="20">mdi-dots-horizontal</v-icon>
+                    </v-badge>
+                  </v-btn>
+                </template>
+
+                <v-list class="pm-menu sidebar-foot__more-menu" density="compact" min-width="250">
+                  <ActivityIndicator
+                    ref="activityIndicatorRef"
+                    presentation="menu-item"
+                    @open-backup="openBackupSettings"
+                    @status-change="handleSidebarActivityStatus"
+                  />
+                  <v-divider v-if="sidebarActivitySummary.hasActivity" />
+                  <v-list-item
+                    :active="isTrashView"
+                    :title="trashFootLabel"
+                    @click="openTrashFromSidebarMenu"
+                  >
+                    <template #prepend>
+                      <v-icon size="20">mdi-trash-can-outline</v-icon>
+                    </template>
+                    <template v-if="sidebarCounts.trash_count > 0" #append>
+                      <span class="sidebar-foot__menu-count">{{ sidebarCounts.trash_count }}</span>
+                    </template>
+                  </v-list-item>
+                </v-list>
+              </v-menu>
             </div>
           </template>
         </AppSidebar>
@@ -329,6 +370,8 @@
         <DashboardView
           v-if="!isDossierRoute && !isWikiRoute && activeView === 'dashboard'"
           class="panel panel-dashboard"
+          @import-document="openImport"
+          @create-note="createNoteFromCommandPalette"
           @open-ai="openAiView"
           @open-document="openDocumentFromDashboard"
           @attention-select="handleDashboardAttention"
@@ -2289,6 +2332,17 @@ function openLinkedNoteInWorkspace(noteId, options = undefined) {
   selectView('notes');
 }
 
+async function createNoteFromCommandPalette() {
+  try {
+    await notesStore.ensureLoaded();
+    const note = await notesStore.create();
+    notesStore.requestOpen(note.id, { cursorPosition: 'start' });
+    selectView('notes');
+  } catch (error) {
+    notifyError(error, 'Die Notiz konnte nicht angelegt werden.');
+  }
+}
+
 // linkedDocument-Attribut für das gewählte Dokument (Shape wie NoteWorkspaceEditor).
 function selectedDocumentLinkTarget() {
   const docId = selectedDocumentId.value;
@@ -2673,9 +2727,20 @@ function onFollowLink(annotation) {
   selectDocument(targetId);
 }
 const { sidebarCounts, isLoadingSidebarCounts, savedSearches, isLoadingSavedSearches } = storeToRefs(sidebarStore);
+const sidebarMoreMenuOpen = ref(false);
+const sidebarActivitySummary = reactive({
+  hasActivity: false,
+  badgeCount: 0,
+  badgeColor: 'primary',
+  ariaLabel: 'Keine laufenden Prozesse',
+});
 const trashFootLabel = computed(() => {
   const count = Number(sidebarCounts.value.trash_count || 0);
   return count > 0 ? `Papierkorb (${count})` : 'Papierkorb (leer)';
+});
+const sidebarMoreLabel = computed(() => {
+  if (!sidebarActivitySummary.hasActivity) return 'Weitere Aktionen';
+  return `Weitere Aktionen · ${sidebarActivitySummary.ariaLabel}`;
 });
 
 const activeView = ref('all');
@@ -2827,6 +2892,15 @@ const documentListPanelRef = ref(null);
 const appSidebarRef = ref(null);
 const activityIndicatorRef = ref(null);
 const allDocumentsPulseKey = ref(0);
+
+function handleSidebarActivityStatus(status) {
+  Object.assign(sidebarActivitySummary, status);
+}
+
+function openTrashFromSidebarMenu() {
+  sidebarMoreMenuOpen.value = false;
+  handleSidebarViewSelect('trash');
+}
 
 // Import-Fluganimation: Dokumentkarte, die vom Import-Dialog in die Liste fliegt.
 const importFlight = ref(null); // { origin, target, thumbUrl } | null
@@ -8929,6 +9003,8 @@ watch(() => uiStore.workspaceRequestSignal, () => {
   switch (req.type) {
     case 'openDocument': openDocumentFromDashboard(req.payload); break;
     case 'openDocumentReader': void openDocumentReaderFromWorkspace(req.payload); break;
+    case 'openNote': openLinkedNoteInWorkspace(req.payload); break;
+    case 'createNote': void createNoteFromCommandPalette(); break;
     case 'search': runSearchFromDashboard(req.payload); break;
     case 'tagFilter': applyTagFilterFromSidebar(req.payload); break;
     case 'typeFilter': applyCategoryFilterFromSidebar(req.payload); break;

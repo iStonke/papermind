@@ -1,7 +1,7 @@
 import { ref, watch } from 'vue';
 
 const STORAGE_KEY = 'pm-notes-list-preferences-v1';
-const SORT_MODES = ['updated', 'created', 'title'];
+const SORT_MODES = ['updated', 'created', 'opened', 'title'];
 const DATE_RANGES = ['', 'today', 'last_7_days', 'last_30_days'];
 
 export function useNoteListPreferences(defaultSort, getStorage = () => window.localStorage, storageKey = STORAGE_KEY) {
@@ -10,7 +10,7 @@ export function useNoteListPreferences(defaultSort, getStorage = () => window.lo
   let hasSavedSort = SORT_MODES.includes(saved.sortMode);
   const normalizeSort = value => SORT_MODES.includes(value) ? value : 'updated';
   const sortMode = ref(hasSavedSort ? saved.sortMode : normalizeSort(defaultSort()));
-  const grouping = ref(['auto', 'date', 'notebook', 'none'].includes(saved.grouping) ? saved.grouping : 'auto');
+  const grouping = ref(['auto', 'date', 'notebook', 'favorites', 'none'].includes(saved.grouping) ? saved.grouping : 'auto');
   const reverseSort = ref(saved.reverseSort === true);
   const dateRange = ref(DATE_RANGES.includes(saved.dateRange) ? saved.dateRange : '');
   const notebookFilter = ref(typeof saved.notebookFilter === 'string' ? saved.notebookFilter : '');

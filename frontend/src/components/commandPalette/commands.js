@@ -21,6 +21,14 @@ export const GROUP_ORDER = Object.freeze(['action', 'nav']);
 export function buildCommands({ uiStore }) {
   return [
     {
+      id: 'action-new-note',
+      group: 'action',
+      label: 'Neue Notiz erstellen',
+      icon: 'mdi-note-plus-outline',
+      keywords: ['neue notiz', 'notiz erstellen', 'schreiben', 'idee', 'memo'],
+      run: () => uiStore.requestWorkspace('createNote'),
+    },
+    {
       id: 'action-import',
       group: 'action',
       label: 'Dokument importieren',
@@ -61,6 +69,23 @@ export function buildCommands({ uiStore }) {
       icon: 'mdi-file-document-multiple-outline',
       keywords: ['alle', 'dokumente', 'bibliothek', 'library'],
       run: () => uiStore.requestView('all'),
+    },
+    {
+      id: 'nav-notes',
+      group: 'nav',
+      primary: true,
+      label: 'Alle Notizen',
+      icon: 'mdi-note-multiple-outline',
+      keywords: ['notizen', 'notiz', 'memos', 'ideen'],
+      run: () => uiStore.requestView('notes'),
+    },
+    {
+      id: 'nav-notes-pinned',
+      group: 'nav',
+      label: 'Angepinnte Notizen',
+      icon: 'mdi-pin-outline',
+      keywords: ['notizen', 'angepinnt', 'favoriten', 'wichtig'],
+      run: () => uiStore.requestView('notes_pinned'),
     },
     {
       id: 'nav-imports',

@@ -333,6 +333,7 @@ class NoteListItem(ORMModel):
     tags: list[NoteTagRef] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+    last_opened_at: datetime | None = None
 
 
 class NoteListResponse(BaseModel):
@@ -355,6 +356,12 @@ class NoteRead(ORMModel):
     tags: list[NoteTagRef] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+    last_opened_at: datetime | None = None
+
+
+class NoteOpenedResponse(BaseModel):
+    id: uuid.UUID
+    last_opened_at: datetime
 
 
 class NoteImageRead(ORMModel):

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -204,17 +205,16 @@ test('quick-block preview cards omit the redundant slash badge', () => {
   assert.doesNotMatch(templateCardSource, /Per \/ einfügbar/);
 });
 
-test('compact notes share document-row tokens and management cards use the content surface', () => {
-  for (const token of [
-    '--pm-document-row-bg',
-    '--pm-document-row-border',
-    '--pm-document-row-shadow',
-    '--pm-document-row-hover-border',
-  ]) {
-    assert.match(themeSource, new RegExp(token));
-    assert.match(documentsWorkspaceSource, new RegExp(`var\\(${token}`));
-    assert.match(workspaceSource, new RegExp(`var\\(${token}`));
-
+test('compact notes and document cards share one list language and management cards use the content surface', () => {
+  const listTokens = readFileSync(new URL('../src/theme/lists.css', import.meta.url), 'utf8');
+  // Gemeinsame Tokens für Titel, Metazeile, Datum, Hover und Auswahl …
+  for (const token of ['--pm-list-title', '--pm-list-meta', '--pm-list-date', '--pm-list-hover', '--pm-list-selected', '--pm-list-accent']) {
+    assert.match(listTokens, new RegExp(`${token}:`));
+  }
+  // … werden von Dokumentkarten (B) und Notizzeilen (A) gleichermaßen gelesen.
+  for (const token of ['--pm-list-title', '--pm-list-date', '--pm-list-selected', '--pm-list-accent']) {
+    assert.match(documentsWorkspaceSource, new RegExp(`var\\(${token}\\)`));
+    assert.match(workspaceSource, new RegExp(`var\\(${token}\\)`));
   }
   assert.match(gridSource, /\.nmg-card \{[\s\S]*?background: var\(--pm-content-surface/);
 });
@@ -342,9 +342,10 @@ test('the favorite star sits in the hover action menu with the document-style an
   assert.match(gridSource, /@keyframes nmg-fav-star-ring/);
   // Animation nur beim aktiven Setzen (wie DocumentListPanel).
   assert.match(gridSource, /if \(next\) \{[\s\S]*?animatingFavoriteId\.value = note\.id/);
-  // Favoriten stehen als eigene Gruppe oben.
-  assert.match(gridSource, /favorites: 'Favoriten'/);
-  assert.match(gridSource, /if \(note\.is_favorite\) return 'favorites'/);
+  // Angepinnte Notizen lassen sich bewusst als erster Block gruppieren.
+  assert.match(gridSource, /value: 'favorites', label: 'Angepinnte \+ weitere Notizen'/);
+  assert.match(gridSource, /favorites: 'Angepinnt'/);
+  assert.match(gridSource, /grouping\.value === 'favorites'.*note\.is_favorite \? 'favorites' : 'notes'/);
 });
 
 test('favorite notes use the document list and open a read-only preview', () => {

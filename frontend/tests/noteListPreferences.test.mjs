@@ -99,12 +99,14 @@ test('grouping and period persist together with sorting', () => {
   const saved = storage();
   const mount = () => mountController(() => useNoteListPreferences(() => 'updated', () => saved));
   const first = mount();
-  first.controller.grouping.value = 'notebook';
+  first.controller.sortMode.value = 'opened';
+  first.controller.grouping.value = 'favorites';
   first.controller.dateRange.value = 'last_30_days';
   first.controller.reverseSort.value = true;
   first.unmount();
   const restored = mount();
-  assert.equal(restored.controller.grouping.value, 'notebook');
+  assert.equal(restored.controller.sortMode.value, 'opened');
+  assert.equal(restored.controller.grouping.value, 'favorites');
   assert.equal(restored.controller.dateRange.value, 'last_30_days');
   assert.equal(restored.controller.reverseSort.value, true);
   restored.unmount();

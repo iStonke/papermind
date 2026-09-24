@@ -31,15 +31,20 @@ function groupLabel(date, now) {
  * Gruppiert eine bereits sortierte Notizenliste nach dem lokalen Kalendertag
  * ihrer Erstellung. Die Reihenfolge innerhalb der Gruppen bleibt erhalten.
  */
-export function groupNotesByCreationDay(notes, now = new Date()) {
+export function groupNotesByDay(
+  notes,
+  dateValue = (note) => note?.created_at || note?.updated_at,
+  now = new Date(),
+  unknownLabel = 'Ohne Erstellungsdatum',
+) {
   const groups = new Map();
   for (const note of notes || []) {
-    const date = validDate(note?.created_at || note?.updated_at);
+    const date = validDate(dateValue(note));
     const key = localDayKey(date);
     if (!groups.has(key)) {
       groups.set(key, {
         key,
-        label: groupLabel(date, now),
+        label: date ? groupLabel(date, now) : unknownLabel,
         order: date
           ? new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
           : Number.NEGATIVE_INFINITY,
@@ -49,4 +54,8 @@ export function groupNotesByCreationDay(notes, now = new Date()) {
     groups.get(key).notes.push(note);
   }
   return [...groups.values()].sort((a, b) => b.order - a.order);
+}
+
+export function groupNotesByCreationDay(notes, now = new Date()) {
+  return groupNotesByDay(notes, (note) => note?.created_at || note?.updated_at, now);
 }

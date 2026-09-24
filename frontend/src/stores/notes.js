@@ -474,6 +474,25 @@ export const useNotesStore = defineStore('notes', () => {
     return request;
   }
 
+  async function markOpened(id) {
+    const openedAt = new Date().toISOString();
+    const item = notes.value.find((entry) => entry.id === id);
+    const detail = noteDetails.get(id);
+    if (item) item.last_opened_at = openedAt;
+    if (detail) detail.last_opened_at = openedAt;
+    try {
+      const result = await api.markNoteOpened(id);
+      const confirmedAt = result?.last_opened_at || openedAt;
+      if (item) item.last_opened_at = confirmedAt;
+      if (detail) detail.last_opened_at = confirmedAt;
+      return result;
+    } catch {
+      // Das Öffnen selbst bleibt nutzbar; der nächste Listenabruf korrigiert
+      // einen eventuell nicht gespeicherten optimistischen Zeitpunkt.
+      return null;
+    }
+  }
+
   /** Setzt den Status einer Dashboard-Aufgabe direkt in der kanonischen Notiz
    *  und ersetzt anschließend den lokalen Detail-Cache mit der Serverfassung. */
   async function toggleTask(id, position, done = true) {
@@ -649,6 +668,7 @@ export const useNotesStore = defineStore('notes', () => {
     create,
     peek,
     get,
+    markOpened,
     toggleTask,
     update,
     restoreRevision,

@@ -89,6 +89,234 @@ test('failed login stays usable, successful login opens workspace', async ({ pag
   expect(errors).toEqual([]);
 });
 
+test('sidebar footer keeps common actions visible and moves secondary actions into overflow', async ({ page }, testInfo) => {
+  await mockApi(page);
+  await page.route('**/api/jobs/activity', async (route) => {
+    await route.fulfill({ json: {
+      jobs: [{
+        id: 'job-1', document_id: docId, document_title: 'Prüfbeleg',
+        status: 'running', type: 'OCR',
+      }],
+      ocr_backlog: { total: 1, done: 0, pending: 1, failed: 0 },
+      backup: null,
+    } });
+  });
+  await login(page);
+
+  const footerActions = page.locator('.sidebar-foot__actions');
+  await expect(footerActions.locator(':scope > .v-btn')).toHaveCount(3);
+  await expect(footerActions.getByRole('button', { name: 'Tastenkürzel', exact: true })).toBeVisible();
+  await expect(footerActions.getByRole('button', { name: 'Einstellungen', exact: true })).toBeVisible();
+
+  const moreButton = footerActions.getByRole('button', { name: /^Weitere Aktionen/ });
+  await expect(moreButton).toHaveAccessibleName(/1 Dokument\(e\) in Bearbeitung/);
+  await moreButton.click();
+  const overflowMenu = page.locator('.sidebar-foot__more-menu');
+  await expect(overflowMenu).toBeVisible();
+  await expect(overflowMenu.getByText('Aktivität', { exact: true })).toBeVisible();
+  await expect(overflowMenu.getByText('Papierkorb', { exact: false })).toBeVisible();
+  await page.waitForTimeout(250); // Overlay-Transition vor dem visuellen Snapshot abschließen.
+  await page.screenshot({ path: testInfo.outputPath('sidebar-footer-overflow.png') });
+});
+
+test('title-sorted notes form one alphabetical list without date headings', async ({ page }) => {
+  await mockApi(page);
+  await page.addInitScript(() => {
+    localStorage.setItem('pm-notes-list-preferences-v1', JSON.stringify({ sortMode: 'title' }));
+  });
+  await page.route(/^.*\/api\/notes(?:\?.*)?$/, async (route) => {
+    await route.fulfill({ json: { items: [
+      {
+        id: '30000000-0000-4000-8000-000000000010', title: 'Zulu', preview: 'Neue Notiz',
+        created_at: '2026-09-20T10:00:00Z', updated_at: '2026-09-20T10:00:00Z', is_favorite: false,
+      },
+      {
+        id: '30000000-0000-4000-8000-000000000011', title: 'Alpha', preview: 'Ältere Notiz',
+        created_at: '2026-09-01T10:00:00Z', updated_at: '2026-09-01T10:00:00Z', is_favorite: false,
+      },
+    ] } });
+  });
+  await login(page);
+
+  await page.getByText('Alle Notizen', { exact: true }).click();
+  await expect(page.locator('.notes-ws__item-title')).toHaveText(['Alpha', 'Zulu']);
+  await expect(page.locator('.notes-ws__group-heading')).toHaveCount(0);
+});
+
+test('notes support recently-opened sorting plus notebook and pinned groups', async ({ page }) => {
+  await mockApi(page);
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('pm-notes-list-preferences-v1')) {
+      localStorage.setItem('pm-notes-list-preferences-v1', JSON.stringify({
+        sortMode: 'opened', grouping: 'none',
+      }));
+    }
+  });
+  const notes = [
+    {
+      id: '30000000-0000-4000-8000-000000000020', title: 'Alpha', preview: 'Angepinnt',
+      notebook_id: 'notebook-work', is_favorite: true,
+      created_at: '2026-09-01T10:00:00Z', updated_at: '2026-09-20T10:00:00Z',
+      last_opened_at: '2026-09-21T10:00:00Z',
+    },
+    {
+      id: '30000000-0000-4000-8000-000000000021', title: 'Bravo', preview: 'Zuletzt geöffnet',
+      notebook_id: 'notebook-private', is_favorite: false,
+      created_at: '2026-09-02T10:00:00Z', updated_at: '2026-09-18T10:00:00Z',
+      last_opened_at: '2026-09-24T10:00:00Z',
+    },
+    {
+      id: '30000000-0000-4000-8000-000000000022', title: 'Charlie', preview: 'Ohne Ablage',
+      notebook_id: null, is_favorite: false,
+      created_at: '2026-09-03T10:00:00Z', updated_at: '2026-09-19T10:00:00Z',
+      last_opened_at: '2026-09-23T10:00:00Z',
+    },
+  ];
+  await page.route(/^.*\/api\/notes(?:\?.*)?$/, async (route) => {
+    await route.fulfill({ json: { items: notes } });
+  });
+  await page.route(/^.*\/api\/notes\/notebooks(?:\?.*)?$/, async (route) => {
+    await route.fulfill({ json: { items: [
+      { id: 'notebook-work', name: 'Arbeit', note_count: 1 },
+      { id: 'notebook-private', name: 'Privat', note_count: 1 },
+    ] } });
+  });
+  await login(page);
+
+  await page.getByText('Alle Notizen', { exact: true }).click();
+  await expect(page.locator('.notes-ws__item-title')).toHaveText(['Bravo', 'Charlie', 'Alpha']);
+
+  await page.evaluate(() => localStorage.setItem('pm-notes-list-preferences-v1', JSON.stringify({
+    sortMode: 'title', grouping: 'notebook',
+  })));
+  await page.reload();
+  await page.getByText('Alle Notizen', { exact: true }).click();
+  const showNotebookGroups = page.getByRole('button', { name: 'Notizenliste einblenden' });
+  if (await showNotebookGroups.isVisible()) await showNotebookGroups.click();
+  await expect(page.locator('.notes-ws__group-heading')).toHaveText(['Arbeit', 'Privat', 'Ohne Notizbuch']);
+
+  await page.evaluate(() => localStorage.setItem('pm-notes-list-preferences-v1', JSON.stringify({
+    sortMode: 'title', grouping: 'favorites',
+  })));
+  await page.reload();
+  await page.getByText('Alle Notizen', { exact: true }).click();
+  const showFavoriteGroups = page.getByRole('button', { name: 'Notizenliste einblenden' });
+  if (await showFavoriteGroups.isVisible()) await showFavoriteGroups.click();
+  await expect(page.locator('.notes-ws__group-heading')).toHaveText(['Angepinnt', 'Weitere Notizen']);
+  await expect(page.locator('.notes-ws__item-title').first()).toHaveText('Alpha');
+});
+
+test('command palette finds and opens individual notes', async ({ page }) => {
+  await mockApi(page);
+  const noteId = '30000000-0000-4000-8000-000000000030';
+  const note = {
+    id: noteId, title: 'Projektgedanke', preview: 'Ideen für die nächste Etappe',
+    body_json: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Ideen für die nächste Etappe' }] }] },
+    notebook_id: 'notebook-ideas', is_favorite: true,
+    created_at: '2026-09-01T10:00:00Z', updated_at: '2026-09-20T10:00:00Z',
+    last_opened_at: '2026-09-23T10:00:00Z',
+  };
+  await page.route(/^.*\/api\/notes(?:\?.*)?$/, async (route) => {
+    await route.fulfill({ json: { items: [note] } });
+  });
+  await page.route(/^.*\/api\/notes\/notebooks(?:\?.*)?$/, async (route) => {
+    await route.fulfill({ json: { items: [{ id: 'notebook-ideas', name: 'Ideen', note_count: 1 }] } });
+  });
+  await page.route(`**/api/notes/${noteId}`, async (route) => {
+    await route.fulfill({ json: note });
+  });
+  await page.route(`**/api/notes/${noteId}/opened`, async (route) => {
+    await route.fulfill({ json: { id: noteId, last_opened_at: '2026-09-24T10:00:00Z' } });
+  });
+  await login(page);
+
+  await page.keyboard.press('Control+K');
+  const palette = page.getByRole('dialog', { name: 'Befehle und Suche' });
+  await expect(palette).toBeVisible();
+  await palette.getByRole('combobox', { name: 'Aktion oder Suche' }).fill('Projektgedanke');
+  await expect(palette.getByText('Notizen', { exact: true })).toBeVisible();
+  await expect(palette.getByText('Angepinnt · Ideen', { exact: true })).toBeVisible();
+  await palette.getByText('Projektgedanke', { exact: true }).click();
+
+  await expect(page.getByRole('textbox', { name: 'Titel der Notiz' })).toHaveValue('Projektgedanke');
+  await expect(page.getByRole('region', { name: 'Notizbereich' })).toContainText('Ideen für die nächste Etappe');
+});
+
+test('command palette creates a new note and focuses its editor', async ({ page }) => {
+  await mockApi(page);
+  const noteId = '30000000-0000-4000-8000-000000000031';
+  let createRequests = 0;
+  const createdNote = {
+    id: noteId, title: '', preview: '',
+    body_json: { type: 'doc', content: [{ type: 'paragraph' }] },
+    notebook_id: null, collection_id: null, is_favorite: false,
+    created_at: '2026-09-24T11:00:00Z', updated_at: '2026-09-24T11:00:00Z',
+    last_opened_at: null,
+  };
+  await page.route(/^.*\/api\/notes(?:\?.*)?$/, async (route) => {
+    if (route.request().method() === 'POST') {
+      createRequests += 1;
+      return route.fulfill({ json: createdNote });
+    }
+    return route.fulfill({ json: { items: [] } });
+  });
+  await page.route(`**/api/notes/${noteId}/opened`, async (route) => {
+    await route.fulfill({ json: { id: noteId, last_opened_at: '2026-09-24T11:00:01Z' } });
+  });
+  await login(page);
+
+  await page.keyboard.press('Control+K');
+  const palette = page.getByRole('dialog', { name: 'Befehle und Suche' });
+  await palette.getByRole('combobox', { name: 'Aktion oder Suche' }).fill('Neue Notiz erstellen');
+  await palette.getByText('Neue Notiz erstellen', { exact: true }).click();
+
+  await expect.poll(() => createRequests).toBe(1);
+  await expect(page.getByRole('textbox', { name: 'Titel der Notiz' })).toHaveValue('');
+  await expect(page.locator('.tiptap[contenteditable="true"]')).toBeFocused();
+});
+
+test('dashboard header offers colored import and note quick actions', async ({ page }) => {
+  await mockApi(page);
+  const noteId = '30000000-0000-4000-8000-000000000032';
+  let createRequests = 0;
+  const createdNote = {
+    id: noteId, title: '', preview: '',
+    body_json: { type: 'doc', content: [{ type: 'paragraph' }] },
+    notebook_id: null, collection_id: null, is_favorite: false,
+    created_at: '2026-09-24T12:00:00Z', updated_at: '2026-09-24T12:00:00Z',
+    last_opened_at: null,
+  };
+  await page.route(/^.*\/api\/notes(?:\?.*)?$/, async (route) => {
+    if (route.request().method() === 'POST') {
+      createRequests += 1;
+      return route.fulfill({ json: createdNote });
+    }
+    return route.fulfill({ json: { items: [] } });
+  });
+  await page.route(`**/api/notes/${noteId}/opened`, async (route) => {
+    await route.fulfill({ json: { id: noteId, last_opened_at: '2026-09-24T12:00:01Z' } });
+  });
+  await login(page);
+  await page.getByText('Übersicht', { exact: true }).first().click();
+
+  const actions = page.locator('.dash-head__actions');
+  const importButton = actions.getByRole('button', { name: 'Dokument importieren', exact: true });
+  const noteButton = actions.getByRole('button', { name: 'Notiz schreiben', exact: true });
+  await expect(importButton).toBeVisible();
+  await expect(noteButton).toBeVisible();
+  await expect(importButton).toHaveClass(/dash-btn--import/);
+  await expect(noteButton).toHaveClass(/dash-btn--note/);
+
+  await importButton.click();
+  await expect(page.getByRole('dialog').getByText('Importieren', { exact: true }).first()).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog').getByText('Importieren', { exact: true })).toHaveCount(0);
+
+  await noteButton.click();
+  await expect.poll(() => createRequests).toBe(1);
+  await expect(page.locator('.tiptap[contenteditable="true"]')).toBeFocused();
+});
+
 test('global search opens the selected result in its list when cleared', async ({ page }, testInfo) => {
   await mockApi(page);
   const selectedDocId = '10000000-0000-4000-8000-000000000002';

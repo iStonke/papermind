@@ -30,6 +30,7 @@ from app.schemas.notes import (
     NoteCreateRequest,
     NoteImageRead,
     NoteListResponse,
+    NoteOpenedResponse,
     NoteRead,
     NoteRevisionCheckpointRequest,
     NoteRevisionListResponse,
@@ -618,6 +619,21 @@ def get_note(
     if note is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notiz nicht gefunden")
     return NoteRead.model_validate(note)
+
+
+@router.post(
+    "/{note_id}/opened",
+    response_model=NoteOpenedResponse,
+    summary="Record that a note was opened",
+    responses={404: {"model": ErrorResponse}},
+)
+def mark_note_opened(
+    note_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NoteOpenedResponse:
+    note = NoteService(db, user.id).mark_opened(note_id)
+    return NoteOpenedResponse(id=note.id, last_opened_at=note.last_opened_at)
 
 
 @router.get(

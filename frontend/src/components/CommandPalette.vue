@@ -71,6 +71,7 @@
                 >
                   <v-icon :icon="item.entry.icon" size="18" class="pm-palette__row-icon" />
                   <span class="pm-palette__row-label" v-html="item.html"></span>
+                  <span v-if="item.entry.meta" class="pm-palette__row-meta">{{ item.entry.meta }}</span>
                 </div>
               </div>
             </template>
@@ -98,6 +99,7 @@ import { useDocumentStore } from '../stores/documents';
 import { useTagStore } from '../stores/tags';
 import { useCategoryStore } from '../stores/categories';
 import { useCorrespondentStore } from '../stores/correspondents';
+import { useNotesStore } from '../stores/notes';
 import { buildCommands } from './commandPalette/commands';
 import { escapeHtml, parsePrefix, buildGroups, reconcileSelection } from './commandPalette/matching';
 
@@ -111,6 +113,7 @@ const documentStore = useDocumentStore();
 const tagStore = useTagStore();
 const categoryStore = useCategoryStore();
 const correspondentStore = useCorrespondentStore();
+const notesStore = useNotesStore();
 
 const baseCommands = buildCommands({ uiStore });
 
@@ -126,6 +129,7 @@ let staggerTimer = null;
 
 const placeholder = 'Suchen oder Aktion… (>, #, @)';
 const DOCUMENT_LIMIT = 6;
+const NOTE_LIMIT = 6;
 
 // Präfix-Modi grenzen die Ergebnisse auf eine Gruppe ein.
 const MODE_GROUP = { '>': 'action', '#': 'tag', '@': 'correspondent' };
@@ -136,6 +140,7 @@ const GROUP_CONFIG = [
   { key: 'context', label: 'Für dieses Dokument' },
   { key: 'action', label: 'Aktionen' },
   { key: 'nav', label: 'Springe zu' },
+  { key: 'note', label: 'Notizen', limit: NOTE_LIMIT },
   { key: 'document', label: 'Dokumente', limit: DOCUMENT_LIMIT },
   { key: 'tag', label: 'Tags' },
   { key: 'correspondent', label: 'Korrespondenten' },
@@ -153,6 +158,46 @@ function documentTitle(doc) {
   return String(doc?.display_name || '').trim()
     || String(doc?.original_filename || '').trim()
     || 'Unbenanntes Dokument';
+}
+
+function noteTitle(note) {
+  return String(note?.title || '').trim() || 'Ohne Titel';
+}
+
+function timestamp(value) {
+  const parsedValue = value ? new Date(value).getTime() : 0;
+  return Number.isFinite(parsedValue) ? parsedValue : 0;
+}
+
+function noteNotebookName(note) {
+  if (!note?.notebook_id) return 'Ohne Notizbuch';
+  return notesStore.notebooks.find((notebook) => notebook.id === note.notebook_id)?.name || '';
+}
+
+function sortedNoteEntries({ openedOnly = false } = {}) {
+  return [...notesStore.notes]
+    .filter((note) => !openedOnly || note.last_opened_at)
+    .sort((a, b) => (
+      timestamp(b.last_opened_at) - timestamp(a.last_opened_at)
+      || timestamp(b.updated_at) - timestamp(a.updated_at)
+    ))
+    .map((note) => {
+      const notebookName = noteNotebookName(note);
+      return {
+        id: `note-${note.id}`,
+        group: 'note',
+        icon: note.is_favorite ? 'mdi-pin' : 'mdi-note-outline',
+        label: noteTitle(note),
+        meta: [note.is_favorite ? 'Angepinnt' : '', notebookName].filter(Boolean).join(' · '),
+        keywords: [
+          note.preview,
+          notebookName,
+          note.is_favorite ? 'angepinnt favoriten wichtig' : '',
+          'notiz notizen',
+        ].filter(Boolean),
+        run: () => uiStore.requestWorkspace('openNote', note.id),
+      };
+    });
 }
 
 // Präfix (>, #, @) vom Suchbegriff trennen.
@@ -201,7 +246,7 @@ function contextEntries() {
 // Dokumente, Tags und Dokumenttypen tauchen erst auf, sobald gesucht wird (oder
 // ein passender Präfix-Modus aktiv ist) – sonst bliebe die leere Palette voll.
 function dynamicEntries() {
-  const entries = [];
+  const entries = [...sortedNoteEntries()];
   for (const doc of documentStore.documents) {
     entries.push({
       id: `doc-${doc.id}`,
@@ -247,7 +292,7 @@ const view = computed(() => {
 
   let entries = showDynamic
     ? [...contextEntries(), ...baseCommands, ...dynamicEntries()]
-    : [...contextEntries(), ...baseCommands];
+    : [...contextEntries(), ...baseCommands, ...sortedNoteEntries({ openedOnly: true })];
 
   // Leeres Feld: nur die häufig genutzten Sprungziele (primary) zeigen – die
   // übrigen bleiben per Tippen auffindbar.
@@ -394,6 +439,8 @@ watch(
       // noch nicht lud.
       categoryStore.ensureLoaded?.();
       correspondentStore.ensureLoaded?.();
+      notesStore.ensureLoaded?.();
+      notesStore.ensureNotebooksLoaded?.();
       await nextTick();
       inputRef.value?.focus();
     } else {
@@ -543,12 +590,23 @@ watch(
   font-weight: 500;
 }
 
+.pm-palette__row-meta {
+  flex: none;
+  max-width: 42%;
+  overflow: hidden;
+  color: var(--pm-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .pm-palette__row--sel {
   background: var(--pm-selected);
 }
 
 .pm-palette__row--sel .pm-palette__row-label,
 .pm-palette__row--sel .pm-palette__row-icon,
+.pm-palette__row--sel .pm-palette__row-meta,
 .pm-palette__row--sel .pm-palette__row-label :deep(mark) {
   color: var(--pm-accent-text);
 }

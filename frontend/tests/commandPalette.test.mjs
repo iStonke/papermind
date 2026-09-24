@@ -8,6 +8,7 @@ import {
   buildGroups,
   reconcileSelection,
 } from "../src/components/commandPalette/matching.js";
+import { buildCommands } from "../src/components/commandPalette/commands.js";
 
 const MODES = { ">": "action", "#": "tag", "@": "correspondent" };
 
@@ -124,4 +125,30 @@ test("reconcileSelection clamps a removed selection to a valid entry", () => {
 
   assert.equal(reconcileSelection(entries, "removed-entry", 8), 1);
   assert.equal(reconcileSelection([], "removed-entry", 8), 0);
+});
+
+test("note destinations are available from the command palette", () => {
+  const calls = [];
+  const workspaceCalls = [];
+  const commands = buildCommands({
+    uiStore: {
+      requestView: (view) => calls.push(view),
+      requestWorkspace: (type) => workspaceCalls.push(type),
+      requestAction() {},
+      openSettings() {},
+      openAccount() {},
+    },
+  });
+  const allNotes = commands.find((entry) => entry.id === "nav-notes");
+  const pinnedNotes = commands.find((entry) => entry.id === "nav-notes-pinned");
+  const newNote = commands.find((entry) => entry.id === "action-new-note");
+
+  assert.equal(allNotes.label, "Alle Notizen");
+  assert.equal(pinnedNotes.label, "Angepinnte Notizen");
+  assert.equal(newNote.label, "Neue Notiz erstellen");
+  allNotes.run();
+  pinnedNotes.run();
+  newNote.run();
+  assert.deepEqual(calls, ["notes", "notes_pinned"]);
+  assert.deepEqual(workspaceCalls, ["createNote"]);
 });

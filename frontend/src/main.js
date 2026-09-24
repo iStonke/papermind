@@ -15,6 +15,7 @@ import '@fontsource-variable/source-serif-4/wght-italic.css';
 import './style.css';
 import './theme/theme.css';
 import './theme/searchbar.css';
+import './theme/lists.css';
 
 installFetchInterceptor();
 

@@ -73,6 +73,10 @@ class Note(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+    # Bewusst unabhängig von ``updated_at``: reines Lesen darf den fachlichen
+    # Änderungszeitpunkt nicht verfälschen, soll aber eine „Zuletzt geöffnet"-
+    # Sortierung über Geräte und Sitzungen hinweg ermöglichen.
+    last_opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Gemeinsames Tag-Vokabular mit Dokumenten (dieselbe ``tags``-Tabelle).
     tags: Mapped[list["Tag"]] = relationship(  # noqa: F821

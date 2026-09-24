@@ -3916,6 +3916,7 @@ const notesDefaultViewOptions = [
 const notesSortOrderOptions = [
   { value: 'updated', label: 'Zuletzt bearbeitet' },
   { value: 'created', label: 'Erstellungsdatum' },
+  { value: 'opened', label: 'Zuletzt geöffnet' },
   { value: 'title', label: 'Titel (A–Z)' },
 ];
 const notesWritingWidthOptions = [

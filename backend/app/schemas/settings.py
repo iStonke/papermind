@@ -164,6 +164,7 @@ class NotesDefaultView(str, Enum):
 class NotesSortOrder(str, Enum):
     updated = "updated"
     created = "created"
+    opened = "opened"
     title = "title"
 
 

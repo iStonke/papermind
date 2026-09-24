@@ -38,6 +38,7 @@ def note_row(*, body_text: str = "Ein kurzer Notiztext"):
         is_favorite=False,
         created_at=now,
         updated_at=now,
+        last_opened_at=None,
     )
 
 

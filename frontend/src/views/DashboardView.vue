@@ -9,6 +9,22 @@
         </div>
         <div class="dash-head__actions">
           <button
+            type="button"
+            class="dash-btn dash-btn--quick dash-btn--import"
+            @click="emit('import-document')"
+          >
+            <v-icon size="16">mdi-tray-arrow-down</v-icon>
+            Dokument importieren
+          </button>
+          <button
+            type="button"
+            class="dash-btn dash-btn--quick dash-btn--note"
+            @click="emit('create-note')"
+          >
+            <v-icon size="16">mdi-note-plus-outline</v-icon>
+            Notiz schreiben
+          </button>
+          <button
             v-if="!isEmpty"
             type="button"
             class="dash-btn"
@@ -48,6 +64,8 @@ import DashboardBoard from '../components/dashboard/DashboardBoard.vue';
 import '../components/dashboard/dashboard.css';
 
 const emit = defineEmits([
+  'import-document',
+  'create-note',
   'open-document',
   'attention-select',
   'show-all-recent',

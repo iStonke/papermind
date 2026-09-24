@@ -727,7 +727,7 @@ import DestructiveDialog from '../DestructiveDialog.vue';
 import PmEmptyState from '../PmEmptyState.vue';
 import { notifyNoteDeleted } from '../../utils/noteDeletionFeedback.js';
 import { patchNote } from '../../api/notes.js';
-import { useNotesStore } from '../../stores/notes.js';
+import { isNoteEmpty, useNotesStore } from '../../stores/notes.js';
 import { useTagStore } from '../../stores/tags.js';
 import { useSettingsStore } from '../../stores/settings.js';
 import { notifyError, useNotifications } from '../../stores/notifications.js';
@@ -876,6 +876,7 @@ defineExpose({ selectNotebook, openFilterSidebar });
 const NOTE_SORT_OPTIONS = [
   { value: 'updated', label: 'Zuletzt bearbeitet' },
   { value: 'created', label: 'Erstellungsdatum' },
+  { value: 'opened', label: 'Zuletzt geöffnet' },
   { value: 'title', label: 'Titel' },
 ];
 const { sortMode, reverseSort, grouping, dateRange } = useNoteListPreferences(
@@ -887,6 +888,7 @@ const GROUPING_OPTIONS = [
   { value: 'auto', label: 'Automatisch' },
   { value: 'date', label: 'Nach Datum' },
   { value: 'notebook', label: 'Nach Notizbuch' },
+  { value: 'favorites', label: 'Angepinnte + weitere Notizen' },
   { value: 'none', label: 'Ohne Gruppen' },
 ];
 const DATE_RANGE_OPTIONS = [
@@ -1009,16 +1011,18 @@ const visibleItems = computed(() => {
 });
 
 // Datumsgruppen folgen der Sortierrichtung. Titel werden ohne Datumsgruppen
-// alphabetisch sortiert; Favoriten bleiben als eigene Gruppe oben.
-const GROUP_ORDER = ['favorites', 'today', 'yesterday', 'week', 'month', 'older'];
+// alphabetisch sortiert. Angepinnte Notizen werden nur in der ausdrücklich
+// gewählten Favoriten-Gruppierung als eigener Block abgesetzt.
+const GROUP_ORDER = ['today', 'yesterday', 'week', 'month', 'older'];
 const GROUP_LABELS = {
-  favorites: 'Favoriten',
-  notes: 'Notizen',
+  favorites: 'Angepinnt',
+  notes: 'Weitere Notizen',
   today: 'Heute',
   yesterday: 'Gestern',
   week: 'Diese Woche',
   month: 'Diesen Monat',
   older: 'Älter',
+  unopened: 'Noch nicht geöffnet',
 };
 function startOfDay(value) {
   const d = new Date(value);
@@ -1026,10 +1030,14 @@ function startOfDay(value) {
   return d;
 }
 function groupBucket(note) {
-  // Favorisierte Notizen stehen – unabhängig vom Datum – oben in einer eigenen Gruppe.
-  if (note.is_favorite) return 'favorites';
+  if (grouping.value === 'favorites') return note.is_favorite ? 'favorites' : 'notes';
   if (grouping.value === 'auto' && sortMode.value === 'title') return 'notes';
-  const raw = (sortMode.value === 'created' ? note.created_at : note.updated_at) || note.updated_at;
+  const raw = sortMode.value === 'created'
+    ? note.created_at || note.updated_at
+    : sortMode.value === 'opened'
+      ? note.last_opened_at
+      : note.updated_at;
+  if (sortMode.value === 'opened' && !raw) return 'unopened';
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) return 'older';
   const now = new Date();
@@ -1057,13 +1065,20 @@ const groupedItems = computed(() => {
     if (!buckets.has(key)) buckets.set(key, []);
     buckets.get(key).push(note);
   }
-  const dates = GROUP_ORDER.filter(key => key !== 'favorites');
-  const order = grouping.value === 'auto' && sortMode.value === 'title'
+  const dates = [...GROUP_ORDER];
+  let order = grouping.value === 'favorites'
     ? ['favorites', 'notes']
-    : ['favorites', ...(reverseSort.value ? dates.reverse() : dates)];
+    : grouping.value === 'auto' && sortMode.value === 'title'
+      ? ['notes']
+      : (reverseSort.value ? dates.reverse() : dates);
+  if (buckets.has('unopened')) order = [...order, 'unopened'];
   return order
     .filter((key) => buckets.has(key))
-    .map((key) => ({ key, label: GROUP_LABELS[key], notes: buckets.get(key) }));
+    .map((key) => ({
+      key,
+      label: grouping.value === 'auto' && sortMode.value === 'title' ? '' : GROUP_LABELS[key],
+      notes: buckets.get(key),
+    }));
 });
 
 // Nur tatsächlich vergebene Tags (mit Häufigkeit) als Filter-Wolke anbieten.
@@ -1244,7 +1259,10 @@ async function trashNote(note) {
   try {
     await notesStore.remove(note.id);
     emit('changed');
-    notifyNoteDeleted(note, { restore: notesStore.restore, onRestored: () => emit('changed') });
+    // Leere Notizen still entfernen – keine Benachrichtigung.
+    if (!isNoteEmpty(note)) {
+      notifyNoteDeleted(note, { restore: notesStore.restore, onRestored: () => emit('changed') });
+    }
   } catch (error) {
     notifyError(error, 'Die Notiz konnte nicht in den Papierkorb verschoben werden.');
   } finally {

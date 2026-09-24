@@ -2,12 +2,35 @@
   <v-menu
     v-if="hasActivity"
     v-model="menuOpen"
-    location="bottom end"
+    :location="presentation === 'menu-item' ? 'right end' : 'bottom end'"
     :close-on-content-click="false"
     :theme="theme.global.name.value"
   >
     <template #activator="{ props }">
+      <v-list-item
+        v-if="presentation === 'menu-item'"
+        v-bind="props"
+        class="activity-indicator-menu-item"
+        title="Aktivität"
+        :subtitle="ariaLabel"
+      >
+        <template #prepend>
+          <v-icon v-if="isActive" size="20">mdi-progress-clock</v-icon>
+          <v-icon v-else size="20" color="error">mdi-alert-circle-outline</v-icon>
+        </template>
+        <template #append>
+          <v-badge
+            inline
+            :content="badgeCount"
+            :color="badgeColor"
+            max="9"
+            class="activity-indicator-menu-badge"
+          />
+          <v-icon size="16">mdi-chevron-right</v-icon>
+        </template>
+      </v-list-item>
       <v-btn
+        v-else
         v-bind="props"
         icon
         variant="text"
@@ -135,8 +158,16 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useTheme } from 'vuetify';
 import { getJobActivity, dismissJob, dismissFailedJobs } from '../api/jobs.js';
 
-const emit = defineEmits(['open-backup']);
+const props = defineProps({
+  presentation: {
+    type: String,
+    default: 'icon',
+    validator: (value) => ['icon', 'menu-item'].includes(value),
+  },
+});
+const emit = defineEmits(['open-backup', 'status-change']);
 const theme = useTheme();
+const presentation = computed(() => props.presentation);
 
 const ACTIVE_POLL_MS = 4000;
 const IDLE_POLL_MS = 15000;
@@ -230,6 +261,19 @@ const headerSub = computed(() => {
   if (failedCount.value) parts.push(`${failedCount.value} fehlgeschlagen`);
   return parts.join(' · ') || (ocrPending.value > 0 ? 'läuft im Hintergrund' : 'im Leerlauf');
 });
+
+watch(
+  [hasActivity, badgeCount, badgeColor, ariaLabel],
+  ([activity, count, color, label]) => {
+    emit('status-change', {
+      hasActivity: activity,
+      badgeCount: count,
+      badgeColor: color,
+      ariaLabel: label,
+    });
+  },
+  { immediate: true },
+);
 
 function openBackup() {
   menuOpen.value = false;
@@ -372,6 +416,18 @@ onBeforeUnmount(() => {
   font-size: 0.58rem;
   font-weight: 700;
   line-height: var(--activity-badge-size);
+}
+
+.activity-indicator-menu-item {
+  min-height: 48px;
+}
+
+.activity-indicator-menu-item :deep(.v-list-item-subtitle) {
+  font-size: 0.72rem;
+}
+
+.activity-indicator-menu-badge {
+  margin-right: 4px;
 }
 
 .activity-card {
