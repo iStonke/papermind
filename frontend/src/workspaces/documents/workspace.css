@@ -2508,6 +2508,15 @@
   grid-template-columns: 64px 1fr;
 }
 
+/* Lernraum: keine rechte Vorschauspalte → volle Restbreite für das Board. */
+.workspace.workspace--lernraum {
+  grid-template-columns: 288px minmax(0, 1fr);
+}
+
+.workspace.workspace--rail.workspace--lernraum {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
 .panel-dashboard {
   overflow: hidden;
 }

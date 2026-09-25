@@ -62,6 +62,14 @@ const routes = [
         name: 'wiki',
         component: DocumentsView,
       },
+      // Lernraum – dritter Bereich. Läuft wie „wissen"/„tische" in der
+      // gemeinsamen DocumentsWorkspace-Shell (echte Seitenleiste bleibt stehen);
+      // DocumentsWorkspace rendert die Lernraum-Fläche anhand route.name.
+      {
+        path: 'lernen',
+        name: 'lernraum',
+        component: DocumentsView,
+      },
       // Alt-Pfade (vor der „Leuchttisch"-Umbenennung) umleiten – Query bleibt erhalten.
       {
         path: 'akten',

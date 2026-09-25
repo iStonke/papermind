@@ -46,6 +46,7 @@ export {
   mdiCalendarClock,
   mdiCalendarMonthOutline,
   mdiCalendarOutline,
+  mdiCardsOutline,
   mdiCalendarRange,
   mdiCallSplit,
   mdiCamera,

@@ -28,6 +28,7 @@ from app.routers import (
     health_router,
     import_router,
     jobs_router,
+    learn_router,
     notes_router,
     retrieval_router,
     retention_router,
@@ -169,6 +170,7 @@ app.include_router(document_types_router)
 app.include_router(dossiers_router)
 app.include_router(jobs_router)
 app.include_router(notes_router)
+app.include_router(learn_router)
 app.include_router(retrieval_router)
 app.include_router(retention_router)
 app.include_router(ai_router)
