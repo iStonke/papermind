@@ -489,9 +489,11 @@ import { storeToRefs } from 'pinia';
 import { useDocumentStore } from '../stores/documents.js';
 import { useSettingsStore } from '../stores/settings.js';
 import { useAuthStore } from '../stores/auth.js';
+import { useCorrespondentStore } from '../stores/correspondents.js';
 import { authedUrl, getBaseUrl } from '../api/client.js';
 import { SHORTCUT_ACTIONS, handleShortcut } from '../keyboard/shortcuts.js';
 import { thumbnailRetryDelay } from '../utils/thumbnailRecovery.js';
+import { resolveDocumentCorrespondent } from '../workspaces/documents/documentListMeta.js';
 import ListActionToolbar from './ListActionToolbar.vue';
 import PmEmptyState from './PmEmptyState.vue';
 
@@ -554,6 +556,7 @@ const emit = defineEmits([
 const docStore      = useDocumentStore();
 const settingsStore = useSettingsStore();
 const authStore     = useAuthStore();
+const correspondentStore = useCorrespondentStore();
 
 const { documents, selectedDocumentId } = storeToRefs(docStore);
 const listShell = ref(null);
@@ -1095,6 +1098,10 @@ watch(
 
 onMounted(() => {
   thumbnailRecoveryDisposed = false;
+  // Listenobjekte können z. B. aus dem View-Cache stammen und nur die
+  // correspondent_id enthalten. Der kanonische Store schließt diese Lücke,
+  // ohne einen kompletten Reload der Dokumentliste zu erzwingen.
+  void correspondentStore.ensureLoaded();
   updateVirtualWindow();
   if (typeof ResizeObserver !== 'undefined' && listShell.value) {
     listResizeObserver = new ResizeObserver(() => updateVirtualWindow());
@@ -1581,15 +1588,7 @@ function displayDocumentType(document) {
 }
 
 function displayCorrespondent(document) {
-  const correspondent = document?.correspondent;
-  return String(
-    document?.correspondent_name ||
-    document?.correspondent_short_name ||
-    correspondent?.short_name ||
-    correspondent?.name ||
-    correspondent?.title ||
-    ''
-  ).trim();
+  return resolveDocumentCorrespondent(document, correspondentStore.findById);
 }
 
 // ── Drag & Drop ────────────────────────────────────────────────────────────

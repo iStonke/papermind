@@ -80,3 +80,59 @@ def test_ocr_attempt_publishes_only_with_lease_and_preserves_old_pdf(indexed_sou
             assert db.get(Job, job_id).status == "done"
             assert db.get(Document, doc_id).text_content == "Invoice text"
     assert not list(source.parent.glob(".ocr-attempt-*"))
+
+
+def test_ocr_metadata_edit_during_processing_does_not_discard_result(indexed_source):
+    doc_id, _, source = indexed_source
+    job_id, token = running_job(doc_id, "OCR")
+
+    def pipeline(original, output, runtime, **kwargs):
+        output.write_bytes(b"new OCR result")
+        # Opening a newly imported document marks it as read and fires the
+        # documents.updated_at trigger while OCR is still running.
+        with SessionLocal() as other:
+            other.execute(
+                text("UPDATE documents SET is_unread=false, notes='kept edit' WHERE id=:id"),
+                {"id": doc_id},
+            )
+            other.commit()
+        return {"text": "Invoice text", "pages": [], "page_count": 1, "quality_status": "good"}
+
+    with patch.object(worker, "_resolve_storage_path", side_effect=lambda key: source.parent / key.split("/")[-1]), patch.object(
+        worker, "run_ocr_pipeline", side_effect=pipeline
+    ), patch.object(worker, "apply_ollama_classification", return_value=None):
+        worker._process_ocr_job(job_id, token)
+
+    with SessionLocal() as db:
+        document = db.get(Document, doc_id)
+        assert db.get(Job, job_id).status == "done"
+        assert document.ocr_status == "done"
+        assert document.text_content == "Invoice text"
+        assert document.notes == "kept edit"
+
+
+def test_ocr_source_change_during_processing_does_not_publish(indexed_source):
+    doc_id, _, source = indexed_source
+    job_id, token = running_job(doc_id, "OCR")
+
+    def pipeline(original, output, runtime, **kwargs):
+        output.write_bytes(b"new OCR result")
+        source.write_bytes(b"changed source")
+        return {"text": "stale text", "pages": [], "page_count": 1, "quality_status": "good"}
+
+    with patch.object(worker, "_resolve_storage_path", side_effect=lambda key: source.parent / key.split("/")[-1]), patch.object(
+        worker, "run_ocr_pipeline", side_effect=pipeline
+    ), patch.object(worker, "apply_ollama_classification", return_value=None):
+        worker._process_ocr_job(job_id, token)
+
+    with SessionLocal() as db:
+        document = db.get(Document, doc_id)
+        job = db.get(Job, job_id)
+        assert job.status == "failed"
+        assert job.error_message == "Source PDF changed during OCR; retry OCR"
+        assert document.text_content is None
+        assert document.ocr_status == "failed"
+        assert db.scalar(
+            select(DocumentFile).where(DocumentFile.document_id == doc_id, DocumentFile.role == "ocr")
+        ) is None
+    assert not list(source.parent.glob(".ocr-attempt-*"))

@@ -1255,7 +1255,7 @@ def _process_ocr_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
                 raise RuntimeError("Original PDF file is missing in storage")
 
             document_id = document.id
-            document_version = document.updated_at
+            source_key = original_file.file_key
             source_stat = original_path.stat()
             source_version = (source_stat.st_ino, source_stat.st_mtime_ns, source_stat.st_size)
             # A committed DB reference selects this immutable attempt. A failed
@@ -1320,10 +1320,19 @@ def _process_ocr_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
                 .options(selectinload(Document.files))
             ).scalar_one()
             stat = original_path.stat()
-            if document.is_deleted or document.updated_at != document_version or (
+            current_original_file = _find_document_file(document, "original")
+            current_source_key = (
+                current_original_file.file_key if current_original_file is not None else document.storage_key
+            )
+            # ``documents.updated_at`` changes for every metadata edit, including
+            # the automatic "read" marker when somebody opens the document while
+            # OCR is running. Those edits neither invalidate the input PDF nor the
+            # OCR result. Only reject publication if the document was deleted or
+            # the actual original file changed during the attempt.
+            if document.is_deleted or current_source_key != source_key or (
                 stat.st_ino, stat.st_mtime_ns, stat.st_size
             ) != source_version:
-                raise RuntimeError("Document changed during OCR; retry OCR")
+                raise RuntimeError("Source PDF changed during OCR; retry OCR")
             for field, value in vars(classification).items():
                 if field.startswith("ai_"):
                     setattr(document, field, value)
