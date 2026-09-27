@@ -28,6 +28,7 @@ test('scanner live preview streams real PNM rows into the import dialog', async 
   assert.match(dialog, /scannerLivePreviewCandidateUrl/);
   assert.match(dialog, /await image\.decode\(\)/);
   assert.doesNotMatch(dialog, /:key="scannerLivePreviewUrl"/);
+  assert.doesNotMatch(dialog, /isd-dropzone__action-progress/);
   assert.match(dialog, /scannerLiveProgress/);
   assert.match(dialog, /isd-scanning-page-preview/);
 });

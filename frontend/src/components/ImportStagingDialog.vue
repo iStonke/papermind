@@ -171,7 +171,6 @@
                   <v-icon size="16">mdi-close</v-icon>
                   <span>Abbrechen</span>
                 </button>
-                <span class="isd-dropzone__action-progress" />
               </div>
               <button
                 v-else-if="canTriggerScan"
@@ -5892,11 +5891,6 @@ onBeforeUnmount(() => {
   100% { top: 86%; opacity: 0; }
 }
 
-@keyframes isd-dropzone-action-progress {
-  from { transform: translateX(-110%); }
-  to { transform: translateX(360%); }
-}
-
 .isd-dropzone {
   position: relative;
   width: 100%;
@@ -6527,32 +6521,6 @@ button.isd-dropzone__action--supplemental:focus-visible {
 
 .isd-dropzone__scan-cancel:active {
   transform: scale(0.97);
-}
-
-.isd-dropzone__action-progress {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 2px;
-  overflow: hidden;
-  background: rgba(var(--v-theme-primary), 0.1);
-}
-
-.isd-dropzone__action-progress::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  width: 30%;
-  border-radius: 999px;
-  background: rgb(var(--v-theme-primary));
-  box-shadow: 0 0 8px rgba(var(--v-theme-primary), 0.48);
-  animation: isd-dropzone-action-progress 1.4s ease-in-out infinite;
-}
-
-.isd-dropzone__action--scanner-pending .isd-dropzone__action-progress::after {
-  width: 42%;
-  animation-duration: 0.9s;
 }
 
 /* ── Page grid ── */
@@ -7635,8 +7603,7 @@ button.isd-dropzone__action--supplemental:focus-visible {
   .isd-dz-scene,
   .isd-dz-sheet,
   .isd-dz-scene__merge,
-  .isd-dz-sheet__scan,
-  .isd-dropzone__action-progress::after {
+  .isd-dz-sheet__scan {
     animation: none;
   }
 
@@ -7656,8 +7623,7 @@ button.isd-dropzone__action--supplemental:focus-visible {
 :global(.pm-no-animations) .isd-dz-scene,
 :global(.pm-no-animations) .isd-dz-sheet,
 :global(.pm-no-animations) .isd-dz-scene__merge,
-:global(.pm-no-animations) .isd-dz-sheet__scan,
-:global(.pm-no-animations) .isd-dropzone__action-progress::after {
+:global(.pm-no-animations) .isd-dz-sheet__scan {
   animation: none;
 }
 
