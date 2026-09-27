@@ -11,6 +11,14 @@ Taste → scanimage (Host) → PDF in scan-inbox/ → Worker erkennt stabile PDF
       → ImportInboxService → Import-Inbox → Badge am "Importieren"-Button
 ```
 
+Während der Scannerkopf über die Seite fährt, erzeugt
+`papermind-live-preview.py` aus den bereits übertragenen PNM-Zeilen eine kleine
+PNG-Vorschau. Noch nicht erfasste Bereiche bleiben weiß. Der Worker spiegelt
+diese atomare Vorschau in den Dokumentenspeicher; das Importfenster aktualisiert
+sie über den bestehenden SSE-Statusstrom und wechselt danach auf die fertige
+PDF-Vorschau. Die Live-Vorschau enthält damit echte Scandaten und keine
+simulierte Animation.
+
 Der Host bleibt dabei vom Backend entkoppelt: Discovery, Scanbefehle und Status
 werden ausschließlich über kleine Dateien in `scan-inbox` ausgetauscht.
 
@@ -216,6 +224,7 @@ in `papermind-scan.sh` (oder als `Environment=` in der `.service`):
 | `SCANNER_USB_PRODUCT` | *(leer)*                    | Optionales USB-Produkt, z. B. `1912` fuer LiDE 400 |
 | `SCAN_RESOLUTION` | `300`                           | DPI                                          |
 | `SCAN_MODE`       | `Color`                         | `Color` \| `Gray` \| `Lineart`               |
+| `SCAN_LIVE_PREVIEW` | `true`                        | Echte, zeilenweise Vorschau während der Aufnahme; `false` nutzt den bisherigen Direktpfad |
 | `SCAN_WIDTH_MM`   | `210`                           | Aufnahmebreite; A4 verhindert den 6-mm-Überstand des LiDE 400 |
 | `SCAN_HEIGHT_MM`  | `297`                           | Aufnahmehöhe (A4)                            |
 | `IDLE_SECONDS`    | `180`                           | Ruhezeit für `finalize-idle`                 |
@@ -249,6 +258,7 @@ Das klassische Import-Stabilitätsfenster und der Mount stehen in
 | [`papermind-scanner-usb-awake.sh`](./papermind-scanner-usb-awake.sh) | setzt Canon-USB-Geraete auf `power/control=on` |
 | [`papermind-scanner-usb-awake.service`](./papermind-scanner-usb-awake.service) / [`99-papermind-scanner-usb-awake.rules`](./99-papermind-scanner-usb-awake.rules) | Boot- und USB-Ansteck-Aktivierung fuer den Wachhalter |
 | [`papermind-scan.sh`](./papermind-scan.sh) | scannt (`page`), baut PDF (`finish`), Idle-Abschluss |
+| [`papermind-live-preview.py`](./papermind-live-preview.py) | erzeugt aus bereits empfangenen PNM-Zeilen die atomare Live-Vorschau |
 | [`papermind-scan-idle.service`](./papermind-scan-idle.service) / [`.timer`](./papermind-scan-idle.timer) | optionales Idle-Sicherheitsnetz |
 
 ## Verwandt

@@ -89,6 +89,9 @@ SCANNER_CONFIG_FILENAME = ".papermind-scanner-config"
 # zu seinem device_key passende Datei; die legacy-Globaldatei bleibt Fallback.
 SCANNER_CONFIG_FILE_PREFIX = ".papermind-scanner-config-"
 SCANNER_STATUS_FILENAME = ".papermind-scanner-status"
+SCANNER_LIVE_PREVIEW_FILENAME = ".papermind-scanner-live-preview.png"
+SCANNER_LIVE_PREVIEW_STATUS_FILENAME = ".papermind-scanner-live-preview.status"
+SCANNER_LIVE_PREVIEW_STORAGE_DIR = ".scanner-live-previews"
 SCANNER_INVENTORY_FILENAME = ".papermind-scanner-devices"
 SCANNER_COMMAND_FILE_PREFIX = ".papermind-scan-command-"
 IMPORT_INBOX_FAST_STABLE_CHECK_SECONDS = 0.05
@@ -162,6 +165,56 @@ def _import_inbox_subdir(name: str) -> Path | None:
     if root is None:
         return None
     return (root / name).resolve()
+
+
+def _scanner_live_preview_targets(scanner_id: uuid.UUID) -> tuple[Path, Path]:
+    directory = _storage_root() / SCANNER_LIVE_PREVIEW_STORAGE_DIR
+    return directory / f"{scanner_id}.png", directory / f"{scanner_id}.json"
+
+
+def _sync_scanner_live_preview(root: Path, scanner_id: uuid.UUID, *, active: bool) -> None:
+    """Spiegelt die atomare Host-Vorschau in den gemeinsamen Dokumentenspeicher.
+
+    Nur der Worker sieht ``scan-inbox``; Backend und Worker teilen dagegen den
+    Storage-Volume. Das Backend kann das Bild dort authentifiziert ausliefern,
+    ohne den kompletten Host-Drop-Ordner in den Web-Container einzuhängen.
+    """
+    target_preview, target_meta = _scanner_live_preview_targets(scanner_id)
+    if not active:
+        target_preview.unlink(missing_ok=True)
+        target_meta.unlink(missing_ok=True)
+        return
+
+    source_preview = root / SCANNER_LIVE_PREVIEW_FILENAME
+    source_status = root / SCANNER_LIVE_PREVIEW_STATUS_FILENAME
+    if not source_preview.is_file() or not source_status.is_file():
+        return
+    try:
+        values = {}
+        for line in source_status.read_text(encoding="utf-8").splitlines():
+            key, separator, value = line.partition("=")
+            if separator:
+                values[key.strip()] = value.strip()
+        revision = max(1, int(values.get("REVISION", "1")))
+        progress = max(0, min(100, int(values.get("PROGRESS", "0"))))
+        current_revision = None
+        if target_meta.is_file():
+            current_revision = int(json.loads(target_meta.read_text(encoding="utf-8")).get("revision", 0))
+        if current_revision == revision and target_preview.is_file():
+            return
+
+        target_preview.parent.mkdir(parents=True, exist_ok=True)
+        preview_temp = target_preview.with_suffix(".png.incoming")
+        meta_temp = target_meta.with_suffix(".json.incoming")
+        shutil.copyfile(source_preview, preview_temp)
+        preview_temp.replace(target_preview)
+        meta_temp.write_text(
+            json.dumps({"progress": progress, "revision": revision}, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        meta_temp.replace(target_meta)
+    except (OSError, ValueError, json.JSONDecodeError):
+        logger.warning("scanner live preview sync failed scanner_id=%s", scanner_id)
 
 
 # Der Host bettet die Backend-Job-ID als ``__pmjob-<uuid>`` in den PDF-Dateinamen
@@ -712,6 +765,7 @@ def _sync_scanner_scan_status() -> None:
                 )
         if scanner is not None:
             service.set_scanning_state(scanner.device_key, started_at)
+            _sync_scanner_live_preview(root, scanner.id, active=started_at is not None)
 
 
 def _drain_scanner_scan_commands() -> None:

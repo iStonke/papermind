@@ -1,6 +1,10 @@
+import json
+import tempfile
 import threading
 import time
 import unittest
+import uuid
+from pathlib import Path
 from unittest import mock
 
 from app.worker import main as worker_main
@@ -51,6 +55,29 @@ class ScannerDispatchLoopTest(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         # Nach dem Fehler in Iteration 1 muss der Thread weiterlaufen.
         self.assertGreaterEqual(len(drain_calls), 3, "Ein Fehler beendet den Thread nicht")
+
+
+class ScannerLivePreviewSyncTest(unittest.TestCase):
+    def test_preview_is_published_atomically_and_removed_after_scan(self) -> None:
+        scanner_id = uuid.uuid4()
+        with tempfile.TemporaryDirectory() as drop_raw, tempfile.TemporaryDirectory() as storage_raw:
+            drop = Path(drop_raw)
+            storage = Path(storage_raw)
+            (drop / worker_main.SCANNER_LIVE_PREVIEW_FILENAME).write_bytes(b"png-preview")
+            (drop / worker_main.SCANNER_LIVE_PREVIEW_STATUS_FILENAME).write_text(
+                "PROGRESS=42\nREVISION=7\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(worker_main, "_storage_root", return_value=storage):
+                worker_main._sync_scanner_live_preview(drop, scanner_id, active=True)
+                preview, metadata = worker_main._scanner_live_preview_targets(scanner_id)
+                self.assertEqual(preview.read_bytes(), b"png-preview")
+                self.assertEqual(json.loads(metadata.read_text(encoding="utf-8")), {"progress": 42, "revision": 7})
+
+                worker_main._sync_scanner_live_preview(drop, scanner_id, active=False)
+                self.assertFalse(preview.exists())
+                self.assertFalse(metadata.exists())
 
 
 if __name__ == "__main__":

@@ -103,12 +103,24 @@
               </div>
 
               <div class="isd-dz-sheet isd-dz-sheet--front">
-                <span class="isd-dz-sheet__accent" />
-                <span class="isd-dz-sheet__headline" />
-                <span class="isd-dz-sheet__copy isd-dz-sheet__copy--front">
-                  <i /><i /><i /><i />
-                </span>
+                <img
+                  v-if="scannerLivePreviewUrl"
+                  :key="scannerLivePreviewUrl"
+                  :src="scannerLivePreviewUrl"
+                  class="isd-dz-sheet__live-preview"
+                  alt=""
+                />
+                <template v-else>
+                  <span class="isd-dz-sheet__accent" />
+                  <span class="isd-dz-sheet__headline" />
+                  <span class="isd-dz-sheet__copy isd-dz-sheet__copy--front">
+                    <i /><i /><i /><i />
+                  </span>
+                </template>
                 <span class="isd-dz-sheet__scan" />
+                <span v-if="scannerLivePreviewUrl" class="isd-dz-sheet__live-progress">
+                  {{ scannerLiveProgress }}%
+                </span>
               </div>
 
               <span class="isd-dz-scene__merge"><v-icon size="18">mdi-plus</v-icon></span>
@@ -269,8 +281,21 @@
 
             <!-- Scan-in-progress placeholder: zeigt, wo die nächste Seite gleich auftaucht -->
             <div v-if="props.scannerActive" class="isd-scanning-page-card">
-              <div class="isd-scanning-page-thumb-wrap">
-                <v-icon size="28" class="isd-scanning-page-icon">mdi-scanner</v-icon>
+              <div
+                class="isd-scanning-page-thumb-wrap"
+                :class="{ 'isd-scanning-page-thumb-wrap--live': scannerLivePreviewUrl }"
+              >
+                <img
+                  v-if="scannerLivePreviewUrl"
+                  :key="scannerLivePreviewUrl"
+                  :src="scannerLivePreviewUrl"
+                  class="isd-scanning-page-preview"
+                  alt="Aktuelle Scanvorschau"
+                />
+                <v-icon v-else size="28" class="isd-scanning-page-icon">mdi-scanner</v-icon>
+                <span v-if="scannerLivePreviewUrl" class="isd-scanning-page-progress">
+                  {{ scannerLiveProgress }}%
+                </span>
                 <v-btn
                   icon
                   size="x-small"
@@ -951,6 +976,14 @@ const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources',
 // Im Batch-Modus sammelt der Scanner und braucht ein explizites Abschließen.
 const canTriggerScan = computed(() => Boolean(props.scanner?.id));
 const isScannerFeedbackPending = computed(() => props.scannerFeedbackState === 'pending');
+const scannerLiveProgress = computed(() => {
+  const progress = Number(props.scanner?.scan_progress);
+  return Number.isFinite(progress) ? Math.max(0, Math.min(100, Math.round(progress))) : 0;
+});
+const scannerLivePreviewUrl = computed(() => {
+  const raw = String(props.scanner?.live_preview_url || '').trim();
+  return raw ? authedUrl(buildApiResourceUrl(raw)) : '';
+});
 const scannerFeedbackTitle = computed(() => (
   isScannerFeedbackPending.value ? 'Seite wird übernommen' : 'Scanner erfasst die erste Seite'
 ));
@@ -5974,6 +6007,30 @@ onBeforeUnmount(() => {
   animation-delay: 150ms;
 }
 
+.isd-dz-sheet__live-preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #fff;
+}
+
+.isd-dz-sheet__live-progress {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  z-index: 2;
+  padding: 2px 5px;
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(15, 23, 42, 0.68);
+  font-size: 8px;
+  font-weight: 750;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+}
+
 .isd-dz-sheet__kind {
   display: inline-flex;
   align-items: center;
@@ -6692,6 +6749,38 @@ button.isd-dropzone__action--supplemental:focus-visible {
   border-radius: 4px;
   border: 2px solid rgba(var(--v-theme-primary), 0.3);
   animation: isd-scanning-pulse 1.4s ease-in-out infinite;
+}
+
+.isd-scanning-page-thumb-wrap--live {
+  border-width: 1px;
+  background: #fff;
+  animation: none;
+}
+
+.isd-scanning-page-preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #fff;
+}
+
+.isd-scanning-page-progress {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  z-index: 2;
+  min-width: 30px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(15, 23, 42, 0.7);
+  font-size: 9px;
+  font-weight: 750;
+  line-height: 1.4;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .isd-scanning-page-cancel {

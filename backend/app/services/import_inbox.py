@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -6,6 +7,7 @@ from fastapi import UploadFile
 from sqlalchemy import and_, exists, func, or_, select, update
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.errors import BadRequestError
 from app.models.import_inbox import ImportInboxItem
 from app.models.scanner import ScannerDevice, ScannerDeviceRecipient, ScannerScanJob
@@ -25,6 +27,8 @@ from app.services.import_timing import elapsed_ms, log_import_timing, now_perf
 from app.services.scanners import is_scanning_active
 
 SCAN_JOB_VISIBLE_STALE_SECONDS = 300
+SCANNER_LIVE_PREVIEW_STORAGE_DIR = ".scanner-live-previews"
+settings = get_settings()
 
 
 def _normalize_item_ids(item_ids: list[uuid.UUID]) -> list[uuid.UUID]:
@@ -134,7 +138,10 @@ class ImportInboxService:
             .where(ScannerDevice.configured.is_(True))
             .where(ScannerDevice.enabled.is_(True))
             .where(self._scanner_access_condition())
-            .order_by(ScannerDevice.last_seen_at.desc().nullslast())
+            .order_by(
+                ScannerDevice.scanning_since.desc().nullslast(),
+                ScannerDevice.last_seen_at.desc().nullslast(),
+            )
         ).first()
         if scanner is None:
             return None
@@ -142,12 +149,52 @@ class ImportInboxService:
         # nutzt den Wert des ausgelösten Geräts, um die Abschluss-Taste ein-/
         # auszublenden.
         live_page_mode = bool(scanner.live_page_mode)
+        live_preview = self._scanner_live_preview_meta(scanner) if is_scanning_active(scanner) else None
         return ScannerTriggerInfo(
             id=scanner.id,
             name=scanner.name,
             live_page_mode=live_page_mode,
             last_seen_at=scanner.last_seen_at,
+            live_preview_url=(
+                f"/api/import/scanner/{scanner.id}/live-preview?v={live_preview['revision']}"
+                if live_preview
+                else None
+            ),
+            live_preview_revision=live_preview["revision"] if live_preview else None,
+            scan_progress=live_preview["progress"] if live_preview else None,
         )
+
+    @staticmethod
+    def _scanner_live_preview_paths(scanner_id: uuid.UUID) -> tuple[Path, Path]:
+        directory = Path(settings.storage_path).resolve() / SCANNER_LIVE_PREVIEW_STORAGE_DIR
+        return directory / f"{scanner_id}.png", directory / f"{scanner_id}.json"
+
+    def _scanner_live_preview_meta(self, scanner: ScannerDevice) -> dict[str, int] | None:
+        preview_path, metadata_path = self._scanner_live_preview_paths(scanner.id)
+        try:
+            payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+            revision = max(1, int(payload.get("revision", 0)))
+            progress = max(0, min(100, int(payload.get("progress", 0))))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return None
+        if not preview_path.is_file():
+            return None
+        return {"revision": revision, "progress": progress}
+
+    def get_scanner_live_preview_path(self, scanner_id: uuid.UUID) -> Path | None:
+        if self.owner_id is None:
+            return None
+        scanner = self.db.scalars(
+            select(ScannerDevice)
+            .where(ScannerDevice.id == scanner_id)
+            .where(ScannerDevice.configured.is_(True))
+            .where(ScannerDevice.enabled.is_(True))
+            .where(self._scanner_access_condition())
+        ).first()
+        if scanner is None or not is_scanning_active(scanner):
+            return None
+        preview_path, _ = self._scanner_live_preview_paths(scanner.id)
+        return preview_path if preview_path.is_file() else None
 
     def _read_item(self, item: ImportInboxItem) -> ImportInboxItemRead:
         color_profile = self.import_staging_service.get_source_color_profile(str(item.source_file_id))

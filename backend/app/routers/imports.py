@@ -136,6 +136,29 @@ def list_import_inbox(
 
 
 @router.get(
+    "/scanner/{scanner_id}/live-preview",
+    response_class=FileResponse,
+    summary="Serve the current authenticated scanner live preview",
+    responses={404: {"model": ErrorResponse}},
+)
+def get_scanner_live_preview(
+    scanner_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> FileResponse:
+    preview_path = ImportInboxService(db, user.id).get_scanner_live_preview_path(scanner_id)
+    if preview_path is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Live preview not found")
+    return FileResponse(
+        path=str(preview_path),
+        media_type="image/png",
+        filename=f"scanner-{scanner_id}.preview.png",
+        content_disposition_type="inline",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get(
     "/inbox/events",
     summary="Server-Sent Events stream of import inbox / scan job changes",
     responses={401: {"model": ErrorResponse}},

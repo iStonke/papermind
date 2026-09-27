@@ -36,6 +36,7 @@
 #    SCAN_DEVICE      SANE-Device (leer = Default-Scanner)
 #    SCAN_RESOLUTION  DPI (Default 300)
 #    SCAN_MODE        Color | Gray | Lineart (Default Color)
+#    SCAN_LIVE_PREVIEW true | false (Default true)
 #    SCAN_WIDTH_MM    Scanbreite in mm (Default 210 = A4)
 #    SCAN_HEIGHT_MM   Scanhöhe in mm (Default 297 = A4)
 #    IDLE_SECONDS     Ruhezeit für finalize-idle (Default 180)
@@ -60,6 +61,7 @@ LOCK_FILE="${LOCK_FILE:-${SCAN_INBOX_DIR}/.papermind-scan.lock}"
 SCAN_DEVICE="${SCAN_DEVICE:-}"
 SCAN_RESOLUTION="${SCAN_RESOLUTION:-300}"
 SCAN_MODE="${SCAN_MODE:-Color}"
+SCAN_LIVE_PREVIEW="${SCAN_LIVE_PREVIEW:-true}"
 SCAN_WIDTH_MM="${SCAN_WIDTH_MM:-210}"
 SCAN_HEIGHT_MM="${SCAN_HEIGHT_MM:-297}"
 IDLE_SECONDS="${IDLE_SECONDS:-180}"
@@ -68,6 +70,9 @@ IDLE_SECONDS="${IDLE_SECONDS:-180}"
 # zuordnen kann. Leer bei Hardware-Tasten / Idle-Finalisierung.
 PAPERMIND_SCAN_JOB_ID="${PAPERMIND_SCAN_JOB_ID:-}"
 PAPERMIND_SCANNER_DEVICE_KEY="${PAPERMIND_SCANNER_DEVICE_KEY:-}"
+LIVE_PREVIEW_PATH="${SCAN_INBOX_DIR}/.papermind-scanner-live-preview.png"
+LIVE_PREVIEW_STATUS_PATH="${SCAN_INBOX_DIR}/.papermind-scanner-live-preview.status"
+LIVE_PREVIEW_HELPER="${_SCRIPT_DIR}/papermind-live-preview.py"
 
 _scanner_device_hash() {
   if [[ "$PAPERMIND_SCANNER_DEVICE_KEY" =~ ^sane-([0-9a-fA-F]{24})$ ]]; then
@@ -90,6 +95,11 @@ log() {
   command -v logger >/dev/null 2>&1 && logger -t papermind-scan -- "$*" || true
 }
 die() { log "FEHLER: $*"; exit 1; }
+
+case "${SCAN_LIVE_PREVIEW,,}" in
+  true|false) ;;
+  *) die "Ungültiger SCAN_LIVE_PREVIEW-Wert: ${SCAN_LIVE_PREVIEW}" ;;
+esac
 
 _require() { command -v "$1" >/dev/null 2>&1 || die "Benötigtes Programm fehlt: $1"; }
 
@@ -139,6 +149,7 @@ _with_lock() {
 }
 
 _scan_args() {
+  local output_format="${1:-png}"
   # Gemeinsame scanimage-Argumente. --device nur setzen, wenn vorgegeben.
   # Die LiDE-400-Scanfläche ist 216 mm breit. Ohne explizite Geometrie nimmt
   # SANE daher rechts 6 mm Scannerbett neben einer A4-Seite mit auf. Das ist
@@ -150,9 +161,36 @@ _scan_args() {
     --mode "$SCAN_MODE"
     -x "$SCAN_WIDTH_MM"
     -y "$SCAN_HEIGHT_MM"
-    --format=png
+    --format="$output_format"
   )
   printf '%s\n' "${args[@]}"
+}
+
+_live_preview_enabled() {
+  [[ "${SCAN_LIVE_PREVIEW,,}" == "true" ]] &&
+    [[ -f "$LIVE_PREVIEW_HELPER" ]] &&
+    command -v python3 >/dev/null 2>&1 &&
+    { command -v convert >/dev/null 2>&1 || command -v magick >/dev/null 2>&1; }
+}
+
+_clear_live_preview() {
+  rm -f "$LIVE_PREVIEW_PATH" "$LIVE_PREVIEW_STATUS_PATH" \
+    "${LIVE_PREVIEW_PATH}.incoming" "${LIVE_PREVIEW_STATUS_PATH}.incoming"
+}
+
+_finish_scan_status() {
+  _clear_live_preview
+  _write_scan_status false
+}
+
+_convert_pnm_to_scan_format() {
+  local source_pnm="$1"
+  local target_image="$2"
+  if command -v convert >/dev/null 2>&1; then
+    convert "$source_pnm" "png:${target_image}"
+  else
+    magick "$source_pnm" "png:${target_image}"
+  fi
 }
 
 # Vom Worker gespiegelte Einstellung lesen (kein jq nötig, einfaches key=value).
@@ -187,20 +225,45 @@ _write_scan_status() {
 
 _scanimage_cancellable() {
   local output="$1"
+  local scan_output="$output"
+  local scan_format="png"
+  local preview_pid=""
+  if _live_preview_enabled; then
+    scan_output="${output}.pnm"
+    scan_format="pnm"
+    _clear_live_preview
+  fi
   # shellcheck disable=SC2046
-  scanimage $(_scan_args) > "$output" &
+  scanimage $(_scan_args "$scan_format") > "$scan_output" &
   local scan_pid=$!
+  if [[ "$scan_format" == "pnm" ]]; then
+    python3 "$LIVE_PREVIEW_HELPER" \
+      "$scan_output" "$LIVE_PREVIEW_PATH" "$LIVE_PREVIEW_STATUS_PATH" "$scan_pid" &
+    preview_pid=$!
+  fi
   while kill -0 "$scan_pid" 2>/dev/null; do
     if [[ -f "$CANCEL_FILE" ]]; then
       log "Scan wird auf Benutzerwunsch abgebrochen."
       kill "$scan_pid" 2>/dev/null || true
       wait "$scan_pid" 2>/dev/null || true
-      rm -f "$CANCEL_FILE" "$output"
+      [[ -n "$preview_pid" ]] && wait "$preview_pid" 2>/dev/null || true
+      rm -f "$CANCEL_FILE" "$output" "$scan_output"
+      _clear_live_preview
       return 130
     fi
     sleep 0.1
   done
-  wait "$scan_pid"
+  local scan_result=0
+  wait "$scan_pid" || scan_result=$?
+  [[ -n "$preview_pid" ]] && wait "$preview_pid" 2>/dev/null || true
+  if (( scan_result != 0 )); then
+    rm -f "$scan_output"
+    return "$scan_result"
+  fi
+  if [[ "$scan_format" == "pnm" ]]; then
+    _convert_pnm_to_scan_format "$scan_output" "$output"
+    rm -f "$scan_output"
+  fi
 }
 
 # Live-Modus: eine Seite scannen und SOFORT als eigene 1-Seiten-PDF nach
@@ -247,7 +310,7 @@ cmd_page() {
   # Live- oder Batch-Pfad gleich normal zurückkehrt oder scanimage weiter
   # unten per die()/exit 1 abbricht (z.B. USB-Disconnect) - der EXIT-Trap
   # setzt den Status garantiert wieder auf "false".
-  trap '_write_scan_status false' EXIT
+  trap '_finish_scan_status' EXIT
   _write_scan_status true
 
   if _live_page_mode_enabled; then

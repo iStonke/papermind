@@ -56,6 +56,9 @@ class ScannerTriggerInfo(BaseModel):
     name: str
     live_page_mode: bool = False
     last_seen_at: datetime | None = None
+    live_preview_url: str | None = None
+    live_preview_revision: int | None = Field(default=None, ge=1)
+    scan_progress: int | None = Field(default=None, ge=0, le=100)
 
 
 class ScannerScanJobRead(BaseModel):
