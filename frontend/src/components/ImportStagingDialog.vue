@@ -105,7 +105,6 @@
               <div class="isd-dz-sheet isd-dz-sheet--front">
                 <img
                   v-if="scannerLivePreviewUrl"
-                  :key="scannerLivePreviewUrl"
                   :src="scannerLivePreviewUrl"
                   class="isd-dz-sheet__live-preview"
                   alt=""
@@ -287,7 +286,6 @@
               >
                 <img
                   v-if="scannerLivePreviewUrl"
-                  :key="scannerLivePreviewUrl"
                   :src="scannerLivePreviewUrl"
                   class="isd-scanning-page-preview"
                   alt="Aktuelle Scanvorschau"
@@ -980,10 +978,59 @@ const scannerLiveProgress = computed(() => {
   const progress = Number(props.scanner?.scan_progress);
   return Number.isFinite(progress) ? Math.max(0, Math.min(100, Math.round(progress))) : 0;
 });
-const scannerLivePreviewUrl = computed(() => {
+const scannerLivePreviewCandidateUrl = computed(() => {
   const raw = String(props.scanner?.live_preview_url || '').trim();
   return raw ? authedUrl(buildApiResourceUrl(raw)) : '';
 });
+const scannerLivePreviewUrl = ref('');
+let scannerLivePreviewLoadId = 0;
+let scannerLivePreviewLoader = null;
+
+watch(
+  scannerLivePreviewCandidateUrl,
+  (candidateUrl) => {
+    const loadId = ++scannerLivePreviewLoadId;
+    if (!candidateUrl) {
+      scannerLivePreviewUrl.value = '';
+      scannerLivePreviewLoader = null;
+      return;
+    }
+    if (typeof window === 'undefined' || typeof window.Image !== 'function') {
+      scannerLivePreviewUrl.value = candidateUrl;
+      return;
+    }
+
+    const image = new window.Image();
+    scannerLivePreviewLoader = image;
+    image.decoding = 'async';
+    image.onload = async () => {
+      if (typeof image.decode === 'function') {
+        try {
+          await image.decode();
+        } catch {
+          // Das Bild ist bereits geladen; ältere Browser können decode() dennoch ablehnen.
+        }
+      }
+      if (
+        loadId === scannerLivePreviewLoadId
+        && scannerLivePreviewCandidateUrl.value === candidateUrl
+      ) {
+        scannerLivePreviewUrl.value = candidateUrl;
+      }
+      if (scannerLivePreviewLoader === image) {
+        scannerLivePreviewLoader = null;
+      }
+    };
+    image.onerror = () => {
+      // Die letzte gültige Vorschau bleibt sichtbar, bis ein vollständiges Bild vorliegt.
+      if (scannerLivePreviewLoader === image) {
+        scannerLivePreviewLoader = null;
+      }
+    };
+    image.src = candidateUrl;
+  },
+  { immediate: true }
+);
 const scannerFeedbackTitle = computed(() => (
   isScannerFeedbackPending.value ? 'Seite wird übernommen' : 'Scanner erfasst die erste Seite'
 ));
@@ -5628,6 +5675,12 @@ defineExpose({
 });
 
 onBeforeUnmount(() => {
+  scannerLivePreviewLoadId += 1;
+  if (scannerLivePreviewLoader) {
+    scannerLivePreviewLoader.onload = null;
+    scannerLivePreviewLoader.onerror = null;
+    scannerLivePreviewLoader = null;
+  }
   if (typeof window !== 'undefined' && closeResetTimer) {
     window.clearTimeout(closeResetTimer);
     closeResetTimer = 0;
