@@ -379,6 +379,74 @@ export function noteContentToMarkdown(body) {
   return renderNode(body, { sources: new Map(), imageUrl: (src) => src }).trim();
 }
 
+function renderPlainChildren(node, separator = '') {
+  return (node?.content || []).map((child) => renderPlainNode(child)).filter(Boolean).join(separator);
+}
+
+function renderPlainNode(node) {
+  if (!node || typeof node !== 'object') return '';
+  const attrs = node.attrs || {};
+  switch (node.type) {
+    case 'text':
+      return String(node.text || '');
+    case 'hardBreak':
+      return '\n';
+    case 'horizontalRule':
+      return '';
+    case 'doc':
+    case 'pageLayout':
+    case 'layoutColumn':
+    case 'blockquote':
+    case 'callout':
+    case 'table':
+    case 'tableRow':
+      return renderPlainChildren(node, '\n');
+    case 'paragraph':
+    case 'heading':
+    case 'codeBlock':
+    case 'tableCell':
+    case 'tableHeader':
+    case 'listItem':
+      return renderPlainChildren(node);
+    case 'bulletList':
+    case 'orderedList':
+    case 'taskList':
+    case 'checkList':
+      return renderPlainChildren(node, '\n');
+    case 'taskItem':
+    case 'checkListItem':
+      return `${attrs.checked ? 'Erledigt' : 'Offen'}: ${renderPlainChildren(node)}`;
+    case 'image':
+      return String(attrs.caption || attrs.alt || attrs.title || '').trim();
+    case 'documentChip':
+      return String(attrs.title || 'Dokument').trim();
+    case 'ocrQuote':
+      return String(attrs.text || '').trim();
+    case 'wikiLink':
+      return String(attrs.label || 'Verweis').trim();
+    case 'aiBlock':
+      return String(attrs.text || '').trim();
+    case 'collapsibleSection':
+      return [attrs.title, renderPlainChildren(node, '\n')].filter(Boolean).join('\n');
+    case 'templateBox':
+      return [attrs.title, renderPlainChildren(node, '\n')].filter(Boolean).join('\n');
+    case 'templateField':
+      return [attrs.label, renderPlainChildren(node)].filter(Boolean).join(': ');
+    default:
+      return renderPlainChildren(node);
+  }
+}
+
+/** Lesbarer Klartext für lokale Sprachausgabe, ohne Markdown-Steuerzeichen. */
+export function noteContentToPlainText(body) {
+  return renderPlainNode(body)
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
+
 export function noteToMarkdown({ title, body } = {}) {
   const context = { sources: new Map(), imageUrl: (src) => src };
   if (body?.attrs?.linkedDocument) addDocumentSource(context, body.attrs.linkedDocument);

@@ -186,6 +186,20 @@
                 </span>
               </template>
             </v-list-item>
+            <v-list-item
+              class="note-workspace-editor__more-item"
+              title="Als Audiodatei speichern"
+              :disabled="exportingAudio"
+              :ripple="false"
+              role="menuitem"
+              @click="exportNoteAsAudio"
+            >
+              <template #prepend>
+                <span class="note-workspace-editor__more-icon" aria-hidden="true">
+                  <v-icon size="17">mdi-file-music-outline</v-icon>
+                </span>
+              </template>
+            </v-list-item>
           </v-list>
         </v-menu>
         </div>
@@ -319,6 +333,7 @@
           :heading-spacing="notesHeadingSpacing"
           :block-spacing="notesBlockSpacing"
           :spellcheck-enabled="notesSpellcheckEnabled"
+          :tts-voice="notesTtsVoice"
           :text-replacements="notesTextReplacements"
           :readonly="status === 'conflict'"
           :ai-available="aiAvailable"
@@ -564,6 +579,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRaw, watch } fro
 import { documentThumbnailUrl, listDocuments } from '../../api/documents.js';
 import { authedUrl, getBaseUrl } from '../../api/client.js';
 import { getAICredentialStatus } from '../../api/aiCredentials.js';
+import { synthesizeSpeech } from '../../api/tts.js';
 import { useSettingsStore } from '../../stores/settings.js';
 import { useUiStore } from '../../stores/ui.js';
 import { isNoteEmpty, useNotesStore } from '../../stores/notes.js';
@@ -582,10 +598,12 @@ import {
   putNoteDraft,
 } from '../../utils/noteDraftStorage.js';
 import {
+  noteContentToPlainText,
   noteExportFilename,
   noteToMarkdown,
   noteToPrintableHtml,
 } from '../../utils/noteExport.js';
+import { mergeWavBlobs, splitSpeechText } from '../../utils/ttsAudio.js';
 import { nextWrappedIndex } from '../../utils/noteNavigation.js';
 import BaseDialog from '../BaseDialog.vue';
 import PmActionIcon from '../PmActionIcon.vue';
@@ -754,6 +772,11 @@ const notesHeadingSpacing = noteSetting('notes_heading_spacing', ['compact', 'co
 const notesBlockSpacing = noteSetting('notes_block_spacing', ['compact', 'comfortable', 'spacious'], 'comfortable');
 const notesSpellcheckEnabled = computed(
   () => settingsStore.settingsDraft?.ui?.notes_spellcheck_enabled !== false
+);
+const notesTtsVoice = noteSetting(
+  'notes_tts_voice',
+  ['standard', 'neutral', 'amused', 'sleepy', 'whisper'],
+  'standard',
 );
 const notesTextReplacements = computed(
   () => settingsStore.settingsDraft?.ui?.notes_text_replacements || []
@@ -1809,6 +1832,8 @@ function exportNoteAsMarkdown() {
 }
 
 const exportingPdf = ref(false);
+const exportingAudio = ref(false);
+const NOTE_AUDIO_MAX_CHARS = 60000;
 
 async function exportNoteAsPdf() {
   if (exportingPdf.value) return;
@@ -1839,6 +1864,45 @@ async function exportNoteAsPdf() {
     notifyError(error, 'PDF konnte nicht heruntergeladen werden.');
   } finally {
     exportingPdf.value = false;
+  }
+}
+
+async function exportNoteAsAudio() {
+  if (exportingAudio.value) return;
+  exportingAudio.value = true;
+  try {
+    const speechText = [String(title.value || '').trim(), noteContentToPlainText(body.value)]
+      .filter(Boolean)
+      .join('.\n');
+    if (!speechText) throw new Error('Die Notiz enthält keinen vorlesbaren Text.');
+    if (speechText.length > NOTE_AUDIO_MAX_CHARS) {
+      throw new Error(`Die Notiz ist für den Audioexport zu lang (maximal ${NOTE_AUDIO_MAX_CHARS.toLocaleString('de-DE')} Zeichen).`);
+    }
+
+    notify({
+      type: 'info',
+      critical: true,
+      message: 'Audiodatei wird lokal mit Piper erzeugt …',
+    });
+    const parts = [];
+    for (const chunk of splitSpeechText(speechText)) {
+      parts.push(await synthesizeSpeech(chunk, { voice: notesTtsVoice.value }));
+    }
+    const audio = await mergeWavBlobs(parts);
+    const url = window.URL.createObjectURL(audio);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = noteExportFilename(title.value).replace(/\.md$/i, '.wav');
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+    notify({ type: 'success', critical: true, message: 'Audiodatei wurde erstellt.' });
+  } catch (error) {
+    notifyError(error, 'Audiodatei konnte nicht erstellt werden.');
+  } finally {
+    exportingAudio.value = false;
   }
 }
 

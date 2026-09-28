@@ -40,6 +40,7 @@ from app.routers import (
     smart_folders_router,
     system_router,
     tags_router,
+    tts_router,
     users_router,
     wiki_router,
 )
@@ -163,6 +164,7 @@ app.include_router(users_router)
 app.include_router(documents_router)
 app.include_router(import_router)
 app.include_router(tags_router)
+app.include_router(tts_router)
 app.include_router(annotations_router)
 app.include_router(categories_router)
 app.include_router(correspondents_router)

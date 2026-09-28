@@ -35,6 +35,26 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Offline-Sprachausgabe fuer markierten Notiztext. Das Modell wird beim Build
+# fest ins Image gelegt; im Betrieb werden weder Text noch Audiodaten an einen
+# externen Dienst uebertragen.
+ARG PIPER_VOICE=de_DE-thorsten-high
+ARG PIPER_VOICE_SHA256=9df1c43c61149ef9b39e618e2b861fbe41e1fcea9390b2dac62e8761573ea4f1
+ARG PIPER_CONFIG_SHA256=6de734444e4c3f9e33b7ebe2746dbc19b71e85f613e79c65acf623200b99a76a
+ARG PIPER_EMOTIONAL_VOICE=de_DE-thorsten_emotional-medium
+ARG PIPER_EMOTIONAL_VOICE_SHA256=c1764e652266cd6dcebf1b95c61973df5970a5f5272e94b655ff1ddf9a99d1ff
+ARG PIPER_EMOTIONAL_CONFIG_SHA256=92895b9e99f7cfc13f4a9879da615c3d6e0baa4d660e26d7b685abdd27a6d1d3
+RUN install -d /opt/piper-voices \
+    && python -m piper.download_voices --download-dir /opt/piper-voices \
+        "${PIPER_VOICE}" "${PIPER_EMOTIONAL_VOICE}" \
+    && echo "${PIPER_VOICE_SHA256}  /opt/piper-voices/${PIPER_VOICE}.onnx" | sha256sum -c - \
+    && echo "${PIPER_CONFIG_SHA256}  /opt/piper-voices/${PIPER_VOICE}.onnx.json" | sha256sum -c - \
+    && echo "${PIPER_EMOTIONAL_VOICE_SHA256}  /opt/piper-voices/${PIPER_EMOTIONAL_VOICE}.onnx" | sha256sum -c - \
+    && echo "${PIPER_EMOTIONAL_CONFIG_SHA256}  /opt/piper-voices/${PIPER_EMOTIONAL_VOICE}.onnx.json" | sha256sum -c -
+
+ENV TTS_MODEL_PATH=/opt/piper-voices/${PIPER_VOICE}.onnx
+ENV TTS_EMOTIONAL_MODEL_PATH=/opt/piper-voices/${PIPER_EMOTIONAL_VOICE}.onnx
+
 COPY alembic.ini ./alembic.ini
 COPY alembic ./alembic
 COPY app ./app

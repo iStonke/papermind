@@ -806,6 +806,29 @@
                 @update:model-value="onNotesSpellcheckChange"
               />
             </div>
+
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Vorlesestimme</div>
+                <div class="pm-setting-description">
+                  Stimme für markierten Notiztext. Die Sprachausgabe läuft vollständig lokal über Piper.
+                </div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.ui.notes_tts_voice"
+                :items="notesTtsVoiceOptions"
+                item-title="label"
+                item-value="value"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Stimme"
+                :loading="isSettingSaving.notes_tts_voice"
+                :disabled="isSettingSaving.notes_tts_voice"
+                @update:model-value="onNotesTtsVoiceChange"
+              />
+            </div>
             </template>
 
             <template v-if="activeCategory === 'notes_text'">
@@ -3948,6 +3971,13 @@ const notesSpacingOptions = [
   { value: 'comfortable', label: 'Komfortabel' },
   { value: 'spacious', label: 'Großzügig' },
 ];
+const notesTtsVoiceOptions = [
+  { value: 'standard', label: 'Klar – Thorsten High' },
+  { value: 'neutral', label: 'Sanft – Thorsten Emotional' },
+  { value: 'amused', label: 'Heiter – Thorsten Emotional' },
+  { value: 'sleepy', label: 'Ruhig – Thorsten Emotional' },
+  { value: 'whisper', label: 'Flüstern – Thorsten Emotional' },
+];
 
 const NOTES_DEFAULT_VIEW_VALUES = new Set(notesDefaultViewOptions.map((option) => option.value));
 const NOTES_SORT_ORDER_VALUES = new Set(notesSortOrderOptions.map((option) => option.value));
@@ -3956,6 +3986,7 @@ const NOTES_PARAGRAPH_SPACING_VALUES = new Set(notesParagraphSpacingOptions.map(
 const NOTES_FONT_FAMILY_VALUES = new Set(notesFontFamilyOptions.map((option) => option.value));
 const NOTES_FONT_SIZE_VALUES = new Set(notesFontSizeOptions.map((option) => option.value));
 const NOTES_SPACING_VALUES = new Set(notesSpacingOptions.map((option) => option.value));
+const NOTES_TTS_VOICE_VALUES = new Set(notesTtsVoiceOptions.map((option) => option.value));
 
 const textReplacementRows = ref([]);
 const textReplacementsDirty = ref(false);
@@ -4107,6 +4138,10 @@ function onNotesHeadingSpacingChange(nextValue) {
 
 function onNotesBlockSpacingChange(nextValue) {
   return onNotesPreferenceChange('notes_block_spacing', nextValue, NOTES_SPACING_VALUES, 'comfortable');
+}
+
+function onNotesTtsVoiceChange(nextValue) {
+  return onNotesPreferenceChange('notes_tts_voice', nextValue, NOTES_TTS_VOICE_VALUES, 'standard');
 }
 
 async function onNotesSpellcheckChange(nextValue) {

@@ -24,6 +24,7 @@ from app.routers.sidebar import router as sidebar_router
 from app.routers.smart_folders import router as smart_folders_router
 from app.routers.system import router as system_router
 from app.routers.tags import router as tags_router
+from app.routers.tts import router as tts_router
 from app.routers.users import router as users_router
 from app.routers.wiki import router as wiki_router
 
@@ -35,6 +36,7 @@ __all__ = [
     "direct_upload_router",
     "import_router",
     "tags_router",
+    "tts_router",
     "annotations_router",
     "categories_router",
     "correspondents_router",

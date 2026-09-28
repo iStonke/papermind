@@ -75,6 +75,13 @@ class Settings(BaseSettings):
     dedupe_text_distance_threshold: int = Field(default=6, ge=0, le=64)
     direct_upload_api_key: str = Field(default="")
 
+    # --- Lokale Sprachausgabe (Piper) ---
+    tts_model_path: str = Field(default="/opt/piper-voices/de_DE-thorsten-high.onnx")
+    tts_emotional_model_path: str = Field(
+        default="/opt/piper-voices/de_DE-thorsten_emotional-medium.onnx"
+    )
+    tts_max_chars: int = Field(default=6000, ge=100, le=20000)
+
     # --- System-/Hardware-Status (Raspberry Pi) ---
     # Pfad, unter dem das Host-/sys gemountet ist (für Temperatur/Lüfter/Modell).
     # Fällt auf das container-eigene /sys zurück, wenn nicht vorhanden.

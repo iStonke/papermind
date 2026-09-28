@@ -92,6 +92,7 @@ class SettingsValidationTest(unittest.TestCase):
                     "notes_heading_spacing": "compact",
                     "notes_block_spacing": "spacious",
                     "notes_spellcheck_enabled": False,
+                    "notes_tts_voice": "whisper",
                     "notes_text_replacements": [
                         {"shortcut": "MFG", "replacement": "Mit freundlichen Gruessen", "enabled": True}
                     ],
@@ -108,6 +109,7 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertEqual(payload.ui.notes_heading_spacing.value, "compact")
         self.assertEqual(payload.ui.notes_block_spacing.value, "spacious")
         self.assertIs(payload.ui.notes_spellcheck_enabled, False)
+        self.assertEqual(payload.ui.notes_tts_voice.value, "whisper")
         self.assertEqual(payload.ui.notes_text_replacements[0].shortcut, "MFG")
 
     def test_notes_preferences_reject_unknown_values(self) -> None:
@@ -121,6 +123,8 @@ class SettingsValidationTest(unittest.TestCase):
             AppSettingsPatch.model_validate({"ui": {"notes_font_size": "huge"}})
         with self.assertRaises(ValidationError):
             AppSettingsPatch.model_validate({"ui": {"notes_line_spacing": "double"}})
+        with self.assertRaises(ValidationError):
+            AppSettingsPatch.model_validate({"ui": {"notes_tts_voice": "robot"}})
 
     def test_notes_preferences_accept_bundled_font_families(self) -> None:
         for font_family in ("inter", "source-sans", "atkinson", "source-serif"):
@@ -141,6 +145,7 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertEqual(payload.ui.notes_heading_spacing.value, "comfortable")
         self.assertEqual(payload.ui.notes_block_spacing.value, "comfortable")
         self.assertIs(payload.ui.notes_spellcheck_enabled, True)
+        self.assertEqual(payload.ui.notes_tts_voice.value, "standard")
         self.assertEqual(payload.ui.notes_text_replacements, [])
 
     def test_note_text_replacements_are_validated(self) -> None:

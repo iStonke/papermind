@@ -27,9 +27,9 @@ test("buildAutoOcrPatch returns expected payload", () => {
   });
 });
 
-test("buildNotesPreferencesPatch returns a per-user UI patch", () => {
-  assert.deepEqual(buildNotesPreferencesPatch({ notes_writing_width: "wide" }), {
-    ui: { notes_writing_width: "wide" },
+test("buildNotesPreferencesPatch returns per-user note preferences", () => {
+  assert.deepEqual(buildNotesPreferencesPatch({ notes_writing_width: "wide", notes_tts_voice: "sleepy" }), {
+    ui: { notes_writing_width: "wide", notes_tts_voice: "sleepy" },
   });
 });
 

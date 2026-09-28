@@ -110,15 +110,27 @@
             :key="b.key"
             type="button"
             class="pm-bubble__btn"
-            :class="{ 'is-active': b.active(), 'is-ai': b.ai }"
+            :class="{
+              'is-active': b.active(),
+              'is-ai': b.ai,
+              'has-separator-after': b.separatorAfter,
+            }"
             :title="b.label"
             :aria-label="b.label"
             @mousedown.prevent="b.run()"
           >
             <PmActionIcon v-if="b.actionIcon" :name="b.actionIcon" :size="17" />
-            <v-icon v-else size="17" :class="{ 'pm-bubble__marker-icon': b.key === 'highlight' }">{{ b.icon }}</v-icon>
+            <v-icon
+              v-else
+              size="17"
+              :class="{
+                'pm-bubble__marker-icon': b.key === 'highlight',
+                'pm-bubble__loading-icon': b.key === 'speech' && speech.status === 'loading',
+              }"
+            >{{ b.icon }}</v-icon>
           </button>
         </div>
+        <div v-if="speech.error" class="pm-bubble__speech-error" role="alert">{{ speech.error }}</div>
         <div
           v-if="bubbleHighlight.open"
           class="pm-bubble__swatches"
@@ -291,6 +303,7 @@ import {
   parseNoteSlashUsage,
 } from '../../utils/noteSlashUsage.js';
 import { uploadNoteImage } from '../../api/notes.js';
+import { synthesizeSpeech } from '../../api/tts.js';
 import { NOTE_HIGHLIGHT_COLORS } from '../../utils/noteHighlights.js';
 import { placeSelectionBubble } from '../../utils/noteBubblePosition.js';
 import { useUiStore } from '../../stores/ui';
@@ -327,6 +340,8 @@ const props = defineProps({
   blockSpacing: { type: String, default: 'comfortable' },
   /** Native Rechtschreibprüfung für Titel und Editorinhalt. */
   spellcheckEnabled: { type: Boolean, default: true },
+  /** In den persönlichen Notiz-Einstellungen gewählte lokale Piper-Stimme. */
+  ttsVoice: { type: String, default: 'standard' },
   /** Persoenliche, exakt passende Kuerzel fuer Enter-Textersetzungen. */
   textReplacements: { type: Array, default: () => [] },
   /** Inhalt anzeigen und auswählen, aber nicht verändern. */
@@ -409,6 +424,16 @@ let historyFlashTimer = null;
 let emptyHintPositionFrame = null;
 let emptyHintResizeObserver = null;
 let imageUploadMessageTimer = null;
+
+const SPEECH_MAX_CHARS = 6000;
+const SPEECH_VOICE_VALUES = new Set(['standard', 'neutral', 'amused', 'sleepy', 'whisper']);
+const speechVoice = computed(() => (
+  SPEECH_VOICE_VALUES.has(props.ttsVoice) ? props.ttsVoice : 'standard'
+));
+const speech = reactive({ status: 'idle', text: '', voice: '', error: '' });
+let speechAudio = null;
+let speechObjectUrl = '';
+let speechAbortController = null;
 
 const NOTE_IMAGE_MIME_TYPES = Object.freeze(['image/jpeg', 'image/png', 'image/webp']);
 const NOTE_IMAGE_UPLOAD_LIMIT = 8;
@@ -517,6 +542,7 @@ const editor = useEditor({
     emitNoteSearchState(ed);
   },
   onSelectionUpdate: ({ editor: ed }) => {
+    stopSpeechWhenSelectionChanges(ed);
     updateSelectionWordCount(ed);
     tableMenu.open = false;
     linkEditor.open = false;
@@ -562,6 +588,7 @@ watch(() => props.spellcheckEnabled, (enabled) => applySpellcheck(enabled));
 watch(() => props.readonly, (readonly) => editor.value?.setEditable(!readonly));
 
 onBeforeUnmount(() => {
+  stopSpeech();
   editor.value?.destroy();
   toolbarScrollContainer?.removeEventListener('scroll', onEditorScroll);
   window.removeEventListener('resize', refreshBubble);
@@ -1123,6 +1150,14 @@ const bubbleButtons = computed(() => {
     run: () => { run(ed.chain().focus()).run(); refreshBubble(); },
   });
   return [
+    {
+      key: 'speech',
+      label: speechButtonLabel.value,
+      icon: speechButtonIcon.value,
+      separatorAfter: true,
+      active: () => ['loading', 'playing', 'paused'].includes(speech.status),
+      run: () => { void toggleSelectedSpeech(ed); },
+    },
     mk('bold', 'Fett', 'mdi-format-bold', e => e.isActive('bold'), c => c.toggleBold()),
     mk('italic', 'Kursiv', 'mdi-format-italic', e => e.isActive('italic'), c => c.toggleItalic()),
     mk('underline', 'Unterstrichen', 'mdi-format-underline', e => e.isActive('underline'), c => c.toggleUnderline()),
@@ -1159,6 +1194,119 @@ const bubbleButtons = computed(() => {
     }] : []),
   ];
 });
+
+const speechButtonLabel = computed(() => {
+  if (speech.status === 'loading') return 'Vorlesen wird vorbereitet – abbrechen';
+  if (speech.status === 'playing') return 'Vorlesen pausieren';
+  if (speech.status === 'paused') return 'Vorlesen fortsetzen';
+  if (speech.status === 'error' && speech.error) return speech.error;
+  return 'Markierten Text vorlesen';
+});
+
+const speechButtonIcon = computed(() => {
+  if (speech.status === 'loading') return 'mdi-loading';
+  if (speech.status === 'playing') return 'mdi-pause';
+  if (speech.status === 'paused') return 'mdi-play';
+  if (speech.status === 'error') return 'mdi-alert-circle-outline';
+  return 'mdi-volume-high';
+});
+
+function selectedSpeechText(ed) {
+  const { selection, doc } = ed?.state || {};
+  if (!(selection instanceof TextSelection) || selection.empty) return '';
+  return doc.textBetween(selection.from, selection.to, '\n', '\n').replace(/\s+/g, ' ').trim();
+}
+
+function releaseSpeechAudio() {
+  if (speechAudio) {
+    speechAudio.pause();
+    speechAudio.removeAttribute('src');
+    speechAudio.load();
+    speechAudio = null;
+  }
+  if (speechObjectUrl) {
+    URL.revokeObjectURL(speechObjectUrl);
+    speechObjectUrl = '';
+  }
+}
+
+function stopSpeech({ preserveError = false } = {}) {
+  speechAbortController?.abort();
+  speechAbortController = null;
+  releaseSpeechAudio();
+  speech.status = preserveError ? 'error' : 'idle';
+  speech.text = '';
+  speech.voice = '';
+  if (!preserveError) speech.error = '';
+}
+
+watch(speechVoice, () => stopSpeech());
+
+function stopSpeechWhenSelectionChanges(ed) {
+  if (speech.status === 'idle' || speech.status === 'error') return;
+  if (selectedSpeechText(ed) !== speech.text) stopSpeech();
+}
+
+async function toggleSelectedSpeech(ed) {
+  const text = selectedSpeechText(ed);
+  if (!text) return;
+
+  if (speech.text === text && speech.voice === speechVoice.value && speech.status === 'loading') {
+    stopSpeech();
+    return;
+  }
+  if (speech.text === text && speech.voice === speechVoice.value && speech.status === 'playing') {
+    speechAudio?.pause();
+    speech.status = 'paused';
+    return;
+  }
+  if (speech.text === text && speech.voice === speechVoice.value && speech.status === 'paused' && speechAudio) {
+    try {
+      await speechAudio.play();
+      speech.status = 'playing';
+    } catch {
+      speech.error = 'Die Audiowiedergabe konnte nicht fortgesetzt werden.';
+      stopSpeech({ preserveError: true });
+    }
+    return;
+  }
+
+  stopSpeech();
+  if (text.length > SPEECH_MAX_CHARS) {
+    speech.error = `Bitte höchstens ${SPEECH_MAX_CHARS.toLocaleString('de-DE')} Zeichen markieren.`;
+    speech.status = 'error';
+    return;
+  }
+
+  speech.text = text;
+  speech.voice = speechVoice.value;
+  speech.status = 'loading';
+  speechAbortController = new AbortController();
+  const requestController = speechAbortController;
+  try {
+    const audioBlob = await synthesizeSpeech(text, {
+      signal: requestController.signal,
+      voice: speechVoice.value,
+    });
+    if (speechAbortController !== requestController) return;
+    speechAbortController = null;
+    speechObjectUrl = URL.createObjectURL(audioBlob);
+    speechAudio = new Audio(speechObjectUrl);
+    speechAudio.preload = 'auto';
+    speechAudio.onended = () => stopSpeech();
+    speechAudio.onerror = () => {
+      speech.error = 'Die erzeugte Audiodatei konnte nicht abgespielt werden.';
+      stopSpeech({ preserveError: true });
+    };
+    await speechAudio.play();
+    speech.status = 'playing';
+  } catch (error) {
+    if (error?.name === 'AbortError' || requestController.signal.aborted) return;
+    speechAbortController = null;
+    speech.error = error?.message || 'Der markierte Text konnte nicht vorgelesen werden.';
+    stopSpeech({ preserveError: true });
+  }
+}
 
 function refreshBubble() {
   const revision = ++bubblePositionRevision;
@@ -2409,9 +2557,20 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
 /* Die diagonale Marker-Glyphe sitzt optisch etwas über der Icon-Mitte. */
 .pm-bubble__marker-icon { transform: translateY(1px); }
 
+.pm-bubble__loading-icon { animation: pm-bubble-spin 0.8s linear infinite; }
+
+@keyframes pm-bubble-spin { to { transform: rotate(360deg); } }
+
 .pm-bubble__btn:hover { background: rgba(255, 255, 255, 0.10); color: #fff; }
 
 .pm-bubble__btn.is-active { background: rgba(255, 255, 255, 0.17); color: #fff; }
+
+.pm-bubble__btn.has-separator-after {
+  margin-right: 4px;
+  padding-right: 9px;
+  border-right: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px 0 0 6px;
+}
 
 .pm-bubble__btn:focus-visible {
   outline: 2px solid rgba(255, 255, 255, 0.6);
@@ -2428,6 +2587,15 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
 }
 
 .pm-bubble__btn.is-ai:hover { background: rgba(127, 224, 193, 0.15); color: #9fe9d4; }
+
+.pm-bubble__speech-error {
+  max-width: 300px;
+  padding: 5px 8px 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  color: #ffd1d1;
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
 
 .pm-bubble__swatches {
   display: flex; align-items: center; gap: 5px;

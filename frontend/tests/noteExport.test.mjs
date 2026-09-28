@@ -2,10 +2,37 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  noteContentToPlainText,
   noteExportFilename,
   noteToMarkdown,
   noteToPrintableHtml,
 } from '../src/utils/noteExport.js';
+
+test('note audio export extracts readable plain text without formatting syntax', () => {
+  const text = noteContentToPlainText({
+    type: 'doc',
+    content: [
+      { type: 'heading', content: [{ type: 'text', text: 'Überschrift' }] },
+      {
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'Wichtig', marks: [{ type: 'bold' }] },
+          { type: 'text', text: ' und lesbar.' },
+        ],
+      },
+      {
+        type: 'taskList',
+        content: [{
+          type: 'taskItem',
+          attrs: { checked: true },
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Prüfung abgeschlossen' }] }],
+        }],
+      },
+    ],
+  });
+
+  assert.equal(text, 'Überschrift\nWichtig und lesbar.\nErledigt: Prüfung abgeschlossen');
+});
 
 test('note export preserves formatting and PaperMind source references', () => {
   const markdown = noteToMarkdown({

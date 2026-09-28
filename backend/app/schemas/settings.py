@@ -202,6 +202,14 @@ class NotesSpacing(str, Enum):
     spacious = "spacious"
 
 
+class NotesTTSVoice(str, Enum):
+    standard = "standard"
+    neutral = "neutral"
+    amused = "amused"
+    sleepy = "sleepy"
+    whisper = "whisper"
+
+
 class DocumentSortOrder(str, Enum):
     newest = "newest"
     oldest = "oldest"
@@ -351,6 +359,7 @@ class UISettingsRead(BaseModel):
     notes_heading_spacing: NotesSpacing = NotesSpacing.comfortable
     notes_block_spacing: NotesSpacing = NotesSpacing.comfortable
     notes_spellcheck_enabled: bool = True
+    notes_tts_voice: NotesTTSVoice = NotesTTSVoice.standard
     notes_text_replacements: list[NoteTextReplacement] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="after")
@@ -562,6 +571,7 @@ class UISettingsPatch(BaseModel):
     notes_heading_spacing: NotesSpacing | None = None
     notes_block_spacing: NotesSpacing | None = None
     notes_spellcheck_enabled: bool | None = None
+    notes_tts_voice: NotesTTSVoice | None = None
     notes_text_replacements: list[NoteTextReplacement] | None = Field(default=None, max_length=100)
 
     @field_validator("sidebar_sections")
