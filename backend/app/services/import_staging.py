@@ -3,6 +3,8 @@ import json
 import os
 import re
 import shutil
+import subprocess
+import sys
 import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -75,7 +77,6 @@ from app.services.import_title_formatting import (
 from app.services.naming_templates import NamingTemplateService
 from app.services.ocr_pipeline import (
     build_bw_pdf,
-    build_cleaned_scan_pdf,
     build_grayscale_pdf,
     detect_pdf_color_page_indices,
     normalize_scan_cleanup_mode,
@@ -101,7 +102,8 @@ _STAGING_PREANALYSIS_STATE_VERSION = 1
 _STAGING_SCAN_CLEANUP_CACHE_VERSION = 1
 _STAGING_COLOR_PROFILE_CACHE_VERSION = 1
 _STAGING_PREANALYSIS_MAX_AGE_SECONDS = 15 * 60
-_STAGING_SCAN_CLEANUP_STALE_SECONDS = 5 * 60
+_STAGING_SCAN_CLEANUP_STALE_SECONDS = 2 * 60
+_STAGING_SCAN_CLEANUP_TIMEOUT_SECONDS = 60
 _OWNER_SENTINEL = object()
 _STAGING_OCR_ATTEMPTS = (
     {"psm": 6, "max_long_side_px": 2800},
@@ -744,16 +746,50 @@ class ImportStagingService:
             source_signature=initial_signature,
         )
         candidate_path = source_path.with_name(f"{source_path.stem}.scan-cleanup.{uuid.uuid4().hex}.tmp.pdf")
+        result_path = candidate_path.with_suffix(f"{candidate_path.suffix}.json")
         produced_path: Path | None = None
         crop_results: list[dict[str, object]] = []
         try:
-            produced_path = build_cleaned_scan_pdf(
-                source_path,
-                candidate_path,
-                mode=mode,
-                dpi_target=dpi_target,
-                crop_results=crop_results,
-            )
+            command = [
+                sys.executable,
+                "-m",
+                "app.worker.scan_cleanup_task",
+                "--source",
+                str(source_path),
+                "--output",
+                str(candidate_path),
+                "--result",
+                str(result_path),
+                "--mode",
+                mode,
+                "--dpi",
+                str(dpi_target),
+            ]
+            try:
+                completed = subprocess.run(
+                    command,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=_STAGING_SCAN_CLEANUP_TIMEOUT_SECONDS,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError(
+                    f"cleanup_timeout_{_STAGING_SCAN_CLEANUP_TIMEOUT_SECONDS}s"
+                ) from exc
+            try:
+                task_result = json.loads(result_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                task_result = {}
+            if isinstance(task_result.get("crop_results"), list):
+                crop_results.extend(
+                    item for item in task_result["crop_results"] if isinstance(item, dict)
+                )
+            if completed.returncode == 0 and candidate_path.exists():
+                produced_path = candidate_path
+            elif completed.returncode != 0:
+                detail = str(task_result.get("message") or completed.stderr or "cleanup_unavailable").strip()
+                raise RuntimeError(detail[:300])
             if produced_path is None or not produced_path.exists():
                 return self._write_source_scan_cleanup(
                     source_id,
@@ -836,6 +872,7 @@ class ImportStagingService:
             if produced_path is not None:
                 produced_path.unlink(missing_ok=True)
             candidate_path.unlink(missing_ok=True)
+            result_path.unlink(missing_ok=True)
 
     def _safe_document_filename(self, title: str) -> str:
         normalized = " ".join(str(title or "").split()).strip()

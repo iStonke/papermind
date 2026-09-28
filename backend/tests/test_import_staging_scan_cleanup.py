@@ -1,10 +1,12 @@
 import json
+import subprocess
 import tempfile
 import unittest
 import uuid
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -202,6 +204,25 @@ class ImportStagingScanCleanupTest(unittest.TestCase):
         media_box = PdfReader(str(source_path)).pages[0].mediabox
         self.assertAlmostEqual(float(media_box.width) / 72.0 * 25.4, 148.0, delta=1.0)
         self.assertAlmostEqual(float(media_box.height) / 72.0 * 25.4, 105.0, delta=1.0)
+
+    def test_enhance_scanner_source_times_out_to_raw_scan(self) -> None:
+        source_file_id = str(uuid.uuid4())
+        source_path = self.service._source_pdf_path(source_file_id)
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        source_path.write_bytes(b"%PDF-1.4\n%%EOF\n")
+        self.service._scan_cleanup_settings = lambda: ("white", 300)
+
+        with patch.object(
+            import_staging.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired(["python", "cleanup"], 60),
+        ):
+            result = self.service.enhance_source_scan(source_file_id)
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["message"], "cleanup_timeout_60s")
+        self.assertEqual(source_path.read_bytes(), b"%PDF-1.4\n%%EOF\n")
+        self.assertFalse(any(source_path.parent.glob(f"{source_path.stem}.scan-cleanup.*.tmp.pdf*")))
 
     def test_regenerate_source_preview_writes_png(self) -> None:
         source_file_id = str(uuid.uuid4())
