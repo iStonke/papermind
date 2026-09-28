@@ -9,8 +9,8 @@ macOS-Bridge `com.papermind.pi-bridge`. Nie eine direkte Verbindung zu
 - Zulässige Pi-Aktionen über `python3 scripts/pi_bridge.py <aktion>`:
   `status`, `scanner_status`, `scanner_calibration_test`,
   `scanner_calibration_restore`, `scanner_timing_test`, `scanner_timing_restore`,
-  `scanner_jpeg_test`, `scanner_jpeg_restore`, `restore_drill`, `recovery_check`,
-  `quiet_fan_profile`.
+  `scanner_jpeg_test`, `scanner_jpeg_restore`, `scanner_poller_restart`,
+  `restore_drill`, `recovery_check`, `quiet_fan_profile`.
 - `scanner_status` liest ausschließlich Dienststatus, feste systemd-Definitionen,
   Canon-USB-Energiezustand, SANE-Geräteliste und begrenzte Scanner-Logs aus.
 - `scanner_calibration_test` sichert das Scan-Skript und aktiviert darin
@@ -22,6 +22,9 @@ macOS-Bridge `com.papermind.pi-bridge`. Nie eine direkte Verbindung zu
   stellt die Sicherung wieder her.
 - `scanner_jpeg_test` aktiviert nach Sicherung reversibel das direkte JPEG-
   Scanformat; `scanner_jpeg_restore` stellt die Sicherung wieder her.
+- `scanner_poller_restart` prüft, dass der installierte Tasten-Poller den
+  vierfeldrigen Scanbefehl samt Job-ID unterstützt, und startet ausschließlich
+  `papermind-scan-watch.service` neu.
 - `quiet_fan_profile` schreibt ausschließlich die fest hinterlegte, reversible
   PaperMind-Lüfterkennlinie in `/boot/firmware/config.txt`, legt zuvor eine
   Sicherung mit Suffix `.papermind-fan.bak` an und startet den Pi nicht neu.

@@ -14,6 +14,7 @@ test('Pi bridge only exposes allow-listed maintenance operations over a private 
   assert.match(server, /"scanner_status"/);
   assert.match(server, /"scanner_calibration_test"/);
   assert.match(server, /"scanner_calibration_restore"/);
+  assert.match(server, /"scanner_poller_restart"/);
   assert.match(server, /"scanner_timing_test"/);
   assert.match(server, /"scanner_timing_restore"/);
   assert.match(server, /"scanner_jpeg_test"/);
@@ -39,6 +40,7 @@ test('Pi bridge only exposes allow-listed maintenance operations over a private 
   assert.match(client, /"scanner_status"/);
   assert.match(client, /"scanner_calibration_test"/);
   assert.match(client, /"scanner_calibration_restore"/);
+  assert.match(client, /"scanner_poller_restart"/);
   assert.match(client, /"scanner_timing_test"/);
   assert.match(client, /"scanner_timing_restore"/);
   assert.match(client, /"scanner_jpeg_test"/);

@@ -17,6 +17,7 @@ VALID_ACTIONS = {
     "scanner_timing_restore",
     "scanner_jpeg_test",
     "scanner_jpeg_restore",
+    "scanner_poller_restart",
     "restore_drill",
     "recovery_check",
     "quiet_fan_profile",

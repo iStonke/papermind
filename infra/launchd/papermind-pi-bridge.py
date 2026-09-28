@@ -172,6 +172,28 @@ ACTIONS: dict[str, tuple[str, int]] = {
         "echo 'scanner JPEG test restored'",
         30,
     ),
+    "scanner_poller_restart": (
+        "set -eu; "
+        "watcher=/home/jan/papermind/deploy/scan-button/papermind-scan-watch.sh; "
+        "test -f \"$watcher\"; "
+        "grep -q 'jobid device_uri device_key target_device' \"$watcher\"; "
+        "grep -q 'PAPERMIND_SCAN_JOB_ID=\"$jobid\"' \"$watcher\"; "
+        "main_pid=$(systemctl show papermind-scan-watch.service --property=MainPID --value); "
+        "case \"$main_pid\" in ''|*[!0-9]*) exit 1 ;; esac; "
+        "test \"$main_pid\" -gt 1; "
+        "kill -TERM \"$main_pid\"; "
+        "for attempt in 1 2 3 4 5 6 7 8 9 10; do "
+        "new_pid=$(systemctl show papermind-scan-watch.service --property=MainPID --value); "
+        "test \"${new_pid:-0}\" -gt 1 2>/dev/null && test \"$new_pid\" != \"$main_pid\" && break; "
+        "sleep 1; "
+        "done; "
+        "test \"${new_pid:-0}\" -gt 1; "
+        "test \"$new_pid\" != \"$main_pid\"; "
+        "systemctl show papermind-scan-watch.service "
+        "--property=ActiveState,SubState,ExecMainStatus --no-pager; "
+        "echo 'scanner poller restarted with four-field command parser'",
+        30,
+    ),
     "restore_drill": (
         "cd /home/jan/papermind && "
         "./scripts/prod_pi_restore_drill.sh --confirm-production",

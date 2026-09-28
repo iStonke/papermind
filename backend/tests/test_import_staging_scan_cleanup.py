@@ -1,6 +1,8 @@
+import json
 import tempfile
 import unittest
 import uuid
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from types import SimpleNamespace
 
@@ -42,6 +44,19 @@ class ImportStagingScanCleanupTest(unittest.TestCase):
         self.assertEqual(response["duration_ms"], 42.5)
         self.assertTrue(response["auto_crop"]["applied"])
         self.assertEqual(response["auto_crop"]["pages"][0]["format"], "A6 quer")
+
+    def test_stale_running_cleanup_is_reported_as_interrupted(self) -> None:
+        source_file_id = str(uuid.uuid4())
+        self.service._write_source_scan_cleanup(source_file_id, status="running", mode="white")
+        cleanup_path = self.service._source_scan_cleanup_path(source_file_id)
+        payload = json.loads(cleanup_path.read_text(encoding="utf-8"))
+        payload["updated_at"] = (datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat()
+        cleanup_path.write_text(json.dumps(payload), encoding="utf-8")
+
+        response = self.service.get_source_scan_cleanup_response(source_file_id)
+
+        self.assertEqual(response["status"], "failed")
+        self.assertEqual(response["message"], "cleanup_interrupted")
 
     def test_committed_pages_mode_requires_all_sources_ready(self) -> None:
         first_source_id = str(uuid.uuid4())

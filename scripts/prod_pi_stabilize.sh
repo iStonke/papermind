@@ -224,7 +224,11 @@ UNIT
   sudo udevadm control --reload-rules >/dev/null 2>&1 || true
   sudo udevadm trigger --subsystem-match=usb --attr-match=idVendor="${scanner_usb_vendor}" >/dev/null 2>&1 || true
   sudo systemctl enable --now papermind-scanner-usb-awake.service >/dev/null
-  sudo systemctl enable --now papermind-scan-watch.service >/dev/null
+  # Die Unit verweist direkt auf Skripte im Checkout. Ein bereits laufender
+  # Bash-Prozess liest Aenderungen daran nicht erneut ein; nach Deployments muss
+  # der Poller deshalb explizit neu gestartet werden.
+  sudo systemctl enable papermind-scan-watch.service >/dev/null
+  sudo systemctl restart papermind-scan-watch.service
   sudo systemctl enable --now papermind-scan-idle.timer >/dev/null
 }
 

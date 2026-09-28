@@ -101,6 +101,7 @@ _STAGING_PREANALYSIS_STATE_VERSION = 1
 _STAGING_SCAN_CLEANUP_CACHE_VERSION = 1
 _STAGING_COLOR_PROFILE_CACHE_VERSION = 1
 _STAGING_PREANALYSIS_MAX_AGE_SECONDS = 15 * 60
+_STAGING_SCAN_CLEANUP_STALE_SECONDS = 5 * 60
 _OWNER_SENTINEL = object()
 _STAGING_OCR_ATTEMPTS = (
     {"psm": 6, "max_long_side_px": 2800},
@@ -395,10 +396,26 @@ class ImportStagingService:
         status = str(payload.get("status") or "").strip()
         if not status:
             return None
+        # Ein Worker-Neustart kann die lokale Bildbereinigung zwischen
+        # ``pending``/``running`` und dem abschliessenden Cache-Write beenden.
+        # Ohne Altersgrenze wuerde die UI dann unbegrenzt "Seiten werden
+        # verbessert" anzeigen, obwohl kein Prozess mehr daran arbeitet.
+        updated_at = str(payload.get("updated_at") or "").strip()
+        if status in {"pending", "running"} and updated_at:
+            try:
+                updated = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+                if updated.tzinfo is None:
+                    updated = updated.replace(tzinfo=timezone.utc)
+                age_seconds = (datetime.now(timezone.utc) - updated).total_seconds()
+            except ValueError:
+                age_seconds = 0
+            if age_seconds > _STAGING_SCAN_CLEANUP_STALE_SECONDS:
+                status = "failed"
+                payload = {**payload, "message": "cleanup_interrupted"}
         response: dict[str, object] = {
             "status": status,
             "mode": str(payload.get("mode") or "").strip(),
-            "updated_at": str(payload.get("updated_at") or "").strip(),
+            "updated_at": updated_at,
         }
         for key in ("started_at", "completed_at", "duration_ms", "revision", "message", "auto_crop"):
             value = payload.get(key)
