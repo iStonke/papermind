@@ -16,6 +16,7 @@
           :key="action.key"
           location="bottom start"
           offset="4"
+          :close-on-content-click="!action.sections?.length"
           content-class="list-action-toolbar-menu"
         >
           <template #activator="{ props: menuProps }">
@@ -36,14 +37,33 @@
             </button>
           </template>
           <v-list density="compact" :min-width="action.minWidth || 170" class="list-action-toolbar-menu__list">
-            <v-list-item
-              v-for="option in action.options || []"
-              :key="option.value"
-              :class="{ 'v-list-item--active': option.value === action.value }"
-              @click="emit('action-select', { action: action.key, value: option.value })"
-            >
-              <v-list-item-title>{{ option.label }}</v-list-item-title>
-            </v-list-item>
+            <template v-if="action.sections?.length">
+              <template v-for="(section, sectionIndex) in action.sections" :key="section.key">
+                <v-list-subheader>{{ section.label }}</v-list-subheader>
+                <v-list-item
+                  v-for="option in section.options || []"
+                  :key="`${section.key}-${option.value}`"
+                  :class="{ 'v-list-item--active': option.value === section.value }"
+                  @click="emit('action-select', { action: section.key, value: option.value })"
+                >
+                  <v-list-item-title>{{ option.label }}</v-list-item-title>
+                  <template v-if="option.value === section.value" #append>
+                    <v-icon size="16">mdi-check</v-icon>
+                  </template>
+                </v-list-item>
+                <v-divider v-if="sectionIndex < action.sections.length - 1" />
+              </template>
+            </template>
+            <template v-else>
+              <v-list-item
+                v-for="option in action.options || []"
+                :key="option.value"
+                :class="{ 'v-list-item--active': option.value === action.value }"
+                @click="emit('action-select', { action: action.key, value: option.value })"
+              >
+                <v-list-item-title>{{ option.label }}</v-list-item-title>
+              </v-list-item>
+            </template>
           </v-list>
         </v-menu>
 

@@ -795,6 +795,22 @@ const groupingLabel = computed(() =>
   NOTE_GROUPING_OPTIONS.find((option) => option.value === grouping.value)?.label || 'Gruppierung'
 );
 
+const NOTE_SORT_SHORT_LABELS = {
+  updated: 'Bearbeitet',
+  created: 'Erstellt',
+  opened: 'Geöffnet',
+  title: 'Titel',
+};
+const NOTE_GROUPING_SHORT_LABELS = {
+  auto: 'Auto',
+  notebook: 'Notizbuch',
+  favorites: 'Angepinnt',
+  none: 'Ungruppiert',
+};
+const viewOptionsLabel = computed(() => (
+  `${NOTE_SORT_SHORT_LABELS[sortMode.value] || sortLabel.value} · ${NOTE_GROUPING_SHORT_LABELS[grouping.value] || groupingLabel.value}`
+));
+
 const dateRangeLabel = computed(() =>
   NOTE_DATE_RANGE_OPTIONS.find((option) => option.value === dateRange.value)?.label || 'Zeitraum'
 );
@@ -814,22 +830,25 @@ const notebookFilterLabel = computed(() =>
 const toolbarActions = computed(() => {
   const actions = [
     {
-      key: 'sort',
-      icon: 'mdi-sort',
-      label: sortLabel.value,
-      value: sortMode.value,
-      options: NOTE_SORT_OPTIONS,
-      minWidth: 190,
-    },
-    {
-      key: 'grouping',
-      icon: 'mdi-view-agenda-outline',
-      label: groupingLabel.value,
-      value: grouping.value,
-      active: grouping.value !== 'auto',
-      collapsible: grouping.value === 'auto',
-      options: NOTE_GROUPING_OPTIONS,
-      minWidth: 230,
+      key: 'view',
+      icon: 'mdi-tune-variant',
+      label: viewOptionsLabel.value,
+      active: sortMode.value !== 'updated' || grouping.value !== 'auto',
+      minWidth: 240,
+      sections: [
+        {
+          key: 'sort',
+          label: 'Sortieren nach',
+          value: sortMode.value,
+          options: NOTE_SORT_OPTIONS,
+        },
+        {
+          key: 'grouping',
+          label: 'Gruppieren',
+          value: grouping.value,
+          options: NOTE_GROUPING_OPTIONS,
+        },
+      ],
     },
   ];
   // Notizbuch-Filter immer anbieten, damit die Filterzeile in jeder Sammlung

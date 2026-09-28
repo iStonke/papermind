@@ -49,6 +49,8 @@ from app.services.document_types import (
 from app.services.ocr_pipeline import run_ocr_pipeline
 from app.services.settings import SettingsService
 from app.services.maintenance import write_activity
+from app.services.note_audio_jobs import note_audio_jobs
+from app.services.tts import merge_wav_bytes, split_speech_text, tts_service
 from app.worker.document_dispatch import DocumentJobDispatcher
 from app.services.tag_suggestions import (
     fallback_tag_candidates,
@@ -1906,6 +1908,56 @@ def _process_claimed_document_job(claimed) -> None:
             _mark_job_failed(job_id, f"Unsupported job type {job_type}", lease_token)
 
 
+def _process_note_audio_job(job: dict) -> None:
+    job_id = str(job["id"])
+    output_path = note_audio_jobs.output_path(job_id)
+    incoming_path = output_path.with_suffix(".wav.incoming")
+    try:
+        chunks = split_speech_text(str(job.get("text") or ""), settings.tts_max_chars)
+        if not chunks:
+            raise ValueError("Die Notiz enthält keinen vorlesbaren Text.")
+        audio_parts: list[bytes] = []
+        for index, chunk in enumerate(chunks):
+            if note_audio_jobs.is_cancel_requested(job_id):
+                note_audio_jobs.remove(job_id)
+                return
+            note_audio_jobs.update(
+                job_id,
+                progress=max(2, round(index / len(chunks) * 90)),
+                phase=f"Abschnitt {index + 1} von {len(chunks)} wird gesprochen",
+            )
+            audio_parts.append(tts_service.synthesize_wav(chunk, voice=str(job.get("voice") or "standard")))
+        if note_audio_jobs.is_cancel_requested(job_id):
+            note_audio_jobs.remove(job_id)
+            return
+        note_audio_jobs.update(job_id, progress=94, phase="Audiodatei wird zusammengesetzt")
+        incoming_path.write_bytes(merge_wav_bytes(audio_parts))
+        if not note_audio_jobs.complete(job_id, incoming_path):
+            return
+        logger.info("note audio export completed job_id=%s chunks=%s", job_id, len(chunks))
+    except Exception as exc:  # noqa: BLE001 - native Piper/runtime errors become job failures
+        incoming_path.unlink(missing_ok=True)
+        if note_audio_jobs.get(job_id) is not None:
+            note_audio_jobs.update(
+                job_id,
+                status="failed",
+                phase="Audioexport fehlgeschlagen",
+                error_message=_truncate_error(str(exc) or "Piper konnte die Audiodatei nicht erzeugen."),
+                finished_at=_iso_now(),
+                worker_id=None,
+            )
+        logger.exception("note audio export failed job_id=%s", job_id)
+
+
+def _iso_now() -> str:
+    return _now_utc().isoformat()
+
+
+def _run_note_audio_job(job: dict, admission) -> None:
+    with write_activity(admission=admission):
+        _process_note_audio_job(job)
+
+
 def run() -> None:
     logger.info(
         "worker started worker_id=%s poll_interval=%ss lease=%ss heartbeat=%ss storage=%s",
@@ -1917,6 +1969,9 @@ def run() -> None:
     )
     _touch_worker_health(state="starting", force=True)
     _reclaim_orphaned_jobs()
+    reclaimed_audio_jobs = note_audio_jobs.reclaim_running()
+    if reclaimed_audio_jobs:
+        logger.info("requeued interrupted note audio exports count=%s", reclaimed_audio_jobs)
     _log_worker_memory()
     # Schwere Nachbearbeitung eines Import-Drops läuft in eigenen Threads, damit
     # der frische Ingest den seriellen Haupt-Loop nicht blockiert. Zwei getrennte
@@ -1938,6 +1993,8 @@ def run() -> None:
     )
     scanner_dispatch_thread.start()
     document_dispatch = DocumentJobDispatcher(_claim_next_job, _process_claimed_document_job)
+    audio_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="note-audio")
+    audio_future: Future | None = None
     last_trash_cleanup_at = 0.0
     last_ocr_backfill_at = 0.0
     last_backup_check_at = 0.0
@@ -1955,6 +2012,25 @@ def run() -> None:
             continue
         with write_activity():
             document_dispatch.dispatch()
+            if audio_future is not None and audio_future.done():
+                try:
+                    audio_future.result()
+                except Exception:
+                    logger.exception("note audio worker lane failed")
+                audio_future = None
+            if audio_future is None:
+                from app.services.maintenance import MaintenanceActive, acquire_write_activity
+
+                try:
+                    audio_admission = acquire_write_activity()
+                except MaintenanceActive:
+                    audio_admission = None
+                if audio_admission is not None:
+                    audio_job = note_audio_jobs.claim_next(WORKER_ID)
+                    if audio_job is None:
+                        audio_admission.close()
+                    else:
+                        audio_future = audio_executor.submit(_run_note_audio_job, audio_job, audio_admission)
             now_monotonic = time.monotonic()
             _touch_worker_health(state="idle")
             if now_monotonic - last_job_reclaim_at >= JOB_RECLAIM_INTERVAL_SECONDS:

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import ConflictError, NotFoundError
+from app.models.learn import LearnMarker
 from app.models.note import Note, NoteLink, NoteRevision, NoteTask
 from app.models.note_image import NoteImage
 from app.models.note_notebook import NoteNotebook
@@ -188,6 +189,55 @@ def extract_note_tasks(body_json: Any) -> list[dict[str, Any]]:
 
     walk(body_json)
     return tasks
+
+
+_MARKER_KINDS = {"lernen", "fakt", "warum", "aufgabe", "analyse", "prozess", "vergleich"}
+
+
+def _normalize_marker_kind(value: Any) -> str | None:
+    """Extrahiert den Marker-Typ aus ``attrs.learn`` (String oder {kind}); None
+    wenn kein Marker gesetzt ist."""
+    if isinstance(value, dict):
+        value = value.get("kind")
+    if not isinstance(value, str):
+        return None
+    kind = value.strip().lower()
+    if not kind:
+        return None
+    return kind if kind in _MARKER_KINDS else "lernen"
+
+
+def extract_note_markers(body_json: Any) -> list[dict[str, Any]]:
+    """Sammelt Lern-Marker einer Notiz in Dokumentreihenfolge.
+
+    Ein Marker ist ein Block-Knoten mit ``attrs.learn`` (Typ) UND stabiler
+    ``attrs.pmId``. Liefert je Marker {node_pm_id, kind, snippet, position}.
+    Knoten ohne pmId werden übersprungen (nicht ankerbar). Bei doppelter pmId
+    (z. B. nach Copy/Paste) zählt der erste Treffer.
+    """
+    markers: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def walk(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+        attrs = node.get("attrs") or {}
+        kind = _normalize_marker_kind(attrs.get("learn"))
+        pm_id = attrs.get("pmId")
+        if kind and isinstance(pm_id, str) and pm_id and pm_id not in seen:
+            seen.add(pm_id)
+            snippet = _WS.sub(" ", prosemirror_to_text(node)).strip()
+            markers.append({
+                "node_pm_id": pm_id[:16],
+                "kind": kind,
+                "snippet": snippet[:2000],
+                "position": len(markers),
+            })
+        for child in node.get("content") or []:
+            walk(child)
+
+    walk(body_json)
+    return markers
 
 
 def set_taskitem_checked(body_json: Any, position: int, checked: bool) -> bool:
@@ -426,6 +476,16 @@ class NoteService:
         for task in extract_note_tasks(note.body_json):
             self.db.add(NoteTask(note_id=note.id, **task))
 
+    def _sync_learn_markers(self, note: Note) -> None:
+        """Lern-Marker der Notiz (learn_marker) aus body_json neu berechnen.
+
+        Wie _sync_tasks: die Notiz bleibt die Wahrheit, die Projektion wird bei
+        jedem Save neu aufgebaut. Grundlage der Lernbereich-Nachbereitung.
+        """
+        self.db.query(LearnMarker).filter(LearnMarker.note_id == note.id).delete(synchronize_session=False)
+        for marker in extract_note_markers(note.body_json):
+            self.db.add(LearnMarker(note_id=note.id, owner_id=note.owner_id, **marker))
+
     def _latest_revision(self, note_id: uuid.UUID, *, for_update: bool = False) -> NoteRevision | None:
         stmt = (
             select(NoteRevision)
@@ -538,6 +598,7 @@ class NoteService:
         if not note.is_template:
             self._sync_links(note)
             self._sync_tasks(note)
+            self._sync_learn_markers(note)
             self._record_revision(note, reason="created", force_new=True)
         self.db.commit()
         self.db.refresh(note)
@@ -595,6 +656,7 @@ class NoteService:
         note.body_text = derive_body_text(body_json)
         self._sync_links(note)
         self._sync_tasks(note)
+        self._sync_learn_markers(note)
         self._record_revision(note, reason="created", force_new=True)
         try:
             self.db.commit()
@@ -668,6 +730,7 @@ class NoteService:
             if not note.is_template:
                 self._sync_links(note)
                 self._sync_tasks(note)
+                self._sync_learn_markers(note)
         if payload.title is not None or payload.body_json is not None:
             note.revision = current_revision + 1
             if not note.is_template:
@@ -710,6 +773,7 @@ class NoteService:
         note.body_text = derive_body_text(body)
         self._sync_links(note)
         self._sync_tasks(note)
+        self._sync_learn_markers(note)
         note.revision = int(note.revision or 1) + 1
         # Inhaltsänderung wie beim Editor-Autosave (erlaubter Revisionsgrund).
         self._record_revision(note, reason="autosave")
@@ -805,6 +869,7 @@ class NoteService:
         if not note.is_template:
             self._sync_links(note)
             self._sync_tasks(note)
+            self._sync_learn_markers(note)
             self._record_revision(note, reason="restore", force_new=True)
         self.db.commit()
         self.db.refresh(note)

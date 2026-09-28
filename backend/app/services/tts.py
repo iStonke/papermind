@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 import threading
 import wave
 from pathlib import Path
@@ -14,6 +15,54 @@ logger = logging.getLogger("papermind.tts")
 
 class TTSUnavailableError(RuntimeError):
     """Raised when the configured local voice cannot be loaded."""
+
+
+def split_speech_text(text: str, max_chars: int = 6000) -> list[str]:
+    """Split long prose at paragraph/sentence boundaries for bounded inference."""
+    normalized = " ".join(str(text or "").split())
+    if not normalized:
+        return []
+    chunks: list[str] = []
+    remaining = normalized
+    while len(remaining) > max_chars:
+        window = remaining[: max_chars + 1]
+        candidates = [match.end() for match in re.finditer(r"[.!?;:]\s+", window)]
+        split_at = candidates[-1] if candidates else window.rfind(" ")
+        if split_at < max_chars // 2:
+            split_at = max_chars
+        chunks.append(remaining[:split_at].strip())
+        remaining = remaining[split_at:].strip()
+    if remaining:
+        chunks.append(remaining)
+    return chunks
+
+
+def merge_wav_bytes(parts: list[bytes]) -> bytes:
+    if not parts:
+        raise ValueError("No audio parts to merge")
+    output = io.BytesIO()
+    reference: tuple[int, int, int, str, str] | None = None
+    frames: list[bytes] = []
+    for part in parts:
+        with wave.open(io.BytesIO(part), "rb") as source:
+            params = (
+                source.getnchannels(), source.getsampwidth(), source.getframerate(),
+                source.getcomptype(), source.getcompname(),
+            )
+            if reference is None:
+                reference = params
+            elif params != reference:
+                raise ValueError("Audio parts use incompatible WAV formats")
+            frames.append(source.readframes(source.getnframes()))
+    assert reference is not None
+    with wave.open(output, "wb") as target:
+        target.setnchannels(reference[0])
+        target.setsampwidth(reference[1])
+        target.setframerate(reference[2])
+        target.setcomptype(reference[3], reference[4])
+        for frame_data in frames:
+            target.writeframes(frame_data)
+    return output.getvalue()
 
 
 class PiperTTSService:

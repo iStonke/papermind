@@ -342,9 +342,12 @@ class UISettingsRead(BaseModel):
     sidebar_show_no_text: bool = True
     sidebar_show_chat: bool = True
     sidebar_show_dossiers: bool = True
+    sidebar_show_lernraum: bool = True
     sidebar_sections: list[SidebarSectionConfig] = Field(default_factory=_default_sidebar_sections)
     # Übersicht-Board-Layout (leer = Frontend-Standard).
     dashboard_layout: list[DashboardWidgetLayout] = Field(default_factory=list)
+    dashboard_show_import_action: bool = True
+    dashboard_show_note_action: bool = True
     # Max. Anzahl der Quicklinks pro Sektion in der Seitenleiste (0 = nur die Kopfaktion).
     sidebar_max_folders: int = Field(default=5, ge=0, le=50)
     sidebar_max_tags: int = Field(default=5, ge=0, le=50)
@@ -556,8 +559,11 @@ class UISettingsPatch(BaseModel):
     sidebar_show_no_text: bool | None = None
     sidebar_show_chat: bool | None = None
     sidebar_show_dossiers: bool | None = None
+    sidebar_show_lernraum: bool | None = None
     sidebar_sections: list[SidebarSectionConfig] | None = None
     dashboard_layout: list[DashboardWidgetLayout] | None = None
+    dashboard_show_import_action: bool | None = None
+    dashboard_show_note_action: bool | None = None
     sidebar_max_folders: int | None = Field(default=None, ge=0, le=50)
     sidebar_max_tags: int | None = Field(default=None, ge=0, le=50)
     sidebar_max_categories: int | None = Field(default=None, ge=0, le=50)

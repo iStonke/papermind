@@ -62,6 +62,38 @@
         />
       </BaseDialog>
 
+      <BaseDialog
+        v-model="isOcrBatchDialogOpen"
+        max-width="520"
+        :title="ocrBatchDialogTitle"
+        :header-subtitle="ocrBatchDialogSubtitle"
+        primary-text="OCR starten"
+        secondary-text="Abbrechen"
+        icon="mdi-text-recognition"
+        :loading="isQueueingOcrBatch"
+        :primary-disabled="isPreviewingOcrBatch || !ocrBatchPreview?.eligible"
+        @primary="executeOcrBatch"
+        @close="closeOcrBatchDialog"
+      >
+        <v-radio-group
+          v-model="ocrBatchRerunCompleted"
+          hide-details
+          class="mt-0"
+          @update:model-value="refreshOcrBatchPreview"
+        >
+          <v-radio :value="false" label="Nur fehlende oder fehlgeschlagene OCR starten" />
+          <v-radio :value="true" label="OCR auch bei bereits analysierten Dokumenten erneut durchführen" />
+        </v-radio-group>
+
+        <div class="text-body-2 text-medium-emphasis mt-3" role="status" aria-live="polite">
+          <template v-if="isPreviewingOcrBatch">Dokumente werden geprüft …</template>
+          <template v-else-if="ocrBatchPreviewError">{{ ocrBatchPreviewError }}</template>
+          <template v-else-if="ocrBatchPreview">
+            {{ ocrBatchPreviewText }}
+          </template>
+        </div>
+      </BaseDialog>
+
       <ShortcutsHelpDialog v-model="uiStore.shortcutsOpen" />
 
       <ImportStagingDialog
@@ -180,6 +212,7 @@
           'workspace--tag': activeView === 'tag',
           'workspace--dossiers': isDossierRoute,
           'workspace--wiki': isWikiRoute,
+          'workspace--lernraum': isLernraumRoute,
           'workspace--sidebar-transitioning': sidebarRailTransitioning,
           'workspace--sidebar-collapsing': sidebarRailTransitioning && sidebarCollapsed,
           'workspace--sidebar-expanding': sidebarRailTransitioning && !sidebarCollapsed
@@ -188,7 +221,7 @@
         <AppSidebar
           ref="appSidebarRef"
           :collapsed="sidebarContentCollapsed"
-          :chat-active="!isDossierRoute && (isChatView || isWikiRoute)"
+          :chat-active="!isDossierRoute && !isLernraumRoute && (isChatView || isWikiRoute)"
           :dossiers-active="isDossierRoute"
           :active-view="activeView"
           :active-note-view="activeNoteView"
@@ -247,14 +280,11 @@
           </template>
 
           <template #foot>
-            <v-btn
-              icon="mdi-keyboard-outline"
-              variant="text"
-              size="small"
-              class="sidebar-foot__rail-help"
-              aria-label="Tastenkürzel"
-              title="Tastenkürzel"
-              @click="openShortcutsHelp"
+            <ActivityIndicator
+              v-if="sidebarCollapsed"
+              ref="activityIndicatorRef"
+              button-class="sidebar-foot__rail-activity"
+              @open-backup="openBackupSettings"
             />
             <v-btn
               icon
@@ -279,14 +309,11 @@
             />
             <SidebarAccount />
             <div class="sidebar-foot__actions">
-              <v-btn
-                icon="mdi-keyboard-outline"
-                variant="text"
-                size="small"
-                class="sidebar-foot__btn"
-                aria-label="Tastenkürzel"
-                title="Tastenkürzel"
-                @click="openShortcutsHelp"
+              <ActivityIndicator
+                v-if="!sidebarCollapsed"
+                ref="activityIndicatorRef"
+                button-class="sidebar-foot__btn"
+                @open-backup="openBackupSettings"
               />
               <v-btn
                 icon="mdi-cog-outline"
@@ -311,32 +338,19 @@
                     size="small"
                     class="sidebar-foot__btn sidebar-foot__more-btn"
                     :class="{ 'sidebar-foot__btn--active': isTrashView }"
-                    :aria-label="sidebarMoreLabel"
-                    :title="sidebarMoreLabel"
+                    aria-label="Weitere Aktionen"
+                    title="Weitere Aktionen"
                   >
-                    <v-badge
-                      :model-value="sidebarActivitySummary.hasActivity"
-                      :content="sidebarActivitySummary.badgeCount || undefined"
-                      :dot="sidebarActivitySummary.badgeCount === 0"
-                      :color="sidebarActivitySummary.badgeColor"
-                      max="9"
-                      offset-x="0"
-                      offset-y="0"
-                      class="sidebar-foot__more-badge"
-                    >
-                      <v-icon size="20">mdi-dots-horizontal</v-icon>
-                    </v-badge>
+                    <v-icon size="20">mdi-dots-horizontal</v-icon>
                   </v-btn>
                 </template>
 
                 <v-list class="pm-menu sidebar-foot__more-menu" density="compact" min-width="250">
-                  <ActivityIndicator
-                    ref="activityIndicatorRef"
-                    presentation="menu-item"
-                    @open-backup="openBackupSettings"
-                    @status-change="handleSidebarActivityStatus"
-                  />
-                  <v-divider v-if="sidebarActivitySummary.hasActivity" />
+                  <v-list-item title="Tastenkürzel" @click="openShortcutsFromSidebarMenu">
+                    <template #prepend>
+                      <v-icon size="20">mdi-keyboard-outline</v-icon>
+                    </template>
+                  </v-list-item>
                   <v-list-item
                     :active="isTrashView"
                     :title="trashFootLabel"
@@ -367,8 +381,10 @@
           @show-chat="setAiWorkspaceMode('chat')"
         />
 
+        <LernraumWorkspace v-if="isLernraumRoute" class="panel panel-lernraum" />
+
         <DashboardView
-          v-if="!isDossierRoute && !isWikiRoute && activeView === 'dashboard'"
+          v-if="!isDossierRoute && !isWikiRoute && !isLernraumRoute && activeView === 'dashboard'"
           class="panel panel-dashboard"
           @import-document="openImport"
           @create-note="createNoteFromCommandPalette"
@@ -381,7 +397,7 @@
         />
 
         <GlobalSearchResults
-          v-if="!isDossierRoute && !isWikiRoute && activeView === 'search'"
+          v-if="!isDossierRoute && !isWikiRoute && !isLernraumRoute && activeView === 'search'"
           :query="globalSearchText"
           :tags="tags"
           :categories="categories"
@@ -392,7 +408,7 @@
         />
 
         <section
-          v-if="!isDossierRoute && !isWikiRoute && activeView === 'search' && !isSearchDocumentPreview"
+          v-if="!isDossierRoute && !isWikiRoute && !isLernraumRoute && activeView === 'search' && !isSearchDocumentPreview"
           class="panel panel-right global-search-preview"
           aria-label="Suchtreffer-Vorschau"
         >
@@ -422,7 +438,7 @@
         </section>
 
         <NotesWorkspace
-          v-if="!isDossierRoute && !isWikiRoute && activeView === 'notes'"
+          v-if="!isDossierRoute && !isWikiRoute && !isLernraumRoute && activeView === 'notes'"
           class="panel panel-notes"
           :view-mode="activeNoteView"
           v-model:search-query="noteListSearchText"
@@ -431,7 +447,7 @@
         />
 
         <TagResultsView
-          v-if="!isDossierRoute && !isWikiRoute && activeView === 'tag'"
+          v-if="!isDossierRoute && !isWikiRoute && !isLernraumRoute && activeView === 'tag'"
           class="panel panel-tag"
           :tag-id="tagViewTagId"
           :tag-name="tagViewTagName"
@@ -440,7 +456,7 @@
         />
 
         <section
-          v-if="!isDossierRoute && !isWikiRoute && activeView !== 'dashboard' && activeView !== 'notes' && activeView !== 'tag' && activeView !== 'search'"
+          v-if="!isDossierRoute && !isWikiRoute && !isLernraumRoute && activeView !== 'dashboard' && activeView !== 'notes' && activeView !== 'tag' && activeView !== 'search'"
           class="panel panel-middle"
           :class="{ 'panel-middle--tag-filter-open': isListFilterDrawerOpen }"
           :style="listFilterDrawerOffsetStyle"
@@ -905,6 +921,7 @@
               :current-date-range="currentDateRange"
               :show-document-type-filter-toggle="showDocumentTypeFilterDrawer"
               :document-type-filter-drawer-open="isDocumentTypeFilterDrawerOpen"
+              :right-actions="documentListRightActions"
               :show-tag-filter-toggle="showTagFilterDrawer"
               :tag-filter-drawer-open="isTagFilterDrawerOpen"
               :bottom-spacer-height="tagFilterDocumentListSpacerHeight"
@@ -936,6 +953,7 @@
               @change-sort="applySort"
               @change-date-range="applyDateRange"
               @toggle-document-type-filter-drawer="toggleDocumentTypeFilterDrawer"
+              @right-action="handleDocumentListRightAction"
               @toggle-tag-filter-drawer="toggleTagFilterDrawer"
               @load-more="loadMoreDocuments"
             />
@@ -1089,6 +1107,7 @@
             @category="openBatchCategoryDialog"
             @export="exportSelectionAsZip"
             @delete="confirmBatchDelete"
+            @action="handleDocumentBatchAction"
           />
           <BatchActionsBar
             v-if="isTagSelectionMode"
@@ -1111,7 +1130,7 @@
 
         <!-- Auch Dokumenttreffer der globalen Suche nutzen dieses Panel, damit
              Vorschau und Detailschublade identisch zur Dokumentliste sind. -->
-        <section v-if="!isDossierRoute && !isWikiRoute && ((activeView !== 'dashboard' && activeView !== 'notes' && activeView !== 'tag' && activeView !== 'search') || isSearchDocumentPreview)" class="panel panel-right">
+        <section v-if="!isDossierRoute && !isWikiRoute && !isLernraumRoute && ((activeView !== 'dashboard' && activeView !== 'notes' && activeView !== 'tag' && activeView !== 'search') || isSearchDocumentPreview)" class="panel panel-right">
           <DocumentPreviewLayout
             class="panel-right__preview panel-right__preview--card-drawer"
             :style="detailsDrawerCardStyle"
@@ -1804,6 +1823,7 @@ const SmartFolderEditor = defineAsyncComponent(() => import('../components/Smart
 const DashboardView = defineAsyncComponent(() => import('./DashboardView.vue'));
 const DossierWorkspace = defineAsyncComponent(() => import('./DossierWorkspace.vue'));
 const WikiWorkspace = defineAsyncComponent(() => import('./WikiWorkspace.vue'));
+const LernraumWorkspace = defineAsyncComponent(() => import('./LernraumWorkspace.vue'));
 const NotesWorkspace = defineAsyncComponent(() => import('./NotesWorkspace.vue'));
 const GlobalSearchResults = defineAsyncComponent(() => import('./GlobalSearchResults.vue'));
 const TagResultsView = defineAsyncComponent(() => import('./TagResultsView.vue'));
@@ -1841,6 +1861,7 @@ import { formatDateTime, formatDocumentDateInputFromIso, parseDocumentDateInput 
 import { buildDocumentMetadataPatch } from '../utils/documentMetadata.js';
 import { createMetadataAutosave } from '../workspaces/documents/metadataAutosave.js';
 import { resolveOcrHeaderPresentation } from '../workspaces/documents/ocrHeaderState.js';
+import { didOcrReachTerminalState } from '../workspaces/documents/ocrStatusTransition.js';
 import { shouldPreserveMetadataDraft, tagQueryIsEmpty } from '../workspaces/documents/metadataRefreshGuard.js';
 import { createImportInboxSync } from '../workspaces/documents/importInboxSync.js';
 import { selectPdfFiles } from '../workspaces/documents/pdfSelection.js';
@@ -1861,6 +1882,7 @@ import {
   documentsExportUrl,
   getDocumentRetention,
   putDocumentRetention,
+  queueOcrBatch,
   reorderDocumentPages,
   suggestDocumentRetention
 } from '../api/documents.js';
@@ -1934,6 +1956,7 @@ const DOCUMENT_BATCH_ACTIONS = Object.freeze([
 const TAG_REPLACE_DEBOUNCE_MS = 300;
 const PREVIEW_RETRY_BASE_DELAY_MS = 600;
 const PREVIEW_RETRY_MAX_DELAY_MS = 4500;
+const OCR_BATCH_CHUNK_SIZE = 500;
 const PREVIEW_RETRY_MAX_ATTEMPTS = 5;
 const IMPORTS_RECENT_LIMIT = 100;
 const VOCAB_NAME_MIN_LENGTH = 2;
@@ -2288,6 +2311,7 @@ const route = useRoute();
 const router = useRouter();
 const isDossierRoute = computed(() => route.name === 'dossiers' || route.name === 'dossier-board');
 const isWikiRoute = computed(() => route.name === 'wiki');
+const isLernraumRoute = computed(() => route.name === 'lernraum');
 function openDossiersFromSidebar(status) {
   if (route.name !== 'dossiers') requestDossierSidebarEntryAnimation();
   router.push({ name: 'dossiers', query: status && status !== 'all' ? { status } : {} });
@@ -2728,19 +2752,9 @@ function onFollowLink(annotation) {
 }
 const { sidebarCounts, isLoadingSidebarCounts, savedSearches, isLoadingSavedSearches } = storeToRefs(sidebarStore);
 const sidebarMoreMenuOpen = ref(false);
-const sidebarActivitySummary = reactive({
-  hasActivity: false,
-  badgeCount: 0,
-  badgeColor: 'primary',
-  ariaLabel: 'Keine laufenden Prozesse',
-});
 const trashFootLabel = computed(() => {
   const count = Number(sidebarCounts.value.trash_count || 0);
   return count > 0 ? `Papierkorb (${count})` : 'Papierkorb (leer)';
-});
-const sidebarMoreLabel = computed(() => {
-  if (!sidebarActivitySummary.hasActivity) return 'Weitere Aktionen';
-  return `Weitere Aktionen · ${sidebarActivitySummary.ariaLabel}`;
 });
 
 const activeView = ref('all');
@@ -2893,13 +2907,14 @@ const appSidebarRef = ref(null);
 const activityIndicatorRef = ref(null);
 const allDocumentsPulseKey = ref(0);
 
-function handleSidebarActivityStatus(status) {
-  Object.assign(sidebarActivitySummary, status);
-}
-
 function openTrashFromSidebarMenu() {
   sidebarMoreMenuOpen.value = false;
   handleSidebarViewSelect('trash');
+}
+
+function openShortcutsFromSidebarMenu() {
+  sidebarMoreMenuOpen.value = false;
+  openShortcutsHelp();
 }
 
 // Import-Fluganimation: Dokumentkarte, die vom Import-Dialog in die Liste fliegt.
@@ -3114,6 +3129,216 @@ function applyDateRange(rangeKey) {
 
 function selectAllDocuments() {
   selectionIds.value = new Set(docStore.documents.map((d) => d.id));
+}
+
+// ── OCR für Auswahl / aktuelle Trefferliste ───────────────────────────────
+const isOcrBatchDialogOpen = ref(false);
+const isPreviewingOcrBatch = ref(false);
+const isQueueingOcrBatch = ref(false);
+const ocrBatchScope = ref('selection');
+const ocrBatchDocumentIds = ref([]);
+const ocrBatchRerunCompleted = ref(false);
+const ocrBatchPreview = ref(null);
+const ocrBatchPreviewError = ref('');
+let ocrBatchDialogGeneration = 0;
+
+const ocrBatchDialogTitle = computed(() => (
+  ocrBatchScope.value === 'list' ? 'OCR für diese Liste' : 'OCR für Auswahl'
+));
+const ocrBatchDialogSubtitle = computed(() => {
+  const count = ocrBatchDocumentIds.value.length;
+  if (!count) return 'Dokumente werden ermittelt.';
+  return `${count} ${count === 1 ? 'Dokument wird' : 'Dokumente werden'} geprüft.`;
+});
+const ocrBatchPreviewText = computed(() => {
+  const preview = ocrBatchPreview.value;
+  if (!preview) return '';
+  const eligible = Number(preview.eligible || 0);
+  if (eligible === 0) {
+    return 'Für diese Auswahl ist kein neuer OCR-Lauf erforderlich.';
+  }
+  const skipped = Number(preview.skipped_active || 0)
+    + Number(preview.skipped_completed || 0)
+    + Number(preview.skipped_missing_file || 0)
+    + Number(preview.skipped_deleted_or_unavailable || 0);
+  const suffix = skipped > 0 ? ` ${skipped} werden übersprungen.` : '';
+  return `${eligible} ${eligible === 1 ? 'Dokument kann' : 'Dokumente können'} zur OCR eingereiht werden.${suffix}`;
+});
+
+function createEmptyOcrBatchResult() {
+  return {
+    requested: 0,
+    matched: 0,
+    eligible: 0,
+    queued: 0,
+    queued_document_ids: [],
+    skipped_active: 0,
+    skipped_completed: 0,
+    skipped_missing_file: 0,
+    skipped_deleted_or_unavailable: 0,
+  };
+}
+
+function mergeOcrBatchResult(target, result) {
+  for (const key of [
+    'requested',
+    'matched',
+    'eligible',
+    'queued',
+    'skipped_active',
+    'skipped_completed',
+    'skipped_missing_file',
+    'skipped_deleted_or_unavailable',
+  ]) {
+    target[key] += Number(result?.[key] || 0);
+  }
+  target.queued_document_ids.push(...(result?.queued_document_ids || []));
+  return target;
+}
+
+async function requestOcrBatch(documentIds, { dryRun }) {
+  const aggregate = createEmptyOcrBatchResult();
+  for (let offset = 0; offset < documentIds.length; offset += OCR_BATCH_CHUNK_SIZE) {
+    const result = await queueOcrBatch({
+      documentIds: documentIds.slice(offset, offset + OCR_BATCH_CHUNK_SIZE),
+      rerunCompleted: ocrBatchRerunCompleted.value,
+      dryRun,
+    });
+    mergeOcrBatchResult(aggregate, result);
+  }
+  return aggregate;
+}
+
+async function collectCurrentDocumentListIds() {
+  const ids = [];
+  const seen = new Set();
+  let offset = 0;
+  let total = Number.POSITIVE_INFINITY;
+
+  while (offset < total) {
+    const response = await fetch(documentListEndpoint({
+      offset,
+      includeTotal: offset === 0,
+      limit: 100,
+    }));
+    if (!response.ok) {
+      throw new Error(await parseResponseError(response));
+    }
+    const payload = await parseJsonResponse(response);
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    if (offset === 0) {
+      total = Number(payload.total ?? items.length);
+    }
+    for (const document of items) {
+      const id = String(document?.id || '').trim();
+      if (id && !seen.has(id)) {
+        seen.add(id);
+        ids.push(id);
+      }
+    }
+    if (items.length === 0) break;
+    offset = Number(payload.offset || offset) + items.length;
+  }
+  return ids;
+}
+
+async function refreshOcrBatchPreview() {
+  const generation = ++ocrBatchDialogGeneration;
+  if (!isOcrBatchDialogOpen.value || ocrBatchDocumentIds.value.length === 0) return;
+  isPreviewingOcrBatch.value = true;
+  ocrBatchPreview.value = null;
+  ocrBatchPreviewError.value = '';
+  try {
+    const preview = await requestOcrBatch(ocrBatchDocumentIds.value, { dryRun: true });
+    if (generation === ocrBatchDialogGeneration) {
+      ocrBatchPreview.value = preview;
+    }
+  } catch (error) {
+    if (generation === ocrBatchDialogGeneration) {
+      ocrBatchPreviewError.value = mapApiError(error, 'OCR-Vorschau konnte nicht geladen werden.');
+    }
+  } finally {
+    if (generation === ocrBatchDialogGeneration) {
+      isPreviewingOcrBatch.value = false;
+    }
+  }
+}
+
+async function openOcrBatchDialog(scope) {
+  const generation = ++ocrBatchDialogGeneration;
+  ocrBatchScope.value = scope;
+  ocrBatchRerunCompleted.value = false;
+  ocrBatchDocumentIds.value = [];
+  ocrBatchPreview.value = null;
+  ocrBatchPreviewError.value = '';
+  isPreviewingOcrBatch.value = true;
+  isOcrBatchDialogOpen.value = true;
+  try {
+    const ids = scope === 'list'
+      ? await collectCurrentDocumentListIds()
+      : Array.from(selectionIds.value);
+    if (generation !== ocrBatchDialogGeneration) return;
+    ocrBatchDocumentIds.value = [...new Set(ids)];
+    if (ocrBatchDocumentIds.value.length === 0) {
+      ocrBatchPreviewError.value = 'Keine Dokumente für die OCR gefunden.';
+      return;
+    }
+    isPreviewingOcrBatch.value = false;
+    await refreshOcrBatchPreview();
+  } catch (error) {
+    if (generation === ocrBatchDialogGeneration) {
+      ocrBatchPreviewError.value = mapApiError(error, 'Dokumentliste konnte nicht geprüft werden.');
+    }
+  } finally {
+    if (generation === ocrBatchDialogGeneration) {
+      isPreviewingOcrBatch.value = false;
+    }
+  }
+}
+
+function closeOcrBatchDialog() {
+  ocrBatchDialogGeneration += 1;
+  isOcrBatchDialogOpen.value = false;
+  isPreviewingOcrBatch.value = false;
+}
+
+async function executeOcrBatch() {
+  if (isQueueingOcrBatch.value || !ocrBatchPreview.value?.eligible) return;
+  isQueueingOcrBatch.value = true;
+  try {
+    const result = await requestOcrBatch(ocrBatchDocumentIds.value, { dryRun: false });
+    const queued = Number(result.queued || 0);
+    const scope = ocrBatchScope.value;
+    closeOcrBatchDialog();
+    if (scope === 'selection') exitSelectionMode();
+    await Promise.all([
+      fetchDocuments(selectedDocumentId.value, { silent: true }),
+      fetchSidebarCounts(),
+    ]);
+    notify({
+      type: queued > 0 ? 'success' : 'info',
+      title: 'OCR',
+      message: queued === 1
+        ? '1 Dokument wurde zur OCR eingereiht.'
+        : `${queued} Dokumente wurden zur OCR eingereiht.`,
+    });
+  } catch (error) {
+    ocrBatchPreviewError.value = notifyError(error, 'OCR-Aufträge konnten nicht gestartet werden.');
+  } finally {
+    isQueueingOcrBatch.value = false;
+  }
+}
+
+function handleDocumentBatchAction(action) {
+  if (action === 'ocr') {
+    void openOcrBatchDialog('selection');
+  }
+}
+
+function handleDocumentListRightAction(action) {
+  if (action === 'ocr-list') {
+    void openOcrBatchDialog('list');
+  }
 }
 
 // ── Batch-Export (Auswahl als ZIP) ──────────────────────────────────────────
@@ -3605,6 +3830,7 @@ const isTrashView     = computed(() => activeView.value === 'trash');
 const currentSidebarSelection = computed(() => {
   if (isDossierRoute.value) return { kind: 'route', value: 'dossiers' };
   if (isWikiRoute.value) return { kind: 'route', value: 'wiki' };
+  if (isLernraumRoute.value) return { kind: 'route', value: 'lernraum' };
   if (activeView.value === 'all' && activeSavedSearchId.value) {
     return { kind: 'saved-search', value: activeSavedSearchId.value };
   }
@@ -3843,6 +4069,13 @@ const documentBatchActions = computed(() => {
   if (isTrashView.value) {
     return DOCUMENT_BATCH_ACTIONS;
   }
+  const ocrAction = {
+    key: 'ocr',
+    label: 'OCR',
+    icon: 'mdi-text-recognition',
+    disabled: isQueueingOcrBatch.value,
+    loading: isQueueingOcrBatch.value,
+  };
   const favoriteAction = {
     key: 'favorite',
     label: areAllSelectedDocumentsFavorites.value ? 'Stern entfernen' : 'Favorit',
@@ -3862,9 +4095,27 @@ const documentBatchActions = computed(() => {
     DOCUMENT_BATCH_ACTIONS[0],   // Tags
     favoriteAction,
     DOCUMENT_BATCH_ACTIONS[1],   // Dokumenttyp
+    ocrAction,
     exportAction,
     DOCUMENT_BATCH_ACTIONS[2]    // In Papierkorb
   ];
+});
+const documentListRightActions = computed(() => {
+  if (
+    isSelectionMode.value
+    || isTrashView.value
+    || isImportsView.value
+    || !isNoTextView.value
+    || documentListTotal.value <= 0
+  ) {
+    return [];
+  }
+  return [{
+    key: 'ocr-list',
+    label: 'OCR für Liste',
+    icon: 'mdi-text-recognition',
+    disabled: isLoadingDocuments.value || isQueueingOcrBatch.value,
+  }];
 });
 const selectedTags = computed(() => {
   const selected = selectedTagIds.value;
@@ -5322,7 +5573,7 @@ function openAiView() {
 }
 
 function leaveDossierRoute() {
-  if (isDossierRoute.value || isWikiRoute.value) {
+  if (isDossierRoute.value || isWikiRoute.value || isLernraumRoute.value) {
     void router.push({ name: 'documents' });
   }
 }
@@ -7339,10 +7590,14 @@ async function refreshDocumentStatuses(documentIds) {
   // Re-Renders der gesamten Dokumentliste, obwohl sich nichts geändert hat.
   let selectedStatusChanged = false;
   let listChanged = false;
+  let ocrReachedTerminalState = false;
   const nextDocuments = documents.value.map((document) => {
     const statusUpdate = statusById.get(document.id);
     if (!statusUpdate) {
       return document;
+    }
+    if (didOcrReachTerminalState(document.ocr_status, statusUpdate.ocr_status)) {
+      ocrReachedTerminalState = true;
     }
     let documentChanged = false;
     for (const key in statusUpdate) {
@@ -7375,6 +7630,18 @@ async function refreshDocumentStatuses(documentIds) {
   ) {
     await fetchDocumentDetail(selectedDocumentId.value);
   }
+
+  // Der Seitenleisten-Zähler und die Liste müssen denselben Stand zeigen, sobald
+  // ein OCR-Lauf endet. Eine erfolgreiche OCR kann ein Dokument aus
+  // „Nicht durchsuchbar“ entfernen; zuvor wurde nur beim Start gezählt und der
+  // Zähler blieb dadurch bis zum nächsten kompletten Seitenaufruf veraltet.
+  if (ocrReachedTerminalState) {
+    const refreshes = [fetchSidebarCounts()];
+    if (isNoTextView.value) {
+      refreshes.push(fetchDocuments(selectedDocumentId.value, { silent: true }));
+    }
+    await Promise.all(refreshes);
+  }
 }
 
 function startDocumentListSettle() {
@@ -7393,8 +7660,8 @@ function finishDocumentListSettle() {
   isDocumentListSettling.value = false;
 }
 
-function documentListEndpoint({ offset = 0, includeTotal = true } = {}) {
-  const queryOptions = { limit: documentListQuery.limit, offset, includeTotal };
+function documentListEndpoint({ offset = 0, includeTotal = true, limit = documentListQuery.limit } = {}) {
+  const queryOptions = { limit, offset, includeTotal };
   // Bei globaler Suche verlässt die Reichweite den Ordner: regulärer Endpoint,
   // ohne activeSavedSearchId aufzugeben (Umschalten zurück bleibt möglich).
   const useFolderEndpoint = Boolean(activeSavedSearchId.value) && !globalSearchActive.value;
@@ -9809,7 +10076,7 @@ onMounted(async () => {
   ensureActiveDocumentTypeFilterIsValid();
 
   sidebarSelectionRestorePending = false;
-  const routeAlreadySelectsSidebarArea = !useConfiguredStart && (isDossierRoute.value || isWikiRoute.value);
+  const routeAlreadySelectsSidebarArea = !useConfiguredStart && (isDossierRoute.value || isWikiRoute.value || isLernraumRoute.value);
   let sidebarSelectionRestored = sidebarSelectionChangedWhileLoading || routeAlreadySelectsSidebarArea;
   if (!sidebarSelectionRestored && route.name === 'documents') {
     sidebarSelectionRestored = await restoreSidebarSelection(storedSidebarSelection);

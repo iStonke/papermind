@@ -36,6 +36,8 @@
 #    SCAN_DEVICE      SANE-Device (leer = Default-Scanner)
 #    SCAN_RESOLUTION  DPI (Default 300)
 #    SCAN_MODE        Color | Gray | Lineart (Default Color)
+#    SCAN_CALIBRATE   auto | Once | Always | Never (Default Once)
+#    SCAN_FORMAT      png | jpeg (Default png; jpeg ist verlustbehaftet)
 #    SCAN_LIVE_PREVIEW true | false (Default true)
 #    SCAN_WIDTH_MM    Scanbreite in mm (Default 210 = A4)
 #    SCAN_HEIGHT_MM   Scanhöhe in mm (Default 297 = A4)
@@ -61,6 +63,8 @@ LOCK_FILE="${LOCK_FILE:-${SCAN_INBOX_DIR}/.papermind-scan.lock}"
 SCAN_DEVICE="${SCAN_DEVICE:-}"
 SCAN_RESOLUTION="${SCAN_RESOLUTION:-300}"
 SCAN_MODE="${SCAN_MODE:-Color}"
+SCAN_CALIBRATE="${SCAN_CALIBRATE:-Once}"
+SCAN_FORMAT="${SCAN_FORMAT:-png}"
 SCAN_LIVE_PREVIEW="${SCAN_LIVE_PREVIEW:-true}"
 SCAN_WIDTH_MM="${SCAN_WIDTH_MM:-210}"
 SCAN_HEIGHT_MM="${SCAN_HEIGHT_MM:-297}"
@@ -96,6 +100,21 @@ log() {
 }
 die() { log "FEHLER: $*"; exit 1; }
 
+_now_ms() { date +%s%3N; }
+_elapsed_ms() {
+  local started_ms="$1"
+  printf '%s' "$(( $(_now_ms) - started_ms ))"
+}
+
+case "$SCAN_CALIBRATE" in
+  auto|Once|Always|Never) ;;
+  *) die "Ungültiger SCAN_CALIBRATE-Wert: ${SCAN_CALIBRATE}" ;;
+esac
+case "$SCAN_FORMAT" in
+  png) SCAN_EXTENSION="png" ;;
+  jpeg) SCAN_EXTENSION="jpg" ;;
+  *) die "Ungültiger SCAN_FORMAT-Wert: ${SCAN_FORMAT}" ;;
+esac
 case "${SCAN_LIVE_PREVIEW,,}" in
   true|false) ;;
   *) die "Ungültiger SCAN_LIVE_PREVIEW-Wert: ${SCAN_LIVE_PREVIEW}" ;;
@@ -118,18 +137,18 @@ _device_filename_suffix() {
 }
 
 _write_preview_sidecar() {
-  local source_png="$1"
+  local source_image="$1"
   local target_preview="$2"
   local incoming_preview="${target_preview}.incoming"
 
   rm -f "$incoming_preview"
   if command -v convert >/dev/null 2>&1; then
-    convert "$source_png" -auto-orient -thumbnail '640x640>' -strip "$incoming_preview" 2>/dev/null || {
+    convert "$source_image" -auto-orient -thumbnail '640x640>' -strip "$incoming_preview" 2>/dev/null || {
       rm -f "$incoming_preview"
       return 0
     }
   elif command -v magick >/dev/null 2>&1; then
-    magick "$source_png" -auto-orient -thumbnail '640x640>' -strip "$incoming_preview" 2>/dev/null || {
+    magick "$source_image" -auto-orient -thumbnail '640x640>' -strip "$incoming_preview" 2>/dev/null || {
       rm -f "$incoming_preview"
       return 0
     }
@@ -149,7 +168,7 @@ _with_lock() {
 }
 
 _scan_args() {
-  local output_format="${1:-png}"
+  local output_format="${1:-$SCAN_FORMAT}"
   # Gemeinsame scanimage-Argumente. --device nur setzen, wenn vorgegeben.
   # Die LiDE-400-Scanfläche ist 216 mm breit. Ohne explizite Geometrie nimmt
   # SANE daher rechts 6 mm Scannerbett neben einer A4-Seite mit auf. Das ist
@@ -159,6 +178,7 @@ _scan_args() {
   args+=(
     --resolution "$SCAN_RESOLUTION"
     --mode "$SCAN_MODE"
+    --calibrate "$SCAN_CALIBRATE"
     -x "$SCAN_WIDTH_MM"
     -y "$SCAN_HEIGHT_MM"
     --format="$output_format"
@@ -186,10 +206,13 @@ _finish_scan_status() {
 _convert_pnm_to_scan_format() {
   local source_pnm="$1"
   local target_image="$2"
+  local target_spec="${SCAN_FORMAT}:${target_image}"
+  local -a format_args=()
+  [[ "$SCAN_FORMAT" == "jpeg" ]] && format_args=(-quality 75)
   if command -v convert >/dev/null 2>&1; then
-    convert "$source_pnm" "png:${target_image}"
+    convert "$source_pnm" "${format_args[@]}" "$target_spec"
   else
-    magick "$source_pnm" "png:${target_image}"
+    magick "$source_pnm" "${format_args[@]}" "$target_spec"
   fi
 }
 
@@ -225,14 +248,16 @@ _write_scan_status() {
 
 _scanimage_cancellable() {
   local output="$1"
+  local started_ms first_data_logged=0 output_bytes=0
   local scan_output="$output"
-  local scan_format="png"
+  local scan_format="$SCAN_FORMAT"
   local preview_pid=""
   if _live_preview_enabled; then
     scan_output="${output}.pnm"
     scan_format="pnm"
     _clear_live_preview
   fi
+  started_ms="$(_now_ms)"
   # shellcheck disable=SC2046
   scanimage $(_scan_args "$scan_format") > "$scan_output" &
   local scan_pid=$!
@@ -242,6 +267,15 @@ _scanimage_cancellable() {
     preview_pid=$!
   fi
   while kill -0 "$scan_pid" 2>/dev/null; do
+    # PNG/PNM-Header werden ggf. schon vor der eigentlichen Bilduebertragung
+    # geschrieben. Erst ab 4 KiB werten wir die Datei als echte Scandaten.
+    if [[ "$first_data_logged" == 0 && -f "$scan_output" ]]; then
+      output_bytes="$(stat -c %s "$scan_output" 2>/dev/null || printf '0')"
+      if (( output_bytes >= 4096 )); then
+        log "Zeit bis erste Scandaten: $(_elapsed_ms "$started_ms") ms"
+        first_data_logged=1
+      fi
+    fi
     if [[ -f "$CANCEL_FILE" ]]; then
       log "Scan wird auf Benutzerwunsch abgebrochen."
       kill "$scan_pid" 2>/dev/null || true
@@ -272,34 +306,40 @@ _scan_live_page() {
   local tmp_dir="${SCAN_INBOX_DIR}/.papermind-live-tmp"
   mkdir -p "$tmp_dir"
 
-  local ts png_part png incoming target preview_target
+  local ts image_part image incoming target preview_target scan_started_ms phase_started_ms
   ts="$(date +%Y%m%d-%H%M%S-%N)"
-  png_part="${tmp_dir}/page-${ts}.png.part"
-  png="${tmp_dir}/page-${ts}.png"
+  image_part="${tmp_dir}/page-${ts}.${SCAN_EXTENSION}.part"
+  image="${tmp_dir}/page-${ts}.${SCAN_EXTENSION}"
 
-  log "Scanne Seite live (${SCAN_RESOLUTION}dpi ${SCAN_MODE}, ${SCAN_WIDTH_MM}x${SCAN_HEIGHT_MM}mm)…"
+  log "Scanne Seite live (${SCAN_RESOLUTION}dpi ${SCAN_MODE}, ${SCAN_FORMAT}, Kalibrierung ${SCAN_CALIBRATE}, ${SCAN_WIDTH_MM}x${SCAN_HEIGHT_MM}mm)…"
+  scan_started_ms="$(_now_ms)"
   # shellcheck disable=SC2046
-  if ! _scanimage_cancellable "$png_part"; then
-    rm -f "$png_part"
+  if ! _scanimage_cancellable "$image_part"; then
+    rm -f "$image_part"
     die "scanimage fehlgeschlagen (Device frei? Deckel zu? 'scanimage -L' prüfen)"
   fi
-  [[ -s "$png_part" ]] || { rm -f "$png_part"; die "Leeres Scan-Ergebnis"; }
-  mv -f "$png_part" "$png"
+  log "Phase Scanneraufnahme: $(_elapsed_ms "$scan_started_ms") ms"
+  [[ -s "$image_part" ]] || { rm -f "$image_part"; die "Leeres Scan-Ergebnis"; }
+  mv -f "$image_part" "$image"
 
   incoming="${SCAN_INBOX_DIR}/.incoming-${ts}.pdf"
   target="${SCAN_INBOX_DIR}/Scan-${ts}$(_job_filename_suffix)$(_device_filename_suffix).pdf"
   preview_target="${target}.preview.png"
+  phase_started_ms="$(_now_ms)"
   if command -v img2pdf >/dev/null 2>&1; then
-    img2pdf --output "$incoming" "$png"
+    img2pdf --output "$incoming" "$image"
   elif command -v convert >/dev/null 2>&1; then
-    convert "$png" "$incoming"   # ImageMagick-Fallback
+    convert "$image" "$incoming"   # ImageMagick-Fallback
   else
-    rm -f "$png"
+    rm -f "$image"
     die "Weder img2pdf noch ImageMagick (convert) installiert"
   fi
-  _write_preview_sidecar "$png" "$preview_target"
+  log "Phase PDF-Erzeugung: $(_elapsed_ms "$phase_started_ms") ms"
+  phase_started_ms="$(_now_ms)"
+  _write_preview_sidecar "$image" "$preview_target"
+  log "Phase Vorschau: $(_elapsed_ms "$phase_started_ms") ms"
   mv -f "$incoming" "$target"
-  rm -f "$png"
+  rm -f "$image"
   log "Seite live gesendet: ${target##*/}"
 }
 
@@ -322,20 +362,23 @@ cmd_page() {
 
   # Nächsten, nullgepolsterten Seitenindex bestimmen.
   local next
-  next="$(find "$BATCH_DIR" -maxdepth 1 -name 'page-*.png' -printf '.' 2>/dev/null | wc -c)"
+  next="$(find "$BATCH_DIR" -maxdepth 1 \( -name 'page-*.png' -o -name 'page-*.jpg' \) -printf '.' 2>/dev/null | wc -c)"
   next=$((next + 1))
   local idx
   idx="$(printf '%03d' "$next")"
 
-  local part="${BATCH_DIR}/page-${idx}.png.part"
-  local final="${BATCH_DIR}/page-${idx}.png"
+  local part="${BATCH_DIR}/page-${idx}.${SCAN_EXTENSION}.part"
+  local final="${BATCH_DIR}/page-${idx}.${SCAN_EXTENSION}"
+  local scan_started_ms
 
-  log "Scanne Seite ${idx} (${SCAN_RESOLUTION}dpi ${SCAN_MODE}, ${SCAN_WIDTH_MM}x${SCAN_HEIGHT_MM}mm)…"
+  log "Scanne Seite ${idx} (${SCAN_RESOLUTION}dpi ${SCAN_MODE}, ${SCAN_FORMAT}, Kalibrierung ${SCAN_CALIBRATE}, ${SCAN_WIDTH_MM}x${SCAN_HEIGHT_MM}mm)…"
+  scan_started_ms="$(_now_ms)"
   # shellcheck disable=SC2046
   if ! _scanimage_cancellable "$part"; then
     rm -f "$part"
     die "scanimage fehlgeschlagen (Device frei? Deckel zu? 'scanimage -L' prüfen)"
   fi
+  log "Phase Scanneraufnahme: $(_elapsed_ms "$scan_started_ms") ms"
   [[ -s "$part" ]] || { rm -f "$part"; die "Leeres Scan-Ergebnis"; }
   mv -f "$part" "$final"
   log "Seite ${idx} gespeichert. Batch enthält jetzt ${next} Seite(n)."
@@ -344,7 +387,7 @@ cmd_page() {
 _finalize() {
   # Setzt den Lock voraus.
   shopt -s nullglob
-  local pages=("$BATCH_DIR"/page-*.png)
+  local pages=("$BATCH_DIR"/page-*.png "$BATCH_DIR"/page-*.jpg)
   shopt -u nullglob
   if (( ${#pages[@]} == 0 )); then
     log "Kein offener Batch – nichts abzuschließen."
@@ -370,7 +413,7 @@ _finalize() {
 
   _write_preview_sidecar "${pages[0]}" "$preview_target"
   mv -f "$incoming" "$target"
-  rm -f "$BATCH_DIR"/page-*.png
+  rm -f "$BATCH_DIR"/page-*.png "$BATCH_DIR"/page-*.jpg
   log "Fertig: ${target} – erscheint gleich im Importscreen."
 }
 
@@ -383,7 +426,7 @@ cmd_finish() {
 cmd_finalize_idle() {
   _with_lock
   shopt -s nullglob
-  local pages=("$BATCH_DIR"/page-*.png)
+  local pages=("$BATCH_DIR"/page-*.png "$BATCH_DIR"/page-*.jpg)
   shopt -u nullglob
   (( ${#pages[@]} == 0 )) && { log "Kein offener Batch."; return 0; }
 

@@ -8,7 +8,19 @@ import socket
 import sys
 
 SOCKET_PATH = "/tmp/papermind-pi-bridge.sock"
-VALID_ACTIONS = {"status", "restore_drill", "recovery_check", "quiet_fan_profile"}
+VALID_ACTIONS = {
+    "status",
+    "scanner_status",
+    "scanner_calibration_test",
+    "scanner_calibration_restore",
+    "scanner_timing_test",
+    "scanner_timing_restore",
+    "scanner_jpeg_test",
+    "scanner_jpeg_restore",
+    "restore_drill",
+    "recovery_check",
+    "quiet_fan_profile",
+}
 
 
 def main() -> int:

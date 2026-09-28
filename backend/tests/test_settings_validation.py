@@ -49,6 +49,9 @@ class SettingsValidationTest(unittest.TestCase):
                     "drawerRememberState": True,
                     "tagDrawerRememberState": False,
                     "sidebar_show_dossiers": False,
+                    "sidebar_show_lernraum": False,
+                    "dashboard_show_import_action": False,
+                    "dashboard_show_note_action": False,
                 }
             }
         )
@@ -58,6 +61,9 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertIs(payload.ui.drawerRememberState, True)
         self.assertIs(payload.ui.tagDrawerRememberState, False)
         self.assertIs(payload.ui.sidebar_show_dossiers, False)
+        self.assertIs(payload.ui.sidebar_show_lernraum, False)
+        self.assertIs(payload.ui.dashboard_show_import_action, False)
+        self.assertIs(payload.ui.dashboard_show_note_action, False)
 
     def test_ui_new_toggle_defaults_present_in_read_model(self) -> None:
         payload = AppSettingsRead.model_validate({})
@@ -67,6 +73,9 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertIs(payload.ui.drawerRememberState, True)
         self.assertIs(payload.ui.tagDrawerRememberState, True)
         self.assertIs(payload.ui.sidebar_show_dossiers, True)
+        self.assertIs(payload.ui.sidebar_show_lernraum, True)
+        self.assertIs(payload.ui.dashboard_show_import_action, True)
+        self.assertIs(payload.ui.dashboard_show_note_action, True)
         self.assertEqual(payload.ui.sidebar_max_folders, 5)
         self.assertIs(payload.documents.auto_open_import_inbox, False)
         self.assertEqual(payload.documents.recent_import_window_hours, 24)

@@ -13,6 +13,8 @@ from app.schemas.learn import (
     LearnCardListResponse,
     LearnCardRead,
     LearnCardUpdate,
+    LearnMarkerListResponse,
+    LearnMarkerPromote,
     LearnCourseCreate,
     LearnCourseListResponse,
     LearnCourseRead,
@@ -222,3 +224,31 @@ def update_card(
 def delete_card(card_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> OkResponse:
     _service(db, user).delete_card(card_id)
     return OkResponse(ok=True)
+
+
+# --- Marker (aus Notizen projiziert) ---------------------------------------
+@router.get(
+    "/markers",
+    response_model=LearnMarkerListResponse,
+    summary="List learn markers (optionally only unprocessed)",
+)
+def list_markers(
+    note_id: uuid.UUID | None = Query(default=None),
+    open: bool = Query(default=False, description="Only markers without a card yet"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> LearnMarkerListResponse:
+    return LearnMarkerListResponse(items=_service(db, user).list_markers(note_id=note_id, open_only=open))
+
+
+@router.post(
+    "/markers/promote",
+    response_model=LearnCardRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Turn an open marker into a card with source anchor (Nachbereitung)",
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+)
+def promote_marker(
+    payload: LearnMarkerPromote, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> LearnCardRead:
+    return LearnCardRead.model_validate(_service(db, user).promote_marker(payload), from_attributes=True)

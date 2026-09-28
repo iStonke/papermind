@@ -76,6 +76,14 @@ export const runAutoTags = (id) =>
 export const queueOcr = (id) =>
   apiPost(`/api/documents/${id}/ocr`, undefined);
 
+/** Preview or queue OCR jobs for an explicit document selection. */
+export const queueOcrBatch = ({ documentIds, rerunCompleted = false, dryRun = false }) =>
+  apiPost('/api/documents/ocr-batch', {
+    document_ids: documentIds,
+    rerun_completed: rerunCompleted,
+    dry_run: dryRun,
+  });
+
 /**
  * POST /api/documents/{id}/pages/reorder – ordnet die Seiten dauerhaft neu.
  * `order` ist eine 1-basierte Permutation der aktuellen Seitenzahlen in ihrer

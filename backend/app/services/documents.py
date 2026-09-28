@@ -327,6 +327,103 @@ class DocumentService:
         logger.info("ocr job queued document_id=%s", document_id)
         return updated
 
+    def queue_ocr_for_documents(
+        self,
+        document_ids: list[uuid.UUID],
+        *,
+        rerun_completed: bool = False,
+        dry_run: bool = False,
+    ) -> dict[str, object]:
+        """Preview or queue OCR for an explicit, owner-scoped document set.
+
+        The safe default only includes documents whose OCR has never run or
+        failed. ``rerun_completed`` deliberately expands that scope to already
+        completed documents. Active jobs, deleted documents and documents
+        without an original PDF are always skipped.
+        """
+        requested_ids = list(dict.fromkeys(document_ids))
+        if not requested_ids:
+            return {
+                "requested": 0,
+                "matched": 0,
+                "eligible": 0,
+                "queued": 0,
+                "queued_document_ids": [],
+                "skipped_active": 0,
+                "skipped_completed": 0,
+                "skipped_missing_file": 0,
+                "skipped_deleted_or_unavailable": 0,
+                "rerun_completed": rerun_completed,
+                "dry_run": dry_run,
+            }
+
+        documents = self.db.execute(
+            self._scope(
+                select(Document)
+                .where(Document.id.in_(requested_ids))
+                .options(selectinload(Document.files))
+            )
+        ).scalars().unique().all()
+        document_by_id = {document.id: document for document in documents}
+        active_document_ids = set(
+            self.db.execute(
+                select(Job.document_id).where(
+                    Job.document_id.in_(requested_ids),
+                    Job.type == "OCR",
+                    Job.status.in_(("queued", "running")),
+                )
+            ).scalars().all()
+        )
+
+        eligible_documents: list[Document] = []
+        skipped_active = 0
+        skipped_completed = 0
+        skipped_missing_file = 0
+        skipped_deleted_or_unavailable = 0
+
+        for document_id in requested_ids:
+            document = document_by_id.get(document_id)
+            if document is None or document.is_deleted:
+                skipped_deleted_or_unavailable += 1
+                continue
+            if document.id in active_document_ids or document.ocr_status in {"queued", "running"}:
+                skipped_active += 1
+                continue
+            if not rerun_completed and document.ocr_status not in {"not_started", "failed"}:
+                skipped_completed += 1
+                continue
+            if not any(file_record.role == DocumentFileRole.original.value for file_record in document.files):
+                skipped_missing_file += 1
+                continue
+            eligible_documents.append(document)
+
+        queued_ids: list[str] = []
+        if not dry_run:
+            for document in eligible_documents:
+                self._queue_ocr_job(document)
+                queued_ids.append(str(document.id))
+            if queued_ids:
+                self.db.commit()
+                logger.info(
+                    "batch OCR queued count=%s rerun_completed=%s",
+                    len(queued_ids),
+                    rerun_completed,
+                )
+
+        return {
+            "requested": len(requested_ids),
+            "matched": len(documents),
+            "eligible": len(eligible_documents),
+            "queued": len(queued_ids),
+            "queued_document_ids": queued_ids,
+            "skipped_active": skipped_active,
+            "skipped_completed": skipped_completed,
+            "skipped_missing_file": skipped_missing_file,
+            "skipped_deleted_or_unavailable": skipped_deleted_or_unavailable,
+            "rerun_completed": rerun_completed,
+            "dry_run": dry_run,
+        }
+
     def backfill_ocr(
         self,
         *,

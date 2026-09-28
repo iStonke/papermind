@@ -8,7 +8,21 @@ Bridge `com.papermind.pi-bridge` verwenden. Sie läuft als macOS-LaunchAgent,
 im Mac-Benutzerkontext aus.
 
 - Aufrufe nur über `python3 scripts/pi_bridge.py <aktion>`: `status`,
-  `restore_drill`, `recovery_check` oder `quiet_fan_profile`.
+  `scanner_status`, `scanner_calibration_test`, `scanner_calibration_restore`,
+  `scanner_timing_test`, `scanner_timing_restore`, `scanner_jpeg_test`,
+  `scanner_jpeg_restore`, `restore_drill`, `recovery_check` oder
+  `quiet_fan_profile`.
+- `scanner_status` liest ausschließlich Dienststatus, feste systemd-Definitionen,
+  Canon-USB-Energiezustand, SANE-Geräteliste und begrenzte Scanner-Logs aus.
+- `scanner_calibration_test` sichert das Scan-Skript und aktiviert darin
+  reversibel `SCAN_CALIBRATE=Never`; ein Dienstneustart ist nicht erforderlich.
+- `scanner_calibration_restore` stellt das Scan-Skript aus dieser Sicherung
+  wieder her.
+- `scanner_timing_test` sichert das Scan-Skript und überträgt ausschließlich die
+  feste lokale Projektversion mit Phasen-Zeitmessung; `scanner_timing_restore`
+  stellt die Sicherung wieder her.
+- `scanner_jpeg_test` aktiviert nach Sicherung reversibel das direkte JPEG-
+  Scanformat; `scanner_jpeg_restore` stellt die Sicherung wieder her.
 - `quiet_fan_profile` schreibt nur die fest hinterlegte, reversible
   PaperMind-Lüfterkennlinie nach `/boot/firmware/config.txt`, sichert die
   vorherige Datei als `.papermind-fan.bak` und löst keinen Neustart aus.

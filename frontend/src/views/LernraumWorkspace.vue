@@ -20,39 +20,42 @@
       </header>
 
       <div class="lr-home-body">
-        <!-- Offene Nachbereitungen -->
+        <!-- Offene Nachbereitungen: echte markierte Notizzeilen -->
         <section class="lr-section">
           <div class="lr-section-head">
             <span class="lr-overline">Offene Nachbereitungen</span>
-            <span class="lr-section-meta" v-if="nachbereitungen.length">{{ nachbereitungen.length }} Kurse · {{ openTotal }} Lernblätter offen</span>
+            <span class="lr-section-meta" v-if="store.openMarkers.length">{{ store.openMarkers.length }} markierte Stellen · {{ markerNoteGroups.length }} {{ markerNoteGroups.length === 1 ? 'Notiz' : 'Notizen' }}</span>
           </div>
 
-          <div v-if="nachbereitungen.length" class="lr-nb-grid">
-            <div v-for="c in nachbereitungen" :key="c.id" class="lr-nb-card">
-              <div class="lr-nb-top">
-                <span class="lr-nb-course">Kurs</span>
-                <span class="lr-nb-count">{{ c.open }} offen</span>
+          <div v-if="markerNoteGroups.length" class="lr-nb-list">
+            <div v-for="g in markerNoteGroups" :key="g.noteId" class="lr-nb-note">
+              <div class="lr-nb-note-head">
+                <span class="lr-nb-note-title">{{ g.noteTitle || 'Ohne Titel' }}</span>
+                <span v-if="g.courseTitle" class="lr-nb-assign">{{ g.courseTitle }} · {{ g.sessionTitle }}</span>
+                <span v-else class="lr-nb-assign lr-nb-assign--none">nicht zugeordnet</span>
+                <button type="button" class="lr-btn lr-btn--primary lr-btn--sm lr-nb-note-cta" @click="openQueue(g, 0)">Nachbereiten</button>
               </div>
-              <div class="lr-nb-title">{{ c.title }}</div>
-              <div class="lr-nb-metaline">{{ c.open }} von {{ c.total }} Lernblättern offen</div>
-              <div class="lr-progress">
-                <span
-                  v-for="(filled, i) in progressSegments(c.total, c.done)"
-                  :key="i"
-                  class="lr-progress-seg"
-                  :class="{ 'lr-progress-seg--on': filled }"
-                ></span>
-              </div>
-              <div class="lr-nb-actions">
-                <button type="button" class="lr-btn lr-btn--primary lr-btn--sm" @click="openCourse(c.id)">Öffnen</button>
-                <span class="lr-nb-later">Später</span>
-              </div>
+              <ul class="lr-marker-rows">
+                <li
+                  v-for="(m, i) in g.markers"
+                  :key="m.id"
+                  class="lr-marker-row"
+                  role="button"
+                  tabindex="0"
+                  @click="openQueue(g, i)"
+                  @keydown.enter="openQueue(g, i)"
+                >
+                  <span class="lr-marker-kind" :style="markerKindStyle(m.kind)">{{ markerKindLabel(m.kind) }}</span>
+                  <span class="lr-marker-snippet">{{ m.snippet || '(leere Zeile)' }}</span>
+                  <span class="lr-marker-go" aria-hidden="true">›</span>
+                </li>
+              </ul>
             </div>
           </div>
 
           <div v-else class="lr-nb-empty">
-            <p>Nichts offen – alle Lernblätter sind auf Stand.</p>
-            <p class="lr-nb-empty-hint">Sobald du in Notizen Lernmarker setzt, sammeln sich hier deine offenen Nachbereitungen (kommt mit der Karten-Ebene).</p>
+            <p>Nichts offen – alle markierten Stellen sind aufbereitet.</p>
+            <p class="lr-nb-empty-hint">Markiere in einer Notiz eine Zeile als Lernstoff (Karten-Symbol in der Auswahl oder ⌘⇧M). Sie erscheint dann hier zur Nachbereitung.</p>
           </div>
         </section>
 
@@ -227,8 +230,114 @@
       </template>
     </template>
 
-    <!-- Anlege-/Bearbeiten-Dialog -->
-    <div v-if="dialog" class="lr-modal-scrim" @click.self="closeDialog" @keydown.esc="closeDialog">
+    <!-- ===== Nachbereitungs-Warteschlange (Standard-App-Dialog) ===== -->
+    <BaseDialog
+      v-if="dialog && dialog.kind === 'queue'"
+      :model-value="true"
+      title="Nachbereiten"
+      :header-subtitle="dialog.noteTitle || 'Ohne Titel'"
+      icon="mdi-cards-outline"
+      :max-width="720"
+      :show-secondary="false"
+      content-class="lr-q-dialog"
+      @update:model-value="(v) => { if (!v) finishQueue(); }"
+      @close="finishQueue"
+    >
+      <template #header-actions>
+        <div class="lr-q-nav">
+          <v-btn icon="mdi-chevron-left" size="small" variant="text" :disabled="dialog.index === 0" @click="queuePrev" />
+          <span class="lr-q-count">{{ dialog.index + 1 }} / {{ dialog.items.length }}</span>
+          <v-btn icon="mdi-chevron-right" size="small" variant="text" :disabled="dialog.index >= dialog.items.length - 1" @click="queueNext" />
+        </div>
+      </template>
+
+      <div v-if="current" class="lr-q-layout">
+        <!-- Hauptbereich: das Ausgangsmaterial und die Eingabe -->
+        <div class="lr-q-main">
+          <div class="lr-q-field">
+            <div class="lr-q-flabel">
+              <span>Frage</span>
+              <span v-if="current.fromNote === 'front'" class="lr-q-from">aus deiner Notiz</span>
+            </div>
+            <v-textarea
+              v-model="current.front"
+              rows="2"
+              auto-grow
+              density="comfortable"
+              variant="outlined"
+              hide-details
+              placeholder="Formuliere die Frage, die dich zur Antwort bringt …"
+              class="lr-q-front"
+            />
+          </div>
+
+          <div class="lr-q-swap">
+            <v-btn
+              variant="outlined"
+              size="small"
+              prepend-icon="mdi-swap-vertical"
+              class="lr-q-swap-btn"
+              title="Vertauscht den Inhalt von Frage und Antwort"
+              @click="swapSides"
+            >Frage &amp; Antwort tauschen</v-btn>
+          </div>
+
+          <div class="lr-q-field">
+            <div class="lr-q-flabel">
+              <span>Antwort</span>
+              <span v-if="current.fromNote === 'back'" class="lr-q-from">aus deiner Notiz</span>
+              <span v-else class="lr-q-opt">optional · leer = Selbstabgleich</span>
+            </div>
+            <v-textarea
+              v-model="current.back"
+              rows="1"
+              auto-grow
+              density="compact"
+              variant="outlined"
+              hide-details
+              placeholder="Die Antwort in deinen Worten …"
+            />
+          </div>
+        </div>
+
+        <!-- Rechte Seitenleiste: Zuordnung + Art -->
+        <aside class="lr-q-side">
+          <div class="lr-q-side-group">
+            <div class="lr-q-side-label">Gehört zu</div>
+            <span v-if="dialog.wasBound" class="lr-q-belong-value">{{ dialog.courseTitle }}</span>
+            <v-select
+              v-else
+              v-model="dialog.courseId"
+              :items="store.courses"
+              item-title="title"
+              item-value="id"
+              placeholder="Kurs wählen …"
+              density="compact"
+              variant="outlined"
+              hide-details
+            />
+          </div>
+
+          <div class="lr-q-side-group">
+            <div class="lr-q-side-label">Art</div>
+            <v-chip-group v-model="current.cardKind" mandatory selected-class="lr-q-chip--on" class="lr-q-kinds" column>
+              <v-chip v-for="k in cardKinds" :key="k.value" :value="k.value" size="small" variant="outlined" label>{{ k.label }}</v-chip>
+            </v-chip-group>
+          </div>
+        </aside>
+      </div>
+
+      <template #footer>
+        <span v-if="dialogError" class="lr-q-error">{{ dialogError }}</span>
+        <v-spacer />
+        <v-btn variant="tonal" color="primary" class="pm-dialog__btn" :loading="dialogBusy" @click="acceptCurrent">
+          {{ lastOpen ? 'Fertig' : 'Übernehmen ›' }}
+        </v-btn>
+      </template>
+    </BaseDialog>
+
+    <!-- ===== Anlege-/Bearbeiten-Dialog (klein, im Panel) ===== -->
+    <div v-if="dialog && dialog.kind !== 'queue'" class="lr-modal-scrim" @click.self="closeDialog" @keydown.esc="closeDialog">
       <div class="lr-modal" role="dialog" aria-modal="true">
         <div class="lr-modal-title">{{ dialogTitle }}</div>
 
@@ -269,6 +378,8 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useLearnStore } from '../stores/learn.js';
+import { createSession } from '../api/learn.js';
+import BaseDialog from '../components/BaseDialog.vue';
 
 // Lernraum: Startseite (Übersicht) → Kurs öffnen → Lernblatt öffnen.
 // Rendert INNERHALB der gemeinsamen Shell (echte App-Seitenleiste bleibt stehen).
@@ -345,30 +456,62 @@ const sheetCountLabel = computed(() => {
   return n === 1 ? '1 Lernblatt' : `${n} Lernblätter`;
 });
 
-// Startseite: pro Kurs offene (nicht „gelernte") Lernblätter.
-const OPEN_STATUS = new Set(['draft', 'in_progress']);
-const nachbereitungen = computed(() => {
-  const byCourse = new Map();
-  for (const sheet of store.allSheets || []) {
-    if (sheet.status === 'archived') continue;
-    const e = byCourse.get(sheet.course_id) || { total: 0, done: 0, open: 0 };
-    e.total += 1;
-    if (sheet.status === 'worked') e.done += 1;
-    if (OPEN_STATUS.has(sheet.status)) e.open += 1;
-    byCourse.set(sheet.course_id, e);
+// Startseite: offene Lernmarker (noch keine Karte), nach Herkunfts-Notiz gruppiert.
+const markerNoteGroups = computed(() => {
+  const byNote = new Map();
+  for (const m of store.openMarkers || []) {
+    let g = byNote.get(m.note_id);
+    if (!g) {
+      g = {
+        noteId: m.note_id,
+        noteTitle: m.note_title,
+        courseTitle: m.course_title || null,
+        sessionTitle: m.session_title || null,
+        markers: [],
+      };
+      byNote.set(m.note_id, g);
+    }
+    g.markers.push(m);
   }
-  return store.courses
-    .map((c) => ({ id: c.id, title: c.title, ...(byCourse.get(c.id) || { total: 0, done: 0, open: 0 }) }))
-    .filter((c) => c.open > 0)
-    .sort((a, b) => b.open - a.open);
+  // Zugeordnete Notizen zuerst, dann nach Anzahl offener Marker.
+  return Array.from(byNote.values()).sort((a, b) => {
+    if (!!a.courseTitle !== !!b.courseTitle) return a.courseTitle ? -1 : 1;
+    return b.markers.length - a.markers.length;
+  });
 });
-const openTotal = computed(() => nachbereitungen.value.reduce((n, c) => n + c.open, 0));
 
-function progressSegments(total, done) {
-  const n = Math.max(1, Math.min(total || 0, 8));
-  const filled = total > 0 ? Math.round((done / total) * n) : 0;
-  return Array.from({ length: n }, (_, i) => i < filled);
+// Marker-Vokabular (Schnell-Markierung) → Anzeige.
+const MARKER_KIND = {
+  lernen: { label: 'Lernstoff', tint: 'accent' },
+  fakt: { label: 'Fakt', tint: 'success' },
+  warum: { label: 'Warum', tint: 'accent' },
+  aufgabe: { label: 'Aufgabe', tint: 'warning' },
+  analyse: { label: 'Analyse', tint: 'accent' },
+  prozess: { label: 'Prozess', tint: 'accent' },
+  vergleich: { label: 'Vergleich', tint: 'accent' },
+};
+function markerKindLabel(kind) { return (MARKER_KIND[kind] || MARKER_KIND.lernen).label; }
+function markerKindStyle(kind) {
+  const tint = (MARKER_KIND[kind] || MARKER_KIND.lernen).tint;
+  if (tint === 'success') return { background: 'color-mix(in oklab, var(--pm-success) 16%, transparent)', color: 'var(--pm-success)' };
+  if (tint === 'warning') return { background: 'color-mix(in oklab, var(--pm-star) 18%, transparent)', color: 'var(--pm-star)' };
+  return { background: 'var(--pm-selected)', color: 'var(--pm-accent-text)' };
 }
+
+// Marker, die schon eine Frage/Aufgabe SIND (Vorderseite); alle anderen sind
+// Aussagen und werden als Antwort vorbelegt.
+const PROMPT_MARKER_KINDS = new Set(['warum', 'aufgabe', 'analyse']);
+
+// Schnell-Marker-Typ → vorgeschlagener Artefakt-/Kartentyp in der Nachbereitung.
+const MARKER_TO_KIND = {
+  lernen: 'fakt',
+  fakt: 'fakt',
+  warum: 'verstaendnis',
+  aufgabe: 'uebung',
+  analyse: 'verstaendnis',
+  prozess: 'prozess',
+  vergleich: 'zusammenhang',
+};
 
 watch(() => store.board, () => {
   if (openSheetId.value && !openSheet.value) openSheetId.value = null;
@@ -393,7 +536,7 @@ function dotColor(kind) {
   return 'var(--pm-border)';
 }
 
-function goHome() { view.value = 'home'; openSheetId.value = null; store.fetchAllSheets(); }
+function goHome() { view.value = 'home'; openSheetId.value = null; store.fetchAllSheets(); store.fetchOpenMarkers(); }
 function openCourse(id) { openSheetId.value = null; view.value = 'course'; store.selectCourse(id); }
 function selectCourse(id) { openSheetId.value = null; store.selectCourse(id); }
 
@@ -433,6 +576,117 @@ async function onDeleteCard(card) {
   await store.removeCard(card.id, openSheetId.value);
 }
 
+// --- Nachbereitung: Warteschlange (Marker → Karte) ---------------------------
+const current = computed(() => {
+  const d = dialog.value;
+  return d && d.kind === 'queue' ? d.items[d.index] || null : null;
+});
+// Wäre nach dem Übernehmen kein offener Marker mehr übrig?
+const lastOpen = computed(() => {
+  const d = dialog.value;
+  if (!d || d.kind !== 'queue') return false;
+  return d.items.every((it, i) => it.status === 'done' || i === d.index);
+});
+function courseTitleFor(id) {
+  return store.courses.find((c) => c.id === id)?.title || '';
+}
+
+// Frage ↔ Antwort tauschen (falls die Typ-Vorbelegung mal danebenlag).
+function swapSides() {
+  const it = current.value;
+  if (!it) return;
+  [it.front, it.back] = [it.back, it.front];
+  if (it.fromNote === 'front') it.fromNote = 'back';
+  else if (it.fromNote === 'back') it.fromNote = 'front';
+}
+
+function openQueue(group, startIndex = 0) {
+  const first = group.markers[0];
+  const wasBound = !!group.courseTitle;
+  const courseId = wasBound ? first.course_id : (store.activeCourseId || store.courses[0]?.id || null);
+  const items = group.markers.map((m) => {
+    // Frage-artige Marker (Warum/Aufgabe/Analyse) sind schon die Vorderseite;
+    // Aussagen (Fakt/Prozess/…) sind die Antwort → das jeweils andere Feld bleibt leer.
+    const asPrompt = PROMPT_MARKER_KINDS.has(m.kind);
+    const snippet = m.snippet || '';
+    return {
+      marker: m,
+      cardKind: MARKER_TO_KIND[m.kind] || store.activeCourse?.default_artifact_type || DEFAULT_KIND,
+      front: asPrompt ? snippet : '',
+      back: asPrompt ? '' : snippet,
+      fromNote: asPrompt ? 'front' : 'back',
+      status: 'open',
+    };
+  });
+  openDialog({
+    kind: 'queue',
+    noteId: group.noteId,
+    noteTitle: group.noteTitle,
+    wasBound,                                        // Notiz schon einer Sitzung zugeordnet?
+    courseId,
+    courseTitle: wasBound ? group.courseTitle : '',
+    // Unbound → null; die erste übernommene Karte legt die Sitzung (= diese Notiz) an.
+    sessionId: wasBound ? first.session_id : null,
+    items,
+    index: Math.min(Math.max(startIndex, 0), Math.max(items.length - 1, 0)),
+  });
+}
+
+function queuePrev() { const d = dialog.value; if (d && d.index > 0) { dialogError.value = ''; d.index -= 1; } }
+function queueNext() { const d = dialog.value; if (d && d.index < d.items.length - 1) { dialogError.value = ''; d.index += 1; } }
+
+// Zum nächsten noch offenen Marker springen; ist keiner mehr offen → abschließen.
+function advanceQueue() {
+  const d = dialog.value; if (!d) return;
+  for (let step = 1; step <= d.items.length; step += 1) {
+    const i = (d.index + step) % d.items.length;
+    if (d.items[i].status !== 'done') { d.index = i; dialogError.value = ''; return; }
+  }
+  finishQueue();
+}
+
+// Schließt die Warteschlange und frischt Startseite/Board einmal auf.
+async function finishQueue() {
+  const wasQueue = dialog.value?.kind === 'queue';
+  closeDialog();
+  if (wasQueue) await store.refreshAfterPromote();
+}
+
+async function acceptCurrent() {
+  const d = dialog.value;
+  if (!d || dialogBusy.value) return;
+  const it = d.items[d.index];
+  if (!it.front.trim()) { dialogError.value = 'Bitte formuliere eine Frage / Vorderseite.'; return; }
+  if (!d.courseId) { dialogError.value = 'Bitte einen Kurs wählen.'; return; }
+  dialogBusy.value = true;
+  try {
+    // Sitzung = diese Notiz: bei der ersten Karte einmal anlegen und koppeln,
+    // danach wiederverwenden → weitere Marker der Notiz sind automatisch zugeordnet.
+    if (!d.sessionId) {
+      const sess = await createSession(d.courseId, { title: d.noteTitle || 'Mitschrift' });
+      d.sessionId = sess.id;
+      d.wasBound = true;
+      d.courseTitle = courseTitleFor(d.courseId);
+    }
+    const payload = {
+      note_id: d.noteId,
+      node_pm_id: it.marker.node_pm_id,
+      kind: it.cardKind,
+      front: it.front.trim(),
+      back: it.back.trim() || null,
+      session_id: d.sessionId,
+      bind_note: true,
+    };
+    await store.promoteMarker(payload, false); // Auffrischen erst beim Schließen
+    it.status = 'done';
+    advanceQueue();
+  } catch (err) {
+    dialogError.value = err?.message || 'Aktion fehlgeschlagen.';
+  } finally {
+    dialogBusy.value = false;
+  }
+}
+
 // --- Anlege-/Bearbeiten-Dialog ---
 const dialog = ref(null);
 const dialogError = ref('');
@@ -457,7 +711,8 @@ const dialogTitle = computed(() => {
 });
 const dialogSubmitLabel = computed(() => {
   const d = dialog.value;
-  return d && ((d.kind === 'card' && d.cardId) || d.kind === 'sheet-rename') ? 'Speichern' : 'Anlegen';
+  if (!d) return 'Anlegen';
+  return (d.kind === 'card' && d.cardId) || d.kind === 'sheet-rename' ? 'Speichern' : 'Anlegen';
 });
 function openDialog(shape) {
   dialogError.value = '';
@@ -492,6 +747,7 @@ async function submitDialog() {
 onMounted(() => {
   store.fetchCourses();
   store.fetchAllSheets();
+  store.fetchOpenMarkers();
 });
 </script>
 
@@ -583,6 +839,61 @@ onMounted(() => {
 .lernraum-panel .lr-nb-empty { border: 1px dashed var(--pm-border); border-radius: 14px; padding: 22px; }
 .lernraum-panel .lr-nb-empty p { margin: 0; font-size: 14px; color: var(--pm-text); }
 .lernraum-panel .lr-nb-empty .lr-nb-empty-hint { margin-top: 6px; font-size: 12.5px; color: var(--pm-text-muted); line-height: 1.55; }
+
+/* Nachbereitungs-Eingang: markierte Notizzeilen, nach Notiz gruppiert */
+.lernraum-panel .lr-nb-list { display: flex; flex-direction: column; gap: 14px; }
+.lernraum-panel .lr-nb-note { border: 1px solid var(--pm-border); border-radius: 14px; background: var(--pm-surface-card); overflow: hidden; }
+.lernraum-panel .lr-nb-note-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 11px 16px; border-bottom: 1px solid var(--pm-border); }
+.lernraum-panel .lr-nb-note-title { font: 620 14px/1.3 var(--pm-font-sans); letter-spacing: -.01em; }
+.lernraum-panel .lr-nb-assign { margin-left: auto; font-size: 11.5px; color: var(--pm-accent-text); background: var(--pm-selected); padding: 2px 9px; border-radius: 20px; }
+.lernraum-panel .lr-nb-assign--none { color: var(--pm-text-muted); background: var(--pm-chip-bg); }
+.lernraum-panel .lr-nb-note-cta { flex: none; }
+.lernraum-panel .lr-marker-rows { list-style: none; margin: 0; padding: 0; }
+.lernraum-panel .lr-marker-row { display: flex; align-items: center; gap: 12px; padding: 11px 16px; border-top: 1px solid var(--pm-border); cursor: pointer; }
+.lernraum-panel .lr-marker-row:first-child { border-top: 0; }
+.lernraum-panel .lr-marker-row:hover { background: var(--pm-surface-reader); }
+.lernraum-panel .lr-marker-kind { flex: none; display: inline-flex; align-items: center; height: 19px; padding: 0 8px; border-radius: 20px; font: 620 10.5px/1 var(--pm-font-sans); letter-spacing: .05em; text-transform: uppercase; }
+.lernraum-panel .lr-marker-snippet { flex: 1; min-width: 0; font: 400 13.5px/1.5 var(--pm-font-sans); color: var(--pm-text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.lernraum-panel .lr-marker-go { flex: none; color: var(--pm-text-muted); font-size: 18px; line-height: 1; }
+
+/* Nachbereitungs-Warteschlange – Inhalt im Standard-Dialog (BaseDialog).
+   Teleportiert aus .papermind-app → --pm-* greifen NICHT, daher --v-theme-*. */
+.lr-q-dialog .lr-q-nav { display: flex; align-items: center; gap: 2px; margin-right: 2px; }
+.lr-q-dialog .lr-q-count { font-variant-numeric: tabular-nums; font-size: 12.5px; color: rgba(var(--v-theme-on-surface), 0.6); min-width: 42px; text-align: center; }
+
+/* Zweispaltig: Hauptbereich + rechte Seitenleiste (wie die Notiz-Vorschau-Rail
+   in den Einstellungen). Negative Ränder heben das Dialog-Padding auf, damit die
+   Rail bis an die Kanten reicht. */
+.lr-q-dialog .lr-q-layout { display: grid; grid-template-columns: minmax(0, 1fr) 208px; margin: -22px -24px; }
+.lr-q-dialog .lr-q-main { min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 20px 22px; }
+.lr-q-dialog .lr-q-side { display: flex; flex-direction: column; gap: 20px; padding: 20px; border-left: 1px solid rgba(var(--v-theme-on-surface), 0.12); background: rgba(var(--v-theme-on-surface), 0.02); }
+.lr-q-dialog .lr-q-side-group { display: flex; flex-direction: column; gap: 8px; }
+.lr-q-dialog .lr-q-side-label { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: rgba(var(--v-theme-on-surface), 0.5); }
+.lr-q-dialog .lr-q-belong-value { font-size: 13.5px; font-weight: 600; color: rgb(var(--v-theme-primary)); }
+
+/* Zwei Felder statt Zitat+Vorderseite: die markierte Zeile steht genau einmal,
+   je nach Marker-Typ als Frage ODER Antwort; das andere Feld ist die Aufgabe. */
+.lr-q-dialog .lr-q-field { display: flex; flex-direction: column; gap: 6px; }
+.lr-q-dialog .lr-q-flabel { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 650; color: rgb(var(--v-theme-on-surface)); }
+.lr-q-dialog .lr-q-from { font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), 0.12); padding: 2px 7px; border-radius: 20px; }
+.lr-q-dialog .lr-q-opt { font-size: 11.5px; font-weight: 400; color: rgba(var(--v-theme-on-surface), 0.5); }
+.lr-q-dialog .lr-q-front textarea { font-size: 15px; line-height: 1.5; }
+.lr-q-dialog .lr-q-swap { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 4px 0; }
+.lr-q-dialog .lr-q-swap::before,
+.lr-q-dialog .lr-q-swap::after { content: ''; flex: 1; height: 1px; background: rgba(var(--v-theme-on-surface), 0.12); }
+.lr-q-dialog .lr-q-swap-btn { text-transform: none; letter-spacing: 0; font-weight: 600; color: rgba(var(--v-theme-on-surface), 0.72); border-color: rgba(var(--v-theme-on-surface), 0.2); flex: 0 0 auto; }
+.lr-q-dialog .lr-q-swap-btn:hover { color: rgb(var(--v-theme-primary)); border-color: rgba(var(--v-theme-primary), 0.5); background: rgba(var(--v-theme-primary), 0.06); }
+
+.lr-q-dialog .lr-q-kinds { margin: -4px 0; }
+.lr-q-dialog .lr-q-side .lr-q-kinds .v-slide-group__content { flex-direction: column; align-items: flex-start; gap: 6px; }
+.lr-q-dialog .lr-q-chip--on { background: rgba(var(--v-theme-primary), 0.16) !important; color: rgb(var(--v-theme-primary)) !important; border-color: rgba(var(--v-theme-primary), 0.5) !important; }
+
+@media (max-width: 620px) {
+  .lr-q-dialog .lr-q-layout { grid-template-columns: 1fr; }
+  .lr-q-dialog .lr-q-side { border-left: 0; border-top: 1px solid rgba(var(--v-theme-on-surface), 0.12); flex-direction: row; flex-wrap: wrap; gap: 16px 28px; }
+}
+
+.lr-q-dialog .lr-q-error { font-size: 12.5px; color: rgb(var(--v-theme-error)); margin-right: auto; }
 
 .lernraum-panel .lr-course-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .lernraum-panel .lr-course-chip { height: 34px; display: inline-flex; align-items: center; gap: 8px; padding: 0 15px; border-radius: 8px; border: 1px solid var(--pm-border); background: var(--pm-surface-card); color: var(--pm-text); font: 520 13.5px/1 var(--pm-font-sans); cursor: pointer; }

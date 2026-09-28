@@ -96,6 +96,7 @@ def test_editor_task_change_updates_dashboard_task_projection():
     service._sync_links = lambda _note: None
     projected = []
     service._sync_tasks = lambda current: projected.extend(extract_note_tasks(current.body_json))
+    service._sync_learn_markers = lambda _note: None
     service._record_revision = lambda *_args, **_kwargs: None
 
     service.update_note(
@@ -125,6 +126,7 @@ def test_dashboard_task_change_updates_canonical_note_body():
     service._sync_links = lambda _note: None
     projected = []
     service._sync_tasks = lambda current: projected.extend(extract_note_tasks(current.body_json))
+    service._sync_learn_markers = lambda _note: None
     service._record_revision = lambda *_args, **_kwargs: None
 
     result = service.set_task_checked(uuid4(), 0, True)

@@ -134,8 +134,11 @@ function createDefaultSettings() {
       sidebar_show_no_text: true,
       sidebar_show_chat: true,
       sidebar_show_dossiers: true,
+      sidebar_show_lernraum: true,
       sidebar_sections: normalizeSidebarSections(null),
       dashboard_layout: normalizeDashboardLayout(null),
+      dashboard_show_import_action: true,
+      dashboard_show_note_action: true,
       sidebar_max_folders: 5,
       sidebar_max_tags: 5,
       sidebar_max_categories: 5,
@@ -574,8 +577,20 @@ export const useSettingsStore = defineStore('settings', {
             typeof payload?.ui?.sidebar_show_dossiers === 'boolean'
               ? payload.ui.sidebar_show_dossiers
               : defaults.ui.sidebar_show_dossiers,
+          sidebar_show_lernraum:
+            typeof payload?.ui?.sidebar_show_lernraum === 'boolean'
+              ? payload.ui.sidebar_show_lernraum
+              : defaults.ui.sidebar_show_lernraum,
           sidebar_sections: normalizeSidebarSections(payload?.ui?.sidebar_sections),
           dashboard_layout: normalizeDashboardLayout(payload?.ui?.dashboard_layout),
+          dashboard_show_import_action:
+            typeof payload?.ui?.dashboard_show_import_action === 'boolean'
+              ? payload.ui.dashboard_show_import_action
+              : defaults.ui.dashboard_show_import_action,
+          dashboard_show_note_action:
+            typeof payload?.ui?.dashboard_show_note_action === 'boolean'
+              ? payload.ui.dashboard_show_note_action
+              : defaults.ui.dashboard_show_note_action,
           sidebar_max_folders: clampInt(payload?.ui?.sidebar_max_folders, 0, 50, defaults.ui.sidebar_max_folders),
           sidebar_max_tags: clampInt(payload?.ui?.sidebar_max_tags, 0, 50, defaults.ui.sidebar_max_tags),
           sidebar_max_categories: clampInt(payload?.ui?.sidebar_max_categories, 0, 50, defaults.ui.sidebar_max_categories),

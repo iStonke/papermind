@@ -1,10 +1,14 @@
 import uuid
 
 from fastapi import APIRouter, Depends, Response, status
+from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
+from app.core.errors import BadRequestError, ConflictError, NotFoundError
 from app.db import get_db
+from app.models.note import Note
 from app.models.user import User
 from app.schemas.common import ErrorResponse
 from app.schemas.jobs import (
@@ -16,9 +20,12 @@ from app.schemas.jobs import (
     JobListResponse,
     JobRead,
     JobUpdateRequest,
+    NoteAudioExportCreateRequest,
+    NoteAudioExportRead,
     OcrBacklog,
 )
 from app.services.jobs import JobService
+from app.services.note_audio_jobs import note_audio_jobs
 
 router = APIRouter(prefix="/api", tags=["Jobs"])
 
@@ -39,9 +46,115 @@ def get_job_activity(db: Session = Depends(get_db), user: User = Depends(get_cur
     return JobActivityResponse(
         summary=JobActivitySummary(**result["summary"]),
         jobs=items,
+        audio_exports=[NoteAudioExportRead.model_validate(item) for item in note_audio_jobs.activity(user.id)],
         ocr_backlog=OcrBacklog(**result["ocr_backlog"]),
         backup=JobActivityBackup(**result["backup"]) if result.get("backup") else None,
     )
+
+
+@router.post(
+    "/notes/{note_id}/audio-exports",
+    response_model=NoteAudioExportRead,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Queue a persistent local Piper audio export for a note",
+    responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+)
+def create_note_audio_export(
+    note_id: uuid.UUID,
+    payload: NoteAudioExportCreateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> NoteAudioExportRead:
+    note_exists = db.execute(
+        select(Note.id).where(Note.id == note_id, Note.owner_id == user.id, Note.is_deleted.is_(False))
+    ).scalar_one_or_none()
+    if note_exists is None:
+        raise NotFoundError("Notiz nicht gefunden")
+    job = note_audio_jobs.create(
+        owner_id=user.id,
+        note_id=note_id,
+        note_title=payload.title,
+        text=payload.text,
+        voice=payload.voice,
+    )
+    if job.get("status") != "queued":
+        raise ConflictError("Für diese Notiz läuft bereits ein Audioexport.")
+    return NoteAudioExportRead.model_validate(job)
+
+
+@router.get(
+    "/note-audio-jobs/{job_id}/download",
+    response_class=FileResponse,
+    summary="Download a completed note audio export",
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+)
+def download_note_audio_export(
+    job_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+) -> FileResponse:
+    job = note_audio_jobs.get(job_id, owner_id=user.id)
+    if job is None:
+        raise NotFoundError("Audioexport nicht gefunden")
+    if job.get("status") != "done":
+        raise BadRequestError("Der Audioexport ist noch nicht fertig.")
+    path = note_audio_jobs.output_path(job_id)
+    if not path.is_file():
+        raise NotFoundError("Audiodatei nicht gefunden")
+    return FileResponse(
+        path,
+        media_type="audio/wav",
+        filename=str(job.get("filename") or "Notiz.wav"),
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@router.post(
+    "/note-audio-jobs/{job_id}/downloaded",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Confirm that a completed note audio export was downloaded",
+    responses={400: {"model": ErrorResponse}},
+)
+def confirm_note_audio_export_download(
+    job_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+) -> Response:
+    if not note_audio_jobs.mark_downloaded(job_id, user.id):
+        raise BadRequestError("Der Audioexport kann nicht als heruntergeladen markiert werden.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/note-audio-jobs/{job_id}/cancel",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Cancel a queued or running note audio export",
+)
+def cancel_note_audio_export(job_id: uuid.UUID, user: User = Depends(get_current_user)) -> Response:
+    if not note_audio_jobs.cancel(job_id, user.id):
+        raise BadRequestError("Der Audioexport kann nicht mehr abgebrochen werden.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/note-audio-jobs/{job_id}/retry",
+    response_model=NoteAudioExportRead,
+    summary="Retry a failed note audio export",
+)
+def retry_note_audio_export(job_id: uuid.UUID, user: User = Depends(get_current_user)) -> NoteAudioExportRead:
+    job = note_audio_jobs.retry(job_id, user.id)
+    if job is None:
+        raise BadRequestError("Der Audioexport kann nicht erneut gestartet werden.")
+    return NoteAudioExportRead.model_validate(job)
+
+
+@router.delete(
+    "/note-audio-jobs/{job_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Dismiss a completed or failed note audio export",
+)
+def dismiss_note_audio_export(job_id: uuid.UUID, user: User = Depends(get_current_user)) -> Response:
+    if not note_audio_jobs.dismiss(job_id, user.id):
+        raise BadRequestError("Der Audioexport kann nicht entfernt werden.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get(

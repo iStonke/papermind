@@ -2,7 +2,9 @@ import uuid
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.common import ORMModel
 
@@ -86,8 +88,46 @@ class OcrBacklog(BaseModel):
     failed: int = 0
 
 
+NoteAudioVoice = Literal["standard", "neutral", "amused", "sleepy", "whisper"]
+
+
+class NoteAudioExportCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=60_000)
+    title: str = Field(default="", max_length=500)
+    voice: NoteAudioVoice = "standard"
+
+    @field_validator("text")
+    @classmethod
+    def normalize_text(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if not normalized:
+            raise ValueError("text must contain readable characters")
+        return normalized
+
+
+class NoteAudioExportRead(BaseModel):
+    id: uuid.UUID
+    note_id: uuid.UUID
+    note_title: str
+    filename: str
+    voice: NoteAudioVoice
+    status: Literal["queued", "running", "done", "failed"]
+    progress: int = Field(ge=0, le=100)
+    phase: str | None = None
+    error_message: str | None = None
+    cancel_requested: bool = False
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    downloaded_at: datetime | None = None
+
+
 class JobActivityResponse(BaseModel):
     summary: JobActivitySummary
     jobs: list[JobActivityItem]
-    ocr_backlog: OcrBacklog = OcrBacklog()
+    audio_exports: list[NoteAudioExportRead] = Field(default_factory=list)
+    ocr_backlog: OcrBacklog = Field(default_factory=OcrBacklog)
     backup: JobActivityBackup | None = None

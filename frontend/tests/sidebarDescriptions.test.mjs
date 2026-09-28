@@ -16,14 +16,14 @@ test('sidebar setting sublines describe their areas instead of repeating visibil
   const descriptions = [...sidebarSection.matchAll(/class="pm-setting-description">([\s\S]*?)<\/div>/g)]
     .map((match) => plainText(match[1]));
 
-  assert.equal(descriptions.length, 16);
+  assert.equal(descriptions.length, 17);
   for (const description of descriptions) {
     assert.doesNotMatch(description, /\banzeigen\b|Eintrag in der Seitenleiste/i);
     assert.ok(description.length >= 35, `Description is too short: ${description}`);
   }
 
   assert.match(sidebarSection, /Fragen an deine Dokumente stellen und geprüfte Wissensaussagen verwalten\./);
-  assert.match(sidebarSection, /Erfasst Dokumente ohne erkannten Text oder verwertbaren Suchindex\./);
+  assert.match(sidebarSection, /Erfasst Dokumente ohne erkannten Text\. Der Seitenleisteneintrag erscheint nur, wenn mindestens ein solches Dokument vorhanden ist\./);
 });
 
 test('sidebar settings mirror the navigation icons beside their entries', () => {
@@ -34,6 +34,7 @@ test('sidebar settings mirror the navigation icons beside their entries', () => 
     'mdi-tray-arrow-down',
     'mdi-tag-off-outline',
     'mdi-text-box-remove-outline',
+    'mdi-cards-outline',
     'mdi-note-outline',
     'mdi-clock-edit-outline',
     'mdi-pin-outline',
@@ -55,4 +56,5 @@ test('sidebar settings follow the sidebar hierarchy: workspaces, notes, document
   assert.ok(order.every((index) => index >= 0), `missing group: ${order}`);
   assert.deepEqual([...order].sort((a, b) => a - b), order);
   assert.doesNotMatch(sidebarSection, />Bibliothek<|>Hauptnavigation</);
+  assert.match(sidebarSection, /settingsDraft\.ui\.sidebar_show_lernraum/);
 });

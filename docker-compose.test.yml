@@ -14,8 +14,8 @@ services:
       retries: 30
   tests:
     build:
-      context: ./backend
-      dockerfile: Dockerfile.test
+      context: .
+      dockerfile: backend/Dockerfile.test
     depends_on:
       db:
         condition: service_healthy

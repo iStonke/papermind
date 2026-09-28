@@ -19,10 +19,10 @@
       </SidebarItem>
     </v-list>
 
-    <v-divider class="sidebar-section-divider" />
+    <v-divider v-if="hasWorkspaceEntries" class="sidebar-section-divider" />
 
     <!-- Arbeitsbereiche: quellenübergreifende Orte, keine Datenquellen -->
-    <v-list nav density="compact" class="views-list" @mouseenter="onRailSectionEnter('arbeitsbereiche', $event)">
+    <v-list v-if="hasWorkspaceEntries" nav density="compact" class="views-list" @mouseenter="onRailSectionEnter('arbeitsbereiche', $event)">
       <div class="sidebar-section-header sidebar-section-header--static">
         <div class="sidebar-section-label">Arbeitsbereiche</div>
       </div>
@@ -49,6 +49,18 @@
           <v-icon size="18">mdi-brain</v-icon>
         </template>
         Wissen
+      </SidebarItem>
+
+      <SidebarItem
+        v-if="settingsStore.settings.ui.sidebar_show_lernraum !== false"
+        item-class="sidebar-item--primary sidebar-item--plain-label sidebar-item--lernraum"
+        :active="lernraumActive"
+        @click="openLernraum()"
+      >
+        <template #icon>
+          <v-icon size="18">mdi-cards-outline</v-icon>
+        </template>
+        Lernraum
       </SidebarItem>
 
     </v-list>
@@ -138,7 +150,7 @@
             </SidebarItem>
 
             <SidebarItem
-              v-if="settingsStore.settings.ui.sidebar_show_no_text !== false"
+              v-if="settingsStore.settings.ui.sidebar_show_no_text !== false && noTextSidebarCount > 0"
               item-class="sidebar-item--secondary"
               :active="isViewActive('no_text')"
               count-class="sidebar-item-count--quiet"
@@ -511,6 +523,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useSidebarStore } from '../stores/sidebar.js';
 import { useTagStore } from '../stores/tags.js';
@@ -565,7 +578,19 @@ const { dossiers }                     = storeToRefs(dossierStore);
 
 // ── Leuchttische: Hauptnavigation ─────────────────────────────────────────
 const showDossiers = computed(() => settingsStore.settings.ui.sidebar_show_dossiers !== false);
+// Rubrik „Arbeitsbereiche" nur zeigen, wenn mindestens ein Bereich eingeblendet ist.
+const hasWorkspaceEntries = computed(() => {
+  const ui = settingsStore.settings.ui;
+  return showDossiers.value || ui.sidebar_show_chat !== false || ui.sidebar_show_lernraum !== false;
+});
 function openDossiers() { emit('open-dossiers'); }
+
+// Lernraum ist ein eigener Bereich mit eigener Route – anders als die
+// Bibliotheks-Ansichten (select-view) navigiert die Leiste hier direkt.
+const route = useRoute();
+const router = useRouter();
+const lernraumActive = computed(() => route.name === 'lernraum');
+function openLernraum() { router.push({ name: 'lernraum' }).catch(() => {}); }
 
 onMounted(() => {
   void categoryStore.ensureLoaded();
@@ -660,6 +685,7 @@ function folderSidebarIcon(folder, isActive = false) {
 
 // ── Navigation helpers ─────────────────────────────────────────────────────
 function isViewActive(viewKey) {
+  if (lernraumActive.value) return false;
   if (props.dossiersActive || props.chatActive) return false;
   if (props.isTagView || props.activeSavedSearchId) return false;
   if (viewKey === 'all') {
@@ -788,6 +814,10 @@ const flyoutRows = computed(() => {
         id: 'chat', icon: 'mdi-brain', label: 'Wissen',
         count: null, active: props.chatActive && !props.dossiersActive, run: () => emit('open-chat'),
       });
+      if (ui.sidebar_show_lernraum !== false) rows.push({
+        id: 'lernraum', icon: 'mdi-cards-outline', label: 'Lernraum',
+        count: null, active: lernraumActive.value, run: () => openLernraum(),
+      });
       return rows;
     }
     case 'dokumente': {
@@ -811,7 +841,7 @@ const flyoutRows = computed(() => {
         count: untaggedSidebarCount.value, active: isViewActive('untagged'),
         run: () => emit('select-view', 'untagged'),
       });
-      if (ui.sidebar_show_no_text !== false) rows.push({
+      if (ui.sidebar_show_no_text !== false && noTextSidebarCount.value > 0) rows.push({
         id: 'no_text', icon: 'mdi-text-box-remove-outline', label: 'Nicht durchsuchbar',
         count: noTextSidebarCount.value, active: isViewActive('no_text'),
         run: () => emit('select-view', 'no_text'),

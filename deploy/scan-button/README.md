@@ -224,6 +224,8 @@ in `papermind-scan.sh` (oder als `Environment=` in der `.service`):
 | `SCANNER_USB_PRODUCT` | *(leer)*                    | Optionales USB-Produkt, z. B. `1912` fuer LiDE 400 |
 | `SCAN_RESOLUTION` | `300`                           | DPI                                          |
 | `SCAN_MODE`       | `Color`                         | `Color` \| `Gray` \| `Lineart`               |
+| `SCAN_CALIBRATE`  | `Once`                          | Pixma-Kalibrierung: `auto`, `Once`, `Always` oder `Never`; `Never` nur nach geprüftem Qualitätstest |
+| `SCAN_FORMAT`     | `png`                           | `png` verlustfrei oder `jpeg` mit SANE-Qualität 75 für schnellere PDF-Erzeugung |
 | `SCAN_LIVE_PREVIEW` | `true`                        | Echte, zeilenweise Vorschau während der Aufnahme; `false` nutzt den bisherigen Direktpfad |
 | `SCAN_WIDTH_MM`   | `210`                           | Aufnahmebreite; A4 verhindert den 6-mm-Überstand des LiDE 400 |
 | `SCAN_HEIGHT_MM`  | `297`                           | Aufnahmehöhe (A4)                            |

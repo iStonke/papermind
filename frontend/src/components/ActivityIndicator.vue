@@ -2,7 +2,7 @@
   <v-menu
     v-if="hasActivity"
     v-model="menuOpen"
-    :location="presentation === 'menu-item' ? 'right end' : 'bottom end'"
+    :location="presentation === 'menu-item' ? 'right end' : 'top end'"
     :close-on-content-click="false"
     :theme="theme.global.name.value"
   >
@@ -16,6 +16,7 @@
       >
         <template #prepend>
           <v-icon v-if="isActive" size="20">mdi-progress-clock</v-icon>
+          <v-icon v-else-if="readyAudioExports.length" size="20" color="success">mdi-download-circle-outline</v-icon>
           <v-icon v-else size="20" color="error">mdi-alert-circle-outline</v-icon>
         </template>
         <template #append>
@@ -35,7 +36,7 @@
         icon
         variant="text"
         size="small"
-        class="activity-indicator-btn"
+        :class="['activity-indicator-btn', buttonClass]"
         :aria-label="ariaLabel"
         :title="ariaLabel"
       >
@@ -49,6 +50,7 @@
           class="activity-indicator-badge"
         >
           <v-icon v-if="isActive" size="22">mdi-progress-clock</v-icon>
+          <v-icon v-else-if="readyAudioExports.length" size="22" color="success">mdi-download-circle-outline</v-icon>
           <v-icon v-else size="22">mdi-alert-circle-outline</v-icon>
         </v-badge>
       </v-btn>
@@ -70,7 +72,7 @@
       </div>
       <v-divider v-if="ocrPending > 0" />
 
-      <div v-if="groups.length === 0 && ocrPending === 0 && !hasBackupFail" class="activity-empty">
+      <div v-if="groups.length === 0 && audioExports.length === 0 && ocrPending === 0 && !hasBackupFail" class="activity-empty">
         Keine laufenden Prozesse.
       </div>
 
@@ -87,6 +89,65 @@
           <v-list-item-subtitle class="activity-item__types">
             In den Einstellungen öffnen
           </v-list-item-subtitle>
+        </v-list-item>
+
+        <v-list-item v-for="job in audioExports" :key="`audio-${job.id}`" class="activity-item">
+          <template #prepend>
+            <v-progress-circular
+              v-if="job.status === 'running' || job.status === 'queued'"
+              :indeterminate="job.status === 'queued'"
+              :model-value="job.status === 'running' ? job.progress : undefined"
+              size="18"
+              width="2"
+              color="primary"
+              class="activity-item__icon"
+            />
+            <v-icon v-else-if="job.status === 'done'" size="18" color="success" class="activity-item__icon">
+              mdi-file-music-outline
+            </v-icon>
+            <v-icon v-else size="18" color="error" class="activity-item__icon">mdi-alert-circle-outline</v-icon>
+          </template>
+
+          <v-list-item-title class="activity-item__title">{{ job.note_title }}</v-list-item-title>
+          <v-list-item-subtitle v-if="job.status === 'failed'" class="activity-item__error">
+            {{ job.error_message || 'Audioexport fehlgeschlagen' }}
+          </v-list-item-subtitle>
+          <v-list-item-subtitle v-else class="activity-item__types">
+            Audioexport · {{ audioStatusLabel(job) }}
+          </v-list-item-subtitle>
+
+          <template #append>
+            <div class="activity-item__actions">
+              <v-btn
+                v-if="job.status === 'done'"
+                icon variant="text" size="x-small" color="success"
+                :disabled="audioBusyIds.has(job.id)"
+                title="Audiodatei herunterladen" aria-label="Audiodatei herunterladen"
+                @click.stop="downloadAudio(job)"
+              ><v-icon size="18">mdi-download</v-icon></v-btn>
+              <v-btn
+                v-if="job.status === 'failed'"
+                icon variant="text" size="x-small"
+                :disabled="audioBusyIds.has(job.id)"
+                title="Erneut versuchen" aria-label="Audioexport erneut versuchen"
+                @click.stop="retryAudio(job)"
+              ><v-icon size="17">mdi-refresh</v-icon></v-btn>
+              <v-btn
+                v-if="job.status === 'queued' || job.status === 'running'"
+                icon variant="text" size="x-small"
+                :disabled="audioBusyIds.has(job.id) || job.cancel_requested"
+                title="Audioexport abbrechen" aria-label="Audioexport abbrechen"
+                @click.stop="cancelAudio(job)"
+              ><v-icon size="17">mdi-close</v-icon></v-btn>
+              <v-btn
+                v-else
+                icon variant="text" size="x-small"
+                :disabled="audioBusyIds.has(job.id)"
+                title="Eintrag entfernen" aria-label="Audioexport entfernen"
+                @click.stop="dismissAudio(job)"
+              ><v-icon size="16">mdi-close</v-icon></v-btn>
+            </div>
+          </template>
         </v-list-item>
 
         <v-list-item v-for="group in groups" :key="group.documentId" class="activity-item">
@@ -134,7 +195,7 @@
         </v-list-item>
       </v-list>
 
-      <template v-if="failedGroups.length > 0">
+      <template v-if="failedGroups.length > 0 || failedAudioExports.length > 0">
         <v-divider />
         <div class="activity-footer">
           <v-btn
@@ -156,7 +217,16 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useTheme } from 'vuetify';
-import { getJobActivity, dismissJob, dismissFailedJobs } from '../api/jobs.js';
+import {
+  cancelNoteAudioExport,
+  confirmNoteAudioExportDownload,
+  dismissFailedJobs,
+  dismissJob,
+  dismissNoteAudioExport,
+  downloadNoteAudioExport,
+  getJobActivity,
+  retryNoteAudioExport,
+} from '../api/jobs.js';
 
 const props = defineProps({
   presentation: {
@@ -164,10 +234,15 @@ const props = defineProps({
     default: 'icon',
     validator: (value) => ['icon', 'menu-item'].includes(value),
   },
+  buttonClass: {
+    type: [String, Array, Object],
+    default: '',
+  },
 });
 const emit = defineEmits(['open-backup', 'status-change']);
 const theme = useTheme();
 const presentation = computed(() => props.presentation);
+const buttonClass = computed(() => props.buttonClass);
 
 const ACTIVE_POLL_MS = 4000;
 const IDLE_POLL_MS = 15000;
@@ -182,10 +257,12 @@ const TYPE_LABELS = {
 };
 
 const jobs = ref([]);
+const audioExports = ref([]);
 const ocrBacklog = ref({ total: 0, done: 0, pending: 0, failed: 0 });
 const backupFail = ref(null);
 const menuOpen = ref(false);
 const isDismissing = ref(false);
+const audioBusyIds = ref(new Set());
 let timer = null;
 let burstTimer = null;
 let refreshPromise = null;
@@ -229,6 +306,9 @@ const groups = computed(() => {
 
 const activeGroups = computed(() => groups.value.filter((g) => g.status === 'running' || g.status === 'queued'));
 const failedGroups = computed(() => groups.value.filter((g) => g.status === 'failed'));
+const activeAudioExports = computed(() => audioExports.value.filter((job) => job.status === 'queued' || job.status === 'running'));
+const readyAudioExports = computed(() => audioExports.value.filter((job) => job.status === 'done'));
+const failedAudioExports = computed(() => audioExports.value.filter((job) => job.status === 'failed'));
 // Gesamtfortschritt der Volltext-Erkennung (Dokument-Ebene), sichtbar auch in den
 // Pausen zwischen den OCR-Häppchen.
 const ocrPending = computed(() => Number(ocrBacklog.value?.pending || 0));
@@ -238,26 +318,31 @@ const ocrPercent = computed(() => {
   return Math.round((Number(ocrBacklog.value?.done || 0) / total) * 100);
 });
 const hasBackupFail = computed(() => backupFail.value?.status === 'failed');
-const isActive = computed(() => activeGroups.value.length > 0 || ocrPending.value > 0);
+const isActive = computed(() => activeGroups.value.length > 0 || activeAudioExports.value.length > 0 || ocrPending.value > 0);
 // Fehlgeschlagene Dokument-Jobs plus ein evtl. fehlgeschlagenes Backup.
-const failedCount = computed(() => failedGroups.value.length + (hasBackupFail.value ? 1 : 0));
+const failedCount = computed(() => failedGroups.value.length + failedAudioExports.value.length + (hasBackupFail.value ? 1 : 0));
 const hasFailed = computed(() => failedCount.value > 0);
 // Indikator anzeigen, wenn Jobs laufen, Dokumente auf Volltext warten ODER ein Backup fehlschlug.
-const hasActivity = computed(() => groups.value.length > 0 || ocrPending.value > 0 || hasBackupFail.value);
+const hasActivity = computed(() => groups.value.length > 0 || audioExports.value.length > 0 || ocrPending.value > 0 || hasBackupFail.value);
 const badgeCount = computed(() =>
-  isActive.value ? activeGroups.value.length : (hasFailed.value ? failedCount.value : 0)
+  isActive.value
+    ? activeGroups.value.length + activeAudioExports.value.length
+    : (readyAudioExports.value.length || (hasFailed.value ? failedCount.value : 0))
 );
-const badgeColor = computed(() => (isActive.value ? 'primary' : 'error'));
+const badgeColor = computed(() => (isActive.value ? 'primary' : (readyAudioExports.value.length ? 'success' : 'error')));
 
 const ariaLabel = computed(() => {
-  if (isActive.value) return `${activeGroups.value.length} Dokument(e) in Bearbeitung`;
+  if (isActive.value) return `${activeGroups.value.length + activeAudioExports.value.length} Vorgang/Vorgänge in Bearbeitung`;
+  if (readyAudioExports.value.length) return `${readyAudioExports.value.length} Audiodatei(en) bereit`;
   if (hasFailed.value) return `${failedCount.value} fehlgeschlagen`;
   return 'Keine laufenden Prozesse';
 });
 
 const headerSub = computed(() => {
   const parts = [];
-  if (activeGroups.value.length) parts.push(`${activeGroups.value.length} in Bearbeitung`);
+  const activeCount = activeGroups.value.length + activeAudioExports.value.length;
+  if (activeCount) parts.push(`${activeCount} in Bearbeitung`);
+  if (readyAudioExports.value.length) parts.push(`${readyAudioExports.value.length} bereit`);
   if (failedCount.value) parts.push(`${failedCount.value} fehlgeschlagen`);
   return parts.join(' · ') || (ocrPending.value > 0 ? 'läuft im Hintergrund' : 'im Leerlauf');
 });
@@ -286,6 +371,8 @@ async function refresh() {
     try {
       const data = await getJobActivity();
       jobs.value = Array.isArray(data?.jobs) ? data.jobs : [];
+      audioExports.value = Array.isArray(data?.audio_exports) ? data.audio_exports : [];
+      void autoDownloadReadyAudioExports();
       ocrBacklog.value = data?.ocr_backlog ?? { total: 0, done: 0, pending: 0, failed: 0 };
       backupFail.value = data?.backup?.status === 'failed' ? data.backup : null;
     } catch {
@@ -312,6 +399,69 @@ function handleVisibilityChange() {
   schedulePoll(document.hidden ? HIDDEN_POLL_MS : 0);
 }
 
+function audioStatusLabel(job) {
+  if (job.cancel_requested) return 'wird abgebrochen';
+  if (job.status === 'done') return 'bereit';
+  if (job.status === 'queued') return 'wartet';
+  const progress = `${Number(job.progress || 0)} %`;
+  return job.phase ? `${job.phase} · ${progress}` : progress;
+}
+
+function setAudioBusy(jobId, busy) {
+  const next = new Set(audioBusyIds.value);
+  if (busy) next.add(jobId);
+  else next.delete(jobId);
+  audioBusyIds.value = next;
+}
+
+async function runAudioAction(job, action) {
+  if (audioBusyIds.value.has(job.id)) return;
+  setAudioBusy(job.id, true);
+  try {
+    await action();
+    await refresh();
+  } catch {
+    // Das reguläre Polling stellt den Serverzustand wieder her.
+  } finally {
+    setAudioBusy(job.id, false);
+  }
+}
+
+function cancelAudio(job) {
+  return runAudioAction(job, () => cancelNoteAudioExport(job.id));
+}
+
+function retryAudio(job) {
+  return runAudioAction(job, () => retryNoteAudioExport(job.id));
+}
+
+function dismissAudio(job) {
+  return runAudioAction(job, () => dismissNoteAudioExport(job.id));
+}
+
+function downloadAudio(job) {
+  return runAudioAction(job, async () => {
+    const blob = await downloadNoteAudioExport(job.id);
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = job.filename || 'Notiz.wav';
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+    await confirmNoteAudioExportDownload(job.id);
+  });
+}
+
+function autoDownloadReadyAudioExports() {
+  for (const job of audioExports.value) {
+    if (job.status !== 'done' || job.downloaded_at || audioBusyIds.value.has(job.id)) continue;
+    void downloadAudio(job);
+  }
+}
+
 // Einen fehlgeschlagenen Eintrag aus der Anzeige entfernen (Job-Zeilen löschen).
 async function dismissGroup(group) {
   if (isDismissing.value) return;
@@ -336,7 +486,11 @@ async function dismissAllFailed() {
   isDismissing.value = true;
   try {
     await dismissFailedJobs();
+    for (const job of failedAudioExports.value) {
+      await dismissNoteAudioExport(job.id);
+    }
     jobs.value = jobs.value.filter((j) => j.status !== 'failed');
+    audioExports.value = audioExports.value.filter((job) => job.status !== 'failed');
     await refresh();
   } catch {
     // ignorieren
@@ -378,11 +532,13 @@ watch(hasActivity, (active) => {
 
 onMounted(() => {
   document.addEventListener('visibilitychange', handleVisibilityChange);
+  window.addEventListener('papermind:activity-refresh', poke);
   void refresh().finally(() => schedulePoll());
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', handleVisibilityChange);
+  window.removeEventListener('papermind:activity-refresh', poke);
   if (timer) window.clearTimeout(timer);
   if (burstTimer) window.clearInterval(burstTimer);
 });
@@ -516,6 +672,11 @@ onBeforeUnmount(() => {
 }
 .activity-item__dismiss:hover {
   opacity: 1;
+}
+.activity-item__actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
 }
 .activity-footer {
   padding: 4px 8px 8px;

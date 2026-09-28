@@ -11,6 +11,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -158,9 +159,49 @@ class LearnCard(Base):
     front: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     back: Mapped[str | None] = mapped_column(Text, nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    # Herkunft: markierte Notizzeile (stabile pmId). Gesetzt, wenn die Karte aus
+    # einer Nachbereitung entstand; NULL bei manuell angelegten Karten.
+    source_note_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("note.id", ondelete="SET NULL"), nullable=True
+    )
+    source_pm_id: Mapped[str | None] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class LearnMarker(Base):
+    """Lern-Marker – Projektion aus dem Notiz-JSON (wie note_task).
+
+    Eine als lernrelevant markierte Notizzeile (`attrs.learn` + stabile
+    `attrs.pmId`). Wird bei jedem Notiz-Save neu berechnet; die Wahrheit bleibt
+    die Notiz. Grundlage der Nachbereitung: „offene" Marker sind solche, aus
+    denen noch keine Karte entstanden ist (kein learn_card mit passendem
+    source_pm_id). Siehe docs/design/lernbereich-datenmodell.md §3.4.
+    """
+
+    __tablename__ = "learn_marker"
+    __table_args__ = (
+        UniqueConstraint("note_id", "node_pm_id", name="uq_learn_marker_note_node"),
+        Index("ix_learn_marker_owner", "owner_id"),
+        Index("ix_learn_marker_note", "note_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    note_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("note.id", ondelete="CASCADE"), nullable=False
+    )
+    node_pm_id: Mapped[str] = mapped_column(String(16), nullable=False)
+    # lernen (generisch) | fakt | warum | aufgabe | analyse | …
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, server_default="lernen")
+    snippet: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )

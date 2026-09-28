@@ -35,3 +35,18 @@ test("favorites sidebar entry is controlled only by the favorite count", () => {
   assert.doesNotMatch(sidebarSource, /sidebar_show_favorites/);
   assert.doesNotMatch(settingsSource, /sidebar_show_favorites/);
 });
+
+test("no-text sidebar entry requires both its setting and at least one document", () => {
+  assert.match(
+    sidebarSource,
+    /v-if="settingsStore\.settings\.ui\.sidebar_show_no_text !== false && noTextSidebarCount > 0"/,
+  );
+  assert.match(
+    sidebarSource,
+    /if \(ui\.sidebar_show_no_text !== false && noTextSidebarCount\.value > 0\) rows\.push/,
+  );
+  assert.match(
+    settingsSource,
+    /Der Seitenleisteneintrag erscheint nur, wenn mindestens ein solches Dokument vorhanden ist\./,
+  );
+});

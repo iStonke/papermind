@@ -9,6 +9,7 @@
         </div>
         <div class="dash-head__actions">
           <button
+            v-if="showImportAction"
             type="button"
             class="dash-btn dash-btn--quick dash-btn--import"
             @click="emit('import-document')"
@@ -17,6 +18,7 @@
             Dokument importieren
           </button>
           <button
+            v-if="showNoteAction"
             type="button"
             class="dash-btn dash-btn--quick dash-btn--note"
             @click="emit('create-note')"
@@ -25,7 +27,6 @@
             Notiz schreiben
           </button>
           <button
-            v-if="!isEmpty"
             type="button"
             class="dash-btn"
             :class="{ 'dash-btn--primary': editing }"
@@ -49,7 +50,7 @@
         gespeist aus der Registry) liegen in einem gridstack-Raster, das sich im
         Bearbeitungsmodus verschieben/skalieren lässt; Layout wird gemerkt.
       -->
-      <DashboardBoard ref="dashboardBoard" v-else v-model:editing="editing" />
+      <DashboardBoard ref="dashboardBoard" v-show="!isEmpty" v-model:editing="editing" />
     </div>
   </section>
 </template>
@@ -59,6 +60,7 @@ import { computed, onBeforeUnmount, onMounted, provide, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAuthStore } from '../stores/auth.js';
 import { useDashboardStore } from '../stores/dashboard.js';
+import { useSettingsStore } from '../stores/settings.js';
 import { DASHBOARD_ACTIONS } from '../components/dashboard/dashboardShared.js';
 import DashboardBoard from '../components/dashboard/DashboardBoard.vue';
 import '../components/dashboard/dashboard.css';
@@ -74,6 +76,7 @@ const emit = defineEmits([
 ]);
 
 const dashboardStore = useDashboardStore();
+const settingsStore = useSettingsStore();
 const auth = useAuthStore();
 const { overview, hasLoadedOnce } = storeToRefs(dashboardStore);
 
@@ -118,6 +121,8 @@ onBeforeUnmount(() => {
 });
 
 const isEmpty = computed(() => hasLoadedOnce.value && overview.value.stats.documents_total === 0);
+const showImportAction = computed(() => settingsStore.settings.ui.dashboard_show_import_action !== false);
+const showNoteAction = computed(() => settingsStore.settings.ui.dashboard_show_note_action !== false);
 
 // ── Kopfzeile ───────────────────────────────────────────────────────────────
 const userGreetingName = computed(() => {
@@ -128,7 +133,7 @@ const userGreetingName = computed(() => {
 const greeting = computed(() => {
   const h = new Date().getHours();
   const part = h < 5 ? 'Gute Nacht' : h < 11 ? 'Guten Morgen' : h < 18 ? 'Guten Tag' : 'Guten Abend';
-  return userGreetingName.value ? `${part}, ${userGreetingName.value}` : part;
+  return userGreetingName.value ? `${part}, ${userGreetingName.value}!` : part;
 });
 
 const headMeta = computed(() =>

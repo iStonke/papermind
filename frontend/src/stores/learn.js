@@ -14,6 +14,8 @@ import {
   createCard,
   updateCard,
   deleteCard,
+  listMarkers,
+  promoteMarker,
 } from '../api/learn.js';
 
 // Lernbereich-Store (Container-Ebene). Hält die Kursliste und das Board des
@@ -26,9 +28,11 @@ export const useLearnStore = defineStore('learn', {
     allSheets: [], // alle Lernblätter (kursübergreifend) für die Startseite
     cards: [], // Karten des aktuell geöffneten Lernblatts
     cardsSheetId: null,
+    openMarkers: [], // offene Lernmarker (noch keine Karte) – Nachbereitungs-Eingang
     loadingCourses: false,
     loadingBoard: false,
     loadingCards: false,
+    loadingMarkers: false,
     error: null,
   }),
 
@@ -155,6 +159,31 @@ export const useLearnStore = defineStore('learn', {
     async removeCard(id, sheetId) {
       await deleteCard(id);
       await Promise.all([this.fetchCards(sheetId), this.fetchBoard(), this.fetchAllSheets()]);
+    },
+
+    // --- Nachbereitung: offene Marker --------------------------------------
+    async fetchOpenMarkers() {
+      this.loadingMarkers = true;
+      try {
+        const res = await listMarkers({ open: true });
+        this.openMarkers = res.items || [];
+      } catch (err) {
+        this.error = err?.message || 'Lernmarker konnten nicht geladen werden';
+      } finally {
+        this.loadingMarkers = false;
+      }
+    },
+
+    // Marker → Karte mit Anker. `refresh=false` überspringt das Auffrischen
+    // (für Warteschlangen: einmal am Ende auffrischen statt pro Schritt).
+    async promoteMarker(payload, refresh = true) {
+      const card = await promoteMarker(payload);
+      if (refresh) await this.refreshAfterPromote();
+      return card;
+    },
+
+    async refreshAfterPromote() {
+      await Promise.all([this.fetchOpenMarkers(), this.fetchBoard(), this.fetchCourses(), this.fetchAllSheets()]);
     },
   },
 });

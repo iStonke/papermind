@@ -15,6 +15,10 @@ const documentsWorkspaceSource = await readFile(
   new URL('../src/views/DocumentsWorkspace.vue', import.meta.url),
   'utf8',
 );
+const activityIndicatorSource = await readFile(
+  new URL('../src/components/ActivityIndicator.vue', import.meta.url),
+  'utf8',
+);
 const dossierWorkspaceSource = await readFile(
   new URL('../src/views/DossierWorkspace.vue', import.meta.url),
   'utf8',
@@ -29,6 +33,10 @@ const notesManageGridSource = await readFile(
 );
 const workspaceEditorSource = await readFile(
   new URL('../src/components/notes/NoteWorkspaceEditor.vue', import.meta.url),
+  'utf8',
+);
+const noteAudioExportDialogSource = await readFile(
+  new URL('../src/components/notes/NoteAudioExportDialog.vue', import.meta.url),
   'utf8',
 );
 const editorIllustrationSource = await readFile(
@@ -166,10 +174,13 @@ test('notes list groups time sorts by day but keeps title sorting ungrouped', ()
   assert.doesNotMatch(templateSource, /notes-ws__group-count/);
 });
 
-test('notes toolbar offers the standard sort and date-range menus', () => {
-  assert.match(workspaceSource, /key:\s*'sort'/);
+test('notes toolbar combines sorting and grouping into one compact view menu', () => {
+  assert.match(workspaceSource, /key:\s*'view'/);
+  assert.match(workspaceSource, /label:\s*viewOptionsLabel\.value/);
+  assert.match(workspaceSource, /sections:\s*\[[\s\S]*?key:\s*'sort'[\s\S]*?key:\s*'grouping'/);
+  assert.match(listActionToolbarSource, /action\.sections/);
   assert.match(workspaceSource, /key:\s*'dateRange'/);
-  assert.match(workspaceSource, /mdi-sort/);
+  assert.match(workspaceSource, /mdi-tune-variant/);
   assert.match(workspaceSource, /mdi-calendar-range/);
   assert.match(workspaceSource, /value:\s*'updated'[\s\S]*?value:\s*'created'[\s\S]*?value:\s*'opened'[\s\S]*?value:\s*'title'/);
   assert.match(workspaceSource, /created_at \|\| b\.updated_at/);
@@ -509,8 +520,9 @@ test('note export and template actions live in the compact overflow menu', () =>
   assert.match(workspaceEditorSource, /class="note-workspace-editor__more-group-label">Import &amp; Export/);
   assert.match(workspaceEditorSource, /title="Als Markdown speichern"[\s\S]*?@click="exportNoteAsMarkdown"/);
   assert.match(workspaceEditorSource, /title="Als PDF speichern"[\s\S]*?@click="exportNoteAsPdf"/);
-  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-item"/g) || []).length, 6);
-  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-icon"/g) || []).length, 6);
+  assert.match(workspaceEditorSource, /title="Als Audiodatei speichern"[\s\S]*?@click="openAudioExportDialog"/);
+  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-item"/g) || []).length, 7);
+  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-icon"/g) || []).length, 7);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-menu\s*\{[\s\S]*?padding:\s*6px[\s\S]*?border-radius:\s*14px[\s\S]*?background:\s*var\(--pm-app-surface-raised\)[\s\S]*?box-shadow:\s*var\(--pm-shadow\)/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-item\s*\{[\s\S]*?min-height:\s*38px[\s\S]*?border-radius:\s*9px[\s\S]*?transition:\s*none/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-icon\s*\{[\s\S]*?width:\s*26px[\s\S]*?height:\s*26px[\s\S]*?border-radius:\s*8px/);
@@ -523,6 +535,21 @@ test('note export and template actions live in the compact overflow menu', () =>
   assert.match(workspaceEditorSource, /saveAsTemplate\(noteId, \{ title: templateTitle \}\)[\s\S]*?title: 'Vorlage gespeichert'[\s\S]*?critical: true/);
   assert.match(workspaceEditorSource, /noteToMarkdown\(\{ title: title\.value, body: body\.value \}\)/);
   assert.match(workspaceEditorSource, /noteToPrintableHtml\(\{/);
+});
+
+test('audio export dialog configures the persistent Piper background job', () => {
+  assert.match(noteAudioExportDialogSource, /title="Notiz als Audio exportieren"/);
+  assert.match(noteAudioExportDialogSource, /primary-text="Im Hintergrund erstellen"/);
+  assert.match(noteAudioExportDialogSource, /label="Stimme"/);
+  assert.match(noteAudioExportDialogSource, /Titel mitsprechen/);
+  assert.match(noteAudioExportDialogSource, /characterLabel/);
+  assert.match(noteAudioExportDialogSource, /durationLabel/);
+  assert.match(workspaceEditorSource, /<NoteAudioExportDialog[\s\S]*?@submit="exportNoteAsAudio"/);
+  assert.match(workspaceEditorSource, /createNoteAudioExport\(loadedNoteId\.value/);
+  assert.match(activityIndicatorSource, /void autoDownloadReadyAudioExports\(\)/);
+  assert.match(activityIndicatorSource, /job\.status !== 'done' \|\| job\.downloaded_at/);
+  assert.match(activityIndicatorSource, /void downloadAudio\(job\)/);
+  assert.match(activityIndicatorSource, /await confirmNoteAudioExportDownload\(job\.id\)/);
 });
 
 test('template boxes use a compact accessible save icon button', () => {

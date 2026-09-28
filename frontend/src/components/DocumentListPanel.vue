@@ -10,11 +10,13 @@
       v-if="!isTrashView && !isImportsView"
       :actions="toolbarActions"
       :filter-toggles="toolbarFilterToggles"
+      :right-actions="rightActions"
       :selection-mode="isSelectionMode"
       :selection-count="selectionIds.size"
       :selection-disabled="selectionDisabled"
       @action-select="handleToolbarAction"
       @filter-toggle="handleToolbarFilterToggle"
+      @right-action="emit('right-action', $event)"
       @toggle-selection="emit('toggle-selection-mode')"
       @select-all="emit('select-all')"
     />
@@ -516,6 +518,7 @@ const props = defineProps({
   tagFilterDrawerOpen:        { type: Boolean, default: false },
   showDocumentTypeFilterToggle: { type: Boolean, default: false },
   documentTypeFilterDrawerOpen: { type: Boolean, default: false },
+  rightActions:                { type: Array,   default: () => [] },
   bottomSpacerHeight:         { type: Number,  default: 0 },
   hasMoreDocuments:           { type: Boolean, default: false },
   isLoadingMoreDocuments:     { type: Boolean, default: false },
@@ -549,6 +552,7 @@ const emit = defineEmits([
   'change-date-range',
   'toggle-tag-filter-drawer',
   'toggle-document-type-filter-drawer',
+  'right-action',
   'load-more',
 ]);
 

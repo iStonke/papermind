@@ -168,6 +168,12 @@ class DocumentTagReplaceRequest(BaseModel):
     tag_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
+class DocumentOCRBatchRequest(BaseModel):
+    document_ids: list[uuid.UUID] = Field(min_length=1, max_length=1000)
+    rerun_completed: bool = False
+    dry_run: bool = False
+
+
 class DocumentDateSource(str, Enum):
     manual = "manual"
     ocr = "ocr"

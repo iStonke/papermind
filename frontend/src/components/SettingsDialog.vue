@@ -385,6 +385,26 @@
                     @update:model-value="onSidebarShowChatChange"
                   />
                 </div>
+
+                <div class="pm-setting-row settings-sidebar-library-row">
+                  <span class="settings-sidebar-entry-icon" aria-hidden="true">
+                    <v-icon size="18">mdi-cards-outline</v-icon>
+                  </span>
+                  <div class="pm-setting-content">
+                    <div class="pm-setting-label">Lernraum</div>
+                    <div class="pm-setting-description">Lernkarten und Wiederholungen aus deinen Mitschriften und Dokumenten.</div>
+                  </div>
+                  <v-switch
+                    :model-value="settingsDraft.ui.sidebar_show_lernraum"
+                    color="primary"
+                    density="comfortable"
+                    hide-details
+                    :loading="isSettingSaving.sidebar_show_lernraum"
+                    :disabled="isSettingSaving.sidebar_show_lernraum"
+                    aria-label="Lernraum in der Seitenleiste anzeigen"
+                    @update:model-value="onSidebarShowLernraumChange"
+                  />
+                </div>
               </div>
             </div>
 
@@ -499,7 +519,7 @@
                   </span>
                   <div class="pm-setting-content">
                     <div class="pm-setting-label">Nicht durchsuchbar</div>
-                    <div class="pm-setting-description">Erfasst Dokumente ohne erkannten Text oder verwertbaren Suchindex.</div>
+                    <div class="pm-setting-description">Erfasst Dokumente ohne erkannten Text. Der Seitenleisteneintrag erscheint nur, wenn mindestens ein solches Dokument vorhanden ist.</div>
                   </div>
                   <v-switch
                     :model-value="settingsDraft.ui.sidebar_show_no_text"
@@ -3028,6 +3048,7 @@ import {
   buildSidebarShowNoTextPatch,
   buildSidebarShowChatPatch,
   buildSidebarShowDossiersPatch,
+  buildSidebarShowLernraumPatch,
   buildOcrDocLangPatch,
   buildOcrScanCleanupPatch,
   buildPreviewDrawerGradientPatch,
@@ -5134,6 +5155,18 @@ async function onSidebarShowDossiersChange(nextValue) {
   });
 }
 
+async function onSidebarShowLernraumChange(nextValue) {
+  if (isSettingSaving.sidebar_show_lernraum) return;
+  const nextBool = Boolean(nextValue);
+  if (nextBool === settingsDraft.ui.sidebar_show_lernraum) return;
+  const previous = settingsDraft.ui.sidebar_show_lernraum;
+  settingsStore.setDraftPatch({ ui: { sidebar_show_lernraum: nextBool } });
+  await patchSettingsWithRevert({
+    patch: buildSidebarShowLernraumPatch(nextBool),
+    controlKey: 'sidebar_show_lernraum',
+    revert: () => settingsStore.setDraftPatch({ ui: { sidebar_show_lernraum: previous } })
+  });
+}
 
 // ── Animationen ──────────────────────────────────────────────────────────────
 

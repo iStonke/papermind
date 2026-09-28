@@ -7,6 +7,13 @@ async function mockApi(page) {
   let loggedIn = false;
   const patches = [];
   const imports = [];
+  const settings = {
+    ui: {
+      start_view: 'all', drawer_remember_state: true,
+      dashboard_show_import_action: true, dashboard_show_note_action: true,
+    },
+    retention: { enabled: false },
+  };
   const document = {
     id: docId, original_filename: 'Prüfbeleg.pdf', display_name: 'Prüfbeleg',
     notes: '', document_date: null, status: 'ready', ocr_status: 'not_started',
@@ -31,7 +38,14 @@ async function mockApi(page) {
     if (path === '/api/auth/refresh' || path === '/api/auth/renew') return loggedIn ? json(tokens()) : json({}, 401);
     if (path === '/api/auth/me') return loggedIn ? json(user) : json({}, 401);
     if (path === '/api/auth/file-token') return json({ token: 'file-token', expires_in: 300 });
-    if (path === '/api/settings') return json({ ui: { start_view: 'all', drawer_remember_state: true }, retention: { enabled: false } });
+    if (path === '/api/settings') {
+      if (request.method() === 'PATCH') {
+        const patch = request.postDataJSON();
+        settings.ui = { ...settings.ui, ...(patch.ui || {}) };
+        settings.retention = { ...settings.retention, ...(patch.retention || {}) };
+      }
+      return json(settings);
+    }
     if (path === '/api/documents') return json({ items: [document], total: 1, limit: 100, offset: 0 });
     if (path === `/api/documents/${docId}`) {
       if (request.method() === 'PATCH') {
@@ -86,10 +100,11 @@ test('failed login stays usable, successful login opens workspace', async ({ pag
   await expect(page.locator('.notes-ws__heading')).toHaveText('Zuletzt bearbeitet');
   await page.getByText('Angepinnt', { exact: true }).first().click();
   await expect(page.locator('.notes-ws__heading')).toHaveText('Angepinnt');
+  await expect(page.locator('.sidebar-foot__actions').getByRole('button', { name: /in Bearbeitung|fehlgeschlagen/ })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
-test('sidebar footer keeps common actions visible and moves secondary actions into overflow', async ({ page }, testInfo) => {
+test('sidebar footer shows activity only while work is running and keeps shortcuts in overflow', async ({ page }, testInfo) => {
   await mockApi(page);
   await page.route('**/api/jobs/activity', async (route) => {
     await route.fulfill({ json: {
@@ -105,15 +120,26 @@ test('sidebar footer keeps common actions visible and moves secondary actions in
 
   const footerActions = page.locator('.sidebar-foot__actions');
   await expect(footerActions.locator(':scope > .v-btn')).toHaveCount(3);
-  await expect(footerActions.getByRole('button', { name: 'Tastenkürzel', exact: true })).toBeVisible();
+  const activityButton = footerActions.getByRole('button', { name: /1 Dokument\(e\) in Bearbeitung/ });
+  await expect(activityButton).toBeVisible();
   await expect(footerActions.getByRole('button', { name: 'Einstellungen', exact: true })).toBeVisible();
 
-  const moreButton = footerActions.getByRole('button', { name: /^Weitere Aktionen/ });
-  await expect(moreButton).toHaveAccessibleName(/1 Dokument\(e\) in Bearbeitung/);
+  await activityButton.click();
+  const activityPanel = page.locator('.activity-card');
+  await expect(activityPanel).toBeVisible();
+  const [activityButtonBox, activityPanelBox] = await Promise.all([
+    activityButton.boundingBox(),
+    activityPanel.boundingBox(),
+  ]);
+  expect(activityPanelBox.y + activityPanelBox.height).toBeLessThanOrEqual(activityButtonBox.y + 4);
+  await page.keyboard.press('Escape');
+
+  const moreButton = footerActions.getByRole('button', { name: 'Weitere Aktionen', exact: true });
   await moreButton.click();
   const overflowMenu = page.locator('.sidebar-foot__more-menu');
   await expect(overflowMenu).toBeVisible();
-  await expect(overflowMenu.getByText('Aktivität', { exact: true })).toBeVisible();
+  await expect(overflowMenu.getByText('Tastenkürzel', { exact: true })).toBeVisible();
+  await expect(overflowMenu.getByText('Aktivität', { exact: true })).toHaveCount(0);
   await expect(overflowMenu.getByText('Papierkorb', { exact: false })).toBeVisible();
   await page.waitForTimeout(250); // Overlay-Transition vor dem visuellen Snapshot abschließen.
   await page.screenshot({ path: testInfo.outputPath('sidebar-footer-overflow.png') });
@@ -141,6 +167,15 @@ test('title-sorted notes form one alphabetical list without date headings', asyn
   await page.getByText('Alle Notizen', { exact: true }).click();
   await expect(page.locator('.notes-ws__item-title')).toHaveText(['Alpha', 'Zulu']);
   await expect(page.locator('.notes-ws__group-heading')).toHaveCount(0);
+
+  const showListButton = page.getByRole('button', { name: 'Notizenliste einblenden' });
+  if (await showListButton.isVisible()) await showListButton.click();
+  const viewMenuButton = page.getByRole('button', { name: 'Titel · Auto', exact: true });
+  await viewMenuButton.click();
+  await expect(page.getByText('Sortieren nach', { exact: true })).toBeVisible();
+  await expect(page.getByText('Gruppieren', { exact: true })).toBeVisible();
+  await page.getByText('Nach Notizbuch', { exact: true }).click();
+  await expect(page.locator('.list-action-toolbar__action-btn').filter({ hasText: 'Titel · Notizbuch' })).toBeVisible();
 });
 
 test('notes support recently-opened sorting plus notebook and pinned groups', async ({ page }) => {
@@ -306,6 +341,18 @@ test('dashboard header offers colored import and note quick actions', async ({ p
   await expect(noteButton).toBeVisible();
   await expect(importButton).toHaveClass(/dash-btn--import/);
   await expect(noteButton).toHaveClass(/dash-btn--note/);
+
+  await actions.getByRole('button', { name: 'Anpassen', exact: true }).click();
+  const widgetDialog = page.getByRole('dialog');
+  const importToggle = widgetDialog.getByRole('switch', { name: 'Dokument importieren' });
+  await expect(importToggle).toHaveAttribute('aria-checked', 'true');
+  await importToggle.click();
+  await expect(importButton).toHaveCount(0);
+  await expect(noteButton).toHaveCount(1);
+  await expect(importToggle).toHaveAttribute('aria-checked', 'false');
+  await importToggle.click();
+  await page.keyboard.press('Escape');
+  await expect(importButton).toBeVisible();
 
   await importButton.click();
   await expect(page.getByRole('dialog').getByText('Importieren', { exact: true }).first()).toBeVisible();

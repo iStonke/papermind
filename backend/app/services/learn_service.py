@@ -5,13 +5,16 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import BadRequestError, NotFoundError
-from app.models.learn import LearnCard, LearnCourse, LearnSession, LearnSheet
+from app.models.learn import LearnCard, LearnCourse, LearnMarker, LearnSession, LearnSheet
+from app.models.note import Note
 from app.schemas.learn import (
     LearnBoardResponse,
     LearnBoardSession,
     LearnCardCreate,
     LearnCardRead,
     LearnCardUpdate,
+    LearnMarkerPromote,
+    LearnMarkerRead,
     LearnCourseCreate,
     LearnCourseRead,
     LearnCourseUpdate,
@@ -182,6 +185,9 @@ class LearnService:
         if "session_date" in fields:
             session.session_date = payload.session_date
         if "note_id" in fields:
+            # Eine Notiz gehört zu höchstens einer Sitzung: vorherige Kopplung lösen.
+            if payload.note_id is not None:
+                self._unbind_note_from_other_sessions(payload.note_id, keep_session_id=session.id)
             session.note_id = payload.note_id
         if "ordinal" in fields and payload.ordinal is not None:
             session.ordinal = payload.ordinal
@@ -391,3 +397,202 @@ class LearnService:
         self.db.delete(card)
         self.db.commit()
         logger.info("learn card deleted id=%s", card_id)
+
+    # --- Marker (aus Notizen) ---------------------------------------------
+    def _unbind_note_from_other_sessions(
+        self, note_id: uuid.UUID, keep_session_id: uuid.UUID | None = None
+    ) -> None:
+        """Löst die Notiz von allen Sitzungen außer ``keep_session_id`` (1 Notiz ↔ 1 Sitzung)."""
+        stmt = select(LearnSession).where(LearnSession.note_id == note_id)
+        if self.owner_id is not None:
+            stmt = stmt.where(LearnSession.owner_id == self.owner_id)
+        if keep_session_id is not None:
+            stmt = stmt.where(LearnSession.id != keep_session_id)
+        for other in self.db.execute(stmt).scalars().all():
+            other.note_id = None
+
+    def _note_binding_map(
+        self, note_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, tuple[uuid.UUID, str, uuid.UUID, str]]:
+        """note_id → (session_id, session_title, course_id, course_title) über learn_session.note_id."""
+        if not note_ids:
+            return {}
+        stmt = (
+            select(
+                LearnSession.note_id,
+                LearnSession.id,
+                LearnSession.title,
+                LearnCourse.id,
+                LearnCourse.title,
+            )
+            .join(LearnCourse, LearnCourse.id == LearnSession.course_id)
+            .where(LearnSession.note_id.in_(note_ids))
+            .order_by(LearnSession.ordinal.asc(), LearnSession.created_at.asc())
+        )
+        if self.owner_id is not None:
+            stmt = stmt.where(LearnSession.owner_id == self.owner_id)
+        out: dict[uuid.UUID, tuple[uuid.UUID, str, uuid.UUID, str]] = {}
+        for note_id, sess_id, sess_title, course_id, course_title in self.db.execute(stmt).all():
+            # Erste Kopplung je Notiz gewinnt (Single-Binding wird ohnehin erzwungen).
+            out.setdefault(note_id, (sess_id, sess_title, course_id, course_title))
+        return out
+
+    def list_markers(
+        self, note_id: uuid.UUID | None = None, open_only: bool = False
+    ) -> list[LearnMarkerRead]:
+        stmt = (
+            select(LearnMarker, Note.title)
+            .join(Note, Note.id == LearnMarker.note_id)
+            .order_by(Note.updated_at.desc(), LearnMarker.position.asc())
+        )
+        if self.owner_id is not None:
+            stmt = stmt.where(LearnMarker.owner_id == self.owner_id)
+        if note_id is not None:
+            stmt = stmt.where(LearnMarker.note_id == note_id)
+        rows = self.db.execute(stmt).all()
+
+        # Bereits verarbeitete Marker: (source_note_id, source_pm_id) mit Karte.
+        card_stmt = select(LearnCard.source_note_id, LearnCard.source_pm_id).where(
+            LearnCard.source_note_id.is_not(None)
+        )
+        if self.owner_id is not None:
+            card_stmt = card_stmt.where(LearnCard.owner_id == self.owner_id)
+        with_card = {(nid, pid) for nid, pid in self.db.execute(card_stmt).all()}
+
+        binding = self._note_binding_map(list({m.note_id for m, _ in rows}))
+
+        items: list[LearnMarkerRead] = []
+        for marker, title in rows:
+            has_card = (marker.note_id, marker.node_pm_id) in with_card
+            if open_only and has_card:
+                continue
+            bound = binding.get(marker.note_id)
+            update = {"note_title": title, "has_card": has_card}
+            if bound is not None:
+                sess_id, sess_title, course_id, course_title = bound
+                update.update(
+                    session_id=sess_id,
+                    session_title=sess_title,
+                    course_id=course_id,
+                    course_title=course_title,
+                )
+            items.append(
+                LearnMarkerRead.model_validate(marker, from_attributes=True).model_copy(update=update)
+            )
+        return items
+
+    def get_marker_or_404(self, note_id: uuid.UUID, node_pm_id: str) -> LearnMarker:
+        stmt = select(LearnMarker).where(
+            LearnMarker.note_id == note_id, LearnMarker.node_pm_id == node_pm_id
+        )
+        if self.owner_id is not None:
+            stmt = stmt.where(LearnMarker.owner_id == self.owner_id)
+        marker = self.db.execute(stmt).scalars().first()
+        if marker is None:
+            raise NotFoundError(
+                "Marker not found", details={"note_id": str(note_id), "node_pm_id": node_pm_id}
+            )
+        return marker
+
+    def _find_or_create_session_sheet(self, session: LearnSession) -> LearnSheet:
+        """Sitzungs-Lernblatt für die Nachbereitung finden oder anlegen."""
+        stmt = (
+            select(LearnSheet)
+            .where(LearnSheet.session_id == session.id, LearnSheet.scope == "session")
+            .order_by(LearnSheet.position.asc(), LearnSheet.created_at.asc())
+        )
+        if self.owner_id is not None:
+            stmt = stmt.where(LearnSheet.owner_id == self.owner_id)
+        sheet = self.db.execute(stmt).scalars().first()
+        if sheet is not None:
+            return sheet
+        sheet = LearnSheet(
+            owner_id=self.owner_id,
+            course_id=session.course_id,
+            session_id=session.id,
+            title=session.title,
+            scope="session",
+            status="in_progress",
+            position=self._next_sheet_position(session.course_id),
+        )
+        self.db.add(sheet)
+        self.db.flush()
+        return sheet
+
+    def _find_or_create_course_sheet(self, course_id: uuid.UUID) -> LearnSheet:
+        """Themenübergreifendes „Nachbereitung"-Blatt eines Kurses finden oder anlegen."""
+        title = "Nachbereitung"
+        stmt = (
+            select(LearnSheet)
+            .where(
+                LearnSheet.course_id == course_id,
+                LearnSheet.session_id.is_(None),
+                LearnSheet.title == title,
+            )
+            .order_by(LearnSheet.position.asc(), LearnSheet.created_at.asc())
+        )
+        if self.owner_id is not None:
+            stmt = stmt.where(LearnSheet.owner_id == self.owner_id)
+        sheet = self.db.execute(stmt).scalars().first()
+        if sheet is not None:
+            return sheet
+        sheet = LearnSheet(
+            owner_id=self.owner_id,
+            course_id=course_id,
+            session_id=None,
+            title=title,
+            scope="topic",
+            status="in_progress",
+            position=self._next_sheet_position(course_id),
+        )
+        self.db.add(sheet)
+        self.db.flush()
+        return sheet
+
+    def promote_marker(self, payload: LearnMarkerPromote) -> LearnCard:
+        """Offenen Marker in eine Lernkarte mit Herkunftsanker überführen (§ Nachbereitung)."""
+        marker = self.get_marker_or_404(payload.note_id, payload.node_pm_id)
+        front = payload.front.strip()
+        if not front:
+            raise BadRequestError("Card front must not be empty")
+
+        # Ziel-Lernblatt bestimmen (Vorrang: sheet_id → session_id → course_id).
+        session: LearnSession | None = None
+        if payload.sheet_id is not None:
+            sheet = self.get_sheet_or_404(payload.sheet_id)
+        elif payload.session_id is not None:
+            session = self.get_session_or_404(payload.session_id)
+            sheet = self._find_or_create_session_sheet(session)
+        elif payload.course_id is not None:
+            self.get_course_or_404(payload.course_id)
+            sheet = self._find_or_create_course_sheet(payload.course_id)
+        else:
+            raise BadRequestError("A target (sheet_id, session_id or course_id) is required")
+
+        card = LearnCard(
+            owner_id=self.owner_id,
+            sheet_id=sheet.id,
+            kind=payload.kind,
+            front=front,
+            back=(payload.back.strip() if payload.back and payload.back.strip() else None),
+            position=self._next_card_position(sheet.id),
+            source_note_id=marker.note_id,
+            source_pm_id=marker.node_pm_id,
+        )
+        self.db.add(card)
+
+        # Optionale dauerhafte Notiz↔Sitzung-Kopplung (künftige Marker automatisch zugeordnet).
+        if payload.bind_note and session is not None and session.note_id != marker.note_id:
+            self._unbind_note_from_other_sessions(marker.note_id, keep_session_id=session.id)
+            session.note_id = marker.note_id
+
+        self.db.commit()
+        self.db.refresh(card)
+        logger.info(
+            "learn marker promoted note=%s pm=%s -> card=%s sheet=%s",
+            marker.note_id,
+            marker.node_pm_id,
+            card.id,
+            sheet.id,
+        )
+        return card

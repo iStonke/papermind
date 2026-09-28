@@ -11,14 +11,15 @@ const dialogSource = await readFile(
   'utf8',
 );
 
-test('sidebar help action is placed before settings and opens the shortcuts dialog', () => {
+test('sidebar shortcuts action lives in the overflow menu and opens the shortcuts dialog', () => {
   const actionsStart = workspaceSource.indexOf('<div class="sidebar-foot__actions">');
   const actionsEnd = workspaceSource.indexOf('</div>', actionsStart);
   const actions = workspaceSource.slice(actionsStart, actionsEnd);
+  const directActions = actions.slice(0, actions.indexOf('<v-menu'));
 
-  assert.ok(actions.indexOf('mdi-help-circle-outline') < actions.indexOf('mdi-cog-outline'));
-  assert.match(actions, /aria-label="Tastenkürzel"/);
-  assert.match(actions, /@click="openShortcutsHelp"/);
+  assert.doesNotMatch(directActions, /mdi-keyboard-outline/);
+  assert.match(workspaceSource, /<v-list-item title="Tastenkürzel" @click="openShortcutsFromSidebarMenu">/);
+  assert.match(workspaceSource, /function openShortcutsFromSidebarMenu\(\)/);
   assert.match(workspaceSource, /<ShortcutsHelpDialog v-model="uiStore\.shortcutsOpen" \/>/);
   assert.match(workspaceSource, /function openShortcutsHelp\(\) \{\s*uiStore\.openShortcuts\(\);/);
 });

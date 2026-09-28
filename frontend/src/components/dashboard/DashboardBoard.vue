@@ -73,6 +73,41 @@
       :content-class="['dash-widget-picker-overlay', { 'is-dragging': paletteDragging }]"
       :card-class="['dash-widget-picker', { 'is-dragging': paletteDragging }]"
     >
+      <section class="dash-widget-picker__quick-actions" aria-labelledby="dashboard-quick-actions-title">
+        <div class="dash-widget-picker__section-heading">
+          <strong id="dashboard-quick-actions-title">Schnellaktionen</strong>
+          <span>Lege fest, welche Aktionen oben in der Übersicht erscheinen.</span>
+        </div>
+        <div class="dash-widget-picker__action-grid">
+          <button
+            type="button"
+            role="switch"
+            class="dash-widget-picker__action"
+            :class="{ 'is-selected': showImportAction }"
+            :aria-checked="showImportAction"
+            :disabled="quickActionsSaving.showImport"
+            @click="setQuickAction('showImport', !showImportAction)"
+          >
+            <span class="dash-widget-picker__action-icon"><v-icon size="20">mdi-tray-arrow-down</v-icon></span>
+            <span>Dokument importieren</span>
+            <span class="dash-widget-picker__switch" aria-hidden="true"><span /></span>
+          </button>
+          <button
+            type="button"
+            role="switch"
+            class="dash-widget-picker__action"
+            :class="{ 'is-selected': showNoteAction }"
+            :aria-checked="showNoteAction"
+            :disabled="quickActionsSaving.showNote"
+            @click="setQuickAction('showNote', !showNoteAction)"
+          >
+            <span class="dash-widget-picker__action-icon"><v-icon size="20">mdi-note-plus-outline</v-icon></span>
+            <span>Notiz schreiben</span>
+            <span class="dash-widget-picker__switch" aria-hidden="true"><span /></span>
+          </button>
+        </div>
+      </section>
+
       <ul class="dash-widget-picker__grid">
         <li v-for="key in allWidgetKeys" :key="key" class="dash-widget-picker__item">
           <label
@@ -134,13 +169,13 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue';
 import { GridStack } from 'gridstack';
 import 'gridstack/dist/gridstack.min.css';
 import { DASHBOARD_WIDGETS, DEFAULT_LAYOUT, DEFAULT_WIDGET_ORDER } from './widgetRegistry.js';
 import { useSettingsStore } from '../../stores/settings.js';
 import { getBaseUrl } from '../../api/client.js';
-import { buildDashboardLayoutPatch } from '../../utils/settingsApi.js';
+import { buildDashboardLayoutPatch, buildDashboardQuickActionsPatch } from '../../utils/settingsApi.js';
 import BaseDialog from '../BaseDialog.vue';
 
 const props = defineProps({
@@ -158,6 +193,7 @@ const widgets = DASHBOARD_WIDGETS;
 const gridEl = ref(null);
 const boardScrollEl = ref(null);
 const managerOpen = ref(false);
+const quickActionsSaving = reactive({ showImport: false, showNote: false });
 const paletteDragging = ref(false);
 const draggingWidgetKey = ref('');
 const dropPreview = ref(null);
@@ -206,6 +242,8 @@ defineExpose({ openManager });
 const items = shallowRef(buildInitialItems());
 
 const placedIds = computed(() => new Set(items.value.map((i) => i.id)));
+const showImportAction = computed(() => settingsStore.settings.ui.dashboard_show_import_action !== false);
+const showNoteAction = computed(() => settingsStore.settings.ui.dashboard_show_note_action !== false);
 // Alle bekannten Widgets in Standardreihenfolge – Grundlage der Auswahlliste.
 const allWidgetKeys = DEFAULT_WIDGET_ORDER;
 
@@ -228,6 +266,27 @@ const dragGhostStyle = computed(() => ({
 function toggleWidget(key, on) {
   if (on) addWidget(key);
   else removeWidget(key);
+}
+
+async function setQuickAction(key, enabled) {
+  if (quickActionsSaving[key]) return;
+  const settingKey = key === 'showImport'
+    ? 'dashboard_show_import_action'
+    : 'dashboard_show_note_action';
+  const previous = settingsStore.settings.ui[settingKey] !== false;
+  settingsStore.settings.ui[settingKey] = Boolean(enabled);
+  quickActionsSaving[key] = true;
+  try {
+    await settingsStore.patchSettings(
+      getBaseUrl(),
+      buildDashboardQuickActionsPatch({ [key]: enabled })
+    );
+  } catch (err) {
+    settingsStore.settings.ui[settingKey] = previous;
+    console.warn('Dashboard-Schnellaktionen konnten nicht gespeichert werden:', err);
+  } finally {
+    quickActionsSaving[key] = false;
+  }
 }
 
 function defaultItems() {
@@ -430,7 +489,16 @@ function resetLayout() {
     suppressPersist = false;
     if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
     // Leeres Layout auf dem Server = „nutze Standard".
-    writeLayout([]);
+    settingsStore
+      .patchSettings(getBaseUrl(), {
+        ui: {
+          ...buildDashboardLayoutPatch([]).ui,
+          ...buildDashboardQuickActionsPatch({ showImport: true, showNote: true }).ui,
+        },
+      })
+      .catch((err) => {
+        console.warn('Dashboard-Standard konnte nicht gespeichert werden:', err);
+      });
   });
 }
 
@@ -584,6 +652,103 @@ onBeforeUnmount(() => {
   border-radius: 16px;
 }
 
+.dash-widget-picker__quick-actions {
+  margin-bottom: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid color-mix(in srgb, var(--pm-divider) 78%, transparent);
+}
+.dash-widget-picker__section-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 10px;
+}
+.dash-widget-picker__section-heading strong {
+  color: var(--pm-text);
+  font-size: 14px;
+  font-weight: 650;
+}
+.dash-widget-picker__section-heading span {
+  color: var(--pm-muted);
+  font-size: 12px;
+}
+.dash-widget-picker__action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.dash-widget-picker__action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--pm-divider) 85%, transparent);
+  border-radius: 12px;
+  color: var(--pm-muted);
+  background: color-mix(in srgb, var(--pm-v-card, var(--pm-app-surface-raised)) 97%, var(--pm-text) 3%);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  text-align: left;
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+}
+.dash-widget-picker__action:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+.dash-widget-picker__action:hover {
+  border-color: color-mix(in srgb, var(--pm-accent) 30%, var(--pm-divider));
+}
+.dash-widget-picker__action.is-selected {
+  border-color: color-mix(in srgb, var(--pm-accent) 38%, var(--pm-divider));
+  color: var(--pm-text);
+  background: color-mix(in srgb, var(--pm-accent) 5%, var(--pm-v-card, var(--pm-app-surface-raised)));
+}
+.dash-widget-picker__action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 8px;
+  color: var(--pm-muted);
+  background: rgba(var(--v-theme-on-surface), 0.05);
+}
+.dash-widget-picker__action.is-selected .dash-widget-picker__action-icon {
+  color: var(--pm-accent);
+  background: color-mix(in srgb, var(--pm-accent) 10%, transparent);
+}
+.dash-widget-picker__switch {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  margin-left: auto;
+  flex: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pm-muted) 32%, transparent);
+  transition: background 140ms ease;
+}
+.dash-widget-picker__switch span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--pm-v-card, var(--pm-app-surface-raised));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 140ms ease;
+}
+.dash-widget-picker__action.is-selected .dash-widget-picker__switch {
+  background: var(--pm-accent);
+}
+.dash-widget-picker__action.is-selected .dash-widget-picker__switch span {
+  transform: translateX(14px);
+}
+
 .dash-widget-picker__grid {
   list-style: none;
   margin: 0;
@@ -691,6 +856,7 @@ onBeforeUnmount(() => {
   font-weight: 650;
 }
 @media (max-width: 620px) {
+  .dash-widget-picker__action-grid,
   .dash-widget-picker__grid {
     grid-template-columns: minmax(0, 1fr);
   }

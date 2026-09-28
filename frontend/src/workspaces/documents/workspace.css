@@ -201,7 +201,7 @@
 }
 
 .sidebar-foot__rail-settings,
-.sidebar-foot__rail-help,
+.sidebar-foot__rail-activity,
 .sidebar-foot__rail-trash {
   display: none !important;
   color: var(--pm-muted) !important;
@@ -212,8 +212,8 @@
 
 .sidebar-foot__btn:hover,
 .sidebar-foot__btn:focus-visible,
-.sidebar-foot__rail-help:hover,
-.sidebar-foot__rail-help:focus-visible,
+.sidebar-foot__rail-activity:hover,
+.sidebar-foot__rail-activity:focus-within,
 .sidebar-foot__rail-settings:hover,
 .sidebar-foot__rail-settings:focus-visible,
 .sidebar-foot__rail-trash:hover,
@@ -2394,7 +2394,7 @@
   margin-left: auto;
 }
 
-/* Drei feste Fuß-Aktionen (Tastenkürzel, Einstellungen, Mehr): kompakt,
+/* Drei mögliche Fuß-Aktionen (Aktivität, Einstellungen, Mehr): kompakt,
    damit der Kontoname daneben nicht abgeschnitten wird. Weitere Aktionen
    liegen im Überlaufmenü und können die Zeile nicht mehr verbreitern. */
 .sidebar-foot__actions > .sidebar-foot__btn.v-btn {
@@ -2694,7 +2694,7 @@
 }
 
 .workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-foot__rail-settings,
-.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-foot__rail-help,
+.workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-foot__rail-activity,
 .workspace--rail:not(.workspace--sidebar-transitioning) .sidebar-foot__rail-trash {
   display: inline-flex !important;
   width: 38px;

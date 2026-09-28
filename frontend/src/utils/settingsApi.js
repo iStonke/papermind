@@ -78,6 +78,10 @@ export function buildSidebarShowDossiersPatch(enabled) {
   return { ui: { sidebar_show_dossiers: Boolean(enabled) } };
 }
 
+export function buildSidebarShowLernraumPatch(enabled) {
+  return { ui: { sidebar_show_lernraum: Boolean(enabled) } };
+}
+
 // Konfigurierbare Seitenleisten-Sektionen (Reihenfolge + harte Sichtbarkeit).
 // Reihenfolge entspricht der Standard-Anzeigereihenfolge in der Seitenleiste.
 export const SIDEBAR_SECTION_KEYS = Object.freeze(['ordner', 'tags', 'kategorien']);
@@ -151,6 +155,17 @@ export function normalizeDashboardLayout(layout) {
 
 export function buildDashboardLayoutPatch(layout) {
   return { ui: { dashboard_layout: normalizeDashboardLayout(layout) } };
+}
+
+export function buildDashboardQuickActionsPatch(actions = {}) {
+  const ui = {};
+  if (Object.hasOwn(actions, 'showImport')) {
+    ui.dashboard_show_import_action = Boolean(actions.showImport);
+  }
+  if (Object.hasOwn(actions, 'showNote')) {
+    ui.dashboard_show_note_action = Boolean(actions.showNote);
+  }
+  return { ui };
 }
 
 function clampSidebarMax(value) {

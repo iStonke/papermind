@@ -253,6 +253,7 @@ import { createNoteOverlayCoordinator } from './composables/noteOverlayCoordinat
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, toRaw, watch } from 'vue';
 import { NOTE_AI_STREAM, NOTE_AI_REVIEW_STREAM } from './composables/noteAIRequest.js';
 import { NoteReviewDecorations } from './extensions/reviewDecorations.js';
+import { LearnMarker } from './extensions/learnMarker.js';
 import { NoteAIGeneration } from './extensions/aiGeneration.js';
 import { NoteTextReplacement } from './extensions/textReplacement.js';
 import { EditorContent, useEditor, posToDOMRect } from '@tiptap/vue-3';
@@ -521,6 +522,7 @@ const editor = useEditor({
       },
     }),
     NoteReviewDecorations,
+    LearnMarker,
   ],
   editorProps: {
     attributes: { class: 'pm-content', spellcheck: props.spellcheckEnabled ? 'true' : 'false' },
@@ -1141,6 +1143,16 @@ const BUBBLE_ESTIMATED_HEIGHT = 40;
 const BUBBLE_SELECTION_GAP = 8;
 let bubblePositionRevision = 0;
 
+function isLineMarked(ed) {
+  try {
+    const { $from } = ed.state.selection;
+    for (let d = $from.depth; d >= 1; d -= 1) {
+      if ($from.node(d)?.attrs?.learn) return true;
+    }
+  } catch { /* Aktiv-Prüfung ist unkritisch */ }
+  return false;
+}
+
 const bubbleButtons = computed(() => {
   const ed = editor.value;
   if (!ed) return [];
@@ -1177,6 +1189,8 @@ const bubbleButtons = computed(() => {
       active: () => toolbarActive('highlight') || bubbleHighlight.open,
       run: () => toggleBubbleHighlight(),
     },
+    mk('learn-marker', 'Als Lernstoff markieren', 'mdi-cards-outline',
+      e => isLineMarked(e), c => c.toggleLearnMarker('lernen')),
     ...(props.aiAvailable ? [{
       key: 'ai-selection',
       label: 'Umschreiben',
@@ -2304,6 +2318,14 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
 }
 
 .note-editor :deep(.pm-content pre code) { background: none; color: inherit; padding: 0; }
+
+/* Lern-Marker: als lernrelevant markierte Zeile (Lernbereich). */
+.note-editor :deep(.pm-content .pm-learn-marked) {
+  box-shadow: inset 3px 0 0 var(--pm-accent, #006b75);
+  padding-left: 12px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 7%, transparent);
+}
 
 .note-editor :deep(.pm-content hr) {
   border: 0; height: 1px; background: var(--pm-divider, #d8dfe1); margin-inline: 0;

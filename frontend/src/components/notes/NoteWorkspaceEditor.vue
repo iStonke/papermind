@@ -192,7 +192,7 @@
               :disabled="exportingAudio"
               :ripple="false"
               role="menuitem"
-              @click="exportNoteAsAudio"
+              @click="openAudioExportDialog"
             >
               <template #prepend>
                 <span class="note-workspace-editor__more-icon" aria-hidden="true">
@@ -206,6 +206,16 @@
       </div>
     </header>
     <input ref="archiveInput" type="file" accept=".papermind.json,application/json" hidden @change="importFullNote" />
+
+    <NoteAudioExportDialog
+      v-model="audioExportDialogOpen"
+      :loading="exportingAudio"
+      :note-title="title"
+      :body-text="audioExportBodyText"
+      :default-voice="notesTtsVoice"
+      :max-characters="NOTE_AUDIO_MAX_CHARS"
+      @submit="exportNoteAsAudio"
+    />
 
     <div v-if="hasLoadedContent" class="note-workspace-editor__meta">
       <div class="note-workspace-editor__meta-main">
@@ -579,7 +589,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRaw, watch } fro
 import { documentThumbnailUrl, listDocuments } from '../../api/documents.js';
 import { authedUrl, getBaseUrl } from '../../api/client.js';
 import { getAICredentialStatus } from '../../api/aiCredentials.js';
-import { synthesizeSpeech } from '../../api/tts.js';
+import { createNoteAudioExport } from '../../api/jobs.js';
 import { useSettingsStore } from '../../stores/settings.js';
 import { useUiStore } from '../../stores/ui.js';
 import { isNoteEmpty, useNotesStore } from '../../stores/notes.js';
@@ -603,11 +613,11 @@ import {
   noteToMarkdown,
   noteToPrintableHtml,
 } from '../../utils/noteExport.js';
-import { mergeWavBlobs, splitSpeechText } from '../../utils/ttsAudio.js';
 import { nextWrappedIndex } from '../../utils/noteNavigation.js';
 import BaseDialog from '../BaseDialog.vue';
 import PmActionIcon from '../PmActionIcon.vue';
 import NoteEditor from './NoteEditor.vue';
+import NoteAudioExportDialog from './NoteAudioExportDialog.vue';
 import NoteReviewPanel from './NoteReviewPanel.vue';
 import NoteTagBar from './NoteTagBar.vue';
 import NoteNotebookChip from './NoteNotebookChip.vue';
@@ -1833,7 +1843,9 @@ function exportNoteAsMarkdown() {
 
 const exportingPdf = ref(false);
 const exportingAudio = ref(false);
+const audioExportDialogOpen = ref(false);
 const NOTE_AUDIO_MAX_CHARS = 60000;
+const audioExportBodyText = computed(() => noteContentToPlainText(body.value));
 
 async function exportNoteAsPdf() {
   if (exportingPdf.value) return;
@@ -1867,38 +1879,28 @@ async function exportNoteAsPdf() {
   }
 }
 
-async function exportNoteAsAudio() {
+function openAudioExportDialog() {
+  audioExportDialogOpen.value = true;
+}
+
+async function exportNoteAsAudio(options) {
   if (exportingAudio.value) return;
   exportingAudio.value = true;
   try {
-    const speechText = [String(title.value || '').trim(), noteContentToPlainText(body.value)]
-      .filter(Boolean)
-      .join('.\n');
+    const speechText = String(options?.text || '').trim();
     if (!speechText) throw new Error('Die Notiz enthält keinen vorlesbaren Text.');
     if (speechText.length > NOTE_AUDIO_MAX_CHARS) {
       throw new Error(`Die Notiz ist für den Audioexport zu lang (maximal ${NOTE_AUDIO_MAX_CHARS.toLocaleString('de-DE')} Zeichen).`);
     }
 
-    notify({
-      type: 'info',
-      critical: true,
-      message: 'Audiodatei wird lokal mit Piper erzeugt …',
+    await createNoteAudioExport(loadedNoteId.value, {
+      text: speechText,
+      title: String(options?.title || title.value || '').trim(),
+      voice: options?.voice || notesTtsVoice.value,
     });
-    const parts = [];
-    for (const chunk of splitSpeechText(speechText)) {
-      parts.push(await synthesizeSpeech(chunk, { voice: notesTtsVoice.value }));
-    }
-    const audio = await mergeWavBlobs(parts);
-    const url = window.URL.createObjectURL(audio);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = noteExportFilename(title.value).replace(/\.md$/i, '.wav');
-    link.style.display = 'none';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
-    notify({ type: 'success', critical: true, message: 'Audiodatei wurde erstellt.' });
+    audioExportDialogOpen.value = false;
+    window.dispatchEvent(new CustomEvent('papermind:activity-refresh'));
+    notify({ type: 'success', message: 'Audioexport wurde zur Aktivität hinzugefügt.' });
   } catch (error) {
     notifyError(error, 'Audiodatei konnte nicht erstellt werden.');
   } finally {

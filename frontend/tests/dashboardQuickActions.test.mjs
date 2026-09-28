@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [dashboardSource, workspaceSource, dashboardCss] = await Promise.all([
+const [dashboardSource, boardSource, workspaceSource, dashboardCss] = await Promise.all([
   readFile(new URL('../src/views/DashboardView.vue', import.meta.url), 'utf8'),
+  readFile(new URL('../src/components/dashboard/DashboardBoard.vue', import.meta.url), 'utf8'),
   readFile(new URL('../src/views/DocumentsWorkspace.vue', import.meta.url), 'utf8'),
   readFile(new URL('../src/components/dashboard/dashboard.css', import.meta.url), 'utf8'),
 ]);
@@ -17,6 +18,15 @@ test('dashboard header offers import and note creation beside customization', ()
   assert.match(dashboardSource, /@click="emit\('create-note'\)"/);
   assert.match(workspaceSource, /@import-document="openImport"/);
   assert.match(workspaceSource, /@create-note="createNoteFromCommandPalette"/);
+});
+
+test('dashboard quick actions can be configured in the customization dialog', () => {
+  assert.match(dashboardSource, /v-if="showImportAction"/);
+  assert.match(dashboardSource, /v-if="showNoteAction"/);
+  assert.match(dashboardSource, /<DashboardBoard[^>]*v-show="!isEmpty"/);
+  assert.match(boardSource, /Schnellaktionen/);
+  assert.match(boardSource, /buildDashboardQuickActionsPatch/);
+  assert.match(boardSource, /buildDashboardQuickActionsPatch\(\{ showImport: true, showNote: true \}\)/);
 });
 
 test('dashboard quick actions are visually distinct and responsive', () => {

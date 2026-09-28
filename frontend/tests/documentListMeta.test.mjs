@@ -12,6 +12,19 @@ test('document card keeps the correspondent name delivered by the list API', () 
   assert.equal(name, 'Versorgungsanstalt des Bundes und der Länder');
 });
 
+test('document card prefers the canonical correspondent short name', () => {
+  const name = resolveDocumentCorrespondent(
+    { correspondent_id: 'corr-1', correspondent_name: 'Versorgungsanstalt des Bundes und der Länder' },
+    () => ({
+      id: 'corr-1',
+      name: 'Versorgungsanstalt des Bundes und der Länder',
+      short_name: 'VBL',
+    })
+  );
+
+  assert.equal(name, 'VBL');
+});
+
 test('document card resolves a stored correspondent id when a cached list item has no name', () => {
   const correspondents = new Map([
     ['corr-vbl', { id: 'corr-vbl', name: 'VBL' }],

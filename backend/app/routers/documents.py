@@ -20,6 +20,7 @@ from app.schemas.documents import (
     DocumentFileRole,
     DocumentListResponse,
     DocumentMetadataSuggestion,
+    DocumentOCRBatchRequest,
     DocumentSortField,
     DocumentSearchScope,
     DocumentStatus,
@@ -234,6 +235,23 @@ def upload_document(
 def queue_document_ocr(document_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> DocumentDetail:
     service = DocumentService(db, user.id)
     return service.as_detail(service.queue_ocr_for_document(document_id))
+
+
+@router.post(
+    "/ocr-batch",
+    summary="Preview or queue OCR jobs for an explicit document selection",
+)
+def queue_document_ocr_batch(
+    payload: DocumentOCRBatchRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    service = DocumentService(db, user.id)
+    return service.queue_ocr_for_documents(
+        payload.document_ids,
+        rerun_completed=payload.rerun_completed,
+        dry_run=payload.dry_run,
+    )
 
 
 @router.post(

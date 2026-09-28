@@ -7,13 +7,27 @@ import {
   buildAutoTaggingPatch,
   buildRecentImportWindowPatch,
   buildNotesPreferencesPatch,
+  buildDashboardQuickActionsPatch,
   buildSidebarMaxFoldersPatch,
   buildSidebarShowDossiersPatch,
+  buildSidebarShowLernraumPatch,
   buildSortOrderPatch,
   buildThemeModePatch,
   buildTrashRetentionPatch,
   normalizeNoteTextReplacements,
 } from "../src/utils/settingsApi.js";
+
+test("buildDashboardQuickActionsPatch only includes supplied actions", () => {
+  assert.deepEqual(buildDashboardQuickActionsPatch({ showImport: false }), {
+    ui: { dashboard_show_import_action: false },
+  });
+  assert.deepEqual(buildDashboardQuickActionsPatch({ showImport: true, showNote: false }), {
+    ui: {
+      dashboard_show_import_action: true,
+      dashboard_show_note_action: false,
+    },
+  });
+});
 
 test("buildThemeModePatch returns expected payload", () => {
   assert.deepEqual(buildThemeModePatch("dark"), {
@@ -58,6 +72,12 @@ test("buildAutoOpenImportInboxPatch returns expected payload", () => {
 test("buildSidebarShowDossiersPatch returns expected payload", () => {
   assert.deepEqual(buildSidebarShowDossiersPatch(false), {
     ui: { sidebar_show_dossiers: false },
+  });
+});
+
+test("buildSidebarShowLernraumPatch returns expected payload", () => {
+  assert.deepEqual(buildSidebarShowLernraumPatch(false), {
+    ui: { sidebar_show_lernraum: false },
   });
 });
 

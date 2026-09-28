@@ -166,7 +166,55 @@ class LearnCardRead(ORMModel):
     position: int
     created_at: datetime
     updated_at: datetime
+    # Herkunftsanker (gesetzt bei aus Nachbereitung entstandenen Karten).
+    source_note_id: uuid.UUID | None = None
+    source_pm_id: str | None = None
 
 
 class LearnCardListResponse(BaseModel):
     items: list[LearnCardRead]
+
+
+# --- Marker (Projektion aus Notizen) ---------------------------------------
+class LearnMarkerRead(ORMModel):
+    id: uuid.UUID
+    note_id: uuid.UUID
+    node_pm_id: str
+    kind: str
+    snippet: str
+    position: int
+    created_at: datetime
+    # Vom Service befüllt.
+    note_title: str | None = None
+    has_card: bool = False
+    # Aufgelöste Zuordnung über die Notiz↔Sitzung-Kopplung (learn_session.note_id).
+    # Null, wenn die Mitschrift-Notiz noch keiner Sitzung zugeordnet ist.
+    course_id: uuid.UUID | None = None
+    course_title: str | None = None
+    session_id: uuid.UUID | None = None
+    session_title: str | None = None
+
+
+class LearnMarkerListResponse(BaseModel):
+    items: list[LearnMarkerRead]
+
+
+class LearnMarkerPromote(BaseModel):
+    """Nachbereitung: einen offenen Marker in eine Lernkarte mit Anker überführen.
+
+    Ziel wird über genau eine der drei Ebenen bestimmt (Vorrang: sheet_id →
+    session_id → course_id). Bei ``session_id``/``course_id`` legt der Service
+    bei Bedarf ein passendes Lernblatt an (find-or-create). Mit ``bind_note``
+    wird die Mitschrift-Notiz dauerhaft der Sitzung zugeordnet, sodass weitere
+    Marker derselben Notiz künftig automatisch zugeordnet sind.
+    """
+
+    note_id: uuid.UUID
+    node_pm_id: str = Field(min_length=1, max_length=16)
+    kind: ArtifactType = "fakt"
+    front: str = Field(min_length=1, max_length=4000)
+    back: str | None = Field(default=None, max_length=8000)
+    sheet_id: uuid.UUID | None = None
+    session_id: uuid.UUID | None = None
+    course_id: uuid.UUID | None = None
+    bind_note: bool = False

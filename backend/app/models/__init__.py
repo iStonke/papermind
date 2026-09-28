@@ -12,7 +12,7 @@ from app.models.dossier import Dossier, DossierGroup, DossierItem, DossierProper
 from app.models.global_setting import GlobalSetting
 from app.models.import_inbox import ImportInboxItem
 from app.models.job import Job
-from app.models.learn import LearnCard, LearnCourse, LearnSession, LearnSheet
+from app.models.learn import LearnCard, LearnCourse, LearnMarker, LearnSession, LearnSheet
 from app.models.note import Note, NoteLink, NoteRevision, NoteTask
 from app.models.note_block_template import NoteBlockTemplate
 from app.models.note_collection import NoteCollection
@@ -60,6 +60,7 @@ __all__ = [
     "Job",
     "LearnCard",
     "LearnCourse",
+    "LearnMarker",
     "LearnSession",
     "LearnSheet",
     "Note",

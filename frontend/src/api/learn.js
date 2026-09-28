@@ -33,3 +33,15 @@ export const listCards = (sheetId) => apiGet(`/api/learn/sheets/${sheetId}/cards
 export const createCard = (sheetId, body = {}) => apiPost(`/api/learn/sheets/${sheetId}/cards`, body);
 export const updateCard = (id, body = {}) => apiPatch(`/api/learn/cards/${id}`, body);
 export const deleteCard = (id) => apiDelete(`/api/learn/cards/${id}`);
+
+// --- Marker (aus Notizen projiziert) / Nachbereitung -----------------------
+export const listMarkers = ({ noteId = null, open = false } = {}) => {
+  const params = new URLSearchParams();
+  if (noteId) params.set('note_id', noteId);
+  if (open) params.set('open', 'true');
+  const suffix = params.toString();
+  return apiGet(`/api/learn/markers${suffix ? `?${suffix}` : ''}`);
+};
+// Marker → Karte mit Herkunftsanker; body enthält note_id, node_pm_id, kind,
+// front, back und genau ein Ziel (sheet_id | session_id | course_id) + bind_note.
+export const promoteMarker = (body = {}) => apiPost('/api/learn/markers/promote', body);
