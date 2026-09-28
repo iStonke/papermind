@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from app.core.errors import APIError
 from app.routers import tts as tts_router
 from app.schemas.tts import SpeechRequest
-from app.services.tts import PiperTTSService, TTSUnavailableError
+from app.services.tts import PiperTTSService, TTSUnavailableError, segment_speech_text
 
 
 class _FakeVoice:
@@ -46,10 +46,50 @@ class PiperTTSServiceTest(unittest.TestCase):
         with self.assertRaises(TTSUnavailableError):
             service.synthesize_wav("Hallo")
 
+    def test_english_uses_dedicated_high_quality_model(self) -> None:
+        service = PiperTTSService("/unused/de.onnx", "/unused/emotional.onnx", "/unused/en.onnx")
+        with patch.object(service, "_get_voice", return_value=_FakeVoice()) as get_voice:
+            service.synthesize_wav("This is an English sentence.", language="en")
+
+        get_voice.assert_called_once_with("english")
+
+
+class SpeechSegmentationTest(unittest.TestCase):
+    def test_auto_mode_switches_between_german_and_english_sentences(self) -> None:
+        segments = segment_speech_text(
+            "Das ist ein deutscher Abschnitt und er wird mit Thorsten gesprochen. "
+            "This is an English section and it uses the matching English voice. "
+            "Danach wird der deutsche Text wieder mit Thorsten vorgelesen.",
+            mode="auto",
+        )
+
+        self.assertEqual([segment.language for segment in segments], ["de", "en", "de"])
+
+    def test_short_names_and_loanwords_do_not_trigger_voice_change(self) -> None:
+        segments = segment_speech_text(
+            "Das ist ein längerer deutscher Satz mit genügend eindeutigen Wörtern. OpenAI. "
+            "Danach bleibt die ausgewählte deutsche Stimme weiterhin aktiv.",
+            mode="auto",
+        )
+
+        self.assertEqual(len(segments), 1)
+        self.assertEqual(segments[0].language, "de")
+        self.assertIn("OpenAI", segments[0].text)
+
+    def test_forced_language_modes_skip_detection(self) -> None:
+        english = segment_speech_text("Das ist deutscher Text.", mode="en")
+        german = segment_speech_text("This is English text.", mode="de")
+
+        self.assertTrue(all(segment.language == "en" for segment in english))
+        self.assertTrue(all(segment.language == "de" for segment in german))
+
 
 class TTSEndpointTest(unittest.TestCase):
     def test_endpoint_returns_inline_audio(self) -> None:
-        with patch.object(tts_router.tts_service, "synthesize_wav", return_value=b"RIFFtest"):
+        with (
+            patch.object(tts_router.tts_service, "synthesize_wav", return_value=b"part"),
+            patch.object(tts_router, "merge_wav_bytes", return_value=b"RIFFtest"),
+        ):
             response = tts_router.synthesize_speech(SpeechRequest(text="  Hallo   Welt  "), MagicMock())
 
         self.assertEqual(response.media_type, "audio/wav")
@@ -57,13 +97,29 @@ class TTSEndpointTest(unittest.TestCase):
         self.assertEqual(response.headers["cache-control"], "no-store")
 
     def test_endpoint_forwards_voice_preset(self) -> None:
-        with patch.object(tts_router.tts_service, "synthesize_wav", return_value=b"RIFF") as synthesize:
+        with (
+            patch.object(tts_router.tts_service, "synthesize_wav", return_value=b"part") as synthesize,
+            patch.object(tts_router, "merge_wav_bytes", return_value=b"RIFF"),
+        ):
             tts_router.synthesize_speech(
                 SpeechRequest(text="Hallo", voice="whisper"),
                 MagicMock(),
             )
 
-        synthesize.assert_called_once_with("Hallo", voice="whisper")
+        synthesize.assert_called_once_with("Hallo", voice="whisper", language="de")
+
+    def test_endpoint_uses_automatic_language_segments(self) -> None:
+        text = (
+            "Das ist ein deutscher Satz und er wird korrekt erkannt. "
+            "This is an English sentence and it is detected correctly."
+        )
+        with (
+            patch.object(tts_router.tts_service, "synthesize_wav", return_value=b"part") as synthesize,
+            patch.object(tts_router, "merge_wav_bytes", return_value=b"RIFF"),
+        ):
+            tts_router.synthesize_speech(SpeechRequest(text=text, language_mode="auto"), MagicMock())
+
+        self.assertEqual([call.kwargs["language"] for call in synthesize.call_args_list], ["de", "en"])
 
     def test_endpoint_maps_unavailable_engine_to_503(self) -> None:
         with (

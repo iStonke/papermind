@@ -457,7 +457,7 @@ function downloadAudio(job) {
 
 function autoDownloadReadyAudioExports() {
   for (const job of audioExports.value) {
-    if (job.status !== 'done' || job.downloaded_at || audioBusyIds.value.has(job.id)) continue;
+    if (job.status !== 'done' || audioBusyIds.value.has(job.id)) continue;
     void downloadAudio(job);
   }
 }

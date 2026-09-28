@@ -32,6 +32,7 @@ const NOTES_FONT_FAMILY_VALUES = new Set([
 const NOTES_FONT_SIZE_VALUES = new Set(['small', 'medium', 'large']);
 const NOTES_SPACING_VALUES = new Set(['compact', 'comfortable', 'spacious']);
 const NOTES_TTS_VOICE_VALUES = new Set(['standard', 'neutral', 'amused', 'sleepy', 'whisper']);
+const NOTES_TTS_LANGUAGE_MODE_VALUES = new Set(['auto', 'de', 'en']);
 const TEXT_GENERATION_PROVIDER_VALUES = new Set(['ollama', 'openai', 'anthropic']);
 const SORT_ORDER_VALUES = new Set([
   'newest',
@@ -152,6 +153,7 @@ function createDefaultSettings() {
       notes_heading_spacing: 'comfortable',
       notes_block_spacing: 'comfortable',
       notes_spellcheck_enabled: true,
+      notes_tts_language_mode: 'auto',
       notes_tts_voice: 'standard',
       notes_text_replacements: []
     },
@@ -436,6 +438,7 @@ export const useSettingsStore = defineStore('settings', {
         notes_heading_spacing: false,
         notes_block_spacing: false,
         notes_spellcheck_enabled: false,
+        notes_tts_language_mode: false,
         notes_tts_voice: false,
         notes_text_replacements: false,
         text_generation_prompt_suggestions: false,
@@ -507,6 +510,7 @@ export const useSettingsStore = defineStore('settings', {
       const rawNotesHeadingSpacing = String(payload?.ui?.notes_heading_spacing || '').toLowerCase();
       const rawNotesBlockSpacing = String(payload?.ui?.notes_block_spacing || '').toLowerCase();
       const rawNotesTtsVoice = String(payload?.ui?.notes_tts_voice || '').toLowerCase();
+      const rawNotesTtsLanguageMode = String(payload?.ui?.notes_tts_language_mode || '').toLowerCase();
       const rawSortOrder = String(payload?.documents?.sort_order || '').toLowerCase();
       const rawRecentImportWindow = Number(payload?.documents?.recent_import_window_hours);
       const rawTrashRetentionDays = Number(payload?.documents?.trash_retention_days);
@@ -625,6 +629,9 @@ export const useSettingsStore = defineStore('settings', {
             typeof payload?.ui?.notes_spellcheck_enabled === 'boolean'
               ? payload.ui.notes_spellcheck_enabled
               : defaults.ui.notes_spellcheck_enabled,
+          notes_tts_language_mode: NOTES_TTS_LANGUAGE_MODE_VALUES.has(rawNotesTtsLanguageMode)
+            ? rawNotesTtsLanguageMode
+            : defaults.ui.notes_tts_language_mode,
           notes_tts_voice: NOTES_TTS_VOICE_VALUES.has(rawNotesTtsVoice)
             ? rawNotesTtsVoice
             : defaults.ui.notes_tts_voice,

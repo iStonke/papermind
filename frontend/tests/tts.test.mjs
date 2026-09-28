@@ -19,7 +19,7 @@ test('synthesizeSpeech posts selected text and returns a WAV blob', async () => 
     assert.equal(blob.type, 'audio/wav');
     assert.match(request.url, /\/api\/tts\/speech$/);
     assert.equal(request.options.method, 'POST');
-    assert.deepEqual(JSON.parse(request.options.body), { text: 'Hallo Welt', voice: 'standard' });
+    assert.deepEqual(JSON.parse(request.options.body), { text: 'Hallo Welt', voice: 'standard', language_mode: 'auto' });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -37,8 +37,8 @@ test('synthesizeSpeech sends the selected voice preset', async () => {
   };
 
   try {
-    await synthesizeSpeech('Gute Nacht', { voice: 'sleepy' });
-    assert.deepEqual(requestBody, { text: 'Gute Nacht', voice: 'sleepy' });
+    await synthesizeSpeech('Gute Nacht', { voice: 'sleepy', languageMode: 'de' });
+    assert.deepEqual(requestBody, { text: 'Gute Nacht', voice: 'sleepy', language_mode: 'de' });
   } finally {
     globalThis.fetch = originalFetch;
   }

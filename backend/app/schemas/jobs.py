@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import datetime
 from enum import Enum
@@ -89,6 +90,7 @@ class OcrBacklog(BaseModel):
 
 
 NoteAudioVoice = Literal["standard", "neutral", "amused", "sleepy", "whisper"]
+NoteAudioLanguageMode = Literal["auto", "de", "en"]
 
 
 class NoteAudioExportCreateRequest(BaseModel):
@@ -97,11 +99,13 @@ class NoteAudioExportCreateRequest(BaseModel):
     text: str = Field(min_length=1, max_length=60_000)
     title: str = Field(default="", max_length=500)
     voice: NoteAudioVoice = "standard"
+    language_mode: NoteAudioLanguageMode = "auto"
 
     @field_validator("text")
     @classmethod
     def normalize_text(cls, value: str) -> str:
-        normalized = " ".join(value.split())
+        normalized = re.sub(r"[^\S\n]+", " ", value).strip()
+        normalized = re.sub(r"\n\s*\n(?:\s*\n)+", "\n\n", normalized)
         if not normalized:
             raise ValueError("text must contain readable characters")
         return normalized
@@ -113,6 +117,7 @@ class NoteAudioExportRead(BaseModel):
     note_title: str
     filename: str
     voice: NoteAudioVoice
+    language_mode: NoteAudioLanguageMode = "auto"
     status: Literal["queued", "running", "done", "failed"]
     progress: int = Field(ge=0, le=100)
     phase: str | None = None
@@ -122,7 +127,6 @@ class NoteAudioExportRead(BaseModel):
     updated_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
-    downloaded_at: datetime | None = None
 
 
 class JobActivityResponse(BaseModel):

@@ -12,7 +12,7 @@ async function speechError(response) {
 }
 
 /** Erzeugt die WAV-Datei lokal im PaperMind-Backend (Piper, keine Cloud). */
-export async function synthesizeSpeech(text, { signal, voice = 'standard' } = {}) {
+export async function synthesizeSpeech(text, { signal, voice = 'standard', languageMode = 'auto' } = {}) {
   const response = await fetch(`${getBaseUrl()}/api/tts/speech`, {
     method: 'POST',
     credentials: 'include',
@@ -21,7 +21,7 @@ export async function synthesizeSpeech(text, { signal, voice = 'standard' } = {}
       ...authHeaders(),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ text, voice }),
+    body: JSON.stringify({ text, voice, language_mode: languageMode }),
     signal,
   });
   if (!response.ok) throw await speechError(response);

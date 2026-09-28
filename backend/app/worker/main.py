@@ -50,7 +50,7 @@ from app.services.ocr_pipeline import run_ocr_pipeline
 from app.services.settings import SettingsService
 from app.services.maintenance import write_activity
 from app.services.note_audio_jobs import note_audio_jobs
-from app.services.tts import merge_wav_bytes, split_speech_text, tts_service
+from app.services.tts import merge_wav_bytes, segment_speech_text, tts_service
 from app.worker.document_dispatch import DocumentJobDispatcher
 from app.services.tag_suggestions import (
     fallback_tag_candidates,
@@ -1913,20 +1913,30 @@ def _process_note_audio_job(job: dict) -> None:
     output_path = note_audio_jobs.output_path(job_id)
     incoming_path = output_path.with_suffix(".wav.incoming")
     try:
-        chunks = split_speech_text(str(job.get("text") or ""), settings.tts_max_chars)
-        if not chunks:
+        segments = segment_speech_text(
+            str(job.get("text") or ""),
+            mode=str(job.get("language_mode") or "auto"),
+            max_chars=settings.tts_max_chars,
+        )
+        if not segments:
             raise ValueError("Die Notiz enthält keinen vorlesbaren Text.")
         audio_parts: list[bytes] = []
-        for index, chunk in enumerate(chunks):
+        for index, segment in enumerate(segments):
             if note_audio_jobs.is_cancel_requested(job_id):
                 note_audio_jobs.remove(job_id)
                 return
             note_audio_jobs.update(
                 job_id,
-                progress=max(2, round(index / len(chunks) * 90)),
-                phase=f"Abschnitt {index + 1} von {len(chunks)} wird gesprochen",
+                progress=max(2, round(index / len(segments) * 90)),
+                phase=f"Abschnitt {index + 1} von {len(segments)} wird gesprochen",
             )
-            audio_parts.append(tts_service.synthesize_wav(chunk, voice=str(job.get("voice") or "standard")))
+            audio_parts.append(
+                tts_service.synthesize_wav(
+                    segment.text,
+                    voice=str(job.get("voice") or "standard"),
+                    language=segment.language,
+                )
+            )
         if note_audio_jobs.is_cancel_requested(job_id):
             note_audio_jobs.remove(job_id)
             return
@@ -1934,7 +1944,7 @@ def _process_note_audio_job(job: dict) -> None:
         incoming_path.write_bytes(merge_wav_bytes(audio_parts))
         if not note_audio_jobs.complete(job_id, incoming_path):
             return
-        logger.info("note audio export completed job_id=%s chunks=%s", job_id, len(chunks))
+        logger.info("note audio export completed job_id=%s segments=%s", job_id, len(segments))
     except Exception as exc:  # noqa: BLE001 - native Piper/runtime errors become job failures
         incoming_path.unlink(missing_ok=True)
         if note_audio_jobs.get(job_id) is not None:

@@ -343,6 +343,8 @@ const props = defineProps({
   spellcheckEnabled: { type: Boolean, default: true },
   /** In den persönlichen Notiz-Einstellungen gewählte lokale Piper-Stimme. */
   ttsVoice: { type: String, default: 'standard' },
+  /** Automatische, deutsche oder englische Aussprache für markierten Text. */
+  ttsLanguageMode: { type: String, default: 'auto' },
   /** Persoenliche, exakt passende Kuerzel fuer Enter-Textersetzungen. */
   textReplacements: { type: Array, default: () => [] },
   /** Inhalt anzeigen und auswählen, aber nicht verändern. */
@@ -431,7 +433,10 @@ const SPEECH_VOICE_VALUES = new Set(['standard', 'neutral', 'amused', 'sleepy', 
 const speechVoice = computed(() => (
   SPEECH_VOICE_VALUES.has(props.ttsVoice) ? props.ttsVoice : 'standard'
 ));
-const speech = reactive({ status: 'idle', text: '', voice: '', error: '' });
+const speechLanguageMode = computed(() => (
+  ['auto', 'de', 'en'].includes(props.ttsLanguageMode) ? props.ttsLanguageMode : 'auto'
+));
+const speech = reactive({ status: 'idle', text: '', voice: '', languageMode: '', error: '' });
 let speechAudio = null;
 let speechObjectUrl = '';
 let speechAbortController = null;
@@ -1251,10 +1256,11 @@ function stopSpeech({ preserveError = false } = {}) {
   speech.status = preserveError ? 'error' : 'idle';
   speech.text = '';
   speech.voice = '';
+  speech.languageMode = '';
   if (!preserveError) speech.error = '';
 }
 
-watch(speechVoice, () => stopSpeech());
+watch([speechVoice, speechLanguageMode], () => stopSpeech());
 
 function stopSpeechWhenSelectionChanges(ed) {
   if (speech.status === 'idle' || speech.status === 'error') return;
@@ -1265,16 +1271,16 @@ async function toggleSelectedSpeech(ed) {
   const text = selectedSpeechText(ed);
   if (!text) return;
 
-  if (speech.text === text && speech.voice === speechVoice.value && speech.status === 'loading') {
+  if (speech.text === text && speech.voice === speechVoice.value && speech.languageMode === speechLanguageMode.value && speech.status === 'loading') {
     stopSpeech();
     return;
   }
-  if (speech.text === text && speech.voice === speechVoice.value && speech.status === 'playing') {
+  if (speech.text === text && speech.voice === speechVoice.value && speech.languageMode === speechLanguageMode.value && speech.status === 'playing') {
     speechAudio?.pause();
     speech.status = 'paused';
     return;
   }
-  if (speech.text === text && speech.voice === speechVoice.value && speech.status === 'paused' && speechAudio) {
+  if (speech.text === text && speech.voice === speechVoice.value && speech.languageMode === speechLanguageMode.value && speech.status === 'paused' && speechAudio) {
     try {
       await speechAudio.play();
       speech.status = 'playing';
@@ -1294,6 +1300,7 @@ async function toggleSelectedSpeech(ed) {
 
   speech.text = text;
   speech.voice = speechVoice.value;
+  speech.languageMode = speechLanguageMode.value;
   speech.status = 'loading';
   speechAbortController = new AbortController();
   const requestController = speechAbortController;
@@ -1301,6 +1308,7 @@ async function toggleSelectedSpeech(ed) {
     const audioBlob = await synthesizeSpeech(text, {
       signal: requestController.signal,
       voice: speechVoice.value,
+      languageMode: speechLanguageMode.value,
     });
     if (speechAbortController !== requestController) return;
     speechAbortController = null;

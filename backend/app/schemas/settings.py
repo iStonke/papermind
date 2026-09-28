@@ -210,6 +210,12 @@ class NotesTTSVoice(str, Enum):
     whisper = "whisper"
 
 
+class NotesTTSLanguageMode(str, Enum):
+    auto = "auto"
+    de = "de"
+    en = "en"
+
+
 class DocumentSortOrder(str, Enum):
     newest = "newest"
     oldest = "oldest"
@@ -362,6 +368,7 @@ class UISettingsRead(BaseModel):
     notes_heading_spacing: NotesSpacing = NotesSpacing.comfortable
     notes_block_spacing: NotesSpacing = NotesSpacing.comfortable
     notes_spellcheck_enabled: bool = True
+    notes_tts_language_mode: NotesTTSLanguageMode = NotesTTSLanguageMode.auto
     notes_tts_voice: NotesTTSVoice = NotesTTSVoice.standard
     notes_text_replacements: list[NoteTextReplacement] = Field(default_factory=list, max_length=100)
 
@@ -577,6 +584,7 @@ class UISettingsPatch(BaseModel):
     notes_heading_spacing: NotesSpacing | None = None
     notes_block_spacing: NotesSpacing | None = None
     notes_spellcheck_enabled: bool | None = None
+    notes_tts_language_mode: NotesTTSLanguageMode | None = None
     notes_tts_voice: NotesTTSVoice | None = None
     notes_text_replacements: list[NoteTextReplacement] | None = Field(default=None, max_length=100)
 

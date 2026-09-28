@@ -344,6 +344,7 @@
           :block-spacing="notesBlockSpacing"
           :spellcheck-enabled="notesSpellcheckEnabled"
           :tts-voice="notesTtsVoice"
+          :tts-language-mode="notesTtsLanguageMode"
           :text-replacements="notesTextReplacements"
           :readonly="status === 'conflict'"
           :ai-available="aiAvailable"
@@ -787,6 +788,11 @@ const notesTtsVoice = noteSetting(
   'notes_tts_voice',
   ['standard', 'neutral', 'amused', 'sleepy', 'whisper'],
   'standard',
+);
+const notesTtsLanguageMode = noteSetting(
+  'notes_tts_language_mode',
+  ['auto', 'de', 'en'],
+  'auto',
 );
 const notesTextReplacements = computed(
   () => settingsStore.settingsDraft?.ui?.notes_text_replacements || []
@@ -1897,6 +1903,7 @@ async function exportNoteAsAudio(options) {
       text: speechText,
       title: String(options?.title || title.value || '').trim(),
       voice: options?.voice || notesTtsVoice.value,
+      language_mode: options?.languageMode || 'auto',
     });
     audioExportDialogOpen.value = false;
     window.dispatchEvent(new CustomEvent('papermind:activity-refresh'));

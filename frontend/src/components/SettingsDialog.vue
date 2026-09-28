@@ -835,6 +835,21 @@
                 </div>
               </div>
               <v-select
+                :model-value="settingsDraft.ui.notes_tts_language_mode"
+                :items="notesTtsLanguageModeOptions"
+                item-title="label"
+                item-value="value"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Sprachmodus"
+                :loading="isSettingSaving.notes_tts_language_mode"
+                :disabled="isSettingSaving.notes_tts_language_mode"
+                @update:model-value="onNotesTtsLanguageModeChange"
+              />
+              <v-select
+                v-if="settingsDraft.ui.notes_tts_language_mode !== 'en'"
                 :model-value="settingsDraft.ui.notes_tts_voice"
                 :items="notesTtsVoiceOptions"
                 item-title="label"
@@ -843,7 +858,7 @@
                 hide-details
                 variant="outlined"
                 class="settings-theme-select pm-setting-select"
-                label="Stimme"
+                label="Deutsche Stimme"
                 :loading="isSettingSaving.notes_tts_voice"
                 :disabled="isSettingSaving.notes_tts_voice"
                 @update:model-value="onNotesTtsVoiceChange"
@@ -3999,6 +4014,11 @@ const notesTtsVoiceOptions = [
   { value: 'sleepy', label: 'Ruhig – Thorsten Emotional' },
   { value: 'whisper', label: 'Flüstern – Thorsten Emotional' },
 ];
+const notesTtsLanguageModeOptions = [
+  { value: 'auto', label: 'Automatisch' },
+  { value: 'de', label: 'Nur Deutsch' },
+  { value: 'en', label: 'Nur Englisch' },
+];
 
 const NOTES_DEFAULT_VIEW_VALUES = new Set(notesDefaultViewOptions.map((option) => option.value));
 const NOTES_SORT_ORDER_VALUES = new Set(notesSortOrderOptions.map((option) => option.value));
@@ -4008,6 +4028,7 @@ const NOTES_FONT_FAMILY_VALUES = new Set(notesFontFamilyOptions.map((option) => 
 const NOTES_FONT_SIZE_VALUES = new Set(notesFontSizeOptions.map((option) => option.value));
 const NOTES_SPACING_VALUES = new Set(notesSpacingOptions.map((option) => option.value));
 const NOTES_TTS_VOICE_VALUES = new Set(notesTtsVoiceOptions.map((option) => option.value));
+const NOTES_TTS_LANGUAGE_MODE_VALUES = new Set(notesTtsLanguageModeOptions.map((option) => option.value));
 
 const textReplacementRows = ref([]);
 const textReplacementsDirty = ref(false);
@@ -4163,6 +4184,10 @@ function onNotesBlockSpacingChange(nextValue) {
 
 function onNotesTtsVoiceChange(nextValue) {
   return onNotesPreferenceChange('notes_tts_voice', nextValue, NOTES_TTS_VOICE_VALUES, 'standard');
+}
+
+function onNotesTtsLanguageModeChange(nextValue) {
+  return onNotesPreferenceChange('notes_tts_language_mode', nextValue, NOTES_TTS_LANGUAGE_MODE_VALUES, 'auto');
 }
 
 async function onNotesSpellcheckChange(nextValue) {

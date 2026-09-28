@@ -14,15 +14,32 @@
     @primary="submit"
   >
     <div class="note-audio-export-dialog__intro">
-      Die Audiodatei wird lokal erzeugt. Du kannst währenddessen weiterarbeiten und sie anschließend unter „Aktivität“ herunterladen.
+      Die Audiodatei wird lokal erzeugt. Im automatischen Modus wechseln deutsche und englische Abschnitte selbstständig die Stimme.
     </div>
 
     <v-select
+      v-model="languageMode"
+      :items="languageModeOptions"
+      item-title="label"
+      item-value="value"
+      label="Sprachmodus"
+      variant="outlined"
+      density="comfortable"
+      hide-details
+      class="note-audio-export-dialog__language"
+    >
+      <template #item="{ props: itemProps, item }">
+        <v-list-item v-bind="itemProps" :subtitle="item.raw.description" />
+      </template>
+    </v-select>
+
+    <v-select
+      v-if="languageMode !== 'en'"
       v-model="voice"
       :items="voiceOptions"
       item-title="label"
       item-value="value"
-      label="Stimme"
+      label="Deutsche Stimme"
       variant="outlined"
       density="comfortable"
       hide-details
@@ -100,6 +117,12 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'submit']);
 
+const languageModeOptions = [
+  { value: 'auto', label: 'Automatisch', description: 'Deutsch und Englisch abschnittsweise erkennen' },
+  { value: 'de', label: 'Nur Deutsch', description: 'Gesamten Text mit Thorsten sprechen' },
+  { value: 'en', label: 'Nur Englisch', description: 'Gesamten Text mit Ryan High sprechen' },
+];
+
 const voiceOptions = [
   { value: 'standard', label: 'Klar – Thorsten High', description: 'Deutlich und ausgewogen' },
   { value: 'neutral', label: 'Sanft – Thorsten Emotional', description: 'Ruhiger, neutraler Ausdruck' },
@@ -110,6 +133,7 @@ const voiceOptions = [
 const allowedVoices = new Set(voiceOptions.map((option) => option.value));
 
 const voice = ref('standard');
+const languageMode = ref('auto');
 const includeTitle = ref(true);
 const normalizedTitle = computed(() => String(props.noteTitle || '').trim());
 const normalizedBody = computed(() => String(props.bodyText || '').trim());
@@ -130,6 +154,7 @@ watch(
   (open) => {
     if (!open) return;
     voice.value = allowedVoices.has(props.defaultVoice) ? props.defaultVoice : 'standard';
+    languageMode.value = 'auto';
     includeTitle.value = Boolean(normalizedTitle.value);
   },
 );
@@ -140,6 +165,7 @@ function submit() {
     text: exportText.value,
     title: normalizedTitle.value,
     voice: voice.value,
+    languageMode: languageMode.value,
     includeTitle: includeTitle.value,
   });
 }
@@ -153,6 +179,10 @@ function submit() {
 }
 
 .note-audio-export-dialog__voice {
+  margin-top: 12px;
+}
+
+.note-audio-export-dialog__language {
   margin-top: 18px;
 }
 

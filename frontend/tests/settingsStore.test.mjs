@@ -114,6 +114,7 @@ test("normalizeSettingsPayload preserves note preferences", () => {
       notes_heading_spacing: "compact",
       notes_block_spacing: "spacious",
       notes_spellcheck_enabled: false,
+      notes_tts_language_mode: "en",
       notes_text_replacements: [
         { shortcut: "MFG", replacement: "Mit freundlichen Grüßen", enabled: true },
       ],
@@ -130,6 +131,7 @@ test("normalizeSettingsPayload preserves note preferences", () => {
   assert.equal(normalized.ui.notes_heading_spacing, "compact");
   assert.equal(normalized.ui.notes_block_spacing, "spacious");
   assert.equal(normalized.ui.notes_spellcheck_enabled, false);
+  assert.equal(normalized.ui.notes_tts_language_mode, "en");
   assert.deepEqual(normalized.ui.notes_text_replacements, [
     { shortcut: "MFG", replacement: "Mit freundlichen Grüßen", enabled: true },
   ]);
@@ -150,6 +152,7 @@ test("normalizeSettingsPayload falls back for invalid note preferences", () => {
       notes_line_spacing: "double",
       notes_heading_spacing: "none",
       notes_block_spacing: "massive",
+      notes_tts_language_mode: "fr",
     },
   });
 
@@ -163,6 +166,7 @@ test("normalizeSettingsPayload falls back for invalid note preferences", () => {
   assert.equal(normalized.ui.notes_heading_spacing, "comfortable");
   assert.equal(normalized.ui.notes_block_spacing, "comfortable");
   assert.equal(normalized.ui.notes_spellcheck_enabled, true);
+  assert.equal(normalized.ui.notes_tts_language_mode, "auto");
 });
 
 test("normalizeSettingsPayload preserves every bundled note font", () => {

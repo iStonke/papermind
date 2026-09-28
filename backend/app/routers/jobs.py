@@ -76,6 +76,7 @@ def create_note_audio_export(
         note_title=payload.title,
         text=payload.text,
         voice=payload.voice,
+        language_mode=payload.language_mode,
     )
     if job.get("status") != "queued":
         raise ConflictError("Für diese Notiz läuft bereits ein Audioexport.")
@@ -118,8 +119,8 @@ def confirm_note_audio_export_download(
     job_id: uuid.UUID,
     user: User = Depends(get_current_user),
 ) -> Response:
-    if not note_audio_jobs.mark_downloaded(job_id, user.id):
-        raise BadRequestError("Der Audioexport kann nicht als heruntergeladen markiert werden.")
+    if not note_audio_jobs.acknowledge_download(job_id, user.id):
+        raise BadRequestError("Der Audioexport kann nicht abgeschlossen werden.")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

@@ -36,6 +36,7 @@ class NoteAudioJobStoreTests(unittest.TestCase):
             note_title="Meine Notiz",
             text="Ein kurzer Text.",
             voice="standard",
+            language_mode="auto",
         )
 
     def test_queue_survives_new_store_instance_and_is_owner_scoped(self):
@@ -43,6 +44,7 @@ class NoteAudioJobStoreTests(unittest.TestCase):
         reopened = NoteAudioJobStore(Path(self.tempdir.name))
 
         self.assertEqual(reopened.get(created["id"], owner_id=self.owner)["status"], "queued")
+        self.assertEqual(reopened.get(created["id"], owner_id=self.owner)["language_mode"], "auto")
         self.assertIsNone(reopened.get(created["id"], owner_id=uuid.uuid4()))
         self.assertEqual(len(reopened.activity(self.owner)), 1)
 
@@ -56,11 +58,15 @@ class NoteAudioJobStoreTests(unittest.TestCase):
         incoming.write_bytes(_wav(b"\x00\x00"))
         self.assertTrue(self.store.complete(created["id"], incoming))
         self.assertEqual(self.store.get(created["id"])["status"], "done")
-        self.assertTrue(self.store.mark_downloaded(created["id"], self.owner))
-        self.assertIsNotNone(self.store.get(created["id"])["downloaded_at"])
-        self.assertTrue(self.store.dismiss(created["id"], self.owner))
+        self.assertTrue(self.store.acknowledge_download(created["id"], self.owner))
         self.assertIsNone(self.store.get(created["id"]))
         self.assertFalse(self.store.output_path(created["id"]).exists())
+
+    def test_download_acknowledgement_requires_owner_and_completed_job(self):
+        created = self.create()
+        self.assertFalse(self.store.acknowledge_download(created["id"], uuid.uuid4()))
+        self.assertFalse(self.store.acknowledge_download(created["id"], self.owner))
+        self.assertIsNotNone(self.store.get(created["id"]))
 
     def test_cancel_wins_over_publish(self):
         created = self.create()

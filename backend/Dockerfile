@@ -44,16 +44,22 @@ ARG PIPER_CONFIG_SHA256=6de734444e4c3f9e33b7ebe2746dbc19b71e85f613e79c65acf62320
 ARG PIPER_EMOTIONAL_VOICE=de_DE-thorsten_emotional-medium
 ARG PIPER_EMOTIONAL_VOICE_SHA256=c1764e652266cd6dcebf1b95c61973df5970a5f5272e94b655ff1ddf9a99d1ff
 ARG PIPER_EMOTIONAL_CONFIG_SHA256=92895b9e99f7cfc13f4a9879da615c3d6e0baa4d660e26d7b685abdd27a6d1d3
+ARG PIPER_ENGLISH_VOICE=en_US-ryan-high
+ARG PIPER_ENGLISH_VOICE_SHA256=b3990d7606e183ec8dbfba70a4607074f162de1a0c412e0180d1ff60bb154eca
+ARG PIPER_ENGLISH_CONFIG_SHA256=c6d3b98f08315cb4bebf0d49d50fc4ff491b503c64b940cd3d5ca28543b48011
 RUN install -d /opt/piper-voices \
     && python -m piper.download_voices --download-dir /opt/piper-voices \
-        "${PIPER_VOICE}" "${PIPER_EMOTIONAL_VOICE}" \
+        "${PIPER_VOICE}" "${PIPER_EMOTIONAL_VOICE}" "${PIPER_ENGLISH_VOICE}" \
     && echo "${PIPER_VOICE_SHA256}  /opt/piper-voices/${PIPER_VOICE}.onnx" | sha256sum -c - \
     && echo "${PIPER_CONFIG_SHA256}  /opt/piper-voices/${PIPER_VOICE}.onnx.json" | sha256sum -c - \
     && echo "${PIPER_EMOTIONAL_VOICE_SHA256}  /opt/piper-voices/${PIPER_EMOTIONAL_VOICE}.onnx" | sha256sum -c - \
-    && echo "${PIPER_EMOTIONAL_CONFIG_SHA256}  /opt/piper-voices/${PIPER_EMOTIONAL_VOICE}.onnx.json" | sha256sum -c -
+    && echo "${PIPER_EMOTIONAL_CONFIG_SHA256}  /opt/piper-voices/${PIPER_EMOTIONAL_VOICE}.onnx.json" | sha256sum -c - \
+    && echo "${PIPER_ENGLISH_VOICE_SHA256}  /opt/piper-voices/${PIPER_ENGLISH_VOICE}.onnx" | sha256sum -c - \
+    && echo "${PIPER_ENGLISH_CONFIG_SHA256}  /opt/piper-voices/${PIPER_ENGLISH_VOICE}.onnx.json" | sha256sum -c -
 
 ENV TTS_MODEL_PATH=/opt/piper-voices/${PIPER_VOICE}.onnx
 ENV TTS_EMOTIONAL_MODEL_PATH=/opt/piper-voices/${PIPER_EMOTIONAL_VOICE}.onnx
+ENV TTS_ENGLISH_MODEL_PATH=/opt/piper-voices/${PIPER_ENGLISH_VOICE}.onnx
 
 COPY alembic.ini ./alembic.ini
 COPY alembic ./alembic

@@ -82,7 +82,16 @@ class NoteAudioJobStore:
         cleaned = _SAFE_FILENAME.sub("_", " ".join(str(title or "").split())).strip(" ._")
         return f"{(cleaned[:120] or 'Notiz')}.wav"
 
-    def create(self, *, owner_id: uuid.UUID, note_id: uuid.UUID, note_title: str, text: str, voice: str) -> dict:
+    def create(
+        self,
+        *,
+        owner_id: uuid.UUID,
+        note_id: uuid.UUID,
+        note_title: str,
+        text: str,
+        voice: str,
+        language_mode: str = "auto",
+    ) -> dict:
         now = _iso()
         with self._lock():
             for existing in self._all():
@@ -100,6 +109,7 @@ class NoteAudioJobStore:
                 "filename": self._filename(note_title),
                 "text": text,
                 "voice": voice,
+                "language_mode": language_mode,
                 "status": "queued",
                 "progress": 0,
                 "phase": "Wartet auf Verarbeitung",
@@ -110,7 +120,6 @@ class NoteAudioJobStore:
                 "updated_at": now,
                 "started_at": None,
                 "finished_at": None,
-                "downloaded_at": None,
             }
             self._write(payload)
             return payload
@@ -221,7 +230,8 @@ class NoteAudioJobStore:
             self._delete_unlocked(payload)
             return True
 
-    def mark_downloaded(self, job_id: uuid.UUID | str, owner_id: uuid.UUID) -> bool:
+    def acknowledge_download(self, job_id: uuid.UUID | str, owner_id: uuid.UUID) -> bool:
+        """Remove a completed export after the browser received its audio file."""
         with self._lock(str(job_id)):
             payload = self._read_path(self._meta_path(job_id))
             if (
@@ -230,9 +240,7 @@ class NoteAudioJobStore:
                 or payload.get("status") != "done"
             ):
                 return False
-            payload["downloaded_at"] = _iso()
-            payload["updated_at"] = _iso()
-            self._write(payload)
+            self._delete_unlocked(payload)
             return True
 
     def is_cancel_requested(self, job_id: uuid.UUID | str) -> bool:

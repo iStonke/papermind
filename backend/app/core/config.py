@@ -80,6 +80,7 @@ class Settings(BaseSettings):
     tts_emotional_model_path: str = Field(
         default="/opt/piper-voices/de_DE-thorsten_emotional-medium.onnx"
     )
+    tts_english_model_path: str = Field(default="/opt/piper-voices/en_US-ryan-high.onnx")
     tts_max_chars: int = Field(default=6000, ge=100, le=20000)
 
     # --- System-/Hardware-Status (Raspberry Pi) ---

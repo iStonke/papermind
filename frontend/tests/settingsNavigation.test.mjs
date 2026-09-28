@@ -54,6 +54,9 @@ test('notes has a dedicated top-level settings group', () => {
   assert.match(source, /value: 'atkinson', label: 'Atkinson Hyperlegible'/);
   assert.match(source, /value: 'source-serif', label: 'Source Serif 4'/);
   assert.match(source, /notes_spellcheck_enabled/);
+  assert.match(source, /notes_tts_language_mode/);
+  assert.match(source, /label="Sprachmodus"/);
+  assert.match(source, /label: 'Automatisch'/);
   assert.doesNotMatch(source, /Notiz-Einstellungen werden vorbereitet/);
 
   const textSettings = source.slice(
