@@ -263,8 +263,16 @@
 
     <template v-else>
       <div class="lr-head">
+      <nav v-if="store.courses.length" class="lr-crumbs" aria-label="Pfad">
+        <template v-for="(c, i) in crumbs" :key="i">
+          <span v-if="i" class="lr-crumb-sep" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6" /></svg></span>
+          <span v-if="c.current" class="lr-crumb lr-crumb--current" aria-current="page">{{ c.label }}</span>
+          <button v-else type="button" class="lr-crumb" @click="c.go">{{ c.label }}</button>
+        </template>
+      </nav>
+
       <!-- Der Seitenkopf gehört zur Seite und scrollt mit. -->
-      <header v-if="store.courses.length || store.loadingCourses" class="lr-pagehead">
+      <header v-if="store.courses.length" class="lr-pagehead">
         <div class="lr-pagehead-main">
           <div class="lr-title-block">
             <h1 class="lr-title">
@@ -1231,6 +1239,12 @@ watch(() => store.board, () => {
 function goHome() {
   router.push({ name: 'lernraum' }).catch(() => {});
 }
+const crumbs = computed(() => {
+  const list = [{ label: 'Startseite', go: goHome, current: view.value !== 'course' || !store.activeCourse }];
+  if (view.value === 'course' && store.activeCourse) list.push({ label: store.activeCourse.title, go: closeSheet, current: !openSheet.value });
+  if (openSheet.value) list.push({ label: openSheet.value.title, current: true });
+  return list;
+});
 function openCourse(id) {
   router.push({ name: 'lernraum', query: { course: String(id) } }).catch(() => {});
 }
@@ -2150,6 +2164,28 @@ onBeforeUnmount(() => {
   background: radial-gradient(120% 90% at 20% 0%, oklch(0.215 0.045 255) 0%, oklch(0.165 0.028 252) 60%);
 }
 .lernraum-panel .lr-nq { --nq-tint: oklch(0.80 0.10 200); --pm-accent: var(--nq-tint); --pm-accent-text: var(--nq-tint); --pm-selected: color-mix(in oklab, var(--nq-tint) 20%, transparent); }
+:root[data-theme="dark"] .lernraum-panel.lernraum-panel--nq {
+  --pm-bg: oklch(0.275 0.014 222);
+  --pm-surface-card: oklch(0.345 0.012 222);
+  --pm-surface-reader: oklch(0.250 0.014 222);
+  --pm-border: oklch(0.395 0.014 222);
+  --pm-text: oklch(0.965 0.005 220);
+  --pm-text-muted: oklch(0.760 0.014 220);
+  --pm-accent: oklch(0.760 0.105 200);
+  --pm-accent-text: oklch(0.845 0.090 200);
+  --pm-on-accent: oklch(0.200 0.030 200);
+  --pm-selected: oklch(0.375 0.050 205);
+  --pm-chip-bg: oklch(0.395 0.014 222);
+  --pm-track: oklch(0.375 0.014 222);
+  --pm-danger: oklch(0.720 0.140 27);
+  background: var(--pm-surface-reader);
+}
+:root[data-theme="dark"] .lernraum-panel .lr-nq {
+  --nq-tint: oklch(0.760 0.105 200) !important;
+  --pm-accent: oklch(0.760 0.105 200);
+  --pm-accent-text: oklch(0.845 0.090 200);
+  --pm-selected: oklch(0.375 0.050 205);
+}
 .lernraum-panel .lr-nq-body { border-top-color: var(--pm-border); }
 .lernraum-panel .lr-nq-source { position: relative; display: flex; padding: 22px clamp(16px, 2.5vw, 32px); border-right-color: var(--pm-border); background: transparent; }
 .lernraum-panel .lr-nq-paper {
@@ -2159,6 +2195,20 @@ onBeforeUnmount(() => {
 }
 .lernraum-panel .lr-nq-paper--light { --pm-text: oklch(0.205 0.018 235); --pm-muted: oklch(0.470 0.018 235); --pm-text-muted: oklch(0.470 0.018 235); --pm-accent: color-mix(in oklab, var(--nq-tint) 52%, black); --pm-accent-strong: var(--pm-accent); background: oklch(0.985 0.004 95); }
 .lernraum-panel .lr-nq-paper--dark { --pm-text: oklch(0.94 0.008 235); --pm-muted: oklch(0.76 0.020 240); --pm-text-muted: oklch(0.76 0.020 240); --pm-divider: oklch(0.42 0.030 250); --pm-content-surface: oklch(0.225 0.028 252); --pm-app-surface: oklch(0.205 0.026 252); --pm-surface-soft: oklch(0.30 0.028 250); --pm-viewer-surface: oklch(0.215 0.028 252); --pm-accent: var(--nq-tint); --pm-accent-strong: var(--nq-tint); background: oklch(0.265 0.030 250); box-shadow: 0 24px 60px rgba(0, 0, 0, .42), 0 0 0 1px oklch(0.43 0.032 250); }
+:root[data-theme="dark"] .lernraum-panel .lr-nq-paper--dark {
+  --pm-text: oklch(0.965 0.005 220);
+  --pm-muted: oklch(0.760 0.014 220);
+  --pm-text-muted: oklch(0.760 0.014 220);
+  --pm-divider: oklch(0.395 0.014 222);
+  --pm-content-surface: oklch(0.345 0.012 222);
+  --pm-app-surface: oklch(0.275 0.014 222);
+  --pm-surface-soft: oklch(0.395 0.014 222);
+  --pm-viewer-surface: oklch(0.250 0.014 222);
+  --pm-accent: oklch(0.760 0.105 200);
+  --pm-accent-strong: oklch(0.845 0.090 200);
+  background: var(--pm-bg);
+  box-shadow: 0 16px 40px color-mix(in oklab, #000 30%, transparent), 0 0 0 1px var(--pm-border);
+}
 .lernraum-panel .lr-nq-paper .note-preview--compact .note-preview__sheet { padding-top: 32px; }
 .lernraum-panel .lr-nq-note-theme-toggle { position: absolute; top: 34px; right: clamp(28px, 4vw, 48px); z-index: 2; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid var(--pm-border); border-radius: 10px; background: color-mix(in oklab, var(--pm-surface-card) 88%, transparent); color: var(--pm-text-muted); cursor: pointer; backdrop-filter: blur(8px); transition: border-color .15s, background .15s, color .15s; }
 .lernraum-panel .lr-nq-note-theme-toggle:hover { border-color: var(--nq-tint); background: var(--pm-selected); color: var(--nq-tint); }
@@ -2188,6 +2238,11 @@ onBeforeUnmount(() => {
 .lernraum-panel .lr-nq .lr-kind-opt--on:hover { border-color: transparent; background: color-mix(in oklab, var(--nq-tint) 30%, transparent); color: var(--nq-tint); }
 .lernraum-panel .lr-nq .lr-field:focus { border-color: var(--nq-tint); box-shadow: 0 0 0 3px color-mix(in oklab, var(--nq-tint) 24%, transparent); }
 .lernraum-panel .lr-nq .lr-btn--ghost:hover { background: var(--pm-chip-bg); }
+:root[data-theme="dark"] .lernraum-panel .lr-nq .lr-btn--primary,
+:root[data-theme="dark"] .lernraum-panel .lr-nq-submit.v-btn,
+:root[data-theme="dark"] .lernraum-panel .lr-nq-submit.v-btn:hover:not(.v-btn--disabled) {
+  box-shadow: none;
+}
 @media (prefers-reduced-motion: reduce) { .lernraum-panel .lr-nq * { transition: none !important; } }
 @media (max-width: 900px) {
   .lernraum-panel .lr-nq-body { grid-template-columns: 1fr; grid-template-rows: minmax(120px, 34%) minmax(0, 1fr); }
@@ -2448,8 +2503,21 @@ onBeforeUnmount(() => {
 /* Kursansicht: ruhiger – je Abschnitt eine Überschrift, Trennlinien statt Kicker. */
 
 .lernraum-panel .lr-head { --lr-prog-w: 220px; position: relative; flex: none; }
+.lernraum-panel .lr-crumbs { flex: none; display: flex; align-items: flex-start; gap: 2px; height: 42px; padding: 16px calc(clamp(24px, 4vw, 52px) + var(--lr-prog-w) + 24px) 0 clamp(24px, 4vw, 52px); background: var(--pm-surface-card); font-size: 12.5px; white-space: nowrap; overflow: hidden; }
+.lernraum-panel .lr-crumb { min-width: 0; max-width: 260px; overflow: hidden; padding: 4px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--pm-text-muted); font: 520 12.5px/1.2 var(--pm-font-sans); text-overflow: ellipsis; cursor: pointer; transition: background .15s, color .15s; }
+.lernraum-panel .lr-crumbs > :first-child { margin-left: -8px; }
+.lernraum-panel .lr-crumb:hover { background: var(--pm-selected); color: var(--pm-accent-text); }
+.lernraum-panel .lr-crumb:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 1px; }
+.lernraum-panel .lr-crumb--current { color: var(--pm-text); font-weight: 640; cursor: default; }
+.lernraum-panel .lr-crumb--current:hover { background: transparent; color: var(--pm-text); }
+.lernraum-panel .lr-crumb-sep { flex: none; display: grid; place-items: center; width: 14px; height: 23px; color: var(--pm-text-muted); opacity: .6; }
+.lernraum-panel .lr-crumb-sep svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .lernraum-panel .lr-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
-.lernraum-panel .lr-pagehead { position: relative; z-index: 1; flex: none; display: flex; flex-direction: column; gap: 14px; padding: 22px calc(clamp(24px, 4vw, 52px) + var(--lr-prog-w) + 24px) 20px clamp(24px, 4vw, 52px); border-bottom: 1px solid var(--pm-border); background: var(--pm-surface-card); }
+.lernraum-panel .lr-pagehead { position: relative; z-index: 1; flex: none; display: flex; flex-direction: column; gap: 14px; padding: 0 calc(clamp(24px, 4vw, 52px) + var(--lr-prog-w) + 24px) 20px clamp(24px, 4vw, 52px); border-bottom: 1px solid var(--pm-border); background: var(--pm-surface-card); }
+.v-theme--dark .lernraum-panel .lr-crumbs,
+.v-theme--dark .lernraum-panel .lr-pagehead {
+  background: var(--pm-bg);
+}
 .lernraum-panel .lr-pagehead-main { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .lernraum-panel .lr-title-block { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .lernraum-panel .lr-title { max-width: 100%; margin: 0; overflow: hidden; font-size: clamp(24px, 2.6vw, 30px); line-height: 1.15; font-weight: 690; letter-spacing: -.03em; text-overflow: ellipsis; white-space: nowrap; }

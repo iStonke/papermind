@@ -369,3 +369,22 @@
 }
 /* Trennlinie zwischen Seitenleiste und Inhalt nimmt die dunkle Leistenfarbe an. */
 .papermind-app.pm-night-sidebar .panel-left { border-right-color: var(--pm-sidebar-border); }
+
+/* Im globalen Dunkelmodus bleibt die Seitenleiste auch in Lern- und
+   Nachbereitungsansichten bei der regulären Dark-Mode-Palette. */
+.papermind-app.v-theme--dark.pm-night-sidebar {
+  --pm-sidebar-bg:            var(--pm-v-panel-left);
+  --pm-sidebar-surface:       var(--pm-v-panel-left);
+  --pm-sidebar-text:          #f0f4f6;
+  --pm-sidebar-muted:         #a5b2b7;
+  --pm-sidebar-border:        #303b3f;
+  --pm-sidebar-hover:         rgba(255, 255, 255, 0.05);
+  --pm-sidebar-selected:      #1a555b;
+  --pm-sidebar-selected-text: #ecfafc;
+  --pm-sidebar-accent:        #56c4ca;
+  --pm-sidebar-chip-bg:       #2b363a;
+  --pm-sidebar-chip-text:     #e4ebed;
+  --pm-sidebar-chip-count:    #a5b2b7;
+  --pm-field-bg:              #293437;
+  --pm-field-border:          #3d484d;
+}
