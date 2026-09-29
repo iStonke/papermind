@@ -263,16 +263,7 @@
 
     <template v-else>
       <div class="lr-head">
-      <!-- Ebene 1: schmale, linksbündige Pfadleiste. Jede Ebene ist anklickbar; nur der Pfad wächst, nichts verschiebt sich. -->
-      <nav class="lr-crumbs" aria-label="Pfad">
-        <template v-for="(c, i) in crumbs" :key="i">
-          <span v-if="i" class="lr-crumb-sep" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6" /></svg></span>
-          <span v-if="c.current" class="lr-crumb lr-crumb--current" aria-current="page">{{ c.label }}</span>
-          <button v-else type="button" class="lr-crumb" @click="c.go">{{ c.label }}</button>
-        </template>
-      </nav>
-
-      <!-- Ebene 2: Seitenkopf gehört zur Seite und scrollt mit. -->
+      <!-- Der Seitenkopf gehört zur Seite und scrollt mit. -->
       <header v-if="store.courses.length || store.loadingCourses" class="lr-pagehead">
         <div class="lr-pagehead-main">
           <div class="lr-title-block">
@@ -361,10 +352,18 @@
       <!-- Leerer Lernraum -->
       <div v-if="!store.courses.length && !store.loadingCourses" class="lr-empty">
         <div class="lr-empty-hero">
-          <span class="lr-empty-icon" aria-hidden="true">◎</span>
-          <div class="lr-empty-title">Dein Lernraum ist noch leer</div>
+          <div class="lr-empty-visual" aria-hidden="true">
+            <span class="lr-empty-card lr-empty-card--left"><i>?</i><b></b><b></b></span>
+            <span class="lr-empty-card lr-empty-card--right"><i>✓</i><b></b><b></b></span>
+            <span class="lr-empty-card lr-empty-card--front"><i>?</i><b></b><b></b><b></b></span>
+            <span class="lr-empty-plus"><v-icon size="20">mdi-plus</v-icon></span>
+          </div>
+          <h2 class="lr-empty-title">Kein Kurs angelegt</h2>
           <div class="lr-empty-body">Lege einen Kurs an. Darin sammelst du Lernblätter, Karten und offene Nachbereitungen an einem Ort.</div>
-          <button type="button" class="lr-btn lr-btn--primary lr-btn--md" @click="onCreateCourse">Ersten Kurs anlegen</button>
+          <button type="button" class="lr-empty-action" @click="onCreateCourse">
+            <v-icon size="20">mdi-plus</v-icon>
+            <span>Neuer Kurs</span>
+          </button>
         </div>
       </div>
 
@@ -1232,12 +1231,6 @@ watch(() => store.board, () => {
 function goHome() {
   router.push({ name: 'lernraum' }).catch(() => {});
 }
-const crumbs = computed(() => {
-  const list = [{ label: 'Startseite', go: goHome, current: view.value !== 'course' || !store.activeCourse }];
-  if (view.value === 'course' && store.activeCourse) list.push({ label: store.activeCourse.title, go: closeSheet, current: !openSheet.value });
-  if (openSheet.value) list.push({ label: openSheet.value.title, current: true });
-  return list;
-});
 function openCourse(id) {
   router.push({ name: 'lernraum', query: { course: String(id) } }).catch(() => {});
 }
@@ -2379,7 +2372,7 @@ onBeforeUnmount(() => {
 .lernraum-panel .lr-clist-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
 
 /* Startseite: großer Leerzustand (2b) */
-.lernraum-panel .lr-empty-hero { max-width: 460px; text-align: center; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+.lernraum-panel .lr-empty-hero { max-width: 500px; text-align: center; display: flex; flex-direction: column; gap: 14px; align-items: center; }
 .lernraum-panel .lr-empty-eyebrow { font: 620 11.5px/1.4 var(--pm-font-sans); letter-spacing: .09em; text-transform: uppercase; color: var(--pm-text-muted); }
 .lernraum-panel .lr-empty-inline-cta { margin-top: 12px; align-self: flex-start; }
 
@@ -2414,9 +2407,24 @@ onBeforeUnmount(() => {
 
 /* Leerzustände */
 .lernraum-panel .lr-empty { flex: 1; min-height: 60vh; display: flex; align-items: center; justify-content: center; padding: 40px; }
-.lernraum-panel .lr-empty-card { max-width: 440px; text-align: center; display: flex; flex-direction: column; gap: 14px; align-items: center; padding: 36px; border: 1px solid var(--pm-border); border-radius: 16px; background: var(--pm-surface-card); }
-.lernraum-panel .lr-empty-title { font: 660 20px/1.25 var(--pm-font-sans); letter-spacing: -.015em; }
-.lernraum-panel .lr-empty-body { font-size: 14px; line-height: 1.6; color: var(--pm-text-muted); }
+.lernraum-panel .lr-empty-visual { position: relative; width: 250px; height: 154px; margin-bottom: 10px; }
+.lernraum-panel .lr-empty-visual::before { content: ''; position: absolute; inset: -38px -62px -30px; border-radius: 50%; background: radial-gradient(ellipse at center, color-mix(in oklab, var(--pm-surface-card) 82%, transparent) 0%, color-mix(in oklab, var(--pm-surface-card) 42%, transparent) 52%, transparent 76%); pointer-events: none; }
+.lernraum-panel .lr-empty-card { --lr-empty-transform: translate3d(0, 0, 0); position: absolute; bottom: 8px; z-index: 1; box-sizing: border-box; width: 88px; height: 112px; display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 13px 12px; border: 1px solid color-mix(in oklab, var(--pm-text) 20%, var(--pm-border)); border-radius: 10px; background: color-mix(in oklab, var(--pm-surface-card) 92%, var(--pm-accent) 8%); color: var(--pm-accent-text); box-shadow: 0 14px 30px color-mix(in oklab, #000 18%, transparent); transform: var(--lr-empty-transform); transform-origin: bottom center; animation: lr-empty-card-in .48s cubic-bezier(.2,.82,.24,1) both; }
+.lernraum-panel .lr-empty-card i { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 50%; background: color-mix(in oklab, var(--pm-accent) 18%, transparent); font: 700 15px/1 var(--pm-font-sans); font-style: normal; }
+.lernraum-panel .lr-empty-card b { display: block; width: 100%; height: 5px; border-radius: 99px; background: color-mix(in oklab, var(--pm-text) 22%, var(--pm-border)); }
+.lernraum-panel .lr-empty-card b:nth-of-type(2) { width: 76%; }
+.lernraum-panel .lr-empty-card b:nth-of-type(3) { width: 90%; }
+.lernraum-panel .lr-empty-card--left { --lr-empty-transform: translate3d(22px, 7px, 0) rotate(-9deg); left: 4px; height: 96px; opacity: .82; animation-delay: 45ms; }
+.lernraum-panel .lr-empty-card--right { --lr-empty-transform: translate3d(-22px, 8px, 0) rotate(9deg); right: 3px; height: 94px; opacity: .82; animation-delay: 90ms; }
+.lernraum-panel .lr-empty-card--front { --lr-empty-transform: translate3d(0, -10px, 0); left: 81px; z-index: 2; width: 92px; height: 126px; animation-delay: 135ms; }
+.lernraum-panel .lr-empty-plus { position: absolute; right: 15px; bottom: 0; z-index: 4; display: grid; place-items: center; width: 42px; height: 42px; border: 4px solid var(--pm-bg); border-radius: 50%; background: var(--pm-accent); color: var(--pm-on-accent); box-shadow: 0 7px 18px color-mix(in oklab, var(--pm-accent) 30%, transparent); animation: lr-empty-plus-in .42s .2s cubic-bezier(.2,.82,.24,1) both; }
+.lernraum-panel .lr-empty-title { margin: 0; font: 680 21px/1.25 var(--pm-font-sans); letter-spacing: -.018em; }
+.lernraum-panel .lr-empty-body { max-width: 440px; font-size: 14px; line-height: 1.65; color: color-mix(in oklab, var(--pm-text) 68%, var(--pm-text-muted)); }
+.lernraum-panel .lr-empty-action { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 42px; margin-top: 8px; padding: 0 20px; border: 1px solid color-mix(in oklab, var(--pm-accent) 62%, var(--pm-border)); border-radius: 10px; background: color-mix(in oklab, var(--pm-accent) 10%, transparent); color: var(--pm-accent-text); font: 650 14px/1 var(--pm-font-sans); cursor: pointer; transition: border-color .16s, background .16s, transform .16s; }
+.lernraum-panel .lr-empty-action:hover { border-color: var(--pm-accent); background: color-mix(in oklab, var(--pm-accent) 17%, transparent); transform: translateY(-1px); }
+.lernraum-panel .lr-empty-action:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 3px; }
+@keyframes lr-empty-card-in { from { opacity: 0; transform: translate3d(0, 14px, 0) scale(.92); } to { transform: var(--lr-empty-transform); } }
+@keyframes lr-empty-plus-in { from { opacity: 0; transform: scale(.55) rotate(-18deg); } to { opacity: 1; transform: scale(1) rotate(0); } }
 .lernraum-panel .lr-empty-inline { padding: 24px 0; }
 .lernraum-panel .lr-empty-inline p { margin: 0; font-size: 14px; color: var(--pm-text); }
 .lernraum-panel .lr-empty-inline .lr-empty-inline-hint { margin-top: 5px; font-size: 12.5px; color: var(--pm-text-muted); }
@@ -2439,19 +2447,9 @@ onBeforeUnmount(() => {
 
 /* Kursansicht: ruhiger – je Abschnitt eine Überschrift, Trennlinien statt Kicker. */
 
-/* Option A: ein durchgängiger Pfad von Übersicht bis Lernmodus. */
 .lernraum-panel .lr-head { --lr-prog-w: 220px; position: relative; flex: none; }
-.lernraum-panel .lr-crumbs { flex: none; display: flex; align-items: flex-start; gap: 2px; height: 42px; padding: 16px calc(clamp(24px, 4vw, 52px) + var(--lr-prog-w) + 24px) 0 clamp(24px, 4vw, 52px); background: var(--pm-surface-card); font-size: 12.5px; white-space: nowrap; overflow: hidden; }
-.lernraum-panel .lr-crumb { min-width: 0; max-width: 260px; overflow: hidden; padding: 4px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--pm-text-muted); font: 520 12.5px/1.2 var(--pm-font-sans); text-overflow: ellipsis; cursor: pointer; transition: background .15s, color .15s; }
-.lernraum-panel .lr-crumbs > :first-child { margin-left: -8px; }
-.lernraum-panel .lr-crumb:hover { background: var(--pm-selected); color: var(--pm-accent-text); }
-.lernraum-panel .lr-crumb:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 1px; }
-.lernraum-panel .lr-crumb--current { color: var(--pm-text); font-weight: 640; cursor: default; }
-.lernraum-panel .lr-crumb--current:hover { background: transparent; color: var(--pm-text); }
-.lernraum-panel .lr-crumb-sep { flex: none; display: grid; place-items: center; width: 14px; height: 23px; color: var(--pm-text-muted); opacity: .6; }
-.lernraum-panel .lr-crumb-sep svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .lernraum-panel .lr-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
-.lernraum-panel .lr-pagehead { position: relative; z-index: 1; flex: none; display: flex; flex-direction: column; gap: 14px; padding: 0 calc(clamp(24px, 4vw, 52px) + var(--lr-prog-w) + 24px) 18px clamp(24px, 4vw, 52px); border-bottom: 1px solid var(--pm-border); background: var(--pm-surface-card); }
+.lernraum-panel .lr-pagehead { position: relative; z-index: 1; flex: none; display: flex; flex-direction: column; gap: 14px; padding: 22px calc(clamp(24px, 4vw, 52px) + var(--lr-prog-w) + 24px) 20px clamp(24px, 4vw, 52px); border-bottom: 1px solid var(--pm-border); background: var(--pm-surface-card); }
 .lernraum-panel .lr-pagehead-main { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .lernraum-panel .lr-title-block { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .lernraum-panel .lr-title { max-width: 100%; margin: 0; overflow: hidden; font-size: clamp(24px, 2.6vw, 30px); line-height: 1.15; font-weight: 690; letter-spacing: -.03em; text-overflow: ellipsis; white-space: nowrap; }
