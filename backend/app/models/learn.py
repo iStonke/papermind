@@ -159,6 +159,10 @@ class LearnCard(Base):
     front: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     back: Mapped[str | None] = mapped_column(Text, nullable=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    # Lernstand aus dem Lernmodus: open (noch offen) | weak (nicht gekonnt) |
+    # medium (mit Mühe) | strong (sicher). Speist die Lernstand-Balken.
+    status: Mapped[str] = mapped_column(String(12), nullable=False, server_default="open")
+    last_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Herkunft: markierte Notizzeile (stabile pmId). Gesetzt, wenn die Karte aus
     # einer Nachbereitung entstand; NULL bei manuell angelegten Karten.
     source_note_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -168,6 +172,44 @@ class LearnCard(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class LearnRun(Base):
+    """Gespeicherter Durchlauf im Lernmodus.
+
+    Hält bewusst nur die Zusammenfassung eines Durchlaufs. Der aktuelle
+    Lernstand jeder einzelnen Karte bleibt weiterhin auf ``LearnCard``.
+    """
+
+    __tablename__ = "learn_run"
+    __table_args__ = (
+        Index("ix_learn_run_course_started", "course_id", "started_at"),
+        Index("ix_learn_run_sheet", "sheet_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    course_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("learn_course.id", ondelete="CASCADE"), nullable=False
+    )
+    sheet_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("learn_sheet.id", ondelete="SET NULL"), nullable=True
+    )
+    scope: Mapped[str] = mapped_column(String(12), nullable=False, server_default="sheet")
+    total_cards: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    assessed_cards: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    weak_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    medium_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    strong_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
@@ -201,6 +243,7 @@ class LearnMarker(Base):
     # lernen (generisch) | fakt | warum | aufgabe | analyse | …
     kind: Mapped[str] = mapped_column(String(16), nullable=False, server_default="lernen")
     snippet: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    context: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

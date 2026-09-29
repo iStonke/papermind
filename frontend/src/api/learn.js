@@ -33,6 +33,15 @@ export const listCards = (sheetId) => apiGet(`/api/learn/sheets/${sheetId}/cards
 export const createCard = (sheetId, body = {}) => apiPost(`/api/learn/sheets/${sheetId}/cards`, body);
 export const updateCard = (id, body = {}) => apiPatch(`/api/learn/cards/${id}`, body);
 export const deleteCard = (id) => apiDelete(`/api/learn/cards/${id}`);
+// Lernstand einer Karte aus der Selbsteinschätzung im Lernmodus setzen.
+export const reviewCard = (id, status) => apiPost(`/api/learn/cards/${id}/review`, { status });
+
+// --- Lerndurchläufe --------------------------------------------------------
+export const listLearningRuns = (courseId, limit = 20) =>
+  apiGet(`/api/learn/courses/${courseId}/runs?limit=${encodeURIComponent(limit)}`);
+export const createLearningRun = (courseId, body = {}) => apiPost(`/api/learn/courses/${courseId}/runs`, body);
+export const updateLearningRun = (id, body = {}) => apiPatch(`/api/learn/runs/${id}`, body);
+export const deleteLearningRun = (id) => apiDelete(`/api/learn/runs/${id}`);
 
 // --- Marker (aus Notizen projiziert) / Nachbereitung -----------------------
 export const listMarkers = ({ noteId = null, open = false } = {}) => {

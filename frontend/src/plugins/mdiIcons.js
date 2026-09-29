@@ -201,6 +201,7 @@ export {
   mdiRotateRight,
   mdiScanner,
   mdiScannerOff,
+  mdiSchoolOutline,
   mdiSendOutline,
   mdiServerNetwork,
   mdiShapeOutline,

@@ -6,10 +6,13 @@ function loadPreference() {
   catch { return true; }
 }
 const lightSidebar = ref(loadPreference());
+// Fokusmodi (z. B. Nachbereiten) färben die Seitenleiste vorübergehend dunkel, ohne die Einstellung zu ändern.
+const nightSidebar = ref(false);
 export function useSidebarAppearance() {
   function setLightSidebar(value) {
     lightSidebar.value = Boolean(value);
     try { localStorage.setItem(STORAGE_KEY, String(lightSidebar.value)); } catch { /* Session preference still works. */ }
   }
-  return { lightSidebar, setLightSidebar };
+  function setNightSidebar(value) { nightSidebar.value = Boolean(value); }
+  return { lightSidebar, setLightSidebar, nightSidebar, setNightSidebar };
 }

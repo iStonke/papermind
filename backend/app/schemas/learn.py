@@ -11,6 +11,18 @@ ArtifactType = Literal[
 ]
 SheetScope = Literal["session", "topic"]
 SheetStatus = Literal["draft", "in_progress", "worked", "archived"]
+# Lernstand einer Karte (Selbsteinschätzung im Lernmodus).
+CardStatus = Literal["open", "weak", "medium", "strong"]
+
+
+class LearnProficiency(BaseModel):
+    """Verteilung der Karten-Lernstände (für die Fortschrittsbalken)."""
+
+    total: int = 0
+    open: int = 0
+    weak: int = 0
+    medium: int = 0
+    strong: int = 0
 
 
 # --- Kurs ------------------------------------------------------------------
@@ -46,6 +58,8 @@ class LearnCourseRead(ORMModel):
     # Vom Service befüllt (nicht auf dem Modell).
     session_count: int = 0
     sheet_count: int = 0
+    card_count: int = 0
+    proficiency: LearnProficiency = Field(default_factory=LearnProficiency)
 
 
 class LearnCourseListResponse(BaseModel):
@@ -121,6 +135,11 @@ class LearnSheetRead(ORMModel):
     updated_at: datetime
     # Vom Service befüllt (Anzahl Karten/Artefakte – vorerst 0).
     card_count: int = 0
+    # Nur Karten mit befüllter Vorder- und Rückseite sind lernbereit.
+    learnable_card_count: int = 0
+    proficiency: LearnProficiency = Field(default_factory=LearnProficiency)
+    # Dominanter Kartentyp (oder "gemischt"); für den Typ-Chip im Leuchttisch.
+    kind_summary: str | None = None
 
 
 class LearnSheetListResponse(BaseModel):
@@ -146,15 +165,22 @@ class LearnBoardResponse(BaseModel):
 # --- Karte (Artefakt) -------------------------------------------------------
 class LearnCardCreate(BaseModel):
     kind: ArtifactType = "fakt"
-    front: str = Field(min_length=1, max_length=4000)
+    front: str = Field(default="", max_length=4000)
     back: str | None = Field(default=None, max_length=8000)
 
 
 class LearnCardUpdate(BaseModel):
     kind: ArtifactType | None = None
-    front: str | None = Field(default=None, min_length=1, max_length=4000)
+    front: str | None = Field(default=None, max_length=4000)
     back: str | None = Field(default=None, max_length=8000)
     position: int | None = Field(default=None, ge=0, le=100000)
+    status: CardStatus | None = None
+
+
+class LearnCardReview(BaseModel):
+    """Selbsteinschätzung im Lernmodus setzt den Lernstand einer Karte."""
+
+    status: CardStatus
 
 
 class LearnCardRead(ORMModel):
@@ -164,6 +190,8 @@ class LearnCardRead(ORMModel):
     front: str
     back: str | None = None
     position: int
+    status: str = "open"
+    last_reviewed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     # Herkunftsanker (gesetzt bei aus Nachbereitung entstandenen Karten).
@@ -175,6 +203,42 @@ class LearnCardListResponse(BaseModel):
     items: list[LearnCardRead]
 
 
+# --- Lerndurchlauf ---------------------------------------------------------
+class LearnRunCreate(BaseModel):
+    sheet_id: uuid.UUID | None = None
+    scope: Literal["sheet", "course"] = "sheet"
+    total_cards: int = Field(ge=1, le=100000)
+    started_at: datetime | None = None
+
+
+class LearnRunUpdate(BaseModel):
+    assessed_cards: int = Field(ge=0, le=100000)
+    weak_count: int = Field(ge=0, le=100000)
+    medium_count: int = Field(ge=0, le=100000)
+    strong_count: int = Field(ge=0, le=100000)
+    completed_at: datetime | None = None
+
+
+class LearnRunRead(ORMModel):
+    id: uuid.UUID
+    course_id: uuid.UUID
+    sheet_id: uuid.UUID | None = None
+    sheet_title: str | None = None
+    scope: str
+    total_cards: int
+    assessed_cards: int
+    weak_count: int
+    medium_count: int
+    strong_count: int
+    started_at: datetime
+    completed_at: datetime | None = None
+    updated_at: datetime
+
+
+class LearnRunListResponse(BaseModel):
+    items: list[LearnRunRead]
+
+
 # --- Marker (Projektion aus Notizen) ---------------------------------------
 class LearnMarkerRead(ORMModel):
     id: uuid.UUID
@@ -182,17 +246,25 @@ class LearnMarkerRead(ORMModel):
     node_pm_id: str
     kind: str
     snippet: str
+    context: str = ""
     position: int
     created_at: datetime
     # Vom Service befüllt.
     note_title: str | None = None
     has_card: bool = False
-    # Aufgelöste Zuordnung über die Notiz↔Sitzung-Kopplung (learn_session.note_id).
-    # Null, wenn die Mitschrift-Notiz noch keiner Sitzung zugeordnet ist.
+    # Bei einem unvollständigen Kartenentwurf: dessen tatsächliche Zuordnung.
+    # Frische Markierungen bleiben bis zur expliziten Kurswahl unzugeordnet.
     course_id: uuid.UUID | None = None
     course_title: str | None = None
     session_id: uuid.UUID | None = None
     session_title: str | None = None
+    # Bereits angelegte, aber noch unvollständige Karte. Sie bleibt als
+    # Nachbereitung sichtbar und wird beim erneuten Übernehmen aktualisiert.
+    draft_card_id: uuid.UUID | None = None
+    draft_sheet_id: uuid.UUID | None = None
+    draft_kind: str | None = None
+    draft_front: str | None = None
+    draft_back: str | None = None
 
 
 class LearnMarkerListResponse(BaseModel):
@@ -212,7 +284,7 @@ class LearnMarkerPromote(BaseModel):
     note_id: uuid.UUID
     node_pm_id: str = Field(min_length=1, max_length=16)
     kind: ArtifactType = "fakt"
-    front: str = Field(min_length=1, max_length=4000)
+    front: str = Field(default="", max_length=4000)
     back: str | None = Field(default=None, max_length=8000)
     sheet_id: uuid.UUID | None = None
     session_id: uuid.UUID | None = None

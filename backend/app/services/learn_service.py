@@ -1,11 +1,12 @@
 import logging
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import BadRequestError, NotFoundError
-from app.models.learn import LearnCard, LearnCourse, LearnMarker, LearnSession, LearnSheet
+from app.models.learn import LearnCard, LearnCourse, LearnMarker, LearnRun, LearnSession, LearnSheet
 from app.models.note import Note
 from app.schemas.learn import (
     LearnBoardResponse,
@@ -13,6 +14,10 @@ from app.schemas.learn import (
     LearnCardCreate,
     LearnCardRead,
     LearnCardUpdate,
+    LearnProficiency,
+    LearnRunCreate,
+    LearnRunRead,
+    LearnRunUpdate,
     LearnMarkerPromote,
     LearnMarkerRead,
     LearnCourseCreate,
@@ -53,6 +58,29 @@ class LearnService:
         sheets = {cid: n for cid, n in self.db.execute(sheet_stmt).all()}
         return sessions, sheets
 
+    def _course_proficiency(self) -> dict[uuid.UUID, LearnProficiency]:
+        """Lernstand-Verteilung der Karten je Kurs (Karte→Blatt→Kurs)."""
+        stmt = (
+            select(LearnSheet.course_id, LearnCard.status, func.count(LearnCard.id))
+            .join(LearnSheet, LearnSheet.id == LearnCard.sheet_id)
+            .group_by(LearnSheet.course_id, LearnCard.status)
+        )
+        if self.owner_id is not None:
+            stmt = stmt.where(LearnCard.owner_id == self.owner_id)
+        out: dict[uuid.UUID, LearnProficiency] = {}
+        for course_id, status, n in self.db.execute(stmt).all():
+            prof = out.setdefault(course_id, LearnProficiency())
+            self._apply_status_count(prof, status, n)
+        return out
+
+    @staticmethod
+    def _apply_status_count(prof: LearnProficiency, status: str, n: int) -> None:
+        if status in ("open", "weak", "medium", "strong"):
+            setattr(prof, status, getattr(prof, status) + n)
+        else:
+            prof.open += n
+        prof.total += n
+
     def list_courses(self) -> list[LearnCourseRead]:
         stmt = select(LearnCourse).order_by(
             LearnCourse.is_archived.asc(), LearnCourse.position.asc(), func.lower(LearnCourse.title).asc()
@@ -61,9 +89,15 @@ class LearnService:
             stmt = stmt.where(LearnCourse.owner_id == self.owner_id)
         courses = self.db.execute(stmt).scalars().all()
         sessions, sheets = self._course_counts()
+        prof = self._course_proficiency()
         return [
             LearnCourseRead.model_validate(c, from_attributes=True).model_copy(
-                update={"session_count": sessions.get(c.id, 0), "sheet_count": sheets.get(c.id, 0)}
+                update={
+                    "session_count": sessions.get(c.id, 0),
+                    "sheet_count": sheets.get(c.id, 0),
+                    "card_count": prof.get(c.id, LearnProficiency()).total,
+                    "proficiency": prof.get(c.id, LearnProficiency()),
+                }
             )
             for c in courses
         ]
@@ -213,13 +247,53 @@ class LearnService:
         if session_id is not None:
             stmt = stmt.where(LearnSheet.session_id == session_id)
         sheets = self.db.execute(stmt).scalars().all()
-        counts = self._card_counts_by_sheet([s.id for s in sheets])
+        sheet_ids = [s.id for s in sheets]
+        counts = self._card_counts_by_sheet(sheet_ids)
+        learnable_counts = self._learnable_card_counts_by_sheet(sheet_ids)
+        prof = self._sheet_proficiency(sheet_ids)
+        kinds = self._sheet_kind_summary(sheet_ids)
         return [
             LearnSheetRead.model_validate(s, from_attributes=True).model_copy(
-                update={"card_count": counts.get(s.id, 0)}
+                update={
+                    "card_count": counts.get(s.id, 0),
+                    "learnable_card_count": learnable_counts.get(s.id, 0),
+                    "proficiency": prof.get(s.id, LearnProficiency()),
+                    "kind_summary": kinds.get(s.id),
+                }
             )
             for s in sheets
         ]
+
+    def _sheet_kind_summary(self, sheet_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Dominanter Kartentyp je Blatt: der einzige Typ, sonst 'gemischt'."""
+        if not sheet_ids:
+            return {}
+        stmt = (
+            select(LearnCard.sheet_id, LearnCard.kind, func.count(LearnCard.id))
+            .where(LearnCard.sheet_id.in_(sheet_ids))
+            .group_by(LearnCard.sheet_id, LearnCard.kind)
+        )
+        if self.owner_id is not None:
+            stmt = stmt.where(LearnCard.owner_id == self.owner_id)
+        kinds_by_sheet: dict[uuid.UUID, set[str]] = {}
+        for sheet_id, kind, _n in self.db.execute(stmt).all():
+            kinds_by_sheet.setdefault(sheet_id, set()).add(kind)
+        return {sid: (next(iter(ks)) if len(ks) == 1 else "gemischt") for sid, ks in kinds_by_sheet.items()}
+
+    def _sheet_proficiency(self, sheet_ids: list[uuid.UUID]) -> dict[uuid.UUID, LearnProficiency]:
+        if not sheet_ids:
+            return {}
+        stmt = (
+            select(LearnCard.sheet_id, LearnCard.status, func.count(LearnCard.id))
+            .where(LearnCard.sheet_id.in_(sheet_ids))
+            .group_by(LearnCard.sheet_id, LearnCard.status)
+        )
+        if self.owner_id is not None:
+            stmt = stmt.where(LearnCard.owner_id == self.owner_id)
+        out: dict[uuid.UUID, LearnProficiency] = {}
+        for sheet_id, status, n in self.db.execute(stmt).all():
+            self._apply_status_count(out.setdefault(sheet_id, LearnProficiency()), status, n)
+        return out
 
     def _card_counts_by_sheet(self, sheet_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
         if not sheet_ids:
@@ -227,6 +301,23 @@ class LearnService:
         stmt = (
             select(LearnCard.sheet_id, func.count(LearnCard.id))
             .where(LearnCard.sheet_id.in_(sheet_ids))
+            .group_by(LearnCard.sheet_id)
+        )
+        if self.owner_id is not None:
+            stmt = stmt.where(LearnCard.owner_id == self.owner_id)
+        return {sid: n for sid, n in self.db.execute(stmt).all()}
+
+    def _learnable_card_counts_by_sheet(self, sheet_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
+        if not sheet_ids:
+            return {}
+        stmt = (
+            select(LearnCard.sheet_id, func.count(LearnCard.id))
+            .where(
+                LearnCard.sheet_id.in_(sheet_ids),
+                func.length(func.trim(LearnCard.front)) > 0,
+                LearnCard.back.is_not(None),
+                func.length(func.trim(LearnCard.back)) > 0,
+            )
             .group_by(LearnCard.sheet_id)
         )
         if self.owner_id is not None:
@@ -361,8 +452,6 @@ class LearnService:
     def create_card(self, sheet_id: uuid.UUID, payload: LearnCardCreate) -> LearnCard:
         self.get_sheet_or_404(sheet_id)
         front = payload.front.strip()
-        if not front:
-            raise BadRequestError("Card front must not be empty")
         card = LearnCard(
             owner_id=self.owner_id,
             sheet_id=sheet_id,
@@ -388,6 +477,17 @@ class LearnService:
             card.back = payload.back.strip() if payload.back and payload.back.strip() else None
         if "position" in fields and payload.position is not None:
             card.position = payload.position
+        if "status" in fields and payload.status is not None:
+            card.status = payload.status
+        self.db.commit()
+        self.db.refresh(card)
+        return card
+
+    def review_card(self, card_id: uuid.UUID, status: str) -> LearnCard:
+        """Lernstand einer Karte aus der Selbsteinschätzung setzen."""
+        card = self.get_card_or_404(card_id)
+        card.status = status
+        card.last_reviewed_at = datetime.now(timezone.utc)
         self.db.commit()
         self.db.refresh(card)
         return card
@@ -397,6 +497,82 @@ class LearnService:
         self.db.delete(card)
         self.db.commit()
         logger.info("learn card deleted id=%s", card_id)
+
+    # --- Lerndurchläufe ----------------------------------------------------
+    def list_runs(self, course_id: uuid.UUID, limit: int = 20) -> list[LearnRunRead]:
+        self.get_course_or_404(course_id)
+        stmt = (
+            select(LearnRun, LearnSheet.title)
+            .outerjoin(LearnSheet, LearnSheet.id == LearnRun.sheet_id)
+            .where(LearnRun.course_id == course_id)
+            .order_by(LearnRun.started_at.desc())
+            .limit(limit)
+        )
+        if self.owner_id is not None:
+            stmt = stmt.where(LearnRun.owner_id == self.owner_id)
+        return [
+            LearnRunRead.model_validate(run, from_attributes=True).model_copy(update={"sheet_title": sheet_title})
+            for run, sheet_title in self.db.execute(stmt).all()
+        ]
+
+    def get_run_or_404(self, run_id: uuid.UUID) -> LearnRun:
+        run = self.db.get(LearnRun, run_id)
+        if run is None or (self.owner_id is not None and run.owner_id != self.owner_id):
+            raise NotFoundError("Learning run not found", details={"run_id": str(run_id)})
+        return run
+
+    def create_run(self, course_id: uuid.UUID, payload: LearnRunCreate) -> LearnRunRead:
+        self.get_course_or_404(course_id)
+        sheet_title = None
+        if payload.sheet_id is not None:
+            sheet = self.get_sheet_or_404(payload.sheet_id)
+            if sheet.course_id != course_id:
+                raise BadRequestError("Sheet belongs to a different course")
+            sheet_title = sheet.title
+        if payload.scope == "sheet" and payload.sheet_id is None:
+            raise BadRequestError("Sheet runs require sheet_id")
+        run = LearnRun(
+            owner_id=self.owner_id,
+            course_id=course_id,
+            sheet_id=payload.sheet_id,
+            scope=payload.scope,
+            total_cards=payload.total_cards,
+            started_at=payload.started_at or datetime.now(timezone.utc),
+        )
+        self.db.add(run)
+        self.db.commit()
+        self.db.refresh(run)
+        logger.info("learn run created id=%s course=%s", run.id, course_id)
+        return LearnRunRead.model_validate(run, from_attributes=True).model_copy(
+            update={"sheet_title": sheet_title}
+        )
+
+    def update_run(self, run_id: uuid.UUID, payload: LearnRunUpdate) -> LearnRunRead:
+        run = self.get_run_or_404(run_id)
+        if payload.weak_count + payload.medium_count + payload.strong_count != payload.assessed_cards:
+            raise BadRequestError("Assessment counts must equal assessed_cards")
+        if payload.assessed_cards > run.total_cards:
+            raise BadRequestError("assessed_cards exceeds total_cards")
+        run.assessed_cards = payload.assessed_cards
+        run.weak_count = payload.weak_count
+        run.medium_count = payload.medium_count
+        run.strong_count = payload.strong_count
+        run.completed_at = payload.completed_at
+        self.db.commit()
+        self.db.refresh(run)
+        sheet_title = None
+        if run.sheet_id is not None:
+            sheet = self.db.get(LearnSheet, run.sheet_id)
+            sheet_title = sheet.title if sheet is not None else None
+        return LearnRunRead.model_validate(run, from_attributes=True).model_copy(
+            update={"sheet_title": sheet_title}
+        )
+
+    def delete_run(self, run_id: uuid.UUID) -> None:
+        run = self.get_run_or_404(run_id)
+        self.db.delete(run)
+        self.db.commit()
+        logger.info("learn run deleted id=%s", run_id)
 
     # --- Marker (aus Notizen) ---------------------------------------------
     def _unbind_note_from_other_sessions(
@@ -410,32 +586,6 @@ class LearnService:
             stmt = stmt.where(LearnSession.id != keep_session_id)
         for other in self.db.execute(stmt).scalars().all():
             other.note_id = None
-
-    def _note_binding_map(
-        self, note_ids: list[uuid.UUID]
-    ) -> dict[uuid.UUID, tuple[uuid.UUID, str, uuid.UUID, str]]:
-        """note_id → (session_id, session_title, course_id, course_title) über learn_session.note_id."""
-        if not note_ids:
-            return {}
-        stmt = (
-            select(
-                LearnSession.note_id,
-                LearnSession.id,
-                LearnSession.title,
-                LearnCourse.id,
-                LearnCourse.title,
-            )
-            .join(LearnCourse, LearnCourse.id == LearnSession.course_id)
-            .where(LearnSession.note_id.in_(note_ids))
-            .order_by(LearnSession.ordinal.asc(), LearnSession.created_at.asc())
-        )
-        if self.owner_id is not None:
-            stmt = stmt.where(LearnSession.owner_id == self.owner_id)
-        out: dict[uuid.UUID, tuple[uuid.UUID, str, uuid.UUID, str]] = {}
-        for note_id, sess_id, sess_title, course_id, course_title in self.db.execute(stmt).all():
-            # Erste Kopplung je Notiz gewinnt (Single-Binding wird ohnehin erzwungen).
-            out.setdefault(note_id, (sess_id, sess_title, course_id, course_title))
-        return out
 
     def list_markers(
         self, note_id: uuid.UUID | None = None, open_only: bool = False
@@ -451,30 +601,47 @@ class LearnService:
             stmt = stmt.where(LearnMarker.note_id == note_id)
         rows = self.db.execute(stmt).all()
 
-        # Bereits verarbeitete Marker: (source_note_id, source_pm_id) mit Karte.
-        card_stmt = select(LearnCard.source_note_id, LearnCard.source_pm_id).where(
-            LearnCard.source_note_id.is_not(None)
+        # Eine Markierung ist erst abgeschlossen, wenn die zugehörige Karte
+        # Vorder- UND Rückseite enthält. Unvollständige Karten bleiben als
+        # Nachbereitung sichtbar und werden samt Kurszuordnung zurückgegeben.
+        card_stmt = (
+            select(LearnCard, LearnSheet.course_id, LearnCourse.title)
+            .join(LearnSheet, LearnSheet.id == LearnCard.sheet_id)
+            .join(LearnCourse, LearnCourse.id == LearnSheet.course_id)
+            .where(LearnCard.source_note_id.is_not(None))
+            .order_by(LearnCard.created_at.desc())
         )
         if self.owner_id is not None:
             card_stmt = card_stmt.where(LearnCard.owner_id == self.owner_id)
-        with_card = {(nid, pid) for nid, pid in self.db.execute(card_stmt).all()}
-
-        binding = self._note_binding_map(list({m.note_id for m, _ in rows}))
+        cards_by_marker: dict[tuple[uuid.UUID, str], list[tuple[LearnCard, uuid.UUID, str]]] = {}
+        for card, course_id, course_title in self.db.execute(card_stmt).all():
+            cards_by_marker.setdefault((card.source_note_id, card.source_pm_id), []).append(
+                (card, course_id, course_title)
+            )
 
         items: list[LearnMarkerRead] = []
         for marker, title in rows:
-            has_card = (marker.note_id, marker.node_pm_id) in with_card
-            if open_only and has_card:
+            linked_cards = cards_by_marker.get((marker.note_id, marker.node_pm_id), [])
+            has_card = bool(linked_cards)
+            has_complete_card = any(
+                bool(card.front.strip() and card.back and card.back.strip())
+                for card, _course_id, _course_title in linked_cards
+            )
+            if open_only and has_complete_card:
                 continue
-            bound = binding.get(marker.note_id)
             update = {"note_title": title, "has_card": has_card}
-            if bound is not None:
-                sess_id, sess_title, course_id, course_title = bound
+            if linked_cards and not has_complete_card:
+                draft, course_id, course_title = linked_cards[0]
                 update.update(
-                    session_id=sess_id,
-                    session_title=sess_title,
-                    course_id=course_id,
-                    course_title=course_title,
+                    {
+                        "course_id": course_id,
+                        "course_title": course_title,
+                        "draft_card_id": draft.id,
+                        "draft_sheet_id": draft.sheet_id,
+                        "draft_kind": draft.kind,
+                        "draft_front": draft.front,
+                        "draft_back": draft.back,
+                    }
                 )
             items.append(
                 LearnMarkerRead.model_validate(marker, from_attributes=True).model_copy(update=update)
@@ -550,11 +717,9 @@ class LearnService:
         return sheet
 
     def promote_marker(self, payload: LearnMarkerPromote) -> LearnCard:
-        """Offenen Marker in eine Lernkarte mit Herkunftsanker überführen (§ Nachbereitung)."""
+        """Marker in eine Lernkarte überführen oder einen unvollständigen Entwurf aktualisieren."""
         marker = self.get_marker_or_404(payload.note_id, payload.node_pm_id)
         front = payload.front.strip()
-        if not front:
-            raise BadRequestError("Card front must not be empty")
 
         # Ziel-Lernblatt bestimmen (Vorrang: sheet_id → session_id → course_id).
         session: LearnSession | None = None
@@ -569,17 +734,32 @@ class LearnService:
         else:
             raise BadRequestError("A target (sheet_id, session_id or course_id) is required")
 
-        card = LearnCard(
-            owner_id=self.owner_id,
-            sheet_id=sheet.id,
-            kind=payload.kind,
-            front=front,
-            back=(payload.back.strip() if payload.back and payload.back.strip() else None),
-            position=self._next_card_position(sheet.id),
-            source_note_id=marker.note_id,
-            source_pm_id=marker.node_pm_id,
+        existing_stmt = (
+            select(LearnCard)
+            .where(
+                LearnCard.source_note_id == marker.note_id,
+                LearnCard.source_pm_id == marker.node_pm_id,
+            )
+            .order_by(LearnCard.created_at.desc())
         )
-        self.db.add(card)
+        if self.owner_id is not None:
+            existing_stmt = existing_stmt.where(LearnCard.owner_id == self.owner_id)
+        card = self.db.execute(existing_stmt).scalars().first()
+        if card is None:
+            card = LearnCard(
+                owner_id=self.owner_id,
+                sheet_id=sheet.id,
+                position=self._next_card_position(sheet.id),
+                source_note_id=marker.note_id,
+                source_pm_id=marker.node_pm_id,
+            )
+            self.db.add(card)
+        elif card.sheet_id != sheet.id:
+            card.sheet_id = sheet.id
+            card.position = self._next_card_position(sheet.id)
+        card.kind = payload.kind
+        card.front = front
+        card.back = payload.back.strip() if payload.back and payload.back.strip() else None
 
         # Optionale dauerhafte Notiz↔Sitzung-Kopplung (künftige Marker automatisch zugeordnet).
         if payload.bind_note and session is not None and session.note_id != marker.note_id:

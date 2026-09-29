@@ -6,8 +6,11 @@
 -->
 <template>
   <div
+    ref="rootEl"
     class="note-preview"
     :class="[
+      { 'note-preview--compact': compact },
+      { 'note-preview--dark': theme === 'dark' },
       `note-preview--spacing-${notesParagraphSpacing}`,
       `note-preview--font-${notesFontFamily}`,
       `note-preview--font-size-${notesFontSize}`,
@@ -23,18 +26,20 @@
       <v-icon size="22">mdi-alert-circle-outline</v-icon>
       <span>{{ error }}</span>
     </div>
-    <article v-else class="note-preview__sheet">
-      <div class="note-preview__eyebrow">Notiz · Nur-Lese-Vorschau</div>
-      <h1 class="note-preview__title" :class="{ 'is-untitled': !title.trim() }">
-        {{ title.trim() || 'Ohne Titel' }}
-      </h1>
+    <article v-else class="note-preview__sheet" @click="onSheetClick">
+      <template v-if="!compact">
+        <div class="note-preview__eyebrow">Notiz · Nur-Lese-Vorschau</div>
+        <h1 class="note-preview__title" :class="{ 'is-untitled': !title.trim() }">
+          {{ title.trim() || 'Ohne Titel' }}
+        </h1>
+      </template>
       <editor-content :editor="editor" />
     </article>
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { EditorContent, useEditor } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
 import Typography from '@tiptap/extension-typography';
@@ -53,12 +58,20 @@ import { LayoutColumn, PageLayout } from './nodes/pageLayout.js';
 import { NoteHighlight } from './nodes/noteHighlight.js';
 import { TemplateBox, TemplateField } from './nodes/templateBox.js';
 import { NoteImage } from './nodes/noteImage.js';
+import { LearnMarker } from './extensions/learnMarker.js';
 import { useNotesStore } from '../../stores/notes.js';
 import { useSettingsStore } from '../../stores/settings.js';
 
 const props = defineProps({
   noteId: { type: String, default: null },
+  // Lernbereich: Notiz ohne Kopf, Marker (data-pm-id) hervorheben und anklickbar machen.
+  compact: { type: Boolean, default: false },
+  theme: { type: String, default: 'light', validator: (value) => ['light', 'dark'].includes(value) },
+  markerStates: { type: Object, default: null }, // { [pmId]: 'open' | 'done' }
+  currentPmId: { type: String, default: null },
 });
+const emit = defineEmits(['select-marker']);
+const rootEl = ref(null);
 
 const EMPTY_DOC = { type: 'doc', content: [{ type: 'paragraph' }] };
 const notesStore = useNotesStore();
@@ -116,19 +129,77 @@ const editor = useEditor({
     TemplateBox,
     TemplateField,
     NoteImage,
+    LearnMarker,
   ],
   editorProps: { attributes: { class: 'pm-content pm-content--readonly' } },
 });
 
-onBeforeUnmount(() => editor.value?.destroy());
+let markerObserver = null;
+let markerFrame = 0;
+function scheduleDecorate() {
+  if (markerFrame) return;
+  markerFrame = setTimeout(() => {
+    markerFrame = 0;
+    decorateMarkers();
+    if (needsScroll) { needsScroll = false; scrollToCurrent(false); }
+  }, 0);
+}
+let needsScroll = true;
+onMounted(() => {
+  if (!rootEl.value || typeof MutationObserver === 'undefined') return;
+  // Der Editor-DOM wird erst nach dem Laden eingehängt (und von ProseMirror ggf. neu geschrieben).
+  markerObserver = new MutationObserver(scheduleDecorate);
+  markerObserver.observe(rootEl.value, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'data-pm-id'] });
+  scheduleDecorate();
+});
+onBeforeUnmount(() => {
+  markerObserver?.disconnect();
+  if (markerFrame) clearTimeout(markerFrame);
+  editor.value?.destroy();
+});
 
 // Inhalt setzen, sobald Editor UND geladene Notiz bereit sind.
 watch(
   [editor, bodyJson],
   ([ed, body]) => {
-    if (ed && body) ed.commands.setContent(body, { emitUpdate: false });
+    if (ed && body) {
+      ed.commands.setContent(body, { emitUpdate: false });
+      needsScroll = true;
+      nextTick(scheduleDecorate);
+    }
   },
 );
+
+// --- Lernbereich: Marker hervorheben, aktuellen zentrieren, Klick → Sprung ---
+function decorateMarkers() {
+  const root = rootEl.value;
+  if (!root || !props.markerStates) return;
+  root.querySelectorAll('[data-pm-id]').forEach((el) => {
+    const id = el.getAttribute('data-pm-id');
+    const state = props.markerStates[id];
+    el.classList.toggle('lm-open', state === 'open');
+    el.classList.toggle('lm-done', state === 'done');
+    el.classList.toggle('lm-current', !!props.currentPmId && id === props.currentPmId);
+  });
+}
+function scrollToCurrent(smooth = true) {
+  const root = rootEl.value;
+  const el = root?.querySelector('.lm-current');
+  if (!root || !el) return;
+  const r = root.getBoundingClientRect();
+  const e = el.getBoundingClientRect();
+  const top = root.scrollTop + (e.top - r.top) - r.height / 2 + e.height / 2;
+  root.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' });
+}
+function onSheetClick(ev) {
+  if (!props.markerStates) return;
+  const el = ev.target?.closest?.('[data-pm-id]');
+  const id = el?.getAttribute('data-pm-id');
+  if (id && props.markerStates[id]) emit('select-marker', id);
+}
+watch(() => [props.markerStates, props.currentPmId], () => {
+  nextTick(() => { decorateMarkers(); scrollToCurrent(true); });
+}, { deep: true });
 
 async function load() {
   if (!props.noteId) {
@@ -166,6 +237,20 @@ watch(() => props.noteId, load, { immediate: true });
   --note-preview-paragraph-gap: 0.25em;
   --note-preview-heading-before-gap: 1.75rem;
   --note-preview-block-gap: 1.75rem;
+}
+
+.note-preview--dark {
+  --pm-text: oklch(0.94 0.008 235);
+  --pm-muted: oklch(0.76 0.020 240);
+  --pm-text-muted: oklch(0.76 0.020 240);
+  --pm-divider: oklch(0.42 0.030 250);
+  --pm-content-surface: oklch(0.225 0.028 252);
+  --pm-app-surface: oklch(0.205 0.026 252);
+  --pm-surface-soft: oklch(0.30 0.028 250);
+  --pm-viewer-surface: oklch(0.215 0.028 252);
+  --pm-accent-strong: oklch(0.80 0.10 200);
+  background: oklch(0.265 0.030 250);
+  color: var(--pm-text);
 }
 
 .note-preview--font-serif {
@@ -225,6 +310,33 @@ watch(() => props.noteId, load, { immediate: true });
   max-width: 720px;
   align-self: flex-start;
   padding: 32px clamp(20px, 5vw, 52px) 64px;
+}
+
+.note-preview--compact .note-preview__sheet { padding-top: 28px; }
+.note-preview :deep(.pm-content .lm-open),
+.note-preview :deep(.pm-content .lm-done),
+.note-preview :deep(.pm-content .lm-current) {
+  box-sizing: border-box;
+  padding: 0.35em 0.8em 0.4em 1em;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  transition: background .18s, box-shadow .18s, opacity .18s;
+}
+.note-preview :deep(.lm-open) { box-shadow: inset 3px 0 0 color-mix(in oklab, var(--pm-accent, #0b7280) 45%, transparent); background: color-mix(in oklab, var(--pm-accent, #0b7280) 5%, transparent); }
+.note-preview :deep(.lm-open:hover) { background: color-mix(in oklab, var(--pm-accent, #0b7280) 10%, transparent); }
+.note-preview :deep(.lm-done) { opacity: .5; box-shadow: inset 3px 0 0 color-mix(in oklab, var(--pm-success, #2e7d4f) 60%, transparent); }
+.note-preview :deep(.lm-current) { opacity: 1; box-shadow: inset 4px 0 0 var(--pm-accent, #0b7280); background: color-mix(in oklab, var(--pm-accent, #0b7280) 14%, transparent); }
+.note-preview :deep(.pm-learn-partial.lm-open),
+.note-preview :deep(.pm-learn-partial.lm-open:hover),
+.note-preview :deep(.pm-learn-partial.lm-current) {
+  background: transparent;
+}
+.note-preview :deep(.pm-learn-selection) {
+  border-radius: 0.18em;
+  background: color-mix(in oklab, var(--pm-accent, #0b7280) 24%, transparent);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 .note-preview__eyebrow {
@@ -303,6 +415,10 @@ watch(() => props.noteId, load, { immediate: true });
 }
 .note-preview :deep(.pm-content h3) { font-weight: 600; font-size: 1.06rem; margin-top: 1.1em; }
 .note-preview :deep(.pm-content h4) { font-weight: 600; font-size: 0.98rem; margin-top: 1em; }
+.note-preview :deep(.pm-content > :first-child),
+.note-preview :deep([data-layout-column] > :first-child) {
+  margin-top: 0;
+}
 .note-preview :deep(.pm-content > :not(hr) + :is(h1, h2, h3, h4, h5, h6)),
 .note-preview :deep([data-layout-column] > :not(hr) + :is(h1, h2, h3, h4, h5, h6)) {
   margin-top: var(--note-preview-heading-before-gap);

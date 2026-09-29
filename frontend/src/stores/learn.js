@@ -14,6 +14,11 @@ import {
   createCard,
   updateCard,
   deleteCard,
+  reviewCard,
+  listLearningRuns,
+  createLearningRun,
+  updateLearningRun,
+  deleteLearningRun,
   listMarkers,
   promoteMarker,
 } from '../api/learn.js';
@@ -28,7 +33,8 @@ export const useLearnStore = defineStore('learn', {
     allSheets: [], // alle Lernblätter (kursübergreifend) für die Startseite
     cards: [], // Karten des aktuell geöffneten Lernblatts
     cardsSheetId: null,
-    openMarkers: [], // offene Lernmarker (noch keine Karte) – Nachbereitungs-Eingang
+    learningRuns: [], // gespeicherter Verlauf des aktiven Kurses
+    openMarkers: [], // offene Lernmarker (keine oder noch unvollständige Karte)
     loadingCourses: false,
     loadingBoard: false,
     loadingCards: false,
@@ -59,7 +65,7 @@ export const useLearnStore = defineStore('learn', {
 
     async selectCourse(courseId) {
       this.activeCourseId = courseId;
-      await this.fetchBoard();
+      await Promise.all([this.fetchBoard(), this.fetchLearningRuns()]);
     },
 
     // Alle Lernblätter kursübergreifend – Grundlage der Startseiten-Übersicht.
@@ -153,12 +159,55 @@ export const useLearnStore = defineStore('learn', {
 
     async patchCard(id, sheetId, payload) {
       await updateCard(id, payload);
-      await this.fetchCards(sheetId);
+      // Eine Bearbeitung kann die Lernbereitschaft ändern (beide Seiten befüllt).
+      await Promise.all([this.fetchCards(sheetId), this.fetchBoard(), this.fetchAllSheets()]);
     },
 
     async removeCard(id, sheetId) {
       await deleteCard(id);
       await Promise.all([this.fetchCards(sheetId), this.fetchBoard(), this.fetchAllSheets()]);
+    },
+
+    // Lernstand einer Karte setzen (Selbsteinschätzung). Optimistisch im lokalen
+    // cards-Array spiegeln; Kurs-/Board-Aggregate erst am Ende des Durchlaufs neu laden.
+    async reviewCard(id, status) {
+      const updated = await reviewCard(id, status);
+      const idx = this.cards.findIndex((c) => c.id === id);
+      if (idx !== -1) this.cards[idx] = { ...this.cards[idx], ...updated };
+      return updated;
+    },
+
+    // --- Gespeicherte Lerndurchläufe --------------------------------------
+    async fetchLearningRuns() {
+      if (!this.activeCourseId) {
+        this.learningRuns = [];
+        return;
+      }
+      try {
+        const res = await listLearningRuns(this.activeCourseId);
+        this.learningRuns = res.items || [];
+      } catch (err) {
+        this.error = err?.message || 'Lernverlauf konnte nicht geladen werden';
+      }
+    },
+
+    async addLearningRun(courseId, payload) {
+      const run = await createLearningRun(courseId, payload);
+      this.learningRuns = [run, ...this.learningRuns.filter((item) => item.id !== run.id)];
+      return run;
+    },
+
+    async patchLearningRun(id, payload) {
+      const run = await updateLearningRun(id, payload);
+      const idx = this.learningRuns.findIndex((item) => item.id === id);
+      if (idx === -1) this.learningRuns.unshift(run);
+      else this.learningRuns[idx] = run;
+      return run;
+    },
+
+    async removeLearningRun(id) {
+      await deleteLearningRun(id);
+      this.learningRuns = this.learningRuns.filter((item) => item.id !== id);
     },
 
     // --- Nachbereitung: offene Marker --------------------------------------

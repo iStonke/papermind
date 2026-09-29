@@ -350,3 +350,22 @@
   --v-theme-on-surface: 41, 63, 67;
   --v-theme-primary: 0, 107, 117;
 }
+
+/* Fokusmodus (Nachbereiten): Seitenleiste nimmt die „Nacht“-Palette des Modus an,
+   unabhängig von Theme und der Einstellung „Helle Seitenleiste“. */
+.papermind-app.pm-night-sidebar {
+  --pm-sidebar-bg:            oklch(0.150 0.028 252);
+  --pm-sidebar-surface:       oklch(0.150 0.028 252);
+  --pm-sidebar-text:          oklch(0.955 0.008 235);
+  --pm-sidebar-muted:         oklch(0.760 0.022 240);
+  --pm-sidebar-border:        oklch(0.285 0.034 250);
+  --pm-sidebar-hover:         rgba(255, 255, 255, 0.06);
+  --pm-sidebar-selected:      oklch(0.300 0.050 240);
+  --pm-sidebar-selected-text: oklch(0.950 0.020 220);
+  --pm-sidebar-accent:        oklch(0.800 0.100 200);
+  --pm-sidebar-chip-bg:       oklch(0.270 0.034 250);
+  --pm-sidebar-chip-text:     oklch(0.930 0.010 235);
+  --pm-sidebar-chip-count:    oklch(0.750 0.020 240);
+}
+/* Trennlinie zwischen Seitenleiste und Inhalt nimmt die dunkle Leistenfarbe an. */
+.papermind-app.pm-night-sidebar .panel-left { border-right-color: var(--pm-sidebar-border); }

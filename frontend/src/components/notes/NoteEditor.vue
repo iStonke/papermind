@@ -113,6 +113,7 @@
             :class="{
               'is-active': b.active(),
               'is-ai': b.ai,
+              'has-separator-before': b.separatorBefore,
               'has-separator-after': b.separatorAfter,
             }"
             :title="b.label"
@@ -1194,8 +1195,17 @@ const bubbleButtons = computed(() => {
       active: () => toolbarActive('highlight') || bubbleHighlight.open,
       run: () => toggleBubbleHighlight(),
     },
-    mk('learn-marker', 'Als Lernstoff markieren', 'mdi-cards-outline',
-      e => isLineMarked(e), c => c.toggleLearnMarker('lernen')),
+    {
+      ...mk('learn-marker', 'Als Lernstoff markieren', 'mdi-school-outline',
+        e => isLineMarked(e), c => c.toggleLearnMarker('lernen')),
+      separatorBefore: true,
+      separatorAfter: ed.state.selection.empty,
+    },
+    ...(!ed.state.selection.empty ? [{
+      ...mk('learn-marker-block', 'Ganzen Absatz als Lernstoff markieren', 'mdi-text-box-outline',
+        () => false, c => c.toggleLearnMarker('lernen', true)),
+      separatorAfter: true,
+    }] : []),
     ...(props.aiAvailable ? [{
       key: 'ai-selection',
       label: 'Umschreiben',
@@ -2335,6 +2345,28 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
   background: color-mix(in srgb, var(--pm-accent, #006b75) 7%, transparent);
 }
 
+.note-editor :deep(.pm-content .pm-learn-selection) {
+  border-radius: 0.18em;
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 24%, transparent);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* Bei einer Textauswahl markiert die Fläche nur den tatsächlichen Ausschnitt.
+   Der linke Strich hält weiterhin den zugehörigen Absatz erkennbar. */
+.note-editor :deep(.pm-content .pm-learn-marked.pm-learn-partial) {
+  background: transparent;
+}
+
+.note-editor.has-compact-learn-markers :deep(.pm-content .pm-learn-marked) {
+  border-radius: 0;
+  background: transparent;
+}
+
+.note-editor.has-compact-learn-markers :deep(.pm-content .pm-learn-selection) {
+  background: transparent;
+}
+
 .note-editor :deep(.pm-content hr) {
   border: 0; height: 1px; background: var(--pm-divider, #d8dfe1); margin-inline: 0;
 }
@@ -2602,6 +2634,15 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
   border-radius: 6px 0 0 6px;
 }
 
+.pm-bubble__btn.has-separator-before {
+  margin-left: 4px;
+  padding-left: 9px;
+  border-left: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0 6px 6px 0;
+}
+
+.pm-bubble__btn.has-separator-before.has-separator-after { border-radius: 0; }
+
 .pm-bubble__btn:focus-visible {
   outline: 2px solid rgba(255, 255, 255, 0.6);
   outline-offset: -2px;
@@ -2611,9 +2652,6 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
 
 .pm-bubble__btn:not(.is-ai) + .pm-bubble__btn.is-ai {
   margin-left: 3px;
-  padding-left: 9px;
-  border-left: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 0 6px 6px 0;
 }
 
 .pm-bubble__btn.is-ai:hover { background: rgba(127, 224, 193, 0.15); color: #9fe9d4; }

@@ -145,6 +145,96 @@ test('sidebar footer shows activity only while work is running and keeps shortcu
   await page.screenshot({ path: testInfo.outputPath('sidebar-footer-overflow.png') });
 });
 
+test('Lernraum keeps one navigable path from course to focused learning', async ({ page }) => {
+  await mockApi(page);
+  const courseId = '30000000-0000-4000-8000-000000000001';
+  const sheetId = '40000000-0000-4000-8000-000000000001';
+  const course = {
+    id: courseId, title: 'Computergrafik', session_count: 1, sheet_count: 1, card_count: 2,
+    proficiency: { total: 2, strong: 1, medium: 0, weak: 0, open: 1 },
+  };
+  const sheet = {
+    id: sheetId, course_id: courseId, session_id: 'session-1', title: 'Rasterisierung',
+    status: 'in_progress', is_favorite: false, card_count: 2, kind_summary: 'gemischt',
+  };
+  const cards = [
+    { id: 'card-1', sheet_id: sheetId, kind: 'fakt', front: 'Was ist ein Fragment?', back: 'Ein Kandidat für ein Pixel.', status: 'open' },
+    { id: 'card-2', sheet_id: sheetId, kind: 'verstaendnis', front: 'Warum wird gerastert?', back: 'Um Geometrie auf Pixel abzubilden.', status: 'strong' },
+  ];
+  let sheetDeleted = false;
+
+  await page.route('**/api/learn/**', async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    const json = (body) => route.fulfill({ status: 200, json: body });
+    if (path === '/api/learn/courses') return json({ items: [course] });
+    if (path === `/api/learn/courses/${courseId}` && request.method() === 'PATCH') {
+      Object.assign(course, request.postDataJSON());
+      return json(course);
+    }
+    if (path === `/api/learn/courses/${courseId}/board`) return json({ course, sessions: [{ id: 'session-1', title: 'Vorlesung 1', sheets: sheetDeleted ? [] : [sheet] }], loose_sheets: [] });
+    if (path === '/api/learn/sheets') return json({ items: sheetDeleted ? [] : [sheet] });
+    if (path === `/api/learn/sheets/${sheetId}` && request.method() === 'PATCH') {
+      Object.assign(sheet, request.postDataJSON());
+      return json(sheet);
+    }
+    if (path === `/api/learn/sheets/${sheetId}` && request.method() === 'DELETE') {
+      sheetDeleted = true;
+      return json({ ok: true });
+    }
+    if (path === `/api/learn/sheets/${sheetId}/cards`) return json({ items: cards });
+    if (path === '/api/learn/markers') return json({ items: [] });
+    if (path.startsWith('/api/learn/cards/') && path.endsWith('/review')) return json({ ...cards[0], status: request.postDataJSON().status });
+    return json({});
+  });
+
+  await login(page);
+  await page.goto('/lernen');
+  await expect(page.getByRole('heading', { name: 'Lernraum', exact: true })).toBeVisible();
+  await expect(page.locator('.lr-header-progress')).toBeVisible();
+  const homeHeaderHeight = await page.locator('.lr-nav').evaluate((element) => element.getBoundingClientRect().height);
+  const homeTitleLeft = await page.locator('.lr-title').evaluate((element) => element.getBoundingClientRect().left);
+  const homeTitleTop = await page.locator('.lr-title').evaluate((element) => element.getBoundingClientRect().top);
+  await expect(page.getByRole('button', { name: 'Kurs anlegen', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: /Computergrafik/ }).click();
+  await expect(page).toHaveURL(new RegExp(`course=${courseId}`));
+  await expect(page.getByRole('heading', { name: 'Computergrafik', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Zurück zum Lernraum' })).toBeVisible();
+  expect(await page.locator('.lr-nav').evaluate((element) => element.getBoundingClientRect().height)).toBe(homeHeaderHeight);
+  expect(await page.locator('.lr-title').evaluate((element) => element.getBoundingClientRect().left)).toBe(homeTitleLeft);
+  expect(await page.locator('.lr-title').evaluate((element) => element.getBoundingClientRect().top)).toBe(homeTitleTop);
+  await expect(page.locator('.lr-header-progress')).toBeVisible();
+  await expect(page.locator('.lr-course-overview')).toHaveCount(0);
+  await expect(page.locator('.lr-sheet-tile').getByRole('button', { name: 'Jetzt lernen', exact: true })).toBeVisible();
+  await expect(page.locator('.lr-nav').getByRole('button', { name: /Jetzt lernen/ })).toHaveCount(0);
+  await page.locator('.lr-title-edit').click();
+  await expect(page.locator('.lr-title-input')).toHaveValue('Computergrafik');
+  await page.locator('.lr-title-input').fill('Grafik Grundlagen');
+  await page.locator('.lr-title-input').press('Enter');
+  await expect(page.getByRole('heading', { name: 'Grafik Grundlagen', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '„Rasterisierung“ umbenennen' }).click();
+  await page.getByLabel('Lernblattname').fill('Rastergrafik');
+  await page.getByLabel('Lernblattname').press('Enter');
+  await expect(page.locator('.lr-sheet-title-button')).toHaveText('Rastergrafik');
+  await page.getByRole('button', { name: 'Rastergrafik', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`sheet=${sheetId}`));
+  await expect(page.getByRole('heading', { name: 'Rastergrafik', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Zurück zu Grafik Grundlagen' })).toBeVisible();
+  expect(await page.locator('.lr-nav').evaluate((element) => element.getBoundingClientRect().height)).toBe(homeHeaderHeight);
+  expect(await page.locator('.lr-title').evaluate((element) => element.getBoundingClientRect().left)).toBe(homeTitleLeft);
+  expect(await page.locator('.lr-title').evaluate((element) => element.getBoundingClientRect().top)).toBe(homeTitleTop);
+  await page.getByRole('button', { name: /Jetzt lernen/ }).click();
+  await expect(page.locator('.lr-focus')).toBeVisible();
+  await expect(page.getByText('Was ist ein Fragment?', { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/learn=1/);
+  await page.getByRole('button', { name: 'Beenden', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`sheet=${sheetId}`));
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Löschen', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`course=${courseId}`));
+  await expect(page.locator('.lr-sheet-tile')).toHaveCount(0);
+});
+
 test('title-sorted notes form one alphabetical list without date headings', async ({ page }) => {
   await mockApi(page);
   await page.addInitScript(() => {

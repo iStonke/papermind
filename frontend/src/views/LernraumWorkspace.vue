@@ -1,343 +1,686 @@
 <template>
-  <section class="lernraum-panel">
-    <!-- Kein Kurs -->
-    <div v-if="!store.courses.length && !store.loadingCourses" class="lr-empty">
-      <div class="lr-empty-card">
-        <div class="lr-empty-title">Willkommen im Lernraum</div>
-        <div class="lr-empty-body">Lege deinen ersten Kurs an – z. B. „Computergrafik 1". Darin sammelst du Lernblätter und lernst später deine Karten.</div>
-        <button type="button" class="lr-btn lr-btn--primary lr-btn--md" @click="onCreateCourse">Ersten Kurs anlegen</button>
+  <section class="lernraum-panel" :class="{ 'lernraum-panel--focus': learning || focusEditorOpen, 'lernraum-panel--nq': learning || focusEditorOpen }">
+    <!-- Der Lernmodus ist eine eigene, ruhige Ebene statt eines Overlays über der Navigation. -->
+    <div v-if="learning" class="lr-focus lr-learning-focus" :class="{ 'lr-learning-focus--exit-warning': learnExitWarningOpen }">
+      <Transition name="lr-exit-backdrop">
+        <button
+          v-if="learnExitWarningOpen"
+          type="button"
+          class="lr-learn-exit-backdrop"
+          aria-label="Warnung schließen und weiterlernen"
+          @click="learnExitWarningOpen = false"
+        ></button>
+      </Transition>
+      <header class="lr-nq-head lr-learn-head">
+        <div class="lr-learn-exit-wrap">
+          <button
+            type="button"
+            class="lr-focus-exit"
+            :aria-expanded="learnExitWarningOpen"
+            aria-controls="learn-exit-warning"
+            @click="requestExitLearning"
+          >
+            <span aria-hidden="true">←</span>
+            <span>Beenden</span>
+          </button>
+          <Transition name="lr-exit-warning">
+            <div v-if="learnExitWarningOpen" id="learn-exit-warning" class="lr-learn-exit-warning" role="alert">
+              <strong>Lerndurchlauf beenden?</strong>
+              <p>{{ remainingLearnCount }} {{ remainingLearnCount === 1 ? 'Karte wurde' : 'Karten wurden' }} noch nicht eingeschätzt.</p>
+              <span>Deine bisherigen Einschätzungen bleiben gespeichert.</span>
+              <div class="lr-learn-exit-actions">
+                <button type="button" class="lr-learn-exit-cancel" @click="learnExitWarningOpen = false">Weiterlernen</button>
+                <button type="button" class="lr-learn-exit-confirm" @click="exitLearning">Beenden</button>
+              </div>
+            </div>
+          </Transition>
+        </div>
+        <div class="lr-nq-title">
+          <strong>{{ openSheet?.title || store.activeCourse?.title || 'Lernmodus' }}</strong>
+          <span class="lr-nq-sub">
+            <span v-if="openSheet" class="lr-nq-course">{{ store.activeCourse?.title || 'Kurs' }}</span>
+            <span v-if="openSheet" aria-hidden="true">·</span>
+            <span v-if="currentLearn">Karte {{ learnIndex + 1 }} von {{ learnQueue.length }}</span>
+            <span v-else>{{ learnQueue.length }} Karten bearbeitet</span>
+          </span>
+        </div>
+        <div
+          class="lr-learn-progress-ring"
+          :class="{ 'lr-learn-progress-ring--pulse': learnProgressPulse }"
+          role="progressbar"
+          :aria-valuenow="assessedLearnCount"
+          aria-valuemin="0"
+          :aria-valuemax="learnQueue.length"
+          :aria-label="`${assessedLearnCount} von ${learnQueue.length} Karten eingeschätzt`"
+          :title="`${assessedLearnCount} von ${learnQueue.length} Karten eingeschätzt`"
+          :style="{ '--learn-progress': `${learnCompletion}%` }"
+        >
+          <span>{{ assessedLearnCount }}</span>
+        </div>
+      </header>
+
+      <main class="lr-focus-stage">
+        <article v-if="currentLearn" class="lr-focus-card" :class="{ 'lr-focus-card--revealed': revealed }" :style="!revealed ? { width: `${learnFrontWidth}px` } : null">
+          <div class="lr-focus-card-inner">
+            <section class="lr-focus-card-face lr-focus-card-face--front" :aria-hidden="revealed" :inert="revealed">
+              <div class="lr-focus-card-meta">
+                <span class="lr-kind-chip lr-kind-chip--lg" :style="kindChipStyle(currentLearn.kind)">{{ kindLabel(currentLearn.kind) }}</span>
+                <span
+                  v-if="currentLearn.sessionAssessment"
+                  class="lr-learn-answered"
+                  :class="`lr-learn-answered--${currentLearn.sessionAssessment}`"
+                  :aria-label="`Einschätzung: ${assessmentLabel(currentLearn.sessionAssessment)}`"
+                  :title="`Einschätzung: ${assessmentLabel(currentLearn.sessionAssessment)}`"
+                >{{ assessmentLabel(currentLearn.sessionAssessment) }}</span>
+              </div>
+              <div class="lr-learn-front">{{ currentLearn.front }}</div>
+              <button type="button" class="lr-learn-hint-link" :disabled="currentLearn.hintBusy" @click="toggleLearnHint">
+                <PmActionIcon name="sparkles" :size="14" />
+                <span>{{ currentLearn.hintVisible ? 'Hinweis ausblenden' : 'Hinweis anzeigen' }}</span>
+              </button>
+              <Transition name="lr-learn-hint-reveal">
+                <div v-if="currentLearn.hintVisible" class="lr-learn-hint-shell">
+                  <div class="lr-learn-hint" role="status">
+                    <p v-if="currentLearn.hintBusy">Die lokale KI formuliert einen Denkanstoß …</p>
+                    <p v-else-if="currentLearn.hintError" class="lr-learn-hint-error">{{ currentLearn.hintError }}</p>
+                    <p v-else>{{ currentLearn.aiHint }}</p>
+                  </div>
+                </div>
+              </Transition>
+              <div class="lr-learn-actions">
+                <button type="button" class="lr-btn lr-btn--primary lr-btn--learn" @click="revealed = true">Antwort aufdecken</button>
+              </div>
+              <div class="lr-learn-card-nav" aria-label="Kartennavigation">
+                <button type="button" class="lr-nq-arrow" :disabled="learnIndex === 0" aria-label="Vorherige Karte" @click="moveLearn(-1)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6 8.5 12l6 6" /></svg></button>
+                <button type="button" class="lr-nq-arrow" :disabled="learnIndex >= learnQueue.length - 1" aria-label="Nächste Karte" @click="moveLearn(1)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6" /></svg></button>
+              </div>
+            </section>
+
+            <section class="lr-focus-card-face lr-focus-card-face--back" :aria-hidden="!revealed" :inert="!revealed">
+              <div class="lr-focus-card-meta">
+                <button type="button" class="lr-learn-flip-back" @click="revealed = false">
+                  <span aria-hidden="true">←</span>
+                  <span>Zur Frage</span>
+                </button>
+                <span class="lr-kind-chip lr-kind-chip--lg" :style="kindChipStyle(currentLearn.kind)">{{ kindLabel(currentLearn.kind) }}</span>
+              </div>
+              <div class="lr-learn-question-label">Frage</div>
+              <div class="lr-learn-front">{{ currentLearn.front }}</div>
+              <div class="lr-learn-back">
+                <div class="lr-learn-back-label">{{ currentLearn.back ? 'Antwort' : 'Zum Abgleich' }}</div>
+                <div class="lr-learn-back-text">{{ currentLearn.back || 'Formuliere frei und gleiche deine Antwort anschließend mit der Notiz ab.' }}</div>
+              </div>
+              <div class="lr-learn-assessment">
+                <p class="lr-learn-selfhint">Wie gut konntest du die Antwort ohne Hilfe?</p>
+                <div class="lr-learn-actions">
+                  <button type="button" class="lr-assess lr-assess--weak" :class="{ 'lr-assess--selected': currentLearn.sessionAssessment === 'weak' }" :aria-pressed="currentLearn.sessionAssessment === 'weak'" @click="assess('weak')"><span>Nicht gekonnt</span><kbd>1</kbd></button>
+                  <button type="button" class="lr-assess lr-assess--medium" :class="{ 'lr-assess--selected': currentLearn.sessionAssessment === 'medium' }" :aria-pressed="currentLearn.sessionAssessment === 'medium'" @click="assess('medium')"><span>Mit Mühe</span><kbd>2</kbd></button>
+                  <button type="button" class="lr-assess lr-assess--strong" :class="{ 'lr-assess--selected': currentLearn.sessionAssessment === 'strong' }" :aria-pressed="currentLearn.sessionAssessment === 'strong'" @click="assess('strong')"><span>Sicher</span><kbd>3</kbd></button>
+                </div>
+              </div>
+              <div class="lr-learn-card-nav" aria-label="Kartennavigation">
+                <button type="button" class="lr-nq-arrow" :disabled="learnIndex === 0" aria-label="Vorherige Karte" @click="moveLearn(-1)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6 8.5 12l6 6" /></svg></button>
+                <button type="button" class="lr-nq-arrow" :disabled="learnIndex >= learnQueue.length - 1" aria-label="Nächste Karte" @click="moveLearn(1)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6" /></svg></button>
+              </div>
+            </section>
+          </div>
+        </article>
+
+        <section v-else class="lr-learn-done" :style="{ '--done-score': learnScore, '--done-offset': 100 - learnScore }">
+          <div class="lr-done-orbit" role="img" :aria-label="`${learnScore} Prozent Lernsicherheit`">
+            <svg viewBox="0 0 100 100" aria-hidden="true">
+              <circle class="lr-done-orbit-track" cx="50" cy="50" r="43" pathLength="100" />
+              <circle class="lr-done-orbit-value" cx="50" cy="50" r="43" pathLength="100" />
+            </svg>
+            <div class="lr-done-orbit-copy"><strong>{{ learnScore }}%</strong><span>Lernsicherheit</span></div>
+          </div>
+          <div class="lr-learn-done-title">Durchlauf abgeschlossen</div>
+          <p>{{ learnQueue.length }} von {{ learnQueue.length }} Karten bearbeitet</p>
+          <div class="lr-done-results" aria-label="Ergebnis des Lerndurchlaufs">
+            <div v-for="result in learnResultRows" :key="result.key" class="lr-done-result-row" :class="`lr-done-result-row--${result.key}`">
+              <div class="lr-done-result-label"><i class="lr-result-dot" :class="`lr-result-dot--${result.key}`"></i><span>{{ result.label }}</span><strong>{{ result.count }}</strong></div>
+              <div class="lr-done-result-track"><i :style="{ width: `${result.percent}%` }"></i></div>
+            </div>
+          </div>
+          <div class="lr-done-actions">
+            <button type="button" class="lr-btn lr-btn--primary lr-btn--md" @click="exitLearning">Zurück zu {{ openSheet ? '„' + openSheet.title + '“' : '„' + store.activeCourse?.title + '“' }}</button>
+            <button type="button" class="lr-done-restart" @click="restartLearning">Erneut lernen</button>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Nachbereiten und Kartenbearbeitung nutzen dieselbe Fokusoberfläche. -->
+    <div v-else-if="focusEditorOpen" class="lr-focus lr-nq" :style="{ '--nq-tint': nqTint }">
+      <header class="lr-nq-head">
+        <button type="button" class="lr-focus-exit" @click="closeFocusEditor">
+          <span aria-hidden="true">←</span>
+          <span>Beenden</span>
+        </button>
+        <div class="lr-nq-title">
+          <strong>{{ cardEditorOpen ? (openSheet?.title || 'Lernblatt') : (current?.noteTitle || 'Ohne Titel') }}</strong>
+          <span class="lr-nq-sub">
+            <span v-if="cardEditorOpen">Karte {{ dialog.index + 1 }} von {{ dialog.items.length }}</span>
+            <span v-else>Markierung {{ dialog.index + 1 }} von {{ dialog.items.length }}<template v-if="queueDone"> · {{ queueDone }} übernommen</template></span>
+          </span>
+        </div>
+        <div class="lr-nq-nav">
+          <button type="button" class="lr-nq-arrow" :disabled="dialog.index === 0" :aria-label="cardEditorOpen ? 'Vorherige Karte' : 'Vorherige Markierung'" @click="focusEditorPrev"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6 8.5 12l6 6" /></svg></button>
+          <button type="button" class="lr-nq-arrow" :disabled="dialog.index >= dialog.items.length - 1" :aria-label="cardEditorOpen ? 'Nächste Karte' : 'Nächste Markierung'" @click="focusEditorNext"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6" /></svg></button>
+        </div>
+      </header>
+
+      <div class="lr-nq-body" :class="{ 'lr-nq-body--solo': !current?.noteId }">
+        <section v-if="current?.noteId" class="lr-nq-source" aria-label="Ursprüngliche Notiz">
+          <button
+            type="button"
+            class="lr-nq-note-theme-toggle"
+            :aria-pressed="notePreviewTheme === 'dark'"
+            :aria-label="notePreviewTheme === 'dark' ? 'Helle Notizansicht aktivieren' : 'Dunkle Notizansicht aktivieren'"
+            :title="notePreviewTheme === 'dark' ? 'Helle Ansicht' : 'Dunkle Ansicht'"
+            @click="toggleNotePreviewTheme"
+          >
+            <v-icon size="19">{{ notePreviewTheme === 'dark' ? 'mdi-weather-sunny' : 'mdi-weather-night' }}</v-icon>
+          </button>
+          <div class="lr-nq-paper" :class="`lr-nq-paper--${notePreviewTheme}`">
+            <NotePreview
+              :note-id="current?.noteId || null"
+              compact
+              :theme="notePreviewTheme"
+              :marker-states="editorMarkerStates"
+              :current-pm-id="current?.marker.node_pm_id || null"
+              @select-marker="onSelectMarker"
+            />
+          </div>
+        </section>
+
+        <section v-if="current" class="lr-nq-work" aria-label="Karte">
+          <div class="lr-nq-meta">
+            <div v-if="!cardEditorOpen" class="lr-nq-field">
+              <span class="lr-nq-label">Kurs</span>
+              <div class="lr-kind-picker" role="group" aria-label="Kurs auswählen">
+                <button
+                  v-for="c in store.courses"
+                  :key="c.id"
+                  type="button"
+                  class="lr-kind-opt"
+                  :class="{ 'lr-kind-opt--on': current.courseId === c.id }"
+                  :aria-pressed="current.courseId === c.id"
+                  @click="current.courseId = c.id"
+                >{{ c.title }}</button>
+              </div>
+            </div>
+            <div class="lr-nq-field">
+              <div class="lr-nq-label-row">
+                <span class="lr-nq-label">Art</span>
+                <button type="button" class="lr-nq-ai" :disabled="!!nqAiBusy || current.kindAiBusy" aria-label="Art mit KI bestimmen" @click="generateQueueKind">
+                  <PmActionIcon name="sparkles" :size="14" />{{ current.kindAiBusy ? 'Prüft …' : 'KI' }}
+                </button>
+              </div>
+              <div class="lr-kind-picker">
+                <button v-for="k in cardKinds" :key="k.value" type="button" class="lr-kind-opt" :class="{ 'lr-kind-opt--on': current.cardKind === k.value }" @click="selectQueueKind(k.value)">{{ k.label }}</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="lr-nq-field lr-nq-field--editor lr-nq-field--question">
+            <div class="lr-nq-label-row">
+              <label class="lr-nq-label" for="lr-nq-front">Frage</label>
+              <button type="button" class="lr-nq-ai" :disabled="!!nqAiBusy || current.kindAiBusy" aria-label="Frage mit KI formulieren" @click="generateQueueField('front')">
+                <PmActionIcon name="sparkles" :size="14" />{{ nqAiBusy === 'front' ? 'Erstellt …' : 'KI' }}
+              </button>
+            </div>
+            <textarea id="lr-nq-front" ref="nqFront" v-model="current.front" class="lr-field lr-field--area lr-nq-area" rows="3" placeholder="Formuliere die Frage, die dich zur Antwort bringt …" @input="fitNqFront($event.currentTarget)"></textarea>
+          </div>
+
+          <button type="button" class="lr-nq-swap" title="Vertauscht den Inhalt von Frage und Antwort" @click="swapSides">
+            <span aria-hidden="true">⇅</span> Frage &amp; Antwort tauschen
+          </button>
+
+          <div class="lr-nq-field lr-nq-field--editor lr-nq-field--answer">
+            <div class="lr-nq-label-row">
+              <label class="lr-nq-label" for="lr-nq-back">
+                <span>Antwort</span>
+                <span v-if="cardEditorOpen || current.fromNote !== 'back'" class="lr-nq-opt">optional · leer = Selbstabgleich</span>
+              </label>
+              <button type="button" class="lr-nq-ai" :disabled="!!nqAiBusy || current.kindAiBusy" aria-label="Antwort mit KI formulieren" @click="generateQueueField('back')">
+                <PmActionIcon name="sparkles" :size="14" />{{ nqAiBusy === 'back' ? 'Erstellt …' : 'KI' }}
+              </button>
+            </div>
+            <textarea id="lr-nq-back" ref="nqBack" v-model="current.back" class="lr-field lr-field--area lr-nq-area" rows="1" placeholder="Die Antwort in deinen Worten …" @input="fitNqBack($event.currentTarget)"></textarea>
+          </div>
+
+          <div class="lr-nq-actions">
+            <span v-if="dialogError" class="lr-nq-error" role="alert">{{ dialogError }}</span>
+            <v-btn class="lr-action-button lr-nq-submit" variant="flat" :loading="dialogBusy" :disabled="dialogBusy" @click="cardEditorOpen ? saveCurrentCard() : acceptCurrent()">
+              <v-icon size="18" class="mr-1" aria-hidden="true">mdi-check</v-icon>
+              {{ cardEditorOpen ? 'Änderungen speichern' : (lastOpen ? 'Fertig' : 'Übernehmen') }}
+            </v-btn>
+          </div>
+        </section>
       </div>
     </div>
 
-    <!-- ============ STARTSEITE ============ -->
-    <template v-else-if="view === 'home'">
-      <header class="lr-home-head">
-        <div class="lr-title-block">
-          <span class="lr-title">Lernraum</span>
-          <span class="lr-subtitle">{{ store.courses.length }} Kurse · {{ totalSheets }} Lernblätter</span>
+    <template v-else>
+      <div class="lr-head">
+      <!-- Ebene 1: schmale, linksbündige Pfadleiste. Jede Ebene ist anklickbar; nur der Pfad wächst, nichts verschiebt sich. -->
+      <nav class="lr-crumbs" aria-label="Pfad">
+        <template v-for="(c, i) in crumbs" :key="i">
+          <span v-if="i" class="lr-crumb-sep" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6" /></svg></span>
+          <span v-if="c.current" class="lr-crumb lr-crumb--current" aria-current="page">{{ c.label }}</span>
+          <button v-else type="button" class="lr-crumb" @click="c.go">{{ c.label }}</button>
+        </template>
+      </nav>
+
+      <!-- Ebene 2: Seitenkopf gehört zur Seite und scrollt mit. -->
+      <header v-if="store.courses.length || store.loadingCourses" class="lr-pagehead">
+        <div class="lr-pagehead-main">
+          <div class="lr-title-block">
+            <h1 class="lr-title">
+            <input
+              v-if="editingCourseTitle"
+              ref="courseTitleInput"
+              v-model="courseTitleDraft"
+              class="lr-title-input"
+              :size="Math.max(6, Math.min(32, courseTitleDraft.length || 6))"
+              aria-label="Kursname"
+              :disabled="courseTitleBusy"
+              @keydown.enter.prevent="saveCourseTitle"
+              @keydown.esc.prevent="cancelCourseTitle"
+              @blur="saveCourseTitle"
+            />
+            <input
+              v-else-if="openSheet && editingSheetId === openSheet.id"
+              v-model="sheetTitleDraft"
+              class="lr-title-input"
+              :size="Math.max(6, Math.min(32, sheetTitleDraft.length || 6))"
+              aria-label="Lernblattname"
+              :disabled="sheetTitleBusy"
+              @keydown.enter.prevent="saveSheetTitle"
+              @keydown.esc.prevent="cancelSheetTitle"
+              @blur="saveSheetTitle"
+            />
+            <button
+              v-else-if="view === 'course' && store.activeCourse && !openSheet"
+              type="button"
+              class="lr-title-edit"
+              title="Kurs umbenennen"
+              @click="editCourseTitle"
+            >{{ pageTitle }}<span aria-hidden="true">✎</span></button>
+            <button
+              v-else-if="openSheet"
+              type="button"
+              class="lr-title-edit"
+              title="Lernblatt umbenennen"
+              @click="onRenameSheet(openSheet)"
+            >{{ pageTitle }}<span aria-hidden="true">✎</span></button>
+            <template v-else>{{ pageTitle }}</template>
+            </h1>
+            <span v-if="courseTitleError || (openSheet && sheetTitleError)" class="lr-title-error" role="alert">{{ courseTitleError || sheetTitleError }}</span>
+            <p v-else class="lr-subtitle">{{ pageSubtitle }}</p>
+          </div>
         </div>
-        <button type="button" class="lr-btn lr-btn--secondary lr-btn--sm" @click="onCreateCourse">Kurs anlegen</button>
       </header>
 
-      <div class="lr-home-body">
-        <!-- Offene Nachbereitungen: echte markierte Notizzeilen -->
-        <section class="lr-section">
-          <div class="lr-section-head">
-            <span class="lr-overline">Offene Nachbereitungen</span>
-            <span class="lr-section-meta" v-if="store.openMarkers.length">{{ store.openMarkers.length }} markierte Stellen · {{ markerNoteGroups.length }} {{ markerNoteGroups.length === 1 ? 'Notiz' : 'Notizen' }}</span>
-          </div>
-
-          <div v-if="markerNoteGroups.length" class="lr-nb-list">
-            <div v-for="g in markerNoteGroups" :key="g.noteId" class="lr-nb-note">
-              <div class="lr-nb-note-head">
-                <span class="lr-nb-note-title">{{ g.noteTitle || 'Ohne Titel' }}</span>
-                <span v-if="g.courseTitle" class="lr-nb-assign">{{ g.courseTitle }} · {{ g.sessionTitle }}</span>
-                <span v-else class="lr-nb-assign lr-nb-assign--none">nicht zugeordnet</span>
-                <button type="button" class="lr-btn lr-btn--primary lr-btn--sm lr-nb-note-cta" @click="openQueue(g, 0)">Nachbereiten</button>
-              </div>
-              <ul class="lr-marker-rows">
-                <li
-                  v-for="(m, i) in g.markers"
-                  :key="m.id"
-                  class="lr-marker-row"
-                  role="button"
-                  tabindex="0"
-                  @click="openQueue(g, i)"
-                  @keydown.enter="openQueue(g, i)"
-                >
-                  <span class="lr-marker-kind" :style="markerKindStyle(m.kind)">{{ markerKindLabel(m.kind) }}</span>
-                  <span class="lr-marker-snippet">{{ m.snippet || '(leere Zeile)' }}</span>
-                  <span class="lr-marker-go" aria-hidden="true">›</span>
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          <div v-else class="lr-nb-empty">
-            <p>Nichts offen – alle markierten Stellen sind aufbereitet.</p>
-            <p class="lr-nb-empty-hint">Markiere in einer Notiz eine Zeile als Lernstoff (Karten-Symbol in der Auswahl oder ⌘⇧M). Sie erscheint dann hier zur Nachbereitung.</p>
-          </div>
-        </section>
-
-        <!-- Alle Kurse -->
-        <section class="lr-section">
-          <div class="lr-section-head">
-            <span class="lr-overline">Deine Kurse</span>
-          </div>
-          <div class="lr-course-chips">
-            <button
-              v-for="course in store.courses"
-              :key="course.id"
-              type="button"
-              class="lr-course-chip"
-              @click="openCourse(course.id)"
-            >
-              {{ course.title }}<span class="lr-course-chip-count">{{ course.sheet_count }}</span>
-            </button>
-            <button type="button" class="lr-course-chip lr-course-chip--add" @click="onCreateCourse">+ Kurs</button>
-          </div>
-        </section>
-      </div>
-    </template>
-
-    <!-- ============ KURSANSICHT ============ -->
-    <template v-else>
-      <div class="lr-courses">
-        <button type="button" class="lr-back-pill" @click="goHome">← Lernraum</button>
-        <span class="lr-courses-sep"></span>
-        <button
-          v-for="course in store.courses"
-          :key="course.id"
-          type="button"
-          class="lr-course-pill"
-          :class="{ 'lr-course-pill--active': course.id === store.activeCourseId }"
-          @click="selectCourse(course.id)"
+      <div
+        v-if="headerProficiency.total && !openSheet"
+        class="lr-header-progress"
+        :title="`${pct(headerProficiency, 'strong')} % sicher · ${pct(headerProficiency, 'medium')} % mit Mühe · ${pct(headerProficiency, 'weak')} % offen · ${pct(headerProficiency, 'open')} % neu`"
+      >
+        <div class="lr-header-progress-label"><strong>{{ pct(headerProficiency, 'strong') }} %</strong> sicher</div>
+        <div
+          class="lr-progress-band"
+          role="img"
+          :aria-label="(view === 'home' ? 'Gesamter Lernfortschritt: ' : 'Lernfortschritt des Kurses: ') + pct(headerProficiency, 'strong') + ' Prozent sicher'"
         >
-          {{ course.title }}
+          <span
+            v-for="seg in barSegments(headerProficiency)"
+            :key="seg.key"
+            class="lr-progress-band-segment"
+            :style="{ width: seg.pct + '%', background: seg.color }"
+          ></span>
+        </div>
+      </div>
+      <div v-if="openSheet" class="lr-head-actions">
+        <button type="button" class="lr-favorite-toggle" :class="{ 'lr-favorite-toggle--on': openSheet.is_favorite || favoriteAnimating }" :aria-pressed="openSheet.is_favorite" :aria-label="openSheet.is_favorite ? 'Favorit entfernen' : 'Als Favorit markieren'" :disabled="favoriteBusy" @click="toggleFavorite(openSheet)">
+          <span class="lr-favorite-icon-wrap" :class="{ 'lr-favorite-icon-wrap--pop': favoriteAnimating }" aria-hidden="true">
+            <span class="lr-favorite-icon">{{ openSheet.is_favorite || favoriteAnimating ? '★' : '☆' }}</span>
+          </span>
+          <span>Favorit</span>
         </button>
-        <button type="button" class="lr-course-pill lr-course-pill--add" @click="onCreateCourse">+ Kurs</button>
+        <v-btn class="lr-action-button lr-head-action" variant="flat" :disabled="!learnableCards.length" :title="cards.length && !learnableCards.length ? 'Zum Lernen müssen Vorder- und Rückseite ausgefüllt sein.' : ''" @click="startLearning">
+          <v-icon size="18" class="mr-1" aria-hidden="true">mdi-arrow-right</v-icon>
+          Jetzt lernen
+        </v-btn>
+      </div>
       </div>
 
-      <!-- Ein Lernblatt geöffnet -->
-      <div v-if="openSheet && !learning" class="lr-sheet-view">
-        <button type="button" class="lr-back" @click="openSheetId = null">← Alle Lernblätter</button>
-        <div class="lr-sheet-card">
-          <div class="lr-sheet-head">
-            <div class="lr-sheet-kicker">
-              <span class="lr-dot" :style="{ background: dotColor(statusMeta(openSheet.status).dot) }"></span>
-              <span class="lr-status-label">{{ statusMeta(openSheet.status).label }}</span>
-              <button type="button" class="lr-star lr-star--lg" :class="{ 'lr-star--on': openSheet.is_favorite }" @click="toggleFavorite(openSheet)">{{ openSheet.is_favorite ? '★' : '☆' }}</button>
-            </div>
-            <h2 class="lr-sheet-title">{{ openSheet.title }}</h2>
-            <div class="lr-sheet-meta">
-              {{ store.activeCourse.title }}<template v-if="openSheet.sessionTitle"> · {{ openSheet.sessionTitle }}</template><template v-if="openSheet.source_label"> · {{ openSheet.source_label }}</template>
-            </div>
-          </div>
-          <div class="lr-cards-panel">
-            <div class="lr-cards-head">
-              <span class="lr-cards-title">Karten<span v-if="cards.length" class="lr-cards-num"> · {{ cards.length }}</span></span>
-              <div class="lr-cards-head-actions">
-                <button type="button" class="lr-btn lr-btn--ghost lr-btn--sm" @click="onAddCard">+ Karte</button>
-                <button type="button" class="lr-btn lr-btn--primary lr-btn--sm" :disabled="!cards.length" @click="startLearning">Lernen</button>
-              </div>
-            </div>
+      <div class="lr-scroll">
 
-            <div v-if="cards.length" class="lr-card-list">
-              <div v-for="(card, i) in cards" :key="card.id" class="lr-card-row">
-                <div class="lr-card-row-main">
-                  <div class="lr-card-row-top">
-                    <span class="lr-kind-chip" :style="kindChipStyle(card.kind)">{{ kindLabel(card.kind) }}</span>
-                    <span class="lr-card-row-idx">{{ i + 1 }}</span>
-                  </div>
-                  <div class="lr-card-front">{{ card.front }}</div>
-                  <div v-if="card.back" class="lr-card-back">{{ card.back }}</div>
-                  <div v-else class="lr-card-back lr-card-back--empty">— frei formulieren, dann Notiz abgleichen —</div>
-                </div>
-                <div class="lr-card-row-actions">
-                  <button type="button" class="lr-icon-btn" title="Bearbeiten" @click="onEditCard(card)">✎</button>
-                  <button type="button" class="lr-icon-btn lr-icon-btn--danger" title="Löschen" @click="onDeleteCard(card)">✕</button>
-                </div>
-              </div>
-            </div>
 
-            <div v-else class="lr-cards-empty">
-              <p>Dieses Lernblatt hat noch keine Karten.</p>
-              <p class="lr-cards-hint">Lege deine erste Karte an – oder später entstehen sie aus deinen <b>markierten Notizen</b>.</p>
-              <button type="button" class="lr-btn lr-btn--secondary lr-btn--sm" @click="onAddCard">Erste Karte anlegen</button>
-            </div>
-          </div>
-          <div class="lr-sheet-foot">
-            <div class="lr-foot-status">
-              <span class="lr-foot-label">Status</span>
-              <div class="lr-status-picker">
-                <button v-for="s in statuses" :key="s.value" type="button" class="lr-status-chip" :class="{ 'lr-status-chip--active': openSheet.status === s.value }" @click="setStatus(s.value)">{{ s.label }}</button>
-              </div>
-            </div>
-            <div class="lr-foot-actions">
-              <button type="button" class="lr-btn lr-btn--ghost lr-btn--sm" @click="onRenameSheet(openSheet)">Umbenennen</button>
-              <button type="button" class="lr-btn lr-btn--ghost lr-btn--sm lr-btn--danger-text" @click="onDeleteSheet(openSheet)">Löschen</button>
-            </div>
-          </div>
+      <!-- Leerer Lernraum -->
+      <div v-if="!store.courses.length && !store.loadingCourses" class="lr-empty">
+        <div class="lr-empty-hero">
+          <span class="lr-empty-icon" aria-hidden="true">◎</span>
+          <div class="lr-empty-title">Dein Lernraum ist noch leer</div>
+          <div class="lr-empty-body">Lege einen Kurs an. Darin sammelst du Lernblätter, Karten und offene Nachbereitungen an einem Ort.</div>
+          <button type="button" class="lr-btn lr-btn--primary lr-btn--md" @click="onCreateCourse">Ersten Kurs anlegen</button>
         </div>
       </div>
 
-      <!-- Lernmodus: Karten durchgehen -->
-      <div v-else-if="openSheet && learning" class="lr-learn-view">
-        <div class="lr-learn-top">
-          <button type="button" class="lr-back" @click="exitLearning">← Beenden</button>
-          <span class="lr-learn-progress">Karte {{ learnIndex + 1 }} von {{ cards.length }}</span>
-        </div>
-        <div v-if="currentCard" class="lr-learn-card">
-          <span class="lr-kind-chip lr-kind-chip--lg" :style="kindChipStyle(currentCard.kind)">{{ kindLabel(currentCard.kind) }}</span>
-          <div class="lr-learn-front">{{ currentCard.front }}</div>
-          <div v-if="revealed" class="lr-learn-back">
-            <div class="lr-learn-back-label">{{ currentCard.back ? 'Antwort' : 'Zum Abgleich' }}</div>
-            <div class="lr-learn-back-text">{{ currentCard.back || 'Diese Karte hat keine Rückseite – formuliere frei und gleiche danach mit deiner Notiz ab.' }}</div>
+      <!-- Startseite: Aufgaben und Kurse, ohne aufklappbare Unter-Navigation. -->
+      <main v-else-if="view === 'home'" class="lr-page">
+        <section v-if="markerTasks.length" class="lr-section">
+          <div class="lr-section-head">
+            <div>
+              <span class="lr-overline">Als Nächstes</span>
+              <h2>Offene Nachbereitungen</h2>
+            </div>
+            <span class="lr-section-meta">{{ store.openMarkers.length }} {{ store.openMarkers.length === 1 ? 'Markierung' : 'Markierungen' }} · etwa {{ estMinutes(store.openMarkers.length) }} Min.</span>
           </div>
-          <div class="lr-learn-actions">
-            <button v-if="!revealed" type="button" class="lr-btn lr-btn--primary lr-btn--md" @click="revealed = true">Aufdecken</button>
-            <template v-else>
-              <button type="button" class="lr-btn lr-btn--ghost lr-btn--md" :disabled="learnIndex === 0" @click="prevCard">Zurück</button>
-              <button type="button" class="lr-btn lr-btn--primary lr-btn--md" @click="nextCard">{{ learnIndex + 1 < cards.length ? 'Weiter' : 'Fertig' }}</button>
-            </template>
-          </div>
-        </div>
-      </div>
-
-      <!-- Kurs-Übersicht: Lernblätter -->
-      <template v-else-if="store.activeCourse">
-        <header class="lr-header">
-          <div class="lr-title-block">
-            <span class="lr-title">{{ store.activeCourse.title }}</span>
-            <span class="lr-subtitle">{{ sheetCountLabel }}</span>
-          </div>
-          <button type="button" class="lr-btn lr-btn--primary lr-btn--md" @click="onCreateSheet">+ Neues Lernblatt</button>
-        </header>
-
-        <div class="lr-board">
-          <div v-if="!courseSheets.length" class="lr-empty-inline">
-            <p>Noch keine Lernblätter in diesem Kurs.</p>
-            <p class="lr-empty-inline-hint">Ein Lernblatt bündelt Lernkarten zu einem Thema.</p>
-          </div>
-          <div v-else class="lr-grid">
-            <div
-              v-for="sheet in courseSheets"
-              :key="sheet.id"
-              class="lr-card"
-              :class="{ 'lr-card--faded': statusMeta(sheet.status).faded }"
+          <div class="lr-task-list">
+            <article
+              v-for="task in markerTasks"
+              :key="task.marker.id"
+              class="lr-task"
               role="button"
               tabindex="0"
-              @click="openSheetId = sheet.id"
-              @keydown.enter="openSheetId = sheet.id"
+              :aria-label="`Markierung aus „${task.group.sessionTitle || task.group.noteTitle || 'Ohne Titel'}“ nachbereiten`"
+              @click="openQueue(task.group, task.markerIndex)"
+              @keydown.enter.self="openQueue(task.group, task.markerIndex)"
+              @keydown.space.self.prevent="openQueue(task.group, task.markerIndex)"
             >
-              <div class="lr-card-status">
-                <span class="lr-dot" :style="{ background: dotColor(statusMeta(sheet.status).dot) }"></span>
-                <span class="lr-status-label">{{ statusMeta(sheet.status).label }}</span>
-                <button type="button" class="lr-star" :class="{ 'lr-star--on': sheet.is_favorite }" @click.stop="toggleFavorite(sheet)">{{ sheet.is_favorite ? '★' : '☆' }}</button>
+              <div class="lr-task-icon" aria-hidden="true">↗</div>
+              <div class="lr-task-copy">
+                <span>{{ task.marker.course_title || 'Noch keinem Kurs zugeordnet' }}</span>
+                <strong>{{ task.group.sessionTitle || task.group.noteTitle || 'Ohne Titel' }}</strong>
+                <p class="lr-task-preview">{{ task.marker.snippet || 'Keine Textvorschau verfügbar' }}</p>
+                <small>1 Markierung · {{ markerKindLabel(task.marker.kind) }}</small>
               </div>
-              <div class="lr-card-title">{{ sheet.title }}</div>
-              <div class="lr-card-foot">
-                <span class="lr-card-count">{{ sheet.card_count }} Karten</span>
-                <span v-if="sheet.sessionTitle" class="lr-card-session">{{ sheet.sessionTitle }}</span>
-              </div>
+              <button type="button" class="lr-btn lr-btn--secondary lr-btn--sm lr-task-action" @click.stop="openQueue(task.group, task.markerIndex)">Nachbereiten</button>
+            </article>
+          </div>
+        </section>
+
+        <section class="lr-section">
+          <div class="lr-section-head">
+            <div>
+              <span class="lr-overline">Bibliothek</span>
+              <h2>Deine Kurse</h2>
             </div>
-            <button type="button" class="lr-card lr-card--add" @click="onCreateSheet">
-              <span class="lr-add-plus">+</span>
+            <span class="lr-section-meta">Kurs öffnen, Material wählen, lernen.</span>
+          </div>
+          <span v-if="courseCardTitleError && !editingCourseCardId" class="lr-title-error" role="alert">{{ courseCardTitleError }}</span>
+          <div class="lr-course-grid">
+            <article
+              v-for="course in store.courses"
+              :key="course.id"
+              class="lr-course-card lr-sheet-tile"
+              role="button"
+              tabindex="0"
+              :aria-label="`Kurs „${course.title}“ öffnen`"
+              @click="openCourse(course.id)"
+              @keydown.enter.self="openCourse(course.id)"
+              @keydown.space.self.prevent="openCourse(course.id)"
+            >
+              <div class="lr-course-card-top">
+                <span class="lr-course-monogram">{{ courseMonogram(course.title) }}</span>
+                <div class="lr-sheet-tile-tools" @click.stop>
+                  <button type="button" class="lr-icon-btn" :aria-label="`„${course.title}“ umbenennen`" title="Umbenennen" @click="onRenameCourseCard(course)">✎</button>
+                  <button type="button" class="lr-icon-btn lr-icon-btn--danger" :aria-label="`„${course.title}“ löschen`" title="Löschen" :disabled="deletingCourseIds.has(course.id)" @click="onDeleteCourse(course)">✕</button>
+                </div>
+              </div>
+              <input
+                v-if="editingCourseCardId === course.id"
+                v-model="courseCardTitleDraft"
+                class="lr-sheet-title-input"
+                aria-label="Kursname in der Kachel"
+                :disabled="courseCardTitleBusy"
+                @click.stop
+                @keydown.enter.prevent="saveCourseCardTitle"
+                @keydown.esc.prevent="cancelCourseCardTitle"
+                @blur="saveCourseCardTitle"
+              />
+              <div v-else class="lr-course-name">{{ course.title }}</div>
+              <span v-if="editingCourseCardId === course.id && courseCardTitleError" class="lr-title-error" role="alert">{{ courseCardTitleError }}</span>
+              <div class="lr-course-meta">{{ courseSub(course) }}</div>
+              <div class="lr-course-progress">
+                <div class="lr-bar" :class="{ 'lr-bar--empty': !course.card_count }">
+                  <span v-for="seg in barSegments(course.proficiency)" :key="seg.key" class="lr-bar-seg" :style="{ width: seg.pct + '%', background: seg.color }"></span>
+                </div>
+                <span>{{ course.card_count ? strongPct(course.proficiency) + ' % sicher' : 'Noch keine Karten' }}</span>
+              </div>
+            </article>
+            <button type="button" class="lr-course-card lr-course-card--add" @click="onCreateCourse">
+              <span class="lr-course-add-icon" aria-hidden="true">+</span>
+              <span>Neuen Kurs anlegen</span>
+            </button>
+          </div>
+        </section>
+
+        <section v-if="favoriteSheets.length" class="lr-section" aria-labelledby="lr-favorites-title">
+          <div class="lr-section-head">
+            <div>
+              <span class="lr-overline">Schnellzugriff</span>
+              <h2 id="lr-favorites-title">Favoriten</h2>
+            </div>
+            <span class="lr-section-meta">{{ favoriteSheets.length }} {{ favoriteSheets.length === 1 ? 'Lernblatt' : 'Lernblätter' }}</span>
+          </div>
+          <div class="lr-course-grid lr-sheet-grid">
+            <article
+              v-for="sheet in favoriteSheets"
+              :key="sheet.id"
+              class="lr-course-card lr-sheet-tile lr-favorite-sheet-card"
+              role="button"
+              tabindex="0"
+              :aria-label="`Favorisiertes Lernblatt „${sheet.title}“ öffnen`"
+              @click="openFavoriteSheet(sheet)"
+              @keydown.enter.self="openFavoriteSheet(sheet)"
+              @keydown.space.self.prevent="openFavoriteSheet(sheet)"
+            >
+              <div class="lr-course-card-top">
+                <span class="lr-course-monogram">{{ courseMonogram(sheet.title) }}</span>
+                <span class="lr-favorite-sheet-star" aria-label="Favorit">★</span>
+              </div>
+              <span class="lr-favorite-sheet-course">{{ sheet.courseTitle }}</span>
+              <div class="lr-course-name">{{ sheet.title }}</div>
+              <div class="lr-course-meta">{{ sheet.card_count }} {{ sheet.card_count === 1 ? 'Karte' : 'Karten' }}<template v-if="sheet.kind_summary"> · {{ kindSummaryLabel(sheet.kind_summary) }}</template></div>
+              <div class="lr-course-progress">
+                <div class="lr-bar" :class="{ 'lr-bar--empty': !sheet.card_count }">
+                  <span v-for="seg in barSegments(sheet.proficiency)" :key="seg.key" class="lr-bar-seg" :style="{ width: seg.pct + '%', background: seg.color }"></span>
+                </div>
+                <span>{{ sheet.card_count ? strongPct(sheet.proficiency) + ' % sicher' : 'Noch keine Karten' }}</span>
+              </div>
+              <div class="lr-sheet-tile-actions" @click.stop>
+                <button type="button" class="lr-btn lr-btn--primary lr-btn--sm" :disabled="!sheetLearnableCount(sheet)" :title="sheet.card_count && !sheetLearnableCount(sheet) ? 'Zum Lernen müssen Vorder- und Rückseite ausgefüllt sein.' : ''" @click="startSheetLearn(sheet)">Jetzt lernen</button>
+                <button type="button" class="lr-link" @click="openFavoriteSheet(sheet)">Öffnen <span aria-hidden="true">→</span></button>
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
+
+      <!-- Kurs: Nachbereitung ist ein Abschnitt, kein konkurrierender Navigationsmodus. -->
+      <main v-else-if="store.activeCourse && !openSheet" class="lr-page lr-course-page">
+        <section v-if="courseMarkerTasks.length" class="lr-section">
+          <div class="lr-section-head">
+            <div>
+              <span class="lr-overline">Als Nächstes</span>
+              <h2>Offene Nachbereitungen</h2>
+            </div>
+            <span class="lr-section-meta">{{ courseMarkerCount }} {{ courseMarkerCount === 1 ? 'Markierung' : 'Markierungen' }} · etwa {{ estMinutes(courseMarkerCount) }} Min.</span>
+          </div>
+          <div class="lr-task-list">
+            <article
+              v-for="task in courseMarkerTasks"
+              :key="task.marker.id"
+              class="lr-task"
+              role="button"
+              tabindex="0"
+              :aria-label="`Markierung aus „${task.group.sessionTitle || task.group.noteTitle || 'Ohne Titel'}“ nachbereiten`"
+              @click="openQueue(task.group, task.markerIndex)"
+              @keydown.enter.self="openQueue(task.group, task.markerIndex)"
+              @keydown.space.self.prevent="openQueue(task.group, task.markerIndex)"
+            >
+              <div class="lr-task-icon" aria-hidden="true">↗</div>
+              <div class="lr-task-copy">
+                <span>{{ task.marker.course_title || 'Noch keinem Kurs zugeordnet' }}</span>
+                <strong>{{ task.group.sessionTitle || task.group.noteTitle || 'Ohne Titel' }}</strong>
+                <p class="lr-task-preview">{{ task.marker.snippet || 'Keine Textvorschau verfügbar' }}</p>
+                <small>1 Markierung · {{ markerKindLabel(task.marker.kind) }}</small>
+              </div>
+              <button type="button" class="lr-btn lr-btn--secondary lr-btn--sm lr-task-action" @click.stop="openQueue(task.group, task.markerIndex)">Nachbereiten</button>
+            </article>
+          </div>
+        </section>
+
+        <section class="lr-section">
+          <div class="lr-section-head">
+            <div>
+              <span class="lr-overline">Lernmaterial</span>
+              <h2>Lernblätter</h2>
+            </div>
+          </div>
+          <span v-if="sheetTitleError && !editingSheetId" class="lr-title-error" role="alert">{{ sheetTitleError }}</span>
+
+          <div v-if="!courseSheets.length" class="lr-empty-inline">
+            <p>Noch keine Lernblätter in diesem Kurs.</p>
+            <span>Ein Lernblatt bündelt Karten zu einem klaren Lernstoff.</span>
+            <button type="button" class="lr-btn lr-btn--primary lr-btn--sm" @click="onCreateSheet">Erstes Lernblatt anlegen</button>
+          </div>
+          <div v-else class="lr-course-grid lr-sheet-grid">
+            <article
+              v-for="sheet in courseSheets"
+              :key="sheet.id"
+              class="lr-course-card lr-sheet-tile"
+              role="button"
+              tabindex="0"
+              :aria-label="`Lernblatt „${sheet.title}“ öffnen`"
+              @click="openSheetView(sheet.id)"
+              @keydown.enter.self="openSheetView(sheet.id)"
+              @keydown.space.self.prevent="openSheetView(sheet.id)"
+            >
+              <div class="lr-course-card-top">
+                <span class="lr-course-monogram">{{ courseMonogram(sheet.title) }}</span>
+                <div class="lr-sheet-tile-tools" @click.stop>
+                  <button type="button" class="lr-icon-btn" :aria-label="`„${sheet.title}“ umbenennen`" title="Umbenennen" @click="onRenameSheet(sheet)">✎</button>
+                  <button type="button" class="lr-icon-btn lr-icon-btn--danger" :aria-label="`„${sheet.title}“ löschen`" title="Löschen" :disabled="deletingSheetIds.has(sheet.id)" @click="onDeleteSheet(sheet)">✕</button>
+                </div>
+              </div>
+              <input
+                v-if="editingSheetId === sheet.id"
+                v-model="sheetTitleDraft"
+                class="lr-sheet-title-input"
+                aria-label="Lernblattname"
+                :disabled="sheetTitleBusy"
+                @click.stop
+                @keydown.enter.prevent="saveSheetTitle"
+                @keydown.esc.prevent="cancelSheetTitle"
+                @blur="saveSheetTitle"
+              />
+              <div v-else class="lr-course-name">{{ sheet.title }}</div>
+              <span v-if="editingSheetId === sheet.id && sheetTitleError" class="lr-title-error" role="alert">{{ sheetTitleError }}</span>
+              <div class="lr-course-meta">{{ sheet.card_count }} {{ sheet.card_count === 1 ? 'Karte' : 'Karten' }}<template v-if="sheet.kind_summary"> · {{ kindSummaryLabel(sheet.kind_summary) }}</template></div>
+              <div class="lr-course-progress">
+                <div class="lr-bar" :class="{ 'lr-bar--empty': !sheet.card_count }">
+                  <span v-for="seg in barSegments(sheet.proficiency)" :key="seg.key" class="lr-bar-seg" :style="{ width: seg.pct + '%', background: seg.color }"></span>
+                </div>
+                <span>{{ sheet.card_count ? strongPct(sheet.proficiency) + ' % sicher' : 'Noch keine Karten' }}</span>
+              </div>
+              <div class="lr-sheet-tile-actions" @click.stop>
+                <button type="button" class="lr-btn lr-btn--primary lr-btn--sm" :disabled="!sheetLearnableCount(sheet)" :title="sheet.card_count && !sheetLearnableCount(sheet) ? 'Zum Lernen müssen Vorder- und Rückseite ausgefüllt sein.' : ''" @click="startSheetLearn(sheet)">Jetzt lernen</button>
+                <button type="button" class="lr-link" @click="openSheetView(sheet.id)">Öffnen <span aria-hidden="true">→</span></button>
+              </div>
+            </article>
+            <button type="button" class="lr-course-card lr-course-card--add lr-sheet-add" @click="onCreateSheet">
+              <span class="lr-course-add-icon" aria-hidden="true">+</span>
               <span>Neues Lernblatt</span>
             </button>
           </div>
+        </section>
+
+      </main>
+
+      <!-- Lernblatt: gleiche Hierarchie und dieselbe Hauptaktion wie im Kurs. -->
+      <main v-else-if="openSheet" class="lr-page lr-sheet-page">
+        <div class="lr-sheet-columns">
+          <section class="lr-sheet-column lr-sheet-cards" aria-labelledby="lr-sheet-cards-title">
+            <div class="lr-sheet-column-head">
+              <div>
+                <span class="lr-overline">Lernmaterial</span>
+                <h2 id="lr-sheet-cards-title">Karten</h2>
+              </div>
+              <span class="lr-section-meta">{{ cards.length }}</span>
+            </div>
+
+            <div class="lr-cards-list">
+              <article v-for="card in cards" :key="card.id" class="lr-card-row" role="button" tabindex="0" :aria-label="`Karte bearbeiten: ${card.front || 'Unvollständige Karte'}`" @click="onEditCard(card)" @keydown.enter.self="onEditCard(card)" @keydown.space.self.prevent="onEditCard(card)">
+                <div class="lr-card-row-main">
+                  <span class="lr-card-kind" :style="{ color: kindChipStyle(card.kind).color }">{{ kindLabel(card.kind) }}</span>
+                  <div v-if="card.front" class="lr-card-front">{{ card.front }}</div>
+                  <div v-else class="lr-card-front lr-card-side--empty">Vorderseite noch leer</div>
+                  <div v-if="card.back" class="lr-card-back">{{ card.back }}</div>
+                  <div v-else class="lr-card-back lr-card-side--empty">Rückseite noch leer</div>
+                </div>
+                <div class="lr-card-row-actions">
+                  <button type="button" class="lr-icon-btn" title="Bearbeiten" aria-label="Karte bearbeiten" @click.stop="onEditCard(card)">✎</button>
+                  <button type="button" class="lr-icon-btn lr-icon-btn--danger" title="Löschen" aria-label="Karte löschen" @click.stop="onDeleteCard(card)">✕</button>
+                </div>
+              </article>
+              <button type="button" class="lr-card-add" @click="onAddCard">
+                <span aria-hidden="true">+</span>{{ cards.length ? 'Karte hinzufügen' : 'Erste Karte anlegen' }}
+              </button>
+            </div>
+          </section>
+
+          <aside class="lr-sheet-column lr-sheet-history" aria-labelledby="lr-sheet-history-title">
+            <div class="lr-sheet-column-head">
+              <div>
+                <span class="lr-overline">Lernverlauf</span>
+                <h2 id="lr-sheet-history-title">Durchläufe</h2>
+              </div>
+              <span v-if="sheetLearningRuns.length" class="lr-section-meta">{{ sheetLearningRuns.length }}</span>
+            </div>
+            <p v-if="runDeleteError" class="lr-run-error" role="alert">{{ runDeleteError }}</p>
+
+            <div v-if="sheetLearningRuns.length" class="lr-run-list">
+              <article v-for="run in sheetLearningRuns" :key="run.id" class="lr-run-row">
+                <button
+                  type="button"
+                  class="lr-run-delete"
+                  :disabled="deletingRunIds.has(run.id)"
+                  title="Durchlauf löschen"
+                  :aria-label="`Lerndurchlauf vom ${formatRunDay(run.started_at)} löschen`"
+                  @click="onDeleteLearningRun(run)"
+                >×</button>
+                <div class="lr-run-date">
+                  <strong>{{ formatRunDay(run.started_at) }}</strong>
+                  <span>{{ formatRunTime(run.started_at) }}</span>
+                </div>
+                <div class="lr-run-main">
+                  <strong>{{ run.completed_at ? 'Abgeschlossen' : 'Pausiert' }}</strong>
+                  <span>{{ run.assessed_cards }} von {{ run.total_cards }} Karten</span>
+                </div>
+                <div class="lr-run-results" aria-label="Ergebnis des Lerndurchlaufs">
+                  <span class="lr-run-result lr-run-result--weak"><i></i>{{ run.weak_count }}</span>
+                  <span class="lr-run-result lr-run-result--medium"><i></i>{{ run.medium_count }}</span>
+                  <span class="lr-run-result lr-run-result--strong"><i></i>{{ run.strong_count }}</span>
+                </div>
+              </article>
+            </div>
+            <div v-else class="lr-history-empty">
+              <span>Noch kein Lerndurchlauf</span>
+              <p>Deine Ergebnisse erscheinen hier nach der ersten Einschätzung.</p>
+            </div>
+          </aside>
         </div>
-      </template>
+      </main>
+      </div>
     </template>
 
-    <!-- ===== Nachbereitungs-Warteschlange (Standard-App-Dialog) ===== -->
-    <BaseDialog
-      v-if="dialog && dialog.kind === 'queue'"
-      :model-value="true"
-      title="Nachbereiten"
-      :header-subtitle="dialog.noteTitle || 'Ohne Titel'"
-      icon="mdi-cards-outline"
-      :max-width="720"
-      :show-secondary="false"
-      content-class="lr-q-dialog"
-      @update:model-value="(v) => { if (!v) finishQueue(); }"
-      @close="finishQueue"
-    >
-      <template #header-actions>
-        <div class="lr-q-nav">
-          <v-btn icon="mdi-chevron-left" size="small" variant="text" :disabled="dialog.index === 0" @click="queuePrev" />
-          <span class="lr-q-count">{{ dialog.index + 1 }} / {{ dialog.items.length }}</span>
-          <v-btn icon="mdi-chevron-right" size="small" variant="text" :disabled="dialog.index >= dialog.items.length - 1" @click="queueNext" />
-        </div>
-      </template>
-
-      <div v-if="current" class="lr-q-layout">
-        <!-- Hauptbereich: das Ausgangsmaterial und die Eingabe -->
-        <div class="lr-q-main">
-          <div class="lr-q-field">
-            <div class="lr-q-flabel">
-              <span>Frage</span>
-              <span v-if="current.fromNote === 'front'" class="lr-q-from">aus deiner Notiz</span>
-            </div>
-            <v-textarea
-              v-model="current.front"
-              rows="2"
-              auto-grow
-              density="comfortable"
-              variant="outlined"
-              hide-details
-              placeholder="Formuliere die Frage, die dich zur Antwort bringt …"
-              class="lr-q-front"
-            />
-          </div>
-
-          <div class="lr-q-swap">
-            <v-btn
-              variant="outlined"
-              size="small"
-              prepend-icon="mdi-swap-vertical"
-              class="lr-q-swap-btn"
-              title="Vertauscht den Inhalt von Frage und Antwort"
-              @click="swapSides"
-            >Frage &amp; Antwort tauschen</v-btn>
-          </div>
-
-          <div class="lr-q-field">
-            <div class="lr-q-flabel">
-              <span>Antwort</span>
-              <span v-if="current.fromNote === 'back'" class="lr-q-from">aus deiner Notiz</span>
-              <span v-else class="lr-q-opt">optional · leer = Selbstabgleich</span>
-            </div>
-            <v-textarea
-              v-model="current.back"
-              rows="1"
-              auto-grow
-              density="compact"
-              variant="outlined"
-              hide-details
-              placeholder="Die Antwort in deinen Worten …"
-            />
-          </div>
-        </div>
-
-        <!-- Rechte Seitenleiste: Zuordnung + Art -->
-        <aside class="lr-q-side">
-          <div class="lr-q-side-group">
-            <div class="lr-q-side-label">Gehört zu</div>
-            <span v-if="dialog.wasBound" class="lr-q-belong-value">{{ dialog.courseTitle }}</span>
-            <v-select
-              v-else
-              v-model="dialog.courseId"
-              :items="store.courses"
-              item-title="title"
-              item-value="id"
-              placeholder="Kurs wählen …"
-              density="compact"
-              variant="outlined"
-              hide-details
-            />
-          </div>
-
-          <div class="lr-q-side-group">
-            <div class="lr-q-side-label">Art</div>
-            <v-chip-group v-model="current.cardKind" mandatory selected-class="lr-q-chip--on" class="lr-q-kinds" column>
-              <v-chip v-for="k in cardKinds" :key="k.value" :value="k.value" size="small" variant="outlined" label>{{ k.label }}</v-chip>
-            </v-chip-group>
-          </div>
-        </aside>
-      </div>
-
-      <template #footer>
-        <span v-if="dialogError" class="lr-q-error">{{ dialogError }}</span>
-        <v-spacer />
-        <v-btn variant="tonal" color="primary" class="pm-dialog__btn" :loading="dialogBusy" @click="acceptCurrent">
-          {{ lastOpen ? 'Fertig' : 'Übernehmen ›' }}
-        </v-btn>
-      </template>
-    </BaseDialog>
 
     <!-- ===== Anlege-/Bearbeiten-Dialog (klein, im Panel) ===== -->
-    <div v-if="dialog && dialog.kind !== 'queue'" class="lr-modal-scrim" @click.self="closeDialog" @keydown.esc="closeDialog">
+    <div v-if="dialog && !['queue', 'card-edit'].includes(dialog.kind)" class="lr-modal-scrim" @click.self="closeDialog" @keydown.esc="closeDialog">
       <div class="lr-modal" role="dialog" aria-modal="true">
         <div class="lr-modal-title">{{ dialogTitle }}</div>
 
@@ -355,8 +698,8 @@
           </div>
           <label class="lr-field-label">Vorderseite <span class="lr-field-opt">Frage / Aufgabe</span></label>
           <textarea class="lr-field lr-field--area" rows="3" v-model="dialog.front" placeholder="Was soll abgefragt werden?"></textarea>
-          <label class="lr-field-label">Rückseite <span class="lr-field-opt">Antwort / Lösung – leer lassen für Verständnisfragen</span></label>
-          <textarea class="lr-field lr-field--area" rows="3" v-model="dialog.back" placeholder="Antwort … (optional)"></textarea>
+          <label class="lr-field-label">Rückseite <span class="lr-field-opt">Antwort / Lösung</span></label>
+          <textarea class="lr-field lr-field--area" rows="3" v-model="dialog.back" placeholder="Antwort …"></textarea>
         </template>
 
         <template v-else>
@@ -376,10 +719,14 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useLearnStore } from '../stores/learn.js';
-import { createSession } from '../api/learn.js';
-import BaseDialog from '../components/BaseDialog.vue';
+import { listCards } from '../api/learn.js';
+import { streamNoteText } from '../api/notes.js';
+import PmActionIcon from '../components/PmActionIcon.vue';
+import NotePreview from '../components/notes/NotePreview.vue';
+import { useSidebarAppearance } from '../composables/useSidebarAppearance.js';
 
 // Lernraum: Startseite (Übersicht) → Kurs öffnen → Lernblatt öffnen.
 // Rendert INNERHALB der gemeinsamen Shell (echte App-Seitenleiste bleibt stehen).
@@ -387,11 +734,40 @@ import BaseDialog from '../components/BaseDialog.vue';
 // bis die Marker-/Karten-Ebene (Maske 1b) echte Marker liefert.
 
 const store = useLearnStore();
+const route = useRoute();
+const router = useRouter();
 
 const view = ref('home'); // 'home' | 'course'
 const openSheetId = ref(null);
+const navigationReady = ref(false);
+const editingCourseTitle = ref(false);
+const courseTitleDraft = ref('');
+const courseTitleInput = ref(null);
+const courseTitleBusy = ref(false);
+const courseTitleError = ref('');
+const editingCourseCardId = ref(null);
+const courseCardTitleDraft = ref('');
+const courseCardTitleBusy = ref(false);
+const courseCardTitleError = ref('');
+const deletingCourseIds = ref(new Set());
+const editingSheetId = ref(null);
+const sheetTitleDraft = ref('');
+const sheetTitleBusy = ref(false);
+const sheetTitleError = ref('');
+const deletingSheetIds = ref(new Set());
+const deletingRunIds = ref(new Set());
+const runDeleteError = ref('');
+const favoriteAnimating = ref(false);
+const favoriteBusy = ref(false);
+let favoriteAnimTimer = null;
 
 const totalSheets = computed(() => store.courses.reduce((n, c) => n + (c.sheet_count || 0), 0));
+const favoriteSheets = computed(() => store.allSheets
+  .filter((sheet) => sheet.is_favorite)
+  .map((sheet) => ({
+    ...sheet,
+    courseTitle: store.courses.find((course) => course.id === sheet.course_id)?.title || 'Unbekannter Kurs',
+  })));
 
 // Lernblätter des aktiven Kurses (mit Sitzungstitel als Etikett).
 const courseSheets = computed(() => {
@@ -404,8 +780,37 @@ const courseSheets = computed(() => {
 });
 const openSheet = computed(() => courseSheets.value.find((s) => s.id === openSheetId.value) || null);
 
+const pageTitle = computed(() => {
+  if (openSheet.value) return openSheet.value.title;
+  if (view.value === 'course') return store.activeCourse?.title || 'Kurs';
+  return 'Lernraum';
+});
+const pageSubtitle = computed(() => {
+  if (openSheet.value) {
+    const n = cards.value.length;
+    return `${n} ${n === 1 ? 'Karte' : 'Karten'}${openSheet.value.sessionTitle ? ` · ${openSheet.value.sessionTitle}` : ''}`;
+  }
+  if (view.value === 'course') return courseStatLine.value;
+  return statLine.value;
+});
+function courseMonogram(title = '') {
+  return title.trim().split(/\s+/).slice(0, 2).map((part) => part[0] || '').join('').toLocaleUpperCase('de-DE') || 'K';
+}
+
 // --- Karten des offenen Lernblatts ---
 const cards = computed(() => (store.cardsSheetId === openSheetId.value ? store.cards : []));
+function isLearnableCard(card) {
+  return Boolean(String(card?.front || '').trim() && String(card?.back || '').trim());
+}
+const learnableCards = computed(() => cards.value.filter(isLearnableCard));
+function sheetLearnableCount(sheet) {
+  return sheet?.learnable_card_count ?? sheet?.card_count ?? 0;
+}
+const sheetLearningRuns = computed(() => {
+  const sheetId = openSheetId.value;
+  if (!sheetId) return [];
+  return store.learningRuns.filter((run) => String(run.sheet_id || '') === String(sheetId));
+});
 
 const KIND = {
   fakt: { label: 'Fakt', tint: 'success' },
@@ -424,31 +829,336 @@ function kindChipStyle(kind) {
   return { background: 'var(--pm-chip-bg)', color: 'var(--pm-chip-text)' };
 }
 
-// --- Lernmodus ---
+// --- Startseite: Kopf, Lernstand, Nachbereitungen ---------------------------
+const totalCards = computed(() => store.courses.reduce((n, c) => n + (c.card_count || 0), 0));
+const overallProficiency = computed(() => store.courses.reduce((sum, course) => {
+  const proficiency = course.proficiency || {};
+  sum.total += proficiency.total || course.card_count || 0;
+  sum.strong += proficiency.strong || 0;
+  sum.medium += proficiency.medium || 0;
+  sum.weak += proficiency.weak || 0;
+  sum.open += proficiency.open || 0;
+  return sum;
+}, { total: 0, strong: 0, medium: 0, weak: 0, open: 0 }));
+const headerProficiency = computed(() => view.value === 'home'
+  ? overallProficiency.value
+  : store.activeCourse?.proficiency || { total: 0, strong: 0, medium: 0, weak: 0, open: 0 });
+const headerProgressMarkerPosition = computed(() => Math.min(98.5, Math.max(1.5, strongPct(headerProficiency.value))));
+const statLine = computed(() => {
+  const k = store.courses.length;
+  const parts = [`${k} ${k === 1 ? 'Kurs' : 'Kurse'}`];
+  parts.push(`${totalSheets.value} ${totalSheets.value === 1 ? 'Lernblatt' : 'Lernblätter'}`);
+  if (totalCards.value) parts.push(`${totalCards.value} Karten`);
+  return parts.join(' · ');
+});
+function estMinutes(markerCount) { return Math.max(1, Math.round((markerCount || 0) * 1.5)); }
+function formatRunDay(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '–' : new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: 'short' }).format(date);
+}
+function formatRunTime(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' }).format(date);
+}
+// Lernstand-Farben (Karten-Status)
+const CARD_STATUS = {
+  strong: { label: 'Sicher', color: 'var(--pm-success)' },
+  medium: { label: 'Mit Mühe', color: 'var(--pm-star)' },
+  weak: { label: 'Nicht gekonnt', color: 'var(--pm-danger)' },
+  open: { label: 'Noch offen', color: 'var(--pm-border)' },
+};
+function statusLabel(s) { return (CARD_STATUS[s] || CARD_STATUS.open).label; }
+function statusColor(s) { return (CARD_STATUS[s] || CARD_STATUS.open).color; }
+function pct(prof, key) {
+  const t = prof?.total || 0;
+  return t ? Math.round(((prof[key] || 0) * 100) / t) : 0;
+}
+function strongPct(prof) { return pct(prof, 'strong'); }
+// Segmente des Fortschrittsbalkens (sicher→Mühe→nicht→offen).
+function barSegments(prof) {
+  const order = [
+    ['strong', 'var(--pm-success)'],
+    ['medium', 'var(--pm-star)'],
+    ['weak', 'var(--pm-danger)'],
+    ['open', 'var(--pm-track)'],
+  ];
+  return order.map(([key, color]) => ({ key, color, pct: pct(prof, key) }));
+}
+function courseSub(course) {
+  const n = course.sheet_count || 0;
+  const c = course.card_count || 0;
+  if (!n && !c) return 'Noch keine Lernblätter';
+  return `${n} ${n === 1 ? 'Lernblatt' : 'Lernblätter'} · ${c} ${c === 1 ? 'Karte' : 'Karten'}`;
+}
+
+// --- Kursübersicht (Lernmaterial als klare zweite Ebene) ---
+function kindSummaryLabel(k) { return k === 'gemischt' ? 'Gemischt' : kindLabel(k); }
+const courseStatLine = computed(() => {
+  const c = store.activeCourse;
+  if (!c) return '';
+  const n = courseSheets.value.length;
+  const parts = [`${n} ${n === 1 ? 'Lernblatt' : 'Lernblätter'}`];
+  if (c.card_count) parts.push(`${c.card_count} Karten`);
+  return parts.join(' · ');
+});
+const markerTasks = computed(() => markerNoteGroups.value.flatMap((group) =>
+  group.markers.map((marker, markerIndex) => ({ group, marker, markerIndex })),
+));
+const courseMarkerTasks = computed(() => markerTasks.value.filter((task) =>
+  task.marker.course_id && task.marker.course_id === store.activeCourseId,
+));
+const courseMarkerCount = computed(() => courseMarkerTasks.value.length);
+// „Später": Marker der Gruppe für diese Sitzung ausblenden (nur clientseitig).
+const dismissedNoteIds = ref(new Set());
+function dismissGroup(g) { dismissedNoteIds.value = new Set([...dismissedNoteIds.value, g.noteId]); }
+
+// --- Lernmodus (generalisiert: beliebige Kartenliste + Selbsteinschätzung) ---
 const learning = ref(false);
 const learnIndex = ref(0);
 const revealed = ref(false);
-const currentCard = computed(() => cards.value[learnIndex.value] || null);
-function startLearning() {
-  if (!cards.value.length) return;
-  learnIndex.value = 0;
-  revealed.value = false;
-  learning.value = true;
+const learnQueue = ref([]); // Kopien der zu lernenden Karten
+const learnDirty = ref(false); // wurde eingeschätzt? → am Ende Aggregate neu laden
+const learnResults = ref({ weak: 0, medium: 0, strong: 0 });
+const learnOpenedInternally = ref(false);
+const learnExitWarningOpen = ref(false);
+const learnProgressPulse = ref(false);
+const learnRunId = ref(null);
+let learnProgressPulseTimer = null;
+let learnRunToken = 0;
+let learnRunStartedAt = '';
+let learnRunCompletedAt = '';
+let learnRunCourseId = null;
+let learnRunSheetId = null;
+let learnRunScope = 'sheet';
+let learnRunSaveChain = Promise.resolve();
+const currentLearn = computed(() => learnQueue.value[learnIndex.value] || null);
+const learnFrontWidth = computed(() => {
+  const question = String(currentLearn.value?.front || '').trim();
+  const longestWord = question.split(/\s+/).reduce((max, word) => Math.max(max, word.length), 0);
+  return Math.min(720, Math.max(360, 360 + Math.max(0, question.length - 18) * 12, 120 + longestWord * 14));
+});
+const assessedLearnCount = computed(() => learnQueue.value.filter((card) => card.sessionAssessment).length);
+const remainingLearnCount = computed(() => Math.max(0, learnQueue.value.length - assessedLearnCount.value));
+function assessmentLabel(value) {
+  return {
+    weak: 'Nicht gekonnt',
+    medium: 'Mit Mühe',
+    strong: 'Sicher',
+  }[value] || 'Beantwortet';
 }
-function exitLearning() { learning.value = false; }
-function nextCard() {
-  if (learnIndex.value + 1 < cards.value.length) {
+const learnCompletion = computed(() => learnQueue.value.length
+  ? Math.round((assessedLearnCount.value / learnQueue.value.length) * 100)
+  : 0);
+const learnScore = computed(() => {
+  if (!learnQueue.value.length) return 0;
+  return Math.round(((learnResults.value.strong + learnResults.value.medium * .5) / learnQueue.value.length) * 100);
+});
+const learnResultRows = computed(() => [
+  { key: 'strong', label: 'Sicher', count: learnResults.value.strong },
+  { key: 'medium', label: 'Mit Mühe', count: learnResults.value.medium },
+  { key: 'weak', label: 'Offen', count: learnResults.value.weak },
+].map((result) => ({
+  ...result,
+  percent: learnQueue.value.length ? Math.round((result.count / learnQueue.value.length) * 100) : 0,
+})));
+
+function startLearn(cardList, startId = null, scope = openSheet.value ? 'sheet' : 'course', updateUrl = true) {
+  const list = (cardList || []).filter(isLearnableCard);
+  if (!list.length) return;
+  learnQueue.value = list.map((c) => ({ ...c, aiHint: '', hintVisible: false, hintBusy: false, hintError: '', sessionAssessment: '' }));
+  const at = startId ? learnQueue.value.findIndex((c) => c.id === startId) : 0;
+  learnIndex.value = at >= 0 ? at : 0;
+  revealed.value = false;
+  learnDirty.value = false;
+  learnResults.value = { weak: 0, medium: 0, strong: 0 };
+  learnOpenedInternally.value = updateUrl;
+  learnExitWarningOpen.value = false;
+  learnRunToken += 1;
+  learnRunId.value = null;
+  learnRunStartedAt = new Date().toISOString();
+  learnRunCompletedAt = '';
+  learnRunCourseId = store.activeCourseId;
+  learnRunScope = scope;
+  learnRunSheetId = scope === 'sheet' ? (openSheet.value?.id || store.cardsSheetId || null) : null;
+  learning.value = true;
+  if (updateUrl && route.query.learn !== '1') {
+    router.push({ name: 'lernraum', query: { ...route.query, learn: '1', scope } }).catch(() => {});
+  }
+}
+
+function cleanLearnHint(value) {
+  return String(value || '')
+    .trim()
+    .replace(/^```(?:text|markdown)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .replace(/^>\s?/gm, '')
+    .replace(/^hinweis\s*:\s*/i, '')
+    .trim();
+}
+
+async function toggleLearnHint() {
+  const card = currentLearn.value;
+  if (!card || card.hintBusy) return;
+  if (card.hintVisible) {
+    card.hintVisible = false;
+    return;
+  }
+  card.hintVisible = true;
+  card.hintError = '';
+  if (card.aiHint) return;
+
+  card.hintBusy = true;
+  let generated = '';
+  try {
+    await streamNoteText({
+      instruction: [
+        `Erzeuge einen kurzen didaktischen Hinweis für eine Lernkarte der Art „${kindLabel(card.kind)}“.`,
+        'Der Hinweis soll einen Denkweg, eine passende Rückfrage oder einen relevanten Zusammenhang anbieten.',
+        'Verrate weder die Lösung noch eine Teilantwort. Nenne keine Zahl, keinen Eigennamen und keinen Schlüsselbegriff aus der Lösung, der die Antwort unmittelbar vorwegnimmt.',
+        'Formuliere ermutigend und konkret. Gib ausschließlich den Hinweis ohne Überschrift aus.',
+      ].join(' '),
+      length_instruction: 'Ein bis zwei kurze Sätze.',
+      note_context: '',
+      context_scope: 'note',
+      selected_text: '',
+      // Der Lösungstext dient nur zur Abgrenzung und erzwingt serverseitig das lokale Modell.
+      document_context: `Frage: ${card.front}\nInterne Lösung – nicht ausgeben: ${card.back || 'Keine feste Musterlösung.'}`,
+    }, {
+      onEvent: (event) => {
+        if (event.type === 'delta') generated += event.text || '';
+      },
+    });
+    const hint = cleanLearnHint(generated);
+    if (!hint) throw new Error('Es konnte kein Hinweis erzeugt werden.');
+    card.aiHint = hint;
+  } catch (err) {
+    card.hintError = err?.message || 'Der Hinweis konnte nicht erzeugt werden.';
+  } finally {
+    card.hintBusy = false;
+  }
+}
+function startLearning() { startLearn(cards.value, null, 'sheet'); }
+function restartLearning() { startLearn(learnQueue.value, null, learnRunScope, false); }
+async function startSheetLearn(sheet) {
+  const courseId = sheet?.course_id || store.activeCourseId;
+  if (!sheet?.id || !sheetLearnableCount(sheet) || !courseId) return;
+  if (store.activeCourseId !== courseId) await store.selectCourse(courseId);
+  await router.push({ name: 'lernraum', query: { course: String(courseId), sheet: String(sheet.id) } });
+  openSheetId.value = sheet.id;
+  await store.fetchCards(sheet.id);
+  startLearn(store.cards, null, 'sheet');
+}
+
+async function clearLearning() {
+  learnExitWarningOpen.value = false;
+  learning.value = false;
+  learnQueue.value = [];
+  learnOpenedInternally.value = false;
+  if (learnDirty.value) {
+    learnDirty.value = false;
+    await Promise.all([store.fetchCourses(), store.fetchBoard()]);
+    if (store.cardsSheetId) await store.fetchCards(store.cardsSheetId);
+  }
+}
+
+function requestExitLearning() {
+  if (!remainingLearnCount.value) {
+    exitLearning();
+    return;
+  }
+  learnExitWarningOpen.value = !learnExitWarningOpen.value;
+}
+
+async function exitLearning() {
+  learnExitWarningOpen.value = false;
+  if (route.query.learn === '1') {
+    if (learnOpenedInternally.value) {
+      router.back();
+    } else {
+      const { learn: _learn, scope: _scope, ...query } = route.query;
+      await router.replace({ name: 'lernraum', query });
+    }
+    return;
+  }
+  await clearLearning();
+}
+
+async function pulseLearnProgress() {
+  learnProgressPulse.value = false;
+  if (learnProgressPulseTimer) window.clearTimeout(learnProgressPulseTimer);
+  await nextTick();
+  learnProgressPulse.value = true;
+  learnProgressPulseTimer = window.setTimeout(() => {
+    learnProgressPulse.value = false;
+    learnProgressPulseTimer = null;
+  }, 620);
+}
+
+async function assess(status) {
+  const card = currentLearn.value;
+  if (!card) return;
+  try {
+    await store.reviewCard(card.id, status);
+    card.status = status; // lokale Kopie fürs Overlay
+    learnDirty.value = true;
+    const previous = card.sessionAssessment;
+    const nextResults = { ...learnResults.value };
+    if (previous && previous !== status) nextResults[previous] = Math.max(0, nextResults[previous] - 1);
+    if (previous !== status) nextResults[status] += 1;
+    card.sessionAssessment = status;
+    learnResults.value = nextResults;
+    pulseLearnProgress();
+    scheduleLearningRunSave();
+  } catch { /* Fehler ignorieren, trotzdem weiter */ }
+  if (learnIndex.value + 1 < learnQueue.value.length) {
     learnIndex.value += 1;
     revealed.value = false;
   } else {
-    learning.value = false;
+    // letzte Karte → Abschluss anzeigen (currentLearn wird null)
+    learnIndex.value = learnQueue.value.length;
   }
 }
-function prevCard() {
-  if (learnIndex.value > 0) {
-    learnIndex.value -= 1;
-    revealed.value = false;
-  }
+
+function moveLearn(offset) {
+  const next = learnIndex.value + offset;
+  if (next < 0 || next >= learnQueue.value.length) return;
+  learnIndex.value = next;
+  revealed.value = false;
+}
+
+function scheduleLearningRunSave() {
+  const token = learnRunToken;
+  const courseId = learnRunCourseId;
+  if (!courseId || !assessedLearnCount.value) return;
+  const totalCards = learnQueue.value.length;
+  const sheetId = learnRunSheetId;
+  const scope = learnRunScope;
+  const startedAt = learnRunStartedAt;
+  if (assessedLearnCount.value >= totalCards && !learnRunCompletedAt) learnRunCompletedAt = new Date().toISOString();
+  const snapshot = {
+    assessed_cards: assessedLearnCount.value,
+    weak_count: learnResults.value.weak,
+    medium_count: learnResults.value.medium,
+    strong_count: learnResults.value.strong,
+    completed_at: learnRunCompletedAt || null,
+  };
+  learnRunSaveChain = learnRunSaveChain
+    .catch(() => {})
+    .then(async () => {
+      if (token !== learnRunToken) return;
+      if (!learnRunId.value) {
+        const run = await store.addLearningRun(courseId, {
+          sheet_id: sheetId,
+          scope,
+          total_cards: totalCards,
+          started_at: startedAt,
+        });
+        if (token !== learnRunToken) return;
+        learnRunId.value = run.id;
+      }
+      await store.patchLearningRun(learnRunId.value, snapshot);
+    })
+    .catch(() => {});
 }
 
 const sheetCountLabel = computed(() => {
@@ -456,15 +1166,17 @@ const sheetCountLabel = computed(() => {
   return n === 1 ? '1 Lernblatt' : `${n} Lernblätter`;
 });
 
-// Startseite: offene Lernmarker (noch keine Karte), nach Herkunfts-Notiz gruppiert.
+// Startseite: Marker ohne vollständige Karte, nach Herkunfts-Notiz gruppiert.
 const markerNoteGroups = computed(() => {
   const byNote = new Map();
   for (const m of store.openMarkers || []) {
+    if (dismissedNoteIds.value.has(m.note_id)) continue;
     let g = byNote.get(m.note_id);
     if (!g) {
       g = {
         noteId: m.note_id,
         noteTitle: m.note_title,
+        courseId: m.course_id || null,
         courseTitle: m.course_title || null,
         sessionTitle: m.session_title || null,
         markers: [],
@@ -517,51 +1229,282 @@ watch(() => store.board, () => {
   if (openSheetId.value && !openSheet.value) openSheetId.value = null;
 });
 
-const STATUS = {
-  in_progress: { label: 'In Arbeit', dot: 'accent' },
-  draft: { label: 'Entwurf', dot: 'border' },
-  worked: { label: 'Gelernt', dot: 'success' },
-  archived: { label: 'Abgelegt', dot: 'border', faded: true },
-};
-const statuses = [
-  { value: 'draft', label: 'Entwurf' },
-  { value: 'in_progress', label: 'In Arbeit' },
-  { value: 'worked', label: 'Gelernt' },
-  { value: 'archived', label: 'Abgelegt' },
-];
-function statusMeta(status) { return STATUS[status] || STATUS.draft; }
-function dotColor(kind) {
-  if (kind === 'accent') return 'var(--pm-accent)';
-  if (kind === 'success') return 'var(--pm-success)';
-  return 'var(--pm-border)';
+function goHome() {
+  router.push({ name: 'lernraum' }).catch(() => {});
+}
+const crumbs = computed(() => {
+  const list = [{ label: 'Startseite', go: goHome, current: view.value !== 'course' || !store.activeCourse }];
+  if (view.value === 'course' && store.activeCourse) list.push({ label: store.activeCourse.title, go: closeSheet, current: !openSheet.value });
+  if (openSheet.value) list.push({ label: openSheet.value.title, current: true });
+  return list;
+});
+function openCourse(id) {
+  router.push({ name: 'lernraum', query: { course: String(id) } }).catch(() => {});
+}
+function closeSheet() {
+  if (!store.activeCourseId) return goHome();
+  openCourse(store.activeCourseId);
+}
+function openSheetView(id) {
+  if (!store.activeCourseId) return;
+  router.push({ name: 'lernraum', query: { course: String(store.activeCourseId), sheet: String(id) } }).catch(() => {});
+}
+function openFavoriteSheet(sheet) {
+  if (!sheet?.id || !sheet.course_id) return;
+  router.push({ name: 'lernraum', query: { course: String(sheet.course_id), sheet: String(sheet.id) } }).catch(() => {});
 }
 
-function goHome() { view.value = 'home'; openSheetId.value = null; store.fetchAllSheets(); store.fetchOpenMarkers(); }
-function openCourse(id) { openSheetId.value = null; view.value = 'course'; store.selectCourse(id); }
-function selectCourse(id) { openSheetId.value = null; store.selectCourse(id); }
+async function syncNavigationFromRoute() {
+  if (!navigationReady.value) return;
+  const courseId = typeof route.query.course === 'string' ? route.query.course : null;
+  const sheetId = typeof route.query.sheet === 'string' ? route.query.sheet : null;
+
+  if (!courseId) {
+    view.value = 'home';
+    openSheetId.value = null;
+    if (learning.value) await clearLearning();
+    return;
+  }
+
+  const course = store.courses.find((item) => String(item.id) === courseId);
+  if (!course) {
+    router.replace({ name: 'lernraum' }).catch(() => {});
+    return;
+  }
+
+  view.value = 'course';
+  if (String(store.activeCourseId) !== courseId) await store.selectCourse(course.id);
+
+  if (sheetId) {
+    const sheet = courseSheets.value.find((item) => String(item.id) === sheetId);
+    if (!sheet) {
+      router.replace({ name: 'lernraum', query: { course: courseId } }).catch(() => {});
+      return;
+    }
+    openSheetId.value = sheet.id;
+    if (String(store.cardsSheetId) !== sheetId) await store.fetchCards(sheet.id);
+  } else {
+    openSheetId.value = null;
+  }
+
+  if (route.query.learn === '1' && !learning.value) {
+    if (route.query.scope === 'sheet' && openSheetId.value) {
+      startLearn(cards.value, null, 'sheet', false);
+    } else {
+      const lists = await Promise.all(courseSheets.value.map((sheet) => listCards(sheet.id).then((res) => res.items || []).catch(() => [])));
+      startLearn(lists.flat(), null, 'course', false);
+    }
+  } else if (route.query.learn !== '1' && learning.value) {
+    await clearLearning();
+  }
+}
 
 function onCreateCourse() { openDialog({ kind: 'course', name: '' }); }
+function editCourseTitle() {
+  if (!store.activeCourse) return;
+  courseTitleDraft.value = store.activeCourse.title;
+  courseTitleError.value = '';
+  editingCourseTitle.value = true;
+  nextTick(() => courseTitleInput.value?.select());
+}
+function cancelCourseTitle() {
+  editingCourseTitle.value = false;
+  courseTitleError.value = '';
+}
+async function saveCourseTitle() {
+  if (!editingCourseTitle.value || courseTitleBusy.value || !store.activeCourse) return;
+  const title = courseTitleDraft.value.trim();
+  if (!title) {
+    courseTitleError.value = 'Der Kursname darf nicht leer sein.';
+    nextTick(() => courseTitleInput.value?.focus());
+    return;
+  }
+  if (title === store.activeCourse.title) {
+    cancelCourseTitle();
+    return;
+  }
+  courseTitleBusy.value = true;
+  courseTitleError.value = '';
+  try {
+    await store.renameCourse(store.activeCourse.id, { title });
+    editingCourseTitle.value = false;
+  } catch (error) {
+    courseTitleError.value = error?.message || 'Kursname konnte nicht gespeichert werden.';
+    nextTick(() => courseTitleInput.value?.focus());
+  } finally {
+    courseTitleBusy.value = false;
+  }
+}
+function onRenameCourseCard(course) {
+  if (!course || courseCardTitleBusy.value) return;
+  editingCourseCardId.value = course.id;
+  courseCardTitleDraft.value = course.title;
+  courseCardTitleError.value = '';
+  focusCourseCardTitle(true);
+}
+function focusCourseCardTitle(select = false) {
+  nextTick(() => {
+    const input = document.querySelector('input[aria-label="Kursname in der Kachel"]');
+    if (select) input?.select();
+    else input?.focus();
+  });
+}
+function cancelCourseCardTitle() {
+  editingCourseCardId.value = null;
+  courseCardTitleDraft.value = '';
+  courseCardTitleError.value = '';
+}
+async function saveCourseCardTitle() {
+  const courseId = editingCourseCardId.value;
+  if (!courseId || courseCardTitleBusy.value) return;
+  const course = store.courses.find((item) => item.id === courseId);
+  const title = courseCardTitleDraft.value.trim();
+  if (!title) {
+    courseCardTitleError.value = 'Der Kursname darf nicht leer sein.';
+    focusCourseCardTitle();
+    return;
+  }
+  if (title === course?.title) {
+    cancelCourseCardTitle();
+    return;
+  }
+  courseCardTitleBusy.value = true;
+  courseCardTitleError.value = '';
+  try {
+    await store.renameCourse(courseId, { title });
+    cancelCourseCardTitle();
+  } catch (error) {
+    courseCardTitleError.value = error?.message || 'Kursname konnte nicht gespeichert werden.';
+    focusCourseCardTitle();
+  } finally {
+    courseCardTitleBusy.value = false;
+  }
+}
+async function onDeleteCourse(course) {
+  if (!course || !window.confirm(`„${course.title}“ löschen?`)) return;
+  deletingCourseIds.value = new Set([...deletingCourseIds.value, course.id]);
+  courseCardTitleError.value = '';
+  try {
+    if (editingCourseCardId.value === course.id) cancelCourseCardTitle();
+    await store.removeCourse(course.id);
+  } catch (error) {
+    courseCardTitleError.value = error?.message || 'Kurs konnte nicht gelöscht werden.';
+  } finally {
+    const pending = new Set(deletingCourseIds.value);
+    pending.delete(course.id);
+    deletingCourseIds.value = pending;
+  }
+}
 function onCreateSheet() {
   if (!store.activeCourseId) return;
   openDialog({ kind: 'sheet', name: '' });
 }
-async function toggleFavorite(sheet) { await store.patchSheet(sheet.id, { is_favorite: !sheet.is_favorite }); }
-async function setStatus(status) {
-  if (!openSheet.value || openSheet.value.status === status) return;
-  await store.patchSheet(openSheet.value.id, { status });
+async function toggleFavorite(sheet) {
+  if (!sheet || favoriteBusy.value) return;
+  const activating = !sheet.is_favorite;
+  if (activating) {
+    favoriteAnimating.value = true;
+    if (favoriteAnimTimer) window.clearTimeout(favoriteAnimTimer);
+    favoriteAnimTimer = window.setTimeout(() => {
+      favoriteAnimating.value = false;
+      favoriteAnimTimer = null;
+    }, 480);
+  }
+  favoriteBusy.value = true;
+  try {
+    await store.patchSheet(sheet.id, { is_favorite: activating });
+  } finally {
+    favoriteBusy.value = false;
+  }
 }
-function onRenameSheet(sheet) { openDialog({ kind: 'sheet-rename', sheetId: sheet.id, name: sheet.title }); }
+function onRenameSheet(sheet) {
+  if (!sheet || sheetTitleBusy.value) return;
+  editingSheetId.value = sheet.id;
+  sheetTitleDraft.value = sheet.title;
+  sheetTitleError.value = '';
+  focusSheetTitle(true);
+}
+function focusSheetTitle(select = false) {
+  nextTick(() => {
+    const input = document.querySelector('input[aria-label="Lernblattname"]');
+    if (select) input?.select();
+    else input?.focus();
+  });
+}
+function cancelSheetTitle() {
+  editingSheetId.value = null;
+  sheetTitleDraft.value = '';
+  sheetTitleError.value = '';
+}
+async function saveSheetTitle() {
+  const sheetId = editingSheetId.value;
+  if (!sheetId || sheetTitleBusy.value) return;
+  const sheet = courseSheets.value.find((item) => item.id === sheetId);
+  const title = sheetTitleDraft.value.trim();
+  if (!title) {
+    sheetTitleError.value = 'Der Lernblattname darf nicht leer sein.';
+    focusSheetTitle();
+    return;
+  }
+  if (title === sheet?.title) {
+    cancelSheetTitle();
+    return;
+  }
+  sheetTitleBusy.value = true;
+  sheetTitleError.value = '';
+  try {
+    await store.patchSheet(sheetId, { title });
+    cancelSheetTitle();
+  } catch (error) {
+    sheetTitleError.value = error?.message || 'Lernblattname konnte nicht gespeichert werden.';
+    focusSheetTitle();
+  } finally {
+    sheetTitleBusy.value = false;
+  }
+}
 async function onDeleteSheet(sheet) {
-  if (!window.confirm(`„${sheet.title}" löschen?`)) return;
-  await store.removeSheet(sheet.id);
-  openSheetId.value = null;
+  if (!window.confirm(`„${sheet.title}“ löschen?`)) return;
+  deletingSheetIds.value = new Set([...deletingSheetIds.value, sheet.id]);
+  try {
+    if (editingSheetId.value === sheet.id) cancelSheetTitle();
+    const wasOpen = openSheetId.value === sheet.id;
+    await store.removeSheet(sheet.id);
+    if (wasOpen) closeSheet();
+  } catch (error) {
+    sheetTitleError.value = error?.message || 'Lernblatt konnte nicht gelöscht werden.';
+  } finally {
+    const pending = new Set(deletingSheetIds.value);
+    pending.delete(sheet.id);
+    deletingSheetIds.value = pending;
+  }
 }
 
-// Karten des offenen Blatts laden; Lernmodus beim Blattwechsel verlassen.
-watch(openSheetId, (id) => {
-  learning.value = false;
-  if (id) store.fetchCards(id);
-}, { immediate: true });
+watch(
+  () => [route.query.course, route.query.sheet, route.query.learn, route.query.scope],
+  () => { void syncNavigationFromRoute(); },
+);
+watch([view, openSheetId], ([currentView, currentSheet]) => {
+  if (editingCourseTitle.value && (currentView !== 'course' || currentSheet)) cancelCourseTitle();
+  if (editingCourseCardId.value && currentView !== 'home') cancelCourseCardTitle();
+  if (editingSheetId.value && currentView !== 'course') cancelSheetTitle();
+});
+
+function handleLearnKey(event) {
+  if (!learning.value || !currentLearn.value || event.metaKey || event.ctrlKey || event.altKey || event.repeat) return;
+  const tag = event.target?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return;
+  if (!revealed.value && (event.key === 'Enter' || event.key === ' ')) {
+    event.preventDefault();
+    revealed.value = true;
+    return;
+  }
+  if (!revealed.value) return;
+  const status = { 1: 'weak', 2: 'medium', 3: 'strong' }[event.key];
+  if (status) {
+    event.preventDefault();
+    void assess(status);
+  }
+}
 
 const DEFAULT_KIND = 'fakt';
 function onAddCard() {
@@ -569,17 +1512,46 @@ function onAddCard() {
   openDialog({ kind: 'card', cardId: null, cardKind: store.activeCourse?.default_artifact_type || DEFAULT_KIND, front: '', back: '' });
 }
 function onEditCard(card) {
-  openDialog({ kind: 'card', cardId: card.id, cardKind: card.kind, front: card.front, back: card.back || '' });
+  const items = cards.value.map((item) => ({
+    cardId: item.id,
+    noteId: item.source_note_id || null,
+    marker: { node_pm_id: item.source_pm_id || null, snippet: '' },
+    cardKind: item.kind,
+    kindAiTried: true,
+    kindAiBusy: false,
+    kindTouched: false,
+    front: item.front,
+    back: item.back || '',
+    fromNote: null,
+  }));
+  const index = Math.max(0, items.findIndex((item) => item.cardId === card.id));
+  openDialog({ kind: 'card-edit', items, index });
 }
 async function onDeleteCard(card) {
   if (!window.confirm('Karte löschen?')) return;
   await store.removeCard(card.id, openSheetId.value);
 }
 
+async function onDeleteLearningRun(run) {
+  if (!run || deletingRunIds.value.has(run.id)) return;
+  if (!window.confirm('Diesen Lerndurchlauf löschen?')) return;
+  deletingRunIds.value = new Set([...deletingRunIds.value, run.id]);
+  runDeleteError.value = '';
+  try {
+    await store.removeLearningRun(run.id);
+  } catch (error) {
+    runDeleteError.value = error?.message || 'Lerndurchlauf konnte nicht gelöscht werden.';
+  } finally {
+    const pending = new Set(deletingRunIds.value);
+    pending.delete(run.id);
+    deletingRunIds.value = pending;
+  }
+}
+
 // --- Nachbereitung: Warteschlange (Marker → Karte) ---------------------------
 const current = computed(() => {
   const d = dialog.value;
-  return d && d.kind === 'queue' ? d.items[d.index] || null : null;
+  return d && ['queue', 'card-edit'].includes(d.kind) ? d.items[d.index] || null : null;
 });
 // Wäre nach dem Übernehmen kein offener Marker mehr übrig?
 const lastOpen = computed(() => {
@@ -587,10 +1559,6 @@ const lastOpen = computed(() => {
   if (!d || d.kind !== 'queue') return false;
   return d.items.every((it, i) => it.status === 'done' || i === d.index);
 });
-function courseTitleFor(id) {
-  return store.courses.find((c) => c.id === id)?.title || '';
-}
-
 // Frage ↔ Antwort tauschen (falls die Typ-Vorbelegung mal danebenlag).
 function swapSides() {
   const it = current.value;
@@ -601,39 +1569,45 @@ function swapSides() {
 }
 
 function openQueue(group, startIndex = 0) {
-  const first = group.markers[0];
-  const wasBound = !!group.courseTitle;
-  const courseId = wasBound ? first.course_id : (store.activeCourseId || store.courses[0]?.id || null);
-  const items = group.markers.map((m) => {
-    // Frage-artige Marker (Warum/Aufgabe/Analyse) sind schon die Vorderseite;
-    // Aussagen (Fakt/Prozess/…) sind die Antwort → das jeweils andere Feld bleibt leer.
-    const asPrompt = PROMPT_MARKER_KINDS.has(m.kind);
-    const snippet = m.snippet || '';
-    return {
-      marker: m,
-      cardKind: MARKER_TO_KIND[m.kind] || store.activeCourse?.default_artifact_type || DEFAULT_KIND,
-      front: asPrompt ? snippet : '',
-      back: asPrompt ? '' : snippet,
-      fromNote: asPrompt ? 'front' : 'back',
-      status: 'open',
-    };
-  });
+  const groups = markerNoteGroups.value;
+  const items = [];
+  let selectedIndex = 0;
+  for (const queueGroup of groups) {
+    const groupStart = items.length;
+    for (const m of queueGroup.markers) {
+      // Frage-artige Marker (Warum/Aufgabe/Analyse) sind schon die Vorderseite;
+      // Aussagen (Fakt/Prozess/…) sind die Antwort → das jeweils andere Feld bleibt leer.
+      const asPrompt = PROMPT_MARKER_KINDS.has(m.kind);
+      const snippet = m.snippet || '';
+      const hasDraft = Boolean(m.draft_card_id);
+      items.push({
+        noteId: queueGroup.noteId,
+        noteTitle: queueGroup.noteTitle,
+        courseId: m.course_id || null,
+        marker: m,
+        cardKind: m.draft_kind || MARKER_TO_KIND[m.kind] || store.activeCourse?.default_artifact_type || DEFAULT_KIND,
+        kindAiTried: false,
+        kindAiBusy: false,
+        kindTouched: false,
+        front: hasDraft ? (m.draft_front || '') : (asPrompt ? snippet : ''),
+        back: hasDraft ? (m.draft_back || '') : (asPrompt ? '' : snippet),
+        fromNote: asPrompt ? 'front' : 'back',
+        status: 'open',
+      });
+    }
+    if (queueGroup.noteId === group.noteId) {
+      selectedIndex = groupStart + Math.min(Math.max(startIndex, 0), Math.max(queueGroup.markers.length - 1, 0));
+    }
+  }
   openDialog({
     kind: 'queue',
-    noteId: group.noteId,
-    noteTitle: group.noteTitle,
-    wasBound,                                        // Notiz schon einer Sitzung zugeordnet?
-    courseId,
-    courseTitle: wasBound ? group.courseTitle : '',
-    // Unbound → null; die erste übernommene Karte legt die Sitzung (= diese Notiz) an.
-    sessionId: wasBound ? first.session_id : null,
     items,
-    index: Math.min(Math.max(startIndex, 0), Math.max(items.length - 1, 0)),
+    index: selectedIndex,
   });
 }
 
-function queuePrev() { const d = dialog.value; if (d && d.index > 0) { dialogError.value = ''; d.index -= 1; } }
-function queueNext() { const d = dialog.value; if (d && d.index < d.items.length - 1) { dialogError.value = ''; d.index += 1; } }
+function focusEditorPrev() { const d = dialog.value; if (d && d.index > 0) { dialogError.value = ''; d.index -= 1; } }
+function focusEditorNext() { const d = dialog.value; if (d && d.index < d.items.length - 1) { dialogError.value = ''; d.index += 1; } }
 
 // Zum nächsten noch offenen Marker springen; ist keiner mehr offen → abschließen.
 function advanceQueue() {
@@ -652,30 +1626,52 @@ async function finishQueue() {
   if (wasQueue) await store.refreshAfterPromote();
 }
 
+function closeCardEditor() {
+  if (dialog.value?.kind !== 'card-edit') return;
+  closeDialog();
+}
+
+function closeFocusEditor() {
+  if (cardEditorOpen.value) closeCardEditor();
+  else void finishQueue();
+}
+
+async function saveCurrentCard() {
+  const d = dialog.value;
+  const it = current.value;
+  if (!d || d.kind !== 'card-edit' || !it || dialogBusy.value) return;
+  dialogBusy.value = true;
+  dialogError.value = '';
+  try {
+    await store.patchCard(it.cardId, openSheetId.value, {
+      kind: it.cardKind,
+      front: it.front.trim(),
+      back: it.back.trim() || null,
+    });
+    it.front = it.front.trim();
+    it.back = it.back.trim();
+  } catch (err) {
+    dialogError.value = err?.message || 'Änderungen konnten nicht gespeichert werden.';
+  } finally {
+    dialogBusy.value = false;
+  }
+}
+
 async function acceptCurrent() {
   const d = dialog.value;
   if (!d || dialogBusy.value) return;
   const it = d.items[d.index];
-  if (!it.front.trim()) { dialogError.value = 'Bitte formuliere eine Frage / Vorderseite.'; return; }
-  if (!d.courseId) { dialogError.value = 'Bitte einen Kurs wählen.'; return; }
+  if (!it.courseId) { dialogError.value = 'Bitte einen Kurs wählen.'; return; }
   dialogBusy.value = true;
   try {
-    // Sitzung = diese Notiz: bei der ersten Karte einmal anlegen und koppeln,
-    // danach wiederverwenden → weitere Marker der Notiz sind automatisch zugeordnet.
-    if (!d.sessionId) {
-      const sess = await createSession(d.courseId, { title: d.noteTitle || 'Mitschrift' });
-      d.sessionId = sess.id;
-      d.wasBound = true;
-      d.courseTitle = courseTitleFor(d.courseId);
-    }
     const payload = {
-      note_id: d.noteId,
+      note_id: it.noteId,
       node_pm_id: it.marker.node_pm_id,
       kind: it.cardKind,
       front: it.front.trim(),
       back: it.back.trim() || null,
-      session_id: d.sessionId,
-      bind_note: true,
+      course_id: it.courseId,
+      bind_note: false,
     };
     await store.promoteMarker(payload, false); // Auffrischen erst beim Schließen
     it.status = 'done';
@@ -692,6 +1688,227 @@ const dialog = ref(null);
 const dialogError = ref('');
 const dialogBusy = ref(false);
 const dialogInput = ref(null);
+const notePreviewTheme = ref('dark');
+function toggleNotePreviewTheme() {
+  notePreviewTheme.value = notePreviewTheme.value === 'dark' ? 'light' : 'dark';
+}
+
+const queueOpen = computed(() => dialog.value?.kind === 'queue');
+const cardEditorOpen = computed(() => dialog.value?.kind === 'card-edit');
+const focusEditorOpen = computed(() => queueOpen.value || cardEditorOpen.value);
+const queueDone = computed(() => dialog.value?.items?.filter((it) => it.status === 'done').length || 0);
+const editorMarkerStates = computed(() => {
+  const map = {};
+  for (const it of dialog.value?.items || []) {
+    const pmId = it.marker?.node_pm_id;
+    if (pmId && it.noteId === current.value?.noteId) map[pmId] = it.status === 'done' ? 'done' : 'open';
+  }
+  return map;
+});
+// Farbton des Fokusmodus folgt der gewählten Kartenart.
+const NQ_TINTS = {
+  fakt: 'oklch(0.80 0.13 150)',
+  verstaendnis: 'oklch(0.80 0.10 200)',
+  uebung: 'oklch(0.83 0.13 72)',
+  prozess: 'oklch(0.78 0.11 265)',
+  zusammenhang: 'oklch(0.79 0.11 330)',
+  prozedural: 'oklch(0.78 0.05 235)',
+};
+const nqTint = computed(() => NQ_TINTS[current.value?.cardKind] || NQ_TINTS.verstaendnis);
+const { setNightSidebar } = useSidebarAppearance();
+watch(() => learning.value || focusEditorOpen.value, (open) => setNightSidebar(open), { immediate: true });
+watch(focusEditorOpen, (open, wasOpen) => {
+  if (open && !wasOpen) notePreviewTheme.value = 'dark';
+});
+const nqFront = ref(null);
+const nqBack = ref(null);
+const nqAiBusy = ref('');
+function selectQueueKind(kind) {
+  const it = current.value;
+  if (!it) return;
+  it.kindTouched = true;
+  it.cardKind = kind;
+}
+function fitNqFront(el = nqFront.value) {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight + 2}px`;
+}
+function fitNqBack(el = nqBack.value) {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight + 2}px`;
+}
+function cleanQueueAiText(value, field) {
+  let text = String(value || '').trim();
+  text = text.replace(/^```(?:text|markdown)?\s*/i, '').replace(/\s*```$/, '').trim();
+  text = text.replace(field === 'front' ? /^frage\s*:\s*/i : /^antwort\s*:\s*/i, '').trim();
+  text = text.replace(/^[-*]\s+/, '').trim();
+  if ((text.startsWith('„') && text.endsWith('“')) || (text.startsWith('"') && text.endsWith('"'))) {
+    text = text.slice(1, -1).trim();
+  }
+  return text;
+}
+const QUEUE_KIND_FROM_AI = {
+  fakt: 'fakt',
+  verstandnis: 'verstaendnis',
+  verstaendnis: 'verstaendnis',
+  ubung: 'uebung',
+  uebung: 'uebung',
+  prozess: 'prozess',
+  vergleich: 'zusammenhang',
+  zusammenhang: 'zusammenhang',
+  anleitung: 'prozedural',
+  prozedural: 'prozedural',
+};
+function parseQueueKind(value) {
+  const normalized = String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('de-DE');
+  for (const [label, kind] of Object.entries(QUEUE_KIND_FROM_AI)) {
+    if (new RegExp(`(?:^|[^a-z])${label}(?:$|[^a-z])`).test(normalized)) return kind;
+  }
+  return null;
+}
+async function suggestQueueKind(it, { force = false } = {}) {
+  if (!it || (!force && it.kindAiTried)) return;
+  it.kindAiTried = true;
+  const markerText = String(it.marker?.snippet || '').trim()
+    || [it.front, it.back].map((value) => String(value || '').trim()).filter(Boolean).join('\n');
+  const paragraphContext = String(it.marker?.context || markerText).trim();
+  if (!markerText) return;
+  it.kindAiBusy = true;
+  let generated = '';
+  try {
+    await streamNoteText({
+      instruction: [
+        'Ordne die markierte Passage genau einer Lernkartenart zu:',
+        'Fakt = konkrete Information oder Definition;',
+        'Verständnis = Erklärung, Begründung oder Warum-Zusammenhang;',
+        'Übung = Aufgabe oder anzuwendendes Problem;',
+        'Prozess = Ablauf oder Reihenfolge;',
+        'Vergleich = Gegenüberstellung oder Beziehung;',
+        'Anleitung = konkrete Handlungsanweisung.',
+        'Gib ausschließlich eines dieser Wörter aus: Fakt, Verständnis, Übung, Prozess, Vergleich, Anleitung.',
+      ].join(' '),
+      length_instruction: 'Genau ein Wort.',
+      note_context: paragraphContext,
+      context_scope: 'note',
+      selected_text: markerText,
+      // Dokumentkontext erzwingt serverseitig immer das lokale Ollama-Modell.
+      document_context: paragraphContext,
+    }, {
+      onEvent: (event) => {
+        if (event.type === 'delta') generated += event.text || '';
+      },
+    });
+    const suggestedKind = parseQueueKind(generated);
+    if (suggestedKind && (force || !it.kindTouched)) it.cardKind = suggestedKind;
+  } catch {
+    // Die deterministische Marker-Zuordnung bleibt als verlässlicher Fallback bestehen.
+  } finally {
+    it.kindAiBusy = false;
+  }
+}
+function generateQueueKind() {
+  return suggestQueueKind(current.value, { force: true });
+}
+async function generateQueueField(field) {
+  const it = current.value;
+  const d = dialog.value;
+  if (!it || !d || nqAiBusy.value) return;
+  const markerText = String(it.marker?.snippet || '').trim();
+  const paragraphContext = String(it.marker?.context || markerText).trim();
+  const question = String(it.front || '').trim();
+  const answer = String(it.back || '').trim();
+  const sourceText = markerText || [question, answer].filter(Boolean).join('\n');
+  const noteContext = (d.kind === 'card-edit'
+    ? d.items.map((item) => [item.front, item.back].filter(Boolean).join('\n'))
+    : d.items
+      .filter((item) => item.noteId === it.noteId)
+      .map((item) => String(item.marker?.context || item.marker?.snippet || '').trim()))
+    .filter(Boolean)
+    .join('\n\n')
+    .slice(0, 12000);
+  const type = kindLabel(it.cardKind);
+  const typeGuidance = {
+    fakt: 'Frage eine einzelne konkrete Information oder Definition ab. Die Antwort nennt diese präzise und ohne Abschweifung.',
+    verstaendnis: 'Prüfe einen Warum-, Wie- oder Bedeutungszusammenhang. Die Antwort erklärt Ursache und Zusammenhang in eigenen Worten.',
+    uebung: 'Formuliere eine konkrete Anwendungsaufgabe. Die Antwort zeigt den passenden Lösungsweg oder das überprüfbare Ergebnis.',
+    prozess: 'Frage nach einem Ablauf oder einer Reihenfolge. Die Antwort gibt die wesentlichen Schritte in der richtigen Ordnung wieder.',
+    zusammenhang: 'Verlange einen Vergleich oder eine Beziehung. Die Antwort benennt die entscheidenden Gemeinsamkeiten, Unterschiede oder Wechselwirkungen.',
+    prozedural: 'Frage danach, wie etwas praktisch ausgeführt wird. Die Antwort formuliert eine klare, handlungsorientierte Anleitung.',
+  }[it.cardKind] || 'Formuliere Frage und Antwort passend zur gewählten Lernkartenart.';
+  const instruction = field === 'front'
+    ? `Formuliere eine einzelne präzise Lernfrage der Art „${type}“. Verbindliche Typvorgabe: ${typeGuidance} Die passende Antwort lautet: ${answer || sourceText}. Nutze ausschließlich den bereitgestellten Kontext. Gib nur die Frage ohne Überschrift oder Erläuterung aus.`
+    : `Formuliere eine knappe, vollständige Antwort auf diese Lernfrage: ${question || sourceText}. Kartenart: „${type}“. Verbindliche Typvorgabe: ${typeGuidance} Nutze ausschließlich den bereitgestellten Kontext und erfinde keine Fakten. Gib nur die Antwort ohne Überschrift oder Erläuterung aus.`;
+
+  nqAiBusy.value = field;
+  dialogError.value = '';
+  let generated = '';
+  try {
+    await streamNoteText({
+      instruction,
+      length_instruction: field === 'front' ? 'Genau eine klare Frage.' : 'So kurz wie möglich, so vollständig wie nötig.',
+      note_context: noteContext,
+      context_scope: 'note',
+      selected_text: sourceText,
+      document_context: d.kind === 'card-edit' ? sourceText : paragraphContext,
+    }, {
+      onEvent: (event) => {
+        if (event.type === 'delta') generated += event.text || '';
+      },
+    });
+    if (current.value !== it) return;
+    const text = cleanQueueAiText(generated, field);
+    if (!text) throw new Error('Die KI hat keinen Text erzeugt.');
+    it[field] = text;
+    if (field === 'back') await nextTick(fitNqBack);
+  } catch (err) {
+    dialogError.value = err?.message || 'KI-Vorschlag fehlgeschlagen.';
+  } finally {
+    nqAiBusy.value = '';
+  }
+}
+function onSelectMarker(pmId) {
+  const d = dialog.value;
+  const i = d?.items?.findIndex((it) => it.noteId === current.value?.noteId && it.marker.node_pm_id === pmId);
+  if (d && i >= 0) { d.index = i; dialogError.value = ''; }
+}
+// Fokus ins leere Feld (die Aufgabe), sobald ein anderer Marker aktiv wird.
+watch(() => [focusEditorOpen.value, dialog.value?.index], async ([open]) => {
+  if (!open) return;
+  await nextTick();
+  fitNqFront();
+  fitNqBack();
+  const it = current.value;
+  if (queueOpen.value) void suggestQueueKind(it);
+  const el = cardEditorOpen.value ? nqFront.value : (it && it.fromNote === 'front' ? nqBack.value : nqFront.value);
+  try { el?.focus({ preventScroll: true }); } catch { /* Fokus ist optional */ }
+});
+watch(() => current.value?.front, async () => {
+  if (!focusEditorOpen.value) return;
+  await nextTick();
+  fitNqFront();
+}, { flush: 'post' });
+watch(() => current.value?.back, async () => {
+  if (!focusEditorOpen.value) return;
+  await nextTick();
+  fitNqBack();
+}, { flush: 'post' });
+function handleFocusEditorKey(e) {
+  if (!focusEditorOpen.value) return;
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    if (cardEditorOpen.value) void saveCurrentCard();
+    else void acceptCurrent();
+  } else if (e.key === 'Escape' && !dialogBusy.value) {
+    e.preventDefault();
+    closeFocusEditor();
+  }
+}
+
 const cardKinds = [
   { value: 'fakt', label: 'Fakt' },
   { value: 'verstaendnis', label: 'Verständnis' },
@@ -706,13 +1923,12 @@ const dialogTitle = computed(() => {
   if (d.kind === 'card') return d.cardId ? 'Karte bearbeiten' : 'Neue Karte';
   if (d.kind === 'course') return 'Neuer Kurs';
   if (d.kind === 'sheet') return 'Neues Lernblatt';
-  if (d.kind === 'sheet-rename') return 'Lernblatt umbenennen';
   return '';
 });
 const dialogSubmitLabel = computed(() => {
   const d = dialog.value;
   if (!d) return 'Anlegen';
-  return (d.kind === 'card' && d.cardId) || d.kind === 'sheet-rename' ? 'Speichern' : 'Anlegen';
+  return d.kind === 'card' && d.cardId ? 'Speichern' : 'Anlegen';
 });
 function openDialog(shape) {
   dialogError.value = '';
@@ -726,15 +1942,16 @@ async function submitDialog() {
   dialogBusy.value = true;
   try {
     if (d.kind === 'card') {
-      if (!d.front.trim()) { dialogError.value = 'Bitte eine Vorderseite eingeben.'; return; }
       const payload = { kind: d.cardKind, front: d.front.trim(), back: d.back.trim() || null };
       if (d.cardId) await store.patchCard(d.cardId, openSheetId.value, payload);
       else await store.addCard(openSheetId.value, payload);
     } else {
       if (!d.name.trim()) { dialogError.value = 'Bitte einen Namen eingeben.'; return; }
-      if (d.kind === 'course') { await store.addCourse({ title: d.name.trim() }); view.value = 'course'; }
+      if (d.kind === 'course') {
+        const created = await store.addCourse({ title: d.name.trim() });
+        openCourse(created.id);
+      }
       else if (d.kind === 'sheet') await store.addSheet({ course_id: store.activeCourseId, title: d.name.trim(), scope: 'topic' });
-      else if (d.kind === 'sheet-rename') await store.patchSheet(d.sheetId, { title: d.name.trim() });
     }
     dialog.value = null;
   } catch (err) {
@@ -744,10 +1961,20 @@ async function submitDialog() {
   }
 }
 
-onMounted(() => {
-  store.fetchCourses();
-  store.fetchAllSheets();
-  store.fetchOpenMarkers();
+onMounted(async () => {
+  await Promise.all([store.fetchAllSheets(), store.fetchOpenMarkers(), store.fetchCourses()]);
+  navigationReady.value = true;
+  await syncNavigationFromRoute();
+  window.addEventListener('keydown', handleLearnKey);
+  window.addEventListener('keydown', handleFocusEditorKey);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleLearnKey);
+  window.removeEventListener('keydown', handleFocusEditorKey);
+  if (favoriteAnimTimer) window.clearTimeout(favoriteAnimTimer);
+  if (learnProgressPulseTimer) window.clearTimeout(learnProgressPulseTimer);
+  setNightSidebar(false);
 });
 </script>
 
@@ -856,44 +2083,124 @@ onMounted(() => {
 .lernraum-panel .lr-marker-snippet { flex: 1; min-width: 0; font: 400 13.5px/1.5 var(--pm-font-sans); color: var(--pm-text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .lernraum-panel .lr-marker-go { flex: none; color: var(--pm-text-muted); font-size: 18px; line-height: 1; }
 
-/* Nachbereitungs-Warteschlange – Inhalt im Standard-Dialog (BaseDialog).
-   Teleportiert aus .papermind-app → --pm-* greifen NICHT, daher --v-theme-*. */
-.lr-q-dialog .lr-q-nav { display: flex; align-items: center; gap: 2px; margin-right: 2px; }
-.lr-q-dialog .lr-q-count { font-variant-numeric: tabular-nums; font-size: 12.5px; color: rgba(var(--v-theme-on-surface), 0.6); min-width: 42px; text-align: center; }
-
-/* Zweispaltig: Hauptbereich + rechte Seitenleiste (wie die Notiz-Vorschau-Rail
-   in den Einstellungen). Negative Ränder heben das Dialog-Padding auf, damit die
-   Rail bis an die Kanten reicht. */
-.lr-q-dialog .lr-q-layout { display: grid; grid-template-columns: minmax(0, 1fr) 208px; margin: -22px -24px; }
-.lr-q-dialog .lr-q-main { min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 20px 22px; }
-.lr-q-dialog .lr-q-side { display: flex; flex-direction: column; gap: 20px; padding: 20px; border-left: 1px solid rgba(var(--v-theme-on-surface), 0.12); background: rgba(var(--v-theme-on-surface), 0.02); }
-.lr-q-dialog .lr-q-side-group { display: flex; flex-direction: column; gap: 8px; }
-.lr-q-dialog .lr-q-side-label { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: rgba(var(--v-theme-on-surface), 0.5); }
-.lr-q-dialog .lr-q-belong-value { font-size: 13.5px; font-weight: 600; color: rgb(var(--v-theme-primary)); }
-
-/* Zwei Felder statt Zitat+Vorderseite: die markierte Zeile steht genau einmal,
-   je nach Marker-Typ als Frage ODER Antwort; das andere Feld ist die Aufgabe. */
-.lr-q-dialog .lr-q-field { display: flex; flex-direction: column; gap: 6px; }
-.lr-q-dialog .lr-q-flabel { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 650; color: rgb(var(--v-theme-on-surface)); }
-.lr-q-dialog .lr-q-from { font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: rgb(var(--v-theme-primary)); background: rgba(var(--v-theme-primary), 0.12); padding: 2px 7px; border-radius: 20px; }
-.lr-q-dialog .lr-q-opt { font-size: 11.5px; font-weight: 400; color: rgba(var(--v-theme-on-surface), 0.5); }
-.lr-q-dialog .lr-q-front textarea { font-size: 15px; line-height: 1.5; }
-.lr-q-dialog .lr-q-swap { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 4px 0; }
-.lr-q-dialog .lr-q-swap::before,
-.lr-q-dialog .lr-q-swap::after { content: ''; flex: 1; height: 1px; background: rgba(var(--v-theme-on-surface), 0.12); }
-.lr-q-dialog .lr-q-swap-btn { text-transform: none; letter-spacing: 0; font-weight: 600; color: rgba(var(--v-theme-on-surface), 0.72); border-color: rgba(var(--v-theme-on-surface), 0.2); flex: 0 0 auto; }
-.lr-q-dialog .lr-q-swap-btn:hover { color: rgb(var(--v-theme-primary)); border-color: rgba(var(--v-theme-primary), 0.5); background: rgba(var(--v-theme-primary), 0.06); }
-
-.lr-q-dialog .lr-q-kinds { margin: -4px 0; }
-.lr-q-dialog .lr-q-side .lr-q-kinds .v-slide-group__content { flex-direction: column; align-items: flex-start; gap: 6px; }
-.lr-q-dialog .lr-q-chip--on { background: rgba(var(--v-theme-primary), 0.16) !important; color: rgb(var(--v-theme-primary)) !important; border-color: rgba(var(--v-theme-primary), 0.5) !important; }
-
-@media (max-width: 620px) {
-  .lr-q-dialog .lr-q-layout { grid-template-columns: 1fr; }
-  .lr-q-dialog .lr-q-side { border-left: 0; border-top: 1px solid rgba(var(--v-theme-on-surface), 0.12); flex-direction: row; flex-wrap: wrap; gap: 16px 28px; }
+/* Nachbereiten im Fokus: Notiz im Kontext links, Karte rechts. */
+.lernraum-panel .lr-nq { overflow: hidden; }
+.lernraum-panel .lr-nq-head { flex: none; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 20px; padding: 16px clamp(20px, 3vw, 36px) 12px; }
+.lernraum-panel .lr-learn-head { position: relative; grid-template-columns: 1fr auto 1fr; }
+.lernraum-panel .lr-learning-focus--exit-warning .lr-learn-head { z-index: 101; }
+.lernraum-panel .lr-learn-head > .lr-nq-title,
+.lernraum-panel .lr-learn-head > .lr-learn-progress-ring { transition: opacity .18s ease, filter .18s ease; }
+.lernraum-panel .lr-learning-focus--exit-warning .lr-learn-head > .lr-nq-title,
+.lernraum-panel .lr-learning-focus--exit-warning .lr-learn-head > .lr-learn-progress-ring { opacity: .38; filter: saturate(.3); }
+.lernraum-panel .lr-nq-title { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; }
+.lernraum-panel .lr-nq-title strong { max-width: 100%; overflow: hidden; font: 660 16px/1.25 var(--pm-font-sans); text-overflow: ellipsis; white-space: nowrap; }
+.lernraum-panel .lr-nq-title span { color: var(--pm-text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.lernraum-panel .lr-nq-nav { display: flex; gap: 6px; }
+.lernraum-panel .lr-nq-arrow { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--pm-border); border-radius: 50%; background: var(--pm-surface-card); color: var(--pm-text-muted); cursor: pointer; transition: background .15s, color .15s; }
+.lernraum-panel .lr-nq-arrow svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.lernraum-panel .lr-nq-arrow:hover:not(:disabled) { background: var(--pm-selected); color: var(--pm-accent-text); }
+.lernraum-panel .lr-nq-arrow:disabled { opacity: .35; cursor: default; }
+.lernraum-panel .lr-learn-progress-ring { position: relative; justify-self: end; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: conic-gradient(var(--pm-accent) var(--learn-progress), var(--pm-track) 0); color: var(--pm-text); font: 650 10.5px/1 var(--pm-font-mono); }
+.lernraum-panel .lr-learn-progress-ring::before { content: ''; position: absolute; inset: 4px; border-radius: inherit; background: var(--pm-bg); }
+.lernraum-panel .lr-learn-progress-ring > span { position: relative; z-index: 1; }
+.lernraum-panel .lr-learn-progress-ring--pulse { animation: lr-learn-progress-bounce .62s cubic-bezier(.34, 1.56, .64, 1) both; }
+@keyframes lr-learn-progress-bounce {
+  0% { transform: scale(1); filter: brightness(1); box-shadow: 0 0 0 0 color-mix(in oklab, var(--pm-accent) 52%, transparent); }
+  32% { transform: scale(1.28); filter: brightness(1.32); box-shadow: 0 0 0 7px color-mix(in oklab, var(--pm-accent) 22%, transparent); }
+  58% { transform: scale(.92); filter: brightness(1.08); box-shadow: 0 0 0 11px transparent; }
+  78% { transform: scale(1.08); filter: brightness(1.12); }
+  100% { transform: scale(1); filter: brightness(1); box-shadow: 0 0 0 0 transparent; }
 }
-
-.lr-q-dialog .lr-q-error { font-size: 12.5px; color: rgb(var(--v-theme-error)); margin-right: auto; }
+.lernraum-panel .lr-nq-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(360px, 1fr); border-top: 1px solid var(--pm-border); }
+.lernraum-panel .lr-nq-body--solo { grid-template-columns: minmax(360px, 760px); justify-content: center; }
+.lernraum-panel .lr-nq-source { min-width: 0; min-height: 0; overflow: hidden; border-right: 1px solid var(--pm-border); background: var(--pm-surface-card); }
+.lernraum-panel .lr-nq-work { min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 14px; padding: 28px clamp(20px, 3vw, 40px) 32px; }
+.lernraum-panel .lr-nq-body--solo .lr-nq-work { width: 100%; }
+.lernraum-panel .lr-nq-field { display: flex; flex-direction: column; gap: 7px; }
+.lernraum-panel .lr-nq-field--editor { min-height: 0; }
+.lernraum-panel .lr-nq-field--question { flex: 0 0 auto; }
+.lernraum-panel .lr-nq-field--answer { flex: 0 0 auto; min-height: 0; }
+.lernraum-panel .lr-nq-label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.lernraum-panel .lr-nq-label { display: flex; align-items: center; gap: 8px; font: 650 13px/1.2 var(--pm-font-sans); color: var(--pm-text); }
+.lernraum-panel .lr-nq-kind-ai-status { color: var(--nq-tint); font-size: 10.5px; font-weight: 560; }
+.lernraum-panel .lr-nq-opt { color: var(--pm-text-muted); font-size: 11.5px; font-weight: 400; }
+.lernraum-panel .lr-nq-ai { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 25px; padding: 0 9px; border: 1px solid color-mix(in oklab, var(--nq-tint) 48%, var(--pm-border)); border-radius: 99px; background: color-mix(in oklab, var(--nq-tint) 10%, transparent); color: var(--nq-tint); font: 650 11px/1 var(--pm-font-sans); cursor: pointer; transition: background .15s, border-color .15s, opacity .15s; }
+.lernraum-panel .lr-nq-ai:hover:not(:disabled) { border-color: var(--nq-tint); background: color-mix(in oklab, var(--nq-tint) 18%, transparent); }
+.lernraum-panel .lr-nq-ai:focus-visible { outline: 2px solid var(--nq-tint); outline-offset: 2px; }
+.lernraum-panel .lr-nq-ai:disabled { cursor: wait; opacity: .65; }
+.lernraum-panel .lr-nq-area { flex: 1; min-height: 0; font-size: 15px; line-height: 1.55; }
+.lernraum-panel .lr-nq-field--question .lr-nq-area { flex: none; min-height: 104px; overflow-y: hidden; resize: none; }
+.lernraum-panel .lr-nq-field--answer .lr-nq-area { flex: none; overflow-y: hidden; resize: none; }
+.lernraum-panel .lr-nq-swap { align-self: center; display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--pm-border); border-radius: 99px; background: transparent; color: var(--pm-text-muted); font: 560 12px/1 var(--pm-font-sans); cursor: pointer; transition: color .15s, border-color .15s, background .15s; }
+.lernraum-panel .lr-nq-swap:hover { border-color: var(--pm-accent); background: var(--pm-selected); color: var(--pm-accent-text); }
+.lernraum-panel .lr-nq-meta { display: flex; flex-direction: column; gap: 20px; margin-bottom: 6px; }
+.lernraum-panel .lr-nq-sub { display: inline-flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; }
+.lernraum-panel .lr-nq-title .lr-nq-course { color: var(--pm-accent-text); font-weight: 620; }
+.lernraum-panel .lr-nq-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: auto; padding-top: 18px; }
+.lernraum-panel .lr-nq-error { margin-right: auto; color: var(--pm-danger); font-size: 12.5px; }
+/* Lern- und Nachbereiten-Fokusmodus: gemeinsame „Nacht“-Palette, unabhängig vom App-Theme.
+   Die Notiz liegt beim Nachbereiten als helles Blatt darauf; --nq-tint färbt dort Akzente nach Kartenart. */
+:root:root .lernraum-panel.lernraum-panel--nq {
+  --pm-bg: oklch(0.205 0.030 250);
+  --pm-surface-card: oklch(0.245 0.032 250);
+  --pm-surface-reader: oklch(0.165 0.028 252);
+  --pm-border: oklch(0.335 0.034 250);
+  --pm-text: oklch(0.955 0.008 235);
+  --pm-text-muted: oklch(0.760 0.022 240);
+  --pm-accent: oklch(0.80 0.10 200);
+  --pm-accent-text: oklch(0.80 0.10 200);
+  --pm-on-accent: oklch(0.180 0.035 250);
+  --pm-selected: color-mix(in oklab, oklch(0.80 0.10 200) 20%, transparent);
+  --pm-chip-bg: oklch(0.300 0.034 250);
+  --pm-track: oklch(0.300 0.034 250);
+  --pm-danger: oklch(0.740 0.140 27);
+  background: radial-gradient(120% 90% at 20% 0%, oklch(0.215 0.045 255) 0%, oklch(0.165 0.028 252) 60%);
+}
+.lernraum-panel .lr-nq { --nq-tint: oklch(0.80 0.10 200); --pm-accent: var(--nq-tint); --pm-accent-text: var(--nq-tint); --pm-selected: color-mix(in oklab, var(--nq-tint) 20%, transparent); }
+.lernraum-panel .lr-nq-body { border-top-color: var(--pm-border); }
+.lernraum-panel .lr-nq-source { position: relative; display: flex; padding: 22px clamp(16px, 2.5vw, 32px); border-right-color: var(--pm-border); background: transparent; }
+.lernraum-panel .lr-nq-paper {
+  flex: 1; min-width: 0; min-height: 0; overflow: hidden; border-radius: 16px; color: var(--pm-text);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .35), 0 0 0 1px rgba(255, 255, 255, .05);
+  transition: background .2s, color .2s;
+}
+.lernraum-panel .lr-nq-paper--light { --pm-text: oklch(0.205 0.018 235); --pm-muted: oklch(0.470 0.018 235); --pm-text-muted: oklch(0.470 0.018 235); --pm-accent: color-mix(in oklab, var(--nq-tint) 52%, black); --pm-accent-strong: var(--pm-accent); background: oklch(0.985 0.004 95); }
+.lernraum-panel .lr-nq-paper--dark { --pm-text: oklch(0.94 0.008 235); --pm-muted: oklch(0.76 0.020 240); --pm-text-muted: oklch(0.76 0.020 240); --pm-divider: oklch(0.42 0.030 250); --pm-content-surface: oklch(0.225 0.028 252); --pm-app-surface: oklch(0.205 0.026 252); --pm-surface-soft: oklch(0.30 0.028 250); --pm-viewer-surface: oklch(0.215 0.028 252); --pm-accent: var(--nq-tint); --pm-accent-strong: var(--nq-tint); background: oklch(0.265 0.030 250); box-shadow: 0 24px 60px rgba(0, 0, 0, .42), 0 0 0 1px oklch(0.43 0.032 250); }
+.lernraum-panel .lr-nq-paper .note-preview--compact .note-preview__sheet { padding-top: 32px; }
+.lernraum-panel .lr-nq-note-theme-toggle { position: absolute; top: 34px; right: clamp(28px, 4vw, 48px); z-index: 2; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid var(--pm-border); border-radius: 10px; background: color-mix(in oklab, var(--pm-surface-card) 88%, transparent); color: var(--pm-text-muted); cursor: pointer; backdrop-filter: blur(8px); transition: border-color .15s, background .15s, color .15s; }
+.lernraum-panel .lr-nq-note-theme-toggle:hover { border-color: var(--nq-tint); background: var(--pm-selected); color: var(--nq-tint); }
+.lernraum-panel .lr-nq-note-theme-toggle:focus-visible { outline: 2px solid var(--nq-tint); outline-offset: 2px; }
+.lernraum-panel .lr-nq-work { background: transparent; }
+.lernraum-panel .lr-nq .lr-btn--primary { box-shadow: 0 0 22px color-mix(in oklab, var(--nq-tint) 35%, transparent); transition: background .3s, box-shadow .3s; }
+.lernraum-panel .lr-action-button.v-btn {
+  height: 38px;
+  min-width: 0;
+  padding-inline: 17px;
+  border-radius: 10px;
+  font: 620 13.5px/1 var(--pm-font-sans);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.lernraum-panel .lr-nq-submit.v-btn {
+  background: var(--nq-tint);
+  color: var(--pm-on-accent);
+  box-shadow: 0 0 22px color-mix(in oklab, var(--nq-tint) 35%, transparent);
+  transition: background-color .18s, box-shadow .18s;
+}
+.lernraum-panel .lr-nq-submit.v-btn:hover:not(.v-btn--disabled) {
+  background: color-mix(in oklab, var(--nq-tint) 88%, white) !important;
+  box-shadow: 0 0 28px color-mix(in oklab, var(--nq-tint) 45%, transparent);
+}
+.lernraum-panel .lr-nq .lr-kind-opt--on { background: color-mix(in oklab, var(--nq-tint) 22%, transparent); color: var(--nq-tint); }
+.lernraum-panel .lr-nq .lr-kind-opt--on:hover { border-color: transparent; background: color-mix(in oklab, var(--nq-tint) 30%, transparent); color: var(--nq-tint); }
+.lernraum-panel .lr-nq .lr-field:focus { border-color: var(--nq-tint); box-shadow: 0 0 0 3px color-mix(in oklab, var(--nq-tint) 24%, transparent); }
+.lernraum-panel .lr-nq .lr-btn--ghost:hover { background: var(--pm-chip-bg); }
+@media (prefers-reduced-motion: reduce) { .lernraum-panel .lr-nq * { transition: none !important; } }
+@media (max-width: 900px) {
+  .lernraum-panel .lr-nq-body { grid-template-columns: 1fr; grid-template-rows: minmax(120px, 34%) minmax(0, 1fr); }
+  .lernraum-panel .lr-nq-body--solo { grid-template-rows: minmax(0, 1fr); }
+  .lernraum-panel .lr-nq-source { border-right: 0; border-bottom: 1px solid var(--pm-border); }
+}
 
 .lernraum-panel .lr-course-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .lernraum-panel .lr-course-chip { height: 34px; display: inline-flex; align-items: center; gap: 8px; padding: 0 15px; border-radius: 8px; border: 1px solid var(--pm-border); background: var(--pm-surface-card); color: var(--pm-text); font: 520 13.5px/1 var(--pm-font-sans); cursor: pointer; }
@@ -901,15 +2208,24 @@ onMounted(() => {
 .lernraum-panel .lr-course-chip-count { font-size: 12px; color: var(--pm-chip-count); }
 .lernraum-panel .lr-course-chip--add { color: var(--pm-text-muted); border-style: dashed; }
 
-/* Kursleiste (Kursansicht) */
-.lernraum-panel .lr-courses { flex: none; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 12px 28px; background: var(--pm-bg); border-bottom: 1px solid var(--pm-border); }
-.lernraum-panel .lr-back-pill { height: 32px; display: inline-flex; align-items: center; padding: 0 13px; border-radius: 8px; border: 1px solid var(--pm-border); background: var(--pm-bg); color: var(--pm-text-muted); font: 520 13px/1 var(--pm-font-sans); cursor: pointer; }
-.lernraum-panel .lr-back-pill:hover { background: var(--pm-surface-reader); color: var(--pm-text); }
-.lernraum-panel .lr-courses-sep { width: 1px; height: 20px; background: var(--pm-border); margin: 0 4px; }
-.lernraum-panel .lr-course-pill { height: 32px; display: inline-flex; align-items: center; padding: 0 15px; border-radius: 8px; border: 1px solid var(--pm-border); background: var(--pm-bg); color: var(--pm-text); font: 520 13.5px/1 var(--pm-font-sans); cursor: pointer; }
-.lernraum-panel .lr-course-pill:hover { background: var(--pm-surface-reader); }
-.lernraum-panel .lr-course-pill--active { background: var(--pm-selected); border-color: transparent; color: var(--pm-accent-text); font-weight: 620; }
-.lernraum-panel .lr-course-pill--add { color: var(--pm-text-muted); border-style: dashed; }
+/* Kopfzeile der Kursansicht */
+.lernraum-panel .lr-chead { flex: none; padding: 18px 28px 14px; background: var(--pm-bg); border-bottom: 1px solid var(--pm-border); }
+.lernraum-panel .lr-chead-back { background: 0; border: 0; padding: 0; margin-bottom: 10px; color: var(--pm-text-muted); font: 520 13px/1 var(--pm-font-sans); cursor: pointer; }
+.lernraum-panel .lr-chead-back:hover { color: var(--pm-text); }
+.lernraum-panel .lr-chead-main { display: flex; align-items: flex-end; gap: 16px; }
+.lernraum-panel .lr-chead-titlewrap { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.lernraum-panel .lr-chead-switch { position: relative; }
+.lernraum-panel .lr-chead-title { display: inline-flex; align-items: center; gap: 8px; background: 0; border: 0; padding: 0; color: var(--pm-text); font: 660 24px/1.2 var(--pm-font-sans); letter-spacing: -.02em; cursor: pointer; }
+.lernraum-panel .lr-chead-chevron { font-size: 15px; color: var(--pm-text-muted); transition: transform .15s; }
+.lernraum-panel .lr-chead-chevron--open { transform: rotate(180deg); }
+.lernraum-panel .lr-chead-sub { font-size: 13px; color: var(--pm-text-muted); }
+.lernraum-panel .lr-cswitch-backdrop { position: fixed; inset: 0; z-index: 18; }
+.lernraum-panel .lr-cswitch { position: absolute; top: calc(100% + 6px); left: 0; z-index: 19; min-width: 220px; padding: 6px; border: 1px solid var(--pm-border); border-radius: 12px; background: var(--pm-surface-card); box-shadow: 0 12px 32px rgba(0,0,0,.18); display: flex; flex-direction: column; gap: 2px; }
+.lernraum-panel .lr-cswitch-item { text-align: left; height: 34px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; color: var(--pm-text); font: 520 13.5px/1 var(--pm-font-sans); cursor: pointer; }
+.lernraum-panel .lr-cswitch-item:hover { background: var(--pm-surface-reader); }
+.lernraum-panel .lr-cswitch-item--on { background: var(--pm-selected); color: var(--pm-accent-text); font-weight: 620; }
+.lernraum-panel .lr-cswitch-item--add { color: var(--pm-text-muted); border-top: 1px solid var(--pm-border); border-radius: 0; margin-top: 4px; padding-top: 10px; height: auto; padding-bottom: 6px; }
+.lernraum-panel .lr-chead .lr-modetabs { margin-left: auto; }
 
 /* Kurs-Kopf + Board */
 .lernraum-panel .lr-header { flex: none; display: flex; align-items: center; gap: 16px; padding: 20px 28px 16px; }
@@ -925,9 +2241,6 @@ onMounted(() => {
 .lernraum-panel .lr-card-status { display: flex; align-items: center; gap: 6px; }
 .lernraum-panel .lr-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .lernraum-panel .lr-status-label { font: 620 11px/1.4 var(--pm-font-sans); letter-spacing: .07em; text-transform: uppercase; color: var(--pm-text-muted); }
-.lernraum-panel .lr-star { margin-left: auto; color: var(--pm-border); font-size: 14px; background: transparent; border: 0; cursor: pointer; line-height: 1; padding: 0; }
-.lernraum-panel .lr-star--lg { font-size: 18px; }
-.lernraum-panel .lr-star--on { color: var(--pm-star); }
 .lernraum-panel .lr-card-title { font: 620 16px/1.3 var(--pm-font-sans); letter-spacing: -.01em; text-wrap: pretty; flex: 1; }
 .lernraum-panel .lr-card-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .lernraum-panel .lr-card-count { font-size: 12px; color: var(--pm-text-muted); }
@@ -939,7 +2252,6 @@ onMounted(() => {
 .lernraum-panel .lr-back:hover { color: var(--pm-text); }
 .lernraum-panel .lr-sheet-card { max-width: 760px; display: flex; flex-direction: column; gap: 22px; }
 .lernraum-panel .lr-sheet-head { display: flex; flex-direction: column; gap: 8px; }
-.lernraum-panel .lr-sheet-kicker { display: flex; align-items: center; gap: 8px; }
 .lernraum-panel .lr-sheet-title { margin: 0; font: 660 26px/1.2 var(--pm-font-sans); letter-spacing: -.02em; }
 .lernraum-panel .lr-sheet-meta { font-size: 13px; color: var(--pm-text-muted); }
 .lernraum-panel .lr-cards-panel { border: 1px solid var(--pm-border); border-radius: 14px; background: var(--pm-surface-card); overflow: hidden; }
@@ -962,23 +2274,134 @@ onMounted(() => {
 .lernraum-panel .lr-kind-chip--lg { height: 24px; padding: 0 11px; font-size: 12px; }
 .lernraum-panel .lr-card-front { font: 520 14px/1.5 var(--pm-font-sans); color: var(--pm-text); }
 .lernraum-panel .lr-card-back { font-size: 13px; line-height: 1.5; color: var(--pm-text-muted); }
-.lernraum-panel .lr-card-back--empty { font-style: italic; opacity: .8; }
+.lernraum-panel .lr-card-side--empty { font-style: italic; opacity: .7; }
 .lernraum-panel .lr-card-row-actions { display: flex; gap: 4px; align-items: flex-start; }
 .lernraum-panel .lr-icon-btn { width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: var(--pm-text-muted); cursor: pointer; font-size: 13px; line-height: 1; }
 .lernraum-panel .lr-icon-btn:hover { background: var(--pm-surface-reader); color: var(--pm-text); }
 .lernraum-panel .lr-icon-btn--danger:hover { color: var(--pm-danger); }
+.lernraum-panel .lr-icon-btn:disabled { cursor: wait; opacity: .45; }
 
-/* Lernmodus */
-.lernraum-panel .lr-learn-view { flex: 1; min-height: 0; overflow: auto; padding: 18px 28px 32px; display: flex; flex-direction: column; }
+/* Lernmodus-Overlay */
+.lernraum-panel .lr-learn-overlay { position: absolute; inset: 0; z-index: 15; background: var(--pm-surface-reader); overflow: auto; padding: 22px 28px 32px; display: flex; flex-direction: column; }
 .lernraum-panel .lr-learn-top { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
 .lernraum-panel .lr-learn-progress { font-size: 12.5px; color: var(--pm-text-muted); font-family: var(--pm-font-mono); }
 .lernraum-panel .lr-learn-card { max-width: 640px; width: 100%; margin: 8px auto 0; border: 1px solid var(--pm-border); border-radius: 16px; background: var(--pm-surface-card); padding: 28px 30px; display: flex; flex-direction: column; gap: 18px; }
 .lernraum-panel .lr-learn-card .lr-kind-chip { align-self: flex-start; }
 .lernraum-panel .lr-learn-front { font: 620 20px/1.4 var(--pm-font-sans); letter-spacing: -.01em; color: var(--pm-text); text-wrap: pretty; }
 .lernraum-panel .lr-learn-back { border-top: 1px solid var(--pm-border); padding-top: 16px; display: flex; flex-direction: column; gap: 6px; }
+.lernraum-panel .lr-learn-question-label,
 .lernraum-panel .lr-learn-back-label { font: 620 11px/1.4 var(--pm-font-sans); letter-spacing: .08em; text-transform: uppercase; color: var(--pm-accent-text); }
+.lernraum-panel .lr-learn-question-label { margin-bottom: 6px; }
 .lernraum-panel .lr-learn-back-text { font: 400 16px/1.6 var(--pm-font-sans); color: var(--pm-text); text-wrap: pretty; }
 .lernraum-panel .lr-learn-actions { display: flex; gap: 10px; margin-top: 4px; }
+.lernraum-panel .lr-assess { flex: 1; height: 42px; border-radius: 10px; border: 1px solid var(--pm-border); background: var(--pm-bg); color: var(--pm-text); font: 620 13.5px/1 var(--pm-font-sans); cursor: pointer; }
+.lernraum-panel .lr-assess--weak:hover { border-color: var(--pm-danger); color: var(--pm-danger); background: color-mix(in oklab, var(--pm-danger) 8%, transparent); }
+.lernraum-panel .lr-assess--medium:hover { border-color: var(--pm-star); color: var(--pm-star); background: color-mix(in oklab, var(--pm-star) 10%, transparent); }
+.lernraum-panel .lr-assess--strong:hover { border-color: var(--pm-success); color: var(--pm-success); background: color-mix(in oklab, var(--pm-success) 10%, transparent); }
+.lernraum-panel .lr-assess--weak.lr-assess--selected { border-color: var(--pm-danger); background: color-mix(in oklab, var(--pm-danger) 16%, transparent); color: var(--pm-danger); }
+.lernraum-panel .lr-assess--medium.lr-assess--selected { border-color: var(--pm-star); background: color-mix(in oklab, var(--pm-star) 18%, transparent); color: var(--pm-star); }
+.lernraum-panel .lr-assess--strong.lr-assess--selected { border-color: var(--pm-success); background: color-mix(in oklab, var(--pm-success) 18%, transparent); color: var(--pm-success); }
+.lernraum-panel .lr-learn-selfhint { font-size: 12px; color: var(--pm-text-muted); text-align: center; }
+.lernraum-panel .lr-learn-done { max-width: 640px; width: 100%; margin: 40px auto 0; text-align: center; display: flex; flex-direction: column; gap: 16px; align-items: center; }
+.lernraum-panel .lr-learn-done-title { font: 660 20px/1.25 var(--pm-font-sans); }
+
+/* Startseite: Nachbereitungs-Karten */
+.lernraum-panel .lr-nb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.lernraum-panel .lr-nb-card { border: 1px solid var(--pm-border); border-radius: 14px; background: var(--pm-surface-card); padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; }
+.lernraum-panel .lr-nb-card-top { display: flex; align-items: baseline; gap: 8px; }
+.lernraum-panel .lr-nb-card-course { font-size: 12.5px; color: var(--pm-text-muted); }
+.lernraum-panel .lr-nb-card-count { margin-left: auto; font-size: 11.5px; color: var(--pm-text-muted); font-family: var(--pm-font-mono); }
+.lernraum-panel .lr-nb-card-title { font: 620 16px/1.3 var(--pm-font-sans); letter-spacing: -.015em; text-wrap: pretty; }
+.lernraum-panel .lr-nb-card-meta { font-size: 13px; color: var(--pm-text-muted); }
+.lernraum-panel .lr-nb-actions { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+.lernraum-panel .lr-nb-later { font-size: 12.5px; color: var(--pm-text-muted); cursor: pointer; }
+.lernraum-panel .lr-nb-later:hover { color: var(--pm-text); }
+
+/* Startseite: Lernstand pro Kurs */
+.lernraum-panel .lr-course-board { border: 1px solid var(--pm-border); border-radius: 14px; background: var(--pm-surface-card); overflow: hidden; }
+.lernraum-panel .lr-crow { border-top: 1px solid var(--pm-border); }
+.lernraum-panel .lr-crow:first-child { border-top: 0; }
+.lernraum-panel .lr-crow--open { background: color-mix(in oklab, var(--pm-accent) 5%, var(--pm-surface-card)); }
+.lernraum-panel .lr-crow-head { display: flex; align-items: center; gap: 16px; padding: 16px 18px; cursor: pointer; }
+.lernraum-panel .lr-crow-head:hover { background: var(--pm-surface-reader); }
+.lernraum-panel .lr-crow--open .lr-crow-head:hover { background: transparent; }
+.lernraum-panel .lr-crow-caret { flex: none; color: var(--pm-text-muted); font-size: 11px; transition: transform .15s; }
+.lernraum-panel .lr-crow-caret--open { transform: rotate(90deg); }
+.lernraum-panel .lr-crow-titleblock { flex: 0 0 200px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lernraum-panel .lr-crow-title { font: 620 16px/1.25 var(--pm-font-sans); letter-spacing: -.01em; }
+.lernraum-panel .lr-crow-sub { font-size: 12px; color: var(--pm-text-muted); }
+.lernraum-panel .lr-crow-barwrap { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.lernraum-panel .lr-bar { position: relative; display: flex; flex-direction: row; justify-content: flex-start; direction: ltr; height: 8px; border-radius: 5px; overflow: hidden; background: var(--pm-track); }
+.lernraum-panel .lr-bar--empty { opacity: .6; }
+.lernraum-panel .lr-bar-seg { flex: none; height: 100%; }
+.lernraum-panel .lr-bar:not(.lr-bar--empty)::after,
+.lernraum-panel .lr-progress-band::after {
+  content: '';
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--pm-track);
+  pointer-events: none;
+  animation: lr-progress-reveal .58s linear both;
+}
+@keyframes lr-progress-reveal {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+.lernraum-panel .lr-bar-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11.5px; color: var(--pm-text-muted); }
+.lernraum-panel .lr-crow-right { flex: 0 0 92px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.lernraum-panel .lr-crow-pct { font: 660 18px/1 var(--pm-font-sans); }
+.lernraum-panel .lr-crow-dash { color: var(--pm-text-muted); }
+.lernraum-panel .lr-crow-links { display: flex; gap: 10px; }
+.lernraum-panel .lr-link { background: 0; border: 0; padding: 0; color: var(--pm-accent-text); font: 520 13px/1.3 var(--pm-font-sans); cursor: pointer; }
+.lernraum-panel .lr-link:hover { text-decoration: underline; }
+
+/* Startseite: aufgeklappter Kurs */
+.lernraum-panel .lr-crow-body { padding: 4px 18px 20px 45px; }
+.lernraum-panel .lr-crow-explain { max-width: 560px; }
+.lernraum-panel .lr-crow-explain p { margin: 0 0 12px; font-size: 13.5px; line-height: 1.55; color: var(--pm-text-muted); }
+.lernraum-panel .lr-crow-explain-actions { display: flex; align-items: center; gap: 14px; }
+.lernraum-panel .lr-crow-tabs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.lernraum-panel .lr-crow-tabs-label { font: 620 11px/1.4 var(--pm-font-sans); letter-spacing: .07em; text-transform: uppercase; color: var(--pm-text-muted); margin-right: 2px; }
+.lernraum-panel .lr-crow-tab { height: 28px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--pm-border); background: var(--pm-bg); color: var(--pm-text); font: 520 12.5px/1 var(--pm-font-sans); cursor: pointer; }
+.lernraum-panel .lr-crow-tab--on { background: var(--pm-selected); border-color: transparent; color: var(--pm-accent-text); font-weight: 620; }
+.lernraum-panel .lr-crow-tabs-meta { margin-left: auto; font-size: 12px; color: var(--pm-text-muted); }
+.lernraum-panel .lr-clist { display: flex; flex-direction: column; }
+.lernraum-panel .lr-crow-card { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid var(--pm-border); }
+.lernraum-panel .lr-crow-card:first-child { border-top: 0; }
+.lernraum-panel .lr-cstatus-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.lernraum-panel .lr-ckind { flex: 0 0 86px; font: 620 10.5px/1.4 var(--pm-font-sans); letter-spacing: .06em; text-transform: uppercase; color: var(--pm-text-muted); }
+.lernraum-panel .lr-cfront { flex: 1; min-width: 0; font-size: 14px; color: var(--pm-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lernraum-panel .lr-cstatus { flex: 0 0 auto; font-size: 12.5px; }
+.lernraum-panel .lr-cuben { flex: 0 0 auto; }
+.lernraum-panel .lr-crow-loading { font-size: 13px; color: var(--pm-text-muted); padding: 10px 0; }
+.lernraum-panel .lr-clist-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+
+/* Startseite: großer Leerzustand (2b) */
+.lernraum-panel .lr-empty-hero { max-width: 460px; text-align: center; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+.lernraum-panel .lr-empty-eyebrow { font: 620 11.5px/1.4 var(--pm-font-sans); letter-spacing: .09em; text-transform: uppercase; color: var(--pm-text-muted); }
+.lernraum-panel .lr-empty-inline-cta { margin-top: 12px; align-self: flex-start; }
+
+/* Kursübersicht */
+.lernraum-panel .lr-header--course { padding-bottom: 8px; }
+.lernraum-panel .lr-modetabs { margin-left: auto; display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--pm-chip-bg); }
+.lernraum-panel .lr-modetab { height: 30px; padding: 0 14px; border: 0; border-radius: 8px; background: transparent; color: var(--pm-text-muted); font: 560 13px/1 var(--pm-font-sans); cursor: pointer; }
+.lernraum-panel .lr-modetab:hover:not([disabled]) { color: var(--pm-text); }
+.lernraum-panel .lr-modetab--on { background: var(--pm-bg); color: var(--pm-text); font-weight: 620; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.lernraum-panel .lr-modetab[disabled] { opacity: .4; cursor: default; }
+/* Leuchttisch-Karten */
+.lernraum-panel .lr-lt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.lernraum-panel .lr-lt-card { display: flex; flex-direction: column; gap: 10px; padding: 16px 18px; min-height: 150px; border: 1px solid var(--pm-border); border-radius: 14px; background: var(--pm-surface-card); text-align: left; color: var(--pm-text); font-family: var(--pm-font-sans); cursor: pointer; }
+.lernraum-panel .lr-lt-card:hover { border-color: var(--pm-accent); box-shadow: 0 2px 10px rgba(0,0,0,.05); }
+.lernraum-panel .lr-lt-card--faded { opacity: .55; }
+.lernraum-panel .lr-lt-status { display: flex; align-items: center; gap: 6px; }
+.lernraum-panel .lr-lt-title { font: 620 16px/1.3 var(--pm-font-sans); letter-spacing: -.01em; text-wrap: pretty; flex: 1; }
+.lernraum-panel .lr-lt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.lernraum-panel .lr-lt-chip { font: 520 11.5px/1 var(--pm-font-sans); color: var(--pm-chip-text); background: var(--pm-chip-bg); padding: 5px 9px; border-radius: 7px; }
+.lernraum-panel .lr-lt-source { font: 400 11.5px/1.4 var(--pm-font-mono); color: var(--pm-text-muted); text-wrap: pretty; }
+.lernraum-panel .lr-lt-card--add { align-items: center; justify-content: center; text-align: center; border-style: dashed; color: var(--pm-text-muted); font-size: 12.5px; min-height: 150px; }
+.lernraum-panel .lr-lt-card--add:hover { background: var(--pm-bg); color: var(--pm-accent-text); border-color: var(--pm-accent); box-shadow: none; }
 
 .lernraum-panel .lr-sheet-foot { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; flex-wrap: wrap; padding-top: 16px; border-top: 1px solid var(--pm-border); }
 .lernraum-panel .lr-foot-status { display: flex; flex-direction: column; gap: 8px; }
@@ -990,7 +2413,7 @@ onMounted(() => {
 .lernraum-panel .lr-foot-actions { display: flex; gap: 8px; }
 
 /* Leerzustände */
-.lernraum-panel .lr-empty { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; }
+.lernraum-panel .lr-empty { flex: 1; min-height: 60vh; display: flex; align-items: center; justify-content: center; padding: 40px; }
 .lernraum-panel .lr-empty-card { max-width: 440px; text-align: center; display: flex; flex-direction: column; gap: 14px; align-items: center; padding: 36px; border: 1px solid var(--pm-border); border-radius: 16px; background: var(--pm-surface-card); }
 .lernraum-panel .lr-empty-title { font: 660 20px/1.25 var(--pm-font-sans); letter-spacing: -.015em; }
 .lernraum-panel .lr-empty-body { font-size: 14px; line-height: 1.6; color: var(--pm-text-muted); }
@@ -1013,4 +2436,380 @@ onMounted(() => {
 .lernraum-panel .lr-kind-opt--on { background: var(--pm-selected); border-color: transparent; color: var(--pm-accent-text); font-weight: 620; }
 .lernraum-panel .lr-field-error { font-size: 12.5px; color: var(--pm-danger); }
 .lernraum-panel .lr-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
+
+/* Kursansicht: ruhiger – je Abschnitt eine Überschrift, Trennlinien statt Kicker. */
+
+/* Option A: ein durchgängiger Pfad von Übersicht bis Lernmodus. */
+.lernraum-panel .lr-head { --lr-prog-w: 220px; position: relative; flex: none; }
+.lernraum-panel .lr-crumbs { flex: none; display: flex; align-items: flex-start; gap: 2px; height: 42px; padding: 16px calc(clamp(24px, 4vw, 52px) + var(--lr-prog-w) + 24px) 0 clamp(24px, 4vw, 52px); background: var(--pm-surface-card); font-size: 12.5px; white-space: nowrap; overflow: hidden; }
+.lernraum-panel .lr-crumb { min-width: 0; max-width: 260px; overflow: hidden; padding: 4px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--pm-text-muted); font: 520 12.5px/1.2 var(--pm-font-sans); text-overflow: ellipsis; cursor: pointer; transition: background .15s, color .15s; }
+.lernraum-panel .lr-crumbs > :first-child { margin-left: -8px; }
+.lernraum-panel .lr-crumb:hover { background: var(--pm-selected); color: var(--pm-accent-text); }
+.lernraum-panel .lr-crumb:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 1px; }
+.lernraum-panel .lr-crumb--current { color: var(--pm-text); font-weight: 640; cursor: default; }
+.lernraum-panel .lr-crumb--current:hover { background: transparent; color: var(--pm-text); }
+.lernraum-panel .lr-crumb-sep { flex: none; display: grid; place-items: center; width: 14px; height: 23px; color: var(--pm-text-muted); opacity: .6; }
+.lernraum-panel .lr-crumb-sep svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.lernraum-panel .lr-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+.lernraum-panel .lr-pagehead { position: relative; z-index: 1; flex: none; display: flex; flex-direction: column; gap: 14px; padding: 0 calc(clamp(24px, 4vw, 52px) + var(--lr-prog-w) + 24px) 18px clamp(24px, 4vw, 52px); border-bottom: 1px solid var(--pm-border); background: var(--pm-surface-card); }
+.lernraum-panel .lr-pagehead-main { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.lernraum-panel .lr-title-block { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.lernraum-panel .lr-title { max-width: 100%; margin: 0; overflow: hidden; font-size: clamp(24px, 2.6vw, 30px); line-height: 1.15; font-weight: 690; letter-spacing: -.03em; text-overflow: ellipsis; white-space: nowrap; }
+.lernraum-panel .lr-title-edit { display: block; max-width: 100%; overflow: hidden; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: text; }
+.lernraum-panel .lr-title-edit > span { display: none; }
+.lernraum-panel .lr-title-edit:hover { color: var(--pm-accent-text); }
+.lernraum-panel .lr-title-input { width: 100%; max-width: 100%; border: 0; padding: 0; outline: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; }
+.lernraum-panel .lr-title-input:disabled { opacity: .65; }
+.lernraum-panel .lr-title-error { color: var(--pm-danger); font-size: 11.5px; }
+.lernraum-panel .lr-subtitle { margin: 0; overflow: hidden; max-width: 100%; font-size: 12px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.lernraum-panel .lr-btn--md { min-height: 38px; padding-inline: 17px; }
+.lernraum-panel .lr-btn--primary { box-shadow: 0 1px 2px color-mix(in oklab, var(--pm-accent) 30%, transparent); }
+
+.lernraum-panel .lr-header-progress { position: absolute; z-index: 2; top: 50%; right: clamp(24px, 4vw, 52px); display: flex; flex-direction: column; gap: 9px; width: var(--lr-prog-w); transform: translateY(-50%); }
+.lernraum-panel .lr-head-actions { position: absolute; z-index: 2; top: 50%; right: clamp(24px, 4vw, 52px); display: flex; align-items: center; gap: 10px; transform: translateY(-50%); }
+.lernraum-panel .lr-head-action.v-btn { position: static; transform: none; background: var(--pm-accent); color: var(--pm-on-accent); box-shadow: 0 1px 2px color-mix(in oklab, var(--pm-accent) 30%, transparent); transition: filter .18s, box-shadow .18s; }
+.lernraum-panel .lr-head-action.v-btn:hover:not(.v-btn--disabled) { filter: brightness(1.06); box-shadow: 0 3px 8px color-mix(in oklab, var(--pm-accent) 26%, transparent); }
+.lernraum-panel .lr-header-progress-label { flex: none; text-align: right; color: var(--pm-text-muted); font-size: 12px; line-height: 1; white-space: nowrap; }
+.lernraum-panel .lr-header-progress-label strong { color: var(--pm-text); font-size: 14px; font-weight: 700; letter-spacing: -.01em; }
+.lernraum-panel .lr-progress-band { position: relative; display: flex; flex-direction: row; justify-content: flex-start; direction: ltr; flex: none; width: 100%; height: 12px; overflow: hidden; border-radius: 99px; background: var(--pm-track); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--pm-border) 70%, transparent); }
+.lernraum-panel .lr-progress-band-segment { flex: none; min-width: 0; transition: width .35s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .lernraum-panel .lr-bar::after,
+  .lernraum-panel .lr-progress-band::after { display: none; }
+  .lernraum-panel .lr-progress-band-segment { transition: none; }
+}
+
+.lernraum-panel .lr-page {
+  flex: none;
+  padding: 30px clamp(24px, 4vw, 52px) 54px;
+  display: flex;
+  flex-direction: column;
+  gap: 38px;
+}
+.lernraum-panel .lr-section { gap: 17px; }
+.lernraum-panel .lr-section-head { align-items: flex-end; justify-content: space-between; gap: 24px; }
+.lernraum-panel .lr-section-head > div:first-child { display: flex; flex-direction: column; gap: 4px; }
+.lernraum-panel .lr-section-head h2,
+.lernraum-panel .lr-cards-head h2 { margin: 0; font: 660 19px/1.25 var(--pm-font-sans); letter-spacing: -.02em; }
+.lernraum-panel .lr-overline { color: var(--pm-accent-text); }
+
+.lernraum-panel .lr-task-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(235px, 1fr)); gap: 14px; align-items: stretch; }
+.lernraum-panel .lr-task { grid-column: span 2; display: flex; align-items: center; gap: 14px; min-height: 86px; padding: 14px 16px; border: 1px solid var(--pm-border); border-radius: 14px; background: var(--pm-surface-card); cursor: pointer; transition: border-color .16s, transform .16s, box-shadow .16s; }
+.lernraum-panel .lr-task:hover { transform: translateY(-2px); border-color: color-mix(in oklab, var(--pm-accent) 55%, var(--pm-border)); box-shadow: 0 10px 28px rgba(20, 45, 50, .08); }
+.lernraum-panel .lr-task:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 3px; }
+.lernraum-panel .lr-task-icon { flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: var(--pm-selected); color: var(--pm-accent-text); font-size: 17px; }
+.lernraum-panel .lr-task-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.lernraum-panel .lr-task-copy > span { color: var(--pm-text-muted); font-size: 12.5px; }
+.lernraum-panel .lr-task-copy > strong { display: block; overflow: hidden; width: 100%; max-width: 100%; color: var(--pm-text); font-size: 14px; font-weight: 610; text-overflow: ellipsis; white-space: nowrap; }
+.lernraum-panel .lr-task-preview { display: -webkit-box; overflow: hidden; margin: 5px 0 3px; color: var(--pm-text-muted); font-size: 12.5px; line-height: 1.45; text-wrap: pretty; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.lernraum-panel .lr-task-copy > small { color: var(--pm-text-muted); font-size: 12px; }
+.lernraum-panel .lr-task > .lr-btn { flex: none; }
+.lernraum-panel .lr-task-action { border-color: color-mix(in oklab, var(--pm-accent) 55%, var(--pm-border)); background: color-mix(in oklab, var(--pm-accent) 10%, var(--pm-surface-card)); color: var(--pm-accent-text); font-weight: 650; }
+.lernraum-panel .lr-task-action:hover { border-color: var(--pm-accent); background: color-mix(in oklab, var(--pm-accent) 18%, var(--pm-surface-card)); }
+
+.lernraum-panel .lr-course-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(235px, 1fr)); gap: 14px; }
+.lernraum-panel .lr-course-card { min-height: 196px; padding: 19px; border: 1px solid var(--pm-border); border-radius: 16px; background: var(--pm-surface-card); color: var(--pm-text); font-family: var(--pm-font-sans); text-align: left; cursor: pointer; transition: border-color .16s, transform .16s, box-shadow .16s; }
+.lernraum-panel .lr-course-card:hover { transform: translateY(-2px); border-color: color-mix(in oklab, var(--pm-accent) 55%, var(--pm-border)); box-shadow: 0 10px 28px rgba(20, 45, 50, .08); }
+.lernraum-panel .lr-course-card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
+.lernraum-panel .lr-course-monogram { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 11px; background: var(--pm-selected); color: var(--pm-accent-text); font-size: 12px; font-weight: 740; letter-spacing: .04em; }
+.lernraum-panel .lr-course-name { margin-bottom: 5px; font-size: 17px; line-height: 1.25; font-weight: 660; letter-spacing: -.015em; }
+.lernraum-panel .lr-course-meta { color: var(--pm-text-muted); font-size: 12.5px; }
+.lernraum-panel .lr-course-progress { display: flex; flex-direction: column; gap: 7px; margin-top: 24px; color: var(--pm-text-muted); font-size: 11.5px; }
+.lernraum-panel .lr-course-card--add { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border-style: dashed; color: var(--pm-text-muted); text-align: center; }
+.lernraum-panel .lr-course-add-icon { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid var(--pm-border); border-radius: 50%; color: var(--pm-accent-text); font-size: 22px; font-weight: 300; }
+
+.lernraum-panel .lr-course-overview { display: flex; align-items: center; gap: 28px; padding: 22px 24px; border: 1px solid var(--pm-border); border-radius: 16px; background: var(--pm-surface-card); }
+.lernraum-panel .lr-overview-stat { flex: none; display: flex; flex-direction: column; gap: 3px; min-width: 120px; }
+.lernraum-panel .lr-overview-stat strong { font-size: 30px; line-height: 1; font-weight: 690; letter-spacing: -.04em; }
+.lernraum-panel .lr-overview-stat span { color: var(--pm-text-muted); font-size: 12px; }
+.lernraum-panel .lr-overview-progress { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.lernraum-panel .lr-bar--large { height: 10px; }
+.lernraum-panel .lr-bar-key { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--pm-text-muted); font-size: 11.5px; }
+.lernraum-panel .lr-result-dot { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--pm-border); }
+.lernraum-panel .lr-result-dot--strong { background: var(--pm-success); }
+.lernraum-panel .lr-result-dot--medium { background: var(--pm-star); }
+.lernraum-panel .lr-result-dot--weak { background: var(--pm-danger); }
+.lernraum-panel .lr-sheet-grid { grid-template-columns: repeat(auto-fill, minmax(235px, 1fr)); grid-auto-rows: 1fr; gap: 14px; }
+.lernraum-panel .lr-sheet-grid > * { height: 100%; }
+.lernraum-panel .lr-run-list { overflow: hidden; border: 1px solid var(--pm-border); border-radius: 14px; background: var(--pm-surface-card); }
+.lernraum-panel .lr-run-row { position: relative; display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; align-items: center; gap: 18px; padding: 14px 18px; border-top: 1px solid var(--pm-border); }
+.lernraum-panel .lr-run-row:first-child { border-top: 0; }
+.lernraum-panel .lr-run-delete { position: absolute; top: 8px; right: 8px; display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 50%; padding: 0; background: transparent; color: var(--pm-text-muted); font: 400 18px/1 var(--pm-font-sans); cursor: pointer; transition: background .15s, color .15s; }
+.lernraum-panel .lr-run-delete:hover:not(:disabled) { background: color-mix(in oklab, var(--pm-danger) 12%, transparent); color: var(--pm-danger); }
+.lernraum-panel .lr-run-delete:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 1px; }
+.lernraum-panel .lr-run-delete:disabled { cursor: wait; opacity: .45; }
+.lernraum-panel .lr-run-error { margin: -4px 0 0; color: var(--pm-danger); font-size: 12px; line-height: 1.4; }
+.lernraum-panel .lr-run-date { display: flex; flex-direction: column; gap: 2px; color: var(--pm-text-muted); font-size: 11.5px; }
+.lernraum-panel .lr-run-date strong { color: var(--pm-text); font-size: 12.5px; font-weight: 650; }
+.lernraum-panel .lr-run-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.lernraum-panel .lr-run-main strong { overflow: hidden; font-size: 14px; font-weight: 640; text-overflow: ellipsis; white-space: nowrap; }
+.lernraum-panel .lr-run-main span { color: var(--pm-text-muted); font-size: 12px; }
+.lernraum-panel .lr-run-results { display: flex; align-items: center; gap: 12px; color: var(--pm-text-muted); font: 600 12px/1 var(--pm-font-mono); }
+.lernraum-panel .lr-run-result { display: inline-flex; align-items: center; gap: 5px; }
+.lernraum-panel .lr-run-result i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.lernraum-panel .lr-run-result--weak { color: var(--pm-danger); }
+.lernraum-panel .lr-run-result--medium { color: var(--pm-star); }
+.lernraum-panel .lr-run-result--strong { color: var(--pm-success); }
+.lernraum-panel .lr-sheet-tile { position: relative; display: flex; flex-direction: column; }
+.lernraum-panel .lr-sheet-tile:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 3px; }
+.lernraum-panel .lr-favorite-sheet-card { border-color: color-mix(in oklab, var(--pm-star) 30%, var(--pm-border)); }
+.lernraum-panel .lr-favorite-sheet-star { color: var(--pm-star); font-size: 18px; line-height: 1; }
+.lernraum-panel .lr-favorite-sheet-course { margin-bottom: 5px; color: var(--pm-text-muted); font-size: 12px; font-weight: 560; }
+.lernraum-panel .lr-sheet-tile-tools { position: absolute; top: 14px; right: 14px; display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 8px; background: var(--pm-surface-card); opacity: 0; transition: opacity .15s; }
+.lernraum-panel .lr-sheet-tile:hover .lr-sheet-tile-tools,
+.lernraum-panel .lr-sheet-tile:focus-within .lr-sheet-tile-tools { opacity: 1; }
+@media (hover: none) {
+  .lernraum-panel .lr-sheet-tile-tools { opacity: 1; }
+}
+.lernraum-panel .lr-sheet-title-input { width: 100%; margin-bottom: 5px; border: 0; padding: 0; outline: 0; background: transparent; color: var(--pm-text); font: 660 17px/1.25 var(--pm-font-sans); letter-spacing: -.015em; }
+.lernraum-panel .lr-sheet-title-input:disabled { opacity: .65; }
+.lernraum-panel .lr-sheet-tile-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 18px; }
+.lernraum-panel .lr-empty-inline { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; padding: 26px; border: 1px dashed var(--pm-border); border-radius: 14px; background: color-mix(in oklab, var(--pm-surface-card) 70%, transparent); }
+.lernraum-panel .lr-empty-inline > span { margin-bottom: 8px; color: var(--pm-text-muted); font-size: 12.5px; }
+
+.lernraum-panel .lr-sheet-page { width: 100%; max-width: 1280px; margin: 0 auto; }
+.lernraum-panel .lr-link--danger { color: var(--pm-danger); }
+.lernraum-panel .lr-cards-panel { border-radius: 16px; }
+.lernraum-panel .lr-cards-head { padding: 18px 20px; }
+.lernraum-panel .lr-cards-head > div { display: flex; flex-direction: column; gap: 3px; }
+.lernraum-panel .lr-card-row { align-items: flex-start; gap: 16px; padding: 17px 20px; }
+.lernraum-panel .lr-card-row-idx { flex: none; width: 24px; padding-top: 3px; }
+.lernraum-panel .lr-card-front { font-size: 14.5px; font-weight: 590; }
+.lernraum-panel .lr-cards-empty { display: flex; flex-direction: column; align-items: center; gap: 9px; padding: 46px 20px; }
+.lernraum-panel .lr-cards-empty > span { max-width: 420px; margin-bottom: 4px; color: var(--pm-text-muted); font-size: 12.5px; }
+.lernraum-panel .lr-sheet-settings { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-top: 2px; }
+
+.lernraum-panel .lr-empty-icon { display: grid; place-items: center; width: 54px; height: 54px; border-radius: 16px; background: var(--pm-selected); color: var(--pm-accent-text); font-size: 27px; }
+
+.lernraum-panel--focus { background: color-mix(in oklab, var(--pm-surface-reader) 82%, var(--pm-bg)); }
+.lernraum-panel .lr-focus { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
+.lernraum-panel .lr-learning-focus { animation: lr-learning-surface-in .42s cubic-bezier(.22, 1, .36, 1) both; }
+.lernraum-panel .lr-learning-focus .lr-learn-head { animation: lr-learning-header-in .38s cubic-bezier(.22, 1, .36, 1) .05s both; }
+.lernraum-panel .lr-learning-focus .lr-focus-card,
+.lernraum-panel .lr-learning-focus .lr-learn-done { animation: lr-learning-card-in .52s cubic-bezier(.16, 1, .3, 1) .12s both; }
+.lernraum-panel .lr-learning-focus .lr-learn-progress-ring:not(.lr-learn-progress-ring--pulse) { animation: lr-learning-progress-in .44s cubic-bezier(.34, 1.56, .64, 1) .2s both; }
+@keyframes lr-learning-surface-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes lr-learning-header-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes lr-learning-card-in {
+  from { opacity: 0; transform: translateY(24px) scale(.965); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes lr-learning-progress-in {
+  from { opacity: 0; transform: scale(.72); }
+  to { opacity: 1; transform: scale(1); }
+}
+.lernraum-panel .lr-focus-exit { justify-self: start; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border: 1px solid var(--pm-border); border-radius: 99px; background: transparent; color: var(--pm-text-muted); font: 560 13px/1 var(--pm-font-sans); cursor: pointer; transition: color .15s, border-color .15s, background .15s; }
+.lernraum-panel .lr-focus-exit:hover { border-color: var(--pm-text-muted); background: var(--pm-chip-bg); color: var(--pm-text); }
+.lernraum-panel .lr-focus-exit:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 2px; }
+.lernraum-panel .lr-learn-exit-backdrop { position: fixed; inset: 0; z-index: 100; width: 100%; height: 100%; padding: 0; border: 0; background: color-mix(in oklab, var(--pm-bg) 58%, transparent); backdrop-filter: saturate(.35) brightness(.72); cursor: default; }
+.lernraum-panel .lr-learn-exit-wrap { position: relative; justify-self: start; z-index: 102; }
+.lernraum-panel .lr-learn-exit-warning { position: absolute; top: calc(100% + 12px); left: 0; z-index: 103; width: min(310px, calc(100vw - 40px)); padding: 15px 16px 13px; border: 1px solid color-mix(in oklab, var(--pm-border) 78%, var(--pm-text-muted)); border-radius: 12px; background: var(--pm-surface-card); color: var(--pm-text); box-shadow: 0 12px 30px color-mix(in oklab, #000 32%, transparent); }
+.lernraum-panel .lr-learn-exit-warning::before { content: ''; position: absolute; bottom: 100%; left: 24px; width: 12px; height: 12px; border-top: 1px solid color-mix(in oklab, var(--pm-border) 78%, var(--pm-text-muted)); border-left: 1px solid color-mix(in oklab, var(--pm-border) 78%, var(--pm-text-muted)); background: var(--pm-surface-card); transform: translateY(6px) rotate(45deg); }
+.lernraum-panel .lr-learn-exit-warning strong { display: block; font: 650 13.5px/1.3 var(--pm-font-sans); }
+.lernraum-panel .lr-learn-exit-warning p { margin: 6px 0 2px; font: 450 12.5px/1.45 var(--pm-font-sans); color: var(--pm-text); }
+.lernraum-panel .lr-learn-exit-warning > span { display: block; font: 430 11.5px/1.45 var(--pm-font-sans); color: var(--pm-text-muted); }
+.lernraum-panel .lr-learn-exit-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 12px; }
+.lernraum-panel .lr-learn-exit-actions button { height: 29px; padding: 0 10px; border-radius: 8px; font: 600 11.5px/1 var(--pm-font-sans); cursor: pointer; }
+.lernraum-panel .lr-learn-exit-cancel { border: 0; background: transparent; color: var(--pm-text-muted); }
+.lernraum-panel .lr-learn-exit-cancel:hover { background: var(--pm-chip-bg); color: var(--pm-text); }
+.lernraum-panel .lr-learn-exit-confirm { border: 1px solid color-mix(in oklab, var(--pm-danger, #d85d55) 65%, var(--pm-border)); background: color-mix(in oklab, var(--pm-danger, #d85d55) 13%, var(--pm-surface-card)); color: var(--pm-danger, #d85d55); }
+.lernraum-panel .lr-learn-exit-confirm:hover { background: color-mix(in oklab, var(--pm-danger, #d85d55) 22%, var(--pm-surface-card)); }
+.lernraum-panel .lr-learn-exit-actions button:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 2px; }
+.lr-exit-warning-enter-active,
+.lr-exit-warning-leave-active { transition: opacity .16s ease, transform .18s cubic-bezier(.22, 1, .36, 1); transform-origin: 28px top; }
+.lr-exit-warning-enter-from,
+.lr-exit-warning-leave-to { opacity: 0; transform: translateY(-5px) scale(.97); }
+.lr-exit-backdrop-enter-active,
+.lr-exit-backdrop-leave-active { transition: opacity .18s ease; }
+.lr-exit-backdrop-enter-from,
+.lr-exit-backdrop-leave-to { opacity: 0; }
+.lernraum-panel .lr-focus-stage { flex: 1; display: grid; place-items: center; padding: 34px 24px 64px; border-top: 1px solid var(--pm-border); }
+.lernraum-panel .lr-focus-card { width: fit-content; min-width: min(100%, 360px); max-width: min(100%, 720px); perspective: 1400px; interpolate-size: allow-keywords; transition: width .34s cubic-bezier(.2,.72,.2,1); }
+.lernraum-panel .lr-focus-card-inner { position: relative; width: 100%; transform-style: preserve-3d; transition: transform .76s cubic-bezier(.34,1.24,.64,1); }
+.lernraum-panel .lr-focus-card--revealed .lr-focus-card-inner { transform: rotateY(180deg); }
+.lernraum-panel .lr-focus-card-face { position: absolute; top: 0; left: 0; width: 100%; min-width: 0; display: flex; flex-direction: column; padding: clamp(26px, 3vw, 34px) clamp(28px, 5vw, 50px); border: 1px solid var(--pm-border); border-radius: 22px; background: var(--pm-surface-card); box-shadow: 0 18px 60px rgba(0, 0, 0, .24); backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.lernraum-panel .lr-focus-card-face--front { position: relative; width: auto; min-height: 300px; overflow: hidden; }
+.lernraum-panel .lr-focus-card-face--back { transform: rotateY(180deg); }
+.lernraum-panel .lr-focus-card--revealed .lr-focus-card-face--front { position: absolute; width: 100%; }
+.lernraum-panel .lr-focus-card--revealed .lr-focus-card-face--back { position: relative; width: auto; }
+.lernraum-panel .lr-focus-card-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; color: var(--pm-text-muted); font-family: var(--pm-font-mono); font-size: 11.5px; }
+.lernraum-panel .lr-focus-card-meta .lr-kind-chip { color: #fff !important; }
+.lernraum-panel .lr-learn-answered { --lr-assessment-color: var(--pm-success); position: absolute; z-index: 2; top: 25px; right: -47px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 172px; height: 32px; background: var(--lr-assessment-color); color: #fff; font: 700 11px/1 var(--pm-font-sans); letter-spacing: .045em; text-transform: uppercase; transform: rotate(45deg); transform-origin: center; }
+.lernraum-panel .lr-learn-answered--weak { --lr-assessment-color: var(--pm-danger); top: 34px; right: -67px; width: 230px; }
+.lernraum-panel .lr-learn-answered--medium { --lr-assessment-color: var(--pm-star); top: 29px; right: -55px; width: 194px; color: oklch(0.20 0.035 75); }
+.lernraum-panel .lr-learn-answered--strong { --lr-assessment-color: var(--pm-success); }
+.lernraum-panel .lr-focus-card--revealed .lr-learn-answered { opacity: 0; visibility: hidden; }
+.lernraum-panel .lr-learn-flip-back { display: inline-flex; align-items: center; gap: 6px; padding: 3px 0; border: 0; background: transparent; color: var(--pm-text-muted); font: 560 12.5px/1.3 var(--pm-font-sans); cursor: pointer; }
+.lernraum-panel .lr-learn-flip-back:hover { color: var(--pm-text); }
+.lernraum-panel .lr-learn-flip-back:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 3px; border-radius: 3px; }
+.lernraum-panel .lr-focus-card .lr-learn-front { font-size: clamp(21px, 3vw, 28px); line-height: 1.4; font-weight: 620; }
+.lernraum-panel .lr-focus-card .lr-learn-back { margin-top: 32px; padding-top: 24px; }
+.lernraum-panel .lr-focus-card .lr-learn-actions { margin-top: auto; padding-top: 40px; }
+.lernraum-panel .lr-learn-assessment { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--pm-border); }
+.lernraum-panel .lr-focus-card-face--back .lr-learn-actions { margin-top: 12px; padding-top: 0; }
+.lernraum-panel .lr-btn--learn { width: 100%; min-height: 48px; font-size: 14px; }
+.lernraum-panel .lr-learn-hint-link { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; min-width: 124px; margin-top: 12px; padding: 2px 0; border: 0; background: transparent; color: var(--pm-text-muted); font: 560 12.5px/1.3 var(--pm-font-sans); cursor: pointer; }
+.lernraum-panel .lr-learn-hint-link:hover:not([disabled]) { color: var(--pm-accent-text); }
+.lernraum-panel .lr-learn-hint-link:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 3px; border-radius: 3px; }
+.lernraum-panel .lr-learn-hint-link[disabled] { cursor: wait; opacity: .65; }
+.lernraum-panel .lr-learn-hint-shell { display: grid; width: 100%; min-width: 0; grid-template-rows: 1fr; margin-top: 6px; transition: grid-template-rows .34s cubic-bezier(.22,1,.36,1), margin-top .34s cubic-bezier(.22,1,.36,1), opacity .24s ease, transform .34s cubic-bezier(.22,1,.36,1); }
+.lernraum-panel .lr-learn-hint-shell > .lr-learn-hint { min-height: 0; overflow: hidden; }
+.lernraum-panel .lr-learn-hint-reveal-enter-from,
+.lernraum-panel .lr-learn-hint-reveal-leave-to { grid-template-rows: 0fr; margin-top: 0; opacity: 0; transform: translateY(-6px); }
+.lernraum-panel .lr-learn-hint-reveal-leave-active { transition-duration: .24s; }
+.lernraum-panel .lr-learn-hint { width: 100%; min-width: 0; contain: inline-size; padding: 14px 16px 15px; border-radius: 12px; background: color-mix(in oklab, var(--pm-accent) 11%, transparent); color: var(--pm-text); overflow-wrap: anywhere; }
+.lernraum-panel .lr-learn-hint p { margin: 0; font-size: 14px; line-height: 1.55; }
+.lernraum-panel .lr-learn-hint .lr-learn-hint-error { color: var(--pm-danger); }
+.lernraum-panel .lr-learn-card-nav { display: flex; justify-content: center; gap: 10px; margin-top: 16px; }
+.lernraum-panel .lr-learn-card-nav .lr-nq-arrow { width: 40px; border-radius: 99px; }
+.lernraum-panel .lr-assess { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 48px; }
+.lernraum-panel .lr-assess kbd { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border: 1px solid var(--pm-border); border-radius: 5px; background: var(--pm-surface-reader); color: var(--pm-text-muted); font: 500 10px/1 var(--pm-font-mono); }
+.lernraum-panel .lr-learn-selfhint { margin: 0; }
+.lernraum-panel .lr-learn-done { position: relative; max-width: 680px; margin: 0; padding: 38px clamp(28px, 5vw, 64px) 34px; gap: 14px; overflow: hidden; border: 1px solid var(--pm-border); border-radius: 22px; background: var(--pm-surface-card); box-shadow: 0 18px 60px rgba(0, 0, 0, .24); }
+.lernraum-panel .lr-learn-done p { margin: -5px 0 7px; color: var(--pm-text-muted); font-size: 13px; }
+.lernraum-panel .lr-done-orbit { position: relative; display: grid; place-items: center; width: 158px; height: 158px; margin-bottom: 6px; }
+.lernraum-panel .lr-learn-done .lr-done-orbit { animation: lr-done-orbit-pop .62s cubic-bezier(.34, 1.56, .64, 1) .2s both; }
+.lernraum-panel .lr-learn-done .lr-learn-done-title { animation: lr-done-item-in .42s cubic-bezier(.22, 1, .36, 1) .34s both; }
+.lernraum-panel .lr-learn-done > p { animation: lr-done-item-in .42s cubic-bezier(.22, 1, .36, 1) .42s both; }
+.lernraum-panel .lr-learn-done .lr-done-results { animation: lr-done-item-in .42s cubic-bezier(.22, 1, .36, 1) .5s both; }
+.lernraum-panel .lr-learn-done .lr-done-actions { animation: lr-done-item-in .42s cubic-bezier(.22, 1, .36, 1) .64s both; }
+.lernraum-panel .lr-done-orbit svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }
+.lernraum-panel .lr-done-orbit circle { fill: none; stroke-width: 7; }
+.lernraum-panel .lr-done-orbit-track { stroke: var(--pm-track); }
+.lernraum-panel .lr-done-orbit-value { stroke: var(--pm-accent); stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: var(--done-offset); animation: lr-done-ring-fill .9s cubic-bezier(.22, 1, .36, 1) .18s both; }
+.lernraum-panel .lr-done-orbit-copy { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.lernraum-panel .lr-done-orbit-copy strong { font: 710 31px/1 var(--pm-font-sans); letter-spacing: -.04em; color: var(--pm-text); }
+.lernraum-panel .lr-done-orbit-copy span { color: var(--pm-text-muted); font: 560 10.5px/1 var(--pm-font-sans); letter-spacing: .04em; text-transform: uppercase; }
+.lernraum-panel .lr-learn-done-title { font-size: 23px; }
+.lernraum-panel .lr-done-results { display: flex; flex-direction: column; width: min(100%, 400px); gap: 11px; margin: 3px 0 7px; color: var(--pm-text-muted); font-size: 12.5px; }
+.lernraum-panel .lr-done-result-label { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; margin-bottom: 5px; }
+.lernraum-panel .lr-done-result-label .lr-result-dot { margin: 0; }
+.lernraum-panel .lr-done-result-label span { text-align: left; }
+.lernraum-panel .lr-done-result-label strong { color: var(--pm-text); font-variant-numeric: tabular-nums; }
+.lernraum-panel .lr-done-result-track { height: 7px; overflow: hidden; border-radius: 99px; background: var(--pm-track); }
+.lernraum-panel .lr-done-result-track i { display: block; height: 100%; min-width: 0; border-radius: inherit; transform-origin: left; animation: lr-done-bar-grow .72s cubic-bezier(.22, 1, .36, 1) both; }
+.lernraum-panel .lr-done-result-row--strong .lr-done-result-track i { background: var(--pm-success); animation-delay: .4s; }
+.lernraum-panel .lr-done-result-row--medium .lr-done-result-track i { background: var(--pm-star); animation-delay: .5s; }
+.lernraum-panel .lr-done-result-row--weak .lr-done-result-track i { background: var(--pm-danger); animation-delay: .6s; }
+.lernraum-panel .lr-done-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 14px; margin-top: 5px; }
+.lernraum-panel .lr-done-restart { height: 38px; padding: 0 11px; border: 0; background: transparent; color: var(--pm-text-muted); font: 600 12.5px/1 var(--pm-font-sans); cursor: pointer; }
+.lernraum-panel .lr-done-restart:hover { color: var(--pm-text); }
+.lernraum-panel .lr-done-restart:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 2px; border-radius: 7px; }
+@keyframes lr-done-ring-fill { from { stroke-dashoffset: 100; } to { stroke-dashoffset: var(--done-offset); } }
+@keyframes lr-done-bar-grow { from { transform: scaleX(0); opacity: .25; } to { transform: scaleX(1); opacity: 1; } }
+@keyframes lr-done-orbit-pop { from { opacity: 0; transform: scale(.68) rotate(-8deg); } 70% { opacity: 1; transform: scale(1.06) rotate(2deg); } to { opacity: 1; transform: scale(1) rotate(0); } }
+@keyframes lr-done-item-in { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Lernblatt: reduziert auf Status, Hauptaktion und die Karten selbst. */
+.lernraum-panel .lr-sheet-page { gap: 22px; }
+.lernraum-panel .lr-sheet-columns { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(280px, .8fr); align-items: start; gap: clamp(22px, 3vw, 34px); }
+.lernraum-panel .lr-sheet-column { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.lernraum-panel .lr-sheet-column-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; min-height: 46px; }
+.lernraum-panel .lr-sheet-column-head > div { display: flex; flex-direction: column; gap: 4px; }
+.lernraum-panel .lr-sheet-column-head h2 { margin: 0; font: 660 19px/1.25 var(--pm-font-sans); letter-spacing: -.02em; }
+.lernraum-panel .lr-sheet-history { position: sticky; top: 24px; }
+.lernraum-panel .lr-sheet-history .lr-run-row { grid-template-columns: 62px minmax(0, 1fr); align-items: start; gap: 8px 12px; padding: 14px 40px 14px 14px; }
+.lernraum-panel .lr-sheet-history .lr-run-results { grid-column: 2; }
+.lernraum-panel .lr-history-empty { padding: 22px 20px; border: 1px dashed var(--pm-border); border-radius: 14px; background: color-mix(in oklab, var(--pm-surface-card) 70%, transparent); }
+.lernraum-panel .lr-history-empty span { color: var(--pm-text); font-size: 13.5px; font-weight: 620; }
+.lernraum-panel .lr-history-empty p { margin: 6px 0 0; color: var(--pm-text-muted); font-size: 12.5px; line-height: 1.5; }
+.lernraum-panel .lr-favorite-toggle { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px; border: 0; border-radius: 99px; background: transparent; color: var(--pm-text-muted); font: 560 12px/1 var(--pm-font-sans); cursor: pointer; transition: background .15s, color .15s; }
+.lernraum-panel .lr-favorite-toggle:hover { background: transparent; color: var(--pm-text); }
+.lernraum-panel .lr-favorite-toggle:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 2px; }
+.lernraum-panel .lr-favorite-toggle:disabled { cursor: default; }
+.lernraum-panel .lr-favorite-toggle--on { background: transparent; color: var(--pm-star); }
+.lernraum-panel .lr-favorite-icon-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; }
+.lernraum-panel .lr-favorite-icon-wrap--pop { animation: lr-fav-star-pop 420ms cubic-bezier(.34, 1.56, .64, 1); }
+.lernraum-panel .lr-favorite-icon-wrap--pop::after { content: ''; position: absolute; top: 50%; left: 50%; box-sizing: border-box; width: 26px; height: 26px; border: 2px solid var(--pm-star); border-radius: 999px; pointer-events: none; animation: lr-fav-star-ring 480ms ease-out forwards; }
+.lernraum-panel .lr-favorite-icon { position: relative; z-index: 1; font-size: 16px; line-height: 1; }
+.lernraum-panel .lr-head-actions .lr-favorite-toggle { height: 38px; }
+@keyframes lr-fav-star-pop { 0% { transform: scale(1); } 35% { transform: scale(1.32); } 60% { transform: scale(.94); } 100% { transform: scale(1); } }
+@keyframes lr-fav-star-ring { 0% { transform: translate(-50%, -50%) scale(.5); opacity: .55; } 100% { transform: translate(-50%, -50%) scale(1.8); opacity: 0; } }
+.pm-no-animations .lernraum-panel .lr-favorite-icon-wrap--pop,
+.pm-no-animations .lernraum-panel .lr-favorite-icon-wrap--pop::after { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .lernraum-panel .lr-favorite-icon-wrap--pop,
+  .lernraum-panel .lr-favorite-icon-wrap--pop::after { animation: none; }
+}
+.lernraum-panel .lr-cards-list { display: flex; flex-direction: column; gap: 12px; }
+.lernraum-panel .lr-cards-list .lr-card-row { gap: 16px; padding: 18px 20px; border: 1px solid var(--pm-border); border-radius: 14px; background: var(--pm-surface-card); cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.lernraum-panel .lr-cards-list .lr-card-row:hover,
+.lernraum-panel .lr-cards-list .lr-card-row:focus-within { border-color: color-mix(in oklab, var(--pm-accent) 45%, var(--pm-border)); }
+.lernraum-panel .lr-cards-list .lr-card-row:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 3px; box-shadow: 0 4px 18px color-mix(in oklab, var(--pm-accent) 12%, transparent); }
+.lernraum-panel .lr-card-kind { font: 640 10.5px/1 var(--pm-font-sans); letter-spacing: .08em; text-transform: uppercase; }
+.lernraum-panel .lr-cards-list .lr-card-front { font-size: 15.5px; font-weight: 650; }
+.lernraum-panel .lr-cards-list .lr-card-back { font-size: 13.5px; line-height: 1.6; color: color-mix(in oklab, var(--pm-text) 72%, var(--pm-bg)); }
+.lernraum-panel .lr-cards-list .lr-card-row-actions { opacity: 0; transition: opacity .15s; }
+.lernraum-panel .lr-cards-list .lr-card-row:hover .lr-card-row-actions,
+.lernraum-panel .lr-cards-list .lr-card-row:focus-within .lr-card-row-actions { opacity: 1; }
+@media (hover: none) { .lernraum-panel .lr-cards-list .lr-card-row-actions { opacity: 1; } }
+.lernraum-panel .lr-card-add { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 0; padding: 16px; border: 1.5px dashed color-mix(in oklab, var(--pm-accent) 42%, var(--pm-border)); border-radius: 14px; background: color-mix(in oklab, var(--pm-surface-card) 82%, var(--pm-accent) 4%); color: color-mix(in oklab, var(--pm-text) 82%, var(--pm-text-muted)); font: 580 13.5px/1 var(--pm-font-sans); cursor: pointer; transition: border-color .15s, background .15s, color .15s; }
+.lernraum-panel .lr-card-add:hover { border-color: var(--pm-accent); background: var(--pm-selected); color: var(--pm-accent-text); }
+.lernraum-panel .lr-card-add:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 2px; }
+
+@media (max-width: 760px) {
+  .lernraum-panel .lr-page { padding: 25px 18px 40px; gap: 32px; }
+  .lernraum-panel .lr-section-head { align-items: flex-start; flex-direction: column; gap: 7px; }
+  .lernraum-panel .lr-section-meta { margin-left: 0; }
+  .lernraum-panel .lr-course-overview { align-items: flex-start; flex-direction: column; }
+  .lernraum-panel .lr-overview-progress { width: 100%; }
+  .lernraum-panel .lr-sheet-settings { align-items: flex-start; flex-direction: column; }
+  .lernraum-panel .lr-focus-stage { padding: 18px 14px 36px; }
+  .lernraum-panel .lr-focus-card-face { padding: 26px 22px; }
+  .lernraum-panel .lr-focus-card-face--front { min-height: 280px; }
+  .lernraum-panel .lr-focus-card .lr-learn-actions { flex-direction: column; }
+  .lernraum-panel .lr-run-row { grid-template-columns: 60px minmax(0, 1fr); gap: 12px; }
+  .lernraum-panel .lr-run-results { grid-column: 2; }
+}
+
+@media (max-width: 1050px) {
+  .lernraum-panel .lr-sheet-columns { grid-template-columns: minmax(0, 1fr); }
+  .lernraum-panel .lr-sheet-history { position: static; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lernraum-panel .lr-learning-focus,
+  .lernraum-panel .lr-learning-focus .lr-learn-head,
+  .lernraum-panel .lr-learning-focus .lr-focus-card,
+  .lernraum-panel .lr-learning-focus .lr-learn-done,
+  .lernraum-panel .lr-learning-focus .lr-learn-progress-ring,
+  .lernraum-panel .lr-learn-done .lr-done-orbit,
+  .lernraum-panel .lr-learn-done .lr-done-orbit-value,
+  .lernraum-panel .lr-learn-done .lr-learn-done-title,
+  .lernraum-panel .lr-learn-done > p,
+  .lernraum-panel .lr-learn-done .lr-done-results,
+  .lernraum-panel .lr-learn-done .lr-done-actions,
+  .lernraum-panel .lr-learn-done .lr-done-result-track i { animation: none; }
+  .lernraum-panel .lr-learn-hint-shell { transition: none; }
+  .lernraum-panel .lr-focus-card,
+  .lernraum-panel .lr-focus-card-inner { transition: none; }
+}
+
+.pm-no-animations .lernraum-panel .lr-learning-focus,
+.pm-no-animations .lernraum-panel .lr-learning-focus .lr-learn-head,
+.pm-no-animations .lernraum-panel .lr-learning-focus .lr-focus-card,
+.pm-no-animations .lernraum-panel .lr-learning-focus .lr-learn-done,
+.pm-no-animations .lernraum-panel .lr-learning-focus .lr-learn-progress-ring,
+.pm-no-animations .lernraum-panel .lr-learn-done .lr-done-orbit,
+.pm-no-animations .lernraum-panel .lr-learn-done .lr-done-orbit-value,
+.pm-no-animations .lernraum-panel .lr-learn-done .lr-learn-done-title,
+.pm-no-animations .lernraum-panel .lr-learn-done > p,
+.pm-no-animations .lernraum-panel .lr-learn-done .lr-done-results,
+.pm-no-animations .lernraum-panel .lr-learn-done .lr-done-actions,
+.pm-no-animations .lernraum-panel .lr-learn-done .lr-done-result-track i { animation: none; }
+.pm-no-animations .lernraum-panel .lr-learn-hint-shell { transition: none; }
+
+@media (max-width: 500px) {
+  .lernraum-panel .lr-course-grid,
+  .lernraum-panel .lr-sheet-grid,
+  .lernraum-panel .lr-task-list { grid-template-columns: 1fr; }
+  .lernraum-panel .lr-task { grid-column: span 1; align-items: flex-start; }
+  .lernraum-panel .lr-task > .lr-btn { align-self: center; }
+}
 </style>

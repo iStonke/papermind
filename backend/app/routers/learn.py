@@ -12,9 +12,14 @@ from app.schemas.learn import (
     LearnCardCreate,
     LearnCardListResponse,
     LearnCardRead,
+    LearnCardReview,
     LearnCardUpdate,
     LearnMarkerListResponse,
     LearnMarkerPromote,
+    LearnRunCreate,
+    LearnRunListResponse,
+    LearnRunRead,
+    LearnRunUpdate,
     LearnCourseCreate,
     LearnCourseListResponse,
     LearnCourseRead,
@@ -215,6 +220,18 @@ def update_card(
     return LearnCardRead.model_validate(_service(db, user).update_card(card_id, payload), from_attributes=True)
 
 
+@router.post(
+    "/cards/{card_id}/review",
+    response_model=LearnCardRead,
+    summary="Set a card's learning status (self-assessment)",
+    responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+)
+def review_card(
+    card_id: uuid.UUID, payload: LearnCardReview, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> LearnCardRead:
+    return LearnCardRead.model_validate(_service(db, user).review_card(card_id, payload.status), from_attributes=True)
+
+
 @router.delete(
     "/cards/{card_id}",
     response_model=OkResponse,
@@ -223,6 +240,64 @@ def update_card(
 )
 def delete_card(card_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> OkResponse:
     _service(db, user).delete_card(card_id)
+    return OkResponse(ok=True)
+
+
+# --- Lerndurchläufe --------------------------------------------------------
+@router.get(
+    "/courses/{course_id}/runs",
+    response_model=LearnRunListResponse,
+    summary="List saved learning runs of a course",
+    responses={404: {"model": ErrorResponse}},
+)
+def list_runs(
+    course_id: uuid.UUID,
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> LearnRunListResponse:
+    return LearnRunListResponse(items=_service(db, user).list_runs(course_id, limit=limit))
+
+
+@router.post(
+    "/courses/{course_id}/runs",
+    response_model=LearnRunRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Start a saved learning run",
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+)
+def create_run(
+    course_id: uuid.UUID,
+    payload: LearnRunCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> LearnRunRead:
+    return _service(db, user).create_run(course_id, payload)
+
+
+@router.patch(
+    "/runs/{run_id}",
+    response_model=LearnRunRead,
+    summary="Update a saved learning run",
+    responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+)
+def update_run(
+    run_id: uuid.UUID,
+    payload: LearnRunUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> LearnRunRead:
+    return _service(db, user).update_run(run_id, payload)
+
+
+@router.delete(
+    "/runs/{run_id}",
+    response_model=OkResponse,
+    summary="Delete a saved learning run",
+    responses={404: {"model": ErrorResponse}},
+)
+def delete_run(run_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> OkResponse:
+    _service(db, user).delete_run(run_id)
     return OkResponse(ok=True)
 
 

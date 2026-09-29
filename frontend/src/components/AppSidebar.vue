@@ -55,6 +55,7 @@
         v-if="settingsStore.settings.ui.sidebar_show_lernraum !== false"
         item-class="sidebar-item--primary sidebar-item--plain-label sidebar-item--lernraum"
         :active="lernraumActive"
+        :count="openLearningMarkerCount"
         @click="openLernraum()"
       >
         <template #icon>
@@ -532,6 +533,7 @@ import { useSettingsStore } from '../stores/settings.js';
 import { useDossierStore } from '../stores/dossiers.js';
 import { normalizeSidebarSections } from '../utils/settingsApi.js';
 import { useNotesStore } from '../stores/notes.js';
+import { useLearnStore } from '../stores/learn.js';
 import SidebarItem from './SidebarItem.vue';
 
 // ── Props & Emits ──────────────────────────────────────────────────────────
@@ -570,11 +572,13 @@ const tagStore      = useTagStore();
 const categoryStore = useCategoryStore();
 const settingsStore = useSettingsStore();
 const dossierStore  = useDossierStore();
+const learnStore    = useLearnStore();
 
 const { sidebarCounts, savedSearches } = storeToRefs(sidebarStore);
 const { tags }                         = storeToRefs(tagStore);
 const { categories }                   = storeToRefs(categoryStore);
 const { dossiers }                     = storeToRefs(dossierStore);
+const { openMarkers }                  = storeToRefs(learnStore);
 
 // ── Leuchttische: Hauptnavigation ─────────────────────────────────────────
 const showDossiers = computed(() => settingsStore.settings.ui.sidebar_show_dossiers !== false);
@@ -590,13 +594,24 @@ function openDossiers() { emit('open-dossiers'); }
 const route = useRoute();
 const router = useRouter();
 const lernraumActive = computed(() => route.name === 'lernraum');
+const openLearningMarkerCount = computed(() => openMarkers.value.length);
 function openLernraum() { router.push({ name: 'lernraum' }).catch(() => {}); }
 
+function refreshOpenLearningMarkers() {
+  void learnStore.fetchOpenMarkers();
+}
+
 onMounted(() => {
+  window.addEventListener('papermind:note-content-saved', refreshOpenLearningMarkers);
+  refreshOpenLearningMarkers();
   void categoryStore.ensureLoaded();
   if (showDossiers.value && !dossiers.value.length) {
     void dossierStore.fetchList({ includeArchived: true }).catch(() => {});
   }
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('papermind:note-content-saved', refreshOpenLearningMarkers);
 });
 
 // ── Konfigurierbare Sektionen (Reihenfolge + Sichtbarkeit) ──────────────────
@@ -816,7 +831,7 @@ const flyoutRows = computed(() => {
       });
       if (ui.sidebar_show_lernraum !== false) rows.push({
         id: 'lernraum', icon: 'mdi-cards-outline', label: 'Lernraum',
-        count: null, active: lernraumActive.value, run: () => openLernraum(),
+        count: openLearningMarkerCount.value, active: lernraumActive.value, run: () => openLernraum(),
       });
       return rows;
     }

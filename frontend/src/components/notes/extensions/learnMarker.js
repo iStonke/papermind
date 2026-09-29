@@ -1,4 +1,6 @@
 import { Extension } from '@tiptap/core';
+import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Decoration, DecorationSet } from '@tiptap/pm/view';
 
 /**
  * Lern-Marker + stabile Node-IDs für den Lernbereich.
@@ -64,9 +66,16 @@ export const LearnMarker = Extension.create({
             renderHTML: (attrs) => {
               const kind = markerKindOf(attrs.learn);
               if (!kind) return {};
-              return { 'data-learn': kind, class: 'pm-learn-marked' };
+              const partial = typeof attrs.learnText === 'string' && attrs.learnText.trim();
+              return {
+                'data-learn': kind,
+                class: partial ? 'pm-learn-marked pm-learn-partial' : 'pm-learn-marked',
+              };
             },
           },
+          learnText: { default: null, keepOnSplit: false, renderHTML: () => ({}) },
+          learnFrom: { default: null, keepOnSplit: false, renderHTML: () => ({}) },
+          learnTo: { default: null, keepOnSplit: false, renderHTML: () => ({}) },
         },
       },
     ];
@@ -88,17 +97,36 @@ export const LearnMarker = Extension.create({
     return {
       // Setzt/wechselt den Marker; gleicher Typ = entfernen (Toggle).
       toggleLearnMarker:
-        (kind = 'lernen') =>
+        (kind = 'lernen', wholeBlock = false) =>
         ({ state, tr, dispatch }) => {
           const target = findMarkable(state);
           if (!target) return false;
           const { pos, node } = target;
           const current = markerKindOf(node.attrs.learn);
           const attrs = { ...node.attrs };
-          if (current === kind) {
+          const contentStart = pos + 1;
+          const selectionFrom = Math.max(0, state.selection.from - contentStart);
+          const selectionTo = Math.min(node.content.size, state.selection.to - contentStart);
+          const hasSelection = !wholeBlock && selectionTo > selectionFrom;
+          const learnText = hasSelection
+            ? state.doc.textBetween(contentStart + selectionFrom, contentStart + selectionTo, ' ').trim()
+            : null;
+          const learnFrom = learnText ? selectionFrom : null;
+          const learnTo = learnText ? selectionTo : null;
+          const isSameSelection = current === kind
+            && attrs.learnText === learnText
+            && attrs.learnFrom === learnFrom
+            && attrs.learnTo === learnTo;
+          if (isSameSelection) {
             attrs.learn = null;
+            attrs.learnText = null;
+            attrs.learnFrom = null;
+            attrs.learnTo = null;
           } else {
             attrs.learn = kind;
+            attrs.learnText = learnText;
+            attrs.learnFrom = learnFrom;
+            attrs.learnTo = learnTo;
             if (!attrs.pmId) attrs.pmId = randomPmId();
           }
           if (dispatch) dispatch(tr.setNodeMarkup(pos, undefined, attrs));
@@ -112,10 +140,39 @@ export const LearnMarker = Extension.create({
           if (!target) return false;
           const { pos, node } = target;
           if (!markerKindOf(node.attrs.learn)) return false;
-          if (dispatch) dispatch(tr.setNodeMarkup(pos, undefined, { ...node.attrs, learn: null }));
+          if (dispatch) dispatch(tr.setNodeMarkup(pos, undefined, {
+            ...node.attrs,
+            learn: null,
+            learnText: null,
+            learnFrom: null,
+            learnTo: null,
+          }));
           return true;
         },
     };
+  },
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey('learnMarkerSelection'),
+        props: {
+          decorations(state) {
+            const decorations = [];
+            state.doc.descendants((node, pos) => {
+              if (!MARKABLE_TYPES.includes(node.type.name) || !markerKindOf(node.attrs.learn)) return;
+              const from = Number(node.attrs.learnFrom);
+              const to = Number(node.attrs.learnTo);
+              if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to <= from || to > node.content.size) return;
+              decorations.push(Decoration.inline(pos + 1 + from, pos + 1 + to, {
+                class: 'pm-learn-selection',
+              }));
+            });
+            return DecorationSet.create(state.doc, decorations);
+          },
+        },
+      }),
+    ];
   },
 
   addKeyboardShortcuts() {

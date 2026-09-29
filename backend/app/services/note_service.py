@@ -211,7 +211,9 @@ def extract_note_markers(body_json: Any) -> list[dict[str, Any]]:
     """Sammelt Lern-Marker einer Notiz in Dokumentreihenfolge.
 
     Ein Marker ist ein Block-Knoten mit ``attrs.learn`` (Typ) UND stabiler
-    ``attrs.pmId``. Liefert je Marker {node_pm_id, kind, snippet, position}.
+    ``attrs.pmId``. ``snippet`` enthält bei einer Textauswahl nur die Auswahl,
+    ``context`` weiterhin den vollständigen Block. Ohne Auswahl ist beides der
+    vollständige Block.
     Knoten ohne pmId werden übersprungen (nicht ankerbar). Bei doppelter pmId
     (z. B. nach Copy/Paste) zählt der erste Treffer.
     """
@@ -226,11 +228,18 @@ def extract_note_markers(body_json: Any) -> list[dict[str, Any]]:
         pm_id = attrs.get("pmId")
         if kind and isinstance(pm_id, str) and pm_id and pm_id not in seen:
             seen.add(pm_id)
-            snippet = _WS.sub(" ", prosemirror_to_text(node)).strip()
+            context = _WS.sub(" ", prosemirror_to_text(node)).strip()
+            selected = attrs.get("learnText")
+            snippet = (
+                _WS.sub(" ", selected).strip()
+                if isinstance(selected, str) and selected.strip()
+                else context
+            )
             markers.append({
                 "node_pm_id": pm_id[:16],
                 "kind": kind,
                 "snippet": snippet[:2000],
+                "context": context[:8000],
                 "position": len(markers),
             })
         for child in node.get("content") or []:

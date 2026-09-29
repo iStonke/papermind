@@ -38,6 +38,20 @@
             <span>Neue Notiz</span>
           </v-btn>
         </div>
+        <div v-if="learnMarkerCount" class="note-workspace-editor__action-group" role="group" aria-label="Lernmarkierungen">
+          <v-btn
+            class="note-workspace-editor__learn-marker-toggle"
+            :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet']"
+            :variant="learnMarkerBoxesHidden ? 'tonal' : 'text'"
+            icon
+            :aria-label="learnMarkerBoxesHidden ? 'Markierungsflächen einblenden' : 'Markierungsflächen ausblenden'"
+            :title="learnMarkerBoxesHidden ? 'Markierungsflächen einblenden' : 'Markierungsflächen ausblenden'"
+            :aria-pressed="learnMarkerBoxesHidden"
+            @click="learnMarkerBoxesHidden = !learnMarkerBoxesHidden"
+          >
+            <v-icon size="18">mdi-school-outline</v-icon>
+          </v-btn>
+        </div>
         <div class="note-workspace-editor__action-group" role="group" aria-label="Rückgängig und Wiederholen">
           <v-btn
             :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet']"
@@ -328,7 +342,7 @@
         <NoteEditor
           ref="noteEditorRef"
           class="note-workspace-editor__body"
-          :class="{ 'is-fullscreen': !listVisible }"
+          :class="{ 'is-fullscreen': !listVisible, 'has-compact-learn-markers': learnMarkerBoxesHidden }"
           v-model="body"
           workspace
           :note-id="loadedNoteId"
@@ -679,6 +693,17 @@ const noteSearchInputRef = ref(null);
 const replaceInputRef = ref(null);
 const title = ref('');
 const body = ref(EMPTY_DOC);
+const learnMarkerBoxesHidden = ref(false);
+const learnMarkerCount = computed(() => {
+  let count = 0;
+  const visit = (node) => {
+    if (!node || typeof node !== 'object') return;
+    if (node.attrs?.learn) count += 1;
+    if (Array.isArray(node.content)) node.content.forEach(visit);
+  };
+  visit(body.value);
+  return count;
+});
 const wordCount = ref(0);
 const selectionWordCount = ref(null);
 const findBarOpen = ref(false);
@@ -871,6 +896,7 @@ function animateNewPage(noteId) {
 
 watch(() => props.noteId, (noteId) => {
   finishNewPageAnimation();
+  learnMarkerBoxesHidden.value = false;
   if (pendingEditorFocusRequest?.noteId !== noteId) pendingEditorFocusRequest = null;
   resetNoteNavigationForNote();
   loadNote(noteId);

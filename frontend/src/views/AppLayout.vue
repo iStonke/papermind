@@ -1,7 +1,7 @@
 <template>
   <v-app
     class="papermind-app"
-    :class="{ 'pm-no-animations': !settingsStore.animationsEnabled, 'pm-light-sidebar': lightSidebar }"
+    :class="{ 'pm-no-animations': !settingsStore.animationsEnabled, 'pm-light-sidebar': lightSidebar && !nightSidebar, 'pm-night-sidebar': nightSidebar }"
   >
     <router-view />
 
@@ -62,7 +62,7 @@
 
 <script setup>
 import { useSidebarAppearance } from '../composables/useSidebarAppearance.js';
-const { lightSidebar } = useSidebarAppearance();
+const { lightSidebar, nightSidebar } = useSidebarAppearance();
 import { computed, defineAsyncComponent, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useTheme } from 'vuetify';
 
