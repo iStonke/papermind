@@ -43,6 +43,11 @@
         <path d="M20 2v6M17 5h6" />
       </template>
 
+      <!-- Zentrierter, symmetrischer Funken (optisch ausbalanciert). -->
+      <template v-else-if="name === 'sparkle'">
+        <path d="M12 3 L14.8 9.2 L21 12 L14.8 14.8 L12 21 L9.2 14.8 L3 12 L9.2 9.2 Z" />
+      </template>
+
       <template v-else-if="name === 'callout-info'">
         <rect x="3" y="3" width="18" height="18" rx="4" />
         <path d="M12 10.5v6M12 7.5h.01" />
@@ -112,7 +117,7 @@ defineProps({
     type: String,
     required: true,
     validator: (value) => [
-      'columns', 'plus', 'layers', 'sparkles', 'text-check', 'list',
+      'columns', 'plus', 'layers', 'sparkles', 'sparkle', 'text-check', 'list',
       'callout-info', 'callout-important', 'callout-question', 'callout-decision', 'callout-prompt',
       'link-plus', 'download', 'file-plus', 'fullscreen', 'fullscreen-exit',
     ].includes(value),

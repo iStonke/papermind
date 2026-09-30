@@ -179,6 +179,7 @@ export {
   mdiPageLayoutSidebarLeft,
   mdiPaletteOutline,
   mdiPause,
+  mdiPauseCircleOutline,
   mdiPencil,
   mdiPencilOutline,
   mdiPin,

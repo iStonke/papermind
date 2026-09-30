@@ -24,10 +24,15 @@
             <span>Beenden</span>
           </button>
           <Transition name="lr-exit-warning">
-            <div v-if="learnExitWarningOpen" id="learn-exit-warning" class="lr-learn-exit-warning" role="alert">
-              <strong>Lerndurchlauf beenden?</strong>
-              <p>{{ remainingLearnCount }} {{ remainingLearnCount === 1 ? 'Karte wurde' : 'Karten wurden' }} noch nicht eingeschätzt.</p>
-              <span>Deine bisherigen Einschätzungen bleiben gespeichert.</span>
+            <div v-if="learnExitWarningOpen" id="learn-exit-warning" class="lr-learn-exit-warning lr-learn-exit-options" role="alert">
+              <div class="lr-start-heading">
+                <span class="lr-start-heading-icon" aria-hidden="true"><v-icon size="20">mdi-pause-circle-outline</v-icon></span>
+                <div><strong>Lerndurchlauf beenden?</strong><p>Du kannst noch weiterlernen.</p></div>
+              </div>
+              <div class="lr-exit-summary">
+                <span class="lr-exit-remaining">{{ remainingLearnCount }} {{ remainingLearnCount === 1 ? 'Karte ist' : 'Karten sind' }} noch offen</span>
+                <p>Deine bisherigen Einschätzungen bleiben gespeichert.</p>
+              </div>
               <div class="lr-learn-exit-actions">
                 <button type="button" class="lr-learn-exit-cancel" @click="learnExitWarningOpen = false">Weiterlernen</button>
                 <button type="button" class="lr-learn-exit-confirm" @click="exitLearning">Beenden</button>
@@ -60,7 +65,58 @@
       </header>
 
       <main class="lr-focus-stage">
-        <article v-if="currentLearn" class="lr-focus-card" :class="{ 'lr-focus-card--revealed': revealed }" :style="!revealed ? { width: `${learnFrontWidth}px` } : null">
+        <div v-if="!currentLearn" class="lr-confetti" aria-hidden="true">
+          <i v-for="piece in confettiPieces" :key="piece.id" :style="piece.style"></i>
+        </div>
+        <!-- Schrittfolge: Reihenfolge ordnen (Prozess/Anleitung) -->
+        <article v-if="currentLearn && currentLearnFormat === 'sequence'" class="lr-focus-card lr-focus-card--seq">
+          <div class="lr-focus-card-meta">
+            <span class="lr-kind-chip lr-kind-chip--lg" :style="kindChipStyle(currentLearn.kind)">{{ kindLabel(currentLearn.kind) }}</span>
+            <span
+              v-if="currentLearn.sessionAssessment"
+              class="lr-learn-answered"
+              :class="`lr-learn-answered--${currentLearn.sessionAssessment}`"
+            >{{ assessmentLabel(currentLearn.sessionAssessment) }}</span>
+          </div>
+          <div class="lr-learn-front">{{ currentLearn.front }}</div>
+          <p class="lr-seq-instruction">
+            <template v-if="currentLearn.seqChecked">{{ seqAllCorrect ? 'Alles richtig geordnet.' : `${seqCorrectCount} von ${currentLearn.seqItems.length} an der richtigen Stelle.` }}</template>
+            <template v-else>Bring die Schritte mit ↑ ↓ in die richtige Reihenfolge.</template>
+          </p>
+          <ol class="lr-seq-list" :class="{ 'lr-seq-list--checked': currentLearn.seqChecked }">
+            <li
+              v-for="(item, i) in currentLearn.seqItems"
+              :key="item.idx"
+              class="lr-seq-item"
+              :class="currentLearn.seqChecked ? (item.idx === i ? 'lr-seq-item--ok' : 'lr-seq-item--bad') : ''"
+            >
+              <span class="lr-seq-pos">{{ i + 1 }}</span>
+              <span class="lr-seq-text">{{ item.text }}</span>
+              <span v-if="currentLearn.seqChecked && item.idx !== i" class="lr-seq-hintpos">richtig: {{ item.idx + 1 }}</span>
+              <span v-if="!currentLearn.seqChecked" class="lr-seq-moves">
+                <button type="button" class="lr-seq-move" :disabled="i === 0" aria-label="Schritt nach oben" @click="moveSeq(i, -1)">↑</button>
+                <button type="button" class="lr-seq-move" :disabled="i === currentLearn.seqItems.length - 1" aria-label="Schritt nach unten" @click="moveSeq(i, 1)">↓</button>
+              </span>
+            </li>
+          </ol>
+          <div v-if="!currentLearn.seqChecked" class="lr-learn-actions">
+            <button type="button" class="lr-btn lr-btn--primary lr-btn--learn" @click="checkSeq">Prüfen</button>
+          </div>
+          <div v-else class="lr-learn-assessment">
+            <p class="lr-learn-selfhint">Wie sicher war deine Reihenfolge?</p>
+            <div class="lr-learn-actions">
+              <button type="button" class="lr-assess lr-assess--weak" :class="{ 'lr-assess--selected': currentLearn.sessionAssessment === 'weak' }" @click="assess('weak')"><span>Nicht gekonnt</span><kbd>1</kbd></button>
+              <button type="button" class="lr-assess lr-assess--medium" :class="{ 'lr-assess--selected': currentLearn.sessionAssessment === 'medium' }" @click="assess('medium')"><span>Mit Mühe</span><kbd>2</kbd></button>
+              <button type="button" class="lr-assess lr-assess--strong" :class="{ 'lr-assess--selected': currentLearn.sessionAssessment === 'strong' }" @click="assess('strong')"><span>Sicher</span><kbd>3</kbd></button>
+            </div>
+          </div>
+          <div class="lr-learn-card-nav" aria-label="Kartennavigation">
+            <button type="button" class="lr-nq-arrow" :disabled="learnIndex === 0" aria-label="Vorherige Karte" @click="moveLearn(-1)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 6 8.5 12l6 6" /></svg></button>
+            <button type="button" class="lr-nq-arrow" :disabled="learnIndex >= learnQueue.length - 1" aria-label="Nächste Karte" @click="moveLearn(1)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6" /></svg></button>
+          </div>
+        </article>
+
+        <article v-else-if="currentLearn" class="lr-focus-card" :class="{ 'lr-focus-card--revealed': revealed }" :style="!revealed ? { width: `${learnFrontWidth}px` } : null">
           <div class="lr-focus-card-inner">
             <section class="lr-focus-card-face lr-focus-card-face--front" :aria-hidden="revealed" :inert="revealed">
               <div class="lr-focus-card-meta">
@@ -75,7 +131,7 @@
               </div>
               <div class="lr-learn-front">{{ currentLearn.front }}</div>
               <button type="button" class="lr-learn-hint-link" :disabled="currentLearn.hintBusy" @click="toggleLearnHint">
-                <PmActionIcon name="sparkles" :size="14" />
+                <PmActionIcon name="sparkle" :size="14" />
                 <span>{{ currentLearn.hintVisible ? 'Hinweis ausblenden' : 'Hinweis anzeigen' }}</span>
               </button>
               <Transition name="lr-learn-hint-reveal">
@@ -194,7 +250,7 @@
           </div>
         </section>
 
-        <section v-if="current" class="lr-nq-work" aria-label="Karte">
+        <section v-if="current" class="lr-nq-work" :class="{ 'lr-nq-work--seq': currentIsSequence }" aria-label="Karte">
           <div class="lr-nq-meta">
             <div v-if="!cardEditorOpen" class="lr-nq-field">
               <span class="lr-nq-label">Kurs</span>
@@ -214,7 +270,7 @@
               <div class="lr-nq-label-row">
                 <span class="lr-nq-label">Art</span>
                 <button type="button" class="lr-nq-ai" :disabled="!!nqAiBusy || current.kindAiBusy" aria-label="Art mit KI bestimmen" @click="generateQueueKind">
-                  <PmActionIcon name="sparkles" :size="14" />{{ current.kindAiBusy ? 'Prüft …' : 'KI' }}
+                  <PmActionIcon name="sparkle" :size="14" />{{ current.kindAiBusy ? 'Prüft …' : 'KI' }}
                 </button>
               </div>
               <div class="lr-kind-picker">
@@ -227,27 +283,56 @@
             <div class="lr-nq-label-row">
               <label class="lr-nq-label" for="lr-nq-front">Frage</label>
               <button type="button" class="lr-nq-ai" :disabled="!!nqAiBusy || current.kindAiBusy" aria-label="Frage mit KI formulieren" @click="generateQueueField('front')">
-                <PmActionIcon name="sparkles" :size="14" />{{ nqAiBusy === 'front' ? 'Erstellt …' : 'KI' }}
+                <PmActionIcon name="sparkle" :size="14" />{{ nqAiBusy === 'front' ? 'Erstellt …' : 'KI' }}
               </button>
             </div>
             <textarea id="lr-nq-front" ref="nqFront" v-model="current.front" class="lr-field lr-field--area lr-nq-area" rows="3" placeholder="Formuliere die Frage, die dich zur Antwort bringt …" @input="fitNqFront($event.currentTarget)"></textarea>
           </div>
 
-          <button type="button" class="lr-nq-swap" title="Vertauscht den Inhalt von Frage und Antwort" @click="swapSides">
-            <span aria-hidden="true">⇅</span> Frage &amp; Antwort tauschen
-          </button>
+          <!-- Flip-Karte: Antwort. Schrittfolge: geordnete Schritte. -->
+          <template v-if="!currentIsSequence">
+            <button type="button" class="lr-nq-swap" title="Vertauscht den Inhalt von Frage und Antwort" @click="swapSides">
+              <span aria-hidden="true">⇅</span> Frage &amp; Antwort tauschen
+            </button>
 
-          <div class="lr-nq-field lr-nq-field--editor lr-nq-field--answer">
+            <div class="lr-nq-field lr-nq-field--editor lr-nq-field--answer">
+              <div class="lr-nq-label-row">
+                <label class="lr-nq-label" for="lr-nq-back">
+                  <span>Antwort</span>
+                  <span v-if="cardEditorOpen || current.fromNote !== 'back'" class="lr-nq-opt">optional · leer = Selbstabgleich</span>
+                </label>
+                <button type="button" class="lr-nq-ai" :disabled="!!nqAiBusy || current.kindAiBusy" aria-label="Antwort mit KI formulieren" @click="generateQueueField('back')">
+                  <PmActionIcon name="sparkle" :size="14" />{{ nqAiBusy === 'back' ? 'Erstellt …' : 'KI' }}
+                </button>
+              </div>
+              <textarea id="lr-nq-back" ref="nqBack" v-model="current.back" class="lr-field lr-field--area lr-nq-area" rows="1" placeholder="Die Antwort in deinen Worten …" @input="fitNqBack($event.currentTarget)"></textarea>
+            </div>
+          </template>
+
+          <div v-else class="lr-nq-field lr-nq-field--editor lr-nq-steps">
             <div class="lr-nq-label-row">
-              <label class="lr-nq-label" for="lr-nq-back">
-                <span>Antwort</span>
-                <span v-if="cardEditorOpen || current.fromNote !== 'back'" class="lr-nq-opt">optional · leer = Selbstabgleich</span>
-              </label>
-              <button type="button" class="lr-nq-ai" :disabled="!!nqAiBusy || current.kindAiBusy" aria-label="Antwort mit KI formulieren" @click="generateQueueField('back')">
-                <PmActionIcon name="sparkles" :size="14" />{{ nqAiBusy === 'back' ? 'Erstellt …' : 'KI' }}
+              <label class="lr-nq-label"><span>Schritte</span><span class="lr-nq-opt">in richtiger Reihenfolge</span></label>
+              <button type="button" class="lr-nq-ai" :disabled="!!nqAiBusy || current.kindAiBusy" aria-label="Schritte mit KI aus der Notiz" @click="generateQueueSteps">
+                <PmActionIcon name="sparkle" :size="14" />{{ nqAiBusy === 'steps' ? 'Erstellt …' : 'KI' }}
               </button>
             </div>
-            <textarea id="lr-nq-back" ref="nqBack" v-model="current.back" class="lr-field lr-field--area lr-nq-area" rows="1" placeholder="Die Antwort in deinen Worten …" @input="fitNqBack($event.currentTarget)"></textarea>
+            <ol class="lr-steps-list">
+              <li v-for="(step, i) in current.steps" :key="i" class="lr-steps-row">
+                <span class="lr-steps-num">{{ i + 1 }}</span>
+                <input
+                  class="lr-field lr-steps-input"
+                  :value="step"
+                  :placeholder="`Schritt ${i + 1}`"
+                  @input="current.steps[i] = $event.target.value"
+                  @keydown.enter.prevent="addStep(i + 1)"
+                />
+                <button type="button" class="lr-steps-move" :disabled="i === 0" aria-label="Schritt nach oben" @click="moveStep(i, -1)">↑</button>
+                <button type="button" class="lr-steps-move" :disabled="i === current.steps.length - 1" aria-label="Schritt nach unten" @click="moveStep(i, 1)">↓</button>
+                <button type="button" class="lr-steps-del" aria-label="Schritt entfernen" @click="removeStep(i)">✕</button>
+              </li>
+            </ol>
+            <button type="button" class="lr-steps-add" @click="addStep()">+ Schritt</button>
+            <p class="lr-steps-hint">Mindestens zwei Schritte. Beim Lernen werden sie gemischt und du bringst sie in die richtige Reihenfolge.</p>
           </div>
 
           <div class="lr-nq-actions">
@@ -322,13 +407,14 @@
       </header>
 
       <div
-        v-if="headerProficiency.total && !openSheet"
+        v-if="store.courses.length && !openSheet"
         class="lr-header-progress"
         :title="`${pct(headerProficiency, 'strong')} % sicher · ${pct(headerProficiency, 'medium')} % mit Mühe · ${pct(headerProficiency, 'weak')} % offen · ${pct(headerProficiency, 'open')} % neu`"
       >
         <div class="lr-header-progress-label"><strong>{{ pct(headerProficiency, 'strong') }} %</strong> sicher</div>
         <div
           class="lr-progress-band"
+          :class="{ 'lr-progress-band--updated': progressFeedbackActive }"
           role="img"
           :aria-label="(view === 'home' ? 'Gesamter Lernfortschritt: ' : 'Lernfortschritt des Kurses: ') + pct(headerProficiency, 'strong') + ' Prozent sicher'"
         >
@@ -347,10 +433,41 @@
           </span>
           <span>Favorit</span>
         </button>
-        <v-btn class="lr-action-button lr-head-action" variant="flat" :disabled="!learnableCards.length" :title="cards.length && !learnableCards.length ? 'Zum Lernen müssen Vorder- und Rückseite ausgefüllt sein.' : ''" @click="startLearning">
+        <v-menu v-model="learnStartOptionsOpen" class="lr-learn-start-overlay" :scrim="true" :close-on-content-click="false" location="bottom end" :offset="12">
+          <template #activator="{ props }">
+        <v-btn class="lr-action-button lr-head-action" variant="flat" :disabled="!learnableCards.length" :title="cards.length && !learnableCards.length ? 'Zum Lernen müssen Vorder- und Rückseite ausgefüllt sein.' : ''" v-bind="props">
           <v-icon size="18" class="mr-1" aria-hidden="true">mdi-arrow-right</v-icon>
           Jetzt lernen
         </v-btn>
+          </template>
+          <div class="lernraum-panel lr-learn-start-panel">
+            <div class="lr-learn-exit-warning lr-learn-start-options">
+              <div class="lr-start-heading">
+                <span class="lr-start-heading-icon" aria-hidden="true"><v-icon size="20">mdi-school-outline</v-icon></span>
+                <div><strong>Dein Lerndurchlauf</strong><p>Wie möchtest du die Karten durchgehen?</p></div>
+              </div>
+              <fieldset>
+                <legend>Reihenfolge</legend>
+                <label class="lr-start-choice" :class="{ 'lr-start-choice--selected': learnOrder === 'original' }">
+                  <input v-model="learnOrder" type="radio" value="original" name="learn-order">
+                  <span><b>Wie im Lernblatt</b><small>In der vertrauten Reihenfolge lernen.</small></span>
+                </label>
+                <label class="lr-start-choice" :class="{ 'lr-start-choice--selected': learnOrder === 'random' }">
+                  <input v-model="learnOrder" type="radio" value="random" name="learn-order">
+                  <span><b>Zufällig gemischt</b><small>Mit einer neuen Reihenfolge starten.</small></span>
+                </label>
+                <label class="lr-start-choice" :class="{ 'lr-start-choice--selected': learnOrder === 'difficult' }">
+                  <input v-model="learnOrder" type="radio" value="difficult" name="learn-order">
+                  <span><b>Schwierige Karten zuerst</b><small>Unsichere und neue Karten zuerst üben.</small></span>
+                </label>
+              </fieldset>
+              <div class="lr-start-footer">
+                <span>{{ learnableCards.length }} {{ learnableCards.length === 1 ? 'Karte' : 'Karten' }} · Auswahl wird gemerkt</span>
+                <button type="button" class="lr-start-submit" @click="startLearning">Lernen starten <v-icon size="18" aria-hidden="true">mdi-arrow-right</v-icon></button>
+              </div>
+            </div>
+          </div>
+        </v-menu>
       </div>
       </div>
 
@@ -452,7 +569,7 @@
               <span v-if="editingCourseCardId === course.id && courseCardTitleError" class="lr-title-error" role="alert">{{ courseCardTitleError }}</span>
               <div class="lr-course-meta">{{ courseSub(course) }}</div>
               <div class="lr-course-progress">
-                <div class="lr-bar" :class="{ 'lr-bar--empty': !course.card_count }">
+                <div class="lr-bar" :class="{ 'lr-bar--empty': !course.card_count, 'lr-bar--updated': progressFeedbackActive }">
                   <span v-for="seg in barSegments(course.proficiency)" :key="seg.key" class="lr-bar-seg" :style="{ width: seg.pct + '%', background: seg.color }"></span>
                 </div>
                 <span>{{ course.card_count ? strongPct(course.proficiency) + ' % sicher' : 'Noch keine Karten' }}</span>
@@ -460,7 +577,8 @@
             </article>
             <button type="button" class="lr-course-card lr-course-card--add" @click="onCreateCourse">
               <span class="lr-course-add-icon" aria-hidden="true">+</span>
-              <span>Neuen Kurs anlegen</span>
+              <strong>Neuen Kurs anlegen</strong>
+              <small>Organisiere deine Lernblätter an einem Ort.</small>
             </button>
           </div>
         </section>
@@ -493,7 +611,7 @@
               <div class="lr-course-name">{{ sheet.title }}</div>
               <div class="lr-course-meta">{{ sheet.card_count }} {{ sheet.card_count === 1 ? 'Karte' : 'Karten' }}<template v-if="sheet.kind_summary"> · {{ kindSummaryLabel(sheet.kind_summary) }}</template></div>
               <div class="lr-course-progress">
-                <div class="lr-bar" :class="{ 'lr-bar--empty': !sheet.card_count }">
+                <div class="lr-bar" :class="{ 'lr-bar--empty': !sheet.card_count, 'lr-bar--updated': progressFeedbackActive }">
                   <span v-for="seg in barSegments(sheet.proficiency)" :key="seg.key" class="lr-bar-seg" :style="{ width: seg.pct + '%', background: seg.color }"></span>
                 </div>
                 <span>{{ sheet.card_count ? strongPct(sheet.proficiency) + ' % sicher' : 'Noch keine Karten' }}</span>
@@ -508,7 +626,25 @@
       </main>
 
       <!-- Kurs: Nachbereitung ist ein Abschnitt, kein konkurrierender Navigationsmodus. -->
-      <main v-else-if="store.activeCourse && !openSheet" class="lr-page lr-course-page">
+      <main v-else-if="store.activeCourse && !openSheet" class="lr-page lr-course-page" :class="{ 'lr-course-page--empty': !courseSheets.length }">
+        <div v-if="!courseSheets.length" class="lr-course-empty-page">
+          <div class="lr-empty-hero">
+            <div class="lr-empty-visual" aria-hidden="true">
+              <span class="lr-empty-card lr-empty-card--left"><i>?</i><b></b><b></b></span>
+              <span class="lr-empty-card lr-empty-card--right"><i>✓</i><b></b><b></b></span>
+              <span class="lr-empty-card lr-empty-card--front"><i>?</i><b></b><b></b><b></b></span>
+              <span class="lr-empty-plus"><v-icon size="20">mdi-plus</v-icon></span>
+            </div>
+            <h2 class="lr-empty-title">Dieser Kurs ist noch leer</h2>
+            <div class="lr-empty-body">Lege ein Lernblatt an. Darin sammelst du Karten und behältst deinen Lernfortschritt im Blick.</div>
+            <button type="button" class="lr-empty-action" @click="onCreateSheet">
+              <v-icon size="20">mdi-plus</v-icon>
+              <span>Erstes Lernblatt anlegen</span>
+            </button>
+          </div>
+        </div>
+
+        <template v-else>
         <section v-if="courseMarkerTasks.length" class="lr-section">
           <div class="lr-section-head">
             <div>
@@ -550,12 +686,7 @@
           </div>
           <span v-if="sheetTitleError && !editingSheetId" class="lr-title-error" role="alert">{{ sheetTitleError }}</span>
 
-          <div v-if="!courseSheets.length" class="lr-empty-inline">
-            <p>Noch keine Lernblätter in diesem Kurs.</p>
-            <span>Ein Lernblatt bündelt Karten zu einem klaren Lernstoff.</span>
-            <button type="button" class="lr-btn lr-btn--primary lr-btn--sm" @click="onCreateSheet">Erstes Lernblatt anlegen</button>
-          </div>
-          <div v-else class="lr-course-grid lr-sheet-grid">
+          <div class="lr-course-grid lr-sheet-grid">
             <article
               v-for="sheet in courseSheets"
               :key="sheet.id"
@@ -589,7 +720,7 @@
               <span v-if="editingSheetId === sheet.id && sheetTitleError" class="lr-title-error" role="alert">{{ sheetTitleError }}</span>
               <div class="lr-course-meta">{{ sheet.card_count }} {{ sheet.card_count === 1 ? 'Karte' : 'Karten' }}<template v-if="sheet.kind_summary"> · {{ kindSummaryLabel(sheet.kind_summary) }}</template></div>
               <div class="lr-course-progress">
-                <div class="lr-bar" :class="{ 'lr-bar--empty': !sheet.card_count }">
+                <div class="lr-bar" :class="{ 'lr-bar--empty': !sheet.card_count, 'lr-bar--updated': progressFeedbackActive }">
                   <span v-for="seg in barSegments(sheet.proficiency)" :key="seg.key" class="lr-bar-seg" :style="{ width: seg.pct + '%', background: seg.color }"></span>
                 </div>
                 <span>{{ sheet.card_count ? strongPct(sheet.proficiency) + ' % sicher' : 'Noch keine Karten' }}</span>
@@ -599,20 +730,96 @@
                 <button type="button" class="lr-link" @click="openSheetView(sheet.id)">Öffnen <span aria-hidden="true">→</span></button>
               </div>
             </article>
-            <button type="button" class="lr-course-card lr-course-card--add lr-sheet-add" @click="onCreateSheet">
+            <button
+              type="button"
+              class="lr-course-card lr-course-card--add lr-sheet-add"
+              :class="{ 'lr-sheet-add--empty': !courseSheets.length }"
+              @click="onCreateSheet"
+            >
               <span class="lr-course-add-icon" aria-hidden="true">+</span>
-              <span>Neues Lernblatt</span>
+              <strong>{{ courseSheets.length ? 'Neues Lernblatt' : 'Erstes Lernblatt anlegen' }}</strong>
+              <small>Bündele deine Karten zu einem klaren Lernstoff.</small>
             </button>
           </div>
         </section>
-
+        </template>
       </main>
 
       <!-- Lernblatt: gleiche Hierarchie und dieselbe Hauptaktion wie im Kurs. -->
-      <main v-else-if="openSheet" class="lr-page lr-sheet-page">
-        <div class="lr-sheet-columns">
-          <section class="lr-sheet-column lr-sheet-cards" aria-labelledby="lr-sheet-cards-title">
-            <div class="lr-sheet-column-head">
+      <main v-else-if="openSheet" class="lr-page lr-sheet-page" :class="{ 'lr-sheet-page--empty': !cards.length && !sheetLearningRuns.length }">
+        <div v-if="!cards.length && !sheetLearningRuns.length" class="lr-sheet-empty-page">
+          <div class="lr-empty-hero">
+            <div class="lr-empty-visual" aria-hidden="true">
+              <span class="lr-empty-card lr-empty-card--left"><i>?</i><b></b><b></b></span>
+              <span class="lr-empty-card lr-empty-card--right"><i>✓</i><b></b><b></b></span>
+              <span class="lr-empty-card lr-empty-card--front"><i>?</i><b></b><b></b><b></b></span>
+              <span class="lr-empty-plus"><v-icon size="20">mdi-plus</v-icon></span>
+            </div>
+            <h2 class="lr-empty-title">Dieses Lernblatt ist noch leer</h2>
+            <div class="lr-empty-body">Markiere Lerninhalte in deinen Notizen. Daraus entstehen neue Karten, die du diesem Lernblatt zuordnen und anschließend lernen kannst.</div>
+          </div>
+        </div>
+
+        <template v-else>
+        <section v-if="sheetLearningRuns.length" class="lr-sheet-progress" aria-labelledby="lr-sheet-history-title">
+          <div class="lr-sheet-column-head">
+            <div>
+              <button type="button" class="lr-overline lr-progress-label-toggle" :aria-expanded="progressExpanded" aria-controls="lr-progress-content" :aria-label="progressExpanded ? 'Lernfortschritt einklappen' : 'Lernfortschritt ausklappen'" @click="progressExpanded = !progressExpanded">
+                <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4 3 4 3-4Z" /></svg>
+                <span>Lernfortschritt</span>
+              </button>
+              <h2 id="lr-sheet-history-title">Deine Entwicklung</h2>
+            </div>
+            <span v-if="sheetLearningRuns.length" class="lr-section-meta">{{ latestRunScore }} % · {{ sheetLearningRuns.length }} {{ sheetLearningRuns.length === 1 ? 'Durchlauf' : 'Durchläufe' }}</span>
+          </div>
+          <Transition name="lr-progress-reveal">
+            <div v-show="progressExpanded" id="lr-progress-content" class="lr-progress-content">
+              <p v-if="runDeleteError" class="lr-run-error" role="alert">{{ runDeleteError }}</p>
+
+              <div class="lr-progress-chart-card" :class="{ 'lr-progress-chart-card--intro': chartIntroSheetId === String(openSheetId) }">
+            <div class="lr-progress-chart-summary">
+              <div><strong>{{ latestRunScore }} %</strong><span>letzte Lernsicherheit</span></div>
+              <div class="lr-progress-chart-legend" aria-label="Legende">
+                <span><i class="lr-result-dot lr-result-dot--strong"></i>Sicher</span>
+                <span><i class="lr-result-dot lr-result-dot--medium"></i>Mit Mühe</span>
+                <span><i class="lr-result-dot lr-result-dot--weak"></i>Offen</span>
+                <span><i class="lr-chart-line-key"></i>Lernsicherheit</span>
+              </div>
+            </div>
+            <div class="lr-progress-chart-scroll">
+              <svg
+                class="lr-progress-chart"
+                :viewBox="`0 0 ${sheetRunChartWidth} 190`"
+                :style="{ width: `${sheetRunChartWidth}px` }"
+                role="img"
+                aria-label="Entwicklung der Lernsicherheit über die letzten Lerndurchläufe"
+              >
+                <g class="lr-chart-grid" aria-hidden="true">
+                  <line x1="48" :x2="sheetRunChartWidth - 24" y1="16" y2="16" />
+                  <line x1="48" :x2="sheetRunChartWidth - 24" y1="66" y2="66" />
+                  <line x1="48" :x2="sheetRunChartWidth - 24" y1="116" y2="116" />
+                  <text x="8" y="20">100 %</text><text x="15" y="70">50 %</text><text x="27" y="120">0</text>
+                </g>
+                <g v-for="(run, index) in sheetRunChart" :key="run.id" class="lr-chart-run" :class="{ 'lr-chart-run--paused': !run.completed, 'lr-chart-run--intro': chartIntroSheetId === String(openSheetId), 'lr-chart-run--fresh': progressFeedbackActive && String(run.id) === String(freshRunId) }" tabindex="0" :aria-label="run.ariaLabel">
+                  <title>{{ run.ariaLabel }}</title>
+                  <rect class="lr-chart-bar-bg" :x="run.x" y="16" :width="run.barWidth" height="100" rx="5" />
+                  <rect class="lr-chart-bar lr-chart-bar--weak" :style="{ animationDelay: `${100 + index * 65}ms` }" :x="run.x" :y="run.weakY" :width="run.barWidth" :height="run.weakH" />
+                  <rect class="lr-chart-bar lr-chart-bar--medium" :style="{ animationDelay: `${145 + index * 65}ms` }" :x="run.x" :y="run.mediumY" :width="run.barWidth" :height="run.mediumH" />
+                  <rect class="lr-chart-bar lr-chart-bar--strong" :style="{ animationDelay: `${190 + index * 65}ms` }" :x="run.x" :y="run.strongY" :width="run.barWidth" :height="run.strongH" rx="3" />
+                  <text class="lr-chart-date" :x="run.x + run.barWidth / 2" y="142" text-anchor="middle">{{ run.day }}</text>
+                  <text class="lr-chart-time" :x="run.x + run.barWidth / 2" y="158" text-anchor="middle">{{ run.time }}</text>
+                </g>
+                <polyline v-if="sheetRunChart.length > 1" class="lr-chart-score-line" pathLength="1" :points="sheetRunChartPoints" />
+                <circle v-for="(run, index) in sheetRunChart" :key="`score-${run.id}`" class="lr-chart-score-point" :class="{ 'lr-chart-score-point--fresh': progressFeedbackActive && String(run.id) === String(freshRunId) }" :style="{ animationDelay: `${220 + index * 65}ms` }" :cx="run.centerX" :cy="run.scoreY" r="4.5"><title>{{ run.score }} % Lernsicherheit</title></circle>
+              </svg>
+            </div>
+              </div>
+            </div>
+          </Transition>
+        </section>
+
+        <section class="lr-sheet-column lr-sheet-cards" aria-labelledby="lr-sheet-cards-title">
+          <div class="lr-sheet-column-head lr-sheet-column-head--sticky">
               <div>
                 <span class="lr-overline">Lernmaterial</span>
                 <h2 id="lr-sheet-cards-title">Karten</h2>
@@ -621,66 +828,33 @@
             </div>
 
             <div class="lr-cards-list">
-              <article v-for="card in cards" :key="card.id" class="lr-card-row" role="button" tabindex="0" :aria-label="`Karte bearbeiten: ${card.front || 'Unvollständige Karte'}`" @click="onEditCard(card)" @keydown.enter.self="onEditCard(card)" @keydown.space.self.prevent="onEditCard(card)">
-                <div class="lr-card-row-main">
-                  <span class="lr-card-kind" :style="{ color: kindChipStyle(card.kind).color }">{{ kindLabel(card.kind) }}</span>
-                  <div v-if="card.front" class="lr-card-front">{{ card.front }}</div>
-                  <div v-else class="lr-card-front lr-card-side--empty">Vorderseite noch leer</div>
-                  <div v-if="card.back" class="lr-card-back">{{ card.back }}</div>
-                  <div v-else class="lr-card-back lr-card-side--empty">Rückseite noch leer</div>
-                </div>
-                <div class="lr-card-row-actions">
-                  <button type="button" class="lr-icon-btn" title="Bearbeiten" aria-label="Karte bearbeiten" @click.stop="onEditCard(card)">✎</button>
-                  <button type="button" class="lr-icon-btn lr-icon-btn--danger" title="Löschen" aria-label="Karte löschen" @click.stop="onDeleteCard(card)">✕</button>
-                </div>
-              </article>
-              <button type="button" class="lr-card-add" @click="onAddCard">
-                <span aria-hidden="true">+</span>{{ cards.length ? 'Karte hinzufügen' : 'Erste Karte anlegen' }}
-              </button>
-            </div>
-          </section>
-
-          <aside class="lr-sheet-column lr-sheet-history" aria-labelledby="lr-sheet-history-title">
-            <div class="lr-sheet-column-head">
-              <div>
-                <span class="lr-overline">Lernverlauf</span>
-                <h2 id="lr-sheet-history-title">Durchläufe</h2>
+              <div v-if="cards.length" class="lr-cards-grid">
+                <article v-for="card in cards" :key="card.id" class="lr-card-row" role="button" tabindex="0" :aria-label="`Karte bearbeiten: ${card.front || 'Unvollständige Karte'}`" @click="onEditCard(card)" @keydown.enter.self="onEditCard(card)" @keydown.space.self.prevent="onEditCard(card)">
+                  <div class="lr-card-row-main">
+                    <span class="lr-card-kind" :style="{ color: kindChipStyle(card.kind).color }">{{ kindLabel(card.kind) }}</span>
+                    <div v-if="card.front" class="lr-card-front">{{ card.front }}</div>
+                    <div v-else class="lr-card-front lr-card-side--empty">Vorderseite noch leer</div>
+                    <template v-if="cardFormat(card.kind) === 'sequence'">
+                      <div v-if="cardSteps(card).length" class="lr-card-back">{{ cardSteps(card).length }} Schritte · {{ cardSteps(card).join(' → ') }}</div>
+                      <div v-else class="lr-card-back lr-card-side--empty">Noch keine Schritte</div>
+                    </template>
+                    <template v-else>
+                      <div v-if="card.back" class="lr-card-back">{{ card.back }}</div>
+                      <div v-else class="lr-card-back lr-card-side--empty">Rückseite noch leer</div>
+                    </template>
+                  </div>
+                  <div class="lr-card-row-actions">
+                    <button type="button" class="lr-icon-btn" title="Bearbeiten" aria-label="Karte bearbeiten" @click.stop="onEditCard(card)">✎</button>
+                    <button type="button" class="lr-icon-btn lr-icon-btn--danger" title="Löschen" aria-label="Karte löschen" @click.stop="onDeleteCard(card)">✕</button>
+                  </div>
+                </article>
               </div>
-              <span v-if="sheetLearningRuns.length" class="lr-section-meta">{{ sheetLearningRuns.length }}</span>
+              <div v-else class="lr-cards-empty">
+                <span>Noch keine Karten. Karten entstehen beim Nachbereiten markierter Notizzeilen.</span>
+              </div>
             </div>
-            <p v-if="runDeleteError" class="lr-run-error" role="alert">{{ runDeleteError }}</p>
-
-            <div v-if="sheetLearningRuns.length" class="lr-run-list">
-              <article v-for="run in sheetLearningRuns" :key="run.id" class="lr-run-row">
-                <button
-                  type="button"
-                  class="lr-run-delete"
-                  :disabled="deletingRunIds.has(run.id)"
-                  title="Durchlauf löschen"
-                  :aria-label="`Lerndurchlauf vom ${formatRunDay(run.started_at)} löschen`"
-                  @click="onDeleteLearningRun(run)"
-                >×</button>
-                <div class="lr-run-date">
-                  <strong>{{ formatRunDay(run.started_at) }}</strong>
-                  <span>{{ formatRunTime(run.started_at) }}</span>
-                </div>
-                <div class="lr-run-main">
-                  <strong>{{ run.completed_at ? 'Abgeschlossen' : 'Pausiert' }}</strong>
-                  <span>{{ run.assessed_cards }} von {{ run.total_cards }} Karten</span>
-                </div>
-                <div class="lr-run-results" aria-label="Ergebnis des Lerndurchlaufs">
-                  <span class="lr-run-result lr-run-result--weak"><i></i>{{ run.weak_count }}</span>
-                  <span class="lr-run-result lr-run-result--medium"><i></i>{{ run.medium_count }}</span>
-                  <span class="lr-run-result lr-run-result--strong"><i></i>{{ run.strong_count }}</span>
-                </div>
-              </article>
-            </div>
-            <div v-else class="lr-history-empty">
-              <span>Noch kein Lerndurchlauf</span>
-              <p>Deine Ergebnisse erscheinen hier nach der ersten Einschätzung.</p>
-            </div>
-          </aside>
-        </div>
+        </section>
+        </template>
       </main>
       </div>
     </template>
@@ -691,28 +865,8 @@
       <div class="lr-modal" role="dialog" aria-modal="true">
         <div class="lr-modal-title">{{ dialogTitle }}</div>
 
-        <template v-if="dialog.kind === 'card'">
-          <label class="lr-field-label">Typ</label>
-          <div class="lr-kind-picker">
-            <button
-              v-for="k in cardKinds"
-              :key="k.value"
-              type="button"
-              class="lr-kind-opt"
-              :class="{ 'lr-kind-opt--on': dialog.cardKind === k.value }"
-              @click="dialog.cardKind = k.value"
-            >{{ k.label }}</button>
-          </div>
-          <label class="lr-field-label">Vorderseite <span class="lr-field-opt">Frage / Aufgabe</span></label>
-          <textarea class="lr-field lr-field--area" rows="3" v-model="dialog.front" placeholder="Was soll abgefragt werden?"></textarea>
-          <label class="lr-field-label">Rückseite <span class="lr-field-opt">Antwort / Lösung</span></label>
-          <textarea class="lr-field lr-field--area" rows="3" v-model="dialog.back" placeholder="Antwort …"></textarea>
-        </template>
-
-        <template v-else>
-          <label class="lr-field-label">{{ dialog.kind === 'course' ? 'Kursname' : 'Name des Lernblatts' }}</label>
-          <input ref="dialogInput" class="lr-field" v-model="dialog.name" @keydown.enter="submitDialog" :placeholder="dialog.kind === 'course' ? 'z. B. Computergrafik 1' : 'z. B. Rasterisierung'" />
-        </template>
+        <label class="lr-field-label">{{ dialog.kind === 'course' ? 'Kursname' : 'Name des Lernblatts' }}</label>
+        <input ref="dialogInput" class="lr-field" v-model="dialog.name" @keydown.enter="submitDialog" :placeholder="dialog.kind === 'course' ? 'z. B. Computergrafik 1' : 'z. B. Rasterisierung'" />
 
         <div v-if="dialogError" class="lr-field-error">{{ dialogError }}</div>
 
@@ -743,10 +897,52 @@ import { useSidebarAppearance } from '../composables/useSidebarAppearance.js';
 const store = useLearnStore();
 const route = useRoute();
 const router = useRouter();
+const LEARN_NAV_STORAGE_KEY = 'papermind:lernraum:last-navigation:v1';
+
+function readRememberedNavigation() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(LEARN_NAV_STORAGE_KEY) || 'null');
+    if (!saved || typeof saved !== 'object') return null;
+    return {
+      courseId: saved.courseId == null ? null : String(saved.courseId),
+      sheetId: saved.sheetId == null ? null : String(saved.sheetId),
+    };
+  } catch {
+    return null;
+  }
+}
+function rememberNavigation(courseId = null, sheetId = null) {
+  try {
+    window.localStorage.setItem(LEARN_NAV_STORAGE_KEY, JSON.stringify({
+      courseId: courseId == null ? null : String(courseId),
+      sheetId: sheetId == null ? null : String(sheetId),
+    }));
+  } catch {
+    // Die Navigation bleibt auch ohne verfügbaren Browserspeicher funktionsfähig.
+  }
+}
+
+const CONFETTI_COLORS = ['#55cbd0', '#f1b24f', '#f17f78', '#7bc58e', '#91aee8', '#d78bc2'];
+const confettiPieces = Array.from({ length: 156 }, (_, index) => ({
+  id: index,
+  style: {
+    '--confetti-x': `${(index * 37) % 101}%`,
+    '--confetti-size': `${6 + (index % 4) * 2}px`,
+    '--confetti-color': CONFETTI_COLORS[index % CONFETTI_COLORS.length],
+    '--confetti-delay': `${(index % 48) * 0.13}s`,
+    '--confetti-duration': `${5.6 + (index % 8) * 0.31}s`,
+    '--confetti-drift': `${-68 + ((index * 29) % 137)}px`,
+    '--confetti-sway': `${(index % 2 ? -1 : 1) * (18 + (index % 6) * 7)}px`,
+    '--confetti-sway-back': `${(index % 2 ? 1 : -1) * (18 + (index % 6) * 7)}px`,
+    '--confetti-rotate': `${540 + (index % 6) * 150}deg`,
+  },
+}));
 
 const view = ref('home'); // 'home' | 'course'
 const openSheetId = ref(null);
 const navigationReady = ref(false);
+const chartIntroSheetId = ref(null);
+let chartIntroTimer = null;
 const editingCourseTitle = ref(false);
 const courseTitleDraft = ref('');
 const courseTitleInput = ref(null);
@@ -764,6 +960,7 @@ const sheetTitleError = ref('');
 const deletingSheetIds = ref(new Set());
 const deletingRunIds = ref(new Set());
 const runDeleteError = ref('');
+const progressExpanded = ref(true);
 const favoriteAnimating = ref(false);
 const favoriteBusy = ref(false);
 let favoriteAnimTimer = null;
@@ -804,10 +1001,21 @@ function courseMonogram(title = '') {
   return title.trim().split(/\s+/).slice(0, 2).map((part) => part[0] || '').join('').toLocaleUpperCase('de-DE') || 'K';
 }
 
+// --- Lernobjekt-Format je Kartentyp ---
+// Flip-Karte (Standard) vs. Schrittfolge (Prozess/Anleitung, Payload: steps).
+const SEQUENCE_KINDS = new Set(['prozess', 'prozedural']);
+function cardFormat(kind) { return SEQUENCE_KINDS.has(kind) ? 'sequence' : 'card'; }
+function cardSteps(card) {
+  const steps = card?.payload?.steps;
+  return Array.isArray(steps) ? steps.filter((s) => String(s || '').trim()) : [];
+}
+
 // --- Karten des offenen Lernblatts ---
 const cards = computed(() => (store.cardsSheetId === openSheetId.value ? store.cards : []));
 function isLearnableCard(card) {
-  return Boolean(String(card?.front || '').trim() && String(card?.back || '').trim());
+  if (!String(card?.front || '').trim()) return false;
+  if (cardFormat(card?.kind) === 'sequence') return cardSteps(card).length >= 2;
+  return Boolean(String(card?.back || '').trim());
 }
 const learnableCards = computed(() => cards.value.filter(isLearnableCard));
 function sheetLearnableCount(sheet) {
@@ -816,8 +1024,49 @@ function sheetLearnableCount(sheet) {
 const sheetLearningRuns = computed(() => {
   const sheetId = openSheetId.value;
   if (!sheetId) return [];
-  return store.learningRuns.filter((run) => String(run.sheet_id || '') === String(sheetId));
+  return store.learningRuns
+    .filter((run) => String(run.sheet_id || '') === String(sheetId))
+    .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
 });
+function runScore(run) {
+  const total = Math.max(1, Number(run?.total_cards) || 0);
+  return Math.round((((Number(run?.strong_count) || 0) + (Number(run?.medium_count) || 0) * 0.5) / total) * 100);
+}
+const latestRunScore = computed(() => sheetLearningRuns.value.length ? runScore(sheetLearningRuns.value[0]) : 0);
+const sheetRunChartWidth = computed(() => Math.max(720, Math.min(12, sheetLearningRuns.value.length) * 84 + 96));
+const sheetRunChart = computed(() => {
+  const runs = sheetLearningRuns.value.slice(0, 12).reverse();
+  const width = sheetRunChartWidth.value;
+  const step = (width - 104) / Math.max(1, runs.length);
+  const barWidth = Math.min(34, Math.max(22, step * 0.48));
+  return runs.map((run, index) => {
+    const total = Math.max(1, Number(run.total_cards) || 0);
+    const strongH = ((Number(run.strong_count) || 0) / total) * 100;
+    const mediumH = ((Number(run.medium_count) || 0) / total) * 100;
+    const weakH = ((Number(run.weak_count) || 0) / total) * 100;
+    const x = 56 + index * step + (step - barWidth) / 2;
+    const score = runScore(run);
+    return {
+      id: run.id,
+      x,
+      centerX: x + barWidth / 2,
+      barWidth,
+      strongH,
+      mediumH,
+      weakH,
+      weakY: 116 - weakH,
+      mediumY: 116 - weakH - mediumH,
+      strongY: 116 - weakH - mediumH - strongH,
+      score,
+      scoreY: 116 - score,
+      day: formatRunDay(run.started_at),
+      time: formatRunTime(run.started_at),
+      completed: Boolean(run.completed_at),
+      ariaLabel: `${formatRunDay(run.started_at)}, ${formatRunTime(run.started_at)}: ${score} Prozent Lernsicherheit, ${run.strong_count || 0} sicher, ${run.medium_count || 0} mit Mühe, ${run.weak_count || 0} offen${run.completed_at ? '' : ', pausiert'}`,
+    };
+  });
+});
+const sheetRunChartPoints = computed(() => sheetRunChart.value.map((run) => `${run.centerX},${run.scoreY}`).join(' '));
 
 const KIND = {
   fakt: { label: 'Fakt', tint: 'success' },
@@ -920,6 +1169,20 @@ const dismissedNoteIds = ref(new Set());
 function dismissGroup(g) { dismissedNoteIds.value = new Set([...dismissedNoteIds.value, g.noteId]); }
 
 // --- Lernmodus (generalisiert: beliebige Kartenliste + Selbsteinschätzung) ---
+const LEARN_ORDER_STORAGE_KEY = 'papermind:lernraum:learn-order:v1';
+const learnStartOptionsOpen = ref(false);
+const learnOrder = ref(readLearnOrder());
+const learnOriginalCards = ref([]);
+function readLearnOrder() {
+  try {
+    const saved = window.localStorage.getItem(LEARN_ORDER_STORAGE_KEY);
+    return ['random', 'difficult'].includes(saved) ? saved : 'original';
+  }
+  catch { return 'original'; }
+}
+watch(learnOrder, (value) => {
+  try { window.localStorage.setItem(LEARN_ORDER_STORAGE_KEY, value); } catch { /* Storage may be unavailable. */ }
+});
 const learning = ref(false);
 const learnIndex = ref(0);
 const revealed = ref(false);
@@ -929,8 +1192,11 @@ const learnResults = ref({ weak: 0, medium: 0, strong: 0 });
 const learnOpenedInternally = ref(false);
 const learnExitWarningOpen = ref(false);
 const learnProgressPulse = ref(false);
+const progressFeedbackActive = ref(false);
+const freshRunId = ref(null);
 const learnRunId = ref(null);
 let learnProgressPulseTimer = null;
+let progressFeedbackTimer = null;
 let learnRunToken = 0;
 let learnRunStartedAt = '';
 let learnRunCompletedAt = '';
@@ -939,6 +1205,39 @@ let learnRunSheetId = null;
 let learnRunScope = 'sheet';
 let learnRunSaveChain = Promise.resolve();
 const currentLearn = computed(() => learnQueue.value[learnIndex.value] || null);
+
+// --- Schrittfolge im Lernmodus (Reihenfolge ordnen) ---
+const currentLearnFormat = computed(() => cardFormat(currentLearn.value?.kind));
+function shuffleSteps(steps) {
+  const items = steps.map((text, idx) => ({ idx, text }));
+  if (items.length < 2) return items;
+  for (let i = items.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  if (items.every((it, i) => it.idx === i)) [items[0], items[1]] = [items[1], items[0]];
+  return items;
+}
+function moveSeq(i, dir) {
+  const card = currentLearn.value;
+  if (!card || card.seqChecked) return;
+  const items = card.seqItems || [];
+  const j = i + dir;
+  if (j < 0 || j >= items.length) return;
+  [items[i], items[j]] = [items[j], items[i]];
+}
+function checkSeq() {
+  const card = currentLearn.value;
+  if (card) card.seqChecked = true;
+}
+const seqCorrectCount = computed(() =>
+  (currentLearn.value?.seqItems || []).reduce((n, it, i) => n + (it.idx === i ? 1 : 0), 0),
+);
+const seqAllCorrect = computed(() => {
+  const items = currentLearn.value?.seqItems || [];
+  return items.length > 0 && seqCorrectCount.value === items.length;
+});
+
 const learnFrontWidth = computed(() => {
   const question = String(currentLearn.value?.front || '').trim();
   const longestWord = question.split(/\s+/).reduce((max, word) => Math.max(max, word.length), 0);
@@ -972,7 +1271,28 @@ const learnResultRows = computed(() => [
 function startLearn(cardList, startId = null, scope = openSheet.value ? 'sheet' : 'course', updateUrl = true) {
   const list = (cardList || []).filter(isLearnableCard);
   if (!list.length) return;
-  learnQueue.value = list.map((c) => ({ ...c, aiHint: '', hintVisible: false, hintBusy: false, hintError: '', sessionAssessment: '' }));
+  learnStartOptionsOpen.value = false;
+  learnOriginalCards.value = [...list];
+  const ordered = [...list];
+  if (['random', 'difficult'].includes(learnOrder.value)) {
+    for (let i = ordered.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [ordered[i], ordered[j]] = [ordered[j], ordered[i]];
+    }
+  }
+  if (learnOrder.value === 'difficult') {
+    const priority = { weak: 0, open: 1, medium: 2, strong: 3 };
+    // Stable sorting preserves the shuffled order within each proficiency group.
+    ordered.sort((a, b) => (priority[a.status] ?? 1) - (priority[b.status] ?? 1));
+  }
+  learnQueue.value = ordered.map((c) => {
+    const base = { ...c, aiHint: '', hintVisible: false, hintBusy: false, hintError: '', sessionAssessment: '' };
+    if (cardFormat(c.kind) === 'sequence') {
+      base.seqItems = shuffleSteps(cardSteps(c));
+      base.seqChecked = false;
+    }
+    return base;
+  });
   const at = startId ? learnQueue.value.findIndex((c) => c.id === startId) : 0;
   learnIndex.value = at >= 0 ? at : 0;
   revealed.value = false;
@@ -1045,7 +1365,7 @@ async function toggleLearnHint() {
   }
 }
 function startLearning() { startLearn(cards.value, null, 'sheet'); }
-function restartLearning() { startLearn(learnQueue.value, null, learnRunScope, false); }
+function restartLearning() { startLearn(learnOriginalCards.value, null, learnRunScope, false); }
 async function startSheetLearn(sheet) {
   const courseId = sheet?.course_id || store.activeCourseId;
   if (!sheet?.id || !sheetLearnableCount(sheet) || !courseId) return;
@@ -1062,10 +1382,27 @@ async function clearLearning() {
   learnQueue.value = [];
   learnOpenedInternally.value = false;
   if (learnDirty.value) {
+    await learnRunSaveChain.catch(() => {});
+    triggerProgressFeedback(learnRunCompletedAt ? learnRunId.value : null);
     learnDirty.value = false;
     await Promise.all([store.fetchCourses(), store.fetchBoard()]);
     if (store.cardsSheetId) await store.fetchCards(store.cardsSheetId);
   }
+}
+
+function triggerProgressFeedback(runId = null) {
+  progressFeedbackActive.value = false;
+  freshRunId.value = null;
+  if (progressFeedbackTimer) window.clearTimeout(progressFeedbackTimer);
+  window.requestAnimationFrame(() => {
+    progressFeedbackActive.value = true;
+    freshRunId.value = runId;
+    progressFeedbackTimer = window.setTimeout(() => {
+      progressFeedbackActive.value = false;
+      freshRunId.value = null;
+      progressFeedbackTimer = null;
+    }, 900);
+  });
 }
 
 function requestExitLearning() {
@@ -1107,6 +1444,8 @@ async function assess(status) {
   try {
     await store.reviewCard(card.id, status);
     card.status = status; // lokale Kopie fürs Overlay
+    const originalCard = learnOriginalCards.value.find((item) => item.id === card.id);
+    if (originalCard) originalCard.status = status;
     learnDirty.value = true;
     const previous = card.sessionAssessment;
     const nextResults = { ...learnResults.value };
@@ -1270,11 +1609,13 @@ async function syncNavigationFromRoute() {
     view.value = 'home';
     openSheetId.value = null;
     if (learning.value) await clearLearning();
+    rememberNavigation();
     return;
   }
 
   const course = store.courses.find((item) => String(item.id) === courseId);
   if (!course) {
+    rememberNavigation();
     router.replace({ name: 'lernraum' }).catch(() => {});
     return;
   }
@@ -1285,14 +1626,19 @@ async function syncNavigationFromRoute() {
   if (sheetId) {
     const sheet = courseSheets.value.find((item) => String(item.id) === sheetId);
     if (!sheet) {
+      rememberNavigation(course.id);
       router.replace({ name: 'lernraum', query: { course: courseId } }).catch(() => {});
       return;
     }
+    const openingDifferentSheet = String(openSheetId.value) !== String(sheet.id);
     openSheetId.value = sheet.id;
     if (String(store.cardsSheetId) !== sheetId) await store.fetchCards(sheet.id);
+    if (openingDifferentSheet) scheduleChartIntro(sheet.id);
   } else {
     openSheetId.value = null;
   }
+
+  rememberNavigation(course.id, openSheetId.value);
 
   if (route.query.learn === '1' && !learning.value) {
     if (route.query.scope === 'sheet' && openSheetId.value) {
@@ -1304,6 +1650,19 @@ async function syncNavigationFromRoute() {
   } else if (route.query.learn !== '1' && learning.value) {
     await clearLearning();
   }
+}
+
+function scheduleChartIntro(sheetId) {
+  if (!sheetId || !sheetLearningRuns.value.length) return;
+  chartIntroSheetId.value = null;
+  nextTick(() => {
+    chartIntroSheetId.value = String(sheetId);
+    if (chartIntroTimer) window.clearTimeout(chartIntroTimer);
+    chartIntroTimer = window.setTimeout(() => {
+      chartIntroSheetId.value = null;
+      chartIntroTimer = null;
+    }, Math.min(1100, 520 + sheetRunChart.value.length * 65));
+  });
 }
 
 function onCreateCourse() { openDialog({ kind: 'course', name: '' }); }
@@ -1491,6 +1850,7 @@ watch(
   () => { void syncNavigationFromRoute(); },
 );
 watch([view, openSheetId], ([currentView, currentSheet]) => {
+  learnStartOptionsOpen.value = false;
   if (editingCourseTitle.value && (currentView !== 'course' || currentSheet)) cancelCourseTitle();
   if (editingCourseCardId.value && currentView !== 'home') cancelCourseCardTitle();
   if (editingSheetId.value && currentView !== 'course') cancelSheetTitle();
@@ -1500,13 +1860,22 @@ function handleLearnKey(event) {
   if (!learning.value || !currentLearn.value || event.metaKey || event.ctrlKey || event.altKey || event.repeat) return;
   const tag = event.target?.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return;
+  const status = { 1: 'weak', 2: 'medium', 3: 'strong' }[event.key];
+  if (currentLearnFormat.value === 'sequence') {
+    const card = currentLearn.value;
+    if (!card.seqChecked) {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); checkSeq(); }
+      return;
+    }
+    if (status) { event.preventDefault(); void assess(status); }
+    return;
+  }
   if (!revealed.value && (event.key === 'Enter' || event.key === ' ')) {
     event.preventDefault();
     revealed.value = true;
     return;
   }
   if (!revealed.value) return;
-  const status = { 1: 'weak', 2: 'medium', 3: 'strong' }[event.key];
   if (status) {
     event.preventDefault();
     void assess(status);
@@ -1514,10 +1883,6 @@ function handleLearnKey(event) {
 }
 
 const DEFAULT_KIND = 'fakt';
-function onAddCard() {
-  if (!openSheetId.value) return;
-  openDialog({ kind: 'card', cardId: null, cardKind: store.activeCourse?.default_artifact_type || DEFAULT_KIND, front: '', back: '' });
-}
 function onEditCard(card) {
   const items = cards.value.map((item) => ({
     cardId: item.id,
@@ -1529,6 +1894,7 @@ function onEditCard(card) {
     kindTouched: false,
     front: item.front,
     back: item.back || '',
+    steps: Array.isArray(item.payload?.steps) ? item.payload.steps.map((s) => String(s || '')) : [],
     fromNote: null,
   }));
   const index = Math.max(0, items.findIndex((item) => item.cardId === card.id));
@@ -1575,6 +1941,26 @@ function swapSides() {
   else if (it.fromNote === 'back') it.fromNote = 'front';
 }
 
+// --- Schrittfolge-Editor (Prozess/Anleitung) ---
+const currentIsSequence = computed(() => !!current.value && cardFormat(current.value.cardKind) === 'sequence');
+function ensureSteps(it) { if (!Array.isArray(it.steps)) it.steps = []; return it.steps; }
+function addStep(at) {
+  const it = current.value; if (!it) return;
+  const steps = ensureSteps(it);
+  steps.splice(at ?? steps.length, 0, '');
+}
+function removeStep(i) {
+  const it = current.value; if (!it) return;
+  ensureSteps(it).splice(i, 1);
+}
+function moveStep(i, dir) {
+  const it = current.value; if (!it) return;
+  const steps = ensureSteps(it);
+  const j = i + dir;
+  if (j < 0 || j >= steps.length) return;
+  [steps[i], steps[j]] = [steps[j], steps[i]];
+}
+
 function openQueue(group, startIndex = 0) {
   const groups = markerNoteGroups.value;
   const items = [];
@@ -1598,6 +1984,7 @@ function openQueue(group, startIndex = 0) {
         kindTouched: false,
         front: hasDraft ? (m.draft_front || '') : (asPrompt ? snippet : ''),
         back: hasDraft ? (m.draft_back || '') : (asPrompt ? '' : snippet),
+        steps: Array.isArray(m.draft_steps) ? m.draft_steps.map((s) => String(s || '')) : [],
         fromNote: asPrompt ? 'front' : 'back',
         status: 'open',
       });
@@ -1654,6 +2041,7 @@ async function saveCurrentCard() {
       kind: it.cardKind,
       front: it.front.trim(),
       back: it.back.trim() || null,
+      payload: itemPayload(it),
     });
     it.front = it.front.trim();
     it.back = it.back.trim();
@@ -1662,6 +2050,12 @@ async function saveCurrentCard() {
   } finally {
     dialogBusy.value = false;
   }
+}
+
+// Typspezifisches Payload eines Editor-Items (nur Schrittfolgen tragen Inhalt).
+function itemPayload(it) {
+  if (cardFormat(it.cardKind) !== 'sequence') return {};
+  return { steps: (it.steps || []).map((s) => String(s || '').trim()).filter(Boolean) };
 }
 
 async function acceptCurrent() {
@@ -1677,6 +2071,7 @@ async function acceptCurrent() {
       kind: it.cardKind,
       front: it.front.trim(),
       back: it.back.trim() || null,
+      payload: itemPayload(it),
       course_id: it.courseId,
       bind_note: false,
     };
@@ -1736,16 +2131,19 @@ function selectQueueKind(kind) {
   it.kindTouched = true;
   it.cardKind = kind;
 }
-function fitNqFront(el = nqFront.value) {
+// Frage/Antwort umschließen ihren Inhalt. Moderne Browser regeln das nativ über
+// CSS field-sizing:content (robust, egal ob per Tastatur, KI oder Kartenwechsel
+// gesetzt); nur als Fallback rechnen wir die Höhe per JS.
+const SUPPORTS_FIELD_SIZING = typeof CSS !== 'undefined' && CSS.supports?.('field-sizing', 'content');
+const NQ_EXTRA_HEIGHT = 24; // „ein bisschen mehr" für die Optik (nur Fallback)
+function fitNqArea(el) {
   if (!el) return;
+  if (SUPPORTS_FIELD_SIZING) { el.style.height = ''; return; }
   el.style.height = 'auto';
-  el.style.height = `${el.scrollHeight + 2}px`;
+  el.style.height = `${el.scrollHeight + NQ_EXTRA_HEIGHT}px`;
 }
-function fitNqBack(el = nqBack.value) {
-  if (!el) return;
-  el.style.height = 'auto';
-  el.style.height = `${el.scrollHeight + 2}px`;
-}
+function fitNqFront(el = nqFront.value) { fitNqArea(el); }
+function fitNqBack(el = nqBack.value) { fitNqArea(el); }
 function cleanQueueAiText(value, field) {
   let text = String(value || '').trim();
   text = text.replace(/^```(?:text|markdown)?\s*/i, '').replace(/\s*```$/, '').trim();
@@ -1878,6 +2276,57 @@ async function generateQueueField(field) {
     nqAiBusy.value = '';
   }
 }
+function parseStepsFromText(text) {
+  return String(text || '')
+    .replace(/^```(?:text|markdown)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .split('\n')
+    .map((line) => line.replace(/^\s*(?:\d+[.)]|[-*•])\s*/, '').trim())
+    .filter(Boolean)
+    .slice(0, 30);
+}
+async function generateQueueSteps() {
+  const it = current.value;
+  const d = dialog.value;
+  if (!it || !d || nqAiBusy.value) return;
+  const markerText = String(it.marker?.snippet || '').trim();
+  const paragraphContext = String(it.marker?.context || markerText).trim();
+  const question = String(it.front || '').trim();
+  const sourceText = markerText || question;
+  const noteContext = (d.kind === 'card-edit'
+    ? d.items.map((item) => [item.front, ...(item.steps || [])].filter(Boolean).join('\n'))
+    : d.items
+      .filter((item) => item.noteId === it.noteId)
+      .map((item) => String(item.marker?.context || item.marker?.snippet || '').trim()))
+    .filter(Boolean)
+    .join('\n\n')
+    .slice(0, 12000);
+  const instruction = `Extrahiere aus dem Kontext die wesentlichen Schritte des Ablaufs „${question || sourceText}“ in der richtigen Reihenfolge. Gib ausschließlich eine nummerierte Liste aus – pro Zeile genau ein Schritt, knapp formuliert, ohne Einleitung, ohne Überschrift, ohne Erklärungen. Nutze nur den bereitgestellten Kontext und erfinde nichts.`;
+
+  nqAiBusy.value = 'steps';
+  dialogError.value = '';
+  let generated = '';
+  try {
+    await streamNoteText({
+      instruction,
+      length_instruction: 'Drei bis acht kurze Schritte.',
+      note_context: noteContext,
+      context_scope: 'note',
+      selected_text: sourceText,
+      document_context: d.kind === 'card-edit' ? sourceText : paragraphContext,
+    }, {
+      onEvent: (event) => { if (event.type === 'delta') generated += event.text || ''; },
+    });
+    if (current.value !== it) return;
+    const steps = parseStepsFromText(generated);
+    if (steps.length < 2) throw new Error('Die KI hat keine verwertbaren Schritte erzeugt.');
+    it.steps = steps;
+  } catch (err) {
+    dialogError.value = err?.message || 'KI-Vorschlag fehlgeschlagen.';
+  } finally {
+    nqAiBusy.value = '';
+  }
+}
 function onSelectMarker(pmId) {
   const d = dialog.value;
   const i = d?.items?.findIndex((it) => it.noteId === current.value?.noteId && it.marker.node_pm_id === pmId);
@@ -1927,16 +2376,11 @@ const cardKinds = [
 const dialogTitle = computed(() => {
   const d = dialog.value;
   if (!d) return '';
-  if (d.kind === 'card') return d.cardId ? 'Karte bearbeiten' : 'Neue Karte';
   if (d.kind === 'course') return 'Neuer Kurs';
   if (d.kind === 'sheet') return 'Neues Lernblatt';
   return '';
 });
-const dialogSubmitLabel = computed(() => {
-  const d = dialog.value;
-  if (!d) return 'Anlegen';
-  return d.kind === 'card' && d.cardId ? 'Speichern' : 'Anlegen';
-});
+const dialogSubmitLabel = computed(() => 'Anlegen');
 function openDialog(shape) {
   dialogError.value = '';
   dialog.value = shape;
@@ -1948,18 +2392,12 @@ async function submitDialog() {
   if (!d || dialogBusy.value) return;
   dialogBusy.value = true;
   try {
-    if (d.kind === 'card') {
-      const payload = { kind: d.cardKind, front: d.front.trim(), back: d.back.trim() || null };
-      if (d.cardId) await store.patchCard(d.cardId, openSheetId.value, payload);
-      else await store.addCard(openSheetId.value, payload);
-    } else {
-      if (!d.name.trim()) { dialogError.value = 'Bitte einen Namen eingeben.'; return; }
-      if (d.kind === 'course') {
-        const created = await store.addCourse({ title: d.name.trim() });
-        openCourse(created.id);
-      }
-      else if (d.kind === 'sheet') await store.addSheet({ course_id: store.activeCourseId, title: d.name.trim(), scope: 'topic' });
+    if (!d.name.trim()) { dialogError.value = 'Bitte einen Namen eingeben.'; return; }
+    if (d.kind === 'course') {
+      const created = await store.addCourse({ title: d.name.trim() });
+      openCourse(created.id);
     }
+    else if (d.kind === 'sheet') await store.addSheet({ course_id: store.activeCourseId, title: d.name.trim(), scope: 'topic' });
     dialog.value = null;
   } catch (err) {
     dialogError.value = err?.message || 'Aktion fehlgeschlagen.';
@@ -1971,6 +2409,14 @@ async function submitDialog() {
 onMounted(async () => {
   await Promise.all([store.fetchAllSheets(), store.fetchOpenMarkers(), store.fetchCourses()]);
   navigationReady.value = true;
+  if (typeof route.query.course !== 'string' && typeof route.query.sheet !== 'string') {
+    const saved = readRememberedNavigation();
+    if (saved?.courseId) {
+      const query = { course: saved.courseId };
+      if (saved.sheetId) query.sheet = saved.sheetId;
+      await router.replace({ name: 'lernraum', query });
+    }
+  }
   await syncNavigationFromRoute();
   window.addEventListener('keydown', handleLearnKey);
   window.addEventListener('keydown', handleFocusEditorKey);
@@ -1981,6 +2427,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleFocusEditorKey);
   if (favoriteAnimTimer) window.clearTimeout(favoriteAnimTimer);
   if (learnProgressPulseTimer) window.clearTimeout(learnProgressPulseTimer);
+  if (progressFeedbackTimer) window.clearTimeout(progressFeedbackTimer);
+  if (chartIntroTimer) window.clearTimeout(chartIntroTimer);
   setNightSidebar(false);
 });
 </script>
@@ -2125,8 +2573,9 @@ onBeforeUnmount(() => {
 .lernraum-panel .lr-nq-body--solo .lr-nq-work { width: 100%; }
 .lernraum-panel .lr-nq-field { display: flex; flex-direction: column; gap: 7px; }
 .lernraum-panel .lr-nq-field--editor { min-height: 0; }
+/* Beide Boxen umschließen ihren Inhalt (Auto-Grow) – plus etwas Luft. */
 .lernraum-panel .lr-nq-field--question { flex: 0 0 auto; }
-.lernraum-panel .lr-nq-field--answer { flex: 0 0 auto; min-height: 0; }
+.lernraum-panel .lr-nq-field--answer { flex: 0 0 auto; }
 .lernraum-panel .lr-nq-label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .lernraum-panel .lr-nq-label { display: flex; align-items: center; gap: 8px; font: 650 13px/1.2 var(--pm-font-sans); color: var(--pm-text); }
 .lernraum-panel .lr-nq-kind-ai-status { color: var(--nq-tint); font-size: 10.5px; font-weight: 560; }
@@ -2136,8 +2585,10 @@ onBeforeUnmount(() => {
 .lernraum-panel .lr-nq-ai:focus-visible { outline: 2px solid var(--nq-tint); outline-offset: 2px; }
 .lernraum-panel .lr-nq-ai:disabled { cursor: wait; opacity: .65; }
 .lernraum-panel .lr-nq-area { flex: 1; min-height: 0; font-size: 15px; line-height: 1.55; }
-.lernraum-panel .lr-nq-field--question .lr-nq-area { flex: none; min-height: 104px; overflow-y: hidden; resize: none; }
-.lernraum-panel .lr-nq-field--answer .lr-nq-area { flex: none; overflow-y: hidden; resize: none; }
+/* Umschließt den Inhalt (field-sizing), mindestens 2 Zeilen, plus etwas Luft
+   unten (padding-bottom) „für die Optik". */
+.lernraum-panel .lr-nq-field--question .lr-nq-area,
+.lernraum-panel .lr-nq-field--answer .lr-nq-area { flex: none; field-sizing: content; min-height: 64px; padding-bottom: 20px; overflow-y: hidden; resize: none; }
 .lernraum-panel .lr-nq-swap { align-self: center; display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--pm-border); border-radius: 99px; background: transparent; color: var(--pm-text-muted); font: 560 12px/1 var(--pm-font-sans); cursor: pointer; transition: color .15s, border-color .15s, background .15s; }
 .lernraum-panel .lr-nq-swap:hover { border-color: var(--pm-accent); background: var(--pm-selected); color: var(--pm-accent-text); }
 .lernraum-panel .lr-nq-meta { display: flex; flex-direction: column; gap: 20px; margin-bottom: 6px; }
@@ -2196,18 +2647,31 @@ onBeforeUnmount(() => {
 .lernraum-panel .lr-nq-paper--light { --pm-text: oklch(0.205 0.018 235); --pm-muted: oklch(0.470 0.018 235); --pm-text-muted: oklch(0.470 0.018 235); --pm-accent: color-mix(in oklab, var(--nq-tint) 52%, black); --pm-accent-strong: var(--pm-accent); background: oklch(0.985 0.004 95); }
 .lernraum-panel .lr-nq-paper--dark { --pm-text: oklch(0.94 0.008 235); --pm-muted: oklch(0.76 0.020 240); --pm-text-muted: oklch(0.76 0.020 240); --pm-divider: oklch(0.42 0.030 250); --pm-content-surface: oklch(0.225 0.028 252); --pm-app-surface: oklch(0.205 0.026 252); --pm-surface-soft: oklch(0.30 0.028 250); --pm-viewer-surface: oklch(0.215 0.028 252); --pm-accent: var(--nq-tint); --pm-accent-strong: var(--nq-tint); background: oklch(0.265 0.030 250); box-shadow: 0 24px 60px rgba(0, 0, 0, .42), 0 0 0 1px oklch(0.43 0.032 250); }
 :root[data-theme="dark"] .lernraum-panel .lr-nq-paper--dark {
-  --pm-text: oklch(0.965 0.005 220);
-  --pm-muted: oklch(0.760 0.014 220);
-  --pm-text-muted: oklch(0.760 0.014 220);
-  --pm-divider: oklch(0.395 0.014 222);
-  --pm-content-surface: oklch(0.345 0.012 222);
-  --pm-app-surface: oklch(0.275 0.014 222);
-  --pm-surface-soft: oklch(0.395 0.014 222);
-  --pm-viewer-surface: oklch(0.250 0.014 222);
+  --pm-text: #f0f4f6;
+  --pm-muted: #a5b2b7;
+  --pm-text-muted: #a5b2b7;
+  --pm-divider: #3d484d;
+  --pm-content-surface: #283134;
+  --pm-app-surface: #20292d;
+  --pm-surface-soft: #333b3e;
+  --pm-viewer-surface: #20292d;
   --pm-accent: oklch(0.760 0.105 200);
   --pm-accent-strong: oklch(0.845 0.090 200);
-  background: var(--pm-bg);
-  box-shadow: 0 16px 40px color-mix(in oklab, #000 30%, transparent), 0 0 0 1px var(--pm-border);
+  background: #283134;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .24), 0 0 0 1px #3d484d;
+}
+:root[data-theme="dark"] .lernraum-panel .lr-nq-paper--dark .note-preview--dark {
+  --pm-text: #f0f4f6;
+  --pm-muted: #a5b2b7;
+  --pm-text-muted: #a5b2b7;
+  --pm-divider: #3d484d;
+  --pm-content-surface: #283134;
+  --pm-app-surface: #20292d;
+  --pm-surface-soft: #333b3e;
+  --pm-viewer-surface: #20292d;
+  --pm-accent-strong: #80dee3;
+  background: #283134;
+  color: #f0f4f6;
 }
 .lernraum-panel .lr-nq-paper .note-preview--compact .note-preview__sheet { padding-top: 32px; }
 .lernraum-panel .lr-nq-note-theme-toggle { position: absolute; top: 34px; right: clamp(28px, 4vw, 48px); z-index: 2; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid var(--pm-border); border-radius: 10px; background: color-mix(in oklab, var(--pm-surface-card) 88%, transparent); color: var(--pm-text-muted); cursor: pointer; backdrop-filter: blur(8px); transition: border-color .15s, background .15s, color .15s; }
@@ -2382,21 +2846,11 @@ onBeforeUnmount(() => {
 .lernraum-panel .lr-bar { position: relative; display: flex; flex-direction: row; justify-content: flex-start; direction: ltr; height: 8px; border-radius: 5px; overflow: hidden; background: var(--pm-track); }
 .lernraum-panel .lr-bar--empty { opacity: .6; }
 .lernraum-panel .lr-bar-seg { flex: none; height: 100%; }
-.lernraum-panel .lr-bar:not(.lr-bar--empty)::after,
-.lernraum-panel .lr-progress-band::after {
-  content: '';
-  position: absolute;
-  z-index: 2;
-  inset: 0;
-  border-radius: inherit;
-  background: var(--pm-track);
-  pointer-events: none;
-  animation: lr-progress-reveal .58s linear both;
-}
-@keyframes lr-progress-reveal {
-  from { transform: translateX(0); }
-  to { transform: translateX(100%); }
-}
+.lernraum-panel .lr-bar--updated,
+.lernraum-panel .lr-progress-band--updated { animation: lr-progress-settle .46s cubic-bezier(.22, 1, .36, 1); }
+.lernraum-panel .lr-bar--updated .lr-bar-seg,
+.lernraum-panel .lr-progress-band--updated .lr-progress-band-segment { transition: width .42s cubic-bezier(.22, 1, .36, 1); }
+@keyframes lr-progress-settle { 0% { transform: scaleY(.84); opacity: .58; } 68% { transform: scaleY(1.08); opacity: 1; } 100% { transform: scaleY(1); } }
 .lernraum-panel .lr-bar-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11.5px; color: var(--pm-text-muted); }
 .lernraum-panel .lr-crow-right { flex: 0 0 92px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .lernraum-panel .lr-crow-pct { font: 660 18px/1 var(--pm-font-sans); }
@@ -2535,14 +2989,16 @@ onBeforeUnmount(() => {
 .lernraum-panel .lr-head-actions { position: absolute; z-index: 2; top: 50%; right: clamp(24px, 4vw, 52px); display: flex; align-items: center; gap: 10px; transform: translateY(-50%); }
 .lernraum-panel .lr-head-action.v-btn { position: static; transform: none; background: var(--pm-accent); color: var(--pm-on-accent); box-shadow: 0 1px 2px color-mix(in oklab, var(--pm-accent) 30%, transparent); transition: filter .18s, box-shadow .18s; }
 .lernraum-panel .lr-head-action.v-btn:hover:not(.v-btn--disabled) { filter: brightness(1.06); box-shadow: 0 3px 8px color-mix(in oklab, var(--pm-accent) 26%, transparent); }
+.lernraum-panel .lr-head-action.v-btn.v-btn--disabled { background: color-mix(in oklab, var(--pm-text-muted) 18%, var(--pm-surface-card)); color: var(--pm-text-muted); box-shadow: none; opacity: .62; filter: saturate(.25); }
 .lernraum-panel .lr-header-progress-label { flex: none; text-align: right; color: var(--pm-text-muted); font-size: 12px; line-height: 1; white-space: nowrap; }
 .lernraum-panel .lr-header-progress-label strong { color: var(--pm-text); font-size: 14px; font-weight: 700; letter-spacing: -.01em; }
 .lernraum-panel .lr-progress-band { position: relative; display: flex; flex-direction: row; justify-content: flex-start; direction: ltr; flex: none; width: 100%; height: 12px; overflow: hidden; border-radius: 99px; background: var(--pm-track); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--pm-border) 70%, transparent); }
-.lernraum-panel .lr-progress-band-segment { flex: none; min-width: 0; transition: width .35s ease; }
+.lernraum-panel .lr-progress-band-segment { flex: none; min-width: 0; }
 @media (prefers-reduced-motion: reduce) {
   .lernraum-panel .lr-bar::after,
   .lernraum-panel .lr-progress-band::after { display: none; }
-  .lernraum-panel .lr-progress-band-segment { transition: none; }
+  .lernraum-panel .lr-bar--updated .lr-bar-seg,
+  .lernraum-panel .lr-progress-band--updated .lr-progress-band-segment { transition: none; }
 }
 
 .lernraum-panel .lr-page {
@@ -2583,6 +3039,14 @@ onBeforeUnmount(() => {
 .lernraum-panel .lr-course-progress { display: flex; flex-direction: column; gap: 7px; margin-top: 24px; color: var(--pm-text-muted); font-size: 11.5px; }
 .lernraum-panel .lr-course-card--add { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border-style: dashed; color: var(--pm-text-muted); text-align: center; }
 .lernraum-panel .lr-course-add-icon { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid var(--pm-border); border-radius: 50%; color: var(--pm-accent-text); font-size: 22px; font-weight: 300; }
+.lernraum-panel .lr-course-card--add strong { color: var(--pm-text-muted); font-size: 14px; font-weight: 560; }
+.lernraum-panel .lr-course-card--add small { max-width: 210px; color: var(--pm-text-muted); font-size: 11.5px; line-height: 1.45; text-wrap: balance; }
+.lernraum-panel .lr-sheet-add strong { color: var(--pm-text-muted); font-size: 14px; font-weight: 560; }
+.lernraum-panel .lr-sheet-add small { max-width: 210px; color: var(--pm-text-muted); font-size: 11.5px; line-height: 1.45; text-wrap: balance; }
+.lernraum-panel .lr-sheet-add--empty { border-color: color-mix(in oklab, var(--pm-accent) 55%, var(--pm-border)); background: color-mix(in oklab, var(--pm-accent) 5%, var(--pm-surface-card)); }
+.lernraum-panel .lr-sheet-add--empty .lr-course-add-icon { width: 44px; height: 44px; border-color: color-mix(in oklab, var(--pm-accent) 62%, var(--pm-border)); background: var(--pm-selected); font-size: 25px; }
+.lernraum-panel .lr-sheet-add--empty strong { color: var(--pm-text); font-size: 15px; font-weight: 660; }
+.lernraum-panel .lr-sheet-add--empty:hover { border-color: var(--pm-accent); background: color-mix(in oklab, var(--pm-accent) 10%, var(--pm-surface-card)); }
 
 .lernraum-panel .lr-course-overview { display: flex; align-items: center; gap: 28px; padding: 22px 24px; border: 1px solid var(--pm-border); border-radius: 16px; background: var(--pm-surface-card); }
 .lernraum-panel .lr-overview-stat { flex: none; display: flex; flex-direction: column; gap: 3px; min-width: 120px; }
@@ -2653,7 +3117,6 @@ onBeforeUnmount(() => {
 .lernraum-panel .lr-learning-focus .lr-learn-head { animation: lr-learning-header-in .38s cubic-bezier(.22, 1, .36, 1) .05s both; }
 .lernraum-panel .lr-learning-focus .lr-focus-card,
 .lernraum-panel .lr-learning-focus .lr-learn-done { animation: lr-learning-card-in .52s cubic-bezier(.16, 1, .3, 1) .12s both; }
-.lernraum-panel .lr-learning-focus .lr-learn-progress-ring:not(.lr-learn-progress-ring--pulse) { animation: lr-learning-progress-in .44s cubic-bezier(.34, 1.56, .64, 1) .2s both; }
 @keyframes lr-learning-surface-in {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
@@ -2665,10 +3128,6 @@ onBeforeUnmount(() => {
 @keyframes lr-learning-card-in {
   from { opacity: 0; transform: translateY(24px) scale(.965); }
   to { opacity: 1; transform: translateY(0) scale(1); }
-}
-@keyframes lr-learning-progress-in {
-  from { opacity: 0; transform: scale(.72); }
-  to { opacity: 1; transform: scale(1); }
 }
 .lernraum-panel .lr-focus-exit { justify-self: start; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border: 1px solid var(--pm-border); border-radius: 99px; background: transparent; color: var(--pm-text-muted); font: 560 13px/1 var(--pm-font-sans); cursor: pointer; transition: color .15s, border-color .15s, background .15s; }
 .lernraum-panel .lr-focus-exit:hover { border-color: var(--pm-text-muted); background: var(--pm-chip-bg); color: var(--pm-text); }
@@ -2695,7 +3154,11 @@ onBeforeUnmount(() => {
 .lr-exit-backdrop-leave-active { transition: opacity .18s ease; }
 .lr-exit-backdrop-enter-from,
 .lr-exit-backdrop-leave-to { opacity: 0; }
-.lernraum-panel .lr-focus-stage { flex: 1; display: grid; place-items: center; padding: 34px 24px 64px; border-top: 1px solid var(--pm-border); }
+.lernraum-panel .lr-focus-stage { position: relative; isolation: isolate; flex: 1; display: grid; place-items: center; overflow: hidden; padding: 34px 24px 64px; border-top: 1px solid var(--pm-border); }
+.lernraum-panel .lr-confetti { position: absolute; z-index: 1; inset: 0; overflow: hidden; pointer-events: none; }
+.lernraum-panel .lr-confetti i { position: absolute; top: -24px; left: var(--confetti-x); width: var(--confetti-size); height: calc(var(--confetti-size) * .58); border-radius: 2px; background: var(--confetti-color); opacity: 0; transform-origin: center; will-change: transform, opacity; animation: lr-confetti-fall var(--confetti-duration) var(--confetti-delay) linear both; }
+.lernraum-panel .lr-confetti i:nth-child(3n) { height: var(--confetti-size); border-radius: 50%; }
+.lernraum-panel .lr-confetti i:nth-child(4n) { width: calc(var(--confetti-size) * .48); height: calc(var(--confetti-size) * 1.35); }
 .lernraum-panel .lr-focus-card { width: fit-content; min-width: min(100%, 360px); max-width: min(100%, 720px); perspective: 1400px; interpolate-size: allow-keywords; transition: width .34s cubic-bezier(.2,.72,.2,1); }
 .lernraum-panel .lr-focus-card-inner { position: relative; width: 100%; transform-style: preserve-3d; transition: transform .76s cubic-bezier(.34,1.24,.64,1); }
 .lernraum-panel .lr-focus-card--revealed .lr-focus-card-inner { transform: rotateY(180deg); }
@@ -2733,11 +3196,31 @@ onBeforeUnmount(() => {
 .lernraum-panel .lr-learn-hint p { margin: 0; font-size: 14px; line-height: 1.55; }
 .lernraum-panel .lr-learn-hint .lr-learn-hint-error { color: var(--pm-danger); }
 .lernraum-panel .lr-learn-card-nav { display: flex; justify-content: center; gap: 10px; margin-top: 16px; }
-.lernraum-panel .lr-learn-card-nav .lr-nq-arrow { width: 40px; border-radius: 99px; }
+.lernraum-panel .lr-learn-card-nav .lr-nq-arrow {
+  width: 40px;
+  border-color: color-mix(in oklab, var(--pm-text-muted) 58%, var(--pm-border));
+  border-radius: 99px;
+  background: color-mix(in oklab, var(--pm-surface-card) 84%, var(--pm-text) 16%);
+  color: var(--pm-text);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--pm-text) 7%, transparent);
+}
+.lernraum-panel .lr-learn-card-nav .lr-nq-arrow svg { stroke-width: 2.35; }
+.lernraum-panel .lr-learn-card-nav .lr-nq-arrow:hover:not(:disabled) {
+  border-color: var(--pm-accent);
+  background: var(--pm-selected);
+  color: var(--pm-accent-text);
+}
+.lernraum-panel .lr-learn-card-nav .lr-nq-arrow:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 3px; }
+.lernraum-panel .lr-learn-card-nav .lr-nq-arrow:disabled {
+  border-color: color-mix(in oklab, var(--pm-text-muted) 38%, var(--pm-border));
+  background: color-mix(in oklab, var(--pm-surface-card) 92%, var(--pm-text) 8%);
+  color: var(--pm-text-muted);
+  opacity: .58;
+}
 .lernraum-panel .lr-assess { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 48px; }
 .lernraum-panel .lr-assess kbd { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border: 1px solid var(--pm-border); border-radius: 5px; background: var(--pm-surface-reader); color: var(--pm-text-muted); font: 500 10px/1 var(--pm-font-mono); }
 .lernraum-panel .lr-learn-selfhint { margin: 0; }
-.lernraum-panel .lr-learn-done { position: relative; max-width: 680px; margin: 0; padding: 38px clamp(28px, 5vw, 64px) 34px; gap: 14px; overflow: hidden; border: 1px solid var(--pm-border); border-radius: 22px; background: var(--pm-surface-card); box-shadow: 0 18px 60px rgba(0, 0, 0, .24); }
+.lernraum-panel .lr-learn-done { position: relative; z-index: 2; max-width: 680px; margin: 0; padding: 38px clamp(28px, 5vw, 64px) 34px; gap: 14px; overflow: hidden; border: 1px solid var(--pm-border); border-radius: 22px; background: color-mix(in oklab, var(--pm-surface-card) 88%, transparent); box-shadow: 0 18px 60px rgba(0, 0, 0, .24); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
 .lernraum-panel .lr-learn-done p { margin: -5px 0 7px; color: var(--pm-text-muted); font-size: 13px; }
 .lernraum-panel .lr-done-orbit { position: relative; display: grid; place-items: center; width: 158px; height: 158px; margin-bottom: 6px; }
 .lernraum-panel .lr-learn-done .lr-done-orbit { animation: lr-done-orbit-pop .62s cubic-bezier(.34, 1.56, .64, 1) .2s both; }
@@ -2771,17 +3254,77 @@ onBeforeUnmount(() => {
 @keyframes lr-done-bar-grow { from { transform: scaleX(0); opacity: .25; } to { transform: scaleX(1); opacity: 1; } }
 @keyframes lr-done-orbit-pop { from { opacity: 0; transform: scale(.68) rotate(-8deg); } 70% { opacity: 1; transform: scale(1.06) rotate(2deg); } to { opacity: 1; transform: scale(1) rotate(0); } }
 @keyframes lr-done-item-in { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes lr-confetti-fall {
+  0% { opacity: 0; transform: translate3d(0, -28px, 0) rotate(0deg) rotateY(0deg); }
+  5% { opacity: 1; }
+  16% { transform: translate3d(var(--confetti-sway), 12vh, 0) rotate(75deg) rotateY(135deg); }
+  32% { transform: translate3d(var(--confetti-sway-back), 29vh, 0) rotate(185deg) rotateY(280deg); }
+  49% { transform: translate3d(var(--confetti-sway), 48vh, 0) rotate(310deg) rotateY(430deg); }
+  66% { transform: translate3d(var(--confetti-sway-back), 68vh, 0) rotate(440deg) rotateY(590deg); }
+  83% { opacity: 1; transform: translate3d(var(--confetti-sway), 88vh, 0) rotate(570deg) rotateY(760deg); }
+  100% { opacity: 0; transform: translate3d(var(--confetti-drift), calc(100vh + 70px), 0) rotate(var(--confetti-rotate)) rotateY(900deg); }
+}
 
 /* Lernblatt: reduziert auf Status, Hauptaktion und die Karten selbst. */
-.lernraum-panel .lr-sheet-page { gap: 22px; }
-.lernraum-panel .lr-sheet-columns { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(280px, .8fr); align-items: start; gap: clamp(22px, 3vw, 34px); }
-.lernraum-panel .lr-sheet-column { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.lernraum-panel .lr-sheet-page { gap: 38px; }
+.lernraum-panel .lr-sheet-column { min-width: 0; display: flex; flex-direction: column; gap: 17px; }
 .lernraum-panel .lr-sheet-column-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; min-height: 46px; }
 .lernraum-panel .lr-sheet-column-head > div { display: flex; flex-direction: column; gap: 4px; }
 .lernraum-panel .lr-sheet-column-head h2 { margin: 0; font: 660 19px/1.25 var(--pm-font-sans); letter-spacing: -.02em; }
-.lernraum-panel .lr-sheet-history { position: sticky; top: 24px; }
-.lernraum-panel .lr-sheet-history .lr-run-row { grid-template-columns: 62px minmax(0, 1fr); align-items: start; gap: 8px 12px; padding: 14px 40px 14px 14px; }
-.lernraum-panel .lr-sheet-history .lr-run-results { grid-column: 2; }
+.lernraum-panel .lr-sheet-column-head--sticky { position: sticky; z-index: 5; top: 0; }
+.lernraum-panel .lr-sheet-progress { min-width: 0; display: flex; flex-direction: column; gap: 17px; }
+.lernraum-panel .lr-progress-label-toggle { display: inline-flex; align-items: center; align-self: flex-start; gap: 8px; padding: 0; border: 0; background: transparent; color: var(--pm-accent-text); cursor: pointer; }
+.lernraum-panel .lr-progress-label-toggle:hover { color: var(--pm-text); }
+.lernraum-panel .lr-progress-label-toggle:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 3px; border-radius: 3px; }
+.lernraum-panel .lr-progress-label-toggle svg { width: 17px; height: 17px; fill: currentColor; transition: transform .24s cubic-bezier(.22, 1, .36, 1); }
+.lernraum-panel .lr-progress-label-toggle[aria-expanded="false"] svg { transform: rotate(-90deg); }
+.lernraum-panel .lr-progress-content { display: flex; min-width: 0; flex-direction: column; gap: 17px; }
+.lr-progress-reveal-enter-active,
+.lr-progress-reveal-leave-active { transition: opacity .2s ease, transform .24s cubic-bezier(.22, 1, .36, 1); }
+.lr-progress-reveal-enter-from,
+.lr-progress-reveal-leave-to { opacity: 0; transform: translateY(-8px); }
+.lernraum-panel .lr-progress-chart-card { overflow: hidden; border: 1px solid var(--pm-border); border-radius: 18px; background: var(--pm-surface-card); }
+.lernraum-panel .lr-progress-chart-card--intro .lr-progress-chart-summary,
+.lernraum-panel .lr-progress-chart-card--intro .lr-progress-chart-scroll { animation: lr-chart-intro .32s cubic-bezier(.22, 1, .36, 1) both; }
+.lernraum-panel .lr-progress-chart-summary { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 20px 24px 10px; }
+.lernraum-panel .lr-progress-chart-summary > div:first-child { display: flex; flex-direction: column; gap: 3px; }
+.lernraum-panel .lr-progress-chart-summary strong { color: var(--pm-text); font-size: 28px; line-height: 1; letter-spacing: -.04em; }
+.lernraum-panel .lr-progress-chart-summary > div:first-child span { color: var(--pm-text-muted); font-size: 12px; }
+.lernraum-panel .lr-progress-chart-legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px 16px; color: var(--pm-text-muted); font-size: 11.5px; }
+.lernraum-panel .lr-progress-chart-legend span { display: inline-flex; align-items: center; white-space: nowrap; }
+.lernraum-panel .lr-chart-line-key { width: 18px; height: 2px; margin-right: 6px; border-radius: 99px; background: var(--pm-accent); box-shadow: 5px 0 0 -1px var(--pm-surface-card), 5px 0 0 1px var(--pm-accent); }
+.lernraum-panel .lr-progress-chart-scroll { overflow-x: auto; padding: 0 14px 4px; scrollbar-width: thin; }
+.lernraum-panel .lr-progress-chart { display: block; min-width: 100%; height: 180px; overflow: visible; }
+.lernraum-panel .lr-chart-grid line { stroke: var(--pm-border); stroke-width: 1; stroke-dasharray: 3 6; }
+.lernraum-panel .lr-chart-grid text { fill: var(--pm-text-muted); font: 10px var(--pm-font-mono); }
+.lernraum-panel .lr-chart-bar-bg { fill: var(--pm-track); }
+.lernraum-panel .lr-chart-bar { transform-box: fill-box; transform-origin: center bottom; transition: opacity .15s; }
+.lernraum-panel .lr-chart-run--intro .lr-chart-bar { animation: lr-chart-bar-intro .42s cubic-bezier(.22, 1, .36, 1) both; }
+.lernraum-panel .lr-chart-run--fresh .lr-chart-bar { animation: lr-chart-bar-rise .58s cubic-bezier(.22, 1, .36, 1) both; }
+.lernraum-panel .lr-chart-bar--strong { fill: var(--pm-success); }
+.lernraum-panel .lr-chart-bar--medium { fill: var(--pm-star); }
+.lernraum-panel .lr-chart-bar--weak { fill: var(--pm-danger); }
+.lernraum-panel .lr-chart-run--paused .lr-chart-bar { opacity: .42; }
+.lernraum-panel .lr-chart-run--paused .lr-chart-bar-bg { stroke: var(--pm-text-muted); stroke-width: 1; stroke-dasharray: 4 4; }
+.lernraum-panel .lr-chart-run:focus { outline: none; }
+.lernraum-panel .lr-chart-run:focus .lr-chart-bar-bg { stroke: var(--pm-accent); stroke-width: 2; }
+.lernraum-panel .lr-chart-date { fill: var(--pm-text); font: 600 10.5px var(--pm-font-sans); }
+.lernraum-panel .lr-chart-time { fill: var(--pm-text-muted); font: 10px var(--pm-font-mono); }
+.lernraum-panel .lr-chart-score-line { fill: none; stroke: var(--pm-accent); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.lernraum-panel .lr-progress-chart-card--intro .lr-chart-score-line { stroke-dasharray: 1; stroke-dashoffset: 1; animation: lr-chart-line-draw .56s cubic-bezier(.22, 1, .36, 1) .12s both; }
+.lernraum-panel .lr-chart-score-point { fill: var(--pm-surface-card); stroke: var(--pm-accent); stroke-width: 3; vector-effect: non-scaling-stroke; transform-box: fill-box; transform-origin: center; }
+.lernraum-panel .lr-progress-chart-card--intro .lr-chart-score-point { animation: lr-chart-point-in .32s cubic-bezier(.22, 1, .36, 1) both; }
+.lernraum-panel .lr-chart-score-point--fresh { animation: lr-chart-point-pop .5s cubic-bezier(.34, 1.56, .64, 1) both; }
+@keyframes lr-chart-bar-intro { from { opacity: .2; transform: scaleY(.72); } to { opacity: 1; transform: scaleY(1); } }
+@keyframes lr-chart-bar-rise { from { opacity: .16; transform: scaleY(.04); } 72% { opacity: 1; transform: scaleY(1.045); } to { opacity: 1; transform: scaleY(1); } }
+@keyframes lr-chart-line-draw { to { stroke-dashoffset: 0; } }
+@keyframes lr-chart-point-in { from { opacity: 0; transform: scale(.35); } to { opacity: 1; transform: scale(1); } }
+@keyframes lr-chart-point-pop { from { transform: scale(.55); } 65% { transform: scale(1.45); } to { transform: scale(1); } }
+@keyframes lr-chart-intro { from { opacity: .58; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.lernraum-panel .lr-course-page--empty { flex: 1; min-height: 0; }
+.lernraum-panel .lr-course-empty-page { flex: 1; min-height: 0; display: grid; place-items: center; }
+.lernraum-panel .lr-sheet-page--empty { flex: 1; min-height: 0; }
+.lernraum-panel .lr-sheet-empty-page { flex: 1; min-height: 0; display: grid; place-items: center; }
 .lernraum-panel .lr-history-empty { padding: 22px 20px; border: 1px dashed var(--pm-border); border-radius: 14px; background: color-mix(in oklab, var(--pm-surface-card) 70%, transparent); }
 .lernraum-panel .lr-history-empty span { color: var(--pm-text); font-size: 13.5px; font-weight: 620; }
 .lernraum-panel .lr-history-empty p { margin: 6px 0 0; color: var(--pm-text-muted); font-size: 12.5px; line-height: 1.5; }
@@ -2804,6 +3347,13 @@ onBeforeUnmount(() => {
   .lernraum-panel .lr-favorite-icon-wrap--pop::after { animation: none; }
 }
 .lernraum-panel .lr-cards-list { display: flex; flex-direction: column; gap: 12px; }
+.lernraum-panel .lr-cards-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 1fr; gap: 12px; }
+.lernraum-panel .lr-cards-grid .lr-card-row { height: 150px; overflow: hidden; }
+.lernraum-panel .lr-cards-grid .lr-card-row-main { min-height: 0; overflow: hidden; }
+.lernraum-panel .lr-cards-grid .lr-card-front,
+.lernraum-panel .lr-cards-grid .lr-card-back { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; }
+.lernraum-panel .lr-cards-grid .lr-card-front { -webkit-line-clamp: 2; }
+.lernraum-panel .lr-cards-grid .lr-card-back { -webkit-line-clamp: 3; }
 .lernraum-panel .lr-cards-list .lr-card-row { gap: 16px; padding: 18px 20px; border: 1px solid var(--pm-border); border-radius: 14px; background: var(--pm-surface-card); cursor: pointer; transition: border-color .15s, box-shadow .15s; }
 .lernraum-panel .lr-cards-list .lr-card-row:hover,
 .lernraum-panel .lr-cards-list .lr-card-row:focus-within { border-color: color-mix(in oklab, var(--pm-accent) 45%, var(--pm-border)); }
@@ -2815,9 +3365,6 @@ onBeforeUnmount(() => {
 .lernraum-panel .lr-cards-list .lr-card-row:hover .lr-card-row-actions,
 .lernraum-panel .lr-cards-list .lr-card-row:focus-within .lr-card-row-actions { opacity: 1; }
 @media (hover: none) { .lernraum-panel .lr-cards-list .lr-card-row-actions { opacity: 1; } }
-.lernraum-panel .lr-card-add { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 0; padding: 16px; border: 1.5px dashed color-mix(in oklab, var(--pm-accent) 42%, var(--pm-border)); border-radius: 14px; background: color-mix(in oklab, var(--pm-surface-card) 82%, var(--pm-accent) 4%); color: color-mix(in oklab, var(--pm-text) 82%, var(--pm-text-muted)); font: 580 13.5px/1 var(--pm-font-sans); cursor: pointer; transition: border-color .15s, background .15s, color .15s; }
-.lernraum-panel .lr-card-add:hover { border-color: var(--pm-accent); background: var(--pm-selected); color: var(--pm-accent-text); }
-.lernraum-panel .lr-card-add:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 2px; }
 
 @media (max-width: 760px) {
   .lernraum-panel .lr-page { padding: 25px 18px 40px; gap: 32px; }
@@ -2832,14 +3379,27 @@ onBeforeUnmount(() => {
   .lernraum-panel .lr-focus-card .lr-learn-actions { flex-direction: column; }
   .lernraum-panel .lr-run-row { grid-template-columns: 60px minmax(0, 1fr); gap: 12px; }
   .lernraum-panel .lr-run-results { grid-column: 2; }
+  .lernraum-panel .lr-progress-chart-summary { align-items: flex-start; flex-direction: column; padding: 18px 18px 8px; }
+  .lernraum-panel .lr-progress-chart-legend { justify-content: flex-start; }
+  .lernraum-panel .lr-progress-chart-scroll { padding-inline: 4px; }
 }
 
 @media (max-width: 1050px) {
-  .lernraum-panel .lr-sheet-columns { grid-template-columns: minmax(0, 1fr); }
-  .lernraum-panel .lr-sheet-history { position: static; }
+  .lernraum-panel .lr-cards-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .lernraum-panel .lr-progress-label-toggle svg,
+  .lr-progress-reveal-enter-active,
+  .lr-progress-reveal-leave-active { transition: none; }
+  .lernraum-panel .lr-chart-bar,
+  .lernraum-panel .lr-chart-score-line,
+  .lernraum-panel .lr-chart-score-point,
+  .lernraum-panel .lr-progress-chart-card--intro .lr-progress-chart-summary,
+  .lernraum-panel .lr-progress-chart-card--intro .lr-progress-chart-scroll { animation: none; }
+  .lernraum-panel .lr-bar--updated,
+  .lernraum-panel .lr-progress-band--updated { animation: none; }
+  .lernraum-panel .lr-confetti { display: none; }
   .lernraum-panel .lr-learning-focus,
   .lernraum-panel .lr-learning-focus .lr-learn-head,
   .lernraum-panel .lr-learning-focus .lr-focus-card,
@@ -2869,6 +3429,17 @@ onBeforeUnmount(() => {
 .pm-no-animations .lernraum-panel .lr-learn-done .lr-done-results,
 .pm-no-animations .lernraum-panel .lr-learn-done .lr-done-actions,
 .pm-no-animations .lernraum-panel .lr-learn-done .lr-done-result-track i { animation: none; }
+.pm-no-animations .lernraum-panel .lr-confetti { display: none; }
+.pm-no-animations .lernraum-panel .lr-progress-label-toggle svg,
+.pm-no-animations .lr-progress-reveal-enter-active,
+.pm-no-animations .lr-progress-reveal-leave-active { transition: none; }
+.pm-no-animations .lernraum-panel .lr-chart-bar,
+.pm-no-animations .lernraum-panel .lr-chart-score-line,
+.pm-no-animations .lernraum-panel .lr-chart-score-point,
+.pm-no-animations .lernraum-panel .lr-progress-chart-card--intro .lr-progress-chart-summary,
+.pm-no-animations .lernraum-panel .lr-progress-chart-card--intro .lr-progress-chart-scroll { animation: none; }
+.pm-no-animations .lernraum-panel .lr-bar--updated,
+.pm-no-animations .lernraum-panel .lr-progress-band--updated { animation: none; }
 .pm-no-animations .lernraum-panel .lr-learn-hint-shell { transition: none; }
 
 @media (max-width: 500px) {
@@ -2878,4 +3449,77 @@ onBeforeUnmount(() => {
   .lernraum-panel .lr-task { grid-column: span 1; align-items: flex-start; }
   .lernraum-panel .lr-task > .lr-btn { align-self: center; }
 }
+
+/* Schrittfolge – Editor in der Nachbereitung */
+.lernraum-panel .lr-nq-steps { display: flex; flex-direction: column; gap: 8px; }
+.lernraum-panel .lr-steps-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.lernraum-panel .lr-steps-row { display: flex; align-items: center; gap: 8px; }
+.lernraum-panel .lr-steps-num { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font: 620 11px/1 var(--pm-font-mono); color: var(--pm-accent-text); background: var(--pm-selected); }
+.lernraum-panel .lr-steps-input { flex: 1; min-width: 0; }
+.lernraum-panel .lr-steps-move, .lernraum-panel .lr-steps-del { flex: none; width: 28px; height: 28px; border: 1px solid var(--pm-border); border-radius: 7px; background: var(--pm-bg); color: var(--pm-text-muted); cursor: pointer; font-size: 13px; line-height: 1; }
+.lernraum-panel .lr-steps-move:hover:not(:disabled), .lernraum-panel .lr-steps-del:hover { color: var(--pm-text); background: var(--pm-surface-reader); }
+.lernraum-panel .lr-steps-move:disabled { opacity: .4; cursor: default; }
+.lernraum-panel .lr-steps-del:hover { color: var(--pm-danger); border-color: var(--pm-danger); }
+.lernraum-panel .lr-steps-add { align-self: flex-start; height: 30px; padding: 0 12px; border: 1px dashed var(--pm-border); border-radius: 8px; background: transparent; color: var(--pm-text-muted); font: 520 12.5px/1 var(--pm-font-sans); cursor: pointer; }
+.lernraum-panel .lr-steps-add:hover { color: var(--pm-accent-text); border-color: var(--pm-accent); }
+.lernraum-panel .lr-steps-hint { margin: 2px 0 0; font-size: 11.5px; color: var(--pm-text-muted); }
+
+/* Schrittfolge – Lernmodus (Reihenfolge ordnen) */
+.lernraum-panel .lr-focus-card--seq { width: min(640px, 100%); max-width: 640px; padding: 28px 30px; border: 1px solid var(--pm-border); border-radius: 16px; background: var(--pm-surface-card); display: flex; flex-direction: column; gap: 16px; }
+.lernraum-panel .lr-seq-instruction { margin: 0; font-size: 13px; color: var(--pm-text-muted); }
+.lernraum-panel .lr-seq-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.lernraum-panel .lr-seq-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--pm-border); border-radius: 10px; background: var(--pm-bg); }
+.lernraum-panel .lr-seq-pos { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font: 620 12px/1 var(--pm-font-mono); color: var(--pm-text-muted); background: var(--pm-chip-bg); }
+.lernraum-panel .lr-seq-text { flex: 1; min-width: 0; font: 500 14.5px/1.45 var(--pm-font-sans); color: var(--pm-text); }
+.lernraum-panel .lr-seq-hintpos { flex: none; font: 620 11px/1 var(--pm-font-mono); color: var(--pm-success); }
+.lernraum-panel .lr-seq-moves { flex: none; display: flex; gap: 4px; }
+.lernraum-panel .lr-seq-move { width: 30px; height: 30px; border: 1px solid var(--pm-border); border-radius: 7px; background: var(--pm-surface-card); color: var(--pm-text-muted); cursor: pointer; font-size: 14px; line-height: 1; }
+.lernraum-panel .lr-seq-move:hover:not(:disabled) { color: var(--pm-accent-text); border-color: var(--pm-accent); }
+.lernraum-panel .lr-seq-move:disabled { opacity: .35; cursor: default; }
+.lernraum-panel .lr-seq-item--ok { border-color: color-mix(in oklab, var(--pm-success) 55%, var(--pm-border)); background: color-mix(in oklab, var(--pm-success) 9%, var(--pm-bg)); }
+.lernraum-panel .lr-seq-item--ok .lr-seq-pos { color: var(--pm-on-accent); background: var(--pm-success); }
+.lernraum-panel .lr-seq-item--bad { border-color: color-mix(in oklab, var(--pm-danger) 45%, var(--pm-border)); background: color-mix(in oklab, var(--pm-danger) 8%, var(--pm-bg)); }
+.lernraum-panel .lr-seq-item--bad .lr-seq-pos { color: var(--pm-on-accent); background: var(--pm-danger); }
+</style>
+
+<style scoped>
+/* Match the exit popover backdrop on the teleported Vuetify menu. */
+:global(.lr-learn-start-overlay .v-overlay__scrim) {
+  opacity: 1;
+  background: color-mix(in oklab, var(--pm-bg) 58%, transparent);
+  backdrop-filter: saturate(.35) brightness(.72);
+}
+.lr-learn-start-panel { overflow: visible; }
+ .lernraum-panel .lr-learn-start-options { position: relative; top: auto; left: auto; margin-top: 6px; width: min(360px, calc(100vw - 32px)); padding: 20px; border-radius: 16px; }
+.lernraum-panel .lr-learn-start-options::before { left: auto; right: 24px; }
+.lr-start-heading { display: flex; align-items: center; gap: 12px; }
+.lr-start-heading-icon { display: grid; place-items: center; flex: none; width: 38px; height: 38px; border-radius: 12px; background: color-mix(in oklab, var(--pm-accent) 12%, var(--pm-surface-card)); color: var(--pm-accent-text); }
+.lernraum-panel .lr-start-heading strong { font-size: 16px; }
+.lernraum-panel .lr-start-heading p { margin: 4px 0 0; font-size: 12px; color: var(--pm-text-muted); }
+.lr-learn-start-options fieldset { border: 0; padding: 0; margin: 20px 0 0; min-width: 0; }
+.lr-learn-start-options legend { margin-bottom: 9px; font-size: 11px; font-weight: 600; color: var(--pm-text-muted); }
+.lr-start-choice { display: flex; align-items: center; gap: 12px; padding: 12px; margin-bottom: 7px; border: 1px solid var(--pm-border); border-radius: 10px; cursor: pointer; transition: background .15s, border-color .15s; }
+.lr-start-choice:hover { background: var(--pm-chip-bg); }
+.lr-start-choice--selected { border-color: var(--pm-accent); background: color-mix(in oklab, var(--pm-accent) 9%, var(--pm-surface-card)); }
+.lr-start-choice:focus-within { outline: 2px solid var(--pm-accent); outline-offset: 2px; }
+.lr-start-choice input { accent-color: var(--pm-accent); flex: none; width: 16px; height: 16px; }
+.lr-start-choice span { display: flex; flex-direction: column; gap: 4px; }
+.lr-start-choice b { font-size: 13px; font-weight: 600; }
+.lr-start-choice small { font-size: 11.5px; line-height: 1.4; color: var(--pm-text-muted); }
+.lr-start-footer { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--pm-border); }
+.lr-start-footer > span { font-size: 11px; color: var(--pm-text-muted); }
+.lr-start-submit { display: flex; justify-content: center; align-items: center; gap: 9px; width: 100%; min-height: 40px; padding: 9px 14px; border: 0; border-radius: 10px; background: var(--pm-accent); color: var(--pm-on-accent); font: 600 13px/1.3 var(--pm-font-sans); cursor: pointer; }
+.lr-start-submit:hover { filter: brightness(1.06); }
+.lr-start-submit:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 3px; }
+
+.lernraum-panel .lr-learn-exit-options { width: min(360px, calc(100vw - 40px)); padding: 20px; border-radius: 16px; }
+.lr-exit-summary { margin-top: 18px; padding: 13px 14px; border: 1px solid var(--pm-border); border-radius: 10px; background: var(--pm-chip-bg); }
+.lr-exit-remaining { display: block; font-size: 13px; font-weight: 600; }
+.lernraum-panel .lr-exit-summary p { margin: 5px 0 0; color: var(--pm-text-muted); font-size: 12px; }
+.lernraum-panel .lr-learn-exit-options .lr-learn-exit-actions { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--pm-border); gap: 9px; }
+.lernraum-panel .lr-learn-exit-options .lr-learn-exit-actions button { flex: none; height: auto; min-height: 40px; padding: 10px 12px; border-radius: 10px; font-size: 13px; }
+.lernraum-panel .lr-learn-exit-options .lr-learn-exit-cancel { flex: 1; background: var(--pm-accent); color: var(--pm-on-accent); }
+.lernraum-panel .lr-learn-exit-options .lr-learn-exit-cancel:hover { filter: brightness(1.06); }
+.lernraum-panel .lr-learn-exit-options .lr-learn-exit-confirm { border: 0; background: transparent; color: var(--pm-text-muted); font-weight: 500; }
+.lernraum-panel .lr-learn-exit-options .lr-learn-exit-confirm:hover { background: var(--pm-chip-bg); color: var(--pm-danger, #d85d55); }
 </style>

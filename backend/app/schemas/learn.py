@@ -167,12 +167,14 @@ class LearnCardCreate(BaseModel):
     kind: ArtifactType = "fakt"
     front: str = Field(default="", max_length=4000)
     back: str | None = Field(default=None, max_length=8000)
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class LearnCardUpdate(BaseModel):
     kind: ArtifactType | None = None
     front: str | None = Field(default=None, max_length=4000)
     back: str | None = Field(default=None, max_length=8000)
+    payload: dict[str, Any] | None = None
     position: int | None = Field(default=None, ge=0, le=100000)
     status: CardStatus | None = None
 
@@ -189,6 +191,7 @@ class LearnCardRead(ORMModel):
     kind: str
     front: str
     back: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
     position: int
     status: str = "open"
     last_reviewed_at: datetime | None = None
@@ -286,6 +289,7 @@ class LearnMarkerPromote(BaseModel):
     kind: ArtifactType = "fakt"
     front: str = Field(default="", max_length=4000)
     back: str | None = Field(default=None, max_length=8000)
+    payload: dict[str, Any] = Field(default_factory=dict)
     sheet_id: uuid.UUID | None = None
     session_id: uuid.UUID | None = None
     course_id: uuid.UUID | None = None

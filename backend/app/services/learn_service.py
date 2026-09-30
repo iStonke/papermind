@@ -33,6 +33,26 @@ from app.schemas.learn import (
 
 logger = logging.getLogger("papermind.learn")
 
+# Karten-Typen, die als Schrittfolge gelernt werden (Payload: {"steps": [...]}).
+SEQUENCE_KINDS = {"prozess", "prozedural"}
+
+
+def _clean_card_payload(kind: str, payload: dict | None) -> dict:
+    """Payload je Kartentyp normalisieren. Nur Schrittfolgen tragen Inhalt."""
+    payload = payload or {}
+    if kind in SEQUENCE_KINDS:
+        steps: list[str] = []
+        for raw in payload.get("steps") or []:
+            if not isinstance(raw, str):
+                continue
+            text = raw.strip()
+            if text:
+                steps.append(text[:500])
+            if len(steps) >= 30:
+                break
+        return {"steps": steps}
+    return {}
+
 
 class LearnService:
     """CRUD für die Container-Ebene des Lernbereichs (Kurs/Sitzung/Lernblatt).
@@ -458,6 +478,7 @@ class LearnService:
             kind=payload.kind,
             front=front,
             back=(payload.back.strip() if payload.back and payload.back.strip() else None),
+            payload=_clean_card_payload(payload.kind, payload.payload),
             position=self._next_card_position(sheet_id),
         )
         self.db.add(card)
@@ -475,6 +496,12 @@ class LearnService:
             card.front = payload.front.strip()
         if "back" in fields:
             card.back = payload.back.strip() if payload.back and payload.back.strip() else None
+        # Payload gegen den (ggf. neuen) Kartentyp bereinigen; Typwechsel weg von
+        # einer Schrittfolge leert das Feld automatisch.
+        if "payload" in fields:
+            card.payload = _clean_card_payload(card.kind, payload.payload)
+        elif "kind" in fields:
+            card.payload = _clean_card_payload(card.kind, card.payload)
         if "position" in fields and payload.position is not None:
             card.position = payload.position
         if "status" in fields and payload.status is not None:
@@ -760,6 +787,7 @@ class LearnService:
         card.kind = payload.kind
         card.front = front
         card.back = payload.back.strip() if payload.back and payload.back.strip() else None
+        card.payload = _clean_card_payload(payload.kind, payload.payload)
 
         # Optionale dauerhafte Notiz↔Sitzung-Kopplung (künftige Marker automatisch zugeordnet).
         if payload.bind_note and session is not None and session.note_id != marker.note_id:

@@ -158,6 +158,9 @@ class LearnCard(Base):
     kind: Mapped[str] = mapped_column(String(24), nullable=False, server_default="fakt")
     front: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     back: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Typspezifischer Inhalt jenseits von front/back (z. B. Schrittfolge:
+    # {"steps": [...]}). Flip-Karten lassen das Feld leer ({}).
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default="{}")
     position: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     # Lernstand aus dem Lernmodus: open (noch offen) | weak (nicht gekonnt) |
     # medium (mit Mühe) | strong (sicher). Speist die Lernstand-Balken.
