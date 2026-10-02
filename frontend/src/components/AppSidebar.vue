@@ -740,9 +740,9 @@ const noTextSidebarCount    = computed(() => Number(sidebarCounts.value.no_text_
 const notesStore = useNotesStore();
 onMounted(() => notesStore.ensureLoaded());
 watch(() => notesStore.activeCollectionId, (id) => {
-  if (id) notesStore.refreshThoughtCount(id).catch(() => {});
+  if (id) notesStore.refreshThoughtRoomCount(id).catch(() => {});
 }, { immediate: true });
-const thoughtSidebarCount = computed(() => notesStore.thoughtCounts[notesStore.activeCollectionId] ?? 0);
+const thoughtSidebarCount = computed(() => notesStore.thoughtRoomCounts[notesStore.activeCollectionId] ?? 0);
 const notesSidebarCount = computed(() => notesStore.notes.length);
 const recentNotesSidebarCount = computed(() => Math.min(notesSidebarCount.value, 10));
 const pinnedNotesSidebarCount = computed(

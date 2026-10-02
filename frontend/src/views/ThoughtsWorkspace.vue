@@ -28,8 +28,9 @@
           <div v-else class="notes-ws__groups"><section class="notes-ws__group notes-ws__group--flat"><ul class="notes-ws__list">
             <li v-for="room in visibleRooms" :key="room.id" class="notes-ws__item" :data-room-id="room.id" :class="{ 'is-active': activeRoomId === room.id, 'is-new': newlyCreatedRoomId === room.id }" @animationend.self="finishNewRoomAnimation(room.id)">
               <button type="button" class="notes-ws__item-select" :aria-current="activeRoomId === room.id ? 'true' : undefined" :disabled="saving" @click="selectRoom(room.id)">
-                <span class="notes-ws__item-head"><span class="notes-ws__item-title">{{ room.title }}</span><span class="notes-ws__item-date">{{ listDateLabel(room.updated_at) }}</span></span>
+                <span class="notes-ws__item-head"><span class="notes-ws__item-title">{{ room.title }}</span></span>
                 <span class="notes-ws__item-snippet">{{ room.content?.trim().replace(/\s+/g, ' ') || 'Platz für deine Gedanken' }}</span>
+                <span class="thoughts-room-meta"><span>{{ room.note_count || 0 }} {{ (room.note_count || 0) === 1 ? 'Gedanke' : 'Gedanken' }}</span><span aria-hidden="true">·</span><span>{{ listDateLabel(room.updated_at) }}</span></span>
               </button>
               <button type="button" class="notes-ws__item-delete" title="Sammlung löschen" aria-label="Sammlung löschen" :disabled="saving" @click="error = ''; deleteRoomTarget = room"><v-icon size="16">mdi-trash-can-outline</v-icon></button>
               <button type="button" class="notes-ws__item-pin thoughts-item-edit" title="Sammlung umbenennen" aria-label="Sammlung umbenennen" :disabled="saving" @click="openRoomDialog(room)"><v-icon size="16">mdi-pencil-outline</v-icon></button>
@@ -361,6 +362,7 @@ async function createRoomAutomatically() {
     // Insert and select the returned item together; avoid reloading the entire list.
     requestVersion++; switchingRoom.value = false;
     rooms.value = [room, ...rooms.value];
+    store.setThoughtRoomCount(collectionId, rooms.value.length);
     activeRoomId.value = room.id;
     pins.value = []; activeId.value = null; undoIds.value = []; draft.value = ''; draftPosition.value = null;
     query.value = ''; zoom.value = 1;
@@ -630,6 +632,7 @@ async function load() {
     const roomItems = await listThoughtRooms(collectionId);
     if (version !== requestVersion || disposed) return;
     rooms.value = roomItems;
+    store.setThoughtRoomCount(collectionId, roomItems.length);
     if (!roomItems.some((room) => room.id === activeRoomId.value)) activeRoomId.value = roomItems.find((room) => room.id === readDraft(`pm-thought-room:${collectionId}`))?.id || roomItems[0]?.id;
     const response = await listPins(collectionId, archive, activeRoomId.value);
     if (version === requestVersion && !disposed) {
@@ -679,7 +682,7 @@ async function capture() {
     writeDraft(key, '');
     if (collectionId === activeCollectionId.value && !disposed) {
       newCardBounds.value = { ...newCardBounds.value, [pin.id]: draftBounds.value };
-      draft.value = ''; draftPosition.value = null; draftBounds.value = null; activeId.value = null; query.value = ''; if (!archived.value && pin.status === 'open') { pins.value = [pin, ...pins.value.filter((item) => item.id !== pin.id)]; }
+      draft.value = ''; draftPosition.value = null; draftBounds.value = null; activeId.value = null; query.value = ''; if (!archived.value && pin.status === 'open') { const alreadyListed = pins.value.some((item) => item.id === pin.id); pins.value = [pin, ...pins.value.filter((item) => item.id !== pin.id)]; const room = rooms.value.find((item) => item.id === pin.room_id); if (room && !alreadyListed) room.note_count = (room.note_count || 0) + 1; }
       await nextTick();
     }
     store.refreshThoughtCount(collectionId).catch(() => {});
@@ -1025,7 +1028,7 @@ textarea { display:block; width:100%; resize:none; min-height:22.1px; max-height
    Trennlinien; Hover = leichte Tönung, Auswahl = Akzentbalken + Tönung.
    Farben/Typo aus den gemeinsamen --pm-list-*-Tokens (theme/lists.css). */
 .notes-ws__list {
-  --notes-row-height: 86px;
+  --notes-row-height: 112px;
 }
 
 .notes-ws__item {
@@ -1072,13 +1075,7 @@ textarea { display:block; width:100%; resize:none; min-height:22.1px; max-height
   text-align: left;
 }
 
-.notes-ws__item-head {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-}
+.notes-ws__item-head { min-width: 0; }
 
 .notes-ws__item-title {
   min-width: 0;
@@ -1097,10 +1094,14 @@ textarea { display:block; width:100%; resize:none; min-height:22.1px; max-height
   font-weight: 500;
 }
 
-.notes-ws__item-date {
-  flex: none;
-  color: var(--pm-list-date);
-  font-size: 0.76rem;
+.thoughts-room-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  margin-right: 60px;
+  color: var(--pm-list-meta-soft);
+  font-size: 0.7rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }

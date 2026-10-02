@@ -36,6 +36,7 @@ def list_rooms(collection_id: uuid.UUID, db: Session = Depends(get_db), user: Us
         item = RoomRead.model_validate(room)
         contents = [pin for pin in pins if pin.room_id == room.id]
         item.content = "\n".join(pin.text for pin in contents)
+        item.note_count = len(contents)
         if contents:
             item.updated_at = max(item.updated_at, *(pin.updated_at for pin in contents))
         result.append(item)

@@ -86,6 +86,7 @@ class RoomRead(ORMModel):
     created_at: datetime
     updated_at: datetime
     content: str = ""
+    note_count: int = 0
 
 class PinColorBatchRequest(BaseModel):
     room_id: uuid.UUID

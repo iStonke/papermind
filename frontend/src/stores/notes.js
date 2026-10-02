@@ -62,6 +62,7 @@ export const useNotesStore = defineStore('notes', () => {
   const collections = ref([]);
   const collectionsLoaded = ref(false);
   const thoughtCounts = ref({});
+  const thoughtRoomCounts = ref({});
   // Zählt hoch, wenn ein Gedanke außerhalb des Gedanken-Arbeitsbereichs
   // (Command-Palette) festgehalten wurde; die offene Fläche lädt dann nach.
   const thoughtRevision = ref(0);
@@ -85,12 +86,22 @@ export const useNotesStore = defineStore('notes', () => {
     const pin = await api.createPin({ request_id: requestId, collection_id: collectionId, text, ...(roomId ? { room_id: roomId } : {}) });
     thoughtRevision.value += 1;
     refreshThoughtCount(collectionId).catch(() => {});
+    refreshThoughtRoomCount(collectionId).catch(() => {});
     return pin;
   }
   async function refreshThoughtCount(collectionId = activeCollectionId.value) {
     if (!collectionId) return;
     const result = await api.countPins(collectionId);
     thoughtCounts.value = { ...thoughtCounts.value, [collectionId]: result.count };
+  }
+  function setThoughtRoomCount(collectionId, count) {
+    if (!collectionId) return;
+    thoughtRoomCounts.value = { ...thoughtRoomCounts.value, [collectionId]: Number(count) || 0 };
+  }
+  async function refreshThoughtRoomCount(collectionId = activeCollectionId.value) {
+    if (!collectionId) return;
+    const rooms = await api.listThoughtRooms(collectionId);
+    setThoughtRoomCount(collectionId, rooms.length);
   }
 
   const ACTIVE_COLLECTION_KEY = 'pm-notes-active-collection-v1';
@@ -681,9 +692,12 @@ export const useNotesStore = defineStore('notes', () => {
     collectionsLoaded,
     activeCollectionId,
     thoughtCounts,
+    thoughtRoomCounts,
     thoughtRevision,
     captureThought,
     refreshThoughtCount,
+    setThoughtRoomCount,
+    refreshThoughtRoomCount,
     fetchCollections,
     ensureCollectionsLoaded,
     setActiveCollection,
