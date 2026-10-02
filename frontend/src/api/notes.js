@@ -154,3 +154,24 @@ export const importNoteArchive = (file) => {
   body.append('file', file);
   return apiFetch('/api/notes/import', { method: 'POST', body });
 };
+
+// Gedanken: plain-text inbox scoped to a collection.
+export const listPins = (collectionId, archived = false, roomId = null) => apiGet(`/api/notes/pins?${new URLSearchParams({ collection_id: collectionId, archived: String(archived), ...(roomId ? { room_id:roomId } : {}) })}`);
+export const countPins = (collectionId) => apiGet(`/api/notes/pins/count?${new URLSearchParams({ collection_id: collectionId })}`);
+export const createPin = (body) => apiPost('/api/notes/pins', body);
+export const updatePin = (id, body) => apiPatch(`/api/notes/pins/${id}`, body);
+export const archivePins = (collectionId, ids, archived = true) => apiPost('/api/notes/pins/archive', { collection_id: collectionId, ids, archived });
+
+export const movePin = (id, body) => apiPatch(`/api/notes/pins/${id}/position`, body);
+
+export const listThoughtRooms = (collectionId) => apiGet(`/api/notes/pins/rooms?${new URLSearchParams({ collection_id:collectionId })}`);
+export const createThoughtRoom = (body) => apiPost('/api/notes/pins/rooms', body);
+export const renameThoughtRoom = (id, body) => apiPatch(`/api/notes/pins/rooms/${id}`, body);
+
+export const deleteThoughtRoom = (id) => apiDelete(`/api/notes/pins/rooms/${id}`);
+
+export const colorPins = (body) => apiPatch('/api/notes/pins/colors', body);
+
+export const movePins = (body) => apiPatch('/api/notes/pins/positions', body);
+
+export const summarizeThoughtRoom = (id, options = {}) => apiPost(`/api/notes/pins/rooms/${id}/summary`, {}, options);

@@ -1,0 +1,1 @@
+export const THOUGHT_COLORS = [{ name:'Salbei',value:'#cce0dc' },{ name:'Blau',value:'#cbdff1' },{ name:'Lavendel',value:'#ded3ee' },{ name:'Rosa',value:'#efd2dc' },{ name:'Apricot',value:'#f1d6bd' },{ name:'Gelb',value:'#eee3b4' },{ name:'Grau',value:'#d9dfe2' }];

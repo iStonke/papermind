@@ -61,6 +61,13 @@ export const useNotesStore = defineStore('notes', () => {
   // wird pro Browser persistiert, damit man im letzten „Raum" landet.
   const collections = ref([]);
   const collectionsLoaded = ref(false);
+  const thoughtCounts = ref({});
+  async function refreshThoughtCount(collectionId = activeCollectionId.value) {
+    if (!collectionId) return;
+    const result = await api.countPins(collectionId);
+    thoughtCounts.value = { ...thoughtCounts.value, [collectionId]: result.count };
+  }
+
   const ACTIVE_COLLECTION_KEY = 'pm-notes-active-collection-v1';
   function loadActiveCollection() {
     try { return window.localStorage.getItem(ACTIVE_COLLECTION_KEY) || null; } catch { return null; }
@@ -189,6 +196,7 @@ export const useNotesStore = defineStore('notes', () => {
       persistActiveCollection(activeCollectionId.value);
     }
     await fetchCollections();
+    refreshThoughtCount().catch(() => {});
     if (wasActive || reassignTo === activeCollectionId.value) {
       await Promise.all([fetchNotes(), fetchNotebooks()]);
     }
@@ -647,6 +655,8 @@ export const useNotesStore = defineStore('notes', () => {
     collections,
     collectionsLoaded,
     activeCollectionId,
+    thoughtCounts,
+    refreshThoughtCount,
     fetchCollections,
     ensureCollectionsLoaded,
     setActiveCollection,

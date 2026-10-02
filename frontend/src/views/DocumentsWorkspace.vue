@@ -437,8 +437,13 @@
           </div>
         </section>
 
+        <ThoughtsWorkspace
+          v-if="!isDossierRoute && !isWikiRoute && !isLernraumRoute && activeView === 'notes' && activeNoteView === 'thoughts'"
+          class="panel panel-notes"
+          @open-note="openLinkedNoteInWorkspace"
+        />
         <NotesWorkspace
-          v-if="!isDossierRoute && !isWikiRoute && !isLernraumRoute && activeView === 'notes'"
+          v-if="!isDossierRoute && !isWikiRoute && !isLernraumRoute && activeView === 'notes' && activeNoteView !== 'thoughts'"
           class="panel panel-notes"
           :view-mode="activeNoteView"
           v-model:search-query="noteListSearchText"
@@ -1824,6 +1829,7 @@ const DashboardView = defineAsyncComponent(() => import('./DashboardView.vue'));
 const DossierWorkspace = defineAsyncComponent(() => import('./DossierWorkspace.vue'));
 const WikiWorkspace = defineAsyncComponent(() => import('./WikiWorkspace.vue'));
 const LernraumWorkspace = defineAsyncComponent(() => import('./LernraumWorkspace.vue'));
+const ThoughtsWorkspace = defineAsyncComponent(() => import('./ThoughtsWorkspace.vue'));
 const NotesWorkspace = defineAsyncComponent(() => import('./NotesWorkspace.vue'));
 const GlobalSearchResults = defineAsyncComponent(() => import('./GlobalSearchResults.vue'));
 const TagResultsView = defineAsyncComponent(() => import('./TagResultsView.vue'));
@@ -8301,8 +8307,8 @@ function selectView(viewKey, options = {}) {
     return;
   }
 
-  if (viewKey === 'notes_recent' || viewKey === 'notes_pinned') {
-    activeNoteView.value = viewKey === 'notes_recent' ? 'recent' : 'pinned';
+  if (['notes_recent', 'notes_pinned', 'notes_thoughts'].includes(viewKey)) {
+    activeNoteView.value = { notes_recent: 'recent', notes_pinned: 'pinned', notes_thoughts: 'thoughts' }[viewKey];
     activeView.value = 'notes';
     leaveActiveSavedSearch();
     return;

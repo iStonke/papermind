@@ -201,6 +201,15 @@
               </template>
               Alle Notizen
             </SidebarItem>
+            <SidebarItem
+              item-class="sidebar-item--primary sidebar-item--plain-label"
+              :active="isNoteViewActive('thoughts')"
+              :count="thoughtSidebarCount"
+              @click="emit('select-view', 'notes_thoughts')"
+            >
+              <template #icon><v-icon size="18">mdi-thought-bubble-outline</v-icon></template>
+              Gedanken
+            </SidebarItem>
 
             <SidebarItem
               item-class="sidebar-item--secondary"
@@ -523,7 +532,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useSidebarStore } from '../stores/sidebar.js';
@@ -730,6 +739,10 @@ const noTextSidebarCount    = computed(() => Number(sidebarCounts.value.no_text_
 // Notizen aus dem Store (Backend). Beim ersten Mount laden, damit der Zähler stimmt.
 const notesStore = useNotesStore();
 onMounted(() => notesStore.ensureLoaded());
+watch(() => notesStore.activeCollectionId, (id) => {
+  if (id) notesStore.refreshThoughtCount(id).catch(() => {});
+}, { immediate: true });
+const thoughtSidebarCount = computed(() => notesStore.thoughtCounts[notesStore.activeCollectionId] ?? 0);
 const notesSidebarCount = computed(() => notesStore.notes.length);
 const recentNotesSidebarCount = computed(() => Math.min(notesSidebarCount.value, 10));
 const pinnedNotesSidebarCount = computed(
@@ -869,6 +882,11 @@ const flyoutRows = computed(() => {
           id: 'notes', icon: 'mdi-note-outline', label: 'Alle Notizen',
           count: notesSidebarCount.value, active: isNoteViewActive('all'),
           run: () => emit('select-view', 'notes'),
+        },
+        {
+          id: 'notes_thoughts', icon: 'mdi-thought-bubble-outline', label: 'Gedanken',
+          count: thoughtSidebarCount.value, active: isNoteViewActive('thoughts'),
+          run: () => emit('select-view', 'notes_thoughts'),
         },
         {
           id: 'notes_recent', icon: 'mdi-clock-edit-outline', label: 'Zuletzt bearbeitet',

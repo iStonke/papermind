@@ -689,7 +689,7 @@
     <DestructiveDialog
       v-model="collectionDelete.open"
       title="Sammlung löschen"
-      :header-subtitle="`„${collectionDelete.collection?.name || ''}“ wird gelöscht. Enthaltene Notizen und Notizbücher werden in eine andere Sammlung verschoben.`"
+      :header-subtitle="`„${collectionDelete.collection?.name || ''}“ wird gelöscht. Enthaltene Gedanken, Notizen und Notizbücher werden in eine andere Sammlung verschoben.`"
       primary-text="Sammlung löschen"
       secondary-text="Zurück"
       icon="mdi-trash-can-outline"
