@@ -50,9 +50,10 @@ class GenerationPlan:
     temperature: float
     local_only: bool
     fallback_model: str = ""
-    # Erzwingt beim Anbieter valides JSON (Review-Pfad); der Schreibpfad bleibt
-    # False, da er Notiz-Markdown erzeugt.
+    # Strukturierte Antworten für Review und Gedanken-Zusammenfassung;
+    # der Schreibpfad erzeugt weiterhin freies Notiz-Markdown.
     json_output: bool = False
+    json_schema: dict | None = None
 
 
 def _ndjson(payload: dict) -> str:
@@ -336,7 +337,7 @@ class NoteAIService:
         }
         # Erzwingt beim lokalen Modell strukturell valides JSON (Review-Pfad).
         if plan.json_output:
-            payload["format"] = NOTE_REVIEW_SCHEMA
+            payload["format"] = plan.json_schema or NOTE_REVIEW_SCHEMA
         with httpx.stream("POST", f"{plan.base_url}/api/chat", json=payload, timeout=plan.timeout_seconds) as response:
             response.raise_for_status()
             for line in response.iter_lines():
@@ -414,8 +415,9 @@ class NoteAIService:
             # beschreibt das Ergebnis und führt keinerlei Aktion aus.
             payload["tools"] = [{
                 "name": "submit_review",
-                "description": "Return the complete list of proposed note corrections.",
-                "input_schema": NOTE_REVIEW_SCHEMA,
+                "description": ("Return the generated document matching the supplied JSON schema."
+                                if plan.json_schema else "Return the complete list of proposed note corrections."),
+                "input_schema": plan.json_schema or NOTE_REVIEW_SCHEMA,
             }]
             payload["tool_choice"] = {"type": "tool", "name": "submit_review", "disable_parallel_tool_use": True}
         headers = {

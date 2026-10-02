@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, NotFoundError
 from app.models.note import Note
+from app.models.note_pin import NotePin, ThoughtRoom
 from app.models.note_collection import NoteCollection
 from app.models.note_notebook import NoteNotebook
 from app.schemas.notes import (
@@ -204,11 +205,14 @@ class NoteCollectionService:
                 Note.owner_id == self.owner_id, Note.collection_id == collection_id
             )
         )
-        if int(notebook_count or 0) or int(note_count or 0):
+        pin_count = self.db.scalar(select(func.count()).select_from(NotePin).where(
+            NotePin.owner_id == self.owner_id, NotePin.collection_id == collection_id
+        ))
+        if int(notebook_count or 0) or int(note_count or 0) or int(pin_count or 0):
             if reassign_to is None:
                 raise ConflictError(
                     "Die Sammlung ist nicht leer – bitte eine Zielsammlung zum Umhängen angeben.",
-                    details={"notebooks": int(notebook_count or 0), "notes": int(note_count or 0)},
+                    details={"notebooks": int(notebook_count or 0), "notes": int(note_count or 0), "thoughts": int(pin_count or 0)},
                 )
             if reassign_to == collection_id:
                 raise ConflictError("Ziel- und Quellsammlung müssen verschieden sein.")
@@ -223,6 +227,11 @@ class NoteCollectionService:
                 .where(Note.owner_id == self.owner_id, Note.collection_id == collection_id)
                 .values(collection_id=target.id)
             )
+
+            self.db.execute(update(ThoughtRoom).where(ThoughtRoom.owner_id == self.owner_id, ThoughtRoom.collection_id == collection_id).values(collection_id=target.id))
+            self.db.execute(update(NotePin).where(
+                NotePin.owner_id == self.owner_id, NotePin.collection_id == collection_id
+            ).values(collection_id=target.id))
 
         self.db.delete(coll)
         self.db.commit()

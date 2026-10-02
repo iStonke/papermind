@@ -44,6 +44,7 @@ from app.routers import (
     users_router,
     wiki_router,
 )
+from app.routers.note_pins import router as note_pins_router
 from app.services.users import UserService
 from app.services.settings import SettingsService
 from app.core.write_barrier import WriteBarrierMiddleware
@@ -171,6 +172,7 @@ app.include_router(correspondents_router)
 app.include_router(document_types_router)
 app.include_router(dossiers_router)
 app.include_router(jobs_router)
+app.include_router(note_pins_router)
 app.include_router(notes_router)
 app.include_router(learn_router)
 app.include_router(retrieval_router)

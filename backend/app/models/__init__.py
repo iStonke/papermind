@@ -19,6 +19,7 @@ from app.models.note_collection import NoteCollection
 from app.models.note_image import NoteImage
 from app.models.note_notebook import NoteNotebook
 from app.models.note_tag import note_tags
+from app.models.note_pin import NotePin, note_pin_tags
 from app.models.saved_search import SavedSearch
 from app.models.search_event import SearchEvent
 from app.models.scanner import ScannerDevice, ScannerDeviceRecipient, ScannerScanCommand, ScannerScanJob
