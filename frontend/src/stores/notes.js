@@ -65,27 +65,22 @@ export const useNotesStore = defineStore('notes', () => {
   // Zählt hoch, wenn ein Gedanke außerhalb des Gedanken-Arbeitsbereichs
   // (Command-Palette) festgehalten wurde; die offene Fläche lädt dann nach.
   const thoughtRevision = ref(0);
-  // target 'new': eine neue Gedanken-Sammlung (Fläche); `session` merkt sie sich, damit
-  // weitere Gedanken derselben Erfassungssitzung dort landen. 'last': die zuletzt im
-  // Gedanken-Arbeitsbereich gewählte Sammlung (Fallback: erste der Notiz-Sammlung).
-  async function captureThought(text, requestId, { target = 'new', session = {} } = {}) {
+  // target 'daily': eine Gedanken-Sammlung (Fläche) pro Kalendertag „Gedanken TT.MM.JJJJ“,
+  // beim ersten Gedanken des Tages angelegt. 'last': die zuletzt im Gedanken-Arbeitsbereich
+  // gewählte Sammlung (Fallback: erste Sammlung der aktiven Notiz-Sammlung).
+  async function captureThought(text, requestId, { target = 'daily' } = {}) {
     await ensureCollectionsLoaded();
     const collectionId = activeCollectionId.value;
     if (!collectionId) throw new Error('Keine Sammlung aktiv');
     let roomId = null;
-    if (target === 'new') {
-      if (session.collectionId !== collectionId || !session.roomId) {
-        session.roomId = (await api.createThoughtRoom({ collection_id: collectionId })).id;
-        session.collectionId = collectionId;
-      }
-      roomId = session.roomId;
+    const rooms = await api.listThoughtRooms(collectionId);
+    if (target === 'daily') {
+      const title = `Gedanken ${new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date())}`;
+      roomId = (rooms.find((room) => room.title === title) || await api.createThoughtRoom({ collection_id: collectionId, title })).id;
     } else {
       let lastId = '';
       try { lastId = localStorage.getItem(`pm-thought-room:${collectionId}`) || ''; } catch { /* Storage optional. */ }
-      if (lastId) {
-        const rooms = await api.listThoughtRooms(collectionId);
-        roomId = rooms.some((room) => room.id === lastId) ? lastId : null;
-      }
+      roomId = rooms.some((room) => room.id === lastId) ? lastId : null;
     }
     const pin = await api.createPin({ request_id: requestId, collection_id: collectionId, text, ...(roomId ? { room_id: roomId } : {}) });
     thoughtRevision.value += 1;

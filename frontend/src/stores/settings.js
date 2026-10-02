@@ -18,7 +18,7 @@ const START_VIEW_VALUES = new Set(['dashboard', 'all']);
 const SEARCH_SCOPE_DEFAULT_VALUES = new Set(['current', 'all']);
 const NOTES_DEFAULT_VIEW_VALUES = new Set(['list', 'focus', 'remember']);
 const NOTES_SORT_ORDER_VALUES = new Set(['updated', 'created', 'opened', 'title']);
-const NOTES_THOUGHT_CAPTURE_TARGET_VALUES = new Set(['new', 'last']);
+const NOTES_THOUGHT_CAPTURE_TARGET_VALUES = new Set(['daily', 'last']);
 const NOTES_WRITING_WIDTH_VALUES = new Set(['compact', 'comfortable', 'wide']);
 const NOTES_PARAGRAPH_SPACING_VALUES = new Set(['compact', 'comfortable', 'spacious']);
 const NOTES_FONT_FAMILY_VALUES = new Set([
@@ -146,7 +146,7 @@ function createDefaultSettings() {
       sidebar_max_categories: 5,
       notes_default_view: 'remember',
       notes_sort_order: 'updated',
-      notes_thought_capture_target: 'new',
+      notes_thought_capture_target: 'daily',
       notes_writing_width: 'comfortable',
       notes_paragraph_spacing: 'comfortable',
       notes_font_family: 'sans',

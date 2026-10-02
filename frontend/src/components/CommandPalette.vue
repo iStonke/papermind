@@ -391,7 +391,6 @@ function close() {
 const captureState = ref('idle'); // idle | saving | saved | error
 const captureError = ref('');
 let captureRetry = null;
-let captureSession = {};
 let savedTimer = null;
 
 const captureLabel = computed(() => {
@@ -409,8 +408,7 @@ async function captureThought() {
   captureState.value = 'saving';
   try {
     await notesStore.captureThought(text, captureRetry.id, {
-      target: settingsStore.settingsDraft?.ui?.notes_thought_capture_target === 'last' ? 'last' : 'new',
-      session: captureSession,
+      target: settingsStore.settingsDraft?.ui?.notes_thought_capture_target === 'last' ? 'last' : 'daily',
     });
     captureRetry = null;
     query.value = '+ ';
@@ -495,7 +493,6 @@ watch(
       query.value = '';
       captureState.value = 'idle';
       captureRetry = null;
-      captureSession = {};
       selectedIndex.value = 0;
       selectedEntryId.value = null;
       // Ergebnisse beim Öffnen einkaskadieren; nach dem Durchlauf wieder aus,

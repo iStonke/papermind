@@ -806,7 +806,7 @@
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Schnellerfassung von Gedanken</div>
-                <div class="pm-setting-description">Wohin ein über ⌘K festgehaltener Gedanke (<code>+ Text</code>) gespeichert wird. Eine neue Sammlung entsteht einmal pro Erfassungssitzung.</div>
+                <div class="pm-setting-description">Wohin ein über ⌘K festgehaltener Gedanke (<code>+ Text</code>) gespeichert wird. „Neue Sammlung pro Tag“ legt für den ersten Gedanken eines Tages eine Sammlung „Gedanken TT.MM.JJJJ“ an; alle weiteren Gedanken desselben Tages landen darin. „Zuletzt ausgewählte Sammlung“ nutzt die Sammlung, die du zuletzt im Gedanken-Arbeitsbereich geöffnet hast.</div>
               </div>
               <v-select
                 :model-value="settingsDraft.ui.notes_thought_capture_target"
@@ -4000,7 +4000,7 @@ const notesSortOrderOptions = [
   { value: 'title', label: 'Titel (A–Z)' },
 ];
 const notesThoughtCaptureTargetOptions = [
-  { value: 'new', label: 'Neue Sammlung' },
+  { value: 'daily', label: 'Neue Sammlung pro Tag' },
   { value: 'last', label: 'Zuletzt ausgewählte Sammlung' },
 ];
 const notesWritingWidthOptions = [
@@ -4176,7 +4176,7 @@ function onNotesSortOrderChange(nextValue) {
 }
 
 function onNotesThoughtCaptureTargetChange(nextValue) {
-  return onNotesPreferenceChange('notes_thought_capture_target', nextValue, NOTES_THOUGHT_CAPTURE_TARGET_VALUES, 'new');
+  return onNotesPreferenceChange('notes_thought_capture_target', nextValue, NOTES_THOUGHT_CAPTURE_TARGET_VALUES, 'daily');
 }
 
 function onNotesWritingWidthChange(nextValue) {
