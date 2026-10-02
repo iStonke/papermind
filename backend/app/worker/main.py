@@ -1,3 +1,4 @@
+from app.services.background_activity import ActivityCancelled, tracked, checkpoint, claim_queued, execute as execute_activity
 import json
 import logging
 import os
@@ -433,6 +434,7 @@ def _scanner_analysis_owner_id(db, scanner_device_id: uuid.UUID | None) -> uuid.
     ).scalar()
 
 
+@tracked("preanalysis", "Importanalyse")
 @write_activity()
 def _preanalyze_import_sources(source_file_ids: list[str], owner_id: uuid.UUID | None) -> None:
     if not source_file_ids:
@@ -442,6 +444,7 @@ def _preanalyze_import_sources(source_file_ids: list[str], owner_id: uuid.UUID |
         with SessionLocal() as db:
             service = ImportStagingService(db, owner_id)
             for source_file_id in source_file_ids:
+                checkpoint()
                 try:
                     service.preanalyze_source(source_file_id, page_scope="first_page")
                 except Exception as exc:  # pragma: no cover - one bad scan must not block the batch
@@ -455,6 +458,11 @@ def _preanalyze_import_sources(source_file_ids: list[str], owner_id: uuid.UUID |
             count=len(source_file_ids),
             duration_ms=elapsed_ms(started),
         )
+    except ActivityCancelled:
+        service = ImportStagingService(None, owner_id)
+        for source_file_id in source_file_ids:
+            service.clear_source_preanalysis_pending(source_file_id)
+        raise
     except Exception as exc:  # pragma: no cover - best effort background speed-up
         logger.exception("import inbox preanalysis failed owner_id=%s err=%s", owner_id, exc)
         log_import_timing(
@@ -466,6 +474,7 @@ def _preanalyze_import_sources(source_file_ids: list[str], owner_id: uuid.UUID |
         )
 
 
+@tracked("cleanup", "Scanaufbereitung")
 @write_activity()
 def _enhance_scanner_import_sources(source_file_ids: list[str], owner_id: uuid.UUID | None) -> None:
     if not source_file_ids:
@@ -480,6 +489,7 @@ def _enhance_scanner_import_sources(source_file_ids: list[str], owner_id: uuid.U
             if not service.mark_scan_cleanup_pending(source_file_ids):
                 return
             for source_file_id in source_file_ids:
+                checkpoint()
                 service.enhance_source_scan(source_file_id)
         log_import_timing(
             "scan_cleanup_batch_done",
@@ -488,6 +498,13 @@ def _enhance_scanner_import_sources(source_file_ids: list[str], owner_id: uuid.U
             count=len(source_file_ids),
             duration_ms=elapsed_ms(started),
         )
+    except ActivityCancelled:
+        service = ImportStagingService(None, owner_id)
+        for source_file_id in source_file_ids:
+            pending = service._read_source_scan_cleanup(source_file_id) or {}
+            if pending.get("status") in {"pending", "running"}:
+                service._write_source_scan_cleanup(source_file_id, status="failed", mode=pending.get("mode", ""), message="Vom Nutzer beendet")
+        raise
     except Exception as exc:  # pragma: no cover - Rohscan bleibt weiter importierbar
         logger.exception("scanner import source cleanup failed owner_id=%s err=%s", owner_id, exc)
         log_import_timing(
@@ -1923,7 +1940,7 @@ def _process_note_audio_job(job: dict) -> None:
         audio_parts: list[bytes] = []
         for index, segment in enumerate(segments):
             if note_audio_jobs.is_cancel_requested(job_id):
-                note_audio_jobs.remove(job_id)
+                note_audio_jobs.finish_cancel(job_id)
                 return
             note_audio_jobs.update(
                 job_id,
@@ -1938,15 +1955,20 @@ def _process_note_audio_job(job: dict) -> None:
                 )
             )
         if note_audio_jobs.is_cancel_requested(job_id):
-            note_audio_jobs.remove(job_id)
+            note_audio_jobs.finish_cancel(job_id)
             return
         note_audio_jobs.update(job_id, progress=94, phase="Audiodatei wird zusammengesetzt")
         incoming_path.write_bytes(merge_wav_bytes(audio_parts))
         if not note_audio_jobs.complete(job_id, incoming_path):
+            incoming_path.unlink(missing_ok=True)
+            note_audio_jobs.finish_cancel(job_id)
             return
         logger.info("note audio export completed job_id=%s segments=%s", job_id, len(segments))
     except Exception as exc:  # noqa: BLE001 - native Piper/runtime errors become job failures
         incoming_path.unlink(missing_ok=True)
+        if note_audio_jobs.is_cancel_requested(job_id):
+            note_audio_jobs.finish_cancel(job_id)
+            return
         if note_audio_jobs.get(job_id) is not None:
             note_audio_jobs.update(
                 job_id,
@@ -1978,6 +2000,8 @@ def run() -> None:
         settings.storage_path,
     )
     _touch_worker_health(state="starting", force=True)
+    from app.services.background_activity import recover_interrupted
+    recover_interrupted(["preanalysis", "cleanup"])
     _reclaim_orphaned_jobs()
     reclaimed_audio_jobs = note_audio_jobs.reclaim_running()
     if reclaimed_audio_jobs:
@@ -2004,6 +2028,7 @@ def run() -> None:
     scanner_dispatch_thread.start()
     document_dispatch = DocumentJobDispatcher(_claim_next_job, _process_claimed_document_job)
     audio_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="note-audio")
+    controlled_futures = {}
     audio_future: Future | None = None
     last_trash_cleanup_at = 0.0
     last_ocr_backfill_at = 0.0
@@ -2014,6 +2039,18 @@ def run() -> None:
     last_memory_log_at = time.monotonic()
     last_job_reclaim_at = time.monotonic()
     while True:
+        from app.services.backup import run_backup_in_background
+        for kind, executor, handler in (
+            ("preanalysis", _preanalysis_executor, _preanalyze_import_sources),
+            ("cleanup", _cleanup_executor, _enhance_scanner_import_sources),
+            ("backup", _backup_executor, run_backup_in_background),
+        ):
+            future = controlled_futures.get(kind)
+            if future is None or future.done():
+                item = claim_queued([kind])
+                if item:
+                    controlled_futures[kind] = executor.submit(execute_activity, item, handler.activity_function)
+
         from app.services.maintenance import is_maintenance_active
 
         if is_maintenance_active():

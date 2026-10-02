@@ -23,6 +23,7 @@ import subprocess
 import tarfile
 import tempfile
 import threading
+
 import time
 import uuid
 from dataclasses import dataclass
@@ -36,6 +37,7 @@ from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
+from app.services.background_activity import tracked, checkpoint, ActivityCancelled
 from app.core.config import get_settings
 from app.models.backup_run import BackupRun
 from app.models.backup_source_state import BackupSourceState
@@ -67,6 +69,7 @@ _OPERATION_LOCK_ID = 0x504D424B  # "PMBK"
 _SNAPSHOT_DIR_NAME = ".papermind-backup-snapshots"
 _RESERVED_STORAGE_NAMES = {
     ".papermind-system",
+    ".background-activity",
     _SNAPSHOT_DIR_NAME,
 }
 
@@ -257,13 +260,14 @@ def mask_config(config: dict) -> dict:
     return masked
 
 
+@tracked("backup", "NAS-Backup")
 def run_backup_in_background(*, kind: str = "manual") -> None:
     """Backup mit eigener DB-Session ausführen (für Threads/Scheduler)."""
     from app.db.session import SessionLocal
 
     db = SessionLocal()
     try:
-        BackupService(db).run_backup(kind=kind)
+        return BackupService(db).run_backup(kind=kind)
     finally:
         db.close()
 
@@ -508,6 +512,7 @@ class BackupService:
         timeout_seconds = max(5, int(os.environ.get("BACKUP_QUIESCE_TIMEOUT_SECONDS") or 900))
         deadline = time.monotonic() + timeout_seconds
         while True:
+            checkpoint()
             self.db.expire_all()
             running = self.db.execute(
                 select(Job.id).where(Job.status == "running").limit(1)
@@ -777,7 +782,9 @@ class BackupService:
                     self._storage_size_bytes() + 512 * 1024 * 1024,
                     "das Backup",
                 )
+                checkpoint()
                 files, manifest = self._build_artifacts(tmp_dir, stamp)
+                checkpoint()
                 locations: list[str] = []
                 for label, target in targets:
                     locations.append(f"{label}:{self._upload_atomic(target, stamp, files)}")
@@ -790,6 +797,7 @@ class BackupService:
                         shutil.copy2(file_path, preserve_to / file_path.name)
 
                 total_size = sum(file_path.stat().st_size for file_path in files)
+                checkpoint()
                 run.status = "success"
                 run.finished_at = datetime.now().astimezone()
                 run.size_bytes = int(total_size)
@@ -809,20 +817,23 @@ class BackupService:
                     run.location,
                 )
                 return run
-        except Exception as exc:  # noqa: BLE001 - Lauf als fehlgeschlagen protokollieren
+        except (Exception, ActivityCancelled) as exc:  # Lauf sauber abschließen, auch bei Abbruch
             logger.warning("backup failed run=%s: %s", getattr(run, "id", None), exc)
-            self._send_alert("backup_failed", str(exc))
+            if not isinstance(exc, ActivityCancelled):
+                self._send_alert("backup_failed", str(exc))
             if run is None:
                 run = BackupRun(status="failed", kind=kind if kind in ("scheduled", "manual") else "manual")
                 self.db.add(run)
             run.status = "failed"
             run.finished_at = datetime.now().astimezone()
-            run.error = str(exc)[:2000]
+            run.error = "Vom Nutzer beendet" if isinstance(exc, ActivityCancelled) else str(exc)[:2000]
             try:
                 self.db.commit()
                 self.db.refresh(run)
             except Exception:
                 self.db.rollback()
+            if isinstance(exc, ActivityCancelled):
+                raise
             return run
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -1087,6 +1098,7 @@ class BackupService:
             smbclient.makedirs(temporary, exist_ok=False)
             try:
                 for file_path in files:
+                    checkpoint()
                     remote = f"{temporary}\\{file_path.name}"
                     with open(file_path, "rb") as src, smbclient.open_file(remote, mode="wb") as dst:
                         shutil.copyfileobj(src, dst, length=1024 * 1024)
@@ -1095,9 +1107,10 @@ class BackupService:
                         raise RuntimeError(f"Uploadgröße stimmt nicht: {file_path.name}")
                     if BackupService._remote_sha256(smbclient, remote) != sha256_file(file_path):
                         raise RuntimeError(f"Upload-Prüfsumme stimmt nicht: {file_path.name}")
+                checkpoint()
                 smbclient.rename(temporary, destination)
                 return destination
-            except Exception:
+            except (Exception, ActivityCancelled):
                 try:
                     BackupService._smb_rmtree(smbclient, temporary)
                 except Exception:

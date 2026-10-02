@@ -76,8 +76,25 @@ class NoteAudioJobStoreTests(unittest.TestCase):
         incoming.write_bytes(_wav(b"\x00\x00"))
 
         self.assertFalse(self.store.complete(created["id"], incoming))
-        self.assertIsNone(self.store.get(created["id"]))
+        self.store.finish_cancel(created["id"])
+        self.assertEqual(self.store.get(created["id"])["status"], "failed")
         self.assertFalse(incoming.exists())
+
+    def test_restart_waits_for_old_execution(self):
+        created = self.create()
+        self.store.claim_next("worker-test")
+        self.assertIsNone(self.store.restart(created["id"], uuid.uuid4()))
+        restarted = self.store.restart(created["id"], self.owner)
+        self.assertTrue(restarted["cancel_requested"])
+        self.assertIsNone(self.store.claim_next("second-worker"))
+        self.store.finish_cancel(created["id"])
+        self.assertEqual(self.store.claim_next("second-worker")["id"], created["id"])
+
+    def test_cancelled_queue_can_be_restarted(self):
+        created = self.create()
+        self.assertTrue(self.store.cancel(created["id"], self.owner))
+        self.assertEqual(self.store.get(created["id"])["status"], "failed")
+        self.assertEqual(self.store.restart(created["id"], self.owner)["status"], "queued")
 
     def test_reclaims_running_job_after_worker_restart(self):
         created = self.create()

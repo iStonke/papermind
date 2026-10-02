@@ -44,6 +44,7 @@ def get_job_activity(db: Session = Depends(get_db), user: User = Depends(get_cur
         item.document_title = entry["document_title"]
         items.append(item)
     return JobActivityResponse(
+        background=_background_activity(db, user),
         summary=JobActivitySummary(**result["summary"]),
         jobs=items,
         audio_exports=[NoteAudioExportRead.model_validate(item) for item in note_audio_jobs.activity(user.id)],
@@ -215,3 +216,81 @@ def dismiss_job(job_id: uuid.UUID, db: Session = Depends(get_db), user: User = D
 def dismiss_failed_jobs(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
     removed = JobService(db, user.id).dismiss_failed_jobs()
     return {"removed": removed}
+
+
+@router.post("/jobs/{job_id}/cancel", response_model=JobRead)
+def cancel_document_job(job_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> JobRead:
+    return JobRead.model_validate(JobService(db, user.id).control_job(job_id, action="cancel"), from_attributes=True)
+
+
+@router.post("/jobs/{job_id}/restart", response_model=JobRead)
+def restart_document_job(job_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> JobRead:
+    return JobRead.model_validate(JobService(db, user.id).control_job(job_id, action="restart"), from_attributes=True)
+
+
+@router.post("/note-audio-jobs/{job_id}/restart", response_model=NoteAudioExportRead)
+def restart_audio_export(job_id: uuid.UUID, user: User = Depends(get_current_user)) -> NoteAudioExportRead:
+    job = note_audio_jobs.restart(job_id, user.id)
+    if job is None:
+        raise NotFoundError("Audioexport nicht gefunden")
+    return NoteAudioExportRead.model_validate(job)
+
+
+def _background_activity(db, user):
+    from datetime import datetime, timedelta, timezone
+    from app.models.scanner import ScannerScanJob, ScannerDevice
+    from app.models.wiki import WikiBackfillRun
+    from app.schemas.wiki import WikiBackfillRunRead
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    from app.services.background_activity import activity
+    items = activity(user.id, admin=user.is_admin)
+    for run in db.scalars(select(WikiBackfillRun).where(
+        WikiBackfillRun.owner_id == user.id, WikiBackfillRun.status != "done",
+        WikiBackfillRun.updated_at >= cutoff,
+    ).order_by(WikiBackfillRun.created_at.desc())):
+        items.append(dict(id=str(run.id), kind="wiki", title="Wissensaufbau", status=run.status,
+                          progress=WikiBackfillRunRead.model_validate(run).progress,
+                          error_message=run.error_message))
+    for job, name in db.execute(select(ScannerScanJob, ScannerDevice.name).join(
+        ScannerDevice, ScannerDevice.id == ScannerScanJob.scanner_device_id,
+    ).where(ScannerScanJob.requested_by_user_id == user.id,
+            ScannerScanJob.state.in_(("queued", "scanning", "processing", "error")),
+            ScannerScanJob.updated_at >= cutoff)):
+        items.append(dict(id=str(job.id), kind="scanner", title=name or "Scanner",
+                          status="failed" if job.state == "error" else "queued" if job.state == "queued" else "running",
+                          phase=job.state, error_message=job.error))
+    return items
+
+
+@router.post("/jobs/background/{kind}/{job_id}/{action}")
+def control_background(kind: str, job_id: uuid.UUID, action: str,
+                       db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from app.services.wiki_backfill import WikiBackfillService
+    from app.models.scanner import ScannerScanJob
+    from app.services.scanners import ScannerService
+    if action not in {"cancel", "restart", "pause", "resume", "dismiss"}:
+        raise BadRequestError("Unbekannte Aktion")
+    if kind in {"backup", "preanalysis", "cleanup"}:
+        if action not in {"cancel", "restart", "dismiss"}:
+            raise BadRequestError("Aktion nicht verfügbar")
+        from app.services.background_activity import control, dismiss
+        if action == "dismiss":
+            dismiss(job_id, user.id, admin=user.is_admin)
+        else:
+            control(job_id, action, user.id, admin=user.is_admin)
+    elif kind == "wiki":
+        WikiBackfillService(db, user.id).control(job_id, action=action)
+    elif kind == "scanner":
+        job = db.get(ScannerScanJob, job_id)
+        if job is None or job.requested_by_user_id != user.id:
+            raise NotFoundError("Scan nicht gefunden")
+        if action not in {"cancel", "restart"}:
+            raise BadRequestError("Aktion für Scanner nicht verfügbar")
+        service = ScannerService(db)
+        if job.state in {"queued", "scanning", "processing"}:
+            service.cancel_active_scan(job.scanner_device_id, requested_by=user.id)
+        if action == "restart":
+            service.enqueue_scan_command(job.scanner_device_id, "page", requested_by=user.id)
+    else:
+        raise NotFoundError("Vorgang nicht gefunden")
+    return {"ok": True}

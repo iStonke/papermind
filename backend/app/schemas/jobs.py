@@ -134,4 +134,5 @@ class JobActivityResponse(BaseModel):
     jobs: list[JobActivityItem]
     audio_exports: list[NoteAudioExportRead] = Field(default_factory=list)
     ocr_backlog: OcrBacklog = Field(default_factory=OcrBacklog)
+    background: list[dict] = Field(default_factory=list)
     backup: JobActivityBackup | None = None

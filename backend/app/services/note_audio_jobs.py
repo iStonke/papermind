@@ -182,8 +182,6 @@ class NoteAudioJobStore:
             payload = self._read_path(self._meta_path(job_id))
             if payload is None or payload.get("cancel_requested"):
                 incoming_path.unlink(missing_ok=True)
-                if payload is not None:
-                    self._delete_unlocked(payload)
                 return False
             os.replace(incoming_path, self.output_path(job_id))
             payload.update(
@@ -199,7 +197,8 @@ class NoteAudioJobStore:
             if payload is None or payload.get("owner_id") != str(owner_id):
                 return False
             if payload.get("status") == "queued":
-                self._delete_unlocked(payload)
+                payload.update(status="failed", error_message="Vom Nutzer beendet", phase="Beendet", finished_at=_iso(), updated_at=_iso())
+                self._write(payload)
             elif payload.get("status") == "running":
                 payload["cancel_requested"] = True
                 payload["phase"] = "Wird abgebrochen"
@@ -208,6 +207,32 @@ class NoteAudioJobStore:
             else:
                 return False
             return True
+
+    def restart(self, job_id, owner_id):
+        with self._lock(str(job_id)):
+            payload = self._read_path(self._meta_path(job_id))
+            if payload is None or payload.get("owner_id") != str(owner_id):
+                return None
+            if payload.get("status") == "running":
+                payload.update(cancel_requested=True, restart_requested=True, phase="Wird neu gestartet", updated_at=_iso())
+            else:
+                payload.update(status="queued", progress=0, error_message=None, cancel_requested=False,
+                               phase="Wartet auf Verarbeitung", worker_id=None, started_at=None, finished_at=None, updated_at=_iso())
+            self._write(payload)
+            return payload
+
+    def finish_cancel(self, job_id):
+        with self._lock(str(job_id)):
+            payload = self._read_path(self._meta_path(job_id))
+            if payload is None:
+                return
+            restart = payload.pop("restart_requested", False)
+            payload.update(status="queued" if restart else "failed", progress=0,
+                           error_message=None if restart else "Vom Nutzer beendet",
+                           phase="Wartet auf Verarbeitung" if restart else "Beendet",
+                           cancel_requested=False, worker_id=None, started_at=None,
+                           finished_at=None if restart else _iso(), updated_at=_iso())
+            self._write(payload)
 
     def retry(self, job_id: uuid.UUID | str, owner_id: uuid.UUID) -> dict | None:
         with self._lock(str(job_id)):

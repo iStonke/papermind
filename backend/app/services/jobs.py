@@ -93,6 +93,55 @@ class JobService:
         flags["ocr_retry_blocked"] = True
         document.flags = flags
 
+    def control_job(self, job_id: uuid.UUID, *, action: str) -> Job:
+        if action not in {"cancel", "restart"}:
+            raise BadRequestError("Unbekannte Aktion")
+        # Serialize with worker publication, then revoke the old execution lease.
+        job = self.db.execute(select(Job).where(Job.id == job_id).with_for_update()).scalar_one_or_none()
+        if job is None:
+            raise NotFoundError("Job nicht gefunden")
+        self._ensure_document_exists(job.document_id)
+        document = self.db.execute(select(Document).where(Document.id == job.document_id).with_for_update()).scalar_one()
+        if action == "cancel" and job.status not in {"queued", "running"}:
+            raise ConflictError("Der Vorgang ist bereits beendet.")
+        if action == "restart":
+            target_type = "INDEX" if job.type == "EMBED" else job.type
+            other = self.db.scalar(select(Job.id).where(
+                Job.document_id == job.document_id, Job.type == target_type,
+                Job.id != job.id, Job.status.in_(("queued", "running")),
+            ))
+            if other:
+                raise ConflictError("Für dieses Dokument läuft bereits ein Vorgang dieses Typs.")
+            job.type = target_type
+        now = datetime.now(timezone.utc)
+        job.status = "queued" if action == "restart" else "failed"
+        job.error_message = None if action == "restart" else "Vom Nutzer beendet"
+        job.progress = 0
+        job.started_at = None
+        job.finished_at = None if action == "restart" else now
+        job.updated_at = now
+        job.worker_id = job.lease_token = job.heartbeat_at = job.lease_expires_at = None
+        if job.type == "OCR":
+            flags = dict(document.flags or {})
+            if action == "cancel":
+                flags["ocr_retry_blocked"] = True
+            else:
+                flags.pop("ocr_retry_blocked", None)
+            document.flags = flags or None
+            document.ocr_status = "queued" if action == "restart" else "failed"
+            document.status = "processing" if action == "restart" else "failed"
+        elif job.type in {"INDEX", "EMBED"}:
+            document.embedding_status = "queued" if action == "restart" else "failed"
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            if is_unique_violation(exc, "uq_jobs_document_type_active"):
+                raise ConflictError("Ein Vorgang dieses Typs läuft bereits.") from exc
+            raise
+        self.db.refresh(job)
+        return job
+
     def dismiss_job(self, job_id: uuid.UUID) -> None:
         """Entfernt einen terminalen Job (failed/done) aus der Aktivitätsanzeige."""
         job = self.get_job_or_404(job_id)

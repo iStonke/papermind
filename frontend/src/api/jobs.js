@@ -37,3 +37,7 @@ export async function downloadNoteAudioExport(jobId) {
 
 export const confirmNoteAudioExportDownload = (jobId) =>
   apiPost(`/api/note-audio-jobs/${encodeURIComponent(String(jobId || '').trim())}/downloaded`);
+
+export const cancelJob = (id) => apiPost(`/api/jobs/${encodeURIComponent(id)}/cancel`);
+export const restartJob = (id) => apiPost(`/api/jobs/${encodeURIComponent(id)}/restart`);
+export const restartNoteAudioExport = (id) => apiPost(`/api/note-audio-jobs/${encodeURIComponent(id)}/restart`);

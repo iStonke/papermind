@@ -114,7 +114,18 @@ class WikiBackfillService:
         if run is None:
             raise NotFoundError("Wiki backfill not found", details={"run_id": str(run_id)})
 
-        if action == "pause":
+        if action == "restart":
+            other = self.db.scalar(select(WikiBackfillRun.id).where(
+                WikiBackfillRun.owner_id == self.owner_id, WikiBackfillRun.id != run.id,
+                WikiBackfillRun.status.in_(("queued", "running", "paused")),
+            ))
+            if other:
+                raise ConflictError("Ein Wissensaufbau läuft bereits.")
+            run.status = "queued"
+            run.finished_at = None
+            run.error_message = None
+            _clear_lease(run)
+        elif action == "pause":
             if run.status in {"queued", "running"}:
                 run.status = "paused"
                 _clear_lease(run)

@@ -287,6 +287,8 @@ class ImportStagingService:
 
     @staticmethod
     def _source_analysis_response_payload(result: dict[str, object] | None) -> dict[str, object] | None:
+        from app.services.background_activity import checkpoint
+        checkpoint()
         if not isinstance(result, dict):
             return None
         meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
@@ -823,6 +825,8 @@ class ImportStagingService:
                     raw_temp_path.unlink(missing_ok=True)
                     raise
 
+            from app.services.background_activity import checkpoint
+            checkpoint()
             os.replace(produced_path, source_path)
             produced_path = None
             self._regenerate_source_preview(source_id, source_path)
