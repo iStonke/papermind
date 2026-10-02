@@ -806,7 +806,7 @@
             <div class="pm-setting-row pm-setting-row--column">
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Schnellerfassung von Gedanken</div>
-                <div class="pm-setting-description">Wohin ein über ⌘K festgehaltener Gedanke (<code>+ Text</code>) gespeichert wird. „Neue Sammlung pro Tag“ legt für den ersten Gedanken eines Tages eine Sammlung „Gedanken TT.MM.JJJJ“ an; alle weiteren Gedanken desselben Tages landen darin. „Zuletzt ausgewählte Sammlung“ nutzt die Sammlung, die du zuletzt im Gedanken-Arbeitsbereich geöffnet hast.</div>
+                <div class="pm-setting-description">Wo schnell festgehaltene Gedanken landen: jeden Tag in einer neuen Sammlung oder in der zuletzt geöffneten.</div>
               </div>
               <v-select
                 :model-value="settingsDraft.ui.notes_thought_capture_target"
