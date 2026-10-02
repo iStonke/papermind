@@ -106,6 +106,7 @@ test("normalizeSettingsPayload preserves note preferences", () => {
     ui: {
       notes_default_view: "focus",
       notes_sort_order: "opened",
+      notes_thought_capture_target: "last",
       notes_writing_width: "wide",
       notes_paragraph_spacing: "spacious",
       notes_font_family: "serif",
@@ -123,6 +124,7 @@ test("normalizeSettingsPayload preserves note preferences", () => {
 
   assert.equal(normalized.ui.notes_default_view, "focus");
   assert.equal(normalized.ui.notes_sort_order, "opened");
+  assert.equal(normalized.ui.notes_thought_capture_target, "last");
   assert.equal(normalized.ui.notes_writing_width, "wide");
   assert.equal(normalized.ui.notes_paragraph_spacing, "spacious");
   assert.equal(normalized.ui.notes_font_family, "serif");

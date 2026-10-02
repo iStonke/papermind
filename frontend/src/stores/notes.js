@@ -65,11 +65,29 @@ export const useNotesStore = defineStore('notes', () => {
   // Zählt hoch, wenn ein Gedanke außerhalb des Gedanken-Arbeitsbereichs
   // (Command-Palette) festgehalten wurde; die offene Fläche lädt dann nach.
   const thoughtRevision = ref(0);
-  async function captureThought(text, requestId) {
+  // target 'new': eine neue Gedanken-Sammlung (Fläche); `session` merkt sie sich, damit
+  // weitere Gedanken derselben Erfassungssitzung dort landen. 'last': die zuletzt im
+  // Gedanken-Arbeitsbereich gewählte Sammlung (Fallback: erste der Notiz-Sammlung).
+  async function captureThought(text, requestId, { target = 'new', session = {} } = {}) {
     await ensureCollectionsLoaded();
     const collectionId = activeCollectionId.value;
     if (!collectionId) throw new Error('Keine Sammlung aktiv');
-    const pin = await api.createPin({ request_id: requestId, collection_id: collectionId, text });
+    let roomId = null;
+    if (target === 'new') {
+      if (session.collectionId !== collectionId || !session.roomId) {
+        session.roomId = (await api.createThoughtRoom({ collection_id: collectionId })).id;
+        session.collectionId = collectionId;
+      }
+      roomId = session.roomId;
+    } else {
+      let lastId = '';
+      try { lastId = localStorage.getItem(`pm-thought-room:${collectionId}`) || ''; } catch { /* Storage optional. */ }
+      if (lastId) {
+        const rooms = await api.listThoughtRooms(collectionId);
+        roomId = rooms.some((room) => room.id === lastId) ? lastId : null;
+      }
+    }
+    const pin = await api.createPin({ request_id: requestId, collection_id: collectionId, text, ...(roomId ? { room_id: roomId } : {}) });
     thoughtRevision.value += 1;
     refreshThoughtCount(collectionId).catch(() => {});
     return pin;

@@ -18,6 +18,7 @@ const START_VIEW_VALUES = new Set(['dashboard', 'all']);
 const SEARCH_SCOPE_DEFAULT_VALUES = new Set(['current', 'all']);
 const NOTES_DEFAULT_VIEW_VALUES = new Set(['list', 'focus', 'remember']);
 const NOTES_SORT_ORDER_VALUES = new Set(['updated', 'created', 'opened', 'title']);
+const NOTES_THOUGHT_CAPTURE_TARGET_VALUES = new Set(['new', 'last']);
 const NOTES_WRITING_WIDTH_VALUES = new Set(['compact', 'comfortable', 'wide']);
 const NOTES_PARAGRAPH_SPACING_VALUES = new Set(['compact', 'comfortable', 'spacious']);
 const NOTES_FONT_FAMILY_VALUES = new Set([
@@ -145,6 +146,7 @@ function createDefaultSettings() {
       sidebar_max_categories: 5,
       notes_default_view: 'remember',
       notes_sort_order: 'updated',
+      notes_thought_capture_target: 'new',
       notes_writing_width: 'comfortable',
       notes_paragraph_spacing: 'comfortable',
       notes_font_family: 'sans',
@@ -430,6 +432,7 @@ export const useSettingsStore = defineStore('settings', {
         sidebar_max_categories: false,
         notes_default_view: false,
         notes_sort_order: false,
+        notes_thought_capture_target: false,
         notes_writing_width: false,
         notes_paragraph_spacing: false,
         notes_font_family: false,
@@ -502,6 +505,7 @@ export const useSettingsStore = defineStore('settings', {
       const rawSearchScopeDefault = String(payload?.ui?.search_scope_default || '').toLowerCase();
       const rawNotesDefaultView = String(payload?.ui?.notes_default_view || '').toLowerCase();
       const rawNotesSortOrder = String(payload?.ui?.notes_sort_order || '').toLowerCase();
+      const rawNotesThoughtCaptureTarget = String(payload?.ui?.notes_thought_capture_target || '').toLowerCase();
       const rawNotesWritingWidth = String(payload?.ui?.notes_writing_width || '').toLowerCase();
       const rawNotesParagraphSpacing = String(payload?.ui?.notes_paragraph_spacing || '').toLowerCase();
       const rawNotesFontFamily = String(payload?.ui?.notes_font_family || '').toLowerCase();
@@ -604,6 +608,9 @@ export const useSettingsStore = defineStore('settings', {
           notes_sort_order: NOTES_SORT_ORDER_VALUES.has(rawNotesSortOrder)
             ? rawNotesSortOrder
             : defaults.ui.notes_sort_order,
+          notes_thought_capture_target: NOTES_THOUGHT_CAPTURE_TARGET_VALUES.has(rawNotesThoughtCaptureTarget)
+            ? rawNotesThoughtCaptureTarget
+            : defaults.ui.notes_thought_capture_target,
           notes_writing_width: NOTES_WRITING_WIDTH_VALUES.has(rawNotesWritingWidth)
             ? rawNotesWritingWidth
             : defaults.ui.notes_writing_width,

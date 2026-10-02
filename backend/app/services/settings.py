@@ -47,6 +47,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "sidebar_max_categories": 5,
         "notes_default_view": "remember",
         "notes_sort_order": "updated",
+        "notes_thought_capture_target": "new",
         "notes_writing_width": "comfortable",
         "notes_paragraph_spacing": "comfortable",
         "notes_font_family": "sans",

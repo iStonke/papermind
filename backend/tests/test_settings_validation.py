@@ -123,6 +123,13 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertEqual(payload.ui.notes_tts_voice.value, "whisper")
         self.assertEqual(payload.ui.notes_text_replacements[0].shortcut, "MFG")
 
+    def test_thought_capture_target_defaults_to_new_and_rejects_unknown_values(self) -> None:
+        self.assertEqual(AppSettingsRead.model_validate({}).ui.notes_thought_capture_target.value, "new")
+        patch = AppSettingsPatch.model_validate({"ui": {"notes_thought_capture_target": "last"}})
+        self.assertEqual(patch.ui.notes_thought_capture_target.value, "last")
+        with self.assertRaises(ValidationError):
+            AppSettingsPatch.model_validate({"ui": {"notes_thought_capture_target": "oldest"}})
+
     def test_notes_preferences_reject_unknown_values(self) -> None:
         with self.assertRaises(ValidationError):
             AppSettingsPatch.model_validate({"ui": {"notes_writing_width": "unlimited"}})

@@ -101,6 +101,7 @@ import { useTagStore } from '../stores/tags';
 import { useCategoryStore } from '../stores/categories';
 import { useCorrespondentStore } from '../stores/correspondents';
 import { useNotesStore } from '../stores/notes';
+import { useSettingsStore } from '../stores/settings';
 import { buildCommands } from './commandPalette/commands';
 import { escapeHtml, parsePrefix, buildGroups, reconcileSelection } from './commandPalette/matching';
 
@@ -115,6 +116,7 @@ const tagStore = useTagStore();
 const categoryStore = useCategoryStore();
 const correspondentStore = useCorrespondentStore();
 const notesStore = useNotesStore();
+const settingsStore = useSettingsStore();
 
 const baseCommands = buildCommands({ uiStore });
 
@@ -389,6 +391,7 @@ function close() {
 const captureState = ref('idle'); // idle | saving | saved | error
 const captureError = ref('');
 let captureRetry = null;
+let captureSession = {};
 let savedTimer = null;
 
 const captureLabel = computed(() => {
@@ -405,7 +408,10 @@ async function captureThought() {
   if (!captureRetry || captureRetry.text !== text) captureRetry = { text, id: crypto.randomUUID() };
   captureState.value = 'saving';
   try {
-    await notesStore.captureThought(text, captureRetry.id);
+    await notesStore.captureThought(text, captureRetry.id, {
+      target: settingsStore.settingsDraft?.ui?.notes_thought_capture_target === 'last' ? 'last' : 'new',
+      session: captureSession,
+    });
     captureRetry = null;
     query.value = '+ ';
     captureState.value = 'saved';
@@ -489,6 +495,7 @@ watch(
       query.value = '';
       captureState.value = 'idle';
       captureRetry = null;
+      captureSession = {};
       selectedIndex.value = 0;
       selectedEntryId.value = null;
       // Ergebnisse beim Öffnen einkaskadieren; nach dem Durchlauf wieder aus,

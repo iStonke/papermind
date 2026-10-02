@@ -46,6 +46,8 @@ test('notes has a dedicated top-level settings group', () => {
   assert.match(source, /notes-settings-preview/);
   assert.match(source, /notesDefaultViewOptions/);
   assert.match(source, /notesSortOrderOptions/);
+  assert.match(source, /notesThoughtCaptureTargetOptions/);
+  assert.match(source, />Schnellerfassung von Gedanken</);
   assert.match(source, /notesWritingWidthOptions/);
   assert.match(source, /notesParagraphSpacingOptions/);
   assert.match(source, /notesFontFamilyOptions/);

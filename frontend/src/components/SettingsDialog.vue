@@ -803,6 +803,27 @@
               />
             </div>
 
+            <div class="pm-setting-row pm-setting-row--column">
+              <div class="pm-setting-content">
+                <div class="pm-setting-label">Schnellerfassung von Gedanken</div>
+                <div class="pm-setting-description">Wohin ein über ⌘K festgehaltener Gedanke (<code>+ Text</code>) gespeichert wird. Eine neue Sammlung entsteht einmal pro Erfassungssitzung.</div>
+              </div>
+              <v-select
+                :model-value="settingsDraft.ui.notes_thought_capture_target"
+                :items="notesThoughtCaptureTargetOptions"
+                item-title="label"
+                item-value="value"
+                density="comfortable"
+                hide-details
+                variant="outlined"
+                class="settings-theme-select pm-setting-select"
+                label="Speichern in"
+                :loading="isSettingSaving.notes_thought_capture_target"
+                :disabled="isSettingSaving.notes_thought_capture_target"
+                @update:model-value="onNotesThoughtCaptureTargetChange"
+              />
+            </div>
+
             <div
               class="pm-setting-row"
               role="button"
@@ -3978,6 +3999,10 @@ const notesSortOrderOptions = [
   { value: 'opened', label: 'Zuletzt geöffnet' },
   { value: 'title', label: 'Titel (A–Z)' },
 ];
+const notesThoughtCaptureTargetOptions = [
+  { value: 'new', label: 'Neue Sammlung' },
+  { value: 'last', label: 'Zuletzt ausgewählte Sammlung' },
+];
 const notesWritingWidthOptions = [
   { value: 'compact', label: 'Kompakt' },
   { value: 'comfortable', label: 'Komfortabel' },
@@ -4022,6 +4047,7 @@ const notesTtsLanguageModeOptions = [
 
 const NOTES_DEFAULT_VIEW_VALUES = new Set(notesDefaultViewOptions.map((option) => option.value));
 const NOTES_SORT_ORDER_VALUES = new Set(notesSortOrderOptions.map((option) => option.value));
+const NOTES_THOUGHT_CAPTURE_TARGET_VALUES = new Set(notesThoughtCaptureTargetOptions.map((option) => option.value));
 const NOTES_WRITING_WIDTH_VALUES = new Set(notesWritingWidthOptions.map((option) => option.value));
 const NOTES_PARAGRAPH_SPACING_VALUES = new Set(notesParagraphSpacingOptions.map((option) => option.value));
 const NOTES_FONT_FAMILY_VALUES = new Set(notesFontFamilyOptions.map((option) => option.value));
@@ -4147,6 +4173,10 @@ function onNotesDefaultViewChange(nextValue) {
 
 function onNotesSortOrderChange(nextValue) {
   return onNotesPreferenceChange('notes_sort_order', nextValue, NOTES_SORT_ORDER_VALUES, 'updated');
+}
+
+function onNotesThoughtCaptureTargetChange(nextValue) {
+  return onNotesPreferenceChange('notes_thought_capture_target', nextValue, NOTES_THOUGHT_CAPTURE_TARGET_VALUES, 'new');
 }
 
 function onNotesWritingWidthChange(nextValue) {
