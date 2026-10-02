@@ -82,7 +82,8 @@
 
           <div class="pm-palette__footer">
             <span><kbd class="pm-palette__kbd">↑↓</kbd> navigieren</span>
-            <span><kbd class="pm-palette__kbd">↵</kbd> öffnen</span>
+            <span v-if="parsed.mode === '+'"><kbd class="pm-palette__kbd">↵</kbd> festhalten</span>
+            <span v-else><kbd class="pm-palette__kbd">↵</kbd> öffnen</span>
             <span><kbd class="pm-palette__kbd">esc</kbd> schließen</span>
           </div>
         </div>
@@ -127,13 +128,15 @@ const selectedEntryId = ref(null);
 const justOpened = ref(false);
 let staggerTimer = null;
 
-const placeholder = 'Suchen oder Aktion… (>, #, @)';
+const placeholder = computed(() => (
+  parsed.value.mode === '+' ? 'Gedanke festhalten …' : 'Suchen oder Aktion… (>, #, @, +)'
+));
 const DOCUMENT_LIMIT = 6;
 const NOTE_LIMIT = 6;
 
 // Präfix-Modi grenzen die Ergebnisse auf eine Gruppe ein.
-const MODE_GROUP = { '>': 'action', '#': 'tag', '@': 'correspondent' };
-const MODE_LABEL = { '>': 'Aktionen', '#': 'Tags', '@': 'Korrespondenten' };
+const MODE_GROUP = { '>': 'action', '#': 'tag', '@': 'correspondent', '+': 'thought' };
+const MODE_LABEL = { '>': 'Aktionen', '#': 'Tags', '@': 'Korrespondenten', '+': 'Gedanke' };
 
 // Renderreihenfolge + Sektions-Überschriften. Leeres Label = ohne Überschrift.
 const GROUP_CONFIG = [
@@ -145,6 +148,7 @@ const GROUP_CONFIG = [
   { key: 'tag', label: 'Tags' },
   { key: 'correspondent', label: 'Korrespondenten' },
   { key: 'type', label: 'Dokumenttypen' },
+  { key: 'thought', label: 'Gedanke' },
 ];
 
 const modKeyLabel = computed(() => {
@@ -288,6 +292,18 @@ function dynamicEntries() {
 
 const view = computed(() => {
   const { mode, term } = parsed.value;
+  if (mode === '+') {
+    // Schnellerfassung: eine einzige Zeile, Enter speichert den Gedanken.
+    const label = captureLabel.value;
+    const entry = {
+      id: 'thought-capture',
+      group: 'thought',
+      icon: captureState.value === 'saved' ? 'mdi-check' : 'mdi-thought-bubble-outline',
+      label,
+      capture: Boolean(term),
+    };
+    return { groups: [{ key: 'thought', label: 'Gedanke', items: [{ entry, html: escapeHtml(label), index: 0 }] }], flat: [entry] };
+  }
   const showDynamic = term.length > 0 || Boolean(mode);
 
   let entries = showDynamic
@@ -339,7 +355,10 @@ const activeDescendantId = computed(() => (
   flatVisible.value.length ? `pm-palette-opt-${selectedIndex.value}` : undefined
 ));
 
-watch(query, () => {
+watch(query, (value, previous) => {
+  if (captureState.value !== 'saving' && value !== previous && !(captureState.value === 'saved' && value === '+ ')) {
+    captureState.value = 'idle';
+  }
   selectedIndex.value = 0;
   selectedEntryId.value = null;
   justOpened.value = false; // Tippen stoppt die Einblende-Kaskade
@@ -365,8 +384,48 @@ function close() {
   emit('update:modelValue', false);
 }
 
+// Schnellerfassung (Präfix +): speichert ohne Navigation, die Palette bleibt für
+// den nächsten Gedanken offen. Wiederholung nach Fehler nutzt dieselbe request_id.
+const captureState = ref('idle'); // idle | saving | saved | error
+const captureError = ref('');
+let captureRetry = null;
+let savedTimer = null;
+
+const captureLabel = computed(() => {
+  const { term } = parsed.value;
+  if (captureState.value === 'saving') return 'Wird festgehalten …';
+  if (captureState.value === 'saved') return 'Festgehalten – nächster Gedanke?';
+  if (captureState.value === 'error') return captureError.value || 'Speichern fehlgeschlagen – Enter versucht es erneut';
+  return term ? `Festhalten: ${term}` : 'Gedanken eintippen, Enter hält ihn fest';
+});
+
+async function captureThought() {
+  const text = query.value.slice(1).trim();
+  if (!text || captureState.value === 'saving') return;
+  if (!captureRetry || captureRetry.text !== text) captureRetry = { text, id: crypto.randomUUID() };
+  captureState.value = 'saving';
+  try {
+    await notesStore.captureThought(text, captureRetry.id);
+    captureRetry = null;
+    query.value = '+ ';
+    captureState.value = 'saved';
+    clearTimeout(savedTimer);
+    savedTimer = setTimeout(() => { if (captureState.value === 'saved') captureState.value = 'idle'; }, 2500);
+  } catch (exc) {
+    captureError.value = `Nicht gespeichert: ${exc?.message || 'Fehler'} – Enter versucht es erneut`;
+    captureState.value = 'error';
+  }
+}
+
 function runEntry(entry) {
   if (!entry) return;
+  if (entry.capture) { captureThought(); return; }
+  if (entry.id === 'thought-capture') return;
+  if (entry.fill) {
+    query.value = entry.fill;
+    nextTick(() => inputRef.value?.focus());
+    return;
+  }
   close();
   entry.run();
 }
@@ -428,6 +487,8 @@ watch(
     if (open) {
       previouslyFocused = typeof document !== 'undefined' ? document.activeElement : null;
       query.value = '';
+      captureState.value = 'idle';
+      captureRetry = null;
       selectedIndex.value = 0;
       selectedEntryId.value = null;
       // Ergebnisse beim Öffnen einkaskadieren; nach dem Durchlauf wieder aus,

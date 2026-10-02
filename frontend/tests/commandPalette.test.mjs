@@ -152,3 +152,13 @@ test("note destinations are available from the command palette", () => {
   assert.deepEqual(calls, ["notes", "notes_pinned"]);
   assert.deepEqual(workspaceCalls, ["createNote"]);
 });
+
+test("the plus prefix switches to thought capture and the palette offers an entry point", () => {
+  assert.deepEqual(parsePrefix("+ Angebot prüfen", { "+": "thought" }), { mode: "+", term: "Angebot prüfen" });
+  const commands = buildCommands({ uiStore: { requestView() {}, requestWorkspace() {}, requestAction() {}, openSettings() {}, openAccount() {} } });
+  const thought = commands.find((entry) => entry.id === "action-new-thought");
+  assert.equal(thought.label, "Gedanke festhalten …");
+  assert.equal(thought.fill, "+ ");
+  const hits = buildGroups(commands, { term: "gedanke", groupOrder: [{ key: "action", label: "Aktionen" }] });
+  assert.ok(hits[0].items.some((item) => item.entry.id === "action-new-thought"));
+});

@@ -29,6 +29,14 @@ export function buildCommands({ uiStore }) {
       run: () => uiStore.requestWorkspace('createNote'),
     },
     {
+      id: 'action-new-thought',
+      group: 'action',
+      label: 'Gedanke festhalten …',
+      icon: 'mdi-thought-bubble-outline',
+      keywords: ['gedanke', 'gedanken', 'festhalten', 'zettel', 'schnell', 'idee', 'einfall'],
+      fill: '+ ',
+    },
+    {
       id: 'action-import',
       group: 'action',
       label: 'Dokument importieren',

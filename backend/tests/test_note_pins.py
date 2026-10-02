@@ -229,6 +229,16 @@ class NotePinsTest(unittest.TestCase):
         self.collections.delete_collection(self.a.id, reassign_to=self.b.id)
         self.assertEqual(self.service.list(self.b.id, archived=True)[0].id, pin.id)
 
+    def test_unpositioned_thoughts_get_distinct_free_slots(self):
+        with self.assertRaises(ValidationError):
+            PinCreateRequest(collection_id=self.a.id, text="Halb", position_x=5)
+        taken = self.service.create(PinCreateRequest(collection_id=self.a.id, text="Fest", position_x=24, position_y=24))
+        first = self.service.create(PinCreateRequest(collection_id=self.a.id, text="Schnell 1"))
+        second = self.service.create(PinCreateRequest(collection_id=self.a.id, text="Schnell 2"))
+        spots = {(p.position_x, p.position_y) for p in (taken, first, second)}
+        self.assertEqual(len(spots), 3)
+        self.assertNotIn(None, [p.position_x for p in (first, second)])
+
     def test_position_survives_reload_and_move_is_owner_scoped(self):
         pin = self.service.create(PinCreateRequest(collection_id=self.a.id, text="Hier", position_x=137, position_y=281))
         original = pin.updated_at

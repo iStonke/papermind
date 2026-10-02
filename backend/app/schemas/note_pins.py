@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from app.schemas.common import ORMModel
 from app.schemas.notes import NoteTagRef
 
@@ -24,8 +24,15 @@ class PinCreateRequest(PinTextRequest):
     title_color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     request_id: uuid.UUID | None = None
     collection_id: uuid.UUID
-    position_x: int = Field(default=24, ge=0, le=100000)
-    position_y: int = Field(default=24, ge=0, le=100000)
+    # None: the server picks a free spot (e.g. quick capture from the command palette).
+    position_x: int | None = Field(default=None, ge=0, le=100000)
+    position_y: int | None = Field(default=None, ge=0, le=100000)
+
+    @model_validator(mode="after")
+    def _position_pair(self):
+        if (self.position_x is None) != (self.position_y is None):
+            raise ValueError("position_x und position_y müssen gemeinsam angegeben werden")
+        return self
 
 class PinUpdateRequest(PinTextRequest):
     title_color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")

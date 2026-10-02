@@ -628,6 +628,8 @@ watch(activeRoomId, (id) => {
   if (legacy) { writeDraft(legacyKey, ''); writeDraft(`${legacyKey}:position`, ''); }
 });
 watch(archived, () => { pins.value = []; activeId.value = null; load(); });
+// Schnellerfassung aus der Command-Palette: offene Fläche nachladen, ohne laufende Eingaben zu stören.
+watch(() => store.thoughtRevision, () => { if (!saving.value && editingId.value === null && !archived.value) load(); });
 store.ensureCollectionsLoaded().catch(fail);
 function captureOnBlur(event) { if (!event.relatedTarget?.closest('.thoughts-capture, .thought-color-menu, .thoughts-toolbar')) capture(); }
 function captureShortcut(event) { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.isComposing) { event.preventDefault(); capture(); } }

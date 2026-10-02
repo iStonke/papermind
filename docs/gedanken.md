@@ -57,3 +57,11 @@ Prüfung der Erweiterung: Backend-Tests für Besitzerschutz, leere Gedankensamml
 ## Hell- und Dunkelmodus
 
 Gedanken verwenden die gemeinsamen Theme-Tokens für Text, Nebeninformationen, Akzent, Schatten und Fehler. Im Dunkelmodus hebt sich die Kartenfläche durch den erhöhten Oberflächenfarbton vom Canvas ab; eigene Titelleistenfarben behalten ihre passende Kontrastschrift. Die in den Dokumentkörper ausgelagerte Farbpalette erhält eine reaktive Theme-Wurzel und wechselt auch im geöffneten Zustand mit dem Theme. Browserprüfungen messen mindestens 4,5:1 Textkontrast für alle sieben Titelleistenfarben, den Standardfarbton und die Listeninformationen und prüfen Bearbeitung, Entwurf, Auswahl, Farbpalette und Zusammenfassungsdialog bei Theme-Wechseln.
+
+## Schnellerfassung über ⌘K
+
+Die Command-Palette erfasst Gedanken ohne Navigation: Präfix `+` (zum Beispiel `+ Angebot Müller prüfen`) oder die Aktion „Gedanke festhalten …“ (füllt `+ `). Enter speichert den Text in der aktiven Sammlung in der ersten Fläche, die Palette bleibt mit leerem Feld für den nächsten Gedanken offen und bestätigt kurz („Festgehalten“). Bei einem Fehler bleibt der Text stehen; Enter wiederholt mit derselben `request_id`, es entsteht kein Duplikat. Ist der Gedanken-Arbeitsbereich geöffnet, lädt er danach nach (`thoughtRevision` im Notizen-Store), sofern gerade nichts bearbeitet wird.
+
+Ohne Positionsangabe wählt das Backend einen freien Platz auf einem 4-Spalten-Raster der Fläche, damit Schnellgedanken sich nicht stapeln. `position_x` und `position_y` gelten nur gemeinsam. Die Erfassung ist einzeilig; Zeilenumbrüche gibt es weiterhin nur in der Fläche.
+
+`ensure_room` sperrt die Sammlung beim ersten Anlegen, sodass parallele Erstaufrufe nur eine Fläche „Meine Gedanken“ erzeugen.

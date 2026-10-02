@@ -60,7 +60,8 @@ class NotePinService:
         if payload.request_id and self.db.scalar(select(NotePin.id).where(NotePin.id == payload.request_id)):
             return retry_result()
         room = self.get_room(payload.room_id, collection_id) if payload.room_id else self.ensure_room(collection_id)
-        pin = NotePin(room_id=room.id, id=payload.request_id or uuid.uuid4(), owner_id=self.owner_id, collection_id=collection_id, text=payload.text, title_color=payload.title_color, status="open", position_x=payload.position_x, position_y=payload.position_y)
+        position = (payload.position_x, payload.position_y) if payload.position_x is not None else self._free_position(room.id)
+        pin = NotePin(room_id=room.id, id=payload.request_id or uuid.uuid4(), owner_id=self.owner_id, collection_id=collection_id, text=payload.text, title_color=payload.title_color, status="open", position_x=position[0], position_y=position[1])
         self.db.add(pin)
         try:
             self._tags(pin)
@@ -72,6 +73,18 @@ class NotePinService:
             return retry_result()
         self.db.refresh(pin)
         return pin
+
+    def _free_position(self, room_id):
+        """First free slot on a 4-column grid, so quick-captured thoughts do not pile up."""
+        taken = [(x, y) for x, y in self.db.execute(select(NotePin.position_x, NotePin.position_y).where(
+            NotePin.owner_id == self.owner_id, NotePin.room_id == room_id, NotePin.status == "open",
+            NotePin.position_x.is_not(None))).all()]
+        for row in range(500):
+            for col in range(4):
+                x, y = 24 + col * 320, 24 + row * 220
+                if all(abs(x - tx) >= 160 or abs(y - ty) >= 110 for tx, ty in taken):
+                    return x, y
+        return 24, 24
 
     def update(self, pin_id, payload: PinUpdateRequest):
         pin = self.db.scalar(select(NotePin).where(NotePin.id == pin_id, NotePin.owner_id == self.owner_id).with_for_update())

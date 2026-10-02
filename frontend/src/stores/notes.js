@@ -62,6 +62,18 @@ export const useNotesStore = defineStore('notes', () => {
   const collections = ref([]);
   const collectionsLoaded = ref(false);
   const thoughtCounts = ref({});
+  // Zählt hoch, wenn ein Gedanke außerhalb des Gedanken-Arbeitsbereichs
+  // (Command-Palette) festgehalten wurde; die offene Fläche lädt dann nach.
+  const thoughtRevision = ref(0);
+  async function captureThought(text, requestId) {
+    await ensureCollectionsLoaded();
+    const collectionId = activeCollectionId.value;
+    if (!collectionId) throw new Error('Keine Sammlung aktiv');
+    const pin = await api.createPin({ request_id: requestId, collection_id: collectionId, text });
+    thoughtRevision.value += 1;
+    refreshThoughtCount(collectionId).catch(() => {});
+    return pin;
+  }
   async function refreshThoughtCount(collectionId = activeCollectionId.value) {
     if (!collectionId) return;
     const result = await api.countPins(collectionId);
@@ -656,6 +668,8 @@ export const useNotesStore = defineStore('notes', () => {
     collectionsLoaded,
     activeCollectionId,
     thoughtCounts,
+    thoughtRevision,
+    captureThought,
     refreshThoughtCount,
     fetchCollections,
     ensureCollectionsLoaded,
