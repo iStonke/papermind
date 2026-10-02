@@ -49,7 +49,7 @@ test('background controls and narrow dark menu', async ({ page }) => {
       if (path.endsWith('/pause')) background[0].status = 'paused';
       if (path.endsWith('/resume')) background[0].status = 'queued';
     }
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ jobs: [], audio_exports: [], background, ocr_backlog: {} }) });
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ jobs: [{ id: 'ocr-1', document_id: 'document-1', document_title: 'Rechnung', type: 'OCR', status: 'running' }], audio_exports: [{ id: 'audio-1', note_title: 'Besprechung', status: 'queued' }], background, ocr_backlog: { pending: 1, total: 520, done: 517, failed: 2 } }) });
   });
   await page.route('**/__activity', route => route.fulfill({ contentType: 'text/html', body: '<html><body><div id="app" style="padding:12px"></div></body></html>' }));
   await page.goto('/__activity');
@@ -61,6 +61,9 @@ test('background controls and narrow dark menu', async ({ page }) => {
   await page.getByRole('button', { name: 'NAS-Backup beenden' }).click();
   await page.getByRole('button', { name: 'Laufend', exact: true }).click();
   await expect(page.getByText('Importanalyse')).not.toBeVisible();
+  await expect(page.locator('.activity-card .v-progress-linear:visible')).toHaveCount(0);
+  await expect(page.locator('.activity-item__title').filter({ hasText: 'Texterkennung' })).toBeVisible();
+  await expect(page.locator('.activity-item__title').filter({ hasText: 'Audioexport' })).toBeVisible();
   const rect = await page.locator('.activity-card').boundingBox();
   expect(rect.x).toBeGreaterThanOrEqual(0);
   expect(rect.x + rect.width).toBeLessThanOrEqual(375);

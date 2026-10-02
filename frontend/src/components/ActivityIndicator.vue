@@ -75,24 +75,16 @@
       <div class="activity-filters">
         <v-btn v-for="filter in filters" :key="filter.value" size="small" :variant="activeFilter === filter.value ? 'tonal' : 'text'" :aria-pressed="activeFilter === filter.value" @click="activeFilter = filter.value">{{ filter.label }}</v-btn>
       </div>
-      <div v-if="ocrPending > 0" class="activity-ocr">
-        <div class="activity-ocr__label">Dokumente werden durchsuchbar gemacht</div>
-        <v-progress-linear :model-value="ocrPercent" height="6" rounded color="primary" class="activity-ocr__bar" />
-        <div class="activity-ocr__count">
-          {{ ocrBacklog.done }} / {{ ocrBacklog.total }} fertig<span v-if="ocrBacklog.failed"> · {{ ocrBacklog.failed }} ohne Texterkennung</span>
-        </div>
-      </div>
-      <v-divider v-if="ocrPending > 0" />
-
-      <div v-if="visibleGroups.length === 0 && visibleAudioExports.length === 0 && visibleBackground.length === 0 && ocrPending === 0 && !hasBackupFail" class="activity-empty">
+      <div v-if="visibleGroups.length === 0 && visibleAudioExports.length === 0 && visibleBackground.length === 0 && !hasBackupFail" class="activity-empty">
         {{ activeFilter === 'all' ? 'Alles erledigt.' : 'Keine passenden Vorgänge.' }}
       </div>
 
       <v-list v-else density="compact" class="activity-list">
         <v-list-item v-for="job in visibleBackground" :key="`${job.kind}-${job.id}`" class="activity-item">
-          <template #prepend><v-progress-circular v-if="['queued', 'running'].includes(job.status)" indeterminate size="18" width="2" color="primary" /><v-icon v-else size="18">{{ job.status === 'paused' ? 'mdi-pause-circle-outline' : 'mdi-stop' }}</v-icon></template>
-          <v-list-item-title>{{ job.title }}</v-list-item-title>
-          <v-list-item-subtitle>{{ job.error_message || job.phase || ({ queued: 'Wartet', running: 'In Bearbeitung', paused: 'Pausiert', cancelled: 'Beendet', failed: 'Fehlgeschlagen' }[job.status]) }}<span v-if="job.progress != null"> · {{ job.progress }} %</span></v-list-item-subtitle>
+          <template #prepend><ActivityStatusIcon :status="job.status" /></template>
+          <v-list-item-title class="activity-item__title">{{ activityName(job) }}</v-list-item-title>
+          <v-list-item-subtitle class="activity-item__types">{{ statusLabel(job.status) }}<span v-if="job.progress != null"> · {{ job.progress }} %</span></v-list-item-subtitle>
+          <v-list-item-subtitle v-if="job.error_message || job.phase" :class="job.error_message ? 'activity-item__error' : 'activity-item__types'">{{ job.error_message || job.phase }}</v-list-item-subtitle>
           <template #append><div class="activity-item__actions">
             <v-btn v-if="job.kind === 'wiki' && ['queued', 'running', 'paused'].includes(job.status)" icon variant="text" size="x-small" :disabled="backgroundBusy.has(job.id)" :aria-label="job.status === 'paused' ? 'Wissensaufbau fortsetzen' : 'Wissensaufbau pausieren'" :title="job.status === 'paused' ? 'Fortsetzen' : 'Pausieren'" @click="controlBackground(job, job.status === 'paused' ? 'resume' : 'pause')"><v-icon size="17">{{ job.status === 'paused' ? 'mdi-play' : 'mdi-pause' }}</v-icon></v-btn>
             <v-btn icon variant="text" size="x-small" :disabled="backgroundBusy.has(job.id)" title="Neu starten" :aria-label="`${job.title} neu starten`" @click="controlBackground(job, 'restart')"><v-icon size="17">mdi-refresh</v-icon></v-btn>
@@ -106,38 +98,19 @@
           @click="openBackup"
         >
           <template #prepend>
-            <v-icon size="16" class="activity-item__icon" color="error">mdi-alert-circle-outline</v-icon>
+            <ActivityStatusIcon status="failed" />
           </template>
-          <v-list-item-title class="activity-item__title">Backup auf NAS fehlgeschlagen</v-list-item-title>
+          <v-list-item-title class="activity-item__title">Datensicherung</v-list-item-title>
           <v-list-item-subtitle class="activity-item__types">
-            In den Einstellungen öffnen
+            Fehlgeschlagen · NAS
           </v-list-item-subtitle>
         </v-list-item>
 
         <v-list-item v-for="job in visibleAudioExports" :key="`audio-${job.id}`" class="activity-item">
-          <template #prepend>
-            <v-progress-circular
-              v-if="job.status === 'running' || job.status === 'queued'"
-              :indeterminate="job.status === 'queued'"
-              :model-value="job.status === 'running' ? job.progress : undefined"
-              size="18"
-              width="2"
-              color="primary"
-              class="activity-item__icon"
-            />
-            <v-icon v-else-if="job.status === 'done'" size="18" color="success" class="activity-item__icon">
-              mdi-file-music-outline
-            </v-icon>
-            <v-icon v-else size="18" color="error" class="activity-item__icon">mdi-alert-circle-outline</v-icon>
-          </template>
-
-          <v-list-item-title class="activity-item__title">{{ job.note_title }}</v-list-item-title>
-          <v-list-item-subtitle v-if="job.status === 'failed'" class="activity-item__error">
-            {{ job.error_message || 'Audioexport fehlgeschlagen' }}
-          </v-list-item-subtitle>
-          <v-list-item-subtitle v-else class="activity-item__types">
-            Audioexport · {{ audioStatusLabel(job) }}
-          </v-list-item-subtitle>
+          <template #prepend><ActivityStatusIcon :status="job.status" /></template>
+          <v-list-item-title class="activity-item__title">Audioexport</v-list-item-title>
+          <v-list-item-subtitle class="activity-item__types">{{ job.note_title }} · {{ audioStatusLabel(job) }}</v-list-item-subtitle>
+          <v-list-item-subtitle v-if="job.status === 'failed' && job.error_message" class="activity-item__error">{{ job.error_message }}</v-list-item-subtitle>
 
           <template #append>
             <div class="activity-item__actions">
@@ -159,9 +132,9 @@
                 v-if="job.status === 'queued' || job.status === 'running'"
                 icon variant="text" size="x-small"
                 :disabled="audioBusyIds.has(job.id) || job.cancel_requested"
-                title="Audioexport abbrechen" aria-label="Audioexport abbrechen"
+                title="Beenden" aria-label="Audioexport beenden"
                 @click.stop="cancelAudio(job)"
-              ><v-icon size="17">mdi-close</v-icon></v-btn>
+              ><v-icon size="17">mdi-stop</v-icon></v-btn>
               <v-btn
                 v-else
                 icon variant="text" size="x-small"
@@ -174,38 +147,10 @@
         </v-list-item>
 
         <v-list-item v-for="group in visibleGroups" :key="group.documentId" class="activity-item">
-          <template #prepend>
-            <!-- Für laufende/eingereihte Aktivitäten immer einen Spinner zeigen;
-                 nur fehlgeschlagene behalten das Fehler-Icon. -->
-            <v-progress-circular
-              v-if="group.status !== 'failed'"
-              indeterminate
-              size="16"
-              width="2"
-              color="primary"
-              class="activity-item__icon"
-            />
-            <v-icon v-else-if="group.autoEnded" size="16" class="activity-item__icon" color="warning">
-              mdi-timer-alert-outline
-            </v-icon>
-            <v-icon v-else size="16" class="activity-item__icon" color="error">
-              mdi-alert-circle-outline
-            </v-icon>
-          </template>
-
-          <v-list-item-title class="activity-item__title">
-            {{ group.documentTitle }}
-          </v-list-item-title>
-
-          <v-list-item-subtitle
-            v-if="group.status === 'failed' && group.errorMessage"
-            :class="group.autoEnded ? 'activity-item__notice' : 'activity-item__error'"
-          >
-            {{ group.errorMessage }}
-          </v-list-item-subtitle>
-          <v-list-item-subtitle v-else class="activity-item__types">
-            {{ group.typesLabel }}<span v-if="group.startedAt"> · {{ elapsedLabel(group.startedAt) }}</span>
-          </v-list-item-subtitle>
+          <template #prepend><ActivityStatusIcon :status="group.status" :auto-ended="group.autoEnded" /></template>
+          <v-list-item-title class="activity-item__title">{{ group.typesLabel }}</v-list-item-title>
+          <v-list-item-subtitle class="activity-item__types">{{ group.documentTitle }} · {{ statusLabel(group.status) }}<span v-if="group.startedAt"> · {{ elapsedLabel(group.startedAt) }}</span></v-list-item-subtitle>
+          <v-list-item-subtitle v-if="group.status === 'failed' && group.errorMessage" :class="group.autoEnded ? 'activity-item__notice' : 'activity-item__error'">{{ group.errorMessage }}</v-list-item-subtitle>
 
           <template #append>
             <div class="activity-item__actions">
@@ -251,6 +196,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useTheme } from 'vuetify';
+import ActivityStatusIcon from './ActivityStatusIcon.vue';
 import { apiPost } from '../api/client.js';
 import {
   cancelJob,
@@ -290,8 +236,8 @@ const BURST_TICKS = 8;   // Anzahl der Schub-Durchläufe (~12 s)
 const TYPE_LABELS = {
   OCR: 'Texterkennung',
   INDEX: 'Indexierung',
-  EMBED: 'Embedding',
-  TAG: 'Auto-Tagging'
+  EMBED: 'Indexierung',
+  TAG: 'Verschlagwortung'
 };
 
 const actionError = ref('');
@@ -422,12 +368,6 @@ const failedAudioExports = computed(() => audioExports.value.filter((job) => job
 // Gesamtfortschritt der Volltext-Erkennung (Dokument-Ebene), sichtbar auch in den
 // Pausen zwischen den OCR-Häppchen.
 const ocrPending = computed(() => Number(ocrBacklog.value?.pending || 0));
-const ocrPercent = computed(() => {
-  const total = Number(ocrBacklog.value?.total || 0);
-  if (total <= 0) return 0;
-  return Math.round((Number(ocrBacklog.value?.done || 0) / total) * 100);
-});
-// Automatisch beendete Dokumente bleiben sichtbar, damit sie neu gestartet werden können.
 const hasVisibleActivity = computed(() =>
   [...jobs.value, ...audioExports.value, ...background.value].some(job =>
     ['queued', 'running', 'paused'].includes(job.status)
@@ -520,12 +460,18 @@ function handleVisibilityChange() {
   schedulePoll(document.hidden ? HIDDEN_POLL_MS : 0);
 }
 
+function statusLabel(status) {
+  return { running: 'Läuft', queued: 'Wartet', paused: 'Pausiert', done: 'Fertig', failed: 'Fehlgeschlagen', cancelled: 'Beendet' }[status] || status;
+}
+
+function activityName(job) {
+  return { wiki: 'Wissensaufbau', scanner: 'Scannen', backup: 'Datensicherung', preanalysis: 'Importanalyse', cleanup: 'Scanaufbereitung' }[job.kind] || job.title;
+}
+
 function audioStatusLabel(job) {
-  if (job.cancel_requested) return 'wird abgebrochen';
-  if (job.status === 'done') return 'bereit';
-  if (job.status === 'queued') return 'wartet';
-  const progress = `${Number(job.progress || 0)} %`;
-  return job.phase ? `${job.phase} · ${progress}` : progress;
+  if (job.cancel_requested) return 'Wird beendet';
+  const label = statusLabel(job.status);
+  return job.status === 'running' ? `${label} · ${Number(job.progress || 0)} %` : label;
 }
 
 function setAudioBusy(jobId, busy) {
@@ -767,19 +713,6 @@ onBeforeUnmount(() => {
   opacity: 0.7;
   text-align: center;
 }
-.activity-ocr {
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.activity-ocr__label {
-  font-size: 0.82rem;
-}
-.activity-ocr__count {
-  font-size: 0.72rem;
-  opacity: 0.7;
-}
 .activity-list {
   max-height: 340px;
   overflow-y: auto;
@@ -795,8 +728,7 @@ onBeforeUnmount(() => {
   color: rgb(var(--v-theme-on-surface));
 }
 .activity-item__types,
-.activity-card__sub,
-.activity-ocr__count {
+.activity-card__sub {
   color: rgba(var(--v-theme-on-surface), 0.66);
   opacity: 1;
 }
