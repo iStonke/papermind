@@ -103,6 +103,12 @@ def run_isolated(
         receiver.close()
 
     if message is None:
+        if process.exitcode == -signal.SIGKILL:
+            # Ohne eigenen Abbruch kommt SIGKILL praktisch nur vom OOM-Killer
+            # (Worker-Container auf dem Pi: 2 GB Limit).
+            raise OCRChildFailed(
+                "OCR-Prozess vom System beendet (Exit-Code -9) – vermutlich zu wenig Arbeitsspeicher"
+            )
         raise OCRChildFailed(f"OCR-Prozess unerwartet beendet (Exit-Code {process.exitcode})")
     if message[0] == "error":
         raise OCRChildFailed(message[2])

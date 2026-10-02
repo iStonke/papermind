@@ -28,6 +28,10 @@ def _crash():
     os._exit(9)
 
 
+def _oom_killed():
+    os.kill(os.getpid(), 9)
+
+
 def _pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -53,6 +57,11 @@ def test_child_error_is_reported_with_message():
 def test_child_crash_without_result_fails():
     with pytest.raises(OCRChildFailed, match="unerwartet beendet"):
         run_isolated(_crash, deadline_seconds=60)
+
+
+def test_sigkilled_child_reports_probable_memory_shortage():
+    with pytest.raises(OCRChildFailed, match="Arbeitsspeicher"):
+        run_isolated(_oom_killed, deadline_seconds=60)
 
 
 def test_deadline_kills_whole_process_group(tmp_path):
