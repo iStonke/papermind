@@ -36,6 +36,10 @@ class Job(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="queued")
     progress: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Wie oft ein Worker den Job übernommen hat; begrenzt Wiederaufnahmen nach Abstürzen.
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # Warum der Job beendet wurde: timeout | retry_limit | cancelled (NULL = gewöhnlicher Fehler).
+    failure_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     worker_id: Mapped[str | None] = mapped_column(String(255), nullable=True)

@@ -65,7 +65,7 @@ def test_ocr_attempt_publishes_only_with_lease_and_preserves_old_pdf(indexed_sou
         return {"text": "Invoice text", "pages": [], "page_count": 1, "quality_status": "good"}
 
     with patch.object(worker, "_resolve_storage_path", side_effect=lambda key: source.parent / key.split("/")[-1]), patch.object(
-        worker, "run_ocr_pipeline", side_effect=pipeline
+        worker, "_run_ocr_pipeline_isolated", side_effect=pipeline
     ), patch.object(worker, "apply_ollama_classification", return_value=None):
         worker._process_ocr_job(job_id, token)
     assert old_pdf.read_bytes() == b"previous valid OCR"
@@ -99,7 +99,7 @@ def test_ocr_metadata_edit_during_processing_does_not_discard_result(indexed_sou
         return {"text": "Invoice text", "pages": [], "page_count": 1, "quality_status": "good"}
 
     with patch.object(worker, "_resolve_storage_path", side_effect=lambda key: source.parent / key.split("/")[-1]), patch.object(
-        worker, "run_ocr_pipeline", side_effect=pipeline
+        worker, "_run_ocr_pipeline_isolated", side_effect=pipeline
     ), patch.object(worker, "apply_ollama_classification", return_value=None):
         worker._process_ocr_job(job_id, token)
 
@@ -121,7 +121,7 @@ def test_ocr_source_change_during_processing_does_not_publish(indexed_source):
         return {"text": "stale text", "pages": [], "page_count": 1, "quality_status": "good"}
 
     with patch.object(worker, "_resolve_storage_path", side_effect=lambda key: source.parent / key.split("/")[-1]), patch.object(
-        worker, "run_ocr_pipeline", side_effect=pipeline
+        worker, "_run_ocr_pipeline_isolated", side_effect=pipeline
     ), patch.object(worker, "apply_ollama_classification", return_value=None):
         worker._process_ocr_job(job_id, token)
 

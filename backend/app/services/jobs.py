@@ -116,6 +116,9 @@ class JobService:
         now = datetime.now(timezone.utc)
         job.status = "queued" if action == "restart" else "failed"
         job.error_message = None if action == "restart" else "Vom Nutzer beendet"
+        job.failure_kind = None if action == "restart" else "cancelled"
+        if action == "restart":
+            job.attempts = 0
         job.progress = 0
         job.started_at = None
         job.finished_at = None if action == "restart" else now

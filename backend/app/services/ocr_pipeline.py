@@ -93,6 +93,31 @@ def _extract_pdf_text_per_page(pdf_path: Path) -> list[tuple[int, str]]:
 # OCR_JOBS=3 setzen und im Container OMP_THREAD_LIMIT=1, damit OCR nicht alle
 # Kerne auslastet (Hitze/Lüfter) und API/DB nicht aushungert.
 OCR_JOBS = max(0, int(os.getenv("OCR_JOBS", "0") or "0"))
+# Obergrenze der Pixel je gerenderter Seite. A3 bei 300 dpi sind ~17,4 MP; eine
+# Seite mit riesiger oder kaputter MediaBox (Poster, falsche Einheiten) würde
+# sonst Gigabytes belegen und den Pi ins Swapping treiben.
+OCR_MAX_PAGE_PIXELS = max(4_000_000, int(os.getenv("OCR_MAX_PAGE_PIXELS", "24000000") or "24000000"))
+
+
+def _page_render_scale(page, dpi_target: int) -> float:
+    scale = max(1.0, float(dpi_target) / 72.0)
+    try:
+        width, height = page.get_size()
+    except Exception:  # noqa: BLE001 - ohne Größe gilt die Ziel-DPI
+        return scale
+    pixels = width * height * scale * scale
+    if pixels <= OCR_MAX_PAGE_PIXELS:
+        return scale
+    capped = scale * (OCR_MAX_PAGE_PIXELS / pixels) ** 0.5
+    logger.warning(
+        "ocr page render capped size_pt=%sx%s scale=%.2f->%.2f", round(width), round(height), scale, capped
+    )
+    return capped
+
+
+# Obergrenze für den tesseract-Aufruf je Seite; ohne sie konnte eine einzelne
+# Seite die OCR unbegrenzt blockieren.
+OCR_PAGE_TIMEOUT_SECONDS = max(10, int(os.getenv("OCR_PAGE_TIMEOUT_SECONDS", "300") or "300"))
 
 
 def _run_ocrmypdf(
@@ -563,6 +588,24 @@ def _remove_dark_edge_bands(rgb: Any) -> Any:
     return rgb
 
 
+def _estimate_background(plane: "np.ndarray", sigma: float) -> "np.ndarray":
+    """Großflächigen Helligkeitsverlauf einer Bildebene schätzen.
+
+    Der Hintergrund ist per Definition glatt; ein Gauß mit σ≈50 px auf voller
+    Auflösung kostete aber über 1 s je Kanal (auf dem Pi ein Vielfaches) und
+    der Löwenanteil der gesamten OCR-Zeit. Verkleinert geschätzt und wieder
+    hochskaliert ist das Ergebnis praktisch gleich, aber um ein Vielfaches
+    schneller und speicherschonender.
+    """
+    height, width = plane.shape[:2]
+    factor = 8 if min(height, width) >= 64 * 8 else 1
+    if factor == 1:
+        return cv2.GaussianBlur(plane, (0, 0), sigma)
+    small = cv2.resize(plane, (max(1, width // factor), max(1, height // factor)), interpolation=cv2.INTER_AREA)
+    small = cv2.GaussianBlur(small, (0, 0), sigma / factor)
+    return cv2.resize(small, (width, height), interpolation=cv2.INTER_LINEAR)
+
+
 def _clean_scan_image(image: Image.Image, mode: str) -> Image.Image:
     """Glättet ungleichmäßige Beleuchtung und Faltenschatten, damit Scans einen
     richtig weißen Hintergrund bekommen.
@@ -577,21 +620,30 @@ def _clean_scan_image(image: Image.Image, mode: str) -> Image.Image:
     if mode not in {"white", "bw"} or cv2 is None or np is None:
         return image
 
-    rgb = np.asarray(image.convert("RGB"), dtype=np.float32)
+    # np.array erzwingt eine beschreibbare Kopie – unten wird in place gerechnet.
+    rgb = np.array(image.convert("RGB"), dtype=np.float32)
     rgb, _ = _deskew_scan_rgb(rgb)
     rgb = _remove_dark_edge_bands(rgb)
     width = rgb.shape[1]
     sigma = max(15.0, width / 48.0)  # ~35 @1700px, ~52 @2480px
-    out = np.empty_like(rgb)
+    # Rechenschritte in place: Jede Zwischenkopie einer 300-dpi-Seite kostet als
+    # float32-RGB ~100–200 MB; ohne In-place-Rechnung lag die Spitze bei ~1 GB.
+    out = rgb
     for channel in range(3):
-        plane = rgb[:, :, channel]
-        background = cv2.GaussianBlur(plane, (0, 0), sigma)
-        out[:, :, channel] = plane / np.maximum(background, 1.0) * 255.0
-    out = np.clip(out, 0, 255)
+        plane = out[:, :, channel]
+        background = _estimate_background(plane, sigma)
+        np.maximum(background, 1.0, out=background)
+        np.divide(plane, background, out=plane)
+        plane *= 255.0
+        del background
+    np.clip(out, 0, 255, out=out)
 
     if mode == "white":
         # Sanfter Weißpunkt: der fast-weiße Hintergrund klippt auf reines Weiß.
-        out = np.clip((out - 12.0) / (243.0 - 12.0) * 255.0, 0, 255)
+        out -= 12.0
+        out /= 243.0 - 12.0
+        out *= 255.0
+        np.clip(out, 0, 255, out=out)
 
         # Im Farbmodus wird der Hintergrund zwar sauber weiß, graue
         # Druckerschrift blieb bislang aber sichtbar zu hell. Eine stärkere
@@ -670,7 +722,7 @@ def _build_cleaned_input_pdf(
         with tempfile.TemporaryDirectory() as temp_dir:
             for index in range(page_count):
                 page = pdf_doc[index]
-                bitmap = page.render(scale=scale)
+                bitmap = page.render(scale=min(scale, _page_render_scale(page, dpi_target)))
                 image = bitmap.to_pil()
                 if auto_crop:
                     image, crop_result = _auto_crop_scanned_page(image)
@@ -1089,7 +1141,12 @@ def _extract_tesseract_page_data(
             "6",
             "tsv",
         ]
-        result = subprocess.run(command, check=False, capture_output=True, text=True)
+        try:
+            result = subprocess.run(
+                command, check=False, capture_output=True, text=True, timeout=OCR_PAGE_TIMEOUT_SECONDS
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f"tesseract timed out after {OCR_PAGE_TIMEOUT_SECONDS} s") from exc
         if result.returncode != 0:
             message = (result.stderr or result.stdout or "tesseract failed").strip()
             raise RuntimeError(message)
@@ -1459,7 +1516,7 @@ def run_ocr_pipeline(
         page_no = index + 1
         logger.info("ocr stage page_render start page=%s dpi=%s", page_no, dpi_target)
         page = pdf_doc[index]
-        bitmap = page.render(scale=max(1.0, float(dpi_target) / 72.0))
+        bitmap = page.render(scale=_page_render_scale(page, dpi_target))
         image = bitmap.to_pil()
         processed = _preprocess_image(image, deskew=deskew, denoise=denoise, use_unpaper=use_unpaper)
         logger.info("ocr stage page_preprocess done page=%s", page_no)

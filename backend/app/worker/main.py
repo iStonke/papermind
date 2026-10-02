@@ -5,7 +5,6 @@ import os
 import re
 import socket
 import shutil
-import subprocess
 import tempfile
 import threading
 import time
@@ -53,6 +52,7 @@ from app.services.maintenance import write_activity
 from app.services.note_audio_jobs import note_audio_jobs
 from app.services.tts import merge_wav_bytes, segment_speech_text, tts_service
 from app.worker.document_dispatch import DocumentJobDispatcher
+from app.worker.ocr_isolation import OCRAborted, OCRDeadlineExceeded, run_isolated
 from app.services.tag_suggestions import (
     fallback_tag_candidates,
     is_blocked_tag_candidate,
@@ -1178,9 +1178,68 @@ def _heartbeat_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> bool:
         return bool(result.rowcount)
 
 
+AUTO_FAILURE_KINDS = frozenset({"timeout", "retry_limit"})
+
+
+def _format_duration(seconds: float) -> str:
+    minutes = max(1, int(round(seconds / 60)))
+    if minutes < 60:
+        return f"{minutes} min"
+    hours, rest = divmod(minutes, 60)
+    return f"{hours} h {rest} min" if rest else f"{hours} h"
+
+
+class JobGuard:
+    """Gesamtfrist eines Jobs plus Abbruchsignal für die ausführende Arbeit.
+
+    Der Heartbeat allein beweist nur, dass der Worker lebt – nicht, dass der Job
+    vorankommt. Läuft die Frist ab, beendet der Heartbeat den Job selbst und
+    setzt ``aborted``; die isolierte OCR wird daraufhin hart beendet.
+    """
+
+    def __init__(self, job_type: str, deadline_seconds: float | None = None):
+        self.job_type = job_type
+        self.started = time.monotonic()
+        self.aborted = threading.Event()
+        self.deadline_seconds = float(deadline_seconds or _default_job_deadline(job_type))
+        self.page_count: int | None = None
+
+    def set_ocr_pages(self, page_count: int | None) -> None:
+        self.page_count = page_count if page_count and page_count > 0 else None
+        self.deadline_seconds = float(_ocr_deadline_seconds(self.page_count))
+
+    def remaining(self) -> float:
+        return self.started + self.deadline_seconds - time.monotonic()
+
+    def timeout_message(self) -> str:
+        limit = _format_duration(self.deadline_seconds)
+        if self.job_type == "OCR":
+            scope = f" (Grenze für {self.page_count} Seite{'n' if self.page_count != 1 else ''})" if self.page_count else ""
+            what = f"Die Texterkennung lief länger als {limit}{scope}."
+        else:
+            what = f"Der Vorgang lief länger als {limit}."
+        return f"Automatisch beendet: {what} Bitte das Dokument prüfen und bei Bedarf neu starten."
+
+
+def _ocr_deadline_seconds(page_count: int | None) -> int:
+    pages = page_count if page_count and page_count > 0 else 10
+    return min(
+        settings.worker_ocr_deadline_max_seconds,
+        settings.worker_ocr_deadline_base_seconds + pages * settings.worker_ocr_deadline_per_page_seconds,
+    )
+
+
+def _default_job_deadline(job_type: str) -> int:
+    # OCR startet mit der Obergrenze und wird nach dem Seitenzählen verfeinert.
+    if job_type == "OCR":
+        return settings.worker_ocr_deadline_max_seconds
+    return settings.worker_job_deadline_seconds
+
+
 @contextmanager
-def _job_lease_heartbeat(job_id: uuid.UUID, lease_token: uuid.UUID):
+def _job_lease_heartbeat(job_id: uuid.UUID, lease_token: uuid.UUID, guard: JobGuard | None = None):
     stop = threading.Event()
+    guard = guard or JobGuard("")
 
     def run_heartbeat() -> None:
         interval = min(
@@ -1189,8 +1248,17 @@ def _job_lease_heartbeat(job_id: uuid.UUID, lease_token: uuid.UUID):
         )
         while not stop.wait(interval):
             try:
+                if guard.remaining() <= 0:
+                    logger.warning(
+                        "job deadline exceeded job_id=%s deadline=%ss worker_id=%s",
+                        job_id, int(guard.deadline_seconds), WORKER_ID,
+                    )
+                    _mark_job_failed(job_id, guard.timeout_message(), lease_token, failure_kind="timeout")
+                    guard.aborted.set()
+                    return
                 if not _heartbeat_job(job_id, lease_token):
                     logger.warning("job lease lost job_id=%s worker_id=%s", job_id, WORKER_ID)
+                    guard.aborted.set()
                     return
                 _touch_worker_health(state="processing", job_id=job_id)
             except Exception:
@@ -1203,13 +1271,27 @@ def _job_lease_heartbeat(job_id: uuid.UUID, lease_token: uuid.UUID):
     )
     thread.start()
     try:
-        yield
+        yield guard
     finally:
         stop.set()
         thread.join(timeout=2)
 
 
-def _mark_job_failed(job_id: uuid.UUID, reason: str, lease_token: uuid.UUID | None = None) -> None:
+def _block_automatic_ocr_retry(document: Document) -> None:
+    # Ein automatisch beendetes Dokument würde beim Backfill sofort wieder hängen;
+    # „Neu starten" in der Aktivitätsanzeige hebt die Sperre auf.
+    flags = dict(document.flags or {})
+    flags["ocr_retry_blocked"] = True
+    document.flags = flags
+
+
+def _mark_job_failed(
+    job_id: uuid.UUID,
+    reason: str,
+    lease_token: uuid.UUID | None = None,
+    *,
+    failure_kind: str | None = None,
+) -> None:
     with SessionLocal() as db:
         stmt = select(Job).where(Job.id == job_id)
         if lease_token is not None:
@@ -1221,12 +1303,15 @@ def _mark_job_failed(job_id: uuid.UUID, reason: str, lease_token: uuid.UUID | No
         document = db.get(Document, job.document_id)
         job.status = "failed"
         job.error_message = _truncate_error(reason)
+        job.failure_kind = failure_kind
         job.finished_at = _now_utc()
         if job.progress is None:
             job.progress = 0
         _clear_job_lease(job)
 
         if document is not None and job.type == "OCR":
+            if failure_kind in AUTO_FAILURE_KINDS:
+                _block_automatic_ocr_retry(document)
             document.status = "failed"
             document.ocr_status = "failed"
             document.ocr_quality_status = "error"
@@ -1277,6 +1362,8 @@ def _claim_next_job(job_types=("OCR", "INDEX", "TAG")) -> tuple[uuid.UUID, str, 
         job.progress = 10 if job.type == "OCR" else 5
         job.started_at = now
         job.error_message = None
+        job.failure_kind = None
+        job.attempts = (job.attempts or 0) + 1
         job.worker_id = WORKER_ID
         job.lease_token = lease_token
         job.heartbeat_at = now
@@ -1293,7 +1380,33 @@ def _claim_next_job(job_types=("OCR", "INDEX", "TAG")) -> tuple[uuid.UUID, str, 
         return job.id, job.type, lease_token
 
 
-def _process_ocr_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
+def _count_pdf_pages(path: Path) -> int | None:
+    try:
+        import pypdfium2 as pdfium
+
+        pdf = pdfium.PdfDocument(str(path))
+        try:
+            return len(pdf)
+        finally:
+            pdf.close()
+    except Exception:  # noqa: BLE001 - ohne Seitenzahl gilt die Standardfrist
+        return None
+
+
+def _run_ocr_pipeline_isolated(original_path: Path, ocr_path: Path, runtime_settings: dict, *, timeout_seconds: int, guard: JobGuard) -> dict:
+    return run_isolated(
+        run_ocr_pipeline,
+        original_path,
+        ocr_path,
+        runtime_settings,
+        timeout_seconds=timeout_seconds,
+        deadline_seconds=guard.remaining(),
+        abort=guard.aborted,
+    )
+
+
+def _process_ocr_job(job_id: uuid.UUID, lease_token: uuid.UUID, guard: JobGuard | None = None) -> None:
+    guard = guard or JobGuard("OCR")
     attempt_dir = None
     try:
         with SessionLocal() as db:
@@ -1354,14 +1467,16 @@ def _process_ocr_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
                 )
             auto_tagging_enabled = bool(runtime_settings.get("documents", {}).get("auto_tagging", False))
 
+            guard.set_ocr_pages(document.page_count or _count_pdf_pages(original_path))
             job.progress = 40
             db.commit()
 
-            ocr_result = run_ocr_pipeline(
+            ocr_result = _run_ocr_pipeline_isolated(
                 original_path,
                 ocr_path,
                 runtime_settings,
                 timeout_seconds=settings.worker_ocr_timeout_seconds,
+                guard=guard,
             )
             quality_payload = dict(ocr_result.get("quality") or {})
             quality_status = str(quality_payload.get("status") or ocr_result.get("quality_status") or "").strip() or None
@@ -1511,12 +1626,12 @@ def _process_ocr_job(job_id: uuid.UUID, lease_token: uuid.UUID) -> None:
                     confidence_score,
                     quality_message,
                 )
-    except subprocess.TimeoutExpired:
-        _mark_job_failed(
-            job_id,
-            f"OCR timed out after {settings.worker_ocr_timeout_seconds}s",
-            lease_token,
-        )
+    except OCRDeadlineExceeded:
+        logger.warning("ocr job deadline exceeded job_id=%s deadline=%ss", job_id, int(guard.deadline_seconds))
+        _mark_job_failed(job_id, guard.timeout_message(), lease_token, failure_kind="timeout")
+    except OCRAborted:
+        # Frist im Heartbeat abgelaufen oder vom Nutzer beendet – Status ist schon gesetzt.
+        logger.warning("ocr job aborted job_id=%s", job_id)
     except Exception as exc:  # pragma: no cover - infrastructure/runtime path
         _mark_job_failed(job_id, str(exc), lease_token)
 
@@ -1686,13 +1801,35 @@ def _reclaim_orphaned_jobs() -> None:
         )
         if not orphaned:
             return
+        exhausted = []
         for job in orphaned:
+            document = db.get(Document, job.document_id)
+            if (job.attempts or 0) >= settings.worker_job_max_attempts:
+                # Wiederholt unterbrochen (Absturz, Neustart, OOM): nicht endlos neu
+                # einreihen, sondern beenden und in der Aktivität darauf hinweisen.
+                exhausted.append(job)
+                job.status = "failed"
+                job.failure_kind = "retry_limit"
+                job.error_message = (
+                    f"Automatisch beendet: Die Verarbeitung wurde {job.attempts}× unterbrochen "
+                    "(z. B. Absturz oder Neustart des Workers). Bitte das Dokument prüfen und bei Bedarf neu starten."
+                )
+                job.finished_at = _now_utc()
+                _clear_job_lease(job)
+                if document is not None:
+                    if job.type == "OCR":
+                        _block_automatic_ocr_retry(document)
+                        document.status = "failed"
+                        document.ocr_status = "failed"
+                    elif job.type == "INDEX":
+                        document.embedding_status = "failed"
+                        document.embedding_error = job.error_message
+                continue
             job.status = "queued"
             job.progress = 0
             job.started_at = None
             job.error_message = None
             _clear_job_lease(job)
-            document = db.get(Document, job.document_id)
             if document is not None:
                 if job.type == "OCR":
                     document.status = "processing"
@@ -1702,9 +1839,15 @@ def _reclaim_orphaned_jobs() -> None:
         db.commit()
         logger.info(
             "reclaimed orphaned running jobs count=%s ids=%s",
-            len(orphaned),
-            [str(job.id) for job in orphaned],
+            len(orphaned) - len(exhausted),
+            [str(job.id) for job in orphaned if job not in exhausted],
         )
+        if exhausted:
+            logger.warning(
+                "orphaned jobs exceeded max attempts count=%s ids=%s",
+                len(exhausted),
+                [str(job.id) for job in exhausted],
+            )
 
 
 def _run_ocr_backfill() -> None:
@@ -1914,9 +2057,9 @@ def _run_scanner_dispatch_loop(stop_event: threading.Event) -> None:
 def _process_claimed_document_job(claimed) -> None:
     job_id, job_type, lease_token = claimed
     _touch_worker_health(state=job_type.lower(), job_id=job_id, force=True)
-    with _job_lease_heartbeat(job_id, lease_token):
+    with _job_lease_heartbeat(job_id, lease_token, JobGuard(job_type)) as guard:
         if job_type == "OCR":
-            _process_ocr_job(job_id, lease_token)
+            _process_ocr_job(job_id, lease_token, guard)
         elif job_type == "INDEX":
             _process_index_job(job_id, lease_token)
         elif job_type == "TAG":

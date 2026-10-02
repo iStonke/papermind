@@ -41,6 +41,8 @@ class JobRead(ORMModel):
     status: JobStatus
     progress: int | None
     error_message: str | None
+    attempts: int = 0
+    failure_kind: str | None = None
     started_at: datetime | None
     finished_at: datetime | None
     created_at: datetime

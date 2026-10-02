@@ -185,6 +185,9 @@
               color="primary"
               class="activity-item__icon"
             />
+            <v-icon v-else-if="group.autoEnded" size="16" class="activity-item__icon" color="warning">
+              mdi-timer-alert-outline
+            </v-icon>
             <v-icon v-else size="16" class="activity-item__icon" color="error">
               mdi-alert-circle-outline
             </v-icon>
@@ -194,11 +197,14 @@
             {{ group.documentTitle }}
           </v-list-item-title>
 
-          <v-list-item-subtitle v-if="group.status === 'failed' && group.errorMessage" class="activity-item__error">
+          <v-list-item-subtitle
+            v-if="group.status === 'failed' && group.errorMessage"
+            :class="group.autoEnded ? 'activity-item__notice' : 'activity-item__error'"
+          >
             {{ group.errorMessage }}
           </v-list-item-subtitle>
           <v-list-item-subtitle v-else class="activity-item__types">
-            {{ group.typesLabel }}
+            {{ group.typesLabel }}<span v-if="group.startedAt"> · {{ elapsedLabel(group.startedAt) }}</span>
           </v-list-item-subtitle>
 
           <template #append>
@@ -258,6 +264,7 @@ import {
   downloadNoteAudioExport,
   getJobActivity,
 } from '../api/jobs.js';
+import { useNotifications } from '../stores/notifications.js';
 
 const props = defineProps({
   presentation: {
@@ -310,6 +317,64 @@ let burstTimer = null;
 let refreshPromise = null;
 
 const STATUS_RANK = { running: 0, queued: 1, failed: 2 };
+// Vom Worker selbst beendete Jobs (Zeitlimit überschritten / zu oft unterbrochen).
+const AUTO_FAILURE_KINDS = new Set(['timeout', 'retry_limit']);
+const ANNOUNCED_STORAGE_KEY = 'pm.activity.autoEndedAnnounced';
+const notifications = useNotifications();
+const now = ref(Date.now());
+let clockTimer = null;
+
+function elapsedLabel(startedAt) {
+  const minutes = Math.floor((now.value - new Date(startedAt).getTime()) / 60000);
+  if (!Number.isFinite(minutes) || minutes < 1) return 'gerade gestartet';
+  if (minutes < 60) return `seit ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  return `seit ${hours} h ${minutes % 60} min`;
+}
+
+function readAnnounced() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(ANNOUNCED_STORAGE_KEY) || '[]');
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeAnnounced(ids) {
+  try {
+    window.localStorage.setItem(ANNOUNCED_STORAGE_KEY, JSON.stringify([...ids].slice(-50)));
+  } catch {
+    // Nur Komfort: ohne Speicher erscheint der Hinweis höchstens erneut.
+  }
+}
+
+// Automatisch beendete Jobs einmalig als Hinweis melden – auch wenn der Abbruch
+// passierte, während die App geschlossen war (Backend liefert 24 h Fehlerfenster).
+function announceAutoEndedJobs() {
+  const announced = readAnnounced();
+  let changed = false;
+  for (const job of jobs.value) {
+    if (job.status !== 'failed' || !AUTO_FAILURE_KINDS.has(job.failure_kind) || announced.has(job.id)) continue;
+    announced.add(job.id);
+    changed = true;
+    notifications.notify({
+      type: 'warning',
+      title: `„${job.document_title || 'Dokument'}" automatisch beendet`,
+      message: (job.error_message || `${typeLabel(job.type)} wurde automatisch beendet.`).replace(/^Automatisch beendet:\s*/, ''),
+      timeoutMs: 12000,
+      action: {
+        label: 'Neu starten',
+        errorMessage: 'Neustart fehlgeschlagen.',
+        onClick: async () => {
+          await restartJob(job.id);
+          await refresh();
+        },
+      },
+    });
+  }
+  if (changed) writeAnnounced(announced);
+}
 
 function typeLabel(type) {
   return TYPE_LABELS[type] || type;
@@ -333,11 +398,14 @@ const groups = computed(() => {
     else if (list.some((j) => j.status === 'queued')) status = 'queued';
     const types = [...new Set(list.map((j) => j.type))];
     const failedJob = list.find((j) => j.status === 'failed');
+    const runningStarts = list.filter((j) => j.status === 'running' && j.started_at).map((j) => j.started_at).sort();
     result.push({
       documentId: entry.documentId,
       documentTitle: entry.documentTitle,
       status,
       typesLabel: types.map(typeLabel).join(' · '),
+      startedAt: status === 'running' ? (runningStarts[0] || null) : null,
+      autoEnded: status === 'failed' && AUTO_FAILURE_KINDS.has(failedJob?.failure_kind),
       errorMessage: status === 'failed' ? (failedJob?.error_message || null) : null,
       jobIds: list.map((j) => j.id).filter(Boolean)
     });
@@ -359,10 +427,11 @@ const ocrPercent = computed(() => {
   if (total <= 0) return 0;
   return Math.round((Number(ocrBacklog.value?.done || 0) / total) * 100);
 });
+// Automatisch beendete Dokumente bleiben sichtbar, damit sie neu gestartet werden können.
 const hasVisibleActivity = computed(() =>
   [...jobs.value, ...audioExports.value, ...background.value].some(job =>
     ['queued', 'running', 'paused'].includes(job.status)
-  )
+  ) || groups.value.some(group => group.autoEnded)
 );
 const hasBackupFail = computed(() => backupFail.value?.status === 'failed');
 const isActive = computed(() => background.value.some(j => ['queued', 'running'].includes(j.status)) || activeGroups.value.length > 0 || activeAudioExports.value.length > 0 || ocrPending.value > 0);
@@ -421,6 +490,7 @@ async function refresh() {
       const data = await getJobActivity();
       background.value = Array.isArray(data?.background) ? data.background : [];
       jobs.value = Array.isArray(data?.jobs) ? data.jobs : [];
+      announceAutoEndedJobs();
       audioExports.value = Array.isArray(data?.audio_exports) ? data.audio_exports : [];
       void autoDownloadReadyAudioExports();
       ocrBacklog.value = data?.ocr_backlog ?? { total: 0, done: 0, pending: 0, failed: 0 };
@@ -612,6 +682,7 @@ watch(menuOpen, (open) => {
 onMounted(() => {
   document.addEventListener('visibilitychange', handleVisibilityChange);
   window.addEventListener('papermind:activity-refresh', poke);
+  clockTimer = window.setInterval(() => { now.value = Date.now(); }, 30000);
   void refresh().finally(() => schedulePoll());
 });
 
@@ -620,6 +691,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('papermind:activity-refresh', poke);
   if (timer) window.clearTimeout(timer);
   if (burstTimer) window.clearInterval(burstTimer);
+  if (clockTimer) window.clearInterval(clockTimer);
 });
 </script>
 
@@ -747,6 +819,12 @@ onBeforeUnmount(() => {
 .activity-item__error {
   color: rgb(var(--v-theme-error));
   white-space: normal;
+}
+.activity-item__notice {
+  color: rgb(var(--v-theme-warning));
+  white-space: normal;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
 }
 .activity-item__dismiss {
   opacity: 0.6;

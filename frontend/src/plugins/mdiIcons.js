@@ -250,6 +250,7 @@ export {
   mdiTextSearch,
   mdiThermometer,
   mdiTimelineTextOutline,
+  mdiTimerAlertOutline,
   mdiToolboxOutline,
   mdiTrashCanOutline,
   mdiTrayArrowDown,
