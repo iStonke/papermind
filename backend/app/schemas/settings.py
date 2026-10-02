@@ -365,7 +365,7 @@ class UISettingsRead(BaseModel):
     sidebar_max_categories: int = Field(default=5, ge=0, le=50)
     notes_default_view: NotesDefaultView = NotesDefaultView.remember
     notes_sort_order: NotesSortOrder = NotesSortOrder.updated
-    notes_thought_capture_target: NotesThoughtCaptureTarget = NotesThoughtCaptureTarget.daily
+    notes_thought_capture_target: NotesThoughtCaptureTarget = NotesThoughtCaptureTarget.last
     notes_writing_width: NotesWritingWidth = NotesWritingWidth.comfortable
     notes_paragraph_spacing: NotesParagraphSpacing = NotesParagraphSpacing.comfortable
     notes_font_family: NotesFontFamily = NotesFontFamily.sans

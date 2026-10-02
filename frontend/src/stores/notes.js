@@ -68,7 +68,7 @@ export const useNotesStore = defineStore('notes', () => {
   // target 'daily': eine Gedanken-Sammlung (Fläche) pro Kalendertag „Gedanken TT.MM.JJJJ“,
   // beim ersten Gedanken des Tages angelegt. 'last': die zuletzt im Gedanken-Arbeitsbereich
   // gewählte Sammlung (Fallback: erste Sammlung der aktiven Notiz-Sammlung).
-  async function captureThought(text, requestId, { target = 'daily' } = {}) {
+  async function captureThought(text, requestId, { target = 'last' } = {}) {
     await ensureCollectionsLoaded();
     const collectionId = activeCollectionId.value;
     if (!collectionId) throw new Error('Keine Sammlung aktiv');

@@ -408,7 +408,7 @@ async function captureThought() {
   captureState.value = 'saving';
   try {
     await notesStore.captureThought(text, captureRetry.id, {
-      target: settingsStore.settingsDraft?.ui?.notes_thought_capture_target === 'last' ? 'last' : 'daily',
+      target: settingsStore.settingsDraft?.ui?.notes_thought_capture_target === 'daily' ? 'daily' : 'last',
     });
     captureRetry = null;
     query.value = '+ ';

@@ -4176,7 +4176,7 @@ function onNotesSortOrderChange(nextValue) {
 }
 
 function onNotesThoughtCaptureTargetChange(nextValue) {
-  return onNotesPreferenceChange('notes_thought_capture_target', nextValue, NOTES_THOUGHT_CAPTURE_TARGET_VALUES, 'daily');
+  return onNotesPreferenceChange('notes_thought_capture_target', nextValue, NOTES_THOUGHT_CAPTURE_TARGET_VALUES, 'last');
 }
 
 function onNotesWritingWidthChange(nextValue) {
