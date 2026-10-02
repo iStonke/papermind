@@ -116,9 +116,13 @@ class NotePinService:
         return room
 
     def ensure_room(self, collection_id):
-        room = self.db.scalar(select(ThoughtRoom).where(ThoughtRoom.owner_id == self.owner_id, ThoughtRoom.collection_id == collection_id).order_by(ThoughtRoom.created_at))
+        def first_room():
+            return self.db.scalar(select(ThoughtRoom).where(ThoughtRoom.owner_id == self.owner_id, ThoughtRoom.collection_id == collection_id).order_by(ThoughtRoom.created_at))
+        room = first_room()
         if room is None:
-            room = self.create_room(collection_id, "Meine Gedanken")
+            # Serialize first-use creation per collection so parallel requests share one canvas.
+            self.db.scalar(select(NoteCollection).where(NoteCollection.id == collection_id, NoteCollection.owner_id == self.owner_id).with_for_update())
+            room = first_room() or self.create_room(collection_id, "Meine Gedanken")
         return room
 
     def create_room(self, collection_id, title=None):
