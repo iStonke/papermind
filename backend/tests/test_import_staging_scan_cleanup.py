@@ -11,6 +11,7 @@ from unittest.mock import patch
 from PIL import Image
 
 from app.services import import_staging
+from app.services.ocr_pipeline import cv2
 from app.services.import_staging import ImportStagingService
 from app.schemas.import_staging import ImportCommitPageInput
 
@@ -175,6 +176,7 @@ class ImportStagingScanCleanupTest(unittest.TestCase):
         self.assertFalse(self.service.mark_scan_cleanup_pending([disabled_id]))
         self.assertIsNone(self.service.get_source_scan_cleanup_response(disabled_id))
 
+    @unittest.skipIf(cv2 is None, "OpenCV fehlt (nur in requirements-dev/Worker-Image)")
     def test_enhance_scanner_source_persists_auto_crop_result(self) -> None:
         source_file_id = str(uuid.uuid4())
         source_path = self.service._source_pdf_path(source_file_id)
