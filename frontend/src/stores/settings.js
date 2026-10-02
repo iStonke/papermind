@@ -196,7 +196,7 @@ function createDefaultSettings() {
       enable_table_detection: true,
       deskew: true,
       denoise: true,
-      use_unpaper: true,
+      use_unpaper: false,
       dpi_target: 300,
       postprocess_hyphenation: true,
       remove_headers_footers: true,

@@ -436,7 +436,9 @@ class OCRSettingsRead(BaseModel):
     enable_table_detection: bool = True
     deskew: bool = True
     denoise: bool = True
-    use_unpaper: bool = True
+    # Wirkt nur auf den Konfidenz-Durchlauf (nicht auf ocrmypdf); dort ohne messbaren
+    # Nutzen, aber ~50 % seiner Laufzeit und Fehlwarnungen bei großen Ziffern.
+    use_unpaper: bool = False
     dpi_target: int = Field(default=300, ge=150, le=600)
     postprocess_hyphenation: bool = True
     remove_headers_footers: bool = True

@@ -206,7 +206,7 @@ class SettingsValidationTest(unittest.TestCase):
         self.assertGreaterEqual(len(payload.llm.numeric_prompt_template), 50)
         self.assertEqual(payload.llm.temperature, 0.15)
         self.assertEqual(payload.ocr.language, "deu+eng")
-        self.assertIs(payload.ocr.use_unpaper, True)
+        self.assertIs(payload.ocr.use_unpaper, False)
 
     def test_note_text_generation_has_independent_provider_routing(self) -> None:
         defaults = AppSettingsRead.model_validate({})

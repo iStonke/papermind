@@ -98,7 +98,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "enable_table_detection": True,
         "deskew": True,
         "denoise": True,
-        "use_unpaper": True,
+        "use_unpaper": False,
         "dpi_target": 300,
         "postprocess_hyphenation": True,
         "remove_headers_footers": True,
