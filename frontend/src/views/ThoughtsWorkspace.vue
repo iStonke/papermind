@@ -17,7 +17,14 @@
       <div class="thoughts-list document-list-shell" :aria-busy="loading">
         <div class="document-list-body"><div class="document-list-content">
           <p v-if="loading && !rooms.length" class="thoughts-muted" role="status">Gedanken werden geladen …</p>
-          <p v-else-if="!visibleRooms.length" class="thoughts-muted">{{ query ? 'Keine passenden Sammlungen.' : 'Noch keine Sammlungen. Lege deine erste Sammlung an.' }}</p>
+          <div v-else-if="!visibleRooms.length" class="thoughts-list-empty">
+            <PmEmptyState
+              icon="mdi-thought-bubble-outline"
+              :title="query ? 'Keine passenden Sammlungen' : 'Noch keine Sammlungen'"
+              :subtitle="query ? 'Passe den Suchbegriff an oder leere die Suche.' : 'Lege deine erste Sammlung an, um Gedanken zu ordnen.'"
+              size="md"
+            />
+          </div>
           <div v-else class="notes-ws__groups"><section class="notes-ws__group notes-ws__group--flat"><ul class="notes-ws__list">
             <li v-for="room in visibleRooms" :key="room.id" class="notes-ws__item" :data-room-id="room.id" :class="{ 'is-active': activeRoomId === room.id, 'is-new': newlyCreatedRoomId === room.id }" @animationend.self="finishNewRoomAnimation(room.id)">
               <button type="button" class="notes-ws__item-select" :aria-current="activeRoomId === room.id ? 'true' : undefined" :disabled="saving" @click="selectRoom(room.id)">
@@ -34,7 +41,29 @@
     </aside>
     <button v-if="!compactLayout" type="button" class="thoughts-list-handle" :aria-label="listHidden ? 'Gedankenliste einblenden' : 'Gedankenliste ausblenden'" :title="listHidden ? 'Gedankenliste einblenden' : 'Gedankenliste ausblenden'" :aria-pressed="!listHidden" aria-controls="thoughts-list-panel" @click="toggleThoughtsList"><v-icon size="18" aria-hidden="true">{{ listHidden ? 'mdi-chevron-right' : 'mdi-chevron-left' }}</v-icon></button>
     <main ref="boardElement" class="thoughts-board" aria-label="Gedankensammlung">
-      <p v-if="archived && !loading && !pins.length && !error" class="thoughts-board-empty"><v-icon size="44">mdi-thought-bubble-outline</v-icon><span>{{ archived ? 'Noch keine archivierten Gedanken' : 'Deine Gedanken bekommen hier Platz.' }}</span></p>
+      <div v-if="showThoughtsEmptyState" class="thoughts-board-empty thoughts-board-empty--visual">
+        <div class="thoughts-empty-visual" aria-hidden="true">
+          <span class="thoughts-empty-card thoughts-empty-card--one"><i></i><b></b><b></b></span>
+          <span class="thoughts-empty-card thoughts-empty-card--two"><i></i><b></b><b></b></span>
+          <span class="thoughts-empty-spark thoughts-empty-spark--one">✦</span>
+          <span class="thoughts-empty-spark thoughts-empty-spark--two">✦</span>
+          <span class="thoughts-empty-plus"><v-icon size="22">mdi-plus</v-icon></span>
+        </div>
+        <div class="thoughts-empty-copy">
+          <h2>{{ activeRoomId ? 'Dein erster Gedanke wartet' : 'Deine erste Sammlung wartet' }}</h2>
+          <p>{{ activeRoomId ? 'Halte eine Idee fest. Du kannst sie anschließend frei auf der Fläche anordnen.' : 'Lege eine Sammlung an und halte darin Ideen, Fragen und Notizen fest.' }}</p>
+          <button
+            type="button"
+            class="thoughts-empty-action"
+            :disabled="saving || loading || !activeCollectionId"
+            @click="activeRoomId ? createFromButton() : createRoomFromFab()"
+          >
+            <v-icon size="18">{{ activeRoomId ? 'mdi-square-edit-outline' : 'mdi-plus' }}</v-icon>
+            <span>{{ activeRoomId ? 'Ersten Gedanken festhalten' : 'Erste Sammlung anlegen' }}</span>
+          </button>
+        </div>
+      </div>
+      <p v-else-if="archived && !loading && !pins.length && !error" class="thoughts-board-empty"><v-icon size="44">mdi-thought-bubble-outline</v-icon><span>Noch keine archivierten Gedanken</span></p>
       <div ref="canvas" class="thoughts-canvas" :style="canvasStyle" aria-label="Arbeitsbereich der Gedankensammlung" @pointerdown.self="startSelection" @click.self="clearCanvasSelection" @dblclick.self.prevent="createAtClick">
         <div v-if="selectionBox" class="thoughts-selection-box" :style="{ left:`${selectionBox.x}px`, top:`${selectionBox.y}px`, width:`${selectionBox.width}px`, height:`${selectionBox.height}px` }" />
         <Transition name="thought-dismiss" :css="!saving && !switchingRoom">
@@ -136,6 +165,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import BaseDialog from '../components/BaseDialog.vue';
 import DestructiveDialog from '../components/DestructiveDialog.vue';
 import ListActionToolbar from '../components/ListActionToolbar.vue';
+import PmEmptyState from '../components/PmEmptyState.vue';
 import { resizeThoughtText as resizeTextArea } from '../utils/thoughtTextSize.js';
 import { shiftedThoughtPositions } from '../utils/thoughtGroupMove.js';
 import { selectionRect, intersectingThoughtIds } from '../utils/thoughtSelection.js';
@@ -556,6 +586,13 @@ watch(editText, (text) => {
   if (pin && text.trim() && text !== pin.text) editTimer = setTimeout(() => saveEdit(pin, false), 600);
 }, { flush: 'sync' });
 const visiblePins = computed(() => pins.value);
+const showThoughtsEmptyState = computed(() => (
+  !loading.value
+  && !error.value
+  && !archived.value
+  && !draftPosition.value
+  && !visiblePins.value.length
+));
 const visibleRooms = computed(() => {
   const search = (query.value || '').trim().toLocaleLowerCase('de');
   return sortThoughts(rooms.value.filter((room) => {
@@ -892,7 +929,7 @@ textarea { display:block; width:100%; resize:none; min-height:22.1px; max-height
 
 .thoughts-search { display:flex; align-items:center; gap:8px; padding:12px 16px; }.thoughts-search input { width:100%; min-width:0; font-size:12px; color:inherit; }.thoughts-selection { display:flex; align-items:center; gap:4px; padding:6px 12px; font-size:11px; background:rgba(72,131,124,.1); }.thoughts-selection span { margin-right:auto; }
 .thoughts-list { overflow:auto; flex:1; padding:0 8px 20px; }.thoughts-day { font-size:10px; font-weight:650; color:var(--pm-muted,#71818a); padding:15px 10px 7px; }.thoughts-list-row { display:flex; gap:8px; padding:10px; border-radius:9px; margin-bottom:3px; }.thoughts-list-row input { align-self:flex-start; margin-top:4px; accent-color:var(--pm-accent,#26736b); }.thoughts-list-open { text-align:left; flex:1; min-width:0; padding:0; }.thoughts-list-open>span { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; white-space:pre-wrap; font-size:12px; line-height:1.55; overflow-wrap:anywhere; }.thoughts-list-open small { display:block; font-size:10px; margin-top:5px; opacity:.6; }.is-selected,.thoughts-list-row.is-active { background:rgba(72,131,124,.1); }
-.thoughts-board { min-width:0; flex:1; overflow:auto; padding:28px; }
+.thoughts-board { position:relative; min-width:0; flex:1; overflow:auto; padding:28px; }
 .thoughts-canvas { position:relative; min-width:100%; cursor:default; background:transparent; border-radius:12px; }
 
 .thoughts-titlebar { cursor:grab; touch-action:none; user-select:none; min-height:26px; border-radius:4px; }.thoughts-titlebar:active { cursor:grabbing; }.thoughts-titlebar.is-disabled { cursor:default; }.thoughts-titlebar:focus-visible { outline:2px solid var(--pm-accent,#26736b); outline-offset:3px; }
@@ -930,6 +967,18 @@ textarea { display:block; width:100%; resize:none; min-height:22.1px; max-height
 }
 
 .thoughts-muted { padding:24px 12px; font-size:12px; color:var(--pm-muted,#71818a); }.thoughts-error { margin:8px 16px; padding:10px; font-size:12px; color:var(--pm-danger,#a33); background:rgba(180,40,40,.05); }.thoughts-feedback { display:flex; align-items:center; gap:10px; margin-bottom:15px; font-size:12px; }.thoughts-feedback button { text-decoration:underline; }.thoughts-board-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; min-height:280px; color:var(--pm-muted,#71818a); font-size:13px; }
+.thoughts-board-empty--visual { position:absolute; inset:0; z-index:2; min-height:0; padding:28px; color:var(--pm-text,#263c42); text-align:center; pointer-events:none; }
+.thoughts-empty-visual { position:relative; width:188px; height:134px; margin-bottom:4px; animation:thoughts-empty-enter 480ms cubic-bezier(.16,1,.3,1) both; }
+.thoughts-empty-visual::before { content:''; position:absolute; inset:10px -28px -10px; border-radius:50%; background:radial-gradient(ellipse, color-mix(in srgb, var(--pm-accent,#26736b) 18%, transparent), transparent 68%); }
+.thoughts-empty-card { position:absolute; display:flex; flex-direction:column; gap:8px; width:92px; height:112px; padding:15px 13px; border:1px solid color-mix(in srgb, var(--pm-text,#263c42) 18%, var(--pm-divider,#d8dfe1)); border-radius:14px; background:var(--pm-app-surface-raised,#fff); box-shadow:0 14px 28px rgba(20,50,54,.12); animation:thoughts-empty-card-in 620ms cubic-bezier(.22,1,.36,1) both; }
+.thoughts-empty-card i { width:25px; height:8px; border-radius:99px; background:var(--pm-accent,#26736b); opacity:.76; }.thoughts-empty-card b { display:block; height:6px; border-radius:99px; background:color-mix(in srgb, var(--pm-text,#263c42) 16%, transparent); }.thoughts-empty-card b:last-child { width:72%; }
+.thoughts-empty-card--one { left:10px; bottom:5px; transform:rotate(-10deg); background:color-mix(in srgb, #75d6dd 16%, var(--pm-app-surface-raised,#fff)); animation-delay:90ms; }.thoughts-empty-card--two { right:9px; bottom:3px; transform:rotate(9deg); background:color-mix(in srgb, #f5ba70 18%, var(--pm-app-surface-raised,#fff)); animation-delay:160ms; }.thoughts-empty-card--two i { background:#d78a32; }
+.thoughts-empty-plus { position:absolute; z-index:2; right:5px; bottom:0; display:grid; place-items:center; width:42px; height:42px; border:3px solid var(--pm-content-surface,#fff); border-radius:50%; color:var(--pm-on-accent,#fff); background:var(--pm-accent,#26736b); box-shadow:0 8px 18px color-mix(in srgb, var(--pm-accent,#26736b) 30%, transparent); animation:thoughts-empty-plus-in 520ms cubic-bezier(.34,1.56,.64,1) 300ms both; }
+.thoughts-empty-spark { position:absolute; z-index:3; color:var(--pm-accent,#26736b); font-size:21px; line-height:1; animation:thoughts-empty-spark 2.8s ease-in-out .7s infinite; }.thoughts-empty-spark--one { top:7px; left:20px; }.thoughts-empty-spark--two { top:23px; right:5px; font-size:13px; animation-delay:1.15s; }
+.thoughts-empty-copy { display:flex; flex-direction:column; align-items:center; gap:8px; max-width:360px; }.thoughts-empty-copy h2 { margin:0; font-size:20px; font-weight:650; letter-spacing:-.02em; }.thoughts-empty-copy p { margin:0; color:var(--pm-muted,#71818a); font-size:13px; line-height:1.55; }.thoughts-empty-action { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:38px; margin-top:8px; padding:0 15px; border:1px solid color-mix(in srgb, var(--pm-accent,#26736b) 62%, transparent); border-radius:10px; color:var(--pm-accent,#26736b); background:color-mix(in srgb, var(--pm-accent,#26736b) 9%, transparent); font:600 12.5px/1 var(--pm-font-sans,inherit); cursor:pointer; pointer-events:auto; transition:transform 160ms ease,background 160ms ease; }.thoughts-empty-action:hover:not(:disabled) { transform:translateY(-1px); background:color-mix(in srgb, var(--pm-accent,#26736b) 15%, transparent); }.thoughts-empty-action:disabled { opacity:.5; cursor:default; }
+@keyframes thoughts-empty-enter { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } } @keyframes thoughts-empty-card-in { from { opacity:0; transform:translateY(18px) scale(.78) rotate(0); } to { opacity:1; } } @keyframes thoughts-empty-plus-in { from { opacity:0; transform:scale(.45) rotate(-28deg); } to { opacity:1; transform:scale(1) rotate(0); } } @keyframes thoughts-empty-spark { 0%,100% { opacity:.28; transform:scale(.7) rotate(0); } 50% { opacity:1; transform:scale(1.15) rotate(12deg); } }
+@media(prefers-reduced-motion:reduce) { .thoughts-empty-visual,.thoughts-empty-card,.thoughts-empty-plus,.thoughts-empty-spark { animation:none; } }
+.thoughts-list .document-list-body,.thoughts-list .document-list-content { display:flex; flex:1; min-height:100%; }.thoughts-list-empty { display:flex; flex:1; width:100%; min-height:280px; align-items:center; justify-content:center; }
 @media(max-width:850px) { .thoughts-board { padding:20px; } }
 @media(max-width:650px) { .thoughts-ws { flex-direction:column; overflow:auto; }.thoughts-inbox { flex:0 0 auto; border-right:0; }.thoughts-list { max-height:230px; }.thoughts-board { flex:0 0 auto; overflow:visible; }.thoughts-board-empty { min-height:160px; } }
 </style>
