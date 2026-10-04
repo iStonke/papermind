@@ -3050,8 +3050,8 @@
   grid-template-columns: 60px minmax(0, 1fr) auto;
   gap: 15px;
   align-items: stretch;
-  /* Weiche Karte (Listen-Sprache, Variante B): randlos und ohne Schatten auf
-     getönter Fläche; Hover = feiner Ring, Auswahl = Akzent-Ring + Tönung. */
+  /* Dezente Kontur und Schatten grenzen Karten auf dem ungetönten Grund ab.
+     Hover verstärkt die Kontur, Auswahl erhält den Akzentring. */
   border: 1px solid transparent;
   border-radius: 12px;
   padding: 15px 17px;
@@ -5299,9 +5299,7 @@
   }
 }
 
-/* Kartenliste: die getönte Fläche liegt auf dem Scroll-Container selbst,
-   damit sie bis ganz unten reicht (auch hinter Abstandshalter/Nachladen am
-   Listenende und unterhalb weniger Karten) – kein weißer Streifen. */
+/* Die Listencontainer bleiben auch unterhalb der Karten ohne Hintergrundtönung. */
 .papermind-app.v-theme--light .panel-middle .document-list-shell,
 .papermind-app.v-theme--light .panel-middle .document-list-body,
 .papermind-app.v-theme--light .panel-middle .document-list-content,
