@@ -140,10 +140,42 @@ function onLoaded() {
   }
 }
 
+function rectsOverlap(a, b) {
+  const epsilon = 0.002;
+  return a.x < b.x + b.w + epsilon && b.x < a.x + a.w + epsilon
+    && a.y < b.y + b.h + epsilon && b.y < a.y + a.h + epsilon;
+}
+
+// Lernmarkierung dieser Notiz, die die Auswahl berührt (für den Lern-Marker
+// des übernommenen Zitats). Bei mehreren gewinnt die zuletzt angelegte.
+function highlightUnder(page, rects) {
+  if (!page || !rects?.length) return null;
+  const hits = highlights.value.filter((highlight) => highlight.page === page
+    && (highlight.rects || []).some((own) => rects.some((sel) => rectsOverlap(own, sel))));
+  return hits[hits.length - 1] || null;
+}
+
 function onQuote({ page, quote, rects } = {}) {
   const text = String(quote || '').trim();
   if (!text) return;
-  emit('quote', { text, page: page || null, rects: Array.isArray(rects) && rects.length ? rects : null });
+  const cleanRects = Array.isArray(rects) && rects.length ? rects : null;
+  const meaning = learnHighlightByKey(highlightUnder(page, cleanRects)?.color);
+  emit('quote', { text, page: page || null, rects: cleanRects, learnKind: meaning?.markerKind || null });
+}
+
+// „Unklar" übernimmt die Stelle sofort als offene Frage (Lern-Marker) in die
+// Notiz – so landet sie ohne weiteren Schritt in der Nachbereitung.
+function autoQuote(highlight) {
+  const meaning = learnHighlightByKey(highlight?.color);
+  const text = String(highlight?.quote || '').trim();
+  if (!meaning?.autoQuote || !text) return;
+  emit('quote', {
+    text,
+    page: highlight.page,
+    rects: highlight.rects,
+    learnKind: meaning.markerKind,
+    auto: true,
+  });
 }
 
 // ── Lernmarkierungen dieser Notiz ─────────────────────────────────────────────
@@ -193,6 +225,7 @@ async function onCreateHighlight({ page, color, rects, quote } = {}) {
     });
     highlights.value = [...highlights.value, created];
     changed();
+    autoQuote(created);
   } catch (error) {
     notifyError(error, 'Lernmarkierung konnte nicht gespeichert werden.');
   }
@@ -205,6 +238,7 @@ async function onRecolorHighlight(highlightId, patch = {}) {
     const updated = await updateNoteLearnHighlight(highlightId, meaning.key);
     highlights.value = highlights.value.map((item) => (item.id === updated.id ? updated : item));
     changed();
+    autoQuote(updated);
   } catch (error) {
     notifyError(error, 'Lernmarkierung konnte nicht geändert werden.');
   }

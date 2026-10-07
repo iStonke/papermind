@@ -1,5 +1,5 @@
 import { Extension } from '@tiptap/core';
-import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { NodeSelection, Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 
 /**
@@ -23,11 +23,13 @@ const MARKABLE_TYPES = [
   'listItem',
   'taskItem',
   'checkListItem',
+  // Dokument-Zitat (atomarer Block): Zitate aus dem Skript direkt als Lernstoff.
+  'ocrQuote',
 ];
 
 const MARKER_KINDS = ['lernen', 'fakt', 'warum', 'aufgabe', 'analyse', 'prozess', 'vergleich'];
 
-function randomPmId() {
+export function randomPmId() {
   try {
     return crypto.randomUUID().replace(/-/g, '').slice(0, 8);
   } catch {
@@ -84,7 +86,12 @@ export const LearnMarker = Extension.create({
   addCommands() {
     // Nächsten markierbaren Block-Knoten an der Auswahl finden (Tiefe von innen).
     const findMarkable = (state) => {
-      const { $from } = state.selection;
+      // Atomare Blöcke (z. B. Dokument-Zitate) sind nur per Block-Auswahl greifbar.
+      const { selection } = state;
+      if (selection instanceof NodeSelection && MARKABLE_TYPES.includes(selection.node.type.name)) {
+        return { pos: selection.from, node: selection.node };
+      }
+      const { $from } = selection;
       for (let d = $from.depth; d >= 1; d -= 1) {
         const node = $from.node(d);
         if (MARKABLE_TYPES.includes(node.type.name)) {
@@ -129,6 +136,26 @@ export const LearnMarker = Extension.create({
             attrs.learnTo = learnTo;
             if (!attrs.pmId) attrs.pmId = randomPmId();
           }
+          if (dispatch) dispatch(tr.setNodeMarkup(pos, undefined, attrs));
+          return true;
+        },
+
+      // Marker an einer festen Position umschalten (für Node-Views wie das
+      // Dokument-Zitat, die ihren Block selbst kennen). Gleicher Typ = entfernen.
+      toggleLearnMarkerAt:
+        (pos, kind = 'lernen') =>
+        ({ state, tr, dispatch }) => {
+          const node = state.doc.nodeAt(pos);
+          if (!node || !MARKABLE_TYPES.includes(node.type.name)) return false;
+          const marked = markerKindOf(node.attrs.learn) === kind;
+          const attrs = {
+            ...node.attrs,
+            learn: marked ? null : kind,
+            learnText: null,
+            learnFrom: null,
+            learnTo: null,
+          };
+          if (!marked && !attrs.pmId) attrs.pmId = randomPmId();
           if (dispatch) dispatch(tr.setNodeMarkup(pos, undefined, attrs));
           return true;
         },

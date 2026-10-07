@@ -705,6 +705,7 @@ import NoteReviewPanel from './NoteReviewPanel.vue';
 import NoteTagBar from './NoteTagBar.vue';
 import NoteNotebookChip from './NoteNotebookChip.vue';
 import NoteDocumentPane from './NoteDocumentPane.vue';
+import { randomPmId } from './extensions/learnMarker.js';
 import NoteVersionHistoryDialog from './NoteVersionHistoryDialog.vue';
 
 const EMPTY_DOC = { type: 'doc', content: [{ type: 'paragraph' }] };
@@ -1928,18 +1929,47 @@ function updateSplitCompact() {
 
 // „In Notiz übernehmen" aus der PDF-Spalte: Zitat an der Cursorposition des
 // Editors einfügen (inkl. Seite + Auswahl-Rechtecke für den Rücksprung).
-function insertQuoteFromDocument({ text, page, rects } = {}) {
+function hasDocumentQuote(docId, page, text) {
+  let found = false;
+  const visit = (node) => {
+    if (found || !node || typeof node !== 'object') return;
+    if (node.type === 'ocrQuote' && node.attrs?.docId === docId
+      && (node.attrs?.page || null) === (page || null) && node.attrs?.text === text) {
+      found = true;
+      return;
+    }
+    if (Array.isArray(node.content)) node.content.forEach(visit);
+  };
+  visit(body.value);
+  return found;
+}
+
+// learnKind: Lern-Marker aus der Bedeutung einer Lernmarkierung unter der
+// Auswahl (Wichtig/Definition/Unklar). auto: von „Unklar" ausgelöst – dann
+// bleibt der Blick im Dokument, und ein bereits übernommenes Zitat wird nicht
+// verdoppelt.
+function insertQuoteFromDocument({ text, page, rects, learnKind = null, auto = false } = {}) {
   const document = linkedDocument.value;
   if (!document?.id || !text) return;
+  if (auto && hasDocumentQuote(document.id, page, text)) return;
   const inserted = noteEditorRef.value?.insertDocumentQuote?.({
     text,
     docId: document.id,
     docTitle: document.title || linkedDocumentDisplayTitle.value,
     page: page || null,
     rects: rects || null,
+    ...(learnKind ? { learn: learnKind, pmId: randomPmId() } : {}),
   });
   if (!inserted) {
     notify({ type: 'warning', title: 'Notiz', message: 'Das Zitat konnte gerade nicht eingefügt werden.' });
+    return;
+  }
+  if (auto) {
+    notify({
+      type: 'info',
+      title: 'Offene Frage',
+      message: 'Die unklare Stelle steht jetzt als Zitat in der Notiz und wartet im Lernbereich auf die Nachbereitung.',
+    });
     return;
   }
   // Tab-Modus: zur Notiz wechseln; erst sichtbar lässt sich der Editor

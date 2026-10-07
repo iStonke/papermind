@@ -104,3 +104,24 @@ test('document overview lists all learn highlights and opens the owning note', (
   );
   assert.match(workspaceEditorSource, /notesStore\.consumeDocumentReveal\(noteId\)/);
 });
+
+const learnMarkerSource = await read('../src/components/notes/extensions/learnMarker.js');
+
+test('document quotes can carry learn markers like text lines', () => {
+  assert.match(learnMarkerSource, /const MARKABLE_TYPES = \[[\s\S]*?'ocrQuote',[\s\S]*?\];/);
+  // Atomare Blöcke sind nur per Block-Auswahl bzw. Position greifbar.
+  assert.match(learnMarkerSource, /selection instanceof NodeSelection && MARKABLE_TYPES\.includes/);
+  assert.match(learnMarkerSource, /toggleLearnMarkerAt:/);
+  assert.match(ocrQuoteViewSource, /toggleLearnMarkerAt\(props\.getPos\(\), learnKind\.value \|\| 'lernen'\)/);
+  assert.match(ocrQuoteViewSource, /decoration\?\.type\?\.attrs\?\.\['data-learn-state'\]/);
+});
+
+test('learn highlight meanings map to learn markers; unclear quotes itself', () => {
+  assert.match(colorsSource, /key: 'important'[^\n]*markerKind: 'lernen'/);
+  assert.match(colorsSource, /key: 'definition'[^\n]*markerKind: 'fakt'/);
+  assert.match(colorsSource, /key: 'unclear'[^\n]*markerKind: 'warum', autoQuote: true/);
+  assert.match(paneSource, /learnKind: meaning\?\.markerKind \|\| null/);
+  assert.match(paneSource, /autoQuote\(created\);/);
+  assert.match(workspaceEditorSource, /if \(auto && hasDocumentQuote\(document\.id, page, text\)\) return;/);
+  assert.match(workspaceEditorSource, /learnKind \? \{ learn: learnKind, pmId: randomPmId\(\) \} : \{\}/);
+});
