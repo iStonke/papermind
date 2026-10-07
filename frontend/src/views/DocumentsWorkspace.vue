@@ -2331,11 +2331,14 @@ async function setAiWorkspaceMode(mode) {
   if (route.name === 'wiki') await router.push({ name: 'documents' });
   selectView('chat');
 }
-async function openDocumentFromWiki(documentId) {
+// Öffnet ein Dokument aus Wissen/Notizen in „Alle Dokumente". Läuft bewusst
+// über openDocumentFromDashboard: Ein paralleles selectView('all') lud die
+// Liste mit der ALTEN Auswahl neu und überschrieb damit das Ziel – in der Liste
+// stand dann das falsche Dokument.
+async function openDocumentFromWiki(documentId, options = {}) {
   if (!documentId) return;
   await router.push({ name: 'documents' });
-  selectView('all');
-  await selectDocument(String(documentId));
+  await openDocumentFromDashboard(String(documentId), options);
 }
 
 // Klick auf einen Beleg-Chip / [[…]]-Dokumentverweis in einer Notiz öffnet das
@@ -2344,7 +2347,7 @@ function handleNoteNavigate(event) {
   const detail = event?.detail;
   if (!detail?.id) return;
   const id = String(detail.id);
-  if (detail.type === 'document') void openDocumentFromWiki(id);
+  if (detail.type === 'document') void openDocumentFromWiki(id, { page: detail.page });
   else if (detail.type === 'correspondent') applyCorrespondentFilter(id);
   else if (detail.type === 'dossier') router.push({ name: 'dossier-board', params: { dossierId: id } });
   else if (detail.type === 'note') openLinkedNoteInWorkspace(id);
@@ -8447,9 +8450,12 @@ function selectView(viewKey, options = {}) {
 }
 
 /** Dokument aus dem Dashboard öffnen: in die Gesamtliste wechseln und auswählen. */
-async function openDocumentFromDashboard(documentId) {
+async function openDocumentFromDashboard(documentId, options = {}) {
   if (!documentId) return;
   if (!canDiscardMetadataChanges()) return;
+  // Optionale Zielseite (z. B. aus einem Notiz-Zitat): vor der Auswahl setzen
+  // und von selectDocument erhalten lassen.
+  const targetPage = Number(options.page) > 0 ? Number(options.page) : null;
   // In die „Alle Dokumente“-Ansicht wechseln, aber deren generischen Reload
   // überspringen. Der frühere Ablauf feuerte diesen ungezielten Reload
   // (selectView) parallel zu selectDocument – lag das Ziel nicht auf der ersten
@@ -8464,7 +8470,11 @@ async function openDocumentFromDashboard(documentId) {
   // 1) Zielauswahl + Detail (Vorschau) setzen. selectDocument setzt
   //    selectedDocumentId, sodass die anschließende Reconciliation das Ziel als
   //    aktuelle Auswahl sieht und nicht auf ein anderes Dokument zurückfällt.
-  await selectDocument(documentId);
+  if (targetPage) {
+    previewTargetPage.value = targetPage;
+    previewHighlightText.value = '';
+  }
+  await selectDocument(documentId, { preserveTargetPage: Boolean(targetPage) });
   // 2) 'all'-Liste laden; allowPreferredOutsideList hält das Ziel selektiert,
   //    auch wenn es (noch) nicht auf der ersten Ergebnisseite liegt.
   await fetchDocuments(documentId, { allowPreferredOutsideList: true });

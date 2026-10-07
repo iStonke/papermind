@@ -8,7 +8,7 @@
     <button class="pm-ocrquote__src" type="button" @click="open">
       <span aria-hidden="true">▢</span>
       {{ node.attrs.docTitle }}<template v-if="node.attrs.page"> · S.&nbsp;{{ node.attrs.page }}</template>
-      <span class="pm-ocrquote__origin">· aus Markierung übernommen</span>
+      <span v-if="!node.attrs.rects" class="pm-ocrquote__origin">· aus Markierung übernommen</span>
     </button>
   </node-view-wrapper>
 </template>
@@ -19,6 +19,14 @@ import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3';
 const props = defineProps(nodeViewProps);
 
 function open() {
+  // Zuerst der Split-Ansicht anbieten: Zeigt sie dieses Dokument (oder kann es
+  // einblenden), springt sie im PDF zur Stelle und verhindert das Event. Sonst
+  // wie bisher das Dokument im Dokumentbereich öffnen.
+  const reveal = new CustomEvent('pm-note:quote-reveal', {
+    cancelable: true,
+    detail: { docId: props.node.attrs.docId, page: props.node.attrs.page, rects: props.node.attrs.rects },
+  });
+  if (!window.dispatchEvent(reveal)) return;
   window.dispatchEvent(new CustomEvent('pm-note:navigate', {
     detail: {
       type: 'document', id: props.node.attrs.docId,

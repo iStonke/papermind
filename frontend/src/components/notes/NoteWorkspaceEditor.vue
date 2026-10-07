@@ -6,7 +6,9 @@
 -->
 <template>
   <section
+    ref="rootRef"
     class="note-workspace-editor"
+    :class="{ 'has-doc-split': splitVisible }"
     :aria-busy="loading || switching ? 'true' : undefined"
     @keydown.capture="handleWorkspaceKeydown"
   >
@@ -292,6 +294,19 @@
           <v-icon size="14">mdi-link-variant-plus</v-icon>
           <span>Dokument</span>
         </button>
+        <v-btn
+          v-if="linkedDocument"
+          class="note-workspace-editor__split-toggle"
+          :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet']"
+          :variant="splitOpen ? 'tonal' : 'text'"
+          icon
+          :aria-label="splitOpen ? 'Dokument ausblenden' : 'Dokument daneben anzeigen'"
+          :title="splitOpen ? 'Dokument ausblenden' : 'Dokument daneben anzeigen'"
+          :aria-pressed="splitOpen"
+          @click="toggleSplit"
+        >
+          <v-icon size="18">mdi-dock-left</v-icon>
+        </v-btn>
         <NoteNotebookChip
           :note-id="noteId"
           :notebook-id="noteNotebookId"
@@ -331,11 +346,64 @@
       <button type="button" @click="loadNote">Erneut versuchen</button>
     </div>
 
-    <div v-else class="note-workspace-editor__main">
+    <div v-else class="note-workspace-editor__main" :class="splitMainClasses">
+      <div
+        v-if="splitVisible && splitCompact"
+        class="note-workspace-editor__split-tabs"
+        role="tablist"
+        aria-label="Ansicht wählen"
+      >
+        <button
+          v-for="tab in SPLIT_TABS"
+          :key="tab.value"
+          type="button"
+          role="tab"
+          class="note-workspace-editor__split-tab"
+          :class="{ 'is-active': splitTab === tab.value }"
+          :aria-selected="splitTab === tab.value"
+          @click="splitTab = tab.value"
+        >
+          <v-icon size="15">{{ tab.icon }}</v-icon>
+          {{ tab.label }}
+        </button>
+      </div>
+      <template v-if="splitVisible">
+        <!-- Im Tab-Modus nur unsichtbar statt display:none: so behält das
+             PDF Scrollposition und gemerkte Seite beim Tabwechsel. -->
+        <NoteDocumentPane
+          ref="documentPaneRef"
+          class="note-workspace-editor__doc-pane"
+          :class="{ 'is-tab-hidden': splitCompact && splitTab !== 'pdf' }"
+          :aria-hidden="splitCompact && splitTab !== 'pdf' ? 'true' : undefined"
+          :inert="splitCompact && splitTab !== 'pdf'"
+          :style="splitCompact ? undefined : { flexBasis: `${splitWidth}%` }"
+          :note-id="loadedNoteId || noteId"
+          :document-id="linkedDocument.id"
+          :document-title="linkedDocumentDisplayTitle"
+          @quote="insertQuoteFromDocument"
+          @close="toggleSplit(false)"
+          @open-reader="openLinkedDocument"
+        />
+        <div
+          v-if="!splitCompact"
+          class="note-workspace-editor__splitter"
+          :class="{ 'is-dragging': splitDragging }"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Breite des Dokuments anpassen"
+          :aria-valuenow="Math.round(splitWidth)"
+          aria-valuemin="25"
+          aria-valuemax="70"
+          tabindex="0"
+          @pointerdown="startSplitDrag"
+          @keydown.left.prevent="nudgeSplit(-2)"
+          @keydown.right.prevent="nudgeSplit(2)"
+        />
+      </template>
       <div
         ref="scrollContainerRef"
         class="note-workspace-editor__scroll"
-        :class="{ 'is-new-page': newPageEntering }"
+        :class="{ 'is-new-page': newPageEntering, 'is-tab-hidden': splitVisible && splitCompact && splitTab !== 'note' }"
         @animationend.self="finishNewPageAnimation"
         @scroll.passive="rememberScrollPosition()"
       >
@@ -636,6 +704,7 @@ import NoteAudioExportDialog from './NoteAudioExportDialog.vue';
 import NoteReviewPanel from './NoteReviewPanel.vue';
 import NoteTagBar from './NoteTagBar.vue';
 import NoteNotebookChip from './NoteNotebookChip.vue';
+import NoteDocumentPane from './NoteDocumentPane.vue';
 import NoteVersionHistoryDialog from './NoteVersionHistoryDialog.vue';
 
 const EMPTY_DOC = { type: 'doc', content: [{ type: 'paragraph' }] };
@@ -694,6 +763,44 @@ const replaceInputRef = ref(null);
 const title = ref('');
 const body = ref(EMPTY_DOC);
 const learnMarkerBoxesHidden = ref(false);
+
+// ── Split-Ansicht Notiz↔Dokument ──────────────────────────────────────────────
+// Hat die Notiz ein verknüpftes Dokument, steht dessen PDF links neben dem
+// Editor. Ein-/Ausblenden und Breite sind globale Vorlieben (nicht pro Notiz);
+// unter SPLIT_COMPACT_WIDTH ersetzen zwei Tabs die geteilte Ansicht.
+const SPLIT_OPEN_STORAGE_KEY = 'pm-note-split-open';
+const SPLIT_WIDTH_STORAGE_KEY = 'pm-note-split-width';
+const SPLIT_COMPACT_WIDTH = 860;
+const SPLIT_MIN_WIDTH = 25;
+const SPLIT_MAX_WIDTH = 70;
+const SPLIT_TABS = [
+  { value: 'pdf', label: 'Dokument', icon: 'mdi-file-document-outline' },
+  { value: 'note', label: 'Notiz', icon: 'mdi-text-box-outline' },
+];
+const rootRef = ref(null);
+const documentPaneRef = ref(null);
+const splitOpen = ref(readStoredSplitOpen());
+const splitWidth = ref(readStoredSplitWidth());
+const splitCompact = ref(false);
+const splitTab = ref('note');
+const splitDragging = ref(false);
+let splitResizeObserver = null;
+
+function readStoredSplitOpen() {
+  try { return window.localStorage.getItem(SPLIT_OPEN_STORAGE_KEY) !== 'false'; } catch (_) { return true; }
+}
+
+function readStoredSplitWidth() {
+  try {
+    const value = Number(window.localStorage.getItem(SPLIT_WIDTH_STORAGE_KEY));
+    if (Number.isFinite(value) && value >= SPLIT_MIN_WIDTH && value <= SPLIT_MAX_WIDTH) return value;
+  } catch (_) { /* Speicher blockiert */ }
+  return 50;
+}
+
+function storeSplitPreference(key, value) {
+  try { window.localStorage.setItem(key, String(value)); } catch (_) { /* Speicher blockiert */ }
+}
 const learnMarkerCount = computed(() => {
   let count = 0;
   const visit = (node) => {
@@ -783,6 +890,12 @@ const noteScrollPositions = loadStoredScrollPositions();
 
 const noteAttributes = computed(() => body.value?.attrs || {});
 const linkedDocument = computed(() => noteAttributes.value.linkedDocument || null);
+const splitVisible = computed(() => Boolean(linkedDocument.value?.id) && splitOpen.value && hasLoadedContent.value);
+const splitMainClasses = computed(() => ({
+  'is-split': splitVisible.value,
+  'is-split-compact': splitVisible.value && splitCompact.value,
+  'is-split-dragging': splitDragging.value,
+}));
 const showFilenameSuffix = computed(() => settingsStore.settingsDraft?.ui?.showFilenameSuffix ?? false);
 const notesWritingWidth = computed(() => {
   const value = settingsStore.settingsDraft?.ui?.notes_writing_width;
@@ -1688,6 +1801,12 @@ async function loadSlashDocuments() {
   }
 }
 onMounted(() => {
+  window.addEventListener('pm-note:quote-reveal', onQuoteReveal);
+  if (typeof ResizeObserver !== 'undefined' && rootRef.value) {
+    splitResizeObserver = new ResizeObserver(updateSplitCompact);
+    splitResizeObserver.observe(rootRef.value);
+  }
+  updateSplitCompact();
   loadSlashDocuments();
   loadAICredentialStatus();
   window.addEventListener('papermind:ai-configuration-changed', loadAICredentialStatus);
@@ -1762,6 +1881,87 @@ function assignDocument(document) {
 function unlinkDocument() {
   documentDetailsOpen.value = false;
   patchBodyAttributes({ linkedDocument: null });
+}
+
+function toggleSplit(force) {
+  const next = typeof force === 'boolean' ? force : !splitOpen.value;
+  splitOpen.value = next;
+  storeSplitPreference(SPLIT_OPEN_STORAGE_KEY, next);
+  if (next && splitCompact.value) splitTab.value = 'pdf';
+}
+
+function clampSplitWidth(value) {
+  return Math.min(SPLIT_MAX_WIDTH, Math.max(SPLIT_MIN_WIDTH, value));
+}
+
+function nudgeSplit(delta) {
+  splitWidth.value = clampSplitWidth(splitWidth.value + delta);
+  storeSplitPreference(SPLIT_WIDTH_STORAGE_KEY, splitWidth.value);
+}
+
+function startSplitDrag(event) {
+  const main = event.currentTarget?.parentElement;
+  if (!main || event.button !== 0) return;
+  event.preventDefault();
+  const bounds = main.getBoundingClientRect();
+  splitDragging.value = true;
+  const onMove = (moveEvent) => {
+    if (!bounds.width) return;
+    splitWidth.value = clampSplitWidth(((moveEvent.clientX - bounds.left) / bounds.width) * 100);
+  };
+  const onUp = () => {
+    splitDragging.value = false;
+    storeSplitPreference(SPLIT_WIDTH_STORAGE_KEY, splitWidth.value);
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onUp);
+  };
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onUp);
+}
+
+function updateSplitCompact() {
+  const width = rootRef.value?.clientWidth || 0;
+  splitCompact.value = width > 0 && width < SPLIT_COMPACT_WIDTH;
+}
+
+// „In Notiz übernehmen" aus der PDF-Spalte: Zitat an der Cursorposition des
+// Editors einfügen (inkl. Seite + Auswahl-Rechtecke für den Rücksprung).
+function insertQuoteFromDocument({ text, page, rects } = {}) {
+  const document = linkedDocument.value;
+  if (!document?.id || !text) return;
+  const inserted = noteEditorRef.value?.insertDocumentQuote?.({
+    text,
+    docId: document.id,
+    docTitle: document.title || linkedDocumentDisplayTitle.value,
+    page: page || null,
+    rects: rects || null,
+  });
+  if (!inserted) {
+    notify({ type: 'warning', title: 'Notiz', message: 'Das Zitat konnte gerade nicht eingefügt werden.' });
+    return;
+  }
+  // Tab-Modus: zur Notiz wechseln; erst sichtbar lässt sich der Editor
+  // fokussieren (die Einfügemarke steht bereits unter dem Zitat).
+  if (splitCompact.value && splitTab.value !== 'note') {
+    splitTab.value = 'note';
+    nextTick(() => noteEditorRef.value?.focusBody?.());
+  }
+}
+
+// Klick auf die Seitenangabe eines Zitats (OcrQuoteView): gehört es zum
+// verknüpften Dokument, springt die Split-Ansicht zur Stelle (und wird bei
+// Bedarf eingeblendet) statt den Notizbereich zu verlassen.
+function onQuoteReveal(event) {
+  const detail = event?.detail;
+  const document = linkedDocument.value;
+  if (!detail?.docId || !document?.id || String(detail.docId) !== String(document.id)) return;
+  if (!hasLoadedContent.value) return;
+  event.preventDefault();
+  if (!splitOpen.value) toggleSplit(true);
+  if (splitCompact.value) splitTab.value = 'pdf';
+  nextTick(() => documentPaneRef.value?.reveal?.({ page: detail.page, rects: detail.rects }));
 }
 
 function openLinkedDocument() {
@@ -2017,6 +2217,9 @@ function flushSave() {
 defineExpose({ cancelPendingSave, discardPendingDraft, resumePendingSave, flushSave, focusEditorBody, focusTitle, isEmpty });
 
 onBeforeUnmount(() => {
+  window.removeEventListener('pm-note:quote-reveal', onQuoteReveal);
+  splitResizeObserver?.disconnect();
+  splitResizeObserver = null;
   finishNewPageAnimation();
   rememberScrollPosition();
   persistScrollPositions();
@@ -2472,6 +2675,93 @@ onBeforeUnmount(() => {
   min-width: 0;
   min-height: 0;
   flex: 1 1 auto;
+}
+
+.note-workspace-editor__main.is-split-compact {
+  flex-direction: column;
+}
+
+.note-workspace-editor__main.is-split-dragging {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.note-workspace-editor__main.is-split-dragging .note-workspace-editor__doc-pane {
+  pointer-events: none;
+}
+
+.note-workspace-editor__doc-pane {
+  flex: 0 0 50%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.note-workspace-editor__main.is-split-compact .note-workspace-editor__doc-pane {
+  flex: 1 1 auto;
+}
+
+.note-workspace-editor__doc-pane.is-tab-hidden,
+.note-workspace-editor__scroll.is-tab-hidden {
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.note-workspace-editor__splitter {
+  position: relative;
+  flex: 0 0 1px;
+  background: rgba(var(--v-theme-on-surface), 0.1);
+  cursor: col-resize;
+  outline: none;
+}
+
+/* Breitere, unsichtbare Greiffläche über der 1-px-Linie. */
+.note-workspace-editor__splitter::before {
+  content: '';
+  position: absolute;
+  inset: 0 -5px;
+  z-index: 2;
+}
+
+.note-workspace-editor__splitter:hover,
+.note-workspace-editor__splitter:focus-visible,
+.note-workspace-editor__splitter.is-dragging {
+  background: rgb(var(--v-theme-primary));
+  box-shadow: 0 0 0 1px rgb(var(--v-theme-primary));
+}
+
+.note-workspace-editor__split-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+}
+
+.note-workspace-editor__split-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(var(--v-theme-on-surface), 0.64);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.note-workspace-editor__split-tab:hover {
+  background: rgba(var(--v-theme-on-surface), 0.06);
+}
+
+.note-workspace-editor__split-tab.is-active {
+  background: rgba(var(--v-theme-primary), 0.12);
+  color: rgb(var(--v-theme-primary));
 }
 
 .note-workspace-editor__scroll {

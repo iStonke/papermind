@@ -969,7 +969,47 @@ const reviewing = useNoteReview({
 });
 const { review, startReview, toggleReview, effectiveFocusId: reviewFocusId } = reviewing;
 
+// Fügt ein Dokument-Zitat (ocrQuote) an der zuletzt gesetzten Cursorposition
+// ein – auch wenn der Fokus gerade im PDF der Split-Ansicht liegt: focus()
+// stellt die gespeicherte Editor-Selektion wieder her.
+function insertDocumentQuote(attrs) {
+  const ed = editor.value;
+  if (!ed || ed.isDestroyed || !ed.isEditable || !attrs?.text) return false;
+  // Nie etwas ersetzen oder zerschneiden: Das Zitat kommt als eigener Block
+  // HINTER den aktuellen Absatz bzw. die aktuelle Block-Auswahl; ein leerer
+  // Absatz am Cursor wird direkt unter dem Zitat weiterverwendet. Danach steht
+  // der Cursor im Absatz unter dem Zitat – bereit für eigene Gedanken.
+  const { $to } = ed.state.selection;
+  const quote = { type: 'ocrQuote', attrs };
+  let at;
+  let content;
+  // (Leeren Absatz nur auf oberster Ebene wiederverwenden – in Listen/Tabellen
+  // müsste das Zitat sonst vor dem Pflicht-Absatz des Listenpunkts stehen.)
+  if ($to.parent.isTextblock && $to.parent.content.size === 0 && $to.depth === 1) {
+    at = $to.before();
+    content = [quote];
+  } else if ($to.parent.isTextblock) {
+    at = $to.after();
+    content = [quote, { type: 'paragraph' }];
+  } else {
+    at = ed.state.selection.to;
+    content = [quote, { type: 'paragraph' }];
+  }
+  return ed.chain()
+    .focus()
+    .insertContentAt(at, content)
+    .command(({ tr }) => {
+      const inserted = tr.doc.nodeAt(at);
+      if (!inserted) return false;
+      tr.setSelection(TextSelection.near(tr.doc.resolve(at + inserted.nodeSize + 1)));
+      return true;
+    })
+    .scrollIntoView()
+    .run();
+}
+
 defineExpose({
+  insertDocumentQuote,
   get canUndo() { return toolbar.canUndo.value; },
   get canRedo() { return toolbar.canRedo.value; },
   undo: () => toolbar.runHistory('undo'),

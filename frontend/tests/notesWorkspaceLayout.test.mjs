@@ -582,8 +582,9 @@ test('note history lists bundled checkpoints and restores a selected server revi
 
 test('workspace utility buttons share one quiet visual treatment', () => {
   assert.match(workspaceEditorSource, /\.note-workspace-editor__actions\s*\{[\s\S]*?gap:\s*4px/);
-  // Suche, KI, Undo/Redo und Weiteres teilen die stille Variante.
-  assert.equal((workspaceEditorSource.match(/'pm-header-icon-btn--quiet'/g) || []).length, 5);
+  // Suche, KI, Undo/Redo, Weiteres, Lernmarker- und Split-Umschalter teilen
+  // die stille Variante.
+  assert.equal((workspaceEditorSource.match(/'pm-header-icon-btn--quiet'/g) || []).length, 7);
   assert.equal((workspaceEditorSource.match(/<PmActionIcon/g) || []).length, 1);
   assert.match(workspaceEditorSource, /class="note-workspace-editor__more-btn"[\s\S]*?variant="text"/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-btn\s*\{[\s\S]*?margin-right:\s*-8px/);

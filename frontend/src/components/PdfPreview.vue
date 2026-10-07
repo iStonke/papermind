@@ -271,13 +271,28 @@
         aria-hidden="true"
       />
 
-      <!-- Auswahl-Menü: erscheint über markiertem Text (nur wenn annotatable) -->
+      <!-- Auswahl-Menü: erscheint über markiertem Text (annotatable oder quoteMode).
+           Im Zitat-Modus (Split-Ansicht neben einer Notiz) gibt es nur
+           „In Notiz übernehmen" + Kopieren – die Lesemodus-Werkzeuge
+           (Farben/Kommentar/Verknüpfen) bleiben dem Lesemodus vorbehalten. -->
       <div
-        v-if="annotatable && selectionMenu.visible"
+        v-if="(annotatable || quoteMode) && selectionMenu.visible"
         class="pm-sel-menu"
+        :class="{ 'pm-sel-menu--quote': quoteMode && !annotatable }"
         :style="{ left: `${selectionMenu.x}px`, top: `${selectionMenu.y}px` }"
         @mousedown.prevent
       >
+        <button
+          v-if="quoteMode && !annotatable"
+          class="pm-sel-menu__quote"
+          type="button"
+          title="Als Zitat an der Cursorposition einfügen"
+          @click="requestNoteQuoteFromSelection"
+        >
+          <v-icon size="16">mdi-format-quote-open</v-icon>
+          In Notiz übernehmen
+        </button>
+        <template v-if="annotatable">
         <button
           v-for="c in ANNOT_COLORS"
           :key="c"
@@ -295,10 +310,11 @@
         <button class="pm-sel-menu__btn" aria-label="Mit Dokument verknüpfen" title="Verknüpfen" @click="requestLinkFromSelection">
           <v-icon size="16">mdi-link-variant</v-icon>
         </button>
+        </template>
         <button class="pm-sel-menu__btn" aria-label="Auswahl kopieren" title="Kopieren" @click="copySelection">
           <v-icon size="16">mdi-content-copy</v-icon>
         </button>
-        <button class="pm-sel-menu__btn" aria-label="Als Notiz-Zitat übernehmen" title="Als Notiz-Zitat" @click="requestNoteQuoteFromSelection">
+        <button v-if="annotatable" class="pm-sel-menu__btn" aria-label="Als Notiz-Zitat übernehmen" title="Als Notiz-Zitat" @click="requestNoteQuoteFromSelection">
           <v-icon size="16">mdi-note-plus-outline</v-icon>
         </button>
       </div>
@@ -343,6 +359,9 @@ const props = defineProps({
   highlightText: { type: String, default: '' },
   /** Aktiviert die Markierungsebene (Auswahl-Menü + Overlay-Highlights). */
   annotatable:   { type: Boolean, default: false },
+  // Zitat-Modus (Split-Ansicht Notiz↔Dokument): Textauswahl bietet nur
+  // „In Notiz übernehmen" an, unabhängig von den Lesemodus-Markierungen.
+  quoteMode:     { type: Boolean, default: false },
   /** Persistierte Markierungen: [{ id, page, kind, color, rects:[{x,y,w,h}], comment }] */
   annotations:   { type: Array, default: () => [] },
   /** Aktives Werkzeug im Lesemodus: highlight | rectangle | eraser | text | pen */
@@ -2161,7 +2180,7 @@ function onPagesPointerUp(event) {
     hideSelectionMenu();
     return;
   }
-  if (!props.annotatable) return;
+  if (!props.annotatable && !props.quoteMode) return;
   if (activeAnnotationTool.value && activeAnnotationTool.value !== 'highlight') {
     hideSelectionMenu();
     return;
@@ -2292,13 +2311,17 @@ function requestCommentFromSelection() {
 // ocrQuote anlegt. Reader-seitiges Gegenstück zu /zitat (M4).
 function requestNoteQuoteFromSelection() {
   if (!selectionDraft) return;
-  emit('create-note-quote', {
+  const payload = {
     page: selectionDraft.page,
     quote: selectionDraft.quote,
     rects: selectionDraft.rects,
-  });
+  };
+  // Auswahl VOR dem Emit aufheben: Der Empfänger (Split-Ansicht) fokussiert
+  // synchron den Notizeditor – ein späteres removeAllRanges() löschte sonst
+  // dessen frisch gesetzte Einfügemarke.
   window.getSelection()?.removeAllRanges();
   hideSelectionMenu();
+  emit('create-note-quote', payload);
 }
 
 // ─── Rendering ───────────────────────────────────────────────────────────────
@@ -2625,7 +2648,45 @@ async function renderThumbnail(pageNum, canvas, cssWidth = 116) {
   }
 }
 
-defineExpose({ goToPage, currentPage, pageCount, renderThumbnail, openSearch, closeSearch });
+/**
+ * Springt zu einer zitierten Stelle und lässt sie kurz aufleuchten. ``rects``
+ * sind normalisierte, rotationsfreie Rechtecke (Format der Textauswahl); ohne
+ * Rechtecke wird nur zur Seite gescrollt. Die Seite wird zentriert, damit die
+ * Stelle auch bei langen Seiten im Blick ist.
+ */
+async function revealRegion({ page, rects } = {}) {
+  const pageNum = Number(page || 0);
+  if (!pageNum) return;
+  const list = Array.isArray(rects) ? rects.filter((r) => r && Number(r.w) > 0 && Number(r.h) > 0) : [];
+  const innerEl = pageInnerRefs.get(pageNum);
+  if (!innerEl || !list.length) {
+    scrollToPage(pageNum);
+    return;
+  }
+  const rotation = pageRotation(pageNum);
+  const shown = list.map((r) => rectForRotation(r, rotation));
+  const top = Math.min(...shown.map((r) => r.y));
+  const scroller = pagesEl.value;
+  if (scroller) {
+    const innerRect = innerEl.getBoundingClientRect();
+    const scrollerRect = scroller.getBoundingClientRect();
+    const targetY = innerRect.top - scrollerRect.top + scroller.scrollTop + top * innerRect.height;
+    scroller.scrollTo({ top: Math.max(0, targetY - scroller.clientHeight * 0.3), behavior: 'smooth' });
+  }
+  innerEl.querySelectorAll('.pdf-preview__flash').forEach((el) => el.remove());
+  for (const r of shown) {
+    const el = document.createElement('div');
+    el.className = 'pdf-preview__flash';
+    el.style.left = `${r.x * 100}%`;
+    el.style.top = `${r.y * 100}%`;
+    el.style.width = `${r.w * 100}%`;
+    el.style.height = `${r.h * 100}%`;
+    innerEl.appendChild(el);
+    el.addEventListener('animationend', () => el.remove(), { once: true });
+  }
+}
+
+defineExpose({ goToPage, currentPage, pageCount, renderThumbnail, openSearch, closeSearch, revealRegion });
 
 // ─── Tastenkürzel ─────────────────────────────────────────────────────────────
 // Aktiv, sobald der Viewer (oder ein Kind) den Fokus hat – stört also keine
@@ -3536,6 +3597,46 @@ onBeforeUnmount(() => {
   height: 18px;
   background: var(--pm-sel-menu-divider);
   margin: 0 2px;
+}
+
+.pm-sel-menu__quote {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px 0 8px;
+  border: none;
+  border-radius: 7px;
+  background: rgb(var(--v-theme-primary));
+  color: rgb(var(--v-theme-on-primary));
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+
+.pm-sel-menu__quote:hover {
+  filter: brightness(1.08);
+}
+
+/* Sprungziel eines Notiz-Zitats: kurz aufleuchten, dann ausblenden. Die
+   Elemente werden imperativ in die Seite gehängt → :deep(). */
+.pdf-preview__page-inner :deep(.pdf-preview__flash) {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+  border-radius: 2px;
+  background: rgba(var(--v-theme-primary), 0.28);
+  box-shadow: 0 0 0 2px rgba(var(--v-theme-primary), 0.55);
+  animation: pdf-preview-flash 2.4s ease-out forwards;
+}
+
+@keyframes pdf-preview-flash {
+  0%, 15% { opacity: 0; }
+  25%, 70% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 .pm-sel-menu__btn {

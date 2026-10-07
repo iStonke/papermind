@@ -21,6 +21,9 @@ export const OcrQuote = Node.create({
       page: { default: null },
       // Anker aus der Markierung (Seite + Bounding-Box); in M1 leer.
       bbox: { default: null },
+      // Normalisierte Auswahl-Rechtecke der PDF-Textstelle (Format der
+      // PdfPreview-Textauswahl). Erlaubt den Rücksprung exakt zur Stelle.
+      rects: { default: null, rendered: false },
     };
   },
 
