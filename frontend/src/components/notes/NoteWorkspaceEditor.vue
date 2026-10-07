@@ -1959,10 +1959,26 @@ function onQuoteReveal(event) {
   if (!detail?.docId || !document?.id || String(detail.docId) !== String(document.id)) return;
   if (!hasLoadedContent.value) return;
   event.preventDefault();
+  revealInSplit({ page: detail.page, rects: detail.rects });
+}
+
+function revealInSplit({ page, rects } = {}) {
+  if (!page) return;
   if (!splitOpen.value) toggleSplit(true);
   if (splitCompact.value) splitTab.value = 'pdf';
-  nextTick(() => documentPaneRef.value?.reveal?.({ page: detail.page, rects: detail.rects }));
+  nextTick(() => documentPaneRef.value?.reveal?.({ page, rects }));
 }
+
+// Sprungwunsch aus der Lernmarkierungs-Übersicht eines Dokuments: erst nach
+// dem Laden der Ziel-Notiz einlösen (dann steht ihr verknüpftes Dokument fest).
+watch(
+  () => [loadedNoteId.value, hasLoadedContent.value, notesStore.pendingDocumentReveal],
+  ([noteId, loaded]) => {
+    if (!noteId || !loaded || !linkedDocument.value?.id) return;
+    const request = notesStore.consumeDocumentReveal(noteId);
+    if (request) revealInSplit(request);
+  },
+);
 
 function openLinkedDocument() {
   if (!linkedDocument.value?.id) return;

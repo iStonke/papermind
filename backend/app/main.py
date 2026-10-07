@@ -29,6 +29,7 @@ from app.routers import (
     import_router,
     jobs_router,
     learn_router,
+    note_learn_highlights_router,
     notes_router,
     retrieval_router,
     retention_router,
@@ -175,6 +176,7 @@ app.include_router(jobs_router)
 app.include_router(note_pins_router)
 app.include_router(notes_router)
 app.include_router(learn_router)
+app.include_router(note_learn_highlights_router)
 app.include_router(retrieval_router)
 app.include_router(retention_router)
 app.include_router(ai_router)

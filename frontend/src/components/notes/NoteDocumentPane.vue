@@ -1,8 +1,10 @@
 <!--
   NoteDocumentPane — PDF-Spalte der Split-Ansicht Notiz↔Dokument. Zeigt das mit
-  der Notiz verknüpfte Dokument im Zitat-Modus: Textauswahl bietet nur „In Notiz
-  übernehmen" an, die Lesemodus-Markierungen bleiben hier bewusst ausgeblendet
-  (getrennte Ebenen). Merkt sich pro Notiz die zuletzt angesehene Seite.
+  der Notiz verknüpfte Dokument im Zitat-Modus: Textauswahl bietet die drei
+  festen Lernmarkierungen (wichtig/Definition/unklar) und „In Notiz übernehmen".
+  Sichtbar sind nur die Lernmarkierungen DIESER Notiz – die Lesemodus-
+  Markierungen sind eine getrennte Ebene und bleiben hier ausgeblendet.
+  Merkt sich pro Notiz die zuletzt angesehene Seite.
 -->
 <template>
   <section class="note-doc-pane" aria-label="Verknüpftes Dokument">
@@ -37,15 +39,28 @@
       :src="src"
       :target-page="initialPage"
       quote-mode
+      :selection-colors="LEARN_HIGHLIGHT_COLORS"
+      :annotations="highlightAnnotations"
       @loaded="onLoaded"
       @create-note-quote="onQuote"
+      @create-annotation="onCreateHighlight"
+      @update-annotation="onRecolorHighlight"
+      @delete-annotation="onDeleteHighlight"
     />
   </section>
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue';
 import { authedUrl, getBaseUrl } from '../../api/client.js';
+import {
+  createNoteLearnHighlight,
+  deleteNoteLearnHighlight,
+  listNoteLearnHighlights,
+  updateNoteLearnHighlight,
+} from '../../api/noteLearnHighlights.js';
+import { notifyError } from '../../stores/notifications.js';
+import { LEARN_HIGHLIGHT_COLORS, learnHighlightByHex, learnHighlightByKey } from './learnHighlightColors.js';
 
 const PdfPreview = defineAsyncComponent(() => import('../PdfPreview.vue'));
 
@@ -55,7 +70,7 @@ const props = defineProps({
   documentTitle: { type: String, default: '' },
   closable: { type: Boolean, default: true },
 });
-const emit = defineEmits(['quote', 'close', 'open-reader']);
+const emit = defineEmits(['quote', 'close', 'open-reader', 'highlights-changed']);
 
 const PAGE_STORAGE_KEY = 'pm-note-split-pages-v1';
 const PAGE_STORAGE_LIMIT = 200;
@@ -118,7 +133,10 @@ function onLoaded() {
   if (pendingReveal) {
     const request = pendingReveal;
     pendingReveal = null;
-    nextTick(() => previewRef.value?.revealRegion?.(request));
+    // PdfPreview scrollt NACH dem loaded-Event (nextTick) noch zur Startseite –
+    // den genauen Sprung daher erst im nächsten Task ausführen, sonst würde er
+    // überschrieben.
+    setTimeout(() => previewRef.value?.revealRegion?.({ ...request, smooth: false }), 0);
   }
 }
 
@@ -128,11 +146,89 @@ function onQuote({ page, quote, rects } = {}) {
   emit('quote', { text, page: page || null, rects: Array.isArray(rects) && rects.length ? rects : null });
 }
 
+// ── Lernmarkierungen dieser Notiz ─────────────────────────────────────────────
+const highlights = ref([]);
+let highlightsRevision = 0;
+
+// Für PdfPreview als gewöhnliche Highlight-Annotationen (Farbe = Bedeutung).
+const highlightAnnotations = computed(() => highlights.value.map((highlight) => ({
+  id: highlight.id,
+  kind: 'highlight',
+  page: highlight.page,
+  rects: highlight.rects,
+  quote: highlight.quote,
+  color: learnHighlightByKey(highlight.color)?.hex || LEARN_HIGHLIGHT_COLORS[0].hex,
+})));
+
+async function loadHighlights() {
+  const revision = ++highlightsRevision;
+  if (!props.noteId || !props.documentId) {
+    highlights.value = [];
+    return;
+  }
+  try {
+    const response = await listNoteLearnHighlights(props.noteId, props.documentId);
+    if (revision === highlightsRevision) highlights.value = response.items || [];
+  } catch (error) {
+    if (revision === highlightsRevision) notifyError(error, 'Lernmarkierungen konnten nicht geladen werden.');
+  }
+}
+
+watch(() => [props.noteId, props.documentId], loadHighlights, { immediate: true });
+
+function changed() {
+  emit('highlights-changed');
+}
+
+async function onCreateHighlight({ page, color, rects, quote } = {}) {
+  const meaning = learnHighlightByHex(color);
+  if (!props.noteId || !meaning || !page || !rects?.length) return;
+  try {
+    const created = await createNoteLearnHighlight(props.noteId, {
+      document_id: props.documentId,
+      page,
+      color: meaning.key,
+      rects,
+      quote: quote || null,
+    });
+    highlights.value = [...highlights.value, created];
+    changed();
+  } catch (error) {
+    notifyError(error, 'Lernmarkierung konnte nicht gespeichert werden.');
+  }
+}
+
+async function onRecolorHighlight(highlightId, patch = {}) {
+  const meaning = learnHighlightByHex(patch.color);
+  if (!meaning) return;
+  try {
+    const updated = await updateNoteLearnHighlight(highlightId, meaning.key);
+    highlights.value = highlights.value.map((item) => (item.id === updated.id ? updated : item));
+    changed();
+  } catch (error) {
+    notifyError(error, 'Lernmarkierung konnte nicht geändert werden.');
+  }
+}
+
+async function onDeleteHighlight(highlightId) {
+  const previous = highlights.value;
+  highlights.value = previous.filter((item) => item.id !== highlightId);
+  try {
+    await deleteNoteLearnHighlight(highlightId);
+    changed();
+  } catch (error) {
+    highlights.value = previous;
+    notifyError(error, 'Lernmarkierung konnte nicht entfernt werden.');
+  }
+}
+
 /** Springt zur zitierten Stelle; vor dem Laden wird der Sprung vorgemerkt. */
 function reveal(request) {
   if (!request?.page) return;
   if (!loaded.value || !previewRef.value?.revealRegion) {
     pendingReveal = request;
+    // Startseite gleich passend setzen, statt erst die gemerkte Seite anzufahren.
+    initialPage.value = Number(request.page) || initialPage.value;
     return;
   }
   previewRef.value.revealRegion(request);
@@ -144,7 +240,7 @@ onBeforeUnmount(() => {
   if (loaded.value && page) storePage(page);
 });
 
-defineExpose({ reveal });
+defineExpose({ reveal, reloadHighlights: loadHighlights });
 </script>
 
 <style scoped>

@@ -272,9 +272,9 @@
       />
 
       <!-- Auswahl-Menü: erscheint über markiertem Text (annotatable oder quoteMode).
-           Im Zitat-Modus (Split-Ansicht neben einer Notiz) gibt es nur
-           „In Notiz übernehmen" + Kopieren – die Lesemodus-Werkzeuge
-           (Farben/Kommentar/Verknüpfen) bleiben dem Lesemodus vorbehalten. -->
+           Im Zitat-Modus (Split-Ansicht neben einer Notiz) gibt es die festen
+           Lernmarkierungs-Farben (selectionColors) + „In Notiz übernehmen" +
+           Kopieren – Kommentar/Verknüpfen bleiben dem Lesemodus vorbehalten. -->
       <div
         v-if="(annotatable || quoteMode) && selectionMenu.visible"
         class="pm-sel-menu"
@@ -282,6 +282,20 @@
         :style="{ left: `${selectionMenu.x}px`, top: `${selectionMenu.y}px` }"
         @mousedown.prevent
       >
+        <template v-if="menuColors.length">
+          <button
+            v-for="c in menuColors"
+            :key="c"
+            class="pm-sel-menu__color"
+            :class="{ 'pm-sel-menu__color--active': isSelectionColorActive(c) }"
+            :style="{ background: c }"
+            :aria-label="selectionColorLabel(c)"
+            :title="selectionColorLabel(c)"
+            :aria-pressed="isSelectionColorActive(c)"
+            @click="toggleAnnotationColorFromSelection(c)"
+          />
+          <span class="pm-sel-menu__divider" aria-hidden="true" />
+        </template>
         <button
           v-if="quoteMode && !annotatable"
           class="pm-sel-menu__quote"
@@ -293,17 +307,6 @@
           In Notiz übernehmen
         </button>
         <template v-if="annotatable">
-        <button
-          v-for="c in ANNOT_COLORS"
-          :key="c"
-          class="pm-sel-menu__color"
-          :class="{ 'pm-sel-menu__color--active': isSelectionColorActive(c) }"
-          :style="{ background: c }"
-          :aria-label="selectionColorLabel(c)"
-          :aria-pressed="isSelectionColorActive(c)"
-          @click="toggleAnnotationColorFromSelection(c)"
-        />
-        <span class="pm-sel-menu__divider" aria-hidden="true" />
         <button class="pm-sel-menu__btn" aria-label="Kommentar hinzufügen" title="Kommentar" @click="requestCommentFromSelection">
           <v-icon size="16">mdi-comment-text-outline</v-icon>
         </button>
@@ -362,6 +365,14 @@ const props = defineProps({
   // Zitat-Modus (Split-Ansicht Notiz↔Dokument): Textauswahl bietet nur
   // „In Notiz übernehmen" an, unabhängig von den Lesemodus-Markierungen.
   quoteMode:     { type: Boolean, default: false },
+  // Feste Farbpalette für das Auswahl-Menü im Zitat-Modus, z. B. die drei
+  // Lernmarkierungs-Bedeutungen: [{ hex: '#FAC775', label: 'Wichtig' }, …].
+  // Ohne Angabe gibt es im Zitat-Modus keine Farben.
+  selectionColors: { type: Array, default: null },
+  // Rein lesende Zusatzebene (z. B. Lernmarkierungen im Lesemodus): wird
+  // gezeichnet, ist aber weder auswählbar noch radierbar und taucht in keiner
+  // Markierungs-Logik auf. Einträge: { id, page, rects, color, title? }.
+  overlayHighlights: { type: Array, default: () => [] },
   /** Persistierte Markierungen: [{ id, page, kind, color, rects:[{x,y,w,h}], comment }] */
   annotations:   { type: Array, default: () => [] },
   /** Aktives Werkzeug im Lesemodus: highlight | rectangle | eraser | text | pen */
@@ -1399,6 +1410,13 @@ watch(effectiveHighlightText, () => {
 // durch. Das Original-PDF wird nie verändert.
 
 const ANNOT_COLORS = ['#FAC775', '#9FE1CB', '#F4C0D1', '#B5D4F4'];
+// Farben im Auswahl-Menü: Lesemodus = freie Palette; Zitat-Modus = nur die
+// übergebene feste Palette (Lernmarkierungen), sonst keine.
+const menuColors = computed(() => {
+  if (props.annotatable) return ANNOT_COLORS;
+  if (props.quoteMode) return (props.selectionColors || []).map((entry) => entry.hex).filter(Boolean);
+  return [];
+});
 const DEFAULT_ANNOT_COLOR = ANNOT_COLORS[0];
 const COMMENT_ANNOTATION_COLOR = DEFAULT_ANNOT_COLOR;
 /** Fallback, falls DocumentReader (noch) keine Farbe durchreicht. */
@@ -2039,7 +2057,11 @@ function isSelectionColorActive(color) {
 }
 
 function selectionColorLabel(color) {
-  if (isSelectionColorActive(color)) return 'Markierung entfernen';
+  const named = (props.selectionColors || []).find((entry) => normalizedColor(entry.hex) === normalizedColor(color));
+  if (isSelectionColorActive(color)) return named ? `Markierung „${named.label}" entfernen` : 'Markierung entfernen';
+  if (named) {
+    return highlightAnnotationsForSelection().length ? `Zu „${named.label}" umfärben` : `Als „${named.label}" markieren`;
+  }
   return highlightAnnotationsForSelection().length ? 'Markierung umfärben' : 'Mit dieser Farbe markieren';
 }
 
@@ -2092,15 +2114,45 @@ function applyAnnotationsToPage(innerEl, pageNum) {
   else innerEl.appendChild(layer);
 }
 
+/** Zeichnet die rein lesende Zusatzebene (overlayHighlights) einer Seite. */
+function applyOverlayHighlightsToPage(innerEl, pageNum) {
+  if (!innerEl) return;
+  innerEl.querySelector('.pm-overlay-layer')?.remove();
+  const items = (props.overlayHighlights || []).filter((item) => Number(item.page) === pageNum);
+  if (!items.length) return;
+
+  const layer = document.createElement('div');
+  layer.className = 'pm-overlay-layer';
+  for (const item of items) {
+    for (const rect of item.rects || []) {
+      const visibleRect = rectForRotation(rect, pageRotation(pageNum));
+      const el = document.createElement('div');
+      el.className = 'pm-overlay-rect';
+      el.style.left   = `${visibleRect.x * 100}%`;
+      el.style.top    = `${visibleRect.y * 100}%`;
+      el.style.width  = `${visibleRect.w * 100}%`;
+      el.style.height = `${visibleRect.h * 100}%`;
+      el.style.setProperty('--pm-overlay-color', item.color || DEFAULT_ANNOT_COLOR);
+      if (item.title) el.title = item.title;
+      layer.appendChild(el);
+    }
+  }
+  const textLayer = innerEl.querySelector('.textLayer');
+  if (textLayer) innerEl.insertBefore(layer, textLayer);
+  else innerEl.appendChild(layer);
+}
+
 /** Aktualisiert alle gerenderten Seiten (z.B. nach Änderung der annotations-Prop). */
 function redrawAllAnnotations() {
   for (const [pageNum, el] of pageInnerRefs.entries()) {
     if (renderedPages.has(pageNum)) applyAnnotationsToPage(el, pageNum);
+    if (renderedPages.has(pageNum)) applyOverlayHighlightsToPage(el, pageNum);
     if (konvaStages.has(pageNum)) renderKonvaAnnotations(pageNum);
   }
 }
 
 watch(() => props.annotations, () => redrawAllAnnotations(), { deep: true });
+watch(() => props.overlayHighlights, () => redrawAllAnnotations(), { deep: true });
 
 function hideSelectionMenu() {
   if (selectionMenu.value.visible) selectionMenu.value = { visible: false, x: 0, y: 0, activeColor: '' };
@@ -2412,6 +2464,7 @@ async function renderPage(pageNum) {
     // (z. B. nach LRU-Eviction + erneutem Rendern beim Zurückscrollen).
     applyActiveClassOnPage(pageNum);
     applyAnnotationsToPage(innerEl, pageNum);
+    applyOverlayHighlightsToPage(innerEl, pageNum);
     ensureKonvaStage(pageNum, innerEl, viewport.width, viewport.height);
     renderKonvaAnnotations(pageNum);
 
@@ -2651,16 +2704,20 @@ async function renderThumbnail(pageNum, canvas, cssWidth = 116) {
 /**
  * Springt zu einer zitierten Stelle und lässt sie kurz aufleuchten. ``rects``
  * sind normalisierte, rotationsfreie Rechtecke (Format der Textauswahl); ohne
- * Rechtecke wird nur zur Seite gescrollt. Die Seite wird zentriert, damit die
- * Stelle auch bei langen Seiten im Blick ist.
+ * Rechtecke wird nur zur Seite gescrollt. Die Stelle landet im oberen Drittel,
+ * damit sie auch bei langen Seiten im Blick ist. ``smooth: false`` springt ohne
+ * Animation – nötig direkt nach dem Laden einer frisch eingeblendeten Ansicht,
+ * wo Chrome eine weiche Scroll-Animation sonst stillschweigend verwirft.
  */
-async function revealRegion({ page, rects } = {}) {
+async function revealRegion({ page, rects, smooth = true } = {}) {
   const pageNum = Number(page || 0);
   if (!pageNum) return;
   const list = Array.isArray(rects) ? rects.filter((r) => r && Number(r.w) > 0 && Number(r.h) > 0) : [];
   const innerEl = pageInnerRefs.get(pageNum);
   if (!innerEl || !list.length) {
-    scrollToPage(pageNum);
+    pagesEl.value
+      ?.querySelector(`.pdf-preview__page[data-page="${pageNum}"]`)
+      ?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' });
     return;
   }
   const rotation = pageRotation(pageNum);
@@ -2671,7 +2728,7 @@ async function revealRegion({ page, rects } = {}) {
     const innerRect = innerEl.getBoundingClientRect();
     const scrollerRect = scroller.getBoundingClientRect();
     const targetY = innerRect.top - scrollerRect.top + scroller.scrollTop + top * innerRect.height;
-    scroller.scrollTo({ top: Math.max(0, targetY - scroller.clientHeight * 0.3), behavior: 'smooth' });
+    scroller.scrollTo({ top: Math.max(0, targetY - scroller.clientHeight * 0.3), behavior: smooth ? 'smooth' : 'auto' });
   }
   innerEl.querySelectorAll('.pdf-preview__flash').forEach((el) => el.remove());
   for (const r of shown) {
@@ -3435,6 +3492,23 @@ onBeforeUnmount(() => {
 .pdf-preview--tool-eraser .pdf-preview__page-inner :deep(.pm-annot-layer) {
   pointer-events: auto;
   z-index: 4;
+}
+
+/* Rein lesende Zusatzebene: gedämpfte Fläche + gestrichelte Unterkante, damit
+   sie sich sichtbar von den bearbeitbaren Lesemodus-Markierungen abhebt. */
+.pdf-preview__page-inner :deep(.pm-overlay-layer) {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.pdf-preview__page-inner :deep(.pm-overlay-rect) {
+  position: absolute;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--pm-overlay-color) 30%, transparent);
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--pm-overlay-color) 85%, #000 15%);
+  mix-blend-mode: multiply;
 }
 
 .pdf-preview__page-inner :deep(.pm-annot-rect) {

@@ -13,6 +13,7 @@ from app.routers.health import router as health_router
 from app.routers.imports import router as import_router
 from app.routers.jobs import router as jobs_router
 from app.routers.learn import router as learn_router
+from app.routers.note_learn_highlights import router as note_learn_highlights_router
 from app.routers.notes import router as notes_router
 from app.routers.retrieval import router as retrieval_router
 from app.routers.retention import router as retention_router
@@ -45,6 +46,7 @@ __all__ = [
     "dossiers_router",
     "jobs_router",
     "learn_router",
+    "note_learn_highlights_router",
     "notes_router",
     "retrieval_router",
     "retention_router",

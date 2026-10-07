@@ -18,6 +18,7 @@ from app.models.note_block_template import NoteBlockTemplate
 from app.models.note_collection import NoteCollection
 from app.models.note_image import NoteImage
 from app.models.note_notebook import NoteNotebook
+from app.models.note_learn_highlight import NoteLearnHighlight
 from app.models.note_tag import note_tags
 from app.models.note_pin import NotePin, note_pin_tags
 from app.models.saved_search import SavedSearch
@@ -70,6 +71,7 @@ __all__ = [
     "NoteImage",
     "NoteCollection",
     "NoteNotebook",
+    "NoteLearnHighlight",
     "NoteLink",
     "NoteRevision",
     "NoteTask",

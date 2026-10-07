@@ -23,6 +23,7 @@ from app.core.errors import (
     StorageError,
 )
 from app.models.annotation import Annotation
+from app.models.note_learn_highlight import NoteLearnHighlight
 from app.models.correspondent import Correspondent
 from app.models.document import Document
 from app.models.document_file import DocumentFile
@@ -615,6 +616,12 @@ class DocumentService:
         ).scalars().all()
         for annotation in annotations:
             annotation.page = old_to_new.get(annotation.page, annotation.page)
+        # Lernmarkierungen (eigene Ebene der Split-Ansicht) genauso mitziehen.
+        learn_highlights = self.db.execute(
+            select(NoteLearnHighlight).where(NoteLearnHighlight.document_id == document_id)
+        ).scalars().all()
+        for highlight in learn_highlights:
+            highlight.page = old_to_new.get(highlight.page, highlight.page)
 
         # 4) Umsortierung zuerst dauerhaft festschreiben (die Dateien auf der
         #    Platte sind bereits umsortiert – der DB-Stand muss dazu passen).

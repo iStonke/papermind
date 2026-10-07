@@ -76,6 +76,20 @@
               <v-icon size="20">mdi-comment-text-outline</v-icon>
               <span v-if="noteAnnotations.length" class="doc-reader__badge">{{ noteAnnotations.length }}</span>
             </button>
+            <!-- Lernmarkierungen der verknüpften Notizen: eigene Ebene, hier nur
+                 lesend einblendbar (Standard aus), nie bearbeit- oder radierbar. -->
+            <button
+              v-if="documentId"
+              class="doc-reader__icon-btn"
+              :class="{ 'doc-reader__icon-btn--active': showLearnHighlights }"
+              :aria-pressed="showLearnHighlights"
+              :aria-label="showLearnHighlights ? 'Lernmarkierungen ausblenden' : 'Lernmarkierungen einblenden'"
+              title="Lernmarkierungen (nur lesen)"
+              @click="showLearnHighlights = !showLearnHighlights"
+            >
+              <v-icon size="20">mdi-school-outline</v-icon>
+              <span v-if="showLearnHighlights && learnOverlay.length" class="doc-reader__badge">{{ learnOverlay.length }}</span>
+            </button>
           </div>
         </div>
       </header>
@@ -116,6 +130,7 @@
             :annotation-tool="showTools ? activeTool : ''"
             :annotation-color="activeColor"
             :annotations="annotations"
+            :overlay-highlights="showLearnHighlights ? learnOverlay : []"
             :enable-download="enableDownload"
             :download-disabled="downloadDisabled"
             @loaded="onPreviewLoaded"
@@ -251,6 +266,8 @@ import { useTheme } from 'vuetify';
 import Sortable from 'sortablejs';
 
 import PdfPreview from './PdfPreview.vue';
+import { listDocumentLearnHighlights } from '../api/noteLearnHighlights.js';
+import { learnHighlightByKey } from './notes/learnHighlightColors.js';
 
 const props = defineProps({
   src:         { type: String, default: '' },
@@ -263,6 +280,8 @@ const props = defineProps({
   enableDownload: { type: Boolean, default: false },
   /** Deaktiviert den Download-Button, wenn (noch) kein durchsuchbares PDF vorliegt. */
   downloadDisabled: { type: Boolean, default: false },
+  /** Dokument-ID für die (nur lesend einblendbaren) Lernmarkierungen. */
+  documentId: { type: String, default: null },
 });
 
 const emit = defineEmits(['close', 'create-annotation', 'delete-annotation', 'update-annotation', 'download', 'request-link', 'open-link', 'reorder-pages']);
@@ -288,6 +307,39 @@ const storedToggles = readStoredToggles();
 const showThumbs = ref(typeof storedToggles.thumbs === 'boolean' ? storedToggles.thumbs : true);
 const showNotes = ref(typeof storedToggles.notes === 'boolean' ? storedToggles.notes : true);
 const showTools = ref(typeof storedToggles.tools === 'boolean' ? storedToggles.tools : false);
+const showLearnHighlights = ref(storedToggles.learn === true);
+
+// Lernmarkierungen aller verknüpften Notizen – nur geladen, wenn eingeblendet.
+const learnHighlights = ref([]);
+let learnHighlightsRequest = 0;
+const learnOverlay = computed(() => learnHighlights.value.map((highlight) => {
+  const meaning = learnHighlightByKey(highlight.color);
+  const noteTitle = highlight.note_title?.trim() || 'Ohne Titel';
+  return {
+    id: highlight.id,
+    page: highlight.page,
+    rects: highlight.rects,
+    color: meaning?.hex,
+    title: `Lernmarkierung „${meaning?.label || ''}" · Notiz: ${noteTitle}`,
+  };
+}));
+
+async function loadLearnHighlights() {
+  const request = ++learnHighlightsRequest;
+  if (!showLearnHighlights.value || !props.documentId) {
+    learnHighlights.value = [];
+    return;
+  }
+  try {
+    const response = await listDocumentLearnHighlights(props.documentId);
+    if (request === learnHighlightsRequest) learnHighlights.value = response.items || [];
+  } catch {
+    if (request === learnHighlightsRequest) learnHighlights.value = [];
+  }
+}
+
+// src wechselt auch nach einer Seiten-Umsortierung (Cache-Bust) → Seiten neu laden.
+watch([showLearnHighlights, () => props.documentId, () => props.src], loadLearnHighlights, { immediate: true });
 
 // Der Lesemodus richtet sich in erster Linie nach dem global eingestellten Theme
 // (Vuetify hell/dunkel). Über das Toggle kann der Benutzer davon abweichen; diese
@@ -513,7 +565,7 @@ watch(
   { immediate: true },
 );
 
-watch([showThumbs, showNotes, showTools, readerThemeOverride, globalThemeName], () => {
+watch([showThumbs, showNotes, showTools, showLearnHighlights, readerThemeOverride, globalThemeName], () => {
   if (typeof window === 'undefined') return;
   window.localStorage.setItem(
     READER_TOGGLE_STORAGE_KEY,
@@ -521,6 +573,7 @@ watch([showThumbs, showNotes, showTools, readerThemeOverride, globalThemeName], 
       thumbs: showThumbs.value,
       notes: showNotes.value,
       tools: showTools.value,
+      learn: showLearnHighlights.value,
       theme: readerThemeOverride.value,
       themeBase: globalThemeName.value,
     }),

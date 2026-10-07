@@ -1744,6 +1744,12 @@
                     @open-note="openLinkedNoteInWorkspace"
                     @new-note="createLinkedNoteForSelectedDocument"
                   />
+                  <DocumentLearnHighlightsSection
+                    class="details-drawer__notes"
+                    :document-id="selectedDocumentId ? String(selectedDocumentId) : null"
+                    :reload-key="linkedNotesReloadKey"
+                    @open-highlight="openLearnHighlightInNote"
+                  />
 
                 </div>
               </div>
@@ -1762,6 +1768,7 @@
         :src="previewSrc"
         :target-page="readerStartPage"
         :annotations="documentAnnotations"
+        :document-id="selectedDocumentId ? String(selectedDocumentId) : null"
         :title="readerTitle"
         :meta-parts="readerMetaParts"
         :edit-annotation-id="readerEditAnnotationId"
@@ -1817,6 +1824,7 @@ import CategoryDialogs from '../components/CategoryDialogs.vue';
 import RenameDocumentDialog from '../components/RenameDocumentDialog.vue';
 import RetentionStatusBar from '../components/RetentionStatusBar.vue';
 import DocumentNotesSection from '../components/notes/DocumentNotesSection.vue';
+import DocumentLearnHighlightsSection from '../components/notes/DocumentLearnHighlightsSection.vue';
 
 // Boolean-gesteuerte Dialoge (öffnen über v-model). Erst bei Bedarf gebraucht
 // und teils sehr groß (ImportStagingDialog/SmartFolderEditor) → eigene Chunks,
@@ -2358,6 +2366,14 @@ onBeforeUnmount(() => window.removeEventListener('pm-note:navigate', handleNoteN
 // ── Verknüpfte Notizen im Dokument-Detailbereich (M4) ────────────────────────
 const isCreatingLinkedNote = ref(false);
 const linkedNotesReloadKey = ref(0);
+
+// Lernmarkierung aus der Dokument-Übersicht: zugehörige Notiz öffnen und in
+// deren Split-Ansicht zur Stelle springen.
+function openLearnHighlightInNote(highlight) {
+  if (!highlight?.note_id) return;
+  notesStore.requestDocumentReveal(highlight.note_id, { page: highlight.page, rects: highlight.rects });
+  openLinkedNoteInWorkspace(highlight.note_id);
+}
 
 function openLinkedNoteInWorkspace(noteId, options = undefined) {
   if (!noteId) return;

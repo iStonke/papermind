@@ -122,6 +122,10 @@ export const useNotesStore = defineStore('notes', () => {
   // Dokument-Detailbereich „Notizen"). NotesWorkspace konsumiert es beim Mount/Watch.
   const pendingOpenId = ref(null);
   const pendingOpenCursorPosition = ref(null);
+  // Signal: nach dem Öffnen einer Notiz in ihrer Split-Ansicht zu einer Stelle
+  // im verknüpften Dokument springen ({ noteId, page, rects }), z. B. aus der
+  // Lernmarkierungs-Übersicht eines Dokuments. Konsumiert vom Notiz-Editor.
+  const pendingDocumentReveal = ref(null);
   let loadingPromise = null;
   const noteDetails = new Map();
   const detailRequests = new Map();
@@ -493,6 +497,15 @@ export const useNotesStore = defineStore('notes', () => {
       ? cursorPosition
       : null;
   }
+  function requestDocumentReveal(noteId, { page = null, rects = null } = {}) {
+    pendingDocumentReveal.value = noteId && page ? { noteId: String(noteId), page, rects } : null;
+  }
+  function consumeDocumentReveal(noteId) {
+    const request = pendingDocumentReveal.value;
+    if (!request || request.noteId !== String(noteId)) return null;
+    pendingDocumentReveal.value = null;
+    return request;
+  }
   function consumeOpen() {
     const id = pendingOpenId.value;
     pendingOpenId.value = null;
@@ -674,6 +687,9 @@ export const useNotesStore = defineStore('notes', () => {
     fetchFavorites,
     pendingOpenId,
     pendingOpenCursorPosition,
+    pendingDocumentReveal,
+    requestDocumentReveal,
+    consumeDocumentReveal,
     fetchNotes,
     searchNotes,
     ensureLoaded,
