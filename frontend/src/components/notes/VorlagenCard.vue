@@ -11,12 +11,13 @@
     :style="{ '--vk-accent': accent }"
     role="button"
     tabindex="0"
-    @click="$emit('edit')"
-    @keydown.enter.prevent="$emit('edit')"
+    @click="$emit(readonly ? 'primary' : 'edit')"
+    @keydown.enter.prevent="$emit(readonly ? 'primary' : 'edit')"
   >
     <div class="vk__preview">
       <!-- Schnellblock: Mini-Abbild der echten Box -->
-      <div v-if="variant === 'schnellblock'" class="vk-mini" aria-hidden="true">
+      <div v-if="previewKind === 'lecture'" class="vk-lecture" aria-hidden="true"><span class="vk-lecture__image"><v-icon size="24">mdi-image-outline</v-icon></span><span class="vk-lecture__notes"><i /><i /><i /></span></div>
+      <div v-else-if="variant === 'schnellblock'" class="vk-mini" aria-hidden="true">
         <span class="vk-mini__bar" />
         <div class="vk-mini__rows">
           <span v-for="(w, i) in blockRows" :key="i" class="vk-mini__row">
@@ -40,10 +41,10 @@
           aria-label="Notiz starten"
           @click.stop="$emit('primary')"
         ><v-icon size="16">mdi-note-plus-outline</v-icon></button>
-        <button type="button" class="vk__act" title="Bearbeiten" aria-label="Bearbeiten" @click.stop="$emit('edit')">
+        <button v-if="!readonly" type="button" class="vk__act" title="Bearbeiten" aria-label="Bearbeiten" @click.stop="$emit('edit')">
           <v-icon size="15">mdi-pencil-outline</v-icon>
         </button>
-        <button type="button" class="vk__act vk__act--danger" title="Löschen" aria-label="Löschen" @click.stop="$emit('delete')">
+        <button v-if="!readonly" type="button" class="vk__act vk__act--danger" title="Löschen" aria-label="Löschen" @click.stop="$emit('delete')">
           <v-icon size="15">mdi-trash-can-outline</v-icon>
         </button>
       </div>
@@ -54,6 +55,7 @@
         <v-icon size="16">{{ variant === 'startnotiz' ? 'mdi-note-outline' : 'mdi-view-agenda-outline' }}</v-icon>
       </span>
       <span class="vk__title">{{ title || 'Ohne Titel' }}</span>
+      <span v-if="readonly" class="vk__builtin">Integriert</span>
     </div>
   </article>
 </template>
@@ -62,6 +64,8 @@
 import { computed } from 'vue';
 
 const props = defineProps({
+  readonly: { type: Boolean, default: false },
+  previewKind: { type: String, default: '' },
   variant: { type: String, default: 'schnellblock' }, // 'schnellblock' | 'startnotiz'
   title: { type: String, default: '' },
   accent: { type: String, default: 'var(--pm-accent, #006b75)' },
@@ -85,6 +89,13 @@ const pageLines = ['88%', '96%', '70%'];
 </script>
 
 <style scoped>
+.vk__builtin { margin-left: auto; color: var(--pm-muted); font-size: .65rem; }
+.vk-lecture { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; }
+.vk-lecture__image { display: grid; place-items: center; border: 1px dashed var(--pm-divider); border-radius: 6px; color: var(--vk-accent); }
+.vk-lecture__notes { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; }
+.vk-lecture__notes i { height: 5px; border-radius: 3px; background: var(--pm-divider); }
+.vk-lecture__notes i:last-child { width: 65%; }
+
 .vk {
   --vk-accent: var(--pm-accent, #006b75);
   display: flex;

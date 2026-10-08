@@ -27,7 +27,7 @@ def archive_pins(payload: PinArchiveRequest, db: Session = Depends(get_db), user
     return CountResponse(count=NotePinService(db, user.id).archive(payload.collection_id, payload.ids, payload.archived))
 
 @router.get("/rooms", response_model=list[RoomRead])
-def list_rooms(collection_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def list_rooms(collection_id: uuid.UUID | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     service = NotePinService(db, user.id)
     rooms = service.rooms(collection_id)
     pins = service.list(collection_id)

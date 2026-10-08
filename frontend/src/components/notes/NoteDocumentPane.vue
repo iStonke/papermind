@@ -1,5 +1,5 @@
 <!--
-  NoteDocumentPane — PDF-Spalte der Split-Ansicht Notiz↔Dokument. Zeigt das mit
+  NoteDocumentPane — Dokumentansicht innerhalb der Notizen. Zeigt das mit
   der Notiz verknüpfte Dokument im Zitat-Modus: Textauswahl bietet die drei
   festen Lernmarkierungen (wichtig/Definition/unklar) und „In Notiz übernehmen".
   Sichtbar sind nur die Lernmarkierungen DIESER Notiz – die Lesemodus-
@@ -8,30 +8,6 @@
 -->
 <template>
   <section class="note-doc-pane" aria-label="Verknüpftes Dokument">
-    <header class="note-doc-pane__bar">
-      <v-icon size="15" class="note-doc-pane__icon" aria-hidden="true">mdi-file-document-outline</v-icon>
-      <span class="note-doc-pane__title" :title="documentTitle">{{ documentTitle || 'Dokument' }}</span>
-      <button
-        type="button"
-        class="note-doc-pane__btn"
-        title="Im Lesemodus öffnen"
-        aria-label="Im Lesemodus öffnen"
-        @click="emit('open-reader')"
-      >
-        <v-icon size="16">mdi-book-open-page-variant-outline</v-icon>
-      </button>
-      <button
-        v-if="closable"
-        type="button"
-        class="note-doc-pane__btn"
-        title="Dokument ausblenden"
-        aria-label="Dokument ausblenden"
-        @click="emit('close')"
-      >
-        <v-icon size="16">mdi-close</v-icon>
-      </button>
-    </header>
-
     <PdfPreview
       ref="previewRef"
       :key="documentId"
@@ -39,7 +15,10 @@
       :src="src"
       :target-page="initialPage"
       quote-mode
-      :selection-colors="LEARN_HIGHLIGHT_COLORS"
+      enable-document-list
+      enable-unlink-document
+      @unlink-document="emit('unlink-document')"
+      @open-document-list="emit('open-document-list')"
       :annotations="highlightAnnotations"
       @loaded="onLoaded"
       @create-note-quote="onQuote"
@@ -70,7 +49,7 @@ const props = defineProps({
   documentTitle: { type: String, default: '' },
   closable: { type: Boolean, default: true },
 });
-const emit = defineEmits(['quote', 'close', 'open-reader', 'highlights-changed']);
+const emit = defineEmits(['unlink-document', 'open-document-list', 'quote', 'close', 'open-reader', 'highlights-changed']);
 
 const PAGE_STORAGE_KEY = 'pm-note-split-pages-v1';
 const PAGE_STORAGE_LIMIT = 200;
@@ -159,8 +138,7 @@ function onQuote({ page, quote, rects } = {}) {
   const text = String(quote || '').trim();
   if (!text) return;
   const cleanRects = Array.isArray(rects) && rects.length ? rects : null;
-  const meaning = learnHighlightByKey(highlightUnder(page, cleanRects)?.color);
-  emit('quote', { text, page: page || null, rects: cleanRects, learnKind: meaning?.markerKind || null });
+  emit('quote', { text, page: page || null, rects: cleanRects });
 }
 
 // „Unklar" übernimmt die Stelle sofort als offene Frage (Lern-Marker) in die
@@ -284,50 +262,8 @@ defineExpose({ reveal, reloadHighlights: loadHighlights });
   min-width: 0;
   min-height: 0;
   height: 100%;
+  box-sizing: border-box;
   background: var(--pm-viewer-surface, rgb(var(--v-theme-surface)));
-}
-
-.note-doc-pane__bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 0 auto;
-  height: 38px;
-  padding: 0 8px 0 12px;
-  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
-}
-
-.note-doc-pane__icon {
-  color: rgba(var(--v-theme-on-surface), 0.55);
-}
-
-.note-doc-pane__title {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: rgba(var(--v-theme-on-surface), 0.82);
-}
-
-.note-doc-pane__btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: rgba(var(--v-theme-on-surface), 0.6);
-  cursor: pointer;
-}
-
-.note-doc-pane__btn:hover {
-  background: rgba(var(--v-theme-on-surface), 0.07);
-  color: rgba(var(--v-theme-on-surface), 0.88);
 }
 
 .note-doc-pane__preview {

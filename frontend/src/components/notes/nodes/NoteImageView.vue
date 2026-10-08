@@ -57,7 +57,10 @@
       ></button>
     </div>
 
-    <figcaption v-if="editor.isEditable || caption" class="pm-note-image__caption">
+    <figcaption v-if="isLectureImage && capturedAt" class="pm-note-image__caption">
+      <time :datetime="capturedAt">{{ captureLabel }}</time>
+    </figcaption>
+    <figcaption v-else-if="!isLectureImage && (editor.isEditable || caption)" class="pm-note-image__caption">
       <input
         v-if="editor.isEditable"
         type="text"
@@ -76,6 +79,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref } from 'vue';
+import { useLectureCapture } from './useLectureCapture.js';
 import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3';
 
 import { authedUrl, getBaseUrl } from '../../../api/client.js';
@@ -83,6 +87,7 @@ import { useAuthStore } from '../../../stores/auth.js';
 import { normalizeNoteImageWidth } from './noteImageAttrs.js';
 
 const props = defineProps(nodeViewProps);
+const { isLectureImage, capturedAt, captureLabel } = useLectureCapture(props);
 const authStore = useAuthStore();
 const figureEl = ref(null);
 const loadError = ref(false);

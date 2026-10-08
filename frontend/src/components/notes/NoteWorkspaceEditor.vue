@@ -11,12 +11,15 @@
     :class="{ 'has-doc-split': splitVisible }"
     :aria-busy="loading || switching ? 'true' : undefined"
     @keydown.capture="handleWorkspaceKeydown"
+    @pm-note-quote-remove="removeDocumentQuote"
   >
     <header class="note-workspace-editor__bar">
       <input
         ref="titleInputRef"
         v-model="title"
         class="note-workspace-editor__title"
+        :class="{ 'is-generated': titleIsGenerated }"
+        @input="titleIsGenerated = false"
         type="text"
         placeholder="Titel der Notiz"
         aria-label="Titel der Notiz"
@@ -38,20 +41,6 @@
           >
             <v-icon size="18">mdi-square-edit-outline</v-icon>
             <span>Neue Notiz</span>
-          </v-btn>
-        </div>
-        <div v-if="learnMarkerCount" class="note-workspace-editor__action-group" role="group" aria-label="Lernmarkierungen">
-          <v-btn
-            class="note-workspace-editor__learn-marker-toggle"
-            :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet']"
-            :variant="learnMarkerBoxesHidden ? 'tonal' : 'text'"
-            icon
-            :aria-label="learnMarkerBoxesHidden ? 'Markierungsflächen einblenden' : 'Markierungsflächen ausblenden'"
-            :title="learnMarkerBoxesHidden ? 'Markierungsflächen einblenden' : 'Markierungsflächen ausblenden'"
-            :aria-pressed="learnMarkerBoxesHidden"
-            @click="learnMarkerBoxesHidden = !learnMarkerBoxesHidden"
-          >
-            <v-icon size="18">mdi-school-outline</v-icon>
           </v-btn>
         </div>
         <div class="note-workspace-editor__action-group" role="group" aria-label="Rückgängig und Wiederholen">
@@ -253,9 +242,15 @@
 
     <div v-if="hasLoadedContent" class="note-workspace-editor__meta">
       <div class="note-workspace-editor__meta-main">
+        <NoteNotebookChip
+          :note-id="noteId"
+          :notebook-id="noteNotebookId"
+          :disabled="!hasLoadedContent || loading || switching || loadedNoteId !== noteId"
+        />
         <div class="note-workspace-editor__meta-tags">
           <NoteTagBar
             compact
+            summarized
             :tag-ids="noteTagIds"
             :all-tags="noteAllTags"
             :create-tag-by-name="tagStore.ensureTagIdByName"
@@ -264,72 +259,86 @@
           />
         </div>
 
-        <span class="note-workspace-editor__meta-sep" aria-hidden="true" />
+        <div class="note-workspace-editor__document-group">
 
-        <v-menu
-          v-if="linkedDocument"
-          v-model="documentDetailsOpen"
-          location="bottom start"
-          :close-on-content-click="true"
-        >
-          <template #activator="{ props: docMenuProps }">
-            <button
-              v-bind="docMenuProps"
-              type="button"
-              class="note-workspace-editor__doc-chip"
-              :title="linkedDocumentDisplayTitle"
+          <v-menu
+            v-model="documentDetailsOpen"
+            location="bottom start"
+            :close-on-content-click="false"
+            offset="6"
+            @update:model-value="onDocumentPopoverToggle"
+            @after-enter="documentQuickSearchInput?.focus()"
+          >
+            <template #activator="{ props: docMenuProps }">
+              <button
+                v-bind="docMenuProps"
+                type="button"
+                class="note-workspace-editor__doc-chip"
+                :class="{ 'note-workspace-editor__doc-chip--empty': !linkedDocument }"
+                :title="linkedDocument ? linkedDocumentDisplayTitle : 'Dokument zuordnen'"
+              >
+                <v-icon size="14">{{ linkedDocument ? 'mdi-file-document-outline' : 'mdi-link-variant-plus' }}</v-icon>
+                <span class="note-workspace-editor__doc-chip-label">{{ linkedDocument ? linkedDocumentDisplayTitle : 'Dokument' }}</span>
+                <v-icon size="13">mdi-chevron-down</v-icon>
+              </button>
+            </template>
+
+            <v-sheet class="note-workspace-editor__document-quick-picker" rounded="lg">
+              <v-text-field
+                ref="documentQuickSearchInput"
+                v-model="documentPickerSearch"
+                label="Dokument suchen"
+                prepend-inner-icon="mdi-magnify"
+                density="compact"
+                variant="outlined"
+                hide-details
+                clearable
+                :loading="documentPickerLoading"
+                @update:model-value="scheduleDocumentPickerSearch"
+              />
+              <v-list class="note-workspace-editor__document-quick-results" density="compact" aria-label="Dokument auswählen">
+                <v-list-item
+                  v-for="document in documentPickerDocuments.slice(0, 8)"
+                  :key="document.id"
+                  :active="linkedDocument?.id === document.id"
+                  @click="assignQuickDocument(document)"
+                >
+                  <div class="note-workspace-editor__document-result-text">
+                    <span class="note-workspace-editor__document-filename" :title="documentLabel(document)">{{ formatDocumentFilename(documentLabel(document)) }}</span>
+                    <span class="note-workspace-editor__document-result-meta">{{ documentPickerMeta(document) }}</span>
+                  </div>
+                  <template #prepend><v-icon size="20">mdi-file-document-outline</v-icon></template>
+                  <template #append><v-icon v-if="linkedDocument?.id === document.id" size="18">mdi-check</v-icon></template>
+                </v-list-item>
+                <v-list-item v-if="documentPickerError" :title="documentPickerError" subtitle="Erneut versuchen" @click="loadDocumentPickerDocuments" />
+                <v-list-item v-else-if="!documentPickerLoading && !documentPickerDocuments.length" title="Keine Dokumente gefunden" disabled />
+              </v-list>
+            </v-sheet>
+          </v-menu>
+          <v-btn-toggle
+            v-if="linkedDocument"
+            :model-value="documentView"
+            mandatory
+            density="compact"
+            variant="text"
+            class="note-workspace-editor__document-views"
+            aria-label="Ansicht wählen"
+            @update:model-value="setDocumentView"
+          >
+            <v-btn
+              v-for="view in documentViews"
+              :key="view.value"
+              :value="view.value"
+              :aria-label="view.label"
+              :title="view.label"
             >
-              <v-icon size="14">mdi-file-document-outline</v-icon>
-              <span class="note-workspace-editor__doc-chip-label">{{ linkedDocumentDisplayTitle }}</span>
-              <v-icon size="13">mdi-chevron-down</v-icon>
-            </button>
-          </template>
+              <v-icon size="15">{{ view.icon }}</v-icon>
+            </v-btn>
+          </v-btn-toggle>
 
-          <v-card class="note-workspace-editor__document-popover" min-width="300" max-width="360">
-            <div class="note-workspace-editor__document-popover-summary">
-              <img :src="documentThumbnailUrl(linkedDocument.id)" alt="" loading="lazy" />
-              <span>
-                <strong>{{ linkedDocumentDisplayTitle }}</strong>
-                <small>{{ linkedDocumentMeta }}</small>
-              </span>
-            </div>
-            <v-divider />
-            <v-list density="compact">
-              <v-list-item prepend-icon="mdi-open-in-new" title="Dokument öffnen" @click="openLinkedDocument" />
-              <v-list-item prepend-icon="mdi-swap-horizontal" title="Dokument wechseln" @click="openDocumentPicker" />
-              <v-list-item prepend-icon="mdi-link-off" title="Verknüpfung lösen" @click="unlinkDocument" />
-            </v-list>
-          </v-card>
-        </v-menu>
 
-        <button
-          v-else
-          type="button"
-          class="note-workspace-editor__doc-chip note-workspace-editor__doc-chip--empty"
-          title="Dokument zuordnen"
-          @click="openDocumentPicker"
-        >
-          <v-icon size="14">mdi-link-variant-plus</v-icon>
-          <span>Dokument</span>
-        </button>
-        <v-btn
-          v-if="linkedDocument"
-          class="note-workspace-editor__split-toggle"
-          :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet']"
-          :variant="splitOpen ? 'tonal' : 'text'"
-          icon
-          :aria-label="splitOpen ? 'Dokument ausblenden' : 'Dokument daneben anzeigen'"
-          :title="splitOpen ? 'Dokument ausblenden' : 'Dokument daneben anzeigen'"
-          :aria-pressed="splitOpen"
-          @click="toggleSplit"
-        >
-          <v-icon size="18">mdi-dock-left</v-icon>
-        </v-btn>
-        <NoteNotebookChip
-          :note-id="noteId"
-          :notebook-id="noteNotebookId"
-          :disabled="!hasLoadedContent || loading || switching || loadedNoteId !== noteId"
-        />
+        </div>
+
       </div>
 
       <div
@@ -365,70 +374,36 @@
     </div>
 
     <div v-else class="note-workspace-editor__main" :class="splitMainClasses">
-      <div
-        v-if="splitVisible && splitCompact"
-        class="note-workspace-editor__split-tabs"
-        role="tablist"
-        aria-label="Ansicht wählen"
-      >
-        <button
-          v-for="tab in SPLIT_TABS"
-          :key="tab.value"
-          type="button"
-          role="tab"
-          class="note-workspace-editor__split-tab"
-          :class="{ 'is-active': splitTab === tab.value }"
-          :aria-selected="splitTab === tab.value"
-          @click="splitTab = tab.value"
-        >
-          <v-icon size="15">{{ tab.icon }}</v-icon>
-          {{ tab.label }}
-        </button>
-      </div>
       <template v-if="splitVisible">
         <!-- Im Tab-Modus nur unsichtbar statt display:none: so behält das
              PDF Scrollposition und gemerkte Seite beim Tabwechsel. -->
         <NoteDocumentPane
           ref="documentPaneRef"
           class="note-workspace-editor__doc-pane"
-          :class="{ 'is-tab-hidden': splitCompact && splitTab !== 'pdf' }"
-          :aria-hidden="splitCompact && splitTab !== 'pdf' ? 'true' : undefined"
-          :inert="splitCompact && splitTab !== 'pdf'"
-          :style="splitCompact ? undefined : { flexBasis: `${splitWidth}%` }"
+          :class="{ 'is-tab-hidden': singleDocumentPane && splitTab !== 'pdf' }"
+          :aria-hidden="singleDocumentPane && splitTab !== 'pdf' ? 'true' : undefined"
+          :inert="singleDocumentPane && splitTab !== 'pdf'"
           :note-id="loadedNoteId || noteId"
           :document-id="linkedDocument.id"
           :document-title="linkedDocumentDisplayTitle"
           @quote="insertQuoteFromDocument"
           @close="toggleSplit(false)"
           @open-reader="openLinkedDocument"
-        />
-        <div
-          v-if="!splitCompact"
-          class="note-workspace-editor__splitter"
-          :class="{ 'is-dragging': splitDragging }"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Breite des Dokuments anpassen"
-          :aria-valuenow="Math.round(splitWidth)"
-          aria-valuemin="25"
-          aria-valuemax="70"
-          tabindex="0"
-          @pointerdown="startSplitDrag"
-          @keydown.left.prevent="nudgeSplit(-2)"
-          @keydown.right.prevent="nudgeSplit(2)"
+          @open-document-list="openLinkedDocumentInList"
+          @unlink-document="unlinkDocument"
         />
       </template>
       <div
         ref="scrollContainerRef"
         class="note-workspace-editor__scroll"
-        :class="{ 'is-new-page': newPageEntering, 'is-tab-hidden': splitVisible && splitCompact && splitTab !== 'note' }"
+        :class="{ 'is-new-page': newPageEntering, 'is-tab-hidden': splitVisible && singleDocumentPane && splitTab !== 'note' }"
         @animationend.self="finishNewPageAnimation"
         @scroll.passive="rememberScrollPosition()"
       >
         <NoteEditor
           ref="noteEditorRef"
           class="note-workspace-editor__body"
-          :class="{ 'is-fullscreen': !listVisible, 'has-compact-learn-markers': learnMarkerBoxesHidden }"
+          :class="{ 'is-fullscreen': !listVisible }"
           v-model="body"
           workspace
           :note-id="loadedNoteId"
@@ -694,10 +669,11 @@ import { createNoteAudioExport } from '../../api/jobs.js';
 import { useSettingsStore } from '../../stores/settings.js';
 import { useUiStore } from '../../stores/ui.js';
 import { isNoteEmpty, useNotesStore } from '../../stores/notes.js';
-import { checkpointNoteRevision, getNoteBacklinks, exportNoteArchive, importNoteArchive } from '../../api/notes.js';
+import { suggestNoteTitle, checkpointNoteRevision, getNoteBacklinks, exportNoteArchive, importNoteArchive } from '../../api/notes.js';
 import { useCorrespondentStore } from '../../stores/correspondents.js';
 import { useDossierStore } from '../../stores/dossiers.js';
 import { useTagStore } from '../../stores/tags.js';
+import { listNoteLearnHighlights, deleteNoteLearnHighlight } from '../../api/noteLearnHighlights.js';
 import { notifyError, useNotifications } from '../../stores/notifications.js';
 import { NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT } from '../../constants/promptDefaults.js';
 import {
@@ -780,56 +756,31 @@ const titleInputRef = ref(null);
 const noteSearchInputRef = ref(null);
 const replaceInputRef = ref(null);
 const title = ref('');
+const titleIsGenerated = ref(false);
 const body = ref(EMPTY_DOC);
-const learnMarkerBoxesHidden = ref(false);
 
 // ── Split-Ansicht Notiz↔Dokument ──────────────────────────────────────────────
 // Hat die Notiz ein verknüpftes Dokument, steht dessen PDF links neben dem
 // Editor. Ein-/Ausblenden und Breite sind globale Vorlieben (nicht pro Notiz);
-// unter SPLIT_COMPACT_WIDTH ersetzen zwei Tabs die geteilte Ansicht.
 const SPLIT_OPEN_STORAGE_KEY = 'pm-note-split-open';
-const SPLIT_WIDTH_STORAGE_KEY = 'pm-note-split-width';
-const SPLIT_COMPACT_WIDTH = 860;
-const SPLIT_MIN_WIDTH = 25;
-const SPLIT_MAX_WIDTH = 70;
-const SPLIT_TABS = [
-  { value: 'pdf', label: 'Dokument', icon: 'mdi-file-document-outline' },
-  { value: 'note', label: 'Notiz', icon: 'mdi-text-box-outline' },
-];
 const rootRef = ref(null);
 const documentPaneRef = ref(null);
 const splitOpen = ref(readStoredSplitOpen());
-const splitWidth = ref(readStoredSplitWidth());
-const splitCompact = ref(false);
 const splitTab = ref('note');
-const splitDragging = ref(false);
-let splitResizeObserver = null;
+const singleDocumentPane = true;
+const documentView = computed(() => splitOpen.value ? splitTab.value : 'note');
+const documentViews = computed(() => [
+  { value: 'note', label: 'Notiz anzeigen', icon: 'mdi-text-box-outline' },
+  { value: 'pdf', label: 'Dokument anzeigen', icon: 'mdi-file-document-outline' },
+]);
 
 function readStoredSplitOpen() {
   try { return window.localStorage.getItem(SPLIT_OPEN_STORAGE_KEY) !== 'false'; } catch (_) { return true; }
 }
 
-function readStoredSplitWidth() {
-  try {
-    const value = Number(window.localStorage.getItem(SPLIT_WIDTH_STORAGE_KEY));
-    if (Number.isFinite(value) && value >= SPLIT_MIN_WIDTH && value <= SPLIT_MAX_WIDTH) return value;
-  } catch (_) { /* Speicher blockiert */ }
-  return 50;
-}
-
 function storeSplitPreference(key, value) {
   try { window.localStorage.setItem(key, String(value)); } catch (_) { /* Speicher blockiert */ }
 }
-const learnMarkerCount = computed(() => {
-  let count = 0;
-  const visit = (node) => {
-    if (!node || typeof node !== 'object') return;
-    if (node.attrs?.learn) count += 1;
-    if (Array.isArray(node.content)) node.content.forEach(visit);
-  };
-  visit(body.value);
-  return count;
-});
 const wordCount = ref(0);
 const selectionWordCount = ref(null);
 const findBarOpen = ref(false);
@@ -860,6 +811,7 @@ const canFindText = computed(() => hasLoadedContent.value && wordCount.value > 0
 const loadedNoteId = ref(null);
 const loadError = ref(false);
 const documentDetailsOpen = ref(false);
+const documentQuickSearchInput = ref(null);
 const documentPickerOpen = ref(false);
 const documentPickerLoading = ref(false);
 const documentPickerSearch = ref('');
@@ -913,8 +865,7 @@ const lectureMode = computed(() => Boolean(noteAttributes.value.lectureMode));
 const splitVisible = computed(() => Boolean(linkedDocument.value?.id) && splitOpen.value && hasLoadedContent.value);
 const splitMainClasses = computed(() => ({
   'is-split': splitVisible.value,
-  'is-split-compact': splitVisible.value && splitCompact.value,
-  'is-split-dragging': splitDragging.value,
+  'is-split-compact': splitVisible.value,
 }));
 const showFilenameSuffix = computed(() => settingsStore.settingsDraft?.ui?.showFilenameSuffix ?? false);
 const notesWritingWidth = computed(() => {
@@ -1029,7 +980,6 @@ function animateNewPage(noteId) {
 
 watch(() => props.noteId, (noteId) => {
   finishNewPageAnimation();
-  learnMarkerBoxesHidden.value = false;
   if (pendingEditorFocusRequest?.noteId !== noteId) pendingEditorFocusRequest = null;
   resetNoteNavigationForNote();
   loadNote(noteId);
@@ -1053,6 +1003,46 @@ watch(() => props.noteId, (noteId) => loadBacklinks(noteId), { immediate: true }
 function openBacklink(noteId) {
   if (noteId) notesStore.requestOpen(noteId);
 }
+let titleSuggestionTimer = null;
+let titleSuggestionBusy = false;
+let titleSuggestionDisposed = false;
+const attemptedTitleContents = new Map();
+function contentForTitle(node) {
+  if (!node || typeof node !== 'object') return '';
+  const parts = [];
+  if (node.type === 'text') parts.push(node.text || '');
+  if (node.type === 'ocrQuote') parts.push(node.attrs?.text || '', node.attrs?.ownNote || '');
+  parts.push(...(node.content || []).map(contentForTitle));
+  return parts.filter(Boolean).join(' ').trim();
+}
+function scheduleTitleSuggestion() {
+  clearTimeout(titleSuggestionTimer);
+  titleSuggestionTimer = null;
+  if (titleSuggestionDisposed || !hasLoadedContent.value || loadingContent || title.value.trim() || hasUnsyncedChanges.value
+    || status.value !== 'saved' || switching.value || titleSuggestionBusy) return;
+  const noteId = loadedNoteId.value;
+  const content = contentForTitle(toRaw(body.value));
+  if ((content.length < 500 && content.split(/\s+/).filter(Boolean).length < 80)
+    || attemptedTitleContents.get(noteId) === content) return;
+  const revision = serverRevision.value;
+  titleSuggestionTimer = setTimeout(async () => {
+    if (loadedNoteId.value !== noteId || title.value.trim() || hasUnsyncedChanges.value
+      || serverRevision.value !== revision) return;
+    attemptedTitleContents.set(noteId, content);
+    titleSuggestionBusy = true;
+    try {
+      const result = await suggestNoteTitle(noteId, revision);
+      if (titleSuggestionDisposed || !result?.title || result.base_revision !== revision || loadedNoteId.value !== noteId
+        || title.value.trim() || hasUnsyncedChanges.value || serverRevision.value !== revision
+        || contentForTitle(toRaw(body.value)) !== content) return;
+      titleIsGenerated.value = true;
+      title.value = result.title;
+    } catch { /* Local AI is optional; keep writing without a popup. */ }
+    finally { titleSuggestionBusy = false; scheduleTitleSuggestion(); }
+  }, 10000);
+}
+watch([title, body, status, loadedNoteId, hasUnsyncedChanges], scheduleTitleSuggestion);
+watch(titleIsGenerated, () => scheduleSave());
 watch(title, () => scheduleSave());
 
 watch(canFindText, (available) => {
@@ -1225,6 +1215,7 @@ async function applyLoadedNote(note, noteId) {
   const hasDraftConflict = localDraft && !canRestoreDraft;
   loadingContent = true;
   title.value = canRestoreDraft ? String(localDraft.title || '') : (note?.title || '');
+  titleIsGenerated.value = Boolean(canRestoreDraft ? localDraft.titleIsGenerated : note?.title_is_generated);
   body.value = normalizeBody(canRestoreDraft ? localDraft.bodyJson : note?.body_json);
   noteTagSeed.value = Array.isArray(note?.tags) ? note.tags : [];
   noteTagIds.value = noteTagSeed.value.map((t) => t.id);
@@ -1243,6 +1234,7 @@ async function applyLoadedNote(note, noteId) {
   nextTick(() => {
     loadingContent = false;
     if (loadedNoteId.value !== noteId) return;
+    scheduleTitleSuggestion();
     restoreScrollPosition(noteId);
     if (canRestoreDraft) scheduleRecoveredDraftSave();
     // NoteEditor übernimmt den neuen modelValue-Inhalt in einem eigenen
@@ -1354,6 +1346,7 @@ function createCurrentSnapshot({ clientVersion = createNoteDraftVersion() } = {}
   return {
     noteId,
     title: title.value,
+    titleIsGenerated: titleIsGenerated.value,
     bodyJson: cloneBodyForSave(body.value),
     baseRevision: serverRevision.value,
     clientVersion,
@@ -1474,6 +1467,7 @@ async function drainSavePipeline(pipeline) {
     try {
       const updated = await notesStore.update(snapshot.noteId, {
         title: snapshot.title,
+        title_is_generated: Boolean(snapshot.titleIsGenerated),
         body_json: snapshot.bodyJson,
         base_revision: pipeline.serverRevision,
         history_reason: snapshot.historyReason || 'autosave',
@@ -1573,6 +1567,7 @@ async function useLocalConflictDraft() {
   if (!draft || !loadedNoteId.value) return;
   loadingContent = true;
   title.value = String(draft.title || '');
+  titleIsGenerated.value = Boolean(draft.titleIsGenerated);
   body.value = normalizeBody(draft.bodyJson);
   await nextTick();
   loadingContent = false;
@@ -1604,6 +1599,7 @@ async function keepServerVersion() {
   }
   loadingContent = true;
   title.value = serverNote.title || '';
+  titleIsGenerated.value = Boolean(serverNote.title_is_generated);
   body.value = normalizeBody(serverNote.body_json);
   serverRevision.value = Math.max(1, Number(serverNote.revision) || 1);
   await nextTick();
@@ -1761,6 +1757,23 @@ function patchBodyAttributes(patch) {
   scheduleSave();
 }
 
+function onDocumentPopoverToggle(open) {
+  if (!open) {
+    if (documentPickerSearchTimer) window.clearTimeout(documentPickerSearchTimer);
+    documentPickerSearchTimer = null;
+    return;
+  }
+  documentPickerSearch.value = '';
+  documentPickerDocuments.value = [];
+  void loadDocumentPickerDocuments();
+}
+
+function assignQuickDocument(document) {
+  assignDocument(document);
+  documentDetailsOpen.value = false;
+  onDocumentPopoverToggle(false);
+}
+
 async function openDocumentPicker() {
   documentDetailsOpen.value = false;
   documentPickerSearch.value = '';
@@ -1787,7 +1800,7 @@ async function loadDocumentPickerDocuments() {
       sort: 'created_at',
       order: 'desc',
     });
-    const query = documentPickerSearch.value.trim();
+    const query = String(documentPickerSearch.value || '').trim();
     if (query) params.set('q', query);
     const payload = await listDocuments(params.toString());
     if (revision !== documentPickerRevision) return;
@@ -1822,11 +1835,6 @@ async function loadSlashDocuments() {
 }
 onMounted(() => {
   window.addEventListener('pm-note:quote-reveal', onQuoteReveal);
-  if (typeof ResizeObserver !== 'undefined' && rootRef.value) {
-    splitResizeObserver = new ResizeObserver(updateSplitCompact);
-    splitResizeObserver.observe(rootRef.value);
-  }
-  updateSplitCompact();
   loadSlashDocuments();
   loadAICredentialStatus();
   window.addEventListener('papermind:ai-configuration-changed', loadAICredentialStatus);
@@ -1907,51 +1915,42 @@ function unlinkDocument() {
   patchBodyAttributes({ linkedDocument: null });
 }
 
+function setDocumentView(view) {
+  toggleSplit(view !== 'note');
+  splitTab.value = view === 'pdf' ? 'pdf' : 'note';
+  documentDetailsOpen.value = false;
+}
+
 function toggleSplit(force) {
   const next = typeof force === 'boolean' ? force : !splitOpen.value;
   splitOpen.value = next;
   storeSplitPreference(SPLIT_OPEN_STORAGE_KEY, next);
-  if (next && splitCompact.value) splitTab.value = 'pdf';
-}
-
-function clampSplitWidth(value) {
-  return Math.min(SPLIT_MAX_WIDTH, Math.max(SPLIT_MIN_WIDTH, value));
-}
-
-function nudgeSplit(delta) {
-  splitWidth.value = clampSplitWidth(splitWidth.value + delta);
-  storeSplitPreference(SPLIT_WIDTH_STORAGE_KEY, splitWidth.value);
-}
-
-function startSplitDrag(event) {
-  const main = event.currentTarget?.parentElement;
-  if (!main || event.button !== 0) return;
-  event.preventDefault();
-  const bounds = main.getBoundingClientRect();
-  splitDragging.value = true;
-  const onMove = (moveEvent) => {
-    if (!bounds.width) return;
-    splitWidth.value = clampSplitWidth(((moveEvent.clientX - bounds.left) / bounds.width) * 100);
-  };
-  const onUp = () => {
-    splitDragging.value = false;
-    storeSplitPreference(SPLIT_WIDTH_STORAGE_KEY, splitWidth.value);
-    window.removeEventListener('pointermove', onMove);
-    window.removeEventListener('pointerup', onUp);
-    window.removeEventListener('pointercancel', onUp);
-  };
-  window.addEventListener('pointermove', onMove);
-  window.addEventListener('pointerup', onUp);
-  window.addEventListener('pointercancel', onUp);
-}
-
-function updateSplitCompact() {
-  const width = rootRef.value?.clientWidth || 0;
-  splitCompact.value = width > 0 && width < SPLIT_COMPACT_WIDTH;
+  if (next) splitTab.value = 'pdf';
 }
 
 // „In Notiz übernehmen" aus der PDF-Spalte: Zitat an der Cursorposition des
 // Editors einfügen (inkl. Seite + Auswahl-Rechtecke für den Rücksprung).
+async function removeDocumentQuote(event) {
+  event.preventDefault();
+  const { attrs, remove, finish } = event.detail || {};
+  if (!attrs || typeof remove !== 'function') return;
+  const noteId = loadedNoteId.value;
+  try {
+    if (attrs.docId && attrs.page && attrs.rects?.length) {
+      const response = await listNoteLearnHighlights(noteId, attrs.docId);
+      const matches = (response.items || []).filter((entry) =>
+        entry.page === attrs.page && String(entry.quote || '').trim() === String(attrs.text || '').trim()
+        && JSON.stringify(entry.rects) === JSON.stringify(attrs.rects));
+      for (const entry of matches) await deleteNoteLearnHighlight(entry.id);
+    }
+    if (loadedNoteId.value !== noteId) return;
+    remove();
+    await documentPaneRef.value?.reloadHighlights?.();
+  } catch (error) {
+    notifyError(error, 'Box und Markierung konnten nicht entfernt werden.');
+  } finally { finish?.(); }
+}
+
 function hasDocumentQuote(docId, page, text) {
   let found = false;
   const visit = (node) => {
@@ -1997,8 +1996,8 @@ function insertQuoteFromDocument({ text, page, rects, learnKind = null, auto = f
   }
   // Tab-Modus: zur Notiz wechseln; erst sichtbar lässt sich der Editor
   // fokussieren (die Einfügemarke steht bereits unter dem Zitat).
-  if (splitCompact.value && splitTab.value !== 'note') {
-    splitTab.value = 'note';
+  if (singleDocumentPane && splitTab.value !== 'note') {
+    setDocumentView('note');
     nextTick(() => noteEditorRef.value?.focusBody?.());
   }
 }
@@ -2018,7 +2017,7 @@ function onQuoteReveal(event) {
 function revealInSplit({ page, rects } = {}) {
   if (!page) return;
   if (!splitOpen.value) toggleSplit(true);
-  if (splitCompact.value) splitTab.value = 'pdf';
+  if (singleDocumentPane) splitTab.value = 'pdf';
   nextTick(() => documentPaneRef.value?.reveal?.({ page, rects }));
 }
 
@@ -2032,6 +2031,11 @@ watch(
     if (request) revealInSplit(request);
   },
 );
+
+function openLinkedDocumentInList() {
+  if (!linkedDocument.value?.id) return;
+  uiStore.requestWorkspace('openDocument', linkedDocument.value.id);
+}
 
 function openLinkedDocument() {
   if (!linkedDocument.value?.id) return;
@@ -2286,9 +2290,9 @@ function flushSave() {
 defineExpose({ cancelPendingSave, discardPendingDraft, resumePendingSave, flushSave, focusEditorBody, focusTitle, isEmpty });
 
 onBeforeUnmount(() => {
+  titleSuggestionDisposed = true;
+  clearTimeout(titleSuggestionTimer);
   window.removeEventListener('pm-note:quote-reveal', onQuoteReveal);
-  splitResizeObserver?.disconnect();
-  splitResizeObserver = null;
   finishNewPageAnimation();
   rememberScrollPosition();
   persistScrollPositions();
@@ -2347,6 +2351,8 @@ onBeforeUnmount(() => {
   padding: 8px 9px;
   transition: background-color 120ms ease, box-shadow 120ms ease;
 }
+
+.note-workspace-editor__title.is-generated { font-style: italic; color: var(--pm-muted, #535e62); }
 
 .note-workspace-editor__title::placeholder {
   color: var(--pm-muted, #535e62);
@@ -2579,7 +2585,7 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   overflow: hidden;
 }
 .note-workspace-editor__meta-main,
@@ -2599,7 +2605,7 @@ onBeforeUnmount(() => {
 }
 .note-workspace-editor__meta-tags {
   min-width: 0;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   overflow: hidden;
   /* Keine „Pop"-Animation der Tag-Chips beim Öffnen einer Notiz (nur im
      Editor; TagInlineEditor ist geteilt). Dauer 0 = sofort sichtbar. */
@@ -2670,12 +2676,19 @@ onBeforeUnmount(() => {
 .note-workspace-editor__meta-tags :deep(.metadata-tag-chip-leave-active) {
   display: none !important;
 }
-.note-workspace-editor__meta-sep {
-  width: 1px;
-  height: 18px;
+
+.note-workspace-editor__document-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.note-workspace-editor__document-group .note-workspace-editor__doc-chip {
+  min-width: 0;
+}
+.note-workspace-editor__document-group .note-workspace-editor__split-toggle {
   flex: none;
-  background: var(--pm-divider, #d8dfe1);
-  margin: 0 2px;
 }
 
 /* Verknüpftes Dokument als ruhiger Chip (Popover: öffnen/wechseln/lösen). */
@@ -2704,6 +2717,7 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.note-workspace-editor__meta :deep(.note-tag-bar__summary.is-empty),
 .note-workspace-editor__doc-chip--empty,
 .note-workspace-editor__meta :deep(.note-notebook-chip.is-empty) {
   box-sizing: border-box;
@@ -2718,11 +2732,13 @@ onBeforeUnmount(() => {
   line-height: normal;
 }
 .note-workspace-editor__doc-chip--empty:hover,
+.note-workspace-editor__meta :deep(.note-tag-bar__summary.is-empty:hover:not(:disabled)),
 .note-workspace-editor__meta :deep(.note-notebook-chip.is-empty:hover:not(:disabled)) {
   border-color: var(--pm-note-placeholder-chip-border);
   color: var(--pm-accent-strong, #00555f);
 }
 .note-workspace-editor__doc-chip--empty:hover > .v-icon,
+.note-workspace-editor__meta :deep(.note-tag-bar__summary.is-empty:hover:not(:disabled) .v-icon),
 .note-workspace-editor__meta :deep(.note-notebook-chip.is-empty:hover:not(:disabled) .v-icon) {
   color: var(--pm-accent-strong, #00555f);
 }
@@ -2750,17 +2766,8 @@ onBeforeUnmount(() => {
   flex-direction: column;
 }
 
-.note-workspace-editor__main.is-split-dragging {
-  cursor: col-resize;
-  user-select: none;
-}
-
-.note-workspace-editor__main.is-split-dragging .note-workspace-editor__doc-pane {
-  pointer-events: none;
-}
-
 .note-workspace-editor__doc-pane {
-  flex: 0 0 50%;
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
 }
@@ -2775,62 +2782,6 @@ onBeforeUnmount(() => {
   inset: 0;
   visibility: hidden;
   pointer-events: none;
-}
-
-.note-workspace-editor__splitter {
-  position: relative;
-  flex: 0 0 1px;
-  background: rgba(var(--v-theme-on-surface), 0.1);
-  cursor: col-resize;
-  outline: none;
-}
-
-/* Breitere, unsichtbare Greiffläche über der 1-px-Linie. */
-.note-workspace-editor__splitter::before {
-  content: '';
-  position: absolute;
-  inset: 0 -5px;
-  z-index: 2;
-}
-
-.note-workspace-editor__splitter:hover,
-.note-workspace-editor__splitter:focus-visible,
-.note-workspace-editor__splitter.is-dragging {
-  background: rgb(var(--v-theme-primary));
-  box-shadow: 0 0 0 1px rgb(var(--v-theme-primary));
-}
-
-.note-workspace-editor__split-tabs {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 4px;
-  padding: 6px 12px;
-  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
-}
-
-.note-workspace-editor__split-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: rgba(var(--v-theme-on-surface), 0.64);
-  font: inherit;
-  font-size: 0.82rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.note-workspace-editor__split-tab:hover {
-  background: rgba(var(--v-theme-on-surface), 0.06);
-}
-
-.note-workspace-editor__split-tab.is-active {
-  background: rgba(var(--v-theme-primary), 0.12);
-  color: rgb(var(--v-theme-primary));
 }
 
 .note-workspace-editor__scroll {
@@ -3131,6 +3082,71 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(var(--v-theme-on-surface), 0.14);
   border-radius: 12px;
   color: rgb(var(--v-theme-on-surface));
+}
+
+.note-workspace-editor__document-quick-picker {
+  padding: 10px;
+  width: min(360px, calc(100vw - 24px));
+}
+.note-workspace-editor__document-views {
+  display: inline-flex;
+  flex: none;
+  height: 26px;
+  border-radius: 6px;
+  background: transparent;
+}
+.note-workspace-editor__document-views :deep(.v-btn) {
+  min-width: 28px;
+  width: 28px;
+  padding: 0;
+  color: var(--pm-muted, #64748b);
+}
+.note-workspace-editor__document-views :deep(.v-btn--active) {
+  color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.035);
+}
+.note-workspace-editor__document-views :deep(.v-btn--active > .v-btn__overlay) {
+  opacity: 0;
+}
+.note-workspace-editor__document-views :deep(.v-btn:hover > .v-btn__overlay) {
+  opacity: 0.06;
+}
+.note-workspace-editor__document-views :deep(.v-btn:focus-visible) {
+  outline: 2px solid var(--pm-accent, #006b75);
+  outline-offset: -2px;
+}
+
+.note-workspace-editor__document-quick-results {
+  max-height: 280px;
+  overflow-y: auto;
+  margin-top: 6px;
+}
+.note-workspace-editor__document-quick-results :deep(.v-list-item__content) {
+  min-width: 0;
+}
+.note-workspace-editor__document-result-text {
+  min-width: 0;
+  overflow: hidden;
+}
+.note-workspace-editor__document-result-meta {
+  display: block;
+  font-size: 0.875rem;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.note-workspace-editor__document-filename {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  line-height: 1.5;
+}
+.note-workspace-editor__document-filename,
+.note-workspace-editor__document-quick-results :deep(.v-list-item-title) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .note-workspace-editor__document-popover-summary {

@@ -273,6 +273,7 @@ import { isHistoryTransaction } from '@tiptap/pm/history';
 import { TextSelection } from '@tiptap/pm/state';
 import { DocumentChip } from './nodes/documentChip.js';
 import { OcrQuote } from './nodes/ocrQuote.js';
+import { EmptyParagraphDeletion } from './nodes/emptyParagraphDeletion.js';
 import { AiBlock } from './nodes/aiBlock.js';
 import { WikiLink } from './nodes/wikiLink.js';
 import { Callout } from './nodes/callout.js';
@@ -483,8 +484,10 @@ const editor = useEditor({
   content: props.modelValue || '',
   editable: !props.readonly,
   extensions: [
+    EmptyParagraphDeletion,
     StarterKit.configure({
       document: false,
+      trailingNode: false,
       // Keine künstliche, blinkende Auswahl zwischen Blockelementen anzeigen.
       // Die normale Browser-Schreibmarke bleibt die einzige Cursoranzeige.
       gapcursor: false,
@@ -501,7 +504,10 @@ const editor = useEditor({
     PageLayout,
     LayoutColumn,
     LectureSlide,
-    LectureSlideMedia.configure({ onRequestImage: (mediaPos) => requestSlideImage(mediaPos) }),
+    LectureSlideMedia.configure({
+      onRequestImage: (mediaPos) => requestSlideImage(mediaPos),
+      onPasteImage: (mediaPos, files) => { pendingSlideMediaPos = mediaPos; void uploadImageFiles(files); },
+    }),
     LectureSlideNotes,
     NoteHighlight,
     PaperMindDocument,
@@ -551,7 +557,7 @@ const editor = useEditor({
       },
     }),
     NoteReviewDecorations,
-    LearnMarker.configure({ showStatusChips: true, onOpenMarker: onOpenLearnMarker }),
+    LearnMarker.configure({ showStatusChips: false, onOpenMarker: onOpenLearnMarker }),
   ],
   editorProps: {
     attributes: { class: 'pm-content', spellcheck: props.spellcheckEnabled ? 'true' : 'false' },
@@ -1179,15 +1185,17 @@ function requestSlideImage(mediaPos) {
  *  - Mitschrift-Notiz → je Bild ein neuer Abschnitt
  *  - sonst null (normales Bild an der Cursorposition)
  */
-function slideImageTarget(ed) {
+function slideImageTarget(ed, position = null) {
   const pending = pendingSlideMediaPos;
   pendingSlideMediaPos = null;
   if (pending !== null && ed.state.doc.nodeAt(pending)?.type.name === 'lectureSlideMedia') {
     return { mediaPos: pending };
   }
-  const context = lectureSlideAtSelection(ed.state);
+  const context = lectureSlideAtSelection(Number.isInteger(position)
+    ? { selection: { $from: ed.state.doc.resolve(Math.max(0, Math.min(position, ed.state.doc.content.size))) } }
+    : ed.state);
   if (context && context.node.firstChild.childCount === 0) return { mediaPos: context.pos + 1 };
-  if (lectureMode.value) return { newSlide: true };
+  if (lectureMode.value) return { newSlide: true, ...(context ? { slidePos: context.pos } : {}) };
   return null;
 }
 
@@ -1235,7 +1243,21 @@ async function uploadImageFiles(inputFiles, { position = null } = {}) {
   imageUploadCount.value += files.length;
   imageUploadMessage.value = '';
   imageUploadError.value = false;
+  // Capture the destination before an asynchronous upload; cursor moves must
+  // not redirect the screenshot into a different row.
+  const slideTarget = slideImageTarget(ed, position);
+  let targetDeleted = false;
+  const mapTarget = ({ transaction }) => {
+    if (!slideTarget) return;
+    const key = slideTarget.mediaPos !== undefined ? 'mediaPos' : 'slidePos';
+    if (!Number.isInteger(slideTarget[key])) return;
+    const mapped = transaction.mapping.mapResult(slideTarget[key], 1);
+    targetDeleted ||= mapped.deleted;
+    slideTarget[key] = mapped.pos;
+  };
+  ed.on('transaction', mapTarget);
   const results = await Promise.allSettled(files.map((file) => uploadNoteImage(noteId, file)));
+  ed.off('transaction', mapTarget);
   imageUploadCount.value = Math.max(0, imageUploadCount.value - files.length);
 
   const images = results
@@ -1244,10 +1266,14 @@ async function uploadImageFiles(inputFiles, { position = null } = {}) {
   const failures = results.filter((result) => result.status === 'rejected');
 
   // A slow upload must never land in a note selected in the meantime.
-  if (props.noteId !== noteId || editor.value !== ed || ed.isDestroyed) return;
+  if (props.noteId !== noteId || editor.value !== ed || ed.isDestroyed || targetDeleted) return;
 
-  const slideTarget = images.length ? slideImageTarget(ed) : null;
-  if (slideTarget) {
+  if (slideTarget && images.length) {
+    if (Number.isInteger(slideTarget.slidePos)) {
+      const slide = ed.state.doc.nodeAt(slideTarget.slidePos);
+      if (slide?.type.name !== 'lectureSlide') return;
+      ed.commands.setTextSelection(slideTarget.slidePos + 1 + slide.firstChild.nodeSize + 2);
+    }
     images.forEach((image, index) => {
       const attrs = noteImageAttrs(image);
       if (index === 0 && slideTarget.mediaPos !== undefined) {
@@ -1364,13 +1390,8 @@ const bubbleButtons = computed(() => {
       ...mk('learn-marker', 'Als Lernstoff markieren', 'mdi-school-outline',
         e => isLineMarked(e), c => c.toggleLearnMarker('lernen')),
       separatorBefore: true,
-      separatorAfter: ed.state.selection.empty,
-    },
-    ...(!ed.state.selection.empty ? [{
-      ...mk('learn-marker-block', 'Ganzen Absatz als Lernstoff markieren', 'mdi-text-box-outline',
-        () => false, c => c.toggleLearnMarker('lernen', true)),
       separatorAfter: true,
-    }] : []),
+    },
     ...(props.aiAvailable ? [{
       key: 'ai-selection',
       label: 'Umschreiben',
@@ -1623,7 +1644,6 @@ const SLASH_COMMANDS = [
   { key: 'checklist', group: 'blocks', chip: '▣', label: 'Checkliste', desc: 'Neutrale Häkchen (keine Aufgaben)', terms: ['checkliste', 'checklist', 'liste', 'häkchen', 'haken', 'kriterien'], action: c => c.toggleCheckList() },
   { key: 'table', group: 'blocks', chip: '▦', label: 'Tabelle', desc: 'Zeilen und Spalten', terms: ['tabelle', 'table', 'raster', 'zeile', 'spalte'], kind: 'table-menu' },
   { key: 'image', group: 'blocks', chip: '▧', label: 'Bild', desc: 'Foto oder Grafik einfügen', terms: ['bild', 'foto', 'grafik', 'image', 'upload'], kind: 'image-upload' },
-  { key: 'lecture-slide', group: 'blocks', chip: '◧', label: 'Folie', desc: 'Neuer Abschnitt: Screenshot + Mitschrift', terms: ['folie', 'slide', 'screenshot', 'mitschrift', 'vorlesung'], action: c => c.insertLectureSlide() },
   { key: 'quote', group: 'blocks', chip: '❝', label: 'Zitat', desc: 'Zitatblock', terms: ['zitat', 'quote'], action: c => c.toggleBlockquote() },
   { key: 'code', group: 'blocks', chip: '</>', label: 'Code-Block', desc: 'Monospace', terms: ['code', 'block'], action: c => c.toggleCodeBlock() },
   { key: 'section', group: 'blocks', chip: '▸', label: 'Abschnitte', desc: 'Überschrift mit aufklappbarem Inhalt', terms: ['abschnitt', 'einklappen', 'ausklappen', 'details'], action: c => c.insertCollapsibleSection() },
@@ -1685,7 +1705,6 @@ const availableSlashCommands = computed(() =>
     if (realMode.value && command.kind === 'pick-doc-quote') return false;
     if (!props.aiAvailable && (command.kind === 'generate-ai' || command.kind === 'cleanup')) return false;
     if (!props.noteId && command.kind === 'image-upload') return false;
-    if (command.key === 'lecture-slide' && !lectureMode.value) return false;
     return true;
   })
 );
@@ -2512,9 +2531,10 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
 
 /* Lern-Marker: als lernrelevant markierte Zeile (Lernbereich). */
 .note-editor :deep(.pm-content .pm-learn-marked) {
-  box-shadow: inset 3px 0 0 var(--pm-accent, #006b75);
+  box-shadow: inset 2.5px 0 0 var(--pm-accent, #006b75);
   padding-left: 12px;
-  border-radius: 3px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
   background: color-mix(in srgb, var(--pm-accent, #006b75) 7%, transparent);
 }
 
@@ -2531,67 +2551,29 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
   background: transparent;
 }
 
-.note-editor.has-compact-learn-markers :deep(.pm-content .pm-learn-marked) {
-  border-radius: 0;
-  background: transparent;
+/* Einheitlicher Lernstoff-Balken, unabhängig vom Fortschritt im Lernraum. */
+.note-editor :deep(.pm-content .pm-learn-state) {
+  box-shadow: inset 2.5px 0 0 var(--pm-accent, #006b75);
 }
 
-.note-editor.has-compact-learn-markers :deep(.pm-content .pm-learn-selection) {
+/* Bei einer Blockauswahl zeigt die NodeView ihren eigenen Rahmen.
+   Die native Auswahl würde in WebKit zusätzlich den äußeren Abstand färben. */
+.note-editor :deep(.pm-content.ProseMirror-hideselection::selection),
+.note-editor :deep(.pm-content.ProseMirror-hideselection *::selection) {
   background: transparent;
 }
-
-/* Rückkopplung aus dem Lernbereich: der linke Markierungsstrich zeigt den
-   Lern-Fortschritt der Zeile (offen → Karte angelegt → sicher gelernt).
-   Stehen nach der Basisregel, gewinnen daher bei gleicher Spezifität. */
-.note-editor :deep(.pm-content .pm-learn-state--open) {
-  box-shadow: inset 3px 0 0 var(--pm-warning, #b45309);
-  background: color-mix(in srgb, var(--pm-warning, #b45309) 7%, transparent);
+.note-editor :deep(.pm-content.ProseMirror-hideselection .pm-ocrquote__text::selection) {
+  background: rgba(var(--v-theme-primary), 0.22);
 }
-.note-editor :deep(.pm-content .pm-learn-state--card) {
-  box-shadow: inset 3px 0 0 var(--pm-accent, #006b75);
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 7%, transparent);
-}
-.note-editor :deep(.pm-content .pm-learn-state--strong) {
-  box-shadow: inset 3px 0 0 var(--pm-success, #307041);
-  background: color-mix(in srgb, var(--pm-success, #307041) 8%, transparent);
+.note-editor :deep(.pm-content.ProseMirror-hideselection) {
+  caret-color: transparent;
 }
 
-/* Immer sichtbare, klickbare Status-Pille je markierter Zeile (öffnet die Karte
-   im Lernbereich). Sitzt oben rechts in reserviertem Platz, überlappt nie Text. */
-.note-editor :deep(.pm-content .pm-learn-state) { position: relative; padding-right: 74px; }
-.note-editor :deep(.pm-content .pm-learn-chip) {
-  position: absolute; top: 0.28em; right: 8px;
-  padding: 1px 8px 2px; border-radius: 999px;
-  font-size: 10.5px; font-weight: 650; line-height: 1.45; letter-spacing: .02em;
-  white-space: nowrap; cursor: pointer; user-select: none;
-  transition: filter .12s, box-shadow .12s;
+.note-editor :deep(.pm-content .pm-ocrquote.pm-learn-state) {
+  padding-right: 16px;
+  box-shadow: none;
+  background: var(--pm-viewer-surface, #eef2f4);
 }
-.note-editor :deep(.pm-content .pm-learn-chip:hover) { filter: brightness(1.04) saturate(1.1); }
-.note-editor :deep(.pm-content .pm-learn-chip:focus-visible) { outline: 2px solid currentColor; outline-offset: 1px; }
-.note-editor :deep(.pm-content .pm-learn-chip--open) {
-  color: var(--pm-warning, #b45309);
-  background: color-mix(in srgb, var(--pm-warning, #b45309) 13%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pm-warning, #b45309) 42%, transparent);
-}
-.note-editor :deep(.pm-content .pm-learn-chip--card) {
-  color: var(--pm-accent, #006b75);
-  background: color-mix(in srgb, var(--pm-accent, #006b75) 13%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pm-accent, #006b75) 40%, transparent);
-}
-.note-editor :deep(.pm-content .pm-learn-chip--strong) {
-  color: var(--pm-success, #307041);
-  background: color-mix(in srgb, var(--pm-success, #307041) 14%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pm-success, #307041) 40%, transparent);
-}
-/* Im Kompaktmodus (Markierungsflächen ausgeblendet) bleibt nur der farbige
-   Strich – Flächenfüllung UND Status-Pille werden ausgeblendet. */
-.note-editor.has-compact-learn-markers :deep(.pm-content .pm-learn-state--open),
-.note-editor.has-compact-learn-markers :deep(.pm-content .pm-learn-state--card),
-.note-editor.has-compact-learn-markers :deep(.pm-content .pm-learn-state--strong) {
-  background: transparent;
-}
-.note-editor.has-compact-learn-markers :deep(.pm-content .pm-learn-state) { padding-right: 0; }
-.note-editor.has-compact-learn-markers :deep(.pm-content .pm-learn-chip) { display: none; }
 
 .note-editor :deep(.pm-content hr) {
   border: 0; height: 1px; background: var(--pm-divider, #d8dfe1); margin-inline: 0;

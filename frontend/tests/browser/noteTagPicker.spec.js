@@ -1,0 +1,21 @@
+import { expect, test } from '@playwright/test';
+test('tag summary supports input, selection and removal on a narrow screen', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 640 });
+  await page.route('**/__tag-picker', route => route.fulfill({ contentType: 'text/html', body: '<html><body><div id="app"></div></body></html>' }));
+  await page.goto('/__tag-picker');
+  await page.evaluate(async () => { (await import('/tests/browser/fixtures/noteTagPicker.js')).mountTagPicker(); });
+  await page.getByRole('button', { name: 'Tags bearbeiten (1 ausgewählt)' }).click();
+  const input = page.getByRole('textbox', { name: 'Tag suchen oder anlegen' });
+  await expect(input).toBeFocused();
+  await page.getByRole('checkbox', { name: 'Vertrag', exact: true }).uncheck();
+  await page.getByRole('checkbox', { name: 'Abstimmung', exact: true }).check();
+  await input.fill('Neuer Tag');
+  await input.press('Enter');
+  await expect(page.getByRole('checkbox', { name: 'Neuer Tag', exact: true })).toBeChecked();
+  await expect(page.getByRole('button', { name: 'Tags bearbeiten (2 ausgewählt)' })).toBeVisible();
+  await expect(input).toBeFocused();
+  const box = await page.locator('.note-tag-bar__picker').boundingBox();
+  expect(box.x + box.width).toBeLessThanOrEqual(360);
+  await input.press('Escape');
+  await expect(page.locator('.note-tag-bar__picker')).not.toBeVisible();
+});

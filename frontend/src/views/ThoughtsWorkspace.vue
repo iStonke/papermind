@@ -174,7 +174,6 @@ import { findFreeThoughtPosition, THOUGHT_PLACEMENT_GAP } from '../utils/thought
 import { noteMarkdownToTipTap } from '../utils/noteMarkdown.js';
 import { sortThoughts } from '../utils/thoughtSort.js';
 import ThoughtColorPicker from '../components/ThoughtColorPicker.vue';
-import { storeToRefs } from 'pinia';
 import { useNotesStore } from '../stores/notes.js';
 import { useAuthStore } from '../stores/auth.js';
 import { listPins, createPin, updatePin, archivePins, movePin, listThoughtRooms, createThoughtRoom, renameThoughtRoom, deleteThoughtRoom, colorPins, movePins, summarizeThoughtRoom } from '../api/notes.js';
@@ -320,12 +319,12 @@ async function selectRoom(id) {
     return;
   }
   if (!await finishRoomEditing()) return;
-  const version = ++requestVersion, collectionId = activeCollectionId.value;
+  const version = ++requestVersion, collectionId = rooms.value.find(room => room.id === id)?.collection_id;
   switchingRoom.value = true; error.value = '';
   try {
     // Keep both the list and the old canvas mounted until the next canvas is ready.
     const response = await listPins(collectionId, false, id);
-    if (version !== requestVersion || disposed || collectionId !== activeCollectionId.value) return;
+    if (version !== requestVersion || disposed) return;
     stopDrag();
     activeRoomId.value = id;
     pins.value = response.items || [];
@@ -362,7 +361,7 @@ async function createRoomAutomatically() {
     // Insert and select the returned item together; avoid reloading the entire list.
     requestVersion++; switchingRoom.value = false;
     rooms.value = [room, ...rooms.value];
-    store.setThoughtRoomCount(collectionId, rooms.value.length);
+    store.globalThoughtRoomCount = rooms.value.length;
     activeRoomId.value = room.id;
     pins.value = []; activeId.value = null; undoIds.value = []; draft.value = ''; draftPosition.value = null;
     query.value = ''; zoom.value = 1;
@@ -387,7 +386,8 @@ async function saveRoom() {
 }
 const store = useNotesStore();
 const auth = useAuthStore();
-const { activeCollectionId } = storeToRefs(store);
+// Die Gedanken-Auswahl ist unabhängig von der aktiven Notiz-Sammlung.
+const activeCollectionId = computed(() => rooms.value.find(room => room.id === activeRoomId.value)?.collection_id || store.collections[0]?.id || null);
 const sortField = ref('created_at'), sortDirection = ref('desc');
 const sortOptions = [{ value:'created_at', label:'Erstellungsdatum' }, { value:'updated_at', label:'Letzte Änderung' }, { value:'title', label:'Titel' }];
 const sortActions = computed(() => [{ key:'sort', icon:'mdi-tune-variant', label:sortOptions.find((option) => option.value === sortField.value).label, minWidth:240, sections:[
@@ -625,16 +625,16 @@ function listDateLabel(value) {
 const dateLabel = (value) => new Intl.DateTimeFormat('de-DE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
 function fail(exc) { error.value = mapApiError(exc) || exc.message || 'Die Gedanken konnten nicht gespeichert werden.'; }
 async function load() {
-  const version = ++requestVersion, collectionId = activeCollectionId.value, archive = archived.value;
-  if (!collectionId) { loading.value = false; return; }
+  const version = ++requestVersion, archive = archived.value;
   loading.value = true; error.value = '';
   try {
-    const roomItems = await listThoughtRooms(collectionId);
+    await store.ensureCollectionsLoaded();
+    const roomItems = await listThoughtRooms();
     if (version !== requestVersion || disposed) return;
     rooms.value = roomItems;
-    store.setThoughtRoomCount(collectionId, roomItems.length);
-    if (!roomItems.some((room) => room.id === activeRoomId.value)) activeRoomId.value = roomItems.find((room) => room.id === readDraft(`pm-thought-room:${collectionId}`))?.id || roomItems[0]?.id;
-    const response = await listPins(collectionId, archive, activeRoomId.value);
+    store.globalThoughtRoomCount = roomItems.length;
+    if (!roomItems.some((room) => room.id === activeRoomId.value)) activeRoomId.value = roomItems.find((room) => room.id === readDraft('pm-thought-room:global'))?.id || roomItems[0]?.id;
+    const response = activeRoomId.value ? await listPins(activeCollectionId.value, archive, activeRoomId.value) : { items: [] };
     if (version === requestVersion && !disposed) {
       pins.value = response.items || [];
       // A reload during a completed save must not resurrect a duplicate draft.
@@ -645,19 +645,10 @@ async function load() {
   } catch (exc) { if (version === requestVersion && !disposed) fail(exc); }
   finally { if (version === requestVersion && !disposed) loading.value = false; }
 }
-watch(activeCollectionId, () => {
-  stopDrag();
-  activeRoomId.value = null; rooms.value = [];
-  draft.value = readDraft(storageKey.value);
-  let position = null;
-  try { position = JSON.parse(readDraft(`${storageKey.value}:position`)); } catch { /* Older drafts have no position. */ }
-  draftPosition.value = draft.value ? { title_color: position?.title_color || null, created_at: position?.created_at || new Date().toISOString(), id: position?.id || crypto.randomUUID(), x: bounded(position?.x ?? 24), y: bounded(position?.y ?? 24) } : null;
-  pins.value = []; editingId.value = null; activeId.value = null; undoIds.value = [];
-  switchingRoom.value = false;
-  load();
-}, { immediate: true });
+onMounted(load);
 watch(activeRoomId, (id) => {
   if (!id) return;
+  writeDraft('pm-thought-room:global', id);
   const legacyKey = `pm-thought-draft-v1:${auth.user?.id || auth.username}:${activeCollectionId.value}`;
   const key = storageKey.value;
   const legacy = !readDraft(key) && rooms.value[0]?.id === id ? readDraft(legacyKey) : '';

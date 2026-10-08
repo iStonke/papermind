@@ -22,11 +22,14 @@
           <VorlagenCard
             v-for="tpl in blockTemplates"
             :key="tpl.id"
+            :readonly="Boolean(tpl.builtin)"
+            :preview-kind="tpl.previewKind || ''"
             variant="schnellblock"
             :title="tpl.name || tpl.title"
             :accent="colorHex(tpl.color)"
             :fields="tpl.fields"
             @edit="openEditBlock(tpl)"
+            @primary="showBuiltinBlock(tpl)"
             @delete="confirmDeleteBlock(tpl)"
           />
           <template v-if="!blockTemplates.length">
@@ -60,6 +63,8 @@
           <VorlagenCard
             v-for="tpl in startnotizen"
             :key="tpl.id"
+            :readonly="Boolean(tpl.builtin)"
+            :preview-kind="tpl.previewKind || ''"
             variant="startnotiz"
             :title="tpl.title"
             :accent="neutralAccent"
@@ -198,6 +203,10 @@ function colorHex(key) {
   return templateColorHex(key);
 }
 
+function showBuiltinBlock(tpl) {
+  notify({ type: 'info', title: tpl.name, message: 'Integrierter Schnellblock. Im Editor unter Blöcke oder über /Folie einfügen. Diese Vorlage ist geschützt.' });
+}
+
 /* ── Schnellblock-Editor ────────────────────────────────────────────────── */
 const editorOpen = ref(false);
 const editingId = ref(null);
@@ -221,6 +230,7 @@ function openCreateBlock() {
   nextTick(() => nameInput.value?.focus());
 }
 function openEditBlock(tpl) {
+  if (tpl.builtin) return showBuiltinBlock(tpl);
   editingId.value = tpl.id;
   resetDraft(tpl);
   editorOpen.value = true;
@@ -277,6 +287,7 @@ async function startNote(tpl) {
   }
 }
 function editStartnotiz(tpl) {
+  if (tpl.builtin) return startNote(tpl);
   if (!tpl?.id) return;
   emit('open-note', tpl.id);
 }
@@ -302,6 +313,7 @@ function openConfirm(config) { confirm.value = { open: true, primaryText: 'Lösc
 function closeConfirm() { confirm.value = { ...confirm.value, open: false }; }
 
 function confirmDeleteBlock(tpl) {
+  if (tpl.builtin) return;
   const label = tpl.name || tpl.title || 'diesen Schnellblock';
   openConfirm({
     title: 'Schnellblock löschen?',
@@ -310,6 +322,7 @@ function confirmDeleteBlock(tpl) {
   });
 }
 async function doDeleteBlock(tpl) {
+  if (tpl.builtin) return;
   if (busy.value) return;
   busy.value = true;
   try {
@@ -324,6 +337,7 @@ async function doDeleteBlock(tpl) {
 }
 
 function confirmDeleteStart(tpl) {
+  if (tpl.builtin) return;
   const label = tpl.title?.trim() || 'diese Startnotiz';
   openConfirm({
     title: 'Startnotiz löschen?',
@@ -333,6 +347,7 @@ function confirmDeleteStart(tpl) {
   });
 }
 async function doDeleteStart(tpl) {
+  if (tpl.builtin) return;
   if (busy.value) return;
   busy.value = true;
   try {

@@ -71,3 +71,62 @@ test('creation in another collection does not leak into the loaded active list',
   assert.equal(store.collections[0].note_count, 4);
   assert.equal(store.collections[1].note_count, 1);
 });
+
+test('global notes stay available while the collection list changes', async (t) => {
+  const store = setup();
+  const items = [
+    { id: 'work', collection_id: 'arbeit', is_favorite: true },
+    { id: 'study', collection_id: 'studium', is_favorite: false },
+  ];
+  t.mock.method(globalThis, 'fetch', async url => {
+    assert.equal(new URL(String(url), 'http://example.test').searchParams.has('collection_id'), false);
+    return new Response(JSON.stringify({ items }), { headers: { 'Content-Type': 'application/json' } });
+  });
+  await store.fetchNotes();
+  assert.deepEqual(store.notes.map(note => note.id), ['study']);
+  assert.deepEqual(store.allNotes.map(note => note.id), ['work', 'study']);
+  store.activeCollectionId = 'arbeit';
+  await store.fetchNotes();
+  assert.deepEqual(store.notes.map(note => note.id), ['work']);
+  assert.equal(store.allNotes.filter(note => note.is_favorite).length, 1);
+});
+
+test('global note cache follows creation, favorite changes, deletion and restore', async (t) => {
+  const store = setup();
+  store.loaded = true;
+  const note = { id: 'global', collection_id: 'arbeit', title: 'Global', body_json: { type: 'doc', content: [] }, is_favorite: false };
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (options.method === 'PATCH') note.is_favorite = JSON.parse(options.body).is_favorite;
+    return new Response(JSON.stringify(note), { headers: { 'Content-Type': 'application/json' } });
+  });
+  await store.create({ collection_id: 'arbeit' });
+  assert.equal(store.allNotes[0].id, 'global');
+  await store.setFavorite('global', true);
+  assert.equal(store.allNotes[0].is_favorite, true);
+  await store.remove('global');
+  assert.equal(store.allNotes.length, 0);
+  await store.restore('global');
+  assert.equal(store.allNotes[0].id, 'global');
+});
+
+test('integrated templates cannot be deleted and create independent editable notes', async (t) => {
+  const store = setup();
+  let requests = 0;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    requests++;
+    const payload = JSON.parse(options.body);
+    assert.equal(payload.is_template, undefined);
+    assert.equal(payload.body_json.attrs.lectureMode, true);
+    assert.equal(payload.body_json.content[0].type, 'paragraph');
+    assert.equal(payload.body_json.content[1].type, 'lectureSlide');
+    return new Response(JSON.stringify({ ...payload, id: 'created-lecture', title: '' }), { headers: { 'Content-Type': 'application/json' } });
+  });
+  await assert.rejects(store.deletePermanently('builtin:lecture-start'), /geschützt/);
+  await assert.rejects(store.trash('builtin:lecture-start'), /geschützt/);
+  assert.equal(store.blockTemplates.some(template => template.builtin), false);
+  assert.equal(requests, 0);
+  const note = await store.createFromTemplate('builtin:lecture-start');
+  assert.equal(note.id, 'created-lecture');
+  assert.equal(requests, 1);
+  assert.equal(store.templates[0].builtin, true);
+});

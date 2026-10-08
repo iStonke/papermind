@@ -22,6 +22,7 @@ test('local note draft comparison includes title and structured body', () => {
 
   assert.equal(noteDraftMatchesServer(draft, { title: 'Notiz', body_json: body }), true);
   assert.equal(noteDraftMatchesServer(draft, { title: 'Andere Notiz', body_json: body }), false);
+  assert.equal(noteDraftMatchesServer(draft, { title: 'Notiz', title_is_generated: true, body_json: body }), false);
   assert.equal(noteDraftMatchesServer(draft, {
     title: 'Notiz',
     body_json: { type: 'doc', content: [{ type: 'paragraph' }] },
@@ -88,6 +89,7 @@ test('local draft storage strips transient, non-serializable fields', () => {
   assert.deepEqual(stored, {
     noteId: '42',
     title: 'Entwurf',
+    titleIsGenerated: false,
     bodyJson: body,
     baseRevision: 3,
     clientVersion: 'draft-1',

@@ -32,6 +32,25 @@ class NotePinsTest(unittest.TestCase):
         self.other_collection = NoteCollectionService(self.db, self.other).ensure_default_id()
         self.service = NotePinService(self.db, self.owner)
 
+    def test_global_rooms_and_pins_include_all_collections_but_only_owner(self):
+        first = self.create(self.a.id, 'Arbeit')
+        second = self.create(self.b.id, 'Privat')
+        NotePinService(self.db, self.other).create(PinCreateRequest(collection_id=self.other_collection, text='Fremd'))
+        self.assertEqual({pin.id for pin in self.service.list(None)}, {first.id, second.id})
+        self.assertEqual({room.collection_id for room in self.service.rooms()}, {self.a.id, self.b.id})
+        self.assertEqual({pin.id for pin in self.service.list(self.a.id)}, {first.id})
+
+    def test_generated_title_is_persisted_and_manual_edit_clears_origin(self):
+        from app.services.note_service import NoteService
+        from app.schemas.notes import NoteCreateRequest, NoteUpdateRequest, NoteRead
+        service = NoteService(self.db, self.owner)
+        note = service.create_note(NoteCreateRequest(collection_id=self.a.id))
+        generated = service.update_note(note.id, NoteUpdateRequest(title='KI-Titel', title_is_generated=True, base_revision=note.revision))
+        self.assertTrue(NoteRead.model_validate(generated).title_is_generated)
+        self.assertTrue(next(item for item in service.list_notes() if item.id == note.id).title_is_generated)
+        manual = service.update_note(note.id, NoteUpdateRequest(title='Mein Titel', base_revision=generated.revision))
+        self.assertFalse(manual.title_is_generated)
+
     def tearDown(self):
         self.db.rollback()
         for owner in (self.owner, self.other):

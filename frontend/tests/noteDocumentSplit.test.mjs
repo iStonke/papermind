@@ -46,11 +46,13 @@ test('split pane shows the linked document in quote mode and remembers the page 
   assert.match(paneSource, /defineExpose\(\{ reveal, reloadHighlights: loadHighlights \}\)/);
 });
 
-test('note workspace hosts the split with toggle, splitter and compact tabs', () => {
+test('note workspace switches between document and note without a split', () => {
   assert.match(workspaceEditorSource, /<NoteDocumentPane[\s\S]*?@quote="insertQuoteFromDocument"/);
-  assert.match(workspaceEditorSource, /class="note-workspace-editor__split-toggle"[\s\S]*?@click="toggleSplit"/);
-  assert.match(workspaceEditorSource, /role="separator"[\s\S]*?@pointerdown="startSplitDrag"/);
-  assert.match(workspaceEditorSource, /SPLIT_COMPACT_WIDTH = 860/);
+  assert.match(workspaceEditorSource, /@update:model-value="setDocumentView"/);
+  assert.doesNotMatch(workspaceEditorSource, /class="note-workspace-editor__split-(toggle|tabs)"/);
+  assert.doesNotMatch(workspaceEditorSource, /startSplitDrag|note-workspace-editor__splitter/);
+  assert.doesNotMatch(workspaceEditorSource, /\.note-workspace-editor__doc-pane\s*\{[^}]*pointer-events:\s*none/);
+  assert.doesNotMatch(workspaceEditorSource, /Nebeneinander anzeigen|SPLIT_COMPACT_WIDTH/);
   // Tab-Modus blendet per visibility aus, damit Scrollpositionen erhalten bleiben.
   assert.match(workspaceEditorSource, /\.is-tab-hidden \{[\s\S]*?visibility: hidden;/);
   assert.match(workspaceEditorSource, /window\.addEventListener\('pm-note:quote-reveal', onQuoteReveal\)/);
@@ -78,8 +80,9 @@ test('learn highlights have exactly three fixed meanings', () => {
   assert.match(colorsSource, /Object\.freeze/);
 });
 
-test('split pane offers the learn colors and persists them per note', () => {
-  assert.match(paneSource, /:selection-colors="LEARN_HIGHLIGHT_COLORS"/);
+test('note document selection defers color choice to the note', () => {
+  assert.doesNotMatch(paneSource, /:selection-colors=/);
+  assert.match(paneSource, /emit\('quote', \{ text, page: page \|\| null, rects: cleanRects \}\)/);
   assert.match(paneSource, /@create-annotation="onCreateHighlight"/);
   assert.match(paneSource, /createNoteLearnHighlight\(props\.noteId/);
   assert.match(paneSource, /listNoteLearnHighlights\(props\.noteId, props\.documentId\)/);
@@ -113,14 +116,15 @@ test('document quotes can carry learn markers like text lines', () => {
   assert.match(learnMarkerSource, /selection instanceof NodeSelection && MARKABLE_TYPES\.includes/);
   assert.match(learnMarkerSource, /toggleLearnMarkerAt:/);
   assert.match(ocrQuoteViewSource, /toggleLearnMarkerAt\(props\.getPos\(\), learnKind\.value \|\| 'lernen'\)/);
-  assert.match(ocrQuoteViewSource, /decoration\?\.type\?\.attrs\?\.\['data-learn-state'\]/);
+  assert.doesNotMatch(ocrQuoteViewSource, /LEARN_STATE_LABELS|LEARN_KIND_LABELS/);
+  assert.match(ocrQuoteViewSource, /v-if="learnKind">Lernstoff/);
 });
 
 test('learn highlight meanings map to learn markers; unclear quotes itself', () => {
   assert.match(colorsSource, /key: 'important'[^\n]*markerKind: 'lernen'/);
   assert.match(colorsSource, /key: 'definition'[^\n]*markerKind: 'fakt'/);
   assert.match(colorsSource, /key: 'unclear'[^\n]*markerKind: 'warum', autoQuote: true/);
-  assert.match(paneSource, /learnKind: meaning\?\.markerKind \|\| null/);
+  assert.doesNotMatch(paneSource, /learnKind: 'lernen'/);
   assert.match(paneSource, /autoQuote\(created\);/);
   assert.match(workspaceEditorSource, /if \(auto && hasDocumentQuote\(document\.id, page, text\)\) return;/);
   assert.match(workspaceEditorSource, /learnKind \? \{ learn: learnKind, pmId: randomPmId\(\) \} : \{\}/);

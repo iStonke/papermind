@@ -1,6 +1,14 @@
 import { expect, test } from '@playwright/test';
 import { openThoughts } from './helpers/thoughtSummary.js';
 
+test('changing the notes collection keeps the thought room and canvas', async ({ page }) => {
+  await openThoughts(page);
+  await expect(page.getByText('Projektideen', { exact: true })).toBeVisible();
+  await page.evaluate(() => { window.thoughtsNotesStore.activeCollectionId = 'different-collection'; });
+  await expect(page.getByText('Projektideen', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Alle Gedanken zusammenfassen', exact: true })).toBeEnabled();
+});
+
 test('preview can be cancelled without creating a note', async ({ page }) => {
   const created = await openThoughts(page);
   await page.getByRole('button', { name: 'Alle Gedanken zusammenfassen', exact: true }).click();

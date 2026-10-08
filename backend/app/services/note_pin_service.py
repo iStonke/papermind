@@ -32,11 +32,13 @@ class NotePinService:
         return pin
 
     def list(self, collection_id, archived=False, room_id=None):
-        self._collection(collection_id)
+        if collection_id is not None:
+            self._collection(collection_id)
         if room_id:
             self.get_room(room_id, collection_id)
         return list(self.db.scalars(select(NotePin).where(
-            NotePin.owner_id == self.owner_id, NotePin.collection_id == collection_id,
+            NotePin.owner_id == self.owner_id,
+            *([NotePin.collection_id == collection_id] if collection_id is not None else []),
             NotePin.status == ("archived" if archived else "open"),
             *([NotePin.room_id == room_id] if room_id else []),
         ).order_by(NotePin.created_at.desc(), NotePin.id.desc())).all())
@@ -152,9 +154,13 @@ class NotePinService:
         self.db.refresh(room)
         return room
 
-    def rooms(self, collection_id):
-        self._collection(collection_id)
-        return list(self.db.scalars(select(ThoughtRoom).where(ThoughtRoom.owner_id == self.owner_id, ThoughtRoom.collection_id == collection_id).order_by(ThoughtRoom.created_at)).all())
+    def rooms(self, collection_id=None):
+        if collection_id is not None:
+            self._collection(collection_id)
+        return list(self.db.scalars(select(ThoughtRoom).where(
+            ThoughtRoom.owner_id == self.owner_id,
+            *([ThoughtRoom.collection_id == collection_id] if collection_id is not None else []),
+        ).order_by(ThoughtRoom.created_at)).all())
 
     def rename_room(self, room_id, title):
         room = self.get_room(room_id)

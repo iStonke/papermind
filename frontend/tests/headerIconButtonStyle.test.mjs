@@ -25,9 +25,8 @@ test('compact header actions share one fixed tonal icon-button geometry', () => 
 
 test('dense editor action groups use the quiet variant without changing geometry', () => {
   assert.match(globalStyleSource, /\.pm-header-icon-btn--quiet\.v-btn\s*\{/);
-  // Suche, KI, Undo/Redo, Weiteres, Lernmarker- und Split-Umschalter teilen
-  // die stille Variante.
-  assert.equal((noteEditorSource.match(/'pm-header-icon-btn--quiet'/g) || []).length, 7);
+  // Suche, KI, Undo/Redo und Weiteres teilen die stille Variante.
+  assert.equal((noteEditorSource.match(/'pm-header-icon-btn--quiet'/g) || []).length, 5);
   assert.match(noteEditorSource, /note-workspace-editor__review-toggle[\s\S]*?:aria-pressed="reviewActive"/);
   assert.equal((noteEditorSource.match(/<PmActionIcon/g) || []).length, 1);
   assert.match(noteEditorSource, /class="note-workspace-editor__more-btn"[\s\S]*?mdi-dots-vertical/);

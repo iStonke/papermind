@@ -431,6 +431,7 @@ class NoteService:
             NoteListItem(
                 id=n.id,
                 title=n.title,
+                title_is_generated=n.title_is_generated,
                 preview=_search_preview(n.body_text or "", normalized_query),
                 is_template=n.is_template,
                 is_deleted=n.is_deleted,
@@ -629,6 +630,7 @@ class NoteService:
             NoteListItem(
                 id=n.id,
                 title=n.title,
+                title_is_generated=n.title_is_generated,
                 preview=_search_preview(n.body_text or "", None),
                 is_template=True,
                 is_deleted=n.is_deleted,
@@ -733,6 +735,7 @@ class NoteService:
             )
         if payload.title is not None:
             note.title = payload.title
+            note.title_is_generated = bool(payload.title_is_generated)
         if payload.body_json is not None:
             note.body_json = payload.body_json
             note.body_text = derive_body_text(payload.body_json)
@@ -872,6 +875,7 @@ class NoteService:
 
         self._checkpoint_revision(note, "before_restore")
         note.title = selected.title or ""
+        note.title_is_generated = False
         note.body_json = copy.deepcopy(selected.body_json) or EMPTY_DOC
         note.body_text = derive_body_text(note.body_json)
         note.revision = current_revision + 1
@@ -966,6 +970,7 @@ class NoteService:
             NoteListItem(
                 id=n.id,
                 title=n.title,
+                title_is_generated=n.title_is_generated,
                 preview=(n.body_text or "")[:_PREVIEW_LEN],
                 is_deleted=n.is_deleted,
                 deleted_at=n.deleted_at,

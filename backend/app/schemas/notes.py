@@ -258,6 +258,7 @@ class NoteUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str | None = Field(default=None, max_length=500)
+    title_is_generated: bool | None = None
     body_json: dict[str, Any] | None = None
     # Notizbuch verschieben; ``None`` mit gesetztem Feld = aus Notizbuch nehmen.
     # „Feld gesetzt" wird über ``model_fields_set`` unterschieden.
@@ -321,6 +322,7 @@ class NoteListItem(ORMModel):
     """
 
     id: uuid.UUID
+    title_is_generated: bool = False
     title: str
     preview: str
     is_template: bool = False
@@ -344,6 +346,7 @@ class NoteRead(ORMModel):
     """Detail inkl. body_json (zum Öffnen im Editor)."""
 
     id: uuid.UUID
+    title_is_generated: bool = False
     title: str
     body_json: dict[str, Any]
     revision: int = 1
@@ -446,3 +449,12 @@ class AICredentialsStatus(BaseModel):
     encryption_configured: bool = False
     openai: AIProviderCredentialStatus = Field(default_factory=AIProviderCredentialStatus)
     anthropic: AIProviderCredentialStatus = Field(default_factory=AIProviderCredentialStatus)
+
+
+class NoteTitleSuggestionRequest(BaseModel):
+    base_revision: int = Field(ge=1)
+
+
+class NoteTitleSuggestionRead(BaseModel):
+    title: str | None = None
+    base_revision: int

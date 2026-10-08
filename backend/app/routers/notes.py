@@ -9,6 +9,8 @@ from app.db import get_db
 from app.models.user import User
 from app.schemas.common import ErrorResponse, OkResponse
 from app.schemas.notes import (
+    NoteTitleSuggestionRequest,
+    NoteTitleSuggestionRead,
     CollectionCreateRequest,
     CollectionListResponse,
     CollectionMoveRequest,
@@ -768,3 +770,14 @@ def delete_note(
     if not NoteService(db, user.id).delete_note(note_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notiz nicht gefunden")
     return OkResponse()
+
+
+@router.post('/{note_id}/suggest-title', response_model=NoteTitleSuggestionRead)
+def suggest_note_title(note_id: uuid.UUID, payload: NoteTitleSuggestionRequest,
+                       db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from app.services.note_title import NoteTitleService
+    from app.services.note_ai import NoteAIProviderError
+    try:
+        return NoteTitleService(db, user.id).suggest(note_id, payload.base_revision)
+    except NoteAIProviderError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc

@@ -40,6 +40,7 @@ class Note(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     title: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    title_is_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     body_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default="{}")
     body_text: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     search_vector: Mapped[str | None] = mapped_column(TSVECTOR, nullable=True)

@@ -94,7 +94,7 @@
         >
           <template #leading>
             <!-- Sammlung: oberster Space-Wechsel, dezent vorn in der Filterzeile. -->
-            <v-menu location="bottom start" :offset="4">
+            <v-menu v-if="viewMode === 'all'" location="bottom start" :offset="4">
               <template #activator="{ props: collectionMenuProps }">
                 <button
                   type="button"
@@ -302,17 +302,6 @@
             </v-btn>
           </template>
           <div class="notes-ws__template-pop">
-            <div class="notes-ws__template-pop-title">Neu</div>
-            <!-- Mitschrift: Notiz im Mitschreibmodus (Folie links, Mitschrift
-                 rechts; ⌘V mit Screenshot beginnt einen neuen Abschnitt). -->
-            <button
-              type="button"
-              class="notes-ws__template-pop-item"
-              @click="createLectureNote"
-            >
-              <v-icon size="16">mdi-view-split-vertical</v-icon>
-              <span>Mitschrift (Folien + Notizen)</span>
-            </button>
             <div v-if="notesStore.templates.length" class="notes-ws__template-pop-title">Aus Vorlage</div>
             <button
               v-for="template in notesStore.templates"
@@ -519,7 +508,6 @@ import { MAX_NOTE_ARCHIVE_BYTES, selectNoteArchiveFiles } from '../utils/noteArc
 import { notifyNoteDeleted } from '../utils/noteDeletionFeedback.js';
 import { groupNotesByCreationDay, groupNotesByDay } from '../utils/noteDateGroups.js';
 import { normalizeCollectionColor } from '../utils/noteCollectionColor.js';
-import { lectureSlideJSON } from '../components/notes/nodes/lectureSlide.js';
 
 const props = defineProps({
   searchQuery: { type: String, default: '' },
@@ -665,7 +653,7 @@ const normalizedSearchScope = computed(() => (
 ));
 const activeSearchKey = computed(() => (
   normalizedSearchQuery.value
-    ? `${activeCollectionId.value || 'all'}:${normalizedSearchScope.value}:${normalizedSearchQuery.value.toLocaleLowerCase('de-DE')}`
+    ? `${props.viewMode === 'all' ? activeCollectionId.value || 'all' : 'global'}:${normalizedSearchScope.value}:${normalizedSearchQuery.value.toLocaleLowerCase('de-DE')}`
     : ''
 ));
 const normalizedManageSearchQuery = computed(() => (
@@ -681,30 +669,31 @@ const matchingManageNotebooks = computed(() => {
     return manageSearchTerms.value.every((term) => name.includes(term));
   });
 });
+const canonicalNotes = computed(() => props.viewMode === 'all' ? notesStore.notes : notesStore.allNotes);
 const searchSourceNotes = computed(() => {
-  if (!activeSearchKey.value) return notesStore.notes;
+  if (!activeSearchKey.value) return canonicalNotes.value;
   if (resolvedSearchKey.value === activeSearchKey.value) return searchedNotes.value;
   // Während des kurzen Debounce-Fensters bleibt die bestehende Liste stabil.
   // Das verhindert, dass der Editor beim Tippen vorübergehend abgewählt wird.
-  return notesStore.notes;
+  return canonicalNotes.value;
 });
 
 const scopedCanonicalNotes = computed(() => {
   if (props.viewMode === 'pinned') {
-    return notesStore.notes.filter((note) => note.is_favorite);
+    return canonicalNotes.value.filter((note) => note.is_favorite);
   }
   if (props.viewMode === 'recent') {
-    return [...notesStore.notes]
+    return [...canonicalNotes.value]
       .sort((a, b) => timestamp(b.updated_at) - timestamp(a.updated_at))
       .slice(0, 10);
   }
-  return notesStore.notes;
+  return canonicalNotes.value;
 });
 
 const scopedNoteIds = computed(() => new Set(scopedCanonicalNotes.value.map((note) => note.id)));
 
 function matchesNotebookFilter(note) {
-  if (!notebookFilter.value) return true;
+  if (props.viewMode !== 'all' || !notebookFilter.value) return true;
   if (notebookFilter.value === 'none') return !note.notebook_id;
   return note.notebook_id === notebookFilter.value;
 }
@@ -949,7 +938,7 @@ watch(normalizedManageSearchQuery, scheduleManageSearch);
 // Nach Autosave, Anlegen oder Löschen die aktive Suche neu bewerten. Der
 // Signatur-Watch beobachtet bewusst nur die schlanken Listendaten.
 watch(
-  () => notesStore.notes.map((note) => (
+  () => canonicalNotes.value.map((note) => (
     `${note.id}:${note.updated_at || ''}:${note.title || ''}:${note.preview || ''}`
   )).join('|'),
   () => {
@@ -1103,14 +1092,14 @@ function scheduleNoteSearch(delay = NOTE_SEARCH_DEBOUNCE_MS) {
   noteSearchTimer = window.setTimeout(async () => {
     noteSearchTimer = null;
     try {
-      const results = await notesStore.searchNotes(query, { scope, collectionId: activeCollectionId.value });
+      const results = await notesStore.searchNotes(query, { scope, collectionId: props.viewMode === 'all' ? activeCollectionId.value : null });
       if (revision !== noteSearchRevision || key !== activeSearchKey.value) return;
       searchedNotes.value = results;
     } catch {
       if (revision !== noteSearchRevision || key !== activeSearchKey.value) return;
       // Bei einem vorübergehenden Backendfehler bleibt zumindest die Suche in
       // den bereits geladenen Titeln und Vorschautexten verfügbar.
-      searchedNotes.value = localNoteSearch(notesStore.notes, query, scope);
+      searchedNotes.value = localNoteSearch(canonicalNotes.value, query, scope);
     } finally {
       if (revision === noteSearchRevision && key === activeSearchKey.value) {
         resolvedSearchKey.value = key;
@@ -1147,21 +1136,21 @@ async function applyPendingOpen() {
   // Notizensuche sichtbar sein.
   listSearchQuery.value = '';
   await notesStore.ensureLoaded();
-  if (!notesStore.notes.some((note) => note.id === id)) {
+  if (!canonicalNotes.value.some((note) => note.id === id)) {
     // Nicht in der aktiven Sammlung sichtbar? Detail laden, ggf. in die
     // Sammlung der Notiz wechseln (Space-Wechsel), dann frisch laden.
     try {
       const detail = await notesStore.get(id);
-      if (detail?.collection_id && detail.collection_id !== notesStore.activeCollectionId) {
+      if (props.viewMode === 'all' && detail?.collection_id && detail.collection_id !== notesStore.activeCollectionId) {
         await notesStore.setActiveCollection(detail.collection_id);
       }
     } catch { /* Fällt unten auf einen erneuten Listenabruf zurück. */ }
-    if (!notesStore.notes.some((note) => note.id === id)) {
+    if (!canonicalNotes.value.some((note) => note.id === id)) {
       // Neu/verknüpft, aber noch nicht in der Liste: frisch laden.
       await notesStore.fetchNotes();
     }
   }
-  if (notesStore.notes.some((note) => note.id === id)) {
+  if (canonicalNotes.value.some((note) => note.id === id)) {
     dateRange.value = '';
     notebookFilter.value = '';
     if (await selectNote(id) && notesStore.pendingOpenId === id) {
@@ -1450,25 +1439,6 @@ async function createNoteFromManage() {
     await revealNewNote(note);
   } catch {
     loadError.value = 'Die Notiz konnte nicht angelegt werden.';
-  } finally {
-    creating.value = false;
-  }
-}
-
-// Mitschrift für Online-Vorlesungen ohne Foliensatz: startet mit einem leeren
-// Abschnitt „Folie + Mitschrift" (siehe nodes/lectureSlide.js).
-async function createLectureNote() {
-  if (creating.value) return;
-  creating.value = true;
-  loadError.value = '';
-  try {
-    const note = await notesStore.create({
-      ...newNoteInitial(),
-      body_json: { type: 'doc', attrs: { lectureMode: true }, content: [lectureSlideJSON()] },
-    });
-    await revealNewNote(note);
-  } catch {
-    loadError.value = 'Die Mitschrift konnte nicht angelegt werden.';
   } finally {
     creating.value = false;
   }

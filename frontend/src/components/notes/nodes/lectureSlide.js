@@ -14,18 +14,12 @@
  * das Umschalten verändert den Inhalt nicht.
  */
 import { Node, mergeAttributes, VueNodeViewRenderer } from '@tiptap/vue-3';
-import { TextSelection } from '@tiptap/pm/state';
+import { Plugin, TextSelection } from '@tiptap/pm/state';
+import LectureSlideView from './LectureSlideView.vue';
 import LectureSlideMediaView from './LectureSlideMediaView.vue';
 
-export function lectureSlideJSON(imageAttrs = null) {
-  return {
-    type: 'lectureSlide',
-    content: [
-      { type: 'lectureSlideMedia', content: imageAttrs ? [{ type: 'image', attrs: imageAttrs }] : [] },
-      { type: 'lectureSlideNotes', content: [{ type: 'paragraph' }] },
-    ],
-  };
-}
+import { lectureSlideJSON } from './lectureSlideContent.js';
+export { lectureSlideJSON } from './lectureSlideContent.js';
 
 /** Mitschrift-Abschnitt, in dem die Auswahl liegt (mit absoluter Position). */
 export function lectureSlideAtSelection(state) {
@@ -55,7 +49,7 @@ export const LectureSlideMedia = Node.create({
   addOptions() {
     // onRequestImage(mediaPos): Klick auf den leeren Platzhalter – der Editor
     // öffnet die Dateiauswahl und legt das Bild genau in diese Folie.
-    return { onRequestImage: null };
+    return { onRequestImage: null, onPasteImage: null };
   },
 
   parseHTML() {
@@ -95,6 +89,33 @@ export const LectureSlide = Node.create({
   isolating: true,
   selectable: true,
   draggable: false,
+
+  addAttributes() {
+    return { capturedAt: {
+      default: null,
+      parseHTML: element => element.getAttribute('data-captured-at'),
+      renderHTML: attrs => attrs.capturedAt ? { 'data-captured-at': attrs.capturedAt } : {},
+    } };
+  },
+
+  addNodeView() { return VueNodeViewRenderer(LectureSlideView); },
+
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      appendTransaction(transactions, oldState, state) {
+        if (!transactions.some(tr => tr.docChanged) || transactions.some(tr => tr.getMeta('preventUpdate'))) return null;
+        const unchanged = new Set();
+        oldState.doc.descendants(node => { if (node.type.name === 'lectureSlide') unchanged.add(node); });
+        const tr = state.tr;
+        state.doc.descendants((node, pos) => {
+          if (node.type.name !== 'lectureSlide' || node.attrs.capturedAt || unchanged.has(node)) return;
+          if (!node.textContent.trim() && !node.firstChild.childCount) return;
+          tr.setNodeMarkup(pos, undefined, { ...node.attrs, capturedAt: new Date().toISOString() });
+        });
+        return tr.docChanged ? tr : null;
+      },
+    })];
+  },
 
   parseHTML() {
     return [{ tag: 'section[data-lecture-slide]' }];

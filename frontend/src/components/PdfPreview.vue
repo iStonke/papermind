@@ -56,6 +56,29 @@
       >
         <div class="pdf-preview__left-controls">
           <button
+            v-if="enableDocumentList"
+            type="button"
+            class="pdf-preview__tool-btn pdf-preview__tool-btn--navigation"
+            :disabled="!src"
+            aria-label="In Dokumentenliste anzeigen"
+            title="In Dokumentenliste anzeigen"
+            @click="emit('open-document-list')"
+          >
+            <v-icon size="17">mdi-file-document-outline</v-icon>
+          </button>
+          <button
+            v-if="enableUnlinkDocument"
+            type="button"
+            class="pdf-preview__tool-btn pdf-preview__tool-btn--danger"
+            :disabled="!src"
+            aria-label="Verknüpfung lösen"
+            title="Verknüpfung lösen"
+            @click="emit('unlink-document')"
+          >
+            <v-icon size="17">mdi-link-off</v-icon>
+          </button>
+          <span v-if="enableUnlinkDocument" class="pdf-preview__tool-divider" aria-hidden="true" />
+          <button
             v-if="enableReader"
             class="pdf-preview__tool-btn"
             :disabled="!src"
@@ -75,6 +98,7 @@
           >
             <v-icon size="17">mdi-tray-arrow-down</v-icon>
           </button>
+          <span v-if="enableDownload" class="pdf-preview__tool-divider" aria-hidden="true" />
           <button
             class="pdf-preview__tool-btn"
             :class="{ 'pdf-preview__tool-btn--active': searchOpen }"
@@ -85,6 +109,16 @@
             @click="toggleSearch"
           >
             <v-icon size="17">mdi-text-search</v-icon>
+          </button>
+          <button
+            class="pdf-preview__tool-btn"
+            :class="{ 'pdf-preview__tool-btn--active': magnifierEnabled }"
+            :aria-pressed="magnifierEnabled"
+            aria-label="Lupe"
+            title="Lupe (Ausschnitt vergrößern)"
+            @click="toggleMagnifier"
+          >
+            <v-icon size="17">mdi-magnify</v-icon>
           </button>
           <span class="pdf-preview__page-info" aria-live="polite">
             {{ currentPage }} / {{ pageInfos.length }}
@@ -198,16 +232,6 @@
         </Transition>
 
         <div class="pdf-preview__zoom-controls" role="group" aria-label="Zoom">
-          <button
-            class="pdf-preview__tool-btn"
-            :class="{ 'pdf-preview__tool-btn--active': magnifierEnabled }"
-            :aria-pressed="magnifierEnabled"
-            aria-label="Lupe"
-            title="Lupe (Ausschnitt vergrößern)"
-            @click="toggleMagnifier"
-          >
-            <v-icon size="17">mdi-magnify</v-icon>
-          </button>
           <div class="pdf-preview__zoom-stepper">
             <button
               class="pdf-preview__zoom-seg"
@@ -277,6 +301,7 @@
            Kopieren – Kommentar/Verknüpfen bleiben dem Lesemodus vorbehalten. -->
       <div
         v-if="(annotatable || quoteMode) && selectionMenu.visible"
+        ref="selectionMenuEl"
         class="pm-sel-menu"
         :class="{ 'pm-sel-menu--quote': quoteMode && !annotatable }"
         :style="{ left: `${selectionMenu.x}px`, top: `${selectionMenu.y}px` }"
@@ -381,12 +406,14 @@ const props = defineProps({
   annotationColor: { type: String, default: '' },
   /** Zeigt den „Lesemodus"-Button in der Toolbar und aktiviert die Taste „f". */
   enableReader:  { type: Boolean, default: false },
+  enableDocumentList: { type: Boolean, default: false },
+  enableUnlinkDocument: { type: Boolean, default: false },
   /** Zeigt den Download-Button (durchsuchbares OCR-PDF) in der Toolbar. */
   enableDownload: { type: Boolean, default: false },
   /** Deaktiviert den Download-Button, wenn (noch) kein durchsuchbares PDF vorliegt. */
   downloadDisabled: { type: Boolean, default: false },
 });
-const emit = defineEmits(['loaded', 'first-page', 'failed', 'create-annotation', 'delete-annotation', 'update-annotation', 'open-reader', 'download', 'request-link', 'request-comment', 'create-note-quote']);
+const emit = defineEmits(['unlink-document', 'open-document-list', 'loaded', 'first-page', 'failed', 'create-annotation', 'delete-annotation', 'update-annotation', 'open-reader', 'download', 'request-link', 'request-comment', 'create-note-quote']);
 const theme = useTheme();
 
 const pdfPreviewThemeStyle = computed(() => {
@@ -1414,7 +1441,6 @@ const ANNOT_COLORS = ['#FAC775', '#9FE1CB', '#F4C0D1', '#B5D4F4'];
 // übergebene feste Palette (Lernmarkierungen), sonst keine.
 const menuColors = computed(() => {
   if (props.annotatable) return ANNOT_COLORS;
-  if (props.quoteMode) return (props.selectionColors || []).map((entry) => entry.hex).filter(Boolean);
   return [];
 });
 const DEFAULT_ANNOT_COLOR = ANNOT_COLORS[0];
@@ -1434,6 +1460,7 @@ function withAlpha(hexColor, alpha) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+const selectionMenuEl = ref(null);
 const selectionMenu = ref({ visible: false, x: 0, y: 0, activeColor: '' });
 let selectionDraft = null; // { page, rects:[{x,y,w,h}], quote, annotations:[annotation] }
 let konvaDraft = null; // laufender Rechteck-/Stift-Entwurf: { type, page, entry, node, ... }
@@ -2291,6 +2318,21 @@ function onPagesPointerUp(event) {
         y: first.top  - rootRect.top,
         activeColor: activeSelectionColor(overlappingAnnotations),
       };
+      nextTick(() => {
+        const menu = selectionMenuEl.value;
+        const root = rootEl.value;
+        if (!menu || !root || !selectionMenu.value.visible) return;
+        const bounds = root.getBoundingClientRect();
+        const menuBounds = menu.getBoundingClientRect();
+        const padding = 8;
+        const left = Math.max(padding, -bounds.left + padding);
+        const right = Math.min(bounds.width - padding, window.innerWidth - bounds.left - padding);
+        const halfWidth = menuBounds.width / 2;
+        selectionMenu.value.x = Math.max(left + halfWidth,
+          Math.min(selectionMenu.value.x, right - halfWidth));
+        selectionMenu.value.y = Math.max(selectionMenu.value.y,
+          Math.max(padding, -bounds.top + padding) + menuBounds.height + 8);
+      });
     }
   }, 0);
 }
@@ -3272,6 +3314,22 @@ onBeforeUnmount(() => {
   color: var(--pdf-toolbar-text);
 }
 
+.pdf-preview__tool-btn--navigation {
+  color: rgb(var(--v-theme-primary));
+}
+.pdf-preview__tool-btn--navigation:hover:not(:disabled):not(.pdf-preview__tool-btn--active) {
+  color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.08);
+}
+
+.pdf-preview__tool-btn--danger {
+  color: rgb(var(--v-theme-error));
+}
+.pdf-preview__tool-btn--danger:hover:not(:disabled):not(.pdf-preview__tool-btn--active) {
+  color: rgb(var(--v-theme-error));
+  background: rgba(var(--v-theme-error), 0.08);
+}
+
 .pdf-preview__tool-btn:disabled {
   opacity: 0.3;
   cursor: default;
@@ -3584,6 +3642,9 @@ onBeforeUnmount(() => {
 
 /* ── Auswahl-Menü ─────────────────────────────────────────────────────────── */
 .pm-sel-menu {
+  max-width: calc(100% - 16px);
+  box-sizing: border-box;
+  flex-wrap: wrap;
   --pm-sel-menu-bg: rgb(255 255 255 / 0.92);
   --pm-sel-menu-border: rgb(15 23 42 / 0.1);
   --pm-sel-menu-shadow: 0 10px 24px rgb(15 23 42 / 0.16);

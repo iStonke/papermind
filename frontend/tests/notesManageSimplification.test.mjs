@@ -153,7 +153,7 @@ test('management cards keep editable tags in a separate footer', () => {
 });
 
 test('note cards and the document detail drawer share the same inline tag editor', () => {
-  assert.match(tagBarSource, /<TagInlineEditor[\s\S]*?v-if="compact"/);
+  assert.match(tagBarSource, /<TagInlineEditor[\s\S]*?v-else-if="compact"/);
   assert.match(tagBarSource, /const compactTagItems = computed[\s\S]*?toLocaleLowerCase\('de-DE'\)\.includes\(query\)/);
   assert.match(documentsWorkspaceSource, /<TagInlineEditor[\s\S]*?ref="metadataTagsCombobox"/);
   assert.match(inlineTagEditorSource, /<v-chip[\s\S]*?closable[\s\S]*?class="pm-tags-input__chip"/);

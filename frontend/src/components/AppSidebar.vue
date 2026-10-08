@@ -738,15 +738,12 @@ const favoritesSidebarCount = computed(() => Number(sidebarCounts.value.favorite
 const noTextSidebarCount    = computed(() => Number(sidebarCounts.value.no_text_count   || 0));
 // Notizen aus dem Store (Backend). Beim ersten Mount laden, damit der Zähler stimmt.
 const notesStore = useNotesStore();
-onMounted(() => notesStore.ensureLoaded());
-watch(() => notesStore.activeCollectionId, (id) => {
-  if (id) notesStore.refreshThoughtRoomCount(id).catch(() => {});
-}, { immediate: true });
-const thoughtSidebarCount = computed(() => notesStore.thoughtRoomCounts[notesStore.activeCollectionId] ?? 0);
+onMounted(() => notesStore.ensureLoaded().then(() => notesStore.refreshGlobalThoughtRoomCount()).catch(() => {}));
+const thoughtSidebarCount = computed(() => notesStore.globalThoughtRoomCount);
 const notesSidebarCount = computed(() => notesStore.notes.length);
-const recentNotesSidebarCount = computed(() => Math.min(notesSidebarCount.value, 10));
+const recentNotesSidebarCount = computed(() => Math.min(notesStore.allNotes.length, 10));
 const pinnedNotesSidebarCount = computed(
-  () => notesStore.notes.filter((note) => note.is_favorite).length
+  () => notesStore.allNotes.filter((note) => note.is_favorite).length
 );
 
 const sortedTagsByName = computed(() =>

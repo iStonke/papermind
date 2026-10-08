@@ -6,8 +6,74 @@
   Falle zu vermeiden. Gibt die Tag-ID-Liste via update:tagIds nach oben.
 -->
 <template>
+  <v-menu
+    v-if="summarized"
+    v-model="isMenuOpen"
+    :close-on-content-click="false"
+    location="bottom start"
+    offset="6"
+    @after-enter="searchInput?.focus()"
+  >
+    <template #activator="{ props: menuProps }">
+      <button
+        v-bind="menuProps"
+        type="button"
+        class="note-tag-bar__summary"
+        :class="{ 'is-empty': !normalizedTagIds.length }"
+        :disabled="disabled"
+        :aria-label="`Tags bearbeiten (${normalizedTagIds.length} ausgewählt)`"
+      >
+        <v-icon size="14">mdi-tag-outline</v-icon>
+        <span>Tags<span v-if="normalizedTagIds.length"> · {{ normalizedTagIds.length }}</span></span>
+        <v-icon size="13">mdi-chevron-down</v-icon>
+      </button>
+    </template>
+    <v-sheet class="note-tag-bar__picker" rounded="lg">
+      <v-text-field
+        ref="searchInput"
+        v-model="searchValue"
+        label="Tag suchen oder anlegen"
+        prepend-inner-icon="mdi-magnify"
+        density="compact"
+        variant="outlined"
+        hide-details
+        clearable
+        :loading="isLoadingTags || isCreatingTag"
+        :disabled="disabled || isCreatingTag"
+        @keydown.enter.prevent="createFromSearch"
+      />
+      <v-list class="note-tag-bar__options" density="compact" aria-label="Tags auswählen">
+        <v-list-item
+          v-for="tag in pickerTags"
+          :key="tag.id"
+          :title="tag.name"
+          :disabled="disabled || isCreatingTag"
+          @click="toggleTag(tag.id)"
+        >
+          <template #prepend>
+            <v-checkbox-btn
+              :model-value="normalizedTagIds.includes(tag.id)"
+              :aria-label="tag.name"
+              :disabled="disabled || isCreatingTag"
+              @click.stop
+              @update:model-value="toggleTag(tag.id)"
+            />
+          </template>
+        </v-list-item>
+        <v-list-item
+          v-if="createCandidate && createTagByName"
+          :title="`Tag „${normalizedSearch}“ erstellen`"
+          prepend-icon="mdi-plus"
+          :disabled="disabled || isCreatingTag"
+          @click="createFromSearch"
+        />
+        <v-list-item v-else-if="!pickerTags.length && !isLoadingTags" title="Keine Tags gefunden" disabled />
+      </v-list>
+    </v-sheet>
+  </v-menu>
+
   <TagInlineEditor
-    v-if="compact"
+    v-else-if="compact"
     :model-value="compactTagNames"
     :search="searchValue"
     :items="compactTagItems"
@@ -97,6 +163,7 @@ const props = defineProps({
   allTags: { type: Array, default: () => [] },
   disabled: { type: Boolean, default: false },
   compact: { type: Boolean, default: false },
+  summarized: { type: Boolean, default: false },
   singleLine: { type: Boolean, default: false },
   maxVisible: { type: Number, default: 0 },
   createTagByName: { type: Function, default: null },
@@ -106,6 +173,7 @@ const props = defineProps({
 const emit = defineEmits(['update:tagIds']);
 
 const isMenuOpen = ref(false);
+const searchInput = ref(null);
 const searchValue = ref('');
 const selectedItem = ref(null);
 const isCreatingTag = ref(false);
@@ -185,6 +253,28 @@ const filteredItems = computed(() => {
     .map((e) => ({ ...e, title: e.name }));
   return createCandidate.value ? [createCandidate.value, ...base] : base;
 });
+
+const pickerTags = computed(() => {
+  const query = normalizedSearch.value.toLocaleLowerCase('de-DE');
+  const tags = new Map(tagById.value);
+  for (const tag of selectedTags.value) tags.set(tag.id, tag);
+  return [...tags.values()]
+    .filter((tag) => !query || tag.name.toLocaleLowerCase('de-DE').includes(query))
+    .sort((a, b) => a.name.localeCompare(b.name, 'de-DE'));
+});
+
+function toggleTag(id) {
+  if (props.disabled || isCreatingTag.value) return;
+  if (normalizedTagIds.value.includes(id)) removeTag(id);
+  else addTag(id);
+}
+
+async function createFromSearch() {
+  if (props.disabled || isCreatingTag.value) return;
+  await attachOrCreate(normalizedSearch.value);
+  resetInput();
+  searchInput.value?.focus();
+}
 
 function addTag(id) {
   const norm = String(id || '').trim();
@@ -290,6 +380,28 @@ watch(selectedTags, (tags) => {
 </script>
 
 <style scoped>
+.note-tag-bar__summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px 3px 8px;
+  border: 1px solid var(--pm-divider, #d8dfe1);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--pm-text, #0e181b);
+  font-size: 0.78rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.note-tag-bar__summary .v-icon { flex: none; color: var(--pm-muted, #64748b); }
+.note-tag-bar__summary:hover:not(:disabled) { background: var(--pm-row-hover, rgba(0, 107, 117, 0.05)); }
+.note-tag-bar__summary:focus-visible { outline: 2px solid var(--pm-accent, #006b75); outline-offset: 2px; }
+.note-tag-bar__summary:disabled { opacity: 0.5; cursor: default; }
+.note-tag-bar__picker { padding: 10px; width: min(320px, calc(100vw - 24px)); }
+.note-tag-bar__options { max-height: 280px; overflow-y: auto; margin-top: 6px; }
+.note-tag-bar__options :deep(.v-list-item-title) { white-space: normal; overflow-wrap: anywhere; }
+
 .note-tag-bar {
   display: flex;
   flex-wrap: wrap;

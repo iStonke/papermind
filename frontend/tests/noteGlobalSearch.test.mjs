@@ -39,7 +39,7 @@ test('note searches use the backend full text endpoint without replacing the can
     notesStoreSource.match(/async function searchNotes[\s\S]*?\n  \}/)?.[0] || '',
     /notes\.value\s*=/,
   );
-  assert.match(notesSource, /notesStore\.searchNotes\(query, \{ scope, collectionId: activeCollectionId\.value \}\)/);
+  assert.match(notesSource, /notesStore\.searchNotes\(query, \{ scope, collectionId: props\.viewMode === 'all' \? activeCollectionId\.value : null \}\)/);
   assert.match(notesSource, /NOTE_SEARCH_DEBOUNCE_MS\s*=\s*220/);
 });
 

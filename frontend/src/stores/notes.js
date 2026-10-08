@@ -2,6 +2,8 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 
 import * as api from '../api/notes.js';
+import { BUILTIN_START_TEMPLATES, LECTURE_START_ID, isBuiltinTemplate } from '../components/notes/nodes/builtinTemplates.js';
+import { lectureSlideJSON } from '../components/notes/nodes/lectureSlideContent.js';
 
 // Client-seitige Vorschau-Ableitung – spiegelt derive_body_text im Backend
 // (Textknoten + sichtbare Attribute der PaperMind-Nodes), damit der Listentext
@@ -44,13 +46,15 @@ export function isNoteEmpty(note) {
 export const useNotesStore = defineStore('notes', () => {
   // Listeneinträge: { id, title, preview, created_at, updated_at }
   const notes = ref([]);
+  const allNotes = ref([]);
+  const globalThoughtRoomCount = ref(0);
   const loaded = ref(false);
   // Favorisierte Notizen für den globalen Favoriten-Bereich (eigener Abschnitt).
   const favoriteNotes = ref([]);
   const favoritesLoaded = ref(false);
   // Vorlagen (M6): eigene, benutzereigene Notiz-Gerüste. Getrennt von `notes`,
   // damit sie nicht im normalen Notizzähler/der Liste auftauchen.
-  const templates = ref([]);
+  const templates = ref([...BUILTIN_START_TEMPLATES]);
   const templatesLoaded = ref(false);
   // Bausteine: benutzereigene Feldblock-Vorlagen (templateBox). Eigenständiges
   // Konzept neben den Ganz-Notiz-Vorlagen.
@@ -68,21 +72,22 @@ export const useNotesStore = defineStore('notes', () => {
   const thoughtRevision = ref(0);
   // target 'daily': eine Gedanken-Sammlung (Fläche) pro Kalendertag „Gedanken TT.MM.JJJJ“,
   // beim ersten Gedanken des Tages angelegt. 'last': die zuletzt im Gedanken-Arbeitsbereich
-  // gewählte Sammlung (Fallback: erste Sammlung der aktiven Notiz-Sammlung).
+  // gewählte Gedankensammlung (Fallback: erste Notiz-Sammlung).
   async function captureThought(text, requestId, { target = 'last' } = {}) {
     await ensureCollectionsLoaded();
-    const collectionId = activeCollectionId.value;
+    let collectionId = collections.value[0]?.id;
     if (!collectionId) throw new Error('Keine Sammlung aktiv');
     let roomId = null;
-    const rooms = await api.listThoughtRooms(collectionId);
+    const rooms = await api.listThoughtRooms();
     if (target === 'daily') {
       const title = `Gedanken ${new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date())}`;
       roomId = (rooms.find((room) => room.title === title) || await api.createThoughtRoom({ collection_id: collectionId, title })).id;
     } else {
       let lastId = '';
-      try { lastId = localStorage.getItem(`pm-thought-room:${collectionId}`) || ''; } catch { /* Storage optional. */ }
+      try { lastId = localStorage.getItem('pm-thought-room:global') || ''; } catch { /* Storage optional. */ }
       roomId = rooms.some((room) => room.id === lastId) ? lastId : null;
     }
+    collectionId = rooms.find(room => room.id === roomId)?.collection_id || collectionId;
     const pin = await api.createPin({ request_id: requestId, collection_id: collectionId, text, ...(roomId ? { room_id: roomId } : {}) });
     thoughtRevision.value += 1;
     refreshThoughtCount(collectionId).catch(() => {});
@@ -98,10 +103,14 @@ export const useNotesStore = defineStore('notes', () => {
     if (!collectionId) return;
     thoughtRoomCounts.value = { ...thoughtRoomCounts.value, [collectionId]: Number(count) || 0 };
   }
+  async function refreshGlobalThoughtRoomCount() {
+    globalThoughtRoomCount.value = (await api.listThoughtRooms()).length;
+  }
   async function refreshThoughtRoomCount(collectionId = activeCollectionId.value) {
     if (!collectionId) return;
     const rooms = await api.listThoughtRooms(collectionId);
     setThoughtRoomCount(collectionId, rooms.length);
+    await refreshGlobalThoughtRoomCount();
   }
 
   const ACTIVE_COLLECTION_KEY = 'pm-notes-active-collection-v1';
@@ -131,7 +140,15 @@ export const useNotesStore = defineStore('notes', () => {
   const detailRequests = new Map();
 
   function cacheDetail(note) {
-    if (note?.id) noteDetails.set(note.id, note);
+    if (note?.id) {
+      noteDetails.set(note.id, note);
+      if (!note.is_template && !note.is_deleted && !note.deleted_at) {
+        const item = { ...note, preview: notePreview(note.body_json) };
+        const index = allNotes.value.findIndex(entry => entry.id === note.id);
+        if (index >= 0) allNotes.value.splice(index, 1, item);
+        else allNotes.value.push(item);
+      }
+    }
     return note;
   }
 
@@ -160,10 +177,11 @@ export const useNotesStore = defineStore('notes', () => {
   }
 
   async function fetchNotes() {
-    // Auf die aktive Sammlung gescopt (harte Partition). Ist noch keine gesetzt,
-    // liefert der Server ungescopt – ``ensureLoaded`` lädt darum Sammlungen zuerst.
-    const res = await api.listNotes({ collectionId: activeCollectionId.value });
-    notes.value = res.items || [];
+    // Global views share the canonical list; the normal collection view keeps
+    // its own filtered list for notebooks and collection management.
+    const res = await api.listNotes();
+    allNotes.value = res.items || [];
+    notes.value = allNotes.value.filter(note => !activeCollectionId.value || note.collection_id === activeCollectionId.value);
     loaded.value = true;
   }
 
@@ -304,7 +322,7 @@ export const useNotesStore = defineStore('notes', () => {
   // --- Vorlagen (M6) ---------------------------------------------------------
   async function fetchTemplates() {
     const res = await api.listNoteTemplates();
-    templates.value = res.items || [];
+    templates.value = [...BUILTIN_START_TEMPLATES, ...(res.items || [])];
     templatesLoaded.value = true;
   }
 
@@ -315,6 +333,7 @@ export const useNotesStore = defineStore('notes', () => {
 
   /** Legt aus einer Vorlage eine neue, reguläre Notiz an und gibt sie zurück. */
   async function createFromTemplate(templateId) {
+    if (templateId === LECTURE_START_ID) return create({ body_json: { type: 'doc', attrs: { lectureMode: true }, content: [{ type: 'paragraph' }, lectureSlideJSON()] } });
     const note = cacheDetail(await api.createNoteFromTemplate(templateId));
     notes.value.unshift({
       id: note.id,
@@ -364,6 +383,7 @@ export const useNotesStore = defineStore('notes', () => {
   }
 
   async function updateBlockTemplate(id, payload = {}) {
+    if (isBuiltinTemplate(id)) throw new Error('Integrierte Vorlagen sind geschützt.');
     const tpl = await api.updateBlockTemplate(id, payload);
     const idx = blockTemplates.value.findIndex((t) => t.id === id);
     if (idx !== -1) blockTemplates.value.splice(idx, 1, tpl);
@@ -371,6 +391,7 @@ export const useNotesStore = defineStore('notes', () => {
   }
 
   async function deleteBlockTemplate(id) {
+    if (isBuiltinTemplate(id)) throw new Error('Integrierte Vorlagen sind geschützt.');
     await api.deleteBlockTemplate(id);
     blockTemplates.value = blockTemplates.value.filter((t) => t.id !== id);
   }
@@ -472,6 +493,7 @@ export const useNotesStore = defineStore('notes', () => {
   /** Favorisiert eine Notiz oder hebt es auf (Metadaten, kein Revisions-Bump). */
   async function setFavorite(id, favorite) {
     const item = notes.value.find((n) => n.id === id)
+      || allNotes.value.find((n) => n.id === id)
       || favoriteNotes.value.find((n) => n.id === id);
     const detail = noteDetails.get(id);
     // Optimistisch umschalten – Stern/Sortierung sollen ohne Verzögerung reagieren.
@@ -574,7 +596,7 @@ export const useNotesStore = defineStore('notes', () => {
       updated = cacheDetail(await api.patchNote(id, patch));
     } catch (error) {
       if (optimisticDetail && noteDetails.get(id) === optimisticDetail) {
-        if (previousDetail) noteDetails.set(id, previousDetail);
+        if (previousDetail) cacheDetail(previousDetail);
         else noteDetails.delete(id);
       }
       throw error;
@@ -620,11 +642,13 @@ export const useNotesStore = defineStore('notes', () => {
   }
 
   async function trash(id) {
+    if (isBuiltinTemplate(id)) throw new Error('Integrierte Vorlagen sind geschützt.');
     // Sammlung der Notiz vor dem Verschieben ermitteln (Zähler pflegen).
     const collectionId = notes.value.find((n) => n.id === id)?.collection_id
       ?? noteDetails.get(id)?.collection_id ?? null;
     const result = await api.trashNote(id);
     if (collectionId) bumpCollectionCount(collectionId, -1);
+    allNotes.value = allNotes.value.filter(note => note.id !== id);
     return result;
   }
 
@@ -640,6 +664,7 @@ export const useNotesStore = defineStore('notes', () => {
   }
 
   async function deletePermanently(id) {
+    if (isBuiltinTemplate(id)) throw new Error('Integrierte Vorlagen sind geschützt.');
     const result = await api.deleteNote(id);
     noteDetails.delete(id);
     detailRequests.delete(id);
@@ -648,6 +673,7 @@ export const useNotesStore = defineStore('notes', () => {
 
   function removeFromList(id) {
     notes.value = notes.value.filter((n) => n.id !== id);
+    allNotes.value = allNotes.value.filter((n) => n.id !== id);
     noteDetails.delete(id);
     detailRequests.delete(id);
   }
@@ -709,6 +735,9 @@ export const useNotesStore = defineStore('notes', () => {
     activeCollectionId,
     thoughtCounts,
     thoughtRoomCounts,
+    globalThoughtRoomCount,
+    refreshGlobalThoughtRoomCount,
+    allNotes,
     thoughtRevision,
     captureThought,
     refreshThoughtCount,

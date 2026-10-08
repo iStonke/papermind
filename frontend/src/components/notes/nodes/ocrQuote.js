@@ -8,14 +8,16 @@ import OcrQuoteView from './OcrQuoteView.vue';
 
 export const OcrQuote = Node.create({
   name: 'ocrQuote',
+  priority: 110,
   group: 'block',
   atom: true,
-  selectable: true,
+  selectable: false,
   draggable: false,
 
   addAttributes() {
     return {
       text: { default: '' },
+      ownNote: { default: '', parseHTML: element => element.getAttribute('data-own-note') || '', renderHTML: attrs => attrs.ownNote ? { 'data-own-note': attrs.ownNote } : {} },
       docId: { default: null },
       docTitle: { default: '' },
       page: { default: null },
@@ -36,7 +38,10 @@ export const OcrQuote = Node.create({
   },
 
   addNodeView() {
-    return VueNodeViewRenderer(OcrQuoteView);
+    return VueNodeViewRenderer(OcrQuoteView, {
+      // Zitattext nutzt die native Textauswahl; die Box ist keine Blockauswahl.
+      stopEvent: () => true,
+    });
   },
 
   addCommands() {

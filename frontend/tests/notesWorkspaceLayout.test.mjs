@@ -286,10 +286,9 @@ test('new-note action exists only inside the notes workspace', () => {
   assert.match(templateSource, /v-if="!loadError"[\s\S]*?class="notes-ws__fab has-templates"/);
   assert.match(templateSource, /class="notes-ws__fab-main"[\s\S]*?color="primary"/);
   assert.match(templateSource, /<v-icon size="20" class="mr-1">mdi-square-edit-outline<\/v-icon>/);
-  // Der Pfeil bietet immer „Mitschrift" an (Vorlagen nur, wenn vorhanden) –
-  // daher ist der Knopf stets zweigeteilt.
+  // The integrated start template is always available in the template menu.
   assert.match(templateSource, /class="notes-ws__fab has-templates"/);
-  assert.match(templateSource, /class="notes-ws__fab-caret"[\s\S]*?@click="createLectureNote"[\s\S]*?v-if="notesStore\.templates\.length" class="notes-ws__template-pop-title">Aus Vorlage/);
+  assert.match(templateSource, /class="notes-ws__fab-caret"[\s\S]*?v-if="notesStore\.templates\.length" class="notes-ws__template-pop-title">Aus Vorlage/);
   assert.doesNotMatch(templateSource, /notes-ws__template-pop-empty|Noch keine Vorlagen/);
   assert.match(workspaceSource, /\.notes-ws__fab-main\.v-btn\s*\{[\s\S]*?border-radius:\s*999px;/);
   assert.match(workspaceSource, /\.notes-ws__fab\.has-templates \.notes-ws__fab-main\.v-btn\s*\{[\s\S]*?border-radius:\s*999px 0 0 999px;/);
@@ -392,7 +391,7 @@ test('workspace editor keeps normal autosave quiet and exposes actionable sync p
   assert.match(workspaceEditorSource, /v-model="title"/);
   assert.match(workspaceEditorSource, /@keydown\.enter\.prevent="focusEditorBody"/);
   assert.match(workspaceEditorSource, /Dokument zuordnen/);
-  assert.match(workspaceEditorSource, /v-else[\s\S]*?class="note-workspace-editor__doc-chip note-workspace-editor__doc-chip--empty"[\s\S]*?mdi-link-variant-plus/);
+  assert.match(workspaceEditorSource, /:class="\{ 'note-workspace-editor__doc-chip--empty': !linkedDocument \}"/);
   assert.match(workspaceEditorSource, /v-if="syncIssueVisible"/);
   assert.match(workspaceEditorSource, /Nicht synchronisiert · lokal gesichert/);
   assert.match(workspaceEditorSource, /@click="retrySave"/);
@@ -463,8 +462,8 @@ test('editor whitespace beside existing content preserves the caret and scroll p
 });
 
 test('linked documents use a compact header chip and the library picker pattern', () => {
-  assert.match(workspaceEditorSource, /<\/div>\s*<span class="note-workspace-editor__meta-sep" aria-hidden="true" \/>\s*<v-menu\s*v-if="linkedDocument"/);
-  assert.doesNotMatch(workspaceEditorSource, /v-if="linkedDocument" class="note-workspace-editor__meta-sep"/);
+  assert.match(workspaceEditorSource, /class="note-workspace-editor__document-group"[\s\S]*?<v-menu\s*v-model="documentDetailsOpen"/);
+  assert.match(workspaceEditorSource, /<NoteNotebookChip[\s\S]*?<NoteTagBar[\s\S]*?class="note-workspace-editor__document-group"/);
   assert.match(workspaceEditorSource, /--pm-note-placeholder-chip-border:\s*color-mix/);
   assert.match(workspaceEditorSource, /--pm-note-placeholder-chip-font-size:\s*12\.5px/);
   assert.match(workspaceEditorSource, /--pm-note-placeholder-chip-font-weight:\s*400/);
@@ -472,9 +471,9 @@ test('linked documents use a compact header chip and the library picker pattern'
   assert.match(workspaceEditorSource, /\.note-workspace-editor__meta-tags :deep\(\.pm-tags-input\)\s*\{[\s\S]*?--pm-detail-chip-add-border:\s*var\(--pm-note-placeholder-chip-border\)/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__meta-tags :deep\(\.pm-tags-input__add-label\)\s*\{[\s\S]*?font-size:\s*var\(--pm-note-placeholder-chip-font-size\);[\s\S]*?font-weight:\s*var\(--pm-note-placeholder-chip-font-weight\)/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__doc-chip--empty,\s*\.note-workspace-editor__meta :deep\(\.note-notebook-chip\.is-empty\)\s*\{[\s\S]*?height:\s*26px;[\s\S]*?border:\s*1px dashed var\(--pm-note-placeholder-chip-border\);[\s\S]*?font-size:\s*var\(--pm-note-placeholder-chip-font-size\);[\s\S]*?font-weight:\s*var\(--pm-note-placeholder-chip-font-weight\)/);
-  assert.match(workspaceEditorSource, /v-if="linkedDocument"[\s\S]*?class="note-workspace-editor__doc-chip"/);
+  assert.match(workspaceEditorSource, /class="note-workspace-editor__doc-chip"/);
   assert.match(workspaceEditorSource, /note-workspace-editor__doc-chip-label/);
-  assert.match(workspaceEditorSource, /title="Dokument öffnen"[\s\S]*?title="Dokument wechseln"[\s\S]*?title="Verknüpfung lösen"/);
+  assert.doesNotMatch(workspaceEditorSource, /title="Im Dokumentbereich öffnen"|title="Verknüpfung lösen"/);
   assert.match(workspaceEditorSource, /<BaseDialog[\s\S]*?title="Dokument zuordnen"[\s\S]*?PaperMind-Bibliothek[\s\S]*?max-width="780"[\s\S]*?scrollable/);
   assert.match(workspaceEditorSource, /placeholder="Dokumente suchen"/);
   assert.match(workspaceEditorSource, /v-for="document in documentPickerDocuments"[\s\S]*?documentThumbnailUrl\(document\.id\)/);
@@ -487,7 +486,7 @@ test('linked documents use a compact header chip and the library picker pattern'
 });
 
 test('document assignment uses a compact stable chip without layout animation', () => {
-  assert.match(workspaceEditorSource, /class="note-workspace-editor__doc-chip note-workspace-editor__doc-chip--empty"/);
+  assert.match(workspaceEditorSource, /note-workspace-editor__doc-chip--empty/);
   assert.match(workspaceEditorSource, /async function openDocumentPicker\(\)[\s\S]*?documentPickerOpen\.value = true/);
   assert.match(workspaceEditorSource, /function assignPickedDocument\(\)[\s\S]*?assignDocument\(documentPickerSelection\.value\)/);
   assert.match(workspaceEditorSource, /function assignDocument\(document\)[\s\S]*?patchBodyAttributes/);
@@ -587,7 +586,7 @@ test('workspace utility buttons share one quiet visual treatment', () => {
   assert.match(workspaceEditorSource, /\.note-workspace-editor__actions\s*\{[\s\S]*?gap:\s*4px/);
   // Suche, KI, Undo/Redo, Weiteres, Lernmarker- und Split-Umschalter teilen
   // die stille Variante.
-  assert.equal((workspaceEditorSource.match(/'pm-header-icon-btn--quiet'/g) || []).length, 7);
+  assert.equal((workspaceEditorSource.match(/'pm-header-icon-btn--quiet'/g) || []).length, 5);
   assert.equal((workspaceEditorSource.match(/<PmActionIcon/g) || []).length, 1);
   assert.match(workspaceEditorSource, /class="note-workspace-editor__more-btn"[\s\S]*?variant="text"/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-btn\s*\{[\s\S]*?margin-right:\s*-8px/);

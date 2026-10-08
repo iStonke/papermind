@@ -69,6 +69,7 @@ export function noteBodiesEqual(left, right) {
 export function noteDraftMatchesServer(draft, note) {
   if (!draft || !note) return false;
   return String(draft.title || '') === String(note.title || '')
+    && Boolean(draft.titleIsGenerated) === Boolean(note.title_is_generated)
     && noteBodiesEqual(draft.bodyJson, note.body_json);
 }
 
@@ -83,6 +84,7 @@ export function normalizeNoteDraftForStorage(draft) {
   return {
     noteId: String(draft.noteId),
     title: String(draft.title || ''),
+    titleIsGenerated: Boolean(draft.titleIsGenerated),
     bodyJson: draft.bodyJson || null,
     baseRevision: Math.max(1, Number(draft.baseRevision) || 1),
     clientVersion: String(draft.clientVersion),

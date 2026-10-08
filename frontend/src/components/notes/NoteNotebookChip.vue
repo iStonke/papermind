@@ -6,8 +6,8 @@
         type="button"
         class="note-notebook-chip"
         :class="{ 'is-empty': !currentId }"
-        :title="label"
-        :aria-label="currentId ? `Notizbuch: ${label}. Zuordnung ändern` : label"
+        :title="currentId ? label : 'Notizbuch zuordnen'"
+        :aria-label="currentId ? `Notizbuch: ${label}. Zuordnung ändern` : 'Notizbuch zuordnen'"
         :disabled="disabled || saving"
       >
         <v-icon size="14" :style="currentNotebook ? { color: currentCollectionColor || 'var(--pm-accent, #006b75)' } : undefined">mdi-notebook-outline</v-icon>
@@ -63,7 +63,7 @@ const currentNotebook = computed(() => store.notebooks.find(book => book.id === 
 const currentCollectionColor = computed(() => noteCollectionColor(currentNotebook.value, store.collections));
 const label = computed(() => currentId.value
   ? currentNotebook.value?.name || 'Notizbuch'
-  : 'Notizbuch zuordnen');
+  : 'Notizbuch');
 watch(() => [props.noteId, props.notebookId], () => { open.value = false; fallbackId.value = props.notebookId; });
 watch(open, value => { if (value) void loadNotebooks(); });
 onMounted(loadNotebooks);

@@ -30,20 +30,20 @@ test('lecture mode is a note attribute that only switches the presentation', () 
   assert.match(documentNodeSource, /lectureMode: \{ default: false \}/);
   assert.match(editorSource, /'note-editor--lecture pm-lecture-mode': lectureMode/);
   assert.match(previewSource, /'pm-lecture-mode': Boolean\(bodyJson\?\.attrs\?\.lectureMode\)/);
-  assert.match(cssSource, /\.pm-lecture-mode \.pm-lecture-slide \{[\s\S]*?grid-template-columns: repeat\(auto-fit/);
+  assert.match(cssSource, /\.pm-lecture-mode \.pm-lecture-slide__columns \{[\s\S]*?grid-template-columns: repeat\(auto-fit/);
   assert.match(workspaceEditorSource, /function toggleLectureMode\(\) \{\s*patchBodyAttributes\(\{ lectureMode: !lectureMode\.value \}\);/);
 });
 
 test('pasted screenshots fill an empty slide or start a new section in lecture mode', () => {
-  assert.match(editorSource, /function slideImageTarget\(ed\)/);
+  assert.match(editorSource, /function slideImageTarget\(ed, position = null\)/);
   assert.match(editorSource, /context && context\.node\.firstChild\.childCount === 0\) return \{ mediaPos: context\.pos \+ 1 \}/);
-  assert.match(editorSource, /if \(lectureMode\.value\) return \{ newSlide: true \};/);
-  assert.match(editorSource, /command\.key === 'lecture-slide' && !lectureMode\.value\) return false;/);
+  assert.match(editorSource, /if \(lectureMode\.value\) return \{ newSlide: true,/);
+  assert.doesNotMatch(editorSource, /LECTURE_BLOCK_ID/);
 });
 
 test('a lecture note can be created from the new-note menu', () => {
-  assert.match(notesWorkspaceSource, /@click="createLectureNote"/);
-  assert.match(notesWorkspaceSource, /attrs: \{ lectureMode: true \}, content: \[lectureSlideJSON\(\)\]/);
+  assert.doesNotMatch(notesWorkspaceSource, /@click="createLectureNote"/);
+  assert.match(notesWorkspaceSource, /v-for="template in notesStore\.templates"/);
 });
 
 test('switching notes resets root attributes instead of leaking them', () => {
