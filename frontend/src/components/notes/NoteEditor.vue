@@ -723,17 +723,47 @@ watch(() => props.modelValue, (next) => {
   if (toRaw(next) === lastEmittedModelValue) return;
   // Nur bei echten externen Änderungen (Notizwechsel, KI-Ergebnis, Entwurfs-
   // wiederherstellung) den teuren Strukturvergleich durchführen.
-  const current = JSON.stringify(ed.getJSON());
+  const currentJson = ed.getJSON();
+  const current = JSON.stringify(currentJson);
   if (JSON.stringify(next || '') === current) return;
+  // Nur Wurzel-Attribute geändert (Dokument verknüpft, Mitschrift-Ansicht
+  // umgeschaltet …): Inhalt und Schreibmarke unangetastet lassen.
+  if (next && JSON.stringify(next.content || []) === JSON.stringify(currentJson.content || [])) {
+    syncDocAttributes(ed, next.attrs);
+    return;
+  }
   // Ein verzögertes KI-Ergebnis darf niemals in eine inzwischen ausgewählte
   // andere Notiz geschrieben werden.
   overlays.closeAll();
   ed.commands.setContent(next || '', { emitUpdate: false });
+  syncDocAttributes(ed, next?.attrs);
   resetSelectionAfterExternalContent(ed);
   updateWordCount(ed);
   emitNoteSearchState(ed);
   nextTick(refreshTableHandle);
 });
+
+// TipTap ersetzt bei setContent nur den INHALT des Dokuments – die Wurzel-
+// Attribute (linkedDocument, lectureMode, favorite) blieben von der zuvor
+// geöffneten Notiz stehen und würden beim nächsten Tippen per onUpdate in die
+// neue Notiz zurückgeschrieben (z. B. falsche Dokument-Verknüpfung). Deshalb
+// nach jedem externen Inhaltswechsel explizit abgleichen – ohne Update-Event
+// und ohne Eintrag im Rückgängig-Verlauf.
+function syncDocAttributes(ed, attrs) {
+  const { doc, tr } = ed.state;
+  let changed = false;
+  for (const [name, spec] of Object.entries(doc.type.attrs || {})) {
+    const value = attrs && Object.prototype.hasOwnProperty.call(attrs, name)
+      ? attrs[name]
+      : (spec.hasDefault ? spec.default : null);
+    if (JSON.stringify(doc.attrs[name] ?? null) === JSON.stringify(value ?? null)) continue;
+    tr.setDocAttribute(name, value);
+    changed = true;
+  }
+  if (!changed) return;
+  tr.setMeta('preventUpdate', true).setMeta('addToHistory', false);
+  ed.view.dispatch(tr);
+}
 
 // Beim Notizwechsel (externe modelValue-Änderung) sauber aufräumen. Zwei
 // Chromium/ProseMirror-Fallen verursachen sonst die gemeldeten Schreibmarken-

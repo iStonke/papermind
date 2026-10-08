@@ -25,7 +25,7 @@ test('onUpdate serialises the document only once per keystroke', () => {
 test('modelValue watcher short-circuits self-originated changes by reference before serialising', () => {
   // Der billige Referenzvergleich muss VOR dem teuren JSON.stringify-Vergleich stehen.
   const refIdx = editorSource.indexOf('if (toRaw(next) === lastEmittedModelValue) return;');
-  const stringifyIdx = editorSource.indexOf('const current = JSON.stringify(ed.getJSON());');
+  const stringifyIdx = editorSource.indexOf('const currentJson = ed.getJSON();');
   assert.ok(refIdx > 0, 'Referenz-Kurzschluss fehlt');
   assert.ok(stringifyIdx > 0, 'Struktur-Vergleich fehlt');
   assert.ok(refIdx < stringifyIdx, 'Referenzvergleich muss vor der Serialisierung stehen');
