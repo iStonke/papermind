@@ -283,11 +283,13 @@ test('headings have stronger leading space except directly after a divider', () 
 
 test('new-note action exists only inside the notes workspace', () => {
   assert.match(templateSource, /Neue Notiz/);
-  assert.match(templateSource, /v-if="!loadError"[\s\S]*?class="notes-ws__fab"/);
+  assert.match(templateSource, /v-if="!loadError"[\s\S]*?class="notes-ws__fab has-templates"/);
   assert.match(templateSource, /class="notes-ws__fab-main"[\s\S]*?color="primary"/);
   assert.match(templateSource, /<v-icon size="20" class="mr-1">mdi-square-edit-outline<\/v-icon>/);
-  assert.match(templateSource, /:class="\{ 'has-templates': notesStore\.templates\.length > 0 \}"/);
-  assert.match(templateSource, /<v-menu[\s\S]*?v-if="notesStore\.templates\.length"[\s\S]*?class="notes-ws__fab-caret"/);
+  // Der Pfeil bietet immer „Mitschrift" an (Vorlagen nur, wenn vorhanden) –
+  // daher ist der Knopf stets zweigeteilt.
+  assert.match(templateSource, /class="notes-ws__fab has-templates"/);
+  assert.match(templateSource, /class="notes-ws__fab-caret"[\s\S]*?@click="createLectureNote"[\s\S]*?v-if="notesStore\.templates\.length" class="notes-ws__template-pop-title">Aus Vorlage/);
   assert.doesNotMatch(templateSource, /notes-ws__template-pop-empty|Noch keine Vorlagen/);
   assert.match(workspaceSource, /\.notes-ws__fab-main\.v-btn\s*\{[\s\S]*?border-radius:\s*999px;/);
   assert.match(workspaceSource, /\.notes-ws__fab\.has-templates \.notes-ws__fab-main\.v-btn\s*\{[\s\S]*?border-radius:\s*999px 0 0 999px;/);
@@ -521,8 +523,9 @@ test('note export and template actions live in the compact overflow menu', () =>
   assert.match(workspaceEditorSource, /title="Als Markdown speichern"[\s\S]*?@click="exportNoteAsMarkdown"/);
   assert.match(workspaceEditorSource, /title="Als PDF speichern"[\s\S]*?@click="exportNoteAsPdf"/);
   assert.match(workspaceEditorSource, /title="Als Audiodatei speichern"[\s\S]*?@click="openAudioExportDialog"/);
-  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-item"/g) || []).length, 7);
-  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-icon"/g) || []).length, 7);
+  // + Umschalter Mitschrift-/Normale Ansicht.
+  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-item"/g) || []).length, 8);
+  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-icon"/g) || []).length, 8);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-menu\s*\{[\s\S]*?padding:\s*6px[\s\S]*?border-radius:\s*14px[\s\S]*?background:\s*var\(--pm-app-surface-raised\)[\s\S]*?box-shadow:\s*var\(--pm-shadow\)/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-item\s*\{[\s\S]*?min-height:\s*38px[\s\S]*?border-radius:\s*9px[\s\S]*?transition:\s*none/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-icon\s*\{[\s\S]*?width:\s*26px[\s\S]*?height:\s*26px[\s\S]*?border-radius:\s*8px/);

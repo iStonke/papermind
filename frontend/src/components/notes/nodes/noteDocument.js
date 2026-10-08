@@ -11,6 +11,9 @@ export const PaperMindDocument = Document.extend({
     return {
       favorite: { default: false },
       linkedDocument: { default: null },
+      // Mitschrift-Notiz: Folien-Abschnitte (lectureSlide) stehen neben der
+      // Mitschrift, eingefügte Screenshots beginnen einen neuen Abschnitt.
+      lectureMode: { default: false },
     };
   },
 });

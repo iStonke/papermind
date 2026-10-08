@@ -11,6 +11,7 @@
     :class="[
       { 'note-preview--compact': compact },
       { 'note-preview--dark': theme === 'dark' },
+      { 'pm-lecture-mode': Boolean(bodyJson?.attrs?.lectureMode) },
       `note-preview--spacing-${notesParagraphSpacing}`,
       `note-preview--font-${notesFontFamily}`,
       `note-preview--font-size-${notesFontSize}`,
@@ -55,6 +56,7 @@ import { Callout } from './nodes/callout.js';
 import { CollapsibleSection } from './nodes/collapsibleSection.js';
 import { PaperMindDocument } from './nodes/noteDocument.js';
 import { LayoutColumn, PageLayout } from './nodes/pageLayout.js';
+import { LectureSlide, LectureSlideMedia, LectureSlideNotes } from './nodes/lectureSlide.js';
 import { NoteHighlight } from './nodes/noteHighlight.js';
 import { TemplateBox, TemplateField } from './nodes/templateBox.js';
 import { NoteImage } from './nodes/noteImage.js';
@@ -113,6 +115,9 @@ const editor = useEditor({
     }),
     PageLayout,
     LayoutColumn,
+    LectureSlide,
+    LectureSlideMedia,
+    LectureSlideNotes,
     NoteHighlight,
     PaperMindDocument,
     Typography,
@@ -222,6 +227,8 @@ async function load() {
 
 watch(() => props.noteId, load, { immediate: true });
 </script>
+
+<style src="./styles/lectureSlide.css"></style>
 
 <style scoped>
 .note-preview {

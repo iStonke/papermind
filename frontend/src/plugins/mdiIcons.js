@@ -266,6 +266,7 @@ export {
   mdiViewDashboardOutline,
   mdiViewGridOutline,
   mdiViewListOutline,
+  mdiViewSplitVertical,
   mdiVolumeHigh,
   mdiWeatherNight,
   mdiWeatherSunny,

@@ -135,7 +135,14 @@ function renderNode(node, context) {
         .filter(Boolean)
         .join('\n\n');
     case 'layoutColumn':
+    case 'lectureSlideMedia':
+    case 'lectureSlideNotes':
       return renderChildren(node, context, '\n\n');
+    case 'lectureSlide':
+      return (node.content || [])
+        .map((part) => renderNode(part, context).trim())
+        .filter(Boolean)
+        .join('\n\n');
     case 'text':
       return renderText(node);
     case 'paragraph':
@@ -271,6 +278,12 @@ function renderHtmlNode(node, context) {
     }
     case 'layoutColumn':
       return `<section class="layout-column">${renderHtmlChildren(node, context)}</section>`;
+    case 'lectureSlide':
+      return `<section class="lecture-slide">${renderHtmlChildren(node, context)}</section>`;
+    case 'lectureSlideMedia':
+      return `<div class="lecture-slide-media">${renderHtmlChildren(node, context)}</div>`;
+    case 'lectureSlideNotes':
+      return `<div class="lecture-slide-notes">${renderHtmlChildren(node, context)}</div>`;
     case 'text':
       return renderHtmlText(node);
     case 'paragraph':
@@ -396,6 +409,9 @@ function renderPlainNode(node) {
     case 'doc':
     case 'pageLayout':
     case 'layoutColumn':
+    case 'lectureSlide':
+    case 'lectureSlideMedia':
+    case 'lectureSlideNotes':
     case 'blockquote':
     case 'callout':
     case 'table':
@@ -538,6 +554,8 @@ export function noteToPrintableHtml({
     .layout-column + .layout-column { border-left: 1px solid #d8dfe1; }
     .layout-column:first-child { padding-left: 0; }
     .layout-column:last-child { padding-right: 0; }
+    .lecture-slide { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6mm; align-items: start; break-inside: avoid; padding-top: 4mm; border-top: 1px solid #d8dfe1; }
+    .lecture-slide-media, .lecture-slide-notes { min-width: 0; overflow-wrap: anywhere; }
     .layout-column > *:first-child { margin-top: 0; }
     h1, h2, h3, h4 { break-after: avoid; font-family: ${fontStack}; line-height: 1.25; }
     main > :not(hr) + :is(h1, h2, h3, h4) { margin-top: ${headingGap}; }

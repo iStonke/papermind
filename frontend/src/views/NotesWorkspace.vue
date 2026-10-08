@@ -272,8 +272,7 @@
       <!-- Primäraktion als schwebender Button unten rechts (entlastet die Kopfzeile). -->
       <div
         v-if="!loadError"
-        class="notes-ws__fab"
-        :class="{ 'has-templates': notesStore.templates.length > 0 }"
+        class="notes-ws__fab has-templates"
       >
         <v-btn
           class="notes-ws__fab-main"
@@ -287,7 +286,6 @@
           Neue Notiz
         </v-btn>
         <v-menu
-          v-if="notesStore.templates.length"
           location="top end"
           :offset="10"
           transition="scale-transition"
@@ -296,7 +294,7 @@
             <v-btn
               class="notes-ws__fab-caret"
               color="primary"
-              aria-label="Aus Vorlage anlegen"
+              aria-label="Mitschrift oder aus Vorlage anlegen"
               :disabled="creating"
               v-bind="props"
             >
@@ -304,7 +302,18 @@
             </v-btn>
           </template>
           <div class="notes-ws__template-pop">
-            <div class="notes-ws__template-pop-title">Aus Vorlage</div>
+            <div class="notes-ws__template-pop-title">Neu</div>
+            <!-- Mitschrift: Notiz im Mitschreibmodus (Folie links, Mitschrift
+                 rechts; ⌘V mit Screenshot beginnt einen neuen Abschnitt). -->
+            <button
+              type="button"
+              class="notes-ws__template-pop-item"
+              @click="createLectureNote"
+            >
+              <v-icon size="16">mdi-view-split-vertical</v-icon>
+              <span>Mitschrift (Folien + Notizen)</span>
+            </button>
+            <div v-if="notesStore.templates.length" class="notes-ws__template-pop-title">Aus Vorlage</div>
             <button
               v-for="template in notesStore.templates"
               :key="template.id"
@@ -510,6 +519,7 @@ import { MAX_NOTE_ARCHIVE_BYTES, selectNoteArchiveFiles } from '../utils/noteArc
 import { notifyNoteDeleted } from '../utils/noteDeletionFeedback.js';
 import { groupNotesByCreationDay, groupNotesByDay } from '../utils/noteDateGroups.js';
 import { normalizeCollectionColor } from '../utils/noteCollectionColor.js';
+import { lectureSlideJSON } from '../components/notes/nodes/lectureSlide.js';
 
 const props = defineProps({
   searchQuery: { type: String, default: '' },
@@ -1440,6 +1450,25 @@ async function createNoteFromManage() {
     await revealNewNote(note);
   } catch {
     loadError.value = 'Die Notiz konnte nicht angelegt werden.';
+  } finally {
+    creating.value = false;
+  }
+}
+
+// Mitschrift für Online-Vorlesungen ohne Foliensatz: startet mit einem leeren
+// Abschnitt „Folie + Mitschrift" (siehe nodes/lectureSlide.js).
+async function createLectureNote() {
+  if (creating.value) return;
+  creating.value = true;
+  loadError.value = '';
+  try {
+    const note = await notesStore.create({
+      ...newNoteInitial(),
+      body_json: { type: 'doc', attrs: { lectureMode: true }, content: [lectureSlideJSON()] },
+    });
+    await revealNewNote(note);
+  } catch {
+    loadError.value = 'Die Mitschrift konnte nicht angelegt werden.';
   } finally {
     creating.value = false;
   }

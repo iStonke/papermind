@@ -150,6 +150,24 @@
                 </span>
               </template>
             </v-list-item>
+            <!-- Mitschreibmodus: Folien neben der Mitschrift (und ⌘V mit
+                 Screenshot beginnt einen neuen Abschnitt) ↔ normale Ansicht.
+                 Ändert nur die Darstellung, nie den Inhalt. -->
+            <v-list-item
+              class="note-workspace-editor__more-item"
+              :title="lectureMode ? 'Normale Ansicht' : 'Mitschrift-Ansicht'"
+              :subtitle="lectureMode ? 'Folien über der Mitschrift' : 'Folien neben der Mitschrift'"
+              :disabled="!hasLoadedContent || status === 'conflict'"
+              :ripple="false"
+              role="menuitem"
+              @click="toggleLectureMode"
+            >
+              <template #prepend>
+                <span class="note-workspace-editor__more-icon" aria-hidden="true">
+                  <v-icon size="17">{{ lectureMode ? 'mdi-view-agenda-outline' : 'mdi-view-split-vertical' }}</v-icon>
+                </span>
+              </template>
+            </v-list-item>
             <v-list-item
               class="note-workspace-editor__more-item"
               title="Versionsverlauf"
@@ -891,6 +909,7 @@ const noteScrollPositions = loadStoredScrollPositions();
 
 const noteAttributes = computed(() => body.value?.attrs || {});
 const linkedDocument = computed(() => noteAttributes.value.linkedDocument || null);
+const lectureMode = computed(() => Boolean(noteAttributes.value.lectureMode));
 const splitVisible = computed(() => Boolean(linkedDocument.value?.id) && splitOpen.value && hasLoadedContent.value);
 const splitMainClasses = computed(() => ({
   'is-split': splitVisible.value,
@@ -1877,6 +1896,10 @@ function assignDocument(document) {
       documentDate: document.document_date || '',
     },
   });
+}
+
+function toggleLectureMode() {
+  patchBodyAttributes({ lectureMode: !lectureMode.value });
 }
 
 function unlinkDocument() {

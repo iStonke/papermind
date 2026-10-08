@@ -13,6 +13,8 @@
         'note-editor--workspace': workspace,
         'note-editor--review-active': review.open,
         'note-editor--review-dim': review.open && review.showMarks && reviewFocusId != null,
+        // Mitschrift-Ansicht: Folie links, Mitschrift rechts (nodes/lectureSlide.js).
+        'note-editor--lecture pm-lecture-mode': lectureMode,
       },
       `note-editor--width-${normalizedWritingWidth}`,
       `note-editor--spacing-${normalizedParagraphSpacing}`,
@@ -276,6 +278,7 @@ import { WikiLink } from './nodes/wikiLink.js';
 import { Callout } from './nodes/callout.js';
 import { CollapsibleSection } from './nodes/collapsibleSection.js';
 import { LayoutColumn, PageLayout } from './nodes/pageLayout.js';
+import { LectureSlide, LectureSlideMedia, LectureSlideNotes, lectureSlideAtSelection } from './nodes/lectureSlide.js';
 import { NoteHighlight } from './nodes/noteHighlight.js';
 import { PaperMindDocument } from './nodes/noteDocument.js';
 import { TemplateBox, TemplateField } from './nodes/templateBox.js';
@@ -397,6 +400,9 @@ const editorEmpty = ref(true);
 const toolbarScrolled = ref(false);
 const emptyHintPositioned = ref(false);
 const emptyHintStyle = ref({ top: '0px', left: '0px' });
+// Mitschrift-Notiz (Wurzel-Attribut lectureMode): Folien stehen neben der
+// Mitschrift, und ein eingefügter Screenshot beginnt einen neuen Abschnitt.
+const lectureMode = computed(() => Boolean(props.modelValue?.attrs?.lectureMode));
 const normalizedWritingWidth = computed(() =>
   ['compact', 'comfortable', 'wide'].includes(props.writingWidth)
     ? props.writingWidth
@@ -494,6 +500,9 @@ const editor = useEditor({
     }),
     PageLayout,
     LayoutColumn,
+    LectureSlide,
+    LectureSlideMedia.configure({ onRequestImage: (mediaPos) => requestSlideImage(mediaPos) }),
+    LectureSlideNotes,
     NoteHighlight,
     PaperMindDocument,
     Placeholder.configure({ placeholder: props.placeholder }),
@@ -1155,10 +1164,51 @@ function openImagePicker() {
   }
 }
 
+// Klick auf den Platzhalter einer leeren Folie: Dateiauswahl öffnen und das
+// Bild anschließend genau in diese Folie legen.
+let pendingSlideMediaPos = null;
+function requestSlideImage(mediaPos) {
+  pendingSlideMediaPos = Number.isInteger(mediaPos) ? mediaPos : null;
+  openImagePicker();
+}
+
+/**
+ * Ziel für hochgeladene Bilder in Mitschriften bestimmen:
+ *  - vorgemerkte leere Folie (Platzhalter-Klick) → in diese Folie
+ *  - Cursor in einem Abschnitt mit leerer Folie → in diese Folie
+ *  - Mitschrift-Notiz → je Bild ein neuer Abschnitt
+ *  - sonst null (normales Bild an der Cursorposition)
+ */
+function slideImageTarget(ed) {
+  const pending = pendingSlideMediaPos;
+  pendingSlideMediaPos = null;
+  if (pending !== null && ed.state.doc.nodeAt(pending)?.type.name === 'lectureSlideMedia') {
+    return { mediaPos: pending };
+  }
+  const context = lectureSlideAtSelection(ed.state);
+  if (context && context.node.firstChild.childCount === 0) return { mediaPos: context.pos + 1 };
+  if (lectureMode.value) return { newSlide: true };
+  return null;
+}
+
 function onImageInput(event) {
   const files = Array.from(event.target?.files || []);
   if (event.target) event.target.value = '';
   void uploadImageFiles(files);
+}
+
+function noteImageAttrs(image) {
+  return {
+    src: image.src,
+    imageId: image.id,
+    noteId: image.note_id,
+    title: image.filename,
+    alt: image.filename,
+    caption: '',
+    width: image.width,
+    height: image.height,
+    displayWidth: 100,
+  };
 }
 
 async function uploadImageFiles(inputFiles, { position = null } = {}) {
@@ -1196,21 +1246,18 @@ async function uploadImageFiles(inputFiles, { position = null } = {}) {
   // A slow upload must never land in a note selected in the meantime.
   if (props.noteId !== noteId || editor.value !== ed || ed.isDestroyed) return;
 
-  if (images.length) {
-    const content = images.map((image) => ({
-      type: 'image',
-      attrs: {
-        src: image.src,
-        imageId: image.id,
-        noteId: image.note_id,
-        title: image.filename,
-        alt: image.filename,
-        caption: '',
-        width: image.width,
-        height: image.height,
-        displayWidth: 100,
-      },
-    }));
+  const slideTarget = images.length ? slideImageTarget(ed) : null;
+  if (slideTarget) {
+    images.forEach((image, index) => {
+      const attrs = noteImageAttrs(image);
+      if (index === 0 && slideTarget.mediaPos !== undefined) {
+        ed.chain().focus().setLectureSlideImage(slideTarget.mediaPos, attrs).run();
+      } else {
+        ed.chain().focus().insertLectureSlide(attrs).run();
+      }
+    });
+  } else if (images.length) {
+    const content = images.map((image) => ({ type: 'image', attrs: noteImageAttrs(image) }));
     content.push({ type: 'paragraph' });
     const chain = ed.chain().focus();
     if (Number.isInteger(position)) {
@@ -1576,6 +1623,7 @@ const SLASH_COMMANDS = [
   { key: 'checklist', group: 'blocks', chip: '▣', label: 'Checkliste', desc: 'Neutrale Häkchen (keine Aufgaben)', terms: ['checkliste', 'checklist', 'liste', 'häkchen', 'haken', 'kriterien'], action: c => c.toggleCheckList() },
   { key: 'table', group: 'blocks', chip: '▦', label: 'Tabelle', desc: 'Zeilen und Spalten', terms: ['tabelle', 'table', 'raster', 'zeile', 'spalte'], kind: 'table-menu' },
   { key: 'image', group: 'blocks', chip: '▧', label: 'Bild', desc: 'Foto oder Grafik einfügen', terms: ['bild', 'foto', 'grafik', 'image', 'upload'], kind: 'image-upload' },
+  { key: 'lecture-slide', group: 'blocks', chip: '◧', label: 'Folie', desc: 'Neuer Abschnitt: Screenshot + Mitschrift', terms: ['folie', 'slide', 'screenshot', 'mitschrift', 'vorlesung'], action: c => c.insertLectureSlide() },
   { key: 'quote', group: 'blocks', chip: '❝', label: 'Zitat', desc: 'Zitatblock', terms: ['zitat', 'quote'], action: c => c.toggleBlockquote() },
   { key: 'code', group: 'blocks', chip: '</>', label: 'Code-Block', desc: 'Monospace', terms: ['code', 'block'], action: c => c.toggleCodeBlock() },
   { key: 'section', group: 'blocks', chip: '▸', label: 'Abschnitte', desc: 'Überschrift mit aufklappbarem Inhalt', terms: ['abschnitt', 'einklappen', 'ausklappen', 'details'], action: c => c.insertCollapsibleSection() },
@@ -1637,6 +1685,7 @@ const availableSlashCommands = computed(() =>
     if (realMode.value && command.kind === 'pick-doc-quote') return false;
     if (!props.aiAvailable && (command.kind === 'generate-ai' || command.kind === 'cleanup')) return false;
     if (!props.noteId && command.kind === 'image-upload') return false;
+    if (command.key === 'lecture-slide' && !lectureMode.value) return false;
     return true;
   })
 );
@@ -2293,6 +2342,12 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
 
 .note-editor--workspace.note-editor--width-wide :deep(.pm-content) {
   max-width: 92ch;
+}
+
+/* Mitschrift: zwei Spalten brauchen mehr Breite als ein Fließtext. */
+.note-editor--workspace.note-editor--lecture .note-editor__writing,
+.note-editor--workspace.note-editor--lecture :deep(.pm-content) {
+  max-width: min(100%, 132ch);
 }
 
 .note-editor--workspace.is-fullscreen :deep(.pm-content) {
@@ -2979,3 +3034,4 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
 <style scoped src="./styles/progress.css"></style>
 <style scoped src="./styles/floating.css"></style>
 <style scoped src="./styles/slashMenu.css"></style>
+<style src="./styles/lectureSlide.css"></style>

@@ -1,0 +1,118 @@
+/*
+ * Mitschrift-Abschnitt „Folie + Mitschrift" (nodes/lectureSlide.js).
+ * Bewusst ungescoped und nur über eigene .pm-lecture-slide*-Klassen, damit
+ * Editor (NoteEditor) und Vorschau (NotePreview) dieselben Regeln teilen.
+ *
+ * Normale Ansicht: Folie über der Mitschrift. Mitschrift-Ansicht
+ * (.pm-lecture-mode am Wurzelelement): Folie links, Mitschrift rechts auf
+ * gleicher Höhe; bei schmaler Spalte bricht das Raster von selbst um.
+ */
+.pm-lecture-slide {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  margin: 1.1em 0;
+  padding-top: 1.1em;
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.1);
+}
+
+.pm-lecture-slide:first-child {
+  margin-top: 0.2em;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.pm-lecture-mode .pm-lecture-slide {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 22px;
+  align-items: start;
+}
+
+/* Die Folie bleibt beim Scrollen langer Mitschriften im Blick. */
+.pm-lecture-mode .pm-lecture-slide__media {
+  position: sticky;
+  top: 12px;
+}
+
+.pm-lecture-slide__media {
+  min-width: 0;
+}
+
+.pm-lecture-slide__media figure,
+.pm-lecture-slide__media .pm-note-image {
+  margin-top: 0;
+}
+
+.pm-lecture-slide__notes {
+  position: relative;
+  min-width: 0;
+}
+
+/* Leere Mitschrift: Hinweis, wohin geschrieben wird (ProseMirror füllt einen
+   leeren Absatz mit einem trailingBreak, daher kein :empty). */
+.pm-lecture-slide__notes:has(> p:only-child > br.ProseMirror-trailingBreak:only-child)::before {
+  content: 'Mitschrift zu dieser Folie …';
+  position: absolute;
+  inset: 0 auto auto 0;
+  pointer-events: none;
+  color: rgba(var(--v-theme-on-surface), 0.42);
+}
+
+/* Normale Ansicht: Platzhalter-Kasten nicht so hoch wie in der Spalte. */
+.pm-lecture-slide__media.is-empty .pm-lecture-slide__drop {
+  min-height: 110px;
+}
+
+.pm-lecture-mode .pm-lecture-slide__media.is-empty .pm-lecture-slide__drop {
+  min-height: 150px;
+}
+
+.pm-lecture-slide__notes > :first-child {
+  margin-top: 0;
+}
+
+.pm-lecture-slide__notes > :last-child {
+  margin-bottom: 0;
+}
+
+.pm-lecture-slide__drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  padding: 18px 14px;
+  border: 1.5px dashed rgba(var(--v-theme-on-surface), 0.22);
+  border-radius: 12px;
+  background: rgba(var(--v-theme-on-surface), 0.025);
+  color: rgba(var(--v-theme-on-surface), 0.62);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.pm-lecture-slide__drop:hover:not(:disabled) {
+  border-color: rgba(var(--v-theme-primary), 0.6);
+  background: rgba(var(--v-theme-primary), 0.06);
+  color: rgb(var(--v-theme-primary));
+}
+
+.pm-lecture-slide__drop:disabled {
+  cursor: default;
+}
+
+.pm-lecture-slide__drop-title {
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+
+.pm-lecture-slide__drop-hint {
+  font-size: 0.72rem;
+  opacity: 0.8;
+}
+
+/* Leere Folie: der (leere) Inhaltsbereich soll keinen Platz beanspruchen. */
+.pm-lecture-slide__media.is-empty .pm-lecture-slide__media-content {
+  display: none;
+}
