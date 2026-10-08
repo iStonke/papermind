@@ -407,7 +407,7 @@
       </header>
 
       <div
-        v-if="store.courses.length && !openSheet"
+        v-if="store.courses.length && view === 'home'"
         class="lr-header-progress"
         :title="`${pct(headerProficiency, 'strong')} % sicher · ${pct(headerProficiency, 'medium')} % mit Mühe · ${pct(headerProficiency, 'weak')} % offen · ${pct(headerProficiency, 'open')} % neu`"
       >
@@ -426,16 +426,36 @@
           ></span>
         </div>
       </div>
-      <div v-if="openSheet" class="lr-head-actions">
-        <button type="button" class="lr-favorite-toggle" :class="{ 'lr-favorite-toggle--on': openSheet.is_favorite || favoriteAnimating }" :aria-pressed="openSheet.is_favorite" :aria-label="openSheet.is_favorite ? 'Favorit entfernen' : 'Als Favorit markieren'" :disabled="favoriteBusy" @click="toggleFavorite(openSheet)">
+      <div v-if="openSheet || (view === 'course' && store.activeCourse && !openSheet)" class="lr-head-actions" :class="{ 'lr-head-actions--course': !openSheet }">
+        <button v-if="openSheet" type="button" class="lr-favorite-toggle" :class="{ 'lr-favorite-toggle--on': openSheet.is_favorite || favoriteAnimating }" :aria-pressed="openSheet.is_favorite" :aria-label="openSheet.is_favorite ? 'Favorit entfernen' : 'Als Favorit markieren'" :disabled="favoriteBusy" @click="toggleFavorite(openSheet)">
           <span class="lr-favorite-icon-wrap" :class="{ 'lr-favorite-icon-wrap--pop': favoriteAnimating }" aria-hidden="true">
             <span class="lr-favorite-icon">{{ openSheet.is_favorite || favoriteAnimating ? '★' : '☆' }}</span>
           </span>
           <span>Favorit</span>
         </button>
+        <div
+          v-if="!openSheet"
+          class="lr-header-progress lr-header-progress--actions"
+          :title="`${pct(headerProficiency, 'strong')} % sicher · ${pct(headerProficiency, 'medium')} % mit Mühe · ${pct(headerProficiency, 'weak')} % offen · ${pct(headerProficiency, 'open')} % neu`"
+        >
+          <div class="lr-header-progress-label"><strong>{{ pct(headerProficiency, 'strong') }} %</strong> sicher</div>
+          <div
+            class="lr-progress-band"
+            :class="{ 'lr-progress-band--updated': progressFeedbackActive }"
+            role="img"
+            :aria-label="'Lernfortschritt des Kurses: ' + pct(headerProficiency, 'strong') + ' Prozent sicher'"
+          >
+            <span
+              v-for="seg in barSegments(headerProficiency)"
+              :key="seg.key"
+              class="lr-progress-band-segment"
+              :style="{ width: seg.pct + '%', background: seg.color }"
+            ></span>
+          </div>
+        </div>
         <v-menu v-model="learnStartOptionsOpen" class="lr-learn-start-overlay" :scrim="true" :close-on-content-click="false" location="bottom end" :offset="12">
           <template #activator="{ props }">
-        <v-btn class="lr-action-button lr-head-action" variant="flat" :disabled="!learnableCards.length" :title="cards.length && !learnableCards.length ? 'Zum Lernen müssen Vorder- und Rückseite ausgefüllt sein.' : ''" v-bind="props">
+        <v-btn class="lr-action-button lr-head-action" variant="flat" :disabled="!headerLearnableCount || courseLearnBusy" :loading="courseLearnBusy" :title="headerCardCount && !headerLearnableCount ? 'Zum Lernen müssen Vorder- und Rückseite ausgefüllt sein.' : ''" v-bind="props">
           <v-icon size="18" class="mr-1" aria-hidden="true">mdi-arrow-right</v-icon>
           Jetzt lernen
         </v-btn>
@@ -450,7 +470,8 @@
                 <legend>Reihenfolge</legend>
                 <label class="lr-start-choice" :class="{ 'lr-start-choice--selected': learnOrder === 'original' }">
                   <input v-model="learnOrder" type="radio" value="original" name="learn-order">
-                  <span><b>Wie im Lernblatt</b><small>In der vertrauten Reihenfolge lernen.</small></span>
+                  <span v-if="view === 'course' && !openSheet"><b>Blatt für Blatt</b><small>Lernblätter nacheinander in ihrer Reihenfolge.</small></span>
+                  <span v-else><b>Wie im Lernblatt</b><small>In der vertrauten Reihenfolge lernen.</small></span>
                 </label>
                 <label class="lr-start-choice" :class="{ 'lr-start-choice--selected': learnOrder === 'random' }">
                   <input v-model="learnOrder" type="radio" value="random" name="learn-order">
@@ -462,7 +483,7 @@
                 </label>
               </fieldset>
               <div class="lr-start-footer">
-                <span>{{ learnableCards.length }} {{ learnableCards.length === 1 ? 'Karte' : 'Karten' }} · Auswahl wird gemerkt</span>
+                <span>{{ headerLearnableCount }} {{ headerLearnableCount === 1 ? 'Karte' : 'Karten' }}<template v-if="view === 'course' && !openSheet"> aus {{ courseSheets.length }} {{ courseSheets.length === 1 ? 'Lernblatt' : 'Lernblättern' }}</template> · Auswahl wird gemerkt</span>
                 <button type="button" class="lr-start-submit" @click="startLearning">Lernen starten <v-icon size="18" aria-hidden="true">mdi-arrow-right</v-icon></button>
               </div>
             </div>
@@ -1021,6 +1042,22 @@ const learnableCards = computed(() => cards.value.filter(isLearnableCard));
 function sheetLearnableCount(sheet) {
   return sheet?.learnable_card_count ?? sheet?.card_count ?? 0;
 }
+// Kopf-Lernbutton: im Lernblatt zählt das offene Blatt, in der Kursansicht alle Blätter.
+const courseLearnBusy = ref(false);
+const headerLearnableCount = computed(() => {
+  if (openSheet.value) return learnableCards.value.length;
+  if (view.value === 'course' && store.activeCourse) {
+    return courseSheets.value.reduce((sum, sheet) => sum + sheetLearnableCount(sheet), 0);
+  }
+  return 0;
+});
+const headerCardCount = computed(() => {
+  if (openSheet.value) return cards.value.length;
+  if (view.value === 'course' && store.activeCourse) {
+    return courseSheets.value.reduce((sum, sheet) => sum + (sheet.card_count || 0), 0);
+  }
+  return 0;
+});
 const sheetLearningRuns = computed(() => {
   const sheetId = openSheetId.value;
   if (!sheetId) return [];
@@ -1364,7 +1401,19 @@ async function toggleLearnHint() {
     card.hintBusy = false;
   }
 }
-function startLearning() { startLearn(cards.value, null, 'sheet'); }
+async function startLearning() {
+  if (openSheet.value) { startLearn(cards.value, null, 'sheet'); return; }
+  if (view.value !== 'course' || !store.activeCourse || courseLearnBusy.value) return;
+  courseLearnBusy.value = true;
+  try {
+    const lists = await Promise.all(
+      courseSheets.value.map((sheet) => listCards(sheet.id).then((res) => res.items || []).catch(() => [])),
+    );
+    startLearn(lists.flat(), null, 'course');
+  } finally {
+    courseLearnBusy.value = false;
+  }
+}
 function restartLearning() { startLearn(learnOriginalCards.value, null, learnRunScope, false); }
 async function startSheetLearn(sheet) {
   const courseId = sheet?.course_id || store.activeCourseId;
@@ -1602,6 +1651,23 @@ function openFavoriteSheet(sheet) {
 
 async function syncNavigationFromRoute() {
   if (!navigationReady.value) return;
+
+  // Deep-Link aus der Notiz für noch kartenlose Markierungen: Nachbereitung
+  // (Warteschlange) für genau diese Markierung öffnen. Format: "<noteId>:<pmId>".
+  const reviewParam = typeof route.query.review === 'string' ? route.query.review : null;
+  if (reviewParam) {
+    const [reviewNoteId, reviewPmId] = reviewParam.split(':');
+    if (!store.openMarkers.length) await store.fetchOpenMarkers();
+    const group = markerNoteGroups.value.find((g) => String(g.noteId) === String(reviewNoteId));
+    if (group) {
+      const idx = Math.max(0, group.markers.findIndex((m) => String(m.node_pm_id) === String(reviewPmId)));
+      openQueue(group, idx);
+    }
+    const { review: _review, ...rest } = route.query;
+    router.replace({ name: 'lernraum', query: rest }).catch(() => {});
+    return;
+  }
+
   const courseId = typeof route.query.course === 'string' ? route.query.course : null;
   const sheetId = typeof route.query.sheet === 'string' ? route.query.sheet : null;
 
@@ -1639,6 +1705,16 @@ async function syncNavigationFromRoute() {
   }
 
   rememberNavigation(course.id, openSheetId.value);
+
+  // Deep-Link aus der Notiz: bestimmte Karte direkt im Editor öffnen.
+  const cardId = typeof route.query.card === 'string' ? route.query.card : null;
+  if (cardId && openSheetId.value && route.query.learn !== '1') {
+    const target = cards.value.find((c) => String(c.id) === cardId);
+    if (target && dialog.value?.kind !== 'card-edit') onEditCard(target);
+    const { card: _card, ...rest } = route.query;
+    router.replace({ name: 'lernraum', query: rest }).catch(() => {});
+    return;
+  }
 
   if (route.query.learn === '1' && !learning.value) {
     if (route.query.scope === 'sheet' && openSheetId.value) {
@@ -1846,7 +1922,7 @@ async function onDeleteSheet(sheet) {
 }
 
 watch(
-  () => [route.query.course, route.query.sheet, route.query.learn, route.query.scope],
+  () => [route.query.course, route.query.sheet, route.query.learn, route.query.scope, route.query.card, route.query.review],
   () => { void syncNavigationFromRoute(); },
 );
 watch([view, openSheetId], ([currentView, currentSheet]) => {
@@ -2409,7 +2485,11 @@ async function submitDialog() {
 onMounted(async () => {
   await Promise.all([store.fetchAllSheets(), store.fetchOpenMarkers(), store.fetchCourses()]);
   navigationReady.value = true;
-  if (typeof route.query.course !== 'string' && typeof route.query.sheet !== 'string') {
+  if (
+    typeof route.query.course !== 'string'
+    && typeof route.query.sheet !== 'string'
+    && typeof route.query.review !== 'string'
+  ) {
     const saved = readRememberedNavigation();
     if (saved?.courseId) {
       const query = { course: saved.courseId };
@@ -2992,6 +3072,10 @@ onBeforeUnmount(() => {
 .lernraum-panel .lr-head-action.v-btn.v-btn--disabled { background: color-mix(in oklab, var(--pm-text-muted) 18%, var(--pm-surface-card)); color: var(--pm-text-muted); box-shadow: none; opacity: .62; filter: saturate(.25); }
 .lernraum-panel .lr-header-progress-label { flex: none; text-align: right; color: var(--pm-text-muted); font-size: 12px; line-height: 1; white-space: nowrap; }
 .lernraum-panel .lr-header-progress-label strong { color: var(--pm-text); font-size: 14px; font-weight: 700; letter-spacing: -.01em; }
+/* Kursansicht: Fortschritt sitzt im Aktions-Slot direkt links neben dem Lern-Button. */
+.lernraum-panel .lr-head-actions--course { gap: 20px; }
+.lernraum-panel .lr-header-progress--actions { position: static; z-index: auto; width: 172px; gap: 6px; transform: none; }
+.lernraum-panel .lr-header-progress--actions .lr-header-progress-label { text-align: right; }
 .lernraum-panel .lr-progress-band { position: relative; display: flex; flex-direction: row; justify-content: flex-start; direction: ltr; flex: none; width: 100%; height: 12px; overflow: hidden; border-radius: 99px; background: var(--pm-track); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--pm-border) 70%, transparent); }
 .lernraum-panel .lr-progress-band-segment { flex: none; min-width: 0; }
 @media (prefers-reduced-motion: reduce) {

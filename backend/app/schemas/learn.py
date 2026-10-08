@@ -13,6 +13,8 @@ SheetScope = Literal["session", "topic"]
 SheetStatus = Literal["draft", "in_progress", "worked", "archived"]
 # Lernstand einer Karte (Selbsteinschätzung im Lernmodus).
 CardStatus = Literal["open", "weak", "medium", "strong"]
+# Abgeleiteter Status einer Notiz-Markierung (Rückkopplung in der Notiz).
+MarkerReviewState = Literal["open", "card", "strong"]
 
 
 class LearnProficiency(BaseModel):
@@ -255,12 +257,21 @@ class LearnMarkerRead(ORMModel):
     # Vom Service befüllt.
     note_title: str | None = None
     has_card: bool = False
+    # Abgeleiteter Status der Markierung für die Rückkopplung in der Notiz:
+    #   open   – noch keine vollständige Karte (Nachbereitung offen)
+    #   card   – vollständige Karte vorhanden, aber noch nicht sicher gelernt
+    #   strong – zugehörige Karte(n) sind als „sicher“ bewertet
+    review_state: MarkerReviewState = "open"
     # Bei einem unvollständigen Kartenentwurf: dessen tatsächliche Zuordnung.
     # Frische Markierungen bleiben bis zur expliziten Kurswahl unzugeordnet.
     course_id: uuid.UUID | None = None
     course_title: str | None = None
     session_id: uuid.UUID | None = None
     session_title: str | None = None
+    # Repräsentative verknüpfte Karte (vollständig bevorzugt, sonst Entwurf) –
+    # Sprungziel für den „Karte öffnen“-Klick aus der Notiz.
+    card_id: uuid.UUID | None = None
+    card_sheet_id: uuid.UUID | None = None
     # Bereits angelegte, aber noch unvollständige Karte. Sie bleibt als
     # Nachbereitung sichtbar und wird beim erneuten Übernehmen aktualisiert.
     draft_card_id: uuid.UUID | None = None

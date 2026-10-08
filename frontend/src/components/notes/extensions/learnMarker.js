@@ -43,11 +43,80 @@ function markerKindOf(learn) {
   return learn.kind || null;
 }
 
+// Rückkopplung aus dem Lernbereich: abgeleiteter Status je Markierung (pmId).
+//   open   – noch keine vollständige Karte (Nachbereitung offen)
+//   card   – Karte angelegt, aber noch nicht sicher gelernt
+//   strong – zugehörige Karte(n) als „sicher“ bewertet
+const learnMarkerStatusKey = new PluginKey('learnMarkerStatus');
+const LEARN_STATES = ['open', 'card', 'strong'];
+const LEARN_STATE_LABELS = { open: 'offen', card: 'Karte', strong: 'sicher' };
+const LEARN_STATE_TITLES = {
+  open: 'Offen – nachbereiten (öffnet den Lernbereich)',
+  card: 'Karte angelegt – zum Öffnen klicken',
+  strong: 'Sicher gelernt – zum Öffnen klicken',
+};
+
+// Status-Eintrag normalisieren: akzeptiert sowohl einen reinen State-String als
+// auch ein Objekt mit Sprungzielen (cardId/sheetId/courseId).
+function normalizeStatusEntry(value) {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    return LEARN_STATES.includes(value) ? { state: value } : null;
+  }
+  const state = LEARN_STATES.includes(value.state) ? value.state : 'open';
+  return {
+    state,
+    cardId: value.cardId || null,
+    sheetId: value.sheetId || null,
+    courseId: value.courseId || null,
+    hasCard: Boolean(value.hasCard),
+  };
+}
+
+// Baut die klickbare Status-Pille (Widget-Dekoration) für eine markierte Zeile.
+function buildStatusChip(pmId, entry, onOpenMarker) {
+  const state = entry.state || 'open';
+  const el = document.createElement('span');
+  el.className = `pm-learn-chip pm-learn-chip--${state}`;
+  el.textContent = LEARN_STATE_LABELS[state] || LEARN_STATE_LABELS.open;
+  el.setAttribute('data-learn-state', state);
+  el.setAttribute('contenteditable', 'false');
+  el.setAttribute('role', 'button');
+  el.setAttribute('tabindex', '0');
+  el.setAttribute('title', LEARN_STATE_TITLES[state] || LEARN_STATE_TITLES.open);
+  el.setAttribute('aria-label', `Lernstatus: ${LEARN_STATE_LABELS[state] || 'offen'}. Im Lernbereich öffnen.`);
+  const trigger = (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (typeof onOpenMarker === 'function') {
+      onOpenMarker({
+        pmId,
+        state,
+        cardId: entry.cardId || null,
+        sheetId: entry.sheetId || null,
+        courseId: entry.courseId || null,
+        hasCard: Boolean(entry.hasCard),
+      });
+    }
+  };
+  // mousedown abfangen, damit der Editor keine Auswahl/Schreibmarke setzt.
+  el.addEventListener('mousedown', (ev) => { ev.preventDefault(); ev.stopPropagation(); });
+  el.addEventListener('click', trigger);
+  el.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' || ev.key === ' ') trigger(ev);
+  });
+  return el;
+}
+
 export const LearnMarker = Extension.create({
   name: 'learnMarker',
 
   addOptions() {
-    return { kinds: MARKER_KINDS };
+    // showStatusChips: nur im bearbeitbaren Editor die klickbare Status-Pille
+    //   rendern – NICHT in der schreibgeschützten Vorschau (NotePreview).
+    // onOpenMarker: Callback für den Klick auf die Status-Pille (Sprung in den
+    //   Lernbereich). Erhält { pmId, state, cardId, sheetId, courseId, hasCard }.
+    return { kinds: MARKER_KINDS, showStatusChips: false, onOpenMarker: null };
   },
 
   addGlobalAttributes() {
@@ -176,6 +245,15 @@ export const LearnMarker = Extension.create({
           }));
           return true;
         },
+
+      // Setzt die aus dem Lernbereich geladene Status-Karte (pmId → open|card|strong).
+      // Rein dekorativ (keine Dokumentänderung), damit Undo/History unberührt bleiben.
+      setLearnMarkerStatuses:
+        (map = {}) =>
+        ({ tr, dispatch }) => {
+          if (dispatch) dispatch(tr.setMeta(learnMarkerStatusKey, map && typeof map === 'object' ? map : {}));
+          return true;
+        },
     };
   },
 
@@ -194,6 +272,51 @@ export const LearnMarker = Extension.create({
               decorations.push(Decoration.inline(pos + 1 + from, pos + 1 + to, {
                 class: 'pm-learn-selection',
               }));
+            });
+            return DecorationSet.create(state.doc, decorations);
+          },
+        },
+      }),
+      // Status-Rückkopplung: färbt markierte Zeilen nach ihrem Lern-Fortschritt
+      // und hängt eine klickbare Status-Pille an (Sprung in den Lernbereich).
+      new Plugin({
+        key: learnMarkerStatusKey,
+        state: {
+          init: () => ({}),
+          apply(tr, value) {
+            const meta = tr.getMeta(learnMarkerStatusKey);
+            return meta && typeof meta === 'object' ? meta : value;
+          },
+        },
+        props: {
+          decorations: (state) => {
+            const map = learnMarkerStatusKey.getState(state) || {};
+            const decorations = [];
+            state.doc.descendants((node, pos) => {
+              if (!MARKABLE_TYPES.includes(node.type.name)) return;
+              if (!markerKindOf(node.attrs.learn) || !node.attrs.pmId) return;
+              const pmId = node.attrs.pmId;
+              const entry = normalizeStatusEntry(map[pmId]) || { state: 'open' };
+              const review = entry.state;
+              decorations.push(Decoration.node(pos, pos + node.nodeSize, {
+                class: `pm-learn-state pm-learn-state--${review}`,
+                'data-learn-state': review,
+              }));
+              // Klickbare Pille am Zeilenende (echtes DOM-Element statt ::after).
+              // Nur im bearbeitbaren Editor, nicht in der Vorschau. Atomare
+              // Blöcke (Dokument-Zitat) haben keinen Inhalt für ein Widget – sie
+              // zeigen ihren Status selbst im Node-View.
+              if (this.options.showStatusChips && !node.isAtom) {
+                decorations.push(
+                  Decoration.widget(
+                    pos + node.nodeSize - 1,
+                    () => buildStatusChip(pmId, entry, this.options.onOpenMarker),
+                    // Ziel in den Key aufnehmen, damit das Widget neu gebaut wird,
+                    // sobald sich Zustand ODER Sprungziel ändert (Entwurf → Karte).
+                    { side: 1, ignoreSelection: true, key: `lmchip-${pmId}-${review}-${entry.cardId || 'none'}` },
+                  ),
+                );
+              }
             });
             return DecorationSet.create(state.doc, decorations);
           },

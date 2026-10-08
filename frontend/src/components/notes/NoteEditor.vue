@@ -252,6 +252,7 @@ import { useNoteCleanup } from './composables/useNoteCleanup.js';
 import { useNoteReview } from './composables/useNoteReview.js';
 import { createNoteOverlayCoordinator } from './composables/noteOverlayCoordinator.js';
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, toRaw, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { NOTE_AI_STREAM, NOTE_AI_REVIEW_STREAM } from './composables/noteAIRequest.js';
 import { NoteReviewDecorations } from './extensions/reviewDecorations.js';
 import { LearnMarker } from './extensions/learnMarker.js';
@@ -305,6 +306,7 @@ import {
   parseNoteSlashUsage,
 } from '../../utils/noteSlashUsage.js';
 import { uploadNoteImage } from '../../api/notes.js';
+import { listMarkers } from '../../api/learn.js';
 import { synthesizeSpeech } from '../../api/tts.js';
 import { NOTE_HIGHLIGHT_COLORS } from '../../utils/noteHighlights.js';
 import { placeSelectionBubble } from '../../utils/noteBubblePosition.js';
@@ -453,6 +455,18 @@ const imageUploadLabel = computed(() => (
     : `${imageUploadCount.value} Bilder werden eingefügt …`
 ));
 
+// Klick auf die Lern-Status-Pille: springt in den Lernbereich. Mit Karte →
+// direkt die Karte öffnen; ohne Karte → Nachbereitung für diese Markierung.
+const router = useRouter();
+function onOpenLearnMarker(info) {
+  if (!router || !info) return;
+  if (info.cardId && info.sheetId && info.courseId) {
+    router.push({ name: 'lernraum', query: { course: String(info.courseId), sheet: String(info.sheetId), card: String(info.cardId) } }).catch(() => {});
+  } else if (props.noteId && info.pmId) {
+    router.push({ name: 'lernraum', query: { review: `${props.noteId}:${info.pmId}` } }).catch(() => {});
+  }
+}
+
 /* ── Editor ──────────────────────────────────────────────────────────────── */
 // Referenz auf das zuletzt selbst emittierte modelValue-JSON. Damit erkennt der
 // modelValue-Watcher eine vom Editor SELBST ausgelöste Änderung an einem billigen
@@ -528,7 +542,7 @@ const editor = useEditor({
       },
     }),
     NoteReviewDecorations,
-    LearnMarker,
+    LearnMarker.configure({ showStatusChips: true, onOpenMarker: onOpenLearnMarker }),
   ],
   editorProps: {
     attributes: { class: 'pm-content', spellcheck: props.spellcheckEnabled ? 'true' : 'false' },
@@ -582,6 +596,7 @@ onMounted(() => {
   if (props.autofocus) nextTick(() => titleEl.value?.focus());
   if (props.workspace) nextTick(() => bindFormattingToolbarScroll());
   window.addEventListener('resize', refreshBubble);
+  window.addEventListener('focus', refreshLearnMarkerStatuses);
   nextTick(() => applySpellcheck(props.spellcheckEnabled));
   nextTick(() => {
     if (props.workspace && writingEl.value && typeof ResizeObserver !== 'undefined') {
@@ -595,11 +610,44 @@ onMounted(() => {
 watch(() => props.spellcheckEnabled, (enabled) => applySpellcheck(enabled));
 watch(() => props.readonly, (readonly) => editor.value?.setEditable(!readonly));
 
+// Rückkopplung aus dem Lernbereich: Status je Markierung laden (open|card|strong)
+// und als Dekoration setzen. Unkritisch – bei Fehlern bleibt der Default „open“.
+// Token statt In-Flight-Sperre: bei schnellem Notizwechsel darf die neueste
+// Anfrage nicht verworfen werden – nur ihr Ergebnis wird angewendet.
+let learnStatusToken = 0;
+async function refreshLearnMarkerStatuses() {
+  const noteId = props.noteId;
+  const ed = editor.value;
+  if (!noteId || !ed || ed.isDestroyed) return;
+  const token = ++learnStatusToken;
+  try {
+    const res = await listMarkers({ noteId, open: false });
+    if (token !== learnStatusToken) return;
+    if (props.noteId !== noteId || !editor.value || editor.value.isDestroyed) return;
+    const map = {};
+    for (const marker of res.items || []) {
+      if (!marker.node_pm_id) continue;
+      map[marker.node_pm_id] = {
+        state: marker.review_state || 'open',
+        cardId: marker.card_id || null,
+        sheetId: marker.card_sheet_id || null,
+        courseId: marker.course_id || null,
+        hasCard: Boolean(marker.has_card),
+      };
+    }
+    editor.value.commands.setLearnMarkerStatuses(map);
+  } catch {
+    /* Status-Rückkopplung ist unkritisch */
+  }
+}
+watch(() => props.noteId, () => nextTick(refreshLearnMarkerStatuses), { immediate: true });
+
 onBeforeUnmount(() => {
   stopSpeech();
   editor.value?.destroy();
   toolbarScrollContainer?.removeEventListener('scroll', onEditorScroll);
   window.removeEventListener('resize', refreshBubble);
+  window.removeEventListener('focus', refreshLearnMarkerStatuses);
   if (toolbarScrollRestoreFrame) window.cancelAnimationFrame(toolbarScrollRestoreFrame);
   if (historyFlashTimer) window.clearTimeout(historyFlashTimer);
   if (imageUploadMessageTimer) window.clearTimeout(imageUploadMessageTimer);
@@ -2406,6 +2454,59 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
 .note-editor.has-compact-learn-markers :deep(.pm-content .pm-learn-selection) {
   background: transparent;
 }
+
+/* Rückkopplung aus dem Lernbereich: der linke Markierungsstrich zeigt den
+   Lern-Fortschritt der Zeile (offen → Karte angelegt → sicher gelernt).
+   Stehen nach der Basisregel, gewinnen daher bei gleicher Spezifität. */
+.note-editor :deep(.pm-content .pm-learn-state--open) {
+  box-shadow: inset 3px 0 0 var(--pm-warning, #b45309);
+  background: color-mix(in srgb, var(--pm-warning, #b45309) 7%, transparent);
+}
+.note-editor :deep(.pm-content .pm-learn-state--card) {
+  box-shadow: inset 3px 0 0 var(--pm-accent, #006b75);
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 7%, transparent);
+}
+.note-editor :deep(.pm-content .pm-learn-state--strong) {
+  box-shadow: inset 3px 0 0 var(--pm-success, #307041);
+  background: color-mix(in srgb, var(--pm-success, #307041) 8%, transparent);
+}
+
+/* Immer sichtbare, klickbare Status-Pille je markierter Zeile (öffnet die Karte
+   im Lernbereich). Sitzt oben rechts in reserviertem Platz, überlappt nie Text. */
+.note-editor :deep(.pm-content .pm-learn-state) { position: relative; padding-right: 74px; }
+.note-editor :deep(.pm-content .pm-learn-chip) {
+  position: absolute; top: 0.28em; right: 8px;
+  padding: 1px 8px 2px; border-radius: 999px;
+  font-size: 10.5px; font-weight: 650; line-height: 1.45; letter-spacing: .02em;
+  white-space: nowrap; cursor: pointer; user-select: none;
+  transition: filter .12s, box-shadow .12s;
+}
+.note-editor :deep(.pm-content .pm-learn-chip:hover) { filter: brightness(1.04) saturate(1.1); }
+.note-editor :deep(.pm-content .pm-learn-chip:focus-visible) { outline: 2px solid currentColor; outline-offset: 1px; }
+.note-editor :deep(.pm-content .pm-learn-chip--open) {
+  color: var(--pm-warning, #b45309);
+  background: color-mix(in srgb, var(--pm-warning, #b45309) 13%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pm-warning, #b45309) 42%, transparent);
+}
+.note-editor :deep(.pm-content .pm-learn-chip--card) {
+  color: var(--pm-accent, #006b75);
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 13%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pm-accent, #006b75) 40%, transparent);
+}
+.note-editor :deep(.pm-content .pm-learn-chip--strong) {
+  color: var(--pm-success, #307041);
+  background: color-mix(in srgb, var(--pm-success, #307041) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pm-success, #307041) 40%, transparent);
+}
+/* Im Kompaktmodus (Markierungsflächen ausgeblendet) bleibt nur der farbige
+   Strich – Flächenfüllung UND Status-Pille werden ausgeblendet. */
+.note-editor.has-compact-learn-markers :deep(.pm-content .pm-learn-state--open),
+.note-editor.has-compact-learn-markers :deep(.pm-content .pm-learn-state--card),
+.note-editor.has-compact-learn-markers :deep(.pm-content .pm-learn-state--strong) {
+  background: transparent;
+}
+.note-editor.has-compact-learn-markers :deep(.pm-content .pm-learn-state) { padding-right: 0; }
+.note-editor.has-compact-learn-markers :deep(.pm-content .pm-learn-chip) { display: none; }
 
 .note-editor :deep(.pm-content hr) {
   border: 0; height: 1px; background: var(--pm-divider, #d8dfe1); margin-inline: 0;

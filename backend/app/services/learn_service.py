@@ -650,19 +650,42 @@ class LearnService:
         for marker, title in rows:
             linked_cards = cards_by_marker.get((marker.note_id, marker.node_pm_id), [])
             has_card = bool(linked_cards)
-            has_complete_card = any(
-                bool(card.front.strip() and card.back and card.back.strip())
+            complete_cards = [
+                card
                 for card, _course_id, _course_title in linked_cards
-            )
+                if bool(card.front.strip() and card.back and card.back.strip())
+            ]
+            has_complete_card = bool(complete_cards)
             if open_only and has_complete_card:
                 continue
-            update = {"note_title": title, "has_card": has_card}
-            if linked_cards and not has_complete_card:
-                draft, course_id, course_title = linked_cards[0]
+            # Rückkopplung in der Notiz: offen → Karte vorhanden → sicher gelernt.
+            if not has_complete_card:
+                review_state = "open"
+            elif all(card.status == "strong" for card in complete_cards):
+                review_state = "strong"
+            else:
+                review_state = "card"
+            update = {"note_title": title, "has_card": has_card, "review_state": review_state}
+            # Repräsentative Karte (vollständige bevorzugt, sonst erster Entwurf) als
+            # Sprungziel, inklusive Kurszuordnung.
+            representative = next(
+                (entry for entry in linked_cards if entry[0] in complete_cards),
+                linked_cards[0] if linked_cards else None,
+            )
+            if representative is not None:
+                rep_card, rep_course_id, rep_course_title = representative
                 update.update(
                     {
-                        "course_id": course_id,
-                        "course_title": course_title,
+                        "course_id": rep_course_id,
+                        "course_title": rep_course_title,
+                        "card_id": rep_card.id,
+                        "card_sheet_id": rep_card.sheet_id,
+                    }
+                )
+            if linked_cards and not has_complete_card:
+                draft, _draft_course_id, _draft_course_title = linked_cards[0]
+                update.update(
+                    {
                         "draft_card_id": draft.id,
                         "draft_sheet_id": draft.sheet_id,
                         "draft_kind": draft.kind,
