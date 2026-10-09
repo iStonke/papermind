@@ -14,6 +14,7 @@
     @pm-note-quote-remove="removeDocumentQuote"
   >
     <header class="note-workspace-editor__bar">
+      <div class="note-workspace-editor__title-group" :class="{ 'has-kind': isLectureNote }">
       <input
         ref="titleInputRef"
         v-model="title"
@@ -28,6 +29,11 @@
         :readonly="switching || status === 'conflict'"
         @keydown.enter.prevent="focusEditorBody"
       />
+      <span v-if="isLectureNote" class="note-workspace-editor__kind-chip" title="Vorlesungsmitschrift">
+        <v-icon size="14" aria-hidden="true">mdi-school-outline</v-icon>
+        Vorlesung
+      </span>
+      </div>
 
       <div class="note-workspace-editor__actions">
         <div v-if="!listVisible" class="note-workspace-editor__action-group" role="group" aria-label="Notiz erstellen">
@@ -862,6 +868,9 @@ const noteScrollPositions = loadStoredScrollPositions();
 const noteAttributes = computed(() => body.value?.attrs || {});
 const linkedDocument = computed(() => noteAttributes.value.linkedDocument || null);
 const lectureMode = computed(() => Boolean(noteAttributes.value.lectureMode));
+// Vorlesungsmitschrift: enthält Folien-Abschnitte oder steht in der Mitschrift-Ansicht.
+const isLectureNote = computed(() => lectureMode.value
+  || Boolean(body.value?.content?.some((node) => node.type === 'lectureSlide')));
 const splitVisible = computed(() => Boolean(linkedDocument.value?.id) && splitOpen.value && hasLoadedContent.value);
 const splitMainClasses = computed(() => ({
   'is-split': splitVisible.value,
@@ -2350,6 +2359,42 @@ onBeforeUnmount(() => {
   line-height: 1.25;
   padding: 8px 9px;
   transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.note-workspace-editor__title-group {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Mit Chip: Titelfeld so breit wie sein Text, damit der Chip direkt daneben
+   steht. Ohne field-sizing-Unterstützung bleibt der Chip am rechten Rand. */
+@supports (field-sizing: content) {
+  .note-workspace-editor__title-group.has-kind .note-workspace-editor__title {
+    flex: 0 1 auto;
+    field-sizing: content;
+    max-width: 100%;
+  }
+}
+
+.note-workspace-editor__kind-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px 0 6px;
+  border: 1px solid color-mix(in srgb, var(--pm-accent, #006b75) 28%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 8%, transparent);
+  color: var(--pm-accent, #006b75);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  user-select: none;
 }
 
 .note-workspace-editor__title.is-generated { font-style: italic; color: var(--pm-muted, #535e62); }

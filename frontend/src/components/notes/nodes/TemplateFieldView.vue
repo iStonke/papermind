@@ -2,7 +2,7 @@
   <node-view-wrapper
     as="div"
     class="pm-tf"
-    :class="{ 'is-empty': isEmpty }"
+    :class="{ 'is-empty': isEmpty, 'is-focused-empty': isEmpty && valueFocused }"
     :data-template-field="''"
   >
     <div class="pm-tf__label" contenteditable="false">
@@ -22,8 +22,8 @@
       <span v-else class="pm-tf__label-text">{{ label }}</span>
     </div>
 
-    <div class="pm-tf__value">
-      <node-view-content class="pm-tf__content" />
+    <div class="pm-tf__value" @mousedown="focusEmptyValue" @click="focusEmptyValue">
+      <node-view-content ref="valueContent" as="p" class="pm-tf__content" />
       <span v-if="isEmpty && hint" class="pm-tf__hint" contenteditable="false" aria-hidden="true">{{ hint }}</span>
     </div>
 
@@ -49,16 +49,52 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
 import { NodeViewContent, NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3';
 import { newTemplateFieldAttrs } from './noteTemplates.js';
 
 const props = defineProps(nodeViewProps);
 const labelInput = ref(null);
+const valueContent = ref(null);
 
 const label = computed(() => props.node.attrs.label || '');
 const hint = computed(() => props.node.attrs.hint || '');
 const isEmpty = computed(() => props.node.content.size === 0);
+const valueFocused = ref(false);
+function updateValueFocus() {
+  const pos = typeof props.getPos === 'function' ? props.getPos() : null;
+  const selection = props.editor.state.selection;
+  valueFocused.value = props.editor.isFocused && Number.isInteger(pos)
+    && selection.empty && selection.from === pos + 1;
+}
+for (const event of ['selectionUpdate', 'focus', 'blur', 'transaction']) props.editor.on(event, updateValueFocus);
+onBeforeUnmount(() => {
+  for (const event of ['selectionUpdate', 'focus', 'blur', 'transaction']) props.editor.off(event, updateValueFocus);
+});
+
+// Empty inline node views have no text for the browser to place a caret in.
+// Resolve clicks anywhere on their placeholder to the actual field position.
+function focusEmptyValue(event) {
+  if (event.button !== 0 || !props.editor.isEditable || !isEmpty.value) return;
+  const pos = typeof props.getPos === 'function' ? props.getPos() : null;
+  if (!Number.isInteger(pos)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  props.editor.commands.setTextSelection(pos + 1);
+  props.editor.view.focus();
+  // Keep the native caret inside the editable content, rather than on the
+  // adjacent non-editable label/placeholder (especially in WebKit).
+  const content = valueContent.value?.$el;
+  if (content) {
+    const range = document.createRange();
+    range.setStart(content, 0);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }
+  updateValueFocus();
+}
 
 function onLabelInput(event) {
   props.updateAttributes({ label: event.target.value });
@@ -148,12 +184,34 @@ function removeRow() {
 }
 
 .pm-tf__content {
+  position: relative;
+  z-index: 1;
   color: var(--pm-text, #0e181b);
   min-height: 1.4em;
+  margin: 0;
 }
 
 .pm-tf__content :deep(p) {
   margin: 0;
+}
+
+/* Safari can omit the native caret in an empty nested node view. Paint the
+   empty-field caret from the editor's actual selection; it never enters JSON. */
+.pm-tf.is-empty .pm-tf__content { caret-color: transparent; }
+.pm-tf.is-focused-empty .pm-tf__value::after {
+  content: '';
+  position: absolute;
+  z-index: 2;
+  top: 0.15em;
+  left: 0;
+  height: 1.1em;
+  border-left: 2px solid var(--pm-accent, #006b75);
+  pointer-events: none;
+  animation: pm-field-caret 1s step-end infinite;
+}
+@keyframes pm-field-caret { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .pm-tf.is-focused-empty .pm-tf__value::after { animation: none; }
 }
 
 .pm-tf__hint {
