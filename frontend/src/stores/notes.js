@@ -333,7 +333,19 @@ export const useNotesStore = defineStore('notes', () => {
 
   /** Legt aus einer Vorlage eine neue, reguläre Notiz an und gibt sie zurück. */
   async function createFromTemplate(templateId) {
-    if (templateId === LECTURE_START_ID) return create({ body_json: { type: 'doc', attrs: { lectureMode: true }, content: [{ type: 'paragraph' }, lectureSlideJSON()] } });
+    if (templateId === LECTURE_START_ID) return create({ body_json: { type: 'doc', attrs: { lectureMode: true }, content: [
+      {
+        type: 'templateBox',
+        attrs: { variant: 'note', color: 'rose', title: 'Vorlesung' },
+        content: [
+          { label: 'Titel', hint: 'Meetingbezeichnung' },
+          { label: 'Datum', hint: 'tt.mm.jjjj' },
+          { label: 'Thema', hint: 'Um welche Themen ging es?' },
+          { label: 'Klausurrelevanz', hint: 'Was war besonders wichtig?' },
+        ].map(attrs => ({ type: 'templateField', attrs })),
+      },
+      lectureSlideJSON(),
+    ] } });
     const note = cacheDetail(await api.createNoteFromTemplate(templateId));
     notes.value.unshift({
       id: note.id,

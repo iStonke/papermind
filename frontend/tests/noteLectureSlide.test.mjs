@@ -30,7 +30,8 @@ test('lecture mode is a note attribute that only switches the presentation', () 
   assert.match(documentNodeSource, /lectureMode: \{ default: false \}/);
   assert.match(editorSource, /'note-editor--lecture pm-lecture-mode': lectureMode/);
   assert.match(previewSource, /'pm-lecture-mode': Boolean\(bodyJson\?\.attrs\?\.lectureMode\)/);
-  assert.match(cssSource, /\.pm-lecture-mode \.pm-lecture-slide__columns \{[\s\S]*?grid-template-columns: repeat\(auto-fit/);
+  assert.match(cssSource, /\.pm-lecture-mode \.pm-lecture-slide__columns \{[\s\S]*?grid-template-columns: minmax\(0, 46fr\) minmax\(0, 54fr\)/);
+  assert.match(cssSource, /@container \(max-width: 620px\)/);
   assert.match(workspaceEditorSource, /function toggleLectureMode\(\) \{\s*patchBodyAttributes\(\{ lectureMode: !lectureMode\.value \}\);/);
 });
 

@@ -15,6 +15,13 @@
         :alt="imageAlt"
         :title="node.attrs.title || undefined"
         draggable="false"
+        :class="{ 'is-expandable': isLectureImage }"
+        :role="isLectureImage ? 'button' : undefined"
+        :tabindex="isLectureImage ? 0 : undefined"
+        :aria-label="isLectureImage ? 'Screenshot vergrößern' : undefined"
+        @click.stop="openPreview"
+        @keydown.enter.prevent.stop="openPreview"
+        @keydown.space.prevent.stop="openPreview"
         @load="loadError = false"
         @error="handleImageError"
       />
@@ -24,7 +31,7 @@
         <button type="button" @mousedown.prevent.stop @click="retryImage">Erneut versuchen</button>
       </div>
 
-      <div v-if="editor.isEditable && selected" class="pm-note-image__tools" role="toolbar" aria-label="Bildgröße">
+      <div v-if="editor.isEditable && selected && !isLectureImage" class="pm-note-image__tools" role="toolbar" aria-label="Bildgröße">
         <button
           v-for="option in widthOptions"
           :key="option.value"
@@ -47,7 +54,7 @@
       </div>
 
       <button
-        v-if="editor.isEditable && selected"
+        v-if="editor.isEditable && selected && !isLectureImage"
         type="button"
         class="pm-note-image__resize"
         title="Breite ziehen"
@@ -57,10 +64,8 @@
       ></button>
     </div>
 
-    <figcaption v-if="isLectureImage && capturedAt" class="pm-note-image__caption">
-      <time :datetime="capturedAt">{{ captureLabel }}</time>
-    </figcaption>
-    <figcaption v-else-if="!isLectureImage && (editor.isEditable || caption)" class="pm-note-image__caption">
+    <!-- Folien im Mitschrift-Block: Aufnahmezeit steht in dessen Kopfzeile. -->
+    <figcaption v-if="!isLectureImage && (editor.isEditable || caption)" class="pm-note-image__caption">
       <input
         v-if="editor.isEditable"
         type="text"
@@ -74,6 +79,19 @@
       />
       <span v-else>{{ caption }}</span>
     </figcaption>
+    <BaseDialog
+      v-model="previewOpen"
+      title="Screenshot"
+      :header-subtitle="previewSubtitle"
+      variant="info"
+      width="calc(100vw - 64px)"
+      max-width="1100"
+      card-class="pm-screenshot-dialog"
+      :show-footer="false"
+      scrim="black"
+    >
+      <img class="pm-note-image__preview" :src="displaySrc" :alt="imageAlt" />
+    </BaseDialog>
   </node-view-wrapper>
 </template>
 
@@ -85,14 +103,21 @@ import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3';
 import { authedUrl, getBaseUrl } from '../../../api/client.js';
 import { useAuthStore } from '../../../stores/auth.js';
 import { normalizeNoteImageWidth } from './noteImageAttrs.js';
+import BaseDialog from '../../BaseDialog.vue';
 
 const props = defineProps(nodeViewProps);
-const { isLectureImage, capturedAt, captureLabel } = useLectureCapture(props);
+const { isLectureImage, captureLabel, slideNumber } = useLectureCapture(props);
+const previewSubtitle = computed(() => slideNumber.value
+  ? `Folie ${slideNumber.value}${captureLabel.value ? ` · ${captureLabel.value}` : ''}` : '');
 const authStore = useAuthStore();
 const figureEl = ref(null);
 const loadError = ref(false);
 const retryVersion = ref(0);
 const liveWidth = ref(null);
+const previewOpen = ref(false);
+function openPreview() {
+  if (isLectureImage.value && displaySrc.value && !loadError.value) previewOpen.value = true;
+}
 let stopResize = null;
 
 const widthOptions = Object.freeze([
@@ -216,6 +241,17 @@ onBeforeUnmount(() => stopResize?.(false));
   object-fit: contain;
 }
 
+.pm-note-image img.is-expandable { cursor: zoom-in; }
+.pm-note-image img.is-expandable:focus-visible { outline: 2px solid var(--pm-accent, #006b75); outline-offset: -3px; }
+.pm-note-image__preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: contain;
+  margin: auto;
+}
+
 .pm-note-image__tools {
   position: absolute;
   top: 9px;
@@ -337,5 +373,39 @@ onBeforeUnmount(() => stopResize?.(false));
 
 @media (prefers-reduced-motion: reduce) {
   .pm-note-image { transition: none; }
+}
+</style>
+
+<style>
+.pm-dialog.pm-screenshot-dialog {
+  display: flex;
+  flex-direction: column;
+  height: min(82dvh, 820px) !important;
+  flex: 0 0 auto !important;
+  max-height: calc(100dvh - 48px);
+  overflow: hidden;
+}
+.pm-screenshot-dialog .pm-dialog__header { flex: 0 0 auto; }
+.pm-screenshot-dialog .pm-dialog__content-wrap {
+  display: flex;
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+}
+.pm-screenshot-dialog .pm-dialog__content {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.pm-screenshot-dialog .pm-note-image__preview {
+  position: absolute;
+  inset: 16px;
+  width: calc(100% - 32px) !important;
+  height: calc(100% - 32px) !important;
+  max-height: none !important;
 }
 </style>

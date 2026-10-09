@@ -117,7 +117,16 @@ test('integrated templates cannot be deleted and create independent editable not
     const payload = JSON.parse(options.body);
     assert.equal(payload.is_template, undefined);
     assert.equal(payload.body_json.attrs.lectureMode, true);
-    assert.equal(payload.body_json.content[0].type, 'paragraph');
+    assert.equal(payload.body_json.content[0].type, 'templateBox');
+    assert.equal(payload.body_json.content[0].attrs.title, 'Vorlesung');
+    assert.equal(payload.body_json.content[0].attrs.color, 'rose');
+    assert.deepEqual(payload.body_json.content[0].content.map(field => field.attrs), [
+      { label: 'Titel', hint: 'Meetingbezeichnung' },
+      { label: 'Datum', hint: 'tt.mm.jjjj' },
+      { label: 'Thema', hint: 'Um welche Themen ging es?' },
+      { label: 'Klausurrelevanz', hint: 'Was war besonders wichtig?' },
+    ]);
+    assert.equal(payload.body_json.content.length, 2);
     assert.equal(payload.body_json.content[1].type, 'lectureSlide');
     return new Response(JSON.stringify({ ...payload, id: 'created-lecture', title: '' }), { headers: { 'Content-Type': 'application/json' } });
   });

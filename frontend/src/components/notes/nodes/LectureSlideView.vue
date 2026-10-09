@@ -1,8 +1,12 @@
 <template>
   <node-view-wrapper as="section" class="pm-lecture-slide" data-lecture-slide>
-    <div v-if="editor.isEditable" class="pm-lecture-slide__header" contenteditable="false">
-      <button v-if="isFirstBlock" type="button" class="pm-lecture-slide__prepend" title="Inhalt oberhalb einfügen" aria-label="Inhalt oberhalb einfügen" @mousedown.prevent @click="addAbove"><v-icon size="16">mdi-plus</v-icon>Inhalt oberhalb</button>
+    <div class="pm-lecture-slide__header" contenteditable="false">
+      <span class="pm-lecture-slide__meta">
+        <span>Folie {{ slideNumber }}</span>
+        <time v-if="capturedAt" :datetime="capturedAt" :title="captureTitle">· {{ captureDate }} · {{ captureTime }}</time>
+      </span>
       <button v-if="editor.isEditable" type="button" class="pm-lecture-slide__remove" title="Zeile entfernen" aria-label="Zeile entfernen" @mousedown.prevent @click="deleteNode()"><v-icon size="16">mdi-trash-can-outline</v-icon></button>
+      <button v-if="editor.isEditable && isFirstBlock" type="button" class="pm-lecture-slide__prepend" title="Inhalt oberhalb einfügen" aria-label="Inhalt oberhalb einfügen" @mousedown.prevent @click="addAbove"><v-icon size="16">mdi-plus</v-icon>Inhalt oberhalb</button>
     </div>
     <node-view-content class="pm-lecture-slide__columns" />
     <div v-if="editor.isEditable" class="pm-lecture-slide__footer" contenteditable="false">
@@ -11,13 +15,31 @@
   </node-view-wrapper>
 </template>
 <script setup>
-import { nextTick, onBeforeUnmount, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
 import { NodeViewWrapper, NodeViewContent, nodeViewProps } from '@tiptap/vue-3';
 const props = defineProps(nodeViewProps);
-const isFirstBlock = ref(props.getPos() === 0);
-function updateFirstBlock() { isFirstBlock.value = props.getPos() === 0; }
-props.editor.on('transaction', updateFirstBlock);
-onBeforeUnmount(() => props.editor.off('transaction', updateFirstBlock));
+const isFirstBlock = ref(false);
+const slideNumber = ref(1);
+function updatePosition() {
+  const pos = props.getPos();
+  if (!Number.isInteger(pos)) return;
+  isFirstBlock.value = pos === 0;
+  let number = 1;
+  props.editor.state.doc.nodesBetween(0, pos, (node, nodePos) => {
+    if (node.type.name === 'lectureSlide' && nodePos < pos) number++;
+  });
+  slideNumber.value = number;
+}
+updatePosition();
+props.editor.on('transaction', updatePosition);
+onBeforeUnmount(() => props.editor.off('transaction', updatePosition));
+const capturedAt = computed(() => props.node.attrs.capturedAt || null);
+const captureDate = computed(() => capturedAt.value
+  ? new Date(capturedAt.value).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '');
+const captureTime = computed(() => capturedAt.value
+  ? new Date(capturedAt.value).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '');
+const captureTitle = computed(() => capturedAt.value
+  ? new Date(capturedAt.value).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' }) : '');
 function addAbove() {
   const pos = props.getPos();
   props.editor.chain().focus().insertContentAt(pos, { type: 'paragraph' }).setTextSelection(pos + 1).run();

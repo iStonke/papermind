@@ -21,7 +21,9 @@ test('integrated templates are visible and protected while a new lecture note is
   await start.click();
   await expect.poll(() => page.evaluate(() => window.openedTemplateNote)).toBe('new-lecture-note');
   expect(payload.body_json.attrs.lectureMode).toBe(true);
-  expect(payload.body_json.content[0].type).toBe('paragraph');
+  expect(payload.body_json.content[0]).toMatchObject({ type: 'templateBox', attrs: { title: 'Vorlesung', color: 'rose' } });
+  expect(payload.body_json.content[0].content.map(field => field.attrs.label)).toEqual(['Titel', 'Datum', 'Thema', 'Klausurrelevanz']);
+  expect(payload.body_json.content).toHaveLength(2);
   expect(payload.body_json.content[1].type).toBe('lectureSlide');
   expect(await page.evaluate(() => window.templateStore.templates[0].builtin)).toBe(true);
 });

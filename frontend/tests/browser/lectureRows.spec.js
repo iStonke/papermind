@@ -35,7 +35,9 @@ test('lecture rows keep timestamps, accept clipboard screenshots and add/remove 
     el.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
   });
   await expect(rows.first().locator('.pm-note-image')).toBeVisible();
-  await expect(rows.first().locator('.pm-note-image__caption time')).toHaveText(/\d{2}\.\d{2}\.\d{4}, \d{2}:\d{2}/);
+  await expect(rows.first().locator('.pm-lecture-slide__meta time')).toHaveText(/· \d{2}:\d{2}/);
+  await expect(rows.first().locator('.pm-lecture-slide__meta')).toContainText('Folie 1');
+  await expect(rows.first().locator('.pm-note-image__caption')).toHaveCount(0);
   await expect(rows.first().getByRole('textbox', { name: 'Bildunterschrift' })).toHaveCount(0);
   expect(await page.evaluate(() => window.lectureBody.content[0].content[1].content[0].content[0].text)).toContain('Meine erste Mitschrift');
   await page.evaluate(() => {

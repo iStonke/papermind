@@ -6,7 +6,7 @@
       v-if="isEmpty"
       ref="dropElement"
       class="pm-lecture-slide__drop"
-      :class="{ 'is-active': pasteReady }"
+      :class="{ 'is-active': pasteReady, 'is-dragging': dragDepth > 0 }"
       role="button"
       tabindex="0"
       contenteditable="false"
@@ -17,30 +17,35 @@
       @focusout="leavePasteFocus"
       @keydown.enter.prevent="requestImage"
       @paste.stop="pasteImage"
+      @dragenter.prevent="dragDepth++"
+      @dragleave="dragDepth = Math.max(0, dragDepth - 1)"
       @dragover.prevent
       @drop.prevent.stop="dropImage"
     >
       <v-icon size="22">mdi-image-plus-outline</v-icon>
-      <span class="pm-lecture-slide__drop-title">Screenshot einfügen</span>
-      <span class="pm-lecture-slide__drop-hint">⌘V oder Bild hierher ziehen</span>
-      <button v-if="editor.isEditable" type="button" class="pm-lecture-slide__choose" @click.stop="requestImage">Datei auswählen</button>
+      <span class="pm-lecture-slide__drop-title">Screenshot einfügen <span class="pm-lecture-slide__drop-key">⌘V</span></span>
+      <!-- Weitere Wege erst bei Hover/Fokus/Ziehen, damit leere Folien ruhig bleiben. -->
+      <span class="pm-lecture-slide__drop-more">
+        <span class="pm-lecture-slide__drop-more-inner">
+          <span class="pm-lecture-slide__drop-hint">oder Bild hierher ziehen</span>
+          <button v-if="editor.isEditable" type="button" class="pm-lecture-slide__choose" @click.stop="requestImage">Datei auswählen</button>
+        </span>
+      </span>
     </div>
     <node-view-content class="pm-lecture-slide__media-content" />
-    <time v-if="isEmpty && capturedAt" class="pm-lecture-slide__capture" :datetime="capturedAt">{{ captureLabel }}</time>
   </node-view-wrapper>
 </template>
 
 <script setup>
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
-import { useLectureCapture } from './useLectureCapture.js';
 import { NodeViewContent, NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3';
 
 const props = defineProps(nodeViewProps);
-const { capturedAt, captureLabel } = useLectureCapture(props);
 
 const isEmpty = computed(() => props.node.childCount === 0);
 const dropElement = ref(null);
 const pasteReady = ref(false);
+const dragDepth = ref(0);
 function activatePaste(event) {
   if (!props.editor.isEditable) return;
   pasteReady.value = true;
@@ -74,5 +79,8 @@ function insertFiles(files) {
 function pasteImage(event) {
   if (insertFiles(event.clipboardData?.files)) event.preventDefault();
 }
-function dropImage(event) { insertFiles(event.dataTransfer?.files); }
+function dropImage(event) {
+  dragDepth.value = 0;
+  insertFiles(event.dataTransfer?.files);
+}
 </script>
