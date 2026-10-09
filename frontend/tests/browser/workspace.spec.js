@@ -120,7 +120,7 @@ test('sidebar footer shows activity only while work is running and keeps shortcu
 
   const footerActions = page.locator('.sidebar-foot__actions');
   await expect(footerActions.locator(':scope > .v-btn')).toHaveCount(3);
-  const activityButton = footerActions.getByRole('button', { name: /1 Dokument\(e\) in Bearbeitung/ });
+  const activityButton = footerActions.getByRole('button', { name: /1 Vorgang\/Vorgänge in Bearbeitung/ });
   await expect(activityButton).toBeVisible();
   await expect(footerActions.getByRole('button', { name: 'Einstellungen', exact: true })).toBeVisible();
 
@@ -190,23 +190,26 @@ test('Lernraum keeps one navigable path from course to focused learning', async 
 
   await login(page);
   await page.goto('/lernen');
+  const crumbs = page.locator('.lr-crumbs');
+  const titleBox = () => page.locator('.lr-title').evaluate((element) => {
+    const { left, top } = element.getBoundingClientRect();
+    return { left, top };
+  });
   await expect(page.getByRole('heading', { name: 'Lernraum', exact: true })).toBeVisible();
   await expect(page.locator('.lr-header-progress')).toBeVisible();
-  const homeHeaderHeight = await page.locator('.lr-nav').evaluate((element) => element.getBoundingClientRect().height);
-  const homeTitleLeft = await page.locator('.lr-title').evaluate((element) => element.getBoundingClientRect().left);
-  const homeTitleTop = await page.locator('.lr-title').evaluate((element) => element.getBoundingClientRect().top);
+  await expect(crumbs.locator('[aria-current="page"]')).toHaveText('Startseite');
+  const homeTitle = await titleBox();
   await expect(page.getByRole('button', { name: 'Kurs anlegen', exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: /Computergrafik/ }).click();
+
+  // Kurs: Brotkrumen führen zurück, Fortschritt sitzt im Kopf, Lernen startet je Lernblatt.
+  await page.getByRole('button', { name: 'Kurs „Computergrafik“ öffnen' }).click();
   await expect(page).toHaveURL(new RegExp(`course=${courseId}`));
   await expect(page.getByRole('heading', { name: 'Computergrafik', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Zurück zum Lernraum' })).toBeVisible();
-  expect(await page.locator('.lr-nav').evaluate((element) => element.getBoundingClientRect().height)).toBe(homeHeaderHeight);
-  expect(await page.locator('.lr-title').evaluate((element) => element.getBoundingClientRect().left)).toBe(homeTitleLeft);
-  expect(await page.locator('.lr-title').evaluate((element) => element.getBoundingClientRect().top)).toBe(homeTitleTop);
+  await expect(crumbs.getByRole('button', { name: 'Startseite', exact: true })).toBeVisible();
+  expect(await titleBox()).toEqual(homeTitle);
   await expect(page.locator('.lr-header-progress')).toBeVisible();
   await expect(page.locator('.lr-course-overview')).toHaveCount(0);
   await expect(page.locator('.lr-sheet-tile').getByRole('button', { name: 'Jetzt lernen', exact: true })).toBeVisible();
-  await expect(page.locator('.lr-nav').getByRole('button', { name: /Jetzt lernen/ })).toHaveCount(0);
   await page.locator('.lr-title-edit').click();
   await expect(page.locator('.lr-title-input')).toHaveValue('Computergrafik');
   await page.locator('.lr-title-input').fill('Grafik Grundlagen');
@@ -215,23 +218,30 @@ test('Lernraum keeps one navigable path from course to focused learning', async 
   await page.getByRole('button', { name: '„Rasterisierung“ umbenennen' }).click();
   await page.getByLabel('Lernblattname').fill('Rastergrafik');
   await page.getByLabel('Lernblattname').press('Enter');
-  await expect(page.locator('.lr-sheet-title-button')).toHaveText('Rastergrafik');
-  await page.getByRole('button', { name: 'Rastergrafik', exact: true }).click();
+  await expect(page.locator('.lr-sheet-tile .lr-course-name')).toHaveText('Rastergrafik');
+
+  // Lernblatt: eine Ebene tiefer, Brotkrume führt zum Kurs zurück.
+  await page.getByRole('button', { name: 'Lernblatt „Rastergrafik“ öffnen' }).click();
   await expect(page).toHaveURL(new RegExp(`sheet=${sheetId}`));
   await expect(page.getByRole('heading', { name: 'Rastergrafik', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Zurück zu Grafik Grundlagen' })).toBeVisible();
-  expect(await page.locator('.lr-nav').evaluate((element) => element.getBoundingClientRect().height)).toBe(homeHeaderHeight);
-  expect(await page.locator('.lr-title').evaluate((element) => element.getBoundingClientRect().left)).toBe(homeTitleLeft);
-  expect(await page.locator('.lr-title').evaluate((element) => element.getBoundingClientRect().top)).toBe(homeTitleTop);
-  await page.getByRole('button', { name: /Jetzt lernen/ }).click();
-  await expect(page.locator('.lr-focus')).toBeVisible();
-  await expect(page.getByText('Was ist ein Fragment?', { exact: true })).toBeVisible();
+  expect(await titleBox()).toEqual(homeTitle);
+  await crumbs.getByRole('button', { name: 'Grafik Grundlagen', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`course=${courseId}$`));
+
+  // Fokussiertes Lernen mit definiertem Rückweg zum Lernblatt.
+  await page.locator('.lr-sheet-tile').getByRole('button', { name: 'Jetzt lernen', exact: true }).click();
+  await expect(page.locator('.lr-learning-focus')).toBeVisible();
+  await expect(page.locator('.lr-focus-card-face--front').getByText('Was ist ein Fragment?', { exact: true })).toBeVisible();
   await expect(page).toHaveURL(/learn=1/);
-  await page.getByRole('button', { name: 'Beenden', exact: true }).click();
+  await page.locator('.lr-focus-exit').click();
+  await page.locator('.lr-learn-exit-confirm').click();
+  await expect(page.locator('.lr-learning-focus')).toHaveCount(0);
   await expect(page).toHaveURL(new RegExp(`sheet=${sheetId}`));
+  await expect(page).not.toHaveURL(/learn=1/);
+
+  await crumbs.getByRole('button', { name: 'Grafik Grundlagen', exact: true }).click();
   page.once('dialog', (dialog) => dialog.accept());
-  await page.getByRole('button', { name: 'Löschen', exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`course=${courseId}`));
+  await page.getByRole('button', { name: '„Rastergrafik“ löschen' }).click();
   await expect(page.locator('.lr-sheet-tile')).toHaveCount(0);
 });
 
@@ -576,15 +586,27 @@ test('note settings use the standard PaperMind header and grouped live preview',
   await mockApi(page);
   await login(page);
   await page.getByRole('button', { name: 'Einstellungen', exact: true }).first().click();
-  await page.getByRole('tab', { name: 'Notizen', exact: true }).click();
-  await expect(page.getByText('Schreiben, Darstellung und Gliederung nach deinen Gewohnheiten.')).toBeVisible();
-  await expect(page.getByText('Allgemein', { exact: true })).toBeVisible();
-  await expect(page.getByText('Schreiben', { exact: true })).toBeVisible();
-  await expect(page.getByText('Textdarstellung', { exact: true })).toBeVisible();
+  const nav = page.getByRole('tablist', { name: 'Einstellungskategorien' });
+  const notesGroup = nav.locator('.pm-settings-nav__group').filter({ hasText: 'Notizen' });
+  for (const name of ['Allgemein', 'Textdarstellung', 'Abstände', 'Textersetzung']) {
+    await expect(notesGroup.getByRole('tab', { name, exact: true })).toBeVisible();
+  }
+  const preview = page.locator('.notes-settings-preview');
+
+  await notesGroup.getByRole('tab', { name: 'Allgemein', exact: true }).click();
+  await expect(page.getByText('Standardansicht und Sortierung deiner Notizen.')).toBeVisible();
+  await expect(page.getByText('Standardansicht', { exact: true })).toBeVisible();
+  await expect(preview).toHaveCount(0);
+
+  await notesGroup.getByRole('tab', { name: 'Textdarstellung', exact: true }).click();
+  await expect(page.getByText('Schreibbreite, Schrift und Lesekomfort anpassen.')).toBeVisible();
+  await expect(preview).toContainText('Eine klare Überschrift');
+
+  await notesGroup.getByRole('tab', { name: 'Abstände', exact: true }).click();
   await expect(page.getByText('Abstände und Gliederung', { exact: true })).toBeVisible();
-  await expect(page.locator('.notes-settings-preview')).toContainText('Eine klare Überschrift');
   await expect(page.getByText('Abstand vor Überschriften', { exact: true })).toBeVisible();
   await expect(page.getByText('Abstand bei Inhaltsblöcken', { exact: true })).toBeVisible();
+  await expect(preview).toContainText('Eine klare Überschrift');
 });
 
 test('document edits autosave and remain after reload', async ({ page }, testInfo) => {

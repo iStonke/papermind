@@ -8,12 +8,11 @@ const source = await readFile(
 );
 
 test('Lernraum follows one hierarchy from overview to course and sheet', () => {
-  assert.match(source, /class="lr-nav-back"/);
-  assert.match(source, /@click="goBackLevel"/);
-  assert.match(source, /function goBackLevel\(\)[\s\S]*?openSheet\.value[\s\S]*?closeSheet\(\)[\s\S]*?goHome\(\)/);
-  assert.match(source, /\.lr-nav-main \{ position: relative; width: 100%; height: 82px; display: flex; align-items: flex-start;/);
-  assert.match(source, /\.lr-nav-back \{ position: absolute;[\s\S]*?border: 0;[\s\S]*?background: transparent;/);
-  assert.match(source, /\.lr-nav \{[\s\S]*?height: 163px;/);
+  // Brotkrumen Startseite → Kurs → Lernblatt; jede Ebene führt eine Stufe zurück.
+  assert.match(source, /<nav v-if="store\.courses\.length" class="lr-crumbs" aria-label="Pfad">/);
+  assert.match(source, /<button v-else type="button" class="lr-crumb" @click="c\.go">/);
+  assert.match(source, /const crumbs = computed\(\(\) => \{[\s\S]*?label: 'Startseite', go: goHome[\s\S]*?go: closeSheet[\s\S]*?openSheet\.value\.title, current: true/);
+  assert.match(source, /function closeSheet\(\) \{\s*if \(!store\.activeCourseId\) return goHome\(\);\s*openCourse\(store\.activeCourseId\);/);
   assert.doesNotMatch(source, /class="lr-breadcrumb"/);
   assert.match(source, /function openCourse\(id\)[\s\S]*?query: \{ course:/);
   assert.match(source, /function openSheetView\(id\)[\s\S]*?sheet: String\(id\)/);
@@ -22,29 +21,28 @@ test('Lernraum follows one hierarchy from overview to course and sheet', () => {
 });
 
 test('learning is a focused route state with a defined return path', () => {
-  assert.match(source, /v-if="learning" class="lr-focus"/);
+  assert.match(source, /v-if="learning" class="lr-focus lr-learning-focus"/);
   assert.match(source, /learn: '1', scope/);
   assert.match(source, /router\.back\(\)/);
-  assert.match(source, /Durchlauf geschafft/);
+  assert.match(source, /Durchlauf abgeschlossen/);
 });
 
 test('home reports aggregate progress and keeps review tasks compact', () => {
   assert.match(source, /const overallProficiency = computed/);
   assert.match(source, /const headerProficiency = computed/);
   assert.match(source, /Gesamter Lernfortschritt/);
-  assert.match(source, /grid-template-columns: repeat\(auto-fit, minmax\(min\(100%, 360px\), 520px\)\)/);
-  assert.match(source, /class="lr-task-preview">\{\{ groupPreview\(g\) \}\}/);
-  assert.match(source, /-webkit-line-clamp: 2/);
+  assert.match(source, /\.lr-task-list \{ display: grid; grid-template-columns: repeat\(auto-fill, minmax\(235px, 1fr\)\)/);
+  assert.match(source, /class="lr-task-preview">\{\{ task\.marker\.snippet/);
+  assert.match(source, /\.lr-task-preview \{[^}]*-webkit-line-clamp: 2/);
   assert.doesNotMatch(source, />Kurs anlegen<\/button>/);
   assert.doesNotMatch(source, /<div v-if="overallProficiency\.total" class="lr-progress-report">/);
 });
 
 test('course progress lives in the course header instead of a separate content card', () => {
-  assert.match(source, /class="lr-header-progress"/);
+  assert.match(source, /class="lr-header-progress lr-header-progress--actions"/);
   assert.match(source, /class="lr-progress-band"/);
-  assert.match(source, /height: 46px/);
-  assert.match(source, /seg\.pct >= 8/);
-  assert.match(source, /class="lr-header-progress-marker"/);
+  assert.match(source, /class="lr-progress-band-segment"\s*:style="\{ width: seg\.pct \+ '%', background: seg\.color \}"/);
+  assert.match(source, /class="lr-header-progress-label"><strong>\{\{ pct\(headerProficiency, 'strong'\) \}\} %<\/strong> sicher/);
   assert.doesNotMatch(source, /class="lr-header-progress-score"/);
   assert.match(source, /Lernfortschritt des Kurses/);
   assert.doesNotMatch(source, /<section class="lr-course-overview">/);

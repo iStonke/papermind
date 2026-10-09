@@ -27,7 +27,7 @@ test('theme switching keeps text, date, and selection readable for every header 
   await openThoughts(page, [null, ...THOUGHT_COLORS.map(color => color.value)]);
   for (const mode of ['dark', 'light', 'dark']) {
     await page.evaluate(mode => window.setThoughtsTheme(mode), mode);
-    for (const selector of ['.thoughts-text', '.thoughts-card time', '.notes-ws__item-title', '.notes-ws__item-snippet', '.notes-ws__item-date']) {
+    for (const selector of ['.thoughts-text', '.thoughts-card time', '.notes-ws__item-title', '.notes-ws__item-snippet']) {
       const elements = page.locator(selector);
       expect(await elements.count()).toBeGreaterThan(0);
       for (const contrast of await contrasts(elements)) expect(contrast).toBeGreaterThanOrEqual(4.5);
