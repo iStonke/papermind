@@ -7,10 +7,23 @@
  * (.pm-lecture-mode am Wurzelelement): Folie links, Mitschrift rechts auf
  * gleicher Höhe; bei schmaler Spalte bricht das Raster von selbst um.
  */
+
+/* Registriert, damit die Linienfarbe der Mitschrift-Spalte weich überblendet. */
+@property --pm-lecture-rule {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: transparent;
+}
+
 .pm-lecture-slide {
+  --pm-lecture-head: 32px; /* Kopfzeile 24px + Abstand 8px */
+  --pm-lecture-col-gap: 52px;
+  /* Abstand unter der Trennlinie = Blockabstand darüber (Einstellung
+     „Abstand bei Inhaltsblöcken"), damit beide Seiten gleich weit sind. */
+  --pm-lecture-gap: var(--note-editor-block-gap, var(--note-preview-block-gap, 24px));
   display: block;
-  margin: 0 0 24px;
-  padding-top: 24px;
+  margin: 0 0 var(--pm-lecture-gap);
+  padding-top: var(--pm-lecture-gap);
   border-top: 1px solid rgba(var(--v-theme-on-surface), 0.1);
   container-type: inline-size;
 }
@@ -34,7 +47,7 @@
 
 .pm-lecture-mode .pm-lecture-slide__columns {
   grid-template-columns: minmax(0, 46fr) minmax(0, 54fr);
-  column-gap: 52px;
+  column-gap: var(--pm-lecture-col-gap);
   row-gap: 16px;
   align-items: start;
 }
@@ -47,7 +60,35 @@
 /* Erste Mitschriftzeile bündig zur Folienoberkante: halben Zeilendurchschuss
    und den Abstand bis zur Versalhöhe ausgleichen. */
 .pm-lecture-mode .pm-lecture-slide__notes {
-  margin-top: calc((1em - 1lh) / 2 - 0.14em);
+  --pm-lecture-notes-shift: calc((1lh - 1em) / 2 + 0.14em);
+  --pm-lecture-rule: rgba(var(--v-theme-on-surface), 0.12);
+  align-self: stretch; /* Linie begleitet mindestens die ganze Folienhöhe */
+  margin-top: calc(-1 * var(--pm-lecture-notes-shift));
+  padding-left: 18px;
+  transition: --pm-lecture-rule 160ms ease;
+}
+
+/* Feine Linie links markiert die Schreibfläche und wird teal, solange der
+   Cursor in dieser Mitschrift steht. Sie beginnt auf Höhe der Kopfzeile, damit
+   sie über und unter jeder Trennlinie gleich weit entfernt endet. */
+.pm-lecture-mode .pm-lecture-slide__notes::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--pm-lecture-notes-shift) - var(--pm-lecture-head));
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  background: var(--pm-lecture-rule);
+  pointer-events: none;
+}
+
+/* Gestapelt (schmale Spalte): Linie nur neben der Mitschrift selbst. */
+@container (max-width: 620px) {
+  .pm-lecture-mode .pm-lecture-slide__notes::after { top: var(--pm-lecture-notes-shift); }
+}
+
+.pm-lecture-mode .pm-lecture-slide.is-writing .pm-lecture-slide__notes {
+  --pm-lecture-rule: rgba(var(--v-theme-primary), 0.7);
 }
 
 /* Die Folie bleibt beim Scrollen langer Mitschriften im Blick. */
@@ -63,6 +104,7 @@
 .pm-lecture-slide__media figure,
 .pm-lecture-slide__media .pm-note-image {
   margin-top: 0;
+  margin-bottom: 0; /* Folie endet bündig mit der Zeile; Abstand regelt der Abschnitt. */
 }
 
 .pm-lecture-slide__notes {
@@ -76,6 +118,7 @@
   content: 'Mitschrift zu dieser Folie …';
   position: absolute;
   inset: 0 auto auto 0;
+  padding-left: inherit;
   pointer-events: none;
   color: rgba(var(--v-theme-on-surface), 0.42);
 }
@@ -194,17 +237,20 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 24px;
+  height: calc(var(--pm-lecture-head) - 8px);
   margin-bottom: 8px;
   color: var(--pm-muted, #64748b);
   font-size: 0.72rem;
   line-height: 1.4;
 }
+/* Metadaten in Monospace: technischer Akzent, ohne den Fließtext zu berühren. */
 .pm-lecture-slide__meta {
   display: inline-flex;
-  gap: 4px;
+  gap: 6px;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.68rem;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
 }
 /* Papierkorb direkt neben der Folienbezeichnung, nicht frei am rechten Rand. */
 .pm-lecture-slide__remove { margin-left: -2px; padding: 2px; }
@@ -240,7 +286,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 24px;
+  margin-top: var(--pm-lecture-gap);
 }
 .pm-lecture-slide__footer::before,
 .pm-lecture-slide__footer::after {
@@ -250,6 +296,28 @@
   background: rgba(var(--v-theme-on-surface), .1);
 }
 .pm-lecture-slide:has(+ .pm-lecture-slide) .pm-lecture-slide__footer { display: none; }
+
+/* Zwei Spalten: dasselbe Raster wie Folie/Mitschrift, damit das „+" genau auf
+   der Linie der Mitschrift-Spalte sitzt (Mitte des Knopfs = Spaltenkante). */
+.pm-lecture-mode .pm-lecture-slide__footer {
+  display: grid;
+  grid-template-columns: minmax(0, 46fr) var(--pm-lecture-col-gap) minmax(0, 54fr);
+  align-items: center;
+  gap: 0;
+}
+.pm-lecture-mode .pm-lecture-slide__footer::before { grid-area: 1 / 1 / 2 / 3; margin-right: 24px; }
+.pm-lecture-mode .pm-lecture-slide__footer::after { grid-area: 1 / 3 / 2 / 4; margin-left: 24px; }
+.pm-lecture-mode .pm-lecture-slide__add {
+  grid-area: 1 / 2 / 2 / 3;
+  justify-self: end;
+  transform: translateX(calc(50% + 0.5px)); /* Mitte der 1px-Linie */
+}
+@container (max-width: 620px) {
+  .pm-lecture-mode .pm-lecture-slide__footer { display: flex; gap: 10px; }
+  .pm-lecture-mode .pm-lecture-slide__footer::before { margin-right: 0; }
+  .pm-lecture-mode .pm-lecture-slide__footer::after { margin-left: 0; }
+  .pm-lecture-mode .pm-lecture-slide__add { transform: none; }
+}
 .pm-lecture-slide__add {
   flex: none;
   justify-content: center;

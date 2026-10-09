@@ -1,5 +1,5 @@
 <template>
-  <node-view-wrapper as="section" class="pm-lecture-slide" data-lecture-slide>
+  <node-view-wrapper as="section" class="pm-lecture-slide" :class="{ 'is-writing': isWriting }" data-lecture-slide>
     <div class="pm-lecture-slide__header" contenteditable="false">
       <span class="pm-lecture-slide__meta">
         <span>Folie {{ slideNumber }}</span>
@@ -20,6 +20,24 @@ import { NodeViewWrapper, NodeViewContent, nodeViewProps } from '@tiptap/vue-3';
 const props = defineProps(nodeViewProps);
 const isFirstBlock = ref(false);
 const slideNumber = ref(1);
+const isWriting = ref(false);
+// Cursor in der Mitschrift dieses Abschnitts (bei fokussiertem Editor).
+function updateWriting() {
+  const pos = props.getPos();
+  if (!Number.isInteger(pos) || !props.editor.isFocused) {
+    isWriting.value = false;
+    return;
+  }
+  const { $from } = props.editor.state.selection;
+  let writing = false;
+  for (let depth = $from.depth; depth > 0; depth--) {
+    if ($from.node(depth).type.name === 'lectureSlideNotes') {
+      writing = $from.before(depth - 1) === pos;
+      break;
+    }
+  }
+  isWriting.value = writing;
+}
 function updatePosition() {
   const pos = props.getPos();
   if (!Number.isInteger(pos)) return;
@@ -30,9 +48,19 @@ function updatePosition() {
   });
   slideNumber.value = number;
 }
-updatePosition();
-props.editor.on('transaction', updatePosition);
-onBeforeUnmount(() => props.editor.off('transaction', updatePosition));
+function onEditorChange() {
+  updatePosition();
+  updateWriting();
+}
+onEditorChange();
+props.editor.on('transaction', onEditorChange);
+props.editor.on('focus', updateWriting);
+props.editor.on('blur', updateWriting);
+onBeforeUnmount(() => {
+  props.editor.off('transaction', onEditorChange);
+  props.editor.off('focus', updateWriting);
+  props.editor.off('blur', updateWriting);
+});
 const capturedAt = computed(() => props.node.attrs.capturedAt || null);
 const captureDate = computed(() => capturedAt.value
   ? new Date(capturedAt.value).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '');
