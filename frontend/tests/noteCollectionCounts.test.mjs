@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createPinia, setActivePinia } from 'pinia';
-import { useNotesStore } from '../src/stores/notes.js';
+import { notePreview, useNotesStore } from '../src/stores/notes.js';
 import { useSettingsStore } from '../src/stores/settings.js';
 
 function setup() {
@@ -152,4 +152,13 @@ test('a new lecture note starts in the remembered lecture layout', async (t) => 
   });
   await store.createFromTemplate('builtin:lecture-start');
   assert.deepEqual(attrs, { lectureLayout: 'text', lectureMode: false });
+});
+
+test('list previews leave out automatic image file names but keep captions', () => {
+  const body = { type: 'doc', content: [
+    { type: 'image', attrs: { alt: 'image.png', title: 'image.png', caption: '' } },
+    { type: 'image', attrs: { alt: 'Folie.png', title: 'Folie.png', caption: 'Zählerstand' } },
+    { type: 'paragraph', content: [{ type: 'text', text: 'Hier steht langer Text' }] },
+  ] };
+  assert.equal(notePreview(body), 'Zählerstand Hier steht langer Text');
 });

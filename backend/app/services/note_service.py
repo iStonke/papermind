@@ -40,7 +40,9 @@ _NODE_TEXT_ATTRS: dict[str, tuple[str, ...]] = {
     "wikiLink": ("label",),
     "ocrQuote": ("text",),
     "aiBlock": ("text",),
-    "image": ("caption", "alt", "title"),
+    # alt/title sind der automatisch gesetzte Dateiname (z. B. „image.png") und
+    # gehören weder in die Vorschau noch in die Suche; nur die Bildunterschrift.
+    "image": ("caption",),
 }
 
 _WS = re.compile(r"\s+")

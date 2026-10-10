@@ -121,6 +121,38 @@ def test_image_caption_contributes_to_note_search_text() -> None:
     assert derive_body_text(body) == "Zählerstand August"
 
 
+def test_image_file_names_stay_out_of_note_preview_and_search_text() -> None:
+    body = {
+        "type": "doc",
+        "content": [
+            {"type": "lectureSlide", "content": [
+                {"type": "lectureSlideMedia", "content": [
+                    {"type": "image", "attrs": {"alt": "image.png", "title": "image.png", "caption": ""}},
+                ]},
+                {"type": "lectureSlideNotes", "content": [
+                    {"type": "paragraph", "content": [{"type": "text", "text": "Hier steht langer Text"}]},
+                ]},
+            ]},
+        ],
+    }
+    assert derive_body_text(body) == "Hier steht langer Text"
+
+
+def test_body_text_migration_matches_current_derivation() -> None:
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "alembic" / "versions" / "110_note_text_no_image_names.py"
+    spec = importlib.util.spec_from_file_location("migration_110", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    body = {"type": "doc", "content": [
+        {"type": "image", "attrs": {"alt": "Screenshot.png", "title": "Screenshot.png", "caption": "Zählerstand"}},
+        {"type": "paragraph", "content": [{"type": "text", "text": "Notiz"}]},
+    ]}
+    assert migration._WS.sub(" ", migration._text(body)).strip() == derive_body_text(body) == "Zählerstand Notiz"
+
+
 def test_note_image_routes_and_file_token_scope_are_registered() -> None:
     from app.routers.notes import router
 

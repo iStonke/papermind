@@ -15,7 +15,8 @@ const NODE_TEXT_ATTRS = {
   wikiLink: ['label'],
   ocrQuote: ['text'],
   aiBlock: ['text'],
-  image: ['caption', 'alt', 'title'],
+  // alt/title = automatischer Dateiname („image.png"), nicht in die Vorschau.
+  image: ['caption'],
 };
 
 function pmText(node) {
