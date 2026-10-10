@@ -111,3 +111,11 @@ test('text-only lecture exports leave hidden slides out', () => {
   assert.match(html, /<section class="lecture-slide lecture-slide--text"><div class="lecture-slide-notes"><p>Nur der Text<\/p><\/div><\/section>/);
   assert.doesNotMatch(html, /lecture-slide-media"/);
 });
+
+test('slide headers never count positions beyond the current document', async () => {
+  const viewSource = await read('../src/components/notes/nodes/LectureSlideView.vue');
+  // Ausgebaute Abschnitte melden beim Notizwechsel kurz ihre alte Position.
+  assert.match(viewSource, /function currentPos\(\) \{[\s\S]*?pos >= doc\.content\.size\) return null;[\s\S]*?doc\.nodeAt\(pos\)\?\.type\.name === 'lectureSlide'/);
+  assert.match(viewSource, /function updatePosition\(\) \{\s*const pos = currentPos\(\);/);
+  assert.match(viewSource, /Eine Kopfzeile darf nie eine Editor-Transaktion/);
+});

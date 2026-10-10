@@ -3,7 +3,11 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import {
+  NOTE_DRAFT_READ_TIMEOUT_MS,
   createNoteDraftVersion,
+  getNoteDraft,
+  resetNoteDraftReadPause,
+  withNoteDraftTimeout,
   latestKnownNoteRevision,
   noteBodiesEqual,
   noteDraftMatchesServer,
@@ -95,4 +99,59 @@ test('local draft storage strips transient, non-serializable fields', () => {
     clientVersion: 'draft-1',
     savedAt: 1234,
   });
+});
+
+test('draft storage access gives up instead of waiting forever', async () => {
+  await assert.rejects(
+    withNoteDraftTimeout(new Promise(() => {}), 20, 'zu langsam'),
+    /zu langsam/,
+  );
+  assert.equal(await withNoteDraftTimeout(Promise.resolve('ok'), 20, 'zu langsam'), 'ok');
+});
+
+test('a hanging IndexedDB connection is dropped and reopened on the next read', async () => {
+  const previous = globalThis.indexedDB;
+  const draft = { noteId: 'n1', title: 'Entwurf', clientVersion: 'v1' };
+  const workingDb = {
+    transaction: () => ({
+      objectStore: () => ({
+        get: () => {
+          const request = {};
+          setTimeout(() => { request.result = draft; request.onsuccess?.(); });
+          return request;
+        },
+      }),
+    }),
+  };
+  let opens = 0;
+  globalThis.indexedDB = {
+    open: () => {
+      opens++;
+      const request = {};
+      // Erster Versuch hängt (Browser antwortet nie), zweiter klappt.
+      if (opens > 1) setTimeout(() => { request.result = workingDb; request.onsuccess?.(); });
+      return request;
+    },
+  };
+  try {
+    const started = Date.now();
+    await assert.rejects(getNoteDraft('n1'), /nicht rechtzeitig/);
+    assert.ok(Date.now() - started < NOTE_DRAFT_READ_TIMEOUT_MS + 500);
+    // Danach kein erneutes Warten bei jedem Notizwechsel …
+    const paused = Date.now();
+    await assert.rejects(getNoteDraft('n1'), /zurzeit nicht/);
+    assert.ok(Date.now() - paused < 50);
+    assert.equal(opens, 1);
+    // … und nach der Pause wird die Verbindung neu aufgebaut.
+    resetNoteDraftReadPause();
+    assert.deepEqual(await getNoteDraft('n1'), draft);
+    assert.equal(opens, 2);
+  } finally {
+    globalThis.indexedDB = previous;
+  }
+});
+
+test('switching notes never stays stuck on the previous note', () => {
+  assert.match(workspaceEditorSource, /if \(cachedNote\) \{\s*try \{\s*await applyLoadedNote\(cachedNote, noteId\);\s*\} catch \(error\)/);
+  assert.match(workspaceEditorSource, /console\.warn\('Lokaler Entwurf nicht verfügbar, Serverstand wird angezeigt:', error\)/);
 });

@@ -1220,7 +1220,16 @@ async function loadNote(noteId = props.noteId) {
   loadError.value = false;
   const cachedNote = notesStore.peek(noteId);
   if (cachedNote) {
-    await applyLoadedNote(cachedNote, noteId);
+    try {
+      await applyLoadedNote(cachedNote, noteId);
+    } catch (error) {
+      // Nie im Zustand „wechselt gerade" mit der vorherigen Notiz hängen bleiben.
+      console.warn('Notiz konnte nicht angezeigt werden:', error);
+      if (revision === loadRevision) {
+        loadError.value = true;
+        status.value = 'error';
+      }
+    }
     if (revision !== loadRevision) return;
     loading.value = false;
     switching.value = false;
@@ -1249,9 +1258,13 @@ async function applyLoadedNote(note, noteId) {
   const loadedRevision = Math.max(1, Number(note?.revision) || 1);
   let localDraft = null;
   try {
+    // Zeitlich begrenzt (noteDraftStorage.js): Ein hängender Browser-Speicher
+    // darf das Umschalten nicht blockieren; der Entwurf bleibt erhalten und
+    // wird beim nächsten Öffnen wieder angeboten.
     localDraft = await getNoteDraft(noteId);
-  } catch {
+  } catch (error) {
     // Der Serverstand bleibt auch ohne verfügbare IndexedDB vollständig nutzbar.
+    console.warn('Lokaler Entwurf nicht verfügbar, Serverstand wird angezeigt:', error);
   }
   if (noteId !== props.noteId) return;
 

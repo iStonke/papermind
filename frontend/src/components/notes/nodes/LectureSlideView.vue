@@ -38,8 +38,8 @@ function removeRow() {
 const isWriting = ref(false);
 // Cursor in der Mitschrift dieses Abschnitts (bei fokussiertem Editor).
 function updateWriting() {
-  const pos = props.getPos();
-  if (!Number.isInteger(pos) || !props.editor.isFocused) {
+  const pos = currentPos();
+  if (pos === null || !props.editor.isFocused) {
     isWriting.value = false;
     return;
   }
@@ -53,9 +53,19 @@ function updateWriting() {
   }
   isWriting.value = writing;
 }
-function updatePosition() {
+// Beim Notizwechsel melden ausgebaute Abschnitte kurzzeitig noch ihre alte
+// Position, während schon das neue (evtl. kürzere) Dokument geladen ist. Nur
+// zählen, wenn an dieser Position wirklich dieser Abschnitt steht; sonst würde
+// nodesBetween über das Dokumentende laufen und das Laden der Notiz abbrechen.
+function currentPos() {
   const pos = props.getPos();
-  if (!Number.isInteger(pos)) return;
+  const { doc } = props.editor.state;
+  if (!Number.isInteger(pos) || pos < 0 || pos >= doc.content.size) return null;
+  return doc.nodeAt(pos)?.type.name === 'lectureSlide' ? pos : null;
+}
+function updatePosition() {
+  const pos = currentPos();
+  if (pos === null) return;
   isFirstBlock.value = pos === 0;
   let number = 1;
   props.editor.state.doc.nodesBetween(0, pos, (node, nodePos) => {
@@ -65,8 +75,13 @@ function updatePosition() {
 }
 function onEditorChange() {
   textLayout.value = lectureLayoutOf(props.editor.state.doc.attrs) === 'text';
-  updatePosition();
-  updateWriting();
+  try {
+    updatePosition();
+    updateWriting();
+  } catch (error) {
+    // Eine Kopfzeile darf nie eine Editor-Transaktion (z. B. Notizwechsel) abbrechen.
+    console.warn('Folien-Kopfzeile konnte nicht aktualisiert werden:', error);
+  }
 }
 onEditorChange();
 props.editor.on('transaction', onEditorChange);
