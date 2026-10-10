@@ -130,6 +130,13 @@ class SettingsValidationTest(unittest.TestCase):
         with self.assertRaises(ValidationError):
             AppSettingsPatch.model_validate({"ui": {"notes_thought_capture_target": "new"}})
 
+    def test_lecture_layout_defaults_to_side_and_rejects_unknown_values(self) -> None:
+        self.assertEqual(AppSettingsRead.model_validate({}).ui.notes_lecture_layout.value, "side")
+        patch = AppSettingsPatch.model_validate({"ui": {"notes_lecture_layout": "text"}})
+        self.assertEqual(patch.ui.notes_lecture_layout.value, "text")
+        with self.assertRaises(ValidationError):
+            AppSettingsPatch.model_validate({"ui": {"notes_lecture_layout": "grid"}})
+
     def test_notes_preferences_reject_unknown_values(self) -> None:
         with self.assertRaises(ValidationError):
             AppSettingsPatch.model_validate({"ui": {"notes_writing_width": "unlimited"}})

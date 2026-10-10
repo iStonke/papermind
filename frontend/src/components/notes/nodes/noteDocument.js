@@ -14,6 +14,8 @@ export const PaperMindDocument = Document.extend({
       // Mitschrift-Notiz: Folien-Abschnitte (lectureSlide) stehen neben der
       // Mitschrift, eingefügte Screenshots beginnen einen neuen Abschnitt.
       lectureMode: { default: false },
+      // side | stacked | text, siehe lectureLayout.js; null = aus lectureMode ableiten.
+      lectureLayout: { default: null },
     };
   },
 });

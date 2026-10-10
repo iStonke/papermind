@@ -48,6 +48,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "notes_default_view": "remember",
         "notes_sort_order": "updated",
         "notes_thought_capture_target": "last",
+        "notes_lecture_layout": "side",
         "notes_writing_width": "comfortable",
         "notes_paragraph_spacing": "comfortable",
         "notes_font_family": "sans",

@@ -9,9 +9,10 @@
  *                        Zitate, „zu lernen"-Marker wie überall)
  *
  * Jeder Screenshot beginnt einen neuen Abschnitt; die Mitschrift steht immer
- * auf Höhe ihrer Folie. Ob die Spalten nebeneinander oder (normale Ansicht)
- * untereinander stehen, entscheidet allein das Notiz-Attribut `lectureMode` –
- * das Umschalten verändert den Inhalt nicht.
+ * auf Höhe ihrer Folie. Ob Folie und Mitschrift nebeneinander, untereinander
+ * oder (nur Mitschrift) ohne sichtbare Folie stehen, entscheidet allein das
+ * Notiz-Attribut `lectureLayout` (lectureLayout.js) – das Umschalten verändert
+ * den Inhalt nicht.
  */
 import { Node, mergeAttributes, VueNodeViewRenderer } from '@tiptap/vue-3';
 import { Plugin, TextSelection } from '@tiptap/pm/state';

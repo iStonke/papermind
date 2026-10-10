@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createPinia, setActivePinia } from 'pinia';
 import { useNotesStore } from '../src/stores/notes.js';
+import { useSettingsStore } from '../src/stores/settings.js';
 
 function setup() {
   setActivePinia(createPinia());
@@ -138,4 +139,17 @@ test('integrated templates cannot be deleted and create independent editable not
   assert.equal(note.id, 'created-lecture');
   assert.equal(requests, 1);
   assert.equal(store.templates[0].builtin, true);
+});
+
+test('a new lecture note starts in the remembered lecture layout', async (t) => {
+  const store = setup();
+  useSettingsStore().settings.ui.notes_lecture_layout = 'text';
+  let attrs = null;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    const payload = JSON.parse(options.body);
+    attrs = payload.body_json.attrs;
+    return new Response(JSON.stringify({ ...payload, id: 'created-lecture', title: '' }), { headers: { 'Content-Type': 'application/json' } });
+  });
+  await store.createFromTemplate('builtin:lecture-start');
+  assert.deepEqual(attrs, { lectureLayout: 'text', lectureMode: false });
 });

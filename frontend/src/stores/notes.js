@@ -4,6 +4,8 @@ import { ref } from 'vue';
 import * as api from '../api/notes.js';
 import { BUILTIN_START_TEMPLATES, LECTURE_START_ID, isBuiltinTemplate } from '../components/notes/nodes/builtinTemplates.js';
 import { lectureSlideJSON } from '../components/notes/nodes/lectureSlideContent.js';
+import { lectureLayoutAttrs } from '../components/notes/nodes/lectureLayout.js';
+import { useSettingsStore } from './settings.js';
 
 // Client-seitige Vorschau-Ableitung – spiegelt derive_body_text im Backend
 // (Textknoten + sichtbare Attribute der PaperMind-Nodes), damit der Listentext
@@ -333,7 +335,8 @@ export const useNotesStore = defineStore('notes', () => {
 
   /** Legt aus einer Vorlage eine neue, reguläre Notiz an und gibt sie zurück. */
   async function createFromTemplate(templateId) {
-    if (templateId === LECTURE_START_ID) return create({ body_json: { type: 'doc', attrs: { lectureMode: true }, content: [
+    // Neue Vorlesung startet im zuletzt gewählten Layout (Benutzereinstellung).
+    if (templateId === LECTURE_START_ID) return create({ body_json: { type: 'doc', attrs: lectureLayoutAttrs(useSettingsStore().settings?.ui?.notes_lecture_layout), content: [
       {
         type: 'templateBox',
         attrs: { variant: 'note', color: 'rose', title: 'Vorlesung' },

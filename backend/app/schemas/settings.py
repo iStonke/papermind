@@ -173,6 +173,14 @@ class NotesThoughtCaptureTarget(str, Enum):
     last = "last"
 
 
+class NotesLectureLayout(str, Enum):
+    """Zuletzt gewähltes Layout für Vorlesungsmitschriften (Vorgabe neuer Notizen)."""
+
+    side = "side"
+    stacked = "stacked"
+    text = "text"
+
+
 class NotesWritingWidth(str, Enum):
     compact = "compact"
     comfortable = "comfortable"
@@ -366,6 +374,7 @@ class UISettingsRead(BaseModel):
     notes_default_view: NotesDefaultView = NotesDefaultView.remember
     notes_sort_order: NotesSortOrder = NotesSortOrder.updated
     notes_thought_capture_target: NotesThoughtCaptureTarget = NotesThoughtCaptureTarget.last
+    notes_lecture_layout: NotesLectureLayout = NotesLectureLayout.side
     notes_writing_width: NotesWritingWidth = NotesWritingWidth.comfortable
     notes_paragraph_spacing: NotesParagraphSpacing = NotesParagraphSpacing.comfortable
     notes_font_family: NotesFontFamily = NotesFontFamily.sans
@@ -585,6 +594,7 @@ class UISettingsPatch(BaseModel):
     notes_default_view: NotesDefaultView | None = None
     notes_sort_order: NotesSortOrder | None = None
     notes_thought_capture_target: NotesThoughtCaptureTarget | None = None
+    notes_lecture_layout: NotesLectureLayout | None = None
     notes_writing_width: NotesWritingWidth | None = None
     notes_paragraph_spacing: NotesParagraphSpacing | None = None
     notes_font_family: NotesFontFamily | None = None

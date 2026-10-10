@@ -57,8 +57,14 @@
   .pm-lecture-mode .pm-lecture-slide__columns { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* „Nur Mitschrift": Folien bleiben im Dokument, werden aber ausgeblendet. */
+.pm-lecture-text .pm-lecture-slide__media {
+  display: none;
+}
+
 /* Erste Mitschriftzeile bündig zur Folienoberkante: halben Zeilendurchschuss
-   und den Abstand bis zur Versalhöhe ausgleichen. */
+   und den Abstand bis zur Versalhöhe ausgleichen. Linie und Einzug nur neben
+   einer Folie; bei „Nur Mitschrift" steht der Text bündig unter der Kopfzeile. */
 .pm-lecture-mode .pm-lecture-slide__notes {
   --pm-lecture-notes-shift: calc((1lh - 1em) / 2 + 0.14em);
   --pm-lecture-rule: rgba(var(--v-theme-on-surface), 0.12);
@@ -252,6 +258,20 @@
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
 }
+/* Hinweis auf ausgeblendeten Screenshot („Nur Mitschrift"), immer sichtbar. */
+.pm-lecture-slide__peek {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--pm-muted, #64748b);
+  cursor: zoom-in;
+}
+.pm-lecture-slide__peek:hover { background: rgba(var(--v-theme-on-surface), .06); color: var(--pm-accent, #006b75); }
+.pm-lecture-slide__peek:focus-visible { outline: 2px solid var(--pm-accent, #006b75); outline-offset: 2px; }
+
 /* Papierkorb direkt neben der Folienbezeichnung, nicht frei am rechten Rand. */
 .pm-lecture-slide__remove { margin-left: -2px; padding: 2px; }
 .pm-lecture-slide__prepend { margin-left: auto; }

@@ -6,6 +6,7 @@ import {
 import { normalizeNotePageLayoutColumns } from './noteLayouts.js';
 import { normalizeNoteHref } from './noteLinks.js';
 import { noteMarkdownToSafeHtml } from './noteMarkdown.js';
+import { lectureLayoutOf } from '../components/notes/nodes/lectureLayout.js';
 
 function escapeMarkdown(value) {
   return String(value ?? '').replace(/([\\`*_[\]<>])/g, '\\$1');
@@ -134,8 +135,11 @@ function renderNode(node, context) {
         .map((column) => renderNode(column, context).trim())
         .filter(Boolean)
         .join('\n\n');
-    case 'layoutColumn':
     case 'lectureSlideMedia':
+      // „Nur Mitschrift": ausgeblendete Folien gehören nicht in den Export.
+      if (context.lectureLayout === 'text') return '';
+      return renderChildren(node, context, '\n\n');
+    case 'layoutColumn':
     case 'lectureSlideNotes':
       return renderChildren(node, context, '\n\n');
     case 'lectureSlide':
@@ -279,8 +283,9 @@ function renderHtmlNode(node, context) {
     case 'layoutColumn':
       return `<section class="layout-column">${renderHtmlChildren(node, context)}</section>`;
     case 'lectureSlide':
-      return `<section class="lecture-slide">${renderHtmlChildren(node, context)}</section>`;
+      return `<section class="lecture-slide lecture-slide--${context.lectureLayout || 'side'}">${renderHtmlChildren(node, context)}</section>`;
     case 'lectureSlideMedia':
+      if (context.lectureLayout === 'text') return '';
       return `<div class="lecture-slide-media">${renderHtmlChildren(node, context)}</div>`;
     case 'lectureSlideNotes':
       return `<div class="lecture-slide-notes">${renderHtmlChildren(node, context)}</div>`;
@@ -464,7 +469,7 @@ export function noteContentToPlainText(body) {
 }
 
 export function noteToMarkdown({ title, body } = {}) {
-  const context = { sources: new Map(), imageUrl: (src) => src };
+  const context = { sources: new Map(), imageUrl: (src) => src, lectureLayout: lectureLayoutOf(body?.attrs) };
   if (body?.attrs?.linkedDocument) addDocumentSource(context, body.attrs.linkedDocument);
   const content = renderNode(body, context).trim();
   const sources = renderSources(context);
@@ -499,7 +504,7 @@ export function noteToPrintableHtml({
   blockSpacing = 'comfortable',
   imageUrl = (src) => src,
 } = {}) {
-  const context = { sources: new Map(), imageUrl };
+  const context = { sources: new Map(), imageUrl, lectureLayout: lectureLayoutOf(body?.attrs) };
   if (body?.attrs?.linkedDocument) addDocumentSource(context, body.attrs.linkedDocument);
   const content = renderHtmlNode(body, context);
   const sources = [...context.sources.values()]
@@ -555,6 +560,7 @@ export function noteToPrintableHtml({
     .layout-column:first-child { padding-left: 0; }
     .layout-column:last-child { padding-right: 0; }
     .lecture-slide { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6mm; align-items: start; break-inside: avoid; padding-top: 4mm; border-top: 1px solid #d8dfe1; }
+    .lecture-slide--stacked, .lecture-slide--text { grid-template-columns: minmax(0, 1fr); gap: 3mm; }
     .lecture-slide-media, .lecture-slide-notes { min-width: 0; overflow-wrap: anywhere; }
     .layout-column > *:first-child { margin-top: 0; }
     h1, h2, h3, h4 { break-after: avoid; font-family: ${fontStack}; line-height: 1.25; }

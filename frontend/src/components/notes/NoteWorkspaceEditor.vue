@@ -29,10 +29,47 @@
         :readonly="switching || status === 'conflict'"
         @keydown.enter.prevent="focusEditorBody"
       />
-      <span v-if="isLectureNote" class="note-workspace-editor__kind-chip" title="Vorlesungsmitschrift">
-        <v-icon size="14" aria-hidden="true">mdi-school-outline</v-icon>
-        Vorlesung
-      </span>
+      <!-- Vorlesung-Chip = Layout-Umschalter (Folie neben/über Mitschrift, nur
+           Mitschrift). Ändert nur die Darstellung, nie den Inhalt. -->
+      <v-menu v-if="isLectureNote" location="bottom start" :offset="6" transition="fade-transition">
+        <template #activator="{ props: layoutMenuProps }">
+          <button
+            v-bind="layoutMenuProps"
+            type="button"
+            class="note-workspace-editor__kind-chip"
+            title="Vorlesungsmitschrift – Layout wählen"
+            :aria-label="`Vorlesung, Layout: ${activeLectureLayoutOption.title}`"
+            :disabled="!hasLoadedContent || status === 'conflict'"
+          >
+            <v-icon size="14" aria-hidden="true">mdi-school-outline</v-icon>
+            Vorlesung
+            <v-icon size="14" class="note-workspace-editor__kind-chip-caret" aria-hidden="true">mdi-chevron-down</v-icon>
+          </button>
+        </template>
+        <v-list class="note-workspace-editor__more-menu" density="compact" min-width="236" role="menu" aria-label="Layout der Vorlesung">
+          <div class="note-workspace-editor__more-label">Layout</div>
+          <v-list-item
+            v-for="option in LECTURE_LAYOUT_OPTIONS"
+            :key="option.value"
+            class="note-workspace-editor__more-item"
+            :class="{ 'is-current': lectureLayout === option.value }"
+            :title="option.title"
+            :ripple="false"
+            role="menuitemradio"
+            :aria-checked="lectureLayout === option.value"
+            @click="setLectureLayout(option.value)"
+          >
+            <template #prepend>
+              <span class="note-workspace-editor__more-icon" aria-hidden="true">
+                <v-icon size="17">{{ option.icon }}</v-icon>
+              </span>
+            </template>
+            <template #append>
+              <v-icon v-if="lectureLayout === option.value" size="16" class="note-workspace-editor__layout-check" aria-hidden="true">mdi-check</v-icon>
+            </template>
+          </v-list-item>
+        </v-list>
+      </v-menu>
       </div>
 
       <div class="note-workspace-editor__actions">
@@ -145,21 +182,22 @@
                 </span>
               </template>
             </v-list-item>
-            <!-- Mitschreibmodus: Folien neben der Mitschrift (und ⌘V mit
-                 Screenshot beginnt einen neuen Abschnitt) ↔ normale Ansicht.
-                 Ändert nur die Darstellung, nie den Inhalt. -->
+            <!-- Normale Notiz → Vorlesungsmitschrift (Folie neben Mitschrift; ⌘V
+                 mit Screenshot beginnt dann einen neuen Abschnitt). Danach
+                 steuert der Vorlesung-Chip neben dem Titel das Layout. -->
             <v-list-item
+              v-if="!isLectureNote"
               class="note-workspace-editor__more-item"
-              :title="lectureMode ? 'Normale Ansicht' : 'Mitschrift-Ansicht'"
-              :subtitle="lectureMode ? 'Folien über der Mitschrift' : 'Folien neben der Mitschrift'"
+              title="Als Vorlesung mitschreiben"
+              :subtitle="rememberedLectureLayoutOption.title"
               :disabled="!hasLoadedContent || status === 'conflict'"
               :ripple="false"
               role="menuitem"
-              @click="toggleLectureMode"
+              @click="setLectureLayout(rememberedLectureLayout)"
             >
               <template #prepend>
                 <span class="note-workspace-editor__more-icon" aria-hidden="true">
-                  <v-icon size="17">{{ lectureMode ? 'mdi-view-agenda-outline' : 'mdi-view-split-vertical' }}</v-icon>
+                  <v-icon size="17">{{ rememberedLectureLayoutOption.icon }}</v-icon>
                 </span>
               </template>
             </v-list-item>
@@ -673,6 +711,7 @@ import { authedUrl, getBaseUrl } from '../../api/client.js';
 import { getAICredentialStatus } from '../../api/aiCredentials.js';
 import { createNoteAudioExport } from '../../api/jobs.js';
 import { useSettingsStore } from '../../stores/settings.js';
+import { buildNotesPreferencesPatch } from '../../utils/settingsApi.js';
 import { useUiStore } from '../../stores/ui.js';
 import { isNoteEmpty, useNotesStore } from '../../stores/notes.js';
 import { suggestNoteTitle, checkpointNoteRevision, getNoteBacklinks, exportNoteArchive, importNoteArchive } from '../../api/notes.js';
@@ -700,6 +739,7 @@ import { nextWrappedIndex } from '../../utils/noteNavigation.js';
 import BaseDialog from '../BaseDialog.vue';
 import PmActionIcon from '../PmActionIcon.vue';
 import NoteEditor from './NoteEditor.vue';
+import { LECTURE_LAYOUT_OPTIONS, lectureLayoutAttrs, lectureLayoutOf } from './nodes/lectureLayout.js';
 import NoteAudioExportDialog from './NoteAudioExportDialog.vue';
 import NoteReviewPanel from './NoteReviewPanel.vue';
 import NoteTagBar from './NoteTagBar.vue';
@@ -867,9 +907,11 @@ const noteScrollPositions = loadStoredScrollPositions();
 
 const noteAttributes = computed(() => body.value?.attrs || {});
 const linkedDocument = computed(() => noteAttributes.value.linkedDocument || null);
-const lectureMode = computed(() => Boolean(noteAttributes.value.lectureMode));
-// Vorlesungsmitschrift: enthält Folien-Abschnitte oder steht in der Mitschrift-Ansicht.
-const isLectureNote = computed(() => lectureMode.value
+const lectureLayout = computed(() => lectureLayoutOf(noteAttributes.value));
+const activeLectureLayoutOption = computed(() =>
+  LECTURE_LAYOUT_OPTIONS.find((option) => option.value === lectureLayout.value) || LECTURE_LAYOUT_OPTIONS[0]);
+// Vorlesungsmitschrift: enthält Folien-Abschnitte oder hat ein Vorlesungs-Layout.
+const isLectureNote = computed(() => Boolean(noteAttributes.value.lectureMode || noteAttributes.value.lectureLayout)
   || Boolean(body.value?.content?.some((node) => node.type === 'lectureSlide')));
 const splitVisible = computed(() => Boolean(linkedDocument.value?.id) && splitOpen.value && hasLoadedContent.value);
 const splitMainClasses = computed(() => ({
@@ -1915,8 +1957,28 @@ function assignDocument(document) {
   });
 }
 
-function toggleLectureMode() {
-  patchBodyAttributes({ lectureMode: !lectureMode.value });
+// Gemerktes Layout der letzten Wahl (Benutzereinstellung) = Vorgabe für neue Vorlesungsnotizen.
+const rememberedLectureLayout = computed(() => lectureLayoutAttrs(settingsStore.settings?.ui?.notes_lecture_layout).lectureLayout);
+const rememberedLectureLayoutOption = computed(() =>
+  LECTURE_LAYOUT_OPTIONS.find((option) => option.value === rememberedLectureLayout.value) || LECTURE_LAYOUT_OPTIONS[0]);
+
+function setLectureLayout(layout) {
+  if (lectureLayout.value === layout && isLectureNote.value) return;
+  patchBodyAttributes(lectureLayoutAttrs(layout));
+  void rememberLectureLayout(layout);
+}
+
+async function rememberLectureLayout(layout) {
+  const ui = settingsStore.settings?.ui;
+  if (!ui || ui.notes_lecture_layout === layout) return;
+  const previous = ui.notes_lecture_layout;
+  ui.notes_lecture_layout = layout;
+  try {
+    await settingsStore.patchSettings(getBaseUrl(), buildNotesPreferencesPatch({ notes_lecture_layout: layout }));
+  } catch (error) {
+    ui.notes_lecture_layout = previous;
+    console.warn('Vorlesungs-Layout konnte nicht gemerkt werden:', error);
+  }
 }
 
 function unlinkDocument() {
@@ -2379,6 +2441,19 @@ onBeforeUnmount(() => {
   }
 }
 
+.note-workspace-editor__kind-chip-caret { margin-left: -1px; opacity: 0.7; }
+.note-workspace-editor__layout-check { color: var(--pm-accent-strong, var(--pm-accent)); }
+.note-workspace-editor__more-item.is-current .note-workspace-editor__more-icon {
+  color: var(--pm-accent-strong, var(--pm-accent));
+}
+.note-workspace-editor__kind-chip:hover:not(:disabled),
+.note-workspace-editor__kind-chip[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 14%, transparent);
+}
+.note-workspace-editor__kind-chip:focus-visible {
+  outline: 2px solid var(--pm-accent, #006b75);
+  outline-offset: 2px;
+}
 .note-workspace-editor__kind-chip {
   display: inline-flex;
   flex: none;
@@ -2395,7 +2470,11 @@ onBeforeUnmount(() => {
   line-height: 1;
   white-space: nowrap;
   user-select: none;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 120ms ease;
 }
+.note-workspace-editor__kind-chip:disabled { cursor: default; opacity: 0.6; }
 
 .note-workspace-editor__title.is-generated { font-style: italic; color: var(--pm-muted, #535e62); }
 

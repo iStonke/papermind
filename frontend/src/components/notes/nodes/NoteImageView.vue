@@ -20,6 +20,7 @@
         :tabindex="isLectureImage ? 0 : undefined"
         :aria-label="isLectureImage ? 'Screenshot vergrößern' : undefined"
         @click.stop="openPreview"
+        @pm-lecture-preview="openPreview"
         @keydown.enter.prevent.stop="openPreview"
         @keydown.space.prevent.stop="openPreview"
         @load="loadError = false"

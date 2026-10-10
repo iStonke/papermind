@@ -5,19 +5,30 @@
         <span>Folie {{ slideNumber }}</span>
         <time v-if="capturedAt" :datetime="capturedAt" :title="captureTitle">· {{ captureDate }} · {{ captureTime }}</time>
       </span>
+      <!-- „Nur Mitschrift": vorhandener Screenshot ist ausgeblendet, bleibt aber per Klick erreichbar. -->
+      <button v-if="textLayout && hasSlideImage" type="button" class="pm-lecture-slide__peek" title="Ausgeblendeten Screenshot ansehen" aria-label="Ausgeblendeten Screenshot ansehen" @mousedown.prevent @click="openSlidePreview"><v-icon size="15" aria-hidden="true">mdi-image-outline</v-icon></button>
       <button v-if="editor.isEditable" type="button" class="pm-lecture-slide__remove" title="Zeile entfernen" aria-label="Zeile entfernen" @mousedown.prevent @click="deleteNode()"><v-icon size="16">mdi-trash-can-outline</v-icon></button>
       <button v-if="editor.isEditable && isFirstBlock" type="button" class="pm-lecture-slide__prepend" title="Inhalt oberhalb einfügen" aria-label="Inhalt oberhalb einfügen" @mousedown.prevent @click="addAbove"><v-icon size="16">mdi-plus</v-icon>Inhalt oberhalb</button>
     </div>
     <node-view-content class="pm-lecture-slide__columns" />
     <div v-if="editor.isEditable" class="pm-lecture-slide__footer" contenteditable="false">
-      <button type="button" class="pm-lecture-slide__add" title="Screenshot & Mitschrift hinzufügen" aria-label="Screenshot & Mitschrift hinzufügen" @mousedown.prevent @click="addRow"><v-icon size="18" aria-hidden="true">mdi-plus</v-icon></button>
+      <button type="button" class="pm-lecture-slide__add" :title="addLabel" :aria-label="addLabel" @mousedown.prevent @click="addRow"><v-icon size="18" aria-hidden="true">mdi-plus</v-icon></button>
     </div>
   </node-view-wrapper>
 </template>
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
 import { NodeViewWrapper, NodeViewContent, nodeViewProps } from '@tiptap/vue-3';
+import { lectureLayoutOf } from './lectureLayout.js';
 const props = defineProps(nodeViewProps);
+const textLayout = ref(false);
+const hasSlideImage = computed(() => (props.node.firstChild?.childCount || 0) > 0);
+const addLabel = computed(() => textLayout.value ? 'Abschnitt hinzufügen' : 'Screenshot & Mitschrift hinzufügen');
+function openSlidePreview() {
+  const pos = props.getPos();
+  const dom = Number.isInteger(pos) ? props.editor.view.nodeDOM(pos) : null;
+  dom?.querySelector?.('.pm-lecture-slide__media img')?.dispatchEvent(new CustomEvent('pm-lecture-preview'));
+}
 const isFirstBlock = ref(false);
 const slideNumber = ref(1);
 const isWriting = ref(false);
@@ -49,6 +60,7 @@ function updatePosition() {
   slideNumber.value = number;
 }
 function onEditorChange() {
+  textLayout.value = lectureLayoutOf(props.editor.state.doc.attrs) === 'text';
   updatePosition();
   updateWriting();
 }

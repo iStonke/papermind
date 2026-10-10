@@ -14,8 +14,9 @@
         'note-editor--review-active': review.open,
         'note-editor--review-dim': review.open && review.showMarks && reviewFocusId != null,
         // Mitschrift-Ansicht: Folie links, Mitschrift rechts (nodes/lectureSlide.js).
-        'note-editor--lecture pm-lecture-mode': lectureMode,
+        'note-editor--lecture': lectureMode,
       },
+      lectureClasses,
       `note-editor--width-${normalizedWritingWidth}`,
       `note-editor--spacing-${normalizedParagraphSpacing}`,
       `note-editor--font-${normalizedFontFamily}`,
@@ -280,6 +281,7 @@ import { Callout } from './nodes/callout.js';
 import { CollapsibleSection } from './nodes/collapsibleSection.js';
 import { LayoutColumn, PageLayout } from './nodes/pageLayout.js';
 import { LectureSlide, LectureSlideMedia, LectureSlideNotes, lectureSlideAtSelection } from './nodes/lectureSlide.js';
+import { lectureLayoutClasses, lectureLayoutOf } from './nodes/lectureLayout.js';
 import { NoteHighlight } from './nodes/noteHighlight.js';
 import { PaperMindDocument } from './nodes/noteDocument.js';
 import { TemplateBox, TemplateField } from './nodes/templateBox.js';
@@ -401,9 +403,12 @@ const editorEmpty = ref(true);
 const toolbarScrolled = ref(false);
 const emptyHintPositioned = ref(false);
 const emptyHintStyle = ref({ top: '0px', left: '0px' });
-// Mitschrift-Notiz (Wurzel-Attribut lectureMode): Folien stehen neben der
-// Mitschrift, und ein eingefügter Screenshot beginnt einen neuen Abschnitt.
-const lectureMode = computed(() => Boolean(props.modelValue?.attrs?.lectureMode));
+// Vorlesungsmitschrift (nodes/lectureLayout.js): Bei „Folie neben Mitschrift"
+// beginnt ein eingefügter Screenshot einen neuen Abschnitt; bei „Nur
+// Mitschrift" sind die Folien ausgeblendet und Bilder landen im Text.
+const lectureLayout = computed(() => lectureLayoutOf(props.modelValue?.attrs));
+const lectureMode = computed(() => lectureLayout.value === 'side');
+const lectureClasses = computed(() => lectureLayoutClasses(props.modelValue?.attrs));
 const normalizedWritingWidth = computed(() =>
   ['compact', 'comfortable', 'wide'].includes(props.writingWidth)
     ? props.writingWidth
@@ -1183,11 +1188,13 @@ function requestSlideImage(mediaPos) {
  *  - vorgemerkte leere Folie (Platzhalter-Klick) → in diese Folie
  *  - Cursor in einem Abschnitt mit leerer Folie → in diese Folie
  *  - Mitschrift-Notiz → je Bild ein neuer Abschnitt
- *  - sonst null (normales Bild an der Cursorposition)
+ *  - „Nur Mitschrift" oder sonst: null (normales Bild an der Cursorposition)
  */
 function slideImageTarget(ed, position = null) {
   const pending = pendingSlideMediaPos;
   pendingSlideMediaPos = null;
+  // Ausgeblendete Folien: Bilder gehören sichtbar in den Text.
+  if (lectureLayout.value === 'text') return null;
   if (pending !== null && ed.state.doc.nodeAt(pending)?.type.name === 'lectureSlideMedia') {
     return { mediaPos: pending };
   }

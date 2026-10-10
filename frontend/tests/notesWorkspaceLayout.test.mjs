@@ -522,9 +522,10 @@ test('note export and template actions live in the compact overflow menu', () =>
   assert.match(workspaceEditorSource, /title="Als Markdown speichern"[\s\S]*?@click="exportNoteAsMarkdown"/);
   assert.match(workspaceEditorSource, /title="Als PDF speichern"[\s\S]*?@click="exportNoteAsPdf"/);
   assert.match(workspaceEditorSource, /title="Als Audiodatei speichern"[\s\S]*?@click="openAudioExportDialog"/);
-  // + Umschalter Mitschrift-/Normale Ansicht.
-  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-item"/g) || []).length, 8);
-  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-icon"/g) || []).length, 8);
+  // + „Als Vorlesung mitschreiben" und die Layout-Einträge am Vorlesung-Chip
+  //   (gleiche Menüoptik, ein v-for-Eintrag im Quelltext).
+  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-item"/g) || []).length, 9);
+  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-icon"/g) || []).length, 9);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-menu\s*\{[\s\S]*?padding:\s*6px[\s\S]*?border-radius:\s*14px[\s\S]*?background:\s*var\(--pm-app-surface-raised\)[\s\S]*?box-shadow:\s*var\(--pm-shadow\)/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-item\s*\{[\s\S]*?min-height:\s*38px[\s\S]*?border-radius:\s*9px[\s\S]*?transition:\s*none/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-icon\s*\{[\s\S]*?width:\s*26px[\s\S]*?height:\s*26px[\s\S]*?border-radius:\s*8px/);

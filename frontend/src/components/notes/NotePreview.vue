@@ -11,7 +11,7 @@
     :class="[
       { 'note-preview--compact': compact },
       { 'note-preview--dark': theme === 'dark' },
-      { 'pm-lecture-mode': Boolean(bodyJson?.attrs?.lectureMode) },
+      lectureLayoutClasses(bodyJson?.attrs),
       `note-preview--spacing-${notesParagraphSpacing}`,
       `note-preview--font-${notesFontFamily}`,
       `note-preview--font-size-${notesFontSize}`,
@@ -57,6 +57,7 @@ import { CollapsibleSection } from './nodes/collapsibleSection.js';
 import { PaperMindDocument } from './nodes/noteDocument.js';
 import { LayoutColumn, PageLayout } from './nodes/pageLayout.js';
 import { LectureSlide, LectureSlideMedia, LectureSlideNotes } from './nodes/lectureSlide.js';
+import { lectureLayoutClasses } from './nodes/lectureLayout.js';
 import { NoteHighlight } from './nodes/noteHighlight.js';
 import { TemplateBox, TemplateField } from './nodes/templateBox.js';
 import { NoteImage } from './nodes/noteImage.js';
