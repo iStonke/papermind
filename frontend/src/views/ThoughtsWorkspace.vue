@@ -174,6 +174,8 @@ import { findFreeThoughtPosition, THOUGHT_PLACEMENT_GAP } from '../utils/thought
 import { noteMarkdownToTipTap } from '../utils/noteMarkdown.js';
 import { sortThoughts } from '../utils/thoughtSort.js';
 import ThoughtColorPicker from '../components/ThoughtColorPicker.vue';
+import { useTheme } from 'vuetify';
+import { thoughtDisplayColor } from '../utils/thoughtColors.js';
 import { useNotesStore } from '../stores/notes.js';
 import { useAuthStore } from '../stores/auth.js';
 import { listPins, createPin, updatePin, archivePins, movePin, listThoughtRooms, createThoughtRoom, renameThoughtRoom, deleteThoughtRoom, colorPins, movePins, summarizeThoughtRoom } from '../api/notes.js';
@@ -411,10 +413,16 @@ let dragState = null, lastDragEnded = 0, editTimer = null, editRequest = null, p
 const vAutoHeight = { mounted: resizeTextArea, updated: resizeTextArea };
 const CARD_WIDTH = 270;
 const draftBounds = ref(null), newCardBounds = ref({});
-const draftStyle = computed(() => ({ ...positionStyle(draftPosition.value), ...(draftPosition.value?.title_color ? { '--thought-title-color': draftPosition.value.title_color, '--thought-title-ink': titleInk(draftPosition.value.title_color) } : {}), ...(draftBounds.value ? { width: `${draftBounds.value.width}px`, maxHeight: `${draftBounds.value.height}px` } : {}) }));
+const thoughtTheme = useTheme();
+function titleColorStyle(value) {
+  if (!value && !thoughtTheme.current.value.dark) return {};
+  const color = thoughtDisplayColor(value, thoughtTheme.current.value.dark);
+  return { '--thought-title-color': color, '--thought-title-ink': titleInk(color) };
+}
+const draftStyle = computed(() => ({ ...positionStyle(draftPosition.value), ...titleColorStyle(draftPosition.value?.title_color), ...(draftBounds.value ? { width: `${draftBounds.value.width}px`, maxHeight: `${draftBounds.value.height}px` } : {}) }));
 function cardStyle(pin) {
   const bounds = newCardBounds.value[pin.id];
-  return { ...positionStyle(pinPosition(pin)), ...(pin.title_color ? { '--thought-title-color': pin.title_color, '--thought-title-ink': titleInk(pin.title_color) } : {}), ...(bounds ? { width: `${bounds.width}px` } : {}) };
+  return { ...positionStyle(pinPosition(pin)), ...titleColorStyle(pin.title_color), ...(bounds ? { width: `${bounds.width}px` } : {}) };
 }
 const toolbarColor = computed(() => draftPosition.value?.title_color || pins.value.find((pin) => pin.id === (selectedPinIds.value[0] || activeId.value))?.title_color || defaultTitleColor.value);
 async function chooseToolbarColor(color) {

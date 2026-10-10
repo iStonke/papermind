@@ -5,13 +5,13 @@
     </button>
     <Teleport to="body">
       <div v-if="open" ref="panel" class="thought-color-menu papermind-app" :class="theme.themeClasses.value" role="group" aria-label="Titelleistenfarbe" :style="position" @keydown.esc.stop="close" @pointerdown.stop>
-        <button v-for="color in colors" :key="color.value" type="button" :aria-label="color.name" :aria-pressed="modelValue === color.value" :style="{ background: color.value }" @click="choose(color.value)">{{ modelValue === color.value ? '✓' : '' }}</button>
+        <button v-for="color in colors" :key="color.value" type="button" :aria-label="color.name" :aria-pressed="modelValue === color.value" :style="{ background: thoughtDisplayColor(color.value, theme.current.value.dark), color: theme.current.value.dark ? '#fff' : '#172c32' }" @click="choose(color.value)">{{ modelValue === color.value ? '✓' : '' }}</button>
       </div>
     </Teleport>
   </span>
 </template>
 <script setup>
-import { THOUGHT_COLORS } from '../utils/thoughtColors.js';
+import { THOUGHT_COLORS, thoughtDisplayColor } from '../utils/thoughtColors.js';
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useTheme } from 'vuetify';
 const theme = useTheme();

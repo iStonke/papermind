@@ -14,6 +14,8 @@ test('lecture rows keep timestamps, accept clipboard screenshots and add/remove 
   await page.evaluate(async () => (await import('/tests/browser/fixtures/lectureRows.js')).mountLectureRows());
   const rows = page.locator('.pm-lecture-slide');
   await expect(rows).toHaveCount(1);
+  await rows.first().hover();
+  await expect(rows.first().getByRole('button', { name: 'Zeile entfernen', exact: true })).toHaveCount(0);
   const notes = rows.first().locator('.pm-lecture-slide__notes p').first();
   await notes.click();
   await page.keyboard.type('Meine erste Mitschrift');
@@ -52,6 +54,7 @@ test('lecture rows keep timestamps, accept clipboard screenshots and add/remove 
   expect(await page.evaluate(() => window.rowAnimations.length)).toBe(3);
   expect(await page.evaluate(() => window.rowAnimations[0].duration)).toBe(240);
   await expect(rows).toHaveCount(4);
+  await expect(rows.first().getByRole('button', { name: 'Zeile entfernen', exact: true })).toHaveCount(0);
   await expect(rows.last().locator('time')).toHaveCount(0);
   const divider = await rows.nth(1).evaluate(el => getComputedStyle(el).borderTopWidth);
   expect(divider).toBe('1px');
@@ -63,4 +66,5 @@ test('lecture rows keep timestamps, accept clipboard screenshots and add/remove 
   expect(await page.evaluate(() => window.lectureBody.content[0].type)).toBe('paragraph');
   expect(await page.evaluate(() => window.lectureBody.content[0].content[0].text)).toBe('Einleitung vor der ersten Folie');
   await expect(rows.first().getByRole('button', { name: 'Inhalt oberhalb einfügen', exact: true })).toHaveCount(0);
+  await expect(rows.first().getByRole('button', { name: 'Zeile entfernen', exact: true })).toHaveCount(0);
 });

@@ -7,7 +7,7 @@
       </span>
       <!-- „Nur Mitschrift": vorhandener Screenshot ist ausgeblendet, bleibt aber per Klick erreichbar. -->
       <button v-if="textLayout && hasSlideImage" type="button" class="pm-lecture-slide__peek" title="Ausgeblendeten Screenshot ansehen" aria-label="Ausgeblendeten Screenshot ansehen" @mousedown.prevent @click="openSlidePreview"><v-icon size="15" aria-hidden="true">mdi-image-outline</v-icon></button>
-      <button v-if="editor.isEditable" type="button" class="pm-lecture-slide__remove" title="Zeile entfernen" aria-label="Zeile entfernen" @mousedown.prevent @click="deleteNode()"><v-icon size="16">mdi-trash-can-outline</v-icon></button>
+      <button v-if="editor.isEditable && slideNumber > 1" type="button" class="pm-lecture-slide__remove" title="Zeile entfernen" aria-label="Zeile entfernen" @mousedown.prevent @click="removeRow"><v-icon size="16">mdi-trash-can-outline</v-icon></button>
       <button v-if="editor.isEditable && isFirstBlock" type="button" class="pm-lecture-slide__prepend" title="Inhalt oberhalb einfügen" aria-label="Inhalt oberhalb einfügen" @mousedown.prevent @click="addAbove"><v-icon size="16">mdi-plus</v-icon>Inhalt oberhalb</button>
     </div>
     <node-view-content class="pm-lecture-slide__columns" />
@@ -31,6 +31,10 @@ function openSlidePreview() {
 }
 const isFirstBlock = ref(false);
 const slideNumber = ref(1);
+function removeRow() {
+  updatePosition();
+  if (slideNumber.value > 1) props.deleteNode();
+}
 const isWriting = ref(false);
 // Cursor in der Mitschrift dieses Abschnitts (bei fokussiertem Editor).
 function updateWriting() {

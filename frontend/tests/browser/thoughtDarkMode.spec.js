@@ -58,9 +58,13 @@ test('editing, new thoughts, palette and summary dialog follow dark mode', async
   await page.locator('article.thoughts-card').first().getByRole('button', { name: 'Titelleistenfarbe wählen' }).click();
   const palette = page.getByRole('group', { name: 'Titelleistenfarbe', exact: true });
   await expect(palette).toHaveClass(/v-theme--dark/);
+  const darkHeader = await page.locator('.thoughts-titlebar').first().evaluate(el => getComputedStyle(el).backgroundColor);
+  expect(darkHeader).not.toBe('rgb(204, 224, 220)');
+  expect(await palette.getByRole('button', { name: 'Salbei', exact: true }).evaluate(el => getComputedStyle(el).backgroundColor)).toBe(darkHeader);
   expect(await palette.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(51, 59, 62)');
   await page.evaluate(() => window.setThoughtsTheme('light'));
   await expect(palette).toHaveClass(/v-theme--light/);
+  expect(await page.locator('.thoughts-titlebar').first().evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(204, 224, 220)');
   await page.evaluate(() => window.setThoughtsTheme('dark'));
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Alle Gedanken zusammenfassen', exact: true }).click();
