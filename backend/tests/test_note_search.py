@@ -29,6 +29,7 @@ def note_row(*, body_text: str = "Ein kurzer Notiztext"):
     return SimpleNamespace(
         id=uuid4(),
         title="Recherche",
+        title_is_generated=False,
         body_text=body_text,
         is_template=False,
         is_deleted=False,
