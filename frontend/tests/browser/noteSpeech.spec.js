@@ -1,6 +1,10 @@
 import { expect, test } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
-async function mount(page, { blockPlayback = false, deferPlayback = false, realAudio = false } = {}) {
+const productionCsp = readFileSync(new URL('../../nginx.conf', import.meta.url), 'utf8')
+  .match(/add_header Content-Security-Policy "([^"]+)"/)[1];
+
+async function mount(page, { blockPlayback = false, deferPlayback = false, realAudio = false, csp = false } = {}) {
   const requests = [];
   // A valid one-second mono PCM WAV, so the real media decoder can be tested.
   const wav = Buffer.alloc(44 + 16000);
@@ -15,11 +19,19 @@ async function mount(page, { blockPlayback = false, deferPlayback = false, realA
     await new Promise(resolve => setTimeout(resolve, 150));
     await route.fulfill({ contentType: 'audio/wav', body: wav });
   });
-  await page.route('**/__note-speech', route => route.fulfill({ contentType: 'text/html', body: '<div id="app" class="papermind-app v-theme--light" style="height:800px"></div>' }));
+  await page.route('**/__note-speech', route => route.fulfill({
+    contentType: 'text/html',
+    headers: csp ? { 'Content-Security-Policy': productionCsp } : {},
+    body: '<div id="app" class="papermind-app v-theme--light" style="height:800px"></div>',
+  }));
   await page.goto('/__note-speech');
   await page.evaluate(async ({ blockPlayback, deferPlayback, realAudio }) => {
     window.speechPlays = [];
     window.speechRevokedUrls = [];
+    window.speechMediaViolations = [];
+    document.addEventListener('securitypolicyviolation', event => {
+      if (event.effectiveDirective === 'media-src') window.speechMediaViolations.push(event.blockedURI);
+    });
     const revoke = URL.revokeObjectURL;
     URL.revokeObjectURL = url => { window.speechRevokedUrls.push(url); revoke(url); };
     if (!realAudio) {
@@ -84,10 +96,11 @@ test('changing the selection during pending playback ignores a late resolution',
   expect(await page.evaluate(() => window.speechRevokedUrls.length)).toBe(1);
 });
 
-test('real WAV playback starts after the delayed synthesis response', async ({ page }) => {
-  await mount(page, { realAudio: true });
+test('real WAV playback works under the production CSP after delayed synthesis', async ({ page }) => {
+  await mount(page, { realAudio: true, csp: true });
   await page.getByRole('button', { name: 'Markierten Text vorlesen', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Vorlesen pausieren', exact: true })).toBeVisible();
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Markierten Text vorlesen', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => window.speechMediaViolations)).toEqual([]);
 });
