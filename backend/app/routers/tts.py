@@ -6,7 +6,7 @@ from app.core.errors import APIError
 from app.models.user import User
 from app.schemas.common import ErrorResponse
 from app.schemas.tts import SpeechRequest
-from app.services.tts import TTSUnavailableError, merge_wav_bytes, segment_speech_text, tts_service
+from app.services.tts import TTSUnavailableError, merge_speech_audio, segment_speech_text, tts_service
 
 router = APIRouter(prefix="/api/tts", tags=["Text to Speech"])
 
@@ -37,10 +37,10 @@ def synthesize_speech(
             mode=payload.language_mode,
             max_chars=settings.tts_max_chars,
         )
-        audio = merge_wav_bytes([
+        audio = merge_speech_audio([
             tts_service.synthesize_wav(segment.text, voice=payload.voice, language=segment.language)
             for segment in segments
-        ], pause_seconds=tts_service.SENTENCE_PAUSE_SECONDS)
+        ], segments)
     except TTSUnavailableError as exc:
         raise APIError(
             status.HTTP_503_SERVICE_UNAVAILABLE,

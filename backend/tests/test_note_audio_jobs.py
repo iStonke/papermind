@@ -6,7 +6,7 @@ import wave
 from pathlib import Path
 
 from app.services.note_audio_jobs import NoteAudioJobStore
-from app.services.tts import merge_wav_bytes, split_speech_text
+from app.services.tts import SpeechSegment, merge_speech_audio, merge_wav_bytes, split_speech_text
 
 
 def _wav(frames: bytes) -> bytes:
@@ -104,6 +104,25 @@ class NoteAudioJobStoreTests(unittest.TestCase):
 
 
 class NoteAudioWavTests(unittest.TestCase):
+    def test_paragraph_and_sentence_pauses_survive_audio_merging(self):
+        segments = [SpeechSegment('A.', 'de'), SpeechSegment('B.', 'en', True), SpeechSegment('C.', 'de')]
+        merged = merge_speech_audio([_wav(b'\x01\x00'), _wav(b'\x02\x00'), _wav(b'\x03\x00')], segments)
+        with wave.open(io.BytesIO(merged), 'rb') as source:
+            frames = source.readframes(source.getnframes())
+            paragraph_frames = round(22050 * 0.38)
+            sentence_frames = round(22050 * 0.18)
+            self.assertEqual(source.getnframes(), 3 + paragraph_frames + sentence_frames)
+            self.assertEqual(frames[:2], b'\x01\x00')
+            self.assertEqual(frames[2:2 + paragraph_frames * 2], bytes(paragraph_frames * 2))
+            self.assertEqual(frames[2 + paragraph_frames * 2:4 + paragraph_frames * 2], b'\x02\x00')
+            self.assertEqual(frames[-2:], b'\x03\x00')
+
+    def test_merging_rejects_inconsistent_boundary_metadata(self):
+        with self.assertRaises(ValueError):
+            merge_speech_audio([_wav(b'\x01\x00')], [])
+        with self.assertRaises(ValueError):
+            merge_wav_bytes([_wav(b'\x01\x00'), _wav(b'\x02\x00')], pauses=[])
+
     def test_audio_parts_can_have_a_pause_between_language_or_length_segments(self):
         merged = merge_wav_bytes([_wav(b"\x01\x00"), _wav(b"\x02\x00")], pause_seconds=0.18)
         with wave.open(io.BytesIO(merged), "rb") as source:

@@ -24,6 +24,8 @@ def _speech_paragraphs(text: str) -> list[str]:
 
 def split_speech_text(text: str, max_chars: int = 6000) -> list[str]:
     """Split long prose at paragraph/sentence boundaries for bounded inference."""
+    if max_chars < 1:
+        raise ValueError("Speech chunk limit must be positive")
     normalized = "\n".join(_speech_paragraphs(text))
     if not normalized:
         return []
@@ -31,9 +33,13 @@ def split_speech_text(text: str, max_chars: int = 6000) -> list[str]:
     remaining = normalized
     while len(remaining) > max_chars:
         window = remaining[: max_chars + 1]
-        candidates = [match.end() for match in re.finditer(r"[.!?;:]\s+", window)]
-        split_at = candidates[-1] if candidates else window.rfind(" ")
+        candidates = _sentence_boundaries(window)
+        candidates.extend(match.start() for match in re.finditer(r"\n", window))
+        candidates.extend(match.start() + 1 for match in re.finditer(r"[,;:]\s+", window))
+        split_at = max(candidates) if candidates else window.rfind(" ")
         if split_at < max_chars // 2:
+            split_at = max(window.rfind(" "), window.rfind("\n"))
+        if split_at <= 0:
             split_at = max_chars
         chunks.append(remaining[:split_at].strip())
         remaining = remaining[split_at:].strip()
@@ -46,6 +52,7 @@ def split_speech_text(text: str, max_chars: int = 6000) -> list[str]:
 class SpeechSegment:
     text: str
     language: str
+    paragraph_break: bool = False
 
 
 _GERMAN_WORDS = frozenset(
@@ -60,7 +67,7 @@ _ENGLISH_WORDS = frozenset(
     "who will with would you your".split()
 )
 _WORD_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]+(?:['’][A-Za-z]+)?")
-_SENTENCE_BOUNDARY_RE = re.compile(r"(?<=[.!?])(?:[\"'»”)]*)\s+")
+_SENTENCE_BOUNDARY_RE = re.compile(r"([.!?][\"'»”’“‘)\]]*)\s+")
 _GERMAN_ABBREVIATIONS = (
     (r"\bz\.\s*B\.", "zum Beispiel"),
     (r"\bd\.\s*h\.", "das heißt"),
@@ -71,7 +78,49 @@ _GERMAN_ABBREVIATIONS = (
     (r"\bca\.", "circa"),
     (r"\binkl\.", "inklusive"),
     (r"\busw\.", "und so weiter"),
+    (r"\bDr\.", "Doktor"),
+    (r"\bProf\.", "Professor"),
+    (r"\bNr\.", "Nummer"),
+    (r"\bAbb\.", "Abbildung"),
+    (r"\bvgl\.", "vergleiche"),
+    (r"\bbspw\.", "beispielsweise"),
+    (r"\bevtl\.", "eventuell"),
 )
+_ABBREVIATION_END_RE = re.compile(
+    r"\b(?:" + "|".join(pattern.removeprefix(r"\b") for pattern, _replacement in _GERMAN_ABBREVIATIONS)
+    + r"|Mr\.|Mrs\.|Ms\.|Jr\.|Sr\.|etc\.|e\.\s*g\.|i\.\s*e\.|[A-Za-zÄÖÜäöü]\.)$",
+    re.IGNORECASE,
+)
+_ORDINAL_FOLLOWING_RE = re.compile(
+    r"(?:Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember|"
+    r"Semester|Kapitel|Abschnitt|Seite|Folie|Auflage|Platz)\b",
+    re.IGNORECASE,
+)
+
+
+def _sentence_boundaries(text: str) -> list[int]:
+    """Find sentence ends without losing quotes or splitting abbreviations."""
+    boundaries = []
+    for match in _SENTENCE_BOUNDARY_RE.finditer(text):
+        punctuation = match.group(1)
+        # Only nearby tokens matter. Avoid rescanning/copying a complete long
+        # paragraph for every full stop during large audio exports.
+        prefix_start = max(0, match.start(1) - 64)
+        prefix = text[prefix_start:match.start(1) + 1]
+        following = text[match.end():match.end() + 64]
+        if punctuation == ".":
+            abbreviation = _ABBREVIATION_END_RE.search(prefix)
+            if abbreviation:
+                terminal = abbreviation.group().lower() in {"usw.", "etc."}
+                if not terminal or not re.match(r"[A-ZÄÖÜ]", following):
+                    continue
+            if re.search(r"\b\d+\.$", prefix) and (
+                (prefix_start == 0 and prefix.strip().removesuffix(".").isdigit())
+                or _ORDINAL_FOLLOWING_RE.match(following)
+            ):
+                continue
+        boundaries.append(match.end(1))
+    return boundaries
 
 
 def _spoken_abbreviation(match: re.Match[str], replacement: str) -> str:
@@ -120,7 +169,12 @@ def _language_evidence(text: str) -> tuple[str | None, int]:
 def _speech_units(text: str) -> list[tuple[str, int]]:
     units: list[tuple[str, int]] = []
     for index, paragraph in enumerate(_speech_paragraphs(text)):
-        units.extend((part.strip(), index) for part in _SENTENCE_BOUNDARY_RE.split(paragraph) if part.strip())
+        start = 0
+        for end in [*_sentence_boundaries(paragraph), len(paragraph)]:
+            part = paragraph[start:end].strip()
+            if part:
+                units.append((part, index))
+            start = end
     return units
 
 
@@ -128,7 +182,14 @@ def segment_speech_text(text: str, *, mode: str = "auto", max_chars: int = 6000)
     """Split text into bounded German/English segments for Piper synthesis."""
     normalized_mode = mode if mode in {"auto", "de", "en"} else "auto"
     if normalized_mode != "auto":
-        return [SpeechSegment(chunk, normalized_mode) for chunk in split_speech_text(text, max_chars)]
+        normalized = "\n".join(_speech_paragraphs(text))
+        segments = []
+        cursor = 0
+        for chunk in split_speech_text(normalized, max_chars):
+            start = normalized.index(chunk, cursor)
+            segments.append(SpeechSegment(chunk, normalized_mode, "\n" in normalized[cursor:start]))
+            cursor = start + len(chunk)
+        return segments
 
     units = _speech_units(text)
     if not units:
@@ -153,16 +214,18 @@ def segment_speech_text(text: str, *, mode: str = "auto", max_chars: int = 6000)
             separator = " " if paragraph == previous_paragraph else "\n"
             if segments and segments[-1].language == language and len(segments[-1].text) + len(chunk) + 1 <= max_chars:
                 previous = segments[-1]
-                segments[-1] = SpeechSegment(f"{previous.text}{separator}{chunk}", language)
+                segments[-1] = SpeechSegment(f"{previous.text}{separator}{chunk}", language, previous.paragraph_break)
             else:
-                segments.append(SpeechSegment(chunk, language))
+                segments.append(SpeechSegment(chunk, language, bool(segments and paragraph != previous_paragraph)))
             previous_paragraph = paragraph
     return segments
 
 
-def merge_wav_bytes(parts: list[bytes], *, pause_seconds: float = 0.0) -> bytes:
+def merge_wav_bytes(parts: list[bytes], *, pause_seconds: float = 0.0, pauses: list[float] | None = None) -> bytes:
     if not parts:
         raise ValueError("No audio parts to merge")
+    if pauses is not None and len(pauses) != len(parts) - 1:
+        raise ValueError("Audio pauses must match the number of boundaries")
     output = io.BytesIO()
     reference: tuple[int, int, int, str, str] | None = None
     frames: list[bytes] = []
@@ -184,10 +247,22 @@ def merge_wav_bytes(parts: list[bytes], *, pause_seconds: float = 0.0) -> bytes:
         target.setframerate(reference[2])
         target.setcomptype(reference[3], reference[4])
         for index, frame_data in enumerate(frames):
-            if index and pause_seconds > 0:
-                target.writeframes(bytes(round(reference[2] * pause_seconds) * reference[0] * reference[1]))
+            pause = pauses[index - 1] if pauses is not None and index else pause_seconds
+            if index and pause > 0:
+                target.writeframes(bytes(round(reference[2] * pause) * reference[0] * reference[1]))
             target.writeframes(frame_data)
     return output.getvalue()
+
+
+def merge_speech_audio(parts: list[bytes], segments: list[SpeechSegment]) -> bytes:
+    """Retain paragraph pauses across language and inference-size boundaries."""
+    if len(parts) != len(segments):
+        raise ValueError("Audio parts must match the speech segments")
+    pauses = [
+        PiperTTSService.PARAGRAPH_PAUSE_SECONDS if segment.paragraph_break else PiperTTSService.SENTENCE_PAUSE_SECONDS
+        for segment in segments[1:]
+    ]
+    return merge_wav_bytes(parts, pauses=pauses)
 
 
 class PiperTTSService:

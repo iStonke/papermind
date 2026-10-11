@@ -9,7 +9,7 @@ import numpy as np
 from app.core.errors import APIError
 from app.routers import tts as tts_router
 from app.schemas.tts import SpeechRequest
-from app.services.tts import PiperTTSService, TTSUnavailableError, prepare_speech_text, segment_speech_text, split_speech_text
+from app.services.tts import PiperTTSService, TTSUnavailableError, _speech_units, prepare_speech_text, segment_speech_text, split_speech_text
 
 
 class _FakeVoice:
@@ -102,8 +102,57 @@ class PiperTTSServiceTest(unittest.TestCase):
         self.assertEqual(prepare_speech_text("Weitere Angaben usw."), "Weitere Angaben und so weiter.")
         self.assertIn("Unter Umständen", prepare_speech_text("U. U. wird später geprüft."))
 
+    def test_titles_and_numbers_are_spoken_without_extra_stops(self) -> None:
+        text = 'Dr. Müller bespricht die Nr. 3 (vgl. Abb. 2).'
+        spoken = prepare_speech_text(text)
+        self.assertEqual(spoken, 'Doktor Müller bespricht die Nummer 3 (vergleiche Abbildung 2).')
+        self.assertEqual(prepare_speech_text('Dr. Smith discusses Nr. 3.', language='en'), 'Dr. Smith discusses Nr. 3.')
+
 
 class SpeechSegmentationTest(unittest.TestCase):
+    def test_german_quotes_keep_their_voice_before_an_english_sentence(self) -> None:
+        for opener, closer in [('„', '“'), ('“', '”'), ('«', '»'), ('‚', '‘')]:
+            with self.subTest(closer=closer):
+                first = f'{opener}Die Prüfung wird im Kurs besprochen.{closer}'
+                second = 'This is an English summary and it uses the corresponding voice.'
+                segments = segment_speech_text(f'{first} {second}')
+                self.assertEqual([s.language for s in segments], ['de', 'en'])
+                self.assertEqual([s.text for s in segments], [first, second])
+
+    def test_abbreviations_initials_ordinals_and_decimals_are_not_sentence_ends(self) -> None:
+        text = 'Dr. A. Müller zeigt z. B. am 11. Oktober im 2. Semester die Nr. 3 mit 2,5 Punkten.'
+        self.assertEqual(_speech_units(text), [(text, 0)])
+        quoted = '„Hier endet der Satz.“ Danach beginnt der zweite Satz.'
+        self.assertEqual(_speech_units(quoted), [('„Hier endet der Satz.“', 0), ('Danach beginnt der zweite Satz.', 0)])
+
+    def test_paragraph_break_is_retained_when_the_voice_changes(self) -> None:
+        german = 'Das ist ein deutscher Abschnitt und er wird vorgelesen.'
+        english = 'This is an English section and it has its own paragraph.'
+        for separator, expected in [(' ', False), ('\n', True)]:
+            with self.subTest(separator=separator):
+                segments = segment_speech_text(f'{german}{separator}{english}')
+                self.assertEqual([s.language for s in segments], ['de', 'en'])
+                self.assertEqual(segments[1].paragraph_break, expected)
+
+    def test_forced_and_auto_modes_retain_paragraph_pause_at_chunk_limit(self) -> None:
+        first = 'Das ist der erste Absatz.'
+        second = 'Hier folgt der zweite Absatz.'
+        for mode in ['auto', 'de']:
+            segments = segment_speech_text(first + '\n' + second, mode=mode, max_chars=30)
+            self.assertEqual([s.text for s in segments], [first, second])
+            self.assertTrue(segments[1].paragraph_break)
+
+    def test_long_sentences_split_at_clause_boundaries(self) -> None:
+        text = 'Die Notizen behandeln zuerst die Grundlagen, danach folgen Beispiele, schließlich beginnt die Übung.'
+        chunks = split_speech_text(text, max_chars=50)
+        self.assertTrue(all(len(chunk) <= 50 for chunk in chunks))
+        self.assertEqual(' '.join(chunks), text)
+        self.assertTrue(chunks[0].endswith(','))
+
+    def test_invalid_chunk_limit_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            split_speech_text('Text', max_chars=0)
+
     def test_auto_mode_switches_between_german_and_english_sentences(self) -> None:
         segments = segment_speech_text(
             "Das ist ein deutscher Abschnitt und er wird mit Thorsten gesprochen. "
@@ -146,7 +195,7 @@ class TTSEndpointTest(unittest.TestCase):
     def test_endpoint_returns_inline_audio(self) -> None:
         with (
             patch.object(tts_router.tts_service, "synthesize_wav", return_value=b"part"),
-            patch.object(tts_router, "merge_wav_bytes", return_value=b"RIFFtest"),
+            patch.object(tts_router, "merge_speech_audio", return_value=b"RIFFtest"),
         ):
             response = tts_router.synthesize_speech(SpeechRequest(text="  Hallo   Welt  "), MagicMock())
 
@@ -157,7 +206,7 @@ class TTSEndpointTest(unittest.TestCase):
     def test_endpoint_forwards_voice_preset(self) -> None:
         with (
             patch.object(tts_router.tts_service, "synthesize_wav", return_value=b"part") as synthesize,
-            patch.object(tts_router, "merge_wav_bytes", return_value=b"RIFF"),
+            patch.object(tts_router, "merge_speech_audio", return_value=b"RIFF"),
         ):
             tts_router.synthesize_speech(
                 SpeechRequest(text="Hallo", voice="whisper"),
@@ -173,7 +222,7 @@ class TTSEndpointTest(unittest.TestCase):
         )
         with (
             patch.object(tts_router.tts_service, "synthesize_wav", return_value=b"part") as synthesize,
-            patch.object(tts_router, "merge_wav_bytes", return_value=b"RIFF"),
+            patch.object(tts_router, "merge_speech_audio", return_value=b"RIFF"),
         ):
             tts_router.synthesize_speech(SpeechRequest(text=text, language_mode="auto"), MagicMock())
 
