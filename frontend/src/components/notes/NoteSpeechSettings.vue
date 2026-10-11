@@ -4,35 +4,38 @@
       <h3>Stimme und Sprache</h3>
       <p>Diese Einstellungen gelten für markierten Text und den Export ganzer Notizen.</p>
       <v-select :model-value="ui.notes_tts_language_mode" :items="SPEECH_LANGUAGES" item-title="label" item-value="value"
-        label="Sprachmodus" variant="outlined" density="comfortable" hide-details :disabled="busy"
-        @update:model-value="change('notes_tts_language_mode', $event)" />
-      <v-select v-if="engineChoices.length > 1" :model-value="options.engine" :items="engineChoices" item-title="label" item-value="value"
-        label="Stimmenanbieter" variant="outlined" density="comfortable" hide-details :disabled="busy"
-        @update:model-value="option('engine', $event)" />
+        label="Sprachmodus" variant="outlined" density="comfortable" hide-details :disabled="busy || checking"
+        @update:model-value="selectLanguage">
+        <template #item="{ props: itemProps, item }">
+          <v-list-item v-bind="selectionItemProps(itemProps, item, 'languageMode')" />
+        </template>
+      </v-select>
+      <v-select v-if="engineChoices.length > 1 && ui.notes_tts_language_mode !== 'en'" :model-value="options.engine" :items="engineChoices" item-title="label" item-value="value"
+        label="Stimmenanbieter" variant="outlined" density="comfortable" hide-details :disabled="busy || checking"
+        @update:model-value="selectEngine">
+        <template #item="{ props: itemProps, item }">
+          <v-list-item v-bind="selectionItemProps(itemProps, item, 'engine')" />
+        </template>
+      </v-select>
       <v-select v-if="options.engine === 'piper' && ui.notes_tts_language_mode !== 'en'" :model-value="ui.notes_tts_voice"
         :items="SPEECH_VOICES" item-title="label" item-value="value" label="Deutsche Stimme"
-        variant="outlined" density="comfortable" hide-details :disabled="busy"
-        @update:model-value="change('notes_tts_voice', $event)" />
+        variant="outlined" density="comfortable" hide-details :disabled="busy || checking"
+        @update:model-value="selectVoice">
+        <template #item="{ props: itemProps, item }">
+          <v-list-item v-bind="selectionItemProps(itemProps, item, 'voice')" />
+        </template>
+      </v-select>
+      <div v-if="preparing || playing || playbackBlocked" class="speech-actions">
+        <span v-if="preparing" class="speech-hint" role="status">Stimme wird vorbereitet …</span>
+        <v-btn v-if="playbackBlocked" size="small" variant="text" @click="playPreparedAudio">Stimme anhören</v-btn>
+        <v-btn size="small" variant="text" @click="stop">Stoppen</v-btn>
+      </div>
+      <p v-if="previewError" class="speech-error" role="alert">{{ previewError }}</p>
+      <audio ref="player" hidden @play="playing = true" @pause="playing = false" @ended="playing = false" />
       <p class="speech-hint">Englische Abschnitte werden mit einer passenden englischen Stimme vorgelesen.</p>
       <v-alert v-if="!checking && selectedEngine && !selectedEngine.available" type="warning" variant="tonal" density="compact">
         Die Sprachausgabe ist gerade nicht verfügbar. Bitte versuche es später erneut.
       </v-alert>
-    </section>
-
-    <section class="speech-section speech-preview">
-      <h3>Hörprobe</h3>
-      <p>Höre, wie deine gewählte Stimme mit den aktuellen Einstellungen klingt.</p>
-      <v-textarea v-model="previewText" label="Text für die Hörprobe" rows="3" maxlength="1200"
-        hide-details variant="outlined" />
-      <div class="speech-actions">
-        <v-btn color="primary" variant="tonal" :disabled="!canPreview || checking || !selectedEngine?.available"
-          :loading="preparing" @click="preview">Hörprobe abspielen</v-btn>
-        <v-btn v-if="preparing || playing || audioReady" variant="text" @click="stop">Stoppen</v-btn>
-      </div>
-      <p v-if="preparing" role="status" class="speech-hint">Hörprobe wird vorbereitet …</p>
-      <p v-if="previewError" class="speech-error" role="alert">{{ previewError }}</p>
-      <audio ref="player" v-show="audioReady" controls class="speech-player" aria-label="Hörprobe abspielen"
-        @play="playing = true" @pause="playing = false" @ended="playing = false" />
     </section>
 
     <section class="speech-section">
@@ -117,17 +120,18 @@ const pronunciation = ref('');
 const caseSensitive = ref(false);
 const editing = ref(null);
 const dictionaryError = ref('');
-const previewText = ref('Guten Tag! Diese Stimme liest deine Notizen vor.\n\nNimm dir einen Moment Zeit und höre, ob Tempo und Pausen für dich angenehm sind.');
+const STANDARD_TEXT_DE = 'Guten Tag! Diese Stimme liest deine Notizen vor. Ich spreche ruhig und setze passende Pausen.';
+const STANDARD_TEXT_EN = 'Hello! This voice reads your notes aloud. I speak calmly and pause naturally.';
 const player = ref(null);
 const preparing = ref(false);
 const playing = ref(false);
-const audioReady = ref(false);
+const playbackBlocked = ref(false);
 const previewError = ref('');
-const canPreview = computed(() => previewText.value.trim().length > 0 && previewText.value.length <= 1200 && !preparing.value);
 let controller = null;
 let objectUrl = null;
 let sequence = 0;
 let disposed = false;
+let previewSettingsKey = null;
 const decimal = (value) => Number(value || 0).toLocaleString('de-DE', { maximumFractionDigits: 2 });
 function change(key, value) { emit('change', { key, value }); }
 function option(key, value) {
@@ -165,37 +169,91 @@ async function checkEngines() {
   catch { if (!disposed) previewError.value = 'Die Sprachausgabe ist gerade nicht erreichbar. Bitte versuche es später erneut.'; }
   finally { if (!disposed) checking.value = false; }
 }
+function speechSettings(overrides = {}) {
+  return {
+    voice: props.ui.notes_tts_voice || 'standard',
+    languageMode: props.ui.notes_tts_language_mode || 'auto',
+    options: options.value,
+    ...overrides,
+  };
+}
+function selectionItemProps(itemProps, item, key) {
+  return {
+    ...itemProps,
+    onClick: (event) => {
+      const current = speechSettings();
+      const value = key === 'engine' ? current.options.engine : current[key];
+      // VSelect suppresses model updates when the same option is chosen again.
+      if (!busy.value && !checking.value && !itemProps.disabled && item.value === value) preview(current);
+      itemProps.onClick?.(event);
+    },
+  };
+}
+function selectVoice(voice) {
+  if (voice === props.ui.notes_tts_voice) return;
+  preview(speechSettings({ voice }));
+  change('notes_tts_voice', voice);
+}
+function selectLanguage(languageMode) {
+  if (languageMode === props.ui.notes_tts_language_mode) return;
+  preview(speechSettings({ languageMode }));
+  change('notes_tts_language_mode', languageMode);
+}
+function selectEngine(engine) {
+  if (engine === options.value.engine) return;
+  const next = normalizeSpeechOptions({ ...options.value, engine });
+  preview(speechSettings({ options: next }));
+  change('notes_tts_options', next);
+}
 function stop() {
-  sequence += 1; controller?.abort(); controller = null; preparing.value = false; playing.value = false; audioReady.value = false;
+  sequence += 1;
+  controller?.abort(); controller = null; previewSettingsKey = null;
+  preparing.value = false; playing.value = false; playbackBlocked.value = false; previewError.value = '';
   if (player.value) { player.value.pause(); player.value.removeAttribute('src'); player.value.load(); }
   if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
 }
-async function preview() {
-  if (!canPreview.value || !player.value) return;
+async function playPreparedAudio() {
+  const token = sequence;
+  if (!player.value || !objectUrl) return;
+  playbackBlocked.value = false;
+  previewError.value = '';
+  try {
+    await player.value.play();
+    if (token === sequence && !disposed) playing.value = !player.value.ended;
+  } catch (error) {
+    if (token !== sequence || disposed) return;
+    playbackBlocked.value = error?.name === 'NotAllowedError';
+    previewError.value = playbackBlocked.value
+      ? 'Bitte klicke zum Anhören noch einmal.'
+      : 'Die ausgewählte Stimme konnte nicht abgespielt werden.';
+  }
+}
+async function preview(settings) {
   stop(); previewError.value = '';
+  if (!player.value || disposed) return;
+  const engine = settings.languageMode === 'en' ? 'piper' : settings.options.engine;
+  if (!engines.value.some((item) => item.id === engine && item.available)) return;
+  previewSettingsKey = JSON.stringify(settings);
   const token = sequence;
   const audio = player.value;
-  const priming = primeSpeechAudio(audio); // Must run in the direct click, before awaiting the request.
+  // Unlock this element synchronously in the selection gesture, before saving.
+  const priming = primeSpeechAudio(audio);
   controller = new AbortController();
   preparing.value = true;
   try {
-    const [blob] = await Promise.all([synthesizeSpeech(previewText.value, {
-      signal: controller.signal, voice: props.ui.notes_tts_voice || 'standard', languageMode: props.ui.notes_tts_language_mode || 'auto',
-      options: options.value,
-    }), priming]);
+    const text = settings.languageMode === 'en' ? STANDARD_TEXT_EN : STANDARD_TEXT_DE;
+    const [blob] = await Promise.all([synthesizeSpeech(text, { ...settings, signal: controller.signal }), priming]);
     if (token !== sequence || disposed) return;
-    objectUrl = URL.createObjectURL(blob); audio.src = objectUrl; audioReady.value = true; preparing.value = false;
-    try { await audio.play(); }
-    catch (error) {
-      if (token !== sequence) return;
-      previewError.value = error?.name === 'NotAllowedError' ? 'Die Hörprobe ist bereit. Starte sie mit dem Wiedergabeknopf.' : 'Die Hörprobe konnte nicht abgespielt werden.';
-    }
+    objectUrl = URL.createObjectURL(blob); audio.src = objectUrl; preparing.value = false;
+    await playPreparedAudio();
   } catch (error) {
-    if (token === sequence && error?.name !== 'AbortError') previewError.value = error?.message || 'Die Hörprobe konnte nicht erzeugt werden.';
+    if (token === sequence && error?.name !== 'AbortError') previewError.value = error?.message || 'Die ausgewählte Stimme konnte nicht vorbereitet werden.';
   } finally { if (token === sequence) preparing.value = false; }
 }
-watch(() => JSON.stringify([props.ui.notes_tts_options, props.ui.notes_tts_voice, props.ui.notes_tts_language_mode, previewText.value]), () => {
-  stop(); previewError.value = '';
+watch(() => JSON.stringify(speechSettings()), (key) => {
+  // The optimistic save and its confirmation belong to the selected sample.
+  // Other edits or a failed save returning the previous settings cancel it.
+  if (key !== previewSettingsKey) { stop(); previewError.value = ''; }
 });
 onMounted(checkEngines);
 onBeforeUnmount(() => { disposed = true; stop(); });
@@ -221,7 +279,6 @@ p { margin: 0; font-size: .88rem; line-height: 1.55; color: rgba(var(--v-theme-o
 .speech-entry-text small { font-size: .72rem; opacity: .65; }
 .speech-entry :deep(.v-switch) { flex: 0 0 auto; }
 .speech-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.speech-player { width: 100%; }
 .speech-dictionary summary { cursor: pointer; font-size: .9rem; font-weight: 600; padding: 6px 0; }
 .speech-dictionary summary:focus-visible { outline: 2px solid rgb(var(--v-theme-primary)); outline-offset: 4px; }
 .speech-dictionary-content { display: grid; gap: 14px; padding-top: 14px; }

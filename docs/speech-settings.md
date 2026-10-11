@@ -26,16 +26,18 @@ Rhythmuswerte, Piper und die neue deutsche Zahlenaussprache.
   optionale Groß-/Kleinschreibung, Aktivieren, Bearbeiten, Löschen.
   Längere Begriffe zuerst, literaler Abgleich, eine Ersetzungsrunde.
   Gilt vor Zahlen- und Abkürzungsaufbereitung; Originalnotizen bleiben unverändert.
-- **Hörprobe:** direkt unter der Stimmenauswahl. Ein kurzer Beispieltext lässt
-  sich durch eigenen Text ersetzen (maximal 1.200 Zeichen). „Hörprobe abspielen“
-  verwendet die gewählte Stimme mit dem aktuellen Tempo, Pausen und Wörterbuch.
-  Es gibt keine Vergleichskarten, Zeitmessungen oder technischen Erklärungen
-  in der Oberfläche. Safari wird durch den direkten Wiedergabestart im Klick
-  vorbereitet; bei einer Wiedergabesperre bleibt die Datei im Audioplayer
-  startbar. Text- oder Einstellungsänderungen stoppen eine laufende Hörprobe.
+- **Stimme direkt anhören:** Beim Auswählen einer deutschen Stimme, eines
+  Stimmenanbieters oder des Sprachmodus wird automatisch ein kurzer Standardtext
+  mit den aktuellen Einstellungen vorgelesen. Im englischen Modus ist auch der
+  Standardtext englisch. Es gibt keinen eigenen Hörprobenbereich und kein
+  Textfeld. Das bloße Öffnen der Einstellungen startet keine Wiedergabe.
+  Eine neue Auswahl ersetzt die vorige Wiedergabe; weitere Einstellungen,
+  fehlgeschlagenes Speichern oder Schließen des Bereichs stoppen sie.
+  Safari wird unmittelbar bei der Auswahl vorbereitet. Falls der Browser die
+  Wiedergabe trotzdem sperrt, erscheint ein kleiner Knopf „Stimme anhören“.
 
 Das Aussprachewörterbuch ist aufklappbar, damit die wichtigsten Einstellungen
-und die Hörprobe schnell zugänglich bleiben.
+schnell zugänglich bleiben.
 
 Ein Exportauftrag speichert einen vollständigen Optionsstand. Änderungen in
 den Einstellungen ändern daher keinen bereits gestarteten Auftrag, auch nicht
