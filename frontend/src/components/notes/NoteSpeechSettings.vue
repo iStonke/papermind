@@ -273,11 +273,10 @@ p { margin: 0; font-size: .88rem; line-height: 1.55; color: rgba(var(--v-theme-o
 .speech-range input { width: 100%; accent-color: rgb(var(--v-theme-primary)); min-height: 32px; cursor: pointer; }
 .speech-range span { font-size: .75rem; color: rgba(var(--v-theme-on-surface), .6); }
 .speech-range span:last-child { text-align: right; }
-.speech-dictionary-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.speech-dictionary-form { box-sizing: border-box; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
 .speech-dictionary-form > :deep(.v-checkbox),
 .speech-dictionary-form > .speech-actions,
 .speech-dictionary-form > .speech-error { grid-column: 1 / -1; }
-.speech-dictionary-form :deep(.v-field__input) { box-sizing: border-box; }
 .speech-dictionary-form > :deep(.v-input) { min-width: 0; }
 .speech-entry { display: flex; align-items: center; gap: 4px; padding: 10px; background: rgba(var(--v-theme-on-surface), .04); border-radius: 8px; }
 .speech-entry-text { display: grid; flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: .88rem; }
