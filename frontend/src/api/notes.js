@@ -1,6 +1,8 @@
 import { apiDelete, apiFetch, apiGet, apiPatch, apiPost, apiPut, authHeaders, getBaseUrl } from './client.js';
+import { apiSessionGeneration, assertApiSession } from './session.js';
 
-export const listNotes = ({ inTrash = false, documentId = null, dossierId = null, tagId = null, collectionId = null, notebookId = null, noNotebook = false, templates = false, q = '', searchScope = 'all' } = {}) => {
+export const listNotes = async ({ inTrash = false, documentId = null, dossierId = null, tagId = null, collectionId = null, notebookId = null, noNotebook = false, templates = false, q = '', searchScope = 'all' } = {}) => {
+  const generation = apiSessionGeneration();
   const params = new URLSearchParams();
   if (inTrash) params.set('in_trash', 'true');
   if (documentId) params.set('document_id', documentId);
@@ -13,8 +15,18 @@ export const listNotes = ({ inTrash = false, documentId = null, dossierId = null
   if (templates) params.set('templates', 'true');
   if (String(q || '').trim()) params.set('q', String(q).trim());
   if (searchScope && searchScope !== 'all') params.set('search_scope', searchScope);
-  const suffix = params.toString();
-  return apiGet(`/api/notes${suffix ? `?${suffix}` : ''}`);
+  const items = [];
+  let page;
+  do {
+    params.set('limit', '500');
+    params.set('offset', String(items.length));
+    page = await apiGet(`/api/notes?${params}`);
+    assertApiSession(generation);
+    const batch = page.items || [];
+    items.push(...batch);
+    if (!batch.length) break;
+  } while (page.has_more);
+  return { ...page, items, has_more: false };
 };
 
 // --- Sammlungen (oberste Ebene, harte Partition) ---------------------------
@@ -43,7 +55,19 @@ export const moveNotesToNotebook = ({ ids, notebookId = null }) =>
 export const reorderNotebooks = (ids) => apiPost('/api/notes/notebooks/reorder', { ids });
 export const getNote = (id) => apiGet(`/api/notes/${id}`);
 export const markNoteOpened = (id) => apiPost(`/api/notes/${id}/opened`, undefined);
-export const getNoteBacklinks = (id) => apiGet(`/api/notes/${id}/backlinks`);
+export const getNoteBacklinks = async (id) => {
+  const generation = apiSessionGeneration();
+  const items = [];
+  let page;
+  do {
+    page = await apiGet(`/api/notes/${encodeURIComponent(id)}/backlinks?limit=500&offset=${items.length}`);
+    assertApiSession(generation);
+    const batch = page.items || [];
+    items.push(...batch);
+    if (!batch.length) break;
+  } while (page.has_more);
+  return { ...page, items, has_more: false };
+};
 // Hakt eine einzelne Aufgabe (taskItem an `position`) direkt in der Notiz ab.
 export const toggleNoteTask = (id, position, done = true) =>
   apiPost(`/api/notes/${id}/tasks/toggle`, { position, done });

@@ -1,6 +1,10 @@
+import { apiGet } from '../api/client.js';
+import { apiSessionGeneration, apiSessionOwner, assertApiSession, onApiSessionReset } from '../api/session.js';
+
 const DB_NAME = 'papermind-local-drafts';
-const DB_VERSION = 1;
-const STORE_NAME = 'note-drafts';
+const DB_VERSION = 2;
+const STORE_NAME = 'note-drafts-by-owner';
+const LEGACY_STORE_NAME = 'note-drafts';
 
 // Ein hängender IndexedDB-Zugriff (z. B. eine von einem anderen Tab gehaltene
 // oder vom Browser geschlossene Verbindung) darf das Umschalten von Notizen nie
@@ -15,6 +19,7 @@ export const NOTE_DRAFT_READ_PAUSE_MS = 60000;
 
 let databasePromise = null;
 let readsPausedUntil = 0;
+onApiSessionReset(() => { readsPausedUntil = 0; });
 
 function resetDatabase() {
   databasePromise = null;
@@ -40,7 +45,7 @@ function openDatabase() {
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'noteId' });
+        db.createObjectStore(STORE_NAME, { keyPath: ['ownerId', 'noteId'] });
       }
     };
     request.onsuccess = () => {
@@ -140,7 +145,11 @@ export function normalizeNoteDraftForStorage(draft) {
 
 /** Datenbankzugriff mit Zeitgrenze; eine hängende Verbindung wird verworfen. */
 function guarded(operation, ms, message) {
-  return withNoteDraftTimeout(operation(), ms, message).catch((error) => {
+  const generation = apiSessionGeneration();
+  return withNoteDraftTimeout(operation(), ms, message).then((result) => {
+    assertApiSession(generation);
+    return result;
+  }).catch((error) => {
     resetDatabase();
     throw error;
   });
@@ -151,10 +160,24 @@ export function getNoteDraft(noteId) {
   if (Date.now() < readsPausedUntil) {
     return Promise.reject(new Error('Lokale Entwurfsablage antwortet zurzeit nicht.'));
   }
+  const ownerId = apiSessionOwner();
   return guarded(async () => {
     const db = await openDatabase();
     const transaction = db.transaction(STORE_NAME, 'readonly');
-    return (await requestResult(transaction.objectStore(STORE_NAME).get(String(noteId)))) || null;
+    const stored = await requestResult(transaction.objectStore(STORE_NAME).get([ownerId, String(noteId)]));
+    if (stored?.ownerId === ownerId) {
+      const { ownerId: _owner, ...draft } = stored;
+      return draft;
+    }
+    // Adopt old unsaved drafts only after the server proves account ownership.
+    if (!ownerId || !db.objectStoreNames?.contains(LEGACY_STORE_NAME)) return null;
+    const legacyTx = db.transaction(LEGACY_STORE_NAME, 'readonly');
+    const legacy = await requestResult(legacyTx.objectStore(LEGACY_STORE_NAME).get(String(noteId)));
+    if (!legacy) return null;
+    try { await apiGet(`/api/notes/${encodeURIComponent(noteId)}`, { timeoutMs: 1500 }); }
+    catch { return null; }
+    await writeNoteDraft(legacy, ownerId);
+    return legacy;
   }, NOTE_DRAFT_READ_TIMEOUT_MS, 'Lokaler Entwurf konnte nicht rechtzeitig gelesen werden.').then(
     (draft) => {
       readsPausedUntil = 0;
@@ -178,36 +201,39 @@ export async function putNoteDraft(draft) {
   if (!draft?.noteId || !draft?.clientVersion) {
     throw new Error('Lokaler Entwurf ist unvollständig.');
   }
-  return guarded(() => writeNoteDraft(draft), NOTE_DRAFT_WRITE_TIMEOUT_MS, 'Lokaler Entwurf konnte nicht rechtzeitig gespeichert werden.');
+  const snapshot = normalizeNoteDraftForStorage(draft);
+  const ownerId = apiSessionOwner();
+  return guarded(() => writeNoteDraft(snapshot, ownerId), NOTE_DRAFT_WRITE_TIMEOUT_MS, 'Lokaler Entwurf konnte nicht rechtzeitig gespeichert werden.');
 }
 
-async function writeNoteDraft(draft) {
+async function writeNoteDraft(draft, ownerId) {
   const db = await openDatabase();
   const transaction = db.transaction(STORE_NAME, 'readwrite');
   // Nur serialisierbare Nutzdaten ablegen. Der Editor hängt während des
   // Schreibens vorübergehend Promises an sein Snapshot-Objekt.
-  transaction.objectStore(STORE_NAME).put(normalizeNoteDraftForStorage(draft));
+  transaction.objectStore(STORE_NAME).put({ ...normalizeNoteDraftForStorage(draft), ownerId });
   await transactionDone(transaction);
   return true;
 }
 
 export function deleteNoteDraft(noteId, expectedClientVersion = null) {
   if (!noteId) return Promise.resolve(false);
-  return guarded(() => removeNoteDraft(noteId, expectedClientVersion), NOTE_DRAFT_WRITE_TIMEOUT_MS, 'Lokaler Entwurf konnte nicht rechtzeitig entfernt werden.');
+  const ownerId = apiSessionOwner();
+  return guarded(() => removeNoteDraft(noteId, expectedClientVersion, ownerId), NOTE_DRAFT_WRITE_TIMEOUT_MS, 'Lokaler Entwurf konnte nicht rechtzeitig entfernt werden.');
 }
 
-async function removeNoteDraft(noteId, expectedClientVersion) {
+async function removeNoteDraft(noteId, expectedClientVersion, ownerId) {
   const db = await openDatabase();
   const transaction = db.transaction(STORE_NAME, 'readwrite');
   const store = transaction.objectStore(STORE_NAME);
   if (expectedClientVersion) {
-    const current = await requestResult(store.get(String(noteId)));
+    const current = await requestResult(store.get([ownerId, String(noteId)]));
     if (current?.clientVersion !== expectedClientVersion) {
       transaction.abort();
       return false;
     }
   }
-  store.delete(String(noteId));
+  store.delete([ownerId, String(noteId)]);
   await transactionDone(transaction);
   return true;
 }

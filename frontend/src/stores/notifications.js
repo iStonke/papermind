@@ -1,4 +1,5 @@
 import { computed, reactive } from 'vue';
+import { onApiSessionReset } from '../api/session.js';
 
 const MAX_VISIBLE_NOTIFICATIONS = 2;
 const DEDUPE_WINDOW_MS = 1500;
@@ -164,7 +165,10 @@ function clearAll() {
   timerById.clear();
   state.visible.splice(0, state.visible.length);
   state.queue.splice(0, state.queue.length);
+  recentByKey.clear();
 }
+
+onApiSessionReset(clearAll);
 
 function pause(id, reason = 'manual') {
   const timerState = timerById.get(id);
@@ -269,6 +273,7 @@ export function logDevError(error, context = '') {
  * @returns {string}             - Die angezeigte Fehlermeldung
  */
 export function notifyError(error, fallback = 'Aktion fehlgeschlagen.', options = {}) {
+  if (error?.code === 'SESSION_CHANGED') return '';
   logDevError(error, options.context ?? '');
   const message = mapApiError(error, fallback);
   notify({ type: 'error', message, ...options });

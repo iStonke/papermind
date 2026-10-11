@@ -18,6 +18,8 @@ import {
   setUnauthorizedHandler,
 } from '../api/client.js';
 import { setFetchUnauthorizedHandler } from '../api/fetchInterceptor.js';
+import { apiSessionOwner, resetApiSession } from '../api/session.js';
+import { resetSessionStores } from './sessionStores.js';
 
 // Timer-Handle für die Datei-Token-Erneuerung (kein reaktiver State).
 let fileTokenTimer = null;
@@ -43,7 +45,7 @@ function readAutoLogoutMinutes() {
 
 function tokenExpiryMs(token) {
   try {
-    const payloadPart = String(token || '').split('.')[1];
+    const payloadPart = String(token || '').split('.')[0];
     const normalized = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
     const padding = '='.repeat((4 - (normalized.length % 4)) % 4);
     const payload = JSON.parse(window.atob(normalized + padding));
@@ -144,6 +146,11 @@ export const useAuthStore = defineStore('auth', {
 
     applyTokenResponse(result) {
       sessionEpoch += 1;
+      if (apiSessionOwner() !== result.user?.id) {
+        resetApiSession(result.user?.id);
+        resetSessionStores();
+        this.stopFileToken();
+      }
       setToken(result.access_token);
       // Entfernt ggf. noch vorhandene Refresh-Tokens aus der Altversion. Die
       // aktuelle Session wird serverseitig über ein HttpOnly-Cookie geführt.
@@ -159,7 +166,7 @@ export const useAuthStore = defineStore('auth', {
       if (recoveryPromise) return recoveryPromise;
       const refreshToken = getRefreshToken();
       const recoveryEpoch = sessionEpoch;
-      recoveryPromise = (async () => {
+      const task = (async () => {
         try {
           const result = await refreshSessionRequest(refreshToken);
           if (recoveryEpoch !== sessionEpoch) return this.isAuthenticated;
@@ -173,12 +180,14 @@ export const useAuthStore = defineStore('auth', {
             if (getToken()) {
               try {
                 const renewed = await renewSessionRequest();
+                if (recoveryEpoch !== sessionEpoch) return this.isAuthenticated;
                 this.applyTokenResponse(renewed);
                 return true;
               } catch {
                 /* endgültig abgelaufen */
               }
             }
+            if (recoveryEpoch !== sessionEpoch) return this.isAuthenticated;
             this.clearSession();
             return false;
           }
@@ -188,10 +197,11 @@ export const useAuthStore = defineStore('auth', {
           }, 30_000);
           return this.isAuthenticated;
         } finally {
-          recoveryPromise = null;
+          if (recoveryPromise === task) recoveryPromise = null;
         }
       })();
-      return recoveryPromise;
+      recoveryPromise = task;
+      return task;
     },
 
     scheduleSessionRefresh(token) {
@@ -214,10 +224,11 @@ export const useAuthStore = defineStore('auth', {
     /** Holt ein kurzlebiges Datei-Token und plant die Erneuerung vor Ablauf. */
     async refreshFileToken() {
       if (fileTokenRefreshPromise) return fileTokenRefreshPromise;
-
-      fileTokenRefreshPromise = (async () => {
+      const refreshEpoch = sessionEpoch;
+      const task = (async () => {
         try {
           const res = await fetchFileToken();
+          if (refreshEpoch !== sessionEpoch) return false;
           setFileToken(res.token);
           this.fileTokenVersion = Date.now();
           this.hasFileToken = Boolean(res.token);
@@ -226,6 +237,7 @@ export const useAuthStore = defineStore('auth', {
           fileTokenTimer = setTimeout(() => { this.refreshFileToken(); }, refreshInMs);
           return true;
         } catch {
+          if (refreshEpoch !== sessionEpoch) return false;
           setFileToken('');
           this.fileTokenVersion = Date.now();
           this.hasFileToken = false;
@@ -235,14 +247,15 @@ export const useAuthStore = defineStore('auth', {
           }
           return false;
         } finally {
-          fileTokenRefreshPromise = null;
+          if (fileTokenRefreshPromise === task) fileTokenRefreshPromise = null;
         }
       })();
-
-      return fileTokenRefreshPromise;
+      fileTokenRefreshPromise = task;
+      return task;
     },
 
     stopFileToken() {
+      fileTokenRefreshPromise = null;
       if (fileTokenTimer) {
         clearTimeout(fileTokenTimer);
         fileTokenTimer = null;
@@ -264,6 +277,9 @@ export const useAuthStore = defineStore('auth', {
 
     clearSession() {
       sessionEpoch += 1;
+      recoveryPromise = null;
+      resetApiSession();
+      resetSessionStores();
       this.stopFileToken();
       this.stopSessionRefresh();
       this.stopInactivityWatch();

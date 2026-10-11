@@ -3,7 +3,7 @@
  *
  * Verwaltet die Tag-Liste und alle Tag-CRUD-Operationen.
  */
-import { defineStore } from 'pinia';
+import { defineSessionStore as defineStore } from './sessionStores.js';
 import { ref } from 'vue';
 import {
   createTag as apiCreateTag,

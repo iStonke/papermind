@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia';
+import { defineSessionStore as defineStore } from './sessionStores.js';
 import { computed, ref } from 'vue';
 
 import {
@@ -172,6 +172,7 @@ export const useDossierStore = defineStore('dossiers', () => {
       if (currentDossier.value?.id === dossierId) currentDossier.value = updated;
       return updated;
     } catch (error) {
+      if (error?.code === 'SESSION_CHANGED') throw error;
       if (listIndex >= 0 && previousListItem) dossiers.value[listIndex] = previousListItem;
       if (previousCurrent) currentDossier.value = previousCurrent;
       throw error;
@@ -198,6 +199,7 @@ export const useDossierStore = defineStore('dossiers', () => {
     try {
       groups.value = await reorderDossierGroups(dossierId, groups.value.map((group) => group.id));
     } catch (error) {
+      if (error?.code === 'SESSION_CHANGED') throw error;
       groups.value = previous;
       throw error;
     }
@@ -264,6 +266,7 @@ export const useDossierStore = defineStore('dossiers', () => {
       items.value = items.value.map((item) => updatedMap.get(item.id) || item);
       return updated;
     } catch (error) {
+      if (error?.code === 'SESSION_CHANGED') throw error;
       items.value = previous;
       throw error;
     }

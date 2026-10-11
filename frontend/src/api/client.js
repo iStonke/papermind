@@ -13,6 +13,7 @@
  */
 
 import { API_BASE_URL } from './config.js';
+import { apiSessionGeneration, assertApiSession, onApiSessionReset } from './session.js';
 
 const BASE_URL = API_BASE_URL;
 const TOKEN_KEY = 'pm_auth_token';
@@ -72,9 +73,19 @@ export function setRefreshToken(token) {
  * Authorization-Header setzen können.
  */
 export function authedUrl(url) {
-  if (!fileToken) return url;
+  if (!fileToken || !targetsApi(url)) return url;
   const separator = url.includes('?') ? '&' : '?';
   return `${url}${separator}token=${encodeURIComponent(fileToken)}`;
+}
+
+export function targetsApi(value) {
+  try {
+    const origin = typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin : 'http://localhost';
+    const base = new URL(BASE_URL || origin, origin);
+    const target = new URL(value, `${base.origin}/`);
+    return target.origin === base.origin && target.pathname.startsWith('/api/');
+  } catch { return false; }
 }
 
 /**
@@ -94,8 +105,9 @@ async function readErrorPayload(response) {
   }
 }
 
-async function responseError(response) {
+async function responseError(response, generation) {
   const payload = await readErrorPayload(response);
+  assertApiSession(generation);
   const error = new Error(payload.message);
   error.status = response.status;
   error.code = payload.code;
@@ -112,41 +124,46 @@ async function responseError(response) {
  * @returns {Promise<any>}
  */
 export async function apiFetch(path, options = {}) {
-  const {
-    handleUnauthorized = true,
-    timeoutMs = 0,
-    ...fetchOptions
-  } = options;
-  const headers = { ...fetchOptions.headers };
-  if (fetchOptions.body && typeof fetchOptions.body === 'string') {
-    headers['Content-Type'] = 'application/json';
+  const generation = apiSessionGeneration();
+  const { handleUnauthorized = true, timeoutMs = 0, ...fetchOptions } = options;
+  const url = `${BASE_URL}${path}`;
+  if (!targetsApi(url)) throw new Error('Ungültiges API-Ziel.');
+  const headers = new Headers(fetchOptions.headers);
+  if (fetchOptions.body && typeof fetchOptions.body === 'string' && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
   }
-
   const token = getToken();
-  if (token && !headers.Authorization && !headers.authorization) {
-    headers.Authorization = `Bearer ${token}`;
-  }
+  if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
 
-  const timeoutController = timeoutMs > 0 ? new AbortController() : null;
-  let timeoutHandle = null;
-  if (timeoutController) {
-    timeoutHandle = setTimeout(() => timeoutController.abort(), timeoutMs);
-  }
+  const controller = new AbortController();
+  const sourceSignal = fetchOptions.signal;
+  const abort = () => controller.abort();
+  if (sourceSignal?.aborted) abort();
+  else sourceSignal?.addEventListener('abort', abort, { once: true });
+  const unsubscribe = onApiSessionReset(abort);
+  let timedOut = false;
+  const timeoutHandle = timeoutMs > 0 ? setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs) : null;
 
-  let response;
   try {
-    response = await fetch(`${BASE_URL}${path}`, {
-      // API-Antworten nie aus dem Browser-Cache bedienen – sonst liefern
-      // wiederholte GETs (z. B. das 15s-Polling der Import-Inbox) veraltete
-      // Daten und neue Scans erscheinen erst nach einem harten Reload.
-      cache: 'no-store',
-      credentials: 'include',
-      ...fetchOptions,
-      signal: timeoutController?.signal || fetchOptions.signal,
-      headers,
+    const response = await fetch(url, {
+      cache: 'no-store', credentials: 'include', ...fetchOptions,
+      signal: controller.signal, headers,
     });
+    assertApiSession(generation);
+    if (response.status === 401 && handleUnauthorized && unauthorizedHandler) unauthorizedHandler();
+    if (!response.ok) throw await responseError(response, generation);
+    if (response.status === 204) return null;
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+    if (!contentType.includes('application/json')) throw new Error('Keine gültige Antwort vom Server.');
+    const data = await response.json();
+    assertApiSession(generation);
+    return data;
   } catch (error) {
-    if (timeoutController?.signal.aborted) {
+    assertApiSession(generation);
+    if (timedOut) {
       const timeoutError = new Error('Der Server antwortet nicht.');
       timeoutError.code = 'REQUEST_TIMEOUT';
       throw timeoutError;
@@ -154,25 +171,9 @@ export async function apiFetch(path, options = {}) {
     throw error;
   } finally {
     if (timeoutHandle) clearTimeout(timeoutHandle);
+    unsubscribe();
+    sourceSignal?.removeEventListener('abort', abort);
   }
-
-  if (response.status === 401 && handleUnauthorized) {
-    if (unauthorizedHandler) unauthorizedHandler();
-    throw await responseError(response);
-  }
-
-  if (!response.ok) {
-    throw await responseError(response);
-  }
-
-  if (response.status === 204) return null;
-
-  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
-  if (!contentType.includes('application/json')) {
-    throw new Error('Keine gültige Antwort vom Server.');
-  }
-
-  return response.json();
 }
 
 /** GET  /api/... */

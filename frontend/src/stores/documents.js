@@ -8,7 +8,7 @@
  * vorerst in App.vue, da sie viele UI-Refs referenziert.
  * Die Store-Refs sind als computed-Proxies in App.vue nutzbar.
  */
-import { defineStore } from 'pinia';
+import { defineSessionStore as defineStore } from './sessionStores.js';
 import { ref } from 'vue';
 import {
   deleteDocument as apiDeleteDocument,
@@ -87,7 +87,8 @@ export const useDocumentStore = defineStore('documents', () => {
 
     try {
       await markDocumentViewed(documentId);
-    } catch {
+    } catch (error) {
+      if (error?.code === 'SESSION_CHANGED') return;
       // Rollback
       if (listDoc)   patchDocumentInList({ id: documentId, is_unread: true });
       if (detailDoc) selectedDocumentDetail.value = { ...detailDoc, is_unread: true };
@@ -107,7 +108,8 @@ export const useDocumentStore = defineStore('documents', () => {
 
     try {
       await markDocumentUnread(documentId);
-    } catch {
+    } catch (error) {
+      if (error?.code === 'SESSION_CHANGED') return;
       // Rollback
       if (listDoc)   patchDocumentInList({ id: documentId, is_unread: false });
       if (detailDoc) selectedDocumentDetail.value = { ...detailDoc, is_unread: false };

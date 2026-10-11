@@ -4,7 +4,7 @@
  * Lädt die aggregierten Übersichts-Kennzahlen (read-only) für die
  * Dashboard-Startseite. Bewusst schlank: eine Payload, ein Ladezustand.
  */
-import { defineStore } from 'pinia';
+import { defineSessionStore as defineStore } from './sessionStores.js';
 import { ref } from 'vue';
 import { getDashboardOverview } from '../api/dashboard.js';
 

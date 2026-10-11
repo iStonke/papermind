@@ -6,7 +6,7 @@
  * über documentId-Abgleich). Markierungen sind ein Overlay – das Original-PDF
  * bleibt unangetastet.
  */
-import { defineStore } from 'pinia';
+import { defineSessionStore as defineStore } from './sessionStores.js';
 import { ref } from 'vue';
 
 import {
@@ -108,10 +108,12 @@ export const useAnnotationStore = defineStore('annotations', () => {
     try {
       await apiDelete(id);
     } catch (error) {
+      if (error?.code === 'SESSION_CHANGED') return;
       annotations.value = previous;
       notify({ type: 'error', message: mapApiError(error, 'Markierung konnte nicht gelöscht werden.') });
     }
   }
 
-  return { annotations, documentId, isLoading, load, create, update, remove };
+  return { annotations, documentId, isLoading, load, create, update, remove,
+    resetPrivateState: () => pendingRemovals.clear() };
 });

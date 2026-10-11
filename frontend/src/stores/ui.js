@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia';
+import { defineSessionStore as defineStore } from './sessionStores.js';
 
 /**
  * Kleiner UI-Store für app-weite Overlays, die von verschiedenen Stellen

@@ -5,7 +5,7 @@
  * sowie das Anlegen neuer Korrespondenten und das Hinzufügen von Aliasen.
  * Speist u. a. das Korrespondenten-Feld im Import-Dialog (AP10 Schritt 6).
  */
-import { defineStore } from 'pinia';
+import { defineSessionStore as defineStore } from './sessionStores.js';
 import { computed, ref } from 'vue';
 import {
   addCorrespondentAlias as apiAddAlias,

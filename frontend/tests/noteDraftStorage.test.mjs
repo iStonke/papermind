@@ -117,7 +117,7 @@ test('a hanging IndexedDB connection is dropped and reopened on the next read', 
       objectStore: () => ({
         get: () => {
           const request = {};
-          setTimeout(() => { request.result = draft; request.onsuccess?.(); });
+          setTimeout(() => { request.result = { ...draft, ownerId: '' }; request.onsuccess?.(); });
           return request;
         },
       }),

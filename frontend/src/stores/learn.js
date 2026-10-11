@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia';
+import { defineSessionStore as defineStore } from './sessionStores.js';
 import {
   listCourses,
   createCourse,

@@ -5,7 +5,7 @@
  * sowie alle CRUD-Operationen. Wird in den Einstellungen gepflegt und
  * speist u. a. das Dokumenttyp-Dropdown im Import-Dialog.
  */
-import { defineStore } from 'pinia';
+import { defineSessionStore as defineStore } from './sessionStores.js';
 import { computed, ref } from 'vue';
 import {
   createCategory as apiCreateCategory,

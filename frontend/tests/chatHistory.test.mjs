@@ -45,7 +45,7 @@ test('chat history API loads, lists and archives owner-scoped sessions with auth
   assert.equal(calls[2].url, '/api/ai/sessions/session-1?message_limit=100');
   assert.equal(calls[3].url, '/api/ai/sessions/session-1/archive');
   assert.equal(calls[3].options.method, 'POST');
-  assert.equal(calls[3].options.headers.Authorization, 'Bearer chat-test-token');
+  assert.equal(new Headers(calls[3].options.headers).get('Authorization'), 'Bearer chat-test-token');
   assert.ok(calls.every((call) => call.options.signal instanceof AbortSignal));
 });
 

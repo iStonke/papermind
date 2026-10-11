@@ -52,6 +52,6 @@ test('wiki API encodes filters and sends authenticated review mutations', async 
   assert.equal(calls[4].url, '/api/wiki/backfill/status');
   assert.equal(calls[5].url, '/api/wiki/backfill/run-1/control');
   assert.deepEqual(JSON.parse(calls[5].options.body), { action: 'pause' });
-  assert.equal(calls[6].options.headers.Authorization, 'Bearer test-token');
+  assert.equal(new Headers(calls[6].options.headers).get('Authorization'), 'Bearer test-token');
   assert.equal(calls[7].url, '/api/wiki/claims/claim-1/correct');
 });

@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia';
+import { defineSessionStore as defineStore } from './sessionStores.js';
 import { ref } from 'vue';
 
 import * as api from '../api/notes.js';
@@ -154,6 +154,14 @@ export const useNotesStore = defineStore('notes', () => {
   let loadingPromise = null;
   const noteDetails = new Map();
   const detailRequests = new Map();
+
+  function resetPrivateState() {
+    noteDetails.clear();
+    detailRequests.clear();
+    loadingPromise = null;
+    activeCollectionId.value = null;
+    showAllCollections.value = false;
+  }
 
   function cacheDetail(note) {
     if (note?.id) {
@@ -753,6 +761,7 @@ export const useNotesStore = defineStore('notes', () => {
   }
 
   return {
+    resetPrivateState,
     notes,
     loaded,
     templates,

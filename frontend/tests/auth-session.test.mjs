@@ -45,7 +45,7 @@ function tokenWithExpiry(secondsFromNow) {
   const payload = Buffer.from(JSON.stringify({
     exp: Math.floor(Date.now() / 1000) + secondsFromNow,
   })).toString('base64url');
-  return `header.${payload}.signature`;
+  return `${payload}.signature`;
 }
 
 function userPayload() {

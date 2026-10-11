@@ -550,18 +550,17 @@ test('note export and template actions live in the compact overflow menu', () =>
 test('audio export dialog configures the persistent Piper background job', () => {
   assert.match(noteAudioExportDialogSource, /title="Notiz als Audio exportieren"/);
   assert.match(noteAudioExportDialogSource, /primary-text="Im Hintergrund erstellen"/);
-  assert.match(noteAudioExportDialogSource, /label="Sprachmodus"/);
-  assert.match(noteAudioExportDialogSource, /Automatisch/);
-  assert.match(noteAudioExportDialogSource, /Nur Deutsch/);
-  assert.match(noteAudioExportDialogSource, /Nur Englisch/);
-  assert.match(noteAudioExportDialogSource, /label="Deutsche Stimme"/);
+  assert.match(noteAudioExportDialogSource, /speechSummary/);
+  assert.match(noteAudioExportDialogSource, /props\.defaultLanguageMode/);
+  assert.match(noteAudioExportDialogSource, /props\.defaultVoice/);
+  assert.match(noteAudioExportDialogSource, /speechOptions: speechOptions\.value/);
   assert.match(noteAudioExportDialogSource, /Titel mitsprechen/);
   assert.match(noteAudioExportDialogSource, /characterLabel/);
   assert.match(noteAudioExportDialogSource, /durationLabel/);
   assert.match(workspaceEditorSource, /<NoteAudioExportDialog[\s\S]*?@submit="exportNoteAsAudio"/);
   assert.match(workspaceEditorSource, /:tts-language-mode="notesTtsLanguageMode"/);
   assert.match(workspaceEditorSource, /createNoteAudioExport\(loadedNoteId\.value/);
-  assert.match(workspaceEditorSource, /language_mode: options\?\.languageMode \|\| 'auto'/);
+  assert.match(workspaceEditorSource, /language_mode: options\?\.languageMode \|\| notesTtsLanguageMode\.value/);
   assert.match(activityIndicatorSource, /void autoDownloadReadyAudioExports\(\)/);
   assert.match(activityIndicatorSource, /job\.status !== 'done' \|\| audioBusyIds\.value\.has\(job\.id\)/);
   assert.match(activityIndicatorSource, /void downloadAudio\(job\)/);

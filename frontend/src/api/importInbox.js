@@ -1,4 +1,5 @@
 import { apiFetch, authHeaders, getBaseUrl } from './client.js';
+import { onApiSessionReset } from './session.js';
 
 export async function getImportInbox({ limit = 50 } = {}) {
   const search = new URLSearchParams();
@@ -22,6 +23,7 @@ export async function getImportInbox({ limit = 50 } = {}) {
  */
 export function subscribeImportInbox(onPayload, { onError = null, signal = null } = {}) {
   const controller = new AbortController();
+  const unsubscribe = onApiSessionReset(() => controller.abort());
   if (signal) {
     if (signal.aborted) controller.abort();
     else signal.addEventListener('abort', () => controller.abort(), { once: true });
@@ -84,11 +86,12 @@ export function subscribeImportInbox(onPayload, { onError = null, signal = null 
     } catch (error) {
       if (!controller.signal.aborted && typeof onError === 'function') onError(error);
     }
-  })();
+  })().finally(unsubscribe);
 
   return {
     close() {
       controller.abort();
+      unsubscribe();
     }
   };
 }

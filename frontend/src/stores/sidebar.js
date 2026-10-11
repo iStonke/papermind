@@ -4,7 +4,7 @@
  * Verwaltet Sidebar-Counts, gespeicherte Suchen (Smart Folders)
  * und die Sichtbarkeit der Sidebar-Sektionen.
  */
-import { defineStore } from 'pinia';
+import { defineSessionStore as defineStore } from './sessionStores.js';
 import { ref } from 'vue';
 import { getSidebarCounts } from '../api/sidebar.js';
 import {
@@ -131,6 +131,10 @@ export const useSidebarStore = defineStore('sidebar', () => {
   }
 
   return {
+    resetPrivateState() {
+      if (countsRefreshTimer) clearTimeout(countsRefreshTimer);
+      countsRefreshTimer = null;
+    },
     // State
     sidebarCounts,
     isLoadingSidebarCounts,

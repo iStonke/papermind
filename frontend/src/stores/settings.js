@@ -1,5 +1,5 @@
 import { defaultSpeechOptions, normalizeSpeechOptions } from '../utils/speechSettings.js';
-import { defineStore } from 'pinia';
+import { defineSessionStore as defineStore } from './sessionStores.js';
 import {
   ANSWER_PROMPT_TEMPLATE_DEFAULT,
   NOTE_WRITING_PROMPT_SUGGESTIONS_DEFAULT,
