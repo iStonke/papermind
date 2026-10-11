@@ -26,13 +26,16 @@ Rhythmuswerte, Piper und die neue deutsche Zahlenaussprache.
   optionale Groß-/Kleinschreibung, Aktivieren, Bearbeiten, Löschen.
   Längere Begriffe zuerst, literaler Abgleich, eine Ersetzungsrunde.
   Gilt vor Zahlen- und Abkürzungsaufbereitung; Originalnotizen bleiben unverändert.
-- **Hörprobe/Vergleich:** derselbe Text (maximal 1.200 Zeichen) mit demselben
-  Tempo, Pausen und Wörterbuch. Jeder bereitstehende Anbieter hat einen
-  Hörknopf. Servermessung zeigt Erzeugungszeit, WAV-Länge, Verhältnis zur
-  Echtzeit und tatsächlich verwendete Engine. Unter 1× = schneller als
-  Echtzeit. Bei Text-/Einstellungsänderung werden alte Messwerte gelöscht.
-  Safari wird durch den direkten Wiedergabestart im Klick vorbereitet.
-  Bei einer Wiedergabesperre bleibt die Datei über den Audioplayer startbar.
+- **Hörprobe:** direkt unter der Stimmenauswahl. Ein kurzer Beispieltext lässt
+  sich durch eigenen Text ersetzen (maximal 1.200 Zeichen). „Hörprobe abspielen“
+  verwendet die gewählte Stimme mit dem aktuellen Tempo, Pausen und Wörterbuch.
+  Es gibt keine Vergleichskarten, Zeitmessungen oder technischen Erklärungen
+  in der Oberfläche. Safari wird durch den direkten Wiedergabestart im Klick
+  vorbereitet; bei einer Wiedergabesperre bleibt die Datei im Audioplayer
+  startbar. Text- oder Einstellungsänderungen stoppen eine laufende Hörprobe.
+
+Das Aussprachewörterbuch ist aufklappbar, damit die wichtigsten Einstellungen
+und die Hörprobe schnell zugänglich bleiben.
 
 Ein Exportauftrag speichert einen vollständigen Optionsstand. Änderungen in
 den Einstellungen ändern daher keinen bereits gestarteten Auftrag, auch nicht
@@ -84,8 +87,9 @@ Offizielle Schnittstellen:
 POST /tts mit text/speed; [CosyVoice](https://thorsten-voice.de/en/guides/cosyvoice/)
 Formfelder. Beide liefern WAV und haben GET /health. Kokoro unterstützt
 amd64/arm64 auf CPU. CosyVoice lädt beim ersten Start rund 8,5 GB Modelle
-und ist ohne NVIDIA-GPU deutlich langsamer. Der Einstellungsbereich sperrt
-Hörproben für Dienste, die noch nicht bereit sind, statt Messwerte zu erfinden.
+und ist ohne NVIDIA-GPU deutlich langsamer. Der Einstellungsbereich prüft die
+Verfügbarkeit automatisch und sperrt Hörproben für Dienste, die noch nicht
+bereit sind.
 
 ## Tatsächlich durchgeführter lokaler Vergleich
 

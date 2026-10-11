@@ -9,7 +9,7 @@ function wav() {
   buffer.writeUInt16LE(2, 32); buffer.writeUInt16LE(16, 34); buffer.write('data', 36); buffer.writeUInt32LE(16000, 40);
   return buffer;
 }
-async function mount(page, { full = true, dark = false, block = false, realAudio = false, failedSave = false, initial = {} } = {}) {
+async function mount(page, { full = true, dark = false, block = false, realAudio = false, piperOnly = false, failedSave = false, initial = {} } = {}) {
   const speech = [], patches = [];
   const persisted = { ui: { notes_tts_voice: 'neutral', notes_tts_language_mode: 'de', notes_tts_options: defaultSpeechOptions(), ...initial } };
   await page.route(/^https?:\/\/[^/]+\/api\//, async route => {
@@ -18,7 +18,7 @@ async function mount(page, { full = true, dark = false, block = false, realAudio
     if (path === '/api/tts/engines') return route.fulfill({ json: { items: [
       { id: 'piper', name: 'Piper', available: true }, { id: 'kokoro', name: 'Thorsten Kokoro', available: true },
       { id: 'cosyvoice', name: 'Thorsten CosyVoice', available: false },
-    ] } });
+    ].filter(engine => !piperOnly || engine.id === 'piper') } });
     if (path === '/api/tts/speech') {
       speech.push(request.postDataJSON());
       await new Promise(resolve => setTimeout(resolve, 120));
@@ -52,52 +52,61 @@ async function mount(page, { full = true, dark = false, block = false, realAudio
     (await import('/tests/browser/fixtures/speechSettings.js')).mountSpeechSettings({ full, dark, initial });
   }, { full, dark, block, realAudio, initial: persisted.ui });
   await expect(page.getByRole('heading', { name: 'Stimme und Sprache' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Mit Piper hören' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Hörprobe abspielen', exact: true })).toBeEnabled();
   return { speech, patches, persisted };
 }
 
-test('central preferences persist and are used for voice previews and comparisons', async ({ page }) => {
+test('central preferences persist and the simple preview uses the selected voice', async ({ page }) => {
   const { speech, patches, persisted } = await mount(page);
   await expect(page.getByRole('tab', { name: 'Sprachausgabe', exact: true })).toHaveAttribute('aria-selected', 'true');
   await page.waitForTimeout(400);
+  await page.getByRole('heading', { name: 'Hörprobe', exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: '../.runtime/speech-settings/desktop-light.png', fullPage: true, animations: 'disabled' });
   await page.locator('#speech-speed').fill('1.15');
   await page.locator('#speech-speed').dispatchEvent('change');
   await expect.poll(() => patches.length).toBe(1);
   expect(patches[0].ui.notes_tts_options.speed).toBe(1.15);
+  await page.getByText('Eigenes Aussprachewörterbuch', { exact: true }).click();
   await page.getByLabel('Wort oder Wortgruppe', { exact: true }).fill('QIS');
   await page.getByLabel('Gesprochene Form', { exact: true }).fill('Kiss');
   await page.getByRole('button', { name: 'Eintrag hinzufügen' }).click();
   await expect.poll(() => patches.length).toBe(2);
-  await page.getByRole('button', { name: 'Hörprobe der gewählten Stimme' }).click();
+  await page.getByRole('button', { name: 'Hörprobe abspielen', exact: true }).click();
   await expect(page.locator('audio')).toBeVisible();
-  await page.getByRole('button', { name: 'Mit Thorsten Kokoro hören' }).click();
-  await expect.poll(() => speech.length).toBe(2);
-  await expect(page.locator('.speech-metrics')).toHaveCount(2);
+  expect(speech).toHaveLength(1);
   expect(speech[0].voice).toBe('neutral');
   expect(speech[0].language_mode).toBe('de');
   expect(speech[0].options.speed).toBe(1.15);
   expect(speech[0].options.pronunciations[0].pronunciation).toBe('Kiss');
-  expect(speech[0].text).toBe(speech[1].text);
-  expect(speech[1].options).toEqual({ ...speech[0].options, engine: 'kokoro' });
   expect(await page.evaluate(() => window.speechSettingsPlays[0].active)).toBe(true);
   expect(await page.evaluate(() => window.speechSettingsPlays[0].element === window.speechSettingsPlays[1].element)).toBe(true);
-  await expect(page.getByRole('button', { name: 'Mit Thorsten CosyVoice hören' })).toBeDisabled();
+  await page.getByLabel('Stimmenanbieter', { exact: true }).press('Enter');
+  await expect(page.getByRole('option', { name: 'Thorsten CosyVoice' })).toHaveCount(0);
+  await page.getByRole('option', { name: 'Thorsten Kokoro' }).click();
+  await expect.poll(() => persisted.ui.notes_tts_options.engine).toBe('kokoro');
+  await page.getByRole('button', { name: 'Hörprobe abspielen', exact: true }).click();
+  await expect(page.locator('audio')).toBeVisible();
+  expect(speech).toHaveLength(2);
+  expect(speech[1].options).toEqual({ ...speech[0].options, engine: 'kokoro' });
+  await expect(page.locator('.speech-comparison, .speech-metrics')).toHaveCount(0);
+  await expect(page.getByText('Hörprobe und Engine-Vergleich', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Verfügbarkeit prüfen' })).toHaveCount(0);
   await page.getByRole('tab', { name: 'Allgemein', exact: true }).click();
   await expect(page.getByLabel('Deutsche Stimme')).toHaveCount(0);
   await page.getByRole('tab', { name: 'Sprachausgabe', exact: true }).click();
   await expect(page.locator('#speech-speed')).toHaveValue('1.15');
+  await page.getByText('Eigenes Aussprachewörterbuch').click();
   await expect(page.locator('.speech-entry')).toContainText('QIS');
   expect(persisted.ui.notes_tts_options.pronunciations).toHaveLength(1);
 });
 
 test('blocked playback retains usable audio, changing preferences cancels a stale preview', async ({ page }) => {
   const { speech } = await mount(page, { full: false, block: true });
-  await page.getByRole('button', { name: 'Hörprobe der gewählten Stimme' }).click();
+  await page.getByRole('button', { name: 'Hörprobe abspielen', exact: true }).click();
   await expect(page.locator('.speech-error[role="alert"]')).toContainText('Die Hörprobe ist bereit');
   await expect(page.locator('audio')).toBeVisible();
   expect(speech).toHaveLength(1);
-  await page.getByRole('button', { name: 'Mit Thorsten Kokoro hören' }).click();
+  await page.getByRole('button', { name: 'Hörprobe abspielen', exact: true }).click();
   await page.getByLabel('Text für die Hörprobe').fill('Ein neuer Text.');
   await page.waitForTimeout(250);
   await expect(page.locator('audio')).not.toBeVisible();
@@ -112,8 +121,9 @@ test('failed preference saves restore the previous value', async ({ page }) => {
 });
 
 test('preview decodes a real WAV after the delayed request', async ({ page }) => {
-  await mount(page, { full: false, realAudio: true });
-  await page.getByRole('button', { name: 'Hörprobe der gewählten Stimme' }).click();
+  await mount(page, { full: false, realAudio: true, piperOnly: true });
+  await expect(page.getByLabel('Stimmenanbieter', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Hörprobe abspielen', exact: true }).click();
   await expect(page.locator('audio')).toBeVisible();
   await expect.poll(() => page.locator('audio').evaluate(audio => audio.readyState)).toBeGreaterThanOrEqual(2);
   await expect(page.locator('.speech-error[role="alert"]')).toHaveCount(0);
@@ -124,6 +134,7 @@ test('dictionary edit, toggle and deletion remain usable on a narrow dark panel'
   const { patches } = await mount(page, { full: false, dark: true, initial: { notes_tts_options: {
     ...defaultSpeechOptions(), pronunciations: [{ word: 'QIS', pronunciation: 'Kiss', case_sensitive: false, enabled: true }],
   } } });
+  await page.getByText('Eigenes Aussprachewörterbuch').click();
   await page.getByRole('button', { name: 'Aussprache für QIS bearbeiten' }).click();
   await page.getByLabel('Gesprochene Form', { exact: true }).fill('Kwis');
   await page.getByRole('button', { name: 'Eintrag übernehmen' }).click();
