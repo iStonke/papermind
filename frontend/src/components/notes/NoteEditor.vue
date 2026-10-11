@@ -121,7 +121,8 @@
             }"
             :title="b.label"
             :aria-label="b.label"
-            @mousedown.prevent="b.run()"
+            @mousedown.prevent="b.key !== 'speech' && b.run()"
+            @click="b.key === 'speech' && b.run()"
           >
             <PmActionIcon v-if="b.actionIcon" :name="b.actionIcon" :size="17" />
             <v-icon
@@ -314,6 +315,7 @@ import {
 import { uploadNoteImage } from '../../api/notes.js';
 import { listMarkers } from '../../api/learn.js';
 import { synthesizeSpeech } from '../../api/tts.js';
+import { primeSpeechAudio } from '../../utils/ttsAudio.js';
 import { NOTE_HIGHLIGHT_COLORS } from '../../utils/noteHighlights.js';
 import { placeSelectionBubble } from '../../utils/noteBubblePosition.js';
 import { useUiStore } from '../../stores/ui';
@@ -1371,7 +1373,7 @@ const bubbleButtons = computed(() => {
       label: speechButtonLabel.value,
       icon: speechButtonIcon.value,
       separatorAfter: true,
-      active: () => ['loading', 'playing', 'paused'].includes(speech.status),
+      active: () => ['loading', 'playing', 'paused', 'ready'].includes(speech.status),
       run: () => { void toggleSelectedSpeech(ed); },
     },
     mk('bold', 'Fett', 'mdi-format-bold', e => e.isActive('bold'), c => c.toggleBold()),
@@ -1421,15 +1423,15 @@ const speechButtonLabel = computed(() => {
   if (speech.status === 'loading') return 'Vorlesen wird vorbereitet – abbrechen';
   if (speech.status === 'playing') return 'Vorlesen pausieren';
   if (speech.status === 'paused') return 'Vorlesen fortsetzen';
-  if (speech.status === 'error' && speech.error) return speech.error;
+  if (speech.status === 'ready') return 'Vorlesen starten';
+  if (speech.status === 'error') return 'Vorlesen erneut versuchen';
   return 'Markierten Text vorlesen';
 });
 
 const speechButtonIcon = computed(() => {
   if (speech.status === 'loading') return 'mdi-loading';
   if (speech.status === 'playing') return 'mdi-pause';
-  if (speech.status === 'paused') return 'mdi-play';
-  if (speech.status === 'error') return 'mdi-alert-circle-outline';
+  if (speech.status === 'paused' || speech.status === 'ready') return 'mdi-play';
   return 'mdi-volume-high';
 });
 
@@ -1441,6 +1443,8 @@ function selectedSpeechText(ed) {
 
 function releaseSpeechAudio() {
   if (speechAudio) {
+    speechAudio.onended = null;
+    speechAudio.onerror = null;
     speechAudio.pause();
     speechAudio.removeAttribute('src');
     speechAudio.load();
@@ -1463,7 +1467,7 @@ function stopSpeech({ preserveError = false } = {}) {
   if (!preserveError) speech.error = '';
 }
 
-watch([speechVoice, speechLanguageMode], () => stopSpeech());
+watch([speechVoice, speechLanguageMode, () => props.noteId], () => stopSpeech());
 
 function stopSpeechWhenSelectionChanges(ed) {
   if (speech.status === 'idle' || speech.status === 'error') return;
@@ -1483,14 +1487,11 @@ async function toggleSelectedSpeech(ed) {
     speech.status = 'paused';
     return;
   }
-  if (speech.text === text && speech.voice === speechVoice.value && speech.languageMode === speechLanguageMode.value && speech.status === 'paused' && speechAudio) {
-    try {
-      await speechAudio.play();
-      speech.status = 'playing';
-    } catch {
-      speech.error = 'Die Audiowiedergabe konnte nicht fortgesetzt werden.';
-      stopSpeech({ preserveError: true });
-    }
+  if (speech.text === text && speech.voice === speechVoice.value && speech.languageMode === speechLanguageMode.value && ['paused', 'ready'].includes(speech.status) && speechAudio) {
+    speech.error = '';
+    speech.status = 'loading';
+    speechAbortController = new AbortController();
+    await playSpeechAudio(speechAudio, speechAbortController);
     return;
   }
 
@@ -1508,27 +1509,52 @@ async function toggleSelectedSpeech(ed) {
   speechAbortController = new AbortController();
   const requestController = speechAbortController;
   try {
-    const audioBlob = await synthesizeSpeech(text, {
-      signal: requestController.signal,
-      voice: speechVoice.value,
-      languageMode: speechLanguageMode.value,
-    });
+    // Vor dem ersten await aktivieren und anschließend dieselbe Instanz nutzen.
+    const audio = new Audio();
+    speechAudio = audio;
+    audio.preload = 'auto';
+    const primed = primeSpeechAudio(audio);
+    const [audioBlob] = await Promise.all([
+      synthesizeSpeech(text, {
+        signal: requestController.signal,
+        voice: speechVoice.value,
+        languageMode: speechLanguageMode.value,
+      }),
+      primed,
+    ]);
     if (speechAbortController !== requestController) return;
-    speechAbortController = null;
     speechObjectUrl = URL.createObjectURL(audioBlob);
-    speechAudio = new Audio(speechObjectUrl);
-    speechAudio.preload = 'auto';
-    speechAudio.onended = () => stopSpeech();
-    speechAudio.onerror = () => {
+    audio.src = speechObjectUrl;
+    audio.onended = () => stopSpeech();
+    audio.onerror = () => {
       speech.error = 'Die erzeugte Audiodatei konnte nicht abgespielt werden.';
       stopSpeech({ preserveError: true });
     };
-    await speechAudio.play();
-    speech.status = 'playing';
+    await playSpeechAudio(audio, requestController);
   } catch (error) {
-    if (error?.name === 'AbortError' || requestController.signal.aborted) return;
+    if (speechAbortController !== requestController || requestController.signal.aborted) return;
     speechAbortController = null;
     speech.error = error?.message || 'Der markierte Text konnte nicht vorgelesen werden.';
+    stopSpeech({ preserveError: true });
+  }
+}
+
+async function playSpeechAudio(audio, requestController) {
+  try {
+    await audio.play();
+    if (speechAbortController !== requestController) return;
+    speechAbortController = null;
+    speech.status = 'playing';
+  } catch (error) {
+    if (speechAbortController !== requestController || requestController.signal.aborted) return;
+    speechAbortController = null;
+    if (error?.name === 'NotAllowedError') {
+      // Die fertige Datei behalten: der nächste Klick spielt ohne neue Anfrage.
+      speech.status = 'ready';
+      speech.error = 'Audio ist bereit. Bitte auf „Vorlesen starten“ klicken.';
+      return;
+    }
+    speech.error = 'Die erzeugte Audiodatei konnte nicht abgespielt werden.';
     stopSpeech({ preserveError: true });
   }
 }

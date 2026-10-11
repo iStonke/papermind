@@ -1,5 +1,20 @@
 const DEFAULT_CHUNK_CHARS = 6000;
 
+// 10 ms PCM-Stille. Der erste play()-Aufruf muss direkt im Klick erfolgen;
+// WebKit erteilt die Wiedergabeerlaubnis pro Audio-Element.
+const SILENT_WAV = 'data:audio/wav;base64,UklGRsQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YaAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+
+export async function primeSpeechAudio(audio) {
+  audio.src = SILENT_WAV;
+  try {
+    await audio.play();
+    audio.pause();
+  } catch {
+    // Auch bei einer Browser-Sperre das eigentliche Audio vorbereiten.
+    // Der Aufrufer bietet bei NotAllowedError einen erneuten Start per Klick an.
+  }
+}
+
 function ascii(view, offset, length) {
   return String.fromCharCode(...new Uint8Array(view.buffer, view.byteOffset + offset, length));
 }
