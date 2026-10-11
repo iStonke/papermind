@@ -12,6 +12,13 @@ im Mac-Benutzerkontext aus.
   `scanner_timing_test`, `scanner_timing_restore`, `scanner_jpeg_test`,
   `scanner_jpeg_restore`, `scanner_poller_restart`, `restore_drill`,
   `recovery_check` oder `quiet_fan_profile`.
+- Für den Optimierungs-Release vom 11. Oktober 2026 hat der Nutzer außerdem
+  `rollout` und `rollout_status` ausdrücklich freigegeben: festes Paket mit
+  Prüfsumme, Sicherung, Image-Build, Migration, Gesundheitsprüfung und
+  Wiederanlauf mit vorherigen Images bei Fehlern. Kein frei wählbarer Befehl,
+  Host oder Pfad und kein Pi-Neustart.
+- `rollout_verify` prüft ausschließlich diesen erfolgreich installierten Release
+  mit synthetischem PDF/Sprachtext, Zugriffskontrolle und HTTP-Kompression.
 - `scanner_status` liest ausschließlich Dienststatus, feste systemd-Definitionen,
   Canon-USB-Energiezustand, SANE-Geräteliste und begrenzte Scanner-Logs aus.
 - `scanner_calibration_test` sichert das Scan-Skript und aktiviert darin

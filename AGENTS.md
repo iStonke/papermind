@@ -11,6 +11,15 @@ macOS-Bridge `com.papermind.pi-bridge`. Nie eine direkte Verbindung zu
   `scanner_calibration_restore`, `scanner_timing_test`, `scanner_timing_restore`,
   `scanner_jpeg_test`, `scanner_jpeg_restore`, `scanner_poller_restart`,
   `restore_drill`, `recovery_check`, `quiet_fan_profile`.
+- Zusätzlich ausdrücklich freigegeben: `rollout` und `rollout_status` für den
+  fest gepinnten Optimierungs-Release vom 11. Oktober 2026. `rollout` überträgt
+  ausschließlich das geprüfte Paket mit fester SHA-256-Prüfsumme, erstellt eine
+  Sicherung, baut die Images, migriert und prüft den Wiederanlauf. Kein
+  frei wählbarer Befehl, Host oder Pfad und kein Pi-Neustart. `rollout_status`
+  liest nur den begrenzten Fortschritt dieses Releases.
+- `rollout_verify` führt ausschließlich die feste abschließende Prüfung des
+  erfolgreich installierten Releases aus: RLS, anonymen Zugriff, synthetisches
+  PDF, lokale Piper-Ausgabe und HTTP-Kompression. Keine Nutzerdatenänderung.
 - `scanner_status` liest ausschließlich Dienststatus, feste systemd-Definitionen,
   Canon-USB-Energiezustand, SANE-Geräteliste und begrenzte Scanner-Logs aus.
 - `scanner_calibration_test` sichert das Scan-Skript und aktiviert darin

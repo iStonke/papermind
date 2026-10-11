@@ -21,6 +21,9 @@ VALID_ACTIONS = {
     "restore_drill",
     "recovery_check",
     "quiet_fan_profile",
+    "rollout",
+    "rollout_status",
+    "rollout_verify",
 }
 
 
