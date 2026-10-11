@@ -62,6 +62,7 @@ import { NoteHighlight } from './nodes/noteHighlight.js';
 import { TemplateBox, TemplateField } from './nodes/templateBox.js';
 import { NoteImage } from './nodes/noteImage.js';
 import { LearnMarker } from './extensions/learnMarker.js';
+import { createNoteMathExtensions } from './nodes/noteMath.js';
 import { useNotesStore } from '../../stores/notes.js';
 import { useSettingsStore } from '../../stores/settings.js';
 
@@ -135,6 +136,7 @@ const editor = useEditor({
     TemplateBox,
     TemplateField,
     NoteImage,
+    ...createNoteMathExtensions(),
     LearnMarker,
   ],
   editorProps: { attributes: { class: 'pm-content pm-content--readonly' } },
@@ -434,6 +436,38 @@ watch(() => props.noteId, load, { immediate: true });
 .note-preview :deep(.pm-content ul),
 .note-preview :deep(.pm-content ol) { padding-left: 1.4em; }
 .note-preview :deep(.pm-content li) { margin: 0.2em 0; }
+/* Formeln (KaTeX): Block zentriert und horizontal scrollbar, inline ohne
+   Zeilensprung; bearbeitbar = Hover-Fläche + Auswahlrahmen. */
+.note-preview :deep(.pm-content [data-type='block-math']) {
+  margin: 0.6em 0;
+  padding: 4px 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-radius: 8px;
+  text-align: center;
+}
+.note-preview :deep(.pm-content [data-type='block-math'] .katex-display) { margin: 0.2em 0; }
+.note-preview :deep(.pm-content [data-type='inline-math']) {
+  padding: 0 2px;
+  border-radius: 4px;
+}
+.note-preview :deep(.pm-content .tiptap-mathematics-render--editable) {
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.note-preview :deep(.pm-content .tiptap-mathematics-render--editable:hover) {
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 8%, transparent);
+}
+.note-preview :deep(.pm-content .tiptap-mathematics-render.ProseMirror-selectednode) {
+  outline: 2px solid color-mix(in srgb, var(--pm-accent, #006b75) 55%, transparent);
+  outline-offset: 1px;
+}
+.note-preview :deep(.pm-content :is(.block-math-error, .inline-math-error)) {
+  color: var(--pm-danger, #b42318);
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.85em;
+}
+
 .note-preview :deep(.pm-content blockquote) {
   border-left: 2.5px solid var(--pm-accent, #006b75);
   padding-left: 0.9em; margin-left: 0; color: var(--pm-muted, #535e62); font-style: italic;

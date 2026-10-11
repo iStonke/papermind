@@ -81,6 +81,7 @@ export function useNoteToolbar({
     { key: 'documentChip', icon: 'mdi-file-document-outline', label: 'Beleg verknüpfen', action: 'document' },
     { key: 'table', name: 'table', icon: 'mdi-table', label: 'Tabelle', action: 'table' },
     { key: 'image', icon: 'mdi-image-plus-outline', label: 'Bild einfügen', action: 'image', requiresNote: true },
+    { key: 'math', glyph: '∑', label: 'Formel', action: 'math' },
     { key: 'collapsibleSection', glyph: '▸', label: 'Abschnitte' },
     { key: 'horizontalRule', glyph: '―', label: 'Trennlinie' },
   ];

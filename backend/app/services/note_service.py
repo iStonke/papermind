@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -43,6 +44,9 @@ _NODE_TEXT_ATTRS: dict[str, tuple[str, ...]] = {
     # alt/title sind der automatisch gesetzte Dateiname (z. B. „image.png") und
     # gehören weder in die Vorschau noch in die Suche; nur die Bildunterschrift.
     "image": ("caption",),
+    # Formeln: LaTeX-Quelltext bleibt durchsuchbar (z. B. „pmatrix", „theta").
+    "inlineMath": ("latex",),
+    "blockMath": ("latex",),
 }
 
 _WS = re.compile(r"\s+")
@@ -442,6 +446,7 @@ class NoteService:
                 notebook_id=n.notebook_id,
                 collection_id=n.collection_id,
                 is_favorite=n.is_favorite,
+                pinned_at=n.pinned_at,
                 tags=_tag_refs(n),
                 created_at=n.created_at,
                 updated_at=n.updated_at,
@@ -763,6 +768,16 @@ class NoteService:
         # Anheften ist ebenfalls Metadaten (kein Revisions-Bump).
         if "is_favorite" in payload.model_fields_set and payload.is_favorite is not None:
             note.is_favorite = bool(payload.is_favorite)
+        if "is_pinned" in payload.model_fields_set and payload.is_pinned is not None:
+            if not payload.is_pinned:
+                note.pinned_at = None
+            elif note.pinned_at is None:
+                note.pinned_at = datetime.now(timezone.utc)
+            # Reines Anheften ist keine Bearbeitung: Änderungsdatum (und damit
+            # Datumsgruppe/Sortierung „Bearbeitet") bleibt stehen.
+            if payload.title is None and payload.body_json is None:
+                note.updated_at = note.updated_at
+                flag_modified(note, "updated_at")
         self.db.commit()
         self.db.refresh(note)
         return note

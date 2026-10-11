@@ -1,10 +1,13 @@
-/** Count only selected ranges, including multi-cell selections, without reading the whole note. */
+/**
+ * Count only selected ranges, including multi-cell selections, without reading the whole note.
+ * Selections without text (e.g. a selected slide or image block) count as no selection.
+ */
 export function selectedWordCount(state) {
   if (!state?.selection || state.selection.empty) return null;
   const text = state.selection.ranges.map(({ $from, $to }) =>
     state.doc.textBetween($from.pos, $to.pos, ' ', ' '),
   ).join(' ').trim();
-  return text ? text.split(/\s+/u).length : 0;
+  return text ? text.split(/\s+/u).length : null;
 }
 
 export function wordCountLabel(total, selected = null) {

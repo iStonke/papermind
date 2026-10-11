@@ -337,8 +337,22 @@ test('notes support recently-opened sorting plus notebook and pinned groups', as
   await page.getByText('Alle Notizen', { exact: true }).click();
   const showFavoriteGroups = page.getByRole('button', { name: 'Notizenliste einblenden' });
   if (await showFavoriteGroups.isVisible()) await showFavoriteGroups.click();
-  await expect(page.locator('.notes-ws__group-heading')).toHaveText(['Angepinnt', 'Weitere Notizen']);
+  await expect(page.locator('.notes-ws__group-heading')).toHaveText(['Favoriten', 'Weitere Notizen']);
   await expect(page.locator('.notes-ws__item-title').first()).toHaveText('Alpha');
+
+  // Anpinnen ist unabhängig vom Favoriten-Stern: Die angepinnte Notiz steht in
+  // jeder Gruppierung als eigener Block ganz oben.
+  notes[2].pinned_at = '2026-09-25T10:00:00Z';
+  await page.evaluate(() => localStorage.setItem('pm-notes-list-preferences-v1', JSON.stringify({
+    sortMode: 'title', grouping: 'notebook',
+  })));
+  await page.reload();
+  await page.getByText('Alle Notizen', { exact: true }).click();
+  const showPinnedGroups = page.getByRole('button', { name: 'Notizenliste einblenden' });
+  if (await showPinnedGroups.isVisible()) await showPinnedGroups.click();
+  await expect(page.locator('.notes-ws__group-heading')).toHaveText(['Angepinnt', 'Arbeit', 'Privat']);
+  await expect(page.locator('.notes-ws__item-title').first()).toHaveText('Charlie');
+  await expect(page.locator('.notes-ws__item-pin').first()).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('command palette finds and opens individual notes', async ({ page }) => {

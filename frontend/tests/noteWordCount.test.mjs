@@ -26,3 +26,10 @@ test('selection across paragraphs counts words separately and supports select al
   assert.equal(wordCountLabel(1), '1 Wort');
   assert.equal(wordCountLabel(0), '0 Wörter');
 });
+
+test('selection without text counts as no selection', () => {
+  const editor = createTestEditor('eins zwei');
+  editor.commands.setTextSelection({ from: 5, to: 6 });
+  assert.equal(selectedWordCount(editor.state), null);
+  assert.equal(wordCountLabel(2, selectedWordCount(editor.state)), '2 Wörter');
+});

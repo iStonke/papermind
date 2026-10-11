@@ -105,6 +105,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import BaseDialog from '../BaseDialog.vue';
+import { SPEAKING_WPM } from '../../utils/noteStats.js';
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -145,7 +146,7 @@ const characterLabel = computed(() => `${exportText.value.length.toLocaleString(
 const wordCount = computed(() => exportText.value ? exportText.value.split(/\s+/).filter(Boolean).length : 0);
 const durationLabel = computed(() => {
   if (!wordCount.value) return 'Keine Laufzeit';
-  const minutes = Math.max(1, Math.ceil(wordCount.value / 145));
+  const minutes = Math.max(1, Math.ceil(wordCount.value / SPEAKING_WPM));
   return `ca. ${minutes} ${minutes === 1 ? 'Minute' : 'Minuten'}`;
 });
 

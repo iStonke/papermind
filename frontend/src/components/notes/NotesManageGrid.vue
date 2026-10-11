@@ -149,7 +149,7 @@
                 v-for="note in group.notes"
                 :key="note.id"
                 class="nmg-card"
-                :class="{ 'is-editing': editingId === note.id, 'is-dragging': draggingNoteId === note.id, 'is-in-collection': !!note.collection_id }"
+                :class="{ 'is-pinned': isPinned(note), 'is-editing': editingId === note.id, 'is-dragging': draggingNoteId === note.id, 'is-in-collection': !!note.collection_id }"
                 :style="collectionAccentStyle(note)"
                 :title="notebookFor(note) ? `Notizbuch: ${notebookFor(note).name}` : undefined"
                 role="button"
@@ -161,6 +161,9 @@
                 @dragend="onCardDragEnd"
               >
                 <div class="nmg-card__preview">
+                  <span v-if="isPinned(note)" class="nmg-card__pin-badge" title="Angepinnt" aria-label="Angepinnt">
+                    <v-icon size="13">mdi-pin</v-icon>
+                  </span>
                   <p class="nmg-card__snippet">{{ snippet(note) }}</p>
                   <span
                     v-if="note.link_count > 0"
@@ -186,6 +189,17 @@
                         <v-icon size="15">{{ note.is_favorite ? 'mdi-star' : 'mdi-star-outline' }}</v-icon>
                       </button>
                     </span>
+                    <button
+                      type="button"
+                      class="nmg-card__act nmg-card__act--pin"
+                      :class="{ 'is-active': isPinned(note) }"
+                      :title="isPinned(note) ? 'Nicht mehr anpinnen' : 'Oben anpinnen'"
+                      :aria-label="isPinned(note) ? 'Notiz lösen' : 'Notiz oben anpinnen'"
+                      :aria-pressed="String(isPinned(note))"
+                      @click="togglePinned(note)"
+                    >
+                      <v-icon size="15">{{ isPinned(note) ? 'mdi-pin' : 'mdi-pin-outline' }}</v-icon>
+                    </button>
                     <v-menu location="bottom end" :offset="4">
                       <template #activator="{ props: moveProps }">
                         <button type="button" class="nmg-card__act" v-bind="moveProps" title="In Notizbuch verschieben" aria-label="In Notizbuch verschieben">
@@ -888,7 +902,7 @@ const GROUPING_OPTIONS = [
   { value: 'auto', label: 'Automatisch' },
   { value: 'date', label: 'Nach Datum' },
   { value: 'notebook', label: 'Nach Notizbuch' },
-  { value: 'favorites', label: 'Angepinnte + weitere Notizen' },
+  { value: 'favorites', label: 'Favoriten + weitere Notizen' },
   { value: 'none', label: 'Ohne Gruppen' },
 ];
 const DATE_RANGE_OPTIONS = [
@@ -1011,11 +1025,12 @@ const visibleItems = computed(() => {
 });
 
 // Datumsgruppen folgen der Sortierrichtung. Titel werden ohne Datumsgruppen
-// alphabetisch sortiert. Angepinnte Notizen werden nur in der ausdrücklich
-// gewählten Favoriten-Gruppierung als eigener Block abgesetzt.
+// alphabetisch sortiert. Favoriten werden nur in der ausdrücklich gewählten
+// Favoriten-Gruppierung abgesetzt; angepinnte Notizen stehen dagegen in jeder
+// Gruppierung als eigener Block ganz oben (wie in der Notizliste).
 const GROUP_ORDER = ['today', 'yesterday', 'week', 'month', 'older'];
 const GROUP_LABELS = {
-  favorites: 'Angepinnt',
+  favorites: 'Favoriten',
   notes: 'Weitere Notizen',
   today: 'Heute',
   yesterday: 'Gestern',
@@ -1048,11 +1063,25 @@ function groupBucket(note) {
   if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) return 'month';
   return 'older';
 }
+function isPinned(note) {
+  return Boolean(note?.pinned_at);
+}
+
 const groupedItems = computed(() => {
-  if (grouping.value === 'none') return [{ key: 'all', label: '', notes: visibleItems.value }];
+  const pinned = visibleItems.value
+    .filter(isPinned)
+    .sort((a, b) => new Date(b.pinned_at) - new Date(a.pinned_at));
+  if (!pinned.length) return groupUnpinnedItems(visibleItems.value);
+  const rest = groupUnpinnedItems(visibleItems.value.filter((note) => !isPinned(note)))
+    .map((group) => (group.label ? group : { ...group, label: 'Weitere Notizen' }));
+  return [{ key: 'pinned', label: 'Angepinnt', notes: pinned }, ...rest];
+});
+
+function groupUnpinnedItems(items) {
+  if (grouping.value === 'none') return [{ key: 'all', label: '', notes: items }];
   if (grouping.value === 'notebook') {
     const groups = new Map();
-    for (const note of visibleItems.value) {
+    for (const note of items) {
       const key = note.notebook_id || 'none';
       if (!groups.has(key)) groups.set(key, { key, label: notebooksById.value.get(key)?.name || 'Ohne Notizbuch', notes: [] });
       groups.get(key).notes.push(note);
@@ -1060,7 +1089,7 @@ const groupedItems = computed(() => {
     return [...groups.values()].sort((a, b) => a.key === 'none' ? 1 : b.key === 'none' ? -1 : a.label.localeCompare(b.label, 'de-DE'));
   }
   const buckets = new Map();
-  for (const note of visibleItems.value) {
+  for (const note of items) {
     const key = groupBucket(note);
     if (!buckets.has(key)) buckets.set(key, []);
     buckets.get(key).push(note);
@@ -1079,7 +1108,7 @@ const groupedItems = computed(() => {
       label: grouping.value === 'auto' && sortMode.value === 'title' ? '' : GROUP_LABELS[key],
       notes: buckets.get(key),
     }));
-});
+}
 
 // Nur tatsächlich vergebene Tags (mit Häufigkeit) als Filter-Wolke anbieten.
 const usedTags = computed(() => {
@@ -1233,6 +1262,14 @@ async function commitRename(note) {
 // beim aktiven Setzen (nicht am Zustand), damit sie nicht bei jedem Rerender feuert.
 const animatingFavoriteId = ref(null);
 let favoriteAnimTimer = null;
+
+async function togglePinned(note) {
+  try {
+    await notesStore.setPinned(note.id, !isPinned(note));
+  } catch (error) {
+    notifyError(error, 'Der Pin-Status konnte nicht gespeichert werden.');
+  }
+}
 
 async function toggleFavorite(note) {
   if (!note?.id) return;
@@ -2679,6 +2716,25 @@ function formatDate(value) {
   display: inline-flex;
 }
 .nmg-card__act--fav.is-active { color: var(--pm-star, #f5b301); }
+.nmg-card__act--pin.is-active { color: var(--pm-accent, #006b75); }
+.nmg-card__act--pin.is-active:hover { color: var(--pm-accent, #006b75); background: color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent); }
+/* Dauerhafter Pin-Hinweis: Die Aktionsleiste erscheint erst beim Überfahren. */
+.nmg-card__pin-badge {
+  position: absolute;
+  top: 9px;
+  right: 10px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--pm-accent, #006b75);
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 12%, var(--pm-content-surface, #fff));
+  transition: opacity 120ms ease;
+}
+.nmg-card.is-pinned .nmg-card__snippet { padding-right: 22px; }
+.nmg-card:hover .nmg-card__pin-badge,
+.nmg-card:focus-within .nmg-card__pin-badge { opacity: 0; }
 .nmg-card__act--fav.is-active:hover { color: var(--pm-star, #f5b301); background: color-mix(in srgb, var(--pm-star, #f5b301) 14%, transparent); }
 
 .nmg-card__fav-wrap--pop {

@@ -168,8 +168,11 @@ test('notes list groups time sorts by day but keeps title sorting ungrouped', ()
   assert.match(templateSource, /<h2 v-if="group\.label"/);
   assert.match(templateSource, /class="notes-ws__group-heading"/);
   assert.match(templateSource, /v-for="note in group\.notes"/);
-  assert.match(workspaceSource, /sortMode\.value === 'title'[\s\S]*?key: 'alphabetical', label: '', notes: visibleNotes\.value/);
-  assert.match(workspaceSource, /groupNotesByCreationDay\(visibleNotes\.value\)/);
+  assert.match(workspaceSource, /sortMode\.value === 'title'[\s\S]*?key: 'alphabetical', label: '', notes \}/);
+  assert.match(workspaceSource, /groupNotesByCreationDay\(notes\)/);
+  // Angepinnte Notizen stehen unabhängig von Sortierung/Gruppierung oben.
+  assert.match(workspaceSource, /\{ key: 'pinned', label: 'Angepinnt', notes: pinned \}, \.\.\.rest/);
+  assert.match(workspaceSource, /groupUnpinnedNotes\(visibleNotes\.value\.filter\(\(note\) => !isPinned\(note\)\)\)/);
   assert.match(workspaceSource, /\.notes-ws__group-heading\s*\{[\s\S]*?position:\s*sticky[\s\S]*?top:\s*0/);
   assert.doesNotMatch(templateSource, /notes-ws__group-count/);
 });
@@ -189,7 +192,9 @@ test('notes toolbar combines sorting and grouping into one compact view menu', (
 test('notes list offers notebook and pinned grouping plus recently-opened sorting', () => {
   assert.match(workspaceSource, /value: 'opened', label: 'Zuletzt geöffnet'/);
   assert.match(workspaceSource, /value: 'notebook', label: 'Nach Notizbuch'/);
-  assert.match(workspaceSource, /value: 'favorites', label: 'Angepinnte \+ weitere Notizen'/);
+  assert.match(workspaceSource, /value: 'favorites', label: 'Favoriten \+ weitere Notizen'/);
+  // Anpinnen ist vom Favoriten-Stern getrennt.
+  assert.match(workspaceSource, /notesStore\.setPinned\(note\.id, !isPinned\(note\)\)/);
   assert.match(workspaceSource, /notesStore\.markOpened\(noteId\)/);
 });
 
@@ -330,7 +335,7 @@ test('new notes put the caret directly into the writable editor body', () => {
   assert.match(notesManageGridSource, /emit\('open-note', note\.id, \{ cursorPosition: 'end' \}\)/);
   assert.match(notesDevHarnessSource, /focusBody\?\.\('start'\)/);
   assert.match(workspaceEditorSource, /pendingEditorFocusRequest = \{[\s\S]*?noteId: props\.noteId,[\s\S]*?position: normalizedPosition/);
-  assert.match(workspaceEditorSource, /nextTick\(\(\) => \{\s*animateNewPage\(noteId\);\s*flushPendingEditorFocus\(noteId\);/);
+  assert.match(workspaceEditorSource, /nextTick\(\(\) => \{\s*animateNewPage\(noteId\);\s*if \(!flushPendingEditorFocus\(noteId\) && isNoteSwitch && !pendingEditorFocusRequest\) \{\s*restoreEditPosition\(noteId\);/);
   assert.match(workspaceEditorSource, /function flushPendingEditorFocus\(noteId = loadedNoteId\.value\)[\s\S]*?focusBody\?\.\(request\.position\) === true/);
   assert.match(workspaceEditorSource, /defineExpose\(\{[\s\S]*?focusEditorBody/);
   assert.match(noteEditorSource, /position === 'start' \|\| position === 'end'[\s\S]*?focus\(position\)\.run\(\)[\s\S]*?return true/);
@@ -821,4 +826,13 @@ test('compact list filters collapse to icons when inactive so the toolbar never 
   assert.match(listActionToolbarSource, /list-action-toolbar__action-btn--icon-only/);
   assert.match(listActionToolbarSource, /class="list-action-toolbar__action-label"/);
   assert.match(listActionToolbarSource, /\.list-action-toolbar__action-label\s*\{[\s\S]*?text-overflow:\s*ellipsis/);
+});
+
+test('manage grid shows pins and keeps pinned notes on top in every grouping', () => {
+  assert.match(notesManageGridSource, /class="nmg-card__act nmg-card__act--pin"[\s\S]*?@click="togglePinned\(note\)"/);
+  assert.match(notesManageGridSource, /v-if="isPinned\(note\)" class="nmg-card__pin-badge"/);
+  assert.match(notesManageGridSource, /\{ key: 'pinned', label: 'Angepinnt', notes: pinned \}, \.\.\.rest/);
+  assert.match(notesManageGridSource, /notesStore\.setPinned\(note\.id, !isPinned\(note\)\)/);
+  // Der Favoriten-Stern bleibt eine eigene Gruppierung.
+  assert.match(notesManageGridSource, /favorites: 'Favoriten'/);
 });

@@ -37,6 +37,7 @@ def note_row(*, body_text: str = "Ein kurzer Notiztext"):
         notebook_id=None,
         collection_id=None,
         is_favorite=False,
+        pinned_at=None,
         created_at=now,
         updated_at=now,
         last_opened_at=None,

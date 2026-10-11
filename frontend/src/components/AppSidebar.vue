@@ -743,7 +743,7 @@ const thoughtSidebarCount = computed(() => notesStore.globalThoughtRoomCount);
 const notesSidebarCount = computed(() => notesStore.notes.length);
 const recentNotesSidebarCount = computed(() => Math.min(notesStore.allNotes.length, 10));
 const pinnedNotesSidebarCount = computed(
-  () => notesStore.allNotes.filter((note) => note.is_favorite).length
+  () => notesStore.allNotes.filter((note) => note.pinned_at).length
 );
 
 const sortedTagsByName = computed(() =>

@@ -169,6 +169,7 @@
       <!-- Klassischer externer Hyperlink. Interne PaperMind-Ziele bleiben
            bewusst dem [[Verweis]]-Element vorbehalten. -->
       <NoteLinkMenu :controller="links" />
+      <NoteMathMenu :controller="maths" />
 
       <div
         v-if="editor && slash.open && slashResults.length"
@@ -232,17 +233,29 @@
         <span class="note-editor__dot"></span>
         {{ saveLabel }}
       </span>
-      <span class="note-editor__count">{{ wordCountLabel(words, selectionWords) }}</span>
+      <span class="note-editor__count">
+        <NoteStatsPopover
+          :label="wordCountLabel(words, selectionWords)"
+          :compute="computeStats"
+          @jump="revealRange"
+        />
+      </span>
     </div>
   </div>
 </template>
 
 <script setup>
 import { selectedWordCount, wordCountLabel } from '../../utils/noteWordCount.js';
+import { computeNoteStats } from '../../utils/noteStats.js';
+import NoteStatsPopover from './NoteStatsPopover.vue';
 import PmActionIcon from '../PmActionIcon.vue';
 import NoteEditorToolbar from './NoteEditorToolbar.vue';
 import { useNoteToolbar } from './composables/useNoteToolbar.js';
 import NoteLinkMenu from './NoteLinkMenu.vue';
+import NoteMathMenu from './NoteMathMenu.vue';
+import { useNoteMath } from './composables/useNoteMath.js';
+import { createNoteMathExtensions } from './nodes/noteMath.js';
+import { pastedMarkdownContent, shouldConvertPastedMarkdown } from '../../utils/noteMarkdownPaste.js';
 import NoteTableMenu from './NoteTableMenu.vue';
 import NoteReferencePicker from './NoteReferencePicker.vue';
 import { useNoteLinks } from './composables/useNoteLinks.js';
@@ -380,6 +393,7 @@ const emit = defineEmits([
   'update:modelValue',
   'update:title',
   'change',
+  'edit-position',
   'word-count',
   'history-checkpoint',
   'note-search-state',
@@ -549,6 +563,9 @@ const editor = useEditor({
     }),
     TemplateField,
     NoteImage,
+    // Der Formel-Controller entsteht erst nach dem Editor – Klicks werden
+    // deshalb über eine spät gebundene Funktion weitergereicht.
+    ...createNoteMathExtensions({ onEdit: (node, pos) => editMathNode?.(node, pos) }),
     FileHandler.configure({
       allowedMimeTypes: NOTE_IMAGE_MIME_TYPES,
       consumePasteEvent: true,
@@ -569,7 +586,7 @@ const editor = useEditor({
   editorProps: {
     attributes: { class: 'pm-content', spellcheck: props.spellcheckEnabled ? 'true' : 'false' },
     handleKeyDown: (_view, event) => onEditorKeyDown(event),
-    handlePaste: (_view, event) => handleEditorPaste(event),
+    handlePaste: (view, event) => handleEditorPaste(event) || handleMarkdownPaste(view, event),
     handleClick: (view, _pos, event) => handleEditorLinkClick(view, event),
   },
   onUpdate: ({ editor: ed }) => {
@@ -581,6 +598,7 @@ const editor = useEditor({
     updateWordCount(ed, text);
     emit('update:modelValue', json);
     emit('change', { json, text, words: words.value });
+    emit('edit-position', ed.state.selection.head);
     refreshWikiLink();
     refreshSlash();
     emitNoteSearchState(ed);
@@ -965,6 +983,54 @@ function scrollToDocumentPosition(position, { focus = false, behavior = 'smooth'
   return true;
 }
 
+/**
+ * Schreibmarke an die zuletzt bearbeitete Stelle setzen (beim erneuten Öffnen).
+ * Fasst einen bereits fokussierten Editor nicht an – wer schon tippt, gewinnt.
+ * Gescrollt wird hier nicht: Die Scrollposition stellt der Arbeitsbereich
+ * separat wieder her.
+ */
+function restoreCaret(position) {
+  const ed = editor.value;
+  if (!ed || ed.isDestroyed || !ed.isEditable || ed.view.hasFocus()) return false;
+  const pos = Math.min(Math.max(0, Math.round(Number(position) || 0)), ed.state.doc.content.size);
+  const selection = TextSelection.near(ed.state.doc.resolve(pos));
+  ed.view.dispatch(ed.state.tr.setSelection(selection).setMeta('addToHistory', false));
+  // Beim Notizwechsel hat resetSelectionAfterExternalContent ein TipTap-blur()
+  // angestoßen, das erst im nächsten Animation-Frame greift. Den Fokus deshalb
+  // danach setzen – außer, es wird inzwischen woanders getippt (Titel, Suche).
+  const noteId = props.noteId;
+  window.requestAnimationFrame(() => {
+    if (ed.isDestroyed || !ed.isEditable || props.noteId !== noteId) return;
+    const active = document.activeElement;
+    if (active && !ed.view.dom.contains(active) && active.matches?.('input, textarea, select, [contenteditable="true"]')) return;
+    ed.view.focus();
+  });
+  return true;
+}
+
+/** Textstatistik der Notiz bzw. – bei aktiver Markierung – nur der Markierung. */
+function computeStats() {
+  const state = editor.value?.state;
+  if (!state) return null;
+  const { selection } = state;
+  // Wie die Wortanzeige: Markierungen ohne Text (z. B. ein Folienblock) zählen
+  // nicht als Markierung.
+  return selection.empty || selectedWordCount(state) === null
+    ? computeNoteStats(state.doc)
+    : computeNoteStats(state.doc, { from: selection.from, to: selection.to });
+}
+
+/** Bereich markieren und in den sichtbaren Schreibbereich holen. */
+function revealRange({ from, to }) {
+  const ed = editor.value;
+  if (!ed || ed.isDestroyed) return;
+  const max = ed.state.doc.content.size;
+  const range = { from: Math.min(max, from), to: Math.min(max, to) };
+  const scrolled = scrollToDocumentPosition(range.from);
+  const chain = ed.chain().focus(null, { scrollIntoView: false }).setTextSelection(range);
+  (scrolled ? chain : chain.scrollIntoView()).run();
+}
+
 function searchInNote(query, activeIndex = 0) {
   const state = setNoteSearch(editor.value, query, activeIndex);
   emitNoteSearchState();
@@ -1054,6 +1120,26 @@ const links = useNoteLinks({ editor, surfaceEl, props, overlays, clampMenuLeft }
 const tables = useNoteTables({ editor, surfaceEl, props, overlays, clampMenuLeft });
 const references = useNoteReferences({ editor, surfaceEl, props, overlays, clampMenuLeft, getTargets: linkTargetItems });
 const { linkEditor, openLinkEditor, closeLinkEditor, handleEditorPaste, handleEditorLinkClick } = links;
+const maths = useNoteMath({ editor, surfaceEl, props, overlays, clampMenuLeft });
+const { editMathNode, openMathInsert } = maths;
+
+/**
+ * Markdown-Rohtext (ChatGPT, GitHub, Editoren) formatiert einfügen. ⌘⇧V
+ * („ohne Formatierung") und Code-Blöcke behalten den Rohtext.
+ */
+function handleMarkdownPaste(view, event) {
+  const ed = editor.value;
+  if (!ed || view.input?.shiftKey) return false;
+  if (ed.state.selection.$from.parent.type.spec.code) return false;
+  const text = event.clipboardData?.getData('text/plain') || '';
+  const html = event.clipboardData?.getData('text/html') || '';
+  if (!shouldConvertPastedMarkdown({ text, html })) return false;
+  const content = pastedMarkdownContent(text);
+  if (!content.length) return false;
+  event.preventDefault();
+  ed.chain().focus().insertContent(content).run();
+  return true;
+}
 const { tableMenu, openTableMenu, closeTableMenu, refreshTableHandle, trackTableHandle, clearHoveredTable, handleTableKeydown } = tables;
 const { picker, openPicker, refreshWikiLink, handlePickerKeydown } = references;
 const stream = inject(NOTE_AI_STREAM, undefined);
@@ -1110,6 +1196,9 @@ function insertDocumentQuote(attrs) {
 
 defineExpose({
   insertDocumentQuote,
+  computeStats,
+  revealRange,
+  restoreCaret,
   get canUndo() { return toolbar.canUndo.value; },
   get canRedo() { return toolbar.canRedo.value; },
   undo: () => toolbar.runHistory('undo'),
@@ -1143,7 +1232,7 @@ const toolbar = useNoteToolbar({
   targetsAvailable: () => linkTargetItems().length > 0,
   imageUploading: () => imageUploadCount.value > 0,
   onInsert: (action) => {
-    const actions = { table: openTableMenu, link: openLinkEditor, image: openImagePicker, document: openDocumentChipPicker, target: openLinkTargetPicker };
+    const actions = { table: openTableMenu, link: openLinkEditor, image: openImagePicker, document: openDocumentChipPicker, target: openLinkTargetPicker, math: () => openMathInsert() };
     actions[action]?.();
   },
 });
@@ -1679,6 +1768,7 @@ const SLASH_COMMANDS = [
   { key: 'table', group: 'blocks', chip: '▦', label: 'Tabelle', desc: 'Zeilen und Spalten', terms: ['tabelle', 'table', 'raster', 'zeile', 'spalte'], kind: 'table-menu' },
   { key: 'image', group: 'blocks', chip: '▧', label: 'Bild', desc: 'Foto oder Grafik einfügen', terms: ['bild', 'foto', 'grafik', 'image', 'upload'], kind: 'image-upload' },
   { key: 'quote', group: 'blocks', chip: '❝', label: 'Zitat', desc: 'Zitatblock', terms: ['zitat', 'quote'], action: c => c.toggleBlockquote() },
+  { key: 'math', group: 'blocks', chip: '∑', label: 'Formel', desc: 'LaTeX-Formel (auch $…$ im Text)', terms: ['formel', 'mathe', 'math', 'latex', 'katex', 'gleichung', 'matrix'], kind: 'math-editor' },
   { key: 'code', group: 'blocks', chip: '</>', label: 'Code-Block', desc: 'Monospace', terms: ['code', 'block'], action: c => c.toggleCodeBlock() },
   { key: 'section', group: 'blocks', chip: '▸', label: 'Abschnitte', desc: 'Überschrift mit aufklappbarem Inhalt', terms: ['abschnitt', 'einklappen', 'ausklappen', 'details'], action: c => c.insertCollapsibleSection() },
   { key: 'hr', group: 'blocks', chip: '―', label: 'Trennlinie', desc: 'Horizontale Linie', terms: ['trennlinie', 'linie', 'rule'], action: c => c.setHorizontalRule() },
@@ -1889,6 +1979,7 @@ function runSlash(cmd) {
   if (kind === 'table-menu') { openTableMenu(ed.isActive('table') ? 'edit' : 'insert'); return; }
   if (kind === 'image-upload') { openImagePicker(); return; }
   if (kind === 'link-editor') { openLinkEditor(); return; }
+  if (kind === 'math-editor') { openMathInsert('blockMath'); return; }
   if (kind === 'generate-ai') { openAIPrompt(); return; }
   if (kind === 'cleanup') { startCleanup(); return; }
   if (kind === 'pick-doc-chip') {
@@ -2543,6 +2634,38 @@ watch(() => slash.index, () => nextTick(updateSlashSelection));
 .note-editor :deep(.pm-content ol) { padding-left: 1.4em; }
 
 .note-editor :deep(.pm-content li) { margin: 0.2em 0; }
+
+/* Formeln (KaTeX): Block zentriert und horizontal scrollbar, inline ohne
+   Zeilensprung; bearbeitbar = Hover-Fläche + Auswahlrahmen. */
+.note-editor :deep(.pm-content [data-type='block-math']) {
+  margin: 0.6em 0;
+  padding: 4px 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-radius: 8px;
+  text-align: center;
+}
+.note-editor :deep(.pm-content [data-type='block-math'] .katex-display) { margin: 0.2em 0; }
+.note-editor :deep(.pm-content [data-type='inline-math']) {
+  padding: 0 2px;
+  border-radius: 4px;
+}
+.note-editor :deep(.pm-content .tiptap-mathematics-render--editable) {
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.note-editor :deep(.pm-content .tiptap-mathematics-render--editable:hover) {
+  background: color-mix(in srgb, var(--pm-accent, #006b75) 8%, transparent);
+}
+.note-editor :deep(.pm-content .tiptap-mathematics-render.ProseMirror-selectednode) {
+  outline: 2px solid color-mix(in srgb, var(--pm-accent, #006b75) 55%, transparent);
+  outline-offset: 1px;
+}
+.note-editor :deep(.pm-content :is(.block-math-error, .inline-math-error)) {
+  color: var(--pm-danger, #b42318);
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.85em;
+}
 
 .note-editor :deep(.pm-content blockquote) {
   border-left: 2.5px solid var(--pm-accent, #006b75);

@@ -167,6 +167,7 @@ export const useNotesStore = defineStore('notes', () => {
       item.updated_at = note.updated_at;
       item.preview = notePreview(note.body_json);
       item.is_favorite = note.is_favorite;
+      item.pinned_at = note.pinned_at ?? null;
       item.notebook_id = note.notebook_id;
       item.collection_id = note.collection_id;
       item.tags = note.tags;
@@ -313,6 +314,7 @@ export const useNotesStore = defineStore('notes', () => {
         notebook_id: note.notebook_id ?? null,
         collection_id: note.collection_id ?? null,
         is_favorite: note.is_favorite ?? false,
+        pinned_at: note.pinned_at ?? null,
         created_at: note.created_at,
         updated_at: note.updated_at,
       });
@@ -358,6 +360,7 @@ export const useNotesStore = defineStore('notes', () => {
       notebook_id: note.notebook_id ?? null,
       collection_id: note.collection_id ?? null,
       is_favorite: note.is_favorite ?? false,
+      pinned_at: note.pinned_at ?? null,
       created_at: note.created_at,
       updated_at: note.updated_at,
     });
@@ -525,6 +528,31 @@ export const useNotesStore = defineStore('notes', () => {
       if (item) item.is_favorite = !favorite;
       if (detail) detail.is_favorite = !favorite;
       syncFavoriteList(item, !favorite);
+      throw error;
+    }
+  }
+
+  /**
+   * Pinnt eine Notiz oben an die Liste oder löst sie (Metadaten, unabhängig
+   * vom Favoriten-Stern; das Änderungsdatum bleibt unverändert).
+   */
+  async function setPinned(id, pinned) {
+    const items = [notes.value, allNotes.value, favoriteNotes.value]
+      .map((list) => list.find((n) => n.id === id))
+      .filter(Boolean);
+    const detail = noteDetails.get(id);
+    const previous = items[0]?.pinned_at ?? detail?.pinned_at ?? null;
+    const optimistic = pinned ? (previous || new Date().toISOString()) : null;
+    for (const item of items) item.pinned_at = optimistic;
+    if (detail) detail.pinned_at = optimistic;
+    try {
+      const updated = await api.patchNote(id, { is_pinned: pinned });
+      for (const item of items) item.pinned_at = updated.pinned_at ?? null;
+      cacheDetail(updated);
+      return updated;
+    } catch (error) {
+      for (const item of items) item.pinned_at = previous;
+      if (detail) detail.pinned_at = previous;
       throw error;
     }
   }
@@ -777,6 +805,7 @@ export const useNotesStore = defineStore('notes', () => {
     reorderNotebooks,
     moveToNotebook,
     setFavorite,
+    setPinned,
     create,
     peek,
     get,

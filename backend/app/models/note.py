@@ -53,6 +53,9 @@ class Note(Base):
     # Bereich. Eigene Spalte (wie document.is_favorite), nicht als body_json-
     # Attribut – so im Listeneintrag verfügbar und serverseitig sortierbar.
     is_favorite: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # Angeheftet: steht in der Notizliste oben, unabhängig vom Favoriten-Stern.
+    # Der Zeitpunkt ordnet mehrere angeheftete Notizen (zuletzt angeheftet zuerst).
+    pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Sammlung (oberste Ebene, harte Partition). Wahrheitsquelle der Zugehörigkeit;
     # echte Notizen liegen in genau einer Sammlung, Vorlagen bewusst in keiner
     # (NULL = global). Erzwungen über den partiellen CHECK

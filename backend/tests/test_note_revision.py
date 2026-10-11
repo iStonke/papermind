@@ -221,3 +221,38 @@ def test_ai_change_starts_a_separate_history_entry():
     assert result.note_revision == 6
     assert result.owner_id == owner_id
     assert db.added == [result]
+
+
+def _pinnable_note(updated_at):
+    from app.models.note import Note
+
+    return Note(
+        title="Notiz",
+        body_json={"type": "doc", "content": [{"type": "paragraph"}]},
+        body_text="",
+        is_template=False,
+        revision=2,
+        updated_at=updated_at,
+        pinned_at=None,
+    )
+
+
+def test_pinning_sets_and_clears_pin_without_counting_as_edit():
+    edited = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    note = _pinnable_note(edited)
+    service = NoteService(FakeSession(), uuid4())
+    service._get = lambda *_args, **_kwargs: note
+    service._record_revision = lambda *_args, **_kwargs: pytest.fail("pin is no content revision")
+
+    service.update_note(uuid4(), NoteUpdateRequest(is_pinned=True))
+    first_pin = note.pinned_at
+    assert first_pin is not None
+    assert note.revision == 2
+    assert note.updated_at == edited
+
+    # Erneutes Anheften behält den ursprünglichen Zeitpunkt (stabile Reihenfolge).
+    service.update_note(uuid4(), NoteUpdateRequest(is_pinned=True))
+    assert note.pinned_at == first_pin
+
+    service.update_note(uuid4(), NoteUpdateRequest(is_pinned=False))
+    assert note.pinned_at is None

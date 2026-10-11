@@ -157,6 +157,10 @@ function renderNode(node, context) {
     }
     case 'hardBreak':
       return '  \n';
+    case 'inlineMath':
+      return `$${node.attrs?.latex || ''}$`;
+    case 'blockMath':
+      return `$$\n${node.attrs?.latex || ''}\n$$`;
     case 'horizontalRule':
       return '---';
     case 'blockquote':
@@ -297,6 +301,10 @@ function renderHtmlNode(node, context) {
       const level = Math.min(6, Math.max(1, Number(node.attrs?.level) || 2));
       return `<h${level}>${renderHtmlChildren(node, context)}</h${level}>`;
     }
+    case 'inlineMath':
+      return `<span class="math">${escapeHtml(`$${node.attrs?.latex || ''}$`)}</span>`;
+    case 'blockMath':
+      return `<p class="math">${escapeHtml(`$$${node.attrs?.latex || ''}$$`)}</p>`;
     case 'hardBreak':
       return '<br>';
     case 'horizontalRule':
@@ -407,6 +415,9 @@ function renderPlainNode(node) {
   switch (node.type) {
     case 'text':
       return String(node.text || '');
+    case 'inlineMath':
+    case 'blockMath':
+      return String(attrs.latex || '');
     case 'hardBreak':
       return '\n';
     case 'horizontalRule':

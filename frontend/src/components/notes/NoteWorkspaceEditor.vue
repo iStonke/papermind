@@ -402,7 +402,11 @@
       </div>
 
       <span class="note-workspace-editor__word-count">
-        {{ wordCountLabel(wordCount, selectionWordCount) }}
+        <NoteStatsPopover
+          :label="wordCountLabel(wordCount, selectionWordCount)"
+          :compute="() => noteEditorRef?.computeStats()"
+          @jump="range => noteEditorRef?.revealRange(range)"
+        />
       </span>
     </div>
 
@@ -469,6 +473,7 @@
           :ai-available="aiAvailable"
           :ai-prompt-suggestions="aiPromptSuggestions"
           @word-count="updateWordCount"
+          @edit-position="rememberEditPosition"
           @change="scheduleSave"
           @history-checkpoint="markHistoryCheckpoint"
           @note-search-state="applyNoteSearchState"
@@ -704,6 +709,7 @@
 
 <script setup>
 import { wordCountLabel } from '../../utils/noteWordCount.js';
+import NoteStatsPopover from './NoteStatsPopover.vue';
 import { downloadNotePdf } from '../../utils/notePdfDownload.js';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue';
 import { documentThumbnailUrl, listDocuments } from '../../api/documents.js';
@@ -1255,6 +1261,10 @@ async function loadNote(noteId = props.noteId) {
 }
 
 async function applyLoadedNote(note, noteId) {
+  // Nur beim echten Notizwechsel (oder Erstöffnen) an die letzte Stelle
+  // springen – ein erneutes Laden derselben Notiz darf die Schreibmarke nie
+  // unter den Fingern versetzen.
+  const isNoteSwitch = loadedNoteId.value !== noteId;
   const loadedRevision = Math.max(1, Number(note?.revision) || 1);
   let localDraft = null;
   try {
@@ -1306,7 +1316,9 @@ async function applyLoadedNote(note, noteId) {
     // darauffolgenden Tick darf eine angeforderte Schreibmarke gesetzt werden.
     void nextTick(() => {
       animateNewPage(noteId);
-      flushPendingEditorFocus(noteId);
+      if (!flushPendingEditorFocus(noteId) && isNoteSwitch && !pendingEditorFocusRequest) {
+        restoreEditPosition(noteId);
+      }
     });
   });
 }
@@ -1337,6 +1349,7 @@ function loadStoredScrollPositions() {
         .filter(([, entry]) => Number.isFinite(entry?.top) && entry.top >= 0)
         .map(([id, entry]) => [id, {
           top: Math.round(entry.top),
+          ...(Number.isFinite(entry.cursor) && entry.cursor >= 0 ? { cursor: Math.round(entry.cursor) } : {}),
           touchedAt: Number.isFinite(entry.touchedAt) ? entry.touchedAt : 0,
         }]),
     );
@@ -1349,9 +1362,28 @@ function rememberScrollPosition(noteId = loadedNoteId.value) {
   const scrollElement = scrollContainerRef.value;
   if (!noteId || !scrollElement) return;
   noteScrollPositions.set(noteId, {
+    ...noteScrollPositions.get(noteId),
     top: Math.max(0, Math.round(scrollElement.scrollTop)),
     touchedAt: Date.now(),
   });
+  schedulePersistScrollPositions();
+}
+
+// Letzte Bearbeitungsstelle je Notiz: liegt im selben Eintrag wie die
+// Scrollposition, damit beides gemeinsam altert und begrenzt bleibt.
+function rememberEditPosition(position) {
+  const noteId = loadedNoteId.value;
+  if (!noteId || loadingContent || !Number.isFinite(position)) return;
+  noteScrollPositions.set(noteId, {
+    top: Math.max(0, Math.round(scrollContainerRef.value?.scrollTop || 0)),
+    ...noteScrollPositions.get(noteId),
+    cursor: Math.max(0, Math.round(position)),
+    touchedAt: Date.now(),
+  });
+  schedulePersistScrollPositions();
+}
+
+function schedulePersistScrollPositions() {
   if (scrollPositionSaveTimer) window.clearTimeout(scrollPositionSaveTimer);
   scrollPositionSaveTimer = window.setTimeout(persistScrollPositions, 180);
 }
@@ -1375,6 +1407,11 @@ function persistScrollPositions() {
 function restoreScrollPosition(noteId) {
   const top = noteScrollPositions.get(noteId)?.top || 0;
   noteEditorRef.value?.restoreWorkspaceScroll?.(top);
+}
+
+function restoreEditPosition(noteId) {
+  const cursor = noteScrollPositions.get(noteId)?.cursor;
+  if (Number.isFinite(cursor)) noteEditorRef.value?.restoreCaret?.(cursor);
 }
 
 function normalizeBody(value) {

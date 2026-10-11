@@ -242,13 +242,13 @@
                   <button
                     type="button"
                     class="notes-ws__item-pin"
-                    :class="{ 'is-active': note.is_favorite }"
-                    :aria-label="note.is_favorite ? 'Notiz lösen' : 'Notiz anpinnen'"
-                    :title="note.is_favorite ? 'Nicht mehr anpinnen' : 'Anpinnen'"
-                    :aria-pressed="String(!!note.is_favorite)"
+                    :class="{ 'is-active': isPinned(note) }"
+                    :aria-label="isPinned(note) ? 'Notiz lösen' : 'Notiz oben anpinnen'"
+                    :title="isPinned(note) ? 'Nicht mehr anpinnen' : 'Oben anpinnen'"
+                    :aria-pressed="String(isPinned(note))"
                     @click="togglePinned(note)"
                   >
-                    <v-icon size="16">{{ note.is_favorite ? 'mdi-pin' : 'mdi-pin-outline' }}</v-icon>
+                    <v-icon size="16">{{ isPinned(note) ? 'mdi-pin' : 'mdi-pin-outline' }}</v-icon>
                   </button>
                 </li>
               </ul>
@@ -565,7 +565,7 @@ const NOTE_SORT_OPTIONS = [
 const NOTE_GROUPING_OPTIONS = [
   { value: 'auto', label: 'Automatisch' },
   { value: 'notebook', label: 'Nach Notizbuch' },
-  { value: 'favorites', label: 'Angepinnte + weitere Notizen' },
+  { value: 'favorites', label: 'Favoriten + weitere Notizen' },
   { value: 'none', label: 'Ohne Gruppen' },
 ];
 
@@ -680,7 +680,7 @@ const searchSourceNotes = computed(() => {
 
 const scopedCanonicalNotes = computed(() => {
   if (props.viewMode === 'pinned') {
-    return canonicalNotes.value.filter((note) => note.is_favorite);
+    return canonicalNotes.value.filter(isPinned);
   }
   if (props.viewMode === 'recent') {
     return [...canonicalNotes.value]
@@ -724,13 +724,25 @@ const activeNote = computed(() =>
   visibleNotes.value.find((note) => note.id === activeNoteId.value) || null
 );
 
+// Angepinnte Notizen stehen in jeder Sortierung und Gruppierung als eigener
+// Block ganz oben (zuletzt angepinnt zuerst); die übrigen folgen wie gewählt.
 const groupedNotes = computed(() => {
+  const pinned = props.viewMode === 'pinned' ? [] : visibleNotes.value
+    .filter(isPinned)
+    .sort((a, b) => timestamp(b.pinned_at) - timestamp(a.pinned_at));
+  if (!pinned.length) return groupUnpinnedNotes(visibleNotes.value);
+  const rest = groupUnpinnedNotes(visibleNotes.value.filter((note) => !isPinned(note)))
+    .map((group) => (group.label ? group : { ...group, label: 'Weitere Notizen' }));
+  return [{ key: 'pinned', label: 'Angepinnt', notes: pinned }, ...rest];
+});
+
+function groupUnpinnedNotes(notes) {
   if (grouping.value === 'none') {
-    return [{ key: 'all', label: '', notes: visibleNotes.value }];
+    return [{ key: 'all', label: '', notes }];
   }
   if (grouping.value === 'notebook') {
     const groups = new Map();
-    for (const note of visibleNotes.value) {
+    for (const note of notes) {
       const key = note.notebook_id || 'none';
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(note);
@@ -744,10 +756,10 @@ const groupedNotes = computed(() => {
     return ordered;
   }
   if (grouping.value === 'favorites') {
-    const pinned = visibleNotes.value.filter((note) => note.is_favorite);
-    const remaining = visibleNotes.value.filter((note) => !note.is_favorite);
+    const favorites = notes.filter((note) => note.is_favorite);
+    const remaining = notes.filter((note) => !note.is_favorite);
     return [
-      pinned.length ? { key: 'pinned', label: 'Angepinnt', notes: pinned } : null,
+      favorites.length ? { key: 'favorites', label: 'Favoriten', notes: favorites } : null,
       remaining.length ? { key: 'remaining', label: 'Weitere Notizen', notes: remaining } : null,
     ].filter(Boolean);
   }
@@ -755,18 +767,18 @@ const groupedNotes = computed(() => {
   // Datumsgruppen würden die Titel nur innerhalb einzelner Tage sortieren und
   // damit die gewählte A–Z-Reihenfolge optisch wie semantisch wieder aufheben.
   if (sortMode.value === 'title') {
-    return [{ key: 'alphabetical', label: '', notes: visibleNotes.value }];
+    return [{ key: 'alphabetical', label: '', notes }];
   }
   if (sortMode.value === 'opened') {
     return groupNotesByDay(
-      visibleNotes.value,
+      notes,
       (note) => note.last_opened_at,
       new Date(),
       'Noch nicht geöffnet',
     );
   }
-  return groupNotesByCreationDay(visibleNotes.value);
-});
+  return groupNotesByCreationDay(notes);
+}
 
 const resultCountLabel = computed(() => {
   const total = scopedCanonicalNotes.value.length;
@@ -803,7 +815,7 @@ const NOTE_SORT_SHORT_LABELS = {
 const NOTE_GROUPING_SHORT_LABELS = {
   auto: 'Auto',
   notebook: 'Notizbuch',
-  favorites: 'Angepinnt',
+  favorites: 'Favoriten',
   none: 'Ungruppiert',
 };
 const viewOptionsLabel = computed(() => (
@@ -1377,8 +1389,8 @@ async function onNoteImportDrop(event) {
 }
 
 async function revealNewNote(note, cursorPosition = 'start') {
-  if (props.viewMode === 'pinned' && !note.is_favorite) {
-    note = await notesStore.setFavorite(note.id, true);
+  if (props.viewMode === 'pinned' && !isPinned(note)) {
+    note = await notesStore.setPinned(note.id, true);
   }
   createdPageNoteId.value = note.id;
   activeNoteId.value = note.id;
@@ -1491,10 +1503,14 @@ function noteDeleteAriaLabel(note) {
     : `${note?.title?.trim() || 'Notiz'} in den Papierkorb verschieben`;
 }
 
+function isPinned(note) {
+  return Boolean(note?.pinned_at);
+}
+
 async function togglePinned(note) {
   if (!note?.id) return;
   try {
-    await notesStore.setFavorite(note.id, !note.is_favorite);
+    await notesStore.setPinned(note.id, !isPinned(note));
   } catch (error) {
     notifyError(error, 'Der Pin-Status konnte nicht gespeichert werden.');
   }

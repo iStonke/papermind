@@ -52,12 +52,17 @@ export function parseMarkdownInline(value, depth = 0) {
   const text = String(value || '');
   if (depth > 8) return [{ text }];
   const segments = [];
-  const pattern = /\\(?<escaped>[\\`*_[\]<>])|(?<!\\)(?:\[(?<label>[^\]\n]+)\]\((?<href>[^\s)]+)\)|\*\*\*(?<strongEm>[^*\n]+)\*\*\*|\*\*(?<bold>[^*\n]+)\*\*|__(?<boldAlt>[^_\n]+)__|`(?<code>[^`\n]+)`|\*(?<italic>[^*\n]+)\*|_(?<italicAlt>[^_\n]+)_|~~(?<strike>[^~\n]+)~~)/g;
+  // Formeln: \(…\) und $…$ (Pandoc-Regel: kein Leerzeichen direkt innen,
+  // keine Ziffer direkt nach dem schließenden $ – „5 $ bis 10 $" bleibt Text).
+  // Unterstrich-Kursiv nur an Wortgrenzen, damit datei_name_neu Text bleibt.
+  const pattern = /\\\((?<mathParen>.+?)\\\)|\\(?<escaped>[\\`*_[\]<>$])|(?<!\\)(?:\[(?<label>[^\]\n]+)\]\((?<href>[^\s)]+)\)|\$\$(?<mathDouble>[^$\n]+?)\$\$|(?<![\p{L}\p{N}$])\$(?<math>[^\s$](?:[^$\n]*?[^\s$\\])?)\$(?![\p{N}$])|\*\*\*(?<strongEm>[^*\n]+)\*\*\*|\*\*(?<bold>[^*\n]+)\*\*|(?<![\p{L}\p{N}_])__(?<boldAlt>[^_\n]+)__(?![\p{L}\p{N}_])|`(?<code>[^`\n]+)`|\*(?<italic>[^*\n]+)\*|(?<![\p{L}\p{N}_])_(?<italicAlt>[^_\n]+)_(?![\p{L}\p{N}_])|~~(?<strike>[^~\n]+)~~)/gu;
   let cursor = 0;
   for (const match of text.matchAll(pattern)) {
     if (match.index > cursor) segments.push({ text: text.slice(cursor, match.index) });
     const group = match.groups;
-    if (group.escaped != null) segments.push({ text: group.escaped });
+    const math = group.mathParen ?? group.mathDouble ?? group.math;
+    if (math != null) segments.push({ text: math.trim(), math: true });
+    else if (group.escaped != null) segments.push({ text: group.escaped });
     else if (group.code != null) segments.push({ text: group.code, code: true });
     else {
       const content = group.label ?? group.strongEm ?? group.bold ?? group.boldAlt ?? group.italic ?? group.italicAlt ?? group.strike;
@@ -78,6 +83,9 @@ export function parseMarkdownInline(value, depth = 0) {
 }
 
 const FENCE = /^\s{0,3}(`{3,}|~{3,})([^\s]*)\s*$/;
+// Formelblock: $$ … $$ bzw. \[ … \] – einzeilig oder über mehrere Zeilen.
+const MATH_BLOCK_OPEN = /^\s{0,3}(\$\$|\\\[)\s*(.*)$/;
+const MATH_BLOCK_CLOSE = { '$$': /^(.*?)\$\$\s*$/, '\\[': /^(.*?)\\\]\s*$/ };
 const HEADING = /^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/;
 const RULE = /^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/;
 const QUOTE = /^\s{0,3}> ?(.*)$/;
@@ -98,7 +106,7 @@ export function parseNoteMarkdown(value, depth = 0) {
   const lines = source.split('\n');
   const blocks = [];
   let index = 0;
-  const startsBlock = (i) => FENCE.test(lines[i]) || HEADING.test(lines[i]) || RULE.test(lines[i])
+  const startsBlock = (i) => FENCE.test(lines[i]) || MATH_BLOCK_OPEN.test(lines[i]) || HEADING.test(lines[i]) || RULE.test(lines[i])
     || QUOTE.test(lines[i]) || LIST_ITEM.test(lines[i]) || isMarkdownTableStart(lines, i);
 
   while (index < lines.length) {
@@ -114,6 +122,28 @@ export function parseNoteMarkdown(value, depth = 0) {
       if (/^(markdown|md)$/i.test(fence[2])) blocks.push(...parseNoteMarkdown(code.join('\n'), depth + 1));
       else blocks.push({ type: 'codeBlock', language: fence[2] || null, text: code.join('\n') });
       continue;
+    }
+    const mathOpen = MATH_BLOCK_OPEN.exec(lines[index]);
+    if (mathOpen) {
+      const close = MATH_BLOCK_CLOSE[mathOpen[1]];
+      const latex = [];
+      let rest = mathOpen[2];
+      let end = index;
+      let closed = false;
+      while (end < lines.length) {
+        const closing = close.exec(rest);
+        if (closing) { latex.push(closing[1]); closed = true; break; }
+        latex.push(rest);
+        end += 1;
+        rest = lines[end] ?? '';
+      }
+      const text = latex.join('\n').trim();
+      // Ohne Abschluss oder mit Text nach dem Block bleibt die Zeile normaler Text.
+      if (closed && text) {
+        blocks.push({ type: 'blockMath', latex: text });
+        index = end + 1;
+        continue;
+      }
     }
     const heading = HEADING.exec(lines[index]);
     if (heading) {
@@ -180,6 +210,7 @@ export function parseNoteMarkdown(value, depth = 0) {
 
 function inlineToTipTap(segments) {
   return segments.filter((segment) => segment.text).map((segment) => {
+    if (segment.math) return { type: 'inlineMath', attrs: { latex: segment.text } };
     const marks = [];
     for (const type of ['bold', 'italic', 'code', 'strike']) if (segment[type]) marks.push({ type });
     if (segment.href) marks.push({ type: 'link', attrs: { href: segment.href, target: '_blank', rel: 'noopener noreferrer' } });
@@ -195,6 +226,7 @@ function blocksToTipTap(blocks) {
     }
     if (block.type === 'codeBlock') return { type: 'codeBlock', attrs: { language: block.language }, ...(block.text ? { content: [{ type: 'text', text: block.text }] } : {}) };
     if (block.type === 'horizontalRule') return { type: 'horizontalRule' };
+    if (block.type === 'blockMath') return { type: 'blockMath', attrs: { latex: block.latex } };
     if (block.type === 'blockquote' || block.type === 'callout') return {
       type: block.type,
       ...(block.kind ? { attrs: { kind: block.kind } } : {}),
@@ -241,6 +273,7 @@ function escapeHtml(value) {
 
 function inlineToHtml(segments) {
   return segments.map((segment) => {
+    if (segment.math) return `<span class="pm-math">${escapeHtml(`$${segment.text}$`)}</span>`;
     let value = escapeHtml(segment.text);
     if (segment.code) value = `<code>${value}</code>`;
     if (segment.italic) value = `<em>${value}</em>`;
@@ -256,6 +289,7 @@ export function noteMarkdownBlockToSafeHtml(block) {
   if (block.type === 'heading') return `<h${block.level}>${inlineToHtml(block.segments)}</h${block.level}>`;
   if (block.type === 'codeBlock') return `<pre><code>${escapeHtml(block.text)}</code></pre>`;
   if (block.type === 'horizontalRule') return '<hr>';
+  if (block.type === 'blockMath') return `<p class="pm-math">${escapeHtml(`$$${block.latex}$$`)}</p>`;
   if (block.type === 'blockquote' || block.type === 'callout') {
     const content = block.children.map(noteMarkdownBlockToSafeHtml).join('');
     return block.type === 'callout' ? `<aside data-callout="${escapeHtml(block.kind)}">${content}</aside>` : `<blockquote>${content}</blockquote>`;

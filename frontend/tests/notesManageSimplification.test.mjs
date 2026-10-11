@@ -342,9 +342,9 @@ test('the favorite star sits in the hover action menu with the document-style an
   assert.match(gridSource, /@keyframes nmg-fav-star-ring/);
   // Animation nur beim aktiven Setzen (wie DocumentListPanel).
   assert.match(gridSource, /if \(next\) \{[\s\S]*?animatingFavoriteId\.value = note\.id/);
-  // Angepinnte Notizen lassen sich bewusst als erster Block gruppieren.
-  assert.match(gridSource, /value: 'favorites', label: 'Angepinnte \+ weitere Notizen'/);
-  assert.match(gridSource, /favorites: 'Angepinnt'/);
+  // Favoriten lassen sich bewusst als erster Block gruppieren (Anpinnen ist getrennt).
+  assert.match(gridSource, /value: 'favorites', label: 'Favoriten \+ weitere Notizen'/);
+  assert.match(gridSource, /favorites: 'Favoriten'/);
   assert.match(gridSource, /grouping\.value === 'favorites'.*note\.is_favorite \? 'favorites' : 'notes'/);
 });
 
