@@ -216,6 +216,15 @@ export function reviewChangesStillValid(doc, changes) {
   });
 }
 
+// Inline corrections depend on their own source text, rather than the entire
+// paragraph. Refresh block metadata when typing elsewhere in that paragraph.
+export function refreshInlineReviewChange(doc, change) {
+  if (change.from < 0 || change.to > doc.content.size || change.from >= change.to
+    || buildReviewEdit(change)?.kind !== 'inline'
+    || doc.textBetween(change.from, change.to, '\n') !== change.anchor) return null;
+  return { ...change, ...containingBlock(doc, change.from) };
+}
+
 /**
  * Wendet die geplanten Eingriffe in EINER Transaktion an. `closeHistory` sorgt
  * dafür, dass die ganze Übernahme mit einem einzigen Undo rückgängig wird.

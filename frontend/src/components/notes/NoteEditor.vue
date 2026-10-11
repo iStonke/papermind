@@ -377,6 +377,8 @@ const props = defineProps({
   readonly: { type: Boolean, default: false },
   /** Nur bei vollständig nutzbarer Modell-/Zugangskonfiguration anzeigen. */
   aiAvailable: { type: Boolean, default: false },
+  /** Lokaler Korrekturrand unabhängig von Cloud-Zugangsdaten. */
+  reviewAvailable: { type: Boolean, default: null },
   /** Konfigurierbare Schnellprompts im vollständigen KI-Dialog (maximal 6). */
   aiPromptSuggestions: {
     type: Array,

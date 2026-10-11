@@ -419,7 +419,7 @@ class NoteReviewBlock(BaseModel):
 
 
 class NoteReviewRequest(BaseModel):
-    """Whole-note (or selection) review request returning a structured change list.
+    """Local whole-note or live review returning a structured change list.
 
     Unlike :class:`NoteTextGenerationRequest`, this path pins the review system
     prompt and a low temperature and expects strict JSON back, so the model can
@@ -432,6 +432,7 @@ class NoteReviewRequest(BaseModel):
     note_text: str = Field(min_length=1, max_length=12000)
     extra_instruction: str = Field(default="", max_length=600)
     retry: bool = False
+    mode: Literal["full", "live"] = "full"
     note_structure: list[NoteReviewBlock] = Field(default_factory=list, max_length=1000)
 
 

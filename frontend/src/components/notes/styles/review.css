@@ -46,6 +46,7 @@
   text-transform: uppercase;
   color: var(--pm-rev-muted);
 }
+.pm-review-panel__pause,
 .pm-review-panel__marks {
   margin-left: auto;
   display: inline-flex;
@@ -60,6 +61,9 @@
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
 }
+.pm-review-panel__pause { margin-left: auto; }
+.pm-review-panel__marks { margin-left: 0; }
+.pm-review-panel__pause:hover { background: var(--pm-rev-hover); color: var(--pm-rev-ink); }
 .pm-review-panel__marks:hover { background: var(--pm-rev-hover); color: var(--pm-rev-ink); }
 .pm-review-panel__marks.is-on { color: var(--pm-rev-accent); }
 
@@ -314,6 +318,7 @@
 
 .pm-review-panel__footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
@@ -321,7 +326,7 @@
   border-top: 1px solid var(--pm-rev-border);
   background: var(--pm-rev-surface);
 }
-.pm-review-panel__footer-secondary { display: flex; gap: 2px; }
+.pm-review-panel__footer-secondary { display: flex; flex-wrap: wrap; gap: 2px; }
 .pm-review-panel__footer-primary { display: flex; gap: 6px; margin-left: auto; }
 .pm-review-panel__footer button {
   display: inline-flex;
@@ -414,6 +419,9 @@
 }
 
 .pm-review-panel__changed { margin: 0 0 4px; padding: 8px 10px; border-radius: 8px; background: var(--pm-rev-hover); color: var(--pm-rev-muted); font-size: 12px; line-height: 1.5; }
+.pm-review-panel__issue { display: flex; flex-direction: column; gap: 8px; }
+.pm-review-panel__issue p { margin: 0; }
+.pm-review-panel__issue .pm-review-panel__ghost { margin-top: 0; }
 
 .pm-review-card__summary { color: var(--pm-text); line-height: 1.5; overflow-wrap: anywhere; }
 .pm-review-card__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }

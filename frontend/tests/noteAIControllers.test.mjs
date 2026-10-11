@@ -234,7 +234,7 @@ test('review retries once on unparseable JSON and never leaves loading stuck', a
     onEvent({ type: 'delta', text: 'das ist kein json' });
   };
   const { controller: c, unmount } = setup(useNoteReview, stream);
-  await c.startReview();
+  await c.startReview({ mode: 'full' });
   await flushReview();
   assert.equal(calls, 2, 'genau ein stiller Neuversuch');
   assert.equal(c.review.loading, false, 'Ladezustand darf nicht hängenbleiben');
@@ -252,7 +252,7 @@ test('review recovers on a valid second response after one bad JSON', async () =
       : JSON.stringify({ changes: [{ id: 1, cat: 'fix', anchor: 'Original', revised: 'Ursprung', reason: 'r' }] }) });
   };
   const { controller: c, unmount } = setup(useNoteReview, stream);
-  await c.startReview();
+  await c.startReview({ mode: 'full' });
   await flushReview();
   assert.equal(calls, 2);
   assert.equal(c.review.loading, false);
@@ -449,7 +449,7 @@ test('an incomplete review retries once with a compact request and never applies
     }
     await validReviewStream({ calls: 0 })(payload, { onEvent });
   });
-  await c.startReview();
+  await c.startReview({ mode: 'full' });
   await flushReview();
   assert.deepEqual(payloads.map(p => p.retry), [false, true]);
   assert.equal(c.review.loading, false);
@@ -465,7 +465,7 @@ test('repeated incomplete review ends with an error after the single retry', asy
     calls += 1;
     throw Object.assign(new Error('Abgeschnitten'), { code: 'review_incomplete' });
   });
-  await c.startReview();
+  await c.startReview({ mode: 'full' });
   await flushReview();
   assert.equal(calls, 2);
   assert.equal(c.review.loading, false);
@@ -481,7 +481,7 @@ test('closing during the compact retry ignores late results', async () => {
     if (calls === 1) return Promise.reject(Object.assign(new Error('Abgeschnitten'), { code: 'review_incomplete' }));
     return pending.stream(payload, options);
   });
-  await c.startReview();
+  await c.startReview({ mode: 'full' });
   assert.equal(calls, 2);
   c.closeReview();
   assert.equal(pending.calls[0].signal.aborted, true);

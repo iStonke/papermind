@@ -1,14 +1,18 @@
 <!--
-  Detail-Panel der KI-Überarbeitung (Design-Variante 2B). Angedockte Spalte
-  rechts vom Editor. Flache, in Lesereihenfolge nummerierte Kartenliste; die
-  Ziffer im Badge entspricht der hochgestellten Ziffer am Anker im Text. Aktionen
-  erscheinen nur auf der fokussierten Karte. Es wird nie in die Notiz geschrieben,
-  bis „Übernehmen" (Fußzeile) geklickt wird – dann als ein einziger Undo-Schritt.
+  Laufender Korrekturrand. Jede angenommene Änderung wird sofort als eigener
+  Undo-Schritt übernommen; automatische Prüfungen verändern nur die Hinweise.
 -->
 <template>
   <aside class="pm-review-panel" role="dialog" aria-label="KI-Überarbeitung · Verbesserungen" @keydown.esc.stop="clearFocus">
     <header class="pm-review-panel__head">
-      <span class="pm-review-panel__rubric" aria-live="polite">{{ headRubric }}</span>
+      <span class="pm-review-panel__rubric" :title="review.model ? `Lokale KI: ${review.model}` : 'Lokale KI über Ollama'" aria-live="polite">{{ headRubric }}</span>
+      <button
+        type="button"
+        class="pm-review-panel__pause"
+        :aria-pressed="review.paused ? 'true' : 'false'"
+        :title="review.paused ? 'Automatische Prüfung fortsetzen' : 'Automatische Prüfung pausieren'"
+        @click="togglePause"
+      ><v-icon size="16">{{ review.paused ? 'mdi-play' : 'mdi-pause' }}</v-icon></button>
       <button
         type="button"
         class="pm-review-panel__marks"
@@ -23,55 +27,30 @@
 
     <!-- Sortieren + Filtern (Offen/Abgelehnt) – identisch zur Notizenliste. -->
     <ListActionToolbar
-      v-if="!review.loading && !review.error && !review.empty && review.changes.length"
+      v-if="review.changes.length"
       :actions="toolbarActions"
       :show-selection="false"
       @action-select="onToolbarAction"
     />
 
-    <!-- Prüfung läuft – animierte Standard-Platzhalter (wie in der Dokumentenliste). -->
-    <div v-if="review.loading" class="pm-review-panel__body">
-      <v-skeleton-loader
-        v-for="n in 3"
-        :key="`rev-skel-${n}`"
-        type="list-item-avatar-two-line"
-        class="pm-review-skeleton"
-      />
-
-    </div>
-
-    <div v-else class="pm-review-panel__body" @click.self="clearFocus">
-      <div v-if="review.error" class="pm-review-panel__placeholder pm-review-panel__placeholder--error" role="alert">
-        <PmEmptyState
-          icon="mdi-alert-circle-outline"
-          title="Prüfung nicht abgeschlossen"
-          :subtitle="review.error"
-          size="sm"
-          :animated="false"
-        >
-          <button type="button" class="pm-review-panel__ghost" @click="regenerateReview">
-            <v-icon size="16">mdi-refresh</v-icon>
-            Erneut prüfen
-          </button>
-        </PmEmptyState>
+    <div class="pm-review-panel__body" @click.self="clearFocus">
+      <div v-if="review.error" class="pm-review-panel__changed pm-review-panel__issue" role="status">
+        <p>{{ review.error }}</p>
+        <button type="button" class="pm-review-panel__ghost" @click="regenerateReview">Erneut prüfen</button>
       </div>
-
-      <div v-else-if="review.empty" class="pm-review-panel__placeholder" role="status">
+      <p v-else-if="review.notice" class="pm-review-panel__changed" role="status">{{ review.notice }}</p>
+      <div v-if="!review.changes.length" class="pm-review-panel__placeholder" role="status">
         <PmEmptyState
-          :icon="review.stale ? 'mdi-refresh' : 'mdi-check-circle-outline'"
-          :title="review.stale ? 'Text geändert' : 'Keine Verbesserungen gefunden'"
-          :subtitle="review.stale ? 'Prüfe die aktuelle Fassung, um neue Verbesserungsvorschläge zu erhalten.' : 'Für diesen Text liegen keine weiteren Vorschläge vor.'"
+          :icon="review.loading ? 'mdi-progress-clock' : 'mdi-check-circle-outline'"
+          :title="review.loading ? 'Prüft …' : review.paused ? 'Prüfung pausiert' : review.pending || review.stale ? 'Text geändert' : 'Keine offenen Hinweise'"
+          :subtitle="review.paused ? 'Deine Hinweise bleiben erhalten. Du kannst die Prüfung jederzeit fortsetzen.' : review.pending || review.stale ? 'Geänderte Abschnitte werden nach einer Schreibpause lokal geprüft.' : 'Die lokale KI prüft beim Weiterschreiben. Automatische Prüfungen starten höchstens alle 15 Sekunden.'"
+          :animated="false"
           size="sm"
-        >
-          <button type="button" class="pm-review-panel__ghost" @click="regenerateReview">
-            <v-icon size="16">mdi-refresh</v-icon>
-            Erneut prüfen
-          </button>
-        </PmEmptyState>
+        />
       </div>
 
       <template v-else>
-        <p v-if="review.stale" class="pm-review-panel__changed" role="status">Text geändert. Vorschläge zu unveränderten Abschnitten bleiben erhalten.</p>
+        <p v-if="review.stale" class="pm-review-panel__changed" role="status">Neue Hinweise folgen nach der Schreibpause. Bestehende Hinweise bleiben erhalten.</p>
         <!-- Abschnitte „Offen"/„Abgelehnt"; Abschnittsköpfe nur im Filter „Alle". -->
         <template v-for="section in reviewSections" :key="section.key">
           <div
@@ -150,11 +129,11 @@
             v-model="review.instruction"
             type="text"
             maxlength="600"
-            placeholder="Zusätzliche Anweisung … (z. B. „förmlicher“)"
+            placeholder="Anweisung für die Gesamtprüfung …"
             aria-label="Zusätzliche Anweisung"
-            @keydown.enter.prevent="regenerateReview"
+            @keydown.enter.prevent="reviewWholeNote"
           />
-          <button type="button" :disabled="review.loading" @click="regenerateReview">Anwenden</button>
+          <button type="button" :disabled="review.loading" @click="reviewWholeNote">Anwenden</button>
         </div>
       </template>
     </div>
@@ -162,11 +141,11 @@
     <footer class="pm-review-panel__footer">
       <div class="pm-review-panel__footer-secondary">
         <button
-          v-if="!review.loading && review.changes.length"
+          :disabled="review.loading"
           type="button"
           class="is-quiet"
-          @click="regenerateReview"
-        ><v-icon size="16">mdi-refresh</v-icon> Neu</button>
+          @click="reviewWholeNote"
+        ><v-icon size="16">mdi-text-search</v-icon> Gesamte Notiz prüfen</button>
         <button
           v-if="!review.loading && review.changes.length"
           type="button"
@@ -176,7 +155,7 @@
       </div>
       <div class="pm-review-panel__footer-primary">
         <button type="button" class="is-apply" @click="closeReview()">
-          <v-icon size="16">mdi-check</v-icon> Fertig
+          <v-icon size="16">mdi-check</v-icon> Schließen
         </button>
       </div>
     </footer>
@@ -213,10 +192,12 @@ const {
   toggleMarks,
   setSort,
   regenerateReview,
+  reviewWholeNote,
+  togglePause,
   closeReview,
 } = props.controller;
 
-watch(effectiveFocusId, () => { expandedPreview.value = null; });
+watch(effectiveFocusId, id => { expandedPreview.value = review.mode === 'live' ? id : null; });
 
 // Die Entscheidung gilt sofort. Nur eine nicht interaktive Kopie animiert
 // aus der Liste, damit Schließen oder Notizwechsel keine Aktion verschluckt.
@@ -279,9 +260,11 @@ const meta = (cat) => REVIEW_CATEGORY_META[cat] || REVIEW_CATEGORY_META.fix;
 const confidenceLabel = (level) => REVIEW_CONFIDENCE_LABEL[level] || '';
 
 const headRubric = computed(() => {
-  if (review.loading) return 'WIRD GEPRÜFT';
+  if (review.loading) return 'WIRD LOKAL GEPRÜFT';
+  if (review.paused) return 'PRÜFUNG PAUSIERT';
   if (review.error) return 'PRÜFUNG UNTERBROCHEN';
-  return `VERBESSERUNGEN · ${review.changes.length}`;
+  if (review.pending || review.stale) return 'WARTET AUF SCHREIBPAUSE';
+  return `LOKAL GEPRÜFT · ${openCount.value}`;
 });
 
 const toolbarActions = computed(() => [

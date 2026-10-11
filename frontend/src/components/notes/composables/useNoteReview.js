@@ -6,7 +6,6 @@ import {
   NOTE_REVIEW_INPUT_LIMIT,
   parseReviewOutput,
   resolveReviewAnchors,
-  reviewDefaultAccepted,
   summarizeReviewChanges,
 } from '../../../utils/noteReview.js';
 import {
@@ -15,9 +14,11 @@ import {
   flattenReviewDoc,
   planReviewEdits,
   resolveReviewPositions,
+  refreshInlineReviewChange,
   reviewChangesStillValid,
   reviewStructureContext,
 } from './noteReviewDoc.js';
+import { LIVE_REVIEW_DELAY, LIVE_REVIEW_INTERVAL, liveFormatPreservesText, liveReviewScope } from './noteLiveReview.js';
 import { clearReviewDecorations, setReviewDecorations } from '../extensions/reviewDecorations.js';
 
 /*
@@ -36,14 +37,19 @@ export function useNoteReview({
   onCheckpoint,
   stream = streamNoteReview,
   getStorage = () => window.localStorage,
+  now = () => Date.now(),
 }) {
   const requests = createNoteAIRequest();
+  const reviewAvailable = computed(() => props.reviewAvailable ?? props.aiAvailable);
   let savedView = {};
   try { savedView = JSON.parse(getStorage().getItem(VIEW_STORAGE_KEY)) || {}; } catch { /* Speicherung ist optional. */ }
 
   const review = reactive({
     open: false,
     loading: false,
+    paused: false,
+    pending: false,
+    mode: 'live',
     preview: '',
     changes: [],
     // Entscheidung je Verbesserung: 'open' (unentschieden) | 'rejected'.
@@ -56,6 +62,7 @@ export function useNoteReview({
     instructionOpen: false,
     instruction: '',
     error: '',
+    notice: '',
     provider: '',
     model: '',
     fallbackFrom: '',
@@ -69,8 +76,30 @@ export function useNoteReview({
     try { getStorage().setItem(VIEW_STORAGE_KEY, JSON.stringify({ sort, filter })); } catch { /* Ansicht bleibt ohne Storage nutzbar. */ }
   }, { flush: 'sync' });
 
-  let baseMap = [];
+  let liveTimer = null;
+  let checkedThrough = new WeakMap();
+  let nextChangeId = 1;
+  let nextLiveReviewAt = 0;
+
+  function cancelScheduledReview() {
+    clearTimeout(liveTimer);
+    liveTimer = null;
+    review.pending = false;
+  }
+  function scheduleReview() {
+    cancelScheduledReview();
+    if (!review.open || review.paused || review.loading || !reviewAvailable.value) return;
+    review.pending = true;
+    liveTimer = setTimeout(() => {
+      liveTimer = null;
+      review.pending = false;
+      if (editor.value?.view?.composing) { scheduleReview(); return; }
+      void requestReview();
+    }, Math.max(LIVE_REVIEW_DELAY, nextLiveReviewAt - now()));
+  }
+
   let applyingReviewEdit = false;
+  let reviewEditMappings = [];
   let reviewRetried = false; // erlaubt genau einen stillen Neuversuch pro Anfrage
   // Zwischengespeicherte Verbesserungen, damit ein Aus-/Einblenden des Panels sie
   // nicht verwirft, solange der Notiztext unverändert ist.
@@ -88,9 +117,9 @@ export function useNoteReview({
   const REVIEW_TYPE_RANK = { fix: 0, format: 1, add: 2 };
   function sortReviewList(list) {
     if (review.sort === 'type') {
-      return [...list].sort((a, b) => (REVIEW_TYPE_RANK[a.cat] - REVIEW_TYPE_RANK[b.cat]) || ((a.number || 0) - (b.number || 0)));
+      return [...list].sort((a, b) => (REVIEW_TYPE_RANK[a.cat] - REVIEW_TYPE_RANK[b.cat]) || (a.from - b.from));
     }
-    return [...list].sort((a, b) => (a.number || 0) - (b.number || 0));
+    return [...list].sort((a, b) => a.from - b.from);
   }
   const openCards = computed(() => sortReviewList(review.changes.filter((c) => changeStatus(c.id) === 'open')));
   const rejectedCards = computed(() => sortReviewList(review.changes.filter((c) => changeStatus(c.id) === 'rejected')));
@@ -141,7 +170,12 @@ export function useNoteReview({
   }
 
   function resetReviewState() {
+    cancelScheduledReview();
     requests.cancel();
+    checkedThrough = new WeakMap();
+    nextChangeId = 1;
+    review.paused = false;
+    review.mode = 'live';
     review.open = false;
     review.loading = false;
     review.preview = '';
@@ -152,23 +186,24 @@ export function useNoteReview({
     review.instructionOpen = false;
     review.instruction = '';
     review.error = '';
+    review.notice = '';
     review.provider = '';
     review.model = '';
     review.fallbackFrom = '';
     review.baseText = '';
     review.empty = false;
     review.stale = false;
-    baseMap = [];
   }
 
   // Momentaufnahme der aktuellen Vorschläge + Entscheidungen für später sichern –
   // aber nur, wenn der Notiztext seit dem Auflösen unverändert ist.
   function snapshotReviewCache() {
     const ed = editor.value;
-    if (!ed || ed.isDestroyed || !review.open || !review.changes.length) return false;
+    if (!ed || ed.isDestroyed || !review.open) return false;
     if (flattenReviewDoc(ed.state.doc).text !== review.baseText) return false;
     reviewCache = {
       baseText: review.baseText,
+      doc: ed.state.doc,
       changes: review.changes.map((c) => ({ ...c })),
       status: { ...review.status },
       instruction: review.instruction,
@@ -176,6 +211,9 @@ export function useNoteReview({
       model: review.model,
       fallbackFrom: review.fallbackFrom,
       stale: review.stale,
+      notice: review.notice,
+      checkedThrough,
+      nextChangeId,
     };
     return true;
   }
@@ -196,11 +234,21 @@ export function useNoteReview({
 
   // Track edits synchronously, before a late streamed answer can be applied.
   function onEditorTransaction({ transaction }) {
-    if (!transaction.docChanged || applyingReviewEdit) return;
+    if (!transaction.docChanged) return;
+    // Undo can restore a previously checked node object. Invalidate every
+    // changed block even when its identity is already in the cache.
+    const start = transaction.before.content.findDiffStart(transaction.doc.content);
+    if (start != null) {
+      const end = transaction.before.content.findDiffEnd(transaction.doc.content)?.b ?? start;
+      transaction.doc.forEach((node, pos) => {
+        if (pos <= end && pos + node.nodeSize > start) checkedThrough.delete(node);
+      });
+    }
+    if (applyingReviewEdit) { reviewEditMappings.push(transaction.mapping); return; }
     reviewCache = null;
     if (!review.open) return;
-    requests.cancel();
-    review.loading = false;
+    // Finish one local generation before scheduling another. Its snapshot
+    // guard discards outdated output when the user writes in the meantime.
     review.preview = '';
     review.error = '';
     review.stale = true;
@@ -212,14 +260,17 @@ export function useNoteReview({
       to: transaction.mapping.map(change.to, -1),
       blockFrom: transaction.mapping.map(change.blockFrom, 1),
       blockTo: transaction.mapping.map(change.blockTo, -1),
-    })).filter(change => change.from < change.to && reviewChangesStillValid(transaction.doc, [change]));
+    })).filter(change => change.from < change.to && change.blockFrom <= change.blockTo)
+      .map(change => reviewChangesStillValid(transaction.doc, [change]) ? change
+      : refreshInlineReviewChange(transaction.doc, change))
+      .filter(change => change && change.from < change.to);
     review.changes = mapped;
     review.status = Object.fromEntries(mapped.map(change => [change.id, changeStatus(change.id)]));
     review.empty = mapped.length === 0;
     const flattened = flattenReviewDoc(transaction.doc);
     review.baseText = flattened.text;
-    baseMap = flattened.map;
     syncDecorations();
+    scheduleReview();
   }
   watch(editor, (ed, _previous, onCleanup) => {
     ed?.on?.('transaction', onEditorTransaction);
@@ -236,21 +287,20 @@ export function useNoteReview({
     });
   }, { immediate: true, flush: 'sync' });
 
-  async function startReview() {
+  async function startReview({ mode = 'live' } = {}) {
     const ed = editor.value;
-    if (!ed || !props.aiAvailable || review.loading || review.open) return;
+    if (!ed || !reviewAvailable.value || review.loading || review.open) return;
 
-    const { text, map } = flattenReviewDoc(ed.state.doc);
+    const { text } = flattenReviewDoc(ed.state.doc);
     overlays.open('review');
 
     // Unverändert seit dem Ausblenden? Dann die gemerkten Vorschläge samt
     // Entscheidungen ohne erneute KI-Anfrage wiederherstellen.
-    const restorable = reviewCache && reviewCache.baseText === text && reviewCache.changes.length;
+    const restorable = reviewCache && reviewCache.doc.eq(ed.state.doc);
     const cachedChanges = restorable ? reviewCache.changes : null;
     const cachedStatus = restorable ? reviewCache.status : null;
 
     resetReviewState();
-    baseMap = map;
     review.open = true;
     review.baseText = text;
 
@@ -261,64 +311,70 @@ export function useNoteReview({
         model: reviewCache.model,
         fallbackFrom: reviewCache.fallbackFrom,
         stale: reviewCache.stale,
+        notice: reviewCache.notice,
       });
-      materializeChanges(cachedChanges, { statusById: cachedStatus, keepNumbers: true });
+      checkedThrough = reviewCache.checkedThrough;
+      nextChangeId = reviewCache.nextChangeId;
+      review.changes = cachedChanges;
+      review.status = cachedStatus;
+      review.empty = !cachedChanges.length;
+      syncDecorations();
+      if (review.stale || liveReviewScope(ed.state.doc, checkedThrough)) scheduleReview();
       return;
     }
     reviewCache = null;
 
     if (!text.trim()) {
       review.empty = true;
-      review.error = 'Diese Notiz ist leer – es gibt nichts zu überarbeiten.';
+      review.error = '';
       return;
     }
-    if (text.length > NOTE_REVIEW_INPUT_LIMIT) {
-      review.error = 'Die Notiz ist für eine Überarbeitung in einem Schritt zu lang.';
-      return;
-    }
-    await requestReview();
+    await requestReview({ mode });
   }
 
-  async function requestReview({ retry = false } = {}) {
+  async function requestReview({ retry = false, mode = 'live', scope: retryScope = null } = {}) {
     const ed = editor.value;
-    if (!ed || !review.open || review.loading) return;
+    if (!ed || ed.isDestroyed || !review.open || review.loading || !reviewAvailable.value) return;
+    cancelScheduledReview();
     if (!retry) reviewRetried = false;
-    const current = flattenReviewDoc(ed.state.doc);
-    review.baseText = current.text;
-    baseMap = current.map;
-    review.stale = false;
-    review.preview = '';
-    review.changes = [];
-    review.status = {};
-    review.focusId = null;
-    review.hoverId = null;
-    review.error = '';
-    review.provider = '';
-    review.model = '';
-    review.fallbackFrom = '';
-    review.empty = false;
-    clearReviewDecorations(ed);
-    if (!current.text.trim() || current.text.length > NOTE_REVIEW_INPUT_LIMIT) {
-      review.error = !current.text.trim()
-        ? 'Diese Notiz ist leer – es gibt nichts zu überarbeiten.'
-        : 'Die Notiz ist für eine Überarbeitung in einem Schritt zu lang.';
+    const doc = ed.state.doc;
+    const current = flattenReviewDoc(doc);
+    const scope = retryScope || (mode === 'live' ? liveReviewScope(doc, checkedThrough) : {
+      ...current, structure: reviewStructureContext(doc), from: 0, to: doc.content.size,
+      checked: Array.from({ length: doc.childCount }, (_, i) => [doc.child(i), flattenReviewDoc(doc.child(i)).text.length]),
+    });
+    if (!scope || !scope.text.trim()) {
+      review.stale = false;
+      review.empty = review.changes.length === 0;
       return;
     }
+    if (scope.text.length > NOTE_REVIEW_INPUT_LIMIT) {
+      review.error = 'Die Notiz ist für eine Gesamtprüfung zu lang. Die laufende Prüfung arbeitet abschnittsweise.';
+      return;
+    }
+    review.baseText = current.text;
+    review.preview = '';
+    review.error = '';
+    review.notice = '';
+    review.mode = mode;
     review.loading = true;
+    nextLiveReviewAt = now() + LIVE_REVIEW_INTERVAL;
 
     const request = requests.begin();
     const noteId = props.noteId;
     let needsRetry = false;
+    let completed = false;
     try {
       await stream({
-        note_text: review.baseText,
-        note_structure: reviewStructureContext(ed.state.doc),
-        extra_instruction: review.instruction.trim(),
+        note_text: scope.text,
+        note_structure: scope.structure,
+        extra_instruction: mode === 'full' ? review.instruction.trim() : '',
+        mode,
         retry,
       }, {
         signal: request.signal,
         onEvent: (event) => {
-          if (!request.isCurrent()) return;
+          if (!request.isCurrent() || props.noteId !== noteId || editor.value?.state.doc !== doc) return;
           if (event.type === 'meta') {
             review.provider = event.provider || '';
             review.model = event.model || '';
@@ -328,91 +384,104 @@ export function useNoteReview({
           }
         },
       });
-      if (!request.isCurrent() || props.noteId !== noteId) return;
-      const parsed = finishReview();
-      // Ein einmaliger stiller Neuversuch fängt gelegentlich unsauberes JSON ab,
-      // bevor der Nutzer überhaupt einen Fehler sieht.
-      if (!parsed.ok && !reviewRetried) needsRetry = true;
-      else if (!parsed.ok) {
-        review.error = parsed.error || 'Die Antwort ließ sich nicht sicher auswerten. Bitte erneut versuchen.';
+      if (!request.isCurrent() || props.noteId !== noteId || editor.value?.state.doc !== doc) return;
+      const parsed = finishReview(scope, mode);
+      if (!parsed.ok && mode === 'full' && !reviewRetried) needsRetry = true;
+      else if (!parsed.ok) review.error = parsed.error || 'Die Antwort ließ sich nicht sicher auswerten. Bitte erneut versuchen.';
+      else {
+        completed = true;
+        for (const [node, through] of scope.checked) checkedThrough.set(node, through);
+        review.stale = Boolean(liveReviewScope(doc, checkedThrough));
       }
     } catch (error) {
-      if (request.isCurrent() && error?.name !== 'AbortError' && review.open) {
-        if (error?.code === 'review_incomplete' && !reviewRetried) needsRetry = true;
+      if (request.isCurrent() && editor.value?.state.doc === doc && error?.name !== 'AbortError' && review.open) {
+        if (error?.code === 'review_incomplete' && mode === 'full' && !reviewRetried) needsRetry = true;
         else review.error = error?.message || 'Überarbeitung fehlgeschlagen.';
       }
     } finally {
-      // `loading` IMMER lösen, sonst blockiert der Guard einen folgenden
-      // (Retry-)Aufruf und der Ladeschirm bleibt für immer stehen. Der Retry
-      // setzt `loading` synchron sofort wieder auf true – kein Flackern.
       if (request.isCurrent()) {
         review.loading = false;
         if (needsRetry) {
           reviewRetried = true;
-          void requestReview({ retry: true });
-        }
+          void requestReview({ retry: true, mode, scope });
+        } else if (editor.value?.state.doc !== doc || (completed && review.stale)) scheduleReview();
       }
     }
   }
 
-  // Löst die (geparsten, zwischengespeicherten oder verbleibenden) Verbesserungen
-  // gegen das aktuelle Dokument auf und übernimmt sie in den Zustand.
-  // `statusById` erhält frühere Entscheidungen; `keepNumbers` bewahrt die einmal
-  // vergebenen Ziffern (nach Annehmen/Wiederherstellen wird NICHT neu numeriert).
-  function materializeChanges(rawChanges, { statusById = null, keepNumbers = false } = {}) {
-    const ed = editor.value;
-    if (!ed) return 0;
-    // Anchor → Zeichenbereich → Editor-Position, dann nur auffindbare behalten.
-    const located = resolveReviewAnchors(review.baseText, rawChanges);
-    const positioned = resolveReviewPositions(ed.state.doc, baseMap, located).filter((c) => c.found && buildReviewEdit(c));
-    positioned.sort((a, b) => a.from - b.from);
-    if (!keepNumbers) positioned.forEach((c, index) => { c.number = index + 1; });
-    review.changes = positioned;
-    review.status = Object.fromEntries(positioned.map((c) => [
-      c.id,
-      statusById && statusById[c.id] === 'rejected' ? 'rejected' : 'open',
-    ]));
-    review.empty = positioned.length === 0;
-    review.focusId = null;
-    review.hoverId = null;
-    syncDecorations();
-    return positioned.length;
-  }
-
-  function finishReview() {
+  function finishReview(scope, mode) {
     const ed = editor.value;
     if (!ed) return { ok: false, error: '' };
-    const { ok, changes, error } = parseReviewOutput(review.preview);
-    if (!ok) {
-      return { ok: false, error };
+    const parsed = parseReviewOutput(review.preview);
+    if (!parsed.ok) return parsed;
+    const raw = mode === 'live' ? parsed.changes.filter(c => c.cat !== 'add' && c.anchor !== c.revised).slice(0, 3) : parsed.changes;
+    const located = resolveReviewAnchors(scope.text, raw);
+    const positioned = resolveReviewPositions(ed.state.doc, scope.map, located)
+      .filter(c => c.found && buildReviewEdit(c) && c.from >= scope.from && c.to <= scope.to
+        && (mode !== 'live' || (liveFormatPreservesText(c)
+          && (c.blockIds?.length || (c.from > c.blockFrom && c.to < c.blockTo)))));
+    const skipped = raw.length - positioned.length;
+    if (mode === 'live' && skipped) {
+      review.notice = skipped === 1
+        ? 'Ein unsicherer KI-Hinweis wurde ausgelassen. Du kannst weiterschreiben.'
+        : 'Unsichere KI-Hinweise wurden ausgelassen. Du kannst weiterschreiben.';
+      if (!positioned.length) return { ok: true, error: '' };
     }
-    const count = materializeChanges(changes);
-    if (!count) {
-      review.error = changes.length
-        ? 'Die Verbesserungen ließen sich der Notiz nicht sicher zuordnen.'
-        : '';
+    if (raw.length && !positioned.length) {
+      return { ok: false, error: 'Die Verbesserungen ließen sich der Notiz nicht sicher zuordnen.' };
     }
+    const previous = review.changes;
+    const samePlace = (a, b) => a.cat === b.cat && a.anchor === b.anchor && a.from === b.from && a.to === b.to;
+    const merged = previous.filter(c => changeStatus(c.id) === 'rejected' || c.to <= scope.from || c.from >= scope.to);
+    for (const change of positioned) {
+      const old = previous.find(c => samePlace(c, change) && (changeStatus(c.id) === 'rejected' || c.revised === change.revised));
+      if (old && changeStatus(old.id) === 'rejected') continue;
+      if (old) merged.push({ ...change, id: old.id, number: old.number });
+      else {
+        const id = nextChangeId++;
+        merged.push({ ...change, id, number: id });
+      }
+    }
+    review.changes = merged.sort((a, b) => a.from - b.from);
+    review.status = Object.fromEntries(merged.map(c => [c.id, changeStatus(c.id)]));
+    review.empty = !merged.length;
+    if (!merged.some(c => c.id === review.focusId)) clearFocus();
+    syncDecorations();
     return { ok: true, error: '' };
   }
 
-  // Löst die verbleibenden Verbesserungen nach einer Textänderung neu gegen das
-  // Dokument auf (Positionen verschieben sich); Ziffern + Entscheidungen bleiben.
+  // Follow the actual accepted transaction, rather than searching the anchors
+  // again: identical words elsewhere must not receive another card's decision.
   function rematerializeRemaining(remaining, statusById) {
     const ed = editor.value;
     if (!ed) return;
-    const { text, map } = flattenReviewDoc(ed.state.doc);
-    review.baseText = text;
-    baseMap = map;
-    materializeChanges(remaining, { statusById, keepNumbers: true });
+    let mapped = remaining;
+    for (const mapping of reviewEditMappings) mapped = mapped.map(change => ({
+      ...change,
+      from: mapping.map(change.from, 1), to: mapping.map(change.to, -1),
+      blockFrom: mapping.map(change.blockFrom, 1), blockTo: mapping.map(change.blockTo, -1),
+    }));
+    reviewEditMappings = [];
+    review.baseText = flattenReviewDoc(ed.state.doc).text;
+    review.changes = mapped.filter(change => change.from < change.to && change.blockFrom <= change.blockTo)
+      .map(change => reviewChangesStillValid(ed.state.doc, [change]) ? change
+      : refreshInlineReviewChange(ed.state.doc, change)).filter(change => change && change.from < change.to);
+    review.status = Object.fromEntries(review.changes.map(change => [change.id, statusById[change.id] || 'open']));
+    review.empty = !review.changes.length;
+    if (!review.changes.some(change => change.id === review.focusId)) clearFocus();
+    syncDecorations();
   }
 
   // Annehmen: die einzelne Verbesserung SOFORT in die Notiz schreiben (eigener
   // Undo-Schritt) und aus der Liste entfernen; der Rest wird neu aufgelöst.
   function acceptChange(id) {
     const ed = editor.value;
-    if (!ed || ed.isDestroyed || review.loading) return;
+    if (!ed || ed.isDestroyed) return;
     const change = review.changes.find((c) => c.id === id);
     if (!change || !change.found) return;
+    requests.cancel();
+    review.loading = false;
+    review.preview = '';
     const others = review.changes.filter((c) => c.id !== id);
     const statusById = { ...review.status };
     delete statusById[id];
@@ -429,6 +498,7 @@ export function useNoteReview({
       }
       if (edits.length) {
         clearReviewDecorations(ed);
+        reviewEditMappings = [];
         applyingReviewEdit = true;
         try { applyReviewEdits(ed, edits); } finally { applyingReviewEdit = false; }
         onCheckpoint('ai');
@@ -436,6 +506,8 @@ export function useNoteReview({
     }
     reviewCache = null; // der Text hat sich geändert
     rematerializeRemaining(others, statusById);
+    review.stale = true;
+    scheduleReview();
   }
 
   function rejectChange(id) {
@@ -491,9 +563,23 @@ export function useNoteReview({
     if (SORT_MODES.includes(value)) review.sort = value;
   }
   function regenerateReview() {
-    if (review.loading) return;
+    requests.cancel();
+    review.loading = false;
+    checkedThrough = new WeakMap();
+    return requestReview();
+  }
+  function reviewWholeNote() {
+    requests.cancel();
+    review.loading = false;
     review.instructionOpen = false;
-    void requestReview();
+    return requestReview({ mode: 'full' });
+  }
+  function togglePause() {
+    review.paused = !review.paused;
+    if (review.paused) {
+      cancelScheduledReview();
+      if (review.mode === 'live') { requests.cancel(); review.loading = false; review.preview = ''; }
+    } else scheduleReview();
   }
 
   // Explizites Verwerfen beendet den Modus. Angenommene Verbesserungen sind
@@ -517,7 +603,11 @@ export function useNoteReview({
 
   overlays.register('review', closeReview);
   onBeforeUnmount(discardReview);
-  watch(() => props.noteId, discardReview);
+  watch(() => props.noteId, discardReview, { flush: 'sync' });
+  watch(reviewAvailable, available => {
+    if (!available) { cancelScheduledReview(); requests.cancel(); review.loading = false; }
+    else if (review.open) scheduleReview();
+  }, { flush: 'sync' });
 
   return {
     editor,
@@ -533,6 +623,8 @@ export function useNoteReview({
     toggleReview,
     requestReview,
     regenerateReview,
+    reviewWholeNote,
+    togglePause,
     acceptChange,
     rejectChange,
     reopenChange,

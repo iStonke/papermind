@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from app.services.note_review_prompt import NOTE_REVIEW_SCHEMA
+from app.services.note_review_prompt import NOTE_REVIEW_SCHEMA, live_review_schema
 from app.schemas.notes import NoteReviewRequest, NoteTextGenerationRequest
 from app.schemas.settings import NOTE_WRITING_SYSTEM_PROMPT_DEFAULT
 from app.services.note_ai import GenerationPlan, NoteAIIncompleteError, NoteAIProviderError, NoteAIService, _user_prompt
@@ -94,20 +94,99 @@ class NoteAIServiceTest(unittest.TestCase):
             NoteReviewRequest(note_text="meeting 12.03 mit holger", extra_instruction="  kürzer  ")
         )
 
-        self.assertEqual(plan.provider, "openai")
-        self.assertEqual(plan.model, "openai-writer")
+        self.assertEqual(plan.provider, "ollama")
+        self.assertEqual(plan.model, "local-writer")
         # The review path must NOT carry the editor-markdown grammar; it needs JSON.
         self.assertNotIn("EDITOR-FORMAT:", plan.system_prompt)
         self.assertIn("AUSSCHLIESSLICH mit gültigem JSON", plan.system_prompt)
         self.assertIn('"changes"', plan.system_prompt)
         # cfg.temperature is 0.35; the review path clamps to <= 0.2 for stable JSON.
         self.assertEqual(plan.temperature, 0.2)
-        self.assertFalse(plan.local_only)
+        self.assertTrue(plan.local_only)
         self.assertTrue(plan.json_output)
         self.assertEqual(plan.max_output_tokens, 4096)
-        self.assertEqual(plan.fallback_model, "local-writer")
+        self.assertEqual(plan.fallback_model, "")
+        self.assertEqual(plan.api_key, "")
+        _key.assert_not_called()
         self.assertIn("NOTIZTEXT:\nmeeting 12.03 mit holger", plan.user_prompt)
         self.assertIn("ZUSÄTZLICHE ANWEISUNG DES NUTZERS:\nkürzer", plan.user_prompt)
+
+    @patch("app.services.note_ai.AICredentialService.get_key", return_value="test")
+    @patch("app.services.note_ai.SettingsService.get_settings", return_value=runtime_settings())
+    def test_live_review_limits_scope_and_tolerates_notes_including_on_retry(self, _settings, _key):
+        service = NoteAIService(db=object(), owner_id=None)
+        for retry in (False, True):
+            plan = service.prepare_review(NoteReviewRequest(note_text="kurze Notiz", mode="live", retry=retry))
+            for term in ["LAUFENDE SCHREIBPRÜFUNG", "NIEMALS add", "Satzfragmente", "unvollständige Wörter", "Höchstens 3"]:
+                self.assertIn(term, plan.system_prompt)
+            self.assertTrue(plan.json_output)
+            self.assertEqual(plan.provider, "ollama")
+            self.assertTrue(plan.local_only)
+            self.assertLess(plan.max_output_tokens, 4096)
+        full = service.prepare_review(NoteReviewRequest(note_text="Notiz"))
+        self.assertNotIn("LAUFENDE SCHREIBPRÜFUNG", full.system_prompt)
+        _key.assert_not_called()
+
+    @patch("app.services.note_ai.AICredentialService.get_key")
+    def test_review_requires_local_ai_even_when_a_cloud_provider_is_configured(self, get_key):
+        runtime = runtime_settings(provider="anthropic")
+        runtime.ollama.enabled = False
+        with patch("app.services.note_ai.SettingsService.get_settings", return_value=runtime):
+            for mode in ("live", "full"):
+                with self.assertRaisesRegex(ValueError, "lokale KI aktiviert"):
+                    NoteAIService(db=object(), owner_id=None).prepare_review(NoteReviewRequest(note_text="Text", mode=mode))
+        get_key.assert_not_called()
+
+    @patch("app.services.note_ai.AICredentialService.get_key")
+    @patch("app.services.note_ai.SettingsService.get_settings", return_value=runtime_settings(provider="anthropic"))
+    def test_failed_local_review_never_calls_cloud_providers(self, _settings, get_key):
+        service = NoteAIService(db=object(), owner_id=None)
+        for mode in ("live", "full"):
+            plan = service.prepare_review(NoteReviewRequest(note_text="Text", mode=mode))
+            with patch.object(service, "_ollama_stream", side_effect=NoteAIProviderError("Lokal nicht erreichbar")), \
+                 patch.object(service, "_openai_stream") as openai, \
+                 patch.object(service, "_anthropic_stream") as anthropic:
+                events = [json.loads(line) for line in service.stream(plan)]
+                self.assertEqual(events[0]["provider"], "ollama")
+                self.assertEqual(events[-1]["type"], "error")
+                openai.assert_not_called()
+                anthropic.assert_not_called()
+        get_key.assert_not_called()
+
+    @patch("app.services.note_ai.SettingsService.get_settings", return_value=runtime_settings())
+    def test_live_review_can_only_anchor_in_the_actual_note_and_has_no_copied_example(self, _settings):
+        text = "Aufgaben\nEine Besprechunng planen.\nWenn Zeit fehlt, kann Projekte verschieben."
+        plan = NoteAIService(db=object(), owner_id=None).prepare_review(NoteReviewRequest(note_text=text, mode="live"))
+        properties = plan.json_schema["properties"]["changes"]["items"]["properties"]
+        anchors = properties["anchor"]["enum"]
+        self.assertIn("Besprechunng", anchors)
+        self.assertIn("Wenn Zeit fehlt, kann Projekte verschieben.", anchors)
+        self.assertTrue(all(anchor in text for anchor in anchors))
+        self.assertNotIn("Ergebniss", anchors)
+        self.assertNotIn("Ergebniss", plan.system_prompt)
+        self.assertEqual(properties["cat"]["enum"], ["fix", "format"])
+        self.assertNotIn("block_ids", properties)
+        self.assertNotIn("enum", NOTE_REVIEW_SCHEMA["properties"]["changes"]["items"]["properties"]["anchor"])
+
+    def test_live_schema_preserves_exact_whitespace_and_restricts_structural_targets(self):
+        text = "Name:  Anna\nRolle: Leitung\nErledigte Aufgabe"
+        payload = NoteReviewRequest(note_text=text, mode="live", note_structure=[
+            {"id": "b2", "type": "paragraph", "text": "Name:  Anna", "convertible": True},
+            {"id": "b3", "type": "paragraph", "text": "Rolle: Leitung", "convertible": True},
+            {"id": "b4", "type": "taskList", "text": "Erledigte Aufgabe", "convertible": False},
+        ])
+        properties = live_review_schema(text, payload.note_structure)["properties"]["changes"]["items"]["properties"]
+        self.assertIn("Name:  Anna\nRolle: Leitung", properties["anchor"]["enum"])
+        self.assertEqual(properties["block_ids"]["items"]["enum"], ["b2", "b3"])
+        self.assertTrue(all(anchor in text for anchor in properties["anchor"]["enum"]))
+
+    def test_live_schema_bounds_long_grammar_anchors_without_guessing_text(self):
+        text = ("Lange Notiz mit vielen Wörtern  " * 100) + "Besprechunng."
+        properties = live_review_schema(text, [])["properties"]["changes"]["items"]["properties"]
+        anchors = properties["anchor"]["enum"]
+        self.assertTrue(all(anchor in text for anchor in anchors))
+        self.assertLess(max(len(anchor) for anchor in anchors), 600)
+        self.assertIn("Besprechunng", anchors)
 
     def test_stream_exposes_attribution_and_deltas_as_ndjson(self) -> None:
         service = NoteAIService(db=object(), owner_id=None)

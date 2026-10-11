@@ -128,7 +128,7 @@
         </v-btn>
 
         <v-btn
-          v-if="aiAvailable"
+          v-if="reviewAvailable"
           class="note-workspace-editor__review-toggle"
           :class="['pm-header-icon-btn', 'pm-header-icon-btn--quiet']"
           :variant="reviewActive ? 'tonal' : 'text'"
@@ -474,6 +474,7 @@
           :text-replacements="notesTextReplacements"
           :readonly="status === 'conflict'"
           :ai-available="aiAvailable"
+          :review-available="reviewAvailable"
           :ai-prompt-suggestions="aiPromptSuggestions"
           @word-count="updateWordCount"
           @edit-position="rememberEditPosition"
@@ -995,6 +996,11 @@ const aiAvailable = computed(() => {
   if (!modelKey || !String(config[modelKey] || '').trim()) return false;
   if (provider === 'ollama') return settingsStore.settingsDraft?.ollama?.enabled === true;
   return aiCredentialStatus.value?.[provider]?.configured === true;
+});
+const reviewAvailable = computed(() => {
+  const config = settingsStore.settingsDraft?.text_generation;
+  return Boolean(config?.enabled && String(config.ollama_model || '').trim()
+    && settingsStore.settingsDraft?.ollama?.enabled === true);
 });
 const aiPromptSuggestions = computed(() => {
   const configured = settingsStore.settingsDraft?.text_generation?.prompt_suggestions;

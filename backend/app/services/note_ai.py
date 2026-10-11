@@ -17,6 +17,8 @@ from app.services.ai_credentials import AICredentialService
 from app.services.settings import SettingsService
 from app.services.note_editor_format import NOTE_EDITOR_FORMAT
 from app.services.note_review_prompt import (
+    NOTE_REVIEW_LIVE_PROMPT,
+    live_review_schema,
     NOTE_REVIEW_MAX_TEMPERATURE,
     NOTE_REVIEW_OUTPUT_TOKENS,
     NOTE_REVIEW_RETRY_PROMPT,
@@ -137,9 +139,8 @@ class NoteAIService:
     def prepare_review(self, payload: NoteReviewRequest) -> GenerationPlan:
         """Plan a structured review request: pinned prompt, low temperature, JSON.
 
-        Shares the provider selection and the local fallback with :meth:`prepare`
-        but never appends ``NOTE_EDITOR_FORMAT`` (which would push the model back
-        toward editor markdown instead of the required JSON change list).
+        Reviews always use the configured local model, including whole-note
+        checks. Free-form writing retains its separate provider selection.
         """
 
         runtime = SettingsService(self.db, self.owner_id).get_settings()
@@ -147,22 +148,8 @@ class NoteAIService:
         if not cfg.enabled:
             raise ValueError("Textgenerierung ist in den Einstellungen deaktiviert")
 
-        provider: Provider = cfg.provider
-        model = {
-            "ollama": cfg.ollama_model,
-            "openai": cfg.openai_model,
-            "anthropic": cfg.anthropic_model,
-        }[provider]
-
-        api_key = ""
-        if provider == "ollama":
-            if not runtime.ollama.enabled:
-                raise ValueError("Das lokale KI-Modell ist deaktiviert")
-        else:
-            api_key = AICredentialService(self.db).get_key(provider)
-            if not api_key:
-                label = "OpenAI" if provider == "openai" else "Anthropic"
-                raise ValueError(f"Für {label} ist kein API-Schlüssel konfiguriert")
+        if not runtime.ollama.enabled:
+            raise ValueError("Für den Korrekturrand muss die lokale KI aktiviert sein")
 
         extra = " ".join(payload.extra_instruction.split())
         user_prompt = f"NOTIZTEXT:\n{payload.note_text.strip()}"
@@ -174,22 +161,19 @@ class NoteAIService:
             user_prompt += f"\n\nZUSÄTZLICHE ANWEISUNG DES NUTZERS:\n{extra}"
 
         return GenerationPlan(
-            provider=provider,
-            model=model,
-            system_prompt=NOTE_REVIEW_SYSTEM_PROMPT + (NOTE_REVIEW_RETRY_PROMPT if payload.retry else ""),
+            provider="ollama",
+            model=str(cfg.ollama_model).strip(),
+            system_prompt=(NOTE_REVIEW_LIVE_PROMPT if payload.mode == "live" else NOTE_REVIEW_SYSTEM_PROMPT)
+            + (NOTE_REVIEW_RETRY_PROMPT if payload.retry else ""),
             user_prompt=user_prompt,
-            api_key=api_key,
+            api_key="",
             base_url=str(runtime.ollama.base_url).rstrip("/"),
             timeout_seconds=float(runtime.ollama.timeout_seconds),
-            max_output_tokens=NOTE_REVIEW_OUTPUT_TOKENS,
+            max_output_tokens=1536 if payload.mode == "live" else NOTE_REVIEW_OUTPUT_TOKENS,
             temperature=min(float(cfg.temperature), NOTE_REVIEW_MAX_TEMPERATURE),
-            local_only=False,
-            fallback_model=(
-                str(cfg.ollama_model).strip()
-                if provider != "ollama" and runtime.ollama.enabled
-                else ""
-            ),
+            local_only=True,
             json_output=True,
+            json_schema=live_review_schema(payload.note_text, payload.note_structure) if payload.mode == "live" else None,
         )
 
     def stream(self, plan: GenerationPlan) -> Iterator[str]:

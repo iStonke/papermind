@@ -62,10 +62,10 @@ test('manual editing preserves unaffected suggestions and invalidates changed bl
   await expect(page.locator('.tiptap')).toContainText('Andere Name: Anna');
 });
 
-test('editing during a request cancels it and ignores the late response', async ({ page }) => {
+test('editing during a request ignores the late response and queues a new local check', async ({ page }) => {
   await mountEditableReview(page, true);
   await page.evaluate(() => window.structureReview.editor.commands.insertContentAt(1, 'Neu '));
-  expect(await page.evaluate(() => window.structureSignal.aborted)).toBe(true);
+  expect(await page.evaluate(() => window.structureSignal.aborted)).toBe(false);
   await page.evaluate(() => window.finishStructureStream());
   await expect(page.locator('.pm-review-card')).toHaveCount(0);
   await expect(page.getByText('Text geändert', {exact:true})).toBeVisible();
@@ -79,12 +79,13 @@ test('rechecking validates current text and preserves existing readonly settings
     const {editor,c} = window.structureReview;
     editor.commands.clearContent(); await c.requestReview();
   });
-  await expect(page.getByText('Diese Notiz ist leer – es gibt nichts zu überarbeiten.')).toBeVisible();
+  await expect(page.getByText('Keine offenen Hinweise', {exact:true})).toBeVisible();
+  expect(await page.evaluate(() => window.structureReview.c.review.error)).toBe('');
   await page.evaluate(async () => {
     const {editor,c} = window.structureReview;
-    editor.commands.setContent('<p>' + 'x'.repeat(12001) + '</p>'); await c.requestReview();
+    editor.commands.setContent('<p>' + 'x'.repeat(12001) + '</p>'); await c.requestReview({ mode: 'full' });
   });
-  await expect(page.getByText('Die Notiz ist für eine Überarbeitung in einem Schritt zu lang.')).toBeVisible();
+  await expect(page.getByText('Die Notiz ist für eine Gesamtprüfung zu lang. Die laufende Prüfung arbeitet abschnittsweise.')).toBeVisible();
   await page.evaluate(async () => {
     const {editor,c} = window.structureReview;
     c.closeReview(); editor.setEditable(false); await c.startReview(); c.closeReview();

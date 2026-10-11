@@ -23,7 +23,7 @@ export function mountStructureReview({ deferred = false } = {}) {
       ]})});
     }});
     window.structureReview = {editor:editor.value,c,before};
-    onMounted(()=>c.startReview());
+    onMounted(()=>c.startReview({ mode: 'full' }));
     return ()=>h('div',{style:'display:flex;height:750px;gap:30px'},[h(EditorContent,{editor:editor.value,style:'width:500px'}),h('div',{style:'width:380px'},[h(NoteReviewPanel,{controller:c})])]);
   }}).use(vuetify).mount('#app');
 }
