@@ -1438,7 +1438,8 @@ const speechButtonIcon = computed(() => {
 function selectedSpeechText(ed) {
   const { selection, doc } = ed?.state || {};
   if (!(selection instanceof TextSelection) || selection.empty) return '';
-  return doc.textBetween(selection.from, selection.to, '\n', '\n').replace(/\s+/g, ' ').trim();
+  return doc.textBetween(selection.from, selection.to, '\n', '\n')
+    .replace(/[^\S\n]+/g, ' ').trim();
 }
 
 function releaseSpeechAudio() {

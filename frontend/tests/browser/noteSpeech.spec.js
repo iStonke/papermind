@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 const productionCsp = readFileSync(new URL('../../nginx.conf', import.meta.url), 'utf8')
   .match(/add_header Content-Security-Policy "([^"]+)"/)[1];
 
-async function mount(page, { blockPlayback = false, deferPlayback = false, realAudio = false, csp = false } = {}) {
+async function mount(page, { blockPlayback = false, deferPlayback = false, realAudio = false, csp = false, paragraphs } = {}) {
   const requests = [];
   // A valid one-second mono PCM WAV, so the real media decoder can be tested.
   const wav = Buffer.alloc(44 + 16000);
@@ -25,7 +25,7 @@ async function mount(page, { blockPlayback = false, deferPlayback = false, realA
     body: '<div id="app" class="papermind-app v-theme--light" style="height:800px"></div>',
   }));
   await page.goto('/__note-speech');
-  await page.evaluate(async ({ blockPlayback, deferPlayback, realAudio }) => {
+  await page.evaluate(async ({ blockPlayback, deferPlayback, realAudio, paragraphs }) => {
     window.speechPlays = [];
     window.speechRevokedUrls = [];
     window.speechMediaViolations = [];
@@ -43,8 +43,8 @@ async function mount(page, { blockPlayback = false, deferPlayback = false, realA
         return Promise.resolve();
       };
     }
-    (await import('/tests/browser/fixtures/noteSpeech.js')).mountSpeechEditor();
-  }, { blockPlayback, deferPlayback, realAudio });
+    (await import('/tests/browser/fixtures/noteSpeech.js')).mountSpeechEditor({ paragraphs });
+  }, { blockPlayback, deferPlayback, realAudio, paragraphs });
   await expect(page.locator('.tiptap')).toContainText('Dieser Text wird vorgelesen.');
   await page.locator('.tiptap').evaluate(el => el.editor.commands.setTextSelection({ from: 1, to: el.editor.state.doc.content.size - 1 }));
   await expect(page.getByRole('button', { name: 'Markierten Text vorlesen', exact: true })).toBeVisible();
@@ -66,6 +66,14 @@ test('primes the same audio element during the click and preserves pause/resume'
   expect(requests).toEqual([{ text: 'Dieser Text wird vorgelesen.', voice: 'standard', language_mode: 'auto' }]);
   await page.evaluate(() => window.unmountSpeechEditor());
   expect(await page.evaluate(() => window.speechRevokedUrls.length)).toBe(1);
+});
+
+test('selection speech keeps paragraph boundaries for natural pauses', async ({ page }) => {
+  const paragraphs = ['Dieser Text wird vorgelesen.', 'Absatz zwei bleibt getrennt.'];
+  const requests = await mount(page, { paragraphs });
+  await page.getByRole('button', { name: 'Markierten Text vorlesen', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Vorlesen pausieren', exact: true })).toBeVisible();
+  expect(requests[0].text).toBe(paragraphs.join('\n'));
 });
 
 test('a blocked clip can be started by another click or Enter without regenerating it', async ({ page }) => {

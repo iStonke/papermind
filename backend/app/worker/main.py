@@ -2101,7 +2101,7 @@ def _process_note_audio_job(job: dict) -> None:
             note_audio_jobs.finish_cancel(job_id)
             return
         note_audio_jobs.update(job_id, progress=94, phase="Audiodatei wird zusammengesetzt")
-        incoming_path.write_bytes(merge_wav_bytes(audio_parts))
+        incoming_path.write_bytes(merge_wav_bytes(audio_parts, pause_seconds=tts_service.SENTENCE_PAUSE_SECONDS))
         if not note_audio_jobs.complete(job_id, incoming_path):
             incoming_path.unlink(missing_ok=True)
             note_audio_jobs.finish_cancel(job_id)

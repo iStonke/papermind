@@ -1,24 +1,30 @@
 import io
 import unittest
 import wave
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+import numpy as np
 
 from app.core.errors import APIError
 from app.routers import tts as tts_router
 from app.schemas.tts import SpeechRequest
-from app.services.tts import PiperTTSService, TTSUnavailableError, segment_speech_text
+from app.services.tts import PiperTTSService, TTSUnavailableError, prepare_speech_text, segment_speech_text, split_speech_text
 
 
 class _FakeVoice:
-    def __init__(self) -> None:
+    def __init__(self, chunks=None, sample_rate=22050) -> None:
         self.synthesis_config = None
+        self.chunks = chunks
+        self.sample_rate = sample_rate
+        self.texts = []
 
-    def synthesize_wav(self, text, wav_file, synthesis_config=None) -> None:
-        self.synthesis_config = synthesis_config
-        wav_file.setnchannels(1)
-        wav_file.setsampwidth(2)
-        wav_file.setframerate(22050)
-        wav_file.writeframes(b"\x00\x00" * max(1, len(text)))
+    def synthesize(self, text, *, syn_config):
+        self.synthesis_config = syn_config
+        self.texts.append(text)
+        samples = self.chunks[text] if self.chunks is not None else [np.full(max(1, len(text)), 0.25, dtype=np.float32)]
+        for audio in samples:
+            yield SimpleNamespace(sample_rate=self.sample_rate, sample_width=2, sample_channels=1, audio_float_array=audio)
 
 
 class PiperTTSServiceTest(unittest.TestCase):
@@ -53,6 +59,49 @@ class PiperTTSServiceTest(unittest.TestCase):
 
         get_voice.assert_called_once_with("english")
 
+    def test_sentence_and_paragraph_pauses_preserve_relative_loudness(self) -> None:
+        fake = _FakeVoice({
+            "A. B.": [np.full(100, 0.2, dtype=np.float32), np.full(100, 0.1, dtype=np.float32)],
+            "C.": [np.full(100, 0.2, dtype=np.float32)],
+        }, sample_rate=1000)
+        service = PiperTTSService("/unused/high.onnx")
+        with patch.object(service, "_get_voice", return_value=fake):
+            audio = service.synthesize_wav("A. B.\nC.")
+        with wave.open(io.BytesIO(audio)) as source:
+            frames = np.frombuffer(source.readframes(source.getnframes()), dtype="<i2")
+        self.assertEqual(len(frames), 860)
+        self.assertTrue(np.all(frames[100:280] == 0))
+        self.assertTrue(np.all(frames[380:760] == 0))
+        self.assertAlmostEqual(float(frames[0]) / float(frames[280]), 2.0, places=3)
+        self.assertLess(int(np.max(np.abs(frames))), 32767)
+        self.assertFalse(fake.synthesis_config.normalize_audio)
+
+    def test_excessive_model_silence_is_bounded_without_cutting_speech(self) -> None:
+        samples = np.concatenate([np.zeros(700), np.full(100, 0.2), np.zeros(900)])
+        trimmed = PiperTTSService._trim_edge_silence(samples, 1000)
+        self.assertEqual(len(trimmed), 180)  # speech plus 40 ms on each side
+        np.testing.assert_array_equal(trimmed[40:140], samples[700:800])
+
+    def test_empty_audio_has_clear_engine_error(self) -> None:
+        fake = _FakeVoice({"Hallo": [np.zeros(100, dtype=np.float32)]})
+        with patch.object(PiperTTSService, "_get_voice", return_value=fake):
+            with self.assertRaises(TTSUnavailableError):
+                PiperTTSService("/unused/high.onnx").synthesize_wav("Hallo")
+
+    def test_abbreviation_expansion_is_only_for_spoken_german(self) -> None:
+        text = "Die Abgabe erfolgt z. B. online, d. h. im Kurs.\nGgf. Rückfragen klären."
+        spoken = prepare_speech_text(text)
+        self.assertIn("zum Beispiel", spoken)
+        self.assertIn("das heißt", spoken)
+        self.assertIn("Gegebenenfalls", spoken)
+        self.assertIn("\n", spoken)
+        self.assertEqual(prepare_speech_text(text, language="en"), text)
+
+    def test_sentence_final_abbreviation_keeps_the_sentence_boundary(self) -> None:
+        self.assertEqual(prepare_speech_text("Notizen usw. Danach wird geprüft."), "Notizen und so weiter. Danach wird geprüft.")
+        self.assertEqual(prepare_speech_text("Weitere Angaben usw."), "Weitere Angaben und so weiter.")
+        self.assertIn("Unter Umständen", prepare_speech_text("U. U. wird später geprüft."))
+
 
 class SpeechSegmentationTest(unittest.TestCase):
     def test_auto_mode_switches_between_german_and_english_sentences(self) -> None:
@@ -82,6 +131,15 @@ class SpeechSegmentationTest(unittest.TestCase):
 
         self.assertTrue(all(segment.language == "en" for segment in english))
         self.assertTrue(all(segment.language == "de" for segment in german))
+
+    def test_paragraph_boundaries_survive_both_language_modes_and_chunking(self) -> None:
+        text = "Offene Fragen\nDie Prüfung wird im Kurs geklärt.\nWeitere Hinweise"
+        for mode in ("auto", "de"):
+            with self.subTest(mode=mode):
+                self.assertEqual(segment_speech_text(text, mode=mode)[0].text, text)
+        chunks = split_speech_text(text, max_chars=38)
+        self.assertTrue(all(len(chunk) <= 38 for chunk in chunks))
+        self.assertIn("\n", chunks[0])
 
 
 class TTSEndpointTest(unittest.TestCase):

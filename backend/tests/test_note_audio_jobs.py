@@ -104,6 +104,15 @@ class NoteAudioJobStoreTests(unittest.TestCase):
 
 
 class NoteAudioWavTests(unittest.TestCase):
+    def test_audio_parts_can_have_a_pause_between_language_or_length_segments(self):
+        merged = merge_wav_bytes([_wav(b"\x01\x00"), _wav(b"\x02\x00")], pause_seconds=0.18)
+        with wave.open(io.BytesIO(merged), "rb") as source:
+            frames = source.readframes(source.getnframes())
+            self.assertEqual(source.getnframes(), 3971)
+            self.assertEqual(frames[:2], b"\x01\x00")
+            self.assertEqual(frames[-2:], b"\x02\x00")
+            self.assertEqual(frames[2:-2], bytes(3969 * 2))
+
     def test_splits_long_text_and_merges_compatible_wav(self):
         chunks = split_speech_text("Erster Satz. " * 20, max_chars=60)
         self.assertGreater(len(chunks), 1)

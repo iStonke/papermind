@@ -40,7 +40,7 @@ def synthesize_speech(
         audio = merge_wav_bytes([
             tts_service.synthesize_wav(segment.text, voice=payload.voice, language=segment.language)
             for segment in segments
-        ])
+        ], pause_seconds=tts_service.SENTENCE_PAUSE_SECONDS)
     except TTSUnavailableError as exc:
         raise APIError(
             status.HTTP_503_SERVICE_UNAVAILABLE,
