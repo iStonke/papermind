@@ -34,7 +34,8 @@ RUN apt-get update -o Acquire::Retries=5 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY worker/requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+RUN python -m pip install --no-cache-dir --upgrade pip==26.2.1 \
+    && python -m pip install --no-cache-dir -r /tmp/requirements.txt
 
 # Dieselben lokalen Piper-Stimmen wie im Backend. Der Worker rendert lange
 # Notizexporte unabhängig vom Browser und benötigt deshalb Modelle + Runtime.

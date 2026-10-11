@@ -33,7 +33,8 @@ RUN apt-get update -o Acquire::Retries=5 \
 WORKDIR /app
 
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m pip install --no-cache-dir --upgrade pip==26.2.1 \
+    && python -m pip install --no-cache-dir -r requirements.txt
 
 # Offline-Sprachausgabe fuer markierten Notiztext. Das Modell wird beim Build
 # fest ins Image gelegt; im Betrieb werden weder Text noch Audiodaten an einen

@@ -35,6 +35,14 @@ services:
       - papermind_net
 
   backend:
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Private Host-Mounts (z. B. Backup-Schlüssel und Scannerdateien)
+    # behalten ihre Eigentümer. Nur deren Datei-Zugriff bleibt erforderlich.
+    cap_add:
+      - DAC_OVERRIDE
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -66,6 +74,10 @@ services:
       AUTH_COOKIE_SAMESITE: ${AUTH_COOKIE_SAMESITE:-lax}
       AUTH_LOGIN_RATE_LIMIT: ${AUTH_LOGIN_RATE_LIMIT:-10}
       AUTH_LOGIN_RATE_WINDOW_SECONDS: ${AUTH_LOGIN_RATE_WINDOW_SECONDS:-300}
+      AUTH_TRUSTED_PROXY_CIDRS: ${AUTH_TRUSTED_PROXY_CIDRS:-}
+      PDF_PROCESSING_TIMEOUT_SECONDS: ${PDF_PROCESSING_TIMEOUT_SECONDS:-30}
+      PDF_PROCESSING_MEMORY_MB: ${PDF_PROCESSING_MEMORY_MB:-256}
+      UPLOAD_REQUEST_MAX_BYTES: ${UPLOAD_REQUEST_MAX_BYTES:-104857600}
       # Optionale Cloud-Anbieter gelten ausschließlich für freie Notiztexte.
       # UI-gespeicherte Schlüssel werden mit diesem separaten Secret verschlüsselt.
       AI_CREDENTIALS_ENCRYPTION_KEY: ${AI_CREDENTIALS_ENCRYPTION_KEY:-}
@@ -92,7 +104,7 @@ services:
       SYSTEM_SYS_PATH: /host/sys
       SYSTEM_HOST_ETC_PATH: /host/etc
     ports:
-      - "${BACKEND_PORT}:${BACKEND_PORT}"
+      - "127.0.0.1:${BACKEND_PORT}:${BACKEND_PORT}"
     volumes:
       - ./backend:/app
       - pdf_storage:${STORAGE_PATH}
@@ -127,7 +139,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "${DB_PORT}:5432"
+      - "127.0.0.1:${DB_PORT}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -140,6 +152,10 @@ services:
       - papermind_net
 
   ai:
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     build:
       context: ./ai
       dockerfile: Dockerfile
@@ -154,7 +170,7 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.2:3b}
     ports:
-      - "${AI_PORT}:${AI_PORT}"
+      - "127.0.0.1:${AI_PORT}:${AI_PORT}"
     volumes:
       - ./ai:/app
       - ai_models:/models
@@ -172,6 +188,14 @@ services:
       - papermind_net
 
   worker:
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Private Host-Mounts (z. B. Backup-Schlüssel und Scannerdateien)
+    # behalten ihre Eigentümer. Nur deren Datei-Zugriff bleibt erforderlich.
+    cap_add:
+      - DAC_OVERRIDE
     build:
       context: .
       dockerfile: worker/Dockerfile
@@ -183,6 +207,8 @@ services:
       WORKER_DATABASE_URL: ${WORKER_DATABASE_URL}
       STORAGE_PATH: ${STORAGE_PATH}
       TZ: ${TZ:-Europe/Berlin}
+      PDF_PROCESSING_TIMEOUT_SECONDS: ${PDF_PROCESSING_TIMEOUT_SECONDS:-30}
+      PDF_PROCESSING_MEMORY_MB: ${PDF_PROCESSING_MEMORY_MB:-256}
       UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES}
       WORKER_POLL_INTERVAL_SECONDS: ${WORKER_POLL_INTERVAL_SECONDS}
       WORKER_OCR_TIMEOUT_SECONDS: ${WORKER_OCR_TIMEOUT_SECONDS}
