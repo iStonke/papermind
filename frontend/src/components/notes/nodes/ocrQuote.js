@@ -18,6 +18,11 @@ export const OcrQuote = Node.create({
     return {
       text: { default: '' },
       ownNote: { default: '', parseHTML: element => element.getAttribute('data-own-note') || '', renderHTML: attrs => attrs.ownNote ? { 'data-own-note': attrs.ownNote } : {} },
+      ownNoteExpanded: {
+        default: false,
+        parseHTML: element => element.getAttribute('data-own-note-expanded') === 'true',
+        renderHTML: attrs => attrs.ownNoteExpanded ? { 'data-own-note-expanded': 'true' } : {},
+      },
       docId: { default: null },
       docTitle: { default: '' },
       page: { default: null },

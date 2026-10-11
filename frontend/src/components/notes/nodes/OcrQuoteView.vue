@@ -85,7 +85,10 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3';
 
 const props = defineProps(nodeViewProps);
-const noteExpanded = ref(false);
+const noteExpanded = ref(Boolean(props.node.attrs.ownNoteExpanded));
+watch(() => props.node.attrs.ownNoteExpanded, expanded => {
+  noteExpanded.value = Boolean(expanded);
+});
 const ownNoteInput = ref(null);
 const noteAnimations = new WeakMap();
 function animateOwnNote(element, opening, done) {
@@ -137,6 +140,7 @@ watch(ownNoteInput, (input, previous, onCleanup) => {
 watch(() => props.node.attrs.ownNote, () => resizeOwnNote(), { flush: 'post' });
 async function toggleOwnNote() {
   noteExpanded.value = !noteExpanded.value;
+  if (props.editor.isEditable) props.updateAttributes({ ownNoteExpanded: noteExpanded.value });
   if (noteExpanded.value) {
     await nextTick();
     ownNoteInput.value?.focus({ preventScroll: true });
