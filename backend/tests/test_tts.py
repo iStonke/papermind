@@ -9,6 +9,18 @@ import numpy as np
 from app.core.errors import APIError
 from app.routers import tts as tts_router
 from app.schemas.tts import SpeechRequest
+from app.schemas.speech_options import SpeechOptions
+
+
+def _test_wav():
+    out = io.BytesIO()
+    with wave.open(out, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(22050)
+        wav.writeframes(bytes([1, 0]) * 2205)
+    return out.getvalue()
+
 from app.services.tts import PiperTTSService, TTSUnavailableError, _speech_units, prepare_speech_text, segment_speech_text, split_speech_text
 
 
@@ -195,25 +207,26 @@ class TTSEndpointTest(unittest.TestCase):
     def test_endpoint_returns_inline_audio(self) -> None:
         with (
             patch.object(tts_router.tts_service, "synthesize_wav", return_value=b"part"),
-            patch.object(tts_router, "merge_speech_audio", return_value=b"RIFFtest"),
+            patch.object(tts_router, "merge_speech_audio", return_value=_test_wav()),
         ):
             response = tts_router.synthesize_speech(SpeechRequest(text="  Hallo   Welt  "), MagicMock())
 
         self.assertEqual(response.media_type, "audio/wav")
-        self.assertEqual(response.body, b"RIFFtest")
+        self.assertEqual(response.body, _test_wav())
+        self.assertEqual(response.headers["x-speech-duration"], "0.100")
         self.assertEqual(response.headers["cache-control"], "no-store")
 
     def test_endpoint_forwards_voice_preset(self) -> None:
         with (
             patch.object(tts_router.tts_service, "synthesize_wav", return_value=b"part") as synthesize,
-            patch.object(tts_router, "merge_speech_audio", return_value=b"RIFF"),
+            patch.object(tts_router, "merge_speech_audio", return_value=_test_wav()),
         ):
             tts_router.synthesize_speech(
                 SpeechRequest(text="Hallo", voice="whisper"),
                 MagicMock(),
             )
 
-        synthesize.assert_called_once_with("Hallo", voice="whisper", language="de")
+        synthesize.assert_called_once_with("Hallo", voice="whisper", language="de", options=SpeechOptions())
 
     def test_endpoint_uses_automatic_language_segments(self) -> None:
         text = (
@@ -222,7 +235,7 @@ class TTSEndpointTest(unittest.TestCase):
         )
         with (
             patch.object(tts_router.tts_service, "synthesize_wav", return_value=b"part") as synthesize,
-            patch.object(tts_router, "merge_speech_audio", return_value=b"RIFF"),
+            patch.object(tts_router, "merge_speech_audio", return_value=_test_wav()),
         ):
             tts_router.synthesize_speech(SpeechRequest(text=text, language_mode="auto"), MagicMock())
 

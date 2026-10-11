@@ -280,6 +280,8 @@
       :note-title="title"
       :body-text="audioExportBodyText"
       :default-voice="notesTtsVoice"
+      :default-language-mode="notesTtsLanguageMode"
+      :speech-options="notesTtsOptions"
       :max-characters="NOTE_AUDIO_MAX_CHARS"
       @submit="exportNoteAsAudio"
     />
@@ -468,6 +470,7 @@
           :spellcheck-enabled="notesSpellcheckEnabled"
           :tts-voice="notesTtsVoice"
           :tts-language-mode="notesTtsLanguageMode"
+          :tts-options="notesTtsOptions"
           :text-replacements="notesTextReplacements"
           :readonly="status === 'conflict'"
           :ai-available="aiAvailable"
@@ -708,6 +711,7 @@
 </template>
 
 <script setup>
+import { normalizeSpeechOptions } from '../../utils/speechSettings.js';
 import { wordCountLabel } from '../../utils/noteWordCount.js';
 import NoteStatsPopover from './NoteStatsPopover.vue';
 import { downloadNotePdf } from '../../utils/notePdfDownload.js';
@@ -950,6 +954,7 @@ const notesBlockSpacing = noteSetting('notes_block_spacing', ['compact', 'comfor
 const notesSpellcheckEnabled = computed(
   () => settingsStore.settingsDraft?.ui?.notes_spellcheck_enabled !== false
 );
+const notesTtsOptions = computed(() => normalizeSpeechOptions(settingsStore.settingsDraft?.ui?.notes_tts_options));
 const notesTtsVoice = noteSetting(
   'notes_tts_voice',
   ['standard', 'neutral', 'amused', 'sleepy', 'whisper'],
@@ -2323,7 +2328,8 @@ async function exportNoteAsAudio(options) {
       text: speechText,
       title: String(options?.title || title.value || '').trim(),
       voice: options?.voice || notesTtsVoice.value,
-      language_mode: options?.languageMode || 'auto',
+      language_mode: options?.languageMode || notesTtsLanguageMode.value,
+      options: options?.speechOptions || notesTtsOptions.value,
     });
     audioExportDialogOpen.value = false;
     window.dispatchEvent(new CustomEvent('papermind:activity-refresh'));

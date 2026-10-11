@@ -22,7 +22,7 @@ test('surface settings do not contain the separate controls area', () => {
   assert.doesNotMatch(navigation, /label: 'Bedienung'/);
 });
 
-test('notes has a dedicated top-level settings group', () => {
+test('notes has a dedicated top-level settings group', async () => {
   assert.match(navigation, /value: 'notes_general', label: 'Allgemein'[^\n]+group: 'notes'/);
   assert.match(navigation, /value: 'notes_text', label: 'Textdarstellung'[^\n]+group: 'notes'/);
   assert.match(navigation, /value: 'notes_spacing', label: 'Abstände'[^\n]+group: 'notes'/);
@@ -57,8 +57,11 @@ test('notes has a dedicated top-level settings group', () => {
   assert.match(source, /value: 'source-serif', label: 'Source Serif 4'/);
   assert.match(source, /notes_spellcheck_enabled/);
   assert.match(source, /notes_tts_language_mode/);
-  assert.match(source, /label="Sprachmodus"/);
-  assert.match(source, /label: 'Automatisch'/);
+  assert.match(navigation, /value: 'notes_speech', label: 'Sprachausgabe'/);
+  assert.match(source, /<NoteSpeechSettings/);
+  const speechPanel = await readFile(new URL('../src/components/notes/NoteSpeechSettings.vue', import.meta.url), 'utf8');
+  assert.match(speechPanel, /label="Sprachmodus"/);
+  assert.doesNotMatch(source.slice(source.indexOf("activeCategory === 'notes_general'"), source.indexOf('<NoteSpeechSettings')), /Vorlesestimme/);
   assert.doesNotMatch(source, /Notiz-Einstellungen werden vorbereitet/);
 
   const textSettings = source.slice(

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import BadRequestError, ForbiddenError
 from app.models.global_setting import GlobalSetting
 from app.models.user_setting import UserSetting
+from app.schemas.speech_options import SpeechOptions
 from app.schemas.settings import (
     ANSWER_PROMPT_TEMPLATE_DEFAULT,
     AppSettingsPatch,
@@ -59,6 +60,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "notes_spellcheck_enabled": True,
         "notes_tts_language_mode": "auto",
         "notes_tts_voice": "standard",
+        "notes_tts_options": SpeechOptions().model_dump(),
         "notes_text_replacements": [],
     },
     "documents": {

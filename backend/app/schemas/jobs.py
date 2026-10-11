@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.common import ORMModel
+from app.schemas.speech_options import SpeechOptions
 
 
 class JobType(str, Enum):
@@ -102,6 +103,7 @@ class NoteAudioExportCreateRequest(BaseModel):
     title: str = Field(default="", max_length=500)
     voice: NoteAudioVoice = "standard"
     language_mode: NoteAudioLanguageMode = "auto"
+    options: SpeechOptions = Field(default_factory=SpeechOptions)
 
     @field_validator("text")
     @classmethod

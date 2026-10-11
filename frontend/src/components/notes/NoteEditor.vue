@@ -327,6 +327,7 @@ import {
 } from '../../utils/noteSlashUsage.js';
 import { uploadNoteImage } from '../../api/notes.js';
 import { listMarkers } from '../../api/learn.js';
+import { normalizeSpeechOptions } from '../../utils/speechSettings.js';
 import { synthesizeSpeech } from '../../api/tts.js';
 import { primeSpeechAudio } from '../../utils/ttsAudio.js';
 import { NOTE_HIGHLIGHT_COLORS } from '../../utils/noteHighlights.js';
@@ -369,6 +370,7 @@ const props = defineProps({
   ttsVoice: { type: String, default: 'standard' },
   /** Automatische, deutsche oder englische Aussprache für markierten Text. */
   ttsLanguageMode: { type: String, default: 'auto' },
+  ttsOptions: { type: Object, default: () => ({}) },
   /** Persoenliche, exakt passende Kuerzel fuer Enter-Textersetzungen. */
   textReplacements: { type: Array, default: () => [] },
   /** Inhalt anzeigen und auswählen, aber nicht verändern. */
@@ -1557,7 +1559,7 @@ function stopSpeech({ preserveError = false } = {}) {
   if (!preserveError) speech.error = '';
 }
 
-watch([speechVoice, speechLanguageMode, () => props.noteId], () => stopSpeech());
+watch([speechVoice, speechLanguageMode, () => JSON.stringify(props.ttsOptions), () => props.noteId], () => stopSpeech());
 
 function stopSpeechWhenSelectionChanges(ed) {
   if (speech.status === 'idle' || speech.status === 'error') return;
@@ -1606,6 +1608,7 @@ async function toggleSelectedSpeech(ed) {
     const primed = primeSpeechAudio(audio);
     const [audioBlob] = await Promise.all([
       synthesizeSpeech(text, {
+        options: normalizeSpeechOptions(props.ttsOptions),
         signal: requestController.signal,
         voice: speechVoice.value,
         languageMode: speechLanguageMode.value,

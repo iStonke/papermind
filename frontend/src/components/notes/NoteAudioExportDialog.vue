@@ -2,7 +2,7 @@
   <BaseDialog
     :model-value="modelValue"
     title="Notiz als Audio exportieren"
-    header-subtitle="Lokale Sprachausgabe mit Piper"
+    header-subtitle="Deine Einstellungen für Sprachausgabe"
     icon="mdi-file-music-outline"
     primary-text="Im Hintergrund erstellen"
     secondary-text="Abbrechen"
@@ -17,38 +17,9 @@
       Die Audiodatei wird lokal erzeugt. Im automatischen Modus wechseln deutsche und englische Abschnitte selbstständig die Stimme.
     </div>
 
-    <v-select
-      v-model="languageMode"
-      :items="languageModeOptions"
-      item-title="label"
-      item-value="value"
-      label="Sprachmodus"
-      variant="outlined"
-      density="comfortable"
-      hide-details
-      class="note-audio-export-dialog__language"
-    >
-      <template #item="{ props: itemProps, item }">
-        <v-list-item v-bind="itemProps" :subtitle="item.raw.description" />
-      </template>
-    </v-select>
-
-    <v-select
-      v-if="languageMode !== 'en'"
-      v-model="voice"
-      :items="voiceOptions"
-      item-title="label"
-      item-value="value"
-      label="Deutsche Stimme"
-      variant="outlined"
-      density="comfortable"
-      hide-details
-      class="note-audio-export-dialog__voice"
-    >
-      <template #item="{ props: itemProps, item }">
-        <v-list-item v-bind="itemProps" :subtitle="item.raw.description" />
-      </template>
-    </v-select>
+    <p class="note-audio-export-dialog__intro">
+      {{ speechSummary }}. Stimme, Sprache, Tempo und Aussprache verwaltest du unter Einstellungen → Notizen → Sprachausgabe.
+    </p>
 
     <div class="note-audio-export-dialog__option">
       <div>
@@ -103,6 +74,7 @@
 </template>
 
 <script setup>
+import { normalizeSpeechOptions, SPEECH_ENGINE_NAMES, SPEECH_LANGUAGES, SPEECH_VOICES } from '../../utils/speechSettings.js';
 import { computed, ref, watch } from 'vue';
 import BaseDialog from '../BaseDialog.vue';
 import { SPEAKING_WPM } from '../../utils/noteStats.js';
@@ -113,40 +85,33 @@ const props = defineProps({
   noteTitle: { type: String, default: '' },
   bodyText: { type: String, default: '' },
   defaultVoice: { type: String, default: 'standard' },
+  defaultLanguageMode: { type: String, default: 'auto' },
+  speechOptions: { type: Object, default: () => ({}) },
   maxCharacters: { type: Number, default: 60000 },
 });
 
 const emit = defineEmits(['update:modelValue', 'submit']);
 
-const languageModeOptions = [
-  { value: 'auto', label: 'Automatisch', description: 'Deutsch und Englisch abschnittsweise erkennen' },
-  { value: 'de', label: 'Nur Deutsch', description: 'Gesamten Text mit Thorsten sprechen' },
-  { value: 'en', label: 'Nur Englisch', description: 'Gesamten Text mit Ryan High sprechen' },
-];
-
-const voiceOptions = [
-  { value: 'standard', label: 'Klar – Thorsten High', description: 'Deutlich und ausgewogen' },
-  { value: 'neutral', label: 'Sanft – Thorsten Emotional', description: 'Ruhiger, neutraler Ausdruck' },
-  { value: 'amused', label: 'Heiter – Thorsten Emotional', description: 'Lebendiger, freundlicher Ausdruck' },
-  { value: 'sleepy', label: 'Ruhig – Thorsten Emotional', description: 'Langsamer, entspannter Ausdruck' },
-  { value: 'whisper', label: 'Flüstern – Thorsten Emotional', description: 'Leise, geflüsterte Wiedergabe' },
-];
-const allowedVoices = new Set(voiceOptions.map((option) => option.value));
-
-const voice = ref('standard');
-const languageMode = ref('auto');
+const speechOptions = computed(() => normalizeSpeechOptions(props.speechOptions));
+const speechSummary = computed(() => {
+  const language = SPEECH_LANGUAGES.find((item) => item.value === props.defaultLanguageMode)?.label || 'Automatisch';
+  const voice = SPEECH_VOICES.find((item) => item.value === props.defaultVoice)?.label || 'Klar';
+  return [SPEECH_ENGINE_NAMES[speechOptions.value.engine],
+    speechOptions.value.engine === 'piper' && props.defaultLanguageMode !== 'en' ? voice : '',
+    language, speechOptions.value.speed.toLocaleString('de-DE') + '× Tempo'].filter(Boolean).join(' · ');
+});
 const includeTitle = ref(true);
 const normalizedTitle = computed(() => String(props.noteTitle || '').trim());
 const normalizedBody = computed(() => String(props.bodyText || '').trim());
 const exportText = computed(() => [includeTitle.value ? normalizedTitle.value : '', normalizedBody.value]
   .filter(Boolean)
-  .join('.\n'));
+  .join('\n\n'));
 const canSubmit = computed(() => exportText.value.length > 0 && exportText.value.length <= props.maxCharacters);
 const characterLabel = computed(() => `${exportText.value.length.toLocaleString('de-DE')} Zeichen`);
 const wordCount = computed(() => exportText.value ? exportText.value.split(/\s+/).filter(Boolean).length : 0);
 const durationLabel = computed(() => {
   if (!wordCount.value) return 'Keine Laufzeit';
-  const minutes = Math.max(1, Math.ceil(wordCount.value / SPEAKING_WPM));
+  const minutes = Math.max(1, Math.ceil(wordCount.value / (SPEAKING_WPM * speechOptions.value.speed)));
   return `ca. ${minutes} ${minutes === 1 ? 'Minute' : 'Minuten'}`;
 });
 
@@ -154,8 +119,6 @@ watch(
   () => props.modelValue,
   (open) => {
     if (!open) return;
-    voice.value = allowedVoices.has(props.defaultVoice) ? props.defaultVoice : 'standard';
-    languageMode.value = 'auto';
     includeTitle.value = Boolean(normalizedTitle.value);
   },
 );
@@ -165,8 +128,9 @@ function submit() {
   emit('submit', {
     text: exportText.value,
     title: normalizedTitle.value,
-    voice: voice.value,
-    languageMode: languageMode.value,
+    voice: props.defaultVoice,
+    languageMode: props.defaultLanguageMode,
+    speechOptions: speechOptions.value,
     includeTitle: includeTitle.value,
   });
 }

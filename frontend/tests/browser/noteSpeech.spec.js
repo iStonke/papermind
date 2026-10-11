@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { defaultSpeechOptions } from '../../src/utils/speechSettings.js';
 import { readFileSync } from 'node:fs';
 
 const productionCsp = readFileSync(new URL('../../nginx.conf', import.meta.url), 'utf8')
@@ -63,7 +64,7 @@ test('primes the same audio element during the click and preserves pause/resume'
   await page.getByRole('button', { name: 'Vorlesen pausieren', exact: true }).click();
   await page.getByRole('button', { name: 'Vorlesen fortsetzen', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Vorlesen pausieren', exact: true })).toBeVisible();
-  expect(requests).toEqual([{ text: 'Dieser Text wird vorgelesen.', voice: 'standard', language_mode: 'auto' }]);
+  expect(requests).toEqual([{ text: 'Dieser Text wird vorgelesen.', voice: 'standard', language_mode: 'auto', options: defaultSpeechOptions() }]);
   await page.evaluate(() => window.unmountSpeechEditor());
   expect(await page.evaluate(() => window.speechRevokedUrls.length)).toBe(1);
 });

@@ -1,0 +1,45 @@
+# Optional local speech engines. Combine with docker-compose.yml or
+# docker-compose.prod.yml; no engine is started by a normal PaperMind update.
+services:
+  backend:
+    environment:
+      TTS_KOKORO_URL: ${TTS_KOKORO_URL:-http://tts-kokoro:8000}
+      TTS_COSYVOICE_URL: ${TTS_COSYVOICE_URL:-http://tts-cosyvoice:8000}
+      TTS_EXTERNAL_TIMEOUT_SECONDS: ${TTS_EXTERNAL_TIMEOUT_SECONDS:-300}
+  worker:
+    environment:
+      TTS_KOKORO_URL: ${TTS_KOKORO_URL:-http://tts-kokoro:8000}
+      TTS_COSYVOICE_URL: ${TTS_COSYVOICE_URL:-http://tts-cosyvoice:8000}
+      TTS_EXTERNAL_TIMEOUT_SECONDS: ${TTS_EXTERNAL_TIMEOUT_SECONDS:-300}
+  tts-kokoro:
+    image: thorstenvoice/kokoro-tts@sha256:816385badc6158617875f8af137837ab9ed0f67957a2fb9c1ea28476a5169d4b
+    profiles: [speech-kokoro]
+    restart: unless-stopped
+    init: true
+    environment:
+      KOKORO_EPOCH: "5"
+      OMP_NUM_THREADS: "2"
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    mem_limit: 2g
+    cpus: 2
+    ports: ["127.0.0.1:8055:8000"]
+    volumes: [kokoro_cache:/data/hf-cache]
+    networks: [papermind_net]
+
+  tts-cosyvoice:
+    image: thorstenvoice/cosyvoice-tts:cosyvoice3
+    profiles: [speech-cosyvoice]
+    restart: unless-stopped
+    init: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    mem_limit: 4g
+    cpus: 2
+    ports: ["127.0.0.1:8056:8000"]
+    volumes: [cosyvoice_models:/app/CosyVoice/pretrained_models]
+    networks: [papermind_net]
+
+volumes:
+  kokoro_cache:
+  cosyvoice_models:

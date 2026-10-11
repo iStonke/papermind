@@ -1,6 +1,8 @@
 import re
 from typing import Literal
 
+from app.schemas.speech_options import SpeechOptions
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -10,6 +12,7 @@ class SpeechRequest(BaseModel):
     # Das konfigurierbare Betriebs-Limit wird im Router geprüft. Die obere
     # Schema-Grenze verhindert unabhängig davon übergroße Request-Bodies.
     text: str = Field(min_length=1, max_length=20000)
+    options: SpeechOptions = Field(default_factory=SpeechOptions)
     voice: Literal["standard", "neutral", "amused", "sleepy", "whisper"] = "standard"
     language_mode: Literal["auto", "de", "en"] = "auto"
 

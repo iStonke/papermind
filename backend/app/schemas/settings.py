@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.schemas.speech_options import SpeechOptions
+
 from app.schemas.retention import RetentionPaperOriginal
 
 SYSTEM_PROMPT_DEFAULT = """
@@ -384,6 +386,7 @@ class UISettingsRead(BaseModel):
     notes_block_spacing: NotesSpacing = NotesSpacing.comfortable
     notes_spellcheck_enabled: bool = True
     notes_tts_language_mode: NotesTTSLanguageMode = NotesTTSLanguageMode.auto
+    notes_tts_options: SpeechOptions = Field(default_factory=SpeechOptions)
     notes_tts_voice: NotesTTSVoice = NotesTTSVoice.standard
     notes_text_replacements: list[NoteTextReplacement] = Field(default_factory=list, max_length=100)
 
@@ -604,6 +607,7 @@ class UISettingsPatch(BaseModel):
     notes_block_spacing: NotesSpacing | None = None
     notes_spellcheck_enabled: bool | None = None
     notes_tts_language_mode: NotesTTSLanguageMode | None = None
+    notes_tts_options: SpeechOptions | None = None
     notes_tts_voice: NotesTTSVoice | None = None
     notes_text_replacements: list[NoteTextReplacement] | None = Field(default=None, max_length=100)
 

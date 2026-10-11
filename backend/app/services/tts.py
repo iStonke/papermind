@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from app.core.config import get_settings
+from app.schemas.speech_options import SpeechOptions
+from app.services.speech_text import apply_pronunciations, normalize_german_numbers
 
 logger = logging.getLogger("papermind.tts")
 
@@ -132,8 +134,12 @@ def _spoken_abbreviation(match: re.Match[str], replacement: str) -> str:
     return spoken
 
 
-def prepare_speech_text(text: str, *, language: str = "de") -> str:
+def prepare_speech_text(text: str, *, language: str = "de", options: SpeechOptions | None = None) -> str:
     """Expand spoken abbreviations without changing the stored note."""
+    if options is not None:
+        text = apply_pronunciations(text, options.pronunciations)
+        if language == "de" and options.normalize_numbers:
+            text = normalize_german_numbers(text)
     paragraphs = _speech_paragraphs(text)
     if language == "de":
         for pattern, replacement in _GERMAN_ABBREVIATIONS:
@@ -254,12 +260,13 @@ def merge_wav_bytes(parts: list[bytes], *, pause_seconds: float = 0.0, pauses: l
     return output.getvalue()
 
 
-def merge_speech_audio(parts: list[bytes], segments: list[SpeechSegment]) -> bytes:
+def merge_speech_audio(parts: list[bytes], segments: list[SpeechSegment], options: SpeechOptions | None = None) -> bytes:
     """Retain paragraph pauses across language and inference-size boundaries."""
     if len(parts) != len(segments):
         raise ValueError("Audio parts must match the speech segments")
+    config = options or SpeechOptions()
     pauses = [
-        PiperTTSService.PARAGRAPH_PAUSE_SECONDS if segment.paragraph_break else PiperTTSService.SENTENCE_PAUSE_SECONDS
+        config.paragraph_pause if segment.paragraph_break else config.sentence_pause
         for segment in segments[1:]
     ]
     return merge_wav_bytes(parts, pauses=pauses)
@@ -335,7 +342,7 @@ class PiperTTSService:
                 raise TTSUnavailableError("Piper voice model could not be loaded") from exc
         return self._voices[model]
 
-    def synthesize_wav(self, text: str, *, voice: str = "standard", language: str = "de") -> bytes:
+    def synthesize_wav(self, text: str, *, voice: str = "standard", language: str = "de", options: SpeechOptions | None = None) -> bytes:
         model = "english" if language == "en" else ("standard" if voice == "standard" else "emotional")
         piper_voice = self._get_voice(model)
         output = io.BytesIO()
@@ -343,10 +350,12 @@ class PiperTTSService:
             import numpy as np
             from piper import SynthesisConfig
 
-            # Keep the voice's trained speed/intonation. Normalize the complete
+            # Preserve trained intonation while applying the chosen tempo. Normalize the complete
             # passage once, so quiet sentences are not amplified independently.
+            speech_options = options or SpeechOptions()
             config = SynthesisConfig(
                 speaker_id=self.EMOTIONAL_SPEAKERS[voice] if model == "emotional" else None,
+                length_scale=1.0 / speech_options.speed,
                 normalize_audio=False,
             )
             # Piper/espeak and the Pi CPU are most predictable with one inference
@@ -355,7 +364,7 @@ class PiperTTSService:
                 audio_parts = []
                 sample_rate = None
                 last_paragraph = None
-                for index, paragraph in enumerate(_speech_paragraphs(prepare_speech_text(text, language=language))):
+                for index, paragraph in enumerate(_speech_paragraphs(prepare_speech_text(text, language=language, options=options))):
                     for chunk in piper_voice.synthesize(paragraph, syn_config=config):
                         if chunk.sample_width != 2 or chunk.sample_channels != 1:
                             raise ValueError("Unexpected Piper audio format")
@@ -366,7 +375,7 @@ class PiperTTSService:
                         if samples.size == 0:
                             continue
                         if audio_parts:
-                            pause = self.SENTENCE_PAUSE_SECONDS if last_paragraph == index else self.PARAGRAPH_PAUSE_SECONDS
+                            pause = speech_options.sentence_pause if last_paragraph == index else speech_options.paragraph_pause
                             audio_parts.append(np.zeros(round(sample_rate * pause), dtype=np.float32))
                         audio_parts.append(samples)
                         last_paragraph = index

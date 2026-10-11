@@ -50,7 +50,9 @@ from app.services.ocr_pipeline import run_ocr_pipeline
 from app.services.settings import SettingsService
 from app.services.maintenance import write_activity
 from app.services.note_audio_jobs import note_audio_jobs
-from app.services.tts import merge_speech_audio, segment_speech_text, tts_service
+from app.services.tts import merge_speech_audio, segment_speech_text
+from app.services.speech_engines import speech_service as tts_service
+from app.schemas.speech_options import SpeechOptions
 from app.worker.document_dispatch import DocumentJobDispatcher
 from app.worker.ocr_isolation import OCRAborted, OCRDeadlineExceeded, run_isolated
 from app.services.tag_suggestions import (
@@ -2073,6 +2075,7 @@ def _process_note_audio_job(job: dict) -> None:
     output_path = note_audio_jobs.output_path(job_id)
     incoming_path = output_path.with_suffix(".wav.incoming")
     try:
+        speech_options = SpeechOptions.model_validate(job.get("speech_options") or {})
         segments = segment_speech_text(
             str(job.get("text") or ""),
             mode=str(job.get("language_mode") or "auto"),
@@ -2095,13 +2098,14 @@ def _process_note_audio_job(job: dict) -> None:
                     segment.text,
                     voice=str(job.get("voice") or "standard"),
                     language=segment.language,
+                    options=speech_options,
                 )
             )
         if note_audio_jobs.is_cancel_requested(job_id):
             note_audio_jobs.finish_cancel(job_id)
             return
         note_audio_jobs.update(job_id, progress=94, phase="Audiodatei wird zusammengesetzt")
-        incoming_path.write_bytes(merge_speech_audio(audio_parts, segments))
+        incoming_path.write_bytes(merge_speech_audio(audio_parts, segments, options=speech_options))
         if not note_audio_jobs.complete(job_id, incoming_path):
             incoming_path.unlink(missing_ok=True)
             note_audio_jobs.finish_cancel(job_id)

@@ -11,3 +11,4 @@ pillow-heif==0.21.0
 smbprotocol==1.15.0
 cryptography==45.0.6
 piper-tts==1.6.0
+num2words==0.5.14

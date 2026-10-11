@@ -91,6 +91,7 @@ class NoteAudioJobStore:
         text: str,
         voice: str,
         language_mode: str = "auto",
+        speech_options: dict | None = None,
     ) -> dict:
         now = _iso()
         with self._lock():
@@ -110,6 +111,7 @@ class NoteAudioJobStore:
                 "text": text,
                 "voice": voice,
                 "language_mode": language_mode,
+                "speech_options": dict(speech_options or {}),
                 "status": "queued",
                 "progress": 0,
                 "phase": "Wartet auf Verarbeitung",

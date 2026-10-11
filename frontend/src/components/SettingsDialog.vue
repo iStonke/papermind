@@ -848,44 +848,14 @@
               />
             </div>
 
-            <div class="pm-setting-row pm-setting-row--column">
-              <div class="pm-setting-content">
-                <div class="pm-setting-label">Vorlesestimme</div>
-                <div class="pm-setting-description">
-                  Stimme für markierten Notiztext. Die Sprachausgabe läuft vollständig lokal über Piper.
-                </div>
-              </div>
-              <v-select
-                :model-value="settingsDraft.ui.notes_tts_language_mode"
-                :items="notesTtsLanguageModeOptions"
-                item-title="label"
-                item-value="value"
-                density="comfortable"
-                hide-details
-                variant="outlined"
-                class="settings-theme-select pm-setting-select"
-                label="Sprachmodus"
-                :loading="isSettingSaving.notes_tts_language_mode"
-                :disabled="isSettingSaving.notes_tts_language_mode"
-                @update:model-value="onNotesTtsLanguageModeChange"
-              />
-              <v-select
-                v-if="settingsDraft.ui.notes_tts_language_mode !== 'en'"
-                :model-value="settingsDraft.ui.notes_tts_voice"
-                :items="notesTtsVoiceOptions"
-                item-title="label"
-                item-value="value"
-                density="comfortable"
-                hide-details
-                variant="outlined"
-                class="settings-theme-select pm-setting-select"
-                label="Deutsche Stimme"
-                :loading="isSettingSaving.notes_tts_voice"
-                :disabled="isSettingSaving.notes_tts_voice"
-                @update:model-value="onNotesTtsVoiceChange"
-              />
-            </div>
             </template>
+
+            <NoteSpeechSettings
+              v-if="activeCategory === 'notes_speech'"
+              :ui="settingsDraft.ui"
+              :saving="isSettingSaving"
+              @change="onNotesSpeechChange"
+            />
 
             <template v-if="activeCategory === 'notes_text'">
             <div class="pm-setting-row pm-setting-row--column">
@@ -3035,6 +3005,7 @@ import DestructiveDialog from './DestructiveDialog.vue';
 import SettingsInfoCard from './SettingsInfoCard.vue';
 // Nur in den Admin-Tabs „Dienste"/„System" sichtbar → als eigene Chunks lazy
 // geladen, damit sie den Haupt-Chunk des Dialogs nicht aufblähen.
+const NoteSpeechSettings = defineAsyncComponent(() => import('./notes/NoteSpeechSettings.vue'));
 const ScannerSettingsPanel = defineAsyncComponent(() => import('./ScannerSettingsPanel.vue'));
 const ServiceStatusPanel = defineAsyncComponent(() => import('./ServiceStatusPanel.vue'));
 const SystemStatusPanel = defineAsyncComponent(() => import('./SystemStatusPanel.vue'));
@@ -3242,6 +3213,7 @@ const settingsCategories = [
   { value: 'notes_general', label: 'Allgemein', icon: 'mdi-tune-variant', group: 'notes' },
   { value: 'notes_text', label: 'Textdarstellung', icon: 'mdi-format-font', group: 'notes' },
   { value: 'notes_spacing', label: 'Abstände', icon: 'mdi-format-line-spacing', group: 'notes' },
+  { value: 'notes_speech', label: 'Sprachausgabe', icon: 'mdi-volume-high', group: 'notes' },
   { value: 'notes_replacements', label: 'Textersetzung', icon: 'mdi-text-box-outline', group: 'notes' },
   { value: 'import', label: 'Importieren', icon: 'mdi-tray-arrow-up', group: 'import', adminOnly: true },
   { value: 'scanner', label: 'Scanner', icon: 'mdi-scanner', group: 'import', adminOnly: true },
@@ -3294,6 +3266,11 @@ const notesSettingsMeta = {
     icon: 'mdi-format-line-spacing',
     title: 'Abstände und Gliederung',
     subtitle: 'Abstände zwischen Absätzen, Überschriften und Inhaltsblöcken festlegen.'
+  },
+  notes_speech: {
+    icon: 'mdi-volume-high',
+    title: 'Sprachausgabe',
+    subtitle: 'Stimmen, Sprechrhythmus und Aussprache für Vorlesen und Audioexport.'
   },
   notes_replacements: {
     icon: 'mdi-text-box-outline',
@@ -4032,19 +4009,6 @@ const notesSpacingOptions = [
   { value: 'comfortable', label: 'Komfortabel' },
   { value: 'spacious', label: 'Großzügig' },
 ];
-const notesTtsVoiceOptions = [
-  { value: 'standard', label: 'Klar – Thorsten High' },
-  { value: 'neutral', label: 'Sanft – Thorsten Emotional' },
-  { value: 'amused', label: 'Heiter – Thorsten Emotional' },
-  { value: 'sleepy', label: 'Ruhig – Thorsten Emotional' },
-  { value: 'whisper', label: 'Flüstern – Thorsten Emotional' },
-];
-const notesTtsLanguageModeOptions = [
-  { value: 'auto', label: 'Automatisch' },
-  { value: 'de', label: 'Nur Deutsch' },
-  { value: 'en', label: 'Nur Englisch' },
-];
-
 const NOTES_DEFAULT_VIEW_VALUES = new Set(notesDefaultViewOptions.map((option) => option.value));
 const NOTES_SORT_ORDER_VALUES = new Set(notesSortOrderOptions.map((option) => option.value));
 const NOTES_THOUGHT_CAPTURE_TARGET_VALUES = new Set(notesThoughtCaptureTargetOptions.map((option) => option.value));
@@ -4053,8 +4017,6 @@ const NOTES_PARAGRAPH_SPACING_VALUES = new Set(notesParagraphSpacingOptions.map(
 const NOTES_FONT_FAMILY_VALUES = new Set(notesFontFamilyOptions.map((option) => option.value));
 const NOTES_FONT_SIZE_VALUES = new Set(notesFontSizeOptions.map((option) => option.value));
 const NOTES_SPACING_VALUES = new Set(notesSpacingOptions.map((option) => option.value));
-const NOTES_TTS_VOICE_VALUES = new Set(notesTtsVoiceOptions.map((option) => option.value));
-const NOTES_TTS_LANGUAGE_MODE_VALUES = new Set(notesTtsLanguageModeOptions.map((option) => option.value));
 
 const textReplacementRows = ref([]);
 const textReplacementsDirty = ref(false);
@@ -4212,12 +4174,16 @@ function onNotesBlockSpacingChange(nextValue) {
   return onNotesPreferenceChange('notes_block_spacing', nextValue, NOTES_SPACING_VALUES, 'comfortable');
 }
 
-function onNotesTtsVoiceChange(nextValue) {
-  return onNotesPreferenceChange('notes_tts_voice', nextValue, NOTES_TTS_VOICE_VALUES, 'standard');
-}
-
-function onNotesTtsLanguageModeChange(nextValue) {
-  return onNotesPreferenceChange('notes_tts_language_mode', nextValue, NOTES_TTS_LANGUAGE_MODE_VALUES, 'auto');
+async function onNotesSpeechChange({ key, value }) {
+  if (!['notes_tts_options', 'notes_tts_voice', 'notes_tts_language_mode'].includes(key) || isSettingSaving[key]) return;
+  const previous = JSON.parse(JSON.stringify(settingsDraft.ui[key]));
+  if (JSON.stringify(previous) === JSON.stringify(value)) return;
+  settingsStore.setDraftPatch({ ui: { [key]: value } });
+  await patchSettingsWithRevert({
+    patch: buildNotesPreferencesPatch({ [key]: value }),
+    controlKey: key,
+    revert: () => settingsStore.setDraftPatch({ ui: { [key]: previous } }),
+  });
 }
 
 async function onNotesSpellcheckChange(nextValue) {

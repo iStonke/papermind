@@ -1,4 +1,4 @@
-import { authHeaders, getBaseUrl } from './client.js';
+import { apiGet, authHeaders, getBaseUrl } from './client.js';
 
 const DEFAULT_ERROR = 'Der markierte Text konnte nicht vorgelesen werden.';
 
@@ -11,8 +11,10 @@ async function speechError(response) {
   }
 }
 
-/** Erzeugt die WAV-Datei lokal im PaperMind-Backend (Piper, keine Cloud). */
-export async function synthesizeSpeech(text, { signal, voice = 'standard', languageMode = 'auto' } = {}) {
+/** Erzeugt die WAV-Datei und Vergleichsmetriken lokal im PaperMind-Backend. */
+export const getSpeechEngines = () => apiGet('/api/tts/engines');
+
+export async function synthesizeSpeechWithMetrics(text, { signal, voice = 'standard', languageMode = 'auto', options } = {}) {
   const response = await fetch(`${getBaseUrl()}/api/tts/speech`, {
     method: 'POST',
     credentials: 'include',
@@ -21,11 +23,22 @@ export async function synthesizeSpeech(text, { signal, voice = 'standard', langu
       ...authHeaders(),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ text, voice, language_mode: languageMode }),
+    body: JSON.stringify({ text, voice, language_mode: languageMode, ...(options ? { options } : {}) }),
     signal,
   });
   if (!response.ok) throw await speechError(response);
   const contentType = String(response.headers.get('content-type') || '').toLowerCase();
   if (!contentType.includes('audio/wav')) throw new Error(DEFAULT_ERROR);
-  return response.blob();
+  const blob = await response.blob();
+  const metric = (header) => {
+    const raw = response.headers.get(header);
+    const value = Number(raw);
+    return raw && Number.isFinite(value) && value >= 0 ? value : null;
+  };
+  return { blob, duration: metric('x-speech-duration'), generationMs: metric('x-speech-generation-ms'), engine: response.headers.get('x-speech-engine') || null };
+}
+
+/** Gemeinsame lokale Einstellungen gelten auch beim markierten Vorlesen. */
+export async function synthesizeSpeech(text, options = {}) {
+  return (await synthesizeSpeechWithMetrics(text, options)).blob;
 }

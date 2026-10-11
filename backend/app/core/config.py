@@ -92,6 +92,9 @@ class Settings(BaseSettings):
     )
     tts_english_model_path: str = Field(default="/opt/piper-voices/en_US-ryan-high.onnx")
     tts_max_chars: int = Field(default=6000, ge=100, le=20000)
+    tts_kokoro_url: str = "http://tts-kokoro:8000"
+    tts_cosyvoice_url: str = "http://tts-cosyvoice:8000"
+    tts_external_timeout_seconds: float = Field(default=300.0, ge=5.0, le=900.0)
 
     # --- System-/Hardware-Status (Raspberry Pi) ---
     # Pfad, unter dem das Host-/sys gemountet ist (für Temperatur/Lüfter/Modell).

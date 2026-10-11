@@ -78,6 +78,7 @@ def create_note_audio_export(
         text=payload.text,
         voice=payload.voice,
         language_mode=payload.language_mode,
+        speech_options=payload.options.model_dump(),
     )
     if job.get("status") != "queued":
         raise ConflictError("Für diese Notiz läuft bereits ein Audioexport.")

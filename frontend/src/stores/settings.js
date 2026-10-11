@@ -1,3 +1,4 @@
+import { defaultSpeechOptions, normalizeSpeechOptions } from '../utils/speechSettings.js';
 import { defineStore } from 'pinia';
 import {
   ANSWER_PROMPT_TEMPLATE_DEFAULT,
@@ -160,6 +161,7 @@ function createDefaultSettings() {
       notes_spellcheck_enabled: true,
       notes_tts_language_mode: 'auto',
       notes_tts_voice: 'standard',
+      notes_tts_options: defaultSpeechOptions(),
       notes_text_replacements: []
     },
     documents: {
@@ -447,6 +449,7 @@ export const useSettingsStore = defineStore('settings', {
         notes_spellcheck_enabled: false,
         notes_tts_language_mode: false,
         notes_tts_voice: false,
+        notes_tts_options: false,
         notes_text_replacements: false,
         text_generation_prompt_suggestions: false,
         text_generation_system_prompt: false,
@@ -647,6 +650,7 @@ export const useSettingsStore = defineStore('settings', {
           notes_tts_language_mode: NOTES_TTS_LANGUAGE_MODE_VALUES.has(rawNotesTtsLanguageMode)
             ? rawNotesTtsLanguageMode
             : defaults.ui.notes_tts_language_mode,
+          notes_tts_options: normalizeSpeechOptions(payload?.ui?.notes_tts_options),
           notes_tts_voice: NOTES_TTS_VOICE_VALUES.has(rawNotesTtsVoice)
             ? rawNotesTtsVoice
             : defaults.ui.notes_tts_voice,
