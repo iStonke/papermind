@@ -38,7 +38,7 @@ router = APIRouter(prefix="/api/dossiers", tags=["Dossiers"])
 def list_dossiers(
     include_archived: bool = False,
     q: str | None = Query(default=None, max_length=512),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DossierListResponse:
     return DossierListResponse(
@@ -55,7 +55,7 @@ def list_dossiers(
 )
 def create_dossier(
     payload: DossierCreateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DossierRead:
     service = DossierService(db, user.id)
@@ -70,7 +70,7 @@ def create_dossier(
 )
 def get_dossier(
     dossier_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DossierRead:
     service = DossierService(db, user.id)
@@ -86,7 +86,7 @@ def get_dossier(
 def update_dossier(
     dossier_id: uuid.UUID,
     payload: DossierUpdateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DossierRead:
     service = DossierService(db, user.id)
@@ -101,7 +101,7 @@ def update_dossier(
 )
 def delete_dossier(
     dossier_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> OkResponse:
     DossierService(db, user.id).delete_dossier(dossier_id)
@@ -117,7 +117,7 @@ def delete_dossier(
 )
 def duplicate_dossier(
     dossier_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DossierRead:
     service = DossierService(db, user.id)
@@ -132,7 +132,7 @@ def duplicate_dossier(
 )
 def get_dossier_board(
     dossier_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DossierBoardResponse:
     dossier, groups, items = DossierService(db, user.id).board(dossier_id)
@@ -152,7 +152,7 @@ def get_dossier_board(
 def create_group(
     dossier_id: uuid.UUID,
     payload: DossierGroupCreateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DossierGroupRead:
     group = DossierService(db, user.id).create_group(dossier_id, payload)
@@ -168,7 +168,7 @@ def update_group(
     dossier_id: uuid.UUID,
     group_id: uuid.UUID,
     payload: DossierGroupUpdateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DossierGroupRead:
     group = DossierService(db, user.id).update_group(dossier_id, group_id, payload)
@@ -183,7 +183,7 @@ def update_group(
 def reorder_groups(
     dossier_id: uuid.UUID,
     payload: DossierGroupOrderRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> list[DossierGroupRead]:
     groups = DossierService(db, user.id).reorder_groups(dossier_id, payload.group_ids)
@@ -198,7 +198,7 @@ def reorder_groups(
 def delete_group(
     dossier_id: uuid.UUID,
     group_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> OkResponse:
     DossierService(db, user.id).delete_group(dossier_id, group_id)
@@ -214,7 +214,7 @@ def delete_group(
 def add_documents(
     dossier_id: uuid.UUID,
     payload: DossierDocumentsAddRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DossierDocumentsAddResponse:
     service = DossierService(db, user.id)
@@ -234,7 +234,7 @@ def add_documents(
 def create_item(
     dossier_id: uuid.UUID,
     payload: DossierItemCreateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DossierItemRead:
     service = DossierService(db, user.id)
@@ -251,7 +251,7 @@ def create_item(
 def upload_image(
     dossier_id: uuid.UUID,
     file: UploadFile = File(..., description="JPEG or PNG image"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DossierItemRead:
     service = DossierService(db, user.id)
@@ -267,7 +267,7 @@ def upload_image(
 def get_image(
     dossier_id: uuid.UUID,
     item_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> FileResponse:
     item, path = DossierService(db, user.id).get_image_file(dossier_id, item_id)
@@ -289,7 +289,7 @@ def update_item(
     dossier_id: uuid.UUID,
     item_id: uuid.UUID,
     payload: DossierItemUpdateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DossierItemRead:
     service = DossierService(db, user.id)
@@ -304,7 +304,7 @@ def update_item(
 def reorder_items(
     dossier_id: uuid.UUID,
     payload: DossierItemsReorderRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> list[DossierItemRead]:
     service = DossierService(db, user.id)
@@ -319,7 +319,7 @@ def reorder_items(
 def delete_items(
     dossier_id: uuid.UUID,
     payload: DossierItemsDeleteRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> OkResponse:
     DossierService(db, user.id).delete_items(dossier_id, payload)
@@ -335,7 +335,7 @@ def delete_items(
 def restore_items(
     dossier_id: uuid.UUID,
     payload: DossierItemsRestoreRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DossierItemsBatchResponse:
     service = DossierService(db, user.id)
@@ -350,7 +350,7 @@ def restore_items(
 def delete_item(
     dossier_id: uuid.UUID,
     item_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> OkResponse:
     DossierService(db, user.id).delete_item(dossier_id, item_id)

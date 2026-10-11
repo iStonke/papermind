@@ -27,7 +27,7 @@ router = APIRouter(tags=["Note learn highlights"])
 def list_note_learn_highlights(
     note_id: uuid.UUID,
     document_id: uuid.UUID | None = Query(default=None),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteLearnHighlightListResponse:
     items = NoteLearnHighlightService(db, user.id).list_for_note(note_id, document_id)
@@ -44,7 +44,7 @@ def list_note_learn_highlights(
 def create_note_learn_highlight(
     note_id: uuid.UUID,
     payload: NoteLearnHighlightCreate,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteLearnHighlightRead:
     highlight = NoteLearnHighlightService(db, user.id).create(note_id, payload)
@@ -60,7 +60,7 @@ def create_note_learn_highlight(
 def update_note_learn_highlight(
     highlight_id: uuid.UUID,
     payload: NoteLearnHighlightUpdate,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteLearnHighlightRead:
     highlight = NoteLearnHighlightService(db, user.id).update(highlight_id, payload)
@@ -75,7 +75,7 @@ def update_note_learn_highlight(
 )
 def delete_note_learn_highlight(
     highlight_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> OkResponse:
     NoteLearnHighlightService(db, user.id).delete(highlight_id)
@@ -90,7 +90,7 @@ def delete_note_learn_highlight(
 )
 def list_document_learn_highlights(
     document_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteLearnHighlightListResponse:
     items = NoteLearnHighlightService(db, user.id).list_for_document(document_id)

@@ -201,6 +201,8 @@ class NoteImageService:
         return self.db.scalar(stmt)
 
     def upload(self, note_id: uuid.UUID, file: UploadFile) -> NoteImage:
+        from app.services.storage_owner import lock_storage_owner
+        lock_storage_owner(self.db, self.owner_id)
         if self.owner_id is None:
             raise BadRequestError("Für Bild-Uploads ist ein Benutzer erforderlich")
         if self._note(note_id) is None:

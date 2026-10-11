@@ -741,18 +741,24 @@ class EmbeddingService:
             lexical_params = {**params, "lexical_query": lexical_query}
             lexical_stmt = text(
                 f"""
-                WITH q AS (SELECT websearch_to_tsquery('german', :lexical_query) AS value)
+                WITH q AS (SELECT websearch_to_tsquery('german', :lexical_query) AS value),
+                hits AS (
+                    SELECT c.id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id CROSS JOIN q
+                    WHERE {where_sql} AND c.search_vector @@ q.value
+                    UNION
+                    SELECT c.id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id CROSS JOIN q
+                    WHERE {where_sql} AND d.search_vector @@ q.value
+                )
                 SELECT c.doc_id, c.id AS chunk_id, c.chunk_index, c.page_from, c.page_to,
                        c.chunk_type, c.text, 0.0::float AS vector_score,
                        GREATEST(
-                           COALESCE(ts_rank_cd(to_tsvector('german', c.text), q.value), 0.0),
+                           COALESCE(ts_rank_cd(c.search_vector, q.value), 0.0),
                            COALESCE(ts_rank_cd(d.search_vector, q.value), 0.0)
                        ) AS lexical_score
                 FROM doc_chunks c
+                JOIN hits ON hits.id = c.id
                 JOIN documents d ON d.id = c.doc_id
                 CROSS JOIN q
-                WHERE {where_sql}
-                  AND (to_tsvector('german', c.text) @@ q.value OR d.search_vector @@ q.value)
                 ORDER BY lexical_score DESC, c.doc_id, c.chunk_index
                 LIMIT :candidate_k
                 """

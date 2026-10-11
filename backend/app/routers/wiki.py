@@ -33,7 +33,7 @@ router = APIRouter(prefix="/api/wiki", tags=["Wiki"])
 
 @router.get("/overview", response_model=WikiOverviewResponse, summary="LLM-wiki trust and coverage overview")
 def overview(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> WikiOverviewResponse:
     return WikiService(db, user.id).overview()
@@ -46,7 +46,7 @@ def list_pages(
     status: WikiPageStatus | None = None,
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> WikiPageListResponse:
     return WikiService(db, user.id).list_pages(
@@ -63,7 +63,7 @@ def list_proposals(
     status: str | None = Query(default="pending", max_length=24),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> WikiProposalListResponse:
     return WikiService(db, user.id).list_proposals(status=status, limit=limit, offset=offset)
@@ -78,7 +78,7 @@ def list_proposals(
 def review_proposal(
     proposal_id: uuid.UUID,
     payload: WikiProposalReviewRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> WikiProposalRead:
     return WikiService(db, user.id).review_proposal(proposal_id, payload, reviewer_id=user.id)
@@ -87,7 +87,7 @@ def review_proposal(
 @router.post("/capture-answer", response_model=WikiProposalRead, summary="Propose a chat answer for durable knowledge")
 def capture_answer(
     payload: WikiCaptureAnswerRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> WikiProposalRead:
     return WikiService(db, user.id).capture_chat_answer(payload)
@@ -96,7 +96,7 @@ def capture_answer(
 @router.post("/lint", response_model=WikiLintResponse, summary="Validate citations, staleness and wiki structure")
 def lint_wiki(
     fix: bool = Query(default=True),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> WikiLintResponse:
     return WikiService(db, user.id).lint(fix=fix)
@@ -111,7 +111,7 @@ def lint_wiki(
 def backfill_wiki(
     batch_size: int = Query(default=1, ge=1, le=50),
     document_limit: int | None = Query(default=None, ge=1, le=5000),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> WikiBackfillRunRead:
     run = WikiBackfillService(db, user.id).enqueue(
@@ -123,7 +123,7 @@ def backfill_wiki(
 
 @router.get("/backfill/status", response_model=WikiBackfillRunRead | None, summary="Get latest wiki backfill progress")
 def backfill_status(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> WikiBackfillRunRead | None:
     run = WikiBackfillService(db, user.id).latest()
@@ -139,7 +139,7 @@ def backfill_status(
 def control_backfill(
     run_id: uuid.UUID,
     payload: WikiBackfillControlRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> WikiBackfillRunRead:
     run = WikiBackfillService(db, user.id).control(run_id, action=payload.action)
@@ -149,7 +149,7 @@ def control_backfill(
 @router.post("/documents/{document_id}/refresh", response_model=dict, summary="Recompile one document wiki source")
 def refresh_document_wiki(
     document_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> dict:
     return WikiService(db, user.id).refresh_document(document_id)
@@ -164,7 +164,7 @@ def refresh_document_wiki(
 def correct_claim(
     claim_id: uuid.UUID,
     payload: WikiClaimCorrectionRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> WikiPageDetail:
     return WikiService(db, user.id).correct_claim(claim_id, payload)
@@ -179,7 +179,7 @@ def correct_claim(
 def retract_claim(
     claim_id: uuid.UUID,
     payload: WikiClaimRetractRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> WikiPageDetail:
     return WikiService(db, user.id).retract_claim(claim_id, payload)
@@ -191,7 +191,7 @@ def get_page(
     include_history: bool = Query(default=False),
     claim_limit: int = Query(default=100, ge=1, le=500),
     claim_offset: int = Query(default=0, ge=0),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> WikiPageDetail:
     return WikiService(db, user.id).get_page_detail(
@@ -205,7 +205,7 @@ def get_page(
 @router.get("/pages/{page_id}/revisions", response_model=list[WikiRevisionRead], summary="List immutable page revisions")
 def list_revisions(
     page_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> list[WikiRevisionRead]:
     return WikiService(db, user.id).list_revisions(page_id)

@@ -90,7 +90,7 @@ def list_documents(
     limit: int = Query(default=20, ge=1, le=100, description="Page size"),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     include_total: bool = Query(default=True, description="Calculate the total number of matching documents"),
-    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
 ) -> DocumentListResponse:
     service = DocumentService(db, user.id)
     effective_tag = str(tag_id) if tag_id is not None else tag
@@ -139,7 +139,7 @@ def documents_calendar(
     favorites_only: bool = Query(default=False),
     without_text: bool = Query(default=False),
     attention: DocumentAttentionFilter | None = Query(default=None),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DocumentCalendarResponse:
     service = DocumentService(db, user.id)
@@ -168,7 +168,7 @@ def documents_calendar(
 )
 def get_document_statuses(
     document_ids: list[uuid.UUID] = Query(default_factory=list, max_length=100),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DocumentStatusListResponse:
     return DocumentService(db, user.id).get_document_statuses(document_ids)
@@ -185,7 +185,7 @@ def export_documents(
         max_length=100,
         description="Document IDs to include in the ZIP archive (max 100)",
     ),
-    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
 ) -> FileResponse:
     service = DocumentService(db, user.id)
     tmp_path, archive_name, skipped = service.build_export_archive(ids)
@@ -217,7 +217,7 @@ def upload_document(
     document_date: date | None = Form(default=None),
     doc_date: date | None = Form(default=None),
     notes: str | None = Form(default=None),
-    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
 ) -> DocumentDetail:
     service = DocumentService(db, user.id)
     effective_document_date = document_date if document_date is not None else doc_date
@@ -232,7 +232,7 @@ def upload_document(
     summary="Queue OCR job for a document",
     responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
 )
-def queue_document_ocr(document_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> DocumentDetail:
+def queue_document_ocr(document_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> DocumentDetail:
     service = DocumentService(db, user.id)
     return service.as_detail(service.queue_ocr_for_document(document_id))
 
@@ -243,7 +243,7 @@ def queue_document_ocr(document_id: uuid.UUID, db: Session = Depends(get_db), us
 )
 def queue_document_ocr_batch(
     payload: DocumentOCRBatchRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> dict:
     service = DocumentService(db, user.id)
@@ -273,7 +273,7 @@ def backfill_ocr(
         default=True,
         description="Also retry documents whose previous OCR failed (bounded by the retry limit).",
     ),
-    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
 ) -> dict:
     config = get_settings()
     service = DocumentService(db, user.id)
@@ -295,7 +295,7 @@ def backfill_ocr(
 def queue_document_index(
     document_id: uuid.UUID,
     force: bool = Query(default=False, description="Force re-index by clearing cached text hash"),
-    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
 ) -> DocumentDetail:
     service = DocumentService(db, user.id)
     return service.as_detail(service.queue_index_for_document(document_id, force=force))
@@ -310,7 +310,7 @@ def queue_document_index(
 def reorder_document_pages(
     document_id: uuid.UUID,
     payload: PageReorderRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DocumentDetail:
     service = DocumentService(db, user.id)
@@ -323,7 +323,7 @@ def reorder_document_pages(
     summary="Analyze document text and apply tags conservatively",
     responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
 )
-def auto_tag_document(document_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> DocumentDetail:
+def auto_tag_document(document_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> DocumentDetail:
     service = DocumentService(db, user.id)
     return service.as_detail(service.auto_tag_document(document_id))
 
@@ -335,7 +335,7 @@ def auto_tag_document(document_id: uuid.UUID, db: Session = Depends(get_db), use
     responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
 )
 def suggest_document_metadata(
-    document_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    document_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)
 ) -> DocumentMetadataSuggestion:
     service = DocumentService(db, user.id)
     return service.suggest_metadata(document_id)
@@ -348,7 +348,7 @@ def suggest_document_metadata(
     summary="Create metadata-only document",
     responses={422: {"model": ErrorResponse}},
 )
-def create_document(payload: DocumentCreateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> DocumentDetail:
+def create_document(payload: DocumentCreateRequest, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> DocumentDetail:
     service = DocumentService(db, user.id)
     document = service.create_document(payload)
     return service.as_detail(service.get_document_or_404(document.id))
@@ -360,7 +360,7 @@ def create_document(payload: DocumentCreateRequest, db: Session = Depends(get_db
     summary="Get document details",
     responses={404: {"model": ErrorResponse}},
 )
-def get_document(document_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> DocumentDetail:
+def get_document(document_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> DocumentDetail:
     service = DocumentService(db, user.id)
     return service.as_detail(service.get_document_or_404(document_id))
 
@@ -371,7 +371,7 @@ def get_document(document_id: uuid.UUID, db: Session = Depends(get_db), user: Us
     summary="List indexed chunks for a document (debug)",
     responses={404: {"model": ErrorResponse}},
 )
-def get_document_chunks(document_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> DocumentChunkListResponse:
+def get_document_chunks(document_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> DocumentChunkListResponse:
     service = EmbeddingService(db, user.id)
     chunks = service.list_document_chunks(document_id)
     return DocumentChunkListResponse(
@@ -399,7 +399,7 @@ def get_document_chunks(document_id: uuid.UUID, db: Session = Depends(get_db), u
     summary="Get embedding status and counters for a document (debug)",
     responses={404: {"model": ErrorResponse}},
 )
-def get_document_embedding_status(document_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> DocumentEmbeddingStatusResponse:
+def get_document_embedding_status(document_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> DocumentEmbeddingStatusResponse:
     service = EmbeddingService(db, user.id)
     data = service.get_embedding_status(document_id)
     return DocumentEmbeddingStatusResponse.model_validate(data)
@@ -411,7 +411,7 @@ def get_document_embedding_status(document_id: uuid.UUID, db: Session = Depends(
     summary="Mark document as viewed",
     responses={404: {"model": ErrorResponse}},
 )
-def mark_document_viewed(document_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> OkResponse:
+def mark_document_viewed(document_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> OkResponse:
     service = DocumentService(db, user.id)
     service.mark_document_viewed(document_id)
     return OkResponse(ok=True)
@@ -423,7 +423,7 @@ def mark_document_viewed(document_id: uuid.UUID, db: Session = Depends(get_db), 
     summary="Mark document as unread",
     responses={404: {"model": ErrorResponse}},
 )
-def mark_document_unread(document_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> OkResponse:
+def mark_document_unread(document_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> OkResponse:
     service = DocumentService(db, user.id)
     service.mark_document_unread(document_id)
     return OkResponse(ok=True)
@@ -438,7 +438,7 @@ def get_document_file(
     document_id: uuid.UUID,
     role: DocumentFileRole = Query(default=DocumentFileRole.original, description="File role to serve"),
     download: bool = Query(default=False, description="Force download as attachment"),
-    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
 ) -> FileResponse:
     service = DocumentService(db, user.id)
     document, file_record, file_path = service.get_document_file_by_role(document_id, role)
@@ -466,7 +466,7 @@ def get_document_file(
     summary="Serve document thumbnail",
     responses={404: {"model": ErrorResponse}},
 )
-def get_document_thumbnail(document_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> FileResponse:
+def get_document_thumbnail(document_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> FileResponse:
     service = DocumentService(db, user.id)
     _, file_record, file_path = service.get_document_file_by_role(document_id, DocumentFileRole.thumbnail)
     return FileResponse(
@@ -487,7 +487,7 @@ def get_document_thumbnail(document_id: uuid.UUID, db: Session = Depends(get_db)
 def update_document(
     document_id: uuid.UUID,
     payload: DocumentUpdateRequest,
-    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
 ) -> DocumentDetail:
     service = DocumentService(db, user.id)
     return service.as_detail(service.update_document(document_id, payload))
@@ -500,7 +500,7 @@ def update_document(
     summary="Move document to trash (soft delete)",
     responses={404: {"model": ErrorResponse}},
 )
-def trash_document(document_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> DocumentDetail:
+def trash_document(document_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> DocumentDetail:
     service = DocumentService(db, user.id)
     return service.as_detail(service.trash_document(document_id))
 
@@ -512,7 +512,7 @@ def trash_document(document_id: uuid.UUID, db: Session = Depends(get_db), user: 
     summary="Restore document from trash",
     responses={404: {"model": ErrorResponse}, 400: {"model": ErrorResponse}},
 )
-def restore_document(document_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> DocumentDetail:
+def restore_document(document_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> DocumentDetail:
     service = DocumentService(db, user.id)
     return service.as_detail(service.restore_document(document_id))
 
@@ -524,7 +524,7 @@ def restore_document(document_id: uuid.UUID, db: Session = Depends(get_db), user
     summary="Toggle favorite status",
     responses={404: {"model": ErrorResponse}},
 )
-def toggle_favorite(document_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> DocumentDetail:
+def toggle_favorite(document_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> DocumentDetail:
     service = DocumentService(db, user.id)
     return service.as_detail(service.toggle_favorite(document_id))
 
@@ -533,7 +533,7 @@ def toggle_favorite(document_id: uuid.UUID, db: Session = Depends(get_db), user:
     "/trash",
     summary="Permanently delete all documents in trash",
 )
-def empty_trash(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict[str, int | bool]:
+def empty_trash(db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> dict[str, int | bool]:
     service = DocumentService(db, user.id)
     deleted_count = service.empty_trash()
     return {"ok": True, "deleted_count": deleted_count}
@@ -545,7 +545,7 @@ def empty_trash(db: Session = Depends(get_db), user: User = Depends(get_current_
     summary="Permanently delete document (also works for trashed documents)",
     responses={404: {"model": ErrorResponse}},
 )
-def delete_document(document_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> OkResponse:
+def delete_document(document_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> OkResponse:
     service = DocumentService(db, user.id)
     service.delete_document(document_id)
     return OkResponse(ok=True)
@@ -560,7 +560,7 @@ def delete_document(document_id: uuid.UUID, db: Session = Depends(get_db), user:
 def replace_document_tags(
     document_id: uuid.UUID,
     payload: DocumentTagReplaceRequest,
-    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
 ) -> DocumentDetail:
     service = DocumentService(db, user.id)
     return service.as_detail(service.replace_document_tags(document_id, payload))
@@ -572,6 +572,6 @@ def replace_document_tags(
     summary="Remove one tag relation from a document",
     responses={404: {"model": ErrorResponse}},
 )
-def remove_document_tag(document_id: uuid.UUID, tag_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> DocumentDetail:
+def remove_document_tag(document_id: uuid.UUID, tag_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> DocumentDetail:
     service = DocumentService(db, user.id)
     return service.as_detail(service.remove_document_tag(document_id, tag_id))

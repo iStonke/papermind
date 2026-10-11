@@ -16,7 +16,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, query_expression, relationship
 
 from app.models.base import Base
 from app.models.note_tag import note_tags
@@ -44,6 +44,7 @@ class Note(Base):
     body_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default="{}")
     body_text: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     search_vector: Mapped[str | None] = mapped_column(TSVECTOR, nullable=True)
+    list_preview: Mapped[str | None] = query_expression()
     # Monotone Inhaltsrevision für optimistisches Sperren im Notizeditor.
     # Tags/Papierkorbstatus zählen bewusst nicht dazu: geschützt werden die
     # gemeinsam per Autosave geschriebenen Felder Titel + body_json.

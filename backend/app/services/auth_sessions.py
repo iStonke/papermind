@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.security import client_ip
 from app.models.auth_session import AuthSession
 from app.models.user import User
 
@@ -30,10 +31,7 @@ def _split_token(token: str) -> tuple[uuid.UUID, str] | None:
 
 
 def _client_ip(request) -> str | None:
-    forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
-    if forwarded:
-        return forwarded[:64]
-    return request.client.host[:64] if request.client else None
+    return client_ip(request)[:64] if request.client else None
 
 
 class AuthSessionService:

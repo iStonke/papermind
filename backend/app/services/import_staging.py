@@ -163,6 +163,28 @@ class ImportStagingService:
         self.owner_id = owner_id
         self.document_service = DocumentService(db, owner_id)
         self.settings_service = SettingsService(db)
+        self._authorized_sources: set[str] = set()
+
+    def _authorize_source(self, source_id: str) -> None:
+        if self.owner_id is None or source_id in self._authorized_sources:
+            return
+        marker = self._staging_root() / f"{source_id}.owner.json"
+        try:
+            owner = json.loads(marker.read_text(encoding="utf-8")).get("owner_id")
+        except (OSError, ValueError):
+            owner = None
+        if owner == str(self.owner_id):
+            self._authorized_sources.add(source_id)
+            return
+        from app.models.import_inbox import ImportInboxItem
+        from app.services.import_inbox import ImportInboxService
+        visible = ImportInboxService(self.db, self.owner_id)._visible_scope(
+            select(ImportInboxItem.id).where(ImportInboxItem.source_file_id == uuid.UUID(source_id))
+        )
+        if self.db.scalar(visible) is None:
+            from app.core.errors import NotFoundError
+            raise NotFoundError("Staging source PDF not found")
+        self._authorized_sources.add(source_id)
 
     def _staging_root(self) -> Path:
         storage_root = Path(settings.storage_path).resolve()
@@ -176,6 +198,7 @@ class ImportStagingService:
             parsed = uuid.UUID(source_id)
         except ValueError as exc:
             raise BadRequestError("source_file_id is invalid", details={"source_file_id": source_id}) from exc
+        self._authorize_source(str(parsed))
         return self._staging_root() / f"{parsed}.pdf"
 
     def _source_preview_path(self, source_file_id: str) -> Path:
@@ -186,6 +209,7 @@ class ImportStagingService:
             parsed = uuid.UUID(source_id)
         except ValueError as exc:
             raise BadRequestError("source_file_id is invalid", details={"source_file_id": source_id}) from exc
+        self._authorize_source(str(parsed))
         return self._staging_root() / f"{parsed}.preview.png"
 
     def _source_raw_pdf_path(self, source_file_id: str) -> Path:
@@ -890,23 +914,31 @@ class ImportStagingService:
     def upload_sources(self, files: list[UploadFile]) -> ImportSourceUploadResponse:
         if not files:
             raise BadRequestError("At least one PDF file is required")
+        from app.services.storage_owner import lock_storage_owner
+        lock_storage_owner(self.db, self.owner_id)
 
         items: list[ImportSourceRead] = []
         for file in files:
             source_started = now_perf()
             original_name = self._validate_source_file(file)
             source_file_id = str(uuid.uuid4())
+            self._authorized_sources.add(source_file_id)
             source_path = self._source_pdf_path(source_file_id)
             bytes_written = 0
 
             try:
                 bytes_written = self._store_source_pdf(file, source_path)
-                reader = PdfReader(str(source_path))
-                page_count = len(reader.pages)
+                marker = source_path.with_suffix(".owner.json")
+                marker_tmp = marker.with_suffix(f".{uuid.uuid4().hex}.tmp")
+                marker_tmp.write_text(json.dumps({"owner_id": str(self.owner_id) if self.owner_id else None}), encoding="utf-8")
+                os.replace(marker_tmp, marker)
+                from app.services.pdf_tasks import run_pdf_task
+                page_count = run_pdf_task("count", storage_path=str(self._staging_root()), path=str(source_path))
                 if page_count <= 0:
                     raise BadRequestError("Uploaded PDF has no pages", details={"filename": original_name})
             except Exception:
                 source_path.unlink(missing_ok=True)
+                source_path.with_suffix(".owner.json").unlink(missing_ok=True)
                 raise
             log_import_timing(
                 "source_staged",
@@ -1031,8 +1063,8 @@ class ImportStagingService:
         for source_file_id in normalized_ids[:max_sources]:
             source_path = self.get_source_pdf_path(source_file_id)
             try:
-                reader = PdfReader(str(source_path))
-                total_pages = len(reader.pages)
+                from app.services.pdf_tasks import run_pdf_task
+                total_pages = run_pdf_task("count", storage_path=str(self._staging_root()), path=str(source_path))
             except Exception as exc:
                 logger.warning("stage title ocr: could not read page count source_file_id=%s err=%s", source_file_id, exc)
                 total_pages = 1

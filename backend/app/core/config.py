@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     app_name: str = "PaperMind Backend"
     app_version: str = "0.8.0"
+    production_mode: bool = Field(default=False)
     api_prefix: str = "/api"
     # Swagger/OpenAPI ist standardmäßig AUS (kein ungeschütztes API-Schema in
     # Produktion). In der Dev-Umgebung per EXPOSE_API_DOCS=true einschalten.
@@ -34,6 +35,9 @@ class Settings(BaseSettings):
     storage_path: str = Field(default="/data/storage")
     public_web_base_url: str = Field(default="")
     upload_max_bytes: int = Field(default=25 * 1024 * 1024)
+    upload_request_max_bytes: int = Field(default=100 * 1024 * 1024, ge=1)
+    pdf_processing_timeout_seconds: float = Field(default=30.0, ge=1, le=300)
+    pdf_processing_memory_mb: int = Field(default=256, ge=128, le=2048)
     cors_allow_origins: str = Field(default="")
     auto_ocr_on_upload: bool = Field(default=True)
     min_text_chars: int = Field(default=300, ge=1)
@@ -120,6 +124,8 @@ class Settings(BaseSettings):
     auth_cookie_samesite: Literal["lax", "strict", "none"] = Field(default="lax")
     auth_login_rate_limit: int = Field(default=10, ge=1, le=100)
     auth_login_rate_window_seconds: int = Field(default=300, ge=10, le=86400)
+    # Only these immediate peers may supply a forwarded client address.
+    auth_trusted_proxy_cidrs: str = Field(default="")
     slow_query_threshold_ms: int = Field(default=500, ge=0, le=60000)
     # Bootstrap admin: created on startup only if the users table is empty.
     initial_admin_username: str = Field(default="admin")

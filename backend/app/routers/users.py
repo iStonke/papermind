@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/users", tags=["Users"])
     summary="List all users (admin only)",
     responses={401: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
 )
-def list_users(_: User = Depends(require_admin), db: Session = Depends(get_db)) -> UserListResponse:
+def list_users(_: User = Depends(require_admin), db: Session = Depends(get_db, scope="function")) -> UserListResponse:
     service = UserService(db)
     items = service.list_users()
     return UserListResponse(items=[UserRead.model_validate(u, from_attributes=True) for u in items])
@@ -42,7 +42,7 @@ def list_users(_: User = Depends(require_admin), db: Session = Depends(get_db)) 
 def create_user(
     payload: UserCreateRequest,
     _: User = Depends(require_admin),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> UserRead:
     service = UserService(db)
     user = service.create_user(payload)
@@ -64,7 +64,7 @@ def update_user(
     user_id: uuid.UUID,
     payload: UserUpdateRequest,
     _: User = Depends(require_admin),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> UserRead:
     service = UserService(db)
     user = service.update_user(user_id, payload)
@@ -85,7 +85,7 @@ def update_user(
 def delete_user(
     user_id: uuid.UUID,
     current: User = Depends(require_admin),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> OkResponse:
     service = UserService(db)
     service.delete_user(user_id, acting_user_id=current.id)
@@ -104,7 +104,7 @@ def delete_user(
 def get_user_avatar(
     user_id: uuid.UUID,
     _: User = Depends(require_admin),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> FileResponse:
     service = UserService(db)
     user = service.get_or_404(user_id)

@@ -1,5 +1,4 @@
 import logging
-from io import BytesIO
 import os
 import re
 import shutil
@@ -7,6 +6,7 @@ import subprocess
 import tempfile
 import time
 from collections import Counter, defaultdict
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,6 +14,7 @@ from typing import Any
 import pypdfium2 as pdfium
 from PIL import Image, ImageFilter, ImageOps
 from pypdf import PdfReader, PdfWriter
+from app.services.pdf_previews import _otsu_threshold, _binarize_pil_image
 
 try:  # Worker-only dependency; backend tests should still import this module without OpenCV.
     import cv2
@@ -764,218 +765,59 @@ def build_cleaned_scan_pdf(
     )
 
 
-def _otsu_threshold(histogram: list[int]) -> int:
-    """Optimaler globaler Schwellwert nach Otsu, direkt aus dem 256-Bin-
-    Graustufen-Histogramm – reine Python-Arithmetik, ohne numpy."""
-    total = sum(histogram)
-    if total <= 0:
-        return 128
-    sum_all = sum(index * count for index, count in enumerate(histogram))
-    weight_bg = 0
-    sum_bg = 0.0
-    best_variance = -1.0
-    threshold = 128
-    for level in range(256):
-        weight_bg += histogram[level]
-        if weight_bg == 0:
-            continue
-        weight_fg = total - weight_bg
-        if weight_fg == 0:
-            break
-        sum_bg += level * histogram[level]
-        mean_bg = sum_bg / weight_bg
-        mean_fg = (sum_all - sum_bg) / weight_fg
-        between = weight_bg * weight_fg * (mean_bg - mean_fg) ** 2
-        if between > best_variance:
-            best_variance = between
-            threshold = level
-    return threshold
-
-
-def _binarize_pil_image(image: Image.Image) -> Image.Image:
-    """Schwarz/Weiß per Otsu-Schwellwert – ohne cv2/numpy.
-
-    Für den manuellen bw-Override, der auf der (bei aktiver Bereinigung bereits
-    licht-korrigierten) Staging-Seite arbeitet. Die aufwändige Schatten-/
-    Beleuchtungsglättung übernimmt weiterhin die Scan-Bereinigung im Worker;
-    hier genügt eine saubere Binarisierung des bereits gleichmäßigen Bildes.
-    """
-    gray = image.convert("L")
-    threshold = _otsu_threshold(gray.histogram())
-    mono = gray.point(lambda value, cut=threshold: 255 if value > cut else 0)
-    return mono.convert("1", dither=Image.Dither.NONE)
-
-
-def build_bw_pdf(
-    original_path: Path,
-    output_path: Path,
-    *,
-    dpi_target: int,
-) -> Path | None:
-    """Schreibt ein mehrseitiges Schwarz/Weiß-PDF für den manuellen Importmodus
-    (PIL + Otsu, ohne cv2 – läuft damit auch im Backend-Prozess)."""
+def _convert_manual_pdf(original_path: Path, output_path: Path, *, dpi_target: int, mode: str) -> Path | None:
+    from app.services.pdf_tasks import run_pdf_task
     try:
-        pdf_doc = pdfium.PdfDocument(str(original_path))
-    except Exception as exc:  # noqa: BLE001 - Import kann das Original weiterverwenden
-        logger.warning("bw conversion: input unreadable: %s", exc)
-        return None
-
-    if len(pdf_doc) <= 0:
-        return None
-
-    scale = max(1.0, float(dpi_target) / 72.0)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    writer = PdfWriter()
-    try:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            for index in range(len(pdf_doc)):
-                image = _binarize_pil_image(pdf_doc[index].render(scale=scale).to_pil())
-                page_path = Path(temp_dir) / f"page-{index}.pdf"
-                image.save(page_path, format="PDF", resolution=float(dpi_target))
-                writer.add_page(PdfReader(str(page_path)).pages[0])
-            with output_path.open("wb") as handle:
-                writer.write(handle)
-    except Exception as exc:  # noqa: BLE001 - der Aufrufer meldet den Importfehler
-        logger.warning("bw conversion failed: %s", exc)
+        result = run_pdf_task("convert", storage_path=str(original_path.parent), path=str(original_path),
+            output_path=str(output_path), dpi_target=dpi_target, max_pixels=OCR_MAX_PAGE_PIXELS, mode=mode)
+        return Path(result)
+    except Exception as exc:
+        logger.warning("isolated %s conversion failed: %s", mode, exc)
         output_path.unlink(missing_ok=True)
         return None
-    return output_path
 
 
-def build_grayscale_pdf(
-    original_path: Path,
-    output_path: Path,
-    *,
-    dpi_target: int,
-) -> Path | None:
-    """Schreibt ein mehrseitiges Graustufen-PDF für den manuellen Importmodus."""
-    try:
-        pdf_doc = pdfium.PdfDocument(str(original_path))
-    except Exception as exc:  # noqa: BLE001 - Import kann das Original weiterverwenden
-        logger.warning("grayscale conversion: input unreadable: %s", exc)
-        return None
+def build_bw_pdf(original_path: Path, output_path: Path, *, dpi_target: int) -> Path | None:
+    return _convert_manual_pdf(original_path, output_path, dpi_target=dpi_target, mode="bw")
 
-    if len(pdf_doc) <= 0:
-        return None
 
-    scale = max(1.0, float(dpi_target) / 72.0)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    writer = PdfWriter()
-    try:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            for index in range(len(pdf_doc)):
-                image = pdf_doc[index].render(scale=scale).to_pil().convert("L")
-                page_path = Path(temp_dir) / f"page-{index}.pdf"
-                image.save(page_path, format="PDF", resolution=float(dpi_target))
-                writer.add_page(PdfReader(str(page_path)).pages[0])
-            with output_path.open("wb") as handle:
-                writer.write(handle)
-    except Exception as exc:  # noqa: BLE001 - der Aufrufer meldet den Importfehler
-        logger.warning("grayscale conversion failed: %s", exc)
-        output_path.unlink(missing_ok=True)
-        return None
-    return output_path
+def build_grayscale_pdf(original_path: Path, output_path: Path, *, dpi_target: int) -> Path | None:
+    return _convert_manual_pdf(original_path, output_path, dpi_target=dpi_target, mode="grayscale")
 
 
 def detect_pdf_color_page_indices(pdf_path: Path, *, max_long_edge: int = 240) -> list[int] | None:
-    """Ermittelt Seiten mit echten Farbpixeln, nicht nur RGB-kodierten Grautönen."""
+    from app.services.pdf_tasks import run_pdf_task
     try:
-        pdf_doc = pdfium.PdfDocument(str(pdf_path))
-    except Exception as exc:  # noqa: BLE001 - fehlende Info lässt die UI Auswahl zu
-        logger.warning("color detection: input unreadable: %s", exc)
+        return run_pdf_task("color_pages", storage_path=str(pdf_path.parent), path=str(pdf_path), max_long_edge=max_long_edge)
+    except Exception as exc:
+        logger.warning("isolated color detection failed: %s", exc)
         return None
 
-    color_pages: list[int] = []
-    for index in range(len(pdf_doc)):
-        try:
-            page = pdf_doc[index]
-            long_edge_pt = max(float(page.get_width()), float(page.get_height())) or 1.0
-            scale = max(0.1, min(2.0, float(max_long_edge) / long_edge_pt))
-            image = page.render(scale=scale).to_pil().convert("RGB")
-            # Kleine JPEG-Artefakte zählen nicht als Farbe. Ein farbiger Stempel,
-            # ein Logo oder ein Foto überschreitet diese Schwelle klar.
-            colored_pixels = sum(
-                1
-                for red, green, blue in image.getdata()
-                if max(red, green, blue) - min(red, green, blue) >= 16
-            )
-            if colored_pixels >= max(12, int(image.width * image.height * 0.001)):
-                color_pages.append(index)
-        except Exception as exc:  # noqa: BLE001 - eine defekte Seite blockiert den Import nicht
-            logger.warning("color detection failed page=%s: %s", index, exc)
-    return color_pages
 
-
-def render_pdf_page_color_preview(
-    pdf_path: Path,
-    *,
-    page_index: int,
-    mode: str,
-    max_long_edge: int = 1400,
-) -> bytes | None:
-    """Rendert die tatsächlich zu importierende Farbvariante als PNG."""
+def render_pdf_page_color_preview(pdf_path: Path, *, page_index: int, mode: str, max_long_edge: int = 1400) -> bytes | None:
+    import base64
+    from app.services.pdf_tasks import run_pdf_task
     if mode not in {"auto", "color", "grayscale", "bw"}:
         return None
     try:
-        pdf_doc = pdfium.PdfDocument(str(pdf_path))
-        if page_index < 0 or page_index >= len(pdf_doc):
-            return None
-        page = pdf_doc[page_index]
-        long_edge_pt = max(float(page.get_width()), float(page.get_height())) or 1.0
-        scale = max(0.1, min(4.0, float(max_long_edge) / long_edge_pt))
-        image = page.render(scale=scale).to_pil()
-        if mode == "grayscale":
-            image = image.convert("L")
-        elif mode == "bw":
-            # PIL+Otsu statt _clean_scan_image: läuft ohne cv2 auch im Backend
-            # und bildet exakt ab, was build_bw_pdf beim Commit schreibt.
-            image = _binarize_pil_image(image)
-        else:
-            image = image.convert("RGB")
-        buffer = BytesIO()
-        image.save(buffer, format="PNG", optimize=True)
-        return buffer.getvalue()
-    except Exception as exc:  # noqa: BLE001 - die lokale Vorschau bleibt Fallback
-        logger.warning("color preview render failed page=%s mode=%s: %s", page_index, mode, exc)
+        result = run_pdf_task("color_preview", storage_path=str(pdf_path.parent), path=str(pdf_path),
+            page_index=page_index, mode=mode, max_long_edge=max_long_edge)
+        return base64.b64decode(result)
+    except Exception as exc:
+        logger.warning("isolated color preview failed: %s", exc)
         return None
 
 
-def render_pdf_page_preview(
-    pdf_path: Path,
-    output_path: Path,
-    *,
-    max_long_edge: int,
-    page_index: int = 0,
-) -> Path | None:
-    """Rendert eine PDF-Seite als PNG-Vorschau.
-
-    Wird nach der Scan-Bereinigung gebraucht: die vom Host gelieferte Vorschau
-    zeigt noch den Rohscan und muss durch die bereinigte Seite ersetzt werden.
-    """
+def render_pdf_page_preview(pdf_path: Path, output_path: Path, *, max_long_edge: int, page_index: int = 0) -> Path | None:
+    from app.services.pdf_tasks import run_pdf_task
     try:
-        pdf_doc = pdfium.PdfDocument(str(pdf_path))
-    except Exception as exc:  # noqa: BLE001 - Vorschau ist optional
-        logger.warning("preview render: input unreadable: %s", exc)
-        return None
-
-    if len(pdf_doc) <= page_index:
-        return None
-
-    try:
-        page = pdf_doc[page_index]
-        long_edge_pt = max(float(page.get_width()), float(page.get_height())) or 1.0
-        scale = max(0.1, min(4.0, float(max_long_edge) / long_edge_pt))
-        image = page.render(scale=scale).to_pil()
-        if image.mode not in {"RGB", "L"}:
-            image = image.convert("RGB")
-        image.thumbnail((max_long_edge, max_long_edge))
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        image.save(output_path, format="PNG", optimize=True)
-    except Exception as exc:  # noqa: BLE001 - Vorschau ist optional
-        logger.warning("preview render failed path=%s err=%s", pdf_path, exc)
+        result = run_pdf_task("preview", storage_path=str(pdf_path.parent), path=str(pdf_path),
+            output_path=str(output_path), page_index=page_index, max_long_edge=max_long_edge)
+        return Path(result)
+    except Exception as exc:
+        logger.warning("isolated preview failed: %s", exc)
         output_path.unlink(missing_ok=True)
         return None
-    return output_path
 
 
 def _deskew_cv_image(gray_image: Any) -> Any:
@@ -1337,6 +1179,22 @@ def run_ocr_lite(
     max_long_side_px: int = 2800,
     page_segmentation_mode: int = 6,
 ) -> str:
+    from app.services.pdf_tasks import run_pdf_task
+    return run_pdf_task("ocr_lite", storage_path=str(pdf_path.parent), path=str(pdf_path),
+                        page_index=page_index, language=language,
+                        max_long_side_px=max_long_side_px,
+                        page_segmentation_mode=page_segmentation_mode)
+
+
+def _run_ocr_lite(
+    pdf_path: Path,
+    *,
+    page_index: int = 0,
+    language: str = "deu+eng",
+    max_long_side_px: int = 2800,
+    page_segmentation_mode: int = 6,
+    timeout_seconds: float = 45,
+) -> str:
     """Lightweight single-page OCR for staging title suggestions.
 
     Skips ocrmypdf and NlMeans denoising entirely.
@@ -1351,26 +1209,22 @@ def run_ocr_lite(
     except Exception as exc:
         raise OCRPipelineError(f"PDF unreadable: {exc}") from exc
 
-    if len(pdf_doc) == 0:
-        raise OCRPipelineError("PDF has no pages")
-
-    page_index = min(max(0, page_index), len(pdf_doc) - 1)
-    page = pdf_doc[page_index]
-
-    # Determine render scale: target at most max_long_side_px on the longest side,
-    # but always at least 150 DPI (scale = DPI/72).
-    width_pt = page.get_width() or 595.0
-    height_pt = page.get_height() or 842.0
-    long_side_pt = max(width_pt, height_pt)
-    scale_for_cap = max_long_side_px / long_side_pt          # keeps pixels ≤ cap
-    scale_for_min_dpi = 150.0 / 72.0                         # floor: 150 DPI
-    scale = max(scale_for_min_dpi, scale_for_cap)
-
-    try:
-        bitmap = page.render(scale=scale)
-        image = bitmap.to_pil()
-    except Exception as exc:
-        raise OCRPipelineError(f"pdfium render failed: {exc}") from exc
+    # A minimum DPI must never override the bitmap size cap for giant pages.
+    import math
+    with closing(pdf_doc):
+        if len(pdf_doc) == 0:
+            raise OCRPipelineError("PDF has no pages")
+        page_index = min(max(0, page_index), len(pdf_doc) - 1)
+        with closing(pdf_doc[page_index]) as page:
+            width_pt, height_pt = page.get_size()
+            if not all(math.isfinite(value) and value > 0 for value in (width_pt, height_pt)):
+                raise OCRPipelineError("PDF has invalid page dimensions")
+            scale = min(4.0, min(4000, max(1, max_long_side_px)) / max(width_pt, height_pt))
+            try:
+                with closing(page.render(scale=scale)) as bitmap:
+                    image = bitmap.to_pil().copy()
+            except Exception as exc:
+                raise OCRPipelineError(f"pdfium render failed: {exc}") from exc
 
     # Lightweight preprocessing: CLAHE contrast enhancement + Otsu binarization.
     # No NlMeans (far too slow on large images), no unpaper.
@@ -1407,15 +1261,17 @@ def run_ocr_lite(
             check=False,
             capture_output=True,
             text=True,
-            timeout=45,
+            timeout=timeout_seconds,
         )
         if result.returncode != 0:
             raise RuntimeError((result.stderr or result.stdout or "tesseract failed").strip())
         return result.stdout.strip()
     except subprocess.TimeoutExpired:
-        raise RuntimeError("tesseract timed out after 45 s")
+        raise RuntimeError("tesseract exceeded its time limit")
     finally:
         image_path.unlink(missing_ok=True)
+        processed.close()
+        image.close()
 
 
 def run_ocr_pipeline(

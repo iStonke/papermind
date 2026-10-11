@@ -280,6 +280,19 @@ class NoteAudioJobStore:
             if payload is not None:
                 self._delete_unlocked(payload)
 
+    def remove_owner(self, owner_id: uuid.UUID) -> None:
+        # Claim and publication use these same locks. A deleted job cannot be
+        # recreated by update/complete, so an active renderer cannot republish.
+        with self._lock():
+            for item in self._all():
+                if item.get("owner_id") != str(owner_id):
+                    continue
+                with self._lock(str(item["id"])):
+                    current = self._read_path(self._meta_path(item["id"]))
+                    if current is not None:
+                        self._delete_unlocked(current)
+                        self.output_path(item["id"]).with_suffix(".wav.incoming").unlink(missing_ok=True)
+
     def reclaim_running(self) -> int:
         reclaimed = 0
         with self._lock():

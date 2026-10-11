@@ -28,24 +28,24 @@ router = APIRouter(prefix="/api/backup", tags=["Backup"], dependencies=[Depends(
 
 
 @router.get("", response_model=BackupStatusResponse, summary="Backup-Konfiguration und -Status")
-def get_backup_status(db: Session = Depends(get_db)) -> BackupStatusResponse:
+def get_backup_status(db: Session = Depends(get_db, scope="function")) -> BackupStatusResponse:
     return BackupStatusResponse(**BackupService(db).get_status())
 
 
 @router.patch("", response_model=BackupStatusResponse, summary="Backup-Konfiguration aktualisieren")
-def update_backup_config(payload: BackupConfigPatch, db: Session = Depends(get_db)) -> BackupStatusResponse:
+def update_backup_config(payload: BackupConfigPatch, db: Session = Depends(get_db, scope="function")) -> BackupStatusResponse:
     service = BackupService(db)
     service.update_config(payload.model_dump(exclude_unset=True))
     return BackupStatusResponse(**service.get_status())
 
 
 @router.post("/test", response_model=BackupTestResponse, summary="NAS-Verbindung testen")
-def test_backup_connection(db: Session = Depends(get_db)) -> BackupTestResponse:
+def test_backup_connection(db: Session = Depends(get_db, scope="function")) -> BackupTestResponse:
     return BackupTestResponse(**BackupService(db).test_connection())
 
 
 @router.post("/run", response_model=BackupRunStartResponse, summary="Backup jetzt starten")
-def run_backup_now(db: Session = Depends(get_db)) -> BackupRunStartResponse:
+def run_backup_now(db: Session = Depends(get_db, scope="function")) -> BackupRunStartResponse:
     restore = read_restore_status() or {}
     if restore.get("status") in {"starting", "running"}:
         return BackupRunStartResponse(started=False, message="Eine Wiederherstellung läuft gerade.")
@@ -57,7 +57,7 @@ def run_backup_now(db: Session = Depends(get_db)) -> BackupRunStartResponse:
 
 
 @router.get("/archives", response_model=BackupArchiveListResponse, summary="Vorhandene Backups auflisten")
-def list_backup_archives(db: Session = Depends(get_db)) -> BackupArchiveListResponse:
+def list_backup_archives(db: Session = Depends(get_db, scope="function")) -> BackupArchiveListResponse:
     try:
         return BackupArchiveListResponse(items=BackupService(db).list_archives())
     except Exception as exc:  # noqa: BLE001 - NAS nicht erreichbar o.ä.
@@ -65,7 +65,7 @@ def list_backup_archives(db: Session = Depends(get_db)) -> BackupArchiveListResp
 
 
 @router.delete("/archives/{name}", response_model=OkResponse, summary="Ein Backup löschen")
-def delete_backup_archive(name: str, db: Session = Depends(get_db)) -> OkResponse:
+def delete_backup_archive(name: str, db: Session = Depends(get_db, scope="function")) -> OkResponse:
     try:
         BackupService(db).delete_archive(name)
     except ValueError as exc:
@@ -81,7 +81,7 @@ def get_restore_status() -> BackupRestoreStatusResponse:
 
 
 @router.post("/restore", response_model=BackupRunStartResponse, summary="Backup wiederherstellen")
-def restore_backup(payload: BackupRestoreRequest, db: Session = Depends(get_db)) -> BackupRunStartResponse:
+def restore_backup(payload: BackupRestoreRequest, db: Session = Depends(get_db, scope="function")) -> BackupRunStartResponse:
     status = BackupService(db).get_status()
     if status.get("is_running"):
         return BackupRunStartResponse(started=False, message="Ein Backup läuft gerade – bitte später erneut versuchen.")

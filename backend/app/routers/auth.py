@@ -10,7 +10,7 @@ from app.core.auth import create_access_token, decode_access_token
 from app.core.config import get_settings
 from app.core.deps import get_current_user, token_secret
 from app.core.errors import NotFoundError, UnauthorizedError
-from app.core.security import _client_identity, enforce_persistent_rate_limit
+from app.core.security import client_ip, enforce_persistent_rate_limit
 from app.db import get_db
 from app.models.user import User
 from app.schemas.auth import (
@@ -29,7 +29,7 @@ from app.schemas.auth import (
 from app.schemas.common import ErrorResponse, OkResponse
 from app.schemas.users import UserCreateRequest
 from app.services.documents import DocumentService
-from app.services.users import UserService
+from app.services.users import AVATAR_MAX_BYTES, UserService
 from app.services.auth_sessions import AuthSessionService
 from app.models.auth_session import AuthSession
 
@@ -114,18 +114,25 @@ def login(
     payload: LoginRequest,
     request: Request,
     response: Response,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> TokenResponse:
     settings = get_settings()
     enforce_persistent_rate_limit(
         db,
-        "login",
-        _client_identity(request, payload.username),
-        limit=settings.auth_login_rate_limit,
+        "login_ip",
+        client_ip(request),
+        limit=max(50, settings.auth_login_rate_limit * 5),
         window_seconds=settings.auth_login_rate_window_seconds,
     )
 
     service = UserService(db)
+    target = service.get_by_username(payload.username) or service.get_by_email_login(payload.username)
+    identity = str(target.id) if target else " ".join(payload.username.split()).casefold()
+    enforce_persistent_rate_limit(
+        db, "login_account", identity,
+        limit=settings.auth_login_rate_limit,
+        window_seconds=settings.auth_login_rate_window_seconds,
+    )
     user = service.authenticate(payload.username, payload.password)
     if user is None:
         raise UnauthorizedError("Invalid username or password")
@@ -150,13 +157,13 @@ def register(
     payload: RegisterRequest,
     request: Request,
     response: Response,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> TokenResponse:
     settings = get_settings()
     enforce_persistent_rate_limit(
         db,
         "register",
-        _client_identity(request, payload.username),
+        client_ip(request),
         limit=settings.auth_login_rate_limit,
         window_seconds=settings.auth_login_rate_window_seconds,
     )
@@ -186,7 +193,7 @@ def refresh_session(
     request: Request,
     response: Response,
     payload: RefreshTokenRequest | None = None,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> TokenResponse:
     settings = get_settings()
     cookie_token = request.cookies.get(settings.auth_cookie_name, "")
@@ -229,7 +236,7 @@ def renew_session(
     request: Request,
     response: Response,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> TokenResponse:
     session, refresh_token = AuthSessionService(db).create(user, request)
     _set_refresh_cookie(response, refresh_token)
@@ -262,7 +269,7 @@ def file_token(user: User = Depends(get_current_user)) -> FileTokenResponse:
 def update_me(
     payload: ProfileUpdateRequest,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> UserRead:
     service = UserService(db)
     updated = service.update_profile(user, payload)
@@ -274,7 +281,7 @@ def update_me(
     summary="Serve the current user's profile picture",
     responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
 )
-def get_my_avatar(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> FileResponse:
+def get_my_avatar(user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> FileResponse:
     service = UserService(db)
     path = service.avatar_path(user)
     return FileResponse(path=path, media_type="image/webp", content_disposition_type="inline")
@@ -290,12 +297,12 @@ def get_my_avatar(user: User = Depends(get_current_user), db: Session = Depends(
         413: {"model": ErrorResponse},
     },
 )
-async def upload_my_avatar(
+def upload_my_avatar(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> UserRead:
-    raw = await file.read()
+    raw = file.file.read(AVATAR_MAX_BYTES + 1)
     service = UserService(db)
     updated = service.set_avatar(user, raw, file.content_type)
     return UserRead.model_validate(updated, from_attributes=True)
@@ -307,7 +314,7 @@ async def upload_my_avatar(
     summary="Remove the current user's profile picture",
     responses={401: {"model": ErrorResponse}},
 )
-def delete_my_avatar(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> UserRead:
+def delete_my_avatar(user: User = Depends(get_current_user), db: Session = Depends(get_db, scope="function")) -> UserRead:
     service = UserService(db)
     updated = service.clear_avatar(user)
     return UserRead.model_validate(updated, from_attributes=True)
@@ -322,7 +329,7 @@ def delete_my_avatar(user: User = Depends(get_current_user), db: Session = Depen
 def change_password(
     payload: ChangePasswordRequest,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> OkResponse:
     service = UserService(db)
     service.change_password(user, payload.current_password, payload.new_password)
@@ -337,7 +344,7 @@ def change_password(
 )
 def my_storage(
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> StorageUsageResponse:
     usage = DocumentService(db, user.id).storage_usage()
     return StorageUsageResponse.model_validate(usage)
@@ -350,7 +357,7 @@ def my_storage(
 )
 def my_export(
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> FileResponse:
     tmp_path, archive_name, skipped = DocumentService(db, user.id).build_personal_export()
     return FileResponse(
@@ -377,7 +384,7 @@ def delete_me(
     payload: DeleteAccountRequest,
     response: Response,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> OkResponse:
     UserService(db).delete_self(user, payload.password)
     _clear_refresh_cookie(response)
@@ -406,7 +413,7 @@ def _current_session_id(request: Request) -> uuid.UUID | None:
 def list_sessions(
     request: Request,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> list[SessionRead]:
     current_id = _current_session_id(request)
     sessions = AuthSessionService(db).list_active(user)
@@ -432,7 +439,7 @@ def list_sessions(
 def revoke_session(
     session_id: uuid.UUID,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> OkResponse:
     revoked = AuthSessionService(db).revoke_for_user(user, session_id)
     if not revoked:
@@ -449,7 +456,7 @@ def revoke_session(
 def revoke_other_sessions(
     request: Request,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> OkResponse:
     AuthSessionService(db).revoke_others(user, _current_session_id(request))
     return OkResponse(ok=True)
@@ -464,7 +471,7 @@ def logout(
     request: Request,
     response: Response,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> OkResponse:
     settings = get_settings()
     service = AuthSessionService(db)

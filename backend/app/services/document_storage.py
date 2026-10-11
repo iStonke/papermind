@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
+from contextlib import closing
 import os
 import re
+import shutil
 import uuid
 from pathlib import Path
 
@@ -31,6 +34,10 @@ class DocumentStorageService:
         if self.storage_root != candidate and self.storage_root not in candidate.parents:
             raise StorageError("Invalid storage path")
         return candidate
+
+    def cleanup_document_directory(self, document_id: uuid.UUID) -> None:
+        directory = self.resolve_path(str(uuid.UUID(str(document_id))))
+        shutil.rmtree(directory, ignore_errors=True)
 
     @staticmethod
     def relative_file_key(document_id: uuid.UUID, filename: str) -> str:
@@ -105,7 +112,13 @@ class DocumentStorageService:
             raise StorageError("Failed to write PDF into storage", details=str(exc)) from exc
 
     @staticmethod
-    def reorder_pdf_pages(path: Path, order: list[int]) -> int:
+    def reorder_pdf_pages(path: Path, order: list[int], *, destination: Path | None = None) -> int:
+        from app.services.pdf_tasks import run_pdf_task
+        return run_pdf_task("reorder", storage_path=str(path.parent), path=str(path),
+                            order=order, destination=str(destination or path))
+
+    @staticmethod
+    def _reorder_pdf_pages(path: Path, order: list[int], *, destination: Path | None = None) -> int:
         """Schreibt ``path`` mit den Seiten in der durch ``order`` gegebenen neuen
         Reihenfolge neu und gibt die neue Bytegröße zurück.
 
@@ -128,25 +141,43 @@ class DocumentStorageService:
         for old_page in order:
             writer.add_page(reader.pages[old_page - 1])
 
-        temporary = path.with_name(f"{path.name}.reordering")
+        target = destination or path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.reordering")
         try:
             with temporary.open("wb") as handle:
                 writer.write(handle)
-            os.replace(temporary, path)
+            os.replace(temporary, target)
         except OSError as exc:
             temporary.unlink(missing_ok=True)
             raise StorageError("Failed to write reordered PDF into storage", details=str(exc)) from exc
-        return path.stat().st_size
+        return target.stat().st_size
 
-    def create_thumbnail(self, document_id: uuid.UUID, original_path: Path) -> tuple[str, int, str] | None:
-        key = self.relative_file_key(document_id, "thumbnail.png")
-        target = self.resolve_path(key)
-        temporary = target.with_name("thumbnail.png.generating")
+    def create_thumbnail(self, document_id: uuid.UUID, original_path: Path, *, filename: str = "thumbnail.png") -> tuple[str, int, str] | None:
+        from app.services.pdf_tasks import run_pdf_task
         try:
-            pdf = pdfium.PdfDocument(str(original_path))
-            if len(pdf) < 1:
-                return None
-            image = pdf[0].render(scale=0.8).to_pil()
+            result = run_pdf_task("thumbnail", storage_path=str(self.storage_root),
+                                  document_id=str(document_id), path=str(original_path), filename=filename)
+            return tuple(result) if result else None
+        except Exception:
+            logger.warning("isolated thumbnail failed document_id=%s", document_id)
+            return None
+
+    def _create_thumbnail(self, document_id: uuid.UUID, original_path: Path, *, filename: str = "thumbnail.png") -> tuple[str, int, str] | None:
+        key = self.relative_file_key(document_id, filename)
+        target = self.resolve_path(key)
+        temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.generating")
+        try:
+            with closing(pdfium.PdfDocument(str(original_path))) as pdf:
+                if len(pdf) < 1:
+                    return None
+                with closing(pdf[0]) as page:
+                    width, height = page.get_size()
+                    if not all(math.isfinite(value) and value > 0 for value in (width, height)):
+                        return None
+                    scale = min(0.8, 320 / max(width, height))
+                    with closing(page.render(scale=scale)) as bitmap:
+                        image = bitmap.to_pil().copy()
             image.thumbnail((320, 320))
             target.parent.mkdir(parents=True, exist_ok=True)
             image.save(temporary, format="PNG", optimize=True)
@@ -158,13 +189,18 @@ class DocumentStorageService:
             return None
 
     def extract_quick_text_sample(self, pdf_path: Path) -> tuple[str, int, int, int]:
+        from app.services.pdf_tasks import run_pdf_task
+        return tuple(run_pdf_task("quick_text", storage_path=str(self.storage_root),
+                                 path=str(pdf_path), text_check_pages=self.text_check_pages))
+
+    def _extract_quick_text_sample(self, pdf_path: Path) -> tuple[str, int, int, int]:
         reader = PdfReader(str(pdf_path))
         total_pages = len(reader.pages)
         pages_to_scan = min(total_pages, self.text_check_pages)
         fragments: list[str] = []
         non_whitespace_chars = 0
         for index in range(pages_to_scan):
-            text = sanitize_text_for_db(reader.pages[index].extract_text() or "").strip()
+            text = sanitize_text_for_db(reader.pages[index].extract_text() or "").strip()[:60000]
             if text:
                 fragments.append(text)
                 non_whitespace_chars += len(re.sub(r"\s+", "", text))

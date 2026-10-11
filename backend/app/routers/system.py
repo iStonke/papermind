@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/system", tags=["System"], dependencies=[Depends(
     response_model=SystemStatus,
     summary="Hardware-/Systemstatus des Hosts (Raspberry Pi)",
 )
-async def get_system_status(db: Session = Depends(get_db)) -> SystemStatus:
+async def get_system_status(db: Session = Depends(get_db, scope="function")) -> SystemStatus:
     return await service.collect_status(db)
 
 
@@ -32,7 +32,7 @@ async def get_system_status(db: Session = Depends(get_db)) -> SystemStatus:
     response_model=ServiceStatusResponse,
     summary="Status der PaperMind-Dienste",
 )
-async def get_service_status(db: Session = Depends(get_db)) -> ServiceStatusResponse:
+async def get_service_status(db: Session = Depends(get_db, scope="function")) -> ServiceStatusResponse:
     return await service.collect_service_status(db)
 
 
@@ -41,7 +41,7 @@ async def get_service_status(db: Session = Depends(get_db)) -> ServiceStatusResp
     response_model=ServiceActionResponse,
     summary="Dienstaktion ausführen",
 )
-async def post_service_action(service_key: str, action: str, db: Session = Depends(get_db)) -> ServiceActionResponse:
+async def post_service_action(service_key: str, action: str, db: Session = Depends(get_db, scope="function")) -> ServiceActionResponse:
     return await service.request_service_action(db, service_key, action)
 
 

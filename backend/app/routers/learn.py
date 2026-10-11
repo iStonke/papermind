@@ -44,7 +44,7 @@ def _service(db: Session, user: User) -> LearnService:
 
 # --- Kurse -----------------------------------------------------------------
 @router.get("/courses", response_model=LearnCourseListResponse, summary="List courses")
-def list_courses(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> LearnCourseListResponse:
+def list_courses(db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> LearnCourseListResponse:
     return LearnCourseListResponse(items=_service(db, user).list_courses())
 
 
@@ -55,7 +55,7 @@ def list_courses(db: Session = Depends(get_db), user: User = Depends(get_current
     summary="Create a course",
     responses={422: {"model": ErrorResponse}},
 )
-def create_course(payload: LearnCourseCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> LearnCourseRead:
+def create_course(payload: LearnCourseCreate, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> LearnCourseRead:
     return LearnCourseRead.model_validate(_service(db, user).create_course(payload), from_attributes=True)
 
 
@@ -66,7 +66,7 @@ def create_course(payload: LearnCourseCreate, db: Session = Depends(get_db), use
     responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
 def update_course(
-    course_id: uuid.UUID, payload: LearnCourseUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    course_id: uuid.UUID, payload: LearnCourseUpdate, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)
 ) -> LearnCourseRead:
     return LearnCourseRead.model_validate(_service(db, user).update_course(course_id, payload), from_attributes=True)
 
@@ -77,7 +77,7 @@ def update_course(
     summary="Delete a course",
     responses={404: {"model": ErrorResponse}},
 )
-def delete_course(course_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> OkResponse:
+def delete_course(course_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> OkResponse:
     _service(db, user).delete_course(course_id)
     return OkResponse(ok=True)
 
@@ -88,7 +88,7 @@ def delete_course(course_id: uuid.UUID, db: Session = Depends(get_db), user: Use
     summary="Course board (sessions with their sheets) – Artboard 1a",
     responses={404: {"model": ErrorResponse}},
 )
-def get_board(course_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> LearnBoardResponse:
+def get_board(course_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> LearnBoardResponse:
     return _service(db, user).get_board(course_id)
 
 
@@ -99,7 +99,7 @@ def get_board(course_id: uuid.UUID, db: Session = Depends(get_db), user: User = 
     summary="List sessions of a course",
     responses={404: {"model": ErrorResponse}},
 )
-def list_sessions(course_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> LearnSessionListResponse:
+def list_sessions(course_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> LearnSessionListResponse:
     return LearnSessionListResponse(items=_service(db, user).list_sessions(course_id))
 
 
@@ -111,7 +111,7 @@ def list_sessions(course_id: uuid.UUID, db: Session = Depends(get_db), user: Use
     responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
 def create_session(
-    course_id: uuid.UUID, payload: LearnSessionCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    course_id: uuid.UUID, payload: LearnSessionCreate, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)
 ) -> LearnSessionRead:
     return LearnSessionRead.model_validate(_service(db, user).create_session(course_id, payload), from_attributes=True)
 
@@ -123,7 +123,7 @@ def create_session(
     responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
 def update_session(
-    session_id: uuid.UUID, payload: LearnSessionUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    session_id: uuid.UUID, payload: LearnSessionUpdate, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)
 ) -> LearnSessionRead:
     return LearnSessionRead.model_validate(_service(db, user).update_session(session_id, payload), from_attributes=True)
 
@@ -134,7 +134,7 @@ def update_session(
     summary="Delete a session",
     responses={404: {"model": ErrorResponse}},
 )
-def delete_session(session_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> OkResponse:
+def delete_session(session_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> OkResponse:
     _service(db, user).delete_session(session_id)
     return OkResponse(ok=True)
 
@@ -144,7 +144,7 @@ def delete_session(session_id: uuid.UUID, db: Session = Depends(get_db), user: U
 def list_sheets(
     course_id: uuid.UUID | None = Query(default=None),
     session_id: uuid.UUID | None = Query(default=None),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> LearnSheetListResponse:
     return LearnSheetListResponse(items=_service(db, user).list_sheets(course_id=course_id, session_id=session_id))
@@ -157,7 +157,7 @@ def list_sheets(
     summary="Create a sheet",
     responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
-def create_sheet(payload: LearnSheetCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> LearnSheetRead:
+def create_sheet(payload: LearnSheetCreate, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> LearnSheetRead:
     return LearnSheetRead.model_validate(_service(db, user).create_sheet(payload), from_attributes=True)
 
 
@@ -168,7 +168,7 @@ def create_sheet(payload: LearnSheetCreate, db: Session = Depends(get_db), user:
     responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
 def update_sheet(
-    sheet_id: uuid.UUID, payload: LearnSheetUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    sheet_id: uuid.UUID, payload: LearnSheetUpdate, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)
 ) -> LearnSheetRead:
     return LearnSheetRead.model_validate(_service(db, user).update_sheet(sheet_id, payload), from_attributes=True)
 
@@ -179,7 +179,7 @@ def update_sheet(
     summary="Delete a sheet",
     responses={404: {"model": ErrorResponse}},
 )
-def delete_sheet(sheet_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> OkResponse:
+def delete_sheet(sheet_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> OkResponse:
     _service(db, user).delete_sheet(sheet_id)
     return OkResponse(ok=True)
 
@@ -191,7 +191,7 @@ def delete_sheet(sheet_id: uuid.UUID, db: Session = Depends(get_db), user: User 
     summary="List cards of a sheet",
     responses={404: {"model": ErrorResponse}},
 )
-def list_cards(sheet_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> LearnCardListResponse:
+def list_cards(sheet_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> LearnCardListResponse:
     return LearnCardListResponse(items=_service(db, user).list_cards(sheet_id))
 
 
@@ -203,7 +203,7 @@ def list_cards(sheet_id: uuid.UUID, db: Session = Depends(get_db), user: User = 
     responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
 def create_card(
-    sheet_id: uuid.UUID, payload: LearnCardCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    sheet_id: uuid.UUID, payload: LearnCardCreate, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)
 ) -> LearnCardRead:
     return LearnCardRead.model_validate(_service(db, user).create_card(sheet_id, payload), from_attributes=True)
 
@@ -215,7 +215,7 @@ def create_card(
     responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
 def update_card(
-    card_id: uuid.UUID, payload: LearnCardUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    card_id: uuid.UUID, payload: LearnCardUpdate, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)
 ) -> LearnCardRead:
     return LearnCardRead.model_validate(_service(db, user).update_card(card_id, payload), from_attributes=True)
 
@@ -227,7 +227,7 @@ def update_card(
     responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
 def review_card(
-    card_id: uuid.UUID, payload: LearnCardReview, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    card_id: uuid.UUID, payload: LearnCardReview, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)
 ) -> LearnCardRead:
     return LearnCardRead.model_validate(_service(db, user).review_card(card_id, payload.status), from_attributes=True)
 
@@ -238,7 +238,7 @@ def review_card(
     summary="Delete a card",
     responses={404: {"model": ErrorResponse}},
 )
-def delete_card(card_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> OkResponse:
+def delete_card(card_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> OkResponse:
     _service(db, user).delete_card(card_id)
     return OkResponse(ok=True)
 
@@ -253,7 +253,7 @@ def delete_card(card_id: uuid.UUID, db: Session = Depends(get_db), user: User = 
 def list_runs(
     course_id: uuid.UUID,
     limit: int = Query(default=20, ge=1, le=100),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> LearnRunListResponse:
     return LearnRunListResponse(items=_service(db, user).list_runs(course_id, limit=limit))
@@ -269,7 +269,7 @@ def list_runs(
 def create_run(
     course_id: uuid.UUID,
     payload: LearnRunCreate,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> LearnRunRead:
     return _service(db, user).create_run(course_id, payload)
@@ -284,7 +284,7 @@ def create_run(
 def update_run(
     run_id: uuid.UUID,
     payload: LearnRunUpdate,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> LearnRunRead:
     return _service(db, user).update_run(run_id, payload)
@@ -296,7 +296,7 @@ def update_run(
     summary="Delete a saved learning run",
     responses={404: {"model": ErrorResponse}},
 )
-def delete_run(run_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> OkResponse:
+def delete_run(run_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> OkResponse:
     _service(db, user).delete_run(run_id)
     return OkResponse(ok=True)
 
@@ -310,7 +310,7 @@ def delete_run(run_id: uuid.UUID, db: Session = Depends(get_db), user: User = De
 def list_markers(
     note_id: uuid.UUID | None = Query(default=None),
     open: bool = Query(default=False, description="Only markers without a card yet"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> LearnMarkerListResponse:
     return LearnMarkerListResponse(items=_service(db, user).list_markers(note_id=note_id, open_only=open))
@@ -324,6 +324,6 @@ def list_markers(
     responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
 def promote_marker(
-    payload: LearnMarkerPromote, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    payload: LearnMarkerPromote, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)
 ) -> LearnCardRead:
     return LearnCardRead.model_validate(_service(db, user).promote_marker(payload), from_attributes=True)

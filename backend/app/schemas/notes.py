@@ -340,6 +340,9 @@ class NoteListItem(ORMModel):
 
 class NoteListResponse(BaseModel):
     items: list[NoteListItem]
+    has_more: bool = False
+    limit: int = 500
+    offset: int = 0
 
 
 class NoteRead(ORMModel):

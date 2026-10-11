@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/documents", tags=["Document Retention"])
 )
 def get_document_retention(
     document_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DocumentRetentionRead:
     return DocumentRetentionService(db, user.id).get_retention(document_id)
@@ -36,7 +36,7 @@ def get_document_retention(
 def put_document_retention(
     document_id: uuid.UUID,
     payload: DocumentRetentionUpdateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DocumentRetentionRead:
     return DocumentRetentionService(db, user.id).update_retention(document_id, payload)
@@ -50,7 +50,7 @@ def put_document_retention(
 )
 def suggest_document_retention(
     document_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DocumentRetentionRead:
     return DocumentRetentionService(db, user.id).suggest_retention(document_id)
@@ -64,7 +64,7 @@ def suggest_document_retention(
 )
 def accept_document_retention_suggestion(
     document_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DocumentRetentionRead:
     return DocumentRetentionService(db, user.id).accept_suggestion(document_id)
@@ -78,7 +78,7 @@ def accept_document_retention_suggestion(
 )
 def discard_document_retention_suggestion(
     document_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> DocumentRetentionRead:
     return DocumentRetentionService(db, user.id).discard_suggestion(document_id)

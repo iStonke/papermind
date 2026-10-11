@@ -78,7 +78,10 @@ def install_exception_handlers(app: FastAPI) -> None:
             content=_error_payload(
                 "VALIDATION_ERROR",
                 "Request validation failed",
-                exc.errors(),
+                # Pydantic's ctx may contain exception objects, and input may
+                # contain passwords/API keys. Return only safe diagnostics.
+                [{"type": item["type"], "loc": list(item["loc"]), "msg": item["msg"]}
+                 for item in exc.errors()],
             ),
         )
 
@@ -89,6 +92,7 @@ def install_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=exc.status_code,
             content=_error_payload("HTTP_ERROR", message, details),
+            headers=exc.headers,
         )
 
     @app.exception_handler(Exception)

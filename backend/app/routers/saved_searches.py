@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api/saved-searches", tags=["Smart Folders"])
     response_model=SavedSearchListResponse,
     summary="List smart folders",
 )
-def list_saved_searches(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> SavedSearchListResponse:
+def list_saved_searches(db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> SavedSearchListResponse:
     service = SavedSearchService(db, user.id)
     items = service.list_saved_searches()
     return SavedSearchListResponse(
@@ -38,7 +38,7 @@ def list_saved_searches(db: Session = Depends(get_db), user: User = Depends(get_
     summary="Get smart folder details",
     responses={404: {"model": ErrorResponse}},
 )
-def get_saved_search(saved_search_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> SavedSearchRead:
+def get_saved_search(saved_search_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> SavedSearchRead:
     service = SavedSearchService(db, user.id)
     saved_search = service.get_saved_search_or_404(saved_search_id)
     return SavedSearchRead.model_validate(saved_search, from_attributes=True)
@@ -51,7 +51,7 @@ def get_saved_search(saved_search_id: uuid.UUID, db: Session = Depends(get_db), 
     summary="Create smart folder",
     responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
-def create_saved_search(payload: SavedSearchCreateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> SavedSearchRead:
+def create_saved_search(payload: SavedSearchCreateRequest, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> SavedSearchRead:
     service = SavedSearchService(db, user.id)
     saved_search = service.create_saved_search(payload)
     return SavedSearchRead.model_validate(saved_search, from_attributes=True)
@@ -66,7 +66,7 @@ def create_saved_search(payload: SavedSearchCreateRequest, db: Session = Depends
 def update_saved_search(
     saved_search_id: uuid.UUID,
     payload: SavedSearchUpdateRequest,
-    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
 ) -> SavedSearchRead:
     service = SavedSearchService(db, user.id)
     saved_search = service.update_saved_search(saved_search_id, payload)
@@ -79,7 +79,7 @@ def update_saved_search(
     summary="Delete smart folder",
     responses={404: {"model": ErrorResponse}},
 )
-def delete_saved_search(saved_search_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> OkResponse:
+def delete_saved_search(saved_search_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> OkResponse:
     service = SavedSearchService(db, user.id)
     service.delete_saved_search(saved_search_id)
     return OkResponse(ok=True)

@@ -21,7 +21,7 @@ class SearchEventCreate(BaseModel):
 )
 def create_search_event(
     payload: SearchEventCreate,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> None:
     SearchEventService(db, user.id).record(payload.term)

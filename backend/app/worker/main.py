@@ -2178,6 +2178,7 @@ def run() -> None:
     controlled_futures = {}
     audio_future: Future | None = None
     last_trash_cleanup_at = 0.0
+    last_user_cleanup_at = 0.0
     last_ocr_backfill_at = 0.0
     last_backup_check_at = 0.0
     last_wiki_lint_at = 0.0
@@ -2226,6 +2227,11 @@ def run() -> None:
                     else:
                         audio_future = audio_executor.submit(_run_note_audio_job, audio_job, audio_admission)
             now_monotonic = time.monotonic()
+            if now_monotonic - last_user_cleanup_at >= 60:
+                last_user_cleanup_at = now_monotonic
+                from app.services.storage_cleanup import retry_user_cleanups
+                with SessionLocal() as cleanup_db:
+                    retry_user_cleanups(cleanup_db)
             _touch_worker_health(state="idle")
             if now_monotonic - last_job_reclaim_at >= JOB_RECLAIM_INTERVAL_SECONDS:
                 last_job_reclaim_at = now_monotonic

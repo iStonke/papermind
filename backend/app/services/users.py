@@ -29,7 +29,9 @@ logger = logging.getLogger("papermind.users")
 AVATAR_MAX_BYTES = 5 * 1024 * 1024
 AVATAR_ALLOWED_CONTENT_TYPES = {"image/png", "image/jpeg", "image/webp"}
 AVATAR_SIZE = 256
+AVATAR_MAX_PIXELS = 20_000_000
 AVATAR_DIR = "avatars"
+_DUMMY_PASSWORD_HASH = "scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
 
 def process_avatar_image(raw: bytes) -> bytes:
@@ -41,6 +43,8 @@ def process_avatar_image(raw: bytes) -> bytes:
     """
     try:
         with Image.open(io.BytesIO(raw)) as img:
+            if img.width < 1 or img.height < 1 or img.width * img.height > AVATAR_MAX_PIXELS:
+                raise BadRequestError("Profile picture exceeds the maximum image dimensions")
             img = ImageOps.exif_transpose(img)
             img = img.convert("RGB")
             # Center-crop to a square using the shorter edge.
@@ -53,7 +57,7 @@ def process_avatar_image(raw: bytes) -> bytes:
             out = io.BytesIO()
             img.save(out, format="WEBP", quality=85, method=6)
             return out.getvalue()
-    except (UnidentifiedImageError, OSError, ValueError) as exc:
+    except (UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError) as exc:
         raise BadRequestError("Uploaded file is not a valid image") from exc
 
 
@@ -125,7 +129,7 @@ class UserService:
         user = self.get_by_username(username) or self.get_by_email_login(username)
         if user is None or not user.is_active:
             # Still run a hash to reduce username-enumeration timing differences.
-            verify_password(password, "scrypt$16384$8$1$x$x")
+            verify_password(password, _DUMMY_PASSWORD_HASH)
             return None
         if not verify_password(password, user.password_hash):
             return None
@@ -241,6 +245,8 @@ class UserService:
 
     def set_avatar(self, user: User, raw: bytes, content_type: str | None) -> User:
         """Store a normalized profile picture for ``user``."""
+        from app.services.storage_owner import lock_storage_owner
+        lock_storage_owner(self.db, user.id)
         if content_type and content_type.split(";", 1)[0].strip().lower() not in AVATAR_ALLOWED_CONTENT_TYPES:
             raise BadRequestError(
                 "Unsupported image type. Allowed: PNG, JPEG, WEBP",
@@ -312,6 +318,8 @@ class UserService:
 
     def _purge_user(self, user: User) -> None:
         user_id = user.id
+        # Serialize with uploads holding a key-share lock on the owner row.
+        self.db.execute(select(User).where(User.id == user_id).with_for_update())
         # Datei-Keys aller Dokumente des Benutzers VOR dem Löschen einsammeln.
         # Über eine System-Verbindung (umgeht RLS), da der löschende Admin die
         # Daten des Zielbenutzers per RLS sonst nicht sähe. Die DB-Zeilen werden
@@ -320,10 +328,13 @@ class UserService:
         from app.db.session import SessionLocal
         from app.models.document import Document
         from app.models.document_file import DocumentFile
-        from app.services.documents import DocumentService
+        from app.models.import_inbox import ImportInboxItem
+        from app.services.storage_cleanup import schedule_user_cleanup, run_user_cleanup
 
         file_keys: set[str] = set()
         with SessionLocal() as sys_db:
+            document_ids = sys_db.scalars(select(Document.id).where(Document.owner_id == user_id)).all()
+            source_ids = sys_db.scalars(select(ImportInboxItem.source_file_id).where(ImportInboxItem.owner_id == user_id)).all()
             file_rows = sys_db.execute(
                 select(DocumentFile.file_key)
                 .join(Document, Document.id == DocumentFile.document_id)
@@ -335,16 +346,18 @@ class UserService:
             ).scalars().all()
             file_keys.update(key for key in storage_rows if key)
 
+        # Write the durable request before committing deletion. The cleanup
+        # worker checks that the account is actually absent before touching files.
+        task_path = schedule_user_cleanup(user_id, document_ids=document_ids, file_keys=file_keys, source_ids=source_ids)
+
         self.db.delete(user)
         self.db.commit()
 
-        # Dateien best effort entfernen (Pfad-Resolver/-Cleanup aus DocumentService).
-        cleaner = DocumentService(self.db)
-        for key in file_keys:
-            try:
-                cleaner._cleanup_file(cleaner._resolve_storage_path(key))
-            except Exception:  # noqa: BLE001 - Storage-Cleanup darf nie blockieren
-                logger.warning("could not remove storage file for deleted user key=%s", key)
+        try:
+            with SessionLocal() as sys_db:
+                run_user_cleanup(sys_db, task_path)
+        except Exception:
+            logger.exception("user storage cleanup queued for retry user_id=%s", user_id)
 
         logger.info(
             "user deleted id=%s username=%s storage_files_removed=%s",

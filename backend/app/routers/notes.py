@@ -58,7 +58,7 @@ router = APIRouter(prefix="/api/notes", tags=["Notes"])
 
 
 @router.post("/import", response_model=NoteRead, status_code=201)
-def import_note_archive(file: UploadFile = File(...), db: Session = Depends(get_db),
+def import_note_archive(file: UploadFile = File(...), db: Session = Depends(get_db, scope="function"),
                         user: User = Depends(get_current_user)):
     from pydantic import ValidationError
     from app.core.errors import BadRequestError, PayloadTooLargeError
@@ -77,7 +77,7 @@ def import_note_archive(file: UploadFile = File(...), db: Session = Depends(get_
 
 
 @router.get("/{note_id}/export")
-def export_note_archive(note_id: uuid.UUID, db: Session = Depends(get_db),
+def export_note_archive(note_id: uuid.UUID, db: Session = Depends(get_db, scope="function"),
                         user: User = Depends(get_current_user)):
     from fastapi import Response
     from app.core.errors import PayloadTooLargeError
@@ -98,7 +98,7 @@ def export_note_archive(note_id: uuid.UUID, db: Session = Depends(get_db),
 )
 def generate_note_text(
     payload: NoteTextGenerationRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> StreamingResponse:
     service = NoteAIService(db, user.id)
@@ -122,7 +122,7 @@ def generate_note_text(
 )
 def review_note_text(
     payload: NoteReviewRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> StreamingResponse:
     service = NoteAIService(db, user.id)
@@ -141,6 +141,8 @@ def review_note_text(
 
 @router.get("", response_model=NoteListResponse, summary="List notes")
 def list_notes(
+    limit: int = Query(default=500, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     in_trash: bool = Query(default=False, description="Show notes in trash"),
     document_id: uuid.UUID | None = Query(default=None, description="Only notes linked to this document"),
     dossier_id: uuid.UUID | None = Query(default=None, description="Only notes referencing this dossier"),
@@ -153,11 +155,10 @@ def list_notes(
     templates: bool = Query(default=False, description="List templates instead of regular notes"),
     q: str | None = Query(default=None, max_length=256, description="Search note title and body"),
     search_scope: NoteSearchScope = Query(default="all", description="Search title, body, or both"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteListResponse:
-    return NoteListResponse(
-        items=NoteService(db, user.id).list_notes(
+    items = NoteService(db, user.id).list_notes(
             in_trash=in_trash,
             document_id=document_id,
             dossier_id=dossier_id,
@@ -168,8 +169,9 @@ def list_notes(
             templates=templates,
             q=q,
             search_scope=search_scope,
+            limit=limit + 1, offset=offset,
         )
-    )
+    return NoteListResponse(items=items[:limit], has_more=len(items) > limit, limit=limit, offset=offset)
 
 
 @router.post(
@@ -181,7 +183,7 @@ def list_notes(
 )
 def create_note(
     payload: NoteCreateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteRead:
     return NoteRead.model_validate(NoteService(db, user.id).create_note(payload))
@@ -194,7 +196,7 @@ def create_note(
 )
 def bulk_notes(
     payload: NoteBulkRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteBulkResult:
     affected = NoteService(db, user.id).bulk_action(payload.action, payload.ids)
@@ -205,7 +207,7 @@ def bulk_notes(
 # Bewusst VOR den ``/{note_id}``-Routen deklariert (wie Notizbücher).
 @router.get("/collections", response_model=CollectionListResponse, summary="List collections")
 def list_collections(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> CollectionListResponse:
     return CollectionListResponse(items=NoteCollectionService(db, user.id).list_collections())
@@ -220,7 +222,7 @@ def list_collections(
 )
 def create_collection(
     payload: CollectionCreateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> CollectionRead:
     return NoteCollectionService(db, user.id).create_collection(payload)
@@ -233,7 +235,7 @@ def create_collection(
 )
 def move_notes_to_collection(
     payload: CollectionMoveRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteBulkResult:
     affected = NoteCollectionService(db, user.id).move_notes(payload.ids, payload.collection_id)
@@ -247,7 +249,7 @@ def move_notes_to_collection(
 )
 def reorder_collections(
     payload: CollectionReorderRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> CollectionListResponse:
     return CollectionListResponse(items=NoteCollectionService(db, user.id).reorder_collections(payload.ids))
@@ -262,7 +264,7 @@ def reorder_collections(
 def update_collection(
     collection_id: uuid.UUID,
     payload: CollectionUpdateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> CollectionRead:
     return NoteCollectionService(db, user.id).update_collection(collection_id, payload)
@@ -279,7 +281,7 @@ def delete_collection(
     reassign_to: uuid.UUID | None = Query(
         default=None, description="Target collection for notes/notebooks of a non-empty collection"
     ),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> OkResponse:
     NoteCollectionService(db, user.id).delete_collection(collection_id, reassign_to)
@@ -294,7 +296,7 @@ def list_notebooks(
     collection_id: uuid.UUID | None = Query(
         default=None, description="Only notebooks in this collection"
     ),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NotebookListResponse:
     return NotebookListResponse(items=NoteNotebookService(db, user.id).list_notebooks(collection_id))
@@ -309,7 +311,7 @@ def list_notebooks(
 )
 def create_notebook(
     payload: NotebookCreateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NotebookRead:
     return NoteNotebookService(db, user.id).create_notebook(payload)
@@ -322,7 +324,7 @@ def create_notebook(
 )
 def move_notes_to_notebook(
     payload: NotebookMoveRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteBulkResult:
     affected = NoteNotebookService(db, user.id).move_notes(payload.ids, payload.notebook_id)
@@ -336,7 +338,7 @@ def move_notes_to_notebook(
 )
 def reorder_notebooks(
     payload: NotebookReorderRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NotebookListResponse:
     return NotebookListResponse(items=NoteNotebookService(db, user.id).reorder_notebooks(payload.ids))
@@ -351,7 +353,7 @@ def reorder_notebooks(
 def update_notebook(
     notebook_id: uuid.UUID,
     payload: NotebookUpdateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NotebookRead:
     return NoteNotebookService(db, user.id).update_notebook(notebook_id, payload)
@@ -365,7 +367,7 @@ def update_notebook(
 )
 def delete_notebook(
     notebook_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> OkResponse:
     NoteNotebookService(db, user.id).delete_notebook(notebook_id)
@@ -378,7 +380,7 @@ def delete_notebook(
     summary="List note templates",
 )
 def list_templates(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteListResponse:
     return NoteListResponse(items=NoteService(db, user.id).list_templates())
@@ -393,7 +395,7 @@ def list_templates(
     summary="List block templates (field-box presets)",
 )
 def list_block_templates(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteBlockTemplateListResponse:
     return NoteBlockTemplateListResponse(
@@ -409,7 +411,7 @@ def list_block_templates(
 )
 def create_block_template(
     payload: NoteBlockTemplateCreateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteBlockTemplateRead:
     template = NoteBlockTemplateService(db, user.id).create(payload)
@@ -424,7 +426,7 @@ def create_block_template(
 def update_block_template(
     template_id: uuid.UUID,
     payload: NoteBlockTemplateUpdateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteBlockTemplateRead:
     template = NoteBlockTemplateService(db, user.id).update(template_id, payload)
@@ -440,7 +442,7 @@ def update_block_template(
 )
 def delete_block_template(
     template_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> OkResponse:
     if not NoteBlockTemplateService(db, user.id).delete(template_id):
@@ -457,7 +459,7 @@ def delete_block_template(
 )
 def create_note_from_template(
     template_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteRead:
     note = NoteService(db, user.id).create_from_template(template_id)
@@ -476,7 +478,7 @@ def create_note_from_template(
 def save_note_as_template(
     note_id: uuid.UUID,
     payload: SaveAsTemplateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteRead:
     template = NoteService(db, user.id).save_as_template(note_id, payload.title)
@@ -494,7 +496,7 @@ def save_note_as_template(
 def list_note_revisions(
     note_id: uuid.UUID,
     limit: int = Query(default=50, ge=1, le=100),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteRevisionListResponse:
     return NoteService(db, user.id).list_revisions(note_id, limit=limit)
@@ -509,7 +511,7 @@ def list_note_revisions(
 def get_note_revision(
     note_id: uuid.UUID,
     revision_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteRevisionRead:
     return NoteRevisionRead.model_validate(NoteService(db, user.id).get_revision(note_id, revision_id))
@@ -524,7 +526,7 @@ def get_note_revision(
 def checkpoint_note_revision(
     note_id: uuid.UUID,
     payload: NoteRevisionCheckpointRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteRevisionRead:
     revision = NoteService(db, user.id).checkpoint_revision(note_id, payload.reason)
@@ -541,7 +543,7 @@ def restore_note_revision(
     note_id: uuid.UUID,
     revision_id: uuid.UUID,
     payload: NoteRevisionRestoreRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteRead:
     note = NoteService(db, user.id).restore_revision(
@@ -562,7 +564,7 @@ def restore_note_revision(
 def upload_note_image(
     note_id: uuid.UUID,
     file: UploadFile = File(..., description="JPEG, PNG or WebP image"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteImageRead:
     service = NoteImageService(db, user.id)
@@ -588,7 +590,7 @@ def upload_note_image(
 def get_note_image(
     note_id: uuid.UUID,
     image_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> FileResponse:
     image, path = NoteImageService(db, user.id).get_file(note_id, image_id)
@@ -612,7 +614,7 @@ def get_note_image(
 )
 def get_note(
     note_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteRead:
     note = NoteService(db, user.id).get_note(note_id)
@@ -629,7 +631,7 @@ def get_note(
 )
 def mark_note_opened(
     note_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteOpenedResponse:
     note = NoteService(db, user.id).mark_opened(note_id)
@@ -643,10 +645,13 @@ def mark_note_opened(
 )
 def note_backlinks(
     note_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    limit: int = Query(default=500, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteListResponse:
-    return NoteListResponse(items=NoteService(db, user.id).list_references("note", note_id))
+    items = NoteService(db, user.id).list_references("note", note_id, limit=limit + 1, offset=offset)
+    return NoteListResponse(items=items[:limit], has_more=len(items) > limit, limit=limit, offset=offset)
 
 
 @router.put(
@@ -658,7 +663,7 @@ def note_backlinks(
 def set_note_tags(
     note_id: uuid.UUID,
     payload: NoteTagsUpdateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteRead:
     note = NoteService(db, user.id).set_tags(note_id, tag_ids=payload.tag_ids, names=payload.tags)
@@ -675,7 +680,7 @@ def set_note_tags(
 )
 def trash_note(
     note_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteRead:
     note = NoteService(db, user.id).trash_note(note_id)
@@ -692,7 +697,7 @@ def trash_note(
 )
 def restore_note(
     note_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteRead:
     note = NoteService(db, user.id).restore_note(note_id)
@@ -710,7 +715,7 @@ def restore_note(
 def update_note(
     note_id: uuid.UUID,
     payload: NoteUpdateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteRead:
     note = NoteService(db, user.id).update_note(note_id, payload)
@@ -728,7 +733,7 @@ def update_note(
 def toggle_note_task(
     note_id: uuid.UUID,
     payload: NoteTaskToggleRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteRead:
     note = NoteService(db, user.id).set_task_checked(note_id, payload.position, payload.done)
@@ -747,7 +752,7 @@ def toggle_note_task(
     summary="Permanently delete all notes in trash",
 )
 def empty_notes_trash(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> dict[str, int | bool]:
     deleted_count = NoteService(db, user.id).empty_trash()
@@ -762,7 +767,7 @@ def empty_notes_trash(
 )
 def delete_note(
     note_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> OkResponse:
     if not NoteService(db, user.id).delete_note(note_id):
@@ -772,7 +777,7 @@ def delete_note(
 
 @router.post('/{note_id}/suggest-title', response_model=NoteTitleSuggestionRead)
 def suggest_note_title(note_id: uuid.UUID, payload: NoteTitleSuggestionRequest,
-                       db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+                       db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)):
     from app.services.note_title import NoteTitleService
     from app.services.note_ai import NoteAIProviderError
     try:

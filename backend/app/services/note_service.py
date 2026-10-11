@@ -4,10 +4,10 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.attributes import flag_modified
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only, with_expression
 
 from app.core.config import get_settings
 from app.core.errors import ConflictError, NotFoundError
@@ -53,6 +53,31 @@ _WS = re.compile(r"\s+")
 _PREVIEW_LEN = 200
 _NOTE_HISTORY_LIMIT = 100
 _AUTOSAVE_HISTORY_WINDOW = timedelta(minutes=5)
+
+
+def _list_load_options(query: str | None = None):
+    # body_text is normalized on save. Trimming the complete text here forces
+    # PostgreSQL to decode every character before it can return a small prefix.
+    text = func.coalesce(Note.body_text, "")
+    preview = func.left(text, _PREVIEW_LEN)
+    if query:
+        positions = [func.nullif(func.strpos(func.lower(text), term.lower()), 0) for term in query.split()]
+        first = func.least(*positions) if len(positions) > 1 else positions[0]
+        start = func.greatest(1, func.least(first - 64, func.length(text) - _PREVIEW_LEN + 1))
+        snippet = func.btrim(func.substr(text, start, _PREVIEW_LEN))
+        preview = case((first.is_not(None),
+            case((start > 1, "…"), else_="") + snippet
+            + case((start + _PREVIEW_LEN - 1 < func.length(text), "…"), else_="")), else_=preview)
+    return (
+        load_only(*(getattr(Note, field.key) for field in Note.__mapper__.column_attrs
+                    if field.key not in {"body_json", "body_text", "search_vector", "list_preview"})),
+        with_expression(Note.list_preview, preview),
+    )
+
+
+def _loaded_preview(note, query=None):
+    preview = getattr(note, "list_preview", None)
+    return preview if preview is not None else _search_preview(note.body_text or "", query)
 
 
 def _search_preview(body_text: str, query: str | None) -> str:
@@ -354,11 +379,13 @@ class NoteService:
         templates: bool = False,
         q: str | None = None,
         search_scope: NoteSearchScope = "all",
+        limit: int = 500,
+        offset: int = 0,
     ) -> list[NoteListItem]:
         if dossier_id is not None:
             # Dossiers werden ausschließlich über Wiki-Verweise (wikiLink) im
             # Notiztext referenziert; diese liegen denormalisiert in note_link.
-            return self.list_references("dossier", dossier_id)
+            return self.list_references("dossier", dossier_id, limit=limit, offset=offset)
 
         stmt = (
             select(Note)
@@ -427,7 +454,10 @@ class NoteService:
                 )
                 stmt = stmt.where(or_(Note.search_vector.op("@@")(ts_query), tag_match, notebook_match))
 
-        stmt = stmt.order_by((Note.deleted_at if in_trash else Note.updated_at).desc())
+        stmt = (stmt.options(*_list_load_options(normalized_query))
+                .execution_options(populate_existing=True)
+                .order_by((Note.deleted_at if in_trash else Note.updated_at).desc(), Note.id.desc())
+                .limit(max(1, min(limit, 501))).offset(max(0, offset)))
         rows = self.db.scalars(stmt).all()
         link_counts = self._link_counts([n.id for n in rows])
         return [
@@ -435,7 +465,7 @@ class NoteService:
                 id=n.id,
                 title=n.title,
                 title_is_generated=n.title_is_generated,
-                preview=_search_preview(n.body_text or "", normalized_query),
+                preview=_loaded_preview(n, normalized_query),
                 is_template=n.is_template,
                 is_deleted=n.is_deleted,
                 deleted_at=n.deleted_at,
@@ -627,6 +657,7 @@ class NoteService:
                 Note.is_deleted.is_(False),
                 Note.is_template.is_(True),
             )
+            .options(*_list_load_options()).execution_options(populate_existing=True)
             .order_by(Note.updated_at.desc())
         ).all()
         return [
@@ -634,7 +665,7 @@ class NoteService:
                 id=n.id,
                 title=n.title,
                 title_is_generated=n.title_is_generated,
-                preview=_search_preview(n.body_text or "", None),
+                preview=_loaded_preview(n),
                 is_template=True,
                 is_deleted=n.is_deleted,
                 deleted_at=n.deleted_at,
@@ -963,7 +994,7 @@ class NoteService:
         self.db.refresh(note)
         return note
 
-    def list_references(self, target_type: str, target_id: uuid.UUID) -> list[NoteListItem]:
+    def list_references(self, target_type: str, target_id: uuid.UUID, *, limit=500, offset=0) -> list[NoteListItem]:
         """Notizen (nicht gelöscht), die auf das Zielobjekt verweisen (Rückverweise)."""
         rows = self.db.scalars(
             select(Note)
@@ -975,14 +1006,16 @@ class NoteService:
                 NoteLink.target_type == target_type,
                 NoteLink.target_id == target_id,
             )
-            .order_by(Note.updated_at.desc())
+            .options(*_list_load_options()).execution_options(populate_existing=True)
+            .order_by(Note.updated_at.desc(), Note.id.desc())
+            .limit(max(1, min(limit, 501))).offset(max(0, offset))
         ).all()
         return [
             NoteListItem(
                 id=n.id,
                 title=n.title,
                 title_is_generated=n.title_is_generated,
-                preview=(n.body_text or "")[:_PREVIEW_LEN],
+                preview=_loaded_preview(n),
                 is_deleted=n.is_deleted,
                 deleted_at=n.deleted_at,
                 tags=_tag_refs(n),

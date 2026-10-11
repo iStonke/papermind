@@ -26,7 +26,7 @@ router = APIRouter(tags=["Annotations"])
 )
 def list_annotations(
     document_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> AnnotationListResponse:
     service = AnnotationService(db, user.id)
@@ -44,7 +44,7 @@ def list_annotations(
 def create_annotation(
     document_id: uuid.UUID,
     payload: AnnotationCreateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> AnnotationRead:
     service = AnnotationService(db, user.id)
@@ -60,7 +60,7 @@ def create_annotation(
 def update_annotation(
     annotation_id: uuid.UUID,
     payload: AnnotationUpdateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> AnnotationRead:
     service = AnnotationService(db, user.id)
@@ -75,7 +75,7 @@ def update_annotation(
 )
 def delete_annotation(
     annotation_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> OkResponse:
     service = AnnotationService(db, user.id)

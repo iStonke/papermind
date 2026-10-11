@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/settings", tags=["Settings"])
     summary="Get masked note-AI credential status",
 )
 def get_ai_credentials(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     _: User = Depends(get_current_user),
 ) -> AICredentialsStatus:
     try:
@@ -39,7 +39,7 @@ def get_ai_credentials(
 )
 def put_ai_credential(
     payload: AIProviderCredentialUpdate,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     _: User = Depends(require_admin),
 ) -> AICredentialsStatus:
     try:
@@ -57,7 +57,7 @@ def put_ai_credential(
 )
 def delete_ai_credential(
     provider: Literal["openai", "anthropic"],
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     _: User = Depends(require_admin),
 ) -> AICredentialsStatus:
     try:
@@ -72,7 +72,7 @@ def delete_ai_credential(
     summary="Get application settings (global + own UI preferences)",
     responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
-def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> AppSettingsRead:
+def get_settings(db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> AppSettingsRead:
     service = SettingsService(db, user.id)
     return service.get_settings()
 
@@ -85,7 +85,7 @@ def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current
 )
 def put_settings(
     payload: dict[str, Any] = Body(default_factory=dict),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> AppSettingsRead:
     service = SettingsService(db, user.id)
@@ -100,7 +100,7 @@ def put_settings(
 )
 def patch_settings(
     payload: dict[str, Any] = Body(default_factory=dict),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> AppSettingsRead:
     service = SettingsService(db, user.id)
@@ -113,6 +113,6 @@ def patch_settings(
     summary="Reset LLM prompts to system defaults (admin only)",
     responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
-def reset_prompts(db: Session = Depends(get_db), _: User = Depends(require_admin)) -> AppSettingsRead:
+def reset_prompts(db: Session = Depends(get_db, scope="function"), _: User = Depends(require_admin)) -> AppSettingsRead:
     service = SettingsService(db)
     return service.reset_prompts()

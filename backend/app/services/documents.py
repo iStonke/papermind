@@ -1,4 +1,5 @@
 import json
+import hashlib
 import logging
 import re
 import tempfile
@@ -542,104 +543,96 @@ class DocumentService:
         return updated
 
     def reorder_pages(self, document_id: uuid.UUID, order: list[int]) -> Document:
-        """Ordnet die Seiten eines Dokuments dauerhaft neu.
-
-        ``order`` ist eine 1-basierte Permutation der aktuellen Seitenzahlen
-        (``order[i]`` = alte Seite an neuer Position ``i+1``). Es werden alle
-        vorhandenen PDF-Rollen (``original``/``ocr``/``preview_pdf``) neu
-        geschrieben, das Thumbnail neu erzeugt, die Seitenzahlen der
-        Annotationen exakt mitgezogen und eine Neu-Indexierung angestoßen, damit
-        die Chunk-Seitenbereiche wieder stimmen.
-        """
-        document = self.get_document_or_404(document_id)
-
-        # Frühe, günstige Validierung gegen die bekannte Seitenzahl. Die genaue
-        # Prüfung gegen die tatsächliche PDF-Seitenzahl macht reorder_pdf_pages.
+        """Publish new PDF versions and page references in one DB transaction."""
+        from app.services.storage_owner import lock_storage_owner
+        lock_storage_owner(self.db, self.owner_id)
+        document = self.db.execute(
+            self._scope(select(Document).where(Document.id == document_id))
+            .options(selectinload(Document.files)).with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if document is None:
+            raise NotFoundError("Document not found")
         if document.page_count is not None and len(order) != document.page_count:
-            raise BadRequestError(
-                "Page order length does not match the document's page count",
-                details={"page_count": document.page_count, "order_length": len(order)},
-            )
-
-        # Identitätsreihenfolge: nichts zu tun.
+            raise BadRequestError("Page order length does not match the document's page count")
+        if sorted(order) != list(range(1, len(order) + 1)):
+            raise BadRequestError("Page order must be a permutation of the document's pages")
         if order == list(range(1, len(order) + 1)):
             return document
+        if self.db.scalar(select(Job.id).where(
+            Job.document_id == document_id, Job.type.in_(("OCR", "INDEX")),
+            Job.status.in_(("queued", "running")),
+        ).limit(1)) is not None:
+            raise ConflictError("Wait for OCR/indexing to finish before reordering pages")
 
-        # 1) Alle physisch vorhandenen PDF-Rollen umsortieren.
-        original_path: Path | None = None
-        for role in (DocumentFileRole.original, DocumentFileRole.ocr, DocumentFileRole.preview_pdf):
-            try:
-                file_record = self._get_file_record_by_role(document, role)
-            except NotFoundError:
-                continue
-            path = self._resolve_storage_path(file_record.file_key)
-            if not path.exists() or not path.is_file():
-                logger.warning(
-                    "reorder skipped missing file document_id=%s role=%s file_key=%s",
-                    document_id,
-                    role.value,
-                    file_record.file_key,
-                )
-                continue
-            new_size = self.storage.reorder_pdf_pages(path, order)
-            file_record.bytes = new_size
-            if role == DocumentFileRole.original:
-                original_path = path
-                document.file_size_bytes = new_size
-
-        # 2) Thumbnail aus der neuen ersten Seite neu erzeugen.
-        if original_path is not None:
-            thumbnail_result = self._create_thumbnail(document.id, original_path)
-            if thumbnail_result is not None:
-                thumbnail_key, thumbnail_size, thumbnail_mime = thumbnail_result
-                try:
-                    thumbnail_record = self._get_file_record_by_role(document, DocumentFileRole.thumbnail)
-                    thumbnail_record.file_key = thumbnail_key
-                    thumbnail_record.bytes = thumbnail_size
-                    thumbnail_record.mime_type = thumbnail_mime
-                except NotFoundError:
-                    self.db.add(
-                        DocumentFile(
-                            document_id=document.id,
-                            role=DocumentFileRole.thumbnail.value,
-                            file_key=thumbnail_key,
-                            filename="thumbnail.png",
-                            mime_type=thumbnail_mime,
-                            bytes=thumbnail_size,
-                        )
-                    )
-
-        # 3) Annotationen exakt mitziehen: alte Seite -> neue Position.
-        old_to_new = {old_page: index + 1 for index, old_page in enumerate(order)}
-        annotations = self.db.execute(
-            select(Annotation).where(Annotation.document_id == document_id)
-        ).scalars().all()
-        for annotation in annotations:
-            annotation.page = old_to_new.get(annotation.page, annotation.page)
-        # Lernmarkierungen (eigene Ebene der Split-Ansicht) genauso mitziehen.
-        learn_highlights = self.db.execute(
-            select(NoteLearnHighlight).where(NoteLearnHighlight.document_id == document_id)
-        ).scalars().all()
-        for highlight in learn_highlights:
-            highlight.page = old_to_new.get(highlight.page, highlight.page)
-
-        # 4) Umsortierung zuerst dauerhaft festschreiben (die Dateien auf der
-        #    Platte sind bereits umsortiert – der DB-Stand muss dazu passen).
-        #    text_hash leeren, damit die anschließende Neu-Indexierung läuft.
-        document.text_hash = None
-        self.db.commit()
-
-        # 5) Neu indexieren, damit die Chunk-Seitenbereiche wieder stimmen.
-        #    Läuft bereits ein INDEX-Job, ist das unkritisch – er verarbeitet die
-        #    bereits umsortierte Datei; den Konflikt schlucken wir daher.
+        attempt = uuid.uuid4().hex
+        generated: list[Path] = []
+        commit_started = False
         try:
-            self.queue_index_for_document(document_id, force=True)
-        except ConflictError:
-            pass
+            original_path = None
+            for role in (DocumentFileRole.original, DocumentFileRole.ocr, DocumentFileRole.preview_pdf):
+                record = next((item for item in document.files if item.role == role.value), None)
+                if record is None:
+                    continue
+                source = self._resolve_storage_path(record.file_key)
+                if not source.is_file():
+                    raise StorageError("Source PDF file is missing")
+                key = self._relative_file_key(document.id, f"{role.value}-{attempt}.pdf")
+                target = self._resolve_storage_path(key)
+                generated.append(target)
+                size = self.storage.reorder_pdf_pages(source, order, destination=target)
+                record.file_key = key
+                record.bytes = size
+                if role == DocumentFileRole.original:
+                    original_path = target
+                    document.storage_key = key
+                    document.file_size_bytes = size
+                    digest = hashlib.sha256()
+                    with target.open("rb") as handle:
+                        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                            digest.update(chunk)
+                    document.file_sha256 = digest.hexdigest()
+            if original_path is None:
+                raise StorageError("Original PDF file is missing")
 
-        updated = self.get_document_or_404(document_id)
+            thumbnail = self.storage.create_thumbnail(
+                document.id, original_path, filename=f"thumbnail-{attempt}.png",
+            )
+            thumbnail_record = next((item for item in document.files if item.role == "thumbnail"), None)
+            if thumbnail:
+                key, size, mime = thumbnail
+                generated.append(self._resolve_storage_path(key))
+                if thumbnail_record is None:
+                    thumbnail_record = DocumentFile(document_id=document.id, role="thumbnail", filename="thumbnail.png")
+                    self.db.add(thumbnail_record)
+                thumbnail_record.file_key, thumbnail_record.bytes, thumbnail_record.mime_type = key, size, mime
+            elif thumbnail_record is not None:
+                self.db.delete(thumbnail_record)
+
+            old_to_new = {old: index + 1 for index, old in enumerate(order)}
+            for model in (Annotation, NoteLearnHighlight):
+                for item in self.db.scalars(select(model).where(model.document_id == document_id)):
+                    item.page = old_to_new.get(item.page, item.page)
+            document.text_hash = None
+            # Old chunk page references must not be exposed while reindexing.
+            from app.models.document_chunk import DocumentChunk
+            from sqlalchemy import delete
+            self.db.execute(delete(DocumentChunk).where(DocumentChunk.doc_id == document_id))
+            self._queue_index_job(document, reason="pages_reordered")
+            commit_started = True
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            # A lost commit acknowledgement can mean publication succeeded.
+            # Retain new files in that case, as the OCR publisher does.
+            if not commit_started:
+                for path in generated:
+                    self._cleanup_file(path)
+            raise
+        # Retain previous immutable versions for already-open downloads. They
+        # are removed together with the document's directory on permanent delete.
         logger.info("document pages reordered id=%s pages=%d", document_id, len(order))
-        return updated
+        return self.get_document_or_404(document_id)
 
     def auto_tag_document(self, document_id: uuid.UUID) -> Document:
         document = self.get_document_or_404(document_id)
@@ -836,6 +829,8 @@ class DocumentService:
         scan_cleanup_applied: bool = False,
         scan_cleanup_mode: str | None = None,
     ) -> Document:
+        from app.services.storage_owner import lock_storage_owner
+        lock_storage_owner(self.db, self.owner_id)
         runtime_settings = SettingsService(self.db).get_settings()
         auto_ocr_enabled = bool(runtime_settings.documents.auto_ocr)
         auto_tagging_enabled = bool(runtime_settings.documents.auto_tagging)
@@ -1596,6 +1591,7 @@ class DocumentService:
                 continue
 
         logger.info("document deleted id=%s", document_id)
+        self.storage.cleanup_document_directory(document_id)
 
     def empty_trash(self) -> int:
         """Endgültig alle Dokumente im Papierkorb löschen."""
@@ -1632,6 +1628,8 @@ class DocumentService:
                 continue
 
         deleted_count = len(documents)
+        for document in documents:
+            self.storage.cleanup_document_directory(document.id)
         logger.info("trash emptied deleted_count=%s", deleted_count)
         return deleted_count
 

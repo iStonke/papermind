@@ -27,7 +27,7 @@ router = APIRouter(prefix="/api/scanners", tags=["Scanners"])
     summary="List scanner devices (admin only)",
     responses={401: {"model": ErrorResponse}, 403: {"model": ErrorResponse}},
 )
-def list_scanners(_: User = Depends(require_admin), db: Session = Depends(get_db)) -> ScannerDeviceListResponse:
+def list_scanners(_: User = Depends(require_admin), db: Session = Depends(get_db, scope="function")) -> ScannerDeviceListResponse:
     return ScannerService(db).list_devices()
 
 
@@ -41,7 +41,7 @@ def list_scanners(_: User = Depends(require_admin), db: Session = Depends(get_db
 def create_scanner(
     payload: ScannerDeviceCreateRequest,
     _: User = Depends(require_admin),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> ScannerDeviceRead:
     return ScannerService(db).create_device(payload)
 
@@ -62,7 +62,7 @@ def trigger_scan(
     scanner_id: uuid.UUID,
     payload: ScanCommandRequest,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> ScanCommandResponse:
     return ScannerService(db).enqueue_scan_command(scanner_id, payload.command, requested_by=user.id)
 
@@ -77,7 +77,7 @@ def trigger_scan(
 def cancel_scan(
     scanner_id: uuid.UUID,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> ScanCommandResponse:
     return ScannerService(db).cancel_active_scan(scanner_id, requested_by=user.id)
 
@@ -92,7 +92,7 @@ def update_scanner(
     scanner_id: uuid.UUID,
     payload: ScannerDeviceUpdateRequest,
     _: User = Depends(require_admin),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> ScannerDeviceRead:
     return ScannerService(db).update_device(scanner_id, payload)
 
@@ -107,7 +107,7 @@ def configure_scanner(
     scanner_id: uuid.UUID,
     payload: ScannerDeviceConfigureRequest,
     _: User = Depends(require_admin),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> ScannerDeviceRead:
     return ScannerService(db).configure_device(scanner_id, payload)
 
@@ -121,6 +121,6 @@ def configure_scanner(
 def remove_scanner_configuration(
     scanner_id: uuid.UUID,
     _: User = Depends(require_admin),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> ScannerDeviceRead:
     return ScannerService(db).remove_device_configuration(scanner_id)

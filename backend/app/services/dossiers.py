@@ -555,6 +555,8 @@ class DossierService:
         return item
 
     def create_image_item(self, dossier_id: uuid.UUID, file: UploadFile) -> DossierItem:
+        from app.services.storage_owner import lock_storage_owner
+        lock_storage_owner(self.db, self.owner_id)
         dossier = self.get_dossier_or_404(dossier_id)
         if self.owner_id is None:
             raise BadRequestError("Für Bild-Uploads ist ein Benutzer erforderlich")

@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api/document-types", tags=["Document Types"])
 )
 def list_document_types(
     include_count: bool = Query(default=False, description="Include usage_count for each document type"),
-    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
 ) -> DocumentTypeListResponse:
     service = DocumentTypeService(db, user.id)
     return DocumentTypeListResponse(items=service.list_document_types(include_count=include_count))
@@ -38,7 +38,7 @@ def list_document_types(
     summary="Create a document type",
     responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
-def create_document_type(payload: DocumentTypeCreateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> DocumentTypeRead:
+def create_document_type(payload: DocumentTypeCreateRequest, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> DocumentTypeRead:
     service = DocumentTypeService(db, user.id)
     return DocumentTypeRead.model_validate(service.create_document_type(payload), from_attributes=True)
 
@@ -50,7 +50,7 @@ def create_document_type(payload: DocumentTypeCreateRequest, db: Session = Depen
     responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
 def update_document_type(
-    document_type_id: uuid.UUID, payload: DocumentTypeUpdateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    document_type_id: uuid.UUID, payload: DocumentTypeUpdateRequest, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)
 ) -> DocumentTypeRead:
     service = DocumentTypeService(db, user.id)
     return DocumentTypeRead.model_validate(service.update_document_type(document_type_id, payload), from_attributes=True)
@@ -62,7 +62,7 @@ def update_document_type(
     summary="Delete a document type",
     responses={404: {"model": ErrorResponse}},
 )
-def delete_document_type(document_type_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> OkResponse:
+def delete_document_type(document_type_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> OkResponse:
     service = DocumentTypeService(db, user.id)
     service.delete_document_type(document_type_id)
     return OkResponse(ok=True)

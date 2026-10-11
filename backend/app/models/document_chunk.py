@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Computed, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -16,6 +16,7 @@ class DocumentChunk(Base):
         Index("ix_doc_chunks_chunk_index", "chunk_index"),
         Index("ix_doc_chunks_content_hash", "content_hash"),
         Index("ix_doc_chunks_chunk_type", "chunk_type"),
+        Index("ix_doc_chunks_search_vector", "search_vector", postgresql_using="gin"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -29,6 +30,8 @@ class DocumentChunk(Base):
     page_to: Mapped[int | None] = mapped_column(Integer, nullable=True)
     chunk_type: Mapped[str] = mapped_column(String(32), nullable=False, default="header", server_default="header")
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    search_vector: Mapped[str | None] = mapped_column(TSVECTOR,
+        Computed("to_tsvector('german'::regconfig, coalesce(text, ''))", persisted=True))
     char_len: Mapped[int] = mapped_column(Integer, nullable=False)
     token_len: Mapped[int | None] = mapped_column(Integer, nullable=True)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)

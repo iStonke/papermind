@@ -341,6 +341,8 @@ class ImportInboxService:
                 )
             ).all()
         )
+        # These rows already passed the owner/scanner visibility query.
+        self.import_staging_service._authorized_sources.update(str(item.source_file_id) for item in items)
         return ImportInboxListResponse(
             items=[self._read_item(item) for item in items],
             pending_count=self._pending_count(),

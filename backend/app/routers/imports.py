@@ -4,6 +4,8 @@ import json
 import logging
 import time
 import uuid
+from collections import OrderedDict
+from weakref import WeakValueDictionary
 
 from fastapi import APIRouter, Depends, File, Header, Query, Request, status, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
@@ -12,7 +14,8 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
 from app.core.config import get_settings
-from app.core.deps import get_current_user
+from app.core.deps import _header_token, _user_from_token, get_current_user, token_secret
+from app.core.auth import decode_access_token
 from app.core.security import verify_shared_upload_api_key
 from app.db import get_db
 from app.db.session import AppSessionLocal
@@ -46,8 +49,46 @@ logger = logging.getLogger("papermind.import")
 # Fallback. Die DB-Abfrage ist günstig (indizierte Owner-Query), das Intervall
 # bestimmt also nur, wie schnell ein Scan-Statuswechsel beim Client ankommt.
 SSE_POLL_INTERVAL_SECONDS = 0.5
+SSE_IDLE_INTERVAL_SECONDS = 2.0
+SSE_SESSION_CHECK_SECONDS = 5.0
+_inbox_cache: OrderedDict = OrderedDict()
+_inbox_locks = WeakValueDictionary()
 # Kommentar-Heartbeat, damit Proxys (Caddy) die Leerlaufverbindung nicht kappen.
 SSE_HEARTBEAT_SECONDS = 20.0
+
+
+def _inbox_busy(payload: dict) -> bool:
+    return bool(payload.get("scanning") or any(
+        job.get("state") in {"queued", "scanning", "processing"}
+        for job in payload.get("scan_jobs", [])
+    ))
+
+
+async def _cached_inbox_payload(owner_id: uuid.UUID) -> dict:
+    lock = _inbox_locks.setdefault(owner_id, asyncio.Lock())
+    async with lock:
+        cached = _inbox_cache.get(owner_id)
+        if cached:
+            timestamp, payload = cached
+            ttl = SSE_POLL_INTERVAL_SECONDS if _inbox_busy(payload) else SSE_IDLE_INTERVAL_SECONDS
+            if time.monotonic() - timestamp < ttl:
+                _inbox_cache.move_to_end(owner_id)
+                return payload
+        payload = await asyncio.to_thread(_load_inbox_payload, owner_id)
+        _inbox_cache[owner_id] = (time.monotonic(), payload)
+        _inbox_cache.move_to_end(owner_id)
+        while len(_inbox_cache) > 64:
+            _inbox_cache.popitem(last=False)
+        return payload
+
+
+def _stream_session_active(token: str, owner_id: uuid.UUID) -> bool:
+    with AppSessionLocal() as db:
+        if not settings.auth_enabled:
+            user = db.get(User, owner_id)
+        else:
+            user = _user_from_token(db, token, allowed_scopes={"session"})
+        return user is not None and user.is_active and user.id == owner_id
 
 
 def _load_inbox_payload(owner_id: uuid.UUID) -> dict:
@@ -86,7 +127,7 @@ def _verify_inbox_api_key(
 )
 def upload_import_sources(
     files: list[UploadFile] = File(..., description="PDF files"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> ImportSourceUploadResponse:
     service = ImportStagingService(db, user.id)
@@ -109,7 +150,7 @@ def upload_import_sources(
 def upload_import_inbox(
     files: list[UploadFile] = File(..., description="PDF files"),
     x_client_name: str | None = Header(default=None, alias="X-Client-Name"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     _: None = Depends(_verify_inbox_api_key),
 ) -> ImportInboxUploadResponse:
     # Vorübergehend deaktiviert: maschinelle Importe ohne Benutzerkontext sind
@@ -128,7 +169,7 @@ def upload_import_inbox(
 )
 def list_import_inbox(
     limit: int = Query(default=50, ge=1, le=200),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> ImportInboxListResponse:
     service = ImportInboxService(db, user.id)
@@ -143,7 +184,7 @@ def list_import_inbox(
 )
 def get_scanner_live_preview(
     scanner_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> FileResponse:
     preview_path = ImportInboxService(db, user.id).get_scanner_live_preview_path(scanner_id)
@@ -174,18 +215,26 @@ async def stream_import_inbox_events(
     gesendet (Hash-Vergleich) plus gelegentliche Heartbeats.
     """
     owner_id = user.id
+    token = _header_token(request) or ""
+    claims = decode_access_token(token, token_secret()) if settings.auth_enabled else None
+    expires_at = (claims or {}).get("exp", 0) if settings.auth_enabled else time.time() + 900
 
     async def event_stream():
         last_digest: str | None = None
         last_emit = time.monotonic()
+        last_session_check = time.monotonic()
         # Stream sofort öffnen, damit der Browser die Verbindung als etabliert
         # ansieht, bevor die erste Inbox-Abfrage durch ist.
         yield ": connected\n\n"
         while True:
-            if await request.is_disconnected():
+            if time.time() >= expires_at or await request.is_disconnected():
                 break
             try:
-                payload = await asyncio.to_thread(_load_inbox_payload, owner_id)
+                if time.monotonic() - last_session_check >= SSE_SESSION_CHECK_SECONDS:
+                    if not await asyncio.to_thread(_stream_session_active, token, owner_id):
+                        break
+                    last_session_check = time.monotonic()
+                payload = await _cached_inbox_payload(owner_id)
             except Exception:  # noqa: BLE001 - transienter DB-Fehler darf den Stream nicht abreißen
                 logger.exception("inbox sse payload load failed owner_id=%s", owner_id)
                 await asyncio.sleep(SSE_POLL_INTERVAL_SECONDS)
@@ -193,6 +242,8 @@ async def stream_import_inbox_events(
             payload_json = json.dumps(payload, separators=(",", ":"), sort_keys=True, default=str)
             digest = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
             now = time.monotonic()
+            if time.time() >= expires_at:
+                break
             if digest != last_digest:
                 last_digest = digest
                 last_emit = now
@@ -200,7 +251,7 @@ async def stream_import_inbox_events(
             elif now - last_emit >= SSE_HEARTBEAT_SECONDS:
                 last_emit = now
                 yield ": keepalive\n\n"
-            await asyncio.sleep(SSE_POLL_INTERVAL_SECONDS)
+            await asyncio.sleep(SSE_POLL_INTERVAL_SECONDS if _inbox_busy(payload) else SSE_IDLE_INTERVAL_SECONDS)
 
     return StreamingResponse(
         event_stream(),
@@ -222,7 +273,7 @@ async def stream_import_inbox_events(
 )
 def assign_import_inbox(
     payload: ImportInboxAssignRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> ImportInboxAssignResponse:
     service = ImportInboxService(db, user.id)
@@ -237,7 +288,7 @@ def assign_import_inbox(
 )
 def claim_import_inbox(
     payload: ImportInboxClaimRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> ImportInboxClaimResponse:
     service = ImportInboxService(db, user.id)
@@ -252,7 +303,7 @@ def claim_import_inbox(
 )
 def discard_import_inbox(
     payload: ImportInboxDiscardRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> ImportInboxDiscardResponse:
     service = ImportInboxService(db, user.id)
@@ -268,7 +319,7 @@ def discard_import_inbox(
 def discard_import_inbox_source_pages(
     source_file_id: uuid.UUID,
     payload: ImportInboxDiscardPagesRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> ImportInboxDiscardPagesResponse:
     service = ImportInboxService(db, user.id)
@@ -283,7 +334,7 @@ def discard_import_inbox_source_pages(
 )
 def get_import_source_file(
     source_file_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> FileResponse:
     service = ImportStagingService(db, user.id)
@@ -305,7 +356,7 @@ def get_import_source_color_preview(
     source_file_id: str,
     page_index: int = Query(ge=0),
     mode: str = Query("auto"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> Response:
     preview = ImportStagingService(db, user.id).render_source_page_color_preview(source_file_id, page_index, mode)
@@ -322,7 +373,7 @@ def get_import_source_color_preview(
 )
 def get_import_source_preview(
     source_file_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> FileResponse:
     service = ImportStagingService(db, user.id)
@@ -344,7 +395,7 @@ def get_import_source_preview(
 )
 def commit_import_batch(
     payload: ImportCommitRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> ImportCommitResponse:
     service = ImportStagingService(db, user.id)
@@ -360,7 +411,7 @@ def commit_import_batch(
 def suggest_import_stage_title(
     stage_id: str,
     payload: StageTitleSuggestRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> StageTitleSuggestResponse:
     service = ImportStagingService(db, user.id)

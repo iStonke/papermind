@@ -1,5 +1,6 @@
 import hmac
 import hashlib
+import ipaddress
 import time
 from collections import defaultdict, deque
 from collections.abc import Callable
@@ -48,13 +49,41 @@ def _extract_api_key(authorization: str | None, x_api_key: str | None = None) ->
     return ""
 
 
+def client_ip(request: Request) -> str:
+    """Walk XFF from the trusted peer towards the first untrusted client."""
+    peer = request.client.host if request.client else "unknown"
+    networks = []
+    for value in settings.auth_trusted_proxy_cidrs.split(","):
+        if value.strip():
+            try:
+                networks.append(ipaddress.ip_network(value.strip(), strict=False))
+            except ValueError:
+                continue  # Invalid configuration must never extend trust.
+
+    def trusted(address: str) -> bool:
+        try:
+            parsed = ipaddress.ip_address(address)
+            return any(parsed in network for network in networks)
+        except ValueError:
+            return False
+
+    if not trusted(peer):
+        return peer
+    for address in reversed(request.headers.get("x-forwarded-for", "").split(",")):
+        address = address.strip()
+        try:
+            ipaddress.ip_address(address)
+        except ValueError:
+            return peer
+        peer = address
+        if not trusted(peer):
+            break
+    return peer
+
+
 def _client_identity(request: Request, api_key: str) -> str:
-    forwarded_for = request.headers.get("x-forwarded-for", "")
-    client_host = forwarded_for.split(",", 1)[0].strip()
-    if not client_host and request.client:
-        client_host = request.client.host
-    key_marker = api_key[:8] if api_key else "anonymous"
-    return f"{client_host or 'unknown'}:{key_marker}"
+    marker = hashlib.sha256(api_key.encode("utf-8")).hexdigest() if api_key else "anonymous"
+    return f"{client_ip(request)}:{marker}"
 
 
 def enforce_rate_limit(
@@ -127,6 +156,7 @@ def enforce_persistent_rate_limit(
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many login attempts. Please try again later.",
+            headers={"Retry-After": str(window_seconds)},
         )
 
 

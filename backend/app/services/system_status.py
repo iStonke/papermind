@@ -469,6 +469,10 @@ def request_power_action(action: str) -> tuple[bool, str]:
 
 async def collect_status(db: Session) -> SystemStatus:
     cpu = await _collect_cpu()
+    return await asyncio.to_thread(_collect_status_sync, db, cpu)
+
+
+def _collect_status_sync(db: Session, cpu: CpuStatus) -> SystemStatus:
     return SystemStatus(
         host=_collect_host(),
         cpu=cpu,
@@ -814,10 +818,18 @@ def _summary_status(items: list[ServiceStatusItem]) -> str:
 async def _collect_service_items(db: Session, *, collected_at: datetime | None = None) -> list[ServiceStatusItem]:
     timestamp = collected_at or datetime.now(timezone.utc)
     try:
-        runtime_settings = SettingsService(db).get_settings().model_dump(mode="json")
+        runtime_settings = await asyncio.to_thread(lambda: SettingsService(db).get_settings().model_dump(mode="json"))
     except Exception:
         runtime_settings = {}
 
+    database = await asyncio.to_thread(_check_database, db)
+    ai, ollama = await asyncio.gather(
+        _check_http_service(key="ai", label="KI-Service",
+            description="Embedding- und Antwort-Service im PaperMind-Stack.",
+            url=f"{settings.ai_base_url.rstrip('/')}/health"),
+        _check_ollama(runtime_settings),
+    )
+    ocr = await asyncio.to_thread(_check_ocr, runtime_settings)
     return [
         _service_item(
             key="backend",
@@ -827,15 +839,7 @@ async def _collect_service_items(db: Session, *, collected_at: datetime | None =
             detail="API antwortet",
             checked_at=timestamp,
         ),
-        _check_database(db),
-        await _check_http_service(
-            key="ai",
-            label="KI-Service",
-            description="Embedding- und Antwort-Service im PaperMind-Stack.",
-            url=f"{settings.ai_base_url.rstrip('/')}/health",
-        ),
-        await _check_ollama(runtime_settings),
-        _check_ocr(runtime_settings),
+        database, ai, ollama, ocr,
     ]
 
 

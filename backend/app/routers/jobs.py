@@ -35,7 +35,7 @@ router = APIRouter(prefix="/api", tags=["Jobs"])
     response_model=JobActivityResponse,
     summary="Active and recently failed jobs across all documents (header activity indicator)",
 )
-def get_job_activity(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> JobActivityResponse:
+def get_job_activity(db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> JobActivityResponse:
     service = JobService(db, user.id)
     result = service.get_activity()
     items = []
@@ -63,9 +63,11 @@ def get_job_activity(db: Session = Depends(get_db), user: User = Depends(get_cur
 def create_note_audio_export(
     note_id: uuid.UUID,
     payload: NoteAudioExportCreateRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> NoteAudioExportRead:
+    from app.services.storage_owner import lock_storage_owner
+    lock_storage_owner(db, user.id)
     note_exists = db.execute(
         select(Note.id).where(Note.id == note_id, Note.owner_id == user.id, Note.is_deleted.is_(False))
     ).scalar_one_or_none()
@@ -166,7 +168,7 @@ def dismiss_note_audio_export(job_id: uuid.UUID, user: User = Depends(get_curren
     summary="List jobs for a document",
     responses={404: {"model": ErrorResponse}},
 )
-def list_document_jobs(document_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> JobListResponse:
+def list_document_jobs(document_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> JobListResponse:
     service = JobService(db, user.id)
     jobs = service.list_document_jobs(document_id)
     return JobListResponse(items=[JobRead.model_validate(job, from_attributes=True) for job in jobs])
@@ -182,7 +184,7 @@ def list_document_jobs(document_id: uuid.UUID, db: Session = Depends(get_db), us
 def create_document_job(
     document_id: uuid.UUID,
     payload: JobCreateRequest,
-    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
 ) -> JobRead:
     service = JobService(db, user.id)
     return JobRead.model_validate(service.create_document_job(document_id, payload), from_attributes=True)
@@ -194,7 +196,7 @@ def create_document_job(
     summary="Update job status/progress",
     responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
-def update_job(job_id: uuid.UUID, payload: JobUpdateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> JobRead:
+def update_job(job_id: uuid.UUID, payload: JobUpdateRequest, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> JobRead:
     service = JobService(db, user.id)
     return JobRead.model_validate(service.update_job(job_id, payload), from_attributes=True)
 
@@ -205,7 +207,7 @@ def update_job(job_id: uuid.UUID, payload: JobUpdateRequest, db: Session = Depen
     summary="Dismiss a finished/failed job from the activity feed",
     responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
 )
-def dismiss_job(job_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Response:
+def dismiss_job(job_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> Response:
     JobService(db, user.id).dismiss_job(job_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -214,18 +216,18 @@ def dismiss_job(job_id: uuid.UUID, db: Session = Depends(get_db), user: User = D
     "/jobs/activity/dismiss-failed",
     summary="Dismiss all failed jobs from the activity feed",
 )
-def dismiss_failed_jobs(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+def dismiss_failed_jobs(db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> dict:
     removed = JobService(db, user.id).dismiss_failed_jobs()
     return {"removed": removed}
 
 
 @router.post("/jobs/{job_id}/cancel", response_model=JobRead)
-def cancel_document_job(job_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> JobRead:
+def cancel_document_job(job_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> JobRead:
     return JobRead.model_validate(JobService(db, user.id).control_job(job_id, action="cancel"), from_attributes=True)
 
 
 @router.post("/jobs/{job_id}/restart", response_model=JobRead)
-def restart_document_job(job_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> JobRead:
+def restart_document_job(job_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> JobRead:
     return JobRead.model_validate(JobService(db, user.id).control_job(job_id, action="restart"), from_attributes=True)
 
 
@@ -265,7 +267,7 @@ def _background_activity(db, user):
 
 @router.post("/jobs/background/{kind}/{job_id}/{action}")
 def control_background(kind: str, job_id: uuid.UUID, action: str,
-                       db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+                       db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)):
     from app.services.wiki_backfill import WikiBackfillService
     from app.models.scanner import ScannerScanJob
     from app.services.scanners import ScannerService

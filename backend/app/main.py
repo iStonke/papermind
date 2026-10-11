@@ -13,7 +13,8 @@ from app.core.deps import authenticate_request
 from app.core.errors import install_exception_handlers
 from app.core.logging import install_query_token_redaction
 from app.core.observability import request_metrics_middleware
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, AppSessionLocal
+from app.core.production import validate_production_security
 from app.routers import (
     ai_router,
     annotations_router,
@@ -49,6 +50,7 @@ from app.routers.note_pins import router as note_pins_router
 from app.services.users import UserService
 from app.services.settings import SettingsService
 from app.core.write_barrier import WriteBarrierMiddleware
+from app.core.upload_guard import UploadAuthMiddleware
 
 settings = get_settings()
 
@@ -133,10 +135,20 @@ async def _ollama_warmup_loop() -> None:
         await asyncio.sleep(OLLAMA_WARMUP_INTERVAL_SECONDS)
 
 
+@contextlib.asynccontextmanager
+async def lifespan(_app):
+    await on_startup()
+    try:
+        yield
+    finally:
+        await on_shutdown()
+
+
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     description="PaperMind AP8 API with OCR pipeline, chunking, embeddings (pgvector) and retrieval",
+    lifespan=lifespan,
     dependencies=[Depends(authenticate_request)],
     # OpenAPI-Schema/Docs nur, wenn explizit freigegeben (kein offenes Schema in Prod).
     openapi_url="/openapi.json" if settings.expose_api_docs else None,
@@ -144,6 +156,7 @@ app = FastAPI(
     redoc_url="/redoc" if settings.expose_api_docs else None,
 )
 app.middleware("http")(request_metrics_middleware)
+app.add_middleware(UploadAuthMiddleware)
 
 
 app.add_middleware(
@@ -217,9 +230,9 @@ def _bootstrap_admin_sync() -> None:
         logger.error("Bootstrap admin creation failed: %s", exc)
 
 
-@app.on_event("startup")
 async def on_startup() -> None:
     global _ollama_warmup_task
+    await asyncio.to_thread(validate_production_security, settings, AppSessionLocal)
     os.makedirs(settings.storage_path, exist_ok=True)
 
     db_ok, db_detail = await _check_db_connection()
@@ -245,7 +258,6 @@ async def on_startup() -> None:
         _ollama_warmup_task = asyncio.create_task(_ollama_warmup_loop())
 
 
-@app.on_event("shutdown")
 async def on_shutdown() -> None:
     global _ollama_warmup_task
     if _ollama_warmup_task is None:

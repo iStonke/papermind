@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
     summary="Aggregated overview metrics for the dashboard",
 )
 def get_dashboard_overview(
-    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)
 ) -> DashboardOverviewResponse:
     service = DashboardService(db, user.id)
     return service.get_overview()

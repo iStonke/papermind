@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/retrieval", tags=["Retrieval"])
     summary="Retrieve top-k relevant chunks for a query",
     responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
-def retrieval_query(payload: RetrievalQueryRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> RetrievalQueryResponse:
+def retrieval_query(payload: RetrievalQueryRequest, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> RetrievalQueryResponse:
     service = EmbeddingService(db, user.id)
     data = service.retrieve(
         query=payload.query,

@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/smart-folders", tags=["Smart Folders"])
     response_model=SmartFolderListResponse,
     summary="List smart folders",
 )
-def list_smart_folders(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> SmartFolderListResponse:
+def list_smart_folders(db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> SmartFolderListResponse:
     service = SmartFolderService(db, user.id)
     items = service.list_smart_folders()
     return SmartFolderListResponse(
@@ -45,7 +45,7 @@ def list_smart_folders(db: Session = Depends(get_db), user: User = Depends(get_c
 )
 def preview_smart_folder_documents(
     payload: SmartFolderPreviewRequest,
-    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
 ) -> SmartFolderPreviewResponse:
     service = SmartFolderService(db, user.id)
     return service.preview_documents(
@@ -63,7 +63,7 @@ def preview_smart_folder_documents(
     summary="Get smart folder details",
     responses={404: {"model": ErrorResponse}},
 )
-def get_smart_folder(smart_folder_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> SmartFolderRead:
+def get_smart_folder(smart_folder_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> SmartFolderRead:
     service = SmartFolderService(db, user.id)
     folder = service.get_smart_folder_or_404(smart_folder_id)
     return SmartFolderRead.model_validate(folder, from_attributes=True)
@@ -76,7 +76,7 @@ def get_smart_folder(smart_folder_id: uuid.UUID, db: Session = Depends(get_db), 
     summary="Create smart folder",
     responses={400: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
-def create_smart_folder(payload: SmartFolderCreateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> SmartFolderRead:
+def create_smart_folder(payload: SmartFolderCreateRequest, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> SmartFolderRead:
     service = SmartFolderService(db, user.id)
     folder = service.create_smart_folder(payload)
     return SmartFolderRead.model_validate(folder, from_attributes=True)
@@ -96,7 +96,7 @@ def create_smart_folder(payload: SmartFolderCreateRequest, db: Session = Depends
 def update_smart_folder(
     smart_folder_id: uuid.UUID,
     payload: SmartFolderUpdateRequest,
-    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
 ) -> SmartFolderRead:
     service = SmartFolderService(db, user.id)
     folder = service.update_smart_folder(smart_folder_id, payload)
@@ -109,7 +109,7 @@ def update_smart_folder(
     summary="Delete smart folder",
     responses={404: {"model": ErrorResponse}},
 )
-def delete_smart_folder(smart_folder_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> OkResponse:
+def delete_smart_folder(smart_folder_id: uuid.UUID, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> OkResponse:
     service = SmartFolderService(db, user.id)
     service.delete_smart_folder(smart_folder_id)
     return OkResponse(ok=True)
@@ -129,7 +129,7 @@ def list_smart_folder_documents(
     include_total: bool = Query(default=True),
     q: str | None = Query(default=None),
     search_scope: DocumentSearchScope = Query(default=DocumentSearchScope.all),
-    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
 ) -> DocumentListResponse:
     service = SmartFolderService(db, user.id)
     return service.list_folder_documents(

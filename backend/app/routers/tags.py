@@ -27,7 +27,7 @@ router = APIRouter(prefix="/api/tags", tags=["Tags"])
 )
 def list_tags(
     include_count: bool = Query(default=False, description="Include usage_count for each tag"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> TagListResponse:
     service = TagService(db, user.id)
@@ -41,7 +41,7 @@ def list_tags(
     summary="Create a tag",
     responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
-def create_tag(payload: TagCreateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> TagRead:
+def create_tag(payload: TagCreateRequest, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> TagRead:
     service = TagService(db, user.id)
     return TagRead.model_validate(service.create_tag(payload), from_attributes=True)
 
@@ -52,7 +52,7 @@ def create_tag(payload: TagCreateRequest, db: Session = Depends(get_db), user: U
     summary="Rename a tag",
     responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
-def update_tag(tag_id: uuid.UUID, payload: TagUpdateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> TagRead:
+def update_tag(tag_id: uuid.UUID, payload: TagUpdateRequest, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> TagRead:
     service = TagService(db, user.id)
     return TagRead.model_validate(service.update_tag(tag_id, payload), from_attributes=True)
 
@@ -66,7 +66,7 @@ def update_tag(tag_id: uuid.UUID, payload: TagUpdateRequest, db: Session = Depen
         404: {"model": ErrorResponse},
     },
 )
-def merge_tag(source_id: uuid.UUID, payload: TagMergeRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> TagRead:
+def merge_tag(source_id: uuid.UUID, payload: TagMergeRequest, db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> TagRead:
     service = TagService(db, user.id)
     return TagRead.model_validate(service.merge_tag(source_id, payload), from_attributes=True)
 
@@ -80,7 +80,7 @@ def cleanup_unused_tags(
         default=False,
         description="If true, only return the tags that would be removed (no deletion).",
     ),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> dict:
     service = TagService(db, user.id)
@@ -99,7 +99,7 @@ def delete_tag(
         default=TagDeleteBehavior.detach,
         description="Detach relationships and delete tag",
     ),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> OkResponse:
     _ = behavior

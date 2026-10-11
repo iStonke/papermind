@@ -138,7 +138,7 @@ class DirectUploadResult(BaseModel):
 )
 async def direct_upload(
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     _: None = Depends(_verify_api_key),
 ) -> DirectUploadResult:
     content_type = request.headers.get("content-type", "")

@@ -177,7 +177,7 @@ def _apply_owner_guc(db: Session, user: User) -> None:
         logger.exception("could not set app.owner_id for RLS")
 
 
-def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
+def get_current_user(request: Request, db: Session = Depends(get_db, scope="function")) -> User:
     """Resolve the authenticated user or raise 401.
 
     Das Setzen von app.owner_id (RLS) erfolgt zentral in authenticate_request
@@ -199,7 +199,7 @@ def require_admin(user: User = Depends(get_current_user)) -> User:
     return user
 
 
-def authenticate_request(request: Request, db: Session = Depends(get_db)) -> None:
+def authenticate_request(request: Request, db: Session = Depends(get_db, scope="function")) -> None:
     """Application-wide guard. No-op when auth is disabled."""
     settings = get_settings()
     if not settings.auth_enabled:
