@@ -273,7 +273,12 @@ p { margin: 0; font-size: .88rem; line-height: 1.55; color: rgba(var(--v-theme-o
 .speech-range input { width: 100%; accent-color: rgb(var(--v-theme-primary)); min-height: 32px; cursor: pointer; }
 .speech-range span { font-size: .75rem; color: rgba(var(--v-theme-on-surface), .6); }
 .speech-range span:last-child { text-align: right; }
-.speech-dictionary-form { display: grid; gap: 12px; }
+.speech-dictionary-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.speech-dictionary-form > :deep(.v-checkbox),
+.speech-dictionary-form > .speech-actions,
+.speech-dictionary-form > .speech-error { grid-column: 1 / -1; }
+.speech-dictionary-form :deep(.v-field__input) { box-sizing: border-box; }
+.speech-dictionary-form > :deep(.v-input) { min-width: 0; }
 .speech-entry { display: flex; align-items: center; gap: 4px; padding: 10px; background: rgba(var(--v-theme-on-surface), .04); border-radius: 8px; }
 .speech-entry-text { display: grid; flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: .88rem; }
 .speech-entry-text small { font-size: .72rem; opacity: .65; }
@@ -283,5 +288,6 @@ p { margin: 0; font-size: .88rem; line-height: 1.55; color: rgba(var(--v-theme-o
 .speech-dictionary summary:focus-visible { outline: 2px solid rgb(var(--v-theme-primary)); outline-offset: 4px; }
 .speech-dictionary-content { display: grid; gap: 14px; padding-top: 14px; }
 .speech-error { color: rgb(var(--v-theme-error)); }
+@media (max-width: 600px) { .speech-dictionary-form { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 480px) { .speech-entry { flex-wrap: wrap; } .speech-entry-text { flex-basis: 100%; } }
 </style>
