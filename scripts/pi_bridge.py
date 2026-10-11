@@ -24,6 +24,8 @@ VALID_ACTIONS = {
     "rollout",
     "rollout_status",
     "rollout_verify",
+    "git_reconcile_status",
+    "git_reconcile",
 }
 
 

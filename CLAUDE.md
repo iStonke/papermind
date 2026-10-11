@@ -19,6 +19,11 @@ im Mac-Benutzerkontext aus.
   Host oder Pfad und kein Pi-Neustart.
 - `rollout_verify` prüft ausschließlich diesen erfolgreich installierten Release
   mit synthetischem PDF/Sprachtext, Zugriffskontrolle und HTTP-Kompression.
+- `git_reconcile_status` und `git_reconcile` sind ausdrücklich für den festen
+  Git-Abgleich auf `20e59e1e4c32d8e68117862e520dc1bf4e4da6f3` freigegeben:
+  bekannte Dateihashes, Quellsicherung und Abbruch bei unbekannten Änderungen.
+  Die bereits aktive Notizkorrektur bleibt erhalten; keine freien Parameter,
+  Container-Neustarts, Migrationen oder Änderungen an echten `.env`-Dateien.
 - `scanner_status` liest ausschließlich Dienststatus, feste systemd-Definitionen,
   Canon-USB-Energiezustand, SANE-Geräteliste und begrenzte Scanner-Logs aus.
 - `scanner_calibration_test` sichert das Scan-Skript und aktiviert darin

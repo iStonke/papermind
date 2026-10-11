@@ -20,6 +20,12 @@ macOS-Bridge `com.papermind.pi-bridge`. Nie eine direkte Verbindung zu
 - `rollout_verify` führt ausschließlich die feste abschließende Prüfung des
   erfolgreich installierten Releases aus: RLS, anonymen Zugriff, synthetisches
   PDF, lokale Piper-Ausgabe und HTTP-Kompression. Keine Nutzerdatenänderung.
+- Zusätzlich ausdrücklich freigegeben: `git_reconcile_status` und
+  `git_reconcile` für den Git-Abgleich des geprüften Snapshots auf Commit
+  `20e59e1e4c32d8e68117862e520dc1bf4e4da6f3`, einschließlich der bereits aktiven
+  Notizkorrektur. Feste Quelle/Branch/Dateihashes, Sicherung vor Änderungen und
+  Abbruch bei unbekannten Abweichungen. Keine freien Parameter, Container-
+  Neustarts, Migrationen oder Änderungen an Nutzerdaten und echten `.env`-Dateien.
 - `scanner_status` liest ausschließlich Dienststatus, feste systemd-Definitionen,
   Canon-USB-Energiezustand, SANE-Geräteliste und begrenzte Scanner-Logs aus.
 - `scanner_calibration_test` sichert das Scan-Skript und aktiviert darin
