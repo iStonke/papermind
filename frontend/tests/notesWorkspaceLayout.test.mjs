@@ -93,7 +93,8 @@ test('notes sidebar exposes recent and pinned views with real list filters', () 
   assert.match(appSidebarSource, />\s*Angepinnt\s*<\/SidebarItem>/);
   assert.match(documentsWorkspaceSource, /:view-mode="activeNoteView"/);
   assert.match(workspaceSource, /props\.viewMode === 'recent'[\s\S]*?\.slice\(0, 10\)/);
-  assert.match(workspaceSource, /props\.viewMode === 'pinned'[\s\S]*?note\.is_favorite/);
+  assert.match(workspaceSource, /props\.viewMode === 'pinned'[\s\S]*?isPinned\(note\)/);
+  assert.doesNotMatch(workspaceSource, /is_favorite/);
   assert.match(templateSource, /class="notes-ws__item-pin"[\s\S]*?@click="togglePinned\(note\)"/);
 });
 
@@ -192,8 +193,8 @@ test('notes toolbar combines sorting and grouping into one compact view menu', (
 test('notes list offers notebook and pinned grouping plus recently-opened sorting', () => {
   assert.match(workspaceSource, /value: 'opened', label: 'Zuletzt geöffnet'/);
   assert.match(workspaceSource, /value: 'notebook', label: 'Nach Notizbuch'/);
-  assert.match(workspaceSource, /value: 'favorites', label: 'Favoriten \+ weitere Notizen'/);
-  // Anpinnen ist vom Favoriten-Stern getrennt.
+  assert.doesNotMatch(workspaceSource, /value: 'favorites'/);
+  // Notizen kennen nur Pins (kein Favoriten-Stern).
   assert.match(workspaceSource, /notesStore\.setPinned\(note\.id, !isPinned\(note\)\)/);
   assert.match(workspaceSource, /notesStore\.markOpened\(noteId\)/);
 });
@@ -385,7 +386,8 @@ test('notes use soft-delete endpoints and appear in the shared trash', () => {
   assert.match(notesApiSource, /api\/notes\/\$\{id\}\/restore/);
   assert.match(notesApiSource, /apiDelete\('\/api\/notes\/trash'\)/);
   assert.match(notesStoreSource, /await trash\(id\)/);
-  assert.match(documentListPanelSource, /isTrashView \? 'Gelöschte Notizen' : 'Favorisierte Notizen'/);
+  assert.match(documentListPanelSource, /aria-label="Gelöschte Notizen"/);
+  assert.doesNotMatch(documentListPanelSource, /Favorisierte Notizen|unfavorite-note/);
   assert.match(documentListPanelSource, /emit\('restore-note', note\)/);
   assert.match(documentsWorkspaceSource, /:trash-notes="visibleTrashedNotes"/);
   assert.match(documentsWorkspaceSource, /emptyNotesTrash\(\)/);
@@ -833,6 +835,6 @@ test('manage grid shows pins and keeps pinned notes on top in every grouping', (
   assert.match(notesManageGridSource, /v-if="isPinned\(note\)" class="nmg-card__pin-badge"/);
   assert.match(notesManageGridSource, /\{ key: 'pinned', label: 'Angepinnt', notes: pinned \}, \.\.\.rest/);
   assert.match(notesManageGridSource, /notesStore\.setPinned\(note\.id, !isPinned\(note\)\)/);
-  // Der Favoriten-Stern bleibt eine eigene Gruppierung.
-  assert.match(notesManageGridSource, /favorites: 'Favoriten'/);
+  // Kein Favoriten-Stern und keine Favoriten-Gruppierung mehr.
+  assert.doesNotMatch(notesManageGridSource, /favorites: 'Favoriten'/);
 });

@@ -100,10 +100,11 @@
                   type="button"
                   class="notes-ws__collection-switch"
                   v-bind="collectionMenuProps"
-                  :title="`Sammlung: ${activeCollectionName}`"
+                  :title="showAllCollections ? 'Alle Sammlungen' : `Sammlung: ${activeCollectionName}`"
                   aria-label="Sammlung wechseln"
                 >
-                  <span class="notes-ws__collection-dot" :style="collectionDotStyle(activeCollection)"></span>
+                  <v-icon v-if="showAllCollections" size="14" class="notes-ws__collection-all-icon">mdi-layers-outline</v-icon>
+                  <span v-else class="notes-ws__collection-dot" :style="collectionDotStyle(activeCollection)"></span>
                   <span class="notes-ws__collection-name">{{ activeCollectionName }}</span>
                   <v-icon size="13" class="notes-ws__collection-chevron">mdi-chevron-down</v-icon>
                 </button>
@@ -111,10 +112,19 @@
               <v-list density="compact" min-width="220" class="notes-ws__collection-menu">
                 <v-list-subheader>Sammlung</v-list-subheader>
                 <v-list-item
+                  title="Alle Sammlungen"
+                  :active="showAllCollections"
+                  @click="showAllCollectionNotes"
+                >
+                  <template #prepend><span class="notes-ws__collection-all-mark"><v-icon size="14" class="notes-ws__collection-all-icon">mdi-layers-outline</v-icon></span></template>
+                  <template #append><span class="notes-ws__collection-count">{{ allCollectionsNoteCount }}</span></template>
+                </v-list-item>
+                <v-divider class="my-1" />
+                <v-list-item
                   v-for="c in collections"
                   :key="c.id"
                   :title="c.name"
-                  :active="c.id === activeCollectionId"
+                  :active="!showAllCollections && c.id === activeCollectionId"
                   @click="switchCollection(c.id)"
                 >
                   <template #prepend><span class="notes-ws__collection-dot" :style="collectionDotStyle(c)"></span></template>
@@ -218,6 +228,14 @@
                       <span class="notes-ws__item-date">{{ formatDate(note.updated_at) }}</span>
                     </span>
                     <span class="notes-ws__item-snippet">
+                      <span
+                        v-if="showCollectionBadges && collectionById.get(note.collection_id)"
+                        class="notes-ws__item-collection"
+                        :title="`Sammlung: ${collectionById.get(note.collection_id).name}`"
+                      >
+                        <span class="notes-ws__collection-dot" :style="collectionDotStyle(collectionById.get(note.collection_id))"></span>
+                        <span class="notes-ws__collection-name">{{ collectionById.get(note.collection_id).name }}</span>
+                      </span>
                       <span
                         v-for="(part, partIndex) in searchHighlightParts(snippet(note))"
                         :key="`snippet-${partIndex}`"
@@ -565,7 +583,6 @@ const NOTE_SORT_OPTIONS = [
 const NOTE_GROUPING_OPTIONS = [
   { value: 'auto', label: 'Automatisch' },
   { value: 'notebook', label: 'Nach Notizbuch' },
-  { value: 'favorites', label: 'Favoriten + weitere Notizen' },
   { value: 'none', label: 'Ohne Gruppen' },
 ];
 
@@ -597,12 +614,29 @@ const activeCollectionId = computed(() => notesStore.activeCollectionId);
 const activeCollection = computed(
   () => collections.value.find((c) => c.id === activeCollectionId.value) || null,
 );
-const activeCollectionName = computed(() => activeCollection.value?.name || 'Sammlung');
+const activeCollectionName = computed(() => (
+  showAllCollections.value ? 'Alle Sammlungen' : activeCollection.value?.name || 'Sammlung'
+));
+const showAllCollections = computed(() => notesStore.showAllCollections);
+const collectionById = computed(() => new Map(collections.value.map((c) => [c.id, c])));
+const allCollectionsNoteCount = computed(() => (
+  collections.value.reduce((sum, c) => sum + (Number(c.note_count) || 0), 0)
+));
+// Herkunft je Eintrag nur in der sammlungsübergreifenden Ansicht (sonst redundant).
+const showCollectionBadges = computed(() => (
+  props.viewMode === 'all' && showAllCollections.value && collections.value.length > 1
+));
+async function showAllCollectionNotes() {
+  if (showAllCollections.value) return;
+  try {
+    await notesStore.setShowAllCollections(true);
+  } catch { /* Ladefehler werden über die Notizen-Ladeanzeige sichtbar. */ }
+}
 function collectionDotStyle(c) {
   return { '--pm-coll-dot': normalizeCollectionColor(c?.color) || 'var(--pm-accent, #006b75)' };
 }
 async function switchCollection(id) {
-  if (!id || id === activeCollectionId.value) return;
+  if (!id || (id === activeCollectionId.value && !showAllCollections.value)) return;
   notebookFilter.value = ''; // Notizbuch-Filter gehört zur alten Sammlung.
   try {
     await notesStore.setActiveCollection(id);
@@ -653,7 +687,7 @@ const normalizedSearchScope = computed(() => (
 ));
 const activeSearchKey = computed(() => (
   normalizedSearchQuery.value
-    ? `${props.viewMode === 'all' ? activeCollectionId.value || 'all' : 'global'}:${normalizedSearchScope.value}:${normalizedSearchQuery.value.toLocaleLowerCase('de-DE')}`
+    ? `${props.viewMode === 'all' && !showAllCollections.value ? activeCollectionId.value || 'all' : 'global'}:${normalizedSearchScope.value}:${normalizedSearchQuery.value.toLocaleLowerCase('de-DE')}`
     : ''
 ));
 const normalizedManageSearchQuery = computed(() => (
@@ -755,14 +789,6 @@ function groupUnpinnedNotes(notes) {
     }
     return ordered;
   }
-  if (grouping.value === 'favorites') {
-    const favorites = notes.filter((note) => note.is_favorite);
-    const remaining = notes.filter((note) => !note.is_favorite);
-    return [
-      favorites.length ? { key: 'favorites', label: 'Favoriten', notes: favorites } : null,
-      remaining.length ? { key: 'remaining', label: 'Weitere Notizen', notes: remaining } : null,
-    ].filter(Boolean);
-  }
   // Eine alphabetische Sortierung muss über die gesamte Ergebnisliste gelten.
   // Datumsgruppen würden die Titel nur innerhalb einzelner Tage sortieren und
   // damit die gewählte A–Z-Reihenfolge optisch wie semantisch wieder aufheben.
@@ -815,7 +841,6 @@ const NOTE_SORT_SHORT_LABELS = {
 const NOTE_GROUPING_SHORT_LABELS = {
   auto: 'Auto',
   notebook: 'Notizbuch',
-  favorites: 'Favoriten',
   none: 'Ungruppiert',
 };
 const viewOptionsLabel = computed(() => (
@@ -829,7 +854,13 @@ const dateRangeLabel = computed(() =>
 // Notizbuch-Dropdown: Alle · je Notizbuch · Ohne Notizbuch.
 const notebookFilterOptions = computed(() => [
   { value: '', label: 'Alle Notizbücher' },
-  ...notesStore.notebooks.map((nb) => ({ value: nb.id, label: nb.name })),
+  ...notesStore.notebooks.map((nb) => ({
+    value: nb.id,
+    // Sammlungsübergreifend können Notizbuch-Namen doppelt vorkommen.
+    label: showAllCollections.value && collectionById.value.get(nb.collection_id)
+      ? `${nb.name} · ${collectionById.value.get(nb.collection_id).name}`
+      : nb.name,
+  })),
   { value: 'none', label: 'Ohne Notizbuch' },
 ]);
 
@@ -1104,7 +1135,7 @@ function scheduleNoteSearch(delay = NOTE_SEARCH_DEBOUNCE_MS) {
   noteSearchTimer = window.setTimeout(async () => {
     noteSearchTimer = null;
     try {
-      const results = await notesStore.searchNotes(query, { scope, collectionId: props.viewMode === 'all' ? activeCollectionId.value : null });
+      const results = await notesStore.searchNotes(query, { scope, collectionId: props.viewMode === 'all' && !showAllCollections.value ? activeCollectionId.value : null });
       if (revision !== noteSearchRevision || key !== activeSearchKey.value) return;
       searchedNotes.value = results;
     } catch {
@@ -1153,7 +1184,7 @@ async function applyPendingOpen() {
     // Sammlung der Notiz wechseln (Space-Wechsel), dann frisch laden.
     try {
       const detail = await notesStore.get(id);
-      if (props.viewMode === 'all' && detail?.collection_id && detail.collection_id !== notesStore.activeCollectionId) {
+      if (props.viewMode === 'all' && !notesStore.showAllCollections && detail?.collection_id && detail.collection_id !== notesStore.activeCollectionId) {
         await notesStore.setActiveCollection(detail.collection_id);
       }
     } catch { /* Fällt unten auf einen erneuten Listenabruf zurück. */ }
@@ -1291,7 +1322,7 @@ function updateCompactLayout(event) {
 async function onNoteImported(note) {
   try {
     await notesStore.fetchCollections();
-    if (note.collection_id) await notesStore.setActiveCollection(note.collection_id);
+    if (note.collection_id && !notesStore.showAllCollections) await notesStore.setActiveCollection(note.collection_id);
     await Promise.all([notesStore.fetchNotes(), notesStore.fetchNotebooks(), notesStore.fetchTemplates()]);
     notebookFilter.value = '';
     dateRange.value = '';
@@ -1846,6 +1877,36 @@ function formatDate(value) {
   font-size: 0.72rem;
   font-weight: 700;
   color: var(--pm-muted);
+}
+.notes-ws__collection-all-icon {
+  flex: 0 0 auto;
+  color: var(--pm-muted);
+}
+.notes-ws__collection-all-mark {
+  display: inline-flex;
+  width: 8px;
+  justify-content: center;
+  margin-inline-end: 10px;
+}
+/* Herkunfts-Markierung je Eintrag in der Ansicht „Alle Sammlungen". */
+.notes-ws__item-collection {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 60%;
+  margin-right: 6px;
+  padding: 0 7px 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pm-coll-dot, var(--pm-list-meta)) 10%, transparent);
+  color: var(--pm-list-title);
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.5;
+  vertical-align: 1px;
+}
+.notes-ws__item-collection .notes-ws__collection-dot {
+  width: 7px;
+  height: 7px;
 }
 /* Im Dropdown sitzt der Farbpunkt sonst direkt am Sammlungsnamen. */
 .notes-ws__collection-menu .notes-ws__collection-dot {

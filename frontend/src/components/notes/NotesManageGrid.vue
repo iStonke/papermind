@@ -173,22 +173,6 @@
                     <v-icon size="12">mdi-link-variant</v-icon>{{ note.link_count }}
                   </span>
                   <div class="nmg-card__actions" @click.stop>
-                    <span
-                      class="nmg-card__fav-wrap"
-                      :class="{ 'nmg-card__fav-wrap--pop': animatingFavoriteId === note.id }"
-                    >
-                      <button
-                        type="button"
-                        class="nmg-card__act nmg-card__act--fav"
-                        :class="{ 'is-active': note.is_favorite }"
-                        :title="note.is_favorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'"
-                        :aria-label="note.is_favorite ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'"
-                        :aria-pressed="String(!!note.is_favorite)"
-                        @click="toggleFavorite(note)"
-                      >
-                        <v-icon size="15">{{ note.is_favorite ? 'mdi-star' : 'mdi-star-outline' }}</v-icon>
-                      </button>
-                    </span>
                     <button
                       type="button"
                       class="nmg-card__act nmg-card__act--pin"
@@ -209,7 +193,7 @@
                       <v-list density="compact" min-width="200" max-height="320" class="nmg__move-list nmg__action-menu">
                         <v-list-subheader>In Notizbuch verschieben</v-list-subheader>
                         <v-list-item
-                          v-for="nb in notebooks"
+                          v-for="nb in notebooksForNote(note)"
                           :key="nb.id"
                           :title="nb.name"
                           :active="note.notebook_id === nb.id"
@@ -225,7 +209,7 @@
                         >
                           <template #prepend><v-icon size="16">mdi-inbox-outline</v-icon></template>
                         </v-list-item>
-                        <v-list-item v-if="!notebooks.length" title="Neues Notizbuch anlegen …" @click="openSidebarAndCreateNotebook">
+                        <v-list-item v-if="!notebooksForNote(note).length" title="Neues Notizbuch anlegen …" @click="openSidebarAndCreateNotebook">
                           <template #prepend><v-icon size="16">mdi-plus</v-icon></template>
                         </v-list-item>
                         <template v-if="collections.length > 1">
@@ -309,6 +293,14 @@
                     </div>
                   </v-menu>
 
+                  <span
+                    v-if="showCollectionMarks && collectionById.get(note.collection_id)"
+                    class="nmg-card__coll"
+                    :title="`Sammlung: ${collectionById.get(note.collection_id).name}`"
+                  >
+                    <span class="nmg__coll-dot" :style="collectionDotStyle(collectionById.get(note.collection_id))"></span>
+                    <span class="nmg-card__coll-name">{{ collectionById.get(note.collection_id).name }}</span>
+                  </span>
                   <span class="nmg-card__date">{{ formatDate(note.updated_at) }}</span>
                 </div>
               </li>
@@ -347,8 +339,8 @@
           </div>
         </div>
 
-        <!-- Sammlung: oberste Schale (harter Space-Wechsel). Kein „Alle" – genau
-             eine ist aktiv und scopt Notizbücher + Notizen darunter. -->
+        <!-- Sammlung: oberste Schale (Space-Wechsel). Entweder genau eine ist
+             aktiv und scopt Notizbücher + Notizen, oder „Alle Sammlungen". -->
         <div class="nmg__filter-section nmg__collections" role="group" aria-label="Sammlung">
           <div class="nmg__filter-section-head">
             <span class="nmg__filter-section-title">Sammlung</span>
@@ -364,11 +356,24 @@
           </div>
 
           <div class="nmg__coll-list">
+            <div class="nmg__coll-row" :class="{ 'is-active': showAllCollections }">
+              <button
+                type="button"
+                class="nmg__coll-chip nmg__coll-chip--all"
+                :class="{ 'is-active': showAllCollections }"
+                :aria-pressed="String(showAllCollections)"
+                @click="chooseAllCollections"
+              >
+                <v-icon size="15" class="nmg__coll-all-icon">mdi-layers-outline</v-icon>
+                <span class="nmg__coll-name">Alle Sammlungen</span>
+                <span class="nmg__coll-count">{{ allCollectionsNoteCount }}</span>
+              </button>
+            </div>
             <div
               v-for="c in collections"
               :key="c.id"
               class="nmg__coll-row"
-              :class="{ 'is-active': c.id === activeCollectionId }"
+              :class="{ 'is-active': !showAllCollections && c.id === activeCollectionId }"
             >
               <div v-if="editingCollectionId === c.id" class="nmg__coll-editing">
                 <span class="nmg__coll-dot" :style="collectionDotStyle(c)"></span>
@@ -389,8 +394,8 @@
                 <button
                   type="button"
                   class="nmg__coll-chip"
-                  :class="{ 'is-active': c.id === activeCollectionId }"
-                  :aria-pressed="String(c.id === activeCollectionId)"
+                  :class="{ 'is-active': !showAllCollections && c.id === activeCollectionId }"
+                  :aria-pressed="String(!showAllCollections && c.id === activeCollectionId)"
                   @click="chooseCollection(c.id)"
                 >
                   <span class="nmg__coll-dot" :style="collectionDotStyle(c)"></span>
@@ -492,16 +497,21 @@
               <span class="nmg__tag-cloud-count">{{ allNotes.length }}</span>
             </button>
 
+            <template v-for="entry in notebookEntries" :key="entry.key">
+            <!-- „Alle Sammlungen": Notizbücher unter Sammlungs-Zwischenüberschriften. -->
+            <div v-if="entry.collection" class="nmg__nb-group-head" role="presentation">
+              <span class="nmg__coll-dot" :style="collectionDotStyle(entry.collection)"></span>
+              <span class="nmg__nb-group-name">{{ entry.collection.name }}</span>
+            </div>
             <div
-              v-for="nb in notebooks"
-              :key="nb.id"
+              v-else
               class="nmg__nb-row"
-              :class="{ 'is-active': activeNotebookId === nb.id }"
-              :data-nb-id="nb.id"
+              :class="{ 'is-active': activeNotebookId === entry.nb.id }"
+              :data-nb-id="entry.nb.id"
             >
               <!-- Bearbeiten: eigenständige Eingabezeile (NICHT in einem Button
                    geschachtelt – sonst schluckt der Button Fokus/Tastatur). -->
-              <div v-if="editingNotebookId === nb.id" class="nmg__nb-editing">
+              <div v-if="editingNotebookId === entry.nb.id" class="nmg__nb-editing">
                 <v-icon size="15" class="nmg__nb-glyph">mdi-notebook-outline</v-icon>
                 <input
                   ref="notebookInputRef"
@@ -510,9 +520,9 @@
                   type="text"
                   maxlength="120"
                   placeholder="Name …"
-                  @keydown.enter.prevent.stop="commitRenameNotebook(nb)"
+                  @keydown.enter.prevent.stop="commitRenameNotebook(entry.nb)"
                   @keydown.esc.prevent.stop="cancelRenameNotebook"
-                  @blur="commitRenameNotebook(nb)"
+                  @blur="commitRenameNotebook(entry.nb)"
                 />
               </div>
 
@@ -520,18 +530,18 @@
                 <button
                   type="button"
                   class="nmg__tag-cloud-chip nmg__nb-chip"
-                  :class="{ 'is-active': activeNotebookId === nb.id, 'is-drop-target': dropTargetId === nb.id }"
-                  :aria-pressed="String(activeNotebookId === nb.id)"
-                  @click="activeNotebookId = nb.id"
-                  @dragover="onNotebookDragOver($event, nb.id)"
-                  @dragleave="onNotebookDragLeave(nb.id)"
-                  @drop="onDropOnNotebook($event, nb.id)"
+                  :class="{ 'is-active': activeNotebookId === entry.nb.id, 'is-drop-target': dropTargetId === entry.nb.id }"
+                  :aria-pressed="String(activeNotebookId === entry.nb.id)"
+                  @click="activeNotebookId = entry.nb.id"
+                  @dragover="onNotebookDragOver($event, entry.nb.id)"
+                  @dragleave="onNotebookDragLeave(entry.nb.id)"
+                  @drop="onDropOnNotebook($event, entry.nb.id)"
                 >
                   <span class="nmg__tag-cloud-name">
                     <v-icon size="15" class="nmg__nb-glyph">mdi-notebook-outline</v-icon>
-                    <span class="nmg__nb-name-text">{{ nb.name }}</span>
+                    <span class="nmg__nb-name-text">{{ entry.nb.name }}</span>
                   </span>
-                  <span class="nmg__tag-cloud-count">{{ nb.note_count }}</span>
+                  <span class="nmg__tag-cloud-count">{{ entry.nb.note_count }}</span>
                 </button>
                 <v-menu location="bottom end" :offset="4">
                   <template #activator="{ props: menuProps }">
@@ -547,21 +557,22 @@
                     </button>
                   </template>
                   <v-list density="compact" min-width="164" class="nmg__action-menu">
-                    <v-list-item title="Umbenennen" @click="startRenameNotebook(nb)">
+                    <v-list-item title="Umbenennen" @click="startRenameNotebook(entry.nb)">
                       <template #prepend><v-icon size="16">mdi-pencil-outline</v-icon></template>
                     </v-list-item>
-                    <v-list-item title="Löschen" class="nmg__nb-menu-danger" @click="requestNotebookDeletion(nb)">
+                    <v-list-item title="Löschen" class="nmg__nb-menu-danger" @click="requestNotebookDeletion(entry.nb)">
                       <template #prepend><v-icon size="16">mdi-trash-can-outline</v-icon></template>
                     </v-list-item>
                   </v-list>
                 </v-menu>
               </template>
             </div>
+            </template>
 
             <button
               type="button"
               class="nmg__tag-cloud-chip"
-              :class="{ 'is-active': activeNotebookId === 'none', 'is-drop-target': dropTargetId === 'none' }"
+              :class="{ 'is-active': activeNotebookId === 'none', 'is-drop-target': dropTargetId === 'none', 'nmg__nb-none--separated': groupNotebooksByCollection }"
               :aria-pressed="String(activeNotebookId === 'none')"
               @click="activeNotebookId = 'none'"
               @dragover="onNotebookDragOver($event, 'none')"
@@ -790,6 +801,13 @@ const createNotebookInputRef = ref(null);
 // --- Sammlungen (oberste Ebene, harter Space-Wechsel) ----------------------
 const collections = computed(() => notesStore.collections);
 const activeCollectionId = computed(() => notesStore.activeCollectionId);
+const showAllCollections = computed(() => notesStore.showAllCollections);
+const collectionById = computed(() => new Map(collections.value.map((c) => [c.id, c])));
+const allCollectionsNoteCount = computed(() => (
+  collections.value.reduce((sum, c) => sum + (Number(c.note_count) || 0), 0)
+));
+// Herkunft an Karten/Notizbüchern nur sammlungsübergreifend (sonst redundant).
+const showCollectionMarks = computed(() => showAllCollections.value && collections.value.length > 1);
 const creatingCollection = ref(false);
 const newCollectionName = ref('');
 const createCollectionInputRef = ref(null);
@@ -805,6 +823,20 @@ function collectionDotStyle(c) {
 }
 
 const notebooks = computed(() => notesStore.notebooks);
+// Seitenleisten-Einträge der Notizbücher. In „Alle Sammlungen" nach Sammlung
+// gruppiert (Zwischenüberschrift je Sammlung), sonst die flache Liste.
+const groupNotebooksByCollection = computed(() => showAllCollections.value && collections.value.length > 1);
+const notebookEntries = computed(() => {
+  if (!groupNotebooksByCollection.value) return notebooks.value.map((nb) => ({ key: nb.id, nb }));
+  const entries = [];
+  for (const c of collections.value) {
+    const inCollection = notebooks.value.filter((nb) => nb.collection_id === c.id);
+    if (!inCollection.length) continue;
+    entries.push({ key: `coll-${c.id}`, collection: c });
+    for (const nb of inCollection) entries.push({ key: nb.id, nb });
+  }
+  return entries;
+});
 const notesWithoutNotebookCount = computed(
   () => allNotes.value.filter((n) => !n.notebook_id).length,
 );
@@ -828,9 +860,13 @@ function setupNotebookSortable() {
     // nicht mit dem nativen HTML5-DnD der Karten (#5).
     forceFallback: true,
     fallbackTolerance: 4,
+    // Gruppiert (Alle Sammlungen) würde ein Drag über Sammlungsgrenzen eine
+    // Zuordnung suggerieren, die nicht stattfindet → dort nicht sortierbar.
+    disabled: groupNotebooksByCollection.value,
     onEnd: onNotebookSortEnd,
   });
 }
+watch(groupNotebooksByCollection, (grouped) => notebookSortable?.option('disabled', grouped));
 
 function teardownNotebookSortable() {
   notebookSortable?.destroy();
@@ -866,6 +902,12 @@ const notebooksById = computed(() => {
   for (const nb of notebooks.value) map.set(nb.id, nb);
   return map;
 });
+// Verschiebe-Menü einer Karte: nur Notizbücher der eigenen Sammlung, damit ein
+// Notizbuchwechsel nicht stillschweigend die Sammlung wechselt.
+function notebooksForNote(note) {
+  if (!showAllCollections.value) return notebooks.value;
+  return notebooks.value.filter((nb) => nb.collection_id === note.collection_id);
+}
 function notebookFor(note) {
   return note.notebook_id ? notebooksById.value.get(note.notebook_id) || null : null;
 }
@@ -902,7 +944,6 @@ const GROUPING_OPTIONS = [
   { value: 'auto', label: 'Automatisch' },
   { value: 'date', label: 'Nach Datum' },
   { value: 'notebook', label: 'Nach Notizbuch' },
-  { value: 'favorites', label: 'Favoriten + weitere Notizen' },
   { value: 'none', label: 'Ohne Gruppen' },
 ];
 const DATE_RANGE_OPTIONS = [
@@ -1025,12 +1066,10 @@ const visibleItems = computed(() => {
 });
 
 // Datumsgruppen folgen der Sortierrichtung. Titel werden ohne Datumsgruppen
-// alphabetisch sortiert. Favoriten werden nur in der ausdrücklich gewählten
-// Favoriten-Gruppierung abgesetzt; angepinnte Notizen stehen dagegen in jeder
-// Gruppierung als eigener Block ganz oben (wie in der Notizliste).
+// alphabetisch sortiert. Angepinnte Notizen stehen in jeder Gruppierung als
+// eigener Block ganz oben (wie in der Notizliste).
 const GROUP_ORDER = ['today', 'yesterday', 'week', 'month', 'older'];
 const GROUP_LABELS = {
-  favorites: 'Favoriten',
   notes: 'Weitere Notizen',
   today: 'Heute',
   yesterday: 'Gestern',
@@ -1045,7 +1084,6 @@ function startOfDay(value) {
   return d;
 }
 function groupBucket(note) {
-  if (grouping.value === 'favorites') return note.is_favorite ? 'favorites' : 'notes';
   if (grouping.value === 'auto' && sortMode.value === 'title') return 'notes';
   const raw = sortMode.value === 'created'
     ? note.created_at || note.updated_at
@@ -1095,11 +1133,9 @@ function groupUnpinnedItems(items) {
     buckets.get(key).push(note);
   }
   const dates = [...GROUP_ORDER];
-  let order = grouping.value === 'favorites'
-    ? ['favorites', 'notes']
-    : grouping.value === 'auto' && sortMode.value === 'title'
-      ? ['notes']
-      : (reverseSort.value ? dates.reverse() : dates);
+  let order = grouping.value === 'auto' && sortMode.value === 'title'
+    ? ['notes']
+    : (reverseSort.value ? dates.reverse() : dates);
   if (buckets.has('unopened')) order = [...order, 'unopened'];
   return order
     .filter((key) => buckets.has(key))
@@ -1258,35 +1294,11 @@ async function commitRename(note) {
 }
 
 // --- Kartenaktionen --------------------------------------------------------
-// Favoriten-Stern wie bei den Dokumenten: Die Pop-Animation läuft bewusst nur
-// beim aktiven Setzen (nicht am Zustand), damit sie nicht bei jedem Rerender feuert.
-const animatingFavoriteId = ref(null);
-let favoriteAnimTimer = null;
-
 async function togglePinned(note) {
   try {
     await notesStore.setPinned(note.id, !isPinned(note));
   } catch (error) {
     notifyError(error, 'Der Pin-Status konnte nicht gespeichert werden.');
-  }
-}
-
-async function toggleFavorite(note) {
-  if (!note?.id) return;
-  const next = !note.is_favorite;
-  if (next) {
-    animatingFavoriteId.value = note.id;
-    if (favoriteAnimTimer) window.clearTimeout(favoriteAnimTimer);
-    favoriteAnimTimer = window.setTimeout(() => {
-      animatingFavoriteId.value = null;
-      favoriteAnimTimer = null;
-    }, 480);
-  }
-  try {
-    await notesStore.setFavorite(note.id, next);
-    emit('changed');
-  } catch (error) {
-    notifyError(error, 'Der Favoriten-Status konnte nicht gespeichert werden.');
   }
 }
 
@@ -1565,13 +1577,24 @@ async function deleteNotebook(nb) {
 
 // --- Sammlungen: Wechsel + CRUD --------------------------------------------
 async function chooseCollection(id) {
-  if (busy.value || id === activeCollectionId.value) return;
+  if (busy.value || (id === activeCollectionId.value && !showAllCollections.value)) return;
   activeNotebookId.value = 'all'; // Notizbuch-Facette gehört zur alten Sammlung.
   try {
     await notesStore.setActiveCollection(id);
     emit('changed');
   } catch (error) {
     notifyError(error, 'Die Sammlung konnte nicht gewechselt werden.');
+  }
+}
+
+async function chooseAllCollections() {
+  if (busy.value || showAllCollections.value) return;
+  activeNotebookId.value = 'all';
+  try {
+    await notesStore.setShowAllCollections(true);
+    emit('changed');
+  } catch (error) {
+    notifyError(error, 'Die Sammlungen konnten nicht geladen werden.');
   }
 }
 
@@ -1942,6 +1965,72 @@ function formatDate(value) {
   border-radius: 50%;
   background: var(--nmg-coll-dot, var(--pm-accent, #006b75));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, #000 12%, transparent);
+}
+.nmg__coll-all-icon {
+  flex: 0 0 auto;
+  width: 10px;
+  color: var(--pm-muted, #64748b);
+}
+.nmg__coll-chip--all.is-active .nmg__coll-all-icon {
+  color: var(--pm-accent, #006b75);
+}
+/* Herkunfts-Sammlung an Karten in „Alle Sammlungen". */
+.nmg-card__coll {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  color: var(--pm-muted, #64748b);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+.nmg-card__coll .nmg__coll-dot {
+  width: 7px;
+  height: 7px;
+}
+.nmg-card__coll-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Gruppiert gehört „Ohne Notizbuch" zu keiner Sammlung → sichtbar abgesetzt. */
+.nmg__nb-none--separated {
+  position: relative;
+  margin-top: 9px;
+}
+.nmg__nb-none--separated::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 10px;
+  right: 10px;
+  height: 1px;
+  background: color-mix(in srgb, var(--pm-muted, #64748b) 22%, transparent);
+}
+/* Sammlungs-Zwischenüberschrift über den Notizbüchern (nur „Alle Sammlungen"). */
+.nmg__nb-group-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 10px 3px;
+  color: var(--pm-muted, #64748b);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.nmg__nb-group-head .nmg__coll-dot {
+  width: 7px;
+  height: 7px;
+}
+.nmg__nb-group-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .nmg__coll-dot--ghost {
   background: transparent;
@@ -2710,12 +2799,6 @@ function formatDate(value) {
 .nmg-card__act:hover { background: color-mix(in srgb, var(--pm-text, #0e181b) 8%, transparent); color: var(--pm-text, #0e181b); }
 .nmg-card__act--danger:hover { color: var(--pm-danger, #c0392b); background: color-mix(in srgb, var(--pm-danger, #c0392b) 12%, transparent); }
 
-/* ── Favoriten-Stern im Hover-Aktionsmenü (Gold + Pop-Animation wie Dokumente) ── */
-.nmg-card__fav-wrap {
-  position: relative;
-  display: inline-flex;
-}
-.nmg-card__act--fav.is-active { color: var(--pm-star, #f5b301); }
 .nmg-card__act--pin.is-active { color: var(--pm-accent, #006b75); }
 .nmg-card__act--pin.is-active:hover { color: var(--pm-accent, #006b75); background: color-mix(in srgb, var(--pm-accent, #006b75) 12%, transparent); }
 /* Dauerhafter Pin-Hinweis: Die Aktionsleiste erscheint erst beim Überfahren. */
@@ -2735,40 +2818,6 @@ function formatDate(value) {
 .nmg-card.is-pinned .nmg-card__snippet { padding-right: 22px; }
 .nmg-card:hover .nmg-card__pin-badge,
 .nmg-card:focus-within .nmg-card__pin-badge { opacity: 0; }
-.nmg-card__act--fav.is-active:hover { color: var(--pm-star, #f5b301); background: color-mix(in srgb, var(--pm-star, #f5b301) 14%, transparent); }
-
-.nmg-card__fav-wrap--pop {
-  animation: nmg-fav-star-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.nmg-card__fav-wrap--pop::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  width: 26px;
-  height: 26px;
-  border-radius: 999px;
-  border: 2px solid var(--pm-star, #f5b301);
-  pointer-events: none;
-  animation: nmg-fav-star-ring 480ms ease-out forwards;
-}
-@keyframes nmg-fav-star-pop {
-  0%   { transform: scale(1); }
-  35%  { transform: scale(1.32); }
-  60%  { transform: scale(0.94); }
-  100% { transform: scale(1); }
-}
-@keyframes nmg-fav-star-ring {
-  0%   { transform: scale(0.5); opacity: 0.55; }
-  100% { transform: scale(1.8); opacity: 0; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .nmg-card__fav-wrap--pop,
-  .nmg-card__fav-wrap--pop::after { animation: none; }
-}
-:global(.pm-no-animations) .nmg-card__fav-wrap--pop,
-:global(.pm-no-animations) .nmg-card__fav-wrap--pop::after { animation: none; }
-
 .nmg-card__meta {
   display: flex;
   box-sizing: border-box;

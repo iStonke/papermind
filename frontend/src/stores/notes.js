@@ -52,9 +52,6 @@ export const useNotesStore = defineStore('notes', () => {
   const allNotes = ref([]);
   const globalThoughtRoomCount = ref(0);
   const loaded = ref(false);
-  // Favorisierte Notizen für den globalen Favoriten-Bereich (eigener Abschnitt).
-  const favoriteNotes = ref([]);
-  const favoritesLoaded = ref(false);
   // Vorlagen (M6): eigene, benutzereigene Notiz-Gerüste. Getrennt von `notes`,
   // damit sie nicht im normalen Notizzähler/der Liste auftauchen.
   const templates = ref([...BUILTIN_START_TEMPLATES]);
@@ -127,6 +124,22 @@ export const useNotesStore = defineStore('notes', () => {
     } catch { /* Storage ist optional. */ }
   }
   const activeCollectionId = ref(loadActiveCollection());
+  // Übersicht „Alle Sammlungen": Liste + Notizbücher ungescoped. Die aktive
+  // Sammlung bleibt als Heimat erhalten (neue Notizen, Rückkehr beim Abwählen).
+  const ALL_COLLECTIONS_KEY = 'pm-notes-all-collections-v1';
+  function loadShowAllCollections() {
+    try { return window.localStorage.getItem(ALL_COLLECTIONS_KEY) === '1'; } catch { return false; }
+  }
+  const showAllCollections = ref(loadShowAllCollections());
+  function persistShowAllCollections(value) {
+    try {
+      if (value) window.localStorage.setItem(ALL_COLLECTIONS_KEY, '1');
+      else window.localStorage.removeItem(ALL_COLLECTIONS_KEY);
+    } catch { /* Storage ist optional. */ }
+  }
+  function isInListScope(collectionId) {
+    return showAllCollections.value || !activeCollectionId.value || collectionId === activeCollectionId.value;
+  }
   // Notizbücher (flache Ablageebene): { id, name, color, position, note_count }.
   const notebooks = ref([]);
   const notebooksLoaded = ref(false);
@@ -166,7 +179,6 @@ export const useNotesStore = defineStore('notes', () => {
       item.title = note.title;
       item.updated_at = note.updated_at;
       item.preview = notePreview(note.body_json);
-      item.is_favorite = note.is_favorite;
       item.pinned_at = note.pinned_at ?? null;
       item.notebook_id = note.notebook_id;
       item.collection_id = note.collection_id;
@@ -185,7 +197,7 @@ export const useNotesStore = defineStore('notes', () => {
     // its own filtered list for notebooks and collection management.
     const res = await api.listNotes();
     allNotes.value = res.items || [];
-    notes.value = allNotes.value.filter(note => !activeCollectionId.value || note.collection_id === activeCollectionId.value);
+    notes.value = allNotes.value.filter(note => isInListScope(note.collection_id));
     loaded.value = true;
   }
 
@@ -228,10 +240,21 @@ export const useNotesStore = defineStore('notes', () => {
 
   /** Wechselt die aktive Sammlung und lädt Notizen + Notizbücher neu (Space-Wechsel). */
   async function setActiveCollection(id) {
-    if (!id || id === activeCollectionId.value) return;
+    if (!id || (id === activeCollectionId.value && !showAllCollections.value)) return;
     if (!collections.value.some((c) => c.id === id)) return;
     activeCollectionId.value = id;
     persistActiveCollection(id);
+    showAllCollections.value = false;
+    persistShowAllCollections(false);
+    await Promise.all([fetchNotes(), fetchNotebooks()]);
+  }
+
+  /** Zeigt Notizen + Notizbücher aller Sammlungen (aufheben via setActiveCollection). */
+  async function setShowAllCollections(value = true) {
+    const next = Boolean(value);
+    if (next === showAllCollections.value) return;
+    showAllCollections.value = next;
+    persistShowAllCollections(next);
     await Promise.all([fetchNotes(), fetchNotebooks()]);
   }
 
@@ -259,7 +282,7 @@ export const useNotesStore = defineStore('notes', () => {
     }
     await fetchCollections();
     refreshThoughtCount().catch(() => {});
-    if (wasActive || reassignTo === activeCollectionId.value) {
+    if (wasActive || showAllCollections.value || reassignTo === activeCollectionId.value) {
       await Promise.all([fetchNotes(), fetchNotebooks()]);
     }
   }
@@ -278,14 +301,17 @@ export const useNotesStore = defineStore('notes', () => {
   /** Verschiebt Notizen in eine andere Sammlung (koppelt ihr Notizbuch ab). */
   async function moveToCollection(ids, collectionId) {
     const result = await api.moveNotesToCollection({ ids, collectionId });
-    if (collectionId !== activeCollectionId.value) {
+    const idSet = new Set(ids);
+    for (const item of [...allNotes.value, ...notes.value]) {
+      if (idSet.has(item.id)) { item.collection_id = collectionId; item.notebook_id = null; }
+    }
+    for (const id of ids) {
+      const detail = noteDetails.get(id);
+      if (detail) { detail.collection_id = collectionId; detail.notebook_id = null; }
+    }
+    if (!isInListScope(collectionId)) {
       // Verschobene Notizen verlassen die aktive (gescopte) Liste.
-      const idSet = new Set(ids);
       notes.value = notes.value.filter((n) => !idSet.has(n.id));
-      for (const id of ids) {
-        const detail = noteDetails.get(id);
-        if (detail) { detail.collection_id = collectionId; detail.notebook_id = null; }
-      }
     }
     // Zähler der Sammlungen und Notizbücher (abgekoppelt) auffrischen.
     fetchCollections().catch(() => {});
@@ -306,14 +332,13 @@ export const useNotesStore = defineStore('notes', () => {
     // Eine Dashboard-Schnellnotiz kann gezielt in einer anderen Sammlung
     // entstehen. Eine bereits geladene, sammlungsbezogene Liste darf sie dann
     // nicht vorübergehend im falschen Bereich anzeigen.
-    if (!loaded.value || note.collection_id === activeCollectionId.value) {
+    if (!loaded.value || isInListScope(note.collection_id)) {
       notes.value.unshift({
         id: note.id,
         title: note.title,
         preview: notePreview(note.body_json),
         notebook_id: note.notebook_id ?? null,
         collection_id: note.collection_id ?? null,
-        is_favorite: note.is_favorite ?? false,
         pinned_at: note.pinned_at ?? null,
         created_at: note.created_at,
         updated_at: note.updated_at,
@@ -359,7 +384,6 @@ export const useNotesStore = defineStore('notes', () => {
       preview: notePreview(note.body_json),
       notebook_id: note.notebook_id ?? null,
       collection_id: note.collection_id ?? null,
-      is_favorite: note.is_favorite ?? false,
       pinned_at: note.pinned_at ?? null,
       created_at: note.created_at,
       updated_at: note.updated_at,
@@ -432,7 +456,7 @@ export const useNotesStore = defineStore('notes', () => {
 
   async function fetchNotebooks() {
     // Notizbücher der aktiven Sammlung (harte Partition).
-    const res = await api.listNotebooks(activeCollectionId.value);
+    const res = await api.listNotebooks(showAllCollections.value ? null : activeCollectionId.value);
     notebooks.value = res.items || [];
     notebooksLoaded.value = true;
     return notebooks.value;
@@ -444,7 +468,11 @@ export const useNotesStore = defineStore('notes', () => {
   }
 
   async function createNotebook(payload = {}) {
-    const nb = await api.createNotebook(payload);
+    // Ohne explizite Sammlung landet ein neues Notizbuch in der Heimat-Sammlung
+    // (wichtig in „Alle Sammlungen", wo die Liste ungescoped ist).
+    const body = { ...payload };
+    if (body.collection_id == null && activeCollectionId.value) body.collection_id = activeCollectionId.value;
+    const nb = await api.createNotebook(body);
     notebooks.value.push(nb);
     return nb;
   }
@@ -481,63 +509,40 @@ export const useNotesStore = defineStore('notes', () => {
   async function moveToNotebook(ids, notebookId = null) {
     const result = await api.moveNotesToNotebook({ ids, notebookId });
     const idSet = new Set(ids);
+    // Ein Notizbuch bestimmt die Sammlung (serverseitige Invariante); in
+    // „Alle Sammlungen" kann das Ziel in einer anderen Sammlung liegen.
+    const targetCollectionId = notebookId
+      ? notebooks.value.find((nb) => nb.id === notebookId)?.collection_id ?? null
+      : null;
+    let collectionChanged = false;
     for (const item of notes.value) {
       if (!idSet.has(item.id)) continue;
+      const detail = noteDetails.get(item.id);
+      if (targetCollectionId && item.collection_id !== targetCollectionId) {
+        item.collection_id = targetCollectionId;
+        if (detail) detail.collection_id = targetCollectionId;
+        collectionChanged = true;
+      }
       const prev = item.notebook_id ?? null;
       if (prev === notebookId) continue;
       bumpNotebookCount(prev, -1);
       bumpNotebookCount(notebookId, 1);
       item.notebook_id = notebookId;
-      const detail = noteDetails.get(item.id);
       if (detail) detail.notebook_id = notebookId;
+    }
+    if (collectionChanged) {
+      if (!showAllCollections.value) notes.value = notes.value.filter((n) => isInListScope(n.collection_id));
+      fetchCollections().catch(() => {});
     }
     return result?.affected ?? 0;
   }
 
-  /** Lädt die favorisierten Notizen für den globalen Favoriten-Bereich. */
-  async function fetchFavorites() {
-    const res = await api.listNotes({ favoritesOnly: true });
-    favoriteNotes.value = res.items || [];
-    favoritesLoaded.value = true;
-    return favoriteNotes.value;
-  }
-
-  function syncFavoriteList(item, favorite) {
-    if (!item) return;
-    const idx = favoriteNotes.value.findIndex((n) => n.id === item.id);
-    if (favorite && idx === -1) favoriteNotes.value.unshift({ ...item, is_favorite: true });
-    else if (!favorite && idx !== -1) favoriteNotes.value.splice(idx, 1);
-  }
-
-  /** Favorisiert eine Notiz oder hebt es auf (Metadaten, kein Revisions-Bump). */
-  async function setFavorite(id, favorite) {
-    const item = notes.value.find((n) => n.id === id)
-      || allNotes.value.find((n) => n.id === id)
-      || favoriteNotes.value.find((n) => n.id === id);
-    const detail = noteDetails.get(id);
-    // Optimistisch umschalten – Stern/Sortierung sollen ohne Verzögerung reagieren.
-    if (item) item.is_favorite = favorite;
-    if (detail) detail.is_favorite = favorite;
-    syncFavoriteList(item || (detail && { id, title: detail.title, preview: notePreview(detail.body_json) }), favorite);
-    try {
-      const updated = await api.patchNote(id, { is_favorite: favorite });
-      if (item) item.is_favorite = updated.is_favorite;
-      cacheDetail(updated);
-      return updated;
-    } catch (error) {
-      if (item) item.is_favorite = !favorite;
-      if (detail) detail.is_favorite = !favorite;
-      syncFavoriteList(item, !favorite);
-      throw error;
-    }
-  }
-
   /**
-   * Pinnt eine Notiz oben an die Liste oder löst sie (Metadaten, unabhängig
-   * vom Favoriten-Stern; das Änderungsdatum bleibt unverändert).
+   * Pinnt eine Notiz oben an die Liste oder löst sie (Metadaten; das
+   * Änderungsdatum bleibt unverändert). Pins sind die einzige Hervorhebung.
    */
   async function setPinned(id, pinned) {
-    const items = [notes.value, allNotes.value, favoriteNotes.value]
+    const items = [notes.value, allNotes.value]
       .map((list) => list.find((n) => n.id === id))
       .filter(Boolean);
     const detail = noteDetails.get(id);
@@ -752,9 +757,6 @@ export const useNotesStore = defineStore('notes', () => {
     loaded,
     templates,
     templatesLoaded,
-    favoriteNotes,
-    favoritesLoaded,
-    fetchFavorites,
     pendingOpenId,
     pendingOpenCursorPosition,
     pendingDocumentReveal,
@@ -777,6 +779,7 @@ export const useNotesStore = defineStore('notes', () => {
     collections,
     collectionsLoaded,
     activeCollectionId,
+    showAllCollections,
     thoughtCounts,
     thoughtRoomCounts,
     globalThoughtRoomCount,
@@ -790,6 +793,7 @@ export const useNotesStore = defineStore('notes', () => {
     fetchCollections,
     ensureCollectionsLoaded,
     setActiveCollection,
+    setShowAllCollections,
     createCollection,
     updateCollection,
     deleteCollection,
@@ -804,7 +808,6 @@ export const useNotesStore = defineStore('notes', () => {
     deleteNotebook,
     reorderNotebooks,
     moveToNotebook,
-    setFavorite,
     setPinned,
     create,
     peek,

@@ -263,9 +263,7 @@ class NoteUpdateRequest(BaseModel):
     # Notizbuch verschieben; ``None`` mit gesetztem Feld = aus Notizbuch nehmen.
     # „Feld gesetzt" wird über ``model_fields_set`` unterschieden.
     notebook_id: uuid.UUID | None = None
-    # Favorit umschalten (Metadaten, kein Fortschritt der Inhaltsrevision).
-    is_favorite: bool | None = None
-    # Anheften umschalten (Metadaten, unabhängig vom Favoriten-Stern).
+    # Anheften umschalten (Metadaten, kein Fortschritt der Inhaltsrevision).
     is_pinned: bool | None = None
     # Ist die Serverrevision inzwischen weiter, darf ein älterer Browserstand
     # nicht still darübergeschrieben werden. Optional für ältere API-Clients.
@@ -333,7 +331,6 @@ class NoteListItem(ORMModel):
     link_count: int = 0
     notebook_id: uuid.UUID | None = None
     collection_id: uuid.UUID | None = None
-    is_favorite: bool = False
     pinned_at: datetime | None = None
     tags: list[NoteTagRef] = Field(default_factory=list)
     created_at: datetime
@@ -358,7 +355,6 @@ class NoteRead(ORMModel):
     deleted_at: datetime | None = None
     notebook_id: uuid.UUID | None = None
     collection_id: uuid.UUID | None = None
-    is_favorite: bool = False
     pinned_at: datetime | None = None
     tags: list[NoteTagRef] = Field(default_factory=list)
     created_at: datetime

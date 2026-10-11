@@ -136,6 +136,25 @@ class NoteCollectionServiceTest(unittest.TestCase):
         self.assertEqual(moved.collection_id, arb.id)
         self.assertEqual(moved.notebook_id, nb.id)
 
+    def test_bulk_notebook_move_pulls_collection_along(self) -> None:
+        default_id = self.collections.ensure_default_id()
+        arb = self._collection("Arbeit")
+        nb = self.notebooks.create_notebook(
+            NotebookCreateRequest(name="Projekt", collection_id=arb.id)
+        )
+        note = self.notes.create_note(NoteCreateRequest(title="Z", collection_id=default_id))
+
+        # Sammlungsübergreifend (Ansicht „Alle Sammlungen") in ein Notizbuch ziehen.
+        affected = self.notebooks.move_notes([note.id], nb.id)
+        self.assertEqual(affected, 1)
+        refreshed = self.notes.get_note(note.id)
+        self.assertEqual(refreshed.notebook_id, nb.id)
+        self.assertEqual(refreshed.collection_id, arb.id)
+
+        # Heraus nehmen lässt die Sammlung unverändert.
+        self.assertEqual(self.notebooks.move_notes([note.id], None), 1)
+        self.assertEqual(self.notes.get_note(note.id).collection_id, arb.id)
+
     def test_mark_opened_tracks_access_without_changing_updated_at(self) -> None:
         note = self.notes.create_note(NoteCreateRequest(title="Zuletzt geöffnet"))
         updated_at = note.updated_at

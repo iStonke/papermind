@@ -152,6 +152,7 @@ export {
   mdiInformationOutline,
   mdiKeyboardOutline,
   mdiLanConnect,
+  mdiLayersOutline,
   mdiLinkOff,
   mdiLinkVariant,
   mdiLinkVariantPlus,

@@ -100,14 +100,22 @@ test('grouping and period persist together with sorting', () => {
   const mount = () => mountController(() => useNoteListPreferences(() => 'updated', () => saved));
   const first = mount();
   first.controller.sortMode.value = 'opened';
-  first.controller.grouping.value = 'favorites';
+  first.controller.grouping.value = 'notebook';
   first.controller.dateRange.value = 'last_30_days';
   first.controller.reverseSort.value = true;
   first.unmount();
   const restored = mount();
   assert.equal(restored.controller.sortMode.value, 'opened');
-  assert.equal(restored.controller.grouping.value, 'favorites');
+  assert.equal(restored.controller.grouping.value, 'notebook');
   assert.equal(restored.controller.dateRange.value, 'last_30_days');
   assert.equal(restored.controller.reverseSort.value, true);
   restored.unmount();
+});
+
+test('a previously saved favorites grouping falls back to auto (notes only know pins)', () => {
+  const saved = storage();
+  saved.setItem('pm-notes-list-preferences-v1', JSON.stringify({ grouping: 'favorites' }));
+  const mounted = mountController(() => useNoteListPreferences(() => 'updated', () => saved));
+  assert.equal(mounted.controller.grouping.value, 'auto');
+  mounted.unmount();
 });

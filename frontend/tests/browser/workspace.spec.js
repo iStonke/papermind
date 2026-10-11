@@ -290,7 +290,7 @@ test('notes support recently-opened sorting plus notebook and pinned groups', as
   const notes = [
     {
       id: '30000000-0000-4000-8000-000000000020', title: 'Alpha', preview: 'Angepinnt',
-      notebook_id: 'notebook-work', is_favorite: true,
+      notebook_id: 'notebook-work', is_favorite: false,
       created_at: '2026-09-01T10:00:00Z', updated_at: '2026-09-20T10:00:00Z',
       last_opened_at: '2026-09-21T10:00:00Z',
     },
@@ -330,18 +330,19 @@ test('notes support recently-opened sorting plus notebook and pinned groups', as
   if (await showNotebookGroups.isVisible()) await showNotebookGroups.click();
   await expect(page.locator('.notes-ws__group-heading')).toHaveText(['Arbeit', 'Privat', 'Ohne Notizbuch']);
 
+  // Eine früher gespeicherte Favoriten-Gruppierung gibt es nicht mehr (Notizen
+  // kennen nur Pins): Sie fällt auf „Automatisch" zurück, ohne Favoriten-Block.
   await page.evaluate(() => localStorage.setItem('pm-notes-list-preferences-v1', JSON.stringify({
     sortMode: 'title', grouping: 'favorites',
   })));
   await page.reload();
   await page.getByText('Alle Notizen', { exact: true }).click();
-  const showFavoriteGroups = page.getByRole('button', { name: 'Notizenliste einblenden' });
-  if (await showFavoriteGroups.isVisible()) await showFavoriteGroups.click();
-  await expect(page.locator('.notes-ws__group-heading')).toHaveText(['Favoriten', 'Weitere Notizen']);
-  await expect(page.locator('.notes-ws__item-title').first()).toHaveText('Alpha');
+  const showFallbackGroups = page.getByRole('button', { name: 'Notizenliste einblenden' });
+  if (await showFallbackGroups.isVisible()) await showFallbackGroups.click();
+  await expect(page.locator('.notes-ws__item-title')).toHaveText(['Alpha', 'Bravo', 'Charlie']);
+  await expect(page.locator('.notes-ws__group-heading', { hasText: 'Favoriten' })).toHaveCount(0);
 
-  // Anpinnen ist unabhängig vom Favoriten-Stern: Die angepinnte Notiz steht in
-  // jeder Gruppierung als eigener Block ganz oben.
+  // Die angepinnte Notiz steht in jeder Gruppierung als eigener Block ganz oben.
   notes[2].pinned_at = '2026-09-25T10:00:00Z';
   await page.evaluate(() => localStorage.setItem('pm-notes-list-preferences-v1', JSON.stringify({
     sortMode: 'title', grouping: 'notebook',
@@ -361,7 +362,7 @@ test('command palette finds and opens individual notes', async ({ page }) => {
   const note = {
     id: noteId, title: 'Projektgedanke', preview: 'Ideen für die nächste Etappe',
     body_json: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Ideen für die nächste Etappe' }] }] },
-    notebook_id: 'notebook-ideas', is_favorite: true,
+    notebook_id: 'notebook-ideas', is_favorite: false, pinned_at: '2026-09-22T10:00:00Z',
     created_at: '2026-09-01T10:00:00Z', updated_at: '2026-09-20T10:00:00Z',
     last_opened_at: '2026-09-23T10:00:00Z',
   };

@@ -152,8 +152,7 @@ class NoteNotebookService:
 
         Vorlagen und gelöschte Notizen werden übersprungen. Gibt die Zahl
         tatsächlich verschobener Notizen zurück."""
-        if notebook_id is not None:
-            self._get(notebook_id)  # Eigentümerschaft/Existenz sicherstellen
+        target = self._get(notebook_id) if notebook_id is not None else None  # Eigentümerschaft/Existenz
         rows = list(
             self.db.scalars(
                 select(Note).where(
@@ -166,9 +165,14 @@ class NoteNotebookService:
         )
         affected = 0
         for note in rows:
-            if note.notebook_id != notebook_id:
-                note.notebook_id = notebook_id
-                affected += 1
+            changed = note.notebook_id != notebook_id
+            note.notebook_id = notebook_id
+            # Invariante: Notiz im Notizbuch gehört zu dessen Sammlung (auch
+            # beim sammlungsübergreifenden Verschieben aus „Alle Sammlungen").
+            if target is not None and note.collection_id != target.collection_id:
+                note.collection_id = target.collection_id
+                changed = True
+            affected += changed
         if affected:
             self.db.commit()
         return affected

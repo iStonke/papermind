@@ -49,12 +49,9 @@ class Note(Base):
     # gemeinsam per Autosave geschriebenen Felder Titel + body_json.
     revision: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     is_template: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
-    # Favorit: erscheint oben im Verwaltungsraster UND im globalen Favoriten-
-    # Bereich. Eigene Spalte (wie document.is_favorite), nicht als body_json-
-    # Attribut – so im Listeneintrag verfügbar und serverseitig sortierbar.
-    is_favorite: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
-    # Angeheftet: steht in der Notizliste oben, unabhängig vom Favoriten-Stern.
-    # Der Zeitpunkt ordnet mehrere angeheftete Notizen (zuletzt angeheftet zuerst).
+    # Angeheftet: steht in der Notizliste oben (Notizen kennen nur Pins, keine
+    # Favoriten – Spalte is_favorite entfernt in Migration 113). Der Zeitpunkt
+    # ordnet mehrere angeheftete Notizen (zuletzt angeheftet zuerst).
     pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Sammlung (oberste Ebene, harte Partition). Wahrheitsquelle der Zugehörigkeit;
     # echte Notizen liegen in genau einer Sammlung, Vorlagen bewusst in keiner

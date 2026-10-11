@@ -49,7 +49,7 @@ def test_round_trip_preserves_content_history_metadata_and_image_bytes(archive_s
         {'type': 'image', 'attrs': {'imageId': str(image.id), 'noteId': str(note.id), 'src': images.image_src(note.id, image.id), 'caption': 'Bild', 'width': 123}},
         {'type': 'taskList', 'content': [{'type': 'taskItem', 'attrs': {'checked': True}, 'content': [{'type': 'paragraph'}]}]},
     ]}
-    svc.notes.update_note(note.id, NoteUpdateRequest(body_json=body, is_favorite=True))
+    svc.notes.update_note(note.id, NoteUpdateRequest(body_json=body))
     svc.notes.set_tags(note.id, names=['Test'])
     archive = svc.export(note.id)
     imported = svc.import_archive(NoteArchive.model_validate_json(archive.model_dump_json()))
@@ -60,7 +60,7 @@ def test_round_trip_preserves_content_history_metadata_and_image_bytes(archive_s
     expected_body = copy.deepcopy(body)
     expected_body['content'][1]['attrs'].update(imageId=str(result.images[0].id), noteId=str(imported.id), src=images.image_src(imported.id, result.images[0].id))
     assert result.body_json == expected_body
-    for field in ['title', 'tags', 'created_at', 'updated_at', 'revision', 'is_favorite', 'collection', 'notebook']:
+    for field in ['title', 'tags', 'created_at', 'updated_at', 'revision', 'collection', 'notebook']:
         assert getattr(result, field) == getattr(archive, field), field
     assert len(result.history) == len(archive.history)
     assert [v.note_revision for v in result.history] == [v.note_revision for v in archive.history]
@@ -72,6 +72,16 @@ def test_round_trip_preserves_content_history_metadata_and_image_bytes(archive_s
         assert original.reason == restored.reason
     svc.notes.delete_note(note.id)
     assert svc.export(imported.id).images[0].data == archive.images[0].data
+
+
+def test_legacy_archive_with_favorite_flag_still_imports(archive_service):
+    svc = archive_service
+    note = svc.notes.create_note(NoteCreateRequest(title='Altes Archiv'))
+    payload = svc.export(note.id).model_dump(mode='json')
+    assert 'is_favorite' not in payload
+    payload['is_favorite'] = True  # Archive vor Migration 113 trugen das Feld noch.
+    imported = svc.import_archive(NoteArchive.model_validate(payload))
+    assert svc.notes.get_note(imported.id).title == 'Altes Archiv'
 
 
 def test_invalid_archive_does_not_create_a_note(archive_service):

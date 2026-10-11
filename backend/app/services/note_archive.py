@@ -58,7 +58,9 @@ class NoteArchive(ArchiveModel):
     body_json: dict[str, Any]
     revision: int = Field(ge=1)
     is_template: bool
-    is_favorite: bool
+    # Nur noch zum Einlesen älterer Archive (Notiz-Favoriten entfernt, Mig. 113);
+    # wird beim Import ignoriert und nicht mehr exportiert.
+    is_favorite: bool | None = Field(default=None, exclude=True)
     created_at: datetime
     updated_at: datetime
     tags: list[str]
@@ -139,7 +141,7 @@ class NoteArchiveService:
                                 data=base64.b64encode(path.read_bytes()).decode('ascii')))
         archive = NoteArchive(format='papermind-note', version=1, source_id=note.id,
             title=note.title, body_json=note.body_json, revision=note.revision,
-            is_template=note.is_template, is_favorite=note.is_favorite,
+            is_template=note.is_template,
             created_at=note.created_at, updated_at=note.updated_at,
             tags=[tag.name for tag in note.tags],
             collection=folder(NoteCollection, note.collection_id),
@@ -202,7 +204,7 @@ class NoteArchiveService:
             notebook_id = restore_folder(NoteNotebook, archive.notebook, collection_id) if collection_id else None
             note = Note(id=note_id, owner_id=self.owner_id, title=archive.title,
                 body_json=body, body_text=derive_body_text(body), revision=archive.revision,
-                is_template=archive.is_template, is_favorite=archive.is_favorite,
+                is_template=archive.is_template,
                 collection_id=collection_id, notebook_id=notebook_id, is_deleted=False,
                 created_at=archive.created_at, updated_at=archive.updated_at)
             self.db.add(note)

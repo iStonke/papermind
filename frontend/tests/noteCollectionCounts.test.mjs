@@ -92,18 +92,18 @@ test('global notes stay available while the collection list changes', async (t) 
   assert.equal(store.allNotes.filter(note => note.is_favorite).length, 1);
 });
 
-test('global note cache follows creation, favorite changes, deletion and restore', async (t) => {
+test('global note cache follows creation, pin changes, deletion and restore', async (t) => {
   const store = setup();
   store.loaded = true;
-  const note = { id: 'global', collection_id: 'arbeit', title: 'Global', body_json: { type: 'doc', content: [] }, is_favorite: false };
+  const note = { id: 'global', collection_id: 'arbeit', title: 'Global', body_json: { type: 'doc', content: [] }, pinned_at: null };
   t.mock.method(globalThis, 'fetch', async (url, options) => {
-    if (options.method === 'PATCH') note.is_favorite = JSON.parse(options.body).is_favorite;
+    if (options.method === 'PATCH') note.pinned_at = JSON.parse(options.body).is_pinned ? '2026-10-11T10:00:00Z' : null;
     return new Response(JSON.stringify(note), { headers: { 'Content-Type': 'application/json' } });
   });
   await store.create({ collection_id: 'arbeit' });
   assert.equal(store.allNotes[0].id, 'global');
-  await store.setFavorite('global', true);
-  assert.equal(store.allNotes[0].is_favorite, true);
+  await store.setPinned('global', true);
+  assert.ok(store.allNotes[0].pinned_at);
   await store.remove('global');
   assert.equal(store.allNotes.length, 0);
   await store.restore('global');

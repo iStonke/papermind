@@ -22,7 +22,7 @@
         <template #append><v-icon v-if="!currentId" size="16">mdi-check</v-icon></template>
       </v-list-item>
       <v-list-item
-        v-for="notebook in store.notebooks"
+        v-for="notebook in assignableNotebooks"
         :key="notebook.id"
         :title="notebook.name"
         :active="currentId === notebook.id"
@@ -34,7 +34,7 @@
       </v-list-item>
       <v-list-item v-if="loadError" title="Notizbücher erneut laden" subtitle="Laden fehlgeschlagen" @click="loadNotebooks" />
       <v-list-item v-else-if="!store.notebooksLoaded" title="Notizbücher werden geladen …" disabled />
-      <v-list-item v-else-if="!store.notebooks.length" title="Noch keine Notizbücher angelegt" disabled />
+      <v-list-item v-else-if="!assignableNotebooks.length" title="Noch keine Notizbücher angelegt" disabled />
     </v-list>
   </v-menu>
 </template>
@@ -58,6 +58,13 @@ const fallbackId = ref(props.notebookId);
 const currentId = computed(() => {
   const note = store.notes.find(note => note.id === props.noteId);
   return note ? note.notebook_id ?? null : fallbackId.value;
+});
+// In „Alle Sammlungen" enthält der Store Notizbücher aller Sammlungen; hier
+// nur die der eigenen Sammlung anbieten (Zuordnung soll nicht umziehen).
+const assignableNotebooks = computed(() => {
+  const collectionId = store.notes.find(note => note.id === props.noteId)?.collection_id;
+  if (!store.showAllCollections || !collectionId) return store.notebooks;
+  return store.notebooks.filter(book => book.collection_id === collectionId);
 });
 const currentNotebook = computed(() => store.notebooks.find(book => book.id === currentId.value));
 const currentCollectionColor = computed(() => noteCollectionColor(currentNotebook.value, store.collections));

@@ -318,48 +318,34 @@ test('the title row is title-only; date and tag counter share the footer', () =>
 
 test('renaming a notebook uses a standalone input, not one nested in a button', () => {
   // Regression: ein <input> im <button> schluckt Fokus/Tastatur (Eingabe unsichtbar).
-  assert.match(gridSource, /v-if="editingNotebookId === nb\.id" class="nmg__nb-editing"/);
+  assert.match(gridSource, /v-if="editingNotebookId === (?:entry\.)?nb\.id" class="nmg__nb-editing"/);
   assert.match(
     gridSource,
     /class="nmg__nb-editing"[\s\S]*?<input[\s\S]*?ref="notebookInputRef"[\s\S]*?<\/div>/,
   );
   // Der Chip-Button rendert im Edit-Modus NICHT (v-else) und trägt selbst kein input.
   assert.match(gridSource, /<template v-else>[\s\S]*?class="nmg__tag-cloud-chip nmg__nb-chip"/);
-  assert.match(gridSource, /nmg__nb-chip"[\s\S]*?<span class="nmg__nb-name-text">\{\{ nb\.name \}\}<\/span>/);
+  assert.match(gridSource, /nmg__nb-chip"[\s\S]*?<span class="nmg__nb-name-text">\{\{ (?:entry\.)?nb\.name \}\}<\/span>/);
   // Lesekontrast: Bearbeitungszeile hat eigene Textfarbe (nicht die Aktiv-Weißschrift).
   assert.match(gridSource, /\.nmg__nb-editing\s*\{[\s\S]*?color:\s*var\(--pm-text/);
 });
 
-test('the favorite star sits in the hover action menu with the document-style animation', () => {
-  // Stern liegt im Aktionsmenü (nicht als separater Dauer-Button).
-  assert.match(gridSource, /class="nmg-card__actions"[\s\S]*?nmg-card__act nmg-card__act--fav/);
-  assert.match(gridSource, /@click="toggleFavorite\(note\)"/);
-  assert.match(gridSource, /note\.is_favorite \? 'mdi-star' : 'mdi-star-outline'/);
-  // Gold-Aktivfarbe + Pop/Ring-Animation wie die Dokumentenkarte.
-  assert.match(gridSource, /\.nmg-card__act--fav\.is-active\s*\{[\s\S]*?var\(--pm-star/);
-  assert.match(gridSource, /nmg-card__fav-wrap--pop/);
-  assert.match(gridSource, /@keyframes nmg-fav-star-pop/);
-  assert.match(gridSource, /@keyframes nmg-fav-star-ring/);
-  // Animation nur beim aktiven Setzen (wie DocumentListPanel).
-  assert.match(gridSource, /if \(next\) \{[\s\S]*?animatingFavoriteId\.value = note\.id/);
-  // Favoriten lassen sich bewusst als erster Block gruppieren (Anpinnen ist getrennt).
-  assert.match(gridSource, /value: 'favorites', label: 'Favoriten \+ weitere Notizen'/);
-  assert.match(gridSource, /favorites: 'Favoriten'/);
-  assert.match(gridSource, /grouping\.value === 'favorites'.*note\.is_favorite \? 'favorites' : 'notes'/);
+test('notes have no favorite star; pins are the only highlight', () => {
+  assert.doesNotMatch(gridSource, /nmg-card__act--fav|toggleFavorite|setFavorite|Zu Favoriten hinzufügen/);
+  assert.doesNotMatch(gridSource, /value: 'favorites'/);
+  assert.match(gridSource, /class="nmg-card__actions"[\s\S]*?nmg-card__act nmg-card__act--pin/);
 });
 
-test('favorite notes use the document list and open a read-only preview', () => {
-  assert.doesNotMatch(documentsWorkspaceSource, /<FavoriteNotesSection/);
-  assert.match(documentsWorkspaceSource, /:favorite-notes="visibleFavoriteNotes"/);
-  assert.match(documentsWorkspaceSource, /@select-note="isTrashView \? selectTrashNote\(\$event\) : selectFavoriteNote\(\$event\)"/);
-  assert.match(documentsWorkspaceSource, /<NotePreview :note-id="isTrashView \? selectedTrashNoteId : selectedFavoriteNoteId"/);
-  assert.match(documentsWorkspaceSource, /async function selectDocument[^]*?selectedFavoriteNoteId.value = null/);
+test('the global favorites area lists documents only (notes only know pins)', () => {
+  assert.doesNotMatch(documentsWorkspaceSource, /FavoriteNotesSection|favorite-notes|selectedFavoriteNoteId|fetchFavorites/);
+  assert.match(documentsWorkspaceSource, /@select-note="selectTrashNote"/);
+  assert.match(documentsWorkspaceSource, /<NotePreview :note-id="selectedTrashNoteId"/);
 });
 
 test('notebooks can be reordered by dragging (SortableJS)', () => {
   assert.match(gridSource, /import Sortable from 'sortablejs'/);
   assert.match(gridSource, /ref="notebookListRef"/);
-  assert.match(gridSource, /:data-nb-id="nb\.id"/);
+  assert.match(gridSource, /:data-nb-id="(?:entry\.)?nb\.id"/);
   assert.match(gridSource, /Sortable\.create\(notebookListRef\.value,\s*\{[\s\S]*?draggable: '\.nmg__nb-row'[\s\S]*?handle: '\.nmg__nb-chip'[\s\S]*?forceFallback: true/);
   assert.match(gridSource, /await notesStore\.reorderNotebooks\(ids\)/);
   assert.match(gridSource, /onBeforeUnmount\(teardownNotebookSortable\)/);
@@ -370,7 +356,7 @@ test('a card can be dragged onto a notebook to move it (native DnD)', () => {
   // Aus interaktiven Bereichen startet kein Karten-Drag.
   assert.match(gridSource, /event\.target\?\.closest\?\.\('input, button, a, \.nmg-card__foot, \.nmg-card__actions'\)/);
   // Notizbuch-Zeilen und „Ohne Notizbuch" sind Ablageziele.
-  assert.match(gridSource, /@drop="onDropOnNotebook\(\$event, nb\.id\)"/);
+  assert.match(gridSource, /@drop="onDropOnNotebook\(\$event, (?:entry\.)?nb\.id\)"/);
   assert.match(gridSource, /@drop="onDropOnNotebook\(\$event, 'none'\)"/);
   assert.match(gridSource, /const notebookId = targetId === 'none' \? null : targetId;[\s\S]*?await moveNoteToNotebook\(note, notebookId\)/);
   // Drop-Ziel wird hervorgehoben.

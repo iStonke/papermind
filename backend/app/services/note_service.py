@@ -351,7 +351,6 @@ class NoteService:
         collection_id: uuid.UUID | None = None,
         notebook_id: uuid.UUID | None = None,
         no_notebook: bool = False,
-        favorites_only: bool = False,
         templates: bool = False,
         q: str | None = None,
         search_scope: NoteSearchScope = "all",
@@ -388,8 +387,6 @@ class NoteService:
             stmt = stmt.where(Note.notebook_id == notebook_id)
         elif no_notebook:
             stmt = stmt.where(Note.notebook_id.is_(None))
-        if favorites_only:
-            stmt = stmt.where(Note.is_favorite.is_(True))
         if document_id is not None:
             # Notizen, die im ProseMirror-Wurzel-Attribut mit diesem Dokument
             # verknüpft sind (body_json.attrs.linkedDocument.id).
@@ -445,7 +442,6 @@ class NoteService:
                 link_count=link_counts.get(n.id, 0),
                 notebook_id=n.notebook_id,
                 collection_id=n.collection_id,
-                is_favorite=n.is_favorite,
                 pinned_at=n.pinned_at,
                 tags=_tag_refs(n),
                 created_at=n.created_at,
@@ -766,8 +762,6 @@ class NoteService:
                 note.notebook_id = nb.id
                 note.collection_id = nb.collection_id
         # Anheften ist ebenfalls Metadaten (kein Revisions-Bump).
-        if "is_favorite" in payload.model_fields_set and payload.is_favorite is not None:
-            note.is_favorite = bool(payload.is_favorite)
         if "is_pinned" in payload.model_fields_set and payload.is_pinned is not None:
             if not payload.is_pinned:
                 note.pinned_at = None

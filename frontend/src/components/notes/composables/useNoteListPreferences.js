@@ -10,7 +10,8 @@ export function useNoteListPreferences(defaultSort, getStorage = () => window.lo
   let hasSavedSort = SORT_MODES.includes(saved.sortMode);
   const normalizeSort = value => SORT_MODES.includes(value) ? value : 'updated';
   const sortMode = ref(hasSavedSort ? saved.sortMode : normalizeSort(defaultSort()));
-  const grouping = ref(['auto', 'date', 'notebook', 'favorites', 'none'].includes(saved.grouping) ? saved.grouping : 'auto');
+  // Notizen kennen nur noch Pins; eine früher gespeicherte Favoriten-Gruppierung fällt auf „auto" zurück.
+  const grouping = ref(['auto', 'date', 'notebook', 'none'].includes(saved.grouping) ? saved.grouping : 'auto');
   const reverseSort = ref(saved.reverseSort === true);
   const dateRange = ref(DATE_RANGES.includes(saved.dateRange) ? saved.dateRange : '');
   const notebookFilter = ref(typeof saved.notebookFilter === 'string' ? saved.notebookFilter : '');

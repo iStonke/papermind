@@ -1,6 +1,6 @@
 import { apiDelete, apiFetch, apiGet, apiPatch, apiPost, apiPut, authHeaders, getBaseUrl } from './client.js';
 
-export const listNotes = ({ inTrash = false, documentId = null, dossierId = null, tagId = null, collectionId = null, notebookId = null, noNotebook = false, favoritesOnly = false, templates = false, q = '', searchScope = 'all' } = {}) => {
+export const listNotes = ({ inTrash = false, documentId = null, dossierId = null, tagId = null, collectionId = null, notebookId = null, noNotebook = false, templates = false, q = '', searchScope = 'all' } = {}) => {
   const params = new URLSearchParams();
   if (inTrash) params.set('in_trash', 'true');
   if (documentId) params.set('document_id', documentId);
@@ -10,7 +10,6 @@ export const listNotes = ({ inTrash = false, documentId = null, dossierId = null
   if (collectionId) params.set('collection_id', collectionId);
   if (notebookId) params.set('notebook_id', notebookId);
   if (noNotebook) params.set('no_notebook', 'true');
-  if (favoritesOnly) params.set('favorites_only', 'true');
   if (templates) params.set('templates', 'true');
   if (String(q || '').trim()) params.set('q', String(q).trim());
   if (searchScope && searchScope !== 'all') params.set('search_scope', searchScope);

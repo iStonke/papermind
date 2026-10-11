@@ -189,16 +189,17 @@ function sortedNoteEntries({ openedOnly = false } = {}) {
     ))
     .map((note) => {
       const notebookName = noteNotebookName(note);
+      const pinned = Boolean(note.pinned_at);
       return {
         id: `note-${note.id}`,
         group: 'note',
-        icon: note.is_favorite ? 'mdi-pin' : 'mdi-note-outline',
+        icon: pinned ? 'mdi-pin' : 'mdi-note-outline',
         label: noteTitle(note),
-        meta: [note.is_favorite ? 'Angepinnt' : '', notebookName].filter(Boolean).join(' · '),
+        meta: [pinned ? 'Angepinnt' : '', notebookName].filter(Boolean).join(' · '),
         keywords: [
           note.preview,
           notebookName,
-          note.is_favorite ? 'angepinnt favoriten wichtig' : '',
+          pinned ? 'angepinnt wichtig' : '',
           'notiz notizen',
         ].filter(Boolean),
         run: () => uiStore.requestWorkspace('openNote', note.id),
