@@ -35,6 +35,7 @@ from app.services.document_search import (
     normalize_search_query,
 )
 from app.services.settings import SettingsService
+from app.services.document_snippet_cache import snippet_cache
 
 
 settings = get_settings()
@@ -397,14 +398,37 @@ class DocumentQueryService:
                 DocumentSortField.is_favorite, DocumentSortField.favorite
             ) else (desc(rank_expr), order_expr, secondary_order_expr)
             rows = self.db.execute(
-                filtered_stmt.add_columns(rank_expr, snippet_expr)
+                filtered_stmt.add_columns(rank_expr)
                 .options(*self.summary_load_options())
                 .order_by(*search_order).limit(limit).offset(offset)
             ).all()
+            snippets = {}
+            missing = {}
+            for document, _ in rows:
+                key = (self.owner_id, document.id, document.updated_at, normalized_query,
+                       settings.fts_regconfig, FTS_HEADLINE_OPTIONS)
+                hit, snippet = snippet_cache.get(key)
+                if hit:
+                    snippets[document.id] = snippet
+                else:
+                    missing[document.id] = key
+            if missing:
+                # Read only the already authorized result rows, using the same
+                # owner scope/RLS. A newer concurrent version is never cached
+                # under the timestamp read for an older result row.
+                headline_rows = self.db.execute(self._scope(select(
+                    Document.id, Document.updated_at, snippet_expr
+                ).where(Document.id.in_(missing)))).all()
+                for document_id, updated_at, snippet in headline_rows:
+                    snippets[document_id] = snippet
+                    key = missing[document_id]
+                    if key[2] == updated_at:
+                        snippet_cache.put(key, snippet)
             items = []
-            for document, rank, snippet in rows:
+            for document, rank in rows:
                 summary = self._as_summary(document)
                 summary.rank = float(rank) if rank is not None else None
+                snippet = snippets.get(document.id)
                 summary.snippet = (snippet or "").strip() or None
                 items.append(summary)
         else:

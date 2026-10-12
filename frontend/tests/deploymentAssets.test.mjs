@@ -14,7 +14,7 @@ const recoveryModule = await readFile(
 
 test('production image preserves old hashed assets across deployments', () => {
   assert.match(dockerfile, /COPY --from=build \/app\/dist \/opt\/papermind-dist/);
-  assert.match(entrypoint, /cp -a "\$\{source_dir\}\/assets\/\." "\$\{target_dir\}\/assets\/"/);
+  assert.match(entrypoint, /cp -(?:a|R) "\$\{source_dir\}\/assets\/\." "\$\{target_dir\}\/assets\/"/);
   assert.doesNotMatch(entrypoint, /rm\s+-rf.*assets/);
 });
 

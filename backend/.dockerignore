@@ -1,4 +1,10 @@
-__pycache__
-*.pyc
-.pytest_cache
 .venv
+*.pyc
+.env
+.env.*
+__pycache__
+**/__pycache__
+.pytest_cache
+*.key
+*.pem
+*.bak

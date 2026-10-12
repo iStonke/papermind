@@ -1,11 +1,14 @@
-FROM python:3.12-slim
+FROM python:3.12.15-slim-trixie@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV HOME=/home/papermind XDG_CACHE_HOME=/tmp/papermind-cache
+RUN install -d -m 0755 -o 1000 -g 1000 /home/papermind
 
 WORKDIR /app
 
 RUN apt-get update -o Acquire::Retries=5 \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends \
         ocrmypdf \
         tesseract-ocr \
@@ -31,6 +34,7 @@ RUN apt-get update -o Acquire::Retries=5 \
         > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update -o Acquire::Retries=5 \
     && apt-get install -y --no-install-recommends postgresql-client-17 \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ghostscript)" ge '10.05.1~dfsg-1+deb13u3' \
     && rm -rf /var/lib/apt/lists/*
 
 COPY worker/requirements.txt /tmp/requirements.txt

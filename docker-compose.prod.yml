@@ -8,6 +8,13 @@ x-logging: &default-logging
 
 services:
   frontend:
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: "0"
     build:
       context: ./frontend
       dockerfile: Dockerfile.prod
@@ -45,7 +52,16 @@ services:
   # Reverse-Proxy / TLS-Terminierung: stellt http://papermind (Redirect) und
   # https://papermind bereit, lokales Zertifikat über Caddys interne CA.
   caddy:
-    image: caddy:2
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: "0"
+    build:
+      context: ./deploy/caddy
+      dockerfile: Dockerfile
     restart: unless-stopped
     init: true
     logging: *default-logging
@@ -63,14 +79,13 @@ services:
       - papermind_net
 
   backend:
+    user: "1000:1000"
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    # Private Host-Mounts (z. B. Backup-Schlüssel und Scannerdateien)
-    # behalten ihre Eigentümer. Nur deren Datei-Zugriff bleibt erforderlich.
-    cap_add:
-      - DAC_OVERRIDE
+    # Fixed production UID matches the scanner, control directory and private
+    # backup key. Existing volumes are migrated before switching the release.
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -182,7 +197,14 @@ services:
       - "host.docker.internal:host-gateway"
 
   db:
-    image: pgvector/pgvector:pg17
+    user: "999:999"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    build:
+      context: ./deploy/db
+      dockerfile: Dockerfile
     restart: unless-stopped
     logging: *default-logging
     # Postgres-Tuning für Pi 5 (16 GB) + NVMe. Werte sind auf das Speicherlimit
@@ -222,6 +244,7 @@ services:
       - papermind_net
 
   ai:
+    user: "1000:1000"
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -266,14 +289,11 @@ services:
       - papermind_net
 
   worker:
+    user: "1000:1000"
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    # Private Host-Mounts (z. B. Backup-Schlüssel und Scannerdateien)
-    # behalten ihre Eigentümer. Nur deren Datei-Zugriff bleibt erforderlich.
-    cap_add:
-      - DAC_OVERRIDE
     build:
       context: .
       dockerfile: worker/Dockerfile
