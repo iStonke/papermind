@@ -132,7 +132,7 @@
                 </v-list-item>
               </v-list>
             </v-menu>
-            <span class="notes-ws__toolbar-divider" aria-hidden="true"></span>
+            <span v-if="viewMode === 'all'" class="notes-ws__toolbar-divider" aria-hidden="true"></span>
           </template>
         </ListActionToolbar>
 
