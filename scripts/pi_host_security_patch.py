@@ -15,6 +15,12 @@ STATE=release.CONTROL/'host-state.json'
 PLAN=release.CONTROL/'host-plan.json'
 
 
+def progress(phase,**fields):
+    value=json.loads(STATE.read_text()) if STATE.exists() else {}
+    value.update(status='running',phase=phase,**fields)
+    release.helpers.atomic_json(STATE,value)
+
+
 def installed():
     return release.helpers.command(['dpkg-query','-W','-f=${binary:Package}\t${Version}\t${db:Status-Abbrev}\n'],log=False)
 
@@ -59,10 +65,14 @@ def plan():
     installed_names={line.split('\t')[0].split(':')[0] for line in before.splitlines()
         if len(line.split('\t'))==3 and line.split('\t')[2][1:2]=='i'}
     assert set(names)<=installed_names, 'Audited package selection changed'
+    progress('updating_package_indexes')
     apt('update')
+    progress('simulating_package_plan')
     packages=parse_plan(apt('plan'))
     pins=[p['name']+'='+p['new'] for p in packages]
-    if pins:apt('download')
+    if pins:
+        progress('downloading_packages',updates=len(packages))
+        apt('download')
     value={'head':release.TARGET,'installed_sha256':hashlib.sha256(before.encode()).hexdigest(),'packages':packages}
     release.helpers.atomic_json(PLAN,value)
     release.helpers.atomic_json(STATE,{'status':'prepared','phase':'host_prepared','updates':len(packages)})
@@ -75,15 +85,22 @@ def apply():
     assert value['head']==release.TARGET and hashlib.sha256(installed().encode()).hexdigest()==value['installed_sha256'], 'Host package state changed'
     pins=[p['name']+'='+p['new'] for p in value['packages']]
     if pins:
+        progress('verifying_package_plan',updates=len(pins))
         simulated=parse_plan(apt('verify'))
         assert sorted(simulated,key=lambda p:p['name'])==sorted(value['packages'],key=lambda p:p['name']), 'APT plan changed'
         # Preserve a second encrypted recovery copy without replacing rollout backup.
         backup=release.BACKUP.replace('security-patch-backup-20261012','security-host-backup-20261012')
-        release.helpers.compose(release.NEW,'exec','-T','backend','python','-c',backup,log=False,timeout=3600)
+        progress('backup')
+        result=release.helpers.compose(release.NEW,'exec','-T','backend','python','-c',backup,log=False,timeout=3600)
+        verified=json.loads(result.strip().splitlines()[-1])
+        assert verified['verified_encrypted'] is True, 'Backup verification failed'
+        progress('installing_packages',backup=verified)
         apt('install',timeout=1800)
     release.preflight(release.TARGET)
-    release.helpers.atomic_json(STATE,{'status':'success','phase':'host_complete','updated':len(pins),
-        'reboot_performed':False,'reboot_marker':Path('/var/run/reboot-required').exists()})
+    result=json.loads(STATE.read_text())
+    result.update(status='success',phase='host_complete',updated=len(pins),
+        reboot_performed=False,reboot_marker=Path('/var/run/reboot-required').exists())
+    release.helpers.atomic_json(STATE,result)
 
 
 def start(mode):
@@ -136,6 +153,73 @@ def helper_status():
     return result
 
 
+def restart_advice():
+    path=release.CONTROL/'host-apt.log'
+    if not path.exists():return {'reported_services':[],'assessment':'not_reported'}
+    data=path.read_text(errors='replace')[-262144:]
+    services=set()
+    for line in data.splitlines():
+        match=re.fullmatch(r'\s*(?:sudo\s+)?systemctl restart ((?:[A-Za-z0-9_.@-]+\.service\s*)+)',line)
+        if match:services.update(match.group(1).split())
+    return {'reported_services':sorted(services)[:100],
+        'no_services_reported': 'No services need to be restarted' in data,
+        'kernel_up_to_date_reported':'Running kernel seems to be up-to-date' in data,
+        'scope':'Only bounded APT/needrestart messages; no service restart performed by this status action'}
+
+
+def service_status():
+    result={}
+    for unit in ('ssh.service','dbus.service','udisks2.service','smbd.service','winbind.service'):
+        output=subprocess.run(['systemctl','show',unit,'--property=LoadState',
+            '--property=ActiveState','--property=MainPID','--property=ExecMainStartTimestampMonotonic'],
+            text=True,capture_output=True,timeout=10)
+        fields=dict(line.split('=',1) for line in output.stdout.splitlines() if '=' in line)
+        result[unit]={key:value for key,value in fields.items() if key in
+            {'LoadState','ActiveState','MainPID','ExecMainStartTimestampMonotonic'}}
+    return result
+
+
+def library_activation():
+    """Fixed library names and reload-event counts, without logs or addresses."""
+    result={}
+    units=service_status()
+    for unit in ('ssh.service','dbus.service'):
+        pid=units[unit].get('MainPID','0')
+        if not pid.isdigit() or pid=='0':continue
+        try:
+            data=(Path('/proc')/pid/'maps').read_text()[:2*1024*1024]
+            result[unit]={'maps_readable':True,'deleted_security_libraries':sorted({
+                name for name in ('libcrypto.so.3','libssl.so.3','libexpat.so.1')
+                if any(name in line and '(deleted)' in line for line in data.splitlines())})}
+        except PermissionError:result[unit]={'maps_readable':False}
+    protected={unit:units[unit]['MainPID'] for unit in ('ssh.service','dbus.service')
+        if result.get(unit,{}).get('maps_readable') is False}
+    if protected:
+        assert all(pid.isdigit() and int(pid)>1 for pid in protected.values())
+        program="import json;from pathlib import Path;targets="+repr(protected)+";result={}\nfor unit,pid in targets.items():\n try:\n  data=(Path('/proc')/pid/'maps').read_text()[:2*1024*1024];result[unit]={'maps_readable':True,'deleted_security_libraries':sorted({name for name in ('libcrypto.so.3','libssl.so.3','libexpat.so.1') if any(name in line and '(deleted)' in line for line in data.splitlines())})}\n except PermissionError:result[unit]={'maps_readable':False}\nprint(json.dumps(result))"
+        image=json.loads(release.NEW.read_text())['services']['backend']['image']
+        output=release.helpers.command(['docker','run','--rm','--network','none','--pid','host',
+            '--read-only','--user','0:0','--cap-drop','ALL','--cap-add','SYS_PTRACE',
+            '--security-opt','no-new-privileges','--memory','64m','--cpus','0.1',
+            '--entrypoint','python',image,'-c',program],log=False,timeout=30)
+        result.update(json.loads(output.strip().splitlines()[-1]))
+    state=json.loads(STATE.read_text())
+    if state.get('backup',{}).get('backup_id'):
+        import uuid
+        identifier=str(uuid.UUID(state['backup']['backup_id']))
+        code="from app.db.session import SessionLocal;from sqlalchemy import text;\nwith SessionLocal() as db:\n print(db.scalar(text('SELECT finished_at FROM backup_runs WHERE id=:identifier'),{'identifier':"+repr(identifier)+"}).isoformat())"
+        since=release.helpers.compose(release.NEW,'exec','-T','backend','python','-c',code,log=False,timeout=20).strip().splitlines()[-1]
+        journal=subprocess.run(['journalctl','--unit=ssh.service','--since='+since,
+            '--lines=200','--no-pager','--output=json'],text=True,capture_output=True,timeout=15)
+        messages=[]
+        for line in journal.stdout.splitlines():
+            try:messages.append(json.loads(line).get('MESSAGE',''))
+            except ValueError:pass
+        result['ssh_reload_events_after_backup']=sum('Received SIGHUP; restarting.' in m for m in messages)
+        result['journal_readable']=journal.returncode==0 and 'not seeing messages' not in journal.stderr
+    return result
+
+
 def main():
     if sys.argv[1:]==['--plan']:start('plan')
     elif sys.argv[1:]==['--apply']:start('apply')
@@ -143,7 +227,15 @@ def main():
     elif sys.argv[1:]==['--run-apply']:apply()
     elif sys.argv[1:]==['--status']:
         print(STATE.read_text() if STATE.exists() else '{"status":"not_started"}')
+        if STATE.exists() and json.loads(STATE.read_text()).get('phase')=='backup':release.backup_progress(installed=True)
         print(json.dumps({'root_helper':helper_status()}))
+        print(json.dumps({'host_services':service_status()}))
+        if STATE.exists() and json.loads(STATE.read_text()).get('status')=='success':
+            print(json.dumps({'restart_advice':restart_advice()}))
+            print(json.dumps({'library_activation':library_activation()}))
+            import pi_security_restart
+            print(json.dumps({'restart_readiness':pi_security_restart.readiness()}))
+            print(json.dumps({'restart_result':pi_security_restart.result()}))
         if PLAN.exists():print(PLAN.read_text())
         elif STATE.exists() and json.loads(STATE.read_text()).get('status')=='failed':print(json.dumps({'diagnostic':plan_diagnostic()}))
     else:raise ValueError('Unsupported fixed host operation')

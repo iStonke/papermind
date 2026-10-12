@@ -2,7 +2,7 @@
 
 ## Stand
 
-Der Nutzer hat die Umsetzung der priorisierten Updates, den kontrollierten Pi-Rollout, die gezielte Suchoptimierung sowie die anschließende Bereinigung und den Betrieb ohne Root beauftragt. **Der Anwendungsrelease `01d1c53` ist auf dem Pi installiert und erfolgreich live geprüft.** Die erneute Performance-Messung ist erfolgreich; Host-Patches benötigen noch die wirksame sudo-Einrichtung. Host-Patches werden separat vorbereitet und angewendet. Ein Pi-Neustart ist nicht freigegeben.
+Der Nutzer hat die Umsetzung der priorisierten Updates, den kontrollierten Pi-Rollout, die gezielte Suchoptimierung sowie die anschließende Bereinigung und den Betrieb ohne Root beauftragt. **Der Anwendungsrelease `01d1c53` und die 103 ausgewählten Host-Sicherheitsupdates sind auf dem Pi installiert und erfolgreich live geprüft.** Die erneute Performance-Messung ist erfolgreich. SSH und D-Bus verwenden noch alte Bibliotheken im Speicher; deren Aktivierung durch einen kontrollierten Pi-Neustart benötigt noch die ausdrückliche Freigabe.
 
 ## Geprüfte Änderung
 
@@ -29,7 +29,7 @@ Der Worker prüft stündlich bekannte generierte Versionsnamen in kanonischen Do
 
 - **631 Backend-Tests und 32 zusätzliche Subtests** bestanden, auch gegen das neue PostgreSQL-17.11-Image mit UID 999 und ohne Capabilities; alle Migrationen bis 113. Keine übersprungenen Tests. Sechs bestehende Bibliotheks-/Test-Warnungen.
 - **692 Frontend-Tests** mit Node 24, Produktionsbuild und Größenbudgets bestanden; `npm audit` ohne bekannte Schwachstellen.
-- **57 Skript-Tests** einschließlich Sicherungsreihenfolge, Abbruch vor Änderungen, Eigentümer-/Git-Rückfall und eingeschränkter Argumente bestanden.
+- **57 Skript-Tests** vor Staging bestanden. Die abschließende Erweiterung umfasst **62 bestandene Skript-Tests**, einschließlich fehlgeschlagener Host-Sicherung und der vorbereiteten Neustart-Sperren.
 - Rootloses Backend und Worker: synthetisches großes PDF, Thumbnail, native OCR, durchsuchbares OCRmyPDF und Piper erfolgreich. Rootloser nginx: Gesundheit und HTTP 401 für anonymen API-Zugriff. Vollständiger rootloser TLS-Proxy Caddy → nginx → Backend: HTTP 200.
 - Bestehende produktive Container wurden während der lokalen Prüfung nicht gewechselt. Frühere Diagnose-/Rollout-Aktionen behalten ihre ursprünglichen Bindungen.
 
@@ -39,9 +39,17 @@ Die neue feste Bridge bereitet ausschließlich diesen Release vor. Sie prüft `a
 
 Nach dem Wechsel werden UID/Capabilities, RLS, native PDF/OCR/Piper-Funktionen, Paketbestände, bestehende TLS-CA und begrenzte HTTP-Last erneut geprüft. Anschließend folgen die festen Host-Sicherheitsupdates und eine Scanner-/Dienstprüfung. Die Live-Prüfung bestätigt alle sechs gesunden Dienste, die vorgesehenen UIDs und null effektive Capabilities. Schema 113, Owner-Scope/RLS, synthetisches PDF, Thumbnail, native OCR, durchsuchbares PDF und Piper (26.184 Audioframes) bestehen. HTTPS prüft den Hostnamen `papermind` gegen die bestehende CA; HTML/JavaScript werden erfolgreich geliefert, JavaScript mit gzip (48.621 Transferbytes). Anonyme Notizabrufe erhalten sowohl direkt als auch durch den HTTPS-Proxy HTTP 401. Die geprüfte verschlüsselte NAS-Sicherung umfasst 1.224.151.840 Byte. Die bestehenden TLS-CA und SQL-Erweiterungen bleiben erhalten. Die laufenden OS-/Go-Bestände stimmen exakt mit den freigegebenen Versionen überein; auch die 50/41/24 Python-Paketversionen in Backend/Worker/AI entsprechen den separat geprüften lokalen Images.
 
-## Host-Freigabe
+## Host-Sicherheitsupdates
 
-Die APT-Vorbereitung hat vor Paketänderungen abgebrochen: `sudo` verlangt ein Passwort. Der vorbereitete Root-Helfer akzeptiert ausschließlich fünf feste Aktionen und erzeugt seinen versionsgebundenen APT-Plan selbst aus den 103 ausgewählten Sicherheitspaketen. Root-eigene Dateien, eine minimale Umgebung, SHA-256 in sudoers, Abbruch bei neuen/entfernten Paketen und ausgeschlossenen Systemübergängen begrenzen den Zugriff. [Die einmalige Installation](host-security-setup-2026-10-12.md) erfolgt im Pi-Terminal. 57 Skripttests und die sudoers-Syntaxprüfung bestehen. Host-Patches sind bis zur Einrichtung noch ausstehend.
+Der Nutzer hat [den Root-Helfer und die sudoers-Datei](host-security-setup-2026-10-12.md) im Pi-Terminal installiert. Eigentümer, Modi, Helfer-SHA-256 und sudoers-Syntax sind geprüft. Der Helfer akzeptiert ausschließlich fünf feste Aktionen und erzeugt seinen versionsgebundenen APT-Plan selbst aus den 103 ausgewählten Sicherheitspaketen. Root-eigene Dateien, eine minimale Umgebung, SHA-256 in sudoers, Abbruch bei neuen/entfernten Paketen und ausgeschlossenen Systemübergängen begrenzen den Zugriff. Kein Passwort wird an die Bridge übertragen.
+
+Die 103 geprüften Versionsübergänge wurden nach erneut unverändertem Paketplan und **zusätzlicher verifizierter verschlüsselter NAS-Sicherung mit 1.224.154.064 Byte** installiert. Keine Pakete wurden hinzugefügt oder entfernt; Kernel, Docker, systemd und OpenSSH-Paketversionen wurden nicht umgestellt. Der Host enthält weiterhin 1.707 Pakete; der laufende Kernel bleibt `6.18.33+rpt-rpi-2712`. Beispiele sind OpenSSL `3.5.7`, Ghostscript `10.05.1~dfsg-1+deb13u3`, aktualisierte Python-3.13-/Expat-/GLib-/Samba-/curl-Pakete. Alle 103 installierten Versionen entsprechen dem freigegebenen Plan.
+
+Der erneute Offline-Abgleich des tatsächlichen Host-Bestands findet **null High-/Critical-Treffer mit veröffentlichtem Fix**; vorher waren es 176 Quellpaket-/Advisory-Paare beziehungsweise 409 Pakettreffer. 127 Treffer mit Fix bei niedrigerem oder unbekanntem Schweregrad (43 Medium, 3 Low, 15 Negligible, 66 Unknown) sowie `not-fixed`-/`wont-fix`-Hinweise bleiben erfasst. Das sind Versionsabgleiche, keine nachgewiesenen Exploits. Alle sechs laufenden App-Images und Go-Metadaten bleiben unverändert und haben ebenfalls null High-/Critical-Treffer mit veröffentlichtem Fix.
+
+Die Live-Funktionsprüfung nach APT besteht erneut: sechs gesunde/laufende Dienste, vorgesehene UIDs, keine effektiven Capabilities, anonymer Notizabruf HTTP 401, synthetisches PDF, native OCR, Piper (26.624 Frames), HTTPS gegen die bestehende CA sowie gzip. Scanner-Poller aktiv, Canon erkannt, USB aktiv.
+
+**Noch offen: Aktivierung geladener Host-Bibliotheken.** Die feste reine Metadatenprüfung findet bei `ssh.service` noch eine gelöschte alte `libcrypto.so.3`, bei `dbus.service` eine alte `libexpat.so.1` in den Prozess-Mappings. Das Fehlen von `/var/run/reboot-required` genügt daher hier nicht als Nachweis abgeschlossener Aktivierung. UDisks, Samba und Winbind wurden von den Paketskripten bereits neu gestartet. Der vorbereitete einmalige Neustart verwendet die bestehende feste Host-Steuerung, benötigt gesunde unveränderte Quellen/Dienste, eine verifizierte höchstens 24 Stunden alte Sicherung, Schema 113 und keine aktiven/queued Jobs, Backups, Wartung oder vorgemerkten Power-Aktionen. Eine Schreibsperre verhindert neue Änderungen vor dem Neustart. Die Neustart-Aktion ist bis zur ausdrücklichen Freigabe nicht in der Bridge registriert.
 
 ## Produktionsmessung nach dem Wechsel
 
@@ -61,6 +69,6 @@ Die wiederholte Suche sinkt im Normalbetrieb von **148,9 auf 47,2 ms** (68,3 %; 
 
 Host-CPU höchstens 16,16 %, verfügbarer RAM mindestens 5.048,1 MiB; Temperatur höchstens 59,5 °C einschließlich Baseline nach den nativen Prüfungen, I/O-Wartezeit höchstens 0,06 %. Kein Ressourcenengpass unter dieser Last. Pi-internes HTTP, WLAN/TLS-/Browser-Latenz und umfangreiche OCR-/KI-Jobs sind nicht Teil dieser HTTP-Zeitmessung; HTTPS wurde separat funktional geprüft.
 
-Der Offline-Abgleich der **tatsächlich laufenden** Images und Go-Metadaten bestätigt erneut null High-/Critical-Treffer mit veröffentlichtem Fix. Ungefixte/Hersteller-ignorierte Hinweise werden weiterhin ausgewiesen. Auf dem Host bleibt der bisherige Bestand unverändert; 176 Quellpaket-/High-/Critical-Advisory-Paare mit veröffentlichtem Fix stehen bis zur Paketinstallation noch offen. Das ist eine Scanner-Zählung, keine Zahl nachgewiesener Exploits.
+Der Offline-Abgleich der **tatsächlich laufenden** Images, Go-Metadaten und aktualisierten Host-Pakete bestätigt null High-/Critical-Treffer mit veröffentlichtem Fix. Ungefixte/Hersteller-ignorierte und verbleibende Hinweise niedrigerer Priorität werden weiterhin ausgewiesen. Das ist eine Scanner-Zählung, keine Zahl nachgewiesener Exploits.
 
 Die abschließende Bridge-Prüfung bestätigt weiterhin `01d1c53` und alle laufenden/gesunden Dienste. Der Scan-Tasten-Poller ist aktiv, der Canon LiDE 400 wird erkannt und der USB-Energiezustand bleibt aktiv. Ein Pi-Neustart wurde nicht durchgeführt.

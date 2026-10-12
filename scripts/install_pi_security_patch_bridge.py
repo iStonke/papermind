@@ -10,7 +10,7 @@ import zlib
 
 BRIDGE=Path('/Users/admin/Library/Application Support/PaperMind/papermind-pi-bridge.py')
 PAYLOAD=BRIDGE.with_name('papermind-security-release-20261012.json')
-EXPECTED_FILES={'pi_security_patch.py': '24861471e5df21704c9ca060a00abe1517f421bb7d06df6d1356c9aa97fd0f43', 'pi_rollout.py': 'a59adea3a209bfbccb2da8bc35f3e748f76b5d961129b5608082f9645464449a', 'pi_audit.py': 'e534da063755d48d95cf4235ef2a253a25e4c9c665f0ccfc586026d84a77254b', 'pi_performance_probe.py': 'dd1dd42fb885ea35c3d95807cd4ae422e497de84a870eddc9b4f0a9f46d008af', 'audit_pi_packages.py': 'fa4cf15a7cad5e45636a98fb06e24f5087e6a88cf0de84d56f9b6bf810b934f8', 'pi_rollout_verify.py': '5d8173a1bc35b2a7981d1d5bbd8c95978ae5090718d846a7362d83a7925b612b', 'pi_security_verify.py': '935601e6c9253e47d52d0eaa7f87341384531a44e2dfb4947111f4347850a683', 'pi_host_security_patch.py': 'ce3785492331185e93ecb78033a717c8989f93e8a0f54ab93d828e1ca7f72ddf', 'pi_host_security_packages.json': '1f33c8e41b124cfcefde637715e8793b0d48b2006a7f6b4198e432186a75c9e4', 'pi_host_security_root.py': '729b298d38d1bc68a4a6e67ee9956e17cf9f140abb9c890e99475845e88727c8', 'pi_host_security_sudoers': '8a8bea916720773ba1a1923f512aafcdfbe3d0a9aa8879e32d69a0c7bd2a53b1'}
+EXPECTED_FILES={'pi_security_patch.py': '1af44e775cdb99108b47eceb632e6173c0c93a7a9db767f8fefb9bc5e9c85e9a', 'pi_rollout.py': 'a59adea3a209bfbccb2da8bc35f3e748f76b5d961129b5608082f9645464449a', 'pi_audit.py': 'e534da063755d48d95cf4235ef2a253a25e4c9c665f0ccfc586026d84a77254b', 'pi_performance_probe.py': 'dd1dd42fb885ea35c3d95807cd4ae422e497de84a870eddc9b4f0a9f46d008af', 'audit_pi_packages.py': 'fa4cf15a7cad5e45636a98fb06e24f5087e6a88cf0de84d56f9b6bf810b934f8', 'pi_rollout_verify.py': '5d8173a1bc35b2a7981d1d5bbd8c95978ae5090718d846a7362d83a7925b612b', 'pi_security_verify.py': '935601e6c9253e47d52d0eaa7f87341384531a44e2dfb4947111f4347850a683', 'pi_host_security_patch.py': 'c884c2ca33d4b929d4bc3e5a818dc49bf7d03a2fa02c7e937bba660045b3b841', 'pi_host_security_packages.json': '1f33c8e41b124cfcefde637715e8793b0d48b2006a7f6b4198e432186a75c9e4', 'pi_host_security_root.py': '729b298d38d1bc68a4a6e67ee9956e17cf9f140abb9c890e99475845e88727c8', 'pi_host_security_sudoers': '8a8bea916720773ba1a1923f512aafcdfbe3d0a9aa8879e32d69a0c7bd2a53b1', 'pi_security_restart.py': '63759fa1ab7b2e1073e441202b41c641b3ed7ea547fc1f7d09e4e3b3d700e7f0'}
 ARCHIVE_SHA256='1fd05022e17d55df664de78c80c2e0c9a61aa32f0c2ab7d4751f53450176ec30'
 
 
@@ -21,7 +21,7 @@ def main():
         data=(directory/name).read_bytes()
         assert hashlib.sha256(data).hexdigest()==expected, 'Fixed runner checksum mismatch'
         values[name]=data.decode()
-    assert len(values)==11
+    assert len(values)==12
     payload=Path('/Users/admin/Documents/paperMind/.runtime/security-patch/release-payload.json').read_text()
     release=json.loads(payload)
     assert release['archive_sha256']==ARCHIVE_SHA256

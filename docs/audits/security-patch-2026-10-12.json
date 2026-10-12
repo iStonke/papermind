@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "date": "2026-10-12",
-  "status": "application_deployed",
+  "status": "host_patched_library_activation_pending",
   "target": "01d1c53ba38f68857674238ef7643534987f3018",
   "archive_sha256": "1fd05022e17d55df664de78c80c2e0c9a61aa32f0c2ab7d4751f53450176ec30",
   "archive_bytes": 1800450,
@@ -94,7 +94,7 @@
     "backend_tests": 631,
     "backend_subtests": 32,
     "frontend_tests": 692,
-    "script_tests": 57,
+    "script_tests": 62,
     "npm_known_vulnerabilities": 0,
     "python_known_vulnerabilities": 0,
     "rootless_backend_pdf_ocr_piper": "success",
@@ -1055,12 +1055,59 @@
     }
   },
   "host_result": {
-    "status": "awaiting_effective_root_helper_installation",
-    "packages_changed": 0,
-    "root_helper_sha256": "729b298d38d1bc68a4a6e67ee9956e17cf9f140abb9c890e99475845e88727c8",
-    "last_preparation_error": "sudo_password_required",
+    "status": "installed_activation_pending",
+    "packages_changed": 103,
     "selected_security_packages": 103,
-    "unpatched_fixable_priority_source_advisories": 176
+    "plan_versions_match_installed": true,
+    "installed_packages": 1707,
+    "root_helper_sha256": "729b298d38d1bc68a4a6e67ee9956e17cf9f140abb9c890e99475845e88727c8",
+    "encrypted_backup_verified": true,
+    "backup_bytes": 1224154064,
+    "new_packages": 0,
+    "removed_packages": 0,
+    "kernel": "6.18.33+rpt-rpi-2712",
+    "kernel_changed": false,
+    "reboot_performed": false,
+    "reboot_marker": false,
+    "fixable_priority_source_advisories_before": 176,
+    "fixable_priority_package_matches_before": 409,
+    "fixable_priority_source_advisories_after": 0,
+    "fixable_priority_package_matches_after": 0,
+    "runtime_checks": {
+      "production_security": "ok",
+      "anonymous_notes_status": 401,
+      "isolated_pdf": "ok",
+      "native_ocr": "ok",
+      "local_piper_frames": 26624,
+      "runtime_uids": "verified",
+      "effective_capabilities": "none",
+      "https_verified_hostname": "papermind",
+      "https_status": 200,
+      "static_asset_encoding": "gzip",
+      "entry_transfer_bytes": 48621,
+      "proxy_anonymous_notes_status": 401
+    },
+    "scanner": {
+      "poller_active": true,
+      "canon_detected": true,
+      "usb_awake": true
+    },
+    "library_activation": {
+      "ssh.service": [
+        "libcrypto.so.3"
+      ],
+      "dbus.service": [
+        "libexpat.so.1"
+      ]
+    },
+    "restart_readiness": {
+      "ready": true,
+      "active_jobs": 0,
+      "active_backups": 0,
+      "maintenance_active": false,
+      "host_control_verified": true,
+      "registered_in_bridge": false
+    }
   },
   "limitations": [
     "Package-version matching; not an exploit/reachability analysis",
@@ -1141,6 +1188,26 @@
       },
       "fixable_priority_matches": 0,
       "fixable_priority_source_advisories": 0
+    }
+  },
+  "host_package_checks": {
+    "packages": 1707,
+    "package_matches": 14991,
+    "unique_advisories": 2399,
+    "fix_state_counts": {
+      "not-fixed": 12944,
+      "wont-fix": 1920,
+      "fixed": 127
+    },
+    "fixable_advisories": 27,
+    "fixable_priority_matches": 0,
+    "fixable_priority_source_advisories": 0,
+    "inventory_at": "2026-10-12T18:51:58.559258+00:00",
+    "fixed_match_severity_counts": {
+      "Medium": 43,
+      "Low": 3,
+      "Negligible": 15,
+      "Unknown": 66
     }
   }
 }

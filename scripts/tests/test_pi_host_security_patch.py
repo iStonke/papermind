@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -47,6 +48,21 @@ class HostPlanTest(unittest.TestCase):
                 self.assertEqual(apt.call_count,2)
                 self.assertTrue(all('-y' not in call.args for call in apt.call_args_list))
                 self.assertEqual(json.loads((root/'host.json').read_text())['status'],'prepared')
+
+    def test_failed_backup_prevents_host_installation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);state=root/'state.json';plan=root/'plan.json'
+            state.write_text('{"status":"running","phase":"starting_apply"}')
+            plan.write_text(json.dumps({'head':host.release.TARGET,
+                'installed_sha256':hashlib.sha256(b'installed').hexdigest(),
+                'packages':[{'name':'openssl','old':'1','new':'2'}]}))
+            with patch.object(host,'STATE',state),patch.object(host,'PLAN',plan), \
+                    patch.object(host,'installed',return_value='installed'),patch.object(host.release,'preflight'), \
+                    patch.object(host,'apt',return_value='Inst openssl [1] (2 Debian:13 [arm64])\n') as apt, \
+                    patch.object(host.release.helpers,'compose',side_effect=RuntimeError('backup failed')):
+                with self.assertRaises(RuntimeError):host.apply()
+                apt.assert_called_once_with('verify')
+                self.assertEqual(json.loads(state.read_text())['phase'],'backup')
 
 
 if __name__=='__main__':unittest.main()

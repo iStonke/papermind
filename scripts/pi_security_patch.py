@@ -306,7 +306,7 @@ def start(mode):
         print(json.dumps({'status':'started','pid':process.pid,'mode':mode}))
 
 
-def backup_progress():
+def backup_progress(*, installed=False):
     """Only bounded, numeric progress; never backup paths, bodies or errors."""
     program = '''from app.db.session import SessionLocal
 from sqlalchemy import text
@@ -329,12 +329,15 @@ result['process_cpu_seconds']=round((int(process[11])+int(process[12]))/os.sysco
 print(json.dumps(result))
 '''
     try:
-        identifiers = helpers.command(['docker','ps','--filter','label=com.docker.compose.project=papermind',
-            '--filter','label=com.docker.compose.service=backend',
-            '--filter','label=com.docker.compose.oneoff=True','--format','{{.ID}}'],log=False).split()
-        assert len(identifiers) == 1, 'Backup container selection differs'
-        value = helpers.command(['docker','exec',identifiers[0],'python','-c',program],
-            log=False, timeout=20)
+        if installed:
+            value = helpers.compose(NEW,'exec','-T','backend','python','-c',program,log=False,timeout=20)
+        else:
+            identifiers = helpers.command(['docker','ps','--filter','label=com.docker.compose.project=papermind',
+                '--filter','label=com.docker.compose.service=backend',
+                '--filter','label=com.docker.compose.oneoff=True','--format','{{.ID}}'],log=False).split()
+            assert len(identifiers) == 1, 'Backup container selection differs'
+            value = helpers.command(['docker','exec',identifiers[0],'python','-c',program],
+                log=False, timeout=20)
         print(json.dumps({'backup_progress':json.loads(value.strip().splitlines()[-1])}))
     except Exception as exc:
         print(json.dumps({'backup_progress_error':type(exc).__name__}))
