@@ -26,6 +26,13 @@ macOS-Bridge `com.papermind.pi-bridge`. Nie eine direkte Verbindung zu
   Notizkorrektur. Feste Quelle/Branch/Dateihashes, Sicherung vor Änderungen und
   Abbruch bei unbekannten Abweichungen. Keine freien Parameter, Container-
   Neustarts, Migrationen oder Änderungen an Nutzerdaten und echten `.env`-Dateien.
+- Zusätzlich ausdrücklich freigegeben: `performance_audit`,
+  `performance_audit_status` und `security_inventory` für die Prüfung vom
+  12. Oktober 2026 auf dem festen Stand `acc22ca`. Höchstens zwei parallele
+  GETs und vier Anfragen pro Sekunde, feste Dauer-/Größen-/Ressourcengrenzen.
+  Die Inventur liest ausschließlich öffentliche Paket-/Laufzeitmetadaten;
+  der Schwachstellenabgleich erfolgt lokal auf dem Mac. Keine freien Parameter,
+  Dokumentänderungen, Updates, Container-Neustarts oder Pi-Neustarts.
 - `scanner_status` liest ausschließlich Dienststatus, feste systemd-Definitionen,
   Canon-USB-Energiezustand, SANE-Geräteliste und begrenzte Scanner-Logs aus.
 - `scanner_calibration_test` sichert das Scan-Skript und aktiviert darin

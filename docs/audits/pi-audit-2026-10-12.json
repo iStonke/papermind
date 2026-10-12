@@ -1,0 +1,674 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-12",
+  "measured_head": "acc22ca29a695cdd987624b479d90aa7aed419a3",
+  "inventory_at": "2026-10-12T10:32:48.037537+00:00",
+  "kernel": "6.18.33+rpt-rpi-2712",
+  "tools": {
+    "syft": {
+      "version": "v1.54.1",
+      "archive_sha256": "b4319c3abaa87a0170ab76ee83ea2260ca34b53aecfa3ab0dd5428d2319d744f",
+      "release_url": "https://github.com/anchore/syft/releases/tag/v1.54.1"
+    },
+    "grype": {
+      "version": "v0.120.1",
+      "archive_sha256": "cf97957fa467d25575ec2cc3228289f391ea51cf88b9cffc5f83dc03d4cbc732",
+      "release_url": "https://github.com/anchore/grype/releases/tag/v0.120.1"
+    }
+  },
+  "vulnerability_database": {
+    "schemaVersion": "v6.1.10",
+    "from": "https://grype.anchore.io/databases/v6/vulnerability-db_v6.1.10_2026-10-12T00:38:50Z_1791787522.tar.zst?checksum=sha256%3Af1d61e7be5caa87b18ab7519f71982399f4d43d8f407edd24717903acef3d83d",
+    "built": "2026-10-12T06:45:22Z",
+    "valid": true
+  },
+  "performance": {
+    "status": "success",
+    "phase": "complete",
+    "head": "acc22ca29a695cdd987624b479d90aa7aed419a3",
+    "started_at": "2026-10-12T10:45:23.120474+00:00",
+    "images": {
+      "backend": "sha256:3f59810ca7a10e73289f986eb5dbef3b25bf40927467db079b0e6433bf71c075",
+      "worker": "sha256:12571db3d609b737adb3b0ab92709e26442e702eddf34d2be1b60f20b69d0364",
+      "ai": "sha256:26c55e74774876189924c742f3080b864a30b96259350b47aa7ca921c07ed97b",
+      "frontend": "sha256:358057abad5e293db15b6f08180dd78137ea8811e31b127b9e56e5890416e398",
+      "db": "sha256:feb68f4f15446397d8cac7f4fe48fe4586de83160d1fc48b46283312d1a33966",
+      "caddy": "sha256:cfeb0b281bc44a5a51fecde39e9e577c60d863c0b6196e6bbdf58fd00960887f"
+    },
+    "phases": {
+      "normal": {
+        "mode": "normal",
+        "concurrency": 1,
+        "max_requests_per_second": 2,
+        "samples_per_case": 20,
+        "dataset": {
+          "notes": 24,
+          "documents": 522,
+          "auth": "existing_session"
+        },
+        "routes": [
+          {
+            "label": "notes_list",
+            "requests": 20,
+            "errors": 0,
+            "content_encodings": [
+              "gzip"
+            ],
+            "status_counts": {
+              "200": 20
+            },
+            "warmup_ms": [
+              34.16,
+              32.21
+            ],
+            "bytes_median": 5071.0,
+            "p50_ms": 30.998,
+            "p95_ms": 45.133,
+            "max_ms": 51.869,
+            "ttfb_p50_ms": 30.88
+          },
+          {
+            "label": "documents_list",
+            "requests": 20,
+            "errors": 0,
+            "content_encodings": [
+              "gzip"
+            ],
+            "status_counts": {
+              "200": 20
+            },
+            "warmup_ms": [
+              49.477,
+              49.395
+            ],
+            "bytes_median": 6274.0,
+            "p50_ms": 46.671,
+            "p95_ms": 58.567,
+            "max_ms": 59.69,
+            "ttfb_p50_ms": 46.511
+          },
+          {
+            "label": "documents_search",
+            "requests": 20,
+            "errors": 0,
+            "content_encodings": [
+              "gzip"
+            ],
+            "status_counts": {
+              "200": 20
+            },
+            "warmup_ms": [
+              185.568,
+              148.609
+            ],
+            "bytes_median": 8773.0,
+            "p50_ms": 148.861,
+            "p95_ms": 162.993,
+            "max_ms": 199.454,
+            "ttfb_p50_ms": 148.731
+          },
+          {
+            "label": "notes_search",
+            "requests": 20,
+            "errors": 0,
+            "content_encodings": [
+              "gzip"
+            ],
+            "status_counts": {
+              "200": 20
+            },
+            "warmup_ms": [
+              64.268,
+              58.197
+            ],
+            "bytes_median": 4161.0,
+            "p50_ms": 56.854,
+            "p95_ms": 76.537,
+            "max_ms": 86.046,
+            "ttfb_p50_ms": 56.722
+          },
+          {
+            "label": "import_inbox",
+            "requests": 20,
+            "errors": 0,
+            "content_encodings": [
+              "identity"
+            ],
+            "status_counts": {
+              "200": 20
+            },
+            "warmup_ms": [
+              28.329,
+              27.848
+            ],
+            "bytes_median": 283.0,
+            "p50_ms": 39.713,
+            "p95_ms": 47.903,
+            "max_ms": 67.788,
+            "ttfb_p50_ms": 39.608
+          },
+          {
+            "label": "pdf_thumbnail",
+            "requests": 20,
+            "errors": 0,
+            "content_encodings": [
+              "identity"
+            ],
+            "status_counts": {
+              "200": 20
+            },
+            "warmup_ms": [
+              26.626,
+              22.558
+            ],
+            "bytes_median": 29261.0,
+            "p50_ms": 31.447,
+            "p95_ms": 39.015,
+            "max_ms": 63.262,
+            "ttfb_p50_ms": 31.31
+          },
+          {
+            "label": "pdf_initial_range",
+            "requests": 20,
+            "errors": 0,
+            "content_encodings": [
+              "identity"
+            ],
+            "status_counts": {
+              "206": 20
+            },
+            "warmup_ms": [
+              35.002,
+              32.079
+            ],
+            "bytes_median": 65536.0,
+            "p50_ms": 31.462,
+            "p95_ms": 37.723,
+            "max_ms": 49.145,
+            "ttfb_p50_ms": 31.321
+          }
+        ],
+        "elapsed_seconds": 76.54,
+        "database_global_delta": {
+          "xact_commit": 959,
+          "xact_rollback": 943,
+          "blks_read": 0,
+          "blks_hit": 192148,
+          "tup_returned": 270800,
+          "tup_fetched": 211967,
+          "deadlocks": 0
+        },
+        "limits": [
+          "Pi-internal HTTP through Caddy/Nginx/backend; excludes WLAN, TLS and browser rendering",
+          "Global database deltas include background traffic; 20 samples per route",
+          "gzip accepted; bytes are wire bytes; successful warmed GETs; response bodies, IDs and tokens are not reported"
+        ]
+      },
+      "limited_load": {
+        "mode": "limited_load",
+        "concurrency": 2,
+        "max_requests_per_second": 4,
+        "samples_per_case": 20,
+        "dataset": {
+          "notes": 24,
+          "documents": 522,
+          "auth": "existing_session"
+        },
+        "routes": [
+          {
+            "label": "notes_list",
+            "requests": 20,
+            "errors": 0,
+            "content_encodings": [
+              "gzip"
+            ],
+            "status_counts": {
+              "200": 20
+            },
+            "warmup_ms": [
+              32.471,
+              30.262
+            ],
+            "bytes_median": 5071.0,
+            "p50_ms": 30.602,
+            "p95_ms": 44.261,
+            "max_ms": 52.403,
+            "ttfb_p50_ms": 30.477
+          },
+          {
+            "label": "documents_list",
+            "requests": 20,
+            "errors": 0,
+            "content_encodings": [
+              "gzip"
+            ],
+            "status_counts": {
+              "200": 20
+            },
+            "warmup_ms": [
+              34.055,
+              34.806
+            ],
+            "bytes_median": 6274.0,
+            "p50_ms": 34.286,
+            "p95_ms": 53.481,
+            "max_ms": 61.651,
+            "ttfb_p50_ms": 34.161
+          },
+          {
+            "label": "documents_search",
+            "requests": 20,
+            "errors": 0,
+            "content_encodings": [
+              "gzip"
+            ],
+            "status_counts": {
+              "200": 20
+            },
+            "warmup_ms": [
+              149.845,
+              148.257
+            ],
+            "bytes_median": 8773.0,
+            "p50_ms": 148.437,
+            "p95_ms": 157.458,
+            "max_ms": 183.925,
+            "ttfb_p50_ms": 148.308
+          },
+          {
+            "label": "notes_search",
+            "requests": 20,
+            "errors": 0,
+            "content_encodings": [
+              "gzip"
+            ],
+            "status_counts": {
+              "200": 20
+            },
+            "warmup_ms": [
+              49.284,
+              115.506
+            ],
+            "bytes_median": 4161.0,
+            "p50_ms": 45.439,
+            "p95_ms": 52.59,
+            "max_ms": 57.008,
+            "ttfb_p50_ms": 45.288
+          },
+          {
+            "label": "import_inbox",
+            "requests": 20,
+            "errors": 0,
+            "content_encodings": [
+              "identity"
+            ],
+            "status_counts": {
+              "200": 20
+            },
+            "warmup_ms": [
+              40.902,
+              39.03
+            ],
+            "bytes_median": 283.0,
+            "p50_ms": 39.689,
+            "p95_ms": 51.533,
+            "max_ms": 73.157,
+            "ttfb_p50_ms": 39.577
+          },
+          {
+            "label": "pdf_thumbnail",
+            "requests": 20,
+            "errors": 0,
+            "content_encodings": [
+              "identity"
+            ],
+            "status_counts": {
+              "200": 20
+            },
+            "warmup_ms": [
+              30.881,
+              22.773
+            ],
+            "bytes_median": 29261.0,
+            "p50_ms": 22.793,
+            "p95_ms": 33.768,
+            "max_ms": 47.934,
+            "ttfb_p50_ms": 22.687
+          },
+          {
+            "label": "pdf_initial_range",
+            "requests": 20,
+            "errors": 0,
+            "content_encodings": [
+              "identity"
+            ],
+            "status_counts": {
+              "206": 20
+            },
+            "warmup_ms": [
+              33.148,
+              34.88
+            ],
+            "bytes_median": 65536.0,
+            "p50_ms": 23.342,
+            "p95_ms": 36.086,
+            "max_ms": 48.019,
+            "ttfb_p50_ms": 23.218
+          }
+        ],
+        "elapsed_seconds": 38.28,
+        "database_global_delta": {
+          "xact_commit": 555,
+          "xact_rollback": 547,
+          "blks_read": 0,
+          "blks_hit": 193668,
+          "tup_returned": 271397,
+          "tup_fetched": 213379,
+          "deadlocks": 0
+        },
+        "limits": [
+          "Pi-internal HTTP through Caddy/Nginx/backend; excludes WLAN, TLS and browser rendering",
+          "Global database deltas include background traffic; 20 samples per route",
+          "gzip accepted; bytes are wire bytes; successful warmed GETs; response bodies, IDs and tokens are not reported"
+        ]
+      }
+    },
+    "finished_at": "2026-10-12T10:47:42.318058+00:00",
+    "resources": {
+      "baseline": {
+        "samples": 4,
+        "host_cpu_mean_pct": 4.68,
+        "host_cpu_max_pct": 10.32,
+        "available_memory_min_mib": 4947.8,
+        "temperature_max_c": 54.0,
+        "host_iowait_max_pct": 0
+      },
+      "normal": {
+        "samples": 20,
+        "host_cpu_mean_pct": 7.68,
+        "host_cpu_max_pct": 16.01,
+        "available_memory_min_mib": 4863.2,
+        "temperature_max_c": 53.45,
+        "host_iowait_max_pct": 0.07
+      },
+      "limited_load": {
+        "samples": 11,
+        "host_cpu_mean_pct": 11.72,
+        "host_cpu_max_pct": 18.92,
+        "available_memory_min_mib": 4831.2,
+        "temperature_max_c": 54.55,
+        "host_iowait_max_pct": 0.06
+      }
+    }
+  },
+  "packages": {
+    "host": {
+      "package_matches": 15871,
+      "unique_advisories": 2707,
+      "severity_counts": {
+        "Medium": 3666,
+        "Negligible": 2055,
+        "High": 4463,
+        "Low": 417,
+        "Critical": 813,
+        "Unknown": 4457
+      },
+      "fix_state_counts": {
+        "not-fixed": 12944,
+        "fixed": 1007,
+        "wont-fix": 1920
+      },
+      "fixable_advisories": 335,
+      "fixable_priority_matches": 409,
+      "fixable_priority_source_advisories": 176,
+      "distro": {
+        "name": "debian",
+        "version": "13",
+        "idLike": []
+      },
+      "packages": 1707,
+      "image": null,
+      "runtime_versions": {
+        "docker": "29.5.3",
+        "openssl": "OpenSSL 3.5.6 7 Apr 2026 (Library: OpenSSL 3.5.6 7 Apr 2026)"
+      }
+    },
+    "backend": {
+      "package_matches": 585,
+      "unique_advisories": 292,
+      "severity_counts": {
+        "Negligible": 178,
+        "High": 163,
+        "Critical": 25,
+        "Low": 47,
+        "Medium": 167,
+        "Unknown": 5
+      },
+      "fix_state_counts": {
+        "not-fixed": 214,
+        "wont-fix": 363,
+        "fixed": 8
+      },
+      "fixable_advisories": 2,
+      "fixable_priority_matches": 4,
+      "fixable_priority_source_advisories": 1,
+      "distro": {
+        "name": "debian",
+        "version": "13",
+        "idLike": []
+      },
+      "packages": 277,
+      "image": "sha256:3f59810ca7a10e73289f986eb5dbef3b25bf40927467db079b0e6433bf71c075",
+      "runtime_versions": {
+        "python": "Python 3.12.15 (main, Oct  6 2026, 02:08:11) [GCC 14.2.0]",
+        "openssl": "OpenSSL 3.5.7 9 Jun 2026 (Library: OpenSSL 3.5.7 9 Jun 2026)"
+      }
+    },
+    "worker": {
+      "package_matches": 786,
+      "unique_advisories": 369,
+      "severity_counts": {
+        "Negligible": 196,
+        "High": 258,
+        "Critical": 29,
+        "Low": 55,
+        "Medium": 228,
+        "Unknown": 20
+      },
+      "fix_state_counts": {
+        "not-fixed": 239,
+        "wont-fix": 539,
+        "fixed": 8
+      },
+      "fixable_advisories": 2,
+      "fixable_priority_matches": 4,
+      "fixable_priority_source_advisories": 1,
+      "distro": {
+        "name": "debian",
+        "version": "13",
+        "idLike": []
+      },
+      "packages": 343,
+      "image": "sha256:12571db3d609b737adb3b0ab92709e26442e702eddf34d2be1b60f20b69d0364",
+      "runtime_versions": {
+        "python": "Python 3.12.15 (main, Oct  6 2026, 02:08:11) [GCC 14.2.0]",
+        "openssl": "OpenSSL 3.5.7 9 Jun 2026 (Library: OpenSSL 3.5.7 9 Jun 2026)"
+      }
+    },
+    "ai": {
+      "package_matches": 159,
+      "unique_advisories": 67,
+      "severity_counts": {
+        "High": 55,
+        "Medium": 48,
+        "Negligible": 46,
+        "Low": 10
+      },
+      "fix_state_counts": {
+        "wont-fix": 112,
+        "not-fixed": 47
+      },
+      "fixable_advisories": 0,
+      "fixable_priority_matches": 0,
+      "fixable_priority_source_advisories": 0,
+      "distro": {
+        "name": "debian",
+        "version": "13",
+        "idLike": []
+      },
+      "packages": 87,
+      "image": "sha256:26c55e74774876189924c742f3080b864a30b96259350b47aa7ca921c07ed97b",
+      "runtime_versions": {
+        "python": "Python 3.12.15 (main, Oct  6 2026, 02:08:11) [GCC 14.2.0]"
+      }
+    },
+    "frontend": {
+      "package_matches": 222,
+      "unique_advisories": 169,
+      "severity_counts": {
+        "Critical": 21,
+        "High": 89,
+        "Medium": 89,
+        "Low": 22,
+        "Unknown": 1
+      },
+      "fix_state_counts": {
+        "fixed": 156,
+        "unknown": 66
+      },
+      "fixable_advisories": 105,
+      "fixable_priority_matches": 79,
+      "fixable_priority_source_advisories": 53,
+      "distro": {
+        "name": "alpine",
+        "version": "3.21.3",
+        "idLike": []
+      },
+      "packages": 68,
+      "image": "sha256:358057abad5e293db15b6f08180dd78137ea8811e31b127b9e56e5890416e398",
+      "runtime_versions": {
+        "nginx": "nginx version: nginx/1.27.5"
+      }
+    },
+    "db": {
+      "package_matches": 559,
+      "unique_advisories": 208,
+      "severity_counts": {
+        "Negligible": 119,
+        "High": 165,
+        "Critical": 34,
+        "Medium": 172,
+        "Low": 52,
+        "Unknown": 17
+      },
+      "fix_state_counts": {
+        "not-fixed": 216,
+        "fixed": 153,
+        "wont-fix": 190
+      },
+      "fixable_advisories": 70,
+      "fixable_priority_matches": 104,
+      "fixable_priority_source_advisories": 43,
+      "distro": {
+        "name": "debian",
+        "version": "12",
+        "idLike": []
+      },
+      "packages": 144,
+      "image": "sha256:feb68f4f15446397d8cac7f4fe48fe4586de83160d1fc48b46283312d1a33966",
+      "runtime_versions": {
+        "postgres": "postgres (PostgreSQL) 17.10 (Debian 17.10-1.pgdg12+1)"
+      }
+    },
+    "caddy": {
+      "package_matches": 156,
+      "unique_advisories": 80,
+      "severity_counts": {
+        "High": 77,
+        "Critical": 26,
+        "Medium": 39,
+        "Low": 12,
+        "Unknown": 2
+      },
+      "fix_state_counts": {
+        "fixed": 124,
+        "unknown": 32
+      },
+      "fixable_advisories": 63,
+      "fixable_priority_matches": 94,
+      "fixable_priority_source_advisories": 48,
+      "distro": {
+        "name": "alpine",
+        "version": "3.23.4",
+        "idLike": []
+      },
+      "packages": 32,
+      "image": "sha256:cfeb0b281bc44a5a51fecde39e9e577c60d863c0b6196e6bbdf58fd00960887f",
+      "runtime_versions": {
+        "caddy": "2.11.4",
+        "go": "1.26.3",
+        "golang.org/x/net": "0.55.0",
+        "cgo_enabled": false
+      }
+    },
+    "caddy-go": {
+      "package_matches": 54,
+      "unique_advisories": 45,
+      "severity_counts": {
+        "High": 29,
+        "Critical": 3,
+        "Medium": 9,
+        "Unknown": 9,
+        "Low": 4
+      },
+      "fix_state_counts": {
+        "fixed": 53,
+        "unknown": 1
+      },
+      "fixable_advisories": 44,
+      "fixable_priority_matches": 32,
+      "fixable_priority_source_advisories": 32,
+      "distro": {
+        "name": "",
+        "version": "",
+        "idLike": null
+      },
+      "packages": 145,
+      "coverage": "Recorded versions; no function reachability analysis"
+    }
+  },
+  "evidence_sha256": {
+    "inventory": "bdb2a486670be9015254fdd383d47783e1489debbb6703d16cfa466697913948",
+    "performance_identity": "cb164463dc926ba7be79b74b58530a1781b88a3f23cc7a41c6455387e0431ece",
+    "performance_gzip": "fa459f33761d1919c6b1cac66ef09966b99f825414b90aabd2da1760eec3d270",
+    "host_sbom": "44d5de1597c713531ea1e6200c882086482a81883f8c332eaef9662c9cd28387",
+    "backend_sbom": "35d820a03efb5359897afa794137e525147d399f957fc317b7529d2400b532af",
+    "worker_sbom": "40e75287708060b27f353a66d233ad385ffa1facd444f211c16da92d4ad6586a",
+    "ai_sbom": "cf24bfc2121a0009666491c9135df854ca30712a71b8a903633d1f21803dcfc3",
+    "frontend_sbom": "85105a2ea8dd8c44b2cf23c4952066139c2469bf01fbdf6b21c7205f697a5d6b",
+    "db_sbom": "f152b968526e04b02a46ffe86155caa4a9c49efad8a9d011a246cd900fee2da5",
+    "caddy_sbom": "1de841ed14a65af74c03bc404555dd724a3c6443a068c671d7b56b4da41c2e6e",
+    "host_grype": "3911a7b031b5b7e5fcdddf95eda13ac1a55faad1e98761cb9b0b6ce1e59d432c",
+    "backend_grype": "80fdd60a52a345c7037323eaee16e205a0fb0f2ac864c9cd354587f6ecc217ed",
+    "worker_grype": "1ab614f3f47ccd6ada8111195933bb17b01dd256b47ff8d4a075c2e2b1b30b23",
+    "ai_grype": "e41e34388dda5919d1b591ca94b8945044977cbfb24826fc57c5beb5e7cb759b",
+    "frontend_grype": "ce0bd50d4381cd39f08964be2f5b22bfb0fcf80c37fec445c19509be9e34b538",
+    "db_grype": "c9b7b5833fcccad7c3f3aef97a647585d4782dd6be116fbb67071962d8634529",
+    "caddy_grype": "ec599e41d06a4501358f195dc51596850baa0446af950b2e2450ace4bae32bb6",
+    "caddy_go_sbom": "2805c7d74e4ee12ad307fe898c99e9fca9dec618d2d50c64b52a89086b33986b",
+    "caddy_go_grype": "f89084872e5907dc1ad4b3a29131658fa507bddc565d849efbf8da4e9398a454"
+  },
+  "fixed_source_sha256": {
+    "pi_audit.py": "f57b069276bb2cb9127366455f009df48766da152744e6af6f0fdf132175a069",
+    "pi_performance_probe.py": "dd1dd42fb885ea35c3d95807cd4ae422e497de84a870eddc9b4f0a9f46d008af",
+    "audit_pi_packages.py": "770230d4dde40c4000e0aceb27028e384e0d78f2f3996a893f866b118fe7f138"
+  },
+  "limitations": [
+    "Pi-internal warmed GETs; excludes WLAN, TLS and browser rendering",
+    "20 samples per case; sequential case groups, not a long-running mixed workload",
+    "Package-version matches; no exploit or function reachability analysis",
+    "Raspberry Pi kernel/firmware and unlisted manual binaries not comprehensively checked",
+    "GO/GHSA and CVE aliases may refer to the same issue; no cross-target deduplication",
+    "PDF MIME type was not validated for the original-file Range request"
+  ]
+}

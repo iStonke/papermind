@@ -24,6 +24,11 @@ im Mac-Benutzerkontext aus.
   bekannte Dateihashes, Quellsicherung und Abbruch bei unbekannten Änderungen.
   Die bereits aktive Notizkorrektur bleibt erhalten; keine freien Parameter,
   Container-Neustarts, Migrationen oder Änderungen an echten `.env`-Dateien.
+- Für die Prüfung vom 12. Oktober 2026 sind `performance_audit`,
+  `performance_audit_status` und `security_inventory` ausdrücklich freigegeben:
+  fester Stand `acc22ca`, maximal zwei parallele GETs / vier Anfragen pro Sekunde,
+  feste Ressourcen-/Laufzeitgrenzen und öffentliche Paket-/Laufzeitmetadaten.
+  Keine freien Parameter, Dokumentänderungen, Updates oder Neustarts.
 - `scanner_status` liest ausschließlich Dienststatus, feste systemd-Definitionen,
   Canon-USB-Energiezustand, SANE-Geräteliste und begrenzte Scanner-Logs aus.
 - `scanner_calibration_test` sichert das Scan-Skript und aktiviert darin
