@@ -41,6 +41,7 @@ VALID_ACTIONS = {
     "security_patch_host_plan",
     "security_patch_host_apply",
     "security_patch_host_status",
+    "security_patch_restart",
 }
 
 

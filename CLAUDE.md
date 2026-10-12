@@ -49,6 +49,14 @@ im Mac-Benutzerkontext aus.
   systemd-/SSH-Wechsel oder Neustart; keine freien Parameter oder `.env`-Änderung.
 - `scanner_calibration_restore` stellt das Scan-Skript aus dieser Sicherung
   wieder her.
+- Separat ausdrücklich freigegeben am 12. Oktober 2026: ein kontrollierter
+  Pi-Neustart mit `security_patch_restart`, um die installierten Host-Patches
+  in SSH und D-Bus zu aktivieren. Fest an `01d1c53` und die erfolgreiche
+  Host-Installation gebunden; verifizierte Sicherung, gesunde Dienste und keine
+  aktiven/queued Jobs, Backups, Wartung oder Power-Aktionen. Bestehende feste
+  Host-Steuerung, Schreibsperre und einmalige Zulassung; keine freien Parameter.
+  `security_patch_host_status` prüft anschließend den Boot-Wechsel und die
+  geladenen Bibliotheksmetadaten. Dies erlaubt keinen weiteren Pi-Neustart.
 - `scanner_timing_test` sichert das Scan-Skript und überträgt ausschließlich die
   feste lokale Projektversion mit Phasen-Zeitmessung; `scanner_timing_restore`
   stellt die Sicherung wieder her.

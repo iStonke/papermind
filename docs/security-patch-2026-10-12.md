@@ -2,7 +2,7 @@
 
 ## Stand
 
-Der Nutzer hat die Umsetzung der priorisierten Updates, den kontrollierten Pi-Rollout, die gezielte Suchoptimierung sowie die anschließende Bereinigung und den Betrieb ohne Root beauftragt. **Der Anwendungsrelease `01d1c53` und die 103 ausgewählten Host-Sicherheitsupdates sind auf dem Pi installiert und erfolgreich live geprüft.** Die erneute Performance-Messung ist erfolgreich. SSH und D-Bus verwenden noch alte Bibliotheken im Speicher; deren Aktivierung durch einen kontrollierten Pi-Neustart benötigt noch die ausdrückliche Freigabe.
+Der Nutzer hat die Umsetzung der priorisierten Updates, den kontrollierten Pi-Rollout, die gezielte Suchoptimierung sowie die anschließende Bereinigung und den Betrieb ohne Root beauftragt. **Der Anwendungsrelease `01d1c53` und die 103 ausgewählten Host-Sicherheitsupdates sind auf dem Pi installiert und erfolgreich live geprüft.** Die erneute Performance-Messung ist erfolgreich. Der separat ausdrücklich freigegebene einmalige Pi-Neustart ist abgeschlossen; SSH und D-Bus verwenden die aktualisierten Bibliotheken. Wiederanlauf und Funktionsprüfung bestehen.
 
 ## Geprüfte Änderung
 
@@ -49,7 +49,11 @@ Der erneute Offline-Abgleich des tatsächlichen Host-Bestands findet **null High
 
 Die Live-Funktionsprüfung nach APT besteht erneut: sechs gesunde/laufende Dienste, vorgesehene UIDs, keine effektiven Capabilities, anonymer Notizabruf HTTP 401, synthetisches PDF, native OCR, Piper (26.624 Frames), HTTPS gegen die bestehende CA sowie gzip. Scanner-Poller aktiv, Canon erkannt, USB aktiv.
 
-**Noch offen: Aktivierung geladener Host-Bibliotheken.** Die feste reine Metadatenprüfung findet bei `ssh.service` noch eine gelöschte alte `libcrypto.so.3`, bei `dbus.service` eine alte `libexpat.so.1` in den Prozess-Mappings. Das Fehlen von `/var/run/reboot-required` genügt daher hier nicht als Nachweis abgeschlossener Aktivierung. UDisks, Samba und Winbind wurden von den Paketskripten bereits neu gestartet. Der vorbereitete einmalige Neustart verwendet die bestehende feste Host-Steuerung, benötigt gesunde unveränderte Quellen/Dienste, eine verifizierte höchstens 24 Stunden alte Sicherung, Schema 113 und keine aktiven/queued Jobs, Backups, Wartung oder vorgemerkten Power-Aktionen. Eine Schreibsperre verhindert neue Änderungen vor dem Neustart. Die Neustart-Aktion ist bis zur ausdrücklichen Freigabe nicht in der Bridge registriert.
+**Aktivierung geladener Host-Bibliotheken abgeschlossen.** Vor dem Neustart fand die feste reine Metadatenprüfung bei `ssh.service` eine gelöschte alte `libcrypto.so.3`, bei `dbus.service` eine alte `libexpat.so.1` in den Prozess-Mappings. Das Fehlen von `/var/run/reboot-required` genügte daher hier nicht als Nachweis abgeschlossener Aktivierung. UDisks, Samba und Winbind waren von den Paketskripten bereits neu gestartet worden. Der Nutzer gab anschließend genau einen kontrollierten Pi-Neustart ausdrücklich frei.
+
+Die feste Aktion `security_patch_restart` verwendet die bestehende Host-Steuerung, prüft gesunde unveränderte Quellen/Dienste, eine verifizierte höchstens 24 Stunden alte Sicherung, Schema 113 und keine aktiven/queued Jobs, Backups, Wartung oder vorgemerkten Power-Aktionen. Eine Schreibsperre verhindert neue Änderungen vor dem Neustart. Die erneute Vorprüfung bestand; die einmalige Zulassung sperrt weitere Aufrufe. Der Boot-ID-Wechsel ist bestätigt. SSH, D-Bus, UDisks, Samba und Winbind sind aktiv; SSH und D-Bus haben keine gelöschten alten Sicherheitsbibliotheken mehr geladen. Die Wartungssperre ist aufgehoben, es gibt keine aktiven Jobs/Backups oder vorgemerkten Power-Aktionen.
+
+Die Funktionsprüfung nach dem Neustart besteht erneut: alle sechs Dienste gesund/laufend, UID 1000 beziehungsweise DB-UID 999, keine effektiven Capabilities, synthetisches PDF, native OCR, Piper (28.824 Frames), verifiziertes HTTPS, gzip und HTTP 401 für anonyme Notizabrufe. Scanner-Poller aktiv, Canon LiDE 400 erkannt, USB aktiv. Der abschließende Paketvergleich von `2026-10-12T21:22:00.480858+00:00` bestätigt unveränderte Host-/Container-/Go-Fingerprints, Python-Paketversionen, Release `01d1c53` und Kernel `6.18.33+rpt-rpi-2712`; der zuvor geprüfte Schwachstellenabgleich bleibt damit für diesen Bestand gültig.
 
 ## Produktionsmessung nach dem Wechsel
 
@@ -71,4 +75,4 @@ Host-CPU höchstens 16,16 %, verfügbarer RAM mindestens 5.048,1 MiB; Temperatur
 
 Der Offline-Abgleich der **tatsächlich laufenden** Images, Go-Metadaten und aktualisierten Host-Pakete bestätigt null High-/Critical-Treffer mit veröffentlichtem Fix. Ungefixte/Hersteller-ignorierte und verbleibende Hinweise niedrigerer Priorität werden weiterhin ausgewiesen. Das ist eine Scanner-Zählung, keine Zahl nachgewiesener Exploits.
 
-Die abschließende Bridge-Prüfung bestätigt weiterhin `01d1c53` und alle laufenden/gesunden Dienste. Der Scan-Tasten-Poller ist aktiv, der Canon LiDE 400 wird erkannt und der USB-Energiezustand bleibt aktiv. Ein Pi-Neustart wurde nicht durchgeführt.
+Die abschließende Bridge-Prüfung nach dem separat freigegebenen einmaligen Neustart bestätigt weiterhin `01d1c53` und alle laufenden/gesunden Dienste. Der Scan-Tasten-Poller ist aktiv, der Canon LiDE 400 wird erkannt und der USB-Energiezustand bleibt aktiv. Die Sicherheitsupdates sind auch in den geprüften Host-Prozessen aktiviert.

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "date": "2026-10-12",
-  "status": "host_patched_library_activation_pending",
+  "status": "complete",
   "target": "01d1c53ba38f68857674238ef7643534987f3018",
   "archive_sha256": "1fd05022e17d55df664de78c80c2e0c9a61aa32f0c2ab7d4751f53450176ec30",
   "archive_bytes": 1800450,
@@ -1052,10 +1052,24 @@
       "poller_active": true,
       "canon_detected": true,
       "usb_awake": true
+    },
+    "post_restart_runtime_checks": {
+      "production_security": "ok",
+      "anonymous_notes_status": 401,
+      "isolated_pdf": "ok",
+      "native_ocr": "ok",
+      "local_piper_frames": 28824,
+      "runtime_uids": "verified",
+      "effective_capabilities": "none",
+      "https_verified_hostname": "papermind",
+      "https_status": 200,
+      "static_asset_encoding": "gzip",
+      "entry_transfer_bytes": 48621,
+      "proxy_anonymous_notes_status": 401
     }
   },
   "host_result": {
-    "status": "installed_activation_pending",
+    "status": "success",
     "packages_changed": 103,
     "selected_security_packages": 103,
     "plan_versions_match_installed": true,
@@ -1067,7 +1081,7 @@
     "removed_packages": 0,
     "kernel": "6.18.33+rpt-rpi-2712",
     "kernel_changed": false,
-    "reboot_performed": false,
+    "reboot_performed": true,
     "reboot_marker": false,
     "fixable_priority_source_advisories_before": 176,
     "fixable_priority_package_matches_before": 409,
@@ -1078,7 +1092,7 @@
       "anonymous_notes_status": 401,
       "isolated_pdf": "ok",
       "native_ocr": "ok",
-      "local_piper_frames": 26624,
+      "local_piper_frames": 28824,
       "runtime_uids": "verified",
       "effective_capabilities": "none",
       "https_verified_hostname": "papermind",
@@ -1093,26 +1107,39 @@
       "usb_awake": true
     },
     "library_activation": {
-      "ssh.service": [
-        "libcrypto.so.3"
-      ],
-      "dbus.service": [
-        "libexpat.so.1"
-      ]
+      "ssh.service": [],
+      "dbus.service": []
     },
-    "restart_readiness": {
-      "ready": true,
+    "restart": {
+      "explicitly_authorized": true,
+      "performed": true,
+      "boot_changed": true,
+      "one_shot_reuse_blocked": true,
       "active_jobs": 0,
       "active_backups": 0,
       "maintenance_active": false,
+      "pending_power_action": false,
       "host_control_verified": true,
-      "registered_in_bridge": false
+      "host_services_active": [
+        "ssh.service",
+        "dbus.service",
+        "udisks2.service",
+        "smbd.service",
+        "winbind.service"
+      ]
+    },
+    "after_restart_inventory": {
+      "head": "01d1c53ba38f68857674238ef7643534987f3018",
+      "kernel": "6.18.33+rpt-rpi-2712",
+      "host_os_go_fingerprints_unchanged": true,
+      "python_versions_unchanged": true,
+      "inventory_at": "2026-10-12T21:22:00.480858+00:00"
     }
   },
   "limitations": [
     "Package-version matching; not an exploit/reachability analysis",
     "Remaining unknown/not-fixed/wont-fix advisories are not discarded",
-    "No Pi reboot authorized"
+    "Exactly one controlled Pi reboot explicitly authorized and verified; further reboots require separate authorization"
   ],
   "production_package_checks": {
     "backend": {

@@ -39,6 +39,7 @@ def main():
         'security_patch_host_plan':('pi_host_security_patch.py','--plan',180),
         'security_patch_host_apply':('pi_host_security_patch.py','--apply',180),
         'security_patch_host_status':('pi_host_security_patch.py','--status',180),
+        'security_patch_restart':('pi_security_restart.py','--request',90),
     }
     commands={}
     for action,(script,mode,timeout) in operations.items():
