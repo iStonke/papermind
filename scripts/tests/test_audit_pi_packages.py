@@ -43,6 +43,14 @@ class PackageAuditTest(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 packages.go_sbom(metadata)
 
+    def test_package_fingerprint_ignores_install_time_but_rejects_version_changes(self):
+        inventory={'targets':{'frontend':{'manager':'apk','apk_database':'P:openssl\nV:3.5.8-r0\nA:aarch64\no:openssl\nt:100\n\n'}}}
+        original=packages.package_fingerprints(inventory)
+        inventory['targets']['frontend']['apk_database']=inventory['targets']['frontend']['apk_database'].replace('t:100','t:200')
+        self.assertEqual(packages.package_fingerprints(inventory),original)
+        inventory['targets']['frontend']['apk_database']=inventory['targets']['frontend']['apk_database'].replace('3.5.8-r0','3.5.9-r0')
+        self.assertNotEqual(packages.package_fingerprints(inventory),original)
+
 
 if __name__ == '__main__':
     unittest.main()

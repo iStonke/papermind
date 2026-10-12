@@ -29,6 +29,18 @@ VALID_ACTIONS = {
     "performance_audit",
     "performance_audit_status",
     "security_inventory",
+    "security_patch_inspect",
+    "security_patch_prepare",
+    "security_patch_rollout",
+    "security_patch_status",
+    "security_patch_inventory",
+    "security_patch_verify",
+    "security_patch_measure",
+    "security_patch_measure_status",
+    "security_patch_live_inventory",
+    "security_patch_host_plan",
+    "security_patch_host_apply",
+    "security_patch_host_status",
 }
 
 

@@ -1,5 +1,11 @@
 # Produktiv-Pi: Performance und Systempakete, 12. Oktober 2026
 
+Diese Baseline beschreibt den Stand vor den Paketupdates. Der nachfolgende
+[Sicherheitsrelease mit Produktionsmessung](security-patch-2026-10-12.md) ist
+inzwischen auf dem Pi aktiv: neue Container, Betrieb ohne Root und schnellere
+wiederholte Dokumentensuche. Die separat geplanten Host-Patches benötigen noch
+die wirksame sudo-Einrichtung.
+
 **Die gemessenen Lesezugriffe laufen stabil; Sicherheitsupdates haben jetzt Vorrang.** Bei höchstens zwei parallelen GETs und vier Anfragen pro Sekunde gab es keine HTTP-Fehler oder Datenbank-Deadlocks. Die Dokumentensuche war mit rund 149 ms Median der langsamste gemessene Zugriff. Die Paketprüfung bestätigt betroffene Versionen von Ghostscript, nginx und Caddys Go-Laufzeit. Diese Prüfung hat keine Systempakete oder Container aktualisiert.
 
 Geprüfter Git-Stand: `acc22ca29a695cdd987624b479d90aa7aed419a3`; aktiver Anwendungs-Snapshot `8a06de418d9b7d94`, Schema `113_drop_note_favorite`. Quellstatus und Container-Identitäten wurden geprüft. Die abschließende Bridge-Statusprüfung bestätigt alle Anwendungsdienste im laufenden beziehungsweise gesunden Zustand. Kein Containerwechsel, keine Migration und kein Pi-Neustart.

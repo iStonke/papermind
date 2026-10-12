@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -71,6 +72,25 @@ def go_sbom(build_info):
             'purl': 'pkg:golang/' + quote(name, safe='/') + '@' + quote(version, safe='.-')})
     assert any(component['name'] == 'stdlib' for component in components), 'Missing Go runtime metadata'
     return {'bomFormat': 'CycloneDX', 'specVersion': '1.6', 'version': 1, 'components': components}
+
+
+def package_fingerprints(inventory):
+    """Hash semantic package versions, not install times or generated file data."""
+    result = {}
+    for name,entry in inventory['targets'].items():
+        if entry['manager']=='dpkg':
+            records=sorted((p['name'],p['version'],p['architecture'],p['source'],p['source_version']) for p in entry['packages'])
+        else:
+            records=[]
+            for block in entry['apk_database'].split('\n\n'):
+                fields={line[0]:line[2:] for line in block.splitlines() if len(line)>2 and line[1]==':'}
+                if 'P' in fields:records.append((fields['P'],fields['V'],fields['A'],fields.get('o',fields['P'])))
+            records.sort()
+        result[name]=hashlib.sha256(json.dumps(records,separators=(',',':')).encode()).hexdigest()
+    if 'caddy' in inventory['targets']:
+        modules=go_sbom(inventory['targets']['caddy']['runtime_versions']['caddy'])['components']
+        result['caddy-go']=hashlib.sha256(json.dumps(sorted((m['name'],m['version']) for m in modules),separators=(',',':')).encode()).hexdigest()
+    return result
 
 
 def scan(inventory_path, tools_path, output):

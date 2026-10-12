@@ -35,8 +35,27 @@ macOS-Bridge `com.papermind.pi-bridge`. Nie eine direkte Verbindung zu
   Dokumentänderungen, Updates, Container-Neustarts oder Pi-Neustarts.
 - `scanner_status` liest ausschließlich Dienststatus, feste systemd-Definitionen,
   Canon-USB-Energiezustand, SANE-Geräteliste und begrenzte Scanner-Logs aus.
+- Der Auftrag zur Umsetzung des Sicherheits-Patch-Releases vom 12. Oktober
+  umfasst die feste zusätzliche Aktion `security_patch_inspect`: ausschließlich
+  begrenzte lesende SQL-Planmessungen auf Stand `acc22ca` und UID/GID/Modus der
+  bestehenden Container-Mounts. Keine Dokumenttexte, IDs oder Geheimnisse im
+  Ergebnis; keine freien Parameter und keine Paket-/Dienständerungen.
 - `scanner_calibration_test` sichert das Scan-Skript und aktiviert darin
   reversibel `SCAN_CALIBRATE=Never`; ein Dienstneustart ist nicht erforderlich.
+- Der ausdrücklich beauftragte Sicherheitsrollout ist an Release `01d1c53`,
+  Archiv-SHA `1fd05022e17d55df664de78c80c2e0c9a61aa32f0c2ab7d4751f53450176ec30`,
+  Ausgangsstand `acc22ca` und die offline geprüften Paketversionen gebunden.
+  Feste zusätzliche Aktionen: `security_patch_prepare`, `security_patch_rollout`,
+  `security_patch_status`, `security_patch_inventory`, `security_patch_verify`,
+  `security_patch_measure`, `security_patch_measure_status`,
+  `security_patch_live_inventory`, `security_patch_host_plan`,
+  `security_patch_host_apply`, `security_patch_host_status`.
+  Staging ohne Live-Wechsel; Rollout mit frischer verifizierter verschlüsselter
+  Sicherung, Schreibsperre, gesichertem UID-Wechsel und Rückfall. Host-Updates
+  erfolgen separat, nur für die feste Sicherheitsauswahl mit unverändertem
+  simuliertem Versionsplan, ohne Paketentfernung und ohne Kernel-/Docker-/
+  systemd-/SSH-Umstellung. Keine freien Parameter, echten `.env`-Änderungen oder
+  Pi-Neustarts. Diagnosen behalten die bisherigen GET-/Ressourcengrenzen.
 - `scanner_calibration_restore` stellt das Scan-Skript aus dieser Sicherung
   wieder her.
 - `scanner_timing_test` sichert das Scan-Skript und überträgt ausschließlich die
@@ -58,3 +77,10 @@ erreichbar und verwendet `~/.ssh/id_rsa`. Niemals Schlüsselmaterial,
 Passwörter oder frei formulierte Shell-Kommandos in die Bridge aufnehmen.
 
 Weitere projektspezifische Hinweise stehen in `CLAUDE.md`.
+
+Host-Sicherheitsupdates dieses Releases verwenden nach manueller Einrichtung
+den root-eigenen Helfer `/usr/local/libexec/papermind-security-20261012`.
+Sudoers pinnt dessen SHA-256; nur `update`, `plan`, `download`, `verify`,
+`install` sind zulässig. Keine Passworteingabe über die Bridge. Anleitung:
+`docs/host-security-setup-2026-10-12.md`. Reine APT-Vorbereitung darf während
+der Rollout-Sicherung stattfinden; Installation benötigt den gesunden Zielstand.

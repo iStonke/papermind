@@ -174,6 +174,11 @@ def inventory():
             if value.returncode == 0:
                 versions[args[0]] = (value.stdout + value.stderr).strip()[:20000]
         entry['runtime_versions'] = versions
+        if target in {'backend','worker','ai'}:
+            code="import importlib.metadata as m,json;print(json.dumps(sorted((d.metadata['Name'],d.version) for d in m.distributions())))"
+            packages=json.loads(run('python','-c',code).stdout)
+            assert len(packages)<=250 and all(re.fullmatch(r'[A-Za-z0-9_.-]+',p[0]) and len(p[1])<=100 for p in packages), 'Python metadata bound'
+            entry['python_packages']=packages
         result['targets'][target] = entry
     assert containers() == initial, 'Container inventory changed'
     raw = json.dumps(result)

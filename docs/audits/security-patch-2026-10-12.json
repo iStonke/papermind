@@ -1,0 +1,1146 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-12",
+  "status": "application_deployed",
+  "target": "01d1c53ba38f68857674238ef7643534987f3018",
+  "archive_sha256": "1fd05022e17d55df664de78c80c2e0c9a61aa32f0c2ab7d4751f53450176ec30",
+  "archive_bytes": 1800450,
+  "approved_package_fingerprints": {
+    "backend": "56188f1e900f57cd9059a2ac4bfbdf1ee0a7d6ba1dc0f0c84fe752c178696b5d",
+    "worker": "c6e3cf37761439dffb9570656d372615e54a7aae9e8add5190574dfcffb78d7a",
+    "ai": "a3993f4746bba33dd57e67f06842624e5c8da265cdb471a20da65ae437093937",
+    "frontend": "d93d708ce8c5bcaa35731ff76192caafdfaa8944d86faf204a5370d29f7b3810",
+    "db": "3f4d3f54111a89c31d7720f17b94b6b505eadc5a636a434825731997665242ac",
+    "caddy": "e1fb7dd58fefe12c0e3eb88fe18e06c32e8551e00113aebf9a5fb71f2f2320f2",
+    "caddy-go": "1b166525a9c62b42cc7bb434f9d3f10773adab108b0f47f172c970bd2c217f1a"
+  },
+  "local_package_checks": {
+    "backend": {
+      "package_matches": 577,
+      "unique_advisories": 290,
+      "fix_state_counts": {
+        "not-fixed": 214,
+        "wont-fix": 363
+      },
+      "fixable_priority_matches": 0,
+      "fixable_priority_source_advisories": 0,
+      "packages": 277
+    },
+    "worker": {
+      "package_matches": 778,
+      "unique_advisories": 367,
+      "fix_state_counts": {
+        "not-fixed": 239,
+        "wont-fix": 539
+      },
+      "fixable_priority_matches": 0,
+      "fixable_priority_source_advisories": 0,
+      "packages": 343
+    },
+    "ai": {
+      "package_matches": 159,
+      "unique_advisories": 67,
+      "fix_state_counts": {
+        "wont-fix": 112,
+        "not-fixed": 47
+      },
+      "fixable_priority_matches": 0,
+      "fixable_priority_source_advisories": 0,
+      "packages": 87
+    },
+    "frontend": {
+      "package_matches": 5,
+      "unique_advisories": 3,
+      "fix_state_counts": {
+        "unknown": 5
+      },
+      "fixable_priority_matches": 0,
+      "fixable_priority_source_advisories": 0,
+      "packages": 71
+    },
+    "db": {
+      "package_matches": 406,
+      "unique_advisories": 138,
+      "fix_state_counts": {
+        "not-fixed": 216,
+        "wont-fix": 190
+      },
+      "fixable_priority_matches": 0,
+      "fixable_priority_source_advisories": 0,
+      "packages": 144
+    },
+    "caddy": {
+      "package_matches": 4,
+      "unique_advisories": 2,
+      "fix_state_counts": {
+        "unknown": 4
+      },
+      "fixable_priority_matches": 0,
+      "fixable_priority_source_advisories": 0,
+      "packages": 32
+    },
+    "caddy-go": {
+      "package_matches": 1,
+      "unique_advisories": 1,
+      "fix_state_counts": {
+        "unknown": 1
+      },
+      "fixable_priority_matches": 0,
+      "fixable_priority_source_advisories": 0,
+      "packages": 161
+    }
+  },
+  "validation": {
+    "backend_tests": 631,
+    "backend_subtests": 32,
+    "frontend_tests": 692,
+    "script_tests": 57,
+    "npm_known_vulnerabilities": 0,
+    "python_known_vulnerabilities": 0,
+    "rootless_backend_pdf_ocr_piper": "success",
+    "rootless_worker_pdf_ocr_piper": "success",
+    "rootless_tls_proxy": "success",
+    "caddy_binary_check": {
+      "tool": "govulncheck v1.9.0",
+      "binary_sha256": "defc4003d82be660f03f715a75f929247c54c01602c04a3d059554f4e512d269",
+      "package_and_symbol_findings": 0,
+      "module_findings": [
+        "GO-2026-5932"
+      ],
+      "pi_candidate_recorded_modules_match": true,
+      "scope": "Local ARM64 binary symbol analysis; no proof of general exploitability or safety"
+    },
+    "sudoers_syntax": "success"
+  },
+  "before_search_profile": [
+    {
+      "query": "Rechnung",
+      "items": 20,
+      "total": 120,
+      "service_ms": 147.839,
+      "queries": [
+        {
+          "category": "count",
+          "cursor_ms": 9.833,
+          "execution_ms": 6.049,
+          "planning_ms": 0.226,
+          "plan": {
+            "Node Type": "Aggregate",
+            "Actual Total Time": 6.026,
+            "Actual Rows": 1,
+            "Actual Loops": 1,
+            "Shared Hit Blocks": 2568,
+            "Shared Read Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Result",
+                "Actual Total Time": 6.004,
+                "Actual Rows": 120,
+                "Actual Loops": 1,
+                "Shared Hit Blocks": 2568,
+                "Shared Read Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Seq Scan",
+                    "Relation Name": "documents",
+                    "Actual Total Time": 5.982,
+                    "Actual Rows": 120,
+                    "Actual Loops": 1,
+                    "Shared Hit Blocks": 2568,
+                    "Shared Read Blocks": 0
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "category": "search_with_snippet",
+          "cursor_ms": 109.724,
+          "execution_ms": 108.617,
+          "planning_ms": 0.3,
+          "plan": {
+            "Node Type": "Limit",
+            "Actual Total Time": 108.576,
+            "Actual Rows": 20,
+            "Actual Loops": 1,
+            "Shared Hit Blocks": 3375,
+            "Shared Read Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Result",
+                "Actual Total Time": 108.568,
+                "Actual Rows": 20,
+                "Actual Loops": 1,
+                "Shared Hit Blocks": 3375,
+                "Shared Read Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Sort",
+                    "Actual Total Time": 7.288,
+                    "Actual Rows": 20,
+                    "Actual Loops": 1,
+                    "Sort Method": "top-N heapsort",
+                    "Sort Space Used": 42,
+                    "Shared Hit Blocks": 3284,
+                    "Shared Read Blocks": 0,
+                    "Plans": [
+                      {
+                        "Node Type": "Result",
+                        "Actual Total Time": 7.15,
+                        "Actual Rows": 120,
+                        "Actual Loops": 1,
+                        "Shared Hit Blocks": 3284,
+                        "Shared Read Blocks": 0,
+                        "Plans": [
+                          {
+                            "Node Type": "Seq Scan",
+                            "Relation Name": "documents",
+                            "Actual Total Time": 6.008,
+                            "Actual Rows": 120,
+                            "Actual Loops": 1,
+                            "Shared Hit Blocks": 2568,
+                            "Shared Read Blocks": 0
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "category": "relations",
+          "cursor_ms": 2.857,
+          "execution_ms": 0.588,
+          "planning_ms": 0.787,
+          "plan": {
+            "Node Type": "Nested Loop",
+            "Actual Total Time": 0.545,
+            "Actual Rows": 49,
+            "Actual Loops": 1,
+            "Shared Hit Blocks": 554,
+            "Shared Read Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Nested Loop",
+                "Actual Total Time": 0.435,
+                "Actual Rows": 49,
+                "Actual Loops": 1,
+                "Shared Hit Blocks": 407,
+                "Shared Read Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Index Scan",
+                    "Index Name": "pk_documents",
+                    "Relation Name": "documents",
+                    "Actual Total Time": 0.095,
+                    "Actual Rows": 20,
+                    "Actual Loops": 1,
+                    "Shared Hit Blocks": 28,
+                    "Shared Read Blocks": 0
+                  },
+                  {
+                    "Node Type": "Index Scan",
+                    "Index Name": "ix_document_tags_document_id",
+                    "Relation Name": "document_tags",
+                    "Actual Total Time": 0.016,
+                    "Actual Rows": 2,
+                    "Actual Loops": 20,
+                    "Shared Hit Blocks": 379,
+                    "Shared Read Blocks": 0,
+                    "Plans": [
+                      {
+                        "Node Type": "Index Scan",
+                        "Index Name": "pk_documents",
+                        "Relation Name": "documents",
+                        "Actual Total Time": 0.002,
+                        "Actual Rows": 1,
+                        "Actual Loops": 49,
+                        "Shared Hit Blocks": 147,
+                        "Shared Read Blocks": 0
+                      },
+                      {
+                        "Node Type": "Index Scan",
+                        "Index Name": "pk_tags",
+                        "Relation Name": "tags",
+                        "Actual Total Time": 0.002,
+                        "Actual Rows": 1,
+                        "Actual Loops": 49,
+                        "Shared Hit Blocks": 147,
+                        "Shared Read Blocks": 0
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "Node Type": "Index Scan",
+                "Index Name": "pk_tags",
+                "Relation Name": "tags",
+                "Actual Total Time": 0.002,
+                "Actual Rows": 1,
+                "Actual Loops": 49,
+                "Shared Hit Blocks": 147,
+                "Shared Read Blocks": 0
+              }
+            ]
+          }
+        },
+        {
+          "category": "relations",
+          "cursor_ms": 0.965,
+          "execution_ms": 0.044,
+          "planning_ms": 0.087,
+          "plan": {
+            "Node Type": "Result",
+            "Actual Total Time": 0.03,
+            "Actual Rows": 13,
+            "Actual Loops": 1,
+            "Shared Hit Blocks": 1,
+            "Shared Read Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Seq Scan",
+                "Relation Name": "correspondents",
+                "Actual Total Time": 0.025,
+                "Actual Rows": 13,
+                "Actual Loops": 1,
+                "Shared Hit Blocks": 1,
+                "Shared Read Blocks": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "query": "Test",
+      "items": 20,
+      "total": 21,
+      "service_ms": 210.732,
+      "queries": [
+        {
+          "category": "count",
+          "cursor_ms": 9.546,
+          "execution_ms": 5.938,
+          "planning_ms": 0.233,
+          "plan": {
+            "Node Type": "Aggregate",
+            "Actual Total Time": 5.916,
+            "Actual Rows": 1,
+            "Actual Loops": 1,
+            "Shared Hit Blocks": 2568,
+            "Shared Read Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Result",
+                "Actual Total Time": 5.905,
+                "Actual Rows": 21,
+                "Actual Loops": 1,
+                "Shared Hit Blocks": 2568,
+                "Shared Read Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Seq Scan",
+                    "Relation Name": "documents",
+                    "Actual Total Time": 5.897,
+                    "Actual Rows": 21,
+                    "Actual Loops": 1,
+                    "Shared Hit Blocks": 2568,
+                    "Shared Read Blocks": 0
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "category": "search_with_snippet",
+          "cursor_ms": 188.106,
+          "execution_ms": 157.442,
+          "planning_ms": 0.298,
+          "plan": {
+            "Node Type": "Limit",
+            "Actual Total Time": 157.399,
+            "Actual Rows": 20,
+            "Actual Loops": 1,
+            "Shared Hit Blocks": 2912,
+            "Shared Read Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Result",
+                "Actual Total Time": 157.387,
+                "Actual Rows": 20,
+                "Actual Loops": 1,
+                "Shared Hit Blocks": 2912,
+                "Shared Read Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Sort",
+                    "Actual Total Time": 7.375,
+                    "Actual Rows": 20,
+                    "Actual Loops": 1,
+                    "Sort Method": "quicksort",
+                    "Sort Space Used": 36,
+                    "Shared Hit Blocks": 2799,
+                    "Shared Read Blocks": 0,
+                    "Plans": [
+                      {
+                        "Node Type": "Result",
+                        "Actual Total Time": 7.329,
+                        "Actual Rows": 21,
+                        "Actual Loops": 1,
+                        "Shared Hit Blocks": 2799,
+                        "Shared Read Blocks": 0,
+                        "Plans": [
+                          {
+                            "Node Type": "Seq Scan",
+                            "Relation Name": "documents",
+                            "Actual Total Time": 5.938,
+                            "Actual Rows": 21,
+                            "Actual Loops": 1,
+                            "Shared Hit Blocks": 2568,
+                            "Shared Read Blocks": 0
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "category": "relations",
+          "cursor_ms": 2.011,
+          "execution_ms": 0.649,
+          "planning_ms": 0.776,
+          "plan": {
+            "Node Type": "Nested Loop",
+            "Actual Total Time": 0.608,
+            "Actual Rows": 55,
+            "Actual Loops": 1,
+            "Shared Hit Blocks": 617,
+            "Shared Read Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Nested Loop",
+                "Actual Total Time": 0.483,
+                "Actual Rows": 55,
+                "Actual Loops": 1,
+                "Shared Hit Blocks": 452,
+                "Shared Read Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Index Scan",
+                    "Index Name": "pk_documents",
+                    "Relation Name": "documents",
+                    "Actual Total Time": 0.089,
+                    "Actual Rows": 20,
+                    "Actual Loops": 1,
+                    "Shared Hit Blocks": 30,
+                    "Shared Read Blocks": 0
+                  },
+                  {
+                    "Node Type": "Index Scan",
+                    "Index Name": "ix_document_tags_document_id",
+                    "Relation Name": "document_tags",
+                    "Actual Total Time": 0.019,
+                    "Actual Rows": 3,
+                    "Actual Loops": 20,
+                    "Shared Hit Blocks": 422,
+                    "Shared Read Blocks": 0,
+                    "Plans": [
+                      {
+                        "Node Type": "Index Scan",
+                        "Index Name": "pk_documents",
+                        "Relation Name": "documents",
+                        "Actual Total Time": 0.002,
+                        "Actual Rows": 1,
+                        "Actual Loops": 55,
+                        "Shared Hit Blocks": 165,
+                        "Shared Read Blocks": 0
+                      },
+                      {
+                        "Node Type": "Index Scan",
+                        "Index Name": "pk_tags",
+                        "Relation Name": "tags",
+                        "Actual Total Time": 0.002,
+                        "Actual Rows": 1,
+                        "Actual Loops": 55,
+                        "Shared Hit Blocks": 165,
+                        "Shared Read Blocks": 0
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "Node Type": "Index Scan",
+                "Index Name": "pk_tags",
+                "Relation Name": "tags",
+                "Actual Total Time": 0.002,
+                "Actual Rows": 1,
+                "Actual Loops": 55,
+                "Shared Hit Blocks": 165,
+                "Shared Read Blocks": 0
+              }
+            ]
+          }
+        },
+        {
+          "category": "relations",
+          "cursor_ms": 0.587,
+          "execution_ms": 0.041,
+          "planning_ms": 0.086,
+          "plan": {
+            "Node Type": "Result",
+            "Actual Total Time": 0.027,
+            "Actual Rows": 9,
+            "Actual Loops": 1,
+            "Shared Hit Blocks": 1,
+            "Shared Read Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Seq Scan",
+                "Relation Name": "correspondents",
+                "Actual Total Time": 0.023,
+                "Actual Rows": 9,
+                "Actual Loops": 1,
+                "Shared Hit Blocks": 1,
+                "Shared Read Blocks": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "query": "paperminddiagnoseohnetreffer",
+      "items": 0,
+      "total": 0,
+      "service_ms": 16.992,
+      "queries": [
+        {
+          "category": "count",
+          "cursor_ms": 6.574,
+          "execution_ms": 5.87,
+          "planning_ms": 0.253,
+          "plan": {
+            "Node Type": "Aggregate",
+            "Actual Total Time": 5.844,
+            "Actual Rows": 1,
+            "Actual Loops": 1,
+            "Shared Hit Blocks": 2568,
+            "Shared Read Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Result",
+                "Actual Total Time": 5.84,
+                "Actual Rows": 0,
+                "Actual Loops": 1,
+                "Shared Hit Blocks": 2568,
+                "Shared Read Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Seq Scan",
+                    "Relation Name": "documents",
+                    "Actual Total Time": 5.833,
+                    "Actual Rows": 0,
+                    "Actual Loops": 1,
+                    "Shared Hit Blocks": 2568,
+                    "Shared Read Blocks": 0
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "category": "search_with_snippet",
+          "cursor_ms": 7.067,
+          "execution_ms": 5.942,
+          "planning_ms": 0.302,
+          "plan": {
+            "Node Type": "Limit",
+            "Actual Total Time": 5.903,
+            "Actual Rows": 0,
+            "Actual Loops": 1,
+            "Shared Hit Blocks": 2568,
+            "Shared Read Blocks": 0,
+            "Plans": [
+              {
+                "Node Type": "Result",
+                "Actual Total Time": 5.902,
+                "Actual Rows": 0,
+                "Actual Loops": 1,
+                "Shared Hit Blocks": 2568,
+                "Shared Read Blocks": 0,
+                "Plans": [
+                  {
+                    "Node Type": "Sort",
+                    "Actual Total Time": 5.901,
+                    "Actual Rows": 0,
+                    "Actual Loops": 1,
+                    "Sort Method": "quicksort",
+                    "Sort Space Used": 25,
+                    "Shared Hit Blocks": 2568,
+                    "Shared Read Blocks": 0,
+                    "Plans": [
+                      {
+                        "Node Type": "Result",
+                        "Actual Total Time": 5.895,
+                        "Actual Rows": 0,
+                        "Actual Loops": 1,
+                        "Shared Hit Blocks": 2568,
+                        "Shared Read Blocks": 0,
+                        "Plans": [
+                          {
+                            "Node Type": "Seq Scan",
+                            "Relation Name": "documents",
+                            "Actual Total Time": 5.889,
+                            "Actual Rows": 0,
+                            "Actual Loops": 1,
+                            "Shared Hit Blocks": 2568,
+                            "Shared Read Blocks": 0
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "production_result": {
+    "status": "success",
+    "head": "01d1c53ba38f68857674238ef7643534987f3018",
+    "schema": "113_drop_note_favorite",
+    "encrypted_backup_verified": true,
+    "backup_bytes": 1224151840,
+    "tls_ca_preserved": true,
+    "os_go_packages_match_approved": true,
+    "python_versions_match_checked_images": {
+      "backend": 50,
+      "worker": 41,
+      "ai": 24
+    },
+    "runtime_checks": {
+      "production_security": "ok",
+      "anonymous_notes_status": 401,
+      "isolated_pdf": "ok",
+      "native_ocr": "ok",
+      "local_piper_frames": 26184,
+      "runtime_uids": "verified",
+      "effective_capabilities": "none",
+      "https_verified_hostname": "papermind",
+      "https_status": 200,
+      "static_asset_encoding": "gzip",
+      "entry_transfer_bytes": 48621,
+      "proxy_anonymous_notes_status": 401
+    },
+    "performance": {
+      "started_at": "2026-10-12T14:54:03.097671+00:00",
+      "finished_at": "2026-10-12T14:56:22.426543+00:00",
+      "phases": {
+        "normal": {
+          "mode": "normal",
+          "concurrency": 1,
+          "max_requests_per_second": 2,
+          "samples_per_case": 20,
+          "dataset": {
+            "notes": 23,
+            "documents": 522,
+            "auth": "existing_session"
+          },
+          "routes": [
+            {
+              "label": "notes_list",
+              "requests": 20,
+              "errors": 0,
+              "content_encodings": [
+                "gzip"
+              ],
+              "status_counts": {
+                "200": 20
+              },
+              "warmup_ms": [
+                48.736,
+                37.845
+              ],
+              "bytes_median": 4893.0,
+              "p50_ms": 37.335,
+              "p95_ms": 44.344,
+              "max_ms": 49.946,
+              "ttfb_p50_ms": 37.187
+            },
+            {
+              "label": "documents_list",
+              "requests": 20,
+              "errors": 0,
+              "content_encodings": [
+                "gzip"
+              ],
+              "status_counts": {
+                "200": 20
+              },
+              "warmup_ms": [
+                66.97,
+                47.964
+              ],
+              "bytes_median": 6274.0,
+              "p50_ms": 34.316,
+              "p95_ms": 55.141,
+              "max_ms": 59.509,
+              "ttfb_p50_ms": 34.194
+            },
+            {
+              "label": "documents_search",
+              "requests": 20,
+              "errors": 0,
+              "content_encodings": [
+                "gzip"
+              ],
+              "status_counts": {
+                "200": 20
+              },
+              "warmup_ms": [
+                167.271,
+                48.874
+              ],
+              "bytes_median": 8773.0,
+              "p50_ms": 47.215,
+              "p95_ms": 66.177,
+              "max_ms": 67.735,
+              "ttfb_p50_ms": 47.088
+            },
+            {
+              "label": "notes_search",
+              "requests": 20,
+              "errors": 0,
+              "content_encodings": [
+                "gzip"
+              ],
+              "status_counts": {
+                "200": 20
+              },
+              "warmup_ms": [
+                78.245,
+                65.676
+              ],
+              "bytes_median": 4156.0,
+              "p50_ms": 46.407,
+              "p95_ms": 65.715,
+              "max_ms": 76.858,
+              "ttfb_p50_ms": 46.291
+            },
+            {
+              "label": "import_inbox",
+              "requests": 20,
+              "errors": 0,
+              "content_encodings": [
+                "identity"
+              ],
+              "status_counts": {
+                "200": 20
+              },
+              "warmup_ms": [
+                28.482,
+                32.604
+              ],
+              "bytes_median": 283.0,
+              "p50_ms": 27.995,
+              "p95_ms": 42.69,
+              "max_ms": 74.525,
+              "ttfb_p50_ms": 27.913
+            },
+            {
+              "label": "pdf_thumbnail",
+              "requests": 20,
+              "errors": 0,
+              "content_encodings": [
+                "identity"
+              ],
+              "status_counts": {
+                "200": 20
+              },
+              "warmup_ms": [
+                28.594,
+                22.691
+              ],
+              "bytes_median": 29261.0,
+              "p50_ms": 24.896,
+              "p95_ms": 33.792,
+              "max_ms": 49.174,
+              "ttfb_p50_ms": 24.766
+            },
+            {
+              "label": "pdf_initial_range",
+              "requests": 20,
+              "errors": 0,
+              "content_encodings": [
+                "identity"
+              ],
+              "status_counts": {
+                "206": 20
+              },
+              "warmup_ms": [
+                34.758,
+                33.018
+              ],
+              "bytes_median": 65536.0,
+              "p50_ms": 23.251,
+              "p95_ms": 56.294,
+              "max_ms": 180.811,
+              "ttfb_p50_ms": 23.132
+            }
+          ],
+          "elapsed_seconds": 76.53,
+          "database_global_delta": {
+            "xact_commit": 925,
+            "xact_rollback": 909,
+            "blks_read": 417,
+            "blks_hit": 196974,
+            "tup_returned": 279225,
+            "tup_fetched": 212075,
+            "deadlocks": 0
+          },
+          "limits": [
+            "Pi-internal HTTP through Caddy/Nginx/backend; excludes WLAN, TLS and browser rendering",
+            "Global database deltas include background traffic; 20 samples per route",
+            "gzip accepted; bytes are wire bytes; successful warmed GETs; response bodies, IDs and tokens are not reported"
+          ]
+        },
+        "limited_load": {
+          "mode": "limited_load",
+          "concurrency": 2,
+          "max_requests_per_second": 4,
+          "samples_per_case": 20,
+          "dataset": {
+            "notes": 23,
+            "documents": 522,
+            "auth": "existing_session"
+          },
+          "routes": [
+            {
+              "label": "notes_list",
+              "requests": 20,
+              "errors": 0,
+              "content_encodings": [
+                "gzip"
+              ],
+              "status_counts": {
+                "200": 20
+              },
+              "warmup_ms": [
+                35.321,
+                30.537
+              ],
+              "bytes_median": 4893.0,
+              "p50_ms": 39.038,
+              "p95_ms": 46.299,
+              "max_ms": 47.181,
+              "ttfb_p50_ms": 38.809
+            },
+            {
+              "label": "documents_list",
+              "requests": 20,
+              "errors": 0,
+              "content_encodings": [
+                "gzip"
+              ],
+              "status_counts": {
+                "200": 20
+              },
+              "warmup_ms": [
+                49.405,
+                50.329
+              ],
+              "bytes_median": 6274.0,
+              "p50_ms": 35.146,
+              "p95_ms": 53.346,
+              "max_ms": 56.942,
+              "ttfb_p50_ms": 35.024
+            },
+            {
+              "label": "documents_search",
+              "requests": 20,
+              "errors": 0,
+              "content_encodings": [
+                "gzip"
+              ],
+              "status_counts": {
+                "200": 20
+              },
+              "warmup_ms": [
+                49.294,
+                49.157
+              ],
+              "bytes_median": 8773.0,
+              "p50_ms": 65.857,
+              "p95_ms": 72.311,
+              "max_ms": 73.073,
+              "ttfb_p50_ms": 65.694
+            },
+            {
+              "label": "notes_search",
+              "requests": 20,
+              "errors": 0,
+              "content_encodings": [
+                "gzip"
+              ],
+              "status_counts": {
+                "200": 20
+              },
+              "warmup_ms": [
+                68.89,
+                101.679
+              ],
+              "bytes_median": 4156.0,
+              "p50_ms": 45.87,
+              "p95_ms": 53.582,
+              "max_ms": 59.449,
+              "ttfb_p50_ms": 45.747
+            },
+            {
+              "label": "import_inbox",
+              "requests": 20,
+              "errors": 0,
+              "content_encodings": [
+                "identity"
+              ],
+              "status_counts": {
+                "200": 20
+              },
+              "warmup_ms": [
+                35.93,
+                41.882
+              ],
+              "bytes_median": 283.0,
+              "p50_ms": 28.534,
+              "p95_ms": 44.251,
+              "max_ms": 53.431,
+              "ttfb_p50_ms": 28.452
+            },
+            {
+              "label": "pdf_thumbnail",
+              "requests": 20,
+              "errors": 0,
+              "content_encodings": [
+                "identity"
+              ],
+              "status_counts": {
+                "200": 20
+              },
+              "warmup_ms": [
+                26.25,
+                23.098
+              ],
+              "bytes_median": 29261.0,
+              "p50_ms": 23.235,
+              "p95_ms": 36.304,
+              "max_ms": 46.469,
+              "ttfb_p50_ms": 23.131
+            },
+            {
+              "label": "pdf_initial_range",
+              "requests": 20,
+              "errors": 0,
+              "content_encodings": [
+                "identity"
+              ],
+              "status_counts": {
+                "206": 20
+              },
+              "warmup_ms": [
+                24.049,
+                23.474
+              ],
+              "bytes_median": 65536.0,
+              "p50_ms": 33.426,
+              "p95_ms": 38.645,
+              "max_ms": 65.054,
+              "ttfb_p50_ms": 33.268
+            }
+          ],
+          "elapsed_seconds": 38.28,
+          "database_global_delta": {
+            "xact_commit": 535,
+            "xact_rollback": 528,
+            "blks_read": 0,
+            "blks_hit": 190951,
+            "tup_returned": 272207,
+            "tup_fetched": 209536,
+            "deadlocks": 0
+          },
+          "limits": [
+            "Pi-internal HTTP through Caddy/Nginx/backend; excludes WLAN, TLS and browser rendering",
+            "Global database deltas include background traffic; 20 samples per route",
+            "gzip accepted; bytes are wire bytes; successful warmed GETs; response bodies, IDs and tokens are not reported"
+          ]
+        }
+      },
+      "resources": {
+        "baseline": {
+          "samples": 4,
+          "cpu_mean_pct": 2.1,
+          "cpu_max_pct": 2.4,
+          "available_memory_min_mib": 5111.6,
+          "temperature_max_c": 59.5,
+          "iowait_max_pct": 0
+        },
+        "normal": {
+          "samples": 20,
+          "cpu_mean_pct": 7.16,
+          "cpu_max_pct": 15.4,
+          "available_memory_min_mib": 5048.1,
+          "temperature_max_c": 57.85,
+          "iowait_max_pct": 0.06
+        },
+        "limited_load": {
+          "samples": 11,
+          "cpu_mean_pct": 9.96,
+          "cpu_max_pct": 16.16,
+          "available_memory_min_mib": 5067.9,
+          "temperature_max_c": 58.4,
+          "iowait_max_pct": 0.0
+        }
+      },
+      "search_comparison": {
+        "normal": {
+          "before_p50_ms": 148.861,
+          "after_p50_ms": 47.215,
+          "before_p95_ms": 162.993,
+          "after_p95_ms": 66.177,
+          "p50_reduction_pct": 68.3,
+          "speedup": 3.15,
+          "warmup_ms": [
+            167.271,
+            48.874
+          ]
+        },
+        "limited_load": {
+          "before_p50_ms": 148.437,
+          "after_p50_ms": 65.857,
+          "before_p95_ms": 157.458,
+          "after_p95_ms": 72.311,
+          "p50_reduction_pct": 55.6,
+          "speedup": 2.25,
+          "warmup_ms": [
+            49.294,
+            49.157
+          ]
+        }
+      },
+      "limitations": [
+        "Pi-internal warmed GETs; 20 samples per route and phase; excludes WLAN/browser rendering",
+        "First cold search 167.271 ms; cache TTL 120 seconds",
+        "Document count 522 in both runs; active note count changed from 24 to 23",
+        "Sequential endpoint tests, not mixed multi-user traffic or a long-term p95 guarantee"
+      ]
+    },
+    "final_services": "all_running_and_healthy_where_healthcheck_defined",
+    "scanner": {
+      "poller_active": true,
+      "canon_detected": true,
+      "usb_awake": true
+    }
+  },
+  "host_result": {
+    "status": "awaiting_effective_root_helper_installation",
+    "packages_changed": 0,
+    "root_helper_sha256": "729b298d38d1bc68a4a6e67ee9956e17cf9f140abb9c890e99475845e88727c8",
+    "last_preparation_error": "sudo_password_required",
+    "selected_security_packages": 103,
+    "unpatched_fixable_priority_source_advisories": 176
+  },
+  "limitations": [
+    "Package-version matching; not an exploit/reachability analysis",
+    "Remaining unknown/not-fixed/wont-fix advisories are not discarded",
+    "No Pi reboot authorized"
+  ],
+  "production_package_checks": {
+    "backend": {
+      "packages": 277,
+      "package_matches": 577,
+      "unique_advisories": 290,
+      "fix_state_counts": {
+        "not-fixed": 214,
+        "wont-fix": 363
+      },
+      "fixable_priority_matches": 0,
+      "fixable_priority_source_advisories": 0
+    },
+    "worker": {
+      "packages": 343,
+      "package_matches": 778,
+      "unique_advisories": 367,
+      "fix_state_counts": {
+        "not-fixed": 239,
+        "wont-fix": 539
+      },
+      "fixable_priority_matches": 0,
+      "fixable_priority_source_advisories": 0
+    },
+    "ai": {
+      "packages": 87,
+      "package_matches": 159,
+      "unique_advisories": 67,
+      "fix_state_counts": {
+        "wont-fix": 112,
+        "not-fixed": 47
+      },
+      "fixable_priority_matches": 0,
+      "fixable_priority_source_advisories": 0
+    },
+    "frontend": {
+      "packages": 71,
+      "package_matches": 5,
+      "unique_advisories": 3,
+      "fix_state_counts": {
+        "unknown": 5
+      },
+      "fixable_priority_matches": 0,
+      "fixable_priority_source_advisories": 0
+    },
+    "db": {
+      "packages": 144,
+      "package_matches": 406,
+      "unique_advisories": 138,
+      "fix_state_counts": {
+        "not-fixed": 216,
+        "wont-fix": 190
+      },
+      "fixable_priority_matches": 0,
+      "fixable_priority_source_advisories": 0
+    },
+    "caddy": {
+      "packages": 32,
+      "package_matches": 4,
+      "unique_advisories": 2,
+      "fix_state_counts": {
+        "unknown": 4
+      },
+      "fixable_priority_matches": 0,
+      "fixable_priority_source_advisories": 0
+    },
+    "caddy-go": {
+      "packages": 161,
+      "package_matches": 1,
+      "unique_advisories": 1,
+      "fix_state_counts": {
+        "unknown": 1
+      },
+      "fixable_priority_matches": 0,
+      "fixable_priority_source_advisories": 0
+    }
+  }
+}

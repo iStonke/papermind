@@ -31,8 +31,22 @@ im Mac-Benutzerkontext aus.
   Keine freien Parameter, Dokumentänderungen, Updates oder Neustarts.
 - `scanner_status` liest ausschließlich Dienststatus, feste systemd-Definitionen,
   Canon-USB-Energiezustand, SANE-Geräteliste und begrenzte Scanner-Logs aus.
+- Der Umsetzungsauftrag für den Sicherheitsrelease vom 12. Oktober umfasst
+  `security_patch_inspect`: feste lesende SQL-Planmessungen auf Stand `acc22ca`
+  und UID/GID/Modus bestehender Mounts; keine Inhalte, IDs, Geheimnisse oder
+  Paket-/Dienständerungen und keine freien Parameter.
 - `scanner_calibration_test` sichert das Scan-Skript und aktiviert darin
   reversibel `SCAN_CALIBRATE=Never`; ein Dienstneustart ist nicht erforderlich.
+- Der beauftragte Sicherheitsrelease `01d1c53` ist fest an Archiv-SHA
+  `1fd05022e17d55df664de78c80c2e0c9a61aa32f0c2ab7d4751f53450176ec30`,
+  Basis `acc22ca` und offline geprüfte Pakete gebunden. Zusätzliche feste Aktionen:
+  `security_patch_prepare`, `security_patch_rollout`, `security_patch_status`,
+  `security_patch_inventory`, `security_patch_verify`, `security_patch_measure`,
+  `security_patch_measure_status`, `security_patch_live_inventory`,
+  `security_patch_host_plan`, `security_patch_host_apply`, `security_patch_host_status`.
+  Sicherung, Schreibsperre, reversible Eigentümermigration, fester Git-Abgleich
+  und Image-Rückfall. Separate Host-Patches ohne Entfernung, Kernel-/Docker-/
+  systemd-/SSH-Wechsel oder Neustart; keine freien Parameter oder `.env`-Änderung.
 - `scanner_calibration_restore` stellt das Scan-Skript aus dieser Sicherung
   wieder her.
 - `scanner_timing_test` sichert das Scan-Skript und überträgt ausschließlich die
@@ -75,3 +89,10 @@ Quellen; nur `docker-compose.prod.yml` verwendet den statischen nginx-Build.
   macOS löst `localhost` zuerst nach IPv6 `::1` auf, wo parallele Dev-Server binden
   und den eigenen Server verdecken können.
 - Backend, DB, AI und Worker laufen in Docker und bleiben stehen.
+
+Host-Sicherheitsupdates dieses Releases verwenden nach manueller Einrichtung
+den root-eigenen Helfer `/usr/local/libexec/papermind-security-20261012`.
+Sudoers pinnt dessen SHA-256; nur `update`, `plan`, `download`, `verify`,
+`install` sind zulässig. Keine Passworteingabe über die Bridge. Anleitung:
+`docs/host-security-setup-2026-10-12.md`. Reine APT-Vorbereitung darf während
+der Rollout-Sicherung stattfinden; Installation benötigt den gesunden Zielstand.
