@@ -1041,8 +1041,8 @@ textarea { display:block; width:100%; resize:none; min-height:22.1px; max-height
   border-radius: 0;
   background: transparent;
   transition:
-    background-color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
-    box-shadow var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+    background-color var(--pm-duration-slow, 340ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    box-shadow var(--pm-duration-slow, 340ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .notes-ws__item:last-child {
@@ -1338,6 +1338,7 @@ textarea { display:block; width:100%; resize:none; min-height:22.1px; max-height
 
 <style scoped>
 .thoughts-selection-box { position:absolute; z-index:4; pointer-events:none; border:1px solid var(--pm-accent,#26736b); background:color-mix(in srgb,var(--pm-accent,#26736b) 12%,transparent); border-radius:3px; }
+.thoughts-card { transition: border-color var(--pm-duration-slow, 340ms) var(--pm-easing, ease), box-shadow var(--pm-duration-slow, 340ms) var(--pm-easing, ease); }
 .thoughts-card.is-selected { box-shadow:0 0 0 2px var(--pm-accent,#26736b),0 2px 8px #0001; }
 .thoughts-toolbar>.thoughts-delete-selected { color:inherit; }
 .thoughts-toolbar>.thoughts-delete-selected:hover:not(:disabled) { background:var(--pm-list-hover); }

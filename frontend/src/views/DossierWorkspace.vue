@@ -2463,7 +2463,7 @@ onBeforeUnmount(() => {
 .dossier-nav__count { margin-left: auto; font-size: .7rem; }
 .dossier-sidebar__search :deep(.v-field) { color: var(--pm-sidebar-text); background: color-mix(in srgb, var(--pm-sidebar-text) 6%, transparent); }
 .dossier-sidebar__list { flex: 1; min-height: 0; overflow-y: auto; padding: 5px 10px 16px; }
-.dossier-sidebar__entry { display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px; border: 0; border-radius: 10px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.dossier-sidebar__entry { display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px; border: 0; border-radius: 10px; background: transparent; color: inherit; text-align: left; cursor: pointer; transition: background-color var(--pm-duration-slow, 340ms) var(--pm-easing, ease); }
 .dossier-sidebar__entry:hover { background: var(--pm-sidebar-hover); }
 .dossier-sidebar__entry--active { background: color-mix(in srgb, var(--pm-sidebar-accent) 13%, transparent); }
 .dossier-sidebar__entry-icon { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border-radius: 8px; background: color-mix(in srgb, var(--dossier-color) 20%, transparent); color: var(--dossier-color); }
@@ -2685,7 +2685,7 @@ onBeforeUnmount(() => {
 }
 
 /* Elementkarten – Typunterschied über Material und Anatomie, nicht Farbe */
-:deep(.dsr-card) { box-sizing: border-box; border: 1px solid var(--dsr-border); border-radius: 10px; background: var(--dsr-card); transition: border-color var(--pm-duration-fast) var(--pm-easing), box-shadow var(--pm-duration-fast) var(--pm-easing), opacity var(--pm-duration-fast) var(--pm-easing); }
+:deep(.dsr-card) { box-sizing: border-box; border: 1px solid var(--dsr-border); border-radius: 10px; background: var(--dsr-card); transition: border-color var(--pm-duration-slow, 340ms) var(--pm-easing), box-shadow var(--pm-duration-slow, 340ms) var(--pm-easing), opacity var(--pm-duration-fast) var(--pm-easing); }
 :deep(.dsr-card--dim) { opacity: .32; }
 :deep(.dsr-card--selected) { border-color: var(--pm-accent); box-shadow: 0 0 0 1px var(--pm-accent), 0 10px 26px rgba(27, 43, 48, .14); background: var(--dsr-card); }
 :deep(.dsr-card--document.dsr-card--selected), :deep(.dsr-card--image.dsr-card--selected) { background: var(--dsr-card); box-shadow: 0 0 0 1px var(--pm-accent), 0 10px 26px rgba(27, 43, 48, .14); }
@@ -2847,6 +2847,8 @@ onBeforeUnmount(() => {
 .dossier-connection-choice { display: grid; grid-template-columns: 44px minmax(0, 1fr) 22px; align-items: center; gap: 11px; width: 100%; min-height: 62px; padding: 7px 10px; border: 1px solid var(--dsr-border); border-radius: 10px; background: var(--dsr-card); color: var(--pm-text); font: inherit; text-align: left; cursor: pointer; transition: border-color var(--pm-duration-fast) var(--pm-easing), background var(--pm-duration-fast) var(--pm-easing), box-shadow var(--pm-duration-fast) var(--pm-easing); }
 .dossier-connection-choice:hover { border-color: color-mix(in srgb, var(--pm-text) 24%, var(--dsr-border)); }
 .dossier-connection-choice--selected { border-color: color-mix(in srgb, var(--pm-accent) 62%, var(--dsr-border)); background: color-mix(in srgb, var(--pm-accent) 8%, var(--dsr-card)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--pm-accent) 18%, transparent); }
+.dossier-picker-row,
+.dossier-connection-choice { transition: background-color var(--pm-duration-slow, 340ms) var(--pm-easing), border-color var(--pm-duration-slow, 340ms) var(--pm-easing), box-shadow var(--pm-duration-slow, 340ms) var(--pm-easing); }
 .dossier-connection-choice img { width: 38px; height: 50px; object-fit: cover; border: 1px solid var(--pm-thumb-line); border-radius: 4px; background: var(--pm-thumb-bg); }
 .dossier-connection-choice > span:nth-child(2) { min-width: 0; display: grid; gap: 3px; }
 .dossier-connection-choice strong, .dossier-connection-choice small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

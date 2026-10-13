@@ -213,7 +213,8 @@ test('compact notes and document cards share one list language and management ca
   }
   // … werden von Dokumentkarten (B) und Notizzeilen (A) gleichermaßen gelesen.
   for (const token of ['--pm-list-title', '--pm-list-date', '--pm-list-selected', '--pm-list-accent']) {
-    assert.match(documentsWorkspaceSource, new RegExp(`var\\(${token}\\)`));
+    const documentToken = token === '--pm-list-selected' ? '--pm-list-card-selected' : token;
+    assert.match(documentsWorkspaceSource, new RegExp(`var\\(${documentToken}\\)`));
     assert.match(workspaceSource, new RegExp(`var\\(${token}\\)`));
   }
   assert.match(gridSource, /\.nmg-card \{[\s\S]*?background: var\(--pm-content-surface/);

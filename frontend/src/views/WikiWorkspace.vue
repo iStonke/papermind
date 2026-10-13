@@ -1253,7 +1253,7 @@ onBeforeUnmount(() => {
   color: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background-color 0.14s ease, border-color 0.14s ease;
+  transition: background-color var(--pm-duration-slow, 340ms) var(--pm-easing, ease), border-color var(--pm-duration-slow, 340ms) var(--pm-easing, ease);
 }
 
 .wiki-home-link:hover {
@@ -1322,7 +1322,7 @@ onBeforeUnmount(() => {
   color: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background-color 0.14s ease, border-color 0.14s ease;
+  transition: background-color var(--pm-duration-slow, 340ms) var(--pm-easing, ease), border-color var(--pm-duration-slow, 340ms) var(--pm-easing, ease);
 }
 
 .wiki-knav:hover {

@@ -251,7 +251,7 @@ function docCorr(doc) {
   background: transparent;
   text-align: left;
   cursor: pointer;
-  transition: background-color 0.14s ease, border-color 0.14s ease;
+  transition: background-color var(--pm-duration-slow, 340ms) var(--pm-easing, ease), border-color var(--pm-duration-slow, 340ms) var(--pm-easing, ease);
 }
 
 .doc-timeline__item:hover {

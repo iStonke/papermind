@@ -1833,7 +1833,7 @@ function formatDate(value) {
   line-height: 1.2;
   text-align: left;
   cursor: pointer;
-  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+  transition: color var(--pm-duration-slow, 340ms) var(--pm-easing, ease), border-color var(--pm-duration-slow, 340ms) var(--pm-easing, ease), background-color var(--pm-duration-slow, 340ms) var(--pm-easing, ease), box-shadow var(--pm-duration-slow, 340ms) var(--pm-easing, ease);
 }
 .nmg__tag-cloud-name {
   min-width: 0;
@@ -1853,6 +1853,7 @@ function formatDate(value) {
   text-align: center;
   color: var(--pm-detail-chip-count);
   background: transparent;
+  transition: color var(--pm-duration-slow, 340ms) var(--pm-easing, ease);
 }
 .nmg__tag-cloud-chip:hover,
 .nmg__tag-cloud-chip:focus-visible {
@@ -1948,7 +1949,7 @@ function formatDate(value) {
   font-weight: 600;
   cursor: pointer;
   text-align: left;
-  transition: background 0.16s ease, border-color 0.16s ease;
+  transition: background-color var(--pm-duration-slow, 340ms) var(--pm-easing, ease), border-color var(--pm-duration-slow, 340ms) var(--pm-easing, ease);
 }
 .nmg__coll-chip:hover,
 .nmg__coll-chip:focus-visible {

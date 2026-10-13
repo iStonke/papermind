@@ -1265,7 +1265,7 @@ onBeforeUnmount(() => {
   font-weight: 500;
   line-height: 1.35;
   cursor: pointer;
-  transition: background-color var(--pm-duration-fast) var(--pm-easing), border-color var(--pm-duration-fast) var(--pm-easing), color var(--pm-duration-fast) var(--pm-easing);
+  transition: background-color var(--pm-duration-slow, 340ms) var(--pm-easing), border-color var(--pm-duration-slow, 340ms) var(--pm-easing), color var(--pm-duration-slow, 340ms) var(--pm-easing);
 }
 
 .sidebar-chip:hover {
@@ -1285,6 +1285,7 @@ onBeforeUnmount(() => {
   font-weight: 600;
   color: var(--pm-sidebar-chip-count);
   font-variant-numeric: tabular-nums;
+  transition: color var(--pm-duration-slow, 340ms) var(--pm-easing);
 }
 
 .sidebar-chip--active {
@@ -1355,7 +1356,13 @@ onBeforeUnmount(() => {
   cursor: pointer;
   text-align: left;
   font-size: 0.82rem;
-  transition: background-color var(--pm-duration-fast) var(--pm-easing);
+  transition: background-color var(--pm-duration-slow, 340ms) var(--pm-easing);
+}
+
+.sidebar-rail-flyout__icon,
+.sidebar-rail-flyout__label,
+.sidebar-rail-flyout__count {
+  transition: color var(--pm-duration-slow, 340ms) var(--pm-easing);
 }
 
 .sidebar-rail-flyout__row:hover {

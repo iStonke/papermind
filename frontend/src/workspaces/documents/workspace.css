@@ -2414,7 +2414,8 @@
 .sidebar-foot__actions {
   transition:
     opacity 180ms ease,
-    transform var(--pm-sidebar-rail-duration) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+    transform var(--pm-sidebar-rail-duration) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    color var(--pm-duration-slow, 340ms) var(--pm-easing, ease);
 }
 
 /* ── Eingeklappte Icon-Spalte ──────────────────────────────────────────────── */
@@ -2664,7 +2665,7 @@
 
 .workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item .v-icon {
   transform: none !important;
-  transition: color 0.16s ease, opacity 0.16s ease !important;
+  transition: color var(--pm-duration-slow, 340ms) var(--pm-easing, ease), opacity var(--pm-duration-slow, 340ms) var(--pm-easing, ease) !important;
 }
 
 .workspace--rail:not(.workspace--sidebar-transitioning) .panel-left .sidebar-item:hover .v-icon {
@@ -2782,7 +2783,12 @@
   padding-inline: 10px !important;
   min-height: 34px !important;
   --v-list-item-min-height: 34px;
-  transition: background-color 0.16s ease;
+  transition: background-color var(--pm-duration-slow, 340ms) var(--pm-easing, ease);
+}
+
+.sidebar-item .v-icon,
+.sidebar-item .sidebar-item-count {
+  transition: color var(--pm-duration-slow, 340ms) var(--pm-easing, ease), opacity var(--pm-duration-slow, 340ms) var(--pm-easing, ease);
 }
 
 /* Vorlage 6a: schmaler Icon→Label-Abstand (11px), kein 42px-Icon-Block. */
@@ -3061,8 +3067,8 @@
   margin-bottom: 0;
   cursor: pointer;
   transition:
-    background-color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
-    box-shadow       var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+    background-color var(--pm-duration-slow, 340ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    box-shadow       var(--pm-duration-slow, 340ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .document-row + .document-row {
@@ -3078,7 +3084,7 @@
 
 .document-row--active,
 .document-row--active:hover {
-  background: linear-gradient(var(--pm-list-selected), var(--pm-list-selected)), var(--pm-list-card);
+  background-color: var(--pm-list-card-selected);
   box-shadow: var(--pm-list-card-shadow), inset 0 0 0 2px var(--pm-list-accent);
 }
 

@@ -369,7 +369,7 @@ onBeforeUnmount(() => { generation += 1; controller.abort(); stopSessionReset();
 .doc-groups__group {
   flex: none; min-width: 0; border-radius: 16px;
   background: var(--pm-list-card); box-shadow: var(--pm-list-card-shadow);
-  transition: box-shadow 140ms ease;
+  transition: box-shadow var(--pm-duration-slow, 340ms) var(--pm-easing, ease);
 }
 .doc-groups__group:hover { box-shadow: inset 0 0 0 1px var(--pm-list-hover-ring), 0 3px 8px color-mix(in srgb, var(--pm-text) 5%, transparent); }
 .doc-groups__group--active, .doc-groups__group--active:hover { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--pm-accent) 60%, transparent), 0 3px 8px color-mix(in srgb, var(--pm-text) 5%, transparent); }
@@ -390,6 +390,7 @@ onBeforeUnmount(() => { generation += 1; controller.abort(); stopSessionReset();
   display: grid; place-items: center; width: 54px; height: 54px; border-radius: 15px;
   color: var(--pm-content-surface); background: var(--pm-text);
   font-size: 15px; font-weight: 650; letter-spacing: -0.035em;
+  transition: background-color var(--pm-duration-slow, 340ms) var(--pm-easing, ease), color var(--pm-duration-slow, 340ms) var(--pm-easing, ease);
 }
 .doc-groups__group--active .doc-groups__initials { color: var(--pm-accent-contrast, var(--pm-content-surface)); background: var(--pm-accent); }
 .doc-groups__group--unassigned .doc-groups__initials { color: var(--pm-list-meta); background: var(--pm-list-chip-bg); }
@@ -419,7 +420,7 @@ onBeforeUnmount(() => { generation += 1; controller.abort(); stopSessionReset();
 .doc-groups__documents { margin: 0 12px; padding: 8px 0 10px; }
 .doc-groups__list { margin: 0; padding: 0; list-style: none; }
 .doc-groups__list > li + li { margin-top: 3px; }
-.doc-groups__document { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 82px; padding: 11px 10px; border: 0; border-radius: 10px; background: transparent; color: var(--pm-text); text-align: left; cursor: pointer; transition: background-color 140ms ease; }
+.doc-groups__document { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 82px; padding: 11px 10px; border: 0; border-radius: 10px; background: transparent; color: var(--pm-text); text-align: left; cursor: pointer; transition: background-color var(--pm-duration-slow, 340ms) var(--pm-easing, ease); }
 .doc-groups__document:hover { background: var(--pm-list-hover); }
 .doc-groups__document--active, .doc-groups__document--active:hover { background: var(--pm-list-selected); }
 .doc-groups__thumbnail { display: grid; place-items: center; flex: none; width: 40px; height: 54px; overflow: hidden; border-radius: 6px; color: var(--pm-list-meta); background: var(--pm-list-chip-bg); box-shadow: inset 0 0 0 1px var(--pm-list-card-ring); }
@@ -431,7 +432,7 @@ onBeforeUnmount(() => { generation += 1; controller.abort(); stopSessionReset();
 .doc-groups__tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .doc-groups__aside { flex: none; display: flex; align-items: flex-end; flex-direction: column; gap: 12px; }
 .doc-groups__date { font-size: 11px; color: var(--pm-list-date); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.doc-groups__open { color: var(--pm-list-meta); opacity: 0.45; }
+.doc-groups__open { color: var(--pm-list-meta); opacity: 0.45; transition: color var(--pm-duration-slow, 340ms) var(--pm-easing, ease), opacity var(--pm-duration-slow, 340ms) var(--pm-easing, ease); }
 .doc-groups__document:hover .doc-groups__open, .doc-groups__document--active .doc-groups__open { color: var(--pm-accent); opacity: 1; }
 .doc-groups__unread { display: inline-block; width: 6px; height: 6px; margin-left: 5px; border-radius: 50%; background: var(--pm-accent); vertical-align: middle; }
 .doc-groups__loading, .doc-groups__message { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 18px 10px; color: var(--pm-list-meta); font-size: 13px; }
@@ -451,7 +452,7 @@ onBeforeUnmount(() => { generation += 1; controller.abort(); stopSessionReset();
   .doc-groups__content { min-width: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .doc-groups__group, .doc-groups__heading, .doc-groups__document,
+  .doc-groups__group, .doc-groups__heading, .doc-groups__document, .doc-groups__initials, .doc-groups__open,
   .doc-groups__reveal, .doc-groups__chevron :deep(.v-icon) { transition: none; }
 }
 </style>

@@ -2393,8 +2393,8 @@ function formatDate(value) {
   border-radius: 0;
   background: transparent;
   transition:
-    background-color var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
-    box-shadow var(--pm-duration-fast, 140ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
+    background-color var(--pm-duration-slow, 340ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1)),
+    box-shadow var(--pm-duration-slow, 340ms) var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .notes-ws__item:last-child {

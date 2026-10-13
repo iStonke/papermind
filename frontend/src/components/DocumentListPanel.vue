@@ -2075,7 +2075,7 @@ function onListDrop(event) {
 /* ── Selektierter Zustand ─────────────────────────────────────────────── */
 .document-row--selected,
 .document-row--selected:hover {
-  background: linear-gradient(var(--pm-list-selected), var(--pm-list-selected)), var(--pm-list-card);
+  background-color: var(--pm-list-card-selected);
   box-shadow: var(--pm-list-card-shadow), inset 0 0 0 2px var(--pm-list-accent);
 }
 
