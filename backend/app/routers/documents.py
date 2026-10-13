@@ -14,7 +14,6 @@ from app.models.user import User
 from app.schemas.common import ErrorResponse, OkResponse
 from app.schemas.documents import (
     DocumentAttentionFilter,
-    DocumentCalendarResponse,
     DocumentCreateRequest,
     DocumentDetail,
     DocumentFileRole,
@@ -90,6 +89,10 @@ def list_documents(
     limit: int = Query(default=20, ge=1, le=100, description="Page size"),
     offset: int = Query(default=0, ge=0, description="Pagination offset"),
     include_total: bool = Query(default=True, description="Calculate the total number of matching documents"),
+    without_correspondent: bool = Query(default=False, description="Only documents without a correspondent"),
+    include_correspondent_groups: bool = Query(default=False, description="Include correspondent counts for the complete filtered selection"),
+    without_document_type: bool = Query(default=False, description="Only documents without a document type"),
+    include_document_type_groups: bool = Query(default=False, description="Include document type counts for the complete filtered selection"),
     db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
 ) -> DocumentListResponse:
     service = DocumentService(db, user.id)
@@ -115,49 +118,10 @@ def list_documents(
         limit=limit,
         offset=offset,
         include_total=include_total,
-    )
-
-
-@router.get(
-    "/calendar",
-    response_model=DocumentCalendarResponse,
-    summary="Per-day/-month document counts for the calendar view",
-    responses={422: {"model": ErrorResponse}},
-)
-def documents_calendar(
-    year: int = Query(..., ge=1900, le=2200),
-    month: int = Query(..., ge=1, le=12),
-    q: str | None = Query(default=None),
-    search_scope: DocumentSearchScope = Query(default=DocumentSearchScope.all),
-    tag: str | None = Query(default=None),
-    tag_id: uuid.UUID | None = Query(default=None),
-    tag_ids: list[uuid.UUID] = Query(default_factory=list),
-    untagged: bool = Query(default=False),
-    document_type: str | None = Query(default=None),
-    status_filter: DocumentStatus | None = Query(default=None, alias="status"),
-    in_trash: bool = Query(default=False),
-    favorites_only: bool = Query(default=False),
-    without_text: bool = Query(default=False),
-    attention: DocumentAttentionFilter | None = Query(default=None),
-    db: Session = Depends(get_db, scope="function"),
-    user: User = Depends(get_current_user),
-) -> DocumentCalendarResponse:
-    service = DocumentService(db, user.id)
-    effective_tag = str(tag_id) if tag_id is not None else tag
-    return service.calendar_counts(
-        year=year,
-        month=month,
-        q=q,
-        search_scope=search_scope,
-        tag=effective_tag,
-        tag_ids=tag_ids,
-        untagged=untagged,
-        document_type=document_type,
-        status=status_filter,
-        in_trash=in_trash,
-        favorites_only=favorites_only,
-        without_text=without_text,
-        attention=attention,
+        without_correspondent=without_correspondent,
+        include_correspondent_groups=include_correspondent_groups,
+        without_document_type=without_document_type,
+        include_document_type_groups=include_document_type_groups,
     )
 
 

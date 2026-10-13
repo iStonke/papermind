@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import asc, case, desc, func, or_, select
+from sqlalchemy import and_, asc, case, desc, func, or_, select
 from sqlalchemy.orm import Session, load_only, noload, selectinload
 
 from app.core.config import get_settings
@@ -16,10 +16,8 @@ from app.models.document_retention import DocumentRetention
 from app.models.document_tag import document_tags
 from app.models.tag import Tag
 from app.schemas.documents import (
-    CalendarDayCount,
-    CalendarMonthCount,
+    CorrespondentDocumentGroup,
     DocumentAttentionFilter,
-    DocumentCalendarResponse,
     DocumentListResponse,
     DocumentSearchScope,
     DocumentSortField,
@@ -27,6 +25,7 @@ from app.schemas.documents import (
     DocumentStatusListResponse,
     DocumentStatusRead,
     DocumentSummary,
+    DocumentTypeDocumentGroup,
     SortOrder,
 )
 from app.services.document_search import (
@@ -181,7 +180,7 @@ class DocumentQueryService:
             normalized_type = " ".join(str(document_type).split()).strip()
             if not normalized_type:
                 return stmt.where(False)
-            stmt = stmt.where(func.lower(Document.document_type) == normalized_type.lower())
+            stmt = stmt.where(func.lower(func.trim(Document.document_type)) == normalized_type.lower())
         if correspondent_id is not None:
             stmt = stmt.where(Document.correspondent_id == correspondent_id)
         if recent_imports:
@@ -239,80 +238,32 @@ class DocumentQueryService:
             if item.correspondent_id is not None:
                 item.correspondent_name = names.get(item.correspondent_id)
 
-    def calendar_counts(
-        self,
-        *,
-        year: int,
-        month: int,
-        q: str | None = None,
-        tag: str | None = None,
-        tag_ids: list[uuid.UUID] | None = None,
-        untagged: bool = False,
-        status: DocumentStatus | None = None,
-        in_trash: bool = False,
-        favorites_only: bool = False,
-        without_text: bool = False,
-        document_type: str | None = None,
-        correspondent_id: uuid.UUID | None = None,
-        search_scope: DocumentSearchScope = DocumentSearchScope.all,
-        attention: DocumentAttentionFilter | None = None,
-    ) -> DocumentCalendarResponse:
-        """Zählt Dokumente nach Dokumentdatum für die Kalenderansicht.
-
-        Wendet dieselben Filter/Suche wie ``list_documents`` an – nur den
-        Zeitraum steuert der Kalender selbst (kein date_from/date_to von außen).
-        """
-        base = self._apply_filters(
-            self._scope(select(Document.id, Document.document_date)),
-            tag, tag_ids, untagged, status, None, None, recent_imports=False,
-            in_trash=in_trash, favorites_only=favorites_only, without_text=without_text,
-            document_type=document_type, correspondent_id=correspondent_id, attention=attention,
+    def correspondent_groups(self, filtered_stmt) -> list[CorrespondentDocumentGroup]:
+        """Count the complete authorized selection before document pagination."""
+        source = filtered_stmt.with_only_columns(Document.correspondent_id).order_by(None).subquery()
+        join_condition = Correspondent.id == source.c.correspondent_id
+        if self.owner_id is not None:
+            join_condition = and_(join_condition, Correspondent.owner_id == self.owner_id)
+        stmt = (
+            select(source.c.correspondent_id, Correspondent.name, Correspondent.short_name, Correspondent.kind, func.count())
+            .select_from(source)
+            .outerjoin(Correspondent, join_condition)
+            .group_by(source.c.correspondent_id, Correspondent.name, Correspondent.short_name, Correspondent.kind)
         )
-        normalized_query = normalize_search_query(q, max_length=settings.search_query_max_length)
-        if normalized_query:
-            if search_scope == DocumentSearchScope.all:
-                ts_query_expr = build_ts_query_expr(normalized_query, settings.fts_regconfig)
-                base = base.where(Document.search_vector.op("@@")(ts_query_expr))
-            else:
-                scoped_filter = build_scoped_search_filter(normalized_query, search_scope)
-                if scoped_filter is not None:
-                    base = base.where(scoped_filter)
-
-        sub = base.where(Document.document_date.is_not(None)).subquery()
-        doc_date = sub.c.document_date
-        year_expr = func.extract("year", doc_date)
-        month_expr = func.extract("month", doc_date)
-        day_expr = func.extract("day", doc_date)
-
-        available_years = [
-            int(row[0])
-            for row in self.db.execute(
-                select(year_expr).select_from(sub).distinct().order_by(year_expr)
-            ).all()
+        return [
+            CorrespondentDocumentGroup(correspondent_id=correspondent_id, name=name, short_name=short_name, kind=kind, count=count)
+            for correspondent_id, name, short_name, kind, count in self.db.execute(stmt).all()
         ]
 
-        month_map = {
-            int(m): int(c)
-            for m, c in self.db.execute(
-                select(month_expr, func.count()).select_from(sub)
-                .where(year_expr == year).group_by(month_expr)
-            ).all()
-        }
-        months = [CalendarMonthCount(month=m, count=month_map.get(m, 0)) for m in range(1, 13)]
-
-        days = [
-            CalendarDayCount(day=int(d), count=int(c))
-            for d, c in self.db.execute(
-                select(day_expr, func.count()).select_from(sub)
-                .where(year_expr == year, month_expr == month).group_by(day_expr).order_by(day_expr)
-            ).all()
+    def document_type_groups(self, filtered_stmt) -> list[DocumentTypeDocumentGroup]:
+        """Count types over the complete scoped selection, including untyped documents."""
+        source = filtered_stmt.with_only_columns(Document.document_type).order_by(None).subquery()
+        name = func.nullif(func.trim(source.c.document_type), "")
+        stmt = select(func.min(name), func.count()).select_from(source).group_by(func.lower(name))
+        return [
+            DocumentTypeDocumentGroup(document_type=document_type, count=count)
+            for document_type, count in self.db.execute(stmt).all()
         ]
-        month_total = sum(d.count for d in days)
-
-        return DocumentCalendarResponse(
-            year=year, month=month, days=days, months=months,
-            available_years=available_years, month_total=month_total,
-        )
 
     def list_documents(
         self,
@@ -336,6 +287,10 @@ class DocumentQueryService:
         search_scope: DocumentSearchScope = DocumentSearchScope.all,
         attention: DocumentAttentionFilter | None = None,
         correspondent_id: uuid.UUID | None = None,
+        without_correspondent: bool = False,
+        include_correspondent_groups: bool = False,
+        without_document_type: bool = False,
+        include_document_type_groups: bool = False,
     ) -> DocumentListResponse:
         if date_from and date_to and date_from > date_to:
             raise BadRequestError(
@@ -349,6 +304,10 @@ class DocumentQueryService:
             in_trash=in_trash, favorites_only=favorites_only, without_text=without_text,
             document_type=document_type, correspondent_id=correspondent_id, attention=attention,
         )
+        if without_correspondent:
+            filtered_stmt = filtered_stmt.where(Document.correspondent_id.is_(None))
+        if without_document_type:
+            filtered_stmt = filtered_stmt.where(func.coalesce(func.trim(Document.document_type), "") == "")
         ts_query_expr = None
         if normalized_query:
             if search_scope == DocumentSearchScope.all:
@@ -360,7 +319,7 @@ class DocumentQueryService:
                     filtered_stmt = filtered_stmt.where(scoped_filter)
 
         direction = asc if order == SortOrder.asc else desc
-        if sort in (DocumentSortField.document_date, DocumentSortField.doc_date):
+        if sort in (DocumentSortField.document_date, DocumentSortField.doc_date, DocumentSortField.correspondent_date):
             order_expr, secondary_order_expr = direction(Document.document_date).nullslast(), desc(Document.created_at)
         elif sort == DocumentSortField.updated_at:
             order_expr, secondary_order_expr = direction(Document.updated_at), desc(Document.id)
@@ -374,7 +333,13 @@ class DocumentQueryService:
         else:
             order_expr, secondary_order_expr = direction(Document.created_at), desc(Document.id)
 
+        document_order = (order_expr, secondary_order_expr)
+        if sort == DocumentSortField.correspondent_date:
+            document_order = (*document_order, desc(Document.id))
+
         total = None
+        groups = self.correspondent_groups(filtered_stmt) if include_correspondent_groups else None
+        type_groups = self.document_type_groups(filtered_stmt) if include_document_type_groups else None
         if include_total:
             total_source = filtered_stmt.with_only_columns(Document.id).order_by(None).subquery()
             total = self.db.scalar(select(func.count()).select_from(total_source)) or 0
@@ -394,8 +359,8 @@ class DocumentQueryService:
                 ts_query_expr,
                 FTS_HEADLINE_OPTIONS,
             ).label("search_snippet")
-            search_order = (order_expr, secondary_order_expr, desc(rank_expr)) if sort in (
-                DocumentSortField.is_favorite, DocumentSortField.favorite
+            search_order = (*document_order, desc(rank_expr)) if sort in (
+                DocumentSortField.is_favorite, DocumentSortField.favorite, DocumentSortField.correspondent_date
             ) else (desc(rank_expr), order_expr, secondary_order_expr)
             rows = self.db.execute(
                 filtered_stmt.add_columns(rank_expr)
@@ -434,9 +399,10 @@ class DocumentQueryService:
         else:
             rows = self.db.execute(
                 filtered_stmt.options(*self.summary_load_options())
-                .order_by(order_expr, secondary_order_expr).limit(limit).offset(offset)
+                .order_by(*document_order).limit(limit).offset(offset)
             ).scalars().unique().all()
             items = [self._as_summary(document) for document in rows]
 
         self._attach_summary_correspondents(items)
-        return DocumentListResponse(items=items, total=total, limit=limit, offset=offset)
+        return DocumentListResponse(items=items, total=total, limit=limit, offset=offset,
+                                    correspondent_groups=groups, document_type_groups=type_groups)

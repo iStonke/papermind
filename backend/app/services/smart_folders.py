@@ -149,9 +149,23 @@ class SmartFolderService:
         include_total: bool = True,
         q: str | None = None,
         search_scope: DocumentSearchScope = DocumentSearchScope.all,
+        correspondent_id: uuid.UUID | None = None,
+        without_correspondent: bool = False,
+        include_correspondent_groups: bool = False,
+        document_type: str | None = None,
+        without_document_type: bool = False,
+        include_document_type_groups: bool = False,
     ) -> DocumentListResponse:
         folder = self.get_smart_folder_or_404(smart_folder_id)
         filter_expr = self.compiler.compile(folder.query_json)
+        if correspondent_id is not None:
+            filter_expr = and_(filter_expr, Document.correspondent_id == correspondent_id)
+        if without_correspondent:
+            filter_expr = and_(filter_expr, Document.correspondent_id.is_(None))
+        if document_type is not None:
+            filter_expr = and_(filter_expr, func.lower(func.trim(Document.document_type)) == document_type.strip().lower())
+        if without_document_type:
+            filter_expr = and_(filter_expr, func.coalesce(func.trim(Document.document_type), "") == "")
 
         # Freitextsuche innerhalb des Ordners: dieselbe Logik wie die
         # Dokumentliste (FTS für „alles", sonst gezielter Feldfilter) mit dem
@@ -172,6 +186,8 @@ class SmartFolderService:
             offset=offset,
             sort=sort,
             include_total=include_total,
+            include_correspondent_groups=include_correspondent_groups,
+            include_document_type_groups=include_document_type_groups,
         )
 
     def count_documents_for_query(self, query_json: dict) -> int:
@@ -188,10 +204,15 @@ class SmartFolderService:
         offset: int,
         sort: SmartFolderSort,
         include_total: bool = True,
+        include_correspondent_groups: bool = False,
+        include_document_type_groups: bool = False,
     ) -> DocumentListResponse:
         order_exprs = build_smart_folder_sort(sort)
 
         filtered_stmt = self._scope_documents(select(Document).where(filter_expr))
+        query = DocumentService(self.db, self.owner_id).query
+        groups = query.correspondent_groups(filtered_stmt) if include_correspondent_groups else None
+        type_groups = query.document_type_groups(filtered_stmt) if include_document_type_groups else None
         total = None
         if include_total:
             total_source = filtered_stmt.with_only_columns(Document.id).order_by(None).subquery()
@@ -208,5 +229,7 @@ class SmartFolderService:
         items = [DocumentSummary.model_validate(item, from_attributes=True) for item in rows]
         for item, raw in zip(items, rows):
             item.is_duplicate = raw.duplicate_of_doc_id is not None
+        query._attach_summary_correspondents(items)
 
-        return DocumentListResponse(items=items, total=total, limit=limit, offset=offset)
+        return DocumentListResponse(items=items, total=total, limit=limit, offset=offset,
+                                    correspondent_groups=groups, document_type_groups=type_groups)

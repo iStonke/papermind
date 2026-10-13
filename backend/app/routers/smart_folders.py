@@ -129,6 +129,12 @@ def list_smart_folder_documents(
     include_total: bool = Query(default=True),
     q: str | None = Query(default=None),
     search_scope: DocumentSearchScope = Query(default=DocumentSearchScope.all),
+    correspondent_id: uuid.UUID | None = Query(default=None),
+    without_correspondent: bool = Query(default=False),
+    include_correspondent_groups: bool = Query(default=False),
+    document_type: str | None = Query(default=None),
+    without_document_type: bool = Query(default=False),
+    include_document_type_groups: bool = Query(default=False),
     db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user),
 ) -> DocumentListResponse:
     service = SmartFolderService(db, user.id)
@@ -140,4 +146,10 @@ def list_smart_folder_documents(
         include_total=include_total,
         q=q,
         search_scope=search_scope,
+        correspondent_id=correspondent_id,
+        without_correspondent=without_correspondent,
+        include_correspondent_groups=include_correspondent_groups,
+        document_type=document_type,
+        without_document_type=without_document_type,
+        include_document_type_groups=include_document_type_groups,
     )

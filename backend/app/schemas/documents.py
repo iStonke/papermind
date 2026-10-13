@@ -72,6 +72,7 @@ class DocumentDuplicateKind(str, Enum):
 class DocumentSortField(str, Enum):
     created_at = "created_at"
     document_date = "document_date"
+    correspondent_date = "correspondent_date"
     doc_date = "doc_date"
     updated_at = "updated_at"
     name = "name"
@@ -280,11 +281,26 @@ class DocumentDetail(ORMModel):
     jobs: list[JobRead] = Field(default_factory=list)
 
 
+class CorrespondentDocumentGroup(BaseModel):
+    correspondent_id: uuid.UUID | None
+    name: str | None
+    short_name: str | None = None
+    kind: str | None = None
+    count: int
+
+
+class DocumentTypeDocumentGroup(BaseModel):
+    document_type: str | None
+    count: int
+
+
 class DocumentListResponse(BaseModel):
     items: list[DocumentSummary]
     total: int | None
     limit: int
     offset: int
+    correspondent_groups: list[CorrespondentDocumentGroup] | None = None
+    document_type_groups: list[DocumentTypeDocumentGroup] | None = None
 
 
 class DocumentStatusRead(BaseModel):
@@ -298,25 +314,6 @@ class DocumentStatusRead(BaseModel):
 
 class DocumentStatusListResponse(BaseModel):
     items: list[DocumentStatusRead]
-
-
-class CalendarDayCount(BaseModel):
-    day: int
-    count: int
-
-
-class CalendarMonthCount(BaseModel):
-    month: int
-    count: int
-
-
-class DocumentCalendarResponse(BaseModel):
-    year: int
-    month: int
-    days: list[CalendarDayCount] = []          # nur Tage mit Treffern im Monat
-    months: list[CalendarMonthCount] = []      # 12 Monatssummen des Jahres
-    available_years: list[int] = []            # Jahre mit passenden Dokumenten
-    month_total: int = 0
 
 
 class DocumentMetadataSuggestion(BaseModel):

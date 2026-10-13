@@ -1409,15 +1409,20 @@ class DocumentService:
         correspondent_id: uuid.UUID | None = None,
         search_scope: DocumentSearchScope = DocumentSearchScope.all,
         attention: DocumentAttentionFilter | None = None,
+        without_correspondent: bool = False,
+        include_correspondent_groups: bool = False,
+        without_document_type: bool = False,
+        include_document_type_groups: bool = False,
     ) -> DocumentListResponse:
         return self.query.list_documents(
             q, tag, tag_ids, untagged, status, date_from, date_to, recent_imports, sort, order, limit, offset,
             include_total, in_trash, favorites_only, without_text, document_type, search_scope, attention,
             correspondent_id=correspondent_id,
+            without_correspondent=without_correspondent,
+            include_correspondent_groups=include_correspondent_groups,
+            without_document_type=without_document_type,
+            include_document_type_groups=include_document_type_groups,
         )
-
-    def calendar_counts(self, **kwargs):
-        return self.query.calendar_counts(**kwargs)
 
     def get_document_statuses(self, document_ids: list[uuid.UUID]) -> DocumentStatusListResponse:
         return self.query.statuses(document_ids)

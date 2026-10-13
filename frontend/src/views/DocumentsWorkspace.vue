@@ -745,16 +745,8 @@
             {{ searchHintMessages[0] }}
           </div>
 
-          <DocumentCalendar
-            v-if="effectiveDocViewMode === 'calendar'"
-            key="calendar"
-            class="panel-middle__view"
-            :filter-query="calendarFilterQuery"
-            @pick-day="onCalendarPickDay"
-          />
-
           <DocumentTimeline
-            v-else-if="effectiveDocViewMode === 'timeline'"
+            v-if="effectiveDocViewMode === 'timeline'"
             key="timeline"
             class="panel-middle__view"
             :documents="documents"
@@ -766,6 +758,27 @@
             @select="selectDocument"
             @load-more="loadMoreDocuments"
             @toggle-favorite="toggleDocumentFavorite"
+          />
+
+          <DocumentGroupedList
+            v-else-if="['correspondents', 'document_types'].includes(effectiveDocViewMode)"
+            :key="effectiveDocViewMode"
+            :grouping="effectiveDocViewMode"
+            class="panel-middle__view"
+            :query-path="groupedDocumentQueryPath"
+            :refresh-key="groupedDocumentRefreshKey"
+            :documents="documents"
+            :selected-id="selectedDocumentId"
+            :selected-document="selectedDocumentDetail"
+            :show-suffix="showPdfSuffix"
+            :current-date-range="currentDateRange"
+            :show-type-filter="showDocumentTypeFilterDrawer"
+            :type-filter-open="isDocumentTypeFilterDrawerOpen"
+            :show-tag-filter="showTagFilterDrawer"
+            :tag-filter-open="isTagFilterDrawerOpen"
+            @select="selectGroupedDocument"
+            @change-date-range="applyDateRange"
+            @filter-toggle="onGroupedFilterToggle"
           />
 
           <AiDialog
@@ -1807,7 +1820,7 @@ import ActivityIndicator from '../components/ActivityIndicator.vue';
 import DocumentListPanel from '../components/DocumentListPanel.vue';
 import ImportFlightCard from '../components/ImportFlightCard.vue';
 import DocumentTimeline from '../components/DocumentTimeline.vue';
-import DocumentCalendar from '../components/DocumentCalendar.vue';
+import DocumentGroupedList from '../components/DocumentGroupedList.vue';
 import AiDialog from '../components/AiDialog.vue';
 import ListActionToolbar from '../components/ListActionToolbar.vue';
 import BatchActionsBar from '../components/BatchActionsBar.vue';
@@ -2831,6 +2844,8 @@ const documentListQuery = reactive({
   offset: 0
 });
 const documentListTotal = ref(0);
+const groupedDocumentRefreshKey = ref(0);
+const groupedDocumentSelectionQuery = ref('');
 // Reichweite der aktuellen Suche, wenn ein Bereich (Ordner/Tag/Typ …) aktiv ist:
 // 'current' = innerhalb des Bereichs, 'all' = über alle Dokumente. Startet bei
 // jeder neuen Suche aus der Einstellung ui.search_scope_default und ist pro Suche
@@ -3872,13 +3887,15 @@ const visibleTrashedNotes = computed(() => {
 });
 
 
-// ── Darstellungs-Modus der Dokumentliste (Liste / Zeitleiste / Kalender) ─────
-const DOCUMENT_VIEW_MODES = ['list', 'timeline', 'calendar'];
+// ── Darstellungs-Modus der Dokumentliste ───────────────────────────────────
+const DOCUMENT_VIEW_MODES = ['list', 'timeline', 'correspondents', 'document_types'];
 const DOCUMENT_VIEW_MODE_KEY = 'pm.documentViewMode';
 function loadDocumentViewMode() {
   try {
     const v = localStorage.getItem(DOCUMENT_VIEW_MODE_KEY);
-    return DOCUMENT_VIEW_MODES.includes(v) ? v : 'list';
+    if (DOCUMENT_VIEW_MODES.includes(v)) return v;
+    if (v) localStorage.setItem(DOCUMENT_VIEW_MODE_KEY, 'list');
+    return 'list';
   } catch { return 'list'; }
 }
 const documentViewMode = ref(loadDocumentViewMode());
@@ -3889,7 +3906,8 @@ const showViewModeSwitcher = computed(() =>
 const documentViewModeOptions = [
   { value: 'list', label: 'Liste', icon: 'mdi-format-list-bulleted' },
   { value: 'timeline', label: 'Zeitleiste', icon: 'mdi-timeline-text-outline' },
-  { value: 'calendar', label: 'Kalender', icon: 'mdi-calendar-month-outline' }
+  { value: 'correspondents', label: 'Korrespondenten', icon: 'mdi-account-group-outline' },
+  { value: 'document_types', label: 'Dokumenttyp', icon: 'mdi-file-document-outline' }
 ];
 const documentViewModeIcon = computed(() =>
   documentViewModeOptions.find((o) => o.value === documentViewMode.value)?.icon || 'mdi-format-list-bulleted'
@@ -3908,48 +3926,21 @@ function setDocumentViewMode(mode) {
   try { localStorage.setItem(DOCUMENT_VIEW_MODE_KEY, mode); } catch { /* ignore */ }
 }
 
-// Filter-Querystring für den Kalender (dieselben Filter wie die Liste, ohne Zeitraum/Sortierung).
-const calendarFilterQuery = computed(() => {
-  const p = new URLSearchParams();
-  if (documentListQuery.q) {
-    p.set('q', documentListQuery.q);
-    if (documentListQuery.searchScope) p.set('search_scope', documentListQuery.searchScope);
-  }
-  if (documentListQuery.status) p.set('status', documentListQuery.status);
-  if (documentListQuery.untagged) {
-    p.set('untagged', 'true');
-  } else if (activeTagFilterIds.value.length > 0) {
-    p.set('tag_id', activeTagFilterIds.value[0]);
-    for (const tagId of activeTagFilterIds.value) p.append('tag_ids', tagId);
-  } else if (documentListQuery.tagId) {
-    p.set('tag_id', documentListQuery.tagId);
-  }
-  if (documentListQuery.documentType) p.set('document_type', documentListQuery.documentType);
-  if (isFavoritesView.value) p.set('favorites_only', 'true');
-  if (isNoTextView.value) p.set('without_text', 'true');
-  if (activeView.value === 'attention' && activeAttention.value) p.set('attention', activeAttention.value);
-  return p.toString();
+const groupedDocumentQueryPath = computed(() => {
+  const options = { limit: 1, offset: 0, includeTotal: false };
+  return activeSavedSearchId.value && !globalSearchActive.value
+    ? `/api/smart-folders/${activeSavedSearchId.value}/documents?${buildSmartFolderDocumentsQuery(options)}`
+    : `/api/documents?${buildDocumentListQuery(options)}`;
 });
-
-// Kalender-Tag angeklickt: auf diesen Tag filtern und zur Liste wechseln.
-// Nutzt den bewährten Zeitraum-Mechanismus (day:-Token), damit Toolbar-Status
-// und Fetch konsistent bleiben.
-async function onCalendarPickDay(iso) {
-  // Filter setzen und laden, SOLANGE die Liste noch nicht gemountet ist
-  // (Kalender ist noch sichtbar). Dadurch füllt sich Store + Cache ohne dass
-  // die interne Skeleton-Transition der Liste mitten im View-Wechsel hängen
-  // bleibt. Erst danach auf die Liste umschalten – Mount trifft den Cache.
-  const normalized = `day:${iso}`;
-  updateDocumentToolbarState(activeView.value, { dateRange: normalized });
-  const { dateFrom, dateTo } = computeDateRangeBounds(normalized);
-  patchDocumentListQuery({ dateFrom, dateTo });
-  try {
-    await fetchDocuments(null, { autoSelectFirst: false });
-  } finally {
-    finishDocumentListSettle();
-    setDocumentViewMode('list');
-  }
+async function selectGroupedDocument(documentId) {
+  await selectDocument(documentId);
+  if (selectedDocumentId.value === documentId) groupedDocumentSelectionQuery.value = groupedDocumentQueryPath.value;
 }
+function onGroupedFilterToggle(action) {
+  if (action === 'documentTypeFilter') toggleDocumentTypeFilterDrawer();
+  else if (action === 'tagFilter') toggleTagFilterDrawer();
+}
+
 const isAllDocumentsSelectionDisabled = computed(() => {
   return activeView.value === 'all' &&
     !isLoadingSidebarCounts.value &&
@@ -7740,7 +7731,8 @@ async function removeDocumentsFromList(idsToRemove) {
 
   const next = current.filter((doc) => !removeSet.has(doc.id));
   const removedCount = current.length - next.length;
-  if (removedCount === 0) {
+  const selectedOutsideListRemoved = selectedRemoved && !current.some(doc => doc.id === selectedDocumentId.value);
+  if (removedCount === 0 && !selectedOutsideListRemoved) {
     return;
   }
 
@@ -7749,7 +7741,8 @@ async function removeDocumentsFromList(idsToRemove) {
   await documentListPanelRef.value?.animateDocumentRemoval?.([...removeSet]);
   documents.value = next;
   documentListLoadedCount.value = Math.max(0, documentListLoadedCount.value - removedCount);
-  documentListTotal.value = Math.max(0, documentListTotal.value - removedCount);
+  documentListTotal.value = Math.max(0, documentListTotal.value - removedCount - Number(selectedOutsideListRemoved));
+  groupedDocumentRefreshKey.value += 1;
 
   if (!selectedRemoved) {
     return;
@@ -7769,7 +7762,9 @@ async function removeDocumentsFromList(idsToRemove) {
 async function fetchDocuments(preferredDocumentId = null, options = {}) {
   const generation = ++documentListRequestGeneration;
   const autoSelectFirst = options.autoSelectFirst === true;
-  const allowPreferredOutsideList = options.allowPreferredOutsideList === true;
+  const keepGroupedSelection = ['correspondents', 'document_types'].includes(effectiveDocViewMode.value)
+    && groupedDocumentSelectionQuery.value === groupedDocumentQueryPath.value;
+  const allowPreferredOutsideList = options.allowPreferredOutsideList === true || keepGroupedSelection;
   // Stiller Hintergrund-Refresh (z. B. OCR-Status-Polling): kein Settle/Skeleton
   // und kein Lade-Flag, damit die Dokumentenliste während der Analyse nicht flackert.
   const silent = options.silent === true;
@@ -7833,6 +7828,7 @@ async function fetchDocuments(preferredDocumentId = null, options = {}) {
     documents.value = sortDocumentsForCurrentView(
       filterDocumentsByActiveTagFilters(pageItems)
     );
+    groupedDocumentRefreshKey.value += 1;
 
     // Frische erste Seite für diese Ansicht cachen (für sofortiges Zurückwechseln).
     writeDocumentListCache(cacheKey, {
@@ -7861,8 +7857,8 @@ async function fetchDocuments(preferredDocumentId = null, options = {}) {
         if (!canDiscardMetadataChanges()) {
           return;
         }
-        resolvedSelectionId = allowPreferredOutsideList && preferredDocumentId
-          ? preferredDocumentId
+        resolvedSelectionId = allowPreferredOutsideList && (preferredDocumentId || (keepGroupedSelection && selectedDocumentId.value))
+          ? preferredDocumentId || selectedDocumentId.value
           : autoSelectFirst
             ? documents.value[0].id
             : null;
@@ -9987,6 +9983,13 @@ function selectSearchScope(scope) {
     focusSearchFieldInput();
   });
 }
+
+watch(effectiveDocViewMode, mode => {
+  if (mode === 'correspondents') searchScope.value = 'correspondent';
+  else if (mode === 'document_types') searchScope.value = 'document_type';
+  else if (mode === 'timeline') searchScope.value = 'year';
+  else if (mode === 'list') searchScope.value = 'all';
+}, { immediate: true, flush: 'sync' });
 
 watch(
   () => parsedSearch.value.q,
