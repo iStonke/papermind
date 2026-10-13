@@ -260,14 +260,26 @@ def mask_config(config: dict) -> dict:
     return masked
 
 
+@dataclass(frozen=True)
+class BackupActivityResult:
+    """Abschlussstatus für die Aktivitätsanzeige ohne Bindung an eine DB-Session."""
+
+    status: str
+    error: str | None
+
+
 @tracked("backup", "NAS-Backup")
-def run_backup_in_background(*, kind: str = "manual") -> None:
+def run_backup_in_background(*, kind: str = "manual") -> BackupActivityResult:
     """Backup mit eigener DB-Session ausführen (für Threads/Scheduler)."""
     from app.db.session import SessionLocal
 
     db = SessionLocal()
     try:
-        return BackupService(db).run_backup(kind=kind)
+        run = BackupService(db).run_backup(kind=kind)
+        # Das Freigeben der Backup-Sperre committet und kann die ORM-Attribute
+        # invalidieren. Noch in der offenen Session lesen, bevor tracked den
+        # Status nach dem Schließen der Session auswertet.
+        return BackupActivityResult(status=run.status, error=run.error)
     finally:
         db.close()
 
