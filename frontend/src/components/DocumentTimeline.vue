@@ -1,11 +1,11 @@
 <template>
-  <div class="doc-timeline">
+  <div ref="root" class="doc-timeline">
     <div v-if="!documents.length && !loading" class="doc-timeline__empty">
       <v-icon size="30">mdi-timeline-text-outline</v-icon>
       <p>Keine datierten Dokumente in dieser Auswahl.</p>
     </div>
 
-    <div v-else class="doc-timeline__scroll">
+    <div v-else ref="scroller" class="doc-timeline__scroll">
       <div class="doc-timeline__body">
         <section v-for="group in groups" :key="group.year" class="doc-timeline__year">
           <header class="doc-timeline__year-head">
@@ -22,7 +22,8 @@
                 :key="doc.id"
                 type="button"
                 class="doc-timeline__item"
-                :class="{ 'doc-timeline__item--active': doc.id === selectedId }"
+                :data-document-id="doc.id"
+                :class="{ 'doc-timeline__item--active': doc.id === selectedId, 'pm-import-arrival': doc.id === landing.justArrivedDocId.value }"
                 @click="emit('select', doc.id)"
               >
                 <span
@@ -30,13 +31,14 @@
                   :class="{ 'doc-timeline__dot--unread': doc.is_unread }"
                   aria-hidden="true"
                 />
-                <span class="doc-timeline__thumb">
+                <span class="doc-timeline__thumb" :class="{ 'pm-import-awaiting': doc.id === landing.importLandingThumbDocId.value }">
                   <img
                     v-if="!thumbError[doc.id]"
                     :src="thumbUrl(doc.id)"
                     alt=""
                     loading="lazy"
-                    @error="thumbError[doc.id] = true"
+                    @load="landing.finishThumbnail(doc.id)"
+                    @error="thumbError[doc.id] = true; landing.finishThumbnail(doc.id)"
                   />
                   <v-icon v-else size="18">mdi-file-outline</v-icon>
                 </span>
@@ -70,8 +72,14 @@
 </template>
 
 <script setup>
-import { computed, reactive } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { documentThumbnailUrl } from '../api/documents.js';
+import { useDocumentImportLanding } from '../composables/useDocumentImportLanding.js';
+
+const root = ref(null);
+const scroller = ref(null);
+const landing = useDocumentImportLanding({ root, scroller, thumbnailSelector: '.doc-timeline__thumb' });
+defineExpose(landing);
 
 const props = defineProps({
   documents: { type: Array, default: () => [] },

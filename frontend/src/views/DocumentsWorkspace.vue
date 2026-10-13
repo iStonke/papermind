@@ -747,6 +747,7 @@
 
           <DocumentTimeline
             v-if="effectiveDocViewMode === 'timeline'"
+            ref="documentTimelineRef"
             key="timeline"
             class="panel-middle__view"
             :documents="documents"
@@ -762,6 +763,7 @@
 
           <DocumentGroupedList
             v-else-if="['correspondents', 'document_types'].includes(effectiveDocViewMode)"
+            ref="documentGroupedListRef"
             :key="effectiveDocViewMode"
             :grouping="effectiveDocViewMode"
             class="panel-middle__view"
@@ -1819,6 +1821,7 @@ import SidebarAccount from '../components/SidebarAccount.vue';
 import ActivityIndicator from '../components/ActivityIndicator.vue';
 import DocumentListPanel from '../components/DocumentListPanel.vue';
 import ImportFlightCard from '../components/ImportFlightCard.vue';
+import { resolveImportDestination } from '../utils/importLanding.js';
 import DocumentTimeline from '../components/DocumentTimeline.vue';
 import DocumentGroupedList from '../components/DocumentGroupedList.vue';
 import AiDialog from '../components/AiDialog.vue';
@@ -2937,6 +2940,8 @@ const previewHighlightText = ref('');
 
 const importStagingDialogRef = ref(null);
 const documentListPanelRef = ref(null);
+const documentTimelineRef = ref(null);
+const documentGroupedListRef = ref(null);
 const appSidebarRef = ref(null);
 const activityIndicatorRef = ref(null);
 const allDocumentsPulseKey = ref(0);
@@ -2954,6 +2959,7 @@ function openShortcutsFromSidebarMenu() {
 // Import-Fluganimation: Dokumentkarte, die vom Import-Dialog in die Liste fliegt.
 const importFlight = ref(null); // { origin, target, thumbUrl } | null
 let importFlightResolver = null;
+let importLandingPanel = null;
 let allDocumentsPulseTimer = null;
 function clearImportFlight() {
   importFlight.value = null;
@@ -9467,21 +9473,27 @@ async function onImportCommitted(payload) {
   // solange der Dialog noch offen ist – gestartet wird der Flug erst später.
   const arrivalId = String(payload.created[0]?.doc_id || '');
   const origin = importStagingDialogRef.value?.getFlightOrigin?.() || null;
-  const landingPromise = scheduleImportFlightAfterClose(origin, arrivalId);
+  let finishRefresh;
+  const documentsReady = new Promise(resolve => { finishRefresh = resolve; });
+  const landingPromise = scheduleImportFlightAfterClose(origin, arrivalId, documentsReady);
 
   // Aktivitätsindikator sofort aufwecken: nach dem Import sind OCR/INDEX/TAG-Jobs
   // frisch eingereiht und oft sehr kurz – ein sofortiger Poll-Schub stellt sicher,
   // dass das Icon/Menü dafür erscheint.
   activityIndicatorRef.value?.refresh();
-  if (!Array.isArray(payload?.errors) || payload.errors.length === 0) {
-    await claimActiveImportInboxItems();
+  try {
+    if (!Array.isArray(payload?.errors) || payload.errors.length === 0) {
+      await claimActiveImportInboxItems();
+    }
+    await fetchDocuments(selectedDocumentId.value, { autoSelectFirst: false });
+    scheduleSidebarCountsRefresh();
+  } finally {
+    finishRefresh();
   }
-  await fetchDocuments(selectedDocumentId.value, { autoSelectFirst: false });
-  scheduleSidebarCountsRefresh();
 
-  // Auf die gelandete Karte warten, dann Skelett auflösen + echte Zeile anheben.
-  await landingPromise;
-  documentListPanelRef.value?.resolveImportLanding?.(arrivalId);
+  // Erst nach der Landung die konkrete Zielzeile hervorheben.
+  const landingPanel = await landingPromise;
+  landingPanel?.resolveImportLanding?.(arrivalId);
 }
 
 // Hero-Übergang + Entkopplung: Die Karte wird SOFORT deckungsgleich über dem
@@ -9503,8 +9515,14 @@ function scheduleAllDocumentsImportPulse() {
   }, IMPORT_FLIGHT_START_DELAY_MS);
 }
 
-function scheduleImportFlightAfterClose(origin, documentId = '') {
-  const panel = documentListPanelRef.value;
+function currentImportLandingPanel() {
+  if (effectiveDocViewMode.value === 'timeline') return documentTimelineRef.value;
+  if (['correspondents', 'document_types'].includes(effectiveDocViewMode.value)) return documentGroupedListRef.value;
+  return documentListPanelRef.value;
+}
+
+function scheduleImportFlightAfterClose(origin, documentId = '', documentsReady = Promise.resolve()) {
+  const panel = currentImportLandingPanel();
   const hasListTarget = Boolean(panel && typeof panel.beginImportLanding === 'function');
   if (!origin) {
     clearImportFlight();
@@ -9524,35 +9542,33 @@ function scheduleImportFlightAfterClose(origin, documentId = '') {
 
   return new Promise((resolve) => {
     window.setTimeout(async () => {
-      let target = null;
-      const activePanel = documentListPanelRef.value;
-      if (destination === 'list' && activePanel && typeof activePanel.beginImportLanding === 'function') {
-        target = await activePanel.beginImportLanding(documentId);
-        if (!target) activePanel.cancelImportLanding?.();
-      }
-
-      // War beim Commit keine Dokumentenliste sichtbar (z. B. Übersicht), oder
-      // ist sie während der Schließanimation verschwunden, fliegt dieselbe
-      // Miniatur stattdessen direkt in „Alle Dokumente" und schrumpft dort weg.
-      if (!target) {
-        destination = 'all-documents';
-        target = appSidebarRef.value?.getAllDocumentsFlightTarget?.() || null;
-      }
+      // Daten und Gruppierung müssen stehen, bevor ein Bildschirmziel gemessen
+      // wird. Der Schließ-Beat allein reicht bei langsameren Antworten nicht.
+      const resolved = await resolveImportDestination({
+        documentId, documentsReady, preparedPanel: panel,
+        getPanel: currentImportLandingPanel,
+        getSidebarTarget: () => appSidebarRef.value?.getAllDocumentsFlightTarget?.() || null,
+      });
+      const { target } = resolved;
+      destination = resolved.destination;
+      importLandingPanel = resolved.panel;
       if (!target) {
         clearImportFlight();
         allDocumentsPulseKey.value += 1;
-        resolve();
+        resolve(null);
         return;
       }
       let settled = false;
+      let flightTimeout;
       const done = () => {
         if (settled) return;
         settled = true;
+        window.clearTimeout(flightTimeout);
         importFlightResolver = null;
         if (destination === 'all-documents') {
           allDocumentsPulseKey.value += 1;
         }
-        resolve();
+        resolve(resolved.panel);
       };
       importFlightResolver = done;
       // (2) Ziel setzen → dieselbe Karte hebt ab und fliegt in die Liste.
@@ -9562,7 +9578,7 @@ function scheduleImportFlightAfterClose(origin, documentId = '') {
         destination
       };
       // Sicherheitsnetz: falls das 'landed'-Event ausbleibt, nicht ewig hängen.
-      window.setTimeout(() => {
+      flightTimeout = window.setTimeout(() => {
         clearImportFlight();
         done();
       }, 1600);
@@ -9574,16 +9590,14 @@ function scheduleImportFlightAfterClose(origin, documentId = '') {
 // bevor die Zielzeile überhaupt zum ersten Mal gerendert wird.
 function onImportFlightApproaching() {
   if (importFlight.value?.destination === 'list') {
-    documentListPanelRef.value?.maskLandingThumb?.();
+    importLandingPanel?.maskLandingThumb?.();
   }
 }
 
 function onImportFlightLanded() {
-  // Genau im Landemoment das Fallback-Skelett einblenden (No-op, wenn die Karte
-  // ohnehin auf der echten Zeile gelandet ist) – so erscheint es erst, wenn die
-  // Karte klein in der Thumbnail-Spalte ankommt, nie unter der noch großen Karte.
+  // Das Vorschaubild in der tatsächlichen Zielansicht freigeben.
   if (importFlight.value?.destination === 'list') {
-    documentListPanelRef.value?.revealImportLanding?.();
+    importLandingPanel?.revealImportLanding?.();
   }
   clearImportFlight();
   if (importFlightResolver) {

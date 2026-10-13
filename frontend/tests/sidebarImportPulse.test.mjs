@@ -5,10 +5,11 @@ import { readFile } from 'node:fs/promises';
 const workspaceSource = await readFile(new URL('../src/views/DocumentsWorkspace.vue', import.meta.url), 'utf8');
 const sidebarSource = await readFile(new URL('../src/components/AppSidebar.vue', import.meta.url), 'utf8');
 const itemSource = await readFile(new URL('../src/components/SidebarItem.vue', import.meta.url), 'utf8');
+const landingSource = await readFile(new URL('../src/utils/importLanding.js', import.meta.url), 'utf8');
 
 test('imports without a visible document list fly into the all-documents sidebar item', () => {
   assert.match(workspaceSource, /appSidebarRef\.value\?\.getAllDocumentsFlightTarget\?\.\(\)/);
-  assert.match(workspaceSource, /destination = 'all-documents'/);
+  assert.match(landingSource, /destination: 'all-documents'/);
   assert.match(workspaceSource, /:all-documents-pulse-key="allDocumentsPulseKey"/);
   assert.match(sidebarSource, /getAllDocumentsFlightTarget/);
   assert.match(sidebarSource, /:pulse-key="allDocumentsPulseKey"/);

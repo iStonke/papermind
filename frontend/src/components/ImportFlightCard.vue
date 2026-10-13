@@ -114,6 +114,7 @@ const DURATION = 950;
 
 function prefersReducedMotion() {
   try {
+    if (document.querySelector('.pm-no-animations')) return true;
     return window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches || false;
   } catch {
     return false;

@@ -14,7 +14,7 @@
     @pm-note-quote-remove="removeDocumentQuote"
   >
     <header class="note-workspace-editor__bar">
-      <div class="note-workspace-editor__title-group" :class="{ 'has-kind': isLectureNote }">
+      <div class="note-workspace-editor__title-group">
       <input
         ref="titleInputRef"
         v-model="title"
@@ -29,61 +29,6 @@
         :readonly="switching || status === 'conflict'"
         @keydown.enter.prevent="focusEditorBody"
       />
-      <!-- Mitschrift-Chip = Ansichtswechsel für Bild und Text.
-           Ändert nur die Darstellung, nie den Inhalt. -->
-      <v-menu v-if="isLectureNote" location="bottom start" :offset="6" transition="fade-transition">
-        <template #activator="{ props: layoutMenuProps }">
-          <button
-            v-bind="layoutMenuProps"
-            type="button"
-            class="note-workspace-editor__kind-chip"
-            title="Mitschrift – Ansicht wählen"
-            :aria-label="`Mitschrift, Ansicht: ${activeLectureLayoutOption.title}`"
-            :disabled="!hasLoadedContent || status === 'conflict'"
-          >
-            <v-icon size="14" aria-hidden="true">mdi-text-box-outline</v-icon>
-            Mitschrift
-            <v-icon size="14" class="note-workspace-editor__kind-chip-caret" aria-hidden="true">mdi-chevron-down</v-icon>
-          </button>
-        </template>
-        <v-list class="note-workspace-editor__more-menu" density="compact" min-width="236" role="menu" aria-label="Ansicht der Mitschrift">
-          <div class="note-workspace-editor__more-label">Ansicht</div>
-          <v-list-item
-            v-for="option in LECTURE_LAYOUT_OPTIONS"
-            :key="option.value"
-            class="note-workspace-editor__more-item"
-            :class="{ 'is-current': lectureLayout === option.value }"
-            :title="option.title"
-            :ripple="false"
-            role="menuitemradio"
-            :aria-checked="lectureLayout === option.value"
-            @click="setLectureLayout(option.value)"
-          >
-            <template #prepend>
-              <span class="note-workspace-editor__more-icon" aria-hidden="true">
-                <v-icon size="17">{{ option.icon }}</v-icon>
-              </span>
-            </template>
-            <template #append>
-              <v-icon v-if="lectureLayout === option.value" size="16" class="note-workspace-editor__layout-check" aria-hidden="true">mdi-check</v-icon>
-            </template>
-          </v-list-item>
-          <v-divider class="my-1" />
-          <v-list-item
-            class="note-workspace-editor__more-item note-workspace-editor__more-item--danger"
-            title="In Notiz umwandeln"
-            :ripple="false"
-            role="menuitem"
-            @click="noteEditorRef?.removeLectureLayout()"
-          >
-            <template #prepend>
-              <span class="note-workspace-editor__more-icon" aria-hidden="true">
-                <v-icon size="17">mdi-text-box-remove-outline</v-icon>
-              </span>
-            </template>
-          </v-list-item>
-        </v-list>
-      </v-menu>
       </div>
 
       <div class="note-workspace-editor__actions">
@@ -399,6 +344,64 @@
 
         </div>
 
+      </div>
+
+      <div v-if="isLectureNote" class="note-workspace-editor__layout-group">
+        <!-- Mitschrift-Chip = Ansichtswechsel für Bild und Text.
+             Ändert nur die Darstellung, nie den Inhalt. -->
+        <v-menu location="bottom start" :offset="6" transition="fade-transition">
+          <template #activator="{ props: layoutMenuProps }">
+            <button
+              v-bind="layoutMenuProps"
+              type="button"
+              class="note-workspace-editor__kind-chip"
+              title="Mitschrift – Ansicht wählen"
+              :aria-label="`Mitschrift, Ansicht: ${activeLectureLayoutOption.title}`"
+              :disabled="!hasLoadedContent || status === 'conflict'"
+            >
+              <v-icon size="14" aria-hidden="true">mdi-text-box-outline</v-icon>
+              Mitschrift
+              <v-icon size="14" class="note-workspace-editor__kind-chip-caret" aria-hidden="true">mdi-chevron-down</v-icon>
+            </button>
+          </template>
+          <v-list class="note-workspace-editor__more-menu" density="compact" min-width="236" role="menu" aria-label="Ansicht der Mitschrift">
+            <div class="note-workspace-editor__more-label">Ansicht</div>
+            <v-list-item
+              v-for="option in LECTURE_LAYOUT_OPTIONS"
+              :key="option.value"
+              class="note-workspace-editor__more-item"
+              :class="{ 'is-current': lectureLayout === option.value }"
+              :title="option.title"
+              :ripple="false"
+              role="menuitemradio"
+              :aria-checked="lectureLayout === option.value"
+              @click="setLectureLayout(option.value)"
+            >
+              <template #prepend>
+                <span class="note-workspace-editor__more-icon" aria-hidden="true">
+                  <v-icon size="17">{{ option.icon }}</v-icon>
+                </span>
+              </template>
+              <template #append>
+                <v-icon v-if="lectureLayout === option.value" size="16" class="note-workspace-editor__layout-check" aria-hidden="true">mdi-check</v-icon>
+              </template>
+            </v-list-item>
+            <v-divider class="my-1" />
+            <v-list-item
+              class="note-workspace-editor__more-item note-workspace-editor__more-item--danger"
+              title="In Notiz umwandeln"
+              :ripple="false"
+              role="menuitem"
+              @click="noteEditorRef?.removeLectureLayout()"
+            >
+              <template #prepend>
+                <span class="note-workspace-editor__more-icon" aria-hidden="true">
+                  <v-icon size="17">mdi-text-box-remove-outline</v-icon>
+                </span>
+              </template>
+            </v-list-item>
+          </v-list>
+        </v-menu>
       </div>
 
       <div
@@ -2507,16 +2510,6 @@ onBeforeUnmount(() => {
   gap: 4px;
 }
 
-/* Mit Chip: Titelfeld so breit wie sein Text, damit der Chip direkt daneben
-   steht. Ohne field-sizing-Unterstützung bleibt der Chip am rechten Rand. */
-@supports (field-sizing: content) {
-  .note-workspace-editor__title-group.has-kind .note-workspace-editor__title {
-    flex: 0 1 auto;
-    field-sizing: content;
-    max-width: 100%;
-  }
-}
-
 .note-workspace-editor__kind-chip-caret { margin-left: -1px; opacity: 0.7; }
 .note-workspace-editor__layout-check { color: var(--pm-accent-strong, var(--pm-accent)); }
 .note-workspace-editor__more-item.is-current .note-workspace-editor__more-icon {
@@ -2805,6 +2798,14 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 12px;
   overflow: hidden;
+}
+.note-workspace-editor__layout-group {
+  display: flex;
+  flex: none;
+  align-items: center;
+  padding-inline-start: 8px;
+  position: relative;
+  top: -4px;
 }
 .note-workspace-editor__meta-main,
 .note-workspace-editor__sync,

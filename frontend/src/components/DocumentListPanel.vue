@@ -29,32 +29,6 @@
       @dragleave="onListDragLeave"
       @drop="onListDrop"
     >
-      <!--
-        Landezone der Import-Fluganimation: hervorgehobene Skelett-Zeile am
-        Listenkopf, in die die fliegende Dokumentkarte einrastet. Liegt als
-        Overlay über der (virtualisierten) Liste, ohne deren Modell zu berühren.
-      -->
-      <div
-        v-if="importLandingActive"
-        ref="importLandingRowRef"
-        class="document-row document-row--import-landing"
-        :class="{
-          'document-row--import-landing-resolving': importLandingResolving,
-          'document-row--import-landing--snippets': showSnippets,
-          'document-row--import-landing--revealed': importLandingRevealed
-        }"
-        aria-hidden="true"
-      >
-        <div class="document-row__thumb document-row--import-landing__thumb">
-          <span class="document-row--import-landing__pulse" />
-        </div>
-        <div class="document-row__content">
-          <div class="document-row--import-landing__line document-row--import-landing__line--kicker" />
-          <div class="document-row--import-landing__line document-row--import-landing__line--title" />
-          <div class="document-row--import-landing__line document-row--import-landing__line--meta" />
-        </div>
-      </div>
-
       <div class="document-list-content">
         <!-- Papierkorb: Dokumente als eigene Gruppe mit Anzahl (analog Notizen).
              Bewusst AUSSERHALB des virtualisierten .document-list, damit dessen
@@ -455,6 +429,7 @@
 <script setup>
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue';
 import { formatSearchSnippet } from '../utils/searchSnippet.js';
+import { findImportRow, importLayoutReady, importThumbnailTarget, waitForImportTarget } from '../utils/importLanding.js';
 
 // Notizen erscheinen in der Dokumentliste nur im Papierkorb (Notizen kennen keine Favoriten).
 const listedNotes = computed(() => props.isTrashView ? props.trashNotes : []);
@@ -554,13 +529,6 @@ const documentListRef = ref(null);
 const trashNoteListRef = ref(null);
 
 // ── Import-Fluganimation: Landezone ─────────────────────────────────────────
-const importLandingActive = ref(false);
-const importLandingResolving = ref(false);
-// Skelett-Fallback bleibt während des Flugs UNSICHTBAR (nur Messung) und wird
-// erst bei der Landung eingeblendet – so liegt nie ein breites Skelett unter der
-// noch großen Flugkarte (das zerstörte die Illusion).
-const importLandingRevealed = ref(false);
-const importLandingRowRef = ref(null);
 // Das Ziel-Thumbnail ist ab dem ersten Rendern der neuen Zeile weiß. Erst die
 // landende Karte „liefert" das echte Vorschaubild ab. Die ID wird deshalb schon
 // vor dem Nachladen der Liste gesetzt, damit das korrekte Bild nie kurz aufblitzt.
@@ -689,82 +657,27 @@ function prepareImportLanding(documentId = '') {
   importLandingThumbDocId.value = id;
 }
 
-function importLandingVisualMetrics(element) {
-  if (!(element instanceof HTMLElement) || typeof window === 'undefined') return {};
-  const numberValue = (value, fallback = 0) => {
-    const parsed = Number.parseFloat(String(value || ''));
-    return Number.isFinite(parsed) ? parsed : fallback;
-  };
-  const frameStyle = window.getComputedStyle(element);
-  const image = element.querySelector('img');
-  const imageStyle = image ? window.getComputedStyle(image) : null;
-  return {
-    borderRadius: numberValue(frameStyle.borderTopLeftRadius, 6),
-    borderWidth: numberValue(frameStyle.borderTopWidth, 1),
-    borderColor: frameStyle.borderTopColor || 'transparent',
-    backgroundColor: frameStyle.backgroundColor || '#fff',
-    boxShadow: frameStyle.boxShadow || 'none',
-    imageFit: imageStyle?.objectFit || 'cover',
-    imagePosition: imageStyle?.objectPosition || 'top center'
-  };
-}
-
-// Liefert das Flugziel: bevorzugt das THUMBNAIL der konkret importierten Zeile
-// (die durch das parallele Nachladen meist schon steht) → nahtloser Hero-Übergang,
-// die Karte legt sich passgenau auf das echte Vorschaubild. Nur wenn noch keine
-// Zeile da ist, dient ein (zunächst unsichtbares) Skelett als Landeplatz.
+// Die importierte ID bestimmt die Landezone, niemals die erste Listenzeile.
+// Bei Virtualisierung zuerst ihre tatsächliche sortierte Position rendern.
 async function beginImportLanding(documentId = '') {
-  importLandingResolving.value = false;
-
   const landingId = String(documentId || pendingLandingThumbDocId || '').trim();
-  const rows = Array.from(documentListRef.value?.querySelectorAll(
-    '.document-list__rows .document-row[data-document-id]'
-  ) || []);
-  const realRow = landingId
-    ? rows.find((row) => String(row.dataset.documentId || '') === landingId)
-    : rows[0];
-  const realThumb = realRow?.querySelector('.document-row__thumb');
-  if (realThumb) {
-    const r = realThumb.getBoundingClientRect();
-    if (r.width >= 4 && r.height >= 4) {
-      importLandingActive.value = false; // kein Skelett nötig
-      pendingLandingThumbDocId = landingId || String(realRow.dataset.documentId || '');
-      importLandingThumbDocId.value = pendingLandingThumbDocId;
-      return {
-        left: r.left,
-        top: r.top,
-        width: r.width,
-        height: r.height,
-        onRealRow: true,
-        ...importLandingVisualMetrics(realThumb)
-      };
-    }
+  const index = documents.value.findIndex(doc => String(doc.id) === landingId);
+  if (!landingId || index < 0 || !listShell.value) return null;
+  await importLayoutReady();
+  const measure = () => importThumbnailTarget(
+    findImportRow(documentListRef.value, landingId), '.document-row__thumb', listShell.value
+  );
+  if (!measure()) {
+    updateVirtualWindow();
+    listShell.value.scrollTop = Math.max(0,
+      listContentOffsetTop.value + index * virtualRowStep.value
+      - (listShell.value.clientHeight - virtualRowHeight.value) / 2
+    );
+    updateVirtualWindow();
   }
-
-  // Fallback: Skelett rendern, aber unsichtbar halten (nur zum Messen/Landen).
-  importLandingActive.value = true;
-  importLandingRevealed.value = false;
-  await nextTick();
-  const el = importLandingRowRef.value;
-  if (!el) {
-    importLandingActive.value = false;
-    return null;
-  }
-  const thumbEl = el.querySelector('.document-row--import-landing__thumb');
-  const rect = (thumbEl || el).getBoundingClientRect();
-  return {
-    left: rect.left,
-    top: rect.top,
-    width: rect.width,
-    height: rect.height,
-    onRealRow: false,
-    ...importLandingVisualMetrics(thumbEl || el)
-  };
+  return waitForImportTarget(measure);
 }
 
-// Wird im Moment der Landung aufgerufen: blendet das Fallback-Skelett ein
-// (falls verwendet), damit es genau dann erscheint, wenn die Karte klein in der
-// Thumbnail-Spalte ankommt – nie vorher.
 // Endanflug: Sicherheitsnetz für ältere/alternative Aufrufer. Im regulären
 // Ablauf ist die Maske bereits durch prepareImportLanding() aktiv.
 function maskLandingThumb() {
@@ -791,13 +704,9 @@ function revealImportLanding() {
   if (!id || hasThumbnailLoaded(id) || hasThumbnailError(id)) {
     completeImportLandingThumbReveal(id);
   }
-  if (importLandingActive.value) {
-    importLandingRevealed.value = true;
-  }
 }
 
-// Löst die Landung auf: das Skelett (falls sichtbar) verblasst, die echte (erste)
-// Zeile leuchtet kurz auf. `documentId` markiert die anzuhebende Zeile.
+// Die konkrete importierte Zeile leuchtet nach der Landung kurz auf.
 function resolveImportLanding(documentId = '') {
   // Sicherheitsnetz für einen ausgebliebenen Landed-Callback. Die Maske wird
   // dabei weiterhin erst gelöst, sobald das Listen-Thumbnail bereit ist.
@@ -830,21 +739,9 @@ function resolveImportLanding(documentId = '') {
       }, delay);
     });
   }
-  if (importLandingActive.value) {
-    importLandingResolving.value = true;
-    // Skelett nach kurzer Übergabe entfernen.
-    window.setTimeout(() => {
-      importLandingActive.value = false;
-      importLandingResolving.value = false;
-      importLandingRevealed.value = false;
-    }, 260);
-  }
 }
 
 function cancelImportLanding() {
-  importLandingActive.value = false;
-  importLandingResolving.value = false;
-  importLandingRevealed.value = false;
   importLandingThumbDocId.value = '';
   importLandingRevealRequested = false;
   importArrivalMarkerPendingDocId.value = '';
@@ -1678,98 +1575,6 @@ function onListDrop(event) {
   to { background-position: -120% 0; }
 }
 
-/* ── Import-Fluganimation: Landezeile am Listenkopf ─────────────────────── */
-.document-row--import-landing {
-  --document-row-height: 112px;
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  right: 10px;
-  z-index: 3;
-  height: var(--document-row-height);
-  min-height: var(--document-row-height);
-  pointer-events: none;
-  cursor: default;
-  border-color: color-mix(in srgb, var(--pm-accent, #14b8a6) 42%, transparent);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--pm-accent, #14b8a6) 30%, transparent),
-    0 14px 30px rgba(15, 23, 42, 0.16);
-  background: var(--pm-app-surface-raised);
-  /* Während des Flugs unsichtbar (nur Messung); erst bei der Landung einblenden. */
-  opacity: 0;
-  transform: translateY(6px) scale(0.985);
-  transition:
-    opacity 220ms var(--pm-easing-decel, cubic-bezier(0, 0, 0.2, 1)),
-    transform 220ms var(--pm-easing-decel, cubic-bezier(0, 0, 0.2, 1));
-}
-
-.document-row--import-landing--revealed {
-  opacity: 1;
-  transform: none;
-}
-
-.document-row--import-landing--snippets {
-  --document-row-height: 152px;
-}
-
-.document-row--import-landing__thumb {
-  overflow: hidden;
-  background: var(--pm-thumb-bg, rgba(15, 23, 42, 0.08));
-  border-radius: 8px;
-}
-
-.document-row--import-landing__pulse {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    100deg,
-    var(--pm-thumb-bg, rgba(15, 23, 42, 0.08)) 22%,
-    color-mix(in srgb, var(--pm-accent, #14b8a6) 22%, transparent) 46%,
-    var(--pm-thumb-bg, rgba(15, 23, 42, 0.08)) 68%
-  );
-  background-size: 220% 100%;
-  animation: document-thumbnail-shimmer 1.1s ease-in-out infinite;
-}
-
-.document-row--import-landing__line {
-  border-radius: 6px;
-  background: linear-gradient(
-    100deg,
-    rgba(148, 163, 184, 0.22) 22%,
-    rgba(148, 163, 184, 0.42) 46%,
-    rgba(148, 163, 184, 0.22) 68%
-  );
-  background-size: 220% 100%;
-  animation: document-thumbnail-shimmer 1.1s ease-in-out infinite;
-}
-
-.document-row--import-landing__line--kicker {
-  width: 34%;
-  height: 10px;
-  margin-top: 4px;
-}
-
-.document-row--import-landing__line--title {
-  width: 72%;
-  height: 15px;
-  margin-top: 12px;
-}
-
-.document-row--import-landing__line--meta {
-  width: 52%;
-  height: 10px;
-  margin-top: 14px;
-}
-
-/* Übergabe an die echte Zeile: Landeskelett verblasst leicht angehoben. */
-.document-row--import-landing-resolving {
-  opacity: 0;
-  transform: translateY(-4px) scale(0.99);
-  transition:
-    opacity 240ms var(--pm-easing-accel, cubic-bezier(0.4, 0, 1, 1)),
-    transform 240ms var(--pm-easing-accel, cubic-bezier(0.4, 0, 1, 1));
-}
-
 /* Frisch angekommene echte Zeile kräftig aufleuchten lassen. */
 .document-row--just-arrived {
   animation: document-row-arrive 1600ms var(--pm-easing, cubic-bezier(0.4, 0, 0.2, 1));
@@ -1859,10 +1664,6 @@ function onListDrop(event) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .document-row--import-landing__pulse,
-  .document-row--import-landing__line {
-    animation: none;
-  }
   .document-row--just-arrived {
     animation-duration: 600ms;
   }
@@ -1870,6 +1671,11 @@ function onListDrop(event) {
     animation: none;
     display: none;
   }
+}
+
+:global(.pm-no-animations) .document-row--just-arrived,
+:global(.pm-no-animations) .document-row--just-arrived::after {
+  animation: none;
 }
 
 :global(.pm-no-animations) .document-row__thumb::before {

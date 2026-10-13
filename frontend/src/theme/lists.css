@@ -28,3 +28,22 @@
   --pm-list-card-ring: color-mix(in srgb, var(--pm-text) 16%, transparent);
   --pm-list-card-shadow: inset 0 0 0 1px var(--pm-list-card-ring), 0 2px 4px rgba(0, 0, 0, 0.24);
 }
+
+/* Importierte Miniaturen werden erst bei der tatsächlichen Landung sichtbar,
+   unabhängig von Listen-, Zeitachsen- oder Gruppenansicht. */
+.pm-import-awaiting {
+  background: #fff !important;
+  background-image: none !important;
+}
+.pm-import-awaiting > * { opacity: 0 !important; }
+.pm-import-arrival {
+  animation: pm-import-arrival 1600ms var(--pm-easing, ease) both;
+}
+@keyframes pm-import-arrival {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  25%, 60% { box-shadow: inset 0 0 0 2px var(--pm-accent), 0 0 14px color-mix(in srgb, var(--pm-accent) 24%, transparent); }
+}
+.pm-no-animations .pm-import-arrival { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .pm-import-arrival { animation: none; }
+}

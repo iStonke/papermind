@@ -1,5 +1,5 @@
 <template>
-  <div class="doc-groups">
+  <div ref="root" class="doc-groups">
     <ListActionToolbar
       :actions="dateActions"
       :filter-toggles="filterToggles"
@@ -7,7 +7,7 @@
       @action-select="emit('change-date-range', $event.value)"
       @filter-toggle="emit('filter-toggle', $event)"
     />
-    <div class="doc-groups__scroll" :aria-busy="loading">
+    <div ref="scroller" class="doc-groups__scroll" :aria-busy="loading">
       <div v-if="error" class="doc-groups__message" role="alert">
         <span>{{ error }}</span>
         <v-btn variant="text" size="small" @click="refreshGroups">Erneut versuchen</v-btn>
@@ -27,6 +27,7 @@
         <section
           v-for="group in groups"
           :key="group.key"
+          :data-group-key="group.key"
           class="doc-groups__group"
           :class="{
             'doc-groups__group--expanded': expanded.has(group.key),
@@ -80,12 +81,13 @@
                     <button
                       type="button"
                       class="doc-groups__document"
-                      :class="{ 'doc-groups__document--active': doc.id === selectedId }"
+                      :data-document-id="doc.id"
+                      :class="{ 'doc-groups__document--active': doc.id === selectedId, 'pm-import-arrival': doc.id === landing.justArrivedDocId.value }"
                       :aria-pressed="doc.id === selectedId"
                       :title="documentTitle(doc)"
                       @click="emit('select', doc.id)"
                     >
-                      <span class="doc-groups__thumbnail" aria-hidden="true">
+                      <span class="doc-groups__thumbnail" :class="{ 'pm-import-awaiting': doc.id === landing.importLandingThumbDocId.value }" aria-hidden="true">
                         <img
                           v-if="!thumbnailErrors[thumbnailKey(doc)]"
                           :key="thumbnailKey(doc)"
@@ -94,7 +96,8 @@
                           alt=""
                           loading="lazy"
                           decoding="async"
-                          @error="thumbnailErrors[$event.target.dataset.thumbnailKey] = true"
+                          @load="landing.finishThumbnail(doc.id)"
+                          @error="thumbnailErrors[$event.target.dataset.thumbnailKey] = true; landing.finishThumbnail(doc.id)"
                         />
                         <v-icon v-else size="22">mdi-file-document-outline</v-icon>
                       </span>
@@ -134,7 +137,9 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, useId, watch } from 'vue';
 import { apiGet } from '../api/client.js';
-import { documentThumbnailUrl } from '../api/documents.js';
+import { documentThumbnailUrl, getDocument } from '../api/documents.js';
+import { useDocumentImportLanding } from '../composables/useDocumentImportLanding.js';
+import { importLayoutReady } from '../utils/importLanding.js';
 import { apiSessionOwner, onApiSessionReset } from '../api/session.js';
 import { loadGroupExpansion, saveGroupExpansion } from '../workspaces/documents/groupExpansion.js';
 import { documentTypeGroupKey, documentTypeRequestPath, prepareDocumentTypeGroups } from '../workspaces/documents/documentTypeView.js';
@@ -164,6 +169,10 @@ const requestPath = (options) => isDocumentTypeGrouping.value
 const documentMetaLabel = doc => isDocumentTypeGrouping.value
   ? doc.correspondent_name : doc.document_type || doc.category;
 const groups = ref([]);
+const root = ref(null);
+const scroller = ref(null);
+const landing = useDocumentImportLanding({ root, scroller, thumbnailSelector: '.doc-groups__thumbnail', beforeLocate: revealImportedDocument });
+defineExpose(landing);
 let expansionOwner = apiSessionOwner();
 const expanded = ref(loadGroupExpansion(expansionOwner, undefined, props.grouping));
 const pages = reactive({});
@@ -212,6 +221,7 @@ const filterToggles = computed(() => [
 let generation = 0;
 let controller = new AbortController();
 let currentQueryPath = '';
+let groupRefreshPromise = Promise.resolve();
 
 async function refreshGroups() {
   const reset = currentQueryPath !== props.queryPath;
@@ -239,10 +249,12 @@ async function refreshGroups() {
     for (const key of Object.keys(pages)) {
       if (!keys.has(key)) delete pages[key];
     }
+    const groupLoads = [];
     for (const group of groups.value) {
       if (previousCounts.get(group.key) !== group.count) delete pages[group.key];
-      if (expanded.value.has(group.key) && (!pages[group.key] || !pages[group.key].offset)) void loadGroup(group);
+      if (expanded.value.has(group.key) && (!pages[group.key] || !pages[group.key].offset)) groupLoads.push(loadGroup(group));
     }
+    await Promise.all(groupLoads);
   } catch (cause) {
     if (requestGeneration === generation && !signal.aborted) error.value = `${groupingLabel.value} konnten nicht geladen werden.`;
   } finally {
@@ -302,6 +314,37 @@ function reconcileDocuments() {
   }
 }
 
+async function revealImportedDocument(id) {
+  await groupRefreshPromise;
+  const requestGeneration = generation;
+  let doc = props.documents.find(item => item.id === id)
+    || Object.values(pages).flatMap(page => page.items).find(item => item.id === id);
+  if (!doc) {
+    try { doc = await getDocument(id); } catch { return; }
+  }
+  if (requestGeneration !== generation) return;
+  const key = isDocumentTypeGrouping.value ? documentTypeGroupKey(doc.document_type || doc.category)
+    : doc.correspondent_id || 'unassigned';
+  const group = groups.value.find(entry => entry.key === key);
+  if (!group) return;
+  // Nur die passende Gruppe laden. Bei sehr großen oder gefilterten Gruppen
+  // übernimmt nach höchstens drei Seiten das Sidebar-Ziel die Rückmeldung.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (pages[key]?.items.some(item => item.id === id)) break;
+    await loadGroup(group);
+    if (requestGeneration !== generation || pages[key]?.error) return;
+    if (pages[key]?.offset >= group.count) break;
+  }
+  if (!pages[key]?.items.some(item => item.id === id)) return;
+  expanded.value = new Set([...expanded.value, key]);
+  await importLayoutReady();
+  const section = Array.from(root.value?.querySelectorAll('[data-group-key]') || [])
+    .find(element => element.dataset.groupKey === key);
+  const reveal = section?.querySelector('.doc-groups__reveal');
+  // Erst nach dem Aufklappen messen, damit sich das Ziel im Flug nicht bewegt.
+  await Promise.all((reveal?.getAnimations() || []).map(animation => animation.finished.catch(() => {})));
+}
+
 function documentTitle(doc) {
   const title = String(doc.display_name || doc.original_filename || '').trim() || 'Ohne Titel';
   return props.showSuffix ? title : title.replace(/\.[A-Za-z][A-Za-z0-9]{0,7}$/, '');
@@ -329,7 +372,9 @@ const stopSessionReset = onApiSessionReset(() => {
   expansionOwner = apiSessionOwner();
   expanded.value = loadGroupExpansion(expansionOwner, undefined, props.grouping);
 });
-watch(() => [props.queryPath, props.refreshKey], refreshGroups, { immediate: true });
+watch(() => [props.queryPath, props.refreshKey], () => {
+  groupRefreshPromise = refreshGroups();
+}, { immediate: true });
 watch(() => [props.documents, props.selectedDocument], reconcileDocuments, { deep: true });
 watch(() => props.selectedDocument && [
   props.selectedDocument.id, props.selectedDocument.updated_at, props.selectedDocument.correspondent_id,
