@@ -17,8 +17,8 @@
       <span>Einstellungen werden geladen...</span>
     </div>
     <template v-else>
-      <div class="pm-settings-layout" :class="{ 'pm-settings-layout--with-rail': isNotesPreviewCategory }">
-        <nav class="pm-settings-nav" role="tablist" aria-label="Einstellungskategorien">
+      <div class="pm-settings-layout" :class="{ 'pm-settings-layout--with-rail': isNotesPreviewCategory, 'pm-settings-layout--no-animations': !animationsEnabled }">
+        <nav ref="settingsNavRef" class="pm-settings-nav" role="tablist" aria-label="Einstellungskategorien">
           <div
             v-for="group in visibleCategoryGroups"
             :key="`settings-group-${group.key}`"
@@ -1231,31 +1231,15 @@
             />
 
             <div class="settings-category-management">
-              <div class="settings-category-header">
-                <div class="settings-category-add">
-                  <v-text-field
-                    v-model="newCategoryName"
-                    :maxlength="VOCAB_NAME_MAX_LENGTH"
-                    density="compact"
-                    variant="outlined"
-                    hide-details
-                    placeholder="Neuer Dokumenttyp…"
-                    :disabled="categoryStore.isCategoryMutationRunning"
-                    @keydown.enter.prevent="addCategory"
-                  />
-                  <v-btn
-                    variant="tonal"
-                    color="primary"
-                    size="default"
-                    class="settings-category-add__button"
-                    prepend-icon="mdi-plus"
-                    :disabled="!newCategoryName.trim() || categoryStore.isCategoryMutationRunning"
-                    @click="addCategory"
-                  >
-                    Hinzufügen
-                  </v-btn>
-                </div>
-              </div>
+              <VocabularySearch
+                ref="documentTypeSearchField"
+                v-model="documentTypeSearch"
+                search-label="Dokumenttypen durchsuchen"
+                create-label="Dokumenttyp hinzufügen"
+                :can-create="canCreateDocumentTypeFromSearch"
+                :creating="isCreatingDocumentType"
+                @create="addCategory"
+              />
 
               <div class="settings-category-filter">
                 <v-chip-group
@@ -1266,18 +1250,8 @@
                   <v-chip value="all" size="small" variant="outlined" filter>
                     Alle {{ categoryStore.sortedCategories.length }}
                   </v-chip>
-                  <v-chip
-                    v-for="area in documentTypeAreas"
-                    :key="area.value"
-                    :value="area.value"
-                    size="small"
-                    variant="outlined"
-                    filter
-                  >
-                    {{ area.label }} {{ documentTypeAreaCounts[area.value] || 0 }}
-                  </v-chip>
                   <v-chip value="unassigned" size="small" variant="outlined" filter>
-                    Ohne Zuordnung {{ documentTypeAreaCounts.unassigned || 0 }}
+                    Nicht zugeordnet {{ unassignedDocumentTypeCount }}
                   </v-chip>
                 </v-chip-group>
               </div>
@@ -1292,6 +1266,8 @@
                   <button
                     type="button"
                     class="settings-category-summary"
+                    :aria-expanded="selectedCategoryId === cat.id"
+                    :aria-controls="`category-editor-${cat.id}`"
                     @click="toggleCategory(cat)"
                   >
                     <div class="settings-category-main">
@@ -1306,97 +1282,97 @@
                       </div>
                     </div>
                     <div class="settings-category-actions">
+                      <span v-if="['error', 'invalid'].includes(categoryEditor.stateFor(cat.id))" class="settings-record-error">Nicht gespeichert</span>
                       <span class="settings-category-count" :title="`${cat.usage_count || 0} Dokument(e)`">
                         {{ cat.usage_count || 0 }}
                       </span>
-                      <v-icon size="18">{{ selectedCategoryId === cat.id ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon>
+                      <v-icon size="18" class="settings-drawer-chevron" :class="{ 'settings-drawer-chevron--open': selectedCategoryId === cat.id }">mdi-chevron-down</v-icon>
                     </div>
                   </button>
 
                   <div
                     class="settings-category-editor-shell"
+                    :id="`category-editor-${cat.id}`"
                     :class="{ 'settings-category-editor-shell--open': selectedCategoryId === cat.id }"
                     :aria-hidden="selectedCategoryId === cat.id ? 'false' : 'true'"
                     :inert="selectedCategoryId === cat.id ? null : true"
                   >
-                    <div class="settings-category-editor">
-                      <div class="settings-category-form">
-                        <v-text-field
-                          v-model="editingCategoryName"
-                          :maxlength="VOCAB_NAME_MAX_LENGTH"
-                          density="compact"
-                          variant="outlined"
-                          hide-details
-                          label="Name"
-                          @keydown.enter.prevent="scheduleCategoryAutosave(true)"
-                          @blur="scheduleCategoryAutosave(true)"
-                        />
-                        <v-select
-                          v-model="editingCategoryArea"
-                          :items="documentTypeAreas"
-                          item-title="label"
-                          item-value="value"
-                          density="compact"
-                          variant="outlined"
-                          hide-details
-                          clearable
-                          label="Bereich"
-                          placeholder="Ohne Zuordnung"
-                          @update:model-value="scheduleCategoryAutosave(true)"
-                        />
-                        <transition name="fade">
-                          <span
-                            v-if="categorySaveState !== 'idle'"
-                            class="settings-correspondent-savestate"
-                            :class="`settings-correspondent-savestate--${categorySaveState}`"
-                          >
-                            <v-icon size="14">
-                              {{ categorySaveState === 'saving' ? 'mdi-cloud-sync-outline' : 'mdi-check-circle-outline' }}
-                            </v-icon>
-                            {{ categorySaveState === 'saving' ? 'Speichert…' : 'Gespeichert' }}
-                          </span>
-                        </transition>
-                        <v-btn
-                          icon
-                          variant="text"
-                          color="error"
-                          class="settings-category-action-btn settings-category-action-btn--danger"
-                          title="Löschen"
-                          :disabled="categoryStore.isCategoryMutationRunning"
-                          @click="removeCategory(cat)"
-                        >
-                          <v-icon size="18">mdi-trash-can-outline</v-icon>
-                        </v-btn>
-                      </div>
-                      <div class="settings-correspondent-block">
-                        <v-textarea
-                          v-model="editingCategoryTemplate"
-                          density="compact"
-                          variant="outlined"
-                          hide-details
-                          rows="2"
-                          auto-grow
-                          label="Dateiname-Template"
-                          placeholder="z. B. {betreff} {datum:dd.MM.yyyy}"
-                          @blur="scheduleCategoryAutosave(true)"
-                        />
-                        <div class="settings-template-preview">
-                          <span class="settings-template-preview__label">Vorschau</span>
-                          <span class="settings-template-preview__value">
-                            <template
-                              v-for="(part, index) in categoryTemplatePreviewParts"
-                              :key="`${part.text}-${index}`"
-                            >
-                              <span
-                                v-if="part.missing"
-                                class="settings-template-preview__missing"
-                              >{{ part.text }}</span>
-                              <span v-else>{{ part.text }}</span>
-                            </template>
-                          </span>
+                    <Transition name="settings-drawer" :css="animationsEnabled">
+                      <div v-if="selectedCategoryId === cat.id" class="settings-drawer">
+                        <div class="settings-drawer__clip">
+                          <div class="settings-category-editor">
+                            <div class="settings-category-editor__head">
+                              <div class="settings-category-form">
+                                <v-text-field
+                                  v-model="editingCategoryName"
+                                  :maxlength="VOCAB_NAME_MAX_LENGTH"
+                                  density="compact"
+                                  variant="outlined"
+                                  hide-details="auto"
+                                  label="Name"
+                                  :rules="[(v) => (v || '').trim().length >= 2 || 'Mindestens 2 Zeichen']"
+                                  @keydown.enter.prevent="scheduleCategoryAutosave(true)"
+                                />
+                                <v-select
+                                  v-model="editingCategoryArea"
+                                  :items="documentTypeAreas"
+                                  item-title="label"
+                                  item-value="value"
+                                  density="compact"
+                                  variant="outlined"
+                                  hide-details
+                                  clearable
+                                  label="Bereich"
+                                  placeholder="Ohne Zuordnung"
+                                  @update:model-value="scheduleCategoryAutosave(true)"
+                                />
+
+                              </div>
+                              <v-btn
+                                icon
+                                variant="text"
+                                color="error"
+                                class="settings-category-action-btn settings-category-action-btn--danger"
+                                title="Dokumenttyp löschen"
+                                aria-label="Dokumenttyp löschen"
+                                :disabled="categoryStore.isCategoryMutationRunning"
+                                @click="removeCategory(cat)"
+                              >
+                                <v-icon size="18">mdi-trash-can-outline</v-icon>
+                              </v-btn>
+                            </div>
+                            <div class="settings-correspondent-block">
+                              <v-textarea
+                                v-model="editingCategoryTemplate"
+                                density="compact"
+                                variant="outlined"
+                                hide-details
+                                rows="2"
+                                auto-grow
+                                label="Dateiname-Template"
+                                placeholder="z. B. {betreff} {datum:dd.MM.yyyy}"
+                              />
+                              <div class="settings-template-preview">
+                                <span class="settings-template-preview__label">Vorschau</span>
+                                <span class="settings-template-preview__value">
+                                  <template
+                                    v-for="(part, index) in categoryTemplatePreviewParts"
+                                    :key="`${part.text}-${index}`"
+                                  >
+                                    <span
+                                      v-if="part.missing"
+                                      class="settings-template-preview__missing"
+                                    >{{ part.text }}</span>
+                                    <span v-else>{{ part.text }}</span>
+                                  </template>
+                                </span>
+                              </div>
+                            </div>
+                            <RecordSaveStatus :state="categorySaveState" @retry="scheduleCategoryAutosave(true)" />
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    </Transition>
                   </div>
                 </div>
 
@@ -1410,7 +1386,7 @@
                 <div v-else-if="displayedDocumentTypes.length === 0" class="settings-category-empty">
                   {{ categoryStore.sortedCategories.length === 0
                     ? 'Noch keine Dokumenttypen angelegt.'
-                    : 'Keine Dokumenttypen in diesem Bereich.' }}
+                    : 'Keine Dokumenttypen für diese Auswahl gefunden.' }}
                 </div>
               </div>
             </div>
@@ -1685,68 +1661,15 @@
             </SettingsInfoCard>
 
             <div class="settings-category-management">
-              <div class="settings-correspondent-create">
-                <div class="settings-category-add settings-correspondent-add">
-                  <v-text-field
-                    v-model="newCorrespondentName"
-                    maxlength="120"
-                    density="compact"
-                    variant="outlined"
-                    hide-details
-                    :placeholder="newCorrespondentPlaceholder"
-                    :disabled="correspondentStore.isMutationRunning"
-                    @keydown.enter.prevent="addCorrespondent"
-                  >
-                    <template #prepend-inner>
-                      <v-menu>
-                        <template #activator="{ props: activatorProps }">
-                          <v-btn
-                            v-bind="activatorProps"
-                            icon
-                            variant="text"
-                            size="small"
-                            class="settings-correspondent-kind-menu"
-                            :title="correspondentKindLabel(newCorrespondentKind)"
-                          >
-                            <v-icon size="19">{{ correspondentKindIcon({ kind: newCorrespondentKind }) }}</v-icon>
-                          </v-btn>
-                        </template>
-                        <v-list density="compact">
-                          <v-list-item
-                            title="Organisation"
-                            prepend-icon="mdi-domain"
-                            :active="newCorrespondentKind === 'organization'"
-                            @click="newCorrespondentKind = 'organization'"
-                          />
-                          <v-list-item
-                            title="Person"
-                            prepend-icon="mdi-account-outline"
-                            :active="newCorrespondentKind === 'person'"
-                            @click="newCorrespondentKind = 'person'"
-                          />
-                          <v-list-item
-                            title="Sammlung"
-                            prepend-icon="mdi-shape-outline"
-                            :active="newCorrespondentKind === 'collection'"
-                            @click="newCorrespondentKind = 'collection'"
-                          />
-                        </v-list>
-                      </v-menu>
-                    </template>
-                  </v-text-field>
-                  <v-btn
-                    variant="tonal"
-                    color="primary"
-                    size="default"
-                    class="settings-category-add__button"
-                    prepend-icon="mdi-plus"
-                    :disabled="!newCorrespondentName.trim() || correspondentStore.isMutationRunning"
-                    @click="addCorrespondent"
-                  >
-                    Hinzufügen
-                  </v-btn>
-                </div>
-              </div>
+              <VocabularySearch
+                ref="correspondentSearchField"
+                v-model="correspondentSearch"
+                search-label="Korrespondenten durchsuchen"
+                create-label="Korrespondent hinzufügen"
+                :can-create="canCreateCorrespondentFromSearch"
+                :creating="isCreatingCorrespondent"
+                @create="addCorrespondent"
+              />
 
               <div class="settings-correspondent-filter">
                 <v-chip-group
@@ -1766,6 +1689,9 @@
                   <v-chip value="collection" size="small" variant="outlined" filter>
                     Sammlungen {{ collectionCorrespondentCount }}
                   </v-chip>
+                  <v-chip value="unassigned" size="small" variant="outlined" filter>
+                    Ohne Typ {{ unassignedCorrespondentCount }}
+                  </v-chip>
                 </v-chip-group>
               </div>
 
@@ -1783,6 +1709,8 @@
                   <button
                     type="button"
                     class="settings-correspondent-summary"
+                    :aria-expanded="selectedCorrespondentId === item.id"
+                    :aria-controls="`correspondent-editor-${item.id}`"
                     @click="toggleCorrespondent(item)"
                   >
                     <span class="settings-category-main">
@@ -1797,160 +1725,164 @@
                       </span>
                     </span>
                     <span class="settings-correspondent-summary__right">
+                      <span v-if="['error', 'invalid'].includes(correspondentEditor.stateFor(item.id))" class="settings-record-error">Nicht gespeichert</span>
                       <span class="settings-category-count" :title="`${item.usage_count || 0} Dokument(e)`">
                         {{ item.usage_count || 0 }}
                       </span>
-                      <v-icon size="18">{{ selectedCorrespondentId === item.id ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon>
+                      <v-icon size="18" class="settings-drawer-chevron" :class="{ 'settings-drawer-chevron--open': selectedCorrespondentId === item.id }">mdi-chevron-down</v-icon>
                     </span>
                   </button>
 
                   <div
                     class="settings-correspondent-editor-shell"
+                    :id="`correspondent-editor-${item.id}`"
                     :class="{ 'settings-correspondent-editor-shell--open': selectedCorrespondentId === item.id }"
                     :aria-hidden="selectedCorrespondentId === item.id ? 'false' : 'true'"
                     :inert="selectedCorrespondentId === item.id ? null : true"
                   >
-                    <div class="settings-correspondent-editor">
-                      <div class="settings-correspondent-editor__head">
-                        <v-btn-toggle
-                          :model-value="editingCorrespondentKind"
-                          density="compact"
-                          variant="outlined"
-                          divided
-                          class="settings-correspondent-kind-toggle"
-                          @update:model-value="onEditingKindChange"
-                        >
-                          <v-btn value="organization" size="small">
-                            <v-icon size="16" start>mdi-domain</v-icon>Organisation
-                          </v-btn>
-                          <v-btn value="person" size="small">
-                            <v-icon size="16" start>mdi-account-outline</v-icon>Person
-                          </v-btn>
-                          <v-btn value="collection" size="small">
-                            <v-icon size="16" start>mdi-shape-outline</v-icon>Sammlung
-                          </v-btn>
-                        </v-btn-toggle>
+                    <Transition name="settings-drawer" :css="animationsEnabled">
+                      <div v-if="selectedCorrespondentId === item.id" class="settings-drawer">
+                        <div class="settings-drawer__clip">
+                          <div class="settings-correspondent-editor">
+                            <div class="settings-correspondent-editor__head">
+                              <v-btn-toggle
+                                :model-value="editingCorrespondentKind"
+                                density="compact"
+                                variant="text"
+                                class="settings-correspondent-kind-toggle"
+                                @update:model-value="onEditingKindChange"
+                              >
+                                <v-btn value="organization" size="small">
+                                  <v-icon size="16" start>mdi-domain</v-icon>Organisation
+                                </v-btn>
+                                <v-btn value="person" size="small">
+                                  <v-icon size="16" start>mdi-account-outline</v-icon>Person
+                                </v-btn>
+                                <v-btn value="collection" size="small">
+                                  <v-icon size="16" start>mdi-shape-outline</v-icon>Sammlung
+                                </v-btn>
+                              </v-btn-toggle>
 
-                        <v-spacer />
+                              <v-spacer />
 
-                        <transition name="fade">
-                          <span
-                            v-if="correspondentSaveState !== 'idle'"
-                            class="settings-correspondent-savestate"
-                            :class="`settings-correspondent-savestate--${correspondentSaveState}`"
-                          >
-                            <v-icon size="14">
-                              {{ correspondentSaveState === 'saving' ? 'mdi-cloud-sync-outline' : 'mdi-check-circle-outline' }}
-                            </v-icon>
-                            {{ correspondentSaveState === 'saving' ? 'Speichert…' : 'Gespeichert' }}
-                          </span>
-                        </transition>
 
-                        <span class="settings-correspondent-delete-wrapper">
-                          <v-btn
-                            v-if="(item.usage_count || 0) > 0"
-                            icon
-                            variant="text"
-                            size="small"
-                            color="primary"
-                            class="settings-correspondent-icon-action settings-correspondent-unlink"
-                            :title="correspondentUnlinkTitle(item)"
-                            :disabled="correspondentStore.isMutationRunning"
-                            @click="openCorrespondentUnlinkConfirm(item)"
-                          >
-                            <v-icon size="18">mdi-link-off</v-icon>
-                          </v-btn>
-                          <v-btn
-                            v-else
-                            icon
-                            variant="text"
-                            size="small"
-                            color="error"
-                            class="settings-correspondent-icon-action settings-correspondent-delete"
-                            title="Korrespondent löschen"
-                            :disabled="correspondentStore.isMutationRunning"
-                            @click="removeSelectedCorrespondent"
-                          >
-                            <v-icon size="18">mdi-trash-can-outline</v-icon>
-                          </v-btn>
-                        </span>
-                      </div>
 
-                      <div class="settings-correspondent-fields">
-                        <div class="settings-correspondent-fields__name-row">
-                          <v-text-field
-                            v-model="editingCorrespondentName"
-                            density="compact"
-                            variant="outlined"
-                            hide-details="auto"
-                            label="Name"
-                            maxlength="120"
-                            :rules="[(v) => (v || '').trim().length >= 2 || 'Mindestens 2 Zeichen']"
-                            @blur="scheduleCorrespondentAutosave(true)"
-                          />
-                          <v-text-field
-                            v-model="editingCorrespondentShortName"
-                            density="compact"
-                            variant="outlined"
-                            hide-details
-                            label="Kurzname"
-                            placeholder="optional"
-                            maxlength="60"
-                            @blur="scheduleCorrespondentAutosave(true)"
-                          />
+                              <span class="settings-correspondent-delete-wrapper">
+                                <v-btn
+                                  v-if="(item.usage_count || 0) > 0"
+                                  icon
+                                  variant="text"
+                                  size="small"
+                                  color="primary"
+                                  class="settings-correspondent-icon-action settings-correspondent-unlink"
+                                  :title="correspondentUnlinkTitle(item)"
+                                  :aria-label="correspondentUnlinkTitle(item)"
+                                  :disabled="correspondentStore.isMutationRunning"
+                                  @click="openCorrespondentUnlinkConfirm(item)"
+                                >
+                                  <v-icon size="18">mdi-link-off</v-icon>
+                                </v-btn>
+                                <v-btn
+                                  v-else
+                                  icon
+                                  variant="text"
+                                  size="small"
+                                  color="error"
+                                  class="settings-correspondent-icon-action settings-correspondent-delete"
+                                  title="Korrespondent löschen"
+                                  aria-label="Korrespondent löschen"
+                                  :disabled="correspondentStore.isMutationRunning"
+                                  @click="removeSelectedCorrespondent"
+                                >
+                                  <v-icon size="18">mdi-trash-can-outline</v-icon>
+                                </v-btn>
+                              </span>
+                            </div>
+
+                            <div class="settings-correspondent-fields">
+                              <div class="settings-correspondent-fields__name-row">
+                                <v-text-field
+                                  v-model="editingCorrespondentName"
+                                  density="compact"
+                                  variant="outlined"
+                                  hide-details="auto"
+                                  label="Name"
+                                  maxlength="120"
+                                  :rules="[(v) => (v || '').trim().length >= 2 || 'Mindestens 2 Zeichen']"
+                                  @keydown.enter.prevent="scheduleCorrespondentAutosave(true)"
+                                />
+                                <v-text-field
+                                  v-model="editingCorrespondentShortName"
+                                  density="compact"
+                                  variant="outlined"
+                                  hide-details
+                                  label="Kurzname"
+                                  placeholder="optional"
+                                  maxlength="60"
+                                  @keydown.enter.prevent="scheduleCorrespondentAutosave(true)"
+                                />
+                              </div>
+                              <v-select
+                                v-if="editingCorrespondentKind === 'person'"
+                                :model-value="editingCorrespondentParentId"
+                                :items="organizationOptions.filter((o) => o.value !== item.id)"
+                                density="compact"
+                                variant="outlined"
+                                hide-details
+                                clearable
+                                label="Gehört zu Organisation"
+                                placeholder="Keine Zuordnung"
+                                class="settings-correspondent-parent-select"
+                                @update:model-value="onEditingParentChange"
+                              />
+                            </div>
+
+                            <div class="settings-correspondent-block">
+                              <div class="settings-correspondent-block__title">{{ editingCorrespondentKind === 'collection' ? 'Erkennungsnamen' : 'Aliase' }}</div>
+                              <div class="settings-correspondent-block__hint">Alternative Namen helfen bei der automatischen Zuordnung.</div>
+                              <div class="settings-inline-add">
+                                <v-text-field
+                                  v-model="newAliasName"
+                                  density="compact"
+                                  variant="outlined"
+                                  hide-details
+                                  maxlength="120"
+                                  :label="correspondentAliasLabel(item)"
+                                  :placeholder="correspondentAliasPlaceholder(item)"
+                                  @keydown.enter.prevent="addAliasToSelected"
+                                />
+                                <v-btn
+                                  icon
+                                  variant="text"
+                                  color="primary"
+                                  class="settings-correspondent-icon-action"
+                                  :title="correspondentAliasAddTitle(item)"
+                                  :aria-label="correspondentAliasAddTitle(item)"
+                                  :disabled="!newAliasName.trim() || correspondentStore.isMutationRunning"
+                                  @click="addAliasToSelected"
+                                >
+                                  <v-icon size="18">mdi-plus</v-icon>
+                                </v-btn>
+                              </div>
+                              <div v-if="item.aliases?.length" class="settings-chip-list">
+                                <v-chip
+                                  v-for="alias in item.aliases"
+                                  :key="alias.id"
+                                  size="small"
+                                  closable
+                                  :disabled="correspondentStore.isMutationRunning"
+                                  @click:close="removeAlias(alias)"
+                                >
+                                  {{ alias.alias }}
+                                </v-chip>
+                              </div>
+                            </div>
+
+                            <RecordSaveStatus :state="correspondentSaveState" @retry="scheduleCorrespondentAutosave(true)" />
+                          </div>
                         </div>
-                        <v-select
-                          v-if="editingCorrespondentKind === 'person'"
-                          :model-value="editingCorrespondentParentId"
-                          :items="organizationOptions.filter((o) => o.value !== item.id)"
-                          density="compact"
-                          variant="outlined"
-                          hide-details
-                          clearable
-                          label="Gehört zu Organisation"
-                          placeholder="Keine Zuordnung"
-                          class="settings-correspondent-parent-select"
-                          @update:model-value="onEditingParentChange"
-                        />
                       </div>
-
-                      <div class="settings-correspondent-block">
-                        <div class="settings-inline-add">
-                          <v-text-field
-                            v-model="newAliasName"
-                            density="compact"
-                            variant="outlined"
-                            hide-details
-                            :label="correspondentAliasLabel(item)"
-                            :placeholder="correspondentAliasPlaceholder(item)"
-                            @keydown.enter.prevent="addAliasToSelected"
-                          />
-                          <v-btn
-                            icon
-                            variant="text"
-                            color="primary"
-                            class="settings-correspondent-icon-action"
-                            :title="correspondentAliasAddTitle(item)"
-                            :disabled="!newAliasName.trim() || correspondentStore.isMutationRunning"
-                            @click="addAliasToSelected"
-                          >
-                            <v-icon size="18">mdi-plus</v-icon>
-                          </v-btn>
-                        </div>
-                        <div v-if="item.aliases?.length" class="settings-chip-list">
-                          <v-chip
-                            v-for="alias in item.aliases"
-                            :key="alias.id"
-                            size="small"
-                            closable
-                            @click:close="removeAlias(alias)"
-                          >
-                            {{ alias.alias }}
-                          </v-chip>
-                        </div>
-                      </div>
-
-                    </div>
+                    </Transition>
                   </div>
                 </div>
 
@@ -1961,8 +1893,8 @@
                   <v-progress-circular indeterminate size="24" width="2" color="primary" />
                   <span>Korrespondenten werden geladen…</span>
                 </div>
-                <div v-else-if="correspondentStore.correspondents.length === 0" class="settings-category-empty">
-                  Noch keine Korrespondenten angelegt.
+                <div v-else-if="displayedCorrespondents.length === 0" class="settings-category-empty">
+                  {{ correspondentStore.correspondents.length ? 'Keine Korrespondenten für diese Auswahl gefunden.' : 'Noch keine Korrespondenten angelegt.' }}
                 </div>
               </div>
             </div>
@@ -2997,12 +2929,15 @@
 <script setup>
 import { useSidebarAppearance } from '../composables/useSidebarAppearance.js';
 const { lightSidebar, setLightSidebar } = useSidebarAppearance();
-import { computed, defineAsyncComponent, nextTick, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { useRecordAutosave } from '../composables/useRecordAutosave.js';
 import { useTheme } from 'vuetify';
 import BaseDialog from './BaseDialog.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import DestructiveDialog from './DestructiveDialog.vue';
 import SettingsInfoCard from './SettingsInfoCard.vue';
+import RecordSaveStatus from './RecordSaveStatus.vue';
+import VocabularySearch from './VocabularySearch.vue';
 // Nur in den Admin-Tabs „Dienste"/„System" sichtbar → als eigene Chunks lazy
 // geladen, damit sie den Haupt-Chunk des Dialogs nicht aufblähen.
 const NoteSpeechSettings = defineAsyncComponent(() => import('./notes/NoteSpeechSettings.vue'));
@@ -3089,6 +3024,7 @@ const SETTINGS_ACTIVE_CATEGORY_STORAGE_KEY = 'pm.settings.activeCategory';
 // ── Stores / Theme ───────────────────────────────────────────────────────────
 
 const theme = useTheme();
+const settingsNavRef = ref(null);
 const auth = useAuthStore();
 const settingsStore = useSettingsStore();
 const categoryStore = useCategoryStore();
@@ -4087,7 +4023,7 @@ const isNotesPreviewCategory = computed(
 
 // Locked control-panel width (598) + nav (220) + rail (340) + 2px border = 1160.
 // Growing the dialog by exactly the rail width keeps nav + panel unchanged.
-const settingsDialogMaxWidth = computed(() => (isNotesPreviewCategory.value ? 1160 : 820));
+const settingsDialogMaxWidth = computed(() => isNotesPreviewCategory.value ? 1160 : 820);
 
 const notesSettingsPreviewStyle = computed(() => {
   const fontFamily = {
@@ -5209,36 +5145,56 @@ function toggleScanLineAnimationFromRow() {
 
 // ── Dokumenttypen-Verwaltung ───────────────────────────────────────────────────
 
-const newCategoryName = ref('');
+const documentTypeSearchField = ref(null);
+const documentTypeSearch = ref('');
+const isCreatingDocumentType = ref(false);
 const documentTypeAreaFilter = ref('all');
-const selectedCategoryId = ref(null);
-const editingCategoryName = ref('');
-const editingCategoryTemplate = ref('');
-const editingCategoryArea = ref(null);
-// Auto-Speichern (analog Korrespondenten): dezenter Status statt Speichern-Button.
-const categorySaveState = ref('idle'); // 'idle' | 'saving' | 'saved'
-let categoryAutosaveTimer = null;
-let categorySavedResetTimer = null;
-let suppressCategoryAutosave = false;
+const normalizeVocabText = value => String(value || '').replace(/\s+/g, ' ').trim();
+const categoryEditor = useRecordAutosave({
+  items: () => categoryStore.categories,
+  readDraft: item => ({ name: item.name || '', template: item.naming_template || '', area: item.area || null }),
+  toPayload: draft => ({ name: normalizeVocabText(draft.name), naming_template: draft.template.trim() || null, area: draft.area || null }),
+  validate: draft => normalizeVocabText(draft.name).length >= 2 && normalizeVocabText(draft.name).length <= VOCAB_NAME_MAX_LENGTH,
+  persist: async (id, payload) => (await categoryStore.updateCategory(id, payload, { silent: true })).category,
+});
+const selectedCategoryId = categoryEditor.selectedId;
+const editingCategoryName = categoryEditor.field('name');
+const editingCategoryTemplate = categoryEditor.field('template');
+const editingCategoryArea = categoryEditor.field('area', null);
+const categorySaveState = categoryEditor.state;
+const categoryEditOrder = ref([]);
 
-const newCorrespondentName = ref('');
-const newCorrespondentKind = ref('organization');
+const correspondentSearchField = ref(null);
+const isCreatingCorrespondent = ref(false);
 const correspondentTypeFilter = ref('all');
-const selectedCorrespondentId = ref(null);
-const editingCorrespondentName = ref('');
-const editingCorrespondentShortName = ref('');
-const editingCorrespondentKind = ref(null);
-const editingCorrespondentParentId = ref(null);
+const correspondentSearch = ref('');
+const correspondentEditor = useRecordAutosave({
+  items: () => correspondentStore.correspondents,
+  readDraft: item => ({ name: item.name || '', shortName: item.short_name || '', kind: item.kind || null, parentId: item.parent_id || null }),
+  toPayload: draft => ({
+    name: normalizeVocabText(draft.name), short_name: normalizeVocabText(draft.shortName) || null,
+    kind: draft.kind || null, parent_id: draft.kind === 'person' ? draft.parentId || null : null,
+  }),
+  validate: draft => normalizeVocabText(draft.name).length >= 2 && normalizeVocabText(draft.name).length <= 120,
+  persist: async (id, payload) => (await correspondentStore.updateCorrespondent(id, payload, { silent: true })).correspondent,
+});
+const selectedCorrespondentId = correspondentEditor.selectedId;
+const editingCorrespondentName = correspondentEditor.field('name');
+const editingCorrespondentShortName = correspondentEditor.field('shortName');
+const editingCorrespondentKind = correspondentEditor.field('kind', null);
+const editingCorrespondentParentId = correspondentEditor.field('parentId', null);
+const correspondentSaveState = correspondentEditor.state;
+const correspondentEditOrder = ref([]);
+const selectedCorrespondentWasNested = ref(false);
 const collectionTypeConfirmOpen = ref(false);
 const pendingCorrespondentKind = ref(null);
 const correspondentUnlinkConfirmOpen = ref(false);
 const pendingCorrespondentUnlink = ref(null);
-// Auto-Speichern: Status für die dezente Anzeige statt eines Speichern-Buttons.
-const correspondentSaveState = ref('idle'); // 'idle' | 'saving' | 'saved'
-let correspondentAutosaveTimer = null;
-let correspondentSavedResetTimer = null;
-let suppressCorrespondentAutosave = false;
-const newAliasName = ref('');
+const aliasDrafts = ref({});
+const newAliasName = computed({
+  get: () => aliasDrafts.value[selectedCorrespondentId.value] || '',
+  set: value => { if (selectedCorrespondentId.value) aliasDrafts.value[selectedCorrespondentId.value] = value; },
+});
 const unresolvedCorrespondents = ref([]);
 const unresolvedSelections = ref({});
 const unresolvedCorrespondentsDialogOpen = ref(false);
@@ -5251,70 +5207,46 @@ const selectedCorrespondent = computed(() =>
   selectedCorrespondentId.value ? correspondentStore.findById(selectedCorrespondentId.value) : null
 );
 
-const selectedCategory = computed(() =>
-  selectedCategoryId.value ? categoryStore.findById(selectedCategoryId.value) : null
+const unassignedDocumentTypeCount = computed(() =>
+  categoryStore.categories.filter(category => !category.area).length
 );
 
-const documentTypeAreaCounts = computed(() => {
-  const counts = { unassigned: 0 };
-  for (const category of categoryStore.sortedCategories) {
-    const key = category?.area || 'unassigned';
-    counts[key] = (counts[key] || 0) + 1;
-  }
-  return counts;
+function stableEditorOrder(items, order) {
+  const rank = new Map(order.map((id, index) => [id, index]));
+  return [...items].sort((a, b) => (rank.get(a.id) ?? order.length) - (rank.get(b.id) ?? order.length));
+}
+
+const documentTypeSearchName = computed(() => normalizeVocabText(documentTypeSearch.value));
+const matchingDocumentTypes = computed(() => {
+  const query = documentTypeSearchName.value.toLocaleLowerCase('de-DE');
+  return categoryStore.sortedCategories.filter(category =>
+    !query || normalizeVocabText(category.name).toLocaleLowerCase('de-DE').includes(query)
+  );
 });
+const canCreateDocumentTypeFromSearch = computed(() =>
+  documentTypeSearchName.value.length >= 2 && documentTypeSearchName.value.length <= VOCAB_NAME_MAX_LENGTH &&
+  categoryStore.isLoaded && !categoryStore.isLoading && !categoryStore.isCategoryMutationRunning &&
+  !isCreatingDocumentType.value && matchingDocumentTypes.value.length === 0
+);
 
 const displayedDocumentTypes = computed(() => {
-  if (documentTypeAreaFilter.value === 'all') return categoryStore.sortedCategories;
-  if (documentTypeAreaFilter.value === 'unassigned') {
-    return categoryStore.sortedCategories.filter((category) => !category?.area);
-  }
-  return categoryStore.sortedCategories.filter(
-    (category) => category?.area === documentTypeAreaFilter.value
-  );
+  const matchingIds = new Set(matchingDocumentTypes.value.map(category => category.id));
+  const filter = documentTypeAreaFilter.value;
+  const items = categoryStore.sortedCategories.filter(category => {
+    if (category.id === selectedCategoryId.value) return true;
+    const matchesArea = filter === 'all' || !category.area;
+    return matchesArea && matchingIds.has(category.id);
+  });
+  return selectedCategoryId.value ? stableEditorOrder(items, categoryEditOrder.value) : items;
 });
 
 function documentTypeAreaLabel(area) {
   return documentTypeAreaLabels[area] || 'Ohne Zuordnung';
 }
 
-/** Weicht der Kategorie-Editor vom gespeicherten Stand ab? (steuert Auto-Speichern) */
-function categoryEditorDirty() {
-  const current = selectedCategory.value;
-  if (!current) return false;
-  const nextName = editingCategoryName.value.trim();
-  if (!nextName) return false;
-  return (
-    nextName !== current.name ||
-    editingCategoryTemplate.value.trim() !== (current.naming_template || '') ||
-    (editingCategoryArea.value || null) !== (current.area || null)
-  );
-}
-
 const categoryTemplatePreviewParts = computed(() =>
   renderCategoryTemplatePreviewParts(editingCategoryTemplate.value)
 );
-
-/**
- * Weicht der Editor-Zustand vom gespeicherten Korrespondenten ab? Steuert das
- * Auto-Speichern und schützt laufende Eingaben vor dem Re-Sync bei Listen-Reload.
- * Personen ohne Organisation sind erlaubt (Privatperson); eine Organisation
- * trägt nie einen Parent (UI erzwingt das beim Umschalten).
- */
-function correspondentEditorDirty() {
-  const current = selectedCorrespondent.value;
-  if (!current) return false;
-  const nextName = editingCorrespondentName.value.trim();
-  if (!nextName) return false;
-  const nextParentId =
-    editingCorrespondentKind.value === 'person' ? editingCorrespondentParentId.value || null : null;
-  return (
-    nextName !== current.name ||
-    (editingCorrespondentShortName.value.trim() || '') !== (current.short_name || '') ||
-    (editingCorrespondentKind.value || null) !== (current.kind || null) ||
-    nextParentId !== (current.parent_id || null)
-  );
-}
 
 const correspondentNameSort = (a, b) => a.name.localeCompare(b.name, 'de-DE');
 
@@ -5339,11 +5271,9 @@ const collectionCorrespondentCount = computed(
   () => correspondentStore.correspondents.filter((c) => c.kind === 'collection').length
 );
 
-const newCorrespondentPlaceholder = computed(() => {
-  if (newCorrespondentKind.value === 'person') return 'Neue Person…';
-  if (newCorrespondentKind.value === 'collection') return 'Neue Sammlung…';
-  return 'Neue Organisation…';
-});
+const unassignedCorrespondentCount = computed(
+  () => correspondentStore.correspondents.filter((c) => !c.kind).length
+);
 
 const collectionTypeConfirmDescription = computed(() => {
   if (editingCorrespondentKind.value === 'person') {
@@ -5357,7 +5287,7 @@ const collectionTypeConfirmDescription = computed(() => {
  * jede Organisation gefolgt von ihren zugeordneten Personen, danach Personen
  * ohne Organisation und noch nicht typisierte Einträge.
  */
-const displayedCorrespondents = computed(() => {
+const orderedCorrespondents = computed(() => {
   const all = correspondentStore.correspondents;
   const byId = new Map(all.map((c) => [c.id, c]));
   const collections = all.filter((c) => c.kind === 'collection').slice().sort(correspondentNameSort);
@@ -5387,15 +5317,39 @@ const displayedCorrespondents = computed(() => {
   for (const p of orphanPersons.slice().sort(correspondentNameSort)) ordered.push(p);
   for (const u of untyped.slice().sort(correspondentNameSort)) ordered.push(u);
 
-  const filter = correspondentTypeFilter.value;
-  if (filter === 'collection') return ordered.filter((c) => c.kind === 'collection');
-  if (filter === 'organization') return ordered.filter((c) => c.kind === 'organization');
-  if (filter === 'person') return ordered.filter((c) => c.kind === 'person');
   return ordered;
+});
+
+const correspondentSearchName = computed(() => normalizeVocabText(correspondentSearch.value));
+const matchingCorrespondents = computed(() => {
+  const query = correspondentSearchName.value.toLocaleLowerCase('de-DE');
+  return correspondentStore.correspondents.filter(item => !query ||
+    [item.name, item.short_name, ...(item.aliases || []).map(alias => alias.alias)]
+      .some(value => normalizeVocabText(value).toLocaleLowerCase('de-DE').includes(query))
+  );
+});
+
+const canCreateCorrespondentFromSearch = computed(() =>
+  correspondentSearchName.value.length >= 2 && correspondentSearchName.value.length <= 120 &&
+  correspondentStore.isLoaded && !correspondentStore.isLoading &&
+  !correspondentStore.isMutationRunning && !isCreatingCorrespondent.value &&
+  matchingCorrespondents.value.length === 0
+);
+
+const displayedCorrespondents = computed(() => {
+  const filter = correspondentTypeFilter.value;
+  const matchingIds = new Set(matchingCorrespondents.value.map(item => item.id));
+  const items = orderedCorrespondents.value.filter(item => {
+    if (item.id === selectedCorrespondentId.value) return true;
+    const matchesType = filter === 'all' || (filter === 'unassigned' ? !item.kind : item.kind === filter);
+    return matchesType && matchingIds.has(item.id);
+  });
+  return selectedCorrespondentId.value ? stableEditorOrder(items, correspondentEditOrder.value) : items;
 });
 
 /** Einrückung: eine Person, die einer (vorhandenen) Organisation zugeordnet ist. */
 function correspondentIsNested(item) {
+  if (item.id === selectedCorrespondentId.value) return selectedCorrespondentWasNested.value;
   return Boolean(
     item?.kind === 'person' &&
       item?.parent_id &&
@@ -5537,205 +5491,91 @@ watch(
   { immediate: true }
 );
 
-watch(
-  () => correspondentStore.correspondents,
-  (items) => {
-    if (!Array.isArray(items) || items.length === 0) {
-      selectedCorrespondentId.value = null;
-      return;
-    }
-    if (selectedCorrespondentId.value && !items.some((item) => item.id === selectedCorrespondentId.value)) {
-      selectedCorrespondentId.value = null;
-      return;
-    }
-    if (selectedCorrespondentId.value) {
-      const selected = items.find((item) => item.id === selectedCorrespondentId.value);
-      // Nur re-synchronisieren, wenn der Nutzer gerade nichts Ungespeichertes tippt
-      // (verhindert, dass ein nebenläufiger Reload aktive Eingaben überschreibt).
-      if (selected && !correspondentEditorDirty()) syncCorrespondentEditor(selected);
-    }
+watch(() => correspondentStore.correspondents, items => {
+  if (selectedCorrespondentId.value && !items.some(item => item.id === selectedCorrespondentId.value)) {
+    correspondentEditor.forget(selectedCorrespondentId.value);
   }
-);
-
-watch(
-  () => categoryStore.categories,
-  (items) => {
-    if (!Array.isArray(items) || items.length === 0) {
-      selectedCategoryId.value = null;
-      return;
-    }
-    if (selectedCategoryId.value && !items.some((item) => item.id === selectedCategoryId.value)) {
-      selectedCategoryId.value = null;
-      return;
-    }
-    if (selectedCategoryId.value) {
-      const selected = items.find((item) => item.id === selectedCategoryId.value);
-      // Laufende Eingaben nicht überschreiben.
-      if (selected && !categoryEditorDirty()) syncCategoryEditor(selected);
-    }
+});
+watch(() => categoryStore.categories, items => {
+  if (selectedCategoryId.value && !items.some(item => item.id === selectedCategoryId.value)) {
+    categoryEditor.forget(selectedCategoryId.value);
   }
-);
+});
+watch(documentTypeAreaFilter, () => categoryEditor.select(null));
+watch(correspondentTypeFilter, () => correspondentEditor.select(null));
+watch(activeCategory, (next, previous) => {
+  if (previous === 'correspondents') {
+    void correspondentEditor.flush();
+  }
+  if (previous === 'categories') void categoryEditor.flush();
+});
+watch(() => props.modelValue, open => {
+  if (!open) {
+    void correspondentEditor.flush();
+    void categoryEditor.flush();
+  }
+});
+watch([activeCategory, () => props.modelValue, isSettingsLoading], async () => {
+  await nextTick();
+  const nav = settingsNavRef.value;
+  if (!nav || !props.modelValue || !window.matchMedia('(max-width: 640px)').matches) return;
+  const tab = nav.querySelector('.pm-settings-nav__item--active');
+  if (tab) nav.scrollLeft += tab.getBoundingClientRect().left - nav.getBoundingClientRect().left - 16;
+}, { immediate: true });
+onBeforeUnmount(() => {
+  void correspondentEditor.flush();
+  void categoryEditor.flush();
+});
 
 async function addCategory() {
-  const name = newCategoryName.value.trim();
-  if (!name || categoryStore.isCategoryMutationRunning) return;
+  if (!canCreateDocumentTypeFromSearch.value) return;
+  const name = documentTypeSearchName.value;
+  isCreatingDocumentType.value = true;
   try {
     const result = await categoryStore.createCategoryByName(name);
     if (result.ok || result.reason === 'exists') {
-      newCategoryName.value = '';
+      const created = categoryStore.findById(result.id);
+      if (created) selectCategory(created);
     }
   } catch {
-    /* Fehler wird im Store als Notification gemeldet */
+    /* Fehler wird im Store als Notification gemeldet; die Eingabe bleibt erhalten. */
+  } finally {
+    isCreatingDocumentType.value = false;
+    nextTick(() => { if (props.modelValue) documentTypeSearchField.value?.focus(); });
   }
 }
 
 async function removeCategory(category) {
   if (categoryStore.isCategoryMutationRunning) return;
+  categoryEditor.cancelScheduled(category.id);
   try {
     await categoryStore.deleteCategory(category.id);
   } catch {
+    categoryEditor.schedule(category.id);
     /* Fehler wird im Store als Notification gemeldet */
   }
 }
 
-function syncCategoryEditor(category) {
-  // Programmatisches Setzen darf kein Auto-Speichern auslösen.
-  suppressCategoryAutosave = true;
-  editingCategoryName.value = category?.name || '';
-  editingCategoryTemplate.value = category?.naming_template || '';
-  editingCategoryArea.value = category?.area || null;
-  categorySaveState.value = 'idle';
-  nextTick(() => {
-    suppressCategoryAutosave = false;
-  });
-}
-
-/** Speichert die Dokumenttyp-Änderungen automatisch (still, ohne Erfolgs-Toast). */
-async function runCategoryAutosave() {
-  const current = selectedCategory.value;
-  if (!current) return;
-  if (!editingCategoryName.value.trim()) return; // leerer Name: nicht speichern
-  if (!categoryEditorDirty()) return;
-  categorySaveState.value = 'saving';
-  try {
-    await categoryStore.updateCategory(
-      current.id,
-      {
-        name: editingCategoryName.value.trim(),
-        naming_template: editingCategoryTemplate.value.trim() || null,
-        area: editingCategoryArea.value || null,
-      },
-      { silent: true }
-    );
-    categorySaveState.value = 'saved';
-    if (categorySavedResetTimer) clearTimeout(categorySavedResetTimer);
-    categorySavedResetTimer = setTimeout(() => {
-      if (categorySaveState.value === 'saved') categorySaveState.value = 'idle';
-    }, 1800);
-  } catch {
-    // Fehler wird im Store als Notification gemeldet.
-    categorySaveState.value = 'idle';
-  }
-}
-
-/** Plant das Auto-Speichern: ``immediate`` beim Verlassen des Felds, sonst entprellt. */
 function scheduleCategoryAutosave(immediate = false) {
-  if (suppressCategoryAutosave) return;
-  if (categoryAutosaveTimer) {
-    clearTimeout(categoryAutosaveTimer);
-    categoryAutosaveTimer = null;
-  }
-  if (immediate) {
-    runCategoryAutosave();
-    return;
-  }
-  categoryAutosaveTimer = setTimeout(runCategoryAutosave, 700);
-}
-
-// Felder: entprelltes Auto-Speichern beim Tippen.
-watch(
-  [editingCategoryName, editingCategoryTemplate, editingCategoryArea],
-  () => scheduleCategoryAutosave(false)
-);
-
-function selectCategory(category) {
-  selectedCategoryId.value = category?.id || null;
-  syncCategoryEditor(category);
+  void categoryEditor.schedule(selectedCategoryId.value, immediate);
 }
 
 function toggleCategory(category) {
-  if (selectedCategoryId.value === category?.id) {
-    selectedCategoryId.value = null;
+  if (selectedCategoryId.value === category.id) {
+    categoryEditor.select(null);
     return;
   }
   selectCategory(category);
 }
 
-
-function syncCorrespondentEditor(correspondent) {
-  // Programmatisches Setzen darf kein Auto-Speichern auslösen.
-  suppressCorrespondentAutosave = true;
-  editingCorrespondentName.value = correspondent?.name || '';
-  editingCorrespondentShortName.value = correspondent?.short_name || '';
-  editingCorrespondentKind.value = correspondent?.kind || null;
-  editingCorrespondentParentId.value = correspondent?.parent_id || null;
-  correspondentSaveState.value = 'idle';
-  // Erst nach dem Durchlaufen der Watches wieder freigeben.
-  nextTick(() => {
-    suppressCorrespondentAutosave = false;
-  });
+function selectCategory(category) {
+  categoryEditOrder.value = displayedDocumentTypes.value.map(item => item.id);
+  categoryEditor.select(category);
 }
 
-function clearCorrespondentAutosaveTimer() {
-  if (!correspondentAutosaveTimer) return;
-  clearTimeout(correspondentAutosaveTimer);
-  correspondentAutosaveTimer = null;
-}
-
-/** Speichert die Editor-Änderungen automatisch (still, ohne Erfolgs-Toast). */
-async function runCorrespondentAutosave() {
-  const current = selectedCorrespondent.value;
-  if (!current) return;
-  const name = editingCorrespondentName.value.trim();
-  if (name.length < 2) return; // ungültiger Name: nicht speichern (Feld zeigt Hinweis)
-  if (!correspondentEditorDirty()) return;
-  correspondentSaveState.value = 'saving';
-  try {
-    await correspondentStore.updateCorrespondent(
-      current.id,
-      {
-        name,
-        short_name: editingCorrespondentShortName.value.trim() || null,
-        kind: editingCorrespondentKind.value || null,
-        parent_id:
-          editingCorrespondentKind.value === 'person' ? editingCorrespondentParentId.value || null : null,
-      },
-      { silent: true }
-    );
-    correspondentSaveState.value = 'saved';
-    if (correspondentSavedResetTimer) clearTimeout(correspondentSavedResetTimer);
-    correspondentSavedResetTimer = setTimeout(() => {
-      if (correspondentSaveState.value === 'saved') correspondentSaveState.value = 'idle';
-    }, 1800);
-  } catch {
-    // Fehler wird im Store als Notification gemeldet.
-    correspondentSaveState.value = 'idle';
-  }
-}
-
-/** Plant das Auto-Speichern: ``immediate`` für Typ/Organisation, sonst entprellt. */
 function scheduleCorrespondentAutosave(immediate = false) {
-  if (suppressCorrespondentAutosave) return;
-  clearCorrespondentAutosaveTimer();
-  if (immediate) {
-    runCorrespondentAutosave();
-    return;
-  }
-  correspondentAutosaveTimer = setTimeout(runCorrespondentAutosave, 700);
+  void correspondentEditor.schedule(selectedCorrespondentId.value, immediate);
 }
-
-// Textfelder: entprelltes Auto-Speichern beim Tippen.
-watch([editingCorrespondentName, editingCorrespondentShortName], () => scheduleCorrespondentAutosave(false));
 
 /** Beim Umschalten des Typs die Zwei-Ebenen-Regel spiegeln und sofort speichern. */
 function onEditingKindChange(nextKind) {
@@ -5791,40 +5631,34 @@ function onEditingParentChange(value) {
 }
 
 function selectCorrespondent(correspondent) {
-  // Ein Timer des vorherigen Editors darf nicht nach dem Wechsel mit dessen
-  // Feldwerten auf dem neu ausgewählten Korrespondenten speichern.
-  clearCorrespondentAutosaveTimer();
-  selectedCorrespondentId.value = correspondent?.id || null;
-  syncCorrespondentEditor(correspondent);
-  newAliasName.value = '';
+  correspondentEditOrder.value = displayedCorrespondents.value.map(item => item.id);
+  selectedCorrespondentWasNested.value = Boolean(correspondent?.kind === 'person' && correspondent.parent_id);
+  correspondentEditor.select(correspondent);
 }
 
 function toggleCorrespondent(correspondent) {
   if (selectedCorrespondentId.value === correspondent?.id) {
-    clearCorrespondentAutosaveTimer();
-    selectedCorrespondentId.value = null;
+    correspondentEditor.select(null);
     return;
   }
   selectCorrespondent(correspondent);
 }
 
 async function addCorrespondent() {
-  const name = newCorrespondentName.value.trim();
-  if (!name || correspondentStore.isMutationRunning) return;
+  if (!canCreateCorrespondentFromSearch.value) return;
+  const name = correspondentSearchName.value;
+  isCreatingCorrespondent.value = true;
   try {
-    const result = await correspondentStore.createCorrespondentByName(name, {
-      kind: newCorrespondentKind.value,
-    });
+    const result = await correspondentStore.createCorrespondentByName(name);
     if (result.ok) {
-      newCorrespondentName.value = '';
-      // createCorrespondentByName lädt die Liste neu. Den vollständigen neuen
-      // Datensatz in den Editor übernehmen, statt nur seine ID zu selektieren
-      // und dadurch die Feldwerte der zuvor geöffneten Karte beizubehalten.
       const created = correspondentStore.findById(result.id);
       if (created) selectCorrespondent(created);
     }
   } catch {
-    /* Fehler wird im Store als Notification gemeldet */
+    /* Fehler wird im Store als Notification gemeldet; die Eingabe bleibt erhalten. */
+  } finally {
+    isCreatingCorrespondent.value = false;
+    nextTick(() => { if (props.modelValue) correspondentSearchField.value?.focus(); });
   }
 }
 
@@ -5916,10 +5750,12 @@ async function ignoreUnresolvedCorrespondent(item) {
 
 async function removeSelectedCorrespondent() {
   const current = selectedCorrespondent.value;
-  if (!current || (current.usage_count || 0) > 0) return;
+  if (!current || (current.usage_count || 0) > 0 || correspondentStore.isMutationRunning) return;
+  correspondentEditor.cancelScheduled(current.id);
   try {
     await correspondentStore.deleteCorrespondent(current.id);
   } catch {
+    correspondentEditor.schedule(current.id);
     /* Fehler wird im Store als Notification gemeldet */
   }
 }
@@ -5952,10 +5788,10 @@ async function confirmCorrespondentUnlink() {
 async function addAliasToSelected() {
   const current = selectedCorrespondent.value;
   const alias = newAliasName.value.trim();
-  if (!current || !alias) return;
+  if (!current || !alias || correspondentStore.isMutationRunning) return;
   try {
     await correspondentStore.addAlias(current.id, alias);
-    newAliasName.value = '';
+    if (aliasDrafts.value[current.id]?.trim() === alias) aliasDrafts.value[current.id] = '';
   } catch {
     /* Fehler wird im Store als Notification gemeldet */
   }
@@ -5963,7 +5799,7 @@ async function addAliasToSelected() {
 
 async function removeAlias(alias) {
   const current = selectedCorrespondent.value;
-  if (!current || !alias?.id) return;
+  if (!current || !alias?.id || correspondentStore.isMutationRunning) return;
   try {
     await correspondentStore.deleteAlias(current.id, alias.id);
   } catch {

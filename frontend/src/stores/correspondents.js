@@ -17,6 +17,7 @@ import {
   updateCorrespondent as apiUpdateCorrespondent,
 } from '../api/correspondents.js';
 import { mapApiError, useNotifications } from './notifications.js';
+import { reconcileRecordReload } from '../utils/recordReload.js';
 
 const NAME_MIN_LENGTH = 2;
 const NAME_MAX_LENGTH = 120;
@@ -28,7 +29,10 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
   const correspondents = ref([]);
   const isLoaded = ref(false);
   const isLoading = ref(false);
-  const isMutationRunning = ref(false);
+  const pendingMutations = ref(0);
+  const isMutationRunning = computed(() => pendingMutations.value > 0);
+  let listVersion = 0;
+  const recordVersions = new Map();
   // Verhindert Mehrfach-/Dauerabrufe (z. B. wenn der Endpoint nicht erreichbar
   // ist) und damit eine Konsolen-Fehlerflut.
   let inFlight = null;
@@ -75,13 +79,27 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
     );
   };
 
+  function applyRecord(updated, { aliasesOnly = false, preserveAliases = false } = {}) {
+    if (!updated?.id) return;
+    listVersion += 1;
+    recordVersions.set(updated.id, listVersion);
+    const previous = findById(updated.id);
+    const fields = aliasesOnly ? { aliases: updated.aliases } : { ...updated };
+    if (preserveAliases) delete fields.aliases;
+    const next = { ...previous, ...fields, usage_count: updated.usage_count ?? previous?.usage_count ?? 0 };
+    correspondents.value = previous
+      ? correspondents.value.map(item => item.id === updated.id ? next : item)
+      : [...correspondents.value, next];
+  }
+
   async function fetchCorrespondents() {
     if (inFlight) return inFlight;
     isLoading.value = true;
+    const requestedVersion = listVersion;
     inFlight = (async () => {
       try {
         const payload = await listCorrespondents(true);
-        correspondents.value = payload?.items ?? [];
+        correspondents.value = reconcileRecordReload(correspondents.value, payload?.items ?? [], recordVersions, requestedVersion);
         isLoaded.value = true;
         lastLoadFailedAt = 0;
       } catch (error) {
@@ -117,17 +135,17 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
       notify({ type: 'warning', message: `Korrespondent darf maximal ${NAME_MAX_LENGTH} Zeichen enthalten.` });
       return { ok: false, reason: 'invalid', name };
     }
-    isMutationRunning.value = true;
+    pendingMutations.value += 1;
     try {
       const created = await apiCreateCorrespondent(kind ? { name, kind } : { name });
-      await fetchCorrespondents();
+      applyRecord(created);
       notify({ type: 'success', title: 'Korrespondent', message: 'Korrespondent angelegt.' });
       return { ok: true, id: created?.id, name: created?.name || name };
     } catch (error) {
       notify({ type: 'error', message: mapApiError(error, 'Korrespondent konnte nicht angelegt werden.') });
       throw error;
     } finally {
-      isMutationRunning.value = false;
+      pendingMutations.value = Math.max(0, pendingMutations.value - 1);
     }
   }
 
@@ -140,25 +158,25 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
       notify({ type: 'warning', message: `${term} darf nicht leer sein.` });
       return { ok: false };
     }
-    isMutationRunning.value = true;
+    pendingMutations.value += 1;
     try {
       const updated = await apiAddAlias(correspondentId, alias);
-      await fetchCorrespondents();
+      applyRecord(updated, { aliasesOnly: true });
       notify({ type: 'success', title: 'Korrespondent', message: `${term} „${alias}" hinzugefügt.` });
       return { ok: true, correspondent: updated };
     } catch (error) {
       notify({ type: 'error', message: mapApiError(error, `${term} konnte nicht hinzugefügt werden.`) });
       throw error;
     } finally {
-      isMutationRunning.value = false;
+      pendingMutations.value = Math.max(0, pendingMutations.value - 1);
     }
   }
 
   async function updateCorrespondent(correspondentId, payload, { silent = false } = {}) {
-    isMutationRunning.value = true;
+    pendingMutations.value += 1;
     try {
       const updated = await apiUpdateCorrespondent(correspondentId, payload);
-      await fetchCorrespondents();
+      applyRecord(updated, { preserveAliases: true });
       // Beim Auto-Speichern keine Erfolgsmeldung (sonst Toast-Flut pro Tastendruck).
       if (!silent) notify({ type: 'success', title: 'Korrespondent', message: 'Korrespondent aktualisiert.' });
       return { ok: true, correspondent: updated };
@@ -166,29 +184,33 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
       notify({ type: 'error', message: mapApiError(error, 'Korrespondent konnte nicht aktualisiert werden.') });
       throw error;
     } finally {
-      isMutationRunning.value = false;
+      pendingMutations.value = Math.max(0, pendingMutations.value - 1);
     }
   }
 
   async function deleteCorrespondent(correspondentId) {
-    isMutationRunning.value = true;
+    pendingMutations.value += 1;
     try {
       await apiDeleteCorrespondent(correspondentId);
-      await fetchCorrespondents();
+      listVersion += 1;
+      recordVersions.set(correspondentId, listVersion);
+      correspondents.value = correspondents.value.filter(item => item.id !== correspondentId);
       notify({ type: 'success', title: 'Korrespondent', message: 'Korrespondent gelöscht.' });
       return { ok: true };
     } catch (error) {
       notify({ type: 'error', message: mapApiError(error, 'Korrespondent konnte nicht gelöscht werden.') });
       throw error;
     } finally {
-      isMutationRunning.value = false;
+      pendingMutations.value = Math.max(0, pendingMutations.value - 1);
     }
   }
 
   async function unlinkDocuments(correspondentId) {
-    isMutationRunning.value = true;
+    pendingMutations.value += 1;
     try {
       const result = await apiUnlinkCorrespondentDocuments(correspondentId);
+      const current = findById(correspondentId);
+      if (current) applyRecord({ ...current, usage_count: 0 });
       await fetchCorrespondents();
       const count = Number(result?.count || 0);
       notify({
@@ -206,24 +228,24 @@ export const useCorrespondentStore = defineStore('correspondents', () => {
       });
       throw error;
     } finally {
-      isMutationRunning.value = false;
+      pendingMutations.value = Math.max(0, pendingMutations.value - 1);
     }
   }
 
   async function deleteAlias(correspondentId, aliasId) {
     const isRecognitionName = findById(correspondentId)?.kind === 'collection';
     const term = isRecognitionName ? 'Erkennungsname' : 'Alias';
-    isMutationRunning.value = true;
+    pendingMutations.value += 1;
     try {
       const updated = await apiDeleteAlias(correspondentId, aliasId);
-      await fetchCorrespondents();
+      applyRecord(updated, { aliasesOnly: true });
       notify({ type: 'success', title: 'Korrespondent', message: `${term} entfernt.` });
       return { ok: true, correspondent: updated };
     } catch (error) {
       notify({ type: 'error', message: mapApiError(error, `${term} konnte nicht entfernt werden.`) });
       throw error;
     } finally {
-      isMutationRunning.value = false;
+      pendingMutations.value = Math.max(0, pendingMutations.value - 1);
     }
   }
 

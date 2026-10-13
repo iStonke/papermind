@@ -15,6 +15,7 @@ import {
   updateCategory as apiUpdateCategory,
 } from '../api/categories.js';
 import { mapApiError, useNotifications } from './notifications.js';
+import { reconcileRecordReload } from '../utils/recordReload.js';
 
 const VOCAB_NAME_MIN_LENGTH = 2;
 const VOCAB_NAME_MAX_LENGTH = 30;
@@ -27,7 +28,10 @@ export const useCategoryStore = defineStore('categories', () => {
   const categories = ref([]);
   const isLoaded = ref(false);
   const isLoading = ref(false);
-  const isCategoryMutationRunning = ref(false);
+  const pendingMutations = ref(0);
+  const isCategoryMutationRunning = computed(() => pendingMutations.value > 0);
+  let listVersion = 0;
+  const recordVersions = new Map();
 
   // ── Getters ──────────────────────────────────────────────────────────────
   const sortedCategories = computed(() => [...categories.value].sort((left, right) => (
@@ -67,14 +71,26 @@ export const useCategoryStore = defineStore('categories', () => {
 
   const findById = (id) => categories.value.find((c) => String(c?.id) === String(id)) ?? null;
 
+  function applyRecord(updated) {
+    if (!updated?.id) return;
+    listVersion += 1;
+    recordVersions.set(updated.id, listVersion);
+    const previous = findById(updated.id);
+    const next = { ...previous, ...updated, usage_count: updated.usage_count ?? previous?.usage_count ?? 0 };
+    categories.value = previous
+      ? categories.value.map(item => item.id === updated.id ? next : item)
+      : [...categories.value, next];
+  }
+
   // ── Actions ────────────────────────────────────────────────────────────
 
   /** Lädt alle Dokumenttypen (inkl. Zähler). */
   async function fetchCategories() {
     isLoading.value = true;
+    const requestedVersion = listVersion;
     try {
       const payload = await listCategories(true);
-      categories.value = payload?.items ?? [];
+      categories.value = reconcileRecordReload(categories.value, payload?.items ?? [], recordVersions, requestedVersion);
       isLoaded.value = true;
     } catch (error) {
       console.error('Dokumenttypen konnten nicht geladen werden:', error);
@@ -104,17 +120,17 @@ export const useCategoryStore = defineStore('categories', () => {
       return { ok: false, reason: 'exists', name: existing.name, id: existing.id };
     }
 
-    isCategoryMutationRunning.value = true;
+    pendingMutations.value += 1;
     try {
       const created = await apiCreateCategory(name);
-      await fetchCategories();
+      applyRecord(created);
       notify({ type: 'success', title: 'Dokumenttyp', message: 'Dokumenttyp hinzugefügt.' });
       return { ok: true, reason: 'created', name: created?.name || name, id: created?.id };
     } catch (error) {
       notify({ type: 'error', message: mapApiError(error, 'Dokumenttyp konnte nicht hinzugefügt werden.') });
       throw error;
     } finally {
-      isCategoryMutationRunning.value = false;
+      pendingMutations.value = Math.max(0, pendingMutations.value - 1);
     }
   }
 
@@ -132,16 +148,16 @@ export const useCategoryStore = defineStore('categories', () => {
       notify({ type: 'warning', title: 'Dokumenttyp', message });
       throw new Error(message);
     }
-    isCategoryMutationRunning.value = true;
+    pendingMutations.value += 1;
     try {
-      await apiRenameCategory(id, name);
-      await fetchCategories();
+      const updated = await apiRenameCategory(id, name);
+      applyRecord(updated);
       notify({ type: 'success', title: 'Dokumenttyp', message: 'Dokumenttyp umbenannt.' });
     } catch (error) {
       notify({ type: 'error', message: mapApiError(error, 'Dokumenttyp konnte nicht umbenannt werden.') });
       throw error;
     } finally {
-      isCategoryMutationRunning.value = false;
+      pendingMutations.value = Math.max(0, pendingMutations.value - 1);
     }
   }
 
@@ -167,10 +183,10 @@ export const useCategoryStore = defineStore('categories', () => {
       nextPayload.naming_template = template || null;
     }
 
-    isCategoryMutationRunning.value = true;
+    pendingMutations.value += 1;
     try {
       const updated = await apiUpdateCategory(id, nextPayload);
-      await fetchCategories();
+      applyRecord(updated);
       // Beim Auto-Speichern keine Erfolgsmeldung (sonst Toast-Flut pro Tastendruck).
       if (!silent) notify({ type: 'success', title: 'Dokumenttyp', message: 'Dokumenttyp aktualisiert.' });
       return { ok: true, category: updated };
@@ -178,22 +194,24 @@ export const useCategoryStore = defineStore('categories', () => {
       notify({ type: 'error', message: mapApiError(error, 'Dokumenttyp konnte nicht aktualisiert werden.') });
       throw error;
     } finally {
-      isCategoryMutationRunning.value = false;
+      pendingMutations.value = Math.max(0, pendingMutations.value - 1);
     }
   }
 
   /** DELETE /api/document-types/{id} */
   async function deleteCategory(id) {
-    isCategoryMutationRunning.value = true;
+    pendingMutations.value += 1;
     try {
       await apiDeleteCategory(id);
+      listVersion += 1;
+      recordVersions.set(id, listVersion);
       categories.value = categories.value.filter((c) => c.id !== id);
       notify({ type: 'success', title: 'Dokumenttyp', message: 'Dokumenttyp gelöscht.' });
     } catch (error) {
       notify({ type: 'error', message: mapApiError(error, 'Dokumenttyp konnte nicht gelöscht werden.') });
       throw error;
     } finally {
-      isCategoryMutationRunning.value = false;
+      pendingMutations.value = Math.max(0, pendingMutations.value - 1);
     }
   }
 
