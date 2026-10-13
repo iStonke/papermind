@@ -18,7 +18,7 @@
         :class="{ 'is-expandable': isLectureImage }"
         :role="isLectureImage ? 'button' : undefined"
         :tabindex="isLectureImage ? 0 : undefined"
-        :aria-label="isLectureImage ? 'Screenshot vergrößern' : undefined"
+        :aria-label="isLectureImage ? 'Bild vergrößern' : undefined"
         @click.stop="openPreview"
         @pm-lecture-preview="openPreview"
         @keydown.enter.prevent.stop="openPreview"
@@ -82,7 +82,7 @@
     </figcaption>
     <BaseDialog
       v-model="previewOpen"
-      title="Screenshot"
+      title="Bild"
       :header-subtitle="previewSubtitle"
       variant="info"
       width="calc(100vw - 64px)"
@@ -109,7 +109,7 @@ import BaseDialog from '../../BaseDialog.vue';
 const props = defineProps(nodeViewProps);
 const { isLectureImage, captureLabel, slideNumber } = useLectureCapture(props);
 const previewSubtitle = computed(() => slideNumber.value
-  ? `Folie ${slideNumber.value}${captureLabel.value ? ` · ${captureLabel.value}` : ''}` : '');
+  ? `Abschnitt ${slideNumber.value}${captureLabel.value ? ` · ${captureLabel.value}` : ''}` : '');
 const authStore = useAuthStore();
 const figureEl = ref(null);
 const loadError = ref(false);

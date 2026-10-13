@@ -204,7 +204,7 @@ function colorHex(key) {
 }
 
 function showBuiltinBlock(tpl) {
-  notify({ type: 'info', title: tpl.name, message: 'Integrierter Schnellblock. Im Editor unter Blöcke oder über /Folie einfügen. Diese Vorlage ist geschützt.' });
+  notify({ type: 'info', title: tpl.name, message: 'Integrierter Schnellblock. Im Editor unter Blöcke oder über /mitschrift einfügen. Diese Vorlage ist geschützt.' });
 }
 
 /* ── Schnellblock-Editor ────────────────────────────────────────────────── */

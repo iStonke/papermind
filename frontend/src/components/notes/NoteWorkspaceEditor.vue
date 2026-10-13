@@ -29,25 +29,25 @@
         :readonly="switching || status === 'conflict'"
         @keydown.enter.prevent="focusEditorBody"
       />
-      <!-- Vorlesung-Chip = Layout-Umschalter (Folie neben/über Mitschrift, nur
-           Mitschrift). Ändert nur die Darstellung, nie den Inhalt. -->
+      <!-- Mitschrift-Chip = Ansichtswechsel für Bild und Text.
+           Ändert nur die Darstellung, nie den Inhalt. -->
       <v-menu v-if="isLectureNote" location="bottom start" :offset="6" transition="fade-transition">
         <template #activator="{ props: layoutMenuProps }">
           <button
             v-bind="layoutMenuProps"
             type="button"
             class="note-workspace-editor__kind-chip"
-            title="Vorlesungsmitschrift – Layout wählen"
-            :aria-label="`Vorlesung, Layout: ${activeLectureLayoutOption.title}`"
+            title="Mitschrift – Ansicht wählen"
+            :aria-label="`Mitschrift, Ansicht: ${activeLectureLayoutOption.title}`"
             :disabled="!hasLoadedContent || status === 'conflict'"
           >
-            <v-icon size="14" aria-hidden="true">mdi-school-outline</v-icon>
-            Vorlesung
+            <v-icon size="14" aria-hidden="true">mdi-text-box-outline</v-icon>
+            Mitschrift
             <v-icon size="14" class="note-workspace-editor__kind-chip-caret" aria-hidden="true">mdi-chevron-down</v-icon>
           </button>
         </template>
-        <v-list class="note-workspace-editor__more-menu" density="compact" min-width="236" role="menu" aria-label="Layout der Vorlesung">
-          <div class="note-workspace-editor__more-label">Layout</div>
+        <v-list class="note-workspace-editor__more-menu" density="compact" min-width="236" role="menu" aria-label="Ansicht der Mitschrift">
+          <div class="note-workspace-editor__more-label">Ansicht</div>
           <v-list-item
             v-for="option in LECTURE_LAYOUT_OPTIONS"
             :key="option.value"
@@ -66,6 +66,20 @@
             </template>
             <template #append>
               <v-icon v-if="lectureLayout === option.value" size="16" class="note-workspace-editor__layout-check" aria-hidden="true">mdi-check</v-icon>
+            </template>
+          </v-list-item>
+          <v-divider class="my-1" />
+          <v-list-item
+            class="note-workspace-editor__more-item note-workspace-editor__more-item--danger"
+            title="In Notiz umwandeln"
+            :ripple="false"
+            role="menuitem"
+            @click="noteEditorRef?.removeLectureLayout()"
+          >
+            <template #prepend>
+              <span class="note-workspace-editor__more-icon" aria-hidden="true">
+                <v-icon size="17">mdi-text-box-remove-outline</v-icon>
+              </span>
             </template>
           </v-list-item>
         </v-list>
@@ -188,7 +202,7 @@
             <v-list-item
               v-if="!isLectureNote"
               class="note-workspace-editor__more-item"
-              title="Als Vorlesung mitschreiben"
+              title="Als Mitschrift verwenden"
               :subtitle="rememberedLectureLayoutOption.title"
               :disabled="!hasLoadedContent || status === 'conflict'"
               :ripple="false"
@@ -2038,7 +2052,7 @@ async function rememberLectureLayout(layout) {
     await settingsStore.patchSettings(getBaseUrl(), buildNotesPreferencesPatch({ notes_lecture_layout: layout }));
   } catch (error) {
     ui.notes_lecture_layout = previous;
-    console.warn('Vorlesungs-Layout konnte nicht gemerkt werden:', error);
+    console.warn('Mitschrift-Ansicht konnte nicht gemerkt werden:', error);
   }
 }
 
@@ -2677,6 +2691,24 @@ onBeforeUnmount(() => {
 .note-workspace-editor__more-item:hover .note-workspace-editor__more-icon,
 .note-workspace-editor__more-item:focus-visible .note-workspace-editor__more-icon {
   color: var(--pm-accent-strong, var(--pm-accent));
+}
+
+.note-workspace-editor__more-item--danger,
+.note-workspace-editor__more-item--danger:hover,
+.note-workspace-editor__more-item--danger:focus-visible,
+.note-workspace-editor__more-item--danger .note-workspace-editor__more-icon,
+.note-workspace-editor__more-item--danger:hover .note-workspace-editor__more-icon,
+.note-workspace-editor__more-item--danger:focus-visible .note-workspace-editor__more-icon {
+  color: var(--pm-error, #af3d36);
+}
+
+.note-workspace-editor__more-item--danger:hover,
+.note-workspace-editor__more-item--danger:focus-visible {
+  background: color-mix(in srgb, var(--pm-error, #af3d36) 6%, transparent);
+}
+
+.note-workspace-editor__more-item--danger .note-workspace-editor__more-icon {
+  background: color-mix(in srgb, var(--pm-error, #af3d36) 8%, transparent);
 }
 
 .note-workspace-editor__word-count {

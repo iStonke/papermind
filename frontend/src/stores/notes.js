@@ -375,12 +375,12 @@ export const useNotesStore = defineStore('notes', () => {
     if (templateId === LECTURE_START_ID) return create({ body_json: { type: 'doc', attrs: lectureLayoutAttrs(useSettingsStore().settings?.ui?.notes_lecture_layout), content: [
       {
         type: 'templateBox',
-        attrs: { variant: 'note', color: 'rose', title: 'Vorlesung' },
+        attrs: { variant: 'note', color: 'rose', title: 'Mitschrift' },
         content: [
-          { label: 'Titel', hint: 'Meetingbezeichnung' },
+          { label: 'Titel', hint: 'Bezeichnung' },
           { label: 'Datum', hint: 'tt.mm.jjjj' },
           { label: 'Thema', hint: 'Um welche Themen ging es?' },
-          { label: 'Klausurrelevanz', hint: 'Was war besonders wichtig?' },
+          { label: 'Wichtig', hint: 'Was war besonders wichtig?' },
         ].map(attrs => ({ type: 'templateField', attrs })),
       },
       lectureSlideJSON(),

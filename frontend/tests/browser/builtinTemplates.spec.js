@@ -8,7 +8,7 @@ test('integrated templates are visible and protected while a new lecture note is
   await page.route('**/__builtin-templates', route => route.fulfill({ contentType: 'text/html', body: '<html><body><div id="app" class="papermind-app v-theme--light"></div></body></html>' }));
   await page.goto('/__builtin-templates');
   await page.evaluate(async () => (await import('/tests/browser/fixtures/builtinTemplates.js')).mountBuiltinTemplates());
-  const start = page.locator('.vk').filter({ hasText: 'Vorlesungsmitschrift' });
+  const start = page.locator('.vk').filter({ hasText: 'Mitschrift' });
   const block = page.locator('.vk').filter({ hasText: 'Folie + Mitschrift' });
   await expect(block).toHaveCount(0);
   for (const card of [start]) {
@@ -21,8 +21,8 @@ test('integrated templates are visible and protected while a new lecture note is
   await start.click();
   await expect.poll(() => page.evaluate(() => window.openedTemplateNote)).toBe('new-lecture-note');
   expect(payload.body_json.attrs.lectureMode).toBe(true);
-  expect(payload.body_json.content[0]).toMatchObject({ type: 'templateBox', attrs: { title: 'Vorlesung', color: 'rose' } });
-  expect(payload.body_json.content[0].content.map(field => field.attrs.label)).toEqual(['Titel', 'Datum', 'Thema', 'Klausurrelevanz']);
+  expect(payload.body_json.content[0]).toMatchObject({ type: 'templateBox', attrs: { title: 'Mitschrift', color: 'rose' } });
+  expect(payload.body_json.content[0].content.map(field => field.attrs.label)).toEqual(['Titel', 'Datum', 'Thema', 'Wichtig']);
   expect(payload.body_json.content).toHaveLength(2);
   expect(payload.body_json.content[1].type).toBe('lectureSlide');
   expect(await page.evaluate(() => window.templateStore.templates[0].builtin)).toBe(true);

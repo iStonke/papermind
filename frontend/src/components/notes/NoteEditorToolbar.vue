@@ -235,7 +235,7 @@
               @click.prevent="runQuickBlock(item)"
             >
               <span class="note-editor__toolbar-dropitem-glyph">
-                <span class="note-editor__quick-block-glyph">{{ item.glyph }}</span>
+                <span class="note-editor__quick-block-glyph" aria-hidden="true">{{ item.glyph }}</span>
               </span>
               <span>{{ item.label }}</span>
             </button>

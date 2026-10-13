@@ -121,7 +121,7 @@
 /* Leere Mitschrift: Hinweis, wohin geschrieben wird (ProseMirror füllt einen
    leeren Absatz mit einem trailingBreak, daher kein :empty). */
 .pm-lecture-slide__notes:has(> p:only-child > br.ProseMirror-trailingBreak:only-child)::before {
-  content: 'Mitschrift zu dieser Folie …';
+  content: 'Text zu diesem Abschnitt …';
   position: absolute;
   inset: 0 auto auto 0;
   padding-left: inherit;
@@ -273,7 +273,7 @@
 .pm-lecture-slide__peek:focus-visible { outline: 2px solid var(--pm-accent, #006b75); outline-offset: 2px; }
 
 /* Papierkorb direkt neben der Folienbezeichnung, nicht frei am rechten Rand. */
-.pm-lecture-slide__remove { margin-left: -2px; padding: 2px; }
+.pm-lecture-slide__remove { margin-left: -2px; padding: 2px; width: 24px; height: 24px; justify-content: center; }
 .pm-lecture-slide__prepend { margin-left: auto; }
 /* Aktionen nur bei Hover/Fokus der Zeile; Touch-Geräte sehen sie immer. */
 .pm-lecture-slide__remove, .pm-lecture-slide__prepend {

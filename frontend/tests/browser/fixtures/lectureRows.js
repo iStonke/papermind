@@ -5,14 +5,14 @@ import NoteEditor from '../../../src/components/notes/NoteEditor.vue';
 import { lectureSlideJSON } from '../../../src/components/notes/nodes/lectureSlide.js';
 import vuetify from '../../../src/plugins/vuetify.js';
 import '../../../src/theme/theme.css';
-export function mountLectureRows(imageAttrs = null) {
+export function mountLectureRows(imageAttrs = null, { readonly = false } = {}) {
   const pinia = createPinia();
   useAuthStore(pinia).user = { id: 'lecture-test', username: 'test' };
   const body = ref({ type: 'doc', attrs: { lectureMode: true }, content: [lectureSlideJSON(imageAttrs)] });
   if (imageAttrs) body.value.content[0].attrs = { capturedAt: '2026-10-09T11:07:00Z' };
   window.lectureBody = body.value;
   createApp({ render: () => h(NoteEditor, {
-    noteId: 'lecture-note', workspace: true, modelValue: body.value,
+    noteId: 'lecture-note', workspace: true, readonly, modelValue: body.value,
     'onUpdate:modelValue': value => { body.value = value; window.lectureBody = value; },
   }) }).use(pinia).use(vuetify).mount('#app');
 }

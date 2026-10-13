@@ -2,12 +2,12 @@
   <node-view-wrapper as="section" class="pm-lecture-slide" :class="{ 'is-writing': isWriting }" data-lecture-slide>
     <div class="pm-lecture-slide__header" contenteditable="false">
       <span class="pm-lecture-slide__meta">
-        <span>Folie {{ slideNumber }}</span>
+        <span>Abschnitt {{ slideNumber }}</span>
         <time v-if="capturedAt" :datetime="capturedAt" :title="captureTitle">· {{ captureDate }} · {{ captureTime }}</time>
       </span>
       <!-- „Nur Mitschrift": vorhandener Screenshot ist ausgeblendet, bleibt aber per Klick erreichbar. -->
-      <button v-if="textLayout && hasSlideImage" type="button" class="pm-lecture-slide__peek" title="Ausgeblendeten Screenshot ansehen" aria-label="Ausgeblendeten Screenshot ansehen" @mousedown.prevent @click="openSlidePreview"><v-icon size="15" aria-hidden="true">mdi-image-outline</v-icon></button>
-      <button v-if="editor.isEditable && slideNumber > 1" type="button" class="pm-lecture-slide__remove" title="Zeile entfernen" aria-label="Zeile entfernen" @mousedown.prevent @click="removeRow"><v-icon size="16">mdi-trash-can-outline</v-icon></button>
+      <button v-if="textLayout && hasSlideImage" type="button" class="pm-lecture-slide__peek" title="Ausgeblendetes Bild ansehen" aria-label="Ausgeblendetes Bild ansehen" @mousedown.prevent @click="openSlidePreview"><v-icon size="15" aria-hidden="true">mdi-image-outline</v-icon></button>
+      <button v-if="editor.isEditable" type="button" class="pm-lecture-slide__remove" title="Abschnitt entfernen" aria-label="Abschnitt entfernen" @mousedown.prevent @click="removeRow"><v-icon size="16" aria-hidden="true">mdi-trash-can-outline</v-icon></button>
       <button v-if="editor.isEditable && isFirstBlock" type="button" class="pm-lecture-slide__prepend" title="Inhalt oberhalb einfügen" aria-label="Inhalt oberhalb einfügen" @mousedown.prevent @click="addAbove"><v-icon size="16">mdi-plus</v-icon>Inhalt oberhalb</button>
     </div>
     <node-view-content class="pm-lecture-slide__columns" />
@@ -19,11 +19,12 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
 import { NodeViewWrapper, NodeViewContent, nodeViewProps } from '@tiptap/vue-3';
+import { closeHistory } from '@tiptap/pm/history';
 import { lectureLayoutOf } from './lectureLayout.js';
 const props = defineProps(nodeViewProps);
 const textLayout = ref(false);
 const hasSlideImage = computed(() => (props.node.firstChild?.childCount || 0) > 0);
-const addLabel = computed(() => textLayout.value ? 'Abschnitt hinzufügen' : 'Screenshot & Mitschrift hinzufügen');
+const addLabel = 'Abschnitt hinzufügen';
 function openSlidePreview() {
   const pos = props.getPos();
   const dom = Number.isInteger(pos) ? props.editor.view.nodeDOM(pos) : null;
@@ -32,8 +33,10 @@ function openSlidePreview() {
 const isFirstBlock = ref(false);
 const slideNumber = ref(1);
 function removeRow() {
-  updatePosition();
-  if (slideNumber.value > 1) props.deleteNode();
+  if (!props.editor.isEditable || currentPos() === null) return;
+  props.editor.view.dispatch(closeHistory(props.editor.state.tr));
+  props.deleteNode();
+  props.editor.commands.focus();
 }
 const isWriting = ref(false);
 // Cursor in der Mitschrift dieses Abschnitts (bei fokussiertem Editor).
@@ -80,7 +83,7 @@ function onEditorChange() {
     updateWriting();
   } catch (error) {
     // Eine Kopfzeile darf nie eine Editor-Transaktion (z. B. Notizwechsel) abbrechen.
-    console.warn('Folien-Kopfzeile konnte nicht aktualisiert werden:', error);
+    console.warn('Abschnitts-Kopfzeile konnte nicht aktualisiert werden:', error);
   }
 }
 onEditorChange();

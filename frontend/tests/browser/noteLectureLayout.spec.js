@@ -56,7 +56,7 @@ const slideWithImage = {
 };
 
 async function chooseLayout(page, name) {
-  await page.getByRole('button', { name: /^Vorlesung, Layout:/ }).click();
+  await page.getByRole('button', { name: /^Mitschrift, Ansicht:/ }).click();
   await page.getByRole('menuitemradio', { name }).click();
 }
 
@@ -64,11 +64,11 @@ test('the Vorlesung chip switches between side-by-side, stacked and text-only la
   const patches = await mountNote(page, { type: 'doc', attrs: { lectureMode: true }, content: [slideWithImage] });
   const media = page.locator('.pm-lecture-slide__media');
   const notes = page.locator('.pm-lecture-slide__notes');
-  await expect(page.getByRole('button', { name: 'Vorlesung, Layout: Folie neben Mitschrift' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Mitschrift, Ansicht: Bild neben Text' })).toBeVisible();
   await expect(media).toBeVisible();
 
-  // Nur Mitschrift: Folie ausgeblendet, Text in voller Breite, Inhalt unverändert.
-  await chooseLayout(page, 'Nur Mitschrift');
+  // Nur Text: Folie ausgeblendet, Text in voller Breite, Inhalt unverändert.
+  await chooseLayout(page, 'Nur Text');
   await expect(media).toBeHidden();
   await expect(notes).toContainText('Rotation um den Ursprung');
   await expect.poll(() => patches.at(-1)?.body_json?.attrs).toMatchObject({ lectureLayout: 'text', lectureMode: false });
@@ -81,23 +81,23 @@ test('the Vorlesung chip switches between side-by-side, stacked and text-only la
   expect(await notes.evaluate(el => [getComputedStyle(el, '::after').content, getComputedStyle(el).paddingLeft])).toEqual(['none', '0px']);
 
   // Ausgeblendeter Screenshot bleibt über die Kopfzeile erreichbar.
-  await page.getByRole('button', { name: 'Ausgeblendeten Screenshot ansehen' }).click();
+  await page.getByRole('button', { name: 'Ausgeblendetes Bild ansehen' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.locator('.pm-note-image__preview')).toBeVisible();
   await page.waitForTimeout(250); // Einblend-Transition abwarten, sonst geht Escape ins Leere.
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
 
-  // Folie über Mitschrift: Folie wieder sichtbar, eine Spalte.
-  await chooseLayout(page, 'Folie über Mitschrift');
+  // Bild über Text: Folie wieder sichtbar, eine Spalte.
+  await chooseLayout(page, 'Bild über Text');
   await expect(media).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Ausgeblendeten Screenshot ansehen' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Ausgeblendetes Bild ansehen' })).toHaveCount(0);
   const [mediaBox, notesBox] = await Promise.all([media.boundingBox(), notes.boundingBox()]);
   expect(notesBox.y).toBeGreaterThan(mediaBox.y + mediaBox.height - 1);
   await expect.poll(() => patches.at(-1)?.body_json?.attrs).toMatchObject({ lectureLayout: 'stacked', lectureMode: false });
 
   // Zurück zu „neben": zwei Spalten.
-  await chooseLayout(page, 'Folie neben Mitschrift');
+  await chooseLayout(page, 'Bild neben Text');
   const [sideMedia, sideNotes] = await Promise.all([media.boundingBox(), notes.boundingBox()]);
   expect(sideNotes.x).toBeGreaterThan(sideMedia.x + sideMedia.width);
   await expect.poll(() => patches.at(-1)?.body_json?.attrs).toMatchObject({ lectureLayout: 'side', lectureMode: true });
@@ -107,12 +107,12 @@ test('a plain note becomes a lecture note in the remembered layout', async ({ pa
   const patches = await mountNote(page, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Leere Mitschrift' }] }] }, { rememberedLayout: 'text' });
   await expect(page.locator('.note-workspace-editor__kind-chip')).toHaveCount(0);
   await page.getByRole('button', { name: 'Weitere Aktionen', exact: true }).click();
-  await expect(page.getByRole('menuitem', { name: /Als Vorlesung mitschreiben/ })).toContainText('Nur Mitschrift');
-  await page.getByRole('menuitem', { name: /Als Vorlesung mitschreiben/ }).click();
-  await expect(page.getByRole('button', { name: 'Vorlesung, Layout: Nur Mitschrift' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: /Als Mitschrift verwenden/ })).toContainText('Nur Text');
+  await page.getByRole('menuitem', { name: /Als Mitschrift verwenden/ }).click();
+  await expect(page.getByRole('button', { name: 'Mitschrift, Ansicht: Nur Text' })).toBeVisible();
   await expect.poll(() => patches.at(-1)?.body_json?.attrs).toMatchObject({ lectureLayout: 'text', lectureMode: false });
   // Gleiche Wahl wie gemerkt → keine überflüssige Einstellungs-Speicherung.
   expect(patches.settings).toEqual([]);
   await page.getByRole('button', { name: 'Weitere Aktionen', exact: true }).click();
-  await expect(page.getByRole('menuitem', { name: /Als Vorlesung mitschreiben/ })).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: /Als Mitschrift verwenden/ })).toHaveCount(0);
 });

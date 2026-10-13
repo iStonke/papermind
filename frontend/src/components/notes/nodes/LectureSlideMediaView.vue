@@ -23,7 +23,7 @@
       @drop.prevent.stop="dropImage"
     >
       <v-icon size="22">mdi-image-plus-outline</v-icon>
-      <span class="pm-lecture-slide__drop-title">Screenshot einfügen <span class="pm-lecture-slide__drop-key">⌘V</span></span>
+      <span class="pm-lecture-slide__drop-title">Bild einfügen <span class="pm-lecture-slide__drop-key">⌘V</span></span>
       <!-- Weitere Wege erst bei Hover/Fokus/Ziehen, damit leere Folien ruhig bleiben. -->
       <span class="pm-lecture-slide__drop-more">
         <span class="pm-lecture-slide__drop-more-inner">

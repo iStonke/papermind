@@ -15,7 +15,7 @@ test('lecture rows keep timestamps, accept clipboard screenshots and add/remove 
   const rows = page.locator('.pm-lecture-slide');
   await expect(rows).toHaveCount(1);
   await rows.first().hover();
-  await expect(rows.first().getByRole('button', { name: 'Zeile entfernen', exact: true })).toHaveCount(0);
+  await expect(rows.first().getByRole('button', { name: 'Abschnitt entfernen', exact: true })).toHaveCount(1);
   const notes = rows.first().locator('.pm-lecture-slide__notes p').first();
   await notes.click();
   await page.keyboard.type('Meine erste Mitschrift');
@@ -38,7 +38,7 @@ test('lecture rows keep timestamps, accept clipboard screenshots and add/remove 
   });
   await expect(rows.first().locator('.pm-note-image')).toBeVisible();
   await expect(rows.first().locator('.pm-lecture-slide__meta time')).toHaveText(/· \d{2}:\d{2}/);
-  await expect(rows.first().locator('.pm-lecture-slide__meta')).toContainText('Folie 1');
+  await expect(rows.first().locator('.pm-lecture-slide__meta')).toContainText('Abschnitt 1');
   await expect(rows.first().locator('.pm-note-image__caption')).toHaveCount(0);
   await expect(rows.first().getByRole('textbox', { name: 'Bildunterschrift' })).toHaveCount(0);
   expect(await page.evaluate(() => window.lectureBody.content[0].content[1].content[0].content[0].text)).toContain('Meine erste Mitschrift');
@@ -50,15 +50,15 @@ test('lecture rows keep timestamps, accept clipboard screenshots and add/remove 
       return animate.call(this, frames, options);
     };
   });
-  for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Screenshot & Mitschrift hinzufügen', exact: true }).last().click();
+  for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Abschnitt hinzufügen', exact: true }).last().click();
   expect(await page.evaluate(() => window.rowAnimations.length)).toBe(3);
   expect(await page.evaluate(() => window.rowAnimations[0].duration)).toBe(240);
   await expect(rows).toHaveCount(4);
-  await expect(rows.first().getByRole('button', { name: 'Zeile entfernen', exact: true })).toHaveCount(0);
+  await expect(rows.first().getByRole('button', { name: 'Abschnitt entfernen', exact: true })).toHaveCount(1);
   await expect(rows.last().locator('time')).toHaveCount(0);
   const divider = await rows.nth(1).evaluate(el => getComputedStyle(el).borderTopWidth);
   expect(divider).toBe('1px');
-  await rows.nth(1).getByRole('button', { name: 'Zeile entfernen', exact: true }).click();
+  await rows.nth(1).getByRole('button', { name: 'Abschnitt entfernen', exact: true }).click();
   await expect(rows).toHaveCount(3);
   expect(await rows.first().locator('time').getAttribute('datetime')).toBe(timestamp);
   await rows.first().getByRole('button', { name: 'Inhalt oberhalb einfügen', exact: true }).click();
@@ -66,5 +66,5 @@ test('lecture rows keep timestamps, accept clipboard screenshots and add/remove 
   expect(await page.evaluate(() => window.lectureBody.content[0].type)).toBe('paragraph');
   expect(await page.evaluate(() => window.lectureBody.content[0].content[0].text)).toBe('Einleitung vor der ersten Folie');
   await expect(rows.first().getByRole('button', { name: 'Inhalt oberhalb einfügen', exact: true })).toHaveCount(0);
-  await expect(rows.first().getByRole('button', { name: 'Zeile entfernen', exact: true })).toHaveCount(0);
+  await expect(rows.first().getByRole('button', { name: 'Abschnitt entfernen', exact: true })).toHaveCount(1);
 });

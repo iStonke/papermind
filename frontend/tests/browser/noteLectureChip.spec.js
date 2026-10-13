@@ -27,7 +27,7 @@ const lectureSlide = {
 test('lecture notes show a Vorlesung chip directly beside the title', async ({ page }) => {
   const title = await mountNote(page, { type: 'doc', attrs: { lectureMode: true }, content: [lectureSlide] });
   const chip = page.locator('.note-workspace-editor__kind-chip');
-  await expect(chip).toHaveText('Vorlesung');
+  await expect(chip).toHaveText('Mitschrift');
   const [titleBox, chipBox] = await Promise.all([title.boundingBox(), chip.boundingBox()]);
   // Direkt hinter dem Titeltext, nicht am rechten Rand der Kopfzeile.
   expect(chipBox.x - (titleBox.x + titleBox.width)).toBeGreaterThanOrEqual(0);
@@ -37,7 +37,7 @@ test('lecture notes show a Vorlesung chip directly beside the title', async ({ p
 
 test('lecture slides alone mark a note as Vorlesung', async ({ page }) => {
   await mountNote(page, { type: 'doc', content: [lectureSlide] });
-  await expect(page.locator('.note-workspace-editor__kind-chip')).toHaveText('Vorlesung');
+  await expect(page.locator('.note-workspace-editor__kind-chip')).toHaveText('Mitschrift');
 });
 
 test('plain notes have no Vorlesung chip', async ({ page }) => {

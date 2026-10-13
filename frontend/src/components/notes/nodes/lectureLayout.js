@@ -11,9 +11,9 @@
 export const LECTURE_LAYOUTS = Object.freeze(['side', 'stacked', 'text']);
 
 export const LECTURE_LAYOUT_OPTIONS = Object.freeze([
-  { value: 'side', title: 'Folie neben Mitschrift', icon: 'mdi-view-split-vertical' },
-  { value: 'stacked', title: 'Folie über Mitschrift', icon: 'mdi-view-agenda-outline' },
-  { value: 'text', title: 'Nur Mitschrift', icon: 'mdi-text-long' },
+  { value: 'side', title: 'Bild neben Text', icon: 'mdi-view-split-vertical' },
+  { value: 'stacked', title: 'Bild über Text', icon: 'mdi-view-agenda-outline' },
+  { value: 'text', title: 'Nur Text', icon: 'mdi-text-long' },
 ]);
 
 export function lectureLayoutOf(attrs) {

@@ -16,11 +16,22 @@
  */
 import { Node, mergeAttributes, VueNodeViewRenderer } from '@tiptap/vue-3';
 import { Plugin, TextSelection } from '@tiptap/pm/state';
+import { Fragment } from '@tiptap/pm/model';
+import { closeHistory } from '@tiptap/pm/history';
 import LectureSlideView from './LectureSlideView.vue';
 import LectureSlideMediaView from './LectureSlideMediaView.vue';
 
 import { lectureSlideJSON } from './lectureSlideContent.js';
 export { lectureSlideJSON } from './lectureSlideContent.js';
+
+const LECTURE_WRAPPERS = new Set(['lectureSlide', 'lectureSlideMedia', 'lectureSlideNotes']);
+
+function unwrapLectureNode(node) {
+  if (node.isLeaf) return [node];
+  const children = [];
+  node.forEach(child => children.push(...unwrapLectureNode(child)));
+  return LECTURE_WRAPPERS.has(node.type.name) ? children : [node.copy(Fragment.fromArray(children))];
+}
 
 /** Mitschrift-Abschnitt, in dem die Auswahl liegt (mit absoluter Position). */
 export function lectureSlideAtSelection(state) {
@@ -128,9 +139,42 @@ export const LectureSlide = Node.create({
 
   addCommands() {
     return {
+      unsetLectureLayout: () => ({ state, tr, dispatch, editor }) => {
+        if (!editor.isEditable) return false;
+        const blocks = [];
+        state.doc.forEach(node => blocks.push(...unwrapLectureNode(node)));
+        const content = Fragment.fromArray(blocks);
+        const changedContent = !content.eq(state.doc.content);
+        if (!changedContent && !state.doc.attrs.lectureMode && !state.doc.attrs.lectureLayout) return false;
+        if (dispatch) {
+          closeHistory(tr);
+          if (changedContent) tr.replaceWith(0, tr.doc.content.size, content);
+          tr.setDocAttribute('lectureMode', false);
+          tr.setDocAttribute('lectureLayout', null);
+          tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(state.selection.from, tr.doc.content.size))));
+          dispatch(tr.scrollIntoView());
+        }
+        return true;
+      },
       // Neuer Abschnitt hinter dem aktuellen Abschnitt bzw. dem aktuellen Block
       // der obersten Ebene; ein leerer Absatz an dieser Stelle wird ersetzt.
       // Danach steht der Cursor in der Mitschrift des neuen Abschnitts.
+      insertLectureNotes: () => ({ state, tr, commands }) => {
+        let hasSlides = false;
+        state.doc.descendants(node => {
+          if (node.type.name === 'lectureSlide') {
+            hasSlides = true;
+            return false;
+          }
+        });
+        // Die erste Mitschrift startet ohne Screenshotbereich. Bereits gewählte
+        // Vorlesungsansichten gelten auch für weitere eingefügte Abschnitte.
+        if (!hasSlides && !state.doc.attrs.lectureLayout && !state.doc.attrs.lectureMode) {
+          tr.setDocAttribute('lectureLayout', 'text');
+          tr.setDocAttribute('lectureMode', false);
+        }
+        return commands.insertLectureSlide();
+      },
       insertLectureSlide: (imageAttrs = null) => ({ state, tr, dispatch, editor }) => {
         const slide = editor.schema.nodeFromJSON(lectureSlideJSON(imageAttrs));
         const context = lectureSlideAtSelection(state);

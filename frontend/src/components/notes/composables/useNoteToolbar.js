@@ -63,6 +63,7 @@ export function useNoteToolbar({
   const toolbarCalloutOptions = NOTE_CALLOUT_OPTIONS;
 
   const quickBlockItems = computed(() => ([
+    { key: 'lecture-notes', label: 'Mitschrift', glyph: '≡' },
     ...(props.blockTemplates || []).map((template) => ({
       key: `saved-${template.id}`,
       label: template.name || template.title || 'Schnellblock',
@@ -223,7 +224,12 @@ export function useNoteToolbar({
   function runQuickBlock(item) {
     openMenu.value = null;
     const ed = editor.value;
-    if (!ed || !item?.preset) return;
+    if (!ed) return;
+    if (item?.key === 'lecture-notes') {
+      ed.chain().focus().insertLectureNotes().run();
+      return;
+    }
+    if (!item?.preset) return;
     ed.chain().focus().insertTemplateBox(item.preset).run();
   }
 

@@ -531,8 +531,8 @@ test('note export and template actions live in the compact overflow menu', () =>
   assert.match(workspaceEditorSource, /title="Als Audiodatei speichern"[\s\S]*?@click="openAudioExportDialog"/);
   // + „Als Vorlesung mitschreiben" und die Layout-Einträge am Vorlesung-Chip
   //   (gleiche Menüoptik, ein v-for-Eintrag im Quelltext).
-  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-item"/g) || []).length, 9);
-  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-icon"/g) || []).length, 9);
+  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-item(?: [^"]*)?"/g) || []).length, 10);
+  assert.equal((workspaceEditorSource.match(/class="note-workspace-editor__more-icon"/g) || []).length, 10);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-menu\s*\{[\s\S]*?padding:\s*6px[\s\S]*?border-radius:\s*14px[\s\S]*?background:\s*var\(--pm-app-surface-raised\)[\s\S]*?box-shadow:\s*var\(--pm-shadow\)/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-item\s*\{[\s\S]*?min-height:\s*38px[\s\S]*?border-radius:\s*9px[\s\S]*?transition:\s*none/);
   assert.match(workspaceEditorSource, /\.note-workspace-editor__more-icon\s*\{[\s\S]*?width:\s*26px[\s\S]*?height:\s*26px[\s\S]*?border-radius:\s*8px/);
@@ -571,7 +571,7 @@ test('audio export dialog configures the persistent Piper background job', () =>
 test('template boxes use a compact accessible save icon button', () => {
   assert.match(templateBoxViewSource, /class="pm-template__save"[\s\S]*?aria-label="Als Schnellblock speichern"[\s\S]*?<v-icon size="16">mdi-content-save-outline<\/v-icon>/);
   assert.doesNotMatch(templateBoxViewSource, />Als Baustein speichern<\/button>/);
-  assert.match(templateBoxViewSource, /\.pm-template__save\s*{[\s\S]*?width:\s*28px;[\s\S]*?height:\s*28px;[\s\S]*?place-items:\s*center/);
+  assert.match(templateBoxViewSource, /\.pm-template__save\s*{[\s\S]*?width:\s*24px;[\s\S]*?height:\s*24px;[\s\S]*?place-items:\s*center/);
 });
 
 test('note history lists bundled checkpoints and restores a selected server revision', () => {

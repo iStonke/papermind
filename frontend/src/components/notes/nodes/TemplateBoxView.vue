@@ -40,17 +40,30 @@
             @click="setColor(option.key)"
           ></button>
         </div>
-        <button
-          v-if="canSaveAsTemplate"
-          type="button"
-          class="pm-template__save"
-          aria-label="Als Schnellblock speichern"
-          title="Als Schnellblock speichern"
-          @mousedown.prevent.stop
-          @click="saveAsTemplate"
-        >
-          <v-icon size="16">mdi-content-save-outline</v-icon>
-        </button>
+        <span class="pm-template__tools-divider" aria-hidden="true"></span>
+        <div class="pm-template__actions" role="group" aria-label="Schnellblock-Aktionen">
+          <button
+            v-if="canSaveAsTemplate"
+            type="button"
+            class="pm-template__save"
+            aria-label="Als Schnellblock speichern"
+            title="Als Schnellblock speichern"
+            @mousedown.prevent.stop
+            @click="saveAsTemplate"
+          >
+            <v-icon size="16">mdi-content-save-outline</v-icon>
+          </button>
+          <button
+            type="button"
+            class="pm-template__remove"
+            aria-label="Schnellblock entfernen"
+            title="Schnellblock entfernen"
+            @mousedown.prevent.stop
+            @click="removeBlock"
+          >
+            <v-icon size="16" aria-hidden="true">mdi-trash-can-outline</v-icon>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -61,6 +74,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { NodeViewContent, NodeViewWrapper, nodeViewProps } from '@tiptap/vue-3';
+import { closeHistory } from '@tiptap/pm/history';
 import {
   NOTE_TEMPLATE_COLORS,
   normalizeTemplateColor,
@@ -117,6 +131,14 @@ onBeforeUnmount(() => {
 
 function onTitleInput(event) {
   props.updateAttributes({ title: event.target.value });
+}
+
+function removeBlock() {
+  if (!props.editor.isEditable) return;
+  // Rückgängig stellt den kompletten Block inklusive der zuletzt getippten Werte wieder her.
+  props.editor.view.dispatch(closeHistory(props.editor.state.tr));
+  props.deleteNode();
+  props.editor.commands.focus();
 }
 </script>
 
@@ -214,10 +236,25 @@ function onTitleInput(event) {
   pointer-events: auto;
 }
 
+.pm-template__tools-divider {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  background: color-mix(in srgb, var(--pm-muted, #64748b) 40%, transparent);
+}
+
+.pm-template__actions {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
 .pm-template__swatches {
   display: flex;
   align-items: center;
   gap: 4px;
+  /* Berücksichtigt den Innenabstand bis zum sichtbaren Speichern-Symbol. */
+  padding-right: 6px;
 }
 
 .pm-template__swatch {
@@ -239,13 +276,13 @@ function onTitleInput(event) {
 
 .pm-template__save {
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   flex: none;
   place-items: center;
   padding: 0;
-  border: 1px solid color-mix(in srgb, var(--pm-tpl-color) 34%, var(--pm-divider, #d8dfe1));
-  border-radius: 7px;
+  border: 0;
+  border-radius: 4px;
   background: transparent;
   color: var(--pm-tpl-color);
   cursor: pointer;
@@ -254,6 +291,31 @@ function onTitleInput(event) {
 
 .pm-template__save:hover {
   background: color-mix(in srgb, var(--pm-tpl-color) 12%, transparent);
+}
+
+.pm-template__remove {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--pm-tpl-color);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.pm-template__remove:hover {
+  background: color-mix(in srgb, var(--pm-tpl-color) 12%, transparent);
+}
+.pm-template__remove:focus-visible {
+  outline: 2px solid var(--pm-accent, #006b75);
+  outline-offset: 2px;
+}
+@media (hover: none) {
+  .pm-template__tools { opacity: 1; transform: none; pointer-events: auto; }
 }
 
 .pm-template__fields {

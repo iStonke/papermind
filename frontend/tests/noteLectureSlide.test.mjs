@@ -23,7 +23,7 @@ test('lecture slide pairs a regular image node with block notes', () => {
   assert.match(slideSource, /name: 'lectureSlideNotes',\s*content: 'block\+'/);
   assert.match(slideSource, /insertLectureSlide:/);
   assert.match(slideSource, /setLectureSlideImage:/);
-  assert.match(mediaViewSource, /Screenshot einfügen/);
+  assert.match(mediaViewSource, /Bild einfügen/);
   assert.match(mediaViewSource, /extension\.options\.onRequestImage\?\.\(props\.getPos\(\)\)/);
 });
 
@@ -56,7 +56,7 @@ test('pasted screenshots fill an empty slide or start a new section in lecture m
   assert.match(editorSource, /function slideImageTarget\(ed, position = null\)/);
   assert.match(editorSource, /context && context\.node\.firstChild\.childCount === 0\) return \{ mediaPos: context\.pos \+ 1 \}/);
   assert.match(editorSource, /if \(lectureMode\.value\) return \{ newSlide: true,/);
-  // „Nur Mitschrift": Bilder landen sichtbar im Text statt in ausgeblendeten Folien.
+  // „Nur Text": Bilder landen sichtbar im Text statt in ausgeblendeten Folien.
   assert.match(editorSource, /if \(lectureLayout\.value === 'text'\) return null;/);
   assert.doesNotMatch(editorSource, /LECTURE_BLOCK_ID/);
 });

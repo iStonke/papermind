@@ -1200,6 +1200,7 @@ function insertDocumentQuote(attrs) {
 
 defineExpose({
   insertDocumentQuote,
+  removeLectureLayout: () => editor.value?.chain().focus().unsetLectureLayout().run(),
   computeStats,
   revealRange,
   restoreCaret,
@@ -1776,6 +1777,7 @@ const SLASH_COMMANDS = [
   { key: 'math', group: 'blocks', chip: '∑', label: 'Formel', desc: 'LaTeX-Formel (auch $…$ im Text)', terms: ['formel', 'mathe', 'math', 'latex', 'katex', 'gleichung', 'matrix'], kind: 'math-editor' },
   { key: 'code', group: 'blocks', chip: '</>', label: 'Code-Block', desc: 'Monospace', terms: ['code', 'block'], action: c => c.toggleCodeBlock() },
   { key: 'section', group: 'blocks', chip: '▸', label: 'Abschnitte', desc: 'Überschrift mit aufklappbarem Inhalt', terms: ['abschnitt', 'einklappen', 'ausklappen', 'details'], action: c => c.insertCollapsibleSection() },
+  { key: 'mitschrift', group: 'blocks', chip: '≡', label: 'Mitschrift', desc: 'Abschnitte mit Datum und Uhrzeit', terms: ['mitschrift', 'folie', 'folien', 'abschnitt'], action: c => c.insertLectureNotes() },
   { key: 'hr', group: 'blocks', chip: '―', label: 'Trennlinie', desc: 'Horizontale Linie', terms: ['trennlinie', 'linie', 'rule'], action: c => c.setHorizontalRule() },
 ];
 

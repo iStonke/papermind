@@ -9,13 +9,13 @@ test('lecture screenshot opens centered standard dialog and closes with Escape, 
   await page.route('**/__lecture-preview', route => route.fulfill({ contentType: 'text/html', body: '<html><body><div id="app" class="papermind-app v-theme--light" style="width:1100px"></div></body></html>' }));
   await page.goto('/__lecture-preview');
   await page.evaluate(async () => (await import('/tests/browser/fixtures/lectureRows.js')).mountLectureRows({ src: '/api/notes/11111111-1111-1111-1111-111111111111/images/22222222-2222-2222-2222-222222222222/file', alt: 'Testfolie' }));
-  const screenshot = page.getByRole('button', { name: 'Screenshot vergrößern' });
+  const screenshot = page.getByRole('button', { name: 'Bild vergrößern' });
   await expect.poll(() => screenshot.evaluate(img => img.complete && img.naturalWidth > 0)).toBe(true);
   const before = await page.evaluate(() => JSON.stringify(window.lectureBody));
   await screenshot.click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
-  await expect(dialog.locator('.pm-dialog__subtitle')).toHaveText(/Folie 1 · \d{2}\.\d{2}\.\d{4}, \d{2}:\d{2}/);
+  await expect(dialog.locator('.pm-dialog__subtitle')).toHaveText(/Abschnitt 1 · \d{2}\.\d{2}\.\d{4}, \d{2}:\d{2}/);
   await expect(page.locator('.pm-lecture-slide__meta time')).toHaveText(/· \d{2}\.\d{2}\.\d{4} · \d{2}:\d{2}/);
   await expect(page.locator('.pm-lecture-slide .pm-note-image__tools')).toHaveCount(0);
   await expect(page.locator('.pm-lecture-slide .pm-note-image__resize')).toHaveCount(0);
