@@ -1074,6 +1074,11 @@ textarea { display:block; width:100%; resize:none; min-height:22.1px; max-height
   text-align: left;
 }
 
+/* Autosaves sperren den Sammlungswechsel kurz, ohne die ganze Liste abzublenden. */
+.notes-ws__item-select:disabled {
+  opacity: 1;
+}
+
 .notes-ws__item-head { min-width: 0; }
 
 .notes-ws__item-title {

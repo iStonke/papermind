@@ -43,8 +43,7 @@ test('theme switching keeps text, date, and selection readable for every header 
   await page.locator('.thoughts-text').first().click({ modifiers: ['Shift'] });
   const selected = page.locator('article.thoughts-card.is-selected').first();
   await expect(selected).toBeVisible();
-  const accent = await selected.evaluate(card => ({ border: getComputedStyle(card).borderColor }));
-  expect(accent.border).toBe('rgb(79, 197, 203)');
+  await expect(selected).toHaveCSS('border-color', 'rgb(79, 197, 203)');
 });
 
 test('editing, new thoughts, palette and summary dialog follow dark mode', async ({ page }) => {
