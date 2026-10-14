@@ -39,7 +39,7 @@
           :aria-label="aiPrompt.loading ? 'Text wird generiert' : 'Text generieren'"
         >
           <span v-if="aiPrompt.loading" class="pm-ai-prompt__spinner" aria-hidden="true"></span>
-          <span v-else aria-hidden="true">→</span>
+          <v-icon v-else size="22" aria-hidden="true">mdi-arrow-right</v-icon>
         </button>
       </div>
       <fieldset class="pm-ai-prompt__length" :disabled="aiPrompt.loading">
