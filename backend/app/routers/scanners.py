@@ -64,7 +64,7 @@ def trigger_scan(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db, scope="function"),
 ) -> ScanCommandResponse:
-    return ScannerService(db).enqueue_scan_command(scanner_id, payload.command, requested_by=user.id)
+    return ScannerService(db).enqueue_scan_command(scanner_id, payload.command, requested_by=user.id, request_id=payload.request_id)
 
 
 @router.post(

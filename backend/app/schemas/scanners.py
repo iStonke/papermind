@@ -52,6 +52,7 @@ class ScannerDeviceCreateRequest(BaseModel):
 
 class ScanCommandRequest(BaseModel):
     command: ScanCommand
+    request_id: uuid.UUID | None = None
 
 
 class ScanCommandResponse(BaseModel):

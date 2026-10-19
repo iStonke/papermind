@@ -3,6 +3,8 @@ import math
 import os
 import uuid
 import tempfile
+import shutil
+import subprocess
 from contextlib import closing
 from io import BytesIO
 from pathlib import Path
@@ -51,13 +53,30 @@ def png_bytes(image):
     return buffer.getvalue()
 
 
-def convert_pdf(path, output, *, dpi_target, max_pixels, mode):
+def convert_pdf(path, output, *, dpi_target, max_pixels, mode, timeout=28):
     from pypdf import PdfReader, PdfWriter
     writer = PdfWriter()
+    adjusted = False
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_name(f".{output.name}.{uuid.uuid4().hex}.converting")
     try:
+        # pdfwrite preserves searchable text and vector graphics. Rasterising
+        # every page merely to remove colour needlessly loses this information.
+        if mode == "grayscale" and shutil.which("gs"):
+            result = subprocess.run([
+                "gs", "-q", "-dSAFER", "-dBATCH", "-dNOPAUSE", "-sDEVICE=pdfwrite",
+                "-sColorConversionStrategy=Gray", "-dProcessColorModel=/DeviceGray",
+                "-dCompatibilityLevel=1.7", f"-sOutputFile={temporary}", "-f", str(path),
+            ], capture_output=True, timeout=timeout)
+            if result.returncode == 0:
+                converted = PdfReader(str(temporary))
+                if len(converted.pages) == len(PdfReader(str(path)).pages):
+                    os.replace(temporary, output)
+                    return {"path": str(output), "quality_adjusted": False}
+            temporary.unlink(missing_ok=True)
+        if mode == "grayscale" and any((page.extract_text() or "").strip() for page in PdfReader(str(path)).pages):
+            raise ValueError("Cannot preserve embedded text during grayscale conversion")
         with closing(pdfium.PdfDocument(str(path))) as document, tempfile.TemporaryDirectory() as directory:
             if not len(document):
                 raise ValueError("PDF contains no pages")
@@ -67,7 +86,8 @@ def convert_pdf(path, output, *, dpi_target, max_pixels, mode):
                     if not all(math.isfinite(value) and value > 0 for value in (width, height)):
                         raise ValueError("Invalid PDF page dimensions")
                     scale = min(max(1.0, dpi_target / 72), math.sqrt(max_pixels / (width * height)))
-                    with closing(page.render(scale=scale)) as bitmap:
+                    adjusted = adjusted or scale < max(1.0, dpi_target / 72) * .95
+                    with closing(page.render(scale=scale, grayscale=True)) as bitmap:
                         image = _binarize_pil_image(bitmap.to_pil()) if mode == "bw" else bitmap.to_pil().convert("L")
                 page_path = Path(directory) / f"{index}.pdf"
                 image.save(page_path, format="PDF", resolution=scale * 72)
@@ -77,7 +97,7 @@ def convert_pdf(path, output, *, dpi_target, max_pixels, mode):
         os.replace(temporary, output)
     finally:
         temporary.unlink(missing_ok=True)
-    return str(output)
+    return {"path": str(output), "quality_adjusted": adjusted}
 
 
 def _otsu_threshold(histogram: list[int]) -> int:

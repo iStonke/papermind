@@ -1053,6 +1053,9 @@ def _has_active_job(db, document_id: uuid.UUID, job_type: str) -> bool:
 
 
 def _queue_index_job(db, document: Document, *, reason: str) -> bool:
+    options = (getattr(document, "flags", None) or {}).get("import_processing") or {}
+    if not options.get("auto_index", True) or not options.get("auto_embed", True):
+        return False
     if enqueue_document_job(db, document.id, "INDEX") is None:
         return False
     document.embedding_status = "queued"
@@ -1061,6 +1064,8 @@ def _queue_index_job(db, document: Document, *, reason: str) -> bool:
 
 
 def _queue_tag_job(db, document: Document, *, reason: str) -> bool:
+    if "tags" in ((getattr(document, "flags", None) or {}).get("import_manual_fields") or []):
+        return False
     if enqueue_document_job(db, document.id, "TAG") is None:
         return False
     logger.info("tag job queued document_id=%s reason=%s", document.id, reason)

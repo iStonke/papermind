@@ -10,6 +10,7 @@ from app.services.utils import NAME_MAX_LENGTH, NAME_MIN_LENGTH, validate_vocab_
 
 class ImportSourceRead(BaseModel):
     source_file_id: str
+    source_revision: str | None = None
     original_name: str
     page_count: int = Field(ge=1)
     preview_url: str | None = None
@@ -26,6 +27,7 @@ class ImportSourceUploadResponse(BaseModel):
 class ImportInboxItemRead(BaseModel):
     id: str
     source_file_id: str
+    source_revision: str | None = None
     original_name: str
     page_count: int = Field(ge=1)
     preview_url: str | None = None
@@ -144,6 +146,7 @@ class ImportCommitPageInput(BaseModel):
     page_index: int = Field(ge=0)
     rotation: int = Field(default=0)
     color_mode: Literal["auto", "color", "grayscale", "bw"] = "auto"
+    source_revision: str | None = Field(default=None, max_length=100)
 
     @field_validator("rotation")
     @classmethod
@@ -155,6 +158,7 @@ class ImportCommitPageInput(BaseModel):
 
 
 class ImportCommitDocumentInput(BaseModel):
+    client_document_id: str | None = Field(default=None, max_length=160)
     title: str = Field(min_length=1, max_length=200)
     document_type: str | None = Field(
         default=None,
@@ -163,10 +167,17 @@ class ImportCommitDocumentInput(BaseModel):
     )
     correspondent_id: uuid.UUID | None = Field(default=None)
     date: date_cls | None = Field(default=None)
-    note: str | None = Field(default=None, max_length=2000)
+    note: str | None = Field(default=None, max_length=10000)
     tag_ids: list[uuid.UUID] = Field(default_factory=list)
+    tag_names: list[str] = Field(default_factory=list, max_length=100)
+    manual_fields: list[Literal["title", "date", "category", "correspondent", "tags", "note", "retention"]] = Field(default_factory=list, max_length=7)
     retention: DocumentRetentionUpdateRequest | None = Field(default=None)
-    pages: list[ImportCommitPageInput] = Field(default_factory=list)
+    pages: list[ImportCommitPageInput] = Field(default_factory=list, max_length=1000)
+
+    @field_validator("tag_names")
+    @classmethod
+    def validate_tag_names(cls, names):
+        return list(dict.fromkeys(validate_vocab_name(" ".join(name.split()), label="Tag name") for name in names))
 
     @field_validator("document_type")
     @classmethod
@@ -196,20 +207,31 @@ class ImportCommitOptions(BaseModel):
 
 
 class ImportCommitRequest(BaseModel):
-    documents: list[ImportCommitDocumentInput] = Field(default_factory=list)
+    request_id: str | None = Field(default=None, min_length=1, max_length=160)
+    preserve_source_ids: list[str] = Field(default_factory=list, max_length=1000)
+    documents: list[ImportCommitDocumentInput] = Field(default_factory=list, max_length=200)
     options: ImportCommitOptions = Field(default_factory=ImportCommitOptions)
 
 
 class ImportCommitCreatedItem(BaseModel):
+    client_document_id: str | None = None
     doc_id: str
     title: str
     page_count: int = Field(ge=1)
+    replayed: bool = False
+    processing_queued: bool = False
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ImportCommitErrorItem(BaseModel):
+    client_document_id: str | None = None
     document_index: int | None = None
     title: str | None = None
     message: str
+    code: str = "IMPORT_FAILED"
+    page_index: int | None = None
+    retryable: bool = False
+    existing_doc_id: str | None = None
 
 
 class ImportCommitResponse(BaseModel):
@@ -225,6 +247,10 @@ class StageTitlePageScope(str):
 class StageTitleSuggestRequest(BaseModel):
     sourceFileIds: list[str] = Field(default_factory=list, min_length=1)
     pageScope: str = Field(default=StageTitlePageScope.FIRST_PAGE)
+    pages: list[ImportCommitPageInput] = Field(default_factory=list, max_length=1000)
+    documentRevision: str | None = Field(default=None, max_length=20000)
+    force: bool = False
+    repeatOcr: bool = False
 
     @field_validator("pageScope")
     @classmethod

@@ -201,6 +201,7 @@ class ImportInboxService:
         return ImportInboxItemRead(
             id=str(item.id),
             source_file_id=str(item.source_file_id),
+            source_revision=self.import_staging_service.source_revision(str(item.source_file_id)),
             original_name=item.original_name,
             page_count=item.page_count,
             preview_url=self.import_staging_service.source_preview_url(str(item.source_file_id)),

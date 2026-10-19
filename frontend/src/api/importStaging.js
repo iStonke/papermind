@@ -2,7 +2,7 @@ import { apiFetch, getBaseUrl } from './client.js';
 
 const SUGGEST_TITLE_TIMEOUT_MS = 90_000;
 
-export async function suggestImportStageTitle(_apiBaseUrl, stageId, { sourceFileIds = [], pageScope = 'first_page' } = {}) {
+export async function suggestImportStageTitle(_apiBaseUrl, stageId, { sourceFileIds = [], pageScope = 'first_page', pages = [], documentRevision = null, force = false, repeatOcr = false, signal } = {}) {
   const normalizedStageId = String(stageId || '').trim();
   if (!normalizedStageId) throw new Error('stageId is required');
 
@@ -15,13 +15,17 @@ export async function suggestImportStageTitle(_apiBaseUrl, stageId, { sourceFile
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SUGGEST_TITLE_TIMEOUT_MS);
+  const abort = () => controller.abort();
+  if (signal?.aborted) abort();
+  else signal?.addEventListener('abort', abort, { once: true });
   try {
     return await apiFetch(`/api/import/stages/${encodeURIComponent(normalizedStageId)}/suggest-title`, {
       method: 'POST',
-      body: JSON.stringify({ sourceFileIds: normalizedSourceIds, pageScope: normalizedScope }),
+      body: JSON.stringify({ sourceFileIds: normalizedSourceIds, pageScope: normalizedScope, pages, documentRevision, force, repeatOcr }),
       signal: controller.signal
     });
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
   }
 }

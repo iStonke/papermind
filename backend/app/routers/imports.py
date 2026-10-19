@@ -356,10 +356,13 @@ def get_import_source_color_preview(
     source_file_id: str,
     page_index: int = Query(ge=0),
     mode: str = Query("auto"),
+    rotation: int = Query(0),
     db: Session = Depends(get_db, scope="function"),
     user: User = Depends(get_current_user),
 ) -> Response:
-    preview = ImportStagingService(db, user.id).render_source_page_color_preview(source_file_id, page_index, mode)
+    if rotation not in {0, 90, 180, 270} or mode not in {"auto", "color", "grayscale", "bw"}:
+        raise HTTPException(status_code=400, detail="Ungültiger Vorschau-Modus.")
+    preview = ImportStagingService(db, user.id).render_source_page_color_preview(source_file_id, page_index, mode, rotation)
     if preview is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Preview not found")
     return Response(content=preview, media_type="image/png", headers={"Cache-Control": "no-store"})
@@ -402,6 +405,32 @@ def commit_import_batch(
     return service.commit(payload)
 
 
+@router.delete("/source/{source_file_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Discard an owned draft source")
+def discard_import_source(
+    source_file_id: uuid.UUID,
+    db: Session = Depends(get_db, scope="function"),
+    user: User = Depends(get_current_user),
+) -> Response:
+    service = ImportStagingService(db, user.id)
+    # Check ownership first. Scanner inbox entries have their own discard flow,
+    # which also updates the shared inbox and must not be bypassed here.
+    service.get_source_pdf_path(str(source_file_id))
+    from app.models.import_inbox import ImportInboxItem
+    from sqlalchemy import select
+    if db.scalar(select(ImportInboxItem.id).where(ImportInboxItem.source_file_id == source_file_id)) is not None:
+        raise HTTPException(status_code=409, detail="Bitte Scannerquellen über den Importeingang verwerfen.")
+    service.delete_source_file(str(source_file_id))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/source/{source_file_id}/analysis", summary="Read an existing source analysis without starting work")
+def get_import_source_analysis(source_file_id: uuid.UUID,
+    db: Session = Depends(get_db, scope="function"), user: User = Depends(get_current_user)) -> dict:
+    service = ImportStagingService(db, user.id)
+    service.get_source_pdf_path(str(source_file_id))
+    return service.get_source_analysis_response(str(source_file_id)) or {"status": "pending_ocr", "suggestion": "", "meta": {}}
+
+
 @router.post(
     "/stages/{stage_id}/suggest-title",
     response_model=StageTitleSuggestResponse,
@@ -419,6 +448,10 @@ def suggest_import_stage_title(
         payload.sourceFileIds,
         page_scope=payload.pageScope,
         stage_id=stage_id,
+        pages=payload.pages,
+        document_revision=payload.documentRevision,
+        force=payload.force,
+        repeat_ocr=payload.repeatOcr,
     )
     return StageTitleSuggestResponse(
         suggestion=str(result.get("suggestion") or "").strip(),

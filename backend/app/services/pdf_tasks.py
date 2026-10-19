@@ -20,8 +20,8 @@ def run_pdf_task(operation: str, **arguments):
     timeout = settings.pdf_processing_timeout_seconds
     request = {"operation": operation, "arguments": arguments,
                "timeout": timeout, "memory_bytes": settings.pdf_processing_memory_mb * 1024 * 1024}
-    if not _slots.acquire(timeout=timeout):
-        raise StorageError("PDF processing is busy; please retry")
+    if not _slots.acquire(timeout=min(timeout, 5)):
+        raise StorageError("PDF-Verarbeitung ist ausgelastet. Bitte erneut versuchen.", details={"kind": "busy", "retryable": True})
     try:
         try:
             result = subprocess.run([sys.executable, "-m", "app.services.pdf_tasks"],
@@ -32,19 +32,19 @@ def run_pdf_task(operation: str, **arguments):
                        if key in {"PATH", "PYTHONPATH", "LANG", "LC_ALL", "TZ"}},
                      "OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"})
         except subprocess.TimeoutExpired as exc:
-            raise StorageError("PDF processing exceeded its time limit") from exc
+            raise StorageError("PDF-Verarbeitung hat das Zeitlimit erreicht. Bitte erneut versuchen.", details={"kind": "timeout", "retryable": True}) from exc
     finally:
         _slots.release()
     if result.returncode != 0:
-        raise StorageError("PDF processing exceeded its resources or failed")
+        raise StorageError("PDF-Verarbeitung hat ihre Ressourcengrenze erreicht.", details={"kind": "resources", "retryable": True})
     try:
         payload = json.loads(result.stdout)
     except (ValueError, TypeError) as exc:
-        raise StorageError("PDF processing returned an invalid result") from exc
+        raise StorageError("PDF-Verarbeitung lieferte kein gültiges Ergebnis.", details={"kind": "invalid_result", "retryable": False}) from exc
     if payload.get("error") == "BAD_REQUEST":
         raise BadRequestError(payload["message"])
     if "error" in payload:
-        raise StorageError("PDF processing failed")
+        raise StorageError("Die PDF-Seite konnte nicht verarbeitet werden.", details={"kind": payload.get("kind", "conversion_failed"), "retryable": bool(payload.get("retryable"))})
     return payload["result"]
 
 
@@ -56,12 +56,13 @@ def main():
         resource.setrlimit(resource.RLIMIT_AS, (memory, memory))
         cpu = max(1, math.ceil(request["timeout"]))
         resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu))
-    from app.services.document_storage import DocumentStorageService
     from app.core.errors import BadRequestError
     args = request["arguments"]
-    storage = DocumentStorageService(storage_path=args["storage_path"],
-        upload_max_bytes=args.get("upload_max_bytes", 1), text_check_pages=args.get("text_check_pages", 2))
     try:
+        if request["operation"] in {"thumbnail", "quick_text", "reorder"}:
+            from app.services.document_storage import DocumentStorageService
+            storage = DocumentStorageService(storage_path=args["storage_path"],
+                upload_max_bytes=args.get("upload_max_bytes", 1), text_check_pages=args.get("text_check_pages", 2))
         if request["operation"] == "thumbnail":
             import uuid
             result = storage._create_thumbnail(uuid.UUID(args["document_id"]), Path(args["path"]), filename=args["filename"])
@@ -72,7 +73,12 @@ def main():
         elif request["operation"] == "count":
             from pypdf import PdfReader
             try:
-                result = len(PdfReader(args["path"]).pages)
+                reader = PdfReader(args["path"])
+                if reader.is_encrypted and not reader.decrypt(""):
+                    raise BadRequestError("Das PDF ist passwortgeschützt. Bitte eine entsperrte Kopie importieren.")
+                result = len(reader.pages)
+            except BadRequestError:
+                raise
             except Exception as exc:
                 raise BadRequestError("PDF is corrupt or unreadable") from exc
         elif request["operation"] == "ocr_lite":
@@ -84,7 +90,8 @@ def main():
         elif request["operation"] == "convert":
             from app.services.pdf_previews import convert_pdf
             result = convert_pdf(args["path"], args["output_path"], dpi_target=args["dpi_target"],
-                                 max_pixels=args["max_pixels"], mode=args["mode"])
+                                 max_pixels=min(args["max_pixels"], max(1_000_000, (request["memory_bytes"] - 80 * 1024 * 1024) // 24)),
+                                 mode=args["mode"], timeout=max(1, request["timeout"] - 2))
         elif request["operation"] in {"color_pages", "color_preview", "preview"}:
             from app.services.pdf_previews import color_pages, page_image, png_bytes
             if request["operation"] == "color_pages":
@@ -103,8 +110,12 @@ def main():
         print(json.dumps({"result": result}))
     except BadRequestError as exc:
         print(json.dumps({"error": "BAD_REQUEST", "message": exc.message}))
+    except MemoryError:
+        print(json.dumps({"error": "FAILED", "kind": "resources", "retryable": True}))
+    except subprocess.TimeoutExpired:
+        print(json.dumps({"error": "FAILED", "kind": "timeout", "retryable": True}))
     except Exception:
-        print(json.dumps({"error": "FAILED"}))
+        print(json.dumps({"error": "FAILED", "kind": "conversion_failed", "retryable": False}))
 
 
 if __name__ == "__main__":

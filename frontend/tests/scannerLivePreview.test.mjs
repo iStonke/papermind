@@ -15,6 +15,10 @@ test('scanner live preview streams real PNM rows into the import dialog', async 
     new URL('../src/components/ImportStagingDialog.vue', import.meta.url),
     'utf8',
   );
+  const preview = await readFile(
+    new URL('../src/composables/useScannerPreviewTransition.js', import.meta.url),
+    'utf8',
+  );
 
   assert.match(scanner, /SCAN_LIVE_PREVIEW="\$\{SCAN_LIVE_PREVIEW:-true\}"/);
   assert.match(scanner, /_scan_args "\$scan_format"/);
@@ -26,7 +30,7 @@ test('scanner live preview streams real PNM rows into the import dialog', async 
   assert.match(helper, /\.replace\(path\)/);
   assert.match(dialog, /scannerLivePreviewUrl/);
   assert.match(dialog, /scannerLivePreviewCandidateUrl/);
-  assert.match(dialog, /await image\.decode\(\)/);
+  assert.match(preview, /await image\.decode\(\)/);
   assert.doesNotMatch(dialog, /:key="scannerLivePreviewUrl"/);
   assert.doesNotMatch(dialog, /isd-dropzone__action-progress/);
   assert.match(dialog, /scannerLiveProgress/);

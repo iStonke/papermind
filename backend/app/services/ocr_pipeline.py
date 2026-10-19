@@ -1,4 +1,5 @@
 import logging
+import json
 import os
 import re
 import shutil
@@ -765,24 +766,40 @@ def build_cleaned_scan_pdf(
     )
 
 
-def _convert_manual_pdf(original_path: Path, output_path: Path, *, dpi_target: int, mode: str) -> Path | None:
+def _convert_manual_pdf(original_path: Path, output_path: Path, *, dpi_target: int, mode: str, strict: bool = False) -> Path | None:
     from app.services.pdf_tasks import run_pdf_task
     try:
-        result = run_pdf_task("convert", storage_path=str(original_path.parent), path=str(original_path),
-            output_path=str(output_path), dpi_target=dpi_target, max_pixels=OCR_MAX_PAGE_PIXELS, mode=mode)
+        try:
+            result = run_pdf_task("convert", storage_path=str(original_path.parent), path=str(original_path),
+                output_path=str(output_path), dpi_target=dpi_target, max_pixels=OCR_MAX_PAGE_PIXELS, mode=mode)
+        except Exception as first_error:
+            details = getattr(first_error, "details", None) or {}
+            if details.get("kind") not in {"resources", "timeout"}:
+                raise
+            # A single bounded retry at a smaller pixel budget. Preserve the
+            # chosen colour mode and report any quality adjustment to the UI.
+            result = run_pdf_task("convert", storage_path=str(original_path.parent), path=str(original_path),
+                output_path=str(output_path), dpi_target=min(150, dpi_target), max_pixels=2_000_000, mode=mode)
+            if isinstance(result, dict):
+                result["quality_adjusted"] = True
+        if isinstance(result, dict):
+            output_path.with_suffix(".conversion.json").write_text(json.dumps(result), encoding="utf-8")
+            return Path(result["path"])
         return Path(result)
     except Exception as exc:
         logger.warning("isolated %s conversion failed: %s", mode, exc)
         output_path.unlink(missing_ok=True)
+        if strict:
+            raise
         return None
 
 
-def build_bw_pdf(original_path: Path, output_path: Path, *, dpi_target: int) -> Path | None:
-    return _convert_manual_pdf(original_path, output_path, dpi_target=dpi_target, mode="bw")
+def build_bw_pdf(original_path: Path, output_path: Path, *, dpi_target: int, strict: bool = False) -> Path | None:
+    return _convert_manual_pdf(original_path, output_path, dpi_target=dpi_target, mode="bw", strict=strict)
 
 
-def build_grayscale_pdf(original_path: Path, output_path: Path, *, dpi_target: int) -> Path | None:
-    return _convert_manual_pdf(original_path, output_path, dpi_target=dpi_target, mode="grayscale")
+def build_grayscale_pdf(original_path: Path, output_path: Path, *, dpi_target: int, strict: bool = False) -> Path | None:
+    return _convert_manual_pdf(original_path, output_path, dpi_target=dpi_target, mode="grayscale", strict=strict)
 
 
 def detect_pdf_color_page_indices(pdf_path: Path, *, max_long_edge: int = 240) -> list[int] | None:

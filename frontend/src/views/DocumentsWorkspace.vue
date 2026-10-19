@@ -104,9 +104,15 @@
         :scanner-active="isImportScannerFeedbackActive"
         :scanner-feedback-state="importScannerFeedbackState"
         :scanner="importScanner"
+        :scanner-jobs="importScannerJobs"
+        :scan-request-pending="scanRequestPending"
+        :scan-cancel-pending="scanCancelPending"
         @scan="onScanTrigger"
         @minimize="onImportMinimized"
         @committed="onImportCommitted"
+        @open-document="openDocumentFromImport"
+        @manage-category="openDocumentTypeSettings"
+        @manage-correspondent="openCorrespondentSettings"
         @discarded-sources="onImportSourcesDiscarded"
       />
       <input
@@ -1569,146 +1575,19 @@
                     @suggest="requestRetentionSuggestion"
                   />
 
-                  <div class="pm-prop">
-                    <div class="pm-prop-row pm-prop-row--text">
-                      <label class="pm-prop-key">Dokumentname</label>
-                      <div class="pm-prop-val pm-prop-val--text">
-                        <div class="pm-prop-field pm-prop-field--boxed pm-prop-field--name">
-                          <v-text-field
-                            v-model="metadataDocName"
-                            maxlength="200"
-                            class="pm-name-field"
-                            density="compact"
-                            variant="plain"
-                            placeholder="Dokumentname…"
-                            hide-details
-                            @blur="commitMetadataTextFields"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div class="pm-prop-row pm-prop-row--date">
-                      <label class="pm-prop-key">Dokumentdatum</label>
-                      <div class="pm-prop-val pm-prop-val--date">
-                        <div class="pm-prop-field pm-prop-field--inline pm-prop-field--boxed">
-                          <v-text-field
-                            v-model="metadataDocDate"
-                            class="pm-date-field"
-                            density="compact"
-                            variant="plain"
-                            placeholder="TT.MM.JJJJ"
-                            inputmode="numeric"
-                            maxlength="10"
-                            hide-details
-                            :error="metadataDocDateHasError"
-                            @blur="handleDocumentDateBlur"
-                            @keydown="handleDocumentDateShortcut"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div class="pm-prop-row pm-prop-row--medium">
-                      <label class="pm-prop-key">Dokumenttyp</label>
-                      <div class="pm-prop-val pm-prop-val--medium">
-                        <div class="pm-prop-value-with-action pm-prop-value-with-action--medium">
-                          <div class="pm-prop-field pm-prop-field--boxed">
-                            <v-select
-                              :model-value="metadataDocCategory"
-                              :items="categoryDrawerItems"
-                              density="compact"
-                              variant="plain"
-                              hide-details
-                              clearable
-                              placeholder="Dokumenttyp wählen…"
-                              :loading="isSavingCategory"
-                              :menu-props="detailsCategoryMenuProps"
-                              @update:model-value="onMetadataCategoryChange"
-                            />
-                          </div>
-                          <v-btn
-                            icon
-                            variant="text"
-                            size="small"
-                            class="pm-prop-settings-link"
-                            title="Dokumenttypen verwalten"
-                            aria-label="Dokumenttypen verwalten"
-                            @click="openDocumentTypeSettings"
-                          >
-                            <v-icon size="17">mdi-cog-outline</v-icon>
-                          </v-btn>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div class="pm-prop-row pm-prop-row--medium">
-                      <label class="pm-prop-key">Korrespondent</label>
-                      <div class="pm-prop-val pm-prop-val--medium">
-                        <div class="pm-prop-value-with-action pm-prop-value-with-action--medium">
-                          <div class="pm-prop-field pm-prop-field--boxed">
-                            <v-autocomplete
-                              :model-value="metadataCorrespondentDraft"
-                              :items="correspondentDrawerItems"
-                              item-title="title"
-                              item-value="value"
-                              :return-object="false"
-                              density="compact"
-                              variant="plain"
-                              hide-details
-                              clearable
-                              placeholder="Korrespondent wählen…"
-                              :loading="isSavingCorrespondent || correspondentStore.isMutationRunning"
-                              :menu-props="detailsCorrespondentMenuProps"
-                              @update:model-value="onMetadataCorrespondentInput"
-                              @blur="handleMetadataCorrespondentBlur"
-                              @focus="correspondentStore.ensureLoaded()"
-                            >
-                              <template #item="{ props: itemProps, item }">
-                                <v-list-item v-bind="itemProps" :prepend-icon="undefined" :title="undefined">
-                                  <template #title>
-                                    <span class="pm-corr-opt">
-                                      <span class="pm-corr-opt__icon">
-                                        <v-icon v-if="item.raw?.kind === 'collection'" size="16">mdi-shape-outline</v-icon>
-                                      </span>
-                                      <span class="pm-corr-opt__label">
-                                        {{ item.raw?.name || item.title }}<template v-if="item.raw?.kind === 'collection'"> · Sammlung</template>
-                                      </span>
-                                    </span>
-                                  </template>
-                                </v-list-item>
-                              </template>
-                              <template #selection="{ item }">
-                                <span class="pm-corr-selection">
-                                  {{ item.raw?.short_name || item.raw?.name || item.title }}<template v-if="item.raw?.kind === 'collection'"> · Sammlung</template>
-                                </span>
-                              </template>
-                              <template #no-data>
-                                <v-list-item
-                                  title="Kein Korrespondent gefunden"
-                                  subtitle="Neue Korrespondenten in den Einstellungen anlegen"
-                                />
-                              </template>
-                            </v-autocomplete>
-                          </div>
-                          <v-btn
-                            icon
-                            variant="text"
-                            size="small"
-                            class="pm-prop-settings-link"
-                            title="Korrespondenten verwalten"
-                            aria-label="Korrespondenten verwalten"
-                            @click="openCorrespondentSettings"
-                          >
-                            <v-icon size="17">mdi-cog-outline</v-icon>
-                          </v-btn>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div class="pm-prop-row pm-prop-row--top pm-prop-row--tags">
-                      <label class="pm-prop-key">Tags</label>
-                      <div class="pm-prop-val pm-prop-val--tags">
+                  <DocumentMetadataFields :name="metadataDocName" :date="metadataDocDate" :category="metadataDocCategory"
+                    :correspondent="metadataCorrespondentDraft" :note="metadataNotes"
+                    :categories="categoryDrawerItems" :correspondents="correspondentDrawerItems"
+                    :errors="metadataDocDateHasError ? { date: 'Bitte ein gültiges Datum eingeben.' } : {}"
+                    :category-loading="isSavingCategory" :correspondent-loading="isSavingCorrespondent || correspondentStore.isMutationRunning"
+                    :menu-props="detailsCategoryMenuProps" manage
+                    @update:name="metadataDocName = $event" @update:date="metadataDocDate = $event"
+                    @update:category="onMetadataCategoryChange" @update:correspondent="onMetadataCorrespondentInput"
+                    @update:note="metadataNotes = $event" @text-blur="commitMetadataTextFields"
+                    @date-blur="handleDocumentDateBlur" @date-keydown="handleDocumentDateShortcut"
+                    @correspondent-blur="handleMetadataCorrespondentBlur" @correspondent-focus="correspondentStore.ensureLoaded()"
+                    @manage-category="openDocumentTypeSettings" @manage-correspondent="openCorrespondentSettings">
+                    <template #tags>
                         <TagInlineEditor
                           ref="metadataTagsCombobox"
                           v-model="metadataTagNames"
@@ -1722,30 +1601,8 @@
                           @update:model-value="onMetadataTagNamesChange"
                           @keydown="handleMetadataTagShortcut"
                         />
-                      </div>
-                    </div>
-
-                    <div class="pm-prop-row pm-prop-row--top pm-prop-row--text" data-drawer-expand-boundary>
-                      <label class="pm-prop-key">Notizen</label>
-                      <div class="pm-prop-val pm-prop-val--text">
-                        <div class="pm-prop-field pm-prop-field--area pm-prop-field--boxed pm-prop-field--notes">
-                          <v-textarea
-                            v-model="metadataNotes"
-                            maxlength="10000"
-                            :rows="3"
-                            :max-rows="8"
-                            auto-grow
-                            density="compact"
-                            variant="plain"
-                            placeholder="Notiz hinzufügen…"
-                            hide-details
-                            class="pm-notes-field"
-                            @blur="commitMetadataTextFields"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                    </template>
+                  </DocumentMetadataFields>
 
                   <DocumentNotesSection
                     class="details-drawer__notes"
@@ -1804,6 +1661,7 @@
 </template>
 
 <script setup>
+import DocumentMetadataFields from '../components/DocumentMetadataFields.vue';
 import { rememberBootTheme } from '../utils/bootTheme.js';
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
@@ -5193,6 +5051,7 @@ function normalizeImportInboxItems(payload) {
     .map((item) => ({
       id: String(item?.id || '').trim(),
       source_file_id: String(item?.source_file_id || '').trim(),
+      source_revision: item?.source_revision || null,
       original_name: String(item?.original_name || '').trim() || 'Scan Upload.pdf',
       page_count: Number(item?.page_count || 0),
       preview_url: String(item?.preview_url || '').trim(),
@@ -5251,26 +5110,38 @@ async function autoOpenImportInboxScans() {
   }
 }
 
+const scanRequestPending = ref(false);
+const scanCancelPending = ref(false);
+watch([importScannerJobs, isImportScannerActive], ([jobs, scanning]) => {
+  if (!scanning && !jobs.some(job => ['queued', 'scanning', 'processing'].includes(job.state))) scanCancelPending.value = false;
+});
 async function onScanTrigger(command) {
+  if (scanRequestPending.value || scanCancelPending.value) return;
   const scanner = importScanner.value;
   if (!scanner?.id) {
     return;
   }
   if (command === 'cancel') {
+    scanCancelPending.value = true;
     try {
       await cancelScan(scanner.id);
+      await refreshImportInbox({ silent: true });
       clearImportScannerOptimisticActive();
     } catch (error) {
+      scanCancelPending.value = false;
       notifyError(error, 'Scan konnte nicht abgebrochen werden.');
     }
     return;
   }
   setImportScannerOptimisticActive(command === 'finish' ? 'pending' : 'scanning');
+  scanRequestPending.value = true;
   try {
     await triggerScan(scanner.id, command);
   } catch (error) {
     clearImportScannerOptimisticActive();
     notifyError(error, 'Scan konnte nicht ausgelöst werden.');
+  } finally {
+    scanRequestPending.value = false;
   }
 }
 
@@ -5466,8 +5337,9 @@ async function openImportInboxScans({ refresh = true, notifyWhenEmpty = true } =
   return true;
 }
 
-async function claimActiveImportInboxItems() {
-  const itemIds = Array.from(activeImportInboxItemIds.value);
+async function claimActiveImportInboxItems(sourceIds = null) {
+  const requested = sourceIds ? new Set(sourceIds) : null;
+  const itemIds = requested ? [...activeImportInboxSourceToItemId.value].filter(([sourceId]) => requested.has(sourceId)).map(([, itemId]) => itemId) : Array.from(activeImportInboxItemIds.value);
   if (itemIds.length === 0) {
     return;
   }
@@ -5475,8 +5347,9 @@ async function claimActiveImportInboxItems() {
   try {
     const result = await claimImportInboxItems(itemIds);
     updateImportInboxPendingCountFromMutation(result);
-    activeImportInboxItemIds.value = new Set();
-    activeImportInboxSourceToItemId.value = new Map();
+    const completedIds = new Set(itemIds);
+    activeImportInboxItemIds.value = new Set([...activeImportInboxItemIds.value].filter(id => !completedIds.has(id)));
+    activeImportInboxSourceToItemId.value = new Map([...activeImportInboxSourceToItemId.value].filter(([, itemId]) => !completedIds.has(itemId)));
     const nextSuppressed = new Set(importInboxSuppressedItemIds.value);
     for (const itemId of itemIds) {
       nextSuppressed.delete(itemId);
@@ -9475,9 +9348,22 @@ async function onImportPdfInputChange(event) {
   }
 }
 
+async function openDocumentFromImport(id) {
+  isUploadDialogOpen.value = false;
+  isImportTrayVisible.value = true;
+  await selectDocument(id);
+}
+
 async function onImportCommitted(payload) {
   isImportTrayVisible.value = false;
   if (!Array.isArray(payload?.created) || payload.created.length === 0) {
+    return;
+  }
+  if (payload.remaining) {
+    await claimActiveImportInboxItems(payload.completed_source_ids || []);
+    activityIndicatorRef.value?.refresh();
+    await fetchDocuments(selectedDocumentId.value, { autoSelectFirst: false });
+    scheduleSidebarCountsRefresh();
     return;
   }
   // Choreografie in drei Schlägen, damit nie zwei Bewegungen gleichzeitig
@@ -9495,7 +9381,7 @@ async function onImportCommitted(payload) {
   // dass das Icon/Menü dafür erscheint.
   activityIndicatorRef.value?.refresh();
   try {
-    if (!Array.isArray(payload?.errors) || payload.errors.length === 0) {
+    if (!payload.remaining && (!Array.isArray(payload?.errors) || payload.errors.length === 0)) {
       await claimActiveImportInboxItems();
     }
     await fetchDocuments(selectedDocumentId.value, { autoSelectFirst: false });

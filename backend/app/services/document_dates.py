@@ -143,6 +143,8 @@ def apply_ocr_document_date_result(
 
     if extraction_result.best_date is None:
         return False
+    if not overwrite_manual and "date" in ((getattr(document, "flags", None) or {}).get("import_manual_fields") or []):
+        return False
 
     if (
         not overwrite_manual

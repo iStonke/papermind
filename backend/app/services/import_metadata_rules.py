@@ -108,14 +108,14 @@ def extract_document_date(text_value: str) -> str | None:
     for match in DATE_DMY_RE.finditer(text):
         try:
             date_value = datetime(int(match.group(3)), int(match.group(2)), int(match.group(1)))
-            if 2000 <= date_value.year <= 2099:
+            if 1000 <= date_value.year <= 2999:
                 return date_value.strftime("%Y-%m-%d")
         except ValueError:
             pass
     for match in DATE_YMD_RE.finditer(text):
         try:
             date_value = datetime(int(match.group(1)), int(match.group(2)), int(match.group(3)))
-            if 2000 <= date_value.year <= 2099:
+            if 1000 <= date_value.year <= 2999:
                 return date_value.strftime("%Y-%m-%d")
         except ValueError:
             pass

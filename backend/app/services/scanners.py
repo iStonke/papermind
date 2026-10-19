@@ -316,6 +316,7 @@ class ScannerService:
         command: ScanCommand,
         *,
         requested_by: uuid.UUID | None = None,
+        request_id: uuid.UUID | None = None,
     ) -> ScanCommandResponse:
         """Reiht einen UI-Scan-Befehl ein, den der Worker an den Host weiterreicht."""
         scanner = self.db.get(ScannerDevice, scanner_id)
@@ -328,6 +329,26 @@ class ScannerService:
         if not self._user_can_access_device(scanner.id, requested_by):
             raise ForbiddenError("Scanner access is restricted", details={"scanner_id": str(scanner_id)})
 
+        # Serialize competing users and double-clicks on this physical device.
+        self.db.execute(select(ScannerDevice.id).where(ScannerDevice.id == scanner_id).with_for_update())
+        if request_id is not None:
+            previous = self.db.get(ScannerScanCommand, request_id)
+            if previous is not None:
+                if previous.scanner_device_id != scanner_id or previous.requested_by_user_id != requested_by or previous.command != command:
+                    raise ConflictError("Dieser Scanauftrag gehört zu einem anderen Vorgang.")
+                return ScanCommandResponse(id=previous.id, command=previous.command, created_at=previous.created_at)
+        active = self.db.scalars(select(ScannerScanJob).where(
+            ScannerScanJob.scanner_device_id == scanner_id, ScannerScanJob.state.in_(SCAN_JOB_ACTIVE_STATES),
+        ).order_by(ScannerScanJob.created_at.desc())).first()
+        if active and active.requested_by_user_id not in {None, requested_by}:
+            raise ConflictError("Der Scanner wird gerade von einem anderen Benutzer verwendet.")
+        if active and (active.state in {"queued", "scanning"} and command == "page" or active.state == "queued" and active.command == command == "finish"):
+            previous = self.db.scalars(select(ScannerScanCommand).where(ScannerScanCommand.scan_job_id == active.id)).first()
+            if previous:
+                return ScanCommandResponse(id=previous.id, command=previous.command, created_at=previous.created_at)
+        if command == "page" and active is None and _is_recent(scanner.scanning_since, SCAN_JOB_STALE_TIMEOUTS["scanning"]):
+            raise ConflictError("Der Scanner beendet noch den vorherigen Vorgang. Bitte kurz warten.")
+
         job = ScannerScanJob(
             scanner_device_id=scanner.id,
             command=command,
@@ -337,6 +358,7 @@ class ScannerService:
         self.db.add(job)
         self.db.flush()  # job.id für die Befehlsverknüpfung benötigt
         entry = ScannerScanCommand(
+            **({"id": request_id} if request_id else {}),
             scanner_device_id=scanner.id,
             command=command,
             requested_by_user_id=requested_by,
@@ -364,6 +386,8 @@ class ScannerService:
             ).all()
         )
         now = datetime.now(timezone.utc)
+        if any(job.requested_by_user_id not in {None, requested_by} for job in active_jobs):
+            raise ConflictError("Der aktive Scan gehört einem anderen Benutzer und kann hier nicht abgebrochen werden.")
         for job in active_jobs:
             job.state = "error"
             job.error_kind = SCAN_ERROR_CANCELLED

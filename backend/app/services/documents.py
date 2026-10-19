@@ -828,6 +828,7 @@ class DocumentService:
         queue_processing: bool = True,
         scan_cleanup_applied: bool = False,
         scan_cleanup_mode: str | None = None,
+        finalize_import=None,
     ) -> Document:
         from app.services.storage_owner import lock_storage_owner
         lock_storage_owner(self.db, self.owner_id)
@@ -983,6 +984,10 @@ class DocumentService:
                 if auto_ocr_enabled and queue_processing:
                     self._queue_ocr_job(document)
 
+            if finalize_import is not None:
+                # PDF, metadata, idempotency marker and queued jobs become
+                # visible together. A callback failure rolls back the upload.
+                finalize_import(document)
             try:
                 self.db.commit()
             except IntegrityError as exc:

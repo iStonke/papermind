@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import math
 
 _WHITESPACE_RE = re.compile(r"\s+")
 LOOSE_FIELD_PATTERNS: dict[str, re.Pattern[str]] = {
@@ -71,6 +72,7 @@ def safe_float(value: object) -> float | None:
     if value is None:
         return None
     try:
-        return round(float(str(value).replace(",", ".")), 2)
+        number = float(str(value).replace(",", "."))
+        return round(number, 2) if math.isfinite(number) else None
     except (TypeError, ValueError):
         return None

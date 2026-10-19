@@ -14,6 +14,10 @@ from app.models.document_tag import document_tags
 class Document(Base):
     __tablename__ = "documents"
     __table_args__ = (
+        Index("uq_documents_import_receipt", "owner_id",
+            text("(flags['import_commit'] ->> 'request_id')"),
+            text("(flags['import_commit'] ->> 'client_document_id')"),
+            unique=True, postgresql_where=text("flags ? 'import_commit'")),
         CheckConstraint(
             "status IN ('imported', 'processing', 'ready', 'failed')",
             name="ck_documents_status",

@@ -54,36 +54,29 @@ def select_staging_llm_text(ocr_text: str, max_chars: int) -> str:
             lines = [compact[index : index + 180].strip() for index in range(0, len(compact), 180)]
     if len("\n".join(lines)) <= limit:
         return "\n".join(lines)[:limit].rstrip()
-    selected = {index: line for index, line in enumerate(lines[:18])}
-    selected.update({index: line for index, line in enumerate(lines[-8:], start=max(0, len(lines) - 8))})
-    scored: list[tuple[int, int, str]] = []
+    scored = []
     for index, line in enumerate(lines):
         lowered = line.lower()
         score = 80 if any(keyword in lowered for keyword in _SIGNAL_KEYWORDS) else 0
         score += 45 if AMOUNT_RE.search(line) else 0
         score += 35 if DATE_DMY_RE.search(line) or DATE_YMD_RE.search(line) else 0
-        score += 20 if re.search(r"\b[A-Z0-9][A-Z0-9-]{4,}\b", line) else 0
-        score -= 20 if len(line) > 180 else 0
-        if score > 0:
-            scored.append((score, index, line))
-    for _score, index, line in sorted(scored, key=lambda item: (-item[0], item[1]))[:32]:
-        selected[index] = line
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for index in sorted(selected):
-        line = selected[index]
-        if line.casefold() not in seen:
-            seen.add(line.casefold())
-            deduped.append(line)
-    result: list[str] = []
-    current_len = 0
-    for line in deduped:
-        projected = current_len + len(line) + (1 if result else 0)
-        if projected > limit:
-            remaining = limit - current_len - (1 if result else 0)
-            if remaining > 40:
-                result.append(line[:remaining].rstrip())
-            break
-        result.append(line)
-        current_len = projected
-    return "\n".join(result).strip()
+        score += 100 if re.match(r"(?:betreff|thema)\s*:", lowered) else 0
+        score += 70 if index + 1 < len(lines) and re.match(r"(?:Sehr geehrt|Guten Tag)", lines[index + 1], re.IGNORECASE) else 0
+        if score:
+            scored.append((score, index))
+    selected = {}
+    seen = set()
+    remaining = limit
+    # Keep a small sender/header context, then reserve the bulk for facts.
+    ranked = list(range(min(3, len(lines)))) + [index for _, index in sorted(scored, key=lambda item: (-item[0], item[1]))] + list(range(3, len(lines)))
+    for index in ranked:
+        line = lines[index]
+        if line.casefold() in seen:
+            continue
+        allocation = min(len(line), 120 if index < 3 else 240, remaining - 1)
+        if allocation < 20:
+            continue
+        selected[index] = line[:allocation]
+        seen.add(line.casefold())
+        remaining -= allocation + 1
+    return "\n".join(selected[index] for index in sorted(selected)).strip()

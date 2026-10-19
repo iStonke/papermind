@@ -116,6 +116,16 @@ class ScannerScanJobLifecycleTest(unittest.TestCase):
         self.db.flush()
         return item
 
+    def test_duplicate_page_requests_do_not_queue_a_second_scan(self) -> None:
+        request_id = uuid.uuid4()
+        first = self.service.enqueue_scan_command(self.scanner.id, "page", requested_by=self.user.id, request_id=request_id)
+        replay = self.service.enqueue_scan_command(self.scanner.id, "page", requested_by=self.user.id, request_id=request_id)
+        double_click = self.service.enqueue_scan_command(self.scanner.id, "page", requested_by=self.user.id, request_id=uuid.uuid4())
+        self.assertEqual(first.id, replay.id)
+        self.assertEqual(first.id, double_click.id)
+        jobs = self.db.query(ScannerScanJob).filter(ScannerScanJob.scanner_device_id == self.scanner.id).all()
+        self.assertEqual(len(jobs), 1)
+
     def test_lifecycle_queued_to_ready(self) -> None:
         # queued: ein UI-Befehl legt Job + verknüpften Befehl an.
         response = self.service.enqueue_scan_command(self.scanner.id, "finish", requested_by=self.user.id)

@@ -6,6 +6,7 @@ import re
 
 from app.services.import_metadata_rules import normalize_document_type
 from app.services.import_title_formatting import clean_filename_component, normalize_text
+from app.services.import_analysis_quality import meaningful_value
 
 _SENDER_LINE_HINTS = ("gmbh", "ag", "kg", "ug", "mbh", "ev", "e.v", "gbr", "ohg", "kasse", "auto-service")
 _SENDER_ORG_HINTS = (
@@ -101,11 +102,15 @@ def extract_issuer_from_line(line: object) -> str:
 
 
 def normalize_subject(value: object) -> str:
+    if not meaningful_value(value):
+        return ""
     normalized = clean_filename_component(value, max_len=60)
     normalized = normalized.replace(" - ", " ").replace(" – ", " ")
     normalized = re.sub(r"\b\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4}\b", "", normalized)
     normalized = re.sub(r"\b(?:rechnungsnummer|rechnung\s*nr|invoice\s*no|belegnummer|belegnr)\b.*$", "", normalized, flags=re.IGNORECASE)
     normalized = " ".join(normalized.split()).strip(" .,-_")
+    if not meaningful_value(normalized):
+        return ""
     return normalized[:40].rstrip(" .,-_") if len(normalized) > 40 else normalized
 
 
@@ -148,7 +153,7 @@ def detect_subject_heuristic(text_value: object) -> str:
         return "Vodafone"
     if any(token in normalized for token in SUBJECT_HINTS["Energie"]):
         return "Energie"
-    return "Kündigung" if "kündigung" in normalized or "kuendigung" in normalized else "Ohne Betreff"
+    return "Kündigung" if "kündigung" in normalized or "kuendigung" in normalized else ""
 
 
 def is_subject_supported_by_context(subject: object, text_value: object, issuer_value: object = "") -> bool:
@@ -164,6 +169,9 @@ def is_subject_supported_by_context(subject: object, text_value: object, issuer_
 
 def extract_subject_rich(text_value: object, _doc_type: str) -> str | None:
     text = str(text_value or "")
+    explicit = re.search(r"^\s*(?:Betreff|Thema)\s*:\s*(.{5,100})$", text, re.MULTILINE | re.IGNORECASE)
+    if explicit:
+        return normalize_subject(explicit.group(1)) or None
     lower = text.lower()
     for keyword, label in (("einkommensteuer", "Einkommensteuer"), ("lohnsteuer", "Lohnsteuer"), ("umsatzsteuer", "Umsatzsteuer"), ("körperschaftsteuer", "Körperschaftsteuer"), ("koerperschaftsteuer", "Körperschaftsteuer"), ("gewerbesteuer", "Gewerbesteuer"), ("grundsteuer", "Grundsteuer")):
         if keyword in lower:
@@ -179,6 +187,13 @@ def extract_subject_rich(text_value: object, _doc_type: str) -> str | None:
         match = pattern.search(text)
         if match:
             return fmt.format(*(match.group(index + 1) for index in range(len(match.groups()))))
+    # A letter's subject commonly stands directly above the salutation.
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for index, line in enumerate(lines):
+        if re.match(r"(?:Sehr geehrt|Guten Tag|Liebe[rs]?\b)", line, re.IGNORECASE) and index:
+            heading = lines[index - 1]
+            if 12 <= len(heading) <= 160 and not re.search(r"@|\b\d{4,}\b|\d{1,2}\.\d{1,2}\.", heading):
+                return normalize_subject(heading) or None
     return None
 
 

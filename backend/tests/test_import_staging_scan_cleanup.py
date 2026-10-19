@@ -155,6 +155,7 @@ class ImportStagingScanCleanupTest(unittest.TestCase):
         source_path = self.service._source_pdf_path(source_file_id)
         source_path.parent.mkdir(parents=True, exist_ok=True)
         Image.new("RGB", (100, 100), (220, 40, 20)).save(source_path, format="PDF", resolution=150.0)
+        self.service._scan_cleanup_settings = lambda: (None, 300)
 
         preview = self.service.render_source_page_color_preview(source_file_id, 0, "grayscale")
 

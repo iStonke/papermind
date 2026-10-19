@@ -3,8 +3,8 @@
     v-model="isOpen"
     :persistent="isUploadingSources || isCommitting"
     :guard-close="hasStagedPages"
-    :max-width="MODAL_WORK_WIDTH_SPLIT"
-    :card-class="['isd-card', { 'isd-card--empty': isEmpty }]"
+    :max-width="rightPanelMode === 'both' ? 1540 : MODAL_WORK_WIDTH_SPLIT"
+    :card-class="['isd-card', { 'isd-card--empty': isEmpty, 'isd-card--both': rightPanelMode === 'both' }]"
     title="Importieren"
     header-subtitle="Seiten zu einem neuen Dokument zusammenführen"
     @request-close="requestCloseImport"
@@ -21,28 +21,20 @@
       />
     </template>
 
+    <div v-if="props.scannerActive || props.scanCancelPending" class="isd-scan-progress" role="status" aria-live="polite">
+      <span>{{ scannerFeedbackTitle }}</span>
+      <v-btn v-if="!props.scanner?.live_page_mode && !props.scanCancelPending" size="small" variant="text" :disabled="props.scanRequestPending" @click="emitScan('finish')">Scannen abschließen</v-btn>
+      <v-btn v-if="isScannerFeedbackPending && !props.scanCancelPending" size="small" variant="text" :disabled="props.scanRequestPending" @click="emitScan('page')">Weitere Seite</v-btn>
+      <v-btn size="small" variant="text" :disabled="props.scanCancelPending" @click="emitScan('cancel')">{{ props.scanCancelPending ? 'Abbruch angefordert' : 'Scan abbrechen' }}</v-btn>
+    </div>
+    <div v-for="job in props.scannerJobs.filter(job => job.state === 'error' && job.error_kind !== 'cancelled' && Date.parse(job.created_at) > Math.max(stagingStore.createdAt || 0, Date.now() - 300000))" :key="job.id" class="isd-import-error" role="alert">
+      {{ job.error || 'Scan fehlgeschlagen. Bereits erfasste Seiten bleiben erhalten.' }}
+      <v-btn size="small" variant="text" :disabled="props.scannerActive" @click="emitScan('page')">Erneut scannen</v-btn>
+    </div>
     <div class="isd-body">
-      <!-- Hidden file input required by openFilePicker() -->
-      <input
-        v-if="isIOSDevice"
-        ref="fileInput"
-        class="d-none"
-        type="file"
-        accept="application/pdf"
-        multiple
-        @change="onFileInputChange"
-      />
-      <input
-        v-else
-        ref="fileInput"
-        class="d-none"
-        type="file"
-        accept="application/pdf"
-        multiple
-        webkitdirectory
-        directory
-        @change="onFileInputChange"
-      />
+      <input ref="replacePageInput" class="d-none" type="file" accept="application/pdf" @change="replaceSelectedPageFromFile" />
+      <input ref="fileInput" class="d-none" type="file" accept="application/pdf" multiple @change="onFileInputChange" />
+      <input v-if="!isIOSDevice" ref="folderInput" class="d-none" type="file" accept="application/pdf" multiple webkitdirectory directory @change="onFileInputChange" />
 
       <!-- Left column: page grid + bottom toolbar -->
       <div class="isd-left">
@@ -67,7 +59,7 @@
             class="isd-dropzone"
             :class="{
               'isd-dropzone--over': isDropzoneDragOver,
-              'isd-dropzone--scanning': props.scannerActive
+              'isd-dropzone--scanning': props.scannerActive || scannerPreviewFinalizing
             }"
             @dragenter.prevent="onDropzoneDragEnter"
             @dragover.prevent="onDropzoneDragOver"
@@ -78,8 +70,9 @@
             <div
               class="isd-dz-scene"
               :class="{
-                'isd-dz-scene--scanning': props.scannerActive,
-                'isd-dz-scene--pending': isScannerFeedbackPending
+                'isd-dz-scene--scanning': props.scannerActive || scannerPreviewFinalizing,
+                'isd-dz-scene--pending': isScannerFeedbackPending,
+                'isd-dz-scene--complete': scannerPreviewFinalizing
               }"
               aria-hidden="true"
             >
@@ -102,7 +95,7 @@
                 <span class="isd-dz-sheet__caption" />
               </div>
 
-              <div class="isd-dz-sheet isd-dz-sheet--front">
+              <div ref="scannerPreviewSourceElement" class="isd-dz-sheet isd-dz-sheet--front">
                 <img
                   v-if="scannerLivePreviewUrl"
                   :src="scannerLivePreviewUrl"
@@ -128,11 +121,15 @@
             <div class="isd-dropzone__text-shell">
               <Transition name="isd-feedback-text">
                 <div
-                  :key="props.scannerActive ? `scanner-${props.scannerFeedbackState}` : 'dropzone-idle'"
+                  :key="scannerPreviewFinalizing ? 'scan-finalizing' : props.scannerActive ? `scanner-${props.scannerFeedbackState}` : 'dropzone-idle'"
                   class="isd-dropzone__text"
                   aria-live="polite"
                 >
-                  <template v-if="props.scannerActive">
+                  <template v-if="scannerPreviewFinalizing">
+                    <p class="isd-dropzone__title">Scan erfasst</p>
+                    <p class="isd-dropzone__subtitle">Die Seite wird für den Import vorbereitet</p>
+                  </template>
+                  <template v-else-if="props.scannerActive">
                     <p class="isd-dropzone__title">{{ scannerFeedbackTitle }}</p>
                     <p class="isd-dropzone__subtitle">{{ scannerFeedbackSubtitle }}</p>
                   </template>
@@ -199,9 +196,12 @@
                 <span class="isd-dropzone__action-copy">
                   <strong>{{ props.scannerActive ? 'PDFs zusätzlich hinzufügen' : dropzonePrimaryLabel }}</strong>
                   <small v-if="!props.scannerActive">
-                    {{ isIOSDevice ? 'Eine oder mehrere Dateien' : 'Dateien oder ganzen Ordner öffnen' }}
+                    {{ isIOSDevice ? 'Eine oder mehrere Dateien' : 'Eine oder mehrere PDF-Dateien' }}
                   </small>
                 </span>
+              </button>
+              <button v-if="!isIOSDevice" type="button" class="isd-dropzone__action" style="grid-column:1 / -1; min-height:40px" :disabled="isUploadingSources || isCommitting" @click="folderInput?.click()">
+                <v-icon size="18">mdi-folder-outline</v-icon><span>Ganzen Ordner hinzufügen</span>
               </button>
             </div>
           </div>
@@ -219,10 +219,14 @@
               :ref="el => setPageThumbRef(page.id, el)"
               class="isd-page-card import-staging-page"
               :data-page-id="page.id"
+              role="button" tabindex="0" :aria-label="`Seite ${globalIndex + 1}, ${doc.title}`"
+              @keydown.enter.prevent="onPageGridClick($event, doc, page, globalIndex)"
+              @keydown.space.prevent="onPageGridClick($event, doc, page, globalIndex)"
               :data-page-index="pageIndexInDoc"
-              :draggable="true"
+              :draggable="!isCommitting && !stagingStore.pendingCommit"
               :class="{
                 'isd-page-card--selected': isPageSelected(doc.id, page.id),
+                'isd-page-card--scan-handoff': Boolean(scannerPreviewFlight) && globalIndex === 0,
                 'isd-page-card--multi': isPageMultiSelected(page.id),
                 'isd-page-card--dragging': isDraggingPage(page.id),
                 'isd-page-card--drop-before':
@@ -253,10 +257,20 @@
                           ? 'grayscale(1) contrast(4)'
                           : undefined
                     }"
-                    draggable="false"
+                    draggable="false" loading="lazy" decoding="async"
+                    @load="page.previewError = false; onScannerThumbnailLoaded(page.id, $event.target)"
+                    @error="page.previewError = true"
                     alt=""
                   />
                   <v-icon v-else size="32" class="isd-page-thumb-placeholder-icon">mdi-file-document-outline</v-icon>
+                  <Transition name="isd-scan-frame">
+                    <img
+                      v-if="scannerThumbnailFallback?.pageId === page.id"
+                      :src="scannerThumbnailFallback.url"
+                      class="isd-scan-thumbnail-fallback"
+                      draggable="false" alt=""
+                    />
+                  </Transition>
                 </div>
                 <!-- Select-Mode Checkbox-Indikator -->
                 <div
@@ -267,9 +281,11 @@
                   <v-icon v-if="isPageMultiSelected(page.id)" size="14">mdi-check</v-icon>
                 </div>
               </div>
-              <div class="isd-page-num">{{ globalIndex + 1 }}</div>
+              <div class="isd-page-num">{{ globalIndex + 1 }}<span v-if="documents.length > 1"> · {{ doc.title }}</span></div>
+              <span v-if="stagingStore.sourceMetaById.get(page.sourceFileId)?.pageQuality?.[page.pageIndex]" class="isd-page-review">{{ stagingStore.sourceMetaById.get(page.sourceFileId).pageQuality[page.pageIndex] }}</span>
+              <button v-if="page.previewError" type="button" class="isd-page-review" @click.stop="retryThumbnail(page)">Vorschau erneut laden</button>
               <div
-                v-if="page.colorMode !== 'grayscale'"
+                v-if="page.colorMode !== 'auto'"
                 class="isd-page-mode-badge"
                 :title="`Farbmodus: ${pageColorModeLabel(page.colorMode)}`"
               >
@@ -375,9 +391,17 @@
           </div>
 
         </div>
-        <div v-show="!isEmpty" class="isd-toolbar">
+        <div v-if="primaryDocument?.meta?.commitError" class="isd-import-error" role="alert">
+          {{ primaryDocument.meta.commitError.message }}
+          <button v-if="primaryDocument.meta.commitError.existing_doc_id" type="button" @click="minimizeDialog(); emit('open-document', primaryDocument.meta.commitError.existing_doc_id)">Vorhandenes Dokument öffnen</button>
+        </div>
+        <div v-if="primaryDocument?.meta?.analysisError" class="isd-review-hint" role="status">{{ primaryDocument.meta.analysisError }}</div>
+        <div v-show="!isEmpty || stagingStore.history.length" class="isd-toolbar">
 
           <!-- Linke Gruppe: Modus-Toggle + Seitenaktionen -->
+          <v-btn v-if="!isIOSDevice" icon="mdi-folder-outline" size="x-small" variant="text" aria-label="Ordner hinzufügen" :disabled="isUploadingSources || isCommitting" @click="folderInput?.click()" />
+          <v-btn icon="mdi-undo" size="x-small" variant="text" aria-label="Seitenänderung rückgängig machen"
+            :disabled="!stagingStore.history.length || isCommitting || Boolean(stagingStore.pendingCommit)" @click="stagingStore.undo()" />
           <div class="isd-toolbar-left">
             <v-btn
               icon
@@ -436,7 +460,7 @@
                 icon
                 size="x-small"
                 variant="text"
-                title="Original – keine Bereinigung"
+                title="Originalfarbe des Scans" aria-label="Originalfarbe des Scans"
                 :color="selectedPageColorChoice === 'color' ? 'primary' : undefined"
                 :class="{ 'isd-color-btn--active': selectedPageColorChoice === 'color' }"
                 :disabled="!hasAnySelectedPage"
@@ -448,7 +472,7 @@
                 icon
                 size="x-small"
                 variant="text"
-                title="Bereinigt – Graustufen"
+                title="Graustufen" aria-label="Graustufen"
                 :color="selectedPageColorChoice === 'grayscale' ? 'primary' : undefined"
                 :class="{ 'isd-color-btn--active': selectedPageColorChoice === 'grayscale' }"
                 :disabled="!hasAnySelectedPage"
@@ -460,7 +484,7 @@
                 icon
                 size="x-small"
                 variant="text"
-                title="Bereinigt – Farbe"
+                title="Automatische Scanbereinigung beibehalten" aria-label="Automatische Scanbereinigung beibehalten"
                 :color="selectedPageColorChoice === 'auto' ? 'primary' : undefined"
                 :class="{ 'isd-color-btn--active': selectedPageColorChoice === 'auto' }"
                 :disabled="!hasAnySelectedPage"
@@ -476,6 +500,11 @@
                das schrumpft/ellipsiert – so werden die festen Button-Gruppen
                links und rechts nie aus dem Rahmen geschoben. -->
           <div class="isd-toolbar-center">
+            <v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-horizontal" size="x-small" variant="text" aria-label="Analyseaktionen" :disabled="isCommitting || isScanCleanupRunning || isRetryingAnalysis" /></template>
+              <v-list density="compact"><v-list-item title="Vorhandene Ergebnisse aktualisieren" @click="refreshImportAnalyses" /><v-list-item title="Metadaten neu analysieren" @click="retryAnalysis(false)" />
+                <v-list-item v-if="hasMultiSelection || selected?.pageId" title="Ausgewählte Seiten analysieren" @click="analyzeSelectedPages" />
+                <v-list-item title="Texterkennung wiederholen" @click="retryAnalysis(true)" /></v-list>
+            </v-menu>
             <div class="isd-toolbar-divider" />
             <div v-if="prepStatus.busy" class="isd-ai-status" :title="aiStatusTitle">
               <v-progress-circular indeterminate size="14" width="2" color="primary" />
@@ -490,7 +519,7 @@
               :class="`isd-ai-status-btn--${prepStatus.kind}`"
               :title="aiStatusTitle"
               :disabled="isScanCleanupRunning || isRetryingAnalysis || isUploadingSources || totalPages === 0"
-              @click="retryAnalysis"
+              @click="retryAnalysis(false)"
             >
               <v-icon v-if="['success', 'partial'].includes(aiAnalysis.kind)" size="20" color="success">
                 mdi-auto-fix
@@ -502,6 +531,9 @@
             </v-btn>
           </div>
 
+          <v-btn icon="mdi-call-split" size="x-small" variant="text" aria-label="Ausgewählte Seite als neues Dokument"
+            :disabled="!selected?.pageId || isCommitting || Boolean(stagingStore.pendingCommit)" @click="stagingStore.splitPageToNewDocument(selected.pageId)" />
+          <v-btn size="x-small" variant="text" :disabled="!selected?.pageId || isCommitting || Boolean(stagingStore.pendingCommit)" @click="replacePageInput?.click()">Seite ersetzen</v-btn>
           <!-- Rechte Gruppe: Miniaturgröße + Seitenanzahl -->
           <div class="isd-toolbar-right">
             <v-menu location="top" :offset="8" :close-on-content-click="false">
@@ -579,252 +611,74 @@
           >
             Vorschau
           </button>
+          <button type="button" class="isd-props-mode__button isd-both-tab" role="tab" :aria-selected="rightPanelMode === 'both'" @click="showPreviewPanel(); rightPanelMode = 'both'">Nebeneinander</button>
         </div>
 
-       <div v-show="rightPanelMode === 'details'" class="isd-props-scroll">
+       <div v-show="rightPanelMode !== 'preview'" class="isd-props-scroll">
 
-        <!-- Aufbewahrung: fest in die Feldspalte integriert, amber abgehoben, einklappbar -->
-        <div v-if="isRetentionEnabled" class="isd-retention" :class="{ 'isd-retention--open': retentionExpanded }">
-          <div
-            class="isd-retention__head"
-            role="button"
-            tabindex="0"
-            :aria-expanded="String(retentionExpanded)"
-            aria-label="Aufbewahrung ein- oder ausklappen"
-            @click="retentionExpanded = !retentionExpanded"
-            @keydown.enter.prevent="retentionExpanded = !retentionExpanded"
-            @keydown.space.prevent="retentionExpanded = !retentionExpanded"
-          >
-            <span class="isd-retention__title">Aufbewahrungspflicht</span>
-            <div class="isd-retention__spacer" />
-            <span v-if="!retentionExpanded" class="isd-retention__summary">{{ retentionSummary }}</span>
-            <button
-              v-if="docRetention && docRetention.status === 'suggested'"
-              type="button"
-              class="isd-retention__accept"
-              @click.stop="onRetentionAccept"
-            >Übernehmen</button>
-            <v-icon
-              size="18"
-              class="isd-retention__chev"
-              :class="{ 'isd-retention__chev--open': retentionExpanded }"
-            >mdi-chevron-down</v-icon>
-          </div>
-          <RetentionForm
-            v-show="retentionExpanded"
-            :period-years="docRetention ? docRetention.period_years : null"
-            :paper-original="docRetention ? docRetention.paper_original : 'unclear'"
-            :reason="docRetention ? docRetention.reason || '' : ''"
-            :expiry-label="retentionExpiryLabel"
-            :show-actions="false"
-            @update:period-years="onRetentionField('period_years', $event)"
-            @update:paper-original="onRetentionField('paper_original', $event)"
-            @update:reason="onRetentionField('reason', $event)"
-          />
-        </div>
+        <RetentionStatusBar v-if="isRetentionEnabled" :model-value="docRetention" :document-date-iso="docDateIso || ''"
+          :allow-suggest="false" :saving="isCommitting" :menu-props="{ maxHeight: 240, attach: 'body', zIndex: 6000 }"
+          @accept="onRetentionAccept" @save="saveImportRetention" />
 
-        <!-- Document name -->
-        <div class="isd-field" :class="{ 'isd-field--ai-filled': aiFieldGlowActive && docTitleAiFilled }">
-          <div class="isd-field-label">
-            Dokumentname
-            <v-tooltip text="Wie lautet der Name des Dokuments? Wird für Suche und Anzeige verwendet." location="top" max-width="220">
-              <template #activator="{ props: tip }"><v-icon class="isd-field-info" v-bind="tip" size="14">mdi-information-outline</v-icon></template>
-            </v-tooltip>
-          </div>
-          <div class="isd-field-row">
-            <v-textarea
-              :model-value="primaryDocTitle"
-              placeholder="z. B. Rechnung Stadtwerke März 2024"
-              density="compact"
-              variant="outlined"
-              hide-details
-              rows="2"
-              :auto-grow="false"
-              no-resize
-              @update:model-value="onPrimaryDocTitleInput({ target: { value: $event } })"
-              @blur="onPrimaryDocTitleBlur"
-              @keydown.enter.prevent="$event.target.blur()"
-            />
-          </div>
-          <button
-            v-if="primaryDocSuggestionText"
-            type="button"
-            class="isd-ai-chip"
-            @click="primaryDocument && applyScanSuggestion(primaryDocument.id)"
-          >
-            <v-icon size="13">{{ resolveIcon('mdi-robot-outline') }}</v-icon>
-            <span class="isd-ai-chip__text">{{ primaryDocSuggestionText }}</span>
-            <span class="isd-ai-chip__action">übernehmen</span>
-          </button>
+        <v-select v-if="documents.length > 1" :model-value="primaryDocument?.id"
+          :items="documents.map(doc => ({ title: doc.title || 'Ohne Namen', value: doc.id }))" label="Dokument bearbeiten"
+          density="compact" variant="outlined" @update:model-value="activeDocumentId = $event; selected = null" />
+        <DocumentMetadataFields :name="primaryDocTitle" :date="docDate" :category="docCategory"
+          :correspondent="docCorrespondentId" :note="docNote" :categories="categoryItems" :correspondents="correspondentItems"
+          :errors="{ ...fieldErrors, name: fieldErrors.title }" :sources="metadataSources" required-name manage :disabled="isCommitting || Boolean(stagingStore.pendingCommit)"
+          @manage-category="minimizeDialog(); emit('manage-category')" @manage-correspondent="minimizeDialog(); emit('manage-correspondent')"
+          @update:name="onPrimaryDocTitleInput({ target: { value: $event } })"
+          @update:date="docDate = $event; docDateTouched = true; docDateAiFilled = false"
+          @update:category="docCategory = $event; docCategoryTouched = true; docCategoryAiFilled = false"
+          @update:correspondent="docCorrespondentId = $event; docCorrespondentTouched = true; docCorrespondentAiFilled = false"
+          @update:note="docNote = $event; docNoteTouched = true; docNoteAiFilled = false"
+          @text-blur="onPrimaryDocTitleBlur" @date-blur="normalizeImportDate"
+          @date-keydown="handleShortcut($event, SHORTCUT_ACTIONS.PRIMARY, normalizeImportDate, { ignoreEditable: false })"
+          @correspondent-focus="correspondentStore.ensureLoaded()">
+          <template #tags>
+            <TagInlineEditor :model-value="primaryDocTagNames" v-model:search="tagInlineValue"
+              :items="allTagNamesForPool" :disabled="isCommitting" :loading="isCreatingTags"
+              @update:model-value="onTagNamesChange" @remove="onTagNamesChange(primaryDocTagNames.filter(name => name !== $event))"
+              @keydown="onImportTagKeydown" @focus="ensureStageTagsLoaded()" />
+          </template>
+          <template #after-name>
+            <div v-if="primaryDocSuggestionText" class="isd-suggestion-row">
+              <button type="button" class="isd-ai-chip" @click="applyScanSuggestion(primaryDocument.id)">
+                <v-icon size="13">mdi-robot-outline</v-icon><span>{{ primaryDocSuggestionText }}</span><strong>Übernehmen</strong>
+              </button>
+              <button type="button" class="isd-suggestion-dismiss" @click="primaryDocument.meta.dismissedTitle = primaryDocSuggestionText">Verwerfen</button>
+            </div>
+          </template>
+        </DocumentMetadataFields>
+        <details v-if="Object.keys(importForm.previousValues).length" class="isd-review-hint">
+          <summary>Automatische Änderungen zurücksetzen</summary>
+          <button v-for="(_, field) in importForm.previousValues" :key="field" type="button" @click="undoImportField(field)">{{ ({ title: 'Dokumentname', date: 'Datum', category: 'Dokumenttyp', correspondent: 'Korrespondent', tags: 'Tags', note: 'Notiz', retention: 'Aufbewahrung' })[field] }}</button>
+        </details>
+        <div v-if="primaryDocument?.meta?.titleSuggestionMeta?.scope_limited" class="isd-review-hint" role="status">
+          {{ primaryDocument.meta.titleSuggestionMeta.pages_analyzed }} von {{ primaryDocument.meta.titleSuggestionMeta.pages_total }} Seiten analysiert. Für weitere Seiten eine Auswahl erstellen.
         </div>
-
-        <!-- Document date -->
-        <div class="isd-field" :class="{ 'isd-field--ai-filled': aiFieldGlowActive && docDateAiFilled }">
-          <div class="isd-field-label">
-            Dokumentdatum
-            <v-tooltip text="Wann wurde das Dokument ausgestellt? (Nicht das Importdatum)" location="top" max-width="220">
-              <template #activator="{ props: tip }"><v-icon class="isd-field-info" v-bind="tip" size="14">mdi-information-outline</v-icon></template>
-            </v-tooltip>
-          </div>
-          <div class="isd-field-row">
-            <v-text-field
-              v-model="docDate"
-              placeholder="Datum eingeben…"
-              density="compact"
-              variant="outlined"
-              hide-details
-              inputmode="numeric"
-              :maxlength="10"
-              @input="docDateTouched = true; docDateAiFilled = false"
-            />
-          </div>
+        <div v-if="primaryDocument?.meta?.titleSuggestionMeta?.analysis_selection" class="isd-review-hint">Die Erkennung basiert auf der ausdrücklich ausgewählten Seitenauswahl.</div>
+        <div v-if="primaryDocument?.meta?.titleSuggestionMeta?.review_fields?.includes('date')" class="isd-review-hint">Das erkannte Datum ist ungewöhnlich. Bitte prüfen.</div>
+        <details v-if="primaryDocument?.meta?.titleSuggestionMeta?.date_candidates?.length > 1" class="isd-review-hint">
+          <summary>Datumsangaben im Dokument prüfen</summary>
+          <p v-for="(candidate, index) in primaryDocument.meta.titleSuggestionMeta.date_candidates" :key="index">
+            {{ candidate.label || 'Datum ohne eindeutige Zuordnung' }}: {{ isoToGermanDate(candidate.value) }}
+            <button type="button" @click="docDate = isoToGermanDate(candidate.value); docDateTouched = true; docDateAiFilled = false">Als Dokumentdatum verwenden</button>
+          </p>
+        </details>
+        <div v-for="(proposal, field) in fieldProposals" :key="field" class="isd-review-hint">
+          {{ ({ category: 'Dokumenttyp', correspondent: 'Absender', date: 'Datum', note: 'Notiz', tags: 'Tags', retention: 'Aufbewahrung' })[field] || field }}: {{ proposalText(field, proposal) }}
+          <button type="button" @click="acceptImportProposal(field)">Übernehmen</button>
+          <button type="button" @click="dismissImportProposal(field)">Verwerfen</button>
         </div>
-
-        <!-- Document type -->
-        <div class="isd-field" :class="{ 'isd-field--ai-filled': aiFieldGlowActive && docCategoryAiFilled }">
-          <div class="isd-field-label">
-            Dokumenttyp
-            <v-tooltip text="Grobe Einordnung: Was ist das Dokument? Ein Dokument hat genau einen Dokumenttyp." location="top" max-width="220">
-              <template #activator="{ props: tip }"><v-icon class="isd-field-info" v-bind="tip" size="14">mdi-information-outline</v-icon></template>
-            </v-tooltip>
-          </div>
-          <v-select
-            v-model="docCategory"
-            :items="categoryItems"
-            placeholder="Dokumenttyp wählen…"
-            density="compact"
-            variant="outlined"
-            hide-details
-            clearable
-            @update:model-value="docCategoryTouched = true; docCategoryAiFilled = false"
-          />
-        </div>
-
-        <!-- Correspondent -->
-        <div class="isd-field" :class="{ 'isd-field--ai-filled': aiFieldGlowActive && docCorrespondentAiFilled }">
-          <div class="isd-field-label">
-            Korrespondent
-            <v-tooltip text="Kanonischer Absender/Aussteller. Wird aus dem erkannten Absender über Aliase/Regeln aufgelöst." location="top" max-width="240">
-              <template #activator="{ props: tip }"><v-icon class="isd-field-info" v-bind="tip" size="14">mdi-information-outline</v-icon></template>
-            </v-tooltip>
-          </div>
-          <v-combobox
-            v-model="docCorrespondentId"
-            :items="correspondentItems"
-            item-title="title"
-            item-value="value"
-            :return-object="false"
-            placeholder="Korrespondent wählen…"
-            density="compact"
-            variant="outlined"
-            hide-details
-            clearable
-            :menu-props="{ maxHeight: 240, attach: 'body', zIndex: 6000, contentClass: 'isd-correspondent-menu' }"
-            @update:model-value="docCorrespondentTouched = true; docCorrespondentAiFilled = false"
-            @focus="correspondentStore.ensureLoaded()"
-          >
-            <template #item="{ props: itemProps, item }">
-              <v-list-item
-                v-bind="compactCorrespondentItemProps(itemProps)"
-                density="compact"
-                class="isd-correspondent-menu__item"
-              >
-                <template #prepend>
-                  <v-icon
-                    v-if="item.raw?.kind === 'collection'"
-                    size="19"
-                    class="isd-correspondent-menu__icon"
-                  >
-                    mdi-shape-outline
-                  </v-icon>
-                </template>
-                <v-list-item-title class="isd-correspondent-menu__title">
-                  {{ item.raw?.name || item.raw?.title || item.title }}
-                  <span v-if="item.raw?.kind === 'collection'" class="isd-correspondent-menu__meta">· Sammlung</span>
-                </v-list-item-title>
-              </v-list-item>
-            </template>
-            <template #selection="{ item }">
-              <!-- Noch nicht angelegter Vorschlag gestrichelt (wie neue Tags), sonst schlichter Text. -->
-              <v-chip
-                v-if="isNewCorrespondentValue(item)"
-                class="isd-tag-chip--new"
-                size="small"
-                label
-              >{{ item?.title || item?.value }}</v-chip>
-              <span v-else class="isd-correspondent-selection">{{ item?.title || item?.value }}</span>
-            </template>
-            <template #no-data>
-              <v-list-item title="Als neuen Korrespondenten verwenden" />
-            </template>
-          </v-combobox>
-        </div>
-
-        <!-- Tags -->
-        <div class="isd-field" :class="{ 'isd-field--ai-filled': aiFieldGlowActive && docTagsAiFilled }">
-          <div class="isd-field-label">
-            Tags
-            <v-tooltip text="Freie Schlagwörter für Kontext, Projekt oder Personen. Mehrere Tags möglich." location="top" max-width="220">
-              <template #activator="{ props: tip }"><v-icon class="isd-field-info" v-bind="tip" size="14">mdi-information-outline</v-icon></template>
-            </v-tooltip>
-          </div>
-          <v-combobox
-            :model-value="primaryDocTagNames"
-            v-model:search="tagInlineValue"
-            :items="allTagNamesForPool"
-            multiple
-            chips
-            closable-chips
-            hide-selected
-            :clearable="false"
-            density="compact"
-            variant="outlined"
-            hide-details
-            placeholder="Tag hinzufügen…"
-            :loading="isCreatingTags"
-            :menu-props="{
-              maxHeight: 220,
-              offset: 4,
-              closeOnContentClick: false,
-              attach: 'body',
-              zIndex: 6000
-            }"
-            @update:model-value="onTagNamesChange"
-            @focus="ensureStageTagsLoaded()"
-          >
-            <template #chip="{ item, props: chipProps }">
-              <!-- Neue (noch nicht angelegte) Tags gestrichelt markieren -->
-              <v-chip
-                v-bind="chipProps"
-                :class="{ 'isd-tag-chip--new': isNewTagName(item.title) }"
-              />
-            </template>
-          </v-combobox>
-        </div>
-
-        <!-- Note -->
-        <div class="isd-field" :class="{ 'isd-field--ai-filled': aiFieldGlowActive && docNoteAiFilled }">
-          <div class="isd-field-label">
-            Notiz
-            <v-tooltip text="Interne Notiz zum Dokument – nur für dich sichtbar." location="top" max-width="220">
-              <template #activator="{ props: tip }"><v-icon class="isd-field-info" v-bind="tip" size="14">mdi-information-outline</v-icon></template>
-            </v-tooltip>
-          </div>
-          <v-textarea
-            v-model="docNote"
-            placeholder="Interne Notiz zum Dokument…"
-            density="compact"
-            variant="outlined"
-            hide-details
-            rows="2"
-            no-resize
-            @update:model-value="docNoteTouched = true; docNoteAiFilled = false"
-          />
-        </div>
+        <details v-if="primaryDocument?.meta?.titleSuggestionMeta?.evidence" class="isd-review-hint">
+          <summary>Fundstellen der Erkennung</summary>
+          <p v-for="(evidence, field) in primaryDocument.meta.titleSuggestionMeta.evidence" :key="field">{{ ({ title: 'Dokumentname', correspondent: 'Absender', date: 'Datum' })[field] || field }}: {{ evidence.text }}</p>
+        </details>
 
        </div>
 
-        <div v-show="rightPanelMode === 'preview'" class="isd-preview-panel">
+        <div v-show="rightPanelMode !== 'details'" class="isd-preview-panel">
           <div
             class="isd-preview-stage"
             :class="{ 'isd-preview-stage--empty': !hasSelectedPreview }"
@@ -870,6 +724,7 @@
     <template #footer>
       <div class="isd-footer">
         <div class="isd-footer-start">
+          <span v-if="importBlockedReason" class="isd-review-hint" role="status">{{ importBlockedReason }}</span>
           <v-btn
             variant="text"
             :disabled="isUploadingSources || isCommitting"
@@ -886,7 +741,7 @@
             v-if="hasMultiSelection"
             variant="tonal"
             color="primary"
-            :disabled="isCommitting"
+            :disabled="isImportActionDisabled"
             @click="commitSelectionImport"
           >
             Auswahl importieren ({{ multiSelectionCount }})
@@ -896,14 +751,22 @@
             variant="flat"
             class="isd-import-btn"
             :disabled="isImportActionDisabled"
-            @click="commitImport"
+            @click="commitImport()"
           >
-            {{ isCommitting ? 'Verarbeitung läuft…' : (isEmpty ? 'Importieren' : `Importieren (${importCount})`) }}
+            {{ isCommitting ? 'Verarbeitung läuft…' : stagingStore.pendingCommit ? 'Importstatus prüfen' : (isEmpty ? 'Importieren' : `Importieren (${importCount} Seiten)`) }}
           </v-btn>
         </div>
       </div>
     </template>
   </BaseDialog>
+
+  <Teleport to="body">
+    <div v-if="scannerPreviewFlight" class="isd-scan-flight-layer" aria-hidden="true">
+      <div ref="scannerPreviewFlightElement" class="isd-scan-flight" :style="scannerPreviewFlight.style">
+        <img :src="scannerPreviewFlight.url" alt="" draggable="false" />
+      </div>
+    </div>
+  </Teleport>
 
   <DestructiveDialog
     v-model="discardImportConfirmOpen"
@@ -931,9 +794,16 @@ import { PDF_WORKER_SRC } from '../utils/pdfWorker.js';
 import { authedUrl, authHeaders } from '../api/client.js';
 import BaseDialog from './BaseDialog.vue';
 import DestructiveDialog from './DestructiveDialog.vue';
-import StageTags from './StageTags.vue';
-import RetentionForm from './RetentionForm.vue';
-import { discardImportInboxSourcePages } from '../api/importInbox';
+import RetentionStatusBar from './RetentionStatusBar.vue';
+import DocumentMetadataFields from './DocumentMetadataFields.vue';
+import TagInlineEditor from './TagInlineEditor.vue';
+import { useImportDocumentForm } from '../composables/useImportDocumentForm.js';
+import { useScannerPreviewTransition } from '../composables/useScannerPreviewTransition.js';
+import { canOfferTitle, meaningfulSuggestion, ensureImportForm, sourcePages, documentRevision, validateImportDocument, applyFieldProposal, commitSubset } from '../utils/importWorkflow.js';
+import { parseDocumentDateInput } from '../utils/dates.js';
+import { apiFetch } from '../api/client.js';
+import { scanImageQuality } from '../utils/scanImageQuality.js';
+import { useImportDraftPersistence } from '../composables/useImportDraftPersistence.js';
 import { suggestImportStageTitle } from '../api/importStaging';
 import { isIOS } from '../utils/platform';
 import { mapApiError, useNotifications } from '../stores/notifications';
@@ -964,74 +834,26 @@ const props = defineProps({
     validator: (value) => ['idle', 'scanning', 'pending'].includes(value)
   },
   // Auslösbarer Scanner des aktuellen Benutzers (oder null). Siehe ScannerTriggerInfo.
-  scanner: { type: Object, default: null }
+  scanner: { type: Object, default: null },
+  scannerJobs: { type: Array, default: () => [] },
+  scanRequestPending: { type: Boolean, default: false },
+  scanCancelPending: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources', 'minimize', 'scan']);
+const emit = defineEmits(['update:modelValue', 'committed', 'discarded-sources', 'minimize', 'scan', 'open-document', 'manage-category', 'manage-correspondent']);
 
 // Im Live-Modus erzeugt jede Seite sofort ein eigenes Dokument -> kein "Fertig".
 // Im Batch-Modus sammelt der Scanner und braucht ein explizites Abschließen.
 const canTriggerScan = computed(() => Boolean(props.scanner?.id));
 const isScannerFeedbackPending = computed(() => props.scannerFeedbackState === 'pending');
-const scannerLiveProgress = computed(() => {
-  const progress = Number(props.scanner?.scan_progress);
-  return Number.isFinite(progress) ? Math.max(0, Math.min(100, Math.round(progress))) : 0;
-});
 const scannerLivePreviewCandidateUrl = computed(() => {
   const raw = String(props.scanner?.live_preview_url || '').trim();
   return raw ? authedUrl(buildApiResourceUrl(raw)) : '';
 });
-const scannerLivePreviewUrl = ref('');
-let scannerLivePreviewLoadId = 0;
-let scannerLivePreviewLoader = null;
-
-watch(
-  scannerLivePreviewCandidateUrl,
-  (candidateUrl) => {
-    const loadId = ++scannerLivePreviewLoadId;
-    if (!candidateUrl) {
-      scannerLivePreviewUrl.value = '';
-      scannerLivePreviewLoader = null;
-      return;
-    }
-    if (typeof window === 'undefined' || typeof window.Image !== 'function') {
-      scannerLivePreviewUrl.value = candidateUrl;
-      return;
-    }
-
-    const image = new window.Image();
-    scannerLivePreviewLoader = image;
-    image.decoding = 'async';
-    image.onload = async () => {
-      if (typeof image.decode === 'function') {
-        try {
-          await image.decode();
-        } catch {
-          // Das Bild ist bereits geladen; ältere Browser können decode() dennoch ablehnen.
-        }
-      }
-      if (
-        loadId === scannerLivePreviewLoadId
-        && scannerLivePreviewCandidateUrl.value === candidateUrl
-      ) {
-        scannerLivePreviewUrl.value = candidateUrl;
-      }
-      if (scannerLivePreviewLoader === image) {
-        scannerLivePreviewLoader = null;
-      }
-    };
-    image.onerror = () => {
-      // Die letzte gültige Vorschau bleibt sichtbar, bis ein vollständiges Bild vorliegt.
-      if (scannerLivePreviewLoader === image) {
-        scannerLivePreviewLoader = null;
-      }
-    };
-    image.src = candidateUrl;
-  },
-  { immediate: true }
-);
 const scannerFeedbackTitle = computed(() => (
-  isScannerFeedbackPending.value ? 'Seite wird übernommen' : 'Scanner erfasst die erste Seite'
+  props.scanCancelPending ? 'Abbruch angefordert' : props.scanRequestPending ? 'Scan wird angefordert' :
+    props.scannerJobs.some(job => job.state === 'queued') ? 'Scanner wartet auf den Auftrag' :
+    isScannerFeedbackPending.value ? 'Scan wird übertragen oder wartet auf Abschluss' : 'Seite wird gescannt'
 ));
 const scannerFeedbackSubtitle = computed(() => (
   isScannerFeedbackPending.value
@@ -1052,9 +874,10 @@ const scannerFeedbackCardLabel = computed(() => (
   isScannerFeedbackPending.value ? 'Wird übernommen…' : 'Scanne…'
 ));
 function emitScan(command) {
-  if (!canTriggerScan.value) {
+  if (!canTriggerScan.value || props.scanRequestPending || props.scanCancelPending) {
     return;
   }
+  if (command === 'page' || command === 'cancel') resetScannerPreview();
   emit('scan', command);
 }
 
@@ -1063,7 +886,11 @@ const stagingStore = useImportStagingStore();
 const settingsStore = useSettingsStore();
 const categoryStore = useCategoryStore();
 const correspondentStore = useCorrespondentStore();
-const { documents, documentCount, totalPages, emptyDocuments, commitDocuments } = storeToRefs(stagingStore);
+const { documents, documentCount, totalPages, emptyDocuments } = storeToRefs(stagingStore);
+const draftPersistence = useImportDraftPersistence(stagingStore, {
+  restored: () => { emit('minimize'); notify({ type: 'info', message: 'Dein offener Import wurde wiederhergestellt.' }); },
+  failed: () => notify({ type: 'warning', message: 'Der Importentwurf konnte nicht lokal gesichert werden. Bitte dieses Fenster bis zum Import geöffnet lassen.' }),
+});
 
 const KNOWN_ICONS = new Set([
   'mdi-file-document-outline',
@@ -1089,12 +916,16 @@ const isAddPageDragOver = ref(false);
 const addPageDragDepth = ref(0);
 const addSourceChooserOpen = ref(false);
 const selected = ref(null);
+const activeDocumentId = ref('');
+const primaryDocument = computed(() => documents.value.find(doc => doc.id === (selected.value?.stageId || activeDocumentId.value)) || documents.value[0] || null);
 const peek = ref({ open: false, x: 0, y: 0 });
 const isUploadingSources = ref(false);
 const isCommitting = ref(false);
 const preparationProgress = ref({ done: 0, total: 0 });
+const sourceRefreshCount = ref(0);
 const remoteSourceStageBySession = new Map();
 const titleSuggestJobByStage = new Map();
+let analysisChain = Promise.resolve();
 const importTimingBySource = new Map();
 const IMPORT_ANALYSIS_RETRY_DELAY_MS = 1500;
 const IMPORT_ANALYSIS_MAX_TRANSIENT_RETRIES = 3;
@@ -1120,6 +951,8 @@ const previewMagnifier = ref({
 });
 const stageTagPool = ref([]);
 const fileInput = ref(null);
+const folderInput = ref(null);
+const replacePageInput = ref(null);
 const peekPanelRef = ref(null);
 const peekAnchorEl = ref(null);
 const bodyScrollRef = ref(null);
@@ -1127,6 +960,10 @@ const docsListRef = ref(null);
 const titleInputRefs = new Map();
 const cardFileInputRefs = new Map();
 const pageThumbRefs = new Map();
+const thumbnailQuality = new WeakMap();
+const lazyThumbnailJobs = new Set();
+let thumbnailRenderChain = Promise.resolve();
+let thumbnailObserver = null;
 let peekRepositionRaf = 0;
 const pageDragState = ref({
   active: false,
@@ -1160,25 +997,25 @@ const autoScrollState = {
 };
 const isViewSwitching = ref(false);
 
-const docDate = ref('');
-const docCategory = ref(null);
-const docNote = ref('');
-const docCorrespondentId = ref(null);
-const docTitleTouched = ref(false);
-const docDateTouched = ref(false);
-const docCategoryTouched = ref(false);
-const docTagsTouched = ref(false);
-const docNoteTouched = ref(false);
-const docCorrespondentTouched = ref(false);
-const docTitleAiFilled = ref(false);
-const docDateAiFilled = ref(false);
-const docCategoryAiFilled = ref(false);
-const docTagsAiFilled = ref(false);
-const docNoteAiFilled = ref(false);
-const docCorrespondentAiFilled = ref(false);
-// Aufbewahrung: Vorschlag aus der Analyse, Entscheidung direkt beim Import; einklappbar.
-const docRetention = ref(null);
-const docRetentionTouched = ref(false);
+const { docDate, docCategory, docNote, docCorrespondentId, docRetention,
+  docTitleTouched, docDateTouched, docCategoryTouched, docTagsTouched, docNoteTouched, docCorrespondentTouched,
+  docRetentionTouched, docTitleAiFilled, docDateAiFilled, docCategoryAiFilled, docTagsAiFilled,
+  docNoteAiFilled, docCorrespondentAiFilled, importForm } = useImportDocumentForm(primaryDocument);
+const validationAttempted = ref(false);
+const fieldErrors = computed(() => {
+  if (!primaryDocument.value) return {};
+  const result = validateImportDocument(primaryDocument.value);
+  return Object.fromEntries(Object.entries(result).filter(([key]) => validationAttempted.value || importForm.value.touched[key === 'title' ? 'title' : key]));
+});
+const metadataSources = computed(() => Object.fromEntries(Object.entries(importForm.value.aiFilled)
+  .filter(([, value]) => value).map(([key, value]) => [({ title: 'name', correspondent: 'correspondent', category: 'category' })[key] || key, typeof value === 'string' ? value : 'Automatisch erkannt'])));
+const fieldProposals = computed(() => Object.fromEntries(Object.entries(importForm.value.proposals).filter(([field]) => field !== 'title')));
+function proposalText(field, proposal) {
+  if (field === 'correspondent') return correspondentStore.findById(proposal.value)?.name || proposal.value;
+  if (field === 'tags') return (proposal.value || []).join(', ');
+  if (field === 'retention') return proposal.value?.period_years === -1 ? 'Unbegrenzt' : proposal.value?.period_years ? `${proposal.value.period_years} Jahre` : 'Aufbewahrung prüfen';
+  return String(proposal.value || '');
+}
 const retentionExpanded = ref(false);
 const isRetentionEnabled = computed(() => settingsStore.settings?.retention?.enabled !== false);
 const aiFieldGlowActive = ref(false);
@@ -1221,8 +1058,8 @@ function isNewCorrespondentValue(item) {
 }
 
 const docOcrLang = computed(() => settingsStore.settings.documents.ocr_doc_lang ?? 'de');
-const docDateIso = computed(() => germanDateToIso(docDate.value));
-const isDocDateValid = computed(() => isValidGermanDate(docDate.value));
+const docDateIso = computed(() => parseDocumentDateInput(docDate.value).iso);
+const isDocDateValid = computed(() => parseDocumentDateInput(docDate.value).ok);
 
 // Ablaufdatum lokal aus Dokumentdatum + Frist (Backend rechnet es beim Commit final neu).
 function computeRetainUntilIso(periodYears) {
@@ -1240,23 +1077,6 @@ function computeRetainUntilIso(periodYears) {
   return `${target.getFullYear()}-${mm}-${dd}`;
 }
 
-// Einzelfeld live übernehmen: eine Nutzeränderung macht aus dem KI-Vorschlag eine manuelle Angabe.
-function onRetentionField(key, value) {
-  const base = docRetention.value || {
-    status: 'manual',
-    period_years: null,
-    paper_original: 'unclear',
-    reason: null,
-    retain_until: null
-  };
-  const next = { ...base, [key]: value, status: 'manual' };
-  next.reason = next.reason || null;
-  next.retain_until = computeRetainUntilIso(next.period_years);
-  docRetention.value = next;
-  docRetentionTouched.value = true;
-}
-
-// „Übernehmen": KI-Vorschlag als akzeptiert markieren.
 function onRetentionAccept() {
   if (!docRetention.value) return;
   docRetention.value = { ...docRetention.value, status: 'accepted' };
@@ -1508,12 +1328,7 @@ function hasReadyScanSuggestion(documentEntry) {
 }
 
 function canShowScanSuggestion(documentEntry) {
-  if (!hasReadyScanSuggestion(documentEntry)) {
-    return false;
-  }
-  const suggestion = String(documentEntry?.meta?.titleSuggestion || '').trim();
-  const currentTitle = String(documentEntry?.title || '').trim();
-  return suggestion !== currentTitle;
+  return hasReadyScanSuggestion(documentEntry) && canOfferTitle(documentEntry);
 }
 
 function getScanSuggestionPrefix(documentEntry) {
@@ -1624,7 +1439,6 @@ const pageDropMarkerStyle = computed(() => ({
 const importCount = computed(() => totalPages.value);
 const footerSummary = computed(() => `${documentCount.value} Dokumente • ${totalPages.value} Seiten`);
 const emptyHint = computed(() => (emptyDocuments.value.length > 0 ? 'Leere Dokumente werden nicht importiert.' : ''));
-const primaryDocument = computed(() => documents.value[0] || null);
 const primaryDocTitle = computed(() => primaryDocument.value?.title || '');
 const isPrimaryDocTitleBusy = computed(() => primaryDocument.value ? isScanTitleBusy(primaryDocument.value) : false);
 const primaryDocSuggestionText = computed(() => {
@@ -1653,7 +1467,11 @@ const primaryDocTagNames = computed(() => [
   ...primaryDocTags.value.map(t => t.name),
   ...primaryDocPendingTagNames.value
 ]);
-const allTagNamesForPool = computed(() => stageTagPool.value.map(t => t.name));
+const allTagNamesForPool = computed(() => {
+  const query = tagInlineValue.value.trim().toLocaleLowerCase('de-DE');
+  const selectedNames = new Set(primaryDocTagNames.value.map(name => name.toLocaleLowerCase('de-DE')));
+  return stageTagPool.value.map(tag => tag.name).filter(name => !selectedNames.has(name.toLocaleLowerCase('de-DE')) && (!query || name.toLocaleLowerCase('de-DE').includes(query))).slice(0, 12);
+});
 
 // Ein Tag-Name ist "neu", wenn dazu (noch) kein bestehendes Tag existiert –
 // er würde beim Import erst angelegt. Solche Chips werden gestrichelt dargestellt.
@@ -1665,9 +1483,9 @@ const hasAnySelectedPage = computed(() => Boolean(selected.value?.pageId));
 // genau ein Wert, also immer nur ein Button aktiv. 'auto' = „Scanbereinigung
 // folgen"; ein bw-bereinigter Scan zeigt damit „Automatisch" (nicht „Farbe"),
 // die dedizierte Automatisch-Option ersetzt die frühere Ersatz-Anzeige.
-const selectedPageColorChoice = computed(() => String(selectedPageEntry.value?.colorMode || 'grayscale'));
+const selectedPageColorChoice = computed(() => String(selectedPageEntry.value?.colorMode || 'auto'));
 function pageColorModeLabel(mode) {
-  return ({ color: 'Original', grayscale: 'Grau', auto: 'Farbe', bw: 'S/W' })[String(mode || '')] || 'Farbe';
+  return ({ color: 'Original', grayscale: 'Graustufen', auto: 'Automatisch', bw: 'S/W' })[String(mode || '')] || 'Farbe';
 }
 function autoCropForPage(page) {
   const sourceFileId = String(page?.sourceFileId || '').trim();
@@ -1708,19 +1526,16 @@ const isAnalysisComplete = computed(() =>
 // Alle Pflichtfelder müssen befüllt sein. Korrespondent bleibt bewusst optional:
 // Seed/Backfill sind noch im Aufbau, daher darf ein fehlender Match den Import
 // nicht blockieren.
-const areRequiredFieldsFilled = computed(() =>
-  Boolean(primaryDocTitle.value.trim()) &&
-  isDocDateValid.value &&
-  Boolean(docCategory.value) &&
-  primaryDocTagNames.value.length > 0
-);
-
-const isImportActionDisabled = computed(() =>
-  totalPages.value <= 0 ||
-  isCommitting.value ||
-  !isAnalysisComplete.value ||
-  !areRequiredFieldsFilled.value
-);
+const areRequiredFieldsFilled = computed(() => documents.value.every(doc => Object.keys(validateImportDocument(doc)).length === 0));
+const importBlockedReason = computed(() => {
+  if (props.scannerActive) return 'Bitte den laufenden Scan abschließen.';
+  if (isScanCleanupRunning.value) return 'Die Scan-Seiten werden noch verbessert.';
+  if (sourceRefreshCount.value) return 'Die aktualisierte Vorschau wird geladen.';
+  if (isUploadingSources.value) return 'Dateien werden noch vorbereitet.';
+  if (!areRequiredFieldsFilled.value) return 'Bitte Dokumentname und markierte Eingaben prüfen. Datum, Typ und Tags sind optional.';
+  return '';
+});
+const isImportActionDisabled = computed(() => totalPages.value <= 0 || isCommitting.value || props.scannerActive || isScanCleanupRunning.value || isUploadingSources.value || sourceRefreshCount.value > 0);
 
 /* ── Multi-Selektion ── */
 const multiSelectedPageIds = ref(new Set());
@@ -1906,16 +1721,8 @@ function onMiniatureAreaClick(event) {
 }
 
 async function commitSelectionImport() {
-  if (!hasMultiSelection.value || isCommitting.value) return;
-  const selectedIds = multiSelectedPageIds.value;
-  const toRemove = allPagesFlat.value
-    .filter(({ page }) => !selectedIds.has(page.id))
-    .map(({ page }) => page.id);
-  for (const pageId of toRemove) {
-    await removePage(pageId);
-  }
-  clearMultiSelection();
-  await commitImport();
+  if (!hasMultiSelection.value || isImportActionDisabled.value) return;
+  await commitImport(new Set(multiSelectedPageIds.value));
 }
 
 const allPagesFlat = computed(() => {
@@ -1928,6 +1735,20 @@ const allPagesFlat = computed(() => {
     }
   }
   return result;
+});
+const {
+  previewUrl: scannerLivePreviewUrl, progress: scannerLiveProgress,
+  finalizing: scannerPreviewFinalizing, sourceElement: scannerPreviewSourceElement,
+  flightElement: scannerPreviewFlightElement, flight: scannerPreviewFlight,
+  thumbnailFallback: scannerThumbnailFallback, thumbnailLoaded: onScannerThumbnailLoaded,
+  reset: resetScannerPreview,
+} = useScannerPreviewTransition({
+  scanner: () => props.scanner, active: () => props.scannerActive,
+  candidateUrl: scannerLivePreviewCandidateUrl, open: () => props.modelValue, empty: isEmpty,
+  firstPage: () => allPagesFlat.value[0]?.page,
+  acceptsPage: page => stagingStore.sourceMetaById.get(page.sourceFileId)?.sourceType === 'scanner',
+  getThumbnail: pageId => pageThumbRefs.get(pageId)?.querySelector('.isd-page-thumb-wrap'),
+  animationsEnabled: () => settingsStore.animationsEnabled,
 });
 const hasPreparationProgress = computed(() => isUploadingSources.value && preparationProgress.value.total > 0);
 const preparationProgressLabel = computed(() => {
@@ -1985,9 +1806,6 @@ const aiAnalysis = computed(() => {
   if (docCorrespondentAiFilled.value) fields.push('Korrespondent');
   if (docTagsAiFilled.value) fields.push('Tags');
   if (docNoteAiFilled.value) fields.push('Notiz');
-  if (fields.length > 0) {
-    return { kind: 'success', fields };
-  }
 
   if (status === 'working' || (status === 'pending_ocr' && !exhausted)) {
     return { kind: 'busy', fields: [] };
@@ -1999,7 +1817,7 @@ const aiAnalysis = computed(() => {
     return { kind: 'partial', fields: [] };
   }
   if (status === 'ready' || status === 'applied') {
-    return { kind: 'partial', fields: [] };
+    return { kind: fields.length ? 'success' : 'partial', fields };
   }
   return { kind: 'idle', fields: [] };
 });
@@ -2394,28 +2212,6 @@ watch(
       if (isMinimizingToTray) {
         return;
       }
-      stageTagPool.value = [];
-      docDate.value = '';
-      docCategory.value = null;
-      docNote.value = '';
-      docCorrespondentId.value = null;
-      tagInlineValue.value = '';
-      isSelectMode.value = false;
-      multiSelectedPageIds.value = new Set();
-      docTitleTouched.value = false;
-      docDateTouched.value = false;
-      docCategoryTouched.value = false;
-      docTagsTouched.value = false;
-      docNoteTouched.value = false;
-      docCorrespondentTouched.value = false;
-      docTitleAiFilled.value = false;
-      docDateAiFilled.value = false;
-      docCategoryAiFilled.value = false;
-      docTagsAiFilled.value = false;
-      docNoteAiFilled.value = false;
-      docCorrespondentAiFilled.value = false;
-      docRetention.value = null;
-      docRetentionTouched.value = false;
       retentionExpanded.value = false;
       aiFieldGlowActive.value = false;
       return;
@@ -2536,6 +2332,7 @@ watch(
       return;
     }
     if (rendered) {
+      if (previewImageCache.size >= 24) previewImageCache.delete(previewImageCache.keys().next().value);
       previewImageCache.set(cacheKey, rendered);
       previewImageSrc.value = rendered;
     }
@@ -2578,6 +2375,7 @@ watch(
 );
 
 function requestCloseImport() {
+  if (stagingStore.pendingCommit) { notify({ type: 'warning', message: 'Bitte zuerst den Importstatus prüfen. Der gespeicherte Stand ist noch nicht bestätigt.' }); return; }
   if (isUploadingSources.value || isCommitting.value) {
     return;
   }
@@ -2592,9 +2390,22 @@ function cancelDiscardImport() {
   discardImportConfirmOpen.value = false;
 }
 
-function confirmDiscardImport() {
+async function confirmDiscardImport() {
   discardImportConfirmOpen.value = false;
+  const sources = [...stagingStore.sourceMetaById];
+  isUploadingSources.value = true;
+  let cleanupFailed = false;
+  for (const [sourceId, metadata] of sources) {
+    if (metadata.isImportInbox) continue;
+    try { await apiFetch(`/api/import/source/${encodeURIComponent(sourceId)}`, { method: 'DELETE' }); }
+    catch (error) { if (error.status !== 404 && error.status !== 400) cleanupFailed = true; }
+  }
+  stagingStore.reset();
+  notifyDiscardedSourceFileIds(sources.map(([sourceId]) => sourceId));
+  await draftPersistence.save();
+  isUploadingSources.value = false;
   isOpen.value = false;
+  if (cleanupFailed) notify({ type: 'warning', message: 'Entwurf verworfen. Einige temporäre Quelldateien konnten noch nicht entfernt werden.' });
 }
 
 function minimizeDialog() {
@@ -2659,25 +2470,20 @@ async function parseResponseError(response) {
 }
 
 async function uploadSources(files) {
-  const formData = new FormData();
+  const uploaded = [];
+  const failures = [];
   for (const file of files) {
-    formData.append('files', file);
+    try {
+      if (!file.size || await file.slice(0, 5).text() !== '%PDF-') throw new Error('Die Datei enthält kein lesbares PDF.');
+      const formData = new FormData();
+      formData.append('files', file);
+      const payload = await apiFetch('/api/import/source', { method: 'POST', body: formData, timeoutMs: 90000 });
+      if (!payload?.items?.length) throw new Error('Der Server hat keine importierbaren Seiten zurückgegeben.');
+      uploaded.push(...payload.items.map(item => ({ ...item, localFile: file })));
+    } catch (error) { failures.push(`${file.name}: ${mapApiError(error, 'Datei konnte nicht vorbereitet werden.')}`); }
   }
-
-  const response = await fetch(`${props.apiBaseUrl}/api/import/source`, {
-    method: 'POST',
-    body: formData
-  });
-
-  if (!response.ok) {
-    throw new Error(await parseResponseError(response));
-  }
-
-  const payload = await response.json();
-  if (!Array.isArray(payload?.items)) {
-    throw new Error('Ungültige Antwort vom Import-Server.');
-  }
-  return payload.items;
+  if (failures.length) notify({ type: 'warning', message: failures.join(' · ') });
+  return uploaded;
 }
 
 function ensurePdfFilename(filename) {
@@ -2826,6 +2632,8 @@ function upgradeRemoteSourceFile(sourceFileId, originalName, pageCount, { hadFas
         colorDetectionAvailable: currentMeta?.colorDetectionAvailable
       });
       if (thumbUrls.some((url) => String(url || '').trim())) {
+        const metadata = stagingStore.sourceMetaById.get(normalized);
+        if (metadata) metadata.pageQuality = thumbnailQuality.get(stagingFile) || [];
         stagingStore.updateSourceThumbnails(normalized, thumbUrls);
         clearPreviewCacheForSource(normalized);
         logPreviewVisibleTiming(normalized, {
@@ -2856,7 +2664,8 @@ async function renderPdfThumbnails(file, pageCount) {
   const loadingTask = getDocument({ data: bytes });
   const pdf = await loadingTask.promise;
   const thumbs = [];
-  const total = Math.min(Number(pageCount) || 0, pdf.numPages || 0);
+  const total = Math.min(12, Number(pageCount) || 0, pdf.numPages || 0);
+  const quality = [];
 
   try {
     for (let pageNumber = 1; pageNumber <= total; pageNumber += 1) {
@@ -2878,7 +2687,9 @@ async function renderPdfThumbnails(file, pageCount) {
         canvas.height = Math.ceil(viewport.height);
 
         await page.render({ canvasContext: context, viewport }).promise;
+        quality.push(scanImageQuality(context.getImageData(0, 0, canvas.width, canvas.height)));
         thumbs.push(canvas.toDataURL('image/webp', 0.82));
+        canvas.width = canvas.height = 0;
       } catch {
         thumbs.push('');
       }
@@ -2896,6 +2707,7 @@ async function renderPdfThumbnails(file, pageCount) {
     }
   }
 
+  thumbnailQuality.set(file, quality);
   return thumbs;
 }
 
@@ -2946,7 +2758,7 @@ async function renderServerColorPreview(pageEntry, colorMode) {
   if (!sourceFileId) return '';
   const query = new URLSearchParams({
     page_index: String(Math.max(0, Number(pageEntry?.pageIndex || 0))),
-    mode: String(colorMode || 'auto')
+    mode: String(colorMode || 'auto'), rotation: String(Number(pageEntry.rotation || 0))
   });
   try {
     const response = await fetch(
@@ -3061,9 +2873,7 @@ async function addFilesToStaging(candidates, options = {}) {
   const touchedDocumentIds = new Set();
   try {
     const uploaded = await uploadSources(accepted.map((entry) => entry.file));
-    if (uploaded.length !== accepted.length) {
-      throw new Error('Upload-Antwort ist unvollständig.');
-    }
+    if (!uploaded.length) return;
 
     let targetDocumentId = options.targetDocumentId || null;
     let nextInsertIndex = Number.isInteger(options.insertIndex) ? Math.max(0, Number(options.insertIndex)) : null;
@@ -3080,7 +2890,7 @@ async function addFilesToStaging(candidates, options = {}) {
 
     for (let index = 0; index < uploaded.length; index += 1) {
       const source = uploaded[index];
-      const file = accepted[index].file;
+      const file = source.localFile || accepted[index].file;
       const pageCount = Number(source?.page_count || 0);
       const title = stripPdfSuffix(source?.original_name || file?.name || 'Neues Dokument');
       let thumbs = [];
@@ -3092,6 +2902,8 @@ async function addFilesToStaging(candidates, options = {}) {
 
       stagingStore.setStagingFile(source.source_file_id, file, {
         originalName: source?.original_name || file?.name || '',
+        sourceRevision: source?.source_revision,
+        pageQuality: thumbnailQuality.get(file) || [],
         pageCount,
         colorPageIndices: source?.color_page_indices,
         colorDetectionAvailable: source?.color_detection_available
@@ -3217,6 +3029,7 @@ async function addRemoteSourcesImpl(payload = []) {
     rememberImportSourceTiming(source);
     if (stagingStore.sourceMetaById?.has?.(sourceFileId)) {
       const nextCleanup = normalizeRemoteScanCleanup(source);
+      if (source.source_revision) stagingStore.sourceMetaById.get(sourceFileId).sourceRevision = source.source_revision;
       if (typeof stagingStore.setSourceScanCleanup === 'function') {
         stagingStore.setSourceScanCleanup(sourceFileId, nextCleanup);
       }
@@ -3243,8 +3056,10 @@ async function addRemoteSourcesImpl(payload = []) {
 
     stagingStore.setStagingFile(sourceFileId, null, {
       originalName,
+      sourceRevision: source.source_revision,
       pageCount,
       isImportInbox: true,
+      sourceType: source.source_type,
       analysis: source?.analysis,
       scanCleanup: normalizeRemoteScanCleanup(source),
       colorPageIndices: source?.color_page_indices,
@@ -3356,46 +3171,13 @@ function collectScanSourceFileIds(stageId) {
   return Array.from(new Set([...fromMeta, ...fromPages]));
 }
 
-function waitForImportAnalysisRetry() {
-  if (typeof window === 'undefined') {
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => window.setTimeout(resolve, IMPORT_ANALYSIS_RETRY_DELAY_MS));
-}
-
-function getImportAnalysisStatus(payload) {
-  const meta = payload?.meta && typeof payload.meta === 'object' ? payload.meta : {};
-  const ocr = meta?.ocr && typeof meta.ocr === 'object' ? meta.ocr : {};
-  return String(meta.analysis_status || ocr.status || '').trim().toLowerCase();
-}
-
-function isRetryableImportAnalysisPayload(payload) {
-  const status = String(payload?.status || '').trim().toLowerCase();
-  if (status !== 'error' && status !== 'failed') {
-    return false;
-  }
-  const analysisStatus = getImportAnalysisStatus(payload);
-  return analysisStatus === 'ocr_failed' || analysisStatus === 'empty_sources';
-}
-
-function isRetryableImportAnalysisError(error) {
-  if (error?.name === 'AbortError' || error?.code === 'REQUEST_TIMEOUT') {
-    return false;
-  }
-  const status = Number(error?.status || 0);
-  if (status === 403 || status === 422) {
-    return false;
-  }
-  return true;
-}
-
 function getImportAnalysisCacheKey(analysis) {
   if (!analysis || typeof analysis !== 'object') {
     return '';
   }
   const meta = analysis.meta && typeof analysis.meta === 'object' ? analysis.meta : {};
   return [
-    String(meta.cached_at || ''),
+    String(meta.result_revision || meta.cached_at || ''),
     String(meta.analysis_phase || ''),
     String(analysis.status || ''),
     String(analysis.suggestion || '')
@@ -3423,178 +3205,61 @@ function findStageIdsForSourceFile(sourceFileId) {
 }
 
 async function applyImportAnalysisPayload(stageId, payload, options = {}) {
-  const normalizedStageId = String(stageId || '').trim();
-  if (!normalizedStageId || !payload || typeof payload !== 'object') {
-    return false;
-  }
-  const documentEntry = getDocumentById(normalizedStageId);
-  if (!documentEntry) {
-    return false;
-  }
-  const meta = ensureScanMeta(documentEntry);
-  if (!meta) {
-    return false;
-  }
-
-  const status = String(payload?.status || 'ready').trim().toLowerCase();
-  const payloadMeta = payload?.meta && typeof payload.meta === 'object' ? payload.meta : {};
-  const analysisSourceFileId = String(payloadMeta.source_file_id || collectScanSourceFileIds(normalizedStageId)[0] || '').trim();
-  const suggestion = String(payload?.suggestion || '').trim();
-  if (suggestion) {
-    meta.titleSuggestion = suggestion;
-  }
-  meta.titleSuggestionUsedFallback = Boolean(payload?.usedFallback ?? payload?.used_fallback);
-  meta.titleSuggestionMeta = payloadMeta || null;
-  if (status === 'error' || status === 'failed') {
+  const doc = getDocumentById(stageId);
+  if (!doc || !payload) return false;
+  const meta = ensureScanMeta(doc);
+  const resultMeta = payload.meta || {};
+  const expected = options.documentRevision || resultMeta.document_revision;
+  if (expected && expected !== documentRevision(doc, stagingStore.sourceMetaById)) return false;
+  const status = String(payload.status || 'ready');
+  if (['error', 'failed'].includes(status)) {
     meta.titleSuggestionStatus = 'error';
-    logImportTiming('analysis_applied_to_ui', {
-      source_file_id: analysisSourceFileId,
-      stage_id: normalizedStageId,
-      status,
-      phase: String(payloadMeta.analysis_phase || ''),
-      cached_at: String(payloadMeta.cached_at || ''),
-      ms_since_dialog_source_seen: msSinceImportSourceSeen(analysisSourceFileId)
-    });
+    meta.analysisError = resultMeta.analysis_error || 'Die automatische Erkennung ist fehlgeschlagen. Eingaben bleiben erhalten.';
     return false;
   }
   if (status === 'pending_ocr') {
     meta.titleSuggestionStatus = 'pending_ocr';
-    meta.titleSuggestionPollExhausted = false;
-    logImportTiming('analysis_pending_in_ui', {
-      source_file_id: analysisSourceFileId,
-      stage_id: normalizedStageId,
-      phase: String(payloadMeta.analysis_phase || ''),
-      ms_since_dialog_source_seen: msSinceImportSourceSeen(analysisSourceFileId)
-    });
     return false;
   }
-  meta.titleSuggestionStatus = 'ready';
-
-  const hadAiFilledFields = hasAiFilledImportFields();
-  try {
-    if (normalizedStageId === primaryDocument.value?.id) {
-      if (suggestion && !meta.titleSuggestionUsedFallback && !docTitleTouched.value) {
-        stagingStore.renameDocument(normalizedStageId, suggestion);
-        meta.titleSuggestionStatus = 'applied';
-        docTitleAiFilled.value = true;
-      }
-
-      const aiMeta = payload?.meta;
-      if (aiMeta && typeof aiMeta === 'object') {
-        const isoDate = String(aiMeta.date || '').trim();
-        if (/^\d{4}-\d{2}-\d{2}$/.test(isoDate) && !docDateTouched.value) {
-          const formatted = isoToGermanDate(isoDate);
-          if (formatted && isValidGermanDate(formatted)) {
-            docDate.value = formatted;
-            docDateAiFilled.value = true;
-          }
-        }
-
-        const aiCategory = String(aiMeta.document_type || aiMeta.category || '').trim();
-        if (aiCategory && (!docCategoryTouched.value || !docCategory.value)) {
-          docCategory.value = aiCategory;
-          docCategoryAiFilled.value = true;
-        }
-
-        const aiRetention = aiMeta.retention && typeof aiMeta.retention === 'object' ? aiMeta.retention : null;
-        if (isRetentionEnabled.value && aiRetention && !docRetentionTouched.value) {
-          docRetention.value = {
-            status: String(aiRetention.status || 'suggested'),
-            period_years: aiRetention.period_years ?? null,
-            paper_original: aiRetention.paper_original || 'unclear',
-            reason: aiRetention.reason || null,
-            retain_until: aiRetention.retain_until || null
-          };
-        }
-
-        const aiCorrespondent = aiMeta.correspondent && typeof aiMeta.correspondent === 'object'
-          ? aiMeta.correspondent
-          : null;
-        const senderRaw = String(aiMeta.sender_raw || '').trim();
-        if (!docCorrespondentTouched.value) {
-          await correspondentStore.ensureLoaded();
-          if (aiCorrespondent?.id) {
-            docCorrespondentId.value = String(aiCorrespondent.id);
-            docCorrespondentAiFilled.value = true;
-          } else if (senderRaw.length >= 2 && !correspondentStore.findByName(senderRaw)) {
-            // Noch nicht angelegter Vorschlag: als gestrichelter Chip zeigen, beim Import anlegen.
-            docCorrespondentId.value = senderRaw;
-            docCorrespondentAiFilled.value = true;
-          }
-        }
-
-        const aiNote = String(aiMeta.note || '').trim();
-        if (aiNote && !docNoteTouched.value) {
-          docNote.value = aiNote;
-          docNoteAiFilled.value = true;
-        }
-
-        const aiTags = Array.isArray(aiMeta.tags) ? aiMeta.tags : [];
-        if (aiTags.length > 0 && !docTagsTouched.value && primaryDocument.value) {
-          await ensureStageTagsLoaded();
-          const targetDocId = primaryDocument.value.id;
-          const matchedIds = [];
-          const pendingNames = [];
-          const seenPending = new Set();
-          for (const rawName of aiTags) {
-            const name = normalizeTagName(String(rawName || ''));
-            if (!name) continue;
-            const id = findStageTagIdByName(name);
-            if (id) {
-              if (!matchedIds.includes(id)) matchedIds.push(id);
-            } else {
-              const key = name.toLocaleLowerCase('de-DE');
-              if (!seenPending.has(key)) {
-                seenPending.add(key);
-                pendingNames.push(name);
-              }
-            }
-          }
-          const freshDoc = getDocumentById(targetDocId);
-          if (freshDoc) {
-            const current = new Set(freshDoc.tags || []);
-            const merged = [...current];
-            for (const id of matchedIds) {
-              if (!current.has(id)) merged.push(id);
-            }
-            if (merged.length > current.size) {
-              onDocumentTagsUpdate(targetDocId, merged);
-            }
-            const freshMeta = ensureScanMeta(freshDoc);
-            if (freshMeta && pendingNames.length > 0) {
-              const existing = Array.isArray(freshMeta.pendingTagNames) ? freshMeta.pendingTagNames : [];
-              const existingKeys = new Set(existing.map((name) => name.toLocaleLowerCase('de-DE')));
-              freshMeta.pendingTagNames = [
-                ...existing,
-                ...pendingNames.filter((name) => !existingKeys.has(name.toLocaleLowerCase('de-DE')))
-              ];
-            }
-            if (merged.length > current.size || pendingNames.length > 0) {
-              docTagsAiFilled.value = true;
-            }
-          }
-        }
-      }
+  const form = ensureImportForm(doc);
+  const revisions = options.fieldRevisions || { ...form.revisions };
+  const lookupResults = await Promise.allSettled([correspondentStore.ensureLoaded(), ensureStageTagsLoaded()]);
+  if (!getDocumentById(stageId) || expected && expected !== documentRevision(doc, stagingStore.sourceMetaById)) return false;
+  meta.titleSuggestion = meaningfulSuggestion(payload.suggestion);
+  meta.titleSuggestionUsedFallback = Boolean(payload.usedFallback ?? payload.used_fallback);
+  meta.titleSuggestionMeta = resultMeta;
+  meta.titleSuggestionStatus = resultMeta.refinement_pending ? 'working' : 'ready';
+  meta.analysisRevision = documentRevision(doc, stagingStore.sourceMetaById);
+  meta.analysisError = ({ no_text: 'Kein lesbarer Text erkannt. Bitte Scanqualität prüfen oder Texterkennung wiederholen. Du kannst die Angaben auch manuell ergänzen.',
+    low_text: 'Es wurde nur wenig Text erkannt. Bitte die Vorschläge und die Scanqualität prüfen.' })[resultMeta.analysis_status] || '';
+  if (lookupResults.some(result => result.status === 'rejected')) meta.analysisError = 'Die Erkennung ist verfügbar; einige Auswahllisten konnten noch nicht geladen werden.';
+  const origin = resultMeta.analysis_phase === 'llm' ? 'KI' : 'Regeln';
+  const apply = (field, value, read, write) => applyFieldProposal(doc, field, value, revisions[field] || 0, read, write, origin);
+  if (meta.titleSuggestion && !meta.titleSuggestionUsedFallback) {
+    if (apply('title', meta.titleSuggestion, () => doc.title, value => stagingStore.renameDocument(stageId, value))) {
+      meta.titleSuggestionStatus = resultMeta.refinement_pending ? 'working' : 'applied';
     }
-  } catch (enrichError) {
-    console.warn('[ImportStaging] KI-Felder konnten nicht angewendet werden:', enrichError);
   }
-  if (!hadAiFilledFields && hasAiFilledImportFields()) {
-    triggerAiFieldGlow();
+  const parsedDate = isoToGermanDate(resultMeta.date);
+  if (parsedDate && parseDocumentDateInput(parsedDate).ok) apply('date', parsedDate, () => form.date, value => { form.date = value; });
+  const category = meaningfulSuggestion(resultMeta.document_type || resultMeta.category);
+  if (category) {
+    if (categoryStore.categoryNames.includes(category)) apply('category', category, () => form.category, value => { form.category = value; });
+    else if (form.dismissed.category !== category) form.proposals.category = { value: category, origin };
   }
-
-  if (!options?.silent) {
-    notify({ type: 'success', message: 'Titelvorschlag aktualisiert.' });
-  }
-  logImportTiming('analysis_applied_to_ui', {
-    source_file_id: analysisSourceFileId,
-    stage_id: normalizedStageId,
-    status,
-    phase: String(payloadMeta.analysis_phase || ''),
-    cached_at: String(payloadMeta.cached_at || ''),
-    suggestion: String(payload?.suggestion || '').trim(),
-    ms_since_dialog_source_seen: msSinceImportSourceSeen(analysisSourceFileId)
+  const correspondent = resultMeta.correspondent?.id;
+  if (correspondent && correspondentStore.findById(correspondent)) apply('correspondent', correspondent, () => form.correspondentId, value => { form.correspondentId = value; });
+  else if (meaningfulSuggestion(resultMeta.sender_raw || resultMeta.correspondent?.name) && form.dismissed.correspondent !== (resultMeta.sender_raw || resultMeta.correspondent?.name)) form.proposals.correspondent = { value: resultMeta.sender_raw || resultMeta.correspondent.name, origin };
+  const note = String(resultMeta.note || '').trim().slice(0, 10000);
+  if (note) apply('note', note, () => form.note, value => { form.note = value; });
+  if (isRetentionEnabled.value && resultMeta.retention) apply('retention', resultMeta.retention, () => form.retention, value => { form.retention = value; });
+  const tagNames = (resultMeta.tags || []).map(name => normalizeTagName(String(name || ''))).filter(name => meaningfulSuggestion(name) && !validateTagName(name));
+  if (tagNames.length) apply('tags', tagNames, () => [...(doc.tags || []).map(id => stageTagPool.value.find(tag => tag.id === id)?.name).filter(Boolean), ...(meta.pendingTagNames || [])], names => {
+    const ids = names.map(findStageTagIdByName).filter(Boolean);
+    stagingStore.setDocumentTags(stageId, ids);
+    meta.pendingTagNames = names.filter(name => !findStageTagIdByName(name));
   });
+  triggerAiFieldGlow();
   return true;
 }
 
@@ -3604,14 +3269,12 @@ async function applyCachedImportAnalysis(stageId, analysis) {
   }
   const documentEntry = getDocumentById(stageId);
   const meta = ensureScanMeta(documentEntry);
-  if (!meta) {
-    return false;
-  }
+  if (!meta || documentEntry.pages.length !== 1 || documentEntry.pages[0].pageIndex !== 0 || documentEntry.pages[0].rotation) return false;
   const cacheKey = getImportAnalysisCacheKey(analysis);
   if (cacheKey && meta.appliedImportAnalysisKey === cacheKey) {
     return false;
   }
-  const applied = await applyImportAnalysisPayload(stageId, analysis, { silent: true });
+  const applied = await applyImportAnalysisPayload(stageId, analysis, { silent: true, documentRevision: documentRevision(documentEntry, stagingStore.sourceMetaById) });
   if (applied && cacheKey) {
     meta.appliedImportAnalysisKey = cacheKey;
   }
@@ -3633,146 +3296,141 @@ async function applySourceAnalysisToExistingStages(sourceFileId, analysis) {
   return applied;
 }
 
-async function requestScanTitleSuggestion(stageId, pageScope = 'first_page', options = {}) {
-  const normalizedStageId = String(stageId || '').trim();
-  if (!normalizedStageId) {
-    return;
+async function requestScanTitleSuggestion(stageId, pageScope = 'all_pages', options = {}) {
+  const doc = getDocumentById(stageId);
+  if (!doc?.pages?.length || props.scannerActive || isCommitting.value) return;
+  if (titleSuggestJobByStage.has(stageId)) {
+    const running = titleSuggestJobByStage.get(stageId);
+    return options.force ? running.then(() => requestScanTitleSuggestion(stageId, pageScope, options)) : running;
   }
-  const documentEntry = getDocumentById(normalizedStageId);
-  if (!documentEntry) {
-    return;
-  }
-  const meta = ensureScanMeta(documentEntry);
-  if (!meta) {
-    return;
-  }
-
-  const normalizedScope = String(pageScope || '').trim().toLowerCase() === 'all_pages' ? 'all_pages' : 'first_page';
-  if (titleSuggestJobByStage.has(normalizedStageId)) {
-    return titleSuggestJobByStage.get(normalizedStageId);
-  }
-
-  const sourceFileIds = collectScanSourceFileIds(normalizedStageId);
-  if (sourceFileIds.length === 0) {
-    return;
-  }
-  const requestStarted = importTimingNow();
-  logImportTiming('analysis_request_started', {
-    stage_id: normalizedStageId,
-    source_file_ids: sourceFileIds,
-    page_scope: normalizedScope
-  });
-
+  const revision = documentRevision(doc, stagingStore.sourceMetaById);
+  const analysisPages = options.analysisPageIds ? doc.pages.filter(page => options.analysisPageIds.has(page.id)) : doc.pages;
+  const pages = sourcePages({ ...doc, pages: analysisPages }, stagingStore.sourceMetaById);
+  if (!pages.length) return;
+  const sourceFileIds = [...new Set(pages.map(page => page.source_file_id))];
+  const meta = ensureScanMeta(doc);
+  const fieldRevisions = { ...ensureImportForm(doc).revisions };
   meta.titleSuggestionStatus = 'working';
   meta.titleSuggestionPollExhausted = false;
-  meta.titleSuggestionUsedFallback = false;
-  meta.titleSuggestionMeta = null;
-  const maxPendingRetries = options?.maxPendingRetries != null
-    ? options.maxPendingRetries
-    : IMPORT_ANALYSIS_MAX_PENDING_RETRIES;
-  const maxTransientRetries = options?.maxTransientRetries != null
-    ? Math.max(0, Number(options.maxTransientRetries) || 0)
-    : IMPORT_ANALYSIS_MAX_TRANSIENT_RETRIES;
-  const job = (async () => {
-    let pendingAttempt = 0;
-    let transientAttempt = 0;
+  const job = analysisChain.catch(() => {}).then(async () => {
+    let attempts = 0;
     try {
-      while (pendingAttempt < maxPendingRetries) {
-        // WICHTIG: Hier KEINE Abfrage auf isOpen/modelValue, die den Job abbricht.
-        // Das war die Hauptursache für "Keine automatische Erkennung": Wird der Dialog
-        // mit einem neuen Scan geöffnet, läuft dieser Analyse-Job, während
-        // props.modelValue noch false ist (der Dialog öffnet gerade erst). Ein
-        // Abbruch mit status='error' VOR dem Request markierte dann fälschlich einen
-        // Fehlschlag – obwohl die Erkennung nie versucht wurde. Die Analyse läuft jetzt
-        // unabhängig vom Offen-Zustand; das Ergebnis landet im meta und wird beim
-        // Anzeigen genutzt. Der Request ist durch AbortController (90 s) begrenzt, ein
-        // "Ghost-working" kann es also nicht geben.
-        let payload;
-        try {
-          payload = await suggestImportStageTitle(props.apiBaseUrl, normalizedStageId, {
-            sourceFileIds,
-            pageScope: normalizedScope
-          });
-          logImportTiming('analysis_request_response', {
-            stage_id: normalizedStageId,
-            source_file_ids: sourceFileIds,
-            page_scope: normalizedScope,
-            status: String(payload?.status || ''),
-            duration_ms: Math.round((importTimingNow() - requestStarted) * 10) / 10
-          });
-        } catch (error) {
-          if (transientAttempt < maxTransientRetries && isRetryableImportAnalysisError(error)) {
-            transientAttempt += 1;
-            meta.titleSuggestionStatus = 'pending_ocr';
-            meta.titleSuggestionPollExhausted = false;
-            await waitForImportAnalysisRetry();
-            continue;
-          }
-          throw error;
+      while (getDocumentById(stageId) && documentRevision(doc, stagingStore.sourceMetaById) === revision) {
+        const oneOriginalPage = pages.length === 1 && pages[0].page_index === 0 && !pages[0].rotation;
+        const payload = await suggestImportStageTitle(props.apiBaseUrl, stageId, {
+          sourceFileIds, pageScope: oneOriginalPage ? 'first_page' : 'all_pages',
+          pages: oneOriginalPage && !options.force && !options.repeatOcr ? [] : pages,
+          documentRevision: revision, force: Boolean(options.force), repeatOcr: Boolean(options.repeatOcr),
+        });
+        if (options.analysisPageIds) payload.meta = { ...payload.meta, analysis_selection: true };
+        if (revision !== documentRevision(doc, stagingStore.sourceMetaById)) return;
+        const applied = await applyImportAnalysisPayload(stageId, payload, { ...options, documentRevision: revision, fieldRevisions });
+        if (payload.status !== 'pending_ocr') return applied;
+        if (++attempts >= 45) {
+          meta.titleSuggestionPollExhausted = true;
+          return;
         }
-        const status = String(payload?.status || 'ready').trim().toLowerCase();
-        if (status === 'pending_ocr') {
-          meta.titleSuggestionStatus = 'pending_ocr';
-          pendingAttempt += 1;
-          if (pendingAttempt >= maxPendingRetries) {
-            meta.titleSuggestionPollExhausted = true;
-            if (!options?.silent) {
-              notify({ type: 'warning', message: 'OCR noch nicht fertig - bitte später erneut versuchen.' });
-            }
-            return;
-          }
-          await new Promise((resolve) => window.setTimeout(resolve, 1500));
-          continue;
-        }
-
-        if (isRetryableImportAnalysisPayload(payload) && transientAttempt < maxTransientRetries) {
-          transientAttempt += 1;
-          meta.titleSuggestionStatus = 'pending_ocr';
-          meta.titleSuggestionPollExhausted = false;
-          await waitForImportAnalysisRetry();
-          continue;
-        }
-
-        await applyImportAnalysisPayload(normalizedStageId, payload, options);
-        return;
+        await new Promise(resolve => window.setTimeout(resolve, Math.min(10000, 1500 * (1 + attempts / 3))));
       }
     } catch (error) {
-      meta.titleSuggestionStatus = 'error';
-      logImportTiming('analysis_request_failed', {
-        stage_id: normalizedStageId,
-        source_file_ids: sourceFileIds,
-        page_scope: normalizedScope,
-        duration_ms: Math.round((importTimingNow() - requestStarted) * 10) / 10
-      });
-      if (!options?.silent) {
-        notify({ type: 'error', message: mapApiError(error, 'Titelvorschlag konnte nicht erstellt werden.') });
+      if (getDocumentById(stageId) && revision === documentRevision(doc, stagingStore.sourceMetaById)) {
+        meta.titleSuggestionStatus = 'error';
+        meta.analysisError = mapApiError(error, 'Analyse konnte nicht abgeschlossen werden. Bitte erneut versuchen.');
       }
     } finally {
-      titleSuggestJobByStage.delete(normalizedStageId);
+      titleSuggestJobByStage.delete(stageId);
+      if (getDocumentById(stageId) && revision !== documentRevision(doc, stagingStore.sourceMetaById)) {
+        meta.titleSuggestionStatus = 'idle';
+        scheduleDocumentAnalysis();
+      }
     }
-  })();
-  titleSuggestJobByStage.set(normalizedStageId, job);
-
-  // Safety net: the request itself is bounded by SUGGEST_TITLE_TIMEOUT_MS (90 s) via
-  // AbortController; on timeout the fetch rejects and the catch sets a terminal state.
-  // This timer is only a last resort and must fire AFTER that timeout — never before —
-  // otherwise a slow-but-successful OCR run (Tesseract auf großen Scans) wird fälschlich
-  // als Fehler markiert ("Keine automatische Erkennung").
-  const safetyTimeoutMs = 95_000 * (1 + maxTransientRetries) + (maxPendingRetries * IMPORT_ANALYSIS_RETRY_DELAY_MS);
-  const safetyTimer = window.setTimeout(() => {
-    if (meta.titleSuggestionStatus === 'working' || meta.titleSuggestionStatus === 'pending_ocr') {
-      meta.titleSuggestionStatus = 'error';
-    }
-  }, safetyTimeoutMs);
-  job.finally(() => window.clearTimeout(safetyTimer));
-
+  });
+  analysisChain = job.catch(() => {});
+  titleSuggestJobByStage.set(stageId, job);
   return job;
+}
+
+let documentAnalysisTimer = 0;
+function scheduleDocumentAnalysis() {
+  window.clearTimeout(documentAnalysisTimer);
+  documentAnalysisTimer = window.setTimeout(() => {
+    if (props.scannerActive || isCommitting.value || isScanCleanupRunning.value || isUploadingSources.value) return;
+    for (const doc of documents.value) {
+      if (doc.pages.length && doc.meta?.analysisRevision !== documentRevision(doc, stagingStore.sourceMetaById)) {
+        void requestScanTitleSuggestion(doc.id, 'all_pages', { silent: true });
+      }
+    }
+  }, 700);
+}
+watch(() => [documents.value.map(doc => documentRevision(doc, stagingStore.sourceMetaById)).join('|'), props.scannerActive, isScanCleanupRunning.value, isUploadingSources.value], scheduleDocumentAnalysis);
+
+function onImportTagKeydown(event) {
+  if (event.key === 'Enter' && tagInlineValue.value.trim() && !event.target?.getAttribute('aria-activedescendant')) {
+    event.preventDefault();
+    onTagNamesChange([...primaryDocTagNames.value, tagInlineValue.value]);
+    tagInlineValue.value = '';
+  }
+}
+function saveImportRetention(value) {
+  docRetention.value = { ...value, status: 'manual', retain_until: computeRetainUntilIso(value.period_years) };
+  docRetentionTouched.value = true;
+}
+function undoImportField(field) {
+  const value = importForm.value.previousValues[field];
+  if (field === 'title') stagingStore.setDocumentTitleDraft(primaryDocument.value.id, value);
+  else if (field === 'tags') onTagNamesChange(value || []);
+  else importForm.value[({ correspondent: 'correspondentId' })[field] || field] = value;
+  importForm.value.touched[field] = true;
+  importForm.value.revisions[field] = (importForm.value.revisions[field] || 0) + 1;
+  importForm.value.aiFilled[field] = false;
+  delete importForm.value.previousValues[field];
+}
+function acceptImportProposal(field) {
+  const proposal = importForm.value.proposals[field];
+  if (!proposal) return;
+  if (field === 'category' && !categoryStore.categoryNames.includes(proposal.value)) {
+    notify({ type: 'info', message: 'Bitte einen vorhandenen Dokumenttyp wählen oder den Typ in den Einstellungen anlegen.' }); return;
+  }
+  if (field === 'correspondent') {
+    const existing = correspondentStore.findByName(proposal.value) || correspondentStore.findById(proposal.value);
+    if (!existing) { notify({ type: 'info', message: 'Bitte den Absender einem vorhandenen Korrespondenten zuordnen oder ihn in den Einstellungen anlegen.' }); return; }
+    docCorrespondentId.value = existing.id;
+  } else if (field === 'tags') onTagNamesChange(proposal.value);
+  else importForm.value[({ date: 'date', category: 'category', note: 'note', retention: 'retention' })[field]] = proposal.value;
+  importForm.value.touched[field] = true;
+  importForm.value.revisions[field] = (importForm.value.revisions[field] || 0) + 1;
+  delete importForm.value.proposals[field];
+}
+
+function dismissImportProposal(field) {
+  importForm.value.dismissed[field] = importForm.value.proposals[field]?.value;
+  delete importForm.value.proposals[field];
 }
 
 // Startet den kompletten KI-Analyse-Prozess für alle Staging-Dokumente erneut.
 // Bereits laufende Analysen werden nicht doppelt gestartet (Dedupe in
 // requestScanTitleSuggestion); abgeschlossene/fehlgeschlagene werden neu angestoßen.
-async function retryAnalysis() {
+async function refreshImportAnalyses() {
+  for (const sourceFileId of stagingStore.collectUsedSourceFileIds()) {
+    try {
+      const analysis = await apiFetch(`/api/import/source/${encodeURIComponent(sourceFileId)}/analysis`);
+      await applySourceAnalysisToExistingStages(sourceFileId, analysis);
+    } catch (error) { notify({ type: 'warning', message: mapApiError(error, 'Ergebnisse konnten nicht aktualisiert werden.') }); }
+  }
+}
+
+async function analyzeSelectedPages() {
+  if (isRetryingAnalysis.value) return;
+  isRetryingAnalysis.value = true;
+  const pageIds = hasMultiSelection.value ? new Set(multiSelectedPageIds.value) : new Set([selected.value?.pageId].filter(Boolean));
+  try {
+    for (const doc of documents.value) {
+      if (doc.pages.some(page => pageIds.has(page.id))) await requestScanTitleSuggestion(doc.id, 'all_pages', { force: true, silent: true, analysisPageIds: pageIds });
+    }
+  } finally { isRetryingAnalysis.value = false; }
+}
+
+async function retryAnalysis(repeatOcr = false) {
   if (isRetryingAnalysis.value) {
     return;
   }
@@ -3787,7 +3445,7 @@ async function retryAnalysis() {
       continue;
     }
     resetScanSuggestionMeta(doc);
-    jobs.push(requestScanTitleSuggestion(id, 'first_page', { silent: true }));
+    jobs.push(requestScanTitleSuggestion(id, 'all_pages', { silent: true, force: true, repeatOcr }));
     started += 1;
   }
   if (started === 0) {
@@ -3810,22 +3468,14 @@ async function retryAnalysis() {
 
 function applyScanSuggestion(stageId) {
   const documentEntry = getDocumentById(stageId);
-  const suggestion = String(documentEntry?.meta?.titleSuggestion || '').trim();
-  if (!documentEntry || !suggestion) {
-    return;
-  }
-  if (documentEntry?.meta?.titleSuggestionUsedFallback) {
-    stagingStore.setDocumentTitleDraft(stageId, suggestion);
-    nextTick(() => {
-      focusDocumentTitle(stageId);
-    });
-    return;
-  }
-  stagingStore.renameDocument(stageId, suggestion);
-  const meta = ensureScanMeta(documentEntry);
-  if (meta) {
-    meta.titleSuggestionStatus = 'applied';
-  }
+  if (!documentEntry || !canOfferTitle(documentEntry)) return;
+  stagingStore.checkpoint();
+  stagingStore.renameDocument(stageId, documentEntry.meta.titleSuggestion);
+  const form = ensureImportForm(documentEntry);
+  form.touched.title = true;
+  form.revisions.title = (form.revisions.title || 0) + 1;
+  delete form.proposals.title;
+  documentEntry.meta.titleSuggestionStatus = 'applied';
 }
 
 function openFilePicker() {
@@ -3873,6 +3523,32 @@ function fileListToCandidates(files, source = 'file') {
         ? normalizeRelativePath(file?.webkitRelativePath)
         : ''
   }));
+}
+
+async function replaceSelectedPageFromFile(event) {
+  const file = event.target.files?.[0];
+  event.target.value = '';
+  const pageId = selected.value?.pageId;
+  if (!file || !pageId || isCommitting.value) return;
+  isUploadingSources.value = true;
+  try {
+    const sources = await uploadSources([file]);
+    const source = sources[0];
+    if (!source) return;
+    if (source.page_count !== 1) {
+      await apiFetch(`/api/import/source/${encodeURIComponent(source.source_file_id)}`, { method: 'DELETE' });
+      notify({ type: 'warning', message: 'Zum Ersetzen einer Seite bitte ein PDF mit genau einer Seite auswählen.' });
+      return;
+    }
+    const current = stagingStore.findPageLocation(pageId)?.page;
+    if (!current) return;
+    const thumbs = await renderPdfThumbnails(file, 1);
+    stagingStore.checkpoint();
+    stagingStore.setStagingFile(source.source_file_id, file, { pageCount: 1, sourceRevision: source.source_revision, originalName: file.name });
+    Object.assign(current, { sourceFileId: source.source_file_id, pageIndex: 0, rotation: 0, colorMode: 'auto', thumbUrl: thumbs[0] || '', previewError: false });
+    previewImageCache.clear();
+  } catch (error) { notify({ type: 'error', message: mapApiError(error, 'Die Seite konnte nicht ersetzt werden. Die bisherige Seite bleibt erhalten.') }); }
+  finally { isUploadingSources.value = false; }
 }
 
 async function onFileInputChange(event) {
@@ -4181,6 +3857,8 @@ function onTagNamesChange(newNames) {
     if (!name || typeof name !== 'string') continue;
     const norm = normalizeTagName(name);
     if (!norm) continue;
+    const validation = validateTagName(norm);
+    if (validation) { notify({ type: 'warning', message: validation }); continue; }
     const id = findStageTagIdByName(norm);
     if (id) {
       if (!ids.includes(id)) ids.push(id);
@@ -4197,15 +3875,10 @@ function onTagNamesChange(newNames) {
   if (meta) meta.pendingTagNames = pending;
 }
 
-// Auto-Masking DD.MM.YYYY beim Tippen
-watch(docDate, (newVal, oldVal) => {
-  if (newVal.length <= (oldVal?.length ?? 0)) return; // Löschen: nicht eingreifen
-  const digits = newVal.replace(/\D/g, '').slice(0, 8);
-  let formatted = digits;
-  if (digits.length > 2) formatted = digits.slice(0, 2) + '.' + digits.slice(2);
-  if (digits.length > 4) formatted = digits.slice(0, 2) + '.' + digits.slice(2, 4) + '.' + digits.slice(4);
-  if (formatted !== newVal) docDate.value = formatted;
-}, { flush: 'sync' });
+function normalizeImportDate() {
+  const parsed = parseDocumentDateInput(docDate.value);
+  if (parsed.ok) docDate.value = parsed.display;
+}
 
 function normalizeSourceFileId(sourceFileId) {
   return String(sourceFileId || '').trim();
@@ -4289,6 +3962,7 @@ async function refreshImportInboxSourceFile(sourceFileId, pageCount, metaPatch =
   if (running) {
     return running;
   }
+  sourceRefreshCount.value += 1;
   const task = (async () => {
     try {
       const refreshedFile = await downloadStagingSourceFile(normalized, sourceMeta.originalName || '');
@@ -4306,6 +3980,8 @@ async function refreshImportInboxSourceFile(sourceFileId, pageCount, metaPatch =
         colorDetectionAvailable: sourceMeta.colorDetectionAvailable
       });
       stagingStore.updateSourceThumbnails(normalized, thumbUrls);
+      const metadata = stagingStore.sourceMetaById.get(normalized);
+      if (metadata) metadata.pageQuality = thumbnailQuality.get(refreshedFile) || [];
       clearPreviewCacheForSource(normalized);
       if (isScanCleanupReady(nextScanCleanup)) {
         markScanCleanupApplied(normalized, nextScanCleanup);
@@ -4315,6 +3991,7 @@ async function refreshImportInboxSourceFile(sourceFileId, pageCount, metaPatch =
       // erledigt vermerkt, damit der nächste Inbox-Push ihn wiederholt.
     } finally {
       remoteSourceRefreshInFlight.delete(normalized);
+      sourceRefreshCount.value = Math.max(0, sourceRefreshCount.value - 1);
     }
   })();
   remoteSourceRefreshInFlight.set(normalized, task);
@@ -4322,31 +3999,9 @@ async function refreshImportInboxSourceFile(sourceFileId, pageCount, metaPatch =
 }
 
 async function removePage(pageId) {
-  const location = stagingStore.findPageLocation(pageId);
-  const sourceFileId = normalizeSourceFileId(location?.page?.sourceFileId);
-  const sourcePageIndex = Number(location?.page?.pageIndex || 0);
-  const shouldPersistSourcePageRemoval =
-    sourceFileId && isImportInboxSourceFile(sourceFileId) && countPagesForSourceFile(sourceFileId) > 0;
-
-  let discardPageResult = null;
-  if (shouldPersistSourcePageRemoval) {
-    try {
-      discardPageResult = await discardImportInboxSourcePages(sourceFileId, [sourcePageIndex]);
-    } catch (error) {
-      notify({ type: 'warning', message: mapApiError(error, 'Gelöschte SMB-Seite konnte nicht endgültig gelöscht werden.') });
-      return;
-    }
-  }
-
+  if (isCommitting.value || stagingStore.pendingCommit) return;
   stagingStore.removePage(pageId);
-  if (shouldPersistSourcePageRemoval) {
-    stagingStore.remapSourcePagesAfterRemoval(sourceFileId, [sourcePageIndex], discardPageResult?.page_count);
-    await refreshImportInboxSourceFile(sourceFileId, discardPageResult?.page_count);
-  }
-  if (selected.value?.pageId === pageId) {
-    clearActiveSelection();
-  }
-  notifyDiscardedSourceFileIds([sourceFileId]);
+  if (selected.value?.pageId === pageId) clearActiveSelection();
 }
 
 async function removeSelectedPage(documentId) {
@@ -4358,20 +4013,44 @@ async function removeSelectedPage(documentId) {
 }
 
 function deleteDocument(documentId) {
-  const sourceFileIds = collectDocumentSourceFileIds(documentId);
+  stagingStore.checkpoint();
   stagingStore.deleteDocument(documentId);
-  if (selected.value?.stageId === documentId) {
-    clearActiveSelection();
-  }
-  notifyDiscardedSourceFileIds(sourceFileIds);
+  if (selected.value?.stageId === documentId) clearActiveSelection();
+}
+
+async function retryThumbnail(page) {
+  if (lazyThumbnailJobs.has(page.id)) return;
+  lazyThumbnailJobs.add(page.id);
+  const revision = `${page.sourceFileId}:${page.pageIndex}:${page.rotation}:${page.colorMode}`;
+  const task = thumbnailRenderChain.catch(() => {}).then(async () => {
+    try {
+      if (!stagingStore.findPageLocation(page.id)) return;
+      const rendered = await renderServerColorPreview(page, page.colorMode || 'auto');
+      if (revision !== `${page.sourceFileId}:${page.pageIndex}:${page.rotation}:${page.colorMode}`) return;
+      if (rendered) { page.thumbUrl = rendered; page.previewError = false; }
+      else page.previewError = true;
+    } finally { lazyThumbnailJobs.delete(page.id); }
+  });
+  thumbnailRenderChain = task;
+  return task;
 }
 
 function setPageThumbRef(pageId, element) {
   if (!element) {
+    const previous = pageThumbRefs.get(pageId);
+    if (previous) thumbnailObserver?.unobserve(previous);
     pageThumbRefs.delete(pageId);
     return;
   }
   pageThumbRefs.set(pageId, element);
+  if (typeof IntersectionObserver === 'undefined') return;
+  if (!thumbnailObserver) thumbnailObserver = new IntersectionObserver(entries => {
+    for (const entry of entries) if (entry.isIntersecting) {
+      const page = stagingStore.findPageLocation(entry.target.dataset.pageId)?.page;
+      if (page && !page.thumbUrl) void retryThumbnail(page);
+    }
+  }, { rootMargin: '300px' });
+  thumbnailObserver.observe(element);
 }
 
 function clamp(value, min, max) {
@@ -5429,135 +5108,90 @@ async function onModalSurfaceDrop(event) {
   }
 }
 
-// Legt alle "pending" (noch nicht existierenden) Tag-Namen der zu importierenden
-// Dokumente real an und hängt die erzeugten IDs an doc.tags. Erst dadurch werden
-// die gestrichelt angezeigten Tags zu echten Tags – genau beim Import.
-async function materializePendingTags() {
-  for (const doc of documents.value) {
-    const names = doc?.meta?.pendingTagNames;
-    if (!Array.isArray(names) || names.length === 0) continue;
-    const ids = [...(doc.tags || [])];
-    for (const name of names) {
-      try {
-        const id = findStageTagIdByName(name) || (await createStageTagByName(name));
-        if (id && !ids.includes(id)) ids.push(id);
-      } catch (tagErr) {
-        console.warn('[ImportStaging] Pending-Tag konnte nicht angelegt werden:', name, tagErr);
-      }
-    }
-    stagingStore.setDocumentTags(doc.id, ids);
-    const meta = ensureScanMeta(doc);
-    if (meta) meta.pendingTagNames = [];
-  }
-}
-
-async function materializePendingCorrespondent() {
-  const raw = normalizeCorrespondentInput(docCorrespondentId.value);
-  if (!raw) {
-    docCorrespondentId.value = null;
+async function commitImport(selectedPageIds = null) {
+  if (isImportActionDisabled.value) return;
+  const entries = commitSubset(documents.value, selectedPageIds instanceof Set ? selectedPageIds : null);
+  if (!entries.length) return;
+  validationAttempted.value = true;
+  const invalid = entries.find(({ document, pages }) => Object.keys(validateImportDocument({ ...document, pages })).length);
+  if (invalid && !stagingStore.pendingCommit) {
+    activeDocumentId.value = invalid.document.id;
+    selected.value = null;
+    rightPanelMode.value = 'details';
+    await nextTick();
+    document.querySelector('.isd-props [aria-invalid="true"], .isd-props input')?.focus();
     return;
   }
-
-  const byId = correspondentStore.findById(raw);
-  if (byId?.id) {
-    docCorrespondentId.value = byId.id;
-    return;
-  }
-
-  await correspondentStore.ensureLoaded();
-  const byName = correspondentStore.findByName(raw);
-  if (byName?.id) {
-    docCorrespondentId.value = byName.id;
-    return;
-  }
-
-  const result = await correspondentStore.createCorrespondentByName(raw);
-  if (!result?.ok || !result.id) {
-    throw new Error('Korrespondent konnte nicht angelegt werden.');
-  }
-  docCorrespondentId.value = result.id;
-}
-
-async function commitImport() {
-  if (isImportActionDisabled.value) {
-    return;
-  }
-
   isCommitting.value = true;
   try {
-    await materializePendingTags();
-    await materializePendingCorrespondent();
-    const response = await fetch(`${props.apiBaseUrl}/api/import/commit`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        documents: commitDocuments.value.map((doc, idx) =>
-          idx === 0
-            ? {
-                ...doc,
-                document_type: docCategory.value || null,
-                correspondent_id: docCorrespondentId.value || null,
-                note: docNote.value.trim() || null,
-                date: docDateIso.value || null,
-                retention: isRetentionEnabled.value && docRetention.value
-                  ? {
-                      status: docRetention.value.status || 'manual',
-                      period_years: docRetention.value.period_years ?? null,
-                      paper_original: docRetention.value.paper_original || 'unclear',
-                      reason: docRetention.value.reason || null
-                    }
-                  : null
-              }
-            : doc
-        ),
-        options: {
-          auto_ocr: Boolean(settingsStore.settings.documents.auto_ocr),
-          auto_index: Boolean(settingsStore.settings.documents.auto_tagging && settingsStore.settings.documents.auto_ocr),
-          auto_embed: Boolean(props.autoEmbed)
-        }
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(await parseResponseError(response));
+    if (!stagingStore.pendingCommit) {
+      await correspondentStore.ensureLoaded();
+      const bodyDocuments = [];
+      const submitted = {};
+      const remainingSources = new Set();
+      const selectedIds = new Set(entries.flatMap(entry => entry.pages.map(page => page.id)));
+      for (const doc of documents.value) for (const page of doc.pages) if (!selectedIds.has(page.id)) remainingSources.add(page.sourceFileId);
+      for (const { document: doc, pages } of entries) {
+        const form = ensureImportForm(doc);
+        const parsed = parseDocumentDateInput(form.date);
+        const rawCorrespondent = normalizeCorrespondentInput(form.correspondentId);
+        const correspondent = rawCorrespondent ? correspondentStore.findById(rawCorrespondent) || correspondentStore.findByName(rawCorrespondent) : null;
+        if (rawCorrespondent && !correspondent) throw new Error('Bitte einen vorhandenen Korrespondenten wählen.');
+        const clientId = doc.id;
+        submitted[clientId] = pages.map(page => page.id);
+        bodyDocuments.push({ client_document_id: clientId, title: doc.title.trim(),
+          manual_fields: Object.entries(form.touched).filter(([, touched]) => touched).map(([field]) => field),
+          tag_ids: doc.tags || [], tag_names: doc.meta?.pendingTagNames || [], pages: sourcePages({ ...doc, pages }, stagingStore.sourceMetaById),
+          document_type: form.category || null, correspondent_id: correspondent?.id || null,
+          note: String(form.note || '').trim() || null, date: parsed.iso,
+          retention: isRetentionEnabled.value && form.retention ? {
+            status: form.retention.status || 'manual', period_years: form.retention.period_years ?? null,
+            paper_original: form.retention.paper_original || 'unclear', reason: form.retention.reason || null,
+          } : null,
+        });
+      }
+      stagingStore.pendingCommit = { body: {
+        request_id: crypto.randomUUID(), documents: bodyDocuments, preserve_source_ids: [...remainingSources],
+        options: { auto_ocr: Boolean(settingsStore.settings.documents.auto_ocr),
+          auto_index: Boolean(settingsStore.settings.documents.auto_tagging && settingsStore.settings.documents.auto_ocr), auto_embed: Boolean(props.autoEmbed) },
+      }, submitted };
     }
-
-    const payload = await response.json();
-    const createdCount = Array.isArray(payload?.created) ? payload.created.length : 0;
-    const errorCount = Array.isArray(payload?.errors) ? payload.errors.length : 0;
-
-    if (createdCount > 0) {
-      emit('committed', payload);
+    const attempt = stagingStore.pendingCommit;
+    await draftPersistence.save();
+    const payload = await apiFetch('/api/import/commit', { method: 'POST', body: JSON.stringify(attempt.body), timeoutMs: 180000 });
+    const created = payload.created || [];
+    const errors = payload.errors || [];
+    for (const warning of created.flatMap(item => item.warnings || [])) notify({ type: 'warning', message: warning });
+    const completedPageIds = created.flatMap(item => attempt.submitted[item.client_document_id] || []);
+    // Only remove the pages acknowledged by this exact submission. New scanner
+    // pages and unselected pages retain their own draft and source references.
+    if (created.length) {
+      const completedIds = new Set(completedPageIds);
+      const remainingSources = new Set(documents.value.flatMap(doc => doc.pages.filter(page => !completedIds.has(page.id)).map(page => page.sourceFileId)));
+      const createdIds = new Set(created.map(item => item.client_document_id));
+      const completedSources = [...new Set(attempt.body.documents.filter(doc => createdIds.has(doc.client_document_id)).flatMap(doc => doc.pages.map(page => page.source_file_id)))].filter(sourceId => !remainingSources.has(sourceId));
+      emit('committed', { ...payload, remaining: totalPages.value > completedPageIds.length, completed_source_ids: completedSources });
+      stagingStore.completePages(completedPageIds);
+      clearMultiSelection();
+      clearActiveSelection();
     }
-
-    if (createdCount > 0 && errorCount === 0) {
-      notify({
-        type: 'success',
-        message: `Import gestartet (${createdCount} Dokumente). OCR läuft im Hintergrund.`
-      });
+    for (const error of errors) {
+      const doc = getDocumentById(error.client_document_id);
+      if (doc) doc.meta.commitError = error;
+    }
+    stagingStore.pendingCommit = null;
+    await draftPersistence.save();
+    if (!errors.length && !totalPages.value) {
+      notify({ type: 'success', message: created.some(item => item.processing_queued) ? 'Import gespeichert. Die Texterkennung läuft im Hintergrund.' : 'Import gespeichert.' });
       isOpen.value = false;
-      return;
-    }
-
-    if (createdCount > 0 && errorCount > 0) {
-      notify({
-        type: 'warning',
-        message: `Teilweise importiert: ${createdCount} erfolgreich, ${errorCount} fehlgeschlagen.`
-      });
-      return;
-    }
-
-    if (errorCount > 0) {
-      const firstMessage = String(payload.errors[0]?.message || 'Import fehlgeschlagen.');
-      notify({ type: 'error', message: firstMessage });
-      return;
-    }
-
-    notify({ type: 'warning', message: 'Keine Dokumente importiert.' });
+    } else if (errors.length) {
+      notify({ type: 'warning', message: `${created.length ? `${created.length} Dokumente gespeichert. ` : ''}${errors[0].message}` });
+    } else notify({ type: 'success', message: 'Auswahl importiert. Übrige Seiten bleiben im Entwurf.' });
   } catch (error) {
-    notify({ type: 'error', message: mapApiError(error, 'Import fehlgeschlagen.') });
+    // Keep the exact request until a definitive response is received. Replaying
+    // after a lost response retrieves its receipt instead of importing twice.
+    if ([400, 403, 409, 413, 422].includes(error.status)) stagingStore.pendingCommit = null;
+    notify({ type: 'error', message: mapApiError(error, 'Importstatus konnte nicht bestätigt werden. Bitte erneut prüfen; alle Seiten bleiben erhalten.') });
   } finally {
     isCommitting.value = false;
   }
@@ -5674,12 +5308,6 @@ defineExpose({
 });
 
 onBeforeUnmount(() => {
-  scannerLivePreviewLoadId += 1;
-  if (scannerLivePreviewLoader) {
-    scannerLivePreviewLoader.onload = null;
-    scannerLivePreviewLoader.onerror = null;
-    scannerLivePreviewLoader = null;
-  }
   if (typeof window !== 'undefined' && closeResetTimer) {
     window.clearTimeout(closeResetTimer);
     closeResetTimer = 0;
@@ -5707,9 +5335,10 @@ onBeforeUnmount(() => {
       peekRepositionRaf = 0;
     }
   }
+  thumbnailObserver?.disconnect();
   pageThumbRefs.clear();
   previewImageCache.clear();
-  stagingStore.reset();
+  window.clearTimeout(documentAnalysisTimer);
 });
 </script>
 
@@ -6237,6 +5866,13 @@ onBeforeUnmount(() => {
   opacity: 0.5;
 }
 
+/* Eine bereits geladene Scanvorschau wartet nicht auf die dekorative
+   Einblendung des leeren Importfensters. */
+.isd-dz-scene--scanning,
+.isd-dz-scene--scanning .isd-dz-sheet {
+  animation: none;
+}
+
 .isd-dz-scene--scanning .isd-dz-scene__halo {
   background: radial-gradient(
     ellipse at center,
@@ -6262,6 +5898,11 @@ onBeforeUnmount(() => {
 
 .isd-dz-scene--scanning .isd-dz-sheet__scan {
   animation: isd-dz-scan-active 1.5s 320ms ease-in-out infinite;
+}
+
+.isd-dz-scene--complete .isd-dz-sheet__scan {
+  animation: none;
+  opacity: 0;
 }
 
 .isd-dz-scene--scanning .isd-dz-scene__merge {
@@ -6637,6 +6278,54 @@ button.isd-dropzone__action--supplemental:focus-visible {
   height: 100%;
   object-fit: contain;
   display: block;
+}
+
+.isd-page-card--scan-handoff .isd-page-thumb-wrap {
+  visibility: hidden;
+}
+
+.isd-scan-thumbnail-fallback {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #fff;
+}
+
+.isd-scan-frame-leave-active {
+  transition: opacity 180ms ease;
+}
+
+.isd-scan-frame-leave-to {
+  opacity: 0;
+}
+
+.isd-scan-flight-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 3200;
+  pointer-events: none;
+}
+
+.isd-scan-flight {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 18px 34px rgba(15, 23, 42, 0.16);
+  will-change: transform, width, height;
+}
+
+.isd-scan-flight img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .isd-page-thumb-placeholder-icon {
@@ -7614,6 +7303,7 @@ button.isd-dropzone__action--supplemental:focus-visible {
   .isd-dropzone::before,
   .isd-dropzone__action,
   .isd-page-thumb-wrap,
+  .isd-scan-frame-leave-active,
   .isd-feedback-text-enter-active,
   .isd-feedback-text-leave-active {
     transition: none;
@@ -7629,5 +7319,46 @@ button.isd-dropzone__action--supplemental:focus-visible {
 
 :global(.pm-no-animations) .isd-page-thumb-wrap {
   transition: none;
+}
+
+:global(.pm-no-animations) .isd-scan-frame-leave-active {
+  transition: none;
+}
+</style>
+
+<style>
+.isd-scan-progress { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:10px 24px; border-bottom:1px solid rgba(var(--v-theme-on-surface),.1); }
+.isd-import-error { padding:10px 16px; color:rgb(var(--v-theme-error)); background:rgba(var(--v-theme-error),.06); }
+.isd-review-hint, .isd-page-review { font-size:12px; color:var(--pm-muted,#687076); margin:8px 0; }
+.isd-page-review { display:block; text-align:center; }
+.isd-suggestion-row { display:flex; align-items:center; flex-wrap:wrap; gap:8px; min-height:34px; }
+.isd-suggestion-dismiss { font-size:12px; color:var(--pm-muted,#687076); }
+.isd-card .isd-props { container-type:inline-size; }
+.isd-review-hint button { margin-left:8px; text-decoration:underline; }
+.isd-card .isd-props-mode { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.isd-card--both.pm-dialog { width:1540px; }
+.isd-card--both .isd-body { display:grid; grid-template-columns:minmax(300px,.8fr) minmax(700px,1.4fr); }
+.isd-card--both .isd-props { display:grid; grid-template-columns:minmax(300px,1fr) minmax(300px,1fr); grid-template-rows:auto minmax(0,1fr); }
+.isd-card--both .isd-props-mode { grid-column:1 / -1; }
+@media (max-width:1100px) {
+  .isd-card .isd-props-mode { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .isd-both-tab { display:none; }
+  .isd-card--both .isd-body { display:flex; }
+  .isd-card--both .isd-props { display:flex; }
+}
+@media (max-width:760px) {
+  .isd-card .isd-body { flex-direction:column; }
+  .isd-card .isd-left { flex:0 0 208px; width:100%; border-right:0; border-bottom:1px solid rgba(var(--v-theme-on-surface),.1); }
+  .isd-card--empty .isd-left { flex:1 1 auto; }
+  .isd-card:not(.isd-card--empty) .isd-grid-scroll { padding:12px 12px 58px !important; overflow-x:auto; overflow-y:hidden; }
+  .isd-card .isd-page-grid { display:flex; gap:12px; min-width:max-content; align-items:flex-start; }
+  .isd-card .isd-page-card, .isd-card .isd-add-page-card, .isd-card .isd-scanning-page-card { width:82px; flex:0 0 82px; }
+  .isd-card .isd-props { flex:1 1 auto; width:100%; min-height:0; }
+  .isd-card .isd-props-scroll { padding:12px 16px; }
+  .isd-card .isd-toolbar { overflow-x:auto; justify-content:flex-start; gap:8px; }
+  .isd-card .isd-toolbar-left, .isd-card .isd-toolbar-center, .isd-card .isd-toolbar-right { flex:0 0 auto; }
+  .isd-card .isd-footer { flex-wrap:wrap; gap:4px; }
+  .isd-card .isd-footer-end { margin-left:auto; min-width:0; flex-wrap:wrap; }
+  .isd-card .isd-footer-start { min-width:0; }
 }
 </style>

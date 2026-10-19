@@ -1,4 +1,5 @@
 import { defineSessionStore as defineStore } from './sessionStores.js';
+import { sourcePages, defaultImportForm } from '../utils/importWorkflow.js';
 
 function makeId(prefix) {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -79,6 +80,7 @@ function createDocument({ title, sourceType = 'manual', pages = [], collapsed = 
     pages: normalizedPages,
     tags: normalizeTagIds(tags),
     meta: {
+      form: defaultImportForm(),
       isScanSession: false,
       scanSourceFileIds: [],
       titleSuggestion: '',
@@ -103,12 +105,11 @@ function normalizeRotation(value) {
   return 0;
 }
 
-// Farbmodus pro Importseite: 'color' = Original (Rohscan, keine Bereinigung),
-// 'grayscale' = bereinigt + Graustufen (Default), 'auto' = bereinigt + Farbe.
+// 'auto' preserves the prepared source (default), explicit modes are overrides.
 // ('bw' bleibt für Alt-/Backend-Kompatibilität gültig, wird von der UI aber
 // nicht mehr angeboten.)
 const PAGE_COLOR_MODES = ['auto', 'color', 'grayscale', 'bw'];
-const DEFAULT_PAGE_COLOR_MODE = 'grayscale';
+const DEFAULT_PAGE_COLOR_MODE = 'auto';
 
 function normalizeColorMode(value) {
   return PAGE_COLOR_MODES.includes(value) ? value : DEFAULT_PAGE_COLOR_MODE;
@@ -134,7 +135,9 @@ export const useImportStagingStore = defineStore('importStaging', {
     createdAt: 0,
     documents: [],
     stagingFiles: new Map(),
-    sourceMetaById: new Map()
+    sourceMetaById: new Map(),
+    pendingCommit: null,
+    history: [],
   }),
 
   getters: {
@@ -150,22 +153,29 @@ export const useImportStagingStore = defineStore('importStaging', {
     importableDocuments: (state) => state.documents.filter((doc) => doc.pages.length > 0),
     commitDocuments() {
       return this.importableDocuments.map((doc) => ({
+        client_document_id: doc.id,
         title: sanitizeTitle(doc.title),
         tag_ids: normalizeTagIds(doc.tags),
-        pages: doc.pages.map((page) => ({
-          source_file_id: page.sourceFileId,
-          page_index: Number(page.pageIndex),
-          rotation: normalizeRotation(page.rotation),
-          // Der Modus wird beim Commit serverseitig in die importierte PDF
-          // geschrieben. 'auto' lässt die bereits erfolgte Scan-Bereinigung
-          // unverändert; die anderen Werte sind bewusste Benutzer-Overrides.
-          color_mode: normalizeColorMode(page.colorMode)
-        }))
+        pages: sourcePages(doc, this.sourceMetaById)
       }));
     }
   },
 
   actions: {
+    checkpoint() {
+      this.history.push(JSON.parse(JSON.stringify(this.documents)));
+      if (this.history.length > 10) this.history.shift();
+    },
+    undo() {
+      if (!this.history.length || this.pendingCommit) return;
+      this.documents = this.history.pop();
+    },
+    completePages(pageIds) {
+      const completed = new Set(pageIds);
+      for (const doc of this.documents) doc.pages = doc.pages.filter(page => !completed.has(page.id));
+      this.documents = this.documents.filter(doc => doc.pages.length);
+      this.history = [];
+    },
     collectUsedSourceFileIds() {
       const ids = new Set();
       for (const document of this.documents) {
@@ -180,17 +190,7 @@ export const useImportStagingStore = defineStore('importStaging', {
     },
 
     cleanupUnusedSources() {
-      const usedSourceIds = this.collectUsedSourceFileIds();
-      for (const sourceFileId of this.stagingFiles.keys()) {
-        if (!usedSourceIds.has(sourceFileId)) {
-          this.stagingFiles.delete(sourceFileId);
-        }
-      }
-      for (const sourceFileId of this.sourceMetaById.keys()) {
-        if (!usedSourceIds.has(sourceFileId)) {
-          this.sourceMetaById.delete(sourceFileId);
-        }
-      }
+      // Sources remain available for undo until commit or explicit discard.
     },
 
     pruneDocumentIfEmpty(documentId) {
@@ -218,15 +218,20 @@ export const useImportStagingStore = defineStore('importStaging', {
       this.documents = [];
       this.stagingFiles = new Map();
       this.sourceMetaById = new Map();
+      this.pendingCommit = null;
+      this.history = [];
     },
 
     setStagingFile(sourceFileId, file, meta = {}) {
       this.stagingFiles.set(sourceFileId, file);
       this.sourceMetaById.set(sourceFileId, {
         sourceFileId,
+        sourceRevision: meta.sourceRevision || meta.source_revision || this.sourceMetaById.get(sourceFileId)?.sourceRevision || null,
         originalName: String(meta.originalName || file?.name || '').trim(),
         pageCount: Number(meta.pageCount || 0),
         isImportInbox: Boolean(meta.isImportInbox),
+        sourceType: meta.sourceType || this.sourceMetaById.get(sourceFileId)?.sourceType || '',
+        pageQuality: meta.pageQuality || this.sourceMetaById.get(sourceFileId)?.pageQuality || [],
         analysis: normalizeAnalysisPayload(meta.analysis),
         scanCleanup: normalizeScanCleanupPayload(meta.scanCleanup || meta.scan_cleanup),
         colorPageIndices: normalizeColorPageIndices(meta.colorPageIndices ?? meta.color_page_indices),
@@ -324,7 +329,6 @@ export const useImportStagingStore = defineStore('importStaging', {
       }
       this.documents.splice(docIndex, 1);
       if (this.documents.length === 0) {
-        this.reset();
         return;
       }
       this.cleanupUnusedSources();
@@ -408,6 +412,7 @@ export const useImportStagingStore = defineStore('importStaging', {
       if (!location) {
         return;
       }
+      this.checkpoint();
       const delta = direction === 'left' ? -90 : 90;
       const nextRotation = (location.page.rotation + delta + 360) % 360;
       location.page.rotation = normalizeRotation(nextRotation);
@@ -418,6 +423,7 @@ export const useImportStagingStore = defineStore('importStaging', {
       if (!location) {
         return;
       }
+      this.checkpoint();
       location.page.colorMode = normalizeColorMode(colorMode);
     },
 
@@ -426,6 +432,7 @@ export const useImportStagingStore = defineStore('importStaging', {
       if (!location) {
         return;
       }
+      this.checkpoint();
       const sourceDocId = this.documents[location.docIndex].id;
       this.documents[location.docIndex].pages.splice(location.pageIndex, 1);
       this.pruneDocumentIfEmpty(sourceDocId);
@@ -515,6 +522,7 @@ export const useImportStagingStore = defineStore('importStaging', {
       if (targetDocIndex < 0) {
         return;
       }
+      this.checkpoint();
 
       const [page] = this.documents[source.docIndex].pages.splice(source.pageIndex, 1);
       if (!page) {
@@ -544,6 +552,7 @@ export const useImportStagingStore = defineStore('importStaging', {
       if (!source) {
         return null;
       }
+      this.checkpoint();
       const sourceDocId = this.documents[source.docIndex]?.id || null;
       const [page] = this.documents[source.docIndex].pages.splice(source.pageIndex, 1);
       if (!page) {

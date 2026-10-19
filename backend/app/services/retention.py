@@ -173,7 +173,7 @@ class DocumentRetentionService:
             return DocumentRetentionRead(document_id=document_id)
         return DocumentRetentionRead.model_validate(record)
 
-    def update_retention(self, document_id: uuid.UUID, payload: DocumentRetentionUpdateRequest) -> DocumentRetentionRead:
+    def update_retention(self, document_id: uuid.UUID, payload: DocumentRetentionUpdateRequest, *, commit: bool = True) -> DocumentRetentionRead:
         document = self._get_document(document_id)
         self._ensure_retention_enabled()
         record = self._get_record(document_id)
@@ -188,7 +188,7 @@ class DocumentRetentionService:
         record.retain_until = _compute_retain_until(document.document_date, payload.period_years)
         record.updated_at = datetime.now(timezone.utc)
 
-        self.db.commit()
+        self.db.commit() if commit else self.db.flush()
         self.db.refresh(record)
         return DocumentRetentionRead.model_validate(record)
 

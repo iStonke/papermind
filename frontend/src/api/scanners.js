@@ -15,8 +15,8 @@ export const removeScannerConfiguration = (id) =>
   apiDelete(`/api/scanners/${encodeURIComponent(String(id))}/configuration`);
 
 // command: 'page' (Seite scannen) | 'finish' (Batch abschließen)
-export const triggerScan = (id, command) =>
-  apiPost(`/api/scanners/${encodeURIComponent(String(id))}/scan`, { command });
+export const triggerScan = (id, command, requestId = crypto.randomUUID()) =>
+  apiPost(`/api/scanners/${encodeURIComponent(String(id))}/scan`, { command, request_id: requestId });
 
 export const cancelScan = (id) =>
   apiPost(`/api/scanners/${encodeURIComponent(String(id))}/cancel`, {});

@@ -24,6 +24,7 @@
     </TransitionGroup>
 
     <v-combobox
+      aria-label="Tag hinzufügen"
       :model-value="normalizedNames"
       :search="search"
       :items="items"
