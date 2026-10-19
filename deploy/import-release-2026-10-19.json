@@ -1,0 +1,16 @@
+{
+  "release": "import-2026-10-19",
+  "base": "575d9b375f9ebde219f72df8bb7f5a86df72e529",
+  "target": "8d87348e079477d304a61523e5a7187155187f2b",
+  "schema": "114_import_receipts",
+  "archive_sha256": "93ae3ca356f66b9c7beb11396160ac511b15a1be37bb0a7ca2bc5c74d9108f7c",
+  "archive_bytes": 2081888,
+  "files": 1072,
+  "excluded_unchanged_paths": [
+    "deploy/host-control"
+  ],
+  "runners": {
+    "pi_import_release.py": "b58161564fa49a175d49a740db1746b64d31fffca274802f3f1e54fb60543f4d",
+    "pi_rollout.py": "a59adea3a209bfbccb2da8bc35f3e748f76b5d961129b5608082f9645464449a"
+  }
+}

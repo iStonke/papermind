@@ -42,6 +42,11 @@ VALID_ACTIONS = {
     "security_patch_host_apply",
     "security_patch_host_status",
     "security_patch_restart",
+    "import_release_inspect",
+    "import_release_prepare",
+    "import_release_apply",
+    "import_release_status",
+    "import_release_verify",
 }
 
 

@@ -86,6 +86,19 @@ Passwörter oder frei formulierte Shell-Kommandos in die Bridge aufnehmen.
 
 Weitere projektspezifische Hinweise stehen in `CLAUDE.md`.
 
+Der am 19. Oktober ausdrücklich beauftragte Importrollout verwendet zusätzlich
+`import_release_inspect`, `import_release_prepare`, `import_release_apply`,
+`import_release_status` und `import_release_verify`. Diese Aktionen sind fest an
+Commit `8d87348e079477d304a61523e5a7187155187f2b`, Ausgangsstand
+`575d9b375f9ebde219f72df8bb7f5a86df72e529` und Archiv-SHA
+`93ae3ca356f66b9c7beb11396160ac511b15a1be37bb0a7ca2bc5c74d9108f7c`
+gebunden. Staging und Build laufen vor dem Live-Wechsel. Erst eine frische,
+verifizierte verschlüsselte Sicherung erlaubt Schreibsperre, Migration 114 und
+den Wechsel von Backend, Worker und Frontend. Rückfall stellt Schema 113,
+Quellstand und bisherige Images wieder her. Keine freien Parameter, echten
+`.env`-Änderungen, Host-Updates oder Pi-Neustarts. Ablauf und Prüfsummen:
+`docs/import-rollout-2026-10-19.md` und `deploy/import-release-2026-10-19.json`.
+
 Host-Sicherheitsupdates dieses Releases verwenden nach manueller Einrichtung
 den root-eigenen Helfer `/usr/local/libexec/papermind-security-20261012`.
 Sudoers pinnt dessen SHA-256; nur `update`, `plan`, `download`, `verify`,
