@@ -920,19 +920,99 @@
   flex-direction: column;
 }
 
-/* Reihenfolge wie in der Seitenleiste: Übersicht & Arbeitsbereiche → Notizen
-   → Dokumente → weitere Bereiche. */
+/* Die Erläuterungen folgen der gewählten Reihenfolge der Hauptbereiche. */
 .settings-sidebar-main { order: 1; }
 .settings-sidebar-notes { order: 2; }
 .settings-sidebar-library { order: 3; }
 .settings-sidebar-other { order: 4; }
 
-.settings-sidebar-main + .settings-sidebar-notes,
-.settings-sidebar-notes + .settings-sidebar-library,
-.settings-sidebar-library + .settings-sidebar-other {
+.settings-sidebar-settings--documents-first .settings-sidebar-library { order: 2; }
+.settings-sidebar-settings--documents-first .settings-sidebar-notes { order: 3; }
+
+.settings-sidebar-notes,
+.settings-sidebar-library,
+.settings-sidebar-other {
   margin-top: 20px;
   padding-top: 20px;
   border-top: 1px solid rgba(var(--v-theme-on-surface), 0.09);
+}
+
+.settings-sidebar-order {
+  min-width: 0;
+  margin: 20px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.settings-sidebar-order legend { margin-bottom: 4px; }
+
+.settings-sidebar-order-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.settings-sidebar-order-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.16);
+  border-radius: 10px;
+  background: rgb(var(--v-theme-surface));
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.settings-sidebar-order-option:hover {
+  border-color: rgba(var(--v-theme-primary), 0.6);
+}
+
+.settings-sidebar-order-option--selected {
+  border-color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.06);
+}
+
+.settings-sidebar-order-option:has(input:focus-visible) {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: 3px;
+}
+
+.settings-sidebar-order-option input {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: rgb(var(--v-theme-primary));
+}
+
+.settings-sidebar-order-option input:focus-visible { outline: none; }
+
+.settings-sidebar-order:disabled .settings-sidebar-order-option {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.settings-sidebar-order-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings-sidebar-order-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+@media (max-width: 420px) {
+  .settings-sidebar-order-options { gap: 8px; }
+  .settings-sidebar-order-option { gap: 8px; padding: 10px 8px; }
+  .settings-sidebar-order-preview-row { gap: 5px; font-size: 0.8rem; }
 }
 
 .settings-sidebar-group {

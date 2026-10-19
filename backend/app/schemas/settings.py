@@ -364,6 +364,7 @@ class UISettingsRead(BaseModel):
     sidebar_show_chat: bool = True
     sidebar_show_dossiers: bool = True
     sidebar_show_lernraum: bool = True
+    sidebar_primary_order: Literal["notes_first", "documents_first"] = "notes_first"
     sidebar_sections: list[SidebarSectionConfig] = Field(default_factory=_default_sidebar_sections)
     # Übersicht-Board-Layout (leer = Frontend-Standard).
     dashboard_layout: list[DashboardWidgetLayout] = Field(default_factory=list)
@@ -587,6 +588,7 @@ class UISettingsPatch(BaseModel):
     sidebar_show_chat: bool | None = None
     sidebar_show_dossiers: bool | None = None
     sidebar_show_lernraum: bool | None = None
+    sidebar_primary_order: Literal["notes_first", "documents_first"] | None = None
     sidebar_sections: list[SidebarSectionConfig] | None = None
     dashboard_layout: list[DashboardWidgetLayout] | None = None
     dashboard_show_import_action: bool | None = None

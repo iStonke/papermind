@@ -11,6 +11,7 @@ import {
 import {
   normalizeDashboardLayout,
   normalizeNoteTextReplacements,
+  normalizeSidebarPrimaryOrder,
   normalizeSidebarSections,
 } from '../utils/settingsApi.js';
 
@@ -139,6 +140,7 @@ function createDefaultSettings() {
       sidebar_show_chat: true,
       sidebar_show_dossiers: true,
       sidebar_show_lernraum: true,
+      sidebar_primary_order: 'notes_first',
       sidebar_sections: normalizeSidebarSections(null),
       dashboard_layout: normalizeDashboardLayout(null),
       dashboard_show_import_action: true,
@@ -431,6 +433,7 @@ export const useSettingsStore = defineStore('settings', {
         preview_drawer_gradient: false,
         drawer_remember_state: false,
         tag_drawer_remember_state: false,
+        sidebar_primary_order: false,
         sidebar_sections: false,
         sidebar_max_folders: false,
         sidebar_max_tags: false,
@@ -597,6 +600,7 @@ export const useSettingsStore = defineStore('settings', {
             typeof payload?.ui?.sidebar_show_lernraum === 'boolean'
               ? payload.ui.sidebar_show_lernraum
               : defaults.ui.sidebar_show_lernraum,
+          sidebar_primary_order: normalizeSidebarPrimaryOrder(payload?.ui?.sidebar_primary_order),
           sidebar_sections: normalizeSidebarSections(payload?.ui?.sidebar_sections),
           dashboard_layout: normalizeDashboardLayout(payload?.ui?.dashboard_layout),
           dashboard_show_import_action:

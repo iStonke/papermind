@@ -35,6 +35,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "sidebar_show_chat": True,
         "sidebar_show_dossiers": True,
         "sidebar_show_lernraum": True,
+        "sidebar_primary_order": "notes_first",
         "sidebar_sections": [
             {"key": "ordner", "visible": True},
             {"key": "tags", "visible": True},

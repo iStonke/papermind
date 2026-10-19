@@ -629,11 +629,12 @@ const orderedSidebarSections = computed(() =>
     .filter((section) => section.visible !== false)
 );
 
-// Gliederung nach Datenquellen: erst die Quellen (Notizen, Dokumente), danach
-// die konfigurierbaren Sektionen (Ordner, Tags, Dokumenttypen) in eigener Ebene.
+// Die beiden Hauptbereiche folgen der persönlichen Reihenfolge; darunter
+// bleiben die weiteren Sektionen in ihrer unabhängig konfigurierbaren Reihenfolge.
 const sidebarLayout = computed(() => [
-  { key: 'notizen' },
-  { key: 'dokumente' },
+  ...(settingsStore.settings.ui.sidebar_primary_order === 'documents_first'
+    ? [{ key: 'dokumente' }, { key: 'notizen' }]
+    : [{ key: 'notizen' }, { key: 'dokumente' }]),
   ...orderedSidebarSections.value.map((section) => ({ key: section.key })),
 ]);
 

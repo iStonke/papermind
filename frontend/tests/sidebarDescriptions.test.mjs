@@ -16,7 +16,7 @@ test('sidebar setting sublines describe their areas instead of repeating visibil
   const descriptions = [...sidebarSection.matchAll(/class="pm-setting-description">([\s\S]*?)<\/div>/g)]
     .map((match) => plainText(match[1]));
 
-  assert.equal(descriptions.length, 17);
+  assert.equal(descriptions.length, 18);
   for (const description of descriptions) {
     assert.doesNotMatch(description, /\banzeigen\b|Eintrag in der Seitenleiste/i);
     assert.ok(description.length >= 35, `Description is too short: ${description}`);
@@ -47,7 +47,7 @@ test('sidebar settings mirror the navigation icons beside their entries', () => 
 });
 
 test('sidebar setting groups use spaced separators between the main areas', () => {
-  assert.match(settingsStyles, /\.settings-sidebar-main \+ \.settings-sidebar-notes,[\s\S]*?\.settings-sidebar-notes \+ \.settings-sidebar-library,[\s\S]*?\.settings-sidebar-library \+ \.settings-sidebar-other\s*{[^}]*margin-top: 20px;[^}]*padding-top: 20px;[^}]*border-top:/);
+  assert.match(settingsStyles, /\.settings-sidebar-notes,[\s\S]*?\.settings-sidebar-library,[\s\S]*?\.settings-sidebar-other\s*{[^}]*margin-top: 20px;[^}]*padding-top: 20px;[^}]*border-top:/);
 });
 
 test('sidebar settings follow the sidebar hierarchy: workspaces, notes, documents, further sections', () => {

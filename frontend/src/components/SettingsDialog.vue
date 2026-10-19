@@ -322,12 +322,43 @@
         </section>
 
         <section v-if="activeCategory === 'sidebar'" class="pm-settings-section">
-          <div class="pm-settings-content settings-sidebar-settings">
+          <div
+            class="pm-settings-content settings-sidebar-settings"
+            :class="{ 'settings-sidebar-settings--documents-first': settingsDraft.ui.sidebar_primary_order === 'documents_first' }"
+          >
             <SettingsInfoCard
               icon="mdi-page-layout-sidebar-left"
               title="Seitenleiste"
               subtitle="Lege fest, was die Seitenleiste zeigt – gegliedert wie die Leiste selbst."
             />
+
+            <fieldset class="settings-sidebar-order" :disabled="isSettingSaving.sidebar_primary_order" aria-describedby="sidebar-order-description">
+              <legend class="pm-setting-label">Reihenfolge der Hauptbereiche</legend>
+              <div id="sidebar-order-description" class="pm-setting-description">Wähle, welcher Bereich in der Seitenleiste zuerst steht.</div>
+              <div class="settings-sidebar-order-options">
+                <label
+                  v-for="option in sidebarPrimaryOrderOptions"
+                  :key="option.value"
+                  class="settings-sidebar-order-option"
+                  :class="{ 'settings-sidebar-order-option--selected': settingsDraft.ui.sidebar_primary_order === option.value }"
+                >
+                  <input
+                    type="radio"
+                    name="sidebar-primary-order"
+                    :value="option.value"
+                    :aria-label="option.label"
+                    :checked="settingsDraft.ui.sidebar_primary_order === option.value"
+                    @change="onSidebarPrimaryOrderChange(option.value)"
+                  >
+                  <span class="settings-sidebar-order-preview" aria-hidden="true">
+                    <span v-for="section in option.sections" :key="section.label" class="settings-sidebar-order-preview-row">
+                      <v-icon size="17">{{ section.icon }}</v-icon>
+                      {{ section.label }}
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </fieldset>
 
             <div class="settings-sidebar-group settings-sidebar-main">
               <div class="settings-sidebar-group-head">
@@ -411,7 +442,7 @@
             <div class="settings-sidebar-group settings-sidebar-notes">
               <div class="settings-sidebar-group-head">
                 <div class="pm-setting-label">Notizen</div>
-                <div class="pm-setting-description">Deine Notizen als eigene Rubrik über den Dokumenten.</div>
+                <div class="pm-setting-description">Deine Notizen als eigene Rubrik mit schnellem Zugriff auf zuletzt bearbeitete und angepinnte Einträge.</div>
               </div>
               <div class="settings-sidebar-group-list">
                 <div class="pm-setting-row settings-sidebar-library-row">
@@ -549,7 +580,7 @@
               <div class="pm-setting-content">
                 <div class="pm-setting-label">Weitere Bereiche</div>
                 <div class="pm-setting-description">
-                  Folgen unter den Dokumenten. Ordner bündeln gespeicherte Suchen, Dokumenttypen ordnen Dokumente,
+                  Folgen unter den Hauptbereichen. Ordner bündeln gespeicherte Suchen, Dokumenttypen ordnen Dokumente,
                   Tags gelten für Dokumente und Notizen. Reihenfolge, Anzahl und Sichtbarkeit lassen sich anpassen.
                 </div>
               </div>
@@ -2991,6 +3022,7 @@ import {
   buildSidebarShowChatPatch,
   buildSidebarShowDossiersPatch,
   buildSidebarShowLernraumPatch,
+  buildSidebarPrimaryOrderPatch,
   buildOcrDocLangPatch,
   buildOcrScanCleanupPatch,
   buildPreviewDrawerGradientPatch,
@@ -4175,6 +4207,29 @@ function toggleSearchScopeDefaultFromRow() {
 }
 
 // ── Seitenleiste (Reihenfolge & Sichtbarkeit) ────────────────────────────────
+
+const sidebarPrimaryOrderOptions = [
+  { value: 'notes_first', label: 'Notizen vor Dokumenten', sections: [
+    { label: 'Notizen', icon: 'mdi-note-outline' },
+    { label: 'Dokumente', icon: 'mdi-book-open-page-variant-outline' },
+  ] },
+  { value: 'documents_first', label: 'Dokumente vor Notizen', sections: [
+    { label: 'Dokumente', icon: 'mdi-book-open-page-variant-outline' },
+    { label: 'Notizen', icon: 'mdi-note-outline' },
+  ] },
+];
+
+async function onSidebarPrimaryOrderChange(order) {
+  if (isSettingSaving.sidebar_primary_order || order === settingsDraft.ui.sidebar_primary_order) return;
+  const previous = settingsDraft.ui.sidebar_primary_order;
+  const patch = buildSidebarPrimaryOrderPatch(order);
+  settingsStore.setDraftPatch(patch);
+  await patchSettingsWithRevert({
+    patch,
+    controlKey: 'sidebar_primary_order',
+    revert: () => settingsStore.setDraftPatch({ ui: { sidebar_primary_order: previous } }),
+  });
+}
 
 const SIDEBAR_SECTION_ICONS = {
   ordner: 'mdi-folder-outline',

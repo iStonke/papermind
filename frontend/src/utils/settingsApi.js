@@ -82,6 +82,14 @@ export function buildSidebarShowLernraumPatch(enabled) {
   return { ui: { sidebar_show_lernraum: Boolean(enabled) } };
 }
 
+export function normalizeSidebarPrimaryOrder(order) {
+  return order === 'documents_first' ? 'documents_first' : 'notes_first';
+}
+
+export function buildSidebarPrimaryOrderPatch(order) {
+  return { ui: { sidebar_primary_order: normalizeSidebarPrimaryOrder(order) } };
+}
+
 // Konfigurierbare Seitenleisten-Sektionen (Reihenfolge + harte Sichtbarkeit).
 // Reihenfolge entspricht der Standard-Anzeigereihenfolge in der Seitenleiste.
 export const SIDEBAR_SECTION_KEYS = Object.freeze(['ordner', 'tags', 'kategorien']);
