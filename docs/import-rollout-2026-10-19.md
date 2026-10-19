@@ -22,7 +22,7 @@ Das [Release-Manifest](../deploy/import-release-2026-10-19.json) pinnt zusätzli
 
 ## Validierung vor dem Wechsel
 
-Die Anwendung bestand 674 Backendtests und 48 Untertests, 733 Frontendtests, 28 Browserprüfungen sowie den Produktionsbuild mit Größenbudgets. 80 zusätzliche Rollout- und Bridgeprüfungen sind erfolgreich, einschließlich Paket- und Quellprüfung, fester Argumente, Abbruch vor dem Wechsel, Sicherungsreihenfolge, Migration, Rückfall, Bridge-Installation und Statusprüfung unter Wartung. Paket und Entpackschutz wurden mit dem tatsächlichen Release-Archiv lokal ausgeführt.
+Die Anwendung bestand 674 Backendtests und 48 Untertests, 733 Frontendtests, 28 Browserprüfungen sowie den Produktionsbuild mit Größenbudgets. 81 zusätzliche Rollout- und Bridgeprüfungen sind erfolgreich, einschließlich Paket- und Quellprüfung, fester Argumente, Abbruch vor dem Wechsel, Sicherungsreihenfolge, Migration, Rückfall, Bridge-Installation und Statusprüfung unter Wartung. Paket und Entpackschutz wurden mit dem tatsächlichen Release-Archiv lokal ausgeführt.
 
 ## Korrektur des Prüfers und kontrollierter Rückfall
 
@@ -34,4 +34,10 @@ Beim Wiederholungsversuch darf die weniger als eine Stunde alte Sicherung übern
 
 ## Produktiver Abschluss
 
-Der tatsächliche Versions-, Sicherungs- und Dienststatus wird nach dem Rollout hier ergänzt.
+Die abschließende Prüfung am 19. Oktober 2026 um 21:49 UTC (23:49 MESZ) ist erfolgreich. Produktiv laufen Commit `8d87348e079477d304a61523e5a7187155187f2b` und Schema `114_import_receipts`. Alle sechs Dienste sind gesund; DB, AI und Caddy behalten ihre vorherigen Container und Images.
+
+Die Sicherung `2b4323c9-3bc7-4115-b901-d974092ba9e1` wurde vor dem erfolgreichen Wiederholungsversuch vollständig erneut verifiziert. Der Runner meldet `status=success`, `phase=complete` und `reused_verified_backup=true`. Die verschlüsselte lokale Wiederherstellungskopie und die NAS-Sicherung bleiben erhalten.
+
+Die feste Abschlussprüfung bestätigt ausdrücklich, dass die Wartung freigegeben ist und der echte HTTP-Aufruf ohne Anmeldung mit **401** abgewiesen wird. Zusätzlich sind Produktionskonfiguration und RLS-Webrolle, aktuelle Anwendungsrevision, Schema, Importbestätigungsindex, Chunk-Suchindex, eine kontogebundene Notizabfrage sowie Backend- und Frontend-Bereitschaft bestätigt. Es gab keinen Pi-Neustart, keine Host-Updates und keine Änderung echter `.env`-Dateien.
+
+Die Anwendungsänderungen und die separat versionierten Rollout-Werkzeuge sind im Branch `feat/ki-chat-integration` committed und gepusht. Der Pi bleibt bewusst auf dem festen Anwendungscommit; nachfolgende Werkzeug- und Protokollcommits ändern das Anwendungspaket nicht. Für die neue Oberfläche muss ein bereits offener Browser-Tab neu geladen werden.

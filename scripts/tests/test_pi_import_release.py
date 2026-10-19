@@ -190,6 +190,15 @@ class ImportBridgeInstallerTest(unittest.TestCase):
     def test_installer_manifest_is_immutable(self):
         self.assertEqual(hashlib.sha256(self.installer.MANIFEST.read_bytes()).hexdigest(), self.installer.MANIFEST_SHA256)
 
+    def test_final_verification_requires_released_maintenance_and_http_401(self):
+        for maintenance, status, permitted in [(False, 401, True), (True, 401, False), (False, 503, False)]:
+            with self.subTest(maintenance=maintenance, status=status), \
+                 patch.dict(sys.modules, {'app.services.maintenance': SimpleNamespace(is_maintenance_active=lambda: maintenance)}), \
+                 patch('urllib.request.urlopen', side_effect=urllib.error.HTTPError('synthetic', status, '', None, None)):
+                if permitted: exec(self.installer.FINAL_ACCESS_CHECK, {})
+                else:
+                    with self.assertRaises(AssertionError): exec(self.installer.FINAL_ACCESS_CHECK, {})
+
     def test_known_runner_upgrade_requires_a_confirmed_rollback_at_the_fixed_base(self):
         command = self.installer.fixed_commands(self.manifest, self.values)['import_release_status'][0]
         program = shlex.split(command)[2]

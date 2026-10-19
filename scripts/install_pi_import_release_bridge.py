@@ -15,6 +15,17 @@ PAYLOAD = BRIDGE.with_name('papermind-import-release-20261019.json')
 MANIFEST = ROOT / 'deploy/import-release-2026-10-19.json'
 MANIFEST_SHA256 = '19d0640cb85a74ddaf9e6c6ddf2f9fea37425b93f8ef09f89884725dffff2778'
 
+FINAL_ACCESS_CHECK = '''from app.services.maintenance import is_maintenance_active
+import urllib.error,urllib.request
+assert not is_maintenance_active(), 'Maintenance has not been released'
+try:
+ urllib.request.urlopen('http://127.0.0.1:8040/api/documents',timeout=10)
+except urllib.error.HTTPError as exc:
+ assert exc.code==401
+else: raise RuntimeError('Anonymous access was accepted')
+print('maintenance released; anonymous HTTP 401 confirmed')
+'''
+
 
 def fixed_commands(manifest, values):
     assert manifest['base'] == '575d9b375f9ebde219f72df8bb7f5a86df72e529'
@@ -41,7 +52,10 @@ def fixed_commands(manifest, values):
         program += "assert all(not (p/(n+'.updating')).is_symlink() for n in changed);"
         program += "[(p/(n+'.updating')).write_text(files[n]) for n in changed];[(p/(n+'.updating')).replace(p/n) for n in changed];"
         program += "[(p/n).write_text(t) for n,t in files.items() if not (p/n).exists()];[(p/n).chmod(0o700) for n in files];"
-        program += f"sys.path.insert(0,str(p));s=p/'pi_import_release.py';sys.argv=[str(s),{mode!r}];runpy.run_path(str(s),run_name='__main__')"
+        program += "sys.path.insert(0,str(p));"
+        if mode == '--verify':
+            program += f"import pi_rollout as h;h.read_config(h.ROOT);print(h.compose(p/'candidate-compose.json','exec','-T','backend','python','-c',{FINAL_ACCESS_CHECK!r},log=False,timeout=30).strip());"
+        program += f"s=p/'pi_import_release.py';sys.argv=[str(s),{mode!r}];runpy.run_path(str(s),run_name='__main__')"
         command = 'python3 -c ' + shlex.quote(program)
         assert len(command.encode()) < 100000
         commands['import_release_' + action] = (command, 180)
