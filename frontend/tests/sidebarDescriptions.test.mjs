@@ -6,7 +6,7 @@ const settingsSource = await readFile(new URL('../src/components/SettingsDialog.
 const settingsStyles = await readFile(new URL('../src/components/SettingsDialog.styles.css', import.meta.url), 'utf8');
 const sidebarSection = settingsSource
   .split(`<section v-if="activeCategory === 'sidebar'"`)[1]
-  ?.split(`<section v-if="activeCategory === 'documents'"`)[0] || '';
+  ?.split(`<section v-if="activeCategory.startsWith('notes_')"`)[0] || '';
 
 function plainText(value) {
   return String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();

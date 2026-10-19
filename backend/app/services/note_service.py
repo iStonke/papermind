@@ -1,4 +1,5 @@
 import copy
+import logging
 import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -30,6 +31,8 @@ from app.schemas.notes import (
 from app.services.document_search import build_ts_query_expr, normalize_search_query
 from app.services.note_collection_service import NoteCollectionService
 from app.services.note_images import NoteImageService, NoteImageStorage
+
+logger = logging.getLogger(__name__)
 
 # Leeres ProseMirror-Dokument (ein Absatz) als Default für neue/kaputte Bodies.
 EMPTY_DOC: dict[str, Any] = {"type": "doc", "content": [{"type": "paragraph"}]}
@@ -1045,9 +1048,18 @@ class NoteService:
         self.db.refresh(note)
         return note
 
-    def delete_note(self, note_id: uuid.UUID) -> bool:
-        note = self._get(note_id, include_deleted=True)
+    def delete_note(self, note_id: uuid.UUID, *, deleted_before: datetime | None = None) -> bool:
+        if deleted_before is None:
+            note = self._get(note_id, include_deleted=True)
+        else:
+            note = self._get(note_id, include_deleted=True, for_update=True)
         if note is None:
+            return False
+        if deleted_before is not None and (
+            not note.is_deleted
+            or note.deleted_at is None
+            or note.deleted_at > deleted_before
+        ):
             return False
         file_keys = [
             key
@@ -1066,6 +1078,39 @@ class NoteService:
             for file_key in file_keys:
                 storage.cleanup(file_key)
         return True
+
+    def purge_expired_trash(self, retention_days: int) -> int:
+        """Löscht abgelaufene Papierkorb-Notizen samt Bildern; 0 deaktiviert die Bereinigung.
+
+        Ohne Owner führt der Worker die Bereinigung für alle Konten aus. Das
+        eigentliche Löschen bleibt auf den jeweiligen Eigentümer beschränkt.
+        """
+        retention_days = int(retention_days)
+        if retention_days <= 0:
+            return 0
+        threshold = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        stmt = select(Note.id, Note.owner_id).where(
+            Note.is_deleted.is_(True),
+            Note.deleted_at.is_not(None),
+            Note.deleted_at <= threshold,
+        ).order_by(Note.deleted_at.asc())
+        if self.owner_id is not None:
+            stmt = stmt.where(Note.owner_id == self.owner_id)
+        candidates = self.db.execute(stmt).all()
+
+        deleted_count = 0
+        for note_id, owner_id in candidates:
+            try:
+                # Unter Zeilensperre erneut prüfen: zwischen Auswahl und
+                # Löschen könnte die Notiz wiederhergestellt worden sein.
+                if NoteService(self.db, owner_id).delete_note(note_id, deleted_before=threshold):
+                    deleted_count += 1
+                else:
+                    self.db.rollback()
+            except Exception:
+                self.db.rollback()
+                logger.exception("expired trash note cleanup failed id=%s", note_id)
+        return deleted_count
 
     def bulk_action(self, action: str, ids: list[uuid.UUID]) -> int:
         """Sammelaktion des Verwaltungsrasters. Gibt die Zahl betroffener

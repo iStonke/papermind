@@ -83,6 +83,98 @@ async function login(page) {
   await expect(page.getByRole('button', { name: 'Einstellungen', exact: true }).first()).toBeVisible();
 }
 
+async function openTrashWithMixedItems(page) {
+  await mockApi(page);
+  const documents = [1, 2].map(index => ({
+    id: `trash-doc-${index}`, original_filename: `Papierkorb-Dokument ${index}.pdf`,
+    display_name: `Papierkorb-Dokument ${index}`, document_date: null,
+    status: 'ready', ocr_status: 'not_started', embedding_status: 'not_started',
+    text_source: 'none', is_deleted: true, is_unread: false,
+    tags: [], files: [], jobs: [], flags: {}, page_count: 0,
+    created_at: '2026-10-01T10:00:00Z', updated_at: '2026-10-19T10:00:00Z',
+  }));
+  const notes = [1, 2].map(index => ({
+    id: `trash-note-${index}`, title: `Papierkorb-Notiz ${index}`,
+    preview: `Inhalt der Notiz ${index}`, is_deleted: true, is_template: false,
+    tags: [], revision: 1, collection_id: null, notebook_id: null,
+    created_at: '2026-10-01T10:00:00Z', updated_at: '2026-10-19T10:00:00Z',
+    deleted_at: '2026-10-19T10:00:00Z',
+    body_json: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: `Inhalt der Notiz ${index}` }] }] },
+  }));
+  await page.route('**/api/**', route => {
+    const url = new URL(route.request().url());
+    const json = body => route.fulfill({ json: body });
+    if (url.pathname === '/api/sidebar/counts') return json({ all_documents: 1, trash_count: 4 });
+    if (url.pathname === '/api/documents' && url.searchParams.get('in_trash') === 'true') {
+      return json({ items: documents, total: documents.length, offset: 0 });
+    }
+    const document = documents.find(item => url.pathname === `/api/documents/${item.id}`);
+    if (document) return json(document);
+    if (url.pathname === '/api/notes' && url.searchParams.get('in_trash') === 'true') {
+      return json({ items: notes, total: notes.length, has_more: false });
+    }
+    const note = notes.find(item => url.pathname === `/api/notes/${item.id}`);
+    if (note) return json(note);
+    return route.fallback();
+  });
+  await login(page);
+  await page.locator('.sidebar-foot__actions').getByRole('button', { name: 'Weitere Aktionen', exact: true }).click();
+  await page.locator('.sidebar-foot__more-menu').getByText('Papierkorb', { exact: false }).click();
+  await expect(page.locator('[data-document-id="trash-doc-1"]')).toBeVisible();
+  await expect(page.locator('[data-trash-note-id="trash-note-2"]')).toBeVisible();
+}
+
+test('trash keeps one selection when switching between documents and notes', async ({ page }) => {
+  await openTrashWithMixedItems(page);
+  const document = page.locator('[data-document-id="trash-doc-1"]');
+  const firstNote = page.locator('[data-trash-note-id="trash-note-1"]');
+  const secondNote = page.locator('[data-trash-note-id="trash-note-2"]');
+  const selected = page.locator('.document-row--active, .document-row--selected');
+
+  await document.click();
+  await expect(document).toHaveClass(/document-row--active/);
+  await firstNote.click();
+  await expect(firstNote).toHaveClass(/document-row--active/);
+  await expect(selected).toHaveCount(1);
+  await expect(page.locator('.note-preview__title')).toHaveText('Papierkorb-Notiz 1');
+
+  await secondNote.focus();
+  await secondNote.press('Space');
+  await expect(secondNote).toHaveClass(/document-row--active/);
+  await expect(selected).toHaveCount(1);
+  await expect(page.locator('.note-preview__title')).toHaveText('Papierkorb-Notiz 2');
+
+  await document.focus();
+  await document.press('Enter');
+  await expect(document).toHaveClass(/document-row--active/);
+  await expect(selected).toHaveCount(1);
+  await expect(page.locator('.note-preview')).toHaveCount(0);
+});
+
+test('trash treats Cmd and Ctrl clicks as single selection', async ({ page }) => {
+  await openTrashWithMixedItems(page);
+  const selected = page.locator('.document-row--active, .document-row--selected');
+  const firstDocument = page.locator('[data-document-id="trash-doc-1"]');
+  const secondDocument = page.locator('[data-document-id="trash-doc-2"]');
+  const note = page.locator('[data-trash-note-id="trash-note-1"]');
+
+  await firstDocument.click();
+  await secondDocument.click({ modifiers: ['Meta'] });
+  await expect(secondDocument).toHaveClass(/document-row--active/);
+  await expect(selected).toHaveCount(1);
+  await expect(page.getByRole('toolbar', { name: 'Batch-Aktionen' })).toHaveCount(0);
+
+  // macOS verwendet echte Ctrl-Klicks für das Kontextmenü. Den normalen
+  // Browser-Klick mit Ctrl separat auslösen, um auch diesen Auswahlpfad zu prüfen.
+  await note.dispatchEvent('click', { ctrlKey: true });
+  await expect(note).toHaveClass(/document-row--active/);
+  await expect(selected).toHaveCount(1);
+  await firstDocument.dispatchEvent('click', { ctrlKey: true });
+  await expect(firstDocument).toHaveClass(/document-row--active/);
+  await expect(selected).toHaveCount(1);
+  await expect(page.getByRole('toolbar', { name: 'Batch-Aktionen' })).toHaveCount(0);
+});
+
 test('failed login stays usable, successful login opens workspace', async ({ page }) => {
   await mockApi(page);
   const errors = [];

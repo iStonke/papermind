@@ -17,7 +17,7 @@ test('surface settings do not contain the separate controls area', () => {
     /value: '([^']+)'[^\n]+group: 'surface'/g,
   )].map((match) => match[1]);
 
-  assert.deepEqual(surfaceCategories, ['appearance', 'sidebar', 'documents']);
+  assert.deepEqual(surfaceCategories, ['general', 'appearance', 'sidebar']);
   assert.doesNotMatch(navigation, /value: 'controls'/);
   assert.doesNotMatch(navigation, /label: 'Bedienung'/);
 });

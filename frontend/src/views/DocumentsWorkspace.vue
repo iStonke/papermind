@@ -3018,6 +3018,7 @@ const selectionIds    = ref(new Set());
 const isBatchFavoriteSaving = ref(false);
 
 function toggleSelectionMode() {
+  if (isTrashView.value) return;
   if (!isSelectionMode.value && isAllDocumentsSelectionDisabled.value) {
     return;
   }
@@ -3035,6 +3036,7 @@ function exitSelectionMode() {
 }
 
 function toggleDocumentSelection(id) {
+  if (isTrashView.value) return;
   const next = new Set(selectionIds.value);
   if (next.has(id)) next.delete(id);
   else next.add(id);
@@ -3168,6 +3170,7 @@ function applyDateRange(rangeKey) {
 }
 
 function selectAllDocuments() {
+  if (isTrashView.value) return;
   selectionIds.value = new Set(docStore.documents.map((d) => d.id));
 }
 
@@ -7843,6 +7846,14 @@ async function fetchDocuments(preferredDocumentId = null, options = {}) {
       loadedCount: documentListLoadedCount.value
     });
 
+    // Eine laufende Listenabfrage darf die inzwischen gewählte Notiz nicht
+    // durch die vorherige Dokumentauswahl ergänzen.
+    if (isTrashView.value && selectedTrashNoteId.value) {
+      selectedDocumentId.value = null;
+      selectedDocumentDetail.value = null;
+      return;
+    }
+
     if (documents.value.length === 0) {
       if (!canDiscardMetadataChanges()) {
         return;
@@ -8096,6 +8107,8 @@ async function removeTrashedNoteFromList(noteId) {
 // Read-only Vorschau einer gelöschten Notiz im rechten Panel.
 function selectTrashNote(note) {
   if (!note?.id) return;
+  selectedDocumentId.value = null;
+  selectedDocumentDetail.value = null;
   selectedTrashNoteId.value = note.id;
 }
 

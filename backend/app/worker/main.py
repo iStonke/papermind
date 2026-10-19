@@ -50,6 +50,7 @@ from app.services.ocr_pipeline import run_ocr_pipeline
 from app.services.settings import SettingsService
 from app.services.maintenance import write_activity
 from app.services.note_audio_jobs import note_audio_jobs
+from app.services.note_service import NoteService
 from app.services.tts import merge_speech_audio, segment_speech_text
 from app.services.speech_engines import speech_service as tts_service
 from app.schemas.speech_options import SpeechOptions
@@ -152,8 +153,12 @@ def _cleanup_expired_trash() -> None:
             if retention_days <= 0:
                 return
             deleted_count = DocumentService(db).purge_expired_trash(retention_days)
-            if deleted_count:
-                logger.info("trash retention cleanup completed deleted_count=%s", deleted_count)
+            deleted_note_count = NoteService(db).purge_expired_trash(retention_days)
+            if deleted_count or deleted_note_count:
+                logger.info(
+                    "trash retention cleanup completed documents=%s notes=%s",
+                    deleted_count, deleted_note_count,
+                )
     except Exception as exc:  # pragma: no cover - defensive runtime cleanup
         logger.exception("trash retention cleanup failed err=%s", exc)
 

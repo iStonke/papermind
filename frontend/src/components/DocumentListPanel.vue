@@ -1409,6 +1409,10 @@ function onToggleFavorite(document) {
 }
 
 function onRowClick(event, documentId) {
+  if (props.isTrashView) {
+    emit('select-document', documentId);
+    return;
+  }
   if (event.metaKey || event.ctrlKey) {
     // Cmd/Ctrl+Klick: Auswahlmodus aktivieren falls nötig, dann Dokument (de)selektieren
     if (!props.isSelectionMode) {

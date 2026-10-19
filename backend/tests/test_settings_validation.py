@@ -39,6 +39,16 @@ class SettingsValidationTest(unittest.TestCase):
         with self.assertRaises(ValidationError):
             AppSettingsPatch.model_validate({"documents": {"recent_import_window_hours": 0}})
 
+    def test_trash_retention_accepts_never_and_all_offered_periods(self) -> None:
+        for days in (0, 1, 7, 14, 30, 90, 180, 365):
+            with self.subTest(days=days):
+                patch = AppSettingsPatch.model_validate({"documents": {"trash_retention_days": days}})
+                self.assertEqual(patch.documents.trash_retention_days, days)
+        for days in (-1, 366):
+            with self.subTest(invalid_days=days):
+                with self.assertRaises(ValidationError):
+                    AppSettingsPatch.model_validate({"documents": {"trash_retention_days": days}})
+
     def test_ui_new_toggles_accept_boolean_values(self) -> None:
         payload = AppSettingsPatch.model_validate(
             {
