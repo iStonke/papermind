@@ -42,6 +42,10 @@
         </nav>
 
         <div class="pm-settings-panel">
+        <section v-if="isDev && activeCategory === 'development'" class="pm-settings-section">
+          <DevSettingsPanel />
+        </section>
+
         <section v-if="activeCategory === 'appearance'" class="pm-settings-section">
           <div class="pm-settings-content">
             <SettingsInfoCard
@@ -2975,6 +2979,10 @@ const NoteSpeechSettings = defineAsyncComponent(() => import('./notes/NoteSpeech
 const ScannerSettingsPanel = defineAsyncComponent(() => import('./ScannerSettingsPanel.vue'));
 const ServiceStatusPanel = defineAsyncComponent(() => import('./ServiceStatusPanel.vue'));
 const SystemStatusPanel = defineAsyncComponent(() => import('./SystemStatusPanel.vue'));
+const isDev = import.meta.env.DEV;
+const DevSettingsPanel = import.meta.env.DEV
+  ? defineAsyncComponent(() => import('./DevSettingsPanel.vue'))
+  : null;
 import { getBaseUrl } from '../api/client';
 import { useAuthStore } from '../stores/auth';
 import { useSettingsStore } from '../stores/settings';
@@ -3193,7 +3201,10 @@ const settingsCategories = [
   { value: 'retention', label: 'Aufbewahrung', icon: 'mdi-folder-clock-outline', group: 'documents', adminOnly: true },
   { value: 'backup', label: 'Backup', icon: 'mdi-cloud-upload-outline', group: 'system', adminOnly: true },
   { value: 'services', label: 'Dienste', icon: 'mdi-server-network', group: 'system', adminOnly: true },
-  { value: 'system', label: 'System', icon: 'mdi-raspberry-pi', group: 'system', adminOnly: true }
+  { value: 'system', label: 'System', icon: 'mdi-raspberry-pi', group: 'system', adminOnly: true },
+  ...(import.meta.env.DEV
+    ? [{ value: 'development', label: 'Entwicklung', icon: 'mdi-code-braces', group: 'development' }]
+    : [])
 ];
 const settingsCategoryGroups = [
   { key: 'surface', label: 'Oberfläche' },
@@ -3201,7 +3212,8 @@ const settingsCategoryGroups = [
   { key: 'documents', label: 'Dokumente' },
   { key: 'import', label: 'Import' },
   { key: 'ai', label: 'KI' },
-  { key: 'system', label: 'System' }
+  { key: 'system', label: 'System' },
+  ...(import.meta.env.DEV ? [{ key: 'development', label: 'Entwicklung' }] : [])
 ];
 // Systemkonfigurations-Tabs nur für Admins; persönliche Darstellung sowie die
 // Pro-Benutzer-Daten (Dokumenttypen/Korrespondenten) bleiben für alle sichtbar.

@@ -47,16 +47,10 @@
       @finish="completeOnboarding(true)"
     />
 
-    <v-btn
-      v-if="isDev"
-      class="onboarding-dev-launcher"
-      size="small"
-      variant="elevated"
-      prepend-icon="mdi-creation"
-      @click="ui.openOnboarding('dev')"
-    >
-      DEV · Onboarding
-    </v-btn>
+    <DevOnboardingLauncher
+      v-if="isDev && devPreferences.showOnboardingLauncher"
+      @launch="ui.openOnboarding('dev')"
+    />
   </v-app>
 </template>
 
@@ -73,10 +67,14 @@ const AccountDialog = defineAsyncComponent(() => import('../components/AccountDi
 const SettingsDialog = defineAsyncComponent(() => import('../components/SettingsDialog.vue'));
 const CommandPalette = defineAsyncComponent(() => import('../components/CommandPalette.vue'));
 const OnboardingDialog = defineAsyncComponent(() => import('../components/OnboardingDialog.vue'));
+const DevOnboardingLauncher = import.meta.env.DEV
+  ? defineAsyncComponent(() => import('../components/DevOnboardingLauncher.vue'))
+  : null;
 import { useSettingsStore } from '../stores/settings';
 import { useUiStore } from '../stores/ui';
 import { useAuthStore } from '../stores/auth';
 import { useGlobalKeyboard } from '../composables/useGlobalKeyboard';
+import { useDevSettings } from '../composables/useDevSettings.js';
 import { getBaseUrl } from '../api/client.js';
 
 const theme = useTheme();
@@ -85,6 +83,7 @@ const ui = useUiStore();
 const authStore = useAuthStore();
 const settingsDraft = settingsStore.settingsDraft;
 const isDev = import.meta.env.DEV;
+const { preferences: devPreferences } = useDevSettings();
 const onboardingUserName = computed(() => (
   authStore.user?.display_name?.trim()
   || authStore.user?.username?.trim()
@@ -136,10 +135,11 @@ function showOnboardingFromSettings() {
 function scheduleInitialOnboarding() {
   const pendingRegistration = window.sessionStorage.getItem(ONBOARDING_PENDING_KEY);
   const requestedInDev = isDev && new URLSearchParams(window.location.search).get('onboarding') === '1';
-  if (!pendingRegistration && !requestedInDev) return;
+  const autoOpenInDev = isDev && devPreferences.value.autoOpenOnboarding;
+  if (!pendingRegistration && !requestedInDev && !autoOpenInDev) return;
 
   onboardingOpenTimer = window.setTimeout(() => {
-    ui.openOnboarding(pendingRegistration ? 'registration' : 'dev-query');
+    ui.openOnboarding(pendingRegistration ? 'registration' : requestedInDev ? 'dev-query' : 'dev-auto');
   }, 420);
 }
 
@@ -191,30 +191,3 @@ onBeforeUnmount(() => {
   if (onboardingActionTimer) window.clearTimeout(onboardingActionTimer);
 });
 </script>
-
-<style scoped>
-.onboarding-dev-launcher {
-  position: fixed;
-  right: 18px;
-  bottom: 18px;
-  z-index: 20;
-  border: 1px solid rgba(var(--v-theme-primary), 0.34);
-  background: rgb(var(--v-theme-surface-2)) !important;
-  color: rgb(var(--v-theme-primary));
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18) !important;
-  letter-spacing: 0.02em;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .onboarding-dev-launcher:hover:not(:focus-visible) {
-    opacity: 0;
-  }
-}
-
-@media (max-width: 720px) {
-  .onboarding-dev-launcher {
-    right: 12px;
-    bottom: 12px;
-  }
-}
-</style>

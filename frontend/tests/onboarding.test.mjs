@@ -10,6 +10,10 @@ const layoutSource = await readFile(
   new URL('../src/views/AppLayout.vue', import.meta.url),
   'utf8',
 );
+const launcherSource = await readFile(
+  new URL('../src/components/DevOnboardingLauncher.vue', import.meta.url),
+  'utf8',
+);
 const loginSource = await readFile(
   new URL('../src/views/LoginView.vue', import.meta.url),
   'utf8',
@@ -27,7 +31,7 @@ test('onboarding is announced after registration and can start imports', () => {
 
 test('development builds expose a manual onboarding launcher', () => {
   assert.match(layoutSource, /import\.meta\.env\.DEV/);
-  assert.match(layoutSource, /DEV · Onboarding/);
+  assert.match(launcherSource, /DEV · Onboarding/);
   assert.match(layoutSource, /ui\.openOnboarding\('dev'\)/);
 });
 

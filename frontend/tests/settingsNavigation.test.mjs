@@ -81,5 +81,5 @@ test('notes and documents are separate top-level settings groups', () => {
     /key: '([^']+)', label: '[^']+'/g,
   )].map((match) => match[1]);
 
-  assert.deepEqual(groups, ['surface', 'notes', 'documents', 'import', 'ai', 'system']);
+  assert.deepEqual(groups, ['surface', 'notes', 'documents', 'import', 'ai', 'system', 'development']);
 });

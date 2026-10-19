@@ -75,6 +75,7 @@ export {
   mdiCloudOutline,
   mdiCloudSyncOutline,
   mdiCloudUploadOutline,
+  mdiCodeBraces,
   mdiCodeTags,
   mdiCogOutline,
   mdiCommentTextOutline,

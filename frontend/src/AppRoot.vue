@@ -3,15 +3,21 @@
     <component :is="Component" v-if="Component" />
     <AppLoadingScreen v-else :timed-out="bootTimedOut" />
   </router-view>
+  <DevEnvironmentIndicator v-if="isDev" />
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
 import AppLoadingScreen from './components/AppLoadingScreen.vue';
 
 import { useAuthStore } from './stores/auth.js';
+
+const isDev = import.meta.env.DEV;
+const DevEnvironmentIndicator = import.meta.env.DEV
+  ? defineAsyncComponent(() => import('./components/DevEnvironmentIndicator.vue'))
+  : null;
 
 const router = useRouter();
 const authStore = useAuthStore();
