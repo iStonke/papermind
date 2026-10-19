@@ -22,7 +22,15 @@ Das [Release-Manifest](../deploy/import-release-2026-10-19.json) pinnt zusätzli
 
 ## Validierung vor dem Wechsel
 
-Die Anwendung bestand 674 Backendtests und 48 Untertests, 733 Frontendtests, 28 Browserprüfungen sowie den Produktionsbuild mit Größenbudgets. Der neue Runner wird zusätzlich isoliert auf Paket- und Quellprüfung, feste Argumente, Abbruch vor dem Wechsel, Sicherungsreihenfolge, Migration, Rückfall und Bridge-Installation geprüft. Paket und Entpackschutz werden mit dem tatsächlichen Release-Archiv lokal ausgeführt.
+Die Anwendung bestand 674 Backendtests und 48 Untertests, 733 Frontendtests, 28 Browserprüfungen sowie den Produktionsbuild mit Größenbudgets. 80 zusätzliche Rollout- und Bridgeprüfungen sind erfolgreich, einschließlich Paket- und Quellprüfung, fester Argumente, Abbruch vor dem Wechsel, Sicherungsreihenfolge, Migration, Rückfall, Bridge-Installation und Statusprüfung unter Wartung. Paket und Entpackschutz wurden mit dem tatsächlichen Release-Archiv lokal ausgeführt.
+
+## Korrektur des Prüfers und kontrollierter Rückfall
+
+Der erste Versuch erstellte die erfolgreiche verschlüsselte Sicherung `2b4323c9-3bc7-4115-b901-d974092ba9e1` mit 1.231.696.434 Byte. Die anschließende Zugriffsprüfung erwartete fälschlich HTTP 401, obwohl die aktive Schreibbarriere vor der Authentifizierung korrekt HTTP 503 zurückgab. Der automatische Rückfall bestätigte Schema 113, den sauberen Ausgangscommit und gesunde bisherige Dienste.
+
+Der korrigierte Prüfer erwartet während der Wartung HTTP 503 und verlangt nach deren Freigabe weiterhin HTTP 401. Neue Verhaltenstests prüfen beide Zustände und die Ablehnung falscher Statuscodes oder erfolgreichen anonymen Zugriffs. Die Bridge darf ausschließlich den bekannten vorherigen Runner mit SHA-256 `b58161564fa49a175d49a740db1746b64d31fffca274802f3f1e54fb60543f4d` ersetzen, wenn der Rückfall als erfolgreich bestätigt ist und Git wieder exakt auf dem festgelegten Ausgangsstand steht. Ein laufender oder unbekannt veränderter Runner wird nicht ersetzt.
+
+Beim Wiederholungsversuch darf die weniger als eine Stunde alte Sicherung übernommen werden. Dazu werden der passende erfolgreiche Sicherungslauf, Zeitpunkt, NAS-Zuordnung, Manifest-HMAC, Schema, Artefaktnamen, Größen und sämtliche SHA-256 erneut geprüft. Es wird kein ungeprüftes oder unvollständiges Backup akzeptiert.
 
 ## Produktiver Abschluss
 

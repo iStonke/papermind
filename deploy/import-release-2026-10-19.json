@@ -10,7 +10,10 @@
     "deploy/host-control"
   ],
   "runners": {
-    "pi_import_release.py": "b58161564fa49a175d49a740db1746b64d31fffca274802f3f1e54fb60543f4d",
+    "pi_import_release.py": "252adcf625fd7fd26f96a355414e3e63c6d7634797d3d67502bb65dcdde61a06",
     "pi_rollout.py": "a59adea3a209bfbccb2da8bc35f3e748f76b5d961129b5608082f9645464449a"
+  },
+  "previous_runners": {
+    "pi_import_release.py": "b58161564fa49a175d49a740db1746b64d31fffca274802f3f1e54fb60543f4d"
   }
 }

@@ -9,7 +9,9 @@ import shlex
 import sys
 import tarfile
 import tempfile
+from types import SimpleNamespace
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 SCRIPTS = Path(__file__).parents[1]
@@ -147,8 +149,20 @@ class ImportReleaseTest(unittest.TestCase):
             apply.assert_not_called()
 
     def test_embedded_python_programs_compile(self):
-        for name in ('IDLE', 'BACKUP', 'GUARD', 'READY', 'RELEASE', 'VERIFY'):
+        for name in ('IDLE', 'BACKUP', 'GUARD', 'READY', 'RELEASE', 'VERIFY', 'ACCESS_CHECK'):
             compile(getattr(release, name), name, 'exec')
+
+    def test_anonymous_probe_respects_the_write_barrier_and_checks_auth_after_release(self):
+        for maintenance, status in [(True, 503), (False, 401)]:
+            with self.subTest(maintenance=maintenance), patch('urllib.request.urlopen', side_effect=urllib.error.HTTPError('synthetic', status, '', None, None)):
+                exec(release.ACCESS_CHECK, {'is_maintenance_active': lambda: maintenance})
+
+    def test_anonymous_probe_never_accepts_public_access_or_a_wrong_status(self):
+        for maintenance, status in [(True, 401), (False, 503), (False, 500)]:
+            with self.subTest(maintenance=maintenance, status=status), patch('urllib.request.urlopen', side_effect=urllib.error.HTTPError('synthetic', status, '', None, None)):
+                with self.assertRaises(AssertionError): exec(release.ACCESS_CHECK, {'is_maintenance_active': lambda: maintenance})
+        with patch('urllib.request.urlopen', return_value=None):
+            with self.assertRaisesRegex(RuntimeError, 'Anonymous document access'): exec(release.ACCESS_CHECK, {'is_maintenance_active': lambda: False})
 
 
 class ImportBridgeInstallerTest(unittest.TestCase):
@@ -175,6 +189,38 @@ class ImportBridgeInstallerTest(unittest.TestCase):
 
     def test_installer_manifest_is_immutable(self):
         self.assertEqual(hashlib.sha256(self.installer.MANIFEST.read_bytes()).hexdigest(), self.installer.MANIFEST_SHA256)
+
+    def test_known_runner_upgrade_requires_a_confirmed_rollback_at_the_fixed_base(self):
+        command = self.installer.fixed_commands(self.manifest, self.values)['import_release_status'][0]
+        program = shlex.split(command)[2]
+        real_hash = hashlib.sha256
+        previous_hash = self.manifest['previous_runners']['pi_import_release.py']
+        def digest(data):
+            return SimpleNamespace(hexdigest=lambda: previous_hash) if data == b'old-pinned-runner' else real_hash(data)
+        for status, rollback_ok, head, permitted in [('running', True, release.BASE, False), ('failed', False, release.BASE, False),
+                                                      ('failed', True, 'changed-base', False), ('failed', True, release.BASE, True)]:
+            with self.subTest(status=status, rollback_ok=rollback_ok, head=head), tempfile.TemporaryDirectory() as folder, ExitStack() as stack:
+                root = Path(folder)
+                control = root / '.runtime/import-release-20261019'
+                control.mkdir(parents=True)
+                (control / 'pi_import_release.py').write_bytes(b'old-pinned-runner')
+                (control / 'pi_rollout.py').write_text(self.values['pi_rollout.py'])
+                (control / 'state.json').write_text(json.dumps({'status': status, 'rollback_ok': rollback_ok}))
+                local = program.replace('/home/jan/papermind', str(root))
+                stack.enter_context(patch('hashlib.sha256', side_effect=digest))
+                stack.enter_context(patch('subprocess.check_output', return_value=head))
+                run = stack.enter_context(patch('runpy.run_path'))
+                stack.enter_context(patch.object(sys, 'argv', list(sys.argv)))
+                stack.enter_context(patch.object(sys, 'path', list(sys.path)))
+                stack.enter_context(patch.object(sys, 'dont_write_bytecode', True))
+                if permitted:
+                    exec(local, {})
+                    self.assertEqual((control / 'pi_import_release.py').read_text(), self.values['pi_import_release.py'])
+                    run.assert_called_once()
+                else:
+                    with self.assertRaises(AssertionError): exec(local, {})
+                    self.assertEqual((control / 'pi_import_release.py').read_bytes(), b'old-pinned-runner')
+                    run.assert_not_called()
 
     def test_install_preserves_existing_actions_and_is_idempotent(self):
         with tempfile.TemporaryDirectory() as folder, ExitStack() as stack:

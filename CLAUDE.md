@@ -73,13 +73,13 @@ im Mac-Benutzerkontext aus.
 - Der Unix-Socket ist auf `0600` beschränkt. Nie frei formulierte
   Shell-Kommandos, Passwörter oder Schlüsselmaterial in die Bridge aufnehmen.
 
-## Lokale Frontend-Entwicklung: immer den Vite-Dev-Server auf 5179 nutzen
-
 Der beauftragte Importrollout vom 19. Oktober verwendet die in `AGENTS.md`
 genannten festen Aktionen `import_release_inspect`, `import_release_prepare`,
 `import_release_apply`, `import_release_status` und `import_release_verify`.
 Commit und Archiv-Prüfsumme stehen in `deploy/import-release-2026-10-19.json`.
 Keine freien Parameter, Host-Updates, echten `.env`-Änderungen oder Pi-Neustarts.
+
+## Lokale Frontend-Entwicklung: immer den Vite-Dev-Server auf 5179 nutzen
 
 Zum Prüfen von Frontend-Änderungen **immer den Vite-Dev-Server** verwenden, der
 unter **`http://127.0.0.1:5179`** läuft. Das lokale `docker-compose.yml` startet

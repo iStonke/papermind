@@ -52,15 +52,25 @@ print('idle schema-113 production confirmed')
 BACKUP = '''from app.db.session import SessionLocal
 from app.services.backup import BackupService
 from app.services.backup_crypto import backup_encryption_key,manifest_hmac,sha256_file
+from app.models.backup_run import BackupRun
+from sqlalchemy import select
 from pathlib import Path
 from datetime import datetime,timezone,timedelta
 import hmac,json
 directory=Path('/data/storage/.papermind-system/import-release-20261019-backup')
 assert not directory.is_symlink()
 with SessionLocal() as db:
- r=BackupService(db).run_backup(kind='manual',apply_retention=False,preserve_to=directory)
- assert r.status=='success','Fresh backup failed'
  manifest_path=directory/'manifest.json'
+ reused=manifest_path.exists()
+ if reused:
+  preserved=json.loads(manifest_path.read_text())
+  created=datetime.fromisoformat(preserved['created_at'])
+  candidates=db.scalars(select(BackupRun).where(BackupRun.kind=='manual',BackupRun.status=='success').order_by(BackupRun.started_at.desc()).limit(10)).all()
+  matching=[run for run in candidates if run.finished_at and run.started_at-timedelta(seconds=5)<=created<=run.finished_at and all(location.strip().endswith(chr(92)+preserved['stamp']) for location in run.location.split(' | '))]
+  assert len(matching)==1,'Preserved backup does not match a completed run'
+  r=matching[0]
+ else: r=BackupService(db).run_backup(kind='manual',apply_retention=False,preserve_to=directory)
+ assert r.status=='success','Fresh backup failed'
  assert not manifest_path.is_symlink()
  manifest=json.loads(manifest_path.read_text())
  unsigned=dict(manifest);signature=unsigned.pop('hmac_sha256')
@@ -76,22 +86,26 @@ with SessionLocal() as db:
   assert not path.is_symlink() and path.stat().st_size==artifact['size_bytes'] and sha256_file(path)==artifact['sha256']
   size+=path.stat().st_size
  assert size==r.size_bytes
- print(json.dumps({'backup_id':str(r.id),'bytes':r.size_bytes,'verified_encrypted':True}))
+ print(json.dumps({'backup_id':str(r.id),'bytes':r.size_bytes,'verified_encrypted':True,'reused_verified_backup':reused}))
 '''
 
-VERIFY = helpers.VERIFY.replace('113_drop_note_favorite', SCHEMA) + '''
-import os,urllib.error
-assert os.environ.get('APP_REVISION') == '8d87348e079477d304a61523e5a7187155187f2b'
-with SessionLocal() as db:
- assert db.scalar(text("SELECT count(*) FROM pg_indexes WHERE indexname='uq_documents_import_receipt'")) == 1
+ACCESS_CHECK = '''import urllib.error,urllib.request
+expected_status=503 if is_maintenance_active() else 401
 try:
  urllib.request.urlopen('http://127.0.0.1:8040/api/documents',timeout=10)
 except urllib.error.HTTPError as exc:
- assert exc.code==401
+ assert exc.code==expected_status
 else: raise RuntimeError('Anonymous document access was accepted')
-assert urllib.request.urlopen('http://frontend/healthz',timeout=10).status==200
-print('import receipt index, application revision, anonymous denial and frontend checked')
 '''
+
+VERIFY = helpers.VERIFY.replace('113_drop_note_favorite', SCHEMA) + '''
+import os
+from app.services.maintenance import is_maintenance_active
+assert os.environ.get('APP_REVISION') == '8d87348e079477d304a61523e5a7187155187f2b'
+with SessionLocal() as db:
+ assert db.scalar(text("SELECT count(*) FROM pg_indexes WHERE indexname='uq_documents_import_receipt'")) == 1
+assert urllib.request.urlopen('http://frontend/healthz',timeout=10).status==200
+''' + ACCESS_CHECK + "print('import receipt index, application revision, anonymous denial and frontend checked')\n"
 
 
 def update(phase, **fields):

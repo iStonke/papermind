@@ -13,7 +13,7 @@ ROOT = Path('/Users/admin/Documents/paperMind')
 BRIDGE = Path('/Users/admin/Library/Application Support/PaperMind/papermind-pi-bridge.py')
 PAYLOAD = BRIDGE.with_name('papermind-import-release-20261019.json')
 MANIFEST = ROOT / 'deploy/import-release-2026-10-19.json'
-MANIFEST_SHA256 = '03f88f2ef9c8d56c2e838b6e203a5b0daf525b10f04d296522e3a89f63a9eef2'
+MANIFEST_SHA256 = '19d0640cb85a74ddaf9e6c6ddf2f9fea37425b93f8ef09f89884725dffff2778'
 
 
 def fixed_commands(manifest, values):
@@ -21,17 +21,25 @@ def fixed_commands(manifest, values):
     assert manifest['target'] == '8d87348e079477d304a61523e5a7187155187f2b'
     assert manifest['archive_sha256'] == '93ae3ca356f66b9c7beb11396160ac511b15a1be37bb0a7ca2bc5c74d9108f7c'
     expected = manifest['runners']
+    previous = manifest.get('previous_runners', {})
+    assert previous == {'pi_import_release.py': 'b58161564fa49a175d49a740db1746b64d31fffca274802f3f1e54fb60543f4d'}
     assert set(expected) == set(values) == {'pi_import_release.py', 'pi_rollout.py'}
     assert all(hashlib.sha256(value.encode()).hexdigest() == expected[name] for name, value in values.items())
     packed = base64.b64encode(zlib.compress(json.dumps(values).encode(), 9)).decode()
     commands = {}
     for action, mode in {'inspect': '--inspect', 'prepare': '--prepare', 'apply': '--apply', 'status': '--status', 'verify': '--verify'}.items():
-        program = 'import base64,hashlib,json,runpy,sys,zlib;from pathlib import Path;sys.dont_write_bytecode=True;'
+        program = 'import base64,hashlib,json,runpy,subprocess,sys,zlib;from pathlib import Path;sys.dont_write_bytecode=True;'
         program += "p=Path('/home/jan/papermind/.runtime/import-release-20261019');assert not p.is_symlink() and not p.parent.is_symlink();p.mkdir(parents=True,exist_ok=True,mode=0o700);p.chmod(0o700);"
         program += f'files=json.loads(zlib.decompress(base64.b64decode({packed!r})));expected={expected!r};assert set(files)==set(expected);'
         program += "assert all(not (p/n).is_symlink() for n in files);"
         program += "assert all(hashlib.sha256(t.encode()).hexdigest()==expected[n] for n,t in files.items());"
-        program += "assert all(not (p/n).exists() or hashlib.sha256((p/n).read_bytes()).hexdigest()==expected[n] for n in files);"
+        program += f'previous={previous!r};'
+        program += "changed=[n for n in files if (p/n).exists() and hashlib.sha256((p/n).read_bytes()).hexdigest()!=expected[n]];"
+        program += "assert all(hashlib.sha256((p/n).read_bytes()).hexdigest()==previous.get(n) for n in changed);"
+        program += "state=json.loads((p/'state.json').read_text()) if changed else {};"
+        program += f"assert not changed or (state.get('status')=='failed' and state.get('rollback_ok') is True and subprocess.check_output(['git','rev-parse','HEAD'],cwd='/home/jan/papermind',text=True).strip()=={manifest['base']!r});"
+        program += "assert all(not (p/(n+'.updating')).is_symlink() for n in changed);"
+        program += "[(p/(n+'.updating')).write_text(files[n]) for n in changed];[(p/(n+'.updating')).replace(p/n) for n in changed];"
         program += "[(p/n).write_text(t) for n,t in files.items() if not (p/n).exists()];[(p/n).chmod(0o700) for n in files];"
         program += f"sys.path.insert(0,str(p));s=p/'pi_import_release.py';sys.argv=[str(s),{mode!r}];runpy.run_path(str(s),run_name='__main__')"
         command = 'python3 -c ' + shlex.quote(program)
