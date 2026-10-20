@@ -34,17 +34,17 @@ const touch = ref(false);
 const revealed = computed(() => props.pinned || props.held || props.expanded || hovered.value || focused.value || touch.value);
 const theme = useTheme();
 const themeStyle = computed(() => theme.current.value.dark ? {
-  '--pdf-toolbar-bg': 'rgb(15 23 42 / .82)', '--pdf-toolbar-border': 'rgb(255 255 255 / .1)',
+  '--pdf-toolbar-bg': 'rgb(15 23 42 / .58)', '--pdf-toolbar-border': 'rgb(255 255 255 / .1)',
   '--pdf-toolbar-shadow': '0 8px 22px rgb(0 0 0 / .24)', '--pdf-toolbar-text': 'rgb(226 232 240 / .9)',
   '--pdf-toolbar-text-muted': 'rgb(226 232 240 / .68)', '--pdf-toolbar-icon': 'rgb(226 232 240 / .78)',
   '--pdf-toolbar-hover-bg': 'rgb(255 255 255 / .1)', '--pdf-toolbar-stepper-bg': 'rgb(255 255 255 / .07)',
   '--pdf-toolbar-divider': 'rgb(255 255 255 / .12)',
 } : {
-  '--pdf-toolbar-bg': 'rgb(255 255 255 / .94)', '--pdf-toolbar-border': 'rgb(203 213 225 / .92)',
+  '--pdf-toolbar-bg': 'rgb(255 255 255 / .66)', '--pdf-toolbar-border': 'rgb(203 213 225 / .65)',
   '--pdf-toolbar-shadow': '0 14px 34px rgb(15 23 42 / .12), 0 2px 8px rgb(15 23 42 / .08)',
   '--pdf-toolbar-text': 'rgb(31 41 55 / .88)', '--pdf-toolbar-text-muted': 'rgb(75 85 99 / .72)',
   '--pdf-toolbar-icon': 'rgb(71 85 105 / .76)', '--pdf-toolbar-hover-bg': 'rgb(15 23 42 / .07)',
-  '--pdf-toolbar-stepper-bg': 'rgb(241 245 249 / .96)', '--pdf-toolbar-divider': 'rgb(148 163 184 / .24)',
+  '--pdf-toolbar-stepper-bg': 'rgb(241 245 249 / .4)', '--pdf-toolbar-divider': 'rgb(148 163 184 / .24)',
 });
 let surface;
 let media;
@@ -78,7 +78,7 @@ onBeforeUnmount(() => {
   max-width: calc(100% - 24px); min-height: 34px; gap: var(--pdf-toolbar-group-gap, 6px); padding: 4px 6px;
   box-sizing: border-box; border: 1px solid var(--pdf-toolbar-border); border-radius: 999px;
   background: var(--pdf-toolbar-bg); box-shadow: var(--pdf-toolbar-shadow); color: var(--pdf-toolbar-text);
-  backdrop-filter: blur(12px) saturate(1.08); -webkit-backdrop-filter: blur(12px) saturate(1.08);
+  backdrop-filter: blur(6px) saturate(1.08); -webkit-backdrop-filter: blur(6px) saturate(1.08);
   opacity: 0; pointer-events: none; transition: opacity 160ms ease, background 160ms ease;
 }
 .pm-preview-toolbar--visible, .pm-preview-toolbar:hover, .pm-preview-toolbar:focus-within { opacity: 1; pointer-events: auto; }
