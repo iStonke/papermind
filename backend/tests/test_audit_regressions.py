@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import io
 import json
 import subprocess
 import uuid
@@ -230,6 +231,38 @@ def test_pdf_processing_timeout_releases_the_processing_slot(tmp_path):
         with pytest.raises(StorageError): run_pdf_task('quick_text', storage_path=str(tmp_path), path='unused')
     source = tmp_path / 'normal.pdf'; write_pdf(source, [100])
     assert run_pdf_task('quick_text', storage_path=str(tmp_path), path=str(source))[3] == 1
+
+
+def test_analysis_ocr_uses_its_own_lane_and_memory_budget(tmp_path):
+    import threading
+    from app.services import pdf_tasks
+    from app.core.config import get_settings
+    seen = []
+    def run(command, **kwargs):
+        seen.append(json.loads(kwargs['input'])['memory_bytes'])
+        return subprocess.CompletedProcess(command, 0, json.dumps({'result': 'ok'}), '')
+    # A long-running preview holding the interactive slot must not starve OCR.
+    assert pdf_tasks._slots.acquire(timeout=1)
+    try:
+        with patch('app.services.pdf_tasks.subprocess.run', side_effect=run):
+            worker = threading.Thread(target=lambda: seen.append(pdf_tasks.run_pdf_task('ocr_lite', path='unused')))
+            worker.start(); worker.join(timeout=5)
+    finally:
+        pdf_tasks._slots.release()
+    assert seen == [get_settings().pdf_ocr_memory_mb * 1024 * 1024, 'ok']
+
+
+def test_pdf_task_reports_wrapped_memory_errors_as_retryable_resources(tmp_path, capsys):
+    from app.services import pdf_tasks
+    from app.services.ocr_pipeline import OCRPipelineError
+    def fail(*args, **kwargs):
+        raise OCRPipelineError('pdfium render failed') from MemoryError()
+    request = {'operation': 'ocr_lite', 'timeout': 30, 'memory_bytes': 2 ** 40, 'arguments': {
+        'path': 'unused', 'page_index': 0, 'language': 'deu', 'max_long_side_px': 100, 'page_segmentation_mode': 6}}
+    with patch('sys.stdin', io.StringIO(json.dumps(request))), patch('resource.setrlimit'), \
+            patch('app.services.ocr_pipeline._run_ocr_lite', side_effect=fail):
+        pdf_tasks.main()
+    assert json.loads(capsys.readouterr().out) == {'error': 'FAILED', 'kind': 'resources', 'retryable': True}
 
 
 def test_import_preview_ocr_caps_giant_pages_before_rendering(tmp_path):

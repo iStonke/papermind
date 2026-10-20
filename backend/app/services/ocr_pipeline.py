@@ -1238,7 +1238,9 @@ def _run_ocr_lite(
                 raise OCRPipelineError("PDF has invalid page dimensions")
             scale = min(4.0, min(4000, max(1, max_long_side_px)) / max(width_pt, height_pt))
             try:
-                with closing(page.render(scale=scale)) as bitmap:
+                # OCR only needs luminance: a grayscale bitmap is a quarter of
+                # the BGRx buffer and keeps the bounded subprocess within budget.
+                with closing(page.render(scale=scale, grayscale=True)) as bitmap:
                     image = bitmap.to_pil().copy()
             except Exception as exc:
                 raise OCRPipelineError(f"pdfium render failed: {exc}") from exc

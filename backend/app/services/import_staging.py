@@ -2340,9 +2340,17 @@ class ImportStagingService:
                 best = "" if repeat_ocr else embedded
                 if repeat_ocr or text_quality(best) < 45:
                     for attempt in _STAGING_OCR_ATTEMPTS[:2]:
-                        candidate = run_ocr_lite(path, page_index=index,
-                            language="deu+eng", max_long_side_px=int(attempt["max_long_side_px"]),
-                            page_segmentation_mode=int(attempt["psm"]))
+                        # One failed OCR attempt must not discard the embedded
+                        # text, earlier attempts or the other selected pages.
+                        try:
+                            candidate = run_ocr_lite(path, page_index=index,
+                                language="deu+eng", max_long_side_px=int(attempt["max_long_side_px"]),
+                                page_segmentation_mode=int(attempt["psm"]))
+                        except Exception as exc:  # noqa: BLE001 - analysis degrades to remaining text
+                            message = f"page={index} psm={attempt['psm']}: {exc}"
+                            diagnostics["errors"].append(message[:500])
+                            logger.warning("stage selection ocr lite failed %s", message)
+                            continue
                         diagnostics["attempts"].append({"page_index": index, "chars": len(candidate or "")})
                         if text_quality(candidate or "") > text_quality(best):
                             best = candidate
@@ -2350,6 +2358,9 @@ class ImportStagingService:
                             break
                 texts.append(best)
             extracted = "\n\n".join(texts)[:12000]
+            if not extracted.strip() and diagnostics["errors"]:
+                diagnostics["status"] = "ocr_failed"
+            diagnostics["errors"] = diagnostics["errors"][:5]
             if getattr(self, "_publish_analysis_progress", None):
                 early = self._build_stage_title_result(extracted_text=extracted, normalized_scope=scope,
                     page_refs=[f"{page.source_file_id}:{page.page_index}" for page in selected_pages],

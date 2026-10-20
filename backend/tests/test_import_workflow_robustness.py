@@ -204,6 +204,19 @@ class ImportWorkflowRobustnessTest(unittest.TestCase):
         self.assertEqual(result['meta']['document_revision'], 'selected-2')
         self.assertEqual(result['meta']['pages_analyzed'], 1)
 
+    def test_selection_analysis_survives_a_failing_ocr_attempt(self):
+        source_id, _ = self.source(100, 100, pages=2)
+        text = 'Kurz'
+        better = 'Rechnung der Stadtwerke über den Abrechnungszeitraum September mit Gesamtbetrag. ' * 2
+        ocr = MagicMock(side_effect=[text, StorageError('Die PDF-Seite konnte nicht verarbeitet werden.'), better, better])
+        with patch.object(import_staging, 'run_ocr_lite', ocr), patch.object(self.service, '_build_stage_title_result', return_value={'status': 'ready', 'suggestion': 'Rechnung', 'meta': {}}) as build:
+            result = self.service.suggest_stage_title([source_id], pages=[
+                ImportCommitPageInput(source_file_id=source_id, page_index=0),
+                ImportCommitPageInput(source_file_id=source_id, page_index=1)], document_revision='ocr-retry')
+        self.assertEqual(result['status'], 'ready')
+        self.assertIn(better.strip(), build.call_args.kwargs['extracted_text'])
+        self.assertEqual(len(build.call_args.kwargs['ocr_diagnostics']['errors']), 1)
+
     def test_source_replacement_invalidates_cached_metadata(self):
         source_id, source = self.source(100, 100)
         self.service.store_source_analysis(source_id, {'status': 'ready', 'suggestion': 'Alt', 'meta': {}})

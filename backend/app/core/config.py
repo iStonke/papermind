@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     upload_request_max_bytes: int = Field(default=100 * 1024 * 1024, ge=1)
     pdf_processing_timeout_seconds: float = Field(default=30.0, ge=1, le=300)
     pdf_processing_memory_mb: int = Field(default=256, ge=128, le=2048)
+    # Tesseract plus the loaded OpenCV/PDFium libraries exceed 256 MB of address
+    # space on the Pi's 16K-page kernel; the analysis OCR gets its own budget.
+    pdf_ocr_memory_mb: int = Field(default=640, ge=256, le=2048)
     cors_allow_origins: str = Field(default="")
     auto_ocr_on_upload: bool = Field(default=True)
     min_text_chars: int = Field(default=300, ge=1)

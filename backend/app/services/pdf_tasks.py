@@ -11,6 +11,10 @@ import base64
 from pathlib import Path
 
 _slots = threading.BoundedSemaphore(1)
+# Analysis OCR holds a slot for up to the full timeout per attempt. A separate
+# lane keeps page previews responsive and lets OCR wait instead of failing.
+_ocr_slots = threading.BoundedSemaphore(1)
+_OCR_OPERATIONS = {"ocr_lite"}
 
 
 def run_pdf_task(operation: str, **arguments):
@@ -18,9 +22,12 @@ def run_pdf_task(operation: str, **arguments):
     from app.core.errors import BadRequestError, StorageError
     settings = get_settings()
     timeout = settings.pdf_processing_timeout_seconds
+    ocr = operation in _OCR_OPERATIONS
+    memory_mb = settings.pdf_ocr_memory_mb if ocr else settings.pdf_processing_memory_mb
     request = {"operation": operation, "arguments": arguments,
-               "timeout": timeout, "memory_bytes": settings.pdf_processing_memory_mb * 1024 * 1024}
-    if not _slots.acquire(timeout=min(timeout, 5)):
+               "timeout": timeout, "memory_bytes": memory_mb * 1024 * 1024}
+    slots = _ocr_slots if ocr else _slots
+    if not slots.acquire(timeout=timeout if ocr else min(timeout, 5)):
         raise StorageError("PDF-Verarbeitung ist ausgelastet. Bitte erneut versuchen.", details={"kind": "busy", "retryable": True})
     try:
         try:
@@ -34,7 +41,7 @@ def run_pdf_task(operation: str, **arguments):
         except subprocess.TimeoutExpired as exc:
             raise StorageError("PDF-Verarbeitung hat das Zeitlimit erreicht. Bitte erneut versuchen.", details={"kind": "timeout", "retryable": True}) from exc
     finally:
-        _slots.release()
+        slots.release()
     if result.returncode != 0:
         raise StorageError("PDF-Verarbeitung hat ihre Ressourcengrenze erreicht.", details={"kind": "resources", "retryable": True})
     try:
@@ -114,8 +121,12 @@ def main():
         print(json.dumps({"error": "FAILED", "kind": "resources", "retryable": True}))
     except subprocess.TimeoutExpired:
         print(json.dumps({"error": "FAILED", "kind": "timeout", "retryable": True}))
-    except Exception:
-        print(json.dumps({"error": "FAILED", "kind": "conversion_failed", "retryable": False}))
+    except Exception as exc:
+        # Pipelines wrap allocation failures; they are budget, not content errors.
+        if isinstance(exc.__cause__, MemoryError):
+            print(json.dumps({"error": "FAILED", "kind": "resources", "retryable": True}))
+        else:
+            print(json.dumps({"error": "FAILED", "kind": "conversion_failed", "retryable": False}))
 
 
 if __name__ == "__main__":
