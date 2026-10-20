@@ -30,7 +30,11 @@
           <v-btn v-if="manage && ['category', 'correspondent'].includes(field.key)" icon="mdi-cog-outline" variant="text" size="x-small"
             :aria-label="field.key === 'category' ? 'Dokumenttypen verwalten' : 'Korrespondenten verwalten'" @click="emit(`manage-${field.key}`)" />
         </div>
-        <span v-if="sources[field.key]" class="pm-metadata-source">{{ sources[field.key] }}</span>
+        <v-chip v-if="sources[field.key] === 'KI'" class="pm-metadata-ai-chip" size="x-small" color="primary"
+          variant="tonal" rounded="pill" :ripple="false" title="Von der KI erkannt" aria-label="Von der KI erkannt">
+          <v-icon start size="12" aria-hidden="true">mdi-creation</v-icon>KI
+        </v-chip>
+        <span v-else-if="sources[field.key]" class="pm-metadata-source">{{ sources[field.key] }}</span>
         <p v-if="errors[field.key]" class="pm-metadata-error" role="alert">{{ errors[field.key] }}</p>
         <slot :name="`after-${field.key}`" />
       </div>
@@ -63,5 +67,6 @@ const fields = [{ key: 'name', label: 'Dokumentname' }, { key: 'date', label: 'D
 .pm-metadata-control :deep(.v-field__input) { padding-top: 7px; padding-bottom: 7px; font-size: 14px; min-height: 36px; }
 .pm-metadata-error { margin: 4px 0 0; color: rgb(var(--v-theme-error)); font-size: 12px; }
 .pm-metadata-source { display: block; font-size: 11px; color: var(--pm-muted, #687076); margin-top: 3px; }
+.pm-metadata-ai-chip.v-chip { height: 20px; margin-top: 5px; padding-inline: 7px; border: 1px solid rgba(var(--v-theme-primary), .18); font-size: 10px; font-weight: 600; letter-spacing: .025em; }
 @container (max-width: 420px) { .pm-metadata-row { grid-template-columns: 1fr; gap: 3px; } .pm-metadata-label { padding-top: 2px; } }
 </style>

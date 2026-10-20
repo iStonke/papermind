@@ -3,8 +3,8 @@
     v-model="isOpen"
     :persistent="isUploadingSources || isCommitting"
     :guard-close="hasStagedPages"
-    :max-width="rightPanelMode === 'both' ? 1540 : MODAL_WORK_WIDTH_SPLIT"
-    :card-class="['isd-card', { 'isd-card--empty': isEmpty, 'isd-card--both': rightPanelMode === 'both' }]"
+    :max-width="MODAL_WORK_WIDTH_SPLIT"
+    :card-class="['isd-card', { 'isd-card--empty': isEmpty }]"
     title="Importieren"
     header-subtitle="Seiten zu einem neuen Dokument zusammenführen"
     @request-close="requestCloseImport"
@@ -484,20 +484,43 @@
 
           </div>
 
-          <!-- Mittlere, flexible Zone: KI-Status. Sie ist das einzige Element,
-               das schrumpft/ellipsiert – so werden die festen Button-Gruppen
-               links und rechts nie aus dem Rahmen geschoben. -->
+          <!-- Vorbereitung und KI teilen sich einen kompakten Statusknopf. -->
           <div class="isd-toolbar-center">
-            <v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-horizontal" size="x-small" variant="text" aria-label="Analyseaktionen" :disabled="isCommitting || isScanCleanupRunning || isRetryingAnalysis" /></template>
-              <v-list density="compact"><v-list-item title="Vorhandene Ergebnisse aktualisieren" @click="refreshImportAnalyses" /><v-list-item title="Metadaten neu analysieren" @click="retryAnalysis(false)" />
-                <v-list-item v-if="hasMultiSelection || selected?.pageId" title="Ausgewählte Seiten analysieren" @click="analyzeSelectedPages" />
-                <v-list-item title="Texterkennung wiederholen" @click="retryAnalysis(true)" /></v-list>
+            <v-menu location="top">
+              <template #activator="{ props: menuProps }">
+                <v-btn v-bind="menuProps" icon="mdi-dots-horizontal" size="x-small" variant="text" aria-label="Weitere Aktionen" :disabled="isCommitting" />
+              </template>
+              <v-list density="compact">
+                <v-list-subheader>Analyse</v-list-subheader>
+                <v-list-item title="Vorhandene Ergebnisse aktualisieren" :disabled="isScanCleanupRunning || isRetryingAnalysis" @click="refreshImportAnalyses" />
+                <v-list-item title="Metadaten neu analysieren" :disabled="isScanCleanupRunning || isRetryingAnalysis" @click="retryAnalysis(false)" />
+                <v-list-item v-if="hasMultiSelection || selected?.pageId" title="Ausgewählte Seiten analysieren" :disabled="isScanCleanupRunning || isRetryingAnalysis" @click="analyzeSelectedPages" />
+                <v-list-item title="Texterkennung wiederholen" :disabled="isScanCleanupRunning || isRetryingAnalysis" @click="retryAnalysis(true)" />
+                <v-divider />
+                <v-list-subheader>Seiten</v-list-subheader>
+                <v-list-item title="Ausgewählte Seite als neues Dokument" prepend-icon="mdi-call-split" :disabled="!selected?.pageId || Boolean(stagingStore.pendingCommit)" @click="stagingStore.splitPageToNewDocument(selected.pageId)" />
+                <v-list-item title="Seite ersetzen" prepend-icon="mdi-file-pdf-box" :disabled="!selected?.pageId || Boolean(stagingStore.pendingCommit)" @click="replacePageInput?.click()" />
+              </v-list>
             </v-menu>
             <div class="isd-toolbar-divider" />
-            <div v-if="prepStatus.busy" class="isd-ai-status" :title="aiStatusTitle">
-              <v-progress-circular indeterminate size="14" width="2" color="primary" />
-              <span class="isd-ai-status__text">{{ prepStatus.label }}</span>
-            </div>
+            <v-tooltip v-if="prepStatus.busy" v-model="preparationHintOpen" location="top" :max-width="280" open-on-focus>
+              <template #activator="{ props: tooltipProps }">
+                <v-btn
+                  v-bind="tooltipProps"
+                  icon
+                  size="x-small"
+                  variant="text"
+                  class="isd-ai-status-btn isd-ai-status-btn--busy"
+                  :aria-label="`${prepStatus.label} – Details anzeigen`"
+                  @click.stop="preparationHintOpen = true"
+                >
+                  <v-progress-circular class="isd-ai-status-ring" indeterminate size="28" width="2" color="primary" aria-hidden="true" />
+                  <v-icon size="16" color="primary" aria-hidden="true">mdi-creation</v-icon>
+                </v-btn>
+              </template>
+              <strong class="isd-ai-status-heading">{{ prepStatus.label }}</strong>
+              <span>{{ prepStatus.description }}</span>
+            </v-tooltip>
             <v-btn
               v-else
               icon
@@ -509,7 +532,7 @@
               :disabled="isScanCleanupRunning || isRetryingAnalysis || isUploadingSources || totalPages === 0"
               @click="retryAnalysis(false)"
             >
-              <v-icon v-if="['success', 'partial'].includes(aiAnalysis.kind)" size="20" color="success">
+              <v-icon v-if="['success', 'partial'].includes(aiAnalysis.kind)" size="20">
                 mdi-auto-fix
               </v-icon>
               <v-icon v-else-if="aiAnalysis.kind === 'failed'" size="20" color="warning">
@@ -517,11 +540,9 @@
               </v-icon>
               <v-icon v-else size="20">mdi-creation</v-icon>
             </v-btn>
+            <span class="isd-status-announcement" role="status" aria-live="polite">{{ prepStatus.busy ? prepStatus.label : '' }}</span>
           </div>
 
-          <v-btn icon="mdi-call-split" size="x-small" variant="text" aria-label="Ausgewählte Seite als neues Dokument"
-            :disabled="!selected?.pageId || isCommitting || Boolean(stagingStore.pendingCommit)" @click="stagingStore.splitPageToNewDocument(selected.pageId)" />
-          <v-btn size="x-small" variant="text" :disabled="!selected?.pageId || isCommitting || Boolean(stagingStore.pendingCommit)" @click="replacePageInput?.click()">Seite ersetzen</v-btn>
           <!-- Rechte Gruppe: Miniaturgröße + Seitenanzahl -->
           <div class="isd-toolbar-right">
             <v-menu location="top" :offset="8" :close-on-content-click="false">
@@ -599,10 +620,9 @@
           >
             Vorschau
           </button>
-          <button type="button" class="isd-props-mode__button isd-both-tab" role="tab" :aria-selected="rightPanelMode === 'both'" @click="showPreviewPanel(); rightPanelMode = 'both'">Nebeneinander</button>
         </div>
 
-       <div v-show="rightPanelMode !== 'preview'" class="isd-props-scroll">
+       <div v-show="rightPanelMode === 'details'" class="isd-props-scroll">
 
         <RetentionStatusBar v-if="isRetentionEnabled" :model-value="docRetention" :document-date-iso="docDateIso || ''"
           :allow-suggest="false" :saving="isCommitting" :menu-props="{ maxHeight: 240, attach: 'body', zIndex: 6000 }"
@@ -666,7 +686,7 @@
 
        </div>
 
-        <div v-show="rightPanelMode !== 'details'" class="isd-preview-panel">
+        <div v-show="rightPanelMode === 'preview'" class="isd-preview-panel">
           <div
             class="isd-preview-stage"
             :class="{ 'isd-preview-stage--empty': !hasSelectedPreview }"
@@ -712,7 +732,7 @@
     <template #footer>
       <div class="isd-footer">
         <div class="isd-footer-start">
-          <span v-if="importBlockedReason" class="isd-review-hint" role="status">{{ importBlockedReason }}</span>
+          <span v-if="footerValidationHint" class="isd-review-hint" role="status">{{ footerValidationHint }}</span>
           <v-btn
             variant="text"
             :disabled="isUploadingSources || isCommitting"
@@ -722,8 +742,8 @@
           </v-btn>
         </div>
         <div class="isd-footer-end">
-          <span v-if="isCommitting || hasPreparationProgress" class="isd-footer-status">
-            {{ preparationProgressLabel || 'Verarbeitung läuft…' }}
+          <span v-if="isCommitting" class="isd-footer-status">
+            Verarbeitung läuft…
           </span>
           <v-btn
             v-if="hasMultiSelection"
@@ -1512,11 +1532,7 @@ const isAnalysisComplete = computed(() =>
 // Seed/Backfill sind noch im Aufbau, daher darf ein fehlender Match den Import
 // nicht blockieren.
 const areRequiredFieldsFilled = computed(() => documents.value.every(doc => Object.keys(validateImportDocument(doc)).length === 0));
-const importBlockedReason = computed(() => {
-  if (props.scannerActive) return 'Bitte den laufenden Scan abschließen.';
-  if (isScanCleanupRunning.value) return 'Die Scan-Seiten werden noch verbessert.';
-  if (sourceRefreshCount.value) return 'Die aktualisierte Vorschau wird geladen.';
-  if (isUploadingSources.value) return 'Dateien werden noch vorbereitet.';
+const footerValidationHint = computed(() => {
   if (!areRequiredFieldsFilled.value) return 'Bitte Dokumentname und markierte Eingaben prüfen. Datum, Typ und Tags sind optional.';
   return '';
 });
@@ -1735,7 +1751,6 @@ const {
   getThumbnail: pageId => pageThumbRefs.get(pageId)?.querySelector('.isd-page-thumb-wrap'),
   animationsEnabled: () => settingsStore.animationsEnabled,
 });
-const hasPreparationProgress = computed(() => isUploadingSources.value && preparationProgress.value.total > 0);
 const preparationProgressLabel = computed(() => {
   const total = Math.max(0, Number(preparationProgress.value.total || 0));
   const done = Math.max(0, Number(preparationProgress.value.done || 0));
@@ -1747,7 +1762,7 @@ const preparationProgressLabel = computed(() => {
 const previewImageCache = new Map();
 let previewRenderNonce = 0;
 
-/* ── Dokumentweiter KI-Analyse-Status (für die Status-Zeile rechts unten) ──
+/* ── Dokumentweiter KI-Analyse-Status für den Toolbar-Knopf ──
  * Spiegelt den titleSuggestionStatus des primären Dokuments auf vier UI-Zustände:
  *   busy     – Analyse läuft
  *   success  – fertig, mindestens ein Feld automatisch befüllt
@@ -1811,26 +1826,30 @@ const aiAnalysis = computed(() => {
 // Priorität: erst wird der Scan bereinigt, dann analysiert die KI – nie beides
 // als getrennter Spinner.
 const prepStatus = computed(() => {
+  if (props.scannerActive) {
+    return { busy: true, label: 'Scan läuft', description: 'Der Scanner erfasst weitere Seiten für den Import.', kind: 'busy' };
+  }
   if (isScanCleanupRunning.value) {
-    return { busy: true, label: 'Seiten werden verbessert…', kind: 'busy' };
+    return { busy: true, label: 'Scan wird verbessert', description: 'Die Scan-Seiten werden noch verbessert. Der Import ist verfügbar, sobald die Vorbereitung abgeschlossen ist.', kind: 'busy' };
+  }
+  if (sourceRefreshCount.value) {
+    return { busy: true, label: 'Vorschau wird geladen', description: 'Die aktualisierten Seiten werden für die Vorschau vorbereitet.', kind: 'busy' };
+  }
+  if (isUploadingSources.value) {
+    return { busy: true, label: preparationProgressLabel.value || 'Dateien werden vorbereitet', description: 'Die Seiten werden für die Vorschau und den Import vorbereitet.', kind: 'busy' };
   }
   if (isRetryingAnalysis.value || aiAnalysis.value.kind === 'busy') {
-    return { busy: true, label: 'Analysiert…', kind: 'busy' };
+    return { busy: true, label: isRetryingAnalysis.value ? 'Analyse läuft erneut' : 'KI analysiert Dokument', description: 'Dokumentname, Datum und weitere Angaben werden ermittelt. Du kannst die Formularfelder bereits bearbeiten.', kind: 'busy' };
   }
   return { busy: false, label: '', kind: aiAnalysis.value.kind };
 });
+const preparationHintOpen = ref(false);
+watch(() => [prepStatus.value.busy, props.modelValue], ([busy, open]) => {
+  if (!busy || !open) preparationHintOpen.value = false;
+});
 
 const aiStatusTitle = computed(() => {
-  if (isScanCleanupRunning.value) {
-    return 'Seiten werden verbessert…';
-  }
-  if (isRetryingAnalysis.value) {
-    return 'Analyse läuft erneut…';
-  }
   const kind = aiAnalysis.value.kind;
-  if (kind === 'busy') {
-    return 'KI analysiert Dokument…';
-  }
   if (kind === 'success') {
     return `Automatisch erkannt: ${aiAnalysis.value.fields.join(', ')} — Klicken, um die Analyse erneut zu starten`;
   }
@@ -6543,15 +6562,12 @@ button.isd-dropzone__action--supplemental:focus-visible {
   flex-shrink: 0;
 }
 
-/* Flexible Mittelzone: nimmt den Platz zwischen den festen Gruppen ein und ist
-   das einzige Element, das schrumpfen darf (min-width:0). Ihr Inhalt – der
-   KI-Status – kürzt sich dadurch per Ellipsis, statt die rechte Gruppe aus dem
-   Rahmen zu drücken. */
+/* Mehr-Menü und KI-Status behalten beide ihren Platz, auch bei schmalen Dialogen. */
 .isd-toolbar-center {
   display: flex;
   align-items: center;
   flex: 1 1 auto;
-  min-width: 0;
+  min-width: 64px;
   overflow: hidden;
 }
 
@@ -6628,26 +6644,34 @@ button.isd-dropzone__action--supplemental:focus-visible {
 }
 
 
+.isd-ai-status-btn {
+  flex-shrink: 0;
+}
+
 .isd-ai-status-btn--failed {
   color: rgb(var(--v-theme-warning)) !important;
 }
 
-/* Laufender Status in der Mittelzone: Spinner + Text, der als Erstes kürzt. */
-.isd-ai-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding-left: 4px;
+.isd-ai-status-ring {
+  position: absolute;
+  inset: 0;
+  margin: auto;
 }
 
-.isd-ai-status__text {
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
+.isd-ai-status-heading {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.isd-status-announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  color: rgba(var(--v-theme-on-surface), 0.64);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .isd-zoom-trigger {
@@ -6671,11 +6695,24 @@ button.isd-dropzone__action--supplemental:focus-visible {
    Fenster). */
 @container isd-toolbar (max-width: 560px) {
   .isd-toolbar-divider {
-    margin: 0 5px;
+    display: none;
+  }
+
+  .isd-toolbar-left {
+    gap: 0;
+  }
+
+  .isd-rotate-group,
+  .isd-color-group {
+    gap: 0;
   }
 
   .isd-toolbar-right {
-    gap: 8px;
+    gap: 4px;
+  }
+
+  .isd-page-count {
+    display: none;
   }
 }
 
@@ -7314,17 +7351,6 @@ button.isd-dropzone__action--supplemental:focus-visible {
 .isd-suggestion-dismiss { font-size:12px; color:var(--pm-muted,#687076); }
 .isd-card .isd-props { container-type:inline-size; }
 .isd-review-hint button { margin-left:8px; text-decoration:underline; }
-.isd-card .isd-props-mode { grid-template-columns:repeat(3,minmax(0,1fr)); }
-.isd-card--both.pm-dialog { width:1540px; }
-.isd-card--both .isd-body { display:grid; grid-template-columns:minmax(300px,.8fr) minmax(700px,1.4fr); }
-.isd-card--both .isd-props { display:grid; grid-template-columns:minmax(300px,1fr) minmax(300px,1fr); grid-template-rows:auto minmax(0,1fr); }
-.isd-card--both .isd-props-mode { grid-column:1 / -1; }
-@media (max-width:1100px) {
-  .isd-card .isd-props-mode { grid-template-columns:repeat(2,minmax(0,1fr)); }
-  .isd-both-tab { display:none; }
-  .isd-card--both .isd-body { display:flex; }
-  .isd-card--both .isd-props { display:flex; }
-}
 @media (max-width:760px) {
   .isd-card .isd-body { flex-direction:column; }
   .isd-card .isd-left { flex:0 0 208px; width:100%; border-right:0; border-bottom:1px solid rgba(var(--v-theme-on-surface),.1); }
@@ -7334,8 +7360,9 @@ button.isd-dropzone__action--supplemental:focus-visible {
   .isd-card .isd-page-card, .isd-card .isd-add-page-card, .isd-card .isd-scanning-page-card { width:82px; flex:0 0 82px; }
   .isd-card .isd-props { flex:1 1 auto; width:100%; min-height:0; }
   .isd-card .isd-props-scroll { padding:12px 16px; }
-  .isd-card .isd-toolbar { overflow-x:auto; justify-content:flex-start; gap:8px; }
+  .isd-card .isd-toolbar { overflow-x:auto; justify-content:flex-start; gap:0; }
   .isd-card .isd-toolbar-left, .isd-card .isd-toolbar-center, .isd-card .isd-toolbar-right { flex:0 0 auto; }
+  .isd-card .isd-toolbar-center { order:-1; }
   .isd-card .isd-footer { flex-wrap:wrap; gap:4px; }
   .isd-card .isd-footer-end { margin-left:auto; min-width:0; flex-wrap:wrap; }
   .isd-card .isd-footer-start { min-width:0; }
