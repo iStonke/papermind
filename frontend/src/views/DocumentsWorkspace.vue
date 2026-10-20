@@ -726,7 +726,7 @@
                   title="Importieren"
                   @click="openImport"
                 >
-                  <v-icon size="20">mdi-tray-arrow-up</v-icon>
+                  <v-icon size="20">mdi-import</v-icon>
                 </v-btn>
               </v-badge>
             </div>

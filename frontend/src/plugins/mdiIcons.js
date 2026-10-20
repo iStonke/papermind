@@ -148,6 +148,7 @@ export {
   mdiImageBrokenVariant,
   mdiImageOutline,
   mdiImagePlusOutline,
+  mdiImport,
   mdiInboxArrowDownOutline,
   mdiInboxOutline,
   mdiInformationOutline,
