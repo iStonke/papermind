@@ -4,7 +4,7 @@
     :persistent="isUploadingSources || isCommitting"
     :guard-close="hasStagedPages"
     :max-width="MODAL_WORK_WIDTH_SPLIT"
-    :card-class="['isd-card', { 'isd-card--empty': isEmpty }]"
+    :card-class="['isd-card', { 'isd-card--empty': isEmptyLayout }]"
     title="Importieren"
     header-subtitle="Seiten zu einem neuen Dokument zusammenführen"
     @request-close="requestCloseImport"
@@ -32,7 +32,7 @@
       <div class="isd-left">
         <div
           class="isd-grid-scroll import-staging-scroll"
-          :aria-label="isEmpty ? undefined : 'Dokumentseiten'"
+          :aria-label="isEmptyLayout ? undefined : 'Dokumentseiten'"
           @dragenter.prevent="onMiniatureDragEnter"
           @dragover.prevent="onMiniatureDragOver"
           @dragleave="onMiniatureDragLeave"
@@ -42,7 +42,7 @@
 
           <!-- Dropzone (empty state) -->
           <div
-            v-if="isEmpty"
+            v-if="isEmptyLayout"
             class="isd-dropzone"
             :class="{
               'isd-dropzone--over': isDropzoneDragOver,
@@ -106,28 +106,10 @@
             </div>
 
             <div class="isd-dropzone__text-shell">
-              <Transition name="isd-feedback-text">
-                <div
-                  :key="scannerPreviewFinalizing ? 'scan-finalizing' : props.scannerActive ? `scanner-${props.scannerFeedbackState}` : 'dropzone-idle'"
-                  class="isd-dropzone__text"
-                  aria-live="polite"
-                >
-                  <template v-if="scannerPreviewFinalizing">
-                    <p class="isd-dropzone__title">Scan erfasst</p>
-                    <p class="isd-dropzone__subtitle">Die Seite wird für den Import vorbereitet</p>
-                  </template>
-                  <template v-else-if="props.scannerActive">
-                    <p class="isd-dropzone__title">{{ scannerFeedbackTitle }}</p>
-                    <p class="isd-dropzone__subtitle">{{ scannerFeedbackSubtitle }}</p>
-                  </template>
-                  <template v-else>
-                    <p class="isd-dropzone__title">
-                      {{ isDropzoneDragOver ? 'Loslassen und Seiten hinzufügen' : 'Seiten zu einem Dokument zusammenfügen' }}
-                    </p>
-                    <p class="isd-dropzone__subtitle">{{ dropzoneSubtitle }}</p>
-                  </template>
-                </div>
-              </Transition>
+              <div class="isd-dropzone__text">
+                <p class="isd-dropzone__title">Seiten zu einem Dokument zusammenfügen</p>
+                <p class="isd-dropzone__subtitle">{{ dropzoneSubtitle }}</p>
+              </div>
             </div>
             <div
               class="isd-dropzone__actions"
@@ -135,7 +117,7 @@
               @click.stop
             >
               <div
-                v-if="canTriggerScan && props.scannerActive"
+                v-if="scannerFeedbackVisible"
                 class="isd-dropzone__action isd-dropzone__action--scanner-active"
                 :class="{ 'isd-dropzone__action--scanner-pending': isScannerFeedbackPending }"
                 role="status"
@@ -143,13 +125,14 @@
               >
                 <span class="isd-dropzone__action-icon"><v-icon size="22">mdi-scanner</v-icon></span>
                 <span class="isd-dropzone__action-copy">
-                  <strong>{{ scannerFeedbackActionTitle }}</strong>
-                  <small>{{ scannerFeedbackActionSubtitle }}</small>
+                  <strong>{{ scannerFeedbackStatus }}</strong>
                 </span>
                 <button
+                  v-if="canTriggerScan && props.scannerActive"
                   type="button"
                   class="isd-dropzone__scan-cancel"
                   aria-label="Scan abbrechen"
+                  :disabled="props.scanRequestPending || props.scanCancelPending"
                   @click="emitScan('cancel')"
                 >
                   <v-icon size="16">mdi-close</v-icon>
@@ -166,23 +149,23 @@
               >
                 <span class="isd-dropzone__action-icon"><v-icon size="22">mdi-scanner</v-icon></span>
                 <span class="isd-dropzone__action-copy">
-                  <strong>{{ scannerFeedbackActionTitle }}</strong>
-                  <small>{{ scannerFeedbackActionSubtitle }}</small>
+                  <strong>Scannen</strong>
+                  <small>Neue Seiten direkt erfassen</small>
                 </span>
               </button>
               <button
                 type="button"
                 class="isd-dropzone__action"
-                :class="{ 'isd-dropzone__action--supplemental': props.scannerActive }"
+                :class="{ 'isd-dropzone__action--supplemental': scannerFeedbackVisible }"
                 :disabled="isUploadingSources || isCommitting"
                 @click="openFilePicker"
               >
                 <span class="isd-dropzone__action-icon">
-                  <v-icon :size="props.scannerActive ? 18 : 22">mdi-file-pdf-box</v-icon>
+                  <v-icon :size="scannerFeedbackVisible ? 18 : 22">mdi-file-pdf-box</v-icon>
                 </span>
                 <span class="isd-dropzone__action-copy">
-                  <strong>{{ props.scannerActive ? 'PDFs zusätzlich hinzufügen' : 'PDFs auswählen' }}</strong>
-                  <small v-if="!props.scannerActive">
+                  <strong>{{ scannerFeedbackVisible ? 'PDFs zusätzlich hinzufügen' : 'PDFs auswählen' }}</strong>
+                  <small v-if="!scannerFeedbackVisible">
                     {{ isIOSDevice ? 'Eine oder mehrere Dateien' : 'Eine oder mehrere PDF-Dateien' }}
                   </small>
                 </span>
@@ -211,7 +194,7 @@
               :draggable="!isCommitting && !stagingStore.pendingCommit"
               :class="{
                 'isd-page-card--selected': isPageSelected(doc.id, page.id),
-                'isd-page-card--scan-handoff': Boolean(scannerPreviewFlight) && globalIndex === 0,
+                'isd-page-card--scan-arrival': scannerPreviewFlight?.pageId === page.id,
                 'isd-page-card--multi': isPageMultiSelected(page.id),
                 'isd-page-card--dragging': isDraggingPage(page.id),
                 'isd-page-card--drop-before':
@@ -364,7 +347,7 @@
           </div>
 
         </div>
-        <div v-if="!isEmpty" class="isd-pages-footer">
+        <div v-if="!isEmptyLayout" class="isd-pages-footer">
           <strong>Seiten</strong>
           <span class="isd-page-count" :aria-label="`${totalPages} ${totalPages === 1 ? 'Seite' : 'Seiten'}`">{{ totalPages }}</span>
           <!-- Auswahlwerkzeuge gehören zur Seitenliste. -->
@@ -386,7 +369,7 @@
           {{ primaryDocument.meta.commitError.message }}
           <button v-if="primaryDocument.meta.commitError.existing_doc_id" type="button" @click="minimizeDialog(); emit('open-document', primaryDocument.meta.commitError.existing_doc_id)">Vorhandenes Dokument öffnen</button>
         </div>
-        <div v-if="!isEmpty" role="region" aria-label="Seitenvorschau" class="isd-preview-panel">
+        <div v-if="!isEmptyLayout" role="region" aria-label="Seitenvorschau" class="isd-preview-panel">
           <PreviewToolbar class="isd-toolbar" label="Seitenwerkzeuge" show-zoom :zoom="previewZoomPercent"
             :default-zoom="Math.abs(previewZoom - 1) < .001" :can-zoom-in="canPreviewZoomIn" :can-zoom-out="canPreviewZoomOut"
             reset-label="Seite einpassen"
@@ -409,25 +392,27 @@
 
           <div
             ref="previewViewport" class="isd-preview-stage"
-            :class="{ 'isd-preview-stage--empty': !hasSelectedPreview, 'isd-preview-stage--magnify': previewMagnifierEnabled }"
+            :class="{ 'isd-preview-stage--magnify': previewMagnifierEnabled, 'isd-preview-stage--scan-handoff': scannerPreviewFlight && scannerPreviewFlight.pageId === selectedPageEntry?.id }"
+            :aria-busy="previewImageLoading"
             tabindex="0" aria-label="Dokumentseite" @wheel="onPreviewWheel" @keydown="onPreviewKeydown" @scroll="hidePreviewMagnifier"
           >
             <div class="isd-preview-canvas" :style="previewCanvasStyle">
-              <div v-if="aiAnalysis.kind === 'busy' && settingsStore.scanLineAnimationEnabled" class="isd-ai-scan-line" aria-hidden="true" />
               <template v-if="hasSelectedPreview">
-                <div v-if="previewImageLoading" class="isd-preview-loading">
-                  <v-progress-circular indeterminate size="26" width="3" color="primary" />
-                </div>
                 <img
                   v-if="previewImageSrc"
                   :src="previewImageSrc"
-                  ref="previewImageElement" :style="previewImageStyle" @load="onPreviewImageLoad"
+                  ref="previewImageElement" :style="previewImageStyle" @load="onPreviewImageLoad(); onScannerPreviewLoaded(selectedPageEntry?.id, $event.target)"
                   class="isd-preview-image"
                   :alt="selectedPreviewLabel"
                   draggable="false"
                   @pointermove="onPreviewPointerMove"
                   @pointerleave="hidePreviewMagnifier"
                 />
+                <Transition name="isd-scan-frame">
+                  <div v-if="scannerPreviewFallback?.pageId === selectedPageEntry.id" class="isd-preview-scan-frame" aria-hidden="true">
+                    <img :src="scannerPreviewFallback.url" :style="previewImageStyle" draggable="false" alt="" />
+                  </div>
+                </Transition>
                 <div
                   v-if="previewMagnifier"
                   class="isd-preview-magnifier"
@@ -439,9 +424,8 @@
                   <span>Vorschau wird vorbereitet</span>
                 </div>
               </template>
-              <div v-else class="isd-preview-empty">
-                <v-icon size="40">mdi-file-document-outline</v-icon>
-                <span>Keine Seite ausgewählt</span>
+              <div v-else class="isd-preview-empty isd-preview-empty--illustrated">
+                <DocumentPreviewIllustration aria-label="Keine Seite ausgewählt" />
               </div>
             </div>
           </div>
@@ -452,7 +436,7 @@
            Wird im Leerzustand ausgeblendet und erst eingeblendet (Slide/Expand),
            sobald mindestens eine Seite hinzugefügt wurde. -->
       <Transition name="isd-props-reveal">
-      <div v-if="!isEmpty" class="isd-props">
+      <div v-if="!isEmptyLayout" class="isd-props">
         <div class="isd-props-heading">
           <div class="isd-props-title">
             <h3>Dokumentdetails</h3>
@@ -467,8 +451,8 @@
                 :aria-busy="prepStatus.busy"
                 :disabled="!prepStatus.busy && (isCommitting || Boolean(stagingStore.pendingCommit) || totalPages === 0)"
                 @click.stop="onImportAnalysisClick">
-                <v-progress-circular v-if="prepStatus.busy" class="isd-ai-status-ring" indeterminate size="30" width="2" color="primary" aria-hidden="true" />
-                <v-icon v-if="prepStatus.busy" size="16" color="primary" aria-hidden="true">mdi-creation</v-icon>
+                <v-progress-circular v-if="prepStatus.busy" class="isd-ai-status-ring" indeterminate size="24" width="2" color="primary" aria-hidden="true" />
+                <v-icon v-if="prepStatus.busy" size="14" color="primary" aria-hidden="true">mdi-creation</v-icon>
                 <v-icon v-else-if="aiAnalysis.kind === 'failed'" size="20" aria-hidden="true">mdi-alert-circle-outline</v-icon>
                 <v-icon v-else size="20" aria-hidden="true">mdi-creation</v-icon>
               </v-btn>
@@ -584,6 +568,7 @@ import BaseDialog from './BaseDialog.vue';
 import DestructiveDialog from './DestructiveDialog.vue';
 import RetentionStatusBar from './RetentionStatusBar.vue';
 import DocumentMetadataFields from './DocumentMetadataFields.vue';
+import DocumentPreviewIllustration from './DocumentPreviewIllustration.vue';
 import PreviewToolbar from './PreviewToolbar.vue';
 import { usePageImagePreview } from '../composables/usePageImagePreview.js';
 import TagInlineEditor from './TagInlineEditor.vue';
@@ -641,26 +626,12 @@ const scannerLivePreviewCandidateUrl = computed(() => {
   const raw = String(props.scanner?.live_preview_url || '').trim();
   return raw ? authedUrl(buildApiResourceUrl(raw)) : '';
 });
-const scannerFeedbackTitle = computed(() => (
+const scannerFeedbackVisible = computed(() => props.scannerActive || props.scanRequestPending || props.scanCancelPending || scannerPreviewFinalizing.value);
+const scannerFeedbackStatus = computed(() => (
   props.scanCancelPending ? 'Abbruch angefordert' : props.scanRequestPending ? 'Scan wird angefordert' :
     props.scannerJobs.some(job => job.state === 'queued') ? 'Scanner wartet auf den Auftrag' :
-    isScannerFeedbackPending.value ? 'Scan wird übertragen oder wartet auf Abschluss' : 'Seite wird gescannt'
+    scannerPreviewFinalizing.value || isScannerFeedbackPending.value ? 'Scan wird übernommen' : 'Seite wird gescannt'
 ));
-const scannerFeedbackSubtitle = computed(() => (
-  isScannerFeedbackPending.value
-    ? 'Die Vorschau wird gerade für den Import vorbereitet'
-    : 'Die Vorschau erscheint automatisch, sobald die Seite übertragen wurde'
-));
-const scannerFeedbackActionTitle = computed(() => {
-  if (!props.scannerActive) return 'Scannen';
-  return isScannerFeedbackPending.value ? 'Seite wird übernommen' : 'Scanner arbeitet';
-});
-const scannerFeedbackActionSubtitle = computed(() => {
-  if (!props.scannerActive) return 'Neue Seiten direkt erfassen';
-  return isScannerFeedbackPending.value
-    ? 'Übertragung aktiv · Vorschau wird vorbereitet'
-    : 'Verbindung aktiv · Seite wird erwartet';
-});
 const scannerFeedbackCardLabel = computed(() => (
   isScannerFeedbackPending.value ? 'Wird übernommen…' : 'Scanne…'
 ));
@@ -907,6 +878,12 @@ const isOpen = computed({
 
 const isIOSDevice = computed(() => isIOS());
 const isEmpty = computed(() => documentCount.value === 0 && totalPages.value === 0);
+// Die zuletzt sichtbare Anordnung bleibt während der Schließanimation erhalten,
+// auch wenn gespeicherte oder verworfene Seiten bereits aus dem Entwurf entfallen.
+const isEmptyLayout = ref(isEmpty.value);
+watch([() => props.modelValue, isEmpty], ([open, empty]) => {
+  if (open) isEmptyLayout.value = empty;
+});
 const hasStagedPages = computed(() => totalPages.value > 0);
 const stagedPageCountLabel = computed(() => `${totalPages.value} ${totalPages.value === 1 ? 'Seite' : 'Seiten'}`);
 const discardImportConfirmSubtitle = computed(() => {
@@ -1452,6 +1429,7 @@ const {
   finalizing: scannerPreviewFinalizing, sourceElement: scannerPreviewSourceElement,
   flightElement: scannerPreviewFlightElement, flight: scannerPreviewFlight,
   thumbnailFallback: scannerThumbnailFallback, thumbnailLoaded: onScannerThumbnailLoaded,
+  previewFallback: scannerPreviewFallback, previewLoaded: onScannerPreviewLoaded,
   reset: resetScannerPreview,
 } = useScannerPreviewTransition({
   scanner: () => props.scanner, active: () => props.scannerActive,
@@ -1459,6 +1437,8 @@ const {
   firstPage: () => allPagesFlat.value[0]?.page,
   acceptsPage: page => stagingStore.sourceMetaById.get(page.sourceFileId)?.sourceType === 'scanner',
   getThumbnail: pageId => pageThumbRefs.get(pageId)?.querySelector('.isd-page-thumb-wrap'),
+  getPreview: pageId => selectedPageEntry.value?.id === pageId ? previewImageElement.value : null,
+  isPreviewReady: pageId => selectedPageEntry.value?.id === pageId && !previewIsThumbnail.value,
   animationsEnabled: () => settingsStore.animationsEnabled,
 });
 const preparationProgressLabel = computed(() => {
@@ -1471,8 +1451,9 @@ const preparationProgressLabel = computed(() => {
 });
 const previewImageCache = new Map();
 let previewRenderNonce = 0;
+let previewImageContentKey = '';
 
-/* ── Dokumentweiter KI-Analyse-Status für den Toolbar-Knopf ──
+/* ── Dokumentweiter KI-Analyse-Status für den Formularheader ──
  * Spiegelt den titleSuggestionStatus des primären Dokuments auf vier UI-Zustände:
  *   busy     – Analyse läuft
  *   success  – fertig, mindestens ein Feld automatisch befüllt
@@ -1481,7 +1462,7 @@ let previewRenderNonce = 0;
  *   idle     – noch keine Analyse
  */
 // Läuft für irgendeine noch offene Scan-Quelle die Seitenverbesserung? Bewusst
-// dialogweit statt pro Seite: der Status lebt jetzt einzig in der Toolbar, ein
+// dialogweit statt pro Seite: der Status lebt einzig im Formularheader, ein
 // zusätzlicher Spinner pro Thumbnail wäre unruhig.
 const isScanCleanupRunning = computed(() => {
   const metaMap = stagingStore.sourceMetaById;
@@ -2062,7 +2043,7 @@ const selectedPreviewRenderKey = computed(() => {
     String(pageEntry.colorMode || 'auto'),
     pageEntry.thumbUrl,
     stagingStore.sourceMetaById.get(pageEntry.sourceFileId)?.sourceRevision,
-    scannerThumbnailFallback.value?.pageId === pageEntry.id ? scannerThumbnailFallback.value.url : ''
+    scannerPreviewFallback.value?.pageId === pageEntry.id ? scannerPreviewFallback.value.url : ''
   ].join(':');
 });
 
@@ -2075,12 +2056,18 @@ watch(
     const pageEntry = selectedPageEntry.value ? { ...selectedPageEntry.value } : null;
 
     if (!renderKey || !pageEntry) {
+      previewImageContentKey = '';
       previewImageSrc.value = '';
       previewImageLoading.value = false;
       return;
     }
 
     const colorMode = String(pageEntry.colorMode || 'auto');
+    const contentKey = JSON.stringify([pageEntry.id, pageEntry.sourceFileId, pageEntry.pageIndex, pageEntry.rotation || 0, colorMode]);
+    const scanPreview = scannerPreviewFallback.value?.pageId === pageEntry.id ? scannerPreviewFallback.value.url : '';
+    const keepCurrentImage = previewImageContentKey === contentKey && Boolean(previewImageSrc.value)
+      && (!previewIsThumbnail.value || !scanPreview || previewImageSrc.value === scanPreview);
+    previewImageContentKey = contentKey;
     const sourceRevision = stagingStore.sourceMetaById.get(pageEntry.sourceFileId)?.sourceRevision || '';
     const cacheKey = `${pageEntry.sourceFileId}:${pageEntry.pageIndex}:r${Number(pageEntry.rotation || 0)}:m${colorMode}:${sourceRevision}:lg`;
     const cached = previewImageCache.get(cacheKey);
@@ -2091,8 +2078,10 @@ watch(
       return;
     }
 
-    previewImageSrc.value = pageEntry.thumbUrl || (scannerThumbnailFallback.value?.pageId === pageEntry.id ? scannerThumbnailFallback.value.url : '');
-    previewIsThumbnail.value = true;
+    if (!keepCurrentImage) {
+      previewImageSrc.value = scanPreview || pageEntry.thumbUrl || '';
+      previewIsThumbnail.value = true;
+    }
     previewImageLoading.value = true;
     const request = new AbortController();
     onCleanup(() => request.abort());
@@ -2103,13 +2092,17 @@ watch(
         || await renderLargePreview(pageEntry, 1400, Number(pageEntry.rotation || 0));
       if (nonce !== previewRenderNonce) return;
       if (rendered) {
+        const image = new Image();
+        image.src = rendered;
+        await image.decode();
+        if (request.signal.aborted || nonce !== previewRenderNonce) return;
         if (previewImageCache.size >= 24) previewImageCache.delete(previewImageCache.keys().next().value);
         previewImageCache.set(cacheKey, { image: rendered, thumbnail: pageEntry.thumbUrl });
         previewImageSrc.value = rendered;
         previewIsThumbnail.value = false;
       }
     } catch {
-      // Die Miniatur bleibt sichtbar, wenn die große Vorschau nicht verfügbar ist.
+      // Das letzte gültige Bild bleibt auch bei einer fehlerhaften Antwort sichtbar.
     } finally {
       if (nonce === previewRenderNonce) previewImageLoading.value = false;
     }
@@ -2176,11 +2169,11 @@ async function confirmDiscardImport() {
     try { await apiFetch(`/api/import/source/${encodeURIComponent(sourceId)}`, { method: 'DELETE' }); }
     catch (error) { if (error.status !== 404 && error.status !== 400) cleanupFailed = true; }
   }
+  isUploadingSources.value = false;
+  isOpen.value = false;
   stagingStore.reset();
   notifyDiscardedSourceFileIds(sources.map(([sourceId]) => sourceId));
   await draftPersistence.save();
-  isUploadingSources.value = false;
-  isOpen.value = false;
   if (cleanupFailed) notify({ type: 'warning', message: 'Entwurf verworfen. Einige temporäre Quelldateien konnten noch nicht entfernt werden.' });
 }
 
@@ -4928,6 +4921,7 @@ async function commitImport(selectedPageIds = null) {
       const createdIds = new Set(created.map(item => item.client_document_id));
       const completedSources = [...new Set(attempt.body.documents.filter(doc => createdIds.has(doc.client_document_id)).flatMap(doc => doc.pages.map(page => page.source_file_id)))].filter(sourceId => !remainingSources.has(sourceId));
       emit('committed', { ...payload, remaining: totalPages.value > completedPageIds.length, completed_source_ids: completedSources });
+      if (!errors.length && remainingSources.size === 0) isOpen.value = false;
       stagingStore.completePages(completedPageIds);
       clearMultiSelection();
       clearActiveSelection();
@@ -5691,21 +5685,6 @@ onBeforeUnmount(() => {
   transform: scale(0.72) rotate(18deg);
 }
 
-.isd-feedback-text-enter-active,
-.isd-feedback-text-leave-active {
-  transition: opacity 150ms ease, transform 180ms cubic-bezier(0.2, 0.82, 0.24, 1);
-}
-
-.isd-feedback-text-enter-from {
-  opacity: 0;
-  transform: translateY(5px);
-}
-
-.isd-feedback-text-leave-to {
-  opacity: 0;
-  transform: translateY(-4px);
-}
-
 .isd-dropzone__text-shell {
   width: 100%;
   min-height: 58px;
@@ -6061,8 +6040,13 @@ button.isd-dropzone__action--supplemental:focus-visible {
   display: block;
 }
 
-.isd-page-card--scan-handoff .isd-page-thumb-wrap {
-  visibility: hidden;
+.isd-page-card--scan-arrival {
+  animation: isd-scan-thumbnail-arrive 260ms ease-out;
+}
+
+@keyframes isd-scan-thumbnail-arrive {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .isd-scan-thumbnail-fallback {
@@ -6415,13 +6399,6 @@ button.isd-dropzone__action--supplemental:focus-visible {
   transition: none;
 }
 
-@keyframes isd-ai-scan {
-  0% { top: -90px; opacity: 0; }
-  12% { opacity: 1; }
-  88% { opacity: 1; }
-  100% { top: 100%; opacity: 0; }
-}
-
 @keyframes isd-ai-field-glow {
   0% {
     background: rgba(var(--v-theme-primary), 0);
@@ -6435,38 +6412,6 @@ button.isd-dropzone__action--supplemental:focus-visible {
     background: rgba(var(--v-theme-primary), 0);
     box-shadow: 0 0 0 0 rgba(var(--v-theme-primary), 0);
   }
-}
-
-.isd-ai-scan-line {
-  position: absolute;
-  z-index: 3;
-  left: 0;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-
-.isd-ai-scan-line::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: -90px;
-  height: 90px;
-  pointer-events: none;
-  background:
-    linear-gradient(
-      to bottom,
-      transparent 0%,
-      rgba(var(--v-theme-primary), 0.03) 26%,
-      rgba(var(--v-theme-primary), 0.28) 48%,
-      rgba(var(--v-theme-primary), 0.06) 62%,
-      transparent 100%
-    );
-  filter: blur(0.2px);
-  animation: isd-ai-scan 1.9s ease-in-out infinite;
 }
 
 .isd-props-heading {
@@ -6530,10 +6475,6 @@ button.isd-dropzone__action--supplemental:focus-visible {
   cursor: crosshair;
 }
 
-.isd-preview-stage--empty {
-  background: rgba(var(--v-theme-on-surface), 0.04);
-}
-
 .isd-preview-canvas {
   position: relative;
   min-width: 100%;
@@ -6550,6 +6491,20 @@ button.isd-dropzone__action--supplemental:focus-visible {
   filter: drop-shadow(0 4px 12px rgba(15, 23, 42, .12));
 }
 
+.isd-preview-scan-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.isd-preview-scan-frame img { flex: 0 0 auto; object-fit: contain; background: #fff; }
+.isd-preview-stage--scan-handoff .isd-preview-image,
+.isd-preview-stage--scan-handoff .isd-preview-scan-frame { visibility: hidden; }
+
 .isd-preview-magnifier {
   position: absolute;
   top: 0;
@@ -6565,23 +6520,6 @@ button.isd-dropzone__action--supplemental:focus-visible {
   will-change: transform, background-position;
 }
 
-.isd-preview-loading {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 999px;
-  background: rgba(var(--v-theme-surface), 0.86);
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
 .isd-preview-empty {
   display: flex;
   flex-direction: column;
@@ -6592,6 +6530,19 @@ button.isd-dropzone__action--supplemental:focus-visible {
   font-size: 13px;
   font-weight: 600;
   text-align: center;
+}
+
+.isd-preview-empty--illustrated {
+  width: 100%;
+  padding: 24px;
+}
+
+.isd-preview-empty--illustrated .document-preview-illustration { height: auto; }
+.isd-preview-empty--illustrated :deep(.document-preview-illustration__canvas) {
+  width: min(100%, 640px);
+  min-width: 0;
+  max-height: min(58vh, 520px);
+  animation: none;
 }
 
 /* ── Fields ── */
@@ -6702,10 +6653,6 @@ button.isd-dropzone__action--supplemental:focus-visible {
 
 .isd-field--ai-filled {
   animation: isd-ai-field-glow 1.35s ease-out;
-}
-
-:global(.pm-no-animations) .isd-ai-scan-line {
-  display: none;
 }
 
 :global(.pm-no-animations) .isd-field--ai-filled {
@@ -6954,7 +6901,8 @@ button.isd-dropzone__action--supplemental:focus-visible {
   .isd-dz-scene,
   .isd-dz-sheet,
   .isd-dz-scene__merge,
-  .isd-dz-sheet__scan {
+  .isd-dz-sheet__scan,
+  .isd-page-card--scan-arrival {
     animation: none;
   }
 
@@ -6965,9 +6913,7 @@ button.isd-dropzone__action--supplemental:focus-visible {
   .isd-dropzone::before,
   .isd-dropzone__action,
   .isd-page-thumb-wrap,
-  .isd-scan-frame-leave-active,
-  .isd-feedback-text-enter-active,
-  .isd-feedback-text-leave-active {
+  .isd-scan-frame-leave-active {
     transition: none;
   }
 }
@@ -6975,7 +6921,8 @@ button.isd-dropzone__action--supplemental:focus-visible {
 :global(.pm-no-animations) .isd-dz-scene,
 :global(.pm-no-animations) .isd-dz-sheet,
 :global(.pm-no-animations) .isd-dz-scene__merge,
-:global(.pm-no-animations) .isd-dz-sheet__scan {
+:global(.pm-no-animations) .isd-dz-sheet__scan,
+:global(.pm-no-animations) .isd-page-card--scan-arrival {
   animation: none;
 }
 

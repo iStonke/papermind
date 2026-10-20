@@ -2,9 +2,9 @@
   <div class="pm-metadata-fields">
     <div v-for="field in fields" :key="field.key" class="pm-metadata-row" :class="{ 'pm-metadata-row--ai': sources[field.key] }" :data-field="field.key" :data-drawer-expand-boundary="field.key === 'note' ? '' : undefined">
       <label :for="`${id}-${field.key}`" class="pm-metadata-label">{{ field.label }}</label>
-      <v-chip v-if="sources[field.key]" class="pm-metadata-ai-chip" size="x-small" color="primary"
-        variant="tonal" rounded="pill" :ripple="false" title="Von der KI erkannt" aria-label="Von der KI erkannt">
-        <v-icon start size="12" aria-hidden="true">mdi-creation</v-icon>KI
+      <v-chip v-if="sources[field.key]" class="pm-metadata-ai-chip" size="x-small"
+        variant="flat" rounded="pill" :ripple="false" title="Von der KI erkannt" aria-label="Von der KI erkannt">
+        <v-icon start size="11" aria-hidden="true">mdi-creation</v-icon>KI
       </v-chip>
       <div class="pm-metadata-value">
         <div class="pm-metadata-control" :class="{ 'pm-metadata-control--error': Boolean(errors[field.key]) }">
@@ -65,14 +65,16 @@ const fields = [{ key: 'name', label: 'Dokumentname' }, { key: 'date', label: 'D
 .pm-metadata-row--ai { grid-template-areas: '. source' 'label value'; row-gap: 4px; }
 .pm-metadata-label { grid-area: label; color: var(--pm-muted, #687076); font-size: 12px; padding-top: 12px; }
 .pm-metadata-value { grid-area: value; min-width: 0; }
-.pm-metadata-control { display: flex; align-items: center; min-width: 0; padding: 0 9px; border: 1px solid transparent; border-radius: 6px; background: rgba(var(--v-theme-on-surface), .035); }
-.pm-metadata-control:hover { border-color: rgba(var(--v-theme-on-surface), .18); }
-.pm-metadata-control:focus-within { border-color: rgb(var(--v-theme-primary)); }
+.pm-metadata-control { display: flex; align-items: center; min-width: 0; padding: 0 9px; border: 1px solid var(--pm-metadata-field-border); border-radius: 6px; background: var(--pm-metadata-field-bg); }
+.pm-metadata-control:hover { border-color: var(--pm-metadata-field-hover-border); }
+.pm-metadata-control:focus-within { border-color: rgb(var(--v-theme-primary)); box-shadow: 0 0 0 2px rgba(var(--v-theme-primary), .16); }
 .pm-metadata-control.pm-metadata-control--error { border-color: rgb(var(--v-theme-error)); }
+.pm-metadata-control--error:focus-within { box-shadow: 0 0 0 2px rgba(var(--v-theme-error), .16); }
 .pm-metadata-control > * { min-width: 0; }
 .pm-metadata-control :deep(.v-field__input) { padding-top: 7px; padding-bottom: 7px; font-size: 14px; min-height: 36px; }
+.pm-metadata-control :deep(input::placeholder), .pm-metadata-control :deep(textarea::placeholder) { color: var(--pm-muted); opacity: 1; }
 .pm-metadata-error { margin: 4px 0 0; color: rgb(var(--v-theme-error)); font-size: 12px; }
-.pm-metadata-ai-chip.v-chip { grid-area: source; align-self: center; justify-self: end; height: 20px; padding-inline: 7px; border: 1px solid rgba(var(--v-theme-primary), .18); font-size: 10px; font-weight: 600; letter-spacing: .025em; }
+.pm-metadata-ai-chip.v-chip { grid-area: source; align-self: center; justify-self: end; height: 18px; padding-inline: 6px; border: 1px solid rgba(var(--v-theme-on-surface), .1); background: rgba(var(--v-theme-on-surface), .025); color: var(--pm-muted); font-size: 10px; font-weight: 500; letter-spacing: 0; }
 @container (max-width: 420px) {
   .pm-metadata-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'label label' 'value value'; gap: 4px 8px; }
   .pm-metadata-row--ai { grid-template-areas: 'label source' 'value value'; }

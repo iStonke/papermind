@@ -48,6 +48,11 @@
   --pm-text:  #0e181b;
   --pm-muted: #535e62;
 
+  /* Metadatenfelder: erkennbare Fläche und Kontur auch ohne Hover. */
+  --pm-metadata-field-bg: #eef2f3;
+  --pm-metadata-field-border: #7c8b91;
+  --pm-metadata-field-hover-border: #4f646d;
+
   /* Trennlinien & Schatten */
   --pm-divider:      #d8dfe1;   /* --pm-border */
   --pm-row-border:   #dde4e6;
@@ -162,6 +167,10 @@
   /* Text */
   --pm-text:  #f0f4f6;
   --pm-muted: #a8b3b7;
+
+  --pm-metadata-field-bg: #252f33;
+  --pm-metadata-field-border: #7c8e95;
+  --pm-metadata-field-hover-border: #9aadb5;
 
   /* Trennlinien & Schatten */
   --pm-divider:    #3e484c;   /* --pm-border */

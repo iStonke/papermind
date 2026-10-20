@@ -47,12 +47,16 @@ async function addScannerSource(page, previewUrl = '/api/test-thumbnail') {
 
 test('the completed scan remains visible after the live endpoint disappears', async ({ page }) => {
   const errors = await mount(page);
+  await expect(page.locator('.isd-dropzone__title')).toHaveText('Seiten zu einem Dokument zusammenfügen');
   await startScan(page);
+  await expect(page.locator('.isd-dropzone__title')).toHaveText('Seiten zu einem Dokument zusammenfügen');
   const src = await page.locator('.isd-dz-sheet__live-preview').getAttribute('src');
   expect(src).toMatch(/^blob:/);
   await endScan(page);
   await expect(page.locator('.isd-dz-sheet__live-progress')).toHaveText('100%');
-  await expect(page.getByText('Scan erfasst', { exact: true })).toBeVisible();
+  await expect(page.locator('.isd-dropzone__title')).toHaveText('Seiten zu einem Dokument zusammenfügen');
+  await expect(page.locator('.isd-dropzone [role="status"]')).toHaveCount(1);
+  await expect(page.locator('.isd-dropzone [role="status"]')).toHaveText('Scan wird übernommen');
   const frames = await page.evaluate(async () => {
     const result = [];
     for (let index = 0; index < 30; index++) {
@@ -68,28 +72,30 @@ test('the completed scan remains visible after the live endpoint disappears', as
   expect(errors).toEqual([]);
 });
 
-test('the scan moves continuously into the first thumbnail and covers a delayed preview', async ({ page }) => {
+test('the scan grows into the large preview and stays until its sharp replacement is ready', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   const errors = await mount(page);
   let thumbnailRequest;
+  let previewRequest;
   await page.route('**/api/test-thumbnail', route => { thumbnailRequest = route; });
+  await page.route('**/color-preview?*', route => { previewRequest = route; });
   await startScan(page);
   await endScan(page);
-  await expect(page.getByText('Scan erfasst', { exact: true })).toBeVisible();
-  await page.getByText('Scan erfasst', { exact: true }).evaluate(element => Promise.all(element.parentElement.getAnimations({ subtree: true }).map(animation => animation.finished)));
+  await expect(page.locator('.isd-dropzone [role="status"]')).toHaveText('Scan wird übernommen');
   const origin = await page.locator('.isd-dz-sheet--front').boundingBox();
+  const capturedSource = await page.locator('.isd-dz-sheet__live-preview').getAttribute('src');
   await page.screenshot({ path: '/private/tmp/papermind-scan-finished.png' });
   await page.evaluate(() => {
     window.flightSamples = [];
     const sample = () => {
       const flight = document.querySelector('.isd-scan-flight');
-      const thumbnail = document.querySelector('.isd-page-thumb-wrap');
-      const visual = flight || document.querySelector('.isd-dz-sheet__live-preview') || document.querySelector('.isd-scan-thumbnail-fallback');
+      const preview = document.querySelector('.isd-preview-image');
+      const visual = flight || document.querySelector('.isd-dz-sheet__live-preview') || document.querySelector('.isd-preview-scan-frame img') || preview;
       if (visual) {
         const rect = visual.getBoundingClientRect();
-        window.flightSamples.push({ left: rect.left, top: rect.top, width: rect.width,
+        window.flightSamples.push({ left: rect.left, top: rect.top, width: rect.width, height: rect.height,
           flight: Boolean(flight), ready: Boolean(visual.querySelector('img')?.complete || visual.complete),
-          target: thumbnail && { left: thumbnail.getBoundingClientRect().left, top: thumbnail.getBoundingClientRect().top } });
+          target: preview && { left: preview.getBoundingClientRect().left, top: preview.getBoundingClientRect().top, width: preview.getBoundingClientRect().width, height: preview.getBoundingClientRect().height } });
       } else window.flightSamples.push(null);
       if (!window.stopFlightSamples) requestAnimationFrame(sample);
     };
@@ -97,10 +103,14 @@ test('the scan moves continuously into the first thumbnail and covers a delayed 
   });
   await addScannerSource(page);
   await expect(page.locator('.isd-scan-flight')).toBeVisible();
+  await expect(page.locator('.isd-scan-flight img')).toHaveAttribute('src', capturedSource);
+  await expect(page.locator('.isd-page-thumb-wrap')).toBeVisible();
+  await expect(page.locator('.isd-page-card')).toHaveAttribute('aria-pressed', 'true');
   await page.screenshot({ path: '/private/tmp/papermind-scan-handoff.png' });
   await expect.poll(() => Boolean(thumbnailRequest)).toBe(true);
   await expect(page.locator('.isd-scan-flight')).toHaveCount(0);
   await expect(page.locator('.isd-scan-thumbnail-fallback')).toBeVisible();
+  await expect(page.locator('.isd-preview-scan-frame')).toBeVisible();
   await page.evaluate(() => { window.stopFlightSamples = true; });
   const samples = await page.evaluate(() => window.flightSamples);
   expect(samples.every(sample => sample?.ready)).toBe(true);
@@ -109,35 +119,84 @@ test('the scan moves continuously into the first thumbnail and covers a delayed 
   expect(Math.abs(flying[0].left - origin.x)).toBeLessThan(10);
   expect(Math.abs(flying.at(-1).left - flying.at(-1).target.left)).toBeLessThan(2);
   expect(Math.abs(flying.at(-1).top - flying.at(-1).target.top)).toBeLessThan(2);
+  expect(Math.abs(flying.at(-1).width - flying.at(-1).target.width)).toBeLessThan(2);
+  expect(Math.abs(flying.at(-1).height - flying.at(-1).target.height)).toBeLessThan(2);
+  expect(flying.at(-1).width).toBeGreaterThan(flying[0].width * 2);
   expect(Math.abs(flying[0].left - flying.at(-1).left)).toBeGreaterThan(100);
   for (let index = 1; index < flying.length; index++) expect(Math.abs(flying[index].left - flying[index - 1].left)).toBeLessThan(100);
   await thumbnailRequest.fulfill({ contentType: 'image/svg+xml', body: scanImage.replace('Scanvorschau', 'Fertige Miniatur') });
   await expect(page.locator('.isd-scan-thumbnail-fallback')).toHaveCount(0);
   await expect(page.locator('.import-staging-page__thumb')).toBeVisible();
-  await page.screenshot({ path: '/private/tmp/papermind-scan-thumbnail.png' });
+  await expect(page.locator('.isd-preview-scan-frame img')).toHaveAttribute('src', capturedSource);
+  expect(await page.evaluate(async url => (await fetch(url)).ok, capturedSource)).toBe(true);
+  await expect.poll(() => Boolean(previewRequest)).toBe(true);
+  await previewRequest.fulfill({ contentType: 'image/svg+xml', body: scanImage.replace('width="200" height="280"', 'width="1000" height="1400" viewBox="0 0 200 280"').replace('Scanvorschau', 'Scharfe Vorschau') });
+  await expect(page.locator('.isd-preview-scan-frame')).toHaveCount(0);
+  expect(await page.locator('.isd-preview-image').evaluate(image => image.complete && image.naturalWidth === 1000)).toBe(true);
+  await page.screenshot({ path: '/private/tmp/papermind-scan-large-preview.png' });
   expect(errors).toEqual([]);
 });
 
-test('a quickly loaded thumbnail crossfades only after landing', async ({ page }) => {
+test('a ready sharp preview crossfades after landing while its thumbnail appears independently', async ({ page }) => {
   await mount(page);
   await page.route('**/api/test-thumbnail', route => route.fulfill({ contentType: 'image/svg+xml', body: scanImage.replace('Scanvorschau', 'Bereinigte Miniatur') }));
+  await page.route('**/color-preview?*', route => route.fulfill({ contentType: 'image/svg+xml', body: scanImage.replace('width="200" height="280"', 'width="1000" height="1400" viewBox="0 0 200 280"') }));
   await startScan(page);
   await endScan(page);
   await addScannerSource(page);
   await expect(page.locator('.isd-scan-flight')).toBeVisible();
   await expect.poll(() => page.locator('.import-staging-page__thumb').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
-  await expect(page.locator('.isd-scan-thumbnail-fallback')).toHaveCount(1);
+  await expect.poll(() => page.locator('.isd-preview-image').evaluate(image => image.complete && image.naturalWidth === 1000)).toBe(true);
+  await expect(page.locator('.isd-preview-scan-frame')).toHaveCount(1);
   await page.evaluate(() => new Promise(resolve => {
     const sample = () => {
       const flight = document.querySelector('.isd-scan-flight');
-      const fallback = document.querySelector('.isd-scan-thumbnail-fallback');
+      const fallback = document.querySelector('.isd-preview-scan-frame');
       if (!flight) return resolve(window.landingCrossfade = Boolean(fallback));
       requestAnimationFrame(sample);
     };
     requestAnimationFrame(sample);
   }));
   expect(await page.evaluate(() => window.landingCrossfade)).toBe(true);
+  await expect(page.locator('.isd-preview-scan-frame')).toHaveCount(0);
+  await expect(page.locator('.isd-page-thumb-wrap')).toBeVisible();
+});
+
+test('a ready thumbnail cannot replace the large scan while the detail preview is still loading', async ({ page }) => {
+  await mount(page);
+  let previewRequest;
+  await page.route('**/api/test-thumbnail', route => route.fulfill({ contentType: 'image/svg+xml', body: scanImage.replace('Scanvorschau', 'Kleine Miniatur') }));
+  await page.route('**/color-preview?*', route => { previewRequest = route; });
+  await startScan(page);
+  await endScan(page);
+  const capturedSource = await page.locator('.isd-dz-sheet__live-preview').getAttribute('src');
+  await addScannerSource(page);
+  await expect(page.locator('.isd-scan-flight')).toHaveCount(0);
   await expect(page.locator('.isd-scan-thumbnail-fallback')).toHaveCount(0);
+  await expect(page.locator('.isd-preview-scan-frame')).toBeVisible();
+  await expect(page.locator('.isd-preview-scan-frame img')).toHaveAttribute('src', capturedSource);
+  await expect(page.locator('.isd-preview-image')).toHaveAttribute('src', capturedSource);
+  await expect.poll(() => Boolean(previewRequest)).toBe(true);
+  await previewRequest.fulfill({ contentType: 'image/svg+xml', body: scanImage.replace('width="200" height="280"', 'width="1000" height="1400" viewBox="0 0 200 280"') });
+  await expect(page.locator('.isd-preview-scan-frame')).toHaveCount(0);
+  expect(await page.locator('.isd-preview-image').evaluate(image => image.naturalWidth === 1000)).toBe(true);
+});
+
+test('selecting another page during the enlargement removes the floating scan from that preview', async ({ page }) => {
+  await mount(page);
+  await startScan(page);
+  await endScan(page);
+  await addScannerSource(page, '');
+  await expect(page.locator('.isd-scan-flight')).toBeVisible();
+  const otherPreview = 'data:image/svg+xml,' + encodeURIComponent(scanImage.replace('Scanvorschau', 'Anderes Dokument'));
+  await page.evaluate(url => {
+    window.importFixture.store.addDocumentFromSource({ sourceFileId: 'other-pdf', title: 'Anderes Dokument', pageCount: 1, thumbUrls: [url] });
+  }, otherPreview);
+  await page.locator('.isd-page-card').nth(1).click();
+  await expect(page.locator('.isd-scan-flight')).toHaveCount(0);
+  await expect(page.locator('.isd-preview-scan-frame')).toHaveCount(0);
+  await expect(page.locator('.isd-preview-image')).toHaveAttribute('src', otherPreview);
+  await expect(page.locator('.isd-preview-image')).toBeVisible();
 });
 
 test('a failed thumbnail keeps the captured scan until retry succeeds', async ({ page }) => {
@@ -243,7 +302,7 @@ test('an unrelated PDF never receives the retained scanner image', async ({ page
   await expect(page.locator('.isd-scan-thumbnail-fallback')).toHaveCount(0);
 });
 
-test('the animated handoff also lands within the mobile thumbnail row', async ({ page }) => {
+test('the animated handoff lands within the large mobile preview', async ({ page }) => {
   await page.setViewportSize({ width: 430, height: 900 });
   const errors = await mount(page);
   await startScan(page);
@@ -251,17 +310,22 @@ test('the animated handoff also lands within the mobile thumbnail row', async ({
   await addScannerSource(page, '');
   await expect(page.locator('.isd-scan-flight')).toBeVisible();
   await expect(page.locator('.isd-scan-flight')).toHaveCount(0);
-  await expect(page.locator('.isd-scan-thumbnail-fallback')).toBeVisible();
-  const rect = await page.locator('.isd-scan-thumbnail-fallback').boundingBox();
+  await expect(page.locator('.isd-preview-scan-frame')).toBeVisible();
+  const rect = await page.locator('.isd-preview-scan-frame img').boundingBox();
+  const preview = await page.locator('.isd-preview-stage').boundingBox();
   expect(rect.x).toBeGreaterThanOrEqual(0);
   expect(rect.x + rect.width).toBeLessThanOrEqual(430);
   expect(rect.y).toBeGreaterThanOrEqual(0);
   expect(rect.y + rect.height).toBeLessThanOrEqual(900);
+  expect(rect.x).toBeGreaterThanOrEqual(preview.x - 1);
+  expect(rect.x + rect.width).toBeLessThanOrEqual(preview.x + preview.width + 1);
+  expect(rect.y).toBeGreaterThanOrEqual(preview.y - 1);
+  expect(rect.y + rect.height).toBeLessThanOrEqual(preview.y + preview.height + 1);
   await page.screenshot({ path: '/private/tmp/papermind-scan-mobile.png' });
   expect(errors).toEqual([]);
 });
 
-for (const mode of ['reduced-motion', 'disabled-animations']) test(`${mode} reveals the first thumbnail without a flight or a gap`, async ({ page }) => {
+for (const mode of ['reduced-motion', 'disabled-animations']) test(`${mode} reveals the large preview and first thumbnail without a flight or a gap`, async ({ page }) => {
   await page.setViewportSize({ width: 430, height: 900 });
   if (mode === 'reduced-motion') await page.emulateMedia({ reducedMotion: 'reduce' });
   else await page.addInitScript(() => localStorage.setItem('pm.animationsEnabled', '0'));
@@ -271,6 +335,7 @@ for (const mode of ['reduced-motion', 'disabled-animations']) test(`${mode} reve
   await addScannerSource(page, '');
   await expect(page.locator('.isd-scan-flight')).toHaveCount(0);
   await expect(page.locator('.isd-scan-thumbnail-fallback')).toBeVisible();
+  await expect(page.locator('.isd-preview-scan-frame')).toBeVisible();
   await expect(page.locator('.isd-page-thumb-wrap')).toBeVisible();
 });
 
@@ -283,6 +348,7 @@ test('closing during the handoff removes the floating image and releases its mem
   await expect(page.locator('.isd-scan-flight')).toBeVisible();
   await page.evaluate(() => { window.importFixture.open.value = false; });
   await expect(page.locator('.isd-scan-flight')).toHaveCount(0);
+  await expect(page.locator('.isd-preview-scan-frame')).toHaveCount(0);
   await expect.poll(() => page.evaluate(async src => { try { await fetch(src); return true; } catch { return false; } }, src)).toBe(false);
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => window.importFixture.store.documents.length)).toBe(0);

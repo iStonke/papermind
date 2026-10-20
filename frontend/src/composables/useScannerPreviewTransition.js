@@ -3,13 +3,14 @@ import { onApiSessionReset } from '../api/session.js';
 
 // Live-URLs enden mit dem Scan. Eine Kopie im Arbeitsspeicher bleibt unabhängig
 // davon sichtbar, bis die eigentliche Seitenvorschau geladen ist.
-export function useScannerPreviewTransition({ scanner, active, candidateUrl, open, empty, firstPage, acceptsPage, getThumbnail, animationsEnabled }) {
+export function useScannerPreviewTransition({ scanner, active, candidateUrl, open, empty, firstPage, acceptsPage, getThumbnail, getPreview, isPreviewReady, animationsEnabled }) {
   const previewUrl = ref('');
   const progress = ref(0);
   const sourceElement = ref(null);
   const flightElement = ref(null);
   const flight = shallowRef(null);
   const thumbnailFallback = shallowRef(null);
+  const previewFallback = shallowRef(null);
   const finalizing = computed(() => Boolean(previewUrl.value && (progress.value >= 100 || !toValue(active))));
   let loadId = 0;
   let requestedUrl = '';
@@ -18,13 +19,13 @@ export function useScannerPreviewTransition({ scanner, active, candidateUrl, ope
   const decodingUrls = new Set();
   let raf = 0;
   let flightStartedAt = null;
-  let decodedFallback = null;
+  let decodedPreview = null;
   let disposed = false;
 
   function releaseUnusedFrames() {
     if (!frameUrls.size) return;
     void nextTick(() => {
-      const used = new Set([previewUrl.value, flight.value?.url, thumbnailFallback.value?.url, ...decodingUrls]);
+      const used = new Set([previewUrl.value, flight.value?.url, thumbnailFallback.value?.url, previewFallback.value?.url, ...decodingUrls]);
       for (const url of frameUrls) if (!used.has(url)) {
         URL.revokeObjectURL(url);
         frameUrls.delete(url);
@@ -37,10 +38,10 @@ export function useScannerPreviewTransition({ scanner, active, candidateUrl, ope
     raf = 0;
     flightStartedAt = null;
     flight.value = null;
-    if (decodedFallback?.fallback === thumbnailFallback.value
-      && decodedFallback.image.isConnected && decodedFallback.image.complete && decodedFallback.image.naturalWidth
-      && (decodedFallback.image.currentSrc || decodedFallback.image.src) === decodedFallback.url) thumbnailFallback.value = null;
-    decodedFallback = null;
+    if (decodedPreview?.fallback === previewFallback.value
+      && decodedPreview.image.isConnected && decodedPreview.image.complete && decodedPreview.image.naturalWidth
+      && (decodedPreview.image.currentSrc || decodedPreview.image.src) === decodedPreview.url) previewFallback.value = null;
+    decodedPreview = null;
     releaseUnusedFrames();
   }
 
@@ -52,7 +53,10 @@ export function useScannerPreviewTransition({ scanner, active, candidateUrl, ope
     previewUrl.value = '';
     progress.value = 0;
     finishFlight();
-    if (clearThumbnail) thumbnailFallback.value = null;
+    if (clearThumbnail) {
+      thumbnailFallback.value = null;
+      previewFallback.value = null;
+    }
     releaseUnusedFrames();
   }
 
@@ -113,16 +117,16 @@ export function useScannerPreviewTransition({ scanner, active, candidateUrl, ope
     raf = 0;
     const state = flight.value;
     const element = flightElement.value;
-    const target = state?.pageId && getThumbnail(state.pageId);
-    if (!state || !element || !target) return;
+    const target = state?.pageId && getPreview(state.pageId);
+    if (!state || !element || !target) { finishFlight(); return; }
     if (!motionEnabled()) { finishFlight(); return; }
     if (flightStartedAt == null) flightStartedAt = now;
-    const t = Math.min(1, (now - flightStartedAt) / 600);
+    const t = Math.min(1, (now - flightStartedAt) / 400);
     const eased = 1 - (1 - t) ** 3;
     const rect = target.getBoundingClientRect();
     const interpolate = key => state.origin[key] + (rect[key] - state.origin[key]) * eased;
     // Das Ziel wird pro Frame gemessen: auch während sich das Dialogfenster
-    // verbreitert, endet das Blatt genau auf der ersten Miniatur.
+    // verbreitert, endet das Blatt genau auf der großen Seitenvorschau.
     Object.assign(element.style, {
       transform: `translate3d(${interpolate('left')}px, ${interpolate('top')}px, 0)`,
       width: `${interpolate('width')}px`, height: `${interpolate('height')}px`,
@@ -133,7 +137,7 @@ export function useScannerPreviewTransition({ scanner, active, candidateUrl, ope
     else raf = requestAnimationFrame(flightStep);
   }
 
-  async function attachThumbnail() {
+  async function attachPreview() {
     const state = flight.value;
     const page = toValue(firstPage);
     if (!state || !page || state.pageId) return;
@@ -142,7 +146,8 @@ export function useScannerPreviewTransition({ scanner, active, candidateUrl, ope
     // Der Fallback gehört zur Seite, nicht zum Scanner. Er bleibt auch bei
     // langsamer oder fehlgeschlagener Miniatur-Anfrage als Vorschau erhalten.
     thumbnailFallback.value = { pageId: page.id, url: state.url };
-    decodedFallback = null;
+    previewFallback.value = { pageId: page.id, url: state.url };
+    decodedPreview = null;
     flight.value = { ...state, pageId: page.id };
     // Ab jetzt gehört dieses Bild zur importierten Seite. Es darf beim
     // späteren Entfernen aller Seiten nicht wieder im Startbildschirm stehen.
@@ -152,16 +157,23 @@ export function useScannerPreviewTransition({ scanner, active, candidateUrl, ope
     controller = null;
     await nextTick();
     if (flight.value?.pageId !== page.id || disposed) return;
-    const target = getThumbnail(page.id);
+    const target = getPreview(page.id);
     if (!target) { finishFlight(); return; }
-    const image = target.querySelector('.import-staging-page__thumb');
+    const image = getThumbnail(page.id)?.querySelector('.import-staging-page__thumb');
     if (image?.complete && image.naturalWidth) void thumbnailLoaded(page.id, image);
+    if (isPreviewReady(page.id) && target.complete && target.naturalWidth) void previewLoaded(page.id, target);
     if (!motionEnabled()) finishFlight();
     else if (!raf) raf = requestAnimationFrame(flightStep);
   }
 
   watch(empty, (isEmpty, wasEmpty) => {
-    if (isEmpty) { finishFlight(); thumbnailFallback.value = null; return; }
+    if (isEmpty) {
+      finishFlight();
+      thumbnailFallback.value = null;
+      previewFallback.value = null;
+      releaseUnusedFrames();
+      return;
+    }
     const source = sourceElement.value;
     if (!wasEmpty || !toValue(open) || !previewUrl.value || !source) return;
     const rect = source.getBoundingClientRect();
@@ -171,13 +183,13 @@ export function useScannerPreviewTransition({ scanner, active, candidateUrl, ope
       transform: `translate3d(${rect.left}px, ${rect.top}px, 0)`,
       width: `${rect.width}px`, height: `${rect.height}px`,
     } };
-    void attachThumbnail();
+    void attachPreview();
   }, { flush: 'pre' });
 
   watch(() => toValue(firstPage)?.id, () => {
     const state = flight.value;
     if (state?.pageId && state.pageId !== toValue(firstPage)?.id) finishFlight();
-    else void attachThumbnail();
+    else void attachPreview();
   }, { flush: 'post' });
 
   async function thumbnailLoaded(pageId, image) {
@@ -186,10 +198,21 @@ export function useScannerPreviewTransition({ scanner, active, candidateUrl, ope
     const url = image.currentSrc || image.src;
     try { await image.decode(); } catch { return; }
     if (thumbnailFallback.value === fallback && image.isConnected && (image.currentSrc || image.src) === url) {
-      // Auch eine schnell geladene Miniatur wird erst am Ende des Flugs
-      // eingeblendet. So gibt es beim Bereinigen/Beschneiden keinen Bildsprung.
-      if (flight.value?.pageId === pageId) decodedFallback = { fallback, image, url };
-      else thumbnailFallback.value = null;
+      thumbnailFallback.value = null;
+      releaseUnusedFrames();
+    }
+  }
+
+  async function previewLoaded(pageId, image) {
+    const fallback = previewFallback.value;
+    const url = image.currentSrc || image.src;
+    if (fallback?.pageId !== pageId || url === fallback.url || !isPreviewReady(pageId)) return;
+    try { await image.decode(); } catch { return; }
+    if (previewFallback.value === fallback && image.isConnected && (image.currentSrc || image.src) === url) {
+      // Das hochaufgelöste Bild blendet erst nach der Landung ein. Bis dahin
+      // verwendet die Vergrößerung dieselbe Originaldatei wie die Scanvorschau.
+      if (flight.value?.pageId === pageId) decodedPreview = { fallback, image, url };
+      else previewFallback.value = null;
       releaseUnusedFrames();
     }
   }
@@ -207,5 +230,5 @@ export function useScannerPreviewTransition({ scanner, active, candidateUrl, ope
     window.removeEventListener('scroll', finishFlight, true);
   });
 
-  return { previewUrl, progress, finalizing, sourceElement, flightElement, flight, thumbnailFallback, thumbnailLoaded, reset };
+  return { previewUrl, progress, finalizing, sourceElement, flightElement, flight, thumbnailFallback, thumbnailLoaded, previewFallback, previewLoaded, reset };
 }

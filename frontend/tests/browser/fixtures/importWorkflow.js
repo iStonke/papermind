@@ -11,7 +11,7 @@ import ImportStagingDialog from '../../../src/components/ImportStagingDialog.vue
 import '../../../src/theme/theme.css';
 import '../../../src/workspaces/documents/workspace.css';
 
-export async function mountImportWorkflow({ documents = 1, pages = 3, title = 'Arbeitsstätte', owner = 'import-browser-test', restore = false } = {}) {
+export async function mountImportWorkflow({ documents = 1, pages = 3, title = 'Arbeitsstätte', owner = 'import-browser-test', restore = false, thumbnails = true } = {}) {
   resetApiSession(owner);
   const pinia = createPinia();
   const store = useImportStagingStore(pinia);
@@ -21,7 +21,7 @@ export async function mountImportWorkflow({ documents = 1, pages = 3, title = 'A
   if (!restore) for (let index = 0; index < documents; index++) {
     const sourceId = `10000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
     const doc = store.addDocumentFromSource({ sourceFileId: sourceId, title: index ? `Dokument ${index + 1}` : title, pageCount: pages,
-      thumbUrls: Array(pages).fill('data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="280"><rect width="200" height="280" fill="white"/><text x="20" y="60">Dokumentvorschau</text></svg>')) });
+      thumbUrls: thumbnails ? Array(pages).fill('data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="280"><rect width="200" height="280" fill="white"/><text x="20" y="60">Dokumentvorschau</text></svg>')) : [] });
     store.setStagingFile(sourceId, null, { pageCount: pages, sourceRevision: 'revision-1', originalName: `${doc.title}.pdf` });
     doc.meta.titleSuggestionStatus = 'ready';
     doc.meta.analysisRevision = documentRevision(doc, store.sourceMetaById);

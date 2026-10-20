@@ -56,6 +56,45 @@ test('empty title suggestions are hidden and a complete form imports without not
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
+for (const action of ['discard', 'commit', 'minimize', 'empty']) test(`${action} closes at its current size with the standard dialog animation`, async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await mount(page, { documents: action === 'empty' ? 0 : 1 });
+  await page.evaluate(() => import('/src/style.css'));
+  if (action === 'commit') await completeRequiredMetadata(page);
+  const card = page.locator('.isd-card.pm-dialog');
+  const width = await card.evaluate(element => parseFloat(getComputedStyle(element).width));
+  await page.evaluate(() => {
+    const card = document.querySelector('.isd-card.pm-dialog');
+    const overlay = card.closest('.v-overlay__content');
+    window.importCloseFrames = [];
+    const sample = () => {
+      if (!card.isConnected) return;
+      if (overlay.checkVisibility()) window.importCloseFrames.push({
+        width: parseFloat(getComputedStyle(card).width), closing: !window.importFixture.open.value,
+        standardAnimation: overlay.classList.contains('pm-dialog-leave-active'),
+      });
+      requestAnimationFrame(sample);
+    };
+    sample();
+  });
+  if (action === 'commit') await page.getByRole('button', { name: 'Importieren', exact: true }).click();
+  else if (action === 'minimize') await page.getByRole('button', { name: 'Import minimieren', exact: true }).click();
+  else {
+    await card.getByRole('button', { name: 'Dialog schließen', exact: true }).click();
+    if (action === 'discard') await page.getByRole('button', { name: 'Verwerfen', exact: true }).click();
+  }
+  await expect(card).toHaveCount(0);
+  const frames = await page.evaluate(() => window.importCloseFrames);
+  expect(frames.every(frame => Math.abs(frame.width - width) < 1)).toBe(true);
+  expect(frames.filter(frame => frame.closing).length).toBeGreaterThan(1);
+  expect(frames.some(frame => frame.standardAnimation)).toBe(true);
+  expect(await page.evaluate(() => window.importFixture.store.totalPages)).toBe(action === 'minimize' ? 3 : 0);
+  await page.evaluate(() => { window.importFixture.open.value = true; });
+  await expect(card).toBeVisible();
+  await expect(card).toHaveCSS('width', action === 'minimize' ? `${width}px` : '680px');
+  if (action !== 'minimize') await expect(page.locator('.isd-dropzone')).toBeVisible();
+});
+
 test('required metadata has no stars, blocks incomplete imports and focuses the missing field', async ({ page }) => {
   const requests = await mount(page);
   await expect(page.locator('.pm-metadata-label')).toHaveText(['Dokumentname', 'Dokumentdatum', 'Dokumenttyp', 'Korrespondent', 'Tags', 'Notizen']);
@@ -312,6 +351,8 @@ for (const width of [1440, 430]) test.describe(`preparation status at ${width}px
     });
     const statusButton = page.getByRole('button', { name: 'Scan wird verbessert – Details anzeigen', exact: true });
     await expect(statusButton).toBeVisible();
+    await expect(page.locator('.isd-props-heading .v-progress-circular')).toHaveCount(1);
+    await expect(page.locator('.isd-preview-panel .v-progress-circular')).toHaveCount(0);
     await page.mouse.move(0, 0);
     if (width === 1440) await expect(page.getByRole('toolbar', { name: 'Seitenwerkzeuge' })).toHaveCSS('opacity', '0');
     await expect(page.locator('.isd-props-heading [role="status"]')).toHaveText('Scan wird verbessert');
@@ -623,6 +664,46 @@ test('dragging below a page inserts after it regardless of the horizontal pointe
   await dataTransfer.dispose();
 });
 
+test('a static placeholder and retained preview keep only the form header spinning', async ({ page }) => {
+  await mount(page, { pages: 1, thumbnails: false });
+  const stage = page.locator('.isd-preview-stage');
+  await expect(stage).toHaveAttribute('aria-busy', 'false');
+  const pending = [];
+  await page.route('**/color-preview?*', route => { pending.push(route); });
+  await page.evaluate(() => {
+    const { store } = window.importFixture;
+    const metadata = store.sourceMetaById.get(store.documents[0].pages[0].sourceFileId);
+    metadata.scanCleanup = { status: 'running' };
+    metadata.sourceRevision = 'first-preview';
+  });
+  await expect.poll(() => pending.length).toBe(1);
+  await expect(stage).toHaveAttribute('aria-busy', 'true');
+  await expect(page.getByText('Vorschau wird vorbereitet', { exact: true })).toBeVisible();
+  await expect(page.locator('.isd-preview-image')).toHaveCount(0);
+  await expect(page.locator('.isd-card .v-progress-circular')).toHaveCount(1);
+  await expect(page.locator('.isd-props-heading .v-progress-circular')).toBeVisible();
+  await page.screenshot({ path: '/private/tmp/papermind-import-single-spinner-placeholder.png' });
+  await pending[0].fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1400"><rect width="1000" height="1400" fill="white"/><text x="100" y="200" font-size="50">Scanvorschau</text></svg>' });
+  await expect(stage).toHaveAttribute('aria-busy', 'false');
+  const preview = page.locator('.isd-preview-image');
+  await expect(preview).toBeVisible();
+  const source = await preview.getAttribute('src');
+  await page.evaluate(() => {
+    const { store } = window.importFixture;
+    store.sourceMetaById.get(store.documents[0].pages[0].sourceFileId).sourceRevision = 'improved-preview';
+  });
+  await expect.poll(() => pending.length).toBe(2);
+  await expect(stage).toHaveAttribute('aria-busy', 'true');
+  await expect(preview).toHaveAttribute('src', source);
+  await expect(page.locator('.isd-preview-empty')).toHaveCount(0);
+  await expect(page.locator('.isd-card .v-progress-circular')).toHaveCount(1);
+  await page.screenshot({ path: '/private/tmp/papermind-import-single-spinner-preview.png' });
+  await pending[1].fulfill({ contentType: 'image/png', body: 'incomplete image' });
+  await expect(stage).toHaveAttribute('aria-busy', 'false');
+  await expect(preview).toHaveAttribute('src', source);
+  expect(await preview.evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
+});
+
 test('late previews cannot replace the active page and refreshed thumbnails invalidate the large preview', async ({ page }) => {
   await mount(page);
   const pending = [];
@@ -633,16 +714,16 @@ test('late previews cannot replace the active page and refreshed thumbnails inva
   await expect.poll(() => pending.length).toBe(2);
   const image = color => `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1400"><rect width="1000" height="1400" fill="${color}"/></svg>`;
   await pending[1].fulfill({ contentType: 'image/svg+xml', body: image('blue') });
-  await expect(page.locator('.isd-preview-loading')).toHaveCount(0);
+  await expect(page.locator('.isd-preview-stage')).toHaveAttribute('aria-busy', 'false');
   const activeImage = await page.locator('.isd-preview-image').getAttribute('src');
   await pending[0].fulfill({ contentType: 'image/svg+xml', body: image('red') });
   await expect(page.locator('.isd-preview-image')).toHaveAttribute('src', activeImage);
   const refreshedThumbnail = 'data:image/svg+xml,' + encodeURIComponent(image('green'));
   await page.evaluate(url => { window.importFixture.store.documents[0].pages[2].thumbUrl = url; }, refreshedThumbnail);
-  await expect(page.locator('.isd-preview-image')).toHaveAttribute('src', refreshedThumbnail);
+  await expect(page.locator('.isd-preview-image')).toHaveAttribute('src', activeImage);
   await expect.poll(() => pending.length).toBe(3);
   await pending[2].fulfill({ contentType: 'image/svg+xml', body: image('green') });
-  await expect(page.locator('.isd-preview-loading')).toHaveCount(0);
+  await expect(page.locator('.isd-preview-stage')).toHaveAttribute('aria-busy', 'false');
   await expect(page.locator('.isd-preview-image')).not.toHaveAttribute('src', activeImage);
   await expect(page.locator('.isd-preview-image')).toHaveAttribute('alt', 'Seite 3 von 3');
   await revealImportTools(page);
@@ -655,7 +736,7 @@ test('late previews cannot replace the active page and refreshed thumbnails inva
   await page.locator('.isd-page-card').first().click();
   await expect.poll(() => pending.length).toBe(4);
   await pending[3].fulfill({ json: { message: 'Not an image' } });
-  await expect(page.locator('.isd-preview-loading')).toHaveCount(0);
+  await expect(page.locator('.isd-preview-stage')).toHaveAttribute('aria-busy', 'false');
   await expect.poll(() => page.locator('.isd-preview-image').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
   await expect(page.locator('.isd-preview-image')).toHaveAttribute('src', /^data:image\/svg\+xml,/);
 });
